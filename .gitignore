@@ -1,0 +1,10 @@
+# Caches de herramientas
+.atl/.skill-registry.cache.json
+
+# Python
+__pycache__/
+*.pyc
+
+# Temporales
+*.tmp
+*.bak
