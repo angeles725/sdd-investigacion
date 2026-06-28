@@ -1,71 +1,71 @@
-# Bloque 21 — Convención OpenSpec (`openspec-convention`)
+# Block 21 — OpenSpec convention (`openspec-convention`)
 
-> **QUÉ DOCUMENTA**: Este bloque documenta la convención de archivos OpenSpec: la estructura de directorios `openspec/` (config, specs fuente, changes activos, archive), las rutas de archivo de cada artefacto por skill, las reglas de lectura/escritura, las secciones de delta spec (`ADDED` / `MODIFIED` / `REMOVED` / `RENAMED`), el formato del `config.yaml`, y la estructura de archive con datado ISO.
-> **ALCANCE**: La convención específica del backend OpenSpec (file-based). NO cubre el contrato de persistencia transversal (ver [Bloque 19]) ni la convención Engram (ver [Bloque 20]). NO documenta el contenido interno de cada artefacto (qué va dentro de una proposal, de un design, etc. — ver bloques de fase).
-> **FUENTES** (leídas y verificadas):
-> - `/home/cristian/.config/opencode/skills/_shared/openspec-convention.md` (archivo completo, 120 líneas)
-> **MÉTODO**: Cada afirmación lleva un marcador de certeza. `[CERT]` = verificado leyendo la fuente, con `ruta:línea` o `ruta §sección` cuando es posible. `[CERT-a]` = afirmado por la fuente pero no re-verificado en su origen primario. `[INFER]` = deducción propia, no literal en la fuente.
+> **WHAT IT DOCUMENTS**: This block documents the OpenSpec file convention: the `openspec/` directory structure (config, source specs, active changes, archive), the file paths of each artifact per skill, the read/write rules, the delta spec sections (`ADDED` / `MODIFIED` / `REMOVED` / `RENAMED`), the `config.yaml` format, and the archive structure with ISO dating.
+> **SCOPE**: The OpenSpec-backend-specific convention (file-based). It does NOT cover the cross-cutting persistence contract (see [Block 19]) nor the Engram convention (see [Block 20]). It does NOT document the internal content of each artifact (what goes inside a proposal, a design, etc. — see the phase blocks).
+> **SOURCES** (read and verified):
+> - `/home/cristian/.config/opencode/skills/_shared/openspec-convention.md` (full file, 120 lines)
+> **METHOD**: Every claim carries a certainty marker. `[CERT]` = verified by reading the source, with `path:line` or `path §section` when possible. `[CERT-a]` = asserted by the source but not re-verified at its primary origin. `[INFER]` = my own deduction, not literal in the source.
 
 ---
 
-## 21.1 — Estructura de directorios `[CERT]`
+## 21.1 — Directory structure `[CERT]`
 
-La convención fija una estructura de directorios canónica `[CERT]` (`openspec-convention.md:5-23`):
+The convention sets a canonical directory structure `[CERT]` (`openspec-convention.md:5-23`):
 
 ```
 openspec/
-├── config.yaml              <- Config SDD específica del proyecto
-├── specs/                   <- Source of truth (specs principales)
+├── config.yaml              <- Project-specific SDD config
+├── specs/                   <- Source of truth (main specs)
 │   └── {domain}/
 │       └── spec.md
-└── changes/                 <- Cambios activos
-    ├── archive/             <- Cambios completados (YYYY-MM-DD-{change-name}/)
-    └── {change-name}/       <- Carpeta del cambio activo
-        ├── state.yaml       <- Estado del DAG (sobrevive compactación)
-        ├── exploration.md   <- (opcional) de sdd-explore
-        ├── proposal.md      <- de sdd-propose
-        ├── specs/           <- de sdd-spec
+└── changes/                 <- Active changes
+    ├── archive/             <- Completed changes (YYYY-MM-DD-{change-name}/)
+    └── {change-name}/       <- Active change folder
+        ├── state.yaml       <- DAG state (survives compaction)
+        ├── exploration.md   <- (optional) from sdd-explore
+        ├── proposal.md      <- from sdd-propose
+        ├── specs/           <- from sdd-spec
         │   └── {domain}/
         │       └── spec.md  <- Delta spec
-        ├── design.md        <- de sdd-design
-        ├── tasks.md         <- de sdd-tasks (actualizado por sdd-apply)
-        └── verify-report.md <- de sdd-verify
+        ├── design.md        <- from sdd-design
+        ├── tasks.md         <- from sdd-tasks (updated by sdd-apply)
+        └── verify-report.md <- from sdd-verify
 ```
 
-**Distinción arquitectónica clave** `[CERT]`: hay DOS niveles de specs `[INFER]` — `openspec/specs/{domain}/spec.md` es la **fuente de verdad** (specs principales acumulados), mientras que `openspec/changes/{change-name}/specs/{domain}/spec.md` es el **delta spec** del cambio en curso. El archive fusiona el delta en la fuente de verdad (ver §21.5-§21.6).
+**Key architectural distinction** `[CERT]`: there are TWO levels of specs `[INFER]` — `openspec/specs/{domain}/spec.md` is the **source of truth** (accumulated main specs), while `openspec/changes/{change-name}/specs/{domain}/spec.md` is the **delta spec** of the in-progress change. Archive merges the delta into the source of truth (see §21.5-§21.6).
 
-## 21.2 — Rutas de archivo de artefactos por skill `[CERT]`
+## 21.2 — Artifact file paths per skill `[CERT]`
 
-| Skill | Crea / Lee | Ruta `[CERT]` (`openspec-convention.md:27-39`) |
+| Skill | Creates / Reads | Path `[CERT]` (`openspec-convention.md:27-39`) |
 |-------|-----------|------|
-| orquestador | Crea/Actualiza | `openspec/changes/{change-name}/state.yaml` |
-| sdd-init | Crea | `openspec/config.yaml`, `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/` |
-| sdd-explore | Crea (opcional) | `openspec/changes/{change-name}/exploration.md` |
-| sdd-propose | Crea | `openspec/changes/{change-name}/proposal.md` |
-| sdd-spec | Crea | `openspec/changes/{change-name}/specs/{domain}/spec.md` |
-| sdd-design | Crea | `openspec/changes/{change-name}/design.md` |
-| sdd-tasks | Crea | `openspec/changes/{change-name}/tasks.md` |
-| sdd-apply | Actualiza | `openspec/changes/{change-name}/tasks.md` (marca `[x]`) |
-| sdd-verify | Crea | `openspec/changes/{change-name}/verify-report.md` |
-| sdd-archive | Mueve | `openspec/changes/{change-name}/` → `openspec/changes/archive/YYYY-MM-DD-{change-name}/` |
-| sdd-archive | Actualiza | `openspec/specs/{domain}/spec.md` (fusiona deltas en specs principales) |
+| orchestrator | Creates/Updates | `openspec/changes/{change-name}/state.yaml` |
+| sdd-init | Creates | `openspec/config.yaml`, `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/` |
+| sdd-explore | Creates (optional) | `openspec/changes/{change-name}/exploration.md` |
+| sdd-propose | Creates | `openspec/changes/{change-name}/proposal.md` |
+| sdd-spec | Creates | `openspec/changes/{change-name}/specs/{domain}/spec.md` |
+| sdd-design | Creates | `openspec/changes/{change-name}/design.md` |
+| sdd-tasks | Creates | `openspec/changes/{change-name}/tasks.md` |
+| sdd-apply | Updates | `openspec/changes/{change-name}/tasks.md` (marks `[x]`) |
+| sdd-verify | Creates | `openspec/changes/{change-name}/verify-report.md` |
+| sdd-archive | Moves | `openspec/changes/{change-name}/` → `openspec/changes/archive/YYYY-MM-DD-{change-name}/` |
+| sdd-archive | Updates | `openspec/specs/{domain}/spec.md` (merges deltas into main specs) |
 
-**Lectura de artefactos** `[CERT]` (`openspec-convention.md:43-51`): proposal, specs (todos los subdirectorios de dominio), design, tasks, verify-report bajo `openspec/changes/{change-name}/`; config en `openspec/config.yaml`; specs principales en `openspec/specs/{domain}/spec.md`.
+**Reading artifacts** `[CERT]` (`openspec-convention.md:43-51`): proposal, specs (all domain subdirectories), design, tasks, verify-report under `openspec/changes/{change-name}/`; config in `openspec/config.yaml`; main specs in `openspec/specs/{domain}/spec.md`.
 
-## 21.3 — Reglas de escritura `[CERT]`
+## 21.3 — Write rules `[CERT]`
 
-Reglas operativas de escritura `[CERT]` (`openspec-convention.md:53-58`):
+Operational write rules `[CERT]` (`openspec-convention.md:53-58`):
 
-- Siempre crear el directorio del cambio ANTES de escribir artefactos.
-- Si un archivo ya existe, LEERLO primero y ACTUALIZARLO (no sobrescribir a ciegas).
-- Si el directorio del cambio ya existe con artefactos, el cambio se está CONTINUANDO.
-- Usar la sección `rules` de `openspec/config.yaml` para restricciones específicas del proyecto por fase.
+- Always create the change directory BEFORE writing artifacts.
+- If a file already exists, READ it first and UPDATE it (do not blindly overwrite).
+- If the change directory already exists with artifacts, the change is being CONTINUED.
+- Use the `rules` section of `openspec/config.yaml` for project-specific per-phase constraints.
 
-**Implicación** `[INFER]`: la regla "si existe el directorio → se está continuando" es cómo OpenSpec deriva el estado de continuación SIN un registro central — la presencia de archivos ES el estado. Esto contrasta con `engram` donde el estado vive en el artefacto `state` (ver [Bloque 20] §20.3).
+**Implication** `[INFER]`: the rule "if the directory exists → it is being continued" is how OpenSpec derives the continuation state WITHOUT a central registry — the presence of files IS the state. This contrasts with `engram` where the state lives in the `state` artifact (see [Block 20] §20.3).
 
-## 21.4 — Secciones de delta spec `[CERT]`
+## 21.4 — Delta spec sections `[CERT]`
 
-Los delta specs PUEDEN incluir estas secciones `[CERT]` (`openspec-convention.md:62-74`):
+Delta specs MAY include these sections `[CERT]` (`openspec-convention.md:62-74`):
 
 ```markdown
 ## ADDED Requirements
@@ -74,20 +74,20 @@ Los delta specs PUEDEN incluir estas secciones `[CERT]` (`openspec-convention.md
 ## RENAMED Requirements
 ```
 
-Semántica de fusión `[CERT]`:
+Merge semantics `[CERT]`:
 
-| Sección | Efecto al fusionar en el spec principal |
+| Section | Effect when merging into the main spec |
 |---------|------------------------------------------|
-| `ADDED` | Agrega nuevos requirements al spec principal |
-| `MODIFIED` | Reemplaza el bloque completo del requirement coincidente. El delta DEBE contener el requirement actualizado entero, incluyendo escenarios sin cambios que deben preservarse |
-| `REMOVED` | Borra el requirement coincidente. Cada uno DEBE incluir `(Reason: ...)` y DEBERÍA incluir `(Migration: ...)` cuando afecta consumidores o comportamiento persistido |
-| `RENAMED` | Cambia el heading/nombre sin cambiar comportamiento (salvo que el delta incluya también un bloque `MODIFIED` para el nuevo requirement). Cada rename DEBE declarar nombres viejo y nuevo explícitamente |
+| `ADDED` | Adds new requirements to the main spec |
+| `MODIFIED` | Replaces the entire block of the matching requirement. The delta MUST contain the whole updated requirement, including unchanged scenarios that must be preserved |
+| `REMOVED` | Deletes the matching requirement. Each one MUST include `(Reason: ...)` and SHOULD include `(Migration: ...)` when it affects consumers or persisted behavior |
+| `RENAMED` | Changes the heading/name without changing behavior (unless the delta also includes a `MODIFIED` block for the new requirement). Each rename MUST declare old and new names explicitly |
 
-**Punto clave** `[INFER]`: el delta spec es un diff declarativo de requirements, no un archivo monolítico. La regla de `MODIFIED` ("contener el requirement entero, incluyendo escenarios sin cambios") es crítica — la fusión REEMPLAZA el bloque completo, así que omitir un escenario sin cambios lo borraría. Es la trampa más sutil de la convención.
+**Key point** `[INFER]`: the delta spec is a declarative diff of requirements, not a monolithic file. The `MODIFIED` rule ("contain the whole requirement, including unchanged scenarios") is critical — the merge REPLACES the entire block, so omitting an unchanged scenario would delete it. It is the most subtle trap of the convention.
 
-## 21.5 — Archivo de configuración `config.yaml` `[CERT]`
+## 21.5 — Configuration file `config.yaml` `[CERT]`
 
-El `config.yaml` define contexto y reglas por fase `[CERT]` (`openspec-convention.md:78-110`):
+The `config.yaml` defines context and per-phase rules `[CERT]` (`openspec-convention.md:78-110`):
 
 ```yaml
 # openspec/config.yaml
@@ -123,34 +123,34 @@ rules:
     - Warn before merging destructive deltas
 ```
 
-Elementos notables `[CERT]`:
+Notable elements `[CERT]`:
 
-- `schema: spec-driven` identifica el tipo de config.
-- `context` lleva stack/arquitectura/testing/style detectados (poblado por `sdd-init`).
-- `rules` tiene una sub-clave por fase. Las reglas son constraints específicas del proyecto que cada fase consume.
-- `apply.tdd: false` es el flag que activa RED-GREEN-REFACTOR cuando se setea a `true` (ver [Bloque 23]), con `test_command` asociado.
-- `verify` lleva `test_command`, `build_command` y `coverage_threshold`.
+- `schema: spec-driven` identifies the config type.
+- `context` carries detected stack/architecture/testing/style (populated by `sdd-init`).
+- `rules` has a sub-key per phase. The rules are project-specific constraints that each phase consumes.
+- `apply.tdd: false` is the flag that activates RED-GREEN-REFACTOR when set to `true` (see [Block 23]), with an associated `test_command`.
+- `verify` carries `test_command`, `build_command`, and `coverage_threshold`.
 
-## 21.6 — Estructura de archive `[CERT]`
+## 21.6 — Archive structure `[CERT]`
 
-Al archivar, la carpeta del cambio se mueve a `[CERT]` (`openspec-convention.md:113-119`):
+On archiving, the change folder is moved to `[CERT]` (`openspec-convention.md:113-119`):
 
 ```
 openspec/changes/archive/YYYY-MM-DD-{change-name}/
 ```
 
-Reglas `[CERT]`:
+Rules `[CERT]`:
 
-- Usar la fecha de hoy en formato ISO.
-- El archive es un **AUDIT TRAIL** — NUNCA borrar ni modificar cambios archivados.
+- Use today's date in ISO format.
+- The archive is an **AUDIT TRAIL** — NEVER delete or modify archived changes.
 
-**Modelo mental** `[INFER]`: el archive datado es lo que le da a `openspec` su capacidad de audit trail completo (la fila "Audit trail" de la tabla de [Bloque 19] §19.2). El `engram` solo guarda un reporte resumen; aquí queda la carpeta entera, inmutable, datada. Esa inmutabilidad es la diferencia entre "memoria de trabajo" y "registro histórico".
+**Mental model** `[INFER]`: the dated archive is what gives `openspec` its full audit trail capability (the "Audit trail" row of the table in [Block 19] §19.2). `engram` only keeps a summary report; here the whole folder remains, immutable, dated. That immutability is the difference between "working memory" and "historical record".
 
-## 21.7 — Conexiones
+## 21.7 — Connections
 
-- **[Bloque 3] — Backends**: el [Bloque 3] introduce `openspec` como uno de los cuatro backends; este bloque detalla su estructura de archivos concreta. La distinción specs-fuente vs. delta-specs (§21.1) es propia de este backend.
-- **[Bloque 19] — Contrato de persistencia**: §19.4 fija que el modo `openspec`/`hybrid` escribe "SOLO en las rutas definidas en `openspec-convention.md`" — esas rutas son §21.2 de este bloque. El `state.yaml` de §21.1 es el equivalente file-based del artefacto `state` de Engram.
-- **[Bloque 15] — Status y dispatcher nativo**: el dispatcher nativo (`gentle-ai sdd-status`/`sdd-continue`) lee ÚNICAMENTE los artefactos de archivo OpenSpec bajo `openspec/changes/` — la estructura de §21.1 es exactamente lo que el dispatcher observa. Por eso el dispatcher es ciego a cambios `engram` (ver [Bloque 22] §22.3).
-- **[Bloque 20] — Convención Engram**: el espejo de esta convención en el backend de memoria. La nota de [Bloque 20] §20.2 (spec concatenado en Engram vs. spec por dominio en archivos) marca la diferencia estructural: aquí cada dominio tiene su propio `specs/{domain}/spec.md`.
-- **[Bloque 23] — Strict-TDD**: el flag `apply.tdd` de §21.5 es el switch file-based que activa el modo TDD estricto detallado en el [Bloque 23].
-- **[Bloque 12] — Archive**: §21.6 (estructura de archive) y la fila sdd-archive de §21.2 (fusión de deltas en specs principales) son la mecánica de archivo que el [Bloque 12] desarrolla a nivel de fase.
+- **[Block 3] — Backends**: [Block 3] introduces `openspec` as one of the four backends; this block details its concrete file structure. The source-specs vs. delta-specs distinction (§21.1) is specific to this backend.
+- **[Block 19] — Persistence contract**: §19.4 establishes that the `openspec`/`hybrid` mode writes "ONLY in the paths defined in `openspec-convention.md`" — those paths are §21.2 of this block. The `state.yaml` of §21.1 is the file-based equivalent of Engram's `state` artifact.
+- **[Block 15] — Status and native dispatcher**: the native dispatcher (`gentle-ai sdd-status`/`sdd-continue`) reads ONLY the OpenSpec file artifacts under `openspec/changes/` — the structure of §21.1 is exactly what the dispatcher observes. That is why the dispatcher is blind to `engram` changes (see [Block 22] §22.3).
+- **[Block 20] — Engram convention**: the mirror of this convention in the memory backend. The note of [Block 20] §20.2 (concatenated spec in Engram vs. per-domain spec in files) marks the structural difference: here each domain has its own `specs/{domain}/spec.md`.
+- **[Block 23] — Strict-TDD**: the `apply.tdd` flag of §21.5 is the file-based switch that activates the strict TDD mode detailed in [Block 23].
+- **[Block 12] — Archive**: §21.6 (archive structure) and the sdd-archive row of §21.2 (merging deltas into main specs) are the archive mechanics that [Block 12] develops at the phase level.

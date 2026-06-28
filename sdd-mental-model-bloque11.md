@@ -1,96 +1,96 @@
-# Bloque 11 — Fase `sdd-verify` (+ report format)
+# Block 11 — `sdd-verify` Phase (+ report format)
 
-> **QUÉ**: Documenta la fase `sdd-verify` del sistema SDD de gentle-ai: el quality gate. Prueba que la implementación coincide con specs, design y tasks mediante inspección de fuente MÁS evidencia de ejecución real (tests). Clasifica issues en CRITICAL / WARNING / SUGGESTION y emite un veredicto PASS / PASS WITH WARNINGS / FAIL.
+> **WHAT**: Documents the `sdd-verify` phase of gentle-ai's SDD system: the quality gate. It proves that the implementation matches specs, design and tasks through source inspection PLUS real execution evidence (tests). It classifies issues into CRITICAL / WARNING / SUGGESTION and emits a PASS / PASS WITH WARNINGS / FAIL verdict.
 >
-> **ALCANCE**: Propósito, contrato de activación, Hard Rules, Decision Gates, qué lee/escribe (artefacto + topic key), niveles de severidad, compliance statuses, formato del report (template completo), manejo gracioso de artefactos faltantes, modelo asignado, Result Contract y gotchas. NO cubre el módulo `strict-tdd-verify.md` (eso es [Bloque 23]); solo se menciona su carga.
+> **SCOPE**: Purpose, activation contract, Hard Rules, Decision Gates, what it reads/writes (artifact + topic key), severity levels, compliance statuses, report format (full template), graceful handling of missing artifacts, assigned model, Result Contract and gotchas. It does NOT cover the `strict-tdd-verify.md` module (that is [Block 23]); only its loading is mentioned.
 >
-> **FUENTES exactas**:
-> - `/home/cristian/.config/opencode/skills/sdd-verify/SKILL.md` (primaria, v3.0)
+> **EXACT SOURCES**:
+> - `/home/cristian/.config/opencode/skills/sdd-verify/SKILL.md` (primary, v3.0)
 > - `/home/cristian/.config/opencode/skills/sdd-verify/references/report-format.md` (template + compliance statuses)
-> - `/home/cristian/.claude/agents/sdd-verify.md` (tools, modelo, Result Contract)
-> - `/home/cristian/.config/opencode/prompts/sdd/sdd-verify.md` (versión CONDENSADA — diverge del SKILL.md)
-> - `/home/cristian/.config/opencode/commands/sdd-verify.md` (gates del orquestador)
+> - `/home/cristian/.claude/agents/sdd-verify.md` (tools, model, Result Contract)
+> - `/home/cristian/.config/opencode/prompts/sdd/sdd-verify.md` (CONDENSED version — diverges from SKILL.md)
+> - `/home/cristian/.config/opencode/commands/sdd-verify.md` (orchestrator gates)
 > - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md`
-> - NOTA: `sdd-verify/strict-tdd-verify.md` se documenta en [Bloque 23], NO aquí.
+> - NOTE: `sdd-verify/strict-tdd-verify.md` is documented in [Block 23], NOT here.
 >
-> **MÉTODO**: lectura directa. Marcadores: `[CERT]` = verificado (`ruta:línea`); `[CERT-a]` = afirmado por fuente; `[INFER]` = deducción.
+> **METHOD**: direct reading. Markers: `[CERT]` = verified (`path:line`); `[CERT-a]` = asserted by source; `[INFER]` = deduction.
 
 ---
 
-## 11.1 — Propósito y rol `[CERT]`
+## 11.1 — Purpose and role `[CERT]`
 
-`sdd-verify` corre cuando el orquestador lanza la verificación de un cambio SDD. Es el **quality gate**: prueba la completitud con inspección de fuente MÁS evidencia de ejecución real (`skills/sdd-verify/SKILL.md:31-33`). Su filosofía central (`SKILL.md:42`): "Execute relevant tests; static analysis alone is never verification" — un escenario de spec es compliant solo cuando un test que lo cubre pasó en runtime.
+`sdd-verify` runs when the orchestrator launches the verification of an SDD change. It is the **quality gate**: it proves completeness with source inspection PLUS real execution evidence (`skills/sdd-verify/SKILL.md:31-33`). Its central philosophy (`SKILL.md:42`): "Execute relevant tests; static analysis alone is never verification" — a spec scenario is compliant only when a test covering it passed at runtime.
 
-NO arregla issues: los reporta para el orquestador/usuario (`SKILL.md:43`). Mismo patrón gate/override que el resto (`SKILL.md:13-21`). Versión `3.0`.
+It does NOT fix issues: it reports them for the orchestrator/user (`SKILL.md:43`). Same gate/override pattern as the rest (`SKILL.md:13-21`). Version `3.0`.
 
-## 11.2 — Activation Contract y Hard Rules `[CERT]`
+## 11.2 — Activation Contract and Hard Rules `[CERT]`
 
-El orquestador debe proveer structured status de `_shared/sdd-status-contract.md` ([Bloque 22]): `schemaName`, `planningHome`, `changeRoot`, `artifactPaths`, `contextFiles`, task progress, dependency states, `actionContext` (`SKILL.md:31-35`).
+The orchestrator must provide structured status from `_shared/sdd-status-contract.md` ([Block 22]): `schemaName`, `planningHome`, `changeRoot`, `artifactPaths`, `contextFiles`, task progress, dependency states, `actionContext` (`SKILL.md:31-35`).
 
 Hard Rules (`SKILL.md:37-46`):
 
-- Leer TODOS los `contextFiles` disponibles antes de juzgar. Verificación full spec-driven lee proposal, specs, design y tasks; sets parciales degradan (ver 11.7).
-- Ejecutar tests relevantes; análisis estático solo NUNCA es verificación.
-- Un escenario de spec es compliant solo cuando un test que lo cubre pasó en runtime.
-- Comparar specs primero, design segundo, completitud de tasks tercero (`SKILL.md:42`).
-- NO arreglar; reportar.
-- Persistir `verify-report` según el modo.
-- Si Strict TDD activo, cargar `strict-tdd-verify.md` ([Bloque 23]); si inactivo, nunca cargarlo (`SKILL.md:45`).
+- Read ALL available `contextFiles` before judging. Full spec-driven verification reads proposal, specs, design and tasks; partial sets degrade (see 11.7).
+- Execute relevant tests; static analysis alone is NEVER verification.
+- A spec scenario is compliant only when a test covering it passed at runtime.
+- Compare specs first, design second, task completeness third (`SKILL.md:42`).
+- Do NOT fix; report.
+- Persist `verify-report` according to the mode.
+- If Strict TDD is active, load `strict-tdd-verify.md` ([Block 23]); if inactive, never load it (`SKILL.md:45`).
 
-## 11.3 — Qué LEE y qué ESCRIBE `[CERT]`
+## 11.3 — What it READS and what it WRITES `[CERT]`
 
-El SKILL.md delega retrieval a la Sección B del common; el agente concreta (`agents/sdd-verify.md:18-26`): lee `sdd/{change}/spec` (requerido), `sdd/{change}/tasks` (requerido), `sdd/{change}/apply-progress` (requerido), todos vía `mem_search → mem_get_observation`.
+The SKILL.md delegates retrieval to Section B of the common; the agent concretizes it (`agents/sdd-verify.md:18-26`): it reads `sdd/{change}/spec` (required), `sdd/{change}/tasks` (required), `sdd/{change}/apply-progress` (required), all via `mem_search → mem_get_observation`.
 
-**Artefacto producido**: `verify-report` · **topic key**: `sdd/{change-name}/verify-report` · **type**: `architecture` (`agents/sdd-verify.md:29-34`, [Bloque 3]). Persiste según modo: Engram, archivo openspec, hybrid (ambos), o inline-only para `none` (`SKILL.md:44`).
+**Artifact produced**: `verify-report` · **topic key**: `sdd/{change-name}/verify-report` · **type**: `architecture` (`agents/sdd-verify.md:29-34`, [Block 3]). It persists according to mode: Engram, openspec file, hybrid (both), or inline-only for `none` (`SKILL.md:44`).
 
-> [CERT] Importante: el agente verify NO tiene tools de escritura de archivos del proyecto. `agents/sdd-verify.md:7`: tools = `Read, Grep, Glob, Bash, mem_search, mem_get_observation, mem_save`. Sin `Edit`/`Write` (no muta código) ni `mem_update` (no marca tasks). Solo `Bash` para ejecutar tests y `mem_save` para el report.
+> [CERT] Important: the verify agent does NOT have project file-writing tools. `agents/sdd-verify.md:7`: tools = `Read, Grep, Glob, Bash, mem_search, mem_get_observation, mem_save`. No `Edit`/`Write` (does not mutate code) nor `mem_update` (does not mark tasks). Only `Bash` to execute tests and `mem_save` for the report.
 
-## 11.4 — Niveles de severidad CRITICAL / WARNING / SUGGESTION `[CERT]`
+## 11.4 — Severity levels CRITICAL / WARNING / SUGGESTION `[CERT]`
 
-Los issues se agrupan en tres niveles (`SKILL.md:78`, `references/report-format.md:57-60`). Las Decision Gates definen qué dispara cada uno (`SKILL.md:48-63`):
+Issues are grouped into three levels (`SKILL.md:78`, `references/report-format.md:57-60`). The Decision Gates define what triggers each one (`SKILL.md:48-63`):
 
-| Condición | Nivel |
+| Condition | Level |
 |-----------|-------|
-| Tarea core incompleta | **CRITICAL** |
-| Tarea de cleanup incompleta | **WARNING** |
+| Incomplete core task | **CRITICAL** |
+| Incomplete cleanup task | **WARNING** |
 | Test command exits non-zero | **CRITICAL** |
-| Escenario de spec sin test que pase | **CRITICAL** (`UNTESTED` o `FAILING`) |
-| Deviación de design existe | **WARNING** (a menos que rompa una spec → CRITICAL) |
+| Spec scenario with no passing test | **CRITICAL** (`UNTESTED` or `FAILING`) |
+| Design deviation exists | **WARNING** (unless it breaks a spec → CRITICAL) |
 
-> [CERT] "Any unchecked implementation task is CRITICAL and blocks archive readiness" (`SKILL.md:69`). "Unchecked tasks: always remain CRITICAL, even when other artifacts are missing or warnings-only" (`SKILL.md:85`). Esto enlaza con la Task Completion Gate de `sdd-archive` ([Bloque 12]).
+> [CERT] "Any unchecked implementation task is CRITICAL and blocks archive readiness" (`SKILL.md:69`). "Unchecked tasks: always remain CRITICAL, even when other artifacts are missing or warnings-only" (`SKILL.md:85`). This links with the Task Completion Gate of `sdd-archive` ([Block 12]).
 
-SUGGESTION es el nivel no bloqueante (mejoras opcionales); aparece en el report pero no afecta el veredicto bloqueante.
+SUGGESTION is the non-blocking level (optional improvements); it appears in the report but does not affect the blocking verdict.
 
-### Veredicto final `[CERT]`
+### Final verdict `[CERT]`
 
-`SKILL.md:78` + `references/report-format.md:62-64`: `PASS`, `PASS WITH WARNINGS`, o `FAIL`. Un CRITICAL fuerza `FAIL`; solo WARNINGs → `PASS WITH WARNINGS`; limpio → `PASS`. [INFER] El veredicto deriva mecánicamente de los niveles: presencia de cualquier CRITICAL ⇒ FAIL.
+`SKILL.md:78` + `references/report-format.md:62-64`: `PASS`, `PASS WITH WARNINGS`, or `FAIL`. A CRITICAL forces `FAIL`; only WARNINGs → `PASS WITH WARNINGS`; clean → `PASS`. [INFER] The verdict derives mechanically from the levels: presence of any CRITICAL ⇒ FAIL.
 
-## 11.5 — Compliance Statuses (matriz de spec) `[CERT]`
+## 11.5 — Compliance Statuses (spec matrix) `[CERT]`
 
-`references/report-format.md:3-9`. Cada escenario de spec recibe un status en la Spec Compliance Matrix:
+`references/report-format.md:3-9`. Each spec scenario receives a status in the Spec Compliance Matrix:
 
-| Status | Significado |
+| Status | Meaning |
 |--------|-------------|
-| ✅ `COMPLIANT` | test que lo cubre existe y pasó |
-| ❌ `FAILING` | test que lo cubre existe pero falló |
-| ❌ `UNTESTED` | no se encontró test que lo cubra |
-| ⚠️ `PARTIAL` | test pasa pero cubre solo parte del escenario |
+| ✅ `COMPLIANT` | a covering test exists and passed |
+| ❌ `FAILING` | a covering test exists but failed |
+| ❌ `UNTESTED` | no covering test was found |
+| ⚠️ `PARTIAL` | test passes but covers only part of the scenario |
 
-La matriz se construye desde resultados de test REALES cuando existen specs/scenarios (`SKILL.md:72-78`). `FAILING` y `UNTESTED` para escenarios requeridos son CRITICAL.
+The matrix is built from REAL test results when specs/scenarios exist (`SKILL.md:72-78`). `FAILING` and `UNTESTED` for required scenarios are CRITICAL.
 
-## 11.6 — Formato del report `[CERT]`
+## 11.6 — Report format `[CERT]`
 
-`references/report-format.md:10-65`. El template completo (`## Verification Report`):
+`references/report-format.md:10-65`. The full template (`## Verification Report`):
 
 ```markdown
 ## Verification Report
 **Change**: {change-name}
-**Version**: {spec version o N/A}
+**Version**: {spec version or N/A}
 **Mode**: {Strict TDD | Standard}
 
-### Completeness        → tabla: Tasks total / complete / incomplete
+### Completeness        → table: Tasks total / complete / incomplete
 ### Build & Tests Execution
-   **Build**: ✅ Passed / ❌ Failed  (+ comando y output)
+   **Build**: ✅ Passed / ❌ Failed  (+ command and output)
    **Tests**: ✅ N passed / ❌ N failed / ⚠️ N skipped
    **Coverage**: N% / threshold N% → ✅ Above / ⚠️ Below / ➖ Not available
 ### Spec Compliance Matrix   → Requirement | Scenario | Test | Result
@@ -98,78 +98,78 @@ La matriz se construye desde resultados de test REALES cuando existen specs/scen
 ### Correctness (Static Evidence)  → Requirement | Status | Notes
 ### Coherence (Design)             → Decision | Followed? | Notes
 ### Issues Found
-   **CRITICAL**: {list o None}
-   **WARNING**: {list o None}
-   **SUGGESTION**: {list o None}
+   **CRITICAL**: {list or None}
+   **WARNING**: {list or None}
+   **SUGGESTION**: {list or None}
 ### Verdict
-   {PASS / PASS WITH WARNINGS / FAIL} + razón en una línea
+   {PASS / PASS WITH WARNINGS / FAIL} + one-line reason
 ```
 
-El Output Contract del SKILL.md (`SKILL.md:76-78`) lista las mismas secciones: change, mode, completeness table, build/tests/coverage evidence, spec compliance matrix, correctness table, design coherence table, issues agrupados CRITICAL/WARNING/SUGGESTION, y veredicto final.
+The SKILL.md's Output Contract (`SKILL.md:76-78`) lists the same sections: change, mode, completeness table, build/tests/coverage evidence, spec compliance matrix, correctness table, design coherence table, issues grouped CRITICAL/WARNING/SUGGESTION, and final verdict.
 
-> [CERT] Cuando Strict TDD está activo, se insertan las secciones de TDD compliance, test layer distribution, changed-file coverage y quality metrics desde `strict-tdd-verify.md` ([Bloque 23]) (`references/report-format.md:67`).
+> [CERT] When Strict TDD is active, the TDD compliance, test layer distribution, changed-file coverage and quality metrics sections are inserted from `strict-tdd-verify.md` ([Block 23]) (`references/report-format.md:67`).
 
-## 11.7 — Graceful Artifact Handling (degradación) `[CERT]`
+## 11.7 — Graceful Artifact Handling (degradation) `[CERT]`
 
-`SKILL.md:80-85` + Decision Gates. La verificación degrada según qué artefactos existan:
+`SKILL.md:80-85` + Decision Gates. Verification degrades according to which artifacts exist:
 
-| Artefactos disponibles | Qué verifica |
+| Available artifacts | What it verifies |
 |------------------------|--------------|
-| Solo tasks | solo completitud objetiva de tareas; NO reclama spec correctness ni design coherence; si todas checked y sin runtime evidence → veredicto puede ser `PASS WITH WARNINGS` para completitud de tasks únicamente |
-| Tasks + specs | completitud + correctness de requisitos/escenarios; evidencia runtime aún requerida; tests cubrientes faltantes son CRITICAL para escenarios requeridos salvo que config permita verificación manual |
-| Proposal/specs/design/tasks (full) | verifica todas las dimensiones: completeness, correctness, coherence |
-| `actionContext.mode: workspace-planning` | STOP; verificación full de implementación de workspace no soportada en este slice (`SKILL.md:55`) |
+| Only tasks | only objective task completeness; does NOT claim spec correctness nor design coherence; if all checked and no runtime evidence → verdict may be `PASS WITH WARNINGS` for task completeness only |
+| Tasks + specs | completeness + correctness of requirements/scenarios; runtime evidence still required; missing covering tests are CRITICAL for required scenarios unless config allows manual verification |
+| Proposal/specs/design/tasks (full) | verifies all dimensions: completeness, correctness, coherence |
+| `actionContext.mode: workspace-planning` | STOP; full verification of workspace implementation not supported in this slice (`SKILL.md:55`) |
 
-> [CERT] "Unchecked tasks: always remain CRITICAL, even when other artifacts are missing or warnings-only" (`SKILL.md:85`). Las tareas sin marcar son el bloqueo más duro, independiente del resto.
+> [CERT] "Unchecked tasks: always remain CRITICAL, even when other artifacts are missing or warnings-only" (`SKILL.md:85`). Unchecked tasks are the hardest block, independent of the rest.
 
 ## 11.8 — Execution Steps `[CERT]`
 
 `SKILL.md:64-74`:
 
-1. Cargar skills relevantes (Sección A).
-2. Recuperar artefactos (Sección B) o leer `contextFiles` del structured status.
-3. Resolver modo testing/TDD desde capabilities cacheadas, config, o archivos del proyecto.
-4. Contar tareas completas e incompletas. Cualquier tarea de implementación sin marcar es CRITICAL y bloquea archive readiness.
-5. Si existen specs, mapear cada requisito/escenario a evidencia de implementación y tests.
-6. Si existe design, chequear decisiones contra código cambiado; si falta, saltar coherence y registrar por qué.
-7. Correr test, build/type-check y coverage cuando estén disponibles. Para verificación full de spec, preservar la evidencia runtime más estricta de gentle-ai: la inspección de fuente sola NO prueba compliance de escenarios.
-8. Construir la behavioral compliance matrix desde resultados de test reales.
-9. Persistir y retornar el report, incluyendo dimensiones saltadas por artefactos faltantes.
+1. Load relevant skills (Section A).
+2. Retrieve artifacts (Section B) or read `contextFiles` from the structured status.
+3. Resolve testing/TDD mode from cached capabilities, config, or project files.
+4. Count complete and incomplete tasks. Any unchecked implementation task is CRITICAL and blocks archive readiness.
+5. If specs exist, map each requirement/scenario to implementation and test evidence.
+6. If design exists, check decisions against changed code; if missing, skip coherence and record why.
+7. Run test, build/type-check and coverage when available. For full spec verification, preserve gentle-ai's strictest runtime evidence: source inspection alone does NOT prove scenario compliance.
+8. Build the behavioral compliance matrix from real test results.
+9. Persist and return the report, including dimensions skipped due to missing artifacts.
 
-## 11.9 — Modelo asignado `[CERT]`
+## 11.9 — Assigned model `[CERT]`
 
-`agents/sdd-verify.md:6`: `model: sonnet` (Model Assignments [Bloque 18]: "sdd-verify | sonnet | default | Validation against spec"). Tools (`agents/sdd-verify.md:7`): `Read, Grep, Glob, Bash, mem_search, mem_get_observation, mem_save` — con `Bash` para ejecutar tests, sin tools de escritura de proyecto.
+`agents/sdd-verify.md:6`: `model: sonnet` (Model Assignments [Block 18]: "sdd-verify | sonnet | default | Validation against spec"). Tools (`agents/sdd-verify.md:7`): `Read, Grep, Glob, Bash, mem_search, mem_get_observation, mem_save` — with `Bash` to execute tests, without project-writing tools.
 
 ## 11.10 — Result Contract `[CERT]`
 
-El **agente** (`agents/sdd-verify.md:37-44`):
+The **agent** (`agents/sdd-verify.md:37-44`):
 
-| Campo | Valor |
+| Field | Value |
 |-------|-------|
 | `status` | `done` \| `blocked` \| `partial` |
-| `executive_summary` | veredicto en una frase (conteo CRITICAL/WARNING/SUGGESTION) |
-| `artifacts` | topic_keys/paths (ej. `sdd/{change}/verify-report`) |
-| `next_recommended` | `sdd-archive` (si limpio) o `sdd-apply` (si hay CRITICAL) |
-| `risks` | issues CRITICAL no resueltos que bloquean archive |
-| `skill_resolution` | `paths-injected` o `none` |
+| `executive_summary` | verdict in one sentence (CRITICAL/WARNING/SUGGESTION count) |
+| `artifacts` | topic_keys/paths (e.g. `sdd/{change}/verify-report`) |
+| `next_recommended` | `sdd-archive` (if clean) or `sdd-apply` (if there is a CRITICAL) |
+| `risks` | unresolved CRITICAL issues that block archive |
+| `skill_resolution` | `paths-injected` or `none` |
 
-El **prompt condensado** (`prompts/sdd/sdd-verify.md:38-45`) usa un JSON minimalista: `{status: pass|fail|warning, checks: [{criterion, result, evidence}], next: ready-for-archive|fixes-required}`.
+The **condensed prompt** (`prompts/sdd/sdd-verify.md:38-45`) uses a minimalist JSON: `{status: pass|fail|warning, checks: [{criterion, result, evidence}], next: ready-for-archive|fixes-required}`.
 
 ## 11.11 — Gotchas `[CERT]`
 
-- **Static analysis ≠ verification** (`SKILL.md:42, 71`): el SKILL.md exige ejecución runtime de tests para compliance de escenarios. Es la regla más fuerte de la fase.
-- **DIVERGENCIA CRÍTICA entre SKILL.md y prompt condensado** [CERT — comparado]: `prompts/sdd/sdd-verify.md:33` dice *"Do NOT run tests unless `strict_tdd` is active and test runner is explicitly provided"* — lo OPUESTO al SKILL.md, que exige ejecutar tests siempre ("static analysis alone is never verification"). El prompt condensado además limita a "Inspect changed files listed in apply-progress (or tasks)". El SKILL.md (v3.0, con report-format) es la fuente canónica completa; el prompt es la variante de bajo presupuesto que sacrifica la ejecución de tests. [INFER] Quien implemente debe seguir el SKILL.md salvo restricción explícita de tokens.
-- **Unchecked task = CRITICAL siempre** (`SKILL.md:69, 85`): aun con todo lo demás en verde, una tarea `- [ ]` bloquea archive.
-- **`workspace-planning` ⇒ STOP** (`SKILL.md:55`): no soporta verificación full de implementación de workspace.
-- **No marca tasks ni arregla código**: sin `mem_update`, `Edit` ni `Write`; solo reporta (`agents/sdd-verify.md:7`, `SKILL.md:43`).
+- **Static analysis ≠ verification** (`SKILL.md:42, 71`): the SKILL.md requires runtime execution of tests for scenario compliance. It is the strongest rule of the phase.
+- **CRITICAL DIVERGENCE between SKILL.md and the condensed prompt** [CERT — compared]: `prompts/sdd/sdd-verify.md:33` says *"Do NOT run tests unless `strict_tdd` is active and test runner is explicitly provided"* — the OPPOSITE of SKILL.md, which requires always executing tests ("static analysis alone is never verification"). The condensed prompt also limits to "Inspect changed files listed in apply-progress (or tasks)". The SKILL.md (v3.0, with report-format) is the complete canonical source; the prompt is the low-budget variant that sacrifices test execution. [INFER] Whoever implements should follow the SKILL.md unless there is an explicit token restriction.
+- **Unchecked task = always CRITICAL** (`SKILL.md:69, 85`): even with everything else green, a `- [ ]` task blocks archive.
+- **`workspace-planning` ⇒ STOP** (`SKILL.md:55`): does not support full verification of workspace implementation.
+- **Does not mark tasks nor fix code**: no `mem_update`, `Edit` nor `Write`; only reports (`agents/sdd-verify.md:7`, `SKILL.md:43`).
 
-## 11.12 — Conexiones
+## 11.12 — Connections
 
-- **[Bloque 10] (apply)** → `sdd-verify` lee `apply-progress` + spec + tasks; valida que el código coincida con el contrato (`agents/sdd-verify.md:21`).
-- **[Bloque 11] → [Bloque 23] (strict-TDD)**: carga `strict-tdd-verify.md` solo si Strict TDD activo; verifica la tabla TDD Cycle Evidence que produjo apply (`SKILL.md:45`).
-- **[Bloque 12] (archive)** → `next_recommended: sdd-archive` si limpio. Verify es el guardia que precede al cierre: CRITICAL bloquea archive sin override (la Strict-vs-OpenSpec Archive Policy de [Bloque 12] hereda esto).
-- **[Bloque 9] (tasks)**: cuenta y valida la completitud de las tasks.
-- **[Bloque 16] (Gatekeeper)**: verify es el alias de modelo usado por el gatekeeper para revisiones de contexto fresco en fases high-risk.
-- **[Bloque 3]**: artefacto `verify-report` → `sdd/{change}/verify-report`.
-- **[Bloque 22] (phase-common + status-contract)**: Secciones A–D + structured status + Decision Gates de `actionContext`.
-- **[Bloque 18] (models)**: sonnet, "Validation against spec".
+- **[Block 10] (apply)** → `sdd-verify` reads `apply-progress` + spec + tasks; validates that the code matches the contract (`agents/sdd-verify.md:21`).
+- **[Block 11] → [Block 23] (strict-TDD)**: loads `strict-tdd-verify.md` only if Strict TDD is active; verifies the TDD Cycle Evidence table that apply produced (`SKILL.md:45`).
+- **[Block 12] (archive)** → `next_recommended: sdd-archive` if clean. Verify is the guard that precedes closure: CRITICAL blocks archive without override (the Strict-vs-OpenSpec Archive Policy of [Block 12] inherits this).
+- **[Block 9] (tasks)**: counts and validates task completeness.
+- **[Block 16] (Gatekeeper)**: verify is the model alias used by the gatekeeper for fresh-context reviews in high-risk phases.
+- **[Block 3]**: artifact `verify-report` → `sdd/{change}/verify-report`.
+- **[Block 22] (phase-common + status-contract)**: Sections A–D + structured status + `actionContext` Decision Gates.
+- **[Block 18] (models)**: sonnet, "Validation against spec".

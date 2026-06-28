@@ -1,49 +1,49 @@
-# Bloque 20 — Convención Engram (`engram-convention`)
+# Block 20 — Engram convention (`engram-convention`)
 
-> **QUÉ DOCUMENTA**: Este bloque documenta la convención de artefactos Engram: las reglas de naming determinístico (title, topic_key, type, project, scope, capture_prompt), la tabla de tipos de artefacto SDD, el artefacto de estado del DAG, el protocolo de recuperación en dos pasos (`mem_search` → `mem_get_observation`), la escritura de artefactos (`mem_save` / `mem_update`), la resolución del nombre de proyecto, el comportamiento de upsert por `topic_key`, y las reglas de lifecycle (`active` / `needs_review`).
-> **ALCANCE**: La convención específica del backend Engram. NO cubre el contrato de persistencia transversal (resolución de modos, hybrid, plantillas de prompt — ver [Bloque 19]) ni la convención OpenSpec (ver [Bloque 21]). NO documenta el detalle de cada fase que produce los artefactos (ver bloques de fase).
-> **FUENTES** (leídas y verificadas):
-> - `/home/cristian/.config/opencode/skills/_shared/engram-convention.md` (archivo completo, 145 líneas)
-> **MÉTODO**: Cada afirmación lleva un marcador de certeza. `[CERT]` = verificado leyendo la fuente, con `ruta:línea` o `ruta §sección` cuando es posible. `[CERT-a]` = afirmado por la fuente pero no re-verificado en su origen primario. `[INFER]` = deducción propia, no literal en la fuente.
+> **WHAT IT DOCUMENTS**: This block documents the Engram artifact convention: the deterministic naming rules (title, topic_key, type, project, scope, capture_prompt), the SDD artifact type table, the DAG state artifact, the two-step recovery protocol (`mem_search` → `mem_get_observation`), artifact writing (`mem_save` / `mem_update`), project name resolution, the upsert behavior by `topic_key`, and the lifecycle rules (`active` / `needs_review`).
+> **SCOPE**: The Engram-backend-specific convention. It does NOT cover the cross-cutting persistence contract (mode resolution, hybrid, prompt templates — see [Block 19]) nor the OpenSpec convention (see [Block 21]). It does NOT document the detail of each phase that produces the artifacts (see the phase blocks).
+> **SOURCES** (read and verified):
+> - `/home/cristian/.config/opencode/skills/_shared/engram-convention.md` (full file, 145 lines)
+> **METHOD**: Every claim carries a certainty marker. `[CERT]` = verified by reading the source, with `path:line` or `path §section` when possible. `[CERT-a]` = asserted by the source but not re-verified at its primary origin. `[INFER]` = my own deduction, not literal in the source.
 
 ---
 
-## 20.1 — Reglas de naming determinístico `[CERT]`
+## 20.1 — Deterministic naming rules `[CERT]`
 
-TODOS los artefactos SDD persistidos a Engram DEBEN seguir este naming determinístico `[CERT]` (`engram-convention.md:7-16`):
+ALL SDD artifacts persisted to Engram MUST follow this deterministic naming `[CERT]` (`engram-convention.md:7-16`):
 
 ```
 title:     sdd/{change-name}/{artifact-type}
 topic_key: sdd/{change-name}/{artifact-type}
 type:      architecture
-project:   {nombre de proyecto detectado o actual}
+project:   {detected or current project name}
 scope:     project
 capture_prompt: false
 ```
 
-`capture_prompt: false` se setea cuando el schema de la herramienta Engram lo soporta; si un schema más viejo lo rechaza o no expone el campo, se omite en lugar de fallar `[CERT]` (`engram-convention.md:18`).
+`capture_prompt: false` is set when the Engram tool schema supports it; if an older schema rejects it or does not expose the field, it is omitted rather than failed `[CERT]` (`engram-convention.md:18`).
 
-**Nota de diseño** `[CERT]` (`engram-convention.md:3`): los llamados críticos de Engram (`mem_search`, `mem_save`, `mem_get_observation`) están inlineados directamente en el `SKILL.md` de cada skill. Este documento es referencia suplementaria — los sub-agentes NO necesitan leerlo para funcionar.
+**Design note** `[CERT]` (`engram-convention.md:3`): the critical Engram calls (`mem_search`, `mem_save`, `mem_get_observation`) are inlined directly into each skill's `SKILL.md`. This document is supplementary reference — sub-agents do NOT need to read it to function.
 
-## 20.2 — Tipos de artefacto `[CERT]`
+## 20.2 — Artifact types `[CERT]`
 
-| Artifact Type | Producido por | Descripción `[CERT]` (`engram-convention.md:22-32`) |
+| Artifact Type | Produced by | Description `[CERT]` (`engram-convention.md:22-32`) |
 |---------------|---------------|-------------|
-| `explore` | sdd-explore | Análisis de exploración |
-| `proposal` | sdd-propose | Propuesta de cambio |
-| `spec` | sdd-spec | Especificaciones delta (todos los dominios concatenados) |
-| `design` | sdd-design | Diseño técnico |
-| `tasks` | sdd-tasks | Desglose de tareas |
-| `apply-progress` | sdd-apply | Progreso de implementación (uno por lote) |
-| `verify-report` | sdd-verify | Reporte de verificación |
-| `archive-report` | sdd-archive | Cierre de archive con lineage |
-| `state` | orquestador | Estado del DAG para recuperación tras compactación |
+| `explore` | sdd-explore | Exploration analysis |
+| `proposal` | sdd-propose | Change proposal |
+| `spec` | sdd-spec | Delta specifications (all domains concatenated) |
+| `design` | sdd-design | Technical design |
+| `tasks` | sdd-tasks | Task breakdown |
+| `apply-progress` | sdd-apply | Implementation progress (one per batch) |
+| `verify-report` | sdd-verify | Verification report |
+| `archive-report` | sdd-archive | Archive closure with lineage |
+| `state` | orchestrator | DAG state for recovery after compaction |
 
-**Punto clave** `[INFER]`: la nota "spec: todos los dominios concatenados" significa que en Engram el artefacto `spec` es un único blob con todos los dominios juntos, a diferencia de OpenSpec que los separa en subdirectorios por dominio (ver [Bloque 21]). Es la misma información estructurada de dos formas según el backend.
+**Key point** `[INFER]`: the note "spec: all domains concatenated" means that in Engram the `spec` artifact is a single blob with all domains together, unlike OpenSpec which separates them into per-domain subdirectories (see [Block 21]). It is the same structured information in two forms depending on the backend.
 
-## 20.3 — El artefacto de estado (`state`) `[CERT]`
+## 20.3 — The state artifact (`state`) `[CERT]`
 
-El estado del DAG se persiste como un artefacto Engram con su propio topic_key `[CERT]` (`engram-convention.md:38-47`):
+The DAG state is persisted as an Engram artifact with its own topic_key `[CERT]` (`engram-convention.md:38-47`):
 
 ```
 mem_save(
@@ -56,45 +56,45 @@ mem_save(
 )
 ```
 
-El `content` es YAML serializado: `change`, `phase` (última fase), `artifact_store`, un mapa `artifacts` con booleanos por fase, `tasks_progress` (completed/pending) y `last_updated` en ISO `[CERT]`.
+The `content` is serialized YAML: `change`, `phase` (last phase), `artifact_store`, an `artifacts` map with booleans per phase, `tasks_progress` (completed/pending), and `last_updated` in ISO `[CERT]`.
 
-**Recuperación del estado** `[CERT]` (`engram-convention.md:49`): `mem_search("sdd/{change-name}/state")` → `mem_get_observation(id)` → parsear YAML → restaurar estado.
+**State recovery** `[CERT]` (`engram-convention.md:49`): `mem_search("sdd/{change-name}/state")` → `mem_get_observation(id)` → parse YAML → restore state.
 
-## 20.4 — Protocolo de recuperación en dos pasos `[CERT]`
+## 20.4 — Two-step recovery protocol `[CERT]`
 
-La recuperación de cualquier artefacto SDD es SIEMPRE de dos pasos, porque las previews de búsqueda están truncadas `[CERT]` (`engram-convention.md:61-64`):
-
-```
-Step 1: mem_search(query: "sdd/{change-name}/{artifact-type}", project: "{project}") → preview truncado + ID
-Step 2: mem_get_observation(id: {observation-id}) → contenido completo
-```
-
-Cuando se recuperan múltiples artefactos, se agrupan TODAS las búsquedas primero y luego TODAS las recuperaciones `[CERT]` (`engram-convention.md:66-78`):
+The recovery of any SDD artifact is ALWAYS two-step, because search previews are truncated `[CERT]` (`engram-convention.md:61-64`):
 
 ```
-STEP A — SEARCH (solo IDs):
-  mem_search(query: "sdd/{change-name}/proposal", ...) → guardar ID
-  mem_search(query: "sdd/{change-name}/spec", ...)     → guardar ID
-  mem_search(query: "sdd/{change-name}/design", ...)   → guardar ID
+Step 1: mem_search(query: "sdd/{change-name}/{artifact-type}", project: "{project}") → truncated preview + ID
+Step 2: mem_get_observation(id: {observation-id}) → full content
+```
 
-STEP B — RETRIEVE FULL CONTENT (obligatorio):
+When recovering multiple artifacts, ALL searches are grouped first and then ALL retrievals `[CERT]` (`engram-convention.md:66-78`):
+
+```
+STEP A — SEARCH (IDs only):
+  mem_search(query: "sdd/{change-name}/proposal", ...) → save ID
+  mem_search(query: "sdd/{change-name}/spec", ...)     → save ID
+  mem_search(query: "sdd/{change-name}/design", ...)   → save ID
+
+STEP B — RETRIEVE FULL CONTENT (mandatory):
   mem_get_observation(id: {proposal_id})
   mem_get_observation(id: {spec_id})
   mem_get_observation(id: {design_id})
 ```
 
-Cargar el contexto de proyecto `[CERT]` (`engram-convention.md:80-84`):
+Load the project context `[CERT]` (`engram-convention.md:80-84`):
 
 ```
 mem_search(query: "sdd-init/{project}", project: "{project}") → ID
-mem_get_observation(id) → contexto completo del proyecto
+mem_get_observation(id) → full project context
 ```
 
-**Por qué dos pasos** `[CERT]` (`engram-convention.md:143`): las previews de búsqueda están SIEMPRE truncadas; `mem_get_observation` es la ÚNICA forma de obtener contenido completo. Saltarse el paso 2 produce salida incorrecta (ver también [Bloque 22] §22.2-B).
+**Why two steps** `[CERT]` (`engram-convention.md:143`): search previews are ALWAYS truncated; `mem_get_observation` is the ONLY way to obtain full content. Skipping step 2 produces incorrect output (see also [Block 22] §22.2-B).
 
-## 20.5 — Escritura de artefactos `[CERT]`
+## 20.5 — Writing artifacts `[CERT]`
 
-Escritura estándar `[CERT]` (`engram-convention.md:88-98`):
+Standard write `[CERT]` (`engram-convention.md:88-98`):
 
 ```
 mem_save(
@@ -103,62 +103,62 @@ mem_save(
   type: "architecture",
   project: "{project}",
   capture_prompt: false,
-  content: "{contenido markdown completo}"
+  content: "{full markdown content}"
 )
 ```
 
-Ejemplo concreto — guardar una proposal para `add-dark-mode` `[CERT]` (`engram-convention.md:100-110`): `title`/`topic_key` = `"sdd/add-dark-mode/proposal"`, `project: "my-app"`.
+Concrete example — save a proposal for `add-dark-mode` `[CERT]` (`engram-convention.md:100-110`): `title`/`topic_key` = `"sdd/add-dark-mode/proposal"`, `project: "my-app"`.
 
-`capture_prompt: false` es REQUERIDO para artefactos SDD cuando el schema lo soporta `[CERT]` (`engram-convention.md:112`). Engram v1.15.3 captura prompts de usuario por default para saves humanos/proactivos, pero los artefactos SDD son salidas automatizadas de pipeline. NO se infiere del `type`, porque tanto SDD como decisiones de arquitectura humanas usan `architecture`. Schema viejo → omitir en lugar de fallar.
+`capture_prompt: false` is REQUIRED for SDD artifacts when the schema supports it `[CERT]` (`engram-convention.md:112`). Engram v1.15.3 captures user prompts by default for human/proactive saves, but SDD artifacts are automated pipeline outputs. It is NOT inferred from the `type`, because both SDD and human architecture decisions use `architecture`. Older schema → omit rather than fail.
 
 **Update vs. save** `[CERT]` (`engram-convention.md:114-119`):
 
-- `mem_update(id, content)` → cuando se tiene el ID exacto de la observación.
-- `mem_save` con el mismo `topic_key` → para upserts.
+- `mem_update(id, content)` → when you have the exact observation ID.
+- `mem_save` with the same `topic_key` → for upserts.
 
-**Browsing de todos los artefactos de un cambio** `[CERT]` (`engram-convention.md:121-126`): `mem_search(query: "sdd/{change-name}/", project: "{project}")` devuelve todos los artefactos de ese cambio.
+**Browsing all artifacts of a change** `[CERT]` (`engram-convention.md:121-126`): `mem_search(query: "sdd/{change-name}/", project: "{project}")` returns all artifacts of that change.
 
-## 20.6 — Resolución del nombre de proyecto (engram v1.11.0+) `[CERT]`
+## 20.6 — Project name resolution (engram v1.11.0+) `[CERT]`
 
-Engram auto-detecta el nombre de proyecto desde el git remote al arranque del MCP `[CERT]` (`engram-convention.md:128-132`). El flag `--project` y la env var `ENGRAM_PROJECT` pueden sobreescribir la detección. Todos los nombres se normalizan a lowercase y trimmed.
+Engram auto-detects the project name from the git remote at MCP startup `[CERT]` (`engram-convention.md:128-132`). The `--project` flag and the `ENGRAM_PROJECT` env var can override the detection. All names are normalized to lowercase and trimmed.
 
-Si el agente guarda una memoria bajo un nombre de proyecto que no coincide con observaciones existentes, Engram advierte sobre potencial "name drift". Para fusionar variantes: `mem_merge_projects` (MCP tool) o `engram projects consolidate` (CLI) `[CERT]`.
+If the agent saves a memory under a project name that does not match existing observations, Engram warns about potential "name drift". To merge variants: `mem_merge_projects` (MCP tool) or `engram projects consolidate` (CLI) `[CERT]`.
 
-## 20.7 — Comportamiento de upsert `[CERT]`
+## 20.7 — Upsert behavior `[CERT]`
 
-Mismo `topic_key` + `project` + `scope` → UPDATE (sobrescribe), NO INSERT `[CERT]` (`engram-convention.md:134-136`). El contenido previo se PIERDE — `revision_count` incrementa pero el contenido viejo NO se guarda.
+Same `topic_key` + `project` + `scope` → UPDATE (overwrite), NOT INSERT `[CERT]` (`engram-convention.md:134-136`). The previous content is LOST — `revision_count` increments but the old content is NOT saved.
 
-Esto es **por diseño**: Engram es memoria de trabajo, NO un audit trail. Para historial de iteración o colaboración de equipo, usar `openspec` o `hybrid` (ver [Bloque 19] §19.2, [Bloque 21]).
+This is **by design**: Engram is working memory, NOT an audit trail. For iteration history or team collaboration, use `openspec` or `hybrid` (see [Block 19] §19.2, [Block 21]).
 
-**Modelo mental** `[INFER]`: la terna `topic_key + project + scope` es la clave primaria efectiva. Re-correr una fase SDD no acumula versiones — pisa la anterior. Esto es lo que hace que `engram` sea barato (sin explosión de duplicados) pero "amnésico" respecto al historial. La decisión de usar `topic_key` idéntico al `title` (§20.1) es lo que habilita el upsert sin duplicados.
+**Mental model** `[INFER]`: the triple `topic_key + project + scope` is the effective primary key. Re-running an SDD phase does not accumulate versions — it overwrites the previous one. This is what makes `engram` cheap (no explosion of duplicates) but "amnesic" regarding history. The decision to use a `topic_key` identical to the `title` (§20.1) is what enables the upsert without duplicates.
 
-## 20.8 — Reglas de lifecycle (`active` / `needs_review`) `[CERT]`
+## 20.8 — Lifecycle rules (`active` / `needs_review`) `[CERT]`
 
-La convención fija un protocolo de lifecycle de memoria cuando Engram expone metadata/tooling de lifecycle `[CERT]` (`engram-convention.md:53-59`):
+The convention sets a memory lifecycle protocol when Engram exposes lifecycle metadata/tooling `[CERT]` (`engram-convention.md:53-59`):
 
-- Al inicio de sesión o antes de trabajo sensible a arquitectura, llamar `mem_review` con action `list` para el proyecto actual cuando la herramienta esté disponible.
-- Si `mem_review` no está disponible, NO fallar la tarea. Continuar con `mem_context`/`mem_search` normal, y aún aplicar metadata de lifecycle de observaciones devueltas cuando esté presente.
-- Las memorias `active` pueden usarse normalmente.
-- Las memorias `needs_review` son **contexto stale, NO hechos confiables**.
-- Surfacing: exponer el contexto `needs_review` y verificarlo contra evidencia actual antes de confiar en él.
-- NO llamar `mem_review` con action `mark_reviewed` automáticamente. Solo llamar `mark_reviewed` tras confirmación explícita del usuario o vía un comando dedicado de mantenimiento de memoria.
+- At session start or before architecture-sensitive work, call `mem_review` with action `list` for the current project when the tool is available.
+- If `mem_review` is not available, do NOT fail the task. Continue with normal `mem_context`/`mem_search`, and still apply lifecycle metadata from returned observations when present.
+- `active` memories may be used normally.
+- `needs_review` memories are **stale context, NOT trusted facts**.
+- Surfacing: expose the `needs_review` context and verify it against current evidence before relying on it.
+- Do NOT call `mem_review` with action `mark_reviewed` automatically. Only call `mark_reviewed` after explicit user confirmation or through a dedicated memory maintenance command.
 
-**Punto clave** `[INFER]`: el lifecycle introduce una distinción de confianza dentro de la memoria — no toda observación recuperada es un hecho. `needs_review` es una señal de "esto puede estar desactualizado, verificalo antes de actuar". Y `mark_reviewed` está protegido contra automatización justamente para que el sistema no se auto-certifique memoria stale como confiable.
+**Key point** `[INFER]`: the lifecycle introduces a trust distinction within the memory — not every retrieved observation is a fact. `needs_review` is a signal of "this may be out of date, verify it before acting". And `mark_reviewed` is protected against automation precisely so that the system does not self-certify stale memory as trustworthy.
 
-## 20.9 — Por qué esta convención `[CERT]`
+## 20.9 — Why this convention `[CERT]`
 
-La convención justifica sus decisiones `[CERT]` (`engram-convention.md:138-144`):
+The convention justifies its decisions `[CERT]` (`engram-convention.md:138-144`):
 
-- Títulos determinísticos → la recuperación funciona por match exacto.
-- `topic_key` → habilita upserts sin duplicados.
-- Prefijo `sdd/` → namespacea todos los artefactos SDD.
-- Recuperación en dos pasos → las previews de búsqueda siempre están truncadas; `mem_get_observation` es la única vía al contenido completo.
-- Lineage → el `archive-report` incluye todos los IDs de observación para trazabilidad completa.
+- Deterministic titles → recovery works by exact match.
+- `topic_key` → enables upserts without duplicates.
+- `sdd/` prefix → namespaces all SDD artifacts.
+- Two-step recovery → search previews are always truncated; `mem_get_observation` is the only path to full content.
+- Lineage → the `archive-report` includes all observation IDs for full traceability.
 
-## 20.10 — Conexiones
+## 20.10 — Connections
 
-- **[Bloque 3] — Backends y topic keys**: el [Bloque 3] introduce la tabla de topic keys a nivel conceptual; este bloque la detalla con el naming completo, el comportamiento de upsert y el lifecycle. El formato `sdd/{change-name}/{artifact-type}` es la pieza central compartida.
-- **[Bloque 19] — Contrato de persistencia**: §19.5 (estado del DAG) y §19.7 (plantillas de `mem_save`) consumen esta convención. La limitación "upsert sobrescribe sin historial" de [Bloque 19] §19.2 es exactamente §20.7 de este bloque.
-- **[Bloque 15] — Status (engram)**: el artefacto `state` de §20.3 alimenta la reconstrucción manual de status cuando el store es `engram` (el dispatcher nativo no observa Engram — ver [Bloque 22] §22.3). La recuperación de status engram usa el protocolo de dos pasos de §20.4.
-- **[Bloque 21] — Convención OpenSpec**: el equivalente file-based de esta convención. La nota de §20.2 (spec concatenado vs. spec por dominio) marca la diferencia estructural entre ambos backends.
-- **[Bloque 22] — phase-common**: el `sdd-phase-common.md` inlinea el protocolo de recuperación (§20.4) y persistencia (§20.5) que aquí se documenta como referencia.
+- **[Block 3] — Backends and topic keys**: [Block 3] introduces the topic keys table at the conceptual level; this block details it with the full naming, the upsert behavior, and the lifecycle. The format `sdd/{change-name}/{artifact-type}` is the shared centerpiece.
+- **[Block 19] — Persistence contract**: §19.5 (DAG state) and §19.7 (`mem_save` templates) consume this convention. The "upsert overwrites without history" limitation of [Block 19] §19.2 is exactly §20.7 of this block.
+- **[Block 15] — Status (engram)**: the `state` artifact of §20.3 feeds the manual status reconstruction when the store is `engram` (the native dispatcher does not observe Engram — see [Block 22] §22.3). Engram status recovery uses the two-step protocol of §20.4.
+- **[Block 21] — OpenSpec convention**: the file-based equivalent of this convention. The note of §20.2 (concatenated spec vs. per-domain spec) marks the structural difference between both backends.
+- **[Block 22] — phase-common**: `sdd-phase-common.md` inlines the recovery protocol (§20.4) and persistence (§20.5) documented here as reference.

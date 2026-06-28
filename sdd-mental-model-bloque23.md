@@ -1,143 +1,143 @@
-# Bloque 23 — TDD estricto (strict-tdd / strict-tdd-verify)
+# Block 23 — Strict TDD (strict-tdd / strict-tdd-verify)
 
-> **QUÉ DOCUMENTA**: Este bloque establece el modelo mental del **Strict TDD Mode** del SDD de gentle-ai: qué es, cómo se activa (init detecta el test runner y setea el flag `strict_tdd`), cómo el orquestador hace forwarding OBLIGATORIO del modo a las fases `apply` y `verify`, el ciclo red-green-refactor que impone módulo de apply, la auditoría de calidad de aserciones del módulo de verify, y qué NO permite (fallback a Standard Mode).
-> **ALCANCE**: Los dos módulos de TDD estricto (apply y verify), la detección de capacidades de testing en init, y el contrato de forwarding del orquestador. NO cubre la mecánica general de `sdd-apply` (ver [Bloque 10]) ni de `sdd-verify` (ver [Bloque 11]) ni la detección completa de stack en init (ver [Bloque 4]).
-> **FUENTES** (leídas y verificadas):
-> - `/home/cristian/.config/opencode/skills/sdd-apply/strict-tdd.md` (módulo apply, 365 líneas)
-> - `/home/cristian/.config/opencode/skills/sdd-verify/strict-tdd-verify.md` (módulo verify, 270 líneas)
+> **WHAT IT DOCUMENTS**: This block establishes the mental model of the **Strict TDD Mode** in gentle-ai's SDD: what it is, how it is activated (init detects the test runner and sets the `strict_tdd` flag), how the orchestrator does MANDATORY forwarding of the mode to the `apply` and `verify` phases, the red-green-refactor cycle the apply module enforces, the verify module's assertion quality audit, and what it does NOT allow (fallback to Standard Mode).
+> **SCOPE**: The two strict TDD modules (apply and verify), the detection of testing capabilities in init, and the orchestrator's forwarding contract. It does NOT cover the general mechanics of `sdd-apply` (see [Block 10]) nor `sdd-verify` (see [Block 11]) nor the full stack detection in init (see [Block 4]).
+> **SOURCES** (read and verified):
+> - `/home/cristian/.config/opencode/skills/sdd-apply/strict-tdd.md` (apply module, 365 lines)
+> - `/home/cristian/.config/opencode/skills/sdd-verify/strict-tdd-verify.md` (verify module, 270 lines)
 > - `/home/cristian/.config/opencode/skills/sdd-init/references/init-details.md` §"Testing Capability Checklist", §"Testing Capabilities Format", §"Engram Saves"
 > - `/home/cristian/.claude/CLAUDE.md` §"Strict TDD Forwarding (MANDATORY)", §"SDD Init Guard (MANDATORY)"
-> **MÉTODO**: Cada afirmación lleva un marcador de certeza. `[CERT]` = verificado leyendo la fuente, con `ruta:línea` o `ruta §sección`. `[CERT-a]` = afirmado por una fuente pero no re-verificado en su origen primario. `[INFER]` = deducción propia, no literal en la fuente.
+> **METHOD**: Each claim carries a certainty marker. `[CERT]` = verified by reading the source, with `path:line` or `path §section`. `[CERT-a]` = asserted by a source but not re-verified in its primary origin. `[INFER]` = my own deduction, not literal in the source.
 
 ---
 
-## 23.1 — Qué es Strict TDD Mode y qué disciplina impone `[CERT]`
+## 23.1 — What Strict TDD Mode is and what discipline it enforces `[CERT]`
 
-Strict TDD Mode es un par de **módulos condicionales** que se cargan SOLO cuando dos condiciones se cumplen a la vez: que el modo esté habilitado Y que exista un test runner `[CERT]` (`strict-tdd.md:3`: "This module is loaded ONLY when Strict TDD Mode is enabled AND a test runner is available"; idéntico en `strict-tdd-verify.md:3`).
+Strict TDD Mode is a pair of **conditional modules** that load ONLY when two conditions are met at the same time: that the mode is enabled AND that a test runner exists `[CERT]` (`strict-tdd.md:3`: "This module is loaded ONLY when Strict TDD Mode is enabled AND a test runner is available"; identical in `strict-tdd-verify.md:3`).
 
-La filosofía no es "testing" sino **diseño de software dirigido por tests**: *"TDD is not testing. TDD is software design driven by tests. You write a test that describes what the code SHOULD do, then write the minimum code to make it real... Code is a side effect of tests."* `[CERT]` (`strict-tdd.md:8`).
+The philosophy is not "testing" but **test-driven software design**: *"TDD is not testing. TDD is software design driven by tests. You write a test that describes what the code SHOULD do, then write the minimum code to make it real... Code is a side effect of tests."* `[CERT]` (`strict-tdd.md:8`).
 
-El modo codifica las **Tres Leyes** de TDD `[CERT]` (`strict-tdd.md:10-14`):
+The mode codifies the **Three Laws** of TDD `[CERT]` (`strict-tdd.md:10-14`):
 
-| # | Ley `[CERT]` |
+| # | Law `[CERT]` |
 |---|--------------|
-| 1 | NO escribir código de producción hasta tener un test que falla |
-| 2 | NO escribir más test del necesario para fallar |
-| 3 | NO escribir más código del necesario para pasar el test |
+| 1 | Do NOT write production code until you have a failing test |
+| 2 | Do NOT write more of a test than is needed to fail |
+| 3 | Do NOT write more code than is needed to pass the test |
 
-**Modelo mental** `[INFER]`: a diferencia del Standard Mode (donde el test puede venir después o no venir), el Strict Mode invierte la causalidad — el test es la causa y el código es el efecto. Esto es estructuralmente verificable: el módulo de verify audita la evidencia que apply produce, cerrando el lazo.
+**Mental model** `[INFER]`: unlike Standard Mode (where the test may come after or not come at all), Strict Mode inverts causality — the test is the cause and the code is the effect. This is structurally verifiable: the verify module audits the evidence apply produces, closing the loop.
 
-## 23.2 — Cómo se activa: init detecta el test runner `[CERT]`
+## 23.2 — How it is activated: init detects the test runner `[CERT]`
 
-El modo no se activa solo; depende de que `sdd-init` haya detectado capacidades de testing. El checklist de detección `[CERT]` (`init-details.md §"Testing Capability Checklist"`):
+The mode does not activate on its own; it depends on `sdd-init` having detected testing capabilities. The detection checklist `[CERT]` (`init-details.md §"Testing Capability Checklist"`):
 
-- **Test runner**: scripts/deps de `package.json`, `pyproject.toml`, `pytest.ini`, `go.mod`, `Cargo.toml`, `Makefile`.
-- **Test layers**: unit runner; librerías de integración (`testing-library`, `httpx`, `httptest`, `WebApplicationFactory`); E2E (`playwright`, `cypress`, `selenium`, `chromedp`).
+- **Test runner**: scripts/deps in `package.json`, `pyproject.toml`, `pytest.ini`, `go.mod`, `Cargo.toml`, `Makefile`.
+- **Test layers**: unit runner; integration libraries (`testing-library`, `httpx`, `httptest`, `WebApplicationFactory`); E2E (`playwright`, `cypress`, `selenium`, `chromedp`).
 - **Coverage**: `vitest --coverage`, `jest --coverage`, `c8`, `pytest-cov`, `go test -cover`, `coverlet`.
 - **Quality**: linter, type checker, formatter.
 
-Init persiste lo detectado en dos memorias `[CERT]` (`init-details.md §"Engram Saves"`):
+Init persists what it detected in two memories `[CERT]` (`init-details.md §"Engram Saves"`):
 
-| topic_key | type | contenido `[CERT]` |
+| topic_key | type | content `[CERT]` |
 |-----------|------|---------|
-| `sdd-init/{project}` | architecture | contexto del proyecto detectado |
-| `sdd/{project}/testing-capabilities` | config | capacidades de testing en markdown |
-| `skill-registry` | config | registry de skills |
+| `sdd-init/{project}` | architecture | detected project context |
+| `sdd/{project}/testing-capabilities` | config | testing capabilities in markdown |
+| `skill-registry` | config | skill registry |
 
-El formato de capacidades incluye el flag explícito **`Strict TDD Mode: {enabled/disabled}`**, el comando del runner, y una tabla de layers Unit/Integration/E2E con su disponibilidad y tool `[CERT]` (`init-details.md §"Testing Capabilities Format"`). Ese `Command: {command}` es el `test_command` que luego consumen los módulos.
+The capabilities format includes the explicit flag **`Strict TDD Mode: {enabled/disabled}`**, the runner command, and a table of Unit/Integration/E2E layers with their availability and tool `[CERT]` (`init-details.md §"Testing Capabilities Format"`). That `Command: {command}` is the `test_command` the modules later consume.
 
-> Nota `[CERT]` (`CLAUDE.md` §"SDD Init Guard"): antes de CUALQUIER comando SDD, el orquestador verifica que init haya corrido para el proyecto (`mem_search "sdd-init/{project}"`). Si no, corre init PRIMERO. Esto garantiza que "Testing capabilities are always detected and cached" y que "Strict TDD Mode is activated when the project supports it". `[CERT]`
+> Note `[CERT]` (`CLAUDE.md` §"SDD Init Guard"): before ANY SDD command, the orchestrator verifies that init has run for the project (`mem_search "sdd-init/{project}"`). If not, it runs init FIRST. This guarantees that "Testing capabilities are always detected and cached" and that "Strict TDD Mode is activated when the project supports it". `[CERT]`
 
-## 23.3 — El forwarding OBLIGATORIO a apply y verify `[CERT]`
+## 23.3 — The MANDATORY forwarding to apply and verify `[CERT]`
 
-El orquestador NO confía en que el sub-agente descubra el modo por su cuenta. El contrato de forwarding es explícito y no negociable `[CERT]` (`CLAUDE.md` §"Strict TDD Forwarding (MANDATORY)"):
+The orchestrator does NOT trust the sub-agent to discover the mode on its own. The forwarding contract is explicit and non-negotiable `[CERT]` (`CLAUDE.md` §"Strict TDD Forwarding (MANDATORY)"):
 
-1. Buscar capacidades: `mem_search(query: "sdd-init/{project}", project: "{project}")`. `[CERT]`
-2. Si el resultado contiene `strict_tdd: true`, agregar al prompt del sub-agente:
+1. Search for capabilities: `mem_search(query: "sdd-init/{project}", project: "{project}")`. `[CERT]`
+2. If the result contains `strict_tdd: true`, add to the sub-agent's prompt:
    > *"STRICT TDD MODE IS ACTIVE. Test runner: {test_command}. You MUST follow strict-tdd.md. Do NOT fall back to Standard Mode."* `[CERT]`
-3. Esto es **NON-NEGOTIABLE**: *"Do not rely on the sub-agent discovering this independently."* `[CERT]`
-4. Si la búsqueda falla o `strict_tdd` no aparece, NO se agrega la instrucción → el sub-agente usa Standard Mode. `[CERT]`
+3. This is **NON-NEGOTIABLE**: *"Do not rely on the sub-agent discovering this independently."* `[CERT]`
+4. If the search fails or `strict_tdd` does not appear, the instruction is NOT added → the sub-agent uses Standard Mode. `[CERT]`
 
-El orquestador resuelve el estado TDD **una vez por sesión** (en el primer launch de apply/verify) y lo cachea `[CERT]` (`CLAUDE.md` §"Strict TDD Forwarding").
+The orchestrator resolves the TDD state **once per session** (on the first apply/verify launch) and caches it `[CERT]` (`CLAUDE.md` §"Strict TDD Forwarding").
 
-**Implicación arquitectónica** `[INFER]`: el modo vive en TRES lugares coordinados — (a) detectado por init y persistido en engram, (b) reenviado por el orquestador en el prompt de delegación, (c) ejecutado por los módulos `strict-tdd.md` / `strict-tdd-verify.md`. El sub-agente recibe contexto fresco sin memoria, por eso el forwarding debe ser explícito: el ejecutor no busca engram por su cuenta para esto. La frase *"the orchestrator already verified both conditions"* (`strict-tdd.md:4`) confirma que el módulo asume que el gate ya pasó aguas arriba.
+**Architectural implication** `[INFER]`: the mode lives in THREE coordinated places — (a) detected by init and persisted in engram, (b) forwarded by the orchestrator in the delegation prompt, (c) executed by the `strict-tdd.md` / `strict-tdd-verify.md` modules. The sub-agent receives fresh context with no memory, which is why the forwarding must be explicit: the executor does not search engram on its own for this. The phrase *"the orchestrator already verified both conditions"* (`strict-tdd.md:4`) confirms that the module assumes the gate already passed upstream.
 
-## 23.4 — El ciclo de implementación TDD que impone apply `[CERT]`
+## 23.4 — The TDD implementation cycle that apply enforces `[CERT]`
 
-Para CADA tarea asignada, el módulo de apply impone un ciclo estricto con **gates** entre fases `[CERT]` (`strict-tdd.md:16-87`):
+For EACH assigned task, the apply module enforces a strict cycle with **gates** between phases `[CERT]` (`strict-tdd.md:16-87`):
 
-| Paso | Nombre | Qué hace `[CERT]` | Gate |
+| Step | Name | What it does `[CERT]` | Gate |
 |------|--------|---------|------|
-| 0 | SAFETY NET | Solo si se modifican archivos existentes: correr tests previos, capturar baseline "{N} tests passing"; si alguno falla → STOP y reportar como "pre-existing failure" (NO arreglarlo) | El baseline prueba que no rompiste lo que ya funcionaba |
-| 1 | UNDERSTAND | Leer tarea, escenarios del spec (= criterios de aceptación), decisiones del design (= constraints), patrones de test existentes; determinar layer | — |
-| 2 | RED | Escribir test(s) que fallan PRIMERO, referenciando código de producción que NO existe aún (eso garantiza el fallo sin ejecutar) | NO avanzar a GREEN hasta que el test esté escrito |
-| 3 | GREEN | Escribir el MÍNIMO código para pasar; "Fake It" (retornos hardcodeados) es VÁLIDO; EJECUTAR tests → deben PASAR; si falla, arreglar la implementación, NO el test | NO avanzar hasta confirmar GREEN por ejecución |
-| 4 | TRIANGULATE | Agregar un segundo caso con inputs/outputs DIFERENTES; si el Fake It se rompe → generalizar a lógica real; MÍNIMO 2 casos por comportamiento | Todos los escenarios del spec deben tener test antes de REFACTOR |
-| 5 | REFACTOR | Mejorar sin cambiar comportamiento (extraer constantes/funciones, eliminar duplicación, Boy Scout Rule); EJECUTAR tests tras CADA paso; si falla → revertir ese paso | Tests verdes tras CADA cambio de refactor |
-| 6 | Marcar tarea `[x]` | — | — |
-| 7 | Anotar desviaciones o issues descubiertos | — | — |
+| 0 | SAFETY NET | Only if existing files are modified: run prior tests, capture the baseline "{N} tests passing"; if any fail → STOP and report as "pre-existing failure" (do NOT fix it) | The baseline proves you did not break what already worked |
+| 1 | UNDERSTAND | Read the task, the spec's scenarios (= acceptance criteria), the design's decisions (= constraints), existing test patterns; determine the layer | — |
+| 2 | RED | Write the failing test(s) FIRST, referencing production code that does NOT exist yet (that guarantees the failure without executing) | Do NOT advance to GREEN until the test is written |
+| 3 | GREEN | Write the MINIMUM code to pass; "Fake It" (hardcoded returns) is VALID; RUN tests → they must PASS; if it fails, fix the implementation, NOT the test | Do NOT advance until GREEN is confirmed by execution |
+| 4 | TRIANGULATE | Add a second case with DIFFERENT inputs/outputs; if the Fake It breaks → generalize to real logic; MINIMUM 2 cases per behavior | All spec scenarios must have a test before REFACTOR |
+| 5 | REFACTOR | Improve without changing behavior (extract constants/functions, eliminate duplication, Boy Scout Rule); RUN tests after EACH step; if it fails → revert that step | Green tests after EACH refactor change |
+| 6 | Mark the task `[x]` | — | — |
+| 7 | Note deviations or discovered issues | — | — |
 
-Detalle crítico de RED `[CERT]` (`strict-tdd.md:39-42`): si la función de producción YA existe, el test debe cubrir el NUEVO comportamiento aún no implementado. La referencia a código inexistente es lo que "guarantees failure — no need to execute to confirm".
+Critical detail of RED `[CERT]` (`strict-tdd.md:39-42`): if the production function ALREADY exists, the test must cover the NEW behavior not yet implemented. The reference to nonexistent code is what "guarantees failure — no need to execute to confirm".
 
-**TRIANGULATE es obligatorio por defecto** `[CERT]` (`strict-tdd.md:53-54`): *"DEFAULT: triangulation is REQUIRED. You need a compelling reason to skip it."* Solo se puede saltar cuando TODO esto es cierto: la tarea es puramente estructural (config/constante/type export), hay literalmente UNA salida posible (sin branching), y se anota "Triangulation skipped: {reason}" en la tabla de evidencia `[CERT]` (`strict-tdd.md:68-71`).
+**TRIANGULATE is mandatory by default** `[CERT]` (`strict-tdd.md:53-54`): *"DEFAULT: triangulation is REQUIRED. You need a compelling reason to skip it."* It can only be skipped when ALL of this is true: the task is purely structural (config/constant/type export), there is literally ONE possible output (no branching), and "Triangulation skipped: {reason}" is noted in the evidence table `[CERT]` (`strict-tdd.md:68-71`).
 
-El módulo advierte contra el **GREEN trivial** `[CERT]` (`strict-tdd.md:63-67`): un test que pasa porque el componente no se renderiza, porque un loop itera 0 veces, o porque el setup no dispara el code path → NO es un GREEN real. Un GREEN real significa "production code RAN and produced the expected output".
+The module warns against the **trivial GREEN** `[CERT]` (`strict-tdd.md:63-67`): a test that passes because the component does not render, because a loop iterates 0 times, or because the setup does not trigger the code path → is NOT a real GREEN. A real GREEN means "production code RAN and produced the expected output".
 
-## 23.5 — Choosing test layer, ejecución y pure functions `[CERT]`
+## 23.5 — Choosing test layer, execution, and pure functions `[CERT]`
 
-**Elección de layer** `[CERT]` (`strict-tdd.md:89-114`): se elige por QUÉ hace la tarea, usando el **layer más alto disponible que encaje**, degradando con gracia si falta tooling pero NUNCA saltando una tarea:
+**Layer choice** `[CERT]` (`strict-tdd.md:89-114`): chosen by WHAT the task does, using the **highest available layer that fits**, degrading gracefully if tooling is missing but NEVER skipping a task:
 
-| Tipo de tarea | Layer ideal `[CERT]` | Degradación |
+| Task type | Ideal layer `[CERT]` | Degradation |
 |---------------|------------|-------------|
-| Lógica pura / utilidad / cálculo / transformación | Unit (siempre disponible si hay runner) | — |
-| Render de componente / interacción / cambios de estado | Integration si hay tools | Unit con mocks |
-| Flujo multi-componente / API / context-provider | Integration si hay tools | Unit con mocks |
-| Flujo de negocio crítico / user journey completo | E2E si hay tools | Integration; si no, Unit |
+| Pure logic / utility / calculation / transformation | Unit (always available if there is a runner) | — |
+| Component render / interaction / state changes | Integration if tools exist | Unit with mocks |
+| Multi-component flow / API / context-provider | Integration if tools exist | Unit with mocks |
+| Critical business flow / full user journey | E2E if tools exist | Integration; if not, Unit |
 
-**Ejecución de tests** `[CERT]` (`strict-tdd.md:117-134`): el comando se lee de las capacidades cacheadas (`test_runner.command`), con override en `openspec/config.yaml → rules.apply.test_command`, y fallback a detección desde `package.json`/`pyproject.toml`/`go.mod`. Durante el ciclo se corre **SOLO el archivo de test relevante**, no la suite completa (eso mantiene el ciclo rápido); la suite completa corre en `sdd-verify`, no aquí `[CERT]` (`strict-tdd.md:132-133`).
+**Test execution** `[CERT]` (`strict-tdd.md:117-134`): the command is read from the cached capabilities (`test_runner.command`), with an override in `openspec/config.yaml → rules.apply.test_command`, and fallback to detection from `package.json`/`pyproject.toml`/`go.mod`. During the cycle, **ONLY the relevant test file** is run, not the full suite (that keeps the cycle fast); the full suite runs in `sdd-verify`, not here `[CERT]` (`strict-tdd.md:132-133`).
 
-**Preferencia por funciones puras** `[CERT]` (`strict-tdd.md:136-154`): al escribir código en GREEN/TRIANGULATE se prefieren funciones puras (determinísticas, sin side effects, triviales de testear). El módulo da una excepción explícita: "don't force it where it doesn't fit (e.g., React components with state)" (`strict-tdd.md:362`).
+**Preference for pure functions** `[CERT]` (`strict-tdd.md:136-154`): when writing code in GREEN/TRIANGULATE, pure functions are preferred (deterministic, no side effects, trivial to test). The module gives an explicit exception: "don't force it where it doesn't fit (e.g., React components with state)" (`strict-tdd.md:362`).
 
-**Approval testing** `[CERT]` (`strict-tdd.md:156-176`): para tareas de REFACTOR de código existente, ANTES de tocar producción se escriben "approval tests" que capturan el comportamiento actual (incluso si es feo o incorrecto), se corren en verde, se refactoriza, y se vuelven a correr; si el spec dice que el comportamiento DEBE cambiar, se actualiza el approval test a RED y se implementa.
+**Approval testing** `[CERT]` (`strict-tdd.md:156-176`): for REFACTOR tasks on existing code, BEFORE touching production you write "approval tests" that capture the current behavior (even if it is ugly or incorrect), run them green, refactor, and run them again; if the spec says the behavior MUST change, the approval test is updated to RED and implemented.
 
-## 23.6 — La evidencia que apply DEBE devolver `[CERT]`
+## 23.6 — The evidence that apply MUST return `[CERT]`
 
-Con Strict TDD activo, el summary de retorno DEBE incluir una **tabla de TDD Cycle Evidence** `[CERT]` (`strict-tdd.md:180-203`):
+With Strict TDD active, the return summary MUST include a **TDD Cycle Evidence table** `[CERT]` (`strict-tdd.md:180-203`):
 
-| Columna | Significado `[CERT]` (`strict-tdd.md:198-203`) |
+| Column | Meaning `[CERT]` (`strict-tdd.md:198-203`) |
 |---------|------------|
-| Safety Net | Tests previos corridos antes de modificar; "N/A (new)" para archivos nuevos |
-| RED | Test escrito primero, referenciando código inexistente. Siempre "✅ Written" |
-| GREEN | Tests ejecutados y pasando tras implementación mínima. Debe mostrar resultado de ejecución |
-| TRIANGULATE | Casos adicionales para forzar lógica real. "➖ Single" si el spec tiene un solo escenario |
-| REFACTOR | Código mejorado con tests aún verdes. "➖ None needed" si ya estaba limpio |
+| Safety Net | Prior tests run before modifying; "N/A (new)" for new files |
+| RED | Test written first, referencing nonexistent code. Always "✅ Written" |
+| GREEN | Tests executed and passing after minimal implementation. Must show the execution result |
+| TRIANGULATE | Additional cases to force real logic. "➖ Single" if the spec has a single scenario |
+| REFACTOR | Code improved with tests still green. "➖ None needed" if it was already clean |
 
-Más un **Test Summary** con totales: tests escritos/pasando, layers usados, approval tests, funciones puras creadas `[CERT]` (`strict-tdd.md:190-196`). Esta tabla es el artefacto primario que la fase de verify audita (§23.7).
+Plus a **Test Summary** with totals: tests written/passing, layers used, approval tests, pure functions created `[CERT]` (`strict-tdd.md:190-196`). This table is the primary artifact the verify phase audits (§23.7).
 
-## 23.7 — Lo que NO permite: aserciones triviales y el audit de verify `[CERT]`
+## 23.7 — What it does NOT allow: trivial assertions and the verify audit `[CERT]`
 
-El módulo de apply prohíbe aserciones que pasan sin ejercitar producción — *"A test that passes without exercising production logic is worse than no test — it gives false confidence."* `[CERT]` (`strict-tdd.md:207`). Patrones **BANEADOS** `[CERT]` (`strict-tdd.md:209-246`): tautologías (`expect(true).toBe(true)`), empty-collection sin contexto de setup, type-only (`toBeDefined()`/`not.toBeNull()` solas), **ghost loops** (aserciones dentro de un loop que itera 0 veces — código muerto), y ciclo TDD incompleto (GREEN sin TRIANGULATE).
+The apply module prohibits assertions that pass without exercising production — *"A test that passes without exercising production logic is worse than no test — it gives false confidence."* `[CERT]` (`strict-tdd.md:207`). **BANNED** patterns `[CERT]` (`strict-tdd.md:209-246`): tautologies (`expect(true).toBe(true)`), empty-collection without setup context, type-only (`toBeDefined()`/`not.toBeNull()` alone), **ghost loops** (assertions inside a loop that iterates 0 times — dead code), and incomplete TDD cycle (GREEN without TRIANGULATE).
 
-Una aserción REAL debe cumplir las tres `[CERT]` (`strict-tdd.md:248-262`): (1) llama código de producción, (2) asevera un output específico derivado del spec, (3) FALLARÍA si la implementación estuviera mal. Reglas adicionales: **Mock Hygiene** (≤3 mocks sano; 7+ → testeando en el layer equivocado, `strict-tdd.md:291-302`), **Extract-Before-Mock** (extraer transformación a función pura antes de mockear), y **Implementation Detail Coupling** (las aserciones sobre clases CSS, estado interno o conteo de mocks NUNCA son válidas; "CSS class assertions are NEVER valid test assertions", `strict-tdd.md:347`).
+A REAL assertion must meet all three `[CERT]` (`strict-tdd.md:248-262`): (1) it calls production code, (2) it asserts a specific output derived from the spec, (3) it WOULD FAIL if the implementation were wrong. Additional rules: **Mock Hygiene** (≤3 mocks is healthy; 7+ → testing at the wrong layer, `strict-tdd.md:291-302`), **Extract-Before-Mock** (extract the transformation to a pure function before mocking), and **Implementation Detail Coupling** (assertions about CSS classes, internal state, or mock counts are NEVER valid; "CSS class assertions are NEVER valid test assertions", `strict-tdd.md:347`).
 
-El módulo de **verify** cierra el lazo. Su filosofía: pasar de "does the code work?" a "was the code built correctly? — meaning: was TDD actually followed?" `[CERT]` (`strict-tdd-verify.md:8`). Pasos clave:
+The **verify** module closes the loop. Its philosophy: move from "does the code work?" to "was the code built correctly? — meaning: was TDD actually followed?" `[CERT]` (`strict-tdd-verify.md:8`). Key steps:
 
-| Paso | Qué valida `[CERT]` |
+| Step | What it validates `[CERT]` |
 |------|------------|
-| 5a — TDD Compliance Check | Lee la tabla de evidencia del `apply-progress`; por cada fila verifica RED (el test file EXISTE → CRITICAL si no), GREEN (cruza con ejecución del paso 5b → CRITICAL si falla ahora), TRIANGULATE (verifica N casos en el archivo), SAFETY NET. Si NO hay tabla → CRITICAL: "Strict TDD was enabled but apply did not follow the protocol" (`strict-tdd-verify.md:43-46`) |
-| 5 expandido — Test Layer Validation | Clasifica cada test file en Unit/Integration/E2E por indicadores; cruza con capacidades; SUGGESTION si lógica de negocio crítica solo tiene unit tests |
-| 5d — Changed File Coverage | Si hay tool de coverage: reporta % por archivo CAMBIADO con líneas no cubiertas; WARNING si <80% |
-| 5e — Quality Metrics | Linter / type checker solo en archivos cambiados, solo si hay tools |
-| 5f — **Assertion Quality Audit (MANDATORY)** | Escanea TODOS los test files por patrones baneados; CRITICAL para tautologías, aserciones sin llamada a producción, y ghost loops; WARNING para empty sin companion, smoke-test-only, coupling a implementación, y mock-heavy (mocks > 2× aserciones) |
+| 5a — TDD Compliance Check | Reads the evidence table from `apply-progress`; for each row it verifies RED (the test file EXISTS → CRITICAL if not), GREEN (cross-checks with step 5b execution → CRITICAL if it fails now), TRIANGULATE (verifies N cases in the file), SAFETY NET. If there is NO table → CRITICAL: "Strict TDD was enabled but apply did not follow the protocol" (`strict-tdd-verify.md:43-46`) |
+| 5 expanded — Test Layer Validation | Classifies each test file as Unit/Integration/E2E by indicators; cross-checks with capabilities; SUGGESTION if critical business logic only has unit tests |
+| 5d — Changed File Coverage | If a coverage tool exists: reports % per CHANGED file with uncovered lines; WARNING if <80% |
+| 5e — Quality Metrics | Linter / type checker only on changed files, only if tools exist |
+| 5f — **Assertion Quality Audit (MANDATORY)** | Scans ALL test files for banned patterns; CRITICAL for tautologies, assertions without a production call, and ghost loops; WARNING for empty without companion, smoke-test-only, implementation coupling, and mock-heavy (mocks > 2× assertions) |
 
-Reglas terminales de verify `[CERT]` (`strict-tdd-verify.md:259-269`): coverage y quality metrics son informativas, NUNCA bloqueantes (solo WARNING); las tautologías son CRITICAL y DEBEN reescribirse; **el verify NO arregla nada — solo reporta; el orquestador decide** ("DO NOT fix issues — only report").
+Terminal rules of verify `[CERT]` (`strict-tdd-verify.md:259-269`): coverage and quality metrics are informative, NEVER blocking (only WARNING); tautologies are CRITICAL and MUST be rewritten; **verify fixes nothing — it only reports; the orchestrator decides** ("DO NOT fix issues — only report").
 
-**Modelo mental del lazo apply↔verify** `[INFER]`: apply produce evidencia estructurada (la tabla), verify la audita cruzándola contra la realidad ("don't trust the report blindly", `strict-tdd-verify.md:262`). Es un sistema de afirmación-y-verificación: apply declara, verify desconfía y re-ejecuta. Esto vuelve el "se siguió TDD" una propiedad auditable, no una promesa.
+**Mental model of the apply↔verify loop** `[INFER]`: apply produces structured evidence (the table), verify audits it by cross-checking it against reality ("don't trust the report blindly", `strict-tdd-verify.md:262`). It is an assert-and-verify system: apply declares, verify distrusts and re-executes. This makes "TDD was followed" an auditable property, not a promise.
 
-## 23.8 — Conexiones
+## 23.8 — Connections
 
-- **[Bloque 4] — sdd-init**: la activación de Strict TDD nace en init, que detecta el test runner y persiste `testing-capabilities` con el flag `strict_tdd` y el `test_command`. Sin esa detección, el orquestador no puede hacer forwarding (§23.2-23.3). El SDD Init Guard garantiza que init corrió antes de cualquier apply/verify.
-- **[Bloque 10] — sdd-apply**: el módulo `strict-tdd.md` es una EXTENSIÓN condicional de la fase apply. Cuando el modo está activo, el ciclo red-green-refactor (§23.4) reemplaza al flujo de implementación estándar y agrega la tabla de TDD Cycle Evidence al Result Contract de apply.
-- **[Bloque 11] — sdd-verify**: el módulo `strict-tdd-verify.md` agrega a la fase verify los pasos 5a/5f que auditan la evidencia de apply (§23.7). Las severidades CRITICAL/WARNING/SUGGESTION que verify emite (ver [Bloque 11]) se nutren aquí del Assertion Quality Audit.
-- **[Bloque 18] — delegación y forwarding**: el forwarding obligatorio de §23.3 es un caso concreto del Sub-Agent Context Protocol — el orquestador (no el sub-agente) busca engram y reenvía el modo en el prompt, porque el ejecutor recibe contexto fresco sin memoria.
-- **[Bloque 3] — backends y topic keys**: las capacidades viven en `sdd/{project}/testing-capabilities` y el progreso en `sdd/{change-name}/apply-progress`, el artefacto que verify lee para el TDD Compliance Check.
+- **[Block 4] — sdd-init**: the activation of Strict TDD is born in init, which detects the test runner and persists `testing-capabilities` with the `strict_tdd` flag and the `test_command`. Without that detection, the orchestrator cannot do forwarding (§23.2-23.3). The SDD Init Guard guarantees init ran before any apply/verify.
+- **[Block 10] — sdd-apply**: the `strict-tdd.md` module is a conditional EXTENSION of the apply phase. When the mode is active, the red-green-refactor cycle (§23.4) replaces the standard implementation flow and adds the TDD Cycle Evidence table to apply's Result Contract.
+- **[Block 11] — sdd-verify**: the `strict-tdd-verify.md` module adds steps 5a/5f to the verify phase, auditing apply's evidence (§23.7). The CRITICAL/WARNING/SUGGESTION severities that verify emits (see [Block 11]) are fed here by the Assertion Quality Audit.
+- **[Block 18] — delegation and forwarding**: the mandatory forwarding of §23.3 is a concrete case of the Sub-Agent Context Protocol — the orchestrator (not the sub-agent) searches engram and forwards the mode in the prompt, because the executor receives fresh context with no memory.
+- **[Block 3] — backends and topic keys**: the capabilities live in `sdd/{project}/testing-capabilities` and the progress in `sdd/{change-name}/apply-progress`, the artifact verify reads for the TDD Compliance Check.

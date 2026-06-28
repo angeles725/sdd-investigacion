@@ -1,142 +1,142 @@
-# Bloque 7 — Fase `sdd-spec`
+# Block 7 — `sdd-spec` Phase
 
-> **Qué documenta:** la fase de especificación del sistema SDD de gentle-ai — toma el proposal y produce delta specs: requisitos con keywords RFC 2119 y escenarios Given/When/Then que describen qué se ADDED/MODIFIED/REMOVED/RENAMED del comportamiento del sistema. Describe el QUÉ, nunca el CÓMO.
-> **Alcance:** propósito, qué lee / qué escribe, inputs, los 6 pasos, el workflow crítico de MODIFIED Requirements (copy-full-then-edit), formato delta vs spec completo, Result Contract, modelo `sonnet`, gotchas (budget 650 palabras, RFC 2119).
-> **Fuentes exactas leídas:**
-> - `/home/cristian/.config/opencode/skills/sdd-spec/SKILL.md` (contrato runtime — primaria)
-> - `/home/cristian/.claude/agents/sdd-spec.md` (definición del sub-agente: tools, modelo)
-> - `/home/cristian/.config/opencode/prompts/sdd/sdd-spec.md` (prompt canónico — idéntico al SKILL.md)
-> - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md` (protocolo común)
-> - (NO existe `commands/sdd-spec.md` — se invoca vía meta-comandos `[CERT]` `ls commands/`)
-> **Método + leyenda de marcadores:**
-> - `[CERT]` = verificado leyendo el archivo, cita `ruta:línea` o `ruta §sección`.
-> - `[CERT-a]` = afirmado por una fuente, no re-verificado.
-> - `[INFER]` = deducción propia.
+> **What it documents:** the specification phase of gentle-ai's SDD system — it takes the proposal and produces delta specs: requirements with RFC 2119 keywords and Given/When/Then scenarios that describe what is ADDED/MODIFIED/REMOVED/RENAMED from the system behavior. It describes the WHAT, never the HOW.
+> **Scope:** purpose, what it reads / what it writes, inputs, the 6 steps, the critical MODIFIED Requirements workflow (copy-full-then-edit), delta vs full spec format, Result Contract, `sonnet` model, gotchas (650-word budget, RFC 2119).
+> **Exact sources read:**
+> - `/home/cristian/.config/opencode/skills/sdd-spec/SKILL.md` (runtime contract — primary)
+> - `/home/cristian/.claude/agents/sdd-spec.md` (sub-agent definition: tools, model)
+> - `/home/cristian/.config/opencode/prompts/sdd/sdd-spec.md` (canonical prompt — identical to SKILL.md)
+> - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md` (common protocol)
+> - (NO `commands/sdd-spec.md` exists — it is invoked via meta-commands `[CERT]` `ls commands/`)
+> **Method + marker legend:**
+> - `[CERT]` = verified by reading the file, `path:line` or `path §section` citation.
+> - `[CERT-a]` = asserted by a source, not re-verified.
+> - `[INFER]` = my own deduction.
 
 ---
 
-## 7.1 — Propósito y posición en el DAG `[CERT]`
+## 7.1 — Purpose and position in the DAG `[CERT]`
 
-`sdd-spec` toma el proposal y produce **delta specs**: requisitos estructurados y escenarios que describen qué se está ADDED, MODIFIED, REMOVED o RENAMED del comportamiento del sistema `[CERT]` `SKILL.md:32-34`. En el DAG depende del proposal y alimenta a tasks: `proposal → spec → tasks` (con design como dependencia paralela de tasks) `[CERT]` `agents/sdd-spec.md:42`.
+`sdd-spec` takes the proposal and produces **delta specs**: structured requirements and scenarios that describe what is being ADDED, MODIFIED, REMOVED or RENAMED from the system behavior `[CERT]` `SKILL.md:32-34`. In the DAG it depends on the proposal and feeds tasks: `proposal → spec → tasks` (with design as a parallel dependency of tasks) `[CERT]` `agents/sdd-spec.md:42`.
 
-Principio rector `[CERT]` `SKILL.md:238`: *"DO NOT include implementation details in specs — specs describe WHAT, not HOW."* La separación QUÉ/CÓMO es el límite entre spec (este bloque) y design ([Bloque 8]).
+Guiding principle `[CERT]` `SKILL.md:238`: *"DO NOT include implementation details in specs — specs describe WHAT, not HOW."* The WHAT/HOW separation is the boundary between spec (this block) and design ([Block 8]).
 
-Es EXECUTOR `[CERT]` `agents/sdd-spec.md:10-11`. Mismo gate orquestador/executor `[CERT]` `SKILL.md:13-21`. **No tiene comando directo `[CERT]`** — se orquesta vía meta-comandos.
+It is an EXECUTOR `[CERT]` `agents/sdd-spec.md:10-11`. Same orchestrator/executor gate `[CERT]` `SKILL.md:13-21`. **It has no direct command `[CERT]`** — it is orchestrated via meta-commands.
 
-## 7.2 — Qué lee y qué escribe `[CERT]`
+## 7.2 — What it reads and what it writes `[CERT]`
 
-| Acción | Recurso | Topic key / ruta | Obligatoriedad |
+| Action | Resource | Topic key / path | Obligation |
 |---|---|---|---|
-| LEE | Propuesta | `sdd/{change-name}/proposal` | **requerido** `[CERT]` `SKILL.md:46`, `agents/sdd-spec.md:19` |
-| LEE | (openspec) specs existentes del dominio | `openspec/specs/{domain}/spec.md` | condicional al modo `[CERT]` `SKILL.md:72-74` |
-| ESCRIBE | Delta specs / spec completo | `sdd/{change-name}/spec` (Engram, concatenado) / `openspec/changes/{change-name}/specs/{domain}/spec.md` | **requerido** `[CERT]` `SKILL.md:46,196-202` |
+| READS | Proposal | `sdd/{change-name}/proposal` | **required** `[CERT]` `SKILL.md:46`, `agents/sdd-spec.md:19` |
+| READS | (openspec) existing domain specs | `openspec/specs/{domain}/spec.md` | conditional on the mode `[CERT]` `SKILL.md:72-74` |
+| WRITES | Delta specs / full spec | `sdd/{change-name}/spec` (Engram, concatenated) / `openspec/changes/{change-name}/specs/{domain}/spec.md` | **required** `[CERT]` `SKILL.md:46,196-202` |
 
-**Input requerido `[CERT]`:** el proposal es dependencia **dura** — `agents/sdd-spec.md:19` instruye `mem_search("sdd/{change-name}/proposal") → mem_get_observation`. Sin proposal no hay spec.
+**Required input `[CERT]`:** the proposal is a **hard** dependency — `agents/sdd-spec.md:19` instructs `mem_search("sdd/{change-name}/proposal") → mem_get_observation`. Without a proposal there is no spec.
 
-En Engram, si los specs abarcan múltiples dominios, se **concatenan en un único artefacto** con headers por dominio `[CERT]` `SKILL.md:46`. En openspec/hybrid se escriben archivos por dominio `[CERT]` `SKILL.md:48`. Save con `type: architecture` `[CERT]` `SKILL.md:202`.
+In Engram, if the specs span multiple domains, they are **concatenated into a single artifact** with per-domain headers `[CERT]` `SKILL.md:46`. In openspec/hybrid, per-domain files are written `[CERT]` `SKILL.md:48`. Save with `type: architecture` `[CERT]` `SKILL.md:202`.
 
-## 7.3 — Identificar dominios desde Capabilities (Step 2) `[CERT]`
+## 7.3 — Identify domains from Capabilities (Step 2) `[CERT]`
 
-El paso 2 lee la **Capabilities section** del proposal como contrato primario `[CERT]` `SKILL.md:56-70`:
+Step 2 reads the proposal's **Capabilities section** as the primary contract `[CERT]` `SKILL.md:56-70`:
 
 ```
 FOR EACH "New Capabilities":
 ├── NEW full spec: openspec/specs/<capability-name>/spec.md
-└── spec completo (no delta) — no hay comportamiento previo
+└── full spec (not delta) — there is no previous behavior
 
 FOR EACH "Modified Capabilities":
 ├── DELTA spec: openspec/changes/{change-name}/specs/<capability-name>/spec.md
-└── leer openspec/specs/<capability-name>/spec.md primero — el delta lo modifica
+└── read openspec/specs/<capability-name>/spec.md first — the delta modifies it
 ```
 
-Fallback `[CERT]` `SKILL.md:70`: si el proposal no tiene Capabilities (formato viejo), inferir desde "Affected Areas" — pero siempre preferir el mapeo explícito de Capabilities. Esto cierra el contrato proposal→spec descrito en [Bloque 6 §6.4].
+Fallback `[CERT]` `SKILL.md:70`: if the proposal has no Capabilities (old format), infer from "Affected Areas" — but always prefer the explicit Capabilities mapping. This closes the proposal→spec contract described in [Block 6 §6.4].
 
-## 7.4 — Workflow crítico de MODIFIED Requirements `[CERT]`
+## 7.4 — Critical MODIFIED Requirements workflow `[CERT]`
 
-El gotcha más importante de spec. Al escribir una sección `## MODIFIED Requirements`, seguir EXACTAMENTE `[CERT]` `SKILL.md:94-110`:
+The most important gotcha of spec. When writing a `## MODIFIED Requirements` section, follow EXACTLY `[CERT]` `SKILL.md:94-110`:
 
 ```
-1. Localizar el requirement en openspec/specs/{domain}/spec.md
-2. COPIAR el bloque ENTERO — desde `### Requirement:` a TODOS sus scenarios
-3. PEGAR bajo `## MODIFIED Requirements`
-4. EDITAR la copia para reflejar el nuevo comportamiento
-5. Agregar "(Previously: {resumen de una línea de lo que cambió})"
+1. Locate the requirement in openspec/specs/{domain}/spec.md
+2. COPY the ENTIRE block — from `### Requirement:` to ALL its scenarios
+3. PASTE under `## MODIFIED Requirements`
+4. EDIT the copy to reflect the new behavior
+5. Add "(Previously: {one-line summary of what changed})"
 ```
 
-**Por qué copy-full-then-edit `[CERT]` `SKILL.md:105-109`:** el archive step REEMPLAZA el requirement en los main specs con tu bloque MODIFIED. Si tu bloque es parcial, el archive **pierde los scenarios que no copiaste**. Pitfall común: escribir solo el scenario que cambió y perder el resto. Si agregás comportamiento NUEVO sin cambiar el existente → usar ADDED, no MODIFIED.
+**Why copy-full-then-edit `[CERT]` `SKILL.md:105-109`:** the archive step REPLACES the requirement in the main specs with your MODIFIED block. If your block is partial, the archive **loses the scenarios you did not copy**. Common pitfall: writing only the scenario that changed and losing the rest. If you ADD NEW behavior without changing the existing → use ADDED, not MODIFIED.
 
-Esta regla conecta directamente con [Bloque 12] (archive): la integridad del spec MODIFIED determina que el archive no destruya comportamiento. Reforzado en Rules `[CERT]` `SKILL.md:239` (*"Partial MODIFIED blocks lose content at archive time"*).
+This rule connects directly with [Block 12] (archive): the integrity of the MODIFIED spec determines that the archive does not destroy behavior. Reinforced in Rules `[CERT]` `SKILL.md:239` (*"Partial MODIFIED blocks lose content at archive time"*).
 
-## 7.5 — Formato delta vs spec completo `[CERT]`
+## 7.5 — Delta vs full spec format `[CERT]`
 
-**Delta spec** (dominio existente) `[CERT]` `SKILL.md:112-170` — cuatro secciones:
+**Delta spec** (existing domain) `[CERT]` `SKILL.md:112-170` — four sections:
 
-- `## ADDED Requirements` — requisitos nuevos con scenarios happy path + edge case.
-- `## MODIFIED Requirements` — bloque completo editado + `(Previously: ...)`.
-- `## REMOVED Requirements` — con `(Reason: ...)` y `(Migration: ...)`.
+- `## ADDED Requirements` — new requirements with happy path + edge case scenarios.
+- `## MODIFIED Requirements` — full edited block + `(Previously: ...)`.
+- `## REMOVED Requirements` — with `(Reason: ...)` and `(Migration: ...)`.
 - `## RENAMED Requirements` — `{Old Name} → {New Name}` + Reason + Migration.
 
-**Spec completo** (dominio nuevo, sin spec previo) `[CERT]` `SKILL.md:172-194`: `# {Domain} Specification` con `## Purpose` y `## Requirements`.
+**Full spec** (new domain, no previous spec) `[CERT]` `SKILL.md:172-194`: `# {Domain} Specification` with `## Purpose` and `## Requirements`.
 
-Estructura de cada requirement `[CERT]` `SKILL.md:119-136`: descripción con keyword RFC 2119, seguida de uno o más `#### Scenario:` en formato Given/When/Then/And.
+Structure of each requirement `[CERT]` `SKILL.md:119-136`: description with an RFC 2119 keyword, followed by one or more `#### Scenario:` in Given/When/Then/And format.
 
-## 7.6 — RFC 2119 y testabilidad `[CERT]`
+## 7.6 — RFC 2119 and testability `[CERT]`
 
-Reglas duras de estilo `[CERT]` `SKILL.md:230-237`:
+Hard style rules `[CERT]` `SKILL.md:230-237`:
 
-- SIEMPRE usar Given/When/Then para scenarios.
-- SIEMPRE usar keywords RFC 2119 (MUST/SHALL/SHOULD/MAY) para la fuerza del requisito.
-- Cada requirement DEBE tener al menos UN scenario.
-- Incluir happy path **Y** edge case.
-- Scenarios TESTABLES — alguien debería poder escribir un test automatizado de cada uno.
+- ALWAYS use Given/When/Then for scenarios.
+- ALWAYS use RFC 2119 keywords (MUST/SHALL/SHOULD/MAY) for the requirement's strength.
+- Each requirement MUST have at least ONE scenario.
+- Include happy path **AND** edge case.
+- TESTABLE scenarios — someone should be able to write an automated test of each one.
 
-Quick reference RFC 2119 `[CERT]` `SKILL.md:247-255`: MUST/SHALL = requisito absoluto; MUST NOT/SHALL NOT = prohibición absoluta; SHOULD/SHOULD NOT = recomendado/no recomendado con justificación; MAY = opcional.
+RFC 2119 quick reference `[CERT]` `SKILL.md:247-255`: MUST/SHALL = absolute requirement; MUST NOT/SHALL NOT = absolute prohibition; SHOULD/SHOULD NOT = recommended/not recommended with justification; MAY = optional.
 
-La exigencia de testabilidad es el puente hacia Strict TDD: si cada scenario es testable, `sdd-apply`/`sdd-verify` pueden derivar tests de ellos `[INFER]` (ver [Bloque 23]).
+The testability requirement is the bridge to Strict TDD: if each scenario is testable, `sdd-apply`/`sdd-verify` can derive tests from them `[INFER]` (see [Block 23]).
 
-## 7.7 — Los 6 pasos + Result Contract `[CERT]`
+## 7.7 — The 6 steps + Result Contract `[CERT]`
 
-Pasos `[CERT]` `SKILL.md:51-226`: Step 1 (load skills) → Step 2 (identificar dominios desde Capabilities) → Step 3 (leer specs existentes) → Step 4 (escribir delta specs / spec completo) → Step 5 (persistir, MANDATORIO) → Step 6 (return summary con tabla Domain/Type/Requirements/Scenarios + Coverage).
+Steps `[CERT]` `SKILL.md:51-226`: Step 1 (load skills) → Step 2 (identify domains from Capabilities) → Step 3 (read existing specs) → Step 4 (write delta specs / full spec) → Step 5 (persist, MANDATORY) → Step 6 (return summary with Domain/Type/Requirements/Scenarios table + Coverage).
 
 Result Contract `[CERT]` `agents/sdd-spec.md:38-44`:
 
-| Campo | Valores / contenido |
+| Field | Values / content |
 |---|---|
 | `status` | `done` \| `blocked` \| `partial` |
-| `executive_summary` | una frase del alcance del spec |
+| `executive_summary` | one sentence of the spec's scope |
 | `artifacts` | topic_keys/paths (`sdd/{change-name}/spec`) |
-| `next_recommended` | `sdd-tasks` (después de que design también esté listo) |
-| `risks` | ambigüedades del proposal que forzaron assumptions a nivel spec |
-| `skill_resolution` | `paths-injected` o `none` |
+| `next_recommended` | `sdd-tasks` (after design is also ready) |
+| `risks` | proposal ambiguities that forced spec-level assumptions |
+| `skill_resolution` | `paths-injected` or `none` |
 
-El return summary del SKILL adicionalmente reporta Coverage (happy/edge/error) `[CERT]` `SKILL.md:218-222`. Misma discrepancia `status` (`done` vs `success` común).
+The SKILL's return summary additionally reports Coverage (happy/edge/error) `[CERT]` `SKILL.md:218-222`. Same `status` discrepancy (`done` vs common `success`).
 
-`next_recommended: sdd-tasks` está condicionado a que design también esté listo `[CERT]` `agents/sdd-spec.md:42` — tasks necesita spec **y** design.
+`next_recommended: sdd-tasks` is conditioned on design also being ready `[CERT]` `agents/sdd-spec.md:42` — tasks needs spec **and** design.
 
-## 7.8 — Modelo asignado: `sonnet` `[CERT]`
+## 7.8 — Assigned model: `sonnet` `[CERT]`
 
-`model: sonnet` `[CERT]` `agents/sdd-spec.md:6`. Justificación de la tabla: *"sdd-spec | sonnet | Structured writing"* `[CERT-a]` (CLAUDE.md, Model Assignments). Razonamiento `[INFER]`: spec es **escritura estructurada**, no decisión arquitectónica — las decisiones ya las tomó propose (opus) y las tomará design (opus). spec traduce el QUÉ del proposal a requisitos formales testables siguiendo plantillas estrictas (RFC 2119, Given/When/Then), tarea que sonnet ejecuta con fidelidad.
+`model: sonnet` `[CERT]` `agents/sdd-spec.md:6`. Table justification: *"sdd-spec | sonnet | Structured writing"* `[CERT-a]` (CLAUDE.md, Model Assignments). Reasoning `[INFER]`: spec is **structured writing**, not an architectural decision — the decisions were already made by propose (opus) and will be made by design (opus). spec translates the proposal's WHAT into formal testable requirements following strict templates (RFC 2119, Given/When/Then), a task sonnet executes faithfully.
 
 Tools `[CERT]` `agents/sdd-spec.md:7`: `Read, Edit, Write, Grep, Glob` + `mem_search, mem_get_observation, mem_save`.
 
-## 7.9 — Gotchas y reglas especiales `[CERT]`
+## 7.9 — Gotchas and special rules `[CERT]`
 
-- **Size budget 650 palabras `[CERT]` `SKILL.md:244`:** preferir tablas de requisitos sobre narrativa; cada scenario 3-5 líneas máx.
-- **MODIFIED = bloque completo `[CERT]` `SKILL.md:239`:** la regla copy-full-then-edit de §7.4; bloques MODIFIED parciales pierden contenido en archive.
-- **ADDED vs MODIFIED `[CERT]` `SKILL.md:240`:** comportamiento nuevo sin cambiar lo existente → ADDED, no MODIFIED.
-- **REMOVED/RENAMED `[CERT]` `SKILL.md:241-242`:** REMOVED debe incluir Reason y debería incluir Migration cuando hay consumers/docs/tests afectados; RENAMED debe declarar ambos nombres.
-- **`rules.specs` `[CERT]` `SKILL.md:243`:** aplicar reglas de `openspec/config.yaml`.
-- **WHAT no HOW `[CERT]` `SKILL.md:238`:** sin detalles de implementación.
+- **650-word size budget `[CERT]` `SKILL.md:244`:** prefer requirement tables over narrative; each scenario 3-5 lines max.
+- **MODIFIED = full block `[CERT]` `SKILL.md:239`:** the copy-full-then-edit rule of §7.4; partial MODIFIED blocks lose content at archive.
+- **ADDED vs MODIFIED `[CERT]` `SKILL.md:240`:** new behavior without changing the existing → ADDED, not MODIFIED.
+- **REMOVED/RENAMED `[CERT]` `SKILL.md:241-242`:** REMOVED must include Reason and should include Migration when there are affected consumers/docs/tests; RENAMED must declare both names.
+- **`rules.specs` `[CERT]` `SKILL.md:243`:** apply rules from `openspec/config.yaml`.
+- **WHAT not HOW `[CERT]` `SKILL.md:238`:** no implementation details.
 
 ---
 
-## 7.10 — Conexiones
+## 7.10 — Connections
 
-- **[Bloque 6] (`sdd-propose`):** predecesor y dependencia **requerida**. spec lee `sdd/{change-name}/proposal` y consume su sección Capabilities como contrato para decidir qué specs crear (`SKILL.md:56-70`).
-- **[Bloque 8] (`sdd-design`):** par paralelo. Ambos dependen del proposal; design lee el spec opcionalmente (`sdd/{change-name}/spec`). spec describe el QUÉ, design el CÓMO — frontera explícita en `SKILL.md:238`.
-- **[Bloque 9] (`sdd-tasks`):** sucesor. tasks requiere spec **y** design listos; `next_recommended: sdd-tasks` condicionado a design `[CERT]` `agents/sdd-spec.md:42`.
-- **[Bloque 12] (`sdd-archive`):** el archive REEMPLAZA requirements en main specs con los bloques MODIFIED del spec — de ahí la criticidad del workflow copy-full-then-edit (§7.4).
-- **[Bloque 2] (DAG + Result Contract):** envelope estándar con discrepancia `status`.
-- **[Bloque 3 / Bloque 19] (backends + persistencia):** topic key `sdd/{change-name}/spec`; en Engram un único artefacto concatenado multi-dominio.
-- **[Bloque 18] (delegación + models):** `sonnet` por escritura estructurada.
-- **[Bloque 23] (strict-TDD):** los scenarios testables Given/When/Then son la base que apply/verify usan para derivar y validar tests.
+- **[Block 6] (`sdd-propose`):** predecessor and **required** dependency. spec reads `sdd/{change-name}/proposal` and consumes its Capabilities section as a contract to decide which specs to create (`SKILL.md:56-70`).
+- **[Block 8] (`sdd-design`):** parallel pair. Both depend on the proposal; design reads the spec optionally (`sdd/{change-name}/spec`). spec describes the WHAT, design the HOW — explicit boundary in `SKILL.md:238`.
+- **[Block 9] (`sdd-tasks`):** successor. tasks requires spec **and** design ready; `next_recommended: sdd-tasks` conditioned on design `[CERT]` `agents/sdd-spec.md:42`.
+- **[Block 12] (`sdd-archive`):** the archive REPLACES requirements in the main specs with the spec's MODIFIED blocks — hence the criticality of the copy-full-then-edit workflow (§7.4).
+- **[Block 2] (DAG + Result Contract):** standard envelope with `status` discrepancy.
+- **[Block 3 / Block 19] (backends + persistence):** topic key `sdd/{change-name}/spec`; in Engram a single concatenated multi-domain artifact.
+- **[Block 18] (delegation + models):** `sonnet` for structured writing.
+- **[Block 23] (strict-TDD):** the testable Given/When/Then scenarios are the basis apply/verify use to derive and validate tests.

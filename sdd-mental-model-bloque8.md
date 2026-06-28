@@ -1,44 +1,44 @@
-# Bloque 8 — Fase `sdd-design`
+# Block 8 — `sdd-design` Phase
 
-> **Qué documenta:** la fase de diseño técnico del sistema SDD de gentle-ai — lee el proposal (requerido) y el spec (opcional), lee el codebase real, y produce un `design.md` que captura el CÓMO: decisiones de arquitectura estilo ADR, data flow, file changes, interfaces y testing strategy.
-> **Alcance:** propósito, qué lee / qué escribe, inputs, los 5 pasos, el formato del design (decisiones ADR con rationale + alternativas rechazadas), Result Contract, modelo `opus` y por qué, gotchas (budget 800 palabras, leer codebase real, seguir patrones existentes).
-> **Fuentes exactas leídas:**
-> - `/home/cristian/.config/opencode/skills/sdd-design/SKILL.md` (contrato runtime — primaria)
-> - `/home/cristian/.claude/agents/sdd-design.md` (definición del sub-agente: tools, modelo)
-> - `/home/cristian/.config/opencode/prompts/sdd/sdd-design.md` (prompt canónico — idéntico al SKILL.md)
-> - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md` (protocolo común)
-> - (NO existe `commands/sdd-design.md` — se invoca vía meta-comandos `[CERT]` `ls commands/`)
-> **Método + leyenda de marcadores:**
-> - `[CERT]` = verificado leyendo el archivo, cita `ruta:línea` o `ruta §sección`.
-> - `[CERT-a]` = afirmado por una fuente, no re-verificado.
-> - `[INFER]` = deducción propia.
+> **What it documents:** the technical design phase of gentle-ai's SDD system — it reads the proposal (required) and the spec (optional), reads the real codebase, and produces a `design.md` that captures the HOW: ADR-style architecture decisions, data flow, file changes, interfaces and testing strategy.
+> **Scope:** purpose, what it reads / what it writes, inputs, the 5 steps, the design format (ADR decisions with rationale + rejected alternatives), Result Contract, the `opus` model and why, gotchas (800-word budget, read the real codebase, follow existing patterns).
+> **Exact sources read:**
+> - `/home/cristian/.config/opencode/skills/sdd-design/SKILL.md` (runtime contract — primary)
+> - `/home/cristian/.claude/agents/sdd-design.md` (sub-agent definition: tools, model)
+> - `/home/cristian/.config/opencode/prompts/sdd/sdd-design.md` (canonical prompt — identical to SKILL.md)
+> - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md` (common protocol)
+> - (There is NO `commands/sdd-design.md` — it is invoked via meta-commands `[CERT]` `ls commands/`)
+> **Method + marker legend:**
+> - `[CERT]` = verified by reading the file, cites `path:line` or `path §section`.
+> - `[CERT-a]` = asserted by one source, not re-verified.
+> - `[INFER]` = my own deduction.
 
 ---
 
-## 8.1 — Propósito y posición en el DAG `[CERT]`
+## 8.1 — Purpose and position in the DAG `[CERT]`
 
-`sdd-design` toma el proposal y los specs y produce un `design.md` que captura **HOW the change will be implemented** — decisiones de arquitectura, data flow, file changes y rationale técnico `[CERT]` `SKILL.md:32-34`. En el DAG depende del proposal (requerido) y corre en paralelo con spec; ambos alimentan a tasks: `proposal → design → tasks` `[CERT]` `agents/sdd-design.md:43`.
+`sdd-design` takes the proposal and the specs and produces a `design.md` that captures **HOW the change will be implemented** — architecture decisions, data flow, file changes and technical rationale `[CERT]` `SKILL.md:32-34`. In the DAG it depends on the proposal (required) and runs in parallel with spec; both feed into tasks: `proposal → design → tasks` `[CERT]` `agents/sdd-design.md:43`.
 
-Frontera con spec `[INFER]`: spec describe el QUÉ (requisitos testables, [Bloque 7]); design describe el CÓMO (arquitectura, archivos, interfaces). El prompt lo formula: *"design is the HOW at architectural level, tasks are the WHAT-to-do steps"* `[CERT]` `agents/sdd-design.md:26`.
+Boundary with spec `[INFER]`: spec describes the WHAT (testable requirements, [Block 7]); design describes the HOW (architecture, files, interfaces). The prompt phrases it: *"design is the HOW at architectural level, tasks are the WHAT-to-do steps"* `[CERT]` `agents/sdd-design.md:26`.
 
-Es EXECUTOR `[CERT]` `agents/sdd-design.md:10-11`. Mismo gate orquestador/executor `[CERT]` `SKILL.md:13-21`. **No tiene comando directo `[CERT]`** — se orquesta vía meta-comandos.
+It is an EXECUTOR `[CERT]` `agents/sdd-design.md:10-11`. Same orchestrator/executor gate `[CERT]` `SKILL.md:13-21`. **It has no direct command `[CERT]`** — it is orchestrated via meta-commands.
 
-## 8.2 — Qué lee y qué escribe `[CERT]`
+## 8.2 — What it reads and what it writes `[CERT]`
 
-| Acción | Recurso | Topic key / ruta | Obligatoriedad |
+| Action | Resource | Topic key / path | Requirement |
 |---|---|---|---|
-| LEE | Propuesta | `sdd/{change-name}/proposal` | **requerido** `[CERT]` `SKILL.md:46`, `agents/sdd-design.md:20` |
-| LEE | Spec | `sdd/{change-name}/spec` | **opcional** (puede no existir si corre en paralelo con sdd-spec) `[CERT]` `SKILL.md:46` |
-| LEE | Código real del codebase | filesystem (entry points, módulos, patrones, interfaces, test infra) | **requerido** `[CERT]` `SKILL.md:56-62,176` |
-| ESCRIBE | Diseño técnico | `sdd/{change-name}/design` (Engram) / `openspec/changes/{change-name}/design.md` | **requerido** `[CERT]` `SKILL.md:46,142-149` |
+| READS | Proposal | `sdd/{change-name}/proposal` | **required** `[CERT]` `SKILL.md:46`, `agents/sdd-design.md:20` |
+| READS | Spec | `sdd/{change-name}/spec` | **optional** (may not exist if running in parallel with sdd-spec) `[CERT]` `SKILL.md:46` |
+| READS | Real codebase code | filesystem (entry points, modules, patterns, interfaces, test infra) | **required** `[CERT]` `SKILL.md:56-62,176` |
+| WRITES | Technical design | `sdd/{change-name}/design` (Engram) / `openspec/changes/{change-name}/design.md` | **required** `[CERT]` `SKILL.md:46,142-149` |
 
-**Input requerido `[CERT]`:** el proposal — `agents/sdd-design.md:20` instruye `mem_search("sdd/{change-name}/proposal") → mem_get_observation`. El spec es **opcional** explícitamente porque design puede correr en paralelo con sdd-spec `[CERT]` `SKILL.md:46` (*"may not exist if running in parallel with sdd-spec"*). Save con `type: architecture` `[CERT]` `SKILL.md:149`.
+**Required input `[CERT]`:** the proposal — `agents/sdd-design.md:20` instructs `mem_search("sdd/{change-name}/proposal") → mem_get_observation`. The spec is **optional** explicitly because design may run in parallel with sdd-spec `[CERT]` `SKILL.md:46` (*"may not exist if running in parallel with sdd-spec"*). Save with `type: architecture` `[CERT]` `SKILL.md:149`.
 
-**Que lee la proposal y produce decisiones de arquitectura `[CERT]`:** este es el núcleo de design. Lee el proposal (intent, scope, approach) y, leyendo además el codebase real, lo traduce en decisiones de arquitectura concretas con rationale y alternativas rechazadas (§8.3).
+**That it reads the proposal and produces architecture decisions `[CERT]`:** this is the core of design. It reads the proposal (intent, scope, approach) and, by also reading the real codebase, translates it into concrete architecture decisions with rationale and rejected alternatives (§8.3).
 
-## 8.3 — Decisiones de arquitectura estilo ADR `[CERT]`
+## 8.3 — ADR-style architecture decisions `[CERT]`
 
-El corazón del `design.md` es la sección **Architecture Decisions**, en formato ADR (Architecture Decision Record) `[CERT]` `SKILL.md:87-99`:
+The heart of `design.md` is the **Architecture Decisions** section, in ADR (Architecture Decision Record) format `[CERT]` `SKILL.md:87-99`:
 
 ```markdown
 ### Decision: {Decision Title}
@@ -48,71 +48,71 @@ El corazón del `design.md` es la sección **Architecture Decisions**, en format
 **Rationale**: {Why this choice over alternatives}
 ```
 
-Regla dura `[CERT]` `SKILL.md:177`: *"Every decision MUST have a rationale (the 'why')."* El prompt del agente refuerza: capturar decisiones estilo ADR con rationale **y alternativas rechazadas** `[CERT]` `agents/sdd-design.md:23` ("Capture ADR-style decisions with rationale and rejected alternatives").
+Hard rule `[CERT]` `SKILL.md:177`: *"Every decision MUST have a rationale (the 'why')."* The agent prompt reinforces it: capture ADR-style decisions with rationale **and rejected alternatives** `[CERT]` `agents/sdd-design.md:23` ("Capture ADR-style decisions with rationale and rejected alternatives").
 
-Esto materializa por qué design corre en `opus`: no transcribe, **decide** — elige patrón, layering y boundaries justificando contra alternativas (§8.6).
+This materializes why design runs on `opus`: it does not transcribe, it **decides** — it chooses pattern, layering and boundaries, justifying against alternatives (§8.6).
 
-## 8.4 — Estructura completa del `design.md` `[CERT]`
+## 8.4 — Full structure of `design.md` `[CERT]`
 
 `[CERT]` `SKILL.md:79-140`:
 
-- `## Technical Approach` — estrategia técnica general; cómo mapea al approach del proposal; referencia specs.
-- `## Architecture Decisions` — bloques ADR (§8.3).
-- `## Data Flow` — cómo se mueve la data; diagramas ASCII cuando ayuden.
-- `## File Changes` — tabla `File | Action (Create/Modify/Delete) | Description` con paths concretos.
-- `## Interfaces / Contracts` — nuevas interfaces, contratos API, type definitions, en el lenguaje del proyecto.
-- `## Testing Strategy` — tabla `Layer (Unit/Integration/E2E) | What to Test | Approach`.
-- `## Migration / Rollout` — plan si hay migración/feature flags/rollout por fases; si no, "No migration required."
-- `## Open Questions` — checklist de preguntas técnicas no resueltas o que necesitan input del equipo.
+- `## Technical Approach` — general technical strategy; how it maps to the proposal's approach; references specs.
+- `## Architecture Decisions` — ADR blocks (§8.3).
+- `## Data Flow` — how data moves; ASCII diagrams when they help.
+- `## File Changes` — `File | Action (Create/Modify/Delete) | Description` table with concrete paths.
+- `## Interfaces / Contracts` — new interfaces, API contracts, type definitions, in the project's language.
+- `## Testing Strategy` — `Layer (Unit/Integration/E2E) | What to Test | Approach` table.
+- `## Migration / Rollout` — plan if there is migration/feature flags/phased rollout; if not, "No migration required."
+- `## Open Questions` — checklist of unresolved technical questions or ones that need team input.
 
-La `Testing Strategy` por layers conecta design con las capacidades de testing detectadas en init `[INFER]` (ver [Bloque 4 §4.3]).
+The `Testing Strategy` by layers connects design with the testing capabilities detected at init `[INFER]` (see [Block 4 §4.3]).
 
-## 8.5 — Los 5 pasos + Result Contract `[CERT]`
+## 8.5 — The 5 steps + Result Contract `[CERT]`
 
-Pasos `[CERT]` `SKILL.md:51-172`: Step 1 (load skills) → Step 2 (**leer el codebase real** — entry points, patrones, dependencias, test infra) → Step 3 (escribir `design.md`) → Step 4 (persistir, MANDATORIO) → Step 5 (return summary).
+Steps `[CERT]` `SKILL.md:51-172`: Step 1 (load skills) → Step 2 (**read the real codebase** — entry points, patterns, dependencies, test infra) → Step 3 (write `design.md`) → Step 4 (persist, MANDATORY) → Step 5 (return summary).
 
-El prompt del agente expande Step 2-3 a `[CERT]` `agents/sdd-design.md:19-24`: elegir el approach de arquitectura (pattern, layering, boundaries) → mapear componentes, data flow, integration points → capturar decisiones ADR → persistir.
+The agent prompt expands Step 2-3 to `[CERT]` `agents/sdd-design.md:19-24`: choose the architecture approach (pattern, layering, boundaries) → map components, data flow, integration points → capture ADR decisions → persist.
 
 Result Contract `[CERT]` `agents/sdd-design.md:38-45`:
 
-| Campo | Valores / contenido |
+| Field | Values / content |
 |---|---|
 | `status` | `done` \| `blocked` \| `partial` |
-| `executive_summary` | una frase del approach elegido |
+| `executive_summary` | one sentence of the chosen approach |
 | `artifacts` | topic_keys/paths (`sdd/{change-name}/design`) |
-| `next_recommended` | `sdd-tasks` (después de que spec también esté listo) |
-| `risks` | riesgos arquitectónicos, decisiones no resueltas, assumptions a validar |
-| `skill_resolution` | `paths-injected` o `none` |
+| `next_recommended` | `sdd-tasks` (after spec is also ready) |
+| `risks` | architectural risks, unresolved decisions, assumptions to validate |
+| `skill_resolution` | `paths-injected` or `none` |
 
-El return summary del SKILL adicionalmente reporta Key Decisions (N), Files Affected (N new/M modified/K deleted), Testing Strategy y Open Questions `[CERT]` `SKILL.md:160-168`. Misma discrepancia `status` (`done` vs `success` común).
+The SKILL's return summary additionally reports Key Decisions (N), Files Affected (N new/M modified/K deleted), Testing Strategy and Open Questions `[CERT]` `SKILL.md:160-168`. Same `status` discrepancy (`done` vs `success` common).
 
-`next_recommended: sdd-tasks` condicionado a que spec también esté listo `[CERT]` `agents/sdd-design.md:43` — tasks necesita spec **y** design.
+`next_recommended: sdd-tasks` conditioned on spec also being ready `[CERT]` `agents/sdd-design.md:43` — tasks needs spec **and** design.
 
-## 8.6 — Modelo asignado: `opus` `[CERT]`
+## 8.6 — Assigned model: `opus` `[CERT]`
 
-`model: opus` `[CERT]` `agents/sdd-design.md:7`. Justificación de la tabla: *"sdd-design | opus | Architecture decisions"* `[CERT-a]` (CLAUDE.md, Model Assignments). Razonamiento `[INFER]`: junto con propose, design es la otra fase de **decisiones arquitectónicas** — elige patrones, evalúa alternativas y produce rationale que se propaga a tasks y apply. Errores aquí componen downstream, de ahí el modelo de mayor razonamiento. Por eso design (y apply) son fases **high-risk** que el Gatekeeper del orquestador valida con un reviewer de contexto fresco, no inline (ver [Bloque 16]).
+`model: opus` `[CERT]` `agents/sdd-design.md:7`. Justification from the table: *"sdd-design | opus | Architecture decisions"* `[CERT-a]` (CLAUDE.md, Model Assignments). Reasoning `[INFER]`: together with propose, design is the other **architectural decision** phase — it chooses patterns, evaluates alternatives and produces rationale that propagates to tasks and apply. Errors here compound downstream, hence the higher-reasoning model. That is why design (and apply) are **high-risk** phases that the orchestrator's Gatekeeper validates with a fresh-context reviewer, not inline (see [Block 16]).
 
-Tools `[CERT]` `agents/sdd-design.md:8`: `Read, Edit, Write, Grep, Glob` + `mem_search, mem_get_observation, mem_save`. Tiene Read/Grep/Glob para cumplir la regla dura de leer el codebase real.
+Tools `[CERT]` `agents/sdd-design.md:8`: `Read, Edit, Write, Grep, Glob` + `mem_search, mem_get_observation, mem_save`. It has Read/Grep/Glob to fulfill the hard rule of reading the real codebase.
 
-## 8.7 — Gotchas y reglas especiales `[CERT]`
+## 8.7 — Gotchas and special rules `[CERT]`
 
-- **Leer codebase real, nunca adivinar `[CERT]` `SKILL.md:176`:** *"ALWAYS read the actual codebase before designing — never guess."* Es la primera regla dura.
-- **Seguir patrones existentes `[CERT]` `SKILL.md:179-180`:** usar los patrones REALES del proyecto, no best practices genéricas; si el codebase usa un patrón distinto al que recomendarías, anotarlo pero SEGUIR el existente salvo que el cambio lo aborde específicamente.
-- **Paths concretos `[CERT]` `SKILL.md:178`:** file paths concretos, no descripciones abstractas.
-- **Open questions que bloquean `[CERT]` `SKILL.md:183`:** si hay preguntas que BLOQUEAN el diseño, decirlo claramente — no adivinar.
-- **Size budget 800 palabras `[CERT]` `SKILL.md:184`:** el budget más amplio de las cinco fases; decisiones como tablas (option | tradeoff | decision); snippets de código solo para patrones no obvios.
-- **Diagramas ASCII simples `[CERT]` `SKILL.md:181`:** claridad sobre belleza.
-- **`rules.design` `[CERT]` `SKILL.md:182`:** aplicar reglas de `openspec/config.yaml`.
+- **Read the real codebase, never guess `[CERT]` `SKILL.md:176`:** *"ALWAYS read the actual codebase before designing — never guess."* It is the first hard rule.
+- **Follow existing patterns `[CERT]` `SKILL.md:179-180`:** use the project's REAL patterns, not generic best practices; if the codebase uses a pattern different from the one you would recommend, note it but FOLLOW the existing one unless the change specifically addresses it.
+- **Concrete paths `[CERT]` `SKILL.md:178`:** concrete file paths, not abstract descriptions.
+- **Blocking open questions `[CERT]` `SKILL.md:183`:** if there are questions that BLOCK the design, say so clearly — don't guess.
+- **800-word size budget `[CERT]` `SKILL.md:184`:** the widest budget of the five phases; decisions as tables (option | tradeoff | decision); code snippets only for non-obvious patterns.
+- **Simple ASCII diagrams `[CERT]` `SKILL.md:181`:** clarity over beauty.
+- **`rules.design` `[CERT]` `SKILL.md:182`:** apply rules from `openspec/config.yaml`.
 
 ---
 
-## 8.8 — Conexiones
+## 8.8 — Connections
 
-- **[Bloque 6] (`sdd-propose`):** predecesor y dependencia **requerida**. design lee `sdd/{change-name}/proposal` y traduce su approach/scope en decisiones de arquitectura ADR. El `next_recommended` de propose lista design y spec como paralelos.
-- **[Bloque 7] (`sdd-spec`):** par paralelo. design lee el spec **opcionalmente** (puede no existir si corren en paralelo, `SKILL.md:46`). spec = QUÉ, design = CÓMO.
-- **[Bloque 9] (`sdd-tasks`):** sucesor. design **alimenta** tasks: tasks lee spec + design (ambos requeridos) y descompone el design en pasos de implementación accionables. `next_recommended: sdd-tasks` condicionado a spec listo `[CERT]` `agents/sdd-design.md:43`.
-- **[Bloque 2] (DAG + Result Contract):** design es el segundo nodo de fan-in hacia tasks (junto a spec); envelope estándar con discrepancia `status`.
-- **[Bloque 3 / Bloque 19] (backends + persistencia):** topic key `sdd/{change-name}/design`, `type: architecture`.
-- **[Bloque 18] (delegación + models):** `opus` por decisiones de arquitectura — el segundo (y último) opus de las cinco fases de planificación.
-- **[Bloque 16] (modos + Gatekeeper):** design es fase **high-risk**; en modo Automatic el Gatekeeper la valida con un reviewer de contexto fresco delegado, no inline, porque sus errores componen downstream. Es también gatillo recomendado de `judgment-day` post-design.
-- **[Bloque 24] (judgment-day):** la regla de Agent Trigger recomienda fuertemente correr `judgment-day` tras completar la fase design (verificación adversarial de alto riesgo).
+- **[Block 6] (`sdd-propose`):** predecessor and **required** dependency. design reads `sdd/{change-name}/proposal` and translates its approach/scope into ADR architecture decisions. propose's `next_recommended` lists design and spec as parallel.
+- **[Block 7] (`sdd-spec`):** parallel pair. design reads the spec **optionally** (may not exist if they run in parallel, `SKILL.md:46`). spec = WHAT, design = HOW.
+- **[Block 9] (`sdd-tasks`):** successor. design **feeds** tasks: tasks reads spec + design (both required) and decomposes the design into actionable implementation steps. `next_recommended: sdd-tasks` conditioned on spec being ready `[CERT]` `agents/sdd-design.md:43`.
+- **[Block 2] (DAG + Result Contract):** design is the second fan-in node toward tasks (alongside spec); standard envelope with `status` discrepancy.
+- **[Block 3 / Block 19] (backends + persistence):** topic key `sdd/{change-name}/design`, `type: architecture`.
+- **[Block 18] (delegation + models):** `opus` for architecture decisions — the second (and last) opus of the five planning phases.
+- **[Block 16] (modes + Gatekeeper):** design is a **high-risk** phase; in Automatic mode the Gatekeeper validates it with a delegated fresh-context reviewer, not inline, because its errors compound downstream. It is also a recommended trigger for `judgment-day` post-design.
+- **[Block 24] (judgment-day):** the Agent Trigger rule strongly recommends running `judgment-day` after the design phase completes (high-risk adversarial verification).

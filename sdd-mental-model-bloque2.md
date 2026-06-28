@@ -1,18 +1,18 @@
-# Bloque 2 — El DAG de fases y el Result Contract
+# Block 2 — The phase DAG and the Result Contract
 
-> **QUÉ DOCUMENTA**: Este bloque describe el grafo de dependencias (DAG) de las fases SDD, qué lee y qué escribe cada fase, el flujo de routing entre fases, y el Result Contract — el sobre estructurado que toda fase devuelve al orquestador. Es el esqueleto operativo del SDD.
-> **ALCANCE**: El DAG completo (`proposal → specs → tasks → apply → verify → archive`, con `design` alimentando `specs`), la tabla read/write por fase, el envelope de retorno, las reglas de ordenamiento de respuesta del sub-agente, y el Review Workload Guard. NO cubre el detalle interno de cada fase individual (ver bloques B4–B12), ni los modos auto/interactive ni el Gatekeeper (ver [Bloque 16]).
-> **FUENTES** (leídas y verificadas):
-> - `/home/cristian/.claude/CLAUDE.md` §"Dependency Graph", §"Result Contract", §"Sub-Agent Context Protocol" (tabla de fases reads/writes), §"Engram Topic Key Format"
+> **WHAT IT DOCUMENTS**: This block describes the dependency graph (DAG) of the SDD phases, what each phase reads and writes, the routing flow between phases, and the Result Contract — the structured envelope every phase returns to the orchestrator. It is the operational skeleton of SDD.
+> **SCOPE**: The full DAG (`proposal → specs → tasks → apply → verify → archive`, with `design` feeding `specs`), the per-phase read/write table, the return envelope, the sub-agent response-ordering rules, and the Review Workload Guard. Does NOT cover the internal detail of each individual phase (see blocks B4–B12), nor the auto/interactive modes or the Gatekeeper (see [Block 16]).
+> **SOURCES** (read and verified):
+> - `/home/cristian/.claude/CLAUDE.md` §"Dependency Graph", §"Result Contract", §"Sub-Agent Context Protocol" (phase reads/writes table), §"Engram Topic Key Format"
 > - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md` §D "Return Envelope", §C "Artifact Persistence", §E "Review Workload Guard"
 > - `/home/cristian/.config/opencode/skills/_shared/persistence-contract.md` §"Sub-Agent Context Rules"
-> **MÉTODO**: Marcadores de certeza. `[CERT]` = verificado leyendo la fuente, con `ruta:línea` o `ruta §sección`. `[CERT-a]` = afirmado por una fuente, no re-verificado en origen primario. `[INFER]` = deducción propia.
+> **METHOD**: Certainty markers. `[CERT]` = verified by reading the source, with `path:line` or `path §section`. `[CERT-a]` = asserted by a source, not re-verified at primary origin. `[INFER]` = my own deduction.
 
 ---
 
-## 2.1 — El grafo de dependencias `[CERT]`
+## 2.1 — The dependency graph `[CERT]`
 
-El DAG canónico, literal de la fuente `[CERT]` (`CLAUDE.md` §"Dependency Graph"):
+The canonical DAG, literal from the source `[CERT]` (`CLAUDE.md` §"Dependency Graph"):
 
 ```
 proposal -> specs --> tasks -> apply -> verify -> archive
@@ -21,68 +21,68 @@ proposal -> specs --> tasks -> apply -> verify -> archive
            design
 ```
 
-Lectura del grafo `[CERT]`:
-- La cadena principal es lineal: `proposal → specs → tasks → apply → verify → archive`.
-- `design` NO está en la cadena principal: alimenta `specs` (la flecha `design → specs`). `[CERT]`
-- `tasks` depende de `specs` (y, vía la confluencia, del trabajo de `design`).
+Reading the graph `[CERT]`:
+- The main chain is linear: `proposal → specs → tasks → apply → verify → archive`.
+- `design` is NOT in the main chain: it feeds `specs` (the `design → specs` arrow). `[CERT]`
+- `tasks` depends on `specs` (and, via the confluence, on the work of `design`).
 
-**Matiz importante** `[INFER]`: el grafo dibuja `design -> specs`, pero la tabla de dependencias de lectura (§2.2) muestra que `sdd-tasks` lee **spec + design** y `sdd-design` lee **proposal**. Es decir, `design` y `specs` son ramas paralelas que parten de `proposal` y confluyen en `tasks`. El diagrama ASCII comprime esa confluencia poniendo la flecha de `design` hacia `specs`, pero operativamente ambos son insumos de `tasks`.
+**Important nuance** `[INFER]`: the graph draws `design -> specs`, but the read-dependency table (§2.2) shows that `sdd-tasks` reads **spec + design** and `sdd-design` reads **proposal**. That is, `design` and `specs` are parallel branches that start from `proposal` and converge at `tasks`. The ASCII diagram compresses that confluence by pointing the `design` arrow toward `specs`, but operationally both are inputs to `tasks`.
 
-## 2.2 — Qué lee y qué escribe cada fase `[CERT]`
+## 2.2 — What each phase reads and writes `[CERT]`
 
-Tabla literal del contrato de contexto por fase `[CERT]` (`CLAUDE.md` §"Sub-Agent Context Protocol" → "SDD Phases"):
+Literal table of the per-phase context contract `[CERT]` (`CLAUDE.md` §"Sub-Agent Context Protocol" → "SDD Phases"):
 
-| Fase | Lee | Escribe |
+| Phase | Reads | Writes |
 |------|-----|---------|
-| `sdd-explore` | nada | `explore` |
-| `sdd-propose` | exploration (opcional) | `proposal` |
-| `sdd-spec` | proposal (requerido) | `spec` |
-| `sdd-design` | proposal (requerido) | `design` |
-| `sdd-tasks` | spec + design (requeridos) | `tasks` |
-| `sdd-apply` | tasks + spec + design + **apply-progress (si existe)** | `apply-progress` |
+| `sdd-explore` | nothing | `explore` |
+| `sdd-propose` | exploration (optional) | `proposal` |
+| `sdd-spec` | proposal (required) | `spec` |
+| `sdd-design` | proposal (required) | `design` |
+| `sdd-tasks` | spec + design (required) | `tasks` |
+| `sdd-apply` | tasks + spec + design + **apply-progress (if it exists)** | `apply-progress` |
 | `sdd-verify` | spec + tasks + **apply-progress** | `verify-report` |
-| `sdd-archive` | todos los artefactos | `archive-report` |
+| `sdd-archive` | all artifacts | `archive-report` |
 
-Reglas de acceso a contexto `[CERT]` (`CLAUDE.md` §"Sub-Agent Context Protocol"):
-- Para fases con dependencias requeridas, el **sub-agente lee directamente del backend** — el orquestador pasa *referencias* de artefacto (topic keys o file paths), NO el contenido. `[CERT]`
-- Esto evita inflar el prompt del orquestador: los artefactos SDD son grandes; inlinearlos consumiría toda la ventana de contexto. `[CERT]` (`persistence-contract.md:87`).
+Context access rules `[CERT]` (`CLAUDE.md` §"Sub-Agent Context Protocol"):
+- For phases with required dependencies, the **sub-agent reads directly from the backend** — the orchestrator passes artifact *references* (topic keys or file paths), NOT the content. `[CERT]`
+- This avoids inflating the orchestrator's prompt: SDD artifacts are large; inlining them would consume the entire context window. `[CERT]` (`persistence-contract.md:87`).
 
-Quién lee / quién escribe, según tipo de tarea `[CERT]` (`persistence-contract.md:80-88`):
-- No-SDD (tarea general): el **orquestador** busca en engram y pasa resumen en el prompt; el sub-agente guarda descubrimientos vía `mem_save`.
-- SDD con dependencias: el **sub-agente** lee artefactos directo del backend; el sub-agente guarda su artefacto.
-- SDD sin dependencias (ej. explore): nadie lee; el sub-agente guarda su artefacto. `[CERT]`
+Who reads / who writes, according to task type `[CERT]` (`persistence-contract.md:80-88`):
+- Non-SDD (general task): the **orchestrator** searches engram and passes a summary in the prompt; the sub-agent saves discoveries via `mem_save`.
+- SDD with dependencies: the **sub-agent** reads artifacts directly from the backend; the sub-agent saves its artifact.
+- SDD without dependencies (e.g. explore): nobody reads; the sub-agent saves its artifact. `[CERT]`
 
-## 2.3 — Routing: cómo se avanza por el DAG `[CERT]`
+## 2.3 — Routing: how the DAG advances `[CERT]`
 
-El avance NO es por inferencia de texto libre. El sistema enrolla por `nextRecommended` y estados de dependencia `[CERT]` (`CLAUDE.md` §"Native SDD Dispatcher Guard": "Route only by `nextRecommended` and dependency states; never infer from free text").
+Advancement is NOT by free-text inference. The system routes by `nextRecommended` and dependency states `[CERT]` (`CLAUDE.md` §"Native SDD Dispatcher Guard": "Route only by `nextRecommended` and dependency states; never infer from free text").
 
-Cada fase devuelve un campo `next_recommended` (la siguiente fase SDD a correr, o `"none"`) como parte del Result Contract `[CERT]` (`sdd-phase-common.md:79`). El meta-comando `/sdd-continue` corre la siguiente fase **dependency-ready** vía sub-agente `[CERT]` (`CLAUDE.md` §"Commands").
+Each phase returns a `next_recommended` field (the next SDD phase to run, or `"none"`) as part of the Result Contract `[CERT]` (`sdd-phase-common.md:79`). The `/sdd-continue` meta-command runs the next **dependency-ready** phase via sub-agent `[CERT]` (`CLAUDE.md` §"Commands").
 
-Reglas de routing del dispatcher `[CERT]` (`CLAUDE.md` §"Native SDD Dispatcher Guard"):
-- Si `blockedReasons` no está vacío → NO proceder a apply/archive/trabajo terminal.
-- Si `nextRecommended` es `verify` → verificación/remediación solo para refrescar evidencia.
-- Si `nextRecommended` es `resolve-blockers` → reportar `blockedReasons` y parar.
-- Si `nextRecommended` es un token de planificación (`propose`, `spec`, `design`, `tasks`) → lanzar la fase de planificación correspondiente.
+Dispatcher routing rules `[CERT]` (`CLAUDE.md` §"Native SDD Dispatcher Guard"):
+- If `blockedReasons` is not empty → do NOT proceed to apply/archive/terminal work.
+- If `nextRecommended` is `verify` → verification/remediation only to refresh evidence.
+- If `nextRecommended` is `resolve-blockers` → report `blockedReasons` and stop.
+- If `nextRecommended` is a planning token (`propose`, `spec`, `design`, `tasks`) → launch the corresponding planning phase.
 
-> El detalle del dispatcher nativo `gentle-ai` y su scoping por backend se trata en [Bloque 15]. Aquí basta saber: el routing es por estado y dependencia, nunca por interpretación de prosa. `[INFER]`
+> The detail of the native `gentle-ai` dispatcher and its per-backend scoping is covered in [Block 15]. Here it is enough to know: routing is by state and dependency, never by prose interpretation. `[INFER]`
 
-## 2.4 — El Result Contract (sobre de retorno) `[CERT]`
+## 2.4 — The Result Contract (return envelope) `[CERT]`
 
-Cada fase devuelve un sobre estructurado al orquestador. Resumen literal `[CERT]` (`CLAUDE.md` §"Result Contract"): *"Each phase returns: `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`."*
+Each phase returns a structured envelope to the orchestrator. Literal summary `[CERT]` (`CLAUDE.md` §"Result Contract"): *"Each phase returns: `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`."*
 
-La definición completa de cada campo `[CERT]` (`sdd-phase-common.md:73-81`):
+The full definition of each field `[CERT]` (`sdd-phase-common.md:73-81`):
 
-| Campo | Valores / Contenido `[CERT]` |
+| Field | Values / Content `[CERT]` |
 |-------|-------------------|
-| `status` | `success`, `partial`, o `blocked` |
-| `executive_summary` | Resumen de 1-3 frases de lo hecho |
-| `detailed_report` | (opcional) salida completa de la fase, u omitir si ya está inline |
-| `artifacts` | Lista de keys/paths de artefactos escritos |
-| `next_recommended` | La siguiente fase SDD a correr, o `"none"` |
-| `risks` | Riesgos descubiertos, o `"None"` |
-| `skill_resolution` | Cómo se cargaron skills: `paths-injected`, `fallback-registry`, `fallback-path`, o `none` |
+| `status` | `success`, `partial`, or `blocked` |
+| `executive_summary` | 1-3 sentence summary of what was done |
+| `detailed_report` | (optional) full phase output, or omit if already inline |
+| `artifacts` | List of keys/paths of written artifacts |
+| `next_recommended` | The next SDD phase to run, or `"none"` |
+| `risks` | Discovered risks, or `"None"` |
+| `skill_resolution` | How skills were loaded: `paths-injected`, `fallback-registry`, `fallback-path`, or `none` |
 
-Ejemplo de envelope `[CERT]` (`sdd-phase-common.md:85-92`):
+Example envelope `[CERT]` (`sdd-phase-common.md:85-92`):
 
 ```markdown
 **Status**: success
@@ -93,78 +93,78 @@ Ejemplo de envelope `[CERT]` (`sdd-phase-common.md:85-92`):
 **Skill Resolution**: paths-injected — 3 skills (react-19, typescript, tailwind-4)
 ```
 
-Detalle de `skill_resolution` `[CERT]` (`sdd-phase-common.md:81`):
-- `paths-injected` → recibió paths exactos de skills del orquestador (preferido).
-- `fallback-registry` → se auto-cargó paths desde el registry.
-- `fallback-path` → cargó vía instrucción `SKILL: Load`.
-- `none` → no se cargaron skills.
+Detail of `skill_resolution` `[CERT]` (`sdd-phase-common.md:81`):
+- `paths-injected` → received exact skill paths from the orchestrator (preferred).
+- `fallback-registry` → self-loaded paths from the registry.
+- `fallback-path` → loaded via `SKILL: Load` instruction.
+- `none` → no skills loaded.
 
-Este campo es un **mecanismo de auto-corrección** `[CERT]` (`CLAUDE.md` §"Skill Resolution Feedback"): si el orquestador ve `fallback-*` o `none`, significa que el cache de skills se perdió (probable compactación) y debe re-leer el registry antes de la próxima delegación.
+This field is a **self-correction mechanism** `[CERT]` (`CLAUDE.md` §"Skill Resolution Feedback"): if the orchestrator sees `fallback-*` or `none`, it means the skill cache was lost (likely compaction) and it must re-read the registry before the next delegation.
 
-## 2.5 — Ordenamiento de respuesta: el último output debe ser texto `[CERT]`
+## 2.5 — Response ordering: the last output must be text `[CERT]`
 
-Regla CRÍTICA de ordenamiento `[CERT]` (`sdd-phase-common.md:71`, `persistence-contract.md:140-146`): *"Your FINAL output MUST be text (the return envelope), NOT a tool call. If you need to save to Engram (`mem_save`), do it BEFORE your final text response."*
+CRITICAL ordering rule `[CERT]` (`sdd-phase-common.md:71`, `persistence-contract.md:140-146`): *"Your FINAL output MUST be text (the return envelope), NOT a tool call. If you need to save to Engram (`mem_save`), do it BEFORE your final text response."*
 
-El **porqué** `[CERT]` (`persistence-contract.md:144`): la herramienta Task devuelve al padre el output final del sub-agente. Si el sub-agente termina con un tool call, el padre recibe SOLO el resultado de la herramienta (ej. `"Observation saved"`) — el análisis en texto del sub-agente se PIERDE.
+The **why** `[CERT]` (`persistence-contract.md:144`): the Task tool returns the sub-agent's final output to the parent. If the sub-agent ends with a tool call, the parent receives ONLY the tool result (e.g. `"Observation saved"`) — the sub-agent's text analysis is LOST.
 
-Secuencia correcta siempre `[CERT]` (`persistence-contract.md:144`): *hacer el trabajo → guardar → responder con el envelope de texto*.
+Correct sequence always `[CERT]` (`persistence-contract.md:144`): *do the work → save → respond with the text envelope*.
 
-Restricción adicional `[CERT]` (`sdd-phase-common.md:71`, `persistence-contract.md:146`): los sub-agentes NO deben llamar `mem_session_summary` — eso queda reservado para agentes de nivel superior (orquestador).
+Additional constraint `[CERT]` (`sdd-phase-common.md:71`, `persistence-contract.md:146`): sub-agents must NOT call `mem_session_summary` — that is reserved for higher-level agents (orchestrator).
 
-## 2.6 — Persistencia obligatoria de artefactos `[CERT]`
+## 2.6 — Mandatory artifact persistence `[CERT]`
 
-Toda fase que produce un artefacto DEBE persistirlo. Saltearlo ROMPE el pipeline — las fases downstream no encontrarán el output `[CERT]` (`sdd-phase-common.md:37-39`).
+Every phase that produces an artifact MUST persist it. Skipping it BREAKS the pipeline — downstream phases will not find the output `[CERT]` (`sdd-phase-common.md:37-39`).
 
-El cómo de la persistencia depende del backend (detallado en [Bloque 3]). Resumen por modo `[CERT]` (`sdd-phase-common.md:41-67`):
+The how of persistence depends on the backend (detailed in [Block 3]). Summary by mode `[CERT]` (`sdd-phase-common.md:41-67`):
 
-| Modo | Acción de persistencia `[CERT]` |
+| Mode | Persistence action `[CERT]` |
 |------|----------------------|
 | `engram` | `mem_save(title, topic_key: "sdd/{change-name}/{artifact-type}", type: "architecture", project, capture_prompt: false, content)` |
-| `openspec` | El archivo ya se escribió en el paso principal de la fase; sin acción adicional |
-| `hybrid` | AMBOS: escribir el archivo Y llamar `mem_save` |
-| `none` | Devolver resultado inline; NO escribir archivos ni `mem_save` |
+| `openspec` | The file was already written in the main phase step; no additional action |
+| `hybrid` | BOTH: write the file AND call `mem_save` |
+| `none` | Return result inline; do NOT write files or `mem_save` |
 
-`topic_key` habilita upserts — guardar de nuevo actualiza, no duplica `[CERT]` (`sdd-phase-common.md:54`). `capture_prompt: false` es obligatorio para artefactos SDD porque son salidas automatizadas del pipeline, no memoria humana/proactiva `[CERT]` (`sdd-phase-common.md:55`).
+`topic_key` enables upserts — saving again updates, does not duplicate `[CERT]` (`sdd-phase-common.md:54`). `capture_prompt: false` is mandatory for SDD artifacts because they are automated pipeline outputs, not human/proactive memory `[CERT]` (`sdd-phase-common.md:55`).
 
-## 2.7 — Recuperación de artefactos por el sub-agente (engram) `[CERT]`
+## 2.7 — Artifact retrieval by the sub-agent (engram) `[CERT]`
 
-Para fases con dependencias, el sub-agente recupera el insumo en DOS pasos `[CERT]` (`sdd-phase-common.md:19-35`):
+For phases with dependencies, the sub-agent retrieves the input in TWO steps `[CERT]` (`sdd-phase-common.md:19-35`):
 
 ```
 mem_search(query: "sdd/{change-name}/{artifact-type}", project: "{project}") → save ID
 mem_get_observation(id: {saved_id}) → full content (REQUIRED)
 ```
 
-ADVERTENCIA crítica `[CERT]` (`sdd-phase-common.md:21`): *"`mem_search` returns 300-char PREVIEWS, not full content. You MUST call `mem_get_observation(id)` for EVERY artifact. Skipping this produces wrong output."*
+Critical WARNING `[CERT]` (`sdd-phase-common.md:21`): *"`mem_search` returns 300-char PREVIEWS, not full content. You MUST call `mem_get_observation(id)` for EVERY artifact. Skipping this produces wrong output."*
 
-Optimización `[CERT]` (`sdd-phase-common.md:23,29`): correr todas las búsquedas en paralelo primero, luego todas las recuperaciones en paralelo — NO secuencial.
+Optimization `[CERT]` (`sdd-phase-common.md:23,29`): run all searches in parallel first, then all retrievals in parallel — NOT sequential.
 
-## 2.8 — Continuidad de apply-progress entre lotes `[CERT]`
+## 2.8 — apply-progress continuity across batches `[CERT]`
 
-`sdd-apply` implementa en lotes y produce un artefacto `apply-progress` por lote `[CERT]` (`engram-convention.md:29`: "`apply-progress` ... Implementation progress (one per batch)").
+`sdd-apply` implements in batches and produces one `apply-progress` artifact per batch `[CERT]` (`engram-convention.md:29`: "`apply-progress` ... Implementation progress (one per batch)").
 
-Para lotes de continuación (no el primero), el orquestador DEBE indicarle al sub-agente que existe progreso previo `[CERT]` (`CLAUDE.md` §"Apply-Progress Continuity"):
-- Buscar: `mem_search(query: "sdd/{change-name}/apply-progress", ...)`.
-- Si existe → instruir: *"You MUST read it first ... merge your new progress with the existing progress, and save the combined result. Do NOT overwrite — MERGE."* `[CERT]`
+For continuation batches (not the first), the orchestrator MUST tell the sub-agent that previous progress exists `[CERT]` (`CLAUDE.md` §"Apply-Progress Continuity"):
+- Search: `mem_search(query: "sdd/{change-name}/apply-progress", ...)`.
+- If it exists → instruct: *"You MUST read it first ... merge your new progress with the existing progress, and save the combined result. Do NOT overwrite — MERGE."* `[CERT]`
 
-Esto previene pérdida de progreso entre lotes; el sub-agente es responsable del read-merge-write, pero el orquestador DEBE avisarle que hay progreso previo `[CERT]`.
+This prevents progress loss across batches; the sub-agent is responsible for read-merge-write, but the orchestrator MUST warn it that previous progress exists `[CERT]`.
 
 ## 2.9 — Review Workload Guard `[CERT]`
 
-El SDD debe proteger la carga cognitiva del reviewer, no solo generar tareas `[CERT]` (`sdd-phase-common.md:95-97`). Reglas clave:
+SDD must protect the reviewer's cognitive load, not just generate tasks `[CERT]` (`sdd-phase-common.md:95-97`). Key rules:
 
-- Presupuesto default de review por PR: **400 líneas cambiadas** (`additions + deletions`). `[CERT]` (`sdd-phase-common.md:99`).
-- El orquestador DEBE cachear una `delivery_strategy` al inicio de sesión: `ask-on-risk` (default), `auto-chain`, `single-pr`, o `exception-ok`. `[CERT]` (`sdd-phase-common.md:100`).
-- `sdd-tasks` DEBE pronosticar si el trabajo planeado puede exceder el presupuesto, con líneas guard de texto plano exactas: `Decision needed before apply: Yes|No`, `Chained PRs recommended: Yes|No`, `400-line budget risk: Low|Medium|High`. `[CERT]` (`sdd-phase-common.md:103`).
-- `sdd-apply` NO debe arrancar trabajo oversized salvo que la estrategia resuelva a slices de PR chained/stacked o un `size:exception` explícitamente aceptado. `[CERT]` (`sdd-phase-common.md:105`).
+- Default review budget per PR: **400 changed lines** (`additions + deletions`). `[CERT]` (`sdd-phase-common.md:99`).
+- The orchestrator MUST cache a `delivery_strategy` at session start: `ask-on-risk` (default), `auto-chain`, `single-pr`, or `exception-ok`. `[CERT]` (`sdd-phase-common.md:100`).
+- `sdd-tasks` MUST forecast whether the planned work may exceed the budget, with exact plain-text guard lines: `Decision needed before apply: Yes|No`, `Chained PRs recommended: Yes|No`, `400-line budget risk: Low|Medium|High`. `[CERT]` (`sdd-phase-common.md:103`).
+- `sdd-apply` must NOT start oversized work unless the strategy resolves to chained/stacked PR slices or an explicitly accepted `size:exception`. `[CERT]` (`sdd-phase-common.md:105`).
 
-> El detalle de delivery strategy, chain strategy y chained-PR se trata en [Bloque 17]; el Review Workload Guard del orquestador (cuándo parar y preguntar) en [Bloque 16].
+> The detail of delivery strategy, chain strategy and chained-PR is covered in [Block 17]; the orchestrator's Review Workload Guard (when to stop and ask) in [Block 16].
 
-## 2.10 — Conexiones
+## 2.10 — Connections
 
-- **[Bloque 1] — Qué es SDD**: el DAG aquí descrito es el "trabajo real" que el orquestador-coordinador delega. La frontera EXECUTOR del [Bloque 1] §1.2 es lo que cada nodo del DAG ejecuta.
-- **[Bloque 4 a Bloque 12]** — fases individuales: cada fila de la tabla §2.2 corresponde a un bloque dedicado: B4 `sdd-init`, B5 `sdd-explore`, B6 `sdd-propose`, B7 `sdd-spec`, B8 `sdd-design`, B9 `sdd-tasks`, B10 `sdd-apply`, B11 `sdd-verify`, B12 `sdd-archive`. Esos bloques detallan el "cómo" interno de cada lectura/escritura listada aquí.
-- **[Bloque 3] — Backends de artefactos**: §2.6 y §2.7 dependen del modo de backend resuelto; el [Bloque 3] explica `engram`/`openspec`/`hybrid`/`none` y el formato de topic keys (`sdd/{change-name}/{artifact-type}`).
-- **[Bloque 15] — sdd-status y dispatcher nativo**: el routing por `nextRecommended` de §2.3 lo materializa el dispatcher nativo `gentle-ai`, scopeado por backend.
-- **[Bloque 16] — modos auto/interactive y Gatekeeper**: el Gatekeeper valida el Result Contract (§2.4) entre fase y fase en modo automático.
-- **[Bloque 19] — persistence-contract**: formaliza el "quién lee/quién escribe" de §2.2 y las reglas de ordenamiento de §2.5.
+- **[Block 1] — What SDD is**: the DAG described here is the "real work" the orchestrator-coordinator delegates. The EXECUTOR boundary of [Block 1] §1.2 is what each DAG node executes.
+- **[Block 4 to Block 12]** — individual phases: each row of table §2.2 corresponds to a dedicated block: B4 `sdd-init`, B5 `sdd-explore`, B6 `sdd-propose`, B7 `sdd-spec`, B8 `sdd-design`, B9 `sdd-tasks`, B10 `sdd-apply`, B11 `sdd-verify`, B12 `sdd-archive`. Those blocks detail the internal "how" of each read/write listed here.
+- **[Block 3] — Artifact backends**: §2.6 and §2.7 depend on the resolved backend mode; [Block 3] explains `engram`/`openspec`/`hybrid`/`none` and the topic key format (`sdd/{change-name}/{artifact-type}`).
+- **[Block 15] — sdd-status and native dispatcher**: the `nextRecommended` routing of §2.3 is materialized by the native `gentle-ai` dispatcher, scoped by backend.
+- **[Block 16] — auto/interactive modes and Gatekeeper**: the Gatekeeper validates the Result Contract (§2.4) between phases in automatic mode.
+- **[Block 19] — persistence-contract**: formalizes the "who reads/who writes" of §2.2 and the ordering rules of §2.5.

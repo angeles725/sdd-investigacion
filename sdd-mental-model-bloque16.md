@@ -1,127 +1,127 @@
-# Bloque 16 — Modos de ejecución (auto/interactive) y el Gatekeeper
+# Block 16 — Execution modes (auto/interactive) and the Gatekeeper
 
-> **QUÉ DOCUMENTA**: Este bloque documenta los dos modos de ejecución del pipeline SDD — `auto` e `interactive` — y el **Gatekeeper** del modo automático: el validador autónomo que el orquestador corre entre fases para asegurar que cada fase alcanzó su objetivo antes de lanzar la siguiente.
-> **ALCANCE**: La diferencia auto vs. interactive, cuándo se pregunta el modo, la ronda de preguntas de propuesta en modo interactive, los cinco chequeos del Gatekeeper (contract conformance, artifact existence, no hallucination, no drift, routing coherence), el mecanismo híbrido inline vs. reviewer fresco, y el flujo PASS/FAIL con re-run único. NO cubre el Review Workload Guard (ver [Bloque 17]) ni el detalle del Result Contract (ver [Bloque 2]).
-> **FUENTES** (leídas y verificadas):
+> **WHAT IT DOCUMENTS**: This block documents the two execution modes of the SDD pipeline — `auto` and `interactive` — and the **Gatekeeper** of automatic mode: the autonomous validator the orchestrator runs between phases to ensure each phase reached its objective before launching the next.
+> **SCOPE**: The auto vs. interactive difference, when the mode is asked, the proposal question round in interactive mode, the Gatekeeper's five checks (contract conformance, artifact existence, no hallucination, no drift, routing coherence), the hybrid inline vs. fresh-reviewer mechanism, and the PASS/FAIL flow with a single re-run. It does NOT cover the Review Workload Guard (see [Block 17]) nor the detail of the Result Contract (see [Block 2]).
+> **SOURCES** (read and verified):
 > - `/home/cristian/.claude/CLAUDE.md` §"Execution Mode", §"Automatic Mode Gatekeeper (MANDATORY)", §"Artifact Store Mode", §"Result Contract"
-> - `/home/cristian/.config/opencode/commands/sdd-ff.md` (líneas 21-22) — comportamiento auto/interactive
-> **MÉTODO**: Cada afirmación lleva un marcador de certeza. `[CERT]` = verificado leyendo la fuente, con `ruta §sección`. `[CERT-a]` = afirmado por fuente, no re-verificado. `[INFER]` = deducción propia.
+> - `/home/cristian/.config/opencode/commands/sdd-ff.md` (lines 21-22) — auto/interactive behavior
+> **METHOD**: Every claim carries a certainty marker. `[CERT]` = verified by reading the source, with `path §section`. `[CERT-a]` = asserted by a source, not re-verified. `[INFER]` = my own deduction.
 
 ---
 
-## 16.1 — Los dos modos de ejecución `[CERT]`
+## 16.1 — The two execution modes `[CERT]`
 
-Cuando el usuario invoca `/sdd-new`, `/sdd-ff` o `/sdd-continue` (o un pedido en lenguaje natural equivalente, ej. "haceme un SDD para X") por primera vez en la sesión, el orquestador PREGUNTA qué modo de ejecución prefiere `[CERT]` (`CLAUDE.md` §"Execution Mode"):
+When the user invokes `/sdd-new`, `/sdd-ff`, or `/sdd-continue` (or an equivalent natural-language request, e.g. "haceme un SDD para X") for the first time in the session, the orchestrator ASKS which execution mode they prefer `[CERT]` (`CLAUDE.md` §"Execution Mode"):
 
-| Modo | Comportamiento `[CERT]` (`CLAUDE.md` §"Execution Mode") |
+| Mode | Behavior `[CERT]` (`CLAUDE.md` §"Execution Mode") |
 |------|--------------------------------------------------------|
-| **Automatic** (`auto`) | Corre todas las fases back-to-back SIN pausar. Pero el orquestador corre un **Gatekeeper de validación tras cada fase** antes de lanzar la siguiente. El usuario solo ve interrupción cuando el Gatekeeper detecta un problema real. Para velocidad cuando se confía en el proceso. |
-| **Interactive** (`interactive`) | Tras cada fase, muestra el resumen y PREGUNTA: "¿Querés ajustar algo o continuar?" antes de proceder. Para cuando se quiere revisar y dirigir cada paso. |
+| **Automatic** (`auto`) | Runs all phases back-to-back WITHOUT pausing. But the orchestrator runs a **Gatekeeper validation after every phase** before launching the next. The user only sees an interruption when the Gatekeeper detects a real problem. For speed when the process is trusted. |
+| **Interactive** (`interactive`) | After each phase, it shows the summary and ASKS: "Want to adjust anything or continue?" before proceeding. For when you want to review and steer each step. |
 
-Default `[CERT]` (`CLAUDE.md` §"Execution Mode"): *"If the user doesn't specify, default to **Interactive** (safer, gives the user control)."* El modo se cachea para la sesión; no se vuelve a preguntar salvo que el usuario pida cambiarlo explícitamente.
+Default `[CERT]` (`CLAUDE.md` §"Execution Mode"): *"If the user doesn't specify, default to **Interactive** (safer, gives the user control)."* The mode is cached for the session; it is not asked again unless the user explicitly requests a change.
 
-Aclaración clave `[CERT]`: **auto NO significa "sin validación"**. Significa "sin interrupción al usuario en el camino feliz". El Gatekeeper SIEMPRE corre en auto; lo que cambia es que sus resultados solo llegan al usuario cuando hay un problema. La fuente lo dice: *"Phases still run back-to-back WITHOUT interrupting the user, BUT the orchestrator runs a gatekeeper validation after every phase before launching the next sub-agent — the user only sees an interruption when the gatekeeper catches a real problem."* `[CERT]` (`CLAUDE.md` §"Execution Mode").
+Key clarification `[CERT]`: **auto does NOT mean "no validation"**. It means "no interruption to the user on the happy path". The Gatekeeper ALWAYS runs in auto; what changes is that its results only reach the user when there is a problem. The source says so: *"Phases still run back-to-back WITHOUT interrupting the user, BUT the orchestrator runs a gatekeeper validation after every phase before launching the next sub-agent — the user only sees an interruption when the gatekeeper catches a real problem."* `[CERT]` (`CLAUDE.md` §"Execution Mode").
 
-## 16.2 — Modo interactive: pausas entre fases `[CERT]`
+## 16.2 — Interactive mode: pauses between phases `[CERT]`
 
-En modo interactive, entre fases el orquestador `[CERT]` (`CLAUDE.md` §"Execution Mode"):
+In interactive mode, between phases the orchestrator `[CERT]` (`CLAUDE.md` §"Execution Mode"):
 
-1. Muestra un resumen conciso de lo que produjo la fase.
-2. Lista lo que hará la siguiente fase.
-3. Pregunta: "¿Continuamos? / Continue?" — acepta YES/continue, NO/stop, o feedback específico para ajustar.
-4. Si el usuario da feedback, lo incorpora ANTES de correr la siguiente fase.
+1. Shows a concise summary of what the phase produced.
+2. Lists what the next phase will do.
+3. Asks: "¿Continuamos? / Continue?" — accepts YES/continue, NO/stop, or specific feedback to adjust.
+4. If the user gives feedback, it incorporates it BEFORE running the next phase.
 
-Esto coincide exactamente con el comportamiento de `/sdd-ff` en interactive `[CERT]` (`sdd-ff.md:21`): *"run only the next planning phase, present its summary and artifact path(s), ask whether to adjust or continue, then STOP. Do not launch the following phase until the user confirms."*
+This matches exactly the behavior of `/sdd-ff` in interactive `[CERT]` (`sdd-ff.md:21`): *"run only the next planning phase, present its summary and artifact path(s), ask whether to adjust or continue, then STOP. Do not launch the following phase until the user confirms."*
 
-Regla de alcance de aprobación `[CERT]` (`CLAUDE.md` §"Execution Mode"): la aprobación interactiva es **phase-scoped**. Palabras como "continue", "dale" o "go on" aprueban SOLO la siguiente fase inmediata, no el resto del pipeline SDD. Un artefacto generado NO se considera aprobado hasta que el usuario tuvo chance de revisarlo o delegó explícitamente esa revisión.
+Approval scope rule `[CERT]` (`CLAUDE.md` §"Execution Mode"): interactive approval is **phase-scoped**. Words like "continue", "dale", or "go on" approve ONLY the immediate next phase, not the rest of the SDD pipeline. A generated artifact is NOT considered approved until the user has had a chance to review it or explicitly delegated that review.
 
-**Modelo mental** `[INFER]`: la aprobación interactiva no es transitiva. Aprobar la fase N no autoriza N+1, N+2... Esto previene que un "sí" casual al inicio se interprete como mandato para correr todo el pipeline sin supervisión. Cada fase es un consentimiento nuevo.
+**Mental model** `[INFER]`: interactive approval is not transitive. Approving phase N does not authorize N+1, N+2... This prevents a casual "yes" at the start from being interpreted as a mandate to run the whole pipeline unsupervised. Each phase is a fresh consent.
 
-## 16.3 — Ronda de preguntas de propuesta (interactive) `[CERT]`
+## 16.3 — Proposal question round (interactive) `[CERT]`
 
-Antes de la fase `sdd-propose` en modo interactive, el orquestador ofrece una **ronda de preguntas de propuesta** en lugar de decidir silenciosamente si la propuesta está clara `[CERT]` (`CLAUDE.md` §"Execution Mode"):
+Before the `sdd-propose` phase in interactive mode, the orchestrator offers a **proposal question round** instead of silently deciding whether the proposal is clear `[CERT]` (`CLAUDE.md` §"Execution Mode"):
 
-- Las preguntas buscan mejorar el PRD/propuesta descubriendo: entendimiento del negocio, reglas de negocio, implicaciones, impacto, edge cases, y tradeoffs de producto.
-- Preferir **3-5 preguntas de producto concretas por ronda**, luego resumir los supuestos resultantes y preguntar si el usuario quiere corregir algo o correr una segunda ronda.
-- Cubrir decisiones de negocio/producto/PRD: problema de negocio, usuarios objetivo y situaciones, reglas de negocio, outcome de producto, gap del estado actual, implicaciones e impacto, edge cases, gaps de decisión, límites de scope del primer slice, non-goals, constraints de producto, y tradeoffs de negocio.
+- The questions aim to improve the PRD/proposal by uncovering: business understanding, business rules, implications, impact, edge cases, and product tradeoffs.
+- Prefer **3-5 concrete product questions per round**, then summarize the resulting assumptions and ask whether the user wants to correct anything or run a second round.
+- Cover business/product/PRD decisions: business problem, target users and situations, business rules, product outcome, current-state gap, implications and impact, edge cases, decision gaps, first-slice scope boundaries, non-goals, product constraints, and business tradeoffs.
 
-Lo que NO se pregunta en tiempo de propuesta `[CERT]`: *"Do not ask about test commands, PR shape, changed-line budget, or other harness mechanics at proposal time unless the user explicitly asks to discuss delivery."* `[CERT]` (`CLAUDE.md` §"Execution Mode").
+What is NOT asked at proposal time `[CERT]`: *"Do not ask about test commands, PR shape, changed-line budget, or other harness mechanics at proposal time unless the user explicitly asks to discuss delivery."* `[CERT]` (`CLAUDE.md` §"Execution Mode").
 
-**Por qué** `[INFER]`: la ronda de preguntas separa el dominio de **producto/negocio** (qué se construye y por qué) del dominio de **delivery/harness** (cómo se entrega: PRs, budget de líneas, comandos de test). En la propuesta solo se discute lo primero. Las mecánicas de entrega se resuelven más adelante, en el Review Workload Guard (ver [Bloque 17]).
+**Why** `[INFER]`: the question round separates the **product/business** domain (what is being built and why) from the **delivery/harness** domain (how it is delivered: PRs, line budget, test commands). At proposal time only the former is discussed. Delivery mechanics are resolved later, in the Review Workload Guard (see [Block 17]).
 
-## 16.4 — El Gatekeeper: validador autónomo entre fases `[CERT]`
+## 16.4 — The Gatekeeper: autonomous validator between phases `[CERT]`
 
-En modo automático el orquestador ES el gatekeeper entre fases `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"). Corre **después de cada fase**: cuando una fase delegada retorna y ANTES de lanzar el siguiente sub-agente, el orquestador DEBE validar que la fase alcanzó su objetivo con todo en orden.
+In automatic mode the orchestrator IS the gatekeeper between phases `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"). It runs **after every phase**: when a delegated phase returns and BEFORE launching the next sub-agent, the orchestrator MUST validate that the phase reached its objective with everything in order.
 
-Distinción crítica `[CERT]`: el Gatekeeper es **validación autónoma — NO le pregunta al usuario** (eso es el modo interactive). Solo aflora al usuario cuando detecta un problema. *"This is autonomous validation — it does NOT ask the user (that is Interactive mode); it only surfaces to the user when it catches a problem."* `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper").
+Critical distinction `[CERT]`: the Gatekeeper is **autonomous validation — it does NOT ask the user** (that is interactive mode). It only surfaces to the user when it detects a problem. *"This is autonomous validation — it does NOT ask the user (that is Interactive mode); it only surfaces to the user when it catches a problem."* `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper").
 
-**Modelo mental** `[INFER]`: el Gatekeeper es el equivalente automático del checkpoint humano del modo interactive. En interactive, el HUMANO valida cada fase. En auto, el ORQUESTADOR valida cada fase con criterios objetivos. Por eso auto no es "modo ciego": es "modo con un revisor autónomo en lugar del humano".
+**Mental model** `[INFER]`: the Gatekeeper is the automatic equivalent of the human checkpoint in interactive mode. In interactive, the HUMAN validates each phase. In auto, the ORCHESTRATOR validates each phase with objective criteria. That is why auto is not "blind mode": it is "mode with an autonomous reviewer instead of the human".
 
-## 16.5 — Los cinco chequeos del Gatekeeper `[CERT]`
+## 16.5 — The Gatekeeper's five checks `[CERT]`
 
-El Gatekeeper chequea cada fase contra el Result Contract `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"). Los cinco chequeos:
+The Gatekeeper checks each phase against the Result Contract `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"). The five checks:
 
-| # | Chequeo | Qué verifica `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper") |
+| # | Check | What it verifies `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper") |
 |---|---------|------------------------------------------------------------------|
-| 1 | **Contract conformance** | La fase devolvió `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks` y `skill_resolution`, y `status` indica éxito (no partial, failed ni blocked). |
-| 2 | **Artifact existence** | El artefacto declarado existe y es legible en el backend activo — se LEE de vuelta (engram: `mem_search` + `mem_get_observation` sobre el topic key; openspec: leer la ruta del archivo). Una fase que reporta éxito pero no produjo artefacto recuperable FALLA. |
-| 3 | **No hallucination** | Toda ruta de archivo, símbolo, comando o artefacto que la fase dice haber creado o referenciado DEBE existir realmente; se spot-checkean las afirmaciones concretas. Una ruta referenciada que no resuelve FALLA. |
-| 4 | **No drift from inputs** | La salida es consistente con los inputs requeridos de la fase según el Dependency Graph — spec dentro del scope de la propuesta, design responde a la propuesta, tasks cubren spec y design, apply implementa las tasks. Requisitos inventados, scope creep o requisitos dropeados FALLAN. |
-| 5 | **Routing coherence** | `next_recommended` sigue el Dependency Graph y `risks` están dentro de tolerancia (sin CRITICAL no atendido). |
+| 1 | **Contract conformance** | The phase returned `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, and `skill_resolution`, and `status` indicates success (not partial, failed, or blocked). |
+| 2 | **Artifact existence** | The declared artifact exists and is readable in the active backend — it is READ back (engram: `mem_search` + `mem_get_observation` over the topic key; openspec: read the file path). A phase that reports success but produced no retrievable artifact FAILS. |
+| 3 | **No hallucination** | Every file path, symbol, command, or artifact the phase claims to have created or referenced MUST actually exist; the concrete claims are spot-checked. A referenced path that does not resolve FAILS. |
+| 4 | **No drift from inputs** | The output is consistent with the phase's required inputs per the Dependency Graph — spec within the proposal's scope, design answers the proposal, tasks cover spec and design, apply implements the tasks. Invented requirements, scope creep, or dropped requirements FAIL. |
+| 5 | **Routing coherence** | `next_recommended` follows the Dependency Graph and `risks` are within tolerance (no unaddressed CRITICAL). |
 
-**Lectura del conjunto** `[INFER]`: los cinco chequeos forman una jerarquía de confianza creciente. (1) ¿la fase respondió en el formato esperado? (2) ¿el artefacto que dice haber hecho existe de verdad? (3) ¿lo que cita dentro del artefacto existe? (4) ¿es coherente con lo que recibió? (5) ¿hacia dónde apunta es correcto? Es un embudo: primero la forma, después la sustancia, después la coherencia, después el ruteo. El más sutil es el #4 (drift): captura el fallo más peligroso de los LLMs, inventar o perder requisitos silenciosamente.
+**Reading the set as a whole** `[INFER]`: the five checks form a hierarchy of increasing trust. (1) did the phase respond in the expected format? (2) does the artifact it claims to have made really exist? (3) does what it cites within the artifact exist? (4) is it coherent with what it received? (5) is where it points correct? It is a funnel: first the form, then the substance, then the coherence, then the routing. The most subtle is #4 (drift): it captures the most dangerous failure of LLMs, silently inventing or losing requirements.
 
-## 16.6 — Mecanismo híbrido: inline vs. reviewer fresco `[CERT]`
+## 16.6 — Hybrid mechanism: inline vs. fresh reviewer `[CERT]`
 
-El Gatekeeper usa un mecanismo de validación **consciente del costo** `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"):
+The Gatekeeper uses a **cost-aware** validation mechanism `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"):
 
-| Tipo de fase | Mecanismo de validación `[CERT]` |
+| Phase type | Validation mechanism `[CERT]` |
 |--------------|----------------------------------|
-| **Bajo riesgo** (`sdd-explore`, `sdd-spec`, `sdd-tasks`, `sdd-archive`) | **Inline**: el orquestador corre los chequeos él mismo leyendo el artefacto de vuelta. Sin sub-agente extra. |
-| **Alto riesgo** (`sdd-design`, `sdd-apply`) | **Reviewer de contexto fresco**: delegar un sub-agente reviewer fresco para juicio independiente, porque los errores en estas fases compounden downstream. Usar el alias de modelo `sdd-verify` para el gate review, con `model` per el mandatory model gate. |
+| **Low risk** (`sdd-explore`, `sdd-spec`, `sdd-tasks`, `sdd-archive`) | **Inline**: the orchestrator runs the checks itself by reading the artifact back. No extra sub-agent. |
+| **High risk** (`sdd-design`, `sdd-apply`) | **Fresh-context reviewer**: delegate a fresh reviewer sub-agent for independent judgment, because errors in these phases compound downstream. Use the `sdd-verify` model alias for the gate review, with `model` per the mandatory model gate. |
 
-Escalada por "smell" `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"): si un chequeo inline en una fase de bajo riesgo encuentra cualquier olor (status mismatch, ruta sin resolver, drift sospechado, artefacto faltante), se ESCALA esa fase a un review delegado de contexto fresco antes de decidir.
+Escalation on "smell" `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"): if an inline check on a low-risk phase finds any smell (status mismatch, unresolved path, suspected drift, missing artifact), that phase is ESCALATED to a fresh-context delegated review before deciding.
 
-**Por qué design y apply son alto riesgo** `[INFER]`: son las dos fases donde una decisión equivocada **se propaga**. Un design errado contamina todas las tasks y la implementación. Un apply errado mete bugs en el código. Las fases de bajo riesgo (explore, spec, tasks, archive) producen artefactos más mecánicos o reversibles, donde un error es más local y barato de detectar inline. La asimetría de costo justifica gastar un sub-agente fresco solo en design/apply. Esto enlaza con la regla de trigger de agentes: `judgment-day` se recomienda fuerte tras design o apply (ver [Bloque 24]).
+**Why design and apply are high risk** `[INFER]`: they are the two phases where a wrong decision **propagates**. A wrong design contaminates all the tasks and the implementation. A wrong apply injects bugs into the code. The low-risk phases (explore, spec, tasks, archive) produce more mechanical or reversible artifacts, where an error is more local and cheap to detect inline. The cost asymmetry justifies spending a fresh sub-agent only on design/apply. This links to the agent trigger rule: `judgment-day` is strongly recommended after design or apply (see [Block 24]).
 
-## 16.7 — Flujo PASS/FAIL y el re-run único `[CERT]`
+## 16.7 — PASS/FAIL flow and the single re-run `[CERT]`
 
-El resultado del Gatekeeper dispara dos caminos `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"):
+The Gatekeeper's result triggers two paths `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper"):
 
-**On gate PASS**: continuar automáticamente a la siguiente fase. *"Auto stays auto on the happy path."* `[CERT]`
+**On gate PASS**: continue automatically to the next phase. *"Auto stays auto on the happy path."* `[CERT]`
 
 **On gate FAIL** `[CERT]`:
 
-1. **Re-correr la misma fase EXACTAMENTE una vez** con feedback correctivo que nombra las fallas específicas que el gatekeeper encontró (no un blanket-retry).
-2. Re-correr el gate sobre el nuevo resultado.
-3. Si pasa → continuar la cadena.
-4. Si falla de nuevo → **DETENER la cadena automática** y aflorar un reporte al usuario nombrando la fase, qué detectó el gatekeeper, ambos intentos, y el fix recomendado.
+1. **Re-run the same phase EXACTLY once** with corrective feedback that names the specific failures the gatekeeper found (not a blanket-retry).
+2. Re-run the gate on the new result.
+3. If it passes → continue the chain.
+4. If it fails again → **STOP the automatic chain** and surface a report to the user naming the phase, what the gatekeeper caught, both attempts, and the recommended fix.
 
-Regla de no-avance `[CERT]`: *"Do not advance to dependent phases on a failed gate — a bad artifact compounds downstream."* `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper").
+No-advance rule `[CERT]`: *"Do not advance to dependent phases on a failed gate — a bad artifact compounds downstream."* `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper").
 
-**Modelo mental del re-run único** `[INFER]`: el sistema da exactamente UNA segunda oportunidad con feedback dirigido, no reintentos infinitos. La lógica es: si una fase falla y un re-run con feedback específico tampoco lo arregla, el problema probablemente excede lo que el reintento automático puede resolver — necesita un humano. El "exactamente una vez" evita loops de gasto de tokens y fuerza escalada temprana al usuario.
+**Mental model of the single re-run** `[INFER]`: the system gives exactly ONE second chance with targeted feedback, not infinite retries. The logic is: if a phase fails and a re-run with specific feedback does not fix it either, the problem probably exceeds what the automatic retry can resolve — it needs a human. The "exactly once" avoids token-burning loops and forces early escalation to the user.
 
-Convivencia con otros guards `[CERT]`: el Gatekeeper corre EN ADICIÓN al Review Workload Guard y a los Mandatory Delegation Triggers; nunca los relaja y nunca auto-marca nada como reviewed en engram `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper").
+Coexistence with other guards `[CERT]`: the Gatekeeper runs IN ADDITION to the Review Workload Guard and the Mandatory Delegation Triggers; it never relaxes them and never auto-marks anything as reviewed in engram `[CERT]` (`CLAUDE.md` §"Automatic Mode Gatekeeper").
 
-## 16.8 — Artifact Store Mode: la otra pregunta del primer turno `[CERT]`
+## 16.8 — Artifact Store Mode: the other first-turn question `[CERT]`
 
-Junto con el execution mode, en el primer `/sdd-new`/`/sdd-ff`/`/sdd-continue` de la sesión el orquestador TAMBIÉN pregunta qué artifact store usar `[CERT]` (`CLAUDE.md` §"Artifact Store Mode"):
+Along with the execution mode, on the first `/sdd-new`/`/sdd-ff`/`/sdd-continue` of the session the orchestrator ALSO asks which artifact store to use `[CERT]` (`CLAUDE.md` §"Artifact Store Mode"):
 
-| Store | Característica `[CERT]` (`CLAUDE.md` §"Artifact Store Mode") |
+| Store | Characteristic `[CERT]` (`CLAUDE.md` §"Artifact Store Mode") |
 |-------|------------------------------------------------------------|
-| `engram` | Rápido, sin archivos. Artefactos solo en engram. Mejor para solo y iteración rápida. Re-correr una fase sobrescribe la versión previa (sin historia). |
-| `openspec` | Basado en archivos. Crea `openspec/` con trail completo. Committeable, compartible, con historia git. |
-| `hybrid` | Ambos — archivos para equipo + engram para recuperación cross-session. Mayor costo de tokens. |
+| `engram` | Fast, no files. Artifacts only in engram. Best for solo work and quick iteration. Re-running a phase overwrites the previous version (no history). |
+| `openspec` | File-based. Creates `openspec/` with a full trail. Committable, shareable, with git history. |
+| `hybrid` | Both — files for the team + engram for cross-session recovery. Higher token cost. |
 
-Default `[CERT]`: si el usuario no especifica, detectar — si engram está disponible → `engram`; si no → `none`. El store se cachea y se pasa como `artifact_store.mode` a cada lanzamiento de sub-agente `[CERT]`.
+Default `[CERT]`: if the user does not specify, detect — if engram is available → `engram`; otherwise → `none`. The store is cached and passed as `artifact_store.mode` to each sub-agent launch `[CERT]`.
 
-**Conexión con el Gatekeeper** `[INFER]`: el chequeo #2 (artifact existence) del Gatekeeper depende de este modo — lee de vuelta vía `mem_get_observation` si es engram, o lee el archivo si es openspec. El store elegido aquí determina CÓMO el Gatekeeper verifica que el artefacto existe.
+**Connection with the Gatekeeper** `[INFER]`: the Gatekeeper's check #2 (artifact existence) depends on this mode — it reads back via `mem_get_observation` if it is engram, or reads the file if it is openspec. The store chosen here determines HOW the Gatekeeper verifies that the artifact exists.
 
-## 16.9 — Conexiones
+## 16.9 — Connections
 
-- **[Bloque 2] — DAG + Result Contract**: los cinco campos que el Gatekeeper exige (chequeo #1) son exactamente el Result Contract (`status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`) que [Bloque 2] define. El chequeo #4 (no drift) se valida contra el Dependency Graph de [Bloque 2].
-- **[Bloque 8] — sdd-design** y **[Bloque 10] — sdd-apply**: son las dos fases de ALTO RIESGO que el Gatekeeper valida con reviewer fresco (§16.6), porque sus errores compounden downstream.
-- **[Bloque 24] — judgment-day**: la regla de trigger recomienda fuerte correr `judgment-day` tras las fases design o apply — el mismo umbral de alto riesgo que usa el Gatekeeper. Ambos mecanismos refuerzan el mismo punto del pipeline.
-- **[Bloque 17] — delivery/chain strategy**: el Gatekeeper corre EN ADICIÓN al Review Workload Guard (§16.7), que [Bloque 17] documenta. El Artifact Store Mode (§16.8) y el execution mode son dos de los cuatro elementos del Session Preflight; los otros dos (chain strategy, review budget) están en [Bloque 17].
-- **[Bloque 18] — delegación + models**: el reviewer fresco del Gatekeeper usa el alias de modelo `sdd-verify` con el mandatory model gate (§16.6), que [Bloque 18] formaliza en la tabla de Model Assignments.
-- **[Bloque 14] — meta-comandos**: el execution mode y artifact store que aquí se preguntan son dos de los cuatro elementos del HARD GATE de Session Preflight que [Bloque 14] describe para los tres meta-comandos.
+- **[Block 2] — DAG + Result Contract**: the five fields the Gatekeeper requires (check #1) are exactly the Result Contract (`status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`) that [Block 2] defines. Check #4 (no drift) is validated against the Dependency Graph of [Block 2].
+- **[Block 8] — sdd-design** and **[Block 10] — sdd-apply**: they are the two HIGH-RISK phases the Gatekeeper validates with a fresh reviewer (§16.6), because their errors compound downstream.
+- **[Block 24] — judgment-day**: the trigger rule strongly recommends running `judgment-day` after the design or apply phases — the same high-risk threshold the Gatekeeper uses. Both mechanisms reinforce the same point of the pipeline.
+- **[Block 17] — delivery/chain strategy**: the Gatekeeper runs IN ADDITION to the Review Workload Guard (§16.7), which [Block 17] documents. The Artifact Store Mode (§16.8) and the execution mode are two of the four elements of the Session Preflight; the other two (chain strategy, review budget) are in [Block 17].
+- **[Block 18] — delegation + models**: the Gatekeeper's fresh reviewer uses the `sdd-verify` model alias with the mandatory model gate (§16.6), which [Block 18] formalizes in the Model Assignments table.
+- **[Block 14] — meta-commands**: the execution mode and artifact store asked here are two of the four elements of the Session Preflight HARD GATE that [Block 14] describes for the three meta-commands.

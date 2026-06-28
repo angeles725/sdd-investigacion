@@ -1,161 +1,161 @@
-# Bloque 18 — Modelo de delegación, triggers obligatorios y model assignments
+# Block 18 — Delegation model, mandatory triggers, and model assignments
 
-> **QUÉ DOCUMENTA**: Este bloque consolida el modelo de delegación del orquestador SDD: la tabla de decisión inline-vs-delegar, los seis Mandatory Delegation Triggers (hard gates), la tabla de Model Assignments (fase → modelo → effort → razón), el mandatory model gate por fase, y la deduplicación de lanzamientos de sub-agentes.
-> **ALCANCE**: El criterio de delegación, los seis triggers no-skippables, el balance costo/contexto, la tabla de modelos por fase SDD/Judgment-Day, el model gate obligatorio, el Skill Resolver Protocol resumido, y la dedup de launches. Es la capa transversal que gobierna CÓMO el orquestador convoca a TODAS las fases. Para el detalle de cada fase, ver [Bloque 5] a [Bloque 12].
-> **FUENTES** (leídas y verificadas):
+> **WHAT IT DOCUMENTS**: This block consolidates the SDD orchestrator's delegation model: the inline-vs-delegate decision table, the six Mandatory Delegation Triggers (hard gates), the Model Assignments table (phase → model → effort → reason), the per-phase mandatory model gate, and the deduplication of sub-agent launches.
+> **SCOPE**: The delegation criterion, the six non-skippable triggers, the cost/context balance, the per-phase SDD/Judgment-Day model table, the mandatory model gate, the summarized Skill Resolver Protocol, and the dedup of launches. It is the cross-cutting layer that governs HOW the orchestrator summons ALL phases. For the detail of each phase, see [Block 5] to [Block 12].
+> **SOURCES** (read and verified):
 > - `/home/cristian/.claude/CLAUDE.md` §"Delegation Rules", §"Mandatory Delegation Triggers", §"Cost and Context Balance", §"Model Assignments", §"Sub-Agent Launch Deduplication (MANDATORY)", §"Sub-Agent Launch Pattern", §"Result Contract"
-> **MÉTODO**: Cada afirmación lleva un marcador de certeza. `[CERT]` = verificado leyendo la fuente, con `ruta §sección`. `[CERT-a]` = afirmado por fuente, no re-verificado. `[INFER]` = deducción propia.
+> **METHOD**: Every claim carries a certainty marker. `[CERT]` = verified by reading the source, with `path §section`. `[CERT-a]` = asserted by a source, not re-verified. `[INFER]` = my own deduction.
 
 ---
 
-## 18.1 — El criterio raíz: ¿esto infla mi contexto sin necesidad? `[CERT]`
+## 18.1 — The root criterion: does this inflate my context without need? `[CERT]`
 
-El principio rector de toda la delegación es una sola pregunta `[CERT]` (`CLAUDE.md` §"Delegation Rules"): *"does this inflate my context without need? If yes → delegate. If no → do it inline."*
+The guiding principle of all delegation is a single question `[CERT]` (`CLAUDE.md` §"Delegation Rules"): *"does this inflate my context without need? If yes → delegate. If no → do it inline."*
 
-La tabla de decisión `[CERT]` (`CLAUDE.md` §"Delegation Rules"):
+The decision table `[CERT]` (`CLAUDE.md` §"Delegation Rules"):
 
-| Acción | Inline | Delegar |
+| Action | Inline | Delegate |
 |--------|--------|---------|
-| Leer para decidir/verificar (1-3 archivos) | ✅ | — |
-| Leer para explorar/entender (4+ archivos) | — | ✅ |
-| Leer como preparación para escribir | — | ✅ junto con la escritura |
-| Escribir atómico (un archivo, mecánico, ya sabés qué) | ✅ | — |
-| Escribir con análisis (múltiples archivos, lógica nueva) | — | ✅ |
-| Bash para estado (git, gh) | ✅ | — |
-| Bash para ejecución (test, build, install) | — | ✅ |
+| Read to decide/verify (1-3 files) | ✅ | — |
+| Read to explore/understand (4+ files) | — | ✅ |
+| Read as preparation for writing | — | ✅ together with the write |
+| Write atomic (one file, mechanical, you already know what) | ✅ | — |
+| Write with analysis (multiple files, new logic) | — | ✅ |
+| Bash for state (git, gh) | ✅ | — |
+| Bash for execution (test, build, install) | — | ✅ |
 
-Anti-patrones que SIEMPRE inflan contexto sin necesidad `[CERT]` (`CLAUDE.md` §"Delegation Rules"):
+Anti-patterns that ALWAYS inflate context without need `[CERT]` (`CLAUDE.md` §"Delegation Rules"):
 
-- Leer 4+ archivos para "entender" el codebase inline → delegar una exploración.
-- Escribir una feature a través de múltiples archivos inline → delegar.
-- Correr tests o builds inline → delegar.
-- Leer archivos como preparación para edits y luego editar → delegar todo junto.
+- Read 4+ files to "understand" the codebase inline → delegate an exploration.
+- Write a feature across multiple files inline → delegate.
+- Run tests or builds inline → delegate.
+- Read files as preparation for edits and then edit → delegate the whole thing together.
 
-Guard semántico crítico `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers"): **delegar** significa usar el mecanismo nativo de sub-agentes de la plataforma (`Agent`/`Task`/`delegate`). Correr scripts locales, Python o Bash inline es EJECUCIÓN, no delegación.
+Critical semantic guard `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers"): **delegate** means using the platform's native sub-agent mechanism (`Agent`/`Task`/`delegate`). Running local scripts, Python, or Bash inline is EXECUTION, not delegation.
 
-(Esta sección es la base que [Bloque 1] introduce a nivel filosófico; aquí se trata como la mecánica operativa que gobierna cada launch.)
+(This section is the base that [Block 1] introduces at the philosophical level; here it is treated as the operational mechanics that govern each launch.)
 
-## 18.2 — Los seis Mandatory Delegation Triggers `[CERT]`
+## 18.2 — The six Mandatory Delegation Triggers `[CERT]`
 
-Son **stop rules no-skippables del orquestador padre** — NO recomendaciones `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers": "non-skippable hard gates, not recommendations... TOTALMENTE obligatorio"). La indisponibilidad de tooling NO es waiver: se documenta el bloqueo, se detiene el trabajo delegado bloqueado, y se hace la auditoría de contexto fresco más cercana solo donde la regla lo pida.
+They are **non-skippable parent-orchestrator stop rules** — NOT recommendations `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers": "non-skippable hard gates, not recommendations... TOTALMENTE obligatorio"). Tool unavailability is NOT a waiver: the blocker is documented, the blocked delegated work is stopped, and the closest fresh-context audit is performed only where the rule calls for it.
 
-| # | Regla | Disparador y acción requerida `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers") |
+| # | Rule | Trigger and required action `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers") |
 |---|-------|---------------------------------------------------------------------------------------|
-| 1 | **4-file rule** | Si entender requiere leer 4+ archivos → delegar exploración/mapeo acotado. Si no hay tooling de delegación → documentar el bloqueo y DETENER la exploración, no leer todo inline. |
-| 2 | **Multi-file write rule** | Si la implementación tocará 2+ archivos no triviales → delegar UN escritor. Sin tooling → documentar y detener; un review fresco es requerido DESPUÉS de la implementación delegada, no sustituto de la delegación. |
-| 3 | **PR rule** | Antes de commit/push/PR tras cambios de código → review de contexto fresco, salvo diff trivial de docs/texto. |
-| 4 | **Incident rule** | Tras `cwd` equivocado, mutación accidental de repo/worktree, recuperación de merge, comando de test confuso, o workaround de entorno → DETENER y correr auditoría fresca antes de continuar. |
-| 5 | **Long-session rule** | Tras ~20 tool calls, 5 lecturas exploratorias, o 2 edits no mecánicos sin delegar y complejidad creciente → pausar y delegar el resto. Sin tooling → documentar y detener el trabajo complejo. |
-| 6 | **Fresh review rule** | Usar contexto fresco para review adversarial de diffs/conflictos/PR readiness/incidentes; usar continuidad/fork SOLO para implementación que necesita estado heredado. |
+| 1 | **4-file rule** | If understanding requires reading 4+ files → delegate a narrow exploration/mapping. If there is no delegation tooling → document the blocker and STOP the exploration, do not read everything inline. |
+| 2 | **Multi-file write rule** | If the implementation will touch 2+ non-trivial files → delegate ONE writer. Without tooling → document and stop; a fresh review is required AFTER the delegated implementation, not a substitute for delegation. |
+| 3 | **PR rule** | Before commit/push/PR after code changes → fresh-context review, except a trivial docs/text diff. |
+| 4 | **Incident rule** | After a wrong `cwd`, accidental repo/worktree mutation, merge recovery, confusing test command, or environment workaround → STOP and run a fresh audit before continuing. |
+| 5 | **Long-session rule** | After ~20 tool calls, 5 exploratory reads, or 2 non-mechanical edits without delegating and with growing complexity → pause and delegate the rest. Without tooling → document and stop the complex work. |
+| 6 | **Fresh review rule** | Use fresh context for adversarial review of diffs/conflicts/PR readiness/incidents; use continuity/fork ONLY for implementation that needs inherited state. |
 
-Reglas de alcance de los triggers `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers"):
+Scope rules of the triggers `[CERT]` (`CLAUDE.md` §"Mandatory Delegation Triggers"):
 
-- Son stop rules del orquestador PADRE. NO se pasan a agentes hijos como permiso para spawnear más agentes. Los hijos reciben trabajo concreto de rol y NO deben orquestar.
-- Las reglas que dicen **delegate** requieren delegación nativa de sub-agentes. Las que dicen **fresh review/audit** requieren contexto fresco antes de continuar.
+- They are PARENT orchestrator stop rules. They are NOT passed to child agents as permission to spawn more agents. Children receive concrete role work and must NOT orchestrate.
+- The rules that say **delegate** require native sub-agent delegation. Those that say **fresh review/audit** require fresh context before continuing.
 
-**Modelo mental** `[INFER]`: los seis triggers se agrupan en dos familias. Los pares (1, 2, 5) son triggers de **compresión de contexto** — cuando el trabajo crece (4 archivos, 2 escrituras, 20 tool calls), delegar para no inflar el hilo. Los pares (3, 4, 6) son triggers de **independencia de juicio** — cuando hay riesgo (PR, incidente, review), usar contexto FRESCO porque su valor es la objetividad, no el ahorro de tokens. Es la misma dualidad que [Bloque 1] §1.5 establece.
+**Mental model** `[INFER]`: the six triggers group into two families. The trio (1, 2, 5) are **context-compression** triggers — when the work grows (4 files, 2 writes, 20 tool calls), delegate so as not to inflate the thread. The trio (3, 4, 6) are **judgment-independence** triggers — when there is risk (PR, incident, review), use FRESH context because its value is objectivity, not token saving. It is the same duality that [Block 1] §1.5 establishes.
 
-## 18.3 — Balance costo y contexto `[CERT]`
+## 18.3 — Cost and context balance `[CERT]`
 
-El sistema mantiene conceptualmente separadas dos motivaciones para delegar `[CERT]` (`CLAUDE.md` §"Cost and Context Balance"):
+The system keeps two motivations for delegating conceptually separate `[CERT]` (`CLAUDE.md` §"Cost and Context Balance"):
 
-- **Exploración** → comprime lectura amplia del repo en un handoff corto (ahorro de tokens).
-- **Escritura** → un único hilo escritor para implementación; NO correr escritores en paralelo salvo worktrees aislados explícitamente aprobados.
-- **Reviewers frescos** tras implementación/conflictos/incidentes → su valor es el juicio INDEPENDIENTE, no el ahorro de tokens.
-- **NO delegar** para: fixes de un solo archivo verdaderamente locales, chequeos rápidos de estado, edits mecánicos ya entendidos.
+- **Exploration** → compresses broad repo reading into a short handoff (token saving).
+- **Writing** → a single writer thread for implementation; do NOT run parallel writers except explicitly approved isolated worktrees.
+- **Fresh reviewers** after implementation/conflicts/incidents → their value is INDEPENDENT judgment, not token saving.
+- **Do NOT delegate** for: truly local single-file fixes, quick state checks, already-understood mechanical edits.
 
-Regla de paralelismo de escritura `[CERT]`: un solo hilo escritor para implementación; no escritores paralelos salvo worktrees aislados aprobados explícitamente. Esto previene conflictos de escritura concurrente sobre los mismos archivos.
+Write-parallelism rule `[CERT]`: a single writer thread for implementation; no parallel writers except explicitly approved isolated worktrees. This prevents concurrent-write conflicts over the same files.
 
-## 18.4 — La tabla de Model Assignments `[CERT]`
+## 18.4 — The Model Assignments table `[CERT]`
 
-El orquestador lee esta tabla al inicio de sesión, la cachea, y usa el alias mapeado SOLO para agentes de fase SDD/Judgment-Day `[CERT]` (`CLAUDE.md` §"Model Assignments"). La tabla completa `[CERT]`:
+The orchestrator reads this table at session start, caches it, and uses the mapped alias ONLY for SDD/Judgment-Day phase agents `[CERT]` (`CLAUDE.md` §"Model Assignments"). The full table `[CERT]`:
 
-| Fase | Modelo default | Effort | Razón `[CERT]` (`CLAUDE.md` §"Model Assignments") |
+| Phase | Default Model | Effort | Reason `[CERT]` (`CLAUDE.md` §"Model Assignments") |
 |------|----------------|--------|---------------------------------------------------|
-| `sdd-explore` | sonnet | default | Lee código, estructural — no arquitectónico |
-| `sdd-propose` | opus | default | Decisiones arquitectónicas |
-| `sdd-spec` | sonnet | default | Escritura estructurada |
-| `sdd-design` | opus | default | Decisiones de arquitectura |
-| `sdd-tasks` | sonnet | default | Desglose mecánico |
-| `sdd-apply` | sonnet | default | Implementación |
-| `sdd-verify` | sonnet | default | Validación contra spec |
-| `sdd-archive` | haiku | default | Copiar y cerrar |
-| `sdd-onboard` | haiku | default | Walkthrough guiado, pedagógico |
-| `jd-judge-a` | sonnet | default | Review adversarial — juez ciego A |
-| `jd-judge-b` | sonnet | default | Review adversarial — juez ciego B |
-| `jd-fix-agent` | sonnet | default | Fixes quirúrgicos de issues confirmados |
-| `default` | sonnet | default | Fallback de fase SDD/JD |
+| `sdd-explore` | sonnet | default | Reads code, structural — not architectural |
+| `sdd-propose` | opus | default | Architectural decisions |
+| `sdd-spec` | sonnet | default | Structured writing |
+| `sdd-design` | opus | default | Architecture decisions |
+| `sdd-tasks` | sonnet | default | Mechanical breakdown |
+| `sdd-apply` | sonnet | default | Implementation |
+| `sdd-verify` | sonnet | default | Validation against spec |
+| `sdd-archive` | haiku | default | Copy and close |
+| `sdd-onboard` | haiku | default | Guided walkthrough, pedagogical |
+| `jd-judge-a` | sonnet | default | Adversarial review — blind judge A |
+| `jd-judge-b` | sonnet | default | Adversarial review — blind judge B |
+| `jd-fix-agent` | sonnet | default | Surgical fixes from confirmed issues |
+| `default` | sonnet | default | SDD/JD phase fallback |
 
-Reglas de la tabla `[CERT]` (`CLAUDE.md` §"Model Assignments"):
+Table rules `[CERT]` (`CLAUDE.md` §"Model Assignments"):
 
-- Si una fase SDD/JD falta en la tabla → usar la fila `default`.
-- Si no se tiene acceso al modelo asignado (ej. sin acceso a Opus) → sustituir por `sonnet` y continuar.
-- El modelo de la sesión de Claude Code lo controla Claude Code mismo; Gentle AI NO configura el modelo del orquestador principal. *"This table applies only to Agent tool calls for SDD/Judgment-Day phase sub-agents, not generic delegation."* `[CERT]`.
+- If an SDD/JD phase is missing from the table → use the `default` row.
+- If you do not have access to the assigned model (e.g. no Opus access) → substitute `sonnet` and continue.
+- The Claude Code session model is controlled by Claude Code itself; Gentle AI does NOT configure the main orchestrator model. *"This table applies only to Agent tool calls for SDD/Judgment-Day phase sub-agents, not generic delegation."* `[CERT]`.
 
-**Por qué cada modelo** `[INFER]`: la tabla mapea **complejidad cognitiva → capacidad de modelo**. Las dos únicas fases con **opus** son `sdd-propose` y `sdd-design` — las que toman decisiones ARQUITECTÓNICAS, donde un error compounde downstream (las mismas fases de alto riesgo del Gatekeeper en [Bloque 16]). Las fases de escritura estructurada o mecánica (`spec`, `tasks`, `apply`, `verify`) usan **sonnet**: capaces pero no tienen que decidir arquitectura. Las fases de copiar/cerrar y pedagógicas (`archive`, `onboard`) usan **haiku**: trabajo mecánico o de bajo riesgo donde el modelo más barato basta. Es asignación de recurso proporcional al riesgo de la decisión.
+**Why each model** `[INFER]`: the table maps **cognitive complexity → model capacity**. The only two phases with **opus** are `sdd-propose` and `sdd-design` — the ones that make ARCHITECTURAL decisions, where an error compounds downstream (the same high-risk phases of the Gatekeeper in [Block 16]). The structured-or-mechanical writing phases (`spec`, `tasks`, `apply`, `verify`) use **sonnet**: capable but they do not have to decide architecture. The copy/close and pedagogical phases (`archive`, `onboard`) use **haiku**: mechanical or low-risk work where the cheapest model suffices. It is resource allocation proportional to the risk of the decision.
 
-## 18.5 — El Mandatory Phase Model Gate `[CERT]`
+## 18.5 — The Mandatory Phase Model Gate `[CERT]`
 
-Regla dura `[CERT]` (`CLAUDE.md` §"Model Assignments"): *"Agent tool calls for SDD/Judgment-Day phase agents MUST include `model`. Generic/non-SDD delegation MUST NOT use this table; omit `model` unless the user explicitly requested an override."*
+Hard rule `[CERT]` (`CLAUDE.md` §"Model Assignments"): *"Agent tool calls for SDD/Judgment-Day phase agents MUST include `model`. Generic/non-SDD delegation MUST NOT use this table; omit `model` unless the user explicitly requested an override."*
 
-El pre-flight obligatorio antes de cada Agent call de fase SDD/JD `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Pattern"):
+The mandatory pre-flight before each SDD/JD phase Agent call `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Pattern"):
 
-1. Identificar la fase SDD/JD (`sdd-apply`, `sdd-verify`, `jd-judge-a`, etc.) o usar `default` solo como fallback de fase.
-2. Buscar el alias en la tabla de Model Assignments.
-3. Incluir `model: "<alias>"` en la Agent tool call SDD/JD.
-4. Para delegación genérica/no-SDD: NO usar esta tabla; omitir `model` salvo override explícito del usuario.
+1. Identify the SDD/JD phase (`sdd-apply`, `sdd-verify`, `jd-judge-a`, etc.) or use `default` only as a phase fallback.
+2. Look up the alias in the Model Assignments table.
+3. Include `model: "<alias>"` in the SDD/JD Agent tool call.
+4. For generic/non-SDD delegation: do NOT use this table; omit `model` unless the user explicitly requests an override.
 
-**La frontera del gate** `[INFER]`: hay DOS clases de delegación con reglas opuestas sobre `model`. Las Agent calls de FASE SDD/JD DEBEN llevar `model` (resuelto de la tabla). La delegación GENÉRICA (exploraciones ad-hoc, reviewers no-fase, búsquedas) NO debe llevar `model` salvo que el usuario lo pida. Mezclarlas es un error: poner `model` en una delegación genérica fuerza un modelo que el usuario no eligió; omitirlo en una fase SDD viola el gate. El gate existe para que cada fase corra en el modelo correcto SIN que el costo de Opus se derrame a tareas que no lo necesitan.
+**The boundary of the gate** `[INFER]`: there are TWO classes of delegation with opposite rules about `model`. SDD/JD PHASE Agent calls MUST carry `model` (resolved from the table). GENERIC delegation (ad-hoc explorations, non-phase reviewers, searches) MUST NOT carry `model` unless the user asks for it. Mixing them is an error: putting `model` on a generic delegation forces a model the user did not choose; omitting it on an SDD phase violates the gate. The gate exists so that each phase runs on the correct model WITHOUT the cost of Opus spilling over to tasks that do not need it.
 
-## 18.6 — Skill Resolver Protocol (resumen operativo) `[CERT]`
+## 18.6 — Skill Resolver Protocol (operational summary) `[CERT]`
 
-Todo prompt de launch de sub-agente que involucre leer/escribir/revisar código DEBE incluir **rutas de skill pre-resueltas** del registry `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Pattern"). El orquestador resuelve skills del registry UNA vez (al inicio de sesión o primera delegación), cachea el índice, y pasa las rutas de `SKILL.md` matcheantes en cada prompt de sub-agente.
+Every sub-agent launch prompt that involves reading/writing/reviewing code MUST include **pre-resolved skill paths** from the registry `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Pattern"). The orchestrator resolves skills from the registry ONCE (at session start or first delegation), caches the index, and passes the matching `SKILL.md` paths into each sub-agent prompt.
 
-Resolución del orquestador (una vez por sesión) `[CERT]`:
+Orchestrator resolution (once per session) `[CERT]`:
 
-1. `mem_search(query: "skill-registry", project: "{project}")` → `mem_get_observation(id)` para el contenido completo.
-2. Fallback: leer `.atl/skill-registry.md` si engram no está disponible.
-3. Cachear el índice: nombre de skill, trigger/descripción, scope, ruta exacta.
-4. Si no hay registry → advertir al usuario y proceder sin estándares específicos del proyecto.
+1. `mem_search(query: "skill-registry", project: "{project}")` → `mem_get_observation(id)` for the full content.
+2. Fallback: read `.atl/skill-registry.md` if engram is not available.
+3. Cache the index: skill name, trigger/description, scope, exact path.
+4. If there is no registry → warn the user and proceed without project-specific standards.
 
-Por cada launch `[CERT]`: matchear skills por **contexto de código** (extensiones/rutas que el sub-agente tocará) Y **contexto de tarea** (qué acciones hará — review, PR, testing). Copiar las rutas `SKILL.md` matcheantes en el prompt como `## Skills to load before work`. Instruir al sub-agente a leer esos archivos exactos ANTES del trabajo.
+For each launch `[CERT]`: match skills by **code context** (extensions/paths the sub-agent will touch) AND **task context** (what actions it will perform — review, PR, testing). Copy the matching `SKILL.md` paths into the prompt as `## Skills to load before work`. Instruct the sub-agent to read those exact files BEFORE the work.
 
-Regla clave `[CERT]`: *"pass paths, not generated summaries."* Los sub-agentes leen los `SKILL.md` completos para preservar la intención del autor. Es compaction-safe: cada delegación puede re-leer el registry si el cache se pierde `[CERT]`.
+Key rule `[CERT]`: *"pass paths, not generated summaries."* The sub-agents read the full `SKILL.md` files to preserve the author's intent. It is compaction-safe: each delegation can re-read the registry if the cache is lost `[CERT]`.
 
-Feedback de resolución `[CERT]` (`CLAUDE.md` §"Skill Resolution Feedback"): tras cada delegación, chequear el campo `skill_resolution` del Result Contract — `paths-injected` (ok), o `fallback-registry`/`fallback-path`/`none` (cache perdido, probablemente por compaction → re-leer el registry inmediatamente).
+Resolution feedback `[CERT]` (`CLAUDE.md` §"Skill Resolution Feedback"): after each delegation, check the `skill_resolution` field of the Result Contract — `paths-injected` (ok), or `fallback-registry`/`fallback-path`/`none` (cache lost, probably from compaction → re-read the registry immediately).
 
 ## 18.7 — Sub-Agent Launch Deduplication `[CERT]`
 
-Antes de emitir cualquier Agent tool call, el orquestador chequea su log de launches de la sesión `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Deduplication"):
+Before emitting any Agent tool call, the orchestrator checks its session launch log `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Deduplication"):
 
-- Mantener una lista session-scoped de pares `(phase, task-fingerprint)` ya lanzados este turno.
-- El task fingerprint es un hash corto o resumen normalizado del texto de instrucción (nombre de fase + referencias clave de artefacto).
-- Si el mismo `(phase, task-fingerprint)` ya aparece → **NO lanzar de nuevo**. Emitir exactamente UN launch por tarea distinta.
-- Tras lanzar, agregar el par a la lista.
+- Maintain a session-scoped list of `(phase, task-fingerprint)` pairs already launched this turn.
+- The task fingerprint is a short hash or normalized summary of the instruction text (phase name + key artifact references).
+- If the same `(phase, task-fingerprint)` already appears → **do NOT launch again**. Emit exactly ONE launch per distinct task.
+- After launching, append the pair to the list.
 
-Propósito `[CERT]`: *"This prevents duplicate sub-agent launches that cause 'File X has been modified since it was last read' conflicts and waste tokens."* `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Deduplication").
+Purpose `[CERT]`: *"This prevents duplicate sub-agent launches that cause 'File X has been modified since it was last read' conflicts and waste tokens."* `[CERT]` (`CLAUDE.md` §"Sub-Agent Launch Deduplication").
 
-**Modelo mental** `[INFER]`: la dedup ataca un fallo concreto de los orquestadores LLM — relanzar la misma fase dos veces (por confusión de estado o compaction), produciendo dos sub-agentes que editan el mismo archivo y colisionan ("modified since last read"). El fingerprint `(phase + artefacto)` es la clave de idempotencia: dos launches con la misma clave son el mismo trabajo, y el segundo se suprime.
+**Mental model** `[INFER]`: the dedup attacks a concrete failure of LLM orchestrators — relaunching the same phase twice (from state confusion or compaction), producing two sub-agents that edit the same file and collide ("modified since last read"). The `(phase + artifact)` fingerprint is the idempotency key: two launches with the same key are the same work, and the second is suppressed.
 
-## 18.8 — Cómo todo esto envuelve a cada fase `[CERT]`
+## 18.8 — How all this wraps each phase `[CERT]`
 
-Cada launch de fase SDD/JD pasa por una secuencia de gates `[INFER]` (síntesis de §18.5, §18.6, §18.7):
+Every SDD/JD phase launch goes through a sequence of gates `[INFER]` (synthesis of §18.5, §18.6, §18.7):
 
-1. **Dedup check** (§18.7): ¿ya lancé este `(phase, fingerprint)`? Si sí, abortar el launch.
-2. **Model gate** (§18.5): resolver el alias de la tabla y poner `model: "<alias>"`.
-3. **Skill resolution** (§18.6): matchear skills por código+tarea e inyectar rutas `SKILL.md` como `## Skills to load before work`.
-4. **Context protocol**: para fases SDD, pasar referencias de artefacto (topic keys o rutas), no contenido (ver [Bloque 3]).
-5. El sub-agente ejecuta y devuelve el **Result Contract** (`status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`) — ver [Bloque 2].
-6. El orquestador chequea `skill_resolution` (§18.6) y, en modo auto, corre el Gatekeeper (ver [Bloque 16]).
+1. **Dedup check** (§18.7): have I already launched this `(phase, fingerprint)`? If so, abort the launch.
+2. **Model gate** (§18.5): resolve the alias from the table and set `model: "<alias>"`.
+3. **Skill resolution** (§18.6): match skills by code+task and inject `SKILL.md` paths as `## Skills to load before work`.
+4. **Context protocol**: for SDD phases, pass artifact references (topic keys or paths), not content (see [Block 3]).
+5. The sub-agent executes and returns the **Result Contract** (`status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`) — see [Block 2].
+6. The orchestrator checks `skill_resolution` (§18.6) and, in auto mode, runs the Gatekeeper (see [Block 16]).
 
-**Síntesis** `[INFER]`: este bloque es la "capa de protocolo de transporte" del SDD. Las fases ([Bloque 5]-[Bloque 12]) son el QUÉ; este bloque es el CÓMO se las convoca: con qué modelo, con qué skills, sin duplicar, comprimiendo o aislando contexto según el tipo de trabajo. Todo launch de fase atraviesa estos gates antes de existir.
+**Synthesis** `[INFER]`: this block is the SDD's "transport protocol layer". The phases ([Block 5]-[Block 12]) are the WHAT; this block is the HOW they are summoned: with which model, with which skills, without duplicating, compressing or isolating context according to the type of work. Every phase launch traverses these gates before existing.
 
-## 18.9 — Conexiones
+## 18.9 — Connections
 
-- **[Bloque 1] — filosofía**: introduce el criterio de delegación (§18.1) y los seis triggers (§18.2) a nivel filosófico. Este bloque los trata como mecánica operativa de cada launch.
-- **[Bloque 2] — DAG + Result Contract**: el `model` que el gate inyecta (§18.5) y el `skill_resolution` que se chequea (§18.6) operan sobre las fases del DAG; el Result Contract que toda fase devuelve es el de [Bloque 2].
-- **[Bloque 3] — backends + topic keys**: el paso 4 del envoltorio (§18.8) — pasar referencias de artefacto, no contenido — es el Sub-Agent Context Protocol de [Bloque 3].
-- **[Bloque 5] a [Bloque 12] — todas las fases**: la tabla de Model Assignments (§18.4) mapea exactamente estas fases a su modelo. Cada una se convoca con los gates de §18.8.
-- **[Bloque 16] — Gatekeeper**: el reviewer fresco del Gatekeeper para fases de alto riesgo usa el alias `sdd-verify` con el model gate de §18.5. Los dos modelos opus (`propose`, `design`) son las fases de alto riesgo del Gatekeeper.
-- **[Bloque 22] — skill-resolver**: el Skill Resolver Protocol resumido en §18.6 vive en detalle en los contratos `_shared/` que [Bloque 22] documenta (`~/.claude/skills/_shared/skill-resolver.md`).
-- **[Bloque 24] — judgment-day**: las fases `jd-judge-a`, `jd-judge-b`, `jd-fix-agent` de la tabla de modelos (§18.4) pertenecen al protocolo judgment-day de [Bloque 24].
+- **[Block 1] — philosophy**: introduces the delegation criterion (§18.1) and the six triggers (§18.2) at the philosophical level. This block treats them as the operational mechanics of each launch.
+- **[Block 2] — DAG + Result Contract**: the `model` the gate injects (§18.5) and the `skill_resolution` that is checked (§18.6) operate over the DAG phases; the Result Contract every phase returns is that of [Block 2].
+- **[Block 3] — backends + topic keys**: step 4 of the wrapper (§18.8) — passing artifact references, not content — is the Sub-Agent Context Protocol of [Block 3].
+- **[Block 5] to [Block 12] — all the phases**: the Model Assignments table (§18.4) maps exactly these phases to their model. Each one is summoned with the gates of §18.8.
+- **[Block 16] — Gatekeeper**: the Gatekeeper's fresh reviewer for high-risk phases uses the `sdd-verify` alias with the model gate of §18.5. The two opus models (`propose`, `design`) are the high-risk phases of the Gatekeeper.
+- **[Block 22] — skill-resolver**: the Skill Resolver Protocol summarized in §18.6 lives in detail in the `_shared/` contracts that [Block 22] documents (`~/.claude/skills/_shared/skill-resolver.md`).
+- **[Block 24] — judgment-day**: the `jd-judge-a`, `jd-judge-b`, `jd-fix-agent` phases of the model table (§18.4) belong to the judgment-day protocol of [Block 24].

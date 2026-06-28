@@ -1,139 +1,139 @@
-# Bloque 13 — Fase `sdd-onboard`
+# Block 13 — `sdd-onboard` Phase
 
-> **QUÉ**: Documenta la fase `sdd-onboard` del sistema SDD de gentle-ai: el walkthrough guiado pedagógico. Lleva al usuario por un ciclo SDD completo — de explore a archive — usando su codebase REAL (no un ejemplo de juguete), narrando cada fase para enseñar "teach by doing".
+> **WHAT**: Documents the `sdd-onboard` phase of gentle-ai's SDD system: the pedagogical guided walkthrough. It takes the user through a complete SDD cycle — from explore to archive — using their REAL codebase (not a toy example), narrating each phase to teach "teach by doing".
 >
-> **ALCANCE**: Propósito, modo de ejecución inline (no delegado), las 10 fases del walkthrough, criterios para elegir el cambio de onboarding, narración pedagógica, qué escribe (artefacto + topic key), modelo asignado, Result Contract y gotchas. Es una fase META que orquesta el comportamiento de las otras fases inline, no las delega.
+> **SCOPE**: Purpose, inline execution mode (not delegated), the 10 walkthrough phases, criteria for choosing the onboarding change, pedagogical narration, what it writes (artifact + topic key), assigned model, Result Contract and gotchas. It is a META phase that orchestrates the behavior of the other phases inline, it does not delegate them.
 >
-> **FUENTES exactas**:
-> - `/home/cristian/.config/opencode/skills/sdd-onboard/SKILL.md` (primaria)
-> - `/home/cristian/.claude/agents/sdd-onboard.md` (tools, modelo, Result Contract)
-> - `/home/cristian/.config/opencode/prompts/sdd/sdd-onboard.md` (idéntico al SKILL.md)
-> - `/home/cristian/.config/opencode/commands/sdd-onboard.md` (gates del orquestador)
+> **EXACT SOURCES**:
+> - `/home/cristian/.config/opencode/skills/sdd-onboard/SKILL.md` (primary)
+> - `/home/cristian/.claude/agents/sdd-onboard.md` (tools, model, Result Contract)
+> - `/home/cristian/.config/opencode/prompts/sdd/sdd-onboard.md` (identical to SKILL.md)
+> - `/home/cristian/.config/opencode/commands/sdd-onboard.md` (orchestrator gates)
 > - `/home/cristian/.config/opencode/skills/_shared/sdd-phase-common.md`
 >
-> **MÉTODO**: lectura directa. Marcadores: `[CERT]` = verificado (`ruta:línea`); `[CERT-a]` = afirmado por fuente; `[INFER]` = deducción.
+> **METHOD**: direct reading. Markers: `[CERT]` = verified (`path:line`); `[CERT-a]` = asserted by source; `[INFER]` = deduction.
 
 ---
 
-## 13.1 — Propósito y rol `[CERT]`
+## 13.1 — Purpose and role `[CERT]`
 
-`sdd-onboard` guía al usuario por un ciclo SDD completo — de exploración a archive — usando su codebase real. "This is a real change with real artifacts, not a toy example. The goal is to teach by doing" (`skills/sdd-onboard/SKILL.md:30-32`).
+`sdd-onboard` guides the user through a complete SDD cycle — from exploration to archive — using their real codebase. "This is a real change with real artifacts, not a toy example. The goal is to teach by doing" (`skills/sdd-onboard/SKILL.md:30-32`).
 
-Es la ÚNICA fase con un boundary distinto: el ORCHESTRATOR NOTE dice "This skill is designed to be executed INLINE by the orchestrator. It is an interactive walkthrough — no sub-agent delegation needed" (`SKILL.md:13-15`). El frontmatter lo refleja: `delegate_only: false` (`SKILL.md:10`) — el único `false` entre las fases documentadas. Igual existe el agente `sdd-onboard` para cuando SÍ se delega (`agents/sdd-onboard.md`), con su Executor Override estándar (`SKILL.md:17-19`).
+It is the ONLY phase with a distinct boundary: the ORCHESTRATOR NOTE says "This skill is designed to be executed INLINE by the orchestrator. It is an interactive walkthrough — no sub-agent delegation needed" (`SKILL.md:13-15`). The frontmatter reflects it: `delegate_only: false` (`SKILL.md:10`) — the only `false` among the documented phases. An `sdd-onboard` agent still exists for when it IS delegated (`agents/sdd-onboard.md`), with its standard Executor Override (`SKILL.md:17-19`).
 
-Versión `1.0` (`SKILL.md:9`) — la más nueva/inmadura del set.
+Version `1.0` (`SKILL.md:9`) — the newest/most immature of the set.
 
-## 13.2 — Lo que recibe del orquestador `[CERT]`
+## 13.2 — What it receives from the orchestrator `[CERT]`
 
-`SKILL.md:34-38`: Artifact store mode (`engram | openspec | hybrid | none`); y opcionalmente una mejora sugerida o área de foco.
+`SKILL.md:34-38`: Artifact store mode (`engram | openspec | hybrid | none`); and optionally a suggested improvement or focus area.
 
-El comando del orquestador (`commands/sdd-onboard.md:14-20`) tiene gates mínimos: solo exige que el SDD Session Preflight esté completo (execution mode, artifact store, chained PR strategy, review budget) y usar el artifact store resuelto. Mantiene pausas user-facing en modo interactivo y enforce el review budget antes de apply.
+The orchestrator's command (`commands/sdd-onboard.md:14-20`) has minimal gates: it only requires that the SDD Session Preflight be complete (execution mode, artifact store, chained PR strategy, review budget) and to use the resolved artifact store. It keeps user-facing pauses in interactive mode and enforces the review budget before apply.
 
-## 13.3 — Las 10 fases del walkthrough `[CERT]`
+## 13.3 — The 10 walkthrough phases `[CERT]`
 
-`SKILL.md:42-220`. El onboard ejecuta INLINE el comportamiento de cada fase SDD, narrándolo:
+`SKILL.md:42-220`. The onboard executes INLINE the behavior of each SDD phase, narrating it:
 
-| Fase | Qué hace | Narración (enseñanza) |
+| Phase | What it does | Narration (teaching) |
 |------|----------|------------------------|
-| **1. Welcome & Codebase Analysis** | saluda, escanea el codebase por una mejora real pequeña | "Let me scan your codebase for opportunities..." |
-| **2. Explore** (narrado) | corre comportamiento `sdd-explore` inline; investiga el área elegida | "Before we commit to any change, we investigate" |
-| **3. Propose** (narrado) | crea la carpeta del cambio + `proposal.md` formato `sdd-propose` | "We write down WHAT we're building and WHY... the contract" |
-| **4. Specs** (narrado) | escribe delta specs formato `sdd-spec` | "Given/When/Then... each scenario is a potential test case" |
-| **5. Design** (narrado) | escribe `design.md` formato `sdd-design` | "We decide HOW... document WHY over alternatives" |
-| **6. Tasks** (narrado) | escribe `tasks.md` formato `sdd-tasks` | "'Implement feature' is not a task" |
-| **7. Apply** (narrado) | implementa siguiendo `sdd-apply`; narra cada tarea | si Strict TDD: "RED → GREEN → TRIANGULATE → REFACTOR" |
-| **8. Verify** (narrado) | corre `sdd-verify`; explica la compliance matrix | "Each scenario: COMPLIANT, FAILING, or UNTESTED" |
-| **9. Archive** (narrado) | corre `sdd-archive`; mergea delta specs en main specs | "The change becomes the audit trail" |
-| **10. Summary** | recap del ciclo + cuándo usar SDD + next steps | "explore → propose → spec → design → tasks → apply → verify → archive" |
+| **1. Welcome & Codebase Analysis** | greets, scans the codebase for a small real improvement | "Let me scan your codebase for opportunities..." |
+| **2. Explore** (narrated) | runs `sdd-explore` behavior inline; investigates the chosen area | "Before we commit to any change, we investigate" |
+| **3. Propose** (narrated) | creates the change folder + `proposal.md` in `sdd-propose` format | "We write down WHAT we're building and WHY... the contract" |
+| **4. Specs** (narrated) | writes delta specs in `sdd-spec` format | "Given/When/Then... each scenario is a potential test case" |
+| **5. Design** (narrated) | writes `design.md` in `sdd-design` format | "We decide HOW... document WHY over alternatives" |
+| **6. Tasks** (narrated) | writes `tasks.md` in `sdd-tasks` format | "'Implement feature' is not a task" |
+| **7. Apply** (narrated) | implements following `sdd-apply`; narrates each task | if Strict TDD: "RED → GREEN → TRIANGULATE → REFACTOR" |
+| **8. Verify** (narrated) | runs `sdd-verify`; explains the compliance matrix | "Each scenario: COMPLIANT, FAILING, or UNTESTED" |
+| **9. Archive** (narrated) | runs `sdd-archive`; merges delta specs into main specs | "The change becomes the audit trail" |
+| **10. Summary** | recap of the cycle + when to use SDD + next steps | "explore → propose → spec → design → tasks → apply → verify → archive" |
 
-> [CERT] La Fase 7 menciona el cycle de strict TDD con un paso extra TRIANGULATE: "RED → GREEN → TRIANGULATE → REFACTOR" (`SKILL.md:160-162`), narrado solo si Strict TDD está activo. El detalle del cycle vive en [Bloque 23].
+> [CERT] Phase 7 mentions the strict TDD cycle with an extra TRIANGULATE step: "RED → GREEN → TRIANGULATE → REFACTOR" (`SKILL.md:160-162`), narrated only if Strict TDD is active. The cycle detail lives in [Block 23].
 
-## 13.4 — Criterios para elegir el cambio de onboarding `[CERT]`
+## 13.4 — Criteria for choosing the onboarding change `[CERT]`
 
-`SKILL.md:56-68`. Un buen cambio de onboarding cumple:
+`SKILL.md:56-68`. A good onboarding change meets:
 
 ```
-├── Small scope — completable en una sesión (30-60 min)
-├── Low risk — sin breaking changes, sin data migrations
-├── Real value — algo genuinamente útil, no un juguete
-├── Spec-worthy — al menos 1 requisito claro y 2 escenarios
-└── Ejemplos:
-    ├── Validación de input faltante en un form o API endpoint
-    ├── Mensajes de error inconsistentes en un flujo de auth
-    ├── Una utility function extraíble y reusable
-    ├── Estado loading/error faltante en un componente async
-    └── Un comentario TODO/FIXME con intención clara
+├── Small scope — completable in one session (30-60 min)
+├── Low risk — no breaking changes, no data migrations
+├── Real value — something genuinely useful, not a toy
+├── Spec-worthy — at least 1 clear requirement and 2 scenarios
+└── Examples:
+    ├── Missing input validation in a form or API endpoint
+    ├── Inconsistent error messages in an auth flow
+    ├── An extractable and reusable utility function
+    ├── Missing loading/error state in an async component
+    └── A TODO/FIXME comment with clear intent
 ```
 
-Presenta 2-3 opciones al usuario; lo deja elegir o sugerir la suya (`SKILL.md:70`). Si el usuario elige la suya, validar que cumpla "small and safe" antes de proceder (`SKILL.md:227`).
+It presents 2-3 options to the user; it lets them choose or suggest their own (`SKILL.md:70`). If the user chooses their own, validate that it meets "small and safe" before proceeding (`SKILL.md:227`).
 
-## 13.5 — Qué ESCRIBE (artefacto + topic key) `[CERT]`
+## 13.5 — What it WRITES (artifact + topic key) `[CERT]`
 
-A diferencia de las otras fases (que escriben un artefacto por fase), onboard PRODUCE el conjunto completo de artefactos del ciclo inline: proposal, specs, design, tasks, código, verify, archive. Pero su artefacto de persistencia propio es distinto.
+Unlike the other phases (which write one artifact per phase), onboard PRODUCES the complete set of cycle artifacts inline: proposal, specs, design, tasks, code, verify, archive. But its own persistence artifact is different.
 
-`agents/sdd-onboard.md:27-32`: tras completar, `mem_save` con:
+`agents/sdd-onboard.md:27-32`: after completing, `mem_save` with:
 
-- **title / topic_key**: `sdd-onboard/{project}` (NO `sdd/{change}/...` — usa el patrón `{project}`, igual que `sdd-init/{project}`)
+- **title / topic_key**: `sdd-onboard/{project}` (NOT `sdd/{change}/...` — it uses the `{project}` pattern, same as `sdd-init/{project}`)
 - **type**: `architecture`
 - **capture_prompt**: `false`
 
-> [CERT] El topic key `sdd-onboard/{project}` ([Bloque 3]) es project-scoped, no change-scoped: registra que el proyecto pasó por onboarding, resumible entre sesiones (`agents/sdd-onboard.md:24` — "Save progress at each phase so the session is resumable").
+> [CERT] The topic key `sdd-onboard/{project}` ([Block 3]) is project-scoped, not change-scoped: it records that the project went through onboarding, resumable across sessions (`agents/sdd-onboard.md:24` — "Save progress at each phase so the session is resumable").
 
-## 13.6 — Narración pedagógica (reglas de tono) `[CERT]`
+## 13.6 — Pedagogical narration (tone rules) `[CERT]`
 
 `SKILL.md:222-231`:
 
-- Es un cambio REAL, no demo: artefactos y código deben ser production-quality (`SKILL.md:224`).
-- Narración de cada fase CORTA — 1-3 frases. "Teach, don't lecture" (`SKILL.md:225`).
-- SIEMPRE preguntar antes de pasar de la Fase 3 (proposal) — dejar al usuario revisar y ajustar (`SKILL.md:226`).
-- Si el usuario elige su propia mejora, validar "small and safe" (`SKILL.md:227`).
-- Si algo bloquea el ciclo (tests fallan, design poco claro, codebase muy complejo), STOP y explicar — no empujar (`SKILL.md:228`).
-- Adaptar el tono: si el usuario es experimentado, saltar básicos; si es nuevo, explicar más (`SKILL.md:229`).
-- Seguir TODAS las reglas de formato de los skills individuales (propose, spec, design, tasks, apply, verify, archive) (`SKILL.md:230`).
+- It is a REAL change, not a demo: artifacts and code must be production-quality (`SKILL.md:224`).
+- Narration of each phase SHORT — 1-3 sentences. "Teach, don't lecture" (`SKILL.md:225`).
+- ALWAYS ask before moving past Phase 3 (proposal) — let the user review and adjust (`SKILL.md:226`).
+- If the user chooses their own improvement, validate "small and safe" (`SKILL.md:227`).
+- If something blocks the cycle (tests fail, unclear design, too-complex codebase), STOP and explain — don't push (`SKILL.md:228`).
+- Adapt the tone: if the user is experienced, skip the basics; if new, explain more (`SKILL.md:229`).
+- Follow ALL the format rules of the individual skills (propose, spec, design, tasks, apply, verify, archive) (`SKILL.md:230`).
 
-## 13.7 — La Fase 10: Summary `[CERT]`
+## 13.7 — Phase 10: Summary `[CERT]`
 
-`SKILL.md:191-220`. Cierra con un recap markdown ("Onboarding Complete! 🎉") que lista: change name, artefactos creados (proposal=WHY, specs=WHAT, design=HOW, tasks=STEPS), código cambiado, "the SDD cycle in one line", cuándo usar SDD ("Small tweaks? Just code. Features, APIs, architecture decisions? SDD first") y next steps (`/sdd-new`, revisar `openspec/specs/`).
+`SKILL.md:191-220`. It closes with a markdown recap ("Onboarding Complete! 🎉") that lists: change name, artifacts created (proposal=WHY, specs=WHAT, design=HOW, tasks=STEPS), changed code, "the SDD cycle in one line", when to use SDD ("Small tweaks? Just code. Features, APIs, architecture decisions? SDD first") and next steps (`/sdd-new`, review `openspec/specs/`).
 
-> [CERT] El mantra pedagógico mapea cada artefacto a una pregunta: proposal→WHY, specs→WHAT, design→HOW, tasks→STEPS (`SKILL.md:202-205`). Es la síntesis didáctica de todo el ciclo SDD.
+> [CERT] The pedagogical mantra maps each artifact to a question: proposal→WHY, specs→WHAT, design→HOW, tasks→STEPS (`SKILL.md:202-205`). It is the didactic synthesis of the whole SDD cycle.
 
-## 13.8 — Modelo asignado y tools `[CERT]`
+## 13.8 — Assigned model and tools `[CERT]`
 
-`agents/sdd-onboard.md:7`: `model: haiku` (Model Assignments [Bloque 18]: "sdd-onboard | haiku | default | Guided walkthrough, pedagogical"). [INFER] Modelo barato porque la tarea es guía/copy pedagógico, no decisión arquitectónica — aunque ejecuta inline el comportamiento de fases que normalmente usan sonnet/opus.
+`agents/sdd-onboard.md:7`: `model: haiku` (Model Assignments [Block 18]: "sdd-onboard | haiku | default | Guided walkthrough, pedagogical"). [INFER] Cheap model because the task is pedagogical guidance/copy, not architectural decision — even though it executes inline the behavior of phases that normally use sonnet/opus.
 
-**Tools** (`agents/sdd-onboard.md:8`): `Read, Edit, Write, Glob, Grep, Bash, mem_search, mem_get_observation, mem_save, mem_update` — el set MÁS amplio de todas las fases (incluye Bash, Edit, Write, mem_update), [INFER] porque debe ejecutar el comportamiento de TODAS las fases inline (explorar, escribir artefactos, implementar código, correr tests, marcar tasks).
+**Tools** (`agents/sdd-onboard.md:8`): `Read, Edit, Write, Glob, Grep, Bash, mem_search, mem_get_observation, mem_save, mem_update` — the WIDEST set of all phases (includes Bash, Edit, Write, mem_update), [INFER] because it must execute the behavior of ALL phases inline (explore, write artifacts, implement code, run tests, mark tasks).
 
 ## 13.9 — Result Contract `[CERT]`
 
 `agents/sdd-onboard.md:34-42`:
 
-| Campo | Valor |
+| Field | Value |
 |-------|-------|
 | `status` | `done` \| `blocked` \| `partial` |
-| `executive_summary` | una frase de qué se onboardeó |
-| `artifacts` | paths o topic_keys escritos |
-| `next_recommended` | `sdd-new` (para arrancar un cambio real de forma independiente) |
-| `risks` | warnings de la sesión de onboarding |
-| `skill_resolution` | `paths-injected` o `none` |
+| `executive_summary` | one sentence of what was onboarded |
+| `artifacts` | paths or topic_keys written |
+| `next_recommended` | `sdd-new` (to start a real change independently) |
+| `risks` | warnings from the onboarding session |
+| `skill_resolution` | `paths-injected` or `none` |
 
-`next_recommended: sdd-new` ([Bloque 14]): tras el walkthrough guiado, el usuario está listo para arrancar cambios reales por su cuenta.
+`next_recommended: sdd-new` ([Block 14]): after the guided walkthrough, the user is ready to start real changes on their own.
 
 ## 13.10 — Gotchas `[CERT]`
 
-- **`delegate_only: false` — única fase inline** (`SKILL.md:10-15`): se ejecuta dentro del orquestador como walkthrough interactivo, no como sub-agente delegado. Esto rompe el patrón "el orquestador delega todo" de las demás fases.
-- **Cambio REAL, no demo** (`SKILL.md:224`): los artefactos y código son production-quality; el onboard no es un sandbox.
-- **Pausa obligatoria tras Fase 3** (`SKILL.md:226`): a diferencia del flujo automático, onboard siempre pausa para revisión del proposal — es pedagógico por diseño.
-- **Topic key project-scoped** (`agents/sdd-onboard.md:30`): `sdd-onboard/{project}`, no `sdd/{change}/...`; convive con el cambio real que también genera sus propios artefactos `sdd/{change}/*`.
-- **STOP si algo bloquea** (`SKILL.md:228`): no empuja a través de tests que fallan o codebase complejo — prioriza la experiencia de aprendizaje sobre completar el ciclo.
-- **El prompt `prompts/sdd/sdd-onboard.md` es byte-idéntico al SKILL.md** [CERT — comparado].
-- **Versión 1.0** (`SKILL.md:9`): la más reciente; [INFER] menos endurecida que las fases core (apply/verify v3.0).
+- **`delegate_only: false` — the only inline phase** (`SKILL.md:10-15`): it executes inside the orchestrator as an interactive walkthrough, not as a delegated sub-agent. This breaks the "the orchestrator delegates everything" pattern of the other phases.
+- **REAL change, not a demo** (`SKILL.md:224`): the artifacts and code are production-quality; the onboard is not a sandbox.
+- **Mandatory pause after Phase 3** (`SKILL.md:226`): unlike the automatic flow, onboard always pauses for proposal review — it is pedagogical by design.
+- **Project-scoped topic key** (`agents/sdd-onboard.md:30`): `sdd-onboard/{project}`, not `sdd/{change}/...`; it coexists with the real change that also generates its own `sdd/{change}/*` artifacts.
+- **STOP if something blocks** (`SKILL.md:228`): it does not push through failing tests or a complex codebase — it prioritizes the learning experience over completing the cycle.
+- **The prompt `prompts/sdd/sdd-onboard.md` is byte-identical to SKILL.md** [CERT — compared].
+- **Version 1.0** (`SKILL.md:9`): the most recent; [INFER] less hardened than the core phases (apply/verify v3.0).
 
-## 13.11 — Conexiones
+## 13.11 — Connections
 
-- **[Bloque 5]–[Bloque 12]**: onboard ejecuta inline el comportamiento de explore ([Bloque 5]), propose ([Bloque 6]), spec ([Bloque 7]), design ([Bloque 8]), tasks ([Bloque 9]), apply ([Bloque 10]), verify ([Bloque 11]) y archive ([Bloque 12]) — es el recorrido completo del DAG ([Bloque 2]) en modo enseñanza.
-- **[Bloque 13] → [Bloque 14] (meta-comandos)**: `next_recommended: sdd-new`; cierra apuntando a que el usuario arranque cambios reales con `/sdd-new`.
-- **[Bloque 23] (strict-TDD)**: la Fase 7 narra RED→GREEN→TRIANGULATE→REFACTOR si Strict TDD está activo.
-- **[Bloque 3] (backends + topic keys)**: artefacto `sdd-onboard/{project}` (project-scoped); produce además los artefactos `sdd/{change}/*` del ciclo real.
-- **[Bloque 16] (modos)**: el comando mantiene pausas user-facing en modo interactivo y enforce el review budget antes de apply.
-- **[Bloque 22] (phase-common)**: Return envelope per Sección D; el resto de fases inline siguen sus propias Secciones A–C.
-- **[Bloque 18] (models)**: haiku, "Guided walkthrough, pedagogical".
+- **[Block 5]–[Block 12]**: onboard executes inline the behavior of explore ([Block 5]), propose ([Block 6]), spec ([Block 7]), design ([Block 8]), tasks ([Block 9]), apply ([Block 10]), verify ([Block 11]) and archive ([Block 12]) — it is the complete traversal of the DAG ([Block 2]) in teaching mode.
+- **[Block 13] → [Block 14] (meta-commands)**: `next_recommended: sdd-new`; it closes by pointing the user to start real changes with `/sdd-new`.
+- **[Block 23] (strict-TDD)**: Phase 7 narrates RED→GREEN→TRIANGULATE→REFACTOR if Strict TDD is active.
+- **[Block 3] (backends + topic keys)**: artifact `sdd-onboard/{project}` (project-scoped); it also produces the `sdd/{change}/*` artifacts of the real cycle.
+- **[Block 16] (modes)**: the command keeps user-facing pauses in interactive mode and enforces the review budget before apply.
+- **[Block 22] (phase-common)**: Return envelope per Section D; the rest of the inline phases follow their own Sections A–C.
+- **[Block 18] (models)**: haiku, "Guided walkthrough, pedagogical".
