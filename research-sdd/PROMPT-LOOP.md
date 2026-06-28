@@ -61,30 +61,39 @@ Always read first, in this order:
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh (lands in $TARGET/sources/ + registered in SOURCES.md).
        - Missing tool? If the artifact needs a tool the toolbelt lacks (e.g. a Dart AOT decompiler
-         for app.so), PROVISION it: $KIT/toolbelt/install-tool.sh <recipe> (see tool-registry.md;
-         autonomous incl. sudo). If it can't install (sudo password / build fail / no recipe), REPORT
-         the missing tool so the orchestrator asks the user, and do the investigable part without it
-         (honest [INFER]/gap). Everything logged to $KIT/toolbelt/INSTALLED-TOOLS.md.
+         for app.so), PROVISION it: $KIT/toolbelt/install-tool.sh <recipe> <target-binary> — ALWAYS
+         pass the target binary so the recipe's arch/format PRECHECK can fail fast (e.g. blutter
+         declines an x64 app in seconds via exit 5, instead of a ~20min dead-end build). See
+         tool-registry.md; autonomous incl. sudo. If it returns 5 (incompatible) or can't install
+         (sudo password / build fail / no recipe), REPORT the tool + reason so the orchestrator asks
+         the user, and do the investigable part without it (honest [INFER]/gap). All logged to
+         $KIT/toolbelt/INSTALLED-TOOLS.md.
        - Delegate heavy sub-explorations to sub-agents if the gap requires sweeping many files.
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date ·
        [CERT-a] forum (URL) · [INFER] deduction.
      Include the Connections section linking related [Block K].
-  5. SELF-VERIFY (verify phase): re-read your block. Does each [CERT] have a real citation? Escalate or
-     downgrade markers based on the evidence. A critical [CERT-a]: try to confirm it in the primary
-     source before closing.
+  5. SELF-VERIFY + REPORT (in-block gatekeeping — see METHODOLOGY §11; the orchestrator does NOT run
+     Bash gatekeepers, it trusts this report). Before closing, DO and REPORT:
+       - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
+         report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
+         confirm in the primary source first).
+       - Marker tally: counts of [CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER] + the [INFER]/[CERT]
+         ratio. If the ratio is high (>~0.5), say so — it signals this gap's investigable evidence is
+         nearly exhausted.
+       - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
   6. UPDATE STATE (archive phase):
-       - Mark the gap as covered in RESEARCH-STATE.md and INDEX.md.
-       - REGISTER the NEW gaps the research uncovered (the queue feeds itself).
-       - Regenerate the catalog: python3 $TARGET/tools/gen-catalog.py
-       - Update the estimated coverage in RESEARCH-STATE.md.
-       - Mirror gaps/progress in engram (research/<target>/gaps, research/<target>/progress).
-  7. STOPPING: if the backlog ended up empty and the previous iteration also left it empty
-     (2 in a row with no new gaps), DECLARE estimated coverage + non-investigable gaps
-     (without lab/hardware/NDA), emit the TOOLS REPORT (tools installed with command · tools needed
-     but not installable + why · recommended tools — from $KIT/toolbelt/INSTALLED-TOOLS.md), and end
-     the loop. Otherwise, the next iteration continues.
+       - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered.
+       - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
+         live-server / hardware) and record both counts in RESEARCH-STATE.md.
+       - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
+       - Regenerate: python3 $TARGET/tools/gen-catalog.py. Mirror to engram (research/<target>/gaps, .../progress).
+  7. STOPPING (primary = investigable exhaustion, per METHODOLOGY §8): if the INVESTIGABLE count is now
+     0 — every open gap is blocked on a missing/incompatible tool, a live server, or hardware — STOP.
+     (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the
+     blocked gaps each tagged with the tool/access it needs, and the TOOLS REPORT (installed · couldn't
+     -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md). Else the next iteration continues.
 
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.

@@ -105,10 +105,21 @@ to start a new session.
 
 ## 8. Stopping criterion
 
-The loop stops when the gap backlog stays empty for **2 consecutive iterations**
-(no new gaps appear while investigating). On stopping, it declares the **estimated coverage**
-and the list of gaps **not investigable** without lab/hardware/NDA (explicit, as
-`niagara-research` does).
+The loop stops on the FIRST of these (primary first):
+
+1. **Investigable set exhausted (PRIMARY — this is the one that actually fires).** Every open gap in
+   `RESEARCH-STATE.md` is blocked on something unavailable: a tool the toolbelt can't provide (e.g. an
+   x64 Dart-AOT decompiler that does not exist), a live server, or lab/hardware/NDA. Each iteration
+   MUST classify the backlog into **investigable** vs **blocked-on-<reason>** and record both counts;
+   when the investigable count reaches **0**, stop. The "backlog empty" idea below rarely fires —
+   evidence from TRANE/EduVolt: the backlog *grows* (each block uncovers 1-4 new gaps), so exhaustion
+   of the *investigable* subset, not emptiness, is the real terminator.
+2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
+3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
+
+On stopping, declare: blocks written, the **coverage metric** (gaps closed / known gaps — a ratio,
+NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
+needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
 ## 9. Golden rules
 
@@ -145,3 +156,22 @@ Safety line (independent of the autonomy level): only **known recipes / official
 **Tools Report (at loop end):** when the loop stops, it emits a summary of (a) tools it installed
 (with the command used), (b) tools it needed but could NOT install (and why → these are what to ask
 the user about), and (c) recommended tools for the domain. Source of truth: `toolbelt/INSTALLED-TOOLS.md`.
+
+## 11. Self-verification contract (in-block gatekeeping)
+
+Gatekeeping lives INSIDE the block-writing iteration, NOT in orchestrator Bash commands (those trigger
+permission prompts and were dropped mid-run on EduVolt). Before closing a block, the sub-agent MUST do
+and MUST REPORT these checks:
+
+- **Token check** — every load-bearing `[CERT]` token was `grep`-confirmed present in its cited source
+  (file / binary / `strings`). Report how many tokens were checked. (Track record this enforces: 12/12
+  blocks across TRANE+EduVolt had zero hallucinated citations.)
+- **Marker tally** — counts of `[CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER]`, plus the **`[INFER]`/
+  `[CERT]` ratio**. A high ratio (>~0.5) is the automatic signal that the investigable evidence for
+  this gap is nearly exhausted — say so; it feeds the §8 stop decision.
+- **Artifacts** — the block file exists, `CATALOG.md` regenerated, `INDEX.md` + `RESEARCH-STATE.md`
+  updated, and the backlog re-classified investigable-vs-blocked (§8).
+
+The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
+mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper
+commands by default — the in-block contract is the gate.

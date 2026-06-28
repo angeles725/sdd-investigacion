@@ -13,7 +13,13 @@
 #   install-tool.sh --list                   # list known recipes
 #   install-tool.sh --log <tool> "<how>" <target> <status>  # record an external/manual install
 #
-# Recipes return: 0 installed/already-present · 3 needs-approval (sudo pw / manual) · 4 failed.
+# Recipes return: 0 installed/already-present · 3 needs-approval (sudo pw / manual) · 4 failed ·
+#                 5 incompatible (target arch/format unsupported by the tool — fail-fast precheck).
+#
+# Compatibility precheck: recipes that only support some architectures (e.g. blutter = ARM64-only)
+# accept an optional target binary as $2 (or env BLUTTER_TARGET) and exit 5 BEFORE any heavy
+# build if the target's arch is unsupported. Lesson from EduVolt: blutter built a Dart VM for
+# ~20 min before failing on x64 — the precheck turns that into a 5-second decline.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,6 +59,17 @@ case "$RECIPE" in
     # cloning, and use a venv (brew's Python is PEP-668 externally-managed; pip --user is blocked).
     DEST="$HOME/dev/blutter"
     mkdir -p "$HOME/dev"
+    # --- compatibility precheck: blutter only supports ARM64. Fail fast on x64/x86 BEFORE building. ---
+    TGT="${2:-${BLUTTER_TARGET:-}}"
+    if [ -n "$TGT" ] && [ -e "$TGT" ]; then
+      ARCH="$(file -b "$TGT" 2>/dev/null)"
+      case "$ARCH" in
+        *aarch64*|*arm64*|*"ARM aarch64"*) : ;;   # supported
+        *x86-64*|*x86_64*|*"Intel 80386"*|*PE32*)
+          log blutter "compat precheck (file: ${ARCH:0:40})" incompatible "ARM64-only tool; target is x64/x86 -> NOT building (saves ~20min dead-end). Use strings/manual or an x64 Dart-AOT tool"
+          echo "INCOMPATIBLE: blutter supports ARM64 only; target is not ARM64 ($ARCH)" >&2; exit 5 ;;
+      esac
+    fi
     # --- build deps (autonomous, user-space, no sudo; idempotent via have/brew) ---
     if have brew; then
       have cmake      || brew install cmake      >/dev/null 2>&1 || true
