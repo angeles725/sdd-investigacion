@@ -41,9 +41,14 @@ Always read first, in this order:
   a. Profile the target: $KIT/toolbelt/profile-target.sh $TARGET  (classifies binaries → wrapper).
   b. Determine which system it is, where its real sources/binaries are, and the corpus language.
   c. Create $TARGET/INDEX.md from $KIT/templates/INDEX.template.md (empty map + marker legend).
-  d. Copy $KIT/templates/gen-catalog.py to $TARGET/tools/ and the hook to $TARGET/.claude/hooks/ (adapt the subject name).
-  e. Create $TARGET/RESEARCH-STATE.md with an initial research-plan: 5-15 high-priority gaps
-     (the fundamental questions about the system). Mirror the gaps in engram research/<target>/gaps.
+  d. Create dirs first: `mkdir -p $TARGET/tools $TARGET/.claude/hooks $TARGET/sources`. Copy
+     $KIT/templates/gen-catalog.py → $TARGET/tools/, and $KIT/templates/hook-sessionstart.sh →
+     $TARGET/.claude/hooks/research-protocol.sh (adapt <SUBJECT> + real source paths); register it in
+     $TARGET/.claude/settings.json (matcher startup|resume|clear). Seed $TARGET/sources/SOURCES.md
+     from $KIT/templates/SOURCES.template.md.
+  e. Create $TARGET/RESEARCH-STATE.md from $KIT/templates/RESEARCH-STATE.template.md with an initial
+     research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
+     gaps in engram research/<target>/gaps.
   f. Only then continue with the normal cycle over the first gap.
 
 == NORMAL CYCLE (one iteration) ==

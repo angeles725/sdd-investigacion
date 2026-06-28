@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BLOCK_RE = re.compile(r"^(?P<prefix>.+)-bloque(?P<num>\d+)(?:-[\w-]+)?\.md$")
+BLOCK_RE = re.compile(r"^(?P<prefix>.+)-(?:block|bloque)(?P<num>\d+)(?:-[\w-]+)?\.md$")
 TITLE_RE = re.compile(r"^#\s*(?:Block|Bloque)\s*\d+\s*[—-]\s*(.+?)\s*$")
 
 
@@ -29,7 +29,7 @@ def block_title(path: Path) -> str:
 def main() -> int:
     blocks: list[tuple[int, str, str]] = []
     subject = ""
-    for path in ROOT.glob("*-bloque*.md"):
+    for path in ROOT.glob("*.md"):
         m = BLOCK_RE.match(path.name)
         if not m:
             continue
