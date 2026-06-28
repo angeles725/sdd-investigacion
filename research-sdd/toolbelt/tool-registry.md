@@ -1,0 +1,45 @@
+# Tool Registry — Research-SDD toolbelt
+
+Map of **artifact type → tool → wrapper**. The loop runs `profile-target.sh`
+over the target's binaries (uses `file`) and picks the wrapper. All paths are
+verified in this environment (WSL Ubuntu, 2026-06-28).
+
+| Artifact type | Detection (`file`) | Tool | Wrapper | Status |
+|---|---|---|---|---|
+| JAR / `.class` Java | `Java class data` / `Zip archive` (jar) | Vineflower (pref.), CFR, Procyon, `javap -p -c` | `decompile-java.sh` | ✅ |
+| .NET DLL/EXE | `PE32 .NET assembly` / `Mono/.Net assembly` | `ilspycmd` (8.2.0) | `decompile-net.sh` | ✅ |
+| Native ELF/PE | `ELF ... executable` / `PE32 executable` | Ghidra headless (decompile) → r2/objdump fallback | `decompile-native.sh` | ✅ |
+| Firmware / packaged | `data` / known signatures | `binwalk -e` + `yara` | `scan-firmware.sh` | ✅ |
+| PDF datasheet/manual | `PDF document` | `pdftotext`, `pdfinfo`, `tesseract` (OCR) | `fetch-doc.sh` | ✅ |
+| Web page / forum / link | URL | `curl`/`wget` + `pandoc` → markdown | `fetch-doc.sh` | ✅ |
+| Obfuscated JS | `.js` | `js-beautify` | (direct) | ✅ |
+| Source code | known extension | direct reading + CodeGraph | (direct) | ✅ |
+
+## Tool paths (verified)
+
+| Tool | Path |
+|---|---|
+| Java 21 (`JAVA_HOME`) | `/home/linuxbrew/.linuxbrew/opt/openjdk@21` |
+| Vineflower | `/home/cristian/modules/Prototipos/Reflow/vineflower.jar` |
+| CFR | `/home/cristian/modules/Prototipos/Reflow/cfr.jar` |
+| Procyon | `/home/cristian/modules/Prototipos/modulos/procyon.jar` |
+| `javap` | in PATH (`/home/linuxbrew/.linuxbrew/bin/javap`) |
+| `ilspycmd` | `/home/cristian/.dotnet/tools/ilspycmd` |
+| Ghidra `analyzeHeadless` | `/home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/support/analyzeHeadless` |
+| `radare2` / `objdump` / `readelf` / `nm` / `strings` | in PATH |
+| `binwalk` | `/usr/bin/binwalk` |
+| `yara` (4.5.5) | in PATH |
+| `pdftotext` / `pdfinfo` / `tesseract` / `pandoc` | in PATH |
+
+## Environment override
+
+All wrappers accept path overrides via environment variables
+(`VINEFLOWER`, `CFR`, `PROCYON`, `ILSPYCMD`, `GHIDRA_INSTALL_DIR`, `JAVA_HOME`),
+so the toolbelt is portable to another machine without editing the scripts.
+
+## ghidra-mcp (agent-directed decompilation)
+
+In addition to the headless mode (always available), `ghidra-mcp` exposes Ghidra as an
+MCP server for interactive, agent-directed analysis. It requires Ghidra
+running with the plugin + an open binary (server at `127.0.0.1:8089`).
+See `GHIDRA-MCP.md` (generated after installation) for the usage flow.

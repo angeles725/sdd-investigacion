@@ -1,0 +1,125 @@
+# Research-SDD — Methodology
+
+> **Research-SDD (SDD-R)** is an adaptation of gentle-ai's SDD for **investigating
+> and distilling how a system works** (program, framework, firmware, API),
+> instead of building software. Same backbone (phases, fresh context,
+> delegation, certainty markers), but the **terminal artifact is knowledge**:
+> a corpus of self-contained `.md` blocks in the style of `niagara-research`.
+
+This document is the method contract. The operational engine is [`PROMPT-LOOP.md`](PROMPT-LOOP.md);
+the tools, [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md); the subjects,
+[`TARGETS.md`](TARGETS.md).
+
+---
+
+## 1. Guiding principle
+
+Investigate **READ-ONLY** and produce **traceable** claims. Every claim carries its
+certainty level and its source. Epistemic honesty is the core value: distinguish what
+was verified by reading the primary source from what is asserted from a forum or deduced.
+
+The output is not "a document" but an **incremental corpus** of blocks that grows by
+loop iteration, keeping at all times a master INDEX, an auto-generated CATALOG
+and a list of gaps (what is left to investigate).
+
+## 2. The SDD-R phases (mapping from gentle-ai's SDD)
+
+| SDD phase | SDD-R phase | What it produces |
+|---|---|---|
+| explore | **scope** — profile the subject: what it is, where its sources/binaries are, which tools apply | source map (feeds `TARGETS.md`) |
+| propose | **research-plan** — research questions, hypotheses, priorities | initial gap backlog |
+| spec / design | **method** — which tool for which question, order of attack, sources to cross-check | strategy per gap |
+| tasks | **gap-backlog** — the prioritized queue of blocks to investigate | `RESEARCH-STATE.md` |
+| apply | **investigate 1 gap** READ-ONLY → write/update **1 block** with citations | block `N` |
+| verify | **audit certainty** — are the `[CERT]` cited? should any `[CERT-a]` be raised or lowered? | corrected block |
+| archive | close the gap, register new gaps, regenerate CATALOG, touch INDEX | updated state |
+
+The **loop** repeatedly runs `apply → verify → archive` over the next gap in the
+backlog. `scope`/`research-plan`/`method` run once when starting a new subject
+(bootstrap) and are revisited when gaps from an unexplored dimension appear.
+
+## 3. Provenance markers (certainty system)
+
+Extends the 3 from `niagara-research` to distinguish the **reliability of the source**:
+
+| Marker | Meaning | How it is cited |
+|---|---|---|
+| `[CERT]` | verified by reading the **local primary source** (code, decompiled output, bytecode) | `file:line` or `file §section` |
+| `[CERT-doc]` | verified against an **official downloaded document** (datasheet/manual) | `sources/manuals/x.pdf §N` or `:p.N` |
+| `[CERT-web]` | verified against an **official web source** (manufacturer site, official online doc) | URL + access date |
+| `[CERT-a]` | asserted by a **secondary source** (forum, blog, answer) — lower confidence | URL (ideally preserved in `sources/`) |
+| `[INFER]` | researcher's deduction, not literal in any source | — |
+
+**Usage rules:**
+- Never raise a marker without the citation that backs it. No citation ⇒ `[INFER]`.
+- A security finding or a critical claim sitting at `[CERT-a]` (forum) must
+  try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
+- The `verify` phase audits exactly this.
+
+## 4. Anatomy of a block
+
+Identical to `niagara-research` (see [`templates/block.template.md`](templates/block.template.md)):
+
+1. **Title**: `# Block N — <descriptive title>`
+2. **Header blockquote** (`>`): WHAT it documents, SCOPE, exact SOURCES (real paths
+   + documents in `sources/` + URLs), and METHOD with the legend of markers used.
+3. `---` line
+4. **Numbered sections** `## N.1 — Title \`[CERT]\``, with tables where they help (hierarchies,
+   signatures, protocols, comparisons).
+5. **Final section** `## N.x — Connections`: `[Block K]` links with the relationship explained.
+
+Each block is self-contained but linked. Size according to source density, not by quota.
+
+## 5. Managing external sources (`sources/`)
+
+Golden rule: **if a claim relies on a datasheet, manual, forum or link, the document
+is downloaded and preserved**. URLs die; evidence does not. Structure per target:
+
+```
+TARGET/sources/
+  SOURCES.md        ← registry: file · type · origin(URL) · date · sha256 · blocks that cite it
+  datasheets/   manuals/   web-snapshots/   extracted/   (text from pdftotext/OCR)
+```
+
+Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2`), not the
+volatile URL; `SOURCES.md` keeps the original URL and the hash. The wrapper
+[`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + extraction + registration.
+
+## 6. Research tools
+
+The loop profiles the artifact type (`profile-target.sh`) and picks the toolbelt wrapper:
+Java decompilation (Vineflower/CFR/Procyon), .NET (ilspycmd), native (Ghidra headless / r2 /
+ghidra-mcp), firmware (binwalk+yara), docs/web (fetch-doc). Detail and paths in
+[`toolbelt/tool-registry.md`](toolbelt/tool-registry.md). Research is **always
+READ-ONLY**: the system under study is never modified.
+
+## 7. State and memory (hybrid)
+
+The gap backlog and progress live in **two mirrored places**:
+- **Visible/versionable**: `TARGET/INDEX.md` (*Pending* section) + `TARGET/RESEARCH-STATE.md`
+  (coverage, prioritized backlog, what was attacked).
+- **Cross-session backup**: engram, topic key `research/<target>/gaps` and `research/<target>/progress`.
+
+The loop reads the files first; it uses engram to recover if the local state was lost or
+to start a new session.
+
+## 8. Stopping criterion
+
+The loop stops when the gap backlog stays empty for **2 consecutive iterations**
+(no new gaps appear while investigating). On stopping, it declares the **estimated coverage**
+and the list of gaps **not investigable** without lab/hardware/NDA (explicit, as
+`niagara-research` does).
+
+## 9. Golden rules
+
+1. **READ-ONLY** over the investigated subject. You never modify it.
+2. **Do not invent.** No source ⇒ `[INFER]` or omit.
+3. **Always cite.** `file:line`, `sources/...`, or URL+date.
+4. **Preserve external evidence** in `sources/`.
+5. **One block per iteration.** Deep and cited, not wide and vague.
+6. **Self-verify** certainty before closing the gap.
+7. **Register the new gaps** that the research uncovers (the queue feeds itself).
+
+Corpus language: English by default. Note on criteria: if a target ALREADY has a corpus
+established in another language, the loop must follow that language so as NOT to mix
+(consistency over default).
