@@ -5,11 +5,12 @@ Each target is a system under reverse engineering / documentation. The loop uses
 
 1. Decide whether it **continues** an existing corpus or **bootstraps** a new one (Maturity column).
 2. Pick the correct **toolbelt wrapper** based on the predominant artifact.
-3. Know which **language** the corpus is in, to keep consistency when writing blocks.
+3. Reference the existing corpus language as a historical fact (it does NOT change generation).
 
-> Language policy: new corpora are generated in **English by default**. The "Language" column
-> below records the **actual** language of each target's *existing* corpus (an observed fact);
-> targets with no corpus yet are bootstrapped in English.
+> Language policy: the loop ALWAYS writes blocks in **English**, for every target, with no
+> exceptions — even on targets whose existing corpus is in another language. The "Language" column
+> below only records the **actual** language of each target's *existing* corpus (an observed fact);
+> it does not change the generation language, which is always English.
 
 Evidence convention:
 

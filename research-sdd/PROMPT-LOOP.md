@@ -78,8 +78,8 @@ HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - ONE block per iteration (deep and cited, not wide and vague).
   - Preserve all external evidence in sources/ before citing it.
-  - Corpus language: English by default. But if TARGETS.md indicates an existing corpus in another
-    language for this target, follow that language to keep consistency (do not mix).
+  - Corpus language: ALWAYS English, for every target, with no exceptions — even if the target
+    already has an existing corpus in another language. All blocks you write/update are in English.
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
 ```

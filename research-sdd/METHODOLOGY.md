@@ -120,6 +120,7 @@ and the list of gaps **not investigable** without lab/hardware/NDA (explicit, as
 6. **Self-verify** certainty before closing the gap.
 7. **Register the new gaps** that the research uncovers (the queue feeds itself).
 
-Corpus language: English by default. Note on criteria: if a target ALREADY has a corpus
-established in another language, the loop must follow that language so as NOT to mix
-(consistency over default).
+Corpus language: **ALWAYS English**, for every target, with no exceptions. The loop writes every
+block in English even when a target already has an existing corpus in another language. The
+"Language" column in `TARGETS.md` only records the existing corpus language as a historical fact;
+it does NOT change the generation language, which is always English.
