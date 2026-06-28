@@ -27,9 +27,10 @@
 
 - <gap> — needs: <x64 Dart-AOT decompiler | live server | hardware/lab | NDA | missing tool: <name>>
 
-## Stop control (primary = investigable exhaustion, METHODOLOGY §8)
+## Stop control (primary = read-only-investigable exhaustion, METHODOLOGY §8)
 
-- **Open gaps — investigable**: <N>   ← loop STOPS when this hits 0
-- **Open gaps — blocked-on-tooling/server/hardware**: <M>
+- **Open gaps — read-only investigable**: <N>   ← the STATIC loop STOPS when this hits 0
+- **Open gaps — requires-execution** (compile/run a PoC, round-trip diff; NOT read-only → build phase): <M>
+- **Open gaps — blocked** (needs live system / hardware / keys → DYNAMIC phase §12 when available): <K>
 - Consecutive iterations with empty backlog (secondary): <0/2>
-- Budget cap (optional safety net): <none | max-blocks N | max-tokens>
+- Budget cap (default safety net): <none | max-blocks N | max-tokens>

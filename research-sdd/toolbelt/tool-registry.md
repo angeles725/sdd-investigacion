@@ -62,3 +62,22 @@ Generic fallback: `install-tool.sh <name>` tries `brew`, then `sudo apt` (non-in
 **cannot** install (sudo password / build fail / no recipe / unverified source), the loop records it,
 does the investigable part without it, and the **orchestrator ASKS the user** whether they can install
 it. Check availability: `install-tool.sh --check <cmd>`. Add new recipes inside `install-tool.sh`.
+
+## Dynamic phase (validation against a live system)
+
+Beyond static decompilation, the engine can validate findings against a **live device/server**
+(METHODOLOGY §12 — supervised, read-first). Tools:
+
+| Tool | Purpose |
+|---|---|
+| `probe.sh check <ip> <port...>` | quick TCP reachability of the live system |
+| `probe.sh run <target-dir> <probe>` | run a READ-ONLY protocol probe; preserves raw output in `sources/probes/` as `[CERT-hw]` evidence |
+| `DYNAMIC-SETUP.md` | environment setup (WSL mirrored networking, gotchas, build-a-probe guide) |
+
+The probe itself is a byte-for-byte port of the decompiled protocol client. A `[CERT-hw]` result that
+contradicts a `[CERT]` code claim **wins** and triggers a correction (§3, §14).
+
+## Audit mode
+
+To re-verify an existing corpus (not discover new gaps): `PROMPT-AUDIT.md` + `templates/audit.template.md`
+(METHODOLOGY §13). Output is an audit-delta under `audits/`, READ-ONLY on the audited corpus.

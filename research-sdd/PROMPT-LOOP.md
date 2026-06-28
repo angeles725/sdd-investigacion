@@ -46,6 +46,9 @@ Always read first, in this order:
      $TARGET/.claude/hooks/research-protocol.sh (adapt <SUBJECT> + real source paths); register it in
      $TARGET/.claude/settings.json (matcher startup|resume|clear). Seed $TARGET/sources/SOURCES.md
      from $KIT/templates/SOURCES.template.md.
+     VERSION the corpus: `git -C $TARGET rev-parse --git-dir 2>/dev/null || git -C $TARGET init` — the
+     git repo goes in the TARGET project, NOT in the kit (METHODOLOGY §15), so self-corrections (§14)
+     have history.
   e. Create $TARGET/RESEARCH-STATE.md from $KIT/templates/RESEARCH-STATE.template.md with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
@@ -99,8 +102,9 @@ HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - ONE block per iteration (deep and cited, not wide and vague).
   - Preserve all external evidence in sources/ before citing it.
-  - Corpus language: ALWAYS English, for every target, with no exceptions — even if the target
-    already has an existing corpus in another language. All blocks you write/update are in English.
+  - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
+    user-approved language override (currently: logosoft → Spanish, for continuity of its mature
+    Spanish corpus), write blocks in THAT language. Otherwise English. Do not infer exceptions.
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
 ```

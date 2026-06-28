@@ -44,6 +44,7 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 
 | Marker | Meaning | How it is cited |
 |---|---|---|
+| `[CERT-hw]` | verified **empirically against the live system/device** — the real hardware/server responding, NOT "the code should". The **highest** certainty level. | `sources/probes/<run-output>.txt §…` + the probe that produced it |
 | `[CERT]` | verified by reading the **local primary source** (code, decompiled output, bytecode) | `file:line` or `file §section` |
 | `[CERT-doc]` | verified against an **official downloaded document** (datasheet/manual) | `sources/manuals/x.pdf §N` or `:p.N` |
 | `[CERT-web]` | verified against an **official web source** (manufacturer site, official online doc) | URL + access date |
@@ -55,6 +56,10 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
+- **Hardware wins.** `[CERT-hw]` outranks `[CERT]`: if the live device contradicts what the
+  decompiled code implied, the hardware is right — refute/correct the code-based claim and cite the
+  probe output (e.g. B64 refuted B55 §55.3 against the real LOGO!). Certainty order, high→low:
+  `[CERT-hw]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
 
 ## 4. Anatomy of a block
 
@@ -107,13 +112,16 @@ to start a new session.
 
 The loop stops on the FIRST of these (primary first):
 
-1. **Investigable set exhausted (PRIMARY — this is the one that actually fires).** Every open gap in
-   `RESEARCH-STATE.md` is blocked on something unavailable: a tool the toolbelt can't provide (e.g. an
-   x64 Dart-AOT decompiler that does not exist), a live server, or lab/hardware/NDA. Each iteration
-   MUST classify the backlog into **investigable** vs **blocked-on-<reason>** and record both counts;
-   when the investigable count reaches **0**, stop. The "backlog empty" idea below rarely fires —
-   evidence from TRANE/EduVolt: the backlog *grows* (each block uncovers 1-4 new gaps), so exhaustion
-   of the *investigable* subset, not emptiness, is the real terminator.
+1. **Read-only investigable set exhausted (PRIMARY — this is the one that actually fires).** Each
+   iteration MUST classify every open gap into one of THREE buckets (not two — lesson from logosoft):
+   - **read-only-investigable** — answerable by static decompile/reading. The STATIC loop attacks these.
+   - **requires-execution** — needs compiling/running a PoC, a round-trip diff, etc. NOT read-only →
+     belongs to a separate build phase, NOT the static loop. Do NOT count these as investigable.
+   - **blocked** — needs a live system/hardware/server/keys/NDA. → the DYNAMIC phase (§12) if the
+     hardware appears; otherwise out of scope.
+   The static loop stops when **read-only-investigable = 0**, even if `requires-execution`/`blocked`
+   gaps remain. (The backlog rarely empties — each block uncovers 1-4 new gaps; exhaustion of the
+   *read-only* subset is the real terminator.)
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
 
@@ -131,10 +139,12 @@ needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 6. **Self-verify** certainty before closing the gap.
 7. **Register the new gaps** that the research uncovers (the queue feeds itself).
 
-Corpus language: **ALWAYS English**, for every target, with no exceptions. The loop writes every
-block in English even when a target already has an existing corpus in another language. The
-"Language" column in `TARGETS.md` only records the existing corpus language as a historical fact;
-it does NOT change the generation language, which is always English.
+Corpus language: **English by default** — for new targets and targets with no existing corpus.
+**Exception (user-approved, per target):** a target with an established corpus in another language MAY
+be kept in that language for continuity, but ONLY when the user explicitly approved it AND it is
+recorded as an approved override in the target's `Language` column in `TARGETS.md`. Do NOT infer
+exceptions — only honor the ones registered there. Currently approved: **logosoft → Spanish** (mature
+Spanish corpus; mixing EN+ES would fragment its terminology and cross-references). Everything else: English.
 
 ## 10. Self-provisioning (tool installation)
 
@@ -175,3 +185,52 @@ and MUST REPORT these checks:
 The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
 mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper
 commands by default — the in-block contract is the gate.
+
+## 12. Dynamic phase (validation against a live system)
+
+The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, loop-able. When a LIVE system
+becomes available (device, server, PLC), a DYNAMIC phase validates the static findings against it. This
+phase is DIFFERENT and must NOT run as a blind autonomous loop:
+
+- **Supervised, not loop-blind.** Each interaction with the live system is deliberate; the orchestrator
+  reviews before the next step. No `/loop` self-pacing against hardware.
+- **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
+  read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
+  user OK; a bad write can brick the device.
+- **Reclassify on hardware arrival.** Gaps marked `blocked` (§8) flip to investigable when the live
+  system appears — update RESEARCH-STATE and re-run those.
+- **Tooling.** Build a read-only probe (a port of the decompiled protocol) and run it via
+  [`toolbelt/probe.sh`](toolbelt/probe.sh), which preserves the raw output in `TARGET/sources/probes/`
+  as `[CERT-hw]` evidence.
+- **Hardware refutes code.** When the device contradicts a `[CERT]` claim, mark the corrected fact
+  `[CERT-hw]` and fix the prior block transparently (note "corrected in BN"), as B64 did to B55 §55.3.
+- **Environment setup** (e.g. WSL `networkingMode=mirrored` to reach a LAN device, run `wsl --shutdown`
+  from **Windows** PowerShell — not inside WSL) is a prerequisite; verify connectivity before probing.
+
+## 13. Audit mode (re-verify an existing corpus)
+
+A mode distinct from gap-discovery: take EXISTING blocks (especially an older corpus written without
+this engine) and re-verify their claims against the primary source. Output is an **audit-delta**, NOT a
+new knowledge block. Per claim assign: **ESCALATED** (was `[CERT-a]`/hedged → now source-confirmed
+`[CERT]`), **CONFIRMED** (held), **DOWNGRADED** (unverifiable → `[INFER]`), **REFUTED** (the source
+contradicts it — the most valuable). Write the report under `audits/`, READ-ONLY on the audited corpus.
+Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). (Proven on niagara B100: 12 escalated, 1 refuted — the
+engine adds certainty and catches attribution errors a re-read surfaces, without touching the original.)
+
+## 14. Cross-block consistency
+
+The corpus self-corrects: a later block often refutes/refines an earlier one (B59→B55, B62→B17/B51,
+B64→B55). Make this a habit, not an accident:
+
+- While investigating, if you touch a fact another block asserts, CHECK it. If it's wrong, CORRECT the
+  prior block transparently — keep the original text, add a note "corrected in BN" + the new citation.
+- A `[CERT-hw]` finding that contradicts a `[CERT]` block MUST trigger a correction (hardware wins, §3).
+- In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
+- Every correction is logged in the correcting block's Connections and in RESEARCH-STATE's history.
+
+## 15. Corpus versioning (git)
+
+Each target's corpus is a git repo (the engine kit lives separately in sdd-investigacion). Bootstrap
+runs `git init` in the TARGET so that self-corrections (§14) have history and the corpus is shareable.
+On an existing un-versioned corpus, init it once. NOTE: git-init goes in the **target project**, never
+in the kit.

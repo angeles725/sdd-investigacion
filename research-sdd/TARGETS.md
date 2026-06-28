@@ -7,10 +7,11 @@ Each target is a system under reverse engineering / documentation. The loop uses
 2. Pick the correct **toolbelt wrapper** based on the predominant artifact.
 3. Reference the existing corpus language as a historical fact (it does NOT change generation).
 
-> Language policy: the loop ALWAYS writes blocks in **English**, for every target, with no
-> exceptions — even on targets whose existing corpus is in another language. The "Language" column
-> below only records the **actual** language of each target's *existing* corpus (an observed fact);
-> it does not change the generation language, which is always English.
+> Language policy: the loop writes blocks in **English by default**. **Exception (user-approved, per
+> target):** a target with an established corpus in another language MAY be kept in that language for
+> continuity when the user approves it — marked in the "Corpus language" column as **APPROVED override**.
+> Currently approved: **logosoft → Spanish**. The column otherwise records the existing corpus language
+> as a fact only; just an APPROVED override actually changes the generation language.
 
 Evidence convention:
 
@@ -40,7 +41,7 @@ Maturity:
 | 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (207 md / git no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
 | 6 | cadesimu | `/home/cristian/investigacion/cadesimu` | **incipient** (6 md, 0 top / git no / hook no) `[CERT]` | Python render/parse CAD scripts; real CADe_SIMU binary **not present** `[CERT]` | Direct reading; `decompile-net.sh` when the binary shows up `[INFER]` | Spanish `[INFER]` |
 | 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (1 md / git no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
-| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (86 md / git yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | Spanish (technical EN) `[CERT]` |
+| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (86 md / git yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
 | 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
 | 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
