@@ -60,6 +60,11 @@ Always read first, in this order:
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh (lands in $TARGET/sources/ + registered in SOURCES.md).
+       - Missing tool? If the artifact needs a tool the toolbelt lacks (e.g. a Dart AOT decompiler
+         for app.so), PROVISION it: $KIT/toolbelt/install-tool.sh <recipe> (see tool-registry.md;
+         autonomous incl. sudo). If it can't install (sudo password / build fail / no recipe), REPORT
+         the missing tool so the orchestrator asks the user, and do the investigable part without it
+         (honest [INFER]/gap). Everything logged to $KIT/toolbelt/INSTALLED-TOOLS.md.
        - Delegate heavy sub-explorations to sub-agents if the gap requires sweeping many files.
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
@@ -77,7 +82,9 @@ Always read first, in this order:
        - Mirror gaps/progress in engram (research/<target>/gaps, research/<target>/progress).
   7. STOPPING: if the backlog ended up empty and the previous iteration also left it empty
      (2 in a row with no new gaps), DECLARE estimated coverage + non-investigable gaps
-     (without lab/hardware/NDA) and end the loop. Otherwise, the next iteration continues.
+     (without lab/hardware/NDA), emit the TOOLS REPORT (tools installed with command · tools needed
+     but not installable + why · recommended tools — from $KIT/toolbelt/INSTALLED-TOOLS.md), and end
+     the loop. Otherwise, the next iteration continues.
 
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.

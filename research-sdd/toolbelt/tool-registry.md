@@ -43,3 +43,22 @@ In addition to the headless mode (always available), `ghidra-mcp` exposes Ghidra
 MCP server for interactive, agent-directed analysis. It requires Ghidra
 running with the plugin + an open binary (server at `127.0.0.1:8089`).
 See `GHIDRA-MCP.md` (generated after installation) for the usage flow.
+
+## Self-provisioning: missing-tool recipes
+
+When a gap needs a tool not listed above, the loop installs it autonomously via `install-tool.sh`
+(policy in METHODOLOGY §10; autonomous incl. sudo, idempotent, logged to `INSTALLED-TOOLS.md`).
+Known recipes:
+
+| Domain / artifact | Recipe | Tool | Notes |
+|---|---|---|---|
+| Dart/Flutter AOT (`app.so`) | `install-tool.sh blutter` | worawit/blutter | git clone + pip; needs cmake/C++ & a Dart SDK for full native dump |
+| Android APK/DEX | `install-tool.sh jadx` / `apktool` | jadx / apktool | brew or apt |
+| Python bytecode (`.pyc`) | `install-tool.sh pycdc` / `uncompyle6` | pycdc / decompyle3 | pycdc needs cmake |
+| .NET (`.dll`/`.exe`) | `install-tool.sh ilspycmd` | ilspycmd | already present in this env |
+| YARA rules | `install-tool.sh yara` | yara | already present |
+
+Generic fallback: `install-tool.sh <name>` tries `brew`, then `sudo apt` (non-interactive). If it
+**cannot** install (sudo password / build fail / no recipe / unverified source), the loop records it,
+does the investigable part without it, and the **orchestrator ASKS the user** whether they can install
+it. Check availability: `install-tool.sh --check <cmd>`. Add new recipes inside `install-tool.sh`.

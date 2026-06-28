@@ -124,3 +124,24 @@ Corpus language: **ALWAYS English**, for every target, with no exceptions. The l
 block in English even when a target already has an existing corpus in another language. The
 "Language" column in `TARGETS.md` only records the existing corpus language as a historical fact;
 it does NOT change the generation language, which is always English.
+
+## 10. Self-provisioning (tool installation)
+
+When a gap needs a tool the toolbelt lacks (e.g. a Dart/Flutter AOT decompiler for `app.so`, an
+Android decompiler, a Python-bytecode decompiler), the loop **provisions it autonomously** via
+[`toolbelt/install-tool.sh`](toolbelt/install-tool.sh) instead of stalling or inflating `[INFER]`:
+
+1. **Recipe** — if `install-tool.sh` has a known recipe, run it (idempotent; never re-installs).
+2. **Autonomous install** — install via user-space managers OR `sudo` (non-interactive). Everything
+   is logged to `toolbelt/INSTALLED-TOOLS.md`.
+3. **If it cannot install** (sudo needs a password, the build fails, no recipe, unverified source):
+   the iteration records it as `needs-approval`/`failed`, does the investigable part WITHOUT the tool
+   (honest `[INFER]`/gap), and **reports the missing tool to the orchestrator, which ASKS the user
+   whether they can install it**. The loop never silently gives up on a tool it genuinely needs.
+
+Safety line (independent of the autonomy level): only **known recipes / official sources**; never
+`pipe-to-shell` from an unverified URL.
+
+**Tools Report (at loop end):** when the loop stops, it emits a summary of (a) tools it installed
+(with the command used), (b) tools it needed but could NOT install (and why → these are what to ask
+the user about), and (c) recommended tools for the domain. Source of truth: `toolbelt/INSTALLED-TOOLS.md`.
