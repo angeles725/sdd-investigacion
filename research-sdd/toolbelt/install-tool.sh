@@ -46,14 +46,34 @@ brew_install() { have brew && { have "$2" && { log "$1" "brew (present)" already
 case "$RECIPE" in
   blutter)
     # Dart/Flutter AOT (app.so) reverse engineering — worawit/blutter (official repo).
+    # Full native dump compiles a Dart VM static lib from source matching the app's Dart
+    # version, so it needs: cmake + ninja + a C++20 compiler (g++>=13 / clang>=16), the
+    # capstone + icu C libs + pkg-config, and Python deps (capstone/pyelftools/requests).
+    # Lesson folded in from EduVolt-Designer run: install these deps autonomously BEFORE
+    # cloning, and use a venv (brew's Python is PEP-668 externally-managed; pip --user is blocked).
     DEST="$HOME/dev/blutter"
-    if [ -f "$DEST/blutter.py" ]; then log blutter "git (present)" already "$DEST"; echo "$DEST/blutter.py"; exit 0; fi
     mkdir -p "$HOME/dev"
-    if git clone --depth 1 https://github.com/worawit/blutter.git "$DEST" >/dev/null 2>&1; then
-      python3 -m pip install --user -q requests pyelftools capstone >/dev/null 2>&1 || true
-      log blutter "git clone worawit/blutter + pip --user (requests pyelftools capstone)" installed "$DEST; needs cmake+C++ & a Dart SDK at build/run time for full native dump"
-      echo "$DEST/blutter.py"; exit 0
-    else log blutter "git clone worawit/blutter" failed "clone error"; exit 4; fi ;;
+    # --- build deps (autonomous, user-space, no sudo; idempotent via have/brew) ---
+    if have brew; then
+      have cmake      || brew install cmake      >/dev/null 2>&1 || true
+      have ninja      || brew install ninja       >/dev/null 2>&1 || true
+      have dart       || brew install dart-sdk     >/dev/null 2>&1 || true
+      have pkg-config || brew install pkg-config    >/dev/null 2>&1 || true
+      brew install capstone icu4c >/dev/null 2>&1 || true   # C libs: no probe cmd; brew install is idempotent
+    fi
+    # --- clone (skip if already present) ---
+    if [ ! -f "$DEST/blutter.py" ]; then
+      if ! git clone --depth 1 https://github.com/worawit/blutter.git "$DEST" >/dev/null 2>&1; then
+        log blutter "git clone worawit/blutter" failed "clone error"; exit 4
+      fi
+    fi
+    # --- Python deps via dedicated venv (pip --user is blocked on brew Python: PEP 668) ---
+    if [ ! -x "$DEST/.venv/bin/python" ]; then
+      python3 -m venv "$DEST/.venv" >/dev/null 2>&1 || /usr/bin/python3 -m venv "$DEST/.venv" >/dev/null 2>&1 || true
+    fi
+    [ -x "$DEST/.venv/bin/pip" ] && "$DEST/.venv/bin/pip" install -q capstone pyelftools requests >/dev/null 2>&1 || true
+    log blutter "brew(cmake ninja dart-sdk capstone icu4c pkg-config) + git clone worawit/blutter + venv(capstone pyelftools requests)" installed "$DEST; run via .venv: $DEST/.venv/bin/python $DEST/blutter.py <dir-with-app.so+libflutter.so> <out>"
+    echo "$DEST/blutter.py"; exit 0 ;;
 
   jadx)      brew_install jadx jadx && exit 0 || { sudo_n apt-get install -y -q jadx >/dev/null 2>&1 && { log jadx "sudo apt jadx" installed; exit 0; } || { [ $? = 100 ] && { log jadx "sudo apt jadx" needs-approval "sudo password required"; exit 3; }; log jadx "jadx" failed; exit 4; }; } ;;
   apktool)   brew_install apktool apktool && exit 0 || { log apktool "brew apktool" failed; exit 4; } ;;
