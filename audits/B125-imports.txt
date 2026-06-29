@@ -1,0 +1,510 @@
+############ IMPORTS njre.dll ############
+nth vaddr       bind type lib                                   name
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x180009000 NONE FUNC ADVAPI32.dll                          RegCloseKey
+2   0x180009008 NONE FUNC ADVAPI32.dll                          RegCreateKeyExA
+3   0x180009010 NONE FUNC ADVAPI32.dll                          RegFlushKey
+4   0x180009018 NONE FUNC ADVAPI32.dll                          RegOpenKeyExA
+5   0x180009020 NONE FUNC ADVAPI32.dll                          RegQueryValueExA
+6   0x180009028 NONE FUNC ADVAPI32.dll                          RegSetValueExA
+1   0x180009038 NONE FUNC CRYPT32.dll                           CryptUnprotectData
+2   0x180009040 NONE FUNC CRYPT32.dll                           CryptProtectData
+1   0x180009178 NONE FUNC SHELL32.dll                           SHGetKnownFolderPath
+1   0x180009378 NONE FUNC ole32.dll                             CoTaskMemFree
+1   0x180009368 NONE FUNC dsfspi.dll                            ?checkFileSignature@DsfUtil@@SAHPEAEHPEBDH@Z
+1   0x180009050 NONE FUNC KERNEL32.dll                          IsDebuggerPresent
+2   0x180009058 NONE FUNC KERNEL32.dll                          InitializeSListHead
+3   0x180009060 NONE FUNC KERNEL32.dll                          DisableThreadLibraryCalls
+4   0x180009068 NONE FUNC KERNEL32.dll                          GetSystemTimeAsFileTime
+5   0x180009070 NONE FUNC KERNEL32.dll                          VerSetConditionMask
+6   0x180009078 NONE FUNC KERNEL32.dll                          SetCurrentDirectoryA
+7   0x180009080 NONE FUNC KERNEL32.dll                          GetCurrentDirectoryA
+8   0x180009088 NONE FUNC KERNEL32.dll                          GetLastError
+9   0x180009090 NONE FUNC KERNEL32.dll                          FreeLibrary
+10  0x180009098 NONE FUNC KERNEL32.dll                          GetProcAddress
+11  0x1800090a0 NONE FUNC KERNEL32.dll                          LoadLibraryA
+12  0x1800090a8 NONE FUNC KERNEL32.dll                          VerifyVersionInfoW
+13  0x1800090b0 NONE FUNC KERNEL32.dll                          GetVolumeInformationA
+14  0x1800090b8 NONE FUNC KERNEL32.dll                          QueryPerformanceCounter
+15  0x1800090c0 NONE FUNC KERNEL32.dll                          QueryPerformanceFrequency
+16  0x1800090c8 NONE FUNC KERNEL32.dll                          GetTickCount64
+17  0x1800090d0 NONE FUNC KERNEL32.dll                          GetModuleFileNameA
+18  0x1800090d8 NONE FUNC KERNEL32.dll                          LocalAlloc
+19  0x1800090e0 NONE FUNC KERNEL32.dll                          LocalFree
+20  0x1800090e8 NONE FUNC KERNEL32.dll                          FormatMessageA
+21  0x1800090f0 NONE FUNC KERNEL32.dll                          GenerateConsoleCtrlEvent
+22  0x1800090f8 NONE FUNC KERNEL32.dll                          FindClose
+23  0x180009100 NONE FUNC KERNEL32.dll                          FindFirstFileA
+24  0x180009108 NONE FUNC KERNEL32.dll                          FindNextFileA
+25  0x180009110 NONE FUNC KERNEL32.dll                          GetFileAttributesA
+26  0x180009118 NONE FUNC KERNEL32.dll                          CreateDirectoryA
+27  0x180009120 NONE FUNC KERNEL32.dll                          RtlCaptureContext
+28  0x180009128 NONE FUNC KERNEL32.dll                          RtlLookupFunctionEntry
+29  0x180009130 NONE FUNC KERNEL32.dll                          RtlVirtualUnwind
+30  0x180009138 NONE FUNC KERNEL32.dll                          UnhandledExceptionFilter
+31  0x180009140 NONE FUNC KERNEL32.dll                          SetUnhandledExceptionFilter
+32  0x180009148 NONE FUNC KERNEL32.dll                          GetCurrentProcess
+33  0x180009150 NONE FUNC KERNEL32.dll                          TerminateProcess
+34  0x180009158 NONE FUNC KERNEL32.dll                          IsProcessorFeaturePresent
+35  0x180009160 NONE FUNC KERNEL32.dll                          GetCurrentProcessId
+36  0x180009168 NONE FUNC KERNEL32.dll                          GetCurrentThreadId
+1   0x180009188 NONE FUNC VCRUNTIME140.dll                      __std_type_info_destroy_list
+2   0x180009190 NONE FUNC VCRUNTIME140.dll                      _CxxThrowException
+3   0x180009198 NONE FUNC VCRUNTIME140.dll                      _purecall
+4   0x1800091a0 NONE FUNC VCRUNTIME140.dll                      memset
+5   0x1800091a8 NONE FUNC VCRUNTIME140.dll                      strchr
+6   0x1800091b0 NONE FUNC VCRUNTIME140.dll                      strrchr
+7   0x1800091b8 NONE FUNC VCRUNTIME140.dll                      strstr
+8   0x1800091c0 NONE FUNC VCRUNTIME140.dll                      memcpy
+9   0x1800091c8 NONE FUNC VCRUNTIME140.dll                      __C_specific_handler
+10  0x1800091d0 NONE FUNC VCRUNTIME140.dll                      __std_exception_copy
+11  0x1800091d8 NONE FUNC VCRUNTIME140.dll                      __std_exception_destroy
+1   0x180009210 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        malloc
+2   0x180009218 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        free
+3   0x180009220 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        _callnewh
+1   0x180009298 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vfwprintf
+2   0x1800092a0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __acrt_iob_func
+3   0x1800092a8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       ftell
+4   0x1800092b0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fseek
+5   0x1800092b8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fread
+6   0x1800092c0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsnprintf_s
+7   0x1800092c8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsprintf_s
+8   0x1800092d0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fputc
+9   0x1800092d8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fopen
+10  0x1800092e0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fgets
+11  0x1800092e8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fgetc
+12  0x1800092f0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fclose
+13  0x1800092f8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsprintf
+14  0x180009300 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vfprintf
+1   0x180009310 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strcmp
+2   0x180009318 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      _stricmp
+3   0x180009320 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncat_s
+4   0x180009328 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strnlen
+5   0x180009330 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      _strdup
+6   0x180009338 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncpy_s
+1   0x180009230 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _seh_filter_dll
+2   0x180009238 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _execute_onexit_table
+3   0x180009240 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initterm_e
+4   0x180009248 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initialize_onexit_table
+5   0x180009250 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _configure_narrow_argv
+6   0x180009258 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initterm
+7   0x180009260 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     exit
+8   0x180009268 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _set_invalid_parameter_handler
+9   0x180009270 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _errno
+10  0x180009278 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _cexit
+11  0x180009280 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _invalid_parameter_noinfo
+12  0x180009288 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initialize_narrow_environment
+1   0x1800091f8 NONE FUNC api-ms-win-crt-environment-l1-1-0.dll _putenv
+2   0x180009200 NONE FUNC api-ms-win-crt-environment-l1-1-0.dll _dupenv_s
+1   0x1800091e8 NONE FUNC api-ms-win-crt-convert-l1-1-0.dll     wcstombs_s
+1   0x180009348 NONE FUNC api-ms-win-crt-time-l1-1-0.dll        _localtime64_s
+2   0x180009350 NONE FUNC api-ms-win-crt-time-l1-1-0.dll        _time64
+3   0x180009358 NONE FUNC api-ms-win-crt-time-l1-1-0.dll        asctime_s
+############ LINKED LIBS njre.dll ############
+advapi32.dll
+crypt32.dll
+shell32.dll
+ole32.dll
+dsfspi.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+############ IMPORTS nre.dll ############
+nth vaddr       bind type lib                                   name
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x18000e3d8 NONE FUNC common.dll                            ?getIpv6DhcpHost@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+2   0x18000e3e0 NONE FUNC common.dll                            ?getFileSystemDisplayName@FileSystemInfo@@SAHPEAVErrorHandler@@PEBDPEADI@Z
+3   0x18000e3e8 NONE FUNC common.dll                            ?getMaxFileCount@FileSystemInfo@@SA_JPEAVErrorHandler@@PEBD@Z
+4   0x18000e3f0 NONE FUNC common.dll                            ?getCurrentFileCount@FileSystemInfo@@SA_JPEAVErrorHandler@@PEBD@Z
+5   0x18000e3f8 NONE FUNC common.dll                            ?getMaxOpenFileDescriptorCount@FileSystemInfo@@SA_JPEAVErrorHandler@@@Z
+6   0x18000e400 NONE FUNC common.dll                            ?createThread@PlatformUtil@@SAPEAXP6AIPEAX@Z0PEBD@Z
+7   0x18000e408 NONE FUNC common.dll                            ?sleep@PlatformUtil@@SAXH@Z
+8   0x18000e410 NONE FUNC common.dll                            ?setLogFilterLevel@SystemLog@@SAXH@Z
+9   0x18000e418 NONE FUNC common.dll                            ?getString@BufferedXWriter@@QEAAPEBDXZ
+10  0x18000e420 NONE FUNC common.dll                            ??0BufferedXWriter@@QEAA@XZ
+11  0x18000e428 NONE FUNC common.dll                            ?removeWatchdog@EngineWatchdog@@SA_NPEBD@Z
+12  0x18000e430 NONE FUNC common.dll                            ?getWatchdog@EngineWatchdog@@SAPEAV1@PEBD@Z
+13  0x18000e438 NONE FUNC common.dll                            ?addWatchdog@EngineWatchdog@@SAXPEAV1@@Z
+14  0x18000e440 NONE FUNC common.dll                            ?unlockList@EngineWatchdog@@SAXXZ
+15  0x18000e448 NONE FUNC common.dll                            ?lockList@EngineWatchdog@@SAXXZ
+16  0x18000e450 NONE FUNC common.dll                            ?initList@EngineWatchdog@@SAXXZ
+17  0x18000e458 NONE FUNC common.dll                            ?update@EngineWatchdog@@QEAAHHHH@Z
+18  0x18000e460 NONE FUNC common.dll                            ?check@EngineWatchdog@@QEAAHPEAH00@Z
+19  0x18000e468 NONE FUNC common.dll                            ?open@EngineWatchdog@@QEAAHXZ
+20  0x18000e470 NONE FUNC common.dll                            ?init@EngineWatchdog@@QEAAHXZ
+21  0x18000e478 NONE FUNC common.dll                            ??1EngineWatchdog@@QEAA@XZ
+22  0x18000e480 NONE FUNC common.dll                            ??0EngineWatchdog@@QEAA@PEBD@Z
+23  0x18000e488 NONE FUNC common.dll                            ?getCpuTime@PerfUtil@@QEAA_KPEBD_NPEAVErrorHandler@@@Z
+24  0x18000e490 NONE FUNC common.dll                            ?getIdleTime@PerfUtil@@QEAA_KHPEAVErrorHandler@@@Z
+25  0x18000e498 NONE FUNC common.dll                            ?getFreePhysicalMemoryBytes@PerfUtil@@QEAA_KPEAVErrorHandler@@@Z
+26  0x18000e4a0 NONE FUNC common.dll                            ?getOverallCpuUtilization@PerfUtil@@QEAAHPEAVErrorHandler@@@Z
+27  0x18000e4a8 NONE FUNC common.dll                            ?getCurrentCpuUtilization@PerfUtil@@QEAAHPEAVErrorHandler@@@Z
+28  0x18000e4b0 NONE FUNC common.dll                            ?getInstance@PerfUtil@@SAPEAV1@PEAVErrorHandler@@@Z
+29  0x18000e4b8 NONE FUNC common.dll                            ?getInstance@TimeUtil@@SAPEAV1@PEAVErrorHandler@@@Z
+30  0x18000e4c0 NONE FUNC common.dll                            ?setSystemTime@TimeUtil@@QEAAHPEAVErrorHandler@@_J@Z
+31  0x18000e4c8 NONE FUNC common.dll                            ?getAccountFromName@AuthenticationUtil@@SAPEAVWinNtAccount@@PEBD0_N@Z
+32  0x18000e4d0 NONE FUNC common.dll                            ?getAccountFromId@AuthenticationUtil@@SAPEAVWinNtAccount@@PEBD_N@Z
+33  0x18000e4d8 NONE FUNC common.dll                            ?getAccountXml@AuthenticationUtil@@SAPEADPEBD_N@Z
+34  0x18000e4e0 NONE FUNC common.dll                            ?getDomainGroupsXml@AuthenticationUtil@@SAPEADPEBD@Z
+35  0x18000e4e8 NONE FUNC common.dll                            ?getPasswordHash@AuthenticationUtil@@SAPEADPEBD@Z
+36  0x18000e4f0 NONE FUNC common.dll                            ?isPasswordValid@AuthenticationUtil@@SA_NPEBD0@Z
+37  0x18000e4f8 NONE FUNC common.dll                            ?getDefaultAdminGroupName@AuthenticationUtil@@SAPEADXZ
+38  0x18000e500 NONE FUNC common.dll                            ?isGroupMember@AuthenticationUtil@@SA_NPEBD0@Z
+39  0x18000e508 NONE FUNC common.dll                            ?getComputerDomain@AuthenticationUtil@@SAPEAD_N@Z
+40  0x18000e510 NONE FUNC common.dll                            ?getComputerName@AuthenticationUtil@@SAPEADXZ
+41  0x18000e518 NONE FUNC common.dll                            ?getIdString@WinNtAccount@@QEAAPEBDPEAVErrorHandler@@@Z
+42  0x18000e520 NONE FUNC common.dll                            ??1WinNtAccount@@QEAA@XZ
+43  0x18000e528 NONE FUNC common.dll                            ?reboot@PlatformUtil@@SAXXZ
+44  0x18000e530 NONE FUNC common.dll                            ?archName@PlatformInfo@@QEAAPEBDXZ
+45  0x18000e538 NONE FUNC common.dll                            ?allowBrandChangeDefault@PlatformInfo@@QEAA_NXZ
+46  0x18000e540 NONE FUNC common.dll                            ?allowStationRestartDefault@PlatformInfo@@QEAA_NXZ
+47  0x18000e548 NONE FUNC common.dll                            ?getInstance@PlatformInfo@@SAPEAV1@XZ
+48  0x18000e550 NONE FUNC common.dll                            ?setHostSettingsXml@TcpIpUtil@@SAHPEAVTcpIpHostSettings@@PEADPEAVErrorHandler@@@Z
+49  0x18000e558 NONE FUNC common.dll                            ?getHostSettingsXml@TcpIpUtil@@SAXPEAVTcpIpHostSettings@@PEAVXWriter@@PEAVErrorHandler@@@Z
+50  0x18000e560 NONE FUNC common.dll                            ?getInstance@TcpIpHostSettings@@SAPEAV1@PEAVErrorHandler@@@Z
+51  0x18000e568 NONE FUNC common.dll                            ?setIpv6DnsHosts@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+52  0x18000e570 NONE FUNC common.dll                            ?setDnsHosts@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+53  0x18000e578 NONE FUNC common.dll                            ?setIpv6DhcpEnabled@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@_N@Z
+54  0x18000e580 NONE FUNC common.dll                            ?getIpv6DhcpLeaseExpires@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+55  0x18000e588 NONE FUNC common.dll                            ?getIpv6DhcpLeaseGranted@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+56  0x18000e590 NONE FUNC common.dll                            ?getAllFileSystemNames@FileSystemInfo@@SAPEAPEADPEAVErrorHandler@@PEAH@Z
+57  0x18000e598 NONE FUNC common.dll                            ?getIpv6DnsHostCount@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@@Z
+58  0x18000e5a0 NONE FUNC common.dll                            ?getIpv6DnsHosts@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@HPEAPEADH@Z
+59  0x18000e5a8 NONE FUNC common.dll                            ?setIpv6DnsHosts@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBDD@Z
+60  0x18000e5b0 NONE FUNC common.dll                            ?setIpv6DnsHosts@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEAPEBDH@Z
+61  0x18000e5b8 NONE FUNC common.dll                            ?setIpv6Enabled@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@_N@Z
+62  0x18000e5c0 NONE FUNC common.dll                            ?setIpv6DefaultGateway@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+63  0x18000e5c8 NONE FUNC common.dll                            ?setIpv6SubnetPrefixLength@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@H@Z
+64  0x18000e5d0 NONE FUNC common.dll                            ?setIpv6Address@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+65  0x18000e5d8 NONE FUNC common.dll                            ?getIpv6DefaultGateway@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+66  0x18000e5e0 NONE FUNC common.dll                            ?getIpv6SubnetPrefixLength@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@@Z
+67  0x18000e5e8 NONE FUNC common.dll                            ?getIpv6Address@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+68  0x18000e5f0 NONE FUNC common.dll                            ?canUseIpv6Dhcp@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+69  0x18000e5f8 NONE FUNC common.dll                            ?isIpv6DhcpEnabled@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+70  0x18000e600 NONE FUNC common.dll                            ?isIpv6Enabled@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+71  0x18000e608 NONE FUNC common.dll                            ?canDisableIpv6@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+72  0x18000e610 NONE FUNC common.dll                            ?isIpv6Supported@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+73  0x18000e618 NONE FUNC common.dll                            ?setEnabled@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@_N@Z
+74  0x18000e620 NONE FUNC common.dll                            ?setDhcpEnabled@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@_N@Z
+75  0x18000e628 NONE FUNC common.dll                            ?setDomain@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+76  0x18000e630 NONE FUNC common.dll                            ?setDnsHosts@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBDD@Z
+77  0x18000e638 NONE FUNC common.dll                            ?setDnsHosts@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEAPEBDH@Z
+78  0x18000e640 NONE FUNC common.dll                            ?setDefaultGateway@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+79  0x18000e648 NONE FUNC common.dll                            ?setIpAddressSubnetMask@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD1@Z
+80  0x18000e650 NONE FUNC common.dll                            ?setSubnetMask@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+81  0x18000e658 NONE FUNC common.dll                            ?setIpAddress@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+82  0x18000e660 NONE FUNC common.dll                            ?getDhcpLeaseExpires@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+83  0x18000e668 NONE FUNC common.dll                            ?getDhcpLeaseGranted@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+84  0x18000e670 NONE FUNC common.dll                            ?getDhcpHost@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+85  0x18000e678 NONE FUNC common.dll                            ?getSubnetMask@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+86  0x18000e680 NONE FUNC common.dll                            ?getIpAddress@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+87  0x18000e688 NONE FUNC common.dll                            ?getDomain@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+88  0x18000e690 NONE FUNC common.dll                            ?getDnsHosts@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@HPEAPEADH@Z
+89  0x18000e698 NONE FUNC common.dll                            ?getDnsHostLimit@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@@Z
+90  0x18000e6a0 NONE FUNC common.dll                            ?getDnsHostCount@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@@Z
+91  0x18000e6a8 NONE FUNC common.dll                            ?getDefaultGateway@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+92  0x18000e6b0 NONE FUNC common.dll                            ?canUseDhcp@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+93  0x18000e6b8 NONE FUNC common.dll                            ?isDhcpEnabled@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+94  0x18000e6c0 NONE FUNC common.dll                            ?getMACAddress@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+95  0x18000e6c8 NONE FUNC common.dll                            ?getDescription@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+96  0x18000e6d0 NONE FUNC common.dll                            ?getId@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+97  0x18000e6d8 NONE FUNC common.dll                            ?isReadonly@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+98  0x18000e6e0 NONE FUNC common.dll                            ?canDisable@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+99  0x18000e6e8 NONE FUNC common.dll                            ?isEnabled@TcpIpAdapterSettings@@UEAA_NPEAVErrorHandler@@@Z
+100 0x18000e6f0 NONE FUNC common.dll                            ?getInstance@SystemLog@@SAPEAV1@PEAVErrorHandler@@@Z
+101 0x18000e6f8 NONE FUNC common.dll                            ?log@SystemLog@@QEAAXHPEBD@Z
+102 0x18000e700 NONE FUNC common.dll                            ?getInstance@NullLog@@SAPEAV1@XZ
+103 0x18000e708 NONE FUNC common.dll                            ??0JavaExceptionHandler@@QEAA@PEAUJNIEnv_@@@Z
+104 0x18000e710 NONE FUNC common.dll                            ??1JNIString@@QEAA@XZ
+105 0x18000e718 NONE FUNC common.dll                            ??0JNIString@@QEAA@PEAUJNIEnv_@@PEAV_jstring@@@Z
+106 0x18000e720 NONE FUNC common.dll                            ?getCurrentOpenFileDescriptorCount@FileSystemInfo@@SA_JPEAVErrorHandler@@@Z
+1   0x18000e000 NONE FUNC ADVAPI32.dll                          RegisterServiceCtrlHandlerA
+2   0x18000e008 NONE FUNC ADVAPI32.dll                          SetServiceStatus
+3   0x18000e010 NONE FUNC ADVAPI32.dll                          StartServiceCtrlDispatcherA
+4   0x18000e018 NONE FUNC ADVAPI32.dll                          RegCloseKey
+5   0x18000e020 NONE FUNC ADVAPI32.dll                          RegCreateKeyExA
+6   0x18000e028 NONE FUNC ADVAPI32.dll                          RegFlushKey
+7   0x18000e030 NONE FUNC ADVAPI32.dll                          RegOpenKeyExA
+8   0x18000e038 NONE FUNC ADVAPI32.dll                          RegQueryValueExA
+9   0x18000e040 NONE FUNC ADVAPI32.dll                          RegSetValueExA
+10  0x18000e048 NONE FUNC ADVAPI32.dll                          RegDeleteValueA
+1   0x18000e058 NONE FUNC CRYPT32.dll                           CryptUnprotectData
+2   0x18000e060 NONE FUNC CRYPT32.dll                           CryptProtectData
+1   0x18000e1b0 NONE FUNC SHELL32.dll                           SHGetKnownFolderPath
+1   0x18000e740 NONE FUNC ole32.dll                             CoTaskMemFree
+1   0x18000e730 NONE FUNC dsfspi.dll                            ?checkFileSignature@DsfUtil@@SAHPEAEHPEBDH@Z
+1   0x18000e070 NONE FUNC KERNEL32.dll                          GetLastError
+2   0x18000e078 NONE FUNC KERNEL32.dll                          GetCurrentDirectoryA
+3   0x18000e080 NONE FUNC KERNEL32.dll                          SetCurrentDirectoryA
+4   0x18000e088 NONE FUNC KERNEL32.dll                          VerSetConditionMask
+5   0x18000e090 NONE FUNC KERNEL32.dll                          CloseHandle
+6   0x18000e098 NONE FUNC KERNEL32.dll                          GetCurrentProcessId
+7   0x18000e0a0 NONE FUNC KERNEL32.dll                          CreateProcessA
+8   0x18000e0a8 NONE FUNC KERNEL32.dll                          SetConsoleCtrlHandler
+9   0x18000e0b0 NONE FUNC KERNEL32.dll                          FreeLibrary
+10  0x18000e0b8 NONE FUNC KERNEL32.dll                          GetProcAddress
+11  0x18000e0c0 NONE FUNC KERNEL32.dll                          LoadLibraryA
+12  0x18000e0c8 NONE FUNC KERNEL32.dll                          VerifyVersionInfoW
+13  0x18000e0d0 NONE FUNC KERNEL32.dll                          GetVolumeInformationA
+14  0x18000e0d8 NONE FUNC KERNEL32.dll                          QueryPerformanceCounter
+15  0x18000e0e0 NONE FUNC KERNEL32.dll                          QueryPerformanceFrequency
+16  0x18000e0e8 NONE FUNC KERNEL32.dll                          GetTickCount64
+17  0x18000e0f0 NONE FUNC KERNEL32.dll                          GetModuleFileNameA
+18  0x18000e0f8 NONE FUNC KERNEL32.dll                          LocalAlloc
+19  0x18000e100 NONE FUNC KERNEL32.dll                          LocalFree
+20  0x18000e108 NONE FUNC KERNEL32.dll                          FormatMessageA
+21  0x18000e110 NONE FUNC KERNEL32.dll                          GenerateConsoleCtrlEvent
+22  0x18000e118 NONE FUNC KERNEL32.dll                          FindClose
+23  0x18000e120 NONE FUNC KERNEL32.dll                          FindFirstFileA
+24  0x18000e128 NONE FUNC KERNEL32.dll                          FindNextFileA
+25  0x18000e130 NONE FUNC KERNEL32.dll                          GetFileAttributesA
+26  0x18000e138 NONE FUNC KERNEL32.dll                          CreateDirectoryA
+27  0x18000e140 NONE FUNC KERNEL32.dll                          RtlCaptureContext
+28  0x18000e148 NONE FUNC KERNEL32.dll                          RtlLookupFunctionEntry
+29  0x18000e150 NONE FUNC KERNEL32.dll                          RtlVirtualUnwind
+30  0x18000e158 NONE FUNC KERNEL32.dll                          UnhandledExceptionFilter
+31  0x18000e160 NONE FUNC KERNEL32.dll                          SetUnhandledExceptionFilter
+32  0x18000e168 NONE FUNC KERNEL32.dll                          GetCurrentProcess
+33  0x18000e170 NONE FUNC KERNEL32.dll                          TerminateProcess
+34  0x18000e178 NONE FUNC KERNEL32.dll                          IsProcessorFeaturePresent
+35  0x18000e180 NONE FUNC KERNEL32.dll                          GetCurrentThreadId
+36  0x18000e188 NONE FUNC KERNEL32.dll                          GetSystemTimeAsFileTime
+37  0x18000e190 NONE FUNC KERNEL32.dll                          DisableThreadLibraryCalls
+38  0x18000e198 NONE FUNC KERNEL32.dll                          InitializeSListHead
+39  0x18000e1a0 NONE FUNC KERNEL32.dll                          IsDebuggerPresent
+1   0x18000e1c0 NONE FUNC VCRUNTIME140.dll                      __std_exception_copy
+2   0x18000e1c8 NONE FUNC VCRUNTIME140.dll                      _purecall
+3   0x18000e1d0 NONE FUNC VCRUNTIME140.dll                      __std_type_info_destroy_list
+4   0x18000e1d8 NONE FUNC VCRUNTIME140.dll                      _CxxThrowException
+5   0x18000e1e0 NONE FUNC VCRUNTIME140.dll                      __std_exception_destroy
+6   0x18000e1e8 NONE FUNC VCRUNTIME140.dll                      memset
+7   0x18000e1f0 NONE FUNC VCRUNTIME140.dll                      __C_specific_handler
+8   0x18000e1f8 NONE FUNC VCRUNTIME140.dll                      memcpy
+9   0x18000e200 NONE FUNC VCRUNTIME140.dll                      strstr
+10  0x18000e208 NONE FUNC VCRUNTIME140.dll                      strrchr
+11  0x18000e210 NONE FUNC VCRUNTIME140.dll                      strchr
+1   0x18000e260 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        malloc
+2   0x18000e268 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        _callnewh
+3   0x18000e270 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        free
+1   0x18000e2e8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fputc
+2   0x18000e2f0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsprintf
+3   0x18000e2f8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fflush
+4   0x18000e300 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fread
+5   0x18000e308 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vfprintf
+6   0x18000e310 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsprintf_s
+7   0x18000e318 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       ftell
+8   0x18000e320 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __acrt_iob_func
+9   0x18000e328 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fseek
+10  0x18000e330 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fgets
+11  0x18000e338 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vfwprintf
+12  0x18000e340 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fgetc
+13  0x18000e348 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fclose
+14  0x18000e350 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsnprintf_s
+15  0x18000e358 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fopen
+16  0x18000e360 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       fopen_s
+1   0x18000e370 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      _strdup
+2   0x18000e378 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strcmp
+3   0x18000e380 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncpy_s
+4   0x18000e388 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strtok_s
+5   0x18000e390 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      _stricmp
+6   0x18000e398 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strnlen
+7   0x18000e3a0 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncat_s
+8   0x18000e3a8 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncmp
+1   0x18000e230 NONE FUNC api-ms-win-crt-environment-l1-1-0.dll _dupenv_s
+2   0x18000e238 NONE FUNC api-ms-win-crt-environment-l1-1-0.dll getenv
+3   0x18000e240 NONE FUNC api-ms-win-crt-environment-l1-1-0.dll _putenv
+1   0x18000e280 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _execute_onexit_table
+2   0x18000e288 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initialize_onexit_table
+3   0x18000e290 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initialize_narrow_environment
+4   0x18000e298 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _configure_narrow_argv
+5   0x18000e2a0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     exit
+6   0x18000e2a8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _set_invalid_parameter_handler
+7   0x18000e2b0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _seh_filter_dll
+8   0x18000e2b8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initterm_e
+9   0x18000e2c0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _cexit
+10  0x18000e2c8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _errno
+11  0x18000e2d0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initterm
+12  0x18000e2d8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _invalid_parameter_noinfo
+1   0x18000e250 NONE FUNC api-ms-win-crt-filesystem-l1-1-0.dll  _stat64i32
+1   0x18000e220 NONE FUNC api-ms-win-crt-convert-l1-1-0.dll     wcstombs_s
+1   0x18000e3b8 NONE FUNC api-ms-win-crt-time-l1-1-0.dll        asctime_s
+2   0x18000e3c0 NONE FUNC api-ms-win-crt-time-l1-1-0.dll        _localtime64_s
+3   0x18000e3c8 NONE FUNC api-ms-win-crt-time-l1-1-0.dll        _time64
+############ LINKED LIBS nre.dll ############
+common.dll
+advapi32.dll
+crypt32.dll
+shell32.dll
+ole32.dll
+dsfspi.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-filesystem-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+############ IMPORTS common.dll ############
+nth vaddr       bind type lib                                  name
+―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x18001c000 NONE FUNC ADVAPI32.dll                         DeregisterEventSource
+2   0x18001c008 NONE FUNC ADVAPI32.dll                         RegisterEventSourceA
+3   0x18001c010 NONE FUNC ADVAPI32.dll                         ReportEventA
+4   0x18001c018 NONE FUNC ADVAPI32.dll                         RegCloseKey
+5   0x18001c020 NONE FUNC ADVAPI32.dll                         RegOpenKeyExA
+6   0x18001c028 NONE FUNC ADVAPI32.dll                         RegQueryValueExA
+7   0x18001c030 NONE FUNC ADVAPI32.dll                         AllocateAndInitializeSid
+8   0x18001c038 NONE FUNC ADVAPI32.dll                         CopySid
+9   0x18001c040 NONE FUNC ADVAPI32.dll                         EqualSid
+10  0x18001c048 NONE FUNC ADVAPI32.dll                         FreeSid
+11  0x18001c050 NONE FUNC ADVAPI32.dll                         GetLengthSid
+12  0x18001c058 NONE FUNC ADVAPI32.dll                         GetSidIdentifierAuthority
+13  0x18001c060 NONE FUNC ADVAPI32.dll                         GetSidSubAuthority
+14  0x18001c068 NONE FUNC ADVAPI32.dll                         GetSidSubAuthorityCount
+15  0x18001c070 NONE FUNC ADVAPI32.dll                         IsValidSid
+16  0x18001c078 NONE FUNC ADVAPI32.dll                         LookupAccountSidW
+17  0x18001c080 NONE FUNC ADVAPI32.dll                         LookupAccountNameW
+18  0x18001c088 NONE FUNC ADVAPI32.dll                         LogonUserW
+19  0x18001c090 NONE FUNC ADVAPI32.dll                         RegFlushKey
+20  0x18001c098 NONE FUNC ADVAPI32.dll                         RegSetValueExA
+1   0x18001c268 NONE FUNC NETAPI32.dll                         DsRoleFreeMemory
+2   0x18001c270 NONE FUNC NETAPI32.dll                         NetUserGetGroups
+3   0x18001c278 NONE FUNC NETAPI32.dll                         NetUserGetLocalGroups
+4   0x18001c280 NONE FUNC NETAPI32.dll                         NetGroupGetUsers
+5   0x18001c288 NONE FUNC NETAPI32.dll                         NetLocalGroupEnum
+6   0x18001c290 NONE FUNC NETAPI32.dll                         NetLocalGroupGetMembers
+7   0x18001c298 NONE FUNC NETAPI32.dll                         NetApiBufferFree
+8   0x18001c2a0 NONE FUNC NETAPI32.dll                         NetGetAnyDCName
+9   0x18001c2a8 NONE FUNC NETAPI32.dll                         DsRoleGetPrimaryDomainInformation
+1   0x18001c310 NONE FUNC WS2_32.dll                           getaddrinfo
+2   0x18001c318 NONE FUNC WS2_32.dll                           freeaddrinfo
+3   0x18001c320 NONE FUNC WS2_32.dll                           getnameinfo
+4   0x18001c328 NONE FUNC WS2_32.dll                           WSACreateEvent
+111 0x18001c330 NONE FUNC WS2_32.dll                           WSAGetLastError
+1   0x18001c0a8 NONE FUNC KERNEL32.dll                         IsDebuggerPresent
+2   0x18001c0b0 NONE FUNC KERNEL32.dll                         InitializeSListHead
+3   0x18001c0b8 NONE FUNC KERNEL32.dll                         DisableThreadLibraryCalls
+4   0x18001c0c0 NONE FUNC KERNEL32.dll                         GetSystemTimeAsFileTime
+5   0x18001c0c8 NONE FUNC KERNEL32.dll                         GetCurrentThreadId
+6   0x18001c0d0 NONE FUNC KERNEL32.dll                         GetCurrentProcessId
+7   0x18001c0d8 NONE FUNC KERNEL32.dll                         IsProcessorFeaturePresent
+8   0x18001c0e0 NONE FUNC KERNEL32.dll                         SetUnhandledExceptionFilter
+9   0x18001c0e8 NONE FUNC KERNEL32.dll                         UnhandledExceptionFilter
+10  0x18001c0f0 NONE FUNC KERNEL32.dll                         RtlVirtualUnwind
+11  0x18001c0f8 NONE FUNC KERNEL32.dll                         RtlLookupFunctionEntry
+12  0x18001c100 NONE FUNC KERNEL32.dll                         RtlCaptureContext
+13  0x18001c108 NONE FUNC KERNEL32.dll                         OpenFileMappingA
+14  0x18001c110 NONE FUNC KERNEL32.dll                         CreateFileMappingA
+15  0x18001c118 NONE FUNC KERNEL32.dll                         FindClose
+16  0x18001c120 NONE FUNC KERNEL32.dll                         FindFirstFileA
+17  0x18001c128 NONE FUNC KERNEL32.dll                         FindNextFileA
+18  0x18001c130 NONE FUNC KERNEL32.dll                         GetDriveTypeA
+19  0x18001c138 NONE FUNC KERNEL32.dll                         GetLogicalDrives
+20  0x18001c140 NONE FUNC KERNEL32.dll                         CreateDirectoryA
+21  0x18001c148 NONE FUNC KERNEL32.dll                         GetFileAttributesA
+22  0x18001c150 NONE FUNC KERNEL32.dll                         GetLastError
+23  0x18001c158 NONE FUNC KERNEL32.dll                         LocalFree
+24  0x18001c160 NONE FUNC KERNEL32.dll                         FormatMessageA
+25  0x18001c168 NONE FUNC KERNEL32.dll                         HeapAlloc
+26  0x18001c170 NONE FUNC KERNEL32.dll                         HeapFree
+27  0x18001c178 NONE FUNC KERNEL32.dll                         GetProcessHeap
+28  0x18001c180 NONE FUNC KERNEL32.dll                         GetOverlappedResult
+29  0x18001c188 NONE FUNC KERNEL32.dll                         FreeLibrary
+30  0x18001c190 NONE FUNC KERNEL32.dll                         GetProcAddress
+31  0x18001c198 NONE FUNC KERNEL32.dll                         LoadLibraryA
+32  0x18001c1a0 NONE FUNC KERNEL32.dll                         GetSystemInfo
+33  0x18001c1a8 NONE FUNC KERNEL32.dll                         GetVersionExA
+34  0x18001c1b0 NONE FUNC KERNEL32.dll                         CloseHandle
+35  0x18001c1b8 NONE FUNC KERNEL32.dll                         ReleaseMutex
+36  0x18001c1c0 NONE FUNC KERNEL32.dll                         WaitForSingleObject
+37  0x18001c1c8 NONE FUNC KERNEL32.dll                         CreateMutexA
+38  0x18001c1d0 NONE FUNC KERNEL32.dll                         Sleep
+39  0x18001c1d8 NONE FUNC KERNEL32.dll                         TerminateProcess
+40  0x18001c1e0 NONE FUNC KERNEL32.dll                         SetLastError
+41  0x18001c1e8 NONE FUNC KERNEL32.dll                         MultiByteToWideChar
+42  0x18001c1f0 NONE FUNC KERNEL32.dll                         WideCharToMultiByte
+43  0x18001c1f8 NONE FUNC KERNEL32.dll                         QueryPerformanceCounter
+44  0x18001c200 NONE FUNC KERNEL32.dll                         QueryPerformanceFrequency
+45  0x18001c208 NONE FUNC KERNEL32.dll                         GetProcessTimes
+46  0x18001c210 NONE FUNC KERNEL32.dll                         GetCurrentProcess
+47  0x18001c218 NONE FUNC KERNEL32.dll                         OpenProcess
+48  0x18001c220 NONE FUNC KERNEL32.dll                         GetSystemTimes
+49  0x18001c228 NONE FUNC KERNEL32.dll                         GlobalMemoryStatusEx
+50  0x18001c230 NONE FUNC KERNEL32.dll                         CreateToolhelp32Snapshot
+51  0x18001c238 NONE FUNC KERNEL32.dll                         Process32First
+52  0x18001c240 NONE FUNC KERNEL32.dll                         Process32Next
+53  0x18001c248 NONE FUNC KERNEL32.dll                         MapViewOfFile
+54  0x18001c250 NONE FUNC KERNEL32.dll                         UnmapViewOfFile
+55  0x18001c258 NONE FUNC KERNEL32.dll                         OpenMutexA
+1   0x18001c2b8 NONE FUNC VCRUNTIME140.dll                     __std_type_info_destroy_list
+2   0x18001c2c0 NONE FUNC VCRUNTIME140.dll                     _purecall
+3   0x18001c2c8 NONE FUNC VCRUNTIME140.dll                     _CxxThrowException
+4   0x18001c2d0 NONE FUNC VCRUNTIME140.dll                     __std_exception_destroy
+5   0x18001c2d8 NONE FUNC VCRUNTIME140.dll                     memset
+6   0x18001c2e0 NONE FUNC VCRUNTIME140.dll                     __std_exception_copy
+7   0x18001c2e8 NONE FUNC VCRUNTIME140.dll                     memcpy
+8   0x18001c2f0 NONE FUNC VCRUNTIME140.dll                     wcsstr
+9   0x18001c2f8 NONE FUNC VCRUNTIME140.dll                     strchr
+10  0x18001c300 NONE FUNC VCRUNTIME140.dll                     __C_specific_handler
+1   0x18001c340 NONE FUNC api-ms-win-crt-convert-l1-1-0.dll    atoi
+2   0x18001c348 NONE FUNC api-ms-win-crt-convert-l1-1-0.dll    atol
+3   0x18001c350 NONE FUNC api-ms-win-crt-convert-l1-1-0.dll    mbstowcs_s
+4   0x18001c358 NONE FUNC api-ms-win-crt-convert-l1-1-0.dll    wcstombs_s
+1   0x18001c400 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      _close
+2   0x18001c408 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      __stdio_common_vsscanf
+3   0x18001c410 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      __acrt_iob_func
+4   0x18001c418 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      __stdio_common_vsprintf
+5   0x18001c420 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      _write
+6   0x18001c428 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      __stdio_common_vfprintf
+7   0x18001c430 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      _read
+8   0x18001c438 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      _open
+9   0x18001c440 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      __stdio_common_vsprintf_s
+10  0x18001c448 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll      __stdio_common_vsnprintf_s
+1   0x18001c458 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     strncmp
+2   0x18001c460 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     _stricmp
+3   0x18001c468 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     strncat_s
+4   0x18001c470 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     strncpy_s
+5   0x18001c478 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     _wcsicmp
+6   0x18001c480 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     strncpy
+7   0x18001c488 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     isprint
+8   0x18001c490 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     wcsncpy_s
+9   0x18001c498 NONE FUNC api-ms-win-crt-string-l1-1-0.dll     wcsncat_s
+1   0x18001c368 NONE FUNC api-ms-win-crt-filesystem-l1-1-0.dll _chmod
+2   0x18001c370 NONE FUNC api-ms-win-crt-filesystem-l1-1-0.dll _stat64i32
+1   0x18001c3a0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _execute_onexit_table
+2   0x18001c3a8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _initialize_onexit_table
+3   0x18001c3b0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    strerror
+4   0x18001c3b8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _configure_narrow_argv
+5   0x18001c3c0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _beginthreadex
+6   0x18001c3c8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _seh_filter_dll
+7   0x18001c3d0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _cexit
+8   0x18001c3d8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _initterm_e
+9   0x18001c3e0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _errno
+10  0x18001c3e8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _initialize_narrow_environment
+11  0x18001c3f0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll    _initterm
+1   0x18001c4a8 NONE FUNC api-ms-win-crt-time-l1-1-0.dll       _ctime64
+1   0x18001c380 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll       _callnewh
+2   0x18001c388 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll       free
+3   0x18001c390 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll       malloc
+############ LINKED LIBS common.dll ############
+advapi32.dll
+netapi32.dll
+ws2_32.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-filesystem-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll

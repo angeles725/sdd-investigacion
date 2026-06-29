@@ -1,0 +1,689 @@
+openjdk version "21.0.11" 2026-04-21
+OpenJDK Runtime Environment Homebrew (build 21.0.11)
+OpenJDK 64-Bit Server VM Homebrew (build 21.0.11, mixed mode)
+INFO  Using log config file: jar:file:/home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  
+INFO  Using log file: /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/application.log (LoggingInitialization)  
+INFO  Loading user preferences: /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/preferences (Preferences)  
+INFO  Searching for classes... (ClassSearcher)  
+INFO  Class search complete (947 ms) (ClassSearcher)  
+INFO  Initializing SSL Context (DefaultSSLContextInitializer)  
+INFO  Initializing Random Number Generator... (SecureRandomFactory)  
+INFO  Random Number Generator initialization complete: NativePRNGNonBlocking (SecureRandomFactory)  
+INFO  Trust manager disabled, cacerts have not been set (DefaultTrustManagerFactory)  
+INFO  Starting cache cleanup: /var/tmp/cristian-ghidra/fscache2 (FileCacheMaintenanceDaemon)  
+INFO  Finished cache cleanup, estimated storage used: 0 (FileCacheMaintenanceDaemon)  
+INFO  Headless startup complete (4308 ms) (AnalyzeHeadless)  
+INFO  Class searcher loaded 60 extension points (20 false positives) (ClassSearcher)  
+INFO  HEADLESS Script Paths:
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/VersionTracking/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/Atmel/ghidra_scripts
+    /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/FileFormats/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/PIC/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Base/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/8051/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/PyGhidra/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Debug/Debugger/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Debug/Debugger-rmi-trace/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/PDB/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/SwiftDemangler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/MicrosoftCodeAnalyzer/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/DATA/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/SystemEmulation/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/DecompilerDependent/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/FunctionID/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/GnuDemangler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/JVM/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/BytePatterns/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Decompiler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/WildcardAssembler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/BSim/ghidra_scripts (HeadlessAnalyzer)  
+INFO  HEADLESS: execution starts (HeadlessAnalyzer)  
+INFO  Creating project: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/proj/njre_3861969 (HeadlessAnalyzer)  
+INFO  Creating project: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/proj/njre_3861969 (DefaultProject)  
+INFO  REPORT: Processing input files:  (HeadlessAnalyzer)  
+INFO       project: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/proj/njre_3861969 (HeadlessAnalyzer)  
+INFO  IMPORTING: file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/njre.dll (HeadlessAnalyzer)  
+INFO  Using Loader: Portable Executable (PE) (ProgramLoader)  
+INFO  Using Language/Compiler: x86:LE:64:default:windows (ProgramLoader)  
+INFO  Using Library Search Path: [., /bin, /lib, /lib64, /lib/x86_64-linux-gnu, /lib/aarch64-linux-gnu, /usr/bin, /usr/lib, /usr/X11R6/bin, /usr/X11R6/lib, /usr/java/packages/lib, /usr/lib64] (ProgramLoader)  
+INFO  Additional info:
+Loading file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/njre.dll?MD5=b6152858e31fab8ed304dbf754624d3d...
+[njre.dll]: failed to create TerminatedCString at 180011298: Failed to resolve data length for TerminatedCString
+------------------------------------------------
+
+Searching 8 paths for library ADVAPI32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-CONVERT-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-ENVIRONMENT-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-HEAP-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-RUNTIME-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-STDIO-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-STRING-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-TIME-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library CRYPT32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library DSFSPI.DLL...
+Loading file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/DSFSPI.DLL?MD5=194323d46cddd2194e3b2e356106d53e...
+[DSFSPI.DLL]: failed to create TerminatedCString at 180059058: Failed to resolve data length for TerminatedCString
+Created exports file: /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/symbols/win64/dsfspi.exports
+Library not saved to project.
+------------------------------------------------
+
+Searching 8 paths for library KERNEL32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library OLE32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library SHELL32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library VCRUNTIME140.DLL...
+Loading file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/VCRUNTIME140.DLL?MD5=2f11d7c815ecafab59e2805b9c7c9596...
+Created exports file: /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/symbols/win64/vcruntime140.exports
+Library not saved to project.
+------------------------------------------------
+
+Applying cached symbols from DSFSPI.DLL
+Applying cached symbols from VCRUNTIME140.DLL
+Linking the External Programs of 'njre.dll' to imported libraries...
+  [ADVAPI32.DLL] -> not found in project
+  [CRYPT32.DLL] -> not found in project
+  [SHELL32.DLL] -> not found in project
+  [OLE32.DLL] -> not found in project
+  [DSFSPI.DLL] -> not found in project
+  [KERNEL32.DLL] -> not found in project
+  [VCRUNTIME140.DLL] -> not found in project
+  [API-MS-WIN-CRT-HEAP-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-STDIO-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-STRING-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-RUNTIME-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-ENVIRONMENT-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-CONVERT-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-TIME-L1-1-0.DLL] -> not found in project
+------------------------------------------------
+
+ (ProgramLoader)  
+INFO  IMPORTING: Loaded 0 additional files (HeadlessAnalyzer)  
+INFO  ANALYZING all memory and code: file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/njre.dll (HeadlessAnalyzer)  
+WARN  Ignoring leading '_' chars on no-return name '___raise_securityfailure' specified in file: /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Base/data/PEFunctionsThatDoNotReturn (NoReturnFunctionAnalyzer)  
+WARN  Ignoring leading '_' chars on no-return name '___report_rangecheckfailure' specified in file: /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Base/data/PEFunctionsThatDoNotReturn (NoReturnFunctionAnalyzer)  
+INFO  Skipping PDB processing: missing PDB information in program metadata (PdbUniversalAnalyzer)  
+INFO  hit non-returning function, restarting decompiler switch analyzer later (DecompilerSwitchAnalyzer)  
+INFO  Packed database cache: /var/tmp/cristian-ghidra/packed-db-cache (PackedDatabaseCache)  
+INFO  Applied data type archive: windows_vs12_64 (ApplyDataArchiveAnalyzer)  
+INFO  Applied data type archive: windows_vs12_64 (ApplyDataArchiveAnalyzer)  
+INFO  -----------------------------------------------------
+    ASCII Strings                              0.345 secs
+    Apply Data Archives                        0.175 secs
+    Call Convention ID                         0.005 secs
+    Call-Fixup Installer                       0.029 secs
+    Create Address Tables                      0.014 secs
+    Create Address Tables - One Time           0.006 secs
+    Create Function                            0.029 secs
+    Data Reference                             0.028 secs
+    Decompiler Parameter ID                    3.389 secs
+    Decompiler Switch Analysis                 0.420 secs
+    Decompiler Switch Analysis - One Time      1.398 secs
+    Demangler Microsoft                        0.086 secs
+    Disassemble Entry Points                   0.390 secs
+    Embedded Media                             0.007 secs
+    External Entry References                  0.002 secs
+    Function ID                                1.330 secs
+    Function Start Search                      0.007 secs
+    Non-Returning Functions - Discovered       0.103 secs
+    Non-Returning Functions - Known            0.013 secs
+    PDB Universal                              0.003 secs
+    Reference                                  0.050 secs
+    Scalar Operand References                  0.107 secs
+    Shared Return Calls                        0.035 secs
+    Stack                                      0.654 secs
+    Subroutine References                      0.021 secs
+    Subroutine References - One Time           0.005 secs
+    Windows x86 PE Exception Handling          0.013 secs
+    Windows x86 PE RTTI Analyzer               4.890 secs
+    Windows x86 Thread Environment Block (TEB) Analyzer     0.019 secs
+    WindowsResourceReference                   0.578 secs
+    x86 Constant Reference Analyzer            0.763 secs
+-----------------------------------------------------
+     Total Time   14 secs
+-----------------------------------------------------
+ (AutoAnalysisManager)  
+INFO  REPORT: Analysis succeeded for file: file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/njre.dll (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: DecompList.java 'createVM' 'invokeJava' 'buildArgs'  (HeadlessAnalyzer)  
+AvbProbe.java:2: error: package org.dom4j.io does not exist
+import org.dom4j.io.SAXReader;
+                   ^
+AvbProbe.java:5: error: package DE.siemens.ad.logo.model.hardware does not exist
+import DE.siemens.ad.logo.model.hardware.Logo8Update1;
+                                        ^
+AvbProbe.java:3: error: package DE.siemens.ad.logo.model does not exist
+import DE.siemens.ad.logo.model.*;
+^
+AvbProbe.java:4: error: package DE.siemens.ad.logo.model.block does not exist
+import DE.siemens.ad.logo.model.block.*;
+^
+AvbProbe.java:8: error: cannot find symbol
+    SimGetFBDecode.injectIdentifierTable();
+    ^
+  symbol:   variable SimGetFBDecode
+  location: class AvbProbe
+AvbProbe.java:9: error: cannot find symbol
+    WiringDiagram wd = SimGetFBDecode.load("codegen/roundtrip/b72/analog_thermostat.dsl.bin");
+    ^
+  symbol:   class WiringDiagram
+  location: class AvbProbe
+AvbProbe.java:9: error: cannot find symbol
+    WiringDiagram wd = SimGetFBDecode.load("codegen/roundtrip/b72/analog_thermostat.dsl.bin");
+                       ^
+  symbol:   variable SimGetFBDecode
+  location: class AvbProbe
+AvbProbe.java:10: error: cannot find symbol
+    for (Object o: wd.getBlocks()){ Block b=(Block)o;
+                                    ^
+  symbol:   class Block
+  location: class AvbProbe
+AvbProbe.java:10: error: cannot find symbol
+    for (Object o: wd.getBlocks()){ Block b=(Block)o;
+                                             ^
+  symbol:   class Block
+  location: class AvbProbe
+AvbProbe.java:13: error: cannot find symbol
+      System.out.println("N="+b.getNumber()+" "+cn+" analog="+ana+(b instanceof InputBlock?" INPUT":""));
+                                                                                ^
+  symbol:   class InputBlock
+  location: class AvbProbe
+skipping /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/AvbProbe.java
+INFO  SCRIPT: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/DecompList.java (HeadlessAnalyzer)  
+INFO  DecompList.java> ######## FUNC buildArgs @ 180002b10 (GhidraScript)  
+INFO  DecompList.java> 
+/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */
+/* private: int __cdecl JavaLauncherWin32::buildArgs(int,char * __ptr64 * __ptr64) __ptr64 */
+
+int __thiscall JavaLauncherWin32::buildArgs(JavaLauncherWin32 *this,int param_1,char **param_2)
+
+{
+  JavaLauncherWin32 *pJVar1;
+  undefined8 *puVar2;
+  int iVar3;
+  ulonglong uVar4;
+  char *pcVar5;
+  JavaVMOption *pJVar6;
+  ulonglong uVar7;
+  uint uVar8;
+  ulonglong uVar9;
+  undefined8 in_R9;
+  char *pcVar10;
+  undefined1 auStack_10708 [32];
+  JavaLauncherWin32 *pJStack_106e8;
+  char acStack_106d8 [272];
+  char acStack_105c8 [272];
+  char acStack_104b8 [272];
+  char acStack_103a8 [272];
+  char acStack_10298 [272];
+  char acStack_10188 [272];
+  char acStack_10078 [800];
+  char local_fd58 [800];
+  char local_fa38 [32000];
+  char local_7d38 [32000];
+  ulonglong local_38;
+  
+  pJVar6 = DAT_18000f390;
+                    /* 0x2b10  36  ?buildArgs@JavaLauncherWin32@@AEAAHHPEAPEAD@Z */
+  puVar2 = DAT_18000f388;
+  local_38 = DAT_18000f178 ^ (ulonglong)auStack_10708;
+  uVar7 = 0;
+  *(undefined8 *)DAT_18000f390 = 0;
+  *puVar2 = 0;
+  *(undefined8 *)(pJVar6 + 0x10) = 0;
+  puVar2[1] = 0;
+  *(undefined8 *)(pJVar6 + 0x20) = 0;
+  puVar2[2] = 0;
+  *(undefined8 *)(pJVar6 + 0x30) = 0;
+  puVar2[3] = 0;
+  *(undefined8 *)(pJVar6 + 0x40) = 0;
+  puVar2[4] = 0;
+  *(undefined8 *)(pJVar6 + 0x50) = 0;
+  puVar2[5] = 0;
+  *(undefined8 *)(pJVar6 + 0x60) = 0;
+  puVar2[6] = 0;
+  *(undefined8 *)(pJVar6 + 0x70) = 0;
+  puVar2[7] = 0;
+  *(undefined8 *)(pJVar6 + 0x80) = 0;
+  puVar2[8] = 0;
+  *(undefined8 *)(pJVar6 + 0x90) = 0;
+  puVar2[9] = 0;
+  *(undefined8 *)(pJVar6 + 0xa0) = 0;
+  puVar2[10] = 0;
+  *(undefined8 *)(pJVar6 + 0xb0) = 0;
+  puVar2[0xb] = 0;
+  *(undefined8 *)(pJVar6 + 0xc0) = 0;
+  puVar2[0xc] = 0;
+  *(undefined8 *)(pJVar6 + 0xd0) = 0;
+  puVar2[0xd] = 0;
+  *(undefined8 *)(pJVar6 + 0xe0) = 0;
+  puVar2[0xe] = 0;
+  *(undefined8 *)(pJVar6 + 0xf0) = 0;
+  puVar2[0xf] = 0;
+  *(undefined8 *)(pJVar6 + 0x100) = 0;
+  puVar2[0x10] = 0;
+  *(undefined8 *)(pJVar6 + 0x110) = 0;
+  puVar2[0x11] = 0;
+  *(undefined8 *)(pJVar6 + 0x120) = 0;
+  puVar2[0x12] = 0;
+  *(undefined8 *)(pJVar6 + 0x130) = 0;
+  puVar2[0x13] = 0;
+  *(undefined8 *)(pJVar6 + 0x140) = 0;
+  puVar2[0x14] = 0;
+  *(undefined8 *)(pJVar6 + 0x150) = 0;
+  puVar2[0x15] = 0;
+  *(undefined8 *)(pJVar6 + 0x160) = 0;
+  puVar2[0x16] = 0;
+  *(undefined8 *)(pJVar6 + 0x170) = 0;
+  puVar2[0x17] = 0;
+  *(undefined8 *)(pJVar6 + 0x180) = 0;
+  puVar2[0x18] = 0;
+  *(undefined8 *)(pJVar6 + 400) = 0;
+  puVar2[0x19] = 0;
+  *(undefined8 *)(pJVar6 + 0x1a0) = 0;
+  puVar2[0x1a] = 0;
+  *(undefined8 *)(pJVar6 + 0x1b0) = 0;
+  puVar2[0x1b] = 0;
+  *(undefined8 *)(pJVar6 + 0x1c0) = 0;
+  puVar2[0x1c] = 0;
+  *(undefined8 *)(pJVar6 + 0x1d0) = 0;
+  puVar2[0x1d] = 0;
+  *(undefined8 *)(pJVar6 + 0x1e0) = 0;
+  puVar2[0x1e] = 0;
+  *(undefined8 *)(pJVar6 + 0x1f0) = 0;
+  puVar2[0x1f] = 0;
+  *(undefined8 *)(pJVar6 + 0x200) = 0;
+  puVar2[0x20] = 0;
+  *(undefined8 *)(pJVar6 + 0x210) = 0;
+  puVar2[0x21] = 0;
+  *(undefined8 *)(pJVar6 + 0x220) = 0;
+  puVar2[0x22] = 0;
+  *(undefined8 *)(pJVar6 + 0x230) = 0;
+  puVar2[0x23] = 0;
+  *(undefined8 *)(pJVar6 + 0x240) = 0;
+  puVar2[0x24] = 0;
+  *(undefined8 *)(pJVar6 + 0x250) = 0;
+  puVar2[0x25] = 0;
+  *(undefined8 *)(pJVar6 + 0x260) = 0;
+  puVar2[0x26] = 0;
+  *(undefined8 *)(pJVar6 + 0x270) = 0;
+  puVar2[0x27] = 0;
+  *(undefined8 *)(pJVar6 + 0x280) = 0;
+  puVar2[0x28] = 0;
+  *(undefined8 *)(pJVar6 + 0x290) = 0;
+  puVar2[0x29] = 0;
+  *(undefined8 *)(pJVar6 + 0x2a0) = 0;
+  puVar2[0x2a] = 0;
+  *(undefined8 *)(pJVar6 + 0x2b0) = 0;
+  puVar2[0x2b] = 0;
+  *(undefined8 *)(pJVar6 + 0x2c0) = 0;
+  puVar2[0x2c] = 0;
+  *(undefined8 *)(pJVar6 + 0x2d0) = 0;
+  puVar2[0x2d] = 0;
+  *(undefined8 *)(pJVar6 + 0x2e0) = 0;
+  puVar2[0x2e] = 0;
+  *(undefined8 *)(pJVar6 + 0x2f0) = 0;
+  puVar2[0x2f] = 0;
+  *(undefined8 *)(pJVar6 + 0x300) = 0;
+  puVar2[0x30] = 0;
+  *(undefined8 *)(pJVar6 + 0x310) = 0;
+  puVar2[0x31] = 0;
+  *(undefined8 *)(pJVar6 + 800) = 0;
+  puVar2[0x32] = 0;
+  *(undefined8 *)(pJVar6 + 0x330) = 0;
+  puVar2[0x33] = 0;
+  *(undefined8 *)(pJVar6 + 0x340) = 0;
+  puVar2[0x34] = 0;
+  *(undefined8 *)(pJVar6 + 0x350) = 0;
+  puVar2[0x35] = 0;
+  *(undefined8 *)(pJVar6 + 0x360) = 0;
+  puVar2[0x36] = 0;
+  *(undefined8 *)(pJVar6 + 0x370) = 0;
+  puVar2[0x37] = 0;
+  *(undefined8 *)(pJVar6 + 0x380) = 0;
+  puVar2[0x38] = 0;
+  *(undefined8 *)(pJVar6 + 0x390) = 0;
+  puVar2[0x39] = 0;
+  *(undefined8 *)(pJVar6 + 0x3a0) = 0;
+  puVar2[0x3a] = 0;
+  *(undefined8 *)(pJVar6 + 0x3b0) = 0;
+  puVar2[0x3b] = 0;
+  *(undefined8 *)(pJVar6 + 0x3c0) = 0;
+  puVar2[0x3c] = 0;
+  *(undefined8 *)(pJVar6 + 0x3d0) = 0;
+  puVar2[0x3d] = 0;
+  *(undefined8 *)(pJVar6 + 0x3e0) = 0;
+  puVar2[0x3e] = 0;
+  *(undefined8 *)(pJVar6 + 0x3f0) = 0;
+  puVar2[0x3f] = 0;
+  if (1 < param_1) {
+    uVar8 = 1;
+    do {
+      param_2 = param_2 + 1;
+      pcVar5 = *param_2;
+      if (*(int *)(this + 8) != 0) {
+        FUN_180004a40("java>   argv[%d] = \"%s\"\n",(ulonglong)uVar8,pcVar5,in_R9);
+      }
+      uVar4 = 0xffffffffffffffff;
+      do {
+        uVar4 = uVar4 + 1;
+      } while (pcVar5[uVar4] != '\0');
+      if (((uVar4 < 4) || (*pcVar5 != '-')) || (pcVar5[1] != '@')) {
+        pcVar5 = _strdup(pcVar5);
+        pJVar6 = DAT_18000f390;
+        DAT_18000f388[DAT_18000f3b4] = pcVar5;
+        DAT_18000f3b4 = DAT_18000f3b4 + 1;
+      }
+      else {
+        pcVar5[1] = '-';
+        pcVar5 = _strdup(pcVar5 + 1);
+        pJVar6 = DAT_18000f390;
+        *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+        DAT_18000f3b0 = DAT_18000f3b0 + 1;
+      }
+      uVar8 = uVar8 + 1;
+    } while ((int)uVar8 < param_1);
+  }
+  buildVMOptions(this,pJVar6,&DAT_18000f3b0,*(int *)(this + 8));
+  memset(local_fa38,0,32000);
+  pJStack_106e8 = this + 0x729;
+  FUN_180004980(local_fa38,32000,0xffffffffffffffff,"-Djava.library.path=%s");
+  pcVar5 = _strdup(local_fa38);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(local_7d38,0,32000);
+  pJStack_106e8 = this + 0x8429;
+  FUN_180004980(local_7d38,32000,0xffffffffffffffff,"-Djava.class.path=%s");
+  pcVar5 = _strdup(local_7d38);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_106d8,0,0x104);
+  pJVar1 = this + 0xd;
+  pJStack_106e8 = pJVar1;
+  FUN_180004980(acStack_106d8,0x104,0xffffffffffffffff,
+                "-Djava.security.properties==%s\\bin\\policy\\java.security");
+  pcVar5 = _strdup(acStack_106d8);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  pcVar5 = _strdup("-Djava.security.manager");
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_105c8,0,0x104);
+  pJStack_106e8 = pJVar1;
+  FUN_180004980(acStack_105c8,0x104,0xffffffffffffffff,"-Dniagara.home=%s");
+  pcVar5 = _strdup(acStack_105c8);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_10078,0,0x314);
+  FileUtil::pathToUrl((char *)pJVar1,acStack_10078,0x314);
+  memset(local_fd58,0,0x314);
+  pJStack_106e8 = (JavaLauncherWin32 *)acStack_10078;
+  FUN_180004980(local_fd58,0x314,0xffffffffffffffff,"-Dniagara.home.url=%s");
+  pcVar5 = _strdup(local_fd58);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_104b8,0,0x104);
+  pJStack_106e8 = this + 0x111;
+  FUN_180004980(acStack_104b8,0x104,0xffffffffffffffff,"-Dniagara.user.home=%s");
+  pcVar5 = _strdup(acStack_104b8);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_103a8,0,0x104);
+  pJStack_106e8 = (JavaLauncherWin32 *)0x18000a088;
+  FUN_180004980(acStack_103a8,0x104,0xffffffffffffffff,"-Dniagara.platform.provider=%s");
+  pcVar5 = _strdup(acStack_103a8);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_10298,0,0x104);
+  pJStack_106e8 = this + 0x215;
+  FUN_180004980(acStack_10298,0x104,0xffffffffffffffff,"-Dniagara.supported.runtime.profiles=%s");
+  pcVar5 = _strdup(acStack_10298);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  memset(acStack_10188,0,0x104);
+  pJStack_106e8 = this + 0x319;
+  pcVar10 = "-Dniagara.required.runtime.profiles=%s";
+  FUN_180004980(acStack_10188,0x104,0xffffffffffffffff,"-Dniagara.required.runtime.profiles=%s");
+  pcVar5 = _strdup(acStack_10188);
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  pcVar5 = _strdup("exit");
+  pJVar6 = DAT_18000f390;
+  *(char **)(DAT_18000f390 + (longlong)DAT_18000f3b0 * 0x10) = pcVar5;
+  *(code **)(pJVar6 + (longlong)DAT_18000f3b0 * 0x10 + 8) = FUN_180004730;
+  DAT_18000f3b0 = DAT_18000f3b0 + 1;
+  if (*(int *)(this + 8) != 0) {
+    uVar4 = uVar7;
+    uVar9 = uVar7;
+    if (0 < DAT_18000f3b4) {
+      do {
+        FUN_180004a40("java>   javaArgs[%d] = \"%s\"\n",uVar9,
+                      *(undefined8 *)(uVar4 + (longlong)DAT_18000f388),pcVar10);
+        uVar8 = (int)uVar9 + 1;
+        uVar4 = uVar4 + 8;
+        uVar9 = (ulonglong)uVar8;
+        pJVar6 = DAT_18000f390;
+      } while ((int)uVar8 < DAT_18000f3b4);
+    }
+    uVar4 = uVar7;
+    if (0 < DAT_18000f3b0) {
+      do {
+        FUN_180004a40("java>   javaOption[%d] = \"%s\"\n",uVar7,*(undefined8 *)(pJVar6 + uVar4),
+                      pcVar10);
+        uVar8 = (int)uVar7 + 1;
+        uVar7 = (ulonglong)uVar8;
+        uVar4 = uVar4 + 0x10;
+        pJVar6 = DAT_18000f390;
+      } while ((int)uVar8 < DAT_18000f3b0);
+    }
+  }
+  iVar3 = FUN_180007d40(local_38 ^ (ulonglong)auStack_10708);
+  return iVar3;
+}
+
+ (GhidraScript)  
+INFO  DecompList.java> ######## FUNC createVM @ 1800034d0 (GhidraScript)  
+INFO  DecompList.java> 
+/* private: int __cdecl JavaLauncherWin32::createVM(void) __ptr64 */
+
+int __thiscall JavaLauncherWin32::createVM(JavaLauncherWin32 *this)
+
+{
+  bool bVar1;
+  int iVar2;
+  char *pcVar3;
+  undefined8 uVar4;
+  undefined8 in_RDX;
+  uint uVar5;
+  ulonglong uVar6;
+  ulonglong uVar7;
+  ulonglong uVar8;
+  undefined8 in_R8;
+  undefined4 *puVar9;
+  undefined8 in_R9;
+  undefined1 auStack_58 [32];
+  char *local_38;
+  undefined4 local_28;
+  int local_24;
+  longlong local_20;
+  undefined1 local_18;
+  ulonglong local_10;
+  
+                    /* 0x34d0  41  ?createVM@JavaLauncherWin32@@AEAAHXZ */
+  local_10 = DAT_18000f178 ^ (ulonglong)auStack_58;
+  uVar7 = 0;
+  if (*(int *)(this + 8) != 0) {
+    FUN_180004a40("java>   VM options:\n",in_RDX,in_R8,in_R9);
+    uVar6 = uVar7;
+    uVar8 = uVar7;
+    if (DAT_18000f3b0 < 1) goto LAB_1800035e7;
+    do {
+      FUN_180004a40("java>     javaOption[%d] = \"%s\"\n",uVar6,
+                    *(undefined8 *)(uVar8 + DAT_18000f390),in_R9);
+      uVar5 = (int)uVar6 + 1;
+      uVar6 = (ulonglong)uVar5;
+      uVar8 = uVar8 + 0x10;
+    } while ((int)uVar5 < DAT_18000f3b0);
+  }
+  uVar6 = uVar7;
+  if (0 < DAT_18000f3b0) {
+    do {
+      pcVar3 = strstr(*(char **)(uVar7 + DAT_18000f390),"javaagent");
+      if ((((pcVar3 != (char *)0x0) ||
+           (pcVar3 = strstr(*(char **)(uVar7 + DAT_18000f390),"agentpath"), pcVar3 != (char *)0x0))
+          || (pcVar3 = strstr(*(char **)(uVar7 + DAT_18000f390),"agentlib"), pcVar3 != (char *)0x0))
+         && (bVar1 = LicenseUtil::isFeaturePresent("Tridium","developer"), !bVar1)) {
+        uVar4 = __acrt_iob_func(2);
+        local_38 = "Tridium";
+        FUN_1800049f0(uVar4,
+                      "FATAL: Can not use Java agent argument \'%s\' without a \'%s\' feature in \'%s\' license.\n"
+                      ,*(undefined8 *)(DAT_18000f390 + (longlong)(int)uVar6 * 0x10),"developer");
+        goto LAB_18000367d;
+      }
+      uVar5 = (int)uVar6 + 1;
+      uVar7 = uVar7 + 0x10;
+      uVar6 = (ulonglong)uVar5;
+    } while ((int)uVar5 < DAT_18000f3b0);
+  }
+LAB_1800035e7:
+  puVar9 = &local_28;
+  local_20 = DAT_18000f390;
+  local_28 = 0x10008;
+  local_18 = 0;
+  local_24 = DAT_18000f3b0;
+  uVar5 = (*(code *)PTR__guard_dispatch_icall_180009398)(&DAT_18000f3a0,&DAT_18000f3a8);
+  if ((int)uVar5 < 0) {
+    FUN_180004a40("Error: CreateJavaVM failed %d\n",(ulonglong)uVar5,puVar9,in_R9);
+  }
+LAB_18000367d:
+  iVar2 = FUN_180007d40(local_10 ^ (ulonglong)auStack_58);
+  return iVar2;
+}
+
+ (GhidraScript)  
+INFO  DecompList.java> ######## FUNC invokeJava @ 1800041a0 (GhidraScript)  
+INFO  DecompList.java> 
+/* private: int __cdecl JavaLauncherWin32::invokeJava(char const * __ptr64) __ptr64 */
+
+int __thiscall JavaLauncherWin32::invokeJava(JavaLauncherWin32 *this,char *param_1)
+
+{
+  longlong lVar1;
+  ulonglong uVar2;
+  undefined8 uVar3;
+  ulonglong uVar4;
+  ulonglong uVar5;
+  uint uVar6;
+  undefined8 in_R8;
+  undefined *puVar7;
+  undefined8 in_R9;
+  char *pcVar8;
+  
+                    /* 0x41a0  82  ?invokeJava@JavaLauncherWin32@@AEAAHPEBD@Z */
+  if (*(int *)(this + 8) != 0) {
+    FUN_180004a40("java>   Find main class...\n",param_1,in_R8,in_R9);
+  }
+  pcVar8 = param_1;
+  lVar1 = (*(code *)PTR__guard_dispatch_icall_180009398)();
+  if (lVar1 == 0) {
+    lVar1 = (*(code *)PTR__guard_dispatch_icall_180009398)();
+    if (lVar1 == 0) {
+      FUN_180004a40("Error: Can\'t find main class \"%s\"\n",param_1,in_R8,in_R9);
+      return -1;
+    }
+  }
+  else {
+    if (*(int *)(this + 8) != 0) {
+      FUN_180004a40("java>   Find main method...\n",pcVar8,in_R8,in_R9);
+    }
+    pcVar8 = "([Ljava/lang/String;)V";
+    puVar7 = &DAT_18000a438;
+    lVar1 = (*(code *)PTR__guard_dispatch_icall_180009398)(DAT_18000f3a8,lVar1);
+    if (lVar1 != 0) {
+      uVar2 = (*(code *)PTR__guard_dispatch_icall_180009398)(DAT_18000f3a8,"java/lang/String");
+      uVar3 = (*(code *)PTR__guard_dispatch_icall_180009398)(DAT_18000f3a8,&DAT_180009754);
+      uVar5 = (ulonglong)DAT_18000f3b4;
+      uVar4 = (*(code *)PTR__guard_dispatch_icall_180009398)();
+      if (((*(int *)(this + 8) != 0) &&
+          (FUN_180004a40("java>   Build java arguments...\n",uVar5,uVar2,uVar3),
+          *(int *)(this + 8) != 0)) && (0 < (int)DAT_18000f3b4)) {
+        FUN_180004a40("java>     java arguments:\n",uVar5,uVar2,uVar3);
+      }
+      uVar6 = 0;
+      if (0 < (int)DAT_18000f3b4) {
+        lVar1 = 0;
+        do {
+          if (*(int *)(this + 8) != 0) {
+            FUN_180004a40("java>     javaArgument[%d] = \"%s\"\n",(ulonglong)uVar6,
+                          *(undefined8 *)(lVar1 + DAT_18000f388),uVar3);
+          }
+          uVar3 = (*(code *)PTR__guard_dispatch_icall_180009398)
+                            (DAT_18000f3a8,*(undefined8 *)(lVar1 + DAT_18000f388));
+          uVar2 = (ulonglong)uVar6;
+          uVar5 = uVar4;
+          (*(code *)PTR__guard_dispatch_icall_180009398)();
+          uVar6 = uVar6 + 1;
+          lVar1 = lVar1 + 8;
+        } while ((int)uVar6 < (int)DAT_18000f3b4);
+      }
+      if (*(int *)(this + 8) != 0) {
+        FUN_180004a40("java>   Launching main method...\n",uVar5,uVar2,uVar3);
+      }
+      FUN_180002ae0(DAT_18000f3a8);
+      lVar1 = (*(code *)PTR__guard_dispatch_icall_180009398)();
+      if (lVar1 == 0) {
+        return 0;
+      }
+      (*(code *)PTR__guard_dispatch_icall_180009398)();
+      return -1;
+    }
+    lVar1 = (*(code *)PTR__guard_dispatch_icall_180009398)();
+    if (lVar1 == 0) {
+      FUN_180004a40("Error: Can\'t find main method in class \"%s\"\n",param_1,puVar7,pcVar8);
+      return -1;
+    }
+  }
+  (*(code *)PTR__guard_dispatch_icall_180009398)();
+  return -1;
+}
+
+ (GhidraScript)  
+INFO  ANALYZING changes made by post scripts: file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/njre.dll (HeadlessAnalyzer)  
+INFO  REPORT: Post-analysis succeeded for file: file:///mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/njre.dll (HeadlessAnalyzer)  
+INFO  /njre.dll: file created (cristian) (LocalFileSystem)  
+INFO  REPORT: Save succeeded for: /njre.dll (njre_3861969:/njre.dll) (HeadlessAnalyzer)  
+INFO  REPORT: Import succeeded (HeadlessAnalyzer)  

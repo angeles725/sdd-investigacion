@@ -1,0 +1,112 @@
+######## B125 NATIVE JNI BRIDGE TRIAGE ########
+============================================================
+=== rabin2 -I njre.dll ===
+arch     x86
+baddr    0x180000000
+binsz    70424
+bintype  pe
+bits     64
+canary   false
+injprot  false
+retguard false
+class    PE32+
+cmp.csum 0x0001f232
+compiled Mon Jan  8 13:15:31 2024
+crypto   false
+endian   little
+havecode true
+hdr.csum 0x0001f232
+laddr    0x0
+lang     msvc
+linenum  false
+lsyms    false
+machine  AMD 64
+nx       true
+os       windows
+overlay  true
+cc       ms
+pic      true
+relocs   false
+signed   true
+sanitize false
+static   false
+stripped false
+uncaps   true
+subsys   Windows GUI
+va       true
+=== sha256 ===
+7007ff82e807604071a16c1e349e515beb44502a382122702d801879b79d628b  njre.dll
+============================================================
+=== rabin2 -I nre.dll ===
+arch     x86
+baddr    0x180000000
+binsz    117016
+bintype  pe
+bits     64
+canary   false
+injprot  false
+retguard false
+class    PE32+
+cmp.csum 0x00023275
+compiled Mon Jan  8 13:14:37 2024
+crypto   false
+endian   little
+havecode true
+hdr.csum 0x00023275
+laddr    0x0
+lang     msvc
+linenum  false
+lsyms    false
+machine  AMD 64
+nx       true
+os       windows
+overlay  true
+cc       ms
+pic      true
+relocs   false
+signed   true
+sanitize false
+static   false
+stripped false
+uncaps   true
+subsys   Windows GUI
+va       true
+=== sha256 ===
+606ff1c6a79d8bc4c52e21ff706e92a976c08edebc558053c4432645b64b2a69  nre.dll
+============================================================
+=== rabin2 -I common.dll ===
+arch     x86
+baddr    0x180000000
+binsz    192792
+bintype  pe
+bits     64
+canary   false
+injprot  false
+retguard false
+class    PE32+
+cmp.csum 0x0003b2b5
+compiled Mon Jan  8 13:11:17 2024
+crypto   false
+endian   little
+havecode true
+hdr.csum 0x0003b2b5
+laddr    0x0
+lang     msvc
+linenum  false
+lsyms    false
+machine  AMD 64
+nx       true
+os       windows
+overlay  true
+cc       ms
+pic      true
+relocs   false
+signed   true
+sanitize false
+static   false
+stripped false
+uncaps   true
+subsys   Windows GUI
+va       true
+=== sha256 ===
+3e997b0d0870d503e0748689ec5ad9f39ab0a9830c9673bbca11307ff38ada3d  common.dll

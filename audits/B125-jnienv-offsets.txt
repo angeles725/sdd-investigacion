@@ -1,0 +1,25 @@
+0x30] @ │
+0x78] @ │
+0x388] @ │
+0x78] @ │
+0x80] @ │
+0x30] @ │
+0x538] @ │
+0x560] @ │
+0x538] @ │
+0x570] @ │
+0x78] @ │
+0x80] @ │
+
+# CallStaticVoidMethod family: FUN_180002ae0 loads [rax+0x470] = index 142 = CallStaticVoidMethodV
+# JNIEnv vtable index map (verified):
+#  0x30  = idx 6   FindClass
+#  0x78  = idx 15  ExceptionOccurred
+#  0x80  = idx 16  ExceptionDescribe
+#  0x388 = idx 113 GetStaticMethodID
+#  0x470 = idx 142 CallStaticVoidMethodV
+#  0x538 = idx 167 NewStringUTF
+#  0x560 = idx 172 NewObjectArray
+#  0x570 = idx 174 SetObjectArrayElement
+# createVM: JNI_CreateJavaVM via CFG [0x180009398], JavaVMInitArgs.version=0x10008 (JNI_VERSION_1_8)
+# daemonize0: PlatformUtil::createThread(FUN_1800053e0,"Win32ServiceThread") -> StartServiceCtrlDispatcherA("Niagara")

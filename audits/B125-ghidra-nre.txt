@@ -1,0 +1,325 @@
+openjdk version "21.0.11" 2026-04-21
+OpenJDK Runtime Environment Homebrew (build 21.0.11)
+OpenJDK 64-Bit Server VM Homebrew (build 21.0.11, mixed mode)
+INFO  Using log config file: jar:file:/home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  
+INFO  Using log file: /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/application.log (LoggingInitialization)  
+INFO  Loading user preferences: /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/preferences (Preferences)  
+INFO  Searching for classes... (ClassSearcher)  
+INFO  Class search complete (1023 ms) (ClassSearcher)  
+INFO  Initializing SSL Context (DefaultSSLContextInitializer)  
+INFO  Initializing Random Number Generator... (SecureRandomFactory)  
+INFO  Random Number Generator initialization complete: NativePRNGNonBlocking (SecureRandomFactory)  
+INFO  Trust manager disabled, cacerts have not been set (DefaultTrustManagerFactory)  
+INFO  Headless startup complete (2218 ms) (AnalyzeHeadless)  
+INFO  Class searcher loaded 60 extension points (20 false positives) (ClassSearcher)  
+INFO  HEADLESS Script Paths:
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/VersionTracking/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/Atmel/ghidra_scripts
+    /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/FileFormats/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/PIC/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Base/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/8051/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/PyGhidra/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Debug/Debugger/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Debug/Debugger-rmi-trace/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/PDB/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/SwiftDemangler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/MicrosoftCodeAnalyzer/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/DATA/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/SystemEmulation/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/DecompilerDependent/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/FunctionID/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/GnuDemangler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Processors/JVM/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/BytePatterns/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Decompiler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/WildcardAssembler/ghidra_scripts
+    /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/BSim/ghidra_scripts (HeadlessAnalyzer)  
+INFO  HEADLESS: execution starts (HeadlessAnalyzer)  
+INFO  Creating project: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/proj/nreiso_3891353 (HeadlessAnalyzer)  
+INFO  Creating project: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/proj/nreiso_3891353 (DefaultProject)  
+INFO  REPORT: Processing input files:  (HeadlessAnalyzer)  
+INFO       project: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/proj/nreiso_3891353 (HeadlessAnalyzer)  
+INFO  IMPORTING: file:///tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/iso/nre.dll (HeadlessAnalyzer)  
+INFO  Using Loader: Portable Executable (PE) (ProgramLoader)  
+INFO  Using Language/Compiler: x86:LE:64:default:windows (ProgramLoader)  
+INFO  Using Library Search Path: [., /bin, /lib, /lib64, /lib/x86_64-linux-gnu, /lib/aarch64-linux-gnu, /usr/bin, /usr/lib, /usr/X11R6/bin, /usr/X11R6/lib, /usr/java/packages/lib, /usr/lib64] (ProgramLoader)  
+INFO  Additional info:
+Loading file:///tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/iso/nre.dll?MD5=13808258df10f323c9d6ab240178e920...
+[nre.dll]: failed to create TerminatedCString at 18001c2a0: Failed to resolve data length for TerminatedCString
+------------------------------------------------
+
+Searching 8 paths for library ADVAPI32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-CONVERT-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-ENVIRONMENT-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-FILESYSTEM-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-HEAP-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-RUNTIME-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-STDIO-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-STRING-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library API-MS-WIN-CRT-TIME-L1-1-0.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library COMMON.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library CRYPT32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library DSFSPI.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library KERNEL32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library OLE32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library SHELL32.DLL...
+Library not found.
+------------------------------------------------
+
+Searching 8 paths for library VCRUNTIME140.DLL...
+Library not found.
+------------------------------------------------
+
+Applying /home/cristian/.config/ghidra/ghidra_12.1_PUBLIC/symbols/win64/vcruntime140.exports
+Linking the External Programs of 'nre.dll' to imported libraries...
+  [COMMON.DLL] -> not found in project
+  [ADVAPI32.DLL] -> not found in project
+  [CRYPT32.DLL] -> not found in project
+  [SHELL32.DLL] -> not found in project
+  [OLE32.DLL] -> not found in project
+  [DSFSPI.DLL] -> not found in project
+  [KERNEL32.DLL] -> not found in project
+  [VCRUNTIME140.DLL] -> not found in project
+  [API-MS-WIN-CRT-HEAP-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-STDIO-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-STRING-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-ENVIRONMENT-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-RUNTIME-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-FILESYSTEM-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-CONVERT-L1-1-0.DLL] -> not found in project
+  [API-MS-WIN-CRT-TIME-L1-1-0.DLL] -> not found in project
+------------------------------------------------
+
+ (ProgramLoader)  
+INFO  IMPORTING: Loaded 0 additional files (HeadlessAnalyzer)  
+INFO  ANALYZING all memory and code: file:///tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/iso/nre.dll (HeadlessAnalyzer)  
+WARN  Ignoring leading '_' chars on no-return name '___raise_securityfailure' specified in file: /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Base/data/PEFunctionsThatDoNotReturn (NoReturnFunctionAnalyzer)  
+WARN  Ignoring leading '_' chars on no-return name '___report_rangecheckfailure' specified in file: /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/Ghidra/Features/Base/data/PEFunctionsThatDoNotReturn (NoReturnFunctionAnalyzer)  
+INFO  Skipping PDB processing: missing PDB information in program metadata (PdbUniversalAnalyzer)  
+INFO  hit non-returning function, restarting decompiler switch analyzer later (DecompilerSwitchAnalyzer)  
+INFO  Packed database cache: /var/tmp/cristian-ghidra/packed-db-cache (PackedDatabaseCache)  
+INFO  Applied data type archive: windows_vs12_64 (ApplyDataArchiveAnalyzer)  
+INFO  Applied data type archive: windows_vs12_64 (ApplyDataArchiveAnalyzer)  
+INFO  -----------------------------------------------------
+    ASCII Strings                              0.469 secs
+    Apply Data Archives                        0.212 secs
+    Call Convention ID                         0.008 secs
+    Call-Fixup Installer                       0.032 secs
+    Create Address Tables                      0.018 secs
+    Create Address Tables - One Time           0.010 secs
+    Create Function                            0.062 secs
+    Data Reference                             0.042 secs
+    Decompiler Parameter ID                    4.250 secs
+    Decompiler Switch Analysis                 0.430 secs
+    Decompiler Switch Analysis - One Time      1.223 secs
+    Demangler Microsoft                        0.188 secs
+    Disassemble Entry Points                   0.698 secs
+    Embedded Media                             0.009 secs
+    External Entry References                  0.006 secs
+    Function ID                                0.483 secs
+    Function Start Search                      0.011 secs
+    Non-Returning Functions - Discovered       0.193 secs
+    Non-Returning Functions - Known            0.007 secs
+    PDB Universal                              0.002 secs
+    Reference                                  0.052 secs
+    Scalar Operand References                  0.112 secs
+    Shared Return Calls                        0.068 secs
+    Stack                                      0.803 secs
+    Subroutine References                      0.032 secs
+    Subroutine References - One Time           0.007 secs
+    Windows x86 PE Exception Handling          0.008 secs
+    Windows x86 PE RTTI Analyzer               2.353 secs
+    Windows x86 Thread Environment Block (TEB) Analyzer     0.018 secs
+    WindowsResourceReference                   0.401 secs
+    x86 Constant Reference Analyzer            0.985 secs
+-----------------------------------------------------
+     Total Time   13 secs
+-----------------------------------------------------
+ (AutoAnalysisManager)  
+INFO  REPORT: Analysis succeeded for file: file:///tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/iso/nre.dll (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: DecompList.java '_getHostId0' '_daemonize0' '_getPasswordHash0'  (HeadlessAnalyzer)  
+INFO  SCRIPT: /tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/DecompList.java (HeadlessAnalyzer)  
+INFO  DecompList.java> ######## FUNC Java_com_tridium_nre_platform_NativePlatformProvider_getHostId0 @ 180003380 (GhidraScript)  
+INFO  DecompList.java> 
+void Java_com_tridium_nre_platform_NativePlatformProvider_getHostId0(longlong *param_1)
+
+{
+  Nre *pNVar1;
+  undefined1 auStack_78 [32];
+  undefined8 local_58;
+  undefined8 uStack_50;
+  undefined8 local_48;
+  undefined8 uStack_40;
+  undefined8 local_38;
+  undefined8 uStack_30;
+  undefined8 local_28;
+  undefined8 uStack_20;
+  ulonglong local_18;
+  
+                    /* 0x3380  151  Java_com_tridium_nre_platform_NativePlatformProvider_getHostId0
+                        */
+  local_18 = DAT_18001a1c8 ^ (ulonglong)auStack_78;
+  local_58 = 0;
+  uStack_50 = 0;
+  local_48 = 0;
+  uStack_40 = 0;
+  local_38 = 0;
+  uStack_30 = 0;
+  local_28 = 0;
+  uStack_20 = 0;
+  pNVar1 = Nre::getInstance();
+  (*(code *)PTR__guard_dispatch_icall_18000e760)(pNVar1,&local_58,0x40);
+  (*(code *)PTR__guard_dispatch_icall_18000e760)(param_1,&local_58);
+  FUN_18000ce30(local_18 ^ (ulonglong)auStack_78);
+  return;
+}
+
+ (GhidraScript)  
+INFO  DecompList.java> ######## FUNC Java_com_tridium_nre_platform_NativePlatformProvider_getPasswordHash0 @ 180004340 (GhidraScript)  
+INFO  DecompList.java> 
+void Java_com_tridium_nre_platform_NativePlatformProvider_getPasswordHash0
+               (JNIEnv_ *param_1,undefined8 param_2,_jstring *param_3)
+
+{
+  int iVar1;
+  char *_Memory;
+  undefined1 auStack_58 [32];
+  char *local_38;
+  undefined8 uStack_30;
+  undefined8 local_28;
+  undefined8 uStack_20;
+  undefined8 local_18;
+  ulonglong local_10;
+  
+                    /* 0x4340  178
+                       Java_com_tridium_nre_platform_NativePlatformProvider_getPasswordHash0 */
+  local_10 = DAT_18001a1c8 ^ (ulonglong)auStack_58;
+  if ((param_3 != (_jstring *)0x0) &&
+     (iVar1 = (*(code *)PTR__guard_dispatch_icall_18000e760)(param_1,param_3), iVar1 < 0x1001)) {
+    local_18 = 0;
+    local_38 = (char *)0x0;
+    uStack_30 = 0;
+    local_28 = 0;
+    uStack_20 = 0;
+    JNIString::JNIString((JNIString *)&local_38,param_1,param_3);
+    _Memory = AuthenticationUtil::getPasswordHash(local_38);
+    if (_Memory == (char *)0x0) {
+      JNIString::~JNIString((JNIString *)&local_38);
+    }
+    else {
+      (*(code *)PTR__guard_dispatch_icall_18000e760)(param_1,_Memory);
+      free(_Memory);
+      JNIString::~JNIString((JNIString *)&local_38);
+    }
+  }
+  FUN_18000ce30(local_10 ^ (ulonglong)auStack_58);
+  return;
+}
+
+ (GhidraScript)  
+INFO  DecompList.java> ######## FUNC Java_com_tridium_nre_platform_NativePlatformProviderTridium_daemonize0 @ 1800057e0 (GhidraScript)  
+INFO  DecompList.java> 
+undefined8 Java_com_tridium_nre_platform_NativePlatformProviderTridium_daemonize0(JNIEnv_ *param_1)
+
+{
+  JavaExceptionHandler *this;
+  longlong *plVar1;
+  ErrorHandler *pEVar2;
+  undefined8 uVar3;
+  
+                    /* 0x57e0  120
+                       Java_com_tridium_nre_platform_NativePlatformProviderTridium_daemonize0 */
+  (*(code *)PTR__guard_dispatch_icall_18000e760)();
+  this = operator_new(0x28);
+  pEVar2 = (ErrorHandler *)0x0;
+  if (this == (JavaExceptionHandler *)0x0) {
+    plVar1 = (longlong *)0x0;
+  }
+  else {
+    *(undefined8 *)this = 0;
+    *(undefined8 *)(this + 8) = 0;
+    *(undefined8 *)(this + 0x10) = 0;
+    *(undefined8 *)(this + 0x18) = 0;
+    *(undefined8 *)(this + 0x20) = 0;
+    plVar1 = (longlong *)JavaExceptionHandler::JavaExceptionHandler(this,param_1);
+    if (plVar1 != (longlong *)0x0) {
+      pEVar2 = (ErrorHandler *)((longlong)*(int *)(*plVar1 + 4) + (longlong)plVar1);
+    }
+  }
+  DAT_18001a468 = SystemLog::getInstance(pEVar2);
+  if (DAT_18001a468 != (SystemLog *)0x0) {
+    SystemLog::setLogFilterLevel(1);
+  }
+  PlatformUtil::createThread(FUN_1800053e0,(void *)0x0,"Win32ServiceThread");
+  PlatformUtil::sleep(3000);
+  if (DAT_18001a454 == '\0') {
+    if (DAT_18001a468 != (SystemLog *)0x0) {
+      SystemLog::log(DAT_18001a468,3,"niagarad: Niagara service failed to daemonize.");
+    }
+    uVar3 = 0;
+  }
+  else {
+    if (DAT_18001a468 != (SystemLog *)0x0) {
+      SystemLog::log(DAT_18001a468,1,
+                     "niagarad: Niagara service successfully daemonized, startup can continue.");
+    }
+    SetConsoleCtrlHandler(FUN_180008b70,1);
+    uVar3 = 1;
+  }
+  if (plVar1 != (longlong *)0x0) {
+    (*(code *)PTR__guard_dispatch_icall_18000e760)
+              ((longlong)*(int *)(*plVar1 + 4) + (longlong)plVar1,1);
+  }
+  return uVar3;
+}
+
+ (GhidraScript)  
+INFO  ANALYZING changes made by post scripts: file:///tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/iso/nre.dll (HeadlessAnalyzer)  
+INFO  REPORT: Post-analysis succeeded for file: file:///tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/7a2accca-4c07-4e0c-b30e-4755419c7a35/scratchpad/iso/nre.dll (HeadlessAnalyzer)  
+INFO  /nre.dll: file created (cristian) (LocalFileSystem)  
+INFO  REPORT: Save succeeded for: /nre.dll (nreiso_3891353:/nre.dll) (HeadlessAnalyzer)  
+INFO  REPORT: Import succeeded (HeadlessAnalyzer)  

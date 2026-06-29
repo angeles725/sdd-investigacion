@@ -1,0 +1,5 @@
+┌ 122: sym.nre.dll_Java_com_tridium_nre_platform_NativePlatformProvider_getHostId0 (int64_t arg1);
+│           0x1800033af      e8ac600000     call sym.nre.dll__getInstance_Nre__SAPEAV1_XZ ; public: static class Nre * __ptr64 __cdecl Nre::getInstance(void)
+│           0x1800033c9      ff1591b30000   call qword [0x18000e760]   ; [0x18000e760:8]=0x18000dbe0
+│           0x1800033e1      ff1579b30000   call qword [0x18000e760]   ; [0x18000e760:8]=0x18000dbe0
+│           0x1800033ef      e83c9a0000     call fcn.18000ce30

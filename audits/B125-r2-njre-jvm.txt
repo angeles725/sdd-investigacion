@@ -1,0 +1,720 @@
+######## njre.dll createVM @0x1800034d0 ########
+┌ 458: sym.njre.dll__createVM_JavaLauncherWin32__AEAAHXZ (int64_t arg1);
+│ `- args(rcx) vars(8:sp[0x18..0x60])
+│           0x1800034d0      48895c2408     mov qword [var_8h], rbx    ; private: int __cdecl JavaLauncherWin32::createVM(void) __ptr64
+│           0x1800034d5      4889742410     mov qword [var_10h], rsi
+│           0x1800034da      57             push rdi
+│           0x1800034db      4883ec50       sub rsp, 0x50
+│           0x1800034df      488b0592bc..   mov rax, qword [0x18000f178] ; [0x18000f178:8]=0x2b992ddfa232
+│           0x1800034e6      4833c4         xor rax, rsp
+│           0x1800034e9      4889442448     mov qword [var_48h], rax
+│           0x1800034ee      33ff           xor edi, edi
+│           0x1800034f0      397908         cmp dword [rcx + 8], edi   ; arg1
+│       ┌─< 0x1800034f3      7456           je 0x18000354b
+│       │   0x1800034f5      488d0dc46d..   lea rcx, str.java____VM_options:_n ; 0x18000a2c0 ; "java>   VM options:\n"
+│       │   0x1800034fc      e83f150000     call 0x180004a40
+│       │   0x180003501      8b0da9be0000   mov ecx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│       │   0x180003507      8bdf           mov ebx, edi
+│       │   0x180003509      85c9           test ecx, ecx
+│      ┌──< 0x18000350b      0f8ed6000000   jle 0x1800035e7
+│      ││   0x180003511      8bf7           mov esi, edi
+│      ││   0x180003513      0f1f4000       nop dword [rax]
+│      ││   0x180003517      660f1f8400..   nop word [rax + rax]
+│     ┌───> 0x180003520      4c8b0569be..   mov r8, qword [0x18000f390] ; [0x18000f390:8]=0
+│     ╎││   0x180003527      488d0daa6d..   lea rcx, str.java______javaOption__d_____s__n ; 0x18000a2d8 ; "java>     javaOption[%d] = "%s"\n"
+│     ╎││   0x18000352e      8bd3           mov edx, ebx
+│     ╎││   0x180003530      4e8b0406       mov r8, qword [rsi + r8]
+│     ╎││   0x180003534      e807150000     call 0x180004a40
+│     ╎││   0x180003539      8b0d71be0000   mov ecx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│     ╎││   0x18000353f      488d7610       lea rsi, [rsi + 0x10]
+│     ╎││   0x180003543      ffc3           inc ebx
+│     ╎││   0x180003545      3bd9           cmp ebx, ecx
+│     └───< 0x180003547      7cd7           jl 0x180003520
+│     ┌───< 0x180003549      eb06           jmp 0x180003551
+│     ││└─> 0x18000354b      8b0d5fbe0000   mov ecx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│     ││    ; CODE XREF from private: int __cdecl JavaLauncherWin32::createVM(void) __ptr64 @ 0x180003549(x)
+│     └───> 0x180003551      85c9           test ecx, ecx
+│      │┌─< 0x180003553      0f8e8e000000   jle 0x1800035e7
+│      ││   0x180003559      488bdf         mov rbx, rdi
+│      ││   0x18000355c      488d35ad67..   lea rsi, str.Tridium       ; 0x180009d10 ; "Tridium"
+│      ││   0x180003563      0f1f4000       nop dword [rax]
+│      ││   0x180003567      660f1f8400..   nop word [rax + rax]
+│     ┌───> 0x180003570      488b0519be..   mov rax, qword [0x18000f390] ; [0x18000f390:8]=0
+│     ╎││   0x180003577      488d15826d..   lea rdx, str.javaagent     ; 0x18000a300 ; "javaagent"
+│     ╎││   0x18000357e      488b0c03       mov rcx, qword [rbx + rax]
+│     ╎││   0x180003582      e8e1540000     call 0x180008a68
+│     ╎││   0x180003587      4885c0         test rax, rax
+│    ┌────< 0x18000358a      7538           jne 0x1800035c4
+│    │╎││   0x18000358c      488b05fdbd..   mov rax, qword [0x18000f390] ; [0x18000f390:8]=0
+│    │╎││   0x180003593      488d15766d..   lea rdx, str.agentpath     ; 0x18000a310 ; "agentpath"
+│    │╎││   0x18000359a      488b0c03       mov rcx, qword [rbx + rax]
+│    │╎││   0x18000359e      e8c5540000     call 0x180008a68
+│    │╎││   0x1800035a3      4885c0         test rax, rax
+│   ┌─────< 0x1800035a6      751c           jne 0x1800035c4
+│   ││╎││   0x1800035a8      488b05e1bd..   mov rax, qword [0x18000f390] ; [0x18000f390:8]=0
+│   ││╎││   0x1800035af      488d156a6d..   lea rdx, str.agentlib      ; 0x18000a320 ; "agentlib"
+│   ││╎││   0x1800035b6      488b0c03       mov rcx, qword [rbx + rax]
+│   ││╎││   0x1800035ba      e8a9540000     call 0x180008a68
+│   ││╎││   0x1800035bf      4885c0         test rax, rax
+│  ┌──────< 0x1800035c2      7413           je 0x1800035d7
+│  │└└────> 0x1800035c4      488d15656d..   lea rdx, str.developer     ; 0x18000a330 ; "developer"
+│  │  ╎││   0x1800035cb      488bce         mov rcx, rsi
+│  │  ╎││   0x1800035ce      e8bde9ffff     call sym.njre.dll__isFeaturePresent_LicenseUtil__SA_NPEBD0_Z ; public: static bool __cdecl LicenseUtil::isFeaturePresent(char const * __ptr64, char const * __ptr64)
+│  │  ╎││   0x1800035d3      84c0           test al, al
+│  │ ┌────< 0x1800035d5      7466           je 0x18000363d
+│  └──────> 0x1800035d7      8b0dd3bd0000   mov ecx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│    │╎││   0x1800035dd      ffc7           inc edi
+│    │╎││   0x1800035df      4883c310       add rbx, 0x10              ; 16
+│    │╎││   0x1800035e3      3bf9           cmp edi, ecx
+│    │└───< 0x1800035e5      7c89           jl 0x180003570
+│    │ └└─> 0x1800035e7      488b05a2bd..   mov rax, qword [0x18000f390] ; [0x18000f390:8]=0
+│    │      0x1800035ee      4c8d442430     lea r8, [var_30h]
+│    │      0x1800035f3      4889442438     mov qword [var_38h], rax
+│    │      0x1800035f8      488d15a9bd..   lea rdx, [0x18000f3a8]
+│    │      0x1800035ff      488b0592bd..   mov rax, qword [0x18000f398] ; [0x18000f398:8]=0
+│    │      0x180003606      894c2434       mov dword [var_34h], ecx
+│    │      0x18000360a      488d0d8fbd..   lea rcx, [0x18000f3a0]
+│    │      0x180003611      c744243008..   mov dword [var_30h], 0x10008 ; [0x10008:4]=-1
+│    │      0x180003619      c644244000     mov byte [var_40h], 0
+│    │      0x18000361e      ff15745d0000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│    │      0x180003624      85c0           test eax, eax
+│    │  ┌─< 0x180003626      7953           jns 0x18000367b
+│    │  │   0x180003628      8bd0           mov edx, eax
+│    │  │   0x18000362a      488d0d676d..   lea rcx, str.Error:_CreateJavaVM_failed__d_n ; 0x18000a398 ; "Error: CreateJavaVM failed %d\n"
+│    │  │   0x180003631      e80a140000     call 0x180004a40
+│    │  │   0x180003636      b8ffffffff     mov eax, 0xffffffff        ; -1
+│    │ ┌──< 0x18000363b      eb40           jmp 0x18000367d
+│    └────> 0x18000363d      4863df         movsxd rbx, edi
+│      ││   0x180003640      b902000000     mov ecx, 2
+│      ││   0x180003645      4803db         add rbx, rbx
+│      ││   0x180003648      ff15525c0000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll___acrt_iob_func] ; [0x1800092a0:8]=0xe282 reloc.api_ms_win_crt_stdio_l1_1_0.dll___acrt_iob_func
+│      ││   0x18000364e      4c8b053bbd..   mov r8, qword [0x18000f390] ; [0x18000f390:8]=0
+│      ││   0x180003655      4c8d0dd46c..   lea r9, str.developer      ; 0x18000a330 ; "developer"
+│      ││   0x18000365c      488bc8         mov rcx, rax
+│      ││   0x18000365f      4889742420     mov qword [var_20h], rsi
+│      ││   0x180003664      488d15d56c..   lea rdx, str.FATAL:_Can_not_use_Java_agent_argument__s_without_a__s_feature_in__s_license._n ; 0x18000a340 ; "FATAL: Can not use Java agent argument '%s' without a '%s' feature in '%s' license.\n"
+│      ││   0x18000366b      4d8b04d8       mov r8, qword [r8 + rbx*8]
+│      ││   0x18000366f      e87c130000     call 0x1800049f0
+│      ││   0x180003674      b8ffffffff     mov eax, 0xffffffff        ; -1
+│     ┌───< 0x180003679      eb02           jmp 0x18000367d
+│     ││└─> 0x18000367b      33c0           xor eax, eax
+│     ││    ; CODE XREFS from private: int __cdecl JavaLauncherWin32::createVM(void) __ptr64 @ 0x18000363b(x), 0x180003679(x)
+│     └└──> 0x18000367d      488b4c2448     mov rcx, qword [var_48h]
+│           0x180003682      4833cc         xor rcx, rsp
+│           0x180003685      e8b6460000     call 0x180007d40
+│           0x18000368a      488b5c2460     mov rbx, qword [var_8h]
+│           0x18000368f      488b742468     mov rsi, qword [var_10h]
+│           0x180003694      4883c450       add rsp, 0x50
+│           0x180003698      5f             pop rdi
+└           0x180003699      c3             ret
+######## njre.dll invokeJava @0x1800041a0 ########
+┌ 691: sym.njre.dll__invokeJava_JavaLauncherWin32__AEAAHPEBD_Z (int64_t arg1, int64_t arg2);
+│ `- args(rcx, rdx) vars(3:sp[0x10..0x20])
+; private: int __cdecl JavaLauncherWin32::invokeJava(char const * __pt
+; r64) __ptr64
+│           0x1800041a0      4053           push rbx
+│           0x1800041a2      55             push rbp
+│           0x1800041a3      57             push rdi
+│           0x1800041a4      4883ec30       sub rsp, 0x30
+│           0x1800041a8      83790800       cmp dword [rcx + 8], 0     ; arg1
+│           0x1800041ac      488bda         mov rbx, rdx               ; arg2
+│           0x1800041af      488bf9         mov rdi, rcx               ; arg1
+│       ┌─< 0x1800041b2      740c           je 0x1800041c0
+│       │   0x1800041b4      488d0dfd61..   lea rcx, str.java____Find_main_class..._n ; 0x18000a3b8 ; "java>   Find main class...\n"
+│       │   0x1800041bb      e880080000     call 0x180004a40
+│       └─> 0x1800041c0      488b0de1b1..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│           0x1800041c7      488bd3         mov rdx, rbx
+│           0x1800041ca      4c897c2460     mov qword [var_60h], r15
+│           0x1800041cf      488b01         mov rax, qword [rcx]
+│           0x1800041d2      488b4030       mov rax, qword [rax + 0x30]
+│           0x1800041d6      ff15bc510000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│           0x1800041dc      488be8         mov rbp, rax
+│           0x1800041df      4885c0         test rax, rax
+│       ┌─< 0x1800041e2      7538           jne 0x18000421c
+│       │   0x1800041e4      488b0dbdb1..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│       │   0x1800041eb      488b01         mov rax, qword [rcx]
+│       │   0x1800041ee      488b4078       mov rax, qword [rax + 0x78]
+│       │   0x1800041f2      ff15a0510000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│       │   0x1800041f8      4885c0         test rax, rax
+│      ┌──< 0x1800041fb      757a           jne 0x180004277
+│      ││   0x1800041fd      488d0dd461..   lea rcx, str.Error:_Cant_find_main_class___s__n ; 0x18000a3d8 ; "Error: Can't find main class "%s"\n"
+│      ││   0x180004204      488bd3         mov rdx, rbx
+│      ││   0x180004207      e834080000     call 0x180004a40
+│      ││   0x18000420c      8d45ff         lea eax, [rbp - 1]
+│      ││   0x18000420f      4c8b7c2460     mov r15, qword [var_60h]
+│      ││   0x180004214      4883c430       add rsp, 0x30
+│      ││   0x180004218      5f             pop rdi
+│      ││   0x180004219      5d             pop rbp
+│      ││   0x18000421a      5b             pop rbx
+│      ││   0x18000421b      c3             ret
+│      │└─> 0x18000421c      837f0800       cmp dword [rdi + 8], 0
+│      │┌─< 0x180004220      740c           je 0x18000422e
+│      ││   0x180004222      488d0dd761..   lea rcx, str.java____Find_main_method..._n ; 0x18000a400 ; "java>   Find main method...\n"
+│      ││   0x180004229      e812080000     call 0x180004a40
+│      │└─> 0x18000422e      488b0d73b1..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│      │    0x180004235      4c8d0de461..   lea r9, str.__Ljava_lang_String__V ; 0x18000a420 ; "([Ljava/lang/String;)V"
+│      │    0x18000423c      4c8d05f561..   lea r8, str.Main           ; 0x18000a438 ; "Main"
+│      │    0x180004243      488bd5         mov rdx, rbp
+│      │    0x180004246      488b01         mov rax, qword [rcx]
+│      │    0x180004249      488b808803..   mov rax, qword [rax + 0x388]
+│      │    0x180004250      ff1542510000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│      │    0x180004256      488b0d4bb1..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│      │    0x18000425d      4c8bf8         mov r15, rax
+│      │    0x180004260      4885c0         test rax, rax
+│      │    0x180004263      488b01         mov rax, qword [rcx]
+│      │┌─< 0x180004266      7559           jne 0x1800042c1
+│      ││   0x180004268      488b4078       mov rax, qword [rax + 0x78]
+│      ││   0x18000426c      ff1526510000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│      ││   0x180004272      4885c0         test rax, rax
+│     ┌───< 0x180004275      7429           je 0x1800042a0
+│     │└──> 0x180004277      488b0d2ab1..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│     │ │   0x18000427e      488b01         mov rax, qword [rcx]
+│     │ │   0x180004281      488b808000..   mov rax, qword [rax + 0x80]
+│     │ │   0x180004288      ff150a510000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│     │ │   0x18000428e      b8ffffffff     mov eax, 0xffffffff        ; -1
+│     │ │   0x180004293      4c8b7c2460     mov r15, qword [var_60h]
+│     │ │   0x180004298      4883c430       add rsp, 0x30
+│     │ │   0x18000429c      5f             pop rdi
+│     │ │   0x18000429d      5d             pop rbp
+│     │ │   0x18000429e      5b             pop rbx
+│     │ │   0x18000429f      c3             ret
+│     └───> 0x1800042a0      488d0d9961..   lea rcx, str.Error:_Cant_find_main_method_in_class___s__n ; 0x18000a440 ; "Error: Can't find main method in class "%s"\n"
+│       │   0x1800042a7      488bd3         mov rdx, rbx
+│       │   0x1800042aa      e891070000     call 0x180004a40
+│       │   0x1800042af      b8ffffffff     mov eax, 0xffffffff        ; -1
+│       │   0x1800042b4      4c8b7c2460     mov r15, qword [var_60h]
+│       │   0x1800042b9      4883c430       add rsp, 0x30
+│       │   0x1800042bd      5f             pop rdi
+│       │   0x1800042be      5d             pop rbp
+│       │   0x1800042bf      5b             pop rbx
+│       │   0x1800042c0      c3             ret
+│       └─> 0x1800042c1      488b4030       mov rax, qword [rax + 0x30]
+│           0x1800042c5      488d15a461..   lea rdx, str.java_lang_String ; 0x18000a470 ; "java/lang/String"
+│           0x1800042cc      4c89742458     mov qword [var_58h], r14
+│           0x1800042d1      ff15c1500000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│           0x1800042d7      488b0dcab0..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│           0x1800042de      488bd8         mov rbx, rax
+│           0x1800042e1      488b11         mov rdx, qword [rcx]
+│           0x1800042e4      488b823805..   mov rax, qword [rdx + 0x538]
+│           0x1800042eb      488d156254..   lea rdx, [0x180009754]
+│           0x1800042f2      ff15a0500000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│           0x1800042f8      488b0da9b0..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│           0x1800042ff      4c8bc3         mov r8, rbx
+│           0x180004302      4c8bc8         mov r9, rax
+│           0x180004305      488b11         mov rdx, qword [rcx]
+│           0x180004308      4c8b926005..   mov r10, qword [rdx + 0x560]
+│           0x18000430f      8b159fb00000   mov edx, dword [0x18000f3b4] ; [0x18000f3b4:4]=0
+│           0x180004315      498bc2         mov rax, r10
+│           0x180004318      ff157a500000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│           0x18000431e      8b4f08         mov ecx, dword [rdi + 8]
+│           0x180004321      4c8bf0         mov r14, rax
+│           0x180004324      85c9           test ecx, ecx
+│       ┌─< 0x180004326      7428           je 0x180004350
+│       │   0x180004328      488d0d5961..   lea rcx, str.java____Build_java_arguments..._n ; 0x18000a488 ; "java>   Build java arguments...\n"
+│       │   0x18000432f      e80c070000     call 0x180004a40
+│       │   0x180004334      8b4f08         mov ecx, dword [rdi + 8]
+│       │   0x180004337      85c9           test ecx, ecx
+│      ┌──< 0x180004339      7415           je 0x180004350
+│      ││   0x18000433b      833d72b000..   cmp dword [0x18000f3b4], 0 ; [0x18000f3b4:4]=0
+│     ┌───< 0x180004342      7e0c           jle 0x180004350
+│     │││   0x180004344      488d0d6561..   lea rcx, str.java______java_arguments:_n ; 0x18000a4b0 ; "java>     java arguments:\n"
+│     │││   0x18000434b      e8f0060000     call 0x180004a40
+│     └└└─> 0x180004350      33db           xor ebx, ebx
+│           0x180004352      391d5cb00000   cmp dword [0x18000f3b4], ebx ; [0x18000f3b4:4]=0
+│       ┌─< 0x180004358      7e7e           jle 0x1800043d8
+│       │   0x18000435a      4889742450     mov qword [var_50h], rsi
+│       │   0x18000435f      8bf3           mov esi, ebx
+│      ┌──> 0x180004361      837f0800       cmp dword [rdi + 8], 0
+│     ┌───< 0x180004365      7419           je 0x180004380
+│     │╎│   0x180004367      4c8b051ab0..   mov r8, qword [0x18000f388] ; [0x18000f388:8]=0
+│     │╎│   0x18000436e      488d0d5b61..   lea rcx, str.java______javaArgument__d_____s__n ; 0x18000a4d0 ; "java>     javaArgument[%d] = "%s"\n"
+│     │╎│   0x180004375      8bd3           mov edx, ebx
+│     │╎│   0x180004377      4e8b0406       mov r8, qword [rsi + r8]
+│     │╎│   0x18000437b      e8c0060000     call 0x180004a40
+│     └───> 0x180004380      488b0501b0..   mov rax, qword [0x18000f388] ; [0x18000f388:8]=0
+│      ╎│   0x180004387      488b0d1ab0..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│      ╎│   0x18000438e      488b1406       mov rdx, qword [rsi + rax]
+│      ╎│   0x180004392      488b01         mov rax, qword [rcx]
+│      ╎│   0x180004395      488b803805..   mov rax, qword [rax + 0x538]
+│      ╎│   0x18000439c      ff15f64f0000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│      ╎│   0x1800043a2      488b0dffaf..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│      ╎│   0x1800043a9      448bc3         mov r8d, ebx
+│      ╎│   0x1800043ac      4c8bc8         mov r9, rax
+│      ╎│   0x1800043af      488b11         mov rdx, qword [rcx]
+│      ╎│   0x1800043b2      4c8b927005..   mov r10, qword [rdx + 0x570]
+│      ╎│   0x1800043b9      498bd6         mov rdx, r14
+│      ╎│   0x1800043bc      498bc2         mov rax, r10
+│      ╎│   0x1800043bf      ff15d34f0000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│      ╎│   0x1800043c5      ffc3           inc ebx
+│      ╎│   0x1800043c7      4883c608       add rsi, 8
+│      ╎│   0x1800043cb      3b1de3af0000   cmp ebx, dword [0x18000f3b4] ; [0x18000f3b4:4]=0
+│      └──< 0x1800043d1      7c8e           jl 0x180004361
+│       │   0x1800043d3      488b742450     mov rsi, qword [var_50h]
+│       └─> 0x1800043d8      837f0800       cmp dword [rdi + 8], 0
+│       ┌─< 0x1800043dc      740c           je 0x1800043ea
+│       │   0x1800043de      488d0d1361..   lea rcx, str.java____Launching_main_method..._n ; 0x18000a4f8 ; "java>   Launching main method...\n"
+│       │   0x1800043e5      e856060000     call 0x180004a40
+│       └─> 0x1800043ea      488b0db7af..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│           0x1800043f1      4d8bce         mov r9, r14
+│           0x1800043f4      4d8bc7         mov r8, r15
+│           0x1800043f7      488bd5         mov rdx, rbp
+│           0x1800043fa      e8e1e6ffff     call 0x180002ae0
+│           0x1800043ff      488b0da2af..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│           0x180004406      488b01         mov rax, qword [rcx]
+│           0x180004409      488b4078       mov rax, qword [rax + 0x78]
+│           0x18000440d      ff15854f0000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│           0x180004413      4c8b742458     mov r14, qword [var_58h]
+│           0x180004418      4885c0         test rax, rax
+│       ┌─< 0x18000441b      7429           je 0x180004446
+│       │   0x18000441d      488b0d84af..   mov rcx, qword [0x18000f3a8] ; [0x18000f3a8:8]=0
+│       │   0x180004424      488b01         mov rax, qword [rcx]
+│       │   0x180004427      488b808000..   mov rax, qword [rax + 0x80]
+│       │   0x18000442e      ff15644f0000   call qword [0x180009398]   ; [0x180009398:8]=0x180008af0
+│       │   0x180004434      b8ffffffff     mov eax, 0xffffffff        ; -1
+│       │   0x180004439      4c8b7c2460     mov r15, qword [var_60h]
+│       │   0x18000443e      4883c430       add rsp, 0x30
+│       │   0x180004442      5f             pop rdi
+│       │   0x180004443      5d             pop rbp
+│       │   0x180004444      5b             pop rbx
+│       │   0x180004445      c3             ret
+│       └─> 0x180004446      4c8b7c2460     mov r15, qword [var_60h]
+│           0x18000444b      4883c430       add rsp, 0x30
+│           0x18000444f      5f             pop rdi
+│           0x180004450      5d             pop rbp
+│           0x180004451      5b             pop rbx
+└           0x180004452      c3             ret
+######## njre.dll buildArgs @0x180002b10 ########
+┌ 2342: sym.njre.dll__buildArgs_JavaLauncherWin32__AEAAHHPEAPEAD_Z ();
+│ afv: vars(3:sp[0x18..0x60])
+; private: int __cdecl JavaLauncherWin32::buildArgs(int, char * __ptr6
+; 4 * __ptr64) __ptr64
+│           0x180002b10      4055           push rbp
+│           0x180002b12      53             push rbx
+│           0x180002b13      56             push rsi
+│           0x180002b14      57             push rdi
+│           0x180002b15      488dac2418..   lea rbp, [rsp - 0x105e8]
+│           0x180002b1d      b8e8060100     mov eax, 0x106e8
+│           0x180002b22      e8a9510000     call 0x180007cd0
+│           0x180002b27      482be0         sub rsp, rax
+│           0x180002b2a      488b0547c6..   mov rax, qword [0x18000f178] ; [0x18000f178:8]=0x2b992ddfa232
+│           0x180002b31      4833c4         xor rax, rsp
+│           0x180002b34      488985d005..   mov qword [var_105d0h], rax
+│           0x180002b3b      33db           xor ebx, ebx
+│           0x180002b3d      488b0544c8..   mov rax, qword [0x18000f388] ; [0x18000f388:8]=0
+│           0x180002b44      4c89ac2418..   mov qword [rsp + 0x10718], r13 ; [0x10718:8]=-1
+│           0x180002b4c      4c8be9         mov r13, rcx
+│           0x180002b4f      4c89bc24e0..   mov qword [rsp + 0x106e0], r15 ; [0x106e0:8]=-1
+│           0x180002b57      448bfa         mov r15d, edx
+│           0x180002b5a      488b152fc8..   mov rdx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180002b61      48891a         mov qword [rdx], rbx
+│           0x180002b64      488918         mov qword [rax], rbx
+│           0x180002b67      48895a10       mov qword [rdx + 0x10], rbx
+│           0x180002b6b      48895808       mov qword [rax + 8], rbx
+│           0x180002b6f      48895a20       mov qword [rdx + 0x20], rbx
+│           0x180002b73      48895810       mov qword [rax + 0x10], rbx
+│           0x180002b77      48895a30       mov qword [rdx + 0x30], rbx
+│           0x180002b7b      48895818       mov qword [rax + 0x18], rbx
+│           0x180002b7f      48895a40       mov qword [rdx + 0x40], rbx
+│           0x180002b83      48895820       mov qword [rax + 0x20], rbx
+│           0x180002b87      48895a50       mov qword [rdx + 0x50], rbx
+│           0x180002b8b      48895828       mov qword [rax + 0x28], rbx
+│           0x180002b8f      48895a60       mov qword [rdx + 0x60], rbx
+│           0x180002b93      48895830       mov qword [rax + 0x30], rbx
+│           0x180002b97      48895a70       mov qword [rdx + 0x70], rbx
+│           0x180002b9b      48895838       mov qword [rax + 0x38], rbx
+│           0x180002b9f      48899a8000..   mov qword [rdx + 0x80], rbx
+│           0x180002ba6      48895840       mov qword [rax + 0x40], rbx
+│           0x180002baa      48899a9000..   mov qword [rdx + 0x90], rbx
+│           0x180002bb1      48895848       mov qword [rax + 0x48], rbx
+│           0x180002bb5      48899aa000..   mov qword [rdx + 0xa0], rbx
+│           0x180002bbc      48895850       mov qword [rax + 0x50], rbx
+│           0x180002bc0      48899ab000..   mov qword [rdx + 0xb0], rbx
+│           0x180002bc7      48895858       mov qword [rax + 0x58], rbx
+│           0x180002bcb      48899ac000..   mov qword [rdx + 0xc0], rbx
+│           0x180002bd2      48895860       mov qword [rax + 0x60], rbx
+│           0x180002bd6      48899ad000..   mov qword [rdx + 0xd0], rbx
+│           0x180002bdd      48895868       mov qword [rax + 0x68], rbx
+│           0x180002be1      48899ae000..   mov qword [rdx + 0xe0], rbx
+│           0x180002be8      48895870       mov qword [rax + 0x70], rbx
+│           0x180002bec      48899af000..   mov qword [rdx + 0xf0], rbx
+│           0x180002bf3      48895878       mov qword [rax + 0x78], rbx
+│           0x180002bf7      48899a0001..   mov qword [rdx + 0x100], rbx
+│           0x180002bfe      4889988000..   mov qword [rax + 0x80], rbx
+│           0x180002c05      48899a1001..   mov qword [rdx + 0x110], rbx
+│           0x180002c0c      4889988800..   mov qword [rax + 0x88], rbx
+│           0x180002c13      48899a2001..   mov qword [rdx + 0x120], rbx
+│           0x180002c1a      4889989000..   mov qword [rax + 0x90], rbx
+│           0x180002c21      48899a3001..   mov qword [rdx + 0x130], rbx
+│           0x180002c28      4889989800..   mov qword [rax + 0x98], rbx
+│           0x180002c2f      48899a4001..   mov qword [rdx + 0x140], rbx
+│           0x180002c36      488998a000..   mov qword [rax + 0xa0], rbx
+│           0x180002c3d      48899a5001..   mov qword [rdx + 0x150], rbx
+│           0x180002c44      488998a800..   mov qword [rax + 0xa8], rbx
+│           0x180002c4b      48899a6001..   mov qword [rdx + 0x160], rbx
+│           0x180002c52      488998b000..   mov qword [rax + 0xb0], rbx
+│           0x180002c59      48899a7001..   mov qword [rdx + 0x170], rbx
+│           0x180002c60      488998b800..   mov qword [rax + 0xb8], rbx
+│           0x180002c67      48899a8001..   mov qword [rdx + 0x180], rbx
+│           0x180002c6e      488998c000..   mov qword [rax + 0xc0], rbx
+│           0x180002c75      48899a9001..   mov qword [rdx + 0x190], rbx
+│           0x180002c7c      488998c800..   mov qword [rax + 0xc8], rbx
+│           0x180002c83      48899aa001..   mov qword [rdx + 0x1a0], rbx
+│           0x180002c8a      488998d000..   mov qword [rax + 0xd0], rbx
+│           0x180002c91      48899ab001..   mov qword [rdx + 0x1b0], rbx
+│           0x180002c98      488998d800..   mov qword [rax + 0xd8], rbx
+│           0x180002c9f      48899ac001..   mov qword [rdx + 0x1c0], rbx
+│           0x180002ca6      488998e000..   mov qword [rax + 0xe0], rbx
+│           0x180002cad      48899ad001..   mov qword [rdx + 0x1d0], rbx
+│           0x180002cb4      488998e800..   mov qword [rax + 0xe8], rbx
+│           0x180002cbb      48899ae001..   mov qword [rdx + 0x1e0], rbx
+│           0x180002cc2      488998f000..   mov qword [rax + 0xf0], rbx
+│           0x180002cc9      48899af001..   mov qword [rdx + 0x1f0], rbx
+│           0x180002cd0      488998f800..   mov qword [rax + 0xf8], rbx
+│           0x180002cd7      48899a0002..   mov qword [rdx + 0x200], rbx
+│           0x180002cde      4889980001..   mov qword [rax + 0x100], rbx
+│           0x180002ce5      48899a1002..   mov qword [rdx + 0x210], rbx
+│           0x180002cec      4889980801..   mov qword [rax + 0x108], rbx
+│           0x180002cf3      48899a2002..   mov qword [rdx + 0x220], rbx
+│           0x180002cfa      4889981001..   mov qword [rax + 0x110], rbx
+│           0x180002d01      48899a3002..   mov qword [rdx + 0x230], rbx
+│           0x180002d08      4889981801..   mov qword [rax + 0x118], rbx
+│           0x180002d0f      48899a4002..   mov qword [rdx + 0x240], rbx
+│           0x180002d16      4889982001..   mov qword [rax + 0x120], rbx
+│           0x180002d1d      48899a5002..   mov qword [rdx + 0x250], rbx
+│           0x180002d24      4889982801..   mov qword [rax + 0x128], rbx
+│           0x180002d2b      48899a6002..   mov qword [rdx + 0x260], rbx
+│           0x180002d32      4889983001..   mov qword [rax + 0x130], rbx
+│           0x180002d39      48899a7002..   mov qword [rdx + 0x270], rbx
+│           0x180002d40      4889983801..   mov qword [rax + 0x138], rbx
+│           0x180002d47      48899a8002..   mov qword [rdx + 0x280], rbx
+│           0x180002d4e      4889984001..   mov qword [rax + 0x140], rbx
+│           0x180002d55      48899a9002..   mov qword [rdx + 0x290], rbx
+│           0x180002d5c      4889984801..   mov qword [rax + 0x148], rbx
+│           0x180002d63      48899aa002..   mov qword [rdx + 0x2a0], rbx
+│           0x180002d6a      4889985001..   mov qword [rax + 0x150], rbx
+│           0x180002d71      48899ab002..   mov qword [rdx + 0x2b0], rbx
+│           0x180002d78      4889985801..   mov qword [rax + 0x158], rbx
+│           0x180002d7f      48899ac002..   mov qword [rdx + 0x2c0], rbx
+│           0x180002d86      4889986001..   mov qword [rax + 0x160], rbx
+│           0x180002d8d      48899ad002..   mov qword [rdx + 0x2d0], rbx
+│           0x180002d94      4889986801..   mov qword [rax + 0x168], rbx
+│           0x180002d9b      48899ae002..   mov qword [rdx + 0x2e0], rbx
+│           0x180002da2      4889987001..   mov qword [rax + 0x170], rbx
+│           0x180002da9      48899af002..   mov qword [rdx + 0x2f0], rbx
+│           0x180002db0      4889987801..   mov qword [rax + 0x178], rbx
+│           0x180002db7      48899a0003..   mov qword [rdx + 0x300], rbx
+│           0x180002dbe      4889988001..   mov qword [rax + 0x180], rbx
+│           0x180002dc5      48899a1003..   mov qword [rdx + 0x310], rbx
+│           0x180002dcc      4889988801..   mov qword [rax + 0x188], rbx
+│           0x180002dd3      48899a2003..   mov qword [rdx + 0x320], rbx
+│           0x180002dda      4889989001..   mov qword [rax + 0x190], rbx
+│           0x180002de1      48899a3003..   mov qword [rdx + 0x330], rbx
+│           0x180002de8      4889989801..   mov qword [rax + 0x198], rbx
+│           0x180002def      48899a4003..   mov qword [rdx + 0x340], rbx
+│           0x180002df6      488998a001..   mov qword [rax + 0x1a0], rbx
+│           0x180002dfd      48899a5003..   mov qword [rdx + 0x350], rbx
+│           0x180002e04      488998a801..   mov qword [rax + 0x1a8], rbx
+│           0x180002e0b      48899a6003..   mov qword [rdx + 0x360], rbx
+│           0x180002e12      488998b001..   mov qword [rax + 0x1b0], rbx
+│           0x180002e19      48899a7003..   mov qword [rdx + 0x370], rbx
+│           0x180002e20      488998b801..   mov qword [rax + 0x1b8], rbx
+│           0x180002e27      48899a8003..   mov qword [rdx + 0x380], rbx
+│           0x180002e2e      488998c001..   mov qword [rax + 0x1c0], rbx
+│           0x180002e35      48899a9003..   mov qword [rdx + 0x390], rbx
+│           0x180002e3c      488998c801..   mov qword [rax + 0x1c8], rbx
+│           0x180002e43      48899aa003..   mov qword [rdx + 0x3a0], rbx
+│           0x180002e4a      488998d001..   mov qword [rax + 0x1d0], rbx
+│           0x180002e51      48899ab003..   mov qword [rdx + 0x3b0], rbx
+│           0x180002e58      488998d801..   mov qword [rax + 0x1d8], rbx
+│           0x180002e5f      48899ac003..   mov qword [rdx + 0x3c0], rbx
+│           0x180002e66      488998e001..   mov qword [rax + 0x1e0], rbx
+│           0x180002e6d      48899ad003..   mov qword [rdx + 0x3d0], rbx
+│           0x180002e74      488998e801..   mov qword [rax + 0x1e8], rbx
+│           0x180002e7b      48899ae003..   mov qword [rdx + 0x3e0], rbx
+│           0x180002e82      488998f001..   mov qword [rax + 0x1f0], rbx
+│           0x180002e89      48899af003..   mov qword [rdx + 0x3f0], rbx ; [0x3f0:8]=-1 ; 1008
+│           0x180002e90      488998f801..   mov qword [rax + 0x1f8], rbx
+│           0x180002e97      4183ff01       cmp r15d, 1                ; 1
+│       ┌─< 0x180002e9b      0f8eb6000000   jle 0x180002f57
+│       │   0x180002ea1      4c89b42428..   mov qword [rsp + 0x10728], r14 ; [0x10728:8]=-1
+│       │   0x180002ea9      8d7301         lea esi, [rbx + 1]
+│       │   0x180002eac      4d8d7008       lea r14, [r8 + 8]
+│      ┌──> 0x180002eb0      498b3e         mov rdi, qword [r14]
+│      ╎│   0x180002eb3      41395d08       cmp dword [r13 + 8], ebx
+│     ┌───< 0x180002eb7      7411           je 0x180002eca
+│     │╎│   0x180002eb9      4c8bc7         mov r8, rdi
+│     │╎│   0x180002ebc      488d0ddd70..   lea rcx, str.java____argv__d_____s__n ; 0x180009fa0 ; "java>   argv[%d] = "%s"\n"
+│     │╎│   0x180002ec3      8bd6           mov edx, esi
+│     │╎│   0x180002ec5      e8761b0000     call 0x180004a40
+│     └───> 0x180002eca      48c7c0ffff..   mov rax, 0xffffffffffffffff
+│     ┌───> 0x180002ed1      48ffc0         inc rax
+│     ╎╎│   0x180002ed4      381c07         cmp byte [rdi + rax], bl
+│     └───< 0x180002ed7      75f8           jne 0x180002ed1
+│      ╎│   0x180002ed9      4883f803       cmp rax, 3                 ; 3
+│     ┌───< 0x180002edd      7635           jbe 0x180002f14
+│     │╎│   0x180002edf      803f2d         cmp byte [rdi], 0x2d       ; '-'
+│    ┌────< 0x180002ee2      7530           jne 0x180002f14
+│    ││╎│   0x180002ee4      807f0140       cmp byte [rdi + 1], 0x40   ; '@'
+│    ││╎│   0x180002ee8      488d4f01       lea rcx, [rdi + 1]
+│   ┌─────< 0x180002eec      7526           jne 0x180002f14
+│   │││╎│   0x180002eee      c6012d         mov byte [rcx], 0x2d       ; '-'
+│   │││╎│                                                              ; [0x2d:1]=255 ; 45
+│   │││╎│   0x180002ef1      ff1539640000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│   │││╎│   0x180002ef7      48630db2c4..   movsxd rcx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│   │││╎│   0x180002efe      488b158bc4..   mov rdx, qword [0x18000f390] ; [0x18000f390:8]=0
+│   │││╎│   0x180002f05      4803c9         add rcx, rcx
+│   │││╎│   0x180002f08      488904ca       mov qword [rdx + rcx*8], rax
+│   │││╎│   0x180002f0c      ff059ec40000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│  ┌──────< 0x180002f12      eb2c           jmp 0x180002f40
+│  │└└└───> 0x180002f14      488bcf         mov rcx, rdi
+│  │   ╎│   0x180002f17      ff1513640000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│  │   ╎│   0x180002f1d      4c630590c4..   movsxd r8, dword [0x18000f3b4] ; [0x18000f3b4:4]=0
+│  │   ╎│   0x180002f24      488b0d5dc4..   mov rcx, qword [0x18000f388] ; [0x18000f388:8]=0
+│  │   ╎│   0x180002f2b      488b155ec4..   mov rdx, qword [0x18000f390] ; [0x18000f390:8]=0
+│  │   ╎│   0x180002f32      4a8904c1       mov qword [rcx + r8*8], rax
+│  │   ╎│   0x180002f36      41ffc0         inc r8d
+│  │   ╎│   0x180002f39      44890574c4..   mov dword [0x18000f3b4], r8d ; [0x18000f3b4:4]=0
+│  │   ╎│   ; CODE XREF from private: int __cdecl JavaLauncherWin32::buildArgs(int, char * __ptr64 * __ptr64) __ptr64 @ 0x180002f12(x)
+│  └──────> 0x180002f40      ffc6           inc esi
+│      ╎│   0x180002f42      4983c608       add r14, 8
+│      ╎│   0x180002f46      413bf7         cmp esi, r15d
+│      └──< 0x180002f49      0f8c61ffffff   jl 0x180002eb0
+│       │   0x180002f4f      4c8bb42428..   mov r14, qword [rsp + 0x10728]
+│       └─> 0x180002f57      458b4d08       mov r9d, dword [r13 + 8]
+│           0x180002f5b      4c8d054ec4..   lea r8, [0x18000f3b0]
+│           0x180002f62      498bcd         mov rcx, r13
+│           0x180002f65      e8961b0000     call sym.njre.dll__buildVMOptions_JavaLauncherWin32__AEAAHPEAUJavaVMOption__PEAHH_Z ; private: int __cdecl JavaLauncherWin32::buildVMOptions(struct JavaVMOption * __ptr64, int * __ptr64, int) __ptr64
+│           0x180002f6a      33d2           xor edx, edx
+│           0x180002f6c      488d8dd00b..   lea rcx, [rbp + 0xbd0]
+│           0x180002f73      41b8007d0000   mov r8d, 0x7d00
+│           0x180002f79      e8d85a0000     call 0x180008a56
+│           0x180002f7e      498d852907..   lea rax, [r13 + 0x729]
+│           0x180002f85      ba007d0000     mov edx, 0x7d00
+│           0x180002f8a      4c8d0d2f70..   lea r9, str._Djava.library.path_s ; 0x180009fc0 ; "-Djava.library.path=%s"
+│           0x180002f91      4889442420     mov qword [var_20h], rax
+│           0x180002f96      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x180002f9d      488d8dd00b..   lea rcx, [rbp + 0xbd0]
+│           0x180002fa4      e8d7190000     call 0x180004980
+│           0x180002fa9      488d8dd00b..   lea rcx, [rbp + 0xbd0]
+│           0x180002fb0      ff157a630000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x180002fb6      4c6305f3c3..   movsxd r8, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180002fbd      33d2           xor edx, edx
+│           0x180002fbf      488b0dcac3..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180002fc6      4d03c0         add r8, r8
+│           0x180002fc9      4a8904c1       mov qword [rcx + r8*8], rax
+│           0x180002fcd      41b8007d0000   mov r8d, 0x7d00
+│           0x180002fd3      ff05d7c30000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x180002fd9      488d8dd088..   lea rcx, [rbp + 0x88d0]
+│           0x180002fe0      e8715a0000     call 0x180008a56
+│           0x180002fe5      498d852984..   lea rax, [r13 + 0x8429]
+│           0x180002fec      ba007d0000     mov edx, 0x7d00
+│           0x180002ff1      4c8d0de06f..   lea r9, str._Djava.class.path_s ; 0x180009fd8 ; "-Djava.class.path=%s"
+│           0x180002ff8      4889442420     mov qword [var_20h], rax
+│           0x180002ffd      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x180003004      488d8dd088..   lea rcx, [rbp + 0x88d0]
+│           0x18000300b      e870190000     call 0x180004980
+│           0x180003010      488d8dd088..   lea rcx, [rbp + 0x88d0]
+│           0x180003017      ff1513630000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x18000301d      4863158cc3..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003024      41b804010000   mov r8d, 0x104             ; 260
+│           0x18000302a      488b0d5fc3..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180003031      4803d2         add rdx, rdx
+│           0x180003034      488904d1       mov qword [rcx + rdx*8], rax
+│           0x180003038      33d2           xor edx, edx
+│           0x18000303a      ff0570c30000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x180003040      488d4c2430     lea rcx, [var_30h]
+│           0x180003045      e80c5a0000     call 0x180008a56
+│           0x18000304a      498d7d0d       lea rdi, [r13 + 0xd]
+│           0x18000304e      ba04010000     mov edx, 0x104             ; 260
+│           0x180003053      4c8d0d966f..   lea r9, str._Djava.security.properties_s_binpolicyjava.security ; 0x180009ff0 ; "-Djava.security.properties==%s\\bin\\policy\\java.security"
+│           0x18000305a      48897c2420     mov qword [var_20h], rdi
+│           0x18000305f      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x180003066      488d4c2430     lea rcx, [var_30h]
+│           0x18000306b      e810190000     call 0x180004980
+│           0x180003070      488d4c2430     lea rcx, [var_30h]
+│           0x180003075      ff15b5620000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x18000307b      4863152ec3..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003082      488b0d07c3..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180003089      4803d2         add rdx, rdx
+│           0x18000308c      488904d1       mov qword [rcx + rdx*8], rax
+│           0x180003090      488d0d916f..   lea rcx, str._Djava.security.manager ; 0x18000a028 ; "-Djava.security.manager"
+│           0x180003097      ff0513c30000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x18000309d      ff158d620000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x1800030a3      48631506c3..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x1800030aa      41b804010000   mov r8d, 0x104             ; 260
+│           0x1800030b0      488b0dd9c2..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x1800030b7      4803d2         add rdx, rdx
+│           0x1800030ba      488904d1       mov qword [rcx + rdx*8], rax
+│           0x1800030be      33d2           xor edx, edx
+│           0x1800030c0      ff05eac20000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x1800030c6      488d4d40       lea rcx, [rbp + 0x40]
+│           0x1800030ca      e887590000     call 0x180008a56
+│           0x1800030cf      4c8d0d6a6f..   lea r9, str._Dniagara.home_s ; 0x18000a040 ; "-Dniagara.home=%s"
+│           0x1800030d6      48897c2420     mov qword [var_20h], rdi
+│           0x1800030db      ba04010000     mov edx, 0x104             ; 260
+│           0x1800030e0      488d4d40       lea rcx, [rbp + 0x40]
+│           0x1800030e4      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x1800030eb      e890180000     call 0x180004980
+│           0x1800030f0      488d4d40       lea rcx, [rbp + 0x40]
+│           0x1800030f4      ff1536620000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x1800030fa      4c6305afc2..   movsxd r8, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003101      488b1588c2..   mov rdx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180003108      4d03c0         add r8, r8
+│           0x18000310b      4a8904c2       mov qword [rdx + r8*8], rax
+│           0x18000310f      ff059bc20000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x180003115      488d8d9005..   lea rcx, [rbp + 0x590]
+│           0x18000311c      33d2           xor edx, edx
+│           0x18000311e      41b814030000   mov r8d, 0x314             ; 788
+│           0x180003124      e82d590000     call 0x180008a56
+│           0x180003129      41b814030000   mov r8d, 0x314             ; 788
+│           0x18000312f      488d959005..   lea rdx, [rbp + 0x590]
+│           0x180003136      488bcf         mov rcx, rdi
+│           0x180003139      e8b2ecffff     call sym.njre.dll__pathToUrl_FileUtil__SAHPEBDPEAD_K_Z ; public: static int __cdecl FileUtil::pathToUrl(char const * __ptr64, char * __ptr64, unsigned long long(unsigned __int64))
+│           0x18000313e      33d2           xor edx, edx
+│           0x180003140      488d8db008..   lea rcx, [rbp + 0x8b0]
+│           0x180003147      41b814030000   mov r8d, 0x314             ; 788
+│           0x18000314d      e804590000     call 0x180008a56
+│           0x180003152      488d859005..   lea rax, [rbp + 0x590]
+│           0x180003159      ba14030000     mov edx, 0x314             ; 788
+│           0x18000315e      4c8d0df36e..   lea r9, str._Dniagara.home.url_s ; 0x18000a058 ; "-Dniagara.home.url=%s"
+│           0x180003165      4889442420     mov qword [var_20h], rax
+│           0x18000316a      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x180003171      488d8db008..   lea rcx, [rbp + 0x8b0]
+│           0x180003178      e803180000     call 0x180004980
+│           0x18000317d      488d8db008..   lea rcx, [rbp + 0x8b0]
+│           0x180003184      ff15a6610000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x18000318a      4863151fc2..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003191      41b804010000   mov r8d, 0x104             ; 260
+│           0x180003197      488b0df2c1..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x18000319e      4803d2         add rdx, rdx
+│           0x1800031a1      488904d1       mov qword [rcx + rdx*8], rax
+│           0x1800031a5      33d2           xor edx, edx
+│           0x1800031a7      ff0503c20000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x1800031ad      488d8d5001..   lea rcx, [rbp + 0x150]
+│           0x1800031b4      e89d580000     call 0x180008a56
+│           0x1800031b9      498d851101..   lea rax, [r13 + 0x111]
+│           0x1800031c0      ba04010000     mov edx, 0x104             ; 260
+│           0x1800031c5      4c8d0da46e..   lea r9, str._Dniagara.user.home_s ; 0x18000a070 ; "-Dniagara.user.home=%s"
+│           0x1800031cc      4889442420     mov qword [var_20h], rax
+│           0x1800031d1      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x1800031d8      488d8d5001..   lea rcx, [rbp + 0x150]
+│           0x1800031df      e89c170000     call 0x180004980
+│           0x1800031e4      488d8d5001..   lea rcx, [rbp + 0x150]
+│           0x1800031eb      ff153f610000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x1800031f1      486315b8c1..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x1800031f8      41b804010000   mov r8d, 0x104             ; 260
+│           0x1800031fe      488b0d8bc1..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180003205      4803d2         add rdx, rdx
+│           0x180003208      488904d1       mov qword [rcx + rdx*8], rax
+│           0x18000320c      33d2           xor edx, edx
+│           0x18000320e      ff059cc10000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x180003214      488d8d6002..   lea rcx, [rbp + 0x260]
+│           0x18000321b      e836580000     call 0x180008a56
+│           0x180003220      488d05616e..   lea rax, str.com.tridium.nre.platform.NativePlatformProviderTridium ; 0x18000a088 ; "com.tridium.nre.platform.NativePlatformProviderTridium"
+│           0x180003227      ba04010000     mov edx, 0x104             ; 260
+│           0x18000322c      4c8d0d8d6e..   lea r9, str._Dniagara.platform.provider_s ; 0x18000a0c0 ; "-Dniagara.platform.provider=%s"
+│           0x180003233      4889442420     mov qword [var_20h], rax
+│           0x180003238      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x18000323f      488d8d6002..   lea rcx, [rbp + 0x260]
+│           0x180003246      e835170000     call 0x180004980
+│           0x18000324b      488d8d6002..   lea rcx, [rbp + 0x260]
+│           0x180003252      ff15d8600000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x180003258      48631551c1..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x18000325f      41b804010000   mov r8d, 0x104             ; 260
+│           0x180003265      488b0d24c1..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x18000326c      4803d2         add rdx, rdx
+│           0x18000326f      488904d1       mov qword [rcx + rdx*8], rax
+│           0x180003273      33d2           xor edx, edx
+│           0x180003275      ff0535c10000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x18000327b      488d8d7003..   lea rcx, [rbp + 0x370]
+│           0x180003282      e8cf570000     call 0x180008a56
+│           0x180003287      498d851502..   lea rax, [r13 + 0x215]
+│           0x18000328e      ba04010000     mov edx, 0x104             ; 260
+│           0x180003293      4c8d0d466e..   lea r9, str._Dniagara.supported.runtime.profiles_s ; 0x18000a0e0 ; "-Dniagara.supported.runtime.profiles=%s"
+│           0x18000329a      4889442420     mov qword [var_20h], rax
+│           0x18000329f      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x1800032a6      488d8d7003..   lea rcx, [rbp + 0x370]
+│           0x1800032ad      e8ce160000     call 0x180004980
+│           0x1800032b2      488d8d7003..   lea rcx, [rbp + 0x370]
+│           0x1800032b9      ff1571600000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x1800032bf      4c630deac0..   movsxd r9, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x1800032c6      488b0dc3c0..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x1800032cd      4d03c9         add r9, r9
+│           0x1800032d0      4a8904c9       mov qword [rcx + r9*8], rax
+│           0x1800032d4      ff05d6c00000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x1800032da      33d2           xor edx, edx
+│           0x1800032dc      488d8d8004..   lea rcx, [rbp + 0x480]
+│           0x1800032e3      41b804010000   mov r8d, 0x104             ; 260
+│           0x1800032e9      e868570000     call 0x180008a56
+│           0x1800032ee      498d851903..   lea rax, [r13 + 0x319]
+│           0x1800032f5      ba04010000     mov edx, 0x104             ; 260
+│           0x1800032fa      4c8d0d076e..   lea r9, str._Dniagara.required.runtime.profiles_s ; 0x18000a108 ; "-Dniagara.required.runtime.profiles=%s"
+│           0x180003301      4889442420     mov qword [var_20h], rax
+│           0x180003306      49c7c0ffff..   mov r8, 0xffffffffffffffff
+│           0x18000330d      488d8d8004..   lea rcx, [rbp + 0x480]
+│           0x180003314      e867160000     call 0x180004980
+│           0x180003319      488d8d8004..   lea rcx, [rbp + 0x480]
+│           0x180003320      ff150a600000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x180003326      48631583c0..   movsxd rdx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x18000332d      488b0d5cc0..   mov rcx, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x180003334      4803d2         add rdx, rdx
+│           0x180003337      488904d1       mov qword [rcx + rdx*8], rax
+│           0x18000333b      488d0dee6d..   lea rcx, [0x18000a130]     ; "exit"
+│           0x180003342      ff0568c00000   inc dword [0x18000f3b0]    ; [0x18000f3b0:4]=0
+│           0x180003348      ff15e25f0000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__strdup] ; [0x180009330:8]=0xe40a reloc.api_ms_win_crt_string_l1_1_0.dll__strdup ; "\n\xe4" ; char *strdup(const char *src)
+│           0x18000334e      48630d5bc0..   movsxd rcx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003355      4c8b0534c0..   mov r8, qword [0x18000f390] ; [0x18000f390:8]=0
+│           0x18000335c      4803c9         add rcx, rcx
+│           0x18000335f      4c8bbc24e0..   mov r15, qword [rsp + 0x106e0]
+│           0x180003367      498904c8       mov qword [r8 + rcx*8], rax
+│           0x18000336b      488d0dbe13..   lea rcx, [0x180004730]
+│           0x180003372      48630537c0..   movsxd rax, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003379      4803c0         add rax, rax
+│           0x18000337c      49894cc008     mov qword [r8 + rax*8 + 8], rcx
+│           0x180003381      8b0529c00000   mov eax, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│           0x180003387      ffc0           inc eax
+│           0x180003389      890521c00000   mov dword [0x18000f3b0], eax ; [0x18000f3b0:4]=0
+│           0x18000338f      41395d08       cmp dword [r13 + 8], ebx
+│           0x180003393      4c8bac2418..   mov r13, qword [rsp + 0x10718]
+│       ┌─< 0x18000339b      0f8478000000   je 0x180003419
+│       │   0x1800033a1      391d0dc00000   cmp dword [0x18000f3b4], ebx ; [0x18000f3b4:4]=0
+│       │   0x1800033a7      8bfb           mov edi, ebx
+│      ┌──< 0x1800033a9      7e39           jle 0x1800033e4
+│      ││   0x1800033ab      488bf3         mov rsi, rbx
+│      ││   0x1800033ae      6690           nop
+│     ┌───> 0x1800033b0      4c8b05d1bf..   mov r8, qword [0x18000f388] ; [0x18000f388:8]=0
+│     ╎││   0x1800033b7      488d0d7a6d..   lea rcx, str.java____javaArgs__d_____s__n ; 0x18000a138 ; "java>   javaArgs[%d] = "%s"\n"
+│     ╎││   0x1800033be      8bd7           mov edx, edi
+│     ╎││   0x1800033c0      4e8b0406       mov r8, qword [rsi + r8]
+│     ╎││   0x1800033c4      e877160000     call 0x180004a40
+│     ╎││   0x1800033c9      ffc7           inc edi
+│     ╎││   0x1800033cb      488d7608       lea rsi, [rsi + 8]
+│     ╎││   0x1800033cf      3b3ddfbf0000   cmp edi, dword [0x18000f3b4] ; [0x18000f3b4:4]=0
+│     └───< 0x1800033d5      7cd9           jl 0x1800033b0
+│      ││   0x1800033d7      4c8b05b2bf..   mov r8, qword [0x18000f390] ; [0x18000f390:8]=0
+│      ││   0x1800033de      8b05ccbf0000   mov eax, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│      └──> 0x1800033e4      85c0           test eax, eax
+│      ┌──< 0x1800033e6      7e31           jle 0x180003419
+│      ││   0x1800033e8      488bfb         mov rdi, rbx
+│      ││   0x1800033eb      0f1f440000     nop dword [rax + rax]
+│      ││   ; CODE XREF from private: int __cdecl JavaLauncherWin32::buildArgs(int, char * __ptr64 * __ptr64) __ptr64 @ 0x180003417(x)
+│     ┌───> 0x1800033f0      4e8b0407       mov r8, qword [rdi + r8]
+│     ╎││   0x1800033f4      488d0d5d6d..   lea rcx, str.java____javaOption__d_____s__n ; 0x18000a158 ; "java>   javaOption[%d] = "%s"\n"
+│     ╎││   0x1800033fb      8bd3           mov edx, ebx
+│     ╎││   0x1800033fd      e83e160000     call 0x180004a40
+│     ╎││   0x180003402      ffc3           inc ebx
+│     ╎││   0x180003404      488d7f10       lea rdi, [rdi + 0x10]
+│     ╎││   0x180003408      3b1da2bf0000   cmp ebx, dword [0x18000f3b0] ; [0x18000f3b0:4]=0
+│    ┌────< 0x18000340e      7d09           jge 0x180003419
+│    │╎││   0x180003410      4c8b0579bf..   mov r8, qword [0x18000f390] ; [0x18000f390:8]=0
+│    │└───< 0x180003417      ebd7           jmp 0x1800033f0
+│    └─└└─> 0x180003419      33c0           xor eax, eax
+│           0x18000341b      488b8dd005..   mov rcx, qword [var_105d0h]
+│           0x180003422      4833cc         xor rcx, rsp
+│           0x180003425      e816490000     call 0x180007d40
+│           0x18000342a      4881c4e806..   add rsp, 0x106e8
+│           0x180003431      5f             pop rdi
+│           0x180003432      5e             pop rsi
+│           0x180003433      5b             pop rbx
+│           0x180003434      5d             pop rbp
+└           0x180003435      c3             ret

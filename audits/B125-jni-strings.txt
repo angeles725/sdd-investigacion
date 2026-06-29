@@ -1,0 +1,103 @@
+######## JNI / JVM strings ########
+===================== njre.dll =====================
+--- JNI_CreateJavaVM / jvm.dll / version ---
+\bin\server\jvm.dll
+\bin\client\jvm.dll
+JNI_CreateJavaVM
+--- method/class signatures ([Ljava, ()V, etc) ---
+([Ljava/lang/String;)V
+Error:  Could not detach main thread
+Error: Can't find main class "%s"
+Error: Can't find main method in class "%s"
+com.tridium.nre.platform.NativePlatformProviderTridium
+java>   Find main class...
+java>   Find main method...
+java>   Launching main method...
+--- launcher trace verbs ---
+?buildArgs@JavaLauncherWin32@@AEAAHHPEAPEAD@Z
+?createVM@JavaLauncherWin32@@AEAAHXZ
+?invokeJava@JavaLauncherWin32@@AEAAHPEBD@Z
+Error: Can't find main class "%s"
+Error: Can't find main method in class "%s"
+java>   Find main class...
+java>   Find main method...
+java>   Launching main method...
+java> buildArgs()
+java> createVM()
+java> invokeJava()
+===================== nre.dll =====================
+--- JNI_CreateJavaVM / jvm.dll / version ---
+\bin\server\jvm.dll
+\bin\client\jvm.dll
+JNI_CreateJavaVM
+--- method/class signatures ([Ljava, ()V, etc) ---
+()Lcom/tridium/niagarad/NiagaraDaemon;
+([Ljava/lang/String;)V
+?getComputerDomain@AuthenticationUtil@@SAPEAD_N@Z
+?getDomain@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+?getDomainGroupsXml@AuthenticationUtil@@SAPEADPEBD@Z
+?setDomain@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+Error:  Could not detach main thread
+Error: Can't find main class "%s"
+Error: Can't find main method in class "%s"
+Java_com_tridium_nre_platform_NativePlatformProviderTridium_daemonize0
+Java_com_tridium_nre_platform_NativePlatformProvider_addUserAccount0
+Java_com_tridium_nre_platform_NativePlatformProvider_addUserToGroup0
+Java_com_tridium_nre_platform_NativePlatformProvider_allowPlatformDaemonRestart0
+Java_com_tridium_nre_platform_NativePlatformProvider_canReadSystemLogMessages0
+Java_com_tridium_nre_platform_NativePlatformProvider_canWriteSystemLogMessages0
+Java_com_tridium_nre_platform_NativePlatformProvider_changeUserPassword0
+Java_com_tridium_nre_platform_NativePlatformProvider_checkForKeyMaterialUpgrade0
+Java_com_tridium_nre_platform_NativePlatformProvider_createWatchdog0
+Java_com_tridium_nre_platform_NativePlatformProvider_destroyWatchdog0
+Java_com_tridium_nre_platform_NativePlatformProvider_dumpThreads0
+Java_com_tridium_nre_platform_NativePlatformProvider_enableSystemLogging0
+Java_com_tridium_nre_platform_NativePlatformProvider_executeNativeDiagnosticsCommand0
+Java_com_tridium_nre_platform_NativePlatformProvider_getAccountXml0
+Java_com_tridium_nre_platform_NativePlatformProvider_getAllFileSystemNames0
+Java_com_tridium_nre_platform_NativePlatformProvider_getAllowBrandChangeDefault0
+Java_com_tridium_nre_platform_NativePlatformProvider_getAllowStationRestartDefault0
+Java_com_tridium_nre_platform_NativePlatformProvider_getArchiveBackupCount0
+Java_com_tridium_nre_platform_NativePlatformProvider_getComputerDomain0
+Java_com_tridium_nre_platform_NativePlatformProvider_getComputerName0
+Java_com_tridium_nre_platform_NativePlatformProvider_getCpuTime0
+Java_com_tridium_nre_platform_NativePlatformProvider_getCurrentCPUUtilization0
+Java_com_tridium_nre_platform_NativePlatformProvider_getCurrentFileCount0
+Java_com_tridium_nre_platform_NativePlatformProvider_getCurrentOpenFileDescriptorCount0
+Java_com_tridium_nre_platform_NativePlatformProvider_getDefaultAdminGroupName0
+Java_com_tridium_nre_platform_NativePlatformProvider_getDefaultPassword0
+Java_com_tridium_nre_platform_NativePlatformProvider_getDefaultUsername0
+Java_com_tridium_nre_platform_NativePlatformProvider_getDomainGroupsXml0
+Java_com_tridium_nre_platform_NativePlatformProvider_getFileSystemDisplayName0
+Java_com_tridium_nre_platform_NativePlatformProvider_getFreePhysicalMemoryBytes0
+Java_com_tridium_nre_platform_NativePlatformProvider_getHostFileName0
+--- launcher trace verbs ---
+?buildArgs@NreLauncherWin32@@AEAAHHPEAPEAD@Z
+?createVM@NreLauncherWin32@@AEAAHXZ
+Error: Can't find main class "%s"
+Error: Can't find main method in class "%s"
+nre>   Find main class...%s
+nre>   Find main method...
+nre>   Launching main method...
+nre> buildArgs()
+nre> createVM()
+===================== common.dll =====================
+--- JNI_CreateJavaVM / jvm.dll / version ---
+--- method/class signatures ([Ljava, ()V, etc) ---
+(ILjava/lang/String;Ljava/lang/Throwable;)V
+(Ljava/lang/String;)Ljavax/baja/log/Log;
+(Ljava/lang/String;)V
+(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)V
+</domain>
+<domain
+?getComputerDomain@AuthenticationUtil@@SAPEAD_N@Z
+?getComputerDomain@Win32AuthUtil@@SAPEA_W_N@Z
+?getDomain@TcpIpAdapterSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+?getDomain@TcpIpHostSettings@@UEAAXPEAVErrorHandler@@PEADH@Z
+?getDomainGroupsXml@AuthenticationUtil@@SAPEADPEBD@Z
+?setDomain@TcpIpAdapterSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+?setDomain@TcpIpHostSettings@@UEAAHPEAVErrorHandler@@PEBD@Z
+DsRoleGetPrimaryDomainInformation
+WARNING: Can not convert adapter domain name (reason = %s), using host domain
+domain
+--- launcher trace verbs ---
