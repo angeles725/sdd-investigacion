@@ -1,0 +1,201 @@
+############## n4mig.exe ##############
+--- sha256 / size ---
+0dfb35ac7a050344b0d5b3d48a18dff39fc328837ce949cb9c4359c3d226a227  n4mig.exe
+100120
+--- rabin2 -I (header) ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:16:39 2024
+lang     msvc
+machine  AMD 64
+os       windows
+cc       ms
+signed   true
+subsys   Windows CUI
+--- rabin2 -l (libs) ---
+nre.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+--- rabin2 -E (exports) ---
+nth paddr      vaddr       bind   type size lib       name                               demangled
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x00000400 0x140001000 GLOBAL FUNC 0    n4mig.exe ??0NreLauncher@@QEAA@AEBV0@@Z
+2   0x00000400 0x140001000 GLOBAL FUNC 0    n4mig.exe ??0NreLauncher@@QEAA@XZ
+3   0x00000410 0x140001010 GLOBAL FUNC 0    n4mig.exe ??4NreLauncher@@QEAAAEAV0@AEBV0@@Z
+4   0x000016f8 0x1400022f8 GLOBAL FUNC 0    n4mig.exe ??_7NreLauncher@@6B@
+############## hdbt.exe ##############
+--- sha256 / size ---
+cf09e637d5596c6afaf92079893fc95097a795202c18272d2d068e6eb0285d18  hdbt.exe
+35608
+--- rabin2 -I (header) ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:16:35 2024
+lang     msvc
+machine  AMD 64
+os       windows
+cc       ms
+signed   true
+subsys   Windows CUI
+--- rabin2 -l (libs) ---
+nre.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+--- rabin2 -E (exports) ---
+nth paddr      vaddr       bind   type size lib      name                               demangled
+―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x00000400 0x140001000 GLOBAL FUNC 0    hdbt.exe ??0NreLauncher@@QEAA@AEBV0@@Z
+2   0x00000400 0x140001000 GLOBAL FUNC 0    hdbt.exe ??0NreLauncher@@QEAA@XZ
+3   0x00000410 0x140001010 GLOBAL FUNC 0    hdbt.exe ??4NreLauncher@@QEAAAEAV0@AEBV0@@Z
+4   0x00001708 0x140002308 GLOBAL FUNC 0    hdbt.exe ??_7NreLauncher@@6B@
+############## console.exe ##############
+--- sha256 / size ---
+25b5a82699ee76c1ec380f75038822218871de05e55e48336fc9e1dfc69e1a83  console.exe
+98072
+--- rabin2 -I (header) ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:15:53 2024
+lang     c
+machine  AMD 64
+os       windows
+cc       ms
+signed   true
+subsys   Windows CUI
+--- rabin2 -l (libs) ---
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-filesystem-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+--- rabin2 -E (exports) ---
+nth paddr vaddr bind type size lib name demangled
+―――――――――――――――――――――――――――――――――――――――――――――――――
+############## dataExportTool.exe ##############
+--- sha256 / size ---
+35bc50493c45b788ba49ca43ea01a0089b8d2b3ca40001fd6438a09ce51d4dba  dataExportTool.exe
+78589192
+--- rabin2 -I (header) ---
+arch     x86
+baddr    0x400000
+bits     32
+class    PE32
+compiled Sat Dec 15 16:26:14 2018
+lang     c
+machine  i386
+os       windows
+cc       cdecl
+signed   true
+subsys   Windows GUI
+--- rabin2 -l (libs) ---
+kernel32.dll
+user32.dll
+gdi32.dll
+shell32.dll
+advapi32.dll
+comctl32.dll
+ole32.dll
+--- rabin2 -E (exports) ---
+nth paddr vaddr bind type size lib name demangled
+―――――――――――――――――――――――――――――――――――――――――――――――――
+############## nverify.exe ##############
+--- sha256 / size ---
+b03589268452a0b8c659c7ba0e72ddb0af29cc76c0f781a0fd8f7fe82b9b1326  nverify.exe
+529176
+--- rabin2 -I (header) ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:17:37 2024
+lang     c
+machine  AMD 64
+os       windows
+cc       ms
+signed   true
+subsys   Windows CUI
+--- rabin2 -l (libs) ---
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+--- rabin2 -E (exports) ---
+nth paddr      vaddr       bind   type size lib         name             demangled
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x0004c7e0 0x14004e1e0 GLOBAL FUNC 0    nverify.exe EC_P224
+2   0x0004c7e8 0x14004e1e8 GLOBAL FUNC 0    nverify.exe EC_P256
+3   0x0004c7f0 0x14004e1f0 GLOBAL FUNC 0    nverify.exe EC_P384
+4   0x0004c7f8 0x14004e1f8 GLOBAL FUNC 0    nverify.exe EC_P521
+5   0x0004cca0 0x14004e6a0 GLOBAL FUNC 0    nverify.exe PF_p224
+6   0x0004cca8 0x14004e6a8 GLOBAL FUNC 0    nverify.exe PF_p256
+7   0x0004ccb0 0x14004e6b0 GLOBAL FUNC 0    nverify.exe PF_p384
+8   0x0004ccb8 0x14004e6b8 GLOBAL FUNC 0    nverify.exe PF_p521
+9   0x00079a80 0x14007c080 GLOBAL FUNC 0    nverify.exe g_pRandomContext
+############## test.exe ##############
+--- sha256 / size ---
+1d15b198038c4625659733448ef7f33bba7acc57475479ce025ff2d9c8421ffd  test.exe
+50456
+--- rabin2 -I (header) ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:16:22 2024
+lang     msvc
+machine  AMD 64
+os       windows
+cc       ms
+signed   true
+subsys   Windows CUI
+--- rabin2 -l (libs) ---
+common.dll
+nre.dll
+cppunit.dll
+msvcp140.dll
+kernel32.dll
+vcruntime140.dll
+vcruntime140_1.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-filesystem-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+--- rabin2 -E (exports) ---
+nth paddr      vaddr       bind   type size lib      name                               demangled
+―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x00000a70 0x140001670 GLOBAL FUNC 0    test.exe ??0Nre@@QEAA@AEBV0@@Z
+2   0x00000a70 0x140001670 GLOBAL FUNC 0    test.exe ??0Nre@@QEAA@XZ
+3   0x00000a80 0x140001680 GLOBAL FUNC 0    test.exe ??0NreLauncher@@QEAA@AEBV0@@Z
+4   0x00000a80 0x140001680 GLOBAL FUNC 0    test.exe ??0NreLauncher@@QEAA@XZ
+5   0x00000dc0 0x1400019c0 GLOBAL FUNC 0    test.exe ??4Nre@@QEAAAEAV0@AEBV0@@Z
+6   0x00000dc0 0x1400019c0 GLOBAL FUNC 0    test.exe ??4NreLauncher@@QEAAAEAV0@AEBV0@@Z
+7   0x00004d48 0x140006748 GLOBAL FUNC 0    test.exe ??_7Nre@@6B@
+8   0x00004e08 0x140006808 GLOBAL FUNC 0    test.exe ??_7NreLauncher@@6B@

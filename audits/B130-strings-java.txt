@@ -1,0 +1,67 @@
+############## n4mig.exe ##############
+--- imports (non-CRT) ---
+1   0x1400021b0 NONE FUNC nre.dll                           ??1NreLauncher@@UEAA@XZ
+2   0x1400021b8 NONE FUNC nre.dll                           ?getInstance@NreLauncher@@SAPEAV1@XZ
+--- assembly identity / desc / class / profile ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.MigrateAXtoN4" type="win32"></assemblyIdentity>
+ <description>AX to N4 Migration Tool</description>
+com/tridium/nre/bootstrap/Bootstrap
+migrator:com.tridium.migrator.Migrate
+############## hdbt.exe ##############
+--- imports (non-CRT) ---
+1   0x1400021b0 NONE FUNC nre.dll                           ??1NreLauncher@@UEAA@XZ
+2   0x1400021b8 NONE FUNC nre.dll                           ?getInstance@NreLauncher@@SAPEAV1@XZ
+--- assembly identity / desc / class / profile ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.HistoryDbTool" type="win32"></assemblyIdentity>
+ <description>History DB Tool</description>
+com/tridium/nre/bootstrap/Bootstrap
+hdbt.exe
+migrator:com.tridium.migrator.history.HistoryDbTool
+############## console.exe ##############
+--- imports (non-CRT) ---
+1   0x140003000 NONE FUNC KERNEL32.dll                          GetStdHandle
+2   0x1400031f0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsnprintf_s
+3   0x1400031f8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vfprintf
+--- assembly identity / desc / class / profile ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Console" type="win32"></assemblyIdentity>
+ <description>Console for Niagara Environment</description>
+SEVERE: Failed to initialize niagara_home environment variable, can not launch console
+SEVERE: Failed to initialize path environment variable, can not launch console
+SEVERE: Failed to initialize path, can not launch console
+SetConsoleCP
+SetConsoleOutputCP
+SetConsoleScreenBufferSize
+SetConsoleTextAttribute
+SetConsoleTitleA
+############## test.exe ##############
+--- imports (non-CRT) ---
+1   0x1400063a8 NONE FUNC common.dll                           ?next@DirectoryListing@@QEAAXPEAPEAVDirectoryListingEntry@@@Z
+2   0x1400063b0 NONE FUNC common.dll                           ?hasNext@DirectoryListing@@QEAA_NXZ
+3   0x1400063b8 NONE FUNC common.dll                           ?verifyPath@FileUtil@@SA_NPEBD@Z
+4   0x1400063c0 NONE FUNC common.dll                           ??1DirectoryListingEntry@@QEAA@XZ
+5   0x1400063c8 NONE FUNC common.dll                           ??1DirectoryListing@@QEAA@XZ
+6   0x1400063d0 NONE FUNC common.dll                           ?exists@FileUtil@@SA_NPEBD@Z
+7   0x1400063d8 NONE FUNC common.dll                           ?make@DirectoryListing@@SAPEAV1@PEBD@Z
+8   0x1400063e0 NONE FUNC common.dll                           ?fixFilePath@FileUtil@@SAPEADPEBDPEADH@Z
+1   0x1400064d0 NONE FUNC nre.dll                              ?getInstance@NreLauncher@@SAPEAV1@XZ
+2   0x1400064d8 NONE FUNC nre.dll                              ??1Nre@@UEAA@XZ
+3   0x1400064e0 NONE FUNC nre.dll                              ?getInstance@Nre@@SAPEAV1@XZ
+4   0x1400064e8 NONE FUNC nre.dll                              ??1NreLauncher@@UEAA@XZ
+1   0x1400063f0 NONE FUNC cppunit.dll                          ?write@XmlOutputter@CppUnit@@UEAAXXZ
+2   0x1400063f8 NONE FUNC cppunit.dll                          ??1XmlOutputter@CppUnit@@UEAA@XZ
+3   0x140006400 NONE FUNC cppunit.dll                          ??0XmlOutputter@CppUnit@@QEAA@PEAVTestResultCollector@1@AEAV?$basic_ostream@DU?$char_traits@D@std@@@std@@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@4@@Z
+4   0x140006408 NONE FUNC cppunit.dll                          ?write@CompilerOutputter@CppUnit@@UEAAXXZ
+5   0x140006410 NONE FUNC cppunit.dll                          ??1CompilerOutputter@CppUnit@@UEAA@XZ
+6   0x140006418 NONE FUNC cppunit.dll                          ??0TestResult@CppUnit@@QEAA@PEAVSynchronizationObject@SynchronizedObject@1@@Z
+7   0x140006420 NONE FUNC cppunit.dll                          ??1TestResult@CppUnit@@UEAA@XZ
+8   0x140006428 NONE FUNC cppunit.dll                          ?addListener@TestResult@CppUnit@@UEAAXPEAVTestListener@2@@Z
+9   0x140006430 NONE FUNC cppunit.dll                          ?wasSuccessful@TestSuccessListener@CppUnit@@UEBA_NXZ
+10  0x140006438 NONE FUNC cppunit.dll                          ??0TestResultCollector@CppUnit@@QEAA@PEAVSynchronizationObject@SynchronizedObject@1@@Z
+11  0x140006440 NONE FUNC cppunit.dll                          ??1TestResultCollector@CppUnit@@UEAA@XZ
+12  0x140006448 NONE FUNC cppunit.dll                          ?runTests@TestResultCollector@CppUnit@@UEBAHXZ
+13  0x140006450 NONE FUNC cppunit.dll                          ?testFailuresTotal@TestResultCollector@CppUnit@@UEBAHXZ
+--- assembly identity / desc / class / profile ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Test" type="win32"></assemblyIdentity>
+ <description>Niagara Test Runner</description>
+ usage:
+com/tridium/nre/bootstrap/Bootstrap

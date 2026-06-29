@@ -1,0 +1,65 @@
+### console.exe ###
+1   0x140003000 NONE FUNC KERNEL32.dll                          GetStdHandle
+2   0x140003008 NONE FUNC KERNEL32.dll                          GetModuleFileNameA
+4   0x140003018 NONE FUNC KERNEL32.dll                          SetConsoleCP
+5   0x140003020 NONE FUNC KERNEL32.dll                          SetConsoleOutputCP
+6   0x140003028 NONE FUNC KERNEL32.dll                          SetConsoleScreenBufferSize
+7   0x140003030 NONE FUNC KERNEL32.dll                          SetConsoleTextAttribute
+8   0x140003038 NONE FUNC KERNEL32.dll                          SetConsoleTitleA
+20  0x140003098 NONE FUNC KERNEL32.dll                          GetSystemTimeAsFileTime
+20  0x1400031d8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     system
+1   0x140003100 NONE FUNC api-ms-win-crt-filesystem-l1-1-0.dll  _chdir
+SEVERE: Failed to initialize path, can not launch console
+path=%s;%s;
+SEVERE: Failed to initialize path environment variable, can not launch console
+niagara_home=%s
+SEVERE: Failed to initialize niagara_home environment variable, can not launch console
+# WARNING: Failed to change directory to '%s' (errno = %d)
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Console" type="win32"></assemblyIdentity>
+ <description>Console for Niagara Environment</description>
+### dataExportTool.exe (NSIS) ###
+bits     32
+class    PE32
+compiled Sat Dec 15 16:26:14 2018
+signed   true
+subsys   Windows GUI
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><assemblyIdentity version="1.0.0.0" processorArchitecture="*" name="Nullsoft.NSIS.exehead" type="win32"/><description>Nullsoft Install System v3.04</description><trustInfo xmlns="urn:schemas-microsoft-com:asm.v3"><security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security></trustInfo><compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1"><application><supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/><supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/><supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/><supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}"/></application></compatibility></assembly>
+Honeywell International Inc.0
+Honeywell International Inc.1%0#
+NullsoftInst
+nSisRQrY
+### nverify.exe identity+mocana (B126 xref) ###
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Niagara4.NVerify.exe" type="win32"></assemblyIdentity>
+ <description>Niagara NVerify</description>
+%s is not supported by nverify
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+Checksum for manifest does not match signature
+Comma separated list of entry names that are allowed to be unsigned. Use * for wildcard.
+Could not find manifest in archive
+Could not read manifest from archive
+EC_P224
+EC_P256
+1   0x0004c7e0 0x14004e1e0 GLOBAL FUNC 0    nverify.exe EC_P224
+2   0x0004c7e8 0x14004e1e8 GLOBAL FUNC 0    nverify.exe EC_P256
+3   0x0004c7f0 0x14004e1f0 GLOBAL FUNC 0    nverify.exe EC_P384
+4   0x0004c7f8 0x14004e1f8 GLOBAL FUNC 0    nverify.exe EC_P521
+5   0x0004cca0 0x14004e6a0 GLOBAL FUNC 0    nverify.exe PF_p224
+6   0x0004cca8 0x14004e6a8 GLOBAL FUNC 0    nverify.exe PF_p256
+7   0x0004ccb0 0x14004e6b0 GLOBAL FUNC 0    nverify.exe PF_p384
+8   0x0004ccb8 0x14004e6b8 GLOBAL FUNC 0    nverify.exe PF_p521
+### n4mig/hdbt/test exports+profiles ###
+--n4mig--
+migrator:com.tridium.migrator.Migrate
+com/tridium/nre/bootstrap/Bootstrap
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.MigrateAXtoN4" type="win32"></assemblyIdentity>
+ <description>AX to N4 Migration Tool</description>
+--hdbt--
+migrator:com.tridium.migrator.history.HistoryDbTool
+com/tridium/nre/bootstrap/Bootstrap
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.HistoryDbTool" type="win32"></assemblyIdentity>
+ <description>History DB Tool</description>
+--test--
+test:javax.baja.test.TestRunner
+com/tridium/nre/bootstrap/Bootstrap
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Test" type="win32"></assemblyIdentity>
+ <description>Niagara Test Runner</description>
