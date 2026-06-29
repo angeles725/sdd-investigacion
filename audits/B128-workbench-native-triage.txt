@@ -1,0 +1,195 @@
+### B128 N5 Workbench native shell — raw triage evidence
+### date: Mon Jun 29 06:00:41 UTC 2026
+### bin: /mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin
+
+===== sha256sum =====
+2a428fc23236760a1f34102985acca0b4495c4841dfcc1d27e4206203a27ee7d  wb.exe
+58b896cc46eb9f3f6450d1efb05f8fa1cfdea665fe98b791f0b5df9393f9521a  wb_w.exe
+b59eb25171dc62e00d5319dacfca6d366665806898412edd5c594778c1f33f55  trayIcon.dll
+3587ae46f8c7666d15489957a68704be0cd583dfa48882b2abd9de33966313e9  alarmDialog.dll
+
+===== rabin2 -I (all) =====
+--- wb.exe ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:16:26 2024
+lang     msvc
+cc       ms
+signed   true
+stripped false
+subsys   Windows CUI
+
+--- wb_w.exe ---
+arch     x86
+baddr    0x140000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:16:31 2024
+lang     msvc
+cc       ms
+signed   true
+stripped false
+subsys   Windows GUI
+
+--- trayIcon.dll ---
+arch     x86
+baddr    0x180000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:09:15 2024
+lang     c
+cc       ms
+signed   true
+stripped false
+subsys   Windows GUI
+
+--- alarmDialog.dll ---
+arch     x86
+baddr    0x180000000
+bits     64
+class    PE32+
+compiled Mon Jan  8 13:08:55 2024
+lang     c
+cc       ms
+signed   true
+stripped false
+subsys   Windows GUI
+
+===== rabin2 -l libs =====
+--- wb.exe ---
+nre.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+
+--- wb_w.exe ---
+nre.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+
+--- trayIcon.dll ---
+shell32.dll
+user32.dll
+kernel32.dll
+vcruntime140.dll
+vcruntime140_1.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+
+--- alarmDialog.dll ---
+gdi32.dll
+user32.dll
+kernel32.dll
+vcruntime140.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+
+===== rabin2 -i imports (wb launchers: nre.dll bind) =====
+--- wb.exe ---
+1   0x1400021b0 NONE FUNC nre.dll                           ??1NreLauncher@@UEAA@XZ
+2   0x1400021b8 NONE FUNC nre.dll                           ?getInstance@NreLauncher@@SAPEAV1@XZ
+5   0x140002120 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll _get_initial_narrow_environment
+1   0x140002198 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll   _set_fmode
+2   0x1400021a0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll   __p__commode
+
+--- wb_w.exe ---
+1   0x1400021b8 NONE FUNC nre.dll                           ??1NreLauncher@@UEAA@XZ
+2   0x1400021c0 NONE FUNC nre.dll                           ?getInstance@NreLauncher@@SAPEAV1@XZ
+1   0x140002000 NONE FUNC KERNEL32.dll                      GetStartupInfoW
+2   0x140002110 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll _get_narrow_winmain_command_line
+1   0x1400021a0 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll   _set_fmode
+2   0x1400021a8 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll   __p__commode
+
+===== rabin2 -E exports =====
+--- wb.exe ---
+1   0x00000400 0x140001000 GLOBAL FUNC 0    wb.exe ??0NreLauncher@@QEAA@AEBV0@@Z
+2   0x00000400 0x140001000 GLOBAL FUNC 0    wb.exe ??0NreLauncher@@QEAA@XZ
+3   0x00000410 0x140001010 GLOBAL FUNC 0    wb.exe ??4NreLauncher@@QEAAAEAV0@AEBV0@@Z
+4   0x000016d8 0x1400022d8 GLOBAL FUNC 0    wb.exe ??_7NreLauncher@@6B@
+
+--- trayIcon.dll ---
+1   0x00000430 0x180001030 GLOBAL FUNC 0    trayIcon.dll Java_com_tridium_alarm_ui_BTrayIcon_nativeFreeImage
+2   0x00000450 0x180001050 GLOBAL FUNC 0    trayIcon.dll Java_com_tridium_alarm_ui_BTrayIcon_nativeHide
+3   0x00000460 0x180001060 GLOBAL FUNC 0    trayIcon.dll Java_com_tridium_alarm_ui_BTrayIcon_nativeLoadImage
+4   0x000004e0 0x1800010e0 GLOBAL FUNC 0    trayIcon.dll Java_com_tridium_alarm_ui_BTrayIcon_nativeShow
+5   0x000005b0 0x1800011b0 GLOBAL FUNC 0    trayIcon.dll Java_com_tridium_alarm_ui_BTrayIcon_nativeUpdate
+
+--- alarmDialog.dll ---
+1   0x00000400 0x180001000 GLOBAL FUNC 0    alarmDialog.dll Java_com_tridium_alarm_ui_BAlarmDialog_getPixel
+2   0x00000410 0x180001010 GLOBAL FUNC 0    alarmDialog.dll Java_com_tridium_alarm_ui_BAlarmDialog_releaseNativeResources
+3   0x00000490 0x180001090 GLOBAL FUNC 0    alarmDialog.dll Java_com_tridium_alarm_ui_BAlarmDialog_setAlwaysOnTop
+4   0x00000520 0x180001120 GLOBAL FUNC 0    alarmDialog.dll Java_com_tridium_alarm_ui_BAlarmDialog_toTop
+
+===== trayIcon.dll imports (tray/window/msgloop) =====
+1   0x180003090 NONE FUNC SHELL32.dll                       ExtractIconA
+2   0x180003098 NONE FUNC SHELL32.dll                       Shell_NotifyIconA
+1   0x1800030a8 NONE FUNC USER32.dll                        DispatchMessageA
+2   0x1800030b0 NONE FUNC USER32.dll                        TranslateMessage
+3   0x1800030b8 NONE FUNC USER32.dll                        GetMessageA
+4   0x1800030c0 NONE FUNC USER32.dll                        DestroyIcon
+5   0x1800030c8 NONE FUNC USER32.dll                        SetWindowLongPtrA
+6   0x1800030d0 NONE FUNC USER32.dll                        GetWindowLongPtrA
+7   0x1800030d8 NONE FUNC USER32.dll                        DestroyWindow
+8   0x1800030e0 NONE FUNC USER32.dll                        CreateWindowExA
+9   0x1800030e8 NONE FUNC USER32.dll                        RegisterClassExA
+10  0x1800030f0 NONE FUNC USER32.dll                        DefWindowProcA
+11  0x1800030f8 NONE FUNC USER32.dll                        PostThreadMessageA
+
+===== alarmDialog.dll imports (window/gdi) =====
+1   0x180003000 NONE FUNC GDI32.dll                         GetPixel
+1   0x1800030a8 NONE FUNC USER32.dll                        GetWindowThreadProcessId
+2   0x1800030b0 NONE FUNC USER32.dll                        EnumWindows
+3   0x1800030b8 NONE FUNC USER32.dll                        GetWindowTextA
+4   0x1800030c0 NONE FUNC USER32.dll                        SetWindowTextA
+5   0x1800030c8 NONE FUNC USER32.dll                        ReleaseDC
+6   0x1800030d0 NONE FUNC USER32.dll                        GetDC
+7   0x1800030d8 NONE FUNC USER32.dll                        GetForegroundWindow
+8   0x1800030e0 NONE FUNC USER32.dll                        SetWindowPos
+9   0x1800030e8 NONE FUNC USER32.dll                        ShowWindow
+10  0x1800030f0 NONE FUNC USER32.dll                        DestroyWindow
+
+===== key strings: main classes / identities =====
+--- wb.exe ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Workbench" type="win32"></assemblyIdentity>
+ <description>Niagara Workbench</description>
+com/tridium/nre/bootstrap/Bootstrap
+workbench:com.tridium.workbench.shell.WbMain
+
+--- wb_w.exe ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.WorkbenchWrap" type="win32"></assemblyIdentity>
+ <description>Niagara Workbench</description>
+com/tridium/nre/bootstrap/Bootstrap
+workbench:com.tridium.workbench.shell.WbMain
+
+--- station.exe ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Station" type="win32"></assemblyIdentity>
+ <description>Niagara Station</description>
+com.tridium.sys.station.Station
+com/tridium/nre/bootstrap/Bootstrap
+
+--- nre.exe ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Launcher" type="win32"></assemblyIdentity>
+ <description>Niagara Runtime Launcher</description>
+com/tridium/nre/bootstrap/Bootstrap
+
+--- trayIcon.dll ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.AlarmTray" type="win32"></assemblyIdentity>
+ <description>Niagara Alarm Tray Library</description>
+TrayIconHandlerClass
+
+--- alarmDialog.dll ---
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.AlarmDialog" type="win32"></assemblyIdentity>
+ <description>Niagara Alarm Dialog Library</description>
+
