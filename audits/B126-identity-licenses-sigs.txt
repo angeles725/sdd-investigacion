@@ -1,0 +1,60 @@
+### N3 EVIDENCE SNAPSHOT (B126) ###
+## identities
+-- libciper.so --
+arch     arm
+bits     16
+class    ELF32
+compiler GCC: (GNU) 5.4.0 [qnx700 1233] GCC: (GNU) 5.4.0 [qnx700 1234]
+crypto   false
+os       linux
+stripped false
+-- dsfspi.dll --
+arch     x86
+bits     64
+class    PE32+
+signed   true
+-- nverify.exe --
+arch     x86
+bits     64
+class    PE32+
+signed   true
+
+## dsfspi assembly identity / Mocana
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.DsfSpiLib" type="win32"></assemblyIdentity>
+ <description>Mocana DSF library as a Java security provider</description>
+
+## signature file formats
+nre.jar.sig (module/DSF):
+00000000: 6321 13bc 5f23 b7d0 395e c3ac 736f 64ac  c!.._#..9^..sod.
+ size=256 bytes (raw RSA-2048)
+libciper.so.sig (embedded QNX lib):
+00000000: 3045 0220 2ac6 4473 353e cf8a 5450 090c  0E. *.Ds5>..TP..
+ size=71 bytes (DER ECDSA P-256: 30 45 02 20 r 02 21 00 s)
+
+## license + certificate files
+--- HoneywellCentraLine.license ---
+<license vendor="HoneywellCentraLine" expiration="2027-03-31" hostId="Win-6E6E-10AC-D1DD-8276" version="4.15" generated="2026-04-02">
+ <feature name="clCbus" expiration="2027-03-31" history.limit="none" point.limit="none" schedule.limit="none" device.limit="none"/>
+ <signature>MC4CFQDOSizKvGQPhgjQ7JjqUSRDEDz3ZgIVAI30TFBJxxyTbcBA+MKBkK5SLBY0</signature>
+</license>
+--- Tridium.certificate ---
+<certificate version="1.0" vendor="Tridium" generated="2003-07-16" expiration="never">
+ <publicKey algorthm="DSA">
+MIIBtzCCASwGByqGSM44BAEwggEfAoGBAP1/U4EddRIpUt9KnC7s5Of2EbdSPO9EAMMeP4C2USZ
+pRV1AIlH7WT2NWPq/xfW6MPbLm1Vs14E7gB00b/JmYLdrmVClpJ+f6AR7ECLCT7up1/63xhv4O1
+fnxqimFQ8E+4P208UewwI1VBNaFpEy9nXzrith1yrv8iIDGZ3RSAHHAhUAl2BQjxUjC8yykrmCo
+uuEC/BYHPUCgYEA9+GghdabPd7LvKtcNrhXuXmUr7v6OuqC+VdMCz0HgmdRWVeOutRZT+ZxBxCB
+gLRJFnEj6EwoFhO3zwkyjMim4TwWeotUfI0o4KOuHiuzpnWRbqN/C/ohNWLx+2J6ASQ7zKTxvqh
+RkImog9/hWuWfBpKLZl6Ae1UlZAFMO/7PSSoDgYQAAoGACo/ytO+Pq+JBhXSiC1VhdTc5f6MBId
+NbaBJ+Xr+y8BHPCHEWMqAhs2i3hSfck+lY++A7ilXWhQqyhry1wE3qWGPKLVGAoJltIzUCaD5cg
+aNnjjx7gNHtHI+afH+IeBQSzbiSXaP2sRk/Nm1avsdVjKXaysPWB6l5lZB097NTI7I=
+ </publicKey>
+ <signature>MC0CFQCWeuny190mtvpsHDo9UIJoLlEBPAIUVm/vjfqReAvrHUwoXIH//ik9dcE=</signature>
+</certificate>
+
+## decoded DSA signatures (DER)
+license sig:
+00000000: 302e 0215 00ce 4a2c cabc 640f 8608 d0ec  0.....J,..d.....
+00000010: 98ea 5124 4310 3cf7 6602 1500 8df4 4c50  ..Q$C.<.f.....LP
+00000020: 49c7 1c93 6dc0 40f8 c281 90ae 522c 1634  I...m.@.....R,.4
+Tridium root pubkey OID id-dsa(1.2.840.10040.4.1) present: yes (308201b7...06072a8648ce380401), p=1024-bit

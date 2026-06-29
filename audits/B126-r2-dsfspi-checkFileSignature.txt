@@ -1,0 +1,291 @@
+┌ 1200: sym.dsfspi.dll__checkFileSignature_DsfUtil__SAHPEAEHPEBDH_Z (int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4);
+│ `- args(rcx, rdx, r8, r9) vars(4:sp[0x8..0x180])
+; public: static int __cdecl DsfUtil::checkFileSignature(unsigned char
+; * __ptr64, int, char const * __ptr64, int)
+│           0x18002bd40      48895c2420     mov qword [var_20h], rbx
+│           0x18002bd45      55             push rbp
+│           0x18002bd46      56             push rsi
+│           0x18002bd47      57             push rdi
+│           0x18002bd48      4156           push r14
+│           0x18002bd4a      4157           push r15
+│           0x18002bd4c      4881ec5001..   sub rsp, 0x150
+│           0x18002bd53      488b05ee91..   mov rax, qword [0x180054f48] ; [0x180054f48:8]=0x2b992ddfa232 ; "2\xa2\xdf-\x99+"
+│           0x18002bd5a      4833c4         xor rax, rsp
+│           0x18002bd5d      4889842440..   mov qword [var_140h], rax
+│           0x18002bd65      4d8bf8         mov r15, r8                ; arg3
+│           0x18002bd68      8bf2           mov esi, edx               ; arg2
+│           0x18002bd6a      488bf9         mov rdi, rcx               ; arg1
+│           0x18002bd6d      4d85c0         test r8, r8                ; arg3
+│       ┌─< 0x18002bd70      0f8430040000   je 0x18002c1a6
+│       │   0x18002bd76      418d41ff       lea eax, [r9 - 1]          ; arg4
+│       │   0x18002bd7a      3dfe000000     cmp eax, 0xfe              ; 254
+│      ┌──< 0x18002bd7f      0f8721040000   ja 0x18002c1a6
+│      ││   0x18002bd85      4885c9         test rcx, rcx
+│     ┌───< 0x18002bd88      0f84f3030000   je 0x18002c181
+│     │││   0x18002bd8e      81faf4010000   cmp edx, 0x1f4             ; 500
+│    ┌────< 0x18002bd94      0f8fe7030000   jg 0x18002c181
+│    ││││   0x18002bd9a      488d0def6f..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│    ││││   0x18002bda1      ff1581230000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│    ││││   0x18002bda7      4885c0         test rax, rax
+│   ┌─────< 0x18002bdaa      740c           je 0x18002bdb8
+│   │││││   0x18002bdac      488d0ded6b..   lea rcx, str.INFO__DsfUtil::checkFileSignature__creating_signature_object_n ; 0x1800429a0 ; "INFO [DsfUtil::checkFileSignature] creating signature object\n"
+│   │││││   0x18002bdb3      e868b1ffff     call 0x180026f20
+│   └─────> 0x18002bdb8      b940000000     mov ecx, 0x40              ; '@' ; 64
+│    ││││   0x18002bdbd      e83a0c0000     call 0x18002c9fc
+│    ││││   0x18002bdc2      4889442420     mov qword [var_20h_2], rax
+│    ││││   0x18002bdc7      4885c0         test rax, rax
+│   ┌─────< 0x18002bdca      7424           je 0x18002bdf0
+│   │││││   0x18002bdcc      0f57c0         xorps xmm0, xmm0
+│   │││││   0x18002bdcf      0f1100         movups xmmword [rax], xmm0
+│   │││││   0x18002bdd2      0f114010       movups xmmword [rax + 0x10], xmm0
+│   │││││   0x18002bdd6      0f114020       movups xmmword [rax + 0x20], xmm0
+│   │││││   0x18002bdda      0f114030       movups xmmword [rax + 0x30], xmm0
+│   │││││   0x18002bdde      ba01000000     mov edx, 1
+│   │││││   0x18002bde3      488bc8         mov rcx, rax
+│   │││││   0x18002bde6      e875efffff     call sym.dsfspi.dll___0DsfShaWithRsaSignature__QEAA_W4SignatureDigestType___Z ; public: void __cdecl DsfShaWithRsaSignature::constructor(enum SignatureDigestType) __ptr64
+│   │││││   0x18002bdeb      488bd8         mov rbx, rax
+│  ┌──────< 0x18002bdee      eb02           jmp 0x18002bdf2
+│  │└─────> 0x18002bdf0      33db           xor ebx, ebx
+│  │ ││││   ; CODE XREF from public: static int __cdecl DsfUtil::checkFileSignature(unsigned char * __ptr64, int, char const * __ptr64, int) @ 0x18002bdee(x)
+│  └──────> 0x18002bdf2      4c8bc7         mov r8, rdi
+│    ││││   0x18002bdf5      8bd6           mov edx, esi
+│    ││││   0x18002bdf7      488bcb         mov rcx, rbx
+│    ││││   0x18002bdfa      e871f2ffff     call sym.dsfspi.dll__nativeInitVerify_DsfShaWithRsaSignature__QEAA_AW4enum_errDescrValues__HPEAE_Z ; public: enum enum_errDescrValues __cdecl DsfShaWithRsaSignature::nativeInitVerify(int, unsigned char * __ptr64) __ptr64
+│    ││││   0x18002bdff      8bf8           mov edi, eax
+│    ││││   0x18002be01      488d0d886f..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│    ││││   0x18002be08      85c0           test eax, eax
+│   ┌─────< 0x18002be0a      7441           je 0x18002be4d
+│   │││││   0x18002be0c      ff1516230000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│   │││││   0x18002be12      4885c0         test rax, rax
+│  ┌──────< 0x18002be15      7416           je 0x18002be2d
+│  ││││││   0x18002be17      8bcf           mov ecx, edi
+│  ││││││   0x18002be19      e8e27bfdff     call 0x180003a00
+│  ││││││   0x18002be1e      488bd0         mov rdx, rax
+│  ││││││   0x18002be21      488d0db86b..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__unable_to_initalize_signature_verification:__s ; 0x1800429e0 ; "ERROR [DsfUtil::checkFileSignature] unable to initalize signature verification: %s"
+│  ││││││   0x18002be28      e8f3b0ffff     call 0x180026f20
+│  └──────> 0x18002be2d      4885db         test rbx, rbx
+│  ┌──────< 0x18002be30      7414           je 0x18002be46
+│  ││││││   0x18002be32      488b03         mov rax, qword [rbx]
+│  ││││││   0x18002be35      ba01000000     mov edx, 1
+│  ││││││   0x18002be3a      488bcb         mov rcx, rbx
+│  ││││││   0x18002be3d      488b00         mov rax, qword [rax]
+│  ││││││   0x18002be40      ff15d2230000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│ ┌└──────> 0x18002be46      8bc7           mov eax, edi
+│ ╎┌──────< 0x18002be48      e97c030000     jmp 0x18002c1c9
+│ ╎│└─────> 0x18002be4d      ff15d5220000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎│ ││││   0x18002be53      4885c0         test rax, rax
+│ ╎│┌─────< 0x18002be56      740f           je 0x18002be67
+│ ╎││││││   0x18002be58      498bd7         mov rdx, r15
+│ ╎││││││   0x18002be5b      488d0dde6b..   lea rcx, str.INFO__DsfUtil::checkFileSignature__reading_data_from_filePath__s_n ; 0x180042a40 ; "INFO [DsfUtil::checkFileSignature] reading data from filePath %s\n"
+│ ╎││││││   0x18002be62      e8b9b0ffff     call 0x180026f20
+│ ╎│└─────> 0x18002be67      488d152e1d..   lea rdx, [0x18003db9c]     ; "rb"
+│ ╎│ ││││   0x18002be6e      498bcf         mov rcx, r15
+│ ╎│ ││││   0x18002be71      ff1569230000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fopen] ; [0x18002e1e0:8]=0x4aed6 reloc.api_ms_win_crt_stdio_l1_1_0.dll_fopen ; file*fopen(const char *filename, const char *mode)
+│ ╎│ ││││   0x18002be77      488be8         mov rbp, rax
+│ ╎│ ││││   0x18002be7a      4885c0         test rax, rax
+│ ╎│┌─────< 0x18002be7d      752a           jne 0x18002bea9
+│ ╎││││││   0x18002be7f      488d0d0a6f..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎││││││   0x18002be86      ff159c220000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎││││││   0x18002be8c      4885c0         test rax, rax
+│ ────────< 0x18002be8f      0f8496010000   je 0x18002c02b
+│ ╎││││││   0x18002be95      498bd7         mov rdx, r15
+│ ╎││││││   0x18002be98      488d0df16b..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__unable_to_open_filePath__s_n ; 0x180042a90 ; "ERROR [DsfUtil::checkFileSignature] unable to open filePath %s\n"
+│ ╎││││││   0x18002be9f      e87cb0ffff     call 0x180026f20
+│ ────────< 0x18002bea4      e982010000     jmp 0x18002c02b
+│ ╎│└─────> 0x18002bea9      b900280000     mov ecx, 0x2800
+│ ╎│ ││││   0x18002beae      e8850b0000     call 0x18002ca38
+│ ╎│ ││││   0x18002beb3      488bf0         mov rsi, rax
+│ ╎│ ││││   0x18002beb6      488d0dd36e..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎│ ││││   0x18002bebd      ff1565220000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎│ ││││   0x18002bec3      4885c0         test rax, rax
+│ ╎│┌─────< 0x18002bec6      740c           je 0x18002bed4
+│ ╎││││││   0x18002bec8      488d0d016c..   lea rcx, str.INFO__DsfUtil::checkFileSignature__reading_source_file_for_signature_n ; 0x180042ad0 ; "INFO [DsfUtil::checkFileSignature] reading source file for signature\n"
+│ ╎││││││   0x18002becf      e84cb0ffff     call 0x180026f20
+│ ╎│└─────> 0x18002bed4      4c8bcd         mov r9, rbp
+│ ╎│ ││││   0x18002bed7      ba01000000     mov edx, 1
+│ ╎│ ││││   0x18002bedc      41b800280000   mov r8d, 0x2800
+│ ╎│ ││││   0x18002bee2      488bce         mov rcx, rsi
+│ ╎│ ││││   0x18002bee5      ff15ed220000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fread] ; [0x18002e1d8:8]=0x4aede reloc.api_ms_win_crt_stdio_l1_1_0.dll_fread ; size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+│ ╎│ ││││   0x18002beeb      488bf8         mov rdi, rax
+│ ╎│ ││││   0x18002beee      483dffffff7f   cmp rax, 0x7fffffff
+│ ╎│┌─────< 0x18002bef4      774e           ja 0x18002bf44
+│ ╎││││││   0x18002bef6      66660f1f84..   nop word [rax + rax]
+│ ────────> 0x18002bf00      448bcf         mov r9d, edi
+│ ╎││││││   0x18002bf03      4533c0         xor r8d, r8d
+│ ╎││││││   0x18002bf06      488bd6         mov rdx, rsi
+│ ╎││││││   0x18002bf09      488bcb         mov rcx, rbx
+│ ╎││││││   0x18002bf0c      e84ff4ffff     call sym.dsfspi.dll__nativeUpdate_DsfShaWithRsaSignature__QEAA_AW4enum_errDescrValues__PEAEHH_Z ; public: enum enum_errDescrValues __cdecl DsfShaWithRsaSignature::nativeUpdate(unsigned char * __ptr64, int, int) __ptr64
+│ ╎││││││   0x18002bf11      448bf0         mov r14d, eax
+│ ╎││││││   0x18002bf14      85c0           test eax, eax
+│ ────────< 0x18002bf16      0f8538020000   jne 0x18002c154
+│ ╎││││││   0x18002bf1c      81ff00280000   cmp edi, 0x2800
+│ ────────< 0x18002bf22      7c75           jl 0x18002bf99
+│ ╎││││││   0x18002bf24      4c8bcd         mov r9, rbp
+│ ╎││││││   0x18002bf27      8d5001         lea edx, [rax + 1]
+│ ╎││││││   0x18002bf2a      41b800280000   mov r8d, 0x2800
+│ ╎││││││   0x18002bf30      488bce         mov rcx, rsi
+│ ╎││││││   0x18002bf33      ff159f220000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fread] ; [0x18002e1d8:8]=0x4aede reloc.api_ms_win_crt_stdio_l1_1_0.dll_fread ; size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+│ ╎││││││   0x18002bf39      488bf8         mov rdi, rax
+│ ╎││││││   0x18002bf3c      483dffffff7f   cmp rax, 0x7fffffff
+│ ────────< 0x18002bf42      76bc           jbe 0x18002bf00
+│ ╎│└─────> 0x18002bf44      488d0d456e..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎│ ││││   0x18002bf4b      ff15d7210000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎│ ││││   0x18002bf51      4885c0         test rax, rax
+│ ╎│┌─────< 0x18002bf54      740f           je 0x18002bf65
+│ ╎││││││   0x18002bf56      488bd7         mov rdx, rdi
+│ ╎││││││   0x18002bf59      488d0dc06b..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__bytes_read_from_file_exceeds_INT_MAX:__zu_n ; 0x180042b20 ; "ERROR [DsfUtil::checkFileSignature] bytes read from file exceeds INT_MAX: %zu\n"
+│ ╎││││││   ; CODE XREF from public: static int __cdecl DsfUtil::checkFileSignature(unsigned char * __ptr64, int, char const * __ptr64, int) @ 0x18002c17c(x)
+│ ────────> 0x18002bf60      e8bbafffff     call 0x180026f20
+│ ──└─────> 0x18002bf65      488bce         mov rcx, rsi
+│ ╎│ ││││   0x18002bf68      e84b0a0000     call 0x18002c9b8
+│ ╎│ ││││   0x18002bf6d      488bcd         mov rcx, rbp
+│ ╎│ ││││   0x18002bf70      ff1572220000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fclose] ; [0x18002e1e8:8]=0x4aecc reloc.api_ms_win_crt_stdio_l1_1_0.dll_fclose ; int fclose(FILE *stream)
+│ ╎│ ││││   0x18002bf76      4885db         test rbx, rbx
+│ ╎│┌─────< 0x18002bf79      7414           je 0x18002bf8f
+│ ╎││││││   0x18002bf7b      488b03         mov rax, qword [rbx]
+│ ╎││││││   0x18002bf7e      ba01000000     mov edx, 1
+│ ╎││││││   0x18002bf83      488bcb         mov rcx, rbx
+│ ╎││││││   0x18002bf86      488b00         mov rax, qword [rax]
+│ ╎││││││   0x18002bf89      ff1589220000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│ ╎│└─────> 0x18002bf8f      b8dee3ffff     mov eax, 0xffffe3de
+│ ╎│┌─────< 0x18002bf94      e930020000     jmp 0x18002c1c9
+│ ────────> 0x18002bf99      488bcd         mov rcx, rbp
+│ ╎││││││   0x18002bf9c      ff1546220000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fclose] ; [0x18002e1e8:8]=0x4aecc reloc.api_ms_win_crt_stdio_l1_1_0.dll_fclose ; int fclose(FILE *stream)
+│ ╎││││││   0x18002bfa2      33d2           xor edx, edx
+│ ╎││││││   0x18002bfa4      41b804010000   mov r8d, 0x104             ; 260
+│ ╎││││││   0x18002bfaa      488d4c2430     lea rcx, [var_30h]
+│ ╎││││││   0x18002bfaf      e844160000     call 0x18002d5f8
+│ ╎││││││   0x18002bfb4      4d8bcf         mov r9, r15
+│ ╎││││││   0x18002bfb7      4c8d05f66b..   lea r8, str._s.sig         ; 0x180042bb4 ; "%s.sig"
+│ ╎││││││   0x18002bfbe      ba04010000     mov edx, 0x104             ; 260
+│ ╎││││││   0x18002bfc3      488d4c2430     lea rcx, [var_30h]
+│ ╎││││││   0x18002bfc8      e843020000     call 0x18002c210
+│ ╎││││││   0x18002bfcd      488d0dbc6d..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎││││││   0x18002bfd4      ff154e210000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎││││││   0x18002bfda      4885c0         test rax, rax
+│ ────────< 0x18002bfdd      740c           je 0x18002bfeb
+│ ╎││││││   0x18002bfdf      488d0dda6b..   lea rcx, str.INFO__DsfUtil::checkFileSignature__open_signature_file_n ; 0x180042bc0 ; "INFO [DsfUtil::checkFileSignature] open signature file\n"
+│ ╎││││││   0x18002bfe6      e835afffff     call 0x180026f20
+│ ────────> 0x18002bfeb      488d15aa1b..   lea rdx, [0x18003db9c]     ; "rb"
+│ ╎││││││   0x18002bff2      488d4c2430     lea rcx, [var_30h]
+│ ╎││││││   0x18002bff7      ff15e3210000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fopen] ; [0x18002e1e0:8]=0x4aed6 reloc.api_ms_win_crt_stdio_l1_1_0.dll_fopen ; file*fopen(const char *filename, const char *mode)
+│ ╎││││││   0x18002bffd      488bf8         mov rdi, rax
+│ ╎││││││   0x18002c000      488d0d896d..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎││││││   0x18002c007      4885c0         test rax, rax
+│ ────────< 0x18002c00a      7542           jne 0x18002c04e
+│ ╎││││││   0x18002c00c      ff1516210000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎││││││   0x18002c012      4885c0         test rax, rax
+│ ────────< 0x18002c015      740c           je 0x18002c023
+│ ╎││││││   0x18002c017      488d0de26b..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__error_opening_signature_file_n ; 0x180042c00 ; "ERROR [DsfUtil::checkFileSignature] error opening signature file\n"
+│ ╎││││││   0x18002c01e      e8fdaeffff     call 0x180026f20
+│ ────────> 0x18002c023      488bce         mov rcx, rsi
+│ ╎││││││   0x18002c026      e88d090000     call 0x18002c9b8
+│ ╎││││││   ; CODE XREF from public: static int __cdecl DsfUtil::checkFileSignature(unsigned char * __ptr64, int, char const * __ptr64, int) @ 0x18002bea4(x)
+│ ────────> 0x18002c02b      4885db         test rbx, rbx
+│ ────────< 0x18002c02e      7414           je 0x18002c044
+│ ╎││││││   0x18002c030      488b03         mov rax, qword [rbx]
+│ ╎││││││   0x18002c033      ba01000000     mov edx, 1
+│ ╎││││││   0x18002c038      488bcb         mov rcx, rbx
+│ ╎││││││   0x18002c03b      488b00         mov rax, qword [rax]
+│ ╎││││││   0x18002c03e      ff15d4210000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│ ────────> 0x18002c044      b8dfe3ffff     mov eax, 0xffffe3df
+│ ────────< 0x18002c049      e97b010000     jmp 0x18002c1c9
+│ ────────> 0x18002c04e      ff15d4200000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎││││││   0x18002c054      4885c0         test rax, rax
+│ ────────< 0x18002c057      740c           je 0x18002c065
+│ ╎││││││   0x18002c059      488d0de86b..   lea rcx, str.INFO__DsfUtil::checkFileSignature__reading_key_n ; 0x180042c48 ; "INFO [DsfUtil::checkFileSignature] reading key\n"
+│ ╎││││││   0x18002c060      e8bbaeffff     call 0x180026f20
+│ ────────> 0x18002c065      4c8bcf         mov r9, rdi
+│ ╎││││││   0x18002c068      ba01000000     mov edx, 1
+│ ╎││││││   0x18002c06d      41b800280000   mov r8d, 0x2800
+│ ╎││││││   0x18002c073      488bce         mov rcx, rsi
+│ ╎││││││   0x18002c076      ff155c210000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fread] ; [0x18002e1d8:8]=0x4aede reloc.api_ms_win_crt_stdio_l1_1_0.dll_fread ; size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+│ ╎││││││   0x18002c07c      488be8         mov rbp, rax
+│ ╎││││││   0x18002c07f      488bcf         mov rcx, rdi
+│ ╎││││││   0x18002c082      ff1560210000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fclose] ; [0x18002e1e8:8]=0x4aecc reloc.api_ms_win_crt_stdio_l1_1_0.dll_fclose ; int fclose(FILE *stream)
+│ ╎││││││   0x18002c088      488d0d016d..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎││││││   0x18002c08f      ff1593200000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎││││││   0x18002c095      4881fdf401..   cmp rbp, 0x1f4             ; 500
+│ ────────< 0x18002c09c      7640           jbe 0x18002c0de
+│ ╎││││││   0x18002c09e      4885c0         test rax, rax
+│ ────────< 0x18002c0a1      740c           je 0x18002c0af
+│ ╎││││││   0x18002c0a3      488d0dce6b..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__invalid_key_size_n ; 0x180042c78 ; "ERROR [DsfUtil::checkFileSignature] invalid key size\n"
+│ ╎││││││   0x18002c0aa      e871aeffff     call 0x180026f20
+│ ────────> 0x18002c0af      488bce         mov rcx, rsi
+│ ╎││││││   0x18002c0b2      e801090000     call 0x18002c9b8
+│ ╎││││││   0x18002c0b7      4885db         test rbx, rbx
+│ ────────< 0x18002c0ba      0f84df000000   je 0x18002c19f
+│ ╎││││││   0x18002c0c0      488b03         mov rax, qword [rbx]
+│ ╎││││││   0x18002c0c3      ba01000000     mov edx, 1
+│ ╎││││││   0x18002c0c8      488bcb         mov rcx, rbx
+│ ╎││││││   0x18002c0cb      488b00         mov rax, qword [rax]
+│ ╎││││││   0x18002c0ce      ff1544210000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│ ╎││││││   0x18002c0d4      b8ebe1ffff     mov eax, 0xffffe1eb
+│ ────────< 0x18002c0d9      e9eb000000     jmp 0x18002c1c9
+│ ────────> 0x18002c0de      4885c0         test rax, rax
+│ ────────< 0x18002c0e1      740c           je 0x18002c0ef
+│ ╎││││││   0x18002c0e3      488d0dc66b..   lea rcx, str.INFO__DsfUtil::checkFileSignature__verifying_file_signature_n ; 0x180042cb0 ; "INFO [DsfUtil::checkFileSignature] verifying file signature\n"
+│ ╎││││││   0x18002c0ea      e831aeffff     call 0x180026f20
+│ ────────> 0x18002c0ef      448bcd         mov r9d, ebp
+│ ╎││││││   0x18002c0f2      4533c0         xor r8d, r8d
+│ ╎││││││   0x18002c0f5      488bd6         mov rdx, rsi
+│ ╎││││││   0x18002c0f8      488bcb         mov rcx, rbx
+│ ╎││││││   0x18002c0fb      e890f2ffff     call sym.dsfspi.dll__nativeVerify_DsfShaWithRsaSignature__QEAAHPEAEHH_Z ; public: int __cdecl DsfShaWithRsaSignature::nativeVerify(unsigned char * __ptr64, int, int) __ptr64
+│ ╎││││││   0x18002c100      8bf8           mov edi, eax
+│ ╎││││││   0x18002c102      488bce         mov rcx, rsi
+│ ╎││││││   0x18002c105      e8ae080000     call 0x18002c9b8
+│ ╎││││││   0x18002c10a      4885db         test rbx, rbx
+│ ────────< 0x18002c10d      7414           je 0x18002c123
+│ ╎││││││   0x18002c10f      488b0b         mov rcx, qword [rbx]
+│ ╎││││││   0x18002c112      488b01         mov rax, qword [rcx]
+│ ╎││││││   0x18002c115      ba01000000     mov edx, 1
+│ ╎││││││   0x18002c11a      488bcb         mov rcx, rbx
+│ ╎││││││   0x18002c11d      ff15f5200000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│ ────────> 0x18002c123      488d0d666c..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ ╎││││││   0x18002c12a      ff15f81f0000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ ╎││││││   0x18002c130      4885c0         test rax, rax
+│ └───────< 0x18002c133      0f840dfdffff   je 0x18002be46
+│  ││││││   0x18002c139      85ff           test edi, edi
+│  ││││││   0x18002c13b      488d0dae6b..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__file_signature_verification_failed_n ; 0x180042cf0 ; "ERROR [DsfUtil::checkFileSignature] file signature verification failed\n"
+│ ┌───────< 0x18002c142      7507           jne 0x18002c14b
+│ │││││││   0x18002c144      488d0df56b..   lea rcx, str.INFO__DsfUtil::checkFileSignature__file_signature_verification_succeeded_n ; 0x180042d40 ; "INFO [DsfUtil::checkFileSignature] file signature verification succeeded\n"
+│ └───────> 0x18002c14b      e8d0adffff     call 0x180026f20
+│  ││││││   0x18002c150      8bc7           mov eax, edi
+│ ┌───────< 0x18002c152      eb75           jmp 0x18002c1c9
+│ ────────> 0x18002c154      488d0d356c..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ │││││││   0x18002c15b      ff15c71f0000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ │││││││   0x18002c161      4885c0         test rax, rax
+│ ────────< 0x18002c164      0f84fbfdffff   je 0x18002bf65
+│ │││││││   0x18002c16a      418bce         mov ecx, r14d
+│ │││││││   0x18002c16d      e88e78fdff     call 0x180003a00
+│ │││││││   0x18002c172      488bd0         mov rdx, rax
+│ │││││││   0x18002c175      488d0df469..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__error_reading_source_file:__s_n ; 0x180042b70 ; "ERROR [DsfUtil::checkFileSignature] error reading source file: %s\n"
+│ ────────< 0x18002c17c      e9dffdffff     jmp 0x18002bf60
+│ │││└└───> 0x18002c181      488d0d086c..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ │││  ││   0x18002c188      ff159a1f0000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ │││  ││   0x18002c18e      4885c0         test rax, rax
+│ │││ ┌───< 0x18002c191      740c           je 0x18002c19f
+│ │││ │││   0x18002c193      488d0dc667..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__Invalid_key_provided_n ; 0x180042960 ; "ERROR [DsfUtil::checkFileSignature] Invalid key provided\n"
+│ │││ │││   0x18002c19a      e881adffff     call 0x180026f20
+│ ────└───> 0x18002c19f      b8ebe1ffff     mov eax, 0xffffe1eb
+│ │││ ┌───< 0x18002c1a4      eb23           jmp 0x18002c1c9
+│ │││ │└└─> 0x18002c1a6      488d0de36b..   lea rcx, str.dsf_debug     ; 0x180042d90 ; "dsf_debug"
+│ │││ │     0x18002c1ad      ff15751f0000   call qword [sym.imp.api_ms_win_crt_environment_l1_1_0.dll_getenv] ; [0x18002e128:8]=0x4af40 reloc.api_ms_win_crt_environment_l1_1_0.dll_getenv ; "@\xaf\x04" ; char *getenv(const char *name)
+│ │││ │     0x18002c1b3      4885c0         test rax, rax
+│ │││ │ ┌─< 0x18002c1b6      740c           je 0x18002c1c4
+│ │││ │ │   0x18002c1b8      488d0d6167..   lea rcx, str.ERROR__DsfUtil::checkFileSignature__Invalid_filePath_provided_n ; 0x180042920 ; "ERROR [DsfUtil::checkFileSignature] Invalid filePath provided\n"
+│ │││ │ │   0x18002c1bf      e85cadffff     call 0x180026f20
+│ │││ │ └─> 0x18002c1c4      b829e8ffff     mov eax, 0xffffe829
+│ │││ │     ; XREFS: CODE 0x18002be48  CODE 0x18002bf94  CODE 0x18002c049  
+│ │││ │     ; XREFS: CODE 0x18002c0d9  CODE 0x18002c152  CODE 0x18002c1a4  
+│ └└└─└───> 0x18002c1c9      488b8c2440..   mov rcx, qword [var_140h]
+│           0x18002c1d1      4833cc         xor rcx, rsp
+│           0x18002c1d4      e8b7030000     call 0x18002c590
+│           0x18002c1d9      488b9c2498..   mov rbx, qword [var_20h]
+│           0x18002c1e1      4881c45001..   add rsp, 0x150
+│           0x18002c1e8      415f           pop r15
+│           0x18002c1ea      415e           pop r14
+│           0x18002c1ec      5f             pop rdi
+│           0x18002c1ed      5e             pop rsi
+│           0x18002c1ee      5d             pop rbp
+└           0x18002c1ef      c3             ret

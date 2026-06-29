@@ -1,0 +1,11 @@
+nth paddr      vaddr       bind   type size lib         name             demangled
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x0004c7e0 0x14004e1e0 GLOBAL FUNC 0    nverify.exe EC_P224
+2   0x0004c7e8 0x14004e1e8 GLOBAL FUNC 0    nverify.exe EC_P256
+3   0x0004c7f0 0x14004e1f0 GLOBAL FUNC 0    nverify.exe EC_P384
+4   0x0004c7f8 0x14004e1f8 GLOBAL FUNC 0    nverify.exe EC_P521
+5   0x0004cca0 0x14004e6a0 GLOBAL FUNC 0    nverify.exe PF_p224
+6   0x0004cca8 0x14004e6a8 GLOBAL FUNC 0    nverify.exe PF_p256
+7   0x0004ccb0 0x14004e6b0 GLOBAL FUNC 0    nverify.exe PF_p384
+8   0x0004ccb8 0x14004e6b8 GLOBAL FUNC 0    nverify.exe PF_p521
+9   0x00079a80 0x14007c080 GLOBAL FUNC 0    nverify.exe g_pRandomContext

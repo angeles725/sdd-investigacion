@@ -1,0 +1,247 @@
+┌ 961: sym.nre.dll__isFeaturePresent_LicenseUtil__SA_NPEBD0_Z (int64_t arg1, int64_t arg2);
+│ `- args(rcx, rdx) vars(17:sp[0x10..0x430])
+; public: static bool __cdecl LicenseUtil::isFeaturePresent(char const
+; * __ptr64, char const * __ptr64)
+│           0x180001f90      4055           push rbp
+│           0x180001f92      53             push rbx
+│           0x180001f93      57             push rdi
+│           0x180001f94      4154           push r12
+│           0x180001f96      4155           push r13
+│           0x180001f98      4157           push r15
+│           0x180001f9a      488dac2408..   lea rbp, [rsp - 0x2f8]
+│           0x180001fa2      4881ecf803..   sub rsp, 0x3f8
+│           0x180001fa9      488b051882..   mov rax, qword [0x18001a1c8] ; [0x18001a1c8:8]=0x2b992ddfa232
+│           0x180001fb0      4833c4         xor rax, rsp
+│           0x180001fb3      488985e002..   mov qword [var_2e0h], rax
+│           0x180001fba      488bda         mov rbx, rdx               ; arg2
+│           0x180001fbd      488bf9         mov rdi, rcx               ; arg1
+│           0x180001fc0      4885c9         test rcx, rcx              ; arg1
+│       ┌─< 0x180001fc3      0f8466030000   je 0x18000232f
+│       │   0x180001fc9      4885d2         test rdx, rdx              ; arg2
+│      ┌──< 0x180001fcc      0f845d030000   je 0x18000232f
+│      ││   0x180001fd2      33d2           xor edx, edx
+│      ││   0x180001fd4      488d4dd0       lea rcx, [var_30h]
+│      ││   0x180001fd8      41b800010000   mov r8d, 0x100             ; 256
+│      ││   0x180001fde      e863bb0000     call 0x18000db46
+│      ││   0x180001fe3      33d2           xor edx, edx
+│      ││   0x180001fe5      488d8dd000..   lea rcx, [var_d0h]
+│      ││   0x180001fec      41b800010000   mov r8d, 0x100             ; 256
+│      ││   0x180001ff2      e84fbb0000     call 0x18000db46
+│      ││   0x180001ff7      4c8bcf         mov r9, rdi
+│      ││   0x180001ffa      4c8d0597ce..   lea r8, str._license_vendor__s_ ; 0x18000ee98 ; "<license vendor="%s""
+│      ││   0x180002001      ba00010000     mov edx, 0x100             ; 256
+│      ││   0x180002006      488d4dd0       lea rcx, [var_30h]
+│      ││   0x18000200a      e8b1faffff     call 0x180001ac0
+│      ││   0x18000200f      4c8bcb         mov r9, rbx
+│      ││   0x180002012      4c8d0597ce..   lea r8, str._feature_name__s_ ; 0x18000eeb0 ; "<feature name="%s""
+│      ││   0x180002019      ba00010000     mov edx, 0x100             ; 256
+│      ││   0x18000201e      488d8dd000..   lea rcx, [var_d0h]
+│      ││   0x180002025      e896faffff     call 0x180001ac0
+│      ││   0x18000202a      0f57c0         xorps xmm0, xmm0
+│      ││   0x18000202d      488d8dd001..   lea rcx, [var_1d0h]
+│      ││   0x180002034      33c0           xor eax, eax
+│      ││   0x180002036      33d2           xor edx, edx
+│      ││   0x180002038      41b804010000   mov r8d, 0x104             ; 260
+│      ││   0x18000203e      8945c0         mov dword [var_40h], eax
+│      ││   0x180002041      0f11442440     movups xmmword [var_sp_40h], xmm0
+│      ││   0x180002046      0f11442450     movups xmmword [var_50h], xmm0
+│      ││   0x18000204b      0f11442460     movups xmmword [var_60h], xmm0
+│      ││   0x180002050      0f11442470     movups xmmword [var_70h], xmm0
+│      ││   0x180002055      0f114580       movups xmmword [var_80h], xmm0
+│      ││   0x180002059      0f114590       movups xmmword [var_bp_70h], xmm0
+│      ││   0x18000205d      0f1145a0       movups xmmword [var_bp_60h], xmm0
+│      ││   0x180002061      0f1145b0       movups xmmword [var_bp_50h], xmm0
+│      ││   0x180002065      e8dcba0000     call 0x18000db46
+│      ││   0x18000206a      e8f1730000     call sym.nre.dll__getInstance_Nre__SAPEAV1_XZ ; public: static class Nre * __ptr64 __cdecl Nre::getInstance(void)
+│      ││   0x18000206f      488bd0         mov rdx, rax
+│      ││   0x180002072      488b08         mov rcx, qword [rax]
+│      ││   0x180002075      488b4168       mov rax, qword [rcx + 0x68]
+│      ││   0x180002079      488bca         mov rcx, rdx
+│      ││   0x18000207c      ff15dec60000   call qword [0x18000e760]   ; [0x18000e760:8]=0x18000dbe0
+│      ││   0x180002082      84c0           test al, al
+│     ┌───< 0x180002084      7511           jne 0x180002097
+│     │││   0x180002086      e8d5730000     call sym.nre.dll__getInstance_Nre__SAPEAV1_XZ ; public: static class Nre * __ptr64 __cdecl Nre::getInstance(void)
+│     │││   0x18000208b      4c8bc8         mov r9, rax
+│     │││   0x18000208e      488b08         mov rcx, qword [rax]
+│     │││   0x180002091      488b4158       mov rax, qword [rcx + 0x58]
+│    ┌────< 0x180002095      eb0f           jmp 0x1800020a6
+│    │└───> 0x180002097      e8c4730000     call sym.nre.dll__getInstance_Nre__SAPEAV1_XZ ; public: static class Nre * __ptr64 __cdecl Nre::getInstance(void)
+│    │ ││   0x18000209c      4c8bc8         mov r9, rax
+│    │ ││   0x18000209f      488b08         mov rcx, qword [rax]
+│    │ ││   0x1800020a2      488b4160       mov rax, qword [rcx + 0x60]
+│    │ ││   ; CODE XREF from public: static bool __cdecl LicenseUtil::isFeaturePresent(char const * __ptr64, char const * __ptr64) @ 0x180002095(x)
+│    └────> 0x1800020a6      41b884000000   mov r8d, 0x84              ; 132
+│      ││   0x1800020ac      488d542440     lea rdx, [var_sp_40h]
+│      ││   0x1800020b1      498bc9         mov rcx, r9
+│      ││   0x1800020b4      ff15a6c60000   call qword [0x18000e760]   ; [0x18000e760:8]=0x18000dbe0
+│      ││   0x1800020ba      488d0507ce..   lea rax, str._securitylicenses ; 0x18000eec8 ; "\\security\\licenses"
+│      ││   0x1800020c1      ba04010000     mov edx, 0x104             ; 260
+│      ││   0x1800020c6      4c8d4c2440     lea r9, [var_sp_40h]
+│      ││   0x1800020cb      4889442420     mov qword [var_20h], rax
+│      ││   0x1800020d0      4c8d0539cd..   lea r8, str._s_s           ; 0x18000ee10 ; "%s%s"
+│      ││   0x1800020d7      488d8dd001..   lea rcx, [var_1d0h]
+│      ││   0x1800020de      e8ddf9ffff     call 0x180001ac0
+│      ││   0x1800020e3      488d8dd001..   lea rcx, [var_1d0h]
+│      ││   0x1800020ea      4532e4         xor r12b, r12b
+│      ││   0x1800020ed      e86efcffff     call sym.nre.dll__make_DirectoryListing_NreLib__SAPEAV12_PEBD_Z ; public: static class NreLib::DirectoryListing * __ptr64 __cdecl NreLib::DirectoryListing::make(char const * __ptr64)
+│      ││   0x1800020f2      4533ed         xor r13d, r13d
+│      ││   0x1800020f5      4c8bf8         mov r15, rax
+│      ││   0x1800020f8      4c896c2430     mov qword [var_sp_30h], r13
+│      ││   0x1800020fd      4885c0         test rax, rax
+│     ┌───< 0x180002100      0f8429020000   je 0x18000232f
+│     │││   0x180002106      488bc8         mov rcx, rax
+│     │││   0x180002109      e882fbffff     call sym.nre.dll__hasNext_DirectoryListing_NreLib__QEAA_NXZ ; public: bool __cdecl NreLib::DirectoryListing::hasNext(void) __ptr64
+│     │││   0x18000210e      84c0           test al, al
+│    ┌────< 0x180002110      0f84fe010000   je 0x180002314
+│    ││││   0x180002116      4889b42440..   mov qword [var_440h], rsi  ; [0x440:8]=-1 ; 1088
+│    ││││   0x18000211e      4c89b424f0..   mov qword [var_3f0h], r14  ; [0x3f0:8]=-1 ; 1008
+│   ┌─────> 0x180002126      4584e4         test r12b, r12b
+│  ┌──────< 0x180002129      0f85d5010000   jne 0x180002304
+│  │╎││││   0x18000212f      488d542430     lea rdx, [var_sp_30h]
+│  │╎││││   0x180002134      498bcf         mov rcx, r15
+│  │╎││││   0x180002137      e854930000     call sym.nre.dll__next_DirectoryListing_NreLib__QEAAXPEAPEAVDirectoryListingEntry_2__Z ; public: void __cdecl NreLib::DirectoryListing::next(class NreLib::DirectoryListingEntry * __ptr64 * __ptr64) __ptr64
+│  │╎││││   0x18000213c      488b5c2430     mov rbx, qword [var_sp_30h]
+│  │╎││││   0x180002141      4885db         test rbx, rbx
+│ ┌───────< 0x180002144      0f84ba010000   je 0x180002304
+│ ││╎││││   0x18000214a      488b0b         mov rcx, qword [rbx]
+│ ││╎││││   0x18000214d      498bfd         mov rdi, r13
+│ ││╎││││   0x180002150      4885c9         test rcx, rcx
+│ ────────< 0x180002153      0f847c010000   je 0x1800022d5
+│ ││╎││││   0x180002159      4c396b08       cmp qword [rbx + 8], r13
+│ ────────< 0x18000215d      0f8472010000   je 0x1800022d5
+│ ││╎││││   0x180002163      48c7c0ffff..   mov rax, 0xffffffffffffffff
+│ ││╎││││   0x18000216a      660f1f440000   nop word [rax + rax]
+│ ────────> 0x180002170      48ffc0         inc rax
+│ ││╎││││   0x180002173      40383c01       cmp byte [rcx + rax], dil
+│ ────────< 0x180002177      75f7           jne 0x180002170
+│ ││╎││││   0x180002179      4883f801       cmp rax, 1                 ; 1
+│ ────────< 0x18000217d      7609           jbe 0x180002188
+│ ││╎││││   0x18000217f      80392e         cmp byte [rcx], 0x2e       ; '.'
+│ ────────< 0x180002182      7404           je 0x180002188
+│ ││╎││││   0x180002184      b301           mov bl, 1
+│ ────────< 0x180002186      eb02           jmp 0x18000218a
+│ ────────> 0x180002188      32db           xor bl, bl
+│ ││╎││││   ; CODE XREF from public: static bool __cdecl LicenseUtil::isFeaturePresent(char const * __ptr64, char const * __ptr64) @ 0x180002186(x)
+│ ────────> 0x18000218a      ba2e000000     mov edx, 0x2e              ; '.' ; 46
+│ ││╎││││   0x18000218f      e8beb90000     call 0x18000db52
+│ ││╎││││   0x180002194      4885c0         test rax, rax
+│ ────────< 0x180002197      742a           je 0x1800021c3
+│ ││╎││││   0x180002199      488b442430     mov rax, qword [var_sp_30h]
+│ ││╎││││   0x18000219e      ba2e000000     mov edx, 0x2e              ; '.' ; 46
+│ ││╎││││   0x1800021a3      488b08         mov rcx, qword [rax]
+│ ││╎││││   0x1800021a6      e8a7b90000     call 0x18000db52
+│ ││╎││││   0x1800021ab      488d152ecd..   lea rdx, str..license      ; 0x18000eee0 ; ".license"
+│ ││╎││││   0x1800021b2      488bc8         mov rcx, rax
+│ ││╎││││   0x1800021b5      ff15d5c10000   call qword [sym.imp.api_ms_win_crt_string_l1_1_0.dll__stricmp] ; [0x18000e390:8]=0x18e3c reloc.api_ms_win_crt_string_l1_1_0.dll__stricmp ; "<\x8e\x01"
+│ ││╎││││   0x1800021bb      85c0           test eax, eax
+│ ────────< 0x1800021bd      7504           jne 0x1800021c3
+│ ││╎││││   0x1800021bf      b001           mov al, 1
+│ ────────< 0x1800021c1      eb02           jmp 0x1800021c5
+│ ────────> 0x1800021c3      32c0           xor al, al
+│ ││╎││││   ; CODE XREF from public: static bool __cdecl LicenseUtil::isFeaturePresent(char const * __ptr64, char const * __ptr64) @ 0x1800021c1(x)
+│ ────────> 0x1800021c5      84db           test bl, bl
+│ ────────< 0x1800021c7      0f8403010000   je 0x1800022d0
+│ ││╎││││   0x1800021cd      84c0           test al, al
+│ ────────< 0x1800021cf      0f84fb000000   je 0x1800022d0
+│ ││╎││││   0x1800021d5      488b4c2430     mov rcx, qword [var_sp_30h]
+│ ││╎││││   0x1800021da      488b4908       mov rcx, qword [rcx + 8]
+│ ││╎││││   0x1800021de      e88d920000     call sym.nre.dll__isDirectory_DirectoryListing_NreLib__SA_NPEBD_Z ; public: static bool __cdecl FileUtil::isDirectory(char const * __ptr64)
+│ ││╎││││   0x1800021e3      84c0           test al, al
+│ ────────< 0x1800021e5      0f85e5000000   jne 0x1800022d0
+│ ││╎││││   0x1800021eb      488b4c2430     mov rcx, qword [var_sp_30h]
+│ ││╎││││   0x1800021f0      488d1521cc..   lea rdx, [0x18000ee18]     ; "r"
+│ ││╎││││   0x1800021f7      488b4908       mov rcx, qword [rcx + 8]
+│ ││╎││││   0x1800021fb      ff1557c10000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fopen] ; [0x18000e358:8]=0x18df6 reloc.api_ms_win_crt_stdio_l1_1_0.dll_fopen ; file*fopen(const char *filename, const char *mode)
+│ ││╎││││   0x180002201      488bd8         mov rbx, rax
+│ ││╎││││   0x180002204      4885c0         test rax, rax
+│ ────────< 0x180002207      0f84c3000000   je 0x1800022d0
+│ ││╎││││   0x18000220d      33d2           xor edx, edx
+│ ││╎││││   0x18000220f      488bc8         mov rcx, rax
+│ ││╎││││   0x180002212      448d4202       lea r8d, [rdx + 2]
+│ ││╎││││   0x180002216      ff150cc10000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fseek] ; [0x18000e328:8]=0x18e50 reloc.api_ms_win_crt_stdio_l1_1_0.dll_fseek ; "P\x8e\x01" ; int fseek(FILE *stream, long offset, int whence)
+│ ││╎││││   0x18000221c      85c0           test eax, eax
+│ ────────< 0x18000221e      0f8596000000   jne 0x1800022ba
+│ ││╎││││   0x180002224      488bcb         mov rcx, rbx
+│ ││╎││││   0x180002227      ff15ebc00000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_ftell] ; [0x18000e318:8]=0x18e58 reloc.api_ms_win_crt_stdio_l1_1_0.dll_ftell ; "X\x8e\x01" ; long ftell(FILE *stream)
+│ ││╎││││   0x18000222d      83f801         cmp eax, 1                 ; 1
+│ ────────< 0x180002230      0f8c84000000   jl 0x1800022ba
+│ ││╎││││   0x180002236      4533c0         xor r8d, r8d
+│ ││╎││││   0x180002239      4863f0         movsxd rsi, eax
+│ ││╎││││   0x18000223c      33d2           xor edx, edx
+│ ││╎││││   0x18000223e      488bcb         mov rcx, rbx
+│ ││╎││││   0x180002241      ff15e1c00000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fseek] ; [0x18000e328:8]=0x18e50 reloc.api_ms_win_crt_stdio_l1_1_0.dll_fseek ; "P\x8e\x01" ; int fseek(FILE *stream, long offset, int whence)
+│ ││╎││││   0x180002247      85c0           test eax, eax
+│ ────────< 0x180002249      756f           jne 0x1800022ba
+│ ││╎││││   0x18000224b      488d4e01       lea rcx, [rsi + 1]
+│ ││╎││││   0x18000224f      e824a80000     call 0x18000ca78
+│ ││╎││││   0x180002254      488bf8         mov rdi, rax
+│ ││╎││││   0x180002257      4885c0         test rax, rax
+│ ────────< 0x18000225a      745e           je 0x1800022ba
+│ ││╎││││   0x18000225c      4c8d4601       lea r8, [rsi + 1]
+│ ││╎││││   0x180002260      33d2           xor edx, edx
+│ ││╎││││   0x180002262      488bc8         mov rcx, rax
+│ ││╎││││   0x180002265      e8dcb80000     call 0x18000db46
+│ ││╎││││   0x18000226a      4c8bcb         mov r9, rbx
+│ ││╎││││   0x18000226d      4c8bc6         mov r8, rsi
+│ ││╎││││   0x180002270      ba01000000     mov edx, 1
+│ ││╎││││   0x180002275      488bcf         mov rcx, rdi
+│ ││╎││││   0x180002278      ff1582c00000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fread] ; [0x18000e300:8]=0x18e48 reloc.api_ms_win_crt_stdio_l1_1_0.dll_fread ; "H\x8e\x01" ; size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+│ ││╎││││   0x18000227e      483bc6         cmp rax, rsi
+│ ────────< 0x180002281      7537           jne 0x1800022ba
+│ ││╎││││   0x180002283      488d55d0       lea rdx, [var_30h]
+│ ││╎││││   0x180002287      44882c38       mov byte [rax + rdi], r13b
+│ ││╎││││   0x18000228b      488bcf         mov rcx, rdi
+│ ││╎││││   0x18000228e      e8c5b80000     call 0x18000db58
+│ ││╎││││   0x180002293      4885c0         test rax, rax
+│ ────────< 0x180002296      7422           je 0x1800022ba
+│ ││╎││││   0x180002298      488d95d000..   lea rdx, [var_d0h]
+│ ││╎││││   0x18000229f      488bcf         mov rcx, rdi
+│ ││╎││││   0x1800022a2      e8b1b80000     call 0x18000db58
+│ ││╎││││   0x1800022a7      4885c0         test rax, rax
+│ ────────< 0x1800022aa      740e           je 0x1800022ba
+│ ││╎││││   0x1800022ac      488bcb         mov rcx, rbx
+│ ││╎││││   0x1800022af      41b401         mov r12b, 1
+│ ││╎││││   0x1800022b2      ff1590c00000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fclose] ; [0x18000e348:8]=0x18ddc reloc.api_ms_win_crt_stdio_l1_1_0.dll_fclose ; int fclose(FILE *stream)
+│ ────────< 0x1800022b8      eb0e           jmp 0x1800022c8
+│ ────────> 0x1800022ba      488bcb         mov rcx, rbx
+│ ││╎││││   0x1800022bd      ff1585c00000   call qword [sym.imp.api_ms_win_crt_stdio_l1_1_0.dll_fclose] ; [0x18000e348:8]=0x18ddc reloc.api_ms_win_crt_stdio_l1_1_0.dll_fclose ; int fclose(FILE *stream)
+│ ││╎││││   0x1800022c3      4885ff         test rdi, rdi
+│ ────────< 0x1800022c6      7408           je 0x1800022d0
+│ ││╎││││   ; CODE XREF from public: static bool __cdecl LicenseUtil::isFeaturePresent(char const * __ptr64, char const * __ptr64) @ 0x1800022b8(x)
+│ ────────> 0x1800022c8      488bcf         mov rcx, rdi
+│ ││╎││││   0x1800022cb      e82ca70000     call 0x18000c9fc
+│ ────────> 0x1800022d0      488b5c2430     mov rbx, qword [var_sp_30h]
+│ ────────> 0x1800022d5      4885db         test rbx, rbx
+│ ────────< 0x1800022d8      7415           je 0x1800022ef
+│ ││╎││││   0x1800022da      488bcb         mov rcx, rbx
+│ ││╎││││   0x1800022dd      e89ef8ffff     call sym.nre.dll___1DirectoryListingEntry_NreLib__QEAA_XZ ; public: void __cdecl NreLib::DirectoryListingEntry::~destructor(void) __ptr64
+│ ││╎││││   0x1800022e2      ba20000000     mov edx, 0x20              ; 32
+│ ││╎││││   0x1800022e7      488bcb         mov rcx, rbx
+│ ││╎││││   0x1800022ea      e80da70000     call 0x18000c9fc
+│ ────────> 0x1800022ef      498bcf         mov rcx, r15
+│ ││╎││││   0x1800022f2      4c896c2430     mov qword [var_sp_30h], r13
+│ ││╎││││   0x1800022f7      e894f9ffff     call sym.nre.dll__hasNext_DirectoryListing_NreLib__QEAA_NXZ ; public: bool __cdecl NreLib::DirectoryListing::hasNext(void) __ptr64
+│ ││╎││││   0x1800022fc      84c0           test al, al
+│ ││└─────< 0x1800022fe      0f8522feffff   jne 0x180002126
+│ └└──────> 0x180002304      488bb42440..   mov rsi, qword [var_440h]
+│    ││││   0x18000230c      4c8bb424f0..   mov r14, qword [var_3f0h]
+│    └────> 0x180002314      498bcf         mov rcx, r15
+│     │││   0x180002317      e804910000     call sym.nre.dll___1DirectoryListing_NreLib__QEAA_XZ ; public: void __cdecl NreLib::DirectoryListing::~destructor(void) __ptr64
+│     │││   0x18000231c      ba60010000     mov edx, 0x160             ; 352
+│     │││   0x180002321      498bcf         mov rcx, r15
+│     │││   0x180002324      e8d3a60000     call 0x18000c9fc
+│     │││   0x180002329      410fb6c4       movzx eax, r12b
+│    ┌────< 0x18000232d      eb02           jmp 0x180002331
+│    │└└└─> 0x18000232f      32c0           xor al, al
+│    │      ; CODE XREF from public: static bool __cdecl LicenseUtil::isFeaturePresent(char const * __ptr64, char const * __ptr64) @ 0x18000232d(x)
+│    └────> 0x180002331      488b8de002..   mov rcx, qword [var_2e0h]
+│           0x180002338      4833cc         xor rcx, rsp
+│           0x18000233b      e8f0aa0000     call 0x18000ce30
+│           0x180002340      4881c4f803..   add rsp, 0x3f8
+│           0x180002347      415f           pop r15
+│           0x180002349      415d           pop r13
+│           0x18000234b      415c           pop r12
+│           0x18000234d      5f             pop rdi
+│           0x18000234e      5b             pop rbx
+│           0x18000234f      5d             pop rbp
+└           0x180002350      c3             ret

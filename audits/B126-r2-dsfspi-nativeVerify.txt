@@ -1,0 +1,109 @@
+┌ 423: fcn.18002b790 (int64_t arg_28h, int64_t arg_30h, int64_t arg_38h, int64_t arg_40h, int64_t arg_48h, int64_t arg_50h, int64_t arg_58h, int64_t arg_70h, int64_t arg_78h, int64_t arg_80h, int64_t arg_88h);
+│ `- args(sp[0x0..0x60]) vars(1:sp[0x8..0x8])
+│           0x18002b790      004c8b7c       add byte [rbx + rcx*4 + 0x7c], cl
+│           0x18002b794      2468           and al, 0x68               ; 104
+│           0x18002b796      3b473c         cmp eax, dword [rdi + 0x3c]
+│       ┌─< 0x18002b799      7429           je 0x18002b7c4
+│       │   0x18002b79b      488d4f08       lea rcx, [rdi + 8]
+│       │   0x18002b79f      488bd6         mov rdx, rsi
+│       │   0x18002b7a2      4c8d0d476d..   lea r9, str.error_calculating_final_digest ; 0x1800424f0 ; "error calculating final digest"
+│       │   0x18002b7a9      4c8d05106e..   lea r8, str.java_security_SignatureException ; 0x1800425c0 ; "java/security/SignatureException"
+│       │   0x18002b7b0      e84bb5ffff     call sym.dsfspi.dll__throwException_DsfObject__IEAAXPEAUJNIEnv___PEBD1_Z ; protected: void __cdecl DsfObject::throwException(struct JNIEnv_ * __ptr64, char const * __ptr64, char const * __ptr64) __ptr64
+│       │   0x18002b7b5      498bce         mov rcx, r14
+│       │   0x18002b7b8      e8fb110000     call 0x18002c9b8
+│       │   0x18002b7bd      33c0           xor eax, eax
+│      ┌──< 0x18002b7bf      e940010000     jmp 0x18002b904
+│      │└─> 0x18002b7c4      4c8d442440     lea r8, [arg_40h]
+│      │    0x18002b7c9      8bd5           mov edx, ebp
+│      │    0x18002b7cb      498bce         mov rcx, r14
+│      │    0x18002b7ce      e8edbffeff     call 0x1800177c0
+│      │    0x18002b7d3      498bce         mov rcx, r14
+│      │    0x18002b7d6      8bd8           mov ebx, eax
+│      │    0x18002b7d8      e8db110000     call 0x18002c9b8
+│      │    0x18002b7dd      85db           test ebx, ebx
+│      │┌─< 0x18002b7df      7431           je 0x18002b812
+│      ││   0x18002b7e1      488d4f08       lea rcx, [rdi + 8]
+│      ││   0x18002b7e5      895c2420       mov dword [var_20h], ebx
+│      ││   0x18002b7e9      4c8d0d6870..   lea r9, str.error_generating_integer_representative_message ; 0x180042858 ; "error generating integer representative message"
+│      ││   0x18002b7f0      488bd6         mov rdx, rsi
+│      ││   0x18002b7f3      4c8d05c66d..   lea r8, str.java_security_SignatureException ; 0x1800425c0 ; "java/security/SignatureException"
+│      ││   0x18002b7fa      e8b1b5ffff     call sym.dsfspi.dll__throwException_DsfObject__IEAAXPEAUJNIEnv___PEBD1W4enum_errDescrValues___Z ; protected: void __cdecl DsfObject::throwException(struct JNIEnv_ * __ptr64, char const * __ptr64, char const * __ptr64, enum enum_errDescrValues) __ptr64
+│      ││   0x18002b7ff      33d2           xor edx, edx
+│      ││   0x18002b801      488d4c2440     lea rcx, [arg_40h]
+│      ││   0x18002b806      e845e4fdff     call 0x180009c50
+│      ││   0x18002b80b      33c0           xor eax, eax
+│     ┌───< 0x18002b80d      e9f2000000     jmp 0x18002b904
+│     ││└─> 0x18002b812      488b542440     mov rdx, qword [arg_40h]
+│     ││    0x18002b817      488d442448     lea rax, [arg_48h]
+│     ││    0x18002b81c      488b4f10       mov rcx, qword [rdi + 0x10]
+│     ││    0x18002b820      4533c9         xor r9d, r9d
+│     ││    0x18002b823      48c7442428..   mov qword [arg_28h], 0
+│     ││    0x18002b82c      4533c0         xor r8d, r8d
+│     ││    0x18002b82f      4889442420     mov qword [var_20h], rax
+│     ││    0x18002b834      e8672fffff     call 0x18001e7a0
+│     ││    0x18002b839      33d2           xor edx, edx
+│     ││    0x18002b83b      488d4c2440     lea rcx, [arg_40h]
+│     ││    0x18002b840      8bd8           mov ebx, eax
+│     ││    0x18002b842      e809e4fdff     call 0x180009c50
+│     ││    0x18002b847      85db           test ebx, ebx
+│     ││┌─< 0x18002b849      7409           je 0x18002b854
+│     │││   0x18002b84b      4c8d0d3670..   lea r9, str.error_generating_integer_representative_signature ; 0x180042888 ; "error generating integer representative signature"
+│    ┌────< 0x18002b852      eb2a           jmp 0x18002b87e
+│    │││└─> 0x18002b854      488b4c2448     mov rcx, qword [arg_48h]
+│    │││    0x18002b859      4c8d442450     lea r8, [arg_50h]
+│    │││    0x18002b85e      8bd5           mov edx, ebp
+│    │││    0x18002b860      e8ebbefeff     call 0x180017750
+│    │││    0x18002b865      33d2           xor edx, edx
+│    │││    0x18002b867      488d4c2448     lea rcx, [arg_48h]
+│    │││    0x18002b86c      8bd8           mov ebx, eax
+│    │││    0x18002b86e      e8dde3fdff     call 0x180009c50
+│    │││    0x18002b873      85db           test ebx, ebx
+│    │││┌─< 0x18002b875      7422           je 0x18002b899
+│    ││││   0x18002b877      4c8d0d4270..   lea r9, str.error_generating_signature_array ; 0x1800428c0 ; "error generating signature array"
+│    ││││   ; CODE XREF from fcn.18002b790 @ 0x18002b852(x)
+│    └────> 0x18002b87e      488d4f08       lea rcx, [rdi + 8]
+│     │││   0x18002b882      895c2420       mov dword [var_20h], ebx
+│     │││   0x18002b886      4c8d05336d..   lea r8, str.java_security_SignatureException ; 0x1800425c0 ; "java/security/SignatureException"
+│     │││   0x18002b88d      488bd6         mov rdx, rsi
+│     │││   0x18002b890      e81bb5ffff     call sym.dsfspi.dll__throwException_DsfObject__IEAAXPEAUJNIEnv___PEBD1W4enum_errDescrValues___Z ; protected: void __cdecl DsfObject::throwException(struct JNIEnv_ * __ptr64, char const * __ptr64, char const * __ptr64, enum enum_errDescrValues) __ptr64
+│     │││   0x18002b895      33c0           xor eax, eax
+│    ┌────< 0x18002b897      eb6b           jmp 0x18002b904
+│    │││└─> 0x18002b899      488b06         mov rax, qword [rsi]
+│    │││    0x18002b89c      4533c0         xor r8d, r8d
+│    │││    0x18002b89f      488b542438     mov rdx, qword [arg_38h]
+│    │││    0x18002b8a4      488bce         mov rcx, rsi
+│    │││    0x18002b8a7      488b80f006..   mov rax, qword [rax + 0x6f0]
+│    │││    0x18002b8ae      ff1564290000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│    │││    0x18002b8b4      48634c2430     movsxd rcx, dword [arg_30h]
+│    │││    0x18002b8b9      4d8bc4         mov r8, r12
+│    │││    0x18002b8bc      488b542450     mov rdx, qword [arg_50h]
+│    │││    0x18002b8c1      4803c8         add rcx, rax
+│    │││    0x18002b8c4      488bd8         mov rbx, rax
+│    │││    0x18002b8c7      e8321d0000     call 0x18002d5fe
+│    │││    0x18002b8cc      4c8b0e         mov r9, qword [rsi]
+│    │││    0x18002b8cf      4c8bc3         mov r8, rbx
+│    │││    0x18002b8d2      488b542438     mov rdx, qword [arg_38h]
+│    │││    0x18002b8d7      488bce         mov rcx, rsi
+│    │││    0x18002b8da      498b81f806..   mov rax, qword [r9 + 0x6f8]
+│    │││    0x18002b8e1      4533c9         xor r9d, r9d
+│    │││    0x18002b8e4      ff152e290000   call qword [0x18002e218]   ; [0x18002e218:8]=0x18002d6b0
+│    │││    0x18002b8ea      488b4c2450     mov rcx, qword [arg_50h]
+│    │││    0x18002b8ef      e8ac81fdff     call 0x180003aa0
+│    │││    0x18002b8f4      4d8bc5         mov r8, r13
+│    │││    0x18002b8f7      488bd6         mov rdx, rsi
+│    │││    0x18002b8fa      488bcf         mov rcx, rdi
+│    │││    0x18002b8fd      e85efcffff     call sym.dsfspi.dll__reset_DsfShaWithRsaSignature__AEAAXPEAUJNIEnv___PEAV_jobject___Z ; private: void __cdecl DsfShaWithRsaSignature::reset(struct JNIEnv_ * __ptr64, class _jobject * __ptr64) __ptr64
+│    │││    0x18002b902      8bc5           mov eax, ebp
+│    │││    ; CODE XREFS from fcn.18002b790 @ 0x18002b7bf(x), 0x18002b80d(x), 0x18002b897(x)
+│    └└└──> 0x18002b904      4c8b642478     mov r12, qword [arg_78h]
+│           0x18002b909      4c8b742470     mov r14, qword [arg_70h]
+│           0x18002b90e      488b9c2488..   mov rbx, qword [arg_88h]
+│           0x18002b916      488bac2480..   mov rbp, qword [arg_80h]
+│           0x18002b91e      488b4c2458     mov rcx, qword [arg_58h]
+│           0x18002b923      4833cc         xor rcx, rsp
+│           0x18002b926      e8650c0000     call 0x18002c590
+│           0x18002b92b      4881c49000..   add rsp, 0x90
+│           0x18002b932      415d           pop r13
+│           0x18002b934      5f             pop rdi
+│           0x18002b935      5e             pop rsi
+└           0x18002b936      c3             ret

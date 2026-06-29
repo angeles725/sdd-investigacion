@@ -1,0 +1,127 @@
+===== niagarad.exe strings (service/daemon/args) =====
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Service" type="win32"></assemblyIdentity>
+ <description>Niagara Service</description>
+.?AVJavaLauncher@@
+/console
+??0JavaLauncher@@QEAA@AEBV0@@Z
+??0JavaLauncher@@QEAA@XZ
+??1JavaLauncher@@UEAA@XZ
+??4JavaLauncher@@QEAAAEAV0@AEBV0@@Z
+??_7JavaLauncher@@6B@
+?getInstance@JavaLauncher@@SAPEAV1@XZ
+com/tridium/niagarad/NiagaraDaemon
+niagarad.exe
+
+===== station.exe strings (station/args/home) =====
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="amd64" name="Tridium.Niagara.Station" type="win32"></assemblyIdentity>
+ <description>Niagara Station</description>
+.?AVNreLauncher@@
+??0NreLauncher@@QEAA@AEBV0@@Z
+??0NreLauncher@@QEAA@XZ
+??1NreLauncher@@UEAA@XZ
+??4NreLauncher@@QEAAAEAV0@AEBV0@@Z
+??_7NreLauncher@@6B@
+?getInstance@NreLauncher@@SAPEAV1@XZ
+com.tridium.sys.station.Station
+station.exe
+
+===== nre.dll service/shutdown/daemon strings =====
+()Lcom/tridium/niagarad/NiagaraDaemon;
+-Dniagara.required.runtime.profiles=%s
+-Dniagara.supported.runtime.profiles=%s
+<<< hostid.debug <<<
+>>> hostid.debug >>>
+??0EngineWatchdog@@QEAA@PEBD@Z
+??1EngineWatchdog@@QEAA@XZ
+?addWatchdog@EngineWatchdog@@SAXPEAV1@@Z
+?check@EngineWatchdog@@QEAAHPEAH00@Z
+?getHostId@NreWin32@@UEAAHPEADI@Z
+?getRequiredRuntimeProfiles@NreWin32@@UEAAXPEADI@Z
+?getSupportedRuntimeProfiles@NreWin32@@UEAAXPEADI@Z
+?getWatchdog@EngineWatchdog@@SAPEAV1@PEBD@Z
+?init@EngineWatchdog@@QEAAHXZ
+?initList@EngineWatchdog@@SAXXZ
+?lockList@EngineWatchdog@@SAXXZ
+?open@EngineWatchdog@@QEAAHXZ
+?removeWatchdog@EngineWatchdog@@SA_NPEBD@Z
+?unlockList@EngineWatchdog@@SAXXZ
+?update@EngineWatchdog@@QEAAHHHH@Z
+Java_com_tridium_nre_platform_NativePlatformProviderTridium_daemonize0
+Java_com_tridium_nre_platform_NativePlatformProvider_createWatchdog0
+Java_com_tridium_nre_platform_NativePlatformProvider_destroyWatchdog0
+Java_com_tridium_nre_platform_NativePlatformProvider_getHostId0
+Java_com_tridium_nre_platform_NativePlatformProvider_getWatchdogCycles0
+Java_com_tridium_nre_platform_NativePlatformProvider_getWatchdogPolicy0
+Java_com_tridium_nre_platform_NativePlatformProvider_getWatchdogTimeout0
+Java_com_tridium_nre_platform_NativePlatformProvider_platformDaemonShutdownRequested0
+Java_com_tridium_nre_platform_NativePlatformProvider_updateWatchdog0
+RegisterServiceCtrlHandlerA
+SetServiceStatus
+StartServiceCtrlDispatcherA
+Win32ServiceThread
+com/tridium/niagarad/NiagaraDaemon
+disableHostIdGeneration
+niagarad: Niagara service failed to daemonize.
+niagarad: Niagara service failed to start, set service status to stopped.
+niagarad: Niagara service shutdown complete, set service status to stopped.
+niagarad: Niagara service shutdown failed, failed to locate Niagara Daemon 'instance' method.
+niagarad: Niagara service shutdown failed, failed to locate Niagara Daemon 'stop' method.
+niagarad: Niagara service shutdown failed, failed to locate Niagara Daemon class.
+niagarad: Niagara service shutdown failed, failed to locate Niagara Daemon instance.
+niagarad: Niagara service shutdown initiated.
+niagarad: Niagara service startup complete, set service status to running.
+niagarad: Niagara service startup initiated.
+niagarad: Niagara service successfully daemonized, startup can continue.
+nre>   requiredRuntimeProfiles  = %s
+nre>   supportedRuntimeProfiles = %s
+nre_hostid_debug
+
+===== njre.dll createVM/main/launch sequence (full, for citation) =====
+!This program cannot be run in DOS mode.
+ERROR: Host Id cannot be found/generated.
+Error:  Could not detach main thread
+Error: Can't find main class "%s"
+Error: Can't find main method in class "%s"
+Error: Cannot find JNI functions in %s
+Error: Cannot get current directory, buffer too short.
+Error: Cannot get current directory, function failed.
+Error: Cannot load: %s or %s
+Error: Cannot set current directory back to %s
+Error: Cannot set current directory to %s
+JNI_CreateJavaVM
+Main
+\bin\client\jvm.dll
+\bin\server\jvm.dll
+\jre
+java>     java arguments:
+java>     javaArgument[%d] = "%s"
+java>     javaOption[%d] = "%s"
+java>   Build java arguments...
+java>   Destroy VM...
+java>   Detach current thread...
+java>   Find main class...
+java>   Find main method...
+java>   Launching main method...
+java>   Using dll = %s
+java>   VM Destroyed...
+java>   VM options:
+java>   argv[%d] = "%s"
+java>   classPath                = %s
+java>   fips                     = %s
+java>   javaArgs[%d] = "%s"
+java>   javaOption[%d] = "%s"
+java>   jreHome                  = %s
+java>   jvmDll_0                 = %s
+java>   jvmDll_1                 = %s
+java>   libPath                  = %s
+java>   niagaraHome              = %s%s
+java>   niagaraUserHome          = %s
+java>   requiredRuntimeProfiles  = %s
+java>   supportedRuntimeProfiles = %s
+java> buildArgs()
+java> cleanup()
+java> createVM()
+java> debug = true
+java> initPaths()
+java> invokeJava()
+java> loadDLL()
