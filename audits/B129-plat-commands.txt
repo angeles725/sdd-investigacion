@@ -1,0 +1,84 @@
+=== plat.exe RTTI command classes + launchNre delegation (strings, verbatim) ===
+431:platform:com.tridium.platform.command.BPlat
+432:nre.dll
+433:launchNre
+434:com/tridium/nre/bootstrap/Bootstrap
+457:installdaemon
+458:Install the Niagara Platform service
+459:uninstalldaemon
+460:Remove the Niagara Platform service
+461:restartdaemon
+462:Restart the Niagara Platform service
+463:stopdaemon
+464:Stop the Niagara Platform service
+465:setsystempw
+466:Set the Niagara Platform System Passphrase
+467:setdaemonuserhome
+472:Usage: plat uninstalldaemon
+473:uninstalldaemon: Niagara service successfully removed.
+474:uninstalldaemon: Niagara service could not be removed.
+475:Usage: plat setsystempw [/option] newpass
+480:SOFTWARE\Niagara4
+481:systempw
+483:Usage: plat setdaemonuserhome newuserhome
+490:Usage: plat installdaemon [/option]
+494:installdaemon: Niagara service successfully installed.
+495:installdaemon: Niagara service startup initiated.
+496:installdaemon: Niagara service could not be started.
+497:installdaemon: Niagara service could not be installed.
+499:installdaemon: unexpected error when opening %s service.
+500:installdaemon: cannot open service manager.
+501:FltMgr
+502:CryptSvc
+503:Tcpip
+504:Platform management service for Niagara tools
+505:installdaemon: cannot open %s service.
+509:Niagara Platform
+513:EventMessageFile
+516:niagarad.exe
+519:Usage: plat restartdaemon
+520:restartdaemon: Niagara service failed to transfer stage files.
+521:restartdaemon: Niagara service successfully restarted.
+522:restartdaemon: Niagara service could not be restarted.
+524:restartdaemon: stopping %s service.
+525:restartdaemon: cannot stop %s service, retrying.
+526:restartdaemon: cannot open %s service.
+527:restartdaemon: cannot open service manager.
+528:restartdaemon: cannot start %s service.
+529:%s\stage
+532:stage
+536:restartdaemon: cannot list %s.
+537:%s\jre_stage
+539:restartdaemon: cannot move %s to %s.
+540:%s\modules\cryptoCore.jar
+541:%s\modules\daemonCrypto.jar
+542:restartdaemon: cannot delete %s (errno = %d).
+543:restartdaemon: replaced %s.
+544:Usage: plat stopdaemon
+545:stopdaemon: Niagara service successfully stopped.
+546:stopdaemon: Niagara service could not be stopped.
+547:stopdaemon: stopping %s service.
+548:stopdaemon: cannot stop %s service, retrying.
+549:stopdaemon: cannot open service manager.
+689:.?AVNativePlatformCommand@@
+690:.?AVDaemonServiceCommand@@
+691:.?AVInstallDaemonCommand@@
+692:.?AVUninstallDaemonCommand@@
+693:.?AVRestartDaemonCommand@@
+694:.?AVStopDaemonCommand@@
+695:.?AVSetSystemPassphraseCommand@@
+696:.?AVSetDaemonUserHomeCommand@@
+435:Advapi32.dll
+436:SEVERE: Failed to load Advapi32.dll, AdvApi instance unavailable
+437:CloseServiceHandle
+438:DeleteService
+439:QueryServiceStatus
+441:ControlService
+442:ChangeServiceConfig2A
+443:CreateServiceA
+444:OpenServiceA
+445:OpenSCManagerA
+446:StartServiceA
+452:RegisterEventSourceA
+453:ReportEventA
+456:CryptProtectData

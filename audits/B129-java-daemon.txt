@@ -1,0 +1,163 @@
+=== PlatformDaemon.java (port/SSL factory) ===
+/*
+ * Copyright 2005 Tridium, Inc. All Rights Reserved.
+ */
+package javax.baja.platform;
+ 
+import javax.baja.naming.BHost;
+import javax.baja.naming.BOrd;
+import javax.baja.security.BUsernameAndPassword;
+
+import com.tridium.platform.daemon.NiagaraPlatformDaemon;
+
+/**
+ * Provides a simple interface to a local or remote platform daemon, which
+ * can be used for station control and file transfer
+ * 
+ * @author    Matt Boon       
+ * @creation  04 Feb 05
+ * @version   $Revision: 15$ $Date: 7/15/10 3:17:38 PM EDT$
+ * @since     Baja 1.0
+ */
+public abstract class PlatformDaemon
+{
+////////////////////////////////////////////////////////////////
+// Factory
+////////////////////////////////////////////////////////////////
+  
+  /**
+   * Factory
+   * 
+   * @param hostAddr host name or IP address where the platform daemon is running
+   * @param port HTTP port on which the platform daemon is listening, default is 3011
+   * @param username user name to use for authentication to the platform daemon
+   * @param password password to use for authentication to the platform daemon
+   */
+  public static PlatformDaemon make(String hostAddr,
+                                    int    port,
+                                    String username,
+                                    String password)
+    throws Exception
+  {
+    return make((BHost)BOrd.make("ip:" + hostAddr).get(),
+      port,
+      port != 3011,
+      new BUsernameAndPassword(username, password));
+  }
+
+  /**
+   * Factory
+   *
+   * @param hostAddr host name or IP address where the platform daemon is running
+   * @param port HTTP port on which the platform daemon is listening, default is 3011
+   * @param secure if true, make a secure connection to the platform daemon
+   * @param username user name to use for authentication to the platform daemon
+   * @param password password to use for authentication to the platform daemon
+   *
+   * @since Niagara 4.0
+   */
+  public static PlatformDaemon make(String hostAddr,
+                                    int    port,
+                                    boolean secure,
+                                    String username,
+                                    String password)
+    throws Exception
+  {
+    return make((BHost)BOrd.make("ip:" + hostAddr).get(),
+      port,
+      secure,
+      new BUsernameAndPassword(username, password));
+  }
+
+  /**
+   * Factory
+   * 
+   * @param host host where the platform daemon is running
+   * @param port HTTP port on which the platform daemon is listening, default is 3011
+   * @param credentials admin credentials for the platform daemon
+   */
+  public static PlatformDaemon make(BHost                host,
+                                    int                  port,
+                                    BUsernameAndPassword credentials)
+    throws Exception
+  {
+    return make(host, port, port != 3011, credentials);
+  }
+
+  /**
+   * Factory
+   *
+   * @param host host where the platform daemon is running
+   * @param port HTTP port on which the platform daemon is listening,
+   * default is 3011
+   * @param secure if true, make a secure connection to the platform daemon
+   * @param credentials admin credentials for the platform daemon
+   *
+   * @since Niagara 4.0
+   */
+  public static PlatformDaemon make(BHost                host,
+                                    int                  port,
+                                    boolean              secure,
+                                    BUsernameAndPassword credentials)
+    throws Exception
+  {
+    return NiagaraPlatformDaemon.make(host, port, secure, credentials);
+  }
+
+////////////////////////////////////////////////////////////////
+// Access
+////////////////////////////////////////////////////////////////
+
+  /**
+   * Returns an object that can be used for station control
+   */
+  public abstract StationManager getStationManager();
+
+  /**
+   * Returns an object that can be used for file access and transfer
+   */
+  public abstract FileManager getFileManager();
+
+  /**
+=== grep 5011 in platform source (TLS port) ===
+niagara-help/source/platform-rt/javax/baja/platform/PlatformDaemon.java:52:   * @param secure if true, make a secure connection to the platform daemon
+niagara-help/source/platform-rt/javax/baja/platform/PlatformDaemon.java:60:                                    boolean secure,
+niagara-help/source/platform-rt/javax/baja/platform/PlatformDaemon.java:67:      secure,
+niagara-help/source/platform-rt/javax/baja/platform/PlatformDaemon.java:92:   * @param secure if true, make a secure connection to the platform daemon
+niagara-help/source/platform-rt/javax/baja/platform/PlatformDaemon.java:99:                                    boolean              secure,
+niagara-help/source/platform-rt/javax/baja/platform/PlatformDaemon.java:103:    return NiagaraPlatformDaemon.make(host, port, secure, credentials);
+=== PlatformDaemon manager interface methods ===
+  public abstract InstallManager getInstallManager();
+  public abstract DaemonSecurityManager getSecurityManager();
+  public abstract BackupManager getOfflineBackupManager()
+  public abstract PlatformLicenseManager getLicenseManager()
+  public abstract void close()
+  public abstract boolean isNiagara4Platform()
+=== platDaemon-rt command classes (the platform daemon command surface) ===
+command/BBackupInstallCommand
+command/BBigFilesCommand
+command/BDetailsCommand
+command/BDistInstallCommand
+command/BFileDeleteCommand
+command/BFileGetCommand
+command/BFileListCommand
+command/BFilePutCommand
+command/BIpConfigCommand
+command/BJaceJarCommand
+command/BListStationsCommand
+command/BModuleInstallCommand
+command/BRebootHostCommand
+command/BSetTimeCommand
+command/BStartStationCommand
+command/BStopStationCommand
+command/BTellStationCommand
+command/BWatchStationCommand
+=== platform/fox channel classes ===
+platform/fox/BLicenseChannel
+platform/fox/BTimeChannel
+platform/fox/ChunkedInputStream
+platform/fox/ChunkedOutputStream
+platform/fox/MessageClient
+platform/fox/TaskDispatcher
+platform/fox/TaskListenerClient
+=== StationManager methods ===

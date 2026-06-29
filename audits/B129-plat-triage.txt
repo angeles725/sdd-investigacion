@@ -1,0 +1,122 @@
+=== sha256 + size ===
+8c9c58a0b79301ab05c94526644fab626cd90b7d083ae2e683db140b9dbffabe  /mnt/c/Honeywell/OptimizerSupervisor-N4.14.0.162/bin/plat.exe
+=== rabin2 -I ===
+arch     x86
+baddr    0x140000000
+binsz    50968
+bintype  pe
+bits     64
+canary   true
+injprot  false
+retguard false
+class    PE32+
+cmp.csum 0x0001a096
+compiled Mon Jan  8 13:16:11 2024
+crypto   false
+endian   little
+havecode true
+hdr.csum 0x0001a096
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  AMD 64
+nx       true
+os       windows
+overlay  true
+cc       ms
+pic      true
+relocs   false
+signed   true
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows CUI
+va       true
+=== rabin2 -i (imports) ===
+nth vaddr       bind type lib                                   name
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x140007000 NONE FUNC KERNEL32.dll                          FreeLibrary
+2   0x140007008 NONE FUNC KERNEL32.dll                          GetProcAddress
+3   0x140007010 NONE FUNC KERNEL32.dll                          LoadLibraryA
+4   0x140007018 NONE FUNC KERNEL32.dll                          GetStdHandle
+5   0x140007020 NONE FUNC KERNEL32.dll                          CreateDirectoryA
+6   0x140007028 NONE FUNC KERNEL32.dll                          DeleteFileA
+7   0x140007030 NONE FUNC KERNEL32.dll                          FindClose
+8   0x140007038 NONE FUNC KERNEL32.dll                          FindFirstFileA
+9   0x140007040 NONE FUNC KERNEL32.dll                          FindNextFileA
+10  0x140007048 NONE FUNC KERNEL32.dll                          GetFileAttributesA
+11  0x140007050 NONE FUNC KERNEL32.dll                          RemoveDirectoryA
+12  0x140007058 NONE FUNC KERNEL32.dll                          SetFileAttributesA
+13  0x140007060 NONE FUNC KERNEL32.dll                          WriteFile
+14  0x140007068 NONE FUNC KERNEL32.dll                          GetLastError
+15  0x140007070 NONE FUNC KERNEL32.dll                          Sleep
+16  0x140007078 NONE FUNC KERNEL32.dll                          GetModuleFileNameA
+17  0x140007080 NONE FUNC KERNEL32.dll                          LocalFree
+18  0x140007088 NONE FUNC KERNEL32.dll                          FormatMessageA
+19  0x140007090 NONE FUNC KERNEL32.dll                          CompareStringA
+20  0x140007098 NONE FUNC KERNEL32.dll                          RtlCaptureContext
+21  0x1400070a0 NONE FUNC KERNEL32.dll                          RtlLookupFunctionEntry
+22  0x1400070a8 NONE FUNC KERNEL32.dll                          RtlVirtualUnwind
+23  0x1400070b0 NONE FUNC KERNEL32.dll                          UnhandledExceptionFilter
+24  0x1400070b8 NONE FUNC KERNEL32.dll                          SetUnhandledExceptionFilter
+25  0x1400070c0 NONE FUNC KERNEL32.dll                          GetCurrentProcess
+26  0x1400070c8 NONE FUNC KERNEL32.dll                          TerminateProcess
+27  0x1400070d0 NONE FUNC KERNEL32.dll                          IsProcessorFeaturePresent
+28  0x1400070d8 NONE FUNC KERNEL32.dll                          IsDebuggerPresent
+29  0x1400070e0 NONE FUNC KERNEL32.dll                          GetModuleHandleW
+30  0x1400070e8 NONE FUNC KERNEL32.dll                          QueryPerformanceCounter
+31  0x1400070f0 NONE FUNC KERNEL32.dll                          GetCurrentProcessId
+32  0x1400070f8 NONE FUNC KERNEL32.dll                          GetCurrentThreadId
+33  0x140007100 NONE FUNC KERNEL32.dll                          GetSystemTimeAsFileTime
+34  0x140007108 NONE FUNC KERNEL32.dll                          InitializeSListHead
+1   0x140007118 NONE FUNC VCRUNTIME140.dll                      memset
+2   0x140007120 NONE FUNC VCRUNTIME140.dll                      __C_specific_handler
+3   0x140007128 NONE FUNC VCRUNTIME140.dll                      __std_exception_copy
+4   0x140007130 NONE FUNC VCRUNTIME140.dll                      __std_exception_destroy
+5   0x140007138 NONE FUNC VCRUNTIME140.dll                      _CxxThrowException
+6   0x140007140 NONE FUNC VCRUNTIME140.dll                      __current_exception
+7   0x140007148 NONE FUNC VCRUNTIME140.dll                      __current_exception_context
+1   0x140007270 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __acrt_iob_func
+2   0x140007278 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vfprintf
+3   0x140007280 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __stdio_common_vsnprintf_s
+4   0x140007288 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       __p__commode
+5   0x140007290 NONE FUNC api-ms-win-crt-stdio-l1-1-0.dll       _set_fmode
+1   0x1400072a0 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strcmp
+2   0x1400072a8 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      isupper
+3   0x1400072b0 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      _strlwr_s
+4   0x1400072b8 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncat_s
+5   0x1400072c0 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      isalpha
+6   0x1400072c8 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strncpy_s
+7   0x1400072d0 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      strnlen
+8   0x1400072d8 NONE FUNC api-ms-win-crt-string-l1-1-0.dll      isdigit
+1   0x1400071c8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     terminate
+2   0x1400071d0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _errno
+3   0x1400071d8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _register_thread_local_exe_atexit_callback
+4   0x1400071e0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _c_exit
+5   0x1400071e8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _configure_narrow_argv
+6   0x1400071f0 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initialize_narrow_environment
+7   0x1400071f8 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initialize_onexit_table
+8   0x140007200 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _register_onexit_function
+9   0x140007208 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _crt_atexit
+10  0x140007210 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _cexit
+11  0x140007218 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _seh_filter_exe
+12  0x140007220 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _set_app_type
+13  0x140007228 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     perror
+14  0x140007230 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _get_initial_narrow_environment
+15  0x140007238 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initterm
+16  0x140007240 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _initterm_e
+17  0x140007248 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     exit
+18  0x140007250 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     _exit
+19  0x140007258 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     __p___argv
+20  0x140007260 NONE FUNC api-ms-win-crt-runtime-l1-1-0.dll     __p___argc
+1   0x140007158 NONE FUNC api-ms-win-crt-environment-l1-1-0.dll _dupenv_s
+1   0x140007168 NONE FUNC api-ms-win-crt-filesystem-l1-1-0.dll  remove
+2   0x140007170 NONE FUNC api-ms-win-crt-filesystem-l1-1-0.dll  rename
+1   0x140007180 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        free
+2   0x140007188 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        malloc
+3   0x140007190 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        _callnewh
+4   0x140007198 NONE FUNC api-ms-win-crt-heap-l1-1-0.dll        _set_new_mode
+1   0x1400071b8 NONE FUNC api-ms-win-crt-math-l1-1-0.dll        __setusermatherr
+1   0x1400071a8 NONE FUNC api-ms-win-crt-locale-l1-1-0.dll      _configthreadlocale
