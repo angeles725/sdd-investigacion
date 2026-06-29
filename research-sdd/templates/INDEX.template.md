@@ -16,6 +16,21 @@ This index guides through the **<N> blocks** of this research. Each block is an 
 
 ---
 
+## Layer summary
+
+> As the corpus grows (niagara reached ~130 blocks / 25 layers, a ~400KB flat INDEX), a flat per-block
+> list stops being navigable. Keep this PER-LAYER summary up to date so the index stays scannable —
+> one row per layer, with the detail living in the full map below and in the blocks themselves.
+
+| Layer | Topic area | Blocks | Status | One-line summary |
+|---|---|---|---|---|
+| 1 | <topic area> | 1-N | active | <what this layer establishes> |
+
+<!-- For a multi-focus target (METHODOLOGY §16), add a "## Focuses" section (or a FOCUSES.md)
+     listing each focus as active/paused/stopped with its RESEARCH-STATE-<focus>.md + block prefix. -->
+
+---
+
 ## Full map
 
 ### Layer 1 — <topic area>

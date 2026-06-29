@@ -44,6 +44,23 @@ MCP server for interactive, agent-directed analysis. It requires Ghidra
 running with the plugin + an open binary (server at `127.0.0.1:8089`).
 See `GHIDRA-MCP.md` (generated after installation) for the usage flow.
 
+## Capability detection (run BEFORE concluding a tool is missing)
+
+`detect-tools.sh` probes the **real** availability of the RE/decompile tools above and prints a
+capability report (also cached to `./.research-tools.txt`). It is READ-ONLY — it never installs.
+
+```
+detect-tools.sh                 # report to stdout + cache
+detect-tools.sh --cache <file>  # cache elsewhere
+detect-tools.sh --quiet         # cache only
+```
+
+It resolves each tool via PATH **and** known install dirs — linuxbrew `Cellar/*/...` globs, the dotnet
+tools dir, and the Vineflower/CFR/Procyon jar paths — so a tool reachable only off-PATH is reported
+`available`, not `MISSING`. Do NOT infer availability from `which` alone: assuming "Ghidra not available"
+when `decompile-native.sh ghidra` worked (Ghidra was under linuxbrew Cellar) cost the first native block
+its decompiler depth. The loop runs this in BOOTSTRAP (PROMPT-LOOP §a); re-run it after any install.
+
 ## Self-provisioning: missing-tool recipes
 
 When a gap needs a tool not listed above, the loop installs it autonomously via `install-tool.sh`

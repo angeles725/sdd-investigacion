@@ -108,6 +108,15 @@ The gap backlog and progress live in **two mirrored places**:
 The loop reads the files first; it uses engram to recover if the local state was lost or
 to start a new session.
 
+**Engram `project` convention (do not guess).** All of a target's engram mirrors go under the
+**TARGET's own project name** (the corpus directory / repo name, e.g. `niagara-research`), NOT the
+kit's project (`sdd-investigacion`) and NOT the orchestrator's ambient project. Pass `project: "<target>"`
+explicitly on every `mem_save`/`mem_search` for research mirrors. Sub-agents must be told the target
+project in their prompt rather than inferring it from cwd. (Lesson: a niagara mirror landed in the
+wrong project #3993 and engram has no delete tool — a misfiled memory is permanent, so set `project`
+deliberately.) For a multi-focus target (§16), keep one project per target and disambiguate focuses via
+the topic key: `research/<target>/<focus>/gaps`, `.../progress`.
+
 ## 8. Stopping criterion
 
 The loop stops on the FIRST of these (primary first):
@@ -138,6 +147,8 @@ needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 5. **One block per iteration.** Deep and cited, not wide and vague.
 6. **Self-verify** certainty before closing the gap.
 7. **Register the new gaps** that the research uncovers (the queue feeds itself).
+8. **Re-measure ground-truth live; never inherit it.** In a dynamic/live phase, measure checksums,
+   versions, IPs and build ids against the real system — do not cite them from a prior block (§12).
 
 Corpus language: **English by default** — for new targets and targets with no existing corpus.
 **Exception (user-approved, per target):** a target with an established corpus in another language MAY
@@ -197,6 +208,11 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
+- **Re-measure ground-truth, never inherit it.** When entering a dynamic/hardware phase (or any new
+  live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids — LIVE
+  from the real system in THIS phase. Do NOT cite them from a prior note or earlier block: an inherited
+  value may be stale. B66-B69 carried a bench-program checksum `05 3d 6e e4` inherited from an earlier
+  probe; the live value was `0x87B961A9` (only B70 measured it live), which forced a correction (§14).
 - **Reclassify on hardware arrival.** Gaps marked `blocked` (§8) flip to investigable when the live
   system appears — update RESEARCH-STATE and re-run those.
 - **Tooling.** Build a read-only probe (a port of the decompiled protocol) and run it via
@@ -234,3 +250,38 @@ Each target's corpus is a git repo (the engine kit lives separately in sdd-inves
 runs `git init` in the TARGET so that self-corrections (§14) have history and the corpus is shareable.
 On an existing un-versioned corpus, init it once. NOTE: git-init goes in the **target project**, never
 in the kit.
+
+## 16. Multi-focus corpus (parallel focuses under one target)
+
+A small target is a single axis. A **mature or large** target often has several distinct subjects worth
+investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerSupervisor`, and
+`platform-native`. Formalize this instead of spawning ad-hoc state files:
+
+- **One RESEARCH-STATE per focus.** Each focus gets its own `RESEARCH-STATE-<focus>.md` (its own
+  coverage ratio + gap backlog). Pick a short, stable `<focus>` slug (the angle from PROMPT-LOOP §b2).
+- **A focus index.** Keep a small `FOCUSES.md` at the target root (or a top "## Focuses" section in
+  `INDEX.md`) listing each focus as **active / paused / stopped**, its `RESEARCH-STATE-<focus>.md`, and
+  its block prefix. This is how the loop (and a human) knows which focuses exist and which is current.
+- **Naming convention.** Blocks carry a focus-aware prefix (e.g. `spyder-blockN.md`,
+  `platform-native-blockN.md`) so a flat `ls` stays readable; state mirrors them as
+  `RESEARCH-STATE-<focus>.md`.
+- **State the active focus** when continuing the loop, and confirm the angle (§b2) before opening a new
+  focus — a new focus is a new bootstrap, so it deserves the same angle confirmation.
+- **One engram project, focus in the topic key.** All focuses mirror under the same target project
+  (§7); disambiguate with `research/<target>/<focus>/...` topic keys.
+
+## 17. Incident & resume (after a kill / crash / interruption)
+
+Sub-agent iterations can be killed or crash mid-run yet have ALREADY landed their commit (niagara B76
+and B122 both did). Before re-launching an interrupted iteration:
+
+1. **Check real state first.** Run `git -C $TARGET log --oneline -5` and inspect the on-disk artifacts
+   (the expected block file, CATALOG, INDEX/RESEARCH-STATE) to see whether the iteration already
+   committed its work.
+2. **Resume from real state, don't blindly redo.** If the block landed, do NOT re-run it — re-running
+   risks overwriting good work or duplicating a block. Pick up from the actual committed state: verify
+   it self-verified correctly, then continue with the next gap.
+3. **If it only partially landed** (e.g. block written but state/CATALOG not updated), finish the
+   remaining archive steps rather than restarting the whole iteration.
+4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the
+   on-disk truth before continuing — files are the source of truth, engram is the mirror.

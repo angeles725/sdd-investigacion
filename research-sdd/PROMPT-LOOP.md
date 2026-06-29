@@ -39,7 +39,20 @@ Always read first, in this order:
 
 == BOOTSTRAP (only if the target has NO INDEX.md/RESEARCH-STATE.md) ==
   a. Profile the target: $KIT/toolbelt/profile-target.sh $TARGET  (classifies binaries → wrapper).
+     Also run $KIT/toolbelt/detect-tools.sh (cache the report): learn which decompilers are ACTUALLY
+     available before deciding what you can do. Do NOT infer availability from `which` alone — Ghidra,
+     r2, jadx etc. may live under linuxbrew Cellar / a dotnet dir / a jar path and still be off PATH
+     (lesson: niagara assumed "Ghidra not available" when decompile-native.sh ghidra worked, losing
+     the first native block's decompiler depth).
   b. Determine which system it is, where its real sources/binaries are, and the corpus language.
+  b2. ANGLE (mature OR large target): a target name alone is ambiguous. DECLARE AN EXPLICIT
+      INVESTIGATION ANGLE/AXIS (e.g. decompiled-Java vs native-binaries vs install/config vs
+      docs/protocol) and CONFIRM it BEFORE closing the first gap — picking the wrong focus burns a
+      bootstrap + a block each time (lesson: niagara went live-station → OEM Java modules → native
+      binaries before hitting the axis the user wanted). If the angle isn't obvious from the request,
+      SURFACE it for the orchestrator/user to pick rather than guessing. A mature target may legitimately
+      host several parallel angles → see the MULTI-FOCUS CORPUS pattern (METHODOLOGY §16). (Small/
+      incipient single-artifact targets: skip — the artifact is the angle.)
   c. Create $TARGET/INDEX.md from $KIT/templates/INDEX.template.md (empty map + marker legend).
   d. Create dirs first: `mkdir -p $TARGET/tools $TARGET/.claude/hooks $TARGET/sources`. Copy
      $KIT/templates/gen-catalog.py → $TARGET/tools/, and $KIT/templates/hook-sessionstart.sh →
@@ -101,12 +114,32 @@ Always read first, in this order:
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - ONE block per iteration (deep and cited, not wide and vague).
+  - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
+    live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
+    LIVE from the real system. Never cite them from a prior note/block (lesson: B66-B69 inherited a
+    stale bench checksum `05 3d 6e e4`; the live value was `0x87B961A9`, forcing a correction). See
+    METHODOLOGY §12.
+  - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
+    `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
+    before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).
+    See METHODOLOGY §17.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft → Spanish, for continuity of its mature
     Spanish corpus), write blocks in THAT language. Otherwise English. Do not infer exceptions.
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
+
+RETURN CONTRACT (message back to the orchestrator):
+  Keep the return-to-orchestrator message CONCISE — full detail lives in the block, NOT the report
+  (a huge report bloats the orchestrator's context for no gain). Report ONLY:
+    - status (done / blocked / partial),
+    - the gap closed,
+    - the block path + a ONE-paragraph summary of what it found,
+    - the self-verify tally (tokens checked, marker counts, [INFER]/[CERT] ratio),
+    - artifacts touched (block, CATALOG, INDEX, RESEARCH-STATE, sources/),
+    - the next gap (or the stop declaration).
+  Do NOT paste the block body, long decompiler dumps, or full file contents into the report.
 ```
 
 ---
@@ -118,5 +151,8 @@ HARD RULES:
   stopping criterion requires 2 empty iterations in a row.
 - **Mature targets** (e.g. `niagara-research`) already have INDEX/hook: the loop continues from their
   gaps. **Incipient targets** trigger the BOOTSTRAP.
+- **Multi-focus targets**: a large/mature target may carry several parallel focuses, each with its own
+  `RESEARCH-STATE-<focus>.md` and a small focus index. State the active focus when you continue, and
+  mirror to the TARGET's own engram `project`. Convention in METHODOLOGY §16.
 - **ghidra-mcp** (agent-directed decompilation) requires the Ghidra server alive at `:8089`
   and restarting Claude Code; for batch/triage `decompile-native.sh` is enough (see `toolbelt/GHIDRA-MCP.md`).
