@@ -1,0 +1,7 @@
+nth paddr      vaddr       bind   type size lib          name                demangled
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x00000480 0x180001080 GLOBAL FUNC 0    opcproxy.dll DllCanUnloadNow
+2   0x00000430 0x180001030 GLOBAL FUNC 0    opcproxy.dll DllGetClassObject
+3   0x000004c0 0x1800010c0 GLOBAL FUNC 0    opcproxy.dll DllRegisterServer
+4   0x00000500 0x180001100 GLOBAL FUNC 0    opcproxy.dll DllUnregisterServer
+5   0x00000400 0x180001000 GLOBAL FUNC 0    opcproxy.dll GetProxyDllInfo

@@ -1,0 +1,11 @@
+kernel32.dll
+ole32.dll
+oleaut32.dll
+msvcp140.dll
+vcruntime140_1.dll
+vcruntime140.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll

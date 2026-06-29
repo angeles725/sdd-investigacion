@@ -1,0 +1,13 @@
+nth paddr      vaddr       bind   type size lib     name                                                       demangled
+――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x00000820 0x180001420 GLOBAL FUNC 0    lon.dll ??0Nre@@QEAA@AEBV0@@Z
+2   0x00000820 0x180001420 GLOBAL FUNC 0    lon.dll ??0Nre@@QEAA@XZ
+3   0x00000920 0x180001520 GLOBAL FUNC 0    lon.dll ??1CharWriter@@UEAA@XZ
+4   0x00000950 0x180001550 GLOBAL FUNC 0    lon.dll ??4Nre@@QEAAAEAV0@AEBV0@@Z
+5   0x00003410 0x180004410 GLOBAL FUNC 0    lon.dll ??_7Nre@@6B@
+6   0x00000b10 0x180001710 GLOBAL FUNC 0    lon.dll ?close@CharWriter@@UEAAXXZ
+7   0x00001250 0x180001e50 GLOBAL FUNC 0    lon.dll ?writeString@CharWriter@@UEAAHPEBD@Z
+8   0x00001280 0x180001e80 GLOBAL FUNC 0    lon.dll Java_com_tridium_platLon_BLonPlatformServiceWin32_ldvClose
+9   0x00001460 0x180002060 GLOBAL FUNC 0    lon.dll Java_com_tridium_platLon_BLonPlatformServiceWin32_ldvOpen
+10  0x00001840 0x180002440 GLOBAL FUNC 0    lon.dll Java_com_tridium_platLon_BLonPlatformServiceWin32_ldvRead
+11  0x00001970 0x180002570 GLOBAL FUNC 0    lon.dll Java_com_tridium_platLon_BLonPlatformServiceWin32_ldvWrite

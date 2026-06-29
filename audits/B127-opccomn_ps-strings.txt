@@ -1,0 +1,414 @@
+!This program cannot be run in DOS mode.
+.text
+`.orpc
+`.rdata
+@.data
+.pdata
+@.rsrc
+@.reloc
+L$0H;
+x ATH
+x ATH
+WATAUAVAWH
+|$ H;
+@A_A^A]A\_
+` AUAVAWH
+fD9|$b
+D$hI;
+A_A^A]
+x ATAUAVH
+< tG<	tC
+ A^A]A\
+t$ WH
+L$@E3
+Hct$@H
+s\HcL$HH
+x ATH
+fD9#t
+fD9'u
+fD9'u
+d$0H+
+WATAUAVAWH
+9.vTH
+A_A^A]A\_
+\$8L3
+D$p H
+\$0H;
+L$0H;
+UVWATAUH
+D9d$ 
+D$&8\$&t-8X
+L$8H3
+@A]A\_^]
+` AUH
+l$ AVH
+ATAUAVH
+ A^A]A\
+HcH<H
+LcA<E3
+WATAUAVAWH
+H!t$ E3
+A_A^A]A\_
+fffffff
+fffffff
+L$ UATAUAVAWH
+|$0H;
+A_A^A]A\]
+@UATAUAVAWH
+\$@I;
+D91u(
+e A_A^A]A\]
+VWATAUAVH
+@A^A]A\_^
+\$XE3
+L$(H3
+@USVWATAUAVAWH
+eHA_A^A]A\_^[]
+8D$Xt
+x ATAUAVH
+@8|$Ht
+A^A]A\
+IOPCCommon
+IOPCShutdown
+IOPCEnumGUID
+IOPCServerList2
+IOPCServerList
+CorExitProcess
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~
+runtime error 
+TLOSS error
+SING error
+DOMAIN error
+R6034
+An application has made an attempt to load the C runtime library incorrectly.
+Please contact the application's support team for more information.
+R6033
+- Attempt to use MSIL code from this assembly during native code initialization
+This indicates a bug in your application. It is most likely the result of calling an MSIL-compiled (/clr) function from a native constructor or from DllMain.
+R6032
+- not enough space for locale information
+R6031
+- Attempt to initialize the CRT more than once.
+This indicates a bug in your application.
+R6030
+- CRT not initialized
+R6028
+- unable to initialize heap
+R6027
+- not enough space for lowio initialization
+R6026
+- not enough space for stdio initialization
+R6025
+- pure virtual function call
+R6024
+- not enough space for _onexit/atexit table
+R6019
+- unable to open console device
+R6018
+- unexpected heap error
+R6017
+- unexpected multithread lock error
+R6016
+- not enough space for thread data
+This application has requested the Runtime to terminate it in an unusual way.
+Please contact the application's support team for more information.
+R6009
+- not enough space for environment
+R6008
+- not enough space for arguments
+R6002
+- floating point support not loaded
+Microsoft Visual C++ Runtime Library
+<program name unknown>
+Runtime Error!
+Program: 
+ !"#$%&'()*+,-./0123456789:;<=>?@abcdefghijklmnopqrstuvwxyz[\]^_`abcdefghijklmnopqrstuvwxyz{|}~
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}~
+HH:mm:ss
+dddd, MMMM dd, yyyy
+MM/dd/yy
+December
+November
+October
+September
+August
+April
+March
+February
+January
+Saturday
+Friday
+Thursday
+Wednesday
+Tuesday
+Monday
+Sunday
+GetProcessWindowStation
+GetUserObjectInformationA
+GetLastActivePopup
+GetActiveWindow
+MessageBoxA
+USER32.DLL
+SunMonTueWedThuFriSat
+JanFebMarAprMayJunJulAugSepOctNovDec
+X:\Work\COM105.1\Source\Solutions\Core Components\x64\Release\opccomn_ps.pdb
+NdrDllGetClassObject
+NdrDllCanUnloadNow
+NdrCStdStubBuffer_Release
+NdrDllRegisterProxy
+NdrDllUnregisterProxy
+CStdStubBuffer_DebugServerRelease
+CStdStubBuffer_DebugServerQueryInterface
+CStdStubBuffer_CountRefs
+CStdStubBuffer_IsIIDSupported
+CStdStubBuffer_Invoke
+CStdStubBuffer_Disconnect
+CStdStubBuffer_Connect
+CStdStubBuffer_AddRef
+CStdStubBuffer_QueryInterface
+IUnknown_Release_Proxy
+IUnknown_AddRef_Proxy
+IUnknown_QueryInterface_Proxy
+NdrOleFree
+NdrOleAllocate
+RPCRT4.dll
+DisableThreadLibraryCalls
+KERNEL32.dll
+GetCurrentThreadId
+FlsSetValue
+GetCommandLineA
+EncodePointer
+DecodePointer
+FlsGetValue
+FlsFree
+SetLastError
+GetLastError
+FlsAlloc
+HeapFree
+Sleep
+GetModuleHandleW
+GetProcAddress
+ExitProcess
+SetHandleCount
+GetStdHandle
+GetFileType
+GetStartupInfoA
+DeleteCriticalSection
+GetModuleFileNameA
+FreeEnvironmentStringsA
+GetEnvironmentStrings
+FreeEnvironmentStringsW
+WideCharToMultiByte
+GetEnvironmentStringsW
+HeapSetInformation
+HeapCreate
+HeapDestroy
+RtlUnwindEx
+QueryPerformanceCounter
+GetTickCount
+GetCurrentProcessId
+GetSystemTimeAsFileTime
+LeaveCriticalSection
+EnterCriticalSection
+GetCPInfo
+GetACP
+GetOEMCP
+IsValidCodePage
+HeapAlloc
+HeapReAlloc
+WriteFile
+TerminateProcess
+GetCurrentProcess
+UnhandledExceptionFilter
+SetUnhandledExceptionFilter
+IsDebuggerPresent
+RtlVirtualUnwind
+RtlLookupFunctionEntry
+RtlCaptureContext
+LoadLibraryA
+InitializeCriticalSectionAndSpinCount
+GetLocaleInfoA
+GetStringTypeA
+MultiByteToWideChar
+GetStringTypeW
+LCMapStringA
+LCMapStringW
+HeapSize
+opccomn_ps.dll
+DllCanUnloadNow
+DllGetClassObject
+DllRegisterServer
+DllUnregisterServer
+GetProxyDllInfo
+                          
+abcdefghijklmnopqrstuvwxyz
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+                          
+abcdefghijklmnopqrstuvwxyz
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+stdole2.tlbWWW
+@OPCCOMNW
+IEnumStringW
+RemoteNextWW
+rgeltWWW
+pceltFetched
+>ResetWWW
+CloneWWW
+ppenumWWd
+IEnumUnknown
+IEnumGUIDWWW
+	Next,
+IConnectionPointContainerWWW
+7IEnumConnectionPointsWWW
+IConnectionPoint
+r.GetConnectionInterfaceWW
+GetConnectionPointContainerW
+DppCPCWWW
+pAdviseWW
+8pUnkSink
+9TpdwCookieWWW
+Unadvise
+dwCookieX
+BIEnumConnections
+tagCONNECTDATAWW
+cConnections
+(rgcd
+(pcFetchedWWW
+P:EnumConnectionsW
+ppCP,
+~EnumConnectionPoints,
+&MFindConnectionPointW
+3riid 
+8AUIOPCCommonWW 
+rSetLocaleIDW
+dwLcidWW 
+GetLocaleIDW
+pdwLcidW 
+QueryAvailableLocaleIDsW
+cpdwCount 
+GetErrorStringWW
+dwErrorW
+ppString 
+:YSetClientNameWWW
+:szNameWW
+5IOPCShutdown
+ShutdownRequestW
+szReason
+IOPCServerListWW
+_EnumClassesOfCategoriesW
+cImplemented
++rgcatidImplW
+cRequiredWWW
+rgcatidReqWW
+$8ppenumClsidW
+[&GetClassDetailsW
+clsidWWW
+ppszProgIDWW
+ppszUserType
+,CLSIDFromProgIDW
+3zszProgIdL
+yIOPCServerList2W
+,IOPCEnumGUID
+ppszVerIndProgID
+OPC Common 1.10 Type LibraryWW
+Created by MIDL version 7.00.0500 at Mon Jan 17 19:42:54 2011
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"></requestedExecutionLevel>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>PAPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPAD
+j0h03
+LznAJF
+DigiCert Inc1
+www.digicert.com110/
+(DigiCert SHA2 Assured ID Code Signing CA0
+180207000000Z
+210211120000Z0k1
+Richmond1
+Niagara1
+Niagara Modules1
+Niagara0
+p0n05
+/http://crl3.digicert.com/sha2-assured-cs-g1.crl05
+/http://crl4.digicert.com/sha2-assured-cs-g1.crl0L
+E0C07
+https://www.digicert.com/CPS0
+x0v0$
+http://ocsp.digicert.com0N
+Bhttp://cacerts.digicert.com/DigiCertSHA2AssuredIDCodeSigningCA.crt0
+DigiCert Inc1
+www.digicert.com1$0"
+DigiCert Assured ID Root CA0
+131022120000Z
+281022120000Z0r1
+DigiCert Inc1
+www.digicert.com110/
+(DigiCert SHA2 Assured ID Code Signing CA0
+p1f3q>
+m0k0$
+http://ocsp.digicert.com0C
+7http://cacerts.digicert.com/DigiCertAssuredIDRootCA.crt0
+z0x0:
+4http://crl4.digicert.com/DigiCertAssuredIDRootCA.crl0:
+4http://crl3.digicert.com/DigiCertAssuredIDRootCA.crl0O
+H0F08
+https://www.digicert.com/CPS0
+,|%)v
+DigiCert Inc1
+www.digicert.com1$0"
+DigiCert Assured ID Root CA0
+061110000000Z
+311110000000Z0e1
+DigiCert Inc1
+www.digicert.com1$0"
+DigiCert Assured ID Root CA0
+ 9(X`
+DigiCert Inc1
+www.digicert.com1$0"
+DigiCert Assured ID Root CA0
+061110000000Z
+211110000000Z0b1
+DigiCert Inc1
+www.digicert.com1!0
+DigiCert Assured ID CA-10
+.http://www.digicert.com/ssl-cps-repository.htm0
+m0k0$
+http://ocsp.digicert.com0C
+7http://cacerts.digicert.com/DigiCertAssuredIDRootCA.crt0
+z0x0:
+4http://crl3.digicert.com/DigiCertAssuredIDRootCA.crl0:
+4http://crl4.digicert.com/DigiCertAssuredIDRootCA.crl0
+DigiCert Inc1
+www.digicert.com1!0
+DigiCert Assured ID CA-10
+141022000000Z
+241022000000Z0G1
+DigiCert1%0#
+DigiCert Timestamp Responder0
+https://www.digicert.com/CPS0
+v0t08
+2http://crl3.digicert.com/DigiCertAssuredIDCA-1.crl08
+2http://crl4.digicert.com/DigiCertAssuredIDCA-1.crl0w
+k0i0$
+http://ocsp.digicert.com0A
+5http://cacerts.digicert.com/DigiCertAssuredIDCA-1.crt0
+iW!]4/
+(o:R	
+DigiCert Inc1
+www.digicert.com110/
+(DigiCert SHA2 Assured ID Code Signing CA
+LznAJF
+200115132346Z0
+dD9zB+Q
+0v0b1
+DigiCert Inc1
+www.digicert.com1!0
+DigiCert Assured ID CA-1
+200115132336Z0#
+;Qb#(5
+F"uiC
+ L}~T

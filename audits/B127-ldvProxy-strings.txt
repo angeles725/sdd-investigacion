@@ -1,0 +1,336 @@
+!This program cannot be run in DOS mode.
+(Rich
+.text
+`.rdata
+@.data
+.rsrc
+@.reloc
+D$4PS
+D$$Pj
+D$ PS
+D$ Pj
+u!hD2@
+D$4PS
+PhT3@
+D$ Pj
+Ph|3@
+_^][3
+PhP4@
+Phx4@
+u"h Q@
+5ineI
+5Genu
+ERROR:Failed to write handle back!
+ERROR:Failed to write close response!
+ERROR:Failed to write response back!
+ERROR:Failed to write data back!
+ERROR:Lon native library not found - check if adapter installed!
+ERROR:Set priority
+failed with code=
+CreateNamedPipe: name= 
+CreateThread failed, GLE=
+ERROR:Set InstanceThread priority
+pipeServer: client disconnected. GLE=
+pipeServer: ReadFile failed, GLE=
+ERROR:Invalid message type
+ERROR:Invalid message format
+ldv32
+ldv_open
+ldv_read
+ldv_write
+ldv_close
+wldv32
+_ldv_open@4
+ldv_openP==NULL err=%u
+_ldv_read@12
+ldv_readP==NULL err=%u
+_ldv_write@12
+ldv_writeP==NULL err=%u
+_ldv_close@4
+ldv_closeP==NULL err=%u
+Unknown exception
+bad allocation
+bad array new length
+.text$mn
+.text$x
+.idata$5
+.00cfg
+.CRT$XCA
+.CRT$XCAA
+.CRT$XCZ
+.CRT$XIA
+.CRT$XIAA
+.CRT$XIAC
+.CRT$XIZ
+.CRT$XPA
+.CRT$XPZ
+.CRT$XTA
+.CRT$XTZ
+.gfids
+.rdata
+.rdata$r
+.rdata$sxdata
+.rdata$zzzdbg
+.rtc$IAA
+.rtc$IZZ
+.rtc$TAA
+.rtc$TZZ
+.xdata$x
+.idata$2
+.idata$3
+.idata$4
+.idata$6
+.data
+.data$r
+.data$rs
+.rsrc$01
+.rsrc$02
+?uncaught_exception@std@@YA_NXZ
+?sputc@?$basic_streambuf@DU?$char_traits@D@std@@@std@@QAEHD@Z
+?sputn@?$basic_streambuf@DU?$char_traits@D@std@@@std@@QAE_JPBD_J@Z
+?setstate@?$basic_ios@DU?$char_traits@D@std@@@std@@QAEXH_N@Z
+?widen@?$basic_ios@DU?$char_traits@D@std@@@std@@QBEDD@Z
+?_Osfx@?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEXXZ
+??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV01@P6AAAV01@AAV01@@Z@Z
+??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV01@K@Z
+?put@?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV12@D@Z
+?flush@?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV12@XZ
+?cout@std@@3V?$basic_ostream@DU?$char_traits@D@std@@@1@A
+MSVCP140.dll
+FlushFileBuffers
+ReadFile
+WriteFile
+CloseHandle
+GetLastError
+ConnectNamedPipe
+DisconnectNamedPipe
+CreateThread
+GetCurrentThread
+SetThreadPriority
+CreateNamedPipeA
+FreeLibrary
+GetProcAddress
+LoadLibraryA
+UnhandledExceptionFilter
+SetUnhandledExceptionFilter
+GetCurrentProcess
+TerminateProcess
+IsProcessorFeaturePresent
+IsDebuggerPresent
+GetModuleHandleW
+QueryPerformanceCounter
+GetCurrentProcessId
+GetCurrentThreadId
+GetSystemTimeAsFileTime
+InitializeSListHead
+KERNEL32.dll
+__std_terminate
+__CxxFrameHandler3
+memset
+__std_exception_copy
+__std_exception_destroy
+_CxxThrowException
+__current_exception
+__current_exception_context
+_except_handler4_common
+VCRUNTIME140.dll
+__acrt_iob_func
+__stdio_common_vfprintf
+_callnewh
+malloc
+_configure_narrow_argv
+_initialize_narrow_environment
+_initialize_onexit_table
+_register_onexit_function
+_crt_atexit
+_cexit
+_seh_filter_exe
+_set_app_type
+__setusermatherr
+_get_initial_narrow_environment
+_initterm
+_initterm_e
+_exit
+_set_fmode
+__p___argc
+__p___argv
+_c_exit
+_register_thread_local_exe_atexit_callback
+_configthreadlocale
+_set_new_mode
+__p__commode
+terminate
+_controlfp_s
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+\\.\pipe\LDVPipe
+.?AVbad_alloc@std@@
+.?AVexception@std@@
+.?AVbad_array_new_length@std@@
+.?AVLonAb@@
+.?AVLon32@@
+.?AVWLon32@@
+.?AVtype_info@@
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+ <assemblyIdentity version="4.14.0.22" processorArchitecture="X86" name="Tridium.Niagara.LonDriverProxy" type="win32"></assemblyIdentity>
+ <description>Niagara Lon Driver Proxy</description>
+ <asmv3:application>
+  <asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">
+   <dpiAware>false</dpiAware>
+  </asmv3:windowsSettings>
+ </asmv3:application>
+ <asmv3:trustInfo>
+  <asmv3:security>
+   <asmv3:requestedPrivileges>
+    <asmv3:requestedExecutionLevel level="asInvoker" uiAccess="false"></asmv3:requestedExecutionLevel>
+   </asmv3:requestedPrivileges>
+  </asmv3:security>
+ </asmv3:trustInfo>
+ <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+  <application>
+   <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"></supportedOS>
+  </application>
+ </compatibility>
+</assembly>PADPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADD
+141u1z1
+2&282k2
+363D3c3
+4(4[4
+5%5_5l5
+6(6.6P6c6
+7$707=7K7T7Z7|7
+8,888>8D8I8N8T8v8~8
+9A9G9M9R9[9b9g9p9v9{9
+9D:d:~:
+;#;*;7;=;J;P;V;c;i;v;|;
+<8<h<
+>1>7>=>C>I>O>U>j>
+?E?W?
+1L112:2E2L2_2m2s2y2
+3(383A3`3x3~3
+4+4\4y4
+4a5j5r5
+6(666?6a6h6{6
+6]7}7
+7h8q8
+9(9>9x9
+:3:8:K:b:h:n:t:z:
+;";(;.;4;>;
+<$<D<
+L1T1`1d1
+3(4,4044484
+5 54585<5
+506L6P6X6p6
+7,70787P7`7d7t7x7
+;(;4;<;T;l;t;
+<,<0<8<@<H<L<T<h<p<
+80T0p0
+DigiCert Inc1
+www.digicert.com1!0
+DigiCert Trusted Root G40
+210429000000Z
+360428235959Z0i1
+DigiCert, Inc.1A0?
+8DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA10
+>Mp$d
+6*f(_
+[K]taM?
+J>@G_
+SA|X=G
+k0i0$
+http://ocsp.digicert.com0A
+5http://cacerts.digicert.com/DigiCertTrustedRootG4.crt0C
+<0:08
+2http://crl3.digicert.com/DigiCertTrustedRootG4.crl0
+jj@0HK4
+DigiCert, Inc.1A0?
+8DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA10
+230517000000Z
+260519235959Z0a1
+Virginia1
+Richmond1
+Tridium, Inc1
+Tridium, Inc0
+n3s) 
+n%4$d
+@?-L7Z
+Mhttp://crl3.digicert.com/DigiCertTrustedG4CodeSigningRSA4096SHA3842021CA1.crl0S
+Mhttp://crl4.digicert.com/DigiCertTrustedG4CodeSigningRSA4096SHA3842021CA1.crl0>
+70503
+http://www.digicert.com/CPS0
+http://ocsp.digicert.com0\
+Phttp://cacerts.digicert.com/DigiCertTrustedG4CodeSigningRSA4096SHA3842021CA1.crt0	
+eF=h'+k
++	E4[
+0}0i1
+DigiCert, Inc.1A0?
+8DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1
+"Z#fmH8&	
+n)%08i
+@O_ b
+20240108190500Z
+DigiCert, Inc.1;09
+2DigiCert Trusted G4 RSA4096 SHA256 TimeStamping CA0
+230714000000Z
+341013235959Z0H1
+DigiCert, Inc.1 0
+DigiCert Timestamp 20230
+H-^Eu
+S0Q0O
+Ihttp://crl3.digicert.com/DigiCertTrustedG4RSA4096SHA256TimeStampingCA.crl0
+http://ocsp.digicert.com0X
+Lhttp://cacerts.digicert.com/DigiCertTrustedG4RSA4096SHA256TimeStampingCA.crt0
+a7hIw
+l2|X/gGe
+(f*^[0
+DigiCert Inc1
+www.digicert.com1!0
+DigiCert Trusted Root G40
+220323000000Z
+370322235959Z0c1
+DigiCert, Inc.1;09
+2DigiCert Trusted G4 RSA4096 SHA256 TimeStamping CA0
+=rIQU
+!hn7!
+{un'%
++Xt@(
+,W5y+
+k0i0$
+http://ocsp.digicert.com0A
+5http://cacerts.digicert.com/DigiCertTrustedRootG4.crt0C
+<0:08
+2http://crl3.digicert.com/DigiCertTrustedRootG4.crl0 
+ %41g
+',=?k
+DigiCert Inc1
+www.digicert.com1$0"
+DigiCert Assured ID Root CA0
+220801000000Z
+311109235959Z0b1
+DigiCert Inc1
+www.digicert.com1!0
+DigiCert Trusted Root G40
+]J<0"0i3
+v=Y]Bv
+|Lu?c
+m0k0$
+http://ocsp.digicert.com0C
+7http://cacerts.digicert.com/DigiCertAssuredIDRootCA.crt0E
+>0<0:
+4http://crl3.digicert.com/DigiCertAssuredIDRootCA.crl0
+5FjiT
+~qj#k"
+0w0c1
+DigiCert, Inc.1;09
+2DigiCert Trusted G4 RSA4096 SHA256 TimeStamping CA
+240108190500Z0+
+/1(0&0$0"
+@WhA6o
+~YEWo
+.'NOL
+veB{'
+;]R=/U
+cNBgk

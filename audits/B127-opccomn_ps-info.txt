@@ -1,0 +1,35 @@
+arch     x86
+baddr    0x180000000
+binsz    61544
+bintype  pe
+bits     64
+canary   false
+injprot  false
+retguard false
+class    PE32+
+cmp.csum 0x0000fc1a
+compiled Mon Jan 17 21:42:57 2011
+crypto   false
+dbg_file X:\Work\COM105.1\Source\Solutions\Core Components\x64\Release\opccomn_ps.pdb
+endian   little
+havecode true
+hdr.csum 0x0000fc1a
+guid     02049916110E4BB0ABE7C19F4C43A0C21
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  AMD 64
+nx       false
+os       windows
+overlay  true
+cc       ms
+pic      false
+relocs   false
+signed   true
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows GUI
+va       true

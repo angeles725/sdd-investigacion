@@ -1,0 +1,8 @@
+nth paddr      vaddr       bind   type size lib              name                                                                     demangled
+―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+1   0x00000510 0x180001110 GLOBAL FUNC 0    pcapBacEther.dll Java_com_tridium_platBacnet_BacnetEthernetAdapterWin32_bacnetClose0
+2   0x00000540 0x180001140 GLOBAL FUNC 0    pcapBacEther.dll Java_com_tridium_platBacnet_BacnetEthernetAdapterWin32_bacnetOpen0
+3   0x00000940 0x180001540 GLOBAL FUNC 0    pcapBacEther.dll Java_com_tridium_platBacnet_BacnetEthernetAdapterWin32_bacnetRead0
+4   0x00000a20 0x180001620 GLOBAL FUNC 0    pcapBacEther.dll Java_com_tridium_platBacnet_BacnetEthernetAdapterWin32_bacnetWrite0
+5   0x00000b90 0x180001790 GLOBAL FUNC 0    pcapBacEther.dll Java_com_tridium_platBacnet_BacnetEthernetAdapterWin32_getAddress0
+6   0x00000db0 0x1800019b0 GLOBAL FUNC 0    pcapBacEther.dll Java_com_tridium_platBacnet_BacnetEthernetAdapterWin32_queryForAdapters0
