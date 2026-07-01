@@ -1,0 +1,40 @@
+== Research-SDD tool capability report ==
+host: Linux 5.15.167.4-microsoft-standard-WSL2 x86_64 · date: 2026-06-29T06:44:38Z · brew: /home/linuxbrew/.linuxbrew
+
+[ native / binary ]
+  Ghidra headless        available   /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/support/analyzeHeadless
+  radare2                available   /home/linuxbrew/.linuxbrew/bin/r2
+  objdump                available   /usr/bin/objdump
+  readelf                available   /usr/bin/readelf
+  nm                     available   /usr/bin/nm
+  strings                available   /usr/bin/strings
+
+[ java ]
+  java                   available   /home/linuxbrew/.linuxbrew/bin/java
+  javap                  available   /home/linuxbrew/.linuxbrew/bin/javap
+  Vineflower (jar)       available   /home/cristian/modules/Prototipos/Reflow/vineflower.jar
+  CFR (jar)              available   /home/cristian/modules/Prototipos/Reflow/cfr.jar
+  Procyon (jar)          available   /home/cristian/modules/Prototipos/modulos/procyon.jar
+
+[ android ]
+  jadx                   MISSING     (not on PATH nor known install dirs)
+  apktool                MISSING     (not on PATH nor known install dirs)
+
+[ .net ]
+  ilspycmd               available   /home/cristian/.dotnet/tools/ilspycmd
+
+[ firmware ]
+  binwalk                available   /usr/bin/binwalk
+  yara                   available   /home/linuxbrew/.linuxbrew/bin/yara
+
+[ docs / web ]
+  pdftotext              available   /home/linuxbrew/.linuxbrew/bin/pdftotext
+  pdfinfo                available   /home/linuxbrew/.linuxbrew/bin/pdfinfo
+  tesseract              available   /home/linuxbrew/.linuxbrew/bin/tesseract
+  pandoc                 available   /home/linuxbrew/.linuxbrew/bin/pandoc
+
+[ python bytecode ]
+  pycdc                  MISSING     (not on PATH nor known install dirs)
+
+Note: MISSING here means not detected — try install-tool.sh <recipe> before
+concluding a tool is unavailable. Re-run this script after any install.
