@@ -14,9 +14,12 @@ state from disk, so running it N times advances the corpus without stepping on i
    ```
    /loop  <paste the OPERATIONAL PROMPT below, with TARGET already set>
    ```
-   No interval → the model self-paces (recommended for research).
-3. The loop stops on its own when the gap backlog stays empty for 2 iterations in a row
-   (see stopping criterion in [`METHODOLOGY.md`](METHODOLOGY.md) §8).
+   No interval → the model self-paces (recommended for research). Self-paced means THERE IS NO external
+   re-invoker: the loop agent itself reschedules the next iteration (ScheduleWakeup) until STOP fires —
+   this is the LOOP CONTINUATION hard rule in the operational prompt. If a run halts after one block, that
+   rule was skipped; as a fallback add an interval (`/loop 10m …`) so the harness re-fires deterministically.
+3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
+   backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
 
 ---
 
@@ -109,7 +112,8 @@ Always read first, in this order:
      0 — every open gap is blocked on a missing/incompatible tool, a live server, or hardware — STOP.
      (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the
      blocked gaps each tagged with the tool/access it needs, and the TOOLS REPORT (installed · couldn't
-     -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md). Else the next iteration continues.
+     -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md). If STOP did NOT fire, do NOT end
+     your turn: reschedule and BEGIN the next iteration on the next gap (see LOOP CONTINUATION under HARD RULES).
 
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
@@ -123,6 +127,12 @@ HARD RULES:
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).
     See METHODOLOGY §17.
+  - LOOP CONTINUATION — you drive the loop; nothing re-invokes you. After EVERY iteration, evaluate the
+    STOPPING criterion (step 7). If it is NOT met (read-only-investigable > 0), you MUST reschedule and
+    START the next iteration on the next gap — do NOT end your turn. The RETURN CONTRACT below is a
+    per-iteration CHECKPOINT, not a hand-off; only the STOP declaration is terminal. Never stop after a
+    single block. (Under `/loop` self-pacing this means calling ScheduleWakeup with the same prompt; under
+    an orchestrator it means signalling "continue". Either way, one report ≠ done — see METHODOLOGY §8.)
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft → Spanish, for continuity of its mature
@@ -130,9 +140,10 @@ HARD RULES:
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
 
-RETURN CONTRACT (message back to the orchestrator):
-  Keep the return-to-orchestrator message CONCISE — full detail lives in the block, NOT the report
-  (a huge report bloats the orchestrator's context for no gain). Report ONLY:
+RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
+  Keep the per-iteration report CONCISE — full detail lives in the block, NOT the report
+  (a huge report bloats context for no gain). This report closes ONE iteration; unless STOP fired, the
+  next iteration starts right after it. Report ONLY:
     - status (done / blocked / partial),
     - the gap closed,
     - the block path + a ONE-paragraph summary of what it found,

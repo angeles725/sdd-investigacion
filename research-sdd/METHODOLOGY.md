@@ -138,6 +138,12 @@ On stopping, declare: blocks written, the **coverage metric** (gaps closed / kno
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
+**Continuation is the default; stopping is the exception.** The loop agent DRIVES its own iterations —
+nothing re-invokes it. After each iteration, if none of the criteria above fired, it MUST reschedule and
+begin the next gap; the per-iteration report is a checkpoint, not a hand-off. This matters most under
+`/loop` self-pacing (no orchestrator to relaunch it): the agent self-reschedules until a criterion fires.
+Halting after a single block is a bug (the LOOP CONTINUATION rule was skipped), not a valid stop.
+
 ## 9. Golden rules
 
 1. **READ-ONLY** over the investigated subject. You never modify it.
