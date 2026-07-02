@@ -90,6 +90,14 @@ Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2`), not th
 volatile URL; `SOURCES.md` keeps the original URL and the hash. The wrapper
 [`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + extraction + registration.
 
+**Beautified-temp citation (minified / obfuscated code).** For minified or obfuscated sources (bundled JS,
+etc.), beautify the artifact to a SCRATCHPAD temp — never into `sources/` (keep the READ-ONLY-over-subject
+discipline: the temp is a working view, not preserved evidence). Cite `file:line` of the beautified copy as
+if it were the primary source — it is 1:1 with the original, so the line numbers are trustworthy across
+blocks. Anchor artifact IDENTITY with a LIVE `sha256` + byte-count of the ORIGINAL minified file (not the
+ephemeral temp, which is not preserved); record that hash the way any ground-truth id is recorded. This
+makes a `file:line` pointing at a non-committed beautified temp fully trustworthy and reproducible.
+
 ## 6. Research tools
 
 The loop profiles the artifact type (`profile-target.sh`) and picks the toolbelt wrapper:
@@ -178,11 +186,24 @@ on the session's strong model. Substitute one tier down when a model is unavaila
 **Closed loop while working, open loop when done (terminal trigger).** The loop is a closed control system
 while read-only-investigable > 0: it self-corrects and self-continues. When that set hits 0, it does NOT
 just declare and die — it OPENS to the environment and fires the next action. At FOCUS-level exhaustion it
-hands off to the next queued focus (re-entering with the next axis, bootstrapping if new). At CORPUS-level
+hands off to the next queued focus (re-entering with the next axis, bootstrapping if new) — optionally
+writing a **focus-closing synthesis block** FIRST: a terminal block that consolidates the just-finished
+focus, cross-referencing related blocks across other focuses (e.g. a security thread tying this focus to
+findings in sibling focuses). A synthesis block is a valid terminal artifact at FOCUS level, not only at
+corpus level — it is the right call whenever a focus produced a thread worth consolidating before moving on. At CORPUS-level
 exhaustion (all focuses done) it emits a NEXT-ACTION — a cross-focus synthesis, or a handoff to a non-static
 phase (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — launching it if autonomous and
 safe, or handing off to the user when a human decision or hardware is required. Silent end only when there
 is no queued focus and no safe next phase.
+
+**A gap closes by remittance too.** Three closure categories now exist, not two: closed by NEW
+investigation, closed by PROVEN ABSENCE (above), and closed by REMITTANCE. A gap closes by remittance when
+a later sweep shows it is ALREADY fully answered by an EXISTING cited block/section, with NO new substance
+to add. This is not padding and not a dropped gap: cite the exact prior `[Block N] §N.x` that covers it and
+state explicitly "closed by remittance — no new substance". It differs from proven-absence (which cites a
+search that came back empty); remittance cites prior COVERAGE. Use it to avoid writing a redundant block
+for a gap the corpus already answers — but the citation + explicit no-new-substance note is the evidence
+bar; a gap "closed by remittance" with no prior-block citation is just a silently dropped gap.
 
 **Reopening a STOPPED loop for a bounded experiment.** STOP is not permanent. A focus that reached STOP can
 be REOPENED for a single, bounded, authorized question — a new tool arrived, a hardware bench appeared, a
@@ -348,6 +369,11 @@ B64→B55). Make this a habit, not an accident:
 - While investigating, if you touch a fact another block asserts, CHECK it. If it's wrong, CORRECT the
   prior block transparently — keep the original text, add a note "corrected in BN" + the new citation.
 - A `[CERT-hw]` finding that contradicts a `[CERT]` block MUST trigger a correction (hardware wins, §3).
+- **REFUTE vs CLARIFY-SCOPE — distinguish them.** A **refute** means the prior claim was WRONG. A
+  **scope-clarification** means the prior claim was RIGHT for a DIFFERENT artifact/build (e.g. a dev-tree
+  vs the shipped binary, one version vs another) and only needs a scope note — NOT a refutation. Label it
+  as a scope divergence ("correct for build X, this block covers build Y"), not as an error, so the prior
+  block is not wrongly read as sloppy. Only call it a refute when the two describe the SAME artifact.
 - In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
 - Every correction is logged in the correcting block's Connections and in RESEARCH-STATE's history.
 
@@ -357,6 +383,14 @@ Each target's corpus is a git repo (the engine kit lives separately in sdd-inves
 runs `git init` in the TARGET so that self-corrections (§14) have history and the corpus is shareable.
 On an existing un-versioned corpus, init it once. NOTE: git-init goes in the **target project**, never
 in the kit.
+
+**Scope commits to the corpus — gitignore orchestrator-local artifacts.** A research commit must contain
+ONLY corpus files (blocks, RESEARCH-STATE, CATALOG/INDEX, sources/, tools/). Orchestrator-local state that
+is NOT part of the corpus — `.atl/` skill-registry caches, `.claude/` local settings, editor/tool caches —
+must be gitignored. BOOTSTRAP seeds the target `.gitignore` with at least `.atl/` and `.claude/`; on an
+existing corpus, add them if missing. (Lesson: niagara accidentally committed `.atl/.skill-registry.cache.json`
+twice via `git add -A` before it was ignored — a fingerprint-only churn with no corpus value.) Prefer
+explicit `git add <files>` over `git add -A`, but the `.gitignore` is the durable fix, not the manual habit.
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 

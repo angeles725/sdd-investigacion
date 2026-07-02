@@ -7,7 +7,7 @@
 
 - **Covered blocks**: <N> (B1..B<N>)
 - **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)
-- **Last iteration**: <YYYY-MM-DD> — <which gap was closed>
+- **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below)
 
 ## Gap-backlog (prioritized)
 
@@ -19,9 +19,9 @@
 
 ## Iteration history
 
-| # | Date | Gap closed | Block | New gaps uncovered |
-|---|---|---|---|---|
-| 1 | <date> | <gap> | B<k> | <n> |
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | <date> | <gap> | B<k> | <no · inline / yes · haiku|sonnet|opus> | <n> |
 
 ## Blocked gaps (each tagged with what it needs)
 

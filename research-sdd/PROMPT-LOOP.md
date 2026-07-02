@@ -158,7 +158,12 @@ Always read first, in this order:
          exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
   6. UPDATE STATE (archive phase):
-       - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered.
+       - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered. A gap may
+         close by NEW investigation, by PROVEN ABSENCE, or by REMITTANCE (already answered by an existing
+         cited block — cite [Block N] §N.x + "no new substance"; see METHODOLOGY §8).
+       - RECORD the iteration in RESEARCH-STATE's Iteration history table INCLUDING the delegated? · model
+         tier column (no·inline / yes·haiku|sonnet|opus) — persist the tier on disk, not only in the report,
+         so tier-compliance stays auditable after the session ends.
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
@@ -173,9 +178,11 @@ Always read first, in this order:
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
        - FOCUS-level exhaustion (this focus done, but the multi-focus corpus has other queued focuses):
-         hand off to the next focus — announce it and, under `/loop` self-pacing, reschedule ONE more time
-         re-entering this same prompt with FOCUS set to the next queued focus (BOOTSTRAP it if new). The loop
-         does not die; it advances to the next axis.
+         OPTIONALLY write a focus-closing SYNTHESIS block first (consolidate this focus, cross-referencing
+         related blocks across focuses — a valid terminal artifact at focus level, not just corpus level;
+         see METHODOLOGY §8), then hand off to the next focus — announce it and, under `/loop` self-pacing,
+         reschedule ONE more time re-entering this same prompt with FOCUS set to the next queued focus
+         (BOOTSTRAP it if new). The loop does not die; it advances to the next axis.
        - CORPUS-level exhaustion (every focus done, nothing read-only-investigable anywhere): emit a final
          NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
          (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — and, if that next phase is

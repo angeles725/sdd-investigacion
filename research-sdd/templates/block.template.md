@@ -9,6 +9,8 @@
 > `[CERT-web]` official web (URL + date) ·
 > `[CERT-a]` secondary source/forum (URL) ·
 > `[INFER]` deduction.
+> For MINIFIED/OBFUSCATED sources: `file:line` may point at a beautified SCRATCHPAD temp (1:1 with the
+> original); anchor identity with the ORIGINAL file's `sha256` (METHODOLOGY §5).
 >
 > <Layer/area>. Connects [Block K] (<brief relationship>).
 
