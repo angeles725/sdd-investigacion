@@ -93,6 +93,17 @@ Always read first, in this order:
          loop must stay context-lean so it survives dozens of iterations before compaction — every raw
          decompiler dump you read inline shortens the loop's life. Keep inline only narrow, single-file reads
          you already know you need. (Small/narrow gaps: read inline, no sub-agent — delegation has its own cost.)
+       - MODEL TIER for the delegated sweep — match the tier to the sweep's COGNITIVE DEMAND (this is about
+         EFFICIENCY, not saving tokens: don't run a scalpel task on a neurosurgeon). Pick `model` on the
+         Agent/Task call:
+           · MECHANICAL extraction — enumerate methods/fields, locate call-sites, grep-and-cite → `model: 'haiku'`.
+           · STRUCTURAL comprehension — read N classes, reconstruct how a subsystem works, judge what is
+             load-bearing, return cited findings → `model: 'sonnet'` (the DEFAULT for most sweeps, e.g. R5 history).
+           · Genuine REASONING/inference — security exploitability, architecture judgment → keep it INLINE on
+             the driver, or `model: 'opus'` only if it truly must be delegated.
+         The DRIVER loop itself (marker discipline, [INFER] deductions, synthesis, self-verify) stays on the
+         session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
+         (e.g. no Opus access), substitute one tier down and note it in the report.
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date ·

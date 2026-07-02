@@ -153,6 +153,15 @@ iterations, the driver must stay context-lean: any gap needing more than ~3-4 fi
 decompiled is delegated to a sub-agent that returns only cited findings, never raw dumps. Narrow single-file
 reads stay inline. This is context hygiene, not a speed trick — every inline decompiler dump shortens the loop.
 
+**Match the delegated model to the sweep (efficiency, not token-saving).** The tier is proportional to the
+sweep's cognitive demand — the same principle SDD encodes as a per-phase table, applied here as a
+task-type heuristic (the loop is one repeated role, not a fixed pipeline). Mechanical extraction
+(enumerate/locate/grep-and-cite) → `haiku`; structural comprehension (reconstruct a subsystem across N
+classes, return cited findings) → `sonnet`, the default for most sweeps; genuine reasoning (security
+exploitability, architecture judgment) stays inline on the driver or goes to `opus` only if it must be
+delegated. The driver loop itself — marker discipline, `[INFER]` deductions, synthesis, self-verify — stays
+on the session's strong model. Substitute one tier down when a model is unavailable, and note it.
+
 **Closed loop while working, open loop when done (terminal trigger).** The loop is a closed control system
 while read-only-investigable > 0: it self-corrects and self-continues. When that set hits 0, it does NOT
 just declare and die — it OPENS to the environment and fires the next action. At FOCUS-level exhaustion it
