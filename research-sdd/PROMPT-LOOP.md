@@ -21,6 +21,23 @@ state from disk, so running it N times advances the corpus without stepping on i
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
 
+### Two execution modes (pick by whether a human is present)
+
+The same NORMAL CYCLE runs under either mode — they differ only in WHO drives iterations and HOW much
+each delegation carries:
+
+- **Self-paced** (`/loop`, no human in the room): the loop agent IS the driver. It reschedules itself
+  (ScheduleWakeup) and, per iteration, delegates only the HEAVY SWEEP of a gap (>3-4 files) to a
+  sub-agent that returns cited findings, then writes the block itself. Autonomous; runs unattended.
+- **Orchestrated** (a human present, driving): the driver chains ONE sub-agent PER ITERATION and
+  delegates the WHOLE iteration — decompile + write the block + self-verify + commit — keeping the
+  driver's context near-empty across many blocks (proven: 7 blocks, no compaction). The driver only
+  orchestrates, gatekeeps by TRUSTING the sub-agent's self-report (§11), and launches the next.
+  Use this when you want to review between blocks or run heterogeneous work back-to-back fast.
+
+Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
+`model` by cognitive demand (MODEL TIER rule) and never re-verify a block with orchestrator Bash (§11).
+
 ---
 
 ## OPERATIONAL PROMPT (this is what goes into `/loop`)
@@ -110,13 +127,18 @@ Always read first, in this order:
        [CERT-a] forum (URL) · [INFER] deduction.
      Include the Connections section linking related [Block K].
   5. SELF-VERIFY + REPORT (in-block gatekeeping — see METHODOLOGY §11; the orchestrator does NOT run
-     Bash gatekeepers, it trusts this report). Before closing, DO and REPORT:
+     Bash gatekeepers, it TRUSTS this report. Per-block orchestrator Bash re-checks cost permission prompts
+     and — proven on the protocols run — caught NOTHING; the real error capture mechanism is cross-block
+     correction §14, not a per-iteration re-verify. Only spot-check when a report smells off). Before closing,
+     DO and REPORT:
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
          confirm in the primary source first).
        - Marker tally: counts of [CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER] + the [INFER]/[CERT]
-         ratio. If the ratio is high (>~0.5), say so — it signals this gap's investigable evidence is
-         nearly exhausted.
+         ratio, AND the block TYPE. For an EVIDENCE block (decompilation/reading), a high ratio (>~0.5)
+         signals this gap's investigable evidence is nearly exhausted — say so. For a DESIGN/APPLIED block
+         (an integration plan, a PoC design, a synthesis), a high ratio is EXPECTED and healthy, NOT an
+         exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
   6. UPDATE STATE (archive phase):
        - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered.
@@ -181,6 +203,8 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
     - the gap closed,
     - the block path + a ONE-paragraph summary of what it found,
     - the self-verify tally (tokens checked, marker counts, [INFER]/[CERT] ratio),
+    - the MODEL TIER you used for any delegated sweep (haiku/sonnet/opus) — declaring it is mandatory;
+      an unstated tier means the rule was skipped and the sweep silently inherited the driver's model,
     - artifacts touched (block, CATALOG, INDEX, RESEARCH-STATE, sources/),
     - the next gap (or the stop declaration).
   Do NOT paste the block body, long decompiler dumps, or full file contents into the report.

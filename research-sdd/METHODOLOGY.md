@@ -138,6 +138,13 @@ On stopping, declare: blocks written, the **coverage metric** (gaps closed / kno
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
+**Two execution modes.** The NORMAL CYCLE runs under either: **self-paced** (`/loop`, no human present —
+the loop agent drives, self-reschedules, and delegates only each gap's heavy sweep) or **orchestrated** (a
+human present — the driver chains one sub-agent per iteration and delegates the WHOLE iteration: decompile +
+write + self-verify + commit, keeping its own context near-empty across many blocks). Both keep the driver
+context-lean; both set the delegated `model` by cognitive demand and never re-verify a block with
+orchestrator Bash (§11). PROMPT-LOOP "Two execution modes" has the operational detail.
+
 **Continuation is the default; stopping is the exception.** The loop agent DRIVES its own iterations —
 nothing re-invokes it. After each iteration, if none of the criteria above fired, it MUST reschedule and
 begin the next gap; the per-iteration report is a checkpoint, not a hand-off. This matters most under
@@ -221,14 +228,22 @@ and MUST REPORT these checks:
   (file / binary / `strings`). Report how many tokens were checked. (Track record this enforces: 12/12
   blocks across TRANE+EduVolt had zero hallucinated citations.)
 - **Marker tally** — counts of `[CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER]`, plus the **`[INFER]`/
-  `[CERT]` ratio**. A high ratio (>~0.5) is the automatic signal that the investigable evidence for
-  this gap is nearly exhausted — say so; it feeds the §8 stop decision.
+  `[CERT]` ratio** AND the **block type**. For an **evidence block** (decompilation/reading) a high ratio
+  (>~0.5) is the automatic signal that the investigable evidence for this gap is nearly exhausted — say so;
+  it feeds the §8 stop decision. For a **design/applied block** (integration plan, PoC design, cross-focus
+  synthesis) a high ratio is EXPECTED and healthy, NOT an exhaustion signal, and does NOT close the focus
+  (e.g. protocols B137 at ~0.48 was a sound integration plan). Declare the type so the ratio is read right.
 - **Artifacts** — the block file exists, `CATALOG.md` regenerated, `INDEX.md` + `RESEARCH-STATE.md`
   updated, and the backlog re-classified investigable-vs-blocked (§8).
 
 The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
 mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper
-commands by default — the in-block contract is the gate.
+commands by default — the in-block contract is the gate. This is not a soft preference: on the protocols
+run the orchestrator ran a per-block Bash gatekeeper (ls + git log + grep the star claim) after all 6
+blocks — every one PASSed and **caught nothing**, while the one real error (a B131 byte-order default) was
+caught later by **cross-block correction (§14)**, not by any per-iteration re-check. So the real
+error-capture mechanism is §14, not an orchestrator gatekeeper — per-block Bash re-verify only adds
+permission friction and driver bloat for no demonstrated catch.
 
 ## 12. Dynamic phase (validation against a live system)
 
