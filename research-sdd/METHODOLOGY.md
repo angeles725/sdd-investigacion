@@ -376,3 +376,34 @@ and B122 both did). Before re-launching an interrupted iteration:
    remaining archive steps rather than restarting the whole iteration.
 4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the
    on-disk truth before continuing — files are the source of truth, engram is the mirror.
+
+## 18. Self-retrospective (the kit learns from its own runs)
+
+The engine improves by observing real runs — not by guesswork. Every improvement in this kit so far was
+harvested by reviewing an actual session transcript against the current rules. §18 makes that a PHASE of
+the loop instead of a manual favor: at the end of a run, the loop proposes its own upgrades.
+
+**When it fires.** At every FOCUS completion, and ALWAYS at corpus-level STOP (§8 terminal trigger). For a
+very long single focus, it MAY also fire every ~10 blocks so lessons don't wait until the end.
+
+**What it does.** The driver DELEGATES a fresh-context retro agent (fresh context is the point — independent
+judgment, not the driver's own rationalizations). The retro agent:
+
+1. **Reads the current kit FIRST** — `$KIT/PROMPT-LOOP.md` + `$KIT/METHODOLOGY.md` — and DEDUPES. It proposes
+   only what is genuinely new; a lesson the kit already encodes is noted as "already covered", not re-proposed.
+2. **Reviews the run** — blocks written, `§14` cross-block corrections, gaps that stalled or got mis-classified,
+   rules that were SKIPPED in practice (e.g. a model tier never set, a gate run where the kit says not to), and
+   techniques the operator IMPROVISED that the kit does not name.
+3. **Proposes kit deltas** — each with: the concrete change, the target file/section, EVIDENCE (block / commit /
+   `§` / transcript refs), and a priority. Anti-patterns become "add a rule that prevents X"; improvised wins
+   become "codify Y".
+4. **Writes the proposal** to `$TARGET/retros/<date>-<focus>.md` and mirrors it to engram `research/<target>/retro`,
+   and SURFACES it in the return contract.
+
+**Hard boundary — propose, never apply.** The retro agent does NOT edit the kit. Kit changes are reviewed and
+committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
+This preserves both the audit trail and the rule that the operator — not an autonomous agent — owns the method.
+
+**Honesty clause.** A run that surfaces nothing new must SAY so ("no new deltas; the kit already covers this
+run") rather than inventing improvements to look productive. A retro that always finds something is not a retro,
+it is noise.

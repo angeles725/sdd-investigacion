@@ -174,6 +174,13 @@ Always read first, in this order:
          (requires-execution build/PoC, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
+       - SELF-RETROSPECTIVE (at every focus completion, and always at corpus-level STOP — METHODOLOGY §18):
+         before handing off, DELEGATE a fresh-context retro agent to review THIS run and PROPOSE kit deltas
+         (rules that were skipped, techniques you improvised that the kit lacks, gaps that stalled). It reads
+         the current $KIT/PROMPT-LOOP.md + METHODOLOGY.md FIRST and dedupes — proposes only what is genuinely
+         new, each with evidence (block/commit/§ refs) and a priority. It writes the proposal to
+         $TARGET/retros/ + engram research/<target>/retro and SURFACES it in the return. It does NOT edit the
+         kit — kit changes are human-reviewed and human-committed. This is how the kit learns from real runs.
 
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
