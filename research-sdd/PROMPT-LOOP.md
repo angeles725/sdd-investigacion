@@ -85,7 +85,17 @@ Always read first, in this order:
   e. Create $TARGET/RESEARCH-STATE.md from $KIT/templates/RESEARCH-STATE.template.md with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
-  f. Only then continue with the normal cycle over the first gap.
+     AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
+     DELEGATE an audit sweep (Explore/general-purpose sub-agent) that returns a COVERAGE MATRIX —
+     subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
+     prioritized backlog from that matrix. (Proven on the protocols focus: the audit matrix seeded 6
+     well-shaped gaps before a single block was written.) See METHODOLOGY §13.
+  e2. PRE-FLIGHT SOURCE EXISTENCE (anti-hallucination gate — before launching ANY iteration): for each
+     planned gap, CONFIRM readable source material actually exists (the class/jar/binary/doc is present
+     and reachable by the wrapper). A gap with NO reachable source must be marked blocked-on-<reason>
+     (source-missing) in the backlog — NEVER launch an iteration agent at it, because with no source it
+     will pad [INFER] or invent. Only gaps with confirmed source enter the investigable set.
+  f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
   1. CHOOSE: take the highest-priority NOT covered gap from the backlog. Announce which one.
@@ -167,6 +177,10 @@ Always read first, in this order:
 
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
+  - SOURCE BEFORE AGENT — a gap counts as investigable ONLY once its source is confirmed reachable
+    (the class/jar/binary/doc exists and the wrapper can read it). Confirm it BEFORE launching an
+    iteration agent at that gap; an unconfirmed gap is blocked-on-source-missing, not investigable.
+    Never send an agent to a gap with no reachable source — it will pad [INFER] or invent (see BOOTSTRAP e2).
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —

@@ -134,6 +134,12 @@ The loop stops on the FIRST of these (primary first):
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
 
+**A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
+positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
+open. (Proven on protocols B136: the Sox gap was closed by demonstrating Sox's absence across 973 jars,
+cited.) A negative closure needs the same evidence bar as a positive one: cite what you searched and how
+(paths, counts, the grep/scan that came back empty), not a bare "not found".
+
 On stopping, declare: blocks written, the **coverage metric** (gaps closed / known gaps — a ratio,
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
@@ -280,6 +286,12 @@ new knowledge block. Per claim assign: **ESCALATED** (was `[CERT-a]`/hedged → 
 contradicts it — the most valuable). Write the report under `audits/`, READ-ONLY on the audited corpus.
 Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). (Proven on niagara B100: 12 escalated, 1 refuted — the
 engine adds certainty and catches attribution errors a re-read surfaces, without touching the original.)
+
+**Audit-first as a backlog seed.** A second use of an audit sweep: to BOOTSTRAP the gap-backlog of a new
+focus over a mature corpus. Instead of hand-guessing gaps, delegate an audit that returns a coverage
+matrix (subsystem × depth × static-vs-dynamic × known-vs-gap); the prioritized backlog falls out of it.
+This is the recommended BOOTSTRAP path (PROMPT-LOOP step e) whenever the corpus is large enough that a
+hand-listed plan would miss areas — proven on the protocols focus (matrix → 6 well-shaped gaps).
 
 ## 14. Cross-block consistency
 
