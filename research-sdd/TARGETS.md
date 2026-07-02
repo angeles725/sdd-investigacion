@@ -24,6 +24,12 @@ Maturity:
 - **intermediate** — substantial corpus or tooling, but missing hook and/or git; partial analysis.
 - **incipient** — almost empty of `.md` blocks; the loop **bootstraps** the structure (index, git, hook).
 
+Sensitivity:
+
+- **`live-install`** — the target is a REAL running installation/station (real credentials, keyring,
+  config), not a distributable/decompilable artifact. Mark it in its profile. Triggers the SECRETS
+  DISCIPLINE hard rule (PROMPT-LOOP): cite secret STRUCTURE, never secret VALUES; zero secrets exfiltrated.
+
 > Calibration note: the "Predominant artifact type" field describes the **object of research**,
 > not the noise from `.venv`/`node_modules`. Several `PE32 → decompile-net.sh?` detections from the profiler
 > are **false positives** (`pip`/`distlib` launchers inside `.venv`, or packaged runtime). They are flagged below.

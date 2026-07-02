@@ -251,6 +251,14 @@ caught later by **cross-block correction (§14)**, not by any per-iteration re-c
 error-capture mechanism is §14, not an orchestrator gatekeeper — per-block Bash re-verify only adds
 permission friction and driver bloat for no demonstrated catch.
 
+**Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
+BUILD/PoC phase (§12), a per-block orchestrator Bash gate IS justified and expected — there it verifies
+PHYSICAL/EXTERNAL state the in-block self-report cannot vouch for and §14 cannot protect: the device was
+left safe (baseline restored, a write reverted, the checksum re-measured live), the blast-radius of a
+write was contained, the PoC's round-trip actually ran. §14 catches wrong CLAIMS across blocks; it does
+not catch a bricked device or an un-reverted write. Static blocks trust the self-report; live/destructive
+iterations gate on real-world state.
+
 ## 12. Dynamic phase (validation against a live system)
 
 The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, loop-able. When a LIVE system
@@ -262,6 +270,25 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
+- **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: (1) read-only probe →
+  (2) reversible write — read-and-save the current value first, hold an oracle, restore in a `finally` →
+  (3) destructive write — backup-first (below) → (4) irreversible — last, and only under scoped
+  authorization (below). Announce which rung each step is on.
+- **Cross-protocol oracle for every write.** Validate a write through an INDEPENDENT channel, not the one
+  you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
+  read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
+  confirmed only by the channel that made it is `[INFER]`. No oracle ⇒ do not write.
+- **Backup-before-destroy (citable).** Before overwriting a program/image/config, READ and SAVE the current
+  one to `sources/`, and VERIFY the backup actually restores. Keep it as both evidence and the revert
+  target. A destructive step with no verified backup does not run.
+- **Device identity ≠ program identity.** A checksum/version identifies the loaded PROGRAM, not the physical
+  UNIT. Confirming you are on the BENCH and not PRODUCTION is out-of-band (who plugged in what), never
+  inferred from the program you read. Do this BEFORE any write — a prior session wrote to PRODUCTION
+  believing it was the bench (near-miss). Verify the unit, then verify the program.
+- **Scoped authorization for irreversible ops.** Irreversible/destructive actions are HARD-BLOCKED by
+  default. The user lifts the block "for this session only"; record the grant with an explicit expiry
+  (persist it), and re-arm the block when the session ends. Never carry an irreversible authorization
+  across sessions.
 - **Re-measure ground-truth, never inherit it.** When entering a dynamic/hardware phase (or any new
   live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids — LIVE
   from the real system in THIS phase. Do NOT cite them from a prior note or earlier block: an inherited
@@ -274,6 +301,10 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   as `[CERT-hw]` evidence.
 - **Hardware refutes code.** When the device contradicts a `[CERT]` claim, mark the corrected fact
   `[CERT-hw]` and fix the prior block transparently (note "corrected in BN"), as B64 did to B55 §55.3.
+- **After an incident, check the DEVICE first (refines §17).** If an iteration was killed/crashed mid-write
+  in a hardware phase, the §17 resume rule inverts: check the PHYSICAL device state (is it left safe? was
+  the write applied or reverted? re-measure the checksum live) BEFORE checking git/disk. A committed block
+  is recoverable; a device left in a half-written state is not. Physical safety precedes artifact state.
 - **Environment setup** (e.g. WSL `networkingMode=mirrored` to reach a LAN device, run `wsl --shutdown`
   from **Windows** PowerShell — not inside WSL) is a prerequisite; verify connectivity before probing.
 

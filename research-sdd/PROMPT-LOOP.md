@@ -181,6 +181,11 @@ HARD RULES:
     (the class/jar/binary/doc exists and the wrapper can read it). Confirm it BEFORE launching an
     iteration agent at that gap; an unconfirmed gap is blocked-on-source-missing, not investigable.
     Never send an agent to a gap with no reachable source — it will pad [INFER] or invent (see BOOTSTRAP e2).
+  - SECRETS DISCIPLINE (live-install targets) — when the target is a REAL running installation/station,
+    not a distributable artifact (TARGETS.md marks it `live-install`), NEVER extract or write credentials,
+    keys, keyring/keystore material, tokens, or secrets into a block, sources/, or engram. Cite the
+    STRUCTURE (where a secret lives, its format, how it's used) — never the secret VALUE. Zero secrets
+    exfiltrated is a hard invariant; a real install carries live credentials a decompiled jar does not.
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
