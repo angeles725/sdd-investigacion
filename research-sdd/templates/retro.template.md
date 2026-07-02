@@ -1,3 +1,4 @@
+<!-- review-status: pending -->
 # Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective
 
 > Run reviewed: <focus / block range, e.g. nmodsreflow B138-B150>. Trigger: <focus-completion | corpus-STOP | every-N-blocks>.
