@@ -482,6 +482,18 @@ sweeper [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) reads TARGETS.md,
 are always surfaced, even when nobody remembered to bring them. This closes the self-improvement loop:
 §18 GENERATES proposals autonomously; the sweeper ROUTES them; the human REVIEWS and applies (propose-never-apply).
 
+**Concurrency & the supervisor branch/PR model.** Multiple targets can run at once WITHOUT colliding: each run
+writes only its OWN `<target>/retros/` and engram `research/<target>/retro`, and NONE touch the kit (propose-only).
+The kit (`sdd-investigacion`) is the single SUPERVISOR, touched only by the maintainer. To keep multi-source
+proposals from landing on `main` unreviewed, retro-sourced deltas go through a branch/PR, not a direct commit:
+[`toolbelt/stage-retro.sh <retro>`](toolbelt/stage-retro.sh) creates a `retro/<target>-<date>` branch off main,
+where the supervisor applies only the ACCEPTED deltas, then opens a PR. The PR is where the supervisor judges the
+three things that matter across concurrent proposals — does it CONFLICT with main, does it DUPLICATE another open
+retro PR, is it even NECESSARY — before merge (=applied) or close (=dismissed). Each proposal isolated on its own
+branch means N concurrent targets never collapse into one another; they queue as N reviewable PRs. (Direct
+maintainer edits — interactive kit work, not sourced from a target retro — may still go to main; the branch/PR
+gate is specifically for retro-sourced deltas arriving from target runs.)
+
 ## 19. Build/PoC loop (the requires-execution phase)
 
 The static loop (§1–§11) is READ-ONLY. Some gaps are answerable only by BUILDING and RUNNING something — a
