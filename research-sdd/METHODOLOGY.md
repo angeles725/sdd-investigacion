@@ -180,9 +180,15 @@ while read-only-investigable > 0: it self-corrects and self-continues. When that
 just declare and die — it OPENS to the environment and fires the next action. At FOCUS-level exhaustion it
 hands off to the next queued focus (re-entering with the next axis, bootstrapping if new). At CORPUS-level
 exhaustion (all focuses done) it emits a NEXT-ACTION — a cross-focus synthesis, or a handoff to a non-static
-phase (requires-execution build/PoC, or the DYNAMIC/hardware phase §12) — launching it if autonomous and
+phase (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — launching it if autonomous and
 safe, or handing off to the user when a human decision or hardware is required. Silent end only when there
 is no queued focus and no safe next phase.
+
+**Reopening a STOPPED loop for a bounded experiment.** STOP is not permanent. A focus that reached STOP can
+be REOPENED for a single, bounded, authorized question — a new tool arrived, a hardware bench appeared, a
+targeted follow-up — WITHOUT a full re-bootstrap: read the existing state, run just the added iteration(s),
+then re-declare STOP. (Proven on logosoft B76: a DONE static loop reopened for one hardware question, then
+re-stopped.) Keep the reopen scoped — it is an experiment, not a re-run of the whole loop.
 
 ## 9. Golden rules
 
@@ -324,6 +330,16 @@ matrix (subsystem × depth × static-vs-dynamic × known-vs-gap); the prioritize
 This is the recommended BOOTSTRAP path (PROMPT-LOOP step e) whenever the corpus is large enough that a
 hand-listed plan would miss areas — proven on the protocols focus (matrix → 6 well-shaped gaps).
 
+**Coverage audit ≠ certainty audit.** The audit above (and PROMPT-AUDIT) checks whether existing CLAIMS
+are TRUE. A **coverage audit** answers a different, recurring user question — "did we cover EVERYTHING?" —
+by mapping the corpus against the code UNIVERSE, not re-verifying claims. Delegate a sweep that returns:
+(a) a coverage RATIO of the mission scope and of the whole universe (e.g. ~90% of the intended subsystem,
+~18% of all classes), (b) the list of subsystems/areas NOT yet touched, and (c) an honest verdict on
+whether the untouched areas matter for the mission or are out of scope. Output goes under `audits/` like a
+certainty audit, but its verdict feeds the §8 backlog (untouched-but-relevant areas become new gaps), not
+the marker escalation. Do not conflate the two: a corpus can be 100% certain on what it covered and still
+cover only 18% of the universe.
+
 ## 14. Cross-block consistency
 
 The corpus self-corrects: a later block often refutes/refines an earlier one (B59→B55, B62→B17/B51,
@@ -360,6 +376,21 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   focus — a new focus is a new bootstrap, so it deserves the same angle confirmation.
 - **One engram project, focus in the topic key.** All focuses mirror under the same target project
   (§7); disambiguate with `research/<target>/<focus>/...` topic keys.
+
+**Concurrent loops under one orchestrator.** Focuses (or whole targets) can run in PARALLEL, not just
+sequentially — a lean orchestrator drives N independent loops at once (proven: logosoft build/PoC + niagara
+Spyder running simultaneously as background agents). Rules that keep this safe:
+
+- **Independent state, per loop.** Each concurrent loop keeps its OWN `RESEARCH-STATE-<focus>.md`, its own
+  block prefix, and its own STOP flag in engram. No shared mutable state between loops.
+- **Gatekeep each on its own task-notification.** The orchestrator validates each loop's returned block
+  independently as it lands; it does not block one loop waiting on another.
+- **Cross-loop barrier for shared actions.** Any action that spans loops — a shared commit, a synthesis
+  across focuses, a shared-resource write — waits on a BARRIER: it fires only when ALL participating loops
+  have reached the agreed point (e.g. "commit when BOTH have stopped"). Never let one loop take a
+  cross-cutting action mid-flight while another is still writing.
+- **Concurrency is a context-budget decision.** Run loops in parallel only while the orchestrator stays
+  lean (it just routes task-notifications). If the orchestrator starts doing real work per loop, serialize.
 
 ## 17. Incident & resume (after a kill / crash / interruption)
 
@@ -407,3 +438,25 @@ This preserves both the audit trail and the rule that the operator — not an au
 **Honesty clause.** A run that surfaces nothing new must SAY so ("no new deltas; the kit already covers this
 run") rather than inventing improvements to look productive. A retro that always finds something is not a retro,
 it is noise.
+
+## 19. Build/PoC loop (the requires-execution phase)
+
+The static loop (§1–§11) is READ-ONLY. Some gaps are answerable only by BUILDING and RUNNING something — a
+PoC that ports a decompiled routine, a round-trip that re-encodes a structure and diffs it against the real
+artifact. §8 classifies these as `requires-execution` and excludes them from the static stop count; §19 is
+their loop. It is NOT read-only, so it runs like the dynamic phase (§12): supervised or auto with declared
+hard-stops, never blind.
+
+- **Oracle-anchored.** Every build/PoC iteration validates against an ORACLE — the real artifact or a second
+  independent channel. The canonical form is a ROUND-TRIP byte-diff: take the real bytes → parse with your
+  port → re-emit → diff against the original. A zero diff earns `[CERT]` on the reconstructed logic; a
+  nonzero diff is the finding (it shows exactly where your model of the format is wrong).
+- **Stop counter: `requires-execution` → 0.** The static loop stops at read-only-investigable = 0; the
+  build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
+  in RESEARCH-STATE exactly like the investigable count.
+- **Artifacts in `codegen/`.** PoC source, build output, and captured round-trip diffs live under
+  `$TARGET/codegen/` and are preserved as evidence (a diff is `[CERT]` evidence like a probe capture).
+  The block cites them; the code is not the deliverable, the validated finding is.
+- **Handoff from the static loop.** When the static loop's TERMINAL TRIGGER (§8) sees remaining
+  `requires-execution` gaps, it hands off here — this is the "non-static phase" it names. Provisioning a
+  compiler/runtime follows §10.

@@ -33,7 +33,14 @@ each delegation carries:
   delegates the WHOLE iteration — decompile + write the block + self-verify + commit — keeping the
   driver's context near-empty across many blocks (proven: 7 blocks, no compaction). The driver only
   orchestrates, gatekeeps by TRUSTING the sub-agent's self-report (§11), and launches the next.
-  Use this when you want to review between blocks or run heterogeneous work back-to-back fast.
+  Orchestrated has two sub-modes:
+    · **supervised** — the driver PAUSES after each block for the human to review before launching the
+      next. Use when you want a checkpoint between blocks.
+    · **auto** — the human says "run autonomously"; the driver AUTO-CHAINS iteration → gatekeeper → next
+      without pausing, but only within DECLARED HARD-STOPS (e.g. stop on a failed self-report, on a
+      destructive step, on corpus exhaustion). It is autonomous like self-paced, but each block still
+      runs in a fresh delegated sub-agent (context stays lean) instead of inline. State the hard-stops
+      before starting an auto run.
 
 Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
 `model` by cognitive demand (MODEL TIER rule) and never re-verify a block with orchestrator Bash (§11).
@@ -171,7 +178,7 @@ Always read first, in this order:
          does not die; it advances to the next axis.
        - CORPUS-level exhaustion (every focus done, nothing read-only-investigable anywhere): emit a final
          NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
-         (requires-execution build/PoC, or the DYNAMIC/hardware phase §12) — and, if that next phase is
+         (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
        - SELF-RETROSPECTIVE (at every focus completion, and always at corpus-level STOP — METHODOLOGY §18):
