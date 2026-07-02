@@ -397,8 +397,8 @@ judgment, not the driver's own rationalizations). The retro agent:
 3. **Proposes kit deltas** — each with: the concrete change, the target file/section, EVIDENCE (block / commit /
    `§` / transcript refs), and a priority. Anti-patterns become "add a rule that prevents X"; improvised wins
    become "codify Y".
-4. **Writes the proposal** to `$TARGET/retros/<date>-<focus>.md` and mirrors it to engram `research/<target>/retro`,
-   and SURFACES it in the return contract.
+4. **Writes the proposal** to `$TARGET/retros/<date>-<focus>.md` (from `$KIT/templates/retro.template.md`)
+   and mirrors it to engram `research/<target>/retro`, and SURFACES it in the return contract.
 
 **Hard boundary — propose, never apply.** The retro agent does NOT edit the kit. Kit changes are reviewed and
 committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
