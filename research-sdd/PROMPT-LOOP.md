@@ -87,7 +87,12 @@ Always read first, in this order:
          (sudo password / build fail / no recipe), REPORT the tool + reason so the orchestrator asks
          the user, and do the investigable part without it (honest [INFER]/gap). All logged to
          $KIT/toolbelt/INSTALLED-TOOLS.md.
-       - Delegate heavy sub-explorations to sub-agents if the gap requires sweeping many files.
+       - DELEGATE heavy sweeps to sub-agents — default, not optional, for loop longevity. If the gap needs
+         reading/decompiling more than ~3-4 files or classes, spawn a sub-agent (Agent/Task) to do the sweep
+         and return ONLY the cited findings (file:line + the load-bearing snippets), NOT raw dumps. The driver
+         loop must stay context-lean so it survives dozens of iterations before compaction — every raw
+         decompiler dump you read inline shortens the loop's life. Keep inline only narrow, single-file reads
+         you already know you need. (Small/narrow gaps: read inline, no sub-agent — delegation has its own cost.)
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date ·
@@ -114,6 +119,18 @@ Always read first, in this order:
      blocked gaps each tagged with the tool/access it needs, and the TOOLS REPORT (installed · couldn't
      -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md). If STOP did NOT fire, do NOT end
      your turn: reschedule and BEGIN the next iteration on the next gap (see LOOP CONTINUATION under HARD RULES).
+     TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
+     (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
+     fire the next action instead of just declaring:
+       - FOCUS-level exhaustion (this focus done, but the multi-focus corpus has other queued focuses):
+         hand off to the next focus — announce it and, under `/loop` self-pacing, reschedule ONE more time
+         re-entering this same prompt with FOCUS set to the next queued focus (BOOTSTRAP it if new). The loop
+         does not die; it advances to the next axis.
+       - CORPUS-level exhaustion (every focus done, nothing read-only-investigable anywhere): emit a final
+         NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
+         (requires-execution build/PoC, or the DYNAMIC/hardware phase §12) — and, if that next phase is
+         itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
+         off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
 
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
@@ -133,6 +150,11 @@ HARD RULES:
     per-iteration CHECKPOINT, not a hand-off; only the STOP declaration is terminal. Never stop after a
     single block. (Under `/loop` self-pacing this means calling ScheduleWakeup with the same prompt; under
     an orchestrator it means signalling "continue". Either way, one report ≠ done — see METHODOLOGY §8.)
+  - RESCHEDULE CADENCE — the next gap is READY WORK, not an idle poll. When you reschedule under `/loop`
+    self-pacing, use the SHORTEST delay (~60s, the floor), NOT the 1200-1800s idle-tick default. A short
+    delay also keeps the prompt cache warm (≤300s), so back-to-back iterations are cheaper AND faster.
+    Only stretch the delay when you are genuinely BLOCKED waiting on something external (an install
+    building, a live server coming up) — never just to space out ready decompilation work.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft → Spanish, for continuity of its mature

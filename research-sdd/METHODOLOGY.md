@@ -144,6 +144,24 @@ begin the next gap; the per-iteration report is a checkpoint, not a hand-off. Th
 `/loop` self-pacing (no orchestrator to relaunch it): the agent self-reschedules until a criterion fires.
 Halting after a single block is a bug (the LOOP CONTINUATION rule was skipped), not a valid stop.
 
+**Reschedule cadence.** The next gap is ready work, not an idle poll — reschedule at the ~60s floor, not
+the 1200-1800s idle default. Short delays keep the prompt cache warm (≤300s), so continuous iterations run
+cheaper and faster. Stretch the delay ONLY when genuinely blocked waiting on something external.
+
+**Delegate heavy sweeps for loop longevity.** A closed loop dies at compaction. To survive dozens of
+iterations, the driver must stay context-lean: any gap needing more than ~3-4 files/classes read or
+decompiled is delegated to a sub-agent that returns only cited findings, never raw dumps. Narrow single-file
+reads stay inline. This is context hygiene, not a speed trick — every inline decompiler dump shortens the loop.
+
+**Closed loop while working, open loop when done (terminal trigger).** The loop is a closed control system
+while read-only-investigable > 0: it self-corrects and self-continues. When that set hits 0, it does NOT
+just declare and die — it OPENS to the environment and fires the next action. At FOCUS-level exhaustion it
+hands off to the next queued focus (re-entering with the next axis, bootstrapping if new). At CORPUS-level
+exhaustion (all focuses done) it emits a NEXT-ACTION — a cross-focus synthesis, or a handoff to a non-static
+phase (requires-execution build/PoC, or the DYNAMIC/hardware phase §12) — launching it if autonomous and
+safe, or handing off to the user when a human decision or hardware is required. Silent end only when there
+is no queued focus and no safe next phase.
+
 ## 9. Golden rules
 
 1. **READ-ONLY** over the investigated subject. You never modify it.
