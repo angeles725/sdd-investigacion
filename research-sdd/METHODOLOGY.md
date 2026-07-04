@@ -61,6 +61,13 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
   probe output (e.g. B64 refuted B55 §55.3 against the real LOGO!). Certainty order, high→low:
   `[CERT-hw]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
 
+**Sealing `[CERT]` adversarially (optional).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
+(one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
+and it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded or dropped. Apply it SELECTIVELY
+(cost discipline) to conclusion-bearing claims only — not `[INFER]`, not trivia. LOCAL `file:line` claims are
+cheap (the skeptics read the cited source, no web); web-verifiable claims are expensive. Operational rule + cost
+discipline in PROMPT-LOOP step 5; workflow at [`toolbelt/adversarial-verify.js`](toolbelt/adversarial-verify.js).
+
 ## 4. Anatomy of a block
 
 Identical to `niagara-research` (see [`templates/block.template.md`](templates/block.template.md)):
@@ -293,11 +300,17 @@ becomes available (device, server, PLC), a DYNAMIC phase validates the static fi
 phase is DIFFERENT and must NOT run as a blind autonomous loop:
 
 - **Supervised, not loop-blind.** Each interaction with the live system is deliberate; the orchestrator
-  reviews before the next step. No `/loop` self-pacing against hardware.
+  reviews before the next step. No `/loop` self-pacing against hardware. The DELEGATE / MODEL-TIER rules
+  (PROMPT-LOOP) govern the static loop's HEAVY SWEEPS, not this phase: narrow live probes and a live
+  write-credential must never be handed to a sub-agent, so `no·inline` is the COMPLIANT tier record for
+  §12 iterations — not a skipped delegation.
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
-- **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: (1) read-only probe →
+- **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: (1) read-only probe —
+  including SAFE method/gate discovery: learn a destructive endpoint's allowed verbs and its auth gate
+  WITHOUT triggering the op, via `OPTIONS` or a deliberately wrong-method request that returns `405 + Allow`
+  (e.g. a GET on a POST-only `backups/reset` reveals the verb and the gate without detonating the wipe) →
   (2) reversible write — read-and-save the current value first, hold an oracle, restore in a `finally` →
   (3) destructive write — backup-first (below) → (4) irreversible — last, and only under scoped
   authorization (below). Announce which rung each step is on.
@@ -305,6 +318,10 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
   read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
   confirmed only by the channel that made it is `[INFER]`. No oracle ⇒ do not write.
+  For a SINGLE-protocol target (web/REST, no second wire), an INDEPENDENT READ endpoint is a valid oracle —
+  a GET on the resource after the POST that wrote it (e.g. GET `/nmodsreflow/config` confirming a POST
+  `config_update`). The essential property is that confirmation does NOT come from the write's OWN response,
+  not that a second wire protocol exists; never trust the write's own `200`.
 - **Backup-before-destroy (citable).** Before overwriting a program/image/config, READ and SAVE the current
   one to `sources/`, and VERIFY the backup actually restores. Keep it as both evidence and the revert
   target. A destructive step with no verified backup does not run.
@@ -328,6 +345,20 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   as `[CERT-hw]` evidence.
 - **Hardware refutes code.** When the device contradicts a `[CERT]` claim, mark the corrected fact
   `[CERT-hw]` and fix the prior block transparently (note "corrected in BN"), as B64 did to B55 §55.3.
+- **Hardware scope-CLARIFIES code (the softer move).** A live `[CERT-hw]` finding can SCOPE-CLARIFY a
+  `[CERT]` static claim WITHOUT refuting it: when the code-path is real but the live DEPLOYMENT gates or
+  limits its exploitability (e.g. `backups/reset` exists and is reachable in code, but the live station
+  auth-gates it `403`; a `?file=` traversal is coded but the deployment returns `500`). Label it a scope
+  divergence — "correct for the code-path; the live deployment adds a control the static source could not
+  express" — NOT an error. Reserve "refute" (above) for a live behavior that proves the static claim WRONG
+  for the SAME artifact. (This is §14's REFUTE-vs-CLARIFY-SCOPE distinction, in the hardware→code direction.)
+- **Live-verification verdicts (name each defect's outcome).** Distinct from §13's certainty-audit verbs
+  (those re-verify a static corpus). For each static defect validated live, assign one: **CONFIRMED** (a
+  live oracle reproduced it) / **NOT-REPRODUCED** (the live system did not exhibit it) / **GATED** (code-path
+  real, live deployment auth-gates it — the scope-clarify case above) / **CONFIRMED-BY-PARITY** (a sibling
+  sink sharing an ALREADY-PROVEN privileged path — deliberately NOT re-detonated, since one live proof of
+  the pattern suffices and re-firing is risk without new information) / **DEFERRED-requires-execution**
+  (needs a built probe → §19). Consolidate them in a per-defect verdict table in the phase's terminal block.
 - **After an incident, check the DEVICE first (refines §17).** If an iteration was killed/crashed mid-write
   in a hardware phase, the §17 resume rule inverts: check the PHYSICAL device state (is it left safe? was
   the write applied or reverted? re-measure the checksum live) BEFORE checking git/disk. A committed block
@@ -374,6 +405,8 @@ B64→B55). Make this a habit, not an accident:
   vs the shipped binary, one version vs another) and only needs a scope note — NOT a refutation. Label it
   as a scope divergence ("correct for build X, this block covers build Y"), not as an error, so the prior
   block is not wrongly read as sloppy. Only call it a refute when the two describe the SAME artifact.
+  The same distinction runs in the hardware→code direction — a live `[CERT-hw]` finding can scope-clarify a
+  `[CERT]` static claim (the deployment gates a real code-path) without refuting it; that case lives in §12.
 - In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
 - Every correction is logged in the correcting block's Connections and in RESEARCH-STATE's history.
 
