@@ -105,6 +105,14 @@ blocks. Anchor artifact IDENTITY with a LIVE `sha256` + byte-count of the ORIGIN
 ephemeral temp, which is not preserved); record that hash the way any ground-truth id is recorded. This
 makes a `file:line` pointing at a non-committed beautified temp fully trustworthy and reproducible.
 
+**Bundle-evidence quality (is API X actually USED?).** Distinct from the beautified-temp rule above (which
+is about citing a beautified copy faithfully). When grepping a MINIFIED / FULL-LIBRARY JS bundle to prove a
+page actually USES an API, a **constructor-call / invocation token** (`new THREE.PathTracer(...)`) is
+admissible signal; a **bare class-name string hit** inside a full-library bundle is WEAK and inadmissible —
+the whole library ships in the bundle regardless of what the page calls, so the name's mere presence proves
+nothing. Prefer call-site evidence; discard bare-name hits. Apply this uniformly across sibling sweeps of
+the same type (do not invent it mid-run for one block and forget it on the next).
+
 **Docs retrieved via an MCP server (context7 et al.).** Library/framework docs fetched through an MCP tool
 (e.g. context7) are a DISTINCT source type: cite them `[CERT-web]` with the resolved library id + the
 version queried and the access date. Convenience of re-querying does NOT exempt them from preservation —
@@ -234,10 +242,14 @@ remittance (it is new substance, just serendipitous): close that gap as closed-b
 the same-iteration `§N.x`, not as remittance. Reserve remittance for coverage that predates this iteration.
 
 **Reopening a STOPPED loop for a bounded experiment.** STOP is not permanent. A focus that reached STOP can
-be REOPENED for a single, bounded, authorized question — a new tool arrived, a hardware bench appeared, a
-targeted follow-up — WITHOUT a full re-bootstrap: read the existing state, run just the added iteration(s),
-then re-declare STOP. (Proven on logosoft B76: a DONE static loop reopened for one hardware question, then
-re-stopped.) Keep the reopen scoped — it is an experiment, not a re-run of the whole loop.
+be REOPENED — a new tool arrived, a hardware bench appeared, a targeted follow-up — WITHOUT a full
+re-bootstrap: read the existing state, run just the added iteration(s), then re-declare STOP. What makes it
+a reopen is that it is SCOPED and authorized, not that it is one gap: it may be a single question (logosoft
+B76: one hardware question) OR a bounded MULTI-GAP expansion (three.js run 2: four new gaps G16-G19 plus two
+rescoped). A reopen sets its OWN fresh budget cap (additive, e.g. "+7 blocks") — it does not inherit the
+original run's. Keep it scoped — an experiment, not a re-run of the whole loop. NOTE — this paragraph is for
+a genuinely-EXHAUSTED STOP reopened for NEW work; resuming a focus that merely PAUSED on the budget cap with
+gaps still queued is lighter and needs no new authorization (see "PAUSED (budget-cap) ≠ STOPPED" above).
 
 ## 9. Golden rules
 
