@@ -15,6 +15,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Obfuscated JS | `.js` | `js-beautify` | (direct) | ✅ |
 | Source code | known extension | direct reading + CodeGraph | (direct) | ✅ |
 | Library/framework docs (MCP) | context7 / MCP query | `resolve-library-id` + `query-docs` | (MCP; snapshot load-bearing hits per METHODOLOGY §5) | ✅ |
+| MCP-server capability | added to `~/.claude.json` mcpServers | e.g. `chrome-devtools` (reach JS-rendered pages) | (MCP; log in INSTALLED-TOOLS.md per §10) | ✅ |
 
 ## Tool paths (verified)
 

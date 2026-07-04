@@ -121,6 +121,14 @@ headless/cron run). A LOAD-BEARING `[CERT-web]`-via-MCP claim MUST be snapshotte
 (the cited fragment + the query and version), registered in SOURCES.md like any other source; only throwaway
 orientation lookups may stay uncited. Do not improvise a per-target policy — this is the kit's rule.
 
+**Web-fetch fallback ladder (bot-blocked / anti-scraping pages).** When `fetch-doc.sh` (curl/wget) hits a
+bot-block or an anti-scraping shell, try a known fallback before giving up: (a) **Reddit** —
+`www.reddit.com` returns only an SVG shell; `old.reddit.com` serves the same thread. (b) **CodePen** —
+`/full/<slug>` 403s; `/pen/<slug>` with a browser `User-Agent` succeeds AND yields the pen's full UNMINIFIED
+source via its init-data JSON (better evidence than a minified bundle). (c) **Discourse** forums (e.g.
+discourse.threejs.org) serve crawler-readable HTML directly, no bot-block, plus a lighter `/raw/<topic-id>`
+endpoint. Record the working fallback in SOURCES.md so the next fetch skips the dead path.
+
 ## 6. Research tools
 
 The loop profiles the artifact type (`profile-target.sh`) and picks the toolbelt wrapper:
@@ -170,6 +178,16 @@ positive one: if the investigation shows a thing is NOT there — cited as such 
 open. (Proven on protocols B136: the Sox gap was closed by demonstrating Sox's absence across 973 jars,
 cited.) A negative closure needs the same evidence bar as a positive one: cite what you searched and how
 (paths, counts, the grep/scan that came back empty), not a bare "not found".
+
+**Identity negatives ≠ feature absence (external-URL sweeps).** Proven-absence closes a gap by showing a
+feature is missing from a confirmed IN-SCOPE subject. A case-study/showcase sweep over user-supplied external
+URLs produces DIFFERENT outcomes that are NOT that, and each must be labeled honestly rather than forced into
+proven-absence: (a) a target CONFIRMED NOT the subject library (a genuine IDENTITY negative — cite it, e.g.
+no `three` dependency, a different renderer stack); (b) INCONCLUSIVE-but-leaning-not (investigated honestly,
+evidence insufficient either way — say so; do NOT upgrade it to a proven negative); (c) a URL serving
+UNRELATED content (apparent slug reuse — a data-quality flag on the INPUT LIST itself, not a finding about
+the subject). These close the gap row with an honest verdict about identity/input-quality, not about a
+feature's presence.
 
 On stopping, declare: blocks written, the **coverage metric** (gaps closed / known gaps — a ratio,
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
@@ -290,6 +308,13 @@ Safety line (independent of the autonomy level): only **known recipes / official
 **Tools Report (at loop end):** when the loop stops, it emits a summary of (a) tools it installed
 (with the command used), (b) tools it needed but could NOT install (and why → these are what to ask
 the user about), and (c) recommended tools for the domain. Source of truth: `toolbelt/INSTALLED-TOOLS.md`.
+
+**MCP-server capabilities count as tools too.** §10 was written for `install-tool.sh` binaries, but a
+capability added via an MCP server — e.g. a `chrome-devtools` MCP to reach a JS-rendered chunk a no-JS crawl
+cannot — is provisioning too, and it lives in GLOBAL session config (`~/.claude.json` `mcpServers`), not
+versioned with any corpus. Log it in `toolbelt/INSTALLED-TOOLS.md` like any other tool (name, what it solved,
+and that it is a global MCP server, not a target-local binary), so a future session has a trace instead of a
+silently present-or-absent capability. A finding that depends on an MCP capability NAMES it, same as a CLI tool.
 
 ## 11. Self-verification contract (in-block gatekeeping)
 
