@@ -138,6 +138,12 @@ Always read first, in this order:
          The DRIVER loop itself (marker discipline, [INFER] deductions, synthesis, self-verify) stays on the
          session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
          (e.g. no Opus access), substitute one tier down and note it in the report.
+       - MODEL TIER ALSO governs NESTED sub-sweeps. A general-purpose sweep-agent (one whose toolset INCLUDES the
+         Agent tool — NOT Explore/Plan, which lack it) MAY itself spawn a SUB-SWEEP, and each Agent call carries
+         its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. Nesting caveat: prefer
+         ONE level — nest a sub-sweep only for a punctual, well-scoped need; the specialized agents (Explore/Plan)
+         cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use the Workflow engine
+         (deterministic control, no per-hop context compression) instead of free-form native nesting.
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date ·
@@ -157,6 +163,15 @@ Always read first, in this order:
          (an integration plan, a PoC design, a synthesis), a high ratio is EXPECTED and healthy, NOT an
          exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
+       - OPTIONAL [CERT] SEAL (adversarial-verify) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
+         conclusion rests on) by running the `adversarial-verify` workflow ($KIT/toolbelt/adversarial-verify.js),
+         INSTEAD of trusting only this self-report: N=3 skeptics try to REFUTE each claim; a claim stays sealed
+         [CERT] only if it SURVIVES ≥2 of 3, otherwise it is DOWNGRADED or DROPPED. Apply it SELECTIVELY (cost
+         discipline) — only to LOAD-BEARING [CERT], never to [INFER] or trivial claims. Modular N: 3 skeptics for
+         load-bearing, 1 or 0 for the rest. LOCAL-sourced claims (decompiled output / file:line) are CHEAP — the
+         skeptics read the cited source, no web; only web-verifiable claims are expensive (~125k tokens/claim).
+         PROHIBITED in dynamic/hardware phases (§12) and in block writing/numbering — it is a read-only SEALING
+         step, not orchestration of the loop.
   6. UPDATE STATE (archive phase):
        - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered. A gap may
          close by NEW investigation, by PROVEN ABSENCE, or by REMITTANCE (already answered by an existing
