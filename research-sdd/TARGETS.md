@@ -1,6 +1,6 @@
 # Research-SDD — Targets Registry
 
-This file is the **master registry of the 12 research targets** of the Research-SDD loop.
+This file is the **master registry of the 13 research targets** of the Research-SDD loop.
 Each target is a system under reverse engineering / documentation. The loop uses this table to:
 
 1. Decide whether it **continues** an existing corpus or **bootstraps** a new one (Maturity column).
@@ -52,6 +52,7 @@ Sensitivity:
 | 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
+| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (21 md / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (23 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) `[CERT]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP (runtime probes) | English `[CERT]` |
 
 ---
 
@@ -104,6 +105,18 @@ Experiment lab over **TIA Portal Openness**: 230 `.py`, 74 `.md` (inside `experi
 ### 12 — openness-tools `[CERT]`
 Openness automation **tooling**: 95 `.py`, daemon (py/ps1), generators, `offline-validator`, tests, 51 KB `CHANGELOG.md` and 33 KB `CLAUDE.md`. Git present, **no hook**, 27 `.md`.
 **Startup:** intermediate. It is own source code: direct reading + CodeGraph; no decompilation required.
+
+### 13 — three.js `[CERT]`
+Mental model of the **Three.js library** (r160 primary, r128 legacy) as used by the HVAC prototyping
+pipeline (voxel-art first pass → realistic PBR second pass). Mature corpus built 2026-07-04 across
+3 runs: 21 blocks (`threejs-block1..21.md`), 21/21 gaps closed, CATALOG/INDEX/RESEARCH-STATE, git,
+SessionStart hook (`research-protocol.sh`), 40+ preserved sources in `sources/web-snapshots/`
+(29 external showcase/forum targets analyzed), team deliverable `WORKFLOW.md`. First purely
+docs/web target of the kit (context7 MCP as primary official source; no decompilation). 3 retros
+in `retros/` (2026-07-04, runs 1-3).
+**Startup:** continue. Reopen per §8 for new URL batches or follow-ups; the corpus dir doubles as
+the subject dir (prototypes + corpus in one repo — commits are explicitly scoped, `.gitignore`
+covers `.atl/`/`.claude/`/Zone.Identifier).
 
 ---
 
