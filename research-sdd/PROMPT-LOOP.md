@@ -247,7 +247,11 @@ HARD RULES:
     STOPPING criterion (step 7). If it is NOT met (read-only-investigable > 0), you MUST reschedule and
     START the next iteration on the next gap — do NOT end your turn. The RETURN CONTRACT below is a
     per-iteration CHECKPOINT, not a hand-off; only the STOP declaration is terminal. Never stop after a
-    single block. (Under `/loop` self-pacing this means calling ScheduleWakeup with the same prompt; under
+    single block. ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
+    queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
+    the next is written — do NOT land two block files in one commit just because both sweeps returned
+    together (lesson: a three.js commit landed B15+B16 as one, skipping the reschedule/STOP-check between
+    them). (Under `/loop` self-pacing this means calling ScheduleWakeup with the same prompt; under
     an orchestrator it means signalling "continue". Either way, one report ≠ done — see METHODOLOGY §8.)
   - RESCHEDULE CADENCE — the next gap is READY WORK, not an idle poll. When you reschedule under `/loop`
     self-pacing, use the SHORTEST delay (~60s, the floor), NOT the 1200-1800s idle-tick default. A short
