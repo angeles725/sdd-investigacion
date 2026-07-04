@@ -71,7 +71,12 @@ Always read first, in this order:
      r2, jadx etc. may live under linuxbrew Cellar / a dotnet dir / a jar path and still be off PATH
      (lesson: niagara assumed "Ghidra not available" when decompile-native.sh ghidra worked, losing
      the first native block's decompiler depth).
-  b. Determine which system it is, where its real sources/binaries are, and the corpus language.
+  b. Determine which system it is, where its real sources/binaries are, and the corpus language. REGISTER
+     the target in $KIT/TARGETS.md's master table right here (row: #, target, path, maturity, predominant
+     artifact type, toolbelt wrapper, corpus language) — as part of bootstrap, NOT later: the retro sweeper
+     `toolbelt/sweep-retros.sh` derives its ENTIRE scan list from TARGETS.md, so an unregistered target's
+     `retros/` dir is invisible to the §18 supervision sweep (lesson: three.js ran its first focus — 12 blocks,
+B1-B12 — unregistered, so its retro was invisible to the sweeper until registered by hand).
   b2. ANGLE (mature OR large target): a target name alone is ambiguous. DECLARE AN EXPLICIT
       INVESTIGATION ANGLE/AXIS (e.g. decompiled-Java vs native-binaries vs install/config vs
       docs/protocol) and CONFIRM it BEFORE closing the first gap — picking the wrong focus burns a

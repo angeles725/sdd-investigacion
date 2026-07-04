@@ -14,6 +14,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Web page / forum / link | URL | `curl`/`wget` + `pandoc` → markdown | `fetch-doc.sh` | ✅ |
 | Obfuscated JS | `.js` | `js-beautify` | (direct) | ✅ |
 | Source code | known extension | direct reading + CodeGraph | (direct) | ✅ |
+| Library/framework docs (MCP) | context7 / MCP query | `resolve-library-id` + `query-docs` | (MCP; snapshot load-bearing hits per METHODOLOGY §5) | ✅ |
 
 ## Tool paths (verified)
 

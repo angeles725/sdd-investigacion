@@ -105,6 +105,14 @@ blocks. Anchor artifact IDENTITY with a LIVE `sha256` + byte-count of the ORIGIN
 ephemeral temp, which is not preserved); record that hash the way any ground-truth id is recorded. This
 makes a `file:line` pointing at a non-committed beautified temp fully trustworthy and reproducible.
 
+**Docs retrieved via an MCP server (context7 et al.).** Library/framework docs fetched through an MCP tool
+(e.g. context7) are a DISTINCT source type: cite them `[CERT-web]` with the resolved library id + the
+version queried and the access date. Convenience of re-querying does NOT exempt them from preservation —
+an MCP response is as volatile as a URL (the library version moves; the MCP server may be absent in a
+headless/cron run). A LOAD-BEARING `[CERT-web]`-via-MCP claim MUST be snapshotted to `sources/web-snapshots/`
+(the cited fragment + the query and version), registered in SOURCES.md like any other source; only throwaway
+orientation lookups may stay uncited. Do not improvise a per-target policy — this is the kit's rule.
+
 ## 6. Research tools
 
 The loop profiles the artifact type (`profile-target.sh`) and picks the toolbelt wrapper:
@@ -159,6 +167,15 @@ On stopping, declare: blocks written, the **coverage metric** (gaps closed / kno
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
+**PAUSED (budget-cap) ≠ STOPPED (exhaustion).** Distinguish the two in RESEARCH-STATE vocabulary. A halt on
+the budget-cap safety-net (criterion 3) while read-only-investigable gaps are STILL open is a PAUSE, not a
+genuine STOP — word it "PAUSED (budget cap; N gaps still investigable)", never "STOPPED", so a future reader
+does not mistake a budget pause for real completion. The terminal-trigger machinery (the §8 focus-closing
+synthesis, the §18 retro) MAY still fire on a pause — a run worth pausing is usually worth consolidating —
+but the report must LABEL the halt as a pause and list the still-investigable gaps as the resume point.
+Resuming a pause needs no new authorization (the gaps were already queued); that is lighter than "Reopening
+a STOPPED loop" below, which reopens a genuinely-exhausted focus for a NEW question.
+
 **Two execution modes.** The NORMAL CYCLE runs under either: **self-paced** (`/loop`, no human present —
 the loop agent drives, self-reschedules, and delegates only each gap's heavy sweep) or **orchestrated** (a
 human present — the driver chains one sub-agent per iteration and delegates the WHOLE iteration: decompile +
@@ -211,6 +228,10 @@ state explicitly "closed by remittance — no new substance". It differs from pr
 search that came back empty); remittance cites prior COVERAGE. Use it to avoid writing a redundant block
 for a gap the corpus already answers — but the citation + explicit no-new-substance note is the evidence
 bar; a gap "closed by remittance" with no prior-block citation is just a silently dropped gap.
+Restrict remittance to a GENUINELY PRIOR block — one already committed BEFORE this iteration. The distinct
+case where NEW content answering an adjacent gap lands in the SAME block/iteration you were writing is NOT
+remittance (it is new substance, just serendipitous): close that gap as closed-by-NEW-investigation citing
+the same-iteration `§N.x`, not as remittance. Reserve remittance for coverage that predates this iteration.
 
 **Reopening a STOPPED loop for a bounded experiment.** STOP is not permanent. A focus that reached STOP can
 be REOPENED for a single, bounded, authorized question — a new tool arrived, a hardware bench appeared, a
@@ -424,6 +445,14 @@ must be gitignored. BOOTSTRAP seeds the target `.gitignore` with at least `.atl/
 existing corpus, add them if missing. (Lesson: niagara accidentally committed `.atl/.skill-registry.cache.json`
 twice via `git add -A` before it was ignored — a fingerprint-only churn with no corpus value.) Prefer
 explicit `git add <files>` over `git add -A`, but the `.gitignore` is the durable fix, not the manual habit.
+
+**When the corpus dir IS the subject dir.** Some targets are researched IN PLACE — the corpus lives in the
+same directory as the subject's OWN material (e.g. a prototype repo you are also documenting). Then
+gitignoring orchestrator-local caches is not enough: the SUBJECT's own files (its `.html`, build output,
+assets) share the dir and must NOT be swept into the corpus history either. Add them to the target
+`.gitignore` explicitly (or keep the corpus in a subdir) — do not rely on `git add <file>` discipline alone,
+which is one `git add -A` away from committing the whole subject. The structural guard, not operator habit,
+is the fix. (Lesson: three.js's corpus sat alongside 23 subject `.html` files kept out only by hand.)
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
