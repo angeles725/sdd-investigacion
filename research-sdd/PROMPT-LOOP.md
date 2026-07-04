@@ -222,6 +222,12 @@ HARD RULES:
     keys, keyring/keystore material, tokens, or secrets into a block, sources/, or engram. Cite the
     STRUCTURE (where a secret lives, its format, how it's used) — never the secret VALUE. Zero secrets
     exfiltrated is a hard invariant; a real install carries live credentials a decompiled jar does not.
+    LIVE-WRITE recipe that keeps this invariant on an AUTHENTICATED write: (a) authenticate out-of-band —
+    a curl `-K` config file in scratchpad, NEVER the credential in argv / probe cmdline / sources / engram;
+    (b) a secret-bearing body (e.g. a config) is backed up to scratchpad and cited by `sha256`+byte-count,
+    NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
+    independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
+    dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
