@@ -45,7 +45,22 @@ echo "   branch: $branch"
 echo ""
 
 git -C "$KIT_REPO" checkout -q main || { echo "cannot checkout main" >&2; exit 4; }
+git -C "$KIT_REPO" fetch -q origin 2>/dev/null || true
 git -C "$KIT_REPO" pull -q --ff-only 2>/dev/null || true
+
+# Guard: main must be in sync with origin/main. Un-pushed local commits on main become
+# part of this branch's diff, so the PR's squash-merge folds them into the retro commit —
+# mixing unrelated history (lesson: PR #1 folded the adversarial-verify commits into the
+# niagara retro squash). Push them to main first, or override with ALLOW_UNPUSHED_BASE=1.
+unpushed=$(git -C "$KIT_REPO" rev-list --count origin/main..main 2>/dev/null || echo 0)
+if [ "${unpushed:-0}" -gt 0 ] && [ "${ALLOW_UNPUSHED_BASE:-}" != "1" ]; then
+  echo "main has $unpushed local commit(s) not on origin/main — they would be folded into" >&2
+  echo "this retro's PR squash (mixed history). Push them first:" >&2
+  echo "    git -C \"$KIT_REPO\" push origin main" >&2
+  echo "...or re-run with ALLOW_UNPUSHED_BASE=1 if that base is intentional." >&2
+  exit 5
+fi
+
 if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
   echo "branch $branch already exists — checking it out." ; git -C "$KIT_REPO" checkout -q "$branch"
 else
