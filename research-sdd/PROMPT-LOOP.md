@@ -162,6 +162,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      and — proven on the protocols run — caught NOTHING; the real error capture mechanism is cross-block
      correction §14, not a per-iteration re-verify. Only spot-check when a report smells off). Before closing,
      DO and REPORT:
+       - MECHANIZE the counting: run `$KIT/toolbelt/verify-block.sh <block>` and paste its output — the
+         marker tally, [INFER]/[CERT] ratio and [CERT] file:line citation-resolution are COMPUTED, not
+         remembered (it exits non-zero on a cited file:line whose line is out of range). It is your own
+         calculator, not an orchestrator gate. `extern` citations (beautified/decompiled/snapshot) are not
+         script-verifiable — still token-check those by reading.
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
          confirm in the primary source first).

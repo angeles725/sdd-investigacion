@@ -346,6 +346,14 @@ and MUST REPORT these checks:
   gate exists because the §5 snapshot rule was ADOPTED but went unenforced — context7 citations kept
   landing with no snapshot across runs; treat it like the token-check, not a good intention.
 
+**Mechanize the counting.** The marker tally, the `[INFER]`/`[CERT]` ratio, and `[CERT]` `file:line`
+citation-resolution are COMPUTED, not remembered: run [`toolbelt/verify-block.sh`](toolbelt/verify-block.sh)
+`<block>` inside the iteration and paste its output into the self-report. It is the agent's OWN calculator
+(not an orchestrator post-hoc gate — §11 rejects those); it exits non-zero on a verifiable contradiction (a
+cited file that exists but whose line is out of range). It does NOT replace the token-check: a citation to a
+beautified-temp / decompiled / snapshot path shows as `extern` (not target-resolvable), so the agent still
+confirms those the same way it confirms every load-bearing `[CERT]` token — by reading the cited source.
+
 The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
 mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper
 commands by default — the in-block contract is the gate. This is not a soft preference: on the protocols
