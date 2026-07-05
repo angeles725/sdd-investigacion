@@ -52,7 +52,7 @@ Sensitivity:
 | 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
-| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (21 md / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (23 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) `[CERT]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP (runtime probes) | English `[CERT]` |
+| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (32 md / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
 
 ---
 
@@ -109,11 +109,11 @@ Openness automation **tooling**: 95 `.py`, daemon (py/ps1), generators, `offline
 ### 13 — three.js `[CERT]`
 Mental model of the **Three.js library** (r160 primary, r128 legacy) as used by the HVAC prototyping
 pipeline (voxel-art first pass → realistic PBR second pass). Mature corpus built 2026-07-04 across
-3 runs: 21 blocks (`threejs-block1..21.md`), 21/21 gaps closed, CATALOG/INDEX/RESEARCH-STATE, git,
+5 runs: 32 blocks (`threejs-block1..32.md`), 32/32 gaps closed, CATALOG/INDEX/RESEARCH-STATE, git,
 SessionStart hook (`research-protocol.sh`), 40+ preserved sources in `sources/web-snapshots/`
-(29 external showcase/forum targets analyzed), team deliverable `WORKFLOW.md`. First purely
-docs/web target of the kit (context7 MCP as primary official source; no decompilation). 3 retros
-in `retros/` (2026-07-04, runs 1-3).
+(29 external showcase/forum targets analyzed), team deliverable `WORKFLOW.md` (5 adoption
+sections). First purely docs/web target of the kit AND first web-target DYNAMIC phase (§12,
+Puppeteer GL-hook probes, tools/probe.mjs). 4 retros in `retros/` (2026-07-04, runs 1-5).
 **Startup:** continue. Reopen per §8 for new URL batches or follow-ups; the corpus dir doubles as
 the subject dir (prototypes + corpus in one repo — commits are explicitly scoped, `.gitignore`
 covers `.atl/`/`.claude/`/Zone.Identifier).
