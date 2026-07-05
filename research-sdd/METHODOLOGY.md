@@ -45,6 +45,7 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 | Marker | Meaning | How it is cited |
 |---|---|---|
 | `[CERT-hw]` | verified **empirically against the live system/device** — the real hardware/server responding, NOT "the code should". The **highest** certainty level. | `sources/probes/<run-output>.txt §…` + the probe that produced it |
+| `[CERT-live]` | verified **empirically against a live REMOTE service you do not own** (hosted / cloud / third-party HTTP API) — the real endpoint's runtime RESPONSE, not its published docs. Same top rank as `[CERT-hw]`; the risk model differs (rate-limits / ToS / authorization / metered cost, not physical bricking — §12 remote-API frame). | `sources/probes/<run-output>.txt §…` + the request that produced it |
 | `[CERT]` | verified by reading the **local primary source** (code, decompiled output, bytecode) | `file:line` or `file §section` |
 | `[CERT-doc]` | verified against an **official downloaded document** (datasheet/manual) | `sources/manuals/x.pdf §N` or `:p.N` |
 | `[CERT-web]` | verified against an **official web source** (manufacturer site, official online doc) | URL + access date |
@@ -56,10 +57,11 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
-- **Hardware wins.** `[CERT-hw]` outranks `[CERT]`: if the live device contradicts what the
-  decompiled code implied, the hardware is right — refute/correct the code-based claim and cite the
-  probe output (e.g. B64 refuted B55 §55.3 against the real LOGO!). Certainty order, high→low:
-  `[CERT-hw]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
+- **The live system wins.** `[CERT-hw]`/`[CERT-live]` outranks `[CERT]`: if the live device OR remote
+  service contradicts what the decompiled code implied, the observed live behavior is right — refute/correct
+  the code-based claim and cite the probe/response output (e.g. B64 refuted B55 §55.3 against the real
+  LOGO!). Certainty order, high→low:
+  `[CERT-hw]`/`[CERT-live]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
 
 **Sealing `[CERT]` adversarially (optional, EXPERIMENTAL — never yet run on a real corpus claim).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
 (one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
@@ -69,6 +71,12 @@ cheap (the skeptics read the cited source, no web); web-verifiable claims are ex
 discipline in PROMPT-LOOP step 5; workflow at [`toolbelt/adversarial-verify.js`](toolbelt/adversarial-verify.js).
 STATUS: the workflow is self-validated (3/3 refuted a false claim, 3/3 preserved a true one) but has not sealed
 a real load-bearing claim in ~400 corpus blocks — trial it on a real claim before relying on it as a standing gate.
+GRADUATION TRIGGER (how EXPERIMENTAL ends): fire it the FIRST time a SECURITY-CRITICAL or conclusion-bearing
+claim must escalate to `[CERT]`/`[CERT-doc]` and a wrong seal would mislead a downstream decision — a LOCAL
+`file:line` claim is cheap (the skeptics only read the cited source, no web). Record the outcome (survived
+≥2/3, or downgraded) in that block and flip this STATUS from "never run" to "trialed on B&lt;n&gt;". Until such a
+claim appears it stays PARKED — do NOT manufacture a synthetic trial just to retire the label (that is exactly
+the make-work the §18 honesty clause forbids). This is a defined exit condition, not a permanent shelf.
 
 ## 4. Anatomy of a block
 
@@ -110,6 +118,26 @@ if it were the primary source — it is 1:1 with the original, so the line numbe
 blocks. Anchor artifact IDENTITY with a LIVE `sha256` + byte-count of the ORIGINAL minified file (not the
 ephemeral temp, which is not preserved); record that hash the way any ground-truth id is recorded. This
 makes a `file:line` pointing at a non-committed beautified temp fully trustworthy and reproducible.
+
+**Obfuscated bytecode (APK/DEX, .NET, etc. — the beautified-temp rule does NOT transfer).** The rule above
+works because JS minification is a COSMETIC transform: whitespace and local names change, but structure and
+string LITERALS survive 1:1, so a beautified line is trustworthy. DEX/APK obfuscation (ProGuard / R8 /
+DexGuard) is SEMANTIC, not cosmetic — it renames classes/methods/fields to `a`/`b`/`c` (NOT reversible),
+ENCRYPTS string constants (plaintext only at runtime), and hides flow behind reflection. So:
+- **Never cite a renamed symbol as identity.** `a.b(c)` is not a name, it is a position. Anchor a claim to
+  a STABLE structural fingerprint — the method descriptor/signature (types + arity), its call-graph
+  position, or a matched library signature — not the meaningless letter. If a deobfuscation MAPPING is
+  recovered (a retained `mapping.txt`, a library-signature match, an operator-built rename map), PRESERVE it
+  under `sources/` and register it: it is itself evidence, and later blocks cite the mapping, never a
+  guessed name.
+- **A string you cannot see is `[INFER]`, not `[CERT]`.** When strings are encrypted, a static grep proving
+  one absent proves NOTHING (it is decrypted at runtime). A claim about a string constant's VALUE stays
+  `[INFER]` until the DECRYPTED value is observed LIVE — dynamic instrumentation (emulator / Frida hook),
+  which then earns `[CERT-hw]`/`[CERT-live]` and is preserved as probe output. Static analysis of an
+  obfuscated artifact has a HARD ceiling; name it, don't paper over it.
+- **Identity anchor.** As with minified JS, anchor by `sha256` + byte-count of the ORIGINAL `.apk`/`.dex`
+  (record the obfuscator + version if detectable), so decompiler output — which is NOT 1:1 and varies by
+  tool — stays reproducible against a fixed input.
 
 **Bundle-evidence quality (is API X actually USED?).** Distinct from the beautified-temp rule above (which
 is about citing a beautified copy faithfully). When grepping a MINIFIED / FULL-LIBRARY JS bundle to prove a
@@ -447,6 +475,40 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   is recoverable; a device left in a half-written state is not. Physical safety precedes artifact state.
 - **Environment setup** (e.g. WSL `networkingMode=mirrored` to reach a LAN device, run `wsl --shutdown`
   from **Windows** PowerShell — not inside WSL) is a prerequisite; verify connectivity before probing.
+
+### 12b. Remote HTTP / cloud API targets (the frame that does NOT transfer from bench hardware)
+
+Everything above assumes a live system you physically or administratively CONTROL (a bench device, a
+PLC, your own station) — where the dominant risk is bricking and the ground-truth identity is a program
+checksum. A **remote HTTP / cloud API you do not own** (a hosted SaaS endpoint, a third-party API) is a
+different subject: there is no unit to brick, no bench-vs-production physical confusion, no checksum-as-
+identity. The invasiveness ladder, cross-protocol/independent-read oracle, and "never trust the write's
+own 200" rules STILL apply. What changes:
+
+- **Authorization is the gate — and it covers READS too.** Probe only a service you are authorized on:
+  your own account, a sandbox/test tenant, or written permission. Unlike a local device (where reads are
+  free and only writes need a grant), on a service you do not own an *unauthorized read* is already a
+  violation. Record the authorization scope + expiry exactly as §12's scoped-authorization rule does for
+  irreversible ops, and re-arm the block when the session ends.
+- **GET is not free.** A read against a remote API can still cost money (metered calls), mutate state
+  (non-idempotent or side-effecting GET), rate-limit or lock the account, or be logged/flagged. Treat
+  every call as observable and accountable. Prefer a sandbox/test tenant; never load-test production.
+- **Rate-limit & ToS discipline (inverts the static loop's cadence).** Read the ToS and published rate
+  limits FIRST and stay well under them. Give a remote-probe loop a HARD call budget and a deliberate
+  delay, and back off on `429` — the OPPOSITE of the static loop's shortest-delay reschedule cadence,
+  which is for local read-only decompilation, not for someone else's server.
+- **Data discipline extends to response bodies.** Responses may carry PII, secrets, or other tenants'
+  data. The SECRETS DISCIPLINE (cite STRUCTURE, never VALUES) applies to what comes BACK, not only to
+  credentials sent: never paste a raw token/PII-bearing response into a block or `sources/` — redact and
+  cite the shape (fields, types, sizes), preserving only a sanitized snapshot.
+- **Marker.** A claim verified by observing the live remote service's actual RESPONSE earns `[CERT-live]`
+  (same rank as `[CERT-hw]`). A claim from the API's published DOCS is `[CERT-web]`. A claim resting only
+  on the write's own success code is `[INFER]` until an independent read confirms it.
+
+**Honesty note (do not oversell).** No kit target has run this frame yet — the mature dynamic phases (§12)
+are all local devices/stations. `[CERT-live]` is defined here for the FIRST remote-API target; exercise it
+on a real endpoint before relying on it as a standing pattern, exactly as §11's adversarial-verify seal
+carries its own "trial before you trust it" caveat.
 
 ## 13. Audit mode (re-verify an existing corpus)
 

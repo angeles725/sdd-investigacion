@@ -5,6 +5,7 @@
 > Sources: <real primary paths · documents in sources/... · URLs>.
 > Method: <how it was investigated: decompiler/tool/reading/web>. Markers (canonical list: METHODOLOGY §3):
 > `[CERT-hw]` verified against the live system/device — highest (`sources/probes/...`) ·
+> `[CERT-live]` verified against a live remote service you don't own (hosted/cloud API response — §12b) ·
 > `[CERT]` local primary source (`file:line`) ·
 > `[CERT-doc]` official downloaded document (`sources/...pdf §N`) ·
 > `[CERT-web]` official web (URL + date) ·

@@ -154,8 +154,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (deterministic control, no per-hop context compression) instead of free-form native nesting.
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
-       [CERT-hw] sources/probes/... (highest) · [CERT] file:line · [CERT-doc] sources/...pdf §N ·
-       [CERT-web] URL+date · [CERT-a] forum (URL) · [INFER] deduction.  (canonical list: METHODOLOGY §3)
+       [CERT-hw] sources/probes/... (highest) · [CERT-live] live remote-service response (§12b) ·
+       [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date · [CERT-a] forum (URL) ·
+       [INFER] deduction.  (canonical list: METHODOLOGY §3)
      Include the Connections section linking related [Block K].
   5. SELF-VERIFY + REPORT (in-block gatekeeping — see METHODOLOGY §11; the orchestrator does NOT run
      Bash gatekeepers, it TRUSTS this report. Per-block orchestrator Bash re-checks cost permission prompts
@@ -208,7 +209,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      0 — every open gap is blocked on a missing/incompatible tool, a live server, or hardware — STOP.
      (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the
      blocked gaps each tagged with the tool/access it needs, and the TOOLS REPORT (installed · couldn't
-     -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md). If STOP did NOT fire, do NOT end
+     -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md).
+     MECHANIZE the §5 source-registry check: run `$KIT/toolbelt/verify-sources.sh $TARGET` and paste its
+     output — it exits non-zero if a block cites a preserved-source marker ([CERT-doc]/[CERT-a]) with no
+     sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
+     step 5's verify-block.sh: per-block marker/citation math is checked in-iteration, source-registry
+     integrity is checked once at STOP (it reads the whole corpus). If STOP did NOT fire, do NOT end
      your turn: reschedule and BEGIN the next iteration on the next gap (see LOOP CONTINUATION under HARD RULES).
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
@@ -253,8 +259,8 @@ HARD RULES:
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
     LIVE from the real system. Never cite them from a prior note/block (lesson: B66-B69 inherited a
-    stale bench checksum `05 3d 6e e4`; the live value was `0x87B961A9`, forcing a correction). See
-    METHODOLOGY §12.
+    stale bench checksum and had to be corrected in B70). The worked example with the actual hex values
+    lives in METHODOLOGY §12 — single source; don't restate the values here.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).

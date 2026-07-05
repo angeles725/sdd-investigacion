@@ -24,16 +24,16 @@ echo "== verify-block: $(basename "$block") (target: $target) =="
 
 # 1. Marker tally — exact. `grep -oE '\[CERT\]'` does NOT match the hyphenated variants, so each counts once.
 declare -A tally
-for m in CERT-hw CERT CERT-doc CERT-web CERT-a INFER; do
+for m in CERT-hw CERT-live CERT CERT-doc CERT-web CERT-a INFER; do
   tally[$m]=$(grep -oE "\[$m\]" "$block" | wc -l | tr -d ' ')
 done
 echo "-- marker tally --"
-for m in CERT-hw CERT CERT-doc CERT-web CERT-a INFER; do
+for m in CERT-hw CERT-live CERT CERT-doc CERT-web CERT-a INFER; do
   printf "   [%s] %s\n" "$m" "${tally[$m]}"
 done
 
 # 2. [INFER]/[CERT] ratio — INFER over ALL cert-family markers.
-cert_total=$(( tally[CERT-hw] + tally[CERT] + tally[CERT-doc] + tally[CERT-web] + tally[CERT-a] ))
+cert_total=$(( tally[CERT-hw] + tally[CERT-live] + tally[CERT] + tally[CERT-doc] + tally[CERT-web] + tally[CERT-a] ))
 infer=${tally[INFER]}
 if [ "$cert_total" -gt 0 ]; then
   ratio=$(awk "BEGIN{printf \"%.2f\", $infer/$cert_total}")
