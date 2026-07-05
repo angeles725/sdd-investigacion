@@ -108,8 +108,12 @@ volatile URL; `SOURCES.md` keeps the original URL and the hash. The wrapper
 [`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + extraction + registration.
 Check compliance mechanically at loop STOP or in a supervised review with
 [`toolbelt/verify-sources.sh`](toolbelt/verify-sources.sh) `<target>`: it fails when a corpus cites
-`[CERT-doc]`/`[CERT-a]` but has no `sources/SOURCES.md`, or a cited `sources/` file is absent on disk
-(lesson: logosoft cited 10 `[CERT-doc]` PDFs with no registry at all — the rule held by convention only).
+`[CERT-doc]`/`[CERT-a]` but has no `sources/SOURCES.md`, or a cited `sources/` file is absent on disk, or a
+block NAMED in the registry's "Blocks that cite it" column does not actually reference that source — a
+FABRICATED citation (LEVEL 4, cross-checks the registry against block content; parses both `B60` and
+`[Block 21]` forms). Lessons baked in: logosoft cited 10 `[CERT-doc]` PDFs with no registry at all (the rule
+held by convention only), and a first-cut registry row claimed two blocks cited a preserved HTML they never
+mention — the `[CERT-a]` in those blocks was legend boilerplate, not a citation, and LEVELs 1-3 all passed it.
 
 **Beautified-temp citation (minified / obfuscated code).** For minified or obfuscated sources (bundled JS,
 etc.), beautify the artifact to a SCRATCHPAD temp — never into `sources/` (keep the READ-ONLY-over-subject
