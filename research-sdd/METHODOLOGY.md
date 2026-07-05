@@ -451,8 +451,12 @@ this engine) and re-verify their claims against the primary source. Output is an
 new knowledge block. Per claim assign: **ESCALATED** (was `[CERT-a]`/hedged → now source-confirmed
 `[CERT]`), **CONFIRMED** (held), **DOWNGRADED** (unverifiable → `[INFER]`), **REFUTED** (the source
 contradicts it — the most valuable). Write the report under `audits/`, READ-ONLY on the audited corpus.
-Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). (Proven on niagara B100: 12 escalated, 1 refuted — the
-engine adds certainty and catches attribution errors a re-read surfaces, without touching the original.)
+Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). STATUS (honest): the audit VOCABULARY (ESCALATED / CONFIRMED
+/ DOWNGRADED / REFUTED) is exercised inline in normal blocks and §14 corrections (e.g. niagara B34 / B117 /
+B119); the STANDALONE mode — a dedicated audit-delta under `audits/`, driven by PROMPT-AUDIT.md — has NOT yet
+run on any corpus (no target has an `audits/` dir). Treat §13-standalone as a DEFINED-but-unexercised mode,
+not a proven one — like §19 was before logosoft's `codegen/`. (An earlier draft claimed "proven on niagara
+B100"; B100 carries none of this vocabulary — the claim was removed as unverifiable.)
 
 **Audit-first as a backlog seed.** A second use of an audit sweep: to BOOTSTRAP the gap-backlog of a new
 focus over a mature corpus. Instead of hand-guessing gaps, delegate an audit that returns a coverage
