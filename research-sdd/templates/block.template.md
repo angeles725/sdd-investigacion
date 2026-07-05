@@ -3,7 +3,8 @@
 > Research of **<MODULE/COMPONENT>**: <scope in 1-2 lines — what it covers and what it does not>.
 >
 > Sources: <real primary paths · documents in sources/... · URLs>.
-> Method: <how it was investigated: decompiler/tool/reading/web>. Markers:
+> Method: <how it was investigated: decompiler/tool/reading/web>. Markers (canonical list: METHODOLOGY §3):
+> `[CERT-hw]` verified against the live system/device — highest (`sources/probes/...`) ·
 > `[CERT]` local primary source (`file:line`) ·
 > `[CERT-doc]` official downloaded document (`sources/...pdf §N`) ·
 > `[CERT-web]` official web (URL + date) ·

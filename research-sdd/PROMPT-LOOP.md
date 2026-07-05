@@ -151,8 +151,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (deterministic control, no per-hop context compression) instead of free-form native nesting.
   4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
-       [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date ·
-       [CERT-a] forum (URL) · [INFER] deduction.
+       [CERT-hw] sources/probes/... (highest) · [CERT] file:line · [CERT-doc] sources/...pdf §N ·
+       [CERT-web] URL+date · [CERT-a] forum (URL) · [INFER] deduction.  (canonical list: METHODOLOGY §3)
      Include the Connections section linking related [Block K].
   5. SELF-VERIFY + REPORT (in-block gatekeeping — see METHODOLOGY §11; the orchestrator does NOT run
      Bash gatekeepers, it TRUSTS this report. Per-block orchestrator Bash re-checks cost permission prompts
@@ -168,7 +168,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (an integration plan, a PoC design, a synthesis), a high ratio is EXPECTED and healthy, NOT an
          exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
-       - OPTIONAL [CERT] SEAL (adversarial-verify) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
+       - OPTIONAL [CERT] SEAL (adversarial-verify — EXPERIMENTAL, never yet run on a real claim) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
          conclusion rests on) by running the `adversarial-verify` workflow ($KIT/toolbelt/adversarial-verify.js),
          INSTEAD of trusting only this self-report: N=3 skeptics try to REFUTE each claim; a claim stays sealed
          [CERT] only if it SURVIVES ≥2 of 3, otherwise it is DOWNGRADED or DROPPED. Apply it SELECTIVELY (cost

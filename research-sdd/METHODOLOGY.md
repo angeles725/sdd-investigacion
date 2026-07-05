@@ -61,12 +61,14 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
   probe output (e.g. B64 refuted B55 §55.3 against the real LOGO!). Certainty order, high→low:
   `[CERT-hw]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
 
-**Sealing `[CERT]` adversarially (optional).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
+**Sealing `[CERT]` adversarially (optional, EXPERIMENTAL — never yet run on a real corpus claim).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
 (one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
 and it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded or dropped. Apply it SELECTIVELY
 (cost discipline) to conclusion-bearing claims only — not `[INFER]`, not trivia. LOCAL `file:line` claims are
 cheap (the skeptics read the cited source, no web); web-verifiable claims are expensive. Operational rule + cost
 discipline in PROMPT-LOOP step 5; workflow at [`toolbelt/adversarial-verify.js`](toolbelt/adversarial-verify.js).
+STATUS: the workflow is self-validated (3/3 refuted a false claim, 3/3 preserved a true one) but has not sealed
+a real load-bearing claim in ~400 corpus blocks — trial it on a real claim before relying on it as a standing gate.
 
 ## 4. Anatomy of a block
 
