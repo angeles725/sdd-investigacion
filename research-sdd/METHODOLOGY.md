@@ -270,6 +270,12 @@ rescoped). A reopen sets its OWN fresh budget cap (additive, e.g. "+7 blocks") �
 original run's. Keep it scoped — an experiment, not a re-run of the whole loop. NOTE — this paragraph is for
 a genuinely-EXHAUSTED STOP reopened for NEW work; resuming a focus that merely PAUSED on the budget cap with
 gaps still queued is lighter and needs no new authorization (see "PAUSED (budget-cap) ≠ STOPPED" above).
+SCALING under repeated reopens (distinct from §16, which splits PARALLEL axes): a single continuous focus
+reopened many times accretes one unbounded `RESEARCH-STATE.md` (three.js: 32 gap-backlog + 32 iteration-
+history rows across 5 reopens in one file). Do NOT force §16's per-focus split on it — it is one axis, not
+many; instead, once a focus crosses a threshold (a 3rd+ reopen, or >25 iteration-history rows), COLLAPSE
+prior runs' rows into a one-line-per-run summary (blocks, gaps closed, coverage ratio, retro link) and keep
+only the CURRENT run's rows verbose.
 
 ## 9. Golden rules
 
@@ -335,6 +341,10 @@ and MUST REPORT these checks:
   (e.g. protocols B137 at ~0.48 was a sound integration plan). Declare the type so the ratio is read right.
 - **Artifacts** — the block file exists, `CATALOG.md` regenerated, `INDEX.md` + `RESEARCH-STATE.md`
   updated, and the backlog re-classified investigable-vs-blocked (§8).
+- **MCP-doc snapshots** — every LOAD-BEARING `[CERT-web]`-via-MCP citation (context7 et al.) was
+  snapshotted to `sources/web-snapshots/` and registered in SOURCES.md (§5). Report Y/N + count. This
+  gate exists because the §5 snapshot rule was ADOPTED but went unenforced — context7 citations kept
+  landing with no snapshot across runs; treat it like the token-check, not a good intention.
 
 The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
 mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper

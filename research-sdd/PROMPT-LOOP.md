@@ -76,7 +76,10 @@ Always read first, in this order:
      artifact type, toolbelt wrapper, corpus language) — as part of bootstrap, NOT later: the retro sweeper
      `toolbelt/sweep-retros.sh` derives its ENTIRE scan list from TARGETS.md, so an unregistered target's
      `retros/` dir is invisible to the §18 supervision sweep (lesson: three.js ran its first focus — 12 blocks,
-B1-B12 — unregistered, so its retro was invisible to the sweeper until registered by hand).
+B1-B12 — unregistered, so its retro was invisible to the sweeper until registered by hand). Keep that row a
+     LIVING MIRROR, not a one-time write: when a run-STOP or a §14 correction changes a fact mirrored there
+     (block / run / retro / file counts), REFRESH the row as part of closing that run or correction —
+     three.js's row went stale at "21 md / 3 runs" while the corpus grew to 32 blocks / 5 runs.
   b2. ANGLE (mature OR large target): a target name alone is ambiguous. DECLARE AN EXPLICIT
       INVESTIGATION ANGLE/AXIS (e.g. decompiled-Java vs native-binaries vs install/config vs
       docs/protocol) and CONFIRM it BEFORE closing the first gap — picking the wrong focus burns a
@@ -168,6 +171,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (an integration plan, a PoC design, a synthesis), a high ratio is EXPECTED and healthy, NOT an
          exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
+       - MCP-doc snapshots: every LOAD-BEARING [CERT-web]-via-MCP citation (context7 et al.) snapshotted to
+         sources/web-snapshots/ + registered in SOURCES.md (§5). Report Y/N + count — this gate is what stops
+         §5's snapshot rule from being paper-only (context7 cites kept landing unsnapshotted across runs).
        - OPTIONAL [CERT] SEAL (adversarial-verify — EXPERIMENTAL, never yet run on a real claim) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
          conclusion rests on) by running the `adversarial-verify` workflow ($KIT/toolbelt/adversarial-verify.js),
          INSTEAD of trusting only this self-report: N=3 skeptics try to REFUTE each claim; a claim stays sealed
@@ -188,6 +194,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
        - Regenerate: python3 $TARGET/tools/gen-catalog.py. Mirror to engram (research/<target>/gaps, .../progress).
+       - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
+         INDEX/RESEARCH-STATE from scratch, so before appending YOUR entry, check the PRECEDING iteration's
+         bookkeeping (its block-table row, file/gap-count totals) is complete and consistent — repair it as
+         part of THIS archive step if not. Distinct from §14 (audits claims) and §17 (resume after a crash):
+         this catches archive-bookkeeping drift between one iteration's close and the next's open.
   7. STOPPING (primary = investigable exhaustion, per METHODOLOGY §8): if the INVESTIGABLE count is now
      0 — every open gap is blocked on a missing/incompatible tool, a live server, or hardware — STOP.
      (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the

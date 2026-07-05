@@ -44,3 +44,16 @@ Run it through `toolbelt/probe.sh run <target-dir> <probe>` so the raw output is
 Reads against a running system are safe when the protocol is read-only in RUN. **Writes** (load
 program, change config, firmware update) are invasive — do them step-by-step with explicit user OK; a
 bad write can brick a real device. Never wire a writing probe into an autonomous loop.
+
+## 4. Browser / WebGL probes (rendering targets)
+
+A rendering target (a WebGL / three.js app) is a "live system" too, but the §1–§3 device/protocol setup
+does not fit it. Gotchas from the first web dynamic phase:
+- **WSL Chrome needs software-GL flags.** Default flags fail WebGL context creation
+  (`BindToCurrentSequence failed`); launch with `--use-angle=swiftshader --enable-unsafe-swiftshader`.
+- **`file://` cannot run ES-module prototypes** — module imports are CORS-blocked. A local HTTP server is
+  MANDATORY (e.g. `python3 -m http.server 8123` → `http://localhost:8123/`), not optional.
+- **Software-GPU FPS is NOT representative — exclude it.** But **draw-call and triangle API counts ARE
+  exact** regardless of GPU backend. State the distinction so a future phase does not discard the good
+  metrics (call/triangle counts) along with the bad (FPS). Preserve the probe (`tools/probe.mjs`) and its
+  launch flags as reusable `[CERT-hw]` evidence via `probe.sh`.
