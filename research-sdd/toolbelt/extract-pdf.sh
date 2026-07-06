@@ -20,7 +20,7 @@
 #
 # Usage:
 #   extract-pdf.sh [options] <input.pdf>
-#     -o FILE        output .md path (default: <pdf-dir>/../text-extracts/<name>.md)
+#     -o FILE        output .md path (default: <pdf-dir>/../extracted/<name>.md)
 #     -p RANGE       page range: "N" or "N-M" (default: all pages)
 #     --lang L       OCR languages for Tier 2 (default: spa+eng)
 #     --premium      prefer marker/docling for scanned PDFs (if installed)
@@ -65,7 +65,7 @@ have pdfinfo || die "poppler (pdfinfo) not in PATH"
 IN="$(readlink -f "$IN")"
 NAME="$(basename "${IN%.*}")"
 if [ -z "$OUT" ]; then
-  OUT="$(dirname "$IN")/../text-extracts/${NAME}.md"
+  OUT="$(dirname "$IN")/../extracted/${NAME}.md"
 fi
 mkdir -p "$(dirname "$OUT")"
 

@@ -100,7 +100,7 @@ is downloaded and preserved**. URLs die; evidence does not. Structure per target
 ```
 TARGET/sources/
   SOURCES.md        ← registry: file · type · origin(URL) · date · sha256 · blocks that cite it
-  datasheets/   manuals/   web-snapshots/   text-extracts/   (page-anchored .md from extract-pdf.sh)
+  datasheets/   manuals/   web-snapshots/   extracted/   (page-anchored .md from extract-pdf.sh)
 ```
 
 Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2` / `:p.N`), not the

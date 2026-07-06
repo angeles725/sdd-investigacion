@@ -68,24 +68,34 @@ else
 fi
 
 # 4. OCR-provenance flag — a [CERT-doc] citation sourced from an OCR'd (scanned) PDF is LOSSY
-#    (extract-pdf.sh tier 2). Cross-reference sources/text-extracts/*.md front-matter tagged
+#    (extract-pdf.sh tier 2). Cross-reference sources/extracted/*.md front-matter tagged
 #    `reliability: ocr-lossy` and flag any block citation tracing to those sources for EXTRA §11
 #    scrutiny — OCR errors in numbers/serials/exact quotes do NOT surface as a bad file:line, so
 #    they must be re-checked against the page image before the claim is trusted. Advisory (no rc change).
 echo "-- OCR-provenance flag (reliability: ocr-lossy) --"
-ext_dir="$target/sources/text-extracts"
+ext_dir="$target/sources/extracted"
 lossy_hits=0
 if [ -d "$ext_dir" ]; then
   while IFS= read -r ext; do
     [ -f "$ext" ] || continue
-    grep -qiE '^reliability:[[:space:]]*ocr-lossy' "$ext" || continue
-    src=$(awk -F': ' '/^source_pdf:/{print $2; exit}' "$ext")
-    base=$(basename "${src:-$ext}"); base="${base%.*}"
-    [ -n "$base" ] || continue
-    hits=$(grep -nF "$base" "$block" 2>/dev/null | grep -iE '\[CERT-doc\]|\.pdf|text-extracts' || true)
+    # Match the tag whether it is a YAML field (extract-pdf.sh output) or prose (hand-made mirrors).
+    grep -qiE 'reliability:[[:space:]]*ocr-lossy|extracted via OCR' "$ext" || continue
+    ext_stem=$(basename "$ext" .md)
+    loose=$(printf '%s' "$ext_stem" | cut -d- -f1-2)          # e.g. tufte-vdqi-... -> tufte-vdqi
+    src=$(awk -F': ' '/source_pdf:/{print $2; exit}' "$ext")
+    pdf_base=""; [ -n "$src" ] && { pdf_base=$(basename "$src"); pdf_base="${pdf_base%.*}"; }
+    # A block may cite the PDF, the extracted/ file, OR a web-snapshots/ mirror of the same OCR —
+    # so match on the pdf stem, the extract stem, AND the loose key (grep -F: literal, brackets-safe).
+    hits=""
+    for tok in "$pdf_base" "$ext_stem" "$loose"; do
+      [ -n "$tok" ] || continue
+      h=$(grep -nF "$tok" "$block" 2>/dev/null || true)
+      [ -n "$h" ] && hits="${hits}${h}"$'\n'
+    done
+    hits=$(printf '%s' "$hits" | grep -vE '^[[:space:]]*$' | sort -t: -k1n -u || true)
     if [ -n "$hits" ]; then
-      echo "   OCR!    citations tracing to '$base' (OCR'd — re-verify numbers/quotes/serials vs page image):"
-      echo "$hits" | sed 's/^/           /'
+      echo "   OCR!    lines citing OCR-lossy '$ext_stem' — re-verify numbers/quotes/serials vs page image:"
+      printf '%s\n' "$hits" | sed 's/^/           /'
       lossy_hits=$((lossy_hits+1))
     fi
   done < <(find "$ext_dir" -maxdepth 1 -name '*.md' 2>/dev/null)

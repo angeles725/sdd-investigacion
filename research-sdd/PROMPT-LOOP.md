@@ -122,7 +122,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh (lands in $TARGET/sources/ + registered in SOURCES.md).
        - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
-         $KIT/toolbelt/extract-pdf.sh (lands in sources/text-extracts/<name>.md). RULES:
+         $KIT/toolbelt/extract-pdf.sh (lands in sources/extracted/<name>.md). RULES:
            · TEXT-LAYER-FIRST: the script probes the layer and only OCRs when fonts=0. NEVER OCR a PDF that
              already has text — slow and lossy for zero gain. It also NEVER strips page breaks: the old
              `pdftotext -nopgbrk` habit destroyed the p.N mapping citations depend on.
