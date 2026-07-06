@@ -52,7 +52,8 @@ Sensitivity:
 | 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
-| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (32 md / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
+| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (40 md / 7 runs / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **intermediate** (24 md / 2 runs / git yes / hook deferred; 13 OCR book-extracts) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 
 ---
 
@@ -117,6 +118,33 @@ Puppeteer GL-hook probes, tools/probe.mjs). 4 retros in `retros/` (2026-07-04, r
 **Startup:** continue. Reopen per §8 for new URL batches or follow-ups; the corpus dir doubles as
 the subject dir (prototypes + corpus in one repo — commits are explicitly scoped, `.gitignore`
 covers `.atl/`/`.claude/`/Zone.Identifier).
+
+### 14 — pruebas-dashboards `[CERT]`
+Anti-AI-feel **dashboard design research** corpus, NOT reverse-engineering. The subject under
+study is the design knowledge domain itself: Tufte, Few, Cairo, FT Visual Vocabulary,
+Okabe-Ito, Paul Tol, IBM Carbon, Observable, Mantine, Phosphor, etc. The user asked for sources
+"Foro, normas, libros, libros de diseño, reglas" — that is exactly the kind of triangulation this
+target is built to capture with citations. Artifacts: web-snapshots (pandoc/`webfetch` → markdown),
+book extracts (paratext preserved under `corpus/sources/extracted/`), context7 docs snapshotted
+under `corpus/sources/web-snapshots/`. Bootstrap 2026-07-05: created corpus/ subdir
+(`INDEX.md` / `RESEARCH-STATE.md` / `sources/SOURCES.md` / `tools/gen-catalog.py`), git
+initialized, target row registered in `$KIT/TARGETS.md`. **Hook deferred** — OpenCode runtime
+does not honor `.claude/settings.json` hooks (per `research-sdd/SKILL.md` OpenCode runtime adapter);
+re-evaluate if the target migrates to Claude Code.
+User pre-clarification (2026-07-05): **do NOT read or annotate the user's own dashboards** — the
+user explicitly described them as "AI-generic looking" and asked for a *research corpus* of
+alternatives, not a review of existing work. The deliverable is a cited knowledge base the user
+will then use to BUILD the protos under `prototypes/` (which is gitignored — never enters corpus
+history).
+**Startup:** continue. Two runs (2026-07-05/06) produced **24 blocks** (B1-B24): 7 editorial/web
+vibras + 6 industrial/HMI vibras + cross-vibra discipline blocks (color science, typography, icon,
+anti-patterns, alarm-rate). Sources triangulate web-snapshots + **13 OCR'd book extracts** (Tufte,
+Few, Bertin, Müller-Brockmann, Cairo, Norman, Hollifield...) under `sources/extracted/`.
+**State is NOT closed:** RESEARCH-STATE still lists **16 `pending` gaps** (G2 color science, G3
+typography, G4 iconography, G5 chart libs, etc.), and `corpus/retros/` + `corpus/audits/` are still
+empty — §18 retro / §13 audit / §14 cross-block sweep were **not run** because run-A emitted a
+PREMATURE STOP (fixed: strict STOP guard in the OpenCode adapter + `research-loop.sh` backlog probe).
+Next `continue` run should close the pending backlog, then run §18/§13/§14. Coverage: 24 blocks, backlog open.
 
 ---
 
