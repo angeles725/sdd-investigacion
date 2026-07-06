@@ -228,7 +228,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      output — it exits non-zero if a block cites a preserved-source marker ([CERT-doc]/[CERT-a]) with no
      sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
      step 5's verify-block.sh: per-block marker/citation math is checked in-iteration, source-registry
-     integrity is checked once at STOP (it reads the whole corpus). If STOP did NOT fire, do NOT end
+     integrity is checked once at STOP (it reads the whole corpus).
+     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $TARGET` BEFORE honoring STOP —
+     it exits non-zero when the coverage summary claims all gaps closed while the backlog still lists `pending`
+     rows (the stale-mirror desync that let run-A emit a premature STOP). A non-zero exit means you are NOT at
+     STOP: refresh the summary / reopen the metric and keep looping. If STOP did NOT fire, do NOT end
      your turn: reschedule and BEGIN the next iteration on the next gap (see LOOP CONTINUATION under HARD RULES).
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
