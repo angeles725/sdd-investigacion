@@ -100,12 +100,15 @@ is downloaded and preserved**. URLs die; evidence does not. Structure per target
 ```
 TARGET/sources/
   SOURCES.md        ← registry: file · type · origin(URL) · date · sha256 · blocks that cite it
-  datasheets/   manuals/   web-snapshots/   extracted/   (text from pdftotext/OCR)
+  datasheets/   manuals/   web-snapshots/   text-extracts/   (page-anchored .md from extract-pdf.sh)
 ```
 
-Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2`), not the
-volatile URL; `SOURCES.md` keeps the original URL and the hash. The wrapper
-[`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + extraction + registration.
+Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2` / `:p.N`), not the
+volatile URL nor the extract; `SOURCES.md` keeps the original URL and the hash. The wrapper
+[`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + registration;
+[`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
+(text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
+so their citations get extra §11 scrutiny).
 Check compliance mechanically at loop STOP or in a supervised review with
 [`toolbelt/verify-sources.sh`](toolbelt/verify-sources.sh) `<target>`: it fails when a corpus cites
 `[CERT-doc]`/`[CERT-a]` but has no `sources/SOURCES.md`, or a cited `sources/` file is absent on disk, or a

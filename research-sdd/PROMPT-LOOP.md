@@ -121,6 +121,20 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh (lands in $TARGET/sources/ + registered in SOURCES.md).
+       - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
+         $KIT/toolbelt/extract-pdf.sh (lands in sources/text-extracts/<name>.md). RULES:
+           · TEXT-LAYER-FIRST: the script probes the layer and only OCRs when fonts=0. NEVER OCR a PDF that
+             already has text — slow and lossy for zero gain. It also NEVER strips page breaks: the old
+             `pdftotext -nopgbrk` habit destroyed the p.N mapping citations depend on.
+           · OUTPUT IS `.md` WITH PAGE ANCHORS (`<!-- p.N -->`) so tables survive and a `sources/...pdf :p.N`
+             citation stays locatable and §11-verifiable. Cite the PDF + page, not the extract file.
+           · EXTRACT BY RANGE (`-p N-M`), not whole 400-page books — pull only the pages the gap needs.
+           · OCR IS DELEGATED, not inline: a scanned-book OCR sweep is exactly the high-volume, low-reasoning
+             work that belongs in a `haiku`-tier sub-agent (see DELEGATE + MODEL TIER below). Never dump a
+             200-page OCR into the driver context.
+           · OCR IS LOSSY: the extract's front-matter tags it `reliability: ocr-lossy`. A claim from an OCR'd
+             page is still `[CERT-doc]` but flag it for extra §11 scrutiny — re-check numbers, serials, and
+             exact quotes against the page image before trusting them.
        - Missing tool? If the artifact needs a tool the toolbelt lacks (e.g. a Dart AOT decompiler
          for app.so), PROVISION it: $KIT/toolbelt/install-tool.sh <recipe> <target-binary> — ALWAYS
          pass the target binary so the recipe's arch/format PRECHECK can fail fast (e.g. blutter

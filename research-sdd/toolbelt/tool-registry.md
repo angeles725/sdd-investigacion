@@ -10,7 +10,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | .NET DLL/EXE | `PE32 .NET assembly` / `Mono/.Net assembly` | `ilspycmd` (8.2.0) | `decompile-net.sh` | ✅ |
 | Native ELF/PE | `ELF ... executable` / `PE32 executable` | Ghidra headless (decompile) → r2/objdump fallback | `decompile-native.sh` | ✅ |
 | Firmware / packaged | `data` / known signatures | `binwalk -e` + `yara` | `scan-firmware.sh` | ✅ |
-| PDF datasheet/manual | `PDF document` | `pdftotext`, `pdfinfo`, `tesseract` (OCR) | `fetch-doc.sh` | ✅ |
+| PDF datasheet/manual | `PDF document` | **`extract-pdf.sh`** — tier 1 (text layer) `pymupdf4llm`→MD w/ tables + `<!-- p.N -->` anchors; tier 2 (scanned, `fonts=0`) `ocrmypdf`/`marker`/`docling`/`tesseract` OCR | `extract-pdf.sh` (download still via `fetch-doc.sh`) | ✅ |
 | Web page / forum / link | URL | `curl`/`wget` + `pandoc` → markdown | `fetch-doc.sh` | ✅ |
 | Obfuscated JS | `.js` | `js-beautify` | (direct) | ✅ |
 | Source code | known extension | direct reading + CodeGraph | (direct) | ✅ |
@@ -32,7 +32,8 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | `radare2` / `objdump` / `readelf` / `nm` / `strings` | in PATH |
 | `binwalk` | `/usr/bin/binwalk` |
 | `yara` (4.5.5) | in PATH |
-| `pdftotext` / `pdfinfo` / `tesseract` / `pandoc` | in PATH |
+| `pdftotext` / `pdfinfo` / `pdffonts` / `pdftoppm` / `tesseract` (langs: `spa`,`eng`,`spa_best`) / `pandoc` | in PATH |
+| PDF→MD venv (`pymupdf4llm`, `ocrmypdf`, `marker`, `docling`, `pdfplumber`, torch-cpu) | `~/.local/share/research-sdd-tools/venv` (override: `RESEARCH_SDD_VENV`) |
 
 ## Environment override
 
