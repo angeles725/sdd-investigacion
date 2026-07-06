@@ -67,5 +67,30 @@ else
   done <<< "$cites"
 fi
 
+# 4. OCR-provenance flag — a [CERT-doc] citation sourced from an OCR'd (scanned) PDF is LOSSY
+#    (extract-pdf.sh tier 2). Cross-reference sources/text-extracts/*.md front-matter tagged
+#    `reliability: ocr-lossy` and flag any block citation tracing to those sources for EXTRA §11
+#    scrutiny — OCR errors in numbers/serials/exact quotes do NOT surface as a bad file:line, so
+#    they must be re-checked against the page image before the claim is trusted. Advisory (no rc change).
+echo "-- OCR-provenance flag (reliability: ocr-lossy) --"
+ext_dir="$target/sources/text-extracts"
+lossy_hits=0
+if [ -d "$ext_dir" ]; then
+  while IFS= read -r ext; do
+    [ -f "$ext" ] || continue
+    grep -qiE '^reliability:[[:space:]]*ocr-lossy' "$ext" || continue
+    src=$(awk -F': ' '/^source_pdf:/{print $2; exit}' "$ext")
+    base=$(basename "${src:-$ext}"); base="${base%.*}"
+    [ -n "$base" ] || continue
+    hits=$(grep -nF "$base" "$block" 2>/dev/null | grep -iE '\[CERT-doc\]|\.pdf|text-extracts' || true)
+    if [ -n "$hits" ]; then
+      echo "   OCR!    citations tracing to '$base' (OCR'd — re-verify numbers/quotes/serials vs page image):"
+      echo "$hits" | sed 's/^/           /'
+      lossy_hits=$((lossy_hits+1))
+    fi
+  done < <(find "$ext_dir" -maxdepth 1 -name '*.md' 2>/dev/null)
+fi
+[ "$lossy_hits" -eq 0 ] && echo "   (none — no citation traces to an OCR-lossy extract)"
+
 echo "== exit $rc =="
 exit $rc
