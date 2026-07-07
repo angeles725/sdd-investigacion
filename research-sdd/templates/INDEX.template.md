@@ -55,6 +55,7 @@ This index guides through the **<N> blocks** of this research. Each block is an 
 
 - <gap requiring unavailable resources — explicit, as in niagara-research>
 
-## Estimated coverage
+## Coverage
 
-<approximate percentage + which areas remain>
+- **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, NOT a free-floating percentage — METHODOLOGY §8)
+- **Areas remaining**: <which axes/gaps are still open>

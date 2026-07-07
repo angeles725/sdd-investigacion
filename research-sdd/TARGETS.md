@@ -1,6 +1,6 @@
 # Research-SDD — Targets Registry
 
-This file is the **master registry of the 13 research targets** of the Research-SDD loop.
+This file is the **master registry of the 14 research targets** of the Research-SDD loop.
 Each target is a system under reverse engineering / documentation. The loop uses this table to:
 
 1. Decide whether it **continues** an existing corpus or **bootstraps** a new one (Maturity column).

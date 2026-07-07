@@ -15,7 +15,12 @@ set -euo pipefail
 JAVA_HOME="${JAVA_HOME:-/home/linuxbrew/.linuxbrew/opt/openjdk@21}"
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
-GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-/home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec}"
+# Resolve Ghidra without pinning a Cellar version (the pin drifts every brew upgrade — mirror
+# detect-tools.sh, which globs `Cellar/ghidra/*/libexec`). Pick the highest installed version.
+if [ -z "${GHIDRA_INSTALL_DIR:-}" ]; then
+  GHIDRA_INSTALL_DIR="$(ls -d /home/linuxbrew/.linuxbrew/Cellar/ghidra/*/libexec 2>/dev/null | sort -V | tail -1)"
+  [ -z "$GHIDRA_INSTALL_DIR" ] && GHIDRA_INSTALL_DIR=/home/linuxbrew/.linuxbrew/opt/ghidra/libexec
+fi
 HEADLESS="$GHIDRA_INSTALL_DIR/support/analyzeHeadless"
 
 MODE="${1:?usage: decompile-native.sh ghidra|r2|quick <binary> ...}"
