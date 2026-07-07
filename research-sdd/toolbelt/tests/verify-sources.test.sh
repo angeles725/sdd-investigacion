@@ -86,6 +86,15 @@ block "$d/b-block5.md" '# Block 5' '## 5.1 [CERT] file.c:1 — this block never 
 sources_registry "$d" '| ds.pdf | datasheet | http://x | 2026-01-01 | abcd123 | B5 |'
 assert_exit "$SUT" 1 "BAD: fabricated registry->block citation" "$d"
 
+# GOOD (LEVEL 4) — a TAB-padded File cell in a hand-edited SOURCES.md must NOT spoof a FABRICATED-CITE.
+#   The block genuinely cites ds.pdf; only the registry's File cell is tab-padded. Before the [:blank:]
+#   fix the tab survived into the basename and the grep missed a real citation → spurious LEVEL 4 FAIL.
+d="$TMP/good-tab-fcell"; mkdir -p "$d/sources"
+block "$d/b-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/ds.pdf §1 — this block DOES cite the datasheet.'
+: > "$d/sources/ds.pdf"
+sources_registry "$d" "$(printf '|\tds.pdf\t| datasheet | http://x | 2026-01-01 | abcd123 | B1 |')"
+assert_exit "$SUT" 0 "GOOD: tab-padded File cell is not a fabricated-cite (LEVEL 4)" "$d"
+
 # ---------------------------------------------------------------------------
 # FLAGSHIP — nested corpus with a real violation, root empty of blocks.
 #   Fixed script resolves corpus/ and CATCHES it (1); the pre-fix script scanned the
