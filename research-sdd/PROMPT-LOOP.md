@@ -67,10 +67,10 @@ Always read first, in this order:
       exists → $CORPUS=$TARGET/corpus/; else if $TARGET/INDEX.md exists → $CORPUS=$TARGET; else neither → BOOTSTRAP.
       Check the corpus/ path FIRST — else a nested corpus reads as "missing" and BOOTSTRAP duplicates it.)
 
-== BOOTSTRAP (only if the target has NO INDEX.md/RESEARCH-STATE.md) ==
-  RESOLVE $CORPUS first (METHODOLOGY §15): default $CORPUS = $TARGET; if the target is IN-PROJECT (its dir
-  also holds its OWN subject material), set $CORPUS = $TARGET/corpus/ and `mkdir -p $CORPUS`. `retros/` stay
-  at $TARGET root regardless (sweep-retros.sh scans $target/retros).
+== BOOTSTRAP (only if the target has NO corpus — no INDEX.md/RESEARCH-STATE.md at $TARGET or $TARGET/corpus/) ==
+  $CORPUS is resolved MECHANICALLY by step c's research-sdd-init.sh (METHODOLOGY §15) — do NOT pre-create
+  `corpus/` by hand: pre-making the dir would flip the auto heuristic. `retros/` always stays at $TARGET root
+  (sweep-retros.sh scans $target/retros).
   a. Profile the target: $KIT/toolbelt/profile-target.sh $TARGET  (classifies binaries → wrapper).
      Also run $KIT/toolbelt/detect-tools.sh (cache the report): learn which decompilers are ACTUALLY
      available before deciding what you can do. Do NOT infer availability from `which` alone — Ghidra,
@@ -94,18 +94,16 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
       SURFACE it for the orchestrator/user to pick rather than guessing. A mature target may legitimately
       host several parallel angles → see the MULTI-FOCUS CORPUS pattern (METHODOLOGY §16). (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
-  c. Create $CORPUS/INDEX.md from $KIT/templates/INDEX.template.md (empty map + marker legend).
-  d. Create dirs first: `mkdir -p $CORPUS/tools $TARGET/.claude/hooks $CORPUS/sources` (.claude/ stays at
-     $TARGET root — orchestrator-local, not corpus). Copy
-     $KIT/templates/gen-catalog.py → $CORPUS/tools/, and $KIT/templates/hook-sessionstart.sh →
-     $TARGET/.claude/hooks/research-protocol.sh (adapt <SUBJECT> + real source paths; for an in-project target,
-     PREFIX the hook's block/INDEX/CATALOG paths with corpus/ so they resolve under $CORPUS); register it in
-     $TARGET/.claude/settings.json (matcher startup|resume|clear). Seed $CORPUS/sources/SOURCES.md
-     from $KIT/templates/SOURCES.template.md.
-     VERSION the corpus: `git -C $TARGET rev-parse --git-dir 2>/dev/null || git -C $TARGET init` — the
-     git repo goes in the TARGET project, NOT in the kit (METHODOLOGY §15), so self-corrections (§14)
-     have history.
-  e. Create $CORPUS/RESEARCH-STATE.md from $KIT/templates/RESEARCH-STATE.template.md with an initial
+  c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
+     `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
+     $CORPUS (METHODOLOGY §15) and creates INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md ·
+     tools/gen-catalog.py · the SessionStart hook · retros/ · .gitignore, and `git init`s the TARGET — all from
+     $KIT/templates. It REFUSES over an existing corpus, so it can never duplicate one (--force overrides).
+     Then do the JUDGMENT follow-ups it prints (it cannot guess them): ADAPT the hook — replace <SUBJECT> +
+     real source paths in $TARGET/.claude/hooks/research-protocol.sh (for a NESTED corpus, prefix its
+     block/INDEX/CATALOG paths with corpus/) — and register it in $TARGET/.claude/settings.json
+     (matcher startup|resume|clear). (TARGETS.md registration is step b; gap-seeding is step e.)
+  e. POPULATE the scaffolded $CORPUS/RESEARCH-STATE.md (step c laid the empty template) with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
