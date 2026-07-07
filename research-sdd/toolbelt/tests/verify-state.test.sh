@@ -121,12 +121,58 @@ if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -qE 'WARN'; then
   ok "CHECK 2: no covered-blocks line + 2 on-disk → empty-claim guard keeps it silent, exit 0"
 else no "nocovered-ondisk: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'warn' | head -1)"; fi
 
+# 12 — BUG 1 (Spanish block glob): blocks named bloqueNN.md must be counted by CHECK 2's on-disk
+#      glob. The niagara corpus names its blocks `bloque125.md`; the old `-name '*block*.md'` glob is
+#      case-sensitive AND blind to `bloque`, so it counted them as 0 and CHECK 2 could never fire on
+#      that corpus. Fixture mixes Spanish/English/mixed-case + one name matching BOTH patterns to pin
+#      case-insensitivity AND no-double-count: 4 DISTINCT files → summary must read "4 block file(s)".
+d="$TMP/bloque-glob"
+state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered blocks: 21' '## Backlog' '- gap done'
+printf 'x\n' > "$d/bloque125.md"          # Spanish, lowercase — invisible to the old '*block*.md' glob
+printf 'x\n' > "$d/Bloque126.md"          # mixed case — needs a case-insensitive match
+printf 'x\n' > "$d/block-99.md"           # English — the old glob already counted this one
+printf 'x\n' > "$d/block-bloque-1.md"     # matches BOTH patterns — must be counted exactly ONCE
+out="$(run "$d")"
+if printf '%s\n' "$out" | grep -qE '4 block file\(s\) on disk'; then
+  ok "BUG1: bloqueNN.md counted (4 distinct, no double-count) → '4 block file(s) on disk'"
+else no "bloque-glob: on-disk count :: $(printf '%s\n' "$out" | grep -iE 'block file' | head -1)"; fi
+
+# 13 — BUG 2 (only the FIRST state file is linted): a corpus with several RESEARCH-STATE-*.md (niagara
+#      keeps ~12, one per focus) must lint EVERY one, not just `head -1`. Fixture: two consistent
+#      focuses + one STALE focus (23/23 while gaps pending). The old `head -1` linted a single file,
+#      printing ONE header and silently skipping the other focuses. Assert ALL THREE basenames appear
+#      (every file linted) AND exit 1 (the stale focus is caught). The all-headers check is
+#      order-independent, so this stays deterministic regardless of find's traversal order.
+d="$TMP/multistate"; mkdir -p "$d"
+printf '%s\n' '# Research State' 'coverage metric: 5 / 5 gaps closed' '## Backlog' '- gap done' > "$d/RESEARCH-STATE-alpha.md"
+printf '%s\n' '# Research State' 'coverage metric: 7 / 7 gaps closed' '## Backlog' '- gap done' > "$d/RESEARCH-STATE-beta.md"
+printf '%s\n' '# Research State' 'coverage metric: 23 / 23 declared gaps closed' '## Backlog' '- gap A pending' '- gap B pending' > "$d/RESEARCH-STATE-gamma.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] \
+   && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-alpha.md' \
+   && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-beta.md' \
+   && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-gamma.md'; then
+  ok "BUG2: every RESEARCH-STATE-*.md linted (3 headers) + stale focus caught → exit 1"
+else no "multistate: exit $(code "$d") · headers seen: $(printf '%s\n' "$out" | grep -c 'verify-state:')"; fi
+
+# 14 — BUG 3 (zero-pending corpus crashes CHECK 1): a corpus with a metric like '3 / 3 closed' and NO
+#      `pending` rows. `grep -c` already prints 0 on no match, so the old `|| echo 0` APPENDED a second
+#      line → `pending` became the two-line string "0\n0" → `[ "0\n0" -gt 0 ]` threw
+#      "integer expression expected" on stderr (seen live on the three.js corpus). Assert a CLEAN run:
+#      exit 0 AND no integer-expression error on stderr.
+d="$TMP/zero-pending"
+state "$d" '# Research State' 'coverage metric: 3 / 3 gaps closed' '## Backlog' '- gap 1 closed' '- gap 2 closed' '- gap 3 closed'
+err="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$err" | grep -qiE 'integer expression'; then
+  ok "BUG3: zero-pending metric 3/3 → exit 0, no 'integer expression expected' on stderr"
+else no "zero-pending: exit $(code "$d") · stderr: $(printf '%s\n' "$err" | grep -iE 'integer expression' | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
   mutant="$TMP/verify-state.MUTANT.sh"
   # Force CHECK 1's guard false so the stale-mirror FAIL can never fire.
-  sed 's/^if \[ -n "${cx:-}".*then$/if false; then  # MUTANT: CHECK 1 neutered/' "$SUT" > "$mutant"
+  sed 's/^\( *\)if \[ -n "${cx:-}".*then$/\1if false; then  # MUTANT: CHECK 1 neutered/' "$SUT" > "$mutant"
   if ! grep -q 'MUTANT: CHECK 1 neutered' "$mutant"; then
     no "teeth: could not build mutant (CHECK 1 guard line not found — did the SUT change?)"
   else
