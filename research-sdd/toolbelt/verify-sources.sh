@@ -14,15 +14,27 @@
 set -uo pipefail
 target="${1:-}"
 [ -d "$target" ] || { echo "usage: verify-sources.sh <target-dir>" >&2; exit 2; }
-sources_md="$target/sources/SOURCES.md"
+# Resolve the CORPUS ROOT: blocks/sources may live at the target root OR in a subdir (e.g. corpus/,
+# as pruebas-dashboards does). PREFER the target root when it directly holds blocks; only descend when
+# it has none. When descending, pick the SHALLOWEST match deterministically (depth, then lexical) —
+# never rely on find's traversal order, since a flat target (e.g. niagara-research) also has
+# notes/bloque*.md that must NOT hijack the corpus root.
+corpus="$target"
+if ! find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) 2>/dev/null | grep -q .; then
+  anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -path '*/.git/*' 2>/dev/null \
+            | awk '{print gsub(/\//,"/") "\t" $0}' | sort -t"$(printf '\t')" -k1,1n -k2,2 | head -1 | cut -f2-)"
+  [ -n "$anchor" ] && corpus="$(dirname "$anchor")"
+fi
+sources_md="$corpus/sources/SOURCES.md"
 rc=0
 echo "== verify-sources: $(basename "$target") =="
+[ "$corpus" != "$target" ] && echo "-- corpus root: ${corpus#"$target"/}/ (blocks in a subdir)"
 
 # How many blocks lean on a PRESERVED source? ([CERT-web] shown for context; §5 only forces preservation
 # for [CERT-doc]/[CERT-a] and for LOAD-BEARING [CERT-web]-via-MCP, which the §11 snapshot check covers.)
-doc=$(grep -rlF '[CERT-doc]' "$target"/*.md 2>/dev/null | wc -l | tr -d ' ')
-a=$(grep -rlF '[CERT-a]'   "$target"/*.md 2>/dev/null | wc -l | tr -d ' ')
-web=$(grep -rlF '[CERT-web]' "$target"/*.md 2>/dev/null | wc -l | tr -d ' ')
+doc=$(grep -rlF '[CERT-doc]' "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
+a=$(grep -rlF '[CERT-a]'   "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
+web=$(grep -rlF '[CERT-web]' "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
 echo "-- blocks citing preserved-source markers: [CERT-doc] $doc · [CERT-a] $a · [CERT-web] $web"
 
 # LEVEL 1 — preserved-source markers demand a registry. This is the logosoft case.
@@ -43,8 +55,8 @@ if [ -f "$sources_md" ]; then
   # LEVEL 2b — preserved files on disk that are NOT named in the registry.
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    grep -qF "$(basename "$f")" "$sources_md" || echo "   unregistered on disk: ${f#"$target"/} (not named in SOURCES.md)"
-  done < <(find "$target/sources" -type f \( -name '*.pdf' -o -name '*.html' -o -name '*.htm' \) 2>/dev/null)
+    grep -qF "$(basename "$f")" "$sources_md" || echo "   unregistered on disk: ${f#"$corpus"/} (not named in SOURCES.md)"
+  done < <(find "$corpus/sources" -type f \( -name '*.pdf' -o -name '*.html' -o -name '*.htm' \) 2>/dev/null)
 
   # LEVEL 4 — the "Blocks that cite it" column must not FABRICATE citations: every block a registry row
   # NAMES must actually reference that source file. LEVELs 1-3 check the registry exists, is populated, and
@@ -66,7 +78,7 @@ if [ -f "$sources_md" ]; then
     bcell=$(printf '%s' "$bcell" | sed 's/([^)]*)//g')
     for n in $(printf '%s' "$bcell" | grep -oiE '\bB(lock|loque)? ?[0-9]+' | grep -oE '[0-9]+' | sort -un); do
       cited=$((cited + 1))
-      bf=$(find "$target" -maxdepth 1 -type f \( -iname "*block${n}.md" -o -iname "*bloque${n}.md" \) 2>/dev/null | head -1)
+      bf=$(find "$corpus" -maxdepth 1 -type f \( -iname "*block${n}.md" -o -iname "*bloque${n}.md" \) 2>/dev/null | head -1)
       if [ -z "$bf" ]; then
         echo "   WARN: SOURCES.md names B$n for '$base', but no *block${n}.md/*bloque${n}.md resolves (naming mismatch — not checked)."
       elif ! grep -qF "$base" "$bf"; then
@@ -82,8 +94,8 @@ fi
 missing=0
 while IFS= read -r ref; do
   [ -z "$ref" ] && continue
-  [ -f "$target/$ref" ] || { echo "   cited-but-missing: $ref"; missing=1; rc=1; }
-done < <(grep -rhoE 'sources/[A-Za-z0-9_./-]+\.(pdf|md|html|htm|txt|json)' "$target"/*.md 2>/dev/null \
+  [ -f "$corpus/$ref" ] || { echo "   cited-but-missing: $ref"; missing=1; rc=1; }
+done < <(grep -rhoE 'sources/[A-Za-z0-9_./-]+\.(pdf|md|html|htm|txt|json)' "$corpus"/*.md 2>/dev/null \
            | grep -vF '...' | grep -vF 'SOURCES.md' | sort -u)
 [ "$missing" = 0 ] && echo "-- all sources/ paths cited in blocks exist on disk (or none cited)"
 
