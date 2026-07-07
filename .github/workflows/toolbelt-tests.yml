@@ -1,0 +1,30 @@
+name: toolbelt tests
+
+on:
+  push:
+    paths:
+      - "research-sdd/toolbelt/**"
+      - ".github/workflows/toolbelt-tests.yml"
+  pull_request:
+    paths:
+      - "research-sdd/toolbelt/**"
+      - ".github/workflows/toolbelt-tests.yml"
+
+jobs:
+  toolbelt-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Sanity-check python3
+        run: python3 --version
+
+      - name: Run toolbelt test suites
+        run: bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
