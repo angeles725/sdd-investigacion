@@ -22,19 +22,45 @@ target="${2:-$(dirname "$block")}"
 
 echo "== verify-block: $(basename "$block") (target: $target) =="
 
-# 1. Marker tally — exact. `grep -oE '\[CERT\]'` does NOT match the hyphenated variants, so each counts once.
-declare -A tally
+# 1. Marker tally — RAW (whole block) and ADJUSTED (claims only). `grep -oE '\[CERT\]'` does NOT match the
+#    hyphenated variants, so each counts once. The leading header BLOCKQUOTE (everything up to the FIRST
+#    `---` fence) is a LEGEND that DEFINES each marker — those tokens are not fresh claims and INFLATE the
+#    tally (+1 per marker type). ADJUSTED strips that region POSITIONALLY (not by backticks: real blocks
+#    backtick their CLAIM markers too, so a backtick-strip would wrongly zero them). Note: in-body §14
+#    meta-references (a marker QUOTED from another block for a correction) still need the AGENT's judgment —
+#    this strip only removes the header legend, which is the reliable, mechanical part.
+# The legend lives in the leading BLOCKQUOTE, whose closing fence is a bare `---` that sits AFTER the
+# `>` blockquote AND BEFORE the first `## ` body section. Bounding the fence to that header window makes it
+# robust in both directions: an EARLIER bare `---` (YAML front matter / setext-H2 underline) precedes the
+# blockquote so `q` is still 0 and it is ignored; a LATER bare `---` (a body section separator, e.g. right
+# after a §14 quoted correction whose `>` would otherwise set `q`) is past the first `## ` so the scan has
+# already exited. If no `---` closes the header before the body starts, the legend is "unfenced" → fall
+# back to adjusted = raw (safe: never silently strip real body claims).
+fence_line=$(awk '/^##[[:space:]]/{exit} q && /^---[[:space:]]*$/{print NR; exit} /^[[:space:]]*>/{q=1}' "$block")
+if [ -n "$fence_line" ]; then
+  body="$(awk -v n="$fence_line" 'NR>n' "$block")"             # claims live after the legend's closing fence
+else
+  body="$(cat "$block")"                                        # no leading-blockquote fence → can't isolate the legend
+fi
+declare -A raw adj
 for m in CERT-hw CERT-live CERT CERT-doc CERT-web CERT-a INFER; do
-  tally[$m]=$(grep -oE "\[$m\]" "$block" | wc -l | tr -d ' ')
+  raw[$m]=$(grep -oE "\[$m\]" "$block" | wc -l | tr -d ' ')
+  adj[$m]=$(printf '%s' "$body" | grep -oE "\[$m\]" | wc -l | tr -d ' ')
 done
-echo "-- marker tally --"
+echo "-- marker tally (raw = whole block · adj = claims, header legend stripped) --"
 for m in CERT-hw CERT-live CERT CERT-doc CERT-web CERT-a INFER; do
-  printf "   [%s] %s\n" "$m" "${tally[$m]}"
+  if [ "${raw[$m]}" != "${adj[$m]}" ]; then
+    printf "   [%s] %s  (adj %s)\n" "$m" "${raw[$m]}" "${adj[$m]}"
+  else
+    printf "   [%s] %s\n" "$m" "${raw[$m]}"
+  fi
 done
+[ -z "$fence_line" ] && echo "   (no leading-blockquote '---' fence — adjusted = raw; the legend could not be isolated)"
 
-# 2. [INFER]/[CERT] ratio — INFER over ALL cert-family markers.
-cert_total=$(( tally[CERT-hw] + tally[CERT-live] + tally[CERT] + tally[CERT-doc] + tally[CERT-web] + tally[CERT-a] ))
-infer=${tally[INFER]}
+# 2. [INFER]/[CERT] ratio — INFER over ALL cert-family markers, on ADJUSTED counts (the legend's one-of-each
+#    otherwise skews a low-count block).
+cert_total=$(( adj[CERT-hw] + adj[CERT-live] + adj[CERT] + adj[CERT-doc] + adj[CERT-web] + adj[CERT-a] ))
+infer=${adj[INFER]}
 if [ "$cert_total" -gt 0 ]; then
   ratio=$(awk "BEGIN{printf \"%.2f\", $infer/$cert_total}")
 else
