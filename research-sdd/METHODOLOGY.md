@@ -129,6 +129,13 @@ FABRICATED citation (LEVEL 4, cross-checks the registry against block content; p
 `[Block 21]` forms). Lessons baked in: logosoft cited 10 `[CERT-doc]` PDFs with no registry at all (the rule
 held by convention only), and a first-cut registry row claimed two blocks cited a preserved HTML they never
 mention — the `[CERT-a]` in those blocks was legend boilerplate, not a citation, and LEVELs 1-3 all passed it.
+It also VERIFIES the registered `sha256`: for a web-snapshot whose registry cell is a FULL 64-hex hash it
+recomputes the on-disk file and FAILs on a mismatch (LEVEL 6 — a tampered/corrupted or stale-registered
+snapshot; the hash is now load-bearing, not just collected). `fetch-doc.sh` now writes the FULL hash into the
+registry cell (the console line still shows a truncated `${sha:0:16}…` for readability), so integrity is
+ENFORCED for every NEW snapshot it registers. A MISSING/placeholder or TRUNCATED hash cell is an
+`unverifiable-hash` WARN only — pre-existing rows registered before this change (truncated `${sha:0:16}…`, or
+`(unhashed…)`) stay WARN until re-registered, rather than hard-failing corpora for un-checkable integrity.
 
 **Cross-TARGET evidence (a block citing a sibling corpus).** When the evidence a block relies on lives in a
 DIFFERENT registered target (e.g. a `docGraphics` class from `niagara-help` cited by a `niagara-research`

@@ -15,8 +15,10 @@ reg() { # registers a row in SOURCES.md
   if [ ! -f "$md" ]; then
     printf '# External sources preserved\n\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n|---|---|---|---|---|---|\n' > "$md"
   fi
+  # Store the FULL 64-hex sha256 in the registry CELL (not a truncated display) so verify-sources.sh LEVEL 6 can
+  # recompute and enforce it — a truncated cell is only WARN-checkable and lets a tampered snapshot pass silently.
   printf '| %s | %s | %s | %s | %s | |\n' \
-    "${file#"$sdir"/}" "$kind" "$origin" "$(date -u +%FT%TZ)" "${sha:0:16}…" >> "$md"
+    "${file#"$sdir"/}" "$kind" "$origin" "$(date -u +%FT%TZ)" "$sha" >> "$md"
 }
 
 MODE="${1:?usage: fetch-doc.sh doc|web|ocr ...}"

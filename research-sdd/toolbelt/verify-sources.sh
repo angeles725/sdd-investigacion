@@ -163,5 +163,48 @@ EOF
 done < <(find "$corpus/sources/web-snapshots" -type f 2>/dev/null)
 [ "$snaps" -gt 0 ] && echo "-- web-snapshots: $snaps file(s) checked (registration = FAIL if orphaned, citation = WARN)"
 
+# LEVEL 6 — web-snapshot HASH integrity. LEVEL 5 proves a snapshot is REGISTERED + CITED (chain of custody), but
+# never RECOMPUTES the sha256 the registry stores against the file on disk — so the hash fetch-doc.sh collects is
+# dead weight and a tampered/corrupted snapshot passes silently ("provenance-hash theatre"). This makes the
+# registered hash LOAD-BEARING: for each REGISTERED web-snapshot row, recompute sha256sum of the on-disk file and
+# compare against the registered cell (column 5). Only REGISTERED rows are checked — an on-disk snapshot that is
+# NOT registered is already LEVEL 5's orphan FAIL and must NOT be double-reported here.
+#   FULL 64-hex registered hash → recompute + compare; a MISMATCH is a FAIL (rc=1), like a broken chain.
+#   MISSING / placeholder `(unhashed…)` / TRUNCATED (fetch-doc.sh itself writes `${sha:0:16}…`, and legacy
+#     corpora truncate) → WARN only, never a FAIL: integrity is un-checkable, but hard-failing every existing
+#     corpus is worse than surfacing the debt. Parse the File cell like LEVEL 4/5 (strip backtick + ALL blanks)
+#     so a tab-padded or code-fenced cell still maps; the canonical key is the path relative to sources/.
+if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
+  hverified=0; hunverif=0
+  while IFS='|' read -r _ fcell _ _ _ shacell _; do
+    key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
+    case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
+    file="$corpus/sources/$key"
+    [ -f "$file" ] || continue   # registered but absent on disk is out of scope here (not an integrity mismatch)
+    reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
+    if printf '%s' "$reg" | grep -qiE '^[0-9a-f]{64}$'; then
+      reg_full=$(printf '%s' "$reg" | tr 'A-F' 'a-f')                 # normalize case for the compare
+      disk_full=$(sha256sum "$file" | cut -d' ' -f1)
+      if [ "$reg_full" != "$disk_full" ]; then   # HASH-INTEGRITY compare
+        echo "   hash-mismatch: ${file#"$corpus"/} — registered ${reg_full:0:16}… but file hashes ${disk_full:0:16}… (tampered/corrupted or stale registration)"
+        rc=1
+      else
+        hverified=$((hverified + 1))
+      fi
+    else
+      # Un-checkable registration: empty or a `(…)` placeholder is MISSING; anything else (a short hex prefix, or
+      # a `…`/`...`-elided hash) is TRUNCATED. Either way WARN only — never change rc.
+      case "$reg" in
+        '' | '('*) reason=missing ;;
+        *)         reason=truncated ;;
+      esac
+      echo "   unverifiable-hash: ${file#"$corpus"/} — registered hash is $reason; integrity not checkable"
+      hunverif=$((hunverif + 1))
+    fi
+  done < "$sources_md"
+  [ $((hverified + hunverif)) -gt 0 ] && \
+    echo "-- web-snapshot hashes: $hverified verified · $hunverif unverifiable (missing/truncated registration = WARN)"
+fi
+
 echo "== exit $rc =="
 exit $rc
