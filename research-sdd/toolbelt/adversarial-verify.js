@@ -40,12 +40,24 @@ const VERDICT_SCHEMA = {
 // CANONICAL copy + red-first tests: adversarial-verdict.mjs / tests/adversarial-verdict.test.mjs.
 // KILL on majority-refute of VALID (non-null) votes; INSUFFICIENT (never seal) below quorum —
 // a fixed `refutes < 2` used to SEAL a claim on a single refuting vote when two skeptics died.
-function sealVerdict(votes, { quorum = 2 } = {}) {
+// CONFIDENCE-GRADED: a claim whose refute-count SURVIVES must ALSO clear a mean-confidence bar
+// on its surviving votes (confThreshold, default 0.7), else INSUFFICIENT (survived weakly, not
+// sealed). Backward-compat: the gate applies only when surviving votes carry numeric confidence.
+// KEEP IDENTICAL to adversarial-verdict.mjs (tests/adversarial-verdict.test.mjs pins parity).
+function sealVerdict(votes, { quorum = 2, confThreshold = 0.7 } = {}) {
   const valid = (Array.isArray(votes) ? votes : []).filter(Boolean)
   const refutes = valid.filter(v => v && v.refuted === true).length
-  if (valid.length < quorum) return { valid: valid.length, refutes, verdict: 'INSUFFICIENT' }
+  if (valid.length < quorum) return { valid: valid.length, refutes, killThreshold: null, verdict: 'INSUFFICIENT', meanConfidence: null, confThreshold }
   const killThreshold = Math.ceil(valid.length / 2)
-  return { valid: valid.length, refutes, killThreshold, verdict: refutes >= killThreshold ? 'KILLED' : 'SURVIVES' }
+  if (refutes >= killThreshold) return { valid: valid.length, refutes, killThreshold, verdict: 'KILLED', meanConfidence: null, confThreshold }
+  const surviving = valid.filter(v => v.refuted !== true)
+  // Mean is over surviving votes that carry a numeric confidence; ungraded survivors do NOT
+  // dilute it (live path: all skeptic votes carry confidence per VERDICT_SCHEMA's required field).
+  const confs = surviving.map(v => v.confidence).filter(c => typeof c === 'number')
+  if (confs.length === 0) return { valid: valid.length, refutes, killThreshold, verdict: 'SURVIVES', meanConfidence: null, confThreshold }
+  const meanConfidence = Math.round((confs.reduce((a, b) => a + b, 0) / confs.length) * 1e6) / 1e6
+  const verdict = meanConfidence >= confThreshold ? 'SURVIVES' : 'INSUFFICIENT'
+  return { valid: valid.length, refutes, killThreshold, verdict, meanConfidence, confThreshold }
 }
 
 // Defensive: args may arrive as an array OR as a JSON-encoded string.
@@ -71,15 +83,17 @@ const results = await pipeline(
         { label: `verify:${c.id || 'c' + i}:skeptic${k + 1}`, phase: 'Verify', model: 'sonnet', schema: VERDICT_SCHEMA }
       )
     )).then(votes => {
-      const s = sealVerdict(votes)
+      const s = sealVerdict(votes)   // votes carry `confidence` → seal is confidence-graded
       const label = s.verdict === 'SURVIVES' ? 'SURVIVES ([CERT] sealed)'
                   : s.verdict === 'KILLED'   ? 'KILLED'
-                  :                            'INSUFFICIENT (too few skeptics survived — NOT sealed)'
+                  :                            'INSUFFICIENT (too few skeptics survived, or survived below the confidence bar — NOT sealed)'
       return {
         id: c.id || 'c' + i,
         claim: c.claim,
         refutes: s.refutes,
         total: s.valid,
+        meanConfidence: s.meanConfidence,
+        confThreshold: s.confThreshold,
         verdict: label,
         votes: votes.filter(Boolean).map(v => ({ refuted: v.refuted, confidence: v.confidence, reasoning: v.reasoning })),
       }
