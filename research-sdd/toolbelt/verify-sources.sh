@@ -9,7 +9,8 @@
 # Usage: verify-sources.sh <target-dir>
 # Exit: 0 = ok · 1 = preserved-source markers exist but SOURCES.md is missing, or a cited sources/ file is
 #       absent on disk, or a block NAMED in the registry's "cite it" column does not actually reference the
-#       source (fabricated citation, LEVEL 4) · 2 = bad args.
+#       source (fabricated citation, LEVEL 4), or a web-snapshot on disk is not registered in SOURCES.md
+#       (LEVEL 5) · 2 = bad args.
 
 set -uo pipefail
 target="${1:-}"
@@ -31,7 +32,10 @@ echo "== verify-sources: $(basename "$target") =="
 [ "$corpus" != "$target" ] && echo "-- corpus root: ${corpus#"$target"/}/ (blocks in a subdir)"
 
 # How many blocks lean on a PRESERVED source? ([CERT-web] shown for context; §5 only forces preservation
-# for [CERT-doc]/[CERT-a] and for LOAD-BEARING [CERT-web]-via-MCP, which the §11 snapshot check covers.)
+# for [CERT-doc]/[CERT-a] and for LOAD-BEARING [CERT-web]-via-MCP. The MCP-specific "was this snapshotted?"
+# self-report stays in the §11 in-iteration check — it is not mechanizable here (no signal distinguishes an
+# MCP citation from a plain web-fetch). LEVEL 5 below instead mechanizes the WEAKER, verifiable-today
+# web-snapshot INTEGRITY invariant: every snapshot on disk is registered + cited. It does NOT detect MCP.)
 doc=$(grep -rlF '[CERT-doc]' "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
 a=$(grep -rlF '[CERT-a]'   "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
 web=$(grep -rlF '[CERT-web]' "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
@@ -98,6 +102,66 @@ while IFS= read -r ref; do
 done < <(grep -rhoE 'sources/[A-Za-z0-9_./-]+\.(pdf|md|html|htm|txt|json)' "$corpus"/*.md 2>/dev/null \
            | grep -vF '...' | grep -vF 'SOURCES.md' | sort -u)
 [ "$missing" = 0 ] && echo "-- all sources/ paths cited in blocks exist on disk (or none cited)"
+
+# LEVEL 5 — web-snapshot INTEGRITY. Lives OUTSIDE the `[ -f "$sources_md" ]` block on purpose: it must also
+# fire the "web-snapshots/ populated but SOURCES.md missing" case (every snapshot is then an orphan).
+# WHY THIS IS HARDER THAN LEVEL 2b (which only warns for a stray .pdf/.html): a web-snapshot file carries NO
+# embedded provenance — its origin URL, fetch date, and sha256 live ONLY in the SOURCES.md row (verified: the
+# snapshot files are raw fetched content, e.g. an html <div>… body, with no header). So an UNREGISTERED
+# snapshot is evidence with a BROKEN chain of custody — you can no longer say where it came from or prove it
+# was not tampered with. A .pdf is self-identifying; a headerless snapshot is not. That is why registration
+# is a FAIL (rc=1) here, while a merely-uncited (but registered) snapshot is only a WARN.
+#
+# The canonical KEY for a snapshot is its path relative to sources/ (e.g. `web-snapshots/x.md`, possibly with
+# subdirs). That is exactly what the SOURCES.md `File` column holds and what blocks cite as `sources/<key>`.
+# Match on that full relpath, NEVER on a bare basename: a basename SUBSTRING test false-passes a real orphan
+# `report.md` against a registered `annual-report.md`, and false-flags a correctly-cited nested snapshot.
+snaps=0
+# Registered File-column values (parsed like LEVEL 4: split rows on '|', take the File cell, strip ALL
+# horizontal whitespace — space AND tab — plus backticks, drop header/separator rows). Stripping tabs matters:
+# a hand-edited SOURCES.md that pads the cell with tabs would otherwise make a REGISTERED snapshot report as an
+# orphan (a false positive in a fail-closed, archive-blocking gate). Missing SOURCES.md ⇒ empty set ⇒ orphans.
+registered=""
+if [ -f "$sources_md" ]; then
+  registered="$(awk -F'|' '/^\|/ { v=$2; gsub(/[`[:blank:]]/,"",v); if (v!="" && v!="File" && v !~ /^[-:]+$/) print v }' "$sources_md")"
+fi
+# Elided citations present in blocks: capture the <tail> after `web-snapshots/...`. The kit writes display-only
+# elided paths (LEVEL 3 excludes them too); a snapshot counts as ELIDED-cited iff its real name ends with <tail>.
+elided_tails="$(grep -rhoE 'web-snapshots/\.\.\.[^ )`]+' "$corpus"/*.md 2>/dev/null | sed 's#web-snapshots/\.\.\.##' | sort -u)"
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  snaps=$((snaps + 1))
+  rel="${f#"$corpus"/sources/}"   # canonical key, e.g. web-snapshots/example.com/page.md
+  rel="${rel#"${rel%%[![:blank:]]*}"}"; rel="${rel%"${rel##*[![:blank:]]}"}"   # trim leading/trailing blanks
+  base="$(basename "$f")"
+  # Registration (HARD): rel must EXACTLY equal a registered File-column value — not a substring.
+  if ! printf '%s\n' "$registered" | grep -qxF "$rel"; then
+    echo "   orphan-snapshot: ${f#"$corpus"/} (in web-snapshots/ but not registered in SOURCES.md — provenance lost)"
+    rc=1
+    continue
+  fi
+  # Citation (SOFT, WARN only). EXACT-cited iff a block contains the literal full relpath (the `sources/` prefix
+  # is optional — a block citing `sources/web-snapshots/x` contains `web-snapshots/x`).
+  grep -rlF "$rel" "$corpus"/*.md >/dev/null 2>&1 && continue
+  # ELIDED-cited iff a block cites `web-snapshots/...<tail>` and the real name ends with <tail> (elision-tolerant).
+  # Reject DEGENERATE tails first: a stray `web-snapshots/...md` or a 4-dot typo `web-snapshots/....md`
+  # (captured tail `.md`) would end-match essentially every snapshot and silently kill the uncited WARN
+  # corpus-wide. Require a real filename tail — after stripping leading dots, `<name>.<ext>` with NON-EMPTY name.
+  cited_elided=0
+  while IFS= read -r tail; do
+    [ -z "$tail" ] && continue
+    t="${tail#"${tail%%[!.]*}"}"                  # strip leading dots (`.md`→`md`, `....md`→`md` after prior strip)
+    case "$t" in *.*) ;; *) continue;; esac       # must contain a dot (name.ext)
+    [ -z "${t%.*}" ] && continue                  # name before the final dot must be non-empty
+    case "$base" in *"$tail") cited_elided=1; break;; esac
+    case "$rel"  in *"$tail") cited_elided=1; break;; esac
+  done <<EOF
+$elided_tails
+EOF
+  [ "$cited_elided" = 1 ] && continue
+  echo "   uncited-snapshot: ${f#"$corpus"/} (registered but no block references it — dead weight?)"
+done < <(find "$corpus/sources/web-snapshots" -type f 2>/dev/null)
+[ "$snaps" -gt 0 ] && echo "-- web-snapshots: $snaps file(s) checked (registration = FAIL if orphaned, citation = WARN)"
 
 echo "== exit $rc =="
 exit $rc
