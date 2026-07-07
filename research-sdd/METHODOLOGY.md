@@ -130,6 +130,20 @@ FABRICATED citation (LEVEL 4, cross-checks the registry against block content; p
 held by convention only), and a first-cut registry row claimed two blocks cited a preserved HTML they never
 mention — the `[CERT-a]` in those blocks was legend boilerplate, not a citation, and LEVELs 1-3 all passed it.
 
+**Cross-TARGET evidence (a block citing a sibling corpus).** When the evidence a block relies on lives in a
+DIFFERENT registered target (e.g. a `docGraphics` class from `niagara-help` cited by a `niagara-research`
+block), the golden rule still holds: COPY the evidence into the CITING target's `sources/` and register it in
+THAT target's `SOURCES.md`, noting the ORIGIN target. Do NOT cite across target boundaries by reference only —
+"URLs die; evidence does not" applies to sibling corpora exactly as it does to the web (a re-decompile, a
+re-org, or a moved target can vanish the referenced tree). The within-target preservation above and the
+multi-FOCUS-within-one-target case (§16) both keep evidence inside one target; this is the cross-TARGET case.
+
+**SOURCES.md row granularity — one row per file OR per directory, never a compound.** When many files from one
+directory back a block, register ONE row per DIRECTORY (the path cell = the dir), not a compound filename like
+`A.java + B.java` crammed into a single File cell. A compound basename breaks `verify-sources.sh`'s LEVEL-4
+basename cross-check (it resolves ONE basename per row). Pick a granularity — one row per file, or one row per
+directory — and never put a multi-file compound in the File column.
+
 **Beautified-temp citation (minified / obfuscated code).** For minified or obfuscated sources (bundled JS,
 etc.), beautify the artifact to a SCRATCHPAD temp — never into `sources/` (keep the READ-ONLY-over-subject
 discipline: the temp is a working view, not preserved evidence). Cite `file:line` of the beautified copy as
@@ -149,14 +163,26 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
   recovered (a retained `mapping.txt`, a library-signature match, an operator-built rename map), PRESERVE it
   under `sources/` and register it: it is itself evidence, and later blocks cite the mapping, never a
   guessed name.
-- **A string you cannot see is `[INFER]`, not `[CERT]`.** When strings are encrypted, a static grep proving
-  one absent proves NOTHING (it is decrypted at runtime). A claim about a string constant's VALUE stays
-  `[INFER]` until the DECRYPTED value is observed LIVE — dynamic instrumentation (emulator / Frida hook),
-  which then earns `[CERT-hw]`/`[CERT-live]` and is preserved as probe output. Static analysis of an
-  obfuscated artifact has a HARD ceiling; name it, don't paper over it.
+- **A string decoded at RUNTIME is `[INFER]`, not `[CERT]` — regardless of artifact type.** When strings are
+  encrypted or otherwise assembled at runtime, a static grep proving one absent proves NOTHING (it is
+  decoded at runtime). A claim about a string constant's VALUE stays `[INFER]` until the DECODED value is
+  observed LIVE — dynamic instrumentation (emulator / Frida hook), which then earns `[CERT-hw]`/`[CERT-live]`
+  and is preserved as probe output. This is NOT specific to DEX/.NET obfuscation: ANY decompiled artifact
+  with runtime-decoded strings has the same ceiling — a `z[]`/XOR-decoded string table inside a
+  Vineflower-decompiled JAR is exactly the DEX/.NET hazard, and a grep over the decompiled `.java` for the
+  plaintext proves nothing. The runtime-decode is what caps certainty, not the artifact format. Static
+  analysis of such an artifact has a HARD ceiling; name it, don't paper over it.
 - **Identity anchor.** As with minified JS, anchor by `sha256` + byte-count of the ORIGINAL `.apk`/`.dex`
   (record the obfuscator + version if detectable), so decompiler output — which is NOT 1:1 and varies by
   tool — stays reproducible against a fixed input.
+
+**docSource dual-tree (one class living in TWO physical trees).** When a target ships BOTH a decompiled tree
+AND an SDK "doc source" tree for the SAME class (e.g. a `docSource/` shipped-source tree vs the
+Vineflower/Procyon decompiled output), they are two PHYSICAL trees with INDEPENDENT line numbering competing
+for one class name. A `file:line` citation MUST name WHICH tree — a line number valid in one is meaningless
+in the other, so the two are not interchangeable. Anchor the citation to the concrete tree path (`docSource/…`
+vs the decompile-output dir), never to the bare class name. This is the same identity hazard as the
+beautified-temp and obfuscated-bytecode cases above: one logical class, more than one physical artifact.
 
 **Bundle-evidence quality (is API X actually USED?).** Distinct from the beautified-temp rule above (which
 is about citing a beautified copy faithfully). When grepping a MINIFIED / FULL-LIBRARY JS bundle to prove a
@@ -339,6 +365,10 @@ only the CURRENT run's rows verbose.
 7. **Register the new gaps** that the research uncovers (the queue feeds itself).
 8. **Re-measure ground-truth live; never inherit it.** In a dynamic/live phase, measure checksums,
    versions, IPs and build ids against the real system — do not cite them from a prior block (§12).
+9. **A name is not a kind.** Never assert a class's KIND (enum / interface / POJO / abstract) from its NAME
+   pattern — a `*Handle` may be a POJO not an enum; a `BI*FE` may be a concrete class, not a `BInterface`.
+   State any name-implied kind as a HYPOTHESIS and confirm it against the actual declaration line before
+   writing it `[CERT]`.
 
 Corpus language: **English by default** — for new targets and targets with no existing corpus.
 **Exception (user-approved, per target):** a target with an established corpus in another language MAY
@@ -383,13 +413,22 @@ and MUST REPORT these checks:
 
 - **Token check** — every load-bearing `[CERT]` token was `grep`-confirmed present in its cited source
   (file / binary / `strings`). Report how many tokens were checked. (Track record this enforces: 12/12
-  blocks across TRANE+EduVolt had zero hallucinated citations.)
+  blocks across TRANE+EduVolt had zero hallucinated citations.) CAUTION — a single-line `grep` can
+  FALSE-NEGATIVE on a token that is line-wrapped or built by string concatenation across lines, reporting
+  "absent" for a token that is genuinely present. Before DOWNGRADING a `[CERT]` for an unresolved token, do a
+  whitespace-normalized / multi-line re-check so a merely wrapped token is not wrongly demoted.
 - **Marker tally** — counts of `[CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER]`, plus the **`[INFER]`/
   `[CERT]` ratio** AND the **block type**. For an **evidence block** (decompilation/reading) a high ratio
   (>~0.5) is the automatic signal that the investigable evidence for this gap is nearly exhausted — say so;
   it feeds the §8 stop decision. For a **design/applied block** (integration plan, PoC design, cross-focus
   synthesis) a high ratio is EXPECTED and healthy, NOT an exhaustion signal, and does NOT close the focus
   (e.g. protocols B137 at ~0.48 was a sound integration plan). Declare the type so the ratio is read right.
+  The tally counts a block's OWN markers, not markers it QUOTES from another block for meta-purposes: a §14
+  correction block that literally quotes a prior block's `[INFER]`/`[CERT]` token in order to correct it will
+  have those quoted markers counted as if they were fresh claims, INFLATING the count. Think in RAW vs
+  ADJUSTED counts — the raw count is every token in the file; the adjusted count strips the markers quoted
+  from other blocks — and read the ratio off the ADJUSTED count. (Doctrine only here; distinguishing quoted
+  from own markers mechanically is a separate slice.)
 - **Artifacts** — the block file exists, `CATALOG.md` regenerated, `INDEX.md` + `RESEARCH-STATE.md`
   updated, and the backlog re-classified investigable-vs-blocked (§8).
 - **MCP-doc snapshots** — every LOAD-BEARING `[CERT-web]`-via-MCP citation (context7 et al.) was
@@ -549,6 +588,16 @@ matrix (subsystem × depth × static-vs-dynamic × known-vs-gap); the prioritize
 This is the recommended BOOTSTRAP path (PROMPT-LOOP step e) whenever the corpus is large enough that a
 hand-listed plan would miss areas — proven on the protocols focus (matrix → 6 well-shaped gaps).
 
+**Backlog SIZING comes from a MEASURED count, never a hand-guess.** Whenever a gap's size feeds
+prioritization (how many classes/commands/files a subsystem holds), take the number from an ACTUAL count over
+the real dir (`find … | wc -l`), never an eyeball estimate — hand-guesses are wildly wrong: a guessed
+"studio 6" was actually 61, and "commands 36" was actually 14 AND pointed at the wrong directory. When two
+nested directories share a basename, DISAMBIGUATE the full path before counting — counting the wrong
+same-named dir silently mis-sizes the gap. When the count is over DECOMPILED code, first COLLAPSE duplicate
+decompiler-pipeline trees: a project decompiled by BOTH procyon and vineflower yields ~2× the raw `.java`
+files (an "easyBinding 119" was 62 distinct classes). Count DISTINCT fully-qualified class names, not raw
+`.java` files.
+
 **Coverage audit ≠ certainty audit.** The audit above (and PROMPT-AUDIT) checks whether existing CLAIMS
 are TRUE. A **coverage audit** answers a different, recurring user question — "did we cover EVERYTHING?" —
 by mapping the corpus against the code UNIVERSE, not re-verifying claims. Delegate a sweep that returns:
@@ -623,8 +672,11 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
 - **One RESEARCH-STATE per focus.** Each focus gets its own `RESEARCH-STATE-<focus>.md` under `$CORPUS` (its own
   coverage ratio + gap backlog). Pick a short, stable `<focus>` slug (the angle from PROMPT-LOOP §b2).
 - **A focus index.** Keep a small `FOCUSES.md` at the corpus root `$CORPUS` (or a top "## Focuses" section in
-  `INDEX.md`) listing each focus as **active / paused / stopped**, its `RESEARCH-STATE-<focus>.md`, and
-  its block prefix. This is how the loop (and a human) knows which focuses exist and which is current.
+  `INDEX.md`) listing each focus as **active / paused / stopped / planned**, its `RESEARCH-STATE-<focus>.md`,
+  and its block prefix. This is how the loop (and a human) knows which focuses exist and which is current.
+  A **planned** focus is one whose RESEARCH-STATE + backlog are already committed but which has 0 blocks yet;
+  because it is already initialized, the loop must NOT re-BOOTSTRAP it as a duplicate — it picks up the
+  existing state and writes its first block.
 - **Naming convention.** Blocks carry a focus-aware prefix (e.g. `spyder-blockN.md`,
   `platform-native-blockN.md`) so a flat `ls` stays readable; state mirrors them as
   `RESEARCH-STATE-<focus>.md`.
