@@ -250,6 +250,103 @@ printf '%s\n' "$out" | grep -q 'uncited-snapshot' \
   || { printf '  FAIL  %-42s (uncited WARN masked)\n' "degenerate tail did not mask uncited"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# LEVEL 6 — web-snapshot HASH integrity. LEVEL 5 proves a snapshot is registered + cited (chain of custody)
+# but NEVER recomputes the sha256 the registry stores — so tampering/corruption of a preserved snapshot passes
+# silently ("provenance-hash theatre"). LEVEL 6 makes the registered hash LOAD-BEARING: recompute sha256sum of
+# the on-disk file and compare. FULL 64-hex mismatch → FAIL (rc=1). MISSING/placeholder/TRUNCATED → WARN only
+# (fetch-doc.sh itself truncates to `${sha:0:16}…`, so legacy corpora must not be broken).
+
+# BAD 7 — full-hash MISMATCH (tampered): registry pins a full 64-hex that does NOT match the file → CATCH (1).
+#   [RED-FIRST] Today nothing recomputes, so this tampered snapshot FALSE-PASSES (exit 0) — the failing test.
+d="$TMP/bad-hash-mismatch"; mkdir -p "$d"
+block "$d/hx-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — registered but TAMPERED after the fact.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>body AFTER tampering — no longer matches the registered hash</div>'
+wrong="0000000000000000000000000000000000000000000000000000000000000000"   # a valid 64-hex that cannot match
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | $wrong | B1 |"
+assert_exit "$SUT" 1 "BAD: snapshot full-hash mismatch (tampered)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s\n' "$out" | grep -q 'hash-mismatch: sources/web-snapshots/foo.md' \
+  && { printf '  PASS  %-42s (mismatch line printed)\n' "hash-mismatch line printed"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (mismatch line missing)\n' "hash-mismatch line printed"; fail=$((fail+1)); }
+
+# GOOD 9 — full-hash MATCHES the file on disk → PASS (0), no mismatch. Compute the REAL hash into the registry.
+d="$TMP/good-hash-match"; mkdir -p "$d"
+block "$d/hm-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — registered with its real hash.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>immutable body — registry pins its true sha256</div>'
+real="$(sha256sum "$d/sources/web-snapshots/foo.md" | cut -d' ' -f1)"
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | $real | B1 |"
+assert_exit "$SUT" 0 "GOOD snapshot full-hash matches on disk" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s\n' "$out" | grep -qE 'hash-mismatch|unverifiable-hash' \
+  && { printf '  FAIL  %-42s (clean full hash flagged)\n' "matching full hash is quiet"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no false hash finding)\n' "matching full hash is quiet"; pass=$((pass+1)); }
+
+# GOOD 10 (LEGACY) — `(unhashed; see file)` placeholder → WARN unverifiable-hash, NOT a FAIL (exit 0).
+#   Breaking the dashboards-style unhashed corpus is forbidden; the WARN surfaces the debt without a hard fail.
+d="$TMP/good-legacy-unhashed"; mkdir -p "$d"
+block "$d/lu-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — legacy, unhashed registration.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>legacy body, registry never stored a hash</div>'
+sources_registry "$d" '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | (unhashed; see file) | B1 |'
+assert_exit "$SUT" 0 "GOOD legacy unhashed snapshot (WARN not fail)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+{ printf '%s\n' "$out" | grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' \
+  && ! printf '%s\n' "$out" | grep -q 'hash-mismatch'; } \
+  && { printf '  PASS  %-42s (WARN, no fail)\n' "unhashed → unverifiable-hash WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (WARN missing or hard-failed)\n' "unhashed → unverifiable-hash WARN"; fail=$((fail+1)); }
+
+# GOOD 11 (LEGACY) — TRUNCATED hash `04adf2b071e479b2…` (exactly what fetch-doc.sh writes) → WARN, NOT a FAIL (0).
+d="$TMP/good-truncated-hash"; mkdir -p "$d"
+block "$d/th-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — kit-truncated hash prefix.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>body with a display-truncated registered hash</div>'
+sources_registry "$d" '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | 04adf2b071e479b2… | B1 |'
+assert_exit "$SUT" 0 "GOOD truncated hash snapshot (WARN not fail)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+{ printf '%s\n' "$out" | grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' \
+  && ! printf '%s\n' "$out" | grep -q 'hash-mismatch'; } \
+  && { printf '  PASS  %-42s (truncated → WARN)\n' "truncated hash → unverifiable-hash WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (truncated WARN missing or failed)\n' "truncated hash → unverifiable-hash WARN"; fail=$((fail+1)); }
+
+# REGRESSION GUARD — an ORPHAN snapshot (LEVEL 5 FAIL) must NOT ALSO get a LEVEL 6 hash line (no double-report).
+#   Reuse the BAD 4 fixture: foo.md on disk, registry names nothing → orphan-snapshot only, no hash finding.
+d="$TMP/bad-orphan-snapshot"   # built above (orphan, empty registry)
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s\n' "$out" | grep -qE 'hash-mismatch|unverifiable-hash' \
+  && { printf '  FAIL  %-42s (orphan double-reported by LEVEL 6)\n' "orphan not double-reported"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (LEVEL 6 stays out of it)\n' "orphan not double-reported"; pass=$((pass+1)); }
+
+# ---------------------------------------------------------------------------
+# INTEGRATION — drive the REAL producer (fetch-doc.sh) end-to-end, then TAMPER, then verify.
+#   THE coverage that matters: LEVEL 6's unit fixtures hand-build full-hash rows, but the SANCTIONED producer is
+#   fetch-doc.sh. If reg() truncates the sha256 CELL, every tool-made snapshot is only WARN-checkable and a
+#   tampered snapshot FALSE-PASSES — LEVEL 6 is vacuous in the documented workflow. This registers a snapshot via
+#   fetch-doc.sh (local file:// fetch, no network), tampers the on-disk file, and asserts verify-sources.sh
+#   CATCHES it (rc=1, hash-mismatch). RED against a truncating producer; green once reg() stores the full hash.
+FETCH="$HERE/../fetch-doc.sh"
+if [ -f "$FETCH" ] && { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; }; then
+  d="$TMP/integration-producer"; mkdir -p "$d"
+  src="$TMP/producer-src.html"; printf '<html><body><p>preserved evidence body</p></body></html>\n' > "$src"
+  # REAL registration path: fetch-doc.sh web <url> <target> → sources/web-snapshots/<slug>.md + SOURCES.md row.
+  bash "$FETCH" web "file://$src" "$d" >/dev/null 2>&1
+  snap="$(find "$d/sources/web-snapshots" -type f -name '*.md' 2>/dev/null | head -1)"
+  if [ -z "$snap" ] || [ ! -f "$d/sources/SOURCES.md" ]; then
+    printf '  FAIL  %-42s (producer did not register a snapshot)\n' "integration: fetch-doc registered"; fail=$((fail+1))
+  else
+    # a block cites it so the ONLY finding is the hash state (keeps uncited-snapshot WARN out of the picture)
+    block "$d/ip-block1.md" '# Block 1' "## 1.1 cites sources/${snap#"$d"/sources/} — the registered snapshot."
+    assert_exit "$SUT" 0 "integration: fresh producer registration verifies" "$d"
+    # TAMPER the preserved file — its bytes no longer match the hash reg() stored.
+    printf '<html><body><p>TAMPERED body — bytes changed after registration</p></body></html>\n' > "$snap"
+    assert_exit "$SUT" 1 "integration: tampered producer snapshot caught" "$d"
+    out="$(bash "$SUT" "$d" 2>&1)"
+    printf '%s\n' "$out" | grep -q 'hash-mismatch' \
+      && { printf '  PASS  %-42s (real producer path is enforced)\n' "integration: hash-mismatch on tamper"; pass=$((pass+1)); } \
+      || { printf '  FAIL  %-42s (producer hash not verifiable — truncated cell?)\n' "integration: hash-mismatch on tamper"; fail=$((fail+1)); }
+  fi
+else
+  printf '  SKIP  %-42s (fetch-doc.sh or curl/wget unavailable)\n' "integration: producer end-to-end"
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -300,6 +397,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '  PASS  %-42s (mutant false-orphans → tab-trim has teeth)\n' "teeth: FIX A mutant exit 1"; pass=$((pass+1))
     else
       printf '  FAIL  %-42s mutant exit %s (expected 1). GOOD 8 does NOT depend on tab-stripping — THEATER.\n' "teeth: FIX A" "$magot"; fail=$((fail+1))
+    fi
+  fi
+
+  # LEVEL 6 teeth: neutralize the hash comparison and assert the tampered fixture (BAD 7) then FALSE-PASSES —
+  #   proving the recompute-and-compare is load-bearing (without it the registered sha256 is dead weight).
+  echo "-- teeth proof: neutralize the LEVEL 6 hash compare, expect the tampered fixture to FALSE-PASS --"
+  mutant6="$TMP/verify-sources.MUTANT6.sh"
+  awk '{ if ($0 ~ /HASH-INTEGRITY compare/) print "      if false; then  # MUTANT6: hash compare neutralized"; else print }' "$SUT" > "$mutant6"
+  if ! grep -q 'MUTANT6: hash compare neutralized' "$mutant6"; then
+    echo "  FAIL  could not build LEVEL 6 mutant (compare line not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    d="$TMP/bad-hash-mismatch"   # reuse the tampered fixture (BAD 7)
+    bash "$mutant6" "$d" >/dev/null 2>&1; m6got=$?
+    if [ "$m6got" = 0 ]; then
+      printf '  PASS  %-42s (mutant false-passes → hash check has teeth)\n' "teeth: LEVEL 6 compare mutant exit 0"; pass=$((pass+1))
+    else
+      printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 7 does NOT depend on the recompute — THEATER.\n' "teeth: LEVEL 6" "$m6got"; fail=$((fail+1))
     fi
   fi
 fi
