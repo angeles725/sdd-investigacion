@@ -9,6 +9,12 @@
             "command": "/home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/sweep-retros-hook.sh",
             "timeout": 30,
             "statusMessage": "Sweeping research-sdd retros…"
+          },
+          {
+            "type": "command",
+            "command": "/home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/verify-kit-clean-hook.sh",
+            "timeout": 15,
+            "statusMessage": "Checking kit cleanliness…"
           }
         ]
       }
