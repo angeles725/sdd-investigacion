@@ -235,6 +235,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the
      blocked gaps each tagged with the tool/access it needs, and the TOOLS REPORT (installed · couldn't
      -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md).
+     MECHANIZE THE CLOSE: run `$KIT/toolbelt/research-sdd-archive.sh $TARGET` — the gated close driver
+     (models sdd-archive, kept to the continuous loop). It runs BOTH linters below as a GATE and REFUSES
+     with exit 3 if either fails — a refusal means you are NOT at STOP: reconcile (refresh the summary /
+     register the source) and keep looping. Once the gate passes it does the SAFE deterministic bookkeeping
+     (regenerate CATALOG, touch INDEX) and prints a close-checklist of the JUDGMENT follow-ups it refuses to
+     guess (synthesis block, §18 retro, iteration-history collapse, TARGETS.md mirror row, corpus commit).
+     Preview with `--dry-run`. It is CORPUS-scoped: it never edits the kit and never touches git — you do
+     those from the checklist below. The two checks it gates on (run them directly for the detailed output):
      MECHANIZE the §5 source-registry check: run `$KIT/toolbelt/verify-sources.sh $CORPUS` and paste its
      output — it exits non-zero if a block cites a preserved-source marker ([CERT-doc]/[CERT-a]) with no
      sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
