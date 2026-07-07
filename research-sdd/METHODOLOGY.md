@@ -259,6 +259,13 @@ The loop stops on the FIRST of these (primary first):
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
 
+**Saturation is a soft REVIEW prompt, not a fourth STOP criterion.** The backlog rarely empties (each
+block uncovers 1-4 new gaps), so a subject can be substantively SATURATED long before the criteria above
+fire. `research-sdd-status.sh` surfaces this from the `## Iteration history` "New gaps uncovered" column:
+when the LAST 3 numeric iterations net EXACTLY 0 new gaps it reports `saturation : SATURATED (review)` in
+the default status report. This is INFORMATIONAL only — it does NOT auto-STOP, change exit codes, or alter
+`--next`; it complements the §8 STOP decision by flagging a diminishing-returns subject for human/agent review.
+
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
 open. (Proven on protocols B136: the Sox gap was closed by demonstrating Sox's absence across 973 jars,
