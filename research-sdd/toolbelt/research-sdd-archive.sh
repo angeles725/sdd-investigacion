@@ -62,10 +62,12 @@ gate() {  # <label> <sibling-script> <content-fail-message>
 echo "  -- gates --"
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
+gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
 if [ "$gate_rc" != 0 ]; then
   echo "  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:"
   echo "    $here/verify-state.sh $corpus"
   echo "    $here/verify-sources.sh $corpus"
+  echo "    $here/scan-secrets.sh $corpus"
   exit 3
 fi
 

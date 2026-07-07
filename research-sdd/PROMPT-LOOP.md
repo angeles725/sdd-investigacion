@@ -298,6 +298,8 @@ HARD RULES:
     NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
     independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
     dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
+    MECHANIZED at the close: `research-sdd-archive.sh` runs `toolbelt/scan-secrets.sh` as a fail-closed
+    GATE — a high-confidence secret VALUE that leaked into authored corpus content REFUSES the close (exit 3).
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
