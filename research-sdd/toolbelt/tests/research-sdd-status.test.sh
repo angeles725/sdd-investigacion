@@ -134,6 +134,71 @@ d="$TMP/exitcode"; mkdir -p "$d"
 bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "default status exits 0 even on a stale corpus" || no "default status exit=$rc (want 0)"
 
+# mkledger <dir> — writes a CONTRADICTIONS.md with 2 open + 1 resolved row (id|A|B|status|note).
+mkledger() {
+  { echo "# T — Contradictions ledger"; echo
+    echo "| id | claim A (block) | claim B (block) | status | note |"
+    echo "|---|---|---|---|---|"
+    echo "| C1 | A says X (B1) | B says Y (B2) | open | cannot adjudicate yet |"
+    echo "| C2 | foo=1 (B3) | foo=2 (B4) | open | |"
+    echo "| C3 | baz (B5) | qux (B6) | resolved | B5 won per §14 |"
+  } > "$1/CONTRADICTIONS.md"
+}
+
+# 17 — default status surfaces the count of OPEN contradictions (2 open, 1 resolved → "2 open")
+d="$TMP/contra"; mkstate "$d" 3 "high|g1|pending"; mkledger "$d"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'contradictions  : 2 open' && ok "status: surfaces 2 open contradictions" || no "status: open-contradiction count ($(printf '%s' "$rep" | grep -i contradic))"
+
+# 18 — NO ledger → quiet no-ledger line, still exits 0 (never errors)
+d="$TMP/noledger"; mkstate "$d" 1 "high|g1|pending"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
+if printf '%s' "$rep" | grep -q 'contradictions  : (no ledger)' && [ "$rc" = 0 ]; then ok "status: quiet no-ledger line, exit 0"
+else no "status: no-ledger line/exit ($(printf '%s' "$rep" | grep -i contradic), rc=$rc)"; fi
+
+# 19 — REGRESSION guard: --next output must be UNCHANGED by a CONTRADICTIONS.md (machine contract untouched)
+d="$TMP/contraregress"; mkstate "$d" 2 "high|the gap|pending"
+before="$(next "$d")"; mkledger "$d"; after="$(next "$d")"
+if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -qi contradic; then ok "--next contract unchanged by a ledger"
+else no "--next leaked: before[$before] after[$after]"; fi
+
+# mkledger1 <dir> <status> <note> — one-row ledger to probe column-scoping (status vs note cell).
+mkledger1() {
+  { echo "# T — Contradictions ledger"; echo
+    echo "| id | claim A (block) | claim B (block) | status | note |"
+    echo "|---|---|---|---|---|"
+    echo "| C1 | X (B1) | Y (B2) | $2 | $3 |"
+  } > "$1/CONTRADICTIONS.md"
+}
+
+# 20 — column-scope: a note cell literally "open" on a RESOLVED row must NOT count (STATUS cell only)
+d="$TMP/notecol"; mkstate "$d" 1 "high|g1|pending"; mkledger1 "$d" "resolved" "open"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'contradictions  : (none)' && ok "note-cell 'open' on resolved row not counted (column-scoped)" || no "column-scope over-count ($(printf '%s' "$rep" | grep -i contradic))"
+
+# 21 — column-scope mixed: 1 real open (status cell) + 1 resolved-with-note-open → exactly 1 open
+d="$TMP/mixedcol"; mkstate "$d" 1 "high|g1|pending"
+{ echo "# T"; echo; echo "| id | claim A (block) | claim B (block) | status | note |"; echo "|---|---|---|---|---|"
+  echo "| C1 | X (B1) | Y (B2) | open | note |"
+  echo "| C2 | A (B3) | B (B4) | resolved | open |"; } > "$d/CONTRADICTIONS.md"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'contradictions  : 1 open' && ok "status-cell open counts, note-cell open does not (mixed)" || no "mixed column-scope ($(printf '%s' "$rep" | grep -i contradic))"
+
+# 22 — multiple ledger files → counted across ALL (never silently dropped) + a WARN to stderr
+d="$TMP/multi"; mkstate "$d" 1 "high|g1|pending"; mkledger "$d"        # CONTRADICTIONS.md: 2 open
+{ echo "# T"; echo; echo "| id | claim A | claim B | status | note |"; echo "|---|---|---|---|---|"
+  echo "| Z1 | P (B7) | Q (B8) | open | archived-open |"; } > "$d/CONTRADICTIONS-archive.md"   # +1 open
+rep="$(bash "$SUT" "$d" 2>/dev/null)"; warn="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+if printf '%s' "$rep" | grep -q 'contradictions  : 3 open' && printf '%s' "$warn" | grep -qi 'multiple CONTRADICTIONS'; then ok "multiple ledgers counted across all + WARN"
+else no "multi-ledger ($(printf '%s' "$rep" | grep -i contradic) | warn=$(printf '%s' "$warn" | grep -i CONTRADICTIONS))"; fi
+
+# 23 — header/separator-only ledger (no data rows) → (none), never a spurious count, exit unchanged
+d="$TMP/headeronly"; mkstate "$d" 1 "high|g1|pending"
+{ echo "# T"; echo; echo "| id | claim A | claim B | status | note |"; echo "|---|---|---|---|---|"; } > "$d/CONTRADICTIONS.md"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
+if printf '%s' "$rep" | grep -q 'contradictions  : (none)' && [ "$rc" = 0 ]; then ok "header-only ledger → (none), exit 0"
+else no "header-only ($(printf '%s' "$rep" | grep -i contradic), rc=$rc)"; fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"

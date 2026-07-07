@@ -31,6 +31,14 @@ hierarchies, signatures, protocols, comparisons.>
 
 <...> (e.g. value confirmed in `sources/datasheets/x.pdf §4.2`).
 
+## N.x — Open questions / unresolved contradictions  <!-- OPTIONAL: omit if none -->
+
+<!-- Any conflict this block SURFACED but could not adjudicate (source A says X, source B says Y).
+     Record it here AND push it to the corpus CONTRADICTIONS.md as `open` (METHODOLOGY §14) — do NOT
+     force it into a premature [INFER]. Resolved later; the winning side then corrects the block per §14. -->
+
+- **[C<k>]** <A asserts X> `[CERT]` vs <B asserts Y> `[CERT-a]` — <why unresolved> → corpus `CONTRADICTIONS.md`.
+
 ## N.x — Connections
 
 - **[Block K]** — <how it relates to this block>.

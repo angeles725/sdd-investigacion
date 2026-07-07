@@ -638,6 +638,10 @@ B64→B55). Make this a habit, not an accident:
   The same distinction runs in the hardware→code direction — a live `[CERT-hw]` finding can scope-clarify a
   `[CERT]` static claim (the deployment gates a real code-path) without refuting it; that case lives in §12.
 - In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
+- **When a conflict CANNOT yet be adjudicated**, do NOT force it into a premature `[INFER]` or drop it:
+  record it in the corpus `CONTRADICTIONS.md` as `open` (source A says X, source B says Y). It is surfaced
+  by `research-sdd-status.sh` (open count in the status report) so it is not forgotten at STOP, and resolved
+  later per this section — the winning side then corrects the losing block and the row flips to `resolved`.
 - Every correction is logged in the correcting block's Connections and in RESEARCH-STATE's history.
 
 ## 15. Corpus versioning (git)
