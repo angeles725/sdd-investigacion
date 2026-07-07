@@ -51,6 +51,43 @@ count_open_contra() {
     END { print c+0 }' "$@"
 }
 
+# Iteration-history "New gaps uncovered" rows → "iter#<TAB>new-gaps", ONE line per DATA row whose
+# `#` (col 1) AND New-gaps (col 6 == LAST cell) are BOTH real integers. The header row ("#"), the
+# "---" separator, and any `<n>` template placeholder are non-integer → skipped. Scoped to the bounded
+# `## Iteration history` section only (never whole-file), mirroring the section()/backlog_rows idioms.
+iter_gaps_rows() {
+  section '## Iteration history' | awk '
+    { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
+      if (line !~ /\|/) next
+      sub(/^\|/,"",line); sub(/\|$/,"",line)
+      n=split(line,a,"|"); if (n<2) next
+      idx=a[1]; gsub(/^[ \t]+|[ \t]+$/,"",idx)
+      ng=a[n];  gsub(/^[ \t]+|[ \t]+$/,"",ng)
+      if (idx !~ /^[0-9]+$/) next                    # data rows only (skips header + "---" separator)
+      if (ng  !~ /^[0-9]+$/) next                    # New-gaps must be a real integer (skips <n>)
+      print idx "\t" ng }'
+}
+
+# SATURATION signal — INFORMATIONAL ONLY (a soft REVIEW prompt, NOT an auto-STOP). §8's read-only
+# exhaustion stays the terminal trigger; exit codes, resolve_next, and the --next contract are UNTOUCHED
+# (mirrors how contradictions are surfaced above). Over the LAST 3 numeric iterations (ordered by #):
+#   THRESHOLD = the window sums to EXACTLY 0 new gaps → SATURATED (review); any positive sum → active.
+# <3 numeric rows → insufficient history; the section absent → (no iteration history). Never errors.
+saturation_line() {
+  local pad='  saturation      : '
+  grep -qF '## Iteration history' "$state" || { echo "${pad}(no iteration history)"; return; }
+  local rows n sum
+  rows="$(iter_gaps_rows | sort -t$'\t' -k1,1n)"
+  n="$(printf '%s' "$rows" | grep -c .)"
+  if [ "$n" -lt 3 ]; then echo "${pad}insufficient history ($n iterations)"; return; fi
+  sum="$(printf '%s\n' "$rows" | tail -n 3 | awk -F'\t' '{s+=$2} END{print s+0}')"
+  if [ "$sum" -eq 0 ]; then
+    echo "${pad}SATURATED (review) — last 3 iterations netted 0 new gaps"
+  else
+    echo "${pad}active ($sum new gaps in last 3 iter)"
+  fi
+}
+
 # Blocked gap NAMES (one trimmed name per "- <name> — needs: ..." line) — matched EXACTLY, never as
 # a substring of free prose (a pending gap "hardware" must not be killed by "- x — needs: hardware").
 blocked_names() {
@@ -126,6 +163,7 @@ else
   nopen="$(count_open_contra "${ledgers[@]}")"
   [ "$nopen" -gt 0 ] && echo "  contradictions  : ${nopen} open" || echo "  contradictions  : (none)"
 fi
+saturation_line
 printf '  next step       : '; resolve_next
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'

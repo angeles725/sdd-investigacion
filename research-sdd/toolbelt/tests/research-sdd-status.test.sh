@@ -199,6 +199,77 @@ rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 if printf '%s' "$rep" | grep -q 'contradictions  : (none)' && [ "$rc" = 0 ]; then ok "header-only ledger → (none), exit 0"
 else no "header-only ($(printf '%s' "$rep" | grep -i contradic), rc=$rc)"; fi
 
+# mkiter <dir> <inv> <"num|newgaps"...> — a minimal state WITH an ## Iteration history table.
+# Each arg becomes one data row; col 6 ("New gaps uncovered") = <newgaps>. A backlog pending gap is
+# included so verify-state stays consistent (NEXT), keeping the --next regression guards meaningful.
+mkiter() {
+  local dir="$1" inv="$2"; shift 2; mkdir -p "$dir"
+  { echo "# T"; echo; echo "## Gap-backlog"; echo
+    echo "| P | G | t | S |"; echo "|-|-|-|-|"; echo "| high | g1 | web | pending |"; echo
+    echo "## Iteration history"; echo
+    echo "| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |"
+    echo "|---|---|---|---|---|---|"
+    for r in "$@"; do IFS='|' read -r num ng <<<"$r"; echo "| $num | 2026-01-01 | gap$num | B$num | no · inline | $ng |"; done
+    echo; echo "## Stop control"; echo "- **Open gaps — read-only investigable**: $inv"
+  } > "$dir/RESEARCH-STATE.md"
+}
+
+# 24 — last 3 iterations net 0 new gaps → SATURATED (review) signal in the DEFAULT status report
+d="$TMP/sat"; mkiter "$d" 1 "1|0" "2|0" "3|0"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps' && ok "saturation: 0 over last 3 numeric iterations → SATURATED (review)" || no "saturation: SATURATED not surfaced ($(printf '%s' "$rep" | grep -i saturation))"
+
+# 25 — last 3 sum > 0 (2,0,1 → 3) → active, NOT saturated
+d="$TMP/active"; mkiter "$d" 1 "1|2" "2|0" "3|1"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'saturation      : active (3 new gaps in last 3 iter)' && ok "saturation: nonzero sum over last 3 → active" || no "saturation: active line ($(printf '%s' "$rep" | grep -i saturation))"
+
+# 25b — WINDOW is the last 3 ONLY: an older iteration with new gaps does NOT rescue a saturated tail
+d="$TMP/window"; mkiter "$d" 1 "1|9" "2|0" "3|0" "4|0"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'saturation      : SATURATED (review)' && ok "saturation: only the last 3 iterations count (older gaps excluded)" || no "saturation: window not last-3 ($(printf '%s' "$rep" | grep -i saturation))"
+
+# 26 — fewer than 3 numeric rows → insufficient history, NOT flagged
+d="$TMP/insuff"; mkiter "$d" 1 "1|2" "2|1"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'saturation      : insufficient history (2 iterations)' && ok "saturation: <3 numeric rows → insufficient history" || no "saturation: insufficient line ($(printf '%s' "$rep" | grep -i saturation))"
+
+# 26b — a template `<n>` placeholder in col 6 (with pipes in the Delegated cell) is NOT counted numeric
+d="$TMP/placeholder"; mkdir -p "$d"
+{ echo "# T"; echo; echo "## Iteration history"; echo
+  echo "| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |"
+  echo "|---|---|---|---|---|---|"
+  echo "| 1 | 2026-01-01 | g | B1 | no · inline | 0 |"
+  echo "| 2 | 2026-01-02 | g | B2 | no · inline | 0 |"
+  echo "| 3 | <date> | <gap> | B<k> | <no · inline / yes · haiku|sonnet|opus> | <n> |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'saturation      : insufficient history (2 iterations)' && ok "saturation: <n> placeholder row not counted as a numeric iteration" || no "saturation: placeholder counted ($(printf '%s' "$rep" | grep -i saturation))"
+
+# 27 — rows OUT OF # ORDER are sorted numerically before the last-3 window is taken
+d="$TMP/order"; mkiter "$d" 1 "4|9" "1|0" "2|0" "3|0"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -q 'saturation      : active (9 new gaps in last 3 iter)' && ok "saturation: rows sorted by # before taking the last 3" || no "saturation: not sorted by # ($(printf '%s' "$rep" | grep -i saturation))"
+
+# 28 — no ## Iteration history section → (no iteration history), no error, exit unchanged (mkstate emits none)
+d="$TMP/nohist"; mkstate "$d" 1 "high|g1|pending"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
+if printf '%s' "$rep" | grep -q 'saturation      : (no iteration history)' && [ "$rc" = 0 ]; then ok "saturation: no history section → (no iteration history), exit 0"
+else no "saturation: no-history line/exit ($(printf '%s' "$rep" | grep -i saturation), rc=$rc)"; fi
+
+# 29 — REGRESSION guard: --next output BYTE-IDENTICAL with/without an ## Iteration history table
+d="$TMP/satregress"; mkstate "$d" 2 "high|the gap|pending"
+before="$(next "$d")"
+{ echo; echo "## Iteration history"; echo
+  echo "| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |"
+  echo "|---|---|---|---|---|---|"
+  echo "| 1 | 2026-01-01 | g | B1 | no · inline | 0 |"
+  echo "| 2 | 2026-01-02 | g | B2 | no · inline | 0 |"
+  echo "| 3 | 2026-01-03 | g | B3 | no · inline | 0 |"; } >> "$d/RESEARCH-STATE.md"
+after="$(next "$d")"
+if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -qi saturation; then ok "--next contract unchanged by an iteration-history table"
+else no "--next leaked: before[$before] after[$after]"; fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
@@ -209,6 +280,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mgot="$(bash "$mutant" "$d" --next 2>/dev/null)"
   if [ "$mgot" = "NEXT | low | the low one" ]; then ok "teeth: reversed mutant picks low → ordering test has teeth"
   else no "teeth: mutant picked [$mgot] — ordering not exercised (THEATER)"; fi
+
+  # saturation teeth: widen the threshold (-eq 0 → -ge 0) so EVERY window "saturates"; the active
+  # fixture (2,0,1 → sum 3) must then WRONGLY report SATURATED, proving the threshold is exercised.
+  smutant="$TMP/status.SAT-MUTANT.sh"
+  sed 's/-eq 0/-ge 0/' "$SUT" > "$smutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"   # the mutant resolves $here to $TMP
+  d="$TMP/satteeth"; mkiter "$d" 1 "1|2" "2|0" "3|1"
+  srep="$(bash "$smutant" "$d" 2>/dev/null)"
+  if printf '%s' "$srep" | grep -q 'saturation      : SATURATED'; then ok "teeth: widened-threshold mutant over-flags an active window → saturation test has teeth"
+  else no "teeth: sat mutant did not over-flag [$(printf '%s' "$srep" | grep -i saturation)] — threshold not exercised (THEATER)"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

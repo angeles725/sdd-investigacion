@@ -19,6 +19,9 @@
 
 ## Iteration history
 
+<!-- "New gaps uncovered" (col 6) feeds the saturation signal: research-sdd-status.sh flags SATURATED (review)
+     when the last 3 numeric iterations net 0 new gaps — a soft review-prompt complementing §8 STOP. -->
+
 | # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
 |---|---|---|---|---|---|
 | 1 | <date> | <gap> | B<k> | <no · inline / yes · haiku|sonnet|opus> | <n> |
