@@ -201,7 +201,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - MCP-doc snapshots: every LOAD-BEARING [CERT-web]-via-MCP citation (context7 et al.) snapshotted to
          sources/web-snapshots/ + registered in SOURCES.md (§5). Report Y/N + count — this gate is what stops
          §5's snapshot rule from being paper-only (context7 cites kept landing unsnapshotted across runs).
-       - OPTIONAL [CERT] SEAL (adversarial-verify — EXPERIMENTAL, never yet run on a real claim) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
+       - OPTIONAL [CERT] SEAL (adversarial-verify — OPT-IN selective seal, trialed on a real claim 2026-07-07 — METHODOLOGY §3) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
          conclusion rests on) by running the `adversarial-verify` workflow ($KIT/toolbelt/adversarial-verify.js),
          INSTEAD of trusting only this self-report: N=3 skeptics try to REFUTE each claim; a claim stays sealed
          [CERT] only if it SURVIVES ≥2 of 3, otherwise it is DOWNGRADED or DROPPED. Apply it SELECTIVELY (cost

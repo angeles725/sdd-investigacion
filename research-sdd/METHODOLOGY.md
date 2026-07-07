@@ -63,7 +63,7 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
   LOGO!). Certainty order, high→low:
   `[CERT-hw]`/`[CERT-live]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
 
-**Sealing `[CERT]` adversarially (optional, EXPERIMENTAL — never yet run on a real corpus claim).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
+**Sealing `[CERT]` adversarially (OPT-IN selective seal — trialed once on a real claim, 2026-07-07 — see GRADUATION UPDATE below).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
 (one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
 and it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded or dropped. Apply it SELECTIVELY
 (cost discipline) to conclusion-bearing claims only — not `[INFER]`, not trivia. LOCAL `file:line` claims are
@@ -77,6 +77,18 @@ claim must escalate to `[CERT]`/`[CERT-doc]` and a wrong seal would mislead a do
 ≥2/3, or downgraded) in that block and flip this STATUS from "never run" to "trialed on B&lt;n&gt;". Until such a
 claim appears it stays PARKED — do NOT manufacture a synthetic trial just to retire the label (that is exactly
 the make-work the §18 honesty clause forbids). This is a defined exit condition, not a permanent shelf.
+
+**GRADUATION UPDATE (2026-07-07).** Trialed on a real load-bearing claim for the first time:
+`threejs-block7`'s OrbitControls `autoRotate`/`update(deltaTime)` `[CERT-web]` contract → **SURVIVED 3/3**
+(0 refutes; skeptic confidence 0.9-0.97; corroborated against threejs.org docs + GitHub #26471). The trial was
+DELIBERATE (to graduate the tool, not decision-forced) — and it EARNED ITS KEEP: it surfaced + fixed a real
+aggregation bug (the old fixed `refutes < 2` threshold false-sealed a claim on ONE hostile vote when two
+skeptics died). The seal decision is now unit-tested in
+[`toolbelt/adversarial-verdict.mjs`](toolbelt/adversarial-verdict.mjs): KILL on majority-refute of VALID votes
+(`>= ceil(valid/2)`), `INSUFFICIENT` below a quorum of 2. It remains an OPT-IN SELECTIVE seal for load-bearing
+`[CERT]`, NOT a mandatory per-block gate — §11's evidence is that a blanket per-block re-verify caught nothing;
+§14 cross-block is the real error capture. HONESTY (§18): seal only when a wrong seal would genuinely mislead a
+downstream decision — never to pad a count.
 
 ## 4. Anatomy of a block
 
