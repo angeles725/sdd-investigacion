@@ -15,5 +15,5 @@ sources/
   datasheets/      ← manufacturer datasheets
   manuals/         ← official manuals / guides
   web-snapshots/   ← pages and forums converted to markdown (pandoc)
-  extracted/       ← extracted text (pdftotext) / OCR (tesseract)
+  extracted/       ← extracted text (extract-pdf.sh: pymupdf4llm text-layer → ocrmypdf/tesseract OCR fallback)
 ```

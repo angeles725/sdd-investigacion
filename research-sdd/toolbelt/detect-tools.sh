@@ -102,6 +102,17 @@ report() {
   row "pdfinfo" pdfinfo "$BREW/bin/pdfinfo" /usr/bin/pdfinfo
   row "tesseract" tesseract "$BREW/bin/tesseract" /usr/bin/tesseract
   row "pandoc" pandoc "$BREW/bin/pandoc" /usr/bin/pandoc
+  # extract-pdf.sh Tier-1 stack (RESEARCH_SDD_VENV, default ~/.local/share/research-sdd-tools/venv).
+  # pymupdf4llm is a venv module, not a CLI — probe it by import, mirroring extract-pdf.sh's own gate.
+  PDF_VENV="${RESEARCH_SDD_VENV:-$HOME/.local/share/research-sdd-tools/venv}"
+  if [ -x "$PDF_VENV/bin/python" ] && "$PDF_VENV/bin/python" -c 'import pymupdf4llm' 2>/dev/null; then
+    printf '  %-22s available   %s\n' "pymupdf4llm" "$PDF_VENV/bin/python"
+  else
+    printf '  %-22s MISSING     (%s — extract-pdf.sh Tier 1)\n' "pymupdf4llm" "$PDF_VENV"
+  fi
+  row "ocrmypdf" ocrmypdf "$PDF_VENV/bin/ocrmypdf" "$BREW/bin/ocrmypdf" /usr/bin/ocrmypdf
+  row "marker" marker_single "$PDF_VENV/bin/marker_single" "$BREW/bin/marker_single"
+  row "docling" docling "$PDF_VENV/bin/docling" "$BREW/bin/docling"
   echo ""
   echo "[ python bytecode ]"
   row "pycdc" pycdc "$HOME/dev/pycdc/pycdc"
