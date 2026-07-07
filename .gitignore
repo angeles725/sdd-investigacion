@@ -1,5 +1,7 @@
 # Caches de herramientas
 .atl/.skill-registry.cache.json
+# Auto-generated (machine-specific absolute paths + churning timestamp)
+.atl/skill-registry.md
 
 # Python
 __pycache__/
