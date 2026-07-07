@@ -167,6 +167,81 @@ if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$err" | grep -qiE 'integer express
   ok "BUG3: zero-pending metric 3/3 → exit 0, no 'integer expression expected' on stderr"
 else no "zero-pending: exit $(code "$d") · stderr: $(printf '%s\n' "$err" | grep -iE 'integer expression' | head -1)"; fi
 
+# 15 — CHECK 3 WARN (contradictory CANONICAL coverage): TWO coverage-metric assertions with DIFFERENT
+#      denominators, both OUTSIDE any '## Iteration history' table → WARN. Mirrors the real
+#      pruebas-dashboards corpus that ACCRETES 16/16 then 26/26 (the denominator drifted 16→26 with no
+#      reconciliation), so a reader cannot get one true coverage number. Zero pending → CHECK 1 stays
+#      silent, so exit is 0 and this isolates CHECK 3 (a WARN, not an rc change — like CHECK 2).
+d="$TMP/coverage-contradiction"
+state "$d" '# Research State' 'coverage metric: 16 / 16 gaps closed' \
+  'Coverage metric: 26 / 26 declared gaps closed' '## Backlog' '- gap done'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators \(16 vs 26\)'; then
+  ok "CHECK 3: 16/16 + 26/26 canonical → WARN (16 vs 26), exit still 0"
+else no "coverage-contradiction: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'contradictory|warn' | head -1)"; fi
+
+# 16 — CHECK 3 NEGATIVE CONTROL (load-bearing): a SINGLE canonical coverage metric PLUS a normal
+#      '## Iteration history' table whose rows each carry a DIFFERENT cumulative coverage snapshot
+#      (1/12, 5/16, 8/26 — the denominator legitimately GROWS as the gap universe is discovered). Those
+#      per-row snapshots are NOT a contradiction; CHECK 3 MUST exclude the iteration-history section
+#      before gathering canonical figures, so only the single 5/12 metric counts → NO WARN. Without the
+#      section-strip this fixture would false-alarm (12 vs 16 vs 26) — that false alarm is exactly what
+#      this pins. This is the load-bearing test: without it the check is dangerous.
+d="$TMP/coverage-history-ok"
+state "$d" '# Research State' 'coverage metric: 5 / 12 gaps closed' '## Backlog' '- gap done' \
+  '## Iteration history' \
+  '| # | Date | Gap closed | Coverage (after) |' \
+  '| 1 | d1 | g1 | Coverage (after B1): 1/12 |' \
+  '| 2 | d2 | g2 | Coverage (after B2): 5/16 |' \
+  '| 3 | d3 | g3 | Coverage (after B3): 8/26 |' \
+  '## Blocked gaps' '- none'
+out="$(run "$d")"
+if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+  ok "CHECK 3 neg-control: 1 canonical metric + iteration-history snapshots → NO WARN (history excluded)"
+else no "coverage-history-ok: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
+
+# 17 — CHECK 3 quiet on the happy path: exactly ONE canonical coverage metric, no iteration history →
+#      a single denominator → NO 'contradictory coverage denominators' WARN, exit 0.
+d="$TMP/coverage-single"
+state "$d" '# Research State' 'coverage metric: 12 / 12 gaps closed' '## Backlog' '- gap done'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+  ok "CHECK 3: single canonical 12/12 → no contradiction WARN, exit 0"
+else no "coverage-single: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'contradictory|warn' | head -1)"; fi
+
+# 18 — CHECK 3 NEGATIVE CONTROL, TITLE-CASE fence: same shape as case 16 but the heading is the ordinary
+#      '## Iteration History' (Title Case). The history-fence must match CASE-INSENSITIVELY, else the
+#      per-row cumulative snapshots (1/12, 5/16, 8/26) leak through and false-alarm. Case 16 only pins
+#      the exact lowercase spelling, so this regression is invisible without this fixture.
+d="$TMP/coverage-history-titlecase"
+state "$d" '# Research State' 'coverage metric: 5 / 12 gaps closed' '## Backlog' '- gap done' \
+  '## Iteration History' \
+  '| # | Date | Gap closed | Coverage (after) |' \
+  '| 1 | d1 | g1 | Coverage (after B1): 1/12 |' \
+  '| 2 | d2 | g2 | Coverage (after B2): 5/16 |' \
+  '| 3 | d3 | g3 | Coverage (after B3): 8/26 |' \
+  '## Blocked gaps' '- none'
+out="$(run "$d")"
+if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+  ok "CHECK 3 neg-control: Title-Case '## Iteration History' → NO WARN (fence is case-insensitive)"
+else no "coverage-history-titlecase: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
+
+# 19 — CHECK 3 NEGATIVE CONTROL, bare '## History' alias: a state file that heads its snapshot table
+#      '## History' (no 'Iteration') must also be exempted. Over-recognizing the history fence is cheap
+#      (a miss there is low-cost); a false alarm is the whole risk. Same cumulative-snapshot rows → NO WARN.
+d="$TMP/coverage-history-alias"
+state "$d" '# Research State' 'coverage metric: 5 / 12 gaps closed' '## Backlog' '- gap done' \
+  '## History' \
+  '| # | Date | Gap closed | Coverage (after) |' \
+  '| 1 | d1 | g1 | Coverage (after B1): 1/12 |' \
+  '| 2 | d2 | g2 | Coverage (after B2): 5/16 |' \
+  '| 3 | d3 | g3 | Coverage (after B3): 8/26 |' \
+  '## Blocked gaps' '- none'
+out="$(run "$d")"
+if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+  ok "CHECK 3 neg-control: bare '## History' alias → NO WARN (fence accepts the alias)"
+else no "coverage-history-alias: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
@@ -196,6 +271,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if printf '%s\n' "$m2out" | grep -qE 'WARN.*disagrees with 0 block file'; then
       ok "teeth: -ge 0 mutant WARNs on zero on-disk → case 10 'no WARN' pins the -gt 0 guard"
     else no "teeth(check2): mutant did NOT warn — case 10 does NOT depend on the guard (THEATER)"; fi
+  fi
+
+  # Teeth for case 15 — raise CHECK 3's distinct-denominator guard `-ge 2` → `-ge 99`; the contradiction
+  # fixture must then STOP emitting the WARN, proving case 15 genuinely depends on CHECK 3 (not theater).
+  echo "-- teeth: raise CHECK 3 guard -ge 2 → -ge 99; expect the contradiction fixture to stop WARNing --"
+  mutant3="$TMP/verify-state.CHECK3.MUTANT.sh"
+  sed 's/\[ "${#denoms\[@\]}" -ge 2 \]/[ "${#denoms[@]}" -ge 99 ]/' "$SUT" > "$mutant3"
+  if ! grep -q '"${#denoms\[@\]}" -ge 99' "$mutant3"; then
+    no "teeth(check3): could not build mutant (guard line not found — did the SUT change?)"
+  else
+    d="$TMP/coverage-contradiction"   # reuse case 15 fixture: 16/16 + 26/26 canonical
+    m3out="$(bash "$mutant3" "$d" 2>/dev/null)"
+    if ! printf '%s\n' "$m3out" | grep -qE 'contradictory coverage denominators'; then
+      ok "teeth: -ge 99 mutant stops WARNing → case 15 pins the CHECK 3 contradiction guard"
+    else no "teeth(check3): mutant STILL warned — case 15 does NOT depend on CHECK 3 (THEATER)"; fi
   fi
 fi
 

@@ -6,7 +6,7 @@
 ## Coverage
 
 - **Covered blocks**: <N> (B1..B<N>)
-- **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)
+- **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)   ← ONE canonical coverage number, OVERWRITE it each iteration. Do NOT accrete contradictory assertions (e.g. `16/16` then `26/26`): if the gap universe grows, reconcile the denominator here to a single value. Per-iteration cumulative snapshots belong in "Iteration history" below, not as repeated coverage-metric lines. (`verify-state.sh` CHECK 3 WARNs on contradictory denominators outside the history table; it flags distinct DENOMINATORS only, so same-denominator drift like `22/16` vs `24/16` is on you to reconcile.)
 - **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below)
 
 ## Gap-backlog (prioritized)

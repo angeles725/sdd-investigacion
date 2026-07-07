@@ -55,6 +55,31 @@ for state in "${states[@]}"; do
     echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk block file(s) on disk — refresh the mirror."
   fi
 
+  # CHECK 3 (WARN) — contradictory CANONICAL coverage numbers. RESEARCH-STATE must carry ONE canonical
+  # coverage figure; the real pruebas-dashboards corpus instead ACCRETED 16/16, 22/16, 24/16, then 26/26
+  # (the denominator drifted 16→26 with no reconciliation) so no reader could get one true number. The
+  # `## Iteration history` table LEGITIMATELY snapshots a different cumulative ratio per row, so strip
+  # that section first (awk drops everything from its history header to the next `## ` header). The fence
+  # is matched CASE-INSENSITIVELY (tolower) and also accepts the bare `## History` alias: over-recognizing
+  # the history fence is cheap (a miss there is low-cost), while a false alarm is the whole risk. Only
+  # canonical coverage-metric lines OUTSIDE it are gathered. NOTE: this diffs on distinct DENOMINATORS
+  # only — same-denominator/different-numerator drift (22/16 vs 24/16) is intentionally NOT flagged.
+  # Two-or-more DISTINCT denominators ⇒ WARN (mirror hygiene, not a STOP hazard — no rc change, like CHECK 2).
+  noniter="$(awk '
+    tolower($0) ~ /^##[[:space:]]+(iteration )?history/ { inhist=1; next }
+    /^##[[:space:]]/ { inhist=0 }
+    !inhist { print }
+  ' "$state" 2>/dev/null)"
+  mapfile -t denoms < <(printf '%s\n' "$noniter" \
+    | grep -iE 'coverage metric|declared gaps closed|gaps? closed|coverage \(after' \
+    | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' \
+    | sed -E 's#.*/[[:space:]]*##' \
+    | sort -un)
+  if [ "${#denoms[@]}" -ge 2 ]; then
+    joined="$(printf '%s vs ' "${denoms[@]}")"; joined="${joined% vs }"
+    echo "   WARN   contradictory coverage denominators ($joined) — collapse to one canonical coverage number"
+  fi
+
   [ "$frc" -eq 0 ] && echo "   ok     summary is consistent with the backlog."
 done
 
