@@ -71,7 +71,7 @@ if [ -f "$sources_md" ]; then
   # em-dash cells yield no block and are skipped. Positive miss ⇒ FAIL; unresolvable block name ⇒ WARN only.
   cited=0
   while IFS='|' read -r _ fcell _ _ _ _ bcell _; do
-    file=$(printf '%s' "$fcell" | tr -d ' ')
+    file=$(printf '%s' "$fcell" | tr -d '[:blank:]')   # strip space AND tab: a tab-padded File cell must not spoof a FABRICATED-CITE
     file=${file//\`/}          # strip markdown code backticks so the basename greps cleanly
     [ -z "$file" ] && continue
     case "$file" in File|*---*) continue;; esac
