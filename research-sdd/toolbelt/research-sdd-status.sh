@@ -34,6 +34,23 @@ stopctl()      { section '## Stop control'; }
 blocked_body() { section '## Blocked gaps'; }
 inv_count()    { stopctl | grep -iE 'read-only investigable' | grep -oE '[0-9]+' | head -1; }
 
+# Corpus-level contradictions ledger(s) (informational — see METHODOLOGY §14). Optional file(s); ALL
+# matching files are counted (never head-1-dropped), and >1 is WARNed to stderr like backlog_rows does.
+contra_ledgers() { find "$corpus" -maxdepth 1 -name 'CONTRADICTIONS*.md' 2>/dev/null | sort; }
+# Count ledger rows with an OPEN STATUS cell. Template columns: `| id | claim A | claim B | status | note |`
+# → the STATUS cell is the 4th (column-scoped, mirroring backlog_rows gating on a fixed column). A row
+# counts only when a[4] equals "open" exactly (lowercased) — a note/header/other cell saying "open", the
+# "status" header, and the "---" separator never count. Sums across all files passed. Emits a bare integer.
+count_open_contra() {
+  awk '
+    { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
+      if (line !~ /\|/) next
+      sub(/^\|/,"",line); sub(/\|$/,"",line)
+      n=split(line,a,"|"); if (n<4) next
+      gsub(/^[ \t]+|[ \t]+$/,"",a[4]); if (tolower(a[4])=="open") c++ }
+    END { print c+0 }' "$@"
+}
+
 # Blocked gap NAMES (one trimmed name per "- <name> — needs: ..." line) — matched EXACTLY, never as
 # a substring of free prose (a pending gap "hardware" must not be killed by "- x — needs: hardware").
 blocked_names() {
@@ -101,6 +118,14 @@ echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"
 echo "  stop-control    : investigable=${inv:-?} · requires-execution=${req:-?} · blocked=${blk:-?}"
+mapfile -t ledgers < <(contra_ledgers)
+if [ "${#ledgers[@]}" -eq 0 ]; then
+  echo "  contradictions  : (no ledger)"
+else
+  [ "${#ledgers[@]}" -gt 1 ] && echo "WARN: multiple CONTRADICTIONS*.md ledgers under $corpus — counting all ${#ledgers[@]}" >&2
+  nopen="$(count_open_contra "${ledgers[@]}")"
+  [ "$nopen" -gt 0 ] && echo "  contradictions  : ${nopen} open" || echo "  contradictions  : (none)"
+fi
 printf '  next step       : '; resolve_next
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
