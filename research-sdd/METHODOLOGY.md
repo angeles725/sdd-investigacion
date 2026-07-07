@@ -85,10 +85,13 @@ DELIBERATE (to graduate the tool, not decision-forced) — and it EARNED ITS KEE
 aggregation bug (the old fixed `refutes < 2` threshold false-sealed a claim on ONE hostile vote when two
 skeptics died). The seal decision is now unit-tested in
 [`toolbelt/adversarial-verdict.mjs`](toolbelt/adversarial-verdict.mjs): KILL on majority-refute of VALID votes
-(`>= ceil(valid/2)`), `INSUFFICIENT` below a quorum of 2. It remains an OPT-IN SELECTIVE seal for load-bearing
-`[CERT]`, NOT a mandatory per-block gate — §11's evidence is that a blanket per-block re-verify caught nothing;
-§14 cross-block is the real error capture. HONESTY (§18): seal only when a wrong seal would genuinely mislead a
-downstream decision — never to pad a count.
+(`>= ceil(valid/2)`), `INSUFFICIENT` below a quorum of 2. The seal is now **confidence-GRADED**: a claim whose
+refute-count SURVIVES but whose surviving skeptics carry a mean `confidence` below the threshold (default `0.7`)
+is `INSUFFICIENT` — survived weakly, NOT sealed as full `[CERT]` (backward-compatible: confidence-less legacy
+votes keep plain SURVIVES). POLICY: the adversarial seal is **MANDATORY for conclusion-bearing `[CERT]` claims**
+(the ones a conclusion rests on) — not opt-in for those; it stays OPT-IN/SELECTIVE for other load-bearing `[CERT]`
+and is NOT a blanket per-block gate (§11: a per-block re-verify caught nothing; §14 cross-block is the real error
+capture). HONESTY (§18): seal only when a wrong seal would genuinely mislead a downstream decision — never to pad a count.
 
 ## 4. Anatomy of a block
 
