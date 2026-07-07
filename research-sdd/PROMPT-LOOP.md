@@ -120,6 +120,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      and reachable by the wrapper). A gap with NO reachable source must be marked blocked-on-<reason>
      (source-missing) in the backlog — NEVER launch an iteration agent at it, because with no source it
      will pad [INFER] or invent. Only gaps with confirmed source enter the investigable set.
+     ALSO MEASURE, never guess, each gap's SIZE: take the class/file count from an actual `find … | wc -l`
+     over the confirmed dir, not a hand-estimate (guessed "studio 6" was 61; "commands 36" was 14 and pointed
+     at the wrong dir). DISAMBIGUATE same-named nested dirs by FULL PATH before counting, and over DECOMPILED
+     code collapse duplicate decompiler-pipeline trees first — count DISTINCT fully-qualified class names, not
+     raw `.java` (a project decompiled by BOTH procyon and vineflower doubles the raw file count; "easyBinding
+     119" was 62 distinct classes). See METHODOLOGY §13.
   f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
