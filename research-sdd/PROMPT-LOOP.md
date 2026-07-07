@@ -61,10 +61,16 @@ Always read first, in this order:
   1. $KIT/METHODOLOGY.md        (phases, the 5 markers, block anatomy, sources/, stopping)
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
-  4. $TARGET/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]
-  5. $TARGET/INDEX.md           (map of existing blocks and Pending section)  [if missing → BOOTSTRAP]
+  4. $CORPUS/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]
+  5. $CORPUS/INDEX.md           (map of existing blocks and Pending section)  [if missing → BOOTSTRAP]
+     ($CORPUS = corpus root — METHODOLOGY §15. RESUME RESOLVES it deterministically: if $TARGET/corpus/INDEX.md
+      exists → $CORPUS=$TARGET/corpus/; else if $TARGET/INDEX.md exists → $CORPUS=$TARGET; else neither → BOOTSTRAP.
+      Check the corpus/ path FIRST — else a nested corpus reads as "missing" and BOOTSTRAP duplicates it.)
 
 == BOOTSTRAP (only if the target has NO INDEX.md/RESEARCH-STATE.md) ==
+  RESOLVE $CORPUS first (METHODOLOGY §15): default $CORPUS = $TARGET; if the target is IN-PROJECT (its dir
+  also holds its OWN subject material), set $CORPUS = $TARGET/corpus/ and `mkdir -p $CORPUS`. `retros/` stay
+  at $TARGET root regardless (sweep-retros.sh scans $target/retros).
   a. Profile the target: $KIT/toolbelt/profile-target.sh $TARGET  (classifies binaries → wrapper).
      Also run $KIT/toolbelt/detect-tools.sh (cache the report): learn which decompilers are ACTUALLY
      available before deciding what you can do. Do NOT infer availability from `which` alone — Ghidra,
@@ -88,16 +94,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
       SURFACE it for the orchestrator/user to pick rather than guessing. A mature target may legitimately
       host several parallel angles → see the MULTI-FOCUS CORPUS pattern (METHODOLOGY §16). (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
-  c. Create $TARGET/INDEX.md from $KIT/templates/INDEX.template.md (empty map + marker legend).
-  d. Create dirs first: `mkdir -p $TARGET/tools $TARGET/.claude/hooks $TARGET/sources`. Copy
-     $KIT/templates/gen-catalog.py → $TARGET/tools/, and $KIT/templates/hook-sessionstart.sh →
-     $TARGET/.claude/hooks/research-protocol.sh (adapt <SUBJECT> + real source paths); register it in
-     $TARGET/.claude/settings.json (matcher startup|resume|clear). Seed $TARGET/sources/SOURCES.md
+  c. Create $CORPUS/INDEX.md from $KIT/templates/INDEX.template.md (empty map + marker legend).
+  d. Create dirs first: `mkdir -p $CORPUS/tools $TARGET/.claude/hooks $CORPUS/sources` (.claude/ stays at
+     $TARGET root — orchestrator-local, not corpus). Copy
+     $KIT/templates/gen-catalog.py → $CORPUS/tools/, and $KIT/templates/hook-sessionstart.sh →
+     $TARGET/.claude/hooks/research-protocol.sh (adapt <SUBJECT> + real source paths; for an in-project target,
+     PREFIX the hook's block/INDEX/CATALOG paths with corpus/ so they resolve under $CORPUS); register it in
+     $TARGET/.claude/settings.json (matcher startup|resume|clear). Seed $CORPUS/sources/SOURCES.md
      from $KIT/templates/SOURCES.template.md.
      VERSION the corpus: `git -C $TARGET rev-parse --git-dir 2>/dev/null || git -C $TARGET init` — the
      git repo goes in the TARGET project, NOT in the kit (METHODOLOGY §15), so self-corrections (§14)
      have history.
-  e. Create $TARGET/RESEARCH-STATE.md from $KIT/templates/RESEARCH-STATE.template.md with an initial
+  e. Create $CORPUS/RESEARCH-STATE.md from $KIT/templates/RESEARCH-STATE.template.md with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
@@ -120,7 +128,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
-         $KIT/toolbelt/fetch-doc.sh (lands in $TARGET/sources/ + registered in SOURCES.md).
+         $KIT/toolbelt/fetch-doc.sh doc <url> $CORPUS [sub] [name] (lands in $CORPUS/sources/ + registered in SOURCES.md).
        - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
          $KIT/toolbelt/extract-pdf.sh (lands in sources/extracted/<name>.md). RULES:
            · TEXT-LAYER-FIRST: the script probes the layer and only OCRs when fonts=0. NEVER OCR a PDF that
@@ -166,7 +174,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          ONE level — nest a sub-sweep only for a punctual, well-scoped need; the specialized agents (Explore/Plan)
          cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use the Workflow engine
          (deterministic control, no per-hop context compression) instead of free-form native nesting.
-  4. WRITE ONE BLOCK: create/update $TARGET/<prefix>-blockN.md following the anatomy
+  4. WRITE ONE BLOCK: create/update $CORPUS/<prefix>-blockN.md following the anatomy
+     ($CORPUS = corpus root: default $TARGET, or $TARGET/corpus/ for an in-project target — METHODOLOGY §15)
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
        [CERT-hw] sources/probes/... (highest) · [CERT-live] live remote-service response (§12b) ·
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date · [CERT-a] forum (URL) ·
@@ -213,7 +222,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
-       - Regenerate: python3 $TARGET/tools/gen-catalog.py. Mirror to engram (research/<target>/gaps, .../progress).
+       - Regenerate: python3 $CORPUS/tools/gen-catalog.py. Mirror to engram (research/<target>/gaps, .../progress).
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
          INDEX/RESEARCH-STATE from scratch, so before appending YOUR entry, check the PRECEDING iteration's
          bookkeeping (its block-table row, file/gap-count totals) is complete and consistent — repair it as
@@ -224,12 +233,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      (Secondary: backlog empty 2× in a row.) On stop, DECLARE: blocks written, coverage ratio, the
      blocked gaps each tagged with the tool/access it needs, and the TOOLS REPORT (installed · couldn't
      -install+why · recommended — from $KIT/toolbelt/INSTALLED-TOOLS.md).
-     MECHANIZE the §5 source-registry check: run `$KIT/toolbelt/verify-sources.sh $TARGET` and paste its
+     MECHANIZE the §5 source-registry check: run `$KIT/toolbelt/verify-sources.sh $CORPUS` and paste its
      output — it exits non-zero if a block cites a preserved-source marker ([CERT-doc]/[CERT-a]) with no
      sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
      step 5's verify-block.sh: per-block marker/citation math is checked in-iteration, source-registry
      integrity is checked once at STOP (it reads the whole corpus).
-     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $TARGET` BEFORE honoring STOP —
+     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $CORPUS` BEFORE honoring STOP —
      it exits non-zero when the coverage summary claims all gaps closed while the backlog still lists `pending`
      rows (the stale-mirror desync that let run-A emit a premature STOP). A non-zero exit means you are NOT at
      STOP: refresh the summary / reopen the metric and keep looping. If STOP did NOT fire, do NOT end
