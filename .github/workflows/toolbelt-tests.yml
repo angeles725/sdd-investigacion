@@ -28,3 +28,15 @@ jobs:
 
       - name: Run toolbelt test suites
         run: bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint toolbelt shell scripts (warning+)
+        run: |
+          shellcheck --version
+          find research-sdd/toolbelt -name '*.sh' -print0 | xargs -0 shellcheck -S warning

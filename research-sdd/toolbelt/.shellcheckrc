@@ -1,0 +1,17 @@
+# ShellCheck configuration for the Research-SDD toolbelt.
+#
+# The CI gate runs at --severity=warning; these disables keep a plain, default-severity
+# `shellcheck research-sdd/toolbelt/*.sh` run clean for local developers by silencing two
+# checks that are false positives for this codebase's established idioms.
+
+# SC2015 — "A && B || C is not if-then-else".
+#   The test suites use `[ cond ] && ok "..." || no "..."` pervasively. ok()/no() are
+#   printf + counter helpers whose last statement is an arithmetic assignment, so they
+#   ALWAYS exit 0 — the `|| no` branch never runs when the condition is true. Safe idiom.
+disable=SC2015
+
+# SC2016 — "expressions don't expand in single quotes".
+#   Single quotes in the toolbelt's sed/awk/printf format strings and mutation patterns
+#   are intentional: the text must stay literal (a sed program, an awk script, a printf
+#   template). Not a defect.
+disable=SC2016

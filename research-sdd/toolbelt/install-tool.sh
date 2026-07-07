@@ -64,7 +64,7 @@ case "$RECIPE" in
     if [ -n "$TGT" ] && [ -e "$TGT" ]; then
       ARCH="$(file -b "$TGT" 2>/dev/null)"
       case "$ARCH" in
-        *aarch64*|*arm64*|*"ARM aarch64"*) : ;;   # supported
+        *aarch64*|*arm64*) : ;;   # supported (*aarch64* already matches "ARM aarch64")
         *x86-64*|*x86_64*|*"Intel 80386"*|*PE32*)
           log blutter "compat precheck (file: ${ARCH:0:40})" incompatible "ARM64-only tool; target is x64/x86 -> NOT building (saves ~20min dead-end). Use strings/manual or an x64 Dart-AOT tool"
           echo "INCOMPATIBLE: blutter supports ARM64 only; target is not ARM64 ($ARCH)" >&2; exit 5 ;;
