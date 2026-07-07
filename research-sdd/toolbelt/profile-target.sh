@@ -36,7 +36,7 @@ suggest() {
     *"Zip archive"*)                            echo "decompile-java.sh (if .jar)" ;;
     *".Net assembly"*|*"Mono/.Net"*)            echo "decompile-net.sh" ;;
     *"ELF "*executable*|*"ELF "*shared*)        echo "decompile-native.sh" ;;
-    *"PE32"*|*"PE32+"*|*"MS Windows"*)          echo "decompile-net.sh? / decompile-native.sh" ;;
+    *"PE32"*|*"MS Windows"*)                    echo "decompile-net.sh? / decompile-native.sh" ;;
     *"PDF document"*)                           echo "fetch-doc.sh (extract text/OCR)" ;;
     *"firmware"*|*"filesystem"*)                echo "scan-firmware.sh" ;;
     *"data"*|*"empty"*)                         echo "scan-firmware.sh + MANUAL (opaque/custom container; magic: $(magic "$2"))" ;;

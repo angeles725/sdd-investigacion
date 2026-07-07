@@ -178,6 +178,7 @@ tier2_tesseract() {  # $1=src $2=out
   local tmp; tmp="$(mktemp -d)"; local f="${PF:-1}" l="${PL:-$PAGES_TOTAL}"
   pdftoppm -r 300 -gray -f "$f" -l "$l" "$1" "$tmp/pg" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
   # OCR each page in parallel; one text file per page.
+  # shellcheck disable=SC2011  # pg-*.pgm names are generated internally by pdftoppm (no spaces); the ls glob is safe here
   ls "$tmp"/pg-*.pgm 2>/dev/null | xargs -P"$(nproc)" -I{} sh -c \
     'tesseract "{}" "${1%.pgm}" -l '"$LANG_OCR"' --psm 1 >/dev/null 2>&1' _ {}
   { echo "---"; echo "source_pdf: $1"; echo "sha256: $SHA"; echo "pages_total: $PAGES_TOTAL";
