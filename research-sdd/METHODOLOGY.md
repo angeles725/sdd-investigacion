@@ -588,15 +588,29 @@ assets) share the dir and must NOT be swept into the corpus history either. Add 
 which is one `git add -A` away from committing the whole subject. The structural guard, not operator habit,
 is the fix. (Lesson: three.js's corpus sat alongside 23 subject `.html` files kept out only by hand.)
 
+**Corpus root (`$CORPUS`) — the structural guard, named.** Define `$CORPUS` = the corpus root. Default
+`$CORPUS = $TARGET`. When the target is an IN-PROJECT corpus (its dir also holds its OWN non-corpus subject
+material — app files, prototypes), set `$CORPUS = $TARGET/corpus/` so a flat corpus does not drown the
+project root. The ENTIRE flat corpus lives under `$CORPUS`: blocks (`$CORPUS/<prefix>-blockN.md`, still with
+the focus-aware prefix of §16 for a readable `ls`), INDEX.md, CATALOG.md, RESEARCH-STATE.md, HANDBOOK.md,
+`sources/`. NO extra `blocks/` subdir — blocks sit directly in `$CORPUS`. EXCEPTION: `retros/` stay at the
+TARGET root (`$TARGET/retros/`), NOT under `$CORPUS`, because `toolbelt/sweep-retros.sh` scans `$target/retros`
+(§18) — moving them would blind the sweep. Precedent (the model to copy): `pruebas-dashboards` uses exactly
+this layout — `corpus/dashboard-block*.md`, `corpus/INDEX.md`, `corpus/sources/`, root `retros/`. Use the
+name `corpus/` (not `research/`). The loop HANDS the linters the resolved `$CORPUS` (PROMPT-LOOP step 7), so
+they lint the corpus wherever it sits; `verify-state.sh` additionally auto-anchors on the blocks
+(`find -maxdepth 3`). RULE: never hardcode the target root into a linter — resolve or receive `$CORPUS`, else a
+nested corpus FALSE-PASSes (the §5 gap that bit `verify-sources.sh`).
+
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
 A small target is a single axis. A **mature or large** target often has several distinct subjects worth
 investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerSupervisor`, and
 `platform-native`. Formalize this instead of spawning ad-hoc state files:
 
-- **One RESEARCH-STATE per focus.** Each focus gets its own `RESEARCH-STATE-<focus>.md` (its own
+- **One RESEARCH-STATE per focus.** Each focus gets its own `RESEARCH-STATE-<focus>.md` under `$CORPUS` (its own
   coverage ratio + gap backlog). Pick a short, stable `<focus>` slug (the angle from PROMPT-LOOP §b2).
-- **A focus index.** Keep a small `FOCUSES.md` at the target root (or a top "## Focuses" section in
+- **A focus index.** Keep a small `FOCUSES.md` at the corpus root `$CORPUS` (or a top "## Focuses" section in
   `INDEX.md`) listing each focus as **active / paused / stopped**, its `RESEARCH-STATE-<focus>.md`, and
   its block prefix. This is how the loop (and a human) knows which focuses exist and which is current.
 - **Naming convention.** Blocks carry a focus-aware prefix (e.g. `spyder-blockN.md`,
@@ -706,7 +720,7 @@ hard-stops, never blind.
   build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
   in RESEARCH-STATE exactly like the investigable count.
 - **Artifacts in `codegen/`.** PoC source, build output, and captured round-trip diffs live under
-  `$TARGET/codegen/` and are preserved as evidence (a diff is `[CERT]` evidence like a probe capture).
+  `$CORPUS/codegen/` and are preserved as evidence (a diff is `[CERT]` evidence like a probe capture).
   The block cites them; the code is not the deliverable, the validated finding is.
 - **Handoff from the static loop.** When the static loop's TERMINAL TRIGGER (§8) sees remaining
   `requires-execution` gaps, it hands off here — this is the "non-static phase" it names. Provisioning a
