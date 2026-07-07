@@ -152,6 +152,24 @@ if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'archived'; then
   ok "failing INDEX touch degrades — checklist still prints, exit 0 (no mid-abort)"
 else no "touch-fail abort: exit=$rc did not reach 'archived.' :: $out"; fi
 
+# 16 — GATE (scan-secrets): a high-confidence secret VALUE leaked into an authored block → REFUSE (exit 3).
+#      The fixture is plain mkgood (passes verify-state AND verify-sources) plus one leaked AWS key, so this
+#      isolates the scan-secrets gate: before the wiring the corpus archives clean at exit 0; the gate must
+#      flip it to a fail-closed exit 3 and print a scan-secrets FAIL line.
+d="$TMP/secret"; mkgood "$d"
+printf '\nLeaked on deploy: AKIAIOSFODNN7EXAMPLE\n' >> "$d/t-block1.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && printf '%s' "$out" | grep -qiE 'scan-secrets .*FAIL'; then
+  ok "leaked secret VALUE REFUSED (exit 3, scan-secrets FAIL)"
+else no "secret corpus exit=$rc (want 3) / scan-secrets FAIL=$(printf '%s' "$out" | grep -ciE 'scan-secrets .*FAIL') :: $out"; fi
+
+# 17 — CONTROL: the SAME fixture WITHOUT the secret must NOT refuse on scan-secrets (gate passes → exit 0).
+d="$TMP/nosecret"; mkgood "$d"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qE 'scan-secrets .*: ok'; then
+  ok "secret-free corpus passes the scan-secrets gate (exit 0)"
+else no "clean corpus exit=$rc (want 0) / scan-secrets ok=$(printf '%s' "$out" | grep -cE 'scan-secrets .*: ok') :: $out"; fi
+
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the gate in a mutant, expect the stale fixture to archive instead of refusing --"
@@ -160,6 +178,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed 's/gate_rc=1/gate_rc=0/g' "$SUT" > "$mutant"
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
   d="$TMP/teeth"; mkgood "$d"; sed -i 's#2 / 3 closed#3 / 3 closed#' "$d/RESEARCH-STATE.md"
   bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
   if [ "$mrc" = 0 ]; then ok "teeth: gate-neutered mutant archives a stale corpus → gate test has teeth"
