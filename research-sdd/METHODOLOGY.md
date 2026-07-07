@@ -444,6 +444,13 @@ cited file that exists but whose line is out of range). It does NOT replace the 
 beautified-temp / decompiled / snapshot path shows as `extern` (not target-resolvable), so the agent still
 confirms those the same way it confirms every load-bearing `[CERT]` token — by reading the cited source.
 
+**Block-evidence artifacts are gate-enforced (not `extern`).** An evidence dump a `[CERT]` cites BY ARTIFACT
+NAME (`B<N>-*` / `bloque<N>-*`, extension OPTIONAL — `B125-ghidra-njre.txt:421‑488` and `B128-triage:103` both
+count — cited inside a parenthetical span or backticks, single line or a range) MUST be preserved in the corpus.
+`verify-block.sh` now resolves these strictly: an unresolvable artifact cite is a **FAIL**, not `extern` —
+bloque125 sealed load-bearing `[CERT]`s to `B125-*.txt` dumps that were never preserved, and the old parser
+(backticked single-line only) let them pass clean.
+
 The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
 mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper
 commands by default — the in-block contract is the gate. This is not a soft preference: on the protocols

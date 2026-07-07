@@ -122,6 +122,204 @@ if ! printf '%s' "$cline" | grep -q '(adj' && printf '%s' "$out" | grep -qiE 'ad
   ok "unfenced legend + body quote/'---' → fallback raw (no phantom-legend claim drop)"
 else no "unfenced-legend regression: [$cline] · note=$(printf '%s' "$out" | grep -ci 'adjusted = raw')"; fi
 
+# ---- block-evidence-artifact citation gate (§11: dumps a [CERT] cites by artifact name MUST be preserved) ----
+# The real bloque125 hole: a load-bearing [CERT] seals to a BARE parenthetical RANGE cite of a B<N>-*.txt dump
+# that does not exist. Today's parser only sees BACKTICKED single-line cites, so a [CERT] sealed to vanished
+# evidence passes clean. The gate must FAIL an unresolvable artifact cite (not print `extern`), while leaving
+# generic non-artifact bare cites (foreign binaries, offsets) untouched so prose stays false-positive free.
+rrc(){ bash "$SUT" "$1" 2>/dev/null >/dev/null; }   # run for exit code only
+
+# 10 — bare artifact RANGE cite whose dump file is ABSENT → MISSING + exit 1 (the real bloque125 defect).
+d="$TMP/art-missing.md"
+{ echo "# Block 10 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The verbatim option order is fixed (B99-njre.txt:10-20). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -q 'MISSING'; then ok "absent artifact cite → MISSING + exit 1 (teeth)"
+else no "absent artifact cite not caught: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'MISSING|extern|B99' | head -1)"; fi
+
+# 11 — bare artifact cite whose dump EXISTS with enough lines → ok + exit 0.
+d="$TMP/art-ok.md"; seq 1 30 > "$TMP/B98-present.txt"
+{ echo "# Block 11 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Order preserved (B98-present.txt:10-20). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && printf '%s' "$out" | grep -qE 'ok +B98-present'; then ok "present artifact cite in range → ok + exit 0"
+else no "present artifact cite not ok: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B98|MISSING|RANGE' | head -1)"; fi
+
+# 12 — artifact RANGE whose END exceeds the dump's line count → RANGE + exit 1.
+d="$TMP/art-range.md"; seq 1 15 > "$TMP/B97-short.txt"
+{ echo "# Block 12 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Spans the whole block (B97-short.txt:10-40). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'RANGE.*B97-short'; then ok "artifact range END past EOF → RANGE + exit 1"
+else no "artifact over-range not caught: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B97|RANGE|MISSING' | head -1)"; fi
+
+# 13 — REGRESSION GUARD: a legit NON-artifact bare cite (foreign binary, no file present) must NOT FAIL —
+#      it is not a B<N>-*/bloque<N>-* dump, so it stays ignored/extern and never turns into a false positive.
+d="$TMP/nonart.md"
+{ echo "# Block 13 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Bridges into (mod.exe:100) at the shim. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ]; then ok "non-artifact bare cite stays ignored (no false FAIL, exit 0)"
+else no "non-artifact bare cite wrongly FAILed: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'mod.exe|MISSING' | head -1)"; fi
+
+# 14 — the REAL bloque125 dash: absent artifact RANGE cite using U+2011 (‑) as the range separator → MISSING+exit1.
+d="$TMP/art-realdash.md"
+{ echo "# Block 14 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  printf '%s\n' "In this verbatim order (B125-ghidra-njre.txt:421‑488). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -q 'MISSING'; then ok "real bloque125 U+2011-dash range cite (absent) → MISSING + exit 1"
+else no "U+2011-dash artifact cite not caught: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'MISSING|B125|extern' | head -1)"; fi
+
+# ---- artifact-cite gate hardening: citation-shaped context + full range bounds ----
+# The artifact pass must only fire on cites in a CITATION-SHAPED context (backticked OR parenthesized) — an
+# unanchored scan matches mid-word (`verbB12-record.txt`) and hard-fails prose that merely EXPLAINS the
+# convention. And a range must bounds-check its START, not only its END (a reversed/overflow start is a defect).
+
+# 15 — backticked artifact cite whose dump is ABSENT → still MISSING + exit 1 (backtick is a citation context).
+d="$TMP/art-backtick.md"
+{ echo "# Block 15 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Order preserved \`B5-x.txt:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'MISSING.*B5-x'; then ok "backticked artifact cite (absent) → MISSING + exit 1"
+else no "backticked artifact cite not caught: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B5-x|MISSING' | head -1)"; fi
+
+# 16 — REGRESSION: an artifact-shaped substring MID-WORD in prose (verbB12-record.txt:44), not a real cite,
+#      must NOT fire — no parens/backticks, and it starts mid-word. [CERT] present so the block is otherwise valid.
+d="$TMP/art-midword.md"
+{ echo "# Block 16 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Our naming convention for verbB12-record.txt:44 dumps the trace. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "mid-word artifact-shaped prose does NOT fire (no false MISSING, exit 0)"
+else no "mid-word prose wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
+# 17 — REGRESSION: prose that EXPLAINS the convention (bare `bloque12-dump.txt:5`, no parens/backticks) must
+#      NOT hard-fail the gate — a block discussing the convention is legitimate, not a vanished-evidence seal.
+d="$TMP/art-conv.md"
+{ echo "# Block 17 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "A bloque12-dump.txt:5 citation would look like this in a self-report. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "convention-discussion prose does NOT fire (no false MISSING, exit 0)"
+else no "convention prose wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
+# 18 — range START must be bounds-checked too: file has 10 lines, cite (B1-short.txt:9999-2) has START past
+#      EOF and is reversed → RANGE! + exit 1 (checking only END, 2<=10, would wrongly pass).
+d="$TMP/art-startrange.md"; seq 1 10 > "$TMP/B1-short.txt"
+{ echo "# Block 18 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Spans (B1-short.txt:9999-2) of the dump. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'RANGE.*B1-short'; then ok "range START past EOF / reversed → RANGE + exit 1"
+else no "range START not bounds-checked: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B1-short|ok|RANGE' | head -1)"; fi
+
+# ---- artifact cite must be caught ANYWHERE inside a paren/backtick span (real corpus: `(cf. … B124-x:…)`) ----
+# The real niagara format puts TEXT between the `(` and the token (bloque124/129). The gate must catch a
+# word-boundary artifact token anywhere inside a parenthetical span (or backticks), not only right after `(`.
+
+# 19 — text BEFORE the token inside parens (`(cf. …)`), dump absent → MISSING + exit 1 (real B124 format).
+d="$TMP/art-cf.md"
+{ echo "# Block 19 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Its linked-libs list has no njre.dll (cf. B124-triage.txt:839-854). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'MISSING.*B124-triage'; then ok "text-before-token in parens ((cf. …)) caught → MISSING + exit 1"
+else no "(cf. …) cite dropped: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B124|MISSING|ok' | head -1)"; fi
+
+# 20 — text before token + trailing colon after the paren (`(see …):`), dump absent → MISSING + exit 1.
+d="$TMP/art-see.md"
+{ echo "# Block 20 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Imports are only JavaLauncher (see B129-plat.txt:689-696): the shim. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'MISSING.*B129-plat'; then ok "text-before-token + trailing colon ((see …):) caught → MISSING + exit 1"
+else no "(see …): cite dropped: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B129|MISSING|ok' | head -1)"; fi
+
+# 21 — REGRESSION: a mid-word artifact-shaped substring INSIDE parens ((verbB12-record.txt:44)) must still NOT
+#      fire — the token is preceded by a letter, so it is not at a word boundary and is not a real cite.
+d="$TMP/art-midword-paren.md"
+{ echo "# Block 21 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The suffix appears (verbB12-record.txt:44) inside a word here. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "mid-word token inside parens does NOT fire (word-boundary guard, exit 0)"
+else no "mid-word-in-parens wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
+# 22 — a valid in-bounds range inside parens resolves ok (2-9 within a 10-line dump) → exit 0.
+d="$TMP/art-goodrange.md"; seq 1 10 > "$TMP/B1-short.txt"
+{ echo "# Block 22 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Spans (B1-short.txt:2-9) of the dump. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && printf '%s' "$out" | grep -qE 'ok +B1-short.txt:2-9'; then ok "in-bounds range (2-9 of 10 lines) → ok + exit 0"
+else no "in-bounds range not ok: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B1-short|RANGE' | head -1)"; fi
+
+# ---- EXTENSIONLESS artifact cites (bloque128 declares `cited as B128-triage:LINE`) must be caught too ----
+# ~45% of the real corpus omits the file extension (`B128-triage:103`). The gate must resolve `target/B128-triage`
+# just like an extensioned dump — an absent one is the same silent-pass defect the feature exists to kill.
+
+# 23 — extensionless single-line cite, dump absent → MISSING + exit 1.
+d="$TMP/art-extless.md"
+{ echo "# Block 23 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "sha256 distinct (B128-triage:103). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'MISSING.*B128-triage:103'; then ok "extensionless single-line cite (absent) → MISSING + exit 1"
+else no "extensionless single cite dropped: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B128|MISSING|ok' | head -1)"; fi
+
+# 24 — extensionless RANGE cite with the real U+2011 dash, dump absent → MISSING + exit 1.
+d="$TMP/art-extless-range.md"
+{ echo "# Block 24 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  printf '%s\n' "headers (B128-triage:12‑34). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'MISSING.*B128-triage'; then ok "extensionless U+2011-range cite (absent) → MISSING + exit 1"
+else no "extensionless range cite dropped: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B128|MISSING|ok' | head -1)"; fi
+
+# 25 — extensionless cite with TEXT BEFORE the token inside the span, dump absent → MISSING + exit 1.
+d="$TMP/art-extless-text.md"
+{ echo "# Block 25 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  printf '%s\n' "the PE header set (rabin2 out; B128-triage:100‑113). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && printf '%s' "$out" | grep -qE 'MISSING.*B128-triage'; then ok "extensionless text-before-token cite (absent) → MISSING + exit 1"
+else no "extensionless text-before cite dropped: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B128|MISSING|ok' | head -1)"; fi
+
+# 26 — REGRESSION (looser pattern makes this more important): a mid-word EXTENSIONLESS look-alike inside parens
+#      ((verbB12-triage:44)) must STILL NOT fire — the token is preceded by a letter (no word boundary).
+d="$TMP/art-extless-midword.md"
+{ echo "# Block 26 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The suffix (verbB12-triage:44) appears mid-word here. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "mid-word extensionless token inside parens does NOT fire (word-boundary guard, exit 0)"
+else no "mid-word extensionless wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
+# 27 — extensionless in-bounds range resolves ok (2-9 within a 10-line dump named with NO extension) → exit 0.
+d="$TMP/art-extless-ok.md"; seq 1 10 > "$TMP/B1-short"
+{ echo "# Block 27 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Spans (B1-short:2-9) of the dump. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && printf '%s' "$out" | grep -qE 'ok +B1-short:2-9'; then ok "extensionless in-bounds range (2-9 of 10 lines) → ok + exit 0"
+else no "extensionless in-bounds range not ok: rc=[$rc] :: $(printf '%s' "$out" | grep -iE 'B1-short|RANGE|MISSING' | head -1)"; fi
+
+# ---- FALSE-POSITIVE guards: a DIGIT-ONLY filename remainder is ordinary numeric prose, not an artifact cite ----
+# All 44 real dumps carry letters (`triage`, `native-triage`, `ghidra-njre`). Ranges/sections written as
+# `B12-3:44`, `B5-10:20`, `B7-2:1` are prose, not `B<N>-*` dumps — the filename run must require >=1 letter.
+
+# 28 — a section reference (B12-3:44) — digit-only remainder in prose — must NOT fire.
+d="$TMP/fp-section.md"
+{ echo "# Block 28 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "It is defined (see section B12-3:44 of the annex). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "digit-only filename part (B12-3:44) does NOT fire (no false MISSING, exit 0)"
+else no "B12-3:44 wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
+# 29 — a table range (B5-10:20) — digit-only remainder — must NOT fire.
+d="$TMP/fp-range.md"
+{ echo "# Block 29 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Shown in (the range B5-10:20 of the table). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "digit-only range (B5-10:20) does NOT fire (no false MISSING, exit 0)"
+else no "B5-10:20 wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
+# 30 — two digit-only build refs (B7-2:1 vs B7-3:1) in one paren span — neither must fire.
+d="$TMP/fp-build.md"
+{ echo "# Block 30 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Compared (build B7-2:1 vs B7-3:1 here). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! printf '%s' "$out" | grep -q 'MISSING'; then ok "digit-only build refs (B7-2:1 vs B7-3:1) do NOT fire (no false MISSING, exit 0)"
+else no "B7-x:1 wrongly fired: rc=[$rc] :: $(printf '%s' "$out" | grep -i 'MISSING' | head -1)"; fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"

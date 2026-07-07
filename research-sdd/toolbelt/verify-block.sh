@@ -13,7 +13,8 @@
 #
 # Usage: verify-block.sh <block.md> [target-dir]
 #   target-dir defaults to the block's own directory (file:line citations are target-relative).
-# Exit: 0 = no verifiable contradiction · 1 = a cited file EXISTS but the line is out of range · 2 = bad args.
+# Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
+#       (B<N>-* / bloque<N>-*) is not preserved in the target · 2 = bad args.
 
 set -uo pipefail
 block="${1:-}"
@@ -70,16 +71,67 @@ echo "-- ratio -- [INFER]/[CERT*] = $infer/$cert_total = $ratio"
 echo "   (>~0.5 in an EVIDENCE block signals investigable evidence nearly exhausted; EXPECTED and healthy in a"
 echo "    DESIGN/synthesis block — DECLARE the block TYPE so the ratio is read right, §11)"
 
-# 3. Citation resolution — `file:line` tokens (target-relative). Captures backticked paths with an extension.
+# 3. Citation resolution — `file:line` tokens (target-relative).
+# Two passes with DIFFERENT teeth:
+#   (a) BLOCK-EVIDENCE-ARTIFACT cites — dumps named `B<N>-*` / `bloque<N>-*` a [CERT] seals to BY ARTIFACT NAME,
+#       cited inside a parenthetical `(...)` or backticks, single line OR a RANGE (`start-end`; the real corpus
+#       uses a U+2011 non-breaking hyphen, also accept ASCII `-` and U+2013 en-dash). Convention (§11): such
+#       evidence MUST be preserved in the corpus, so an unresolvable artifact cite is a FAIL, not `extern` —
+#       bloque125 sealed load-bearing [CERT]s to `B125-*.txt` dumps that were never preserved and the old parser
+#       (which only saw backticked single-line cites) let them pass clean.
+#   (b) GENERIC backticked single-line cites — unchanged ok / RANGE! / extern; a non-artifact bare cite
+#       (foreign binary, offset) is still NOT a citation the script resolves, so prose stays false-positive free.
 echo "-- [CERT] file:line citation resolution --"
 rc=0
-cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+`' "$block" | tr -d '`' | sort -u)
-if [ -z "$cites" ]; then
+# The EXTENSION IS OPTIONAL: ~45% of the real corpus omits it (bloque128 declares `cited as B128-triage:LINE`),
+# so the filename run carries `.ext` when present and stops at `:` when not — matching BOTH
+# `B124-native-triage.txt:135` and `B128-triage:103`. The run MUST contain AT LEAST ONE LETTER
+# (`[a-z0-9_.-]*[a-z][a-z0-9_.-]*`): every real dump has letters (`triage`, `ghidra-njre`), whereas an
+# all-DIGIT remainder is ordinary numeric prose (`B12-3:44` section, `B5-10:20` range) — not an artifact cite.
+art_name='(b[0-9]+|bloque[0-9]+)-[a-z0-9_.-]*[a-z][a-z0-9_.-]*'          # artifact filename shape (case-insens.)
+art_tail=':[0-9]+((-|‑|–)[0-9]+)?'                                       # :line or :start-end (real dash = U+2011)
+# An artifact cite only counts when it sits in a CITATION-SHAPED span: inside a parenthetical `(...)` OR inside
+# backticks. The real corpus (bloque124/129) puts TEXT between the `(` and the token — `(cf. … B124-x.txt:…)`,
+# `(KERNEL32; B124-x.txt:…)` — so the token may sit anywhere inside the span, not only right after `(`. Within
+# a span the token must start at a WORD BOUNDARY (`\b`), which keeps it OFF mid-word look-alikes whether bare
+# (`verbB12-record.txt`) or parenthesised (`(verbB12-record.txt:44)`), and prose OUTSIDE any span never fires.
+# Known limitation (not in corpus today): `\([^)]*\)` does not span a NESTED paren, so a cite in
+# `(outer (inner) B124-x.txt:5)` is dropped — documented here so it is a known blind spot, not a silent one.
+art_spans=$(grep -oE '\([^)]*\)|`[^`]*`' "$block")                       # parenthetical + backtick spans, one per line
+art_cites=$(printf '%s\n' "$art_spans" | grep -oiE "\\b${art_name}${art_tail}" | sort -u)
+bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+`' "$block" | tr -d '`' | sort -u)
+if [ -z "$art_cites" ] && [ -z "$bt_cites" ]; then
   echo "   (no file:line citations found)"
-else
+fi
+# (a) artifact cites — strict: MISSING (unpreserved evidence) and out-of-range both FAIL.
+if [ -n "$art_cites" ]; then
+  while IFS= read -r c; do
+    [ -z "$c" ] && continue
+    n=$(printf '%s' "$c" | sed 's/‑/-/g; s/–/-/g')                       # normalise range dash to ASCII
+    f="${n%:*}"; rng="${n##*:}"
+    case "$rng" in
+      *-*) start="${rng%-*}"; end="${rng##*-}";;                         # a range: bounds-check BOTH ends
+      *)   start="$rng"; end="$rng";;                                    # single line
+    esac
+    if [ ! -f "$target/$f" ]; then
+      echo "   MISSING! $c  (evidence artifact not preserved)"; rc=1
+    else
+      total=$(wc -l < "$target/$f")
+      # FAIL if either endpoint is past EOF or the range is reversed (start > end).
+      if [ "$start" -le "$total" ] && [ "$end" -le "$total" ] && [ "$start" -le "$end" ]; then
+        echo "   ok      $c"
+      else
+        echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
+      fi
+    fi
+  done <<< "$art_cites"
+fi
+# (b) generic backticked cites — skip any whose filename is an artifact (already handled strictly above).
+if [ -n "$bt_cites" ]; then
   while IFS= read -r c; do
     [ -z "$c" ] && continue
     f="${c%:*}"; ln="${c##*:}"
+    printf '%s' "$f" | grep -qiE "^${art_name}$" && continue
     if [ -f "$target/$f" ]; then
       total=$(wc -l < "$target/$f")
       if [ "$ln" -le "$total" ]; then
@@ -90,7 +142,7 @@ else
     else
       echo "   extern  $c  (not in target: beautified-temp / decompiled / snapshot — not script-verifiable)"
     fi
-  done <<< "$cites"
+  done <<< "$bt_cites"
 fi
 
 # 4. OCR-provenance flag — a [CERT-doc] citation sourced from an OCR'd (scanned) PDF is LOSSY
