@@ -36,6 +36,18 @@ const VERDICT_SCHEMA = {
   required: ['refuted', 'confidence', 'reasoning'],
 }
 
+// sealVerdict — inlined so this Workflow script stays self-contained for the engine.
+// CANONICAL copy + red-first tests: adversarial-verdict.mjs / tests/adversarial-verdict.test.mjs.
+// KILL on majority-refute of VALID (non-null) votes; INSUFFICIENT (never seal) below quorum —
+// a fixed `refutes < 2` used to SEAL a claim on a single refuting vote when two skeptics died.
+function sealVerdict(votes, { quorum = 2 } = {}) {
+  const valid = (Array.isArray(votes) ? votes : []).filter(Boolean)
+  const refutes = valid.filter(v => v && v.refuted === true).length
+  if (valid.length < quorum) return { valid: valid.length, refutes, verdict: 'INSUFFICIENT' }
+  const killThreshold = Math.ceil(valid.length / 2)
+  return { valid: valid.length, refutes, killThreshold, verdict: refutes >= killThreshold ? 'KILLED' : 'SURVIVES' }
+}
+
 // Defensive: args may arrive as an array OR as a JSON-encoded string.
 let claims = args
 if (typeof claims === 'string') { try { claims = JSON.parse(claims) } catch (e) { claims = [] } }
@@ -59,21 +71,23 @@ const results = await pipeline(
         { label: `verify:${c.id || 'c' + i}:skeptic${k + 1}`, phase: 'Verify', model: 'sonnet', schema: VERDICT_SCHEMA }
       )
     )).then(votes => {
-      const valid = votes.filter(Boolean)
-      const refutes = valid.filter(v => v.refuted).length
-      const survives = refutes < 2
+      const s = sealVerdict(votes)
+      const label = s.verdict === 'SURVIVES' ? 'SURVIVES ([CERT] sealed)'
+                  : s.verdict === 'KILLED'   ? 'KILLED'
+                  :                            'INSUFFICIENT (too few skeptics survived — NOT sealed)'
       return {
         id: c.id || 'c' + i,
         claim: c.claim,
-        refutes,
-        total: valid.length,
-        verdict: survives ? 'SURVIVES ([CERT] sealed)' : 'KILLED',
-        votes: valid.map(v => ({ refuted: v.refuted, confidence: v.confidence, reasoning: v.reasoning })),
+        refutes: s.refutes,
+        total: s.valid,
+        verdict: label,
+        votes: votes.filter(Boolean).map(v => ({ refuted: v.refuted, confidence: v.confidence, reasoning: v.reasoning })),
       }
     })
 )
 
 const kept = results.filter(r => r.verdict.startsWith('SURVIVES'))
 const killed = results.filter(r => r.verdict === 'KILLED')
-log(`Adversarial verify done: ${kept.length} survived, ${killed.length} killed of ${results.length} claims`)
-return { survived: kept.length, killed: killed.length, total: results.length, results }
+const insufficient = results.filter(r => r.verdict.startsWith('INSUFFICIENT'))
+log(`Adversarial verify done: ${kept.length} sealed, ${killed.length} killed, ${insufficient.length} insufficient of ${results.length} claims`)
+return { survived: kept.length, killed: killed.length, insufficient: insufficient.length, total: results.length, results }
