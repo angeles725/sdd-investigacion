@@ -96,6 +96,51 @@ sources_registry "$d" "$(printf '|\tds.pdf\t| datasheet | http://x | 2026-01-01 
 assert_exit "$SUT" 0 "GOOD: tab-padded File cell is not a fabricated-cite (LEVEL 4)" "$d"
 
 # ---------------------------------------------------------------------------
+# LEVEL 1 LEGEND-STRIP — the header-legend false-positive. EVERY block opens with a blockquote LEGEND that
+# DEFINES the markers (e.g. `> [CERT-a] = asserted by a source; [INFER] = deduction`). A plain `grep -lF`
+# counts that legend as a preserved-source CITATION, so a legend-only corpus with no SOURCES.md FALSE-FAILS
+# LEVEL 1 ("must register preserved sources"). The fix reuses verify-block.sh's positional legend-strip:
+# count the marker only in the BODY that follows the leading `>` blockquote's closing `---` fence.
+
+# BAD-TURNED-GOOD (RED-FIRST) — a block whose ONLY [CERT-a]/[CERT-doc] occurrence is the header legend, and no
+#   other real cite, must NOT trip LEVEL 1. Today the legend is counted → doc+a>0 → false LEVEL 1 FAIL (exit 1).
+d="$TMP/legend-only-no-registry"; mkdir -p "$d"
+block "$d/lo-block1.md" \
+  '# Block 1' \
+  '> `[CERT-a]` = asserted by a source; `[CERT-doc]` = from a preserved doc; `[INFER]` = deduction.' \
+  '' \
+  '---' \
+  '' \
+  '## 1.1 [CERT] file.c:10 — a purely local claim; NO preserved source is actually cited in the body.'
+assert_exit "$SUT" 0 "LEGEND-ONLY markers do not trip LEVEL 1" "$d"
+
+# REAL-CITE GUARD — same legend, but the BODY genuinely uses [CERT-a] on a claim → the preserved marker is
+#   REAL → LEVEL 1 must STILL fire with no SOURCES.md. Pins that the strip does not over-suppress real cites.
+d="$TMP/legend-plus-real-cite"; mkdir -p "$d"
+block "$d/lr-block1.md" \
+  '# Block 1' \
+  '> `[CERT-a]` = asserted by a source; `[CERT-doc]` = from a preserved doc; `[INFER]` = deduction.' \
+  '' \
+  '---' \
+  '' \
+  '## 1.1 [CERT-a] the datasheet asserts Vcc=3.3V — a REAL preserved-source citation in the body, no registry.'
+assert_exit "$SUT" 1 "REAL body [CERT-a] still trips LEVEL 1 (no registry)" "$d"
+
+# POSITIVE CONTROL — legend + a real body [CERT-a] cite, WITH a populated SOURCES.md → registry present →
+#   LEVEL 1 satisfied → PASS (0). Confirms the strip did not disturb the registered-corpus happy path.
+d="$TMP/legend-real-cite-registered"; mkdir -p "$d/sources"
+block "$d/lc-block1.md" \
+  '# Block 1' \
+  '> `[CERT-a]` = asserted by a source; `[INFER]` = deduction.' \
+  '' \
+  '---' \
+  '' \
+  '## 1.1 [CERT-a] sources/ds.pdf asserts Vcc=3.3V — real body cite, and it is registered.'
+: > "$d/sources/ds.pdf"
+sources_registry "$d" '| ds.pdf | datasheet | http://x | 2026-01-01 | abcd123 | B1 |'
+assert_exit "$SUT" 0 "legend + real cite WITH registry passes" "$d"
+
+# ---------------------------------------------------------------------------
 # FLAGSHIP — nested corpus with a real violation, root empty of blocks.
 #   Fixed script resolves corpus/ and CATCHES it (1); the pre-fix script scanned the
 #   empty root and FALSE-PASSED (0). This is the exact PR-#6 regression guard.
@@ -441,6 +486,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '  PASS  %-42s (mutant false-passes → hash check has teeth)\n' "teeth: LEVEL 6 compare mutant exit 0"; pass=$((pass+1))
     else
       printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 7 does NOT depend on the recompute — THEATER.\n' "teeth: LEVEL 6" "$m6got"; fail=$((fail+1))
+    fi
+  fi
+
+  # LEVEL 1 legend-strip teeth: revert the body extraction to the WHOLE FILE (count the legend again) and
+  #   assert the legend-only fixture then FALSE-FAILS (exit 1) — proving the positional strip is load-bearing.
+  echo "-- teeth proof: revert LEVEL 1 to whole-file marker count, expect legend-only to FALSE-FAIL --"
+  mutantL="$TMP/verify-sources.MUTANTL.sh"
+  awk '{ if ($0 ~ /LEGEND-STRIP: count markers/) print "      body=\"$(cat \"$f\")\"  # MUTANTL: legend strip reverted"; else print }' "$SUT" > "$mutantL"
+  if ! grep -q 'MUTANTL: legend strip reverted' "$mutantL"; then
+    echo "  FAIL  could not build LEVEL 1 mutant (legend-strip line not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    d="$TMP/legend-only-no-registry"   # reuse the legend-only fixture
+    bash "$mutantL" "$d" >/dev/null 2>&1; mlgot=$?
+    if [ "$mlgot" = 1 ]; then
+      printf '  PASS  %-42s (mutant false-fails → legend-strip has teeth)\n' "teeth: LEVEL 1 whole-file mutant exit 1"; pass=$((pass+1))
+    else
+      printf '  FAIL  %-42s mutant exit %s (expected 1). Legend-only does NOT depend on the strip — THEATER.\n' "teeth: LEVEL 1" "$mlgot"; fail=$((fail+1))
     fi
   fi
 fi
