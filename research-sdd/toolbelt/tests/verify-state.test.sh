@@ -242,6 +242,47 @@ if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
   ok "CHECK 3 neg-control: bare '## History' alias → NO WARN (fence accepts the alias)"
 else no "coverage-history-alias: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
 
+# 20 — TEMPLATE is not real state: a dir holding ONLY the kit template `RESEARCH-STATE.template.md`
+#      (placeholders + the CHECK-3 doc example `16/16 then 26/26`, plus pending backlog rows) must be
+#      treated as NO state → exit 2. The find must exclude `*.template.md`; a *.template.md is NEVER a
+#      real corpus state file. RED before the fix: the template was linted and its documentation example
+#      fired CHECK 1 (16/16 + pending) and CHECK 3 (16 vs 26) — a pure false positive on the kit tree.
+d="$TMP/template-only"; mkdir -p "$d"
+printf '%s\n' '# <SUBJECT> — Research State' 'coverage metric: 16 / 16 gaps closed' \
+  'e.g. 16/16 then 26/26 (do NOT accrete contradictory denominators)' \
+  '## Backlog' '- <gap> pending' '- <gap2> pending' '- <gap3> pending' > "$d/RESEARCH-STATE.template.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 2 ] && ! printf '%s\n' "$out" | grep -qE 'FAIL|contradictory coverage denominators|RESEARCH-STATE.template.md'; then
+  ok "template-only: *.template.md excluded → exit 2 (no state), template never linted"
+else no "template-only: exit $(code "$d") (want 2) :: $(printf '%s\n' "$out" | grep -iE 'fail|contradictory|verify-state:' | head -1)"; fi
+
+# 21 — POSITIVE CONTROL: a REAL RESEARCH-STATE.md (consistent 5/5) coexisting with a contradictory
+#      RESEARCH-STATE.template.md in the SAME dir → the linter uses the REAL one and IGNORES the template
+#      (exit 0 + ok line, and the template basename never appears in a header). Pins that the exclusion
+#      does not accidentally drop real state. RED before the fix: mapfile linted BOTH, so the template's
+#      16/16 + pending desync flipped the aggregate to exit 1.
+d="$TMP/real-plus-template"
+state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' '## Backlog' '- gap done'
+printf '%s\n' '# <SUBJECT> — Research State' 'coverage metric: 16 / 16 gaps closed' \
+  'e.g. 16/16 then 26/26' '## Backlog' '- <gap> pending' > "$d/RESEARCH-STATE.template.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'ok +summary is consistent' \
+   && ! printf '%s\n' "$out" | grep -q 'RESEARCH-STATE.template.md'; then
+  ok "real state + template coexist → uses REAL, ignores template (exit 0, template not linted)"
+else no "real-plus-template: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|template|ok ' | head -1)"; fi
+
+# 22 — TEMPLATE not counted as a block: CHECK 2's on-disk *block*.md count must EXCLUDE a stray
+#      block.template.md sitting in the corpus dir (a kit template must not inflate the count). Two real
+#      blocks + one block.template.md → the summary must read "2 block file(s)", not 3. RED before the
+#      fix: the loose `-iname '*block*.md'` glob counted the template too.
+d="$TMP/template-block-count"
+state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered blocks: 2' '## Backlog' '- gap done'
+printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"; printf 'x\n' > "$d/block.template.md"
+out="$(run "$d")"
+if printf '%s\n' "$out" | grep -qE '2 block file\(s\) on disk'; then
+  ok "CHECK 2: block.template.md excluded from on-disk count (2, not 3)"
+else no "template-block-count: on-disk count :: $(printf '%s\n' "$out" | grep -iE 'block file' | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"

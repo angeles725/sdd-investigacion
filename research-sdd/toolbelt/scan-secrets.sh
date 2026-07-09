@@ -26,8 +26,8 @@ here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)"
 # Corpus root (mirror verify-sources.sh): prefer the target root when it directly holds blocks, else the
 # shallowest subdir that does (deterministic: depth, then lexical).
 corpus="$target"
-if ! find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) 2>/dev/null | grep -q .; then
-  anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -path '*/.git/*' 2>/dev/null \
+if ! find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' 2>/dev/null | grep -q .; then
+  anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null \
             | awk '{print gsub(/\//,"/") "\t" $0}' | sort -t"$(printf '\t')" -k1,1n -k2,2 | head -1 | cut -f2-)"
   [ -n "$anchor" ] && corpus="$(dirname "$anchor")"
 fi

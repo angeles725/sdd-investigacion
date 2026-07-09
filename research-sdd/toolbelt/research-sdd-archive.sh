@@ -38,7 +38,7 @@ target="${target%/}"   # a trailing slash would defeat the corpus-relative prefi
 here="$(cd "$(dirname "$0")" && pwd)"
 # Resolve the corpus root exactly like research-sdd-status.sh: shallowest RESEARCH-STATE, deterministically.
 # (No -e: a non-zero from find on an unreadable subtree is discarded, not fatal — the value is still correct.)
-state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
 [ -n "$state" ] && [ -f "$state" ] || { echo "research-sdd-archive: no RESEARCH-STATE*.md under $target — nothing to archive (run research-sdd-init.sh)" >&2; exit 2; }
 corpus="$(dirname "$state")"
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"

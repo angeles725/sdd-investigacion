@@ -270,6 +270,34 @@ after="$(next "$d")"
 if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -qi saturation; then ok "--next contract unchanged by an iteration-history table"
 else no "--next leaked: before[$before] after[$after]"; fi
 
+# 30 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders,
+#      no real corpus state) must resolve to BOOTSTRAP, not parse the template as work. The find must
+#      exclude `*.template.md`. RED before the fix: the template was picked as the state file and its
+#      placeholder backlog row was handed out as NEXT.
+d="$TMP/tmplonly"; mkdir -p "$d"
+{ echo "# <SUBJECT> — Research State"; echo; echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | Artifact type / source | Status |"; echo "|---|---|---|---|"
+  echo "| high | <research question> | web | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.template.md"
+got="$(next "$d")"; case "$got" in BOOTSTRAP\ *) ok "template-only → BOOTSTRAP (*.template.md is not real state)";; *) no "template-only --next — got [$got] want BOOTSTRAP";; esac
+
+# 31 — POSITIVE CONTROL: a REAL RESEARCH-STATE.md coexisting with a RESEARCH-STATE.template.md → the
+#      REAL state is resolved and its gap handed out, the template ignored. Pins that the exclusion does
+#      not drop real state.
+d="$TMP/real-plus-template"; mkstate "$d" 1 "high|real pending gap|pending"
+{ echo "# <SUBJECT> — Research State"; echo; echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | <placeholder gap> | web | pending |"; } > "$d/RESEARCH-STATE.template.md"
+expect_next "$d" "NEXT | high | real pending gap" "real state used, template ignored"
+
+# 32 — TEMPLATE not counted on disk: the status report's on-disk *block*.md count must EXCLUDE a stray
+#      block.template.md in the corpus dir. Two real blocks + one template → "2 on disk", not 3. RED
+#      before the fix: the loose `-name '*block*.md'` glob counted the template too.
+d="$TMP/tmpl-block-count"; mkstate "$d" 1 "high|g1|pending"
+printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"; printf 'x\n' > "$d/block.template.md"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+printf '%s' "$rep" | grep -qE 'covered blocks  : .*· 2 on disk' && ok "on-disk block count excludes block.template.md (2, not 3)" || no "on-disk count ($(printf '%s' "$rep" | grep -i 'covered blocks'))"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"

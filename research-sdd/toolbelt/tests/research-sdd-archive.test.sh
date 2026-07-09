@@ -170,6 +170,44 @@ if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qE 'scan-secrets .*: ok'; then
   ok "secret-free corpus passes the scan-secrets gate (exit 0)"
 else no "clean corpus exit=$rc (want 0) / scan-secrets ok=$(printf '%s' "$out" | grep -cE 'scan-secrets .*: ok') :: $out"; fi
 
+# 18 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders +
+#      the CHECK-3 doc example, pending backlog) must be treated as NO state to archive → exit 2, and must
+#      NOT run the gate against the template. The state-resolving find must exclude `*.template.md`. RED
+#      before the fix: the template was resolved as the state file; its placeholder desync tripped
+#      verify-state and archive REFUSED (exit 3) instead of reporting nothing to archive (exit 2).
+d="$TMP/tmplonly"; mkdir -p "$d"
+cat > "$d/RESEARCH-STATE.template.md" <<'EOF'
+# <SUBJECT> — Research State
+
+## Coverage
+
+- **Coverage metric**: 16 / 16 closed  (e.g. 16/16 then 26/26)
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | <research question> | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+EOF
+bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && ok "template-only → exit 2 (*.template.md excluded, nothing to archive)" || no "template-only exit=$rc (want 2 — template must not resolve as state)"
+
+# 19 — POSITIVE CONTROL: a gate-passing corpus with a RESEARCH-STATE.template.md alongside its real
+#      RESEARCH-STATE.md still archives cleanly (exit 0) — the real state is used, the template ignored.
+#      Pins that the exclusion does not drop real state.
+d="$TMP/real-plus-template"; mkgood "$d"
+cat > "$d/RESEARCH-STATE.template.md" <<'EOF'
+# <SUBJECT> — Research State
+- **Coverage metric**: 16 / 16 closed  (e.g. 16/16 then 26/26)
+| high | <placeholder> | web | pending |
+EOF
+bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "real state + template coexist → archives via the real state (exit 0)" || no "real-plus-template exit=$rc (want 0)"
+
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the gate in a mutant, expect the stale fixture to archive instead of refusing --"
