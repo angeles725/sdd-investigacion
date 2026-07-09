@@ -20,7 +20,7 @@ set -uo pipefail
 target="${1:-}"; mode="${2:-status}"
 [ -d "$target" ] || { echo "usage: research-sdd-status.sh <target-dir> [--next]" >&2; exit 2; }
 
-state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
 if [ ! -f "$state" ]; then
   [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE under $target" || echo "no RESEARCH-STATE under $target — run research-sdd-init.sh"
   exit 0
@@ -144,7 +144,7 @@ fi
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
-ondisk="$(find "$corpus" -maxdepth 1 -name '*block*.md' 2>/dev/null | wc -l | tr -d ' ')"
+ondisk="$(find "$corpus" -maxdepth 1 -name '*block*.md' -not -name '*.template.md' 2>/dev/null | wc -l | tr -d ' ')"
 inv="$(inv_count)"
 req="$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)"
 blk="$(stopctl | grep -iE 'blocked' | grep -oE '[0-9]+' | head -1)"

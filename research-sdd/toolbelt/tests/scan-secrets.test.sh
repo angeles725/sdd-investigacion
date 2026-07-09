@@ -142,6 +142,27 @@ out="$(runout "$d")"
 if ! printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "superstring words (tokenizer/secretariat/passwordless) not WARNed"
 else no "identifier broadening over-matches ordinary words :: $(printf '%s' "$out" | grep -E '^[[:space:]]+WARN ')"; fi
 
+# 23 — TEMPLATE-ANCHOR (SECURITY false-negative): a block-shaped kit TEMPLATE must never anchor the corpus
+#      root and silently narrow the secret scan to the wrong subtree. Fixture (the reviewer's repro):
+#      a-templates/block.template.md (placeholder) + b-corpus/foo-block1.md carrying a REAL AWS key. The
+#      resolution must SKIP the template and anchor on b-corpus/ so the key is scanned → exit 1. RED before
+#      the fix: the template is the shallowest *block*.md (a- sorts first), anchors corpus=a-templates/, and
+#      the real key in b-corpus/ is never scanned → false-clean exit 0. This is a fail-OPEN security bug.
+d="$TMP/template-anchor"; mkdir -p "$d/a-templates" "$d/b-corpus"
+printf '# <SUBJECT> — Block <k>\n\n> placeholder legend, no real content.\n' > "$d/a-templates/block.template.md"
+printf '# Block 1\n\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/b-corpus/foo-block1.md"
+out="$(runout "$d")"
+if [ "$(runrc "$d")" = 1 ] && ! printf '%s\n' "$out" | grep -q 'corpus root: a-templates/'; then
+  ok "TEMPLATE-ANCHOR: template skipped, real corpus scanned, AWS key caught (exit 1)"
+else no "template-anchor: exit $(runrc "$d") (want 1) · corpus=$(printf '%s\n' "$out" | grep -o 'corpus root: [^ ]*')"; fi
+
+# 24 — POSITIVE CONTROL: a normal single-block corpus with NO template still scans correctly. A real AWS key
+#      in the only block → caught (exit 1). Pins that the *.template.md exclusion does not break ordinary
+#      corpus resolution / scanning.
+d="$TMP/no-template"; mkdir -p "$d/corpus"
+printf '# Block 1\n\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/corpus/foo-block1.md"
+[ "$(runrc "$d")" = 1 ] && ok "POSITIVE: template-free corpus scans + catches the key (exit 1)" || no "no-template corpus exit=$(runrc "$d") (want 1)"
+
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the PEM detector, expect the private-key fixture to stop being flagged --"

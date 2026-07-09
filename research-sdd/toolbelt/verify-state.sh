@@ -16,7 +16,7 @@ target="${1:-}"
 [ -d "$target" ] || { echo "usage: verify-state.sh <target-dir>" >&2; exit 2; }
 # Lint EVERY RESEARCH-STATE*.md under the target (a reopened / multi-focus corpus keeps one per
 # focus). Exit 2 only when NONE exists; otherwise aggregate: rc=1 if ANY state file fails CHECK 1.
-mapfile -t states < <(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -path '*/.git/*' 2>/dev/null)
+mapfile -t states < <(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null)
 [ "${#states[@]}" -gt 0 ] || { echo "verify-state: no RESEARCH-STATE*.md under $target" >&2; exit 2; }
 
 rc=0
@@ -35,7 +35,7 @@ for state in "${states[@]}"; do
   # 3. covered-blocks claim vs on-disk block files (best-effort glob, corpus-relative). Match both
   #    English `*block*.md` and Spanish `*bloque*.md`, case-insensitively; find lists each file once.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
-  ondisk="$(find "$(dirname "$state")" -maxdepth 1 \( -iname '*block*.md' -o -iname '*bloque*.md' \) 2>/dev/null | wc -l | tr -d ' ')"
+  ondisk="$(find "$(dirname "$state")" -maxdepth 1 \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' 2>/dev/null | wc -l | tr -d ' ')"
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"

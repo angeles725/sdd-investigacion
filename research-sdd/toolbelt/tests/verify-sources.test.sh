@@ -347,6 +347,33 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# TEMPLATE-ANCHOR — a block-shaped kit TEMPLATE must never anchor a phantom corpus root. A dir whose
+#   ONLY block-shaped file is templates/block.template.md (placeholder, carries a [CERT-doc] legend marker
+#   but no SOURCES.md) must NOT resolve that template dir as the corpus root. RED before the fix: the
+#   template was the shallowest *block*.md → anchored corpus=templates/, and its placeholder [CERT-doc]
+#   marker tripped a phantom LEVEL 1 FAIL (exit 1). Fixed: the resolution find excludes *.template.md →
+#   no anchor → corpus=target (no real blocks, no markers) → clean PASS (0).
+d="$TMP/template-anchor"; mkdir -p "$d/templates"
+block "$d/templates/block.template.md" '# <SUBJECT> — Block <k>' '## <k>.1 [CERT-doc] sources/<file> — placeholder legend, NOT a real citation.'
+assert_exit "$SUT" 0 "TEMPLATE: block.template.md does not anchor" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s\n' "$out" | grep -q 'corpus root: templates/' \
+  && { printf '  FAIL  %-42s (template anchored a phantom corpus)\n' "template did not anchor corpus root"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no phantom corpus root)\n' "template did not anchor corpus root"; pass=$((pass+1)); }
+
+# POSITIVE CONTROL — a REAL block alongside a template must still anchor on the real block. foo-block1.md
+#   (clean, no preserved markers) coexists with block.template.md in the SAME subdir; resolution must pick
+#   that dir and pass. Pins that the *.template.md exclusion does not drop real blocks from resolution.
+d="$TMP/template-plus-real"; mkdir -p "$d/corpus"
+block "$d/corpus/foo-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — a local claim, no external source.'
+block "$d/corpus/block.template.md" '# <SUBJECT> — Block <k>' '## <k>.1 placeholder legend.'
+assert_exit "$SUT" 0 "POSITIVE: real block anchors, template ignored" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s\n' "$out" | grep -q 'corpus root: corpus/' \
+  && { printf '  PASS  %-42s (real block anchored corpus/)\n' "real block still anchors corpus/"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (real block did not anchor)\n' "real block still anchors corpus/"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
