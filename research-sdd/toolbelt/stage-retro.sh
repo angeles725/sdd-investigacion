@@ -18,9 +18,24 @@ fi
 # Kit repo root = two dirs up from toolbelt/.
 KIT_REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# review-status guard.
-status=$(grep -oiE 'review-status:[[:space:]]*[a-z]+' "$retro" 2>/dev/null \
-         | head -1 | sed -E 's/.*:[[:space:]]*//' | tr 'A-Z' 'a-z')
+# Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and
+# stage-retro.sh both source it, so the leading-comment-block scan can never drift between them).
+LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+if [ ! -f "$LIB" ]; then
+  echo "stage-retro: cannot find helper $LIB" >&2
+  exit 1
+fi
+# shellcheck source=lib/retro-status.sh
+. "$LIB"
+# Fail closed: existence of $LIB is not enough — the source must have DEFINED the reader. This
+# script does NOT use `set -e`, so a failed/partial/syntax-broken source would otherwise be swallowed
+# and the review-status guard below would read an empty status, skip the applied|dismissed gate, and
+# perform the DESTRUCTIVE `git checkout -b`. Abort here, before ANY git mutation.
+declare -F retro_review_status >/dev/null 2>&1 || { echo "stage-retro: helper $LIB failed to define retro_review_status" >&2; exit 1; }
+
+# review-status guard. Honor the marker only in the retro's LEADING HTML-comment block (see
+# lib/retro-status.sh) — a marker-shaped string deeper in the body must not gate staging.
+status=$(retro_review_status "$retro")
 case "$status" in
   applied|dismissed)
     echo "This retro is already '$status' — nothing to stage. (Use --force to re-stage.)" >&2
