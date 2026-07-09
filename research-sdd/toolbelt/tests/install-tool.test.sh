@@ -189,10 +189,10 @@ assert_exit "6b --check <absent> → 1" 1
 # 7 — --list. exit 0 and the known recipe names are present (ilspycmd + yara).
 box="$(mkbox c7-list)"
 run "$box" --list
-if [ "$RC" = 0 ] && grep -qx 'ilspycmd' <<<"$OUT" && grep -qx 'yara' <<<"$OUT"; then
-  ok "7 --list → 0, names ilspycmd + yara" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -qx 'ilspycmd' <<<"$OUT" && grep -qx 'yara' <<<"$OUT" && grep -qx 'frida' <<<"$OUT"; then
+  ok "7 --list → 0, names ilspycmd + yara + frida" "(exit $RC)"
 else
-  no "7 --list → 0, names ilspycmd + yara" "exit=$RC out=[$OUT]"
+  no "7 --list → 0, names ilspycmd + yara + frida" "exit=$RC out=[$OUT]"
 fi
 
 # 8 — IDEMPOTENCY on a brew recipe. brew present + yara present → brew_install
@@ -225,6 +225,31 @@ run "$box"
 assert_exit "10a no args → 1 (\${1:?})" 1
 run "$box" --check
 assert_exit "10b --check no cmd → 1 (\${1:?})" 1
+
+# 11 — frida recipe INSTALL success (analogous to yara/case 5). frida + frida-trace
+#      absent (hermetic PATH guarantees it), `pipx` stub present and `pipx install
+#      frida-tools` exits 0 → recipe records `installed`, exit 0. python3/pip is
+#      never reached because `have pipx` short-circuits the pipx-bootstrap.
+box="$(mkbox c11-frida-install-ok)"
+stub "$box" pipx 0
+run "$box" frida
+assert_installed "$box" "11 frida: pipx install → installed" 0 installed "install frida-tools"
+
+# 12 — frida recipe INSTALL failure. `pipx` present but `pipx install` exits non-zero →
+#      the if-guard's else runs → `failed`, exit 4.
+box="$(mkbox c12-frida-install-fail)"
+stub "$box" pipx 1
+run "$box" frida
+assert_installed "$box" "12 frida: pipx install fails → exit 4" 4 failed "install frida-tools"
+
+# 13 — frida recipe IDEMPOTENCY. Both CLIs present → the `have frida && have frida-trace`
+#      guard logs `already` and exits 0; `pipx` is stubbed but NEVER invoked (no install).
+box="$(mkbox c13-frida-present)"
+stub "$box" frida 0
+stub "$box" frida-trace 0
+stub "$box" pipx 0
+run "$box" frida
+assert_present "$box" "13 frida idempotency: both CLIs present" 0 already
 
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate a throwaway copy of the ilspycmd guard into

@@ -78,6 +78,7 @@ Known recipes:
 | Python bytecode (`.pyc`) | `install-tool.sh pycdc` / `uncompyle6` | pycdc / decompyle3 | pycdc needs cmake |
 | .NET (`.dll`/`.exe`) | `install-tool.sh ilspycmd` | ilspycmd | already present in this env |
 | YARA rules | `install-tool.sh yara` | yara | already present |
+| Dynamic instrumentation (Frida) | `install-tool.sh frida` | frida + frida-trace | pipx/venv (PEP-668); CLIs land in `~/.local/bin` — used by `dynamic.sh` |
 
 Generic fallback: `install-tool.sh <name>` tries `brew`, then `sudo apt` (non-interactive). If it
 **cannot** install (sudo password / build fail / no recipe / unverified source), the loop records it,
@@ -93,7 +94,12 @@ Beyond static decompilation, the engine can validate findings against a **live d
 |---|---|
 | `probe.sh check <ip> <port...>` | quick TCP reachability of the live system |
 | `probe.sh run <target-dir> <probe>` | run a READ-ONLY protocol probe; preserves raw output in `sources/probes/` as `[CERT-hw]` evidence |
+| `dynamic.sh frida-trace <target> <-i FUNC \| -I MODULE> [args...] <target-dir>` | Frida-trace a Linux-native process (by name/pid); preserves the trace log in `sources/probes/frida-trace-<ts>.log` as `[CERT-hw]` |
+| `dynamic.sh frida-hook <target> <script.js> <target-dir>` | run a caller-supplied `Interceptor.attach` hook via the frida CLI; preserves BOTH the log AND the script.js (each sha256'd) in `sources/probes/` |
+| `dynamic.sh boilerplate [func] [module]` | print a ready-to-edit `Interceptor.attach` skeleton to stdout to seed a hook script |
 | `DYNAMIC-SETUP.md` | environment setup (WSL mirrored networking, gotchas, build-a-probe guide) |
+
+`dynamic.sh` reuses probe.sh's preservation discipline (same `sources/probes/` dir, `# <name> run <ts>` header, `ts()` helper). frida is a pipx/venv tool and is not assumed present: if the frida binary is absent the run degrades gracefully (non-zero + `install-tool.sh frida` hint) instead of pretending it ran, and `frida-hook` still preserves the script.js first.
 
 The probe itself is a byte-for-byte port of the decompiled protocol client. A `[CERT-hw]` result that
 contradicts a `[CERT]` code claim **wins** and triggers a correction (§3, §14).
