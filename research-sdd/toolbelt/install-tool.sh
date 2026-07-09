@@ -103,6 +103,16 @@ case "$RECIPE" in
     else log pycdc "git clone zrax/pycdc + cmake" needs-approval "cmake/compiler missing or build failed"; exit 3; fi ;;
   uncompyle6) python3 -m pip install --user -q decompyle3 >/dev/null 2>&1 && { log uncompyle6 "pip --user decompyle3" installed; exit 0; } || { log uncompyle6 "pip decompyle3" failed; exit 4; } ;;
   yara)      brew_install yara yara && exit 0 || { log yara "brew yara" failed; exit 4; } ;;
+  frida) # Frida dynamic instrumentation (frida + frida-trace CLIs via pipx)
+    # Frida dynamic instrumentation — installs the frida-tools CLIs (frida + frida-trace)
+    # for dynamic.sh. frida-tools is a pipx/venv tool: system Python is PEP-668
+    # externally-managed (pip --user is blocked), so pipx is the sanctioned installer;
+    # it drops the CLIs in ~/.local/bin (ensure that dir is on PATH). Idempotent via have.
+    { have frida && have frida-trace; } && { log frida "pipx (present)" already "frida + frida-trace on PATH"; exit 0; }
+    have pipx || python3 -m pip install --user -q pipx >/dev/null 2>&1 || true
+    if have pipx && pipx install frida-tools >/dev/null 2>&1; then
+      log frida "pipx install frida-tools" installed "frida + frida-trace -> ~/.local/bin"; exit 0
+    else log frida "pipx install frida-tools" failed "pipx missing or install failed; ensure ~/.local/bin on PATH"; exit 4; fi ;;
   ilspycmd)  have ilspycmd || have "$HOME/.dotnet/tools/ilspycmd" && { log ilspycmd "dotnet tool (present)" already; exit 0; }; dotnet tool install -g ilspycmd >/dev/null 2>&1 && { log ilspycmd "dotnet tool install -g ilspycmd" installed; exit 0; } || { log ilspycmd "dotnet tool ilspycmd" failed; exit 4; } ;;
 
   *)

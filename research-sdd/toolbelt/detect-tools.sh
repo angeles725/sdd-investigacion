@@ -117,6 +117,11 @@ report() {
   echo "[ python bytecode ]"
   row "pycdc" pycdc "$HOME/dev/pycdc/pycdc"
   echo ""
+  echo "[ dynamic / instrumentation ]"
+  # frida-tools is a pipx/venv install → CLIs live in ~/.local/bin (see install-tool.sh frida).
+  row "frida" frida "$HOME/.local/bin/frida" "$BREW/bin/frida"
+  row "frida-trace" frida-trace "$HOME/.local/bin/frida-trace" "$BREW/bin/frida-trace"
+  echo ""
   echo "Note: MISSING here means not detected — try install-tool.sh <recipe> before"
   echo "concluding a tool is unavailable. Re-run this script after any install."
 }
