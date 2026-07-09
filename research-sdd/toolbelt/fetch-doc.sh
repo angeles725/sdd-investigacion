@@ -27,9 +27,9 @@ case "$MODE" in
   ocr)
     PDF="${2:?pdf required}"
     command -v tesseract >/dev/null || { echo "tesseract not installed" >&2; exit 3; }
-    pdftoppm -r 300 -png "$PDF" /tmp/ocr_$$ >/dev/null 2>&1 || { echo "pdftoppm falló" >&2; exit 3; }
-    for img in /tmp/ocr_$$-*.png; do tesseract "$img" stdout 2>/dev/null; done
-    rm -f /tmp/ocr_$$-*.png
+    OCR_DIR="$(mktemp -d)"; trap 'rm -rf "$OCR_DIR"' EXIT
+    pdftoppm -r 300 -png "$PDF" "$OCR_DIR/ocr" >/dev/null 2>&1 || { echo "pdftoppm falló" >&2; exit 3; }
+    for img in "$OCR_DIR"/ocr-*.png; do tesseract "$img" stdout 2>/dev/null; done
     ;;
   doc)
     URL="${2:?url}"; TDIR="${3:?target-dir}"; SUB="${4:-datasheets}"
