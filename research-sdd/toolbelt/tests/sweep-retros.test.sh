@@ -9,11 +9,11 @@
 # count (rows shaped like '| <digits> |') and a 'status: <word|none>' tag, closing with a
 # 'Summary: <pending> pending / <total> retros' line. This suite pins that contract — marker
 # detection (pending vs applied vs dismissed vs unknown-word, plus case-insensitive normalization
-# and body-position markers), the delta count, multi-target aggregation, the empty-summary and
-# empty-retros-dir paths, and the truncated-'...'-path filter — WITHOUT any external tool. It never
+# and leading-block-only marker scanning), the delta count, multi-target aggregation, the empty-summary
+# and empty-retros-dir paths, and the truncated-'...'-path filter — WITHOUT any external tool. It never
 # edits the SUT; it exercises a throwaway COPY placed inside a sandbox kit so KIT=dirname/.. resolves
-# hermetically. (Note: sweep-retros.sh's own header says the marker sits 'at the top', but the impl
-# scans the whole file — case 14 characterizes that ACTUAL behavior; see the review summary.)
+# hermetically. The marker is only honored in the retro's LEADING BLOCK (line 1 until the first blank
+# line or first '# ' heading); a marker sitting in the body is ignored — cases 14/16 pin that.
 #
 # Usage: sweep-retros.test.sh                (run the suite)
 #        sweep-retros.test.sh --prove-teeth  (run suite + the mutation teeth proof)
@@ -24,6 +24,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../sweep-retros.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
+LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT now sources
+[ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -34,8 +36,9 @@ no() { printf '  FAIL  %-56s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 # KIT=dirname/.. resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
 mkkit() {
   local kit="$ROOT/$1"
-  mkdir -p "$kit/toolbelt"
+  mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/sweep-retros.sh"
+  cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this at $(dirname $0)/lib/
   printf '%s' "$kit"
 }
 
@@ -251,22 +254,85 @@ else
   no "13 empty retros/ dir → contributes nothing" "exit=$RC out=[$OUT]"
 fi
 
-# 14 — BODY-POSITION marker (characterization). sweep-retros.sh's own header says the marker sits
-#      'at the top', but the impl greps the WHOLE file and takes head -1 (sweep-retros.sh:31-32).
-#      So an 'applied' marker sitting only in the retro BODY (no top marker) is still detected and
-#      EXCLUDES the retro. This case pins the ACTUAL behavior, not the documented 'top' contract —
-#      the doc/impl mismatch is a potential SUT bug, left UNFIXED here (the SUT is never edited).
+# 14 — BODY-POSITION marker is IGNORED — only the top block counts. The review-status marker is
+#      honored solely in the retro's LEADING BLOCK (line 1 until the first blank line or first '# '
+#      heading). So an 'applied' marker sitting only in the retro BODY (no top marker) must NOT
+#      exclude the retro: it stays PENDING with 'status: none'. This guards against a body string
+#      shaped like a marker silently dropping an un-reviewed retro out of the §18 queue.
 kit="$(mkkit c14-bodymarker)"; tgt="$kit/targetA"
 mkretro "$tgt" "r1.md" "-" 2   # no top marker
 printf '\nnote: <!-- review-status: applied 2026-01-01 -->\n' >> "$tgt/retros/r1.md"
 write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'status: none' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "14 body-position marker → IGNORED, retro surfaced as pending" "(exit $RC)"
+else
+  no "14 body-position marker → IGNORED, retro surfaced as pending" "exit=$RC out=[$OUT]"
+fi
+
+# 15 — RECONSTRUCTED layout (false-positive guard). One real retro's line 1 is a non-marker
+#      '<!-- RECONSTRUCTED ... -->' comment with the true 'review-status' marker on LINE 2, the
+#      '# retro' heading on line 3, and the first blank line on line 4. The whole LEADING BLOCK
+#      (line 1 through the first blank/'# ' heading) must be scanned, so the line-2 'applied'
+#      marker is honored and the retro is EXCLUDED. A naive 'first line only' fix would miss the
+#      line-2 marker and WRONGLY surface this reviewed retro as pending — this case fails that.
+kit="$(mkkit c15-recon)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "-" 2   # marker-less retro: line 1 is the '# retro' heading
+{ printf '<!-- RECONSTRUCTED note -->\n<!-- review-status: applied 2026-07-07 -->\n'
+  cat "$tgt/retros/r1.md"; } > "$tgt/retros/r1.md.new"
+mv "$tgt/retros/r1.md.new" "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
    && ! grep -q 'PENDING' <<<"$OUT" \
    && grep -q 'Summary: 0 pending / 1 retros' <<<"$OUT"; then
-  ok "14 body-position marker → still detected (whole-file scan)" "(exit $RC)"
+  ok "15 recon layout (marker on line 2) → excluded (whole leading block scanned)" "(exit $RC)"
 else
-  no "14 body-position marker → still detected (whole-file scan)" "exit=$RC out=[$OUT]"
+  no "15 recon layout (marker on line 2) → excluded (whole leading block scanned)" "exit=$RC out=[$OUT]"
+fi
+
+# 16 — POSITIONAL guard. A body 'review-status: applied' marker printed on its OWN line at column 0
+#      (no comment prefix), BELOW the heading and the first blank line, must STILL leave the retro
+#      PENDING. This proves the fix is positional (leading-block-only), not merely prefix-based:
+#      it is the marker's POSITION past the leading block — not its lack of an HTML-comment wrapper —
+#      that makes it ignored. Currently RED: the whole-file scan finds this marker and excludes it.
+kit="$(mkkit c16-positional)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "-" 2   # no top marker; leading block is just the '# retro' heading
+printf '\nreview-status: applied 2026-01-01\n' >> "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'status: none' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "16 body marker at column 0 → still pending (leading-block-only, not prefix)" "(exit $RC)"
+else
+  no "16 body marker at column 0 → still pending (leading-block-only, not prefix)" "exit=$RC out=[$OUT]"
+fi
+
+# 17 — FAIL-CLOSED on a broken helper. The SUT sources lib/retro-status.sh, but existence of the
+#      file is not enough: the source must have DEFINED retro_review_status. Neither script runs under
+#      `set -e`, so a helper that EXISTS and sources cleanly but defines NO function would leave the
+#      reader as a 'command not found' — every retro would read as 'none' and silently surface as
+#      PENDING (fail-OPEN). The post-source `declare -F` guard must instead ABORT non-zero with a
+#      helper-error message BEFORE the summary. Fixture: replace the sandbox helper with a comment-only
+#      file (exists, exit 0, no function) and feed an APPLIED retro that MUST NOT false-surface.
+kit="$(mkkit c17-broken-helper)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 3
+write_targets "$kit" "$tgt"
+printf '#!/usr/bin/env bash\n# broken helper: sources cleanly but defines no retro_review_status\n' \
+  > "$kit/toolbelt/lib/retro-status.sh"
+run "$kit"
+if [ "$RC" != 0 ] \
+   && grep -q 'failed to define retro_review_status' <<<"$OUT" \
+   && ! grep -q 'PENDING' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "17 broken helper (no function) → fail-closed abort, no summary" "(exit $RC)"
+else
+  no "17 broken helper (no function) → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------
@@ -316,6 +382,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: count-regex-broken mutant miscounts deltas (~0 not ~5)" "(case 4 has teeth)"
     else
       no "teeth: count-regex-broken mutant miscounts deltas (~0 not ~5)" "mutant kept counting — case 4 is THEATER: [$outm]"
+    fi
+  fi
+
+  # Third teeth (negative control for the fail-closed guard). Case 17 claims the post-source
+  # `declare -F` guard is what turns a broken helper into a non-zero abort. Neuter the guard on a
+  # throwaway copy so its check can never fail (force it always-true), pair it with the same broken
+  # (comment-only) helper + an APPLIED retro, and re-run: with the guard dead the SUT falls back to
+  # the OLD fail-OPEN — the applied retro false-surfaces as PENDING and the run exits 0. If the
+  # mutant stayed closed (non-zero, no PENDING), case 17 would be theater.
+  echo "-- teeth: neuter the fail-closed guard, expect the broken helper to fail-OPEN again --"
+  anchor3='declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_review_status" >&2; exit 1; }'
+  if [[ "$content" != *"$anchor3"* ]]; then
+    no "teeth: locate fail-closed guard" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-guard)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 3
+    write_targets "$kit" "$tgt"
+    printf '#!/usr/bin/env bash\n# broken helper: no retro_review_status\n' \
+      > "$kit/toolbelt/lib/retro-status.sh"
+    mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
+    # Neuter the guard to a no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands an
+    # unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
+    neutered=':'
+    printf '%s\n' "${content/"$anchor3"/$neutered}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"; rcm=$?
+    if [ "$rcm" = 0 ] && grep -q 'PENDING' <<<"$outm" && ! grep -q 'failed to define' <<<"$outm"; then
+      ok "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "(case 17 has teeth)"
+    else
+      no "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "mutant stayed closed — case 17 is THEATER: rc=$rcm [$outm]"
     fi
   fi
 fi
