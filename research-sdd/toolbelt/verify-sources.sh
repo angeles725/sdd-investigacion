@@ -36,9 +36,30 @@ echo "== verify-sources: $(basename "$target") =="
 # self-report stays in the §11 in-iteration check — it is not mechanizable here (no signal distinguishes an
 # MCP citation from a plain web-fetch). LEVEL 5 below instead mechanizes the WEAKER, verifiable-today
 # web-snapshot INTEGRITY invariant: every snapshot on disk is registered + cited. It does NOT detect MCP.)
-doc=$(grep -rlF '[CERT-doc]' "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
-a=$(grep -rlF '[CERT-a]'   "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
-web=$(grep -rlF '[CERT-web]' "$corpus"/*.md 2>/dev/null | wc -l | tr -d ' ')
+# count_marker <marker> — how many block files USE the marker in their BODY (not the header legend). EVERY
+# block opens with a blockquote LEGEND that DEFINES these markers (`> [CERT-a] = asserted by a source; …`), so a
+# bare `grep -lF` counts the legend as a citation and a legend-only corpus with no SOURCES.md FALSE-FAILS LEVEL
+# 1. Reuse verify-block.sh's positional legend-strip (see verify-block.sh §1): the legend is the leading `>`
+# blockquote whose closing bare `---` fence sits AFTER the blockquote and BEFORE the first `## ` body section —
+# count the marker only in what follows. If no such fence closes the header, fall back to the whole file
+# (unfenced legend can't be isolated → never silently zero a real citation).
+count_marker() {
+  local marker="$1" n=0 f fence body
+  for f in "$corpus"/*.md; do
+    [ -f "$f" ] || continue
+    fence=$(awk '/^##[[:space:]]/{exit} q && /^---[[:space:]]*$/{print NR; exit} /^[[:space:]]*>/{q=1}' "$f")
+    if [ -n "$fence" ]; then
+      body="$(awk -v n="$fence" 'NR>n' "$f")"   # LEGEND-STRIP: count markers only after the header-legend fence
+    else
+      body="$(cat "$f")"                         # no leading-blockquote fence → can't isolate the legend
+    fi
+    printf '%s' "$body" | grep -qF "$marker" && n=$((n + 1))
+  done
+  printf '%s' "$n"
+}
+doc=$(count_marker '[CERT-doc]')
+a=$(count_marker '[CERT-a]')
+web=$(count_marker '[CERT-web]')
 echo "-- blocks citing preserved-source markers: [CERT-doc] $doc · [CERT-a] $a · [CERT-web] $web"
 
 # LEVEL 1 — preserved-source markers demand a registry. This is the logosoft case.
