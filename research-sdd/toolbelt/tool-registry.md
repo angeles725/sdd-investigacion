@@ -104,6 +104,19 @@ Beyond static decompilation, the engine can validate findings against a **live d
 The probe itself is a byte-for-byte port of the decompiled protocol client. A `[CERT-hw]` result that
 contradicts a `[CERT]` code claim **wins** and triggers a correction (§3, §14).
 
+## Corpus consistency gates (verification)
+
+Read-only lint gates run at loop STOP / supervised review. Each exits `0` = ok · `1` = a real
+defect (archive-blocking) · `2` = bad args. All are covered by `tests/*.test.sh` (run via
+`tests/run-all.sh`) and are shellcheck-clean at `--severity=warning`.
+
+| Gate | Checks |
+|---|---|
+| `verify-block.sh <block.md>` | per-block structure / certification-marker integrity |
+| `verify-sources.sh <target-dir>` | SOURCES.md preservation + registry↔block citation + web-snapshot integrity (METHODOLOGY §5) |
+| `verify-state.sh <target-dir>` | RESEARCH-STATE living-mirror consistency (stale summary → premature STOP) |
+| `verify-parity.sh <deliverable-file> <block-file-or-dir>` | corpus↔deliverable PARITY (subset check): every load-bearing value (hex color token, #RRGGBB/#RGB, case-insensitive) in a shipped deliverable (e.g. `prototypes/*/tokens.css`) must EXIST in the certified block palette it derives from — FAILs (exit 1) on any drifted/invented value the other gates miss (the pruebas-dashboards `tokens.css` drift, commits 6a9bc78/c27ec63) |
+
 ## Audit mode
 
 To re-verify an existing corpus (not discover new gaps): `PROMPT-AUDIT.md` + `templates/audit.template.md`
