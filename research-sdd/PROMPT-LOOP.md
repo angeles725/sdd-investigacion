@@ -126,10 +126,23 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      code collapse duplicate decompiler-pipeline trees first — count DISTINCT fully-qualified class names, not
      raw `.java` (a project decompiled by BOTH procyon and vineflower doubles the raw file count; "easyBinding
      119" was 62 distinct classes). See METHODOLOGY §13.
+  e3. SCOUT-BEFORE-BUILD (certifiability gate — the CERTIFIABILITY sibling of e2's EXISTENCE check, for
+     EXTERNAL-source gaps): e2 confirms a source EXISTS + measures its SIZE; it does NOT fetch, preserve, or
+     judge whether the source is rich enough to CERTIFY a block. For an external source (design/doc/web/spec
+     corpus — where "reachable" ≠ "certifiable"), BEFORE authoring a block delegate a SCOUT that FETCHES +
+     PRESERVES the source (into $CORPUS/sources/, §5) and returns an EXPLICIT verdict: `CERTIFIABLE-NOW` (enough
+     primary substance to author cited [CERT-*] claims now) · `PARTIAL` (some, but the block would lean on
+     [INFER]) · `INSUFFICIENT` (reachable but too thin to certify). Author ONLY on `CERTIFIABLE-NOW`; a
+     `PARTIAL`/`INSUFFICIENT` gap is re-scoped or marked blocked-on-thin-source — NEVER handed to an authoring
+     agent, which would pad [INFER]. This does NOT replace e2: e2's existence+size check still runs first; scout
+     adds the certifiability judgment e2 does not make. See METHODOLOGY §13.
   f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
-  1. CHOOSE: take the highest-priority NOT covered gap from the backlog. Announce which one.
+  1. CHOOSE: take the highest-priority NOT covered gap from the backlog. Announce which one. (If the gap draws
+     on an EXTERNAL source, run the SCOUT-BEFORE-BUILD certifiability gate — BOOTSTRAP e3 — before authoring:
+     fetch+preserve the source and author ONLY on a CERTIFIABLE-NOW verdict; a PARTIAL/INSUFFICIENT source is
+     re-scoped or blocked-on-thin-source, never sent to an authoring agent.)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - Decompile/read: decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh
@@ -230,6 +243,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
+       - EDGE-TRIGGERED LINT (in-edit, scoped — these are the AGENT'S OWN calculators, exactly like step 5's
+         verify-block, NOT orchestrator gates; see METHODOLOGY §11): right after editing the RESEARCH-STATE
+         summary, run `$KIT/toolbelt/verify-state.sh $CORPUS` (cheap — one file); and ONLY if you edited
+         SOURCES.md this iteration (a source was added/preserved), run `$KIT/toolbelt/verify-sources.sh $CORPUS`.
+         Do NOT run either EVERY iteration — a linter can only surface a NEW defect when ITS input changed, so
+         triggering it on its input's edit adds ZERO redundant corpus re-scans while catching the defect in the
+         iteration that introduced it, instead of letting it survive until STOP. The STOP run (step 7) stays as
+         the final backstop.
        - Regenerate: python3 $CORPUS/tools/gen-catalog.py. Mirror to engram (research/<target>/gaps, .../progress).
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
          INDEX/RESEARCH-STATE from scratch, so before appending YOUR entry, check the PRECEDING iteration's
