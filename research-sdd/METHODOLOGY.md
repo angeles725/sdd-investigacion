@@ -63,6 +63,15 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
   LOGO!). Certainty order, high→low:
   `[CERT-hw]`/`[CERT-live]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
 
+**`[INFER]` sub-convention — a "corpus-assigned" value.** A distinct, disciplined use of `[INFER]`: a source
+specifies a value by named ROLE only (not a concrete value), and the researcher ASSIGNS the concrete value. This
+is a `[INFER]` — **never a `[CERT]`** (no source states the literal value) — permitted ONLY when the assigned
+value is TOOL-VERIFIED (e.g. `contrast.py`/WCAG certifies a colour satisfies the role) AND explicitly flagged
+"corpus-assigned" at the claim. It does not weaken the marker rules; it NAMES an existing honest technique (used
+B21→B28 in the dashboards corpus): the source names the role, the tool certifies the concrete value FITS it, and
+the flag makes the assignment auditable. It stays `[INFER]` because the tool verifies FITNESS, not provenance —
+the literal value is still the researcher's, not the source's.
+
 **Sealing `[CERT]` adversarially (OPT-IN selective seal — trialed once on a real claim, 2026-07-07 — see GRADUATION UPDATE below).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
 (one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
 and it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded or dropped. Apply it SELECTIVELY
@@ -124,7 +133,9 @@ volatile URL nor the extract; `SOURCES.md` keeps the original URL and the hash. 
 [`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
 (text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
 so their citations get extra §11 scrutiny).
-Check compliance mechanically at loop STOP or in a supervised review with
+Check compliance mechanically — EDGE-TRIGGERED within the iteration right after an edit to `SOURCES.md` (only
+when a source was actually added/preserved that iteration — see §11), at loop STOP as the final backstop, or in a
+supervised review — with
 [`toolbelt/verify-sources.sh`](toolbelt/verify-sources.sh) `<target>`: it fails when a corpus cites
 `[CERT-doc]`/`[CERT-a]` but has no `sources/SOURCES.md`, or a cited `sources/` file is absent on disk, or a
 block NAMED in the registry's "Blocks that cite it" column does not actually reference that source — a
@@ -461,6 +472,17 @@ cited file that exists but whose line is out of range). It does NOT replace the 
 beautified-temp / decompiled / snapshot path shows as `extern` (not target-resolvable), so the agent still
 confirms those the same way it confirms every load-bearing `[CERT]` token — by reading the cited source.
 
+**The corpus linters are edge-triggered agent calculators too — not orchestrator gates.** `verify-block.sh` is
+the agent's PER-BLOCK calculator; `verify-state.sh` and `verify-sources.sh` are its PER-INPUT calculators, run
+the same way — INSIDE the iteration, by the agent, never as an orchestrator Bash gate (this section rejects
+those). They are EDGE-TRIGGERED on their input's edit: run `verify-state.sh` right after editing the
+`RESEARCH-STATE` summary (cheap — one file), and `verify-sources.sh` ONLY after an edit to `SOURCES.md` (i.e.
+only when a source was added/preserved this iteration) — NOT every iteration. This RECONCILES the tension with
+"no per-block orchestrator gate": a linter can only surface a NEW defect when ITS input changed, so triggering it
+exactly on that input's edit adds ZERO redundant corpus re-scans, yet catches the defect in the ITERATION that
+introduced it instead of letting it survive to the STOP backstop (§5, §8). The STOP run stays as the final
+backstop, not the first line of defense — it re-reads the whole corpus once, which is why it runs only at STOP.
+
 **Block-evidence artifacts are gate-enforced (not `extern`).** An evidence dump a `[CERT]` cites BY ARTIFACT
 NAME (`B<N>-*` / `bloque<N>-*`, extension OPTIONAL — `B125-ghidra-njre.txt:421‑488` and `B128-triage:103` both
 count — cited inside a parenthetical span or backticks, single line or a range) MUST be preserved in the corpus.
@@ -628,6 +650,17 @@ decompiler-pipeline trees: a project decompiled by BOTH procyon and vineflower y
 files (an "easyBinding 119" was 62 distinct classes). Count DISTINCT fully-qualified class names, not raw
 `.java` files.
 
+**Scout-before-build (certifiability, not just existence).** The pre-flight existence+size check (PROMPT-LOOP e2)
+confirms a source is REACHABLE and measures how big it is — it does NOT judge whether the source is rich enough
+to CERTIFY a block. For an EXTERNAL-source corpus (design/doc/web/spec) "reachable" ≠ "certifiable": a URL can
+resolve, a doc can exist, and the source still carry too little primary substance to author cited `[CERT-*]`
+claims. So before authoring a block from an external source, delegate a SCOUT that FETCHES + PRESERVES it (into
+`sources/`, §5) and returns an explicit verdict — `CERTIFIABLE-NOW` / `PARTIAL` / `INSUFFICIENT` — and author
+ONLY on `CERTIFIABLE-NOW`. It is the CERTIFIABILITY sibling of e2's existence gate, not a replacement: e2 still
+runs first (does the source exist, how big), scout adds the judgment e2 omits (is it enough to certify). A
+`PARTIAL`/`INSUFFICIENT` gap is re-scoped or marked blocked-on-thin-source, never handed to an authoring agent
+that would pad `[INFER]`.
+
 **Coverage audit ≠ certainty audit.** The audit above (and PROMPT-AUDIT) checks whether existing CLAIMS
 are TRUE. A **coverage audit** answers a different, recurring user question — "did we cover EVERYTHING?" —
 by mapping the corpus against the code UNIVERSE, not re-verifying claims. Delegate a sweep that returns:
@@ -696,6 +729,16 @@ name `corpus/` (not `research/`). The loop HANDS the linters the resolved `$CORP
 they lint the corpus wherever it sits; `verify-state.sh` additionally auto-anchors on the blocks
 (`find -maxdepth 3`). RULE: never hardcode the target root into a linter — resolve or receive `$CORPUS`, else a
 nested corpus FALSE-PASSes (the §5 gap that bit `verify-sources.sh`).
+
+**Parity gate for a shipped derived deliverable.** An in-project corpus sometimes also SHIPS a derived
+deliverable that COPIES load-bearing values out of a certified block (e.g. hex tokens in `prototypes/*/tokens.css`
+lifted from a certified design-token block). That copy can silently DRIFT from the block it derives from, and the
+three standing gates do NOT cover this axis: `verify-block.sh` checks a block's OWN marker/citation math (§11),
+`verify-sources.sh` the source registry (§5), `verify-state.sh` the living mirror (§8) — none checks
+deliverable↔block PARITY. For that, run [`toolbelt/verify-parity.sh`](toolbelt/verify-parity.sh)
+`<deliverable> <block(s)>`: a subset-check that every load-bearing value the deliverable copies still EXISTS in
+the certified block it derives from, FAILing on drift. Run it whenever the corpus ships such a deliverable — the
+other three gates passing does not imply the deliverable is in parity with its source block.
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
