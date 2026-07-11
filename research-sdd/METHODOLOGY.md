@@ -496,6 +496,12 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   (PROMPT-LOOP) govern the static loop's HEAVY SWEEPS, not this phase: narrow live probes and a live
   write-credential must never be handed to a sub-agent, so `no·inline` is the COMPLIANT tier record for
   §12 iterations — not a skipped delegation.
+- **Capture-once / slice-many.** When ONE live acquisition (e.g. a single serial `running-config` dump)
+  is the source for MANY topic blocks, do not stamp a fresh ACQUISITION/DELEGATE line on each block: the
+  capture happened once, and re-running per-iteration acquisition machinery over an already-preserved
+  artifact is empty ceremony. `no·inline` is the COMPLIANT record for every downstream slice; the real
+  per-block cost is the reschedule/catalog overhead, not a delegation-discipline failure. Preserve the
+  capture once under `sources/probes/` (`[CERT-hw]`), then cite that one artifact from every slice.
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
