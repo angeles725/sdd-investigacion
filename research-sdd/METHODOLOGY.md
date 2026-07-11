@@ -866,3 +866,48 @@ hard-stops, never blind.
 - **Handoff from the static loop.** When the static loop's TERMINAL TRIGGER (§8) sees remaining
   `requires-execution` gaps, it hands off here — this is the "non-static phase" it names. Provisioning a
   compiler/runtime follows §10.
+
+## 20. Document mode (CAPTURE what you already know or just did)
+
+The static loop (§1–§11) **DISCOVERS** — "what IS this system", gap-driven, AUDIT-FIRST — and self-feeds a
+backlog until read-only-investigable hits 0 (§8). **Document mode CAPTURES** knowledge the user already has
+or just produced in a session — OUTLINE-driven, with NO discovery phase. It is a MODE, not a new skill: it
+reuses the kit's markers (§3), block anatomy (§4), the verify-block gate (§11), and the INDEX/CATALOG
+conventions unchanged. Invoked `/research-sdd <target> document "<what to document>"` (SKILL.md); the
+operational contract is PROMPT-LOOP's DOCUMENT CYCLE. One-line essence: research-sdd DISCOVERS; document mode
+CAPTURES what you already know or just did, and always mirrors it to Engram so it stays findable.
+
+**CAPTURE vs DISCOVER.** The static loop uncovers gaps and self-feeds a backlog; document mode does the
+opposite — it SEEDS the full list of topics/steps up front (the outline IS the work-list) and STOPS when the
+outline is covered, never on gap-exhaustion. It NEVER runs the gap-discovery / AUDIT-FIRST path (§13,
+PROMPT-LOOP BOOTSTRAP e). The outline is seeded from three sources: (a) what the user already knows, (b)
+their notes, (c) RECONSTRUCTing the steps of the session just lived (a how-to for connecting an EM500 sensor,
+bringing up a tool). One block transcribes + cites one outline item.
+
+**The procedure / how-to genre.** A block's evidence base depends on what it documents. Documenting how
+something in the SUBJECT works is ordinary `[CERT]` file:line. Documenting a PROCEDURE — a how-to (connect an
+EM500 sensor, bring up a tool, a runbook step) — has a different evidence base: the SESSION itself is the
+evidence, i.e. the commands run, the GUI navigated, the outputs. Preserve them under `sources/probes/` and
+cite them `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase (§12) already does. Document
+mode introduces NO new marker: a captured procedure is empirical evidence of a live interaction, which is
+precisely what `[CERT-hw]`/`[CERT-live]` already mean.
+
+**Auto-routed destination (subject vs toolchain).** The key decision — made by the MODE, not by the user per
+call: ask "does this knowledge serve OTHER targets too?"
+- Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS device) →
+  the TARGET's corpus (`$CORPUS`), like any block.
+- REUSABLE toolchain / environment knowledge (how to bring up Ghidra, how to use bkcrack, a WSL setup step —
+  useful across ANY target) → the KIT: `toolbelt/` + a registration in `toolbelt/tool-registry.md`, PLUS an
+  Engram pointer. The browser-appliance and serial bring-up how-tos in `toolbelt/DYNAMIC-SETUP.md` are
+  exactly the toolchain how-tos this routing produces.
+
+**Mandatory Engram mirror (the reason the mode exists).** Everything documented MUST be mirrored to Engram as
+topic pointers so it stays recall-findable — subject knowledge under `research/<target>/<topic>`, toolchain
+knowledge under a kit-level pointer. This is not optional bookkeeping: a real session re-discovered Ghidra
+setup from scratch even though `toolbelt/GHIDRA-MCP.md` already documented it, because Engram carried no
+pointer to it. The mirror is the safeguard against re-discovering what the kit already knows; a documented
+item with no Engram pointer is not done.
+
+**Product.** Besides the cited blocks, document mode yields a human-readable deliverable — `HOWTO-<x>.md`,
+`SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`, toolchain deliverables under
+`toolbelt/`). Same `verify-block` gate as the static loop; STOP when the outline is covered.
