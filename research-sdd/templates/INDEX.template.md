@@ -12,7 +12,9 @@ This index guides through the **<N> blocks** of this research. Each block is an 
 ## Marker legend
 
 `[CERT]` local primary · `[CERT-doc]` official document (sources/) · `[CERT-web]` official web ·
-`[CERT-a]` forum/secondary · `[INFER]` deduction. (Detail in `research-sdd/METHODOLOGY.md §3`.)
+`[CERT-a]` forum/secondary · `[CERT-hw]` live device you physically hold/control (even over serial/CLI) ·
+`[CERT-live]` live REMOTE service you do not own · `[INFER]` deduction.
+(Detail in `research-sdd/METHODOLOGY.md §3`.)
 
 ---
 

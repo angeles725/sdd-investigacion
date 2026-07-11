@@ -135,6 +135,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Decompile/read: decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
+       - Live target? Before profiling, read the vendor's documented management/API port from the manual /
+         API-spec — a default sweep of 22/23/80/443/1700 will MISS a vendor REST API on e.g. :8080.
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh doc <url> $CORPUS [sub] [name] (lands in $CORPUS/sources/ + registered in SOURCES.md).
        - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
@@ -292,12 +294,21 @@ HARD RULES:
     keys, keyring/keystore material, tokens, or secrets into a block, sources/, or engram. Cite the
     STRUCTURE (where a secret lives, its format, how it's used) — never the secret VALUE. Zero secrets
     exfiltrated is a hard invariant; a real install carries live credentials a decompiled jar does not.
+    REDACTION CHECKLIST (live-install / firmware — WHAT to redact; the rule above is HOW): cite structure,
+    never value, for · admin/root password HASHES (Unix crypt `$1$`/`$5$`/`$6$` in `/etc/shadow` or a config
+    backup) · WPA/WPA2 PSK and other wifi/link pre-shared keys · cellular IMEI/ICCID/IMSI and APN credentials ·
+    VPN keys/certs/peer addresses (WireGuard/IPsec/OpenVPN) · INCIDENTAL THIRD-PARTY NEIGHBOR IDENTIFIERS —
+    neighbor SSIDs/BSSIDs/MACs a LAN or wifi scan sweeps in are OTHER people's networks, not the target's;
+    redact them too (non-obvious: a scan pulls them in for free).
     LIVE-WRITE recipe that keeps this invariant on an AUTHENTICATED write: (a) authenticate out-of-band —
     a curl `-K` config file in scratchpad, NEVER the credential in argv / probe cmdline / sources / engram;
     (b) a secret-bearing body (e.g. a config) is backed up to scratchpad and cited by `sha256`+byte-count,
     NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
     independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
     dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
+    BLOCK LABEL: an authorized config mutation on a live target must mark its block `⚠ CONFIG MUTATION` and
+    record before/after state (and that a byte-identical revert was offered) — so an audit can tell a supervised
+    write apart from a pure read at a glance.
     MECHANIZED at the close: `research-sdd-archive.sh` runs `toolbelt/scan-secrets.sh` as a fail-closed
     GATE — a high-confidence secret VALUE that leaked into authored corpus content REFUSES the close (exit 3).
   - ONE block per iteration (deep and cited, not wide and vague).

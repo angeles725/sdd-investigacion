@@ -57,3 +57,63 @@ does not fit it. Gotchas from the first web dynamic phase:
   exact** regardless of GPU backend. State the distinction so a future phase does not discard the good
   metrics (call/triangle counts) along with the bad (FPS). Preserve the probe (`tools/probe.mjs`) and its
   launch flags as reusable `[CERT-hw]` evidence via `probe.sh`.
+
+### 4a. Browser appliance / SPA web GUI (chrome-devtools MCP)
+
+An appliance's web admin GUI (a login-gated SPA behind `https://<device>/`) is a "live system" too — you
+drive its real DOM through the `chrome-devtools` MCP instead of porting a protocol. Field-tested recipe:
+
+- **⚠ It drives the USER'S REAL browser.** The chrome-devtools MCP attaches to the user's actual Chrome —
+  their other tabs are visible to you and any tab you open appears in THEIR session. Before driving it,
+  either launch/point it at an ISOLATED, dedicated profile, or WARN the user first. This is not a headless
+  sandbox; treat everything you can see as the user's private session.
+- **Log in by filling fields + clicking submit** — fill the user/password inputs and click the button; let
+  the PAGE hash the password client-side. Never reconstruct the auth request by hand (and keep the password
+  out of argv/corpus per PROMPT-LOOP SECRETS DISCIPLINE).
+- **Navigate by CLICKING menu items, NOT hash-URLs.** An SPA router ignores a direct `#/...` hash
+  navigation and leaves the last-rendered submenu on screen → you read STALE content believing you moved.
+  Observed repeatedly. Click the nav element and confirm the view changed.
+- **Prefer the a11y `take_snapshot` over screenshots** — the accessibility tree is greppable, stable, and
+  cheap; a screenshot is a last resort for something the tree cannot express.
+- **Use `evaluate_script` for bulk field reads** — one script that harvests many config fields at once beats
+  N snapshot round-trips. Preserve a sanitized capture under `sources/probes/` as `[CERT-hw]`.
+
+## 5. Serial / COM console acquisition (SSH-off device)
+
+When a live-install device is reachable ONLY over a serial port — SSH/Telnet are disabled and the network
+path (§1) fails — acquire over the console via [`toolbelt/serial-console.sh`](serial-console.sh). It preserves
+each response in `<target>/sources/probes/` as `[CERT-hw]`, the same discipline as `probe.sh`/`dynamic.sh`.
+
+- **The link is owned by Windows, not Linux.** WSL has no `/dev/ttyS` for a host COM port, so the script
+  drives a Windows `System.IO.Ports.SerialPort` (open → set baud → write ONE command → read response) through
+  `powershell.exe` over WSL interop. `serial-console.sh list` enumerates COM ports; `run <target-dir>
+  <com-port> <baud> <command>` sends a single READ command and preserves the output.
+- **WSLInterop binfmt gotcha.** If `powershell.exe` / `cmd.exe` fail with `exec format error`, the
+  WSLInterop `binfmt_misc` handler was dropped (common after `wsl --shutdown`, a systemd/binfmt race, or a
+  docker-desktop restart). Re-register it from INSIDE WSL as root:
+  ```sh
+  sudo sh -c 'echo :WSLInterop:M::MZ::/init:PF > /proc/sys/fs/binfmt_misc/register'
+  # clear a stale handler first if needed: echo -1 > /proc/sys/fs/binfmt_misc/WSLInterop
+  ```
+  `serial-console.sh check` detects this and prints the fix instead of a false run.
+- **Read-first, write-supervised (§3 applies).** The wrapper sends only the single command you hand it. A
+  config-changing/reboot command over serial can brick the device just like a bad network write — explicit
+  user OK only, never in an autonomous loop, and label a mutation `⚠ CONFIG MUTATION` (PROMPT-LOOP LIVE-WRITE).
+
+## 6. Scripted SSH (paramiko-in-venv fallback)
+
+When the device DOES expose SSH but the login is password-only and `sshpass` is absent — and PEP-668 blocks a
+system `pip install` — script the session with **paramiko in a throwaway venv**. This is the SAME
+venv-per-tool pattern the kit already uses for tool installs (`install-tool.sh`), applied to SSH:
+
+```sh
+python3 -m venv <dir> && <dir>/bin/pip install paramiko
+```
+
+Then authenticate INSIDE the connect call, never on a command line:
+
+- The password goes into the `password=` argument of `client.connect(...)` in a scratchpad-only Python
+  script — NEVER in argv, the shell history, a probe cmdline, `sources/`, or the corpus (PROMPT-LOOP SECRETS
+  DISCIPLINE). Keep the script in scratchpad and delete it at session end.
+- Run READ commands (`client.exec_command(...)`), tee stdout to `<target>/sources/probes/` as `[CERT-hw]`,
+  and keep the same read-first / write-supervised discipline as §3.
