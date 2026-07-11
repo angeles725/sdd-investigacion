@@ -298,6 +298,25 @@ printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"; printf 'x\n' >
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
 printf '%s' "$rep" | grep -qE 'covered blocks  : .*· 2 on disk' && ok "on-disk block count excludes block.template.md (2, not 3)" || no "on-disk count ($(printf '%s' "$rep" | grep -i 'covered blocks'))"
 
+# 33 — bare `pending` cell is still selected by --next (leading-token regression guard)
+d="$TMP/bare-pending"; mkstate "$d" 1 "high|bare gap|pending"
+expect_next "$d" "NEXT | high | bare gap" "bare 'pending' status is selected"
+
+# 34 — a DECORATED `pending (uncovered by B7)` cell IS selected (leading-token tolerance). RED before
+#      the fix: `[ "$st" = "pending" ]` is EXACT, so the decorated cell fails the match and the gap is
+#      silently skipped → a false STOP/NONE. First whitespace token is `pending` → must be treated pending.
+d="$TMP/decorated-pending"; mkstate "$d" 1 "high|decorated gap|pending (uncovered by B7)"
+expect_next "$d" "NEXT | high | decorated gap" "decorated 'pending (uncovered by B7)' is selected"
+
+# 35 — a `blocked (pending review)` cell must NOT be treated as pending (first token is `blocked`, not
+#      `pending`) — the `pending` word appears only elsewhere in the cell. The real medium pending wins.
+d="$TMP/pending-elsewhere"; mkstate "$d" 1 "high|not-a-gap|blocked (pending review)" "medium|real gap|pending"
+expect_next "$d" "NEXT | medium | real gap" "'blocked (pending review)' not treated as pending"
+
+# 36 — different-vocabulary statuses (`partial`, `covered`) must NOT match; only the low `pending` wins.
+d="$TMP/other-vocab"; mkstate "$d" 1 "high|partial gap|partial" "medium|covered gap|covered" "low|real gap|pending"
+expect_next "$d" "NEXT | low | real gap" "'partial'/'covered' statuses are not treated as pending"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"

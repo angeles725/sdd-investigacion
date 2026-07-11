@@ -120,7 +120,7 @@ resolve_next() {
   for prio in high medium low; do
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
-      [ "$st" = "pending" ] || continue          # EXACT — not *pending* (would match "not pending")
+      [ "${st%% *}" = "pending" ] || continue     # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
       is_blocked "$gap" && continue
       printf 'NEXT | %s | %s\n' "$pri" "$gap"; return 0
     done < <(printf '%s\n' "$rows" | awk -F'\t' -v P="$prio" '$1==P')
