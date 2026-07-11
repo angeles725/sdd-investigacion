@@ -1,6 +1,6 @@
 ---
 name: research-sdd
-description: "Launch or continue a Research-SDD investigation over a target (reverse-engineering / decompilation research). TRIAGES the target first, then recommends a depth (quick one-off answer, light exploration/mapping, or the exhaustive cited-block loop) and PROCEEDS — auto-escalating light→heavy when depth surfaces, instead of interrogating. Trigger: /research-sdd, 'launch the research loop', 'continue the <focus> research', 'investigate <module> with research-sdd', a one-off question against an artifact/install, 'research-sdd continue <target> <focus>'."
+description: "Trigger: /research-sdd, 'launch/continue the research loop', 'investigate <target> with research-sdd', a one-off question vs an artifact/install. Triages, picks a depth, and PROCEEDS instead of interrogating (auto-escalates light->heavy)."
 user-invocable: true
 license: MIT
 metadata:
