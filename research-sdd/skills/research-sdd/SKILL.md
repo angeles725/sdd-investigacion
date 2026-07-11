@@ -1,6 +1,6 @@
 ---
 name: research-sdd
-description: "Launch or continue a Research-SDD investigation over a target (reverse-engineering / decompilation research). Auto-classifies depth: quick one-off answer, light exploration/mapping, or the exhaustive cited-block loop — and asks when ambiguous. Trigger: /research-sdd, 'launch the research loop', 'continue the <focus> research', 'investigate <module> with research-sdd', a one-off question against an artifact/install, 'research-sdd continue <target> <focus>'."
+description: "Launch or continue a Research-SDD investigation over a target (reverse-engineering / decompilation research). TRIAGES the target first, then recommends a depth (quick one-off answer, light exploration/mapping, or the exhaustive cited-block loop) and PROCEEDS — auto-escalating light→heavy when depth surfaces, instead of interrogating. Trigger: /research-sdd, 'launch the research loop', 'continue the <focus> research', 'investigate <module> with research-sdd', a one-off question against an artifact/install, 'research-sdd continue <target> <focus>'."
 user-invocable: true
 license: MIT
 metadata:
@@ -35,32 +35,47 @@ a clean target; the request may be a one-off question. CLASSIFY intent first (ne
 If **nothing usable** was given: read `$KIT/TARGETS.md`, show the target table (name · maturity · artifact ·
 language), and ask which one — then proceed. Do not guess.
 
-## Intent & depth — CLASSIFY before launching anything
+## Intent & depth — TRIAGE first, then RECOMMEND and PROCEED (do NOT interrogate)
 
-The request is not always a full research run. Read the user's phrasing AND what the path actually is, then
-pick a mode. When it is ambiguous, ASK one question — NEVER default a one-off question to the heavy loop;
-the heavy loop costs many iterations and is wasteful for a single fact.
+The request is not always a full research run — but the answer is almost never a question back to the user.
+Do NOT guess the mode from phrasing alone, and do NOT stop to ask when a cheap look would settle it. Run a
+CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. This OVERRIDES the general
+"ask one question and wait" conversational default FOR THIS FLOW: research is meant to run, not interview.
 
+**TRIAGE — before any heavy work:**
+- `<target-or-path>` resolves in `TARGETS.md`, OR the user said `continue` / `a fondo` / `exhaustivo` /
+  "document everything" → go **heavy** directly. No triage, no question.
+- Otherwise take ONE cheap look — read `RESEARCH-STATE`/`INDEX` if a corpus exists, else glance at the path
+  (file type, subdir structure, `security/`/`licenses/`, or a quick Explore) — then STATE a one-line plan
+  (`artifact type · corpus? · rough gap count · recommended mode + why`) and proceed on it.
+
+**Modes:**
 - **quick / clarification** — a specific factual question against an artifact or path ("get me the license
   serial", "what version is this", "does it use protocol X"). Answer it DIRECTLY: read the relevant files
   and respond. Do NOT bootstrap a corpus, do NOT run the block loop. If the artifact would reward deeper
   study, OFFER to promote it to a full target — do not assume it.
 - **light / exploratory** — "map this", "what's in here", "give me the lay of the land". Run a SCOPED
-  exploration (delegate an Explore sweep), return a map/summary, optionally seed a gap-backlog. Broad and
-  shallow; stop after the map unless the user asks to go deep.
+  exploration (delegate an Explore sweep), return a map/summary, seed a gap-backlog. This is a LANDING mode,
+  not a dead stop — it may promote itself (see auto-escalation).
 - **exhaustive / heavy** — "investigate thoroughly / a fondo", "document everything", "reconstruct the
-  mental model", or CONTINUE an existing corpus. Run the full NORMAL CYCLE, one cited block per iteration
-  until STOP. This is the ONLY mode that bootstraps or continues a corpus.
+  mental model", CONTINUE an existing corpus, OR a light pass that escalated. Run the full NORMAL CYCLE,
+  one cited block per iteration until STOP. This is the ONLY mode that bootstraps or continues a corpus.
 
-Signals: concrete question + a path that is NOT a registered target → quick · "map/explore/what's in" →
-light · "a fondo / exhaustivo / document everything / continue the focus" or a registered target → heavy ·
-anything ambiguous → ASK.
+**AUTO-ESCALATE light → heavy — announce, do NOT re-ask.** A light/triage pass is allowed to promote
+itself. When it surfaces DEPTH — **≥3 investigable gaps**, OR a **binary/firmware** artifact, OR **multiple
+subsystems**, OR an **unknown protocol** worth reconstructing — ANNOUNCE it
+(`triage found N gaps + <signal> → escalating to HEAVY`) and CONTINUE into the loop in the SAME run. The
+announcement IS the checkpoint; do not stop to ask. Only ask if escalating would cross a cost or scope limit
+the user explicitly set.
 
-**Target vs ad-hoc.** If `<target-or-path>` resolves in `TARGETS.md` → real corpus target (usually
-heavy/continue). If it is an arbitrary PATH not in `TARGETS.md` → ad-hoc scope: default to quick/light per
-the phrasing, and only bootstrap a NEW target if the user wants depth (offer it, don't assume). A downloaded
-install exposing `security/`, `licenses/`, or `certificates/` is a `live-install` artifact → apply the
-SECRETS DISCIPLINE (cite structure — Host IDs, formats, public keys — never private/secret VALUES).
+**Ask a question ONLY** when the triage is genuinely 50/50 AND the wrong choice is expensive — never as the
+default, never more than one.
+
+**Target vs ad-hoc / live-install.** If `<target-or-path>` resolves in `TARGETS.md` → real corpus target
+(heavy/continue). An arbitrary PATH not in `TARGETS.md` → ad-hoc scope: triage it, and only bootstrap a NEW
+target if the depth signals fire or the user asks. A downloaded install exposing `security/`, `licenses/`,
+or `certificates/` is a `live-install` artifact → apply the SECRETS DISCIPLINE (cite structure — Host IDs,
+formats, public keys — never private/secret VALUES).
 
 ## What to do (in order) — EXHAUSTIVE/HEAVY mode (and continue)
 
@@ -91,12 +106,17 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    LOOP CONTINUATION + RESCHEDULE CADENCE rules (self-paced: reschedule at the ~60s floor until STOP fires).
    Delegate heavy sweeps with the right MODEL TIER. Emit the per-iteration RETURN CONTRACT (including the
    tier used). At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
+   For a LONG unattended run, wrap the invocation with the `/loop` skill
+   (`/loop /research-sdd <target> a fondo`) — it is the external re-invoker PROMPT-LOOP was designed for.
+   Self-paced reschedule is best-effort and can halt after a single block under conversational guardrails;
+   `/loop` guarantees the cadence.
 
 ## Execution mode
 
-Default is **self-paced** (this session becomes the loop driver and self-reschedules). If a human wants to
-review between blocks, run **orchestrated** instead (chain one sub-agent per iteration; see PROMPT-LOOP
-"Two execution modes"). Ask only if it is unclear which mode the user wants; otherwise default to self-paced.
+Default is **self-paced** (this session becomes the loop driver and self-reschedules). For a long run that
+must not stall, prefer **`/loop`-driven** (external re-invoker — most robust). If a human wants to review
+between blocks, run **orchestrated** instead (chain one sub-agent per iteration; see PROMPT-LOOP
+"Two execution modes"). Do not ask which mode — default to self-paced and mention `/loop` for long runs.
 
 ## Boundaries
 
