@@ -31,6 +31,9 @@ a clean target; the request may be a one-off question. CLASSIFY intent first (ne
 - `[focus]` — optional focus/axis for a multi-focus corpus (e.g. `nmodsreflow`). Omit for single-focus.
 - `[new|continue]` — optional. `continue` (default if the target/focus already has a corpus) resumes;
   `new` forces a bootstrap.
+- `document "<what to document>"` — the CAPTURE sub-command: `/research-sdd <target> document "<what>"`.
+  Enters **document mode** (below) instead of the discovery loop — it captures knowledge you already have
+  or just produced, outline-driven, and NEVER runs gap-discovery.
 
 If **nothing usable** was given: read `$KIT/TARGETS.md`, show the target table (name · maturity · artifact ·
 language), and ask which one — then proceed. Do not guess.
@@ -45,6 +48,10 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
 **TRIAGE — before any heavy work:**
 - `<target-or-path>` resolves in `TARGETS.md`, OR the user said `continue` / `a fondo` / `exhaustivo` /
   "document everything" → go **heavy** directly. No triage, no question.
+- The explicit `document` sub-command, OR "documentá esto" / "capturá el how-to" / "document what we just
+  did" → **document mode** (capture, not discover). This is DISTINCT from "document everything [about this
+  system]", which is exhaustive DISCOVERY (heavy): document mode CAPTURES knowledge you already have or just
+  produced, is OUTLINE-driven, and NEVER runs gap-discovery. No triage, no question — enter it directly.
 - Otherwise take ONE cheap look — read `RESEARCH-STATE`/`INDEX` if a corpus exists, else glance at the path
   (file type, subdir structure, `security/`/`licenses/`, or a quick Explore) — then STATE a one-line plan
   (`artifact type · corpus? · rough gap count · recommended mode + why`) and proceed on it.
@@ -60,6 +67,16 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
 - **exhaustive / heavy** — "investigate thoroughly / a fondo", "document everything", "reconstruct the
   mental model", CONTINUE an existing corpus, OR a light pass that escalated. Run the full NORMAL CYCLE,
   one cited block per iteration until STOP. This is the ONLY mode that bootstraps or continues a corpus.
+- **document / capture** — the `document` sub-command, or "documentá esto" / "capturá el how-to" / "document
+  what we just did". CAPTURES knowledge you already have or just produced (a how-to, a runbook, the steps of
+  the session just lived) instead of DISCOVERING gaps. It is OUTLINE-driven: seed the full list of
+  topics/steps up front, transcribe + cite ONE per block, and STOP when the outline is covered — it NEVER
+  runs gap-discovery / AUDIT-FIRST. Write destination is AUTO-ROUTED by knowledge TYPE (the mode decides,
+  the user does not specify per call): knowledge ABOUT the subject under study → the TARGET's corpus;
+  REUSABLE toolchain/environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step) → the KIT
+  (`toolbelt/` + register in `toolbelt/tool-registry.md`) plus an Engram pointer. Same `verify-block` gate,
+  plus a MANDATORY Engram mirror so the doc stays recall-findable. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
+  (METHODOLOGY §20).
 
 **AUTO-ESCALATE light → heavy — announce, do NOT re-ask.** A light/triage pass is allowed to promote
 itself. When it surfaces DEPTH — **≥3 investigable gaps**, OR a **binary/firmware** artifact, OR **multiple

@@ -304,6 +304,45 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          $TARGET/retros/ + engram research/<target>/retro and SURFACES it in the return. It does NOT edit the
          kit — kit changes are human-reviewed and human-committed. This is how the kit learns from real runs.
 
+== DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
+  This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
+  It NEVER runs the gap-discovery / AUDIT-FIRST path (BOOTSTRAP step e / METHODOLOGY §13): no gap-backlog is
+  seeded and no self-feeding backlog is used. It REUSES the kit's markers, block anatomy, verify-block gate,
+  and INDEX/CATALOG conventions unchanged. Full definition: METHODOLOGY §20.
+  1. SEED THE OUTLINE (replaces gap-discovery). Instead of uncovering gaps, seed the FULL list of
+     topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
+     the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a
+     tool). The OUTLINE IS the work-list — there is NO AUDIT-FIRST discovery and no self-feeding backlog.
+  2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
+     depends on GENRE:
+       - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
+       - Documenting a PROCEDURE / how-to (connect the EM500, bring up a tool, a runbook step) → the evidence
+         is the SESSION itself: the commands run, the GUI navigated, the outputs — PRESERVED under
+         `sources/probes/` and cited `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase
+         (§12) already does. Do NOT invent a new marker; reuse the existing ones.
+  3. AUTO-ROUTE the write destination by knowledge TYPE (the MODE decides — the user does NOT specify per
+     call). Ask: "does this knowledge serve OTHER targets too?"
+       - Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS
+         device) → the TARGET's corpus (`$CORPUS`), like any block.
+       - REUSABLE TOOLCHAIN / environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step — useful
+         across ANY target) → the KIT: write it under `$KIT/toolbelt/` and REGISTER it in
+         `$KIT/toolbelt/tool-registry.md`, PLUS an Engram pointer. (The browser-appliance and serial bring-up
+         how-tos in `$KIT/toolbelt/DYNAMIC-SETUP.md` are exactly what this toolchain routing produces.)
+  4. SELF-VERIFY: run `$KIT/toolbelt/verify-block.sh <block>` and the load-bearing token-check — the SAME
+     gate as NORMAL CYCLE step 5. Procedure blocks preserve their probe evidence under `sources/probes/`
+     (`[CERT-hw]` / `[CERT-live]`), same as §12.
+  5. MANDATORY ENGRAM MIRROR (non-negotiable — this is the whole point of the mode). Mirror EVERYTHING
+     documented to Engram as topic pointers so the doc is always recall-findable: subject knowledge under
+     `research/<target>/<topic>`, toolchain knowledge under a kit-level pointer. This exists because a real
+     session re-discovered Ghidra setup from scratch when `toolbelt/GHIDRA-MCP.md` already documented it but
+     Engram carried no pointer — the mirror is what prevents that. A documented item with NO Engram pointer
+     is NOT done.
+  6. PRODUCE THE DELIVERABLE: besides the cited blocks, write the human-readable product —
+     `HOWTO-<x>.md` / `SETUP-<x>.md` / `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain
+     deliverables under `$KIT/toolbelt/`).
+  7. STOP when the OUTLINE is fully covered — NOT on gap-exhaustion (there is no gap set, so no
+     read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
+
 HARD RULES:
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - SOURCE BEFORE AGENT — a gap counts as investigable ONLY once its source is confirmed reachable
