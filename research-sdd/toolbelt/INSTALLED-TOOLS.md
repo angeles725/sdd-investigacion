@@ -13,3 +13,10 @@
 - **Disponibilidad**: ya presente en PATH (`/mnt/c/Users/equipo/AppData/Roaming/npm/js-beautify`) + node v22.22.2 / npx (linuxbrew). No requirió instalación.
 - **Invocación**: `js-beautify <min.js> -o <scratchpad>/<name>.beauty.js` (o `npx --yes js-beautify`).
 - **Nota**: READ-ONLY sobre el sujeto — beautify a temp en scratchpad, nunca sobre la fuente.
+
+## bkcrack (ZipCrypto known-plaintext attack) — 2026-07-10
+- **Uso**: atacar el cifrado legacy ZipCrypto de los firmware Milesight UG67 (`.bin` = ZIP con `router.tar` + `upgrade_tool.tar.gz`). Target gateway-ug67, gap G17 (reabre el residual firmware-encryption de B16).
+- **Disponibilidad**: NO en PATH. Compilado desde fuente: `git clone --depth 1 https://github.com/kimci86/bkcrack && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`. Binario en `build/src/cli/bkcrack` (v1.8.1). Requiere cmake+g++ (presentes vía linuxbrew).
+- **Invocación**: `bkcrack -C <clean.zip> -c <entry> -p <plainfile> -o <offset>` (offset = coord del stream COMPRIMIDO, mín -12). Recupera claves internas X Y Z; luego `-r <len> ?p` recupera password, `-k X Y Z -d out` descifra. El `.bin` lleva 1024 bytes de prefijo: `dd bs=1024 skip=1` para el zip limpio.
+- **Gotcha clave**: el known-plaintext debe ser de una región STORED (verbatim). Los deflaters que COMPRIMEN los runs de NUL (padding del tar) anulan el KP estructural trivial. En Milesight, sólo `42_r4` trae `upgrade_tool.tar.gz` como `ZipCrypto Store` (gzip verbatim) → KP = FNAME del gzip.
+- **Nota**: READ-ONLY — opera sobre copias en scratchpad, nunca sobre el `.bin` del corpus.
