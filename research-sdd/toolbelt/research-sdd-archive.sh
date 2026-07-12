@@ -137,6 +137,11 @@ echo "  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the cl
 [ -n "$consolidate_err" ] && echo "    · ⚠ CONSOLIDATE: $consolidate_err (a mechanical step failed — fix before relying on the archive)."
 echo "    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal."
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
+if find "$corpus" -maxdepth 1 -type d -name 'codegen*' 2>/dev/null | grep -q .; then
+  echo "    · PARITY (§19): a codegen/ deliverable exists — run verify-parity.sh <deliverable> <block-or-corpus> per"
+  echo "      built artifact so a drifted/invented value can't ship. NOT auto-gated here: the deliverable↔block map is"
+  echo "      corpus-specific, and verify-parity is a targeted (deliverable, block) check, not a corpus-wide lint."
+fi
 if [ "$histrows" -gt 25 ]; then
   echo "    · COLLAPSE iteration-history (§8): $histrows rows > 25 — collapse prior runs to one line/run (blocks, gaps, ratio, retro link)."
 fi

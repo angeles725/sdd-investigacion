@@ -54,14 +54,19 @@ extract_hexes() {
   done
 }
 
-# Resolve the BLOCK file set: a dir unions across its block files (English *block*.md and Spanish
-# *bloque*.md, case-insensitively, excluding kit *.template.md); a plain file is used as-is.
+# Resolve the BLOCK file set. Use the STRICT canonical discriminator (gen-catalog.py BLOCK_RE:
+# `<prefix>-(block|bloque)<N>[-suffix].md`, case-sensitive), NOT a loose `*block*` glob — a parity check
+# unions block VALUES, so a decoy like `blocked-notes.md` (or a mixed-case non-block) must not inject stray
+# hexes that let an invented deliverable value pass. This is the count/catalog family's definition, so a
+# value's provenance is checked against exactly the canonical blocks. (Known limit: a BESPOKE corpus's
+# non-numbered thematic blocks are excluded here, same as from the catalog count — pass such a block as an
+# explicit file argument to parity-check it.) A plain file argument is used as-is.
 block_files=()
 if [ -d "$block" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] && block_files+=("$f")
-  done < <(find "$block" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' 2>/dev/null | sort)
-  [ "${#block_files[@]}" -gt 0 ] || { echo "verify-parity: no *block*.md/*bloque*.md under $block" >&2; exit 2; }
+  done < <(find "$block" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | sort)
+  [ "${#block_files[@]}" -gt 0 ] || { echo "verify-parity: no <prefix>-(block|bloque)<N>.md under $block" >&2; exit 2; }
 else
   block_files=("$block")
 fi

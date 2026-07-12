@@ -77,18 +77,20 @@ else no "case: exit $(code "$d/tokens.css" "$d/block-1.md") (want 0)"; fi
 
 # 8 — MULTI-BLOCK DIR (union): deliverable value lives in a SIBLING block file, not the first → exit 0.
 #     The block arg is a DIR; the gate must union hexes ACROSS all block files before checking.
+# dir-union now resolves blocks with the STRICT canonical discriminator (gen-catalog.py BLOCK_RE), so the
+# fixtures use canonical `<prefix>-block<N>.md` names — a bare `block-1.md` is intentionally NOT a block.
 d="$TMP/multiblock"; mkdir -p "$d/corpus"
-printf '%s\n' '# Block 1' 'base: #112233' > "$d/corpus/block-1.md"
-printf '%s\n' '# Block 2' 'accent: #99aabb' > "$d/corpus/block-2.md"
-printf '%s\n' ':root {' '  --a: #112233;' '  --b: #99aabb;' '}' > "$d/tokens.css"   # #99aabb only in block-2
+printf '%s\n' '# Block 1' 'base: #112233' > "$d/corpus/proj-block1.md"
+printf '%s\n' '# Block 2' 'accent: #99aabb' > "$d/corpus/proj-block2.md"
+printf '%s\n' ':root {' '  --a: #112233;' '  --b: #99aabb;' '}' > "$d/tokens.css"   # #99aabb only in proj-block2
 if [ "$(code "$d/tokens.css" "$d/corpus")" = 0 ]; then ok "multi-block dir union (value in sibling block) → exit 0"
 else no "multiblock: exit $(code "$d/tokens.css" "$d/corpus") (want 0 — dir union not applied)"; fi
 
 # 9 — MULTI-BLOCK DIR still catches drift: a hex in NO block file of the dir → exit 1, hex named.
 #     Negative control for case 8: proves the dir mode is a real subset check, not an always-pass.
 d="$TMP/multiblock-drift"; mkdir -p "$d/corpus"
-printf '%s\n' '# Block 1' 'base: #112233' > "$d/corpus/block-1.md"
-printf '%s\n' '# Block 2' 'accent: #99aabb' > "$d/corpus/block-2.md"
+printf '%s\n' '# Block 1' 'base: #112233' > "$d/corpus/proj-block1.md"
+printf '%s\n' '# Block 2' 'accent: #99aabb' > "$d/corpus/proj-block2.md"
 printf '%s\n' ':root { --x: #deadbe; }' > "$d/tokens.css"   # in neither block
 out="$(run "$d/tokens.css" "$d/corpus")"
 if [ "$(code "$d/tokens.css" "$d/corpus")" = 1 ] && printf '%s\n' "$out" | grep -qiF '#deadbe'; then
