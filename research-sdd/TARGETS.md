@@ -53,7 +53,7 @@ Sensitivity:
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (40 md / 7 runs / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (33 md / 6 runs / 3 retros +1 pending / git yes / hook deferred; 13 OCR book-extracts + 1 standard extract; `anti-ai-ui` skill delivered; B33 maritime ECDIS vibra 19, sweep open 33/38) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (34 md / 6 runs / 3 retros +1 pending / git yes / hook deferred; 13 OCR book-extracts + 2 standard extracts; `anti-ai-ui` skill delivered; B34 ATC radar scope vibra 20, sweep open 34/38) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (24 md / 2 focuses / 2 retros / git yes / hook yes) `[CERT]` · **`live-install`** (physical device) · **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) · **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research) | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 
 ---
@@ -161,9 +161,16 @@ palette with THREE mandated illumination states (IHO S-52 Ed 6.1.1 + PresLib e4.
 preserved as official PDFs under `corpus/sources/docs/ecdis/`; oversized 296-pp Part I +
 564-pp Addendum registered fetched-and-hashed with the page-anchored extract at
 `corpus/sources/extracted/ecdis-s52-extract.md`; derived sRGB rendering labeled per B33-1).
-Sweep registered G33-G38: G33 closed; G34 (ATC scope) + G35 (medical monitoring,
-CERTIFIABLE-NOW) open investigable; G36-G38 deferred scout-PARTIAL. Coverage: **33 blocks,
-33/38 — sweep open**, envelope investigable_open=2; reopenings otherwise per §8.
+Sweep registered G33-G38: G33 closed; iteration 30 (same sweep run) closed G34 → **B34
+ATC Radar Scope** (vibra 20) — the corpus's first OWNERSHIP-LIFECYCLE colour grammar, from
+the SOURCE-PUBLISHED EEC Report 292 Master Colour Table (RGB% + 0-255; preserved with
+DOT/FAA/AR-99/52 under `corpus/sources/docs/atc/`; oversized 188-pp ITWP HMI V4
+fetched-and-hashed with the page-anchored extract at
+`corpus/sources/extracted/atc-radar-scope-extract.md`; hex = corpus re-encodings, Trinitron
+caveat B34-13; WCAG-vs-FAA-doctrine convergence: assumed WHITE 8.09:1 inside the 7-8:1
+datablock band). G35 (medical monitoring, CERTIFIABLE-NOW) open investigable; G36-G38
+deferred scout-PARTIAL. Coverage: **34 blocks, 34/38 — sweep open**, envelope
+investigable_open=1; reopenings otherwise per §8.
 
 ---
 
