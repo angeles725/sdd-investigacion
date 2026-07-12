@@ -3,12 +3,17 @@
 > Operational state consumed by the loop (Research-SDD). Mirrored in engram
 > (`research/<target>/gaps`, `research/<target>/progress`). Visible and versionable source.
 
-<!-- Machine-validated state envelope (research-state.v1) — ported from gentle-ai's verify-result/v1.
-     This fenced block is AUTHORITATIVE for the load-bearing counts; the prose sections below are the
-     human-readable MIRROR. `verify-state.sh` recomputes the disk-anchored fields (covered_blocks,
-     investigable_open, blocked_open) and FAILs on any drift, so a stale mirror can never hand the loop a
-     premature STOP. Seed/refresh it mechanically — never hand-edit the ints — with:
+<!-- State envelope (research-state.v1) — ported from gentle-ai's verify-result/v1. The prose sections below
+     are the human-readable MIRROR. Seed/refresh it MECHANICALLY — never hand-edit the ints — with:
        research-sdd-status.sh <corpus> --sync-state
+     GATED vs DECLARED — be honest about which is machine-validated:
+       • FAIL-gated against ground truth by verify-state.sh (a stale value BLOCKS the loop): covered_blocks
+         (block files on disk) · investigable_open (pending non-blocked backlog rows = the STOP-critical
+         count) · blocked_open (## Blocked gaps entries). These cannot drift without a hard FAIL.
+       • DECLARED-only — read from the prose and carried forward, NOT disk-validated: gaps_closed · known_gaps ·
+         requires_execution_open (the §19 build-loop STOP counter). verify-state only cross-checks the
+         coverage ratio for the all-closed-while-pending desync (CHECK D), not these absolute values — keep
+         them truthful by hand.
      Field names use UNDERSCORES on purpose: they must never collide with the prose greps below. -->
 <!-- research-state.v1 -->
 schema: research-state.v1

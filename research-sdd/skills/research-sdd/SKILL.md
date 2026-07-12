@@ -15,11 +15,18 @@ restate the loop rules — the single source of truth is the kit. Read the kit, 
 from real state, and run the loop. Never bake mutable state (block numbers, "next gap") into what you run —
 derive it live each iteration (that is why RESUME exists).
 
-## Fixed paths
+## Resolving the kit path
 
-```
-KIT = /home/cristian/investigacion/sdd-investigacion/research-sdd
-```
+`KIT` is the research-sdd kit directory — the one holding `METHODOLOGY.md`, `PROMPT-LOOP.md`, and
+`toolbelt/`. Resolve it ONCE, in this order, and use the result for every `$KIT/...` reference below:
+
+1. `$RESEARCH_SDD_KIT` if that environment variable is set and points at a dir containing `METHODOLOGY.md`.
+2. Else the default checkout: `/home/cristian/investigacion/sdd-investigacion/research-sdd`.
+3. Else (a relocated kit / second machine) locate it — e.g. `fd -t f METHODOLOGY.md` under the user's repos,
+   confirming the hit also has `toolbelt/` and `PROMPT-LOOP.md` — and if still unfound, ask the user for the path.
+
+The toolbelt scripts resolve their OWN location internally, so `$KIT` is only needed to FIND the docs and
+invoke the scripts; nothing downstream re-hardcodes this path.
 
 ## Arguments
 
