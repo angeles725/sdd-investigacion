@@ -17,9 +17,22 @@ ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # state <dir> <investigable> <backlog-rows...> ; blocked/stop appended. Rows: "priority|gap|status"
+# NOTE: mkstate now SEEDS a derived-consistent research-state.v1 envelope (near the top, after the H1) so
+# every fixture passes verify-state.sh's new envelope gate — otherwise --next would return STALE on the
+# missing envelope instead of exercising resolve_next. The envelope's derived triplet is computed HERE from
+# the same rules the SUT uses: covered_blocks=0 (mkstate writes no block files), blocked_open=1 (the fixed
+# 'gpu profiling' entry), investigable_open = pending (leading-token) non-'gpu profiling' rows.
 mkstate() {
   local dir="$1" inv="$2"; shift 2; mkdir -p "$dir"
-  { echo "# T — Research State"; echo; echo "## Gap-backlog (prioritized)"; echo
+  local io=0 r p g s
+  for r in "$@"; do IFS='|' read -r p g s <<<"$r"
+    [ "${s%% *}" = "pending" ] || continue
+    [ "$g" = "gpu profiling" ] && continue       # the fixed blocked entry mkstate writes below
+    io=$((io+1))
+  done
+  { echo "# T — Research State"; echo
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: %s\nrequires_execution_open: 0\nblocked_open: 1\n<!-- /research-state.v1 -->\n' "$io"; echo
+    echo "## Gap-backlog (prioritized)"; echo
     echo "| Priority | Gap | Artifact type / source | Status |"; echo "|---|---|---|---|"
     for r in "$@"; do IFS='|' read -r p g s <<<"$r"; echo "| $p | $g | web | $s |"; done
     echo; echo "## Blocked gaps (each tagged with what it needs)"; echo
@@ -32,6 +45,9 @@ mkstate() {
 }
 next() { bash "$SUT" "$1" --next 2>/dev/null; }
 expect_next() { local got; got="$(next "$1")"; [ "$got" = "$2" ] && ok "$3" || no "$3 — got [$got] want [$2]"; }
+# env_lines <covered> <gc> <kg> <io> <req> <bo> — the research-state.v1 envelope, for raw-printf fixtures
+# that don't use mkstate (which seeds its own). A valid envelope is required or --next returns STALE on the gate.
+env_lines(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\n<!-- /research-state.v1 -->\n' "$@"; }
 
 echo "== research-sdd-status.test.sh =="
 
@@ -75,7 +91,7 @@ expect_next "$d" "NEXT | high | hardware" "gap 'hardware' not killed by 'needs: 
 
 # 10 — a gap description mentioning the §8 phrase must NOT mask a real STOP (was: whole-file grep)
 d="$TMP/phrasemask"; mkdir -p "$d"
-{ echo "# T"; echo; echo "## Gap-backlog (prioritized)"; echo
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo; echo "## Gap-backlog (prioritized)"; echo
   echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
   echo "| high | audit the read-only investigable subsystems | web | covered |"; echo
   echo "## Blocked gaps"; echo "- none"; echo
@@ -84,7 +100,7 @@ expect_next "$d" "STOP | read-only-investigable exhausted (0)" "gap text mention
 
 # 11 — a pipe inside a Gap cell is WARNed to stderr, never silently dropped (was: awk -F'|' misfield)
 d="$TMP/pipe"; mkdir -p "$d"
-{ echo "# T"; echo; echo "## Gap-backlog (prioritized)"; echo
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo; echo "## Gap-backlog (prioritized)"; echo
   echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
   echo "| high | compare A | B render paths | web | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
@@ -93,16 +109,17 @@ printf '%s' "$warn" | grep -qi 'malformed backlog row' && ok "pipe-in-gap emits 
 
 # 12 — STALE: state claims all gaps closed but backlog still lists pending (verify-state FAIL) → refuse NEXT
 d="$TMP/stale"; mkdir -p "$d"
-{ echo "# T"; echo; echo "## Coverage"; echo "- **Coverage metric**: 3 / 3 closed"; echo
+{ echo "# T"; echo; env_lines 0 3 3 1 0 0; echo; echo "## Coverage"; echo "- **Coverage metric**: 3 / 3 closed"; echo
   echo "## Gap-backlog (prioritized)"; echo
   echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
   echo "| high | still open gap | web | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+# envelope CHECK D fires: declared full coverage (gaps_closed==known_gaps==3) while 1 investigable gap remains.
 got="$(next "$d")"; case "$got" in STALE\ *) ok "STALE when summary claims done but backlog pending";; *) no "STALE case — got [$got]";; esac
 
 # 13 — outer-pipe-less GFM row (valid GFM) parses correctly, not silently dropped
 d="$TMP/unbounded"; mkdir -p "$d"
-{ echo "# T"; echo; echo "## Gap-backlog"; echo
+{ echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; echo "## Gap-backlog"; echo
   echo "Priority | Gap | type | Status"; echo "---|---|---|---"
   echo "high | no outer pipes gap | web | pending"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
@@ -110,7 +127,7 @@ expect_next "$d" "NEXT | high | no outer pipes gap" "outer-pipe-less GFM row par
 
 # 14 — plain-hyphen blocked entry still excludes its gap (was: only em-dash handled)
 d="$TMP/hyphenblock"; mkdir -p "$d"
-{ echo "# T"; echo; echo "## Gap-backlog"; echo
+{ echo "# T"; echo; env_lines 0 0 0 1 0 1; echo; echo "## Gap-backlog"; echo
   echo "| P | G | t | S |"; echo "|-|-|-|-|"
   echo "| high | blocked thing | web | pending |"; echo "| medium | free thing | web | pending |"; echo
   echo "## Blocked gaps"; echo "- blocked thing - needs: hardware"; echo
@@ -119,7 +136,7 @@ expect_next "$d" "NEXT | medium | free thing" "plain-hyphen blocked entry exclud
 
 # 15 — en-dash blocked entry also excludes its gap
 d="$TMP/endashblock"; mkdir -p "$d"
-{ echo "# T"; echo; echo "## Gap-backlog"; echo
+{ echo "# T"; echo; env_lines 0 0 0 1 0 1; echo; echo "## Gap-backlog"; echo
   echo "| P | G | t | S |"; echo "|-|-|-|-|"
   echo "| high | blocked thing | web | pending |"; echo "| medium | free thing | web | pending |"; echo
   echo "## Blocked gaps"; echo "- blocked thing – needs: hardware"; echo
@@ -316,6 +333,54 @@ expect_next "$d" "NEXT | medium | real gap" "'blocked (pending review)' not trea
 # 36 — different-vocabulary statuses (`partial`, `covered`) must NOT match; only the low `pending` wins.
 d="$TMP/other-vocab"; mkstate "$d" 1 "high|partial gap|partial" "medium|covered gap|covered" "low|real gap|pending"
 expect_next "$d" "NEXT | low | real gap" "'partial'/'covered' statuses are not treated as pending"
+
+# ==================== research-state.v1 ENVELOPE GATE + --sync-state SEEDER ====================
+
+# 37 — CORE REGRESSION (premature-STOP class): the envelope UNDER-declares investigable_open (0) while the
+#      backlog still lists 2 pending non-blocked gaps. verify-state FAILs on the mismatch → --next MUST
+#      return STALE (reconcile first), never a premature STOP nor a blind NEXT on stale ints.
+d="$TMP/env-understated"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 5 5 0 0 0; echo; echo "## Gap-backlog"; echo
+  echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | first open gap | web | pending |"; echo "| medium | second open gap | web | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d/RESEARCH-STATE.md"
+got="$(next "$d")"; case "$got" in STALE\ *) ok "envelope investigable_open=0 vs 2 pending → --next STALE (not STOP)";; *) no "core regression — got [$got] want STALE";; esac
+
+# 38 — --sync-state SEEDS a contract-valid envelope into a corpus that has none, and is IDEMPOTENT (a
+#      second run is byte-identical — gentle-ai's content-compare no-op re-render). Blocked gap excluded.
+d="$TMP/sync"; mkdir -p "$d"
+{ echo "# T — Research State"; echo; echo "> intro blockquote"; echo
+  echo "## Coverage"; echo "- **Coverage metric**: 4 / 9 closed"; echo
+  echo "## Gap-backlog"; echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | open one | web | pending |"; echo "| medium | blocked one | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- blocked one — needs: hardware"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; echo "- **Open gaps — requires-execution**: 2"; } > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+if bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then ok "--sync-state seeds a contract-valid envelope (verify-state passes)"
+else no "--sync-state: verify-state still fails after seeding"; fi
+env_io="$(grep '^investigable_open:' "$d/RESEARCH-STATE.md" | awk '{print $2}')"
+[ "$env_io" = "1" ] && ok "--sync-state derives investigable_open=1 (blocked gap excluded)" || no "sync io=$env_io want 1"
+env_re="$(grep '^requires_execution_open:' "$d/RESEARCH-STATE.md" | awk '{print $2}')"
+[ "$env_re" = "2" ] && ok "--sync-state reads requires_execution_open=2 from prose" || no "sync req=$env_re want 2"
+cp "$d/RESEARCH-STATE.md" "$TMP/sync-snap"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+if diff -q "$TMP/sync-snap" "$d/RESEARCH-STATE.md" >/dev/null; then ok "--sync-state is idempotent (second run byte-identical)"
+else no "--sync-state not idempotent"; fi
+expect_next "$d" "NEXT | high | open one" "--next resolves after --sync-state seeding"
+
+# 39 — --sync-state UPDATES an existing fence IN PLACE (replaces only between markers; prose untouched) and
+#      RECONCILES a stale envelope. Seed a WRONG envelope, edit nothing else, re-sync → the ints are fixed.
+d="$TMP/resync"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 9 9 9 9 9 9; echo; echo "## SENTINEL prose line kept verbatim"; echo
+  echo "## Gap-backlog"; echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | the only gap | web | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+env_io="$(grep '^investigable_open:' "$d/RESEARCH-STATE.md" | awk '{print $2}')"
+if [ "$env_io" = "1" ] && grep -q '## SENTINEL prose line kept verbatim' "$d/RESEARCH-STATE.md" \
+   && [ "$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE.md")" = 1 ]; then
+  ok "--sync-state reconciles a stale fence in place (io 9→1, single fence, prose kept)"
+else no "resync: io=$env_io / fence-count=$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE.md")"; fi
 
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then

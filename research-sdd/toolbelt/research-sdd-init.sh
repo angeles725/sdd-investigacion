@@ -119,6 +119,16 @@ for f in "$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources/SOURCES
 done
 trap - ERR   # scaffold verified — disarm rollback
 
+# --- seed the research-state.v1 envelope from ground truth --------------------
+# The copied template ships a placeholder envelope; re-seed it so a FRESH corpus starts CONTRACT-VALID
+# (covered_blocks/investigable_open/blocked_open matching the seeded backlog), i.e. verify-state.sh passes
+# and --next never opens on a STALE gate. Best-effort: if the seeder is unavailable (e.g. a copied-toolbelt
+# test tree without status.sh), the placeholder envelope still stands — never fail the scaffold over it.
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -x "$SELF_DIR/research-sdd-status.sh" ] || [ -f "$SELF_DIR/research-sdd-status.sh" ]; then
+  bash "$SELF_DIR/research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1 || echo "  note: could not seed the research-state.v1 envelope (run --sync-state manually)"
+fi
+
 # --- report ------------------------------------------------------------------
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(target root, flat)"
 echo "== research-sdd-init: scaffolded =="

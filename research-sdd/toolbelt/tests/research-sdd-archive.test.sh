@@ -53,6 +53,9 @@ EOF
 Body.
 EOF
   : > "$corpus/INDEX.md"
+  # Seed the research-state.v1 envelope so the corpus passes verify-state's new envelope gate (else the
+  # archive's verify-state gate REFUSES on the missing envelope). --sync-state derives from this same corpus.
+  bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
 }
 
 echo "== research-sdd-archive.test.sh =="
@@ -139,6 +142,10 @@ else no "broken linter: exit=$rc / 'did not run'=$(printf '%s' "$out" | grep -ci
 # 14 — the blocks-on-disk mirror fact uses gen-catalog's strict discriminator: a `blocked-notes.md` decoy
 #      must NOT inflate the count (was: loose `*block*.md` glob counted it).
 d="$TMP/decoy"; mkgood "$d"; printf '# not a block\n' > "$d/blocked-notes.md"
+# verify-state's covered_blocks uses the loose *block*.md glob (which DOES match 'blocked-notes.md'), so the
+# envelope must be re-seeded to that count or the gate REFUSES; the archive's 'blocks on disk' mirror below
+# still uses gen-catalog's STRICT discriminator (which ignores the decoy → 1), which is what this pins.
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
 out="$(bash "$SUT" "$d" 2>&1)"
 printf '%s' "$out" | grep -qE 'blocks on disk : 1( |$|·)' && ok "strict block count ignores 'blocked-notes.md' decoy" \
   || no "block count inflated by decoy :: $(printf '%s' "$out" | grep 'blocks on disk')"
