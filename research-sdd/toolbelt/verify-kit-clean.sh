@@ -51,6 +51,15 @@ else
   echo "   sync         : (no upstream configured for ${branch:-HEAD} — nothing to be un-pushed against)"
 fi
 
+# 3. Audits location (ADVISORY, §13 / PROMPT-AUDIT) — audits are TARGET-scoped only. A tracked/untracked
+# `audits/` dir at the kit/supervisor REPO ROOT ($root == git rev-parse --show-toplevel) is almost always
+# mis-committed target evidence — a documented-recurring misplacement that only PROSE currently forbids.
+# This is an ADDITIVE advisory WARN: it does NOT change the clean/dirty verdict or the exit-code contract
+# (rc stays driven solely by the working-tree/sync checks above).
+if [ -d "$root/audits" ]; then
+  echo "   WARN: audits/ exists at the kit/supervisor root — audits are TARGET-scoped only (§13 / PROMPT-AUDIT); this is likely mis-committed target evidence — relocate to <target>/audits/ or remove."
+fi
+
 if [ "$rc" = 0 ]; then
   echo "   verdict      : clean — safe to stage a retro / start clean kit work"
 else

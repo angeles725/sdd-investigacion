@@ -73,6 +73,20 @@ out="$(runout "$d")"
 if [ "$(runrc "$d")" = 1 ] && printf '%s' "$out" | grep -qiE 'not pushed'; then ok "no -u tracking, local-ahead → caught via origin/<branch> fallback (exit 1)"
 else no "no-upstream-ahead missed: exit=$(runrc "$d") :: $out"; fi
 
+# 8 — an `audits/` dir at the kit/supervisor REPO ROOT → the advisory audits-WARN fires (audits are
+#     TARGET-scoped only, §13 / PROMPT-AUDIT). An empty dir keeps git status clean, so this also proves
+#     the WARN is ADDITIVE — independent of the clean/dirty verdict.
+d="$TMP/withaudits"; mkrepo "$d"; mkdir -p "$d/audits"
+out="$(runout "$d")"
+if printf '%s' "$out" | grep -qiE 'audits/ exists at the kit/supervisor root'; then ok "audits/ at kit root → advisory WARN fires"
+else no "audits/ WARN missing :: $out"; fi
+
+# 9 — NEGATIVE control: no `audits/` dir at the root → the audits-WARN does NOT fire (no false positive).
+d="$TMP/noaudits"; mkrepo "$d"
+out="$(runout "$d")"
+if ! printf '%s' "$out" | grep -qiE 'audits/ exists at the kit'; then ok "no audits/ dir → no audits-WARN (no false positive)"
+else no "audits-WARN fired without an audits/ dir :: $out"; fi
+
 # NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the porcelain dirty-check, expect the dirty fixture to pass as clean --"
