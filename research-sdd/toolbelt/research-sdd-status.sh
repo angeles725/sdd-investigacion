@@ -8,6 +8,9 @@
 #
 # Usage:
 #   research-sdd-status.sh <target-dir>            structured status report (default)
+#   research-sdd-status.sh <target-dir> --sync-state  (re-)seed the research-state.v1 envelope IN PLACE
+#        from ground truth (idempotent; a second run is byte-identical). This is what verify-state.sh
+#        validates against — run it after editing the backlog so --next never returns STALE on stale ints.
 #   research-sdd-status.sh <target-dir> --next     print ONE machine-readable next-step line:
 #        NEXT | <priority> | <gap>     — investigate this gap next
 #        STOP | <reason>               — read-only-investigable exhausted (METHODOLOGY §8)
@@ -130,6 +133,76 @@ resolve_next() {
   else echo "NONE | no pending investigable gap (investigable count: ${inv:-unknown})"; fi
 }
 
+# --- envelope seeder (--sync-state) --------------------------------------------------------------
+# derived investigable_open, reusing THIS script's backlog_rows/is_blocked — IDENTICAL to resolve_next's
+# NEXT-eligibility set (single source of truth), and to what verify-state.sh recomputes.
+count_investigable() {
+  local gap st n=0
+  while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
+    [ -z "$gap" ] && continue
+    [ "${st%% *}" = "pending" ] || continue
+    is_blocked "$gap" && continue
+    n=$((n+1))
+  done < <(backlog_rows 2>/dev/null)
+  echo "$n"
+}
+# read a field from the CURRENT envelope (for carry-forward of declared-only fields we cannot parse fresh).
+env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$state"; }
+# pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
+# 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
+pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$2";; esac;; *) echo "$1";; esac; }
+
+if [ "$mode" = "--sync-state" ]; then
+  # DERIVE the three ground-truth fields (same rules as verify-state.sh) ...
+  # STRICT block discriminator, identical to gen-catalog.py BLOCK_RE / research-sdd-archive.sh / verify-state.sh
+  # — `<prefix>-(block|bloque)<N>[-suffix].md`, so decoys like `blocked-notes.md` never inflate covered_blocks.
+  cb="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -iE '/[^/]*-(block|bloque)[0-9]+(-[a-z0-9_-]+)?\.md$' | wc -l | tr -d ' ')"
+  io="$(count_investigable)"
+  bo="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:')"
+  # ... and best-effort READ the declared-only figures from prose (coverage metric X/Y, requires-execution),
+  # carrying the previous envelope value when a figure is absent/unparseable.
+  cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+  gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
+  kg="$(pick "${cov##*/}" "$(env_get known_gaps)")"
+  req="$(pick "$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)" "$(env_get requires_execution_open)")"
+
+  render_envelope() {
+    printf '<!-- research-state.v1 -->\n'
+    printf 'schema: research-state.v1\n'
+    printf 'covered_blocks: %s\n' "$cb"
+    printf 'gaps_closed: %s\n' "$gc"
+    printf 'known_gaps: %s\n' "$kg"
+    printf 'investigable_open: %s\n' "$io"
+    printf 'requires_execution_open: %s\n' "$req"
+    printf 'blocked_open: %s\n' "$bo"
+    printf '<!-- /research-state.v1 -->'
+  }
+  repl="$(render_envelope)"
+  tmp="$(mktemp)"
+  if grep -q '<!-- research-state.v1 -->' "$state"; then
+    # fence EXISTS → replace ONLY between the markers (idempotent; surrounding prose untouched).
+    awk -v repl="$repl" '
+      $0 ~ /<!-- research-state.v1 -->/ { print repl; skip=1; next }
+      skip && $0 ~ /<!-- \/research-state.v1 -->/ { skip=0; next }
+      skip { next }
+      { print }' "$state" > "$tmp"
+  else
+    # fence ABSENT → insert right after the top intro blockquote (the first contiguous run of `>` lines);
+    # if there is no blockquote, append at EOF. Either way a SECOND run finds the fence → byte-identical.
+    awk -v repl="$repl" '
+      { line=$0
+        if (!done) {
+          if (line ~ /^>/) inbq=1
+          else if (inbq) { print repl; print ""; done=1 }
+        }
+        print line }
+      END { if (!done) { print ""; print repl } }' "$state" > "$tmp"
+  fi
+  mv "$tmp" "$state"
+  echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo"
+  exit 0
+fi
+
 if [ "$mode" = "--next" ]; then
   # Refuse to hand out work on an internally inconsistent state (summary claims done while backlog
   # lists pending — verify-state.sh exits 1 on that). An agent trusting --next alone must reconcile first.
@@ -144,7 +217,7 @@ fi
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
-ondisk="$(find "$corpus" -maxdepth 1 -name '*block*.md' -not -name '*.template.md' 2>/dev/null | wc -l | tr -d ' ')"
+ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -iE '/[^/]*-(block|bloque)[0-9]+(-[a-z0-9_-]+)?\.md$' | wc -l | tr -d ' ')"   # strict discriminator (gen-catalog.py BLOCK_RE)
 inv="$(inv_count)"
 req="$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)"
 blk="$(stopctl | grep -iE 'blocked' | grep -oE '[0-9]+' | head -1)"

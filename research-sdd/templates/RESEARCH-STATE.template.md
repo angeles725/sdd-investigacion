@@ -3,10 +3,27 @@
 > Operational state consumed by the loop (Research-SDD). Mirrored in engram
 > (`research/<target>/gaps`, `research/<target>/progress`). Visible and versionable source.
 
+<!-- Machine-validated state envelope (research-state.v1) — ported from gentle-ai's verify-result/v1.
+     This fenced block is AUTHORITATIVE for the load-bearing counts; the prose sections below are the
+     human-readable MIRROR. `verify-state.sh` recomputes the disk-anchored fields (covered_blocks,
+     investigable_open, blocked_open) and FAILs on any drift, so a stale mirror can never hand the loop a
+     premature STOP. Seed/refresh it mechanically — never hand-edit the ints — with:
+       research-sdd-status.sh <corpus> --sync-state
+     Field names use UNDERSCORES on purpose: they must never collide with the prose greps below. -->
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 3
+requires_execution_open: 0
+blocked_open: 1
+<!-- /research-state.v1 -->
+
 ## Coverage
 
 - **Covered blocks**: <N> (B1..B<N>)
-- **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)   ← ONE canonical coverage number, OVERWRITE it each iteration. Do NOT accrete contradictory assertions (e.g. `16/16` then `26/26`): if the gap universe grows, reconcile the denominator here to a single value. Per-iteration cumulative snapshots belong in "Iteration history" below, not as repeated coverage-metric lines. (`verify-state.sh` CHECK 3 WARNs on contradictory denominators outside the history table; it flags distinct DENOMINATORS only, so same-denominator drift like `22/16` vs `24/16` is on you to reconcile.)
+- **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)   ← ONE canonical coverage number, OVERWRITE it each iteration. Do NOT accrete contradictory assertions (e.g. an all-closed ratio, then a larger denominator declared later): if the gap universe grows, reconcile the denominator here to a single value. Per-iteration cumulative snapshots belong in "Iteration history" below, not as repeated coverage-metric lines. NOTE: the placeholder above carries no digits ON PURPOSE — keep it that way until you record a real ratio, so the machine envelope seeds gaps_closed/known_gaps=0 (nothing closed yet) instead of mis-parsing an example number. (`verify-state.sh` CHECK 3 WARNs on contradictory denominators outside the history table; it flags distinct DENOMINATORS only, so same-denominator numerator drift is on you to reconcile.)
 - **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below)
 
 ## Gap-backlog (prioritized)
