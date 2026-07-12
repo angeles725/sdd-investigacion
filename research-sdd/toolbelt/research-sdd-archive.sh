@@ -86,12 +86,15 @@ consolidate_err=""
 gen_kit="$here/../templates/gen-catalog.py"
 gen_local="$corpus/tools/gen-catalog.py"
 if [ -f "$gen_local" ]; then
-  # Pass the corpus ROOT as argv (NOT no-arg): if the local copy is a SYMLINK to the kit generator (a natural
-  # way to avoid duplicating an unchanged script), a no-arg run resolves ROOT via __file__ which .resolve()
-  # follows to the KIT root — writing CATALOG.md into the kit tree while reporting success. The kit generator
-  # (and any argv-aware copy) honors argv=corpus; a real bespoke copy ignores the extra arg and its
-  # parent.parent=corpus still holds. Either way the catalog lands in the corpus.
-  gen_desc="local generator ($gen_local)"; gen_cmd=(python3 "$gen_local" "$corpus")
+  # Invoke by TYPE of local copy so the catalog always lands in the corpus without assuming argv support:
+  #   • SYMLINK (to the shared kit gen, to avoid duplicating an unchanged script): pass the corpus as argv —
+  #     else Path(__file__).resolve() follows the link and parent.parent lands on the KIT tree (wrong write).
+  #     The kit gen honors argv=corpus.
+  #   • REAL FILE (a bespoke generator, or a stale kit duplicate): invoke NO-ARG — its parent.parent IS the
+  #     corpus, so it needs no argument, and a bespoke script with strict argv handling (argparse, no
+  #     positional) won't choke on an unexpected argument it never declared.
+  if [ -L "$gen_local" ]; then gen_cmd=(python3 "$gen_local" "$corpus"); else gen_cmd=(python3 "$gen_local"); fi
+  gen_desc="local generator ($gen_local)"
 elif [ -f "$gen_kit" ]; then
   gen_desc="kit generator ($gen_kit)";     gen_cmd=(python3 "$gen_kit" "$corpus")
 else

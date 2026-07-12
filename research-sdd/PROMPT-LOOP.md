@@ -67,8 +67,10 @@ Always read first, in this order:
       exists → $CORPUS=$TARGET/corpus/; else if $TARGET/INDEX.md exists → $CORPUS=$TARGET; else neither → BOOTSTRAP.
       Check the corpus/ path FIRST — else a nested corpus reads as "missing" and BOOTSTRAP duplicates it.)
   6. RESOLVE THE NEXT GAP mechanically — do NOT eyeball the backlog: `$KIT/toolbelt/research-sdd-status.sh $TARGET --next`
-     returns one line — `NEXT | <priority> | <gap>` (investigate it), `STOP | <reason>` (§8 exhaustion), or
-     `BOOTSTRAP | <reason>`. For a supervisor/human view, `research-sdd-status.sh $TARGET` (no flag) renders the full
+     returns one line — `NEXT | <priority> | <gap>` (investigate it), `STOP | <reason>` (§8 exhaustion),
+     `STALE | <reason>` (envelope/backlog inconsistent — run `$KIT/toolbelt/research-sdd-status.sh $TARGET
+     --sync-state`, reconcile, and retry; do NOT proceed on STALE), or `BOOTSTRAP | <reason>`.
+     For a supervisor/human view, `research-sdd-status.sh $TARGET` (no flag) renders the full
      state (coverage · pending backlog by priority · stop-control · verify-state consistency).
 
 == BOOTSTRAP (only if the target has NO corpus — no INDEX.md/RESEARCH-STATE.md at $TARGET or $TARGET/corpus/) ==

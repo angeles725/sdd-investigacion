@@ -14,9 +14,9 @@
 #   research-sdd-status.sh <target-dir> --next     print ONE machine-readable next-step line:
 #        NEXT | <priority> | <gap>     — investigate this gap next
 #        STOP | <reason>               — read-only-investigable exhausted (METHODOLOGY §8)
-#        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; reconcile before continuing
-#        NONE | <reason>               — no pending investigable gap, but not a clean STOP
+#        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
+#   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
 # Exit: 0 ok · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
 
@@ -128,9 +128,12 @@ resolve_next() {
       printf 'NEXT | %s | %s\n' "$pri" "$gap"; return 0
     done < <(printf '%s\n' "$rows" | awk -F'\t' -v P="$prio" '$1==P')
   done
-  local inv; inv="$(inv_count)"
-  if [ "${inv:-}" = "0" ]; then echo "STOP | read-only-investigable exhausted (0)"
-  else echo "NONE | no pending investigable gap (investigable count: ${inv:-unknown})"; fi
+  # The walk above found NO eligible (pending, non-blocked) gap, so the DERIVED investigable count is 0 BY
+  # CONSTRUCTION — the exact number verify-state.sh gates as the envelope's investigable_open, and the --next
+  # STALE-gate already ensured the envelope agrees with this derivation before we got here. STOP on that, NOT
+  # on the hand-authored `## Stop control` prose (which --sync-state never rewrites and verify-state never
+  # gates): reading that prose here would resurrect the stale-mirror class the envelope was built to kill.
+  echo "STOP | read-only-investigable exhausted (0)"
 }
 
 # --- envelope seeder (--sync-state) --------------------------------------------------------------
@@ -156,11 +159,12 @@ if [ "$mode" = "--sync-state" ]; then
   # Seed the research-state.v1 envelope in EVERY RESEARCH-STATE*.md of the corpus. §16 multi-focus corpora
   # keep ONE state file per focus, each with its OWN backlog. Seeding only the head-1 file (as this did before)
   # left sibling foci envelope-less, and verify-state.sh — which lints ALL of them (its line ~19) — then FAILs,
-  # BRICKING the whole corpus under the --next STALE-gate. covered_blocks is corpus-shared (blocks live at the
-  # corpus root, counted once); investigable_open / blocked_open / coverage are PER-FILE (each focus's backlog).
-  # STRICT block discriminator, identical to gen-catalog.py BLOCK_RE / research-sdd-archive.sh / verify-state.sh.
-  cb="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
-  render_envelope() {   # reads the per-file globals set in the loop below (io/bo/gc/kg/req) + corpus-shared cb
+  # BRICKING the whole corpus under the --next STALE-gate. ALL envelope fields are derived PER STATE FILE:
+  # investigable_open / blocked_open / coverage from each focus's own backlog, and covered_blocks from that
+  # file's OWN directory — recomputed INSIDE the loop with the SAME strict discriminator + dirname scoping that
+  # verify-state.sh:101 uses. A once-at-$corpus cb would disagree with verify-state for any focus file living in
+  # a subdirectory (verify-state recomputes ondisk per dirname($state)), FAILing the envelope we just wrote.
+  render_envelope() {   # reads the per-file globals set in the loop below (cb/io/bo/gc/kg/req)
     printf '<!-- research-state.v1 -->\n'
     printf 'schema: research-state.v1\n'
     printf 'covered_blocks: %s\n' "$cb"
@@ -180,6 +184,9 @@ if [ "$mode" = "--sync-state" ]; then
     # plain path harmlessly. The temp then lives in the target's OWN directory so mv is a same-filesystem
     # atomic rename (a bare mktemp lands in TMPDIR, and a cross-device mv is a non-atomic copy+unlink).
     state="$(readlink -f "$state" 2>/dev/null || printf '%s' "$state")"
+    # covered_blocks from THIS file's own directory — identical discriminator + dirname scoping to
+    # verify-state.sh:101, so declared cb can never disagree with the ondisk count verify-state recomputes.
+    cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
     io="$(count_investigable)"
     bo="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:')"
     # declared-only figures from THIS file's prose (coverage metric X/Y, requires-execution), carrying the

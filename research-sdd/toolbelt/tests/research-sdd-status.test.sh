@@ -441,6 +441,34 @@ if [ -L "$d/RESEARCH-STATE.md" ] && grep -q '<!-- research-state.v1 -->' "$d/rea
   ok "symlinked state: --sync-state writes through to the real target, symlink preserved"
 else no "symlink: still-link=$([ -L "$d/RESEARCH-STATE.md" ] && echo yes || echo NO) seeded-real=$(grep -qc '<!-- research-state.v1 -->' "$d/real/state.md" 2>/dev/null && echo yes || echo no)"; fi
 
+# 42 — MULTI-FOCUS with a focus in a SUBDIRECTORY: covered_blocks must be derived PER STATE FILE's own dir
+#      (like verify-state.sh:101), NOT once at the corpus root. A shared root-cb would be seeded into the
+#      subdir focus's envelope and verify-state (per-dir ondisk) would FAIL the envelope --sync-state just
+#      wrote. Teeth: root has 2 blocks, the subdir focus has 1 — a shared cb would wrongly seed 2 into both.
+d="$TMP/subdir-cb"; mkdir -p "$d/legacy"
+printf '# root\n> x\n## Gap-backlog\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE.md"
+printf 'x\n' > "$d/proj-block1.md"; printf 'x\n' > "$d/proj-block2.md"
+printf '# legacy\n> x\n## Gap-backlog\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/legacy/RESEARCH-STATE-legacy.md"
+printf 'x\n' > "$d/legacy/leg-block1.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+root_cb=$(_envf "$d/RESEARCH-STATE.md" covered_blocks); leg_cb=$(_envf "$d/legacy/RESEARCH-STATE-legacy.md" covered_blocks)
+if [ "$root_cb" = 2 ] && [ "$leg_cb" = 1 ] && bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then
+  ok "per-dir covered_blocks (root=2, subdir focus=1), verify-state agrees"
+else no "subdir-cb: root_cb=$root_cb(want 2) leg_cb=$leg_cb(want 1) verify=$(bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1 && echo ok || echo FAIL)"; fi
+
+# 43 — STOP BY CONSTRUCTION: resolve_next must ignore the hand-authored `## Stop control` prose. An empty
+#      eligible backlog ⇒ derived investigable = 0 ⇒ STOP, even when the prose still claims a non-zero count
+#      (which --sync-state never rewrites and verify-state never gates). Teeth: the prose says 5; before the
+#      fix resolve_next read inv_count() → wrong `NONE`. Envelope investigable_open=0 matches the empty backlog
+#      so the --next STALE-gate passes and we reach resolve_next.
+d="$TMP/stop-construct"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo; echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | done gap | web | covered |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 5"; } > "$d/RESEARCH-STATE.md"
+expect_next "$d" "STOP | read-only-investigable exhausted (0)" "empty eligible backlog → STOP (ignores stale prose count of 5)"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"

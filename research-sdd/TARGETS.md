@@ -132,7 +132,8 @@ under `corpus/sources/web-snapshots/`. Bootstrap 2026-07-05: created corpus/ sub
 `tools/gen-catalog.py` copy is now LEGACY/vestigial: eje #2 stopped seeding it, and
 research-sdd-archive.sh regenerates CATALOG.md via the kit generator), git
 initialized, target row registered in `$KIT/TARGETS.md`. **Hook deferred** — OpenCode runtime
-does not honor `.claude/settings.json` hooks (per `research-sdd/SKILL.md` OpenCode runtime adapter);
+does not honor `.claude/settings.json` hooks, so the SessionStart retro-sweep / kit-clean surfacing never fires
+there — run `toolbelt/sweep-retros.sh` and `toolbelt/verify-kit-clean.sh` MANUALLY at loop-close on OpenCode;
 re-evaluate if the target migrates to Claude Code.
 User pre-clarification (2026-07-05): **do NOT read or annotate the user's own dashboards** — the
 user explicitly described them as "AI-generic looking" and asked for a *research corpus* of
@@ -146,7 +147,8 @@ Few, Bertin, Müller-Brockmann, Cairo, Norman, Hollifield...) under `sources/ext
 **State is NOT closed:** RESEARCH-STATE still lists **16 `pending` gaps** (G2 color science, G3
 typography, G4 iconography, G5 chart libs, etc.), and `corpus/retros/` + `corpus/audits/` are still
 empty — §18 retro / §13 audit / §14 cross-block sweep were **not run** because run-A emitted a
-PREMATURE STOP (fixed: strict STOP guard in the OpenCode adapter + `research-loop.sh` backlog probe).
+PREMATURE STOP (fixed by the `research-state.v1` machine-validated envelope + verify-state STALE-gate:
+`--next` refuses to STOP while the backlog holds pending gaps, and `--sync-state` keeps the counts derived).
 Next `continue` run should close the pending backlog, then run §18/§13/§14. Coverage: 24 blocks, backlog open.
 
 ---
