@@ -447,6 +447,25 @@ else
   no "21 nested research/retros/ layout → LISTED + AGED (recursive resolution)" "exit=$RC out=[$OUT]"
 fi
 
+# 22 — INDEX/manifest files are EXCLUDED from the retro walk (Fix #38). A generated 'RETROS-INDEX.md' sitting
+#      in retros/ is a table of contents, not a §18 proposal — it must NOT be counted or surfaced as a pending
+#      retro (it wrongly surfaced as '~0 proposed deltas · status none' for three.js). A real pending retro
+#      alongside it still surfaces. The find now carries '-not -iname "*index*.md"'. RED on the old find (the
+#      index would count as a 2nd retro → 'Summary: 1 pending / 2 retros' and print RETROS-INDEX.md).
+kit="$(mkkit c22-index)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2            # a real pending retro
+printf '# Retros index\n\n| # | file |\n|---|---|\n| 1 | r1.md |\n' > "$tgt/retros/RETROS-INDEX.md"  # generated index
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'r1.md' <<<"$OUT" \
+   && ! grep -q 'RETROS-INDEX.md' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "22 INDEX file in retros/ → excluded; real retro still listed" "(exit $RC)"
+else
+  no "22 INDEX file in retros/ → excluded; real retro still listed" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never

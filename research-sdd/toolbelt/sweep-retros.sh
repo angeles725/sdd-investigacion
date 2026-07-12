@@ -56,6 +56,9 @@ pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>
 # <target>/research/retros/*.md) is walked here too — a flat "$p/retros/*.md" glob would miss them and
 # the two passes in this file would contradict each other. DEDUP by canonical path so a retro reachable
 # under more than one listed target (overlapping $paths) or via more than one location is counted once.
+# Index/manifest files (RETROS-INDEX.md / *-INDEX.md) are EXCLUDED (-not -iname '*index*.md'): they are
+# generated tables of contents, not proposals — counting one as a retro surfaced it as '~0 proposed deltas
+# · status none' (three.js). Both this pass and the MISSING-RETRO pass below carry the same exclusion.
 declare -A rsdd_seen_retro=()
 for p in $paths; do
   [ -d "$p" ] || continue
@@ -84,7 +87,7 @@ for p in $paths; do
     tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
     pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag")")
-  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
+  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 done
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
@@ -127,7 +130,7 @@ for p in $paths; do
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     m="$(rsdd_added_epoch "$p" "$rf")"; [ "${m:-0}" -gt "$nr" ] && nr="$m"
-  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
+  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
   nb=0   # newest block added-date under this target (gen-catalog's block/bloque discriminator)
   while IFS= read -r bf; do
     [ -n "$bf" ] || continue

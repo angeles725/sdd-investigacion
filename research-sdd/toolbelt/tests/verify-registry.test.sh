@@ -224,6 +224,35 @@ else
   no "9b normal row quiet · RSDD_ROW_MAXLEN=5 WARNs" "norm=$norm_ok env=$env_ok out=[$OUT] out2=[$OUT2]"
 fi
 
+# 10 — LOCAL-GENERATOR AUTHORITY (Fix #37). A corpus with its OWN generator (<corpus>/tools/gen-catalog.py)
+#      plus a CATALOG.md whose "Total: N" differs from the raw canonical discriminator must reconcile against
+#      that CATALOG total, not the discriminator (niagara: CATALOG 239 vs discriminator 237). Fixture: 5 real
+#      block files (discriminator=5) but CATALOG says Total 40. (a) claim 40 md → matches CATALOG → QUIET;
+#      (b) claim 5 md → matches the discriminator but NOT the CATALOG → now DRIFTS naming real=40 — proving
+#      the CATALOG total (not the raw 5) drives the comparison when the local generator is present.
+kit="$(mkkit c10-catalog)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 5 "a"                                   # 5 real block files → discriminator=5
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+printf '# Catalogo de bloques\n\nTotal: **40 bloques**\n' > "$tgt/CATALOG.md"
+write_targets "$kit" "$tgt::40 md"                      # claim matches the CATALOG total
+run "$kit"
+match_ok=0
+[ "$RC" = 0 ] && ! grep -q 'refresh the row' <<<"$OUT" && grep -q 'Registry consistent with reality' <<<"$OUT" && match_ok=1
+kit2="$(mkkit c10b-catalog-drift)"; tgt2="$kit2/targetA"
+mkcorpus "$tgt2" 5 "a"
+mkdir -p "$tgt2/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt2/tools/gen-catalog.py"
+printf '# Catalogo de bloques\n\nTotal: **40 bloques**\n' > "$tgt2/CATALOG.md"
+write_targets "$kit2" "$tgt2::5 md"                     # claim matches the discriminator, NOT the CATALOG
+OUT2="$("$BASH_BIN" "$kit2/toolbelt/verify-registry.sh" 2>&1)"; RC2=$?
+drift_ok=0
+[ "$RC2" = 0 ] && grep -qE 'WARN[[:space:]]+targetA .* claims 5 md but the corpus has 40 real block' <<<"$OUT2" \
+  && grep -q 'CATALOG.md total via local gen-catalog.py' <<<"$OUT2" && drift_ok=1
+if [ "$match_ok" = 1 ] && [ "$drift_ok" = 1 ]; then
+  ok "10 local gen-catalog.py → CATALOG total (40) is authoritative, not discriminator (5)" "(exit $RC/$RC2)"
+else
+  no "10 local gen-catalog.py → CATALOG total (40) is authoritative, not discriminator (5)" "match=$match_ok drift=$drift_ok out=[$OUT] out2=[$OUT2]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.

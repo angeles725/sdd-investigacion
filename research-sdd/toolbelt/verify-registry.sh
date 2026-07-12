@@ -85,6 +85,23 @@ for p in $paths; do
   # glob — a decoy like `blocked-notes.md` must not inflate the count. Single definition, no drift.
   real="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
 
+  # LOCAL-GENERATOR AUTHORITY (Feature #37): a target with its OWN catalog generator
+  # (<corpus>/tools/gen-catalog.py) legitimately produces a CATALOG total that differs from the raw
+  # canonical discriminator (niagara: CATALOG 239 vs discriminator 237 — the generator counts blocks the
+  # flat root-glob does not, e.g. sub-series or nested block files). When that generator EXISTS and
+  # CATALOG.md carries a "Total: N" (or "N bloques/blocks") line, trust THAT N as the authoritative real
+  # count so a justified local total reconciles against its OWN authority instead of false-drifting.
+  # Otherwise keep the canonical discriminator count. WARN-only/read-only is unchanged.
+  cat_authority=""
+  gen="$corpus/tools/gen-catalog.py"
+  cat_md="$corpus/CATALOG.md"
+  if [ -f "$gen" ] && [ -f "$cat_md" ]; then
+    # A "Total: N" line first; else the first "N bloques/blocks" token anywhere in CATALOG.md.
+    cat_total="$(grep -iE 'total' "$cat_md" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+    [ -n "$cat_total" ] || cat_total="$(grep -oiE '[0-9]+[[:space:]]*(bloques?|blocks?)' "$cat_md" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+    if [ -n "$cat_total" ]; then real="$cat_total"; cat_authority=" (CATALOG.md total via local gen-catalog.py)"; fi
+  fi
+
   checked=$((checked + 1))
   name="$(basename "$p")"
 
@@ -98,7 +115,7 @@ for p in $paths; do
   # misparsed as octal by bash arithmetic, which would error/misdrift on 08/09.
   d=$(( 10#${claimed:-0} - 10#${real:-0} )); [ "$d" -lt 0 ] && d=$(( -d ))
   if [ "$d" -gt "$tol" ]; then
-    echo "WARN  $name — TARGETS.md row claims ${claimed} md but the corpus has ${real} real block file(s) (drift ${d} > tol ${tol}) — refresh the row (propose-never-apply; not auto-edited)."
+    echo "WARN  $name — TARGETS.md row claims ${claimed} md but the corpus has ${real} real block file(s)${cat_authority} (drift ${d} > tol ${tol}) — refresh the row (propose-never-apply; not auto-edited)."
     drift=$((drift + 1))
   fi
 

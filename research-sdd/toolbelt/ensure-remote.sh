@@ -123,13 +123,17 @@ fi
 # `/`, so an extension pattern like `*.key` catches a key at ANY depth/location; the directory patterns
 # are root-anchored to the corpus root, which is where the SECRETS DISCIPLINE places security/ etc.).
 # FAIL CLOSED (mirror Layer 4b): if `ls-files` itself errors, we cannot verify — refuse rather than proceed.
+# `ls-files -z` emits NUL-delimited paths; converting NUL→newline INSIDE the pipe (before the command
+# substitution captures it) avoids bash's "ignored null byte in input" warning that a raw `$(... -z)` capture
+# emits. `set -o pipefail` (top of file) makes a git failure still propagate as the substitution's non-zero
+# exit, so the fail-closed refusal below is preserved. tr never fails, so a clean run stays exit 0.
 if ! _tracked_raw="$(git -C "$target" ls-files -z -- \
   '*.pem' '*.der' '*.key' '*.p12' '*.pfx' 'id_rsa*' '*.jks' '*.keystore' \
-  'security/*' 'licenses/*' 'certificates/*' 'keystore/*' 'keyring/*' 2>/dev/null)"; then
+  'security/*' 'licenses/*' 'certificates/*' 'keystore/*' 'keyring/*' 2>/dev/null | tr '\0' '\n')"; then
   echo "REFUSED: could not enumerate tracked files (git ls-files failed) — cannot verify no secret is tracked." >&2
   exit 7
 fi
-tracked_secrets="$(printf '%s' "$_tracked_raw" | tr '\0' ' ')"
+tracked_secrets="$(printf '%s' "$_tracked_raw" | tr '\n' ' ')"
 if [ -n "${tracked_secrets// }" ]; then
   echo "REFUSED: secret-bearing file(s) are git-TRACKED and would be pushed: $tracked_secrets" >&2
   echo "         scan-secrets.sh cannot see these binary types. Untrack them first:" >&2

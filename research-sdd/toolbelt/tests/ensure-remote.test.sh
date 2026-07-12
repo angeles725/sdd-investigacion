@@ -44,7 +44,8 @@ no() { printf '  FAIL  %-52s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 # --- control knobs (defaults = the "happy" private path) --------------------
 reset_ctl() {
   GIT_HAS_ORIGIN=0 GIT_PUSH_EXIT=0 GH_OWNER=tester GH_OWNER_TYPE=User \
-  GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 GIT_TRACKED_SECRETS=""
+  GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 GIT_TRACKED_SECRETS="" \
+  GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0
 }
 
 # --- stub factories ---------------------------------------------------------
@@ -72,6 +73,7 @@ case " $* " in
   *" ls-files "*"-z "*)
     if [ -n "${GIT_TRACKED_SECRETS:-}" ]; then printf '%s\0' "${GIT_TRACKED_SECRETS}"; fi
     exit 0 ;;
+  *" diff --quiet "*) exit "${GIT_GITIGNORE_DIRTY:-0}" ;;
   *" push "*) exit "${GIT_PUSH_EXIT:-0}" ;;
   *) exit 0 ;;
 esac
@@ -93,7 +95,7 @@ case " $* " in
   *" repo create "*) exit "${GH_CREATE_EXIT:-0}" ;;
   *" repo view "*)   echo "${GH_VIS:-PRIVATE}"; exit 0 ;;
   *" repo edit "*)   exit 0 ;;
-  *" api users/"*)   echo "${GH_OWNER_TYPE:-User}"; exit 0 ;;
+  *" api users/"*)   echo "${GH_OWNER_TYPE:-User}"; exit "${GH_USERS_EXIT:-0}" ;;
   *" api user "*)    echo "${GH_OWNER:-tester}"; exit 0 ;;
   *) exit 0 ;;
 esac
@@ -129,6 +131,7 @@ run() {
         GH_OWNER="$GH_OWNER" GH_OWNER_TYPE="$GH_OWNER_TYPE" \
         GH_CREATE_EXIT="$GH_CREATE_EXIT" GH_VIS="$GH_VIS" SCAN_EXIT="$SCAN_EXIT" \
         GIT_TRACKED_SECRETS="$GIT_TRACKED_SECRETS" \
+        GIT_GITIGNORE_DIRTY="$GIT_GITIGNORE_DIRTY" GH_USERS_EXIT="$GH_USERS_EXIT" \
         "$BASH_BIN" "$box/ensure-remote.sh" "$@" 2>&1)"; RC=$?
 }
 
@@ -249,6 +252,42 @@ if [ -f "$gi" ] && [ -z "$missing" ]; then
   ok "9 .gitignore seeded with all secret-type patterns" "(exit $RC)"
 else
   no "9 .gitignore seeded with all secret-type patterns" "missing=[$missing] file=$([ -f "$gi" ] && echo present || echo ABSENT)"
+fi
+
+# 10 — FIX-2: the LAYER-4a .gitignore seed COMMIT is RESTRICTED to .gitignore. The SUT commits with an
+#     explicit `-- .gitignore` pathspec so a pre-staged UNRELATED file cannot be swept into the
+#     ensure-remote commit. Force the seeded .gitignore to read as dirty (GIT_GITIGNORE_DIRTY=1) so the
+#     commit path actually runs, then assert the logged `git commit` carries the `-- .gitignore` pathspec.
+reset_ctl; GIT_GITIGNORE_DIRTY=1
+box="$(mkbox c10-gitignore-scoped-commit)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 0 ] && has_call "$box" 'commit .* -- .gitignore'; then
+  ok "10 .gitignore commit scoped to '-- .gitignore' (no unrelated sweep-in)" "(exit $RC)"
+else
+  no "10 .gitignore commit scoped to '-- .gitignore' (no unrelated sweep-in)" "exit=$RC calls=[$(calls "$box")]"
+fi
+
+# 11 — FIX-3: `gh api users/<owner>` FAILS (owner account type is unverifiable) → the SUT REFUSES with
+#     exit 7 BEFORE creating anything (fail-closed: an owner it cannot confirm is personal never proceeds
+#     to repo creation, since an org could carry a default-public policy).
+reset_ctl; GH_USERS_EXIT=1
+box="$(mkbox c11-owner-unverifiable)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 7 ] && ! has_call "$box" 'repo create'; then
+  ok "11 owner type unverifiable (gh api users/ fails) → refuse 7, NO repo create" "(exit $RC)"
+else
+  no "11 owner type unverifiable (gh api users/ fails) → refuse 7, NO repo create" "exit=$RC(want 7) calls=[$(calls "$box")]"
+fi
+
+# 12 — FIX-4: `--name` given with NO following value → the SUT refuses with exit 2 during arg parsing,
+#     BEFORE any gh/network call (a dangling flag must never fall through to repo creation).
+reset_ctl
+box="$(mkbox c12-name-no-value)"
+run "$box" "$box/target" --name
+if [ "$RC" = 2 ] && ! has_call "$box" '^gh '; then
+  ok "12 --name with no value → refuse 2, NO gh call" "(exit $RC)"
+else
+  no "12 --name with no value → refuse 2, NO gh call" "exit=$RC(want 2) calls=[$(calls "$box")]"
 fi
 
 # ---------------------------------------------------------------------------

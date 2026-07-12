@@ -54,7 +54,9 @@ pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<claims>\t<status>\t<age_d>
 # Resolve audits RECURSIVELY (find "$p" -path '*/audits/*.md'), mirroring sweep-retros.sh's retro pass, so a
 # nested-corpus target that keeps its audits deeper (e.g. <target>/research/audits/*.md) is walked here too —
 # a flat "$p/audits/*.md" glob would miss them. DEDUP by canonical path so an audit reachable under more than
-# one listed target (overlapping $paths) or via more than one location is counted once.
+# one listed target (overlapping $paths) or via more than one location is counted once. Index/manifest files
+# (AUDITS-INDEX.md / *-INDEX.md) are EXCLUDED (-not -iname '*index*.md'): they are generated tables of
+# contents, not audit reports — counting one as an audit would surface it as a bogus '~0 audited claims' item.
 declare -A rsdd_seen_audit=()
 for p in $paths; do
   [ -d "$p" ] || continue
@@ -83,7 +85,7 @@ for p in $paths; do
     tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
     pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$epoch" "$f" "$p" "${claims:-?}" "${status:-none}" "$age_d" "$tag")")
-  done < <(find "$p" -maxdepth 4 -path '*/audits/*.md' -not -path '*/.git/*' 2>/dev/null)
+  done < <(find "$p" -maxdepth 4 -path '*/audits/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 done
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale audits lead.

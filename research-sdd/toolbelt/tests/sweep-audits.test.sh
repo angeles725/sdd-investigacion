@@ -202,5 +202,23 @@ else
   no "9 nested research/audits/ layout → LISTED + AGED (recursive resolution)" "exit=$RC out=[$OUT]"
 fi
 
+# 10 — INDEX/manifest files are EXCLUDED from the audit walk (Fix #38). A generated 'AUDITS-INDEX.md' sitting
+#      in audits/ is a table of contents, not a §13 audit report — it must NOT be counted or surfaced as a
+#      pending audit. A real pending audit alongside it still surfaces. The find now carries
+#      '-not -iname "*index*.md"'. RED on the old find (the index would count as a 2nd audit).
+kit="$(mkkit c10-index)"; tgt="$kit/targetA"
+mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 2            # a real pending audit
+printf '# Audits index\n\n| # | file |\n|---|---|\n| 1 | a1.md |\n' > "$tgt/audits/AUDITS-INDEX.md"  # generated index
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'a1.md' <<<"$OUT" \
+   && ! grep -q 'AUDITS-INDEX.md' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
+  ok "10 INDEX file in audits/ → excluded; real audit still listed" "(exit $RC)"
+else
+  no "10 INDEX file in audits/ → excluded; real audit still listed" "exit=$RC out=[$OUT]"
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
