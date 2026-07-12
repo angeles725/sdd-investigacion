@@ -53,7 +53,7 @@ Sensitivity:
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / remote yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / remote yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (40 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (36 md / 6 runs / 3 retros +1 pending / git yes / remote yes / hook deferred; 13 OCR book-extracts + 3 standard/manual extracts; `anti-ai-ui` skill delivered; B36 Swiss rail operations board vibra 22, sweep #2 pipeline open 36/39, G40 MoTeC investigable, G41-G50 pipeline, G36-G38 deferred) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (37 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred; 13 OCR book-extracts + 4 standard/manual extracts; `anti-ai-ui` skill delivered; B37 motorsport telemetry analysis vibra 23, pipeline investigable exhausted 37/40, G41-G47 scouts owed, G36-G38 deferred) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (24 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) · **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) · **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research) | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 
 ---
@@ -146,7 +146,7 @@ discipline blocks + the external design-skill layer (B29 survey / B30 mechanisms
 design + applied outcome). Sources triangulate web-snapshots + **13 OCR'd book extracts** (Tufte,
 Few, Bertin, Müller-Brockmann, Cairo, Norman, Hollifield...) under `sources/extracted/` + 33
 commit-pinned skill snapshots + 6 `[CERT-hw]` probe files (`sources/probes/anti-ai-ui-applied/`).
-**State: OPEN — sweep #2 pipeline 36/39, G40 investigable (2026-07-12; previously sweep-#1 investigable end 35/38 and FULL STOP 32/32; G36-G38 carried deferred-pending).** G31 delivered the `anti-ai-ui` skill at
+**State: OPEN — pipeline investigable exhausted 37/40, G41-G47 scouts owed (2026-07-12; previously sweep-#2 36/39 G40 investigable, sweep-#1 investigable end 35/38 and FULL STOP 32/32; G36-G38 carried deferred-pending).** G31 delivered the `anti-ai-ui` skill at
 `~/.claude/skills/anti-ai-ui/` (7 files, SHA-identity `b349d1c26116ead6`): trap-brief validation
 (divergence gate fired · lint exit 0 · screenshot QA) + Judgment Day TERMINAL APPROVED (round 2,
 11 fixed units). Retros: 3 on disk; the iteration-27 close retro (§18) is still owed (+1). The
@@ -192,8 +192,18 @@ Müller-Brockmann 1978-80 lineage joins B12 as the Swiss school's live-operation
 Sweep #2 pipeline registered: G40 MoTeC (scout COMPLETE, CERTIFIABLE-NOW — NEXT-eligible)
 · G41-G47 pending-scout (UK AF/ONS · DataV · Source Han · jlreq · 和色 · 中国传统色 ·
 DSFR) · G48 DB-fold-into-B36 note · G49-G50 conditional (DADS · ShakeMap/PAGER).
-Coverage: **36 blocks, 36/39 — sweep #2 pipeline open**, envelope investigable_open=1;
-reopenings otherwise per §8.
+Iteration 33 (same run) closed G40 → **B37 Motorsport Telemetry Analysis** (vibra 23) —
+the corpus's first GRAMMAR-FIRST vibra and first POST-HOC analytical-comparison grammar:
+the MoTeC Interpreter → i2 linked-cursor keystone + 14 page-anchored signature rules
+certified from 2 vendor PDFs preserved whole under `corpus/sources/docs/motec/`
+(Interpreter User's Manual Aug 2002 + i2 V1.1.4 Feature Guide Oct 2018) + the official
+i2 Features page snapshot under `corpus/sources/web-snapshots/motec/` (TLS
+fetch-provenance note) + the page-anchored extract; the sources publish NO palette
+(channel colours user/template-assigned) → all display tokens CORPUS-ASSIGNED +
+WCAG-computed (B37-3); Standard-vs-Pro matrix adopted as citable component budget;
+red = ranking (within 2% of fastest), alarm grammar banned (B37-2).
+Coverage: **37 blocks, 37/40 — pipeline investigable exhausted, G41-G47 scouts owed**,
+envelope investigable_open=0; reopenings otherwise per §8.
 
 ---
 
