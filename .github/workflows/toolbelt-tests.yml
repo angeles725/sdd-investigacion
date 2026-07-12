@@ -4,10 +4,16 @@ on:
   push:
     paths:
       - "research-sdd/toolbelt/**"
+      # gen-catalog.py is now load-bearing for the toolbelt discriminator; changes to either copy
+      # (the shipped seed or the repo-specialized tool) must run the guarding tests so BLOCK_RE can't rot.
+      - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
+      - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
   pull_request:
     paths:
       - "research-sdd/toolbelt/**"
+      - "research-sdd/templates/**"
+      - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
 
 jobs:
