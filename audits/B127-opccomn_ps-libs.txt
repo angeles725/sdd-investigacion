@@ -1,2 +1,0 @@
-rpcrt4.dll
-kernel32.dll
