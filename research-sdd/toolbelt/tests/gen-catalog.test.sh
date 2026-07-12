@@ -11,8 +11,10 @@
 # non-conforming exclusions) AND cross-checks, on ONE shared fixture, that the set gen-catalog.py catalogs
 # equals the set the toolbelt's strict `grep -E` selects — mechanizing "one definition of a block".
 #
-# SUT = research-sdd/templates/gen-catalog.py (the GENERIC seed shipped to every target and the copy whose
-# prefix-aware BLOCK_RE the toolbelt discriminator mirrors). The repo's own tools/gen-catalog.py is a
+# SUT = research-sdd/templates/gen-catalog.py — the ONE kit generator research-sdd-archive.sh drives over
+# a corpus ROOT via argv (eje #2 ELIMINATED the per-target copies: they drifted — the recent case-sensitive
+# BLOCK_RE change never reached targets seeded before it — so there is now one authority, not N synced
+# copies). It is also the copy whose prefix-aware BLOCK_RE the toolbelt discriminator mirrors. The repo's own tools/gen-catalog.py is a
 # DIFFERENT, corpus-specialized copy (`^sdd-mental-model-bloque(\d+)\.md$`); it is NOT the discriminator's
 # mirror, so it is not the SUT here — but its shared TITLE_RE is parity-checked below so the two can't drift.
 #
@@ -36,9 +38,11 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# gen <script> <dir> : run <script> so its ROOT (script.parent.parent) is <dir>; CATALOG.md lands in <dir>.
-# gen-catalog.py resolves ROOT = Path(__file__).resolve().parent.parent, so the script must live in <dir>/tools/.
-gen(){ local s="$1" d="$2"; mkdir -p "$d/tools"; cp "$s" "$d/tools/gen-catalog.py"; python3 "$d/tools/gen-catalog.py" >/dev/null 2>&1; }
+# gen <script> <dir> : run <script> with <dir> as its argv ROOT; CATALOG.md lands in <dir>.
+# eje #2: gen-catalog.py now takes ROOT from argv (ONE kit generator scans any corpus — no per-target
+# copy to drift). This is the PRIMARY invocation research-sdd-archive.sh uses. The legacy no-arg
+# parent.parent mode (from <dir>/tools/) is exercised explicitly in the DUAL-INVOCATION case below.
+gen(){ local s="$1" d="$2"; python3 "$s" "$d" >/dev/null 2>&1; }
 # py_set <dir> : filenames gen-catalog.py actually cataloged (the `[fname]` link column of CATALOG.md).
 py_set(){ grep -oE '\[[^]]+\.md\]' "$1/CATALOG.md" 2>/dev/null | tr -d '[]' | sort -u; }
 # grep_set <dir> : filenames the toolbelt's STRICT discriminator selects — VERBATIM the grep used by
@@ -140,6 +144,26 @@ else
   ok "parity: tools/ copy absent (shipped kit) → parity check skipped cleanly"
 fi
 
+# 11 — DUAL INVOCATION (eje #2 backward-compat contract): the SAME generator MUST work BOTH ways —
+#      (a) argv ROOT `python3 SUT <dir>` — how research-sdd-archive drives the ONE kit generator; and
+#      (b) no-arg `python3 <dir>/tools/gen-catalog.py` → parent.parent — the LEGACY per-target copy path.
+#      Both must catalog the same block into <dir>/CATALOG.md. This locks the back-compat that lets us
+#      DELETE per-target copies (they drifted — the recent BLOCK_RE change never reached seeded targets)
+#      WITHOUT breaking targets/regens that still invoke a copy with no arg.
+M="$TMP/modes"; mkdir -p "$M"
+printf '# Block 1 — dual mode\nbody\n' > "$M/proj-block1.md"
+# (a) argv ROOT: run the SUT directly with the corpus dir as argv[1].
+rm -f "$M/CATALOG.md"; python3 "$SUT" "$M" >/dev/null 2>&1
+if grep -qF '| 1 | [proj-block1.md](proj-block1.md) | dual mode |' "$M/CATALOG.md" 2>/dev/null; then
+  ok "dual-mode (a): argv ROOT — 'python3 SUT <dir>' writes <dir>/CATALOG.md"
+else no "dual-mode (a): argv ROOT did not catalog into <dir>/CATALOG.md"; fi
+# (b) legacy no-arg: a copy under <dir>/tools/ run with NO arg → parent.parent resolves to <dir>.
+rm -f "$M/CATALOG.md"; mkdir -p "$M/tools"; cp "$SUT" "$M/tools/gen-catalog.py"
+python3 "$M/tools/gen-catalog.py" >/dev/null 2>&1
+if grep -qF '| 1 | [proj-block1.md](proj-block1.md) | dual mode |' "$M/CATALOG.md" 2>/dev/null; then
+  ok "dual-mode (b): no-arg parent.parent — legacy <dir>/tools/ copy still writes <dir>/CATALOG.md"
+else no "dual-mode (b): no-arg parent.parent did not catalog into <dir>/CATALOG.md"; fi
+
 # ================================ NEGATIVE CONTROLS — prove the checks have TEETH ==========================
 if [ "${1:-}" = "--prove-teeth" ]; then
   # TEETH A — BLOCK_RE's prefix+dash requirement is what EXCLUDES a bare `bloque9.md` (case 5) and keeps the
@@ -193,6 +217,33 @@ PY
     if ! grep -qF '| First block |' "$mb/CATALOG.md" && grep -qF 'Block 1 — First block' "$mb/CATALOG.md"; then
       ok "teeth(B): neutered TITLE_RE falls back to raw heading → cases 3/4 pin the TITLE_RE extraction"
     else no "teeth(B): clean title survived the neutered TITLE_RE — title assertions are THEATER"; fi
+  fi
+
+  # TEETH C — the argv ROOT branch (eje #2) is what lets the ONE kit generator scan an ARBITRARY corpus.
+  # Mutate ROOT to IGNORE argv (always parent.parent); then `python3 mutant <dir>` must NOT write
+  # <dir>/CATALOG.md — it writes to the mutant's own parent.parent instead. If <dir>/CATALOG.md still
+  # appears, the argv ROOT handling (case 11a / the whole archive invocation) is not load-bearing (theater).
+  echo "-- teeth: neuter argv ROOT (always parent.parent); expect argv <dir>/CATALOG.md to NOT be written --"
+  mc="$TMP/teethC"; mkdir -p "$mc"
+  mutantC="$mc/mutant-gen.py"   # deliberately NOT under a tools/ beside the scanned dir → parent.parent misses it
+  python3 - "$SUT" "$mutantC" <<'PY'
+import sys, re
+src, dst = sys.argv[1], sys.argv[2]
+t = open(src, encoding="utf-8").read()
+mut = re.sub(r'^ROOT = .*$',
+             r'ROOT = Path(__file__).resolve().parent.parent  # MUTANT: argv ignored',
+             t, count=1, flags=re.M)
+open(dst, "w", encoding="utf-8").write(mut)
+PY
+  if ! grep -q 'MUTANT: argv ignored' "$mutantC"; then
+    no "teeth(C): could not build mutant (ROOT line not found — did the SUT change?)"
+  else
+    scan="$TMP/teethC-scan"; mkdir -p "$scan"
+    printf '# Block 1 — real\n' > "$scan/proj-block1.md"
+    python3 "$mutantC" "$scan" >/dev/null 2>&1
+    if [ ! -f "$scan/CATALOG.md" ]; then
+      ok "teeth(C): argv-ignoring mutant does NOT write <dir>/CATALOG.md → argv ROOT handling has teeth"
+    else no "teeth(C): mutant wrote <dir>/CATALOG.md despite ignoring argv — argv ROOT is THEATER"; fi
   fi
 fi
 

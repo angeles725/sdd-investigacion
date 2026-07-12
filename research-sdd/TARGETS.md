@@ -128,7 +128,9 @@ Okabe-Ito, Paul Tol, IBM Carbon, Observable, Mantine, Phosphor, etc. The user as
 target is built to capture with citations. Artifacts: web-snapshots (pandoc/`webfetch` → markdown),
 book extracts (paratext preserved under `corpus/sources/extracted/`), context7 docs snapshotted
 under `corpus/sources/web-snapshots/`. Bootstrap 2026-07-05: created corpus/ subdir
-(`INDEX.md` / `RESEARCH-STATE.md` / `sources/SOURCES.md` / `tools/gen-catalog.py`), git
+(`INDEX.md` / `RESEARCH-STATE.md` / `sources/SOURCES.md` / `tools/gen-catalog.py` — the
+`tools/gen-catalog.py` copy is now LEGACY/vestigial: eje #2 stopped seeding it, and
+research-sdd-archive.sh regenerates CATALOG.md via the kit generator), git
 initialized, target row registered in `$KIT/TARGETS.md`. **Hook deferred** — OpenCode runtime
 does not honor `.claude/settings.json` hooks (per `research-sdd/SKILL.md` OpenCode runtime adapter);
 re-evaluate if the target migrates to Claude Code.

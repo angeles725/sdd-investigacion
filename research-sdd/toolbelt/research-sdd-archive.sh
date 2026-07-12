@@ -75,18 +75,25 @@ fi
 # Best-effort: a failure here is surfaced loudly and pushed to the top of the checklist, but does NOT flip
 # the exit code — the gate already decided the close is legitimate.
 consolidate_err=""
-catalog="skipped (no tools/gen-catalog.py)"
-if [ -f "$corpus/tools/gen-catalog.py" ]; then
-  if [ "$dry" = 1 ]; then
-    catalog="would regenerate ($corpus/tools/gen-catalog.py)"
-  elif python3 "$corpus/tools/gen-catalog.py" >/dev/null 2>&1; then
-    catalog="regenerated CATALOG.md"
-  else
-    catalog="ERROR — gen-catalog.py failed (CATALOG.md NOT regenerated / left stale)"
-    consolidate_err="CATALOG regen failed — run: python3 $corpus/tools/gen-catalog.py"
-    echo "WARNING: $consolidate_err" >&2
-  fi
+# eje #2 — ONE authority, not N synced copies: drive the KIT generator over the corpus ROOT (argv),
+# NOT a per-target `<corpus>/tools/gen-catalog.py` copy. Those copies DRIFT — the recent case-sensitive
+# BLOCK_RE change never reached targets seeded before it. The generator is always the kit's, resolved
+# from THIS script's location (archive.sh lives in research-sdd/toolbelt/ → generator is ../templates/).
+gen_catalog="$here/../templates/gen-catalog.py"
+if [ ! -f "$gen_catalog" ]; then
+  catalog="skipped (kit generator not found at $gen_catalog)"
+elif [ "$dry" = 1 ]; then
+  catalog="would regenerate (python3 $gen_catalog \"$corpus\")"
+elif python3 "$gen_catalog" "$corpus" >/dev/null 2>&1; then
+  catalog="regenerated CATALOG.md (via kit generator)"
+else
+  catalog="ERROR — gen-catalog.py failed (CATALOG.md NOT regenerated / left stale)"
+  consolidate_err="CATALOG regen failed — run: python3 $gen_catalog \"$corpus\""
+  echo "WARNING: $consolidate_err" >&2
 fi
+# A legacy corpus may still carry a vestigial per-target copy (seeded before eje #2). We IGNORE it —
+# the kit generator above is authority — but flag it so a human can prune the drift source.
+[ -f "$corpus/tools/gen-catalog.py" ] && catalog="$catalog · note: vestigial $corpus/tools/gen-catalog.py present (legacy copy, IGNORED)"
 # Touch the CANONICAL INDEX.md when present (prefer the exact name over an INDEX-*.md sibling), guarded so a
 # permission error degrades to an honest report instead of a silent mis-report.
 index="skipped (no INDEX*.md)"

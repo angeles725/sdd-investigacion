@@ -101,7 +101,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
      `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
      $CORPUS (METHODOLOGY §15) and creates INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md ·
-     tools/gen-catalog.py · the SessionStart hook · retros/ · .gitignore, and `git init`s the TARGET — all from
+     the SessionStart hook · retros/ · .gitignore, and `git init`s the TARGET — all from
      $KIT/templates. It REFUSES over an existing corpus, so it can never duplicate one (--force overrides).
      Then do the JUDGMENT follow-ups it prints (it cannot guess them): ADAPT the hook — replace <SUBJECT> +
      real source paths in $TARGET/.claude/hooks/research-protocol.sh (for a NESTED corpus, prefix its
@@ -253,7 +253,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          triggering it on its input's edit adds ZERO redundant corpus re-scans while catching the defect in the
          iteration that introduced it, instead of letting it survive until STOP. The STOP run (step 7) stays as
          the final backstop.
-       - Regenerate: python3 $CORPUS/tools/gen-catalog.py. Mirror to engram (research/<target>/gaps, .../progress).
+       - Regenerate CATALOG.md: python3 $KIT/templates/gen-catalog.py $CORPUS (the kit generator over the corpus
+         root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress).
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
          INDEX/RESEARCH-STATE from scratch, so before appending YOUR entry, check the PRECEDING iteration's
          bookkeeping (its block-table row, file/gap-count totals) is complete and consistent — repair it as
