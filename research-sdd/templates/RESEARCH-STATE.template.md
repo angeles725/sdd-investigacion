@@ -10,10 +10,15 @@
        • FAIL-gated against ground truth by verify-state.sh (a stale value BLOCKS the loop): covered_blocks
          (block files on disk) · investigable_open (pending non-blocked backlog rows = the STOP-critical
          count) · blocked_open (## Blocked gaps entries). These cannot drift without a hard FAIL.
-       • DECLARED-only — read from the prose and carried forward, NOT disk-validated: gaps_closed · known_gaps ·
-         requires_execution_open (the §19 build-loop STOP counter). verify-state only cross-checks the
-         coverage ratio for the all-closed-while-pending desync (CHECK D), not these absolute values — keep
-         them truthful by hand.
+       • BACKLOG-ANCHORED WHEN MARKED — requires_execution_open (the §19 build-loop STOP counter): mark each
+         OPEN build/PoC gap as a backlog row whose Status column carries `requires-execution` (see the example
+         row below); verify-state then derives the open count from those rows and FAILs ONLY the premature
+         build-STOP hazard (requires_execution_open: 0 while marked-open rows remain — the exact analog of the
+         investigable gate). Other divergence is a WARN. A corpus that tracks its build gaps in prose only is
+         still valid, but that count is NOT machine-gated — mark the rows to get the gate.
+       • DECLARED-only — read from the prose and carried forward, NOT disk-validated: gaps_closed · known_gaps.
+         verify-state only cross-checks the coverage ratio for the all-closed-while-pending desync (CHECK D),
+         not these absolute values — keep them truthful by hand.
      Field names use UNDERSCORES on purpose: they must never collide with the prose greps below. -->
 <!-- research-state.v1 -->
 schema: research-state.v1
@@ -21,7 +26,7 @@ covered_blocks: 0
 gaps_closed: 0
 known_gaps: 0
 investigable_open: 3
-requires_execution_open: 0
+requires_execution_open: 1
 blocked_open: 1
 <!-- /research-state.v1 -->
 
@@ -33,11 +38,19 @@ blocked_open: 1
 
 ## Gap-backlog (prioritized)
 
+<!-- OPEN requires-execution (§19 build/PoC) gaps: keep them as backlog rows whose STATUS column carries
+     `requires-execution` (the example row below, modeled on three.js's G41). That marker is what makes the
+     envelope's requires_execution_open BACKLOG-ANCHORED — verify-state derives the open count from marked
+     rows and catches a premature build-STOP (envelope 0 while marked rows remain). Close one by striking it
+     (~~) or flipping Status to `✅ cubierto — B<k>` like any other row. NOTE: this example row is REAL to the
+     parsers (an HTML comment would not hide a table row from them), so the placeholder envelope above says
+     requires_execution_open: 1 — --sync-state re-derives it once you edit the backlog. -->
 | Priority | Gap | Artifact type / source | Status |
 |---|---|---|---|
 | high | <research question> | <Java/.NET/native/doc/web> | pending |
 | medium | <...> | <...> | pending |
 | low | <...> | <...> | pending |
+| high | <build/PoC gap — answerable only by compiling/running something> | prototype build | requires-execution → §19 (not read-only; needs a build + re-measure) |
 
 ## Iteration history
 

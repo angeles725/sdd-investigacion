@@ -99,6 +99,11 @@ blocked_names() {
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
 }
 is_blocked() { local g="$1" b; while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done < <(blocked_names); return 1; }
+# disk-DERIVED blocked_open — count of "- <name> — needs: ..." entries under ## Blocked gaps (needs:-anchored,
+# so a bare "- none" placeholder never inflates it). Single source of truth for the envelope's blocked_open
+# AND the status display: the old display grabbed the first integer off the `## Stop control` prose, which
+# grabs a "§8" section number (the exact req_prose() bug class) — deriving from disk sidesteps it entirely.
+derive_blocked_open() { blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
 
 # Backlog rows: STRICT 4-column table (`| p | gap | type | status |` → 6 pipe-fields). A gap cell
 # containing a pipe yields NF!=6 → WARN (never a silent drop / mis-field). Emits "priority<TAB>gap<TAB>status".
@@ -149,6 +154,41 @@ count_investigable() {
   done < <(backlog_rows 2>/dev/null)
   echo "$n"
 }
+# derived requires_execution_open — MIRRORS verify-state.sh's derive_requires_execution EXACTLY (same
+# deliberate lockstep as count_investigable): OPEN backlog rows whose STATUS column (tolower'd by
+# backlog_rows) is ANCHORED to the LEADING token `requires-execution` (mirrors count_investigable's
+# `pending` leading-token discipline) — a free-text mention that merely NAMES the phrase
+# (`pending (requires-execution)`) is NOT counted (was a CHECK E false-POSITIVE). CLOSED is decided only
+# by UNAMBIGUOUS markers: a struck-through gap (~~), or a status carrying ~~/✅. The bare words
+# covered/closed/done/cubierto were REMOVED from the closed-test: they appear NEGATED in genuinely OPEN
+# asides (`not yet covered`, `not yet done`), and a bare substring match there false-excluded an open row
+# (was a CHECK E false-NEGATIVE). Only a LOWER BOUND: a prose-tracked build gap (logosoft) has no backlog
+# marker, so --sync-state prefers this count ONLY when it is > 0.
+count_requires_execution() {
+  local gap st lead n=0
+  while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
+    [ -z "$gap" ] && continue
+    # OPEN marker ANCHORED to the leading token (strip one ** bold first) — mirrors derive_investigable's
+    # `pending` leading-token discipline so a free-text mention (`pending (requires-execution)`) that merely
+    # names the phrase is NOT counted as a build gap (was a CHECK E false-FAIL).
+    lead="${st#\*\*}"
+    case "$lead" in requires-execution|requires-execution[!a-z0-9]*) ;; *) continue ;; esac
+    # CLOSED only via UNAMBIGUOUS markers: a struck gap/status (~~) or a ✅ verdict. The bare words
+    # covered/closed/done/cubierto were REMOVED: they appear negated in OPEN asides (`(not yet covered)`,
+    # `not yet done`), and a substring match there false-excluded a genuinely open gap → CHECK E missed the
+    # premature-build-STOP hazard. Canonical closure always pairs the word WITH ✅ (`✅ cubierto`), so ✅ suffices.
+    case "$gap" in *'~~'*) continue ;; esac
+    case "$st" in *'~~'*|*'✅'*) continue ;; esac
+    n=$((n+1))
+  done < <(backlog_rows 2>/dev/null)
+  echo "$n"
+}
+# requires-execution count from the `## Stop control` prose. Parenthesized asides are stripped FIRST and
+# the number is anchored to the token itself, not to the whole line: the real logosoft line reads
+# `— requires-execution (NO read-only; …, METHODOLOGY §8)**: **0 — AGOTADO.**`, and the old bare
+# first-integer grep grabbed the 8 out of `§8` instead of the declared 0 (that stale 8 was live in its
+# envelope). Emits the first integer AFTER the token, or nothing when the line/number is absent.
+req_prose() { stopctl | sed -E 's/\([^)]*\)//g' | grep -ioE 'requires-execution[^0-9]*[0-9]+' | head -1 | grep -oE '[0-9]+$'; }
 # read a field from the CURRENT envelope (for carry-forward of declared-only fields we cannot parse fresh).
 env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{v=$2; sub(/\r$/,"",v); print v; exit}' "$state"; }  # strip trailing CR (CRLF-safe)
 # pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
@@ -188,13 +228,22 @@ if [ "$mode" = "--sync-state" ]; then
     # verify-state.sh:101, so declared cb can never disagree with the ondisk count verify-state recomputes.
     cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
     io="$(count_investigable)"
-    bo="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:')"
-    # declared-only figures from THIS file's prose (coverage metric X/Y, requires-execution), carrying the
-    # previous envelope value when a figure is absent/unparseable (never invent — see pick()).
+    bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
+    # declared-only figures from THIS file's prose (coverage metric X/Y), carrying the previous envelope
+    # value when a figure is absent/unparseable (never invent — see pick()).
     cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
     gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
     kg="$(pick "${cov##*/}" "$(env_get known_gaps)")"
-    req="$(pick "$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)" "$(env_get requires_execution_open)")"
+    # requires_execution_open PREFERS the backlog-derived count (rows whose Status carries the
+    # `requires-execution` marker → disk-anchored, in lockstep with verify-state.sh's CHECK E) and only
+    # falls back to the prose stop-control number / previous envelope when NO row is marked — a marked
+    # backlog is authoritative, a prose-only corpus (logosoft) keeps its declared counter.
+    dreq="$(count_requires_execution)"
+    if [ "$dreq" -gt 0 ]; then
+      req="$dreq"
+    else
+      req="$(pick "$(req_prose)" "$(env_get requires_execution_open)")"
+    fi
     repl="$(render_envelope)"
     tmp="$(mktemp "$(dirname "$state")/.rsdd-sync.XXXXXX")"
     if grep -q '<!-- research-state.v1 -->' "$state"; then
@@ -238,8 +287,8 @@ metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
 ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"   # strict discriminator (gen-catalog.py BLOCK_RE)
 inv="$(inv_count)"
-req="$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)"
-blk="$(stopctl | grep -iE 'blocked' | grep -oE '[0-9]+' | head -1)"
+req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)
+blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$3=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="

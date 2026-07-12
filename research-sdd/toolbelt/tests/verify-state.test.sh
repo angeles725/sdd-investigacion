@@ -384,6 +384,82 @@ if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope blo
   ok "declared blocked_open=3 vs 1 actual → FAIL exit 1"
 else no "env-blocked: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'blocked_open' | head -1)"; fi
 
+# ================= requires_execution_open (§19 build counter) — CALIBRATED CHECK E =================
+# There is NO uniform on-disk marker for open build gaps (logosoft tracked its counter in PROSE only, all
+# its backlog build rows closed), so CHECK E is deliberately NOT a strict-equality gate: it FAILs only the
+# premature build-STOP direction (declared 0 while marked-open rows remain), WARNs on other divergence.
+
+# 29 — THE TEETH CASE (premature build-STOP): an OPEN requires-execution backlog row (Status marked exactly
+#      like three.js's G41) while the envelope declares the build loop DONE (requires_execution_open=0)
+#      → FAIL exit 1. This is the §19 analog of case 25's investigable premature-STOP guard.
+d="$TMP/req-premature"; ewrite "$d" 0 4 10 1 0 1 "high|open read-only gap|pending" \
+  "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope requires_execution_open=0 .*premature build-STOP'; then
+  ok "marked-open requires-execution row + declared 0 → FAIL exit 1 (premature build-STOP caught)"
+else no "req-premature: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
+# 30 — same fixture, envelope AGREES (requires_execution_open=1) → exit 0 and CHECK E fully silent.
+d="$TMP/req-agree"; ewrite "$d" 0 4 10 1 1 1 "high|open read-only gap|pending" \
+  "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+  ok "marked-open row + declared 1 → exit 0, CHECK E silent (backlog-anchored agreement)"
+else no "req-agree: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
+# 31 — PROSE-TRACKED corpus (the logosoft shape): NO backlog marker at all, envelope carries a nonzero
+#      declared count → exit 0 with CHECK E silent. Pins the calibration: a strict equality gate would
+#      false-FAIL every prose-tracked corpus (declared N vs derived 0), which is exactly what CHECK E
+#      must NOT do — derived 0 proves nothing.
+d="$TMP/req-prose-only"; ewrite "$d" 0 4 10 1 1 1 "high|open read-only gap|pending"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+  ok "prose-tracked (no marker) + declared 1 → exit 0, silent (no false FAIL on logosoft-shape corpora)"
+else no "req-prose-only: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
+# 32 — MIRROR HYGIENE: 1 marked-open row but the envelope declares 3 → WARN printed, exit UNCHANGED (0).
+#      Divergence with marked rows on disk is drift worth surfacing, but only the 0-direction is a hazard.
+d="$TMP/req-hygiene"; ewrite "$d" 0 4 10 1 3 1 "high|open read-only gap|pending" \
+  "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'WARN +envelope requires_execution_open=3 != 1'; then
+  ok "declared 3 vs 1 marked-open row → WARN (mirror hygiene), exit still 0"
+else no "req-hygiene: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
+# 33 — CLOSED markers EXCLUDED from the derivation: a struck-through gap (~~) and a '✅ cubierto — B7x'
+#      status both carry the requires-execution token but are CLOSED rows (the logosoft closed-backlog
+#      shape) → derived 0, declared 0 → exit 0, CHECK E silent (closed rows never re-arm the build loop).
+d="$TMP/req-closed"; ewrite "$d" 0 4 10 0 0 1 \
+  "high|~~G50 old build gap~~|requires-execution → §19" \
+  "high|G51 landed PoC|requires-execution ✅ cubierto — B72"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+  ok "struck-through / cubierto requires-execution rows excluded → derived 0, exit 0"
+else no "req-closed: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
+# 33a — REGRESSION (false-NEGATIVE, both judges): two OPEN requires-execution rows whose status carries a
+#      NEGATED closure word ("not yet covered", "not yet done") — the OLD unanchored substring closed-test
+#      (*covered*/*done*) wrongly matched these and excluded the row, so CHECK E stayed silent on a
+#      genuinely open build gap. Envelope declares the build loop DONE (requires_execution_open=0) →
+#      MUST FAIL exit 1 (premature build-STOP caught).
+d="$TMP/req-negated-open"; ewrite "$d" 0 4 10 1 0 1 "high|open read-only gap|pending" \
+  "high|G60 rt PoC|requires-execution → §19 (not yet covered by any PoC; needs a build)" \
+  "high|G61 decode PoC|requires-execution — round-trip not yet done, awaiting slot"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope requires_execution_open=0 .*premature build-STOP'; then
+  ok "negated-closure open requires-execution rows + declared 0 → FAIL exit 1 (premature build-STOP caught)"
+else no "req-negated-open: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
+# 33b — REGRESSION (false-POSITIVE, judge A): the ONLY requires-execution mention is a free-text aside on
+#      an ordinary pending gap ("pending (requires-execution)") — the OLD unanchored open-test (*requires-
+#      execution*) wrongly counted this as an open build gap. Envelope declares 0 and there is NO real
+#      marked-open build row → CHECK E must stay SILENT (exit 0, no false FAIL).
+d="$TMP/req-freetext-mention"; ewrite "$d" 0 4 10 1 0 1 "medium|future scope note|pending (requires-execution)"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+  ok "free-text 'pending (requires-execution)' mention NOT counted → exit 0, CHECK E silent (no false FAIL)"
+else no "req-freetext-mention: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+
 # CRLF — a RESEARCH-STATE.md saved with Windows line endings must still verify OK. Before env_field's
 # trailing-CR strip, awk left '\r' on each value and is_int('0\r') was FALSE, so EVERY envelope check
 # falsely FAILed — a deterministic false FAIL that bricked --next/archive on any CRLF-saved corpus.
@@ -451,6 +527,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$egot" = 0 ]; then
       ok "teeth: neutered envelope-investigable mutant false-passes (exit 0) → case 25 has teeth"
     else no "teeth(envB): mutant exit $egot (want 0) — case 25 does NOT depend on CHECK B (THEATER)"; fi
+  fi
+
+  # Teeth for case 29 (the §19 premature-build-STOP guard) — neuter CHECK E's FAIL branch; the marked-open
+  # fixture with declared 0 must then STOP exiting 1 (the elif demotes it to a WARN at most), proving the
+  # calibrated gate is genuinely load-bearing and not theater.
+  echo "-- teeth: neuter ENVELOPE CHECK E (requires_execution_open); expect the marked-open fixture to pass --"
+  mutantR="$TMP/verify-state.ENVE.MUTANT.sh"
+  sed 's/^\( *\)if is_int "\$e_req" .*then$/\1if false; then  # MUTANT: envelope requires-execution check neutered/' "$SUT" > "$mutantR"
+  if ! grep -q 'MUTANT: envelope requires-execution check neutered' "$mutantR"; then
+    no "teeth(envE): could not build mutant (CHECK E guard line not found — did the SUT change?)"
+  else
+    d="$TMP/req-premature"   # reuse case 29 fixture: marked-open requires-execution row + declared 0
+    bash "$mutantR" "$d" >/dev/null 2>&1; rgot=$?
+    if [ "$rgot" = 0 ]; then
+      ok "teeth: neutered envelope-requires-execution mutant false-passes (exit 0) → case 29 has teeth"
+    else no "teeth(envE): mutant exit $rgot (want 0) — case 29 does NOT depend on CHECK E (THEATER)"; fi
   fi
 fi
 

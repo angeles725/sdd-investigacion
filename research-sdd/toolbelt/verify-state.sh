@@ -68,6 +68,36 @@ derive_investigable() {
 # derived blocked_open = count of "- <name> — needs: ..." entries under ## Blocked gaps (needs:-anchored,
 # so a bare "- none" placeholder never inflates the count).
 derive_blocked() { _section "$1" '## Blocked gaps' | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# derived requires_execution_open = OPEN requires-execution (§19 build/PoC) backlog rows: the STATUS column
+# (already tolower'd by _backlog_rows) is ANCHORED to the LEADING token `requires-execution` (mirrors
+# derive_investigable's `pending` leading-token discipline) — a free-text mention that merely NAMES the
+# phrase (`pending (requires-execution)`) is NOT counted (was a CHECK E false-POSITIVE). CLOSED is decided
+# only by UNAMBIGUOUS markers: a struck-through gap (~~), or a status carrying ~~/✅. The bare words
+# covered/closed/done/cubierto were REMOVED from the closed-test: they appear NEGATED in genuinely OPEN
+# asides (`not yet covered`, `not yet done`), and a bare substring match there false-excluded an open row
+# (was a CHECK E false-NEGATIVE — the exact premature-build-STOP hazard this check exists to catch).
+# UNLIKE investigable_open this derivation is only a LOWER BOUND: real corpora (logosoft) legitimately
+# track build gaps in prose with NO backlog marker, so CHECK E below gates only the premature build-STOP
+# direction (declared 0 while marked-open rows remain) and never demands strict equality against this count.
+derive_requires_execution() {
+  local sf="$1" gap st lead n=0
+  while IFS=$'\t' read -r _ gap st; do              # field 1 (priority) unused here → discard into _
+    [ -z "$gap" ] && continue
+    # OPEN marker ANCHORED to the leading token (strip one ** bold first) — mirrors derive_investigable's
+    # `pending` leading-token discipline so a free-text mention (`pending (requires-execution)`) that merely
+    # names the phrase is NOT counted as a build gap (was a CHECK E false-FAIL).
+    lead="${st#\*\*}"
+    case "$lead" in requires-execution|requires-execution[!a-z0-9]*) ;; *) continue ;; esac
+    # CLOSED only via UNAMBIGUOUS markers: a struck gap/status (~~) or a ✅ verdict. The bare words
+    # covered/closed/done/cubierto were REMOVED: they appear negated in OPEN asides (`(not yet covered)`,
+    # `not yet done`), and a substring match there false-excluded a genuinely open gap → CHECK E missed the
+    # premature-build-STOP hazard. Canonical closure always pairs the word WITH ✅ (`✅ cubierto`), so ✅ suffices.
+    case "$gap" in *'~~'*) continue ;; esac
+    case "$st" in *'~~'*|*'✅'*) continue ;; esac
+    n=$((n+1))
+  done < <(_backlog_rows "$sf")
+  echo "$n"
+}
 
 rc=0
 for state in "${states[@]}"; do
@@ -103,9 +133,11 @@ for state in "${states[@]}"; do
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
   d_inv="$(derive_investigable "$state")"
   d_blocked="$(derive_blocked "$state")"
+  d_req="$(derive_requires_execution "$state")"
   e_covered="$(env_field "$state" covered_blocks)"
   e_inv="$(env_field "$state" investigable_open)"
   e_blocked="$(env_field "$state" blocked_open)"
+  e_req="$(env_field "$state" requires_execution_open)"
   e_gc="$(env_field "$state" gaps_closed)"
   e_kg="$(env_field "$state" known_gaps)"
 
@@ -113,7 +145,7 @@ for state in "${states[@]}"; do
   echo "   coverage metric : ${xy:-<none>}"
   echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} block file(s) on disk"
   echo "   backlog pending : ${pending}"
-  echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · blocked_open=${e_blocked:-<none>}/${d_blocked}  (declared/derived)"
+  echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked}  (declared/derived)"
 
   # ENVELOPE CHECK A (FAIL) — declared covered_blocks must equal on-disk block files (reuse `ondisk`).
   if ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; then
@@ -139,6 +171,20 @@ for state in "${states[@]}"; do
   if is_int "$e_gc" && is_int "$e_kg" && [ "$e_kg" -gt 0 ] && [ "$e_gc" = "$e_kg" ] && [ "$d_inv" -gt 0 ]; then
     echo "   FAIL   envelope gaps_closed=$e_gc == known_gaps=$e_kg while $d_inv investigable gap(s) remain — premature-STOP hazard."
     frc=1; rc=1
+  fi
+  # ENVELOPE CHECK E (CALIBRATED, hazard-direction only) — requires_execution_open vs marked-open backlog
+  # rows. There is NO uniform on-disk marker for open build gaps (logosoft tracked its counter in prose
+  # only), so strict equality here would FALSE-FAIL prose-tracked corpora. FAIL fires ONLY on the exact
+  # analog of the investigable premature-STOP gate: the envelope declares the build loop DONE (0) while the
+  # backlog still carries marked-open requires-execution rows. Any other divergence with marked rows on disk
+  # is a WARN (mirror hygiene); d_req==0 proves nothing (prose-tracked is legitimate) and stays silent.
+  if is_int "$e_req" && [ "$e_req" -eq 0 ] && [ "$d_req" -gt 0 ]; then
+    echo "   FAIL   envelope requires_execution_open=0 (build loop declared done) while $d_req open requires-execution backlog gap(s) remain — premature build-STOP hazard; re-seed --sync-state."
+    frc=1; rc=1
+  elif is_int "$e_req" && [ "$d_req" -gt 0 ] && [ "$e_req" != "$d_req" ]; then
+    echo "   WARN   envelope requires_execution_open=$e_req != $d_req marked-open requires-execution backlog gap(s) — mirror hygiene; re-seed --sync-state."
+  elif ! is_int "$e_req"; then
+    echo "   WARN   envelope requires_execution_open=${e_req:-<missing>} is not an integer — seed it: --sync-state."
   fi
 
   # CHECK 1 (FAIL) — summary claims every gap closed, but the backlog still lists pending gaps.

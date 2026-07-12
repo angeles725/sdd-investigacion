@@ -469,6 +469,41 @@ d="$TMP/stop-construct"; mkdir -p "$d"
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 5"; } > "$d/RESEARCH-STATE.md"
 expect_next "$d" "STOP | read-only-investigable exhausted (0)" "empty eligible backlog → STOP (ignores stale prose count of 5)"
 
+# 44 — BACKLOG-ANCHORED requires_execution_open (the three.js shape): --sync-state must PREFER the count
+#      derived from backlog rows whose Status column carries `requires-execution` over a STALE prose
+#      stop-control number (0 here) — the marked backlog is authoritative, the envelope lands at 1, and
+#      verify-state's CHECK E (the deliberate mirror) certifies the envelope --sync-state just wrote.
+d="$TMP/sync-req-backlog"; mkdir -p "$d"
+{ echo "# T — Research State"; echo; echo "> intro"; echo
+  echo "## Coverage"; echo "- **Coverage metric**: 40 / 40 closed"; echo
+  echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | G41 — equipment LOD | prototype build | requires-execution → §19 (not read-only; needs a build + re-measure) |"; echo
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"
+  echo "- **Open gaps — requires-execution**: 0"; } > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+env_re="$(grep '^requires_execution_open:' "$d/RESEARCH-STATE.md" | awk '{print $2}')"
+[ "$env_re" = "1" ] && ok "--sync-state anchors requires_execution_open=1 from the marked backlog row (stale prose 0 overridden)" \
+  || no "sync-req-backlog: req=$env_re want 1"
+if bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then ok "backlog-anchored envelope passes verify-state (derivations in lockstep)"
+else no "sync-req-backlog: verify-state FAILs the envelope --sync-state just wrote (mirror drift)"; fi
+
+# 45 — PROSE-TRACKED corpus with paren noise (the REAL logosoft stop-control line): no marked backlog rows,
+#      and the prose reads `— requires-execution (…, METHODOLOGY §8)**: **0 — AGOTADO.**`. The old bare
+#      first-integer grep grabbed the 8 out of `§8` (that stale 8 was LIVE in logosoft's envelope); the
+#      token-anchored + paren-stripped parse must read the declared 0.
+d="$TMP/sync-req-prose"; mkdir -p "$d"
+{ echo "# T"; echo; echo "> intro"; echo
+  echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | done build gap | poc | ✅ cubierto — B75 |"; echo
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"
+  echo "- **Gaps abiertos — requires-execution (NO read-only; fase build/PoC, METHODOLOGY §8)**: **0 — AGOTADO.** (Era 4 → B72 cerró el round-trip)"; } > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+env_re="$(grep '^requires_execution_open:' "$d/RESEARCH-STATE.md" | awk '{print $2}')"
+[ "$env_re" = "0" ] && ok "--sync-state reads prose 0 through the paren noise (never the 8 from '§8')" \
+  || no "sync-req-prose: req=$env_re want 0 (the §8-grab bug)"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
