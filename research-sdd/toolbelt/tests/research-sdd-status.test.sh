@@ -382,6 +382,65 @@ if [ "$env_io" = "1" ] && grep -q '## SENTINEL prose line kept verbatim' "$d/RES
   ok "--sync-state reconciles a stale fence in place (io 9→1, single fence, prose kept)"
 else no "resync: io=$env_io / fence-count=$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE.md")"; fi
 
+# 40 — MULTI-FOCUS (§16): --sync-state seeds EVERY RESEARCH-STATE-*.md, deriving each focus's
+#      investigable_open from ITS OWN backlog (not the head-1 file). Seeding only head-1 left siblings
+#      envelope-less, and verify-state.sh (lints ALL) then FAILs → the corpus BRICKS under the --next
+#      STALE-gate. Teeth: alpha has 2 pending, beta 0 — head-1-only seeding leaves beta unseeded (or, if it
+#      copied alpha's numbers, beta.io=2), so pinning beta seeded WITH io=0 catches both regressions.
+d="$TMP/multifocus"; mkdir -p "$d"
+cat > "$d/RESEARCH-STATE-alpha.md" <<'EOF'
+# Alpha — Research State
+> intro
+## Gap-backlog (prioritized)
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | a1 | web | pending |
+| high | a2 | web | pending |
+## Blocked gaps
+## Stop control
+- **Open gaps — read-only investigable**: 2
+EOF
+cat > "$d/RESEARCH-STATE-beta.md" <<'EOF'
+# Beta — Research State
+> intro
+## Gap-backlog (prioritized)
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | b1 | doc | done |
+## Blocked gaps
+## Stop control
+- **Open gaps — read-only investigable**: 0
+EOF
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+_envf() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$1"; }
+a_seed=$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE-alpha.md")
+b_seed=$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE-beta.md")
+a_io=$(_envf "$d/RESEARCH-STATE-alpha.md" investigable_open); b_io=$(_envf "$d/RESEARCH-STATE-beta.md" investigable_open)
+if [ "$a_seed" = 1 ] && [ "$b_seed" = 1 ] && [ "$a_io" = 2 ] && [ "$b_io" = 0 ] && bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then
+  ok "multi-focus: both foci seeded, per-focus investigable_open (alpha=2, beta=0), verify-state passes"
+else no "multi-focus: a_seed=$a_seed b_seed=$b_seed a_io=$a_io(want 2) b_io=$b_io(want 0) verify=$(bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1 && echo ok || echo FAIL)"; fi
+
+# 41 — SYMLINKED state file: --sync-state must write THROUGH to the real target and PRESERVE the symlink
+#      (a bare `mv $tmp $state` would replace the symlink inode with a regular file, breaking a shared/
+#      canonical state). Also pins the same-directory atomic-write path (temp lives beside the real file).
+d="$TMP/symlink"; mkdir -p "$d/real"
+cat > "$d/real/state.md" <<'EOF'
+# T
+> intro
+## Gap-backlog (prioritized)
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | g1 | web | pending |
+## Blocked gaps
+## Stop control
+- **Open gaps — read-only investigable**: 1
+EOF
+ln -s real/state.md "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+if [ -L "$d/RESEARCH-STATE.md" ] && grep -q '<!-- research-state.v1 -->' "$d/real/state.md"; then
+  ok "symlinked state: --sync-state writes through to the real target, symlink preserved"
+else no "symlink: still-link=$([ -L "$d/RESEARCH-STATE.md" ] && echo yes || echo NO) seeded-real=$(grep -qc '<!-- research-state.v1 -->' "$d/real/state.md" 2>/dev/null && echo yes || echo no)"; fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"

@@ -27,7 +27,7 @@ mapfile -t states < <(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not
 # envelope can never hand out a premature STOP. Field names use UNDERSCORES (covered_blocks, NOT the prose
 # "covered blocks") precisely so envelope lines never collide with the CHECK 1/2/3 prose greps below.
 has_env()   { grep -q '<!-- research-state.v1 -->' "$1"; }
-env_field() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$1"; }
+env_field() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{v=$2; sub(/\r$/,"",v); print v; exit}' "$1"; }  # sub strips a trailing CR so a CRLF-saved envelope is not falsely rejected by is_int
 is_int()    { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
 # Ground-truth derivations. These MIRROR research-sdd-status.sh (section / backlog_rows / blocked_names /

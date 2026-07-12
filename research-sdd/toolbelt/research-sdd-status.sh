@@ -147,26 +147,20 @@ count_investigable() {
   echo "$n"
 }
 # read a field from the CURRENT envelope (for carry-forward of declared-only fields we cannot parse fresh).
-env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$state"; }
+env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{v=$2; sub(/\r$/,"",v); print v; exit}' "$state"; }  # strip trailing CR (CRLF-safe)
 # pick <parsed> <previous> — prefer a freshly-parsed integer, else carry the previous envelope value, else
 # 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
 pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$2";; esac;; *) echo "$1";; esac; }
 
 if [ "$mode" = "--sync-state" ]; then
-  # DERIVE the three ground-truth fields (same rules as verify-state.sh) ...
-  # STRICT block discriminator, identical to gen-catalog.py BLOCK_RE / research-sdd-archive.sh / verify-state.sh
-  # — `<prefix>-(block|bloque)<N>[-suffix].md`, so decoys like `blocked-notes.md` never inflate covered_blocks.
+  # Seed the research-state.v1 envelope in EVERY RESEARCH-STATE*.md of the corpus. §16 multi-focus corpora
+  # keep ONE state file per focus, each with its OWN backlog. Seeding only the head-1 file (as this did before)
+  # left sibling foci envelope-less, and verify-state.sh — which lints ALL of them (its line ~19) — then FAILs,
+  # BRICKING the whole corpus under the --next STALE-gate. covered_blocks is corpus-shared (blocks live at the
+  # corpus root, counted once); investigable_open / blocked_open / coverage are PER-FILE (each focus's backlog).
+  # STRICT block discriminator, identical to gen-catalog.py BLOCK_RE / research-sdd-archive.sh / verify-state.sh.
   cb="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
-  io="$(count_investigable)"
-  bo="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:')"
-  # ... and best-effort READ the declared-only figures from prose (coverage metric X/Y, requires-execution),
-  # carrying the previous envelope value when a figure is absent/unparseable.
-  cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
-  gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
-  kg="$(pick "${cov##*/}" "$(env_get known_gaps)")"
-  req="$(pick "$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)" "$(env_get requires_execution_open)")"
-
-  render_envelope() {
+  render_envelope() {   # reads the per-file globals set in the loop below (io/bo/gc/kg/req) + corpus-shared cb
     printf '<!-- research-state.v1 -->\n'
     printf 'schema: research-state.v1\n'
     printf 'covered_blocks: %s\n' "$cb"
@@ -177,29 +171,47 @@ if [ "$mode" = "--sync-state" ]; then
     printf 'blocked_open: %s\n' "$bo"
     printf '<!-- /research-state.v1 -->'
   }
-  repl="$(render_envelope)"
-  tmp="$(mktemp)"
-  if grep -q '<!-- research-state.v1 -->' "$state"; then
-    # fence EXISTS → replace ONLY between the markers (idempotent; surrounding prose untouched).
-    awk -v repl="$repl" '
-      $0 ~ /<!-- research-state.v1 -->/ { print repl; skip=1; next }
-      skip && $0 ~ /<!-- \/research-state.v1 -->/ { skip=0; next }
-      skip { next }
-      { print }' "$state" > "$tmp"
-  else
-    # fence ABSENT → insert right after the top intro blockquote (the first contiguous run of `>` lines);
-    # if there is no blockquote, append at EOF. Either way a SECOND run finds the fence → byte-identical.
-    awk -v repl="$repl" '
-      { line=$0
-        if (!done) {
-          if (line ~ /^>/) inbq=1
-          else if (inbq) { print repl; print ""; done=1 }
-        }
-        print line }
-      END { if (!done) { print ""; print repl } }' "$state" > "$tmp"
-  fi
-  mv "$tmp" "$state"
-  echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo"
+  # Reassigning the global `state` per iteration is deliberate: section/backlog_rows/blocked_body/env_get all
+  # read $state at call time, so each focus derives from its OWN file (single source of truth, same helpers).
+  mapfile -t _states < <(find "$corpus" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort)
+  for state in "${_states[@]}"; do
+    # Write THROUGH a symlinked state file to its real path (else the mv below would replace the symlink
+    # with a regular file, silently breaking a shared/canonical state). readlink -f also canonicalizes a
+    # plain path harmlessly. The temp then lives in the target's OWN directory so mv is a same-filesystem
+    # atomic rename (a bare mktemp lands in TMPDIR, and a cross-device mv is a non-atomic copy+unlink).
+    state="$(readlink -f "$state" 2>/dev/null || printf '%s' "$state")"
+    io="$(count_investigable)"
+    bo="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:')"
+    # declared-only figures from THIS file's prose (coverage metric X/Y, requires-execution), carrying the
+    # previous envelope value when a figure is absent/unparseable (never invent — see pick()).
+    cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
+    gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
+    kg="$(pick "${cov##*/}" "$(env_get known_gaps)")"
+    req="$(pick "$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)" "$(env_get requires_execution_open)")"
+    repl="$(render_envelope)"
+    tmp="$(mktemp "$(dirname "$state")/.rsdd-sync.XXXXXX")"
+    if grep -q '<!-- research-state.v1 -->' "$state"; then
+      # fence EXISTS → replace ONLY between the markers (idempotent; surrounding prose untouched).
+      awk -v repl="$repl" '
+        $0 ~ /<!-- research-state.v1 -->/ { print repl; skip=1; next }
+        skip && $0 ~ /<!-- \/research-state.v1 -->/ { skip=0; next }
+        skip { next }
+        { print }' "$state" > "$tmp"
+    else
+      # fence ABSENT → insert right after the top intro blockquote (the first contiguous run of `>` lines);
+      # if there is no blockquote, append at EOF. Either way a SECOND run finds the fence → byte-identical.
+      awk -v repl="$repl" '
+        { line=$0
+          if (!done) {
+            if (line ~ /^>/) inbq=1
+            else if (inbq) { print repl; print ""; done=1 }
+          }
+          print line }
+        END { if (!done) { print ""; print repl } }' "$state" > "$tmp"
+    fi
+    mv "$tmp" "$state"
+    echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo"
+  done
   exit 0
 fi
 
