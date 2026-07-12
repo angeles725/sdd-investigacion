@@ -53,7 +53,7 @@ Sensitivity:
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (40 md / 7 runs / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (31 md / 4 runs / 3 retros +1 pending / git yes / hook deferred; 13 OCR book-extracts; `anti-ai-ui` skill delivered) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (32 md / 5 runs / 3 retros +1 pending / git yes / hook deferred; 13 OCR book-extracts; `anti-ai-ui` skill delivered; B32 spaceflight FUI vibra 18) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (24 md / 2 focuses / 2 retros / git yes / hook yes) `[CERT]` · **`live-install`** (physical device) · **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) · **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research) | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 
 ---
@@ -146,12 +146,17 @@ discipline blocks + the external design-skill layer (B29 survey / B30 mechanisms
 design + applied outcome). Sources triangulate web-snapshots + **13 OCR'd book extracts** (Tufte,
 Few, Bertin, Müller-Brockmann, Cairo, Norman, Hollifield...) under `sources/extracted/` + 33
 commit-pinned skill snapshots + 6 `[CERT-hw]` probe files (`sources/probes/anti-ai-ui-applied/`).
-**State: CLOSED — FULL STOP 31/31 (2026-07-12).** G31 delivered the `anti-ai-ui` skill at
+**State: CLOSED — FULL STOP 32/32 (2026-07-12).** G31 delivered the `anti-ai-ui` skill at
 `~/.claude/skills/anti-ai-ui/` (7 files, SHA-identity `b349d1c26116ead6`): trap-brief validation
 (divergence gate fired · lint exit 0 · screenshot QA) + Judgment Day TERMINAL APPROVED (round 2,
 11 fixed units). Retros: 3 on disk; the iteration-27 close retro (§18) is still owed (+1). The
 earlier run-A premature-STOP class stays fixed by the `research-state.v1` envelope + verify-state
-STALE-gate. Coverage: 31 blocks, backlog empty — reopen only per §8 with user-supplied sources.
+STALE-gate. Fifth run (2026-07-12, §8 scoped vibra extension): **B32 Spaceflight Touch-FUI**
+(vibra 18, iteration 28) — the corpus's first SOURCE-PUBLISHED-hex vibra (palette machine-
+extracted from SpaceX's own `iss-sim.spacex.com` CSS, preserved RAW under
+`corpus/sources/web-snapshots/raw/`; Lato SOURCE-SHIPPED; Territory + F-35 cited layers; HARD
+role-semantics inversion vs B28). Coverage: **32 blocks, 32/32, backlog empty** — reopen only
+per §8 with user-supplied sources.
 
 ---
 
