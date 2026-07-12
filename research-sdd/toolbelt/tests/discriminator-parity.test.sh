@@ -24,8 +24,10 @@ echo "== discriminator-parity.test.sh =="
 
 # The exact canonical regex literal (grepped as a fixed string, so a single char change is caught).
 STRICT='/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$'
-# The loose detection-glob signature (ERE): `-iname '*block*.md'`.
-LOOSE_RE="iname '\*block\*\.md'"
+# The loose detection-glob signature (ERE). Broad on purpose: `iname` (case-insensitive) + a `*block*` OR
+# `*bloque*` SUBSTRING glob, under single OR double quotes (or none). A narrow single-quote/`block`-only
+# pattern would miss a re-fork written `-iname "*bloque*.md"` and give false confidence (JD round-2 B3).
+LOOSE_RE="iname ['\"]?\\*(block|bloque)\\*"
 ALLOW="verify-sources.sh scan-secrets.sh"   # the only scripts allowed to carry the loose glob
 
 # 1 — every STRICT-family script carries the exact canonical regex (byte-identical, no drift).
