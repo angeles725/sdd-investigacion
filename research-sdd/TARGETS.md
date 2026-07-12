@@ -61,7 +61,7 @@ Sensitivity:
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / remote yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / remote yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (41 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; run/scout narrative → detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (42 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; run/scout narrative → detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 
 ---
@@ -216,9 +216,10 @@ envelope investigable_open=0; reopenings otherwise per §8.
 **Master-row narrative (moved from the master table 2026-07-12, verbatim — newer than the body above):**
 13 OCR book-extracts + 5 standard/manual extracts; `anti-ai-ui` skill delivered; B39 NUREG-0700 + B40
 public-warning severity grammar cross-vibra FOUNDATIONS + B41 大屏 Command-Canvas vibra 25 (the
-anti-imitation flagship, G42; N1-N20 + H1-H12 + B41 catalog-row/creative-moves/ledger-triage handoffs
-pending skill adoption), pipeline still scout-owed 41/44, G43-G47 scouts owed (G43 Source Han first —
-B41 dependency), G36-G38 deferred.
+anti-imitation flagship, G42) + B42 French State Design System vibra 26 (DSFR integrated tokens +
+chart layer, G47 — the chart-palette trap + the DataBox AI-provenance contract; N1-N20 + H1-H12 +
+B41/B42 catalog-row/creative-moves/ledger-triage handoffs pending skill adoption), pipeline still
+scout-owed 42/45, G43-G46 scouts owed (G43 Source Han first — B41 dependency), G36-G38 deferred.
 
 ### 15 — gateway-ug67 `[CERT]`
 Live-hardware research on the **Milesight UG67 Outdoor LoRaWAN Gateway** (US915, fw 60.0.0.47, Quagga
