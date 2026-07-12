@@ -153,6 +153,15 @@ d="$TMP/checklist"; mkgood "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
 printf '%s' "$out" | grep -qiE 'retro' && ok "checklist surfaces the §18 retro follow-up" || no "retro follow-up not surfaced"
 
+# 10a — a codegen/ deliverable surfaces the §19 PARITY follow-up (verify-parity is a targeted (deliverable,
+#       block) check, not a corpus-wide gate, so archive REMINDS rather than auto-gates). No codegen/ → silent.
+d="$TMP/parity-reminder"; mkgood "$d"; mkdir -p "$d/codegen"
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s' "$out" | grep -qiE 'PARITY.*verify-parity' && ok "codegen/ deliverable surfaces the §19 parity follow-up" || no "parity follow-up not surfaced with codegen/"
+d="$TMP/no-codegen"; mkgood "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+printf '%s' "$out" | grep -qiE 'PARITY.*verify-parity' && no "parity follow-up surfaced WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity follow-up (silent)"
+
 # 11 — bad usage (no target dir) → exit 2
 bash "$SUT" >/dev/null 2>&1; rc=$?
 [ "$rc" = 2 ] && ok "no args → exit 2" || no "no-args exit=$rc (want 2)"
