@@ -98,7 +98,7 @@ for state in "${states[@]}"; do
   #    glob wrongly counts decoys like `blocked-notes.md`; keeping ONE definition of "a block file" across
   #    verify-state / --sync-state / archive / catalog kills the dual-authority drift on this count.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
-  ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -iE '/[^/]*-(block|bloque)[0-9]+(-[a-z0-9_-]+)?\.md$' | wc -l | tr -d ' ')"
+  ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
 
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
   d_inv="$(derive_investigable "$state")"

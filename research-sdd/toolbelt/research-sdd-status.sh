@@ -156,7 +156,7 @@ if [ "$mode" = "--sync-state" ]; then
   # DERIVE the three ground-truth fields (same rules as verify-state.sh) ...
   # STRICT block discriminator, identical to gen-catalog.py BLOCK_RE / research-sdd-archive.sh / verify-state.sh
   # — `<prefix>-(block|bloque)<N>[-suffix].md`, so decoys like `blocked-notes.md` never inflate covered_blocks.
-  cb="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -iE '/[^/]*-(block|bloque)[0-9]+(-[a-z0-9_-]+)?\.md$' | wc -l | tr -d ' ')"
+  cb="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
   io="$(count_investigable)"
   bo="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:')"
   # ... and best-effort READ the declared-only figures from prose (coverage metric X/Y, requires-execution),
@@ -217,7 +217,7 @@ fi
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
-ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -iE '/[^/]*-(block|bloque)[0-9]+(-[a-z0-9_-]+)?\.md$' | wc -l | tr -d ' ')"   # strict discriminator (gen-catalog.py BLOCK_RE)
+ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"   # strict discriminator (gen-catalog.py BLOCK_RE)
 inv="$(inv_count)"
 req="$(stopctl | grep -iE 'requires-execution' | grep -oE '[0-9]+' | head -1)"
 blk="$(stopctl | grep -iE 'blocked' | grep -oE '[0-9]+' | head -1)"
