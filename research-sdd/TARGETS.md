@@ -1,6 +1,6 @@
 # Research-SDD — Targets Registry
 
-This file is the **master registry of the 14 research targets** of the Research-SDD loop.
+This file is the **master registry of the 15 research targets** of the Research-SDD loop.
 Each target is a system under reverse engineering / documentation. The loop uses this table to:
 
 1. Decide whether it **continues** an existing corpus or **bootstraps** a new one (Maturity column).
@@ -38,23 +38,23 @@ Sensitivity:
 
 ## Master table
 
-| # | Target | Path | Maturity (.md blocks / git / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
+| # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (190 md / git yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
-| 2 | module-navigator | `/home/cristian/Honeywell/.../module-navigator` | **intermediate** (9 md / git no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
-| 3 | niagara-help | `/home/cristian/Honeywell/.../niagara-help` | **intermediate** (4 md / git yes / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
-| 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (125 md / git yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
-| 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (207 md / git no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
-| 6 | cadesimu | `/home/cristian/investigacion/cadesimu` | **incipient** (6 md, 0 top / git no / hook no) `[CERT]` | Python render/parse CAD scripts; real CADe_SIMU binary **not present** `[CERT]` | Direct reading; `decompile-net.sh` when the binary shows up `[INFER]` | Spanish `[INFER]` |
-| 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (1 md / git no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
-| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (86 md / git yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
-| 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
-| 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
-| 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
-| 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
-| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (40 md / 7 runs / git yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (35 md / 6 runs / 3 retros +1 pending / git yes / hook deferred; 13 OCR book-extracts + 3 standard/manual extracts; `anti-ai-ui` skill delivered; B35 medical patient-monitoring vibra 21, sweep investigable end 35/38, G36-G38 deferred) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
-| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (24 md / 2 focuses / 2 retros / git yes / hook yes) `[CERT]` · **`live-install`** (physical device) · **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) · **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research) | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
+| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (190 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 2 | module-navigator | `/home/cristian/Honeywell/.../module-navigator` | **intermediate** (9 md / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
+| 3 | niagara-help | `/home/cristian/Honeywell/.../niagara-help` | **intermediate** (4 md / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
+| 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (125 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
+| 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (207 md / git no / remote no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
+| 6 | cadesimu | `/home/cristian/investigacion/cadesimu` | **incipient** (6 md, 0 top / git no / remote no / hook no) `[CERT]` | Python render/parse CAD scripts; real CADe_SIMU binary **not present** `[CERT]` | Direct reading; `decompile-net.sh` when the binary shows up `[INFER]` | Spanish `[INFER]` |
+| 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (1 md / git no / remote no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
+| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (86 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
+| 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / remote no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
+| 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
+| 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / remote yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
+| 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / remote yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
+| 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (40 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (36 md / 6 runs / 3 retros +1 pending / git yes / remote yes / hook deferred; 13 OCR book-extracts + 3 standard/manual extracts; `anti-ai-ui` skill delivered; B36 Swiss rail operations board vibra 22, sweep #2 pipeline open 36/39, G40 MoTeC investigable, G41-G50 pipeline, G36-G38 deferred) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (24 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) · **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) · **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research) | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 
 ---
 
@@ -146,7 +146,7 @@ discipline blocks + the external design-skill layer (B29 survey / B30 mechanisms
 design + applied outcome). Sources triangulate web-snapshots + **13 OCR'd book extracts** (Tufte,
 Few, Bertin, Müller-Brockmann, Cairo, Norman, Hollifield...) under `sources/extracted/` + 33
 commit-pinned skill snapshots + 6 `[CERT-hw]` probe files (`sources/probes/anti-ai-ui-applied/`).
-**State: MAINTENANCE — sweep investigable end 35/38 (2026-07-12; previously FULL STOP 32/32; G36-G38 carried deferred-pending).** G31 delivered the `anti-ai-ui` skill at
+**State: OPEN — sweep #2 pipeline 36/39, G40 investigable (2026-07-12; previously sweep-#1 investigable end 35/38 and FULL STOP 32/32; G36-G38 carried deferred-pending).** G31 delivered the `anti-ai-ui` skill at
 `~/.claude/skills/anti-ai-ui/` (7 files, SHA-identity `b349d1c26116ead6`): trap-brief validation
 (divergence gate fired · lint exit 0 · screenshot QA) + Judgment Day TERMINAL APPROVED (round 2,
 11 fixed units). Retros: 3 on disk; the iteration-27 close retro (§18) is still owed (+1). The
@@ -177,8 +177,23 @@ evidence carrier); colour NAMES only in the source → hex CORPUS-ASSIGNED + WCA
 (B35-5); **critical source correction: the IFUs cite IEC 60601-2-49, never 60601-1-8**
 (B35-3 FABRICATED-CITE guard); three-tier alarm grammar verbatim (banner colour = priority ·
 ***/**/* + !!!/!! glyphs · lamp modulation 1.0 s/0.25 s). G36-G38 remain deferred
-scout-PARTIAL (not closed). Coverage: **35 blocks, 35/38 — sweep investigable end**,
-envelope investigable_open=0; reopenings otherwise per §8.
+scout-PARTIAL (not closed). Seventh run (2026-07-12, §8 sweep #2 regional expansion):
+iteration 32 registered AND closed G39 → **B36 Swiss Rail Operations Board** (vibra 22) —
+the corpus's first NUMBER-FORMAT honesty channel: the SBB Generalanzeiger six-column
+grammar + DELAY-STATE numeric grammar (precision graded by magnitude + explicit unknown
+state, verbatim from sbb.ch) + worded disruption vocabulary + HIM-CUS icon role system +
+blue/white figure-ground (2014 LED statement), certified from 13 snapshots preserved
+under `corpus/sources/web-snapshots/sbb/` + the image-only eGuide PDF under
+`corpus/sources/docs/sbb/` (full sha256); palette = SOURCE-PUBLISHED digital.sbb.ch web
+hex verbatim with **TWO declared proxies as scout conditions** (board blue `#2d327d` =
+published WEB Blue, physical value unpublished → B36-3; SBB Web proprietary →
+Helvetica-class proxy grounded in the eGuide Helvetica statement → B36-4);
+Müller-Brockmann 1978-80 lineage joins B12 as the Swiss school's live-operations branch.
+Sweep #2 pipeline registered: G40 MoTeC (scout COMPLETE, CERTIFIABLE-NOW — NEXT-eligible)
+· G41-G47 pending-scout (UK AF/ONS · DataV · Source Han · jlreq · 和色 · 中国传统色 ·
+DSFR) · G48 DB-fold-into-B36 note · G49-G50 conditional (DADS · ShakeMap/PAGER).
+Coverage: **36 blocks, 36/39 — sweep #2 pipeline open**, envelope investigable_open=1;
+reopenings otherwise per §8.
 
 ---
 
