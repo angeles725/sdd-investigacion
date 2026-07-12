@@ -155,6 +155,34 @@ else
   no "5 broken helper + missing retro arg → non-zero, no branch" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
 fi
 
+# 6 — TRACEABILITY BACKLINK (Feature #27): the SUGGESTED commit line carries a `Retro:` trailer pointing back
+#     to the source retro as <target>/retros/<file>@<target-sha>. The happy-path retro is committed in the
+#     sandbox repo, so stage-retro resolves a short sha and prints the full ref. SUGGESTED message only — the
+#     script still auto-commits nothing (assert no retro/* branch is required; case 1 already covers staging).
+repo="$(mkrepo trailer real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 0 ] && grep -qE 'Retro: targetA/retros/r1\.md@[0-9a-f]+' <<<"$OUT"; then
+  ok "6 suggested commit carries Retro: <target>/retros/<file>@<sha> trailer" "(exit $RC)"
+else
+  no "6 suggested commit carries Retro: <target>/retros/<file>@<sha> trailer" "exit=$RC out=[$OUT]"
+fi
+
+# 6b — FIX-2 REGRESSION PIN: the SAME trailer, but invoked with a RELATIVE retro path (relative to the repo
+#      root, not target_root). Pre-fix, `git -C "$target_root" log -- "$retro"` re-resolved that relative
+#      pathspec AGAINST the rebased -C cwd (target_root), effectively looking for
+#      "$target_root/targetA/retros/r1.md" — never matches a genuinely TRACKED retro, so the sha silently
+#      comes back empty and the '@<sha>' suffix is dropped (misreported as untracked). Absolutizing the
+#      retro path before the git log call fixes it; this must still resolve the sha under a relative arg.
+repo="$(mkrepo trailer-relative real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+relOUT="$(cd "$repo" && "$BASH_BIN" "research-sdd/toolbelt/stage-retro.sh" "targetA/retros/r1.md" 2>&1)"; relRC=$?
+if [ "$relRC" = 0 ] && grep -qE 'Retro: targetA/retros/r1\.md@[0-9a-f]+' <<<"$relOUT"; then
+  ok "6b RELATIVE retro path still resolves the Retro: <sha> trailer (FIX-2 regression pin)" "(exit $relRC)"
+else
+  no "6b RELATIVE retro path still resolves the Retro: <sha> trailer (FIX-2 regression pin)" "exit=$relRC out=[$relOUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its

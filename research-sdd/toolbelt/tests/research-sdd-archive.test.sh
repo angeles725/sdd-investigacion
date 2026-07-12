@@ -58,6 +58,62 @@ EOF
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
 }
 
+# mkgood_git <corpus> <retro-git-date> <block-git-date> <retro-mtime> <block-mtime> : a hermetic git
+# corpus like mkgood (same RESEARCH-STATE/INDEX/one-block shape), but the retro and block files' git
+# FIRST-COMMIT dates and file mtimes are INDEPENDENTLY controlled: GIT_AUTHOR_DATE/GIT_COMMITTER_DATE make
+# git history deterministic and hermetically fakeable (contra a stale claim once in this file — the sibling
+# stage-retro.test.sh already builds hermetic git repos this way via its `mkrepo` helper), and `touch -d`
+# sets an independent mtime. This lets a case set the git dates and mtimes to say OPPOSITE things, proving
+# the MISSING-RETRO detector reads the git-added date (rsdd_added_epoch), not mtime.
+mkgood_git() {
+  local corpus="$1" rdate="$2" bdate="$3" rmtime="$4" bmtime="$5"
+  mkdir -p "$corpus"
+  git -C "$corpus" init -q -b main
+  git -C "$corpus" config user.email t@example.com
+  git -C "$corpus" config user.name tester
+  cat > "$corpus/RESEARCH-STATE.md" <<'EOF'
+# T — Research State
+
+## Coverage
+
+- **Covered blocks**: 1 (B1)
+- **Coverage metric**: 2 / 3 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | still-open gap | web | pending |
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-07 | first gap | B1 | no · inline | 1 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+EOF
+  : > "$corpus/INDEX.md"
+  git -C "$corpus" add -A
+  GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" \
+    git -C "$corpus" commit -q -m baseline
+  mkdir -p "$corpus/retros"
+  printf '# retro\n' > "$corpus/retros/2026-retro-focus.md"
+  git -C "$corpus" add -A
+  GIT_AUTHOR_DATE="$rdate" GIT_COMMITTER_DATE="$rdate" git -C "$corpus" commit -q -m "add retro"
+  touch -d "$rmtime" "$corpus/retros/2026-retro-focus.md"
+  cat > "$corpus/t-block1.md" <<'EOF'
+# Block 1 — the first thing
+Body.
+EOF
+  git -C "$corpus" add -A
+  GIT_AUTHOR_DATE="$bdate" GIT_COMMITTER_DATE="$bdate" git -C "$corpus" commit -q -m "add block1"
+  touch -d "$bmtime" "$corpus/t-block1.md"
+  bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+}
+
 echo "== research-sdd-archive.test.sh =="
 
 # 1 — a consistent corpus archives cleanly (exit 0, reports archived)
@@ -162,6 +218,16 @@ d="$TMP/no-codegen"; mkgood "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
 printf '%s' "$out" | grep -qiE 'PARITY.*verify-parity' && no "parity follow-up surfaced WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity follow-up (silent)"
 
+# 10b — a codegen/ deliverable also emits a LOUD stderr WARN (advisory, not a hard refuse) that verify-parity
+#       was NOT run — so a shipped deliverable can't close green with deliverable↔block parity unchecked. Exit stays 0.
+d="$TMP/parity-warn"; mkgood "$d"; mkdir -p "$d/codegen"
+err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"; rc=$?
+printf '%s' "$err" | grep -qiE 'WARN:.*deliverable.*verify-parity' && ok "codegen/ deliverable emits a loud stderr WARN" || no "no loud stderr WARN with codegen/ :: $(printf '%s' "$err" | head -1)"
+[ "$rc" = 0 ] && ok "codegen/ WARN keeps exit 0 (advisory, not a refuse)" || no "codegen/ WARN flipped exit to $rc (want 0)"
+d="$TMP/no-codegen-warn"; mkgood "$d"
+err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"
+printf '%s' "$err" | grep -qiE 'WARN:.*deliverable.*verify-parity' && no "parity WARN emitted WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity WARN (silent)"
+
 # 11 — bad usage (no target dir) → exit 2
 bash "$SUT" >/dev/null 2>&1; rc=$?
 [ "$rc" = 2 ] && ok "no args → exit 2" || no "no-args exit=$rc (want 2)"
@@ -261,6 +327,73 @@ cat > "$d/RESEARCH-STATE.template.md" <<'EOF'
 EOF
 bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "real state + template coexist → archives via the real state (exit 0)" || no "real-plus-template exit=$rc (want 0)"
+
+# 20 — MISSING-RETRO detector (Feature #25a, §18): a corpus with blocks on disk but NO retro under retros/
+#      surfaces a LOUD advisory WARN (feedback for THIS run may be lost) — exit stays 0 (advisory, like the
+#      codegen/ parity WARN), and it NEVER auto-generates a retro (propose-never-apply). mkgood has one block
+#      and no retros/, so the WARN must fire and the archive still succeeds.
+d="$TMP/missingretro"; mkgood "$d"
+err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"; rc=$?
+if [ "$rc" = 0 ] && printf '%s' "$err" | grep -qiE 'retro .*may be' && printf '%s' "$err" | grep -qi 'MISSING-RETRO'; then
+  ok "blocks + no retro → MISSING-RETRO WARN (advisory, exit 0)"
+else no "no MISSING-RETRO WARN with blocks+no retro :: rc=$rc :: $(printf '%s' "$err" | head -2)"; fi
+
+# 20a — an OLD retro (mtime older than the newest block) still counts as 'corpus advanced past the retro' →
+#       WARN. TMP is not a git repo, so the advancement signal is the block mtime (git commit epoch is 0).
+d="$TMP/oldretro"; mkgood "$d"; mkdir -p "$d/retros"
+: > "$d/retros/2020-01-01-focus.md"; touch -d '2020-01-01' "$d/retros/2020-01-01-focus.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+  ok "blocks newer than an OLD retro → MISSING-RETRO WARN"
+else no "old-retro corpus did not WARN :: rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"; fi
+
+# 20b — NEGATIVE CONTROL: a retro NEWER than every block (run just closed with its retro) must NOT WARN — the
+#       detector fires only on genuine advancement past the newest retro.
+d="$TMP/freshretro"; mkgood "$d"; mkdir -p "$d/retros"
+: > "$d/retros/2030-01-01-focus.md"; touch -d '2030-01-01' "$d/retros/2030-01-01-focus.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+  ok "retro newer than blocks → no MISSING-RETRO WARN (negative control)"
+else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"; fi
+
+# 21 — GIT-ADDED-DATE path, exercised for real (Feature #25a): block git-added AFTER retro, but mtimes say
+#      the OPPOSITE (retro mtime later than block mtime). A detector reading mtime instead of the git date
+#      would stay silent; reading the git date correctly WARNs despite the misleading mtimes.
+d="$TMP/git-warn"
+mkgood_git "$d" "2026-01-10T00:00:00" "2026-03-01T00:00:00" "2030-01-01" "2020-01-01"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+  ok "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)"
+else
+  no "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)" "rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"
+fi
+
+# 21a — NEGATIVE CONTROL for 21: git dates reversed (retro added AFTER block), mtimes again say the
+#       opposite (block mtime later than retro mtime) → must NOT warn — the negative direction is also
+#       driven by the git date, not a mtime coincidence.
+d="$TMP/git-nowarn"
+mkgood_git "$d" "2026-03-01T00:00:00" "2026-01-10T00:00:00" "2020-01-01" "2030-01-01"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+  ok "21a git-added-date: retro added after block (mtime says opposite) → no WARN (git date wins)"
+else
+  no "21a git-added-date: retro added after block (mtime says opposite) → no WARN (git date wins)" "rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"
+fi
+
+# 21b — FIX-1 REGRESSION PIN (relative-target invocation): the SAME fixture as case 21 (block genuinely
+#       added after retro by git date), invoked with a RELATIVE target from cwd=$TMP. Before the
+#       relative-path absolutize fix, `target`/`corpus` stayed relative, `git -C "$corpus" log -- "$rf"`
+#       double-resolved and never matched, EVERY file silently fell back to mtime, and the misleading
+#       mtimes (case 21's fixture: retro mtime LATER than block mtime) would flip the verdict to "no WARN"
+#       — exactly backwards. This must still WARN under a relative invocation.
+d="$TMP/git-warn-rel"
+mkgood_git "$d" "2026-01-10T00:00:00" "2026-03-01T00:00:00" "2030-01-01" "2020-01-01"
+out="$(cd "$TMP" && bash "$SUT" "$(basename "$d")" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+  ok "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)"
+else
+  no "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)" "rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"
+fi
 
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then

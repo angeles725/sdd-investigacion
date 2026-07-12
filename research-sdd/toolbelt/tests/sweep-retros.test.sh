@@ -67,6 +67,24 @@ mkretro() {
 # run <kit> : invoke the sandbox copy of the SUT, capture stdout+stderr into OUT, exit into RC.
 run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?; }
 
+# mkretro_git <target> <filename> <marker-line|-> <ndeltas> <git-date> <mtime> : like mkretro, but the
+# target becomes a hermetic git repo and the retro's git FIRST-COMMIT date is set INDEPENDENTLY of its
+# file mtime via GIT_AUTHOR_DATE/GIT_COMMITTER_DATE (deterministic — no wall-clock flakiness; the sibling
+# stage-retro.test.sh already relies on this idiom via its `mkrepo` helper) so a case can prove the AGING
+# feature reads the git-added date, not mtime. Lazily inits the target repo (idempotent across calls).
+mkretro_git() {
+  local tgt="$1" fname="$2" marker="$3" nd="$4" gdate="$5" mtime="$6"
+  mkretro "$tgt" "$fname" "$marker" "$nd"
+  if [ ! -d "$tgt/.git" ]; then
+    git -C "$tgt" init -q -b main
+    git -C "$tgt" config user.email t@example.com
+    git -C "$tgt" config user.name tester
+  fi
+  git -C "$tgt" add -A
+  GIT_AUTHOR_DATE="$gdate" GIT_COMMITTER_DATE="$gdate" git -C "$tgt" commit -q -m "add $fname"
+  touch -d "$mtime" "$tgt/retros/$fname"
+}
+
 echo "== sweep-retros.test.sh (SUT: $(basename "$SUT")) =="
 
 # ---------------------------------------------------------------------------
@@ -333,6 +351,100 @@ if [ "$RC" != 0 ] \
   ok "17 broken helper (no function) → fail-closed abort, no summary" "(exit $RC)"
 else
   no "17 broken helper (no function) → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 18 — AGING / ESCALATION + oldest-first ordering (Feature #26). Two pending retros: one far-aged (mtime in
+#      the deep past), one fresh (now). The sandbox is not a git repo, so the SUT's git-first-commit lookup
+#      returns empty and it FALLS BACK to file mtime — this case drives that mtime-fallback path specifically
+#      (case 21 below drives the git-added-date path directly; git-first-commit IS hermetically fakeable via
+#      GIT_AUTHOR_DATE/GIT_COMMITTER_DATE, contra a stale claim once here — see the sibling stage-retro.test.sh's
+#      `mkrepo`, which already builds hermetic git repos this way). With RSDD_RETRO_AGE_DAYS=1 the aged one must
+#      be TAGGED 'ESCALATED (aged Nd)' and — because the queue is reordered oldest-first — print BEFORE the fresh one.
+kit="$(mkkit c18-aging)"; tgt="$kit/targetA"
+mkretro "$tgt" "fresh.md" "<!-- review-status: pending -->" 1
+mkretro "$tgt" "old.md"   "<!-- review-status: pending -->" 1
+touch -d '2000-01-01' "$tgt/retros/old.md"   # deep past → aged well past any small threshold
+touch "$tgt/retros/fresh.md"                  # ~now → age 0d
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_RETRO_AGE_DAYS=1 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+old_ln=$(grep -n 'old.md'   <<<"$OUT" | head -1 | cut -d: -f1)
+fresh_ln=$(grep -n 'fresh.md' <<<"$OUT" | head -1 | cut -d: -f1)
+if [ "$RC" = 0 ] \
+   && [ "$(grep -c 'ESCALATED (aged' <<<"$OUT")" = 1 ] \
+   && grep -A1 'old.md' <<<"$OUT" | grep -q 'ESCALATED (aged' \
+   && [ -n "$old_ln" ] && [ -n "$fresh_ln" ] && [ "$old_ln" -lt "$fresh_ln" ]; then
+  ok "18 aged pending → ESCALATED tag + sorted oldest-first (fresh not tagged)" "(exit $RC)"
+else
+  no "18 aged pending → ESCALATED tag + sorted oldest-first (fresh not tagged)" "old_ln=$old_ln fresh_ln=$fresh_ln out=[$OUT]"
+fi
+
+# 18a — AGING via the GIT-ADDED-DATE path directly (Feature #26, not just the mtime fallback exercised by
+#       case 18). A git-tracked target with ONE pending retro whose GIT first-commit date is deep in the
+#       past but whose file MTIME is FRESH (~now) — a detector that (bug or fallback) read mtime instead of
+#       the git date would see the fresh mtime and NOT escalate. Reading the git date correctly escalates it
+#       despite the misleading fresh mtime.
+kit="$(mkkit c18a-git-aging)"; tgt="$kit/targetA"
+mkretro_git "$tgt" "old.md" "<!-- review-status: pending -->" 1 "2000-01-01T00:00:00" "$(date -u +%Y-%m-%d)"
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_RETRO_AGE_DAYS=1 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -q 'ESCALATED (aged' <<<"$OUT"; then
+  ok "18a git-added-date deep-past → ESCALATED despite a FRESH mtime (git date wins, not mtime)" "(exit $RC)"
+else
+  no "18a git-added-date deep-past → ESCALATED despite a FRESH mtime (git date wins, not mtime)" "exit=$RC out=[$OUT]"
+fi
+
+# 19 — MISSING-RETRO fleet pass (Feature #25b). A target whose corpus ADVANCED past its newest retro (here: a
+#      block file NEWER than the newest retro) surfaces a 'MISSING-RETRO: <target> advanced ...' line. The
+#      block uses gen-catalog's discriminator ('*-block<N>.md'). Not-git sandbox → mtime drives advancement.
+kit="$(mkkit c19-missing)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+touch -d '2000-01-01' "$tgt/retros/r1.md"     # retro is OLD
+printf '# b\n' > "$tgt/t-block1.md"; touch "$tgt/t-block1.md"   # block is NEW → corpus advanced past retro
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q "MISSING-RETRO: $tgt advanced with no retro" <<<"$OUT"; then
+  ok "19 corpus advanced past newest retro → MISSING-RETRO line" "(exit $RC)"
+else
+  no "19 corpus advanced past newest retro → MISSING-RETRO line" "exit=$RC out=[$OUT]"
+fi
+
+# 20 — MISSING-RETRO negative control. A target whose newest retro is NEWER than every block (up to date) must
+#      NOT surface a MISSING-RETRO line — the detector fires only on genuine advancement past the retro.
+kit="$(mkkit c20-uptodate)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1   # creates $tgt/retros (hence $tgt)
+touch "$tgt/retros/r1.md"                      # retro is NEW → up to date
+printf '# b\n' > "$tgt/t-block1.md"; touch -d '2000-01-01' "$tgt/t-block1.md"   # block is OLD
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'MISSING-RETRO' <<<"$OUT"; then
+  ok "20 retro newer than blocks → no MISSING-RETRO line (negative control)" "(exit $RC)"
+else
+  no "20 retro newer than blocks → no MISSING-RETRO line (negative control)" "exit=$RC out=[$OUT]"
+fi
+
+# 21 — NESTED-CORPUS layout: retros kept DEEPER than <target>/retros/. A nested-corpus target registers its
+#      ROOT path in TARGETS.md but keeps its retros at <target>/research/retros/*.md (three.js does exactly
+#      this — its 5 real retros live under research/retros/). The PENDING loop must resolve retros RECURSIVELY
+#      (the SAME find predicate as this file's MISSING-RETRO pass), so a pending retro under research/retros/ is
+#      LISTED, counted, and AGED. Against the OLD flat "$p/retros/*.md" glob (d="$p/retros"; [ -d "$d" ] ||
+#      continue) this retro was NEVER surfaced — the target's flat retros/ dir does not exist, so the loop
+#      'continue'd and the retro was invisible: never listed, never aged, never escalated. This case is RED on
+#      that code (it would print '0 pending / 0 retros'), proving the teeth of the recursive fix.
+kit="$(mkkit c21-nested)"; tgt="$kit/targetA"
+mkretro "$tgt/research" "n1.md" "<!-- review-status: pending -->" 2   # → $tgt/research/retros/n1.md (NOT $tgt/retros/)
+touch -d '2000-01-01' "$tgt/research/retros/n1.md"                     # deep past → must AGE + ESCALATE
+write_targets "$kit" "$tgt"                                            # registers the ROOT, not research/
+OUT="$(RSDD_RETRO_AGE_DAYS=1 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && [ ! -d "$tgt/retros" ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'research/retros/n1.md' <<<"$OUT" \
+   && grep -q '~2 proposed deltas' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT" \
+   && grep -q 'ESCALATED (aged' <<<"$OUT"; then
+  ok "21 nested research/retros/ layout → LISTED + AGED (recursive resolution)" "(exit $RC)"
+else
+  no "21 nested research/retros/ layout → LISTED + AGED (recursive resolution)" "exit=$RC out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------

@@ -32,15 +32,38 @@ if [ ! -f "$TARGETS_MD" ]; then
 fi
 
 # Absolute target paths live in the TARGETS.md table as backtick-wrapped paths.
-# Skip truncated ones (contain '...') — they can't be resolved.
-paths=$(grep -oE '`/[^`]+`' "$TARGETS_MD" 2>/dev/null | tr -d '`' | grep -v '\.\.\.' | sort -u)
+# Truncated ones (contain '...') can't be resolved to a real dir, so they're dropped from the
+# sweep — but COLLECT them so the summary can WARN that it is PARTIAL instead of reading complete.
+all_paths=$(grep -oE '`/[^`]+`' "$TARGETS_MD" 2>/dev/null | tr -d '`' | sort -u)
+paths=$(printf '%s\n' "$all_paths" | grep -v '\.\.\.')
+skipped=$(printf '%s\n' "$all_paths" | grep '\.\.\.')
 
+skipped_names=""; skipped_count=0
+for s in $skipped; do
+  skipped_count=$((skipped_count + 1))
+  skipped_names="${skipped_names:+$skipped_names, }$(basename "$s")"
+done
+
+# AGING (Feature #26): each PENDING retro is AGED from its git FIRST-COMMIT (added) date so a stale proposal
+# can't sit unreviewed; the queue is REORDERED oldest-first and items past a threshold are TAGGED ESCALATED.
+# This only SORTS + LABELS to help the human — it never auto-applies/auto-dismisses anything (propose-never-apply).
+now="$(date +%s)"
+age_days="${RSDD_RETRO_AGE_DAYS:-7}"   # ESCALATE pending items older than this many days (override via env)
 pending=0; total=0
+pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
+# Resolve retros RECURSIVELY with the SAME predicate the MISSING-RETRO fleet pass below uses
+# (find "$p" -path '*/retros/*.md'), so a nested-corpus target that keeps its retros deeper (e.g.
+# <target>/research/retros/*.md) is walked here too — a flat "$p/retros/*.md" glob would miss them and
+# the two passes in this file would contradict each other. DEDUP by canonical path so a retro reachable
+# under more than one listed target (overlapping $paths) or via more than one location is counted once.
+declare -A rsdd_seen_retro=()
 for p in $paths; do
-  d="$p/retros"
-  [ -d "$d" ] || continue
-  for f in "$d"/*.md; do
-    [ -e "$f" ] || continue
+  [ -d "$p" ] || continue
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    key="$(realpath -- "$f" 2>/dev/null || printf '%s' "$f")"
+    [ -n "${rsdd_seen_retro[$key]:-}" ] && continue
+    rsdd_seen_retro[$key]=1
     total=$((total + 1))
     # Honor the marker only in the retro's LEADING HTML-comment block (see lib/retro-status.sh):
     # a marker-shaped string in the body or in heading/comment prose must not exclude an un-reviewed retro.
@@ -50,16 +73,69 @@ for p in $paths; do
     esac
     pending=$((pending + 1))
     deltas=$(grep -cE '^\| *[0-9]+ \|' "$f" 2>/dev/null)
-    echo "PENDING  $f"
-    echo "         target: $p  ·  ~${deltas:-?} proposed deltas  ·  status: ${status:-none}"
-  done
+    # Age from the git FIRST-COMMIT date of THIS file (when it entered review), falling back to file mtime
+    # when the file is untracked or the dir is not a git repo — so a non-git target never crashes the sweep.
+    epoch=""
+    added="$(git -C "$p" log --follow --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
+    [ -n "$added" ] && epoch="$(date -d "$added" +%s 2>/dev/null || echo '')"
+    [ -n "$epoch" ] || epoch="$(stat -c %Y "$f" 2>/dev/null || echo "$now")"
+    age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
+    age_d=$(( age_s / 86400 ))
+    tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
+    pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+      "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag")")
+  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
 done
+
+# Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
+if [ "${#pending_rows[@]}" -gt 0 ]; then
+  while IFS=$'\t' read -r _ep f p deltas status age_d tag; do
+    echo "PENDING  $f"
+    echo "         target: $p  ·  ~${deltas} proposed deltas  ·  status: ${status}  ·  age: ${age_d}d${tag}"
+  done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\t' -k1,1)
+fi
 
 echo ""
 echo "Summary: ${pending} pending / ${total} retros across targets."
+if [ "$skipped_count" -gt 0 ]; then
+  echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
+fi
 if [ "$pending" -eq 0 ]; then
   echo "Nothing to review."
 else
   echo "For each PENDING retro: review it, apply or dismiss its deltas in the kit,"
   echo "then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'."
 fi
+
+# --- MISSING-RETRO fleet pass (Feature #25b): a run that ADVANCED the corpus but produced NO fresh retro
+# lost that run's feedback. For each resolvable target, compare the newest BLOCK's date against the newest
+# RETRO's date using the SAME date source for both (git FIRST-COMMIT/added epoch, fallback to file mtime when
+# untracked) — a like-for-like comparison, so a block ADDED after the newest retro means the corpus advanced
+# past it. (A mixed git-commit-vs-mtime comparison would fire on almost every git target — any unrelated commit
+# is newer than a checkout mtime — so the added-date of the block itself is the signal.) PURE DETECTION — it
+# only FLAGS the gap for the human; it never auto-generates a retro (propose-never-apply). Reuses the same
+# $paths derivation (truncated '...' paths already skipped + WARNed above).
+rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added) epoch if tracked, else file mtime, else 0
+  local d="$1" f="$2" e
+  e="$(git -C "$d" log --follow --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
+  [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+  printf '%s' "$e"
+}
+for p in $paths; do
+  [ -d "$p" ] || continue
+  nr=0   # newest retro added-date under this target
+  while IFS= read -r rf; do
+    [ -n "$rf" ] || continue
+    m="$(rsdd_added_epoch "$p" "$rf")"; [ "${m:-0}" -gt "$nr" ] && nr="$m"
+  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
+  nb=0   # newest block added-date under this target (gen-catalog's block/bloque discriminator)
+  while IFS= read -r bf; do
+    [ -n "$bf" ] || continue
+    m="$(rsdd_added_epoch "$p" "$bf")"; [ "${m:-0}" -gt "$nb" ] && nb="$m"
+  done < <(find "$p" -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$')
+  # Only meaningful when the corpus has blocks (nb>0); a target with no blocks is not "advanced". Fire when the
+  # newest block is strictly newer than the newest retro (or there is no retro at all).
+  if [ "$nb" -gt 0 ] && [ "$nb" -gt "$nr" ]; then
+    echo "MISSING-RETRO: $p advanced with no retro for the latest run"
+  fi
+done

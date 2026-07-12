@@ -43,9 +43,22 @@ case "$status" in
 esac
 
 # Derive target (dir holding retros/) and a slug from the filename.
-target=$(basename "$(dirname "$(dirname "$retro")")")
+target_root="$(cd "$(dirname "$(dirname "$retro")")" 2>/dev/null && pwd)" || target_root="$(dirname "$(dirname "$retro")")"
+target=$(basename "$target_root")
 slug=$(basename "$retro" .md | tr -c 'a-zA-Z0-9._-' '-' | sed 's/-\{2,\}/-/g;s/^-//;s/-$//')
 branch="retro/${target}-${slug}"
+
+# TRACEABILITY BACKLINK (Feature #27): build a `Retro:` commit trailer so the kit commit that applies these
+# deltas is traceable BACK to the exact source retro (the forward link — the retro's 'applied … · kit <sha>'
+# marker — already points kit-ward). Reverse ref = <target>/retros/<file>@<target-sha> (drop '@<sha>' when
+# the retro is untracked / git is unavailable). SUGGESTED message only — this script auto-commits nothing.
+retro_ref="${target}/retros/$(basename "$retro")"
+# Absolutize the retro path before the git log pathspec: `-C "$target_root"` is already absolute, but a
+# RELATIVE $retro pathspec is then resolved AGAINST that rebased cwd (not the original cwd), so it can miss
+# a genuinely tracked retro and silently drop the '@<sha>' suffix (misreporting it as untracked).
+retro_abs="$(cd "$(dirname "$retro")" 2>/dev/null && pwd)/$(basename "$retro")"
+retro_sha="$(git -C "$target_root" log -1 --format=%h -- "$retro_abs" 2>/dev/null)"
+[ -n "$retro_sha" ] && retro_ref="${retro_ref}@${retro_sha}"
 
 # The kit repo must be clean and on main before we branch.
 if [ -n "$(git -C "$KIT_REPO" status --porcelain)" ]; then
@@ -88,7 +101,7 @@ sed -n '/^## Proposed kit deltas/,/^## Already covered/p' "$retro" | sed '$d'
 echo ""
 echo ">> NEXT STEPS (supervisor):"
 echo "   1. Apply the ACCEPTED deltas to the kit files on THIS branch (skip duplicates/unneeded ones)."
-echo "   2. git -C \"$KIT_REPO\" add -A && git -C \"$KIT_REPO\" commit -m 'feat(kit): apply retro deltas from $target ($slug)'"
+echo "   2. git -C \"$KIT_REPO\" add -A && git -C \"$KIT_REPO\" commit -m 'feat(kit): apply retro deltas from $target ($slug)' -m 'Retro: $retro_ref'"
 echo "   3. VALIDATE BEFORE MERGE (mandatory — the applier must NOT self-approve): launch an INDEPENDENT"
 echo "      fresh-context reviewer over the applied deltas. It verifies each as FAITHFUL / DRIFT /"
 echo "      HALLUCINATION / MISSING / DUPLICATE against this retro's proposed-deltas table + current kit"

@@ -34,6 +34,12 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-archive.sh <target-dir> [--dry-run]" >&2; exit 2; }
 target="${target%/}"   # a trailing slash would defeat the corpus-relative prefix strip below
+# Absolutize a RELATIVE target NOW, before it seeds $state/$corpus. Left relative, `find "$corpus" ...`
+# below yields relative paths, and `git -C "$corpus" log -- "$rf"` (rsdd_added_epoch) double-resolves them
+# against the already-`-C`-rebased cwd (e.g. `git -C niagara log -- niagara/…`) — never matches, so the
+# MISSING-RETRO detector silently degrades to the mtime fallback for EVERY file, with no error.
+raw_target="$target"
+target="$(cd "$target" 2>/dev/null && pwd)" || { echo "research-sdd-archive: not a directory: $raw_target" >&2; exit 1; }
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # Resolve the corpus root exactly like research-sdd-status.sh: shallowest RESEARCH-STATE, deterministically.
@@ -135,15 +141,53 @@ histrows="$(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0} f' "$
 echo "  -- mirror facts (for the TARGETS.md row refresh; not applied here) --"
 echo "    blocks on disk : $blocks · retros: $retros · iteration-history rows: $histrows"
 
+# --- MISSING-RETRO detector (Feature #25a, §18): catch a run that CLOSED without producing a fresh retro
+# (lost feedback). Compares the newest BLOCK's date against the newest RETRO's date using the SAME date source
+# for both (git FIRST-COMMIT/added epoch, fallback to file mtime when untracked) — a like-for-like comparison,
+# so a block ADDED after the newest retro means the corpus advanced past it. A mixed git-commit-vs-mtime
+# comparison would fire on almost every git target (any unrelated commit is newer than a checkout mtime), so
+# the added-date of the block itself is the signal. PURE DETECTION — advisory WARN (exit stays 0, like the
+# codegen/ parity WARN); it never auto-generates a retro (propose-never-apply).
+rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added) epoch if tracked, else file mtime, else 0
+  local d="$1" f="$2" e
+  e="$(git -C "$d" log --follow --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
+  [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+  printf '%s' "$e"
+}
+newest_retro_epoch=0
+while IFS= read -r rf; do
+  [ -n "$rf" ] || continue
+  m="$(rsdd_added_epoch "$corpus" "$rf")"; [ "${m:-0}" -gt "$newest_retro_epoch" ] && newest_retro_epoch="$m"
+done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
+newest_block_epoch=0
+while IFS= read -r bf; do
+  [ -n "$bf" ] || continue
+  m="$(rsdd_added_epoch "$corpus" "$bf")"; [ "${m:-0}" -gt "$newest_block_epoch" ] && newest_block_epoch="$m"
+done < <(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$')
+if [ "$blocks" -gt 0 ] && { [ "$retros" -eq 0 ] || [ "$newest_block_epoch" -gt "$newest_retro_epoch" ]; }; then
+  if [ "$retros" -eq 0 ]; then rdate="none"; else rdate="$(date -d "@$newest_retro_epoch" +%Y-%m-%d 2>/dev/null || echo '?')"; fi
+  echo "WARN: corpus advanced ($blocks block(s)) but the newest §18 retro is $rdate — a retro for this run may be" >&2
+  echo "      lost; delegate a fresh-context retro before close (MISSING-RETRO detector never auto-generates one)." >&2
+  missing_retro_line="    · ⚠ MISSING-RETRO (§18): corpus advanced past the newest retro ($rdate) — delegate a retro for THIS run before close (propose-never-apply; not auto-generated)."
+fi
+
 # --- CLOSE CHECKLIST: the JUDGMENT / content-authoring / side-effecting steps archive REFUSES to guess ---
 echo "  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --"
 [ -n "$consolidate_err" ] && echo "    · ⚠ CONSOLIDATE: $consolidate_err (a mechanical step failed — fix before relying on the archive)."
 echo "    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal."
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
-if find "$corpus" -maxdepth 1 -type d -name 'codegen*' 2>/dev/null | grep -q .; then
-  echo "    · PARITY (§19): a codegen/ deliverable exists — run verify-parity.sh <deliverable> <block-or-corpus> per"
-  echo "      built artifact so a drifted/invented value can't ship. NOT auto-gated here: the deliverable↔block map is"
-  echo "      corpus-specific, and verify-parity is a targeted (deliverable, block) check, not a corpus-wide lint."
+[ -n "${missing_retro_line:-}" ] && echo "${missing_retro_line}"
+if find "$corpus" -maxdepth 1 -type d -name 'codegen' 2>/dev/null | grep -q .; then
+  # ACTIVE detection (not a passive reminder): a shipped deliverable can close green with deliverable↔block
+  # parity UNVERIFIED, contradicting "a green report can never sit over a broken corpus". Emit a LOUD warning
+  # to stderr — advisory, NOT a hard refuse: kept a warning (exit stays 0) so a legitimate close with no
+  # per-(deliverable,block) mapping is not bricked. verify-parity is a targeted check, not a corpus-wide gate,
+  # and applies to token/color-based deliverables — not every codegen/ output fits that shape.
+  echo "WARN: deliverable (codegen/) present but verify-parity was NOT run — deliverable↔block drift is unchecked;" >&2
+  echo "      if this is a token/color-based deliverable, run $here/verify-parity.sh <deliverable> <block> before trusting this close." >&2
+  echo "    · PARITY (§19): ⚠ codegen/ deliverable present — verify-parity was NOT run here (see WARN above). For"
+  echo "      token/color-based deliverables, run verify-parity.sh <deliverable> <block-or-corpus> per built artifact"
+  echo "      so a drifted/invented value can't ship. NOT auto-gated: the deliverable↔block map is corpus-specific."
 fi
 if [ "$histrows" -gt 25 ]; then
   echo "    · COLLAPSE iteration-history (§8): $histrows rows > 25 — collapse prior runs to one line/run (blocks, gaps, ratio, retro link)."
