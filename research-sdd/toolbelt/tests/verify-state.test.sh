@@ -384,6 +384,14 @@ if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope blo
   ok "declared blocked_open=3 vs 1 actual → FAIL exit 1"
 else no "env-blocked: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'blocked_open' | head -1)"; fi
 
+# CRLF — a RESEARCH-STATE.md saved with Windows line endings must still verify OK. Before env_field's
+# trailing-CR strip, awk left '\r' on each value and is_int('0\r') was FALSE, so EVERY envelope check
+# falsely FAILed — a deterministic false FAIL that bricked --next/archive on any CRLF-saved corpus.
+d="$TMP/crlf"; mkdir -p "$d"
+printf '# T\r\n> intro\r\n<!-- research-state.v1 -->\r\nschema: research-state.v1\r\ncovered_blocks: 0\r\ngaps_closed: 0\r\nknown_gaps: 0\r\ninvestigable_open: 0\r\nrequires_execution_open: 0\r\nblocked_open: 0\r\n<!-- /research-state.v1 -->\r\n## Gap-backlog (prioritized)\r\n## Blocked gaps\r\n## Stop control\r\n- **Open gaps — read-only investigable**: 0\r\n' > "$d/RESEARCH-STATE.md"
+if [ "$(code "$d")" = 0 ]; then ok "CRLF-saved envelope verifies OK (env_field strips the trailing CR)"
+else no "CRLF: exit $(code "$d") :: $(run "$d" 2>&1 | grep -iE 'FAIL' | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
