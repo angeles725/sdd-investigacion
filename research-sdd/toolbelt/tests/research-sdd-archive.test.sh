@@ -107,6 +107,25 @@ if grep -q 'BESPOKE-LOCAL-GENERATOR-RAN' "$d/CATALOG.md" 2>/dev/null && printf '
   ok "local tools/gen-catalog.py WINS over the kit generator (regression fix)"
 else no "prefer-local failed :: catalog=$(head -1 "$d/CATALOG.md" 2>/dev/null) :: $(printf '%s' "$out" | grep -i catalog | head -1)"; fi
 
+# 5c — SYMLINKED local copy (JD both-confirmed): a tools/gen-catalog.py that is a SYMLINK to the shared kit
+# generator must still write CATALOG.md into the CORPUS, not the symlink target's own tree. Before the fix,
+# archive invoked it no-arg and Path(__file__).resolve() followed the symlink, so ROOT=parent.parent landed
+# on the target's tree (CATALOG written there + false success). The fix passes argv=corpus, honored by an
+# argv-aware generator. Teeth: the symlink target lives elsewhere, so a no-arg resolve writes THERE, not here.
+d="$TMP/symlinkgen"; mkgood "$d"; mkdir -p "$d/tools" "$TMP/fakekit"
+cat > "$TMP/fakekit/gen-catalog.py" <<'PY'
+import sys
+from pathlib import Path
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 and sys.argv[1] else Path(__file__).resolve().parent.parent
+(ROOT / "CATALOG.md").write_text("SYMLINKED-GEN-RAN\n", encoding="utf-8")
+PY
+ln -s "$TMP/fakekit/gen-catalog.py" "$d/tools/gen-catalog.py"
+rm -f "$TMP/CATALOG.md"   # the WRONG location a no-arg resolve would target (parent.parent of fakekit)
+out="$(bash "$SUT" "$d" 2>&1)"
+if grep -q 'SYMLINKED-GEN-RAN' "$d/CATALOG.md" 2>/dev/null && [ ! -f "$TMP/CATALOG.md" ]; then
+  ok "symlinked local generator writes CATALOG into the corpus, not the symlink target's tree"
+else no "symlink-gen: corpus-catalog=$([ -f "$d/CATALOG.md" ] && echo yes || echo NO) wrong-loc=$([ -f "$TMP/CATALOG.md" ] && echo WRITTEN || echo clean)"; fi
+
 # 6 — --dry-run mutates NOTHING (no CATALOG.md created) yet still exits 0
 d="$TMP/dry"; mkgood "$d"
 bash "$SUT" "$d" --dry-run >/dev/null 2>&1; rc=$?

@@ -18,7 +18,9 @@ from pathlib import Path
 # ROOT via argv so ONE kit generator scans any corpus (eje #2: the recent case-sensitive BLOCK_RE
 # change proved per-target COPIES drift → eliminate them). No arg → parent.parent keeps legacy
 # per-target copies AND the repo's own catalog regen working (backward-compatible, both modes tested).
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
+# The `and sys.argv[1]` guard treats an empty-string arg as absent, so `python3 gen-catalog.py ""` falls back
+# to parent.parent instead of silently resolving Path("") to the current working directory.
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 and sys.argv[1] else Path(__file__).resolve().parent.parent
 BLOCK_RE = re.compile(r"^(?P<prefix>.+)-(?:block|bloque)(?P<num>\d+)(?:-[\w-]+)?\.md$")
 TITLE_RE = re.compile(r"^#\s*(?:Block|Bloque)\s*\d+\s*[—-]\s*(.+?)\s*$")
 

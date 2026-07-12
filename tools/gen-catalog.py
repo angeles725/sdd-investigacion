@@ -13,7 +13,8 @@ from pathlib import Path
 
 # ROOT via argv for symmetry with the kit generator (eje #2). This repo regenerates its OWN
 # catalog with NO arg → parent.parent still resolves the repo root (backward-compatible).
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
+# ROOT = argv[1] when given and non-empty, else the legacy parent.parent (empty-string arg → fall back, not cwd).
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 and sys.argv[1] else Path(__file__).resolve().parent.parent
 BLOCK_RE = re.compile(r"^sdd-mental-model-bloque(\d+)\.md$")
 TITLE_RE = re.compile(r"^#\s*(?:Block|Bloque)\s*\d+\s*[—-]\s*(.+?)\s*$")
 
