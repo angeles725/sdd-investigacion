@@ -103,7 +103,7 @@ echo "    index          : $index"
 # --- MIRROR FACTS: computed for the close-checklist (archive is CORPUS-scoped; it never edits \$KIT/TARGETS.md) --
 # Count blocks with gen-catalog.py's OWN discriminator (`<prefix>-block|bloque<num>.md`), not a loose
 # `*block*.md` glob — otherwise a decoy like `blocked-notes.md` inflates the count fed to the TARGETS.md row.
-blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -iE '/[^/]*-(block|bloque)[0-9]+(-[a-z0-9_-]+)?\.md$' | wc -l | tr -d ' ')"
+blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
 retros="$(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u | wc -l | tr -d ' ')"
 # Iteration-history rows: data rows in the "## Iteration history" table (numeric first cell; header/separator excluded).
 histrows="$(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0} f' "$state" \

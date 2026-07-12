@@ -152,7 +152,7 @@ else no "nocovered-ondisk: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -i
 d="$TMP/bloque-glob"
 state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered blocks: 21' '## Backlog' '- gap done'
 printf 'x\n' > "$d/niagara-bloque125.md"       # Spanish, lowercase, prefixed
-printf 'x\n' > "$d/niagara-Bloque126.md"       # mixed case — needs a case-insensitive match
+printf 'x\n' > "$d/niagara-bloque126.md"       # Spanish — keyword is lowercase (discriminator is case-sensitive)
 printf 'x\n' > "$d/niagara-block99.md"         # English — `-block<N>` (no dash before the number)
 printf 'x\n' > "$d/niagara-block-bloque1.md"   # both tokens present — the single grep counts it exactly ONCE
 printf 'x\n' > "$d/blocked-notes.md"           # DECOY — old loose glob wrongly counted it; strict must NOT
