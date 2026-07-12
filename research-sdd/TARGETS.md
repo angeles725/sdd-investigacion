@@ -48,21 +48,21 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (190 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (239 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
 | 2 | module-navigator | `/home/cristian/Honeywell/.../module-navigator` | **intermediate** (9 md / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
 | 3 | niagara-help | `/home/cristian/Honeywell/.../niagara-help` | **intermediate** (4 md / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (125 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
 | 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (207 md / git no / remote no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
 | 6 | cadesimu | `/home/cristian/investigacion/cadesimu` | **incipient** (6 md, 0 top / git no / remote no / hook no) `[CERT]` | Python render/parse CAD scripts; real CADe_SIMU binary **not present** `[CERT]` | Direct reading; `decompile-net.sh` when the binary shows up `[INFER]` | Spanish `[INFER]` |
-| 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (1 md / git no / remote no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
-| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (86 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
+| 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (9 md / git no / remote no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
+| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (76 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
 | 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / remote no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
 | 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / remote yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / remote yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (41 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred; 13 OCR book-extracts + 5 standard/manual extracts; `anti-ai-ui` skill delivered; B39 NUREG-0700 + B40 public-warning severity grammar cross-vibra FOUNDATIONS + B41 大屏 Command-Canvas vibra 25 (the anti-imitation flagship, G42; N1-N20 + H1-H12 + B41 catalog-row/creative-moves/ledger-triage handoffs pending skill adoption), pipeline still scout-owed 41/44, G43-G47 scouts owed (G43 Source Han first — B41 dependency), G36-G38 deferred) `[CERT]` | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources (Tufte, Few, Cairo, FT Visual Vocabulary, Okabe-Ito, IBM, Observable) + book extracts + context7 library docs (ECharts, Mantine, Phosphor, etc.) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
-| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (24 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) · **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) · **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research) | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (41 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; run/scout narrative → detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 
 ---
 
@@ -212,6 +212,24 @@ WCAG-computed (B37-3); Standard-vs-Pro matrix adopted as citable component budge
 red = ranking (within 2% of fastest), alarm grammar banned (B37-2).
 Coverage: **37 blocks, 37/40 — pipeline investigable exhausted, G41-G47 scouts owed**,
 envelope investigable_open=0; reopenings otherwise per §8.
+
+**Master-row narrative (moved from the master table 2026-07-12, verbatim — newer than the body above):**
+13 OCR book-extracts + 5 standard/manual extracts; `anti-ai-ui` skill delivered; B39 NUREG-0700 + B40
+public-warning severity grammar cross-vibra FOUNDATIONS + B41 大屏 Command-Canvas vibra 25 (the
+anti-imitation flagship, G42; N1-N20 + H1-H12 + B41 catalog-row/creative-moves/ledger-triage handoffs
+pending skill adoption), pipeline still scout-owed 41/44, G43-G47 scouts owed (G43 Source Han first —
+B41 dependency), G36-G38 deferred.
+
+### 15 — gateway-ug67 `[CERT]`
+Live-hardware research on the **Milesight UG67 Outdoor LoRaWAN Gateway** (US915, fw 60.0.0.47, Quagga
+vtysh CLI) — a REAL running installation (`live-install`: serial console COM4 + web GUI via
+chrome-devtools + SSH + HTTP-API + official PDFs). Mature corpus with git and an active hook; two
+research focuses driven to completion.
+**Master-row narrative (moved from the master table 2026-07-12, verbatim):**
+**device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) ·
+**capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research).
+**Startup:** continue. SECRETS DISCIPLINE applies (cite secret STRUCTURE, never VALUES); dynamic/hardware
+phase §12 for any further live probing.
 
 ---
 
