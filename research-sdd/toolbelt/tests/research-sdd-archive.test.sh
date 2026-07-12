@@ -18,12 +18,11 @@ ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # A consistent, gate-passing corpus: coverage ratio matches (no all-closed-but-pending desync), no
-# preserved-source markers (so verify-sources is a clean no-op), one block on disk. gen-catalog.py is
-# copied from the kit templates into <corpus>/tools/ so the CATALOG-regen step has something to run.
-KIT="$(cd "$HERE/../.." && pwd)"
+# preserved-source markers (so verify-sources is a clean no-op), one block on disk. eje #2: NO per-target
+# gen-catalog.py copy is seeded — research-sdd-archive.sh drives the KIT generator over the corpus root,
+# so the CATALOG-regen step needs nothing local (the copies drifted; they were eliminated).
 mkgood() {
-  local corpus="$1"; mkdir -p "$corpus/tools"
-  cp "$KIT/templates/gen-catalog.py" "$corpus/tools/gen-catalog.py"
+  local corpus="$1"; mkdir -p "$corpus"
   cat > "$corpus/RESEARCH-STATE.md" <<'EOF'
 # T — Research State
 
