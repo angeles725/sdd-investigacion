@@ -19,8 +19,9 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # A consistent, gate-passing corpus: coverage ratio matches (no all-closed-but-pending desync), no
 # preserved-source markers (so verify-sources is a clean no-op), one block on disk. eje #2: NO per-target
-# gen-catalog.py copy is seeded — research-sdd-archive.sh drives the KIT generator over the corpus root,
-# so the CATALOG-regen step needs nothing local (the copies drifted; they were eliminated).
+# gen-catalog.py copy is seeded — a corpus without one has research-sdd-archive.sh drive the KIT generator
+# over the corpus root (the default authority; no drift). A target MAY still ship a bespoke local copy that
+# wins — that prefer-local path is pinned separately in case 5b.
 mkgood() {
   local corpus="$1"; mkdir -p "$corpus"
   cat > "$corpus/RESEARCH-STATE.md" <<'EOF'
@@ -82,10 +83,29 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 
 # 5 — the mechanical step actually fires: CATALOG.md is (re)generated on a gate-passing corpus
 d="$TMP/regen"; mkgood "$d"
-bash "$SUT" "$d" >/dev/null 2>&1
+out="$(bash "$SUT" "$d" 2>&1)"
 if [ -f "$d/CATALOG.md" ] && grep -q 'the first thing' "$d/CATALOG.md"; then
   ok "CATALOG regenerated from blocks on a clean archive"
 else no "CATALOG.md not regenerated (or missing the block title)"; fi
+# 5a — with NO local copy, the KIT generator is used (default authority, no drift).
+printf '%s' "$out" | grep -q 'via kit generator' && ok "no local copy → regen via kit generator" \
+  || no "expected 'via kit generator' in report :: $(printf '%s' "$out" | grep -i catalog | head -1)"
+
+# 5b — PREFER-LOCAL: a target with a BESPOKE tools/gen-catalog.py (mature corpora ship one to catalog
+# corpus-specific structures the generic can't express) WINS over the kit generator. Proven with a local
+# generator that writes a DISTINCTIVE marker the kit generator never would — if archive used the kit generic
+# instead, the marker is absent and the report says 'kit generator'. This pins the regression fix with teeth.
+d="$TMP/preferlocal"; mkgood "$d"; mkdir -p "$d/tools"
+cat > "$d/tools/gen-catalog.py" <<'PY'
+import sys
+from pathlib import Path
+ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
+(ROOT / "CATALOG.md").write_text("BESPOKE-LOCAL-GENERATOR-RAN\n", encoding="utf-8")
+PY
+out="$(bash "$SUT" "$d" 2>&1)"
+if grep -q 'BESPOKE-LOCAL-GENERATOR-RAN' "$d/CATALOG.md" 2>/dev/null && printf '%s' "$out" | grep -q 'via local generator'; then
+  ok "local tools/gen-catalog.py WINS over the kit generator (regression fix)"
+else no "prefer-local failed :: catalog=$(head -1 "$d/CATALOG.md" 2>/dev/null) :: $(printf '%s' "$out" | grep -i catalog | head -1)"; fi
 
 # 6 — --dry-run mutates NOTHING (no CATALOG.md created) yet still exits 0
 d="$TMP/dry"; mkgood "$d"
