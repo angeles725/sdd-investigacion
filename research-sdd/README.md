@@ -36,7 +36,7 @@ The toolbelt is written for **Linux / GNU userland**:
 
 ```
 research-sdd/
-├── METHODOLOGY.md              # the full contract (§1–§19): markers, block anatomy, sources, stopping…
+├── METHODOLOGY.md              # the full contract (§1–§20): markers, block anatomy, sources, stopping, document mode…
 ├── PROMPT-LOOP.md              # the per-iteration operational prompt (what goes into the loop)
 ├── PROMPT-AUDIT.md             # the audit-mode prompt (re-verify an existing corpus)
 ├── TARGETS.md                  # master table of registered research targets
@@ -124,6 +124,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 
 ```bash
 KIT=/home/cristian/investigacion/sdd-investigacion/research-sdd
+# on another machine, resolve the kit path per SKILL.md — $RESEARCH_SDD_KIT or fd
 
 # 0. (optional) see which decompile/ingest tools are actually installed
 "$KIT/toolbelt/detect-tools.sh"
@@ -172,7 +173,7 @@ under `research-sdd/toolbelt/**`. It has two jobs:
 ## Where to go deeper
 
 - [`METHODOLOGY.md`](METHODOLOGY.md) — the full contract: markers, block anatomy, `sources/` discipline,
-  stopping criterion, self-verification, audit mode, multi-focus corpora, retrospectives.
+  stopping criterion, self-verification, audit mode, multi-focus corpora, retrospectives, document mode (§20).
 - [`PROMPT-LOOP.md`](PROMPT-LOOP.md) — the per-iteration operational prompt (bootstrap → normal cycle → stop).
 - [`skills/research-sdd/SKILL.md`](skills/research-sdd/SKILL.md) — the launcher and depth classifier.
 - [`../`](../) — the SDD mental-model corpus: the kit applied to itself, as a worked example.

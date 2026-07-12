@@ -1,9 +1,14 @@
+<!-- review-status: pending -->
 # Audit — <BLOCK or CORPUS> · Research-SDD certainty audit
 
-> What was audited: <block(s) / corpus>. Sources re-verified against: <real primary paths>.
+> What was audited: <block(s) / corpus>.
+> **SOURCE_ROOT** (real primary code — often NOT under the corpus): `<path>`.
+> **Decompiler variant** certifying this audit: `<vineflower | procyon | raw | n/a>` (line numbers differ
+> between variants — pin the one the block was authored against; see METHODOLOGY §13).
 > Method: re-read the cited code/source per claim and assign a verdict. READ-ONLY on the audited
 > corpus (this report is the only thing written). Verdicts: ESCALATED · CONFIRMED · DOWNGRADED · REFUTED
-> (see METHODOLOGY §13).
+> (see METHODOLOGY §13). A strong ESCALATION may cite 2-3 coordinated lines (a constant def + its use
+> site) — a multi-line citation is expected, not a smell.
 
 ## Audited claims
 

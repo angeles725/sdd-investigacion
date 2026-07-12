@@ -54,7 +54,10 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
 
 **TRIAGE — before any heavy work:**
 - `<target-or-path>` resolves in `TARGETS.md`, OR the user said `continue` / `a fondo` / `exhaustivo` /
-  "document everything" → go **heavy** directly. No triage, no question.
+  "document everything" → go **heavy** directly. No triage, no question. CARVE-OUT (intent wins): a
+  registered target resolves to HEAVY *unless* the request is a scoped factual question (a version, a
+  serial, "does it use X") — that is **quick** mode even against a registered target. Answer it directly
+  (quick) and OFFER to continue the heavy loop; do not force the full loop for a one-off lookup.
 - The explicit `document` sub-command, OR "documentá esto" / "capturá el how-to" / "document what we just
   did" → **document mode** (capture, not discover). This is DISTINCT from "document everything [about this
   system]", which is exhaustive DISCOVERY (heavy): document mode CAPTURES knowledge you already have or just
@@ -96,7 +99,9 @@ the user explicitly set.
 default, never more than one.
 
 **Target vs ad-hoc / live-install.** If `<target-or-path>` resolves in `TARGETS.md` → real corpus target
-(heavy/continue). An arbitrary PATH not in `TARGETS.md` → ad-hoc scope: triage it, and only bootstrap a NEW
+(heavy/continue) — UNLESS the request is a scoped factual question about it, in which case intent wins:
+answer it **quick** and offer to continue the heavy loop (the carve-out above). An arbitrary PATH not in
+`TARGETS.md` → ad-hoc scope: triage it, and only bootstrap a NEW
 target if the depth signals fire or the user asks. A downloaded install exposing `security/`, `licenses/`,
 or `certificates/` is a `live-install` artifact → apply the SECRETS DISCIPLINE (cite structure — Host IDs,
 formats, public keys — never private/secret VALUES).
@@ -122,6 +127,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    Start from the next NOT-covered gap in the live backlog — not from any number a human typed.
    If the target/focus has NO `RESEARCH-STATE`/`INDEX` → run BOOTSTRAP (PROMPT-LOOP), including the
    ANGLE-first declaration for a mature/large target and AUDIT-FIRST backlog seeding.
+   REMOTE follow-up (do NOT auto-run): after resolving the target, check `git -C <target-path> remote`. If it
+   prints NO `origin`, SURFACE the one-liner "no remote — run `$KIT/toolbelt/ensure-remote.sh <target> --yes`
+   when you consent to a PRIVATE GitHub remote" and continue. Creating a remote is consent-gated and the
+   operator's call (METHODOLOGY §15) — never create or push one on their behalf.
 
 3. **Confirm the angle (mature/large or multi-focus targets only).** State the active focus/axis and what
    you will reconstruct. If ambiguous, surface it and ask — do not guess the focus.

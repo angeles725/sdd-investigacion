@@ -56,6 +56,7 @@ ONE cited knowledge block. You do NOT modify the system under study.
 
 TARGET = /home/cristian/<...>            # <-- SET (see research-sdd/TARGETS.md)
 KIT     = /home/cristian/investigacion/sdd-investigacion/research-sdd
+        # on another machine, resolve the kit path per SKILL.md — $RESEARCH_SDD_KIT or fd
 
 Always read first, in this order:
   1. $KIT/METHODOLOGY.md        (phases, the 5 markers, block anatomy, sources/, stopping)
@@ -92,6 +93,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      LIVING MIRROR, not a one-time write: when a run-STOP or a §14 correction changes a fact mirrored there
      (block / run / retro / file counts), REFRESH the row as part of closing that run or correction —
      three.js's row went stale at "21 md / 3 runs" while the corpus grew to 32 blocks / 5 runs.
+     Keep that refreshed row to ONE scannable line (name · path · maturity · artifact · language);
+     run-by-run narrative goes in the target's detail `###` section, never crammed into the master
+     row (SKILL.md renders the master table as the target-picker; `verify-registry.sh` WARNs on an
+     oversized cell, default > 200 chars).
   b2. ANGLE (mature OR large target): a target name alone is ambiguous. DECLARE AN EXPLICIT
       INVESTIGATION ANGLE/AXIS (e.g. decompiled-Java vs native-binaries vs install/config vs
       docs/protocol) and CONFIRM it BEFORE closing the first gap — picking the wrong focus burns a
@@ -274,7 +279,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      (regenerate CATALOG, touch INDEX) and prints a close-checklist of the JUDGMENT follow-ups it refuses to
      guess (synthesis block, §18 retro, iteration-history collapse, TARGETS.md mirror row, corpus commit).
      Preview with `--dry-run`. It is CORPUS-scoped: it never edits the kit and never touches git — you do
-     those from the checklist below. The two checks it gates on (run them directly for the detailed output):
+     those from the checklist below.
+     PUSH CADENCE (if the target has a remote — METHODOLOGY §15): push at STOP, at focus-close, and at
+     retro-close (and OPTIONALLY every ~10 blocks on a long run) — with plain `git -C $TARGET push` once
+     `origin` already exists (`ensure-remote.sh` BOOTSTRAPS the private remote ONCE — create + initial push —
+     and is idempotent no-op once `origin` is set, so it is not the cadence pusher; use plain `git push` for
+     every push after that first bootstrap). NEVER push inline per block; batching keeps the loop fast and the
+     remote a checkpoint, not a per-commit mirror. A remote is consent-gated and PRIVATE by construction (§15)
+     — if the target has no `origin`, DO NOT create one mid-loop; leave it to the operator. The two checks it gates on (run them directly for the detailed output):
      MECHANIZE the §5 source-registry check: run `$KIT/toolbelt/verify-sources.sh $CORPUS` and paste its
      output — it exits non-zero if a block cites a preserved-source marker ([CERT-doc]/[CERT-a]) with no
      sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
@@ -392,8 +404,12 @@ HARD RULES:
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
     the next is written — do NOT land two block files in one commit just because both sweeps returned
     together (lesson: a three.js commit landed B15+B16 as one, skipping the reschedule/STOP-check between
-    them). (Under `/loop` self-pacing this means calling ScheduleWakeup with the same prompt; under
-    an orchestrator it means signalling "continue". Either way, one report ≠ done — see METHODOLOGY §8.)
+    them). COMMIT MESSAGE: `research(<target>): B<n> <short-gap-slug>` (multi-focus §16 disambiguates in the
+    scope: `research(<target>/<focus>): B<n> <slug>`); OPTIONAL body line = coverage ratio + marker tally.
+    Commit DIRECT to the default branch — a solo corpus needs no PR (METHODOLOGY §15). One commit ⇄ one block
+    is what makes §17 resume answerable from `git log --oneline`. (Under `/loop` self-pacing this means calling
+    ScheduleWakeup with the same prompt; under an orchestrator it means signalling "continue". Either way, one
+    report ≠ done — see METHODOLOGY §8.)
   - RESCHEDULE CADENCE — the next gap is READY WORK, not an idle poll. When you reschedule under `/loop`
     self-pacing, use the SHORTEST delay (~60s, the floor), NOT the 1200-1800s idle-tick default. A short
     delay also keeps the prompt cache warm (≤300s), so back-to-back iterations are cheaper AND faster.

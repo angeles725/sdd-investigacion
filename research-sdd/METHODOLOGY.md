@@ -78,14 +78,19 @@ and it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded
 (cost discipline) to conclusion-bearing claims only — not `[INFER]`, not trivia. LOCAL `file:line` claims are
 cheap (the skeptics read the cited source, no web); web-verifiable claims are expensive. Operational rule + cost
 discipline in PROMPT-LOOP step 5; workflow at [`toolbelt/adversarial-verify.js`](toolbelt/adversarial-verify.js).
-STATUS: the workflow is self-validated (3/3 refuted a false claim, 3/3 preserved a true one) but has not sealed
-a real load-bearing claim in ~400 corpus blocks — trial it on a real claim before relying on it as a standing gate.
-GRADUATION TRIGGER (how EXPERIMENTAL ends): fire it the FIRST time a SECURITY-CRITICAL or conclusion-bearing
+STATUS (GRADUATED 2026-07-07 — see GRADUATION UPDATE below): the workflow is self-validated (3/3 refuted a false
+claim, 3/3 preserved a true one) AND has now sealed its FIRST real load-bearing claim — `threejs-block7`'s
+OrbitControls `autoRotate`/`update(deltaTime)` `[CERT-web]` contract → SURVIVED 3/3. It is no longer PARKED: it is
+a STANDING gate, MANDATORY for conclusion-bearing `[CERT]` claims (see POLICY in the GRADUATION UPDATE), OPT-IN/
+SELECTIVE for other load-bearing `[CERT]`.
+GRADUATION TRIGGER (how EXPERIMENTAL ended): fires the FIRST time a SECURITY-CRITICAL or conclusion-bearing
 claim must escalate to `[CERT]`/`[CERT-doc]` and a wrong seal would mislead a downstream decision — a LOCAL
 `file:line` claim is cheap (the skeptics only read the cited source, no web). Record the outcome (survived
-≥2/3, or downgraded) in that block and flip this STATUS from "never run" to "trialed on B&lt;n&gt;". Until such a
-claim appears it stays PARKED — do NOT manufacture a synthetic trial just to retire the label (that is exactly
-the make-work the §18 honesty clause forbids). This is a defined exit condition, not a permanent shelf.
+≥2/3, or downgraded) in that block and flip this STATUS from "never run" to "trialed on B&lt;n&gt;". This
+condition WAS satisfied on 2026-07-07 by the `threejs-block7` trial (see GRADUATION UPDATE below) — it did
+NOT manufacture a synthetic trial to retire the label (that would have been exactly the make-work the §18
+honesty clause forbids); the trial was a real load-bearing claim. This was a defined exit condition, not a
+permanent shelf, and it has now been exited.
 
 **GRADUATION UPDATE (2026-07-07).** Trialed on a real load-bearing claim for the first time:
 `threejs-block7`'s OrbitControls `autoRotate`/`update(deltaTime)` `[CERT-web]` contract → **SURVIVED 3/3**
@@ -115,6 +120,13 @@ Identical to `niagara-research` (see [`templates/block.template.md`](templates/b
 5. **Final section** `## N.x — Connections`: `[Block K]` links with the relationship explained.
 
 Each block is self-contained but linked. Size according to source density, not by quota.
+
+> **Block file naming.** The canonical catalog/discriminator (`templates/gen-catalog.py`, `verify-state.sh`,
+> `research-sdd-archive.sh`) requires a focus/subject prefix — `<prefix>-blockN.md` (or `bloqueN.md`) — so a
+> no-prefix `blockN.md` is silently dropped. A single-focus corpus that names its files `blockN.md` with NO
+> prefix therefore needs a LOCAL optional-prefix `tools/gen-catalog.py` (the `impresora-samsung-m2070` target
+> is the known exception); prefer the prefixed convention for any new corpus so the kit-generic tooling sees
+> every block.
 
 ## 5. Managing external sources (`sources/`)
 
@@ -627,12 +639,21 @@ this engine) and re-verify their claims against the primary source. Output is an
 new knowledge block. Per claim assign: **ESCALATED** (was `[CERT-a]`/hedged → now source-confirmed
 `[CERT]`), **CONFIRMED** (held), **DOWNGRADED** (unverifiable → `[INFER]`), **REFUTED** (the source
 contradicts it — the most valuable). Write the report under `audits/`, READ-ONLY on the audited corpus.
-Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). STATUS (honest): the audit VOCABULARY (ESCALATED / CONFIRMED
+Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). Audits ALWAYS write to `$TARGET/audits/` (never the
+kit), carry a `<!-- review-status: pending -->` marker, and are surfaced by `sweep-audits.sh` — the
+mirror of §18's retro sweep — with certainty verdicts routing to §14 corrections and coverage gaps to
+the §8 backlog, applied by the human (propose-never-apply). STATUS (honest): the audit VOCABULARY (ESCALATED / CONFIRMED
 / DOWNGRADED / REFUTED) is exercised inline in normal blocks and §14 corrections (e.g. niagara B34 / B117 /
-B119); the STANDALONE mode — a dedicated audit-delta under `audits/`, driven by PROMPT-AUDIT.md — has NOT yet
-run on any corpus (no target has an `audits/` dir). Treat §13-standalone as a DEFINED-but-unexercised mode,
-not a proven one — like §19 was before logosoft's `codegen/`. (An earlier draft claimed "proven on niagara
-B100"; B100 carries none of this vocabulary — the claim was removed as unverifiable.)
+B119). The STANDALONE mode — a dedicated audit-delta under `audits/`, driven by PROMPT-AUDIT.md — was
+EXERCISED ONCE (2026-07-12) on niagara blocks 90+81: 24 claims → 13 ESCALATED · 11 CONFIRMED · 0 DOWNGRADED ·
+0 REFUTED (`niagara-research/audits/2026-07-12-certainty-audit.md`), the fleet's first `audits/` dir. It
+raised certainty and caught no errors (a clean sweep); the one residual was an imprecise attribution fed back
+as a §14 correction — so the mode reproduced its own predicted risk model on first contact. The run also
+taught the contract two things now folded into PROMPT-AUDIT.md + the template: SOURCE_ROOT is usually NOT
+under the corpus, and a class in multiple decompiler variants has DIFFERENT line numbers (pin the variant, or
+risk a false REFUTED). Treat §13-standalone as PROVEN-ONCE, not battle-hardened — one clean corpus is not yet
+a track record. (An earlier draft claimed "proven on niagara B100"; B100 carries none of this vocabulary — the
+claim was removed as unverifiable; do not resurrect it.)
 
 **Audit-first as a backlog seed.** A second use of an audit sweep: to BOOTSTRAP the gap-backlog of a new
 focus over a mature corpus. Instead of hand-guessing gaps, delegate an audit that returns a coverage
@@ -740,6 +761,38 @@ deliverable↔block PARITY. For that, run [`toolbelt/verify-parity.sh`](toolbelt
 the certified block it derives from, FAILing on drift. Run it whenever the corpus ships such a deliverable — the
 other three gates passing does not imply the deliverable is in parity with its source block.
 
+**Fleet mirror (master registry vs reality).** `verify-state.sh` lints the mirror INSIDE one corpus; the
+master `TARGETS.md` registry drifts on a different axis — its per-target `N md` claim vs the real block
+count across the whole fleet (e.g. the three.js row claimed 40 md while the corpus held 44). `research-sdd-archive.sh`
+only PRINTS an unverified "refresh the row" reminder and is corpus-scoped (it never edits the kit), so
+[`toolbelt/verify-registry.sh`](toolbelt/verify-registry.sh) mechanizes the reconcile: per resolvable row it
+recomputes the block count from disk with the SAME canonical discriminator and WARNs on drift beyond a small
+tolerance — WARN-only, read-only, exit 0 always (propose-never-apply; it never rewrites a count), surfaced at
+session start next to the retro/audit sweeps.
+
+**Commit message convention.** Corpus commits use `research(<target>): B<n> <short-gap-slug>` — the block number
+and a terse slug for the gap it closed (multi-focus §16 disambiguates in the scope: `research(<target>/<focus>):
+B<n> <slug>`). An OPTIONAL body line carries the coverage ratio + marker tally at that block (e.g.
+`coverage 34/38 · [CERT] 21 · [INFER] 6`). Commit DIRECT to the default branch — a solo corpus needs NO PR
+(contrast §18's KIT changes, which land on a branch/PR because a retro mutates the shared method prose that
+every target depends on and so needs review; a single-author corpus is history for its own author and does
+not). One-block-per-commit is already the rule (PROMPT-LOOP one-block-per-commit) and is LOAD-BEARING for §17
+resume: after a kill/crash, `git log --oneline` maps one commit ⇄ one block, so "did B<n> land?" is answerable
+at a glance. Never fold two blocks into one commit.
+
+**Remote (private-by-construction).** A target MAY have a GitHub remote, but a corpus DECOMPILES proprietary
+systems, so the remote must be **private by construction, never by convention**. Create it ONLY via
+[`toolbelt/ensure-remote.sh`](toolbelt/ensure-remote.sh) `<target> --yes`: the wrapper hard-codes `--private`
+on the single `gh repo create` (there is no public code path), refuses an organization owner, is CONSENT-gated
+(`--yes` / `RSDD_ALLOW_REMOTE=1` — network mutation is never implicit), runs `scan-secrets.sh` as a PRE-PUSH
+gate and refuses on a high-confidence CONTENT hit, separately refuses if any secret-type FILE (keys, certs,
+keystores — the binary types `scan-secrets.sh` never opens) is git-tracked, and VERIFIES visibility read back
+as PRIVATE before it pushes a single commit (hard-aborting and removing the origin otherwise). The content
+scan covers the working tree only; for a high-sensitivity target, audit or squash history before the first
+push (`scan-secrets.sh` does not walk deleted history). It is idempotent (an existing `origin`
+short-circuits) and is NEVER auto-invoked by the loop — the operator runs it once, per target, on consent. A
+corpus remote is NEVER public.
+
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
 A small target is a single axis. A **mature or large** target often has several distinct subjects worth
@@ -843,7 +896,25 @@ three things that matter across concurrent proposals — does it CONFLICT with m
 retro PR, is it even NECESSARY — before merge (=applied) or close (=dismissed). Each proposal isolated on its own
 branch means N concurrent targets never collapse into one another; they queue as N reviewable PRs. (Direct
 maintainer edits — interactive kit work, not sourced from a target retro — may still go to main; the branch/PR
-gate is specifically for retro-sourced deltas arriving from target runs.)
+gate is specifically for retro-sourced deltas arriving from target runs.) **Traceability backlink (convention).**
+The applying kit commit MUST carry a `Retro: <target>/retros/<file>@<target-sha>` trailer (`stage-retro.sh`
+suggests it in its commit line) — the reverse of the retro's own forward `applied … · kit <sha>` marker — so
+"why does this kit rule exist" is traceable in both directions: kit commit → source retro, and retro → kit sha.
+
+**MISSING-RETRO detector.** A run that closed WITHOUT producing a fresh retro loses that run's feedback
+silently — nobody notices until much later, if ever. `research-sdd-archive.sh` checks this at close time
+(comparing the newest block's git-added date against the newest retro's) and prints an advisory WARN when
+the corpus advanced past its newest retro; [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) runs the
+same check across the whole fleet, surfacing a `MISSING-RETRO: <target> advanced with no retro for the
+latest run` line for every target that needs one. Like the rest of this section, it is surface-only
+(propose-never-apply) — it flags the gap for a human to act on, it never generates a retro itself.
+
+**Aging / escalation.** A pending retro that sits unreviewed too long is as bad as one that never gets
+written. `sweep-retros.sh` sorts the pending queue oldest-first by each retro's git-added date and tags any
+retro older than `RSDD_RETRO_AGE_DAYS` (default 7, overridable via env) as `ESCALATED (aged Nd)`, so the
+stalest proposals lead the list instead of hiding at the bottom. The same aging/escalation logic mirrors to
+audits via [`toolbelt/sweep-audits.sh`](toolbelt/sweep-audits.sh) (§13). Again, this only sorts and labels
+for the human — propose-never-apply.
 
 ## 19. Build/PoC loop (the requires-execution phase)
 
@@ -860,6 +931,13 @@ hard-stops, never blind.
 - **Stop counter: `requires-execution` → 0.** The static loop stops at read-only-investigable = 0; the
   build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
   in RESEARCH-STATE exactly like the investigable count.
+- **Mark open build gaps in the backlog.** An OPEN `requires-execution` gap SHOULD be a Gap-backlog row
+  whose Status column carries `requires-execution` (e.g. `requires-execution → §19`, as three.js's G41
+  does). That marker is what lets `verify-state.sh` derive the open count from disk and gate the premature
+  build-STOP hazard BY CONSTRUCTION — an envelope declaring `requires_execution_open: 0` while marked-open
+  rows remain is a hard FAIL, the exact analog of the read-only investigable gate. A build gap tracked only
+  in `## Stop control` prose is still valid (logosoft closed its whole build loop that way), but it is not
+  machine-gated — the linter cannot see what the backlog does not mark.
 - **Artifacts in `codegen/`.** PoC source, build output, and captured round-trip diffs live under
   `$CORPUS/codegen/` and are preserved as evidence (a diff is `[CERT]` evidence like a probe capture).
   The block cites them; the code is not the deliverable, the validated finding is.
@@ -911,3 +989,11 @@ item with no Engram pointer is not done.
 **Product.** Besides the cited blocks, document mode yields a human-readable deliverable — `HOWTO-<x>.md`,
 `SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`, toolchain deliverables under
 `toolbelt/`). Same `verify-block` gate as the static loop; STOP when the outline is covered.
+
+**STATUS (honest, do not oversell).** The DOCUMENT CYCLE is fully specified (SKILL.md + PROMPT-LOOP's DOCUMENT
+CYCLE) but has NOT been exercised end-to-end THROUGH the skill's `document` sub-command on a real target: its
+cited products (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) both PREDATE the mode (committed
+2026-06-28; the mode landed 2026-07-11) — they are the KIND of toolchain how-to this routing produces, not
+outputs of a real document-mode run. Treat §20 as DEFINED-BUT-UNEXERCISED until a real
+`/research-sdd <target> document` run produces a cited block + its mandatory Engram mirror — exactly as §11's
+adversarial seal and §12b's `[CERT-live]` frame each carry their own "trial it before you trust it" caveat.
