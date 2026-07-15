@@ -11,6 +11,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
+KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
+PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; MUTANT=""
 trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"' EXIT
@@ -20,13 +22,15 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # Normalise a per-run tmp home to a stable placeholder so goldens are machine-independent.
 norm(){ sed "s|$1|{HOME}|g"; }
+# Normalise the (machine-specific) kit root so the planned plugin symlink source is portable too.
+normkit(){ sed "s|$KITROOT|{KIT}|g"; }
 
 echo "== research-sdd-install.test.sh =="
 
 # 1..3 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
 for h in claude opencode codex; do
   home="$TMP/dry-$h"
-  out="$(bash "$SUT" --dry-run --home "$home" --harness "$h" 2>&1 | norm "$home")"
+  out="$(bash "$SUT" --dry-run --home "$home" --harness "$h" 2>&1 | norm "$home" | normkit)"
   g="$GOLD/plan-$h.txt"
   if [ ! -f "$g" ]; then no "golden missing: plan-$h.txt"; continue; fi
   if [ "$out" = "$(cat "$g")" ]; then ok "dry-run plan ($h) matches golden"
@@ -120,6 +124,67 @@ if [ -L "$home/.claude/CLAUDE.md" ] && grep -q 'user data line' "$home/.claude/r
    && grep -q '<!-- research-sdd:start -->' "$home/.claude/real-notes.md"; then
   ok "symlinked prompt file written through (link preserved, target spliced)"
 else no "symlinked prompt file was severed/replaced instead of written through"; fi
+
+# 15 — ITEM 1: re-splicing an existing section MUST insert exactly ONE blank line between preserved
+#      user content and the marked section (never glue the marker onto the prior line), and stay
+#      byte-idempotent across further re-runs. Seed a file whose section abuts user content with NO
+#      separator — the historically-glued rewrite path.
+home="$TMP/blank-sep"; mkdir -p "$home/.claude"
+printf '# top\nuser tail line\n<!-- research-sdd:start -->\nstale\n<!-- research-sdd:end -->\n' > "$home/.claude/CLAUDE.md"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
+pf="$home/.claude/CLAUDE.md"
+sep_ok=0
+ln="$(grep -n '<!-- research-sdd:start -->' "$pf" | head -1 | cut -d: -f1)"
+if [ -n "$ln" ] && [ "$ln" -ge 3 ]; then
+  above="$(sed -n "$((ln-1))p" "$pf")"; above2="$(sed -n "$((ln-2))p" "$pf")"
+  [ -z "$above" ] && [ -n "$above2" ] && sep_ok=1
+fi
+[ "$sep_ok" = 1 ] && ok "re-splice inserts exactly one blank-line separator before the marker" \
+  || no "re-splice glued the marker onto the preceding user line (no blank separator)"
+# idempotent: two more applies must leave byte-identical output (no growth).
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1; cp "$pf" "$TMP/blank-run2"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
+diff -q "$TMP/blank-run2" "$pf" >/dev/null 2>&1 && ok "re-splice is byte-idempotent across re-runs" \
+  || no "re-splice not idempotent (file grew/changed on a later run)"
+
+# 16 — ITEM 2: --dry-run must PLAN the opencode plugin symlink (source resolved from the kit root)
+#      without touching the filesystem.
+home="$TMP/plug-dry"
+out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
+printf '%s\n' "$out" | grep -q "SYMLINK $home/.config/opencode/plugins/research-sdd-sweep.ts -> $PLUGSRC" \
+  && ok "dry-run plans the opencode plugin symlink" || no "dry-run did not plan the plugin symlink"
+[ ! -e "$home/.config/opencode/plugins/research-sdd-sweep.ts" ] \
+  && ok "dry-run creates no plugin symlink" || no "dry-run created a plugin symlink"
+
+# 17 — ITEM 2: a real opencode install creates the symlink pointing at the kit source; re-running is
+#      a clean relink (idempotent, exit 0, still exactly our symlink — never a duplicate/error).
+home="$TMP/plug-real"; bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1
+dest="$home/.config/opencode/plugins/research-sdd-sweep.ts"
+if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$PLUGSRC" ]; then ok "real run creates the plugin symlink → kit source"
+else no "plugin symlink missing or wrong target ($(readlink "$dest" 2>/dev/null))"; fi
+bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && [ -L "$dest" ] && [ "$(readlink "$dest")" = "$PLUGSRC" ]; then ok "second opencode run relinks cleanly (idempotent, exit 0)"
+else no "second opencode run not clean (rc=$rc, target=$(readlink "$dest" 2>/dev/null))"; fi
+
+# 18 — ITEM 2: a pre-existing NON-symlink user file at the plugin target MUST be preserved (never
+#      clobbered) and the user MUST be warned.
+home="$TMP/plug-userfile"; mkdir -p "$home/.config/opencode/plugins"
+printf 'user own plugin\n' > "$home/.config/opencode/plugins/research-sdd-sweep.ts"
+err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
+dest="$home/.config/opencode/plugins/research-sdd-sweep.ts"
+if [ ! -L "$dest" ] && grep -q 'user own plugin' "$dest" && printf '%s' "$err" | grep -qi 'WARNING.*research-sdd-sweep.ts'; then
+  ok "pre-existing user plugin file preserved + warned (not clobbered)"
+else no "user plugin file clobbered or no warning emitted"; fi
+
+# 19 — ITEM 3: the codex leg documents the MCP servers as a copy-paste ~/.codex/config.toml snippet
+#      (engram + codegraph) with the intentional no-auto-merge note; claude/opencode do NOT carry it.
+home="$TMP/mcpdoc"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
+cx="$home/.codex/AGENTS.md"; cl="$home/.claude/CLAUDE.md"
+if grep -q '\[mcp_servers.engram\]' "$cx" && grep -q '\[mcp_servers.codegraph\]' "$cx" && grep -qi 'does NOT auto-merge' "$cx"; then
+  ok "codex section documents the config.toml MCP snippet (no auto-merge)"
+else no "codex MCP config.toml doc missing in $cx"; fi
+grep -q '\[mcp_servers.engram\]' "$cl" && no "claude section wrongly carries the codex MCP config doc" \
+  || ok "claude section omits the codex-only MCP config doc"
 
 # NEGATIVE CONTROL — neuter the idempotent splice (force blind append); two applies must then
 # leave TWO marked sections, proving test 6's idempotency assertion has teeth.

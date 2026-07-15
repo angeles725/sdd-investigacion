@@ -60,6 +60,14 @@ declare -A _RSDD_NEEDS_SWEEP=(
   [opencode]="false"
   [codex]="true"
 )
+# WHAT: does the harness register MCP servers via a user-owned TOML config the installer refuses to
+# auto-merge (a naive TOML append can clobber user config), so the required servers must be documented
+# as a copy-paste snippet instead? (codex=~/.codex/config.toml; claude/opencode manage MCP elsewhere)
+declare -A _RSDD_NEEDS_MCP_CONFIG_DOC=(
+  [claude]="false"
+  [opencode]="false"
+  [codex]="true"
+)
 
 # rsdd_field <harness> <field> [home] — the UNIFORM accessor. The case is on FIELD NAME (generic),
 # never on harness: all per-harness divergence is looked up from the arrays above.
@@ -76,6 +84,7 @@ rsdd_field() {
     prompt_strategy)         printf '%s\n' "${_RSDD_PROMPT_STRATEGY[$harness]}" ;;
     supports_slash_commands) printf '%s\n' "${_RSDD_SUPPORTS_SLASH[$harness]}" ;;
     needs_manual_sweep_doc)  printf '%s\n' "${_RSDD_NEEDS_SWEEP[$harness]}" ;;
+    needs_mcp_config_doc)    printf '%s\n' "${_RSDD_NEEDS_MCP_CONFIG_DOC[$harness]}" ;;
     plugin_dir)
       plug="${_RSDD_PLUGIN_DIR_NAME[$harness]}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
@@ -87,9 +96,10 @@ rsdd_field() {
 # Identical across harnesses EXCEPT the manual-sweep fallback, which is appended only where the table
 # says the harness has no automated sweep. The launcher TEXT itself is not forked per harness.
 rsdd_render_section() {
-  local harness="$1" home="${2:-$HOME}" skill_path needs_sweep
+  local harness="$1" home="${2:-$HOME}" skill_path needs_sweep needs_mcp_doc
   skill_path="$(rsdd_field "$harness" skill_path "$home")"
   needs_sweep="$(rsdd_field "$harness" needs_manual_sweep_doc "$home")"
+  needs_mcp_doc="$(rsdd_field "$harness" needs_mcp_config_doc "$home")"
   printf '%s\n' '<!-- research-sdd:start -->'
   printf '%s\n' '## Research-SDD'
   printf '%s\n' ''
@@ -104,6 +114,22 @@ rsdd_render_section() {
     printf '%s\n' '  - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports'
     printf '%s\n' '  - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift'
     printf '%s\n' '  - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning'
+  fi
+  if [ "$needs_mcp_doc" = "true" ]; then
+    printf '%s\n' ''
+    printf '%s\n' 'MCP servers this skill relies on (engram `mem_*`, codegraph). This installer does NOT auto-merge'
+    printf '%s\n' 'your `~/.codex/config.toml` — a naive TOML append can clobber user config — so add these tables'
+    printf '%s\n' 'yourself (an idempotent TOML-aware merge is a deliberate follow-up):'
+    printf '%s\n' ''
+    printf '%s\n' '```toml'
+    printf '%s\n' '[mcp_servers.engram]'
+    printf '%s\n' 'command = "engram"'
+    printf '%s\n' 'args = ["mcp", "--tools=agent"]'
+    printf '%s\n' ''
+    printf '%s\n' '[mcp_servers.codegraph]'
+    printf '%s\n' 'command = "codegraph"'
+    printf '%s\n' 'args = ["serve", "--mcp"]'
+    printf '%s\n' '```'
   fi
   printf '%s\n' '<!-- research-sdd:end -->'
 }

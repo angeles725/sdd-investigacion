@@ -8,5 +8,5 @@ harness=opencode
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.config/opencode/skills/research-sdd/SKILL.md
   | <!-- research-sdd:end -->
-  PLUGIN  {HOME}/.config/opencode/plugins (symlink research-sdd-sweep.ts — see toolbelt/opencode/README.md)
+  SYMLINK {HOME}/.config/opencode/plugins/research-sdd-sweep.ts -> {KIT}/toolbelt/opencode/research-sdd-sweep.ts
   slash_commands=true

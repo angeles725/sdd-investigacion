@@ -42,6 +42,41 @@ _rsdd_write_back() {
   fi
 }
 
+# Append the marked $section onto the preserved-content file $tmp with EXACTLY ONE blank-line
+# separator between prior content and the section — and NO leading blank line when the preserved
+# content is empty (brand-new / fully-removed file). Command substitution strips trailing newlines,
+# so any number of pre-existing trailing blanks collapses to one deterministic separator, keeping
+# BOTH the fresh-append and the re-splice paths byte-identical and idempotent across re-runs.
+_rsdd_append_section() {
+  local tmp="$1" section="$2" body
+  body="$(cat "$tmp")"
+  if [ -n "$body" ]; then
+    printf '%s\n\n%s\n' "$body" "$section" > "$tmp"
+  else
+    printf '%s\n' "$section" > "$tmp"
+  fi
+}
+
+# Symlink the kit's OpenCode session-start plugin into the harness plugin dir. Idempotent: an existing
+# symlink is refreshed (clean relink, never duplicated); a NON-symlink already at the target is the
+# user's own file and is preserved (warn + skip, never clobbered). No-op under --dry-run, but the plan
+# still prints the intended link. $src is resolved from the kit root, independent of the CWD.
+_rsdd_link_plugin() {
+  local plugin_dir="$1" dry="$2" src="$3" dest
+  dest="$plugin_dir/$(basename "$src")"
+  printf '  SYMLINK %s -> %s\n' "$dest" "$src"
+  [ "$dry" = 1 ] && return 0
+  [ -e "$src" ] || { echo "research-sdd-install: plugin source not found: $src" >&2; return 1; }
+  mkdir -p "$plugin_dir" || { echo "research-sdd-install: mkdir failed for $plugin_dir" >&2; return 1; }
+  if [ -L "$dest" ]; then
+    ln -sfn "$src" "$dest" || { echo "research-sdd-install: relink failed for $dest" >&2; return 1; }
+  elif [ -e "$dest" ]; then
+    printf 'research-sdd-install: WARNING %s exists and is not our symlink — preserved (skipped plugin link)\n' "$dest" >&2
+  else
+    ln -s "$src" "$dest" || { echo "research-sdd-install: symlink failed for $dest" >&2; return 1; }
+  fi
+}
+
 # markdown-sections: the prompt file is SHARED — splice our marked block, preserving everything else.
 # The rewrite removes ONLY a well-formed start..end pair (no nested start between them). An orphaned
 # start marker (no matching end, or a second start before the end — a hand-edited/partial file) is
@@ -53,8 +88,12 @@ _surface__markdown_sections() {
   emit_section "$section"
   [ "$dry" = 1 ] && return 0
   mkdir -p "$(dirname "$file")" || { echo "research-sdd-install: mkdir failed for $(dirname "$file")" >&2; return 1; }
+  # Build the preserved content in $tmp, then append the fresh section via the ONE separator-aware
+  # helper — so the re-splice (rewrite) path and the fresh-append path insert an identical single
+  # blank-line separator, and a brand-new empty file gets no leading blank line.
+  local tmp; tmp="$(mktemp)" || return 1
   if [ -f "$file" ] && grep -q '<!-- research-sdd:start -->' "$file"; then
-    local tmp aw; tmp="$(mktemp)" || return 1
+    local aw
     # Remove the FIRST well-formed start..end pair; keep every other line verbatim. If a start has no
     # matching end (orphan), flush it back out and signal via exit 3 so we can warn (exit 0 = clean).
     awk '
@@ -73,12 +112,14 @@ _surface__markdown_sections() {
     if [ "$aw" = 3 ]; then
       printf 'research-sdd-install: WARNING malformed research-sdd marker in %s (start without matching end) — preserved existing content and appended a fresh section; please remove the stray marker\n' "$file" >&2
     fi
-    printf '%s\n' "$section" >> "$tmp"
-    _rsdd_write_back "$tmp" "$file" || { echo "research-sdd-install: write failed for $file" >&2; return 1; }
+  elif [ -f "$file" ]; then
+    # No marker yet: preserve all existing user content verbatim, then append the section below it.
+    cat "$file" > "$tmp" || { rm -f "$tmp"; echo "research-sdd-install: read failed for $file" >&2; return 1; }
   else
-    { [ -f "$file" ] && printf '\n'; printf '%s\n' "$section"; } >> "$file" \
-      || { echo "research-sdd-install: append failed for $file" >&2; return 1; }
+    : > "$tmp"  # brand-new prompt file: section only, no leading blank line.
   fi
+  _rsdd_append_section "$tmp" "$section"
+  _rsdd_write_back "$tmp" "$file" || { echo "research-sdd-install: write failed for $file" >&2; return 1; }
 }
 
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
@@ -112,9 +153,12 @@ install_one() {
     echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
   fi
 
-  # 3. plugin note — printed only when the table gives this harness a plugin dir (opencode)
+  # 3. plugin symlink — only when the table gives this harness a plugin dir (opencode). The source is
+  #    resolved from the KIT root (not the CWD); idempotent relink, never clobbers a user's own file.
   if [ -n "$plugin_dir" ]; then
-    printf '  PLUGIN  %s (symlink research-sdd-sweep.ts — see toolbelt/opencode/README.md)\n' "$plugin_dir"
+    if ! _rsdd_link_plugin "$plugin_dir" "$dry" "$KIT/toolbelt/opencode/research-sdd-sweep.ts"; then
+      echo "research-sdd-install: [$h] plugin symlink failed ($plugin_dir)" >&2; rc=1
+    fi
   fi
   printf '  slash_commands=%s\n' "$slash"
   return "$rc"

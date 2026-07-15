@@ -14,5 +14,19 @@ harness=codex
   |   - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports
   |   - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift
   |   - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning
+  | 
+  | MCP servers this skill relies on (engram `mem_*`, codegraph). This installer does NOT auto-merge
+  | your `~/.codex/config.toml` — a naive TOML append can clobber user config — so add these tables
+  | yourself (an idempotent TOML-aware merge is a deliberate follow-up):
+  | 
+  | ```toml
+  | [mcp_servers.engram]
+  | command = "engram"
+  | args = ["mcp", "--tools=agent"]
+  | 
+  | [mcp_servers.codegraph]
+  | command = "codegraph"
+  | args = ["serve", "--mcp"]
+  | ```
   | <!-- research-sdd:end -->
   slash_commands=false
