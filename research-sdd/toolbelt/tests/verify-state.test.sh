@@ -40,6 +40,24 @@ addenv(){ local d="$1"; shift
 # env_lines <covered> <gaps_closed> <known_gaps> <investigable_open> <requires_exec_open> <blocked_open>
 #   Emit the 8 envelope lines to stdout (for fixtures built with raw printf blocks, not state()).
 env_lines(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\n<!-- /research-state.v1 -->\n' "$@"; }
+# tablestate <dir> <cx> <cy> <n-pending> — a TABLE-backed state (the REAL backlog shape): prose coverage
+#   metric "cx / cy" + <n-pending> leading-token `pending` rows in a 4-col Gap-backlog table. Now that
+#   CHECK 1 counts backlog ROWS (not every prose occurrence of the word "pending"), the stale-mirror
+#   fixtures must carry real backlog rows, not bullets. The envelope is built so ONLY CHECK 1 can fire
+#   (investigable_open == the pending rows; gaps_closed=0 != known_gaps so CHECK D stays silent;
+#   covered/blocked = 0), isolating the stale-mirror check for the STALE fixtures and the teeth mutant.
+tablestate(){
+  local dir="$1" cx="$2" cy="$3" n="$4" i; mkdir -p "$dir"
+  { echo '# Research State'; echo
+    env_lines 0 0 "$cy" "$n" 0 0; echo
+    echo "coverage metric: $cx / $cy declared gaps closed"; echo
+    echo '## Gap-backlog (prioritized)'; echo
+    echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+    for ((i=1;i<=n;i++)); do echo "| high | gap $i | web | pending |"; done; echo
+    echo '## Blocked gaps'; echo '- none'; echo
+    echo '## Stop control'; echo "- **Open gaps — read-only investigable**: $n"
+  } > "$dir/RESEARCH-STATE.md"
+}
 
 echo "== verify-state.test.sh (SUT: $(basename "$SUT")) =="
 
@@ -63,19 +81,40 @@ else no "consistent: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'ok|
 # 4 — STALE MIRROR (the core FAIL): metric 23 / 23 WITH pending gap rows → exit 1 + PREMATURE STOP line.
 #     Mirrors the real pruebas-dashboards run-A desync (summary 23/23 closed while gaps pending).
 d="$TMP/stale"
-state "$d" '# Research State' 'coverage metric: 23 / 23 declared gaps closed' \
-  '## Backlog' '- gap A pending' '- gap B pending' '- gap C pending'
-addenv "$d" 0 23 23 0 0 0   # envelope derived-consistent (bullets, not table rows → investigable=0); CHECK 1 prose fires
+tablestate "$d" 23 23 3   # metric 23/23 (all closed) WITH 3 leading-token `pending` backlog ROWS → CHECK 1 fires
 out="$(run "$d")"
 if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL' && printf '%s\n' "$out" | grep -q 'PREMATURE STOP'; then
   ok "STALE 23/23 + pending → exit 1 + FAIL/PREMATURE STOP"
 else no "stale: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|premature' | head -1)"; fi
 
+# 4b — FALSE-POSITIVE GUARD (retro delta): the ordinary word "pending" in PROSE (iteration-history
+#      narratives, coverage notes) must NOT count as a backlog gap. Metric 5 / 5 (all closed) + ZERO
+#      leading-token `pending` backlog rows, yet three prose occurrences of "pending" → CHECK 1 must stay
+#      SILENT (exit 0). RED before the fix: CHECK 1's whole-file `grep -icE '\bpending\b'` counted the prose
+#      words, fired the stale-mirror FAIL, and forced editing HISTORY to please the linter — exactly backwards.
+d="$TMP/pending-prose-fp"; mkdir -p "$d"
+{ echo '# Research State'; echo
+  env_lines 0 5 5 0 0 0; echo
+  echo 'coverage metric: 5 / 5 declared gaps closed'; echo
+  echo 'Note: build+validation was pending in an earlier run; [INFER] pending re-test until the in-skill check.'; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | the one gap | web | ✅ closed |'; echo
+  echo '## Iteration history'; echo
+  echo '| # | Date | Gap | Note |'; echo '|---|---|---|---|'
+  echo '| 1 | d1 | g1 | build+validation pending at the time; later closed |'; echo
+  echo '## Blocked gaps'; echo '- none'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -q 'PREMATURE STOP'; then
+  ok "prose 'pending' (not a backlog status) → CHECK 1 silent, exit 0 (no false stale-mirror FAIL)"
+else no "pending-prose-fp: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'premature|fail' | head -1)"; fi
+
 # 5 — NON-EQUAL metric guard: metric 3 / 5 WITH pending gaps → exit 0 (CHECK 1 must NOT fire when X != Y).
 #     Key boundary: proves the FAIL is gated on X==Y, not merely on "pending exists".
 d="$TMP/unequal"
-state "$d" '# Research State' 'coverage metric: 3 / 5 gaps closed' '## Backlog' '- gap A pending' '- gap B pending'
-addenv "$d" 0 3 5 0 0 0
+tablestate "$d" 3 5 2   # 2 real leading-token `pending` backlog rows, but metric 3/5 (X != Y) → CHECK 1 silent
 if [ "$(code "$d")" = 0 ]; then ok "3/5 + pending → exit 0 (CHECK 1 gated on X==Y, stays silent)"
 else no "unequal-metric: exit $(code "$d") (want 0 — CHECK 1 wrongly fired on X!=Y)"; fi
 
@@ -100,8 +139,7 @@ else no "warn: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'warn' | h
 # 8 — NESTED state: RESEARCH-STATE.md under a corpus/ subdir (within maxdepth 3) is found and linted.
 #     Reuse the stale desync so we can assert the nested file is genuinely parsed (exit 1, not skipped).
 d="$TMP/nested"; mkdir -p "$d/corpus"
-state "$d/corpus" '# Research State' 'coverage metric: 23 / 23 gaps closed' '## Backlog' '- gap A pending'
-addenv "$d/corpus" 0 23 23 0 0 0
+tablestate "$d/corpus" 23 23 1   # nested table-backed stale focus (metric 23/23 + 1 pending row)
 out="$(run "$d")"
 if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -q 'PREMATURE STOP'; then
   ok "nested corpus/RESEARCH-STATE.md found + linted (stale caught, exit 1)"
@@ -171,10 +209,18 @@ else no "bloque-glob: on-disk count :: $(printf '%s\n' "$out" | grep -iE 'block 
 d="$TMP/multistate"; mkdir -p "$d"
 printf '%s\n' '# Research State' 'coverage metric: 5 / 5 gaps closed' '## Backlog' '- gap done' > "$d/RESEARCH-STATE-alpha.md"
 printf '%s\n' '# Research State' 'coverage metric: 7 / 7 gaps closed' '## Backlog' '- gap done' > "$d/RESEARCH-STATE-beta.md"
-printf '%s\n' '# Research State' 'coverage metric: 23 / 23 declared gaps closed' '## Backlog' '- gap A pending' '- gap B pending' > "$d/RESEARCH-STATE-gamma.md"
 env_lines 0 5 5 0 0 0 >> "$d/RESEARCH-STATE-alpha.md"
 env_lines 0 7 7 0 0 0 >> "$d/RESEARCH-STATE-beta.md"
-env_lines 0 23 23 0 0 0 >> "$d/RESEARCH-STATE-gamma.md"   # derived-consistent; CHECK 1 prose fires on 23/23 + pending
+# gamma: table-backed STALE focus (metric 23/23 + 2 leading-token `pending` backlog rows → CHECK 1 fires)
+{ echo '# Research State'; echo
+  env_lines 0 0 23 2 0 0; echo
+  echo 'coverage metric: 23 / 23 declared gaps closed'; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | gap A | web | pending |'; echo '| high | gap B | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 2'
+} > "$d/RESEARCH-STATE-gamma.md"
 out="$(run "$d")"
 if [ "$(code "$d")" = 1 ] \
    && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-alpha.md' \

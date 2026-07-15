@@ -65,6 +65,21 @@ derive_investigable() {
   done < <(_backlog_rows "$sf")
   echo "$n"
 }
+# derived pending_rows = backlog table rows whose STATUS leading-token is `pending` (bare or decorated),
+# using the SAME line-61 discriminator as derive_investigable. This REPLACES CHECK 1's old whole-file
+# `grep -icE '\bpending\b'`, which counted EVERY prose occurrence of the ordinary English word "pending"
+# (iteration-history narratives, coverage notes) as a backlog gap — a false-positive that forced rewording
+# HISTORY to please the linter (a state linter greps STRUCTURE, not vocabulary). UNLIKE derive_investigable
+# this does NOT exclude blocked gaps: a blocked-but-pending gap is still not closed, so it belongs in the
+# stale-mirror count CHECK 1 reports.
+derive_pending_rows() {
+  local sf="$1" gap st n=0
+  while IFS=$'\t' read -r _ gap st; do              # field 1 (priority) unused here → discard into _
+    [ -z "$gap" ] && continue
+    [ "${st%% *}" = "pending" ] && n=$((n+1))        # bare `pending` or decorated `pending (...)`; leading-token only
+  done < <(_backlog_rows "$sf")
+  echo "$n"
+}
 # derived blocked_open = count of "- <name> — needs: ..." entries under ## Blocked gaps (needs:-anchored,
 # so a bare "- none" placeholder never inflates the count).
 derive_blocked() { _section "$1" '## Blocked gaps' | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
@@ -115,8 +130,10 @@ for state in "${states[@]}"; do
     continue
   fi
 
-  # 1. backlog `pending` gap rows (grep -c already prints 0 on no match; keep it a single integer).
-  pending="$(grep -icE '\bpending\b' "$state" 2>/dev/null || true)"
+  # 1. backlog `pending` gap ROWS — leading-token status, NOT a whole-file word count (retro delta): the old
+  #    `grep -icE '\bpending\b'` counted every prose mention of "pending" (iteration-history narratives,
+  #    coverage notes) as a gap, false-firing CHECK 1 and forcing edits to HISTORY. Anchor to backlog rows.
+  pending="$(derive_pending_rows "$state")"
 
   # 2. coverage metric "X / Y ... closed"
   metric="$(grep -iE 'coverage metric|declared gaps closed|gaps? closed' "$state" 2>/dev/null | head -1)"
