@@ -8,10 +8,12 @@ Claude Code surfaces two Research-SDD banners when the **supervisor project** (t
 
 OpenCode does **not** fire `.claude` hooks. It loads **plugins** at startup instead (see the sibling
 `~/.config/opencode/plugins/{engram,skill-registry,model-variants}.ts`, all of which re-implement a
-Claude/Codex startup hook as an OpenCode plugin). `research-sdd-sweep.ts` is that same bridge for the
-two banners above: on the first `experimental.chat.system.transform` of a session it runs the SAME two
-kit scripts and appends their output to the model's system context — OpenCode's analog of a Claude
-hook's `additionalContext`.
+Claude/Codex startup hook as an OpenCode plugin). `research-sdd-sweep.ts` is that same bridge, and then
+some: on the first `experimental.chat.system.transform` of a session it runs **four** kit scripts and
+appends their output to the model's system context — OpenCode's analog of a Claude hook's
+`additionalContext`. Two mirror the banners above (`sweep-retros.sh`, `verify-kit-clean.sh`); two more
+have no Claude-hook equivalent yet — `sweep-audits.sh` (pending §13 audit reports per target) and
+`verify-registry.sh` (master-table drift, `TARGETS.md` vs the real corpus block count).
 
 ## Behavior
 
