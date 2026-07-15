@@ -1,0 +1,11 @@
+harness=claude
+  INSTALL {HOME}/.claude/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  SPLICE  {HOME}/.claude/CLAUDE.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: {HOME}/.claude/skills/research-sdd/SKILL.md
+  | <!-- research-sdd:end -->
+  slash_commands=false

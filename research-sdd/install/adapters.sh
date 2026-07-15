@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# adapters.sh — sourceable ADAPTER TABLE for the multi-harness research-sdd installer.
+#
+# Mirrors gentle-ai's decoupling: one neutral asset (skills/research-sdd/SKILL.md) is surfaced into
+# every AI harness by consulting a per-harness adapter that answers three ORTHOGONAL questions:
+#
+#   WHERE — path methods : config_root · skills_dir · skill_path · prompt_file · plugin_dir
+#   HOW   — strategy enum : prompt_strategy  (markdown-sections — splice a marked block, preserving
+#                            surrounding user content; dispatch stays open for future strategies)
+#   WHAT  — capability bools : supports_slash_commands · needs_manual_sweep_doc
+#
+# Every path is derived from a passed-in $home, so NOTHING hardcodes ~/.claude vs ~/.codex — the same
+# table renders a plan for any home (that is what lets --dry-run --home <tmp> drive golden tests).
+#
+# Adding a 4th harness later = ONE new key in each associative array below + one word in
+# RESEARCH_SDD_HARNESSES. No installer edit, no new branch.
+#
+# Sourced, not executed:  . adapters.sh   (then call rsdd_field / rsdd_render_section).
+
+# Registration order = install order for --harness all. Consumed by the installer after it sources
+# this file; shellcheck can't see that cross-file use, so silence the false "unused" here.
+# shellcheck disable=SC2034
+RESEARCH_SDD_HARNESSES="claude opencode codex"
+
+# --- THE TABLE (only home-independent facts live here; paths are derived from these + $home) --------
+# config root, relative to $home
+declare -A _RSDD_CONFIG_ROOT_REL=(
+  [claude]=".claude"
+  [opencode]=".config/opencode"
+  [codex]=".codex"
+)
+# system-prompt file name inside the config root
+declare -A _RSDD_PROMPT_FILE_NAME=(
+  [claude]="CLAUDE.md"
+  [opencode]="AGENTS.md"
+  [codex]="AGENTS.md"
+)
+# HOW the launcher is surfaced into that prompt file
+declare -A _RSDD_PROMPT_STRATEGY=(
+  [claude]="markdown-sections"
+  [opencode]="markdown-sections"
+  [codex]="markdown-sections"
+)
+# WHAT the harness can do: does a SKILL surface as a slash command?
+declare -A _RSDD_SUPPORTS_SLASH=(
+  [claude]="false"
+  [opencode]="true"
+  [codex]="false"
+)
+# plugin directory name inside the config root (empty = harness has none)
+declare -A _RSDD_PLUGIN_DIR_NAME=(
+  [claude]=""
+  [opencode]="plugins"
+  [codex]=""
+)
+# WHAT: does the harness lack an automated session-start sweep (no hook AND no plugin), so the
+# manual-run fallback must be documented in its prompt section? (claude=hook, opencode=plugin, codex=none)
+declare -A _RSDD_NEEDS_SWEEP=(
+  [claude]="false"
+  [opencode]="false"
+  [codex]="true"
+)
+
+# rsdd_field <harness> <field> [home] — the UNIFORM accessor. The case is on FIELD NAME (generic),
+# never on harness: all per-harness divergence is looked up from the arrays above.
+rsdd_field() {
+  local harness="$1" field="$2" home="${3:-$HOME}"
+  local rel="${_RSDD_CONFIG_ROOT_REL[$harness]:-}"
+  if [ -z "$rel" ]; then echo "rsdd_field: unknown harness '$harness'" >&2; return 2; fi
+  local root="$home/$rel" plug
+  case "$field" in
+    config_root)             printf '%s\n' "$root" ;;
+    skills_dir)              printf '%s\n' "$root/skills" ;;
+    skill_path)              printf '%s\n' "$root/skills/research-sdd/SKILL.md" ;;
+    prompt_file)             printf '%s\n' "$root/${_RSDD_PROMPT_FILE_NAME[$harness]}" ;;
+    prompt_strategy)         printf '%s\n' "${_RSDD_PROMPT_STRATEGY[$harness]}" ;;
+    supports_slash_commands) printf '%s\n' "${_RSDD_SUPPORTS_SLASH[$harness]}" ;;
+    needs_manual_sweep_doc)  printf '%s\n' "${_RSDD_NEEDS_SWEEP[$harness]}" ;;
+    plugin_dir)
+      plug="${_RSDD_PLUGIN_DIR_NAME[$harness]}"
+      if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
+    *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
+  esac
+}
+
+# rsdd_render_section <harness> [home] — the single launcher body, wrapped in the idempotency markers.
+# Identical across harnesses EXCEPT the manual-sweep fallback, which is appended only where the table
+# says the harness has no automated sweep. The launcher TEXT itself is not forked per harness.
+rsdd_render_section() {
+  local harness="$1" home="${2:-$HOME}" skill_path needs_sweep
+  skill_path="$(rsdd_field "$harness" skill_path "$home")"
+  needs_sweep="$(rsdd_field "$harness" needs_manual_sweep_doc "$home")"
+  printf '%s\n' '<!-- research-sdd:start -->'
+  printf '%s\n' '## Research-SDD'
+  printf '%s\n' ''
+  printf '%s\n' 'Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the'
+  printf '%s\n' 'single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).'
+  printf '%s\n' "Skill file: $skill_path"
+  if [ "$needs_sweep" = "true" ]; then
+    printf '%s\n' ''
+    printf '%s\n' 'Session-start sweep (this harness fires NO pre-turn hook — run these MANUALLY at session'
+    printf '%s\n' 'start; all read-only, degrade to silence on failure):'
+    printf '%s\n' '  - `toolbelt/sweep-retros.sh`     — pending section 18 self-retrospective proposals'
+    printf '%s\n' '  - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports'
+    printf '%s\n' '  - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift'
+    printf '%s\n' '  - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning'
+  fi
+  printf '%s\n' '<!-- research-sdd:end -->'
+}

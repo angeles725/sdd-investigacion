@@ -1,0 +1,18 @@
+harness=codex
+  INSTALL {HOME}/.codex/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  SPLICE  {HOME}/.codex/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: {HOME}/.codex/skills/research-sdd/SKILL.md
+  | 
+  | Session-start sweep (this harness fires NO pre-turn hook — run these MANUALLY at session
+  | start; all read-only, degrade to silence on failure):
+  |   - `toolbelt/sweep-retros.sh`     — pending section 18 self-retrospective proposals
+  |   - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports
+  |   - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift
+  |   - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning
+  | <!-- research-sdd:end -->
+  slash_commands=false

@@ -1,0 +1,12 @@
+harness=opencode
+  INSTALL {HOME}/.config/opencode/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  SPLICE  {HOME}/.config/opencode/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: {HOME}/.config/opencode/skills/research-sdd/SKILL.md
+  | <!-- research-sdd:end -->
+  PLUGIN  {HOME}/.config/opencode/plugins (symlink research-sdd-sweep.ts — see toolbelt/opencode/README.md)
+  slash_commands=true
