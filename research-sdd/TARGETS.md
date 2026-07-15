@@ -1,7 +1,7 @@
 # Research-SDD — Targets Registry
 
-This file is the **master registry of the 13 active research targets** of the Research-SDD loop
-(numbered up to 15; **#11 openness-labs and #12 openness-tools were de-registered** — see the
+This file is the **master registry of the 12 active research targets** of the Research-SDD loop
+(numbered up to 15; **#6 cadesimu, #11 openness-labs and #12 openness-tools were de-registered** — see the
 "De-registered — not block corpora" section at the end).
 Each target is a system under reverse engineering / documentation. The loop uses this table to:
 
@@ -55,7 +55,6 @@ Sensitivity:
 | 3 | niagara-help | `/home/cristian/Honeywell/.../niagara-help` | **intermediate** (4 md / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (125 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
 | 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (207 md / git no / remote no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
-| 6 | cadesimu | `/home/cristian/investigacion/cadesimu` | **incipient** (6 md, 0 top / git no / remote no / hook no) `[CERT]` | Python render/parse CAD scripts; real CADe_SIMU binary **not present** `[CERT]` | Direct reading; `decompile-net.sh` when the binary shows up `[INFER]` | Spanish `[INFER]` |
 | 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (9 md / git no / remote no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
 | 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (76 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
 | 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / remote no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
@@ -87,10 +86,6 @@ Mental model of KiCad v10. Mature corpus (79 blocks, `CATALOG.md`/`INDEX.md`), g
 ### 5 — api-openness `[CERT]`
 Reference for the **Siemens TIA Portal Openness V17** API (`Siemens.Engineering`, .NET interface). Very mature corpus: 69 numbered blocks at the root (`00_INDEX.md` … `19_*`), 207 `.md` total, active hook `research-reminder.sh`. **No git.** Source: official Siemens PDFs in `_fuentes/` + `Siemens.Engineering.xml` (IntelliSense).
 **Startup:** continue. `decompile-net.sh` applies if you want to go beyond the XML to the .NET assembly `[INFER]` — the `.dll` binary was not inspected here.
-
-### 6 — cadesimu `[CERT]`
-Research on **CADe_SIMU** (electrical simulator). Incipient state: 0 `.md` at the root, 6 in `docs/`, no git or hook. What exists are own Python render/parse scripts (`build_*.py`, `cad_parser.py`, `render_cad.py`) and generated PNGs. **The real CADe_SIMU binary is not present**; the detected ELF/`.exe` are false positives from `.venv` (PIL, pip launchers).
-**Startup:** bootstrap. The loop must create index/git/hook and, when the executable shows up (CADe_SIMU is a Windows app, probably .NET/Delphi `[INFER]`), run `decompile-net.sh`/`decompile-native.sh`.
 
 ### 7 — hifref `[CERT]`
 Field research on **HiRef** equipment (chillers) via BACnet/Modbus/SNMP. Incipient state: 1 `.md`, no git or hook. Content: HTML captures (`_bacnet.html`, `_net_now.html`…), PowerShell polling scripts (`bacnet_read.ps1`, `modbus_scan.ps1`, `snmp_get.ps1`) and `hiref_nrg381_bacnet_points.csv`. No binaries to decompile.
@@ -228,7 +223,6 @@ phase §12 for any further live probing.
 
 ## Targets whose type I could NOT confirm 100%
 
-- **cadesimu (#6)** `[INFER]`: the real CADe_SIMU binary **is not in the tree**; I could not run `file` on it. Assuming .NET/Delphi Windows is an inference. What is present is only auxiliary Python tooling.
 - **api-openness (#5)** `[INFER]`: confirmed as a .NET API by the XML doc, but **I did not inspect the `.dll` assembly** of `Siemens.Engineering`; `decompile-net.sh` remains an unverified recommendation against the binary.
 - **API-FACTURAS (#10)** `[INFER]`: the CONTPAQi SDK has JARs (Java, `[CERT]`) and native DLLs, but **I did not run `file` discriminating .NET vs native** on each DLL; the choice between `decompile-net.sh` and `decompile-native.sh` per DLL remains pending.
 
@@ -239,7 +233,7 @@ phase §12 for any further live probing.
 
 ## De-registered — not block corpora
 
-These were formerly rows #11 and #12. Verification on 2026-07-15 confirmed they are **NOT
+These were formerly rows #6, #11 and #12. Verification on 2026-07-15 confirmed they are **NOT
 research-sdd block corpora** — they are Python code/tooling projects (no INDEX, no
 `*-block`/`*-bloque` files, no research-sdd markers). They are removed from the ACTIVE registry.
 Paths below are intentionally in PLAIN TEXT (no backticks). The toolbelt parser
@@ -262,3 +256,6 @@ de-registered.
     `CLAUDE.md`; git present, remote yes, **no hook**, 27 `.md`. It is own source code: direct reading +
     CodeGraph, no decompilation required. Corpus language inferred Spanish/EN `[INFER]` (language only —
     type confirmed Python source, never confirmed by reading the `.md`).
+- **cadesimu** — path: /home/cristian/investigacion/cadesimu
+  - Reason: Python reverse-engineering tooling project (CADe_SIMU electrical simulator), not a research-sdd block corpus; verified 2026-07-15. Genuine RE research exists but lives as project docs, not a block-structured corpus with an INDEX.
+  - Salvaged profiling notes (prior maturity **incipient** `[CERT]`): 0 `.md` at root, 6 in `docs/` (CAD_FORMAT, REVERSE_ENGINEERING, SYMBOL_CODES, TERMINAL_MODEL); own Python render/parse scripts (`cad_parser.py`, `render_cad.py`, `build_*.py`) + generated PNGs; no git, no hook. Real CADe_SIMU binary not present (detected ELF/.exe are `.venv` false positives). If converted later: run research-sdd-init + structure the RE findings into blocks.
