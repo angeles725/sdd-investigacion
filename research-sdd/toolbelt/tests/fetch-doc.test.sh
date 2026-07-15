@@ -23,6 +23,7 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # runreg <script> <sdir> <file> <kind> <origin> <sha> — call reg() from <script> in an isolated subshell
 # (source defines the function; the guarded main never runs; set +e keeps a reg failure from killing us).
+# shellcheck source=../fetch-doc.sh
 runreg(){ local s="$1"; shift; ( set +e; source "$s" >/dev/null 2>&1; reg "$@" ); }
 # lineno <file> <fixed-string> — 1-based line number of the first line CONTAINING the string, or 0.
 lineno(){ awk -v s="$2" 'index($0,s){print NR; exit}' "$1"; }
