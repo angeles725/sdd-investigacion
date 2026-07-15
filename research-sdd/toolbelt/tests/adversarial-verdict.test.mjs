@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { sealVerdict } from '../adversarial-verdict.mjs';
+import { sealVerdict, VERDICT_SCHEMA } from '../adversarial-verdict.mjs';
 
 let pass = 0, fail = 0;
 const V = (refuted) => ({ refuted });                 // a valid vote (no confidence — legacy shape)
@@ -92,52 +92,94 @@ eq('mean .5 clears a custom confThreshold .4 → SURVIVES',
   eq('mixed: meanConfidence is 0.1 (the lone present value)', lo.meanConfidence, 0.1);
 }
 
-// ── PARITY — the .mjs export and the INLINE copy in adversarial-verify.js must not drift.
-// The inline copy is not exported (the workflow file must stay self-contained for the engine),
-// so we extract its `sealVerdict` source by brace-matching and materialize it via new Function.
-function extractInlineSealVerdict(src) {
-  const start = src.indexOf('function sealVerdict');
-  if (start < 0) throw new Error('inline sealVerdict not found in adversarial-verify.js');
-  // Skip the parameter list first (it contains braces: `{ quorum = 2 } = {}`), matching
-  // parens, so we begin brace-matching at the function BODY's opening `{`, not a param one.
-  let p = 0, i = src.indexOf('(', start);
-  for (; i < src.length; i++) {
-    if (src[i] === '(') p++;
-    else if (src[i] === ')' && --p === 0) { i++; break; }
+// ── QUORUM-FLOOR DEFENSE (audit fix) ─────────────────────────────────────────
+// A non-finite or < 1 quorum (hand-written/legacy plan.json, or an un-validated CLI flag)
+// must NOT disable the below-quorum INSUFFICIENT floor: a lone survivor with 2 dead skeptics
+// can never seal on a degraded 1-of-3 panel. The kernel falls back to the safe default.
+eq('quorum=0 defense: 1 live survivor, 2 dead → INSUFFICIENT (floor not disabled)',
+   sealVerdict([V(false), null, null], { quorum: 0 }).verdict, 'INSUFFICIENT');
+eq('quorum=-1 defense: 1 live survivor, 2 dead → INSUFFICIENT',
+   sealVerdict([V(false), null, null], { quorum: -1 }).verdict, 'INSUFFICIENT');
+eq('quorum=NaN defense: 1 live survivor, 2 dead → INSUFFICIENT',
+   sealVerdict([V(false), null, null], { quorum: NaN }).verdict, 'INSUFFICIENT');
+eq('quorum=Infinity defense: 1 live survivor, 2 dead → INSUFFICIENT',
+   sealVerdict([V(false), null, null], { quorum: Infinity }).verdict, 'INSUFFICIENT');
+// The defense restores the safe floor, it is not a lockout: a full 3-survivor panel still seals.
+eq('quorum=0 defense: full 3-survivor panel still SURVIVES (not a lockout)',
+   sealVerdict([Vc(false, 0.9), Vc(false, 0.9), Vc(false, 0.9)], { quorum: 0 }).verdict, 'SURVIVES');
+// A legitimate quorum=1 is honored (integer >= 1 is valid — not clamped away).
+eq('quorum=1 honored: 1 live survivor → SURVIVES (legit low quorum)',
+   sealVerdict([Vc(false, 0.9), null, null], { quorum: 1 }).verdict, 'SURVIVES');
+
+// TEETH — neutering the quorum-floor clamp flips the degraded case to a FALSE SURVIVES.
+{
+  const badQuorum = 0;
+  function unclampedVerdict(votes, quorum) {           // pre-fix: raw quorum, no clamp/fallback
+    const valid = (votes || []).filter(Boolean);
+    const refutes = valid.filter((v) => v && v.refuted === true).length;
+    if (valid.length < quorum) return 'INSUFFICIENT';
+    const killThreshold = Math.ceil(valid.length / 2);
+    if (refutes >= killThreshold) return 'KILLED';
+    return 'SURVIVES';
   }
-  let depth = 0, end = src.indexOf('{', i);
-  for (; end < src.length; end++) {
-    if (src[end] === '{') depth++;
-    else if (src[end] === '}' && --depth === 0) { end++; break; }
-  }
-  // eslint-disable-next-line no-new-func
-  return new Function(`${src.slice(start, end)}; return sealVerdict;`)();
+  const honest = sealVerdict([V(false), null, null], { quorum: badQuorum }).verdict;
+  const mutant = unclampedVerdict([V(false), null, null], badQuorum);
+  if (honest === 'INSUFFICIENT' && mutant === 'SURVIVES')
+    ok('teeth: quorum-floor clamp is load-bearing — a bad quorum=0 flips a 1-live panel to false SURVIVES when neutered');
+  else no(`teeth: quorum-clamp mutant did NOT flip (honest=${honest}, mutant=${mutant}) — THEATER`);
 }
+
+// ── CONFIDENCE-BOUND DEFENSE (audit fix) ─────────────────────────────────────
+// An out-of-[0,1] / non-finite confidence (a 0-1 vs 0-100 scale slip) must be DROPPED from
+// the mean-confidence gate, never inflate it. Outcome must match the honest all-0.5 case,
+// which the suite already pins to INSUFFICIENT.
+eq('conf=95 dropped: [0.5, 0.5, 95] → INSUFFICIENT (same as honest all-0.5, no inflation)',
+   sealVerdict([Vc(false, 0.5), Vc(false, 0.5), Vc(false, 95)]).verdict, 'INSUFFICIENT');
+eq('conf=95 dropped: meanConfidence is the honest 0.5 (the 95 is not counted)',
+   sealVerdict([Vc(false, 0.5), Vc(false, 0.5), Vc(false, 95)]).meanConfidence, 0.5);
+eq('conf=-1 dropped: [0.5, 0.5, -1] → INSUFFICIENT',
+   sealVerdict([Vc(false, 0.5), Vc(false, 0.5), Vc(false, -1)]).verdict, 'INSUFFICIENT');
+eq('conf=Infinity dropped: [0.5, 0.5, Infinity] → INSUFFICIENT',
+   sealVerdict([Vc(false, 0.5), Vc(false, 0.5), Vc(false, Infinity)]).verdict, 'INSUFFICIENT');
+// In-range boundary confidences (0 and 1) still participate.
+eq('conf boundary: [1, 1, 1] → SURVIVES (mean 1 ≥ .7)',
+   sealVerdict([Vc(false, 1), Vc(false, 1), Vc(false, 1)]).verdict, 'SURVIVES');
+eq('conf boundary 0: [0, 0, 0] → INSUFFICIENT (conf=0 is counted, mean 0 < .7 — not dropped as out-of-range)',
+   sealVerdict([Vc(false, 0), Vc(false, 0), Vc(false, 0)]).verdict, 'INSUFFICIENT');
+
+// TEETH — neutering the confidence range check flips [0.5,0.5,95] to a FALSE SURVIVES.
+{
+  function unboundedMeanVerdict(votes, confThreshold = 0.7) {   // pre-fix: typeof number only, no range
+    const valid = (votes || []).filter(Boolean);
+    const surviving = valid.filter((v) => v.refuted !== true);
+    const confs = surviving.map((v) => v.confidence).filter((c) => typeof c === 'number');
+    if (confs.length === 0) return 'SURVIVES';
+    const mean = confs.reduce((a, b) => a + b, 0) / confs.length;
+    return mean >= confThreshold ? 'SURVIVES' : 'INSUFFICIENT';
+  }
+  const votes = [Vc(false, 0.5), Vc(false, 0.5), Vc(false, 95)];
+  const honest = sealVerdict(votes).verdict;
+  const mutant = unboundedMeanVerdict(votes);
+  if (honest === 'INSUFFICIENT' && mutant === 'SURVIVES')
+    ok('teeth: confidence-bound is load-bearing — a conf=95 scale slip flips to false SURVIVES when the range check is neutered');
+  else no(`teeth: confidence-bound mutant did NOT flip (honest=${honest}, mutant=${mutant}) — THEATER`);
+}
+
+// The VERDICT_SCHEMA documents the [0,1] contract for schema-validating hosts.
+eq('VERDICT_SCHEMA.confidence declares minimum 0', VERDICT_SCHEMA.properties.confidence.minimum, 0);
+eq('VERDICT_SCHEMA.confidence declares maximum 1', VERDICT_SCHEMA.properties.confidence.maximum, 1);
+
+// ── PARITY — the Workflow leg (adversarial-verify.js) must consume the ONE kernel, not a copy.
+// It used to inline its own `function sealVerdict`; the [CERT] re-host deleted that dup so the
+// two legs cannot drift. This asserts the single-source contract directly: the .js imports
+// sealVerdict from adversarial-verdict.mjs AND defines no inline sealVerdict of its own.
 const __dir = dirname(fileURLToPath(import.meta.url));
 const jsSrc = readFileSync(join(__dir, '../adversarial-verify.js'), 'utf8');
-const inlineSeal = extractInlineSealVerdict(jsSrc);
-const parityMatrix = [
-  [[V(false), V(false), V(false)], undefined],
-  [[V(true), V(false), V(false)], undefined],
-  [[V(true), V(true), V(false)], undefined],
-  [[V(true), null, null], undefined],
-  [[null, null, null], undefined],
-  [[Vc(false, 0.5), Vc(false, 0.5), Vc(false, 0.5)], undefined],
-  [[Vc(false, 0.9), Vc(false, 0.8), Vc(false, 0.95)], undefined],
-  [[Vc(false, 0.7), Vc(false, 0.7), Vc(false, 0.7)], undefined],
-  [[Vc(true, 0.9), Vc(true, 0.9), Vc(false, 0.9)], undefined],
-  [[Vc(false, 0.99), null, null], undefined],
-  [[Vc(false, 0.5), Vc(false, 0.5)], { confThreshold: 0.4 }],
-  [[Vc(false, 0.9), V(false), V(false)], undefined],   // mixed shape — mean over present only
-  [[Vc(false, 0.1), V(false), V(false)], undefined],   // mixed shape — lone graded survivor sinks it
-];
-let drift = 0;
-for (const [c, opt] of parityMatrix) {
-  const a = sealVerdict(c, opt), b = inlineSeal(c, opt);
-  if (a.verdict !== b.verdict || a.meanConfidence !== b.meanConfidence) drift++;
-}
-if (drift === 0) ok(`parity: .mjs export and inline .js sealVerdict agree on all ${parityMatrix.length} matrix rows`);
-else no(`parity: ${drift}/${parityMatrix.length} rows DRIFT between the two sealVerdict copies`);
+const importsKernel = /import\s*\{[^}]*\}\s*from\s*['"]\.\/adversarial-verdict\.mjs['"]/.test(jsSrc)
+  && /buildClaimResult/.test(jsSrc);   // the shared result builder wraps sealVerdict — no inline seal path
+const noInlineSeal = !/function\s+sealVerdict\b/.test(jsSrc) && !/\bsealVerdict\s*=/.test(jsSrc);
+if (importsKernel && noInlineSeal) ok('parity: adversarial-verify.js consumes the single kernel (imports it, no inline sealVerdict dup)');
+else no(`parity: adversarial-verify.js drift — importsKernel=${importsKernel} noInlineSeal=${noInlineSeal}`);
 
 console.log(`== ${pass} passed · ${fail} failed ==`);
 process.exit(fail ? 1 : 0);
