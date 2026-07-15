@@ -142,7 +142,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      [INFER]) · `INSUFFICIENT` (reachable but too thin to certify). Author ONLY on `CERTIFIABLE-NOW`; a
      `PARTIAL`/`INSUFFICIENT` gap is re-scoped or marked blocked-on-thin-source — NEVER handed to an authoring
      agent, which would pad [INFER]. This does NOT replace e2: e2's existence+size check still runs first; scout
-     adds the certifiability judgment e2 does not make. See METHODOLOGY §13.
+     adds the certifiability judgment e2 does not make. RECORD the verdict on disk (the iteration-history
+     row of the block it gated — step 6), exactly as the model tier is persisted: authoring is gated on
+     `CERTIFIABLE-NOW`, so the verdict must be auditable after the session, not left implicit in the transcript.
+     See METHODOLOGY §13.
   f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
@@ -187,6 +190,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          loop must stay context-lean so it survives dozens of iterations before compaction — every raw
          decompiler dump you read inline shortens the loop's life. Keep inline only narrow, single-file reads
          you already know you need. (Small/narrow gaps: read inline, no sub-agent — delegation has its own cost.)
+       - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
+         per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
+         ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
+         then preserves (`fetch-doc.sh`), extracts (`extract-pdf.sh`/`pdftotext`), TOKEN-VERIFIES each claim
+         against the preserved local copy, and writes the block. Records as `yes · sonnet (web sweep) + inline
+         extract/verify`. Distinct from BOOTSTRAP e3's SCOUT (a one-time pre-gap certifiability gate, not a
+         per-iteration pattern): here the agent discovers, the driver preserves+verifies+writes every iteration.
        - MODEL TIER for the delegated sweep — match the tier to the sweep's COGNITIVE DEMAND (this is about
          EFFICIENCY, not saving tokens: don't run a scalpel task on a neurosurgeon). Pick `model` on the
          Agent/Task call:
@@ -246,9 +256,17 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered. A gap may
          close by NEW investigation, by PROVEN ABSENCE, or by REMITTANCE (already answered by an existing
          cited block — cite [Block N] §N.x + "no new substance"; see METHODOLOGY §8).
+       - BACK-FILL SOURCES.md's "Citing blocks" cell — when this block cites a source registered in SOURCES.md
+         (this iteration, or an earlier one whose trailing cell is still blank), write THIS block's ID into that
+         row's last column before closing the iteration. `fetch-doc.sh`'s `reg()` leaves the cell blank by design
+         (a later manual back-fill); leaving it blank silently disables `verify-sources.sh`'s FABRICATED-citation
+         cross-check for that row — the check only cross-validates rows that DO list a block (METHODOLOGY §5).
        - RECORD the iteration in RESEARCH-STATE's Iteration history table INCLUDING the delegated? · model
          tier column (no·inline / yes·haiku|sonnet|opus) — persist the tier on disk, not only in the report,
-         so tier-compliance stays auditable after the session ends.
+         so tier-compliance stays auditable after the session ends. For an EXTERNAL-source iteration, record the
+         e3 SCOUT VERDICT in the same row too (`scout: CERTIFIABLE-NOW`, or `scout: CERTIFIABLE-NOW ×N` for
+         parallel scouts) — same reason as the tier: an unrecorded verdict makes e3-compliance unauditable after
+         the session, even though authoring was gated on it.
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
@@ -311,6 +329,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
+       - OUT-OF-TREE APPLIED DELIVERABLE (a requires-execution close whose deliverable lands OUTSIDE $TARGET —
+         a skill, plugin, or installed tool): reference it by PATH + SHA-IDENTITY (a manifest hash of the file
+         set), NEVER copy it into the corpus; when there is no "original bytes" to diff against, an EXTERNAL
+         adversarial QA protocol (e.g. Judgment Day) is the §19 oracle; preserve the full protocol evidence
+         (ledger, fix log, consumer run, artifacts) under $CORPUS/sources/probes/<name>/ and cite it `[CERT-hw]`
+         from the closing block. Full treatment: METHODOLOGY §19.
        - SELF-RETROSPECTIVE (at every focus completion, and always at corpus-level STOP — METHODOLOGY §18):
          before handing off, DELEGATE a fresh-context retro agent to review THIS run and PROPOSE kit deltas
          (rules that were skipped, techniques you improvised that the kit lacks, gaps that stalled). It reads
@@ -381,6 +405,12 @@ HARD RULES:
     NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
     independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
     dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
+    REMEDIATION BRANCH (when the write REMOVES a discovered vulnerability, not a probe): a permanent,
+    user-authorized security remediation is NOT the reversible-probe case — its correct END-STATE is the fix
+    APPLIED, not reverted. Steps (a),(b),(d) still hold (out-of-band auth, sha256 backup-before-destroy, minimal
+    principal), but step (c)'s "restore byte-identical + VERIFY the restore" is REPLACED by "verified fix +
+    confirmed no side-effect on other state". Do NOT restore a vulnerability you just removed by rote compliance
+    with the revert ladder — retain the backup for auditability, but leave the fix in place.
     BLOCK LABEL: an authorized config mutation on a live target must mark its block `⚠ CONFIG MUTATION` and
     record before/after state (and that a byte-identical revert was offered) — so an audit can tell a supervised
     write apart from a pure read at a glance.

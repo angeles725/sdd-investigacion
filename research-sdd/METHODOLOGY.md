@@ -62,6 +62,14 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
   the code-based claim and cite the probe/response output (e.g. B64 refuted B55 §55.3 against the real
   LOGO!). Certainty order, high→low:
   `[CERT-hw]`/`[CERT-live]` > `[CERT]`/`[CERT-doc]` > `[CERT-web]` > `[CERT-a]` > `[INFER]`.
+- **Certainty RANK ≠ INFORMATIVENESS — for a catalog/breadth question, a POPULATED artifact beats a thin
+  live default.** The ranking above answers IDENTITY/PROTOCOL questions ("what is X really?"). When the
+  question is instead "what is the FULL SET of X" (a catalog, an enum, a card-type universe), actively prefer
+  a REAL, populated `[CERT]` artifact (e.g. an on-disk config) over a thin/DEFAULT `[CERT-live]` instance: a
+  live system's default/empty state can UNDER-report breadth even though `[CERT-live]` outranks static
+  evidence for identity. (A live station's default dashboard showed 2 cards `[CERT-live]` while a real on-disk
+  config held the true 20-type / 26-card catalog.) The live instance still WINS on identity — it just cannot
+  certify a breadth it never had to render.
 
 **`[INFER]` sub-convention — a "corpus-assigned" value.** A distinct, disciplined use of `[INFER]`: a source
 specifies a value by named ROLE only (not a concrete value), and the researcher ASSIGNS the concrete value. This
@@ -71,6 +79,16 @@ value is TOOL-VERIFIED (e.g. `contrast.py`/WCAG certifies a colour satisfies the
 B21→B28 in the dashboards corpus): the source names the role, the tool certifies the concrete value FITS it, and
 the flag makes the assignment auditable. It stays `[INFER]` because the tool verifies FITNESS, not provenance —
 the literal value is still the researcher's, not the source's.
+
+**`[INFER]` sub-convention — a "computed-value" (`[INFER]`).** A sibling of the corpus-assigned case, for a
+value COMPUTED from a cited public FORMULA rather than role-assigned: `value = formula(cited inputs)`, where the
+formula and its inputs are themselves cited (`[CERT-doc]`/`[CERT-web]`). It is a `[INFER]` — **never a `[CERT]`**
+(no source states the literal result) — permitted ONLY when the result is CROSS-CHECKED against an INDEPENDENT
+PUBLISHED anchor (a table/figure from another source or block that reports the same quantity), and explicitly
+flagged e.g. `[INFER — computed via <formula ref>]`. It differs from the corpus-assigned case in BOTH halves:
+the value comes from a formula (not a named role), and the verification is a cross-check against a published
+anchor (not a tool certifying fitness, as WCAG contrast does). Example: an airtime table computed via the
+`[INFER — computed via Semtech AN1200.13]` formula, cross-checked against an earlier block's published anchors.
 
 **Sealing `[CERT]` adversarially (OPT-IN selective seal — trialed once on a real claim, 2026-07-07 — see GRADUATION UPDATE below).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
 (one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
@@ -163,6 +181,21 @@ ENFORCED for every NEW snapshot it registers. A MISSING/placeholder or TRUNCATED
 `unverifiable-hash` WARN only — pre-existing rows registered before this change (truncated `${sha:0:16}…`, or
 `(unhashed…)`) stay WARN until re-registered, rather than hard-failing corpora for un-checkable integrity.
 
+**Back-fill the "Blocks that cite it" column every iteration.** `fetch-doc.sh`'s `reg()` writes each new
+source row with a BLANK trailing cell BY DESIGN — it registers the file at fetch time, before any block cites
+it, and expects a later manual back-fill. When a block cites that source, ADD its block ID to the row's last
+column in the SAME iteration (right after WRITE ONE BLOCK / UPDATE STATE — see PROMPT-LOOP steps 4/6). Leaving
+the cell blank is not cosmetic: `verify-sources.sh`'s LEVEL-4 fabricated-citation cross-check ONLY validates
+rows that NAME a block, so an empty cell silently disables that check for the row. (A whole focus once left all
+12 of its registered rows blank, disabling the check for every one.)
+
+**Cite the FULL LITERAL registered basename — never an ellipsis form.** When a block cites a long or generated
+snapshot filename (e.g. a `www.thethingsnetwork.org_docs_..._duty-cycle_.md` web-snapshot), write the FULL
+literal basename (or a script-recognizable unique substring of it) at least once in the block — NOT an
+ellipsis-abbreviated form (`…_duty-cycle_.md`). `verify-sources.sh`'s uncited-snapshot detector matches on the
+LITERAL registered basename, so an abbreviation false-flags a genuinely-cited source as `uncited-snapshot …
+dead weight?` and can send a reviewer to prune a load-bearing source by mistake.
+
 **Cross-TARGET evidence (a block citing a sibling corpus).** When the evidence a block relies on lives in a
 DIFFERENT registered target (e.g. a `docGraphics` class from `niagara-help` cited by a `niagara-research`
 block), the golden rule still holds: COPY the evidence into the CITING target's `sources/` and register it in
@@ -224,6 +257,15 @@ admissible signal; a **bare class-name string hit** inside a full-library bundle
 the whole library ships in the bundle regardless of what the page calls, so the name's mere presence proves
 nothing. Prefer call-site evidence; discard bare-name hits. Apply this uniformly across sibling sweeps of
 the same type (do not invent it mid-run for one block and forget it on the next).
+The INVERSE bites just as hard: **a NEGATIVE grep for a bare library name over a webpack-bundled artifact does
+NOT prove ABSENCE.** A webpack bundle references its imports by NUMERIC MODULE IDs (`require(cb29)`), not by
+string name, so a third-party library can be fully PRESENT while the literal `"d3"` never appears as a string
+at all — the only literal hits may be unrelated collisions (a `d3` query-param). Prove absence only with an
+IDIOM / API / tag-level search (a call signature, a characteristic method name, a DOM tag the library emits),
+never a bare-name grep. This also NUANCES the beautified-temp "string LITERALS survive 1:1" claim above: 1:1
+preservation holds for the code's OWN literals, NOT for a third-party library reached only through the internal
+`require(<numeric-id>)` map, whose name is never a string in the bundle. (A block's `d3`=0 grep-negative was
+later refuted: d3 WAS present, aliased under webpack module ids `cb29`/`898b`.)
 
 **Docs retrieved via an MCP server (context7 et al.).** Library/framework docs fetched through an MCP tool
 (e.g. context7) are a DISTINCT source type: cite them `[CERT-web]` with the resolved library id + the
@@ -394,6 +436,13 @@ many; instead, once a focus crosses a threshold (a 3rd+ reopen, or >25 iteration
 prior runs' rows into a one-line-per-run summary (blocks, gaps closed, coverage ratio, retro link) and keep
 only the CURRENT run's rows verbose.
 
+**Live backlog injection ≠ reopening a STOPPED loop.** When the user adds new questions WHILE a focus is
+still ACTIVE (not stopped, not exhausted), the loop simply APPENDS them to the current backlog and widens its
+scope (renumbering as needed) — no new bootstrap, no fresh authorization, no separate additive budget cap.
+This is LIGHTER than the reopen above, which re-arms a genuinely-exhausted STOP for NEW work with its own
+budget: here the loop never stopped, so the new gaps just extend the queue it is already draining (e.g. a
+backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at the user's request).
+
 ## 9. Golden rules
 
 1. **READ-ONLY** over the investigated subject. You never modify it.
@@ -483,6 +532,12 @@ citation-resolution are COMPUTED, not remembered: run [`toolbelt/verify-block.sh
 cited file that exists but whose line is out of range). It does NOT replace the token-check: a citation to a
 beautified-temp / decompiled / snapshot path shows as `extern` (not target-resolvable), so the agent still
 confirms those the same way it confirms every load-bearing `[CERT]` token — by reading the cited source.
+The reported tally MUST BE the LITERAL `verify-block.sh` output (or a verbatim excerpt of it), never a
+hand-recalled or rounded estimate: a self-report that gives `~N` counts, or a hand-computed ratio that does
+not match a live run, is a VIOLATION — and a block that reports NO numbers at all (only prose like "expect
+ratio ~0.5" / "high ratio expected") is a RULE VIOLATION, not a lighter-weight compliant report. The whole
+point of trusting the self-report (below) is that its numbers are MECHANICALLY computed; a hand-number
+silently erodes that, and the gate stops being a gate. If the script was not run, the block is not done.
 
 **The corpus linters are edge-triggered agent calculators too — not orchestrator gates.** `verify-block.sh` is
 the agent's PER-BLOCK calculator; `verify-state.sh` and `verify-sources.sh` are its PER-INPUT calculators, run
@@ -518,6 +573,11 @@ left safe (baseline restored, a write reverted, the checksum re-measured live), 
 write was contained, the PoC's round-trip actually ran. §14 catches wrong CLAIMS across blocks; it does
 not catch a bricked device or an un-reverted write. Static blocks trust the self-report; live/destructive
 iterations gate on real-world state.
+A **batch of FIXES** in a build/QA/execution phase (§19) is likewise OUTSIDE the static self-report contract:
+it is a NEW change surface, and the fixer's own directed/green tests do NOT substitute for verification. It
+gets its OWN scoped adversarial re-check on the fix delta before any terminal verdict — see §19 (a round of
+fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
+the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
 
 ## 12. Dynamic phase (validation against a live system)
 
@@ -554,9 +614,24 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   a GET on the resource after the POST that wrote it (e.g. GET `/nmodsreflow/config` confirming a POST
   `config_update`). The essential property is that confirmation does NOT come from the write's OWN response,
   not that a second wire protocol exists; never trust the write's own `200`.
+- **Synthetic-stimulus deploy-test (validate LOGIC with no live upstream data).** When validating a deployed
+  flow/program whose REAL trigger (an external device/event) is not available, do not stop at "it reads
+  correct on paper" — inject a SYNTHETIC stimulus (an `inject`/equivalent node feeding a representative
+  message) and read the result back through an IN-PROCESS capture: flow context, a `catch` node for errors, a
+  debug tap. This answers a DIFFERENT question than the cross-protocol oracle above: the oracle asks "was the
+  WRITE actually applied", this asks "does the LOGIC run correctly given no live upstream data". It finds bugs
+  static reading never surfaces — a deploy-test caught a real `TypeError [ERR_UNKNOWN_ENCODING]` and then
+  confirmed the fix on a second run. A flow that merely LOOKS correct is not a flow that RUNS.
 - **Backup-before-destroy (citable).** Before overwriting a program/image/config, READ and SAVE the current
   one to `sources/`, and VERIFY the backup actually restores. Keep it as both evidence and the revert
   target. A destructive step with no verified backup does not run.
+- **Security-remediation write — the fix STAYS APPLIED, not reverted.** The invasiveness ladder's rung (2)
+  reversible-write recipe ends with a byte-identical RESTORE — correct for a PROBE. A permanent,
+  user-authorized REMOVAL of a discovered live vulnerability (deleting a leftover/malicious flow, closing an
+  open write path) is NOT a probe: its correct terminal state is the FIX STAYING APPLIED. It still requires
+  backup-before-destroy + a dual/independent oracle, but "verified restore (byte-identical)" is replaced by
+  "verified fix + confirmed no side-effect on OTHER state". Do not restore a vulnerability by rote compliance
+  with the probe recipe — the backup is retained for rollback, not applied.
 - **Device identity ≠ program identity.** A checksum/version identifies the loaded PROGRAM, not the physical
   UNIT. Confirming you are on the BENCH and not PRODUCTION is out-of-band (who plugged in what), never
   inferred from the program you read. Do this BEFORE any write — a prior session wrote to PRODUCTION
@@ -814,6 +889,13 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   focus — a new focus is a new bootstrap, so it deserves the same angle confirmation.
 - **One engram project, focus in the topic key.** All focuses mirror under the same target project
   (§7); disambiguate with `research/<target>/<focus>/...` topic keys.
+- **Keep the PARENT's block count live, every child-focus iteration.** When a parent `RESEARCH-STATE.md`
+  carries a "Covered blocks: N on disk" line above the focuses, REFRESH it at EVERY iteration of an active
+  child focus — not only at focus-open and focus-close. A parent touched only at focus boundaries
+  under-reports corpus size for the whole run in between (one parent claimed 18 while the corpus grew to 23
+  — undercounting by up to 5 blocks across 5 consecutive child iterations). If you would rather not touch it
+  per iteration, declare it explicitly a focus-boundary-only field and have the tooling read the TRUE on-disk
+  block count in between rather than trusting the stale parent line.
 
 **Concurrent loops under one orchestrator.** Focuses (or whole targets) can run in PARALLEL, not just
 sequentially — a lean orchestrator drives N independent loops at once (proven: logosoft build/PoC + niagara
@@ -944,6 +1026,27 @@ hard-stops, never blind.
 - **Handoff from the static loop.** When the static loop's TERMINAL TRIGGER (§8) sees remaining
   `requires-execution` gaps, it hands off here — this is the "non-static phase" it names. Provisioning a
   compiler/runtime follows §10.
+- **Out-of-tree APPLIED deliverable (path + SHA identity, external QA as the oracle).** When a
+  `requires-execution` gap's deliverable lands OUTSIDE `$TARGET` — a skill, a plugin, an installed tool — the
+  round-trip byte-diff above does not apply (a skill has no "original bytes" to diff). Instead: (a) the corpus
+  references the deliverable BY PATH + SHA-IDENTITY (a manifest hash of the file set — e.g. sha256 of the
+  sorted per-file sha256s, first 16 hex), NEVER by copying it in; (b) an EXTERNAL adversarial QA protocol
+  serves as the §19 oracle — a blind dual review (Judgment Day: independent judges, frozen ledger, bounded fix
+  rounds, terminal verdict) PLUS a real consumer run replace the byte-diff; (c) the FULL protocol evidence
+  (ledger, fix log, consumer phase log, artifacts/screenshots) is preserved under
+  `$CORPUS/sources/probes/<name>/` and cited `[CERT-hw]` from the closing block section. §19's `codegen/`
+  round-trip and this out-of-tree pattern are siblings: pick by whether the deliverable has bytes to diff.
+- **A fix batch is a NEW change surface — re-check the fix delta adversarially.** In a build/QA phase, a batch
+  of fixes does NOT inherit §11's trust-the-self-report contract (§11 Scope). Each fix closed by its own
+  directed test that PASSED is NOT sufficient evidence: re-check the FIX DELTA with a scoped adversarial pass
+  (a scoped re-judgment) BEFORE the terminal verdict. This is not ceremony — a round of fixes, each with a
+  green directed test, has introduced 2 NEW CRITICAL defects that only the scoped re-judgment on the delta
+  caught. The fixer's own tests certify the fix they aimed at, not the new surface the fix created.
+- **Consumer-run-before-review.** Before adversarially reviewing an applied deliverable, RUN A REAL CONSUMER
+  first — a fresh agent USING the deliverable as intended (not inspecting it) — and feed its friction findings
+  to the reviewers as SEED claims. A review seeded by real usage friction finds spec-gap defects that blind
+  code reading misses: a consumer forced to improvise undocumented fallbacks or invent unstated precedence
+  surfaces exactly those gaps, which then land verbatim as confirmed review defects.
 
 ## 20. Document mode (CAPTURE what you already know or just did)
 
