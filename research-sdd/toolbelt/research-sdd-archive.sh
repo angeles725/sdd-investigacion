@@ -171,12 +171,37 @@ if [ "$blocks" -gt 0 ] && { [ "$retros" -eq 0 ] || [ "$newest_block_epoch" -gt "
   missing_retro_line="    · ⚠ MISSING-RETRO (§18): corpus advanced past the newest retro ($rdate) — delegate a retro for THIS run before close (propose-never-apply; not auto-generated)."
 fi
 
+# --- ONE-BLOCK-PER-COMMIT detector (§ PROMPT-LOOP LOOP CONTINUATION): the "one block per commit" hard rule
+# was violated in prose-only practice despite a named precedent (three.js B15+B16; ug67 B29+B30, B32+B33) —
+# prose alone did not hold it. Mechanize it as a cheap git gate (mirroring §11's endorsement of corpus-level
+# mechanical checks): flag any commit in THIS run (newer than the newest retro; ALL history when there is no
+# retro yet) whose diff touches 2+ distinct block files. PURE DETECTION — advisory WARN (exit stays 0, like
+# MISSING-RETRO / codegen parity); it never rewrites history. Uses the corpus-wide block-file discriminator.
+multi_block_commits=""
+if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    # Count only ADDED block files (--diff-filter=A), so the rule is "one NEW block per commit": an iteration
+    # that adds one block AND MODIFIES an existing block to add the §14 reciprocal 'corrected in BN' backlink
+    # (which the sibling verify-corrections feature now mandates in the SAME iteration) is NOT a violation.
+    nbf="$(git -C "$corpus" show --diff-filter=A --name-only --format= "$sha" 2>/dev/null \
+      | grep -E '(^|/)[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | sort -u | wc -l | tr -d ' ')"
+    [ "${nbf:-0}" -ge 2 ] && multi_block_commits="${multi_block_commits}${multi_block_commits:+ }${sha:0:9}(${nbf} blocks)"
+  done < <(git -C "$corpus" log --format=%H --since="@${newest_retro_epoch:-0}" 2>/dev/null)
+fi
+if [ -n "$multi_block_commits" ]; then
+  echo "WARN: ONE-BLOCK-PER-COMMIT violated — commit(s) landing 2+ block files this run: $multi_block_commits" >&2
+  echo "      the loop's LOOP CONTINUATION rule is one block per iteration, one commit per block." >&2
+  one_block_line="    · ⚠ ONE-BLOCK-PER-COMMIT (§ LOOP CONTINUATION): commit(s) $multi_block_commits landed 2+ blocks — keep future commits to one block each (this run's history is advisory, not rewritten)."
+fi
+
 # --- CLOSE CHECKLIST: the JUDGMENT / content-authoring / side-effecting steps archive REFUSES to guess ---
 echo "  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --"
 [ -n "$consolidate_err" ] && echo "    · ⚠ CONSOLIDATE: $consolidate_err (a mechanical step failed — fix before relying on the archive)."
 echo "    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal."
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
 [ -n "${missing_retro_line:-}" ] && echo "${missing_retro_line}"
+[ -n "${one_block_line:-}" ] && echo "${one_block_line}"
 if find "$corpus" -maxdepth 1 -type d -name 'codegen' 2>/dev/null | grep -q .; then
   # ACTIVE detection (not a passive reminder): a shipped deliverable can close green with deliverable↔block
   # parity UNVERIFIED, contradicting "a green report can never sit over a broken corpus". Emit a LOUD warning

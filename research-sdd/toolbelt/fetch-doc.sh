@@ -17,10 +17,32 @@ reg() { # registers a row in SOURCES.md
   fi
   # Store the FULL 64-hex sha256 in the registry CELL (not a truncated display) so verify-sources.sh LEVEL 6 can
   # recompute and enforce it — a truncated cell is only WARN-checkable and lets a tampered snapshot pass silently.
-  printf '| %s | %s | %s | %s | %s | |\n' \
-    "${file#"$sdir"/}" "$kind" "$origin" "$(date -u +%FT%TZ)" "$sha" >> "$md"
+  local row
+  row="$(printf '| %s | %s | %s | %s | %s | |' \
+    "${file#"$sdir"/}" "$kind" "$origin" "$(date -u +%FT%TZ)" "$sha")"
+  # Insert the row at the END OF THE (first) MARKDOWN TABLE, NOT blindly at EOF. A SOURCES.md whose table is
+  # followed by trailing prose (## Structure / ## Notes — the bootstrap template's own shape) would otherwise
+  # get new rows appended AFTER those sections, splitting the document into two disconnected table fragments
+  # (a future stricter markdown-table parser would then drop or mis-associate the orphaned rows). awk walks the
+  # FIRST contiguous run of `|`-rows (blank lines inside the table are tolerated) and prints the new row right
+  # after its last line; with no table at all (or a table that IS the whole body) it appends, as before.
+  local tmp; tmp="$(mktemp)"
+  # Pass the row through the ENVIRONMENT, NOT `awk -v`: `-v` subjects the value to awk's C-style backslash-
+  # escape processing (\t → TAB, \b → backspace), mangling a basename/URL that contains a backslash so the
+  # written cell diverges from the literal value verify-sources.sh later cross-checks. ENVIRON is verbatim.
+  newrow="$row" awk '
+    { buf[NR]=$0
+      if ($0 ~ /^[[:space:]]*\|/) { if (!closed) { intable=1; last=NR } }
+      else if ($0 !~ /^[[:space:]]*$/) { if (intable) closed=1 } }
+    END {
+      if (last==0) { for(i=1;i<=NR;i++) print buf[i]; print ENVIRON["newrow"] }
+      else { for(i=1;i<=NR;i++){ print buf[i]; if(i==last) print ENVIRON["newrow"] } } }
+  ' "$md" > "$tmp" && mv "$tmp" "$md"
 }
 
+# Main dispatch is guarded so the file can be SOURCED to unit-test reg() in isolation (tests/fetch-doc.test.sh)
+# without triggering a network fetch. When sourced, BASH_SOURCE[0] != $0, so nothing below runs.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 MODE="${1:?usage: fetch-doc.sh doc|web|ocr ...}"
 
 case "$MODE" in
@@ -60,3 +82,4 @@ case "$MODE" in
     ;;
   *) echo "unknown mode: $MODE (doc|web|ocr)" >&2; exit 2 ;;
 esac
+fi
