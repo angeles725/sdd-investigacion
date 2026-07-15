@@ -1,6 +1,8 @@
 # Research-SDD — Targets Registry
 
-This file is the **master registry of the 15 research targets** of the Research-SDD loop.
+This file is the **master registry of the 13 active research targets** of the Research-SDD loop
+(numbered up to 15; **#11 openness-labs and #12 openness-tools were de-registered** — see the
+"De-registered — not block corpora" section at the end).
 Each target is a system under reverse engineering / documentation. The loop uses this table to:
 
 1. Decide whether it **continues** an existing corpus or **bootstraps** a new one (Maturity column).
@@ -58,8 +60,6 @@ Sensitivity:
 | 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (76 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
 | 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / remote no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
 | 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
-| 11 | openness-labs | `/home/cristian/PLC/openness-labs` | **intermediate** (76 md / git yes / remote yes / hook no) `[CERT]` | Python experiments + SCL/XML (TIA Openness) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
-| 12 | openness-tools | `/home/cristian/PLC/openness-tools` | **intermediate** (27 md / git yes / remote yes / hook no; tooling) `[CERT]` | Python tooling (daemon, generators, offline validator) `[CERT]` | Direct reading + CodeGraph | Spanish/EN `[INFER]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
 | 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (44 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; run/scout narrative → detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
@@ -107,14 +107,6 @@ Reverse engineering of **Trane Symbio 700 / Tracer (TGE)**. RE started but no gi
 ### 10 — API-FACTURAS `[CERT]`
 **Not a classic research target**: it is a production app (CONTPAQi billing, Python + Streamlit, 32 `.py` at the root, `api.py`/`app.py`). The 240 `.md` and the hundreds of binaries from the profiler come from `web/node_modules` and from `CONTPAQi/` (packaged runtime/SDK: JARs `rt/lib/*.jar` + native DLLs). Only 2 real project `.md` (`README.md`, `AUDITORIA_2026-06-03.md`). No git or hook.
 **Startup:** bootstrap if you want to treat it as research of the **CONTPAQi SDK**; then `decompile-java.sh`/`decompile-native.sh` over `CONTPAQi/`. As a production app, outside the block pattern.
-
-### 11 — openness-labs `[CERT]`
-Experiment lab over **TIA Portal Openness**: 230 `.py`, 74 `.md` (inside `experiments/`), SCL/XML, git present, **no hook**, own `CLAUDE.md`. Notes corpus distributed per experiment, not centralized in an index.
-**Startup:** intermediate. Consolidate a master index and hook; direct reading + CodeGraph (no binaries).
-
-### 12 — openness-tools `[CERT]`
-Openness automation **tooling**: 95 `.py`, daemon (py/ps1), generators, `offline-validator`, tests, 51 KB `CHANGELOG.md` and 33 KB `CLAUDE.md`. Git present, **no hook**, 27 `.md`.
-**Startup:** intermediate. It is own source code: direct reading + CodeGraph; no decompilation required.
 
 ### 13 — three.js `[CERT]`
 Mental model of the **Three.js library** (r160 primary, r128 legacy) as used by the HVAC prototyping
@@ -239,7 +231,34 @@ phase §12 for any further live probing.
 - **cadesimu (#6)** `[INFER]`: the real CADe_SIMU binary **is not in the tree**; I could not run `file` on it. Assuming .NET/Delphi Windows is an inference. What is present is only auxiliary Python tooling.
 - **api-openness (#5)** `[INFER]`: confirmed as a .NET API by the XML doc, but **I did not inspect the `.dll` assembly** of `Siemens.Engineering`; `decompile-net.sh` remains an unverified recommendation against the binary.
 - **API-FACTURAS (#10)** `[INFER]`: the CONTPAQi SDK has JARs (Java, `[CERT]`) and native DLLs, but **I did not run `file` discriminating .NET vs native** on each DLL; the choice between `decompile-net.sh` and `decompile-native.sh` per DLL remains pending.
-- **openness-labs / openness-tools (#11, #12)** `[INFER]` (language only): type confirmed (Python source), but I infer the corpus language as Spanish/EN without having read the `.md`.
 
 ## Profiler false positives to ignore
 - `cadesimu` and `API-FACTURAS`: the `PE32 → decompile-net.sh?` and `ELF → decompile-native.sh` come from `.venv` (PIL `*.so`, `pip`/`distlib` launchers `t32/t64/w32/w64.exe`). **They are not targets.**
+
+---
+
+## De-registered — not block corpora
+
+These were formerly rows #11 and #12. Verification on 2026-07-15 confirmed they are **NOT
+research-sdd block corpora** — they are Python code/tooling projects (no INDEX, no
+`*-block`/`*-bloque` files, no research-sdd markers). They are removed from the ACTIVE registry.
+Paths below are intentionally in PLAIN TEXT (no backticks). The toolbelt parser
+(verify-registry.sh / sweep-retros.sh / sweep-audits.sh) registers a target only when its
+absolute path appears wrapped in backticks; leaving these paths unwrapped keeps them
+de-registered.
+
+- **openness-labs** — path: /home/cristian/PLC/openness-labs
+  - Reason: Python code/tooling project (TIA Openness experiment lab), not a research-sdd block corpus; verified 2026-07-15.
+  - Salvaged profiling notes (prior maturity **intermediate** `[CERT]`): experiment lab over TIA Portal
+    Openness — 230 `.py`, 74 `.md` (inside `experiments/`), SCL/XML; git present, remote yes, **no hook**,
+    own `CLAUDE.md`. Notes distributed per experiment, not centralized in an index. Prior toolbelt note:
+    direct reading + CodeGraph (no binaries). Corpus language inferred Spanish/EN `[INFER]` (never confirmed
+    by reading the `.md`).
+
+- **openness-tools** — path: /home/cristian/PLC/openness-tools
+  - Reason: Python code/tooling project (Openness automation tooling), not a research-sdd block corpus; verified 2026-07-15.
+  - Salvaged profiling notes (prior maturity **intermediate** `[CERT]`): Openness automation tooling —
+    95 `.py`, daemon (py/ps1), generators, `offline-validator`, tests, 51 KB `CHANGELOG.md`, 33 KB
+    `CLAUDE.md`; git present, remote yes, **no hook**, 27 `.md`. It is own source code: direct reading +
+    CodeGraph, no decompilation required. Corpus language inferred Spanish/EN `[INFER]` (language only —
+    type confirmed Python source, never confirmed by reading the `.md`).
