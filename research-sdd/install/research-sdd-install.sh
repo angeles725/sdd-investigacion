@@ -77,59 +77,137 @@ _rsdd_link_plugin() {
   fi
 }
 
-# markdown-sections: the prompt file is SHARED — splice our marked block, preserving everything else.
-# The rewrite removes ONLY a well-formed start..end pair (no nested start between them). An orphaned
-# start marker (no matching end, or a second start before the end — a hand-edited/partial file) is
-# treated as user content: it is PRESERVED verbatim and a fresh section is appended, never truncated.
-_surface__markdown_sections() {
-  local harness="$1" home="$2" file="$3" dry="$4" section
-  section="$(rsdd_render_section "$harness" "$home")"
-  printf '  SPLICE  %s  [markdown-sections: marker <!-- research-sdd:start/end -->]\n' "$file"
+# _rsdd_splice_file — the ONE marked-section splice, shared by every leg that writes into a SHARED
+# user-owned file. Marker STRINGS are parameters, so it serves both the markdown prompt files
+# (HTML-comment markers) and the codex config.toml (TOML `#`-comment markers) with a single
+# implementation. It splices our marked block, preserving everything else. The rewrite removes ONLY a
+# well-formed $start..$end pair (no nested start between them).
+#
+# $on_orphan selects how an ORPHANED start marker (no matching end, or a second start before the end —
+# a hand-edited/partial file) is handled — the ONE place the two callers diverge:
+#   append (default, markdown prompt files): the orphan is treated as user content — PRESERVED verbatim
+#     and a fresh section appended, never truncated (markdown has no duplicate-table rule, so dropping
+#     trailing user content is the real risk).
+#   skip (config.toml / MCP path): our block declares [mcp_servers.*] TABLES, and the preserved orphan
+#     already carries those same tables — appending would yield DUPLICATE tables (illegal TOML that
+#     fails to parse). Neither duplicating nor dropping user content is acceptable, so we WARN and SKIP
+#     entirely (exit 0, file left byte-for-byte untouched); registration resumes once the marker is
+#     repaired. Same splice engine, one divergent knob — no forked logic.
+#
+# $label names the marker style in the plan line. When $conflict (an ERE) is non-empty, an UNMARKED
+# line in the preserved content matching it — a user-authored table we must NOT duplicate — aborts the
+# splice with a warn+skip (exit 0, file left byte-for-byte untouched). No-op under --dry-run, but the
+# plan still prints the intended write. Symlink targets are written THROUGH (link preserved); an
+# unwritable target surfaces a write failure (nonzero).
+_rsdd_splice_file() {
+  local file="$1" dry="$2" start="$3" end="$4" label="$5" section="$6" conflict="${7:-}" on_orphan="${8:-append}"
+  printf '  SPLICE  %s  [%s]\n' "$file" "$label"
   emit_section "$section"
   [ "$dry" = 1 ] && return 0
   mkdir -p "$(dirname "$file")" || { echo "research-sdd-install: mkdir failed for $(dirname "$file")" >&2; return 1; }
   # Build the preserved content in $tmp, then append the fresh section via the ONE separator-aware
   # helper — so the re-splice (rewrite) path and the fresh-append path insert an identical single
   # blank-line separator, and a brand-new empty file gets no leading blank line.
-  local tmp; tmp="$(mktemp)" || return 1
-  if [ -f "$file" ] && grep -q '<!-- research-sdd:start -->' "$file"; then
+  # $tmp holds the full preserved content (what we write back); $scan holds ONLY genuine user content —
+  # lines OUTSIDE every research-sdd marker region — which is all the duplicate guard may inspect. When
+  # no marker exists the whole file IS user content, so $scan defaults to $tmp; with a marker present the
+  # awk streams only the outside-marker lines into a dedicated $scan file (never a preserved orphan tail).
+  local tmp scan; tmp="$(mktemp)" || return 1; scan="$tmp"
+  if [ -f "$file" ] && grep -Fq -- "$start" "$file"; then
+    scan="$(mktemp)" || { rm -f "$tmp"; return 1; }
     local aw
     # Remove the FIRST well-formed start..end pair; keep every other line verbatim. If a start has no
     # matching end (orphan), flush it back out and signal via exit 3 so we can warn (exit 0 = clean).
-    awk '
+    # Markers are matched by EXACT line equality (they are rendered as whole lines), so marker text
+    # containing regex-special characters (e.g. `[`/`.`) is compared literally, never as a pattern.
+    # Genuine outside-marker user lines are ALSO streamed to $scan (the ONLY duplicate-guard input); the
+    # orphan buffer is flushed to $tmp only, so a preserved remnant of OUR OWN block never self-trips it.
+    awk -v start="$start" -v end="$end" -v scan="$scan" '
       BEGIN { done=0; inblk=0; orphan=0 }
       {
-        if (!done && !inblk && $0 ~ /<!-- research-sdd:start -->/) { inblk=1; buf=$0 ORS; next }
+        if (!done && !inblk && $0 == start) { inblk=1; buf=$0 ORS; next }
         if (inblk) {
-          if ($0 ~ /<!-- research-sdd:start -->/) { printf "%s", buf; orphan=1; buf=$0 ORS; next }
-          if ($0 ~ /<!-- research-sdd:end -->/)   { inblk=0; done=1; buf=""; next }
+          if ($0 == start) { printf "%s", buf; orphan=1; buf=$0 ORS; next }
+          if ($0 == end)   { inblk=0; done=1; buf=""; next }
           buf=buf $0 ORS; next
         }
-        print
+        print; print > scan
       }
       END { if (inblk) { printf "%s", buf; orphan=1 } exit (orphan?3:0) }
     ' "$file" > "$tmp"; aw=$?
     if [ "$aw" = 3 ]; then
+      if [ "$on_orphan" = skip ]; then
+        # TOML path: appending would duplicate the [mcp_servers.*] tables the orphan already carries
+        # (illegal TOML). Drop our staged $tmp, leave the real file byte-for-byte untouched, and skip.
+        rm -f "$tmp"; [ "$scan" != "$tmp" ] && rm -f "$scan"
+        printf 'research-sdd-install: WARNING malformed research-sdd marker in %s (start without matching end) — skipped MCP registration to avoid a duplicate TOML table; repair the stray marker and re-run\n' "$file" >&2
+        return 0
+      fi
       printf 'research-sdd-install: WARNING malformed research-sdd marker in %s (start without matching end) — preserved existing content and appended a fresh section; please remove the stray marker\n' "$file" >&2
     fi
   elif [ -f "$file" ]; then
     # No marker yet: preserve all existing user content verbatim, then append the section below it.
     cat "$file" > "$tmp" || { rm -f "$tmp"; echo "research-sdd-install: read failed for $file" >&2; return 1; }
   else
-    : > "$tmp"  # brand-new prompt file: section only, no leading blank line.
+    : > "$tmp"  # brand-new file: section only, no leading blank line.
   fi
+  # Duplicate guard: with our managed block stripped, if the remaining GENUINE user content ($scan, never
+  # a preserved orphan remnant of our own block) already declares a table our block would define,
+  # appending would create a duplicate table (invalid TOML). Preserve the user's config verbatim and
+  # skip — a deliberate no-op, not an install failure.
+  if [ -n "$conflict" ] && grep -Eq "$conflict" "$scan"; then
+    rm -f "$tmp"; [ "$scan" != "$tmp" ] && rm -f "$scan"
+    printf 'research-sdd-install: WARNING %s already defines a research-sdd MCP table outside our managed block — preserved your config, skipped MCP registration (remove your table or leave it to the installer)\n' "$file" >&2
+    return 0
+  fi
+  [ "$scan" != "$tmp" ] && rm -f "$scan"
   _rsdd_append_section "$tmp" "$section"
   _rsdd_write_back "$tmp" "$file" || { echo "research-sdd-install: write failed for $file" >&2; return 1; }
+}
+
+# markdown-sections: the prompt file is SHARED — splice our marked block (HTML-comment markers),
+# preserving everything else. Thin wrapper over the generic splice; no duplicate-table guard needed.
+_surface__markdown_sections() {
+  local harness="$1" home="$2" file="$3" dry="$4" section
+  section="$(rsdd_render_section "$harness" "$home")"
+  _rsdd_splice_file "$file" "$dry" \
+    '<!-- research-sdd:start -->' '<!-- research-sdd:end -->' \
+    'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
+}
+
+# codex MCP registration: idempotently splice the skill's MCP-server tables into the harness's shared
+# config.toml, guarded so a user-authored (unmarked) [mcp_servers.engram|codegraph] is never duplicated.
+# Same splice engine as the prompt files; only the markers (TOML `#`-comment), the conflict guard, and
+# the orphan mode (skip, not append — TOML forbids the duplicate table an append would create) differ —
+# all supplied as data.
+_rsdd_register_mcp() {
+  local file="$1" dry="$2" section
+  section="$(rsdd_render_mcp_toml)"
+  # Best-effort duplicate-table guard (no full TOML parser). Catches the common spec-valid forms that
+  # define the same table PATH: the canonical AND internal-whitespace bracket header
+  # (`[mcp_servers.engram]`, `[ mcp_servers . engram ]`) and the inline dotted-key assignment
+  # (`mcp_servers.engram = { ... }`). Exotic nested-inline forms (e.g. `engram = {...}` nested under a
+  # `[mcp_servers]` header, or multiline dotted paths) remain undetected — an idempotent full-TOML-parse
+  # merge is a deliberate follow-up; here we prefer warn+skip on a suspected conflict over corrupting the
+  # file. A match anywhere in genuine user content aborts the splice (warn+skip), never appends blindly.
+  # on_orphan=skip: unlike the markdown prompt files, an orphaned marker here must NOT append a fresh
+  # block (our tables would then duplicate the orphan's) — warn + skip and leave the file byte-preserved.
+  _rsdd_splice_file "$file" "$dry" \
+    '# research-sdd:start' '# research-sdd:end' \
+    'toml-sections: marker # research-sdd:start/end' "$section" \
+    '^[[:space:]]*\[[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*(engram|codegraph)[[:space:]]*\][[:space:]]*$|^[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*(engram|codegraph)[[:space:]]*=' \
+    skip
 }
 
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
   local h="$1" home="$2" dry="$3" rc=0
-  local skill_path prompt_file strategy plugin_dir slash dispatch
+  local skill_path prompt_file strategy plugin_dir mcp_config slash dispatch
   skill_path="$(rsdd_field "$h" skill_path "$home")"
   prompt_file="$(rsdd_field "$h" prompt_file "$home")"
   strategy="$(rsdd_field "$h" prompt_strategy "$home")"
   plugin_dir="$(rsdd_field "$h" plugin_dir "$home")"
+  mcp_config="$(rsdd_field "$h" mcp_config_file "$home")"
   slash="$(rsdd_field "$h" supports_slash_commands "$home")"
 
   printf 'harness=%s\n' "$h"
@@ -158,6 +236,14 @@ install_one() {
   if [ -n "$plugin_dir" ]; then
     if ! _rsdd_link_plugin "$plugin_dir" "$dry" "$KIT/toolbelt/opencode/research-sdd-sweep.ts"; then
       echo "research-sdd-install: [$h] plugin symlink failed ($plugin_dir)" >&2; rc=1
+    fi
+  fi
+
+  # 4. MCP registration — only when the table names a config file (codex config.toml). Idempotent
+  #    marked-block splice; preserves surrounding user config; warns+skips on a user-authored table.
+  if [ -n "$mcp_config" ]; then
+    if ! _rsdd_register_mcp "$mcp_config" "$dry"; then
+      echo "research-sdd-install: [$h] MCP config registration failed ($mcp_config)" >&2; rc=1
     fi
   fi
   printf '  slash_commands=%s\n' "$slash"

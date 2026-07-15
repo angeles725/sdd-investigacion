@@ -14,8 +14,8 @@ GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -89,14 +89,19 @@ n="$(grep -c '<!-- research-sdd:start -->' "$pf" 2>/dev/null || echo 0)"
 if grep -q 'my custom rule line' "$pf" && [ "$n" = 1 ]; then ok "opencode preserves user AGENTS.md content (splice, exactly one section)"
 else no "opencode clobbered user AGENTS.md (present? $(grep -qc 'my custom rule line' "$pf"; echo $?), sections=$n)"; fi
 
-# 12 — CRITICAL 2: an orphaned start marker (no matching end, hand-edited file) must NOT drop every
-#      trailing user line to EOF. Trailing user content MUST survive the re-splice.
+# 12 — CRITICAL 2: an orphaned start marker (no matching end, hand-edited file) in a MARKDOWN prompt file
+#      must NOT drop every trailing user line to EOF. Unlike the TOML path (test 25, which SKIPS to avoid a
+#      duplicate table), markdown has no duplicate-table rule and dropping user content is the real risk —
+#      so the contract here is PRESERVE + APPEND: trailing user content survives AND a fresh marked section
+#      is appended (append mode). REGRESSION GUARD: the markdown path must NOT switch to the TOML skip mode.
 home="$TMP/orphan"; mkdir -p "$home/.claude"
 printf '# top\n<!-- research-sdd:start -->\nstale body\nIMPORTANT user tail line\n' > "$home/.claude/CLAUDE.md"
 bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
-grep -q 'IMPORTANT user tail line' "$home/.claude/CLAUDE.md" \
-  && ok "orphaned start marker: trailing user content preserved" \
-  || no "orphaned start marker dropped trailing user content to EOF"
+pf="$home/.claude/CLAUDE.md"
+ends="$(grep -c '<!-- research-sdd:end -->' "$pf" 2>/dev/null || echo 0)"
+if grep -q 'IMPORTANT user tail line' "$pf" && [ "$ends" = 1 ] && grep -q '## Research-SDD' "$pf"; then
+  ok "orphaned start marker (markdown): trailing user content preserved AND fresh section appended (append, not skip)"
+else no "orphaned markdown marker mishandled (tail preserved? end markers=$ends — expected preserve+append)"; fi
 
 # 13 — CRITICAL 3: on a partial failure (one harness's config-root parent non-writable), overall exit
 #      MUST be nonzero AND the still-writable harnesses must still be installed.
@@ -176,15 +181,109 @@ if [ ! -L "$dest" ] && grep -q 'user own plugin' "$dest" && printf '%s' "$err" |
   ok "pre-existing user plugin file preserved + warned (not clobbered)"
 else no "user plugin file clobbered or no warning emitted"; fi
 
-# 19 — ITEM 3: the codex leg documents the MCP servers as a copy-paste ~/.codex/config.toml snippet
-#      (engram + codegraph) with the intentional no-auto-merge note; claude/opencode do NOT carry it.
+# 19 — ITEM 3: the codex AGENTS.md notes MCP servers are REGISTERED AUTOMATICALLY into config.toml
+#      (no contradictory "add it yourself / no-auto-merge" guidance); claude/opencode do NOT carry it.
 home="$TMP/mcpdoc"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
 cx="$home/.codex/AGENTS.md"; cl="$home/.claude/CLAUDE.md"
-if grep -q '\[mcp_servers.engram\]' "$cx" && grep -q '\[mcp_servers.codegraph\]' "$cx" && grep -qi 'does NOT auto-merge' "$cx"; then
-  ok "codex section documents the config.toml MCP snippet (no auto-merge)"
-else no "codex MCP config.toml doc missing in $cx"; fi
-grep -q '\[mcp_servers.engram\]' "$cl" && no "claude section wrongly carries the codex MCP config doc" \
-  || ok "claude section omits the codex-only MCP config doc"
+if grep -qi 'registered automatically' "$cx" && grep -q 'config.toml' "$cx" && ! grep -qi 'does NOT auto-merge' "$cx"; then
+  ok "codex AGENTS.md notes automatic MCP registration (no contradictory doc)"
+else no "codex MCP auto-registration note missing/contradictory in $cx"; fi
+grep -qi 'registered automatically' "$cl" && no "claude section wrongly carries the codex MCP note" \
+  || ok "claude section omits the codex-only MCP note"
+
+# 20 — codex MCP: --dry-run PLANS the config.toml registration (SPLICE line + the toml block) and
+#      writes NOTHING to the filesystem.
+home="$TMP/mcp-dry"
+out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"
+if printf '%s\n' "$out" | grep -q "SPLICE  $home/.codex/config.toml" \
+   && printf '%s\n' "$out" | grep -q '\[mcp_servers.engram\]' \
+   && printf '%s\n' "$out" | grep -q '\[mcp_servers.codegraph\]'; then
+  ok "dry-run plans the config.toml MCP registration (both tables shown)"
+else no "dry-run did not plan the config.toml write"; fi
+[ ! -e "$home/.codex/config.toml" ] && ok "dry-run creates no config.toml" || no "dry-run wrote config.toml"
+
+# 21 — codex MCP: a real run splices a MARKED (#-comment) block with BOTH server tables into config.toml.
+home="$TMP/mcp-real"; bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
+cfg="$home/.codex/config.toml"
+if [ -f "$cfg" ] && grep -q '# research-sdd:start' "$cfg" && grep -q '# research-sdd:end' "$cfg" \
+   && grep -q '\[mcp_servers.engram\]' "$cfg" && grep -q '\[mcp_servers.codegraph\]' "$cfg"; then
+  ok "real run registers both MCP tables in a marked config.toml block"
+else no "config.toml MCP block missing/incomplete at $cfg"; fi
+
+# 22 — codex MCP: registration is byte-idempotent across re-runs (exactly one block, no growth), even
+#      with surrounding user TOML present.
+home="$TMP/mcp-idem"; mkdir -p "$home/.codex"
+printf 'model = "gpt-5.6-sol"\n\n[projects."/tmp"]\ntrust_level = "trusted"\n' > "$home/.codex/config.toml"
+bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1; cp "$home/.codex/config.toml" "$TMP/mcp-run1"
+bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
+cfg="$home/.codex/config.toml"
+n="$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null || echo 0)"
+if [ "$n" = 1 ] && diff -q "$TMP/mcp-run1" "$cfg" >/dev/null 2>&1; then
+  ok "config.toml registration is byte-idempotent (one block, no growth)"
+else no "config.toml registration not idempotent (sections=$n)"; fi
+
+# 23 — codex MCP: pre-existing UNRELATED user TOML (own tables) survives the splice untouched.
+home="$TMP/mcp-preserve"; mkdir -p "$home/.codex"
+printf '[projects."/tmp"]\ntrust_level = "trusted"\n\n[mcp_servers.context7]\nurl = "https://x"\n' > "$home/.codex/config.toml"
+bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
+cfg="$home/.codex/config.toml"
+if grep -q '\[projects."/tmp"\]' "$cfg" && grep -q '\[mcp_servers.context7\]' "$cfg" \
+   && grep -q '\[mcp_servers.engram\]' "$cfg"; then
+  ok "unrelated user TOML preserved alongside the managed MCP block"
+else no "unrelated user TOML clobbered during MCP splice"; fi
+
+# 24 — codex MCP: a pre-existing UNMARKED [mcp_servers.engram] (user-authored) must NOT be duplicated —
+#      TOML forbids duplicate tables, so the installer warns and SKIPS. Exactly one engram table remains
+#      (the user's), and our managed block is NOT written.
+home="$TMP/mcp-conflict"; mkdir -p "$home/.codex"
+printf '[mcp_servers.engram]\ncommand = "my-own-engram"\nargs = ["x"]\n' > "$home/.codex/config.toml"
+err="$(bash "$SUT" --home "$home" --harness codex 2>&1 >/dev/null)"
+cfg="$home/.codex/config.toml"
+n="$(grep -c '\[mcp_servers.engram\]' "$cfg" 2>/dev/null || echo 0)"
+if [ "$n" = 1 ] && grep -q 'my-own-engram' "$cfg" && ! grep -q '# research-sdd:start' "$cfg" \
+   && printf '%s' "$err" | grep -qi 'WARNING.*config.toml'; then
+  ok "pre-existing user [mcp_servers.engram] preserved + warned (no duplicate table)"
+else no "user engram table duplicated/clobbered or no warning (engram tables=$n)"; fi
+
+# 25 — CRITICAL: an orphaned '# research-sdd:start' whose body is a [mcp_servers.*] table (no matching
+#      end — a hand-edit, or a crash mid-write) must NOT be "healed" by appending a fresh block. The
+#      orphan already carries [mcp_servers.engram]/[mcp_servers.codegraph], so appending our block would
+#      yield TWO of each table — an illegal duplicate-table TOML that fails to parse. TOML's
+#      no-duplicate-tables rule DIVERGES from the markdown orphan contract (test 12): here the installer
+#      must WARN (malformed marker) and SKIP entirely — file left byte-for-byte untouched, NO second
+#      table appended, NO '# research-sdd:end' synthesised — until the user fixes the stray marker.
+home="$TMP/mcp-orphan"; mkdir -p "$home/.codex"
+printf '# research-sdd:start\n[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp", "--tools=agent"]\n\n[mcp_servers.codegraph]\ncommand = "codegraph"\nargs = ["serve", "--mcp"]\n' \
+  > "$home/.codex/config.toml"
+cp "$home/.codex/config.toml" "$TMP/mcp-orphan-orig"
+err="$(bash "$SUT" --home "$home" --harness codex 2>&1 >/dev/null)"; rc=$?
+cfg="$home/.codex/config.toml"
+engrams="$(grep -c '\[mcp_servers.engram\]' "$cfg" 2>/dev/null || true)"
+if [ "$engrams" = 1 ] && ! grep -q '# research-sdd:end' "$cfg" && [ "$rc" = 0 ] \
+   && diff -q "$TMP/mcp-orphan-orig" "$cfg" >/dev/null 2>&1 \
+   && printf '%s' "$err" | grep -qi 'WARNING.*malformed research-sdd marker'; then
+  ok "orphaned MCP marker: warn + SKIP, file byte-preserved (no duplicate table, no synthesised end)"
+else no "orphaned MCP marker not skipped (engram tables=$engrams, has-end? $(grep -qc '# research-sdd:end' "$cfg"; echo $?), rc=$rc — expected byte-preserved skip)"; fi
+# idempotent: re-running stays a no-op SKIP (file unchanged) until the user repairs the marker.
+bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1
+diff -q "$TMP/mcp-orphan-orig" "$cfg" >/dev/null 2>&1 \
+  && ok "orphaned MCP marker skip is byte-idempotent (still a no-op on re-run)" \
+  || no "orphaned MCP marker changed the file on re-run (should stay a no-op skip)"
+
+# 26 — WARNING: the duplicate-table guard must also catch spec-valid EQUIVALENT forms of the same table
+#      path — here the inline dotted-key `mcp_servers.engram = { ... }`. It defines the same table, so
+#      appending our own [mcp_servers.engram] header would be a duplicate-key TOML conflict. The installer
+#      must warn + SKIP (no header appended, file byte-preserved), same as the canonical-header case.
+home="$TMP/mcp-dotted"; mkdir -p "$home/.codex"
+printf 'mcp_servers.engram = { command = "x", args = ["y"] }\n' > "$home/.codex/config.toml"
+cp "$home/.codex/config.toml" "$TMP/mcp-dotted-orig"
+err="$(bash "$SUT" --home "$home" --harness codex 2>&1 >/dev/null)"
+cfg="$home/.codex/config.toml"
+if ! grep -q '# research-sdd:start' "$cfg" && ! grep -q '^\[mcp_servers.engram\]' "$cfg" \
+   && diff -q "$TMP/mcp-dotted-orig" "$cfg" >/dev/null 2>&1 \
+   && printf '%s' "$err" | grep -qi 'WARNING.*config.toml'; then
+  ok "inline dotted-key mcp_servers.engram detected as a conflict (warn+skip, byte-preserved)"
+else no "inline dotted-key mcp_servers.engram NOT detected — installer appended its own header anyway"; fi
 
 # NEGATIVE CONTROL — neuter the idempotent splice (force blind append); two applies must then
 # leave TWO marked sections, proving test 6's idempotency assertion has teeth.
@@ -193,13 +292,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Live beside the real SUT so the mutant still resolves adapters.sh + the kit's source SKILL.md.
   MUTANT="$HERE/../research-sdd-install.MUTANT.$$.sh"
   # Break the "does the file already carry our marker?" guard so splice always appends.
-  sed 's/grep -q .<!-- research-sdd:start -->. "\$file"/false/' "$SUT" > "$MUTANT"
+  sed 's/grep -Fq -- "\$start" "\$file"/false/' "$SUT" > "$MUTANT"
   home="$TMP/teeth"
   bash "$MUTANT" --home "$home" --harness claude >/dev/null 2>&1
   bash "$MUTANT" --home "$home" --harness claude >/dev/null 2>&1
   n="$(grep -c '<!-- research-sdd:start -->' "$home/.claude/CLAUDE.md" 2>/dev/null || echo 0)"
   [ "$n" -ge 2 ] && ok "teeth: append-only mutant duplicates the section → idempotency check has teeth" \
     || no "teeth: mutant did not duplicate ($n) — idempotency check is THEATER"
+
+  echo "-- teeth: neuter the TOML duplicate-table guard, expect a duplicate [mcp_servers.engram] --"
+  # Break the "does preserved content already define an MCP table?" conflict guard so the block is
+  # appended even when the user already has [mcp_servers.engram] — producing an invalid duplicate table.
+  MUTANT2="$HERE/../research-sdd-install.MUTANT2.$$.sh"
+  sed 's/grep -Eq "\$conflict"/false/' "$SUT" > "$MUTANT2"
+  home="$TMP/teeth-toml"; mkdir -p "$home/.codex"
+  printf '[mcp_servers.engram]\ncommand = "mine"\nargs = ["x"]\n' > "$home/.codex/config.toml"
+  bash "$MUTANT2" --home "$home" --harness codex >/dev/null 2>&1
+  n="$(grep -c '\[mcp_servers.engram\]' "$home/.codex/config.toml" 2>/dev/null || echo 0)"
+  [ "$n" -ge 2 ] && ok "teeth: guard-less mutant duplicates [mcp_servers.engram] → duplicate-table check has teeth" \
+    || no "teeth: mutant did not duplicate ($n) — duplicate-table check is THEATER"
+
+  echo "-- teeth: neuter the TOML orphan-skip, expect a duplicate [mcp_servers.engram] table --"
+  # Disable the orphan-skip guard on the TOML path so an orphaned '# research-sdd:start' carrying our own
+  # [mcp_servers.*] tables falls through to the append path — producing TWO [mcp_servers.engram] tables
+  # (illegal duplicate-table TOML). Proves the skip (not merely the warning) is what prevents corruption.
+  MUTANT3="$HERE/../research-sdd-install.MUTANT3.$$.sh"
+  sed 's/\[ "\$on_orphan" = skip \]/false/' "$SUT" > "$MUTANT3"
+  home="$TMP/teeth-orphan"; mkdir -p "$home/.codex"
+  printf '# research-sdd:start\n[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp", "--tools=agent"]\n\n[mcp_servers.codegraph]\ncommand = "codegraph"\nargs = ["serve", "--mcp"]\n' \
+    > "$home/.codex/config.toml"
+  bash "$MUTANT3" --home "$home" --harness codex >/dev/null 2>&1
+  n="$(grep -c '\[mcp_servers.engram\]' "$home/.codex/config.toml" 2>/dev/null || echo 0)"
+  [ "$n" -ge 2 ] && ok "teeth: orphan-skip-less mutant duplicates [mcp_servers.engram] → orphan-skip has teeth" \
+    || no "teeth: mutant did not duplicate ($n) — orphan-skip check is THEATER"
 fi
 
 echo "== $pass passed · $fail failed =="

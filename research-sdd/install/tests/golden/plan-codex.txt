@@ -15,11 +15,16 @@ harness=codex
   |   - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift
   |   - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning
   | 
-  | MCP servers this skill relies on (engram `mem_*`, codegraph). This installer does NOT auto-merge
-  | your `~/.codex/config.toml` — a naive TOML append can clobber user config — so add these tables
-  | yourself (an idempotent TOML-aware merge is a deliberate follow-up):
-  | 
-  | ```toml
+  | MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically
+  | into `~/.codex/config.toml` by the installer — an idempotent marked block
+  | (`# research-sdd:start` … `# research-sdd:end`) that preserves all surrounding user config.
+  | If you already define your own `[mcp_servers.engram]`, the installer warns and skips rather
+  | than duplicate it (TOML forbids duplicate tables); remove your table to let it manage them.
+  | <!-- research-sdd:end -->
+  SPLICE  {HOME}/.codex/config.toml  [toml-sections: marker # research-sdd:start/end]
+  | # research-sdd:start
+  | # research-sdd-managed MCP servers — this block is spliced idempotently by the installer.
+  | # Edit via the installer, not by hand; surrounding user config is preserved.
   | [mcp_servers.engram]
   | command = "engram"
   | args = ["mcp", "--tools=agent"]
@@ -27,6 +32,5 @@ harness=codex
   | [mcp_servers.codegraph]
   | command = "codegraph"
   | args = ["serve", "--mcp"]
-  | ```
-  | <!-- research-sdd:end -->
+  | # research-sdd:end
   slash_commands=false

@@ -60,13 +60,20 @@ declare -A _RSDD_NEEDS_SWEEP=(
   [opencode]="false"
   [codex]="true"
 )
-# WHAT: does the harness register MCP servers via a user-owned TOML config the installer refuses to
-# auto-merge (a naive TOML append can clobber user config), so the required servers must be documented
-# as a copy-paste snippet instead? (codex=~/.codex/config.toml; claude/opencode manage MCP elsewhere)
+# WHAT: does the harness surface a short note (in its prompt file) that the installer registers the
+# skill's MCP servers automatically into its TOML config? (codex; claude/opencode manage MCP elsewhere)
 declare -A _RSDD_NEEDS_MCP_CONFIG_DOC=(
   [claude]="false"
   [opencode]="false"
   [codex]="true"
+)
+# WHERE: the user-owned TOML config into which the installer idempotently SPLICES the skill's MCP
+# server tables (a marked `# research-sdd:start/end` block that preserves all surrounding user config).
+# Empty = the harness manages MCP elsewhere and needs no config-file registration. (codex=config.toml)
+declare -A _RSDD_MCP_CONFIG_NAME=(
+  [claude]=""
+  [opencode]=""
+  [codex]="config.toml"
 )
 
 # rsdd_field <harness> <field> [home] — the UNIFORM accessor. The case is on FIELD NAME (generic),
@@ -87,6 +94,9 @@ rsdd_field() {
     needs_mcp_config_doc)    printf '%s\n' "${_RSDD_NEEDS_MCP_CONFIG_DOC[$harness]}" ;;
     plugin_dir)
       plug="${_RSDD_PLUGIN_DIR_NAME[$harness]}"
+      if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
+    mcp_config_file)
+      plug="${_RSDD_MCP_CONFIG_NAME[$harness]}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
   esac
@@ -117,19 +127,29 @@ rsdd_render_section() {
   fi
   if [ "$needs_mcp_doc" = "true" ]; then
     printf '%s\n' ''
-    printf '%s\n' 'MCP servers this skill relies on (engram `mem_*`, codegraph). This installer does NOT auto-merge'
-    printf '%s\n' 'your `~/.codex/config.toml` — a naive TOML append can clobber user config — so add these tables'
-    printf '%s\n' 'yourself (an idempotent TOML-aware merge is a deliberate follow-up):'
-    printf '%s\n' ''
-    printf '%s\n' '```toml'
-    printf '%s\n' '[mcp_servers.engram]'
-    printf '%s\n' 'command = "engram"'
-    printf '%s\n' 'args = ["mcp", "--tools=agent"]'
-    printf '%s\n' ''
-    printf '%s\n' '[mcp_servers.codegraph]'
-    printf '%s\n' 'command = "codegraph"'
-    printf '%s\n' 'args = ["serve", "--mcp"]'
-    printf '%s\n' '```'
+    printf '%s\n' 'MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically'
+    printf '%s\n' 'into `~/.codex/config.toml` by the installer — an idempotent marked block'
+    printf '%s\n' '(`# research-sdd:start` … `# research-sdd:end`) that preserves all surrounding user config.'
+    printf '%s\n' 'If you already define your own `[mcp_servers.engram]`, the installer warns and skips rather'
+    printf '%s\n' 'than duplicate it (TOML forbids duplicate tables); remove your table to let it manage them.'
   fi
   printf '%s\n' '<!-- research-sdd:end -->'
+}
+
+# rsdd_render_mcp_toml — the MCP-server tables the installer SPLICES into the codex config.toml, wrapped
+# in the TOML `#`-comment idempotency markers. Mirrors the real ~/.codex/config.toml invocations
+# (engram `mcp --tools=agent`, codegraph `serve --mcp`); the surrounding user config is preserved by the
+# splice, and this managed block is the ONLY region the installer rewrites.
+rsdd_render_mcp_toml() {
+  printf '%s\n' '# research-sdd:start'
+  printf '%s\n' '# research-sdd-managed MCP servers — this block is spliced idempotently by the installer.'
+  printf '%s\n' '# Edit via the installer, not by hand; surrounding user config is preserved.'
+  printf '%s\n' '[mcp_servers.engram]'
+  printf '%s\n' 'command = "engram"'
+  printf '%s\n' 'args = ["mcp", "--tools=agent"]'
+  printf '%s\n' ''
+  printf '%s\n' '[mcp_servers.codegraph]'
+  printf '%s\n' 'command = "codegraph"'
+  printf '%s\n' 'args = ["serve", "--mcp"]'
+  printf '%s\n' '# research-sdd:end'
 }
