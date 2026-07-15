@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "research-sdd/toolbelt/**"
+      - "research-sdd/install/**"
       # gen-catalog.py is now load-bearing for the toolbelt discriminator; changes to either copy
       # (the shipped seed or the repo-specialized tool) must run the guarding tests so BLOCK_RE can't rot.
       - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
@@ -12,6 +13,7 @@ on:
   pull_request:
     paths:
       - "research-sdd/toolbelt/**"
+      - "research-sdd/install/**"
       - "research-sdd/templates/**"
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
@@ -35,6 +37,9 @@ jobs:
       - name: Run toolbelt test suites
         run: bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
 
+      - name: Run install test suite
+        run: bash research-sdd/install/tests/research-sdd-install.test.sh --prove-teeth
+
   shellcheck:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -45,4 +50,4 @@ jobs:
       - name: Lint toolbelt shell scripts (warning+)
         run: |
           shellcheck --version
-          find research-sdd/toolbelt -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 shellcheck -S warning
