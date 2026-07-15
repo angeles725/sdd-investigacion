@@ -170,7 +170,7 @@ sources_registry "$d"   # registry exists but does NOT name foo.md
 assert_exit "$SUT" 1 "BAD: orphan snapshot (unregistered on disk)" "$d"
 # Capture to a var first: under `pipefail`, `SUT | grep` would inherit the SUT's exit 1 even when grep matches.
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'orphan-snapshot' \
+grep -q 'orphan-snapshot' <<<"$out" \
   && { printf '  PASS  %-42s (line present)\n' "orphan-snapshot line printed"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (line missing)\n' "orphan-snapshot line printed"; fail=$((fail+1)); }
 
@@ -188,7 +188,7 @@ snapshot "$d/sources/web-snapshots/foo.md" '<div>raw body</div>'
 sources_registry "$d" '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | abcd123 |  |'
 assert_exit "$SUT" 0 "WARN snapshot registered but uncited (exit 0)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'uncited-snapshot' \
+grep -q 'uncited-snapshot' <<<"$out" \
   && { printf '  PASS  %-42s (WARN line present)\n' "uncited-snapshot line printed"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (WARN line missing)\n' "uncited-snapshot line printed"; fail=$((fail+1)); }
 
@@ -199,7 +199,7 @@ block "$d/nr-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — local claim, no 
 snapshot "$d/sources/web-snapshots/foo.md" '<div>raw body, provenance now unrecoverable</div>'
 assert_exit "$SUT" 1 "BAD: snapshots on disk, no SOURCES.md" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'orphan-snapshot' \
+grep -q 'orphan-snapshot' <<<"$out" \
   && { printf '  PASS  %-42s (LEVEL 5 is the failing level)\n' "no-registry → orphan-snapshot line"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (LEVEL 5 did NOT fire)\n' "no-registry → orphan-snapshot line"; fail=$((fail+1)); }
 
@@ -208,7 +208,7 @@ d="$TMP/good-no-snapshot-dir"; mkdir -p "$d"
 block "$d/ns-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — a local claim.'
 assert_exit "$SUT" 0 "GOOD no web-snapshots/ dir" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'web-snapshots:' \
+grep -q 'web-snapshots:' <<<"$out" \
   && { printf '  FAIL  %-42s (summary line leaked)\n' "no dir → no snapshot output"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no snapshot output)\n' "no dir → no snapshot output"; pass=$((pass+1)); }
 
@@ -227,7 +227,7 @@ snapshot "$d/sources/web-snapshots/annual-report.md" '<div>registered + cited</d
 sources_registry "$d" '| web-snapshots/annual-report.md | web-snapshot | http://x | 2026-01-01 | abcd123 | B1 |'
 assert_exit "$SUT" 1 "BAD: substring-collision orphan (report.md)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'orphan-snapshot: sources/web-snapshots/report.md' \
+grep -q 'orphan-snapshot: sources/web-snapshots/report.md' <<<"$out" \
   && { printf '  PASS  %-42s (names report.md, not annual-report.md)\n' "collision orphan named exactly"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (exact orphan line missing)\n' "collision orphan named exactly"; fail=$((fail+1)); }
 
@@ -239,7 +239,7 @@ snapshot "$d/sources/web-snapshots/example.com/page.md" '<div>nested body</div>'
 sources_registry "$d" '| web-snapshots/example.com/page.md | web-snapshot | http://x | 2026-01-01 | abcd123 | B1 |'
 assert_exit "$SUT" 0 "GOOD nested snapshot cited by full path" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'uncited-snapshot' \
+grep -q 'uncited-snapshot' <<<"$out" \
   && { printf '  FAIL  %-42s (nested cite falsely flagged)\n' "nested snapshot not false-flagged"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no false uncited)\n' "nested snapshot not false-flagged"; pass=$((pass+1)); }
 
@@ -251,7 +251,7 @@ snapshot "$d/sources/web-snapshots/foo-KELVIN-Chil.md" '<div>mib body</div>'
 sources_registry "$d" '| web-snapshots/foo-KELVIN-Chil.md | web-snapshot | http://x | 2026-01-01 | abcd123 |  |'
 assert_exit "$SUT" 0 "GOOD correct elided citation (no warn)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'uncited-snapshot' \
+grep -q 'uncited-snapshot' <<<"$out" \
   && { printf '  FAIL  %-42s (correct elided cite warned)\n' "elided cite counted as cited"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no false uncited)\n' "elided cite counted as cited"; pass=$((pass+1)); }
 
@@ -263,7 +263,7 @@ snapshot "$d/sources/web-snapshots/foo-KELVIN-Chil.md" '<div>mib body</div>'
 sources_registry "$d" '| web-snapshots/foo-KELVIN-Chil.md | web-snapshot | http://x | 2026-01-01 | abcd123 |  |'
 assert_exit "$SUT" 0 "WARN drifted elided citation (exit 0)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'uncited-snapshot' \
+grep -q 'uncited-snapshot' <<<"$out" \
   && { printf '  PASS  %-42s (genuine name-drift kept)\n' "drifted elided still warns"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (drift not caught)\n' "drifted elided still warns"; fail=$((fail+1)); }
 
@@ -277,7 +277,7 @@ snapshot "$d/sources/web-snapshots/foo.md" '<div>body</div>'
 sources_registry "$d" "$(printf '|\tweb-snapshots/foo.md\t| web-snapshot | http://x | 2026-01-01 | abcd123 |  |')"
 assert_exit "$SUT" 0 "GOOD tab-padded File cell (registered)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'orphan-snapshot' \
+grep -q 'orphan-snapshot' <<<"$out" \
   && { printf '  FAIL  %-42s (tab padding false-orphaned)\n' "tab-padded cell not false-orphaned"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no false orphan)\n' "tab-padded cell not false-orphaned"; pass=$((pass+1)); }
 
@@ -290,7 +290,7 @@ snapshot "$d/sources/web-snapshots/totally-unrelated.md" '<div>uncited body</div
 sources_registry "$d" '| web-snapshots/totally-unrelated.md | web-snapshot | http://x | 2026-01-01 | abcd123 |  |'
 assert_exit "$SUT" 0 "WARN degenerate tail does not mask (exit 0)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'uncited-snapshot' \
+grep -q 'uncited-snapshot' <<<"$out" \
   && { printf '  PASS  %-42s (degenerate tail rejected)\n' "degenerate tail did not mask uncited"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (uncited WARN masked)\n' "degenerate tail did not mask uncited"; fail=$((fail+1)); }
 
@@ -310,7 +310,7 @@ wrong="0000000000000000000000000000000000000000000000000000000000000000"   # a v
 sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | $wrong | B1 |"
 assert_exit "$SUT" 1 "BAD: snapshot full-hash mismatch (tampered)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'hash-mismatch: sources/web-snapshots/foo.md' \
+grep -q 'hash-mismatch: sources/web-snapshots/foo.md' <<<"$out" \
   && { printf '  PASS  %-42s (mismatch line printed)\n' "hash-mismatch line printed"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (mismatch line missing)\n' "hash-mismatch line printed"; fail=$((fail+1)); }
 
@@ -322,7 +322,7 @@ real="$(sha256sum "$d/sources/web-snapshots/foo.md" | cut -d' ' -f1)"
 sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | $real | B1 |"
 assert_exit "$SUT" 0 "GOOD snapshot full-hash matches on disk" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -qE 'hash-mismatch|unverifiable-hash' \
+grep -qE 'hash-mismatch|unverifiable-hash' <<<"$out" \
   && { printf '  FAIL  %-42s (clean full hash flagged)\n' "matching full hash is quiet"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no false hash finding)\n' "matching full hash is quiet"; pass=$((pass+1)); }
 
@@ -334,8 +334,8 @@ snapshot "$d/sources/web-snapshots/foo.md" '<div>legacy body, registry never sto
 sources_registry "$d" '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | (unhashed; see file) | B1 |'
 assert_exit "$SUT" 0 "GOOD legacy unhashed snapshot (WARN not fail)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-{ printf '%s\n' "$out" | grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' \
-  && ! printf '%s\n' "$out" | grep -q 'hash-mismatch'; } \
+{ grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' <<<"$out" \
+  && ! grep -q 'hash-mismatch' <<<"$out"; } \
   && { printf '  PASS  %-42s (WARN, no fail)\n' "unhashed → unverifiable-hash WARN"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (WARN missing or hard-failed)\n' "unhashed → unverifiable-hash WARN"; fail=$((fail+1)); }
 
@@ -346,8 +346,8 @@ snapshot "$d/sources/web-snapshots/foo.md" '<div>body with a display-truncated r
 sources_registry "$d" '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | 04adf2b071e479b2… | B1 |'
 assert_exit "$SUT" 0 "GOOD truncated hash snapshot (WARN not fail)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-{ printf '%s\n' "$out" | grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' \
-  && ! printf '%s\n' "$out" | grep -q 'hash-mismatch'; } \
+{ grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' <<<"$out" \
+  && ! grep -q 'hash-mismatch' <<<"$out"; } \
   && { printf '  PASS  %-42s (truncated → WARN)\n' "truncated hash → unverifiable-hash WARN"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (truncated WARN missing or failed)\n' "truncated hash → unverifiable-hash WARN"; fail=$((fail+1)); }
 
@@ -355,7 +355,7 @@ out="$(bash "$SUT" "$d" 2>&1)"
 #   Reuse the BAD 4 fixture: foo.md on disk, registry names nothing → orphan-snapshot only, no hash finding.
 d="$TMP/bad-orphan-snapshot"   # built above (orphan, empty registry)
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -qE 'hash-mismatch|unverifiable-hash' \
+grep -qE 'hash-mismatch|unverifiable-hash' <<<"$out" \
   && { printf '  FAIL  %-42s (orphan double-reported by LEVEL 6)\n' "orphan not double-reported"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (LEVEL 6 stays out of it)\n' "orphan not double-reported"; pass=$((pass+1)); }
 
@@ -383,7 +383,7 @@ if [ -f "$FETCH" ] && { command -v curl >/dev/null 2>&1 || command -v wget >/dev
     printf '<html><body><p>TAMPERED body — bytes changed after registration</p></body></html>\n' > "$snap"
     assert_exit "$SUT" 1 "integration: tampered producer snapshot caught" "$d"
     out="$(bash "$SUT" "$d" 2>&1)"
-    printf '%s\n' "$out" | grep -q 'hash-mismatch' \
+    grep -q 'hash-mismatch' <<<"$out" \
       && { printf '  PASS  %-42s (real producer path is enforced)\n' "integration: hash-mismatch on tamper"; pass=$((pass+1)); } \
       || { printf '  FAIL  %-42s (producer hash not verifiable — truncated cell?)\n' "integration: hash-mismatch on tamper"; fail=$((fail+1)); }
   fi
@@ -402,7 +402,7 @@ d="$TMP/template-anchor"; mkdir -p "$d/templates"
 block "$d/templates/block.template.md" '# <SUBJECT> — Block <k>' '## <k>.1 [CERT-doc] sources/<file> — placeholder legend, NOT a real citation.'
 assert_exit "$SUT" 0 "TEMPLATE: block.template.md does not anchor" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'corpus root: templates/' \
+grep -q 'corpus root: templates/' <<<"$out" \
   && { printf '  FAIL  %-42s (template anchored a phantom corpus)\n' "template did not anchor corpus root"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no phantom corpus root)\n' "template did not anchor corpus root"; pass=$((pass+1)); }
 
@@ -414,7 +414,7 @@ block "$d/corpus/foo-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — a local 
 block "$d/corpus/block.template.md" '# <SUBJECT> — Block <k>' '## <k>.1 placeholder legend.'
 assert_exit "$SUT" 0 "POSITIVE: real block anchors, template ignored" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s\n' "$out" | grep -q 'corpus root: corpus/' \
+grep -q 'corpus root: corpus/' <<<"$out" \
   && { printf '  PASS  %-42s (real block anchored corpus/)\n' "real block still anchors corpus/"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (real block did not anchor)\n' "real block still anchors corpus/"; fail=$((fail+1)); }
 

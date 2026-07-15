@@ -62,7 +62,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tmp="$(mktemp -d)"; cp "$TB"/*.sh "$tmp/" 2>/dev/null
   printf "\n# mutant: find x \\( -iname '*block*.md' \\)\n" >> "$tmp/verify-state.sh"
   moff="$(loose_offenders "$tmp")"
-  printf '%s' "$moff" | grep -q 'verify-state.sh' \
+  grep -q 'verify-state.sh' <<<"$moff" \
     && ok "teeth: loose glob injected into verify-state.sh is caught (allowlist has teeth)" \
     || no "teeth: mutant NOT caught — the allowlist check is theater [$moff]"
   rm -rf "$tmp"

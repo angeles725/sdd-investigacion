@@ -78,7 +78,7 @@ expect_next "$d" "NEXT | high | nested gap" "resolves a nested corpus/ state"
 # 7 — default status report reflects the backlog counts
 d="$TMP/report"; mkstate "$d" 4 "high|g1|pending" "high|g2|pending" "medium|g3|pending" "low|g4|covered"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'high=2 medium=1 low=0' && ok "status: pending counts by priority" || no "status: pending counts ($(printf '%s' "$rep" | grep pending))"
+grep -q 'high=2 medium=1 low=0' <<<"$rep" && ok "status: pending counts by priority" || no "status: pending counts ($(grep pending <<<"$rep"))"
 
 # 8 — a NEGATED status ("not pending") must NOT be treated as pending (was: *pending* substring match)
 d="$TMP/negstatus"; mkstate "$d" 1 "high|resolved item|not pending anymore" "medium|real gap|pending"
@@ -105,7 +105,7 @@ d="$TMP/pipe"; mkdir -p "$d"
   echo "| high | compare A | B render paths | web | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
 warn="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
-printf '%s' "$warn" | grep -qi 'malformed backlog row' && ok "pipe-in-gap emits a WARN (not a silent drop)" || no "pipe-in-gap: no WARN emitted"
+grep -qi 'malformed backlog row' <<<"$warn" && ok "pipe-in-gap emits a WARN (not a silent drop)" || no "pipe-in-gap: no WARN emitted"
 
 # 12 — STALE: state claims all gaps closed but backlog still lists pending (verify-state FAIL) → refuse NEXT
 d="$TMP/stale"; mkdir -p "$d"
@@ -165,18 +165,18 @@ mkledger() {
 # 17 — default status surfaces the count of OPEN contradictions (2 open, 1 resolved → "2 open")
 d="$TMP/contra"; mkstate "$d" 3 "high|g1|pending"; mkledger "$d"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'contradictions  : 2 open' && ok "status: surfaces 2 open contradictions" || no "status: open-contradiction count ($(printf '%s' "$rep" | grep -i contradic))"
+grep -q 'contradictions  : 2 open' <<<"$rep" && ok "status: surfaces 2 open contradictions" || no "status: open-contradiction count ($(grep -i contradic <<<"$rep"))"
 
 # 18 — NO ledger → quiet no-ledger line, still exits 0 (never errors)
 d="$TMP/noledger"; mkstate "$d" 1 "high|g1|pending"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
-if printf '%s' "$rep" | grep -q 'contradictions  : (no ledger)' && [ "$rc" = 0 ]; then ok "status: quiet no-ledger line, exit 0"
-else no "status: no-ledger line/exit ($(printf '%s' "$rep" | grep -i contradic), rc=$rc)"; fi
+if grep -q 'contradictions  : (no ledger)' <<<"$rep" && [ "$rc" = 0 ]; then ok "status: quiet no-ledger line, exit 0"
+else no "status: no-ledger line/exit ($(grep -i contradic <<<"$rep"), rc=$rc)"; fi
 
 # 19 — REGRESSION guard: --next output must be UNCHANGED by a CONTRADICTIONS.md (machine contract untouched)
 d="$TMP/contraregress"; mkstate "$d" 2 "high|the gap|pending"
 before="$(next "$d")"; mkledger "$d"; after="$(next "$d")"
-if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -qi contradic; then ok "--next contract unchanged by a ledger"
+if [ "$before" = "$after" ] && ! grep -qi contradic <<<"$after"; then ok "--next contract unchanged by a ledger"
 else no "--next leaked: before[$before] after[$after]"; fi
 
 # mkledger1 <dir> <status> <note> — one-row ledger to probe column-scoping (status vs note cell).
@@ -191,7 +191,7 @@ mkledger1() {
 # 20 — column-scope: a note cell literally "open" on a RESOLVED row must NOT count (STATUS cell only)
 d="$TMP/notecol"; mkstate "$d" 1 "high|g1|pending"; mkledger1 "$d" "resolved" "open"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'contradictions  : (none)' && ok "note-cell 'open' on resolved row not counted (column-scoped)" || no "column-scope over-count ($(printf '%s' "$rep" | grep -i contradic))"
+grep -q 'contradictions  : (none)' <<<"$rep" && ok "note-cell 'open' on resolved row not counted (column-scoped)" || no "column-scope over-count ($(grep -i contradic <<<"$rep"))"
 
 # 21 — column-scope mixed: 1 real open (status cell) + 1 resolved-with-note-open → exactly 1 open
 d="$TMP/mixedcol"; mkstate "$d" 1 "high|g1|pending"
@@ -199,22 +199,22 @@ d="$TMP/mixedcol"; mkstate "$d" 1 "high|g1|pending"
   echo "| C1 | X (B1) | Y (B2) | open | note |"
   echo "| C2 | A (B3) | B (B4) | resolved | open |"; } > "$d/CONTRADICTIONS.md"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'contradictions  : 1 open' && ok "status-cell open counts, note-cell open does not (mixed)" || no "mixed column-scope ($(printf '%s' "$rep" | grep -i contradic))"
+grep -q 'contradictions  : 1 open' <<<"$rep" && ok "status-cell open counts, note-cell open does not (mixed)" || no "mixed column-scope ($(grep -i contradic <<<"$rep"))"
 
 # 22 — multiple ledger files → counted across ALL (never silently dropped) + a WARN to stderr
 d="$TMP/multi"; mkstate "$d" 1 "high|g1|pending"; mkledger "$d"        # CONTRADICTIONS.md: 2 open
 { echo "# T"; echo; echo "| id | claim A | claim B | status | note |"; echo "|---|---|---|---|---|"
   echo "| Z1 | P (B7) | Q (B8) | open | archived-open |"; } > "$d/CONTRADICTIONS-archive.md"   # +1 open
 rep="$(bash "$SUT" "$d" 2>/dev/null)"; warn="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
-if printf '%s' "$rep" | grep -q 'contradictions  : 3 open' && printf '%s' "$warn" | grep -qi 'multiple CONTRADICTIONS'; then ok "multiple ledgers counted across all + WARN"
-else no "multi-ledger ($(printf '%s' "$rep" | grep -i contradic) | warn=$(printf '%s' "$warn" | grep -i CONTRADICTIONS))"; fi
+if grep -q 'contradictions  : 3 open' <<<"$rep" && grep -qi 'multiple CONTRADICTIONS' <<<"$warn"; then ok "multiple ledgers counted across all + WARN"
+else no "multi-ledger ($(grep -i contradic <<<"$rep") | warn=$(grep -i CONTRADICTIONS <<<"$warn"))"; fi
 
 # 23 — header/separator-only ledger (no data rows) → (none), never a spurious count, exit unchanged
 d="$TMP/headeronly"; mkstate "$d" 1 "high|g1|pending"
 { echo "# T"; echo; echo "| id | claim A | claim B | status | note |"; echo "|---|---|---|---|---|"; } > "$d/CONTRADICTIONS.md"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
-if printf '%s' "$rep" | grep -q 'contradictions  : (none)' && [ "$rc" = 0 ]; then ok "header-only ledger → (none), exit 0"
-else no "header-only ($(printf '%s' "$rep" | grep -i contradic), rc=$rc)"; fi
+if grep -q 'contradictions  : (none)' <<<"$rep" && [ "$rc" = 0 ]; then ok "header-only ledger → (none), exit 0"
+else no "header-only ($(grep -i contradic <<<"$rep"), rc=$rc)"; fi
 
 # mkiter <dir> <inv> <"num|newgaps"...> — a minimal state WITH an ## Iteration history table.
 # Each arg becomes one data row; col 6 ("New gaps uncovered") = <newgaps>. A backlog pending gap is
@@ -234,22 +234,22 @@ mkiter() {
 # 24 — last 3 iterations net 0 new gaps → SATURATED (review) signal in the DEFAULT status report
 d="$TMP/sat"; mkiter "$d" 1 "1|0" "2|0" "3|0"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps' && ok "saturation: 0 over last 3 numeric iterations → SATURATED (review)" || no "saturation: SATURATED not surfaced ($(printf '%s' "$rep" | grep -i saturation))"
+grep -q 'saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps' <<<"$rep" && ok "saturation: 0 over last 3 numeric iterations → SATURATED (review)" || no "saturation: SATURATED not surfaced ($(grep -i saturation <<<"$rep"))"
 
 # 25 — last 3 sum > 0 (2,0,1 → 3) → active, NOT saturated
 d="$TMP/active"; mkiter "$d" 1 "1|2" "2|0" "3|1"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'saturation      : active (3 new gaps in last 3 iter)' && ok "saturation: nonzero sum over last 3 → active" || no "saturation: active line ($(printf '%s' "$rep" | grep -i saturation))"
+grep -q 'saturation      : active (3 new gaps in last 3 iter)' <<<"$rep" && ok "saturation: nonzero sum over last 3 → active" || no "saturation: active line ($(grep -i saturation <<<"$rep"))"
 
 # 25b — WINDOW is the last 3 ONLY: an older iteration with new gaps does NOT rescue a saturated tail
 d="$TMP/window"; mkiter "$d" 1 "1|9" "2|0" "3|0" "4|0"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'saturation      : SATURATED (review)' && ok "saturation: only the last 3 iterations count (older gaps excluded)" || no "saturation: window not last-3 ($(printf '%s' "$rep" | grep -i saturation))"
+grep -q 'saturation      : SATURATED (review)' <<<"$rep" && ok "saturation: only the last 3 iterations count (older gaps excluded)" || no "saturation: window not last-3 ($(grep -i saturation <<<"$rep"))"
 
 # 26 — fewer than 3 numeric rows → insufficient history, NOT flagged
 d="$TMP/insuff"; mkiter "$d" 1 "1|2" "2|1"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'saturation      : insufficient history (2 iterations)' && ok "saturation: <3 numeric rows → insufficient history" || no "saturation: insufficient line ($(printf '%s' "$rep" | grep -i saturation))"
+grep -q 'saturation      : insufficient history (2 iterations)' <<<"$rep" && ok "saturation: <3 numeric rows → insufficient history" || no "saturation: insufficient line ($(grep -i saturation <<<"$rep"))"
 
 # 26b — a template `<n>` placeholder in col 6 (with pipes in the Delegated cell) is NOT counted numeric
 d="$TMP/placeholder"; mkdir -p "$d"
@@ -261,18 +261,18 @@ d="$TMP/placeholder"; mkdir -p "$d"
   echo "| 3 | <date> | <gap> | B<k> | <no · inline / yes · haiku|sonnet|opus> | <n> |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'saturation      : insufficient history (2 iterations)' && ok "saturation: <n> placeholder row not counted as a numeric iteration" || no "saturation: placeholder counted ($(printf '%s' "$rep" | grep -i saturation))"
+grep -q 'saturation      : insufficient history (2 iterations)' <<<"$rep" && ok "saturation: <n> placeholder row not counted as a numeric iteration" || no "saturation: placeholder counted ($(grep -i saturation <<<"$rep"))"
 
 # 27 — rows OUT OF # ORDER are sorted numerically before the last-3 window is taken
 d="$TMP/order"; mkiter "$d" 1 "4|9" "1|0" "2|0" "3|0"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -q 'saturation      : active (9 new gaps in last 3 iter)' && ok "saturation: rows sorted by # before taking the last 3" || no "saturation: not sorted by # ($(printf '%s' "$rep" | grep -i saturation))"
+grep -q 'saturation      : active (9 new gaps in last 3 iter)' <<<"$rep" && ok "saturation: rows sorted by # before taking the last 3" || no "saturation: not sorted by # ($(grep -i saturation <<<"$rep"))"
 
 # 28 — no ## Iteration history section → (no iteration history), no error, exit unchanged (mkstate emits none)
 d="$TMP/nohist"; mkstate "$d" 1 "high|g1|pending"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
-if printf '%s' "$rep" | grep -q 'saturation      : (no iteration history)' && [ "$rc" = 0 ]; then ok "saturation: no history section → (no iteration history), exit 0"
-else no "saturation: no-history line/exit ($(printf '%s' "$rep" | grep -i saturation), rc=$rc)"; fi
+if grep -q 'saturation      : (no iteration history)' <<<"$rep" && [ "$rc" = 0 ]; then ok "saturation: no history section → (no iteration history), exit 0"
+else no "saturation: no-history line/exit ($(grep -i saturation <<<"$rep"), rc=$rc)"; fi
 
 # 29 — REGRESSION guard: --next output BYTE-IDENTICAL with/without an ## Iteration history table
 d="$TMP/satregress"; mkstate "$d" 2 "high|the gap|pending"
@@ -284,7 +284,7 @@ before="$(next "$d")"
   echo "| 2 | 2026-01-02 | g | B2 | no · inline | 0 |"
   echo "| 3 | 2026-01-03 | g | B3 | no · inline | 0 |"; } >> "$d/RESEARCH-STATE.md"
 after="$(next "$d")"
-if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -qi saturation; then ok "--next contract unchanged by an iteration-history table"
+if [ "$before" = "$after" ] && ! grep -qi saturation <<<"$after"; then ok "--next contract unchanged by an iteration-history table"
 else no "--next leaked: before[$before] after[$after]"; fi
 
 # 30 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders,
@@ -313,7 +313,7 @@ expect_next "$d" "NEXT | high | real pending gap" "real state used, template ign
 d="$TMP/tmpl-block-count"; mkstate "$d" 1 "high|g1|pending"
 printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"; printf 'x\n' > "$d/block.template.md"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
-printf '%s' "$rep" | grep -qE 'covered blocks  : .*· 2 on disk' && ok "on-disk block count excludes block.template.md (2, not 3)" || no "on-disk count ($(printf '%s' "$rep" | grep -i 'covered blocks'))"
+grep -qE 'covered blocks  : .*· 2 on disk' <<<"$rep" && ok "on-disk block count excludes block.template.md (2, not 3)" || no "on-disk count ($(grep -i 'covered blocks' <<<"$rep"))"
 
 # 33 — bare `pending` cell is still selected by --next (leading-token regression guard)
 d="$TMP/bare-pending"; mkstate "$d" 1 "high|bare gap|pending"
@@ -522,8 +522,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"   # the mutant resolves $here to $TMP
   d="$TMP/satteeth"; mkiter "$d" 1 "1|2" "2|0" "3|1"
   srep="$(bash "$smutant" "$d" 2>/dev/null)"
-  if printf '%s' "$srep" | grep -q 'saturation      : SATURATED'; then ok "teeth: widened-threshold mutant over-flags an active window → saturation test has teeth"
-  else no "teeth: sat mutant did not over-flag [$(printf '%s' "$srep" | grep -i saturation)] — threshold not exercised (THEATER)"; fi
+  if grep -q 'saturation      : SATURATED' <<<"$srep"; then ok "teeth: widened-threshold mutant over-flags an active window → saturation test has teeth"
+  else no "teeth: sat mutant did not over-flag [$(grep -i saturation <<<"$srep")] — threshold not exercised (THEATER)"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

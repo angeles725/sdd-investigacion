@@ -57,21 +57,21 @@ d="$TMP/hex"; newcorpus "$d"; echo "The live register held 0x87B961A9; memory du
 # 8 — a clean corpus → exit 0, says clean.
 d="$TMP/clean"; newcorpus "$d"; echo "Extends BComponent [CERT]. The password is stored in the keyring (structure only)." >> "$d/t-block1.md"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && printf '%s' "$out" | grep -qiE 'clean|no .*secret|0 '; then ok "clean corpus → exit 0"
+if [ "$(runrc "$d")" = 0 ] && grep -qiE 'clean|no .*secret|0 ' <<<"$out"; then ok "clean corpus → exit 0"
 else no "clean corpus exit=$(runrc "$d") :: $out"; fi
 
 # 9 — a credential assignment with a real literal value → ADVISORY WARN, but exit stays 0 (never block on a guess).
 d="$TMP/cred"; newcorpus "$d"; echo 'password = "S3cr3tHunter2Value"' >> "$d/t-block1.md"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "credential assignment → advisory WARN, exit 0"
+if [ "$(runrc "$d")" = 0 ] && grep -qE '^[[:space:]]+WARN ' <<<"$out"; then ok "credential assignment → advisory WARN, exit 0"
 else no "credential-assignment advisory wrong: exit=$(runrc "$d") :: $out"; fi
 
 # 10 — a PLACEHOLDER credential (not a real value) must NOT WARN.
 d="$TMP/ph"; newcorpus "$d"
 { echo 'password = "<REDACTED>"'; echo 'api_key: xxxxxx'; echo 'token = $ENV_TOKEN'; } >> "$d/t-block1.md"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && ! printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "placeholder credentials not flagged"
-else no "placeholder credential false-warned :: $(printf '%s' "$out" | grep -E '^[[:space:]]+WARN ')"; fi
+if [ "$(runrc "$d")" = 0 ] && ! grep -qE '^[[:space:]]+WARN ' <<<"$out"; then ok "placeholder credentials not flagged"
+else no "placeholder credential false-warned :: $(grep -E '^[[:space:]]+WARN ' <<<"$out")"; fi
 
 # 11 — bad args → exit 2.
 [ "$(bash "$SUT" 2>/dev/null; echo $?)" = 2 ] && ok "no args → exit 2" || no "no-args not exit 2"
@@ -87,37 +87,37 @@ d="$TMP/vendored"; newcorpus "$d"; mkdir -p "$d/node_modules/jose"
 d="$TMP/substr"; newcorpus "$d"
 { echo "saltedPassword = PBKDF2WithHmacSHA256(pw, salt, 100000)"; echo "public static final Property certAliasAndPassword = newProperty(4);"; } >> "$d/t-block1.md"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && ! printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "'saltedPassword'/'certAliasAndPassword' substring not WARNed (word boundary)"
-else no "substring password false-WARNed :: $(printf '%s' "$out" | grep -E '^[[:space:]]+WARN ')"; fi
+if [ "$(runrc "$d")" = 0 ] && ! grep -qE '^[[:space:]]+WARN ' <<<"$out"; then ok "'saltedPassword'/'certAliasAndPassword' substring not WARNed (word boundary)"
+else no "substring password false-WARNed :: $(grep -E '^[[:space:]]+WARN ' <<<"$out")"; fi
 
 # 14 — a truncated/illustrative value (`token: 'abc123...'`) and a markdown-link capture must NOT WARN.
 d="$TMP/illus"; newcorpus "$d"
 { echo "example: { token: 'abc123...' }"; echo "- [30.8 password: ClearProgPwdPanel](#308-password-clearprogpwdpanel)"; } >> "$d/t-block1.md"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && ! printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "truncated '...' value + markdown-link not WARNed"
-else no "illustrative value false-WARNed :: $(printf '%s' "$out" | grep -E '^[[:space:]]+WARN ')"; fi
+if [ "$(runrc "$d")" = 0 ] && ! grep -qE '^[[:space:]]+WARN ' <<<"$out"; then ok "truncated '...' value + markdown-link not WARNed"
+else no "illustrative value false-WARNed :: $(grep -E '^[[:space:]]+WARN ' <<<"$out")"; fi
 
 # 15 — snake_case naming (aws_secret_access_key) must WARN — the `_` word-boundary fix (was silently missed).
 d="$TMP/snake"; newcorpus "$d"; echo 'aws_secret_access_key = wJalrXUtnFEMI9K7value' >> "$d/t-block1.md"
 out="$(runout "$d")"
-printf '%s' "$out" | grep -qE '^[[:space:]]+WARN ' && ok "snake_case aws_secret_access_key → WARN (underscore boundary)" \
+grep -qE '^[[:space:]]+WARN ' <<<"$out" && ok "snake_case aws_secret_access_key → WARN (underscore boundary)" \
   || no "snake_case secret missed :: $out"
 
 # 16 — a multi-assignment line (password=X;timeout=30) must keep X, not degrade to '30' (non-greedy fix).
 d="$TMP/multi"; newcorpus "$d"; echo 'password=RealSecretPass9;timeout=30' >> "$d/t-block1.md"
 out="$(runout "$d")"
-if printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "multi-assignment value not destroyed by greedy extraction → WARN"
+if grep -qE '^[[:space:]]+WARN ' <<<"$out"; then ok "multi-assignment value not destroyed by greedy extraction → WARN"
 else no "multi-assignment value lost (greedy sed regression) :: $out"; fi
 
 # 17 — a bare-hex TOKEN with no hash context must WARN (hex-whitelist is context-gated, not shape-only).
 d="$TMP/hextok"; newcorpus "$d"; echo 'token = a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2' >> "$d/t-block1.md"
-printf '%s' "$(runout "$d")" | grep -qE '^[[:space:]]+WARN ' && ok "bare-hex token (no hash context) → WARN, not swallowed" \
+grep -qE '^[[:space:]]+WARN ' <<<"$(runout "$d")" && ok "bare-hex token (no hash context) → WARN, not swallowed" \
   || no "bare-hex token swallowed by the hash whitelist"
 
 # 18 — BUT a hex value cited as a hash (line says sha256) stays exempt (compliant convention still holds).
 d="$TMP/hexhash"; newcorpus "$d"
 echo 'token = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  # sha256 of the config body' >> "$d/t-block1.md"
-printf '%s' "$(runout "$d")" | grep -qE '^[[:space:]]+WARN ' && no "hash-context hex wrongly WARNed (compliant citation)" \
+grep -qE '^[[:space:]]+WARN ' <<<"$(runout "$d")" && no "hash-context hex wrongly WARNed (compliant citation)" \
   || ok "hex value cited as sha256 stays exempt (context-gated)"
 
 # 19 — ASIA (AWS STS session) key id → high-confidence LEAK (exit 1).
@@ -127,20 +127,20 @@ d="$TMP/asia"; newcorpus "$d"; echo 'aws_session = ASIAIOSFODNN7EXAMPLE' >> "$d/
 # 20 — a NUL byte that makes grep skip a whole file must be SURFACED with a real count (NOT the always-present
 #      summary substring — that was a tautology). Assert the ⚠ note line with a count >= 1.
 d="$TMP/nul"; newcorpus "$d"; printf 'note\x00 -----BEGIN RSA PRIVATE KEY-----\n' >> "$d/t-block1.md"
-printf '%s' "$(runout "$d")" | grep -qE '[1-9][0-9]* in-scope file.*NUL byte' && ok "NUL-byte file surfaced with a count (no silent blind spot)" \
-  || no "NUL-byte file not detected/reported :: $(printf '%s' "$(runout "$d")" | grep -i nul)"
+grep -qE '[1-9][0-9]* in-scope file.*NUL byte' <<<"$(runout "$d")" && ok "NUL-byte file surfaced with a count (no silent blind spot)" \
+  || no "NUL-byte file not detected/reported :: $(grep -i nul <<<"$(runout "$d")")"
 
 # 21 — NEGATIVE for the NUL detector: a clean corpus must report NO NUL-byte note (guards against a false count).
 d="$TMP/nonul"; newcorpus "$d"; echo "ordinary text, no nulls here [CERT]." >> "$d/t-block1.md"
-printf '%s' "$(runout "$d")" | grep -qE 'NUL byte' && no "clean corpus false-reported a NUL-byte file" \
+grep -qE 'NUL byte' <<<"$(runout "$d")" && no "clean corpus false-reported a NUL-byte file" \
   || ok "clean corpus reports no NUL-byte note (detector not a false-positive tautology)"
 
 # 22 — the identifier broadening must NOT WARN on ordinary superstring words (tokenizer/secretariat/passwordless).
 d="$TMP/superstr"; newcorpus "$d"
 { echo 'tokenizer = somelongvalue1'; echo 'secretariat = presidentName9'; echo 'passwordless = true12345'; } >> "$d/t-block1.md"
 out="$(runout "$d")"
-if ! printf '%s' "$out" | grep -qE '^[[:space:]]+WARN '; then ok "superstring words (tokenizer/secretariat/passwordless) not WARNed"
-else no "identifier broadening over-matches ordinary words :: $(printf '%s' "$out" | grep -E '^[[:space:]]+WARN ')"; fi
+if ! grep -qE '^[[:space:]]+WARN ' <<<"$out"; then ok "superstring words (tokenizer/secretariat/passwordless) not WARNed"
+else no "identifier broadening over-matches ordinary words :: $(grep -E '^[[:space:]]+WARN ' <<<"$out")"; fi
 
 # 23 — TEMPLATE-ANCHOR (SECURITY false-negative): a block-shaped kit TEMPLATE must never anchor the corpus
 #      root and silently narrow the secret scan to the wrong subtree. Fixture (the reviewer's repro):
@@ -152,9 +152,9 @@ d="$TMP/template-anchor"; mkdir -p "$d/a-templates" "$d/b-corpus"
 printf '# <SUBJECT> — Block <k>\n\n> placeholder legend, no real content.\n' > "$d/a-templates/block.template.md"
 printf '# Block 1\n\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/b-corpus/foo-block1.md"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 1 ] && ! printf '%s\n' "$out" | grep -q 'corpus root: a-templates/'; then
+if [ "$(runrc "$d")" = 1 ] && ! grep -q 'corpus root: a-templates/' <<<"$out"; then
   ok "TEMPLATE-ANCHOR: template skipped, real corpus scanned, AWS key caught (exit 1)"
-else no "template-anchor: exit $(runrc "$d") (want 1) · corpus=$(printf '%s\n' "$out" | grep -o 'corpus root: [^ ]*')"; fi
+else no "template-anchor: exit $(runrc "$d") (want 1) · corpus=$(grep -o 'corpus root: [^ ]*' <<<"$out")"; fi
 
 # 24 — POSITIVE CONTROL: a normal single-block corpus with NO template still scans correctly. A real AWS key
 #      in the only block → caught (exit 1). Pins that the *.template.md exclusion does not break ordinary

@@ -55,7 +55,7 @@ mkcase() {
 route() {
   local out
   out="$(PATH="$STUB:$PATH" "$BASH_BIN" "$SUT" "$1" 2>&1)" || true
-  printf '%s\n' "$out" | awk -F ' [|] ' '/ [|] / { print $3; exit }'
+  awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$out"
 }
 run_full() { PATH="$STUB:$PATH" "$BASH_BIN" "$SUT" "$@" 2>&1; }
 rc_of()    { PATH="$STUB:$PATH" "$BASH_BIN" "$SUT" "$@" >/dev/null 2>&1; echo $?; }
@@ -226,9 +226,9 @@ ERREOF
 chmod +x "$STUB_ERR/file"
 g1dir="$(mkcase c22 doc.pdf 'PDF document, version 1.7')"
 g1_err="$(PATH="$STUB_ERR:$PATH" "$BASH_BIN" "$SUT" "$g1dir" 2>&1)" || true
-g1_errroute="$(printf '%s\n' "$g1_err" | awk -F ' [|] ' '/ [|] / { print $3; exit }')"
+g1_errroute="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$g1_err")"
 g1_ok="$(PATH="$STUB:$PATH" "$BASH_BIN" "$SUT" "$g1dir" 2>&1)" || true
-g1_okroute="$(printf '%s\n' "$g1_ok" | awk -F ' [|] ' '/ [|] / { print $3; exit }')"
+g1_okroute="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$g1_ok")"
 g1_manual=0; g1_fetch=0
 case "$g1_errroute" in *"scan-firmware.sh + MANUAL (magic"*) g1_manual=1;; esac
 case "$g1_okroute"  in *"fetch-doc.sh"*)                      g1_fetch=1;;  esac
@@ -247,9 +247,9 @@ printf '%s' 'ELF 64-bit LSB executable, x86-64' > "$maxdir/a.bin"
 printf '%s' 'ELF 64-bit LSB executable, x86-64' > "$maxdir/b.bin"
 printf '%s' 'ELF 64-bit LSB executable, x86-64' > "$maxdir/c.bin"
 cut_out="$(run_full "$maxdir" --max 1)"; cut_rc="$(rc_of "$maxdir" --max 1)"
-cut_rows="$(printf '%s\n' "$cut_out" | grep -c ' | ')"
+cut_rows="$(grep -c ' | ' <<<"$cut_out")"
 full_out="$(run_full "$maxdir")"
-full_rows="$(printf '%s\n' "$full_out" | grep -c ' | ')"
+full_rows="$(grep -c ' | ' <<<"$full_out")"
 if [ "$cut_rows" -eq 1 ] && grep -qF '... (cut at 1' <<<"$cut_out" && [ "$cut_rc" = 0 ] \
    && [ "$full_rows" -eq 3 ] && ! grep -qF '(cut at' <<<"$full_out"; then
   ok "23 --max N truncates at N rows + cut notice, exit 0 (teeth: no --max → all 3 rows)" "rows=$cut_rows"
@@ -264,9 +264,9 @@ fi
 extdir="$STAGE/extraext"; mkdir -p "$extdir"
 printf '%s' 'ELF 64-bit LSB executable, x86-64' > "$extdir/mod.wasm"
 with_out="$(PATH="$STUB:$PATH" EXTRA_EXT="wasm" "$BASH_BIN" "$SUT" "$extdir" 2>&1)" || true
-with_route="$(printf '%s\n' "$with_out" | awk -F ' [|] ' '/ [|] / { print $3; exit }')"
+with_route="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$with_out")"
 without_out="$(PATH="$STUB:$PATH" EXTRA_EXT="" "$BASH_BIN" "$SUT" "$extdir" 2>&1)" || true
-without_rows="$(printf '%s\n' "$without_out" | grep -c ' | ')"
+without_rows="$(grep -c ' | ' <<<"$without_out")"
 g3_native=0
 case "$with_route" in *"decompile-native.sh"*) g3_native=1;; esac
 if [ "$g3_native" = 1 ] && [ "$without_rows" -eq 0 ] \
@@ -295,7 +295,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$STAGE/teeth"; mkdir -p "$d"
     printf '%s' "$NETPE" > "$d/x.exe"
     mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$mutant" "$d" 2>&1)"
-    mroute="$(printf '%s\n' "$mout" | awk -F ' [|] ' '/ [|] / { print $3; exit }')"
+    mroute="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$mout")"
     case "$mroute" in
       *"decompile-native.sh"*)
         ok "teeth: .Net-arm-neutered mutant misroutes .NET→native (case 16 has teeth)" "($mroute)" ;;

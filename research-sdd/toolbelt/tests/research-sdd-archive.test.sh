@@ -144,8 +144,8 @@ if [ -f "$d/CATALOG.md" ] && grep -q 'the first thing' "$d/CATALOG.md"; then
   ok "CATALOG regenerated from blocks on a clean archive"
 else no "CATALOG.md not regenerated (or missing the block title)"; fi
 # 5a — with NO local copy, the KIT generator is used (default authority, no drift).
-printf '%s' "$out" | grep -q 'via kit generator' && ok "no local copy → regen via kit generator" \
-  || no "expected 'via kit generator' in report :: $(printf '%s' "$out" | grep -i catalog | head -1)"
+grep -q 'via kit generator' <<<"$out" && ok "no local copy → regen via kit generator" \
+  || no "expected 'via kit generator' in report :: $(grep -i catalog <<<"$out" | head -1)"
 
 # 5b — PREFER-LOCAL: a target with a BESPOKE tools/gen-catalog.py (mature corpora ship one to catalog
 # corpus-specific structures the generic can't express) WINS over the kit generator. Proven with a local
@@ -159,9 +159,9 @@ ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).reso
 (ROOT / "CATALOG.md").write_text("BESPOKE-LOCAL-GENERATOR-RAN\n", encoding="utf-8")
 PY
 out="$(bash "$SUT" "$d" 2>&1)"
-if grep -q 'BESPOKE-LOCAL-GENERATOR-RAN' "$d/CATALOG.md" 2>/dev/null && printf '%s' "$out" | grep -q 'via local generator'; then
+if grep -q 'BESPOKE-LOCAL-GENERATOR-RAN' "$d/CATALOG.md" 2>/dev/null && grep -q 'via local generator' <<<"$out"; then
   ok "local tools/gen-catalog.py WINS over the kit generator (regression fix)"
-else no "prefer-local failed :: catalog=$(head -1 "$d/CATALOG.md" 2>/dev/null) :: $(printf '%s' "$out" | grep -i catalog | head -1)"; fi
+else no "prefer-local failed :: catalog=$(head -1 "$d/CATALOG.md" 2>/dev/null) :: $(grep -i catalog <<<"$out" | head -1)"; fi
 
 # 5c — SYMLINKED local copy (JD both-confirmed): a tools/gen-catalog.py that is a SYMLINK to the shared kit
 # generator must still write CATALOG.md into the CORPUS, not the symlink target's own tree. Before the fix,
@@ -202,31 +202,31 @@ bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 d="$TMP/bighist"; mkgood "$d"
 { for i in $(seq 2 30); do echo "| $i | 2026-07-07 | gap $i | B$i | no · inline | 0 |"; done; } >> "$d/RESEARCH-STATE.md"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s' "$out" | grep -qiE 'collapse|iteration.history' && ok "history over threshold is flagged as a follow-up" || no "history-collapse follow-up not surfaced"
+grep -qiE 'collapse|iteration.history' <<<"$out" && ok "history over threshold is flagged as a follow-up" || no "history-collapse follow-up not surfaced"
 
 # 10 — the close checklist surfaces the §18 retro follow-up
 d="$TMP/checklist"; mkgood "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s' "$out" | grep -qiE 'retro' && ok "checklist surfaces the §18 retro follow-up" || no "retro follow-up not surfaced"
+grep -qiE 'retro' <<<"$out" && ok "checklist surfaces the §18 retro follow-up" || no "retro follow-up not surfaced"
 
 # 10a — a codegen/ deliverable surfaces the §19 PARITY follow-up (verify-parity is a targeted (deliverable,
 #       block) check, not a corpus-wide gate, so archive REMINDS rather than auto-gates). No codegen/ → silent.
 d="$TMP/parity-reminder"; mkgood "$d"; mkdir -p "$d/codegen"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s' "$out" | grep -qiE 'PARITY.*verify-parity' && ok "codegen/ deliverable surfaces the §19 parity follow-up" || no "parity follow-up not surfaced with codegen/"
+grep -qiE 'PARITY.*verify-parity' <<<"$out" && ok "codegen/ deliverable surfaces the §19 parity follow-up" || no "parity follow-up not surfaced with codegen/"
 d="$TMP/no-codegen"; mkgood "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s' "$out" | grep -qiE 'PARITY.*verify-parity' && no "parity follow-up surfaced WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity follow-up (silent)"
+grep -qiE 'PARITY.*verify-parity' <<<"$out" && no "parity follow-up surfaced WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity follow-up (silent)"
 
 # 10b — a codegen/ deliverable also emits a LOUD stderr WARN (advisory, not a hard refuse) that verify-parity
 #       was NOT run — so a shipped deliverable can't close green with deliverable↔block parity unchecked. Exit stays 0.
 d="$TMP/parity-warn"; mkgood "$d"; mkdir -p "$d/codegen"
 err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"; rc=$?
-printf '%s' "$err" | grep -qiE 'WARN:.*deliverable.*verify-parity' && ok "codegen/ deliverable emits a loud stderr WARN" || no "no loud stderr WARN with codegen/ :: $(printf '%s' "$err" | head -1)"
+grep -qiE 'WARN:.*deliverable.*verify-parity' <<<"$err" && ok "codegen/ deliverable emits a loud stderr WARN" || no "no loud stderr WARN with codegen/ :: $(head -1 <<<"$err")"
 [ "$rc" = 0 ] && ok "codegen/ WARN keeps exit 0 (advisory, not a refuse)" || no "codegen/ WARN flipped exit to $rc (want 0)"
 d="$TMP/no-codegen-warn"; mkgood "$d"
 err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"
-printf '%s' "$err" | grep -qiE 'WARN:.*deliverable.*verify-parity' && no "parity WARN emitted WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity WARN (silent)"
+grep -qiE 'WARN:.*deliverable.*verify-parity' <<<"$err" && no "parity WARN emitted WITHOUT codegen/ (should be silent)" || ok "no codegen/ → no parity WARN (silent)"
 
 # 11 — bad usage (no target dir) → exit 2
 bash "$SUT" >/dev/null 2>&1; rc=$?
@@ -237,9 +237,9 @@ bash "$SUT" >/dev/null 2>&1; rc=$?
 d="$TMP/lockedtree"; mkgood "$d"; mkdir -p "$d/lockeddir"; chmod 000 "$d/lockeddir"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 chmod 0755 "$d/lockeddir" 2>/dev/null
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'research-sdd-archive:'; then
+if [ "$rc" = 0 ] && grep -q 'research-sdd-archive:' <<<"$out"; then
   ok "unreadable subtree degrades — banner prints, exit 0 (no silent set -e abort)"
-else no "unreadable subtree: exit=$rc / banner=$(printf '%s' "$out" | grep -c 'research-sdd-archive:') :: $out"; fi
+else no "unreadable subtree: exit=$rc / banner=$(grep -c 'research-sdd-archive:' <<<"$out") :: $out"; fi
 
 # 13 — a MISSING/broken gate linter must fail CLOSED and be reported DISTINCTLY (not as a stale-mirror FAIL).
 d="$TMP/brokenlinter"; mkgood "$d"
@@ -248,9 +248,9 @@ cp "$SUT" "$tb/research-sdd-archive.sh"
 cp "$HERE/../verify-sources.sh" "$tb/verify-sources.sh"   # present + passing
 # verify-state.sh deliberately NOT copied → the gate call resolves to a missing file (rc 127)
 out="$(bash "$tb/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 3 ] && printf '%s' "$out" | grep -qi 'did not run' && [ ! -f "$d/CATALOG.md" ]; then
+if [ "$rc" = 3 ] && grep -qi 'did not run' <<<"$out" && [ ! -f "$d/CATALOG.md" ]; then
   ok "missing linter → fail-closed (exit 3), reported as 'did not run', no mutation"
-else no "broken linter: exit=$rc / 'did not run'=$(printf '%s' "$out" | grep -ci 'did not run') / catalog=$([ -f "$d/CATALOG.md" ] && echo yes || echo no)"; fi
+else no "broken linter: exit=$rc / 'did not run'=$(grep -ci 'did not run' <<<"$out") / catalog=$([ -f "$d/CATALOG.md" ] && echo yes || echo no)"; fi
 
 # 14 — the blocks-on-disk mirror fact uses gen-catalog's strict discriminator: a `blocked-notes.md` decoy
 #      must NOT inflate the count (was: loose `*block*.md` glob counted it).
@@ -260,15 +260,15 @@ d="$TMP/decoy"; mkgood "$d"; printf '# not a block\n' > "$d/blocked-notes.md"
 # still uses gen-catalog's STRICT discriminator (which ignores the decoy → 1), which is what this pins.
 bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
 out="$(bash "$SUT" "$d" 2>&1)"
-printf '%s' "$out" | grep -qE 'blocks on disk : 1( |$|·)' && ok "strict block count ignores 'blocked-notes.md' decoy" \
-  || no "block count inflated by decoy :: $(printf '%s' "$out" | grep 'blocks on disk')"
+grep -qE 'blocks on disk : 1( |$|·)' <<<"$out" && ok "strict block count ignores 'blocked-notes.md' decoy" \
+  || no "block count inflated by decoy :: $(grep 'blocks on disk' <<<"$out")"
 
 # 15 — a failing INDEX touch must DEGRADE (honest report), never abort mid-consolidate (was: set -e killed it
 #      after CATALOG regen, dropping the whole checklist). Skipped as no-op under root (touch always succeeds).
 d="$TMP/rotouch"; mkgood "$d"; chmod 000 "$d/INDEX.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 chmod 0644 "$d/INDEX.md" 2>/dev/null
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'archived'; then
+if [ "$rc" = 0 ] && grep -q 'archived' <<<"$out"; then
   ok "failing INDEX touch degrades — checklist still prints, exit 0 (no mid-abort)"
 else no "touch-fail abort: exit=$rc did not reach 'archived.' :: $out"; fi
 
@@ -279,16 +279,16 @@ else no "touch-fail abort: exit=$rc did not reach 'archived.' :: $out"; fi
 d="$TMP/secret"; mkgood "$d"
 printf '\nLeaked on deploy: AKIAIOSFODNN7EXAMPLE\n' >> "$d/t-block1.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 3 ] && printf '%s' "$out" | grep -qiE 'scan-secrets .*FAIL'; then
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
   ok "leaked secret VALUE REFUSED (exit 3, scan-secrets FAIL)"
-else no "secret corpus exit=$rc (want 3) / scan-secrets FAIL=$(printf '%s' "$out" | grep -ciE 'scan-secrets .*FAIL') :: $out"; fi
+else no "secret corpus exit=$rc (want 3) / scan-secrets FAIL=$(grep -ciE 'scan-secrets .*FAIL' <<<"$out") :: $out"; fi
 
 # 17 — CONTROL: the SAME fixture WITHOUT the secret must NOT refuse on scan-secrets (gate passes → exit 0).
 d="$TMP/nosecret"; mkgood "$d"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qE 'scan-secrets .*: ok'; then
+if [ "$rc" = 0 ] && grep -qE 'scan-secrets .*: ok' <<<"$out"; then
   ok "secret-free corpus passes the scan-secrets gate (exit 0)"
-else no "clean corpus exit=$rc (want 0) / scan-secrets ok=$(printf '%s' "$out" | grep -cE 'scan-secrets .*: ok') :: $out"; fi
+else no "clean corpus exit=$rc (want 0) / scan-secrets ok=$(grep -cE 'scan-secrets .*: ok' <<<"$out") :: $out"; fi
 
 # 18 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders +
 #      the CHECK-3 doc example, pending backlog) must be treated as NO state to archive → exit 2, and must
@@ -334,27 +334,27 @@ bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 #      and no retros/, so the WARN must fire and the archive still succeeds.
 d="$TMP/missingretro"; mkgood "$d"
 err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$err" | grep -qiE 'retro .*may be' && printf '%s' "$err" | grep -qi 'MISSING-RETRO'; then
+if [ "$rc" = 0 ] && grep -qiE 'retro .*may be' <<<"$err" && grep -qi 'MISSING-RETRO' <<<"$err"; then
   ok "blocks + no retro → MISSING-RETRO WARN (advisory, exit 0)"
-else no "no MISSING-RETRO WARN with blocks+no retro :: rc=$rc :: $(printf '%s' "$err" | head -2)"; fi
+else no "no MISSING-RETRO WARN with blocks+no retro :: rc=$rc :: $(head -2 <<<"$err")"; fi
 
 # 20a — an OLD retro (mtime older than the newest block) still counts as 'corpus advanced past the retro' →
 #       WARN. TMP is not a git repo, so the advancement signal is the block mtime (git commit epoch is 0).
 d="$TMP/oldretro"; mkgood "$d"; mkdir -p "$d/retros"
 : > "$d/retros/2020-01-01-focus.md"; touch -d '2020-01-01' "$d/retros/2020-01-01-focus.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+if [ "$rc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "blocks newer than an OLD retro → MISSING-RETRO WARN"
-else no "old-retro corpus did not WARN :: rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"; fi
+else no "old-retro corpus did not WARN :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
 
 # 20b — NEGATIVE CONTROL: a retro NEWER than every block (run just closed with its retro) must NOT WARN — the
 #       detector fires only on genuine advancement past the newest retro.
 d="$TMP/freshretro"; mkgood "$d"; mkdir -p "$d/retros"
 : > "$d/retros/2030-01-01-focus.md"; touch -d '2030-01-01' "$d/retros/2030-01-01-focus.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+if [ "$rc" = 0 ] && ! grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "retro newer than blocks → no MISSING-RETRO WARN (negative control)"
-else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"; fi
+else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
 
 # 21 — GIT-ADDED-DATE path, exercised for real (Feature #25a): block git-added AFTER retro, but mtimes say
 #      the OPPOSITE (retro mtime later than block mtime). A detector reading mtime instead of the git date
@@ -362,10 +362,10 @@ else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(printf '%s' "$out" 
 d="$TMP/git-warn"
 mkgood_git "$d" "2026-01-10T00:00:00" "2026-03-01T00:00:00" "2030-01-01" "2020-01-01"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+if [ "$rc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)"
 else
-  no "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)" "rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"
+  no "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
 fi
 
 # 21a — NEGATIVE CONTROL for 21: git dates reversed (retro added AFTER block), mtimes again say the
@@ -374,10 +374,10 @@ fi
 d="$TMP/git-nowarn"
 mkgood_git "$d" "2026-03-01T00:00:00" "2026-01-10T00:00:00" "2020-01-01" "2030-01-01"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+if [ "$rc" = 0 ] && ! grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "21a git-added-date: retro added after block (mtime says opposite) → no WARN (git date wins)"
 else
-  no "21a git-added-date: retro added after block (mtime says opposite) → no WARN (git date wins)" "rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"
+  no "21a git-added-date: retro added after block (mtime says opposite) → no WARN (git date wins)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
 fi
 
 # 21b — FIX-1 REGRESSION PIN (relative-target invocation): the SAME fixture as case 21 (block genuinely
@@ -389,10 +389,10 @@ fi
 d="$TMP/git-warn-rel"
 mkgood_git "$d" "2026-01-10T00:00:00" "2026-03-01T00:00:00" "2030-01-01" "2020-01-01"
 out="$(cd "$TMP" && bash "$SUT" "$(basename "$d")" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qi 'MISSING-RETRO'; then
+if [ "$rc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)"
 else
-  no "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)" "rc=$rc :: $(printf '%s' "$out" | grep -i retro | head -2)"
+  no "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
 fi
 
 # mkrun_git <corpus> <together|split> — a hermetic 2-block git corpus. baseline + retro commit (OLD dates),
@@ -451,17 +451,17 @@ EOF
 #      than the newest retro) → advisory WARN + checklist follow-up, exit STILL 0 (never rewrites history).
 d="$TMP/one-block-violation"; mkrun_git "$d" together
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qi 'ONE-BLOCK-PER-COMMIT'; then
+if [ "$rc" = 0 ] && grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "commit landing 2 block files → ONE-BLOCK-PER-COMMIT WARN, exit still 0"
-else no "one-block-violation: rc=$rc :: $(printf '%s\n' "$out" | grep -iE 'one-block|block' | head -1)"; fi
+else no "one-block-violation: rc=$rc :: $(grep -iE 'one-block|block' <<<"$out" | head -1)"; fi
 
 # 23 — CONTROL: the SAME two blocks, each in its OWN commit → NO ONE-BLOCK-PER-COMMIT WARN (exit 0). Pins the
 #      detector on the per-commit block-file COUNT, not merely on "2 blocks exist in the run".
 d="$TMP/one-block-clean"; mkrun_git "$d" split
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && ! printf '%s\n' "$out" | grep -qi 'ONE-BLOCK-PER-COMMIT'; then
+if [ "$rc" = 0 ] && ! grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "one block per commit (2 commits) → no ONE-BLOCK-PER-COMMIT WARN, exit 0"
-else no "one-block-clean: rc=$rc :: $(printf '%s\n' "$out" | grep -i 'one-block' | head -1)"; fi
+else no "one-block-clean: rc=$rc :: $(grep -i 'one-block' <<<"$out" | head -1)"; fi
 
 # mkrun_git_backlink <corpus> — a hermetic git corpus for the ONE-BLOCK-PER-COMMIT × §14 reconciliation:
 # baseline + retro (OLD dates), then B1 in its OWN commit, then ONE iteration commit that ADDS B2 (a new
@@ -520,9 +520,9 @@ EOF
 #       B2-adding commit showed 2 block files → false ONE-BLOCK-PER-COMMIT WARN.
 d="$TMP/one-block-backlink"; mkrun_git_backlink "$d"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && ! printf '%s\n' "$out" | grep -qi 'ONE-BLOCK-PER-COMMIT'; then
+if [ "$rc" = 0 ] && ! grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "add 1 NEW block + modify 1 existing (§14 backlink) → no ONE-BLOCK-PER-COMMIT WARN (counts ADDED only)"
-else no "one-block-backlink: rc=$rc :: $(printf '%s\n' "$out" | grep -iE 'one-block|block' | head -1)"; fi
+else no "one-block-backlink: rc=$rc :: $(grep -iE 'one-block|block' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -546,7 +546,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     d="$TMP/teeth-backlink"; mkrun_git_backlink "$d"
     out="$(bash "$amutant" "$d" 2>&1)"; arc=$?
-    if [ "$arc" = 0 ] && printf '%s\n' "$out" | grep -qi 'ONE-BLOCK-PER-COMMIT'; then
+    if [ "$arc" = 0 ] && grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
       ok "teeth: name-only mutant WARNs on the add-1+modify-1 iteration → case 23a has teeth"
     else no "teeth: add-mutant rc=$arc / no WARN — case 23a does NOT depend on --diff-filter=A (THEATER)"; fi
   fi

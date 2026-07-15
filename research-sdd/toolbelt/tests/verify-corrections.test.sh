@@ -34,9 +34,9 @@ d="$TMP/ok"; mkdir -p "$d"
 printf '# Block 33\n\n> Corrects [Block 8] §2 on Docker.\n\nBody.\n' > "$d/t-block33.md"
 printf '# Block 8\n\nOriginal claim.\n\n> Note: corrected in B33 (new citation sources/x.pdf).\n' > "$d/t-block8.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'ok +every declared correction'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +every declared correction' <<<"$out"; then
   ok "reciprocated correction (B33→B8, B8 has 'corrected in B33') → exit 0 + ok line"
-else no "ok-case: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|ok ' | head -1)"; fi
+else no "ok-case: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
 
 # 3 — CORE (retro delta): B33 declares 'Corrects [Block 8]' but block-8 has NO 'corrected in B33' backlink
 #     → FAIL exit 1. This is the exact B33→B8 gap the retro caught (the correcting commit never touched B8).
@@ -44,9 +44,9 @@ d="$TMP/onedir"; mkdir -p "$d"
 printf '# Block 33\n\n> Corrects [Block 8] §2 on Docker.\n\nBody.\n' > "$d/t-block33.md"
 printf '# Block 8\n\nOriginal Docker claim, never annotated.\n' > "$d/t-block8.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL.*B33 corrects \[Block 8\].*reciprocal'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*B33 corrects \[Block 8\].*reciprocal' <<<"$out"; then
   ok "one-directional correction (B8 lacks 'corrected in B33') → FAIL exit 1"
-else no "onedir: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail' | head -1)"; fi
+else no "onedir: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 
 # 4 — NEGATIVE CONTROL: a bare '[Block 8]' CONNECTION (no correction verb) must NOT fire — proves the FAIL is
 #     gated on a real correction declaration, not on any [Block N] reference.
@@ -73,9 +73,9 @@ printf '# Block 33\n\n> Corrects [Block 8] §2; cf. [Block 12].\n\nBody.\n' > "$
 printf '# Block 8\n\nOriginal claim.\n\n> Note: corrected in B33.\n' > "$d/t-block8.md"
 printf '# Block 12\n\nUnrelated cross-referenced block, no backlink.\n' > "$d/t-block12.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'ok +every declared correction'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +every declared correction' <<<"$out"; then
   ok "verb governs only the first ref: 'Corrects [8] … cf. [12]' → 12 not a target → exit 0"
-else no "cfref: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail' | head -1)"; fi
+else no "cfref: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROL — neuter the FAIL in a mutant; the one-directional fixture must then pass (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then

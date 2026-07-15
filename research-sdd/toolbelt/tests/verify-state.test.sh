@@ -74,18 +74,18 @@ d="$TMP/consistent"
 state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' '## Backlog' '- gap 1 closed' '- gap 2 closed'
 addenv "$d" 0 5 5 0 0 0
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'ok +envelope validated'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
   ok "consistent 5/5 · zero pending → exit 0 + ok line"
-else no "consistent: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'ok|fail' | head -1)"; fi
+else no "consistent: exit $(code "$d") :: $(grep -iE 'ok|fail' <<<"$out" | head -1)"; fi
 
 # 4 — STALE MIRROR (the core FAIL): metric 23 / 23 WITH pending gap rows → exit 1 + PREMATURE STOP line.
 #     Mirrors the real pruebas-dashboards run-A desync (summary 23/23 closed while gaps pending).
 d="$TMP/stale"
 tablestate "$d" 23 23 3   # metric 23/23 (all closed) WITH 3 leading-token `pending` backlog ROWS → CHECK 1 fires
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL' && printf '%s\n' "$out" | grep -q 'PREMATURE STOP'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL' <<<"$out" && grep -q 'PREMATURE STOP' <<<"$out"; then
   ok "STALE 23/23 + pending → exit 1 + FAIL/PREMATURE STOP"
-else no "stale: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|premature' | head -1)"; fi
+else no "stale: exit $(code "$d") :: $(grep -iE 'fail|premature' <<<"$out" | head -1)"; fi
 
 # 4b — FALSE-POSITIVE GUARD (retro delta): the ordinary word "pending" in PROSE (iteration-history
 #      narratives, coverage notes) must NOT count as a backlog gap. Metric 5 / 5 (all closed) + ZERO
@@ -107,9 +107,9 @@ d="$TMP/pending-prose-fp"; mkdir -p "$d"
   echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -q 'PREMATURE STOP'; then
+if [ "$(code "$d")" = 0 ] && ! grep -q 'PREMATURE STOP' <<<"$out"; then
   ok "prose 'pending' (not a backlog status) → CHECK 1 silent, exit 0 (no false stale-mirror FAIL)"
-else no "pending-prose-fp: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'premature|fail' | head -1)"; fi
+else no "pending-prose-fp: exit $(code "$d") :: $(grep -iE 'premature|fail' <<<"$out" | head -1)"; fi
 
 # 5 — NON-EQUAL metric guard: metric 3 / 5 WITH pending gaps → exit 0 (CHECK 1 must NOT fire when X != Y).
 #     Key boundary: proves the FAIL is gated on X==Y, not merely on "pending exists".
@@ -132,18 +132,18 @@ state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered bloc
 printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"
 addenv "$d" 2 5 5 0 0 0   # envelope covered_blocks=2 matches on-disk; the prose 'Covered blocks: 21' still trips CHECK 2 WARN
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'WARN.*disagrees with 2 block file'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*disagrees with 2 block file' <<<"$out"; then
   ok "CHECK 2: claim 21 vs 2 on-disk → WARN printed, exit still 0"
-else no "warn: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'warn' | head -1)"; fi
+else no "warn: exit $(code "$d") :: $(grep -iE 'warn' <<<"$out" | head -1)"; fi
 
 # 8 — NESTED state: RESEARCH-STATE.md under a corpus/ subdir (within maxdepth 3) is found and linted.
 #     Reuse the stale desync so we can assert the nested file is genuinely parsed (exit 1, not skipped).
 d="$TMP/nested"; mkdir -p "$d/corpus"
 tablestate "$d/corpus" 23 23 1   # nested table-backed stale focus (metric 23/23 + 1 pending row)
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -q 'PREMATURE STOP'; then
+if [ "$(code "$d")" = 1 ] && grep -q 'PREMATURE STOP' <<<"$out"; then
   ok "nested corpus/RESEARCH-STATE.md found + linted (stale caught, exit 1)"
-else no "nested: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'no research-state|premature' | head -1)"; fi
+else no "nested: exit $(code "$d") :: $(grep -iE 'no research-state|premature' <<<"$out" | head -1)"; fi
 
 # 9 — CHECK 2 quiet: covered-blocks claim MATCHES the on-disk count → NO warn (and exit 0).
 d="$TMP/nowarn"
@@ -151,9 +151,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered bloc
 printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"
 addenv "$d" 2 5 5 0 0 0
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -qE 'WARN'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN' <<<"$out"; then
   ok "CHECK 2: claim 2 == 2 on-disk → no WARN, exit 0"
-else no "no-warn: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'warn' | head -1)"; fi
+else no "no-warn: exit $(code "$d") :: $(grep -iE 'warn' <<<"$out" | head -1)"; fi
 
 # 10 — CHECK 2 on-disk guard: 'Covered blocks: 5' claim but ZERO *block*.md on disk → NO warn (exit 0).
 #      Pins the `[ "${ondisk:-0}" -gt 0 ]` guard at verify-state.sh:49 — CHECK 2 is SUPPRESSED when nothing
@@ -164,9 +164,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered bloc
 # NOTE: no *block*.md files created → ondisk == 0.
 addenv "$d" 0 5 5 0 0 0   # envelope covered_blocks=0 matches ondisk=0; prose 'Covered blocks: 5' is CHECK 2's -gt 0 guard case
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -qE 'WARN'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN' <<<"$out"; then
   ok "CHECK 2: claim 5 vs 0 on-disk → guard -gt 0 suppresses WARN, exit 0"
-else no "warn-zero-ondisk: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'warn' | head -1)"; fi
+else no "warn-zero-ondisk: exit $(code "$d") :: $(grep -iE 'warn' <<<"$out" | head -1)"; fi
 
 # 11 — CHECK 2 empty-claim guard IN ISOLATION: NO 'Covered blocks' line, but block files DO exist on disk
 #      (ondisk > 0). CHECK 2 stays silent specifically because `covered_claim` is empty (the
@@ -177,9 +177,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' '## Backlog' 
 printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"   # ondisk == 2, but no covered-blocks claim
 addenv "$d" 2 5 5 0 0 0
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -qE 'WARN'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN' <<<"$out"; then
   ok "CHECK 2: no covered-blocks line + 2 on-disk → empty-claim guard keeps it silent, exit 0"
-else no "nocovered-ondisk: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'warn' | head -1)"; fi
+else no "nocovered-ondisk: exit $(code "$d") :: $(grep -iE 'warn' <<<"$out" | head -1)"; fi
 
 # 12 — STRICT block discriminator (gen-catalog.py BLOCK_RE): a block file is `<prefix>-(block|bloque)<N>[-suffix].md`,
 #      matched case-INSENSITIVELY. This is the SINGLE definition shared by verify-state / --sync-state / archive /
@@ -196,9 +196,9 @@ printf 'x\n' > "$d/niagara-block-bloque1.md"   # both tokens present — the sin
 printf 'x\n' > "$d/blocked-notes.md"           # DECOY — old loose glob wrongly counted it; strict must NOT
 addenv "$d" 4 5 5 0 0 0
 out="$(run "$d")"
-if printf '%s\n' "$out" | grep -qE '4 block file\(s\) on disk'; then
+if grep -qE '4 block file\(s\) on disk' <<<"$out"; then
   ok "STRICT: prefixed -block/-bloque counted (4), bare/decoy 'blocked-notes.md' excluded → '4 block file(s)'"
-else no "bloque-glob: on-disk count :: $(printf '%s\n' "$out" | grep -iE 'block file' | head -1)"; fi
+else no "bloque-glob: on-disk count :: $(grep -iE 'block file' <<<"$out" | head -1)"; fi
 
 # 13 — BUG 2 (only the FIRST state file is linted): a corpus with several RESEARCH-STATE-*.md (niagara
 #      keeps ~12, one per focus) must lint EVERY one, not just `head -1`. Fixture: two consistent
@@ -223,11 +223,11 @@ env_lines 0 7 7 0 0 0 >> "$d/RESEARCH-STATE-beta.md"
 } > "$d/RESEARCH-STATE-gamma.md"
 out="$(run "$d")"
 if [ "$(code "$d")" = 1 ] \
-   && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-alpha.md' \
-   && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-beta.md' \
-   && printf '%s\n' "$out" | grep -q 'RESEARCH-STATE-gamma.md'; then
+   && grep -q 'RESEARCH-STATE-alpha.md' <<<"$out" \
+   && grep -q 'RESEARCH-STATE-beta.md' <<<"$out" \
+   && grep -q 'RESEARCH-STATE-gamma.md' <<<"$out"; then
   ok "BUG2: every RESEARCH-STATE-*.md linted (3 headers) + stale focus caught → exit 1"
-else no "multistate: exit $(code "$d") · headers seen: $(printf '%s\n' "$out" | grep -c 'verify-state:')"; fi
+else no "multistate: exit $(code "$d") · headers seen: $(grep -c 'verify-state:' <<<"$out")"; fi
 
 # 14 — BUG 3 (zero-pending corpus crashes CHECK 1): a corpus with a metric like '3 / 3 closed' and NO
 #      `pending` rows. `grep -c` already prints 0 on no match, so the old `|| echo 0` APPENDED a second
@@ -238,9 +238,9 @@ d="$TMP/zero-pending"
 state "$d" '# Research State' 'coverage metric: 3 / 3 gaps closed' '## Backlog' '- gap 1 closed' '- gap 2 closed' '- gap 3 closed'
 addenv "$d" 0 3 3 0 0 0
 err="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$err" | grep -qiE 'integer expression'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'integer expression' <<<"$err"; then
   ok "BUG3: zero-pending metric 3/3 → exit 0, no 'integer expression expected' on stderr"
-else no "zero-pending: exit $(code "$d") · stderr: $(printf '%s\n' "$err" | grep -iE 'integer expression' | head -1)"; fi
+else no "zero-pending: exit $(code "$d") · stderr: $(grep -iE 'integer expression' <<<"$err" | head -1)"; fi
 
 # 15 — CHECK 3 WARN (contradictory CANONICAL coverage): TWO coverage-metric assertions with DIFFERENT
 #      denominators, both OUTSIDE any '## Iteration history' table → WARN. Mirrors the real
@@ -252,9 +252,9 @@ state "$d" '# Research State' 'coverage metric: 16 / 16 gaps closed' \
   'Coverage metric: 26 / 26 declared gaps closed' '## Backlog' '- gap done'
 addenv "$d" 0 16 16 0 0 0
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators \(16 vs 26\)'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'contradictory coverage denominators \(16 vs 26\)' <<<"$out"; then
   ok "CHECK 3: 16/16 + 26/26 canonical → WARN (16 vs 26), exit still 0"
-else no "coverage-contradiction: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'contradictory|warn' | head -1)"; fi
+else no "coverage-contradiction: exit $(code "$d") :: $(grep -iE 'contradictory|warn' <<<"$out" | head -1)"; fi
 
 # 16 — CHECK 3 NEGATIVE CONTROL (load-bearing): a SINGLE canonical coverage metric PLUS a normal
 #      '## Iteration history' table whose rows each carry a DIFFERENT cumulative coverage snapshot
@@ -273,9 +273,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 12 gaps closed' '## Backlog'
   '## Blocked gaps' '- none'
 addenv "$d" 0 5 12 0 0 0
 out="$(run "$d")"
-if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+if ! grep -qE 'contradictory coverage denominators' <<<"$out"; then
   ok "CHECK 3 neg-control: 1 canonical metric + iteration-history snapshots → NO WARN (history excluded)"
-else no "coverage-history-ok: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
+else no "coverage-history-ok: FALSE ALARM :: $(grep -iE 'contradictory' <<<"$out" | head -1)"; fi
 
 # 17 — CHECK 3 quiet on the happy path: exactly ONE canonical coverage metric, no iteration history →
 #      a single denominator → NO 'contradictory coverage denominators' WARN, exit 0.
@@ -283,9 +283,9 @@ d="$TMP/coverage-single"
 state "$d" '# Research State' 'coverage metric: 12 / 12 gaps closed' '## Backlog' '- gap done'
 addenv "$d" 0 12 12 0 0 0
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'contradictory coverage denominators' <<<"$out"; then
   ok "CHECK 3: single canonical 12/12 → no contradiction WARN, exit 0"
-else no "coverage-single: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'contradictory|warn' | head -1)"; fi
+else no "coverage-single: exit $(code "$d") :: $(grep -iE 'contradictory|warn' <<<"$out" | head -1)"; fi
 
 # 18 — CHECK 3 NEGATIVE CONTROL, TITLE-CASE fence: same shape as case 16 but the heading is the ordinary
 #      '## Iteration History' (Title Case). The history-fence must match CASE-INSENSITIVELY, else the
@@ -301,9 +301,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 12 gaps closed' '## Backlog'
   '## Blocked gaps' '- none'
 addenv "$d" 0 5 12 0 0 0
 out="$(run "$d")"
-if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+if ! grep -qE 'contradictory coverage denominators' <<<"$out"; then
   ok "CHECK 3 neg-control: Title-Case '## Iteration History' → NO WARN (fence is case-insensitive)"
-else no "coverage-history-titlecase: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
+else no "coverage-history-titlecase: FALSE ALARM :: $(grep -iE 'contradictory' <<<"$out" | head -1)"; fi
 
 # 19 — CHECK 3 NEGATIVE CONTROL, bare '## History' alias: a state file that heads its snapshot table
 #      '## History' (no 'Iteration') must also be exempted. Over-recognizing the history fence is cheap
@@ -318,9 +318,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 12 gaps closed' '## Backlog'
   '## Blocked gaps' '- none'
 addenv "$d" 0 5 12 0 0 0
 out="$(run "$d")"
-if ! printf '%s\n' "$out" | grep -qE 'contradictory coverage denominators'; then
+if ! grep -qE 'contradictory coverage denominators' <<<"$out"; then
   ok "CHECK 3 neg-control: bare '## History' alias → NO WARN (fence accepts the alias)"
-else no "coverage-history-alias: FALSE ALARM :: $(printf '%s\n' "$out" | grep -iE 'contradictory' | head -1)"; fi
+else no "coverage-history-alias: FALSE ALARM :: $(grep -iE 'contradictory' <<<"$out" | head -1)"; fi
 
 # 20 — TEMPLATE is not real state: a dir holding ONLY the kit template `RESEARCH-STATE.template.md`
 #      (placeholders + the CHECK-3 doc example `16/16 then 26/26`, plus pending backlog rows) must be
@@ -332,9 +332,9 @@ printf '%s\n' '# <SUBJECT> — Research State' 'coverage metric: 16 / 16 gaps cl
   'e.g. 16/16 then 26/26 (do NOT accrete contradictory denominators)' \
   '## Backlog' '- <gap> pending' '- <gap2> pending' '- <gap3> pending' > "$d/RESEARCH-STATE.template.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 2 ] && ! printf '%s\n' "$out" | grep -qE 'FAIL|contradictory coverage denominators|RESEARCH-STATE.template.md'; then
+if [ "$(code "$d")" = 2 ] && ! grep -qE 'FAIL|contradictory coverage denominators|RESEARCH-STATE.template.md' <<<"$out"; then
   ok "template-only: *.template.md excluded → exit 2 (no state), template never linted"
-else no "template-only: exit $(code "$d") (want 2) :: $(printf '%s\n' "$out" | grep -iE 'fail|contradictory|verify-state:' | head -1)"; fi
+else no "template-only: exit $(code "$d") (want 2) :: $(grep -iE 'fail|contradictory|verify-state:' <<<"$out" | head -1)"; fi
 
 # 21 — POSITIVE CONTROL: a REAL RESEARCH-STATE.md (consistent 5/5) coexisting with a contradictory
 #      RESEARCH-STATE.template.md in the SAME dir → the linter uses the REAL one and IGNORES the template
@@ -347,10 +347,10 @@ addenv "$d" 0 5 5 0 0 0   # real state carries the envelope; the template (exclu
 printf '%s\n' '# <SUBJECT> — Research State' 'coverage metric: 16 / 16 gaps closed' \
   'e.g. 16/16 then 26/26' '## Backlog' '- <gap> pending' > "$d/RESEARCH-STATE.template.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'ok +envelope validated' \
-   && ! printf '%s\n' "$out" | grep -q 'RESEARCH-STATE.template.md'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out" \
+   && ! grep -q 'RESEARCH-STATE.template.md' <<<"$out"; then
   ok "real state + template coexist → uses REAL, ignores template (exit 0, template not linted)"
-else no "real-plus-template: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|template|ok ' | head -1)"; fi
+else no "real-plus-template: exit $(code "$d") :: $(grep -iE 'fail|template|ok ' <<<"$out" | head -1)"; fi
 
 # 22 — TEMPLATE not counted as a block: CHECK 2's on-disk *block*.md count must EXCLUDE a stray
 #      block.template.md sitting in the corpus dir (a kit template must not inflate the count). Two real
@@ -361,9 +361,9 @@ state "$d" '# Research State' 'coverage metric: 5 / 5 gaps closed' 'Covered bloc
 printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"; printf 'x\n' > "$d/block.template.md"
 addenv "$d" 2 5 5 0 0 0
 out="$(run "$d")"
-if printf '%s\n' "$out" | grep -qE '2 block file\(s\) on disk'; then
+if grep -qE '2 block file\(s\) on disk' <<<"$out"; then
   ok "CHECK 2: block.template.md excluded from on-disk count (2, not 3)"
-else no "template-block-count: on-disk count :: $(printf '%s\n' "$out" | grep -iE 'block file' | head -1)"; fi
+else no "template-block-count: on-disk count :: $(grep -iE 'block file' <<<"$out" | head -1)"; fi
 
 # ============================ research-state.v1 ENVELOPE CONTRACT ============================
 # The new authority: verify-state RECOMPUTES the disk-anchored envelope fields and FAILs on drift.
@@ -374,10 +374,10 @@ else no "template-block-count: on-disk count :: $(printf '%s\n' "$out" | grep -i
 d="$TMP/no-envelope"
 state "$d" '# Research State' 'coverage metric: 3 / 3 gaps closed' '## Backlog' '- gap done'
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +no research-state.v1 envelope' \
-   && printf '%s\n' "$out" | grep -q -- '--sync-state'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +no research-state.v1 envelope' <<<"$out" \
+   && grep -q -- '--sync-state' <<<"$out"; then
   ok "missing envelope → FAIL exit 1 + actionable --sync-state message"
-else no "no-envelope: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|envelope' | head -1)"; fi
+else no "no-envelope: exit $(code "$d") :: $(grep -iE 'fail|envelope' <<<"$out" | head -1)"; fi
 
 # ewrite <dir> <covered> <gc> <kg> <io> <req> <bo> <backlog-row...> — a TABLE-backed state (rows are
 # "priority|gap|status") + a fixed blocked entry 'gpu profiling — needs: hardware' + the given envelope.
@@ -397,17 +397,17 @@ ewrite() {
 # 24 — ENVELOPE ALL-MATCH: 2 pending non-blocked rows, envelope investigable_open=2 → exit 0 + ok line.
 d="$TMP/env-ok"; ewrite "$d" 0 4 10 2 0 1 "high|reconstruct pipeline|pending" "medium|map loaders|pending"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'ok +envelope validated'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
   ok "envelope all fields match ground truth → exit 0 + ok"
-else no "env-ok: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'fail|ok ' | head -1)"; fi
+else no "env-ok: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
 
 # 25 — CORE REGRESSION: envelope investigable_open=0 while 2 pending non-blocked rows remain → FAIL exit 1.
 #      The premature-STOP class closed by construction. (status.test.sh asserts --next then returns STALE.)
 d="$TMP/env-inv-under"; ewrite "$d" 0 4 10 0 0 1 "high|reconstruct pipeline|pending" "medium|map loaders|pending"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope investigable_open=0 != 2'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +envelope investigable_open=0 != 2' <<<"$out"; then
   ok "declared investigable_open=0 vs derived 2 → FAIL exit 1 (premature-STOP guard)"
-else no "env-inv-under: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'investigable_open' | head -1)"; fi
+else no "env-inv-under: exit $(code "$d") :: $(grep -iE 'investigable_open' <<<"$out" | head -1)"; fi
 
 # 26 — BLOCKED gap EXCLUDED from investigable_open: 'gpu profiling' (a blocked entry) is pending in the
 #      backlog but must NOT count; envelope investigable_open=1 (only the free gap) → exit 0.
@@ -419,16 +419,16 @@ else no "env-blocked-excl: exit $(code "$d") :: $(run "$d" | grep -iE 'investiga
 d="$TMP/env-covered"; ewrite "$d" 5 4 10 1 0 1 "high|the gap|pending"
 printf 'x\n' > "$d/a-block1.md"; printf 'x\n' > "$d/b-block2.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope covered_blocks=5 != 2'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +envelope covered_blocks=5 != 2' <<<"$out"; then
   ok "declared covered_blocks=5 vs 2 on-disk → FAIL exit 1"
-else no "env-covered: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'covered_blocks' | head -1)"; fi
+else no "env-covered: exit $(code "$d") :: $(grep -iE 'covered_blocks' <<<"$out" | head -1)"; fi
 
 # 28 — blocked_open mismatch: envelope blocked_open=3 but only 1 '- ... needs:' entry → FAIL exit 1.
 d="$TMP/env-blocked"; ewrite "$d" 0 4 10 1 0 3 "high|the gap|pending"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope blocked_open=3 != 1'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +envelope blocked_open=3 != 1' <<<"$out"; then
   ok "declared blocked_open=3 vs 1 actual → FAIL exit 1"
-else no "env-blocked: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'blocked_open' | head -1)"; fi
+else no "env-blocked: exit $(code "$d") :: $(grep -iE 'blocked_open' <<<"$out" | head -1)"; fi
 
 # ================= requires_execution_open (§19 build counter) — CALIBRATED CHECK E =================
 # There is NO uniform on-disk marker for open build gaps (logosoft tracked its counter in PROSE only, all
@@ -441,17 +441,17 @@ else no "env-blocked: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'bl
 d="$TMP/req-premature"; ewrite "$d" 0 4 10 1 0 1 "high|open read-only gap|pending" \
   "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope requires_execution_open=0 .*premature build-STOP'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +envelope requires_execution_open=0 .*premature build-STOP' <<<"$out"; then
   ok "marked-open requires-execution row + declared 0 → FAIL exit 1 (premature build-STOP caught)"
-else no "req-premature: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-premature: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 30 — same fixture, envelope AGREES (requires_execution_open=1) → exit 0 and CHECK E fully silent.
 d="$TMP/req-agree"; ewrite "$d" 0 4 10 1 1 1 "high|open read-only gap|pending" \
   "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
   ok "marked-open row + declared 1 → exit 0, CHECK E silent (backlog-anchored agreement)"
-else no "req-agree: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-agree: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 31 — PROSE-TRACKED corpus (the logosoft shape): NO backlog marker at all, envelope carries a nonzero
 #      declared count → exit 0 with CHECK E silent. Pins the calibration: a strict equality gate would
@@ -459,18 +459,18 @@ else no "req-agree: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requ
 #      must NOT do — derived 0 proves nothing.
 d="$TMP/req-prose-only"; ewrite "$d" 0 4 10 1 1 1 "high|open read-only gap|pending"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
   ok "prose-tracked (no marker) + declared 1 → exit 0, silent (no false FAIL on logosoft-shape corpora)"
-else no "req-prose-only: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-prose-only: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 32 — MIRROR HYGIENE: 1 marked-open row but the envelope declares 3 → WARN printed, exit UNCHANGED (0).
 #      Divergence with marked rows on disk is drift worth surfacing, but only the 0-direction is a hazard.
 d="$TMP/req-hygiene"; ewrite "$d" 0 4 10 1 3 1 "high|open read-only gap|pending" \
   "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && printf '%s\n' "$out" | grep -qE 'WARN +envelope requires_execution_open=3 != 1'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN +envelope requires_execution_open=3 != 1' <<<"$out"; then
   ok "declared 3 vs 1 marked-open row → WARN (mirror hygiene), exit still 0"
-else no "req-hygiene: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-hygiene: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 33 — CLOSED markers EXCLUDED from the derivation: a struck-through gap (~~) and a '✅ cubierto — B7x'
 #      status both carry the requires-execution token but are CLOSED rows (the logosoft closed-backlog
@@ -479,9 +479,9 @@ d="$TMP/req-closed"; ewrite "$d" 0 4 10 0 0 1 \
   "high|~~G50 old build gap~~|requires-execution → §19" \
   "high|G51 landed PoC|requires-execution ✅ cubierto — B72"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
   ok "struck-through / cubierto requires-execution rows excluded → derived 0, exit 0"
-else no "req-closed: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-closed: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 33a — REGRESSION (false-NEGATIVE, both judges): two OPEN requires-execution rows whose status carries a
 #      NEGATED closure word ("not yet covered", "not yet done") — the OLD unanchored substring closed-test
@@ -492,9 +492,9 @@ d="$TMP/req-negated-open"; ewrite "$d" 0 4 10 1 0 1 "high|open read-only gap|pen
   "high|G60 rt PoC|requires-execution → §19 (not yet covered by any PoC; needs a build)" \
   "high|G61 decode PoC|requires-execution — round-trip not yet done, awaiting slot"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && printf '%s\n' "$out" | grep -qE 'FAIL +envelope requires_execution_open=0 .*premature build-STOP'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +envelope requires_execution_open=0 .*premature build-STOP' <<<"$out"; then
   ok "negated-closure open requires-execution rows + declared 0 → FAIL exit 1 (premature build-STOP caught)"
-else no "req-negated-open: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-negated-open: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 33b — REGRESSION (false-POSITIVE, judge A): the ONLY requires-execution mention is a free-text aside on
 #      an ordinary pending gap ("pending (requires-execution)") — the OLD unanchored open-test (*requires-
@@ -502,9 +502,9 @@ else no "req-negated-open: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -i
 #      marked-open build row → CHECK E must stay SILENT (exit 0, no false FAIL).
 d="$TMP/req-freetext-mention"; ewrite "$d" 0 4 10 1 0 1 "medium|future scope note|pending (requires-execution)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! printf '%s\n' "$out" | grep -E '^   (FAIL|WARN)' | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
   ok "free-text 'pending (requires-execution)' mention NOT counted → exit 0, CHECK E silent (no false FAIL)"
-else no "req-freetext-mention: exit $(code "$d") :: $(printf '%s\n' "$out" | grep -iE 'requires_execution' | head -1)"; fi
+else no "req-freetext-mention: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # CRLF — a RESEARCH-STATE.md saved with Windows line endings must still verify OK. Before env_field's
 # trailing-CR strip, awk left '\r' on each value and is_int('0\r') was FALSE, so EVERY envelope check
@@ -540,7 +540,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     d="$TMP/warn-zero-ondisk"   # reuse case 10 fixture: claim 5, zero *block*.md on disk
     m2out="$(bash "$mutant2" "$d" 2>/dev/null)"
-    if printf '%s\n' "$m2out" | grep -qE 'WARN.*disagrees with 0 block file'; then
+    if grep -qE 'WARN.*disagrees with 0 block file' <<<"$m2out"; then
       ok "teeth: -ge 0 mutant WARNs on zero on-disk → case 10 'no WARN' pins the -gt 0 guard"
     else no "teeth(check2): mutant did NOT warn — case 10 does NOT depend on the guard (THEATER)"; fi
   fi
@@ -555,7 +555,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     d="$TMP/coverage-contradiction"   # reuse case 15 fixture: 16/16 + 26/26 canonical
     m3out="$(bash "$mutant3" "$d" 2>/dev/null)"
-    if ! printf '%s\n' "$m3out" | grep -qE 'contradictory coverage denominators'; then
+    if ! grep -qE 'contradictory coverage denominators' <<<"$m3out"; then
       ok "teeth: -ge 99 mutant stops WARNing → case 15 pins the CHECK 3 contradiction guard"
     else no "teeth(check3): mutant STILL warned — case 15 does NOT depend on CHECK 3 (THEATER)"; fi
   fi

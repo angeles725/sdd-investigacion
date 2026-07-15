@@ -81,7 +81,7 @@ cat > "$d/SOURCES.md" <<'EOF'
 EOF
 runreg "$SUT" "$d" "$d/manuals/second.pdf" "manuals" "https://z/second.pdf" "b0b0"
 last="$(tail -1 "$d/SOURCES.md")"
-if printf '%s' "$last" | grep -q 'manuals/second.pdf'; then
+if grep -q 'manuals/second.pdf' <<<"$last"; then
   ok "no trailing prose → row appended at end of table (last line), backward-compatible"
 else no "no-trail: last line is '$last' (want the new row)"; fi
 

@@ -32,13 +32,13 @@ echo "== verify-kit-clean.test.sh =="
 # 1 — a clean, committed, pushed repo → exit 0, CLEAN.
 d="$TMP/clean"; mkrepo "$d"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && printf '%s' "$out" | grep -qiE 'clean'; then ok "clean+pushed repo → exit 0"
+if [ "$(runrc "$d")" = 0 ] && grep -qiE 'clean' <<<"$out"; then ok "clean+pushed repo → exit 0"
 else no "clean repo exit=$(runrc "$d") :: $out"; fi
 
 # 2 — an uncommitted modification → exit 1, DIRTY.
 d="$TMP/dirty"; mkrepo "$d"; echo "changed" > "$d/f.txt"
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 1 ] && printf '%s' "$out" | grep -qiE 'dirty|uncommitted'; then ok "dirty working tree → exit 1"
+if [ "$(runrc "$d")" = 1 ] && grep -qiE 'dirty|uncommitted' <<<"$out"; then ok "dirty working tree → exit 1"
 else no "dirty repo exit=$(runrc "$d") :: $out"; fi
 
 # 3 — an untracked file also counts as dirty → exit 1.
@@ -48,7 +48,7 @@ d="$TMP/untracked"; mkrepo "$d"; echo "new" > "$d/extra.txt"
 # 4 — a local commit not pushed to upstream → exit 1, reports unpushed.
 d="$TMP/unpushed"; mkrepo "$d"; echo "y" > "$d/g.txt"; git -C "$d" add -A; git -C "$d" commit -q -m local-only
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 1 ] && printf '%s' "$out" | grep -qiE 'not pushed|unpushed|ahead'; then ok "unpushed commit → exit 1"
+if [ "$(runrc "$d")" = 1 ] && grep -qiE 'not pushed|unpushed|ahead' <<<"$out"; then ok "unpushed commit → exit 1"
 else no "unpushed exit=$(runrc "$d") :: $out"; fi
 
 # 5 — not a git repo → exit 2.
@@ -59,7 +59,7 @@ d="$TMP/notgit"; mkdir -p "$d"
 d="$TMP/noupstream"; git init -q -b main "$d" 2>/dev/null || { git init -q "$d"; git -C "$d" symbolic-ref HEAD refs/heads/main; }
 echo x > "$d/f.txt"; git -C "$d" add -A; git -C "$d" commit -q -m init
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 0 ] && printf '%s' "$out" | grep -qiE 'no upstream|clean'; then ok "clean, no upstream → exit 0 (noted)"
+if [ "$(runrc "$d")" = 0 ] && grep -qiE 'no upstream|clean' <<<"$out"; then ok "clean, no upstream → exit 0 (noted)"
 else no "no-upstream exit=$(runrc "$d") :: $out"; fi
 
 # 7 — pushed WITHOUT -u (no tracking ref) but local-ahead → still caught via the origin/<branch> fallback.
@@ -70,7 +70,7 @@ git init -q --bare "$d.origin.git"; git -C "$d" remote add origin "$d.origin.git
 git -C "$d" push -q origin main 2>/dev/null            # NOTE: no -u → no @{upstream} tracking ref
 echo z > "$d/h.txt"; git -C "$d" add -A; git -C "$d" commit -q -m local-only-no-upstream
 out="$(runout "$d")"
-if [ "$(runrc "$d")" = 1 ] && printf '%s' "$out" | grep -qiE 'not pushed'; then ok "no -u tracking, local-ahead → caught via origin/<branch> fallback (exit 1)"
+if [ "$(runrc "$d")" = 1 ] && grep -qiE 'not pushed' <<<"$out"; then ok "no -u tracking, local-ahead → caught via origin/<branch> fallback (exit 1)"
 else no "no-upstream-ahead missed: exit=$(runrc "$d") :: $out"; fi
 
 # 8 — an `audits/` dir at the kit/supervisor REPO ROOT → the advisory audits-WARN fires (audits are
@@ -78,13 +78,13 @@ else no "no-upstream-ahead missed: exit=$(runrc "$d") :: $out"; fi
 #     the WARN is ADDITIVE — independent of the clean/dirty verdict.
 d="$TMP/withaudits"; mkrepo "$d"; mkdir -p "$d/audits"
 out="$(runout "$d")"
-if printf '%s' "$out" | grep -qiE 'audits/ exists at the kit/supervisor root'; then ok "audits/ at kit root → advisory WARN fires"
+if grep -qiE 'audits/ exists at the kit/supervisor root' <<<"$out"; then ok "audits/ at kit root → advisory WARN fires"
 else no "audits/ WARN missing :: $out"; fi
 
 # 9 — NEGATIVE control: no `audits/` dir at the root → the audits-WARN does NOT fire (no false positive).
 d="$TMP/noaudits"; mkrepo "$d"
 out="$(runout "$d")"
-if ! printf '%s' "$out" | grep -qiE 'audits/ exists at the kit'; then ok "no audits/ dir → no audits-WARN (no false positive)"
+if ! grep -qiE 'audits/ exists at the kit' <<<"$out"; then ok "no audits/ dir → no audits-WARN (no false positive)"
 else no "audits-WARN fired without an audits/ dir :: $out"; fi
 
 # NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).

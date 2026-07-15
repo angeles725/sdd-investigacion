@@ -49,37 +49,37 @@ mkfix_sh "$w/a.test.sh" 3 0 0
 mkfix_sh "$w/b.test.sh" 2 0 0
 out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -qF 'Suites passed: 2' \
-   && printf '%s' "$out" | grep -qF 'Test cases passed: 5'; then
+   && grep -qF 'Suites passed: 2' <<<"$out" \
+   && grep -qF 'Test cases passed: 5' <<<"$out"; then
   ok "all-green: runner exit 0, suites 2, cases 5 summed"
-else no "all-green failed: rc=$rc :: $(printf '%s' "$out" | grep -E 'Suites passed|Test cases passed' | tr '\n' ' ')"; fi
+else no "all-green failed: rc=$rc :: $(grep -E 'Suites passed|Test cases passed' <<<"$out" | tr '\n' ' ')"; fi
 
 # 2 — one fixture exits 1 → runner exits 1 and NAMES that fixture as failed (exit-code teeth).
 w="$(newdir c2)"
 mkfix_sh "$w/good.test.sh" 2 0 0
 mkfix_sh "$w/bad.test.sh"  1 1 1
 out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'bad.test.sh (exit 1)'; then
+if [ "$rc" -eq 1 ] && grep -qF 'bad.test.sh (exit 1)' <<<"$out"; then
   ok "one-fail: runner exit 1 and names bad.test.sh (exit 1)"
-else no "one-fail failed: rc=$rc :: $(printf '%s' "$out" | grep -iE 'failed suites|bad.test' | tr '\n' ' ')"; fi
+else no "one-fail failed: rc=$rc :: $(grep -iE 'failed suites|bad.test' <<<"$out" | tr '\n' ' ')"; fi
 
 # 3 — one fixture exits 2 with NO summary → runner exits 1 and labels it a HARNESS ERROR distinctly.
 w="$(newdir c3)"
 mkfix_sh "$w/fine.test.sh" 1 0 0
 mkfix_harness "$w/broken.test.sh"
 out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'broken.test.sh (HARNESS ERROR, exit 2)'; then
+if [ "$rc" -eq 1 ] && grep -qF 'broken.test.sh (HARNESS ERROR, exit 2)' <<<"$out"; then
   ok "harness: exit-2 no-summary fixture → runner exit 1, labeled HARNESS ERROR distinctly"
-else no "harness failed: rc=$rc :: $(printf '%s' "$out" | grep -iE 'harness|broken' | tr '\n' ' ')"; fi
+else no "harness failed: rc=$rc :: $(grep -iE 'harness|broken' <<<"$out" | tr '\n' ' ')"; fi
 
 # 4 — empty dir (only run-all.sh) → runner exits non-zero with a diagnostic, never runs `bash '*.test.sh'`.
 w="$(newdir c4)"   # no fixtures copied in
 out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ] \
-   && printf '%s' "$out" | grep -qF 'no test suites' \
-   && ! printf '%s' "$out" | grep -qiE 'no such file|\*\.test\.sh: '; then
+   && grep -qF 'no test suites' <<<"$out" \
+   && ! grep -qiE 'no such file|\*\.test\.sh: ' <<<"$out"; then
   ok "empty: no fixtures → runner exit $rc with diagnostic, glob did not expand literally"
-else no "empty failed: rc=$rc :: $(printf '%s' "$out" | tr '\n' ' ')"; fi
+else no "empty failed: rc=$rc :: $(tr '\n' ' ' <<<"$out")"; fi
 
 # 5 — --prove-teeth forwarding: reaches the *.test.sh suite as $1, NEVER reaches the .mjs suite.
 w="$(newdir c5)"
@@ -117,10 +117,10 @@ w="$(newdir c6)"
 mkfix_sh "$w/p.test.sh" 5 0 0   # 5 passed, 0 failed, exit 0
 mkfix_sh "$w/q.test.sh" 3 2 1   # 3 passed, 2 failed, exit 1
 out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
-if printf '%s' "$out" | grep -qF 'Test cases passed: 8' \
-   && printf '%s' "$out" | grep -qF 'Test cases failed: 2'; then
+if grep -qF 'Test cases passed: 8' <<<"$out" \
+   && grep -qF 'Test cases failed: 2' <<<"$out"; then
   ok "totals: middle-dot summaries parsed → cases passed=8, failed=2 (not 0/0)"
-else no "totals failed: rc=$rc :: $(printf '%s' "$out" | grep -E 'Test cases (passed|failed)' | tr '\n' ' ')"; fi
+else no "totals failed: rc=$rc :: $(grep -E 'Test cases (passed|failed)' <<<"$out" | tr '\n' ' ')"; fi
 
 # 7 — unknown flag rejected: bogus flag → exit 2, message on STDERR, STDOUT empty (no partial run).
 #     Teeth: if the guard regressed to silently accepting unknown flags, this must FAIL.
@@ -128,17 +128,17 @@ w="$(newdir c7)"
 mkfix_sh "$w/a.test.sh" 1 0 0   # a fixture exists, so a regressed guard would run it and pollute stdout
 sout="$(bash "$w/run-all.sh" --bogus 2>"$w/err.txt")"; rc=$?
 serr="$(cat "$w/err.txt" 2>/dev/null || true)"
-if [ "$rc" -eq 2 ] && printf '%s' "$serr" | grep -qF 'unknown flag' && [ -z "$sout" ]; then
+if [ "$rc" -eq 2 ] && grep -qF 'unknown flag' <<<"$serr" && [ -z "$sout" ]; then
   ok "unknown-flag: --bogus → exit 2, 'unknown flag' on stderr, stdout empty (no partial run)"
-else no "unknown-flag guard failed: rc=$rc · stdout=[$sout] · stderr=$(printf '%s' "$serr" | tr '\n' ' ')"; fi
+else no "unknown-flag guard failed: rc=$rc · stdout=[$sout] · stderr=$(tr '\n' ' ' <<<"$serr")"; fi
 
 # 8 — empty-string arg is accepted as no-flag (boundary): discovers + runs fixtures, exit 0.
 w="$(newdir c8)"
 mkfix_sh "$w/a.test.sh" 2 0 0
 out="$(bash "$w/run-all.sh" "" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF 'Test cases passed: 2'; then
+if [ "$rc" -eq 0 ] && grep -qF 'Test cases passed: 2' <<<"$out"; then
   ok "empty-arg: \"\" behaves as no-flag → discovers + runs fixtures, exit 0"
-else no "empty-arg regressed: rc=$rc :: $(printf '%s' "$out" | grep -E 'Test cases passed|unknown flag' | tr '\n' ' ')"; fi
+else no "empty-arg regressed: rc=$rc :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
 
 # 9 — trailing args after --prove-teeth are ignored (only $1 inspected): runs normally, and the
 #     garbage is NOT forwarded to suites (the .test.sh recorder must see exactly "--prove-teeth").
@@ -151,9 +151,9 @@ w="$(newdir c9)"
 } > "$w/rec.test.sh"
 out="$(bash "$w/run-all.sh" --prove-teeth extra-garbage 2>&1)"; rc=$?
 argsh="$(cat "$w/arg-sh.txt" 2>/dev/null || true)"
-if [ "$rc" -eq 0 ] && [ "$argsh" = "--prove-teeth" ] && printf '%s' "$out" | grep -qF 'Test cases passed: 3'; then
+if [ "$rc" -eq 0 ] && [ "$argsh" = "--prove-teeth" ] && grep -qF 'Test cases passed: 3' <<<"$out"; then
   ok "trailing-args: '--prove-teeth extra-garbage' runs normally, only \$1 inspected (suite got --prove-teeth, not the garbage)"
-else no "trailing-args regressed: rc=$rc · arg-sh=[$argsh] :: $(printf '%s' "$out" | grep -E 'Test cases passed|unknown flag' | tr '\n' ' ')"; fi
+else no "trailing-args regressed: rc=$rc · arg-sh=[$argsh] :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
 
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.

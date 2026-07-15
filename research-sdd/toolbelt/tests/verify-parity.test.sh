@@ -56,9 +56,9 @@ d="$TMP/drift"; mkdir -p "$d"
 printf '%s\n' '# Block' 'palette: #112233 #445566' > "$d/block-1.md"
 printf '%s\n' ':root {' '  --bg: #112233;' '  --accent: #ff00ab;' '}' > "$d/tokens.css"   # #ff00ab NOT in block
 out="$(run "$d/tokens.css" "$d/block-1.md")"
-if [ "$(code "$d/tokens.css" "$d/block-1.md")" = 1 ] && printf '%s\n' "$out" | grep -qiF '#ff00ab'; then
+if [ "$(code "$d/tokens.css" "$d/block-1.md")" = 1 ] && grep -qiF '#ff00ab' <<<"$out"; then
   ok "DRIFT: deliverable #ff00ab absent from block → exit 1 + hex named"
-else no "drift: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(printf '%s\n' "$out" | grep -iE 'drift|ff00ab' | head -1)"; fi
+else no "drift: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(grep -iE 'drift|ff00ab' <<<"$out" | head -1)"; fi
 
 # 6 — #RGB SHORTHAND equality: block has #ffffff, deliverable writes #FFF → treated as EQUAL → exit 0.
 #     Pins the #RGB→#RRGGBB expansion AND case-insensitive normalization.
@@ -93,18 +93,18 @@ printf '%s\n' '# Block 1' 'base: #112233' > "$d/corpus/proj-block1.md"
 printf '%s\n' '# Block 2' 'accent: #99aabb' > "$d/corpus/proj-block2.md"
 printf '%s\n' ':root { --x: #deadbe; }' > "$d/tokens.css"   # in neither block
 out="$(run "$d/tokens.css" "$d/corpus")"
-if [ "$(code "$d/tokens.css" "$d/corpus")" = 1 ] && printf '%s\n' "$out" | grep -qiF '#deadbe'; then
+if [ "$(code "$d/tokens.css" "$d/corpus")" = 1 ] && grep -qiF '#deadbe' <<<"$out"; then
   ok "multi-block dir catches drift (#deadbe in no block) → exit 1 + named"
-else no "multiblock-drift: exit $(code "$d/tokens.css" "$d/corpus") :: $(printf '%s\n' "$out" | grep -iE 'drift|deadbe' | head -1)"; fi
+else no "multiblock-drift: exit $(code "$d/tokens.css" "$d/corpus") :: $(grep -iE 'drift|deadbe' <<<"$out" | head -1)"; fi
 
 # 10 — EMPTY DELIVERABLE (no extractable hexes) → exit 0 with a note, NO false-fail.
 d="$TMP/empty"; mkdir -p "$d"
 printf '%s\n' '# Block' 'palette: #112233' > "$d/block-1.md"
 printf '%s\n' '/* no color tokens here, just layout */' '.box { margin: 0 auto; }' > "$d/tokens.css"
 out="$(run "$d/tokens.css" "$d/block-1.md")"
-if [ "$(code "$d/tokens.css" "$d/block-1.md")" = 0 ] && printf '%s\n' "$out" | grep -qiE 'no|nothing|note|zero'; then
+if [ "$(code "$d/tokens.css" "$d/block-1.md")" = 0 ] && grep -qiE 'no|nothing|note|zero' <<<"$out"; then
   ok "empty deliverable (0 hexes) → exit 0 + note (no false-fail)"
-else no "empty: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(printf '%s\n' "$out" | grep -iE 'no|note' | head -1)"; fi
+else no "empty: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(grep -iE 'no|note' <<<"$out" | head -1)"; fi
 
 # 11 — MULTIPLE DRIFTS all reported: two absent hexes → exit 1 and BOTH named (not just the first).
 d="$TMP/multidrift"; mkdir -p "$d"
@@ -112,9 +112,9 @@ printf '%s\n' '# Block' 'palette: #112233' > "$d/block-1.md"
 printf '%s\n' ':root {' '  --a: #112233;' '  --b: #aabbcc;' '  --c: #ddeeff;' '}' > "$d/tokens.css"
 out="$(run "$d/tokens.css" "$d/block-1.md")"
 if [ "$(code "$d/tokens.css" "$d/block-1.md")" = 1 ] \
-   && printf '%s\n' "$out" | grep -qiF '#aabbcc' && printf '%s\n' "$out" | grep -qiF '#ddeeff'; then
+   && grep -qiF '#aabbcc' <<<"$out" && grep -qiF '#ddeeff' <<<"$out"; then
   ok "two drifts → exit 1 + BOTH named (#aabbcc, #ddeeff)"
-else no "multidrift: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(printf '%s\n' "$out" | grep -iE 'drift' | head -1)"; fi
+else no "multidrift: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(grep -iE 'drift' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROL — prove the DRIFT detection has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then

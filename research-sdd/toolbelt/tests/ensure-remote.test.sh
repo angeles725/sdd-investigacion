@@ -141,7 +141,10 @@ has_call()       { grep -q "$2" "$1/calls.log" 2>/dev/null; }               # bo
 create_all_private() {
   local box="$1"
   grep -q 'repo create' "$box/calls.log" 2>/dev/null || return 1
-  ! grep 'repo create' "$box/calls.log" 2>/dev/null | grep -qv -- '--private'
+  # here-string (not a producer pipe): under load `grep … | grep -q` can EPIPE the
+  # producer and, with pipefail, misreport. Guard above guarantees ≥1 create line.
+  local creates; creates=$(grep 'repo create' "$box/calls.log" 2>/dev/null)
+  ! grep -qv -- '--private' <<<"$creates"
 }
 
 echo "== ensure-remote.test.sh (SUT: $(basename "$SUT")) =="
@@ -308,7 +311,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     box="$(mkbox teeth1-no-private)"
     printf '%s\n' "${content//"$orig1"/"$new1"}" > "$box/ensure-remote.sh"
     run "$box" "$box/target" --yes
-    if grep 'repo create' "$box/calls.log" 2>/dev/null | grep -qv -- '--private'; then
+    # here-string over a captured var (not a producer pipe) to avoid pipefail EPIPE
+    # under load; -n guard preserves the empty-input semantics of `grep … | grep -v`.
+    creates=$(grep 'repo create' "$box/calls.log" 2>/dev/null)
+    if [ -n "$creates" ] && grep -qv -- '--private' <<<"$creates"; then
       ok "teeth1: mutant logs a create WITHOUT --private" "(case 1 has teeth)"
     else
       no "teeth1: mutant logs a create WITHOUT --private" "mutant kept --private — case 1 is THEATER; calls=[$(calls "$box")]"
