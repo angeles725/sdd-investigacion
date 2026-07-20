@@ -277,6 +277,22 @@ def require_private(path: Path, mountinfo: str | None = None) -> None:
 # Bubblewrap sandbox (hardened isolation prefix)
 # ---------------------------------------------------------------------------
 
+# Paths that callers must never supply as ro_inputs.  Checked after
+# os.path.realpath() normalization to close symlink-to-root bypasses.
+# The prefix rule uses a proper path-component check: /home rejects /home and
+# /home/user/x but NOT /homeless (raw startswith would be wrong here).
+# NOTE: '/' is intentionally absent — it is handled by the explicit
+# `_real == "/"` guard below.  Adding '/' here would be a silent no-op:
+# startswith("//") never matches a real path.
+_RO_INPUT_BLOCKED_ROOTS: tuple[str, ...] = (
+    "/home", "/root",           # credential-bearing user home trees
+    # sandbox() itself bind-tries /etc/ld.so.cache, /etc/ld.so.conf,
+    # /etc/ld.so.conf.d, and /etc/ssl/certs internally — callers must not bind /etc.
+    "/etc", "/proc", "/sys", "/dev",  # system dirs
+    "/run",  # /run/user/<uid> holds keyring/gpg-agent sockets; /run/secrets is a credential mount
+)
+
+
 def sandbox(
     bwrap: Path,
     env: dict[str, str],
@@ -293,18 +309,27 @@ def sandbox(
 
     Filesystem exposure: only the OS runtime directories required to *run*
     analysis tools are bound read-only (/usr, /bin, /sbin, /lib, /lib64 —
-    only those that exist on this host).  Individual libc/TLS helpers in /etc
-    are added via ``--ro-bind-try`` (safe if absent).  The former
-    ``--ro-bind / /`` full-root bind is intentionally absent; it would expose
-    SSH keys, credentials, /home, and /root to a sandboxed analysis tool that
-    can exfiltrate via stdout.
+    only those that exist on this host).  Individual dynamic-loader + TLS trust
+    store helpers in /etc are added via ``--ro-bind-try`` (safe if absent).
+    The former ``--ro-bind / /`` full-root bind is intentionally absent; it
+    would expose SSH keys, credentials, /home, and /root to a sandboxed
+    analysis tool that can exfiltrate via stdout.
 
     *ro_inputs*: optional list of host paths (e.g., the target binary) to bind
-    read-only inside the sandbox.  Each existing path is added as
-    ``--ro-bind <path> <path>``.
+    read-only inside the sandbox.  Each path is validated BEFORE binding:
 
-    Raises AdapterError if /tmp/rsdd is unsafe (symlink, wrong owner,
-    world-/group-writable).
+    - The path is normalised with ``os.path.realpath()`` to resolve symlinks,
+      closing a symlink-to-/ bypass.
+    - Any path that normalises to ``/`` (filesystem root) is rejected.
+    - Any path equal to or under a restricted root (``/home``, ``/root``,
+      ``/etc``, ``/proc``, ``/sys``, ``/dev``) is rejected.  The check is a
+      proper path-component prefix test — ``/home`` rejects ``/home`` and
+      ``/home/user/x`` but NOT ``/homeless``.
+    - A path that does not exist on the host is rejected with a clear error
+      (silently skipping a declared input is a foot-gun).
+
+    Raises ``AdapterError`` for any validation failure (unsafe path or missing
+    path) or if /tmp/rsdd is unsafe (symlink, wrong owner, world-/group-writable).
     """
     root = Path("/tmp/rsdd")
     root.mkdir(mode=0o700, exist_ok=True)
@@ -324,22 +349,40 @@ def sandbox(
         if os.path.exists(_dir):
             command += ["--ro-bind", _dir, _dir]
 
-    # Individual libc / TLS helpers inside /etc — use --ro-bind-try so a
-    # missing path is silently skipped rather than aborting bwrap.
+    # Dynamic-loader + TLS trust store helpers inside /etc — use --ro-bind-try
+    # so a missing path is silently skipped rather than aborting bwrap.
+    # DNS/NSS config (/etc/resolv.conf, /etc/nsswitch.conf) is intentionally
+    # omitted: --unshare-net makes DNS unreachable so those files have no effect.
     for _etc in (
         "/etc/ld.so.cache",
         "/etc/ld.so.conf",
         "/etc/ld.so.conf.d",
         "/etc/ssl/certs",
-        "/etc/nsswitch.conf",
-        "/etc/resolv.conf",
     ):
         command += ["--ro-bind-try", _etc, _etc]
 
     # Caller-provided analysis input paths (e.g., the binary under test).
+    # Each path is validated before binding: symlinks are resolved via
+    # realpath(), dangerous roots are rejected, and non-existent paths raise
+    # rather than being silently skipped.
     for _inp in (ro_inputs or []):
-        if os.path.exists(_inp):
-            command += ["--ro-bind", _inp, _inp]
+        _real = os.path.realpath(_inp)
+        if _real == "/":
+            raise AdapterError(
+                f"ro_input '{_inp}' is rejected: path resolves to the filesystem root"
+            )
+        for _blocked in _RO_INPUT_BLOCKED_ROOTS:
+            if _real == _blocked or _real.startswith(_blocked + "/"):
+                raise AdapterError(
+                    f"ro_input '{_inp}' is rejected: path is at or under "
+                    f"a restricted directory ({_blocked})"
+                )
+        if not os.path.exists(_real):
+            raise AdapterError(
+                f"ro_input '{_inp}' does not exist on the host; "
+                "a missing declared input is rejected to prevent silent omissions"
+            )
+        command += ["--ro-bind", _real, _real]
 
     command += [
         "--proc", "/proc",

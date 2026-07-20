@@ -51,13 +51,35 @@ Hardened bwrap isolation profile — always includes:
 
 Filesystem exposure: **minimal read-only bind** of OS runtime directories
 (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64` where present) plus individual
-`/etc` libc/TLS helpers via `--ro-bind-try`.  The former `--ro-bind / /`
-full-root bind is intentionally absent to prevent the sandboxed tool from
-reading SSH keys, credentials, `/home`, or `/root`.
+dynamic-loader + TLS trust store helpers (`/etc/ld.so.cache`,
+`/etc/ld.so.conf`, `/etc/ld.so.conf.d`, `/etc/ssl/certs`) via
+`--ro-bind-try`.  DNS/NSS config (`/etc/resolv.conf`, `/etc/nsswitch.conf`)
+is intentionally omitted — `--unshare-net` makes DNS unreachable so those
+files have no effect.  The former `--ro-bind / /` full-root bind is
+intentionally absent to prevent the sandboxed tool from reading SSH keys,
+credentials, `/home`, or `/root`.
 
 *ro_inputs*: list of caller-provided host paths (e.g., the target binary)
-to bind read-only inside the sandbox.  Each existing path is added as
-`--ro-bind <path> <path>`.
+to bind read-only inside the sandbox.  **Validated before binding:**
+
+- Normalised with `os.path.realpath()` to resolve symlinks (closes a
+  symlink-to-root bypass).
+- **Rejected** if the normalised path is `/` (filesystem root).
+- **Rejected** if the normalised path equals or is under any of the restricted
+  roots: `/home`, `/root`, `/etc`, `/proc`, `/sys`, `/dev`, `/run`.  The check
+  is a proper path-component prefix test — `/home` rejects `/home` and
+  `/home/user/x` but **not** `/homeless`.  (`/run` is blocked because
+  `/run/user/<uid>` holds keyring/gpg-agent sockets and `/run/secrets` is a
+  credential mount.)
+- The **resolved** (`realpath`) path is what `bwrap` binds — a symlink that
+  validates cleanly cannot be swapped to point elsewhere before the kernel
+  follows it at bind time.
+- **Rejected** (raises `AdapterError`) if the path does not exist on the host;
+  silently skipping a declared input is a foot-gun.
+
+These rules preserve the sandbox hardening: a caller passing `ro_inputs=['/']`
+would otherwise re-emit `--ro-bind / /`, recreating the full-root exposure that
+U1-harden was designed to close.
 
 Scratch root is a private tmpfs at `/tmp/rsdd`.  Raises `AdapterError` if
 `/tmp/rsdd` is a symlink, owned by another user, or world-/group-writable.

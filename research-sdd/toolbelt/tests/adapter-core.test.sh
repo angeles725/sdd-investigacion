@@ -208,4 +208,89 @@ except ac.AdapterError as e:
 PY
 then ok "require_private: distinct no-match vs disallowed-fs messages"; else no "require_private distinct messages"; fi
 
+# 13. sandbox: ro_inputs=['/'] raises AdapterError — root re-widening guard
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bwrap=r/'bwrap13'; bwrap.write_bytes(b''); bwrap.chmod(0o755)
+try:
+    ac.sandbox(bwrap,{},ro_inputs=['/'])
+    raise AssertionError('should raise AdapterError for ro_inputs=["/"]')
+except ac.AdapterError: pass
+PY
+then ok "sandbox: ro_inputs='/' raises AdapterError"; else no "sandbox ro_inputs='/' guard"; fi
+
+# 14. sandbox: ro_inputs=['/home/...'] raises AdapterError — prefix check independent of existence
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bwrap=r/'bwrap14'; bwrap.write_bytes(b''); bwrap.chmod(0o755)
+# Must reject /home/... regardless of whether the path exists on this host
+try:
+    ac.sandbox(bwrap,{},ro_inputs=['/home/someuser/secret'])
+    raise AssertionError('should raise AdapterError for ro_inputs=["/home/..."]')
+except ac.AdapterError: pass
+PY
+then ok "sandbox: ro_inputs='/home/...' raises AdapterError (prefix rule, existence-independent)"; else no "sandbox ro_inputs prefix guard"; fi
+
+# 15. sandbox: legit temp-dir path in ro_inputs is bound; does not raise
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bwrap=r/'bwrap15'; bwrap.write_bytes(b''); bwrap.chmod(0o755)
+inp=r/'legit_input.bin'; inp.write_bytes(b'payload')
+argv=ac.sandbox(bwrap,{},ro_inputs=[str(inp)])
+pairs=list(zip(argv,argv[1:]))
+assert any(b==str(inp) for a,b in pairs if a in ('--ro-bind','--ro-bind-try')), f"legit ro_input not bound: {argv}"
+PY
+then ok "sandbox: legit ro_input path is bound without error"; else no "sandbox legit ro_input"; fi
+
+# 16. sandbox: /etc/resolv.conf and /etc/nsswitch.conf absent from emitted argv
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bwrap=r/'bwrap16'; bwrap.write_bytes(b''); bwrap.chmod(0o755)
+argv=ac.sandbox(bwrap,{})
+assert '/etc/resolv.conf' not in argv, f"/etc/resolv.conf must not appear in argv: {argv}"
+assert '/etc/nsswitch.conf' not in argv, f"/etc/nsswitch.conf must not appear in argv: {argv}"
+# Dynamic-loader + TLS entries must remain
+assert '/etc/ld.so.cache' in argv, f"/etc/ld.so.cache must still be present: {argv}"
+PY
+then ok "sandbox: resolv.conf+nsswitch.conf absent; dynamic-loader entries present"; else no "sandbox dns entries removed"; fi
+
+# 17. sandbox: symlink ro_input → --ro-bind uses realpath, not symlink path (TOCTOU fix)
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bw=r/'bw17'; bw.write_bytes(b''); bw.chmod(0o755)
+t=r/'rf17.bin'; t.write_bytes(b'x'); lnk=r/'lnk17.lnk'; lnk.symlink_to(t)
+argv=ac.sandbox(bw,{},ro_inputs=[str(lnk)]); pairs=list(zip(argv,argv[1:]))
+assert any(b==str(t) for a,b in pairs if a=='--ro-bind'), f"realpath not in --ro-bind: {argv}"
+assert not any(b==str(lnk) for a,b in pairs if a=='--ro-bind'), f"symlink path in --ro-bind (must be realpath): {argv}"
+PY
+then ok "sandbox: symlink ro_input binds realpath not symlink path"; else no "sandbox symlink realpath bind"; fi
+
+# 18. sandbox: /run and /run/user/<uid> in ro_inputs raise AdapterError
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bw=r/'bw18'; bw.write_bytes(b''); bw.chmod(0o755)
+for bad in ['/run','/run/user/1000']:
+    try: ac.sandbox(bw,{},ro_inputs=[bad]); raise AssertionError(f'should reject {bad}')
+    except ac.AdapterError: pass
+PY
+then ok "sandbox: /run and /run/user/1000 rejected as ro_inputs"; else no "sandbox /run blocked"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
