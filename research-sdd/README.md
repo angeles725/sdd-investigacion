@@ -108,7 +108,8 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`fetch-doc.sh`](toolbelt/fetch-doc.sh) | `ocr <pdf>` | OCR a scanned PDF (tesseract) and print to **stdout** — does not touch `sources/` or register. |
 | [`extract-pdf.sh`](toolbelt/extract-pdf.sh) | `[options] <input.pdf>` | PDF → page-anchored Markdown (text-layer tier, OCR fallback). |
 | [`probe.sh`](toolbelt/probe.sh) | `check <ip> <port…>` · `run <target-dir> <probe-cmd> [args…]` | Dynamic phase (§12): read-only probe of a live system, preserving raw output as evidence. |
-| [`scan-firmware.sh`](toolbelt/scan-firmware.sh) | `scan\|extract\|yara <file> …` | Firmware/opaque-binary triage: binwalk structure/extraction + YARA signature match. |
+| [`scan-firmware.sh`](toolbelt/scan-firmware.sh) | `scan\|evidence\|carve\|yara <file> …` | Static firmware triage/evidence plus validated uImage/SquashFS byte carving; no general extraction. |
+| [`zip-stored.sh`](toolbelt/zip-stored.sh) | `--input <zip> --output <new-dir> [caps]` | Strict all-STORED classic ZIP extraction with exact local/payload validation. |
 
 ### Decompile (optional tooling)
 
