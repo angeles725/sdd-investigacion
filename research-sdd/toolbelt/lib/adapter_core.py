@@ -124,6 +124,11 @@ def stage_file(
 
     Returns ``(source_record, staged_record)`` dicts with path/size/sha256.
     Raises AdapterError on symlinks, TOCTOU changes, or identity mismatch.
+
+    On ANY error that occurs after the O_EXCL target is created (size-cap,
+    copy failure, TOCTOU) the partial target is unlinked before re-raising, so
+    a retry never encounters a stale FileExistsError and no partial artifact
+    persists on disk.
     """
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -133,6 +138,7 @@ def stage_file(
     digest = hashlib.sha256()
     total = 0
     chunk_size = 1024 * 1024
+    target_created = False
     try:
         before = os.fstat(src)
         if not stat.S_ISREG(before.st_mode):
@@ -141,6 +147,7 @@ def stage_file(
             raise AdapterError("input exceeds max-input-bytes")
         resolved = Path(f"/proc/self/fd/{src}").resolve()
         out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600)
+        target_created = True
         try:
             while chunk := os.read(src, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
                 total += len(chunk)
@@ -157,6 +164,13 @@ def stage_file(
         fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
         if fields(before) != fields(after) or total != before.st_size:
             raise AdapterError("source changed while staging")
+    except BaseException:
+        if target_created:
+            try:
+                os.unlink(target)
+            except OSError:
+                pass
+        raise
     finally:
         os.close(src)
     digest_text = "sha256:" + digest.hexdigest()
@@ -178,7 +192,8 @@ def executable(name: str, configured: str | None, search: str) -> tuple[Path, di
     """Resolve a trusted executable by PATH and optional configured override.
 
     When *configured* is None the PATH-selected binary is used directly.
-    Raises AdapterError if the binary is missing or the paths disagree.
+    Raises AdapterError if the binary is missing, the configured path does not
+    exist, or the paths disagree.
 
     Signature accepts ``configured: str | None`` (corroborate_native.py style)
     which is a superset of the ``configured: str`` style in corroborate_firmware.py.
@@ -186,7 +201,10 @@ def executable(name: str, configured: str | None, search: str) -> tuple[Path, di
     selected = shutil.which(name, path=search)
     if selected is None:
         raise AdapterError(f"PATH-selected {name} is missing")
-    candidate = Path(configured or selected).resolve(strict=True)
+    try:
+        candidate = Path(configured or selected).resolve(strict=True)
+    except OSError as exc:
+        raise AdapterError(f"configured {name} path does not exist: {configured}") from exc
     selected_path = Path(selected).resolve(strict=True)
     if (
         not candidate.is_file()
@@ -249,6 +267,8 @@ def require_private(path: Path, mountinfo: str | None = None) -> None:
         if len(mount.parts) > selected[0]:
             selected = (len(mount.parts), fs)
 
+    if selected[0] == -1:
+        raise AdapterError("output path is under no known mount point")
     if selected[1] not in PRIVATE_FS:
         raise AdapterError("output must reside on a Linux-private filesystem")
 
@@ -257,29 +277,71 @@ def require_private(path: Path, mountinfo: str | None = None) -> None:
 # Bubblewrap sandbox (hardened isolation prefix)
 # ---------------------------------------------------------------------------
 
-def sandbox(bwrap: Path, env: dict[str, str]) -> list[str]:
-    """Build a hardened bwrap argv with the full isolation profile.
+def sandbox(
+    bwrap: Path,
+    env: dict[str, str],
+    ro_inputs: list[str] | None = None,
+) -> list[str]:
+    """Build a hardened bwrap argv with a minimal read-only filesystem profile.
 
-    Required flags (fixing weaknesses in corroborate_native.py / _java.py):
+    Required hardening flags:
       --cap-drop ALL     drop all Linux capabilities
       --unshare-pid      new PID namespace
-      --unshare-net      network isolation
-      --die-with-parent  child dies when parent exits
-      --new-session      detach from terminal
+      --unshare-net      network isolation (no outbound)
+      --die-with-parent  child killed when parent exits
+      --new-session      detach from controlling terminal
 
-    Raises AdapterError if /tmp/rsdd is unsafe (symlink, wrong owner, world-writable).
+    Filesystem exposure: only the OS runtime directories required to *run*
+    analysis tools are bound read-only (/usr, /bin, /sbin, /lib, /lib64 —
+    only those that exist on this host).  Individual libc/TLS helpers in /etc
+    are added via ``--ro-bind-try`` (safe if absent).  The former
+    ``--ro-bind / /`` full-root bind is intentionally absent; it would expose
+    SSH keys, credentials, /home, and /root to a sandboxed analysis tool that
+    can exfiltrate via stdout.
+
+    *ro_inputs*: optional list of host paths (e.g., the target binary) to bind
+    read-only inside the sandbox.  Each existing path is added as
+    ``--ro-bind <path> <path>``.
+
+    Raises AdapterError if /tmp/rsdd is unsafe (symlink, wrong owner,
+    world-/group-writable).
     """
     root = Path("/tmp/rsdd")
     root.mkdir(mode=0o700, exist_ok=True)
     meta = root.lstat()
     if stat.S_ISLNK(meta.st_mode) or meta.st_uid != os.getuid() or meta.st_mode & 0o077:
         raise AdapterError("unsafe Bubblewrap mountpoint")
+
     command = [
         str(bwrap),
         "--die-with-parent", "--new-session",
         "--unshare-net", "--unshare-pid",
         "--cap-drop", "ALL",
-        "--ro-bind", "/", "/",
+    ]
+
+    # Minimal OS runtime bind — excludes /home, /root, /tmp, /proc, /dev.
+    for _dir in ("/usr", "/bin", "/sbin", "/lib", "/lib64"):
+        if os.path.exists(_dir):
+            command += ["--ro-bind", _dir, _dir]
+
+    # Individual libc / TLS helpers inside /etc — use --ro-bind-try so a
+    # missing path is silently skipped rather than aborting bwrap.
+    for _etc in (
+        "/etc/ld.so.cache",
+        "/etc/ld.so.conf",
+        "/etc/ld.so.conf.d",
+        "/etc/ssl/certs",
+        "/etc/nsswitch.conf",
+        "/etc/resolv.conf",
+    ):
+        command += ["--ro-bind-try", _etc, _etc]
+
+    # Caller-provided analysis input paths (e.g., the binary under test).
+    for _inp in (ro_inputs or []):
+        if os.path.exists(_inp):
+            command += ["--ro-bind", _inp, _inp]
+
+    command += [
         "--proc", "/proc",
         "--dev", "/dev",
         "--tmpfs", "/tmp/rsdd",
@@ -295,8 +357,8 @@ def sandbox(bwrap: Path, env: dict[str, str]) -> list[str]:
     return command + ["--chdir", "/tmp/rsdd/work", "--"]
 
 
-# Alias: corroborate_native.py calls the sandbox builder ``isolation_prefix``.
-# Item-24 migration renames the call site; until then this alias is the bridge.
+# Temporary item-24 migration bridge.  corroborate_native.py calls the sandbox
+# builder ``isolation_prefix``; prefer ``sandbox`` for all new code.
 isolation_prefix = sandbox
 
 
@@ -353,7 +415,7 @@ def run_bounded(
     Enforced limits:
     - ``timeout`` seconds wall-clock  → error ``"timeout"``
     - combined stdout+stderr > ``max_bytes`` → error ``"output-cap"``
-    - process-tree depth > ``max_processes`` (when > 0) → error ``"process-cap"``
+    - total live PIDs in the process tree > ``max_processes`` (when > 0) → error ``"process-cap"``
     - RLIMIT_FSIZE preexec (defense-in-depth, best-effort)
 
     When a cap fires, both output files are jointly truncated to ``max_bytes``.
@@ -417,6 +479,12 @@ def run_bounded(
         + ([f"analyzer-exit:{returncode}"] if returncode and not reason else [])
     )
     return run_record, errors
+
+
+# Module-level alias: corroborate_firmware.py calls the executor ``run``.
+# Item-24 migration switches the call site; this alias lets the import succeed
+# without touching corroborate_firmware.py in the same commit.
+run = run_bounded
 
 
 # ---------------------------------------------------------------------------

@@ -35,8 +35,9 @@ No raw `ValueError`/`IndexError` ever propagates to callers.
 `PRIVATE_FS` = `{btrfs, ext2, ext3, ext4, f2fs, jfs, nilfs2, overlay, ramfs,
 reiserfs, tmpfs, ubifs, xfs, zfs}`
 
-### `sandbox(bwrap, env) → list[str]`
-Also exported as `isolation_prefix` (alias for corroborate_native.py migration).
+### `sandbox(bwrap, env, ro_inputs=None) → list[str]`
+Also exported as `isolation_prefix` (temporary item-24 migration bridge for
+`corroborate_native.py`; prefer `sandbox` for all new code).
 
 Hardened bwrap isolation profile — always includes:
 
@@ -48,6 +49,16 @@ Hardened bwrap isolation profile — always includes:
 | `--die-with-parent` | child killed when parent exits |
 | `--new-session` | detach from controlling terminal |
 
+Filesystem exposure: **minimal read-only bind** of OS runtime directories
+(`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64` where present) plus individual
+`/etc` libc/TLS helpers via `--ro-bind-try`.  The former `--ro-bind / /`
+full-root bind is intentionally absent to prevent the sandboxed tool from
+reading SSH keys, credentials, `/home`, or `/root`.
+
+*ro_inputs*: list of caller-provided host paths (e.g., the target binary)
+to bind read-only inside the sandbox.  Each existing path is added as
+`--ro-bind <path> <path>`.
+
 Scratch root is a private tmpfs at `/tmp/rsdd`.  Raises `AdapterError` if
 `/tmp/rsdd` is a symlink, owned by another user, or world-/group-writable.
 
@@ -56,8 +67,11 @@ Runs under `start_new_session=True`.  Enforced limits:
 
 - Wall-clock ≥ `timeout` seconds → `"timeout"`
 - `engine/stdout.txt` + `engine/stderr.txt` combined ≥ `max_bytes` → `"output-cap"`
-- Process-tree depth > `max_processes` (when > 0, via `/proc` enumeration) → `"process-cap"`
+- Total live PIDs in the process tree > `max_processes` (when > 0, via `/proc` enumeration) → `"process-cap"`
 - `RLIMIT_FSIZE` preexec (defense-in-depth, best-effort)
+
+Also exported as `run` (module-level alias, temporary item-24 migration bridge
+for `corroborate_firmware.py`; prefer `run_bounded` for all new code).
 
 On any cap/timeout both output files are jointly truncated to `max_bytes`.
 

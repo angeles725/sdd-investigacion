@@ -64,9 +64,9 @@ ac.require_private(r,mountinfo=f"1 0 8:1 / {r} rw - tmpfs t rw\n")
 PY
 then ok "require_private: rejects non-private+unknown FS; AdapterError on malformed (fail-closed)"; else no "require_private"; fi
 
-# 5. sandbox: emitted bwrap argv includes all required security flags
+# 5. sandbox: emitted bwrap argv includes all required security flags and no full-root bind
 if python3 - "$SUT" "$ROOT" <<'PY'
-import importlib.util,pathlib,sys
+import importlib.util,pathlib,sys,os
 s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
 sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
 if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
@@ -77,8 +77,14 @@ assert '--unshare-pid' in argv, f"missing --unshare-pid: {argv}"
 assert '--unshare-net' in argv, f"missing --unshare-net: {argv}"
 assert '--die-with-parent' in argv, f"missing --die-with-parent: {argv}"
 assert ac.isolation_prefix is ac.sandbox, "isolation_prefix alias broken"
+# SECURITY: full-root bind must NOT appear
+pairs=list(zip(argv,argv[1:]))
+assert not any(a=='--ro-bind' and b=='/' for a,b in pairs), f"full-root --ro-bind / found in: {argv}"
+# /usr must be bound if it exists on this host
+if os.path.exists('/usr'):
+    assert any(b=='/usr' for a,b in pairs if a in ('--ro-bind','--ro-bind-try')), f"/usr not bound in: {argv}"
 PY
-then ok "sandbox: --cap-drop ALL --unshare-pid --unshare-net --die-with-parent present"; else no "sandbox flags"; fi
+then ok "sandbox: security flags present; full-root bind absent; /usr bound"; else no "sandbox flags"; fi
 
 # 6. run_bounded: wall-timeout kill; output-cap truncation
 if python3 - "$SUT" "$ROOT" <<'PY'
@@ -105,5 +111,101 @@ except (ac.AdapterError,OSError): pass
 assert dest.exists(), "destination was removed"
 PY
 then ok "publish: RENAME_NOREPLACE refuses collision; destination preserved"; else no "publish"; fi
+
+# 8. sandbox: ro_inputs are bound; full-root still absent with ro_inputs
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys,os
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
+if sroot.lstat().st_mode&0o077: sroot.chmod(0o700)
+r=pathlib.Path(sys.argv[2]); bwrap=r/'bwrap2'; bwrap.write_bytes(b''); bwrap.chmod(0o755)
+inp=r/'input_sample.bin'; inp.write_bytes(b'data')
+argv=ac.sandbox(bwrap,{},ro_inputs=[str(inp)])
+pairs=list(zip(argv,argv[1:]))
+# full-root bind still absent
+assert not any(a=='--ro-bind' and b=='/' for a,b in pairs), f"full-root bind found with ro_inputs: {argv}"
+# input path must appear as --ro-bind src dst (both entries are the same path)
+assert any(b==str(inp) for a,b in pairs if a in ('--ro-bind','--ro-bind-try')), f"ro_input {inp} not bound in: {argv}"
+PY
+then ok "sandbox: ro_inputs bound; full-root still absent"; else no "sandbox ro_inputs"; fi
+
+# 9. stage_file: no partial target after error; retry does not hit FileExistsError
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,os,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+r=pathlib.Path(sys.argv[2]); src=r/'clean_src.bin'; src.write_bytes(b'abc')
+target=r/'clean_tgt.bin'
+# Inject a TOCTOU-style failure AFTER the target is created (2nd fstat call returns mutated size)
+real=ac.os.fstat; n=[0]
+def fake(fd):
+    v=real(fd); n[0]+=1
+    if n[0]==2:
+        return os.stat_result((v.st_mode,v.st_ino,v.st_dev,v.st_nlink,
+                               v.st_uid,v.st_gid,v.st_size+1,
+                               v.st_atime,v.st_mtime,v.st_ctime))
+    return v
+ac.os.fstat=fake
+try:
+    ac.stage_file(src,target,'clean_tgt.bin',0o400)
+    raise AssertionError('should detect TOCTOU')
+except ac.AdapterError: pass
+finally: ac.os.fstat=real
+# Partial target must be cleaned up
+assert not target.exists(), f"partial target still exists after error: {target}"
+# Retry (without patch) must succeed — no FileExistsError
+src_r,tgt_r=ac.stage_file(src,target,'clean_tgt.bin',0o400)
+assert target.exists(), "retry stage_file must create target"
+PY
+then ok "stage_file: partial target cleaned up on error; retry succeeds"; else no "stage_file cleanup"; fi
+
+# 10. run: module-level alias points to run_bounded
+if python3 - "$SUT" <<'PY'
+import importlib.util,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+assert hasattr(ac,'run'), "run alias missing from adapter_core"
+assert ac.run is ac.run_bounded, f"run alias must be run_bounded, got: {ac.run}"
+PY
+then ok "run: module-level alias points to run_bounded"; else no "run alias"; fi
+
+# 11. executable: AdapterError for missing configured path; returns resolved path for real binary
+if python3 - "$SUT" <<'PY'
+import importlib.util,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+search='/bin:/usr/bin'
+# Failure: configured path does not exist -> AdapterError (not raw OSError/FileNotFoundError)
+try:
+    ac.executable('true','/nonexistent/__no_such_binary_xyz__',search)
+    raise AssertionError('should raise AdapterError')
+except ac.AdapterError: pass
+except Exception as e: raise AssertionError(f"expected AdapterError, got {type(e).__name__}: {e}") from e
+# Success: no configured path override -> returns resolved path for real binary
+path,record=ac.executable('true',None,search)
+assert path.is_file(), f"resolved path not a file: {path}"
+assert 'sha256' in record and record['sha256'].startswith('sha256:'), f"bad record: {record}"
+PY
+then ok "executable: AdapterError on missing configured path; returns path for real binary"; else no "executable"; fi
+
+# 12. require_private: distinct message for no-match vs found-but-disallowed-fs
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+r=pathlib.Path(sys.argv[2])
+# No-match case: path is under no mount in the supplied mountinfo
+try:
+    ac.require_private(pathlib.Path('/xyz_no_such_path_abc'),
+                       mountinfo="1 0 8:1 / /tmp rw - tmpfs t rw\n")
+    raise AssertionError('should reject no-match path')
+except ac.AdapterError as e:
+    assert 'no known mount point' in str(e), f"no-match error must say 'no known mount point', got: {e!r}"
+# Found-but-disallowed case: path IS covered by a mount but the FS type is not private
+try:
+    ac.require_private(r, mountinfo=f"1 0 8:1 / / rw - 9p p9 rw\n1 0 8:1 / {r} rw - 9p p9 rw\n")
+    raise AssertionError('should reject non-private fs')
+except ac.AdapterError as e:
+    msg=str(e)
+    assert 'no known mount point' not in msg, f"disallowed-fs error wrongly says no-match: {msg!r}"
+    assert 'private' in msg.lower() or 'Linux-private' in msg, f"disallowed-fs error must mention private fs: {msg!r}"
+PY
+then ok "require_private: distinct no-match vs disallowed-fs messages"; else no "require_private distinct messages"; fi
 
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
