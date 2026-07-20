@@ -15,6 +15,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Firmware static evidence | Regular firmware/opaque binary | Binwalk signatures + entropy in Bubblewrap | `scan-firmware.sh evidence` (`firmware-static.v1`) | ✅ |
 | Firmware validated carving | Valid uImage or SquashFS v4 LE range | Internal exact-byte parser in Bubblewrap | `scan-firmware.sh carve` (`firmware-carve.v1`) | ✅ |
 | PCAP/PCAPng offline evidence | `.pcap` / `.pcapng` capture file | capinfos (summary) + tshark -z io,phs (protocol hierarchy) in Bubblewrap, no live capture | `corroborate-pcap.sh` ([`pcap-evidence.v1`](pcap-evidence.v1.md)) | ✅ |
+| PCAP/PCAPng flow reconstruction | `.pcap` / `.pcapng` capture file | tshark -z conv,tcp/udp (conversations) + tshark -z follow,tcp,raw,N (per-stream SHA-256 digest) in Bubblewrap, no replay | `pcap-flows.sh` ([`pcap-flows.v1`](pcap-flows.v1.md)) | ✅ |
 | ZIP metadata inventory | Classic single-disk ZIP | Internal central-directory parser (no payload reads or extraction) | `zip-metadata.sh` ([`zip-metadata.v1`](zip-metadata.v1.md)) | ✅ |
 | ZIP STORED extraction | Classic single-disk all-STORED ZIP | Internal central/local parser and bounded exact copy | `zip-stored.sh` ([`zip-stored.v1`](zip-stored.v1.md)) | ✅ |
 | In-VM run receipt | VM/sandbox output artifacts | vm_receipt.py (schema only, no VM launch) | `vm_receipt.py build\|validate\|verify` ([`vm-run-receipt.v1`](vm-run-receipt.v1.md)) | ✅ |
