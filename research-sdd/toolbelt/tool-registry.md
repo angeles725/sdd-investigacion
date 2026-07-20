@@ -16,6 +16,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Firmware validated carving | Valid uImage or SquashFS v4 LE range | Internal exact-byte parser in Bubblewrap | `scan-firmware.sh carve` (`firmware-carve.v1`) | ✅ |
 | ZIP metadata inventory | Classic single-disk ZIP | Internal central-directory parser (no payload reads or extraction) | `zip-metadata.sh` ([`zip-metadata.v1`](zip-metadata.v1.md)) | ✅ |
 | ZIP STORED extraction | Classic single-disk all-STORED ZIP | Internal central/local parser and bounded exact copy | `zip-stored.sh` ([`zip-stored.v1`](zip-stored.v1.md)) | ✅ |
+| In-VM run receipt | VM/sandbox output artifacts | vm_receipt.py (schema only, no VM launch) | `vm_receipt.py build\|validate\|verify` ([`vm-run-receipt.v1`](vm-run-receipt.v1.md)) | ✅ |
 | Firmware / packaged | `data` / known signatures | Binwalk scan + YARA (no extraction) | `scan-firmware.sh` | ✅ |
 | PDF datasheet/manual | `PDF document` | **`extract-pdf.sh`** — tier 1 (text layer) `pymupdf4llm`→MD w/ tables + `<!-- p.N -->` anchors; tier 2 (scanned, `fonts=0`) `ocrmypdf`/`marker`/`docling`/`tesseract` OCR | `extract-pdf.sh` (download still via `fetch-doc.sh`) | ✅ |
 | Web page / forum / link | URL | `curl`/`wget` + `pandoc` → markdown | `fetch-doc.sh` | ✅ |
