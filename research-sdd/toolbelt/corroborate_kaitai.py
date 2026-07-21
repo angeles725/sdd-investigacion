@@ -94,12 +94,13 @@ class KaitaiError(AdapterError):
 # ---------------------------------------------------------------------------
 
 def _toolchain_scope_guard(p: Path) -> None:
-    """Pure shape check — rejects system roots and shallow paths.
+    """Bind-scope check — rejects system roots and shallow paths.
 
     Raises KaitaiError when *p* is unsafe to bind, delegating to
-    adapter_helpers.assert_safe_bind_root.  BindScopeError is caught and
-    re-raised as KaitaiError to preserve the adapter-specific error type for
-    callers and tests that catch KaitaiError (T12, T17).
+    adapter_helpers.assert_safe_bind_root (which performs one FS access for
+    the home-directory belt check).  BindScopeError is caught and re-raised as
+    KaitaiError to preserve the adapter-specific error type for callers and
+    tests that catch KaitaiError (T12, T17).
 
     The FS-marker checks (ksc jar, JDK bin/java + release) stay at the
     respective call sites (_jdk_home_guard, _bind_kaitai_venv) because they
