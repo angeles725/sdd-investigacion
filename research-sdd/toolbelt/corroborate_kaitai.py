@@ -47,7 +47,10 @@ from lib.adapter_core import (
     stage_file,
     write,
 )
-from lib.adapter_helpers import ManifestError, emit_evidence, run_truncation
+from lib.adapter_helpers import (
+    BindScopeError, ManifestError,
+    assert_safe_bind_root, emit_evidence, run_truncation,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -74,12 +77,8 @@ _LIMITATIONS: list[str] = [
     "boundary; use a disposable VM for adversarial binaries.",
 ]
 
-# Top-level paths the toolchain resolver must never bind as a root.
-_TOOLCHAIN_BLOCKED_EXACT: frozenset[str] = frozenset({
-    "/", "/home", "/root",
-    "/usr", "/bin", "/sbin", "/lib", "/lib64",
-    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
-})
+# _TOOLCHAIN_BLOCKED_EXACT removed: consolidated into adapter_helpers._BLOCKED_BIND_ROOTS
+# and adapter_helpers.assert_safe_bind_root.
 
 
 # ---------------------------------------------------------------------------
@@ -97,17 +96,19 @@ class KaitaiError(AdapterError):
 def _toolchain_scope_guard(p: Path) -> None:
     """Pure shape check — rejects system roots and shallow paths.
 
-    Raises KaitaiError when:
-    - str(p) is in _TOOLCHAIN_BLOCKED_EXACT.
-    - p has fewer than 4 path components (e.g. /home/linuxbrew has 3).
+    Raises KaitaiError when *p* is unsafe to bind, delegating to
+    adapter_helpers.assert_safe_bind_root.  BindScopeError is caught and
+    re-raised as KaitaiError to preserve the adapter-specific error type for
+    callers and tests that catch KaitaiError (T12, T17).
+
+    The FS-marker checks (ksc jar, JDK bin/java + release) stay at the
+    respective call sites (_jdk_home_guard, _bind_kaitai_venv) because they
+    are toolchain-specific and not part of the generic root-scope predicate.
     """
-    s = str(p)
-    if s in _TOOLCHAIN_BLOCKED_EXACT:
-        raise KaitaiError(f"path rejected by toolchain scope guard: {s!r}")
-    if len(p.parts) < 4:
-        raise KaitaiError(
-            f"path too shallow for toolchain binding (< 4 components): {s!r}"
-        )
+    try:
+        assert_safe_bind_root(p)
+    except BindScopeError as exc:
+        raise KaitaiError(f"path rejected by toolchain scope guard: {exc}") from exc
 
 
 def _jdk_home_guard(home: Path) -> None:

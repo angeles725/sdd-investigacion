@@ -104,6 +104,51 @@ immediately without further processing.
 
 ---
 
+## `assert_safe_bind_root(resolved: Path) -> None`
+
+Single canonical pure shape check for any host path that an adapter intends
+to bind read-only into a bubblewrap sandbox.  **No filesystem access** —
+all checks are pure predicates on the path string and components.
+
+### Convention (MANDATORY)
+
+Every `/home` ro-bind in any adapter MUST route through `assert_safe_bind_root`
+before adding a `--ro-bind` argument to a bwrap prefix.  This is the
+U8/U10 class prevention — the class of bug where a new bind was added without
+applying the scope check.
+
+Adapters that catch a specific error type (e.g. `VenvBindError`, `CapaError`,
+`KaitaiError`) MUST catch `BindScopeError` and re-raise as the adapter-specific
+type.  Do NOT let `BindScopeError` propagate silently past a caller that only
+catches an adapter-specific error.
+
+### Rules (applied in order)
+
+1. `str(resolved) in _BLOCKED_BIND_ROOTS` → reject.
+2. If `resolved.parts[:2] == ('/', 'home')`: require `len(parts) >= 4`.
+   Rejects `/home` (2 parts) and `/home/<user>` (3 parts);
+   `/home/<user>/<subdir>` (4+ parts) is allowed.
+3. Else: require `len(parts) >= 3`.
+4. Belt: reject if `resolved == Path(os.path.realpath(os.path.expanduser("~")))`.
+
+Raises `BindScopeError` with a descriptive message on any failure.
+
+### `_BLOCKED_BIND_ROOTS`
+
+```python
+frozenset({
+    "/",
+    "/home", "/root",
+    "/usr", "/bin", "/sbin", "/lib", "/lib64",
+    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
+})
+```
+
+Superset of the three former per-adapter blocked-root sets
+(`_VENV_BLOCKED_EXACT`, `_RULES_BLOCKED_EXACT`, `_TOOLCHAIN_BLOCKED_EXACT`).
+All three were identical; this shared constant replaces all three.
+No per-adapter copy should be added going forward.
+
 ---
 
 ## `venv_root_for(tool_exe) → Path`
@@ -140,15 +185,16 @@ home-directory credentials to a process analysing hostile input.
 The `/home/<user>` case has exactly 3 path parts — one below the general
 `>= 3` threshold — so the per-family `>= 4` check catches it precisely.
 
-### `_VENV_BLOCKED_EXACT`
+### `_VENV_BLOCKED_EXACT` (superseded)
 
 ```python
 frozenset({"/", "/home", "/root", "/usr", "/bin", "/sbin", "/lib", "/lib64",
            "/etc", "/tmp", "/proc", "/sys", "/dev", "/run"})
 ```
 
-Belt-and-suspenders for paths that reach the shape check at exactly the
-boundary depth.  The depth checks above are the primary guard.
+Kept for backward compatibility.  Superseded by `_BLOCKED_BIND_ROOTS` in the
+`assert_safe_bind_root` helper; `venv_root_for` now delegates to that shared
+guard.  No new code should reference `_VENV_BLOCKED_EXACT` directly.
 
 ---
 
@@ -238,6 +284,7 @@ One limitation string per fired cap, in sorted (alphabetical) order.
 
 | Class | Base | When raised |
 |---|---|---|
+| `BindScopeError` | `AdapterError` | resolved path is unsafe to bind (blocked root, too shallow, or equals home directory); raised by `assert_safe_bind_root` |
 | `ManifestError` | `AdapterError` | manifest-CLI nonzero/timeout or publish failure |
 | `PcapMagicError` | `AdapterError` | bad pcap magic, symlink, or unreadable file |
-| `VenvBindError` | `AdapterError` | tool not inside a Python venv; unsafe venv root; invalid `etc_ro_bind_try` entry; invalid writable path; prefix does not end with `"--"` |
+| `VenvBindError` | `AdapterError` | tool not inside a Python venv; unsafe venv root (delegates scope check to `assert_safe_bind_root`); invalid `etc_ro_bind_try` entry; invalid writable path; prefix does not end with `"--"` |

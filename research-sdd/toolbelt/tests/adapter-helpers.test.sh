@@ -375,4 +375,95 @@ assert fired==False and lims==[], f"empty errors must not be truncation: {fired}
 PY
 then ok "E-1: run_truncation fires on timeout/output-cap/process-cap; not on analyzer-exit or empty"; else no "E-1: run_truncation"; fi
 
+# ---------------------------------------------------------------------------
+# F-1  assert_safe_bind_root — reject set (pure shape, no FS)
+#      Blocked: /, /home, /home/<user> (3 parts), /root, /usr, /tmp, ~ itself.
+#      This test will be RED until assert_safe_bind_root is implemented.
+# ---------------------------------------------------------------------------
+if python3 - "$SUT" <<'PY'
+import importlib.util, pathlib, os, sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+
+# BindScopeError must exist
+assert hasattr(ah,'BindScopeError'), "BindScopeError class missing from adapter_helpers"
+# assert_safe_bind_root must exist
+assert hasattr(ah,'assert_safe_bind_root'), "assert_safe_bind_root function missing"
+
+# --- reject set (pure shape, no FS) ---
+must_reject = [
+    pathlib.Path('/'),
+    pathlib.Path('/home'),
+    pathlib.Path('/home/someuser'),     # 3 parts — /home/<user>
+    pathlib.Path('/root'),
+    pathlib.Path('/usr'),
+    pathlib.Path('/tmp'),
+    pathlib.Path('/etc'),
+    pathlib.Path('/bin'),
+    pathlib.Path('/sbin'),
+    pathlib.Path('/lib'),
+    pathlib.Path('/lib64'),
+    pathlib.Path('/proc'),
+    pathlib.Path('/sys'),
+    pathlib.Path('/dev'),
+    pathlib.Path('/run'),
+    pathlib.Path(os.path.realpath(os.path.expanduser('~'))),  # home itself
+]
+for p in must_reject:
+    try:
+        ah.assert_safe_bind_root(p)
+        raise AssertionError(f'should reject {str(p)!r}')
+    except ah.BindScopeError:
+        pass
+
+# --- accept set (safe deep paths) ---
+must_accept = [
+    pathlib.Path('/home/x/.local/share/y'),          # 5 parts — deep /home path
+    pathlib.Path('/home/linuxbrew/.linuxbrew/Cellar/python/3.11'),  # 6 parts — brew keg
+    pathlib.Path('/opt/myapp/venvs/capa'),            # 5 parts — non-home deep
+]
+for p in must_accept:
+    try:
+        ah.assert_safe_bind_root(p)
+    except ah.BindScopeError as exc:
+        raise AssertionError(f'should accept {str(p)!r}: {exc}')
+PY
+then ok "F-1: assert_safe_bind_root: reject set blocked, accept set passes"; else no "F-1: assert_safe_bind_root"; fi
+
+# ---------------------------------------------------------------------------
+# F-2  assert_safe_bind_root — triangulation: additional edge cases
+# ---------------------------------------------------------------------------
+if python3 - "$SUT" <<'PY'
+import importlib.util, pathlib, sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+
+# /home/<user>/<subdir> (4 parts) must be ACCEPTED
+ah.assert_safe_bind_root(pathlib.Path('/home/alice/venvs'))
+
+# /root/<something> (3 parts) must be ACCEPTED (only /root itself is blocked)
+ah.assert_safe_bind_root(pathlib.Path('/root/myvenv'))
+
+# /a/b/c (3 parts, not /home, not blocked exact) must be ACCEPTED
+ah.assert_safe_bind_root(pathlib.Path('/a/b/c'))
+
+# /home (2 parts) must be REJECTED (blocked exact AND depth)
+try:
+    ah.assert_safe_bind_root(pathlib.Path('/home'))
+    raise AssertionError('/home must be rejected')
+except ah.BindScopeError:
+    pass
+
+# Confirm BindScopeError is a subclass of AdapterError
+# (adapter_helpers re-exports AdapterError from adapter_core)
+assert hasattr(ah, 'AdapterError'), "AdapterError not re-exported by adapter_helpers"
+assert issubclass(ah.BindScopeError, ah.AdapterError), \
+    f"BindScopeError must be a subclass of AdapterError"
+PY
+then ok "F-2: assert_safe_bind_root: edge cases + BindScopeError subclass of AdapterError"; else no "F-2: assert_safe_bind_root edge cases"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

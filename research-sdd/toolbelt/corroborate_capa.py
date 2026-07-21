@@ -45,7 +45,10 @@ from lib.adapter_core import (
     sandbox,
     stage_file,
 )
-from lib.adapter_helpers import ManifestError, VenvBindError, bind_venv, emit_evidence, run_truncation
+from lib.adapter_helpers import (
+    BindScopeError, ManifestError, VenvBindError,
+    assert_safe_bind_root, bind_venv, emit_evidence, run_truncation,
+)
 
 SCHEMA = "capa-evidence.v1"
 
@@ -104,11 +107,9 @@ def _version(capa_exe: Path) -> str:
 # Rules-dir validation and sandbox binding (local to this adapter)
 # ---------------------------------------------------------------------------
 
-# Scope guard constants (mirror _VENV_BLOCKED_EXACT from lib/adapter_helpers.py).
-_RULES_BLOCKED_EXACT: frozenset[str] = frozenset(
-    {"/", "/home", "/root", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-     "/etc", "/tmp", "/proc", "/sys", "/dev", "/run"}
-)
+# Plausibility marker constants (local — specific to capa-rules structure).
+# _RULES_BLOCKED_EXACT removed: consolidated into adapter_helpers._BLOCKED_BIND_ROOTS
+# and adapter_helpers.assert_safe_bind_root.
 _CAPA_RULES_STRUCTURAL_SUBDIRS: frozenset[str] = frozenset(  # plausibility marker
     {"nursery", "lib", "host-interaction", "persistence", "collection", "discovery"}
 )
@@ -118,18 +119,16 @@ _MIN_YML_COUNT: int = 50  # real capa-rules repo has ~1000; 50 is conservative
 def _rules_scope_guard(resolved: Path) -> None:
     """Raise CapaError when *resolved* is a blocked root or too broad to bind.
 
-    Pure shape check.  Mirrors venv_root_for() depth checks from adapter_helpers.
+    Pure shape check delegated to adapter_helpers.assert_safe_bind_root.
+    BindScopeError is caught and re-raised as CapaError to preserve the
+    adapter-specific error type for callers and tests that catch CapaError.
+    The capa-rules plausibility marker (.yml count / structural subdirs) is
+    kept separately in _validate_rules_dir.
     """
-    if str(resolved) in _RULES_BLOCKED_EXACT:
-        raise CapaError(f"--rules path is a blocked system root: {resolved}")
-    parts = resolved.parts
-    if len(parts) >= 2 and parts[:2] == ("/", "home") and len(parts) < 4:
-        raise CapaError(
-            f"--rules path too broad to bind safely "
-            f"(require /home/<user>/<subdir> or deeper): {resolved}"
-        )
-    elif len(parts) < 3:
-        raise CapaError(f"--rules path too broad to bind safely: {resolved}")
+    try:
+        assert_safe_bind_root(resolved)
+    except BindScopeError as exc:
+        raise CapaError(f"--rules path rejected by bind-scope guard: {exc}") from exc
 
 
 def _validate_rules_dir(rules_path: Path) -> Path:

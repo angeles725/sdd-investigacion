@@ -95,6 +95,20 @@ class VenvBindError(AdapterError):
     """
 
 
+class BindScopeError(AdapterError):
+    """Raised when a resolved path is unsafe to bind into a sandbox.
+
+    Common causes:
+    - Path is in the blocked-system-roots set (/, /home, /root, /usr, etc.).
+    - /home/<user> path has fewer than 4 components (would expose the home dir).
+    - Non-home path has fewer than 3 components (too shallow).
+    - Path equals the real home directory (belt check).
+
+    Every /home ro-bind in any adapter MUST route through assert_safe_bind_root
+    to avoid silently exposing credential-bearing directories.
+    """
+
+
 # ---------------------------------------------------------------------------
 # emit_evidence guards
 # ---------------------------------------------------------------------------
@@ -369,6 +383,75 @@ def squashfs_superblock(
 
 
 # ---------------------------------------------------------------------------
+# HELPER F — bind-scope guard (shared root-path safety predicate)
+# ---------------------------------------------------------------------------
+#
+# Convention: every /home ro-bind in any adapter MUST route through
+# assert_safe_bind_root() before calling _bind_tree or --ro-bind.  This is
+# the single, canonical guard that prevents the U8/U10 class of block where a
+# new bind was added without applying the scope check.
+#
+# Superset of all three former per-adapter blocked-root sets
+# (_VENV_BLOCKED_EXACT, _RULES_BLOCKED_EXACT, _TOOLCHAIN_BLOCKED_EXACT).
+# All three were identical; this shared set replaces all three.
+_BLOCKED_BIND_ROOTS: frozenset[str] = frozenset({
+    "/",
+    "/home", "/root",
+    "/usr", "/bin", "/sbin", "/lib", "/lib64",
+    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
+})
+
+
+def assert_safe_bind_root(resolved: Path) -> None:
+    """Canonical pure shape check — raises BindScopeError if *resolved* is unsafe to bind.
+
+    No filesystem access (pure predicate).  Rules applied in order:
+
+    1. ``str(resolved) in _BLOCKED_BIND_ROOTS`` → reject (blocked system root).
+    2. If ``resolved.parts[:2] == ('/', 'home')``: require ``len(parts) >= 4``.
+       This rejects ``/home`` (2 parts) *and* ``/home/<user>`` (3 parts);
+       ``/home/<user>/<subdir>`` (4+ parts) is allowed.
+    3. Else: require ``len(parts) >= 3``.
+    4. Belt: reject if ``resolved == Path(os.path.realpath(os.path.expanduser("~")))``.
+       Catches the case where a deep-enough home path resolves to the actual home
+       directory after symlink traversal.
+
+    Raises ``BindScopeError`` with a descriptive message on any failure.
+
+    Every adapter that ro-binds a host directory MUST call this function before
+    adding a ``--ro-bind`` argument to a bwrap prefix.  The three former inline
+    copies (_VENV_BLOCKED_EXACT in adapter_helpers, _RULES_BLOCKED_EXACT in
+    corroborate_capa, _TOOLCHAIN_BLOCKED_EXACT in corroborate_kaitai) have been
+    consolidated here; no per-adapter copy should be added going forward.
+    """
+    s = str(resolved)
+    if s in _BLOCKED_BIND_ROOTS:
+        raise BindScopeError(f"path is a blocked system root: {s!r}")
+
+    parts = resolved.parts
+    if len(parts) >= 2 and parts[:2] == ("/", "home"):
+        # /home and /home/<user> are 2 and 3 parts respectively — too broad.
+        # Require /home/<user>/<subdir> (≥4 parts) to be safe.
+        if len(parts) < 4:
+            raise BindScopeError(
+                f"path too broad to bind safely "
+                f"(require /home/<user>/<subdir> or deeper, got {len(parts)} parts): {s!r}"
+            )
+    elif len(parts) < 3:
+        raise BindScopeError(
+            f"path too shallow to bind safely ({len(parts)} parts, need ≥3): {s!r}"
+        )
+
+    # Belt: reject the real home directory even if it passed shape checks
+    # (e.g. a deeply-nested symlink that resolves to ~/.)
+    home = Path(os.path.realpath(os.path.expanduser("~")))
+    if resolved == home:
+        raise BindScopeError(
+            f"path resolves to the real home directory: {s!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # HELPER D — venv-bind helpers
 # ---------------------------------------------------------------------------
 
@@ -435,30 +518,18 @@ def venv_root_for(tool_exe: Path) -> Path:
         )
     root = real_exe.parent.parent
 
-    # --- SHAPE checks (pure — no FS access) ---
-    if str(root) in _VENV_BLOCKED_EXACT:
+    # --- SHAPE + BELT checks via shared guard (pure — no FS access) ---
+    # Design choice: catch BindScopeError and re-raise as VenvBindError to
+    # preserve the exact exception type.  Callers (and tests D-2, D-3) explicitly
+    # catch VenvBindError; letting BindScopeError propagate would silently break them
+    # even though BindScopeError IS an AdapterError subclass.
+    try:
+        assert_safe_bind_root(root)
+    except BindScopeError:
         raise VenvBindError(_VENV_BIND_MSG)
 
-    parts = root.parts
-    if len(parts) >= 2 and parts[:2] == ("/", "home"):
-        # /home and /home/<user> are both too shallow (3 parts or fewer).
-        if len(parts) < 4:
-            raise VenvBindError(_VENV_BIND_MSG)
-    elif len(parts) >= 2 and parts[:2] == ("/", "root"):
-        # /root itself (2 parts) is blocked above; /root/<venv> (3 parts) is ok.
-        if len(parts) < 3:
-            raise VenvBindError(_VENV_BIND_MSG)
-    else:
-        if len(parts) < 3:
-            raise VenvBindError(_VENV_BIND_MSG)
-
-    # --- FS marker check ---
+    # --- FS marker check (local — pyvenv.cfg is venv-specific, not generic) ---
     if not (root / "pyvenv.cfg").is_file():
-        raise VenvBindError(_VENV_BIND_MSG)
-
-    # --- Belt: reject the real home directory even if it passed shape checks ---
-    home = Path(os.path.realpath(os.path.expanduser("~")))
-    if root == home:
         raise VenvBindError(_VENV_BIND_MSG)
 
     return root
