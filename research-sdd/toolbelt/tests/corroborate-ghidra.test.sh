@@ -3,6 +3,16 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../corroborate-ghidra.sh"; MAN="$HERE/../analysis_manifest.py"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }; expect_no(){ local n=$1; shift; if ! "$@" >/dev/null 2>&1 && [ ! -e "$ROOT/$n" ]; then ok "$n"; else no "$n"; fi; }
+
+# Tool-availability guard — skip gracefully when required tools are absent.
+for _cmd in bwrap java; do
+  if ! command -v "$_cmd" >/dev/null 2>&1; then
+    echo "SKIP: corroborate-ghidra tests (missing: $_cmd)"
+    echo "== 0 passed · 0 failed =="
+    exit 0
+  fi
+done
+
 mkdir -p "$ROOT/gh/support" "$ROOT/gh/Ghidra/Framework/Utility/lib" "$ROOT/jdk/bin" "$ROOT/bin"
 printf 'application.name=Ghidra\napplication.version=12.1-test\n' >"$ROOT/gh/Ghidra/application.properties"
 for f in support/launch.sh support/launch.properties support/LaunchSupport.jar Ghidra/Framework/Utility/lib/Utility.jar; do printf '%s\n' "$f" >"$ROOT/gh/$f"; done

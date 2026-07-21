@@ -6,6 +6,20 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 WRAPPER="$HERE/../jvm-callgraph.sh"
 [ -f "$WRAPPER" ] || { echo "FATAL: SUT not found: $WRAPPER" >&2; exit 2; }
 
+# Tool-availability guard — skip gracefully when a usable Java 21 is absent.
+# `command -v java` is NOT enough: the suite compiles with `javac --release 21`,
+# so a present-but-older java (as on minimal CI images) must still skip. Resolve
+# Java 21 exactly as the suite does, via the shared rsdd_resolve_java_home helper.
+_JAVA21="$(RESEARCH_SDD_JAVA_HOME="${RESEARCH_SDD_JAVA_HOME:-/home/linuxbrew/.linuxbrew/opt/openjdk@21}" bash -c 'source "$1"; rsdd_resolve_java_home' _ "$HERE/../lib/tool-env.sh" 2>/dev/null)"
+# rsdd_resolve_java_home returns any resolvable JDK (it does not gate on version),
+# so verify the major feature version is >= 21 — an older javac cannot `--release 21`.
+_JAVAC_MAJOR="$([ -x "${_JAVA21:-}/bin/javac" ] && "$_JAVA21/bin/javac" -version 2>&1 | grep -oE '[0-9]+' | head -1)"
+if [ -z "$_JAVA21" ] || [ ! -x "$_JAVA21/bin/javac" ] || [ "${_JAVAC_MAJOR:-0}" -lt 21 ]; then
+  echo "SKIP: jvm-callgraph tests (missing: usable Java 21)"
+  echo "== 0 passed · 0 failed =="
+  exit 0
+fi
+
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { echo "  PASS  $1"; pass=$((pass+1)); }

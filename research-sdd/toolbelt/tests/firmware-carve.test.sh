@@ -5,6 +5,15 @@ ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"; rm -f "$ROOT-parent-link"' EXIT; pass
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 run(){ "$SUT" carve "$ROOT/firmware.bin" "$1" "${@:2}"; }
 
+# Tool-availability guard — skip gracefully when required tools are absent.
+for _cmd in bwrap binwalk; do
+  if ! command -v "$_cmd" >/dev/null 2>&1; then
+    echo "SKIP: firmware-carve tests (missing: $_cmd)"
+    echo "== 0 passed · 0 failed =="
+    exit 0
+  fi
+done
+
 python3 - "$ROOT/firmware.bin" <<'PY'
 import binascii,struct,sys
 p=sys.argv[1]; data=b'UIMAGE-PAYLOAD'; h=bytearray(64)

@@ -2,6 +2,16 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../corroborate-native.sh"; MANIFEST="$HERE/../analysis_manifest.py"
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+
+# Tool-availability guard — skip gracefully when required tools are absent.
+for _cmd in bwrap r2; do
+  if ! command -v "$_cmd" >/dev/null 2>&1; then
+    echo "SKIP: corroborate-native-r2 tests (missing: $_cmd)"
+    echo "== 0 passed · 0 failed =="
+    exit 0
+  fi
+done
+
 ROOT="$(mktemp -d)"; SHARED_OUT=""; trap '[ -z "$SHARED_OUT" ] || rm -rf -- "$SHARED_OUT"; rm -rf "$ROOT"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 run(){ "$SUT" --input "$ROOT/fixture.elf" --output "$1" "${@:2}"; }

@@ -7,6 +7,15 @@ SUT="$HERE/../corroborate-java.sh"
 MANIFEST="$HERE/../analysis_manifest.py"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 
+# Tool-availability guard — skip gracefully when required tools are absent.
+for _cmd in bwrap java; do
+  if ! command -v "$_cmd" >/dev/null 2>&1; then
+    echo "SKIP: corroborate-java tests (missing: $_cmd)"
+    echo "== 0 passed · 0 failed =="
+    exit 0
+  fi
+done
+
 ROOT="$(mktemp -d)"; trap 'find "$ROOT" -type d -name trusted-tools -exec chmod u+w {} + 2>/dev/null; rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { echo "  PASS  $1"; pass=$((pass+1)); }

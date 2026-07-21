@@ -4,10 +4,6 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/adapter_helpers.py"
 [ -f "$SUT" ] || { echo "FATAL: adapter_helpers.py not found: $SUT" >&2; exit 2; }
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
-LOAD='import importlib.util,pathlib
-def load(p):
-    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
-    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m'
 
 # B-1  pcap_magic_check — valid pcap LE µs + pcapng accepted; garbage raises PcapMagicError
 if python3 - "$SUT" "$ROOT" <<'PY'
