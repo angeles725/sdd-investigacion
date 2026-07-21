@@ -229,4 +229,150 @@ for key in ('status','schema','input','isolation','limitations','errors'):
 PY
 then ok "emit_evidence: reserved domain key raises ManifestError"; else no "emit_evidence: reserved key guard"; fi
 
+
+# ---------------------------------------------------------------------------
+# D-1  venv_root_for + bind_venv — synthetic venv happy path
+# ---------------------------------------------------------------------------
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+venv=r/'deep'/'venvs'/'mytool'
+(venv/'bin').mkdir(parents=True); exe=venv/'bin'/'mytool'; exe.write_text('')
+(venv/'pyvenv.cfg').write_text('[python]\nversion=3.11\n')
+root=ah.venv_root_for(exe)
+assert root==venv, f"expected {venv}, got {root}"
+out=ah.bind_venv(['bwrap','--'],exe)
+assert out[-1]=='--', f"must end with '--': {out}"
+assert '--ro-bind' in out, f"--ro-bind missing: {out}"
+parts=venv.parts
+for i in range(1,len(parts)):
+    stub=str(pathlib.Path(*parts[:i+1]))
+    assert stub in out, f"--dir stub missing for {stub!r}: {out}"
+PY
+then ok "D-1: venv_root_for + bind_venv happy path (stubs+ro-bind+trailing --)"; else no "D-1: venv happy path"; fi
+
+# D-2  /home/<user>/bin/tool → VenvBindError via shape check (no FS needed)
+if python3 - "$SUT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+try:
+    ah.venv_root_for(pathlib.Path('/home/someuser/bin/tool'))
+    raise AssertionError('should raise VenvBindError for /home/someuser')
+except ah.VenvBindError: pass
+PY
+then ok "D-2: /home/<user> raises VenvBindError (shape check, no FS)"; else no "D-2: /home/<user> shape guard"; fi
+
+# D-3  /usr/bin/tool → root /usr blocked → VenvBindError
+if python3 - "$SUT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+try:
+    ah.venv_root_for(pathlib.Path('/usr/bin/tool'))
+    raise AssertionError('should raise VenvBindError for /usr/bin/tool')
+except ah.VenvBindError: pass
+PY
+then ok "D-3: /usr/bin/tool raises VenvBindError (blocked exact root)"; else no "D-3: /usr blocked root"; fi
+
+# D-4  bin/tool exists but no pyvenv.cfg → VenvBindError
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+nv=r/'nopyvenv'; (nv/'bin').mkdir(parents=True)
+exe=nv/'bin'/'tool'; exe.write_text('')
+try:
+    ah.venv_root_for(exe)
+    raise AssertionError('should raise VenvBindError when pyvenv.cfg absent')
+except ah.VenvBindError: pass
+PY
+then ok "D-4: no pyvenv.cfg raises VenvBindError"; else no "D-4: missing pyvenv.cfg guard"; fi
+
+# D-5  etc_ro_bind_try: allowed entries emitted; blocked entry raises VenvBindError
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+venv=r/'v5'; (venv/'bin').mkdir(parents=True); exe=venv/'bin'/'tool'; exe.write_text('')
+(venv/'pyvenv.cfg').write_text('[python]\nversion=3.11\n')
+out=ah.bind_venv(['bwrap','--'],exe,etc_ro_bind_try=('/etc/passwd','/etc/group'))
+assert out.count('--ro-bind-try')>=2, f"expected >=2 --ro-bind-try: {out}"
+assert '/etc/passwd' in out and '/etc/group' in out, f"entries missing: {out}"
+try:
+    ah.bind_venv(['bwrap','--'],exe,etc_ro_bind_try=('/etc/shadow',))
+    raise AssertionError('should raise VenvBindError for /etc/shadow')
+except ah.VenvBindError: pass
+PY
+then ok "D-5: allowed /etc entries emitted; /etc/shadow raises VenvBindError"; else no "D-5: etc_ro_bind_try guard"; fi
+
+# D-6  writable: sandbox path not under /tmp/rsdd/ → VenvBindError; valid pair emitted
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+venv=r/'v6'; (venv/'bin').mkdir(parents=True); exe=venv/'bin'/'tool'; exe.write_text('')
+(venv/'pyvenv.cfg').write_text('[python]\nversion=3.11\n')
+wdir=r/'tmpwrite'; wdir.mkdir()
+try:
+    ah.bind_venv(['bwrap','--'],exe,writable=[(wdir,'/var/other')])
+    raise AssertionError('should raise VenvBindError for sandbox_path not under /tmp/rsdd/')
+except ah.VenvBindError: pass
+out=ah.bind_venv(['bwrap','--'],exe,writable=[(wdir,'/tmp/rsdd/myout')])
+assert '--dir' in out and '/tmp/rsdd/myout' in out, f"--dir missing: {out}"
+assert '--bind' in out and str(wdir) in out, f"--bind missing: {out}"
+assert out[-1]=='--', f"must end with '--': {out}"
+PY
+then ok "D-6: bad sandbox_path raises VenvBindError; valid writable pair emitted"; else no "D-6: writable guard"; fi
+
+# D-7  prefix not ending '--' → VenvBindError (raises even before FS checks)
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+venv=r/'v7'; (venv/'bin').mkdir(parents=True); exe=venv/'bin'/'tool'; exe.write_text('')
+(venv/'pyvenv.cfg').write_text('[python]\nversion=3.11\n')
+try:
+    ah.bind_venv(['bwrap','--chdir','/tmp/rsdd/work'],exe)
+    raise AssertionError('should raise VenvBindError for prefix not ending "--"')
+except ah.VenvBindError: pass
+PY
+then ok "D-7: prefix not ending '--' raises VenvBindError"; else no "D-7: prefix guard"; fi
+
+# ---------------------------------------------------------------------------
+# E-1  run_truncation — cap-error detection correctness
+# ---------------------------------------------------------------------------
+if python3 - "$SUT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+for cap in ('timeout','output-cap','process-cap'):
+    fired,lims=ah.run_truncation([cap],'floss')
+    assert fired==True, f"expected True for {cap!r}, got {fired}"
+    assert len(lims)==1, f"expected 1 limitation for {cap!r}: {lims}"
+    assert cap in lims[0] and 'truncated' in lims[0], f"bad limitation for {cap!r}: {lims}"
+fired,lims=ah.run_truncation(['analyzer-exit:1'],'floss')
+assert fired==False and lims==[], f"analyzer-exit:1 must not be truncation: {fired},{lims}"
+fired,lims=ah.run_truncation([],'floss')
+assert fired==False and lims==[], f"empty errors must not be truncation: {fired},{lims}"
+PY
+then ok "E-1: run_truncation fires on timeout/output-cap/process-cap; not on analyzer-exit or empty"; else no "E-1: run_truncation"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

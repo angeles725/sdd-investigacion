@@ -241,5 +241,41 @@ then ok "max-depth cap: limitation recorded, truncated=True, entries bounded by 
 else no "max-depth cap: limitation missing or truncated=False (was silent before fix)"
 fi
 
+
+# ---------------------------------------------------------------------------
+# T11: Timeout visibility — --timeout 1 must set extraction.truncated=True and
+#      record a timeout limitation.  Skip gracefully when unblob finishes in <1s
+#      (flake-proof: good.tgz is small and may extract very quickly).
+# ---------------------------------------------------------------------------
+_T11_OUT="$ROOT/out_timeout_unblob"
+_T11_EXIT=0
+run "$ROOT/good.tgz" "$_T11_OUT" --timeout 1 2>/dev/null || _T11_EXIT=$?
+if [ "$_T11_EXIT" -eq 0 ]; then
+  echo "  SKIP  T11: unblob finished in <1s on good.tgz (too fast; flake-proof skip)"
+elif [ "$_T11_EXIT" -eq 2 ]; then
+  no "T11: adapter fatal error (exit 2); check unblob installation"
+elif [ -f "$_T11_OUT/unblob-evidence.v1.json" ]; then
+  if python3 - "$_T11_OUT/unblob-evidence.v1.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("status") == "failed", \
+    f"expected status=failed on timeout, got {d.get('status')!r}"
+assert "timeout" in d.get("errors", []), \
+    f"timeout not in errors: {d.get('errors')}"
+ex = d.get("extraction", {})
+assert ex.get("truncated") == True, \
+    f"extraction.truncated must be True on timeout, got {ex.get('truncated')!r}"
+lims = d.get("limitations", [])
+assert any("timeout" in l for l in lims), \
+    f"no timeout limitation string: {lims}"
+print(f"OK: status=failed, timeout in errors, extraction.truncated=True, limitation present")
+PY
+  then ok "T11: --timeout 1 sets status=failed, extraction.truncated=True, timeout limitation recorded"
+  else no "T11: timeout visibility (schema mismatch; evidence present but fields wrong)"
+  fi
+else
+  no "T11: evidence not published after timeout (exit $_T11_EXIT)"
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

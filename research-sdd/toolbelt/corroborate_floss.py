@@ -38,7 +38,7 @@ from lib.adapter_core import (
     sandbox,
     stage_file,
 )
-from lib.adapter_helpers import ManifestError, emit_evidence
+from lib.adapter_helpers import ManifestError, VenvBindError, bind_venv, emit_evidence, run_truncation
 
 SCHEMA = "floss-evidence.v1"
 
@@ -55,12 +55,11 @@ _LIMITATIONS: list[str] = [
     "Stack string, tight string, and decoded string extraction requires PE format; ELF "
     "and other formats yield static strings only — a non-zero exit is recorded as an "
     "error and evidence is published with status=failed.",
-    "Inventory is bounded: total string count and per-string length are capped; any cap "
-    "that fires is reported in limitations and truncated is set true — never silent.",
     "Bubblewrap on WSL2 provides network isolation but is not a full hostile-parser "
     "security boundary; use a disposable VM for actively hostile samples.",
-    "Caps (--max-strings, --max-string-len, --timeout) limit resource use; any cap "
-    "that fires is reported in limitations and truncated is set true — never silent.",
+    "Caps (--max-strings, --max-string-len, --timeout) and output/process limits bound "
+    "resource use; any cap that fires is reported in limitations and truncated is set "
+    "true — never silent.",
 ]
 
 # Combined stdout+stderr cap for run_bounded (4 MiB is generous for floss JSON output).
@@ -77,70 +76,6 @@ _CATEGORIES: tuple[str, ...] = (
 
 class FlossError(AdapterError):
     """Fail-closed error for the floss evidence adapter."""
-
-
-# Top-level paths that _extend_sandbox() must never bind as a venv root.
-# Belt-and-suspenders: the parts-depth check catches most cases; this set adds an
-# explicit guard for any path that might slip through at exactly 3 parts.
-#
-# NOTE: This constant duplicates corroborate_unblob.py._VENV_BLOCKED_EXACT.
-# Item-24 will deduplicate both into a shared helper in adapter_helpers.py.
-_VENV_BLOCKED_EXACT: frozenset[str] = frozenset({
-    "/",
-    "/home", "/root",
-    "/usr", "/bin", "/sbin", "/lib", "/lib64",
-    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
-})
-
-
-# ---------------------------------------------------------------------------
-# Sandbox construction (extends adapter_core.sandbox() with floss venv mount)
-# ---------------------------------------------------------------------------
-
-def _extend_sandbox(prefix: list[str], floss_exe: Path) -> list[str]:
-    """Extend the bwrap prefix produced by sandbox() with the floss pipx venv bind.
-
-    Added mounts (inserted BEFORE the trailing '--'):
-    - Path hierarchy stubs for the floss pipx venv root (read-only bind).
-
-    The venv must be read-only to prevent any analysis artifact from persisting
-    in the tool tree.
-
-    NOTE: This venv-bind logic duplicates corroborate_unblob.py._extend_sandbox().
-    Item-24 will deduplicate both into a shared helper in adapter_helpers.py.
-    """
-    # Venv root: two levels above the floss script
-    # (~/.local/share/pipx/venvs/flare-floss/bin/floss → venv root = flare-floss/).
-    venv_root = floss_exe.parent.parent
-
-    # Guard: refuse to bind if the venv root is at a filesystem root, a known
-    # top-level blocked path, or too shallow (< 3 path parts).  A shallow
-    # venv_root would bind the whole host filesystem or a credential store
-    # read-only inside the sandbox, enabling exfiltration via stdout.
-    if len(venv_root.parts) < 3 or str(venv_root) in _VENV_BLOCKED_EXACT:
-        raise FlossError(
-            f"refusing to bind unsafe venv root ({venv_root}): path is too shallow "
-            "or resolves to a blocked directory; floss must reside in a deep pipx venv"
-        )
-
-    # Build directory stubs for every path component of the venv root so that
-    # the bind target exists inside the sandbox's new namespace.
-    extra: list[str] = []
-    for i in range(1, len(venv_root.parts)):
-        extra += ["--dir", str(Path(*venv_root.parts[:i + 1]))]
-    extra += ["--ro-bind", str(venv_root), str(venv_root)]
-
-    # vivisect (floss dependency) calls getpass.getuser() → pwd.getpwuid() which
-    # requires /etc/passwd.  Bind it read-only with --ro-bind-try so that the
-    # sandbox fails gracefully on systems where the file is absent or has a
-    # different path (e.g., LDAP-only systems).
-    # /etc/group is also needed by the Python pwd/grp modules for completeness.
-    extra += ["--ro-bind-try", "/etc/passwd", "/etc/passwd"]
-    extra += ["--ro-bind-try", "/etc/group", "/etc/group"]
-
-    # Insert before the trailing "--" that terminates the bwrap prefix.
-    assert prefix[-1] == "--", "sandbox() prefix must end with '--'"
-    return prefix[:-1] + extra + ["--"]
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +101,17 @@ def _version(floss_exe: Path) -> str:
 # Floss stdout JSON reader (O_NOFOLLOW-safe)
 # ---------------------------------------------------------------------------
 
-def _read_stdout_json(stdout_path: Path) -> dict[str, Any] | None:
+def _read_stdout_json(stdout_path: Path) -> tuple[dict[str, Any] | None, str | None]:
     """Read stdout.txt with O_NOFOLLOW + lstat/S_ISREG and parse as JSON.
 
-    Returns the parsed JSON dict, or None when the file is empty or the JSON
-    is malformed.  Raises FlossError when a symlink or non-regular file is
-    detected (TOCTOU-safe).
+    Returns ``(parsed_dict, None)`` on success, ``(None, None)`` when the
+    file is empty (no output produced), or ``(None, error_str)`` when the
+    file is non-empty but the JSON is malformed.  The error string is a
+    human-readable description suitable for inclusion in the evidence errors
+    list — malformed JSON on exit-0 is now an explicit error (``status=failed``),
+    not silently promoted to an empty inventory.
 
-    Safety:
+    Raises FlossError when a symlink or non-regular file is detected (TOCTOU-safe):
     - lstat before open: rejects symlinks and non-regular files.
     - O_NOFOLLOW on open: kernel-level symlink rejection (belt-and-suspenders).
     - fstat after read: detects TOCTOU modification between lstat and read.
@@ -191,7 +129,7 @@ def _read_stdout_json(stdout_path: Path) -> dict[str, Any] | None:
     if not stat.S_ISREG(meta.st_mode):
         raise FlossError(f"floss stdout is not a regular file: {stdout_path}")
     if meta.st_size == 0:
-        return None
+        return None, None
 
     try:
         fd = os.open(stdout_path, os.O_RDONLY | NOFOLLOW | CLOEXEC)
@@ -210,12 +148,12 @@ def _read_stdout_json(stdout_path: Path) -> dict[str, Any] | None:
         os.close(fd)
 
     if not raw:
-        return None
+        return None, None
 
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+        return json.loads(raw), None
+    except json.JSONDecodeError as exc:
+        return None, f"malformed JSON in floss stdout: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +215,7 @@ def _build_inventory(
 
     remaining_budget: int = max_strings
     string_cap_hit: bool = False
-    len_cap_hit: bool = False
+    length_cap_hit: bool = False
 
     categories: dict[str, Any] = {}
     total_count: int = 0
@@ -310,8 +248,8 @@ def _build_inventory(
             # Per-string length cap: truncate and record flag once.
             if len(raw_val) > max_string_len:
                 raw_val = raw_val[:max_string_len]
-                if not len_cap_hit:
-                    len_cap_hit = True
+                if not length_cap_hit:
+                    length_cap_hit = True
 
             digest = "sha256:" + hashlib.sha256(
                 raw_val.encode("utf-8", errors="replace")
@@ -337,13 +275,15 @@ def _build_inventory(
 
     # Overall truncated = True when ANY cap fired (string count or length).
     # Determined by boolean flags — never by scanning string values.
-    overall_truncated: bool = string_cap_hit or len_cap_hit or (total_count > total_sampled)
+    # (total_count > total_sampled) is a redundant third term: if it is true,
+    # string_cap_hit must also be true by construction.
+    overall_truncated: bool = string_cap_hit or length_cap_hit
 
     if string_cap_hit:
         extra_limitations.append(
             f"inventory truncated: string cap {max_strings} reached"
         )
-    if len_cap_hit:
+    if length_cap_hit:
         extra_limitations.append(
             f"inventory truncated: string-length cap {max_string_len} reached"
         )
@@ -452,8 +392,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         }
 
         # Build bwrap prefix and extend with floss venv bind.
+        # /etc/passwd and /etc/group are bound read-only via the allowed narrow
+        # exception in bind_venv: vivisect calls getpass.getuser() → pwd.getpwuid().
         prefix = sandbox(bwrap_exe, env)
-        prefix = _extend_sandbox(prefix, floss_exe)
+        prefix = bind_venv(
+            prefix, floss_exe,
+            etc_ro_bind_try=("/etc/passwd", "/etc/group"),
+        )
 
         # Input inside the sandbox is at the read-only work-dir bind.
         input_in_sandbox = "/tmp/rsdd/work/input/binary.bin"
@@ -483,19 +428,27 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         )
 
         # Read floss JSON output from stdout.txt with O_NOFOLLOW protection.
+        # Returns (dict|None, error_str|None): non-empty malformed stdout is now
+        # an explicit error (status=failed) rather than a silent empty inventory.
         stdout_path = stage / "engine" / "stdout.txt"
-        floss_json = _read_stdout_json(stdout_path)
+        floss_json, parse_error = _read_stdout_json(stdout_path)
 
-        # Build bounded inventory from floss JSON (None = empty output).
+        # Build bounded inventory from floss JSON (None = empty/malformed output).
         inventory, inv_limitations = _build_inventory(
             floss_json,
             max_strings=args.max_strings,
             max_string_len=args.max_string_len,
         )
 
+        # Propagate run-cap truncation into the inventory's top-level truncated flag.
+        # Satisfies the incomplete-run visibility convention: any cap that fires sets
+        # truncated=true — timeout, output-cap, and process-cap are all included.
+        run_trunc, trunc_lims = run_truncation(run_errors, "floss")
+        inventory["truncated"] = inventory["truncated"] or run_trunc
+
         # Aggregate limitations and errors.
-        all_limitations = _LIMITATIONS + inv_limitations
-        all_errors = run_errors
+        all_limitations = _LIMITATIONS + inv_limitations + trunc_lims
+        all_errors = run_errors + ([parse_error] if parse_error else [])
 
         # Annotate the inventory with tool metadata and caps.
         # These fields are deterministic (same across identical invocations).

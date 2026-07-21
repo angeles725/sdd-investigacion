@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import struct
 import subprocess
 import sys
@@ -77,6 +78,20 @@ class PcapMagicError(AdapterError):
     """Raised when a file fails pcap/pcapng magic-byte validation.
 
     Also raised for symlinks (O_NOFOLLOW enforcement) and unreadable files.
+    """
+
+
+class VenvBindError(AdapterError):
+    """Raised when a tool's venv root is unsafe to bind into the sandbox.
+
+    Common causes:
+    - Tool is a wrapper script (not a pipx symlink) whose realpath resolves to
+      a shallow system path such as /home/<user>/bin/<tool> or /usr/bin/<tool>.
+    - The tool's parent directory does not contain pyvenv.cfg (not a venv root).
+    - The bwrap prefix does not end with '--'.
+    - An etc_ro_bind_try entry or writable sandbox_path is outside the allowed set.
+
+    Fix: point RSDD_<TOOL> at the venv's bin/<tool> directly.
     """
 
 
@@ -351,3 +366,218 @@ def squashfs_superblock(
         "root_inode": root_inode,
         "xattr_table": xattr_table,
     }
+
+
+# ---------------------------------------------------------------------------
+# HELPER D — venv-bind helpers
+# ---------------------------------------------------------------------------
+
+# Top-level paths that bind_venv must never bind as a venv root.
+# Belt-and-suspenders: the depth and parts checks below catch most cases; this
+# frozenset adds explicit guards for any path that might reach the checks at
+# exactly the boundary depth.
+_VENV_BLOCKED_EXACT: frozenset[str] = frozenset({
+    "/",
+    "/home", "/root",
+    "/usr", "/bin", "/sbin", "/lib", "/lib64",
+    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
+})
+
+# /etc paths permitted in etc_ro_bind_try.  This is a deliberate, narrow
+# exception to adapter_core._RO_INPUT_BLOCKED_ROOTS: vivisect (a floss
+# dependency) calls getpass.getuser() → pwd.getpwuid() which requires
+# /etc/passwd; /etc/group is needed by the Python grp module.  No other
+# /etc paths are allowed.
+_ETC_BIND_TRY_ALLOWED: frozenset[str] = frozenset({
+    "/etc/passwd",
+    "/etc/group",
+})
+
+# run_bounded error tokens that indicate a resource cap fired, making the
+# tool's output incomplete.  'analyzer-exit:N' is NOT a cap error — it means
+# the tool ran to completion with a non-zero exit code.
+_RUN_CAP_ERRORS: frozenset[str] = frozenset({
+    "timeout",
+    "output-cap",
+    "process-cap",
+})
+
+_VENV_BIND_MSG = (
+    "tool is not inside a Python venv (wrapper script?); "
+    "point RSDD_<TOOL> at the venv's bin/<tool>"
+)
+
+
+def venv_root_for(tool_exe: Path) -> Path:
+    """Resolve the Python venv root for a tool executable.
+
+    Guard predicate (ORDER MATTERS — shape checks run before FS checks so
+    callers can test the shape rejection without a real filesystem):
+
+    1. ``real_exe = Path(os.path.realpath(tool_exe))`` — resolve symlinks.
+    2. Require ``real_exe.parent.name == "bin"``; ``root = real_exe.parent.parent``.
+    3. SHAPE (pure, no FS):
+       - ``str(root)`` not in ``_VENV_BLOCKED_EXACT``.
+       - If ``root.parts[:2] == ('/', 'home')``: require ``len(root.parts) >= 4``
+         (rejects ``/home`` *and* ``/home/<user>``).
+       - Elif ``root.parts[:2] == ('/', 'root')``: require ``len(root.parts) >= 3``.
+       - Else: require ``len(root.parts) >= 3``.
+    4. FS marker: ``(root / "pyvenv.cfg").is_file()``.
+    5. Belt: ``root != Path(os.path.realpath(os.path.expanduser("~")))``.
+
+    Raises ``VenvBindError`` on any failed check.
+    """
+    real_exe = Path(os.path.realpath(tool_exe))
+
+    if real_exe.parent.name != "bin":
+        raise VenvBindError(
+            f"tool executable is not inside a 'bin/' directory: {tool_exe}"
+        )
+    root = real_exe.parent.parent
+
+    # --- SHAPE checks (pure — no FS access) ---
+    if str(root) in _VENV_BLOCKED_EXACT:
+        raise VenvBindError(_VENV_BIND_MSG)
+
+    parts = root.parts
+    if len(parts) >= 2 and parts[:2] == ("/", "home"):
+        # /home and /home/<user> are both too shallow (3 parts or fewer).
+        if len(parts) < 4:
+            raise VenvBindError(_VENV_BIND_MSG)
+    elif len(parts) >= 2 and parts[:2] == ("/", "root"):
+        # /root itself (2 parts) is blocked above; /root/<venv> (3 parts) is ok.
+        if len(parts) < 3:
+            raise VenvBindError(_VENV_BIND_MSG)
+    else:
+        if len(parts) < 3:
+            raise VenvBindError(_VENV_BIND_MSG)
+
+    # --- FS marker check ---
+    if not (root / "pyvenv.cfg").is_file():
+        raise VenvBindError(_VENV_BIND_MSG)
+
+    # --- Belt: reject the real home directory even if it passed shape checks ---
+    home = Path(os.path.realpath(os.path.expanduser("~")))
+    if root == home:
+        raise VenvBindError(_VENV_BIND_MSG)
+
+    return root
+
+
+def bind_venv(
+    prefix: list[str],
+    tool_exe: Path,
+    *,
+    etc_ro_bind_try: tuple[str, ...] = (),
+    writable: list[tuple[Path, str]] | None = None,
+) -> list[str]:
+    """Extend a bwrap prefix with the tool's Python venv read-only bind.
+
+    Inserts the following mounts BEFORE the trailing ``"--"`` in *prefix*:
+
+    1. ``--dir`` stubs for every path component of the venv root so that the
+       bind target exists in the new mount namespace.
+    2. ``--ro-bind venv_root venv_root`` (read-only; no analysis artifact
+       persists in the tool tree).
+    3. For each entry in *etc_ro_bind_try*: ``--ro-bind-try entry entry``.
+       Only paths in ``_ETC_BIND_TRY_ALLOWED`` are accepted; any other path
+       raises ``VenvBindError``.  This is a deliberate narrow exception to
+       ``adapter_core._RO_INPUT_BLOCKED_ROOTS`` — see that constant's docstring.
+    4. For each ``(host_dir, sandbox_path)`` in *writable*:
+       ``--dir sandbox_path`` + ``--bind host_dir sandbox_path``.
+       ``sandbox_path`` must start with ``"/tmp/rsdd/"``; ``host_dir`` must
+       exist, be a real directory, and not be a symlink.
+       Note: writable host dirs may live under ``/home`` (the adapter's own
+       output temp directories); they deliberately bypass ``_RO_INPUT_BLOCKED_ROOTS``
+       because they are adapter-controlled, not arbitrary user paths.
+
+    Raises ``VenvBindError`` (NOT ``assert`` — survives ``python -O``) when:
+    - *prefix* does not end with ``"--"``.
+    - ``venv_root_for(tool_exe)`` fails.
+    - An *etc_ro_bind_try* entry is not in ``_ETC_BIND_TRY_ALLOWED``.
+    - A *writable* ``sandbox_path`` does not start with ``"/tmp/rsdd/"``.
+    - A *writable* ``host_dir`` does not exist, is not a directory, or is a symlink.
+
+    Returns the new prefix ending with ``"--"``.
+    """
+    if not prefix or prefix[-1] != "--":
+        raise VenvBindError(
+            "bwrap prefix must end with '--' (produced by adapter_core.sandbox())"
+        )
+
+    venv_root = venv_root_for(tool_exe)
+
+    extra: list[str] = []
+
+    # Directory stubs for every ancestor component of the venv root.
+    for i in range(1, len(venv_root.parts)):
+        extra += ["--dir", str(Path(*venv_root.parts[:i + 1]))]
+    extra += ["--ro-bind", str(venv_root), str(venv_root)]
+
+    # /etc entries (narrow allowed set — see _ETC_BIND_TRY_ALLOWED).
+    for entry in etc_ro_bind_try:
+        if entry not in _ETC_BIND_TRY_ALLOWED:
+            raise VenvBindError(
+                f"etc_ro_bind_try entry {entry!r} is not in the allowed set "
+                f"{sorted(_ETC_BIND_TRY_ALLOWED)}; only /etc/passwd and /etc/group "
+                "are permitted (required by vivisect's getpwuid call)"
+            )
+        extra += ["--ro-bind-try", entry, entry]
+
+    # Writable directories (adapter-controlled output/temp dirs).
+    for host_dir, sandbox_path in (writable or []):
+        if not sandbox_path.startswith("/tmp/rsdd/"):
+            raise VenvBindError(
+                f"writable sandbox_path must start with '/tmp/rsdd/': {sandbox_path!r}"
+            )
+        try:
+            meta = host_dir.lstat()
+        except OSError as exc:
+            raise VenvBindError(
+                f"writable host_dir does not exist or is not accessible: {host_dir}"
+            ) from exc
+        if stat.S_ISLNK(meta.st_mode):
+            raise VenvBindError(
+                f"writable host_dir must not be a symlink: {host_dir}"
+            )
+        if not stat.S_ISDIR(meta.st_mode):
+            raise VenvBindError(
+                f"writable host_dir must be a directory: {host_dir}"
+            )
+        extra += ["--dir", sandbox_path]
+        extra += ["--bind", str(host_dir), sandbox_path]
+
+    return prefix[:-1] + extra + ["--"]
+
+
+# ---------------------------------------------------------------------------
+# HELPER E — run_truncation
+# ---------------------------------------------------------------------------
+
+def run_truncation(run_errors: list[str], tool: str) -> tuple[bool, list[str]]:
+    """Translate run_bounded cap errors into (truncated_flag, limitation_strings).
+
+    Checks *run_errors* for the three resource-cap tokens recognised by
+    ``adapter_core.run_bounded``: ``"timeout"``, ``"output-cap"``,
+    ``"process-cap"``.  For each fired cap, one limitation string is produced.
+
+    ``"analyzer-exit:N"`` (non-zero tool exit without a cap) is explicitly NOT
+    a truncation event — it means the tool ran to completion.
+
+    Returns:
+        ``(True, [limitation, ...])`` when at least one cap fired.
+        ``(False, [])`` when no recognised cap is in *run_errors*.
+
+    Limitation format (per cap, in sorted order):
+        ``"<tool> run truncated: <cap> reached — inventory is incomplete"``
+
+    Adapters MUST OR this flag into their domain ``truncated`` field to satisfy
+    the incomplete-run visibility convention (any cap that fires → truncated true,
+    never silent).
+    """
+    fired = sorted(_RUN_CAP_ERRORS & set(run_errors))
+    limitations = [
+        f"{tool} run truncated: {cap} reached — inventory is incomplete"
+        for cap in fired
+    ]
+    return bool(fired), limitations

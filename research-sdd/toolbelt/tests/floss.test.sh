@@ -188,7 +188,8 @@ for e in all_entries:
     assert len(e["value"]) <= 5, f"string exceeds max-string-len=5: {e['value']!r}"
 len_cap = any("string-length cap" in l for l in lims)
 assert len_cap, f"no string-length cap limitation recorded: {lims}"
-print(f"OK: {len(all_entries)} sampled entries all <= 5 chars, length-cap limitation present")
+assert s["truncated"] == True, f"truncated must be True when length cap fires, got {s['truncated']!r}"
+print(f"OK: {len(all_entries)} sampled entries all <= 5 chars, length-cap limitation present, truncated=True")
 PY
 then ok "per-string length cap: values truncated, limitation recorded"
 else no "per-string length cap"
@@ -280,6 +281,85 @@ print(f"OK: isolation profile={profile}, floss_version={s['floss_version']!r}")
 PY
 then ok "isolation: network-denial profile, launcher identity, and floss_version recorded"
 else no "isolation profile"
+fi
+
+
+# ---------------------------------------------------------------------------
+# T11: _read_stdout_json — unit test for new tuple return type.
+#      Non-empty malformed file → (None, error_str).
+#      Empty file → (None, None).
+# ---------------------------------------------------------------------------
+if python3 - "$HERE/.." <<'PY'
+import sys, tempfile, importlib.util
+from pathlib import Path
+
+toolbelt = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(toolbelt))
+
+spec = importlib.util.spec_from_file_location(
+    "corroborate_floss", toolbelt / "corroborate_floss.py"
+)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+with tempfile.TemporaryDirectory() as tmp:
+    malformed = Path(tmp) / "malformed.txt"
+    malformed.write_bytes(b'not json at all {{{{')
+    result = m._read_stdout_json(malformed)
+    assert isinstance(result, tuple) and len(result) == 2, \
+        f"expected 2-tuple, got {result!r}"
+    val, err = result
+    assert val is None, f"expected None for malformed JSON, got {val!r}"
+    assert isinstance(err, str) and err, \
+        f"expected non-empty error str for malformed JSON, got {err!r}"
+
+    empty = Path(tmp) / "empty.txt"
+    empty.write_bytes(b'')
+    result2 = m._read_stdout_json(empty)
+    assert isinstance(result2, tuple) and len(result2) == 2, \
+        f"expected 2-tuple for empty, got {result2!r}"
+    val2, err2 = result2
+    assert val2 is None, f"expected None for empty file, got {val2!r}"
+    assert err2 is None, f"expected None error for empty file, got {err2!r}"
+    print("OK: _read_stdout_json returns (None, err) for malformed; (None, None) for empty")
+PY
+then ok "T11: _read_stdout_json returns (None,err_str) for malformed; (None,None) for empty"
+else no "T11: _read_stdout_json tuple return type"
+fi
+
+# ---------------------------------------------------------------------------
+# T12: Timeout visibility — --timeout 1 must set strings.truncated=True and
+#      record a timeout limitation.  Skip gracefully when floss finishes in <1s
+#      (flake-proof: tiny_pe.exe is simple enough to parse very quickly).
+# ---------------------------------------------------------------------------
+_T12_OUT="$ROOT/out_timeout_floss"
+_T12_EXIT=0
+run "$ROOT/tiny_pe.exe" "$_T12_OUT" --timeout 1 2>/dev/null || _T12_EXIT=$?
+if [ "$_T12_EXIT" -eq 0 ]; then
+  echo "  SKIP  T12: floss finished in <1s on tiny_pe.exe (too fast; flake-proof skip)"
+elif [ "$_T12_EXIT" -eq 2 ]; then
+  no "T12: adapter fatal error (exit 2); check floss installation"
+elif [ -f "$_T12_OUT/floss-evidence.v1.json" ]; then
+  if python3 - "$_T12_OUT/floss-evidence.v1.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("status") == "failed", \
+    f"expected status=failed on timeout, got {d.get('status')!r}"
+assert "timeout" in d.get("errors", []), \
+    f"timeout not in errors: {d.get('errors')}"
+s = d.get("strings", {})
+assert s.get("truncated") == True, \
+    f"strings.truncated must be True on timeout, got {s.get('truncated')!r}"
+lims = d.get("limitations", [])
+assert any("timeout" in l for l in lims), \
+    f"no timeout limitation string: {lims}"
+print(f"OK: status=failed, timeout in errors, strings.truncated=True, limitation present")
+PY
+  then ok "T12: --timeout 1 sets status=failed, strings.truncated=True, timeout limitation recorded"
+  else no "T12: timeout visibility (schema mismatch; evidence present but fields wrong)"
+  fi
+else
+  no "T12: evidence not published after timeout (exit $_T12_EXIT)"
 fi
 
 echo "== $pass passed · $fail failed =="

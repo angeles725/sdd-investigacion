@@ -32,7 +32,7 @@ from lib.adapter_core import (
     sandbox,
     stage_file,
 )
-from lib.adapter_helpers import ManifestError, emit_evidence
+from lib.adapter_helpers import ManifestError, bind_venv, emit_evidence, run_truncation
 
 SCHEMA = "unblob-evidence.v1"
 
@@ -61,67 +61,6 @@ _MAX_OUTPUT_BYTES: int = 4 * 1024 * 1024
 
 class UnblobError(AdapterError):
     """Fail-closed error for the unblob evidence adapter."""
-
-
-# Top-level paths that _extend_sandbox() must never bind as a venv root.
-# Binding these would expose the host filesystem or credential stores inside the sandbox.
-# Belt-and-suspenders: the parts-depth check catches most cases; this set adds an
-# explicit guard for any path that might slip through at exactly 3 parts.
-_VENV_BLOCKED_EXACT: frozenset[str] = frozenset({
-    "/",
-    "/home", "/root",
-    "/usr", "/bin", "/sbin", "/lib", "/lib64",
-    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
-})
-
-
-# ---------------------------------------------------------------------------
-# Sandbox construction (extends adapter_core.sandbox() with unblob-specific mounts)
-# ---------------------------------------------------------------------------
-
-def _extend_sandbox(
-    prefix: list[str],
-    unblob_exe: Path,
-    extract_dir: Path,
-) -> list[str]:
-    """Extend the bwrap prefix produced by sandbox() with unblob-specific mounts.
-
-    Added mounts (inserted BEFORE the trailing '--'):
-    - Path hierarchy for the unblob pipx venv root (read-only).
-    - Writable bind of *extract_dir* at /tmp/rsdd/extract (inside sandbox).
-
-    The unblob venv must be read-only inside the sandbox to prevent any analysis
-    artefact from persisting in the tool tree.  The extraction directory is
-    writable so that unblob can write extracted files there; those files are
-    inventoried and then deleted before publication.
-    """
-    # Venv root: two levels above the unblob script (…/venvs/unblob/bin/unblob).
-    venv_root = unblob_exe.parent.parent
-
-    # Guard: refuse to bind if the venv root is at a filesystem root, a known
-    # top-level blocked path, or too shallow (< 3 path parts).  A shallow
-    # venv_root would bind the whole host filesystem or a credential store
-    # read-only inside the sandbox, enabling exfiltration via stdout.
-    if len(venv_root.parts) < 3 or str(venv_root) in _VENV_BLOCKED_EXACT:
-        raise UnblobError(
-            f"refusing to bind unsafe venv root ({venv_root}): path is too shallow "
-            "or resolves to a blocked directory; unblob must reside in a deep pipx venv"
-        )
-
-    # Build directory stubs for every path component of the venv root so that
-    # the bind target exists inside the sandbox's new namespace.
-    extra: list[str] = []
-    for i in range(1, len(venv_root.parts)):
-        extra += ["--dir", str(Path(*venv_root.parts[: i + 1]))]
-    extra += ["--ro-bind", str(venv_root), str(venv_root)]
-
-    # Writable extraction directory at a stable sandbox path.
-    extra += ["--dir", "/tmp/rsdd/extract"]
-    extra += ["--bind", str(extract_dir), "/tmp/rsdd/extract"]
-
-    # Insert before the trailing "--" that terminates the bwrap prefix.
-    assert prefix[-1] == "--", "sandbox() prefix must end with '--'"
-    return prefix[:-1] + extra + ["--"]
 
 
 # ---------------------------------------------------------------------------
@@ -398,8 +337,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         }
 
         # Build bwrap prefix and extend with venv + extraction dir binds.
+        # The extraction dir is a writable adapter-controlled temp dir; it
+        # deliberately bypasses _RO_INPUT_BLOCKED_ROOTS (see bind_venv docstring).
         prefix = sandbox(bwrap_exe, env)
-        prefix = _extend_sandbox(prefix, unblob_exe, extract_dir)
+        prefix = bind_venv(
+            prefix, unblob_exe,
+            writable=[(extract_dir, "/tmp/rsdd/extract")],
+        )
 
         # Input inside the sandbox is accessible via the read-only work-dir bind.
         input_in_sandbox = "/tmp/rsdd/work/input/firmware.bin"
@@ -461,9 +405,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         shutil.rmtree(extract_tmp)
         extract_tmp = None
 
+        # Propagate run-cap truncation: timeout/output-cap/process-cap make the
+        # extraction incomplete even when the walk itself saw no files.
+        run_trunc, trunc_lims = run_truncation(run_errors, "unblob")
+
         # Aggregate errors (subprocess + walk).
         all_errors = run_errors + walk_errors
-        all_limitations = _LIMITATIONS + walk_limitations
+        all_limitations = _LIMITATIONS + walk_limitations + trunc_lims
 
         # Build evidence domain (under the "extraction" key — avoids reserved keys).
         # argv uses inside-sandbox canonical paths (deterministic for same input/args).
@@ -483,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
                 "entry_count": len(entries),
                 "tool": unblob_record,
                 "total_size_bytes": sum(e["size"] for e in entries),
-                "truncated": bool(walk_limitations),
+                "truncated": bool(walk_limitations) or run_trunc,
                 "unblob_report_tasks": unblob_report_entries,
             }
         }

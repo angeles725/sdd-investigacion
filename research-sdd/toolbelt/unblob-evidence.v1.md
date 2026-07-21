@@ -34,8 +34,29 @@ written.  The extraction output directory is bound writably at a fixed sandbox
 path (`/tmp/rsdd/extract`) and deleted from the host before publication —
 payload bytes never appear in the published output.
 
+### Venv bind validation
+
+`adapter_helpers.bind_venv` validates the unblob venv root before binding:
+
+- Resolves symlinks (`os.path.realpath`) so wrapper scripts at shallow system
+  paths (e.g. `~/bin/unblob` where venv root = `~`) are detected and rejected.
+- Shape check (pure, no FS): `str(root)` not in a blocked-exact set; `/home/<user>`
+  (3 parts) rejected because it requires `>= 4` parts; generic `>= 3` parts.
+- FS marker: `pyvenv.cfg` must exist in the resolved venv root.
+- Belt: venv root must not equal the real home directory.
+
+The extraction directory is a writable adapter-controlled temp dir that may
+live under `/home` (the output parent); it deliberately bypasses the blocked-
+roots check and is validated by `sandbox_path.startswith("/tmp/rsdd/")` and
+an `lstat` non-symlink/is-directory check instead.
+
+If the guard fails, the adapter exits 2 with a descriptive error and publishes
+no evidence.  Fix: point `RSDD_UNBLOB` at the venv's `bin/unblob` directly.
+
 A wall-clock timeout (`--timeout`, default 120 s) is enforced by
 `adapter_core.run_bounded()`, which kills the bwrap process group on breach.
+When the timeout fires, `run_truncation` sets `extraction.truncated: true` and
+records a limitation — truncation is never silent.
 
 ## Post-Extraction Inventory Walk
 
@@ -79,6 +100,11 @@ Safety rules during the walk:
 All caps are visible when they fire: a human-readable limitation string is
 appended to `limitations` and `extraction.truncated` is set to `true`.
 Truncation is never silent.
+
+**Run-level caps** (`--timeout`, output-cap, process-cap): when
+`adapter_core.run_bounded` fires a resource cap, `run_truncation` ORs the
+truncated flag into `extraction.truncated` and appends a limitation string.
+The fired cap token (e.g. `"timeout"`) is also present in `errors`.
 
 The **depth cap** fires when the inventory walk encounters a directory whose
 files would be at depth > `max_depth` and prunes its subdirectories.  The

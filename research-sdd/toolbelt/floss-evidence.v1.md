@@ -38,6 +38,20 @@ The floss pipx venv (`~/.local/share/pipx/venvs/flare-floss`) is bound
 read-only inside the sandbox so that the tool can execute; no venv content is
 written.
 
+### Venv bind validation
+
+`adapter_helpers.bind_venv` validates the floss venv root before binding:
+
+- Resolves symlinks (`os.path.realpath`) so wrapper scripts at shallow system
+  paths (e.g. `~/bin/floss` where venv root = `~`) are detected and rejected.
+- Shape check (pure, no FS): `str(root)` not in a blocked-exact set; `/home/<user>`
+  (3 parts) rejected because it requires `>= 4` parts; generic `>= 3` parts.
+- FS marker: `pyvenv.cfg` must exist in the resolved venv root.
+- Belt: venv root must not equal the real home directory.
+
+If the guard fails, the adapter exits 2 with a descriptive error and publishes
+no evidence.  Fix: point `RSDD_FLOSS` at the venv's `bin/floss` directly.
+
 A wall-clock timeout (`--timeout`, default 120 s) is enforced by
 `adapter_core.run_bounded()`, which kills the bwrap process group on breach.
 
@@ -47,8 +61,13 @@ floss is invoked with `-j` (JSON output mode).  The JSON is written to stdout,
 captured to `engine/stdout.txt`.  It is read back with `O_NOFOLLOW` + `lstat`/
 `S_ISREG` (TOCTOU-safe, symlink-safe) before being parsed.
 
-If floss exits 0 but produces empty stdout (no strings found in the binary),
-the adapter publishes a `status: complete` empty inventory.
+If floss exits 0 but produces **empty stdout** (no strings found in the
+binary), the adapter publishes a `status: complete` empty inventory.
+
+If floss exits 0 but stdout is **non-empty and not valid JSON** (malformed
+tool output), the adapter records an explicit error string in `errors` and
+publishes `status: failed` — this is never silently promoted to an empty
+`status: complete` inventory.
 
 ## Evidence Schema (`floss-evidence.v1.json`)
 
@@ -95,9 +114,13 @@ appended to `limitations` and `strings.truncated` (and the per-category
   `"inventory truncated: string-length cap N reached"` is appended once.
 - **Per-category `truncated`**: each category records `truncated: true`
   independently when `count > sampled` for that category.
+- **Run-level caps** (`--timeout`, output-cap, process-cap): when
+  `adapter_core.run_bounded` fires a resource cap, `run_truncation` maps it to
+  `strings.truncated: true` and a limitation string.  The fired cap is also
+  present in `errors` (e.g. `"timeout"`).
 
 Any cap that fires sets `strings.truncated: true` via a boolean flag — never
-inferred by scanning string values.
+inferred by scanning string values, never silent.
 
 ## Determinism
 
