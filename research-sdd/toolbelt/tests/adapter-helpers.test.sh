@@ -164,4 +164,69 @@ assert ev['status']=='complete'
 PY
 then ok "emit_evidence: evidence file written with schema+domain+limitations; status=complete"; else no "emit_evidence: evidence file"; fi
 
+
+# C-4  squashfs_superblock — negative offset must return None (not a bogus valid superblock)
+# Without offset<0 guard, squashfs_superblock(data, -SQFS_SB_SIZE) passes the bounds check
+# (0 <= data_len), the magic check (data[-96:-92]=='hsqs'), and struct.unpack_from reads
+# the superblock from the end of the buffer — returning a dict instead of None.
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,struct,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+MAGIC=0x73717368; bs=131072; log=17; bu=ah.SQFS_SB_SIZE+1024; SEN=0xffffffffffffffff
+sb=struct.pack(ah.SQFS_SB_FMT,
+    MAGIC,10,0,bs,0,1,log,0,2,4,0,42,bu,
+    ah.SQFS_SB_SIZE,SEN,ah.SQFS_SB_SIZE,ah.SQFS_SB_SIZE,SEN,SEN)
+data=b'\xde\xad'*512+sb  # 1024 padding bytes + valid 96-byte superblock; total=1120
+# Primary RED: offset=-SQFS_SB_SIZE; without guard, bounds=0<=1120, magic='hsqs', struct succeeds
+assert ah.squashfs_superblock(data,-ah.SQFS_SB_SIZE) is None,\
+    'offset=-SQFS_SB_SIZE must return None (not a bogus valid superblock from the end of buf)'
+# Triangulation: small negative offset; struct.error path also must return None
+assert ah.squashfs_superblock(data,-10) is None,'offset=-10 must return None'
+PY
+then ok "squashfs_superblock: negative offset returns None (not bogus superblock)"; else no "squashfs_superblock: negative offset guard"; fi
+
+# A-4  emit_evidence — unsafe schema strings raise ManifestError (path traversal guard)
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+cli=r/'ok2_cli.py'; cli.write_text('import sys\nsys.exit(0)\n')
+def try_bad_schema(schema,tag):
+    stg=r/f'st_{tag}'; (stg/'engine').mkdir(parents=True,exist_ok=True)
+    try:
+        ah.emit_evidence(stage=stg,schema=schema,domain={},
+                         input_identity={},isolation={},limitations=[],errors=[],
+                         manifest_spec={'dummy':1},manifest_cli=cli,
+                         destination=r/f'dst_{tag}',timeout=10)
+        raise AssertionError(f'schema={schema!r} should raise ManifestError')
+    except ah.ManifestError: pass
+try_bad_schema('../evil','pt1')   # path-traversal: parent dir
+try_bad_schema('a/b','pt2')       # slash in schema
+try_bad_schema('.hidden','pt3')   # leading dot
+try_bad_schema('a\x00b','pt4')   # NUL byte
+PY
+then ok "emit_evidence: unsafe schema raises ManifestError (path traversal guard)"; else no "emit_evidence: unsafe schema guard"; fi
+
+# A-5  emit_evidence — reserved domain key raises ManifestError; non-reserved accepted
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,pathlib,sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+cli=r/'ok3_cli.py'; cli.write_text('import sys\nsys.exit(0)\n')
+for key in ('status','schema','input','isolation','limitations','errors'):
+    stg=r/f'st_rk_{key}'; (stg/'engine').mkdir(parents=True,exist_ok=True)
+    try:
+        ah.emit_evidence(stage=stg,schema='t.v1',domain={key:'x'},
+                         input_identity={},isolation={},limitations=[],errors=[],
+                         manifest_spec={'dummy':1},manifest_cli=cli,
+                         destination=r/f'dst_rk_{key}',timeout=10)
+        raise AssertionError(f'domain key {key!r} should raise ManifestError')
+    except ah.ManifestError: pass
+PY
+then ok "emit_evidence: reserved domain key raises ManifestError"; else no "emit_evidence: reserved key guard"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

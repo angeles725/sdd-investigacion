@@ -15,6 +15,7 @@ Dependency direction: adapter_helpers → adapter_core (never the reverse).
 from __future__ import annotations
 
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -80,6 +81,22 @@ class PcapMagicError(AdapterError):
 
 
 # ---------------------------------------------------------------------------
+# emit_evidence guards
+# ---------------------------------------------------------------------------
+
+# schema must be a safe single filename component: starts with alphanumeric,
+# followed by zero or more alphanumerics, dots, underscores, or hyphens.
+# Rejects '..' components, leading dots, slashes, NUL, and any other special
+# character that could cause path-traversal when used as stage/{schema}.json.
+_SAFE_SCHEMA_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Structural keys owned by emit_evidence; domain must not supply any of these.
+_RESERVED_KEYS: frozenset[str] = frozenset(
+    {"schema", "status", "input", "isolation", "limitations", "errors"}
+)
+
+
+# ---------------------------------------------------------------------------
 # HELPER A — emit_evidence
 # ---------------------------------------------------------------------------
 
@@ -119,7 +136,12 @@ def emit_evidence(
     ----------
     stage:          Staging directory (already populated by the caller).
     schema:         Schema identifier string, e.g. "pcap-evidence.v1".
+                    Must match ^[A-Za-z0-9][A-Za-z0-9._-]*$ (safe single
+                    filename component); ManifestError raised otherwise.
     domain:         Adapter-specific evidence fields merged into the envelope.
+                    Must not contain any of the 6 reserved structural keys
+                    {schema, status, input, isolation, limitations, errors};
+                    ManifestError is raised if any collision is detected.
     input_identity: {"source": record, "staged": record} from stage_file().
     isolation:      {"launcher": record, "profile": dict}.
     limitations:    Human-readable limitation strings (passed through).
@@ -130,6 +152,18 @@ def emit_evidence(
     timeout:        Seconds applied to EVERY manifest-CLI subprocess.run call.
                     Mandatory; default 60. Raise ManifestError on expiry.
     """
+    # Guard 1: schema must be a safe single-component filename to prevent
+    # path traversal when building stage/{schema}.json.
+    if not _SAFE_SCHEMA_RE.match(schema):
+        raise ManifestError(
+            f"unsafe schema identifier (must match ^[A-Za-z0-9][A-Za-z0-9._-]*$): {schema!r}"
+        )
+    # Guard 2: domain must not override structural envelope keys.
+    collisions = _RESERVED_KEYS & domain.keys()
+    if collisions:
+        raise ManifestError(
+            f"domain overrides reserved envelope key(s): {sorted(collisions)}"
+        )
     status = "failed" if errors else "complete"
     envelope: dict[str, Any] = {
         "errors": errors,
@@ -194,6 +228,11 @@ def pcap_magic_check(path: Path) -> None:
 
     Does not raise AdapterError subclasses other than PcapMagicError so that
     callers can narrow their except clauses.
+
+    O_NOFOLLOW note: symlink rejection relies on getattr(os, "O_NOFOLLOW", 0).
+    On Linux this flag is always present and the kernel rejects symlinks at
+    open(2).  On platforms where O_NOFOLLOW is absent the flag is silently
+    omitted and symlinks are not rejected — the guarantee is Linux-specific.
     """
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -243,6 +282,11 @@ def squashfs_superblock(
     - required tables (id, inode, directory; fragment if fragments>0;
       export if SQFS_FLAG_EXPORTABLE set) must NOT be sentinel
     """
+    # Guard: reject negative offsets — struct.unpack_from treats them as
+    # len(buf)+offset, bypassing the bounds check below and potentially
+    # returning a bogus superblock parsed from the end of the buffer.
+    if offset < 0:
+        return None
     data_len = len(data)
     if offset + SQFS_SB_SIZE > data_len:
         return None
