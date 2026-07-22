@@ -5,7 +5,7 @@ no subprocess spawned, no sample detonated. Live exec gated behind --allow-exec.
 See gate-authorization.v1.md and detonate-plan.v1.md.
 """
 from __future__ import annotations
-import argparse, json, os, sys
+import argparse, os, sys
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +15,11 @@ for _p in (str(_LIB), str(_HERE)):
 
 from adapter_core import AdapterError, identity as _file_identity, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
-from gate import execute_or_plan, CAP_EXEC, EXIT_AUTH_REQUIRED, GateError     # noqa: E402
+from gate import CAP_EXEC                                                       # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
+from plan_common import (                                                        # noqa: E402
+    PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
+)
 
 SCHEMA_VERSION = "detonate-plan.v1"
 _DEFAULT_CPU = 30; _DEFAULT_MEM = 256 << 20; _DEFAULT_WALL = 60; _DEFAULT_OUT = 128 << 20
@@ -30,18 +33,6 @@ _MAGIC_HINTS: list[tuple[bytes, str]] = [
 
 
 class DetonatePlanError(AdapterError): ...
-
-
-class PlanOnlyExecutor:
-    """Offline executor: no subprocess, records executed=False."""
-    def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
-        return {"schema_version": SCHEMA_VERSION, "executed": False,
-                "outputs": [], "limitations": ["outputs-unknown-until-live-run"]}
-
-
-def select_executor(allow_live: bool) -> PlanOnlyExecutor | None:
-    """PlanOnlyExecutor for dry-run; None when live (gate hard-refuses — returning None is the correct gate-hard-refuse seam, not a bug)."""
-    return None if allow_live else PlanOnlyExecutor()
 
 
 def _sniff_type(path: Path) -> str:
@@ -114,30 +105,14 @@ def plan_detonate(args: Any) -> int:
             print(f"detonate-plan: cap {k!r} must be positive int", file=sys.stderr); return 2
     plan = build_plan(sample, caps, input_sha=input_sha, input_size=input_size,
                       type_hint=type_hint, os_image=args.os_image)
-    det_spec: dict[str, Any] = {
-        "schema_version": "vm-determinism.v1", "receipt_identity": None, "seed": 0,
-        "clock": {"mode": "pinned", "epoch": "1970-01-01T00:00:00Z"},
-        "limits_conformance": {"cpu_within": False, "mem_within": False,
-                               "wall_within": False, "output_within": False},
-        "reproducible": {"basis": "dry-run-plan", "replicate_identity": None},
-    }
-    try: determinism = build_determinism(det_spec)
+    try: determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"detonate-plan: determinism error: {exc}", file=sys.stderr); return 2
-    executor = select_executor(args.allow_exec)
+    executor = select_executor(args.allow_exec, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "detonate-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
-    try:
-        result = execute_or_plan(
-            CAP_EXEC, args.allow_exec, plan,
-            live_executor=executor.evaluate if executor is not None else None,
-            would_be_receipt_spec=None, output_dir=None,
-        )
-    except GateError as exc: print(f"detonate-plan: {exc}", file=sys.stderr); return 2
-    if result.get("outcome") == "authorization-required":
-        return EXIT_AUTH_REQUIRED  # 3
-    print(json.dumps(result, indent=2, sort_keys=True)); return 0
+    return run_gate_epilogue(CAP_EXEC, args.allow_exec, plan, executor, "detonate-plan")
 
 
 def _parser(argv: list[str] | None = None) -> Any:

@@ -6,7 +6,7 @@ Live capture gated behind --allow-live-capture.
 See gate-authorization.v1.md and capture-plan.v1.md.
 """
 from __future__ import annotations
-import argparse, json, os, re, sys
+import argparse, os, re, sys
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +16,9 @@ for _p in (str(_LIB), str(_HERE)):
 
 from adapter_core import AdapterError, write as _write                     # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError          # noqa: E402
-from gate import execute_or_plan, CAP_LIVE_CAPTURE, EXIT_AUTH_REQUIRED, GateError  # noqa: E402
+from gate import CAP_LIVE_CAPTURE                                            # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                  # noqa: E402
+from plan_common import make_dry_run_det_spec, run_gate_epilogue            # noqa: E402
 
 SCHEMA_VERSION = "capture-plan.v1"
 
@@ -129,15 +130,8 @@ def plan_capture(args: Any) -> int:
             return 2
 
     plan = build_plan(iface, bpf, args.snaplen, args.duration_seconds, args.packet_count)
-    det_spec: dict[str, Any] = {
-        "schema_version": "vm-determinism.v1", "receipt_identity": None, "seed": 0,
-        "clock": {"mode": "pinned", "epoch": "1970-01-01T00:00:00Z"},
-        "limits_conformance": {"cpu_within": False, "mem_within": False,
-                               "wall_within": False, "output_within": False},
-        "reproducible": {"basis": "dry-run-plan", "replicate_identity": None},
-    }
     try:
-        determinism = build_determinism(det_spec)
+        determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"capture-plan: determinism error: {exc}", file=sys.stderr)
         return 2
@@ -146,20 +140,7 @@ def plan_capture(args: Any) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "capture-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
-    try:
-        result = execute_or_plan(
-            CAP_LIVE_CAPTURE, args.allow_live_capture, plan,
-            live_executor=executor.evaluate if executor is not None else None,
-            would_be_receipt_spec=None, output_dir=None,
-        )
-    except GateError as exc:
-        print(f"capture-plan: {exc}", file=sys.stderr)
-        return 2
-
-    if result.get("outcome") == "authorization-required":
-        return EXIT_AUTH_REQUIRED  # 3
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0
+    return run_gate_epilogue(CAP_LIVE_CAPTURE, args.allow_live_capture, plan, executor, "capture-plan")
 
 
 def _parser(argv: list[str] | None = None) -> Any:
