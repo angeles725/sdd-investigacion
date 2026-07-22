@@ -74,7 +74,12 @@ extract_codex() {
     | tr -d '`' \
     | sed 's|^toolbelt/||' \
     | sed 's/\.sh$//' \
+    | grep -v '^sweep-all$' \
     | sort
+  # NOTE: sweep-all.sh is deliberately excluded from the canonical set extracted here.
+  # It is the aggregator shim (U-A20) that CALLS the four canonical scripts; it is not
+  # a canonical member of the sweep set itself. A separate assertion (see below) verifies
+  # that it IS referenced in the codex golden as the single recommended command.
 }
 
 # count non-blank lines in $1
@@ -149,6 +154,14 @@ for script in sweep-retros sweep-audits verify-registry verify-kit-clean; do
     && ok "canonical member present: $script" \
     || no "canonical member MISSING: $script  (claude set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 done
+
+# ---- 14: Codex golden references the sweep-all.sh aggregator ---------------
+# sweep-all.sh is NOT a canonical sweep member (excluded from extract_codex above); it is
+# the U-A20 aggregator shim that runs the four canonical scripts in one command. The codex
+# section should reference it as the single recommended manual command.
+grep -q '`toolbelt/sweep-all.sh`' "$CODEX_GOLDEN" \
+  && ok "codex: sweep-all.sh aggregator referenced in plan-codex.txt (single recommended command)" \
+  || no "codex: sweep-all.sh NOT referenced in plan-codex.txt (expected as single recommended command)"
 
 # ---- NEGATIVE CONTROL: prove drift detection has teeth ---------------------
 if [ "${1:-}" = "--prove-teeth" ]; then

@@ -8,8 +8,10 @@ harness=codex
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.codex/skills/research-sdd/SKILL.md
   | 
-  | Session-start sweep (this harness fires NO pre-turn hook — run these MANUALLY at session
+  | Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session
   | start; all read-only, degrade to silence on failure):
+  |   Single command (recommended): `toolbelt/sweep-all.sh`
+  |   Individual scripts (canonical; sweep-all.sh runs these in sequence):
   |   - `toolbelt/sweep-retros.sh`     — pending section 18 self-retrospective proposals
   |   - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports
   |   - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift

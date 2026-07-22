@@ -51,3 +51,25 @@ Claude Code. Keep all three surfaces in mind when the banner logic changes:
 All three surfaces reference the same four underlying scripts — edit the scripts, not the wrappers, so
 all surfaces stay in sync. Parity is mechanically verified by
 `toolbelt/tests/harness-sweep-parity.test.sh`.
+
+## Codex: no session-start hook (documented constraint)
+
+Codex does not provide a session-start auto-execution hook. The `~/.codex/config.toml` supports MCP
+server registration and turn-completion notifications, but neither mechanism injects session-start
+context nor runs a startup command. This is a **runtime limitation of Codex**, not a toolbelt gap;
+it cannot be resolved in-repo.
+
+The adapter table models this explicitly as `needs_manual_sweep_doc=true` (see `install/adapters.sh`),
+which is why the Codex `AGENTS.md` section documents the scripts as a manual-run step rather than
+wiring an automated hook.
+
+The Codex user MUST run the sweep manually at session start. `toolbelt/sweep-all.sh` (added in U-A20)
+reduces the manual burden from four commands to one:
+
+```sh
+toolbelt/sweep-all.sh   # runs all four canonical sweep scripts in sequence
+```
+
+If a future Codex release adds a session-start hook or equivalent mechanism, re-verify against the
+installed version and add the appropriate adapter entry; the toolbelt architecture already supports
+automated hooks (see the Claude and OpenCode legs). Until then, manual execution is the ceiling.

@@ -118,8 +118,10 @@ rsdd_render_section() {
   printf '%s\n' "Skill file: $skill_path"
   if [ "$needs_sweep" = "true" ]; then
     printf '%s\n' ''
-    printf '%s\n' 'Session-start sweep (this harness fires NO pre-turn hook — run these MANUALLY at session'
+    printf '%s\n' 'Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session'
     printf '%s\n' 'start; all read-only, degrade to silence on failure):'
+    printf '%s\n' '  Single command (recommended): `toolbelt/sweep-all.sh`'
+    printf '%s\n' '  Individual scripts (canonical; sweep-all.sh runs these in sequence):'
     printf '%s\n' '  - `toolbelt/sweep-retros.sh`     — pending section 18 self-retrospective proposals'
     printf '%s\n' '  - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports'
     printf '%s\n' '  - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift'
