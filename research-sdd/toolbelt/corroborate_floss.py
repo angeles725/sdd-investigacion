@@ -39,15 +39,11 @@ from lib.adapter_core import (
     stage_file,
 )
 from lib.adapter_helpers import ManifestError, VenvBindError, bind_venv, emit_evidence, run_truncation
+from lib.isolation_profile import PROFILE_BWRAP_FLOSS_OFFLINE
 
 SCHEMA = "floss-evidence.v1"
 
-_PROFILE: dict[str, Any] = {
-    "name": "bubblewrap-floss-offline",
-    "network_access": False,
-    "static_only": True,
-    "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_FLOSS_OFFLINE
 
 _LIMITATIONS: list[str] = [
     "floss performs static + emulation-based string recovery; results vary by binary "

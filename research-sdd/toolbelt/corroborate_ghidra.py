@@ -4,6 +4,8 @@ import argparse, ctypes, hashlib, json, os, platform, re, shutil, signal, stat, 
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.isolation_profile import make_profile
 SCHEMA = "ghidra-corroboration.v1"
 SENTINEL = b"RSDD-SENTINEL"
 KINDS = ("functions", "symbols", "imports", "exports", "strings", "references")
@@ -309,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         spec = {"schema_version":"analysis-manifest.v1", "input":{"path":"input/target.bin","detected_type":None},
             "tool":{"name":"Ghidra","version":version,"executable":command[0],"artifacts":[{"path":path,"argv_index":command.index(path)} for path in bound_tools]}, "argv":command, "environment":environment,
             "run":run,"stdout_path":"logs/stdout.txt","stderr_path":"logs/stderr.txt","outputs":outputs,"findings":[],"limitations":limitations,
-            "errors":errors,"completeness":completeness,"isolation_profile":{"name":"bubblewrap-ghidra-static" if isolated else "test-only-untrusted-bwrap","static_only":True,"network_access":not isolated,"target_execution":False}}
+            "errors":errors,"completeness":completeness,"isolation_profile":make_profile("bubblewrap-ghidra-static" if isolated else "test-only-untrusted-bwrap",network_access=not isolated)}
         write(stage/"manifest-spec.json", spec); manifest = stage/"analysis-manifest.v1.json"
         manifest_fd=locked[2][0]; manifest_cli=f"/proc/self/fd/{manifest_fd}"
         subprocess.run([sys.executable,manifest_cli,"create","--root",str(stage),"--spec",str(stage/"manifest-spec.json"),"--output",str(manifest)],check=True,pass_fds=(manifest_fd,))

@@ -51,6 +51,7 @@ from lib.adapter_helpers import (
     BindScopeError, ManifestError,
     assert_safe_bind_root, emit_evidence, run_truncation,
 )
+from lib.isolation_profile import PROFILE_BWRAP_KAITAI_OFFLINE
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -62,12 +63,7 @@ _COMPILE_TIMEOUT = 60                 # Stage 1 wall-clock limit (seconds)
 _OUTPUT_CAP_BYTES = 4 * 1024 * 1024  # 4 MiB driver output cap
 _COMPILE_CAP_BYTES = 2 * 1024 * 1024 # 2 MiB ksc output cap
 
-_PROFILE: dict[str, Any] = {
-    "name": "bubblewrap-kaitai-offline",
-    "network_access": False,
-    "static_only": True,
-    "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_KAITAI_OFFLINE
 
 _LIMITATIONS: list[str] = [
     "Kaitai Struct driver operates read-only; the binary is never executed.",

@@ -49,15 +49,11 @@ from lib.adapter_helpers import (
     BindScopeError, ManifestError, VenvBindError,
     assert_safe_bind_root, bind_venv, emit_evidence, run_truncation,
 )
+from lib.isolation_profile import PROFILE_BWRAP_CAPA_OFFLINE
 
 SCHEMA = "capa-evidence.v1"
 
-_PROFILE: dict[str, Any] = {
-    "name": "bubblewrap-capa-offline",
-    "network_access": False,
-    "static_only": True,
-    "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_CAPA_OFFLINE
 
 _LIMITATIONS: list[str] = [
     "capa performs static analysis using the vivisect backend; results vary by "

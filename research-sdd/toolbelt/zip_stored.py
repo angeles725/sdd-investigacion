@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 import zip_metadata as zm
 
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.isolation_profile import PROFILE_INPROCESS_ZIP_STORED
+
 SCHEMA = "zip-stored.v1"
 NOFOLLOW = getattr(os, "O_NOFOLLOW", 0); DIRECTORY = getattr(os, "O_DIRECTORY", 0); CLOEXEC = getattr(os, "O_CLOEXEC", 0)
 
@@ -176,7 +179,7 @@ def main(argv: list[str]|None=None) -> int:
             create_file(stage_fd,f"{SCHEMA}.json",payload); create_file(stage_fd,"stdout.txt",b""); create_file(stage_fd,"stderr.txt",b""); os.unlink("archive.zip",dir_fd=stage_fd)
         finally: os.close(stage_fd)
         now=datetime.now(timezone.utc).isoformat().replace("+00:00","Z"); script=str(Path(__file__).resolve()); launcher=str(Path(sys.executable).resolve()); outputs=[x["path"] for x in records if x["type"]=="file"]
-        metadata_parser=str(Path(zm.__file__).resolve()); spec={"schema_version":"analysis-manifest.v1","input":{"path":f"{SCHEMA}.json","detected_type":"ZIP STORED extraction report with source SHA-256"},"tool":{"name":"zip-stored","version":"1","executable":launcher,"artifacts":[{"path":script,"argv_index":1},{"path":metadata_parser,"argv_index":7}]},"argv":[launcher,script,"--input",source["path"],"--output",str(parent/destination),"--metadata-parser",metadata_parser],"environment":{},"run":{"started_at":now,"ended_at":now,"duration_ms":0,"exit_code":0,"signal":None},"stdout_path":"stdout.txt","stderr_path":"stderr.txt","outputs":outputs,"findings":[],"limitations":report["limitations"],"errors":[],"completeness":"complete","isolation_profile":{"name":"in-process-static-stored-copy","static_only":True,"network_access":False,"target_execution":False}}
+        metadata_parser=str(Path(zm.__file__).resolve()); spec={"schema_version":"analysis-manifest.v1","input":{"path":f"{SCHEMA}.json","detected_type":"ZIP STORED extraction report with source SHA-256"},"tool":{"name":"zip-stored","version":"1","executable":launcher,"artifacts":[{"path":script,"argv_index":1},{"path":metadata_parser,"argv_index":7}]},"argv":[launcher,script,"--input",source["path"],"--output",str(parent/destination),"--metadata-parser",metadata_parser],"environment":{},"run":{"started_at":now,"ended_at":now,"duration_ms":0,"exit_code":0,"signal":None},"stdout_path":"stdout.txt","stderr_path":"stderr.txt","outputs":outputs,"findings":[],"limitations":report["limitations"],"errors":[],"completeness":"complete","isolation_profile":PROFILE_INPROCESS_ZIP_STORED}
         spec_path=stage/"manifest-spec.json"; spec_fd=os.open(spec_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|NOFOLLOW,0o400)
         try: write_all(spec_fd,zm.canonical(spec)); os.fsync(spec_fd)
         finally: os.close(spec_fd)

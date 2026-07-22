@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.isolation_profile import PROFILE_INPROCESS_ZIP_METADATA
+
 SCHEMA = "zip-metadata.v1"
 PRIVATE_FS = {"btrfs", "ext2", "ext3", "ext4", "f2fs", "jfs", "nilfs2", "overlay", "ramfs", "reiserfs", "tmpfs", "ubifs", "xfs", "zfs"}
 
@@ -170,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             "tool":{"name":"zip-metadata","version":"1","executable":launcher,"artifacts":[{"path":script,"argv_index":1}]},"argv":[launcher,script,"--input",source,"--output",str(destination)],
             "environment":{},"run":{"started_at":now,"ended_at":now,"duration_ms":0,"exit_code":0,"signal":None},"stdout_path":"stdout.txt","stderr_path":"stderr.txt",
             "outputs":[f"{SCHEMA}.json"],"findings":[],"limitations":report["limitations"],"errors":[],"completeness":"complete",
-            "isolation_profile":{"name":"in-process-metadata-only","static_only":True,"network_access":False,"target_execution":False}}
+            "isolation_profile":PROFILE_INPROCESS_ZIP_METADATA}
         spec_path = stage / "manifest-spec.json"; write(spec_path, canonical(spec)); manifest = stage / "analysis-manifest.v1.json"
         subprocess.run([sys.executable,str(args.manifest_cli),"create","--root",str(stage),"--spec",str(spec_path),"--output",str(manifest)],check=True); spec_path.unlink()
         subprocess.run([sys.executable,str(args.manifest_cli),"verify","--root",str(stage),str(manifest)],check=True)

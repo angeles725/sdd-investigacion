@@ -9,6 +9,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent / "lib"))
 from adapter_core import AdapterError, canonical_bytes, require_private, publish, stage_file
+from isolation_profile import PROFILE_BWRAP_UNSQUASHFS
 
 SCHEMA = "squashfs-extract.v1"
 SQFS_MAGIC = b"hsqs"                 # SquashFS v4 LE magic (0x73717368 little-endian)
@@ -227,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
                         "duration_ms": int((ended_at - started_at).total_seconds() * 1000), "exit_code": 0, "signal": None},
                 "stdout_path": "stdout.txt", "stderr_path": "stderr.txt", "outputs": outputs, "findings": [],
                 "limitations": report["limitations"], "errors": [], "completeness": "complete",
-                "isolation_profile": {"name": "bwrap-unsquashfs", "static_only": True, "network_access": False, "target_execution": False}}
+                "isolation_profile": PROFILE_BWRAP_UNSQUASHFS}
         spec_path = stage / "manifest-spec.json"
         spfd = os.open(spec_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o400)
         try: os.write(spfd, canonical_bytes(spec)); os.fsync(spfd)

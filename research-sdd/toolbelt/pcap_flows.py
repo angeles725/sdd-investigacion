@@ -18,11 +18,11 @@ from lib.adapter_helpers import (
     _PCAP_MAGIC, _PCAPNG_MAGIC,
     emit_evidence,
 )
+from lib.isolation_profile import PROFILE_BWRAP_PCAP_OFFLINE
 
 SCHEMA = "pcap-flows.v1"
 MAX_STREAMS = 128  # default cap for per-stream follow loop (--max-streams override)
-_PROFILE = {"name": "bubblewrap-pcap-offline",
-            "network_access": False, "static_only": True, "target_execution": False}
+_PROFILE = PROFILE_BWRAP_PCAP_OFFLINE
 _LIMITATIONS = [
     "tshark operates read-only; no live capture, injection, or replay occurs.",
     "TCP stream indices are encounter-order (0..N-1 where N = unique tcp.stream count).",

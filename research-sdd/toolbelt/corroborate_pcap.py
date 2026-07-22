@@ -18,12 +18,10 @@ from lib.adapter_helpers import (
     _PCAP_MAGIC, _PCAPNG_MAGIC,
     emit_evidence,
 )
+from lib.isolation_profile import PROFILE_BWRAP_PCAP_OFFLINE
 
 SCHEMA = "pcap-evidence.v1"
-_PROFILE = {
-    "name": "bubblewrap-pcap-offline",
-    "network_access": False, "static_only": True, "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_PCAP_OFFLINE
 _LIMITATIONS = [
     "capinfos and tshark operate read-only on the capture file; "
     "no live capture, injection, or replay occurs.",
