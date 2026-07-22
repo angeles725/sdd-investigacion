@@ -26,6 +26,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import docker_common as _dc
+from capture_analyze import analyze_pcap  # C2: offline pcap corroboration handoff
 from gate import GateError
 
 SCHEMA_VERSION: str = "capture-run.v1"
@@ -234,6 +235,11 @@ class LiveCaptureExecutor:
         stdout, stdout_trunc = _dc.cap(raw_out[0])
         stderr, stderr_trunc = _dc.cap(raw_err[0])
 
+        # C2: offline pcap corroboration handoff.  Run AFTER drain-join so pcap is fully
+        # flushed, BEFORE output_files() so analysis JSONs appear in the receipt.
+        # Analyzer failure is DATA — never raises GateError; CLI exit stays 0 on capture ok.
+        analysis = analyze_pcap(pcap_path, run_dir)
+
         return {
             "schema_version": SCHEMA_VERSION,
             "executed": True,
@@ -246,4 +252,5 @@ class LiveCaptureExecutor:
             "stdout": stdout, "stderr": stderr,
             "stdout_truncated": stdout_trunc, "stderr_truncated": stderr_trunc,
             "output_files": _dc.output_files(Path(run_dir)),
+            "analysis": analysis,
         }
