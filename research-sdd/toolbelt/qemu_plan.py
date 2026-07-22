@@ -69,7 +69,22 @@ def build_plan(target: Path, mode: str, arch: str, caps: dict[str, int], *,
         mnt: dict[str, str] = {"target_ro": "/input/target", "output_writable": "/tmp/rsdd/out"}
     else:
         qbin = f"qemu-system-{arch}"
-        inner = [qbin, "-kernel", "/input/target", "-m", str(mem_mb),
+        # Containment belt flags (belt-and-suspenders on top of outer bwrap):
+        # -smp 1          : bound vCPUs to 1 (cpu_seconds is a time cap, not core count)
+        # -accel tcg      : offline-testable software emulation; NO -enable-kvm (user opt-in)
+        # -nic none       : qemu-level net isolation; bwrap --unshare-net is the outer belt
+        # -nodefaults     : suppress all default devices (minimise attack surface)
+        # -sandbox on,... : qemu's own seccomp sandbox (deny obsolete/spawn/privilege syscalls)
+        # -snapshot       : guest disk writes discarded; NOTE: vacuous without a -drive
+        #                   (no disk image in this planning unit — see V1b detonation slice)
+        inner = [qbin,
+                 "-kernel", "/input/target",
+                 "-m", str(mem_mb),
+                 "-smp", "1",
+                 "-accel", "tcg",
+                 "-nic", "none",
+                 "-nodefaults",
+                 "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
                  "-nographic", "-no-reboot", "-snapshot"]
         mnt = {"target_ro": "/input/target", "output_writable": "/tmp/rsdd/out",
                "disk_snapshot": "ephemeral"}

@@ -46,26 +46,13 @@ def _filesize_kb(packet_count: int, snaplen: int) -> int:
 
 
 def _reap(proc: subprocess.Popen) -> None:  # type: ignore[type-arg]
-    """Best-effort SIGTERM→SIGKILL reap. Never raises. No-op if proc already exited."""
-    if proc.poll() is not None:
-        return
-    try:
-        proc.send_signal(signal.SIGTERM)
-    except Exception:
-        pass
-    try:
-        proc.wait(timeout=_SIGTERM_GRACE_S)
-    except Exception:
-        pass
-    finally:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-    try:
-        proc.wait(timeout=5)
-    except Exception:
-        pass
+    """Best-effort SIGTERM→SIGKILL reap. Never raises. No-op if proc already exited.
+
+    Delegates to proc_common.reap_process_tree (single-proc mode).
+    Behaviour-preserving: identical SIGTERM → grace → SIGKILL sequence.
+    """
+    import proc_common as _pc
+    _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)
 
 
 # ---------------------------------------------------------------------------
