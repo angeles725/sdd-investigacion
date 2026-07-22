@@ -30,7 +30,8 @@ from plan_common import reject_mount_delimiters                     # noqa: E402
 # Constants
 # ---------------------------------------------------------------------------
 
-_OUTPUT_CAP: int = 1 * 1024 * 1024  # ~1 MiB stdout/stderr cap per stream (source of truth)
+OUTPUT_CAP: int = 1 * 1024 * 1024   # ~1 MiB stdout/stderr cap per stream (source of truth)
+_OUTPUT_CAP: int = OUTPUT_CAP        # backward-compat alias (docker_exec re-exports this name)
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ def check_docker_binary() -> None:
 def forbid_privileged(argv: list[str]) -> None:
     """Reject --privileged in argv; GateError if present."""
     if "--privileged" in argv:
-        raise GateError("plan.planned_argv contains --privileged; refused by live executor")
+        raise GateError("--privileged is forbidden in planned_argv; refused by executor policy")
 
 
 def assert_network_policy(argv: list[str], mode: str) -> None:
@@ -116,9 +117,9 @@ def resolve_digest(image_tag: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def cap(data: bytes) -> tuple[str, bool]:
-    """Decode and cap at _OUTPUT_CAP bytes; return (text, truncated_flag)."""
-    if len(data) > _OUTPUT_CAP:
-        return data[:_OUTPUT_CAP].decode("utf-8", errors="replace"), True
+    """Decode and cap at OUTPUT_CAP bytes; return (text, truncated_flag)."""
+    if len(data) > OUTPUT_CAP:
+        return data[:OUTPUT_CAP].decode("utf-8", errors="replace"), True
     return data.decode("utf-8", errors="replace"), False
 
 
@@ -167,23 +168,27 @@ def output_files(output_dir: Path) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# /tmp/rsdd isolation helpers
+# Isolation-root helpers (default root = /tmp/rsdd; parameterised so FACT can
+# pass an explicit root without changing EMBA's byte-identical behaviour)
 # ---------------------------------------------------------------------------
 
-def verify_rsdd_root() -> None:
-    """/tmp/rsdd must exist as a real (non-symlink) directory; GateError otherwise."""
+_DEFAULT_RSDD_ROOT: str = "/tmp/rsdd"
+
+
+def verify_rsdd_root(root: str = _DEFAULT_RSDD_ROOT) -> None:
+    """{root} must exist as a real (non-symlink) directory; GateError otherwise."""
     try:
-        st = Path("/tmp/rsdd").lstat()
+        st = Path(root).lstat()
     except OSError as exc:
-        raise GateError(f"/tmp/rsdd inaccessible: {exc}") from exc
+        raise GateError(f"{root} inaccessible: {exc}") from exc
     if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
-        raise GateError("/tmp/rsdd must be a real non-symlink directory")
+        raise GateError(f"{root} must be a real non-symlink directory")
 
 
-def make_run_subdir(run_uuid: str) -> str:
-    """Create /tmp/rsdd/rsdd-{run_uuid} anchored via O_NOFOLLOW|O_DIRECTORY.
+def make_run_subdir(run_uuid: str, root: str = _DEFAULT_RSDD_ROOT) -> str:
+    """Create {root}/rsdd-{run_uuid} anchored via O_NOFOLLOW|O_DIRECTORY.
 
-    Opening /tmp/rsdd with these flags means the subdir creation is bound to the
+    Opening {root} with these flags means the subdir creation is bound to the
     verified directory fd, eliminating any symlink race between verify_rsdd_root()
     and mkdir.  UUID collision is astronomically unlikely; treated as safe to proceed.
 
@@ -192,9 +197,9 @@ def make_run_subdir(run_uuid: str) -> str:
     _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
     _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
     try:
-        rsdd_fd = os.open("/tmp/rsdd", os.O_RDONLY | _O_NOFOLLOW | _O_DIRECTORY)
+        rsdd_fd = os.open(root, os.O_RDONLY | _O_NOFOLLOW | _O_DIRECTORY)
     except OSError as exc:
-        raise GateError(f"failed to open /tmp/rsdd for per-run subdir: {exc}") from exc
+        raise GateError(f"failed to open {root} for per-run subdir: {exc}") from exc
     try:
         try:
             os.mkdir(f"rsdd-{run_uuid}", 0o700, dir_fd=rsdd_fd)
@@ -204,7 +209,7 @@ def make_run_subdir(run_uuid: str) -> str:
             raise GateError(f"failed to create per-run output subdir: {exc}") from exc
     finally:
         os.close(rsdd_fd)
-    return f"/tmp/rsdd/rsdd-{run_uuid}"
+    return f"{root}/rsdd-{run_uuid}"
 
 
 # ---------------------------------------------------------------------------
