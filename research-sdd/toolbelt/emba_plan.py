@@ -114,7 +114,15 @@ def plan_emba(args: Any) -> int:
     except VmDeterminismError as exc:
         print(f"emba-plan: determinism error: {exc}", file=sys.stderr); return 2
 
-    executor = select_executor(args.allow_docker, SCHEMA_VERSION)
+    # Local wiring: LiveDockerExecutor for the live path only.
+    # DO NOT route through plan_common.select_executor — it serves 13 other
+    # callers that must remain plan-only. DO NOT modify lib/gate.py.
+    # RSDD_DOCKER_EXECUTOR env stub wins inside gate.py when set (seam priority).
+    if args.allow_docker:
+        from docker_exec import LiveDockerExecutor  # noqa: E402
+        executor = LiveDockerExecutor(output_dir)
+    else:
+        executor = select_executor(args.allow_docker, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "emba-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
