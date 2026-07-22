@@ -4,7 +4,7 @@ Produces emba-plan.v1 + vm-determinism.v1. NEVER runs docker.
 Live exec gated behind --allow-docker. See gate-authorization.v1.md + emba-plan.v1.md.
 """
 from __future__ import annotations
-import argparse, json, os, re, sys
+import argparse, os, re, sys
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +14,12 @@ for _p in (str(_LIB), str(_HERE)):
 
 from adapter_core import AdapterError, identity as _file_identity, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
-from gate import execute_or_plan, CAP_DOCKER, EXIT_AUTH_REQUIRED, GateError   # noqa: E402
+from gate import CAP_DOCKER                                                     # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
+from plan_common import (                                                        # noqa: E402
+    PlanOnlyExecutor, select_executor, make_dry_run_det_spec,
+    run_gate_epilogue, reject_mount_delimiters, validate_token,
+)
 
 SCHEMA_VERSION = "emba-plan.v1"
 # [A-Za-z0-9._:/@-]: registry/tag/digest chars. Rejects leading dash + shell metacharacters.
@@ -28,31 +32,13 @@ _DEFAULT_CPUS   = "2"; _DEFAULT_MEMORY = "4g"; _DEFAULT_PIDS = 256; _DEFAULT_WAL
 class EmbaPlanError(AdapterError): ...
 
 
-class PlanOnlyExecutor:
-    def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
-        return {"schema_version": SCHEMA_VERSION, "executed": False,
-                "outputs": [], "limitations": ["outputs-unknown-until-live-run"]}
-
-
-def select_executor(allow_live: bool) -> PlanOnlyExecutor | None:
-    return None if allow_live else PlanOnlyExecutor()
-
-
 def _validate_tag(tag: str) -> str:
-    if not tag: raise EmbaPlanError("image tag must not be empty")
-    if tag.startswith("-"): raise EmbaPlanError(f"image tag must not start with '-': {tag!r}")
-    if not _TAG_RE.fullmatch(tag):
-        raise EmbaPlanError(f"image tag has unsafe chars (allowed [A-Za-z0-9._:/@-]): {tag!r}")
-    return tag
+    return validate_token(tag, "image tag", _TAG_RE, EmbaPlanError)
 
 
 def _validate_profile(profile: str | None) -> str | None:
     if profile is None: return None
-    if not profile or profile.startswith("-"):
-        raise EmbaPlanError(f"profile must not be empty or start with '-': {profile!r}")
-    if not _PROFILE_RE.fullmatch(profile):
-        raise EmbaPlanError(f"profile has unsafe chars (allowed [A-Za-z0-9._-]): {profile!r}")
-    return profile
+    return validate_token(profile, "profile", _PROFILE_RE, EmbaPlanError)
 
 
 def build_plan(
@@ -65,11 +51,7 @@ def build_plan(
     # -v src:dst:opts is colon-delimited and --mount is comma-delimited, so a source
     # path containing either delimiter cannot be safely expressed; rejecting such paths
     # preserves the read-only least-privilege guarantee.
-    if ":" in fw_abs or "," in fw_abs:
-        raise EmbaPlanError(
-            f"firmware path contains a character unsafe for a Docker bind-mount spec"
-            f" (':' or ','): {fw_abs}"
-        )
+    reject_mount_delimiters(fw_abs, "firmware path", EmbaPlanError)
     # Discrete list[str] — never a shell string.
     # --privileged EXPLICITLY ABSENT; EMBA privilege requirement is data only.
     argv: list[str] = [
@@ -127,30 +109,15 @@ def plan_emba(args: Any) -> int:
                           input_sha=input_sha, input_size=input_size)
     except EmbaPlanError as exc:
         print(f"emba-plan: {exc}", file=sys.stderr); return 2
-    det_spec: dict[str, Any] = {
-        "schema_version": "vm-determinism.v1", "receipt_identity": None, "seed": 0,
-        "clock": {"mode": "pinned", "epoch": "1970-01-01T00:00:00Z"},
-        "limits_conformance": {"cpu_within": False, "mem_within": False,
-                               "wall_within": False, "output_within": False},
-        "reproducible": {"basis": "dry-run-plan", "replicate_identity": None},
-    }
-    try: determinism = build_determinism(det_spec)
+    try: determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"emba-plan: determinism error: {exc}", file=sys.stderr); return 2
 
-    executor = select_executor(args.allow_docker)
+    executor = select_executor(args.allow_docker, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "emba-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
-    try:
-        result = execute_or_plan(
-            CAP_DOCKER, args.allow_docker, plan,
-            live_executor=executor.evaluate if executor is not None else None,
-            would_be_receipt_spec=None, output_dir=None,
-        )
-    except GateError as exc: print(f"emba-plan: {exc}", file=sys.stderr); return 2
-    if result.get("outcome") == "authorization-required": return EXIT_AUTH_REQUIRED  # 3
-    print(json.dumps(result, indent=2, sort_keys=True)); return 0
+    return run_gate_epilogue(CAP_DOCKER, args.allow_docker, plan, executor, "emba-plan")
 
 
 def _parser(argv: list[str] | None = None) -> Any:

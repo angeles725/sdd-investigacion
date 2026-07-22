@@ -4,7 +4,7 @@ Produces fact-plan.v1 + vm-determinism.v1. NEVER runs docker-compose or docker.
 Live exec gated behind --allow-docker. See gate-authorization.v1.md + fact-plan.v1.md.
 """
 from __future__ import annotations
-import argparse, json, os, re, sys
+import argparse, os, re, sys
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +14,12 @@ for _p in (str(_LIB), str(_HERE)):
 
 from adapter_core import AdapterError, identity as _file_identity, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
-from gate import execute_or_plan, CAP_DOCKER, EXIT_AUTH_REQUIRED, GateError   # noqa: E402
+from gate import CAP_DOCKER                                                     # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
+from plan_common import (                                                        # noqa: E402
+    PlanOnlyExecutor, select_executor, make_dry_run_det_spec,
+    run_gate_epilogue, reject_mount_delimiters, validate_token,
+)
 
 SCHEMA_VERSION = "fact-plan.v1"
 _TAG_RE  = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:/@-]*$')
@@ -28,22 +32,9 @@ _DEFAULT_CPUS = "2"; _DEFAULT_MEMORY = "4g"; _DEFAULT_PIDS = 256; _DEFAULT_WALL 
 class FactPlanError(AdapterError): ...
 
 
-class PlanOnlyExecutor:
-    def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
-        return {"schema_version": SCHEMA_VERSION, "executed": False,
-                "outputs": [], "limitations": ["outputs-unknown-until-live-run"]}
-
-
-def select_executor(allow_live: bool) -> PlanOnlyExecutor | None:
-    return None if allow_live else PlanOnlyExecutor()
-
-
 def _validate(v: str, label: str, pat: re.Pattern[str]) -> str:
     """Generic charset + leading-dash validator; raises FactPlanError on violation."""
-    if not v: raise FactPlanError(f"{label} must not be empty")
-    if v.startswith("-"): raise FactPlanError(f"{label} must not start with '-': {v!r}")
-    if not pat.fullmatch(v): raise FactPlanError(f"{label} has unsafe chars: {v!r}")
-    return v
+    return validate_token(v, label, pat, FactPlanError)
 
 
 def build_plan(
@@ -57,17 +48,11 @@ def build_plan(
     # -v src:dst:opts is colon-delimited and --mount is comma-delimited, so a source
     # path containing either cannot be safely expressed; rejecting such paths
     # preserves the read-only least-privilege guarantee (lesson from U-D17).
-    if ":" in fw_abs or "," in fw_abs:
-        raise FactPlanError(
-            f"firmware path contains a character unsafe for a Docker bind-mount spec"
-            f" (':' or ','): {fw_abs}")
+    reject_mount_delimiters(fw_abs, "firmware path", FactPlanError)
     cf_abs: str | None = None
     if compose_file is not None:
         cf_abs = str(compose_file.resolve())
-        if ":" in cf_abs or "," in cf_abs:
-            raise FactPlanError(
-                f"compose-file path contains a character unsafe for a Docker bind-mount spec"
-                f" (':' or ','): {cf_abs}")
+        reject_mount_delimiters(cf_abs, "compose-file path", FactPlanError)
     # docker compose argv — discrete list[str], never a shell string.
     # NO --network host: FACT services communicate via internal bridge only.
     # NO --privileged: recorded as data (see privilege_requirement below).
@@ -125,28 +110,14 @@ def plan_fact(args: Any) -> int:
                           args.cpus, args.memory, args.pids_limit, args.wall_seconds,
                           input_sha=input_sha, input_size=input_size)
     except FactPlanError as exc: print(f"fact-plan: {exc}", file=sys.stderr); return 2
-    det_spec: dict[str, Any] = {
-        "schema_version": "vm-determinism.v1", "receipt_identity": None, "seed": 0,
-        "clock": {"mode": "pinned", "epoch": "1970-01-01T00:00:00Z"},
-        "limits_conformance": {"cpu_within": False, "mem_within": False,
-                               "wall_within": False, "output_within": False},
-        "reproducible": {"basis": "dry-run-plan", "replicate_identity": None},
-    }
-    try: determinism = build_determinism(det_spec)
+    try: determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"fact-plan: determinism error: {exc}", file=sys.stderr); return 2
-    executor = select_executor(args.allow_docker)
+    executor = select_executor(args.allow_docker, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "fact-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
-    try:
-        result = execute_or_plan(
-            CAP_DOCKER, args.allow_docker, plan,
-            live_executor=executor.evaluate if executor is not None else None,
-            would_be_receipt_spec=None, output_dir=None)
-    except GateError as exc: print(f"fact-plan: {exc}", file=sys.stderr); return 2
-    if result.get("outcome") == "authorization-required": return EXIT_AUTH_REQUIRED  # 3
-    print(json.dumps(result, indent=2, sort_keys=True)); return 0
+    return run_gate_epilogue(CAP_DOCKER, args.allow_docker, plan, executor, "fact-plan")
 
 
 def _parser(argv: list[str] | None = None) -> Any:
