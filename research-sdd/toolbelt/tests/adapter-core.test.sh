@@ -293,4 +293,89 @@ for bad in ['/run','/run/user/1000']:
 PY
 then ok "sandbox: /run and /run/user/1000 rejected as ro_inputs"; else no "sandbox /run blocked"; fi
 
+# 19. identity(): os.fstat OSError must become AdapterError (not raw OSError)
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,os,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+r=pathlib.Path(sys.argv[2]); f=r/'id_fstat_eio.bin'; f.write_bytes(b'hello')
+real=ac.os.fstat; n=[0]
+def fake(fd):
+    n[0]+=1
+    if n[0]==1:
+        raise OSError(5,"Input/output error")
+    return real(fd)
+ac.os.fstat=fake
+try:
+    ac.identity(f)
+    raise AssertionError('identity should raise, did not')
+except ac.AdapterError: pass
+except OSError as e: raise AssertionError(f"raw OSError escaped identity fstat: {e}") from e
+finally: ac.os.fstat=real
+PY
+then ok "identity: os.fstat OSError becomes AdapterError"; else no "identity os.fstat OSError escape"; fi
+
+# 20. identity(): os.read OSError must become AdapterError (triangulate — different injection point)
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,os,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+r=pathlib.Path(sys.argv[2]); f=r/'id_read_eio.bin'; f.write_bytes(b'hello')
+real=ac.os.read
+def fake(fd,n_bytes):
+    raise OSError(5,"Input/output error")
+ac.os.read=fake
+try:
+    ac.identity(f)
+    raise AssertionError('identity should raise, did not')
+except ac.AdapterError: pass
+except OSError as e: raise AssertionError(f"raw OSError escaped identity read: {e}") from e
+finally: ac.os.read=real
+PY
+then ok "identity: os.read OSError becomes AdapterError"; else no "identity os.read OSError escape"; fi
+
+# 21. stage_file(): os.read OSError → AdapterError; partial target cleaned up
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,os,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+r=pathlib.Path(sys.argv[2]); src=r/'sf_read_src.bin'; src.write_bytes(b'hello')
+target=r/'sf_read_tgt.bin'
+real=ac.os.read; n=[0]
+def fake(fd,n_bytes):
+    n[0]+=1
+    if n[0]==1:
+        raise OSError(5,"Input/output error")
+    return real(fd,n_bytes)
+ac.os.read=fake
+raised=False
+try:
+    ac.stage_file(src,target,'sf_read_tgt.bin',0o400)
+    raise AssertionError('stage_file should raise, did not')
+except ac.AdapterError: raised=True
+except OSError as e: raise AssertionError(f"raw OSError escaped stage_file read: {e}") from e
+finally: ac.os.read=real
+assert raised,"stage_file did not raise AdapterError"
+assert not target.exists(),f"partial target not cleaned up: {target}"
+PY
+then ok "stage_file: os.read OSError becomes AdapterError; target cleaned up"; else no "stage_file os.read OSError escape"; fi
+
+# 22. stage_file(): os.fstat OSError → AdapterError (triangulate — different injection point)
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util,os,pathlib,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+r=pathlib.Path(sys.argv[2]); src=r/'sf_fstat_src.bin'; src.write_bytes(b'hello')
+real=ac.os.fstat; n=[0]
+def fake(fd):
+    n[0]+=1
+    if n[0]==1:
+        raise OSError(5,"Input/output error")
+    return real(fd)
+ac.os.fstat=fake
+try:
+    ac.stage_file(src,r/'sf_fstat_tgt.bin','sf_fstat_tgt.bin',0o400)
+    raise AssertionError('stage_file should raise, did not')
+except ac.AdapterError: pass
+except OSError as e: raise AssertionError(f"raw OSError escaped stage_file fstat: {e}") from e
+finally: ac.os.fstat=real
+PY
+then ok "stage_file: os.fstat OSError becomes AdapterError"; else no "stage_file os.fstat OSError escape"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
