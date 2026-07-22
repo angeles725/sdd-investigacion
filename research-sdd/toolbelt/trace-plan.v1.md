@@ -12,7 +12,18 @@ gdb/strace/ltrace invocation that WOULD run, gated behind `--allow-exec`.
 | `ltrace` | ltrace(1) | `-f` follow-forks, `-o /tmp/rsdd/out/trace.log` |
 | `gdb-batch` | gdb(1) | `--batch -ex run -ex bt --args` |
 
-## Security invariants (enforced at plan time)
+## CLI
+
+```
+trace_plan.py plan --target BINARY --tracer {strace,ltrace,gdb-batch} --output DIR
+                   [--cpu-seconds N] [--max-mem-bytes N] [--max-output-bytes N]
+                   [--wall-seconds N] [--allow-exec]
+                   [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
+```
+
+Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required.
+
+## Containment policy (enforced at plan time)
 
 | Invariant | Enforcement |
 |---|---|
@@ -21,7 +32,8 @@ gdb/strace/ltrace invocation that WOULD run, gated behind `--allow-exec`.
 | Symlink rejection | Target opened with `O_NOFOLLOW` (adapter_core.identity) |
 | Bind safety | Output path checked via `assert_safe_bind_root` |
 | Deterministic | Same target → identical plan (content-addressed) |
-## Field table
+
+## `trace-plan.v1` schema
 
 | Field | Type | Description |
 |---|---|---|
@@ -36,17 +48,10 @@ gdb/strace/ltrace invocation that WOULD run, gated behind `--allow-exec`.
 | `outputs` | `[]` | Empty — unknown until live run |
 | `limitations` | str[] | Always `["outputs-unknown-until-live-run"]` |
 
-## Companion: [`vm-determinism.v1.json`](vm-determinism.v1.md)
-Written alongside. Dry-run state: `declared: false`, `basis: "dry-run-plan"`,
-`receipt_identity: null`.
+## Determinism and gate
 
-## Composition with dynamic.sh
-`dynamic.sh` is the live Frida wrapper (METHODOLOGY §12); `trace_plan.py` is the
-offline plan generator for gdb/strace/ltrace — the two do not overlap. The live
-executor (behind `--allow-exec`) should follow the same `[CERT-hw]`
-preserve-to-sources discipline as `dynamic.sh` when eventually implemented.
-
-## Gate integration
+[`vm-determinism.v1.json`](vm-determinism.v1.md): written alongside. Dry-run state:
+`declared: false`, `basis: "dry-run-plan"`, `receipt_identity: null`.
 
 Gate contract: [`gate-authorization.v1`](gate-authorization.v1.md).
 
@@ -57,11 +62,8 @@ if result["outcome"] == "authorization-required":
     sys.exit(EXIT_AUTH_REQUIRED)  # exit 3
 # --allow-exec + RSDD_EXEC_EXECUTOR unset → GateError → exit 2
 ```
-## CLI
-```
-trace_plan.py plan --target BINARY --tracer {strace,ltrace,gdb-batch} --output DIR
-                   [--cpu-seconds N] [--max-mem-bytes N] [--max-output-bytes N]
-                   [--wall-seconds N] [--allow-exec]
-                   [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
-```
-Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required.
+
+`dynamic.sh` is the live Frida wrapper (METHODOLOGY §12); `trace_plan.py` is the
+offline plan generator for gdb/strace/ltrace — the two do not overlap. The live
+executor (behind `--allow-exec`) should follow the same `[CERT-hw]`
+preserve-to-sources discipline as `dynamic.sh` when eventually implemented.

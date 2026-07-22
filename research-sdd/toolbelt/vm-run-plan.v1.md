@@ -3,7 +3,18 @@
 `vm_run.py` (U-V3) emits this schema in DRY-RUN mode: no VM is booted,
 no archive is inflated, no subprocess is spawned.
 
-## Security invariants (enforced at plan time)
+## CLI
+
+```
+vm_run.py plan --input ARCHIVE --output DIR [--codec {gzip,xz,auto}]
+               [--cpu-seconds N] [--max-mem-bytes N]
+               [--max-output-bytes N] [--wall-seconds N] [--allow-exec]
+               [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
+```
+
+Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required (plan written).
+
+## Containment policy (enforced at plan time)
 
 | Invariant | Enforcement |
 |---|---|
@@ -13,7 +24,7 @@ no archive is inflated, no subprocess is spawned.
 | Bomb bound | Plan refused (exit 2) when `declared_decompressed_bytes > limits.output_bytes` |
 | gzip ISIZE caveat | mod-2^32, untrusted; documented in `input.declared_size_caveat` |
 
-## Field table
+## `vm-run-plan.v1` schema
 
 | Field | Type | Description |
 |---|---|---|
@@ -31,12 +42,10 @@ no archive is inflated, no subprocess is spawned.
 | `outputs` | `[]` | Empty — unknown until live run |
 | `limitations` | str[] | Always includes `"outputs-unknown-until-live-run"` |
 
-## Companion: [`vm-determinism.v1.json`](vm-determinism.v1.md)
+## Determinism and gate
 
-Written alongside in the same output directory.
-Dry-run state: `declared: false`, `basis: "dry-run-plan"`, `receipt_identity: null`.
-
-## Gate integration
+[`vm-determinism.v1.json`](vm-determinism.v1.md): written alongside in the same output
+directory. Dry-run state: `declared: false`, `basis: "dry-run-plan"`, `receipt_identity: null`.
 
 Gate contract: [`gate-authorization.v1`](gate-authorization.v1.md).
 
@@ -47,14 +56,3 @@ if result["outcome"] == "authorization-required":
     sys.exit(EXIT_AUTH_REQUIRED)   # exit 3
 # --allow-exec + RSDD_EXEC_EXECUTOR unset → GateError → exit 2
 ```
-
-## CLI
-
-```
-vm_run.py plan --input ARCHIVE --output DIR [--codec {gzip,xz,auto}]
-               [--cpu-seconds N] [--max-mem-bytes N]
-               [--max-output-bytes N] [--wall-seconds N] [--allow-exec]
-               [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
-```
-
-Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required (plan written).

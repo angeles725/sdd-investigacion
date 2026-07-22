@@ -19,7 +19,7 @@ from gate import CAP_EXEC                                                       
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
-    add_max_input_bytes_arg,
+    run_adapter_main, add_max_input_bytes_arg,
 )
 
 SCHEMA_VERSION = "trace-plan.v1"
@@ -125,7 +125,9 @@ def _parser(argv: list[str] | None = None) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser(argv)
-    return plan_trace(args) if args.cmd == "plan" else 2
+    if args.cmd == "plan":
+        return run_adapter_main(lambda: plan_trace(args), "trace-plan")
+    return 2
 
 
 if __name__ == "__main__":

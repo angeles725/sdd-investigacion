@@ -180,6 +180,25 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_CAP3: no --max-input-bytes flag → byte-identical baseline (regression guard)")
     except Exception as e: nok("T_CAP3: no-flag-regression", str(e))
 
+# ── T_OSE: OSError from mkdir (output path is an existing file) → exit 2, clean error ──
+# RED: before Fix 1, OSError escapes uncaught → Python traceback + exit 1.
+# GREEN: after Fix 1, run_adapter_main catches OSError → "detonate-plan: ..." stderr + exit 2.
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    # Block mkdir by creating a regular file at the output path
+    out_blocked = R/"out_blocked"
+    out_blocked.write_bytes(b"x")  # file, not directory
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out_blocked))
+        assert r.returncode == 2, \
+            f"expected 2 (OSError caught by wrapper), got {r.returncode}\n{r.stderr[:200]}"
+        assert "Traceback" not in r.stderr, \
+            f"traceback in stderr (wrapper absent):\n{r.stderr[:200]}"
+        assert "detonate-plan:" in r.stderr, \
+            f"missing 'detonate-plan:' prefix in stderr:\n{r.stderr[:120]}"
+        ok("T_OSE: OSError from mkdir blocked by file → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_OSE: ose-mkdir-blocked", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

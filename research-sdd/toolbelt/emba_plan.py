@@ -18,7 +18,7 @@ from gate import CAP_DOCKER                                                     
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec,
-    run_gate_epilogue, reject_mount_delimiters, validate_token,
+    run_gate_epilogue, run_adapter_main, reject_mount_delimiters, validate_token,
     add_max_input_bytes_arg,
 )
 
@@ -141,7 +141,9 @@ def _parser(argv: list[str] | None = None) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser(argv)
-    return plan_emba(args) if args.cmd == "plan" else 2
+    if args.cmd == "plan":
+        return run_adapter_main(lambda: plan_emba(args), "emba-plan")
+    return 2
 
 
 if __name__ == "__main__":

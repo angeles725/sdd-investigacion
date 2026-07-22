@@ -18,7 +18,7 @@ from adapter_core import AdapterError, write as _write                     # noq
 from adapter_helpers import assert_safe_bind_root, BindScopeError          # noqa: E402
 from gate import CAP_LIVE_CAPTURE                                            # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                  # noqa: E402
-from plan_common import make_dry_run_det_spec, run_gate_epilogue            # noqa: E402
+from plan_common import make_dry_run_det_spec, run_gate_epilogue, run_adapter_main  # noqa: E402
 
 SCHEMA_VERSION = "capture-plan.v1"
 
@@ -36,7 +36,16 @@ class CapturePlanError(AdapterError): ...
 
 
 class PlanOnlyExecutor:
-    """Offline executor: no subprocess, no socket, records executed=False."""
+    """Offline executor: no subprocess, no socket, records executed=False.
+
+    INTENTIONALLY NOT migrated to plan_common.PlanOnlyExecutor. The limitations
+    string here is "outputs-unknown-until-live-capture" (capture-specific), whereas
+    the shared class uses "outputs-unknown-until-live-run". capture-plan.v1.md
+    requires the capture-specific string; merging the two classes would silently
+    change the schema contract for this adapter. The _HasEvaluate Protocol in
+    plan_common allows both classes to satisfy run_gate_epilogue's type without
+    requiring a shared base class.
+    """
     def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
         return {"schema_version": SCHEMA_VERSION, "executed": False,
                 "outputs": [], "limitations": ["outputs-unknown-until-live-capture"]}
@@ -165,7 +174,9 @@ def _parser(argv: list[str] | None = None) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser(argv)
-    return plan_capture(args) if args.cmd == "plan" else 2
+    if args.cmd == "plan":
+        return run_adapter_main(lambda: plan_capture(args), "capture-plan")
+    return 2
 
 
 if __name__ == "__main__":

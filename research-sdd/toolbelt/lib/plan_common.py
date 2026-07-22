@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Shared plan-adapter boilerplate for Research-SDD toolbelt plan adapters (U-24.2a).
+"""Shared plan-adapter boilerplate for Research-SDD toolbelt plan adapters (U-24.2a/b).
 
-Extracted from emba_plan.py, fact_plan.py, vm_run.py. Remaining adapters
-(trace_plan.py, qemu_plan.py, detonate_plan.py, capture_plan.py) migrate in U-24.2b.
+6 of 7 plan adapters use the shared helpers here: emba_plan, fact_plan, vm_run,
+trace_plan, qemu_plan, detonate_plan. capture_plan keeps a local PlanOnlyExecutor
+variant by design — its limitations string is "outputs-unknown-until-live-capture"
+(not "outputs-unknown-until-live-run"), as required by capture-plan.v1.md.
 
 All helpers are behavior-preserving extractions: identical logic, no functional change.
 Dependency direction: plan_common → gate → adapter_core (never the reverse).
@@ -10,24 +12,27 @@ Dependency direction: plan_common → gate → adapter_core (never the reverse).
 from __future__ import annotations
 import json, re, sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Protocol
 
 _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from gate import execute_or_plan, EXIT_AUTH_REQUIRED, GateError  # noqa: E402
+from adapter_core import AdapterError                                        # noqa: E402
+from gate import execute_or_plan, EXIT_AUTH_REQUIRED, EXIT_ERROR, GateError  # noqa: E402
 
-# Re-export EXIT_AUTH_REQUIRED so callers can import it from here if needed.
+# Re-export key symbols so callers can import them from here.
 __all__ = [
     "PlanOnlyExecutor",
     "select_executor",
     "make_dry_run_det_spec",
     "run_gate_epilogue",
+    "run_adapter_main",
     "reject_mount_delimiters",
     "validate_token",
     "add_max_input_bytes_arg",
     "EXIT_AUTH_REQUIRED",
+    "EXIT_ERROR",
     "GateError",
 ]
 
@@ -92,11 +97,22 @@ def make_dry_run_det_spec() -> dict[str, Any]:
 # 3. Gate epilogue helper
 # ---------------------------------------------------------------------------
 
+class _HasEvaluate(Protocol):
+    """Duck-typed executor contract: any object with evaluate(plan)->dict satisfies this.
+
+    The shared PlanOnlyExecutor (above) and capture_plan's local PlanOnlyExecutor both
+    satisfy this Protocol even though they are distinct classes. capture_plan's variant
+    uses "outputs-unknown-until-live-capture" while the shared one uses
+    "outputs-unknown-until-live-run" — they must remain separate (see capture-plan.v1.md).
+    """
+    def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]: ...
+
+
 def run_gate_epilogue(
     cap: str,
     allow: bool,
     plan: dict[str, Any],
-    executor: PlanOnlyExecutor | None,
+    executor: _HasEvaluate | None,
     prefix: str,
 ) -> int:
     """Common gate-routing tail shared by all plan adapters.
@@ -107,6 +123,8 @@ def run_gate_epilogue(
     - Success → print JSON result to stdout, return 0.
 
     prefix is the adapter name used in error messages (e.g. 'emba-plan').
+    executor is duck-typed (_HasEvaluate): accepts the shared PlanOnlyExecutor and
+    capture_plan's local variant without requiring a common base class.
     """
     try:
         result = execute_or_plan(
@@ -146,7 +164,7 @@ def reject_mount_delimiters(path_str: str, what: str, exc_cls: type) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. Optional input-size cap argument (F2 — U-24.F2)
+# 5. Optional input-size cap argument (F2 — U-24.F2)
 # ---------------------------------------------------------------------------
 
 def add_max_input_bytes_arg(p: Any) -> None:
@@ -174,7 +192,7 @@ def add_max_input_bytes_arg(p: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Generic charset token validator
+# 6. Generic charset token validator
 # ---------------------------------------------------------------------------
 
 def validate_token(
@@ -202,3 +220,33 @@ def validate_token(
     if not pat.fullmatch(value):
         raise exc_cls(f"{label} has unsafe chars: {value!r}")
     return value
+
+
+# ---------------------------------------------------------------------------
+# 7. Shared adapter-main outer error handler
+# ---------------------------------------------------------------------------
+
+def run_adapter_main(fn: Callable[[], int], prog: str) -> int:
+    """Shared outer error handler for plan-adapter main() entry points.
+
+    Calls fn() and returns its result normally. If fn() raises AdapterError
+    (including subclasses GateError, BindScopeError) or OSError (e.g. EROFS,
+    EACCES, ENOSPC, ENOTDIR from output_dir.mkdir() or adapter_core.write()
+    during a disk failure or unexpected FS condition), prints '<prog>: <msg>'
+    to stderr and returns EXIT_ERROR (2).
+
+    KeyboardInterrupt and SystemExit are NOT caught and propagate normally.
+    Normal return values from fn() — including EXIT_AUTH_REQUIRED (3) from
+    run_gate_epilogue when authorization is required — pass through unchanged.
+    auth-required is a normal integer return, not an exception, so it is never
+    remapped to 2 by this wrapper.
+
+    Wire each adapter's plan_xxx() call in main() through this wrapper so that
+    disk failures produce a clean "<adapter>: <msg>" stderr line and exit 2
+    instead of a Python traceback and exit 1.
+    """
+    try:
+        return fn()
+    except (AdapterError, OSError) as exc:
+        print(f"{prog}: {exc}", file=sys.stderr)
+        return EXIT_ERROR

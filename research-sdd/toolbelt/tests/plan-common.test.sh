@@ -153,6 +153,66 @@ try:
     ok("PC-6d: run_gate_epilogue passes executor.evaluate as live_executor when executor is not None")
 except Exception as e: nok("PC-6: run_gate_epilogue", str(e))
 
+# ── PC-7: run_adapter_main — AdapterError → EXIT_ERROR (2), message on stderr ──
+try:
+    import io
+    from adapter_core import AdapterError
+    # run_adapter_main must exist
+    if not hasattr(m, "run_adapter_main"):
+        raise AttributeError("run_adapter_main not found in plan_common")
+    captured_stderr = io.StringIO()
+    with unittest.mock.patch("sys.stderr", captured_stderr):
+        rc = m.run_adapter_main(
+            lambda: (_ for _ in ()).throw(AdapterError("disk-full-test")),
+            "test-adapter"
+        )
+    assert rc == 2, f"AdapterError case: expected EXIT_ERROR(2), got {rc}"
+    err_text = captured_stderr.getvalue()
+    assert "test-adapter: disk-full-test" in err_text, \
+        f"missing 'prog: msg' in stderr: {err_text!r}"
+    ok("PC-7: run_adapter_main: AdapterError → EXIT_ERROR (2), 'prog: msg' on stderr")
+except Exception as e: nok("PC-7: run_adapter_main AdapterError", str(e))
+
+# ── PC-8: run_adapter_main — OSError → EXIT_ERROR (2), message on stderr ────────
+try:
+    captured_stderr = io.StringIO()
+    with unittest.mock.patch("sys.stderr", captured_stderr):
+        rc = m.run_adapter_main(
+            lambda: (_ for _ in ()).throw(OSError("no space left on device")),
+            "test-adapter"
+        )
+    assert rc == 2, f"OSError case: expected EXIT_ERROR(2), got {rc}"
+    err_text = captured_stderr.getvalue()
+    assert "test-adapter: no space left on device" in err_text, \
+        f"missing 'prog: msg' in stderr: {err_text!r}"
+    ok("PC-8: run_adapter_main: OSError → EXIT_ERROR (2), 'prog: msg' on stderr")
+except Exception as e: nok("PC-8: run_adapter_main OSError", str(e))
+
+# ── PC-9: run_adapter_main — normal return passes through (auth-required=3, ok=0) ─
+try:
+    rc_auth = m.run_adapter_main(lambda: 3, "test-adapter")
+    assert rc_auth == 3, f"auth-required return: expected 3, got {rc_auth}"
+    rc_ok = m.run_adapter_main(lambda: 0, "test-adapter")
+    assert rc_ok == 0, f"success return: expected 0, got {rc_ok}"
+    rc_err = m.run_adapter_main(lambda: 2, "test-adapter")
+    assert rc_err == 2, f"error return: expected 2, got {rc_err}"
+    ok("PC-9: run_adapter_main: normal returns (0, 2, 3) pass through unchanged")
+except Exception as e: nok("PC-9: run_adapter_main pass-through", str(e))
+
+# ── PC-10: run_adapter_main — KeyboardInterrupt propagates (not swallowed) ──────
+try:
+    raised = False
+    try:
+        m.run_adapter_main(
+            lambda: (_ for _ in ()).throw(KeyboardInterrupt()),
+            "test-adapter"
+        )
+    except KeyboardInterrupt:
+        raised = True
+    assert raised, "KeyboardInterrupt was NOT re-raised by run_adapter_main"
+    ok("PC-10: run_adapter_main: KeyboardInterrupt propagates (not swallowed)")
+except Exception as e: nok("PC-10: run_adapter_main KeyboardInterrupt", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
