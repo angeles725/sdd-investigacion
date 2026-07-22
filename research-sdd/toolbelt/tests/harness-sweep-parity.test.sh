@@ -186,6 +186,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth B: dropped hook NOT caught — cross-surface comparison is theater"
   fi
+
+  # Teeth C: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the codex golden
+  sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$CODEX_GOLDEN" > "$TMP/plan-codex-mutant.txt"
+  mutant_cx="$(extract_codex "$TMP/plan-codex-mutant.txt")"
+  if [ "$CLAUDE_SET" != "$mutant_cx" ]; then
+    ok "teeth C: renaming sweep-retros in Codex golden detected as drift vs Claude"
+  else
+    no "teeth C: mutant Codex NOT caught — cross-surface comparison is theater"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
