@@ -168,6 +168,23 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_CAP1: --max-input-bytes below archive size → exit 2, clean error, no traceback")
     except Exception as e: nok("T_CAP1: cap-below-archive-size", str(e))
 
+# ── T_NOFOLLOW: read_declared_size rejects symlinked archive (O_NOFOLLOW) ────────
+# RED before vm_run.py is updated: open() follows symlinks → succeeds → fails assertion.
+# GREEN after: os.open with O_NOFOLLOW raises ELOOP → VmRunError raised.
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td)
+    real_gz = R / "real.gz"; real_gz.write_bytes(_gz(b"symlink-test-content"))
+    symlink_gz = R / "link.gz"; symlink_gz.symlink_to(real_gz)
+    try:
+        try:
+            m.read_declared_size(symlink_gz, "gzip")
+            nok("T_NOFOLLOW: read_declared_size accepted symlink — should have rejected it")
+        except m.VmRunError:
+            ok("T_NOFOLLOW: read_declared_size rejects symlinked archive (O_NOFOLLOW → VmRunError)")
+        except Exception as e:
+            nok("T_NOFOLLOW: unexpected exception type", str(e))
+    except Exception as e: nok("T_NOFOLLOW: test setup failed", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

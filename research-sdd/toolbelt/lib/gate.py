@@ -85,6 +85,7 @@ def execute_or_plan(
     live_executor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     would_be_receipt_spec: dict[str, Any] | None = None,
     output_dir: Path | None = None,
+    plan_written: bool | None = None,
 ) -> dict[str, Any]:
     """Gate entry point.
 
@@ -93,14 +94,21 @@ def execute_or_plan(
                    GateError if neither is available (caller exits 2). NEVER cross-cap bleed.
     Executor seam failure contract: if the resolved executor raises at runtime, the exception
     is wrapped in GateError and the gate exits 2; no raw traceback propagates to the CLI.
+
+    plan_written: optional override for the auth-required message.  When None (default),
+    the value is derived from output_dir (plan_written = output_dir is not None), preserving
+    backward-compatible behavior.  Pass plan_written=True explicitly when the caller already
+    wrote its own plan file to disk BEFORE calling execute_or_plan (e.g. run_gate_epilogue),
+    so the gate-authorization message correctly says the plan was recorded.
     """
     if cap not in CAPABILITIES:
         raise GateError(f"unknown capability: {cap!r}; known: {sorted(CAPABILITIES)}")
     if not allow:
         if output_dir is not None:
             _write_offline(plan, would_be_receipt_spec, output_dir)
+        _plan_written = plan_written if plan_written is not None else (output_dir is not None)
         return build_auth_required(cap, plan, would_be_receipt_spec,
-                                   plan_written=output_dir is not None)
+                                   plan_written=_plan_written)
     # Authorized path: cap-scoped env var only — no other cap's var is read here.
     stub_path = os.environ.get(_CAP_ENV[cap], "").strip()
     if stub_path:

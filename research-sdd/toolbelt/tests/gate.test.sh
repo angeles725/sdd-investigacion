@@ -260,6 +260,17 @@ try:
 finally:
     _pp13.unlink(missing_ok=True)
 
+# ── 14: execute_or_plan plan_written=True override → message claims plan recorded ─
+# RED before gate.py adds plan_written param: TypeError → test fails.
+# GREEN after: plan_written=True causes build_auth_required to say "recorded".
+try:
+    _r14 = m.execute_or_plan(m.CAP_EXEC, False, PLAN, plan_written=True)
+    assert "recorded" in _r14["message"], (
+        f"plan_written=True override: message should claim 'recorded': {_r14['message']!r}"
+    )
+    ok("allow=False + plan_written=True override → message claims plan was recorded")
+except Exception as e: nok("plan_written=True override", str(e))
+
 print(f"== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

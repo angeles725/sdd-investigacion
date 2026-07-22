@@ -213,6 +213,24 @@ try:
     ok("PC-10: run_adapter_main: KeyboardInterrupt propagates (not swallowed)")
 except Exception as e: nok("PC-10: run_adapter_main KeyboardInterrupt", str(e))
 
+# ── PC-11: run_gate_epilogue passes plan_written=True to execute_or_plan ─────────
+# RED before plan_common.py is updated: plan_written kwarg not passed → assertion fails.
+# GREEN after: run_gate_epilogue explicitly passes plan_written=True.
+try:
+    from gate import CAP_EXEC as _CAP11
+    _plan11 = {"schema_version": "test.v1"}
+    _captured11: dict = {}
+    def _fake_eop11(cap, allow, plan, **kwargs):
+        _captured11.clear(); _captured11.update(kwargs)
+        return {"outcome": "authorization-required"}
+    with unittest.mock.patch.object(m, "execute_or_plan", side_effect=_fake_eop11):
+        m.run_gate_epilogue(_CAP11, False, _plan11, None, "test-prefix")
+    assert _captured11.get("plan_written") is True, (
+        f"run_gate_epilogue must pass plan_written=True; captured kwargs: {_captured11!r}"
+    )
+    ok("PC-11: run_gate_epilogue passes plan_written=True to execute_or_plan")
+except Exception as e: nok("PC-11: run_gate_epilogue plan_written=True", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

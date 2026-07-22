@@ -132,6 +132,7 @@ def run_gate_epilogue(
             live_executor=executor.evaluate if executor is not None else None,
             would_be_receipt_spec=None,
             output_dir=None,
+            plan_written=True,  # adapter writes its *-plan.v1.json before calling us
         )
     except GateError as exc:
         print(f"{prefix}: {exc}", file=sys.stderr)

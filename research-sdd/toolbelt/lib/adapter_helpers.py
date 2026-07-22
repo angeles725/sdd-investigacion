@@ -456,17 +456,6 @@ def assert_safe_bind_root(resolved: Path) -> None:
 # HELPER D — venv-bind helpers
 # ---------------------------------------------------------------------------
 
-# Legacy constant — superseded by _BLOCKED_BIND_ROOTS and assert_safe_bind_root.
-# venv_root_for() no longer references this set directly; it delegates to
-# assert_safe_bind_root() which uses _BLOCKED_BIND_ROOTS.  Kept here as a
-# reference only; do not add new code that reads _VENV_BLOCKED_EXACT.
-_VENV_BLOCKED_EXACT: frozenset[str] = frozenset({
-    "/",
-    "/home", "/root",
-    "/usr", "/bin", "/sbin", "/lib", "/lib64",
-    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
-})
-
 # /etc paths permitted in etc_ro_bind_try.  This is a deliberate, narrow
 # exception to adapter_core._RO_INPUT_BLOCKED_ROOTS: vivisect (a floss
 # dependency) calls getpass.getuser() → pwd.getpwuid() which requires

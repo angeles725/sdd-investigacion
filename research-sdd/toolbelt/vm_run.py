@@ -49,40 +49,54 @@ def _decode_vli(data: bytes, offset: int) -> tuple[int, int]:
 def read_declared_size(archive: Path, codec: str) -> int:
     """Read declared size from METADATA only — never inflates.
     gzip: ISIZE (last 4 bytes, mod 2^32, UNTRUSTED); xz: Index VLI sum (authoritative).
+
+    Opens archive once with O_NOFOLLOW to harden the open/stat pair against symlink
+    substitution.  Residual TOCTOU: the cross-function gap between _file_identity and
+    read_declared_size remains — closing it requires threading an fd through the call
+    chain, which is out of scope for this dry-run-metadata fix.  The outer guard
+    adapter_core.identity (called at vm_run.py:~144) already rejects symlinked inputs
+    before read_declared_size runs, providing defense-in-depth at the adapter level.
     """
+    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
     try:
-        sz = archive.stat().st_size
-        if codec == "gzip":
-            if sz < 18: raise VmRunError(f"too small to be gzip: {sz}B")
-            with open(archive, "rb") as f:
+        fd = os.open(archive, flags)
+    except OSError as exc:
+        raise VmRunError(f"cannot read declared size from {archive}: {exc}") from exc
+    try:
+        sz = os.fstat(fd).st_size
+        with os.fdopen(fd, "rb") as f:
+            fd = -1  # fdopen owns the fd; prevent double-close in except
+            if codec == "gzip":
+                if sz < 18: raise VmRunError(f"too small to be gzip: {sz}B")
                 f.seek(-4, 2); isize_b = f.read(4)
-            if len(isize_b) != 4: raise VmRunError("cannot read gzip ISIZE trailer")
-            return struct.unpack("<I", isize_b)[0]  # mod 2^32, untrusted
-        elif codec == "xz":
-            if sz < 32: raise VmRunError(f"too small to be xz: {sz}B")
-            with open(archive, "rb") as f:
+                if len(isize_b) != 4: raise VmRunError("cannot read gzip ISIZE trailer")
+                return struct.unpack("<I", isize_b)[0]  # mod 2^32, untrusted
+            elif codec == "xz":
+                if sz < 32: raise VmRunError(f"too small to be xz: {sz}B")
                 f.seek(-12, 2); footer = f.read(12)
-            if len(footer) != 12 or footer[10:12] != b"YZ":
-                raise VmRunError("invalid xz stream footer (magic 'YZ' absent)")
-            backward = struct.unpack_from("<I", footer, 4)[0]
-            idx_size = (backward + 1) * 4
-            if idx_size > _MAX_XZ_INDEX_BYTES:
-                raise VmRunError(f"xz index size implausibly large: {idx_size} bytes")
-            if idx_size + 12 > sz: raise VmRunError("xz index exceeds file bounds")
-            with open(archive, "rb") as f:
+                if len(footer) != 12 or footer[10:12] != b"YZ":
+                    raise VmRunError("invalid xz stream footer (magic 'YZ' absent)")
+                backward = struct.unpack_from("<I", footer, 4)[0]
+                idx_size = (backward + 1) * 4
+                if idx_size > _MAX_XZ_INDEX_BYTES:
+                    raise VmRunError(f"xz index size implausibly large: {idx_size} bytes")
+                if idx_size + 12 > sz: raise VmRunError("xz index exceeds file bounds")
                 f.seek(-(12 + idx_size), 2)
                 try:
                     idx = f.read(idx_size)
                 except MemoryError:
                     raise VmRunError(f"xz index allocation failed ({idx_size} bytes): file may be crafted")
-            if not idx or idx[0] != 0x00: raise VmRunError("xz index: wrong indicator byte")
-            off = 1; n_rec, off = _decode_vli(idx, off); total = 0
-            for _ in range(n_rec):
-                _, off = _decode_vli(idx, off)
-                usz, off = _decode_vli(idx, off); total += usz
-            return total
-        raise VmRunError(f"unsupported codec: {codec!r}")
+                if not idx or idx[0] != 0x00: raise VmRunError("xz index: wrong indicator byte")
+                off = 1; n_rec, off = _decode_vli(idx, off); total = 0
+                for _ in range(n_rec):
+                    _, off = _decode_vli(idx, off)
+                    usz, off = _decode_vli(idx, off); total += usz
+                return total
+            raise VmRunError(f"unsupported codec: {codec!r}")
     except (OSError, struct.error) as exc:
+        if fd != -1:
+            try: os.close(fd)
+            except OSError: pass
         raise VmRunError(f"cannot read declared size from {archive}: {exc}") from exc
 
 
