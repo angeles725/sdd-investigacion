@@ -51,11 +51,6 @@ class PlanOnlyExecutor:
                 "outputs": [], "limitations": ["outputs-unknown-until-live-capture"]}
 
 
-def select_executor(allow_live: bool) -> PlanOnlyExecutor | None:
-    """PlanOnlyExecutor for dry-run; None when live (gate hard-refuses — correct seam)."""
-    return None if allow_live else PlanOnlyExecutor()
-
-
 def validate_iface(name: str) -> str:
     """Validate interface name; CapturePlanError if unsafe charset or too long."""
     if not name:
@@ -145,7 +140,15 @@ def plan_capture(args: Any) -> int:
         print(f"capture-plan: determinism error: {exc}", file=sys.stderr)
         return 2
 
-    executor = select_executor(args.allow_live_capture)
+    # Local wiring: LiveCaptureExecutor for live path, PlanOnlyExecutor for dry-run.
+    # DO NOT route through plan_common.select_executor — it serves other callers
+    # that must remain plan-only. DO NOT modify lib/gate.py.
+    # RSDD_LIVE_CAPTURE_EXECUTOR env stub wins inside gate.py when set (seam priority).
+    if args.allow_live_capture:
+        from capture_exec import LiveCaptureExecutor  # noqa: E402
+        executor = LiveCaptureExecutor(output_dir)
+    else:
+        executor = PlanOnlyExecutor()
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "capture-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
@@ -168,7 +171,7 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--output",             required=True, metavar="DIR")
     p.add_argument("--allow-live-capture", action="store_true", default=False,
                    dest="allow_live_capture",
-                   help="authorize live capture (no executor → exit 2)")
+                   help="authorize live capture (spawns dumpcap via LiveCaptureExecutor)")
     return ap.parse_args(argv)
 
 
