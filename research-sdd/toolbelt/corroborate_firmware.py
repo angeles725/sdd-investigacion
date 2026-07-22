@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
+
 SCHEMA = "firmware-static.v1"
 SAFE_ARGS = ["-B", "-E", "-N", "input/firmware.bin"]
 PRIVATE_FS = {"btrfs", "ext2", "ext3", "ext4", "f2fs", "jfs", "nilfs2", "overlay", "ramfs", "reiserfs", "tmpfs", "ubifs", "xfs", "zfs"}
@@ -216,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
             "Bubblewrap on WSL2 is defense in depth, not a hostile-parser security boundary; use a disposable VM for hostile firmware."]
         if override: limitations.append("RSDD_BINWALK_TEST_ONLY selected a test analyzer; this is not official Binwalk evidence.")
         status = "failed" if errors else "partial" if truncated else "complete"
-        profile = {"name": "bubblewrap-static-network-denied", "static_only": True, "network_access": False, "target_execution": False}
+        profile = PROFILE_BWRAP_STATIC_NETWORK_DENIED
         spec = {"schema_version": "analysis-manifest.v1", "input": {"path": "input/firmware.bin", "detected_type": "firmware or opaque binary"},
             "tool": {"name": "binwalk-test-override" if override else "binwalk", "version": version, "executable": str(bwrap), "artifacts": [{"path": "engine/binwalk", "argv_index": command.index("engine/binwalk")}]},
             "argv": command, "environment": env, "run": run_record, "stdout_path": "engine/stdout.txt", "stderr_path": "engine/stderr.txt",

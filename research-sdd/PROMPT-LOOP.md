@@ -208,6 +208,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          The DRIVER loop itself (marker discipline, [INFER] deductions, synthesis, self-verify) stays on the
          session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
          (e.g. no Opus access), substitute one tier down and note it in the report.
+         (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
        - MODEL TIER ALSO governs NESTED sub-sweeps. A general-purpose sweep-agent (one whose toolset INCLUDES the
          Agent tool — NOT Explore/Plan, which lack it) MAY itself spawn a SUB-SWEEP, and each Agent call carries
          its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. Nesting caveat: prefer

@@ -51,6 +51,7 @@ from lib.adapter_helpers import (
     BindScopeError, ManifestError,
     assert_safe_bind_root, emit_evidence, run_truncation,
 )
+from lib.isolation_profile import PROFILE_BWRAP_KAITAI_OFFLINE
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -62,12 +63,7 @@ _COMPILE_TIMEOUT = 60                 # Stage 1 wall-clock limit (seconds)
 _OUTPUT_CAP_BYTES = 4 * 1024 * 1024  # 4 MiB driver output cap
 _COMPILE_CAP_BYTES = 2 * 1024 * 1024 # 2 MiB ksc output cap
 
-_PROFILE: dict[str, Any] = {
-    "name": "bubblewrap-kaitai-offline",
-    "network_access": False,
-    "static_only": True,
-    "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_KAITAI_OFFLINE
 
 _LIMITATIONS: list[str] = [
     "Kaitai Struct driver operates read-only; the binary is never executed.",
@@ -94,12 +90,13 @@ class KaitaiError(AdapterError):
 # ---------------------------------------------------------------------------
 
 def _toolchain_scope_guard(p: Path) -> None:
-    """Pure shape check — rejects system roots and shallow paths.
+    """Bind-scope check — rejects system roots and shallow paths.
 
     Raises KaitaiError when *p* is unsafe to bind, delegating to
-    adapter_helpers.assert_safe_bind_root.  BindScopeError is caught and
-    re-raised as KaitaiError to preserve the adapter-specific error type for
-    callers and tests that catch KaitaiError (T12, T17).
+    adapter_helpers.assert_safe_bind_root (which performs one FS access for
+    the home-directory belt check).  BindScopeError is caught and re-raised as
+    KaitaiError to preserve the adapter-specific error type for callers and
+    tests that catch KaitaiError (T12, T17).
 
     The FS-marker checks (ksc jar, JDK bin/java + release) stay at the
     respective call sites (_jdk_home_guard, _bind_kaitai_venv) because they

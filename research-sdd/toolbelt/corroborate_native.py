@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
+
 SCHEMA = "native-static.v1"
 SAFE_R2 = ["-NN", "-S", "-x", "-q", "-e", "scr.color=0", "-e", "scr.utf8=false",
            "-e", "scr.interactive=false", "-c", "aaa;aflj", "input/target.bin"]
@@ -181,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
                 "tool": {"name": "radare2", "version": version, "executable": str(bwrap), "artifacts": [{"path": "engine/r2", "argv_index": command.index("engine/r2")}]},
                 "argv": command, "environment": environment, "run": run, "stdout_path": "engine/stdout.txt", "stderr_path": "engine/stderr.txt",
                 "outputs": ["engine/functions.json"], "findings": [], "limitations": limitations, "errors": errors,
-                "completeness": "failed" if errors else "partial" if truncated else "complete", "isolation_profile": {"name": "bubblewrap-static-network-denied", "static_only": True, "network_access": False, "target_execution": False}}
+                "completeness": "failed" if errors else "partial" if truncated else "complete", "isolation_profile": PROFILE_BWRAP_STATIC_NETWORK_DENIED}
         write(stage / "engine/manifest-spec.json", spec)
         manifest = stage / "engine/analysis-manifest.v1.json"
         subprocess.run([sys.executable, str(args.manifest_cli), "create", "--root", str(stage), "--spec", str(stage / "engine/manifest-spec.json"), "--output", str(manifest)], check=True)

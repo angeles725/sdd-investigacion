@@ -11,19 +11,18 @@ from pathlib import Path
 from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from lib.adapter_core import (
-    AdapterError, executable, identity, publish,
-    require_private, run_bounded, sandbox, stage_file, write,
+    AdapterError, executable, identity,
+    require_private, run_bounded, sandbox, stage_file,
 )
+from lib.adapter_helpers import (
+    _PCAP_MAGIC, _PCAPNG_MAGIC,
+    emit_evidence,
+)
+from lib.isolation_profile import PROFILE_BWRAP_PCAP_OFFLINE
 
 SCHEMA = "pcap-flows.v1"
 MAX_STREAMS = 128  # default cap for per-stream follow loop (--max-streams override)
-_PCAP_MAGIC = frozenset([  # libpcap magic (little/big-endian, µs/ns variants)
-    b'\xd4\xc3\xb2\xa1', b'\xa1\xb2\xc3\xd4',
-    b'\x4d\x3c\xb2\xa1', b'\xa1\xb2\x3c\x4d',
-])
-_PCAPNG_MAGIC = b'\x0a\x0d\x0d\x0a'
-_PROFILE = {"name": "bubblewrap-pcap-offline",
-            "network_access": False, "static_only": True, "target_execution": False}
+_PROFILE = PROFILE_BWRAP_PCAP_OFFLINE
 _LIMITATIONS = [
     "tshark operates read-only; no live capture, injection, or replay occurs.",
     "TCP stream indices are encounter-order (0..N-1 where N = unique tcp.stream count).",
@@ -227,44 +226,38 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         status = "failed" if all_errors else "complete"
         tshark_idx = conv_cmd.index(str(tshark_path))
 
-        write(stage / f"{SCHEMA}.json", {
-            "conversations": {"argv": conv_cmd, "tcp": tcp_convs, "udp": udp_convs,
-                              "tool": tshark_record},
-            "errors": all_errors,
-            "input": {"source": source_record, "staged": staged_record},
-            "isolation": {"launcher": bwrap_record, "profile": _PROFILE},
-            "limitations": _LIMITATIONS,
-            "schema": SCHEMA, "status": status,
-            "stream_count_total": stream_count_total,
-            "streams_analyzed": len(stream_follows),
-            "streams_truncated": streams_truncated,
-            "tcp_stream_follows": stream_follows,
-        })
-        write(stage / "engine/manifest-spec.json", {
-            "argv": conv_cmd, "completeness": status, "environment": env,
-            "errors": all_errors, "findings": [],
-            "input": {"detected_type": "network capture (pcap/pcapng)",
-                      "path": "input/capture.pcap"},
-            "isolation_profile": _PROFILE, "limitations": _LIMITATIONS,
-            "outputs": [f"{SCHEMA}.json"], "run": conv_run,
-            "schema_version": "analysis-manifest.v1",
-            "stderr_path": "engine/stderr.txt", "stdout_path": "engine/stdout.txt",
-            "tool": {"artifacts": [{"argv_index": tshark_idx, "path": str(tshark_path)}],
-                     "executable": str(bwrap), "name": "tshark",
-                     "version": tshark_version},
-        })
-        manifest = stage / "engine/analysis-manifest.v1.json"
-        cli = [sys.executable, str(args.manifest_cli)]
-        subprocess.run(
-            cli + ["create", "--root", str(stage),
-                   "--spec", str(stage / "engine/manifest-spec.json"),
-                   "--output", str(manifest)],
-            check=True, timeout=30)
-        (stage / "engine/manifest-spec.json").unlink()
-        subprocess.run(cli + ["validate", str(manifest)], check=True, timeout=30)
-        subprocess.run(cli + ["verify", "--root", str(stage), str(manifest)],
-                       check=True, timeout=30)
-        publish(stage, destination)
+        emit_evidence(
+            stage=stage,
+            schema=SCHEMA,
+            domain={
+                "conversations": {"argv": conv_cmd, "tcp": tcp_convs, "udp": udp_convs,
+                                  "tool": tshark_record},
+                "stream_count_total": stream_count_total,
+                "streams_analyzed": len(stream_follows),
+                "streams_truncated": streams_truncated,
+                "tcp_stream_follows": stream_follows,
+            },
+            input_identity={"source": source_record, "staged": staged_record},
+            isolation={"launcher": bwrap_record, "profile": _PROFILE},
+            limitations=_LIMITATIONS,
+            errors=all_errors,
+            manifest_spec={
+                "argv": conv_cmd, "completeness": status, "environment": env,
+                "errors": all_errors, "findings": [],
+                "input": {"detected_type": "network capture (pcap/pcapng)",
+                          "path": "input/capture.pcap"},
+                "isolation_profile": _PROFILE, "limitations": _LIMITATIONS,
+                "outputs": [f"{SCHEMA}.json"], "run": conv_run,
+                "schema_version": "analysis-manifest.v1",
+                "stderr_path": "engine/stderr.txt", "stdout_path": "engine/stdout.txt",
+                "tool": {"artifacts": [{"argv_index": tshark_idx, "path": str(tshark_path)}],
+                         "executable": str(bwrap), "name": "tshark",
+                         "version": tshark_version},
+            },
+            manifest_cli=args.manifest_cli,
+            destination=destination,
+            timeout=30,
+        )
         stage = None
         return 1 if all_errors else 0
 

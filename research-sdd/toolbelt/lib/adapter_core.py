@@ -104,6 +104,10 @@ def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
         if fields(before) != fields(after) or total != before.st_size:
             raise AdapterError(f"file changed while hashing: {path}")
         return resolved, total, "sha256:" + digest.hexdigest()
+    except AdapterError:
+        raise
+    except OSError as exc:
+        raise AdapterError(f"I/O error reading file: {path}") from exc
     finally:
         os.close(fd)
 
@@ -140,30 +144,35 @@ def stage_file(
     chunk_size = 1024 * 1024
     target_created = False
     try:
-        before = os.fstat(src)
-        if not stat.S_ISREG(before.st_mode):
-            raise AdapterError("source is not a regular file")
-        if max_bytes is not None and before.st_size > max_bytes:
-            raise AdapterError("input exceeds max-input-bytes")
-        resolved = Path(f"/proc/self/fd/{src}").resolve()
-        out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600)
-        target_created = True
         try:
-            while chunk := os.read(src, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
-                total += len(chunk)
-                if max_bytes is not None and total > max_bytes:
-                    raise AdapterError("input exceeds max-input-bytes")
-                digest.update(chunk)
-                view = memoryview(chunk)
-                while view:
-                    view = view[os.write(out, view):]
-            os.fsync(out)
-        finally:
-            os.close(out)
-        after = os.fstat(src)
-        fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
-        if fields(before) != fields(after) or total != before.st_size:
-            raise AdapterError("source changed while staging")
+            before = os.fstat(src)
+            if not stat.S_ISREG(before.st_mode):
+                raise AdapterError("source is not a regular file")
+            if max_bytes is not None and before.st_size > max_bytes:
+                raise AdapterError("input exceeds max-input-bytes")
+            resolved = Path(f"/proc/self/fd/{src}").resolve()
+            out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600)
+            target_created = True
+            try:
+                while chunk := os.read(src, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
+                    total += len(chunk)
+                    if max_bytes is not None and total > max_bytes:
+                        raise AdapterError("input exceeds max-input-bytes")
+                    digest.update(chunk)
+                    view = memoryview(chunk)
+                    while view:
+                        view = view[os.write(out, view):]
+                os.fsync(out)
+            finally:
+                os.close(out)
+            after = os.fstat(src)
+            fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
+            if fields(before) != fields(after) or total != before.st_size:
+                raise AdapterError("source changed while staging")
+        except AdapterError:
+            raise
+        except OSError as exc:
+            raise AdapterError("I/O error while staging source") from exc
     except BaseException:
         if target_created:
             try:

@@ -11,21 +11,17 @@ from pathlib import Path
 from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from lib.adapter_core import (
-    AdapterError, executable, identity, publish,
-    require_private, run_bounded, sandbox, stage_file, write,
+    AdapterError, executable, identity,
+    require_private, run_bounded, sandbox, stage_file,
 )
+from lib.adapter_helpers import (
+    _PCAP_MAGIC, _PCAPNG_MAGIC,
+    emit_evidence,
+)
+from lib.isolation_profile import PROFILE_BWRAP_PCAP_OFFLINE
 
 SCHEMA = "pcap-evidence.v1"
-# libpcap magic (little/big-endian, microsecond/nanosecond variants)
-_PCAP_MAGIC = frozenset([
-    b'\xd4\xc3\xb2\xa1', b'\xa1\xb2\xc3\xd4',
-    b'\x4d\x3c\xb2\xa1', b'\xa1\xb2\x3c\x4d',
-])
-_PCAPNG_MAGIC = b'\x0a\x0d\x0d\x0a'
-_PROFILE = {
-    "name": "bubblewrap-pcap-offline",
-    "network_access": False, "static_only": True, "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_PCAP_OFFLINE
 _LIMITATIONS = [
     "capinfos and tshark operate read-only on the capture file; "
     "no live capture, injection, or replay occurs.",
@@ -178,54 +174,41 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         all_errors = capinfos_errors + tshark_errors
         status = "failed" if all_errors else "complete"
 
-        evidence: dict[str, Any] = {
-            "capinfos": {"argv": capinfos_cmd, "summary": summary, "tool": capinfos_record},
-            "errors": all_errors,
-            "input": {"source": source_record, "staged": staged_record},
-            "isolation": {"launcher": bwrap_record, "profile": _PROFILE},
-            "limitations": _LIMITATIONS,
-            "protocol_hierarchy": {
-                "argv": tshark_cmd, "protocols": protocols, "tool": tshark_record,
+        emit_evidence(
+            stage=stage,
+            schema=SCHEMA,
+            domain={
+                "capinfos": {"argv": capinfos_cmd, "summary": summary, "tool": capinfos_record},
+                "protocol_hierarchy": {"argv": tshark_cmd, "protocols": protocols, "tool": tshark_record},
             },
-            "schema": SCHEMA,
-            "status": status,
-        }
-        write(stage / f"{SCHEMA}.json", evidence)
-
-        spec: dict[str, Any] = {
-            "argv": tshark_cmd,
-            "completeness": status,
-            "environment": env,
-            "errors": all_errors,
-            "findings": [],
-            "input": {"detected_type": "network capture (pcap/pcapng)", "path": "input/capture.pcap"},
-            "isolation_profile": _PROFILE,
-            "limitations": _LIMITATIONS,
-            "outputs": [f"{SCHEMA}.json"],
-            "run": tshark_run,
-            "schema_version": "analysis-manifest.v1",
-            "stderr_path": "engine/stderr.txt",
-            "stdout_path": "engine/stdout.txt",
-            "tool": {
-                "artifacts": [{"argv_index": tshark_idx, "path": str(tshark_path)}],
-                "executable": str(bwrap),
-                "name": "tshark",
-                "version": tshark_version,
+            input_identity={"source": source_record, "staged": staged_record},
+            isolation={"launcher": bwrap_record, "profile": _PROFILE},
+            limitations=_LIMITATIONS,
+            errors=all_errors,
+            manifest_spec={
+                "argv": tshark_cmd,
+                "completeness": status,
+                "environment": env,
+                "errors": all_errors,
+                "findings": [],
+                "input": {"detected_type": "network capture (pcap/pcapng)", "path": "input/capture.pcap"},
+                "isolation_profile": _PROFILE,
+                "limitations": _LIMITATIONS,
+                "outputs": [f"{SCHEMA}.json"],
+                "run": tshark_run,
+                "schema_version": "analysis-manifest.v1",
+                "stderr_path": "engine/stderr.txt",
+                "stdout_path": "engine/stdout.txt",
+                "tool": {
+                    "artifacts": [{"argv_index": tshark_idx, "path": str(tshark_path)}],
+                    "executable": str(bwrap),
+                    "name": "tshark",
+                    "version": tshark_version,
+                },
             },
-        }
-        write(stage / "engine/manifest-spec.json", spec)
-        manifest = stage / "engine/analysis-manifest.v1.json"
-        cli = [sys.executable, str(args.manifest_cli)]
-        subprocess.run(
-            cli + ["create", "--root", str(stage),
-                   "--spec", str(stage / "engine/manifest-spec.json"),
-                   "--output", str(manifest)],
-            check=True,
+            manifest_cli=args.manifest_cli,
+            destination=destination,
         )
-        (stage / "engine/manifest-spec.json").unlink()
-        subprocess.run(cli + ["validate", str(manifest)], check=True)
-        subprocess.run(cli + ["verify", "--root", str(stage), str(manifest)], check=True)
-        publish(stage, destination)
         stage = None
         return 1 if all_errors else 0
 

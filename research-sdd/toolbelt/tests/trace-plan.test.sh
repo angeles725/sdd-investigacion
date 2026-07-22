@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# trace-plan.test.sh — RED-first contract tests for trace-plan.v1 (U-V9 / item 9)
+# Written BEFORE trace_plan.py; suite exits 2 ("SUT not found") until GREEN.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../trace_plan.py"
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
+python3 - "$SUT" <<'PY'
+import importlib.util, json, os, subprocess, sys, tempfile, types, unittest.mock
+from pathlib import Path
+sut = Path(sys.argv[1])
+sp = importlib.util.spec_from_file_location("trace_plan", sut)
+m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+sys.path.insert(0, str(sut.parent / "lib")); sys.path.insert(0, str(sut.parent))
+passed = 0; failed = 0
+def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
+def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" if r else ""))
+def cli(*a, xe=None):
+    e = os.environ.copy()
+    if xe: e.update(xe)
+    return subprocess.run([sys.executable, str(sut), *map(str, a)],
+                          capture_output=True, text=True, env=e)
+# A minimal binary-like file content (identity doesn't care about format).
+_BIN = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8  # ELF magic + padding
+
+# ── T1: dry-run NEVER executes (Popen/run patched to raise) ──────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"target.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        with unittest.mock.patch("subprocess.Popen", side_effect=AssertionError("Popen!")), \
+             unittest.mock.patch("subprocess.run",   side_effect=AssertionError("run!")):
+            rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace",
+                                         "--output",str(out)]))
+        assert rc == 3, f"expected 3, got {rc}"
+        produced = {p.name for p in out.iterdir()} if out.exists() else set()
+        assert "trace-plan.v1.json"   in produced, f"plan missing; got {produced}"
+        assert "vm-determinism.v1.json" in produced, f"det missing; got {produced}"
+        extra = produced - {"trace-plan.v1.json", "vm-determinism.v1.json"}
+        assert not extra, f"unexpected files: {extra}"
+        ok("T1: dry-run never executes; plan+det written; no subprocess triggered")
+    except Exception as e: nok("T1: dry-run-never-executes", str(e))
+
+# ── T2: flag absent → exit 3 (authorization-required) ────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(tgt),"--tracer","strace","--output",str(out))
+        assert r.returncode == 3, f"got {r.returncode}"
+        ok("T2: flag absent → exit 3 (authorization-required)")
+    except Exception as e: nok("T2: flag-absent-exit3", str(e))
+
+# ── T3: --allow-exec + no live executor → exit 2 ─────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(tgt),"--tracer","strace","--output",str(out),
+                "--allow-exec", xe={"RSDD_EXEC_EXECUTOR": ""})
+        assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:100]}"
+        ok("T3: --allow-exec + no live executor → exit 2 (gate hard-refuse)")
+    except Exception as e: nok("T3: allow-exec-hard-refuse", str(e))
+
+# ── T4: strace → well-formed plan with correct argv ──────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace",
+                                     "--output",str(out)]))
+        assert rc == 3  # auth-required (no --allow-exec)
+        p = json.loads((out/"trace-plan.v1.json").read_text())
+        assert p["schema_version"] == "trace-plan.v1"
+        assert p["tracer"] == "strace"
+        argv = p["planned_argv"]
+        assert "strace" in argv, f"strace not in argv: {argv}"
+        assert "-f" in argv, f"-f missing: {argv}"
+        assert "/input/target" in argv, f"/input/target missing"
+        assert "--unshare-net" in argv, f"--unshare-net missing"
+        assert "ALL" in argv and "--cap-drop" in argv, "--cap-drop ALL missing"
+        ok("T4: strace → well-formed plan with correct intended argv")
+    except Exception as e: nok("T4: strace-plan-argv", str(e))
+
+# ── T5: ltrace → well-formed plan with correct argv ──────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","ltrace",
+                                     "--output",str(out)]))
+        assert rc == 3
+        p = json.loads((out/"trace-plan.v1.json").read_text())
+        assert p["tracer"] == "ltrace"
+        argv = p["planned_argv"]
+        assert "ltrace" in argv, f"ltrace not in argv: {argv}"
+        assert "-f" in argv
+        ok("T5: ltrace → well-formed plan with correct intended argv")
+    except Exception as e: nok("T5: ltrace-plan-argv", str(e))
+
+# ── T6: gdb-batch → well-formed plan with correct argv ───────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","gdb-batch",
+                                     "--output",str(out)]))
+        assert rc == 3
+        p = json.loads((out/"trace-plan.v1.json").read_text())
+        assert p["tracer"] == "gdb-batch"
+        argv = p["planned_argv"]
+        assert "gdb" in argv, f"gdb not in argv: {argv}"
+        assert "--batch" in argv
+        assert "--args" in argv
+        ok("T6: gdb-batch → well-formed plan with correct intended argv")
+    except Exception as e: nok("T6: gdb-batch-plan-argv", str(e))
+
+# ── T7: unsupported tracer → clean structured error, no traceback ─────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        # Bypass argparse by using a direct namespace (CLI would catch this via choices).
+        args = types.SimpleNamespace(target=str(tgt), output=str(out), tracer="evil-tracer",
+                                     allow_exec=False, cpu_seconds=30, max_mem_bytes=256<<20,
+                                     wall_seconds=60, max_output_bytes=128<<20)
+        rc = m.plan_trace(args)
+        assert rc == 2, f"expected 2, got {rc}"
+        ok("T7: unsupported tracer → exit 2, clean error (no traceback from plan_trace)")
+    except Exception as e: nok("T7: unsupported-tracer-clean-error", str(e))
+
+# ── T8: missing target → clean structured error, no traceback ────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); out = R/"out"
+    try:
+        r = cli("plan","--target",str(R/"nonexistent.bin"),"--tracer","strace","--output",str(out))
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback: {r.stderr[:300]}"
+        ok("T8: missing target → exit 2, no traceback")
+    except Exception as e: nok("T8: missing-target-clean-error", str(e))
+
+# ── T9: symlink target → clean structured error, no traceback ────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); real = R/"real.bin"; real.write_bytes(_BIN)
+    link = R/"link.bin"; link.symlink_to(real); out = R/"out"
+    try:
+        r = cli("plan","--target",str(link),"--tracer","strace","--output",str(out))
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback: {r.stderr[:300]}"
+        ok("T9: symlink target → exit 2, no traceback (O_NOFOLLOW guard)")
+    except Exception as e: nok("T9: symlink-target-clean-error", str(e))
+
+# ── T10: same input → identical plan (determinism) ───────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"det.bin"; tgt.write_bytes(_BIN); out1 = R/"r1"; out2 = R/"r2"
+    try:
+        m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace","--output",str(out1)]))
+        m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace","--output",str(out2)]))
+        p1 = json.loads((out1/"trace-plan.v1.json").read_text())
+        p2 = json.loads((out2/"trace-plan.v1.json").read_text())
+        assert p1 == p2, "plans differ"
+        ok("T10: same input → identical plan (deterministic)")
+    except Exception as e: nok("T10: determinism-same-input", str(e))
+
+# ── T11: determinism record state ────────────────────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"dr.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","ltrace","--output",str(out)]))
+        det = json.loads((out/"vm-determinism.v1.json").read_text())
+        assert det["reproducible"]["declared"] is False
+        assert det["reproducible"]["basis"] == "dry-run-plan"
+        assert det["receipt_identity"] is None
+        ok("T11: det record: declared:false, basis:dry-run-plan, receipt_identity:null")
+    except Exception as e: nok("T11: determinism-record-state", str(e))
+
+# ── T12: output under /home → exit 2 (bind-scope guard) ──────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN)
+    try:
+        r = cli("plan","--target",str(tgt),"--tracer","strace","--output","/home/trace-plan-unsafe")
+        assert r.returncode == 2, f"got {r.returncode}"
+        ok("T12: output under /home → exit 2 (bind-scope guard)")
+    except Exception as e: nok("T12: bind-path-safety", str(e))
+
+
+# ── T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"target.bin"; tgt.write_bytes(_BIN + b"\x00"*80); out = R/"out"
+    # target is > 80 bytes; cap is 5 bytes → identity must reject it
+    try:
+        r = cli("plan","--target",str(tgt),"--tracer","strace","--output",str(out),"--max-input-bytes","5")
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback in stderr: {r.stderr[:200]}"
+        assert ("exceeds" in r.stderr or "max-input" in r.stderr), \
+               f"missing cap rejection message: {r.stderr[:200]}"
+        ok("T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_CAP1: cap-below-target-size", str(e))
+
+print(f"\n== {passed} passed · {failed} failed ==")
+sys.exit(0 if failed == 0 else 1)
+PY

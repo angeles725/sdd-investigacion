@@ -162,7 +162,7 @@ without building a full bwrap extension.
 1. `real_exe = Path(os.path.realpath(tool_exe))` — resolve symlinks first.
 2. Require `real_exe.parent.name == "bin"`; `root = real_exe.parent.parent`.
 3. **SHAPE checks (pure, no FS access)**:
-   - `str(root)` not in `_VENV_BLOCKED_EXACT`.
+   - `str(root)` not in `_BLOCKED_BIND_ROOTS`.
    - If `root.parts[:2] == ('/', 'home')`: require `len(root.parts) >= 4`.
      This rejects both `/home` (2 parts) *and* `/home/<user>` (3 parts).
      A venv under `/home/<user>/local/venvs/name` (4+ parts) is allowed.
@@ -184,17 +184,6 @@ home-directory credentials to a process analysing hostile input.
 
 The `/home/<user>` case has exactly 3 path parts — one below the general
 `>= 3` threshold — so the per-family `>= 4` check catches it precisely.
-
-### `_VENV_BLOCKED_EXACT` (superseded)
-
-```python
-frozenset({"/", "/home", "/root", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-           "/etc", "/tmp", "/proc", "/sys", "/dev", "/run"})
-```
-
-Kept for backward compatibility.  Superseded by `_BLOCKED_BIND_ROOTS` in the
-`assert_safe_bind_root` helper; `venv_root_for` now delegates to that shared
-guard.  No new code should reference `_VENV_BLOCKED_EXACT` directly.
 
 ---
 

@@ -372,9 +372,9 @@ PY
 then ok "E-1: run_truncation fires on timeout/output-cap/process-cap; not on analyzer-exit or empty"; else no "E-1: run_truncation"; fi
 
 # ---------------------------------------------------------------------------
-# F-1  assert_safe_bind_root — reject set (pure shape, no FS)
+# F-1  assert_safe_bind_root — reject set (blocked roots, shallow paths, home dir)
 #      Blocked: /, /home, /home/<user> (3 parts), /root, /usr, /tmp, ~ itself.
-#      This test will be RED until assert_safe_bind_root is implemented.
+#      Note: the function performs one FS access (realpath of ~) for the belt check.
 # ---------------------------------------------------------------------------
 if python3 - "$SUT" <<'PY'
 import importlib.util, pathlib, os, sys
@@ -388,7 +388,7 @@ assert hasattr(ah,'BindScopeError'), "BindScopeError class missing from adapter_
 # assert_safe_bind_root must exist
 assert hasattr(ah,'assert_safe_bind_root'), "assert_safe_bind_root function missing"
 
-# --- reject set (pure shape, no FS) ---
+# --- reject set ---
 must_reject = [
     pathlib.Path('/'),
     pathlib.Path('/home'),
@@ -461,5 +461,56 @@ assert issubclass(ah.BindScopeError, ah.AdapterError), \
     f"BindScopeError must be a subclass of AdapterError"
 PY
 then ok "F-2: assert_safe_bind_root: edge cases + BindScopeError subclass of AdapterError"; else no "F-2: assert_safe_bind_root edge cases"; fi
+
+# ---------------------------------------------------------------------------
+# G-1  venv_root_for — exception chaining: VenvBindError.__cause__ is BindScopeError
+#      RED until venv_root_for uses `raise VenvBindError(...) from exc`.
+# ---------------------------------------------------------------------------
+if python3 - "$SUT" <<'PY'
+import importlib.util, pathlib, sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1])
+# /home/<user>/bin/tool → root = /home/<user> → shape-rejects → VenvBindError
+# After fix: VenvBindError.__cause__ must be a BindScopeError (exception chaining)
+try:
+    ah.venv_root_for(pathlib.Path('/home/someuser/bin/tool'))
+    raise AssertionError('should raise VenvBindError')
+except ah.VenvBindError as exc:
+    cause = exc.__cause__
+    assert cause is not None, \
+        f'VenvBindError.__cause__ must be set (use raise ... from exc), got None'
+    assert isinstance(cause, ah.BindScopeError), \
+        f'__cause__ must be BindScopeError, got {type(cause).__name__}'
+PY
+then ok "G-1: venv_root_for exception chaining: VenvBindError.__cause__ is BindScopeError"; else no "G-1: exception chaining"; fi
+
+# ---------------------------------------------------------------------------
+# G-2  bind_venv — writable sandbox_path is normalized with normpath before check
+#      RED until bind_venv applies os.path.normpath(sandbox_path) before startswith.
+# ---------------------------------------------------------------------------
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util, pathlib, sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+venv=r/'v_np'; (venv/'bin').mkdir(parents=True); exe=venv/'bin'/'tool'; exe.write_text('')
+(venv/'pyvenv.cfg').write_text('[python]\nversion=3.11\n')
+wdir=r/'tmpwrite_np'; wdir.mkdir()
+# "/tmp/rsdd/../etc/evil" starts with "/tmp/rsdd/" literally but normpath resolves
+# to "/tmp/etc/evil" — must be REJECTED after normpath guard
+try:
+    ah.bind_venv(['bwrap','--'],exe,writable=[(wdir,'/tmp/rsdd/../etc/evil')])
+    raise AssertionError('path-traversal via .. must be rejected after normpath')
+except ah.VenvBindError:
+    pass  # correct
+# double-slash "/tmp/rsdd//subdir" must normalize to "/tmp/rsdd/subdir" and PASS
+out=ah.bind_venv(['bwrap','--'],exe,writable=[(wdir,'/tmp/rsdd//subdir')])
+assert '/tmp/rsdd/subdir' in out, f'normalized path must appear in output: {out}'
+assert out[-1]=='--', f"must end with '--': {out}"
+PY
+then ok "G-2: bind_venv writable: normpath rejects ../ traversal; double-slash normalizes"; else no "G-2: writable normpath guard"; fi
 
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

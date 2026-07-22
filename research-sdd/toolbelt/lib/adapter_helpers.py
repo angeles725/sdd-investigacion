@@ -403,16 +403,17 @@ _BLOCKED_BIND_ROOTS: frozenset[str] = frozenset({
 
 
 def assert_safe_bind_root(resolved: Path) -> None:
-    """Canonical pure shape check — raises BindScopeError if *resolved* is unsafe to bind.
+    """Canonical bind-scope check — raises BindScopeError if *resolved* is unsafe to bind.
 
-    No filesystem access (pure predicate).  Rules applied in order:
+    Performs one filesystem access: ``os.path.realpath(os.path.expanduser("~"))``
+    for the belt check (rule 4).  Rules applied in order:
 
     1. ``str(resolved) in _BLOCKED_BIND_ROOTS`` → reject (blocked system root).
     2. If ``resolved.parts[:2] == ('/', 'home')``: require ``len(parts) >= 4``.
        This rejects ``/home`` (2 parts) *and* ``/home/<user>`` (3 parts);
        ``/home/<user>/<subdir>`` (4+ parts) is allowed.
     3. Else: require ``len(parts) >= 3``.
-    4. Belt: reject if ``resolved == Path(os.path.realpath(os.path.expanduser("~")))``.
+    4. Belt (FS): reject if ``resolved == Path(os.path.realpath(os.path.expanduser("~")))``.
        Catches the case where a deep-enough home path resolves to the actual home
        directory after symlink traversal.
 
@@ -455,17 +456,6 @@ def assert_safe_bind_root(resolved: Path) -> None:
 # HELPER D — venv-bind helpers
 # ---------------------------------------------------------------------------
 
-# Top-level paths that bind_venv must never bind as a venv root.
-# Belt-and-suspenders: the depth and parts checks below catch most cases; this
-# frozenset adds explicit guards for any path that might reach the checks at
-# exactly the boundary depth.
-_VENV_BLOCKED_EXACT: frozenset[str] = frozenset({
-    "/",
-    "/home", "/root",
-    "/usr", "/bin", "/sbin", "/lib", "/lib64",
-    "/etc", "/tmp", "/proc", "/sys", "/dev", "/run",
-})
-
 # /etc paths permitted in etc_ro_bind_try.  This is a deliberate, narrow
 # exception to adapter_core._RO_INPUT_BLOCKED_ROOTS: vivisect (a floss
 # dependency) calls getpass.getuser() → pwd.getpwuid() which requires
@@ -494,19 +484,16 @@ _VENV_BIND_MSG = (
 def venv_root_for(tool_exe: Path) -> Path:
     """Resolve the Python venv root for a tool executable.
 
-    Guard predicate (ORDER MATTERS — shape checks run before FS checks so
-    callers can test the shape rejection without a real filesystem):
+    Guard predicate (ORDER MATTERS — scope check runs before FS marker so
+    shape/belt rejection works without a real filesystem at the tool path):
 
     1. ``real_exe = Path(os.path.realpath(tool_exe))`` — resolve symlinks.
     2. Require ``real_exe.parent.name == "bin"``; ``root = real_exe.parent.parent``.
-    3. SHAPE (pure, no FS):
-       - ``str(root)`` not in ``_VENV_BLOCKED_EXACT``.
-       - If ``root.parts[:2] == ('/', 'home')``: require ``len(root.parts) >= 4``
-         (rejects ``/home`` *and* ``/home/<user>``).
-       - Elif ``root.parts[:2] == ('/', 'root')``: require ``len(root.parts) >= 3``.
-       - Else: require ``len(root.parts) >= 3``.
+    3. SCOPE (delegated to ``assert_safe_bind_root``):
+       Rejects blocked system roots, paths that are too broad or too shallow,
+       and the real home directory (one FS access: realpath of ``~``).
+       Raises ``VenvBindError`` (converted from ``BindScopeError``) with cause.
     4. FS marker: ``(root / "pyvenv.cfg").is_file()``.
-    5. Belt: ``root != Path(os.path.realpath(os.path.expanduser("~")))``.
 
     Raises ``VenvBindError`` on any failed check.
     """
@@ -518,15 +505,15 @@ def venv_root_for(tool_exe: Path) -> Path:
         )
     root = real_exe.parent.parent
 
-    # --- SHAPE + BELT checks via shared guard (pure — no FS access) ---
+    # --- Scope + belt check via shared guard (one FS access: realpath of ~) ---
     # Design choice: catch BindScopeError and re-raise as VenvBindError to
     # preserve the exact exception type.  Callers (and tests D-2, D-3) explicitly
     # catch VenvBindError; letting BindScopeError propagate would silently break them
     # even though BindScopeError IS an AdapterError subclass.
     try:
         assert_safe_bind_root(root)
-    except BindScopeError:
-        raise VenvBindError(_VENV_BIND_MSG)
+    except BindScopeError as exc:
+        raise VenvBindError(_VENV_BIND_MSG) from exc
 
     # --- FS marker check (local — pyvenv.cfg is venv-specific, not generic) ---
     if not (root / "pyvenv.cfg").is_file():
@@ -597,6 +584,7 @@ def bind_venv(
 
     # Writable directories (adapter-controlled output/temp dirs).
     for host_dir, sandbox_path in (writable or []):
+        sandbox_path = os.path.normpath(sandbox_path)
         if not sandbox_path.startswith("/tmp/rsdd/"):
             raise VenvBindError(
                 f"writable sandbox_path must start with '/tmp/rsdd/': {sandbox_path!r}"

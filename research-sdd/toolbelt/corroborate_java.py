@@ -23,6 +23,9 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
+
 SCHEMA = "java-corroboration.v1"
 DEFAULT_PINS = {
     "vineflower": "a615d07ddbbcd489369674f40e42df639c32be95410890b38f173d5c1e2ea39c",
@@ -395,8 +398,7 @@ def make_manifest(module: Any, stage: Path, name: str, command: list[str], envir
         "outputs": [(engine_root / "output" / item["path"]).as_posix() for item in outputs] + evidence,
         "findings": [], "limitations": limitations, "errors": errors,
         "completeness": "partial" if errors else "complete",
-        "isolation_profile": {"name": "bubblewrap-static-network-denied", "static_only": True,
-                              "network_access": False, "target_execution": False},
+        "isolation_profile": PROFILE_BWRAP_STATIC_NETWORK_DENIED,
     }
     manifest = module.build_manifest(spec, stage)
     relative = (engine_root / "analysis-manifest.v1.json").as_posix()

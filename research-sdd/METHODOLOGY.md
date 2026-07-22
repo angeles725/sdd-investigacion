@@ -393,6 +393,7 @@ classes, return cited findings) → `sonnet`, the default for most sweeps; genui
 exploitability, architecture judgment) stays inline on the driver or goes to `opus` only if it must be
 delegated. The driver loop itself — marker discipline, `[INFER]` deductions, synthesis, self-verify — stays
 on the session's strong model. Substitute one tier down when a model is unavailable, and note it.
+(Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
 
 **Closed loop while working, open loop when done (terminal trigger).** The loop is a closed control system
 while read-only-investigable > 0: it self-corrects and self-continues. When that set hits 0, it does NOT

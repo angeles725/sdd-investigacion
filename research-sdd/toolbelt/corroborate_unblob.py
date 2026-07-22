@@ -33,15 +33,11 @@ from lib.adapter_core import (
     stage_file,
 )
 from lib.adapter_helpers import ManifestError, bind_venv, emit_evidence, run_truncation
+from lib.isolation_profile import PROFILE_BWRAP_UNBLOB_OFFLINE
 
 SCHEMA = "unblob-evidence.v1"
 
-_PROFILE: dict[str, Any] = {
-    "name": "bubblewrap-unblob-offline",
-    "network_access": False,
-    "static_only": True,
-    "target_execution": False,
-}
+_PROFILE = PROFILE_BWRAP_UNBLOB_OFFLINE
 
 _LIMITATIONS: list[str] = [
     "unblob extracts structure only; semantic analysis of content is not performed.",
