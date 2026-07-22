@@ -19,6 +19,7 @@ from gate import CAP_EXEC                                                       
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
+    add_max_input_bytes_arg,
 )
 
 SCHEMA_VERSION = "trace-plan.v1"
@@ -80,7 +81,7 @@ def plan_trace(args: Any) -> int:
         print(f"trace-plan: unsupported tracer: {args.tracer!r}; valid: {sorted(_VALID_TRACERS)}",
               file=sys.stderr); return 2
     target = Path(args.target)
-    try: _, input_size, input_sha = _file_identity(target)
+    try: _, input_size, input_sha = _file_identity(target, max_bytes=args.max_input_bytes)
     except AdapterError as exc: print(f"trace-plan: {exc}", file=sys.stderr); return 2
     caps = {"cpu_seconds": args.cpu_seconds, "mem_bytes": args.max_mem_bytes,
             "wall_seconds": args.wall_seconds, "output_bytes": args.max_output_bytes}
@@ -118,6 +119,7 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--wall-seconds",     type=int, default=_DEFAULT_WALL)
     p.add_argument("--allow-exec", action="store_true", default=False,
                    help="authorize live execution (no live executor in this unit → exit 2)")
+    add_max_input_bytes_arg(p)
     return ap.parse_args(argv)
 
 

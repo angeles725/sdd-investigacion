@@ -19,6 +19,7 @@ from vm_plan import build_determinism, VmDeterminismError                      #
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec,
     run_gate_epilogue, reject_mount_delimiters, validate_token,
+    add_max_input_bytes_arg,
 )
 
 SCHEMA_VERSION = "emba-plan.v1"
@@ -100,7 +101,7 @@ def plan_emba(args: Any) -> int:
     try: profile = _validate_profile(args.profile)
     except EmbaPlanError as exc: print(f"emba-plan: {exc}", file=sys.stderr); return 2
     firmware = Path(args.firmware)
-    try: _, input_size, input_sha = _file_identity(firmware)
+    try: _, input_size, input_sha = _file_identity(firmware, max_bytes=args.max_input_bytes)
     except AdapterError as exc: print(f"emba-plan: {exc}", file=sys.stderr); return 2
 
     try:
@@ -134,6 +135,7 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--output",       required=True, metavar="DIR")
     p.add_argument("--allow-docker", action="store_true", default=False, dest="allow_docker",
                    help="authorize live docker run (no live executor → exit 2)")
+    add_max_input_bytes_arg(p)
     return ap.parse_args(argv)
 
 

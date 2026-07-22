@@ -179,6 +179,36 @@ with tempfile.TemporaryDirectory() as td:
             ok("T10: firmware path with ':' → EmbaPlanError (unit fallback)") if "':'" in str(exc) or "bind-mount" in str(exc) else nok("T10", f"wrong msg: {exc}")
         except Exception as exc: nok("T10: firmware-colon-path", str(exc))
 
+
+# ── T_CAP1: --max-input-bytes below firmware size → exit 2, clean error, no traceback ─
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*96); out = R/"out"
+    # firmware is 100 bytes; cap is 5 bytes → must be rejected
+    try:
+        r = cli("plan","--firmware",str(fw),"--output",str(out),"--max-input-bytes","5")
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback in stderr: {r.stderr[:200]}"
+        assert ("exceeds" in r.stderr or "max-input" in r.stderr), \
+               f"missing cap rejection message: {r.stderr[:200]}"
+        ok("T_CAP1: --max-input-bytes below firmware size → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_CAP1: cap-below-firmware-size", str(e))
+
+# ── T_CAP2: --max-input-bytes above firmware size → plan byte-identical to no-flag run ─
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*16)
+    out_capped = R/"out_capped"; out_baseline = R/"out_baseline"
+    # firmware is 20 bytes; 2 GiB cap is well above → normal plan must be emitted (exit 3)
+    try:
+        r_capped = cli("plan","--firmware",str(fw),"--output",str(out_capped),"--max-input-bytes","2147483648")
+        assert r_capped.returncode == 3, f"expected 3 (auth-required), got {r_capped.returncode}\n{r_capped.stderr[:200]}"
+        r_base = cli("plan","--firmware",str(fw),"--output",str(out_baseline))
+        assert r_base.returncode == 3, f"baseline expected 3, got {r_base.returncode}"
+        p_capped = json.loads((out_capped/"emba-plan.v1.json").read_text())
+        p_baseline = json.loads((out_baseline/"emba-plan.v1.json").read_text())
+        assert p_capped == p_baseline, "plan with above-cap differs from no-flag plan"
+        ok("T_CAP2: --max-input-bytes above firmware size → plan byte-identical to no-flag")
+    except Exception as e: nok("T_CAP2: cap-above-firmware-size", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

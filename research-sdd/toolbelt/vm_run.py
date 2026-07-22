@@ -19,6 +19,7 @@ from gate import CAP_EXEC                                                       
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
+    add_max_input_bytes_arg,
 )
 
 SCHEMA_VERSION = "vm-run-plan.v1"
@@ -140,7 +141,7 @@ def plan_run(args: Any) -> int:
     for k, v in caps.items():
         if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             print(f"vm-run: cap {k!r} must be positive int", file=sys.stderr); return 2
-    try: _, input_size, input_sha = _file_identity(archive)
+    try: _, input_size, input_sha = _file_identity(archive, max_bytes=args.max_input_bytes)
     except AdapterError as exc: print(f"vm-run: {exc}", file=sys.stderr); return 2
     try: declared_size = read_declared_size(archive, codec)
     except VmRunError as exc: print(f"vm-run: {exc}", file=sys.stderr); return 2
@@ -173,6 +174,7 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--wall-seconds",     type=int, default=_DEFAULT_WALL)
     p.add_argument("--allow-exec", action="store_true", default=False,
                    help="authorize live execution (no live executor in this unit → exit 2)")
+    add_max_input_bytes_arg(p)
     return ap.parse_args(argv)
 
 

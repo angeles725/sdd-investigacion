@@ -16,6 +16,9 @@ python3 detonate_plan.py plan \
     [--cpu-seconds N] [--wall-seconds N]
     [--max-mem-bytes N] [--max-output-bytes N]
     [--allow-exec]      # authorize live run (no live executor → exit 2)
+    [--max-input-bytes N]  # optional input-size cap (default: unlimited)
+                           # absent/None → no cap, behavior byte-identical to baseline
+                           # set to N → inputs > N bytes fail closed (exit 2, no traceback)
 ```
 
 ## Containment policy (future live executor MUST enforce every row in this table)

@@ -14,6 +14,9 @@ python3 emba_plan.py plan \
     [--profile     NAME]     # EMBA profile/module name (validated charset)
     [--cpus N] [--memory SIZE] [--pids-limit N] [--wall-seconds N]
     [--allow-docker]         # authorize live run (no live executor → exit 2)
+    [--max-input-bytes N]    # optional input-size cap (default: unlimited)
+                             # absent/None → no cap, behavior byte-identical to baseline
+                             # set to N → firmware > N bytes fail closed (exit 2, no traceback)
 ```
 
 ## Containment policy (future live executor MUST enforce every row)

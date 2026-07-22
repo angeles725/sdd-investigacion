@@ -134,6 +134,52 @@ with tempfile.TemporaryDirectory() as td:
         ok("T7: same input → identical plan; det declared:false, basis:dry-run-plan")
     except Exception as e: nok("T7: determinism-record-state", str(e))
 
+
+# ── T_CAP1: --max-input-bytes below sample size → exit 2, clean error, no traceback ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*96); out = R/"out"
+    # sample is 100 bytes; cap is 5 bytes → must be rejected
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--max-input-bytes","5")
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback in stderr: {r.stderr[:200]}"
+        assert ("exceeds" in r.stderr or "max-input" in r.stderr), \
+               f"missing cap rejection message: {r.stderr[:200]}"
+        ok("T_CAP1: --max-input-bytes below sample size → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_CAP1: cap-below-sample-size", str(e))
+
+# ── T_CAP2: --max-input-bytes above sample size → plan byte-identical to no-flag run ─
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out_capped = R/"out_capped"; out_baseline = R/"out_baseline"
+    # sample is 20 bytes; 2 GiB cap is well above → normal plan must be emitted (exit 3)
+    try:
+        r_capped = cli("plan","--sample",str(s),"--output",str(out_capped),"--max-input-bytes","2147483648")
+        assert r_capped.returncode == 3, f"expected 3 (auth-required), got {r_capped.returncode}\n{r_capped.stderr[:200]}"
+        r_base = cli("plan","--sample",str(s),"--output",str(out_baseline))
+        assert r_base.returncode == 3, f"baseline expected 3, got {r_base.returncode}"
+        p_capped = json.loads((out_capped/"detonate-plan.v1.json").read_text())
+        p_baseline = json.loads((out_baseline/"detonate-plan.v1.json").read_text())
+        assert p_capped == p_baseline, f"plan with above-cap differs from no-flag plan"
+        ok("T_CAP2: --max-input-bytes above sample size → plan byte-identical to no-flag")
+    except Exception as e: nok("T_CAP2: cap-above-sample-size", str(e))
+
+# ── T_CAP3: no flag → identity byte-identical to baseline (regression guard) ──────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out1 = R/"out1"; out2 = R/"out2"
+    try:
+        r1 = cli("plan","--sample",str(s),"--output",str(out1))
+        r2 = cli("plan","--sample",str(s),"--output",str(out2))
+        assert r1.returncode == 3 and r2.returncode == 3, "baseline runs did not exit 3"
+        p1 = json.loads((out1/"detonate-plan.v1.json").read_text())
+        p2 = json.loads((out2/"detonate-plan.v1.json").read_text())
+        assert p1 == p2, "two no-flag runs differ — non-deterministic"
+        # check that the sample sha256 field is present (identity ran normally)
+        assert p1["sample"]["sha256"].startswith("sha256:"), "sha256 not present in plan"
+        ok("T_CAP3: no --max-input-bytes flag → byte-identical baseline (regression guard)")
+    except Exception as e: nok("T_CAP3: no-flag-regression", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

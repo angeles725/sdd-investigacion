@@ -18,6 +18,7 @@ python3 fact_plan.py plan \
     [--plugin       NAME] ...     # analysis plugin name(s) (validated, repeatable)
     [--cpus N] [--memory SIZE] [--pids-limit N] [--wall-seconds N]
     [--allow-docker]              # authorize live run (no live executor → exit 2)
+    [--max-input-bytes N]         # absent/None → unlimited (default); set → fail closed > N bytes
 ```
 
 ## Containment policy (future live executor MUST enforce every row)

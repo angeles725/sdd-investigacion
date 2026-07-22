@@ -26,6 +26,7 @@ __all__ = [
     "run_gate_epilogue",
     "reject_mount_delimiters",
     "validate_token",
+    "add_max_input_bytes_arg",
     "EXIT_AUTH_REQUIRED",
     "GateError",
 ]
@@ -142,6 +143,34 @@ def reject_mount_delimiters(path_str: str, what: str, exc_cls: type) -> None:
             f"{what} contains a character unsafe for a Docker bind-mount spec"
             f" (':' or ','): {path_str}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. Optional input-size cap argument (F2 — U-24.F2)
+# ---------------------------------------------------------------------------
+
+def add_max_input_bytes_arg(p: Any) -> None:
+    """Add --max-input-bytes N to a plan-adapter argparse sub-parser.
+
+    Default: None (absent or not set) → zero behavior change; no cap is passed
+    to identity(), and the adapter behaves byte-identically to its pre-F2 state.
+
+    When set to N: identity() is called with max_bytes=N.  Inputs whose size
+    exceeds N bytes fail closed with AdapterError("input exceeds max-input-bytes"),
+    which each adapter catches and converts to a clean stderr message + exit 2.
+
+    This is the canonical single place that documents and registers the flag;
+    importing it from plan_common avoids six near-identical copies across adapters.
+    """
+    p.add_argument(
+        "--max-input-bytes",
+        type=int, default=None, dest="max_input_bytes",
+        metavar="N",
+        help="Optional input-size cap in bytes (default: unlimited). "
+             "When set, inputs exceeding N bytes are rejected with exit 2 "
+             "(fail-closed via adapter_core.identity max_bytes). "
+             "Absent/None: behavior is byte-identical to the pre-F2 baseline.",
+    )
 
 
 # ---------------------------------------------------------------------------

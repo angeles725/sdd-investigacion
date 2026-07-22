@@ -19,6 +19,7 @@ from vm_plan import build_determinism, VmDeterminismError                      #
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec,
     run_gate_epilogue, reject_mount_delimiters, validate_token,
+    add_max_input_bytes_arg,
 )
 
 SCHEMA_VERSION = "fact-plan.v1"
@@ -102,7 +103,7 @@ def plan_fact(args: Any) -> int:
         except FactPlanError as exc: print(f"fact-plan: {exc}", file=sys.stderr); return 2
     compose_file = Path(args.compose_file) if args.compose_file else None
     firmware = Path(args.firmware)
-    try: _, input_size, input_sha = _file_identity(firmware)
+    try: _, input_size, input_sha = _file_identity(firmware, max_bytes=args.max_input_bytes)
     except AdapterError as exc: print(f"fact-plan: {exc}", file=sys.stderr); return 2
     try:
         plan = build_plan(firmware, compose_file, project_name,
@@ -137,6 +138,7 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--output",       required=True, metavar="DIR")
     p.add_argument("--allow-docker", action="store_true", default=False, dest="allow_docker",
                    help="authorize live docker-compose run (no live executor → exit 2)")
+    add_max_input_bytes_arg(p)
     return ap.parse_args(argv)
 
 

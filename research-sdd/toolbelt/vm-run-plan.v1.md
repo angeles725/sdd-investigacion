@@ -52,6 +52,7 @@ if result["outcome"] == "authorization-required":
 vm_run.py plan --input ARCHIVE --output DIR [--codec {gzip,xz,auto}]
                [--cpu-seconds N] [--max-mem-bytes N]
                [--max-output-bytes N] [--wall-seconds N] [--allow-exec]
+               [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
 ```
 
 Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required (plan written).

@@ -15,6 +15,7 @@ python3 qemu_plan.py plan \
     [--cpu-seconds N] [--wall-seconds N]
     [--max-mem-bytes N] [--max-output-bytes N]
     [--allow-exec]    # authorize live run (no executor in this unit → exit 2)
+    [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
 ```
 
 ## ELF architecture detection

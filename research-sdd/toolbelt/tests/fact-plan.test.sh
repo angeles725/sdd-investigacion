@@ -178,6 +178,20 @@ with tempfile.TemporaryDirectory() as td:
         assert p["firmware"]["sha256"] == expected and p["submission"]["firmware_sha256"] == expected
         ok("T13: submission sha256 matches firmware identity")
     except Exception as e: nok("T13: submission-sha256-identity", str(e))
+
+# ── T_CAP1: --max-input-bytes below firmware size → exit 2, clean error, no traceback ─
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*96); out = R/"out"
+    # firmware is 100 bytes; cap is 5 bytes → identity must reject it
+    try:
+        r = cli("plan","--firmware",str(fw),"--output",str(out),"--max-input-bytes","5")
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback in stderr: {r.stderr[:200]}"
+        assert ("exceeds" in r.stderr or "max-input" in r.stderr), \
+               f"missing cap rejection message: {r.stderr[:200]}"
+        ok("T_CAP1: --max-input-bytes below firmware size → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_CAP1: cap-below-firmware-size", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

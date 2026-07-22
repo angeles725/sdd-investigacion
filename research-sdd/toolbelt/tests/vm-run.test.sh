@@ -154,6 +154,20 @@ with tempfile.TemporaryDirectory() as td:
         ok("T12: xz large backward → implausibly large error, clean exit, no traceback")
     except Exception as e: nok("T12: xz-large-backward-clean-error", str(e))
 
+
+# ── T_CAP1: --max-input-bytes below archive size → exit 2, clean error, no traceback ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); arch = R/"input.gz"; arch.write_bytes(_gz(b"\x00"*50)); out = R/"out"
+    # archive is > 50 bytes as gzip; cap set to 5 bytes → identity must reject it
+    try:
+        r = cli("plan","--input",str(arch),"--output",str(out),"--codec","gzip","--max-input-bytes","5")
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback in stderr: {r.stderr[:200]}"
+        assert ("exceeds" in r.stderr or "max-input" in r.stderr), \
+               f"missing cap rejection message: {r.stderr[:200]}"
+        ok("T_CAP1: --max-input-bytes below archive size → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_CAP1: cap-below-archive-size", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

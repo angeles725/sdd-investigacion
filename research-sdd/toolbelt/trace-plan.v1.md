@@ -59,5 +59,6 @@ if result["outcome"] == "authorization-required":
 trace_plan.py plan --target BINARY --tracer {strace,ltrace,gdb-batch} --output DIR
                    [--cpu-seconds N] [--max-mem-bytes N] [--max-output-bytes N]
                    [--wall-seconds N] [--allow-exec]
+                   [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
 ```
 Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required.

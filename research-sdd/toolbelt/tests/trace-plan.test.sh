@@ -176,6 +176,20 @@ with tempfile.TemporaryDirectory() as td:
         ok("T12: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T12: bind-path-safety", str(e))
 
+
+# ── T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"target.bin"; tgt.write_bytes(_BIN + b"\x00"*80); out = R/"out"
+    # target is > 80 bytes; cap is 5 bytes → identity must reject it
+    try:
+        r = cli("plan","--target",str(tgt),"--tracer","strace","--output",str(out),"--max-input-bytes","5")
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "Traceback" not in r.stderr, f"traceback in stderr: {r.stderr[:200]}"
+        assert ("exceeds" in r.stderr or "max-input" in r.stderr), \
+               f"missing cap rejection message: {r.stderr[:200]}"
+        ok("T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback")
+    except Exception as e: nok("T_CAP1: cap-below-target-size", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
