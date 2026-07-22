@@ -3,7 +3,7 @@
 `capture_plan.py` — offline live-capture planner (U-N8 / item 8).
 Produces `capture-plan.v1.json` + `vm-determinism.v1.json`. NEVER captures:
 no socket opened, no interface bound, no subprocess spawned.
-Live capture gated behind `--allow-live-capture` (U-F1 gate contract).
+Live capture gated behind `--allow-live-capture` ([gate-authorization.v1](gate-authorization.v1.md)).
 
 ## CLI
 
@@ -49,7 +49,7 @@ Caps (`duration_seconds`, `packet_count_cap`) are always positive integers with 
 
 ## Determinism and gate
 
-`vm-determinism.v1.json`: always `declared:false`, `basis:"dry-run-plan"`,
+[`vm-determinism.v1.json`](vm-determinism.v1.md): always `declared:false`, `basis:"dry-run-plan"`,
 `receipt_identity:null`. Same inputs produce bit-identical plans.
 
 | Condition | Outcome |

@@ -2,7 +2,7 @@
 
 `emba_plan.py` — offline EMBA Docker planner (U-D17 / item 17).
 Produces `emba-plan.v1.json` + `vm-determinism.v1.json`. NEVER runs docker.
-Live exec gated behind `--allow-docker` (U-F1 gate contract).
+Live exec gated behind `--allow-docker` ([gate-authorization.v1](gate-authorization.v1.md)).
 
 ## CLI
 
@@ -57,7 +57,7 @@ use specific caps from `specific_caps_required` only (principle of least privile
 
 ## Determinism and gate
 
-`vm-determinism.v1.json`: `declared:false`, `basis:"dry-run-plan"`, `receipt_identity:null`.
+[`vm-determinism.v1.json`](vm-determinism.v1.md): `declared:false`, `basis:"dry-run-plan"`, `receipt_identity:null`.
 Same inputs produce bit-identical plans.
 
 | Condition | Outcome |

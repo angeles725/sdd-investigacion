@@ -11,6 +11,7 @@ gdb/strace/ltrace invocation that WOULD run, gated behind `--allow-exec`.
 | `strace` | strace(1) | `-f` follow-forks, `-o /tmp/rsdd/out/trace.log` |
 | `ltrace` | ltrace(1) | `-f` follow-forks, `-o /tmp/rsdd/out/trace.log` |
 | `gdb-batch` | gdb(1) | `--batch -ex run -ex bt --args` |
+
 ## Security invariants (enforced at plan time)
 
 | Invariant | Enforcement |
@@ -35,7 +36,7 @@ gdb/strace/ltrace invocation that WOULD run, gated behind `--allow-exec`.
 | `outputs` | `[]` | Empty — unknown until live run |
 | `limitations` | str[] | Always `["outputs-unknown-until-live-run"]` |
 
-## Companion: `vm-determinism.v1.json`
+## Companion: [`vm-determinism.v1.json`](vm-determinism.v1.md)
 Written alongside. Dry-run state: `declared: false`, `basis: "dry-run-plan"`,
 `receipt_identity: null`.
 
@@ -46,6 +47,8 @@ executor (behind `--allow-exec`) should follow the same `[CERT-hw]`
 preserve-to-sources discipline as `dynamic.sh` when eventually implemented.
 
 ## Gate integration
+
+Gate contract: [`gate-authorization.v1`](gate-authorization.v1.md).
 
 ```python
 result = execute_or_plan(cap=CAP_EXEC, allow=args.allow_exec, plan=plan,

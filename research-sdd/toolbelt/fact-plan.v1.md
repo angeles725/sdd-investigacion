@@ -2,7 +2,7 @@
 
 `fact_plan.py` — offline FACT Core Docker-Compose planner (U-D18 / item 18).
 Produces `fact-plan.v1.json` + `vm-determinism.v1.json`. NEVER runs docker-compose or docker.
-Live exec gated behind `--allow-docker` (U-F1 gate contract).
+Live exec gated behind `--allow-docker` ([gate-authorization.v1](gate-authorization.v1.md)).
 
 ## CLI
 
@@ -61,7 +61,7 @@ via docker compose's default internal bridge. The live executor MUST NOT add
 
 ## Determinism and gate
 
-`vm-determinism.v1.json`: `declared:false`, `basis:"dry-run-plan"`, `receipt_identity:null`.
+[`vm-determinism.v1.json`](vm-determinism.v1.md): `declared:false`, `basis:"dry-run-plan"`, `receipt_identity:null`.
 Same inputs produce bit-identical plans.
 
 | Condition | Outcome |

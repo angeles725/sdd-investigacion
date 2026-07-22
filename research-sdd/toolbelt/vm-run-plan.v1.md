@@ -31,12 +31,14 @@ no archive is inflated, no subprocess is spawned.
 | `outputs` | `[]` | Empty — unknown until live run |
 | `limitations` | str[] | Always includes `"outputs-unknown-until-live-run"` |
 
-## Companion: `vm-determinism.v1.json`
+## Companion: [`vm-determinism.v1.json`](vm-determinism.v1.md)
 
 Written alongside in the same output directory.
 Dry-run state: `declared: false`, `basis: "dry-run-plan"`, `receipt_identity: null`.
 
 ## Gate integration
+
+Gate contract: [`gate-authorization.v1`](gate-authorization.v1.md).
 
 ```python
 result = execute_or_plan(cap=CAP_EXEC, allow=args.allow_exec, plan=plan,

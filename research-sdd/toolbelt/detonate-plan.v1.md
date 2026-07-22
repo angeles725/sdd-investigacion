@@ -3,7 +3,7 @@
 `detonate_plan.py` — offline hostile-sample detonation planner (U-V11 / item 11).
 Produces `detonate-plan.v1.json` + `vm-determinism.v1.json`. NEVER executes:
 no VM boot, no subprocess spawned, no sample detonated.
-Live exec gated behind `--allow-exec` (U-F1 gate contract).
+Live exec gated behind `--allow-exec` ([gate-authorization.v1](gate-authorization.v1.md)).
 
 ## CLI
 
@@ -110,7 +110,7 @@ Exit-code / error-field convention (mirrors `corroborate_native.run_bounded`):
 
 ## Determinism and gate
 
-`vm-determinism.v1.json`: always `declared:false`, `basis:"dry-run-plan"`,
+[`vm-determinism.v1.json`](vm-determinism.v1.md): always `declared:false`, `basis:"dry-run-plan"`,
 `receipt_identity:null`. Same inputs produce bit-identical plans.
 
 | Condition | Outcome |

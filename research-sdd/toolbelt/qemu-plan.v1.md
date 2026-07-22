@@ -3,7 +3,7 @@
 `qemu_plan.py` — offline QEMU invocation planner (U-V10 / item 10).
 Produces `qemu-plan.v1.json` + `vm-determinism.v1.json`. NEVER executes:
 no QEMU launched, no subprocess spawned, no target emulated.
-Live exec gated behind `--allow-exec` (U-F1 gate contract).
+Live exec gated behind `--allow-exec` ([gate-authorization.v1](gate-authorization.v1.md)).
 
 ## CLI
 
@@ -50,7 +50,7 @@ disk writes are discarded on exit.
 
 ## Determinism and gate
 
-`vm-determinism.v1.json`: always `declared:false`, `basis:"dry-run-plan"`,
+[`vm-determinism.v1.json`](vm-determinism.v1.md): always `declared:false`, `basis:"dry-run-plan"`,
 `receipt_identity:null`. Same inputs produce bit-identical plans.
 
 | Condition | Outcome |

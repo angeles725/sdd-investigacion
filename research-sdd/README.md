@@ -92,6 +92,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`verify-state.sh`](toolbelt/verify-state.sh) | `<target-dir>` | Living-mirror lint — catches a stale summary that would emit a premature STOP. |
 | [`verify-sources.sh`](toolbelt/verify-sources.sh) | `<target-dir>` | `SOURCES.md` preservation linter — every cited source is downloaded, present, and registered. |
 | [`scan-secrets.sh`](toolbelt/scan-secrets.sh) | `<target-dir>` | Fails closed if a high-confidence secret **value** leaked into authored content. |
+| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs `sweep-retros.sh`, `sweep-audits.sh`, `verify-registry.sh`, and `verify-kit-clean.sh` in sequence; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude/OpenCode. |
 
 ### Close
 
@@ -118,6 +119,20 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`decompile-java.sh`](toolbelt/decompile-java.sh) | `<in.jar\|in.class> <out-dir> [--engine vineflower\|cfr\|procyon]` | Java → source (Vineflower → CFR → Procyon); `--javap` for signatures. |
 | [`decompile-net.sh`](toolbelt/decompile-net.sh) | `<in.dll\|in.exe> <out-dir>` | .NET assembly → C# via `ilspycmd` (`--list`, `--il` modes). |
 | [`decompile-native.sh`](toolbelt/decompile-native.sh) | `ghidra\|r2\|quick <binary> …` | Native ELF/PE analysis: Ghidra headless, radare2, or a quick triage. |
+
+### Gated plan adapters (VM-spine — plan-only; no live execution)
+
+The VM-spine adapters plan dynamic-execution workflows without running them. Every adapter is **default-off and fail-closed**: absent gate flag → exit 3 + offline JSON plan written; gate flag present but no live executor wired → exit 2. Live execution is explicitly deferred. Authorization contract: [`gate-authorization.v1`](toolbelt/gate-authorization.v1.md). Determinism record: [`vm-determinism.v1`](toolbelt/vm-determinism.v1.md).
+
+| Adapter | Gate flag | Purpose |
+|---|---|---|
+| [`vm_run.py`](toolbelt/vm_run.py) | `--allow-exec` | Plan gzip/xz archive decompression in a bwrap VM; records would-be argv + resource caps ([`vm-run-plan.v1`](toolbelt/vm-run-plan.v1.md)) |
+| [`trace_plan.py`](toolbelt/trace_plan.py) | `--allow-exec` | Plan strace/ltrace/gdb-batch tracing of a binary; no target executed ([`trace-plan.v1`](toolbelt/trace-plan.v1.md)) |
+| [`qemu_plan.py`](toolbelt/qemu_plan.py) | `--allow-exec` | Plan QEMU user/system emulation; arch auto-detected from ELF header, never from execution ([`qemu-plan.v1`](toolbelt/qemu-plan.v1.md)) |
+| [`detonate_plan.py`](toolbelt/detonate_plan.py) | `--allow-exec` | Plan hostile-sample detonation; network-isolated + ephemeral disk + `--cap-drop ALL`; sample never executed in dry-run ([`detonate-plan.v1`](toolbelt/detonate-plan.v1.md)) |
+| [`capture_plan.py`](toolbelt/capture_plan.py) | `--allow-live-capture` | Plan live network capture via dumpcap; no socket opened; BPF filter as data only ([`capture-plan.v1`](toolbelt/capture-plan.v1.md)) |
+| [`emba_plan.py`](toolbelt/emba_plan.py) | `--allow-docker` | Plan EMBA firmware analysis via Docker; `--privileged` refused; `--network none` always ([`emba-plan.v1`](toolbelt/emba-plan.v1.md)) |
+| [`fact_plan.py`](toolbelt/fact_plan.py) | `--allow-docker` | Plan FACT Core analysis via Docker Compose; `--privileged` and `--network host` both refused; internal-bridge only ([`fact-plan.v1`](toolbelt/fact-plan.v1.md)) |
 
 ---
 
