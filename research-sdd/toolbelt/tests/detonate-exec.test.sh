@@ -449,6 +449,49 @@ with tempfile.TemporaryDirectory() as td:
         ok("RED13: receipt inputs[] non-empty and contains sample sha256 (F1 fixed)")
     except Exception as e: nok("RED13", str(e))
 
+# ── RED-F5A: exec_argv contains scratch file bind AFTER --tmpfs (INV-2 / F5) ──
+# After evaluate(), the substituted exec_argv must have --bind <P> <P> where P
+# is the real per-run scratch path AND the bind index is > --tmpfs index.
+# Ordering is load-bearing: a bind before --tmpfs is silently re-masked.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    try:
+        r = cli("plan", "--sample", str(elf), "--output", str(tmp/"out"),
+                "--allow-exec",
+                xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:400]}"
+        res = json.loads(r.stdout)
+        exec_argv = res.get("exec_argv", [])
+        # find writable-persistent drive path (real per-run scratch)
+        drive_specs = [exec_argv[i+1] for i, t in enumerate(exec_argv)
+                       if t == "-drive" and i+1 < len(exec_argv)]
+        scratch_specs = [s for s in drive_specs
+                         if "snapshot=off" in s and "readonly=on" not in s]
+        assert scratch_specs, f"no writable-persistent -drive in exec_argv: {exec_argv}"
+        import re as _re
+        m2 = _re.search(r"file=([^,]+)", scratch_specs[0])
+        assert m2, f"no file= in scratch spec: {scratch_specs[0]}"
+        scratch_path = m2.group(1)
+        # exec_argv must contain contiguous ["--bind", scratch_path, scratch_path]
+        bind_idx = None
+        for i in range(len(exec_argv) - 2):
+            if exec_argv[i] == "--bind" and exec_argv[i+1] == scratch_path and exec_argv[i+2] == scratch_path:
+                bind_idx = i
+                break
+        assert bind_idx is not None, (
+            f"exec_argv missing ['--bind', {scratch_path!r}, {scratch_path!r}]; "
+            f"exec_argv={exec_argv}"
+        )
+        # --tmpfs must appear before the bind
+        tmpfs_idx = exec_argv.index("--tmpfs") if "--tmpfs" in exec_argv else None
+        assert tmpfs_idx is not None, "--tmpfs missing from exec_argv"
+        assert bind_idx > tmpfs_idx, (
+            f"--bind at {bind_idx} must be AFTER --tmpfs at {tmpfs_idx} "
+            "(ordering guard: bind before tmpfs is silently re-masked)"
+        )
+        ok("RED-F5A: exec_argv has scratch --bind <P> <P> strictly after --tmpfs (INV-2 / F5)")
+    except Exception as e: nok("RED-F5A: scratch-bind-in-exec-argv", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

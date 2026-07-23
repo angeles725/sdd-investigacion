@@ -1,0 +1,132 @@
+# Cross-Slice Invariant Registry
+
+## Why this file exists
+
+The independent PR-level review of #59 found three defects — F1, F4 and F5 —
+that a full per-slice 4R review had passed. None of them was a fault *inside* a
+slice. Every one of them lived in the **interaction between slices**: a receipt
+written by one module, consumed by another; an argv assembled in one place,
+mounted in another. Component-level tests cannot see those, because each
+component was individually correct.
+
+The structural fix is not more review. It is to turn every cross-slice defect
+into an **executable invariant** that runs on every unit, forever. A defect
+found once by a reviewer is a lesson; a defect encoded as an invariant is a
+guarantee.
+
+## Rules
+
+1. **Every cross-slice finding raised by a PR-level review MUST become an entry
+   here, with a test, before its follow-up issue is closed.** Fixing the
+   instance without adding the invariant is not a complete fix.
+2. Each unit re-verifies the whole registry, not just the invariants it touches.
+   That is the point: the registry exists to catch interactions the author of a
+   unit did not think about.
+3. An invariant with `status: pending` names a defect that is **currently live
+   in the codebase**. The registry is therefore also the honest inventory of
+   known-broken guarantees.
+4. An invariant that cannot be asserted offline must say so and name what it
+   asserts *instead*. See `untestable_offline` in `config.yaml`.
+
+## Registry
+
+### INV-1 — a detonation receipt binds the sample it describes
+
+**Statement:** any `detonate`/`trace` receipt MUST carry the sha256 of the exact
+sample that was injected. A receipt that does not bind its sample is evidence
+about nothing.
+
+- **Origin:** finding F1, PR #59 independent review.
+- **Status:** `enforced` — fixed in commit `aa38384`.
+- **Asserted by:** `tests/detonate-exec.test.sh`, `tests/trace-exec.test.sh`.
+
+### INV-2 — every path in the emitted argv is reachable under the emitted mount set
+
+**Statement:** for each filesystem path referenced by the emitted qemu argv
+(`-drive file=`, kernel, initrd, and any future slot), that path MUST be
+reachable inside the sandbox given the bwrap mount set emitted alongside it. A
+path that is masked by a `--tmpfs` or simply never bound is a silent failure:
+the plan looks correct and the real boot cannot open the file.
+
+**Reachability is ORDER-AWARE, not set-based.** bwrap applies mount operations
+in argv order. A `--bind` placed *before* a `--tmpfs` covering the same subtree
+is silently re-masked, and a set-containment check would call that argv valid.
+The assertion must compare positions, not membership.
+
+- **Origin:** finding F5, PR #59 independent review. Tracked by issue #60.
+- **Status:** `enforced` — fixed by issue #60 (commit slice 1). The scratch
+  file-scoped bind `--bind <scratch> <scratch>` is now emitted after `--tmpfs /tmp/rsdd`,
+  and `lib/vm_disk_policy` enforces the ordering at every preflight (R-REACH, R-BIND-RW).
+  Previously violated: `--tmpfs /tmp/rsdd` masked the host scratch at
+  `/tmp/rsdd/rsdd-<uuid>/scratch.img` — reproduced against real bwrap 0.9.0 and real qemu:
+  `Could not open '/tmp/rsdd/.../scratch.img': No such file or directory`.
+- **Scope of the #60 fix — the scratch is 1 of 4 reachability gaps.** The
+  emitted argv also cannot reach the qemu binary (no `/usr` in the sandbox),
+  the kernel, or the BIOS roms. #60 closes the scratch gap ONLY. The emitted
+  argv remains **not live-runnable** afterwards, and the operator WARNING added
+  in `aa38384` must be REWRITTEN to name the remaining gaps — never deleted.
+  Deleting it would make a partial fix read as a complete one, which is the F5
+  hazard class repeating.
+- **Rejected approach:** `--bind <run_dir> <run_dir>` (the direction originally
+  suggested by issue #60) is REJECTED on evidence. A guest-side write inside a
+  directory-scoped bind lands on the host, where `output_files(run_dir)`
+  (`lib/vm_boot_core.py:160`) sweeps it into the frozen receipt's `outputs[]` —
+  turning a qemu escape into evidence-chain pollution. The **file-scoped**
+  `--bind <scratch> <scratch>` is strictly tighter: writes propagate, sibling
+  creation lands on the sandbox tmpfs, and `rm`/`mv`/`ln -sf` against the
+  scratch fail `EBUSY`, pinning the hashed inode so the guest cannot swap the
+  object out from under its own hash.
+- **Offline limitation:** no offline test observes the real mount namespace. The
+  invariant is asserted structurally — parse the emitted argv, parse the emitted
+  bwrap mount set, prove order-aware reachability — never by booting.
+- **Asserted by:** `tests/detonate-plan.test.sh` (T4c), `tests/trace-plan.test.sh` (T-scratch-bind),
+  `tests/detonate-exec.test.sh` (RED-F5A), `tests/trace-exec.test.sh` (RED-F5A),
+  `tests/vm-disk-policy.test.sh` (RED-REACH-MASK, RED-REACH-ORDER, GREEN-REACH-OK,
+  GREEN-SUBST-INVARIANT).
+
+### INV-3 — argv token substitution matches whole tokens, never substrings
+
+**Statement:** when substituting a sentinel or placeholder into an argv, the
+match MUST be against a complete token. Substring matching silently corrupts any
+argument that happens to contain the sentinel as a prefix or infix.
+
+- **Origin:** finding F4, PR #59 independent review. Tracked by issue #63.
+- **Status:** `pending` — currently violated.
+- **Asserted by:** to be added by the #63 unit. The test must include an
+  adversarial fixture whose argv contains the sentinel as a proper substring of
+  an unrelated argument.
+
+### INV-4 — one run produces exactly one run_dir, and every output is declared
+
+**Statement:** a single execution MUST create exactly one per-run directory, and
+every artifact it produces MUST appear in `receipt.outputs[]`. Two run
+directories means one of them leaks and its artifacts are unaccounted for.
+
+- **Origin:** the D2 "double run_dir" defect — two CRITICAL findings during the
+  4R review of the detonate executor, which forced a re-scope of the slice.
+- **Status:** `enforced` — resolved by the single-run_dir + pre-boot callback
+  seam in `lib/vm_boot_core.py`.
+- **Asserted by:** `tests/detonate-exec.test.sh`, `tests/qemu-exec.test.sh`.
+
+### INV-5 — teardown is guaranteed on every exit path
+
+**Statement:** the process tree and the per-run directory MUST be reaped on
+every exit path, including timeout, exception, and early failure. A sandbox that
+leaks on the error path is not a sandbox.
+
+- **Origin:** V1a/V1b containment hardening; re-confirmed by the #59 PR review.
+- **Status:** `enforced` — shared reaper in `lib/proc_common.py`.
+- **Asserted by:** `tests/qemu-exec.test.sh`.
+
+## Open invariants map to open issues
+
+| Invariant | Issue | Meaning |
+|---|---|---|
+| INV-2 | #60 | the emitted argv is not live-runnable |
+| INV-3 | #63 | substitution can corrupt unrelated arguments |
+
+Issues #61 (allowlist for block-device flags) and #62 (extract
+`vm_exec_common.py`) are hardening and refactoring; they carry no violated
+invariant, but the unit that closes #62 MUST re-verify the whole registry, since
+collapsing the detonate/trace mirror is exactly the kind of change that breaks a
+cross-slice guarantee.

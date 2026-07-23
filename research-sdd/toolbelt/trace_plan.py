@@ -106,6 +106,11 @@ def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
         "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup",
         "--cap-drop", "ALL",
         "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+        # F5 fix (INV-2): emit the scratch file-scoped bind AFTER --tmpfs so the
+        # --tmpfs does not re-mask it (ordering is load-bearing in bwrap).
+        # SRC == DEST (identity map) so the executor's substring substitution rewrites
+        # all three occurrences to the same real per-run path without new logic.
+        "--bind", _SCRATCH_SENTINEL, _SCRATCH_SENTINEL,
         "--ro-bind", rootfs_path, "/input/rootfs",
         "--ro-bind", str(target.resolve()), "/input/sample", "--",
         qbin,
@@ -149,7 +154,9 @@ def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
             "rootfs_ro": "/input/rootfs",
             "scratch_persistent": _SCRATCH_SENTINEL,
             "output_writable": "/tmp/rsdd/out",
-            "host_writable": "none",
+            # C3: host_writable flips from "none" to the scratch sentinel.
+            # Invariant: host_writable == scratch_persistent (one writable file bind).
+            "host_writable": _SCRATCH_SENTINEL,
         },
         "limits": {"cpu_seconds": caps["cpu_seconds"], "mem_bytes": caps["mem_bytes"],
                    "wall_seconds": caps["wall_seconds"], "output_bytes": caps["output_bytes"]},

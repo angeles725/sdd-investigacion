@@ -69,17 +69,54 @@ with tempfile.TemporaryDirectory() as td:
         assert p["network"] == "none" and p["network_policy"]["mode"] == "none"
         mp = p["mount_plan"]
         assert mp["sample_ro"] == "/input/sample" and mp["output_writable"] == "/tmp/rsdd/out"
-        assert mp.get("host_writable") == "none"
+        # C3: host_writable must equal scratch_persistent (not "none" — corrects the false claim
+        # that no host path is writable; it IS writable via the scratch file bind).
+        assert mp.get("host_writable") == mp.get("scratch_persistent"), (
+            f"host_writable {mp.get('host_writable')!r} must equal "
+            f"scratch_persistent {mp.get('scratch_persistent')!r}"
+        )
         snap = p["snapshot_policy"]
         assert snap["pre_run"]["intent"] == "capture-before-detonation"
         assert snap["post_run"]["intent"] == "capture-after-detonation"
-        ok("T4a: network='none'; mount_plan RO; snapshot_policy pre+post")
+        ok("T4a: network='none'; mount_plan RO; host_writable==scratch_persistent; snapshot pre+post")
     except Exception as e: nok("T4a: network-mount-snapshot", str(e))
     try:
         r = cli("plan","--sample",str(s),"--output",str(out2),"--network","internet")
         assert r.returncode == 2, f"got {r.returncode}"
         ok("T4b: --network internet refused → exit 2 (only 'none' supported)")
     except Exception as e: nok("T4b: non-none-network-refused", str(e))
+
+# ── T4c: planned_argv contains scratch bind triple AFTER --tmpfs (INV-2 / F5) ─
+# RED-F5: the scratch file-scoped bind must appear AFTER --tmpfs so it is not
+# re-masked.  Ordering is load-bearing (bwrap applies mount ops in argv order).
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"MZ" + b"\x00"*18)
+    out3 = R/"out3"
+    try:
+        rc = m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out3)]))
+        assert rc == 3
+        p = json.loads((out3/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        scratch = p["mount_plan"]["scratch_persistent"]
+        # The contiguous triple ["--bind", scratch, scratch] must be present
+        bind_idx = None
+        for i in range(len(argv) - 2):
+            if argv[i] == "--bind" and argv[i+1] == scratch and argv[i+2] == scratch:
+                bind_idx = i
+                break
+        assert bind_idx is not None, (
+            f"planned_argv missing contiguous ['--bind', {scratch!r}, {scratch!r}]; "
+            f"argv={argv}"
+        )
+        # --tmpfs must appear BEFORE the bind (ordering-aware — bwrap applies in order)
+        tmpfs_idx = argv.index("--tmpfs") if "--tmpfs" in argv else None
+        assert tmpfs_idx is not None, "--tmpfs missing from planned_argv"
+        assert bind_idx > tmpfs_idx, (
+            f"--bind {scratch!r} ... at index {bind_idx} must come AFTER "
+            f"--tmpfs at index {tmpfs_idx} (re-masking guard)"
+        )
+        ok("T4c: planned_argv contains scratch --bind triple strictly after --tmpfs (INV-2 / F5)")
+    except Exception as e: nok("T4c: scratch-bind-after-tmpfs", str(e))
 
 # ── T5: output /home → bind-scope exit 2; disk=ephemeral; argv has --unshare-net ─
 with tempfile.TemporaryDirectory() as td:
