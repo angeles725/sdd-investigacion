@@ -93,6 +93,10 @@ that independently hashes `serial_log`'s parent dir `scratch.img` MUST match
 >   `qemu: could not load PC BIOS 'bios-256k.bin'`
 >   (`/usr/share/qemu` is not bound).
 >
+> (Gaps are numbered per the reachability table in design.md §2; gap 2 — the
+> scratch-drive masking defect — was closed by this unit, hence the non-contiguous
+> numbering 1/3/4.)
+>
 > A follow-up unit will design the operator host-runtime mount set for gaps 1/3/4.
 > That is the unit where this WARNING can eventually be retired.
 

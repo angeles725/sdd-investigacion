@@ -137,6 +137,24 @@ def assert_gate_error(fn, label):
     except Exception as e:
         nok(label, f"unexpected exception {type(e).__name__}: {e}")
 
+def assert_gate_error_msg(fn, label, expected_fragment):
+    """Assert fn() raises GateError whose message contains expected_fragment.
+
+    Use this instead of assert_gate_error when the test must verify WHICH rule
+    fired, not merely that some rule fired.
+    """
+    try:
+        fn()
+        nok(label, "expected GateError but no exception raised")
+    except GateError as e:
+        msg = str(e)
+        if expected_fragment in msg:
+            ok(f"{label}: {e}")
+        else:
+            nok(label, f"GateError raised but message lacked {expected_fragment!r}: {e}")
+    except Exception as e:
+        nok(label, f"unexpected exception {type(e).__name__}: {e}")
+
 def assert_passes(fn, label):
     """Assert fn() does NOT raise."""
     try:
@@ -355,14 +373,22 @@ assert_gate_error(
 # lib/vm_disk_policy.py.  GREEN cases use assert_passes.
 # ===========================================================================
 
-# ── RED-REACH-MASK: --tmpfs + scratch drive under it → GateError ──────────
-# The scratch drive path is under /tmp/rsdd which --tmpfs masks.
-# R-REACH must detect this and name both the drive and the masking mount.
-_reach_mask_argv = [
+# ── RED-BIND-ABSENT: no --bind at all → GateError (R-BIND-RW) ────────────
+# When the argv contains no --bind op, R-BIND-RW fires at step 5 because the
+# mandatory scratch file bind is missing (0 rw binds found, expected exactly 1).
+# This tests R-BIND-RW, NOT R-REACH.
+#
+# Note: the scratch path (/tmp/rsdd-test-run/scratch.img) is a SIBLING of the
+# tmpfs dest (/tmp/rsdd), not a child, so --tmpfs /tmp/rsdd would NOT mask it
+# regardless of ordering.  R-REACH (step 6) is never reached here because
+# R-BIND-RW (step 5) fires first.  For ordering-sensitive R-REACH coverage see
+# RED-REACH-ORDER below, which exercises a bind-before-tmpfs scenario where the
+# scratch path IS a child of the tmpfs dest and R-BIND-RW passes.
+_bind_absent_argv = [
     "bwrap", "--die-with-parent", "--new-session",
     "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
     "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
-    # NO bind here — scratch is masked by --tmpfs above
+    # NO --bind here → R-BIND-RW fires (0 rw binds, expected 1)
     "--ro-bind", "/rsdd/rootfs.img", "/input/rootfs",
     "--ro-bind", "/store/sample.bin", "/input/sample", "--",
     "qemu-system-x86_64", "-m", "256", "-smp", "1", "-accel", "tcg",
@@ -373,9 +399,10 @@ _reach_mask_argv = [
     "-drive", f"file={RUN_DIR}/scratch.img,snapshot=off,format=raw,if=virtio",
     "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
 ]
-assert_gate_error(
-    lambda: m.check_disk_policy(_reach_mask_argv, run_dir=RUN_DIR),
-    "RED-REACH-MASK: --tmpfs masks scratch drive → GateError (R-REACH)"
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_bind_absent_argv, run_dir=RUN_DIR),
+    "RED-BIND-ABSENT: no --bind present → GateError (R-BIND-RW: 0 rw binds)",
+    "R-BIND-RW"
 )
 
 # ── RED-REACH-ORDER: bind placed BEFORE --tmpfs → GateError ───────────────
@@ -404,9 +431,10 @@ _reach_order_argv = [
     "-drive", _ORDER_SCRATCH_D,
     "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
 ]
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_reach_order_argv, run_dir=_ORDER_RUN_DIR),
-    "RED-REACH-ORDER: bind before --tmpfs → GateError (R-REACH ordering-aware)"
+    "RED-REACH-ORDER: bind before --tmpfs → GateError (R-REACH ordering-aware)",
+    "R-REACH"
 )
 
 # ── GREEN-REACH-OK: bind placed AFTER --tmpfs → passes cleanly ────────────
@@ -419,13 +447,6 @@ assert_passes(
 # ── RED-BIND-DIR: --bind <run_dir> <run_dir> (directory, not file) → GateError ─
 # The directory bind is rejected: guest writes land in host run_dir, swept into
 # receipt outputs[]. Only the specific scratch file may be bound read-write.
-_run_dir_bind_argv = list(GOOD_ARGV)
-# Replace the scratch file bind with a directory bind
-_idx = _run_dir_bind_argv.index(SCRATCH_FILE)
-_run_dir_bind_argv[_idx - 1] = RUN_DIR   # SRC = dir
-_run_dir_bind_argv[_idx]     = RUN_DIR   # DEST = dir
-_run_dir_bind_argv[_idx + 1] = RUN_DIR   # next positional (DEST slot)
-# Rebuild correctly: replace the bind SRC and DEST with the directory path
 _bind_dir_argv = list(GOOD_ARGV)
 i_src = _bind_dir_argv.index(SCRATCH_FILE)
 _bind_dir_argv[i_src] = RUN_DIR       # SRC ← dir
@@ -496,13 +517,15 @@ assert_passes(
 # Re-run every new RED case through check_disk_policy to confirm parity.
 # By construction: since there is ONE checker, parity holds automatically.
 # These assertions document and enforce that assumption.
-assert_gate_error(
-    lambda: m.check_disk_policy(_reach_mask_argv, run_dir=RUN_DIR),
-    "PARITY-REACH-MASK: trace also rejects masked scratch (shared checker)"
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_bind_absent_argv, run_dir=RUN_DIR),
+    "PARITY-BIND-ABSENT: trace also rejects missing --bind (shared checker)",
+    "R-BIND-RW"
 )
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_reach_order_argv, run_dir=_ORDER_RUN_DIR),
-    "PARITY-REACH-ORDER: trace also rejects wrong-order bind (shared checker)"
+    "PARITY-REACH-ORDER: trace also rejects wrong-order bind (shared checker)",
+    "R-REACH"
 )
 assert_gate_error(
     lambda: m.check_disk_policy(_bind_dir_argv, run_dir=RUN_DIR),

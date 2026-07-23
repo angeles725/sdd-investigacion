@@ -81,8 +81,9 @@ The assertion must compare positions, not membership.
   bwrap mount set, prove order-aware reachability — never by booting.
 - **Asserted by:** `tests/detonate-plan.test.sh` (T4c), `tests/trace-plan.test.sh` (T-scratch-bind),
   `tests/detonate-exec.test.sh` (RED-F5A), `tests/trace-exec.test.sh` (RED-F5A),
-  `tests/vm-disk-policy.test.sh` (RED-REACH-MASK, RED-REACH-ORDER, GREEN-REACH-OK,
-  GREEN-SUBST-INVARIANT).
+  `tests/vm-disk-policy.test.sh` (RED-BIND-ABSENT asserts R-BIND-RW fires when no bind is present;
+  RED-REACH-ORDER asserts R-REACH fires on wrong-order bind — the only scenario where R-BIND-RW
+  passes but R-REACH detects masking; GREEN-REACH-OK; GREEN-SUBST-INVARIANT).
 
 ### INV-3 — argv token substitution matches whole tokens, never substrings
 
@@ -95,6 +96,10 @@ argument that happens to contain the sentinel as a prefix or infix.
 - **Asserted by:** to be added by the #63 unit. The test must include an
   adversarial fixture whose argv contains the sentinel as a proper substring of
   an unrelated argument.
+  **The #63 implementer must cover THREE structural positions** where the sentinel
+  `/rsdd/scratch.img` now appears in the post-#60 argv: `--bind SRC`, `--bind DEST`,
+  and `-drive file=`. All three must be matched as complete tokens, not substrings;
+  read from this registry rather than rediscovering from code.
 
 ### INV-4 — one run produces exactly one run_dir, and every output is declared
 
@@ -122,7 +127,6 @@ leaks on the error path is not a sandbox.
 
 | Invariant | Issue | Meaning |
 |---|---|---|
-| INV-2 | #60 | the emitted argv is not live-runnable |
 | INV-3 | #63 | substitution can corrupt unrelated arguments |
 
 Issues #61 (allowlist for block-device flags) and #62 (extract

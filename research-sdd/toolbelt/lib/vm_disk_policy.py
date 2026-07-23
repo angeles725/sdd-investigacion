@@ -220,8 +220,11 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
     if bind_src != scratch_drive_path:
         raise GateError(
             f"planned_argv --bind {bind_src!r} does not match scratch drive "
-            f"path {scratch_drive_path!r}: the rw bind must target exactly "
-            "the scratch drive file (R-BIND-RW)"
+            f"path {scratch_drive_path!r}: the rw bind must be file-scoped to "
+            "the scratch image exactly (R-BIND-RW). A directory bind exposes the "
+            "host run_dir to guest writes; vm_boot_core.output_files() sweeps that "
+            "directory into receipt outputs[], enabling a qemu escape to inject "
+            "artifacts into the frozen evidence chain. See design.md §3.2."
         )
 
     # ---- 6. R-REACH — every -drive file= path reachable under mount ops ───
@@ -231,6 +234,8 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
     # Ordering is load-bearing: --bind before --tmpfs is silently re-masked.
     # This check runs on the full argv (bwrap prefix only) and is
     # substitution-invariant: sentinel paths work as well as real paths.
+    # Single-element list is the deliberate extension point for gaps 3/4 (kernel,
+    # BIOS roms); add entries here when those binds are designed (design.md §5.2).
     for drive_path in [scratch_drive_path]:
         _check_drive_reachable(bwrap_prefix, drive_path)
 

@@ -112,6 +112,11 @@ def build_plan(sample: Path, caps: dict[str, int], *,
         # --tmpfs does not re-mask it (ordering is load-bearing in bwrap).
         # SRC == DEST (identity map) so the executor's substring substitution rewrites
         # all three occurrences to the same real per-run path without new logic.
+        # WHY file-scoped (not directory-scoped): a --bind <run_dir> <run_dir> exposes
+        # the host run directory to guest writes; vm_boot_core.output_files() (line 160)
+        # sweeps that directory into receipt outputs[], letting a qemu escape inject
+        # artifacts into the frozen evidence chain. File-scoped bind shares only the
+        # scratch inode. See design.md §3.2 and Experiment E.
         "--bind", _SCRATCH_SENTINEL, _SCRATCH_SENTINEL,
         "--ro-bind", rootfs_path, "/input/rootfs",
         "--ro-bind", str(sample.resolve()), "/input/sample", "--",
