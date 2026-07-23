@@ -90,7 +90,7 @@ This table is the normative containment spec. It is identical to
 | **Parent-death signal** | `--die-with-parent`. Sandbox killed when parent exits. | `--die-with-parent` |
 | **Session isolation** | `--new-session`. Cannot access host terminal. | `--new-session` |
 | **Target mount** | `/input/sample` mounted read-only. Target cannot self-modify. | `--ro-bind`; `readonly=on` |
-| **Host FS** | No host path writable (`host_writable: "none"`). | `--tmpfs`, `--dir`; `host_writable: "none"` |
+| **Host FS** | Exactly one host path writable inside the sandbox: the per-run scratch image, bound as a single file (`--bind <scratch> <scratch>`). The per-run directory itself is not exposed. | `--tmpfs`, `--dir`, `--bind`; `host_writable: mount_plan.scratch_persistent` |
 | **Disk** | Per-drive: target `readonly=on` (immutable), rootfs `snapshot=on` (COW), scratch `snapshot=off` (writable-persistent host read). | `disk.mode: "per-drive-policy"` |
 | **Acceleration** | `-accel tcg` only; `-enable-kvm` forbidden. | `vm_disk_policy` rejects `-enable-kvm` |
 | **NIC** | `-nic none`; `-net`/`-netdev` forbidden. | `vm_disk_policy` rejects both |
@@ -115,7 +115,7 @@ This table is the normative containment spec. It is identical to
 | `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable}` | Mount containment |
 | `limits` | `{cpu_seconds, mem_bytes, wall_seconds, output_bytes}` | Resource caps |
 | `snapshot_policy` | `{pre_run, post_run}` | State-hash capture intent |
-| `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args and `-append` (NEVER executed in dry-run) |
+| `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args, a file-scoped `--bind` for the scratch image, and `-append` (NEVER executed in dry-run) |
 | `outputs` | `[]` | Empty until live run |
 | `limitations` | `list[str]` | `["outputs-unknown-until-live-run"]` |
 
@@ -129,20 +129,36 @@ The live executor (D3) substitutes the actual `<run_dir>/scratch.img` path in
 > **OPERATOR WARNING — `planned_argv` is not live-runnable as-is.**
 > The emitted `planned_argv` is validated and CI-tested **OFFLINE only** (fake
 > `qemu-system-*` shim; bwrap is never invoked in CI).
-> The bwrap prefix includes `--tmpfs /tmp/rsdd`, which mounts an empty tmpfs at
-> `/tmp/rsdd` inside the sandbox. The live executor creates the per-run scratch image
-> at `/tmp/rsdd/rsdd-<uuid>/scratch.img` on the **host** and passes that host path as
-> the qemu-system `-drive file=` argument — but inside the sandbox `--tmpfs /tmp/rsdd`
-> masks that path, so qemu-system cannot open the file and the pre/post scratch-hash
-> evidence chain is vacuous. This defect is invisible in CI because the fake shim
-> writes directly to the `-drive file=` path without going through bwrap.
-> **Before any real in-guest tracing**, the operator MUST reconcile the scratch
-> mount (e.g. replace `--tmpfs /tmp/rsdd` with a targeted bind-mount of the per-run
-> `run_dir` into the sandbox). This is a documented known limitation; a follow-up
-> design issue tracks the required bwrap-prefix reconciliation.
+>
+> The scratch-mount reachability gap (issue #60 / INV-2) is now **reconciled and
+> machine-checked**: `planned_argv` includes `--bind <scratch> <scratch>` placed
+> after `--tmpfs /tmp/rsdd`, and `lib/vm_disk_policy` enforces this ordering at every
+> preflight. The scratch drive is reachable inside the sandbox.
+>
+> However, **three further reachability gaps remain** that make the emitted argv
+> still not live-runnable:
+>
+> - **Gap 1 — qemu binary not on PATH inside the sandbox:**
+>   `bwrap: execvp qemu-system-x86_64: No such file or directory`
+>   (no `/usr`, `/bin`, or `/lib` is bound).
+> - **Gap 3 — kernel not reachable:**
+>   `qemu: could not open kernel file '/rsdd/vmlinuz': No such file or directory`
+>   (`/rsdd` is not bound).
+> - **Gap 4 — BIOS roms not reachable:**
+>   `qemu: could not load PC BIOS 'bios-256k.bin'`
+>   (`/usr/share/qemu` is not bound).
+>
+> (Gaps are numbered per the reachability table in design.md §2; gap 2 — the
+> scratch-drive masking defect — was closed by this unit, hence the non-contiguous
+> numbering 1/3/4.)
+>
+> A follow-up unit will design the operator host-runtime mount set for gaps 1/3/4.
+> That is the unit where this WARNING can eventually be retired.
 
-`mount_plan.host_writable: "none"` is the **only valid value** — no host filesystem
-path is made writable inside the sandbox.
+`mount_plan.host_writable`: must equal `mount_plan.scratch_persistent` — exactly one host
+filesystem path is made writable inside the sandbox (the per-run scratch image, bound as a
+single file). Any other value MUST cause the executor to refuse the plan before entering
+the sandbox. (`"none"` was the value when the bind was missing; corrected by issue #60 / INV-2.)
 
 ## Determinism and gate
 

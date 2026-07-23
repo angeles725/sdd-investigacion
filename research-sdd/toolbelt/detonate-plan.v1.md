@@ -73,7 +73,7 @@ this table alone without reading `planned_argv`.
 | **Parent-death signal** | `--die-with-parent`. Sandbox is killed when the parent process exits; prevents orphaned sample processes surviving the planner. | `--die-with-parent` |
 | **Session isolation** | `--new-session`. Creates a new POSIX session; sample cannot access the host terminal or send signals via the controlling terminal. | `--new-session` |
 | **Sample mount** | `/input/sample` is mounted read-only inside the sandbox. Sample cannot modify itself or write back to the host through this path. | `--ro-bind`; `mount_plan.sample_ro` |
-| **Writable area** | Only `/tmp/rsdd/out` is writable; all output must go there. No host path is writable (`host_writable: "none"`). | `--tmpfs`, `--dir`; `host_writable: "none"` |
+| **Writable area** | `/tmp/rsdd/out` is the sandbox output directory. Exactly one host path is writable inside the sandbox: the per-run scratch image, bound as a single file (`--bind <scratch> <scratch>`). The per-run **directory** is not exposed — only the individual file. | `--tmpfs`, `--dir`, `--bind`; `host_writable: mount_plan.scratch_persistent` |
 | **Disk** | Per-drive policy: sample `readonly=on` (immutable, no writes allowed), rootfs `snapshot=on` (COW overlay discarded on exit, host image unchanged), scratch `snapshot=off` (writable-persistent; host reads post-teardown for pre/post sha256 hashing). | `disk.mode: "per-drive-policy"` |
 | **Resource caps** | CPU, memory, wall-clock time, and output bytes are bounded. Exceeding any cap triggers kill + truncate + `reason` field. | `limits.*`; enforced by live executor |
 | **Snapshot capture** | Pre-run and post-run disk-state digests MUST be captured before and after detonation (feeds U-F2 evidence chain). | `snapshot_policy.pre_run`, `snapshot_policy.post_run` |
@@ -96,7 +96,7 @@ Resource cap defaults: `cpu_seconds=30`, `mem_bytes=256 MiB`, `wall_seconds=60`,
 | `limits` | `{cpu_seconds, mem_bytes, wall_seconds, output_bytes}` | Resource caps |
 | `snapshot_policy` | `{pre_run, post_run}` | State-hash capture intent |
 | `os_image` | `str \| null` | OS image tag (recorded, not executed) |
-| `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args (NEVER executed in dry-run) |
+| `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args and a file-scoped `--bind` for the scratch image (NEVER executed in dry-run) |
 | `outputs` | `[]` | Empty until live run |
 | `limitations` | `list[str]` | `["outputs-unknown-until-live-run"]` |
 
@@ -111,25 +111,42 @@ before calling Popen. The host creates this file fresh in the per-run directory.
 > **OPERATOR WARNING — `planned_argv` is not live-runnable as-is.**
 > The emitted `planned_argv` is validated and CI-tested **OFFLINE only** (fake
 > `qemu-system-*` shim; bwrap is never invoked in CI).
-> The bwrap prefix includes `--tmpfs /tmp/rsdd`, which mounts an empty tmpfs at
-> `/tmp/rsdd` inside the sandbox. The live executor creates the per-run scratch image
-> at `/tmp/rsdd/rsdd-<uuid>/scratch.img` on the **host** and passes that host path as
-> the qemu-system `-drive file=` argument — but inside the sandbox `--tmpfs /tmp/rsdd`
-> masks that path, so qemu-system cannot open the file and the pre/post scratch-hash
-> evidence chain is vacuous. This defect is invisible in CI because the fake shim
-> writes directly to the `-drive file=` path without going through bwrap.
-> **Before any real in-guest detonation**, the operator MUST reconcile the scratch
-> mount (e.g. replace `--tmpfs /tmp/rsdd` with a targeted bind-mount of the per-run
-> `run_dir` into the sandbox). This is a documented known limitation; a follow-up
-> design issue tracks the required bwrap-prefix reconciliation.
+>
+> The scratch-mount reachability gap (issue #60 / INV-2) is now **reconciled and
+> machine-checked**: `planned_argv` includes `--bind <scratch> <scratch>` placed
+> after `--tmpfs /tmp/rsdd`, and `lib/vm_disk_policy` enforces this ordering at every
+> preflight. The scratch drive is reachable inside the sandbox.
+>
+> However, **three further reachability gaps remain** that make the emitted argv
+> still not live-runnable:
+>
+> - **Gap 1 — qemu binary not on PATH inside the sandbox:**
+>   `bwrap: execvp qemu-system-x86_64: No such file or directory`
+>   (no `/usr`, `/bin`, or `/lib` is bound — those are part of the operator's
+>   host-runtime mount set, not yet designed).
+> - **Gap 3 — kernel not reachable:**
+>   `qemu: could not open kernel file '/rsdd/vmlinuz': No such file or directory`
+>   (`/rsdd` is not bound).
+> - **Gap 4 — BIOS roms not reachable:**
+>   `qemu: could not load PC BIOS 'bios-256k.bin'`
+>   (`/usr/share/qemu` is not bound).
+>
+> (Gaps are numbered per the reachability table in design.md §2; gap 2 — the
+> scratch-drive masking defect — was closed by this unit, hence the non-contiguous
+> numbering 1/3/4.)
+>
+> A follow-up unit will design the operator host-runtime mount set for gaps 1/3/4.
+> That is the unit where this WARNING can eventually be retired.
 
 `sample.type_hint` is metadata-only (magic-byte sniff); degrades to `"unknown"` on
 any error without traceback. Does not gate execution.
 
-`mount_plan.host_writable`: the string `"none"` is the **only valid value**, meaning no
-host filesystem path is made writable inside the sandbox. An absent field MUST be treated
-as a schema error by any validator or live executor. Any value other than `"none"` MUST
-cause the executor to refuse the plan before entering the sandbox.
+`mount_plan.host_writable`: must equal `mount_plan.scratch_persistent` — exactly one host
+filesystem path is made writable inside the sandbox (the per-run scratch image, bound as a
+single file). Any value other than `mount_plan.scratch_persistent` MUST cause the executor
+to refuse the plan before entering the sandbox. An absent field MUST be treated as a schema
+error. (`"none"` was the value when this bind was missing; that claim was only true because
+the feature was broken — corrected by issue #60 / INV-2.)
 
 ## Snapshot lifecycle
 

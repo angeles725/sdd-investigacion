@@ -1,0 +1,107 @@
+# SDD OpenSpec Configuration — sdd-investigacion
+# Generated: 2026-07-23
+# Mode: hybrid (Engram + OpenSpec)
+
+project: sdd-investigacion
+root: /home/cristian/investigacion/sdd-investigacion
+
+context: |
+  Research-SDD toolbelt: a Bash + Python toolkit for binary analysis, firmware
+  investigation, dynamic detonation, VM-based sandboxing, and malware research.
+  Main work area: research-sdd/toolbelt/ (shell scripts + Python helpers + lib/).
+  Test harness: custom bash runner (run-all.sh) aggregating 68 *.test.sh suites
+  and 2 *.test.mjs suites. Node.js used only for adversarial-verdict/verify MJS.
+  No package manager manifest (no pyproject.toml, no package.json at repo root).
+
+persistence_mode: hybrid
+
+strict_tdd: true
+
+testing:
+  test_command: "bash research-sdd/toolbelt/tests/run-all.sh"
+  test_command_cwd: "/home/cristian/investigacion/sdd-investigacion"
+  runner: run-all.sh (custom bash aggregator)
+  framework: custom bash TAP-style + Node ESM
+  last_known_passing: "1207/1207"
+  suites:
+    shell: 68   # *.test.sh discovered by run-all.sh
+    mjs: 2      # *.test.mjs discovered by run-all.sh (adversarial-verdict, adversarial-verify)
+  layers:
+    unit: true
+    integration: false
+    e2e: false
+  coverage:
+    available: false
+  quality:
+    linter: false
+    type_checker: false
+    formatter: false
+
+delivery_strategy: auto-forecast
+review_budget_lines: 800
+
+phases:
+  propose:
+    artifact: openspec/changes/{change}/proposal.md
+    engram_key: sdd/{change}/proposal
+  spec:
+    artifact: openspec/changes/{change}/spec.md
+    engram_key: sdd/{change}/spec
+  design:
+    artifact: openspec/changes/{change}/design.md
+    engram_key: sdd/{change}/design
+  tasks:
+    artifact: openspec/changes/{change}/tasks.md
+    engram_key: sdd/{change}/tasks
+  apply:
+    engram_key: sdd/{change}/apply-progress
+  verify:
+    engram_key: sdd/{change}/verify-report
+  archive:
+    artifact: openspec/changes/archive/{change}.md
+    engram_key: sdd/{change}/archive-report
+
+# ---------------------------------------------------------------------------
+# Working protocol for bounded follow-up units (issues #60-#63 and the P2 set).
+#
+# The full SDD chain (explore -> propose -> spec -> tasks -> apply) is NOT used
+# for these units: each GitHub issue already carries the problem statement and
+# the fix direction, so those phases would rediscover known material. The
+# lightweight protocol below retains the two guarantees that matter at this
+# size — an explicit no-code plan before implementation, and an adversarial
+# review after it.
+# ---------------------------------------------------------------------------
+protocol:
+  mode: lightweight
+  steps:
+    - scope        # no-code plan; required for containment/security units only
+    - apply        # strict TDD, RED -> GREEN, one work unit at a time
+    - review_4r    # risk / reliability / resilience / readability, by risk tier
+    - correct      # single bounded correction, budget min(200, changed_lines/2)
+    - verify       # independent re-verification against the plan
+    - commit       # conventional commit, one per work unit
+    - pr_review    # independent holistic pass over `git diff main..HEAD`
+    - merge
+  replan_trigger: |
+    If a unit's post-correction re-verification surfaces a fresh large batch of
+    findings, or the same module reappears across review rounds, STOP grinding
+    corrections and re-scope the unit from the plan step instead.
+
+# Non-negotiable constraints for every unit in this repo.
+guardrails:
+  offline_only: true          # build and test without network; use the fake qemu shim
+  no_real_detonation: true    # a real boot with an untrusted sample is a manually
+                              # gated operator action; no test, script or agent runs one
+  no_ai_attribution: true     # conventional commits only; no Co-Authored-By, no
+                              # "Generated with" trailers in commits or PR bodies
+
+# Properties the offline harness structurally cannot prove, and therefore must
+# be asserted indirectly. The fake qemu shim writes the -drive path directly and
+# never crosses the bwrap mount namespace, which is why finding F5 (issue #60)
+# survived a full 4R review: no offline test observes the sandbox mount set.
+# Units touching the boot path must assert argv/mount-set *consistency* rather
+# than boot outcome, and must state what remains operator-verified-only.
+untestable_offline:
+  - bwrap mount namespace as seen by a real qemu process
+  - guest-side behaviour of an injected sample
+  - real block-device access through the emitted -drive slots

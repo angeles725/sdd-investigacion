@@ -214,6 +214,40 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback")
     except Exception as e: nok("T_CAP1: cap-below-target-size", str(e))
 
+# ── T-scratch-bind: planned_argv contains scratch bind triple AFTER --tmpfs (INV-2/F5) ─
+# Mirror of detonate-plan.test.sh::T4c. Ordering is load-bearing.
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace",
+                                     "--output",str(out)]))
+        assert rc == 3
+        p = json.loads((out/"trace-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        mp = p["mount_plan"]
+        # C3: host_writable must equal scratch_persistent
+        assert mp.get("host_writable") == mp.get("scratch_persistent"), (
+            f"host_writable {mp.get('host_writable')!r} must equal "
+            f"scratch_persistent {mp.get('scratch_persistent')!r}"
+        )
+        scratch = mp["scratch_persistent"]
+        # contiguous bind triple must be present
+        bind_idx = None
+        for i in range(len(argv) - 2):
+            if argv[i] == "--bind" and argv[i+1] == scratch and argv[i+2] == scratch:
+                bind_idx = i
+                break
+        assert bind_idx is not None, (
+            f"planned_argv missing ['--bind', {scratch!r}, {scratch!r}]; argv={argv}"
+        )
+        tmpfs_idx = argv.index("--tmpfs") if "--tmpfs" in argv else None
+        assert tmpfs_idx is not None, "--tmpfs missing from planned_argv"
+        assert bind_idx > tmpfs_idx, (
+            f"--bind at {bind_idx} must come AFTER --tmpfs at {tmpfs_idx}"
+        )
+        ok("T-scratch-bind: planned_argv has scratch --bind triple strictly after --tmpfs (INV-2/F5)")
+    except Exception as e: nok("T-scratch-bind: scratch-bind-after-tmpfs", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

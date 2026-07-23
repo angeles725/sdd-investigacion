@@ -82,18 +82,32 @@ that independently hashes `serial_log`'s parent dir `scratch.img` MUST match
 > live-runnable as-is.**
 > The evidence chain above is validated and CI-tested **OFFLINE only** (fake
 > `qemu-system-*` shim; bwrap is never invoked in CI).
-> The bwrap prefix includes `--tmpfs /tmp/rsdd`, which mounts an empty tmpfs at
-> `/tmp/rsdd` inside the sandbox. The scratch image is created at
-> `/tmp/rsdd/rsdd-<uuid>/scratch.img` on the **host** and substituted into the
-> qemu-system `-drive file=` argument — but inside the sandbox `--tmpfs /tmp/rsdd`
-> masks that host path, so qemu-system cannot open the file. As a result the
-> pre/post scratch-hash evidence chain (`vm_pre_snapshot` / `vm_post_snapshot`) is
-> vacuous under a real bwrap invocation. This defect is invisible in CI because the
-> fake shim writes directly to the `-drive file=` path without bwrap.
-> **Before any real in-guest tracing**, the operator MUST reconcile the scratch
-> mount (e.g. replace `--tmpfs /tmp/rsdd` with a targeted bind-mount of the per-run
-> `run_dir`). This is a documented known limitation; a follow-up design issue tracks
-> the required bwrap-prefix reconciliation.
+>
+> The scratch-mount reachability gap (issue #60 / INV-2) is now **reconciled and
+> machine-checked**: `exec_argv` includes `--bind <scratch> <scratch>` placed
+> after `--tmpfs /tmp/rsdd` (ordering enforced by `lib/vm_disk_policy` at preflight).
+> The scratch drive is reachable inside the sandbox, and the pre/post evidence chain
+> is structurally valid.
+>
+> However, **three further reachability gaps remain** that make the emitted argv
+> still not live-runnable:
+>
+> - **Gap 1 — qemu binary not on PATH inside the sandbox:**
+>   `bwrap: execvp qemu-system-x86_64: No such file or directory`
+>   (no `/usr`, `/bin`, or `/lib` is bound).
+> - **Gap 3 — kernel not reachable:**
+>   `qemu: could not open kernel file '/rsdd/vmlinuz': No such file or directory`
+>   (`/rsdd` is not bound).
+> - **Gap 4 — BIOS roms not reachable:**
+>   `qemu: could not load PC BIOS 'bios-256k.bin'`
+>   (`/usr/share/qemu` is not bound).
+>
+> (Gaps are numbered per the reachability table in design.md §2; gap 2 — the
+> scratch-drive masking defect — was closed by this unit, hence the non-contiguous
+> numbering 1/3/4.)
+>
+> A follow-up unit will design the operator host-runtime mount set for gaps 1/3/4.
+> That is the unit where this WARNING can eventually be retired.
 
 ## Disk slot policy (per-drive containment)
 

@@ -543,6 +543,44 @@ with tempfile.TemporaryDirectory() as td:
         ok("TRACE-RED13: evaluate() wires check_disk_policy — bad plan rejects before boot")
     except Exception as e: nok("TRACE-RED13", str(e))
 
+# ── RED-F5A: exec_argv contains scratch file bind AFTER --tmpfs (INV-2 / F5) ──
+# Mirror of detonate-exec.test.sh::RED-F5A. After evaluate(), the substituted
+# exec_argv must have --bind <P> <P> where P is the real scratch path, AFTER --tmpfs.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    try:
+        r = cli("plan", "--target", str(elf), "--tracer", "strace",
+                "--output", str(tmp / "out"), "--allow-exec",
+                xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:400]}"
+        res = json.loads(r.stdout)
+        exec_argv = res.get("exec_argv", [])
+        drive_specs = [exec_argv[i+1] for i, t in enumerate(exec_argv)
+                       if t == "-drive" and i+1 < len(exec_argv)]
+        scratch_specs = [s for s in drive_specs
+                         if "snapshot=off" in s and "readonly=on" not in s]
+        assert scratch_specs, f"no writable-persistent -drive in exec_argv: {exec_argv}"
+        import re as _re2
+        m3 = _re2.search(r"file=([^,]+)", scratch_specs[0])
+        assert m3, f"no file= in scratch spec: {scratch_specs[0]}"
+        scratch_path = m3.group(1)
+        bind_idx = None
+        for i in range(len(exec_argv) - 2):
+            if exec_argv[i] == "--bind" and exec_argv[i+1] == scratch_path and exec_argv[i+2] == scratch_path:
+                bind_idx = i
+                break
+        assert bind_idx is not None, (
+            f"exec_argv missing ['--bind', {scratch_path!r}, {scratch_path!r}]; "
+            f"exec_argv={exec_argv}"
+        )
+        tmpfs_idx = exec_argv.index("--tmpfs") if "--tmpfs" in exec_argv else None
+        assert tmpfs_idx is not None, "--tmpfs missing from exec_argv"
+        assert bind_idx > tmpfs_idx, (
+            f"--bind at {bind_idx} must be AFTER --tmpfs at {tmpfs_idx}"
+        )
+        ok("RED-F5A: exec_argv has scratch --bind <P> <P> strictly after --tmpfs (INV-2 / F5)")
+    except Exception as e: nok("RED-F5A: scratch-bind-in-exec-argv", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
