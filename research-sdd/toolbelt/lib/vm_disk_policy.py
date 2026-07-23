@@ -133,6 +133,7 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
     # ---- 2. Token scan: forbidden bwrap ops, qemu forbidden flags,
     #         device deny, value predicates, and drive classification -------
     persistent_drives: list[str] = []  # file= paths of writable-persistent drives
+    all_drive_paths:   list[str] = []  # file= paths of every -drive slot (R-REACH)
 
     # Split at "--": bwrap prefix vs. qemu inner command.
     # R-BWRAP-DENY and R-REACH operate only on the bwrap prefix.
@@ -166,7 +167,7 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
             )
 
         if tok == "-drive":
-            _check_one_drive(nxt, persistent_drives)
+            _check_one_drive(nxt, persistent_drives, all_drive_paths)
 
     # ---- 3. Exactly one writable-persistent (scratch) drive ---------------
     if len(persistent_drives) != 1:
@@ -234,9 +235,12 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
     # Ordering is load-bearing: --bind before --tmpfs is silently re-masked.
     # This check runs on the full argv (bwrap prefix only) and is
     # substitution-invariant: sentinel paths work as well as real paths.
-    # Single-element list is the deliberate extension point for gaps 3/4 (kernel,
-    # BIOS roms); add entries here when those binds are designed (design.md §5.2).
-    for drive_path in [scratch_drive_path]:
+    # For ro-bound drives the file= value equals the bind DEST (sandbox path),
+    # not the host path — see _check_drive_reachable docstring.
+    # Extension point for gaps 3/4 (kernel, BIOS roms — design.md §5.2):
+    # those paths are not -drive slots; add a dedicated reachability check
+    # alongside this loop when those binds are designed.
+    for drive_path in all_drive_paths:
         _check_drive_reachable(bwrap_prefix, drive_path)
 
 
@@ -260,8 +264,11 @@ def _parse_drive_kv(spec: str) -> dict[str, str]:
     return out
 
 
-def _check_one_drive(spec: str, persistent_out: list[str]) -> None:
+def _check_one_drive(spec: str, persistent_out: list[str], all_out: list[str]) -> None:
     """Validate a single -drive spec string; append to persistent_out if writable-persistent.
+
+    Also appends the ``file=`` path to *all_out* unconditionally so R-REACH can
+    verify every drive slot, not only the writable-persistent one.
 
     Raises GateError on any violation.
     """
@@ -315,6 +322,7 @@ def _check_one_drive(spec: str, persistent_out: list[str]) -> None:
     else:
         # Writable-persistent class: the scratch disk.
         persistent_out.append(file_path)
+    all_out.append(file_path)  # every drive path must be reachable (R-REACH)
 
 
 def _check_drive_reachable(bwrap_prefix: list[str], drive_path: str) -> None:
@@ -338,8 +346,10 @@ def _check_drive_reachable(bwrap_prefix: list[str], drive_path: str) -> None:
         separator that separates the outer sandbox command from the inner qemu
         command).
     drive_path:
-        The host-side file= path of the drive to check.  May be a sentinel
-        string at plan time or a real path at exec time.
+        The ``file=`` value of the drive to check.  For the scratch drive this
+        is the host-side path; for ro-bound drives (sample, rootfs) it is the
+        sandbox bind DEST (``/input/sample``, ``/input/rootfs``).  The check
+        works precisely because it compares against bind DESTs, not host paths.
     """
     covered = False
     i = 0

@@ -444,6 +444,20 @@ assert_passes(
     "GREEN-REACH-OK: bind after --tmpfs → check_disk_policy passes (R-REACH)"
 )
 
+# ── RED-REACH-SAMPLE-UNBOUND: sample ro-bind DEST mistyped → GateError ───
+# R-REACH must cover every -drive file= slot, not only the scratch drive.
+# Without the G2 fix (iterating all_drive_paths), this argv PASSES because
+# only the scratch path is verified.  With the fix, R-REACH walks /input/sample
+# and finds no bind covering it (DEST was renamed to /input/sampleX) → GateError.
+_sample_unbound_argv = list(GOOD_ARGV)
+_sub_idx = _sample_unbound_argv.index("/input/sample")  # ro-bind DEST token
+_sample_unbound_argv[_sub_idx] = "/input/sampleX"       # mismatch; drive still says /input/sample
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_sample_unbound_argv, run_dir=RUN_DIR),
+    "RED-REACH-SAMPLE-UNBOUND: sample ro-bind DEST mistyped → GateError (R-REACH all drives)",
+    "R-REACH"
+)
+
 # ── RED-BIND-DIR: --bind <run_dir> <run_dir> (directory, not file) → GateError ─
 # The directory bind is rejected: guest writes land in host run_dir, swept into
 # receipt outputs[]. Only the specific scratch file may be bound read-write.
@@ -451,9 +465,10 @@ _bind_dir_argv = list(GOOD_ARGV)
 i_src = _bind_dir_argv.index(SCRATCH_FILE)
 _bind_dir_argv[i_src] = RUN_DIR       # SRC ← dir
 _bind_dir_argv[i_src + 1] = RUN_DIR   # DEST ← dir
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_bind_dir_argv, run_dir=RUN_DIR),
-    "RED-BIND-DIR: --bind <run_dir> <run_dir> → GateError (R-BIND-RW: must be scratch file)"
+    "RED-BIND-DIR: --bind <run_dir> <run_dir> → GateError (R-BIND-RW: must be scratch file)",
+    "file-scoped"
 )
 
 # ── RED-BIND-NONIDENTITY: SRC != DEST → GateError ─────────────────────────
@@ -461,9 +476,10 @@ assert_gate_error(
 _nonid_argv = list(GOOD_ARGV)
 i_src2 = _nonid_argv.index(SCRATCH_FILE)
 _nonid_argv[i_src2] = "/etc/passwd"   # SRC != DEST
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_nonid_argv, run_dir=RUN_DIR),
-    "RED-BIND-NONIDENTITY: --bind SRC != DEST → GateError (R-BIND-RW identity required)"
+    "RED-BIND-NONIDENTITY: --bind SRC != DEST → GateError (R-BIND-RW identity required)",
+    "identity-mapped"
 )
 
 # ── RED-BIND-EXTRA-RW: two --bind ops → GateError ─────────────────────────
@@ -474,9 +490,10 @@ assert_gate_error(
 _extra_bind_argv = list(GOOD_ARGV)
 _eb_sep = _extra_bind_argv.index("--")
 _extra_bind_argv[_eb_sep:_eb_sep] = ["--bind", f"{RUN_DIR}/extra.img", f"{RUN_DIR}/extra.img"]
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_extra_bind_argv, run_dir=RUN_DIR),
-    "RED-BIND-EXTRA-RW: two --bind ops → GateError (R-BIND-RW at most one rw bind)"
+    "RED-BIND-EXTRA-RW: two --bind ops → GateError (R-BIND-RW at most one rw bind)",
+    "exactly 1 read-write"
 )
 
 # ── RED-BWRAP-DENY: --dev-bind, --ro-bind-try, --overlay each → GateError ──
@@ -493,10 +510,11 @@ for _deny_flag, _deny_args in [
     _deny_argv = list(GOOD_ARGV)
     _deny_sep = _deny_argv.index("--")
     _deny_argv[_deny_sep:_deny_sep] = _deny_args
-    assert_gate_error(
+    assert_gate_error_msg(
         lambda _a=_deny_argv, _f=_deny_flag:
             m.check_disk_policy(_a, run_dir=RUN_DIR),
-        f"RED-BWRAP-DENY({_deny_flag}): forbidden bwrap op → GateError (R-BWRAP-DENY)"
+        f"RED-BWRAP-DENY({_deny_flag}): forbidden bwrap op → GateError (R-BWRAP-DENY)",
+        "R-BWRAP-DENY"
     )
 
 # ── GREEN-SUBST-INVARIANT: sentinel form and substituted form both pass ────
@@ -527,13 +545,20 @@ assert_gate_error_msg(
     "PARITY-REACH-ORDER: trace also rejects wrong-order bind (shared checker)",
     "R-REACH"
 )
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_bind_dir_argv, run_dir=RUN_DIR),
-    "PARITY-BIND-DIR: trace also rejects directory bind (shared checker)"
+    "PARITY-BIND-DIR: trace also rejects directory bind (shared checker)",
+    "file-scoped"
 )
-assert_gate_error(
+assert_gate_error_msg(
     lambda: m.check_disk_policy(_extra_bind_argv, run_dir=RUN_DIR),
-    "PARITY-BIND-EXTRA-RW: trace also rejects two rw binds (shared checker)"
+    "PARITY-BIND-EXTRA-RW: trace also rejects two rw binds (shared checker)",
+    "exactly 1 read-write"
+)
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_nonid_argv, run_dir=RUN_DIR),
+    "PARITY-BIND-NONIDENTITY: trace also rejects non-identity bind (shared checker)",
+    "identity-mapped"
 )
 
 print(f"\n== {passed} passed · {failed} failed ==")

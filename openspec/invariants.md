@@ -42,11 +42,16 @@ about nothing.
 
 ### INV-2 — every path in the emitted argv is reachable under the emitted mount set
 
-**Statement:** for each filesystem path referenced by the emitted qemu argv
-(`-drive file=`, kernel, initrd, and any future slot), that path MUST be
-reachable inside the sandbox given the bwrap mount set emitted alongside it. A
-path that is masked by a `--tmpfs` or simply never bound is a silent failure:
-the plan looks correct and the real boot cannot open the file.
+**Statement:** for each `-drive file=` path in the emitted qemu argv, that path
+MUST be reachable inside the sandbox given the bwrap mount set emitted alongside
+it. A path that is masked by a `--tmpfs` or simply never bound is a silent
+failure: the plan looks correct and the real boot cannot open the file.
+
+**Named follow-up (kernel / BIOS roms — design.md §5.2 gaps 3/4):** The kernel
+(`-kernel`) and BIOS rom paths also require reachability but are not yet asserted
+here. INV-2 is `enforced` for all `-drive file=` slots; kernel/BIOS reachability
+is a separate open item tracked by design.md §5.2 and must NOT be conflated with
+this invariant.
 
 **Reachability is ORDER-AWARE, not set-based.** bwrap applies mount operations
 in argv order. A `--bind` placed *before* a `--tmpfs` covering the same subtree
@@ -98,8 +103,14 @@ argument that happens to contain the sentinel as a prefix or infix.
   an unrelated argument.
   **The #63 implementer must cover THREE structural positions** where the sentinel
   `/rsdd/scratch.img` now appears in the post-#60 argv: `--bind SRC`, `--bind DEST`,
-  and `-drive file=`. All three must be matched as complete tokens, not substrings;
-  read from this registry rather than rediscovering from code.
+  and `-drive file=`. Two positions (`--bind SRC` and `--bind DEST`) must be matched
+  as **complete tokens**. The third (`-drive file=`) contains the sentinel as an
+  **infix** of the comma-separated drive spec (e.g.,
+  `file=/rsdd/scratch.img,snapshot=off,format=raw,if=virtio`); matching that token
+  completely would never succeed and is wrong. That position requires **key-scoped
+  parsing**: extract the `file=` value from the comma-separated spec, then substitute
+  the sentinel within the extracted value. Read from this registry rather than
+  rediscovering from code.
 
 ### INV-4 — one run produces exactly one run_dir, and every output is declared
 
