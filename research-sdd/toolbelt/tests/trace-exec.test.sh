@@ -113,6 +113,8 @@ Path("/tmp/rsdd").mkdir(exist_ok=True)
 # Used by PARITY tests that call check_disk_policy directly (no executor needed).
 # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
 # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
+# NOTE(#62): _GOOD_ARGV is duplicated verbatim in detonate-exec.test.sh; extract
+# to a shared exec-test fixture during vm_exec_common extraction.
 _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
 _GOOD_ARGV = [
     "bwrap",

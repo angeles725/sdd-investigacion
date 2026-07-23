@@ -616,31 +616,44 @@ assert_gate_error_msg(
     "'--'"
 )
 
-# ── VDP-T11: block-device allowlist — QEMU flags that bypass -drive policy ─────
-# QEMU accepts many flags that introduce block devices (-hda, -cdrom, -blockdev,
-# etc.).  A plan using -hda is not counted toward the exactly-1-scratch rule and
-# is not inspected by per-drive containment checks.  Every such flag must be
-# rejected; only -drive is sanctioned (R-BLOCKDEV-ALLOWLIST).
+# ── VDP-T11: inner-flag allowlist — flags that bypass -drive containment ────────
+# Only flags in _QEMU_INNER_ALLOWED may appear in the qemu-inner slice.
+# Block-device introducers (-hda, -mtdblock, -blockdev, …) are flag-shaped but
+# absent from the closed set and are therefore rejected by the allowlist catch-all.
+# Mutation obligation (B3): removing any entry from _QEMU_INNER_ALLOWED must turn
+# VDP-T7 (well-formed argv) RED — documented here, verified by reviewer mutation.
 for _bd_flag, _bd_args in [
-    ("-hda",     ["-hda",     "/tmp/rsdd-test-run/extra.img"]),
-    ("-hdb",     ["-hdb",     "/tmp/rsdd-test-run/extra.img"]),
-    ("-hdc",     ["-hdc",     "/tmp/rsdd-test-run/extra.img"]),
-    ("-hdd",     ["-hdd",     "/tmp/rsdd-test-run/extra.img"]),
-    ("-cdrom",   ["-cdrom",   "/tmp/rsdd-test-run/disk.iso"]),
+    ("-hda",      ["-hda",      "/tmp/rsdd-test-run/extra.img"]),
+    ("-hdb",      ["-hdb",      "/tmp/rsdd-test-run/extra.img"]),
+    ("-hdc",      ["-hdc",      "/tmp/rsdd-test-run/extra.img"]),
+    ("-hdd",      ["-hdd",      "/tmp/rsdd-test-run/extra.img"]),
+    ("-cdrom",    ["-cdrom",    "/tmp/rsdd-test-run/disk.iso"]),
     ("-blockdev", ["-blockdev", "node-name=drive0,driver=file,filename=/tmp/rsdd-test-run/x.raw"]),
-    ("-pflash",  ["-pflash",  "/tmp/rsdd-test-run/pflash.bin"]),
-    ("-fda",     ["-fda",     "/tmp/rsdd-test-run/floppy.img"]),
-    ("-fdb",     ["-fdb",     "/tmp/rsdd-test-run/floppy2.img"]),
-    ("-sd",      ["-sd",      "/tmp/rsdd-test-run/sd.img"]),
+    ("-pflash",   ["-pflash",   "/tmp/rsdd-test-run/pflash.bin"]),
+    ("-fda",      ["-fda",      "/tmp/rsdd-test-run/floppy.img"]),
+    ("-fdb",      ["-fdb",      "/tmp/rsdd-test-run/floppy2.img"]),
+    ("-sd",       ["-sd",       "/tmp/rsdd-test-run/sd.img"]),
+    # Non-enumerated flags — closed-set proof (B1): previously would have bypassed
+    # the denylist; the allowlist rejects them by construction (R-INNER-ALLOWLIST).
+    ("-mtdblock", ["-mtdblock", "/tmp/rsdd-test-run/mtd.img"]),
+    ("-nvme",     ["-nvme",     "id=nvme0,file=/tmp/rsdd-test-run/nvme.raw"]),
 ]:
     _bd_argv = list(GOOD_ARGV)
     _bd_argv.extend(_bd_args)   # append after qemu inner command tokens
     assert_gate_error_msg(
         lambda _a=_bd_argv, _f=_bd_flag:
             m.check_disk_policy(_a, run_dir=RUN_DIR),
-        f"VDP-T11({_bd_flag}): forbidden block-device flag → GateError (R-BLOCKDEV-ALLOWLIST)",
-        "R-BLOCKDEV-ALLOWLIST"
+        f"VDP-T11({_bd_flag}): unlisted inner flag → GateError (R-INNER-ALLOWLIST)",
+        "R-INNER-ALLOWLIST"
     )
+
+# ── VDP-T11-pos: sanctioned inner flags still pass (allowlist boundary guard) ──
+# -nographic and -no-reboot are in _QEMU_INNER_ALLOWED; they must not be rejected.
+# Guards against an over-broad allowlist accidentally removing a needed entry.
+assert_passes(
+    lambda: m.check_disk_policy(GOOD_ARGV, run_dir=RUN_DIR),
+    "VDP-T11-pos: -nographic and -no-reboot in inner slice still pass (allowlist boundary)"
+)
 
 # ── VDP-T12: scope-check ALL drive file= paths (R-SCOPE-ALL) ──────────────────
 # Currently only the scratch drive is scope-checked against run_dir.  A readonly
@@ -659,6 +672,101 @@ _t12_argv += ["-drive", f"file={_ROGUE_HOST_PATH},readonly=on,format=raw,if=virt
 assert_gate_error_msg(
     lambda: m.check_disk_policy(_t12_argv, run_dir=RUN_DIR),
     "VDP-T12: readonly drive with host path outside run_dir → GateError (R-SCOPE-ALL)",
+    "R-SCOPE-ALL"
+)
+
+# ===========================================================================
+# Slice A — D1: slice-scoped required flags (relocation mutations)
+# All relocation cases are RED against the current set(argv) code because
+# the full-argv set contains the relocated token even though bwrap never
+# receives it.  GREEN after the partition into bwrap_prefix / inner checks.
+# ===========================================================================
+
+# ── VDP-T10c-reloc: --unshare-pid relocated to inner slice → GateError ─────────
+# Mutation-by-relocation: token is removed from the bwrap prefix and reinserted
+# after --. The full-argv set still contains it, so set(argv) code passes (RED).
+# Fragment "--unshare-pid" is unique to the bwrap-required error message.
+_t10c_reloc = drop_tok(GOOD_ARGV, "--unshare-pid")
+_sep_r = _t10c_reloc.index("--")
+_t10c_reloc.insert(_sep_r + 1, "--unshare-pid")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10c_reloc, run_dir=RUN_DIR),
+    "VDP-T10c-reloc: --unshare-pid relocated to inner slice → GateError (D1 slice-scoped)",
+    "--unshare-pid"
+)
+
+# ── VDP-T10a-reloc: --cap-drop ALL relocated to inner slice → GateError ─────────
+_t10a_reloc = drop_pair(GOOD_ARGV, "--cap-drop")
+_sep_r = _t10a_reloc.index("--")
+_t10a_reloc[_sep_r + 1:_sep_r + 1] = ["--cap-drop", "ALL"]
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10a_reloc, run_dir=RUN_DIR),
+    "VDP-T10a-reloc: --cap-drop ALL relocated to inner slice → GateError (D1 slice-scoped)",
+    "--cap-drop"
+)
+
+# ── VDP-T10d-reloc: --tmpfs /tmp/rsdd relocated to inner slice → GateError ──────
+_t10d_reloc = drop_pair(GOOD_ARGV, "--tmpfs")
+_sep_r = _t10d_reloc.index("--")
+_t10d_reloc[_sep_r + 1:_sep_r + 1] = ["--tmpfs", "/tmp/rsdd"]
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10d_reloc, run_dir=RUN_DIR),
+    "VDP-T10d-reloc: --tmpfs relocated to inner slice → GateError (D1 slice-scoped)",
+    "--tmpfs"
+)
+
+# ── VDP-T13: -sandbox dropped from inner slice → GateError (inner-required) ─────
+# Fragment "qemu-inner" is unique to the inner-required error message, proving
+# the rule specifically targets the qemu-inner slice, not the full-argv set.
+_t13_argv = drop_pair(GOOD_ARGV, "-sandbox")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t13_argv, run_dir=RUN_DIR),
+    "VDP-T13: -sandbox dropped from inner slice → GateError (inner-required rule)",
+    "qemu-inner"
+)
+
+# ── VDP-T13-reloc: -smp 1 relocated to bwrap prefix → GateError (inner-required) ─
+# Relocation: token present in full-argv set so set(argv) code passes (RED).
+# After fix: set(inner) lacks -smp → inner-required check fires. Fragment "qemu-inner".
+_t13_reloc = drop_pair(GOOD_ARGV, "-smp")
+_sep_r = _t13_reloc.index("--")
+_t13_reloc[_sep_r:_sep_r] = ["-smp", "1"]  # insert before --
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t13_reloc, run_dir=RUN_DIR),
+    "VDP-T13-reloc: -smp 1 relocated to bwrap prefix → GateError (inner-required rule)",
+    "qemu-inner"
+)
+
+# ===========================================================================
+# Slice C — D3: path-safe exemption + scratch always scoped
+# Both cases are RED against the current startswith("/input/") exemption code.
+# GREEN after the fix: unconditional scratch scope + normpath-based exemption.
+# ===========================================================================
+
+# ── VDP-T14: writable scratch at /input/scratch.img → GateError (R-SCOPE-ALL) ──
+# Regression case: the /input/ exemption introduced in #61 suppressed the
+# run_dir scope check for scratch even when it is writable-persistent.
+# The scratch must always be scope-checked regardless of its path prefix.
+_INPUT_SCRATCH = "/input/scratch.img"
+_t14_argv = [tok.replace(SCRATCH_FILE, _INPUT_SCRATCH) for tok in GOOD_ARGV]
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t14_argv, run_dir=RUN_DIR),
+    "VDP-T14: writable scratch at /input/scratch.img → GateError (R-SCOPE-ALL regression)",
+    "R-SCOPE-ALL"
+)
+
+# ── VDP-T15: traversal path /input/../etc/shadow → GateError (R-SCOPE-ALL) ──────
+# The raw startswith("/input/") check exempts /input/../etc/shadow because the
+# string prefix matches, but posixpath.normpath resolves it to /etc/shadow which
+# is not a recognized sandbox-internal DEST.
+_TRAVERSAL_GUEST = "/input/../etc/shadow"
+_t15_argv = list(GOOD_ARGV)
+_t15_sep = _t15_argv.index("--")
+_t15_argv[_t15_sep:_t15_sep] = ["--ro-bind", "/etc/shadow", _TRAVERSAL_GUEST]
+_t15_argv += ["-drive", f"file={_TRAVERSAL_GUEST},readonly=on,format=raw,if=virtio"]
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t15_argv, run_dir=RUN_DIR),
+    "VDP-T15: traversal /input/../etc/shadow bypasses /input/ prefix → GateError (R-SCOPE-ALL)",
     "R-SCOPE-ALL"
 )
 
