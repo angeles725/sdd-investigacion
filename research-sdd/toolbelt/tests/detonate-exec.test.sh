@@ -636,6 +636,38 @@ try:
     ok("RED-INV3-sentinel-absent: no sentinel → empty deltas, argv unchanged (INV-3)")
 except Exception as e: nok("RED-INV3-sentinel-absent", str(e))
 
+# ── RED-INV3-drive-prefix ─────────────────────────────────────────────────────
+# A -drive whose file= value is the sentinel as a PREFIX of a longer path MUST
+# be left untouched.  The exact-match guard (Fix 1) enforces this.
+# Mutation proof: reverting Fix 1 to substring check reds this test.
+try:
+    import vm_exec_common as _vecDP
+    _adv_prefix = [
+        "-drive", f"file={_SENT3}.bak,snapshot=off,format=raw,if=virtio",
+    ]
+    _newDP, _deltasDP = _vecDP._substitute_scratch_sentinel(_adv_prefix, _REAL3)
+    assert _newDP[1] == _adv_prefix[1], \
+        f"drive prefix spec incorrectly rewritten to {_newDP[1]!r}"
+    assert _deltasDP == [], f"unexpected delta for drive prefix: {_deltasDP}"
+    ok("RED-INV3-drive-prefix: file= prefix path left untouched (INV-3 / F4)")
+except Exception as e: nok("RED-INV3-drive-prefix", str(e))
+
+# ── RED-INV3-nonfile-key ──────────────────────────────────────────────────────
+# A -drive spec where the sentinel appears in a NON-file key (e.g. id=) MUST be
+# left untouched.  Only the file= key is eligible for substitution.
+# Mutation proof: removing the startswith("file=") key guard reds this test.
+try:
+    import vm_exec_common as _vecNF
+    _adv_nonfile = [
+        "-drive", f"file=/some/real.img,id={_SENT3}",
+    ]
+    _newNF, _deltasNF = _vecNF._substitute_scratch_sentinel(_adv_nonfile, _REAL3)
+    assert _newNF[1] == _adv_nonfile[1], \
+        f"non-file-key spec incorrectly rewritten to {_newNF[1]!r}"
+    assert _deltasNF == [], f"unexpected delta for non-file-key: {_deltasNF}"
+    ok("RED-INV3-nonfile-key: sentinel in id= key left untouched (INV-3 / F4)")
+except Exception as e: nok("RED-INV3-nonfile-key", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

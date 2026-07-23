@@ -86,10 +86,8 @@ def _substitute_scratch_sentinel(
             new_parts: list[str] = []
             changed = False
             for part in parts:
-                if part.startswith("file=") and _SCRATCH_SENTINEL in part[len("file="):]:
-                    file_val = part[len("file="):]
-                    new_file_val = file_val.replace(_SCRATCH_SENTINEL, scratch_path)
-                    new_parts.append("file=" + new_file_val)
+                if part == "file=" + _SCRATCH_SENTINEL:
+                    new_parts.append("file=" + scratch_path)
                     changed = True
                 else:
                     new_parts.append(part)

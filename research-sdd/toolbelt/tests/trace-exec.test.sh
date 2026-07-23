@@ -621,6 +621,21 @@ with tempfile.TemporaryDirectory() as td:
         ok("TRACE-RED-F2: sentinel-free plan → GateError names 'trace plan' (plan_label wired)")
     except Exception as e: nok("TRACE-RED-F2: plan_label-trace", str(e))
 
+# ── TRACE-RED-INV3-adversarial ────────────────────────────────────────────────
+# Mirror of the detonate-side adversarial property on the trace executor path.
+# Proves INV-3 is enforced on shared code regardless of which executor calls it.
+try:
+    import vm_exec_common as _vecTINV3
+    _t_sent = "/rsdd/scratch.img"
+    _t_real = "/tmp/rsdd/rsdd-T/scratch.img"
+    _adv_t = ["-drive", f"file={_t_sent}.bak,snapshot=off,format=raw,if=virtio"]
+    _newT, _deltasT = _vecTINV3._substitute_scratch_sentinel(_adv_t, _t_real)
+    assert _newT[1] == _adv_t[1], \
+        f"trace: drive prefix spec incorrectly rewritten to {_newT[1]!r}"
+    assert _deltasT == [], f"unexpected delta on trace path: {_deltasT}"
+    ok("TRACE-RED-INV3-adversarial: file= prefix untouched on trace path (INV-3)")
+except Exception as e: nok("TRACE-RED-INV3-adversarial", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
