@@ -184,7 +184,17 @@ def plan_detonate(args: Any) -> int:
     try: determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"detonate-plan: determinism error: {exc}", file=sys.stderr); return 2
-    executor = select_executor(args.allow_exec, SCHEMA_VERSION)
+    # Local wiring: DetonateVmExecutor for live exec path only.
+    # DO NOT route through plan_common.select_executor — it serves other callers.
+    # DO NOT modify lib/gate.py. RSDD_EXEC_EXECUTOR env stub wins (gate.py:113).
+    if args.allow_exec:
+        sys.path.insert(0, str(_LIB))
+        from detonate_exec import DetonateVmExecutor   # noqa: E402
+        executor: Any = DetonateVmExecutor(output_dir)
+    else:
+        # args.allow_exec is invariantly False in this branch; pass literal False
+        # so it is explicit that this is the plan-only / gate-closed path.
+        executor = select_executor(False, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "detonate-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)

@@ -47,6 +47,7 @@ def run_vm(
     *,
     preflight: Any,
     snapshot_hook: Any = None,
+    pre_boot: Any = None,
 ) -> dict[str, Any]:
     """Boot a QEMU VM; return vm-boot-run.v1 evidence dict.
 
@@ -58,11 +59,19 @@ def run_vm(
         Caller-supplied validation callable ``(plan) -> None``.  GateError from preflight
         propagates unchanged (→ exit 2 at the CLI boundary).
     snapshot_hook:
-        Optional callable ``(phase: str, run_dir: str) -> {sha256: str} | None``.
-        ``phase="pre"`` is called AFTER run_dir is created, BEFORE Popen.
-        ``phase="post"`` is called AFTER the guaranteed process-tree teardown.
+        Optional callable ``(phase: str, run_dir: str) -> {sha256: str}``.
+        ``phase="pre"`` is called AFTER run_dir is created and pre_boot runs, BEFORE Popen.
+        ``phase="post"`` is called INSIDE the guaranteed teardown region (finally block).
+        Hash errors are caught by the internal ``_safe_snapshot`` helper and returned as
+        ``None`` with a stderr WARNING — they NEVER raise-through or discard evidence.
         When ``None`` (V1b / LiveQemuBootExecutor behaviour), ``vm_pre_snapshot`` and
-        ``vm_post_snapshot`` in the receipt remain ``None``.
+        ``vm_post_snapshot`` in the receipt remain ``None`` (byte-identical to D0).
+    pre_boot:
+        Optional callable ``(run_dir: str, exec_argv: list[str]) -> list[str]``.
+        Called AFTER run_dir is created and AFTER preflight, BEFORE the pre-snapshot
+        and Popen.  Returns the (possibly substituted) exec_argv.  The callback may
+        create files in run_dir (e.g. scratch.img) so they appear in output_files()
+        and are hashed by snapshot_hook.  When ``None``, exec_argv is unchanged.
     """
     preflight(plan)
     exec_argv: list[str] = list(plan["planned_argv"])
@@ -71,15 +80,33 @@ def run_vm(
     # Post-preflight: qbin is guaranteed non-None and on PATH.
     qbin = resolve_qbin(plan, exec_argv)
 
-    # Per-run subdir (O_NOFOLLOW fd-anchored).
+    # Per-run subdir (O_NOFOLLOW fd-anchored) — the SINGLE run_dir for this call.
     run_dir = _dc.make_run_subdir(uuid.uuid4().hex)
     serial_log = f"{run_dir}/serial.log"
-    # exec_argv == planned_argv (no token mutations); serial_log is a top-level field.
     argv_deltas: list[dict[str, Any]] = []
 
-    # Pre-boot snapshot seam (D2: hash scratch disk before boot; D0: None).
-    pre_snap: dict[str, str] | None = snapshot_hook("pre", run_dir) if snapshot_hook else None
+    # pre_boot seam: caller may create files (e.g. scratch.img) and substitute
+    # tokens in exec_argv.  Runs BEFORE the pre-snapshot so created files are hashed.
+    if pre_boot is not None:
+        exec_argv = pre_boot(run_dir, exec_argv)
 
+    # Fail-soft snapshot helper: hash errors → None + stderr WARNING, NEVER raise-through.
+    def _safe_snapshot(phase: str, _run_dir: str) -> "dict[str, str] | None":
+        if snapshot_hook is None:
+            return None
+        try:
+            return snapshot_hook(phase, _run_dir)
+        except Exception as exc:
+            print(
+                f"WARNING: vm {phase}-snapshot hash failed (non-fatal): {exc}",
+                file=sys.stderr,
+            )
+            return None
+
+    # Pre-boot snapshot seam (D2: hash scratch disk before boot; D0/boot: None).
+    pre_snap: dict[str, str] | None = _safe_snapshot("pre", run_dir)
+
+    post_snap: dict[str, str] | None = None
     raw_out: list[bytes] = [b""]; raw_err: list[bytes] = [b""]
     # Discrete list[str] argv — no shell expansion surface.
     proc = subprocess.Popen(
@@ -106,9 +133,10 @@ def run_vm(
         for t in (t_out, t_err):
             if t is not None and t.ident is not None:
                 t.join(timeout=5)
-
-    # Post-teardown snapshot seam (D2: hash scratch disk after teardown; D0: None).
-    post_snap: dict[str, str] | None = snapshot_hook("post", run_dir) if snapshot_hook else None
+        # Post-teardown snapshot INSIDE the guaranteed region so it runs on timeout
+        # and BaseException paths.  Fail-soft: hash error → post_snap=None + WARNING;
+        # serial_log / pre_snap / outcome are NEVER discarded by a failing post-hash.
+        post_snap = _safe_snapshot("post", run_dir)
 
     t_end = datetime.datetime.utcnow()
     duration_s = time.monotonic() - t0

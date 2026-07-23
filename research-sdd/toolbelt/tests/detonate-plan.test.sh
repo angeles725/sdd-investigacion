@@ -45,15 +45,18 @@ with tempfile.TemporaryDirectory() as td:
         ok("T2: flag absent → exit 3 (authorization-required)")
     except Exception as e: nok("T2: flag-absent-exit3", str(e))
 
-# ── T3: --allow-exec + no live executor → exit 2 (gate hard-refuse) ─────────────
+# ── T3: --allow-exec + qemu binary not on PATH → exit 2 (preflight GateError) ───
+# D2 wires DetonateVmExecutor. When qemu-system binary is absent → _preflight
+# raises GateError → exit 2.  Restrict PATH to an empty temp dir so qemu is gone.
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
-    try:
-        r = cli("plan","--sample",str(s),"--output",str(out),
-                "--allow-exec", xe={"RSDD_EXEC_EXECUTOR": ""})
-        assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:120]}"
-        ok("T3: --allow-exec + no live executor → exit 2 (gate hard-refuse)")
-    except Exception as e: nok("T3: allow-exec-hard-refuse", str(e))
+    with tempfile.TemporaryDirectory() as empty_bin:
+        try:
+            r = cli("plan","--sample",str(s),"--output",str(out),
+                    "--allow-exec", xe={"RSDD_EXEC_EXECUTOR": "", "PATH": empty_bin})
+            assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:120]}"
+            ok("T3: --allow-exec + qemu not on PATH → exit 2 (preflight GateError)")
+        except Exception as e: nok("T3: allow-exec-hard-refuse", str(e))
 
 # ── T4: network defaults "none"; non-none refused; mount_plan + snapshot correct ─
 with tempfile.TemporaryDirectory() as td:
