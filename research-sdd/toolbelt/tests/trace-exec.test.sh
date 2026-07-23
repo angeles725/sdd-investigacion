@@ -508,9 +508,9 @@ with tempfile.TemporaryDirectory() as td:
 
 # ── TRACE-RED13: TraceVmExecutor.evaluate() wires check_disk_policy (integration path) ──
 # Routes a bad plan (real scratch path + -netdev user) through evaluate() directly.
-# RED proof: if trace_exec.py:94's check_disk_policy call were removed, _preflight
-# would pass; pre_boot would raise "sentinel not found" (different msg); the
-# "-netdev"/"forbidden" assertion below would FAIL → RED confirmed, line 94 is load-bearing.
+# RED proof: if vm_exec_common._preflight's check_disk_policy call were removed,
+# pre_boot would raise "sentinel not found" (different msg); the
+# "-netdev"/"forbidden" assertion below would FAIL → RED confirmed, _preflight is load-bearing.
 # The 11 PARITY tests call check_disk_policy directly and would NOT catch this gap.
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); p = _shims(tmp); elf = _elf(tmp); rec = tmp / "calls.json"
@@ -600,6 +600,26 @@ with tempfile.TemporaryDirectory() as td:
         )
         ok("RED-F5A: exec_argv has scratch --bind <P> <P> strictly after --tmpfs (INV-2 / F5)")
     except Exception as e: nok("RED-F5A: scratch-bind-in-exec-argv", str(e))
+
+# ── TRACE-RED-F2: plan_label names "trace" in sentinel-missing GateError ──────────
+# Swapping plan_label args in detonate_exec.py/trace_exec.py would flip the label here.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp)
+    try:
+        import trace_exec as _te_f2; from gate import GateError
+        # _GOOD_ARGV has no sentinel (/rsdd/rsdd-test/scratch.img ≠ /rsdd/scratch.img);
+        # _preflight passes, pre_boot finds no sentinel → GateError naming executor.
+        _f2t_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+        _old = os.environ.get("PATH", ""); os.environ["PATH"] = p
+        try:
+            _raised_f2t = None
+            try: _te_f2.TraceVmExecutor(tmp / "out").evaluate(_f2t_plan)
+            except Exception as _e: _raised_f2t = _e
+        finally: os.environ["PATH"] = _old
+        assert isinstance(_raised_f2t, GateError), f"expected GateError: {_raised_f2t!r}"
+        assert "trace plan" in str(_raised_f2t), f"GateError must name 'trace plan': {_raised_f2t}"
+        ok("TRACE-RED-F2: sentinel-free plan → GateError names 'trace plan' (plan_label wired)")
+    except Exception as e: nok("TRACE-RED-F2: plan_label-trace", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
