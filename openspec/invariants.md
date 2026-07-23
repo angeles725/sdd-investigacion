@@ -118,9 +118,10 @@ argument that happens to contain the sentinel as a prefix or infix.
     `-bios /rsdd/scratch.img.bak`) are NOT rewritten (core F4 assertion).
   - `RED-INV3-sentinel-absent`: absent sentinel → empty deltas, argv unchanged.
   - `RED-INV3-drive-prefix`: `file=/rsdd/scratch.img.bak` in `-drive` left untouched (exact-match guard).
-  - `RED-INV3-nonfile-key`: sentinel in `id=` key left untouched (file=-key scope guard).
+  - `RED-INV3-nonfile-key`: sentinel in `id=` key left untouched (exact `file=` value match).
   `tests/trace-exec.test.sh`:
   - `TRACE-RED-INV3-adversarial`: file= prefix path untouched on trace executor path (INV-3 shared code).
+  - `RED-INV3-eval-seam` / `TRACE-RED-INV3-eval-seam`: adversarial property pinned at `evaluate()` seam (INV-3 wiring, not just helper).
 
 ### INV-4 — one run produces exactly one run_dir, and every output is declared
 

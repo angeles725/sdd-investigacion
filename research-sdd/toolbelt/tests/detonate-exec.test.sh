@@ -532,7 +532,6 @@ with tempfile.TemporaryDirectory() as td:
 
 # ── RED-INV3: position-aware sentinel substitution (INV-3 / F4) ──────────────
 # Tests for _substitute_scratch_sentinel() in vm_exec_common.
-# These are RED until _substitute_scratch_sentinel is extracted and exported.
 #
 # Three structural positions in the planned argv:
 #   1. --bind SRC  (complete-token match; tok == _SCRATCH_SENTINEL)
@@ -655,7 +654,7 @@ except Exception as e: nok("RED-INV3-drive-prefix", str(e))
 # ── RED-INV3-nonfile-key ──────────────────────────────────────────────────────
 # A -drive spec where the sentinel appears in a NON-file key (e.g. id=) MUST be
 # left untouched.  Only the file= key is eligible for substitution.
-# Mutation proof: removing the startswith("file=") key guard reds this test.
+# Mutation proof: reverting exact-equality `part == "file=" + _SCRATCH_SENTINEL` to substring check reds this.
 try:
     import vm_exec_common as _vecNF
     _adv_nonfile = [
@@ -668,6 +667,25 @@ try:
     ok("RED-INV3-nonfile-key: sentinel in id= key left untouched (INV-3 / F4)")
 except Exception as e: nok("RED-INV3-nonfile-key", str(e))
 
+# ── RED-INV3-eval-seam: evaluate()-level adversarial -kernel not substituted (INV-3 seam) ──
+# Mutation proof: revert pre_boot call site to substring loop → -kernel wrongly rewritten → FAILS.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp)
+    try:
+        import detonate_exec as _de2; from gate import GateError
+        _av2 = ["bwrap","--unshare-net","--unshare-pid","--cap-drop","ALL","--tmpfs","/tmp/rsdd","--dir","/tmp/rsdd/out",
+                "--bind",_SENT3,_SENT3,"--ro-bind","/store/rootfs.img","/input/rootfs","--ro-bind","/store/sample.bin","/input/sample","--",
+                "qemu-system-x86_64","-m","256","-smp","1","-accel","tcg","-nic","none","-nodefaults",
+                "-sandbox","on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+                "-kernel",_SENT3,"-drive","file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+                "-drive",f"file={_SENT3},snapshot=off,format=raw,if=virtio","-drive","file=/input/rootfs,snapshot=on,format=raw,if=virtio"]
+        _old2 = os.environ.get("PATH",""); os.environ["PATH"] = p
+        try: _r2 = _de2.DetonateVmExecutor(tmp/"out").evaluate({"qemu_binary":"qemu-system-x86_64","planned_argv":_av2})
+        finally: os.environ["PATH"] = _old2
+        _ea2 = _r2.get("exec_argv",[]); _ki2 = _ea2.index("-kernel") if "-kernel" in _ea2 else None
+        assert _ki2 is not None and _ea2[_ki2+1]==_SENT3 and any(_ea2[i]=="--bind" and _ea2[i+1]!=_SENT3 for i in range(len(_ea2)-1)), f"INV-3 seam: -kernel={_ea2[_ki2+1] if _ki2 is not None else 'missing'!r} or --bind not substituted"
+        ok("RED-INV3-eval-seam: evaluate() seam — -kernel untouched, --bind/-drive substituted (INV-3)")
+    except Exception as e: nok("RED-INV3-eval-seam", str(e))
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
