@@ -90,20 +90,36 @@ with tempfile.TemporaryDirectory() as td:
         rc = m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
         assert rc == 3
         p = json.loads((out/"detonate-plan.v1.json").read_text())
-        assert p["disk"]["mode"] == "ephemeral-snapshot" and p["disk"]["post_snapshot_capture"]
+        # D1 rebuild: disk.mode changed to per-drive-policy (global -snapshot dropped)
+        assert p["disk"]["mode"] == "per-drive-policy" and p["disk"]["post_snapshot_capture"]
         argv = p["planned_argv"]
         assert "--unshare-net" in argv and "--cap-drop" in argv and "ALL" in argv
-        assert "bwrap" in argv and "/input/sample" in argv
-        ok("T5b: disk=ephemeral-snapshot; argv has --unshare-net + --cap-drop ALL")
+        assert "bwrap" in argv
+        # /input/sample now appears inside a -drive value, not as standalone executable
+        assert any("/input/sample" in a for a in argv), \
+            "/input/sample not found anywhere in planned_argv (should be in -drive value)"
+        ok("T5b: disk=per-drive-policy; argv has --unshare-net + --cap-drop ALL; sample in -drive")
     except Exception as e: nok("T5b: disk-argv-containment", str(e))
     try:
         p5c = json.loads((out/"detonate-plan.v1.json").read_text())
         argv5c = p5c["planned_argv"]
-        assert "--unshare-ipc" in argv5c, "--unshare-ipc missing from planned_argv"
-        assert "--unshare-uts" in argv5c, "--unshare-uts missing from planned_argv"
-        assert "--unshare-cgroup" in argv5c, "--unshare-cgroup missing from planned_argv"
-        ok("T5c: argv has --unshare-ipc + --unshare-uts + --unshare-cgroup (namespace isolation)")
-    except Exception as e: nok("T5c: namespace-isolation-flags", str(e))
+        # Fix 1: bwrap prefix MUST include --unshare-ipc, --unshare-uts, --unshare-cgroup
+        # (restored — hostile-sample bwrap needs full namespace isolation beyond just net+pid).
+        assert "--unshare-ipc" in argv5c, "--unshare-ipc missing from bwrap prefix"
+        assert "--unshare-uts" in argv5c, "--unshare-uts missing from bwrap prefix"
+        assert "--unshare-cgroup" in argv5c, "--unshare-cgroup missing from bwrap prefix"
+        # qemu inner belt
+        assert "-accel" in argv5c and argv5c[argv5c.index("-accel")+1] == "tcg", \
+            "-accel tcg missing from planned_argv"
+        assert "-nic" in argv5c and argv5c[argv5c.index("-nic")+1] == "none", \
+            "-nic none missing from planned_argv"
+        assert "-smp" in argv5c and argv5c[argv5c.index("-smp")+1] == "1", \
+            "-smp 1 missing from planned_argv"
+        assert "-nodefaults" in argv5c, "-nodefaults missing from planned_argv"
+        assert any(a.startswith("on,") for a in argv5c), \
+            "-sandbox on,... value missing from planned_argv"
+        ok("T5c: bwrap --unshare-ipc/uts/cgroup present; qemu inner belt: -accel tcg, -nic none, -smp 1, -nodefaults, -sandbox on")
+    except Exception as e: nok("T5c: bwrap-ns-ipc-uts-cgroup-and-inner-belt", str(e))
 
 # ── T6: symlink → exit 2, no traceback; missing file → exit 2, no traceback ─────
 with tempfile.TemporaryDirectory() as td:
@@ -198,6 +214,168 @@ with tempfile.TemporaryDirectory() as td:
             f"missing 'detonate-plan:' prefix in stderr:\n{r.stderr[:120]}"
         ok("T_OSE: OSError from mkdir blocked by file → exit 2, clean error, no traceback")
     except Exception as e: nok("T_OSE: ose-mkdir-blocked", str(e))
+
+
+# ── T_DIS1: planned_argv is qemu-system form (not host-bwrap direct exec) ────
+# D1 RED: old argv was "bwrap ... -- /input/sample"; new form must have qemu-system.
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        rc = m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        assert rc == 3
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        # Must contain a qemu-system-* binary token (not direct host execution)
+        qemu_tokens = [t for t in argv if t.startswith("qemu-system-")]
+        assert qemu_tokens, f"no qemu-system-* token in planned_argv; got: {argv}"
+        # Must contain -drive flag
+        assert "-drive" in argv, "-drive flag missing from planned_argv"
+        # /input/sample must NOT appear as a standalone executable token
+        # (it must only appear embedded in a -drive file= value)
+        try:
+            raw_idx = argv.index("/input/sample")
+            # If found as standalone, it should be preceded by -drive's value --
+            # i.e., it must NOT be right after "--" (the bwrap separator)
+            sep_idx = argv.index("--") if "--" in argv else -1
+            assert raw_idx != sep_idx + 1, \
+                "/input/sample is still the direct host executable (rejected host-exec form)"
+        except ValueError:
+            pass  # /input/sample not standalone — correct; it's in a -drive value
+        ok("T_DIS1: planned_argv is qemu-system form (not host-bwrap direct exec)")
+    except Exception as e: nok("T_DIS1: qemu-system-form", str(e))
+
+# ── T_DIS2: all -drive values have format=raw ─────────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        drive_values = [argv[i+1] for i, t in enumerate(argv)
+                        if t == "-drive" and i+1 < len(argv)]
+        assert drive_values, "no -drive values found in planned_argv"
+        for dv in drive_values:
+            assert "format=raw" in dv, \
+                f"-drive value missing format=raw: {dv!r}"
+        ok("T_DIS2: all -drive values contain format=raw")
+    except Exception as e: nok("T_DIS2: all-drives-format-raw", str(e))
+
+# ── T_DIS3: sample drive is readonly=on,snapshot=off ─────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        drive_values = [argv[i+1] for i, t in enumerate(argv)
+                        if t == "-drive" and i+1 < len(argv)]
+        sample_drives = [d for d in drive_values if "/input/sample" in d]
+        assert sample_drives, "no /input/sample drive found in planned_argv"
+        sd = sample_drives[0]
+        assert "readonly=on" in sd, f"sample drive missing readonly=on: {sd!r}"
+        assert "snapshot=off" in sd, f"sample drive missing snapshot=off: {sd!r}"
+        ok("T_DIS3: sample drive has readonly=on + snapshot=off")
+    except Exception as e: nok("T_DIS3: sample-drive-readonly", str(e))
+
+# ── T_DIS4: rootfs drive is snapshot=on (COW — ephemeral writes) ──────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        drive_values = [argv[i+1] for i, t in enumerate(argv)
+                        if t == "-drive" and i+1 < len(argv)]
+        rootfs_drives = [d for d in drive_values if "/input/rootfs" in d]
+        assert rootfs_drives, "no /input/rootfs drive found in planned_argv"
+        rd = rootfs_drives[0]
+        assert "snapshot=on" in rd, \
+            f"rootfs drive must be snapshot=on (COW); got: {rd!r}"
+        ok("T_DIS4: rootfs drive has snapshot=on (COW, ephemeral)")
+    except Exception as e: nok("T_DIS4: rootfs-drive-cow", str(e))
+
+# ── T_DIS5: scratch drive has snapshot=off (writes persist for host reading) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        drive_values = [argv[i+1] for i, t in enumerate(argv)
+                        if t == "-drive" and i+1 < len(argv)]
+        # scratch is the one drive that is NOT /input/sample and NOT /input/rootfs
+        scratch_drives = [d for d in drive_values
+                          if "/input/sample" not in d and "/input/rootfs" not in d]
+        assert scratch_drives, "no scratch drive found (expected exactly one non-input drive)"
+        sd = scratch_drives[0]
+        assert "snapshot=off" in sd, \
+            f"scratch drive must be snapshot=off (persistent); got: {sd!r}"
+        ok("T_DIS5: scratch drive has snapshot=off (host reads post-teardown)")
+    except Exception as e: nok("T_DIS5: scratch-drive-persistent", str(e))
+
+# ── T_DIS6: planned_argv passes vm_disk_policy.check_disk_policy ─────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        # Import vm_disk_policy for the plan-level check (no run_dir at plan time)
+        import importlib.util as _ilu
+        _vdp_path = sut.parent / "lib" / "vm_disk_policy.py"
+        _vdp_sp = _ilu.spec_from_file_location("vm_disk_policy", _vdp_path)
+        _vdp = _ilu.module_from_spec(_vdp_sp); _vdp_sp.loader.exec_module(_vdp)
+        _vdp.check_disk_policy(argv)  # no run_dir (plan-level check)
+        ok("T_DIS6: plan's planned_argv passes vm_disk_policy.check_disk_policy")
+    except Exception as e: nok("T_DIS6: plan-passes-disk-policy", str(e))
+
+# ── T_DIS7: no global -snapshot flag in detonate planned_argv ─────────────────
+# Design §4: global -snapshot DROPPED; per-drive policy replaces it.
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        assert "-snapshot" not in argv, \
+            "global -snapshot must NOT appear in detonate planned_argv (per-drive policy replaces it)"
+        ok("T_DIS7: global -snapshot absent (per-drive policy in use)")
+    except Exception as e: nok("T_DIS7: no-global-snapshot", str(e))
+
+# ── T_DIS8: disk.mode reflects per-drive policy ───────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        assert p["disk"]["mode"] == "per-drive-policy", \
+            f"disk.mode should be 'per-drive-policy', got {p['disk']['mode']!r}"
+        assert p["disk"]["post_snapshot_capture"] is True, \
+            "disk.post_snapshot_capture must be True"
+        ok("T_DIS8: disk.mode='per-drive-policy' and post_snapshot_capture=True")
+    except Exception as e: nok("T_DIS8: disk-mode-per-drive-policy", str(e))
+
+# ── T_DIS9: plan has arch and qemu_binary fields ──────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"sample.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    out = R/"out"
+    try:
+        m.plan_detonate(m._parser(["plan","--sample",str(s),"--output",str(out)]))
+        p = json.loads((out/"detonate-plan.v1.json").read_text())
+        assert "arch" in p, "plan missing 'arch' field"
+        assert "qemu_binary" in p, "plan missing 'qemu_binary' field"
+        assert p["qemu_binary"].startswith("qemu-system-"), \
+            f"qemu_binary should start with 'qemu-system-'; got {p['qemu_binary']!r}"
+        ok("T_DIS9: plan has 'arch' and 'qemu_binary' (qemu-system-*) fields")
+    except Exception as e: nok("T_DIS9: arch-and-qemu-binary", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
