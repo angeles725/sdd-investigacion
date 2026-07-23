@@ -685,34 +685,39 @@ assert_gate_error_msg(
 # ── VDP-T10c-reloc: --unshare-pid relocated to inner slice → GateError ─────────
 # Mutation-by-relocation: token is removed from the bwrap prefix and reinserted
 # after --. The full-argv set still contains it, so set(argv) code passes (RED).
-# Fragment "--unshare-pid" is unique to the bwrap-required error message.
+# "bwrap prefix missing" is unique to the bwrap-required error message and absent
+# from the R-INNER-ALLOWLIST backstop, so this fragment proves slice-scoping bites.
 _t10c_reloc = drop_tok(GOOD_ARGV, "--unshare-pid")
 _sep_r = _t10c_reloc.index("--")
 _t10c_reloc.insert(_sep_r + 1, "--unshare-pid")
 assert_gate_error_msg(
     lambda: m.check_disk_policy(_t10c_reloc, run_dir=RUN_DIR),
     "VDP-T10c-reloc: --unshare-pid relocated to inner slice → GateError (D1 slice-scoped)",
-    "--unshare-pid"
+    "bwrap prefix missing"
 )
 
 # ── VDP-T10a-reloc: --cap-drop ALL relocated to inner slice → GateError ─────────
+# "bwrap prefix missing" is unique to the bwrap-required message, proving the
+# slice-scoped check fires rather than the R-INNER-ALLOWLIST backstop.
 _t10a_reloc = drop_pair(GOOD_ARGV, "--cap-drop")
 _sep_r = _t10a_reloc.index("--")
 _t10a_reloc[_sep_r + 1:_sep_r + 1] = ["--cap-drop", "ALL"]
 assert_gate_error_msg(
     lambda: m.check_disk_policy(_t10a_reloc, run_dir=RUN_DIR),
     "VDP-T10a-reloc: --cap-drop ALL relocated to inner slice → GateError (D1 slice-scoped)",
-    "--cap-drop"
+    "bwrap prefix missing"
 )
 
 # ── VDP-T10d-reloc: --tmpfs /tmp/rsdd relocated to inner slice → GateError ──────
+# "bwrap prefix missing" is unique to the bwrap-required message, proving the
+# slice-scoped check fires rather than the R-INNER-ALLOWLIST backstop.
 _t10d_reloc = drop_pair(GOOD_ARGV, "--tmpfs")
 _sep_r = _t10d_reloc.index("--")
 _t10d_reloc[_sep_r + 1:_sep_r + 1] = ["--tmpfs", "/tmp/rsdd"]
 assert_gate_error_msg(
     lambda: m.check_disk_policy(_t10d_reloc, run_dir=RUN_DIR),
     "VDP-T10d-reloc: --tmpfs relocated to inner slice → GateError (D1 slice-scoped)",
-    "--tmpfs"
+    "bwrap prefix missing"
 )
 
 # ── VDP-T13: -sandbox dropped from inner slice → GateError (inner-required) ─────
