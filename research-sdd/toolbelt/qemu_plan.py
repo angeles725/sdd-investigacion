@@ -69,7 +69,22 @@ def build_plan(target: Path, mode: str, arch: str, caps: dict[str, int], *,
         mnt: dict[str, str] = {"target_ro": "/input/target", "output_writable": "/tmp/rsdd/out"}
     else:
         qbin = f"qemu-system-{arch}"
-        inner = [qbin, "-kernel", "/input/target", "-m", str(mem_mb),
+        # Containment belt flags (belt-and-suspenders on top of outer bwrap):
+        # -smp 1          : bound vCPUs to 1 (cpu_seconds is a time cap, not core count)
+        # -accel tcg      : offline-testable software emulation; NO -enable-kvm (user opt-in)
+        # -nic none       : qemu-level net isolation; bwrap --unshare-net is the outer belt
+        # -nodefaults     : suppress all default devices (minimise attack surface)
+        # -sandbox on,... : qemu's own seccomp sandbox (deny obsolete/spawn/privilege syscalls)
+        # -snapshot       : guest disk writes discarded; NOTE: vacuous without a -drive
+        #                   (no disk image in this planning unit — see V1b detonation slice)
+        inner = [qbin,
+                 "-kernel", "/input/target",
+                 "-m", str(mem_mb),
+                 "-smp", "1",
+                 "-accel", "tcg",
+                 "-nic", "none",
+                 "-nodefaults",
+                 "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
                  "-nographic", "-no-reboot", "-snapshot"]
         mnt = {"target_ro": "/input/target", "output_writable": "/tmp/rsdd/out",
                "disk_snapshot": "ephemeral"}
@@ -109,7 +124,20 @@ def plan_qemu(args: Any) -> int:
     try: determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"qemu-plan: determinism error: {exc}", file=sys.stderr); return 2
-    executor = select_executor(args.allow_exec, SCHEMA_VERSION)
+    # Local wiring: LiveQemuBootExecutor for qemu-system live path only.
+    # DO NOT route through plan_common.select_executor — it serves other callers.
+    # DO NOT modify lib/gate.py. RSDD_EXEC_EXECUTOR env stub wins (gate.py:113).
+    if args.allow_exec and args.mode == "qemu-user":
+        # qemu-user uses host-kernel translation — hard-refuse live exec in this unit.
+        print("qemu-plan: qemu-user live exec refused; only qemu-system is bootable",
+              file=sys.stderr)
+        return 2
+    if args.allow_exec and args.mode == "qemu-system":
+        sys.path.insert(0, str(_LIB))
+        from qemu_exec import LiveQemuBootExecutor   # noqa: E402
+        executor: Any = LiveQemuBootExecutor(output_dir)
+    else:
+        executor = select_executor(args.allow_exec, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "qemu-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)

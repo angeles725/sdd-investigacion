@@ -182,6 +182,92 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback")
     except Exception as e: nok("T_CAP1: cap-below-target-size", str(e))
 
+
+# ── T_CONTAIN1: qemu-system plan has -nic none (qemu-level net isolation) ────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; tgt.write_bytes(_ARM); out = R/"out"
+    try:
+        rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-system",
+                                     "--output",str(out)]))
+        assert rc == 3
+        p = json.loads((out/"qemu-plan.v1.json").read_text())
+        argv = p["planned_argv"]
+        assert "-nic" in argv and "none" in argv, f"-nic none missing from argv: {argv}"
+        idx = argv.index("-nic")
+        assert argv[idx + 1] == "none", f"-nic followed by {argv[idx+1]!r}, expected 'none'"
+        ok("T_CONTAIN1: qemu-system plan has -nic none (qemu-level net isolation)")
+    except Exception as e: nok("T_CONTAIN1: -nic-none-present", str(e))
+
+# ── T_CONTAIN2: qemu-system plan has -nodefaults ─────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; tgt.write_bytes(_ARM); out = R/"out"
+    try:
+        rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-system",
+                                     "--output",str(out)]))
+        assert rc == 3
+        argv = json.loads((out/"qemu-plan.v1.json").read_text())["planned_argv"]
+        assert "-nodefaults" in argv, f"-nodefaults missing from argv: {argv}"
+        ok("T_CONTAIN2: qemu-system plan has -nodefaults")
+    except Exception as e: nok("T_CONTAIN2: -nodefaults-present", str(e))
+
+# ── T_CONTAIN3: qemu-system plan has -sandbox on (qemu seccomp sandbox) ──────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; tgt.write_bytes(_ARM); out = R/"out"
+    try:
+        rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-system",
+                                     "--output",str(out)]))
+        assert rc == 3
+        argv = json.loads((out/"qemu-plan.v1.json").read_text())["planned_argv"]
+        assert "-sandbox" in argv, f"-sandbox missing from argv: {argv}"
+        idx = argv.index("-sandbox")
+        assert argv[idx + 1].startswith("on"), \
+            f"-sandbox not 'on...', got {argv[idx+1]!r}"
+        ok("T_CONTAIN3: qemu-system plan has -sandbox on (qemu seccomp sandbox)")
+    except Exception as e: nok("T_CONTAIN3: -sandbox-on-present", str(e))
+
+# ── T_CONTAIN4: qemu-system plan has -smp (vCPU bound) ───────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; tgt.write_bytes(_ARM); out = R/"out"
+    try:
+        rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-system",
+                                     "--output",str(out)]))
+        assert rc == 3
+        argv = json.loads((out/"qemu-plan.v1.json").read_text())["planned_argv"]
+        assert "-smp" in argv, f"-smp missing from argv: {argv}"
+        idx = argv.index("-smp")
+        assert argv[idx + 1].isdigit(), f"-smp value not a digit: {argv[idx+1]!r}"
+        ok("T_CONTAIN4: qemu-system plan has -smp <N> (vCPU bound)")
+    except Exception as e: nok("T_CONTAIN4: -smp-present", str(e))
+
+# ── T_CONTAIN5: qemu-system plan has -accel tcg (default offline accel) ──────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; tgt.write_bytes(_ARM); out = R/"out"
+    try:
+        rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-system",
+                                     "--output",str(out)]))
+        assert rc == 3
+        argv = json.loads((out/"qemu-plan.v1.json").read_text())["planned_argv"]
+        assert "-accel" in argv, f"-accel missing from argv: {argv}"
+        idx = argv.index("-accel")
+        assert argv[idx + 1] == "tcg", f"-accel value is {argv[idx+1]!r}, expected 'tcg'"
+        assert "-enable-kvm" not in argv, f"-enable-kvm found in argv (must not be default)"
+        ok("T_CONTAIN5: qemu-system plan has -accel tcg, no -enable-kvm")
+    except Exception as e: nok("T_CONTAIN5: -accel-tcg-present", str(e))
+
+# ── T_CONTAIN6: containment flags NOT present in qemu-user mode plan ─────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; tgt.write_bytes(_ARM); out = R/"out"
+    try:
+        rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user",
+                                     "--output",str(out)]))
+        assert rc == 3
+        argv = json.loads((out/"qemu-plan.v1.json").read_text())["planned_argv"]
+        # qemu-user mode is plan-only; containment flags are qemu-system-only
+        assert "-nic" not in argv, f"-nic found in qemu-user argv (should be system-only)"
+        assert "-sandbox" not in argv, f"-sandbox found in qemu-user argv (should be system-only)"
+        ok("T_CONTAIN6: containment flags absent in qemu-user plan (system-only)")
+    except Exception as e: nok("T_CONTAIN6: user-mode-no-contain-flags", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

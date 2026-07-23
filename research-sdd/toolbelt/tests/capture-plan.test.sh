@@ -47,14 +47,21 @@ with tempfile.TemporaryDirectory() as td:
         ok("T2: flag absent → exit 3 (authorization-required)")
     except Exception as e: nok("T2: flag-absent-exit3", str(e))
 
-# ── T3: --allow-live-capture + no executor → exit 2 (gate hard-refuse) ───────
+# ── T3: --allow-live-capture + dumpcap-free env → exit 2 (preflight gate-refuse) ──
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); out = R/"out"
     try:
-        r = cli("plan","--interface","eth0","--output",str(out),
-                "--allow-live-capture", xe={"RSDD_LIVE_CAPTURE_EXECUTOR": ""})
+        # Use an empty dir as PATH so dumpcap is unreachable — prevents any real capture.
+        nodumpcap_dir = R/"nobin"; nodumpcap_dir.mkdir()
+        e3 = os.environ.copy()
+        e3.update({"RSDD_LIVE_CAPTURE_EXECUTOR": "", "PATH": str(nodumpcap_dir)})
+        e3.pop("RSDD_CAPTURE_IFACES", None)
+        r = subprocess.run(
+            [sys.executable, str(sut), "plan", "--interface", "eth0",
+             "--output", str(out), "--allow-live-capture"],
+            capture_output=True, text=True, env=e3)
         assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:120]}"
-        ok("T3: --allow-live-capture + no executor → exit 2 (gate hard-refuse)")
+        ok("T3: --allow-live-capture + dumpcap-free env → exit 2 (preflight gate-refuse)")
     except Exception as e: nok("T3: allow-live-capture-hard-refuse", str(e))
 
 # ── T4: well-formed spec → correct plan with intended argv ────────────────────

@@ -45,15 +45,21 @@ with tempfile.TemporaryDirectory() as td:
         ok("T2: flag absent → exit 3 (authorization-required)")
     except Exception as e: nok("T2: flag-absent-exit3", str(e))
 
-# ── T3: --allow-docker + no executor → exit 2 (gate hard-refuse) ──────────────
+# ── T3: --allow-docker + docker absent → exit 2, docker-not-found reason in stderr ──
+# Deterministic in both docker-present and dockerless environments: restrict PATH
+# to a directory with no docker binary so _preflight(a) always raises GateError.
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*16); out = R/"out"
     try:
+        Path("/tmp/rsdd").mkdir(exist_ok=True)  # preflight (e) must not block first
         r = cli("plan","--firmware",str(fw),"--output",str(out),
-                "--allow-docker", xe={"RSDD_DOCKER_EXECUTOR": ""})
+                "--allow-docker",
+                xe={"PATH": str(R), "RSDD_DOCKER_EXECUTOR": ""})
         assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:120]}"
-        ok("T3: --allow-docker + no executor → exit 2 (gate hard-refuse)")
-    except Exception as e: nok("T3: allow-docker-hard-refuse", str(e))
+        assert "docker" in r.stderr.lower(), \
+               f"expected docker-related reason in stderr: {r.stderr[:120]}"
+        ok("T3: --allow-docker + docker absent → exit 2 (LiveDockerExecutor preflight refuses)")
+    except Exception as e: nok("T3: allow-docker-preflight-refuse", str(e))
 
 # ── T4: well-formed → correct docker argv; NO --privileged; privilege as data ──
 with tempfile.TemporaryDirectory() as td:

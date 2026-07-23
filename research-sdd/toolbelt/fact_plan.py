@@ -114,7 +114,16 @@ def plan_fact(args: Any) -> int:
     try: determinism = build_determinism(make_dry_run_det_spec())
     except VmDeterminismError as exc:
         print(f"fact-plan: determinism error: {exc}", file=sys.stderr); return 2
-    executor = select_executor(args.allow_docker, SCHEMA_VERSION)
+    # Local wiring: LiveFactExecutor for the live path only.
+    # DO NOT route through plan_common.select_executor — it serves 13 other
+    # callers that must remain plan-only. DO NOT modify lib/gate.py.
+    # RSDD_DOCKER_EXECUTOR env stub wins inside gate.py when set (seam priority).
+    # --rest-base-url is executor-side only: NOT persisted in the plan JSON.
+    if args.allow_docker:
+        from fact_exec import LiveFactExecutor
+        executor = LiveFactExecutor(output_dir, rest_base_url=args.rest_base_url)
+    else:
+        executor = select_executor(args.allow_docker, SCHEMA_VERSION)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write(output_dir / "fact-plan.v1.json", plan)
     _write(output_dir / "vm-determinism.v1.json", determinism)
@@ -138,6 +147,10 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--output",       required=True, metavar="DIR")
     p.add_argument("--allow-docker", action="store_true", default=False, dest="allow_docker",
                    help="authorize live docker-compose run (no live executor → exit 2)")
+    p.add_argument("--rest-base-url", default="http://127.0.0.1:9100", dest="rest_base_url",
+                   metavar="URL",
+                   help="FACT REST API base URL (executor-only; must be loopback; "
+                        "NOT stored in plan JSON)")
     add_max_input_bytes_arg(p)
     return ap.parse_args(argv)
 

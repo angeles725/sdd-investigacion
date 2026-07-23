@@ -48,6 +48,36 @@ Binary: `qemu-{arch}` (user mode) or `qemu-system-{arch}` (system mode).
 `disk_snapshot: "ephemeral"` is present only in `qemu-system` mode so guest
 disk writes are discarded on exit.
 
+## Containment guarantees — qemu-system mode
+
+`qemu-system` mode applies belt-and-suspenders containment: the OUTER layer is
+`bwrap`; the INNER layer is qemu's own flags. Both must be present.
+
+| Flag | Layer | Rationale |
+|---|---|---|
+| `bwrap --unshare-net` | outer | Kernel-level net namespace: no host networking for the whole bwrap subtree |
+| `-nic none` | inner | qemu-level net isolation: qemu itself has no NIC; `bwrap --unshare-net` alone could be bypassed if qemu spawned a helper outside bwrap |
+| `bwrap --unshare-pid` | outer | Isolated PID namespace: processes cannot see host PIDs |
+| `bwrap --cap-drop ALL` | outer | Drop all Linux capabilities; qemu-system under TCG needs none |
+| `-nodefaults` | inner | Suppress all default devices (VGA, USB hub, etc.); minimise qemu's attack surface |
+| `-sandbox on,...` | inner | qemu's own seccomp filter: deny obsolete/elevated/spawn/resourcecontrol syscalls |
+| `-smp 1` | inner | Bound vCPUs to 1; combined with `-m` this caps both memory and CPU parallelism |
+| `-accel tcg` | inner | Software emulation only — no `/dev/kvm` opened, no host kernel virt extensions touched; fully offline-testable; KVM is the user's explicit manual opt-in |
+| `-snapshot` | inner | Guest disk writes are discarded on exit; vacuous without a `-drive` (no disk image in this planning unit — the V1b detonation slice adds disk images) |
+| `bwrap --ro-bind <target> /input/target` | outer | Target binary bind-mounted read-only; qemu reads it via `-kernel /input/target` |
+
+### qemu-user mode
+`qemu-user` mode translates guest binaries on the HOST kernel (same risk class as
+host-bwrap detonation). The plan is generated but **live boot is refused** at the
+executor level. Only `qemu-system` is bootable in this unit.
+
+### Belt-and-suspenders rationale
+`bwrap --unshare-net` alone isolates the network namespace but qemu could, in
+principle, reach a host-visible interface via a device backend if the qemu argv
+allowed it. `-nic none` closes this: qemu itself has no NIC regardless of
+namespace state. Similarly, `-nodefaults` removes device-emulation attack surface
+that `-sandbox on` then seccomp-hardens at the syscall level.
+
 ## Determinism and gate
 
 [`vm-determinism.v1.json`](vm-determinism.v1.md): always `declared:false`, `basis:"dry-run-plan"`,
