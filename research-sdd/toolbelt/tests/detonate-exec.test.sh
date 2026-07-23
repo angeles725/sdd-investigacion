@@ -415,6 +415,40 @@ with tempfile.TemporaryDirectory() as td:
         ok("RED12: post-snapshot failure → fail-soft (evidence preserved, vm_post_snapshot=null)")
     except Exception as e: nok("RED12", str(e))
 
+# ── RED13: receipt inputs[] bound to sample sha256 (F1: detonate uses "sample" key) ─────────
+# Before F1 fix: plan.get("target", {}) in vm_boot_core.py returns {} for detonate plans
+# because detonate_plan.py stores sample under key "sample", NOT "target" → inputs: [].
+# After F1 fix: fallback to plan.get("sample") populates inputs[] with the sample entry.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    try:
+        r = cli("plan", "--sample", str(elf), "--output", str(tmp/"out"),
+                "--allow-exec",
+                xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:400]}"
+        res = json.loads(r.stdout)
+        serial_log = res.get("serial_log", "")
+        assert serial_log, "serial_log missing from evidence"
+        run_dir_r = Path(serial_log).parent
+        receipt_path = run_dir_r / "vm-run-receipt.v1.json"
+        assert receipt_path.exists(), f"receipt not found at {receipt_path}"
+        receipt = json.loads(receipt_path.read_text())
+        inputs = receipt.get("inputs", [])
+        assert len(inputs) > 0, (
+            "receipt inputs[] is EMPTY — detonate-plan stores sample under key 'sample', "
+            "but vm_boot_core.py only checks plan.get('target') → F1 not yet fixed"
+        )
+        # Verify the sha256 in inputs[] matches what detonate_plan recorded for the sample
+        plan_file = tmp / "out" / "detonate-plan.v1.json"
+        assert plan_file.exists(), f"plan file not found: {plan_file}"
+        plan_data = json.loads(plan_file.read_text())
+        expected_sha = plan_data["sample"]["sha256"]
+        assert any(e["sha256"] == expected_sha for e in inputs), (
+            f"inputs[] does not contain sample sha256 {expected_sha!r}: {inputs}"
+        )
+        ok("RED13: receipt inputs[] non-empty and contains sample sha256 (F1 fixed)")
+    except Exception as e: nok("RED13", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

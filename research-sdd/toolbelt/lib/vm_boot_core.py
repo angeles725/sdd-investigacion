@@ -172,8 +172,14 @@ def run_vm(
             qbin_ver = _vr2.stdout.decode("utf-8", errors="replace").split("\n")[0].strip() or "unknown"
         except Exception:
             qbin_ver = "unknown"
-        tgt = plan.get("target", {})
-        inputs_r = ([{"path": "kernel", "sha256": tgt["sha256"], "size": tgt["size"]}]
+        # F1 fix: detonate plans store the sample under "sample" (not "target").
+        # Trace/boot plans use "target". Fall back to "sample" so inputs[] is
+        # always populated, cryptographically binding the receipt to the input.
+        _tgt = plan.get("target")
+        _smp = plan.get("sample")
+        tgt = _tgt or _smp or {}
+        label = "kernel" if _tgt else "sample"
+        inputs_r = ([{"path": label, "sha256": tgt["sha256"], "size": tgt["size"]}]
                     if tgt.get("sha256") and tgt.get("size") is not None else [])
         outputs_r = [{"path": Path(f["path"]).name, "sha256": f["sha256"], "size": f["size"]}
                      for f in out_files]

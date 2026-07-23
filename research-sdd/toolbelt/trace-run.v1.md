@@ -78,6 +78,23 @@ before the pre-hash, and `output_files()` scans it after teardown).  A consumer
 that independently hashes `serial_log`'s parent dir `scratch.img` MUST match
 `vm_post_snapshot.sha256`.
 
+> **OPERATOR WARNING — `exec_argv` (and the upstream `planned_argv`) is not
+> live-runnable as-is.**
+> The evidence chain above is validated and CI-tested **OFFLINE only** (fake
+> `qemu-system-*` shim; bwrap is never invoked in CI).
+> The bwrap prefix includes `--tmpfs /tmp/rsdd`, which mounts an empty tmpfs at
+> `/tmp/rsdd` inside the sandbox. The scratch image is created at
+> `/tmp/rsdd/rsdd-<uuid>/scratch.img` on the **host** and substituted into the
+> qemu-system `-drive file=` argument — but inside the sandbox `--tmpfs /tmp/rsdd`
+> masks that host path, so qemu-system cannot open the file. As a result the
+> pre/post scratch-hash evidence chain (`vm_pre_snapshot` / `vm_post_snapshot`) is
+> vacuous under a real bwrap invocation. This defect is invisible in CI because the
+> fake shim writes directly to the `-drive file=` path without bwrap.
+> **Before any real in-guest tracing**, the operator MUST reconcile the scratch
+> mount (e.g. replace `--tmpfs /tmp/rsdd` with a targeted bind-mount of the per-run
+> `run_dir`). This is a documented known limitation; a follow-up design issue tracks
+> the required bwrap-prefix reconciliation.
+
 ## Disk slot policy (per-drive containment)
 
 Identical to `detonate-run.v1` — enforced by the same `lib/vm_disk_policy.py`:

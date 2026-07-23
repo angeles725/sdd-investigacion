@@ -108,6 +108,21 @@ D1. A live executor MUST parse each `-drive` spec individually; it MUST NOT appl
 live executor (D2) substitutes the actual `<run_dir>/scratch.img` path in `exec_argv`
 before calling Popen. The host creates this file fresh in the per-run directory.
 
+> **OPERATOR WARNING — `planned_argv` is not live-runnable as-is.**
+> The emitted `planned_argv` is validated and CI-tested **OFFLINE only** (fake
+> `qemu-system-*` shim; bwrap is never invoked in CI).
+> The bwrap prefix includes `--tmpfs /tmp/rsdd`, which mounts an empty tmpfs at
+> `/tmp/rsdd` inside the sandbox. The live executor creates the per-run scratch image
+> at `/tmp/rsdd/rsdd-<uuid>/scratch.img` on the **host** and passes that host path as
+> the qemu-system `-drive file=` argument — but inside the sandbox `--tmpfs /tmp/rsdd`
+> masks that path, so qemu-system cannot open the file and the pre/post scratch-hash
+> evidence chain is vacuous. This defect is invisible in CI because the fake shim
+> writes directly to the `-drive file=` path without going through bwrap.
+> **Before any real in-guest detonation**, the operator MUST reconcile the scratch
+> mount (e.g. replace `--tmpfs /tmp/rsdd` with a targeted bind-mount of the per-run
+> `run_dir` into the sandbox). This is a documented known limitation; a follow-up
+> design issue tracks the required bwrap-prefix reconciliation.
+
 `sample.type_hint` is metadata-only (magic-byte sniff); degrades to `"unknown"` on
 any error without traceback. Does not gate execution.
 
