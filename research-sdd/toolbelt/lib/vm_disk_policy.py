@@ -23,12 +23,18 @@ from gate import GateError  # noqa: E402
 # -snapshot requirement (replaced by per-drive policy).
 # ---------------------------------------------------------------------------
 _REQUIRED: frozenset[str] = frozenset({
-    "--unshare-net",   # bwrap outer: kernel net namespace isolation
-    "-nic",            # qemu inner: no NIC (belt-and-suspenders with --unshare-net)
-    "-accel",          # qemu inner: must be tcg (no /dev/kvm touch)
-    "-smp",            # qemu inner: must be 1 (bound vCPUs)
-    "-nodefaults",     # qemu inner: suppress all default devices
-    "-sandbox",        # qemu inner: seccomp filter
+    # bwrap outer — process-isolation teeth (F2 / issue #61)
+    "--unshare-net",   # kernel net namespace isolation
+    "--unshare-pid",   # PID namespace (guest cannot signal host processes)
+    "--cap-drop",      # must be followed by ALL (value enforced in _VALUE_OK)
+    "--tmpfs",         # scrubs writable temp tree; omitting exposes host /tmp/rsdd
+    "--",              # separator between bwrap prefix and qemu inner command
+    # qemu inner
+    "-nic",            # no NIC (belt-and-suspenders with --unshare-net)
+    "-accel",          # must be tcg (no /dev/kvm touch)
+    "-smp",            # must be 1 (bound vCPUs)
+    "-nodefaults",     # suppress all default devices
+    "-sandbox",        # seccomp filter
 })
 
 # Flags forbidden wholesale — any occurrence → GateError.
@@ -46,16 +52,44 @@ _DEVICE_DENY_PREFIXES: tuple[str, ...] = ("vfio", "virtio-9p")
 
 # Value predicates enforced on every occurrence of each flag.
 _VALUE_OK: dict[str, Any] = {
-    "-nic":     lambda v: v == "none",
-    "-accel":   lambda v: v == "tcg",
-    "-sandbox": lambda v: v.startswith("on") and "=allow" not in v,
-    "-smp":     lambda v: v == "1",
+    "--cap-drop": lambda v: v == "ALL",    # partial drop is not sufficient (F2/#61)
+    "-nic":       lambda v: v == "none",
+    "-accel":     lambda v: v == "tcg",
+    "-sandbox":   lambda v: v.startswith("on") and "=allow" not in v,
+    "-smp":       lambda v: v == "1",
 }
 
 # Conventional guest-visible paths for bwrap ro-bind inputs in RSDD plans.
 # The sample must be immutable; the rootfs must be either readonly or COW.
 _SAMPLE_GUEST_PATH: str = "/input/sample"
 _ROOTFS_GUEST_PATH: str = "/input/rootfs"
+
+# Prefix shared by all sandbox-internal input paths (sample, rootfs, …).
+# Drive file= paths under this prefix are bound from the host via --ro-bind;
+# the drive references the sandbox-side DEST, not a host path, so they are
+# excluded from the run_dir scope check (R-SCOPE-ALL).
+_SANDBOX_INPUT_PREFIX: str = "/input/"
+
+# ---------------------------------------------------------------------------
+# R-BLOCKDEV-ALLOWLIST — non-drive block-device flags (F2 / issue #61)
+# ---------------------------------------------------------------------------
+# These QEMU flags introduce block devices without going through the -drive
+# machinery that vm_disk_policy inspects and classifies.  A plan that uses any
+# of them bypasses the per-drive containment checks (format=raw, readonly,
+# snapshot, exactly-1-scratch, R-REACH, R-SCOPE-ALL) entirely.  Deny them all
+# wholesale; only -drive is sanctioned.
+_BLOCK_DEVICE_FORBIDDEN: frozenset[str] = frozenset({
+    "-hda",      # first IDE/virtio disk shorthand
+    "-hdb",      # second IDE/virtio disk shorthand
+    "-hdc",      # third IDE/virtio disk shorthand
+    "-hdd",      # fourth IDE/virtio disk shorthand
+    "-cdrom",    # CD-ROM shorthand (no format/readonly checks)
+    "-blockdev", # modern block-device graph node (bypasses -drive policy)
+    "-pflash",   # parallel flash (firmware, but can hold writable state)
+    "-fda",      # floppy A shorthand
+    "-fdb",      # floppy B shorthand
+    "-sd",       # SD card shorthand
+})
 
 # ---------------------------------------------------------------------------
 # R-BWRAP-DENY — fail-open bwrap bind families (INV-2 / issue #60)
@@ -154,6 +188,15 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
         if tok in _FORBIDDEN:
             raise GateError(f"planned_argv contains forbidden flag {tok!r}")
 
+        if tok in _BLOCK_DEVICE_FORBIDDEN:
+            raise GateError(
+                f"planned_argv contains forbidden block-device flag {tok!r} "
+                "(R-BLOCKDEV-ALLOWLIST: only -drive is permitted for block-device "
+                "introduction; alternative block-device flags bypass the per-drive "
+                "containment policy — format, readonly, snapshot, exactly-1-scratch, "
+                "R-REACH, and R-SCOPE-ALL checks would not apply)"
+            )
+
         if tok == "-device" and nxt.startswith(_DEVICE_DENY_PREFIXES):
             raise GateError(
                 f"planned_argv -device {nxt!r} forbidden "
@@ -177,15 +220,26 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
         )
     scratch_drive_path = persistent_drives[0]
 
-    # ---- 4. Scratch file= path must be under run_dir (when known) ---------
+    # ---- 4. All drive file= paths under run_dir or a sandbox input path ----
+    # (R-SCOPE-ALL — F2 / issue #61)
+    # Every -drive whose file= is a host-side path (not a recognized
+    # sandbox-internal path under _SANDBOX_INPUT_PREFIX) must reside inside
+    # run_dir.  Sandbox-internal paths (e.g. /input/sample, /input/rootfs) are
+    # bound from the host via --ro-bind; the drive references the sandbox-side
+    # DEST, which is not expected to be under run_dir and is excluded from this
+    # check.
     if run_dir is not None:
         prefix = run_dir.rstrip("/") + "/"
-        if not scratch_drive_path.startswith(prefix):
-            raise GateError(
-                f"scratch disk file={scratch_drive_path!r} is outside run_dir={run_dir!r}; "
-                "scratch must reside in the per-run directory (host reads it "
-                "post-teardown)"
-            )
+        for dp in all_drive_paths:
+            if dp.startswith(_SANDBOX_INPUT_PREFIX):
+                continue  # sandbox-internal path; host copy is the ro-bind SRC
+            if not dp.startswith(prefix):
+                raise GateError(
+                    f"drive file={dp!r} is outside run_dir={run_dir!r} and is not "
+                    f"a recognized sandbox input path (prefix {_SANDBOX_INPUT_PREFIX!r}); "
+                    "every non-sandbox drive file= path must reside in the per-run "
+                    "directory so host reads post-teardown stay scoped (R-SCOPE-ALL)"
+                )
 
     # ---- 5. R-BIND-RW — exactly one rw bind, identity-mapped, == scratch ──
     # (INV-2 / issue #60)

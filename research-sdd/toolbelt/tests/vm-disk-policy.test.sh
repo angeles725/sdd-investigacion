@@ -561,6 +561,107 @@ assert_gate_error_msg(
     "identity-mapped"
 )
 
+# ===========================================================================
+# Slice 3 — F2 / issue #61: block-device allowlist + bwrap teeth + scope-all
+# All cases below are RED until the three rules are implemented in
+# lib/vm_disk_policy.py.
+# ===========================================================================
+
+# ── VDP-T10a: --cap-drop missing → GateError (bwrap teeth / R-CAP-DROP) ──────
+# bwrap must drop ALL capabilities; a prefix without --cap-drop lets the guest
+# process retain host capabilities inherited through the bwrap invocation.
+_t10a_argv = drop_pair(GOOD_ARGV, "--cap-drop")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10a_argv, run_dir=RUN_DIR),
+    "VDP-T10a: --cap-drop missing → GateError (bwrap teeth)",
+    "--cap-drop"
+)
+
+# ── VDP-T10b: --cap-drop NET_RAW (wrong value) → GateError (must be ALL) ──────
+# Partial capability drop is not sufficient; the checker requires --cap-drop ALL.
+_t10b_argv = replace_pair(GOOD_ARGV, "--cap-drop", "NET_RAW")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10b_argv, run_dir=RUN_DIR),
+    "VDP-T10b: --cap-drop NET_RAW instead of ALL → GateError (value check)",
+    "--cap-drop"
+)
+
+# ── VDP-T10c: --unshare-pid missing → GateError (bwrap teeth / R-UNSHARE-PID) ─
+# PID namespace isolation prevents the guest from seeing or signalling host
+# processes; without it the bwrap sandbox is incomplete.
+_t10c_argv = drop_tok(GOOD_ARGV, "--unshare-pid")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10c_argv, run_dir=RUN_DIR),
+    "VDP-T10c: --unshare-pid missing → GateError (bwrap teeth)",
+    "--unshare-pid"
+)
+
+# ── VDP-T10d: --tmpfs missing → GateError (bwrap teeth / R-TMPFS) ─────────────
+# The tmpfs mount scrubs the writable temp tree; omitting it lets the guest
+# observe and modify the host's /tmp/rsdd subtree.
+_t10d_argv = drop_pair(GOOD_ARGV, "--tmpfs")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10d_argv, run_dir=RUN_DIR),
+    "VDP-T10d: --tmpfs missing → GateError (bwrap teeth)",
+    "--tmpfs"
+)
+
+# ── VDP-T10e: -- separator missing → GateError (bwrap teeth / R-SEP) ──────────
+# Without the -- separator the checker cannot reliably split bwrap prefix from
+# the qemu inner command; the required-flag check must enforce its presence.
+_t10e_argv = drop_tok(GOOD_ARGV, "--")
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t10e_argv, run_dir=RUN_DIR),
+    "VDP-T10e: -- separator missing → GateError (bwrap teeth)",
+    "'--'"
+)
+
+# ── VDP-T11: block-device allowlist — QEMU flags that bypass -drive policy ─────
+# QEMU accepts many flags that introduce block devices (-hda, -cdrom, -blockdev,
+# etc.).  A plan using -hda is not counted toward the exactly-1-scratch rule and
+# is not inspected by per-drive containment checks.  Every such flag must be
+# rejected; only -drive is sanctioned (R-BLOCKDEV-ALLOWLIST).
+for _bd_flag, _bd_args in [
+    ("-hda",     ["-hda",     "/tmp/rsdd-test-run/extra.img"]),
+    ("-hdb",     ["-hdb",     "/tmp/rsdd-test-run/extra.img"]),
+    ("-hdc",     ["-hdc",     "/tmp/rsdd-test-run/extra.img"]),
+    ("-hdd",     ["-hdd",     "/tmp/rsdd-test-run/extra.img"]),
+    ("-cdrom",   ["-cdrom",   "/tmp/rsdd-test-run/disk.iso"]),
+    ("-blockdev", ["-blockdev", "node-name=drive0,driver=file,filename=/tmp/rsdd-test-run/x.raw"]),
+    ("-pflash",  ["-pflash",  "/tmp/rsdd-test-run/pflash.bin"]),
+    ("-fda",     ["-fda",     "/tmp/rsdd-test-run/floppy.img"]),
+    ("-fdb",     ["-fdb",     "/tmp/rsdd-test-run/floppy2.img"]),
+    ("-sd",      ["-sd",      "/tmp/rsdd-test-run/sd.img"]),
+]:
+    _bd_argv = list(GOOD_ARGV)
+    _bd_argv.extend(_bd_args)   # append after qemu inner command tokens
+    assert_gate_error_msg(
+        lambda _a=_bd_argv, _f=_bd_flag:
+            m.check_disk_policy(_a, run_dir=RUN_DIR),
+        f"VDP-T11({_bd_flag}): forbidden block-device flag → GateError (R-BLOCKDEV-ALLOWLIST)",
+        "R-BLOCKDEV-ALLOWLIST"
+    )
+
+# ── VDP-T12: scope-check ALL drive file= paths (R-SCOPE-ALL) ──────────────────
+# Currently only the scratch drive is scope-checked against run_dir.  A readonly
+# drive whose file= path is a host path outside run_dir (not a /input/ sandbox
+# path) must also be rejected.
+#
+# Setup: add a ro-bind so R-REACH passes, then add a readonly drive whose path
+# is outside run_dir.  The OLD code ignores this path; the NEW code rejects it.
+_ROGUE_HOST_PATH = "/mnt/external/rogue.raw"
+_t12_argv = list(GOOD_ARGV)
+_t12_sep = _t12_argv.index("--")
+# Insert ro-bind BEFORE -- so it lands in the bwrap prefix (R-REACH scans there)
+_t12_argv[_t12_sep:_t12_sep] = ["--ro-bind", _ROGUE_HOST_PATH, _ROGUE_HOST_PATH]
+# Append readonly drive into the qemu inner command (after --)
+_t12_argv += ["-drive", f"file={_ROGUE_HOST_PATH},readonly=on,format=raw,if=virtio"]
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_t12_argv, run_dir=RUN_DIR),
+    "VDP-T12: readonly drive with host path outside run_dir → GateError (R-SCOPE-ALL)",
+    "R-SCOPE-ALL"
+)
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
