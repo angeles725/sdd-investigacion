@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
-"""Live hostile-sample detonation executor — disposable-VM isolation (D2).
+"""Live in-VM trace executor — disposable-VM isolation (D3).
 
-Boots a qemu-system-<arch> VM carrying the sample disk.  Pre-boot and
-post-teardown sha256 of the scratch disk populate ``vm_pre_snapshot`` /
-``vm_post_snapshot`` in the frozen ``vm-run-receipt.v1``.
+Boots a qemu-system-<arch> VM carrying the target disk.  The guest-side
+rsdd-agent reads the tracer selection from the kernel cmdline
+(rsdd.tracer=strace|ltrace|gdb-batch) and wraps the sample accordingly,
+writing trace output to the scratch disk.  Pre-boot and post-teardown sha256
+of the scratch disk populate ``vm_pre_snapshot`` / ``vm_post_snapshot`` in
+the frozen ``vm-run-receipt.v1``.
 
-Real in-guest detonation is the HUMAN'S GATED MANUAL STEP.  This module is
+Host attack surface is IDENTICAL to DetonateVmExecutor (D2).  Containment is
+enforced by the SAME shared ``vm_disk_policy.check_disk_policy``.  The only
+delta from detonate is guest-side: the rsdd-agent wraps the sample in the
+requested tracer instead of executing it directly.
+
+Real in-guest tracing is the HUMAN'S GATED MANUAL STEP.  This module is
 OFFLINE-testable: the fake qemu shim in tests/ stands in for the binary.
-NEVER detonates real malware in CI.
+NEVER traces real malware in CI.
 
-Selected locally in detonate_plan.py when ``--allow-exec``.
+Selected locally in trace_plan.py when ``--allow-exec``.
 NEVER in plan_common.select_executor.
 RSDD_EXEC_EXECUTOR env stub wins (gate.py:113).
 Boot engine: vm_boot_core.run_vm (guaranteed reap/teardown/wall-bound).
+
+NOTE: keep in sync with detonate_exec.py — both executors share the same
+host-layer seam (pre_boot + snapshot_hook + run_vm delegation).  Only
+SCHEMA_VERSION, class names, diagnostic/error-message strings, and comments differ.
 """
-# NOTE: _sha256_o_nofollow / _preflight / _thin_preflight / pre_boot / snapshot_hook are
-# mirrored byte-for-byte in lib/trace_exec.py — keep both in sync until a shared
-# vm_exec_common.py is extracted (deferred follow-up).
 from __future__ import annotations
 import hashlib, os, shutil, sys
 from pathlib import Path
@@ -31,11 +40,12 @@ import vm_boot_core as _vbc   # noqa: E402
 import vm_disk_policy as _vdp  # noqa: E402
 from gate import GateError     # noqa: E402
 
-# Evidence schema for the live detonation receipt.
-SCHEMA_VERSION: str = "detonate-run.v1"
+# Evidence schema for the live trace receipt.
+SCHEMA_VERSION: str = "trace-run.v1"
 
-# Sentinel value emitted by detonate_plan.build_plan for the scratch disk path.
+# Sentinel value emitted by trace_plan.build_plan for the scratch disk path.
 # The live executor substitutes it with the actual per-run host path before Popen.
+# NOTE: byte-identical to detonate_exec._SCRATCH_SENTINEL — keep in sync.
 _SCRATCH_SENTINEL: str = "/rsdd/scratch.img"
 
 # Pre-allocated scratch disk size (zeroed sparse blob; guest agent formats as needed).
@@ -47,7 +57,10 @@ _SCRATCH_SIZE: int = 4 * 1024 * 1024  # 4 MiB
 # ---------------------------------------------------------------------------
 
 def _sha256_o_nofollow(path: str) -> str:
-    """sha256 of file at *path* opened with O_NOFOLLOW; return 'sha256:<hex>'."""
+    """sha256 of file at *path* opened with O_NOFOLLOW; return 'sha256:<hex>'.
+
+    NOTE: byte-identical to detonate_exec._sha256_o_nofollow — keep in sync.
+    """
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     fd = os.open(path, flags)
     try:
@@ -63,7 +76,7 @@ def _sha256_o_nofollow(path: str) -> str:
 
 
 def _preflight(plan: dict[str, Any]) -> None:
-    """Defense-in-depth preflight for detonate plans.  GateError → exit 2.
+    """Defense-in-depth preflight for trace plans.  GateError → exit 2.
 
     Validates:
     (a) planned_argv is a list[str].
@@ -71,6 +84,8 @@ def _preflight(plan: dict[str, Any]) -> None:
         check deferred to evaluate() once run_dir is known).
     (c) qemu binary exists on PATH.
     (d) /tmp/rsdd is a real non-symlink directory.
+
+    NOTE: structurally identical to detonate_exec._preflight — keep in sync.
     """
     argv = plan.get("planned_argv")
     if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
@@ -93,6 +108,8 @@ def _thin_preflight(plan: dict[str, Any]) -> None:
     evaluate() has already done full validation.  run_vm only needs the binary
     on PATH and /tmp/rsdd accessible (both are stable across the microsecond
     between evaluate() checks and run_vm's Popen call).
+
+    NOTE: structurally identical to detonate_exec._thin_preflight — keep in sync.
     """
     argv = plan.get("planned_argv", [])
     qbin = _vbc.resolve_qbin(plan, argv)
@@ -107,18 +124,23 @@ def _thin_preflight(plan: dict[str, Any]) -> None:
 # Public executor
 # ---------------------------------------------------------------------------
 
-class DetonateVmExecutor:
-    """Live hostile-sample VM detonation executor.
+class TraceVmExecutor:
+    """Live in-VM trace executor (strace/ltrace/gdb-batch via guest-side agent).
 
     Satisfies the _HasEvaluate protocol (duck-typed by run_gate_epilogue).
-    Selected locally in detonate_plan.py; NEVER in plan_common.select_executor.
+    Selected locally in trace_plan.py; NEVER in plan_common.select_executor.
+
+    Host containment is IDENTICAL to DetonateVmExecutor: same bwrap namespace
+    isolation, same qemu -nic none/-accel tcg/-sandbox on belt, same per-drive
+    disk policy enforced by the shared vm_disk_policy module.  The only delta
+    is guest-side: the rsdd-agent wraps the sample in the requested tracer.
     """
 
     def __init__(self, output_dir: Path) -> None:
         self._output_dir = output_dir
 
     def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
-        """Boot qemu-system with sample+scratch+rootfs disk slots; populate snapshot hashes.
+        """Boot qemu-system with target+scratch+rootfs disk slots; populate snapshot hashes.
 
         Steps
         -----
@@ -132,9 +154,10 @@ class DetonateVmExecutor:
         4. Delegate to vm_boot_core.run_vm (guaranteed reap/wall/receipt engine).
            run_vm creates and owns the SINGLE per-run directory; pre_boot writes
            scratch.img into it so output_files() scans it into outputs[].
-        5. Inject argv_deltas + detonate-run.v1 schema into the evidence dict.
+        5. Inject argv_deltas + trace-run.v1 schema into the evidence dict.
 
-        GateError propagates unchanged (→ exit 2 at the CLI boundary).
+        NOTE: structurally identical to detonate_exec.DetonateVmExecutor.evaluate —
+        keep in sync.  GateError propagates unchanged (→ exit 2 at the CLI boundary).
         """
         # Step 1 — full preflight (no run_dir scope check yet; sentinel in argv is OK).
         _preflight(plan)
@@ -178,7 +201,7 @@ class DetonateVmExecutor:
             if not argv_deltas:
                 raise GateError(
                     f"scratch sentinel {_SCRATCH_SENTINEL!r} not found in planned_argv; "
-                    "detonate plan must include the scratch sentinel drive"
+                    "trace plan must include the scratch sentinel drive"
                 )
 
             # Re-check disk policy with real run_dir scope.
@@ -200,7 +223,7 @@ class DetonateVmExecutor:
             snapshot_hook=snapshot_hook, pre_boot=pre_boot,
         )
 
-        # Step 5 — inject detonate-specific fields.
+        # Step 5 — inject trace-specific fields.
         ev["schema_version"] = SCHEMA_VERSION
         ev["argv_deltas"] = argv_deltas  # override run_vm's empty list
 

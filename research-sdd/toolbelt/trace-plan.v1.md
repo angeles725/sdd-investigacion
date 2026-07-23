@@ -1,69 +1,143 @@
-# Plan record `trace-plan.v1`
+# In-VM trace plan `trace-plan.v1`
 
-`trace_plan.py` (U-V9) emits this schema in DRY-RUN mode: no tracer is launched,
-no subprocess is spawned, the target is never executed. The plan records the exact
-gdb/strace/ltrace invocation that WOULD run, gated behind `--allow-exec`.
+`trace_plan.py` — offline in-VM tracer planner (U-V9 / item 9).
+Produces `trace-plan.v1.json` + `vm-determinism.v1.json`. NEVER executes:
+no VM boot, no subprocess spawned, no target traced.
+Live exec gated behind `--allow-exec` ([gate-authorization.v1](gate-authorization.v1.md)).
 
-## Supported tracers
-
-| `tracer` | Tool | Key planned flags |
-|---|---|---|
-| `strace` | strace(1) | `-f` follow-forks, `-o /tmp/rsdd/out/trace.log` |
-| `ltrace` | ltrace(1) | `-f` follow-forks, `-o /tmp/rsdd/out/trace.log` |
-| `gdb-batch` | gdb(1) | `--batch -ex run -ex bt --args` |
+**D3 rebuild** (see design obs #5608 §5): `planned_argv` now emits the
+`qemu-system-{arch}` form with three typed disk drives. The tracer selection
+(`strace`, `ltrace`, `gdb-batch`) is encoded in the kernel cmdline as
+`-append "init=/rsdd-agent rsdd.tracer=<tracer>"` — the guest-side `rsdd-agent`
+reads it from `/proc/cmdline` and wraps the target accordingly. Host attack
+surface is **IDENTICAL to detonate** — containment is enforced by the SAME
+shared `lib/vm_disk_policy.py` module, so trace can never regress below detonate.
+The live `TraceVmExecutor` is wired in D3.
 
 ## CLI
 
 ```
-trace_plan.py plan --target BINARY --tracer {strace,ltrace,gdb-batch} --output DIR
-                   [--cpu-seconds N] [--max-mem-bytes N] [--max-output-bytes N]
-                   [--wall-seconds N] [--allow-exec]
-                   [--max-input-bytes N]  # absent/None → unlimited (default); set → fail closed > N bytes
+python3 trace_plan.py plan \
+    --target   <BINARY>          # regular file, no symlinks (O_NOFOLLOW)
+    --tracer   {strace,ltrace,gdb-batch}
+    --output   <DIR>             # bind-scope guarded output directory
+    [--kernel  PATH]             # VM kernel path (default: /rsdd/vmlinuz; not executed)
+    [--rootfs  PATH]             # VM rootfs image path (default: /rsdd/rootfs.img; not executed)
+    [--cpu-seconds N] [--wall-seconds N]
+    [--max-mem-bytes N] [--max-output-bytes N]
+    [--allow-exec]               # authorize live run via TraceVmExecutor
+    [--max-input-bytes N]        # optional input-size cap (default: unlimited)
 ```
 
-Exit: `0` live run (future); `2` error/gate hard-refuse; `3` auth-required.
+Architecture (`arch`) is auto-detected from the target's ELF `e_machine` header
+(same logic as `qemu_plan.py` and `detonate_plan.py`). Non-ELF targets degrade
+to `"x86_64"` silently.
 
-## Containment policy (enforced at plan time)
+## Disk slots and per-drive containment policy
 
-| Invariant | Enforcement |
+The trace VM uses **three typed disk drives** (per-drive policy; global `-snapshot`
+is **absent** from the `planned_argv`). The live executor (D3) creates
+`<run_dir>/scratch.img` and substitutes the sentinel `/rsdd/scratch.img` before Popen.
+
+| Slot | Guest path | Drive flags | Rationale |
+|---|---|---|---|
+| **Target (sample)** | `/input/sample` | `readonly=on,snapshot=off,format=raw,if=virtio` | Target identity is immutable. `readonly=on` prevents any write — even for the tracer. `snapshot=off` is explicit. `format=raw` avoids qcow2 backing-file escape. |
+| **Scratch** | host: `<run_dir>/scratch.img` | `snapshot=off,format=raw,if=virtio` | The only writable-persistent disk. Trace output written by the guest agent (strace/ltrace/gdb output to `/mnt/scratch/trace.log`) lands here. Host reads it post-teardown via O_NOFOLLOW. `snapshot=off` ensures writes survive qemu exit. Pre/post sha256 hashes feed the evidence chain. |
+| **Rootfs** | `/input/rootfs` | `snapshot=on,format=raw,if=virtio` | COW overlay discards all guest OS writes on exit. The host rootfs image is unmodified. `snapshot=on` is the ephemeral sentinel; `format=raw` is mandatory. |
+
+**Containment identity with detonate**: the `lib/vm_disk_policy.py` checker is the
+SAME module imported by both `DetonateVmExecutor` and `TraceVmExecutor`. A trace plan
+that passes preflight is guaranteed to satisfy every detonate containment rule — there
+is no separate trace-only policy. The only delta is the guest-side `-append` kernel
+cmdline token that selects the tracer agent.
+
+## Tracer selection (guest-side only)
+
+The tracer is encoded as a kernel cmdline argument and never appears in the host-level
+bwrap or qemu argv as a directly executable binary:
+
+```
+-append "init=/rsdd-agent rsdd.tracer=strace"
+# or:  rsdd.tracer=ltrace
+# or:  rsdd.tracer=gdb-batch
+```
+
+The guest-side `rsdd-agent` reads `/proc/cmdline`, detects `rsdd.tracer=<tracer>`,
+mounts `/dev/vda` (the target disk) read-only, and invokes:
+
+| Tracer | Guest agent action |
 |---|---|
-| No execution | Target is never exec'd; `planned_argv` is recorded data only |
-| No subprocess | Zero Popen/run calls; data from identity + constants only |
-| Symlink rejection | Target opened with `O_NOFOLLOW` (adapter_core.identity) |
-| Bind safety | Output path checked via `assert_safe_bind_root` |
-| Deterministic | Same target → identical plan (content-addressed) |
+| `strace` | `strace -f -o /mnt/scratch/trace.log -- <target>` |
+| `ltrace` | `ltrace -f -o /mnt/scratch/trace.log -- <target>` |
+| `gdb-batch` | `gdb --batch -ex run -ex bt --args <target>` |
+
+The host never calls strace/ltrace/gdb directly. The target binary never executes
+on the host. This is the same isolation boundary as detonate.
+
+## Containment policy (future live executor MUST enforce every row)
+
+This table is the normative containment spec. It is identical to
+`detonate-plan.v1.md`'s table (same shared `vm_disk_policy` enforces both).
+
+| Policy | Guarantee | Enforcing mechanism |
+|---|---|---|
+| **Network namespace** | `--unshare-net`. Target MUST NOT reach any network interface. | `--unshare-net`; `network: "none"` |
+| **PID namespace** | `--unshare-pid`. Target sees only its own process tree. | `--unshare-pid` |
+| **IPC namespace** | `--unshare-ipc`. Isolates System V IPC / POSIX MQs. | `--unshare-ipc` |
+| **UTS namespace** | `--unshare-uts`. Target cannot change host identity. | `--unshare-uts` |
+| **Cgroup namespace** | `--unshare-cgroup`. Defense-in-depth against cgroup escape. | `--unshare-cgroup` |
+| **Capabilities** | `--cap-drop ALL`. No capability abuse possible. | `--cap-drop ALL` |
+| **Parent-death signal** | `--die-with-parent`. Sandbox killed when parent exits. | `--die-with-parent` |
+| **Session isolation** | `--new-session`. Cannot access host terminal. | `--new-session` |
+| **Target mount** | `/input/sample` mounted read-only. Target cannot self-modify. | `--ro-bind`; `readonly=on` |
+| **Host FS** | No host path writable (`host_writable: "none"`). | `--tmpfs`, `--dir`; `host_writable: "none"` |
+| **Disk** | Per-drive: target `readonly=on` (immutable), rootfs `snapshot=on` (COW), scratch `snapshot=off` (writable-persistent host read). | `disk.mode: "per-drive-policy"` |
+| **Acceleration** | `-accel tcg` only; `-enable-kvm` forbidden. | `vm_disk_policy` rejects `-enable-kvm` |
+| **NIC** | `-nic none`; `-net`/`-netdev` forbidden. | `vm_disk_policy` rejects both |
+| **Sandbox** | `-nodefaults -sandbox on,...=deny`. | `vm_disk_policy` required belt |
+| **Host FS devices** | `-virtfs`/`-fsdev`/`-device vfio*` forbidden. | `vm_disk_policy` rejects all |
+| **Resource caps** | CPU, memory, wall-clock time, and output bytes bounded. | `limits.*`; enforced by live executor |
+| **Snapshot capture** | Pre/post scratch-disk sha256 fed into evidence chain. | `snapshot_policy.pre_run`, `post_run` |
 
 ## `trace-plan.v1` schema
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `"trace-plan.v1"` | Schema sentinel |
-| `tracer` | string | `strace`, `ltrace`, or `gdb-batch` |
-| `tracer_options.follow_forks` | bool | Whether tracer follows child processes |
-| `tracer_options.syscall_filter` | str\|null | Syscall filter (null = all; strace only) |
-| `target.{path,sha256,size}` | — | Host path (O_NOFOLLOW), content hash, byte count |
-| `limits.{cpu_seconds,mem_bytes,wall_seconds,output_bytes}` | int>0 | Resource caps |
-| `mount_plan.{target_ro,output_writable}` | str | Sandbox path assignments |
-| `planned_argv` | str[] | Full bwrap + tracer argv (never executed in this unit) |
-| `outputs` | `[]` | Empty — unknown until live run |
-| `limitations` | str[] | Always `["outputs-unknown-until-live-run"]` |
+| `schema_version` | `"trace-plan.v1"` | Schema identifier |
+| `arch` | `str` | Detected qemu arch suffix (auto-detected from ELF; fallback `"x86_64"`) |
+| `qemu_binary` | `str` | Intended qemu binary (e.g. `"qemu-system-x86_64"`; never executed in dry-run) |
+| `tracer` | `str` | `"strace"`, `"ltrace"`, or `"gdb-batch"` |
+| `tracer_options` | `{follow_forks, syscall_filter}` | Per-tracer options (data only; enforced guest-side) |
+| `target` | `{path, sha256, size}` | Target identity (O_NOFOLLOW) |
+| `network` | `"none"` | Always "none" — isolation mandatory |
+| `network_policy` | `{mode, justification}` | Explicit isolation record |
+| `disk` | `{mode, pre_snapshot_digest, post_snapshot_capture}` | `mode="per-drive-policy"` (D3 rebuild) |
+| `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable}` | Mount containment |
+| `limits` | `{cpu_seconds, mem_bytes, wall_seconds, output_bytes}` | Resource caps |
+| `snapshot_policy` | `{pre_run, post_run}` | State-hash capture intent |
+| `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args and `-append` (NEVER executed in dry-run) |
+| `outputs` | `[]` | Empty until live run |
+| `limitations` | `list[str]` | `["outputs-unknown-until-live-run"]` |
+
+`disk.mode = "per-drive-policy"` signals the per-drive snapshot approach introduced in
+D3. A live executor MUST parse each `-drive` spec individually.
+
+`mount_plan.scratch_persistent = "/rsdd/scratch.img"` is a **plan-time sentinel**.
+The live executor (D3) substitutes the actual `<run_dir>/scratch.img` path in
+`exec_argv` before calling Popen.
+
+`mount_plan.host_writable: "none"` is the **only valid value** — no host filesystem
+path is made writable inside the sandbox.
 
 ## Determinism and gate
 
-[`vm-determinism.v1.json`](vm-determinism.v1.md): written alongside. Dry-run state:
-`declared: false`, `basis: "dry-run-plan"`, `receipt_identity: null`.
+[`vm-determinism.v1.json`](vm-determinism.v1.md): always `declared:false`,
+`basis:"dry-run-plan"`, `receipt_identity:null`.
 
-Gate contract: [`gate-authorization.v1`](gate-authorization.v1.md).
+| Condition | Outcome |
+|---|---|
+| `--allow-exec` absent | `authorization-required` / exit 3 |
+| `--allow-exec` + qemu not on PATH | `GateError` / exit 2 |
+| `--allow-exec` + qemu on PATH | live `TraceVmExecutor.evaluate()` called |
 
-```python
-result = execute_or_plan(cap=CAP_EXEC, allow=args.allow_exec, plan=plan,
-                         live_executor=None, output_dir=None)
-if result["outcome"] == "authorization-required":
-    sys.exit(EXIT_AUTH_REQUIRED)  # exit 3
-# --allow-exec + RSDD_EXEC_EXECUTOR unset → GateError → exit 2
-```
-
-`dynamic.sh` is the live Frida wrapper (METHODOLOGY §12); `trace_plan.py` is the
-offline plan generator for gdb/strace/ltrace — the two do not overlap. The live
-executor (behind `--allow-exec`) should follow the same `[CERT-hw]`
-preserve-to-sources discipline as `dynamic.sh` when eventually implemented.
+Exit codes: 0 executor ran · 2 hard error · 3 authorization-required.
