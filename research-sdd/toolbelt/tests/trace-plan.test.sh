@@ -49,17 +49,22 @@ with tempfile.TemporaryDirectory() as td:
         ok("T2: flag absent → exit 3 (authorization-required)")
     except Exception as e: nok("T2: flag-absent-exit3", str(e))
 
-# ── T3: --allow-exec + no live executor → exit 2 ─────────────────────────────
+# ── T3: --allow-exec + qemu not on PATH → exit 2 (preflight GateError) ───────
+# D3: local wiring adds TraceVmExecutor; preflight must reject when qemu is absent.
+# Restrict PATH to an empty temp dir so qemu-system-* is not found.
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
-    try:
-        r = cli("plan","--target",str(tgt),"--tracer","strace","--output",str(out),
-                "--allow-exec", xe={"RSDD_EXEC_EXECUTOR": ""})
-        assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:100]}"
-        ok("T3: --allow-exec + no live executor → exit 2 (gate hard-refuse)")
-    except Exception as e: nok("T3: allow-exec-hard-refuse", str(e))
+    with tempfile.TemporaryDirectory() as empty_bin:
+        try:
+            r = cli("plan","--target",str(tgt),"--tracer","strace","--output",str(out),
+                    "--allow-exec", xe={"RSDD_EXEC_EXECUTOR": "", "PATH": empty_bin})
+            assert r.returncode == 2, f"got {r.returncode}\n{r.stderr[:120]}"
+            ok("T3: --allow-exec + qemu not on PATH → exit 2 (preflight GateError)")
+        except Exception as e: nok("T3: allow-exec-hard-refuse", str(e))
 
-# ── T4: strace → well-formed plan with correct argv ──────────────────────────
+# ── T4: strace → well-formed qemu-system+disk plan (D3 rebuild) ──────────────
+# D3 rebuild: planned_argv is now the qemu-system+disk form (tracer in kernel cmdline).
+# Tracer selection encoded as: -append "init=/rsdd-agent rsdd.tracer=strace"
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
     try:
@@ -70,15 +75,29 @@ with tempfile.TemporaryDirectory() as td:
         assert p["schema_version"] == "trace-plan.v1"
         assert p["tracer"] == "strace"
         argv = p["planned_argv"]
-        assert "strace" in argv, f"strace not in argv: {argv}"
-        assert "-f" in argv, f"-f missing: {argv}"
-        assert "/input/target" in argv, f"/input/target missing"
+        assert "bwrap" in argv, f"bwrap missing: {argv}"
         assert "--unshare-net" in argv, f"--unshare-net missing"
-        assert "ALL" in argv and "--cap-drop" in argv, "--cap-drop ALL missing"
-        ok("T4: strace → well-formed plan with correct intended argv")
-    except Exception as e: nok("T4: strace-plan-argv", str(e))
+        assert "--cap-drop" in argv and "ALL" in argv, "--cap-drop ALL missing"
+        # qemu-system-* must appear (D3 rebuild: no strace/ltrace/gdb as host-level cmd)
+        assert any(a.startswith("qemu-system-") for a in argv), \
+            f"no qemu-system-* found in argv: {argv}"
+        # per-drive disk slots: sample ro, scratch persistent, rootfs COW
+        drive_specs = [argv[i+1] for i,t in enumerate(argv) if t=="-drive" and i+1<len(argv)]
+        assert any("/input/sample" in d and "readonly=on" in d for d in drive_specs), \
+            f"sample readonly drive missing: {drive_specs}"
+        assert any("/rsdd/scratch.img" in d and "snapshot=off" in d
+                   and "readonly=on" not in d for d in drive_specs), \
+            f"scratch sentinel drive missing: {drive_specs}"
+        assert any("/input/rootfs" in d and "snapshot=on" in d for d in drive_specs), \
+            f"rootfs COW drive missing: {drive_specs}"
+        # tracer encoded in kernel cmdline
+        assert "-append" in argv, f"-append missing from argv (tracer selection): {argv}"
+        assert any("rsdd.tracer=strace" in a for a in argv), \
+            f"rsdd.tracer=strace not found in any argv token: {argv}"
+        ok("T4: strace → qemu-system+disk plan; tracer in kernel cmdline (D3 rebuild)")
+    except Exception as e: nok("T4: strace-plan-argv-vm-disk-form", str(e))
 
-# ── T5: ltrace → well-formed plan with correct argv ──────────────────────────
+# ── T5: ltrace → qemu-system+disk plan (D3 rebuild) ─────────────────────────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
     try:
@@ -88,12 +107,15 @@ with tempfile.TemporaryDirectory() as td:
         p = json.loads((out/"trace-plan.v1.json").read_text())
         assert p["tracer"] == "ltrace"
         argv = p["planned_argv"]
-        assert "ltrace" in argv, f"ltrace not in argv: {argv}"
-        assert "-f" in argv
-        ok("T5: ltrace → well-formed plan with correct intended argv")
-    except Exception as e: nok("T5: ltrace-plan-argv", str(e))
+        assert any(a.startswith("qemu-system-") for a in argv), \
+            f"no qemu-system-* in argv: {argv}"
+        assert "-append" in argv
+        assert any("rsdd.tracer=ltrace" in a for a in argv), \
+            f"rsdd.tracer=ltrace not found: {argv}"
+        ok("T5: ltrace → qemu-system+disk plan; tracer in kernel cmdline (D3 rebuild)")
+    except Exception as e: nok("T5: ltrace-plan-argv-vm-disk-form", str(e))
 
-# ── T6: gdb-batch → well-formed plan with correct argv ───────────────────────
+# ── T6: gdb-batch → qemu-system+disk plan (D3 rebuild) ──────────────────────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
     try:
@@ -103,11 +125,13 @@ with tempfile.TemporaryDirectory() as td:
         p = json.loads((out/"trace-plan.v1.json").read_text())
         assert p["tracer"] == "gdb-batch"
         argv = p["planned_argv"]
-        assert "gdb" in argv, f"gdb not in argv: {argv}"
-        assert "--batch" in argv
-        assert "--args" in argv
-        ok("T6: gdb-batch → well-formed plan with correct intended argv")
-    except Exception as e: nok("T6: gdb-batch-plan-argv", str(e))
+        assert any(a.startswith("qemu-system-") for a in argv), \
+            f"no qemu-system-* in argv: {argv}"
+        assert "-append" in argv
+        assert any("rsdd.tracer=gdb-batch" in a for a in argv), \
+            f"rsdd.tracer=gdb-batch not found: {argv}"
+        ok("T6: gdb-batch → qemu-system+disk plan; tracer in kernel cmdline (D3 rebuild)")
+    except Exception as e: nok("T6: gdb-batch-plan-argv-vm-disk-form", str(e))
 
 # ── T7: unsupported tracer → clean structured error, no traceback ─────────────
 with tempfile.TemporaryDirectory() as td:

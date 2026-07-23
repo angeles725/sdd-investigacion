@@ -5,21 +5,57 @@ Produces `detonate-plan.v1.json` + `vm-determinism.v1.json`. NEVER executes:
 no VM boot, no subprocess spawned, no sample detonated.
 Live exec gated behind `--allow-exec` ([gate-authorization.v1](gate-authorization.v1.md)).
 
+**D1 rebuild** (see design obs #5608 §2, §4, §6): `planned_argv` now emits the
+`qemu-system-{arch}` form with three typed disk drives. Global `-snapshot` has been
+**dropped** and replaced by per-drive containment policy (`lib/vm_disk_policy.py`).
+The live `DetonateVmExecutor` is wired in D2; D1 remains plan-only.
+
 ## CLI
 
 ```
 python3 detonate_plan.py plan \
-    --sample   <FILE>   # regular file, no symlinks (O_NOFOLLOW)
-    --output   <DIR>    # bind-scope guarded output directory
-    [--os-image TAG]    # OS image tag recorded in plan (not executed)
-    [--network none]    # only "none" accepted; any other value → exit 2
+    --sample   <FILE>           # regular file, no symlinks (O_NOFOLLOW)
+    --output   <DIR>            # bind-scope guarded output directory
+    [--os-image TAG]            # OS image tag recorded in plan (not executed)
+    [--kernel  PATH]            # VM kernel path (default: /rsdd/vmlinuz; not executed)
+    [--rootfs  PATH]            # VM rootfs image path (default: /rsdd/rootfs.img; not executed)
+    [--network none]            # only "none" accepted; any other value → exit 2
     [--cpu-seconds N] [--wall-seconds N]
     [--max-mem-bytes N] [--max-output-bytes N]
-    [--allow-exec]      # authorize live run (no live executor → exit 2)
-    [--max-input-bytes N]  # optional input-size cap (default: unlimited)
-                           # absent/None → no cap, behavior byte-identical to baseline
-                           # set to N → inputs > N bytes fail closed (exit 2, no traceback)
+    [--allow-exec]              # authorize live run (no live executor in D1 → exit 2)
+    [--max-input-bytes N]       # optional input-size cap (default: unlimited)
+                                # absent/None → no cap, behavior byte-identical to baseline
+                                # set to N → inputs > N bytes fail closed (exit 2, no traceback)
 ```
+
+Architecture (`arch`) is auto-detected from the sample's ELF `e_machine` header
+(same logic as `qemu_plan.py`). Non-ELF samples degrade to `"x86_64"` silently.
+
+## Disk slots and per-drive containment policy
+
+The detonation VM uses **three typed disk drives** (per-drive policy; global `-snapshot`
+is **absent** from the `planned_argv`). The live executor (D2) creates
+`<run_dir>/scratch.img` and substitutes the sentinel `/rsdd/scratch.img` before Popen.
+
+| Slot | Guest path | Drive flags | Rationale |
+|---|---|---|---|
+| **Sample** | `/input/sample` | `readonly=on,snapshot=off,format=raw,if=virtio` | Sample identity is immutable. `readonly=on` prevents any write. `snapshot=off` is explicit (no COW overlay allowed — not even for the sample). `format=raw` avoids qcow2 backing-file escape. |
+| **Scratch** | host: `<run_dir>/scratch.img` | `snapshot=off,format=raw,if=virtio` | The only writable-persistent disk. Detonation artifacts written by the guest agent land here. Host reads it post-teardown via O_NOFOLLOW. `snapshot=off` ensures writes survive qemu exit. Pre/post sha256 hashes feed the evidence chain. |
+| **Rootfs** | `/input/rootfs` | `snapshot=on,format=raw,if=virtio` | COW overlay discards all guest OS writes on exit. The host rootfs image is unmodified. `snapshot=on` is the ephemeral sentinel; `format=raw` is mandatory. |
+
+**Why global `-snapshot` was dropped**: `qemu-plan.v1` uses global `-snapshot` (all drives
+ephemeral, no real disk images). Detonation needs the scratch disk to **persist** so the
+host can retrieve artifacts. Per-drive `snapshot=off` on scratch achieves this, while
+`snapshot=on` on rootfs and `readonly=on` on the sample preserve the invariants V1b relied
+on. The policy checker `lib/vm_disk_policy.py` enforces every rule above at preflight.
+
+**`lib/vm_disk_policy.py`** — shared containment checker (single source of truth):
+Exactly one writable-persistent drive is required. `format=qcow2` on any drive is
+rejected (backing-file = host-path escape vector). Host device paths (`/dev/*`) are
+rejected. All V1b belts are retained: `-accel tcg`, `-nic none`, `--unshare-net`,
+`-smp 1`, `-nodefaults`, `-sandbox on,...=deny`; `-enable-kvm`, `-net`, `-netdev`,
+`-virtfs`, `-device vfio*`, `-runas` are forbidden. Trace (D3) imports the same module
+so the containment level can never regress.
 
 ## Containment policy (future live executor MUST enforce every row in this table)
 
@@ -38,7 +74,7 @@ this table alone without reading `planned_argv`.
 | **Session isolation** | `--new-session`. Creates a new POSIX session; sample cannot access the host terminal or send signals via the controlling terminal. | `--new-session` |
 | **Sample mount** | `/input/sample` is mounted read-only inside the sandbox. Sample cannot modify itself or write back to the host through this path. | `--ro-bind`; `mount_plan.sample_ro` |
 | **Writable area** | Only `/tmp/rsdd/out` is writable; all output must go there. No host path is writable (`host_writable: "none"`). | `--tmpfs`, `--dir`; `host_writable: "none"` |
-| **Disk** | Ephemeral: all sandbox disk writes are discarded on exit. No persistent side-effects on host storage. | `disk.mode: "ephemeral-snapshot"` |
+| **Disk** | Per-drive policy: sample `readonly=on` (immutable, no writes allowed), rootfs `snapshot=on` (COW overlay discarded on exit, host image unchanged), scratch `snapshot=off` (writable-persistent; host reads post-teardown for pre/post sha256 hashing). | `disk.mode: "per-drive-policy"` |
 | **Resource caps** | CPU, memory, wall-clock time, and output bytes are bounded. Exceeding any cap triggers kill + truncate + `reason` field. | `limits.*`; enforced by live executor |
 | **Snapshot capture** | Pre-run and post-run disk-state digests MUST be captured before and after detonation (feeds U-F2 evidence chain). | `snapshot_policy.pre_run`, `snapshot_policy.post_run` |
 
@@ -50,17 +86,42 @@ Resource cap defaults: `cpu_seconds=30`, `mem_bytes=256 MiB`, `wall_seconds=60`,
 | Field | Type | Description |
 |---|---|---|
 | `schema_version` | `"detonate-plan.v1"` | Schema identifier |
+| `arch` | `str` | Detected qemu arch suffix (e.g. `"x86_64"`, `"aarch64"`); auto-detected from sample ELF, fallback `"x86_64"` |
+| `qemu_binary` | `str` | Intended qemu binary (e.g. `"qemu-system-x86_64"`; never executed in dry-run) |
 | `sample` | `{path, sha256, size, type_hint}` | Sample identity (O_NOFOLLOW) |
 | `network` | `"none"` | Always "none" — isolation mandatory |
 | `network_policy` | `{mode, justification}` | Explicit isolation record |
-| `disk` | `{mode, pre_snapshot_digest, post_snapshot_capture}` | Ephemeral disk policy |
-| `mount_plan` | `{sample_ro, output_writable, host_writable}` | Mount containment |
+| `disk` | `{mode, pre_snapshot_digest, post_snapshot_capture}` | `mode="per-drive-policy"` (D1 rebuild; was `"ephemeral-snapshot"`) |
+| `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable}` | Mount containment |
 | `limits` | `{cpu_seconds, mem_bytes, wall_seconds, output_bytes}` | Resource caps |
 | `snapshot_policy` | `{pre_run, post_run}` | State-hash capture intent |
 | `os_image` | `str \| null` | OS image tag (recorded, not executed) |
-| `planned_argv` | `list[str]` | Full bwrap invocation (NEVER executed in dry-run) |
+| `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args (NEVER executed in dry-run) |
 | `outputs` | `[]` | Empty until live run |
 | `limitations` | `list[str]` | `["outputs-unknown-until-live-run"]` |
+
+`disk.mode = "per-drive-policy"` signals the per-drive snapshot approach introduced in
+D1. A live executor MUST parse each `-drive` spec individually; it MUST NOT apply global
+`-snapshot` or treat all drives as ephemeral.
+
+`mount_plan.scratch_persistent = "/rsdd/scratch.img"` is a **plan-time sentinel**. The
+live executor (D2) substitutes the actual `<run_dir>/scratch.img` path in `exec_argv`
+before calling Popen. The host creates this file fresh in the per-run directory.
+
+> **OPERATOR WARNING — `planned_argv` is not live-runnable as-is.**
+> The emitted `planned_argv` is validated and CI-tested **OFFLINE only** (fake
+> `qemu-system-*` shim; bwrap is never invoked in CI).
+> The bwrap prefix includes `--tmpfs /tmp/rsdd`, which mounts an empty tmpfs at
+> `/tmp/rsdd` inside the sandbox. The live executor creates the per-run scratch image
+> at `/tmp/rsdd/rsdd-<uuid>/scratch.img` on the **host** and passes that host path as
+> the qemu-system `-drive file=` argument — but inside the sandbox `--tmpfs /tmp/rsdd`
+> masks that path, so qemu-system cannot open the file and the pre/post scratch-hash
+> evidence chain is vacuous. This defect is invisible in CI because the fake shim
+> writes directly to the `-drive file=` path without going through bwrap.
+> **Before any real in-guest detonation**, the operator MUST reconcile the scratch
+> mount (e.g. replace `--tmpfs /tmp/rsdd` with a targeted bind-mount of the per-run
+> `run_dir` into the sandbox). This is a documented known limitation; a follow-up
+> design issue tracks the required bwrap-prefix reconciliation.
 
 `sample.type_hint` is metadata-only (magic-byte sniff); degrades to `"unknown"` on
 any error without traceback. Does not gate execution.
