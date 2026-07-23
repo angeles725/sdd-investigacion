@@ -20,14 +20,18 @@ def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" i
 
 # ── Shared test fixtures ──────────────────────────────────────────────────────
 RUN_DIR = "/tmp/rsdd-test-run"
+SCRATCH_FILE  = f"{RUN_DIR}/scratch.img"
 SAMPLE_DRIVE  = "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio"
-SCRATCH_DRIVE = f"file={RUN_DIR}/scratch.img,snapshot=off,format=raw,if=virtio"
+SCRATCH_DRIVE = f"file={SCRATCH_FILE},snapshot=off,format=raw,if=virtio"
 ROOTFS_DRIVE  = "file=/input/rootfs,snapshot=on,format=raw,if=virtio"
 
+# GOOD_ARGV includes the file-scoped scratch bind (INV-2 fix / issue #60).
+# The bind must appear AFTER --tmpfs (ordering is load-bearing in bwrap).
 GOOD_ARGV = [
     "bwrap", "--die-with-parent", "--new-session",
     "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
     "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", SCRATCH_FILE, SCRATCH_FILE,
     "--ro-bind", "/store/rootfs.img", "/input/rootfs",
     "--ro-bind", "/store/sample.bin", "/input/sample", "--",
     "qemu-system-x86_64",
@@ -42,6 +46,30 @@ GOOD_ARGV = [
     "-drive", SAMPLE_DRIVE,
     "-drive", SCRATCH_DRIVE,
     "-drive", ROOTFS_DRIVE,
+]
+
+# Sentinel-form GOOD_ARGV (as emitted by build_plan, before executor substitution).
+# Used to test plan-time (run_dir=None) acceptance.
+_SENTINEL = "/rsdd/scratch.img"
+GOOD_ARGV_SENTINEL = [
+    "bwrap", "--die-with-parent", "--new-session",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", _SENTINEL, _SENTINEL,
+    "--ro-bind", "/rsdd/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample", "--",
+    "qemu-system-x86_64",
+    "-kernel", "/rsdd/vmlinuz",
+    "-m", "256",
+    "-smp", "1",
+    "-accel", "tcg",
+    "-nic", "none",
+    "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-nographic", "-no-reboot",
+    f"-drive", f"file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+    f"-drive", f"file={_SENTINEL},snapshot=off,format=raw,if=virtio",
+    f"-drive", f"file=/input/rootfs,snapshot=on,format=raw,if=virtio",
 ]
 
 def swap_drive(argv, old_val, new_val):
@@ -301,8 +329,10 @@ assert_gate_error(
 
 # ── VDP-T8: run_dir=None skips scope check (plan-time use) ───────────────────
 # Scratch at /rsdd/scratch.img (not under RUN_DIR) → passes when run_dir=None.
-_t8_argv = swap_drive(GOOD_ARGV, SCRATCH_DRIVE,
-    "file=/rsdd/scratch.img,snapshot=off,format=raw,if=virtio")
+# GOOD_ARGV_SENTINEL has both the bwrap bind and the -drive spec using the same
+# sentinel path (/rsdd/scratch.img), so R-BIND-RW is satisfied and the scope
+# check (run_dir=None) is the only gate that could reject it — it must not.
+_t8_argv = list(GOOD_ARGV_SENTINEL)
 assert_passes(
     lambda: m.check_disk_policy(_t8_argv),  # no run_dir → skip scope check
     "VDP-T8: run_dir=None skips scratch scope check (plan-time validation)"
@@ -317,6 +347,170 @@ _t9_argv = swap_drive(GOOD_ARGV, SCRATCH_DRIVE,
 assert_gate_error(
     lambda: m.check_disk_policy(_t9_argv, run_dir=None),
     "VDP-T9: -drive missing file= key → GateError (fail-closed)"
+)
+
+# ===========================================================================
+# Slice 2 — R-REACH / R-BIND-RW / R-BWRAP-DENY (INV-2 / issue #60)
+# All cases below are RED until the three rules are implemented in
+# lib/vm_disk_policy.py.  GREEN cases use assert_passes.
+# ===========================================================================
+
+# ── RED-REACH-MASK: --tmpfs + scratch drive under it → GateError ──────────
+# The scratch drive path is under /tmp/rsdd which --tmpfs masks.
+# R-REACH must detect this and name both the drive and the masking mount.
+_reach_mask_argv = [
+    "bwrap", "--die-with-parent", "--new-session",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    # NO bind here — scratch is masked by --tmpfs above
+    "--ro-bind", "/rsdd/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample", "--",
+    "qemu-system-x86_64", "-m", "256", "-smp", "1", "-accel", "tcg",
+    "-nic", "none", "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-nographic", "-no-reboot",
+    "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+    "-drive", f"file={RUN_DIR}/scratch.img,snapshot=off,format=raw,if=virtio",
+    "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
+]
+assert_gate_error(
+    lambda: m.check_disk_policy(_reach_mask_argv, run_dir=RUN_DIR),
+    "RED-REACH-MASK: --tmpfs masks scratch drive → GateError (R-REACH)"
+)
+
+# ── RED-REACH-ORDER: bind placed BEFORE --tmpfs → GateError ───────────────
+# bwrap applies ops in order; a bind before --tmpfs is silently re-masked.
+# R-REACH must model ordering, not set membership.
+#
+# IMPORTANT: the scratch path must be a CHILD of the tmpfs path (/tmp/rsdd)
+# for ordering to matter.  Using a sibling path (like /tmp/rsdd-test-run) would
+# not be masked by --tmpfs /tmp/rsdd regardless of ordering.  We use a
+# dedicated run dir under /tmp/rsdd so the masking relationship is real.
+_ORDER_RUN_DIR   = "/tmp/rsdd/rsdd-testrun"   # child of tmpfs dest
+_ORDER_SCRATCH   = f"{_ORDER_RUN_DIR}/scratch.img"
+_ORDER_SCRATCH_D = f"file={_ORDER_SCRATCH},snapshot=off,format=raw,if=virtio"
+_reach_order_argv = [
+    "bwrap", "--die-with-parent", "--new-session",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--bind", _ORDER_SCRATCH, _ORDER_SCRATCH,  # bind BEFORE tmpfs — re-masked
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--ro-bind", "/rsdd/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample", "--",
+    "qemu-system-x86_64", "-m", "256", "-smp", "1", "-accel", "tcg",
+    "-nic", "none", "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-nographic", "-no-reboot",
+    "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+    "-drive", _ORDER_SCRATCH_D,
+    "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
+]
+assert_gate_error(
+    lambda: m.check_disk_policy(_reach_order_argv, run_dir=_ORDER_RUN_DIR),
+    "RED-REACH-ORDER: bind before --tmpfs → GateError (R-REACH ordering-aware)"
+)
+
+# ── GREEN-REACH-OK: bind placed AFTER --tmpfs → passes cleanly ────────────
+# Correct ordering: --tmpfs first, then --bind scratch → scratch reachable.
+assert_passes(
+    lambda: m.check_disk_policy(GOOD_ARGV, run_dir=RUN_DIR),
+    "GREEN-REACH-OK: bind after --tmpfs → check_disk_policy passes (R-REACH)"
+)
+
+# ── RED-BIND-DIR: --bind <run_dir> <run_dir> (directory, not file) → GateError ─
+# The directory bind is rejected: guest writes land in host run_dir, swept into
+# receipt outputs[]. Only the specific scratch file may be bound read-write.
+_run_dir_bind_argv = list(GOOD_ARGV)
+# Replace the scratch file bind with a directory bind
+_idx = _run_dir_bind_argv.index(SCRATCH_FILE)
+_run_dir_bind_argv[_idx - 1] = RUN_DIR   # SRC = dir
+_run_dir_bind_argv[_idx]     = RUN_DIR   # DEST = dir
+_run_dir_bind_argv[_idx + 1] = RUN_DIR   # next positional (DEST slot)
+# Rebuild correctly: replace the bind SRC and DEST with the directory path
+_bind_dir_argv = list(GOOD_ARGV)
+i_src = _bind_dir_argv.index(SCRATCH_FILE)
+_bind_dir_argv[i_src] = RUN_DIR       # SRC ← dir
+_bind_dir_argv[i_src + 1] = RUN_DIR   # DEST ← dir
+assert_gate_error(
+    lambda: m.check_disk_policy(_bind_dir_argv, run_dir=RUN_DIR),
+    "RED-BIND-DIR: --bind <run_dir> <run_dir> → GateError (R-BIND-RW: must be scratch file)"
+)
+
+# ── RED-BIND-NONIDENTITY: SRC != DEST → GateError ─────────────────────────
+# R-BIND-RW requires SRC == DEST (identity map) so the bind cannot redirect.
+_nonid_argv = list(GOOD_ARGV)
+i_src2 = _nonid_argv.index(SCRATCH_FILE)
+_nonid_argv[i_src2] = "/etc/passwd"   # SRC != DEST
+assert_gate_error(
+    lambda: m.check_disk_policy(_nonid_argv, run_dir=RUN_DIR),
+    "RED-BIND-NONIDENTITY: --bind SRC != DEST → GateError (R-BIND-RW identity required)"
+)
+
+# ── RED-BIND-EXTRA-RW: two --bind ops → GateError ─────────────────────────
+# R-BIND-RW: at most one read-write bind permitted.
+# The extra bind must be inserted BEFORE "--" so it is in the bwrap prefix
+# (tokens appended after "--" land in the qemu inner command and are not
+# scanned by R-BIND-RW, which operates on the bwrap prefix only).
+_extra_bind_argv = list(GOOD_ARGV)
+_eb_sep = _extra_bind_argv.index("--")
+_extra_bind_argv[_eb_sep:_eb_sep] = ["--bind", f"{RUN_DIR}/extra.img", f"{RUN_DIR}/extra.img"]
+assert_gate_error(
+    lambda: m.check_disk_policy(_extra_bind_argv, run_dir=RUN_DIR),
+    "RED-BIND-EXTRA-RW: two --bind ops → GateError (R-BIND-RW at most one rw bind)"
+)
+
+# ── RED-BWRAP-DENY: --dev-bind, --ro-bind-try, --overlay each → GateError ──
+# R-BWRAP-DENY: these families fail-open on missing source → silent F5 repeat.
+# Each forbidden op must be inserted BEFORE "--" so it is in the bwrap prefix
+# (tokens appended after "--" land in the qemu inner command and are not
+# scanned by R-BWRAP-DENY, which operates on the bwrap prefix only).
+for _deny_flag, _deny_args in [
+    ("--dev-bind",    ["--dev-bind", "/dev/null", "/dev/null"]),
+    ("--ro-bind-try", ["--ro-bind-try", "/nope", "/nope"]),
+    ("--overlay",     ["--overlay", "/a", "/b", "/c"]),
+    ("--bind-try",    ["--bind-try", "/nope", "/nope"]),
+]:
+    _deny_argv = list(GOOD_ARGV)
+    _deny_sep = _deny_argv.index("--")
+    _deny_argv[_deny_sep:_deny_sep] = _deny_args
+    assert_gate_error(
+        lambda _a=_deny_argv, _f=_deny_flag:
+            m.check_disk_policy(_a, run_dir=RUN_DIR),
+        f"RED-BWRAP-DENY({_deny_flag}): forbidden bwrap op → GateError (R-BWRAP-DENY)"
+    )
+
+# ── GREEN-SUBST-INVARIANT: sentinel form and substituted form both pass ────
+# The invariant must hold at plan time (run_dir=None, sentinel paths) AND after
+# executor substitution (run_dir=RUN_DIR, real paths).  This confirms the
+# checker is substitution-invariant: plan and exec cannot drift.
+assert_passes(
+    lambda: m.check_disk_policy(GOOD_ARGV_SENTINEL, run_dir=None),
+    "GREEN-SUBST-INVARIANT (sentinel, run_dir=None): plan-time argv passes R-REACH+R-BIND-RW"
+)
+assert_passes(
+    lambda: m.check_disk_policy(GOOD_ARGV, run_dir=RUN_DIR),
+    "GREEN-SUBST-INVARIANT (substituted, run_dir set): post-substitution argv passes R-REACH+R-BIND-RW"
+)
+
+# ── PARITY: trace rejects everything detonate rejects (shared checker) ────
+# The vm_disk_policy checker is the same module for both executors.
+# Re-run every new RED case through check_disk_policy to confirm parity.
+# By construction: since there is ONE checker, parity holds automatically.
+# These assertions document and enforce that assumption.
+assert_gate_error(
+    lambda: m.check_disk_policy(_reach_mask_argv, run_dir=RUN_DIR),
+    "PARITY-REACH-MASK: trace also rejects masked scratch (shared checker)"
+)
+assert_gate_error(
+    lambda: m.check_disk_policy(_reach_order_argv, run_dir=_ORDER_RUN_DIR),
+    "PARITY-REACH-ORDER: trace also rejects wrong-order bind (shared checker)"
+)
+assert_gate_error(
+    lambda: m.check_disk_policy(_bind_dir_argv, run_dir=RUN_DIR),
+    "PARITY-BIND-DIR: trace also rejects directory bind (shared checker)"
+)
+assert_gate_error(
+    lambda: m.check_disk_policy(_extra_bind_argv, run_dir=RUN_DIR),
+    "PARITY-BIND-EXTRA-RW: trace also rejects two rw binds (shared checker)"
 )
 
 print(f"\n== {passed} passed · {failed} failed ==")

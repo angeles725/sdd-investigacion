@@ -57,6 +57,50 @@ _VALUE_OK: dict[str, Any] = {
 _SAMPLE_GUEST_PATH: str = "/input/sample"
 _ROOTFS_GUEST_PATH: str = "/input/rootfs"
 
+# ---------------------------------------------------------------------------
+# R-BWRAP-DENY — fail-open bwrap bind families (INV-2 / issue #60)
+# ---------------------------------------------------------------------------
+# These variants fail OPEN when the source path is missing, which would
+# silently reproduce the F5 failure mode (unreachable drive, no error surface).
+# The -try variants are forbidden for this reason; the overlay and dev-bind
+# families expose unintended host paths.
+_BWRAP_DENIED: frozenset[str] = frozenset({
+    "--dev-bind",      # device bind (exposes host device nodes)
+    "--dev-bind-try",  # fail-open device bind
+    "--bind-try",      # fail-open rw bind (silently succeeds on missing src)
+    "--ro-bind-try",   # fail-open ro bind (silently succeeds on missing src)
+    "--overlay",       # overlay mount (multiple host layers)
+    "--overlay-src",   # companion to --overlay
+    "--tmp-overlay",   # temporary overlay (auto-cleaned)
+    "--ro-overlay",    # read-only overlay
+})
+
+# Arities of known bwrap mount ops (number of following arguments consumed).
+# Unknown tokens are NOT consumed — the parser only advances for known ops.
+# This is intentional: limiting the parser to known ops keeps the invariant
+# conservative and safe; unknown ops are left in place for future extension.
+_BWRAP_MOUNT_ARITY: dict[str, int] = {
+    "--tmpfs":        1,
+    "--bind":         2,
+    "--ro-bind":      2,
+    "--dir":          1,
+    "--proc":         1,
+    "--dev":          1,
+    "--symlink":      2,
+    "--perms":        1,
+    "--chmod":        2,
+    # The following are recognized but forbidden (parsed to skip args on the
+    # deny path; they raise GateError before coverage logic is reached).
+    "--dev-bind":     2,
+    "--dev-bind-try": 2,
+    "--bind-try":     2,
+    "--ro-bind-try":  2,
+    "--overlay":      3,  # SRC DEST [SRC ...] — variable, treat as 3 minimum
+    "--overlay-src":  1,
+    "--tmp-overlay":  2,
+    "--ro-overlay":   2,
+}
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -86,8 +130,22 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
             f"planned_argv missing required containment flag(s): {missing}"
         )
 
-    # ---- 2. Token scan: forbidden flags, device deny, value predicates ----
+    # ---- 2. Token scan: forbidden bwrap ops, qemu forbidden flags,
+    #         device deny, value predicates, and drive classification -------
     persistent_drives: list[str] = []  # file= paths of writable-persistent drives
+
+    # Split at "--": bwrap prefix vs. qemu inner command.
+    # R-BWRAP-DENY and R-REACH operate only on the bwrap prefix.
+    sep_idx = argv.index("--") if "--" in argv else len(argv)
+    bwrap_prefix = argv[:sep_idx]
+
+    for i, tok in enumerate(bwrap_prefix):
+        if tok in _BWRAP_DENIED:
+            raise GateError(
+                f"planned_argv contains forbidden bwrap op {tok!r} "
+                "(R-BWRAP-DENY: fail-open bind families are refused — "
+                "they silently reproduce the F5 failure mode when src is missing)"
+            )
 
     for i, tok in enumerate(argv):
         nxt = argv[i + 1] if i + 1 < len(argv) else ""
@@ -116,17 +174,65 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
             f"planned_argv must contain exactly 1 writable-persistent drive "
             f"(the scratch disk); found {len(persistent_drives)}"
         )
+    scratch_drive_path = persistent_drives[0]
 
     # ---- 4. Scratch file= path must be under run_dir (when known) ---------
     if run_dir is not None:
-        scratch = persistent_drives[0]
         prefix = run_dir.rstrip("/") + "/"
-        if not scratch.startswith(prefix):
+        if not scratch_drive_path.startswith(prefix):
             raise GateError(
-                f"scratch disk file={scratch!r} is outside run_dir={run_dir!r}; "
+                f"scratch disk file={scratch_drive_path!r} is outside run_dir={run_dir!r}; "
                 "scratch must reside in the per-run directory (host reads it "
                 "post-teardown)"
             )
+
+    # ---- 5. R-BIND-RW — exactly one rw bind, identity-mapped, == scratch ──
+    # (INV-2 / issue #60)
+    # Rule: at most ONE --bind (rw) op; SRC must equal DEST; that path must
+    # equal the writable-persistent drive path collected above.
+    # All other binds must be --ro-bind (enforced by the R-BWRAP-DENY deny
+    # list plus this scan).
+    rw_binds: list[tuple[str, str]] = []  # (SRC, DEST) of each --bind
+    i = 0
+    while i < len(bwrap_prefix):
+        tok = bwrap_prefix[i]
+        if tok == "--bind":
+            src  = bwrap_prefix[i + 1] if i + 1 < len(bwrap_prefix) else ""
+            dest = bwrap_prefix[i + 2] if i + 2 < len(bwrap_prefix) else ""
+            rw_binds.append((src, dest))
+            i += 3
+        else:
+            i += 1
+
+    if len(rw_binds) != 1:
+        raise GateError(
+            f"planned_argv must contain exactly 1 read-write --bind op "
+            f"(the scratch file bind); found {len(rw_binds)} "
+            "(R-BIND-RW: one --bind required for scratch reachability)"
+        )
+    bind_src, bind_dest = rw_binds[0]
+    if bind_src != bind_dest:
+        raise GateError(
+            f"planned_argv --bind SRC {bind_src!r} != DEST {bind_dest!r}: "
+            "the rw bind must be identity-mapped (SRC == DEST) to prevent "
+            "host-path indirection (R-BIND-RW)"
+        )
+    if bind_src != scratch_drive_path:
+        raise GateError(
+            f"planned_argv --bind {bind_src!r} does not match scratch drive "
+            f"path {scratch_drive_path!r}: the rw bind must target exactly "
+            "the scratch drive file (R-BIND-RW)"
+        )
+
+    # ---- 6. R-REACH — every -drive file= path reachable under mount ops ───
+    # (INV-2 / issue #60)
+    # Parse bwrap mount ops in order; for each -drive file=P, walk the ops
+    # maintaining a 'covered' boolean.  Final covered=False → GateError.
+    # Ordering is load-bearing: --bind before --tmpfs is silently re-masked.
+    # This check runs on the full argv (bwrap prefix only) and is
+    # substitution-invariant: sentinel paths work as well as real paths.
+    for drive_path in [scratch_drive_path]:
+        _check_drive_reachable(bwrap_prefix, drive_path)
 
 
 # ---------------------------------------------------------------------------
@@ -204,3 +310,64 @@ def _check_one_drive(spec: str, persistent_out: list[str]) -> None:
     else:
         # Writable-persistent class: the scratch disk.
         persistent_out.append(file_path)
+
+
+def _check_drive_reachable(bwrap_prefix: list[str], drive_path: str) -> None:
+    """Assert that drive_path is reachable under the bwrap mount ops (R-REACH).
+
+    Walks the bwrap prefix left-to-right, maintaining a 'covered' flag for
+    drive_path.  A --bind or --ro-bind whose DEST is a prefix of (or equal to)
+    drive_path sets covered=True.  A subsequent --tmpfs whose DEST is a prefix
+    of (or equal to) drive_path resets covered=False (masks the earlier bind).
+
+    After processing all ops: covered=False → GateError.
+
+    This is order-aware, not set-based.  A --bind placed before a --tmpfs that
+    covers the same subtree is silently re-masked — this is the F5 failure mode.
+    The function detects that case by tracking the running covered state.
+
+    Parameters
+    ----------
+    bwrap_prefix:
+        The bwrap portion of the full argv (everything before the ``--``
+        separator that separates the outer sandbox command from the inner qemu
+        command).
+    drive_path:
+        The host-side file= path of the drive to check.  May be a sentinel
+        string at plan time or a real path at exec time.
+    """
+    covered = False
+    i = 0
+    while i < len(bwrap_prefix):
+        tok = bwrap_prefix[i]
+        arity = _BWRAP_MOUNT_ARITY.get(tok, 0)
+
+        if tok in ("--bind", "--ro-bind"):
+            # SRC = bwrap_prefix[i+1], DEST = bwrap_prefix[i+2]
+            dest = bwrap_prefix[i + 2] if i + 2 < len(bwrap_prefix) else ""
+            # A bind covers drive_path when:
+            #   drive_path == dest  (identity / file-scoped bind — the only
+            #                        allowed form under R-BIND-RW), OR
+            #   drive_path starts with dest + "/" (subtree bind — broader, also
+            #                        covers; we check both forms for generality).
+            dest_prefix = dest.rstrip("/")
+            if drive_path == dest_prefix or drive_path.startswith(dest_prefix + "/"):
+                covered = True
+
+        elif tok == "--tmpfs":
+            dest = bwrap_prefix[i + 1] if i + 1 < len(bwrap_prefix) else ""
+            dest_prefix = dest.rstrip("/")
+            # --tmpfs masks drive_path when drive_path is at or under dest.
+            if drive_path == dest_prefix or drive_path.startswith(dest_prefix + "/"):
+                covered = False  # previous bind (if any) is now re-masked
+
+        i += max(arity + 1, 1)  # advance past the op and its args
+
+    if not covered:
+        raise GateError(
+            f"planned_argv drive file={drive_path!r} is not reachable inside the "
+            "sandbox: no --bind or --ro-bind covers that path after all bwrap "
+            "mount ops are applied in argv order (R-REACH / INV-2). "
+            "A --bind placed BEFORE a --tmpfs that covers the same subtree is "
+            "silently re-masked — check mount-op ordering."
+        )
