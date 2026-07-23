@@ -530,6 +530,112 @@ with tempfile.TemporaryDirectory() as td:
         ok("RED-F2: sentinel-free plan → GateError names 'detonate plan' (plan_label wired)")
     except Exception as e: nok("RED-F2: plan_label-detonate", str(e))
 
+# ── RED-INV3: position-aware sentinel substitution (INV-3 / F4) ──────────────
+# Tests for _substitute_scratch_sentinel() in vm_exec_common.
+# These are RED until _substitute_scratch_sentinel is extracted and exported.
+#
+# Three structural positions in the planned argv:
+#   1. --bind SRC  (complete-token match; tok == _SCRATCH_SENTINEL)
+#   2. --bind DEST (complete-token match; tok == _SCRATCH_SENTINEL)
+#   3. -drive file= (key-scoped infix: substitute within file= value only)
+#
+# Adversarial invariant: ANY other token containing the sentinel — whether as an
+# exact match (e.g. -kernel /rsdd/scratch.img) or a substring (e.g. -bios
+# /rsdd/scratch.img.bak) — MUST NOT be rewritten.  This is the core F4 defect.
+
+_SENT3 = "/rsdd/scratch.img"
+_REAL3 = "/tmp/rsdd/rsdd-TESTRUN/scratch.img"
+
+# Adversarial argv: sentinel in all 3 structural positions PLUS two extra tokens
+# that contain the sentinel in the wrong structural position.  The old substring
+# scan rewrites both; the position-aware code must leave them untouched.
+_ADV_ARGV = [
+    "bwrap",
+    "--tmpfs", "/tmp/rsdd",
+    "--bind", _SENT3, _SENT3,                                   # positions 1 & 2
+    "--ro-bind", "/input/rootfs", "/input/rootfs",
+    "--",
+    "qemu-system-x86_64",
+    "-m", "256",
+    "-drive", f"file={_SENT3},snapshot=off,format=raw,if=virtio",  # position 3
+    # Adversarial token A: exact sentinel value in wrong structural position.
+    # Old substring scan rewrites this; new code must NOT.
+    "-kernel", _SENT3,
+    # Adversarial token B: sentinel as a prefix of a larger path in wrong position.
+    # Old substring scan also rewrites this; new code must NOT.
+    "-bios", f"{_SENT3}.bak",
+]
+
+# ── RED-INV3-bind-subst ──────────────────────────────────────────────────────
+try:
+    import vm_exec_common as _vec
+    _new3a, _deltas3a = _vec._substitute_scratch_sentinel(_ADV_ARGV, _REAL3)
+    _bind3a = _new3a.index("--bind")
+    _src3a  = _new3a[_bind3a + 1]
+    _dst3a  = _new3a[_bind3a + 2]
+    assert _src3a == _REAL3, f"--bind SRC not substituted: {_src3a!r}"
+    assert _dst3a == _REAL3, f"--bind DEST not substituted: {_dst3a!r}"
+    assert any(d["from"] == _SENT3 for d in _deltas3a), \
+        f"delta missing for --bind substitution: {_deltas3a}"
+    ok("RED-INV3-bind-subst: --bind SRC and DEST substituted to real scratch path (INV-3)")
+except Exception as e: nok("RED-INV3-bind-subst", str(e))
+
+# ── RED-INV3-drive-subst ─────────────────────────────────────────────────────
+try:
+    import vm_exec_common as _vec2
+    _new3b, _deltas3b = _vec2._substitute_scratch_sentinel(_ADV_ARGV, _REAL3)
+    _drive3b = _new3b.index("-drive")
+    _spec3b  = _new3b[_drive3b + 1]
+    assert f"file={_REAL3}" in _spec3b, \
+        f"-drive file= not substituted: {_spec3b!r}"
+    assert ",snapshot=off,format=raw,if=virtio" in _spec3b, \
+        f"rest of drive spec corrupted after substitution: {_spec3b!r}"
+    assert _SENT3 not in _spec3b, \
+        f"sentinel still present in drive spec after substitution: {_spec3b!r}"
+    ok("RED-INV3-drive-subst: -drive file= substituted, rest of spec intact (INV-3)")
+except Exception as e: nok("RED-INV3-drive-subst", str(e))
+
+# ── RED-INV3-adversarial ─────────────────────────────────────────────────────
+# Core F4 assertion.  The old substring scan rewrites -kernel /rsdd/scratch.img
+# and -bios /rsdd/scratch.img.bak; the new position-aware code must leave both
+# untouched.
+try:
+    import vm_exec_common as _vec3
+    _new3c, _ = _vec3._substitute_scratch_sentinel(_ADV_ARGV, _REAL3)
+    # Adversarial A: -kernel /rsdd/scratch.img must NOT be rewritten
+    _ki = _new3c.index("-kernel") if "-kernel" in _new3c else None
+    assert _ki is not None, "-kernel disappeared from argv"
+    _kv = _new3c[_ki + 1]
+    assert _kv == _SENT3, \
+        f"-kernel value was incorrectly rewritten to {_kv!r}; expected {_SENT3!r} (INV-3 / F4)"
+    # Adversarial B: -bios /rsdd/scratch.img.bak must NOT be rewritten
+    _bi = _new3c.index("-bios") if "-bios" in _new3c else None
+    assert _bi is not None, "-bios disappeared from argv"
+    _bv = _new3c[_bi + 1]
+    _expected_bios = f"{_SENT3}.bak"
+    assert _bv == _expected_bios, \
+        f"-bios value was incorrectly rewritten to {_bv!r}; expected {_expected_bios!r} (INV-3 / F4)"
+    ok("RED-INV3-adversarial: unrelated tokens with sentinel NOT rewritten (INV-3 / F4 core)")
+except Exception as e: nok("RED-INV3-adversarial", str(e))
+
+# ── RED-INV3-sentinel-absent ─────────────────────────────────────────────────
+# When the sentinel is absent from exec_argv entirely, deltas must be empty and
+# argv must be returned unchanged.  (pre_boot then raises GateError — existing
+# behavior preserved.)
+try:
+    import vm_exec_common as _vec4
+    _no_sent = [
+        "bwrap", "--bind", "/real/path", "/real/path",
+        "-drive", "file=/real/path,snapshot=off,format=raw,if=virtio",
+    ]
+    _new3d, _deltas3d = _vec4._substitute_scratch_sentinel(_no_sent, _REAL3)
+    assert _deltas3d == [], \
+        f"expected empty deltas when sentinel absent: {_deltas3d}"
+    assert _new3d == _no_sent, \
+        f"argv mutated when sentinel absent: {_new3d}"
+    ok("RED-INV3-sentinel-absent: no sentinel → empty deltas, argv unchanged (INV-3)")
+except Exception as e: nok("RED-INV3-sentinel-absent", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

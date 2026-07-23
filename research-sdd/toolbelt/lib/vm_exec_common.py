@@ -34,6 +34,81 @@ _SCRATCH_SIZE: int = 4 * 1024 * 1024  # 4 MiB
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _substitute_scratch_sentinel(
+    exec_argv: list[str],
+    scratch_path: str,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Position-aware substitution of _SCRATCH_SENTINEL → scratch_path (INV-3).
+
+    The sentinel /rsdd/scratch.img appears in exactly three structural positions
+    in the planned argv emitted by detonate_plan / trace_plan:
+
+      1. --bind SRC operand  — complete-token match: tok == _SCRATCH_SENTINEL
+      2. --bind DEST operand — complete-token match: tok == _SCRATCH_SENTINEL
+      3. -drive file= value  — key-scoped infix: the sentinel appears inside the
+                               comma-separated drive spec (e.g.
+                               file=/rsdd/scratch.img,snapshot=off,...).
+                               Substitution is confined to the file= value only.
+
+    Any other token that happens to contain the sentinel — whether as an exact
+    match (e.g. -kernel /rsdd/scratch.img) or a substring (e.g. -bios
+    /rsdd/scratch.img.bak) — is left untouched.  Substring matching across the
+    whole argv would silently corrupt unrelated arguments (the F4 defect class).
+
+    Returns (new_argv, deltas) where deltas records each substitution made.
+    """
+    new_argv: list[str] = list(exec_argv)
+    deltas: list[dict[str, Any]] = []
+    i = 0
+    while i < len(new_argv):
+        tok = new_argv[i]
+
+        if tok == "--bind" and i + 2 < len(new_argv):
+            # Positions 1 & 2: --bind SRC DEST — complete-token match only.
+            for offset in (1, 2):
+                if new_argv[i + offset] == _SCRATCH_SENTINEL:
+                    old = new_argv[i + offset]
+                    new_argv[i + offset] = scratch_path
+                    deltas.append({
+                        "type": "scratch-sentinel-substitution",
+                        "from": old,
+                        "to": scratch_path,
+                    })
+            i += 3
+            continue
+
+        if tok == "-drive" and i + 1 < len(new_argv):
+            # Position 3: -drive <spec> — key-scoped file= substitution only.
+            # Split on comma, find the file= key, substitute sentinel within
+            # that key's value, then rejoin.  Other key-values are untouched.
+            spec = new_argv[i + 1]
+            parts = spec.split(",")
+            new_parts: list[str] = []
+            changed = False
+            for part in parts:
+                if part.startswith("file=") and _SCRATCH_SENTINEL in part[len("file="):]:
+                    file_val = part[len("file="):]
+                    new_file_val = file_val.replace(_SCRATCH_SENTINEL, scratch_path)
+                    new_parts.append("file=" + new_file_val)
+                    changed = True
+                else:
+                    new_parts.append(part)
+            if changed:
+                new_spec = ",".join(new_parts)
+                deltas.append({
+                    "type": "scratch-sentinel-substitution",
+                    "from": spec,
+                    "to": new_spec,
+                })
+                new_argv[i + 1] = new_spec
+            i += 2
+            continue
+
+        i += 1
+
+    return new_argv, deltas
+
+
 def _sha256_o_nofollow(path: str) -> str:
     """sha256 of file at *path* opened with O_NOFOLLOW; return 'sha256:<hex>'."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
@@ -147,19 +222,11 @@ def run_evaluate(
                 f"failed to create scratch disk at {scratch_path!r}: {exc}"
             ) from exc
 
-        # Substitute _SCRATCH_SENTINEL → real per-run scratch path.
-        new_argv: list[str] = []
-        for tok in exec_argv:
-            if _SCRATCH_SENTINEL in tok:
-                new_tok = tok.replace(_SCRATCH_SENTINEL, scratch_path)
-                argv_deltas.append({
-                    "type": "scratch-sentinel-substitution",
-                    "from": tok,
-                    "to": new_tok,
-                })
-                new_argv.append(new_tok)
-            else:
-                new_argv.append(tok)
+        # Position-aware substitution of _SCRATCH_SENTINEL (INV-3).
+        # Only the three structural positions are rewritten; unrelated tokens
+        # containing the sentinel as a substring are left untouched.
+        new_argv, new_deltas = _substitute_scratch_sentinel(exec_argv, scratch_path)
+        argv_deltas.extend(new_deltas)
 
         if not argv_deltas:
             raise GateError(
