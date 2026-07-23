@@ -111,9 +111,19 @@ Path("/tmp/rsdd").mkdir(exist_ok=True)
 
 # Reference argv matching the qemu+disk plan shape emitted by the rebuilt trace_plan.
 # Used by PARITY tests that call check_disk_policy directly (no executor needed).
+# Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
+# --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
+# NOTE(#62): _GOOD_ARGV is duplicated verbatim in detonate-exec.test.sh; extract
+# to a shared exec-test fixture during vm_exec_common extraction.
 _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
 _GOOD_ARGV = [
-    "bwrap", "--unshare-net", "--",
+    "bwrap",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
+    "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample",
+    "--",
     "qemu-system-x86_64",
     "-m", "256", "-smp", "1", "-accel", "tcg",
     "-nic", "none", "-nodefaults",
@@ -506,8 +516,15 @@ with tempfile.TemporaryDirectory() as td:
         from gate import GateError
         # Use a real scratch path (not the sentinel) so that if line 94 were removed,
         # pre_boot would raise "sentinel not found" instead of a disk-policy error.
+        # Include all bwrap teeth (issue #61) so -netdev is the only violation.
         _bad13_argv = [
-            "bwrap", "--unshare-net", "--",
+            "bwrap",
+            "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+            "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+            "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
+            "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+            "--ro-bind", "/store/sample.bin", "/input/sample",
+            "--",
             "qemu-system-x86_64",
             "-m", "256", "-smp", "1", "-accel", "tcg",
             "-nic", "none", "-nodefaults",
@@ -515,7 +532,7 @@ with tempfile.TemporaryDirectory() as td:
             "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
             "-drive", f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio",
             "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
-            "-netdev", "user,id=net0",  # forbidden: caught by check_disk_policy at line 94
+            "-netdev", "user,id=net0",  # forbidden: caught by check_disk_policy
         ]
         _bad13_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": _bad13_argv}
         _old_path = os.environ.get("PATH", "")

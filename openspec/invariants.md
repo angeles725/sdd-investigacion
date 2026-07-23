@@ -134,14 +134,36 @@ leaks on the error path is not a sandbox.
 - **Status:** `enforced` — shared reaper in `lib/proc_common.py`.
 - **Asserted by:** `tests/qemu-exec.test.sh`.
 
+### INV-6 — a required containment flag must appear in the argv slice that enforces it
+
+**Statement:** a required containment flag MUST appear in the argv slice that
+actually enforces it. bwrap teeth (`--cap-drop ALL`, `--unshare-pid`, `--tmpfs`,
+`--unshare-net`, `--`) must appear in the bwrap prefix (before the first `--`);
+qemu-inner required flags must appear in the inner slice (after `--`). A flag
+present in the wrong slice satisfies a naive `set(argv)` membership check while
+the component that needs it never receives it — a silent enforcement gap that is
+invisible to per-component tests.
+
+- **Origin:** finding F2, issue #61; the D1 defect re-confirmed by the PR #66
+  independent review gate.
+- **Status:** `enforced` — fixed in commit d7deab7 (PR #66) by partitioning
+  `_REQUIRED_BWRAP` and `_REQUIRED_INNER` and checking each against its own slice.
+- **Asserted by:** `tests/vm-disk-policy.test.sh` — bwrap slice: `VDP-T10a-reloc`
+  (`--cap-drop ALL`), `VDP-T10c-reloc` (`--unshare-pid`), `VDP-T10d-reloc`
+  (`--tmpfs`); inner slice: `VDP-T13-reloc` (`-smp`). Fragment `"bwrap prefix
+  missing"` in the T10x-reloc assertions is unique to the slice-scoped error and
+  absent from the R-INNER-ALLOWLIST backstop, so the tests prove the correct rule
+  fires rather than a weaker fallback.
+
 ## Open invariants map to open issues
 
 | Invariant | Issue | Meaning |
 |---|---|---|
 | INV-3 | #63 | substitution can corrupt unrelated arguments |
 
-Issues #61 (allowlist for block-device flags) and #62 (extract
-`vm_exec_common.py`) are hardening and refactoring; they carry no violated
-invariant, but the unit that closes #62 MUST re-verify the whole registry, since
-collapsing the detonate/trace mirror is exactly the kind of change that breaks a
-cross-slice guarantee.
+Issue #62 (extract `vm_exec_common.py`) is refactoring; the unit that closes it
+MUST re-verify the whole registry, since collapsing the detonate/trace mirror is
+exactly the kind of change that breaks a cross-slice guarantee.
+
+Issue #61 (allowlist for block-device flags and slice-scoped containment teeth)
+established INV-6 above; it carries an enforced invariant as of PR #66.

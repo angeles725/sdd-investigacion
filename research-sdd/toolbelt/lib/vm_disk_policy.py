@@ -8,6 +8,7 @@ trace can never ship a weaker policy than detonate.
 Pure functions only — no subprocess, no live I/O.
 """
 from __future__ import annotations
+import posixpath
 import sys
 from pathlib import Path
 from typing import Any
@@ -21,14 +22,23 @@ from gate import GateError  # noqa: E402
 # ---------------------------------------------------------------------------
 # V1b containment belt retained in detonate/trace mode, minus the global
 # -snapshot requirement (replaced by per-drive policy).
+# Partitioned by slice (D1 fix / issue #61): bwrap teeth are checked against
+# the bwrap prefix only; inner required flags against the qemu-inner slice.
+# A tooth appearing only after "--" satisfies set(argv) but bwrap never sees it.
 # ---------------------------------------------------------------------------
-_REQUIRED: frozenset[str] = frozenset({
-    "--unshare-net",   # bwrap outer: kernel net namespace isolation
-    "-nic",            # qemu inner: no NIC (belt-and-suspenders with --unshare-net)
-    "-accel",          # qemu inner: must be tcg (no /dev/kvm touch)
-    "-smp",            # qemu inner: must be 1 (bound vCPUs)
-    "-nodefaults",     # qemu inner: suppress all default devices
-    "-sandbox",        # qemu inner: seccomp filter
+_REQUIRED_BWRAP: frozenset[str] = frozenset({
+    "--unshare-net",   # kernel net namespace isolation
+    "--unshare-pid",   # PID namespace (guest cannot signal host processes)
+    "--cap-drop",      # must be followed by ALL (value enforced in bwrap scan)
+    "--tmpfs",         # scrubs writable temp tree; omitting exposes host /tmp/rsdd
+})
+
+_REQUIRED_INNER: frozenset[str] = frozenset({
+    "-nic",            # no NIC (belt-and-suspenders with --unshare-net)
+    "-accel",          # must be tcg (no /dev/kvm touch)
+    "-smp",            # must be 1 (bound vCPUs)
+    "-nodefaults",     # suppress all default devices
+    "-sandbox",        # seccomp filter
 })
 
 # Flags forbidden wholesale — any occurrence → GateError.
@@ -44,7 +54,9 @@ _FORBIDDEN: frozenset[str] = frozenset({
 # -device values whose prefix must never appear (passthrough / host-FS vectors).
 _DEVICE_DENY_PREFIXES: tuple[str, ...] = ("vfio", "virtio-9p")
 
-# Value predicates enforced on every occurrence of each flag.
+# Value predicates enforced for each inner flag occurrence.
+# --cap-drop is NOT here; it is checked separately in the bwrap prefix scan
+# with a dedicated message naming "ALL" and the rule name (R-CAP-DROP).
 _VALUE_OK: dict[str, Any] = {
     "-nic":     lambda v: v == "none",
     "-accel":   lambda v: v == "tcg",
@@ -56,6 +68,33 @@ _VALUE_OK: dict[str, Any] = {
 # The sample must be immutable; the rootfs must be either readonly or COW.
 _SAMPLE_GUEST_PATH: str = "/input/sample"
 _ROOTFS_GUEST_PATH: str = "/input/rootfs"
+
+# ---------------------------------------------------------------------------
+# R-INNER-ALLOWLIST — closed set of permitted qemu-inner flags (D2 fix / #61)
+# ---------------------------------------------------------------------------
+# Replaces the _BLOCK_DEVICE_FORBIDDEN denylist.  Every flag-shaped token
+# (startswith("-")) in the qemu-inner slice MUST be a member of this set.
+# Block-device introducers (-hda, -mtdblock, -blockdev, …) are absent by
+# construction, so they are rejected without needing to enumerate them all.
+# Verified against both emitters (detonate_plan.build_plan, trace_plan.build_plan):
+#   detonate emits: -kernel -m -smp -accel -nic -nodefaults -sandbox
+#                   -nographic -no-reboot -drive   (10 flags)
+#   trace adds:     -append                        (+1, 11 total)
+# A flag-shaped value token is impossible in the current emitters (no value
+# begins with "-"); if one appears, it is flagged as unknown — fail-closed.
+_QEMU_INNER_ALLOWED: frozenset[str] = frozenset({
+    "-kernel",      # VM kernel image path
+    "-m",           # memory size (MB)
+    "-smp",         # vCPU count (must be 1)
+    "-accel",       # accelerator (must be tcg)
+    "-nic",         # NIC type (must be none)
+    "-nodefaults",  # suppress default devices (boolean)
+    "-sandbox",     # seccomp filter (on,...)
+    "-nographic",   # no graphical output (boolean)
+    "-no-reboot",   # exit instead of rebooting (boolean)
+    "-append",      # kernel cmdline (trace-only; not emitted by detonate)
+    "-drive",       # block device via -drive spec (only sanctioned path)
+})
 
 # ---------------------------------------------------------------------------
 # R-BWRAP-DENY — fail-open bwrap bind families (INV-2 / issue #60)
@@ -122,24 +161,41 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
         executor creates and reads from post-teardown).  Pass ``None`` at
         plan-generation time when the run_dir is not yet known.
     """
-    # ---- 1. Required flags ------------------------------------------------
-    present = set(argv)
-    missing = sorted(_REQUIRED - present)
-    if missing:
+    # ---- 1. Required flags: slice-scoped (D1 fix / issue #61) ------------
+    # a. The "--" separator defines the two slices; check it first.
+    if "--" not in argv:
         raise GateError(
-            f"planned_argv missing required containment flag(s): {missing}"
+            "planned_argv missing '--' separator (required bwrap/qemu boundary)"
+        )
+    sep_idx = argv.index("--")
+    bwrap_prefix = argv[:sep_idx]
+    inner = argv[sep_idx + 1:]
+
+    # b. Bwrap teeth must be in the bwrap prefix, not the qemu-inner slice.
+    #    A tooth relocated to the inner slice satisfies set(argv) but bwrap
+    #    never receives it — hence a slice-scoped check, not set(argv).
+    missing_bwrap = sorted(_REQUIRED_BWRAP - set(bwrap_prefix))
+    if missing_bwrap:
+        raise GateError(
+            f"planned_argv bwrap prefix missing required containment "
+            f"flag(s): {missing_bwrap}"
         )
 
-    # ---- 2. Token scan: forbidden bwrap ops, qemu forbidden flags,
-    #         device deny, value predicates, and drive classification -------
+    # c. Qemu-inner required flags must be in the inner slice.  Relocating
+    #    -smp or -sandbox before -- satisfies set(argv) but qemu never sees them.
+    missing_inner = sorted(_REQUIRED_INNER - set(inner))
+    if missing_inner:
+        raise GateError(
+            f"planned_argv qemu-inner slice missing required containment "
+            f"flag(s): {missing_inner}"
+        )
+
+    # ---- 2. Token scan: R-BWRAP-DENY + cap-drop value; R-INNER-ALLOWLIST,
+    #         qemu forbidden flags, device deny, value predicates, drive class. -
     persistent_drives: list[str] = []  # file= paths of writable-persistent drives
     all_drive_paths:   list[str] = []  # file= paths of every -drive slot (R-REACH)
 
-    # Split at "--": bwrap prefix vs. qemu inner command.
-    # R-BWRAP-DENY and R-REACH operate only on the bwrap prefix.
-    sep_idx = argv.index("--") if "--" in argv else len(argv)
-    bwrap_prefix = argv[:sep_idx]
-
+    # Bwrap prefix scan: R-BWRAP-DENY + --cap-drop value check (R-CAP-DROP).
     for i, tok in enumerate(bwrap_prefix):
         if tok in _BWRAP_DENIED:
             raise GateError(
@@ -147,9 +203,20 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
                 "(R-BWRAP-DENY: fail-open bind families are refused — "
                 "they silently reproduce the F5 failure mode when src is missing)"
             )
+        if tok == "--cap-drop":
+            nxt_b = bwrap_prefix[i + 1] if i + 1 < len(bwrap_prefix) else ""
+            if nxt_b != "ALL":
+                raise GateError(
+                    f"--cap-drop must be 'ALL' (partial drop insufficient, "
+                    f"got {nxt_b!r}) (R-CAP-DROP)"
+                )
 
-    for i, tok in enumerate(argv):
-        nxt = argv[i + 1] if i + 1 < len(argv) else ""
+    # Qemu-inner scan: forbidden flags, device deny, value predicates,
+    # drive classification, and R-INNER-ALLOWLIST catch-all (step 5 in section 2.2).
+    # Specific diagnostics (_FORBIDDEN, -device) fire before the catch-all so
+    # operators see the precise message for known bad flags.
+    for i, tok in enumerate(inner):
+        nxt = inner[i + 1] if i + 1 < len(inner) else ""
 
         if tok in _FORBIDDEN:
             raise GateError(f"planned_argv contains forbidden flag {tok!r}")
@@ -169,6 +236,18 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
         if tok == "-drive":
             _check_one_drive(nxt, persistent_drives, all_drive_paths)
 
+        # R-INNER-ALLOWLIST catch-all: flag-shaped tokens not in the closed
+        # permitted set are rejected.  Block-device introducers (-hda, -mtdblock,
+        # -blockdev, …) are absent from the set by construction, closing the gap
+        # that _BLOCK_DEVICE_FORBIDDEN (a denylist) could not enumerate completely.
+        if tok.startswith("-") and tok not in _QEMU_INNER_ALLOWED:
+            raise GateError(
+                f"planned_argv inner flag {tok!r} is not in the permitted "
+                "qemu-inner flag set (R-INNER-ALLOWLIST); block-device "
+                "introducers and other unchecked flags are rejected by "
+                "construction — only the 11 emitter-verified flags are allowed"
+            )
+
     # ---- 3. Exactly one writable-persistent (scratch) drive ---------------
     if len(persistent_drives) != 1:
         raise GateError(
@@ -177,15 +256,36 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
         )
     scratch_drive_path = persistent_drives[0]
 
-    # ---- 4. Scratch file= path must be under run_dir (when known) ---------
+    # ---- 4. All drive file= paths under run_dir or a recognized sandbox input -
+    # (R-SCOPE-ALL — D3 fix / issue #61)
+    # Two-part fix: (a) the writable-persistent scratch is ALWAYS run_dir-scoped
+    # unconditionally before the loop (restores pre-#61 behaviour; the /input/
+    # prefix exemption was a regression — R-BIND-RW already pins the scratch
+    # --bind to scratch_drive_path, see step 5); (b) the exemption for read-only
+    # sandbox inputs uses posixpath.normpath so traversal sequences like
+    # /input/../etc/shadow collapse to /etc/shadow, which is not in the known set.
     if run_dir is not None:
         prefix = run_dir.rstrip("/") + "/"
+        # (a) Scratch always scoped — unconditional, regardless of path prefix.
         if not scratch_drive_path.startswith(prefix):
             raise GateError(
-                f"scratch disk file={scratch_drive_path!r} is outside run_dir={run_dir!r}; "
-                "scratch must reside in the per-run directory (host reads it "
-                "post-teardown)"
+                f"drive file={scratch_drive_path!r} is outside "
+                f"run_dir={run_dir!r}; the writable-persistent scratch must "
+                "reside in the per-run directory (R-SCOPE-ALL)"
             )
+        for dp in all_drive_paths:
+            # (b) Exempt only the two known read-only sandbox-internal DESTs;
+            # normpath collapses traversal so /input/../etc/shadow → /etc/shadow
+            # (not in set) and falls through to the run_dir scope check.
+            if posixpath.normpath(dp) in {_SAMPLE_GUEST_PATH, _ROOTFS_GUEST_PATH}:
+                continue  # recognized RO sandbox input; host copy is ro-bind SRC
+            if not dp.startswith(prefix):
+                raise GateError(
+                    f"drive file={dp!r} is outside run_dir={run_dir!r} and is not "
+                    "a recognized sandbox input path; every non-sandbox drive "
+                    "file= path must reside in the per-run directory so host reads "
+                    "post-teardown stay scoped (R-SCOPE-ALL)"
+                )
 
     # ---- 5. R-BIND-RW — exactly one rw bind, identity-mapped, == scratch ──
     # (INV-2 / issue #60)

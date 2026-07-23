@@ -126,9 +126,19 @@ try:
     from gate import GateError
 
     # GOOD_ARGV matches detonate_plan.build_plan output shape.
+    # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
+    # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
+    # NOTE(#62): _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; extract
+    # to a shared exec-test fixture during vm_exec_common extraction.
     _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
     _GOOD_ARGV = [
-        "bwrap", "--unshare-net", "--",
+        "bwrap",
+        "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+        "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+        "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
+        "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+        "--ro-bind", "/store/sample.bin", "/input/sample",
+        "--",
         "qemu-system-x86_64",
         "-m", "256", "-smp", "1", "-accel", "tcg",
         "-nic", "none", "-nodefaults",
