@@ -305,12 +305,42 @@ with tempfile.TemporaryDirectory() as td:
         ok("RED8: vm_receipt_identity present and sha256-prefixed (unconditional)")
     except Exception as e: nok("RED8", str(e))
 
-# ── RED9: no shell=True in qemu_exec.py ───────────────────────────────────────
+# ── RED9: no shell=True in qemu_exec.py or lib/vm_boot_core.py ───────────────
+# D0 moved Popen/run calls to vm_boot_core.py; guard the real spawn site too.
 try:
     src = sut_path.read_text()
     assert "shell=True" not in src, "shell=True found in qemu_exec.py!"
-    ok("RED9: no shell=True in qemu_exec.py")
+    vbc_path = sut_path.parent / "vm_boot_core.py"
+    vbc_src = vbc_path.read_text()
+    assert "shell=True" not in vbc_src, "shell=True found in lib/vm_boot_core.py!"
+    ok("RED9: no shell=True in qemu_exec.py or lib/vm_boot_core.py")
 except Exception as e: nok("RED9", str(e))
+
+# ── REG-LOCK: snapshot_hook=None → vm_pre/post_snapshot both null in receipt ──
+# Approval test written pre-refactor: locks the V1b invariant that LiveQemuBootExecutor
+# always emits null snapshots.  Must pass before AND after the D0 extraction.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    try:
+        r = cli("plan", "--target", str(elf), "--mode", "qemu-system",
+                "--output", str(tmp/"out"), "--allow-exec",
+                xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:200]}"
+        res = json.loads(r.stdout)
+        # Derive run_dir from serial_log path (serial_log = {run_dir}/serial.log).
+        serial_log = res.get("serial_log", "")
+        assert serial_log, f"serial_log missing from evidence: {sorted(res.keys())}"
+        run_dir = str(Path(serial_log).parent)
+        receipt_path = f"{run_dir}/vm-run-receipt.v1.json"
+        assert Path(receipt_path).exists(), \
+            f"vm-run-receipt.v1.json not found at {receipt_path}"
+        receipt = json.loads(open(receipt_path).read())
+        assert receipt.get("vm_pre_snapshot") is None, \
+            f"vm_pre_snapshot must be null, got: {receipt.get('vm_pre_snapshot')}"
+        assert receipt.get("vm_post_snapshot") is None, \
+            f"vm_post_snapshot must be null, got: {receipt.get('vm_post_snapshot')}"
+        ok("REG-LOCK: vm_pre_snapshot=null and vm_post_snapshot=null in receipt (snapshot_hook=None preserved)")
+    except Exception as e: nok("REG-LOCK", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
