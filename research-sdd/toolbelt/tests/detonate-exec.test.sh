@@ -128,6 +128,8 @@ try:
     # GOOD_ARGV matches detonate_plan.build_plan output shape.
     # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
     # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
+    # NOTE: _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; both copies must stay
+    # in sync (the bash heredoc harness has no shared-include path for these fixtures).
     _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
     _GOOD_ARGV = [
         "bwrap",
@@ -321,7 +323,10 @@ with tempfile.TemporaryDirectory() as td:
         output_names = [o["path"] for o in receipt.get("outputs", [])]
         assert "scratch.img" in output_names, \
             f"scratch.img not in receipt.outputs[] (R3 evidence chain): {output_names}"
-        ok("RED7: vm_pre_snapshot != vm_post_snapshot, both {sha256}, receipt validates, scratch in outputs[]")
+        # Detect SCHEMA_VERSION argument swap between detonate_exec and trace_exec.
+        assert res.get("schema_version") == "detonate-run.v1", \
+            f"schema_version={res.get('schema_version')!r} (expected 'detonate-run.v1')"
+        ok("RED7: vm_pre_snapshot != vm_post_snapshot, both {sha256}, receipt validates, scratch in outputs[], schema_version=detonate-run.v1")
     except Exception as e: nok("RED7", str(e))
 
 # ── RED8: no shell=True in detonate_exec.py ──────────────────────────────────

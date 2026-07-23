@@ -31,7 +31,7 @@ _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from vm_exec_common import _run_evaluate  # noqa: E402
+from vm_exec_common import run_evaluate  # noqa: E402
 
 # Evidence schema for the live trace receipt.
 SCHEMA_VERSION: str = "trace-run.v1"
@@ -59,10 +59,10 @@ class TraceVmExecutor:
     def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
         """Boot qemu-system with target+scratch+rootfs disk slots; populate snapshot hashes.
 
-        Delegates to the shared vm_exec_common._run_evaluate seam.  This executor
+        Delegates to the shared vm_exec_common.run_evaluate seam.  This executor
         contributes only its schema_version (``trace-run.v1``) and plan_label
         (``trace``) for diagnostic strings.
 
         GateError propagates unchanged (→ exit 2 at the CLI boundary).
         """
-        return _run_evaluate(plan, SCHEMA_VERSION, "trace")
+        return run_evaluate(plan, SCHEMA_VERSION, "trace")

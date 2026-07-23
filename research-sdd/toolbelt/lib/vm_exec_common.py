@@ -5,7 +5,7 @@ Both D2 (detonate) and D3 (trace) share an identical host-layer boot/snapshot
 seam.  Everything here was previously byte-for-byte duplicated between
 lib/detonate_exec.py and lib/trace_exec.py under ``NOTE: keep in sync`` guards.
 
-The two executors import and call _run_evaluate, passing only the values that
+The two executors import and call run_evaluate, passing only the values that
 genuinely differ: schema_version and plan_label (used in one diagnostic string).
 """
 from __future__ import annotations
@@ -95,12 +95,12 @@ def _thin_preflight(plan: dict[str, Any]) -> None:
 # Shared evaluate seam
 # ---------------------------------------------------------------------------
 
-def _run_evaluate(
+def run_evaluate(
     plan: dict[str, Any],
     schema_version: str,
     plan_label: str,
 ) -> dict[str, Any]:
-    """Boot qemu-system with sample+scratch+rootfs disk slots; populate snapshot hashes.
+    """Boot qemu-system with primary+scratch+rootfs disk slots; populate snapshot hashes.
 
     Shared implementation for DetonateVmExecutor and TraceVmExecutor.  The only
     values that differ between the two executors are *schema_version* (receipt

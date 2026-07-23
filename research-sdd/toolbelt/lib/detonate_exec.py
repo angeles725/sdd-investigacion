@@ -23,7 +23,7 @@ _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from vm_exec_common import _run_evaluate  # noqa: E402
+from vm_exec_common import run_evaluate  # noqa: E402
 
 # Evidence schema for the live detonation receipt.
 SCHEMA_VERSION: str = "detonate-run.v1"
@@ -46,10 +46,10 @@ class DetonateVmExecutor:
     def evaluate(self, plan: dict[str, Any]) -> dict[str, Any]:
         """Boot qemu-system with sample+scratch+rootfs disk slots; populate snapshot hashes.
 
-        Delegates to the shared vm_exec_common._run_evaluate seam.  This executor
+        Delegates to the shared vm_exec_common.run_evaluate seam.  This executor
         contributes only its schema_version (``detonate-run.v1``) and plan_label
         (``detonate``) for diagnostic strings.
 
         GateError propagates unchanged (→ exit 2 at the CLI boundary).
         """
-        return _run_evaluate(plan, SCHEMA_VERSION, "detonate")
+        return run_evaluate(plan, SCHEMA_VERSION, "detonate")

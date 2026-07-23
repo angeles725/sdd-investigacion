@@ -113,6 +113,8 @@ Path("/tmp/rsdd").mkdir(exist_ok=True)
 # Used by PARITY tests that call check_disk_policy directly (no executor needed).
 # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
 # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
+# NOTE: _GOOD_ARGV is duplicated verbatim in detonate-exec.test.sh; both copies must stay
+# in sync (the bash heredoc harness has no shared-include path for these fixtures).
 _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
 _GOOD_ARGV = [
     "bwrap",
@@ -408,7 +410,10 @@ with tempfile.TemporaryDirectory() as td:
         output_names = [o["path"] for o in receipt.get("outputs", [])]
         assert "scratch.img" in output_names, \
             f"scratch.img not in receipt.outputs[]: {output_names}"
-        ok("TRACE-RED7: vm_pre != vm_post, both {sha256}, receipt validates, scratch in outputs[]")
+        # Detect SCHEMA_VERSION argument swap between trace_exec and detonate_exec.
+        assert res.get("schema_version") == "trace-run.v1", \
+            f"schema_version={res.get('schema_version')!r} (expected 'trace-run.v1')"
+        ok("TRACE-RED7: vm_pre != vm_post, both {sha256}, receipt validates, scratch in outputs[], schema_version=trace-run.v1")
     except Exception as e: nok("TRACE-RED7", str(e))
 
 # ── TRACE-RED8: no shell=True in trace_exec.py ───────────────────────────────────
