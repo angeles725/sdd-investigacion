@@ -38,7 +38,8 @@ about nothing.
 
 - **Origin:** finding F1, PR #59 independent review.
 - **Status:** `enforced` — fixed in commit `aa38384`.
-- **Asserted by:** `tests/detonate-exec.test.sh`, `tests/trace-exec.test.sh`.
+- **Asserted by:** `tests/detonate-exec.test.sh` (RED13 only). The trace-side
+  receipt `inputs[]` assertion is not yet written; tracked by issue #68.
 
 ### INV-2 — every path in the emitted argv is reachable under the emitted mount set
 

@@ -120,7 +120,7 @@ with tempfile.TemporaryDirectory() as td:
     except Exception as e: nok("RED1", str(e))
 
 # ── RED2: sample -drive missing readonly=on → GateError (exit 2), no boot ────
-# Tests check_disk_policy via detonate_exec._preflight at the unit level.
+# Tests check_disk_policy via vm_exec_common._preflight at the unit level.
 try:
     import vm_disk_policy as _vdp
     from gate import GateError
@@ -128,8 +128,8 @@ try:
     # GOOD_ARGV matches detonate_plan.build_plan output shape.
     # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
     # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
-    # NOTE(#62): _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; extract
-    # to a shared exec-test fixture during vm_exec_common extraction.
+    # NOTE: _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; both copies must stay
+    # in sync (the bash heredoc harness has no shared-include path for these fixtures).
     _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
     _GOOD_ARGV = [
         "bwrap",
@@ -323,15 +323,23 @@ with tempfile.TemporaryDirectory() as td:
         output_names = [o["path"] for o in receipt.get("outputs", [])]
         assert "scratch.img" in output_names, \
             f"scratch.img not in receipt.outputs[] (R3 evidence chain): {output_names}"
-        ok("RED7: vm_pre_snapshot != vm_post_snapshot, both {sha256}, receipt validates, scratch in outputs[]")
+        # Detect SCHEMA_VERSION argument swap between detonate_exec and trace_exec.
+        assert res.get("schema_version") == "detonate-run.v1", \
+            f"schema_version={res.get('schema_version')!r} (expected 'detonate-run.v1')"
+        ok("RED7: vm_pre_snapshot != vm_post_snapshot, both {sha256}, receipt validates, scratch in outputs[], schema_version=detonate-run.v1")
     except Exception as e: nok("RED7", str(e))
 
-# ── RED8: no shell=True in detonate_exec.py ──────────────────────────────────
+# ── RED8: no shell=True in detonate_exec.py OR lib/vm_exec_common.py ─────────
+# vm_exec_common.py owns the extracted host-layer subprocess code; detonate is
+# the canonical scan owner (TRACE-RED8 does NOT cover vm_exec_common.py).
 try:
     if sut_exec_path.exists():
         src = sut_exec_path.read_text()
         assert "shell=True" not in src, "shell=True found in detonate_exec.py!"
-        ok("RED8: no shell=True in detonate_exec.py")
+        _cpath = sut_exec_path.parent / "vm_exec_common.py"
+        assert _cpath.exists(), f"vm_exec_common.py not found at {_cpath}"
+        assert "shell=True" not in _cpath.read_text(), "shell=True found in vm_exec_common.py!"
+        ok("RED8: no shell=True in detonate_exec.py or vm_exec_common.py")
     else:
         # File doesn't exist yet — will be RED once the file is created
         nok("RED8", f"detonate_exec.py not found at {sut_exec_path} (GREEN after Task A)")
@@ -501,6 +509,26 @@ with tempfile.TemporaryDirectory() as td:
         )
         ok("RED-F5A: exec_argv has scratch --bind <P> <P> strictly after --tmpfs (INV-2 / F5)")
     except Exception as e: nok("RED-F5A: scratch-bind-in-exec-argv", str(e))
+
+# ── RED-F2: plan_label names "detonate" in sentinel-missing GateError ────────────
+# Swapping plan_label args in detonate_exec.py/trace_exec.py would flip the label here.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp)
+    try:
+        import detonate_exec as _de; from gate import GateError
+        # _GOOD_ARGV has no sentinel (/rsdd/rsdd-test/scratch.img ≠ /rsdd/scratch.img);
+        # _preflight passes, pre_boot finds no sentinel → GateError naming executor.
+        _f2_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+        _old = os.environ.get("PATH", ""); os.environ["PATH"] = p
+        try:
+            _raised_f2 = None
+            try: _de.DetonateVmExecutor(tmp / "out").evaluate(_f2_plan)
+            except Exception as _e: _raised_f2 = _e
+        finally: os.environ["PATH"] = _old
+        assert isinstance(_raised_f2, GateError), f"expected GateError: {_raised_f2!r}"
+        assert "detonate plan" in str(_raised_f2), f"GateError must name 'detonate plan': {_raised_f2}"
+        ok("RED-F2: sentinel-free plan → GateError names 'detonate plan' (plan_label wired)")
+    except Exception as e: nok("RED-F2: plan_label-detonate", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
