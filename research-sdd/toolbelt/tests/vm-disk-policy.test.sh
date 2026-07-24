@@ -775,6 +775,56 @@ assert_gate_error_msg(
     "R-SCOPE-ALL"
 )
 
+# ── VDP-REACH-* — R-REACH ext.: kernel/qbin reachability (gaps 1/3/4) ────────
+_RT_DEST = "/rsdd/rt"
+_RT_SRC  = "/opt/rsdd/rt"
+
+# Shared rt-tree argv: rt bind covers /rsdd/rt; drives are standard.
+_rt_argv_base = [
+    "bwrap", "--die-with-parent", "--new-session",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", SCRATCH_FILE, SCRATCH_FILE,
+    "--ro-bind", _RT_SRC, _RT_DEST,
+    "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample", "--",
+    f"{_RT_DEST}/bin/qemu-system-x86_64",
+    "-kernel", f"{_RT_DEST}/vmlinuz",
+    "-m", "256", "-smp", "1", "-accel", "tcg", "-nic", "none", "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-nographic", "-no-reboot",
+    "-drive", SAMPLE_DRIVE, "-drive", SCRATCH_DRIVE, "-drive", ROOTFS_DRIVE,
+]
+
+# ── VDP-REACH-KERNEL-UNBOUND (RED): kernel at uncovered path → GateError ─────
+_reach_kern_argv = list(_rt_argv_base)
+_reach_kern_argv[_reach_kern_argv.index("-kernel") + 1] = "/rsdd/other/vmlinuz"
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_reach_kern_argv, run_dir=RUN_DIR),
+    "VDP-REACH-KERNEL-UNBOUND: kernel outside rt-bind dest + rt bind present → GateError (R-REACH ext.)",
+    "R-REACH"
+)
+# ── VDP-REACH-QBIN-UNBOUND (RED): absolute qbin outside rt bind → GateError ──
+_reach_qbin_argv = list(_rt_argv_base)
+_sep2 = _reach_qbin_argv.index("--")
+_reach_qbin_argv[_sep2 + 1] = "/rsdd/other/bin/qemu-system-x86_64"
+assert_gate_error_msg(
+    lambda: m.check_disk_policy(_reach_qbin_argv, run_dir=RUN_DIR),
+    "VDP-REACH-QBIN-UNBOUND: absolute qbin outside rt-bind dest → GateError (R-REACH ext.)",
+    "R-REACH"
+)
+# ── VDP-REACH-RT-OK (GREEN): both kernel and qbin covered by rt bind → passes ─
+assert_passes(
+    lambda: m.check_disk_policy(list(_rt_argv_base), run_dir=RUN_DIR),
+    "VDP-REACH-RT-OK: kernel + qbin under rt-bind dest → passes (R-REACH ext.)"
+)
+# ── VDP-REACH-NO-RT-BIND (GREEN): no rt bind → extension inactive → passes ────
+# GOOD_ARGV has no --ro-bind ... /rsdd/rt so the new check is a no-op.
+assert_passes(
+    lambda: m.check_disk_policy(list(GOOD_ARGV), run_dir=RUN_DIR),
+    "VDP-REACH-NO-RT-BIND: no runtime-tree bind → R-REACH extension inactive → passes"
+)
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

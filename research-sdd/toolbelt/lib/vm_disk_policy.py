@@ -69,6 +69,10 @@ _VALUE_OK: dict[str, Any] = {
 _SAMPLE_GUEST_PATH: str = "/input/sample"
 _ROOTFS_GUEST_PATH: str = "/input/rootfs"
 
+# Sandbox destination for the runtime tree bind (must match emitters).
+# When --qemu-root is used, emitters produce --ro-bind <host-src> /rsdd/rt.
+_RT_TREE_DEST: str = "/rsdd/rt"
+
 # ---------------------------------------------------------------------------
 # R-INNER-ALLOWLIST — closed set of permitted qemu-inner flags (D2 fix / #61)
 # ---------------------------------------------------------------------------
@@ -215,8 +219,14 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
     # drive classification, and R-INNER-ALLOWLIST catch-all (step 5 in section 2.2).
     # Specific diagnostics (_FORBIDDEN, -device) fire before the catch-all so
     # operators see the precise message for known bad flags.
+    # Also collects kernel_path for the R-REACH extension below (gaps 3/4).
+    kernel_path: str = ""
+    qbin_in_tree: str = inner[0] if inner else ""  # first token after --
     for i, tok in enumerate(inner):
         nxt = inner[i + 1] if i + 1 < len(inner) else ""
+
+        if tok == "-kernel":
+            kernel_path = nxt
 
         if tok in _FORBIDDEN:
             raise GateError(f"planned_argv contains forbidden flag {tok!r}")
@@ -337,11 +347,20 @@ def check_disk_policy(argv: list[str], *, run_dir: str | None = None) -> None:
     # substitution-invariant: sentinel paths work as well as real paths.
     # For ro-bound drives the file= value equals the bind DEST (sandbox path),
     # not the host path — see _check_drive_reachable docstring.
-    # Extension point for gaps 3/4 (kernel, BIOS roms — design.md §5.2):
-    # those paths are not -drive slots; add a dedicated reachability check
-    # alongside this loop when those binds are designed.
     for drive_path in all_drive_paths:
         _check_drive_reachable(bwrap_prefix, drive_path)
+
+    # ---- 6b. R-REACH: kernel + qemu binary (gaps 1/3/4). Active when rt bind present.
+    _rt_bind_present = any(
+        bwrap_prefix[i] == "--ro-bind" and i + 2 < len(bwrap_prefix)
+        and bwrap_prefix[i + 2] == _RT_TREE_DEST
+        for i in range(len(bwrap_prefix))
+    )
+    if _rt_bind_present:
+        if kernel_path and kernel_path.startswith("/"):
+            _check_drive_reachable(bwrap_prefix, kernel_path)
+        if qbin_in_tree and qbin_in_tree.startswith("/"):
+            _check_binary_reachable(bwrap_prefix, qbin_in_tree)
 
 
 # ---------------------------------------------------------------------------
@@ -485,4 +504,36 @@ def _check_drive_reachable(bwrap_prefix: list[str], drive_path: str) -> None:
             "mount ops are applied in argv order (R-REACH / INV-2). "
             "A --bind placed BEFORE a --tmpfs that covers the same subtree is "
             "silently re-masked — check mount-op ordering."
+        )
+
+
+def _check_binary_reachable(bwrap_prefix: list[str], qbin_path: str) -> None:
+    """Assert qemu binary is reachable in the sandbox (R-REACH ext. for gap 1).
+
+    Same order-aware coverage walk as _check_drive_reachable; separate function
+    so the error message names the binary rather than 'drive file='.
+    """
+    covered = False
+    i = 0
+    while i < len(bwrap_prefix):
+        tok = bwrap_prefix[i]
+        arity = _BWRAP_MOUNT_ARITY.get(tok, 0)
+        if tok in ("--bind", "--ro-bind"):
+            dest = bwrap_prefix[i + 2] if i + 2 < len(bwrap_prefix) else ""
+            dest_prefix = dest.rstrip("/")
+            if qbin_path == dest_prefix or qbin_path.startswith(dest_prefix + "/"):
+                covered = True
+        elif tok == "--tmpfs":
+            dest = bwrap_prefix[i + 1] if i + 1 < len(bwrap_prefix) else ""
+            dest_prefix = dest.rstrip("/")
+            if qbin_path == dest_prefix or qbin_path.startswith(dest_prefix + "/"):
+                covered = False
+        i += max(arity + 1, 1)
+    if not covered:
+        raise GateError(
+            f"planned_argv qemu binary {qbin_path!r} is not reachable inside the "
+            "sandbox: no --bind or --ro-bind covers that path after all bwrap "
+            "mount ops are applied in argv order (R-REACH / INV-2). "
+            "Ensure the runtime-tree bind (--ro-bind <src> /rsdd/rt) appears "
+            "after --tmpfs and covers the binary path."
         )
