@@ -119,6 +119,11 @@ def run_vm(
         )
     except BaseException:
         shutil.rmtree(run_dir, ignore_errors=True)
+        try:
+            if Path(run_dir).exists():
+                print(f"WARNING: run_dir reap incomplete: {run_dir}", file=sys.stderr)
+        except Exception:
+            pass
         raise
     t_out = t_err = None
     t0 = time.monotonic(); t_start = datetime.datetime.utcnow()

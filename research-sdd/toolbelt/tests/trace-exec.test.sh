@@ -679,6 +679,9 @@ with tempfile.TemporaryDirectory() as td:
         assert isinstance(_raised_t5, _GE_T5), (
             f"expected GateError (sentinel absent), got {type(_raised_t5).__name__}: {_raised_t5!r}"
         )
+        assert "not found in planned_argv" in str(_raised_t5), (
+            f"expected pre_boot sentinel error, got: {_raised_t5!r}"
+        )
         assert len(_leaked_t5) == 0, (
             f"INV-5 FAIL: {len(_leaked_t5)} orphaned run_dir(s) leaked after pre_boot "
             f"GateError: {sorted(_leaked_t5)}"

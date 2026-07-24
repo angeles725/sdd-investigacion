@@ -143,7 +143,8 @@ leaks on the error path is not a sandbox.
 
 - **Origin:** V1a/V1b containment hardening; re-confirmed by the #59 PR review.
 - **Status:** `enforced` — shared reaper in `lib/proc_common.py`.
-- **Asserted by:** `tests/qemu-exec.test.sh`.
+- **Asserted by:** `tests/qemu-exec.test.sh`, `tests/detonate-exec.test.sh` (RED-INV5-earlyfail),
+  `tests/trace-exec.test.sh` (TRACE-RED-INV5-earlyfail).
 
 ### INV-6 — a required containment flag must appear in the argv slice that enforces it
 
