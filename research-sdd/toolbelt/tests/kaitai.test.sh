@@ -439,6 +439,15 @@ fi
 # T9c: read-time memory-cap (R4 guard).  80 MB RLIMIT_AS: driver overhead is
 #      ~25 MB, so the 64 MB read_bytes() allocation exhausts the limit before
 #      the parse block — guarded by the read-phase MemoryError handler.
+#
+# HOST INVARIANT (self-diagnosis): the kaitai-venv python baseline VAS at the
+# pre-serialize point must stay < ~80 MB. Measured 24 MiB on 2026-07 (WSL2).
+# If a future interpreter/venv upgrade pushes the baseline past ~80 MB, the
+# driver dies at startup (before the memory-cap handler exists) and THIS test
+# fails via the exit-2 "fatal error" branch below — not a product regression,
+# just a stale threshold: raise --max-memory-mb here to (new_baseline + 60).
+# Below ~16 MB baseline the read succeeds and the parse-phase guard fires
+# instead; T9c still passes (it pins memory-cap, not which guard).
 # ---------------------------------------------------------------------------
 _T9C_OUT="$ROOT/out_t9c"
 _T9C_EXIT=0
