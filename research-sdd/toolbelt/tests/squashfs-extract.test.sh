@@ -89,4 +89,16 @@ mksquashfs "$ROOT/tree_bomb" "$ROOT/bomb.sqfs" -noappend -quiet 2>/dev/null
 if ! run "$ROOT/bomb.sqfs" "$ROOT/out_bomb" --max-extracted-bytes 4096 2>/dev/null && [ ! -e "$ROOT/out_bomb" ]; then
   ok "oversized extraction rejected (watchdog+cap); nothing published"; else no "size cap / watchdog"; fi
 
+
+# 11. root execution refused (geteuid==0) → exit 2, 'root or set-id' in stderr
+if python3 - "$HERE/../squashfs_extract.py" <<'PY'
+import importlib.util,io,sys
+from contextlib import redirect_stderr
+s=importlib.util.spec_from_file_location('sq',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+m.os.geteuid=lambda:0; buf=io.StringIO()
+with redirect_stderr(buf): r=m.main(['--input','x','--output','y','--manifest-cli','z'])
+assert r==2 and "root or set-id" in buf.getvalue()
+PY
+then ok "root execution refused (geteuid==0): exit 2, root-or-set-id in stderr"; else no "root refusal"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

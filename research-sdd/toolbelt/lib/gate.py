@@ -136,11 +136,16 @@ def _load_stub(path_str: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     any host path bound into a sandbox.  This prevents arbitrary code loading
     from credential-bearing or system-root paths via the RSDD_*_EXECUTOR seam.
     """
+    resolved = os.path.realpath(path_str)
     try:
-        assert_safe_bind_root(Path(os.path.realpath(path_str)))
+        assert_safe_bind_root(Path(resolved))
     except BindScopeError as exc:
         raise GateError(f"stub path is outside the allowed scope: {exc}") from exc
-    path = Path(path_str)
+    # Scope-check note: reuses assert_safe_bind_root for parity with _write_offline.
+    # Residual: constrains system-root/shallow-home paths but does NOT lock the stub to a
+    # dedicated trusted root (/tmp/<sub>/x.py remains loadable). Accepted — the seam is
+    # env-gated (RSDD_*_EXECUTOR). Resolving once closes the symlink-swap TOCTOU window.
+    path = Path(resolved)          # load the same resolved path that was scope-checked
     if not path.is_file():
         raise GateError(f"RSDD executor stub not found: {path_str!r}")
     ms = importlib.util.spec_from_file_location("_rsdd_gate_stub", path)
