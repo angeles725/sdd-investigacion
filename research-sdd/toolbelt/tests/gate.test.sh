@@ -271,6 +271,45 @@ try:
     ok("allow=False + plan_written=True override → message claims plan was recorded")
 except Exception as e: nok("plan_written=True override", str(e))
 
+# ── 15: _load_stub rejects stub path outside allowed bind scope ──────────────────
+# RED: current _load_stub only checks path.is_file() → raises "not found", not "scope"
+# GREEN after: assert_safe_bind_root applied to realpath(stub) → scope violation message
+_ev15 = m.cap_env_var(m.CAP_EXEC); _old15 = os.environ.get(_ev15)
+# /home/rsdd_privileged_test.py: 3 parts under /home (need ≥4) → assert_safe_bind_root rejects it.
+# "privileged" does not appear in the "not found" error, so the assertion is a genuine RED/GREEN signal.
+os.environ[_ev15] = "/home/rsdd_privileged_test.py"
+try:
+    try:
+        m.execute_or_plan(m.CAP_EXEC, True, PLAN)
+        nok("_load_stub out-of-scope: should have raised GateError")
+    except m.GateError as _e15:
+        _msg15 = str(_e15)
+        assert "allowed" in _msg15.lower() or "broad" in _msg15.lower() or "parts" in _msg15.lower(), (
+            f"expected scope-violation message (not 'not found'), got: {_e15!r}"
+        )
+        ok("_load_stub: stub path outside allowed bind scope → GateError with scope message")
+    except Exception as _e15x: nok("_load_stub out-of-scope type", str(_e15x))
+finally:
+    if _old15 is not None: os.environ[_ev15] = _old15
+    else: os.environ.pop(_ev15, None)
+
+# ── 15b: _load_stub accepts stub under safe path (existing T5 must keep passing) ─
+# Triangulation: a stub in a temp dir (≥3 path parts) must still be accepted.
+with tempfile.TemporaryDirectory() as _td15b:
+    _stub15b = Path(_td15b) / "safe_stub.py"
+    _stub15b.write_text("def execute(p): return {'outcome': 'safe', 'plan': p}\n")
+    _ev15b = m.cap_env_var(m.CAP_EXEC); _old15b = os.environ.get(_ev15b)
+    os.environ[_ev15b] = str(_stub15b)
+    try:
+        try:
+            _res15b = m.execute_or_plan(m.CAP_EXEC, True, PLAN)
+            assert _res15b["outcome"] == "safe", f"unexpected outcome: {_res15b}"
+            ok("_load_stub: stub in safe temp path accepted (scope guard does not block legit stubs)")
+        except Exception as _e15b: nok("_load_stub safe-path acceptance", str(_e15b))
+    finally:
+        if _old15b is not None: os.environ[_ev15b] = _old15b
+        else: os.environ.pop(_ev15b, None)
+
 print(f"== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

@@ -12,6 +12,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 from lib.adapter_core import (
     AdapterError, executable, identity,
+    refuse_privileged_execution,
     require_private, run_bounded, sandbox, stage_file,
 )
 from lib.adapter_helpers import (
@@ -149,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
     args = ap.parse_args(argv)
     stage: Path | None = None
     try:
+        refuse_privileged_execution()
         if args.timeout_seconds < 1 or args.max_bytes < 1:
             raise PcapFlowsError("caps must be positive")
         _check_magic(args.input)

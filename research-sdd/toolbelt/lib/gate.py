@@ -14,7 +14,7 @@ _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 from adapter_core import AdapterError, write as _write        # noqa: E402
-from adapter_helpers import assert_safe_bind_root             # noqa: E402
+from adapter_helpers import assert_safe_bind_root, BindScopeError  # noqa: E402
 
 # Capability tokens
 CAP_EXEC         = "exec"
@@ -129,8 +129,23 @@ def execute_or_plan(
 
 
 def _load_stub(path_str: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Load test-seam executor from Python file (must export execute(plan)->dict)."""
-    path = Path(path_str)
+    """Load test-seam executor from Python file (must export execute(plan)->dict).
+
+    Path-scope guard (mirrors _write_offline's assert_safe_bind_root): the
+    realpath of *path_str* must satisfy the same bind-scope constraints as
+    any host path bound into a sandbox.  This prevents arbitrary code loading
+    from blocked system roots and shallow-home paths (see Residual note below).
+    """
+    resolved = os.path.realpath(path_str)
+    try:
+        assert_safe_bind_root(Path(resolved))
+    except BindScopeError as exc:
+        raise GateError(f"stub path is outside the allowed scope: {exc}") from exc
+    # Scope-check note: reuses assert_safe_bind_root for parity with _write_offline.
+    # Residual: constrains system-root/shallow-home paths but does NOT lock the stub to a
+    # dedicated trusted root (/tmp/<sub>/x.py remains loadable). Accepted — the seam is
+    # env-gated (RSDD_*_EXECUTOR). Resolving once closes the symlink-swap TOCTOU window.
+    path = Path(resolved)          # load the same resolved path that was scope-checked
     if not path.is_file():
         raise GateError(f"RSDD executor stub not found: {path_str!r}")
     ms = importlib.util.spec_from_file_location("_rsdd_gate_stub", path)

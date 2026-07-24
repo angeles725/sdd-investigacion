@@ -68,4 +68,23 @@ z.inventory=changed; out=p.parent/'mutated-out'; manifest=pathlib.Path(sys.argv[
 assert z.main(['--input',str(p),'--output',str(out),'--manifest-cli',str(manifest)])==2 and not out.exists()
 PY
 then ok "instrumentation proves payload exclusion and mutation rejection without publication"; else no "read boundary and mutation"; fi
+
+# root refusal — geteuid()==0 rejected (root check absent in partial guard → RED before upgrade)
+# RED: current guard only checks set-id; geteuid==0 is NOT refused → message absent → test fails.
+if python3 - "$HERE/../zip_metadata.py" <<'PY'
+import importlib.util, io, sys
+from contextlib import redirect_stderr
+spec = importlib.util.spec_from_file_location("zip_metadata", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.os.geteuid = lambda: 0
+buf = io.StringIO()
+with redirect_stderr(buf):
+    result = m.main(['--input', 'x', '--output', 'y', '--manifest-cli', 'z'])
+assert result == 2, f"expected exit 2 for root, got {result}"
+msg = buf.getvalue()
+assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg!r}"
+PY
+then ok "root execution (geteuid==0) refused — 'root or set-id' in stderr (full guard, fail-closed)"
+else no "root refusal"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

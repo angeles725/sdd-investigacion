@@ -96,9 +96,10 @@ if ! "$SUT" carve "$ROOT/link.bin" "$ROOT/link-out" 2>/dev/null && ! "$SUT" carv
 if ! "$SUT" extract "$ROOT/firmware.bin" "$ROOT/legacy" 2>"$ROOT/legacy.err" && grep -q 'removed.*carve' "$ROOT/legacy.err" \
   && ! grep -Eq 'binwalk[[:space:]]+-e|--run-as=root' "$SUT"; then ok "unsafe legacy extraction is unreachable and gives migration guidance"; else no "legacy migration"; fi
 if python3 - "$HERE/../firmware_carve.py" <<'PY'
-import importlib.util,sys
+import importlib.util,io,sys
 s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f)
-f.os.geteuid=lambda:0; assert f.main(['--input','x','--output','y'])==2
+buf=io.StringIO(); f.os.geteuid=lambda:0; sys.stderr=buf; r=f.main(['--input','x','--output','y']); sys.stderr=sys.__stderr__
+assert r==2 and "root or set-id" in buf.getvalue()
 PY
 then ok "root execution fails closed"; else no "caller safety"; fi
 if python3 - "$HERE/../firmware_carve.py" "$ROOT" <<'PY'

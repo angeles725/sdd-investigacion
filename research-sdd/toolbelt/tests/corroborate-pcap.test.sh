@@ -76,4 +76,22 @@ if ! "$SUT" --input "$ROOT/link.pcap" --output "$ROOT/link-out" 2>/dev/null; the
   ok "symlink input is rejected by O_NOFOLLOW identity check"
 else no "symlink input rejection"; fi
 
+# T7: root refusal — geteuid()==0 rejected before any I/O, with 'root or set-id' in stderr
+# RED: fails before refuse_privileged_execution() is added to corroborate_pcap (no guard, message absent).
+if python3 - "$HERE/../corroborate_pcap.py" <<'PY'
+import importlib.util, io, sys
+from contextlib import redirect_stderr
+spec = importlib.util.spec_from_file_location("corroborate_pcap", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.os.geteuid = lambda: 0
+buf = io.StringIO()
+with redirect_stderr(buf):
+    result = m.main(['--input', 'x', '--output', 'y', '--manifest-cli', 'z'])
+assert result == 2, f"expected exit 2 for root, got {result}"
+msg = buf.getvalue()
+assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg!r}"
+PY
+then ok "root execution (geteuid==0) refused before I/O — 'root or set-id' in stderr (fail-closed)"
+else no "root refusal"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

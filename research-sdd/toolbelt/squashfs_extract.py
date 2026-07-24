@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent / "lib"))
-from adapter_core import AdapterError, canonical_bytes, require_private, publish, stage_file
+from adapter_core import AdapterError, canonical_bytes, refuse_privileged_execution, require_private, publish, stage_file
 from isolation_profile import PROFILE_BWRAP_UNSQUASHFS
 
 SCHEMA = "squashfs-extract.v1"
@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv); stage: Path | None = None
     started_at = datetime.now(timezone.utc)
     try:
-        if os.geteuid() == 0 or os.getuid() != os.geteuid() or os.getgid() != os.getegid(): raise SquashExtractError("refusing root or set-id execution")
+        refuse_privileged_execution()
         caps = {"max_input_bytes": args.max_input_bytes, "max_extracted_bytes": args.max_extracted_bytes, "max_entries": args.max_entries, "timeout_seconds": args.timeout_seconds}
         if min(caps.values()) < 1: raise SquashExtractError("caps must be positive")
         if ".." in args.output.parts or "\\" in str(args.output): raise SquashExtractError("output must be a canonical path")

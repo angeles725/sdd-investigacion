@@ -54,6 +54,26 @@ class AdapterError(ValueError):
 
 
 # ---------------------------------------------------------------------------
+# Privilege guard
+# ---------------------------------------------------------------------------
+
+def refuse_privileged_execution() -> None:
+    """Raise AdapterError when running as root or under set-id execution.
+
+    Checks:
+    - ``os.geteuid() == 0`` — effective UID is root
+    - ``os.getuid() != os.geteuid()`` — SUID bit: real UID differs from effective
+    - ``os.getgid() != os.getegid()`` — SGID bit: real GID differs from effective
+
+    Call once at the top of every adapter's ``main()`` try-block, before any
+    I/O or argument processing.  Consistent message "refusing root or set-id
+    execution" matches the inline guards this helper replaces.
+    """
+    if os.geteuid() == 0 or os.getuid() != os.geteuid() or os.getgid() != os.getegid():
+        raise AdapterError("refusing root or set-id execution")
+
+
+# ---------------------------------------------------------------------------
 # Canonical serialisation
 # ---------------------------------------------------------------------------
 

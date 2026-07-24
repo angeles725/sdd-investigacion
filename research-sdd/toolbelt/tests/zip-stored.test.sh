@@ -63,4 +63,17 @@ finally: z.os.fsync=real; os.close(parent)
 assert (root/'uncertain').is_dir()
 PY
 then ok "post-rename sync failure is distinguishable"; else no "publication outcome"; fi
+
+# root execution refused (geteuid==0) → exit 2, 'root or set-id' in stderr
+if python3 - "$HERE/../zip_stored.py" <<'PY'
+import importlib.util,io,pathlib,sys
+from contextlib import redirect_stderr
+script=pathlib.Path(sys.argv[1]); sys.path.insert(0,str(script.parent))
+s=importlib.util.spec_from_file_location('zs',script); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+m.os.geteuid=lambda:0; buf=io.StringIO()
+with redirect_stderr(buf): r=m.main(['--input','x','--output','y','--manifest-cli','z','--metadata-parser','z'])
+assert r==2 and "root or set-id" in buf.getvalue()
+PY
+then ok "root execution refused (geteuid==0): exit 2, root-or-set-id in stderr"; else no "root refusal"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

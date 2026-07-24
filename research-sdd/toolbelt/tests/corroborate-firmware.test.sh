@@ -102,14 +102,14 @@ if ! PATH="$ROOT/noisy:/usr/bin:/bin" RSDD_BINWALK_TEST_ONLY="$ROOT/noisy/binwal
   && [ "$(wc -c <"$ROOT/noisy-out/engine/stdout.txt")" -le 4096 ] && grep -q diagnostic-cap "$ROOT/noisy-out/firmware-static.v1.json"; then
   ok "1MiB output is execution-time bounded by a 4KiB file cap"; else no "diagnostic cap"; fi
 if python3 - "$HERE/../corroborate_firmware.py" <<'PY'
-import importlib.util,pathlib,sys
+import importlib.util,io,pathlib,sys
 s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f); p=pathlib.Path('/safe/out')
 for kind in ('ext4','xfs','btrfs','tmpfs','overlay'): f.require_private(p,f'1 0 0:1 / /safe rw - {kind} disk rw')
 for kind in ('drvfs','9p','nfs4','fuse.sshfs','virtiofs','mystery'):
  try: f.require_private(p,f'1 0 0:1 / /safe rw - {kind} disk rw'); raise AssertionError(kind)
  except f.FirmwareError: pass
-f.os.geteuid=lambda: 0
-assert f.main(['--input','x','--output','y','--manifest-cli','z'])==2
+buf=io.StringIO(); f.os.geteuid=lambda: 0; sys.stderr=buf; r=f.main(['--input','x','--output','y','--manifest-cli','z']); sys.stderr=sys.__stderr__
+assert r==2 and "root or set-id" in buf.getvalue()
 PY
 then ok "filesystem allowlist and root execution fail closed"; else no "filesystem/caller safety"; fi
 fake slow <<'SH'

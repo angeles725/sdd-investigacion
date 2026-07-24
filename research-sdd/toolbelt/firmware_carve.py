@@ -6,6 +6,9 @@ import argparse, binascii, ctypes, hashlib, json, mmap, os, resource, shutil, si
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_core import refuse_privileged_execution  # noqa: E402
+
 SCHEMA = "firmware-carve.v1"
 PRIVATE_FS = {"btrfs", "ext2", "ext3", "ext4", "f2fs", "jfs", "nilfs2", "overlay", "ramfs", "reiserfs", "tmpfs", "ubifs", "xfs", "zfs"}
 
@@ -228,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv); stage: Path | None = None
     try:
         if args.worker: return worker(args)
-        if os.geteuid() == 0 or os.getuid() != os.geteuid() or os.getgid() != os.getegid(): raise CarveError("refusing root or set-id execution")
+        refuse_privileged_execution()
         if min(args.max_input_bytes, args.max_output_bytes, args.max_carves, args.max_files, args.timeout_seconds, args.max_processes, args.max_memory_bytes) < 1: raise CarveError("caps must be positive")
         if ".." in args.output.parts or "\\" in str(args.output): raise CarveError("output must be a new canonical path")
         lexical = Path(os.path.abspath(args.output.parent)); probe = Path(lexical.anchor)
