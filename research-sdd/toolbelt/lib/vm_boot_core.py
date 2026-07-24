@@ -85,34 +85,46 @@ def run_vm(
     serial_log = f"{run_dir}/serial.log"
     argv_deltas: list[dict[str, Any]] = []
 
-    # pre_boot seam: caller may create files (e.g. scratch.img) and substitute
-    # tokens in exec_argv.  Runs BEFORE the pre-snapshot so created files are hashed.
-    if pre_boot is not None:
-        exec_argv = pre_boot(run_dir, exec_argv)
+    # INV-5: reap run_dir on any exception raised BEFORE Popen succeeds.
+    # Once Popen returns, the existing try/finally below owns teardown and
+    # intentionally retains run_dir as evidence (see detonate-run.v1.md §run_dir).
+    try:
+        # pre_boot seam: caller may create files (e.g. scratch.img) and substitute
+        # tokens in exec_argv.  Runs BEFORE the pre-snapshot so created files are hashed.
+        if pre_boot is not None:
+            exec_argv = pre_boot(run_dir, exec_argv)
 
-    # Fail-soft snapshot helper: hash errors → None + stderr WARNING, NEVER raise-through.
-    def _safe_snapshot(phase: str, _run_dir: str) -> "dict[str, str] | None":
-        if snapshot_hook is None:
-            return None
+        # Fail-soft snapshot helper: hash errors → None + stderr WARNING, NEVER raise-through.
+        def _safe_snapshot(phase: str, _run_dir: str) -> "dict[str, str] | None":
+            if snapshot_hook is None:
+                return None
+            try:
+                return snapshot_hook(phase, _run_dir)
+            except Exception as exc:
+                print(
+                    f"WARNING: vm {phase}-snapshot hash failed (non-fatal): {exc}",
+                    file=sys.stderr,
+                )
+                return None
+
+        # Pre-boot snapshot seam (D2: hash scratch disk before boot; D0/boot: None).
+        pre_snap: dict[str, str] | None = _safe_snapshot("pre", run_dir)
+
+        post_snap: dict[str, str] | None = None
+        raw_out: list[bytes] = [b""]; raw_err: list[bytes] = [b""]
+        # Discrete list[str] argv — no shell expansion surface.
+        proc = subprocess.Popen(
+            exec_argv, start_new_session=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except BaseException:
+        shutil.rmtree(run_dir, ignore_errors=True)
         try:
-            return snapshot_hook(phase, _run_dir)
-        except Exception as exc:
-            print(
-                f"WARNING: vm {phase}-snapshot hash failed (non-fatal): {exc}",
-                file=sys.stderr,
-            )
-            return None
-
-    # Pre-boot snapshot seam (D2: hash scratch disk before boot; D0/boot: None).
-    pre_snap: dict[str, str] | None = _safe_snapshot("pre", run_dir)
-
-    post_snap: dict[str, str] | None = None
-    raw_out: list[bytes] = [b""]; raw_err: list[bytes] = [b""]
-    # Discrete list[str] argv — no shell expansion surface.
-    proc = subprocess.Popen(
-        exec_argv, start_new_session=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+            if Path(run_dir).exists():
+                print(f"WARNING: run_dir reap incomplete: {run_dir}", file=sys.stderr)
+        except Exception:
+            pass
+        raise
     t_out = t_err = None
     t0 = time.monotonic(); t_start = datetime.datetime.utcnow()
     timed_out = False; exit_code: int | None = None
