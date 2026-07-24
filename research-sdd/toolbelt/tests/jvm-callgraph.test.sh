@@ -19,6 +19,12 @@ if [ -z "$_JAVA21" ] || [ ! -x "$_JAVA21/bin/javac" ] || [ "${_JAVAC_MAJOR:-0}" 
   echo "== 0 passed · 0 failed =="
   exit 0
 fi
+# Maven guard — the build step requires mvn; skip gracefully when absent.
+if ! command -v mvn >/dev/null 2>&1; then
+  echo "SKIP: jvm-callgraph tests (missing: mvn)"
+  echo "== 0 passed · 0 failed =="
+  exit 0
+fi
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0

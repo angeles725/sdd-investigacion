@@ -2,6 +2,12 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SOURCE="$HERE/../decompile-native.sh"
 [ -x "$SOURCE" ] || { echo "FATAL: SUT not found: $SOURCE" >&2; exit 2; }
+# Tool-availability guard — skip gracefully when required tools are absent.
+if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
+  echo "SKIP: decompile-native tests (missing: file or strings)"
+  echo "== 0 passed · 0 failed =="
+  exit 0
+fi
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 mkdir -p "$ROOT/toolbelt/lib" "$ROOT/gh/support" "$ROOT/jdk" "$ROOT/bin" "$ROOT/out"
