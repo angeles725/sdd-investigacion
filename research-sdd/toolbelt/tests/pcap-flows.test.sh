@@ -128,4 +128,22 @@ PY
 then ok "--max-streams cap: streams_truncated=true + counts visible in evidence"
 else no "--max-streams cap + streams_truncated evidence (CRITICAL DoS fix)"; fi
 
+# T12: root refusal — geteuid()==0 rejected before any I/O, with 'root or set-id' in stderr
+# RED: fails before refuse_privileged_execution() is added to pcap_flows (no guard, message absent).
+if python3 - "$HERE/../pcap_flows.py" <<'PY'
+import importlib.util, io, sys
+from contextlib import redirect_stderr
+spec = importlib.util.spec_from_file_location("pcap_flows", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.os.geteuid = lambda: 0
+buf = io.StringIO()
+with redirect_stderr(buf):
+    result = m.main(['--input', 'x', '--output', 'y', '--manifest-cli', 'z'])
+assert result == 2, f"expected exit 2 for root, got {result}"
+msg = buf.getvalue()
+assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg!r}"
+PY
+then ok "root execution (geteuid==0) refused before I/O — 'root or set-id' in stderr (fail-closed)"
+else no "root refusal"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

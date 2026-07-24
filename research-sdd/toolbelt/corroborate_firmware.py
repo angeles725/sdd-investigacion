@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_core import AdapterError, refuse_privileged_execution
 from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
 
 SCHEMA = "firmware-static.v1"
@@ -184,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-files", type=int, default=7); parser.add_argument("--manifest-cli", type=Path, required=True, help=argparse.SUPPRESS); args = parser.parse_args(argv)
     stage: Path | None = None
     try:
-        if os.geteuid() == 0 or os.getuid() != os.geteuid() or os.getgid() != os.getegid(): raise FirmwareError("refusing root or set-id execution")
+        refuse_privileged_execution()
         if min(args.timeout_seconds, args.max_diagnostic_bytes, args.max_input_bytes, args.max_findings, args.max_processes) < 1 or args.max_files < 7: raise FirmwareError("caps must be positive and max-files at least 7")
         source, _, _ = identity(args.input, args.max_input_bytes); parent = args.output.parent.resolve(strict=True); require_private(parent); destination = parent / args.output.name
         if destination.exists() or destination.is_symlink() or source == destination: raise FirmwareError("output must be a new non-colliding path")
@@ -241,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         if sum(path.is_file() for path in stage.rglob("*")) - 1 > args.max_files: raise FirmwareError("evidence file cap exceeded")
         publish(stage, destination); stage = None
         return 0 if status == "complete" else 1
-    except (FirmwareError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+    except (FirmwareError, AdapterError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         print(f"corroborate-firmware: {exc}", file=sys.stderr); return 2
     finally:
         if stage is not None and stage.exists(): shutil.rmtree(stage)

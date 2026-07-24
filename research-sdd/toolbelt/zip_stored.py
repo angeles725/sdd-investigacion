@@ -9,6 +9,7 @@ from typing import Any
 import zip_metadata as zm
 
 sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_core import refuse_privileged_execution
 from lib.isolation_profile import PROFILE_INPROCESS_ZIP_STORED
 
 SCHEMA = "zip-stored.v1"
@@ -158,7 +159,8 @@ def main(argv: list[str]|None=None) -> int:
     args=parser().parse_args(argv); stage=None; parent_fd=-1
     try:
         caps={k:v for k,v in vars(args).items() if k.startswith("max_")}
-        if min(caps.values())<1 or os.geteuid()==0 or os.getuid()!=os.geteuid() or os.getgid()!=os.getegid(): raise StoredError("caps must be positive and execution unprivileged non-set-id")
+        if min(caps.values())<1: raise StoredError("caps must be positive")
+        refuse_privileged_execution()
         lexical=Path(os.path.abspath(args.output.parent)); probe=Path(lexical.anchor)
         for part in lexical.parts[1:]:
             probe/=part

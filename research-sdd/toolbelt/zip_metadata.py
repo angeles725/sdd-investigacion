@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_core import refuse_privileged_execution
 from lib.isolation_profile import PROFILE_INPROCESS_ZIP_METADATA
 
 SCHEMA = "zip-metadata.v1"
@@ -146,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--manifest-cli", type=Path, required=True, help=argparse.SUPPRESS); args = p.parse_args(argv); stage: Path | None = None
     try:
         if min(args.max_input_bytes, args.max_central_directory_bytes, args.max_entries, args.max_field_bytes, args.max_report_bytes) < 1: raise ZipMetadataError("caps must be positive")
-        if os.getuid() != os.geteuid() or os.getgid() != os.getegid(): raise ZipMetadataError("set-id execution is unsupported")
+        refuse_privileged_execution()
         lexical = Path(os.path.abspath(args.output.parent)); probe = Path(lexical.anchor)
         for part in lexical.parts[1:]:
             probe /= part
