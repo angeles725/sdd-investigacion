@@ -1,0 +1,31 @@
+# research-sdd/toolbelt/requirements.txt
+# Verified: 2026-07-24
+#
+# The toolbelt is stdlib-only for all core operations.
+# This file is intentionally nearly empty — that is accurate, not an oversight.
+#
+# All other imports are standard library (argparse, ctypes, datetime, fcntl,
+# hashlib, importlib, json, mmap, os, pathlib, platform, posixpath, re,
+# resource, select, shlex, signal, stat, struct, subprocess, sys, threading,
+# time, typing, zipfile, ...) and require no installation.
+#
+# Internal modules (adapter_core, gate, vm_*, docker_*, proc_common,
+# squashfs_extract, corroborate_*, etc.) are local files within this tree
+# and are not packages to install.
+#
+# ── OPTIONAL third-party dependency ──────────────────────────────────────────
+#
+# kaitaistruct — the ONLY external Python package required by this toolbelt.
+#
+# Used solely by lib/kaitai_driver.py; all imports are guarded inside
+# functions. Gates the Kaitai corroboration path (corroborate-kaitai.sh).
+#
+# The adapter requires a dedicated venv (not the system Python):
+#   python3 -m venv ~/.local/share/rsdd-kaitai
+#   ~/.local/share/rsdd-kaitai/bin/pip install kaitaistruct
+# Override the venv python path with: RSDD_KAITAI_PY=<path>
+#
+# NOT installed on this host. The core test suite passes without it —
+# kaitai.test.sh prints "SKIP: kaitai tests (missing: ...)" and exits 0.
+
+kaitaistruct  # optional — Kaitai corroboration path only; see comment above
