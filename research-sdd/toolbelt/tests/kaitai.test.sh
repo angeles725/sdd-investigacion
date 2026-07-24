@@ -365,20 +365,74 @@ elif [ -f "$_T9_OUT/kaitai-evidence.v1.json" ]; then
   if python3 - "$_T9_OUT/kaitai-evidence.v1.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d.get("status") == "failed", f"expected status=failed on timeout, got {d.get('status')!r}"
-assert "timeout" in d.get("errors", []), f"timeout not in errors: {d.get('errors')}"
+assert d.get("status") == "failed", \
+    f"expected status=failed on resource cap, got {d.get('status')!r}"
+# Accept either "timeout" or "memory-cap": both are correctly-surfaced resource
+# limits.  Whichever wins the race, the evidence must carry the right signal.
+cap_errors = {"timeout", "memory-cap"}
+assert any(e in cap_errors for e in d.get("errors", [])), \
+    f"neither timeout nor memory-cap in errors: {d.get('errors')}"
 s = d.get("structure", {})
 assert s.get("truncated") == True, \
-    f"structure.truncated must be True on timeout, got {s.get('truncated')!r}"
+    f"structure.truncated must be True on resource cap, got {s.get('truncated')!r}"
 lims = d.get("limitations", [])
-assert any("timeout" in l for l in lims), f"no timeout limitation: {lims}"
-print(f"OK: status=failed, timeout in errors, truncated=True, limitation present")
+assert any("timeout" in l or "memory-cap" in l for l in lims), \
+    f"no resource-cap limitation: {lims}"
+print(f"OK: status=failed, resource-cap in errors, truncated=True, limitation present")
 PY
-  then ok "T9: --timeout 1 on 64MiB: timeout in errors, truncated:true, limitation"
-  else no "T9: timeout visibility (evidence present but fields wrong)"
+  then ok "T9: --timeout 1 on 64MiB: resource-cap (timeout or memory-cap) in errors, truncated:true, limitation"
+  else no "T9: resource-cap visibility (evidence present but fields wrong)"
   fi
 else
   no "T9: evidence not published after timeout (exit $_T9_EXIT)"
+fi
+
+# ---------------------------------------------------------------------------
+# T9b: memory-cap signal — deterministic path.
+#      generous timeout (60s) ensures MemoryError beats the wall clock;
+#      256 MB RLIMIT_AS fires when repeat-eos tries to build a 64M-element list.
+#      Evidence must carry a first-class "memory-cap" signal, NOT a generic
+#      parse-error.  Absent this fix, only parse-error: MemoryError is present.
+# ---------------------------------------------------------------------------
+_T9B_BIN="$ROOT/big.bin"
+# big.bin may already exist from T9; recreate if absent.
+[ -f "$_T9B_BIN" ] || python3 -c "
+import sys
+with open(sys.argv[1], 'wb') as f:
+    chunk = bytes(65536)
+    for _ in range(1024):  # 64 MiB
+        f.write(chunk)
+" "$_T9B_BIN" 2>/dev/null
+_T9B_OUT="$ROOT/out_t9b"
+_T9B_EXIT=0
+run "$_T9B_BIN" "$ROOT/repeat_demo.ksy" "$_T9B_OUT" \
+    --timeout 60 --max-memory-mb 256 2>/dev/null \
+  || _T9B_EXIT=$?
+if [ "$_T9B_EXIT" -eq 0 ]; then
+  no "T9b: memory-cap path (driver exited 0, MemoryError not reached or not surfaced)"
+elif [ "$_T9B_EXIT" -eq 2 ]; then
+  no "T9b: adapter fatal error (exit 2); check kaitai installation"
+elif [ -f "$_T9B_OUT/kaitai-evidence.v1.json" ]; then
+  if python3 - "$_T9B_OUT/kaitai-evidence.v1.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("status") == "failed", \
+    f"expected status=failed on memory-cap, got {d.get('status')!r}"
+assert "memory-cap" in d.get("errors", []), \
+    f"memory-cap not in errors: {d.get('errors')}"
+s = d.get("structure", {})
+assert s.get("truncated") == True, \
+    f"structure.truncated must be True on memory-cap, got {s.get('truncated')!r}"
+lims = d.get("limitations", [])
+assert any("memory-cap" in l for l in lims), \
+    f"no memory-cap limitation: {lims}"
+print(f"OK: status=failed, memory-cap in errors, truncated=True, limitation present")
+PY
+  then ok "T9b: memory-cap signal surfaced as first-class resource limit"
+  else no "T9b: memory-cap fidelity (evidence present but fields wrong)"
+  fi
+else
+  no "T9b: evidence not published after memory-cap (exit $_T9B_EXIT)"
 fi
 
 # ---------------------------------------------------------------------------
