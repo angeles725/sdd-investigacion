@@ -9,7 +9,7 @@ PLAN="$HERE/../qemu_plan.py"
 [ -f "$PLAN" ] || { echo "FATAL: qemu_plan.py not found: $PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 python3 - "$SUT" "$PLAN" <<'PY'
-import importlib.util, json, os, signal, struct, subprocess, sys, tempfile, time
+import importlib.util, json, os, signal, struct, subprocess, sys, tempfile, time, unittest.mock
 from pathlib import Path
 
 sut_path = Path(sys.argv[1]); plan_path = Path(sys.argv[2])
@@ -341,6 +341,77 @@ with tempfile.TemporaryDirectory() as td:
             f"vm_post_snapshot must be null, got: {receipt.get('vm_post_snapshot')}"
         ok("REG-LOCK: vm_pre_snapshot=null and vm_post_snapshot=null in receipt (snapshot_hook=None preserved)")
     except Exception as e: nok("REG-LOCK", str(e))
+
+# ── RED-INV5-popen-window: post-Popen/pre-finally exception must reap child ──
+# Injects a raise at the FIRST time.monotonic() call, which sits in the
+# unguarded window between Popen and the process-reap try/finally in the
+# current code (lines 128-130 of vm_boot_core.py).
+#
+# Pre-fix (current code): the inner try/finally never starts → child leaks
+#   (os.kill returns 0 = alive after the exception propagates).
+# Post-fix: the window is closed (try starts immediately after Popen; t0 is
+#   the FIRST statement inside the guarded region) → finally fires →
+#   reap_process_tree kills the child (os.kill raises OSError = dead).
+#
+# Mutation proof: reverting only the fix (restoring the 3-line window) makes
+# this test RED again, because the injection fires outside the try/finally.
+import vm_boot_core as _vbc
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    Path("/tmp/rsdd").mkdir(exist_ok=True)
+    # Fake qemu: sleeps until killed; produces no output other than running.
+    qemu_bin = tmp / "fake-qemu-inv5"
+    qemu_bin.write_text(
+        "#!/usr/bin/env python3\nimport time\ntime.sleep(300)\n"
+    )
+    qemu_bin.chmod(0o755)
+    plan = {
+        "planned_argv": [str(qemu_bin)],
+        "qemu_binary": str(qemu_bin),
+        "limits": {"wall_seconds": 30},
+    }
+    # Wrap subprocess.Popen to capture the spawned process object.
+    real_popen = subprocess.Popen
+    captured_proc = [None]
+    def _capturing_popen(*args, **kwargs):
+        p = real_popen(*args, **kwargs)
+        captured_proc[0] = p
+        return p
+    # Patch time.monotonic to raise on its FIRST call inside run_vm.
+    # Current code: that first call is in the unguarded window (line 129).
+    # Fixed code:   that first call is INSIDE the inner try/finally (first line).
+    real_mono = time.monotonic
+    first_mono = [True]
+    def _raising_monotonic():
+        if first_mono[0]:
+            first_mono[0] = False
+            raise RuntimeError("injected-popen-window")
+        return real_mono()
+    caught_exc = [None]
+    with unittest.mock.patch.object(subprocess, "Popen", _capturing_popen), \
+         unittest.mock.patch.object(time, "monotonic", _raising_monotonic):
+        try:
+            _vbc.run_vm(plan, preflight=lambda p: None)
+        except RuntimeError as e:
+            caught_exc[0] = e
+    try:
+        assert caught_exc[0] is not None and "injected-popen-window" in str(caught_exc[0]), \
+            f"expected injected exception to propagate, got: {caught_exc[0]}"
+        assert captured_proc[0] is not None, \
+            "subprocess.Popen was not called — no child to check"
+        child_pid = captured_proc[0].pid
+        time.sleep(0.35)  # allow reap_process_tree to complete if fix is in place
+        try:
+            os.kill(child_pid, 0)
+            # Child still alive — the window was not closed (pre-fix / regression).
+            nok("RED-INV5-popen-window: child PID still alive after window exception "
+                "(INV-5 process-tree violated — post-Popen/pre-finally gap open)")
+        except OSError:
+            # Child dead — finally fired and reaped the child (post-fix).
+            ok("RED-INV5-popen-window: child reaped after window exception "
+               "(INV-5 process-tree enforced — window closed)")
+    except Exception as e:
+        nok("RED-INV5-popen-window", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
