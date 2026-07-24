@@ -73,6 +73,8 @@ def is_test_id(s: str) -> bool:
         return False
     if any(c in s for c in '=[]{}().#@:'):
         return False
+    if re.match(r'^INV-\d+$', s):          # invariant references are never test IDs
+        return False
     return bool(re.match(r'^[A-Z][A-Za-z0-9_/-]*$', s))
 
 
@@ -111,6 +113,29 @@ def extract_ids_from_segment(text: str) -> list:
                         ids.append(sub)
 
     return ids
+
+
+def extract_declared_labels(file_text: str) -> set:
+    """Return test-case labels declared in a test file.
+
+    Scans every double-quoted string literal in the file.  For each, the
+    portion before the first ':' or ' ' is treated as a potential label.
+    Slash-separated paired labels (e.g. RED2/GREEN) are split individually.
+    Only tokens passing is_test_id() are included.
+
+    This approach works for direct ok("LABEL: ...") / nok("LABEL", ...) calls
+    and for helper-wrapped calls like assert_gate_error_msg(fn, "LABEL: ...", ...)
+    and assert_passes(fn, "LABEL: ...").
+    """
+    labels: set = set()
+    for m in re.finditer(r'"([^"\\\n]+)"', file_text):
+        raw = m.group(1)
+        first_part = re.split(r'[: ]', raw)[0].rstrip('.,;')
+        for sub in first_part.split('/'):
+            sub = sub.strip()
+            if sub and is_test_id(sub):
+                labels.add(sub)
+    return labels
 
 
 def parse_asserted_by(asserted_by_text: str) -> dict:
@@ -252,16 +277,23 @@ def check_registry(reg_path: Path, repo_root: Path) -> tuple:
         if not file_ids:
             errors.append(f"{eid}: enforced but no test files named in 'Asserted by'")
             continue
+        # F2: every enforced entry must name at least one parseable test ID
+        total_ids = sum(len(v) for v in file_ids.values())
+        if total_ids == 0:
+            errors.append(
+                f"{eid}: enforced entry names no parseable test IDs"
+                f" — add at least one real test label to 'Asserted by'")
         for rel_path, ids in file_ids.items():
             abs_path = repo_root / "research-sdd" / "toolbelt" / rel_path
             if not abs_path.exists():
                 errors.append(f"{eid}: named test file not found: {rel_path}")
                 continue
             file_text = abs_path.read_text(encoding='utf-8')
+            labels = extract_declared_labels(file_text)   # F4: label-aware check
             for tid in ids:
-                if tid not in file_text:
+                if tid not in labels:
                     errors.append(
-                        f"{eid}: test ID '{tid}' not found in {rel_path}")
+                        f"{eid}: test ID '{tid}' not found as a label in {rel_path}")
 
     # REQ-4: Pending Invariants Are Tracked (bidirectional)
     open_map    = parse_open_map(text)
@@ -427,13 +459,54 @@ No open invariants remain.
 
 - **Origin:** fixture for enforced-in-map test.
 - **Status:** `enforced`
-- **Asserted by:** `tests/gate.test.sh` (RED1).
+- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
 
 ## Open invariants map to open issues
 
 | INV-1 | Issue #99 |
 """)
     assert_fails_with("RED07-enforced-in-map", fix07, "open-map references INV-1")
+
+    # RED08 — enforced entry names a test ID that exists in the file only as
+    # a comment token, not as a real test label.  The old raw-substring check
+    # accepted this; the label-aware check (F4) must reject it.
+    # "Popen" appears in tests/detonate-exec.test.sh only inside # comments.
+    fix08 = write_fixture(td, "fix08.md", """\
+## Registry
+
+### INV-1 — test entry
+
+**Statement:** Named IDs must appear as declared test labels, not just in comments.
+
+- **Origin:** fixture for prose-only test-id test (F4 regression guard).
+- **Status:** `enforced`
+- **Asserted by:** `tests/detonate-exec.test.sh` (Popen).
+
+## Open invariants map to open issues
+
+No open invariants remain.
+""")
+    assert_fails_with("RED08-prose-only-id", fix08, "Popen")
+
+    # RED09 — enforced entry names test files but zero parseable test IDs.
+    # gate.test.sh labels are all prose-style (lowercase first word), so none
+    # pass is_test_id().  The F2 check must fire before the per-ID loop runs.
+    fix09 = write_fixture(td, "fix09.md", """\
+## Registry
+
+### INV-1 — test entry
+
+**Statement:** Enforced entries must name at least one parseable test label.
+
+- **Origin:** fixture for no-parseable-ids test (F2 regression guard).
+- **Status:** `enforced`
+- **Asserted by:** `tests/gate.test.sh` — authorization contract tests.
+
+## Open invariants map to open issues
+
+No open invariants remain.
+""")
+    assert_fails_with("RED09-no-test-ids", fix09, "no parseable test IDs")
 
 # Temp dir cleaned up; RED fixtures removed from disk.
 
