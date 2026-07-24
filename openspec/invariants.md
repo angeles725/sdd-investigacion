@@ -171,14 +171,17 @@ retained as evidence on a completed run:
 - **Origin:** V1a/V1b containment hardening; re-confirmed by the #59 PR review;
   the process-tree/run_dir split was clarified by the #70 PR-level gate (F1).
 - **Status:** `enforced` — process-tree reaper in `lib/proc_common.py`; run_dir
-  early-failure reap in `lib/vm_boot_core.py` (`run_vm`'s pre-Popen guard).
+  early-failure reap in `lib/vm_boot_core.py` (`run_vm`'s pre-Popen guard);
+  post-Popen/pre-finally window closed by issue #71 (hoisted `t_out`/`t_err`/
+  `timed_out`/`exit_code` before the pre-Popen guard, moved `t0`/`t_start` to
+  be the first statements inside the inner try/finally, migrated `utcnow()` →
+  `datetime.now(UTC)`).
 - **Asserted by:** process tree — `tests/qemu-exec.test.sh` (RED6/RED7 killpg
-  tree-reap); run_dir early-failure reap — `tests/detonate-exec.test.sh`
-  (RED-INV5-earlyfail), `tests/trace-exec.test.sh` (TRACE-RED-INV5-earlyfail);
-  run_dir success retention — `tests/detonate-exec.test.sh` (RED11).
-- **Known gap (tracked):** an exception raised AFTER `Popen` succeeds but BEFORE
-  the evidence try/finally begins can still leak a live process — see the
-  follow-up issue for the post-Popen/pre-finally window.
+  tree-reap; RED-INV5-popen-window injects raise at first time.monotonic() call
+  after Popen and asserts the child is reaped, not leaked); run_dir early-failure
+  reap — `tests/detonate-exec.test.sh` (RED-INV5-earlyfail),
+  `tests/trace-exec.test.sh` (TRACE-RED-INV5-earlyfail); run_dir success
+  retention — `tests/detonate-exec.test.sh` (RED11).
 
 ### INV-6 — a required containment flag must appear in the argv slice that enforces it
 

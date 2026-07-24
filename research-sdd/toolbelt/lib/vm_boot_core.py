@@ -85,9 +85,12 @@ def run_vm(
     serial_log = f"{run_dir}/serial.log"
     argv_deltas: list[dict[str, Any]] = []
 
-    # INV-5: reap run_dir on any exception raised BEFORE Popen succeeds.
-    # Once Popen returns, the existing try/finally below owns teardown and
-    # intentionally retains run_dir as evidence (see detonate-run.v1.md §run_dir).
+    # INV-5 (process-tree half, issue #71): pre-initialise variables that the
+    # finally block references so the guarded region can begin IMMEDIATELY after
+    # Popen — zero unguarded statements between a live child and reap_process_tree.
+    # (run_dir early-failure reap below is the directory half, unchanged.)
+    t_out = t_err = None
+    timed_out = False; exit_code: int | None = None
     try:
         # pre_boot seam: caller may create files (e.g. scratch.img) and substitute
         # tokens in exec_argv.  Runs BEFORE the pre-snapshot so created files are hashed.
@@ -125,11 +128,13 @@ def run_vm(
         except Exception:
             pass
         raise
-    t_out = t_err = None
-    t0 = time.monotonic(); t_start = datetime.datetime.utcnow()
-    timed_out = False; exit_code: int | None = None
-
+    # ZERO unguarded statements here — try/finally begins immediately so that
+    # any failure (e.g. deprecated utcnow() raising under -W error on Python
+    # 3.12+) triggers the finally instead of leaking a live child (INV-5).
     try:
+        # t0/t_start set as the first acts inside the guarded region.
+        # datetime.now(UTC) replaces utcnow() (deprecated 3.12, removed 3.14).
+        t0 = time.monotonic(); t_start = datetime.datetime.now(datetime.UTC)
         t_out = threading.Thread(
             target=_dc.drain_pipe, args=(proc.stdout, _dc.OUTPUT_CAP, raw_out), daemon=True)
         t_err = threading.Thread(
@@ -150,7 +155,7 @@ def run_vm(
         # serial_log / pre_snap / outcome are NEVER discarded by a failing post-hash.
         post_snap = _safe_snapshot("post", run_dir)
 
-    t_end = datetime.datetime.utcnow()
+    t_end = datetime.datetime.now(datetime.UTC)
     duration_s = time.monotonic() - t0
     if exit_code is None:
         exit_code = proc.poll()
