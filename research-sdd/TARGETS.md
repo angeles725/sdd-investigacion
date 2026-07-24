@@ -62,6 +62,7 @@ Sensitivity:
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
 | 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; run/scout narrative → detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
+| 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (0 md / git no / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17.00.0046 + SP18 (Summit.exe 17.0.0.228) on Windows 11 mini-PC (DESKTOP-N3FMUUB / 192.168.0.23) — local install media (`SummitBase/Tracer Summit.msi`, `TracerSummitV17.00SP18 (1).exe`) + full old install copy at `/mnt/c/Tracer Summit/Tracer Summit/` (Bin/BASRegistration.exe, Registration Worksheet.rtf, full Database/Backup, Doc/IP Tools/IPtools.chm, CPL/Zodiac) `[CERT]` | Direct reading (`file`, `7z l`, `lessmsi`/`msiinfo`, `strings`, RTF/CHM/PDF parsing) + minimal ssh probe (read-only) + web (Trane/forum) — `decompile-native.sh`/`scan-firmware.sh` only if needed for control-flow questions | English `[CERT]` |
 
 ---
 
@@ -218,6 +219,20 @@ research focuses driven to completion.
 **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research).
 **Startup:** continue. SECRETS DISCIPLINE applies (cite secret STRUCTURE, never VALUES); dynamic/hardware
 phase §12 for any further live probing.
+
+### 16 — computadoras `[CERT]`
+**Read-only** investigation of Trane **Tracer Summit V17 / SP18** activation + operator-password recovery on
+replacement hardware. Live-install context: dead source PC's data is preserved on the laptop at
+`/mnt/c/Tracer Summit/Tracer Summit/` (full install + Database/Backup + Doc/IP Tools/CHM + CPL/Zodiac); the
+new Win11 mini-PC at 192.168.0.23 already has Summit.exe 17.0.0.228 native (base MSI + SP18 applied, Zodiak
+data + Summit.mdb restored), but login fails because `HKLM\SOFTWARE\WOW6432Node\The Trane Company\Tracer
+Summit\17.00\Registration` is empty/demo. Goal: cited answers to the user's six questions (activation
+workflow, identifier recoverability, UI site-selection + password change, safe DB-repair fall-back, copy
+semantics, safe next-action runbook) WITHOUT modifying either machine, without cracking, and without
+exposing secrets. Sources are local (installer EXE/MSI, BASRegistration.exe + Registration Worksheet.rtf,
+IPtools.chm, CPL PDFs, backup .MDBs read schema-only via `mdb-schema`) + web (Trane support, Tracer Summit
+literature, forums for operator workflow corroboration). SECRETS DISCIPLINE applies throughout — cite
+STRUCTURE of registration/operator secrets, never VALUES. Single focus: **activation-recovery**.
 
 ---
 
