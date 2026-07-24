@@ -51,9 +51,19 @@ def nok(n, r=""):
     print(f"  FAIL  {n}" + (f": {r}" if r else ""))
 
 
+# ── What this check cannot see (acknowledged limits) ──────────────────────────
+#   (a) Semantic assertion quality: whether a named test ACTUALLY asserts the
+#       invariant is not verified here — delegated to registry Rules 5–6 and
+#       human review at promotion time.
+#   (b) Label matching is an approximation: the first colon/space-delimited
+#       token of a double-quoted literal.  Strings not using that shape are
+#       invisible.  .mjs test files are accepted for file existence only; their
+#       IDs are not checked.
+#   (c) Deleting the HIGHEST-numbered INV entry is not detected (no gap forms).
+
 # ── Parse helpers ──────────────────────────────────────────────────────────────
 
-FILE_RE     = re.compile(r'tests/[\w./-]+\.test\.sh')
+FILE_RE     = re.compile(r'tests/[\w./-]+\.test\.(sh|mjs)')
 BACKTICK_RE = re.compile(r'`([^`\n]+)`')
 PAREN_RE    = re.compile(r'\(([^)]+)\)', re.DOTALL)
 
@@ -105,7 +115,7 @@ def extract_ids_from_segment(text: str) -> list:
             words = part.split()
             if not words:
                 continue
-            first = words[0].rstrip('.,;:')
+            first = words[0].rstrip('.,;:`').strip('`')
             if is_test_id(first):
                 for sub in first.split('/'):
                     sub = sub.strip()
@@ -227,8 +237,8 @@ def parse_open_map(text: str) -> set:
             cells = [c.strip() for c in stripped.split('|') if c.strip()]
             if cells and re.match(r'^INV-\d+$', cells[0]):
                 ids.add(cells[0])
-        elif stripped.startswith('-'):
-            m = re.match(r'^-\s+(INV-\d+)', stripped)
+        elif stripped[0] in '-*+':
+            m = re.match(r'^[-*+]\s+(INV-\d+)', stripped)
             if m:
                 ids.add(m.group(1))
     return ids
@@ -255,7 +265,20 @@ def check_registry(reg_path: Path, repo_root: Path) -> tuple:
 
     errors: list = []
 
-    # REQ-2: Well-Formedness
+    # REQ-2: Well-Formedness (uniqueness, contiguity, fields, status)
+    seen_ids: set = set()
+    for entry in entries:
+        eid = entry.get('id', '?')
+        if eid in seen_ids:
+            errors.append(f"duplicate invariant id: {eid}")
+        seen_ids.add(eid)
+    inv_nums = sorted(int(re.match(r'^INV-(\d+)$', e['id']).group(1))
+                      for e in entries if re.match(r'^INV-(\d+)$', e.get('id', '')))
+    if inv_nums:
+        inv_set = set(inv_nums)
+        for i in range(1, inv_nums[-1] + 1):
+            if i not in inv_set:
+                errors.append(f"non-contiguous INV sequence: INV-{i} missing")
     for entry in entries:
         eid = entry.get('id', '?')
         for field in ('statement', 'origin', 'status', 'asserted_by'):
@@ -277,9 +300,12 @@ def check_registry(reg_path: Path, repo_root: Path) -> tuple:
         if not file_ids:
             errors.append(f"{eid}: enforced but no test files named in 'Asserted by'")
             continue
-        # F2: every enforced entry must name at least one parseable test ID
-        total_ids = sum(len(v) for v in file_ids.values())
-        if total_ids == 0:
+        # F2: every .sh-backed entry must name ≥1 parseable test ID
+        # (.mjs files: file existence accepted; label IDs not required there)
+        sh_total_ids = sum(len(v) for rel, v in file_ids.items()
+                           if not rel.endswith('.mjs'))
+        all_mjs = all(rel.endswith('.mjs') for rel in file_ids)
+        if not all_mjs and sh_total_ids == 0:
             errors.append(
                 f"{eid}: enforced entry names no parseable test IDs"
                 f" — add at least one real test label to 'Asserted by'")
@@ -288,6 +314,8 @@ def check_registry(reg_path: Path, repo_root: Path) -> tuple:
             if not abs_path.exists():
                 errors.append(f"{eid}: named test file not found: {rel_path}")
                 continue
+            if rel_path.endswith('.mjs'):
+                continue  # .mjs: file existence accepted; label IDs not verified
             file_text = abs_path.read_text(encoding='utf-8')
             labels = extract_declared_labels(file_text)   # F4: label-aware check
             for tid in ids:
@@ -507,6 +535,80 @@ No open invariants remain.
 No open invariants remain.
 """)
     assert_fails_with("RED09-no-test-ids", fix09, "no parseable test IDs")
+
+    # RED10 — registry exists but unparseable (no INV entries → empty file)
+    fix10 = write_fixture(td, "fix10.md",
+        "## Registry\n\n_No entries yet._\n\n## Open invariants map\n\nNone.\n")
+    assert_fails_with("RED10-unparseable", fix10, "unparseable")
+
+    # RED11 — enforced entry with no test files in Asserted-by (prose only)
+    fix11 = write_fixture(td, "fix11.md", """\
+## Registry
+
+### INV-1 — test entry
+
+**Statement:** Enforced invariants must name at least one test file.
+
+- **Origin:** fixture for enforced-no-files test.
+- **Status:** `enforced`
+- **Asserted by:** Verified during code review; no automated test yet.
+
+## Open invariants map
+
+No open invariants remain.
+""")
+    assert_fails_with("RED11-no-test-files", fix11, "no test files named")
+
+    # RED12 — open-map row references an invariant id absent from registry
+    fix12 = write_fixture(td, "fix12.md", """\
+## Registry
+
+### INV-1 — test entry
+
+**Statement:** Open-map rows must reference real registry entries.
+
+- **Origin:** fixture for unknown-id-in-open-map test.
+- **Status:** `enforced`
+- **Asserted by:** `tests/gate.test.sh` (RED1).
+
+## Open invariants map
+
+| INV-99 | Issue #999 |
+""")
+    assert_fails_with("RED12-map-unknown-id", fix12, "non-existent invariant")
+
+    # RED13-dup-id — two ### INV-1 entries → duplicate id error (P2-4)
+    _blk = ("**Statement:** S.\n- **Origin:** f.\n"
+            "- **Status:** `enforced`\n- **Asserted by:** `tests/gate.test.sh` (RED1).\n")
+    fix13 = write_fixture(td, "fix13.md",
+        "## Registry\n\n### INV-1 — a\n\n" + _blk
+        + "\n### INV-1 — b\n\n" + _blk
+        + "\n## Open invariants map\n\nNo open invariants remain.\n")
+    assert_fails_with("RED13-dup-id", fix13, "duplicate invariant id")
+
+    # RED14-gap — INV-1 and INV-3 present, INV-2 deleted → contiguity error (P2-5)
+    fix14 = write_fixture(td, "fix14.md", """\
+## Registry
+
+### INV-1 — first
+
+**Statement:** S1.
+- **Origin:** f.
+- **Status:** `enforced`
+- **Asserted by:** `tests/gate.test.sh` (RED1).
+
+### INV-3 — third
+
+**Statement:** S3.
+- **Origin:** f.
+- **Status:** `enforced`
+- **Asserted by:** `tests/gate.test.sh` (RED1).
+
+## Open invariants map
+
+No open invariants remain.
+""")
+    assert_fails_with("RED14-gap", fix14, "missing")
 
 # Temp dir cleaned up; RED fixtures removed from disk.
 
