@@ -470,9 +470,9 @@ _ETC_BIND_TRY_ALLOWED: frozenset[str] = frozenset({
 # tool's output incomplete.  'analyzer-exit:N' is NOT a cap error — it means
 # the tool ran to completion with a non-zero exit code.
 _RUN_CAP_ERRORS: frozenset[str] = frozenset({
-    "timeout",
     "output-cap",
     "process-cap",
+    "timeout",
 })
 
 _VENV_BIND_MSG = (
@@ -616,9 +616,9 @@ def bind_venv(
 def run_truncation(run_errors: list[str], tool: str) -> tuple[bool, list[str]]:
     """Translate run_bounded cap errors into (truncated_flag, limitation_strings).
 
-    Checks *run_errors* for the three resource-cap tokens recognised by
-    ``adapter_core.run_bounded``: ``"timeout"``, ``"output-cap"``,
-    ``"process-cap"``.  For each fired cap, one limitation string is produced.
+    Checks *run_errors* for the resource-cap tokens in ``_RUN_CAP_ERRORS``:
+    ``"timeout"``, ``"output-cap"``, and ``"process-cap"``.
+    For each fired cap, one limitation string is produced.
 
     ``"analyzer-exit:N"`` (non-zero tool exit without a cap) is explicitly NOT
     a truncation event — it means the tool ran to completion.

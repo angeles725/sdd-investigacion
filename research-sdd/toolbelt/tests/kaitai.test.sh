@@ -365,20 +365,119 @@ elif [ -f "$_T9_OUT/kaitai-evidence.v1.json" ]; then
   if python3 - "$_T9_OUT/kaitai-evidence.v1.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d.get("status") == "failed", f"expected status=failed on timeout, got {d.get('status')!r}"
-assert "timeout" in d.get("errors", []), f"timeout not in errors: {d.get('errors')}"
+assert d.get("status") == "failed", \
+    f"expected status=failed on resource cap, got {d.get('status')!r}"
+# Accept either "timeout" or "memory-cap": both are correctly-surfaced resource
+# limits.  Whichever wins the race, the evidence must carry the right signal.
+cap_errors = {"timeout", "memory-cap"}
+assert any(e in cap_errors for e in d.get("errors", [])), \
+    f"neither timeout nor memory-cap in errors: {d.get('errors')}"
 s = d.get("structure", {})
 assert s.get("truncated") == True, \
-    f"structure.truncated must be True on timeout, got {s.get('truncated')!r}"
+    f"structure.truncated must be True on resource cap, got {s.get('truncated')!r}"
 lims = d.get("limitations", [])
-assert any("timeout" in l for l in lims), f"no timeout limitation: {lims}"
-print(f"OK: status=failed, timeout in errors, truncated=True, limitation present")
+assert any("timeout" in l or "memory-cap" in l for l in lims), \
+    f"no resource-cap limitation: {lims}"
+print(f"OK: status=failed, resource-cap in errors, truncated=True, limitation present")
 PY
-  then ok "T9: --timeout 1 on 64MiB: timeout in errors, truncated:true, limitation"
-  else no "T9: timeout visibility (evidence present but fields wrong)"
+  then ok "T9: --timeout 1 on 64MiB: resource-cap (timeout or memory-cap) in errors, truncated:true, limitation"
+  else no "T9: resource-cap visibility (evidence present but fields wrong)"
   fi
 else
   no "T9: evidence not published after timeout (exit $_T9_EXIT)"
+fi
+
+# ---------------------------------------------------------------------------
+# T9b: memory-cap signal — deterministic path.
+#      generous timeout (60s) ensures MemoryError beats the wall clock;
+#      256 MB RLIMIT_AS fires when repeat-eos tries to build a 64M-element list.
+#      Evidence must carry a first-class "memory-cap" signal, NOT a generic
+#      parse-error.  Absent this fix, only parse-error: MemoryError is present.
+# ---------------------------------------------------------------------------
+_T9B_BIN="$ROOT/big.bin"
+# big.bin may already exist from T9; recreate if absent.
+[ -f "$_T9B_BIN" ] || python3 -c "
+import sys
+with open(sys.argv[1], 'wb') as f:
+    chunk = bytes(65536)
+    for _ in range(1024):  # 64 MiB
+        f.write(chunk)
+" "$_T9B_BIN" 2>/dev/null
+_T9B_OUT="$ROOT/out_t9b"
+_T9B_EXIT=0
+run "$_T9B_BIN" "$ROOT/repeat_demo.ksy" "$_T9B_OUT" \
+    --timeout 60 --max-memory-mb 256 2>/dev/null \
+  || _T9B_EXIT=$?
+if [ "$_T9B_EXIT" -eq 0 ]; then
+  no "T9b: memory-cap path (driver exited 0, MemoryError not reached or not surfaced)"
+elif [ "$_T9B_EXIT" -eq 2 ]; then
+  no "T9b: adapter fatal error (exit 2); check kaitai installation"
+elif [ -f "$_T9B_OUT/kaitai-evidence.v1.json" ]; then
+  if python3 - "$_T9B_OUT/kaitai-evidence.v1.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("status") == "failed", \
+    f"expected status=failed on memory-cap, got {d.get('status')!r}"
+assert "memory-cap" in d.get("errors", []), \
+    f"memory-cap not in errors: {d.get('errors')}"
+s = d.get("structure", {})
+assert s.get("truncated") == True, \
+    f"structure.truncated must be True on memory-cap, got {s.get('truncated')!r}"
+lims = d.get("limitations", [])
+assert any("memory-cap" in l for l in lims), \
+    f"no memory-cap limitation: {lims}"
+print(f"OK: status=failed, memory-cap in errors, truncated=True, limitation present")
+PY
+  then ok "T9b: memory-cap signal surfaced as first-class resource limit"
+  else no "T9b: memory-cap fidelity (evidence present but fields wrong)"
+  fi
+else
+  no "T9b: evidence not published after memory-cap (exit $_T9B_EXIT)"
+fi
+
+# ---------------------------------------------------------------------------
+# T9c: read-time memory-cap (R4 guard).  80 MB RLIMIT_AS: driver overhead is
+#      ~25 MB, so the 64 MB read_bytes() allocation exhausts the limit before
+#      the parse block — guarded by the read-phase MemoryError handler.
+#
+# HOST INVARIANT (self-diagnosis): the kaitai-venv python baseline VAS at the
+# pre-serialize point must stay < ~80 MB. Measured 24 MiB on 2026-07 (WSL2).
+# If a future interpreter/venv upgrade pushes the baseline past ~80 MB, the
+# driver dies at startup (before the memory-cap handler exists) and THIS test
+# fails via the exit-2 "fatal error" branch below — not a product regression,
+# just a stale threshold: raise --max-memory-mb here to (new_baseline + 60).
+# Below ~16 MB baseline the read succeeds and the parse-phase guard fires
+# instead; T9c still passes (it pins memory-cap, not which guard).
+# ---------------------------------------------------------------------------
+_T9C_OUT="$ROOT/out_t9c"
+_T9C_EXIT=0
+run "$_T9B_BIN" "$ROOT/repeat_demo.ksy" "$_T9C_OUT" \
+    --timeout 60 --max-memory-mb 80 2>/dev/null \
+  || _T9C_EXIT=$?
+if [ "$_T9C_EXIT" -eq 0 ]; then
+  no "T9c: adapter exit 0 on read-time memory-cap (read-phase guard missing)"
+elif [ "$_T9C_EXIT" -eq 2 ]; then
+  no "T9c: adapter fatal error (exit 2); check kaitai installation"
+elif [ -f "$_T9C_OUT/kaitai-evidence.v1.json" ]; then
+  if python3 - "$_T9C_OUT/kaitai-evidence.v1.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("status") == "failed", \
+    f"expected status=failed, got {d.get('status')!r}"
+assert "memory-cap" in d.get("errors", []), \
+    f"memory-cap not in errors: {d.get('errors')}"
+s = d.get("structure", {})
+assert s.get("truncated") == True, \
+    f"structure.truncated must be True, got {s.get('truncated')!r}"
+lims = d.get("limitations", [])
+assert any("memory-cap" in l for l in lims), \
+    f"no memory-cap limitation: {lims}"
+PY
+  then ok "T9c: read-time memory-cap surfaced as first-class resource limit"
+  else no "T9c: read-time memory-cap fidelity (evidence present but fields wrong)"
+  fi
+else
+  no "T9c: evidence not published after read-time memory-cap (exit $_T9C_EXIT)"
 fi
 
 # ---------------------------------------------------------------------------

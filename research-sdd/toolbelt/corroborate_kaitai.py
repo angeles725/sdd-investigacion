@@ -396,6 +396,16 @@ def _build_limitations_and_errors(
         if parse_error:
             errors.append(f"parse-error: {parse_error}")
 
+        if driver_result.get("memory_cap"):
+            # RLIMIT_AS fired inside the driver: surface as a first-class
+            # resource-cap signal, parallel to timeout/output-cap/process-cap.
+            errors.append("memory-cap")
+            limitations.append(
+                "kaitai-driver run truncated: memory-cap reached"
+                " — inventory is incomplete"
+            )
+            truncated = True
+
         if driver_result.get("truncated"):
             truncated = True
             if driver_result.get("depth_cap"):

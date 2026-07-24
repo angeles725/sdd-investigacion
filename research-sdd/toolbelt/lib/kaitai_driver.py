@@ -20,6 +20,9 @@ Output schema
     "fields"         : [ FieldRecord, ... ],
     "counts"         : { "total_fields": int, "sampled": int },
     "truncated"      : bool,
+    "depth_cap"      : bool,
+    "value_trunc"    : bool,
+    "memory_cap"     : bool,   # true when RLIMIT_AS exhaustion fires during read or parse
     "parse_error"    : str | null,
     "runtime_version": str
   }
@@ -297,9 +300,40 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
         print("FATAL: kaitaistruct not importable", file=sys.stderr)
         return 1
 
+    # ---- Pre-serialize memory-cap result (before binary read) ----------------
+    # After RLIMIT_AS exhaustion, even tiny Python allocations (list literals,
+    # string formatting, dict construction) can fail with a second MemoryError
+    # because the process may already be at its address-space ceiling.
+    # Serialise the memory-cap result NOW, while the process has ample headroom,
+    # so the except-MemoryError handler can emit it via a single os.write()
+    # syscall — no new memory from the Python allocator is required.
+    _memory_cap_result_bytes: bytes = (json.dumps(
+        {
+            "root_type": class_name,
+            "module": module_name,
+            "fields": [],
+            "counts": {"total_fields": 0, "sampled": 0},
+            "truncated": True,
+            "depth_cap": False,
+            "value_trunc": False,
+            "memory_cap": True,
+            "parse_error": None,
+            "runtime_version": runtime_version,
+        },
+        separators=(",", ":"),
+        default=str,
+    ) + "\n").encode("utf-8")
+
     # ---- Parse binary ------------------------------------------------------
     try:
         raw = input_path.read_bytes()
+    except MemoryError:
+        # RLIMIT_AS exhaustion during read: allocation-free handler, same as parse-phase.
+        try:
+            os.write(1, _memory_cap_result_bytes)
+        except OSError:
+            return 1
+        return 0
     except OSError as exc:
         print(f"FATAL: cannot read input: {exc}", file=sys.stderr)
         return 1
@@ -309,6 +343,16 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
     try:
         obj = RootCls(KaitaiStream(BytesIO(raw)))
         obj._read()
+    except MemoryError:
+        # RLIMIT_AS exhaustion: a resource-cap event, not a malformed-input
+        # parse error.  Write the pre-serialized JSON via os.write (no new
+        # Python allocations) so the result is reliably emitted even when the
+        # process is near or at its address-space limit.
+        try:
+            os.write(1, _memory_cap_result_bytes)
+        except OSError:
+            return 1
+        return 0
     except Exception as exc:
         # Parse error is NOT fatal; we still walk what was set
         parse_error = f"{type(exc).__name__}: {exc}"
@@ -352,6 +396,7 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
         "truncated": truncated,
         "depth_cap": depth_cap_flag[0],
         "value_trunc": value_trunc_flag[0],
+        "memory_cap": False,
         "parse_error": parse_error,
         "runtime_version": runtime_version,
     }
