@@ -14,7 +14,7 @@ _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 from adapter_core import AdapterError, write as _write        # noqa: E402
-from adapter_helpers import assert_safe_bind_root             # noqa: E402
+from adapter_helpers import assert_safe_bind_root, BindScopeError  # noqa: E402
 
 # Capability tokens
 CAP_EXEC         = "exec"
@@ -129,7 +129,17 @@ def execute_or_plan(
 
 
 def _load_stub(path_str: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Load test-seam executor from Python file (must export execute(plan)->dict)."""
+    """Load test-seam executor from Python file (must export execute(plan)->dict).
+
+    Path-scope guard (mirrors _write_offline's assert_safe_bind_root): the
+    realpath of *path_str* must satisfy the same bind-scope constraints as
+    any host path bound into a sandbox.  This prevents arbitrary code loading
+    from credential-bearing or system-root paths via the RSDD_*_EXECUTOR seam.
+    """
+    try:
+        assert_safe_bind_root(Path(os.path.realpath(path_str)))
+    except BindScopeError as exc:
+        raise GateError(f"stub path is outside the allowed scope: {exc}") from exc
     path = Path(path_str)
     if not path.is_file():
         raise GateError(f"RSDD executor stub not found: {path_str!r}")
