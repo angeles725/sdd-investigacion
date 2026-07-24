@@ -686,6 +686,38 @@ with tempfile.TemporaryDirectory() as td:
         assert _ki2 is not None and _ea2[_ki2+1]==_SENT3 and any(_ea2[i]=="--bind" and _ea2[i+1]!=_SENT3 for i in range(len(_ea2)-1)), f"INV-3 seam: -kernel={_ea2[_ki2+1] if _ki2 is not None else 'missing'!r} or --bind not substituted"
         ok("RED-INV3-eval-seam: evaluate() seam — -kernel untouched, --bind/-drive substituted (INV-3)")
     except Exception as e: nok("RED-INV3-eval-seam", str(e))
+# ── RED-INV5-earlyfail: early pre_boot failure → run_dir reaped (INV-5) ─────
+# Before fix: GateError inside pre_boot (sentinel absent) leaves run_dir orphaned
+# because the try/finally reap guard only begins AFTER Popen succeeds.
+# INV-5 requires teardown on EVERY exit path — this regression test enforces it.
+# RED proof: on unfixed code, _after - _before == 1 (one orphaned rsdd-* dir).
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp)
+    try:
+        import detonate_exec as _de_inv5; from gate import GateError as _GE_INV5
+        # _GOOD_ARGV has no sentinel (/rsdd/scratch.img); pre_boot creates
+        # scratch.img in run_dir then raises GateError("sentinel not found").
+        # This is a mid-pre_boot failure that hits run_dir BEFORE Popen.
+        _inv5_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+        _old_inv5 = os.environ.get("PATH", ""); os.environ["PATH"] = p
+        _before_inv5 = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+        try:
+            _raised_inv5 = None
+            try: _de_inv5.DetonateVmExecutor(tmp / "out").evaluate(_inv5_plan)
+            except Exception as _e_inv5: _raised_inv5 = _e_inv5
+        finally: os.environ["PATH"] = _old_inv5
+        _after_inv5 = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+        _leaked_inv5 = _after_inv5 - _before_inv5
+        assert isinstance(_raised_inv5, _GE_INV5), (
+            f"expected GateError (sentinel absent), got {type(_raised_inv5).__name__}: {_raised_inv5!r}"
+        )
+        assert len(_leaked_inv5) == 0, (
+            f"INV-5 FAIL: {len(_leaked_inv5)} orphaned run_dir(s) leaked after pre_boot "
+            f"GateError: {sorted(_leaked_inv5)}"
+        )
+        ok("RED-INV5-earlyfail: pre_boot GateError → run_dir reaped, 0 orphans (INV-5)")
+    except Exception as e: nok("RED-INV5-earlyfail", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

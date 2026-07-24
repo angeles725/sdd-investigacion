@@ -656,6 +656,36 @@ with tempfile.TemporaryDirectory() as td:
         assert _ki3 is not None and _ea3[_ki3+1]==_TS and any(_ea3[i]=="--bind" and _ea3[i+1]!=_TS for i in range(len(_ea3)-1)), f"INV-3 seam: -kernel={_ea3[_ki3+1] if _ki3 is not None else 'missing'!r} or --bind not substituted"
         ok("TRACE-RED-INV3-eval-seam: evaluate() seam — -kernel untouched, --bind/-drive substituted (INV-3)")
     except Exception as e: nok("TRACE-RED-INV3-eval-seam", str(e))
+# ── TRACE-RED-INV5-earlyfail: early pre_boot failure → run_dir reaped (INV-5) ─
+# Mirror of detonate RED-INV5-earlyfail for the shared run_evaluate path.
+# Both executors share the same pre_boot closure in vm_exec_common; the fix in
+# vm_boot_core.run_vm covers both. RED proof: unfixed code leaks 1 rsdd-* dir.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp)
+    try:
+        import trace_exec as _te_inv5; from gate import GateError as _GE_T5
+        # _GOOD_ARGV has no sentinel (/rsdd/scratch.img); pre_boot creates
+        # scratch.img in run_dir then raises GateError("sentinel not found").
+        _t5_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+        _old_t5 = os.environ.get("PATH", ""); os.environ["PATH"] = p
+        _before_t5 = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+        try:
+            _raised_t5 = None
+            try: _te_inv5.TraceVmExecutor(tmp / "out").evaluate(_t5_plan)
+            except Exception as _e_t5: _raised_t5 = _e_t5
+        finally: os.environ["PATH"] = _old_t5
+        _after_t5 = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+        _leaked_t5 = _after_t5 - _before_t5
+        assert isinstance(_raised_t5, _GE_T5), (
+            f"expected GateError (sentinel absent), got {type(_raised_t5).__name__}: {_raised_t5!r}"
+        )
+        assert len(_leaked_t5) == 0, (
+            f"INV-5 FAIL: {len(_leaked_t5)} orphaned run_dir(s) leaked after pre_boot "
+            f"GateError: {sorted(_leaked_t5)}"
+        )
+        ok("TRACE-RED-INV5-earlyfail: pre_boot GateError → run_dir reaped, 0 orphans (INV-5)")
+    except Exception as e: nok("TRACE-RED-INV5-earlyfail", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
