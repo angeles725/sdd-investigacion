@@ -44,8 +44,9 @@ bash research-sdd/toolbelt/detect-tools.sh
 ```
 
 The script emits a 37-row capability report — covering every tool the toolbelt
-depends on, including PATH binaries, JVM tools, Java decompiler JARs (with
-SHA256 verification against the pins in `corroborate_java.py`), Python packages,
+depends on, including PATH binaries, JVM tools, Java decompiler JARs (whose
+SHA256 digests it *reports* — it does NOT compare them against the pins in
+`corroborate_java.py`; that comparison is manual), Python packages,
 and Hyperscan (`libhs` via `rsdd_pkg_config`) — with per-tool resolution results
 and AVAILABLE / UNUSABLE / MISSING classification. It is the only trustworthy
 answer for a given host at a given moment.
@@ -81,8 +82,10 @@ validates the resolved JAR structurally (correct expected class entry, archive
 integrity via `unzip`) without executing it. `corroborate-java.sh:15-24` uses
 exactly this resolver + probe pair.
 
-**`ilspycmd`** resolves via `ILSPYCMD` env var, falling back to
-`~/.dotnet/tools/ilspycmd`. `decompile-net.sh` exports
+**`ilspycmd`** resolves via the `ILSPYCMD` env var, falling back to a literal
+absolute path hardcoded in `decompile-net.sh:11` (currently a `.dotnet/tools`
+path under a specific home directory — not `$HOME`-relative, so the override is
+required on any other machine). `decompile-net.sh` exports
 `DOTNET_ROLL_FORWARD=Major` so ilspycmd (targeting net6.0) rolls forward to
 the installed .NET 8 runtime. `detect-tools.sh`'s smoke test omits that env
 var and therefore reports UNUSABLE — the tool is functional via the script.
@@ -151,8 +154,8 @@ while a related dependency is present:
   127 and that test reports FAIL. There is no suite-level guard for `unzip`.
 
 Do not make the unqualified "all suites skip gracefully" claim until these gaps
-are addressed (see issue **#78** for the `decompile-native` case; the `mvn` and
-`unzip` gaps are tracked as **#79**).
+are addressed (issue **#78** covers the `decompile-native` case; issue **#80**
+covers the `mvn` and `unzip` gaps).
 
 **Result on CI** (`python3 + node + bash` only): all 71 suites pass because
 `file`, `strings`, and `unzip` are present on `ubuntu-latest`, and
@@ -206,10 +209,10 @@ unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
 ```
 
-For Java decompiler JARs: `rsdd_resolve_java_jar()` searches
-`$RESEARCH_SDD_TOOL_HOME/java/` (default:
-`~/.local/share/research-sdd-tools/java/`) and a few host-specific well-known
-paths before checking env var overrides. Place the JARs at the tool_home path
-and no env var export is required. SHA256 pins are recorded in
+For Java decompiler JARs: `rsdd_resolve_java_jar()` checks env var overrides
+FIRST (authoritative — an invalid override fails hard, it never falls through),
+then `$RESEARCH_SDD_TOOL_HOME/java/` (default:
+`~/.local/share/research-sdd-tools/java/`), then a few host-specific well-known
+paths. Place the JARs at the tool_home path and no env var export is required. SHA256 pins are recorded in
 `corroborate_java.py` (`DEFAULT_PINS`); use those to verify the correct
 versions.
