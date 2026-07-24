@@ -104,6 +104,9 @@ fi
 
 # 5 — Detection may inspect mutable decompiler archives, but must never execute
 # them. Integrity, expected entry class, and a stable digest are sufficient.
+if ! command -v unzip >/dev/null 2>&1; then
+  echo "  SKIP  5 JAR probe is structural and engine-specific (unzip absent)"
+else
 mkjar "$ROOT/structural-vf.jar" org/jetbrains/java/decompiler/main/decompiler/ConsoleDecompiler.class
 mkexec "$ROOT/probe-java/bin/java" \
   'printf '\''%s\n'\'' "$*" >> "$RSDD_JAVA_CALLS"; echo '\''openjdk version "21.0.1"'\'' >&2'
@@ -121,6 +124,7 @@ if JAVA_HOME="$ROOT/probe-java" RSDD_JAVA_CALLS="$ROOT/java-calls" \
   ok "5 JAR probe is structural and engine-specific" "(digest recorded; archive never executed)"
 else
   no "5 JAR probe is structural and engine-specific" "java execution or invalid acceptance"
+fi
 fi
 
 # 6 — Java and Ghidra probes are bounded even when an executable hangs.
