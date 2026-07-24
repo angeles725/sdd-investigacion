@@ -26,6 +26,17 @@ from gate import GateError     # noqa: E402
 # The live executor substitutes it with the actual per-run host path before Popen.
 _SCRATCH_SENTINEL: str = "/rsdd/scratch.img"
 
+# Sandbox destination for the runtime tree bind (must match vm_disk_policy constant).
+_RT_TREE_DEST: str = "/rsdd/rt"
+
+
+def _find_rt_src(bwrap_prefix: list[str]) -> str | None:
+    """Return the host SRC of --ro-bind <src> /rsdd/rt, or None if absent."""
+    for i in range(len(bwrap_prefix) - 2):
+        if bwrap_prefix[i] == "--ro-bind" and bwrap_prefix[i + 2] == _RT_TREE_DEST:
+            return bwrap_prefix[i + 1]
+    return None
+
 # Pre-allocated scratch disk size (zeroed sparse blob; guest agent formats as needed).
 _SCRATCH_SIZE: int = 4 * 1024 * 1024  # 4 MiB
 
@@ -126,41 +137,58 @@ def _sha256_o_nofollow(path: str) -> str:
 def _preflight(plan: dict[str, Any]) -> None:
     """Defense-in-depth preflight for VM executor plans.  GateError → exit 2.
 
-    Validates:
-    (a) planned_argv is a list[str].
-    (b) Per-drive containment policy via vm_disk_policy (run_dir=None; scope
-        check deferred to evaluate() once run_dir is known).
-    (c) qemu binary exists on PATH.
-    (d) /tmp/rsdd is a real non-symlink directory.
+    Validates: (a) planned_argv is list[str]; (b) per-drive containment policy;
+    (c) x86_64 gate + host SRC check (R6) when runtime-tree bind present, else
+        qemu binary on PATH; (d) /tmp/rsdd is a real directory.
     """
     argv = plan.get("planned_argv")
     if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
         raise GateError("plan.planned_argv must be a list of strings")
     # Per-drive rules without scope check (run_dir not yet created).
     _vdp.check_disk_policy(argv, run_dir=None)
-    # qemu binary must be on PATH.
-    qbin = _vbc.resolve_qbin(plan, argv)
-    if not qbin or shutil.which(qbin) is None:
-        raise GateError(
-            f"qemu binary {qbin!r} not found on PATH; "
-            "install qemu-system and retry"
-        )
+    sep_idx = argv.index("--") if "--" in argv else len(argv)
+    rt_src = _find_rt_src(argv[:sep_idx])
+    if rt_src is not None:
+        # Runtime-tree mode: x86_64 gate + host SRC check (R6).
+        arch = plan.get("arch", "")
+        if arch != "x86_64":
+            raise GateError(
+                f"live boot requires x86_64; plan arch={arch!r}. "
+                "Non-x86_64 plans are PLAN-ONLY (live boot for this arch "
+                "is not supported). Use --qemu-root only with x86_64 samples."
+            )
+        if not os.path.isdir(rt_src):
+            raise GateError(
+                f"runtime tree host SRC {rt_src!r} does not exist (R6); "
+                "provision the runtime tree at that path and retry"
+            )
+    else:
+        # Legacy mode (no --qemu-root): qemu binary must be on PATH.
+        qbin = _vbc.resolve_qbin(plan, argv)
+        if not qbin or shutil.which(qbin) is None:
+            raise GateError(
+                f"qemu binary {qbin!r} not found on PATH; "
+                "install qemu-system and retry"
+            )
     _dc.verify_rsdd_root()
 
 
 def _thin_preflight(plan: dict[str, Any]) -> None:
-    """Minimal preflight re-check passed to run_vm.
-
-    evaluate() has already done full validation.  run_vm only needs the binary
-    on PATH and /tmp/rsdd accessible (both are stable across the microsecond
-    between evaluate() checks and run_vm's Popen call).
-    """
+    """Minimal re-check: runtime tree or qemu binary still accessible."""
     argv = plan.get("planned_argv", [])
-    qbin = _vbc.resolve_qbin(plan, argv)
-    if not qbin or shutil.which(qbin) is None:
-        raise GateError(
-            f"qemu binary {qbin!r} not found on PATH (disappeared since preflight)"
-        )
+    sep_idx = argv.index("--") if "--" in argv else len(argv)
+    rt_src = _find_rt_src(argv[:sep_idx])
+    if rt_src is not None:
+        if not os.path.isdir(rt_src):
+            raise GateError(
+                f"runtime tree {rt_src!r} disappeared since preflight (R6)"
+            )
+    else:
+        qbin = _vbc.resolve_qbin(plan, argv)
+        if not qbin or shutil.which(qbin) is None:
+            raise GateError(
+                f"qemu binary {qbin!r} not found on PATH (disappeared since preflight)"
+            )
     _dc.verify_rsdd_root()
 
 

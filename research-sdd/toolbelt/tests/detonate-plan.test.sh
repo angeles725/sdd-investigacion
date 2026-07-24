@@ -417,6 +417,72 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_DIS9: plan has 'arch' and 'qemu_binary' (qemu-system-*) fields")
     except Exception as e: nok("T_DIS9: arch-and-qemu-binary", str(e))
 
+# ── T-RTMOUNT — runtime-tree bind tests (gaps 1/3/4) ────────────────────────────
+# RED: --qemu-root unknown → rc=2. GREEN: rt bind + absolute qbin + in-tree kernel.
+# ── T-RTMOUNT: plan has --ro-bind <src> /rsdd/rt when --qemu-root given ────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3, f"got {r.returncode}; stderr={r.stderr[:200]}"
+        argv = json.loads((out/"detonate-plan.v1.json").read_text())["planned_argv"]
+        rt_dest = "/rsdd/rt"
+        rt_idx = next((i for i in range(len(argv)-2)
+                       if argv[i]=="--ro-bind" and argv[i+2]==rt_dest), None)
+        assert rt_idx is not None, f"no --ro-bind ... {rt_dest!r} in argv"
+        assert argv[rt_idx+1] == "/opt/rsdd/rt", f"SRC != /opt/rsdd/rt; got {argv[rt_idx+1]!r}"
+        ok("T-RTMOUNT: --qemu-root → planned_argv has --ro-bind /opt/rsdd/rt /rsdd/rt")
+    except Exception as e: nok("T-RTMOUNT", str(e))
+# ── T-RTMOUNT-RO: runtime tree bind is --ro-bind (NOT --bind) ───────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"detonate-plan.v1.json").read_text())["planned_argv"]
+        rw = [(argv[i+1],argv[i+2]) for i in range(len(argv)-2) if argv[i]=="--bind"]
+        assert all(dst != "/rsdd/rt" for _,dst in rw), \
+            f"runtime tree bind must be --ro-bind, not --bind: {rw}"
+        ok("T-RTMOUNT-RO: runtime tree bind is --ro-bind (read-only)")
+    except Exception as e: nok("T-RTMOUNT-RO", str(e))
+# ── T-RTMOUNT-AFTER-TMPFS: rt bind is after --tmpfs (INV-2 ordering) ────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"detonate-plan.v1.json").read_text())["planned_argv"]
+        tmpfs_i = argv.index("--tmpfs")
+        rt_i = next(i for i in range(len(argv)-2) if argv[i]=="--ro-bind" and argv[i+2]=="/rsdd/rt")
+        assert rt_i > tmpfs_i, f"rt bind at {rt_i} must be after --tmpfs at {tmpfs_i}"
+        ok("T-RTMOUNT-AFTER-TMPFS: rt bind is after --tmpfs (INV-2 / ordering)")
+    except Exception as e: nok("T-RTMOUNT-AFTER-TMPFS", str(e))
+# ── T-QBIN-ABSOLUTE: first token after -- is absolute in-tree qbin ───────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"detonate-plan.v1.json").read_text())["planned_argv"]
+        sep_i = argv.index("--"); qbin_tok = argv[sep_i+1]
+        assert qbin_tok.startswith("/rsdd/rt/"), f"qbin not absolute in-tree: {qbin_tok!r}"
+        assert "qemu-system-" in qbin_tok, f"qbin missing 'qemu-system-': {qbin_tok!r}"
+        ok("T-QBIN-ABSOLUTE: qbin token after '--' is absolute in-tree path under /rsdd/rt")
+    except Exception as e: nok("T-QBIN-ABSOLUTE", str(e))
+# ── T-KERNEL-INTREE: default -kernel is /rsdd/rt/vmlinuz when --qemu-root ────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"detonate-plan.v1.json").read_text())["planned_argv"]
+        k_idx = argv.index("-kernel") if "-kernel" in argv else None
+        assert k_idx is not None, "-kernel missing from argv"
+        assert argv[k_idx+1].startswith("/rsdd/rt/"), \
+            f"default kernel must be in-tree when --qemu-root: {argv[k_idx+1]!r}"
+        ok("T-KERNEL-INTREE: default -kernel is under /rsdd/rt when --qemu-root given")
+    except Exception as e: nok("T-KERNEL-INTREE", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

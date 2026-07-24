@@ -248,6 +248,75 @@ with tempfile.TemporaryDirectory() as td:
         ok("T-scratch-bind: planned_argv has scratch --bind triple strictly after --tmpfs (INV-2/F5)")
     except Exception as e: nok("T-scratch-bind: scratch-bind-after-tmpfs", str(e))
 
+# ── TP-RTMOUNT — runtime-tree bind tests (mirrors detonate; gaps 1/3/4) ──────────
+# RED: --qemu-root unknown → rc=2. GREEN: rt bind + absolute qbin + in-tree kernel.
+# ── TP-RTMOUNT: plan has --ro-bind <src> /rsdd/rt when --qemu-root given ─────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3, f"got {r.returncode}; stderr={r.stderr[:200]}"
+        argv = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        rt_idx = next((i for i in range(len(argv)-2)
+                       if argv[i]=="--ro-bind" and argv[i+2]=="/rsdd/rt"), None)
+        assert rt_idx is not None, f"no --ro-bind ... /rsdd/rt in argv"
+        assert argv[rt_idx+1] == "/opt/rsdd/rt"
+        ok("TP-RTMOUNT: --qemu-root → trace planned_argv has --ro-bind /opt/rsdd/rt /rsdd/rt")
+    except Exception as e: nok("TP-RTMOUNT", str(e))
+# ── TP-RTMOUNT-RO: rt bind is --ro-bind (not --bind) ─────────────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        rw = [(argv[i+1],argv[i+2]) for i in range(len(argv)-2) if argv[i]=="--bind"]
+        assert all(dst != "/rsdd/rt" for _,dst in rw), \
+            f"runtime tree bind must be --ro-bind: {rw}"
+        ok("TP-RTMOUNT-RO: trace runtime tree bind is --ro-bind (read-only)")
+    except Exception as e: nok("TP-RTMOUNT-RO", str(e))
+# ── TP-RTMOUNT-AFTER-TMPFS: rt bind is after --tmpfs (INV-2) ─────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        tmpfs_i = argv.index("--tmpfs")
+        rt_i = next(i for i in range(len(argv)-2) if argv[i]=="--ro-bind" and argv[i+2]=="/rsdd/rt")
+        assert rt_i > tmpfs_i
+        ok("TP-RTMOUNT-AFTER-TMPFS: trace rt bind is after --tmpfs (INV-2 / ordering)")
+    except Exception as e: nok("TP-RTMOUNT-AFTER-TMPFS", str(e))
+# ── TP-QBIN-ABSOLUTE: first token after -- is absolute in-tree qbin ──────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        qbin_tok = argv[argv.index("--")+1]
+        assert qbin_tok.startswith("/rsdd/rt/") and "qemu-system-" in qbin_tok, \
+            f"qbin not absolute in-tree: {qbin_tok!r}"
+        ok("TP-QBIN-ABSOLUTE: trace qbin token after '--' is absolute in-tree path")
+    except Exception as e: nok("TP-QBIN-ABSOLUTE", str(e))
+# ── TP-KERNEL-INTREE: default -kernel is /rsdd/rt/vmlinuz when --qemu-root ────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3
+        argv = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        k_idx = argv.index("-kernel")
+        assert argv[k_idx+1].startswith("/rsdd/rt/"), \
+            f"default kernel must be in-tree: {argv[k_idx+1]!r}"
+        ok("TP-KERNEL-INTREE: trace default -kernel is under /rsdd/rt when --qemu-root")
+    except Exception as e: nok("TP-KERNEL-INTREE", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

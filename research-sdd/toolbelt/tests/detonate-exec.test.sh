@@ -721,6 +721,65 @@ with tempfile.TemporaryDirectory() as td:
         ok("RED-INV5-earlyfail: pre_boot GateError → run_dir reaped, 0 orphans (INV-5)")
     except Exception as e: nok("RED-INV5-earlyfail", str(e))
 
+# ── NEW-X86-GATE (RED): non-x86_64 arch + rt bind → GateError (x86_64 gate) ──
+# RED: old _preflight has no arch gate → GateError "not on PATH" (no x86_64 mention).
+# GREEN: arch gate fires → GateError mentions "x86_64" or "arch".
+try:
+    import vm_exec_common as _vec_gate
+    from gate import GateError as _GE_gate
+    _arm_argv = [
+        "bwrap", "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+        "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+        "--bind", "/rsdd/scratch.img", "/rsdd/scratch.img",
+        "--ro-bind", "/opt/rsdd/rt", "/rsdd/rt",
+        "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+        "--ro-bind", "/store/sample.bin", "/input/sample", "--",
+        "/rsdd/rt/bin/qemu-system-arm",
+        "-kernel", "/rsdd/rt/vmlinuz",
+        "-m", "256", "-smp", "1", "-accel", "tcg", "-nic", "none", "-nodefaults",
+        "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+        "-nographic", "-no-reboot",
+        "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+        "-drive", "file=/rsdd/scratch.img,snapshot=off,format=raw,if=virtio",
+        "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
+    ]
+    _arm_plan = {"planned_argv": _arm_argv, "arch": "arm", "qemu_binary": "qemu-system-arm"}
+    try:
+        _vec_gate._preflight(_arm_plan)
+        nok("NEW-X86-GATE: expected GateError for non-x86_64 arch")
+    except _GE_gate as _eg:
+        _msg = str(_eg)
+        if "x86_64" in _msg or "arch" in _msg.lower():
+            ok(f"NEW-X86-GATE: non-x86_64 plan + rt bind → GateError (x86_64 gate fires)")
+        else:
+            nok("NEW-X86-GATE", f"GateError but no x86_64/arch mention: {_msg[:80]}")
+except Exception as e: nok("NEW-X86-GATE", str(e))
+# ── NEW-R6-MISSING-SRC (RED): rt SRC absent on host → GateError (R6 check) ───
+# RED: old _preflight uses shutil.which(qbin) → no R6 indicators in error → FAIL.
+# GREEN: R6 check fires; error mentions "runtime tree"/"SRC"/"R6".
+try:
+    import vm_exec_common as _vec_r6
+    from gate import GateError as _GE_r6
+    import os as _os_r6
+    _r6_argv = list(_arm_argv)  # reuse arm structure; fix qbin to x86_64
+    _r6_sep = _r6_argv.index("--")
+    _r6_argv[_r6_sep + 1] = "/rsdd/rt/bin/qemu-system-x86_64"
+    _r6_plan = {"planned_argv": _r6_argv, "arch": "x86_64",
+                "qemu_binary": "qemu-system-x86_64"}
+    # Confirm /opt/rsdd/rt does not exist in the test environment.
+    assert not _os_r6.path.exists("/opt/rsdd/rt"), \
+        "/opt/rsdd/rt must not exist in test env for R6 test to be meaningful"
+    try:
+        _vec_r6._preflight(_r6_plan)
+        nok("NEW-R6-MISSING-SRC: expected GateError for missing rt SRC")
+    except _GE_r6 as _er6:
+        _m6 = str(_er6)
+        if "runtime tree" in _m6 or "R6" in _m6 or "does not exist" in _m6 or "SRC" in _m6:
+            ok("NEW-R6-MISSING-SRC: missing rt SRC → GateError (R6 check fires)")
+        else:
+            nok("NEW-R6-MISSING-SRC", f"GateError but no R6 indicators: {_m6[:80]}")
+except Exception as e: nok("NEW-R6-MISSING-SRC", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

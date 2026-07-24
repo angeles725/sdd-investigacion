@@ -37,6 +37,9 @@ _DEFAULT_CPU = 30; _DEFAULT_MEM = 256 << 20; _DEFAULT_WALL = 60; _DEFAULT_OUT = 
 _SCRATCH_SENTINEL: str = "/rsdd/scratch.img"
 _DEFAULT_KERNEL: str = "/rsdd/vmlinuz"
 _DEFAULT_ROOTFS: str = "/rsdd/rootfs.img"
+# Sandbox destination for the optional runtime tree bind (--ro-bind <src> /rsdd/rt).
+# Must match vm_disk_policy._RT_TREE_DEST.
+_RT_TREE_DEST: str = "/rsdd/rt"
 
 # ELF e_machine → qemu-system arch suffix.
 # NOTE: byte-identical to detonate_plan._EM_TO_QEMU and qemu_plan._EM_TO_QEMU —
@@ -82,7 +85,8 @@ def _sniff_arch(path: Path) -> str:
 
 def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
                input_sha: str, input_size: int,
-               arch: str, kernel_path: str, rootfs_path: str) -> dict[str, Any]:
+               arch: str, kernel_path: str, rootfs_path: str,
+               qemu_root: str | None = None) -> dict[str, Any]:
     """Build trace-plan.v1 record (pure planning, no subprocess).
 
     Disk slots (per-drive containment policy — see trace-plan.v1.md):
@@ -101,6 +105,13 @@ def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
     """
     mem_mb = max(1, caps["mem_bytes"] >> 20)
     qbin = f"qemu-system-{arch}"
+    # When --qemu-root is provided, emit the runtime-tree bind and use an absolute
+    # in-tree qbin path so R-REACH covers the binary.  Without --qemu-root the plan
+    # is PLAN-ONLY with a relative qbin (old behaviour; live boot not supported).
+    _qbin_argv: str = f"{_RT_TREE_DEST}/bin/{qbin}" if qemu_root is not None else qbin
+    _rt_binds: list[str] = (
+        ["--ro-bind", qemu_root, _RT_TREE_DEST] if qemu_root is not None else []
+    )
     argv: list[str] = [
         "bwrap", "--die-with-parent", "--new-session",
         "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup",
@@ -117,9 +128,10 @@ def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
         # artifacts into the frozen evidence chain. File-scoped bind shares only the
         # scratch inode. See design.md §3.2 and Experiment E.
         "--bind", _SCRATCH_SENTINEL, _SCRATCH_SENTINEL,
+        *_rt_binds,  # runtime-tree bind (opt-in; empty when no --qemu-root)
         "--ro-bind", rootfs_path, "/input/rootfs",
         "--ro-bind", str(target.resolve()), "/input/sample", "--",
-        qbin,
+        _qbin_argv,
         "-kernel", kernel_path,
         "-m", str(mem_mb),
         "-smp", "1",
@@ -193,9 +205,14 @@ def plan_trace(args: Any) -> int:
     for k, v in caps.items():
         if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             print(f"trace-plan: cap {k!r} must be positive int", file=sys.stderr); return 2
+    qemu_root = getattr(args, "qemu_root", None)
+    kernel_path = args.kernel
+    if qemu_root is not None and kernel_path == _DEFAULT_KERNEL:
+        kernel_path = f"{_RT_TREE_DEST}/vmlinuz"
     try:
         plan = build_plan(target, args.tracer, caps, input_sha=input_sha, input_size=input_size,
-                          arch=arch, kernel_path=args.kernel, rootfs_path=args.rootfs)
+                          arch=arch, kernel_path=kernel_path, rootfs_path=args.rootfs,
+                          qemu_root=qemu_root)
     except (TracePlanError, KeyError) as exc:
         print(f"trace-plan: plan error: {exc}", file=sys.stderr); return 2
     # Dry-run determinism record: declared=false, basis=dry-run-plan, receipt_identity=null
@@ -235,6 +252,10 @@ def _parser(argv: list[str] | None = None) -> Any:
     p.add_argument("--rootfs", default=_DEFAULT_ROOTFS, metavar="PATH", dest="rootfs",
                    help="VM rootfs image path for bwrap ro-bind (recorded in plan, not executed; "
                         f"default: {_DEFAULT_ROOTFS})")
+    p.add_argument("--qemu-root", default=None, metavar="DIR", dest="qemu_root",
+                   help="host path to the QEMU runtime tree; emits --ro-bind <DIR> "
+                        f"{_RT_TREE_DEST} and uses absolute in-tree qbin + kernel "
+                        "(live boot: x86_64 only)")
     p.add_argument("--cpu-seconds",      type=int, default=_DEFAULT_CPU)
     p.add_argument("--max-mem-bytes",    type=int, default=_DEFAULT_MEM)
     p.add_argument("--max-output-bytes", type=int, default=_DEFAULT_OUT)
