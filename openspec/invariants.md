@@ -137,14 +137,30 @@ directories means one of them leaks and its artifacts are unaccounted for.
 
 ### INV-5 — teardown is guaranteed on every exit path
 
-**Statement:** the process tree and the per-run directory MUST be reaped on
-every exit path, including timeout, exception, and early failure. A sandbox that
-leaks on the error path is not a sandbox.
+**Statement:** two obligations, because the per-run directory is deliberately
+retained as evidence on a completed run:
+1. **Process tree** — MUST be reaped on EVERY exit path (timeout, exception,
+   early failure). A sandbox that leaks a live process on any path is not a
+   sandbox.
+2. **Per-run directory** — MUST be reaped when execution fails BEFORE boot
+   evidence exists (any exception before `Popen` succeeds), and MUST be RETAINED
+   after a boot begins (success or timeout), because the operator reads
+   `scratch.img` and the snapshots post-teardown. Reaping run_dir on the
+   success/timeout path would destroy the malware-analysis evidence — see the
+   run-contract risk table in `detonate-run.v1.md` / `trace-run.v1.md`. Do NOT
+   "fix" run_vm to rmtree run_dir on timeout to satisfy an over-broad reading.
 
-- **Origin:** V1a/V1b containment hardening; re-confirmed by the #59 PR review.
-- **Status:** `enforced` — shared reaper in `lib/proc_common.py`.
-- **Asserted by:** `tests/qemu-exec.test.sh`, `tests/detonate-exec.test.sh` (RED-INV5-earlyfail),
-  `tests/trace-exec.test.sh` (TRACE-RED-INV5-earlyfail).
+- **Origin:** V1a/V1b containment hardening; re-confirmed by the #59 PR review;
+  the process-tree/run_dir split was clarified by the #70 PR-level gate (F1).
+- **Status:** `enforced` — process-tree reaper in `lib/proc_common.py`; run_dir
+  early-failure reap in `lib/vm_boot_core.py` (`run_vm`'s pre-Popen guard).
+- **Asserted by:** process tree — `tests/qemu-exec.test.sh` (RED6/RED7 killpg
+  tree-reap); run_dir early-failure reap — `tests/detonate-exec.test.sh`
+  (RED-INV5-earlyfail), `tests/trace-exec.test.sh` (TRACE-RED-INV5-earlyfail);
+  run_dir success retention — `tests/detonate-exec.test.sh` (RED11).
+- **Known gap (tracked):** an exception raised AFTER `Popen` succeeds but BEFORE
+  the evidence try/finally begins can still leak a live process — see the
+  follow-up issue for the post-Popen/pre-finally window.
 
 ### INV-6 — a required containment flag must appear in the argv slice that enforces it
 
