@@ -417,4 +417,19 @@ finally:
 PY
 then ok "refuse_privileged_execution: SUID branch (getuid!=geteuid, geteuid!=0) → AdapterError"; else no "refuse_privileged_execution SUID"; fi
 
+# 25. refuse_privileged_execution: SGID branch (getgid!=getegid, geteuid==getuid!=0) → AdapterError
+if python3 - "$SUT" <<'PY'
+import importlib.util,sys
+s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+real_eu=ac.os.geteuid; real_u=ac.os.getuid; real_eg=ac.os.getegid; real_g=ac.os.getgid
+ac.os.geteuid=lambda:1000; ac.os.getuid=lambda:1000; ac.os.getegid=lambda:2000; ac.os.getgid=lambda:1000
+try:
+    ac.refuse_privileged_execution(); raise AssertionError("must raise for SGID set-id")
+except ac.AdapterError as e:
+    assert "refusing root or set-id" in str(e),f"wrong message: {e!r}"
+finally:
+    ac.os.geteuid=real_eu; ac.os.getuid=real_u; ac.os.getegid=real_eg; ac.os.getgid=real_g
+PY
+then ok "refuse_privileged_execution: SGID branch (getgid!=getegid, geteuid==getuid!=0) → AdapterError"; else no "refuse_privileged_execution SGID"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

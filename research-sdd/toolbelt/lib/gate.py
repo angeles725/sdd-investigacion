@@ -134,7 +134,7 @@ def _load_stub(path_str: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     Path-scope guard (mirrors _write_offline's assert_safe_bind_root): the
     realpath of *path_str* must satisfy the same bind-scope constraints as
     any host path bound into a sandbox.  This prevents arbitrary code loading
-    from credential-bearing or system-root paths via the RSDD_*_EXECUTOR seam.
+    from blocked system roots and shallow-home paths (see Residual note below).
     """
     resolved = os.path.realpath(path_str)
     try:
