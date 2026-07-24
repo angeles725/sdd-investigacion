@@ -204,6 +204,28 @@ invisible to per-component tests.
   absent from the R-INNER-ALLOWLIST backstop, so the tests prove the correct rule
   fires rather than a weaker fallback.
 
+### INV-7 — boot-input mounts are reachability-checked in argv order and cannot be silently masked
+
+**Statement:** when a runtime-tree bind (`--ro-bind <src> /rsdd/rt`) is present
+in the emitted argv, every boot-input path that resolves inside `/rsdd/rt` —
+specifically the qemu binary and the kernel — MUST be reachability-checked in
+argv order against the declared mount set.  A path that lands outside the bound
+tree, or whose covering bind appears after it in bwrap argv order, is a silent
+failure: the plan reads structurally valid and the live boot fails with a
+missing-binary or missing-kernel error.  The check MUST use the same
+order-aware walk mandated by INV-2 — set-containment alone is not sufficient.
+
+- **Origin:** INV-2 named kernel and BIOS reachability as a follow-up open item
+  (design.md §5.2 gaps 3/4); promoted to an enforced invariant by issue #65
+  Slice A (PR #88), which extended R-REACH in `lib/vm_disk_policy` to cover
+  qemu-binary and kernel reachability under the runtime-tree bind.
+- **Status:** `enforced` — fixed by issue #65 Slice A (PR #88).  R-REACH
+  extended (`_check_binary_reachable`) to machine-check the qemu binary and
+  kernel paths when the rt-tree bind is present; `_preflight` fails closed
+  (R6) when the host `<src>` does not exist.
+- **Asserted by:** `tests/vm-disk-policy.test.sh` (`VDP-REACH-KERNEL-UNBOUND`,
+  `VDP-REACH-QBIN-UNBOUND`).
+
 ## Open invariants map to open issues
 
 No open invariants remain.  All registry entries are `enforced`.

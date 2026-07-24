@@ -92,7 +92,7 @@ Resource cap defaults: `cpu_seconds=30`, `mem_bytes=256 MiB`, `wall_seconds=60`,
 | `network` | `"none"` | Always "none" — isolation mandatory |
 | `network_policy` | `{mode, justification}` | Explicit isolation record |
 | `disk` | `{mode, pre_snapshot_digest, post_snapshot_capture}` | `mode="per-drive-policy"` (D1 rebuild; was `"ephemeral-snapshot"`) |
-| `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable}` | Mount containment |
+| `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable[, runtime_tree_ro]}` | Mount containment. When `--qemu-root` is supplied, the runtime-tree read-only bind is present in `planned_argv`; surfacing it here as `runtime_tree_ro: "/rsdd/rt"` is a declared forward field — NOT yet emitted in this dict (follow-up). |
 | `limits` | `{cpu_seconds, mem_bytes, wall_seconds, output_bytes}` | Resource caps |
 | `snapshot_policy` | `{pre_run, post_run}` | State-hash capture intent |
 | `os_image` | `str \| null` | OS image tag (recorded, not executed) |
@@ -108,35 +108,38 @@ D1. A live executor MUST parse each `-drive` spec individually; it MUST NOT appl
 live executor (D2) substitutes the actual `<run_dir>/scratch.img` path in `exec_argv`
 before calling Popen. The host creates this file fresh in the per-run directory.
 
-> **OPERATOR WARNING — `planned_argv` is not live-runnable as-is.**
+> **OPERATOR WARNING — `planned_argv` requires operator-provisioned runtime tree for live boot.**
 > The emitted `planned_argv` is validated and CI-tested **OFFLINE only** (fake
 > `qemu-system-*` shim; bwrap is never invoked in CI).
 >
-> The scratch-mount reachability gap (issue #60 / INV-2) is now **reconciled and
+> The scratch-mount reachability gap (issue #60 / INV-2) is **reconciled and
 > machine-checked**: `planned_argv` includes `--bind <scratch> <scratch>` placed
-> after `--tmpfs /tmp/rsdd`, and `lib/vm_disk_policy` enforces this ordering at every
-> preflight. The scratch drive is reachable inside the sandbox.
+> after `--tmpfs /tmp/rsdd`, and `lib/vm_disk_policy` enforces this ordering at
+> every preflight.  The scratch drive is reachable inside the sandbox.
 >
-> However, **three further reachability gaps remain** that make the emitted argv
-> still not live-runnable:
+> Gaps 1/3/4 (qemu binary, kernel, BIOS firmware) are addressed by issue #65
+> (Slices A+B): pass `--qemu-root <DIR>` to mount a curated read-only runtime
+> tree at `/rsdd/rt` inside the sandbox.  The emitted argv then uses
+> `/rsdd/rt/bin/qemu-system-x86_64` and `/rsdd/rt/vmlinuz`; `lib/vm_disk_policy`
+> R-REACH machine-checks the qemu-binary and kernel reachability in argv order
+> (INV-7); `_preflight` fails closed if the host `<DIR>` does not exist (R6).
 >
-> - **Gap 1 — qemu binary not on PATH inside the sandbox:**
->   `bwrap: execvp qemu-system-x86_64: No such file or directory`
->   (no `/usr`, `/bin`, or `/lib` is bound — those are part of the operator's
->   host-runtime mount set, not yet designed).
-> - **Gap 3 — kernel not reachable:**
->   `qemu: could not open kernel file '/rsdd/vmlinuz': No such file or directory`
->   (`/rsdd` is not bound).
-> - **Gap 4 — BIOS roms not reachable:**
->   `qemu: could not load PC BIOS 'bios-256k.bin'`
->   (`/usr/share/qemu` is not bound).
+> **Operator provisioning obligation (not enforced by R-REACH):** R-REACH proves
+> argv internal consistency — that each boot-input path resolves inside the
+> declared mount set.  It does NOT verify that the operator's host `<DIR>` is
+> actually populated.  The operator MUST provision `<DIR>` with:
 >
-> (Gaps are numbered per the reachability table in design.md §2; gap 2 — the
-> scratch-drive masking defect — was closed by this unit, hence the non-contiguous
-> numbering 1/3/4.)
+> - `<DIR>/bin/qemu-system-x86_64` (and its `.so` closure)
+> - `<DIR>/vmlinuz` (bootable kernel)
+> - BIOS firmware at `<DIR>/share/qemu/` (qemu `datadir`)
 >
-> A follow-up unit will design the operator host-runtime mount set for gaps 1/3/4.
-> That is the unit where this WARNING can eventually be retired.
+> Without operator provisioning, the argv is structurally reachability-consistent
+> but the live boot will still fail with a missing-binary or missing-kernel error.
+>
+> Live boot is **x86_64-only** and remains a manually-gated operator action;
+> `--qemu-root` must be passed explicitly and is refused for non-x86_64 arches.
+> Addressed by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
+> design.md §2).
 
 `sample.type_hint` is metadata-only (magic-byte sniff); degrades to `"unknown"` on
 any error without traceback. Does not gate execution.

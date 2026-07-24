@@ -69,36 +69,40 @@ before the pre-hash, and `output_files()` scans it after teardown).  A consumer
 that independently hashes `serial_log`'s parent dir `scratch.img` MUST match
 `vm_post_snapshot.sha256`.  Any mismatch indicates tampering or a receipt bug.
 
-> **OPERATOR WARNING — `exec_argv` (and the upstream `planned_argv`) is not
-> live-runnable as-is.**
+> **OPERATOR WARNING — `exec_argv` (and the upstream `planned_argv`) requires
+> operator-provisioned runtime tree for live boot.**
 > The evidence chain above is validated and CI-tested **OFFLINE only** (fake
 > `qemu-system-*` shim; bwrap is never invoked in CI).
 >
-> The scratch-mount reachability gap (issue #60 / INV-2) is now **reconciled and
+> The scratch-mount reachability gap (issue #60 / INV-2) is **reconciled and
 > machine-checked**: `exec_argv` includes `--bind <scratch> <scratch>` placed
-> after `--tmpfs /tmp/rsdd` (ordering enforced by `lib/vm_disk_policy` at preflight).
-> The scratch drive is reachable inside the sandbox, and the pre/post evidence chain
-> is structurally valid.
+> after `--tmpfs /tmp/rsdd` (ordering enforced by `lib/vm_disk_policy` at
+> preflight).  The scratch drive is reachable inside the sandbox, and the
+> pre/post evidence chain is structurally valid.
 >
-> However, **three further reachability gaps remain** that make the emitted argv
-> still not live-runnable:
+> Gaps 1/3/4 (qemu binary, kernel, BIOS firmware) are addressed by issue #65
+> (Slices A+B): pass `--qemu-root <DIR>` to mount a curated read-only runtime
+> tree at `/rsdd/rt` inside the sandbox.  The emitted argv then uses
+> `/rsdd/rt/bin/qemu-system-x86_64` and `/rsdd/rt/vmlinuz`; `lib/vm_disk_policy`
+> R-REACH machine-checks the qemu-binary and kernel reachability in argv order
+> (INV-7); `_preflight` fails closed if the host `<DIR>` does not exist (R6).
 >
-> - **Gap 1 — qemu binary not on PATH inside the sandbox:**
->   `bwrap: execvp qemu-system-x86_64: No such file or directory`
->   (no `/usr`, `/bin`, or `/lib` is bound).
-> - **Gap 3 — kernel not reachable:**
->   `qemu: could not open kernel file '/rsdd/vmlinuz': No such file or directory`
->   (`/rsdd` is not bound).
-> - **Gap 4 — BIOS roms not reachable:**
->   `qemu: could not load PC BIOS 'bios-256k.bin'`
->   (`/usr/share/qemu` is not bound).
+> **Operator provisioning obligation (not enforced by R-REACH):** R-REACH proves
+> argv internal consistency — that each boot-input path resolves inside the
+> declared mount set.  It does NOT verify that the operator's host `<DIR>` is
+> actually populated.  The operator MUST provision `<DIR>` with:
 >
-> (Gaps are numbered per the reachability table in design.md §2; gap 2 — the
-> scratch-drive masking defect — was closed by this unit, hence the non-contiguous
-> numbering 1/3/4.)
+> - `<DIR>/bin/qemu-system-x86_64` (and its `.so` closure)
+> - `<DIR>/vmlinuz` (bootable kernel)
+> - BIOS firmware at `<DIR>/share/qemu/` (qemu `datadir`)
 >
-> A follow-up unit will design the operator host-runtime mount set for gaps 1/3/4.
-> That is the unit where this WARNING can eventually be retired.
+> Without operator provisioning, the argv is structurally reachability-consistent
+> but the live boot will still fail with a missing-binary or missing-kernel error.
+>
+> Live boot is **x86_64-only** and remains a manually-gated operator action;
+> `--qemu-root` must be passed explicitly and is refused for non-x86_64 arches.
+> Addressed by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
+> design.md §2).
 
 ## Disk slot policy (per-drive containment)
 
