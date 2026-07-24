@@ -436,6 +436,42 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T9c: read-time memory-cap (R4 guard).  80 MB RLIMIT_AS: driver overhead is
+#      ~25 MB, so the 64 MB read_bytes() allocation exhausts the limit before
+#      the parse block — guarded by the read-phase MemoryError handler.
+# ---------------------------------------------------------------------------
+_T9C_OUT="$ROOT/out_t9c"
+_T9C_EXIT=0
+run "$_T9B_BIN" "$ROOT/repeat_demo.ksy" "$_T9C_OUT" \
+    --timeout 60 --max-memory-mb 80 2>/dev/null \
+  || _T9C_EXIT=$?
+if [ "$_T9C_EXIT" -eq 0 ]; then
+  no "T9c: adapter exit 0 on read-time memory-cap (read-phase guard missing)"
+elif [ "$_T9C_EXIT" -eq 2 ]; then
+  no "T9c: adapter fatal error (exit 2); check kaitai installation"
+elif [ -f "$_T9C_OUT/kaitai-evidence.v1.json" ]; then
+  if python3 - "$_T9C_OUT/kaitai-evidence.v1.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("status") == "failed", \
+    f"expected status=failed, got {d.get('status')!r}"
+assert "memory-cap" in d.get("errors", []), \
+    f"memory-cap not in errors: {d.get('errors')}"
+s = d.get("structure", {})
+assert s.get("truncated") == True, \
+    f"structure.truncated must be True, got {s.get('truncated')!r}"
+lims = d.get("limitations", [])
+assert any("memory-cap" in l for l in lims), \
+    f"no memory-cap limitation: {lims}"
+PY
+  then ok "T9c: read-time memory-cap surfaced as first-class resource limit"
+  else no "T9c: read-time memory-cap fidelity (evidence present but fields wrong)"
+  fi
+else
+  no "T9c: evidence not published after read-time memory-cap (exit $_T9C_EXIT)"
+fi
+
+# ---------------------------------------------------------------------------
 # T10: Output-dir-exists → adapter exits 2, no evidence overwritten.
 # ---------------------------------------------------------------------------
 mkdir -p "$ROOT/already_exists"

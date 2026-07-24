@@ -22,7 +22,7 @@ Output schema
     "truncated"      : bool,
     "depth_cap"      : bool,
     "value_trunc"    : bool,
-    "memory_cap"     : bool,   # true when RLIMIT_AS exhaustion fires during parse
+    "memory_cap"     : bool,   # true when RLIMIT_AS exhaustion fires during read or parse
     "parse_error"    : str | null,
     "runtime_version": str
   }
@@ -327,6 +327,13 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
     # ---- Parse binary ------------------------------------------------------
     try:
         raw = input_path.read_bytes()
+    except MemoryError:
+        # RLIMIT_AS exhaustion during read: allocation-free handler, same as parse-phase.
+        try:
+            os.write(1, _memory_cap_result_bytes)
+        except OSError:
+            return 1
+        return 0
     except OSError as exc:
         print(f"FATAL: cannot read input: {exc}", file=sys.stderr)
         return 1

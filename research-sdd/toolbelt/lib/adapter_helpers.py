@@ -469,11 +469,7 @@ _ETC_BIND_TRY_ALLOWED: frozenset[str] = frozenset({
 # run_bounded error tokens that indicate a resource cap fired, making the
 # tool's output incomplete.  'analyzer-exit:N' is NOT a cap error — it means
 # the tool ran to completion with a non-zero exit code.
-# 'memory-cap' is emitted by kaitai_driver when RLIMIT_AS exhaustion fires
-# inside the driver process (the driver catches MemoryError and sets a
-# first-class flag rather than folding it into a generic parse_error).
 _RUN_CAP_ERRORS: frozenset[str] = frozenset({
-    "memory-cap",
     "output-cap",
     "process-cap",
     "timeout",
@@ -621,13 +617,8 @@ def run_truncation(run_errors: list[str], tool: str) -> tuple[bool, list[str]]:
     """Translate run_bounded cap errors into (truncated_flag, limitation_strings).
 
     Checks *run_errors* for the resource-cap tokens in ``_RUN_CAP_ERRORS``:
-    ``"timeout"``, ``"output-cap"``, ``"process-cap"``, and ``"memory-cap"``.
+    ``"timeout"``, ``"output-cap"``, and ``"process-cap"``.
     For each fired cap, one limitation string is produced.
-
-    Note: ``"memory-cap"`` is normally surfaced via the driver's ``memory_cap``
-    JSON field (caught inside the process) rather than via ``run_bounded``
-    ``run_errors``; the token is included here so the vocabulary is complete and
-    forward-compatible should the outer layer also emit it.
 
     ``"analyzer-exit:N"`` (non-zero tool exit without a cap) is explicitly NOT
     a truncation event — it means the tool ran to completion.
