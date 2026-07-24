@@ -138,7 +138,7 @@ before calling Popen. The host creates this file fresh in the per-run directory.
 >
 > Live boot is **x86_64-only** and remains a manually-gated operator action;
 > `--qemu-root` must be passed explicitly and is refused for non-x86_64 arches.
-> Resolved by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
+> Addressed by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
 > design.md §2).
 
 `sample.type_hint` is metadata-only (magic-byte sniff); degrades to `"unknown"` on

@@ -101,7 +101,7 @@ that independently hashes `serial_log`'s parent dir `scratch.img` MUST match
 >
 > Live boot is **x86_64-only** and remains a manually-gated operator action;
 > `--qemu-root` must be passed explicitly and is refused for non-x86_64 arches.
-> Resolved by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
+> Addressed by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
 > design.md §2).
 
 ## Disk slot policy (per-drive containment)

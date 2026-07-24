@@ -156,7 +156,7 @@ The live executor (D3) substitutes the actual `<run_dir>/scratch.img` path in
 >
 > Live boot is **x86_64-only** and remains a manually-gated operator action;
 > `--qemu-root` must be passed explicitly and is refused for non-x86_64 arches.
-> Resolved by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
+> Addressed by issue #65 (Slices A+B; previously tracked as gaps 1/3/4 per
 > design.md §2).
 
 `mount_plan.host_writable`: must equal `mount_plan.scratch_persistent` — exactly one host
