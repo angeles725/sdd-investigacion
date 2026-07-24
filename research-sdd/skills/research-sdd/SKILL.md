@@ -125,7 +125,7 @@ These steps apply to the heavy mode and to continuing a corpus. **quick** and **
 answer directly (quick) or run a scoped Explore and return the map (light) — do not bootstrap or loop.
 
 1. **Read the kit — these ARE the rules, do not summarize from memory:**
-   - `$KIT/METHODOLOGY.md` — phases, the 5 markers, block anatomy, §8 stopping + terminal trigger,
+   - `$KIT/METHODOLOGY.md` — phases, the 7 markers, block anatomy, §8 stopping + terminal trigger,
      §11 self-verify, §12 dynamic phase, §16 multi-focus, §17 resume, §18 self-retrospective.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
      (honor an APPROVED language override; otherwise English).
