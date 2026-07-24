@@ -27,6 +27,21 @@ guarantee.
    known-broken guarantees.
 4. An invariant that cannot be asserted offline must say so and name what it
    asserts *instead*. See `untestable_offline` in `config.yaml`.
+5. **Promotion discipline (PR-level):** before merging any PR that closes an
+   issue, a reviewer MUST verify that the corresponding invariant has been
+   promoted from `pending` to `enforced` (or that retention as `pending` is
+   explicitly justified and recorded). Automated detection of a closed GitHub
+   issue whose invariant remains `pending` requires network access and MUST NOT
+   be attempted by the offline suite; this obligation belongs to the human
+   reviewer at merge time.
+6. **Test-quality conventions:** an asserting test MUST (a) assert the
+   SPECIFIC rule or error message, not merely an exit code — bare rc/exit
+   checks collide with generic errors and cannot prove the right rule fired;
+   (b) pin the invariant at the executor integration SEAM, not only at a
+   shared helper — a helper not wired to the executor path is invisible at
+   the integration boundary; (c) cover EACH call-site independently, not
+   only the shared function — each path can diverge from the shared code
+   without a per-site assertion to catch it.
 
 ## Registry
 
