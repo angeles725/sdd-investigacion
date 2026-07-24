@@ -10,3 +10,7 @@ __pycache__/
 # Temporales
 *.tmp
 *.bak
+
+# detect-tools.sh capability-report cache (written to CWD by default;
+# DEPENDENCIES.md instructs running the script, so it appears anywhere)
+.research-tools.txt
