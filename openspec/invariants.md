@@ -27,6 +27,21 @@ guarantee.
    known-broken guarantees.
 4. An invariant that cannot be asserted offline must say so and name what it
    asserts *instead*. See `untestable_offline` in `config.yaml`.
+5. **Promotion discipline (PR-level):** before merging any PR that closes an
+   issue, a reviewer MUST verify that the corresponding invariant has been
+   promoted from `pending` to `enforced` (or that retention as `pending` is
+   explicitly justified and recorded). Automated detection of a closed GitHub
+   issue whose invariant remains `pending` requires network access and MUST NOT
+   be attempted by the offline suite; this obligation belongs to the human
+   reviewer at merge time.
+6. **Test-quality conventions:** an asserting test MUST (a) assert the
+   SPECIFIC rule or error message, not merely an exit code — bare rc/exit
+   checks collide with generic errors and cannot prove the right rule fired;
+   (b) pin the invariant at the executor integration SEAM, not only at a
+   shared helper — a helper not wired to the executor path is invisible at
+   the integration boundary; (c) cover EACH call-site independently, not
+   only the shared function — each path can diverge from the shared code
+   without a per-site assertion to catch it.
 
 ## Registry
 
@@ -119,9 +134,10 @@ argument that happens to contain the sentinel as a prefix or infix.
   - `RED-INV3-sentinel-absent`: absent sentinel → empty deltas, argv unchanged.
   - `RED-INV3-drive-prefix`: `file=/rsdd/scratch.img.bak` in `-drive` left untouched (exact-match guard).
   - `RED-INV3-nonfile-key`: sentinel in `id=` key left untouched (exact `file=` value match).
+  - `RED-INV3-eval-seam`: adversarial property pinned at `evaluate()` seam (INV-3 wiring, not just helper).
   `tests/trace-exec.test.sh`:
-  - `TRACE-RED-INV3-adversarial`: file= prefix path untouched on trace executor path (INV-3 shared code).
-  - `RED-INV3-eval-seam` / `TRACE-RED-INV3-eval-seam`: adversarial property pinned at `evaluate()` seam (INV-3 wiring, not just helper).
+  - `TRACE-RED-INV3-adversarial`: file= prefix path untouched on trace executor path.
+  - `TRACE-RED-INV3-eval-seam`: adversarial property pinned at `evaluate()` seam (trace executor path).
 
 ### INV-4 — one run produces exactly one run_dir, and every output is declared
 
@@ -133,7 +149,9 @@ directories means one of them leaks and its artifacts are unaccounted for.
   4R review of the detonate executor, which forced a re-scope of the slice.
 - **Status:** `enforced` — resolved by the single-run_dir + pre-boot callback
   seam in `lib/vm_boot_core.py`.
-- **Asserted by:** `tests/detonate-exec.test.sh`, `tests/qemu-exec.test.sh`.
+- **Asserted by:** `tests/detonate-exec.test.sh` (RED11 — exactly 1 run_dir per
+  evaluate(), no double-dir leak), `tests/qemu-exec.test.sh` (RED2/GREEN — receipt
+  emitted with output_files key, confirms every artifact is declared).
 
 ### INV-5 — teardown is guaranteed on every exit path
 
