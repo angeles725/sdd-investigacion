@@ -1,7 +1,7 @@
 # Research-SDD — Targets Registry
 
-This file is the **master registry of the 12 active research targets** of the Research-SDD loop
-(numbered up to 15; **#6 cadesimu, #11 openness-labs and #12 openness-tools were de-registered** — see the
+This file is the **master registry of the 13 active research targets** of the Research-SDD loop
+(numbered up to 16; **#6 cadesimu, #11 openness-labs and #12 openness-tools were de-registered** — see the
 "De-registered — not block corpora" section at the end).
 Each target is a system under reverse engineering / documentation. The loop uses this table to:
 
@@ -50,18 +50,18 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (239 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
-| 2 | module-navigator | `/home/cristian/Honeywell/.../module-navigator` | **intermediate** (9 md / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
-| 3 | niagara-help | `/home/cristian/Honeywell/.../niagara-help` | **intermediate** (4 md / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
+| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (248 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 2 | module-navigator | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (9 md / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
+| 3 | niagara-help | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (4 md / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (79 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
 | 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (16 md / git no / remote no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
-| 7 | hifref | `/home/cristian/investigacion/hifref` | **incipient** (9 md / git no / remote no / hook no) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
-| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (76 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
-| 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (6 md / git no / remote no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
-| 10 | API-FACTURAS | `/home/cristian/ALSER/.../API-FACTURAS` | **incipient** as research (2 real md / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
+| 7 | hifref | `/home/cristian/investigacion/hifref` | **intermediate** (9 md / git yes / remote yes / hook yes) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
+| 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (77 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
+| 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (5 md / git no / remote no / hook no; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
+| 10 | API-FACTURAS | `/home/cristian/ALSER/Proyectos/Automatizacion/API-FACTURAS` | **incipient** as research (2 real md / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
-| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 3 retros +1 pending / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; run/scout narrative → detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
-| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 2 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
+| 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 4 retros + 4 corpus/client retros / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; corpus/retros/ = client artifacts, not §18 — detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
+| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 3 retros / git yes / remote no / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 | 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (0 md / git no / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17.00.0046 + SP18 (Summit.exe 17.0.0.228) on Windows 11 mini-PC (DESKTOP-N3FMUUB / 192.168.0.23) — local install media (`SummitBase/Tracer Summit.msi`, `TracerSummitV17.00SP18 (1).exe`) + full old install copy at `/mnt/c/Tracer Summit/Tracer Summit/` (Bin/BASRegistration.exe, Registration Worksheet.rtf, full Database/Backup, Doc/IP Tools/IPtools.chm, CPL/Zodiac) `[CERT]` | Direct reading (`file`, `7z l`, `lessmsi`/`msiinfo`, `strings`, RTF/CHM/PDF parsing) + minimal ssh probe (read-only) + web (Trane/forum) — `decompile-native.sh`/`scan-firmware.sh` only if needed for control-flow questions | English `[CERT]` |
 
 ---
@@ -69,7 +69,7 @@ Sensitivity:
 ## Per-target detail
 
 ### 1 — niagara-research `[CERT]`
-Mental model of Niagara N4 (Tridium) reconstructed by decompilation. Very mature corpus: 112 cataloged blocks (`CATALOG.md`), auto-generated `INDEX.md` of ~400 KB, active hook `niagara-research-protocol.sh`. The source artifact is Niagara Java classes (saw `com/tridium/workbench/.../LinkMarkCommand.class`).
+Mental model of Niagara N4 (Tridium) reconstructed by decompilation. Very mature corpus: 248 cataloged blocks (`CATALOG.md`), auto-generated `INDEX.md` of ~400 KB, active hook `niagara-research-protocol.sh`. The source artifact is Niagara Java classes (saw `com/tridium/workbench/.../LinkMarkCommand.class`).
 **Startup:** continue. Stable loop with its own hook.
 
 ### 2 — module-navigator `[CERT]`
@@ -85,15 +85,15 @@ Mental model of KiCad v10. Mature corpus (79 blocks, `CATALOG.md`/`INDEX.md`), g
 **Startup:** continue. Consider adding a hook to align it with niagara/logosoft.
 
 ### 5 — api-openness `[CERT]`
-Reference for the **Siemens TIA Portal Openness V17** API (`Siemens.Engineering`, .NET interface). Very mature corpus: 69 numbered blocks at the root (`00_INDEX.md` … `19_*`), 207 `.md` total, active hook `research-reminder.sh`. **No git.** Source: official Siemens PDFs in `_fuentes/` + `Siemens.Engineering.xml` (IntelliSense).
+Reference for the **Siemens TIA Portal Openness V17** API (`Siemens.Engineering`, .NET interface). Very mature corpus: 43 numbered blocks at the root (`00_INDEX.md` … `42_*`), 208 `.md` total, active hook `research-reminder.sh`. **No git.** Source: official Siemens PDFs in `_fuentes/` + `Siemens.Engineering.xml` (IntelliSense).
 **Startup:** continue. `decompile-net.sh` applies if you want to go beyond the XML to the .NET assembly `[INFER]` — the `.dll` binary was not inspected here.
 
 ### 7 — hifref `[CERT]`
-Field research on **HiRef** equipment (chillers) via BACnet/Modbus/SNMP. Incipient state: 1 `.md`, no git or hook. Content: HTML captures (`_bacnet.html`, `_net_now.html`…), PowerShell polling scripts (`bacnet_read.ps1`, `modbus_scan.ps1`, `snmp_get.ps1`) and `hiref_nrg381_bacnet_points.csv`. No binaries to decompile.
-**Startup:** bootstrap. Synthesize the scripts/captures into blocks; `fetch-doc.sh` for the NRG381 datasheets.
+Field research on **HiRef** equipment (chillers) via BACnet/Modbus/SNMP. Intermediate state: 9 blocks (`hifref-bloque1.md` … `hifref-bloque9.md`), git yes, remote yes (`https://github.com/angeles725/research-hifref.git`), hook yes (`research-protocol.sh`). Content: HTML captures, PowerShell polling scripts and `hiref_nrg381_bacnet_points.csv`, `sources/web-snapshots/`, `docs/`. No binaries to decompile.
+**Startup:** continue. Corpus and loop infra present; use `fetch-doc.sh` for additional NRG381 datasheets as needed.
 
 ### 8 — logosoft `[CERT]`
-Research on **Siemens LOGO! Soft Comfort V8.4** + real PLC. Very mature: 25 blocks + native binaries annex, git, **two hooks** (`logosoft-protocol-reminder.sh`, `logosoft-research-protocol.sh`), `RESEARCH-LOOP.md`/`RUNBOOK-OPERACION.md`. Confirmed artifacts: Java classes (`plc-client/rpc/*.class`, LogoWatch/LogoBackup/LogoCtl), native dump `plc-mram-backup-*.bin`, manual `LOGO8-system-manual-*.pdf`.
+Research on **Siemens LOGO! Soft Comfort V8.4** + real PLC. Very mature: 77 blocks (gen-catalog.py authoritative) + native binaries annex, git, **two hooks** (`logosoft-protocol-reminder.sh`, `logosoft-research-protocol.sh`), `RESEARCH-LOOP.md`/`RUNBOOK-OPERACION.md`. Confirmed artifacts: Java classes (`plc-client/rpc/*.class`, LogoWatch/LogoBackup/LogoCtl), native dump `plc-mram-backup-*.bin`, manual `LOGO8-system-manual-*.pdf`.
 **Startup:** continue. It is one of the most complete loops (end-to-end cycle validated against a PLC).
 
 ### 9 — TRANE `[CERT]`

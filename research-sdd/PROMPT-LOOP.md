@@ -59,7 +59,7 @@ KIT     = /home/cristian/investigacion/sdd-investigacion/research-sdd
         # on another machine, resolve the kit path per SKILL.md — $RESEARCH_SDD_KIT or fd
 
 Always read first, in this order:
-  1. $KIT/METHODOLOGY.md        (phases, the 5 markers, block anatomy, sources/, stopping)
+  1. $KIT/METHODOLOGY.md        (phases, the 7 markers, block anatomy, sources/, stopping)
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
   4. $CORPUS/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]

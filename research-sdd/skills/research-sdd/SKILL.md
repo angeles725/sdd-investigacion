@@ -45,6 +45,16 @@ a clean target; the request may be a one-off question. CLASSIFY intent first (ne
 If **nothing usable** was given: read `$KIT/TARGETS.md`, show the target table (name · maturity · artifact ·
 language), and ask which one — then proceed. Do not guess.
 
+## Key terms (quick reference)
+
+| Term | One-line meaning |
+|---|---|
+| **corpus** | The growing set of `.md` knowledge blocks for a target (+ `INDEX.md`, `CATALOG.md`, `RESEARCH-STATE.md`). |
+| **block** | One self-contained `.md` file capturing one researched gap — `<prefix>-blockN.md` or `<prefix>-bloqueN.md`. |
+| **gap** | An open research question in `RESEARCH-STATE.md`; the loop attacks one per iteration. |
+| **RESEARCH-STATE.md** | The per-target state file: coverage metric, prioritized gap backlog, iteration history. |
+| **SECRETS DISCIPLINE** | Hard rule (full text in PROMPT-LOOP): for `live-install` targets, cite secret STRUCTURE (formats, key lengths, host IDs), never secret VALUES. |
+
 ## Intent & depth — TRIAGE first, then RECOMMEND and PROCEED (do NOT interrogate)
 
 The request is not always a full research run — but the answer is almost never a question back to the user.
@@ -86,7 +96,10 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   REUSABLE toolchain/environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step) → the KIT
   (`toolbelt/` + register in `toolbelt/tool-registry.md`) plus an Engram pointer. Same `verify-block` gate,
   plus a MANDATORY Engram mirror so the doc stays recall-findable. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
-  (METHODOLOGY §20).
+  (METHODOLOGY §20). **Caveat:** §20 is DEFINED-BUT-UNEXERCISED — the full `document` sub-command flow has
+  not yet been run end-to-end on a real target. Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`,
+  `toolbelt/GHIDRA-MCP.md`) predate the mode; treat document mode with the same "trial it before you trust
+  it" caution noted in METHODOLOGY §20.
 
 **AUTO-ESCALATE light → heavy — announce, do NOT re-ask.** A light/triage pass is allowed to promote
 itself. When it surfaces DEPTH — **≥3 investigable gaps**, OR a **binary/firmware** artifact, OR **multiple

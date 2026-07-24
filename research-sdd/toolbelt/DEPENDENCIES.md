@@ -43,8 +43,8 @@ host.** Run the authoritative inventory:
 bash research-sdd/toolbelt/detect-tools.sh
 ```
 
-The script emits a 37-row capability report — covering every tool the toolbelt
-depends on, including PATH binaries, JVM tools, Java decompiler JARs (whose
+The script emits a 37-row capability report — covering the major RE/decompile
+tools the toolbelt depends on, including PATH binaries, JVM tools, Java decompiler JARs (whose
 SHA256 digests it *reports* — it does NOT compare them against the pins in
 `corroborate_java.py`; that comparison is manual), Python packages,
 and Hyperscan (`libhs` via `rsdd_pkg_config`) — with per-tool resolution results
@@ -139,23 +139,17 @@ absent. Many suites also fabricate fake binaries by overriding `RSDD_*` env vars
 (`RSDD_BWRAP`, `RSDD_MANIFEST_CLI`, `RSDD_R2`, `RSDD_KAITAI_PY`, etc.) or
 writing temporary stub scripts to a temp `PATH`.
 
-Three suites **fail** rather than skip when a specific dependency is absent
-while a related dependency is present:
+All three previously-gapped suites now skip gracefully (issues **#78** and **#80**
+merged in PR #84, commit ddf7857):
 
-- **`decompile-native.test.sh`**: `decompile-native.sh` calls `file` (line 25)
-  and `strings` (line 27) unguarded in `quick` mode. If either binary is absent,
-  the suite fails (does not skip). Tracked as issue **#78**.
-- **`jvm-callgraph.test.sh`**: the suite-level guard checks for Java 21 and
-  skips if absent. If Java 21 is present but `mvn` is absent,
-  `jvm-callgraph.sh` exits 3 on the build step and the suite reports a test
-  failure. There is no Maven-specific skip guard in the suite.
-- **`tool-env.test.sh`**: test #5 calls `rsdd_probe_java_jar()`, which requires
-  `unzip` (`lib/tool-env.sh:191`). If `unzip` is absent, the function returns
-  127 and that test reports FAIL. There is no suite-level guard for `unzip`.
-
-Do not make the unqualified "all suites skip gracefully" claim until these gaps
-are addressed (issue **#78** covers the `decompile-native` case; issue **#80**
-covers the `mvn` and `unzip` gaps).
+- **`decompile-native.test.sh`**: suite-level guard emits
+  `SKIP: decompile-native tests (missing: file or strings)` and exits 0 when
+  either `file` or `strings` is absent.
+- **`jvm-callgraph.test.sh`**: two guards — Java 21 absent → suite SKIP; Java 21
+  present but `mvn` absent → suite SKIP (`SKIP: jvm-callgraph tests (missing: mvn)`).
+- **`tool-env.test.sh`**: test #5 now prints `SKIP  5 JAR probe is structural and
+  engine-specific (unzip absent)` and skips that test (not the whole suite) when
+  `unzip` is absent.
 
 **Result on CI** (`python3 + node + bash` only): all 71 suites pass because
 `file`, `strings`, and `unzip` are present on `ubuntu-latest`, and
