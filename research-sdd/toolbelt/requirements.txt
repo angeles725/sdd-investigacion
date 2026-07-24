@@ -1,31 +1,49 @@
 # research-sdd/toolbelt/requirements.txt
 # Verified: 2026-07-24
 #
-# The toolbelt is stdlib-only for all core operations.
-# This file is intentionally nearly empty — that is accurate, not an oversight.
+# This file declares the third-party Python packages the toolbelt requires.
+# All *.py source files are stdlib-only.  The external packages below are used
+# only inside shell heredoc Python blocks in extract-pdf.sh; the invocation goes
+# through a project venv, NOT the system Python.
 #
-# All other imports are standard library (argparse, ctypes, datetime, fcntl,
-# hashlib, importlib, json, mmap, os, pathlib, platform, posixpath, re,
-# resource, select, shlex, signal, stat, struct, subprocess, sys, threading,
-# time, typing, zipfile, ...) and require no installation.
+# All other imports (argparse, ctypes, datetime, fcntl, hashlib, importlib,
+# json, mmap, os, pathlib, platform, posixpath, re, resource, select, shlex,
+# signal, stat, struct, subprocess, sys, threading, time, typing, zipfile,
+# urllib, unicodedata, ...) are standard library and need no installation.
 #
 # Internal modules (adapter_core, gate, vm_*, docker_*, proc_common,
-# squashfs_extract, corroborate_*, etc.) are local files within this tree
-# and are not packages to install.
+# squashfs_extract, corroborate_*, etc.) are local files — not packages.
 #
-# ── OPTIONAL third-party dependency ──────────────────────────────────────────
+# ── VENV 1: $RESEARCH_SDD_VENV (default ~/.local/share/research-sdd-tools/venv) ──
 #
-# kaitaistruct — the ONLY external Python package required by this toolbelt.
+# Required by extract-pdf.sh Tier 1 (pymupdf4llm + fitz) and Tier 2
+# (ocrmypdf, marker_single, docling — CLI wrappers installed into the same venv).
+# PyMuPDF ships both the fitz C extension and the pymupdf4llm Markdown layer.
+# The heredoc Python in extract-pdf.sh:102 does: import pymupdf4llm, fitz
 #
-# Used solely by lib/kaitai_driver.py; all imports are guarded inside
-# functions. Gates the Kaitai corroboration path (corroborate-kaitai.sh).
-#
-# The adapter requires a dedicated venv (not the system Python):
-#   python3 -m venv ~/.local/share/rsdd-kaitai
-#   ~/.local/share/rsdd-kaitai/bin/pip install kaitaistruct
-# Override the venv python path with: RSDD_KAITAI_PY=<path>
-#
-# NOT installed on this host. The core test suite passes without it —
-# kaitai.test.sh prints "SKIP: kaitai tests (missing: ...)" and exits 0.
+# INSTALLED on this host (verified 2026-07-24):
+#   pymupdf4llm 1.28.0 · PyMuPDF (fitz) 1.28.0
+#   venv: ~/.local/share/research-sdd-tools/venv
+#   Override with: RESEARCH_SDD_VENV=<dir>
 
-kaitaistruct  # optional — Kaitai corroboration path only; see comment above
+pymupdf4llm   # extract-pdf.sh Tier 1 — text-layer PDF → Markdown (tables + page anchors)
+PyMuPDF       # extract-pdf.sh Tier 1 — fitz C extension (bundled with pymupdf4llm)
+
+# Note: ocrmypdf, marker_single, and docling (Tier 2 OCR paths in extract-pdf.sh)
+# are also installed in this venv as CLI tools but are not Python imports.
+# They are listed under the binary inventory in DEPENDENCIES.md.
+
+# ── VENV 2: rsdd-kaitai (default ~/.local/share/rsdd-kaitai) ──────────────────
+#
+# Required by lib/kaitai_driver.py (all imports guarded inside functions).
+# Gates the Kaitai corroboration path (corroborate-kaitai.sh).
+#
+# INSTALLED on this host (verified 2026-07-24):
+#   kaitaistruct 0.11 at ~/.local/share/rsdd-kaitai/bin/python
+#   This is the exact default of RSDD_KAITAI_PY in tests/kaitai.test.sh:19.
+#   Import verified: python -c "import kaitaistruct; print(kaitaistruct.__version__)"
+#   Test suite: tests/kaitai.test.sh → 19 passed · 0 failed
+#
+# Override the venv python path with: RSDD_KAITAI_PY=<path>
+
+kaitaistruct  # Kaitai corroboration path — rsdd-kaitai venv only; NOT the system Python
