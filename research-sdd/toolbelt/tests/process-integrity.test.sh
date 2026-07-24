@@ -569,7 +569,7 @@ No open invariants remain.
 
 - **Origin:** fixture for unknown-id-in-open-map test.
 - **Status:** `enforced`
-- **Asserted by:** `tests/gate.test.sh` (RED1).
+- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
 
 ## Open invariants map
 
@@ -579,7 +579,7 @@ No open invariants remain.
 
     # RED13-dup-id — two ### INV-1 entries → duplicate id error (P2-4)
     _blk = ("**Statement:** S.\n- **Origin:** f.\n"
-            "- **Status:** `enforced`\n- **Asserted by:** `tests/gate.test.sh` (RED1).\n")
+            "- **Status:** `enforced`\n- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).\n")
     fix13 = write_fixture(td, "fix13.md",
         "## Registry\n\n### INV-1 — a\n\n" + _blk
         + "\n### INV-1 — b\n\n" + _blk
@@ -595,20 +595,20 @@ No open invariants remain.
 **Statement:** S1.
 - **Origin:** f.
 - **Status:** `enforced`
-- **Asserted by:** `tests/gate.test.sh` (RED1).
+- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
 
 ### INV-3 — third
 
 **Statement:** S3.
 - **Origin:** f.
 - **Status:** `enforced`
-- **Asserted by:** `tests/gate.test.sh` (RED1).
+- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
 
 ## Open invariants map
 
 No open invariants remain.
 """)
-    assert_fails_with("RED14-gap", fix14, "missing")
+    assert_fails_with("RED14-gap", fix14, "non-contiguous")
 
 # Temp dir cleaned up; RED fixtures removed from disk.
 
