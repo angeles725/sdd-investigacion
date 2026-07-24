@@ -145,6 +145,9 @@ Each block is self-contained but linked. Size according to source density, not b
 > prefix therefore needs a LOCAL optional-prefix `tools/gen-catalog.py` (the `impresora-samsung-m2070` target
 > is the known exception); prefer the prefixed convention for any new corpus so the kit-generic tooling sees
 > every block.
+>
+> **Note:** `impresora-samsung-m2070` is intentionally unregistered in `TARGETS.md` — it is a local
+> single-use exception to the naming rule, not a tracked research target.
 
 ## 5. Managing external sources (`sources/`)
 
