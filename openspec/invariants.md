@@ -98,20 +98,30 @@ match MUST be against a complete token. Substring matching silently corrupts any
 argument that happens to contain the sentinel as a prefix or infix.
 
 - **Origin:** finding F4, PR #59 independent review. Tracked by issue #63.
-- **Status:** `pending` — currently violated.
-- **Asserted by:** to be added by the #63 unit. The test must include an
-  adversarial fixture whose argv contains the sentinel as a proper substring of
-  an unrelated argument.
-  **The #63 implementer must cover THREE structural positions** where the sentinel
-  `/rsdd/scratch.img` now appears in the post-#60 argv: `--bind SRC`, `--bind DEST`,
-  and `-drive file=`. Two positions (`--bind SRC` and `--bind DEST`) must be matched
-  as **complete tokens**. The third (`-drive file=`) contains the sentinel as an
-  **infix** of the comma-separated drive spec (e.g.,
-  `file=/rsdd/scratch.img,snapshot=off,format=raw,if=virtio`); matching that token
-  completely would never succeed and is wrong. That position requires **key-scoped
-  parsing**: extract the `file=` value from the comma-separated spec, then substitute
-  the sentinel within the extracted value. Read from this registry rather than
-  rediscovering from code.
+- **Status:** `enforced` — fixed in `vm_exec_common._substitute_scratch_sentinel`
+  (issue #63). The old `pre_boot` substring loop (`_SCRATCH_SENTINEL in tok`) was
+  replaced with position-aware substitution covering exactly the three structural
+  positions where the sentinel appears in the post-#60 argv.
+- **Three-position contract (enforced):**
+  1. `--bind SRC` operand — **complete-token match** (`tok == _SCRATCH_SENTINEL`).
+  2. `--bind DEST` operand — **complete-token match** (`tok == _SCRATCH_SENTINEL`).
+  3. `-drive file=` value — **key-scoped infix substitution**: the sentinel is
+     extracted from the comma-separated drive spec (e.g.
+     `file=/rsdd/scratch.img,snapshot=off,format=raw,if=virtio`) by isolating the
+     `file=` key's value and substituting only within it.
+  Any other token containing the sentinel — whether as an exact match or a
+  substring — is left untouched.
+- **Asserted by:** `tests/detonate-exec.test.sh`:
+  - `RED-INV3-bind-subst`: `--bind` SRC and DEST are substituted (complete-token).
+  - `RED-INV3-drive-subst`: `-drive file=` is substituted, rest of spec intact.
+  - `RED-INV3-adversarial`: adversarial tokens (`-kernel /rsdd/scratch.img` and
+    `-bios /rsdd/scratch.img.bak`) are NOT rewritten (core F4 assertion).
+  - `RED-INV3-sentinel-absent`: absent sentinel → empty deltas, argv unchanged.
+  - `RED-INV3-drive-prefix`: `file=/rsdd/scratch.img.bak` in `-drive` left untouched (exact-match guard).
+  - `RED-INV3-nonfile-key`: sentinel in `id=` key left untouched (exact `file=` value match).
+  `tests/trace-exec.test.sh`:
+  - `TRACE-RED-INV3-adversarial`: file= prefix path untouched on trace executor path (INV-3 shared code).
+  - `RED-INV3-eval-seam` / `TRACE-RED-INV3-eval-seam`: adversarial property pinned at `evaluate()` seam (INV-3 wiring, not just helper).
 
 ### INV-4 — one run produces exactly one run_dir, and every output is declared
 
@@ -158,9 +168,7 @@ invisible to per-component tests.
 
 ## Open invariants map to open issues
 
-| Invariant | Issue | Meaning |
-|---|---|---|
-| INV-3 | #63 | substitution can corrupt unrelated arguments |
+No open invariants remain.  All registry entries are `enforced`.
 
 Issue #62 (extract `vm_exec_common.py`) is refactoring; the unit that closes it
 MUST re-verify the whole registry, since collapsing the detonate/trace mirror is

@@ -621,6 +621,41 @@ with tempfile.TemporaryDirectory() as td:
         ok("TRACE-RED-F2: sentinel-free plan → GateError names 'trace plan' (plan_label wired)")
     except Exception as e: nok("TRACE-RED-F2: plan_label-trace", str(e))
 
+# ── TRACE-RED-INV3-adversarial ────────────────────────────────────────────────
+# Mirror of the detonate-side adversarial property on the trace executor path.
+# Proves INV-3 is enforced on shared code regardless of which executor calls it.
+try:
+    import vm_exec_common as _vecTINV3
+    _t_sent = "/rsdd/scratch.img"
+    _t_real = "/tmp/rsdd/rsdd-T/scratch.img"
+    _adv_t = ["-drive", f"file={_t_sent}.bak,snapshot=off,format=raw,if=virtio"]
+    _newT, _deltasT = _vecTINV3._substitute_scratch_sentinel(_adv_t, _t_real)
+    assert _newT[1] == _adv_t[1], \
+        f"trace: drive prefix spec incorrectly rewritten to {_newT[1]!r}"
+    assert _deltasT == [], f"unexpected delta on trace path: {_deltasT}"
+    ok("TRACE-RED-INV3-adversarial: file= prefix untouched on trace path (INV-3)")
+except Exception as e: nok("TRACE-RED-INV3-adversarial", str(e))
+
+# ── TRACE-RED-INV3-eval-seam: evaluate()-level adversarial -kernel not substituted (INV-3 seam) ──
+# Mutation proof: revert pre_boot call site to substring loop → -kernel wrongly rewritten → FAILS.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp)
+    try:
+        import trace_exec as _te2; from gate import GateError
+        _TS = "/rsdd/scratch.img"
+        _av3 = ["bwrap","--unshare-net","--unshare-pid","--cap-drop","ALL","--tmpfs","/tmp/rsdd","--dir","/tmp/rsdd/out",
+                "--bind",_TS,_TS,"--ro-bind","/store/rootfs.img","/input/rootfs","--ro-bind","/store/sample.bin","/input/sample","--",
+                "qemu-system-x86_64","-m","256","-smp","1","-accel","tcg","-nic","none","-nodefaults",
+                "-sandbox","on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+                "-kernel",_TS,"-drive","file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+                "-drive",f"file={_TS},snapshot=off,format=raw,if=virtio","-drive","file=/input/rootfs,snapshot=on,format=raw,if=virtio"]
+        _old3 = os.environ.get("PATH",""); os.environ["PATH"] = p
+        try: _r3 = _te2.TraceVmExecutor(tmp/"out").evaluate({"qemu_binary":"qemu-system-x86_64","planned_argv":_av3})
+        finally: os.environ["PATH"] = _old3
+        _ea3 = _r3.get("exec_argv",[]); _ki3 = _ea3.index("-kernel") if "-kernel" in _ea3 else None
+        assert _ki3 is not None and _ea3[_ki3+1]==_TS and any(_ea3[i]=="--bind" and _ea3[i+1]!=_TS for i in range(len(_ea3)-1)), f"INV-3 seam: -kernel={_ea3[_ki3+1] if _ki3 is not None else 'missing'!r} or --bind not substituted"
+        ok("TRACE-RED-INV3-eval-seam: evaluate() seam — -kernel untouched, --bind/-drive substituted (INV-3)")
+    except Exception as e: nok("TRACE-RED-INV3-eval-seam", str(e))
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
