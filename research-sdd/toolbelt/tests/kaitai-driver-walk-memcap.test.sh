@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# kaitai-driver-walk-memcap.test.sh
+# Standalone test for kaitai_driver walk-phase MemoryError guard.
+#
+# Does NOT require ksc, bwrap, or the kaitai venv.  Uses system python3 and
+# a mocked kaitaistruct so this suite always runs in CI-like environments.
+#
+# What it pins:
+#   A MemoryError raised during _walk (after a successful parse) must cause the
+#   driver to emit a memory_cap:true JSON signal on stdout and exit 0 — NOT
+#   crash with exit 1 and empty stdout (generic adapter error).
+#
+# Mutation proof: remove the walk-phase try/except MemoryError guard from
+# kaitai_driver.py and this test REDs — the injected MemoryError propagates
+# uncaught, the driver exits non-zero, stdout is empty, and the assertion
+# on ret==0 / memory_cap:true fails.
+#
+# House style: mirrors capa.test.sh / kaitai.test.sh.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DRIVER_LIB="$HERE/../lib"
+
+# ---------------------------------------------------------------------------
+# Dependency guard
+# ---------------------------------------------------------------------------
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "SKIP: kaitai-driver-walk-memcap (python3 not found)"
+  echo "== 0 passed · 0 failed =="
+  exit 0
+fi
+
+pass=0; fail=0
+ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
+no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
+# T1: walk-phase MemoryError → memory_cap:true, exit 0.
+#     Injects MemoryError by monkeypatching kaitai_driver._walk.
+#     Mocks kaitaistruct so no venv is needed.
+# ---------------------------------------------------------------------------
+if python3 - "$DRIVER_LIB" <<'PY'
+import sys, os, json, types, tempfile, importlib.util
+
+driver_lib = sys.argv[1]
+
+# Load kaitai_driver as a fresh module (not added to sys.modules)
+spec = importlib.util.spec_from_file_location(
+    "_kd_test", os.path.join(driver_lib, "kaitai_driver.py")
+)
+driver = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(driver)
+
+# ---- Minimal mock kaitaistruct -----------------------------------------
+fake_ks = types.ModuleType("kaitaistruct")
+fake_ks.__version__ = "mock-0.0"
+
+class _KS:
+    """Minimal KaitaiStruct stand-in: accepts a stream, exposes _io."""
+    def __init__(self, _io=None):
+        self._io = _io
+
+class _KStream:
+    """Minimal KaitaiStream stand-in."""
+    def __init__(self, data):
+        pass
+
+fake_ks.KaitaiStruct = _KS
+fake_ks.KaitaiStream = _KStream
+# -------------------------------------------------------------------------
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    # Fake parser: parses successfully (Demo._read is a no-op)
+    with open(os.path.join(tmpdir, "demo.py"), "w") as f:
+        f.write("from kaitaistruct import KaitaiStruct, KaitaiStream\n")
+        f.write("class Demo(KaitaiStruct):\n")
+        f.write("    def _read(self): pass\n")
+
+    # Minimal binary (content irrelevant: Demo._read ignores it)
+    with open(os.path.join(tmpdir, "sample.bin"), "wb") as f:
+        f.write(b"test")
+
+    # Inject fake kaitaistruct before driver loads the generated module
+    sys.modules["kaitaistruct"] = fake_ks
+
+    # Deterministic injection: _walk raises MemoryError on first call
+    def _raise_walk_oom(*a, **kw):
+        raise MemoryError("injected walk OOM")
+    driver._walk = _raise_walk_oom
+
+    # Capture fd 1 (driver uses os.write(1, ...), not sys.stdout)
+    rfd, wfd = os.pipe()
+    saved_fd1 = os.dup(1)
+    os.dup2(wfd, 1)
+    os.close(wfd)
+
+    old_argv = sys.argv[:]
+    sys.argv = [
+        "kaitai_driver",
+        "--module-dir", tmpdir,
+        "--stem", "demo",
+        "--input", os.path.join(tmpdir, "sample.bin"),
+    ]
+
+    try:
+        ret = driver.main()
+    except SystemExit as e:
+        ret = int(e.code) if e.code is not None else 0
+    except Exception:
+        ret = 99
+    finally:
+        sys.argv = old_argv
+        sys.modules.pop("kaitaistruct", None)
+
+    # Restore fd 1; close the write end so the pipe reaches EOF
+    os.dup2(saved_fd1, 1)
+    os.close(saved_fd1)
+
+    # Drain the pipe
+    chunks = []
+    while True:
+        chunk = os.read(rfd, 65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    os.close(rfd)
+
+    captured = b"".join(chunks)
+
+    # ---- Assertions --------------------------------------------------------
+    assert ret == 0, f"expected exit 0, got {ret} (guard missing?)"
+    assert captured, "stdout empty — expected memory-cap JSON"
+    result = json.loads(captured.decode("utf-8"))
+    assert result.get("memory_cap") is True, \
+        f"memory_cap must be True, got {result.get('memory_cap')!r}"
+    assert result.get("truncated") is True, \
+        f"truncated must be True on memory-cap, got {result.get('truncated')!r}"
+    print(
+        f"OK: memory_cap={result['memory_cap']} truncated={result['truncated']} exit=0"
+    )
+PY
+then ok "T1: walk-phase MemoryError → memory_cap:true exit:0 (monkeypatched _walk)"
+else no "T1: walk-phase MemoryError guard"
+fi
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

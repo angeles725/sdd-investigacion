@@ -481,6 +481,71 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T9d: walk-phase memory-cap guard (deterministic injection).
+#      Monkeypatches kaitai_driver._walk to raise MemoryError AFTER a
+#      successful parse.  Verifies that the driver exits 0 and emits a
+#      memory_cap:true JSON signal instead of crashing → exit 1 / empty stdout.
+#      Uses the compiled demo parser produced by T1 (engine/gen/).
+#
+# Mutation proof: removing the walk-phase try/except MemoryError guard causes
+# this test to RED — the injected MemoryError propagates uncaught, Python
+# prints a traceback to stderr, the driver exits 1, stdout is empty, and
+# the assertion on ret==0 fails.
+# ---------------------------------------------------------------------------
+_T9D_GEN="$_T1_OUT/engine/gen"
+_T9D_PY=$(ls "$_T9D_GEN"/*.py 2>/dev/null | head -1)
+if ! [ -f "${_T9D_PY:-}" ]; then
+  echo "  SKIP  T9d: walk-phase memory-cap injection (T1 gen dir absent or empty)"
+else
+  _T9D_STEM="${_T9D_PY##*/}"
+  _T9D_STEM="${_T9D_STEM%.py}"
+
+  # Shim: patches _walk to raise MemoryError, then calls kaitai_driver.main().
+  # Runs inside the kaitai venv (kaitaistruct available); no bwrap needed.
+  cat > "$ROOT/t9d_shim.py" << 'PYSHIM'
+"""T9d injection shim: patches _walk to raise MemoryError, then runs main()."""
+import sys, os
+sys.path.insert(0, os.environ["KAITAI_DRIVER_DIR"])
+import kaitai_driver
+
+def _raise_walk_oom(*a, **kw):
+    raise MemoryError("injected walk OOM for T9d")
+
+kaitai_driver._walk = _raise_walk_oom
+sys.exit(kaitai_driver.main())
+PYSHIM
+
+  _T9D_STDOUT="$ROOT/t9d_stdout.json"
+  _T9D_EXIT=0
+  KAITAI_DRIVER_DIR="$HERE/../lib" \
+    "$_KAITAI_PY" "$ROOT/t9d_shim.py" \
+      --module-dir "$_T9D_GEN" \
+      --stem "$_T9D_STEM" \
+      --input "$ROOT/sample.bin" \
+      >"$_T9D_STDOUT" 2>/dev/null \
+    || _T9D_EXIT=$?
+
+  if [ "$_T9D_EXIT" -ne 0 ]; then
+    no "T9d: walk-phase memory-cap: driver exited $_T9D_EXIT (expected 0; guard missing?)"
+  elif ! [ -s "$_T9D_STDOUT" ]; then
+    no "T9d: walk-phase memory-cap: stdout empty (expected memory-cap JSON)"
+  elif python3 - "$_T9D_STDOUT" <<'PY'
+import json, sys
+d = json.loads(open(sys.argv[1]).read())
+assert d.get("memory_cap") is True, \
+    f"memory_cap must be True, got {d.get('memory_cap')!r}"
+assert d.get("truncated") is True, \
+    f"truncated must be True on memory-cap, got {d.get('truncated')!r}"
+print(f"OK: memory_cap=True truncated=True (walk-phase injection)")
+PY
+  then
+    ok "T9d: walk-phase MemoryError → memory-cap signal (monkeypatched _walk, exit 0)"
+  else
+    no "T9d: walk-phase memory-cap: unexpected JSON content"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # T10: Output-dir-exists → adapter exits 2, no evidence overwritten.
 # ---------------------------------------------------------------------------
 mkdir -p "$ROOT/already_exists"
