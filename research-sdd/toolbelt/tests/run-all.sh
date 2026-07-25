@@ -127,7 +127,10 @@ for suite in "${all_suites[@]}"; do
 
   # Suite-level outcome is driven by the EXIT CODE, not the parsed counts.
   # A suite that exits 0 with a "SKIP:" line on stdout is classified as skipped,
-  # not passed — the signal is already established across the test suite set.
+  # not passed. The line-start SKIP: form is the convention for whole-suite skips
+  # and is used by most suites. Known exceptions that use an indented no-colon form
+  # ("  SKIP  ...") instead: corroborate-pcap.test.sh and pcap-flows.test.sh — those
+  # two are not detected here and will be counted as passed if tshark is absent.
   if [[ "$rc" -eq 0 ]] && grep -q '^SKIP:' "$tmp_out"; then
     suites_skipped+=("$base")
   else

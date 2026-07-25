@@ -142,9 +142,11 @@ writing temporary stub scripts to a temp `PATH`.
 All three previously-gapped suites now skip gracefully (issues **#78** and **#80**
 merged in PR #84, commit ddf7857):
 
-- **`decompile-native.test.sh`**: suite-level guard emits
-  `SKIP: decompile-native tests (missing: file or strings)` and exits 0 when
-  either `file` or `strings` is absent.
+- **`decompile-native.test.sh`**: per-test guard on the quick-mode test only
+  (commit da9a438, issue #85). When `file` or `strings` is absent the suite
+  prints `SKIP  quick mode (missing: file or strings)` and continues; the
+  other four host-independent assertions (ghidra-evidence, missing-adapter,
+  raw-ghidra, r2) still run and the suite exits 0 reporting `4 passed`.
 - **`jvm-callgraph.test.sh`**: two guards — Java 21 absent → suite SKIP; Java 21
   present but `mvn` absent → suite SKIP (`SKIP: jvm-callgraph tests (missing: mvn)`).
 - **`tool-env.test.sh`**: test #5 now prints `SKIP  5 JAR probe is structural and

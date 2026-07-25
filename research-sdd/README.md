@@ -175,7 +175,9 @@ research-sdd/toolbelt/tests/run-all.sh --prove-teeth # + mutation self-test (neg
 ```
 
 [`run-all.sh`](toolbelt/tests/run-all.sh) auto-discovers every `*.test.sh` and `*.test.mjs` suite next
-to it (new suites are picked up automatically) and exits non-zero unless every suite passes.
+to it (new suites are picked up automatically) and exits 0 only when no suite failed and at
+least one suite actually passed. Suites that emit a `SKIP:` line are tracked separately and do
+not count as failures; an all-skipped run still exits 1 so it cannot read as "all green".
 `--prove-teeth` is forwarded only to the shell suites.
 
 CI ([`.github/workflows/toolbelt-tests.yml`](../.github/workflows/toolbelt-tests.yml)) runs on any change

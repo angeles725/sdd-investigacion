@@ -4,7 +4,8 @@
 # The runner is itself a script under test: it auto-discovers sibling suites, streams+captures
 # their output, tracks suite outcome by EXIT CODE (via PIPESTATUS, not tee's code, not the parsed
 # count), sums case totals off the `== N passed · N failed ==` line (literal U+00B7 middle dot),
-# forwards --prove-teeth to *.test.sh only, and exits 0 iff every suite exited 0.
+# forwards --prove-teeth to *.test.sh only, and exits 0 iff no suite failed AND
+# at least one suite passed (a fully-skipped run — suites_ok == 0 — exits 1).
 #
 # ISOLATION: the runner discovers suites in ITS OWN dir, so we NEVER invoke the real ../run-all.sh
 # in the real tests/ dir. Per case we mktemp a workdir, cp the SUT into it, drop tiny FIXTURE suites
