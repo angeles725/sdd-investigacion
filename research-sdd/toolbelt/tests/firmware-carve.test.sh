@@ -102,6 +102,15 @@ buf=io.StringIO(); f.os.geteuid=lambda:0; sys.stderr=buf; r=f.main(['--input','x
 assert r==2 and "root or set-id" in buf.getvalue()
 PY
 then ok "root execution fails closed"; else no "caller safety"; fi
+if python3 - "$HERE/../firmware_carve.py" <<'PY'
+import importlib.util,io,sys
+s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f)
+buf=io.StringIO(); f.os.geteuid=lambda:0; sys.stderr=buf
+r=f.main(['--input','x','--output','y','--worker','--stage','/tmp','--input-record','{}','--bwrap-path','/usr/bin/bwrap','--bwrap-sha256','sha256:abc'])
+sys.stderr=sys.__stderr__
+assert r==2 and "root or set-id" in buf.getvalue()
+PY
+then ok "--worker root execution fails closed (guard hoisted above worker branch)"; else no "--worker caller safety"; fi
 if python3 - "$HERE/../firmware_carve.py" "$ROOT" <<'PY'
 import importlib.util,pathlib,sys,time
 s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f); root=pathlib.Path(sys.argv[2])
