@@ -22,7 +22,7 @@ Output schema
     "truncated"      : bool,
     "depth_cap"      : bool,
     "value_trunc"    : bool,
-    "memory_cap"     : bool,   # true when RLIMIT_AS exhaustion fires during read or parse
+    "memory_cap"     : bool,   # true when RLIMIT_AS exhaustion fires during read, parse, or walk/serialize
     "parse_error"    : str | null,
     "runtime_version": str
   }
@@ -357,53 +357,70 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
         # Parse error is NOT fatal; we still walk what was set
         parse_error = f"{type(exc).__name__}: {exc}"
 
-    # ---- Walk fields -------------------------------------------------------
-    total = [0]
-    depth_cap_flag = [False]
-    value_trunc_flag = [False]
-    fields: list[dict] = []
+    # ---- Walk fields and serialize -----------------------------------------
+    # Guard: a borderline input that parses OK can still exhaust RLIMIT_AS when
+    # _walk builds the field-record list or json.dumps serialises the result
+    # dict.  Pre-serialise into result_bytes entirely in memory so that, if OOM
+    # fires mid-way, stdout is still clean and the allocation-free handler can
+    # emit the memory-cap signal without any new Python-allocator calls — the
+    # same pattern as the read/parse guards above.
+    try:
+        total = [0]
+        depth_cap_flag = [False]
+        value_trunc_flag = [False]
+        fields: list[dict] = []
 
-    if obj is not None:
-        for rec in _walk(
-            obj,
-            "",
-            total,
-            args.max_fields,
-            0,
-            args.max_depth,
-            args.max_value_bytes,
-            depth_cap_flag,
-            value_trunc_flag,
-        ):
-            fields.append(rec)
+        if obj is not None:
+            for rec in _walk(
+                obj,
+                "",
+                total,
+                args.max_fields,
+                0,
+                args.max_depth,
+                args.max_value_bytes,
+                depth_cap_flag,
+                value_trunc_flag,
+            ):
+                fields.append(rec)
 
-    total_fields = total[0]
-    sampled = len(fields)
-    truncated = (
-        (sampled < total_fields)
-        or depth_cap_flag[0]
-        or value_trunc_flag[0]
-    )
+        total_fields = total[0]
+        sampled = len(fields)
+        truncated = (
+            (sampled < total_fields)
+            or depth_cap_flag[0]
+            or value_trunc_flag[0]
+        )
 
-    result = {
-        "root_type": class_name,
-        "module": module_name,
-        "fields": fields,
-        "counts": {
-            "total_fields": total_fields,
-            "sampled": sampled,
-        },
-        "truncated": truncated,
-        "depth_cap": depth_cap_flag[0],
-        "value_trunc": value_trunc_flag[0],
-        "memory_cap": False,
-        "parse_error": parse_error,
-        "runtime_version": runtime_version,
-    }
+        result = {
+            "root_type": class_name,
+            "module": module_name,
+            "fields": fields,
+            "counts": {
+                "total_fields": total_fields,
+                "sampled": sampled,
+            },
+            "truncated": truncated,
+            "depth_cap": depth_cap_flag[0],
+            "value_trunc": value_trunc_flag[0],
+            "memory_cap": False,
+            "parse_error": parse_error,
+            "runtime_version": runtime_version,
+        }
 
-    json.dump(result, sys.stdout, separators=(",", ":"), default=str)
-    sys.stdout.write("\n")
-    sys.stdout.flush()
+        result_bytes = (
+            json.dumps(result, separators=(",", ":"), default=str) + "\n"
+        ).encode("utf-8")
+    except MemoryError:
+        # RLIMIT_AS exhaustion during walk or serialization.  Write the
+        # pre-serialised signal via os.write — no new Python-allocator calls.
+        try:
+            os.write(1, _memory_cap_result_bytes)
+        except OSError:
+            return 1
+        return 0
+
+    os.write(1, result_bytes)
     return 0
 
 
