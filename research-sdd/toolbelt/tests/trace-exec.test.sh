@@ -689,6 +689,53 @@ with tempfile.TemporaryDirectory() as td:
         ok("TRACE-RED-INV5-earlyfail: pre_boot GateError → run_dir reaped, 0 orphans (INV-5)")
     except Exception as e: nok("TRACE-RED-INV5-earlyfail", str(e))
 
+# ── TRACE-INV1: receipt inputs[] bound to target sha256 (INV-1 / trace path) ────
+# Mirror of detonate-exec.test.sh::RED13 for the trace/target executor path.
+#
+# INV-1 gap (issue #68): trace plans store the binary under key "target" in
+# trace-plan.v1.json.  vm_boot_core.py:194 reads plan.get("target") and populates
+# inputs[].  That branch had NO assertion in this suite — a regression emptying
+# inputs[] for target-keyed plans would ship green.
+#
+# RED proof (mutation):
+#   Break the target branch in vm_boot_core.py by changing:
+#       _tgt = plan.get("target")
+#   to:
+#       _tgt = None                # forces fallback to _smp, which is {} for trace
+#   Result: inputs_r = [] → this test fails on the "inputs[] is EMPTY" assertion.
+#   Restore the original line → test greens.
+#   The 11 PARITY tests (check_disk_policy direct calls) and all other TRACE-* tests
+#   do NOT exercise inputs[]; this is the ONLY test that pins the INV-1 trace seam.
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    try:
+        r = cli("plan", "--target", str(elf), "--tracer", "strace",
+                "--output", str(tmp / "out"), "--allow-exec",
+                xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:400]}"
+        res = json.loads(r.stdout)
+        serial_log = res.get("serial_log", "")
+        assert serial_log, "serial_log missing from evidence"
+        run_dir_r = Path(serial_log).parent
+        receipt_path = run_dir_r / "vm-run-receipt.v1.json"
+        assert receipt_path.exists(), f"receipt not found at {receipt_path}"
+        receipt = json.loads(receipt_path.read_text())
+        inputs = receipt.get("inputs", [])
+        assert len(inputs) > 0, (
+            "receipt inputs[] is EMPTY on the trace/target path — "
+            "vm_boot_core.py plan.get('target') branch not populating inputs[] (INV-1 gap)"
+        )
+        # Verify the sha256 in inputs[] matches what trace_plan recorded for the target.
+        plan_file = tmp / "out" / "trace-plan.v1.json"
+        assert plan_file.exists(), f"trace-plan.v1.json not found: {plan_file}"
+        plan_data = json.loads(plan_file.read_text())
+        expected_sha = plan_data["target"]["sha256"]
+        assert any(e["sha256"] == expected_sha for e in inputs), (
+            f"inputs[] does not contain target sha256 {expected_sha!r}: {inputs}"
+        )
+        ok("TRACE-INV1: receipt inputs[] non-empty and contains target sha256 (INV-1 / trace path)")
+    except Exception as e: nok("TRACE-INV1", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
