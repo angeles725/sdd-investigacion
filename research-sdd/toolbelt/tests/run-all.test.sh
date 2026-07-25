@@ -4,7 +4,8 @@
 # The runner is itself a script under test: it auto-discovers sibling suites, streams+captures
 # their output, tracks suite outcome by EXIT CODE (via PIPESTATUS, not tee's code, not the parsed
 # count), sums case totals off the `== N passed · N failed ==` line (literal U+00B7 middle dot),
-# forwards --prove-teeth to *.test.sh only, and exits 0 iff every suite exited 0.
+# forwards --prove-teeth to *.test.sh only, and exits 0 iff no suite failed AND
+# at least one suite passed (a fully-skipped run — suites_ok == 0 — exits 1).
 #
 # ISOLATION: the runner discovers suites in ITS OWN dir, so we NEVER invoke the real ../run-all.sh
 # in the real tests/ dir. Per case we mktemp a workdir, cp the SUT into it, drop tiny FIXTURE suites
@@ -40,6 +41,15 @@ mkfix_harness(){ # file
   } > "$1"
 }
 newdir(){ local w="$TMP/$1"; mkdir -p "$w"; cp "$SUT" "$w/run-all.sh"; printf '%s' "$w"; }
+# A suite-level skip fixture: emits SKIP: on stdout, prints a 0/0 summary, exits 0.
+mkfix_skip(){ # file label
+  local f="$1" label="$2"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "SKIP: %s tests (missing: some-tool)"\n' "$label"
+    printf 'echo "== 0 passed %s 0 failed =="\n' "$MID"
+    printf 'exit 0\n'
+  } > "$f"
+}
 
 echo "== run-all.test.sh (SUT: run-all.sh) =="
 
@@ -154,6 +164,32 @@ argsh="$(cat "$w/arg-sh.txt" 2>/dev/null || true)"
 if [ "$rc" -eq 0 ] && [ "$argsh" = "--prove-teeth" ] && grep -qF 'Test cases passed: 3' <<<"$out"; then
   ok "trailing-args: '--prove-teeth extra-garbage' runs normally, only \$1 inspected (suite got --prove-teeth, not the garbage)"
 else no "trailing-args regressed: rc=$rc · arg-sh=[$argsh] :: $(grep -E 'Test cases passed|unknown flag' <<<"$out" | tr '\n' ' ')"; fi
+
+# 10 — skip-reporting: a suite that emits SKIP: and exits 0 must appear in the
+#      "Suites skipped" section, not counted as passed or failed. A passing suite
+#      running alongside it keeps the overall exit code 0.
+w="$(newdir c10)"
+mkfix_sh   "$w/pass.test.sh" 3 0 0
+mkfix_skip "$w/skip.test.sh" "skip"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'Suites skipped: 1' <<<"$out" \
+   && grep -qF 'skip.test.sh' <<<"$out" \
+   && grep -qF 'Suites passed: 1' <<<"$out"; then
+  ok "skip-report: one skip + one pass → exit 0, Suites skipped=1 named, Suites passed=1"
+else no "skip-report failed: rc=$rc :: $(grep -iE 'Suites (passed|skipped|failed)|skip\.test' <<<"$out" | tr '\n' ' ')"; fi
+
+# 11 — all-skip: when every suite signals SKIP and none pass, the run must not
+#      exit 0 (a fully-skipped run must not read as "all green").
+w="$(newdir c11)"
+mkfix_skip "$w/s1.test.sh" "s1"
+mkfix_skip "$w/s2.test.sh" "s2"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] \
+   && grep -qF 'Suites skipped: 2' <<<"$out" \
+   && grep -qF 'Suites passed: 0' <<<"$out"; then
+  ok "all-skip: all suites skip → exit 1 (no coverage), Suites skipped=2"
+else no "all-skip failed: rc=$rc :: $(grep -iE 'Suites (passed|skipped|failed)' <<<"$out" | tr '\n' ' ')"; fi
 
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.

@@ -27,7 +27,8 @@
 # import crashes node with exit 1), so that case surfaces as an ordinary failure.
 #
 # Runner exit code:
-#   0 only if EVERY suite exited 0; otherwise 1.
+#   0 if no suite failed AND at least one suite passed (skipped ≠ passed).
+#   1 if any suite failed, or if all suites were skipped (no real coverage).
 
 set -uo pipefail
 
@@ -77,7 +78,8 @@ suites_run=0
 suites_ok=0
 total_passed=0
 total_failed=0
-failed_suites=()   # "basename (exit N)" entries for the report
+failed_suites=()    # "basename (exit N)" entries for the report
+suites_skipped=()   # basenames of suites that emitted a SKIP: line and exited 0
 
 tmp_out="$(mktemp)"
 trap 'rm -f "$tmp_out"' EXIT
@@ -124,27 +126,36 @@ for suite in "${all_suites[@]}"; do
   fi
 
   # Suite-level outcome is driven by the EXIT CODE, not the parsed counts.
-  case "$rc" in
-    0)
-      suites_ok=$((suites_ok + 1))
-      ;;
-    2)
-      failed_suites+=("$base (HARNESS ERROR, exit 2)")
-      ;;
-    *)
-      if [[ -n "$parsed_line" ]]; then
-        failed_suites+=("$base (exit $rc)")
-      else
-        failed_suites+=("$base (exit $rc, no summary parsed)")
-      fi
-      ;;
-  esac
+  # A suite that exits 0 with a "SKIP:" line on stdout is classified as skipped,
+  # not passed. The line-start SKIP: form is the convention for whole-suite skips
+  # and is used by most suites. Known exceptions that use an indented no-colon form
+  # ("  SKIP  ...") instead: corroborate-pcap.test.sh and pcap-flows.test.sh — those
+  # two are not detected here and will be counted as passed if tshark is absent.
+  if [[ "$rc" -eq 0 ]] && grep -q '^SKIP:' "$tmp_out"; then
+    suites_skipped+=("$base")
+  else
+    case "$rc" in
+      0)
+        suites_ok=$((suites_ok + 1))
+        ;;
+      2)
+        failed_suites+=("$base (HARNESS ERROR, exit 2)")
+        ;;
+      *)
+        if [[ -n "$parsed_line" ]]; then
+          failed_suites+=("$base (exit $rc)")
+        else
+          failed_suites+=("$base (exit $rc, no summary parsed)")
+        fi
+        ;;
+    esac
+  fi
 
   echo
 done
 
 # --- Final aggregate block ------------------------------------------------
-suites_failed=$((suites_run - suites_ok))
+suites_failed=$((suites_run - suites_ok - ${#suites_skipped[@]}))
 
 echo "==============================================================="
 echo "AGGREGATE RESULT"
@@ -152,18 +163,26 @@ echo "==============================================================="
 echo "Suites run:    $suites_run"
 echo "Suites passed: $suites_ok"
 echo "Suites failed: $suites_failed"
+echo "Suites skipped: ${#suites_skipped[@]}"
 if [[ ${#failed_suites[@]} -gt 0 ]]; then
   echo "Failed suites:"
   for fs in "${failed_suites[@]}"; do
     echo "  - $fs"
   done
 fi
+if [[ ${#suites_skipped[@]} -gt 0 ]]; then
+  echo "Skipped suites:"
+  for ss in "${suites_skipped[@]}"; do
+    echo "  - $ss"
+  done
+fi
 echo "Test cases passed: $total_passed"
 echo "Test cases failed: $total_failed"
 echo "==============================================================="
 
-# Exit 0 only if every suite exited 0.
-if [[ $suites_ok -eq $suites_run ]]; then
+# Exit 0 only if no suite failed AND at least one suite actually passed.
+# A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
+if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]]; then
   exit 0
 else
   exit 1
