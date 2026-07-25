@@ -129,9 +129,12 @@ fi
 
 # 6 — Java and Ghidra probes are bounded even when an executable hangs.
 SLOW_JAVA="$ROOT/slow-java"; SLOW_GHIDRA="$ROOT/slow-ghidra"
-mkexec "$SLOW_JAVA/bin/java" 'sleep 5; echo '\''openjdk version "21.0.1"'\'' >&2'
+# sleep 8 (> the _t6_bound of 6000ms below): if the timeout wrapper is applied
+# but a single probe ignores SIGTERM (rc=124), it runs the full 8s and the
+# wall-clock clause still catches it — closes the single-probe-hang blind spot.
+mkexec "$SLOW_JAVA/bin/java" 'sleep 8; echo '\''openjdk version "21.0.1"'\'' >&2'
 mkexec "$SLOW_JAVA/bin/javap" 'exit 0'
-mkexec "$SLOW_GHIDRA/support/analyzeHeadless" 'echo Headless Analyzer Usage; sleep 5'
+mkexec "$SLOW_GHIDRA/support/analyzeHeadless" 'echo Headless Analyzer Usage; sleep 8'
 _T6_PROBE_TIMEOUT=0.1                    # seconds; also exported as RSDD_PROBE_TIMEOUT below
 start="$(date +%s%N)"
 RSDD_PROBE_TIMEOUT="$_T6_PROBE_TIMEOUT" rsdd_java_21_usable "$SLOW_JAVA"; java_rc=$?
