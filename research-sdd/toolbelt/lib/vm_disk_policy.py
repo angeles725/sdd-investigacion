@@ -153,7 +153,8 @@ _BWRAP_MOUNT_ARITY: dict[str, int] = {
 # when bound read-only via --qemu-root.  This set is checked against BOTH the
 # user-typed path (after trailing-slash normalization) and the realpath-resolved
 # path, so canonical names like /bin are caught even when they are symlinks to
-# /usr/bin on modern distros, and anti-evasion via /usr/../root is also caught.
+# /usr/bin on modern distros, and symlink indirection into a broad dir is also
+# caught (e.g. a symlink /opt/evil -> /usr resolves to /usr, which is in the set).
 _BROAD_QEMU_ROOT_DIRS: frozenset[str] = frozenset({
     "/", "/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc",
 })
