@@ -429,7 +429,7 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
     while _offset < len(result_bytes):
         _n = os.write(1, result_bytes[_offset:])
         if _n == 0:
-            break  # cannot make progress; fd is broken
+            return 1  # cannot make progress; report broken fd as failure
         _offset += _n
     return 0
 

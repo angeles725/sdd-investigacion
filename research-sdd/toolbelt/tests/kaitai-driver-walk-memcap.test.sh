@@ -256,5 +256,114 @@ then ok "T2: write-all loop handles partial os.write (monkeypatched 1 byte/call)
 else no "T2: write-all loop"
 fi
 
+# ---------------------------------------------------------------------------
+# T3: os.write returning 0 mid-payload must produce a non-zero exit code.
+#
+# A zero return from os.write signals a broken fd — no progress is possible.
+# The loop must exit with return 1 (failure) rather than break+return 0
+# (which would silently report success after emitting a truncated prefix).
+#
+# Before fix (break → return 0): ret=0 → assert ret != 0 fails → RED.
+# After fix  (return 1)        : ret=1 → assert ret != 0 passes → GREEN.
+#
+# M6 mutation (delete the `if _n == 0` branch entirely): the loop spins
+# indefinitely (_offset never advances past the stalled byte) → HANGS.
+# ---------------------------------------------------------------------------
+if python3 - "$DRIVER_LIB" <<'PY'
+import sys, os, json, types, tempfile, importlib.util
+
+driver_lib = sys.argv[1]
+
+spec = importlib.util.spec_from_file_location(
+    "_kd_t3", os.path.join(driver_lib, "kaitai_driver.py")
+)
+driver = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(driver)
+
+fake_ks = types.ModuleType("kaitaistruct")
+fake_ks.__version__ = "mock-0.0"
+
+class _KS:
+    def __init__(self, _io=None): self._io = _io
+class _KStream:
+    def __init__(self, data): pass
+fake_ks.KaitaiStruct = _KS
+fake_ks.KaitaiStream = _KStream
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    with open(os.path.join(tmpdir, "demo.py"), "w") as f:
+        f.write("from kaitaistruct import KaitaiStruct, KaitaiStream\n")
+        f.write("class Demo(KaitaiStruct):\n")
+        f.write("    def _read(self): pass\n")
+    with open(os.path.join(tmpdir, "sample.bin"), "wb") as f:
+        f.write(b"test")
+
+    sys.modules["kaitaistruct"] = fake_ks
+
+    real_write = driver.os.write
+    call_count = [0]
+
+    def zero_after_first(fd, data):
+        """Write one byte normally on the first call; return 0 on all subsequent
+        calls to simulate a stalled / broken fd mid-payload."""
+        call_count[0] += 1
+        if fd == 1:
+            if call_count[0] == 1:
+                real_write(fd, bytes(data[:1]))
+                return 1
+            return 0
+        return real_write(fd, data)
+
+    driver.os.write = zero_after_first
+
+    rfd, wfd = os.pipe()
+    saved_fd1 = os.dup(1)
+    os.dup2(wfd, 1)
+    os.close(wfd)
+
+    old_argv = sys.argv[:]
+    sys.argv = [
+        "kaitai_driver",
+        "--module-dir", tmpdir,
+        "--stem", "demo",
+        "--input", os.path.join(tmpdir, "sample.bin"),
+    ]
+
+    try:
+        ret = driver.main()
+    except SystemExit as e:
+        ret = int(e.code) if e.code is not None else 0
+    except Exception as e:
+        ret = 99
+        print(f"driver.main raised: {e}", file=sys.stderr)
+    finally:
+        sys.argv = old_argv
+        sys.modules.pop("kaitaistruct", None)
+        driver.os.write = real_write
+
+    os.dup2(saved_fd1, 1)
+    os.close(saved_fd1)
+
+    chunks = []
+    while True:
+        chunk = os.read(rfd, 65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    os.close(rfd)
+
+    captured = b"".join(chunks)
+
+    assert ret != 0, (
+        f"expected non-zero exit (partial write is failure), "
+        f"got exit={ret} wrote={len(captured)} bytes — "
+        "break+return 0 still present (silent truncation)"
+    )
+    print(f"OK: exit={ret} wrote={len(captured)} bytes before 0-return → non-zero exit")
+PY
+then ok "T3: os.write returning 0 mid-payload → exit non-zero (not silent truncation)"
+else no "T3: zero-return exit code"
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
