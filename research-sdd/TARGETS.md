@@ -34,6 +34,15 @@ Master-table row format:
   table as the first-run target-picker, so an oversized cell makes it unusable. (`verify-registry.sh`
   WARNs, propose-never-apply, when a master cell exceeds `RSDD_ROW_MAXLEN`, default 200 chars.)
 
+- Non-corpus targets (no `RESEARCH-STATE.md` by design — tooling, doc, production app) carry the flag
+  **`nc`** in their maturity parenthetical after a slash, e.g. `(6 md / nc / git no / remote no / hook no)`.
+  For these rows the `N md` count means **root-level `.md` files only**
+  (`find <target> -maxdepth 1 -type f -name '*.md'` — naturally excludes `.venv/`, `node_modules/`,
+  `.git/`, and `.atl/` without a hardcoded exclusion list). `verify-registry.sh` recognizes the `nc`
+  flag and verifies the count without emitting a false "corpus layout not resolvable" WARN. A target
+  WITHOUT the `nc` flag that also has no `RESEARCH-STATE.md` still receives the WARN — that is the
+  error, not a non-corpus exemption.
+
 Sensitivity:
 
 - **`live-install`** — the target is a REAL running installation/station (real credentials, keyring,
@@ -50,19 +59,19 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (248 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
-| 2 | module-navigator | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (9 md / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
-| 3 | niagara-help | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (4 md / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
+| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (268 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 2 | module-navigator | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (6 md / nc / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
+| 3 | niagara-help | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (2 md / nc / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (79 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
 | 5 | api-openness | `/home/cristian/investigacion/api-openness` | **mature** (16 md / git no / remote no / hook yes) `[CERT]` | Siemens .NET API (`Siemens.Engineering`) + official PDFs `[CERT]` | `fetch-doc.sh` + `decompile-net.sh` `[INFER]` | English `[CERT]` |
 | 7 | hifref | `/home/cristian/investigacion/hifref` | **intermediate** (9 md / git yes / remote yes / hook yes) `[CERT]` | BACnet/Modbus/SNMP field research: HTML + `.ps1` scripts + CSV; no binaries `[CERT]` | `fetch-doc.sh` + reading scripts | Spanish `[INFER]` |
 | 8 | logosoft | `/home/cristian/investigacion/logosoft` | **mature** (77 md / git yes / remote yes / hook yes ×2) `[CERT]` | LOGO! Soft Comfort: Java (`.class`) + native `.bin` dump + PDF manual `[CERT]` | `decompile-java.sh` + `scan-firmware.sh` + `fetch-doc.sh` | **Spanish — APPROVED override** (generate in Spanish; corpus continuity) `[CERT]` |
 | 9 | TRANE | `/home/cristian/investigacion/TRANE` | **intermediate** (5 md / git yes / remote yes / hook yes; RE started) `[CERT]` | `.scfx` package (81 MB, `data`) + decompiled .NET (TGE/TTUFramework `.cs`) + signature `[CERT]` | `decompile-net.sh` + `scan-firmware.sh` + `decompile-native.sh` (Ghidra) | Mixed English/Spanish `[CERT]` |
-| 10 | API-FACTURAS | `/home/cristian/ALSER/Proyectos/Automatizacion/API-FACTURAS` | **incipient** as research (2 real md / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
+| 10 | API-FACTURAS | `/home/cristian/ALSER/Proyectos/Automatizacion/API-FACTURAS` | **incipient** as research (2 md / nc / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
 | 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 4 retros + 4 corpus/client retros / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; corpus/retros/ = client artifacts, not §18 — detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 3 retros / git yes / remote yes / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
-| 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (1 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17.00.0046 + SP18 (Summit.exe 17.0.0.228) on Windows 11 mini-PC (DESKTOP-N3FMUUB / 192.168.0.23) — local install media (`SummitBase/Tracer Summit.msi`, `TracerSummitV17.00SP18 (1).exe`) + full old install copy at `/mnt/c/Tracer Summit/Tracer Summit/` (Bin/BASRegistration.exe, Registration Worksheet.rtf, full Database/Backup, Doc/IP Tools/IPtools.chm, CPL/Zodiac) `[CERT]` | Direct reading (`file`, `7z l`, `lessmsi`/`msiinfo`, `strings`, RTF/CHM/PDF parsing) + minimal ssh probe (read-only) + web (Trane/forum) — `decompile-native.sh`/`scan-firmware.sh` only if needed for control-flow questions | English `[CERT]` |
+| 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (5 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
 
 ---
 
@@ -233,6 +242,16 @@ exposing secrets. Sources are local (installer EXE/MSI, BASRegistration.exe + Re
 IPtools.chm, CPL PDFs, backup .MDBs read schema-only via `mdb-schema`) + web (Trane support, Tracer Summit
 literature, forums for operator workflow corroboration). SECRETS DISCIPLINE applies throughout — cite
 STRUCTURE of registration/operator secrets, never VALUES. Single focus: **activation-recovery**.
+
+**Master-row artifact-cell narrative (moved from the master table 2026-07-25, verbatim):**
+**Live-install investigation**: Trane Tracer Summit V17.00.0046 + SP18 (Summit.exe 17.0.0.228) on Windows 11
+mini-PC (DESKTOP-N3FMUUB / 192.168.0.23) — local install media (`SummitBase/Tracer Summit.msi`,
+`TracerSummitV17.00SP18 (1).exe`) + full old install copy at `/mnt/c/Tracer Summit/Tracer Summit/`
+(Bin/BASRegistration.exe, Registration Worksheet.rtf, full Database/Backup, Doc/IP Tools/IPtools.chm,
+CPL/Zodiac) `[CERT]`.
+Toolbelt detail: Direct reading (`file`, `7z l`, `lessmsi`/`msiinfo`, `strings`, RTF/CHM/PDF parsing) +
+minimal ssh probe (read-only) + web (Trane/forum) — `decompile-native.sh`/`scan-firmware.sh` only if needed
+for control-flow questions.
 
 ---
 
