@@ -112,7 +112,7 @@ This table is the normative containment spec. It is identical to
 | `network` | `"none"` | Always "none" — isolation mandatory |
 | `network_policy` | `{mode, justification}` | Explicit isolation record |
 | `disk` | `{mode, pre_snapshot_digest, post_snapshot_capture}` | `mode="per-drive-policy"` (D3 rebuild) |
-| `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable[, runtime_tree_ro]}` | Mount containment. When `--qemu-root` is supplied, the runtime-tree read-only bind is present in `planned_argv`; surfacing it here as `runtime_tree_ro: "/rsdd/rt"` is a declared forward field — NOT yet emitted in this dict (follow-up). |
+| `mount_plan` | `{sample_ro, rootfs_ro, scratch_persistent, output_writable, host_writable[, runtime_tree_ro]}` | Mount containment. When `--qemu-root` is supplied, `runtime_tree_ro: "/rsdd/rt"` is emitted in this dict (the key is absent, not null, when `--qemu-root` is not used). |
 | `limits` | `{cpu_seconds, mem_bytes, wall_seconds, output_bytes}` | Resource caps |
 | `snapshot_policy` | `{pre_run, post_run}` | State-hash capture intent |
 | `planned_argv` | `list[str]` | Full bwrap+qemu-system invocation with three typed `-drive` args, a file-scoped `--bind` for the scratch image, and `-append` (NEVER executed in dry-run) |

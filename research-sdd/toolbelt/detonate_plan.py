@@ -176,6 +176,9 @@ def build_plan(sample: Path, caps: dict[str, int], *,
             # missing (F5); this corrects a false statement, not loosens posture.
             # Invariant: host_writable == scratch_persistent (one writable file bind).
             "host_writable": _SCRATCH_SENTINEL,
+            # runtime_tree_ro is present only when --qemu-root is supplied;
+            # the key is absent (not null) when --qemu-root is not used.
+            **({"runtime_tree_ro": _RT_TREE_DEST} if qemu_root is not None else {}),
         },
         "limits": {"cpu_seconds": caps["cpu_seconds"], "mem_bytes": caps["mem_bytes"],
                    "wall_seconds": caps["wall_seconds"], "output_bytes": caps["output_bytes"]},
