@@ -67,6 +67,10 @@ for p in $paths; do
     key="$(realpath -- "$f" 2>/dev/null || printf '%s' "$f")"
     [ -n "${rsdd_seen_retro[$key]:-}" ] && continue
     rsdd_seen_retro[$key]=1
+    # Skip files that explicitly opt out of §18 supervision (see lib/retro-status.sh:
+    # retro_is_excluded). These are not §18 kit retros — e.g. client-feedback retros placed under
+    # corpus/retros/. Opt-out marker fails noisily (missing → file surfaces), not silently.
+    retro_is_excluded "$f" && continue
     total=$((total + 1))
     # Honor the marker only in the retro's LEADING HTML-comment block (see lib/retro-status.sh):
     # a marker-shaped string in the body or in heading/comment prose must not exclude an un-reviewed retro.
@@ -129,6 +133,8 @@ for p in $paths; do
   nr=0   # newest retro added-date under this target
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
+    # Skip excluded files so a client-artifact retro does not set nr and suppress MISSING-RETRO.
+    retro_is_excluded "$rf" && continue
     m="$(rsdd_added_epoch "$p" "$rf")"; [ "${m:-0}" -gt "$nr" ] && nr="$m"
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
   nb=0   # newest block added-date under this target (gen-catalog's block/bloque discriminator)

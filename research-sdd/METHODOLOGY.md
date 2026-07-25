@@ -972,6 +972,17 @@ sweeper [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) reads TARGETS.md,
 are always surfaced, even when nobody remembered to bring them. This closes the self-improvement loop:
 §18 GENERATES proposals autonomously; the sweeper ROUTES them; the human REVIEWS and applies (propose-never-apply).
 
+**Scope marker (opt-out) — `kit-retro: exclude`.** The sweeper walks retros recursively
+(`find … -maxdepth 4 -path '*/retros/*.md'`), so a `retros/` directory nested inside a corpus
+(e.g. `$TARGET/corpus/retros/`) is reached too. When a file in such a directory is NOT a §18 kit
+self-retrospective — e.g. a client-feedback retro whose deltas target a separate skill's
+`references/` files — it must carry `<!-- kit-retro: exclude -->` in its leading HTML-comment block.
+Both sweep-retros.sh (pending pass and MISSING-RETRO fleet pass) and stage-retro.sh skip such files.
+Design: OPT-OUT (not opt-in). An opt-in marker would fail silently — a genuine §18 retro missing the
+marker becomes invisible to supervision, the exact failure mode this loop exists to eliminate. An
+opt-out marker fails noisily — an un-marked non-§18 file surfaces as a false-positive PENDING item,
+visible and self-correcting. For a supervision instrument, noisy beats silent.
+
 **Concurrency & the supervisor branch/PR model.** Multiple targets can run at once WITHOUT colliding: each run
 writes only its OWN `<target>/retros/` and engram `research/<target>/retro`, and NONE touch the kit (propose-only).
 The kit (`sdd-investigacion`) is the single SUPERVISOR, touched only by the maintainer. To keep multi-source

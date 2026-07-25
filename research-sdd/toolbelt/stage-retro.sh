@@ -33,6 +33,14 @@ fi
 # perform the DESTRUCTIVE `git checkout -b`. Abort here, before ANY git mutation.
 declare -F retro_review_status >/dev/null 2>&1 || { echo "stage-retro: helper $LIB failed to define retro_review_status" >&2; exit 1; }
 
+# Opt-out scope guard: a file carrying '<!-- kit-retro: exclude -->' declares itself NOT a §18 kit
+# retro. Staging it would open a kit PR from the wrong scope (e.g. client-feedback retro targeting a
+# separate skill). Refuse before any git mutation, consistent with the applied|dismissed refusal.
+if retro_is_excluded "$retro"; then
+  echo "stage-retro: this file carries '<!-- kit-retro: exclude -->' and is not a §18 kit retro — nothing to stage." >&2
+  exit 2
+fi
+
 # review-status guard. Honor the marker only in the retro's LEADING HTML-comment block (see
 # lib/retro-status.sh) — a marker-shaped string deeper in the body must not gate staging.
 status=$(retro_review_status "$retro")

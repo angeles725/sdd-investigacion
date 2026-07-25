@@ -76,8 +76,11 @@ Always read first, in this order:
 
 == BOOTSTRAP (only if the target has NO corpus — no INDEX.md/RESEARCH-STATE.md at $TARGET or $TARGET/corpus/) ==
   $CORPUS is resolved MECHANICALLY by step c's research-sdd-init.sh (METHODOLOGY §15) — do NOT pre-create
-  `corpus/` by hand: pre-making the dir would flip the auto heuristic. `retros/` always stays at $TARGET root
-  (sweep-retros.sh scans $target/retros).
+  `corpus/` by hand: pre-making the dir would flip the auto heuristic. `research-sdd-init.sh` creates
+  `retros/` at $TARGET root; the sweeper resolves retros recursively (`-maxdepth 4 -path '*/retros/*.md'`),
+  so retros placed inside a nested corpus (e.g. `$TARGET/corpus/retros/`) are found too. A file that is NOT
+  a §18 kit retro must carry `<!-- kit-retro: exclude -->` in its leading comment block so sweep-retros.sh
+  and stage-retro.sh skip it (opt-out design: fails noisily if the marker is absent, not silently).
   a. Profile the target: $KIT/toolbelt/profile-target.sh $TARGET  (classifies binaries → wrapper).
      Also run $KIT/toolbelt/detect-tools.sh (cache the report): learn which decompilers are ACTUALLY
      available before deciding what you can do. Do NOT infer availability from `which` alone — Ghidra,

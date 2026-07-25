@@ -34,4 +34,26 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       | tr 'A-Z' 'a-z'
     return 0
   }
+
+  # retro_is_excluded <file>
+  #   Returns 0 (true) when the file's leading HTML-comment block carries the OPT-OUT scope marker
+  #   '<!-- kit-retro: exclude -->' (exact value, case-insensitive).  Returns 1 otherwise.
+  #
+  # Design: OPT-OUT means INCLUDE by default. A genuine §18 retro with NO marker is correctly
+  # supervised. Only a file that is explicitly NOT a §18 kit retro (e.g. a client-feedback retro
+  # living in corpus/retros/) carries the marker to opt out. This fails NOISILY when the marker is
+  # absent (the file surfaces as a false-positive PENDING item, visible and self-correcting) rather
+  # than SILENTLY (an unmarked genuine retro would become invisible — the exact failure mode the §18
+  # supervision loop exists to eliminate). Scans the same leading-block region as retro_review_status
+  # so the two share a consistent definition of "leading block".
+  retro_is_excluded() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 1
+    awk '
+      /^[[:space:]]*<!--/ { print; next }
+      /^[[:space:]]*$/     { next }
+      { exit }
+    ' "$f" 2>/dev/null \
+      | grep -qiE '<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->'
+  }
 fi
