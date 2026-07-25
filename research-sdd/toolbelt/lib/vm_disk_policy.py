@@ -146,6 +146,44 @@ _BWRAP_MOUNT_ARITY: dict[str, int] = {
 
 
 # ---------------------------------------------------------------------------
+# Broad qemu-root warning (issue #89)
+# ---------------------------------------------------------------------------
+
+# System directories broad enough to materially widen the sandbox escape surface
+# when bound read-only via --qemu-root.  This set is checked against BOTH the
+# user-typed path (after trailing-slash normalization) and the realpath-resolved
+# path, so canonical names like /bin are caught even when they are symlinks to
+# /usr/bin on modern distros, and symlink indirection into a broad dir is also
+# caught (e.g. a symlink /opt/evil -> /usr resolves to /usr, which is in the set).
+_BROAD_QEMU_ROOT_DIRS: frozenset[str] = frozenset({
+    "/", "/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc",
+})
+
+
+def broad_qemu_root_message(resolved_src: str, typed_src: str) -> str | None:
+    """Return a warning string if qemu-root names a broad system directory, else None.
+
+    Both typed_src (normalized) and resolved_src (realpath) are checked against
+    _BROAD_QEMU_ROOT_DIRS.  Checking the typed path catches canonical broad names
+    even when they are symlinks (e.g. /bin -> /usr/bin on merged-usr distros).
+    Checking the resolved path catches anti-evasion via symlink indirection into a
+    broad directory (e.g. /opt/evil -> /usr).
+
+    This is a pure function — no filesystem I/O.  The caller resolves symlinks
+    (os.path.realpath) and passes both the original and resolved strings.
+    """
+    normed_typed = typed_src.rstrip("/") or "/"
+    normed_resolved = resolved_src.rstrip("/") or "/"
+    if normed_typed not in _BROAD_QEMU_ROOT_DIRS and normed_resolved not in _BROAD_QEMU_ROOT_DIRS:
+        return None
+    return (
+        f"WARNING: --qemu-root {typed_src!r} binds a broad system directory "
+        "read-only into the sandbox, widening the escape surface unnecessarily; "
+        "consider using a curated runtime tree instead"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 

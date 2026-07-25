@@ -317,6 +317,58 @@ with tempfile.TemporaryDirectory() as td:
         ok("TP-KERNEL-INTREE: trace default -kernel is under /rsdd/rt when --qemu-root")
     except Exception as e: nok("TP-KERNEL-INTREE", str(e))
 
+# ── TP-BROAD-WARN: broad --qemu-root dirs → WARNING on stderr; exit code unchanged ───────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN)
+    for broad in ["/", "/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc"]:
+        out = R/f"out_{broad.lstrip('/') or 'root'}"
+        try:
+            r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                    "--qemu-root",broad)
+            assert r.returncode == 3, f"{broad}: exit code {r.returncode} (expected 3)"
+            assert "WARNING" in r.stderr, (
+                f"{broad}: no WARNING in stderr; got: {r.stderr[:300]}"
+            )
+            ok(f"TP-BROAD-WARN {broad}: WARNING on stderr; exit code unchanged (3)")
+        except Exception as e: nok(f"TP-BROAD-WARN {broad}", str(e))
+# ── TP-BROAD-NOWARN: non-broad --qemu-root → no WARNING on stderr ────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3, f"got {r.returncode}"
+        assert "WARNING" not in r.stderr, (
+            f"unexpected WARNING in stderr for narrow --qemu-root: {r.stderr[:200]}"
+        )
+        ok("TP-BROAD-NOWARN: --qemu-root /opt/rsdd/rt → no WARNING on stderr")
+    except Exception as e: nok("TP-BROAD-NOWARN", str(e))
+
+# ── TP-RTMOUNT-MOUNTPLAN: mount_plan has runtime_tree_ro when --qemu-root given ─────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out),
+                "--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3, f"got {r.returncode}; stderr={r.stderr[:200]}"
+        mp = json.loads((out/"trace-plan.v1.json").read_text())["mount_plan"]
+        assert "runtime_tree_ro" in mp, f"mount_plan missing runtime_tree_ro; keys={list(mp)}"
+        assert mp["runtime_tree_ro"] == "/rsdd/rt", f"runtime_tree_ro={mp['runtime_tree_ro']!r}"
+        ok("TP-RTMOUNT-MOUNTPLAN: mount_plan has runtime_tree_ro='/rsdd/rt' when --qemu-root")
+    except Exception as e: nok("TP-RTMOUNT-MOUNTPLAN", str(e))
+# ── TP-RTMOUNT-MOUNTPLAN-ABSENT: mount_plan omits runtime_tree_ro without --qemu-root ───
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(_BIN); out = R/"out"
+    try:
+        r = cli("plan","--target",str(t),"--tracer","strace","--output",str(out))
+        assert r.returncode == 3, f"got {r.returncode}"
+        mp = json.loads((out/"trace-plan.v1.json").read_text())["mount_plan"]
+        assert "runtime_tree_ro" not in mp, (
+            f"mount_plan must NOT contain runtime_tree_ro when --qemu-root absent; got {mp}"
+        )
+        ok("TP-RTMOUNT-MOUNTPLAN-ABSENT: mount_plan omits runtime_tree_ro when --qemu-root absent")
+    except Exception as e: nok("TP-RTMOUNT-MOUNTPLAN-ABSENT", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

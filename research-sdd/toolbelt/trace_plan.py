@@ -27,6 +27,7 @@ from plan_common import (                                                       
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
     run_adapter_main, add_max_input_bytes_arg,
 )
+from vm_disk_policy import broad_qemu_root_message as _broad_qemu_root_msg      # noqa: E402
 
 SCHEMA_VERSION = "trace-plan.v1"
 _VALID_TRACERS: frozenset[str] = frozenset({"strace", "ltrace", "gdb-batch"})
@@ -175,6 +176,9 @@ def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
             # C3: host_writable flips from "none" to the scratch sentinel.
             # Invariant: host_writable == scratch_persistent (one writable file bind).
             "host_writable": _SCRATCH_SENTINEL,
+            # runtime_tree_ro is present only when --qemu-root is supplied;
+            # the key is absent (not null) when --qemu-root is not used.
+            **({"runtime_tree_ro": _RT_TREE_DEST} if qemu_root is not None else {}),
         },
         "limits": {"cpu_seconds": caps["cpu_seconds"], "mem_bytes": caps["mem_bytes"],
                    "wall_seconds": caps["wall_seconds"], "output_bytes": caps["output_bytes"]},
@@ -206,6 +210,10 @@ def plan_trace(args: Any) -> int:
         if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             print(f"trace-plan: cap {k!r} must be positive int", file=sys.stderr); return 2
     qemu_root = getattr(args, "qemu_root", None)
+    if qemu_root is not None:
+        _rt_warn = _broad_qemu_root_msg(os.path.realpath(qemu_root), qemu_root)
+        if _rt_warn is not None:
+            print(f"trace-plan: {_rt_warn}", file=sys.stderr)
     kernel_path = args.kernel
     if qemu_root is not None and kernel_path == _DEFAULT_KERNEL:
         kernel_path = f"{_RT_TREE_DEST}/vmlinuz"

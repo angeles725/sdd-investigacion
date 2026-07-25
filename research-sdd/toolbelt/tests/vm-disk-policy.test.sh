@@ -825,6 +825,38 @@ assert_passes(
     "VDP-REACH-NO-RT-BIND: no runtime-tree bind → R-REACH extension inactive → passes"
 )
 
+# ── VDP-BROAD-WARN-RESOLVED: resolved in broad set, typed safe → returns warning ──────
+# Kills M7: removing the normed_resolved branch makes this return None.
+# resolved="/usr" (in _BROAD_QEMU_ROOT_DIRS), typed="/opt/evil" (not in set).
+# The resolved-check arm must be the sole reason a warning is returned.
+try:
+    _w = m.broad_qemu_root_message("/usr", "/opt/evil")
+    assert _w is not None, "expected warning string but got None"
+    assert "WARNING" in _w, f"warning missing 'WARNING' token: {_w!r}"
+    ok("VDP-BROAD-WARN-RESOLVED: resolved in broad set, typed safe → warning (kills M7)")
+except Exception as e:
+    nok("VDP-BROAD-WARN-RESOLVED", str(e))
+
+# ── VDP-BROAD-WARN-TYPED: typed in broad set, resolved safe → returns warning ─────────
+# Kills M6 host-independently: removing the normed_typed branch makes this return None.
+# resolved="/opt/x/bin" (NOT in set), typed="/bin" (in set).
+# Using a synthetic resolved path that is not in the set isolates the typed-check arm.
+try:
+    _w = m.broad_qemu_root_message("/opt/x/bin", "/bin")
+    assert _w is not None, "expected warning string but got None"
+    assert "WARNING" in _w, f"warning missing 'WARNING' token: {_w!r}"
+    ok("VDP-BROAD-WARN-TYPED: typed in broad set, resolved safe → warning (kills M6 host-independently)")
+except Exception as e:
+    nok("VDP-BROAD-WARN-TYPED", str(e))
+
+# ── VDP-BROAD-NOWARN: neither resolved nor typed in broad set → returns None ──────────
+try:
+    _w = m.broad_qemu_root_message("/opt/x", "/opt/x")
+    assert _w is None, f"expected None but got: {_w!r}"
+    ok("VDP-BROAD-NOWARN: neither path in broad set → None (no false positives)")
+except Exception as e:
+    nok("VDP-BROAD-NOWARN", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
