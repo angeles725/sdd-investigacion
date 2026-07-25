@@ -483,6 +483,31 @@ with tempfile.TemporaryDirectory() as td:
         ok("T-KERNEL-INTREE: default -kernel is under /rsdd/rt when --qemu-root given")
     except Exception as e: nok("T-KERNEL-INTREE", str(e))
 
+# ── T-BROAD-WARN: broad --qemu-root dirs → WARNING on stderr; exit code unchanged ────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16)
+    for broad in ["/", "/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc"]:
+        out = R/f"out_{broad.lstrip('/') or 'root'}"
+        try:
+            r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root",broad)
+            assert r.returncode == 3, f"{broad}: exit code {r.returncode} (expected 3)"
+            assert "WARNING" in r.stderr, (
+                f"{broad}: no WARNING in stderr; got: {r.stderr[:300]}"
+            )
+            ok(f"T-BROAD-WARN {broad}: WARNING on stderr; exit code unchanged (3)")
+        except Exception as e: nok(f"T-BROAD-WARN {broad}", str(e))
+# ── T-BROAD-NOWARN: non-broad --qemu-root → no WARNING on stderr ─────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/opt/rsdd/rt")
+        assert r.returncode == 3, f"got {r.returncode}"
+        assert "WARNING" not in r.stderr, (
+            f"unexpected WARNING in stderr for narrow --qemu-root: {r.stderr[:200]}"
+        )
+        ok("T-BROAD-NOWARN: --qemu-root /opt/rsdd/rt → no WARNING on stderr")
+    except Exception as e: nok("T-BROAD-NOWARN", str(e))
+
 # ── T-RTMOUNT-MOUNTPLAN: mount_plan has runtime_tree_ro when --qemu-root given ────────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out"

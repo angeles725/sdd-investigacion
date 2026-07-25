@@ -25,6 +25,7 @@ from plan_common import (                                                       
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
     run_adapter_main, add_max_input_bytes_arg,
 )
+from vm_disk_policy import broad_qemu_root_message as _broad_qemu_root_msg      # noqa: E402
 
 SCHEMA_VERSION = "detonate-plan.v1"
 _DEFAULT_CPU = 30; _DEFAULT_MEM = 256 << 20; _DEFAULT_WALL = 60; _DEFAULT_OUT = 128 << 20
@@ -209,6 +210,10 @@ def plan_detonate(args: Any) -> int:
         if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             print(f"detonate-plan: cap {k!r} must be positive int", file=sys.stderr); return 2
     qemu_root = getattr(args, "qemu_root", None)
+    if qemu_root is not None:
+        _rt_warn = _broad_qemu_root_msg(os.path.realpath(qemu_root), qemu_root)
+        if _rt_warn is not None:
+            print(f"detonate-plan: {_rt_warn}", file=sys.stderr)
     kernel_path = args.kernel
     if qemu_root is not None and kernel_path == _DEFAULT_KERNEL:
         kernel_path = f"{_RT_TREE_DEST}/vmlinuz"
