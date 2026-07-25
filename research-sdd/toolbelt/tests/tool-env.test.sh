@@ -132,14 +132,24 @@ SLOW_JAVA="$ROOT/slow-java"; SLOW_GHIDRA="$ROOT/slow-ghidra"
 mkexec "$SLOW_JAVA/bin/java" 'sleep 5; echo '\''openjdk version "21.0.1"'\'' >&2'
 mkexec "$SLOW_JAVA/bin/javap" 'exit 0'
 mkexec "$SLOW_GHIDRA/support/analyzeHeadless" 'echo Headless Analyzer Usage; sleep 5'
+_T6_PROBE_TIMEOUT=0.1                    # seconds; also exported as RSDD_PROBE_TIMEOUT below
 start="$(date +%s%N)"
-RSDD_PROBE_TIMEOUT=0.1 rsdd_java_21_usable "$SLOW_JAVA"; java_rc=$?
-JAVA_HOME="$BREW/opt/openjdk@21" RSDD_PROBE_TIMEOUT=0.1 rsdd_probe_ghidra "$SLOW_GHIDRA"; ghidra_rc=$?
+RSDD_PROBE_TIMEOUT="$_T6_PROBE_TIMEOUT" rsdd_java_21_usable "$SLOW_JAVA"; java_rc=$?
+JAVA_HOME="$BREW/opt/openjdk@21" RSDD_PROBE_TIMEOUT="$_T6_PROBE_TIMEOUT" rsdd_probe_ghidra "$SLOW_GHIDRA"; ghidra_rc=$?
 elapsed_ms=$(( (10#$(date +%s%N) - 10#$start) / 1000000 ))
-if [ "$java_rc" -ne 0 ] && [ "$ghidra_rc" -ne 0 ] && [ "$elapsed_ms" -lt 1000 ]; then
-  ok "6 Java and Ghidra probes time out" "(${elapsed_ms}ms)"
+# Scale the wall-clock bound off the configured probe timeout so the guard stays meaningful
+# under scheduling load. Each probe makes at most one full-length timeout call; a 40x
+# multiplier plus 2 000 ms fixed slack gives 6 000 ms at 0.1 s — comfortably above the
+# observed 3 797 ms load spike (17x unloaded) while remaining well below a genuine 2-probe
+# hang (two 5 s sleeps = ~10 000 ms). A genuine hang where both probes exit 0 is caught
+# first by the rc assertions (java_rc=0 or ghidra_rc=0); the wall-clock bound catches the
+# case where probes exit non-zero but stall well beyond the timeout. Same rationale as #74.
+_t6_ms=$(awk "BEGIN{printf \"%d\", $_T6_PROBE_TIMEOUT * 1000}")
+_t6_bound=$(( 40 * _t6_ms + 2000 ))
+if [ "$java_rc" -ne 0 ] && [ "$ghidra_rc" -ne 0 ] && [ "$elapsed_ms" -lt "$_t6_bound" ]; then
+  ok "6 Java and Ghidra probes time out" "(${elapsed_ms}ms < ${_t6_bound}ms)"
 else
-  no "6 Java and Ghidra probes time out" "java=$java_rc ghidra=$ghidra_rc elapsed=${elapsed_ms}ms"
+  no "6 Java and Ghidra probes time out" "java=$java_rc ghidra=$ghidra_rc elapsed=${elapsed_ms}ms (bound ${_t6_bound}ms)"
 fi
 
 # 7 — Explicit invalid overrides are authoritative: never hide a typo by
