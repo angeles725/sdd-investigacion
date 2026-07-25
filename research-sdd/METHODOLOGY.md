@@ -977,7 +977,9 @@ are always surfaced, even when nobody remembered to bring them. This closes the 
 (e.g. `$TARGET/corpus/retros/`) is reached too. When a file in such a directory is NOT a §18 kit
 self-retrospective — e.g. a client-feedback retro whose deltas target a separate skill's
 `references/` files — it must carry `<!-- kit-retro: exclude -->` in its leading HTML-comment block.
-Both sweep-retros.sh (pending pass and MISSING-RETRO fleet pass) and stage-retro.sh skip such files.
+`sweep-retros.sh` (pending pass and MISSING-RETRO fleet pass) silently skips such files;
+`stage-retro.sh` refuses them with exit 2. `research-sdd-archive.sh` also filters excluded
+retros from both the `retros:` mirror-fact count and the MISSING-RETRO detector.
 Design: OPT-OUT (not opt-in). An opt-in marker would fail silently — a genuine §18 retro missing the
 marker becomes invisible to supervision, the exact failure mode this loop exists to eliminate. An
 opt-out marker fails noisily — an un-marked non-§18 file surfaces as a false-positive PENDING item,

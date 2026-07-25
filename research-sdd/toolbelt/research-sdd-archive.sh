@@ -42,6 +42,16 @@ raw_target="$target"
 target="$(cd "$target" 2>/dev/null && pwd)" || { echo "research-sdd-archive: not a directory: $raw_target" >&2; exit 1; }
 
 here="$(cd "$(dirname "$0")" && pwd)"
+
+# Source the shared retro helper (retro_is_excluded) — fail-closed: a missing helper means we
+# cannot filter excluded retros from the retros count or MISSING-RETRO detector.
+_lib="$here/lib/retro-status.sh"
+if [ ! -f "$_lib" ]; then echo "research-sdd-archive: cannot find helper $_lib" >&2; exit 1; fi
+. "$_lib"
+declare -F retro_is_excluded >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper $_lib failed to define retro_is_excluded" >&2; exit 1; }
+unset _lib
+
 # Resolve the corpus root exactly like research-sdd-status.sh: shallowest RESEARCH-STATE, deterministically.
 # (No -e: a non-zero from find on an unreadable subtree is discarded, not fatal — the value is still correct.)
 state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
@@ -134,7 +144,13 @@ echo "    index          : $index"
 # Count blocks with gen-catalog.py's OWN discriminator (`<prefix>-block|bloque<num>.md`), not a loose
 # `*block*.md` glob — otherwise a decoy like `blocked-notes.md` inflates the count fed to the TARGETS.md row.
 blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
-retros="$(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u | wc -l | tr -d ' ')"
+# Count only non-excluded retros — files carrying '<!-- kit-retro: exclude -->' are not §18 kit retros.
+retros=0
+while IFS= read -r _rfe; do
+  [ -n "$_rfe" ] || continue
+  retro_is_excluded "$_rfe" && continue
+  retros=$((retros + 1))
+done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
 # Iteration-history rows: data rows in the "## Iteration history" table (numeric first cell; header/separator excluded).
 histrows="$(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0} f' "$state" \
   | awk '{l=$0; gsub(/^[ \t]+|[ \t]+$/,"",l); sub(/^\|/,"",l); n=split(l,a,"|"); gsub(/^[ \t]+|[ \t]+$/,"",a[1]); if (a[1] ~ /^[0-9]+$/) c++} END{print c+0}')"
@@ -157,6 +173,7 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added) epoch if t
 newest_retro_epoch=0
 while IFS= read -r rf; do
   [ -n "$rf" ] || continue
+  retro_is_excluded "$rf" && continue   # excluded retros do not count toward MISSING-RETRO detection
   m="$(rsdd_added_epoch "$corpus" "$rf")"; [ "${m:-0}" -gt "$newest_retro_epoch" ] && newest_retro_epoch="$m"
 done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
 newest_block_epoch=0

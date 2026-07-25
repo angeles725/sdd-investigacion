@@ -243,9 +243,10 @@ else no "unreadable subtree: exit=$rc / banner=$(grep -c 'research-sdd-archive:'
 
 # 13 — a MISSING/broken gate linter must fail CLOSED and be reported DISTINCTLY (not as a stale-mirror FAIL).
 d="$TMP/brokenlinter"; mkgood "$d"
-tb="$TMP/tb"; mkdir -p "$tb"
+tb="$TMP/tb"; mkdir -p "$tb/lib"
 cp "$SUT" "$tb/research-sdd-archive.sh"
 cp "$HERE/../verify-sources.sh" "$tb/verify-sources.sh"   # present + passing
+cp "$HERE/../lib/retro-status.sh" "$tb/lib/retro-status.sh"  # required helper
 # verify-state.sh deliberately NOT copied → the gate call resolves to a missing file (rc 127)
 out="$(bash "$tb/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 3 ] && grep -qi 'did not run' <<<"$out" && [ ! -f "$d/CATALOG.md" ]; then
@@ -355,6 +356,22 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && ! grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "retro newer than blocks → no MISSING-RETRO WARN (negative control)"
 else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
+
+# 20c — EXCLUDED-ONLY RETROS (B2): a corpus with blocks AND a §18-excluded retro (carrying
+#       '<!-- kit-retro: exclude -->') is still effectively retro-free from the §18 perspective.
+#       The MISSING-RETRO WARN must still fire (the excluded retro must NOT suppress it), and
+#       the 'retros: N' mirror fact must count 0 (excluded files are not §18 kit retros).
+#       RED before wiring retro_is_excluded in archive.sh: the old find-pipe-wc counted the
+#       excluded file, reporting retros:1 and suppressing MISSING-RETRO.
+d="$TMP/excluded-retro"; mkgood "$d"; mkdir -p "$d/retros"
+printf '<!-- kit-retro: exclude -->\n# client retro — not §18\n' > "$d/retros/client.md"
+touch "$d/retros/client.md"   # FRESH mtime — would suppress MISSING-RETRO if counted as a real retro
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] \
+   && grep -qi 'MISSING-RETRO' <<<"$out" \
+   && grep -qE 'retros: 0( |$|\·|\·)' <<<"$out"; then
+  ok "20c excluded-only retro → retros:0 + MISSING-RETRO WARN still fires (B2 wiring)"
+else no "20c excluded-retro: rc=$rc retros=$(grep 'retros:' <<<"$out" | head -1) :: $(grep -i retro <<<"$out" | head -2)"; fi
 
 # 21 — GIT-ADDED-DATE path, exercised for real (Feature #25a): block git-added AFTER retro, but mtimes say
 #      the OPPOSITE (retro mtime later than block mtime). A detector reading mtime instead of the git date

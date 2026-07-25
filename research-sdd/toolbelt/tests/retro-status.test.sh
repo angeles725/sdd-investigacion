@@ -160,6 +160,51 @@ got="$(retro_review_status "$f")"
                        || no "9 pending marker → pending" "got '$got'"
 
 # ---------------------------------------------------------------------------
+# retro_is_excluded unit tests — the shared opt-out scope marker helper.
+
+# 10 — CORRECT MARKER → excluded. A file whose leading HTML-comment block carries the exact
+#      '<!-- kit-retro: exclude -->' marker must be identified as excluded (return 0).
+f="$(mkretro rexcl-correct <<'EOF'
+<!-- kit-retro: exclude -->
+# client retro — not §18
+body text
+EOF
+)"
+retro_is_excluded "$f" \
+  && ok "10 retro_is_excluded: correct leading-block marker → excluded (return 0)" "()" \
+  || no "10 retro_is_excluded: correct leading-block marker → excluded (return 0)" "(returned 1)"
+
+# 11 — QUOTED-IN-LONGER-COMMENT → NOT excluded (B3 full-line anchor). A comment line whose
+#      PROSE mentions '<!-- kit-retro: exclude -->' but adds surrounding text (a longer comment)
+#      must NOT trigger the opt-out. Without a full-line anchor the unanchored grep matches the
+#      embedded pattern inside the longer line — a false exclusion. RED until B3 is fixed.
+f="$(mkretro rexcl-b3-quoted <<'EOF'
+<!-- note: a file opts out with '<!-- kit-retro: exclude -->' in its leading block -->
+# retro
+body text
+EOF
+)"
+retro_is_excluded "$f" \
+  && no "11 retro_is_excluded: marker quoted in longer comment → NOT excluded (B3 anchor)" "(returned 0 — false exclusion)" \
+  || ok "11 retro_is_excluded: marker quoted in longer comment → NOT excluded (B3 anchor)" "()"
+
+# 12 — BODY-POSITION MARKER → NOT excluded (M5 invariant). The exclude marker positioned BELOW
+#      the leading block (after a '# heading') must be ignored by retro_is_excluded. This pins
+#      the '{ exit }' guard in retro_is_excluded's awk: without it the whole-file scan finds the
+#      body marker and falsely excludes the file. The M5 tooth (--prove-teeth) removes that guard
+#      and asserts this case then goes RED, proving the guard is load-bearing.
+f="$(mkretro rexcl-body-pos <<'EOF'
+# retro
+
+<!-- kit-retro: exclude -->
+body text
+EOF
+)"
+retro_is_excluded "$f" \
+  && no "12 retro_is_excluded: body-position marker → NOT excluded (M5 invariant)" "(returned 0 — false exclusion)" \
+  || ok "12 retro_is_excluded: body-position marker → NOT excluded (M5 invariant)" "()"
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Case 8 claims the '<!--' anchor in the marker regex is what stops a
 # review-status substring buried in a comment's PROSE from being misread as a real status. Mutate a
 # throwaway COPY of the helper: DROP the '<!--' anchor from the grep so any 'review-status: <word>'
@@ -188,6 +233,29 @@ EOF
     else
       no "teeth: anchor-dropped mutant false-resolves comment prose" "mutant returned '$outm' — case 8 is THEATER"
     fi
+  fi
+
+  # Tooth M5: remove the bare '{ exit }' from retro_is_excluded's awk, enabling a whole-file scan.
+  # A body-position marker (case 12 fixture) must then FALSELY exclude — return 0 (excluded).
+  # Uses sed to delete the ONE bare '{ exit }' line (the one in retro_is_excluded's awk, which has
+  # no trailing comment); the matching line in retro_review_status has a trailing '# ...' comment
+  # and is NOT deleted, keeping retro_review_status intact. If the mutant returns 1 (not excluded),
+  # case 12's '{ exit }' guard was never the deciding factor and case 12 is theater.
+  echo "-- teeth M5: drop { exit } from retro_is_excluded awk; body marker must false-exclude (case 12 has teeth) --"
+  m5_mutant="$ROOT/retro-status.m5.sh"
+  sed '/^      { exit }$/ d' "$HELPER" > "$m5_mutant"
+  fix12="$(mkretro m5-body-check <<'EOF'
+# retro
+
+<!-- kit-retro: exclude -->
+body text
+EOF
+)"
+  m5_rc="$("$BASH_BIN" -c '. "$1"; retro_is_excluded "$2"; echo $?' _ "$m5_mutant" "$fix12" 2>&1)"
+  if [ "$m5_rc" = "0" ]; then
+    ok "teeth M5: { exit }-dropped mutant false-excludes body-position marker" "(case 12 has teeth)"
+  else
+    no "teeth M5: { exit }-dropped mutant should false-exclude body-position marker" "exit was '$m5_rc' (expected 0) — case 12 is THEATER"
   fi
 fi
 

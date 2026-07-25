@@ -541,6 +541,26 @@ else
   no "26 garbled marker (excluded vs exclude) → fail-open, file surfaces as PENDING" "exit=$RC out=[$OUT]"
 fi
 
+# 27 — BODY-POSITION OPT-OUT (M5 invariant). A file whose '<!-- kit-retro: exclude -->' marker
+#      appears BELOW its leading block (after the '# retro' heading — not in the leading HTML-comment
+#      block) must still surface as PENDING. Mirrors case 14 (body-position review-status marker is
+#      ignored) for the exclusion marker. This pins the '{ exit }' guard in retro_is_excluded's awk:
+#      removing it (M5 mutation) enables a whole-file scan that finds the body marker and falsely
+#      excludes the retro. The M5 tooth (--prove-teeth) asserts that this case goes RED on M5.
+kit="$(mkkit c27-body-excluded)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "-" 2   # no leading marker; '# retro' heading on the first content line
+printf '\n<!-- kit-retro: exclude -->\n' >> "$tgt/retros/r1.md"   # body-position marker
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'status: none' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "27 body-position exclude marker → still PENDING (M5 invariant, marker ignored outside leading block)" "(exit $RC)"
+else
+  no "27 body-position exclude marker → still PENDING (M5 invariant, marker ignored outside leading block)" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -697,6 +717,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth E4: fixture without exclude marker surfaces as PENDING (case 23 non-trivial)" "()"
   else
     no "teeth E4: fixture without exclude marker surfaces as PENDING (anti-vacuity)" "retro did not surface — test structure is trivially passing: [$outv]"
+  fi
+
+  # Tooth M5: drop the bare '{ exit }' from retro_is_excluded's awk → whole-file scan in the lib.
+  # A body-position exclude marker (case 27 fixture) must then FALSELY exclude the retro — the
+  # mutant lib scans the whole file, finds the body marker, the retro disappears: 0 pending / 0 retros.
+  # If the mutant stays PENDING, the '{ exit }' guard was never the deciding factor and case 27 is theater.
+  # Uses sed to delete the ONE bare '{ exit }' line (no trailing comment) in retro_is_excluded's awk;
+  # retro_review_status's matching line has a trailing '# ...' comment and is NOT deleted.
+  echo "-- teeth M5: drop { exit } from retro_is_excluded awk; body-position marker must false-exclude (case 27 has teeth) --"
+  kit="$(mkkit teeth-m5-body)"; tgt="$kit/targetA"
+  mkretro "$tgt" "r1.md" "-" 2   # no leading marker
+  printf '\n<!-- kit-retro: exclude -->\n' >> "$tgt/retros/r1.md"   # body-position marker
+  write_targets "$kit" "$tgt"
+  sed '/^      { exit }$/ d' "$LIB" > "$kit/toolbelt/lib/retro-status.sh"
+  outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+  if grep -q 'Summary: 0 pending / 0 retros' <<<"$outm"; then
+    ok "teeth M5: { exit }-dropped mutant false-excludes body-position retro → 0/0 (case 27 has teeth)" "()"
+  else
+    no "teeth M5: { exit }-dropped mutant kept retro PENDING — case 27 is THEATER" "out=[$outm]"
   fi
 fi
 
