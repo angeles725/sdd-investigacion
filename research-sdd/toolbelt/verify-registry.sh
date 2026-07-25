@@ -68,6 +68,30 @@ for p in $paths; do
   # truncated-'...' PARTIAL WARN reports "couldn't check"; a bare non-dir token is just not a corpus.
   [ -d "$p" ] || continue
 
+  # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
+  # nc-marked targets (tooling, doc, production app) never trigger a deep filesystem search.
+  # Convention: 'N md' for nc rows counts root-level .md only (maxdepth 1 — package-manager-safe;
+  # excludes .venv/node_modules without any hardcoded exclusion list). Targets WITHOUT the nc flag
+  # and no RESEARCH-STATE still receive the 'not resolvable' WARN — the anti-blank-silencer guarantee
+  # enforced by tests 6 and 13. '/ nc' is detected by the ERE below; the sentinel comment is the
+  # mutation target for the --prove-teeth nc teeth test.
+  if printf '%s' "$row" | grep -qE '/ nc[ /;)|]'; then  # NC-EXEMPT-CHECK
+    name="$(basename "$p")"
+    real="$(find "$p" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    checked=$((checked + 1))
+    if [ -z "$claimed" ]; then
+      echo "WARN  $name — non-corpus (nc) target has no claimed 'N md' count in TARGETS.md row (real root-level: $real); add the count."
+      unresolved=$((unresolved + 1))
+    else
+      d=$(( 10#${claimed:-0} - 10#${real:-0} )); [ "$d" -lt 0 ] && d=$(( -d ))
+      if [ "$d" -gt "$tol" ]; then
+        echo "WARN  $name — TARGETS.md row claims ${claimed} md but the non-corpus target has ${real} real .md file(s) at root (drift ${d} > tol ${tol}) — refresh the row."
+        drift=$((drift + 1))
+      fi
+    fi
+    continue
+  fi
+
   # Resolve the corpus root EXACTLY like research-sdd-archive.sh / verify-state.sh: the shallowest
   # RESEARCH-STATE*.md under the target, deterministically. This transparently handles a flat corpus
   # (<path>/), a nested one (<path>/research/, e.g. three.js) or (<path>/corpus/) — the corpus is

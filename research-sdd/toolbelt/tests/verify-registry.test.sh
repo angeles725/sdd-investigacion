@@ -253,6 +253,67 @@ else
   no "10 local gen-catalog.py → CATALOG total (40) is authoritative, not discriminator (5)" "match=$match_ok drift=$drift_ok out=[$OUT] out2=[$OUT2]"
 fi
 
+# 11 — NC-EXEMPT: a target row with '/ nc' flag and NO RESEARCH-STATE.md is legitimately non-corpus.
+#      The verifier must NOT emit 'corpus layout not resolvable'; instead it checks the root-level
+#      .md count (maxdepth 1). A matching claim → no WARN, 'consistent' summary, exit 0.
+kit="$(mkkit c11-nc-exempt)"; tgt="$kit/targetNC"
+mkdir -p "$tgt"
+printf '# README\n' > "$tgt/README.md"
+printf '# ROADMAP\n' > "$tgt/ROADMAP.md"
+printf '# GAPS\n'   > "$tgt/GAPS.md"   # 3 root-level .md, no RESEARCH-STATE
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetNC | intermediate (3 md / nc / git no / remote no / hook no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'corpus layout not resolvable' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+targetNC' <<<"$OUT" \
+   && grep -q 'Summary: reconciled 1 target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "11 nc-marked no-RESEARCH-STATE + claim matches → no warn, consistent" "(exit $RC)"
+else
+  no "11 nc-marked no-RESEARCH-STATE + claim matches → no warn, consistent" "exit=$RC out=[$OUT]"
+fi
+
+# 12 — NC-DRIFT: nc-marked target with 3 root-level .md but claim 40 md → drift WARN naming the
+#      target + the counts; no 'corpus layout not resolvable' WARN (the nc path ran, not the fallback).
+kit="$(mkkit c12-nc-drift)"; tgt="$kit/targetNC"
+mkdir -p "$tgt"
+printf '# README\n' > "$tgt/README.md"
+printf '# ROADMAP\n' > "$tgt/ROADMAP.md"
+printf '# GAPS\n'   > "$tgt/GAPS.md"   # 3 root-level .md, no RESEARCH-STATE
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetNC | intermediate (40 md / nc / git no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'corpus layout not resolvable' <<<"$OUT" \
+   && grep -qE 'WARN[[:space:]]+targetNC .* claims 40 md but the non-corpus target has 3' <<<"$OUT"; then
+  ok "12 nc-marked claim 40 vs real 3 root-level → drift WARN, no 'not resolvable'" "(exit $RC)"
+else
+  no "12 nc-marked claim 40 vs real 3 root-level → drift WARN, no 'not resolvable'" "exit=$RC out=[$OUT]"
+fi
+
+# 13 — NC-MIXED: nc-marked target alongside an UNMARKED no-RESEARCH-STATE target in one registry.
+#      nc target → silent (no WARN); unmarked target → 'corpus not resolvable' WARN still fires.
+#      This is the anti-blank-silencer gate: nc MUST NOT suppress the fallback for unmarked rows.
+kit="$(mkkit c13-nc-mixed)"; tgtA="$kit/targetNC"; tgtB="$kit/targetPlain"
+mkdir -p "$tgtA" "$tgtB"
+printf '# README\n' > "$tgtA/README.md"     # nc: 1 root .md
+printf '# block\n' > "$tgtB/foo-block1.md"  # plain: blocks but NO RESEARCH-STATE, NO nc
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetNC    | intermediate (1 md / nc / git no) | `%s` |\n' "$tgtA"
+  printf '| 2 | targetPlain | intermediate (1 md / git no) | `%s` |\n' "$tgtB"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qE 'WARN[[:space:]]+.*targetNC' <<<"$OUT" \
+   && grep -qE 'WARN[[:space:]]+.*targetPlain — corpus layout not resolvable' <<<"$OUT"; then
+  ok "13 nc mixed: nc silent, unmarked still 'corpus not resolvable' (anti-blank-silencer)" "(exit $RC)"
+else
+  no "13 nc mixed: nc silent, unmarked still 'corpus not resolvable' (anti-blank-silencer)" "exit=$RC out=[$OUT]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -272,6 +333,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth: could not build mutant (drift guard line not found — did the SUT change?)"
+  fi
+
+  # teeth-nc: neuter the nc-marker exemption check (replace the condition with `false`) → an
+  # nc-marked target must fall back to the 'corpus layout not resolvable' WARN, proving tests
+  # 11 / 12 / 13 depend on the real nc-grep check (# NC-EXEMPT-CHECK sentinel in the SUT).
+  echo "-- teeth-nc: neuter nc-marker check (false); nc target must fall back to 'not resolvable' WARN --"
+  kit="$(mkkit teeth-nc)"; tgt="$kit/targetNC"
+  mkdir -p "$tgt"; printf '# nc doc\n' > "$tgt/README.md"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetNC | intermediate (1 md / nc / git no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  # Replace the nc-marker if-condition line (identified by '# NC-EXEMPT-CHECK' sentinel) with
+  # `if false; then` so the nc path is never taken and the fallback WARN fires instead.
+  if grep -q '# NC-EXEMPT-CHECK' "$mut"; then
+    sed -i '/# NC-EXEMPT-CHECK/ s/.*/    if false; then  # NC-EXEMPT-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && grep -q 'corpus layout not resolvable' <<<"$mout"; then
+      ok "teeth-nc: neutered nc-marker → nc target gets 'not resolvable' WARN" "(exit $mrc)"
+    else
+      no "teeth-nc: neutered nc mutant didn't produce 'not resolvable' WARN" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-nc: NC-EXEMPT-CHECK sentinel not found in SUT (nc feature not implemented or marker missing)"
   fi
 fi
 
