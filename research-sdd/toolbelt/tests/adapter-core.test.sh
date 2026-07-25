@@ -432,4 +432,38 @@ finally:
 PY
 then ok "refuse_privileged_execution: SGID branch (getgid!=getegid, geteuid==getuid!=0) → AdapterError"; else no "refuse_privileged_execution SGID"; fi
 
+# 26. Convention: every adapter with an args.worker dispatch branch must call
+#     refuse_privileged_execution() in main() BEFORE that dispatch.
+#     Anti-vacuity guard: if no adapters are discovered the assertion fails.
+if python3 - "$HERE/.." <<'PY'
+import sys
+from pathlib import Path
+
+toolbelt = Path(sys.argv[1])
+adapters = [p for p in sorted(toolbelt.glob("*.py")) if "args.worker" in p.read_text()]
+
+assert len(adapters) > 0, (
+    f"vacuity: no adapter with args.worker dispatch found under {toolbelt} — "
+    "glob broken or all adapters moved"
+)
+
+for path in adapters:
+    src = path.read_text()
+    main_start = src.find("def main(")
+    assert main_start >= 0, f"{path.name}: no main() found"
+    guard_pos = src.find("refuse_privileged_execution", main_start)
+    dispatch_pos = src.find("args.worker", main_start)
+    assert guard_pos >= 0, (
+        f"{path.name}: refuse_privileged_execution not called in main()"
+    )
+    assert dispatch_pos >= 0, (
+        f"{path.name}: args.worker dispatch not found in main()"
+    )
+    assert guard_pos < dispatch_pos, (
+        f"{path.name}: guard (pos {guard_pos}) must precede "
+        f"args.worker dispatch (pos {dispatch_pos})"
+    )
+PY
+then ok "convention: all adapters with --worker dispatch call guard before dispatch in main()"; else no "adapter --worker guard convention"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

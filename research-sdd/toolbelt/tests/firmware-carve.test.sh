@@ -121,4 +121,24 @@ for command,timeout,processes in ((['/bin/sh','-c','sleep 2'],.05,4),(['/bin/sh'
 time.sleep(.7); assert not (root/'LEAK').exists()
 PY
 then ok "memory, timeout, and process caps constrain the worker tree"; else no "process cleanup"; fi
+if python3 - "$HERE/../firmware_carve.py" <<'PY'
+import importlib.util, sys, argparse
+s = importlib.util.spec_from_file_location('f', sys.argv[1])
+f = importlib.util.module_from_spec(s); s.loader.exec_module(f)
+called = [False]
+def _spy():
+    called[0] = True
+    raise f.CarveError("self-guard-sentinel")
+f.refuse_privileged_execution = _spy
+args = argparse.Namespace()
+try:
+    f.worker(args)
+    raise AssertionError("worker() returned without raising from privilege guard")
+except f.CarveError as e:
+    assert "self-guard-sentinel" in str(e), f"wrong CarveError: {e!r}"
+except Exception as e:
+    raise AssertionError(f"guard was not first: got {type(e).__name__}: {e}") from e
+assert called[0], "refuse_privileged_execution was never called by worker()"
+PY
+then ok "worker(): calls refuse_privileged_execution() before accessing args (self-guard)"; else no "worker() self-guard"; fi
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
