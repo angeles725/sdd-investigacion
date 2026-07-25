@@ -28,6 +28,7 @@ TARGETS_MD="$KIT/TARGETS.md"
 # excludes, which may suppress the INFO for targets with only excluded retros — documented
 # conservative fallback; verify-registry never aborts on a missing helper).
 _vr_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+# shellcheck source=lib/retro-status.sh
 [ -f "$_vr_lib" ] && . "$_vr_lib"
 declare -F retro_is_excluded >/dev/null 2>&1 || retro_is_excluded() { return 1; }  # no-op fallback
 unset _vr_lib

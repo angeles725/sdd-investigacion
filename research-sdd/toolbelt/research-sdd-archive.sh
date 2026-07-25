@@ -47,6 +47,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # cannot filter excluded retros from the retros count or MISSING-RETRO detector.
 _lib="$here/lib/retro-status.sh"
 if [ ! -f "$_lib" ]; then echo "research-sdd-archive: cannot find helper $_lib" >&2; exit 1; fi
+# shellcheck source=lib/retro-status.sh
 . "$_lib"
 declare -F retro_is_excluded >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_lib failed to define retro_is_excluded" >&2; exit 1; }
