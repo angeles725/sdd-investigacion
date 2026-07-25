@@ -77,8 +77,18 @@ for p in $paths; do
   # mutation target for the --prove-teeth nc teeth test.
   if printf '%s' "$row" | grep -qE '/ nc[ /;)|]'; then  # NC-EXEMPT-CHECK
     name="$(basename "$p")"
-    real="$(find "$p" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
     checked=$((checked + 1))
+    # NC-CONTRADICTION CHECK: the nc flag asserts there is no corpus here. If a RESEARCH-STATE.md
+    # is resolvable under the target, the assertion contradicts disk — flag it so the operator
+    # can correct either the row (remove nc) or the repository layout. Uses the same find params
+    # as the regular state resolver; the sentinel comment is the mutation target for teeth-nc-contradiction.
+    _nc_state="$(find "$p" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+    if [ -n "$_nc_state" ] && [ -f "$_nc_state" ]; then  # NC-CONTRADICTION-CHECK
+      echo "WARN  $name — row carries the nc flag but a RESEARCH-STATE.md was found at ${_nc_state}; remove nc if this is a real corpus target."
+      unresolved=$((unresolved + 1))
+      continue
+    fi
+    real="$(find "$p" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
     if [ -z "$claimed" ]; then
       echo "WARN  $name — non-corpus (nc) target has no claimed 'N md' count in TARGETS.md row (real root-level: $real); add the count."
       unresolved=$((unresolved + 1))

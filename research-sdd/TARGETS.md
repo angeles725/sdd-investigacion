@@ -43,6 +43,11 @@ Master-table row format:
   WITHOUT the `nc` flag that also has no `RESEARCH-STATE.md` still receives the WARN — that is the
   error, not a non-corpus exemption.
 
+- The `hook` flag records **hook-file presence** (`<target>/.claude/hooks/research-protocol.sh`). Active
+  registration in `<target>/.claude/settings.json` (matcher `startup|resume|clear`) is tracked separately.
+  `hook file yes / unregistered` means the file was installed by `research-sdd-init.sh` but the
+  `settings.json` registration step was never completed, so the hook cannot fire.
+
 Sensitivity:
 
 - **`live-install`** — the target is a REAL running installation/station (real credentials, keyring,
@@ -70,8 +75,8 @@ Sensitivity:
 | 10 | API-FACTURAS | `/home/cristian/ALSER/Proyectos/Automatizacion/API-FACTURAS` | **incipient** as research (2 md / nc / git no / remote no / hook no) `[CERT]` | Production Python app (32 `.py`) + packaged CONTPAQi SDK (JARs + native DLLs) `[CERT]` | Direct reading; `decompile-java.sh`/`decompile-native.sh` over CONTPAQi SDK `[INFER]` | Spanish `[CERT]` |
 | 13 | three.js | `/home/cristian/prototipos/three.js` | **mature** (44 md / 7 runs / git yes / remote yes / hook yes) `[CERT]` | Three.js library research over local HTML prototypes (25 voxel/realistic HVAC files, primary `[CERT]`) + official web docs (context7 `/mrdoob/three.js`, threejs.org) + live browser probes `[CERT-hw]` | fetch-doc.sh + direct reading + context7 MCP + chrome-devtools MCP + tools/probe.mjs (dynamic §12) | English `[CERT]` |
 | 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 4 retros + 4 corpus/client retros / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered; corpus/retros/ = client artifacts, not §18 — detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
-| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / 2 focuses / 3 retros / git yes / remote yes / hook yes) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
-| 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (5 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
+| 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
+| 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (6 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
 
 ---
 
@@ -221,8 +226,12 @@ scout-owed 42/45, G43-G46 scouts owed (G43 Source Han first — B41 dependency),
 ### 15 — gateway-ug67 `[CERT]`
 Live-hardware research on the **Milesight UG67 Outdoor LoRaWAN Gateway** (US915, fw 60.0.0.47, Quagga
 vtysh CLI) — a REAL running installation (`live-install`: serial console COM4 + web GUI via
-chrome-devtools + SSH + HTTP-API + official PDFs). Mature corpus with git and an active hook; two
+chrome-devtools + SSH + HTTP-API + official PDFs). Mature corpus with git and a hook file; two
 research focuses driven to completion.
+**Hook status**: `.claude/hooks/research-protocol.sh` is present (installed by `research-sdd-init.sh`)
+but **unregistered** — no `settings.json` or `settings.local.json` exists in the repo, the hook
+`<SUBJECT>` placeholder was never replaced, and the required `startup|resume|clear` matcher was never
+created. The hook cannot fire in its current state.
 **Master-row narrative (moved from the master table 2026-07-12, verbatim):**
 **device focus COMPLETE** (serial + web-GUI + SSH + HTTP-API; firmware-RE via Node-RED root RCE, B17) ·
 **capacity focus COMPLETE** (B18–B24: LoRaWAN concurrent-traffic/scaling, US915-Mexico, web-research).

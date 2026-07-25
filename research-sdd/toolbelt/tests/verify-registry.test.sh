@@ -314,6 +314,23 @@ else
   no "13 nc mixed: nc silent, unmarked still 'corpus not resolvable' (anti-blank-silencer)" "exit=$RC out=[$OUT]"
 fi
 
+# 14 — NC-CONTRADICTION: nc-marked row + resolvable RESEARCH-STATE.md under the target →
+#      contradiction WARN fires; the nc assertion contradicts disk and must be flagged so the
+#      operator can correct either the row or the repository. Prevents a false nc certification
+#      from hiding a real corpus target.
+kit="$(mkkit c14-nc-contradiction)"; tgt="$kit/targetNC"
+mkcorpus "$tgt" 3 "nc"   # RESEARCH-STATE.md + 3 nc-block*.md at $tgt root
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetNC | intermediate (3 md / nc / git no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'WARN[[:space:]]+targetNC.*RESEARCH-STATE' <<<"$OUT"; then
+  ok "14 nc + resolvable RESEARCH-STATE → contradiction WARN, exit 0" "(exit $RC)"
+else
+  no "14 nc + resolvable RESEARCH-STATE → contradiction WARN, exit 0" "exit=$RC out=[$OUT]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -357,6 +374,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-nc: NC-EXEMPT-CHECK sentinel not found in SUT (nc feature not implemented or marker missing)"
+  fi
+
+  # teeth-nc-contradiction: neuter the contradiction-check guard (replace the condition with `false`)
+  # → an nc-marked target WITH a resolvable RESEARCH-STATE.md must STOP emitting the contradiction
+  # WARN, proving that test 14 depends on the real NC-CONTRADICTION-CHECK, not theater.
+  echo "-- teeth-nc-contradiction: neuter contradiction-check (false); nc+RESEARCH-STATE must NOT WARN --"
+  kit="$(mkkit teeth-nc-contradiction)"; tgt="$kit/targetNC"
+  mkcorpus "$tgt" 3 "nc"   # RESEARCH-STATE.md + blocks at $tgt root — same fixture as test 14
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetNC | intermediate (3 md / nc / git no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# NC-CONTRADICTION-CHECK' "$mut"; then
+    sed -i '/# NC-CONTRADICTION-CHECK/ s/.*/    if false; then  # NC-CONTRADICTION-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -qE 'WARN[[:space:]]+targetNC.*RESEARCH-STATE' <<<"$mout"; then
+      ok "teeth-nc-contradiction: neutered check → nc+RESEARCH-STATE emits no contradiction WARN (test 14 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-nc-contradiction: neutered check still emits WARN or exited non-zero" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-nc-contradiction: NC-CONTRADICTION-CHECK sentinel not found in SUT"
   fi
 fi
 
