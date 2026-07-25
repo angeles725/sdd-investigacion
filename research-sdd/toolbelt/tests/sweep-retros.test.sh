@@ -466,6 +466,101 @@ else
   no "22 INDEX file in retros/ → excluded; real retro still listed" "exit=$RC out=[$OUT]"
 fi
 
+# 23 — EXCLUDED marker → not counted pending or total. A file carrying '<!-- kit-retro: exclude -->'
+#      in its leading block is not a §18 kit retro at all. The sweeper must skip it completely (not
+#      counted in the total, not surfaced as PENDING) and report the empty-queue path.
+#      RED on an implementation that does not recognise the marker: the file surfaces as pending.
+kit="$(mkkit c23-excluded)"; tgt="$kit/targetA"
+mkretro "$tgt" "client.md" "<!-- kit-retro: exclude -->" 3
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'Summary: 0 pending / 0 retros' <<<"$OUT" \
+   && grep -q 'Nothing to review.' <<<"$OUT"; then
+  ok "23 excluded marker → not counted pending or total (0/0)" "(exit $RC)"
+else
+  no "23 excluded marker → not counted pending or total (0/0)" "exit=$RC out=[$OUT]"
+fi
+
+# 24 — OPT-OUT DEFAULT: an UNMARKED file IS counted pending. This proves the design is opt-out
+#      (INCLUDE by default), not opt-in. A target with one excluded client retro AND one normal
+#      unmarked retro: only the unmarked one must surface (1 pending / 1 retros), proving the
+#      exclusion is not a blanket silencer.
+kit="$(mkkit c24-optout-default)"; tgt="$kit/targetA"
+mkretro "$tgt" "client.md" "<!-- kit-retro: exclude -->" 2
+mkretro "$tgt" "normal.md" "-" 1
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'normal.md' <<<"$OUT" \
+   && ! grep -q 'client.md' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "24 opt-out default → excluded not listed, unmarked surfaces (1 pending / 1 retros)" "(exit $RC)"
+else
+  no "24 opt-out default → excluded not listed, unmarked surfaces (1 pending / 1 retros)" "exit=$RC out=[$OUT]"
+fi
+
+# 25 — TWO-SCAN-SITE: target with only excluded retros + an old block → MISSING-RETRO fires.
+#      The MISSING-RETRO fleet pass also walks retros/ to find the newest retro date (nr). When the
+#      only retro is excluded, nr must stay 0; any block file with nb > 0 fires the warning. RED on a
+#      partial implementation (pending pass excluded, MISSING-RETRO pass not excluded): the excluded
+#      retro's FRESH mtime sets nr to ~now, which is newer than the old block (nb < nr), so
+#      MISSING-RETRO is SUPPRESSED — the two-scan-site hole. An opt-out that silently drops a
+#      MISSING-RETRO warning is as bad as missing the file from the sweep altogether.
+kit="$(mkkit c25-both-scan-sites)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+printf '<!-- kit-retro: exclude -->\n# client retro - not §18\n' > "$tgt/retros/client.md"
+touch "$tgt/retros/client.md"             # FRESH mtime — would suppress MISSING-RETRO if counted
+printf '# b\n' > "$tgt/t-block1.md"
+touch -d '2000-01-01' "$tgt/t-block1.md" # OLD block (nb < current-time; still > 0)
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q "MISSING-RETRO: $tgt advanced" <<<"$OUT" \
+   && grep -q 'Summary: 0 pending / 0 retros' <<<"$OUT"; then
+  ok "25 only-excluded retro + old block → MISSING-RETRO fires (both scan sites wired)" "(exit $RC)"
+else
+  no "25 only-excluded retro + old block → MISSING-RETRO fires (both scan sites wired)" "exit=$RC out=[$OUT]"
+fi
+
+# 26 — GARBLED MARKER falls through to INCLUDE (fail-open). A typo'd value ('excluded' instead of
+#      'exclude') must NOT match the opt-out marker, so the file surfaces as PENDING. This proves the
+#      exclusion is exact-match on the value, not a substring catch-all.
+kit="$(mkkit c26-garbled)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- kit-retro: excluded -->" 2   # typo: 'excluded' not 'exclude'
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'r1.md' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "26 garbled marker (excluded vs exclude) → fail-open, file surfaces as PENDING" "(exit $RC)"
+else
+  no "26 garbled marker (excluded vs exclude) → fail-open, file surfaces as PENDING" "exit=$RC out=[$OUT]"
+fi
+
+# 27 — BODY-POSITION OPT-OUT (M5 invariant). A file whose '<!-- kit-retro: exclude -->' marker
+#      appears BELOW its leading block (after the '# retro' heading — not in the leading HTML-comment
+#      block) must still surface as PENDING. Mirrors case 14 (body-position review-status marker is
+#      ignored) for the exclusion marker. This pins the '{ exit }' guard in retro_is_excluded's awk:
+#      removing it (M5 mutation) enables a whole-file scan that finds the body marker and falsely
+#      excludes the retro. The M5 tooth (--prove-teeth) asserts that this case goes RED on M5.
+kit="$(mkkit c27-body-excluded)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "-" 2   # no leading marker; '# retro' heading on the first content line
+printf '\n<!-- kit-retro: exclude -->\n' >> "$tgt/retros/r1.md"   # body-position marker
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'status: none' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "27 body-position exclude marker → still PENDING (M5 invariant, marker ignored outside leading block)" "(exit $RC)"
+else
+  no "27 body-position exclude marker → still PENDING (M5 invariant, marker ignored outside leading block)" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -543,6 +638,104 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "mutant stayed closed — case 17 is THEATER: rc=$rcm [$outm]"
     fi
+  fi
+
+  # ---- Exclusion-marker teeth (cases 23-26) ----
+
+  # Tooth E1: neuter the exclusion check in the PENDING pass → excluded file surfaces as PENDING.
+  # The pending-pass check uses '$f' so the anchor is specific to that call site.
+  echo "-- teeth: neuter exclusion check (pending pass), expect excluded file to false-surface as PENDING --"
+  anchor_e1='retro_is_excluded "$f" && continue'
+  if [[ "$content" != *"$anchor_e1"* ]]; then
+    no "teeth E1: locate exclusion check in pending pass" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-excl-1)"; tgt="$kit/targetA"
+    mkretro "$tgt" "client.md" "<!-- kit-retro: exclude -->" 2
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_e1"/: # __teeth_never_excludes__}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'PENDING' <<<"$outm"; then
+      ok "teeth E1: excl-neutered mutant false-surfaces excluded as PENDING (case 23 has teeth)" "()"
+    else
+      no "teeth E1: excl-neutered mutant false-surfaces excluded as PENDING" "mutant stayed quiet — case 23 is THEATER: [$outm]"
+    fi
+  fi
+
+  # Tooth E2: blanket exclusion (always-true) → an UNMARKED file also disappears (opt-out default broken).
+  # Replace the sandbox lib so retro_is_excluded always returns 0 (true). With retro_review_status
+  # also stubbed to return empty (no echo), every file is 'not applied/dismissed' but immediately
+  # 'excluded' → 0 pending / 0 retros. Case 24 asserts 1 pending / 1 retros, which now fails → teeth proved.
+  echo "-- teeth: blanket exclusion (always-exclude), expect unmarked file to disappear (opt-out default) --"
+  kit="$(mkkit teeth-excl-2)"; tgt="$kit/targetA"
+  mkretro "$tgt" "client.md" "<!-- kit-retro: exclude -->" 2
+  mkretro "$tgt" "normal.md" "-" 1
+  write_targets "$kit" "$tgt"
+  printf '#!/usr/bin/env bash\nif ! declare -F retro_review_status >/dev/null 2>&1; then\n  retro_review_status() { return 0; }\nfi\nif ! declare -F retro_is_excluded >/dev/null 2>&1; then\n  retro_is_excluded() { return 0; }  # always-exclude blanket\nfi\n' \
+    > "$kit/toolbelt/lib/retro-status.sh"
+  outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+  if ! grep -q 'Summary: 1 pending' <<<"$outm"; then
+    ok "teeth E2: blanket-exclude drops unmarked file (case 24 opt-out default has teeth)" "()"
+  else
+    no "teeth E2: blanket-exclude drops unmarked file" "mutant kept the unmarked pending — case 24 is THEATER: [$outm]"
+  fi
+
+  # Tooth E3: exclusion in PENDING pass only, not in MISSING-RETRO pass → MISSING-RETRO silent hole.
+  # Fixture: excluded retro with FRESH mtime + OLD block. Correct impl: nr=0, nb=old_epoch > 0 → fires.
+  # Single-scan mutant: nr=fresh_epoch (excluded retro counted), nb=old_epoch < nr → MISSING-RETRO
+  # suppressed (silent hole). If it suppresses, case 25 has teeth.
+  echo "-- teeth: exclusion in pending pass only → MISSING-RETRO silent hole (case 25 has teeth) --"
+  anchor_e3='retro_is_excluded "$rf" && continue'
+  if [[ "$content" != *"$anchor_e3"* ]]; then
+    no "teeth E3: locate exclusion check in MISSING-RETRO pass" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-excl-3)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    printf '<!-- kit-retro: exclude -->\n# client retro\n' > "$tgt/retros/client.md"
+    touch "$tgt/retros/client.md"              # FRESH — suppresses MISSING-RETRO when counted
+    printf '# b\n' > "$tgt/t-block1.md"
+    touch -d '2000-01-01' "$tgt/t-block1.md"  # OLD block
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_e3"/: # __teeth_no_missing_excl__}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if ! grep -q "MISSING-RETRO: $tgt advanced" <<<"$outm"; then
+      ok "teeth E3: single-scan-site mutant silently suppresses MISSING-RETRO (case 25 has teeth)" "()"
+    else
+      no "teeth E3: single-scan-site mutant keeps MISSING-RETRO (case 25 is THEATER)" "mutant still printed MISSING-RETRO: [$outm]"
+    fi
+  fi
+
+  # Tooth E4: anti-vacuity — without the exclude marker the fixture file surfaces as PENDING.
+  # Proves case 23 is non-trivial: the fixture itself (not the test structure) is what drives the pass.
+  echo "-- teeth E4: fixture without exclude marker surfaces as PENDING (anti-vacuity) --"
+  kit="$(mkkit teeth-excl-vacuity)"; tgt="$kit/targetA"
+  mkretro "$tgt" "client.md" "-" 2   # NO exclude marker: an ordinary pending retro
+  write_targets "$kit" "$tgt"
+  outv="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+  if grep -q 'PENDING' <<<"$outv"; then
+    ok "teeth E4: fixture without exclude marker surfaces as PENDING (case 23 non-trivial)" "()"
+  else
+    no "teeth E4: fixture without exclude marker surfaces as PENDING (anti-vacuity)" "retro did not surface — test structure is trivially passing: [$outv]"
+  fi
+
+  # Tooth M5: drop the bare '{ exit }' from retro_is_excluded's awk → whole-file scan in the lib.
+  # A body-position exclude marker (case 27 fixture) must then FALSELY exclude the retro — the
+  # mutant lib scans the whole file, finds the body marker, the retro disappears: 0 pending / 0 retros.
+  # If the mutant stays PENDING, the '{ exit }' guard was never the deciding factor and case 27 is theater.
+  # Uses sed to delete the ONE bare '{ exit }' line (no trailing comment) in retro_is_excluded's awk;
+  # retro_review_status's matching line has a trailing '# ...' comment and is NOT deleted.
+  echo "-- teeth M5: drop { exit } from retro_is_excluded awk; body-position marker must false-exclude (case 27 has teeth) --"
+  kit="$(mkkit teeth-m5-body)"; tgt="$kit/targetA"
+  mkretro "$tgt" "r1.md" "-" 2   # no leading marker
+  printf '\n<!-- kit-retro: exclude -->\n' >> "$tgt/retros/r1.md"   # body-position marker
+  write_targets "$kit" "$tgt"
+  sed '/^      { exit }$/ d' "$LIB" > "$kit/toolbelt/lib/retro-status.sh"
+  outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+  if grep -q 'Summary: 0 pending / 0 retros' <<<"$outm"; then
+    ok "teeth M5: { exit }-dropped mutant false-excludes body-position retro → 0/0 (case 27 has teeth)" "()"
+  else
+    no "teeth M5: { exit }-dropped mutant kept retro PENDING — case 27 is THEATER" "out=[$outm]"
   fi
 fi
 

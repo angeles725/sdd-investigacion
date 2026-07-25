@@ -23,6 +23,16 @@ set -uo pipefail
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGETS_MD="$KIT/TARGETS.md"
 
+# Source the shared retro helper for retro_is_excluded so the §18 reachability check can
+# filter excluded retros (WARN-only tool: a missing lib falls back to a no-op that never
+# excludes, which may suppress the INFO for targets with only excluded retros — documented
+# conservative fallback; verify-registry never aborts on a missing helper).
+_vr_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+# shellcheck source=lib/retro-status.sh
+[ -f "$_vr_lib" ] && . "$_vr_lib"
+declare -F retro_is_excluded >/dev/null 2>&1 || retro_is_excluded() { return 1; }  # no-op fallback
+unset _vr_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "verify-registry: cannot find $TARGETS_MD" >&2
   exit 0   # WARN-only contract: even a missing registry never fails the surfacing.
@@ -153,11 +163,19 @@ for p in $paths; do
     drift=$((drift + 1))
   fi
 
-  # Reachability sanity: a corpus with blocks but NO retros anywhere means the §18 feedback loop can't be
-  # reached from this target. Advisory only (incipient targets legitimately have none) — fires solely when
-  # the corpus actually advanced (real > tol) yet no retro exists.
+  # Reachability sanity: a corpus with blocks but NO §18 kit retros anywhere means the §18 feedback
+  # loop can't be reached from this target. Advisory only (incipient targets legitimately have none)
+  # — fires solely when the corpus actually advanced (real > tol) yet no non-excluded retro exists.
+  # Files carrying '<!-- kit-retro: exclude -->' are not §18 kit retros and are filtered out, so a
+  # target with ONLY excluded retros correctly fires this INFO.
   if [ "$real" -gt "$tol" ]; then
-    if ! find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null | grep -q .; then
+    _vr_has_kit_retro=0
+    while IFS= read -r _vr_rf; do
+      [ -n "$_vr_rf" ] || continue
+      retro_is_excluded "$_vr_rf" && continue
+      _vr_has_kit_retro=1; break
+    done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
+    if [ "$_vr_has_kit_retro" -eq 0 ]; then
       echo "INFO  $name — ${real} block(s) on disk but no retros/*.md reachable under the target (§18 feedback not wired)."
     fi
   fi

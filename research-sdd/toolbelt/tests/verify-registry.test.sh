@@ -23,18 +23,21 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-registry.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
+LIB="$HERE/../lib/retro-status.sh"   # shared helper the SUT now sources for retro_is_excluded
+[ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
-# mkkit <name> : lay down a runnable COPY of the SUT at <ROOT>/<name>/toolbelt/ so KIT=dirname/..
-# resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
+# mkkit <name> : lay down a runnable COPY of the SUT and its shared helper at <ROOT>/<name>/toolbelt/
+# so KIT=dirname/.. resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
 mkkit() {
   local kit="$ROOT/$1"
-  mkdir -p "$kit/toolbelt"
+  mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/verify-registry.sh"
+  cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
   printf '%s' "$kit"
 }
 
@@ -329,6 +332,24 @@ if [ "$RC" = 0 ] \
   ok "14 nc + resolvable RESEARCH-STATE → contradiction WARN, exit 0" "(exit $RC)"
 else
   no "14 nc + resolvable RESEARCH-STATE → contradiction WARN, exit 0" "exit=$RC out=[$OUT]"
+fi
+
+# 15 — EXCLUDED-ONLY RETROS (B2): a target with blocks AND a §18-excluded retro (carrying
+#      '<!-- kit-retro: exclude -->') is still effectively retro-free from the §18 perspective.
+#      The '§18 feedback not wired' INFO must STILL fire — excluded files are not §18 kit retros.
+#      RED before wiring retro_is_excluded: the old find|grep-q. sees the excluded file and
+#      suppresses the INFO (false negative — the target looks wired when it is not).
+kit="$(mkkit c15-excluded-only-retros)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+printf '<!-- kit-retro: exclude -->\n# client retro — not §18\nbody\n' > "$tgt/retros/client.md"
+write_targets "$kit" "$tgt::4 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO[[:space:]]+targetA — [0-9]+ block\(s\) on disk but no retros' <<<"$OUT"; then
+  ok "15 only-excluded retros → §18 feedback not wired INFO still fires (B2 wiring)" "(exit $RC)"
+else
+  no "15 only-excluded retros → §18 feedback not wired INFO still fires (B2 wiring)" "exit=$RC out=[$OUT]"
 fi
 
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)

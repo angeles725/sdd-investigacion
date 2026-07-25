@@ -183,6 +183,21 @@ else
   no "6b RELATIVE retro path still resolves the Retro: <sha> trailer (FIX-2 regression pin)" "exit=$relRC out=[$relOUT]"
 fi
 
+# 7 — EXCLUDED marker → refused exit 2, NO branch. A file carrying '<!-- kit-retro: exclude -->'
+#     declares that it is NOT a §18 kit retro. Staging it would open a kit PR proposing changes from
+#     the wrong scope (e.g. client-feedback targeting a separate skill's references/). The script must
+#     refuse non-zero before any git mutation, mirroring the applied|dismissed refusal pattern.
+repo="$(mkrepo excluded real)"
+mkretro "$repo" "targetA" "client.md" "<!-- kit-retro: exclude -->"
+run "$repo" "targetA/retros/client.md"
+if [ "$RC" = 2 ] \
+   && grep -qiE 'kit-retro.*exclude|not a.*§18|nothing to stage' <<<"$OUT" \
+   && [ -z "$(branches "$repo")" ]; then
+  ok "7 excluded retro → refused exit 2, no branch" "(exit $RC)"
+else
+  no "7 excluded retro → refused exit 2, no branch" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its
@@ -213,6 +228,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: guard-neutered mutant fails OPEN and creates retro/* branch" "(case 3 has teeth)"
     else
       no "teeth: guard-neutered mutant fails OPEN and creates retro/* branch" "mutant stayed closed — case 3 is THEATER: branches=[$(branches "$repo")] [$outm]"
+    fi
+  fi
+
+  # Teeth for case 7: neuter the exclusion guard → excluded file is staged (branch created).
+  # Proves case 7 has teeth: the guard is what stops the destructive path, not inertia.
+  echo "-- teeth: neuter exclusion guard, expect excluded retro to stage (retro/* branch created) --"
+  anchor_e='if retro_is_excluded "$retro"; then'
+  if [[ "$content" != *"$anchor_e"* ]]; then
+    no "teeth: locate exclusion guard" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-excl real)"
+    mkretro "$repo" "targetA" "client.md" "<!-- kit-retro: exclude -->"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    # Neuter the guard block by replacing 'if retro_is_excluded ...' with a no-op. Inject a
+    # SINGLE-LINE no-op that bridges the if..fi; the bash string substitution replaces the anchor
+    # (the 'if' line only). The remaining 'exit 2' and 'fi' after it stay, so we need to cancel
+    # the whole block. Use 'if false; then' — the body never runs, and the existing fi closes it.
+    neutered='if false; then'
+    printf '%s\n' "${content/"$anchor_e"/$neutered}" > "$mutant"
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-excl
+    outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/client.md" 2>&1)"
+    if grep -q 'staging retro for supervised review' <<<"$outm" \
+       && [ "$(branches "$repo")" = "retro/targetA-client" ]; then
+      ok "teeth: excl-guard-neutered mutant stages excluded file (case 7 has teeth)" "()"
+    else
+      no "teeth: excl-guard-neutered mutant stages excluded file" "mutant stayed closed — case 7 is THEATER: branches=[$(branches "$repo")] [$outm]"
     fi
   fi
 fi
