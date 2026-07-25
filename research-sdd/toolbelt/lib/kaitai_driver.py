@@ -420,7 +420,17 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
             return 1
         return 0
 
-    os.write(1, result_bytes)
+    # Write-all loop: os.write may return fewer bytes than requested on a
+    # partial write (POSIX permits this when the payload exceeds PIPE_BUF or
+    # when interrupted; issue #95).  Loop until all bytes are flushed.
+    # The _memory_cap_result_bytes paths above are NOT wrapped here — those
+    # handlers are allocation-free (pre-serialized) and must remain so.
+    _offset = 0
+    while _offset < len(result_bytes):
+        _n = os.write(1, result_bytes[_offset:])
+        if _n == 0:
+            return 1  # cannot make progress; report broken fd as failure
+        _offset += _n
     return 0
 
 

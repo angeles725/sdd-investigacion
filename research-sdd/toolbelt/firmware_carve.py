@@ -115,6 +115,7 @@ def candidates(data: mmap.mmap, max_carves: int, max_files: int, max_output: int
 
 
 def worker(args: argparse.Namespace) -> int:
+    refuse_privileged_execution()  # defense-in-depth: guard direct in-process callers (issue #93)
     stage = args.stage.resolve(); source = stage / "input.bin"; input_record = json.loads(args.input_record)
     source_fd = os.open(source, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)); meta = os.fstat(source_fd)
     if not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.getuid() or stat.S_IMODE(meta.st_mode) != 0o400: raise CarveError("staged input type, owner, or mode changed")
