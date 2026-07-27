@@ -98,15 +98,25 @@ for p in $paths; do
       *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
     esac
     pending=$((pending + 1))
-    # Count proposed deltas from two recognized shapes, deduplicated by number.
-    #   Form 1 (template table): rows shaped '| <n> | ...' with a numeric first cell.
-    #   Form 2 (heading style):  '## D<n>' / '### D<n>' / '## Delta <n>' section headings.
-    # sort -un deduplicates so a retro using both shapes counts each delta number once and
-    # never UNDER-reports (a "0 deltas" display invites bulk dismissal of the best content).
+    # Count proposed deltas — forms derived from the LIVE CORPUS, not retro.template.md.
+    # Template drift caused under-reporting twice: only D-prefix headings were recognised,
+    # leaving P-prefix (P1, P2 …) and bare-numbered (1., 2. …) retros at ~0 deltas.
+    # Under-reporting is the failure mode this guard exists to prevent: a "~0 deltas"
+    # display invites bulk dismissal of the richest content. Over-counting on generic
+    # numbered headings (e.g. "## 1. Introduction") is the ACCEPTED safe direction; no
+    # heuristics are added to avoid it, because every such heuristic risks re-introducing
+    # under-counting.
+    #   Form 1 (table row):    '| <n> | …' — first cell is a bare integer.
+    #   Form 2 (letter+num):   '## P<n>', '## D<n>', '## G<n>' … — any single letter
+    #                          followed immediately by a number, then a separator.
+    #   Form 3 (bare number):  '## <n>. title' or '## <n> — title' — number + separator.
+    #   Form 4 (Delta word):   '## Delta <n>' — backward compat with the template form.
+    # sort -un deduplicates so a retro using both table and heading shapes for the same
+    # delta number counts it once.
     deltas=$(
       {
         grep -oE '^\| *[0-9]+ \|' "$f" 2>/dev/null | grep -oE '[0-9]+'
-        grep -oiE '^#{1,3}[[:space:]]+(D[0-9]+|Delta[[:space:]]+[0-9]+)' "$f" 2>/dev/null \
+        grep -oiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+|Delta[[:space:]]+[0-9]+)[[:space:].—–-]' "$f" 2>/dev/null \
           | grep -oE '[0-9]+'
       } | sort -un | wc -l | tr -d ' '
     )
