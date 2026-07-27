@@ -25,6 +25,8 @@ fi
 # Neither script uses `set -e`, so a failed/partial/syntax-broken source would otherwise be
 # swallowed and every retro would silently read as 'none' (fail-open). Abort before any work.
 declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_review_status" >&2; exit 1; }
+# retro_is_waived is needed for the MISSING-RETRO waiver check in the fleet pass.
+declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }
 
 if [ ! -f "$TARGETS_MD" ]; then
   echo "sweep-retros: cannot find $TARGETS_MD" >&2
@@ -49,6 +51,16 @@ done
 # This only SORTS + LABELS to help the human — it never auto-applies/auto-dismisses anything (propose-never-apply).
 now="$(date +%s)"
 age_days="${RSDD_RETRO_AGE_DAYS:-7}"   # ESCALATE pending items older than this many days (override via env)
+# Grace window — MISSING-RETRO is suppressed while the newest block is within this many hours
+# of NOW, tolerating a run whose retro has not yet been committed (still in-flight). Once the
+# block has been sitting idle longer than the window, the gap is genuine and surfaces.
+# Default: 24h. Override via env: RSDD_MISSING_RETRO_GRACE_HOURS=4
+grace_hours="${RSDD_MISSING_RETRO_GRACE_HOURS:-24}"
+case "$grace_hours" in
+  ''|*[!0-9]*) echo "WARN: RSDD_MISSING_RETRO_GRACE_HOURS='$grace_hours' is not a non-negative integer — using default 24h" >&2
+               grace_hours=24;;
+esac
+grace_secs=$(( grace_hours * 3600 ))
 pending=0; total=0
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
 # Resolve retros RECURSIVELY with the SAME predicate the MISSING-RETRO fleet pass below uses
@@ -78,8 +90,26 @@ for p in $paths; do
     case "$status" in
       applied|dismissed) continue ;;
     esac
+    # Warn on any status word that is neither a known open state nor a closing word.
+    # 'pending' and an absent marker are normal open states; do not warn on those.
+    # Only 'applied' and 'dismissed' close a retro — no synonyms, no widening the vocabulary.
+    case "$status" in
+      ""|pending) ;;
+      *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
+    esac
     pending=$((pending + 1))
-    deltas=$(grep -cE '^\| *[0-9]+ \|' "$f" 2>/dev/null)
+    # Count proposed deltas from two recognized shapes, deduplicated by number.
+    #   Form 1 (template table): rows shaped '| <n> | ...' with a numeric first cell.
+    #   Form 2 (heading style):  '## D<n>' / '### D<n>' / '## Delta <n>' section headings.
+    # sort -un deduplicates so a retro using both shapes counts each delta number once and
+    # never UNDER-reports (a "0 deltas" display invites bulk dismissal of the best content).
+    deltas=$(
+      {
+        grep -oE '^\| *[0-9]+ \|' "$f" 2>/dev/null | grep -oE '[0-9]+'
+        grep -oiE '^#{1,3}[[:space:]]+(D[0-9]+|Delta[[:space:]]+[0-9]+)' "$f" 2>/dev/null \
+          | grep -oE '[0-9]+'
+      } | sort -un | wc -l | tr -d ' '
+    )
     # Age from the git FIRST-COMMIT date of THIS file (when it entered review), falling back to file mtime
     # when the file is untracked or the dir is not a git repo — so a non-git target never crashes the sweep.
     epoch=""
@@ -128,8 +158,23 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added) epoch if t
   [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
   printf '%s' "$e"
 }
+waived_count=0; waived_names=""   # targets with a retro-waived marker; suppressed from MISSING-RETRO
 for p in $paths; do
   [ -d "$p" ] || continue
+  # Scan this target's retros/ for a retro-waived marker before doing the advancement check.
+  # A waived target acknowledges a deliberate decision not to reconstruct a retro for a dormant
+  # run — typically placed as <target>/retros/retro-waived.md carrying both '<!-- kit-retro:
+  # exclude -->' (so the pending pass skips it) and '<!-- retro-waived: <date> · <reason> -->'.
+  _p_is_waived=0
+  while IFS= read -r _wf; do
+    [ -n "$_wf" ] || continue
+    if retro_is_waived "$_wf"; then _p_is_waived=1; break; fi
+  done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
+  if [ "$_p_is_waived" = 1 ]; then
+    waived_count=$((waived_count + 1))
+    waived_names="${waived_names:+$waived_names, }$p"
+    continue   # suppress MISSING-RETRO for this target
+  fi
   nr=0   # newest retro added-date under this target
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
@@ -142,9 +187,18 @@ for p in $paths; do
     [ -n "$bf" ] || continue
     m="$(rsdd_added_epoch "$p" "$bf")"; [ "${m:-0}" -gt "$nb" ] && nb="$m"
   done < <(find "$p" -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$')
-  # Only meaningful when the corpus has blocks (nb>0); a target with no blocks is not "advanced". Fire when the
-  # newest block is strictly newer than the newest retro (or there is no retro at all).
-  if [ "$nb" -gt 0 ] && [ "$nb" -gt "$nr" ]; then
+  # Only meaningful when the corpus has blocks (nb>0) and the block is newer than the retro
+  # (nb>nr — the corpus genuinely advanced past it). Fire when the newest block is itself older
+  # than the grace window measured from NOW: the run has been idle long enough that any in-flight
+  # retro would already have been committed. This is a time-from-now tolerance, not a
+  # time-between-block-and-retro threshold — the old nb > nr + grace_secs form granted permanent
+  # amnesty to any block that landed within the window of the retro's epoch, silencing the alert
+  # forever even years later.
+  if [ "$nb" -gt 0 ] && [ "$nb" -gt "$nr" ] && [ "$now" -gt "$(( nb + grace_secs ))" ]; then
     echo "MISSING-RETRO: $p advanced with no retro for the latest run"
   fi
 done
+# Report waived targets in summary so the suppression is never invisible.
+if [ "$waived_count" -gt 0 ]; then
+  echo "waived: ${waived_count} target(s) — MISSING-RETRO suppressed: ${waived_names}"
+fi

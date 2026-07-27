@@ -1,5 +1,5 @@
 harness=opencode
-  INSTALL {HOME}/.config/opencode/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  INSTALL {HOME}/.config/opencode/skills/research-sdd/SKILL.md (from kit toolbelt/opencode/SKILL.md)
   SPLICE  {HOME}/.config/opencode/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
   | <!-- research-sdd:start -->
   | ## Research-SDD

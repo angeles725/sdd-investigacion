@@ -327,5 +327,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     || no "teeth: mutant did not duplicate ($n) — orphan-skip check is THEATER"
 fi
 
+# 27 — DATA-LOSS REGRESSION: installing over a DIVERGED deployed SKILL.md must NOT clobber it.
+#      The installer must preserve the deployed file and emit a WARNING naming the file.
+#      (Regression guard for the unconditional `cp` bug that destroyed retro-applied deltas.)
+home="$TMP/skill-diverge"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+printf '# custom deployed content — not kit source\nOpenCode runtime adapter\n' \
+  > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
+sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+if grep -q 'custom deployed content' "$sf" && printf '%s' "$err" | grep -qi 'WARNING.*SKILL\.md'; then
+  ok "SKILL.md diverged: deployed file preserved and warned (data-loss regression fixed)"
+else
+  no "SKILL.md diverged: deployed file was CLOBBERED (DATA LOSS — defining regression)"
+fi
+
+# 28 — SKILL.md identical to kit source: no spurious warning (clean silent no-op).
+home="$TMP/skill-identical"
+bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1         # first install
+err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)" # second run on identical
+if printf '%s' "$err" | grep -qi 'WARNING.*SKILL\.md'; then
+  no "SKILL.md identical: spurious WARNING emitted (no-op should be silent)"
+else
+  ok "SKILL.md identical: no warning on identical file (clean silent no-op)"
+fi
+
+# 29 — opencode SKILL.md fresh install uses the harness-specific source (toolbelt/opencode/SKILL.md),
+#      which carries the OpenCode runtime adapter section absent from the generic skills/ source.
+home="$TMP/skill-fresh-oc"
+bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1
+sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+if [ -f "$sf" ] && grep -q 'OpenCode runtime adapter' "$sf"; then
+  ok "opencode SKILL.md fresh install: harness-specific source (with OpenCode adapter) used"
+else
+  no "opencode SKILL.md fresh install: missing OpenCode adapter content (wrong source used)"
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

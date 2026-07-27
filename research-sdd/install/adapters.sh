@@ -75,6 +75,15 @@ declare -A _RSDD_MCP_CONFIG_NAME=(
   [opencode]=""
   [codex]="config.toml"
 )
+# WHERE: the skill source file, as a path RELATIVE TO the kit root. Harnesses that require a
+# runtime-adapter section (opencode) have their own source under toolbelt/opencode/ so the adapter
+# content stays versioned alongside the other OpenCode-specific runtime artifacts. Generic harnesses
+# (claude, codex) use the neutral shared source under skills/research-sdd/.
+declare -A _RSDD_SKILL_SRC_RELKIT=(
+  [claude]="skills/research-sdd/SKILL.md"
+  [opencode]="toolbelt/opencode/SKILL.md"
+  [codex]="skills/research-sdd/SKILL.md"
+)
 
 # rsdd_field <harness> <field> [home] — the UNIFORM accessor. The case is on FIELD NAME (generic),
 # never on harness: all per-harness divergence is looked up from the arrays above.
@@ -98,6 +107,7 @@ rsdd_field() {
     mcp_config_file)
       plug="${_RSDD_MCP_CONFIG_NAME[$harness]}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
+    skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
   esac
 }

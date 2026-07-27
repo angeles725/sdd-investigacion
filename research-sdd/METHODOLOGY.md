@@ -972,6 +972,15 @@ sweeper [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) reads TARGETS.md,
 are always surfaced, even when nobody remembered to bring them. This closes the self-improvement loop:
 §18 GENERATES proposals autonomously; the sweeper ROUTES them; the human REVIEWS and applies (propose-never-apply).
 
+**Review-status vocabulary (two words, not three).** The only status words that close a retro are `applied`
+and `dismissed`. `pending` and empty are treated identically — unreviewed. Any other word — a typo, an
+experiment (`accepted`, `reviewed`, `done`) — is treated as pending AND the sweeper emits a visible `WARN` so
+the anomaly is never silent: a retro annotated with an unrecognized word would otherwise disappear from the
+pending queue without anyone acting on it. The vocabulary is kept to two words deliberately: more words → more
+code paths that silently interpret a status as "closed" → more ways for a proposal to evaporate unreviewed. If
+`applied` and `dismissed` feel too blunt for a given workflow, annotate the retro's body — do not widen the
+machine-readable marker.
+
 **Scope marker (opt-out) — `kit-retro: exclude`.** The sweeper walks retros recursively
 (`find … -maxdepth 4 -path '*/retros/*.md'`), so a `retros/` directory nested inside a corpus
 (e.g. `$TARGET/corpus/retros/`) is reached too. When a file in such a directory is NOT a §18 kit
@@ -1008,12 +1017,69 @@ same check across the whole fleet, surfacing a `MISSING-RETRO: <target> advanced
 latest run` line for every target that needs one. Like the rest of this section, it is surface-only
 (propose-never-apply) — it flags the gap for a human to act on, it never generates a retro itself.
 
+**MISSING-RETRO grace window (sweep only).** When blocks and their retro arrive in the same session — the
+retro committed minutes after the last block — the fleet sweeper can falsely flag the corpus as neglected
+before the retro is even in the index. `RSDD_MISSING_RETRO_GRACE_HOURS` (default `24`, overridable via env)
+gives `sweep-retros.sh` an in-flight tolerance: MISSING-RETRO is suppressed while the newest block's
+committed timestamp is YOUNGER than `grace_hours × 3600` seconds from NOW. The implemented condition is
+`nb > nr && now > nb + grace_secs` — the alert requires both that the corpus genuinely advanced past the
+newest retro (`nb > nr`) AND that the block has been idle long enough to rule out an in-flight retro
+(`now > nb + grace_secs`). Suppression is a DEFERRAL, not a forgiveness: once the window expires the alert
+surfaces and stays visible until a retro lands. The rejected alternative form `nb > nr + grace_secs` would
+have granted permanent amnesty to any block that landed within `grace_secs` of the retro epoch, silencing
+the alert forever even years later — that is why it was rejected.
+
+The archive-time detector in `research-sdd-archive.sh` deliberately carries NO grace window. The asymmetry is
+intentional: archive runs at the moment of human close — that IS the end of the in-flight period, so
+in-flight tolerance is a category error there. A grace window in the archive would suppress the warning on
+essentially every real close (the block was just committed), making the instrument quieter than it was before
+the window existed. The archive's governing principle is "noisy beats silent"; at close time the right
+behaviour is to be loud, not to defer. Any inconsistency between a swept MISSING-RETRO and a silent archive
+close would be confusing; the deliberate choice here is to make them asymmetric by design, not by accident.
+
+**Retro-waived convention.** Some targets run exploratory or throwaway sessions where a formal §18 retro
+would produce no useful delta — the run's every lesson is already encoded from a prior run, or the run was
+a deliberate dead end. Waiving the retro is a DELIBERATE documented decision, not an omission. To record it:
+create a file under `<target>/retros/` (conventionally `retro-waived.md`) that carries BOTH
+`<!-- kit-retro: exclude -->` (so the sweeper does not count it as a pending §18 retro) AND
+`<!-- retro-waived: <date> · <reason> -->` in its leading HTML-comment block. The sweeper's MISSING-RETRO
+fleet pass recognizes the second marker, suppresses the `MISSING-RETRO` line for that target, and adds a
+`waived: N target(s)` line to the sweep summary — so the suppression is never invisible. Design: OPT-OUT,
+same reasoning as `kit-retro: exclude`. A missing waiver means the target is supervised by default; deleting
+the waiver file makes MISSING-RETRO reappear automatically and self-correctively.
+
 **Aging / escalation.** A pending retro that sits unreviewed too long is as bad as one that never gets
 written. `sweep-retros.sh` sorts the pending queue oldest-first by each retro's git-added date and tags any
 retro older than `RSDD_RETRO_AGE_DAYS` (default 7, overridable via env) as `ESCALATED (aged Nd)`, so the
 stalest proposals lead the list instead of hiding at the bottom. The same aging/escalation logic mirrors to
 audits via [`toolbelt/sweep-audits.sh`](toolbelt/sweep-audits.sh) (§13). Again, this only sorts and labels
 for the human — propose-never-apply.
+
+**Escalation with teeth.** Labeling a retro `ESCALATED` without consequence turns the sweeper into a noise
+machine — the same stale items appear on every sweep until the list becomes wallpaper. The rule: when the
+sweep shows ANY `ESCALATED` item, the maintainer's NEXT kit session MUST begin by resolving those items
+(apply or dismiss) before opening new retro work. If no deltas in the proposal still apply, dismissal is
+correct and takes thirty seconds; bulk-dismissal of an aged LOW-priority backlog is explicitly BLESSED.
+A dismissed retro is not erased — it stays in the closed record with its full rationale and the list of
+considered-but-rejected deltas intact, so bulk-dismissal costs no audit trail. The tradeoff mirrors the
+scope-marker design: opt-out fails noisily when absent (the item stays visible and self-corrects) rather
+than silently; an agent that treats dismissal as data loss and resists it has misread the design — dismissal
+is a deliberate, recorded close, not a deletion.
+A propose-only system that accumulates proposals indefinitely without clearing them is not a supervision loop
+— it is a backlog with no drain, and its output will be ignored. The corollary: do not let aged retros guilt
+the maintainer into applying stale or overtaken proposals. Apply when genuinely valuable, dismiss fast when
+not — both are valid resolutions that keep the loop healthy.
+
+**PARTIAL-application state.** A retro may contain ten proposed deltas but only three are accepted on a
+given review pass — the remaining seven are deferred, not permanently rejected. To record this without
+blocking the applied/dismissed vocabulary or leaving the retro fully pending: set the review-status to
+`applied + PARTIAL — <date> · kit <sha>` and add a freeform `DEFERRED backlog:` annotation in the retro's
+body listing the remaining items with a brief note on why they were deferred (superseded, needs more data,
+lower priority than current work). The sweeper extracts the first run of letters (`[a-z]+`, case-insensitive) after `review-status:` and matches it exactly against `applied` or `dismissed` — the resolved portion exits the pending queue. The prescribed `applied + PARTIAL` form works because the token boundary falls at the space after `applied`; a variant like `partial-applied-<date>` would extract `partial` instead, remain unrecognized as a closing word, and leave the retro PENDING. The deferred portion stays visible as a body annotation: the next
+retro writer for that target reads prior retros before proposing (deduplication step) and can re-raise still-
+relevant items, and the maintainer can track them as follow-up tasks. This avoids both failure modes: the
+pessimistic one ("nothing applied until all ten are agreed") and the optimistic one (`applied` with deferred
+items silently dropped and forgotten).
 
 ## 19. Build/PoC loop (the requires-execution phase)
 

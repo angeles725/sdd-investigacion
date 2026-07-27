@@ -331,8 +331,8 @@ bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 
 # 20 — MISSING-RETRO detector (Feature #25a, §18): a corpus with blocks on disk but NO retro under retros/
 #      surfaces a LOUD advisory WARN (feedback for THIS run may be lost) — exit stays 0 (advisory, like the
-#      codegen/ parity WARN), and it NEVER auto-generates a retro (propose-never-apply). mkgood has one block
-#      and no retros/, so the WARN must fire and the archive still succeeds.
+#      codegen/ parity WARN), and it NEVER auto-generates a retro (propose-never-apply). mkgood has one block;
+#      the archive detector is immediate (no grace window) so the WARN fires as soon as the corpus advances.
 d="$TMP/missingretro"; mkgood "$d"
 err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"; rc=$?
 if [ "$rc" = 0 ] && grep -qiE 'retro .*may be' <<<"$err" && grep -qi 'MISSING-RETRO' <<<"$err"; then
@@ -341,6 +341,7 @@ else no "no MISSING-RETRO WARN with blocks+no retro :: rc=$rc :: $(head -2 <<<"$
 
 # 20a — an OLD retro (mtime older than the newest block) still counts as 'corpus advanced past the retro' →
 #       WARN. TMP is not a git repo, so the advancement signal is the block mtime (git commit epoch is 0).
+#       The archive detector fires immediately when the block is newer than the newest retro.
 d="$TMP/oldretro"; mkgood "$d"; mkdir -p "$d/retros"
 : > "$d/retros/2020-01-01-focus.md"; touch -d '2020-01-01' "$d/retros/2020-01-01-focus.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
@@ -362,7 +363,8 @@ else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(grep -i retro <<<"$
 #       The MISSING-RETRO WARN must still fire (the excluded retro must NOT suppress it), and
 #       the 'retros: N' mirror fact must count 0 (excluded files are not §18 kit retros).
 #       RED before wiring retro_is_excluded in archive.sh: the old find-pipe-wc counted the
-#       excluded file, reporting retros:1 and suppressing MISSING-RETRO.
+#       excluded file, reporting retros:1 and suppressing MISSING-RETRO. The archive detector
+#       fires immediately (no grace window): blocks > 0 && retros == 0.
 d="$TMP/excluded-retro"; mkgood "$d"; mkdir -p "$d/retros"
 printf '<!-- kit-retro: exclude -->\n# client retro — not §18\n' > "$d/retros/client.md"
 touch "$d/retros/client.md"   # FRESH mtime — would suppress MISSING-RETRO if counted as a real retro
@@ -540,6 +542,75 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && ! grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "add 1 NEW block + modify 1 existing (§14 backlink) → no ONE-BLOCK-PER-COMMIT WARN (counts ADDED only)"
 else no "one-block-backlink: rc=$rc :: $(grep -iE 'one-block|block' <<<"$out" | head -1)"; fi
+
+# 24 — Retro FORMAT LINT — bare-text review-status marker → advisory WARN (exit stays 0).
+#      A retro whose first line is a heading (not an HTML comment) and which carries 'review-status:'
+#      as BARE TEXT is invisible to the sweep (retro_review_status returns empty) but NOT caught at
+#      archive time. The lint must WARN, name the offending file, and keep exit 0 (advisory).
+d="$TMP/format-lint-bare"; mkgood "$d"; mkdir -p "$d/retros"
+cat > "$d/retros/2026-07-25-bad-format.md" <<'EOF'
+# Retro §18 — some-target · focus · 2026-07-25
+
+review-status: pending
+
+Run summary: bad format.
+EOF
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] \
+   && grep -qi 'WARN.*2026-07-25-bad-format' <<<"$out" \
+   && grep -qi 'bare text\|bare-text\|malform\|wrap.*<!--\|not.*HTML' <<<"$out"; then
+  ok "24 bare-text review-status → format-lint WARN, exit 0 (advisory)"
+else
+  no "24 bare-text review-status → format-lint WARN, exit 0" "rc=$rc :: $(grep -i 'warn\|format\|bare' <<<"$out" | head -2)"
+fi
+
+# 24a — Retro FORMAT LINT — no marker at all → advisory WARN (exit stays 0).
+#       A retro with NO review-status marker at all (created before the template seeded it)
+#       must also be flagged. Exit stays 0 (advisory).
+d="$TMP/format-lint-absent"; mkgood "$d"; mkdir -p "$d/retros"
+cat > "$d/retros/2026-07-25-no-marker.md" <<'EOF'
+# Retro §18 — some-target · focus · 2026-07-25
+
+Run summary: completely absent marker.
+EOF
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] \
+   && grep -qi 'WARN.*2026-07-25-no-marker' <<<"$out"; then
+  ok "24a absent review-status marker → format-lint WARN, exit 0 (advisory)"
+else
+  no "24a absent review-status marker → format-lint WARN, exit 0" "rc=$rc :: $(grep -i 'warn\|format\|marker' <<<"$out" | head -2)"
+fi
+
+# 24b — Retro FORMAT LINT — well-formed marker → NO warning. A correctly formed
+#       '<!-- review-status: pending -->' on line 1 must NOT trigger the lint.
+d="$TMP/format-lint-ok"; mkgood "$d"; mkdir -p "$d/retros"
+cat > "$d/retros/2026-07-25-good-format.md" <<'EOF'
+<!-- review-status: pending -->
+# Retro §18 — some-target · focus · 2026-07-25
+
+Run summary: correct format.
+EOF
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] \
+   && ! grep -qi 'WARN.*2026-07-25-good-format' <<<"$out"; then
+  ok "24b well-formed marker → no format-lint WARN (negative control)"
+else
+  no "24b well-formed marker → no format-lint WARN (negative control)" "rc=$rc :: $(grep -i 'warn.*good-format' <<<"$out" | head -1)"
+fi
+
+# 25 — RETRO FORMAT LINT excludes index files. A 'RETROS-INDEX.md' (or any '*index*.md') under
+#      retros/ is a generated table of contents, not a §18 retro — the lint must NOT warn about
+#      a missing review-status marker in it. After adding '-not -iname '*index*.md'' to the find
+#      predicate, the file is excluded. RED before the fix: the index triggers
+#      "no review-status marker" WARN for every close.
+d="$TMP/lint-index"; mkgood "$d"; mkdir -p "$d/retros"
+printf '# Retros index\n\n| # | file |\n|---|---|\n| 1 | r1.md |\n' > "$d/retros/RETROS-INDEX.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qiE 'WARN.*RETROS-INDEX' <<<"$out"; then
+  ok "25 RETROS-INDEX.md in retros/ → excluded from format lint (no WARN)"
+else
+  no "25 RETROS-INDEX.md in retros/ → excluded from format lint (no WARN)" "rc=$rc :: $(grep -iE 'warn.*index|index.*warn' <<<"$out" | head -1)"
+fi
 
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then

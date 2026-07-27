@@ -51,6 +51,9 @@ if [ ! -f "$_lib" ]; then echo "research-sdd-archive: cannot find helper $_lib" 
 . "$_lib"
 declare -F retro_is_excluded >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_lib failed to define retro_is_excluded" >&2; exit 1; }
+# retro_review_status is also needed for the format lint at close time.
+declare -F retro_review_status >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper $_lib failed to define retro_review_status" >&2; exit 1; }
 unset _lib
 
 # Resolve the corpus root exactly like research-sdd-status.sh: shallowest RESEARCH-STATE, deterministically.
@@ -212,6 +215,26 @@ if [ -n "$multi_block_commits" ]; then
   echo "      the loop's LOOP CONTINUATION rule is one block per iteration, one commit per block." >&2
   one_block_line="    · ⚠ ONE-BLOCK-PER-COMMIT (§ LOOP CONTINUATION): commit(s) $multi_block_commits landed 2+ blocks — keep future commits to one block each (this run's history is advisory, not rewritten)."
 fi
+
+# --- RETRO FORMAT LINT: warn on retros with malformed or absent review-status markers.
+# The sweeper gates on the LEADING HTML-comment block — a bare-text 'review-status:' line (not
+# wrapped in '<!-- ... -->') is invisible to it, so the retro sits in an ambiguous, un-reviewable
+# state indefinitely.  Catch this at close time with an advisory WARN (exit stays 0, consistent
+# with MISSING-RETRO and codegen parity).  Does not block: the marker is advisory at close time;
+# the human owns the retro content.
+while IFS= read -r _lint_f; do
+  [ -n "$_lint_f" ] || continue
+  retro_is_excluded "$_lint_f" && continue   # excluded retros do not carry a §18 status marker
+  _lint_status="$(retro_review_status "$_lint_f")"
+  if [ -z "$_lint_status" ]; then
+    _lint_base="$(basename "$_lint_f")"
+    if head -10 "$_lint_f" 2>/dev/null | grep -qiE '^[[:space:]]*review-status:'; then
+      echo "WARN: malformed review-status in $_lint_base — bare text marker in first 10 lines; wrap in '<!-- review-status: ... -->'" >&2
+    else
+      echo "WARN: no review-status marker in leading block of $_lint_base — add '<!-- review-status: pending -->' at the top" >&2
+    fi
+  fi
+done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' -not -iname '*index*.md' 2>/dev/null | sort -u)
 
 # --- CLOSE CHECKLIST: the JUDGMENT / content-authoring / side-effecting steps archive REFUSES to guess ---
 echo "  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --"

@@ -64,4 +64,31 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     ' "$f" 2>/dev/null \
       | grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$'
   }
+
+  # retro_is_waived <file>
+  #   Returns 0 (true) when the file's leading HTML-comment block carries a
+  #   '<!-- retro-waived: <date> · <reason> -->' marker, signalling a DELIBERATE decision
+  #   not to reconstruct a retro for that target.  Returns 1 otherwise.
+  #
+  # Convention: create a file under <target>/retros/ (e.g. 'retro-waived.md') that carries
+  # BOTH '<!-- kit-retro: exclude -->' (so sweep-retros.sh does not count it as a pending §18
+  # retro) AND '<!-- retro-waived: <date> · <reason> -->'.  sweep-retros.sh detects a waived
+  # target in the MISSING-RETRO fleet pass by scanning its retros/ files for this marker.
+  # A waived target is suppressed from MISSING-RETRO and counted separately in the sweep
+  # summary (e.g. 'waived: 1') so the suppression is never invisible.
+  #
+  # Design: OPT-OUT (same reasoning as retro_is_excluded). A missing waiver means the target
+  # is monitored by default. Deleting the waiver file makes the MISSING-RETRO line reappear —
+  # self-correcting, never silent. Scans the same leading-block region as retro_review_status
+  # and retro_is_excluded so all three share a consistent definition of "leading block".
+  retro_is_waived() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 1
+    awk '
+      /^[[:space:]]*<!--/ { print; next }
+      /^[[:space:]]*$/     { next }
+      { exit }
+    ' "$f" 2>/dev/null \
+      | grep -qiE '^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$'
+  }
 fi

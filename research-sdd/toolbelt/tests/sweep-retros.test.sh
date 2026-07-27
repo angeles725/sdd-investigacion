@@ -396,10 +396,13 @@ fi
 # 19 — MISSING-RETRO fleet pass (Feature #25b). A target whose corpus ADVANCED past its newest retro (here: a
 #      block file NEWER than the newest retro) surfaces a 'MISSING-RETRO: <target> advanced ...' line. The
 #      block uses gen-catalog's discriminator ('*-block<N>.md'). Not-git sandbox → mtime drives advancement.
+#      The block must be OLD enough (> grace window from now) for the alert to fire under the corrected
+#      C2 semantics: MISSING-RETRO fires when now > nb + grace_secs (block has been idle past the window).
 kit="$(mkkit c19-missing)"; tgt="$kit/targetA"
 mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
-touch -d '2000-01-01' "$tgt/retros/r1.md"     # retro is OLD
-printf '# b\n' > "$tgt/t-block1.md"; touch "$tgt/t-block1.md"   # block is NEW → corpus advanced past retro
+touch -d '2000-01-01' "$tgt/retros/r1.md"              # retro is OLD (year 2000)
+printf '# b\n' > "$tgt/t-block1.md"
+touch -d '2 days ago' "$tgt/t-block1.md"               # block is 2 days old → beyond 24h default grace
 write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] && grep -q "MISSING-RETRO: $tgt advanced with no retro" <<<"$OUT"; then
@@ -561,6 +564,170 @@ else
   no "27 body-position exclude marker → still PENDING (M5 invariant, marker ignored outside leading block)" "exit=$RC out=[$OUT]"
 fi
 
+# 28 — WARN on unrecognized review-status. A retro with a marker word that is neither
+#      'pending', 'applied', 'dismissed', nor empty must surface as PENDING and also print a
+#      visible WARN so the ambiguous status is not silently swallowed.
+#      RED before G1 implementation: no WARN is printed for the word 'accepted'.
+kit="$(mkkit c28-unrecognized)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: accepted -->" 1
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qi "WARN.*unrecognized.*review-status.*accepted" <<<"$OUT"; then
+  ok "28 unrecognized status 'accepted' → PENDING + WARN printed" "(exit $RC)"
+else
+  no "28 unrecognized status 'accepted' → PENDING + WARN printed" "exit=$RC out=[$OUT]"
+fi
+
+# 29 — Delta count for heading-style deltas ('## D<n>'). A retro that lists its deltas
+#      as '## D1 — ...' / '## D2 — ...' section headings (not a markdown table) must report
+#      the correct delta count. The old counter only matched '| <digits> |' table rows and
+#      would report ~0 for a heading-only retro.
+#      RED before G2 fix: the count stays at 0 for a heading-only retro.
+kit="$(mkkit c29-headingdeltas)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## D1 — first delta\n\nRationale.\n\n'
+  printf '## D2 — second delta\n\nRationale.\n\n'
+  printf '## D3 — third delta\n\nRationale.\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~3 proposed deltas' <<<"$OUT"; then
+  ok "29 heading-style deltas (## D<n>) → counted correctly (~3)" "(exit $RC)"
+else
+  no "29 heading-style deltas (## D<n>) → counted correctly (~3)" "exit=$RC out=[$OUT]"
+fi
+
+# 30 — Grace window: block committed VERY RECENTLY (within grace from now) → no alert.
+#      The corrected semantics suppress based on how recently the block was committed relative
+#      to NOW (in-flight tolerance), not how close the block is to the retro epoch. A block
+#      committed just now (nb ≈ now) with a grace of 4h must NOT fire MISSING-RETRO even
+#      though the retro is 2h older.
+#      Uses relative mtimes so the test remains valid regardless of when it runs.
+kit="$(mkkit c30-grace-window)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+touch -d '2 hours ago' "$tgt/retros/r1.md"   # retro 2h ago = nr
+printf '# b\n' > "$tgt/t-block1.md"
+touch "$tgt/t-block1.md"                       # block just committed (nb ≈ now)
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_MISSING_RETRO_GRACE_HOURS=4 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && ! grep -q 'MISSING-RETRO' <<<"$OUT"; then
+  ok "30 grace window: block just committed (nb≈now, 4h grace) → no MISSING-RETRO (in-flight)" "(exit $RC)"
+else
+  no "30 grace window: block just committed (nb≈now, 4h grace) → no MISSING-RETRO (in-flight)" "exit=$RC out=[$OUT]"
+fi
+
+# 31 — Grace window EXPIRY: block committed 1.5h ago, retro 2h ago, grace 1h → ALERT fires.
+#      DECISIVE test for corrected C2 semantics:
+#        new condition: now > nb + grace_secs → (now - nb = 90min) > 3600s → TRUE → fires ✓
+#        old condition: nb > nr + grace_secs → (nb - nr = 30min) > 3600s → FALSE → silent bug
+#      This test FAILS under the old nb > nr + grace_secs form (no MISSING-RETRO emitted)
+#      and PASSES under the corrected now > nb + grace_secs form.
+kit="$(mkkit c31-grace-expiry)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+touch -d '2 hours ago' "$tgt/retros/r1.md"    # retro 2h ago = nr
+printf '# b\n' > "$tgt/t-block1.md"
+touch -d '90 minutes ago' "$tgt/t-block1.md"  # block 1.5h ago = nb; nb - nr = 30min < 1h grace
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_MISSING_RETRO_GRACE_HOURS=1 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "MISSING-RETRO: $tgt advanced" <<<"$OUT"; then
+  ok "31 grace expiry: block 1.5h ago, retro 2h ago, grace 1h → MISSING-RETRO fires" "(exit $RC)"
+else
+  no "31 grace expiry: block 1.5h ago, retro 2h ago, grace 1h → MISSING-RETRO fires" "exit=$RC out=[$OUT]"
+fi
+
+# 32 — Retro-waived target → MISSING-RETRO suppressed + count + target path in summary.
+#      A target with a waiver file (carrying '<!-- retro-waived: ... -->' in its leading block)
+#      but no blocks must not trigger MISSING-RETRO. Here we also add a block to confirm the
+#      waiver suppresses what would otherwise fire, and check the summary shows 'waived: 1'.
+#      RED: retro_is_waived is not defined; no waiver check in fleet pass.
+kit="$(mkkit c32-waived)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+printf '<!-- kit-retro: exclude -->\n<!-- retro-waived: 2026-07-27 · dormant -->\n# waiver\n' \
+  > "$tgt/retros/retro-waived.md"
+touch -d '2000-01-01' "$tgt/retros/retro-waived.md"        # old retro mtime (not suppressed by fresh date)
+printf '# b\n' > "$tgt/t-block1.md"
+touch "$tgt/t-block1.md"                                    # fresh block — would normally fire MISSING-RETRO
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qF "MISSING-RETRO: $tgt" <<<"$OUT" \
+   && grep -qi 'waived.*1' <<<"$OUT" \
+   && grep -qF "$tgt" <<<"$OUT"; then
+  ok "32 waived target → MISSING-RETRO suppressed + count + target path in summary" "(exit $RC)"
+else
+  no "32 waived target → MISSING-RETRO suppressed + count + target path in summary" "exit=$RC out=[$OUT]"
+fi
+
+# 33 — Delta dedup coverage: table rows 1-3 + heading-style D4-D5 (no overlap) → 5 total.
+#      When a retro uses BOTH table rows (numbers 1-3) AND heading-style deltas (D4, D5),
+#      the combined count must be 5: no overlap, all five distinct delta numbers counted once.
+#      Covers the dedup path (sort -un) when the two forms produce NON-OVERLAPPING numbers.
+kit="$(mkkit c33-dedup-nooverlap)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | delta | rationale |\n|---|---|-|\n'
+  printf '| 1 | d1 | r |\n| 2 | d2 | r |\n| 3 | d3 | r |\n\n'
+  printf '## D4 — heading four\n\n## D5 — heading five\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~5 proposed deltas' <<<"$OUT"; then
+  ok "33 mixed table+heading (no overlap): rows 1-3 + D4-D5 → 5 deltas" "(exit $RC)"
+else
+  no "33 mixed table+heading (no overlap): rows 1-3 + D4-D5 → 5 deltas" "exit=$RC out=[$OUT]"
+fi
+
+# 34 — Delta dedup coverage: table rows 1-3 + heading-style D1-D3 (full overlap) → 3 unique.
+#      When table rows and headings use the SAME delta numbers, sort -un deduplicates them.
+#      Covers the dedup path when both forms produce OVERLAPPING numbers.
+kit="$(mkkit c34-dedup-overlap)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | delta | rationale |\n|---|---|-|\n'
+  printf '| 1 | d1 | r |\n| 2 | d2 | r |\n| 3 | d3 | r |\n\n'
+  printf '## D1 — heading (same as row 1)\n\n## D2 — heading (same as row 2)\n\n## D3 — heading (same as row 3)\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~3 proposed deltas' <<<"$OUT"; then
+  ok "34 mixed table+heading (full overlap): rows 1-3 + D1-D3 → 3 unique deltas (dedup)" "(exit $RC)"
+else
+  no "34 mixed table+heading (full overlap): rows 1-3 + D1-D3 → 3 unique deltas (dedup)" "exit=$RC out=[$OUT]"
+fi
+
+# 35 — Invalid RSDD_MISSING_RETRO_GRACE_HOURS → WARN printed + default 24h window used.
+#      A non-numeric value must print a WARN naming the bad value and fall back to 24h,
+#      never silently coerce to 0. With grace=0 a just-committed block fires immediately;
+#      with grace=24h (the default) a just-committed block is suppressed. The MISSING-RETRO
+#      absence proves the default is in effect, not the silent 0.
+#      RED before C4 fix: bash arithmetic coerces 'foo' to 0, no WARN, alert fires.
+kit="$(mkkit c35-bad-grace)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+touch -d '2 hours ago' "$tgt/retros/r1.md"
+printf '# b\n' > "$tgt/t-block1.md"
+touch "$tgt/t-block1.md"                        # block just committed — within 24h default grace
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_MISSING_RETRO_GRACE_HOURS=foo "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && grep -qi 'WARN.*RSDD_MISSING_RETRO_GRACE_HOURS' <<<"$OUT" \
+   && ! grep -q 'MISSING-RETRO' <<<"$OUT"; then
+  ok "35 invalid grace env: WARN printed + default 24h suppresses MISSING-RETRO" "(exit $RC)"
+else
+  no "35 invalid grace env: WARN printed + default 24h suppresses MISSING-RETRO" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -589,11 +756,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Second teeth (negative control for the delta count). Case 4 claims '~N proposed deltas' is a
-  # real tally of the '| <digits> |' rows. Break the count regex on a throwaway copy so it can never
-  # match a numbered row, then re-run a 5-delta pending fixture: the mutant MUST report '~0', not
-  # '~5'. If the mutant still counted 5, the count regex was never exercised and case 4 is theater.
+  # real tally of the '| <digits> |' rows. Break the table-row grep on a throwaway copy so it can
+  # never match a numbered row, then re-run a 5-delta pending fixture: the mutant MUST report '~0'.
+  # The anchor targets the first grep in the G2 dedup pipeline (grep -oE form; the old -cE form was
+  # refactored when dedup was added). Breaking it silences ALL table-row matches; case 4 has teeth
+  # only if the count drops to 0.
   echo "-- teeth: break the delta-count regex, expect a 5-delta retro to miscount as ~0 --"
-  anchor2="grep -cE '^\\| *[0-9]+ \\|'"
+  anchor2="grep -oE '^\| *[0-9]+ \|'"
   if [[ "$content" != *"$anchor2"* ]]; then
     no "teeth: locate delta-count regex" "anchor not found — SUT drifted?"
   else
@@ -601,7 +770,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 5
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    broken="grep -cE '^__never_a_delta_row__'"
+    broken="grep -oE '^__never_a_delta_row__'"
     printf '%s\n' "${content/"$anchor2"/$broken}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -q '~0 proposed deltas' <<<"$outm" && ! grep -q '~5 proposed deltas' <<<"$outm"; then
@@ -612,13 +781,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Third teeth (negative control for the fail-closed guard). Case 17 claims the post-source
-  # `declare -F` guard is what turns a broken helper into a non-zero abort. Neuter the guard on a
-  # throwaway copy so its check can never fail (force it always-true), pair it with the same broken
-  # (comment-only) helper + an APPLIED retro, and re-run: with the guard dead the SUT falls back to
-  # the OLD fail-OPEN — the applied retro false-surfaces as PENDING and the run exits 0. If the
-  # mutant stayed closed (non-zero, no PENDING), case 17 would be theater.
-  echo "-- teeth: neuter the fail-closed guard, expect the broken helper to fail-OPEN again --"
+  # `declare -F` guards are what turn a broken helper into a non-zero abort. Neuter BOTH guards on a
+  # throwaway copy so neither check can fail (force both always-true), pair it with the same broken
+  # (comment-only) helper + an APPLIED retro, and re-run: with both guards dead the SUT falls back to
+  # the OLD fail-OPEN — the applied retro false-surfaces as PENDING and the run exits 0.
+  echo "-- teeth: neuter the fail-closed guards, expect the broken helper to fail-OPEN again --"
   anchor3='declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_review_status" >&2; exit 1; }'
+  anchor3_wv='declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }'
   if [[ "$content" != *"$anchor3"* ]]; then
     no "teeth: locate fail-closed guard" "anchor not found — SUT drifted?"
   else
@@ -628,10 +797,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '#!/usr/bin/env bash\n# broken helper: no retro_review_status\n' \
       > "$kit/toolbelt/lib/retro-status.sh"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    # Neuter the guard to a no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands an
+    # Neuter BOTH guards to no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands an
     # unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
     neutered=':'
-    printf '%s\n' "${content/"$anchor3"/$neutered}" > "$mutant"
+    _tmp_neu="${content/"$anchor3"/$neutered}"
+    printf '%s\n' "${_tmp_neu/"$anchor3_wv"/$neutered}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"; rcm=$?
     if [ "$rcm" = 0 ] && grep -q 'PENDING' <<<"$outm" && ! grep -q 'failed to define' <<<"$outm"; then
       ok "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "(case 17 has teeth)"

@@ -19,7 +19,6 @@ set -uo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)"
 KIT="$(cd "$SELF/.." && pwd)"
-SRC_SKILL="$KIT/skills/research-sdd/SKILL.md"
 # shellcheck source=adapters.sh
 . "$SELF/adapters.sh"
 
@@ -202,22 +201,32 @@ _rsdd_register_mcp() {
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
   local h="$1" home="$2" dry="$3" rc=0
-  local skill_path prompt_file strategy plugin_dir mcp_config slash dispatch
+  local skill_path prompt_file strategy plugin_dir mcp_config slash dispatch src_relkit src_skill
   skill_path="$(rsdd_field "$h" skill_path "$home")"
   prompt_file="$(rsdd_field "$h" prompt_file "$home")"
   strategy="$(rsdd_field "$h" prompt_strategy "$home")"
   plugin_dir="$(rsdd_field "$h" plugin_dir "$home")"
   mcp_config="$(rsdd_field "$h" mcp_config_file "$home")"
   slash="$(rsdd_field "$h" supports_slash_commands "$home")"
+  src_relkit="$(rsdd_field "$h" skill_src_relkit)"
+  src_skill="$KIT/$src_relkit"
 
   printf 'harness=%s\n' "$h"
 
-  # 1. neutral asset → this harness's skills dir (check every filesystem-mutating step)
-  printf '  INSTALL %s (from kit skills/research-sdd/SKILL.md)\n' "$skill_path"
+  # 1. harness-specific asset → this harness's skills dir (source resolved from the adapter table,
+  #    never branched on harness name). Before writing, compare against any existing deployed file:
+  #    identical → silent no-op; diverged → warn + skip (preserve local content, never clobber).
+  printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
   if [ "$dry" != 1 ]; then
-    if ! mkdir -p "$(dirname "$skill_path")"; then
+    if [ ! -f "$src_skill" ]; then
+      echo "research-sdd-install: [$h] source SKILL not found: $src_skill" >&2; rc=1
+    elif ! mkdir -p "$(dirname "$skill_path")"; then
       echo "research-sdd-install: [$h] mkdir failed for $(dirname "$skill_path")" >&2; rc=1
-    elif ! cp "$SRC_SKILL" "$skill_path"; then
+    elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
+      : # byte-identical — silent no-op (idempotent re-run)
+    elif [ -f "$skill_path" ]; then
+      printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (inspect and re-run or delete to reinstall)\n' "$skill_path" >&2
+    elif ! cp "$src_skill" "$skill_path"; then
       echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
     fi
   fi
@@ -261,8 +270,6 @@ main() {
       *) echo "research-sdd-install: unknown argument '$1'" >&2; usage >&2; return 2 ;;
     esac
   done
-  [ -f "$SRC_SKILL" ] || { echo "research-sdd-install: source SKILL not found: $SRC_SKILL" >&2; return 2; }
-
   local list
   if [ "$harness" = all ]; then list="$RESEARCH_SDD_HARNESSES"; else list="$harness"; fi
 
