@@ -64,7 +64,7 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (268 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 1 | niagara-research | `/home/cristian/niagara-research` | **mature** (290 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
 | 2 | module-navigator | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (6 md / nc / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
 | 3 | niagara-help | `/home/cristian/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (2 md / nc / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `/home/cristian/kidcad-research` | **mature** (79 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
@@ -77,14 +77,14 @@ Sensitivity:
 | 14 | pruebas-dashboards | `/home/cristian/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 4 retros + 1 corpus §18 + 3 client retros / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered — detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 | 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (6 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
-| 17 | hilton-bms | `/home/cristian/tunnel/Cliente/Cancun/HotelHilton` | **mature** (45 blocks / 4 runs / 2 retros / git yes / remote no) `[CERT]` · **`live-install`** · **multi-focus** (3, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
+| 17 | hilton-bms | `/home/cristian/tunnel/Cliente/Cancun/HotelHilton` | **mature** (71 blocks / 4 runs / 2 retros / git yes / remote no) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
 
 ---
 
 ## Per-target detail
 
 ### 1 — niagara-research `[CERT]`
-Mental model of Niagara N4 (Tridium) reconstructed by decompilation. Very mature corpus: 248 cataloged blocks (`CATALOG.md`), auto-generated `INDEX.md` of ~400 KB, active hook `niagara-research-protocol.sh`. The source artifact is Niagara Java classes (saw `com/tridium/workbench/.../LinkMarkCommand.class`).
+Mental model of Niagara N4 (Tridium) reconstructed by decompilation. Very mature corpus: 290 cataloged blocks (`CATALOG.md`), auto-generated `INDEX.md` of ~400 KB, active hook `niagara-research-protocol.sh`. The source artifact is Niagara Java classes (saw `com/tridium/workbench/.../LinkMarkCommand.class`).
 **Startup:** continue. Stable loop with its own hook.
 
 ### 2 — module-navigator `[CERT]`
@@ -264,8 +264,10 @@ minimal ssh probe (read-only) + web (Trane/forum) — `decompile-native.sh`/`sca
 for control-flow questions.
 
 ### 17 — hilton-bms `[CERT]`
-**Focus status**: `integration` STOPPED 14/14 · `pi5-decoding` 13 blocks · `compass-discover` **ACTIVE
-19/43**. **Hook**: file installed by `research-sdd-init.sh` but still unregistered in
+**Focus status**: `integration` STOPPED 14/14 (15 blocks) · `pi5-decoding` 18 blocks · `compass-discover`
+**ACTIVE 19/43** (33 blocks) · `dashboard` 5 blocks (unnarrated below — needs its own paragraph).
+Block counts are the on-disk census (71 total, flat `corpus/`); the `n/m` gap ratios are as last
+reported by the focus and are NOT re-derived here. **Hook**: file installed by `research-sdd-init.sh` but still unregistered in
 `settings.json` (no matcher). **Writes**: READ-ONLY plus AUTHORIZED config mutations — see
 `ROLLBACK.md` at the target root.
 
