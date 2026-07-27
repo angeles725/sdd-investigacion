@@ -623,6 +623,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"   # archive.sh sources this from $(dirname $0)/lib/
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"   # verify-state.sh sources this from $(dirname $0)/lib/
   d="$TMP/teeth"; mkgood "$d"; sed -i 's#2 / 3 closed#3 / 3 closed#' "$d/RESEARCH-STATE.md"
   bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
   if [ "$mrc" = 0 ]; then ok "teeth: gate-neutered mutant archives a stale corpus → gate test has teeth"

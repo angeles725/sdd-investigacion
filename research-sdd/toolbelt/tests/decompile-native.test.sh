@@ -34,6 +34,15 @@ TEST_ROOT="$ROOT" "$SUT" ghidra-evidence "$INPUT" "$ROOT/out/missing" 2>"$ROOT/m
 if [ "$rc" -eq 3 ] && grep -q 'evidence adapter not found' "$ROOT/missing.err"; then ok 'missing evidence adapter fails explicitly'; else no 'missing adapter failure'; fi
 if TEST_ROOT="$ROOT" RECORD="$ROOT/raw.args" "$SUT" ghidra "$INPUT" "$ROOT/out/raw" \
   && grep -Fxq -- '-import' "$ROOT/raw.args" && grep -Fxq -- "$INPUT" "$ROOT/raw.args"; then ok 'raw ghidra mode remains distinct'; else no 'raw ghidra mode'; fi
+# B2 — Ghidra project dir must NOT start with a dot (Ghidra 12.1.2 rejects leading-dot path elements).
+# The project dir is the FIRST argument to analyzeHeadless (from raw.args, line 1).
+_proj_dir="$(head -1 "$ROOT/raw.args" 2>/dev/null)"
+_proj_base="${_proj_dir##*/}"   # basename via parameter expansion (no external command — safe inside clean-PATH teeth run)
+if [ "${_proj_base:-x}" = "ghidra-proj" ]; then
+  ok "B2: ghidra project dir is 'ghidra-proj' (no leading dot — Ghidra 12.1.2 rejects dots)"
+else
+  no "B2: ghidra project dir is '${_proj_base:-<empty>}' (want 'ghidra-proj', not '.ghidra-proj')"
+fi
 if TEST_ROOT="$ROOT" PATH="$ROOT/bin:$PATH" RECORD="$ROOT/r2.args" "$SUT" r2 "$INPUT" \
   && grep -Fxq -- "$INPUT" "$ROOT/r2.args"; then ok 'r2 mode still dispatches'; else no 'r2 mode'; fi
 if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
@@ -54,10 +63,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   done
   _out="$(PATH="$_clean" bash "$HERE/decompile-native.test.sh" 2>&1)"
   _np="$(printf '%s\n' "$_out" | grep -oE '^== [0-9]+' | grep -oE '[0-9]+')"
-  if [ "${_np:-0}" -ge 4 ]; then
-    ok "teeth: per-test guard keeps ≥4 host-independent tests with file/strings absent (${_np} passed)"
+  if [ "${_np:-0}" -ge 5 ]; then
+    ok "teeth: per-test guard keeps ≥5 host-independent tests with file/strings absent (${_np} passed)"
   else
-    no "teeth: per-test guard collapsed; ${_np:-0} tests ran without file/strings (want ≥4)"
+    no "teeth: per-test guard collapsed; ${_np:-0} tests ran without file/strings (want ≥5)"
   fi
 fi
 

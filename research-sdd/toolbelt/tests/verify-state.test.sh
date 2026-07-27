@@ -14,7 +14,9 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-state.sh"
-[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+FPLIB="$HERE/../lib/focus-prefix.sh"
+[ -f "$SUT" ]   || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+[ -f "$FPLIB" ] || { echo "FATAL: helper not found: $FPLIB" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -514,8 +516,148 @@ printf '# T\r\n> intro\r\n<!-- research-state.v1 -->\r\nschema: research-state.v
 if [ "$(code "$d")" = 0 ]; then ok "CRLF-saved envelope verifies OK (env_field strips the trailing CR)"
 else no "CRLF: exit $(code "$d") :: $(run "$d" 2>&1 | grep -iE 'FAIL' | head -1)"; fi
 
+# ============================ B3 — MULTI-FOCUS + FOCUSED BLOCK COUNTS ============================
+# These cases verify the B3 fix: focus-prefix derivation from state filename so ondisk counts
+# only the blocks belonging to each focus, not all blocks across the corpus.
+
+# env9 <covered> <gc> <kg> <io> <req> <bo> <def> — envelope lines including deferred_open
+env9(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\ndeferred_open: %s\n<!-- /research-state.v1 -->\n' "$@"; }
+
+# B3-MF1 — RESEARCH-STATE-focus-a.md claims covered_blocks=2; only focus-a-block*.md are counted.
+# Without the fix: ondisk=7 (all 7 blocks in the corpus dir) → FAIL.
+# With the fix:    ondisk=2 (only focus-a's 2 blocks) → PASS.
+d="$TMP/multi-focus-a"; mkdir -p "$d"
+for i in 1 2; do printf 'x\n' > "$d/focus-a-block${i}.md"; done
+for i in 1 2 3 4 5; do printf 'x\n' > "$d/focus-b-block${i}.md"; done
+{ echo '# Focus A — Research State'; echo
+  env9 2 5 5 0 0 0 0; echo
+  echo '## Coverage'; echo '- **Covered blocks**: 2'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-focus-a.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B3-MF1: RESEARCH-STATE-focus-a.md counts only focus-a's 2 blocks (not all 7) → exit 0"
+else no "B3-MF1: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out" | head -1)"; fi
+
+# B3-MF2 — RESEARCH-STATE-focus-b.md claims covered_blocks=5; only focus-b-block*.md are counted.
+# Without the fix: ondisk=7 → FAIL. With the fix: ondisk=5 → PASS.
+{ echo '# Focus B — Research State'; echo
+  env9 5 3 3 0 0 0 0; echo
+  echo '## Coverage'; echo '- **Covered blocks**: 5'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-focus-b.md"
+out="$(run "$d")"   # lints BOTH state files; both must pass
+if [ "$(code "$d")" = 0 ] && grep -c 'ok.*envelope validated' <<<"$out" | grep -q '^2$'; then
+  ok "B3-MF2: both focuses PASS with per-focus block counts (2 + 5, never the combined 7)"
+else no "B3-MF2: exit $(code "$d") · ok-lines=$(grep -c 'ok.*envelope validated' <<<"$out") :: $(grep -iE 'FAIL|covered_blocks' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# B3-MF3 — RESEARCH-STATE.md with a sibling FOCUSES.md maps to a different block prefix (legacy case).
+d="$TMP/multi-focus-focuses"; mkdir -p "$d"
+# Two focuses: "integration" uses hilton-bms-blockN.md; "dash" uses dash-blockN.md
+for i in 1 2 3; do printf 'x\n' > "$d/hilton-bms-block${i}.md"; done
+printf 'x\n' > "$d/dash-block1.md"
+# FOCUSES.md with the Block prefix column
+{ printf '# Focuses\n\n'
+  printf '| Focus | Status | State file | Block prefix | Angle |\n'
+  printf '|---|---|---|---|---|\n'
+  printf '| `integration` | stopped | [RESEARCH-STATE.md](RESEARCH-STATE.md) | `hilton-bms-blockN.md` | test |\n'
+  printf '| `dash` | active | [RESEARCH-STATE-dash.md](RESEARCH-STATE-dash.md) | `dash-blockN.md` | test |\n'
+} > "$d/FOCUSES.md"
+{ echo '# Integration — Research State'; echo
+  env9 3 5 5 0 0 0 0; echo
+  echo '## Coverage'; echo '- **Covered blocks**: 3'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B3-MF3: RESEARCH-STATE.md with FOCUSES.md maps hilton-bms- prefix → 3 blocks → PASS"
+else no "B3-MF3: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out" | head -1)"; fi
+
+# B3a — ## Non-investigable gaps is treated identically to ## Blocked gaps for blocked_open derivation.
+# A state with one entry under ## Non-investigable gaps and envelope blocked_open=1 must exit 0.
+d="$TMP/non-investigable"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Non-investigable gaps (without lab / hardware / NDA)'
+  echo '- live-system correlation — needs: live hardware (read-only probe phase §12)'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B3a: ## Non-investigable gaps counted for blocked_open (1 needs: entry → blocked_open=1 → PASS)"
+else no "B3a: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B3a-FAIL — same fixture but envelope declares blocked_open=0 while 1 entry exists → FAIL.
+d="$TMP/non-investigable-fail"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 0 0; echo   # blocked_open=0 (wrong)
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Non-investigable gaps (without lab / hardware / NDA)'
+  echo '- live-system correlation — needs: live hardware'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*blocked_open=0 != 1' <<<"$out"; then
+  ok "B3a-FAIL: blocked_open=0 vs 1 Non-investigable entry → FAIL (heading recognized)"
+else no "B3a-FAIL: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B3b — deferred_open envelope field: a backlog row with priority 'deferred' is counted.
+d="$TMP/deferred-open"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 4 10 1 0 0 1; echo   # deferred_open=1
+  echo '## Coverage'; echo '- **Coverage metric**: 4 / 10 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'
+  echo '| deferred | G4 parked | analysis | ⏸ deferred — operator decision |'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B3b: deferred_open=1 matches 1 open deferred backlog row → PASS"
+else no "B3b: exit $(code "$d") :: $(grep -iE 'fail|deferred' <<<"$out" | head -1)"; fi
+
+# B3b-FAIL — declared deferred_open=0 while 1 deferred row exists → FAIL.
+d="$TMP/deferred-open-fail"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 4 10 1 0 0 0; echo   # deferred_open=0 (wrong — 1 deferred row exists)
+  echo '## Coverage'; echo '- **Coverage metric**: 4 / 10 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'
+  echo '| deferred | G4 parked | analysis | ⏸ deferred — operator decision |'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*deferred_open=0 != 1' <<<"$out"; then
+  ok "B3b-FAIL: declared deferred_open=0 vs 1 deferred row → FAIL (CHECK F fires)"
+else no "B3b-FAIL: exit $(code "$d") :: $(grep -iE 'fail|deferred' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
+  # verify-state.sh resolves its lib as $(dirname $0)/lib/focus-prefix.sh; a mutant in $TMP
+  # needs the lib at $TMP/lib/focus-prefix.sh (same pattern: research-sdd-status.test.sh copies
+  # verify-state.sh to $TMP so the mutant status.sh can call it as $here/verify-state.sh).
+  mkdir -p "$TMP/lib"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
   mutant="$TMP/verify-state.MUTANT.sh"
   # Force CHECK 1's guard false so the stale-mirror FAIL can never fire.
@@ -589,6 +731,59 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$rgot" = 0 ]; then
       ok "teeth: neutered envelope-requires-execution mutant false-passes (exit 0) → case 29 has teeth"
     else no "teeth(envE): mutant exit $rgot (want 0) — case 29 does NOT depend on CHECK E (THEATER)"; fi
+  fi
+
+  # ---- B3 mutation: neuter derive_focus_prefix in lib/focus-prefix.sh → ondisk counts ALL blocks ----
+  # derive_focus_prefix now lives in lib/focus-prefix.sh (single source of truth for verify-state.sh and
+  # research-sdd-status.sh). The mutant puts a neutered lib in $TMP/lib/ and copies the real SUT alongside
+  # it; verify-state.sh resolves its lib path as $(dirname $0)/lib/focus-prefix.sh, so the copy in $TMP
+  # sources the mutant lib — same pattern as research-sdd-status.test.sh copies verify-state.sh to $TMP.
+  echo "-- teeth: B3 — neuter derive_focus_prefix in lib; multi-focus alpha fixture must then false-fail on ondisk count --"
+  mkdir -p "$TMP/lib"
+  # Mutant lib: derive_focus_prefix always returns 0 without printing → empty prefix → no filter → all blocks
+  sed 's/^  derive_focus_prefix() {$/  derive_focus_prefix() { return 0  # MUTANT-B3: always empty prefix/' "$FPLIB" > "$TMP/lib/focus-prefix.sh"
+  mutantFP="$TMP/verify-state.B3FP.MUTANT.sh"
+  cp "$SUT" "$mutantFP"
+  if ! grep -q 'MUTANT-B3: always empty prefix' "$TMP/lib/focus-prefix.sh"; then
+    no "teeth(B3): could not build derive_focus_prefix mutant (function header not found — did the lib change?)"
+  else
+    d="$TMP/multi-focus-a"   # reuse B3-MF1 fixture: alpha state (covered_blocks=2), 7 total blocks in dir
+    bash "$mutantFP" "$d" >/dev/null 2>&1; mfpgot=$?
+    if [ "$mfpgot" = 1 ]; then
+      ok "teeth(B3): neutered derive_focus_prefix mutant sees 7 on-disk vs envelope 2 → false-fails → B3 fix is load-bearing"
+    else no "teeth(B3): mutant exit $mfpgot (want 1) — multi-focus fix may not be exercised (THEATER)"; fi
+  fi
+
+  # ---- B3a mutation: restrict blocked section to ## Blocked gaps only (remove Non-investigable branch) ----
+  # Use the B3a-FAIL fixture: 1 Non-investigable entry, envelope blocked_open=0 (wrong).
+  # Real SUT: derive_blocked finds the entry → d_blocked=1 ≠ e_blocked=0 → FAIL (exit 1).
+  # Mutant (only ## Blocked gaps): derive_blocked=0, e_blocked=0 → match → exit 0 (FALSE-PASS).
+  echo "-- teeth: B3a — remove Non-investigable section from derive_blocked; B3a-FAIL fixture must false-pass --"
+  mutantNI="$TMP/verify-state.B3NI.MUTANT.sh"
+  # Remove "; _section "$1" '## Non-investigable gaps'" from every line where it appears.
+  sed "s/; _section \"\\\$1\" '## Non-investigable gaps'//g" "$SUT" > "$mutantNI"
+  if grep -qF "'## Non-investigable gaps'" "$mutantNI"; then
+    no "teeth(B3a): could not build Non-investigable mutant (pattern still present — did the SUT change?)"
+  else
+    d="$TMP/non-investigable-fail"   # reuse B3a-FAIL: 1 Non-investigable entry, envelope blocked_open=0 (wrong)
+    bash "$mutantNI" "$d" >/dev/null 2>&1; mnigot=$?
+    if [ "$mnigot" = 0 ]; then
+      ok "teeth(B3a): mutant ignores Non-investigable → false-passes (mismatch undetected) → dual-section fix is load-bearing"
+    else no "teeth(B3a): mutant exit $mnigot (want 0) — Non-investigable detection may not depend on the dual-section fix (THEATER)"; fi
+  fi
+
+  # ---- B3b mutation: neuter derive_deferred → always return 0 → deferred_open mismatch undetected ----
+  echo "-- teeth: B3b — neuter derive_deferred; fixture declaring deferred_open=0 vs 1 row must then false-pass --"
+  mutantDD="$TMP/verify-state.B3DD.MUTANT.sh"
+  sed 's/^derive_deferred() {$/derive_deferred() { echo 0; return  # MUTANT-B3b: always 0/' "$SUT" > "$mutantDD"
+  if ! grep -q 'MUTANT-B3b: always 0' "$mutantDD"; then
+    no "teeth(B3b): could not build derive_deferred mutant (function header not found — did the SUT change?)"
+  else
+    d="$TMP/deferred-open-fail"   # reuse B3b-FAIL fixture: declared deferred_open=0 vs 1 deferred row
+    bash "$mutantDD" "$d" >/dev/null 2>&1; mddgot=$?
+    if [ "$mddgot" = 0 ]; then
+      ok "teeth(B3b): neutered derive_deferred always returns 0 → false-passes → CHECK F is load-bearing"
+    else no "teeth(B3b): mutant exit $mddgot (want 0) — deferred check may not depend on derive_deferred (THEATER)"; fi
   fi
 fi
 

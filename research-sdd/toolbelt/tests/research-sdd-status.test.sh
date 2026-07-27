@@ -449,7 +449,7 @@ d="$TMP/subdir-cb"; mkdir -p "$d/legacy"
 printf '# root\n> x\n## Gap-backlog\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE.md"
 printf 'x\n' > "$d/proj-block1.md"; printf 'x\n' > "$d/proj-block2.md"
 printf '# legacy\n> x\n## Gap-backlog\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/legacy/RESEARCH-STATE-legacy.md"
-printf 'x\n' > "$d/legacy/leg-block1.md"
+printf 'x\n' > "$d/legacy/legacy-block1.md"   # §16: block prefix mirrors state suffix (legacy- from RESEARCH-STATE-legacy.md)
 bash "$SUT" "$d" --sync-state >/dev/null 2>&1
 root_cb=$(_envf "$d/RESEARCH-STATE.md" covered_blocks); leg_cb=$(_envf "$d/legacy/RESEARCH-STATE-legacy.md" covered_blocks)
 if [ "$root_cb" = 2 ] && [ "$leg_cb" = 1 ] && bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then
@@ -504,8 +504,53 @@ env_re="$(grep '^requires_execution_open:' "$d/RESEARCH-STATE.md" | awk '{print 
 [ "$env_re" = "0" ] && ok "--sync-state reads prose 0 through the paren noise (never the 8 from '§8')" \
   || no "sync-req-prose: req=$env_re want 0 (the §8-grab bug)"
 
+# =============================== B5 — MULTI-FOCUS COVERED_BLOCKS IN --sync-state ===============================
+# B5 root cause: research-sdd-status.sh find in --sync-state used no focus-prefix filter → all blocks in the
+# corpus dir were counted for every focus, so each focus's covered_blocks was the TOTAL across all focuses.
+# Fix: derive_focus_prefix() + per-prefix count means each RESEARCH-STATE-<focus>.md counts only its own blocks.
+
+# _envf is defined in test 40 but as a local awk function. Redefine it here for B5.
+envf_b5() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$1"; }
+
+# B5-MF1 — same-directory multi-focus: alpha has 2 blocks, beta has 3 blocks.
+# --sync-state must seed covered_blocks=2 for alpha and covered_blocks=3 for beta (NOT the combined 5).
+d="$TMP/b5-multifocus"; mkdir -p "$d"
+printf 'x\n' > "$d/alpha-block1.md"; printf 'x\n' > "$d/alpha-block2.md"
+printf 'x\n' > "$d/beta-block1.md";  printf 'x\n' > "$d/beta-block2.md"; printf 'x\n' > "$d/beta-block3.md"
+printf '# Alpha\n> intro\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE-alpha.md"
+printf '# Beta\n> intro\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE-beta.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+a_cb="$(envf_b5 "$d/RESEARCH-STATE-alpha.md" covered_blocks)"
+b_cb="$(envf_b5 "$d/RESEARCH-STATE-beta.md" covered_blocks)"
+if [ "$a_cb" = 2 ] && [ "$b_cb" = 3 ]; then
+  ok "B5-MF1: --sync-state seeds per-focus covered_blocks (alpha=2, beta=3; NOT combined 5)"
+else
+  no "B5-MF1: a_cb=$a_cb(want 2) b_cb=$b_cb(want 3) — focus-blind would seed both=5"
+fi
+if bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then
+  ok "B5-MF1: verify-state passes the per-focus envelopes --sync-state just wrote"
+else
+  no "B5-MF1: verify-state FAILs the envelope --sync-state just wrote (ondisk mismatch if cb wrong)"
+fi
+
+# B5-DEFAULT-STATUS — the DEFAULT status report's "on disk" count must be per-focus.
+# After --sync-state (which also tests B5 --sync-state path), run the default report.
+# The default report picks the lexicographically-first state file (alpha < beta); only
+# alpha's 2 blocks should be counted. Without the fix, ondisk would be 5 (all blocks).
+rep_a="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -qE 'covered blocks.*·.*2 on disk' <<<"$rep_a"; then
+  ok "B5-DEFAULT: default status shows alpha's 2 on-disk blocks (not combined 5)"
+else
+  no "B5-DEFAULT: covered blocks line: $(grep -E 'covered blocks' <<<"$rep_a")"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
+  # verify-state.sh now sources lib/focus-prefix.sh from $(dirname $0)/lib/, so seed that lib alongside it.
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
   mutant="$TMP/status.MUTANT.sh"
   sed 's/for prio in high medium low/for prio in low medium high/' "$SUT" > "$mutant"

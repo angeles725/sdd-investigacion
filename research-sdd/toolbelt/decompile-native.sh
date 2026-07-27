@@ -44,7 +44,7 @@ case "$MODE" in
     export JAVA_HOME
     export PATH="$JAVA_HOME/bin:$PATH"
     [ -x "$HEADLESS" ] || { echo "analyzeHeadless not found at $HEADLESS" >&2; exit 3; }
-    PROJ="$OUT/.ghidra-proj"; mkdir -p "$PROJ"
+    PROJ="$OUT/ghidra-proj"; mkdir -p "$PROJ"
     SCRIPT_ARGS=()
     [ "${4:-}" = "--script" ] && SCRIPT_ARGS=(-postScript "${5:?script}")
     # Imports, analyzes and (if passed) runs a decompilation postScript.

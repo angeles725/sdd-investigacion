@@ -31,11 +31,27 @@ fi
 corpus="$(dirname "$state")"
 here="$(cd "$(dirname "$0")" && pwd)"
 
+# Shared focus-prefix derivation — single source of truth (research-sdd-status.sh and verify-state.sh
+# previously carried hand-copied derive_focus_prefix() / _focus_prefix() that were byte-identical but
+# could drift; lib/focus-prefix.sh eliminates that hazard).
+_FPLIB="$here/lib/focus-prefix.sh"
+if [ ! -f "$_FPLIB" ]; then
+  echo "research-sdd-status: cannot find helper $_FPLIB" >&2; exit 1
+fi
+# shellcheck source=lib/focus-prefix.sh
+. "$_FPLIB"
+# Fail closed: this script does NOT use `set -e`, so a failed/partial/syntax-broken source would be
+# swallowed and every focus-prefix call would silently return empty, mis-counting blocks. Abort early.
+declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
+
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
 stopctl()      { section '## Stop control'; }
-blocked_body() { section '## Blocked gaps'; }
+# B3a / B5: blocked_body also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
+# used in older/TRANE/EduVolt corpora). Mirrors _blocked_names() in verify-state.sh.
+blocked_body() { section '## Blocked gaps'; section '## Non-investigable gaps'; }
 inv_count()    { stopctl | grep -iE 'read-only investigable' | grep -oE '[0-9]+' | head -1; }
+
 
 # Corpus-level contradictions ledger(s) (informational — see METHODOLOGY §14). Optional file(s); ALL
 # matching files are counted (never head-1-dropped), and >1 is WARNed to stderr like backlog_rows does.
@@ -99,11 +115,26 @@ blocked_names() {
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
 }
 is_blocked() { local g="$1" b; while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done < <(blocked_names); return 1; }
-# disk-DERIVED blocked_open — count of "- <name> — needs: ..." entries under ## Blocked gaps (needs:-anchored,
-# so a bare "- none" placeholder never inflates it). Single source of truth for the envelope's blocked_open
-# AND the status display: the old display grabbed the first integer off the `## Stop control` prose, which
-# grabs a "§8" section number (the exact req_prose() bug class) — deriving from disk sidesteps it entirely.
+# disk-DERIVED blocked_open — count of "- <name> — needs: ..." entries under ## Blocked gaps OR
+# ## Non-investigable gaps (B3a: both are semantically identical; needs:-anchored, so a bare "- none"
+# placeholder never inflates it). blocked_body() already combines both sections (see above).
 derive_blocked_open() { blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# B3b: count_deferred — count OPEN backlog rows whose priority column is exactly "deferred"
+# (explicitly-parked gaps — operator decision, not blocked by hardware). Mirrors derive_deferred()
+# in verify-state.sh. Reads from $state (the global current state file).
+count_deferred() {
+  awk '
+    { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
+      if (line !~ /\|/) next
+      sub(/^\|/,"",line); sub(/\|$/,"",line)
+      cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
+      if (tolower(a[1])!="deferred") next
+      if (cnt!=4) next
+      st=tolower(a[4])
+      if (index(a[2],"~~") || index(st,"~~") || index(st,"✅")) next
+      n++ }
+    END { print n+0 }' "$state"
+}
 
 # Backlog rows: STRICT 4-column table (`| p | gap | type | status |` → 6 pipe-fields). A gap cell
 # containing a pipe yields NF!=6 → WARN (never a silent drop / mis-field). Emits "priority<TAB>gap<TAB>status".
@@ -204,7 +235,7 @@ if [ "$mode" = "--sync-state" ]; then
   # file's OWN directory — recomputed INSIDE the loop with the SAME strict discriminator + dirname scoping that
   # verify-state.sh:101 uses. A once-at-$corpus cb would disagree with verify-state for any focus file living in
   # a subdirectory (verify-state recomputes ondisk per dirname($state)), FAILing the envelope we just wrote.
-  render_envelope() {   # reads the per-file globals set in the loop below (cb/io/bo/gc/kg/req)
+  render_envelope() {   # reads the per-file globals set in the loop below (cb/io/bo/gc/kg/req/def)
     printf '<!-- research-state.v1 -->\n'
     printf 'schema: research-state.v1\n'
     printf 'covered_blocks: %s\n' "$cb"
@@ -213,6 +244,7 @@ if [ "$mode" = "--sync-state" ]; then
     printf 'investigable_open: %s\n' "$io"
     printf 'requires_execution_open: %s\n' "$req"
     printf 'blocked_open: %s\n' "$bo"
+    printf 'deferred_open: %s\n' "$def"
     printf '<!-- /research-state.v1 -->'
   }
   # Reassigning the global `state` per iteration is deliberate: section/backlog_rows/blocked_body/env_get all
@@ -225,10 +257,20 @@ if [ "$mode" = "--sync-state" ]; then
     # atomic rename (a bare mktemp lands in TMPDIR, and a cross-device mv is a non-atomic copy+unlink).
     state="$(readlink -f "$state" 2>/dev/null || printf '%s' "$state")"
     # covered_blocks from THIS file's own directory — identical discriminator + dirname scoping to
-    # verify-state.sh:101, so declared cb can never disagree with the ondisk count verify-state recomputes.
-    cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    # verify-state.sh, so declared cb can never disagree with the ondisk count verify-state recomputes.
+    # B5 FIX: apply the same focus-prefix filter as verify-state.sh so a multi-focus corpus sets the
+    # per-focus block count, not the total corpus count (RESEARCH-STATE-dashboard.md → dashboard-block*.md).
+    _sfpfx="$(derive_focus_prefix "$state")"
+    if [ -n "$_sfpfx" ]; then
+      cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+        | grep -E "/${_sfpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+    else
+      cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+        | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    fi
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
+    def="$(count_deferred)"
     # declared-only figures from THIS file's prose (coverage metric X/Y), carrying the previous envelope
     # value when a figure is absent/unparseable (never invent — see pick()).
     cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
@@ -266,7 +308,7 @@ if [ "$mode" = "--sync-state" ]; then
         END { if (!done) { print ""; print repl } }' "$state" > "$tmp"
     fi
     mv "$tmp" "$state"
-    echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo"
+    echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo deferred_open=$def"
   done
   exit 0
 fi
@@ -285,7 +327,15 @@ fi
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
 covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+' | head -1)"
-ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"   # strict discriminator (gen-catalog.py BLOCK_RE)
+# B5 FIX: derive per-focus block count (mirrors --sync-state and verify-state.sh).
+_stpfx="$(derive_focus_prefix "$state")"
+if [ -n "$_stpfx" ]; then
+  ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+    | grep -E "/${_stpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+else
+  ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+    | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+fi
 inv="$(inv_count)"
 req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)
 blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)

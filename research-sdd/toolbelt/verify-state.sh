@@ -12,6 +12,20 @@
 # Exit: 0 = consistent · 1 = inconsistency (stale mirror) · 2 = bad args / no state file.
 set -uo pipefail
 
+# Shared focus-prefix derivation — single source of truth (verify-state.sh and research-sdd-status.sh
+# previously carried hand-copied implementations that were byte-identical but could drift;
+# lib/focus-prefix.sh eliminates that hazard).
+_FPLIB="$(cd "$(dirname "$0")" && pwd)/lib/focus-prefix.sh"
+if [ ! -f "$_FPLIB" ]; then
+  echo "verify-state: cannot find helper $_FPLIB" >&2; exit 1
+fi
+# shellcheck source=lib/focus-prefix.sh
+. "$_FPLIB"
+# Fail closed: verify-state.sh does NOT use `set -e`, so a failed/partial/syntax-broken source would
+# be swallowed and every derive_focus_prefix call would silently return empty (count ALL blocks — a
+# false-pass that masks cross-focus block-count mismatches). Abort before any corpus check.
+declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
+
 target="${1:-}"
 [ -d "$target" ] || { echo "usage: verify-state.sh <target-dir>" >&2; exit 2; }
 # Lint EVERY RESEARCH-STATE*.md under the target (a reopened / multi-focus corpus keeps one per
@@ -30,6 +44,7 @@ has_env()   { grep -q '<!-- research-state.v1 -->' "$1"; }
 env_field() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{v=$2; sub(/\r$/,"",v); print v; exit}' "$1"; }  # sub strips a trailing CR so a CRLF-saved envelope is not falsely rejected by is_int
 is_int()    { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
+
 # Ground-truth derivations. These MIRROR research-sdd-status.sh (section / backlog_rows / blocked_names /
 # is_blocked) EXACTLY: verify-state stays STANDALONE (no shared lib — status.sh's mutation harness copies
 # only verify-state.sh into a temp dir, so a sourced lib there would break it), which makes this a
@@ -45,8 +60,11 @@ _backlog_rows() {                                   # emits "priority<TAB>gap<TA
       if (n!=4) next                                # a pipe INSIDE a cell → skip (mirrors status.sh; not counted)
       print p "\t" a[2] "\t" tolower(a[4]) }' "$1"
 }
+# B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
+# used in older/TRANE/EduVolt corpora). Both sections follow the same "- <name> — needs: …" convention.
 _blocked_names() {                                  # one exact blocked gap NAME per "- <name> — needs: ..." line
-  _section "$1" '## Blocked gaps' | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
+  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } \
+    | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
     | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
 }
@@ -80,9 +98,26 @@ derive_pending_rows() {
   done < <(_backlog_rows "$sf")
   echo "$n"
 }
-# derived blocked_open = count of "- <name> — needs: ..." entries under ## Blocked gaps (needs:-anchored,
-# so a bare "- none" placeholder never inflates the count).
-derive_blocked() { _section "$1" '## Blocked gaps' | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# derived blocked_open = count of "- <name> — needs: ..." entries under ## Blocked gaps OR
+# ## Non-investigable gaps (B3a: both headings are semantically identical; needs:-anchored so a bare
+# "- none" placeholder never inflates the count).
+derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# B3b: derived deferred_open = count of OPEN backlog rows whose priority column is exactly "deferred"
+# (explicitly-parked gaps — operator decision, not blocked by hardware/keys). Closed rows (~~, ✅) excluded.
+# Mirrors count_deferred() in research-sdd-status.sh (same lockstep as the other derivations above).
+derive_deferred() {
+  awk '
+    { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
+      if (line !~ /\|/) next
+      sub(/^\|/,"",line); sub(/\|$/,"",line)
+      cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
+      if (tolower(a[1])!="deferred") next
+      if (cnt!=4) next
+      st=tolower(a[4])
+      if (index(a[2],"~~") || index(st,"~~") || index(st,"✅")) next
+      n++ }
+    END { print n+0 }' "$1"
+}
 # derived requires_execution_open = OPEN requires-execution (§19 build/PoC) backlog rows: the STATUS column
 # (already tolower'd by _backlog_rows) is ANCHORED to the LEADING token `requires-execution` (mirrors
 # derive_investigable's `pending` leading-token discipline) — a free-text mention that merely NAMES the
@@ -144,17 +179,29 @@ for state in "${states[@]}"; do
   #    (BLOCK_RE) and research-sdd-archive.sh: `<prefix>-(block|bloque)<N>[-suffix].md`. A loose `*block*`
   #    glob wrongly counts decoys like `blocked-notes.md`; keeping ONE definition of "a block file" across
   #    verify-state / --sync-state / archive / catalog kills the dual-authority drift on this count.
+  #    B3 FIX: in a multi-focus corpus every RESEARCH-STATE-*.md lives in the same corpus dir, so a
+  #    focus-blind find counts ALL focuses' blocks. Derive the focus prefix from the state filename (or
+  #    FOCUSES.md for the legacy RESEARCH-STATE.md case) and filter to only that focus's blocks.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
-  ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+  _fpfx="$(derive_focus_prefix "$state")"
+  if [ -n "$_fpfx" ]; then
+    ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+      | grep -E "/${_fpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+  else
+    ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+      | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+  fi
 
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
   d_inv="$(derive_investigable "$state")"
   d_blocked="$(derive_blocked "$state")"
   d_req="$(derive_requires_execution "$state")"
+  d_def="$(derive_deferred "$state")"
   e_covered="$(env_field "$state" covered_blocks)"
   e_inv="$(env_field "$state" investigable_open)"
   e_blocked="$(env_field "$state" blocked_open)"
   e_req="$(env_field "$state" requires_execution_open)"
+  e_def="$(env_field "$state" deferred_open)"
   e_gc="$(env_field "$state" gaps_closed)"
   e_kg="$(env_field "$state" known_gaps)"
 
@@ -162,7 +209,7 @@ for state in "${states[@]}"; do
   echo "   coverage metric : ${xy:-<none>}"
   echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} block file(s) on disk"
   echo "   backlog pending : ${pending}"
-  echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked}  (declared/derived)"
+  echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def}  (declared/derived)"
 
   # ENVELOPE CHECK A (FAIL) — declared covered_blocks must equal on-disk block files (reuse `ondisk`).
   if ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; then
@@ -202,6 +249,20 @@ for state in "${states[@]}"; do
     echo "   WARN   envelope requires_execution_open=$e_req != $d_req marked-open requires-execution backlog gap(s) — mirror hygiene; re-seed --sync-state."
   elif ! is_int "$e_req"; then
     echo "   WARN   envelope requires_execution_open=${e_req:-<missing>} is not an integer — seed it: --sync-state."
+  fi
+
+  # ENVELOPE CHECK F (FAIL) — declared deferred_open must equal the backlog's deferred-priority row count.
+  # Deferred gaps (explicitly parked by operator decision, NOT hardware-blocked) use priority "deferred"
+  # in the backlog table — a distinct bucket from high/medium/low (investigate) and blocked (needs:).
+  # A missing deferred_open field in legacy envelopes is a seed-prompt, not a hard FAIL (corpora written
+  # before this field existed have 0 deferred rows and no field → both sides zero → no mismatch, silent).
+  if is_int "$e_def"; then
+    if [ "$e_def" != "$d_def" ]; then
+      echo "   FAIL   envelope deferred_open=${e_def} != ${d_def} deferred backlog gap(s) — re-seed: --sync-state"
+      frc=1; rc=1
+    fi
+  elif [ "$d_def" -gt 0 ]; then
+    echo "   WARN   envelope deferred_open missing while $d_def deferred backlog gap(s) found — seed it: --sync-state"
   fi
 
   # CHECK 1 (FAIL) — summary claims every gap closed, but the backlog still lists pending gaps.

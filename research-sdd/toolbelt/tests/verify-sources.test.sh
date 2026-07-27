@@ -419,6 +419,57 @@ grep -q 'corpus root: corpus/' <<<"$out" \
   || { printf '  FAIL  %-42s (real block did not anchor)\n' "real block still anchors corpus/"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# B4 — MULTI-FOCUS FABRICATED-CITE FIX.
+# Before the fix: find ... | head -1 picked ONE matching *blockN.md and false-FAILed when the chosen
+# file was the other focus's block (which didn't cite the source). Fix: check ALL matching files.
+
+# B4-GOOD: two focus block files match *block1.md. Source is cited in ONLY ONE (focus-a). SUT must PASS.
+# Before fix: if head-1 picked focus-b-block1.md (no cite), false FABRICATED-CITE → exit 1 (wrong).
+# After fix:  all files checked; focus-a-block1.md has the cite → exit 0 (correct).
+d="$TMP/b4-multi-focus-good"; mkdir -p "$d"
+# citing file created FIRST (lower inode → returned first by find on tmpfs)
+block "$d/focus-a-block1.md" '# Block 1 (focus-a)' '## 1.1 cites sources/web-snapshots/ext.md — the CITED file.'
+# non-citing file created SECOND
+block "$d/focus-b-block1.md" '# Block 1 (focus-b)' '## 1.1 discusses internal stuff, never references the external source.'
+mkdir -p "$d/sources/web-snapshots"
+printf '<div>body</div>\n' > "$d/sources/web-snapshots/ext.md"
+real_b4="$(sha256sum "$d/sources/web-snapshots/ext.md" | cut -d' ' -f1)"
+sources_registry "$d" "| web-snapshots/ext.md | web-snapshot | http://x | 2026-01-01 | $real_b4 | B1 |"
+assert_exit "$SUT" 0 "B4-GOOD: multi-focus — cite in one block1.md suffices (no false FABRICATED-CITE)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'FABRICATED-CITE' <<<"$out" \
+  && { printf '  FAIL  %-42s (false FABRICATED-CITE emitted)\n' "B4-GOOD: no FABRICATED-CITE"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (FABRICATED-CITE absent)\n' "B4-GOOD: no false FABRICATED-CITE"; pass=$((pass+1)); }
+
+# B4-BAD: two block files match *block1.md, but NEITHER cites the source → genuine FABRICATED-CITE (exit 1).
+# This ensures the all-files check isn't completely disabled.
+d="$TMP/b4-multi-focus-bad"; mkdir -p "$d"
+block "$d/focus-a-block1.md" '# Block 1 (focus-a)' '## 1.1 discusses something else entirely.'
+block "$d/focus-b-block1.md" '# Block 1 (focus-b)' '## 1.1 also does not mention the external source.'
+mkdir -p "$d/sources/web-snapshots"
+printf '<div>body</div>\n' > "$d/sources/web-snapshots/ext.md"
+real_b4b="$(sha256sum "$d/sources/web-snapshots/ext.md" | cut -d' ' -f1)"
+sources_registry "$d" "| web-snapshots/ext.md | web-snapshot | http://x | 2026-01-01 | $real_b4b | B1 |"
+assert_exit "$SUT" 1 "B4-BAD: neither multi-focus block1.md cites source → genuine FABRICATED-CITE" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'FABRICATED-CITE.*none of 2' <<<"$out" \
+  && { printf '  PASS  %-42s (genuine FABRICATED-CITE with count)\n' "B4-BAD: FABRICATED-CITE names file count"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (FABRICATED-CITE line missing or wrong)\n' "B4-BAD: FABRICATED-CITE names file count"; fail=$((fail+1)); }
+
+# B4-WARN: SOURCES.md claims B5, but no *block5.md exists at all → WARN (not FAIL, exit 0).
+d="$TMP/b4-no-block"; mkdir -p "$d"
+block "$d/focus-a-block1.md" '# Block 1' '## 1.1 only block 1 exists; no block 5.'
+mkdir -p "$d/sources/web-snapshots"
+printf '<div>body</div>\n' > "$d/sources/web-snapshots/ext.md"
+real_b4c="$(sha256sum "$d/sources/web-snapshots/ext.md" | cut -d' ' -f1)"
+sources_registry "$d" "| web-snapshots/ext.md | web-snapshot | http://x | 2026-01-01 | $real_b4c | B5 |"
+assert_exit "$SUT" 0 "B4-WARN: no *block5.md on disk → WARN (naming mismatch), not FAIL" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*block5.*naming mismatch' <<<"$out" \
+  && { printf '  PASS  %-42s (WARN emitted for missing block file)\n' "B4-WARN: naming-mismatch WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (WARN missing)\n' "B4-WARN: naming-mismatch WARN"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -503,6 +554,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '  PASS  %-42s (mutant false-fails → legend-strip has teeth)\n' "teeth: LEVEL 1 whole-file mutant exit 1"; pass=$((pass+1))
     else
       printf '  FAIL  %-42s mutant exit %s (expected 1). Legend-only does NOT depend on the strip — THEATER.\n' "teeth: LEVEL 1" "$mlgot"; fail=$((fail+1))
+    fi
+  fi
+
+  # B4 teeth: disable the multi-file citation check entirely (_cited_ok always starts at 1, so
+  # FABRICATED-CITE never fires). The B4-BAD fixture (neither block file cites the source, so the real SUT
+  # exits 1) must then FALSE-PASS (exit 0), proving the _cited_ok=0 initialization + loop check are load-bearing.
+  echo "-- teeth proof: B4 — disable citation check (_cited_ok always 1), expect BAD fixture to FALSE-PASS --"
+  mutantB4="$TMP/verify-sources.MUTANTB4.sh"
+  sed 's/_cited_ok=0$/_cited_ok=1  # MUTANT-B4: check disabled/' "$SUT" > "$mutantB4"
+  if ! grep -q 'MUTANT-B4: check disabled' "$mutantB4"; then
+    echo "  FAIL  could not build B4 mutant (_cited_ok line not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    d="$TMP/b4-multi-focus-bad"   # reuse: neither block1.md cites ext.md → real SUT exits 1
+    bash "$mutantB4" "$d" >/dev/null 2>&1; mb4got=$?
+    if [ "$mb4got" = 0 ]; then
+      printf '  PASS  %-42s (disabled mutant false-passes → citation loop is load-bearing)\n' "teeth: B4 check-disabled mutant exit 0"; pass=$((pass+1))
+    else
+      printf '  FAIL  %-42s mutant exit %s (expected 0) — citation check may not depend on _cited_ok init (THEATER).\n' "teeth: B4" "$mb4got"; fail=$((fail+1))
     fi
   fi
 fi

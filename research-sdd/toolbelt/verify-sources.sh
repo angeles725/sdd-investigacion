@@ -103,12 +103,19 @@ if [ -f "$sources_md" ]; then
     bcell=$(printf '%s' "$bcell" | sed 's/([^)]*)//g')
     for n in $(printf '%s' "$bcell" | grep -oiE '\bB(lock|loque)? ?[0-9]+' | grep -oE '[0-9]+' | sort -un); do
       cited=$((cited + 1))
-      bf=$(find "$corpus" -maxdepth 1 -type f \( -iname "*block${n}.md" -o -iname "*bloque${n}.md" \) 2>/dev/null | head -1)
-      if [ -z "$bf" ]; then
+      # B4 FIX: in a multi-focus corpus, several *block${n}.md files may match (one per focus). The old
+      # `head -1` picked one arbitrarily and false-FAILed when the wrong focus's file was chosen. Check ALL
+      # matching files: the citation is valid if ANY focus's block${n}.md references the source.
+      mapfile -t _bfs < <(find "$corpus" -maxdepth 1 -type f \( -iname "*block${n}.md" -o -iname "*bloque${n}.md" \) 2>/dev/null)
+      if [ "${#_bfs[@]}" -eq 0 ]; then
         echo "   WARN: SOURCES.md names B$n for '$base', but no *block${n}.md/*bloque${n}.md resolves (naming mismatch — not checked)."
-      elif ! grep -qF "$base" "$bf"; then
-        echo "   FABRICATED-CITE: SOURCES.md claims B$n cites '$base', but $(basename "$bf") never references it."
-        rc=1
+      else
+        _cited_ok=0
+        for _bf in "${_bfs[@]}"; do grep -qF "$base" "$_bf" && { _cited_ok=1; break; }; done
+        if [ "$_cited_ok" -eq 0 ]; then
+          echo "   FABRICATED-CITE: SOURCES.md claims B$n cites '$base', but none of ${#_bfs[@]} *block${n}.md file(s) reference it."
+          rc=1
+        fi
       fi
     done
   done < "$sources_md"

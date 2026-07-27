@@ -15,7 +15,7 @@ ILSPY="${ILSPYCMD:-/home/cristian/.dotnet/tools/ilspycmd}"
 export DOTNET_ROLL_FORWARD="${DOTNET_ROLL_FORWARD:-Major}"
 
 case "${1:-}" in
-  --list) exec "$ILSPY" --list-types "${2:?dll required}" ;;
+  --list) exec "$ILSPY" -l c "${2:?dll required}" ;;
   --il)   IN="${2:?dll}"; OUT="${3:?out-dir}"; mkdir -p "$OUT"; exec "$ILSPY" --il "$IN" -o "$OUT" ;;
 esac
 
