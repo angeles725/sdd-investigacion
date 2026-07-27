@@ -216,12 +216,16 @@ install_one() {
   # 1. harness-specific asset → this harness's skills dir (source resolved from the adapter table,
   #    never branched on harness name). Before writing, compare against any existing deployed file:
   #    identical → silent no-op; diverged → warn + skip (preserve local content, never clobber).
+  #    WHY preserve: the deployed SKILL.md can carry retro-applied deltas written directly into it;
+  #    an unconditional overwrite would silently destroy that knowledge.
   printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
   if [ "$dry" != 1 ]; then
     if [ ! -f "$src_skill" ]; then
       echo "research-sdd-install: [$h] source SKILL not found: $src_skill" >&2; rc=1
     elif ! mkdir -p "$(dirname "$skill_path")"; then
       echo "research-sdd-install: [$h] mkdir failed for $(dirname "$skill_path")" >&2; rc=1
+    elif [ -f "$skill_path" ] && [ ! -r "$skill_path" ]; then
+      printf 'research-sdd-install: WARNING %s exists but is not readable (check permissions) — local content kept\n' "$skill_path" >&2
     elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
       : # byte-identical — silent no-op (idempotent re-run)
     elif [ -f "$skill_path" ]; then

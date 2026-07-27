@@ -15,11 +15,22 @@ restate the loop rules — the single source of truth is the kit. Read the kit, 
 from real state, and run the loop. Never bake mutable state (block numbers, "next gap") into what you run —
 derive it live each iteration (that is why RESUME exists).
 
-## Fixed paths
+> **Twin:** `research-sdd/skills/research-sdd/SKILL.md` is the harness-neutral counterpart installed for
+> Claude Code and Codex. Any change to shared behavior (triage logic, mode definitions, boundaries) must be
+> applied in BOTH files. The split is registered in `research-sdd/install/adapters.sh`.
 
-```
-KIT = /home/cristian/investigacion/sdd-investigacion/research-sdd
-```
+## Resolving the kit path
+
+`KIT` is the research-sdd kit directory — the one holding `METHODOLOGY.md`, `PROMPT-LOOP.md`, and
+`toolbelt/`. Resolve it ONCE at start, in this order, and use the result for every `$KIT/...` reference below:
+
+1. `$RESEARCH_SDD_KIT` if that environment variable is set AND the directory it points at contains `METHODOLOGY.md`.
+2. Else the default checkout: `/home/cristian/investigacion/sdd-investigacion/research-sdd`.
+3. Else (relocated kit or second machine) locate it — e.g. `fd -t f METHODOLOGY.md` under the user's repos,
+   confirming the hit also has `toolbelt/` and `PROMPT-LOOP.md` — and if still unfound, ask the user for the path.
+
+The toolbelt scripts resolve their own location internally; `$KIT` is needed only to FIND the kit docs and
+invoke the scripts. Nothing downstream re-hardcodes this path.
 
 ## Arguments
 

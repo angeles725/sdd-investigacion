@@ -642,9 +642,8 @@ else
 fi
 
 # 32 — Retro-waived target → MISSING-RETRO suppressed + count + target path in summary.
-#      A target with a waiver file (carrying '<!-- retro-waived: ... -->' in its leading block)
-#      but no blocks must not trigger MISSING-RETRO. Here we also add a block to confirm the
-#      waiver suppresses what would otherwise fire, and check the summary shows 'waived: 1'.
+#      Block is aged past the 24h grace window so MISSING-RETRO WOULD fire without the waiver.
+#      The waiver marker is the SOLE cause of suppression; test 32b proves this differentially.
 #      RED: retro_is_waived is not defined; no waiver check in fleet pass.
 kit="$(mkkit c32-waived)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
@@ -652,7 +651,7 @@ printf '<!-- kit-retro: exclude -->\n<!-- retro-waived: 2026-07-27 · dormant --
   > "$tgt/retros/retro-waived.md"
 touch -d '2000-01-01' "$tgt/retros/retro-waived.md"        # old retro mtime (not suppressed by fresh date)
 printf '# b\n' > "$tgt/t-block1.md"
-touch "$tgt/t-block1.md"                                    # fresh block — would normally fire MISSING-RETRO
+touch -d '2 days ago' "$tgt/t-block1.md"                   # block aged past 24h grace — MISSING-RETRO would fire without waiver
 write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -662,6 +661,20 @@ if [ "$RC" = 0 ] \
   ok "32 waived target → MISSING-RETRO suppressed + count + target path in summary" "(exit $RC)"
 else
   no "32 waived target → MISSING-RETRO suppressed + count + target path in summary" "exit=$RC out=[$OUT]"
+fi
+
+# 32b — Differential control: identical aged fixture WITHOUT the waiver marker must fire MISSING-RETRO.
+#       Proves the waiver marker is the sole cause of suppression in test 32.
+kit="$(mkkit c32b-nowaiver)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# b\n' > "$tgt/t-block1.md"
+touch -d '2 days ago' "$tgt/t-block1.md"                   # same age as test 32, no waiver present
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qF "MISSING-RETRO: $tgt" <<<"$OUT"; then
+  ok "32b aged block without waiver → MISSING-RETRO fires (differential control for test 32)" "(exit $RC)"
+else
+  no "32b aged block without waiver → MISSING-RETRO fires (differential control for test 32)" "exit=$RC out=[$OUT]"
 fi
 
 # 33 — Delta dedup coverage: table rows 1-3 + heading-style D4-D5 (no overlap) → 5 total.

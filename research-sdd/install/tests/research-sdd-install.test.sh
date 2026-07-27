@@ -362,5 +362,24 @@ else
   no "opencode SKILL.md fresh install: missing OpenCode adapter content (wrong source used)"
 fi
 
+# 30 — SKILL.md not readable (chmod 000): warns about permissions, not diverged content.
+#      A mode-000 destination must produce a "not readable" WARNING, not the "diverged content"
+#      WARNING, so the operator diagnoses the real cause (permissions, not a content conflict).
+if [ "$(id -u)" -eq 0 ]; then
+  ok "SKILL.md unreadable check skipped (running as root — chmod 000 is a no-op)"
+else
+  home="$TMP/skill-unreadable"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+  sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+  printf '# content distinct from kit source\n' > "$sf"
+  chmod 000 "$sf"
+  err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
+  chmod 644 "$sf"
+  if printf '%s' "$err" | grep -qi 'WARNING.*not readable' && ! printf '%s' "$err" | grep -qi 'diverged'; then
+    ok "SKILL.md unreadable (chmod 000): warns about permissions, not diverged content"
+  else
+    no "SKILL.md unreadable (chmod 000): wrong or missing warning (expected 'not readable', got: [$err])"
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
