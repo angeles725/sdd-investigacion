@@ -78,6 +78,7 @@ Sensitivity:
 | 15 | gateway-ug67 | `/home/cristian/investigacion/gateway-ug67` | **mature** (34 md / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 | 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (6 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
 | 17 | hilton-bms | `/home/cristian/tunnel/Cliente/Cancun/HotelHilton` | **mature** (71 blocks / 4 runs / 2 retros / git yes / remote no) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
+| 18 | nave-panccadia | `/home/cristian/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 
 ---
 
@@ -295,6 +296,74 @@ already carries five pre-existing remote-access tools (Radmin, TeamViewer, AnyDe
 **Hook status**: `.claude/hooks/research-protocol.sh` installed by `research-sdd-init.sh` but
 **unregistered** (no `settings.json` matcher yet).
 **Startup:** continue.
+
+---
+
+### 18 — nave-panccadia `[CERT]`
+Reconstruction of an architectural CAD drawing into a certified geometric model, aimed at a 3D
+ground-floor build (§19 applied phase). The subject is a single AutoCAD 2007 (`AC1021`) DWG —
+`Proyecto Nave Panccadia_Av.Del Curtidor.dwg`, an industrial bakery plant on Av. Del Curtidor —
+preserved read-only under `raw/` with its SHA-256 alongside the LibreDWG `dwg2dxf` conversion.
+
+**Confirmed at bootstrap** `[CERT]`: single populated modelspace (both paper-space layouts empty),
+9,939 entities, 28 used layers of 30 defined, 531 block definitions with 47 distinct inserts.
+Drawing text carries the literal label `PLANTA BAJA`, two floor-level marks (`NPT±0.00` ×17,
+`NPT±3.15` ×14) and a full architectural programme (cold rooms, laminating room, administration).
+Layer extents reveal at least two disjoint islands plus far-field outlier geometry.
+
+**Run 1 (2026-07-27/28, 7 blocks)**: B1 units · B2 modelspace partition · B3 levels · B4 walls ·
+B5 columns · B6 §19 pipeline + 3D model · B7 visual oracle (CORRECTS B6 and B5). Certified results:
+1 unit = 1 metre (`$INSUNITS` refuted); the file is a 12-view drawing set; ground floor outline
+**1,101 m²**; floor-to-floor **3.15 m**, building height **+9.20 m**; walls are open segments with
+**26.2 % oblique**; 21 concrete columns + **28 hollow HSS 8×8×1/4**; doors ABSENT as placed objects.
+
+**Method lessons worth reading (B7, B8)** — two gate blind spots found in one run, both by the
+operator eyeballing the result:
+1. **B7**: the model passed a **16/16** arithmetic gate while its slab was a bounding box inventing
+   **748 m² (40 %)** of floor. Arithmetic validation compares a model to the CORPUS, so it cannot
+   catch geometry never ingested nor a wrong overall SHAPE. Binding rule: *a geometric deliverable is
+   not verified until compared against a render of the source drawing.*
+2. **B8**: the fixed model then passed **21/21** while the plan was **MIRRORED** — CAD's `+Y` is up
+   the sheet, three.js's `+Z` points at the viewer, so `z = y` reflects the plan. **Reflection
+   preserves every length, area, count and angle magnitude**, so no symmetric check can see it.
+   Binding rule: *a coordinate-system handoff is a verification boundary; test it with an ASYMMETRIC
+   signature (signed area, known-handed landmark).* Gate now 24/24 with chirality guards.
+
+**Run 2 (2026-07-28, 5 blocks — B8..B12)**: B8 mirrored plan · B9 double flip · B10 PLANTA ALTA
+registration and extent · B11 which witness defines the raised slab · B12 §19 upper-storey build.
+Certified results: the upper plan registers on the ground floor by a **PURE TRANSLATION of
+(48.9886, 0.2253)**, established by making three transform hypotheses COMPETE — 34/36 columns matched
+vs 13 and 8 for the two mirrorings; the built upper storey is a **15.97 × 28.77 m strip**, not a
+second full floor (the rest of the plan is labelled `AZOTEA`); the drawn `PROYECCIÓN` outline
+**under-reports** the slab by up to 3.45 m. Delivered: two-storey viewer with a storey visibility
+control, gate at **35/35**, and 5 third-path guards each demonstrated FAILING.
+
+3. **B12**: the third transform path passed **34/34** with the laboratory annex **79.65 m off the
+   site**. Four guards constrained the annex's area, vertex count, Y position and the walls' offset;
+   **none constrained its X**. Binding rule: *a guard on a two-axis object must test BOTH axes* — B9's
+   "a guard covers only the path it inspects", restated for axes. Found by the top-view render, not
+   the gate: arithmetic cannot catch a wrong SHAPE (B7) and cannot catch a wrong PLACE either.
+4. **B11**: a check that cannot SEE a defect still returns a confident answer. The parapet test
+   agreed with the projected slab outline on 37 of 39 segments — but a parapet only exists where floor
+   meets open air, so it could never detect ENCLOSED floor. Binding rule: *name a test's blind spot
+   before trusting its verdict.* The test that worked was semantic: a labelled room cannot float.
+
+All staged for the kit LEARNINGS ledger.
+
+**Tooling**: `dwg2dxf` (LibreDWG via linuxbrew), `ezdxf` 1.4.4 and `matplotlib` 3.11.1 in `.venv/`,
+plus eighteen own read-only tools documented in `tools/README.md`. Notably `tools/cad-view.py` renders
+any region **as AutoCAD draws it** (via `ezdxf.addons.drawing`: real ACI colours, lineweights,
+hatches, text) — the visual oracle the run lacked; `tools/compare-model.py` overlays model on
+drawing; `tools/topview-check.py` renders the model as three.js will draw it (the only probe that
+can see a mirroring, since the JSON itself is always correct — extended in run 2 to overlay both
+storeys). Run 2 added `tools/upper-floor.py` (census + competing-hypothesis registration),
+`tools/extract-pa.py` (imports `extract-gf.py` and moves its ORIGIN, so the registration offset has
+exactly ONE place it can be applied) and **`tools/prove-guards.py`**, which turns B9's "prove every
+guard by breaking it" into a tool: it injects each guard's own defect and reports CAUGHT or MISSED. Conversion artefacts found: 8 of 217 dimensions lost associativity, and 36 `INSERT`s
+reference anonymous `*U` blocks LibreDWG did not export.
+
+**Hook status**: `.claude/hooks/research-protocol.sh` installed by `research-sdd-init.sh`.
+**Startup:** continue — 9 read-only-investigable gaps remain, 0 requires-execution (next: G4 structural grid).
 
 ---
 
