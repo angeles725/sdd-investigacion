@@ -28,10 +28,9 @@ LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT now 
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
-pass=0; fail=0; skip_count=0
+pass=0; fail=0
 ok()   { printf '  PASS  %-56s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %-56s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
-skip() { printf '  SKIP  %-56s %s\n' "$1" "${2:-}"; skip_count=$((skip_count+1)); }
 
 # mkkit <name> : lay down a runnable COPY of the SUT at <ROOT>/<name>/toolbelt/ so the script's
 # KIT=dirname/.. resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
@@ -744,9 +743,9 @@ fi
 
 # ---------------------------------------------------------------------------
 # 36 — P-prefix heading style (synthetic). A retro that lists deltas as '## P<n> — title'
-#      headings must count them correctly. P is the Proposal prefix used by the real
-#      pi5-decoding corpus; the old counter only recognised D-prefix, so P-prefix retros
-#      rendered as ~0 deltas (the richest content appeared empty). RED before this fix.
+#      headings must count them correctly. P is a Proposal prefix found in the real corpus;
+#      the old counter only recognised D-prefix, so P-prefix retros rendered as ~0 deltas.
+#      RED before this fix.
 kit="$(mkkit c36-pprefix)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -767,8 +766,8 @@ fi
 
 # 37 — Bare-number heading style (synthetic). A retro whose proposal headings are plain
 #      numbered sections ('## 1. title', '## 2. title' …) must count them correctly.
-#      This is the form used by the hilton-bms dashboard-b6 retro. The old counter did
-#      not recognise bare numbers; such retros rendered as ~0 deltas. RED before this fix.
+#      This shape appears in the real corpus; the old counter did not recognise bare
+#      numbers, so such retros rendered as ~0 deltas. RED before this fix.
 kit="$(mkkit c37-barenum)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -788,146 +787,150 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 38–45 — CORPUS-ANCHORED real-file regression tests.
-# These tests run the counter against real retro files on this machine.
+# 38–45 — CORPUS-ANCHORED frozen-fixture regression tests.
+# These tests run the counter against frozen fixtures copied from the real retro corpus.
+# The fixtures live in tests/fixtures/ and run on any machine without external dependencies.
+#
 # PURPOSE: the two previous counter implementations were written against retro.template.md
-# and both missed shapes that appear in the real corpus. Anchoring to real files on disk
-# prevents that class of failure from recurring — a fix that works only on synthetic
-# fixtures can silently mis-count the actual corpus that maintainers read.
-# SKIP POLICY: if a real file is absent (different machine, CI), the test prints a
-# visible SKIP line and does NOT increment pass or fail — a silent pass is indistinguishable
-# from a real pass and is exactly the fail-silent pattern this kit exists to prevent.
-# COUNTS: verified by running the widened pipeline against each file before writing
-# assertions. Two counts differ from the original specification: integration.md reports
-# ~6 (not ~5) because ## P6 "What worked well" is a P-prefix heading and the accepted
-# over-counting rule applies; dashboard-b6.md reports ~5 (not ~4) because
-# ## 5. "Lo que el kit hizo bien" is a bare-numbered heading. Both are accepted.
+# and both missed shapes that appear in the real corpus. A fix that passes only synthetic
+# fixtures can silently mis-count the actual corpus that maintainers read. Frozen fixtures
+# prevent that: they preserve the real heading shapes verbatim, which is where the
+# regression lives — NOT in any invented approximation of them.
+#
+# FIXTURE INTEGRITY: each fixture contains the leading marker block and all count-bearing
+# headings/table-rows verbatim in their original order. Engagement identifiers (focus
+# names, target identifiers) were replaced with neutral placeholders (target-01, target-02,
+# focus-a … focus-d); no structural prefix was changed and no count was affected. Each
+# fixture is named after the heading shape it exercises, not the engagement. See
+# tests/fixtures/README.md for the full rationale.
+#
+# COUNTS: verified by running the counter pipeline against both the real files and the
+# frozen fixtures before writing assertions. Two counts differ from the original
+# specification: p-prefix-headings-6.md reports ~6 (not ~5) because ## P6 "What worked
+# well" is a P-prefix heading and the accepted over-counting rule applies;
+# bare-number-headings-5.md reports ~5 (not ~4) because ## 5. "Lo que el kit hizo bien"
+# is a bare-numbered heading. Both are accepted.
 
-_h="/home/cristian/tunnel/Cliente/Cancun/HotelHilton/retros"
-_pd="/home/cristian/prototipos/pruebas-dashboards/retros"
+FIXTURES="$HERE/fixtures"
 
-# 38 — hilton-bms integration: 6 P-prefix proposals (P1–P5 real + P6 "what worked well").
-_real="$_h/2026-07-25-integration.md"
-if [ ! -f "$_real" ]; then
-  skip "38 corpus: 2026-07-25-integration.md" "(absent: $_real)"
+# 38 — P-prefix headings, 6 items: P1–P5 real proposals plus P6 "what worked well"
+#      (accepted over-count: the P-prefix rule counts all P-headed sections).
+kit="$(mkkit c38-pprefix6)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/p-prefix-headings-6.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~6 proposed deltas' <<<"$OUT"; then
+  ok "38 corpus: p-prefix-headings-6.md → P-prefix (6 items), ~6 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c38-integration)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~6 proposed deltas' <<<"$OUT"; then
-    ok "38 corpus: 2026-07-25-integration.md → P-prefix, ~6 deltas" "(exit $RC)"
-  else
-    no "38 corpus: 2026-07-25-integration.md → P-prefix, ~6 deltas" "exit=$RC out=[$OUT]"
-  fi
+  no "38 corpus: p-prefix-headings-6.md → P-prefix (6 items), ~6 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 39 — pi5-decoding-protocol-reconstruction: 23 P-prefix proposals (P1–P23).
-#      This is the 38 KB retro that was the clearest victim of the P-blind counter.
-_real="$_h/2026-07-26-pi5-decoding-protocol-reconstruction.md"
-if [ ! -f "$_real" ]; then
-  skip "39 corpus: 2026-07-26-pi5-decoding-protocol-reconstruction.md" "(absent: $_real)"
+# 39 — P-prefix headings, 23 items (P1–P23): the large P-prefix retro that was
+#      the clearest victim of the P-blind counter (the richest content rendered as ~0).
+kit="$(mkkit c39-pprefix23)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/p-prefix-headings-23.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~23 proposed deltas' <<<"$OUT"; then
+  ok "39 corpus: p-prefix-headings-23.md → P-prefix (23 items), ~23 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c39-pi5recon)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~23 proposed deltas' <<<"$OUT"; then
-    ok "39 corpus: pi5-decoding-protocol-reconstruction.md → P-prefix, ~23 deltas" "(exit $RC)"
-  else
-    no "39 corpus: pi5-decoding-protocol-reconstruction.md → P-prefix, ~23 deltas" "exit=$RC out=[$OUT]"
-  fi
+  no "39 corpus: p-prefix-headings-23.md → P-prefix (23 items), ~23 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 40 — compass-discover: 12 D-prefix proposals (D1–D12, non-contiguous order).
-#      Already counted correctly before this fix; anchored here to catch any regression.
-_real="$_h/2026-07-26-compass-discover.md"
-if [ ! -f "$_real" ]; then
-  skip "40 corpus: 2026-07-26-compass-discover.md" "(absent: $_real)"
+# 40 — D-prefix headings, 12 items (D1–D12, non-contiguous order): already counted
+#      correctly before the P-prefix fix; anchored here to catch any regression.
+kit="$(mkkit c40-dprefix12)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/d-prefix-headings-12.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~12 proposed deltas' <<<"$OUT"; then
+  ok "40 corpus: d-prefix-headings-12.md → D-prefix (12 items), ~12 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c40-compass)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~12 proposed deltas' <<<"$OUT"; then
-    ok "40 corpus: compass-discover.md → D-prefix, ~12 deltas (regression guard)" "(exit $RC)"
-  else
-    no "40 corpus: compass-discover.md → D-prefix, ~12 deltas (regression guard)" "exit=$RC out=[$OUT]"
-  fi
+  no "40 corpus: d-prefix-headings-12.md → D-prefix (12 items), ~12 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 41 — compass-discover-b11-b17: 7 D-prefix proposals (D13–D19).
-_real="$_h/2026-07-26-compass-discover-b11-b17.md"
-if [ ! -f "$_real" ]; then
-  skip "41 corpus: 2026-07-26-compass-discover-b11-b17.md" "(absent: $_real)"
+# 41 — D-prefix headings, 7 items (D13–D19): second of three D-prefix fixtures.
+kit="$(mkkit c41-dprefix7)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/d-prefix-headings-7.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~7 proposed deltas' <<<"$OUT"; then
+  ok "41 corpus: d-prefix-headings-7.md → D-prefix (7 items), ~7 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c41-compassb11)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~7 proposed deltas' <<<"$OUT"; then
-    ok "41 corpus: compass-discover-b11-b17.md → D-prefix, ~7 deltas (regression guard)" "(exit $RC)"
-  else
-    no "41 corpus: compass-discover-b11-b17.md → D-prefix, ~7 deltas (regression guard)" "exit=$RC out=[$OUT]"
-  fi
+  no "41 corpus: d-prefix-headings-7.md → D-prefix (7 items), ~7 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 42 — compass-discover-b18-native-re: 4 D-prefix proposals (D20–D23).
-_real="$_h/2026-07-26-compass-discover-b18-native-re.md"
-if [ ! -f "$_real" ]; then
-  skip "42 corpus: 2026-07-26-compass-discover-b18-native-re.md" "(absent: $_real)"
+# 42 — D-prefix headings, 4 items (D20–D23): third of three D-prefix fixtures.
+kit="$(mkkit c42-dprefix4)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/d-prefix-headings-4.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~4 proposed deltas' <<<"$OUT"; then
+  ok "42 corpus: d-prefix-headings-4.md → D-prefix (4 items), ~4 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c42-compassb18)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~4 proposed deltas' <<<"$OUT"; then
-    ok "42 corpus: compass-discover-b18-native-re.md → D-prefix, ~4 deltas (regression guard)" "(exit $RC)"
-  else
-    no "42 corpus: compass-discover-b18-native-re.md → D-prefix, ~4 deltas (regression guard)" "exit=$RC out=[$OUT]"
-  fi
+  no "42 corpus: d-prefix-headings-4.md → D-prefix (4 items), ~4 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 43 — pi5-decoding-ghidra-jdk21-and-b14-archive: 2 table-row proposals.
-#      Uses '| 1 |' / '| 2 |' table format; already counted correctly.
-_real="$_h/2026-07-26-pi5-decoding-ghidra-jdk21-and-b14-archive.md"
-if [ ! -f "$_real" ]; then
-  skip "43 corpus: pi5-decoding-ghidra-jdk21-and-b14-archive.md" "(absent: $_real)"
+# 43 — Delta table with letter-suffix rows: '| 1b |' and '| 1c |' do NOT match the
+#      '| <digits> |' pattern, so only rows '| 1 |' and '| 2 |' count → 2.
+#      Anchors the letter-suffix exclusion so it is not accidentally widened.
+kit="$(mkkit c43-lettersuffix2)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/delta-table-letter-suffix-2.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~2 proposed deltas' <<<"$OUT"; then
+  ok "43 corpus: delta-table-letter-suffix-2.md → letter-suffix rows uncounted, ~2 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c43-ghidra)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~2 proposed deltas' <<<"$OUT"; then
-    ok "43 corpus: pi5-decoding-ghidra-jdk21-and-b14-archive.md → table rows, ~2 deltas" "(exit $RC)"
-  else
-    no "43 corpus: pi5-decoding-ghidra-jdk21-and-b14-archive.md → table rows, ~2 deltas" "exit=$RC out=[$OUT]"
-  fi
+  no "43 corpus: delta-table-letter-suffix-2.md → letter-suffix rows uncounted, ~2 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 44 — dashboard-b6: 5 bare-number proposals (## 1. through ## 5., including the "what
-#      worked well" section — accepted over-count per the bare-number rule).
-_real="$_h/2026-07-27-dashboard-b6.md"
-if [ ! -f "$_real" ]; then
-  skip "44 corpus: 2026-07-27-dashboard-b6.md" "(absent: $_real)"
+# 44 — Bare-number headings, 5 items (## 1. through ## 5., including the "what worked
+#      well" section — accepted over-count per the bare-number rule).
+kit="$(mkkit c44-barenum5)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/bare-number-headings-5.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~5 proposed deltas' <<<"$OUT"; then
+  ok "44 corpus: bare-number-headings-5.md → bare-number headings (5 items), ~5 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c44-dashboard)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~5 proposed deltas' <<<"$OUT"; then
-    ok "44 corpus: dashboard-b6.md → bare-number, ~5 deltas" "(exit $RC)"
-  else
-    no "44 corpus: dashboard-b6.md → bare-number, ~5 deltas" "exit=$RC out=[$OUT]"
-  fi
+  no "44 corpus: bare-number-headings-5.md → bare-number headings (5 items), ~5 deltas" "exit=$RC out=[$OUT]"
 fi
 
-# 45 — retro-anti-ai-ui-run-2026-07-12: 5 table-row proposals; already counted correctly.
-_real="$_pd/retro-anti-ai-ui-run-2026-07-12.md"
-if [ ! -f "$_real" ]; then
-  skip "45 corpus: retro-anti-ai-ui-run-2026-07-12.md" "(absent: $_real)"
+# 45 — Plain delta table, 5 items: simple '| 1 |' … '| 5 |' table format; already
+#      counted correctly before the heading fixes; anchored as a regression guard.
+kit="$(mkkit c45-plaindelta5)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"; cp "$FIXTURES/delta-table-plain-5.md" "$tgt/retros/"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~5 proposed deltas' <<<"$OUT"; then
+  ok "45 corpus: delta-table-plain-5.md → plain delta table (5 items), ~5 deltas" "(exit $RC)"
 else
-  kit="$(mkkit c45-antiai)"; tgt="$kit/targetA"
-  mkdir -p "$tgt/retros"; cp "$_real" "$tgt/retros/"
-  write_targets "$kit" "$tgt"; run "$kit"
-  if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~5 proposed deltas' <<<"$OUT"; then
-    ok "45 corpus: retro-anti-ai-ui-run-2026-07-12.md → table rows, ~5 deltas" "(exit $RC)"
-  else
-    no "45 corpus: retro-anti-ai-ui-run-2026-07-12.md → table rows, ~5 deltas" "exit=$RC out=[$OUT]"
-  fi
+  no "45 corpus: delta-table-plain-5.md → plain delta table (5 items), ~5 deltas" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 46 — SPACELESS SEPARATORS: em dash (—, U+2014) and en dash (–, U+2013) directly
+#      after the delta number, with no space before them.
+#
+# The heading regex at sweep-retros.sh:119 includes '—' and '–' in its separator class
+# [[:space:].—–-] so that '## P1—title' and '## D1–title' (spaceless) are recognised.
+# Every fixture from the real corpus puts a SPACE before the separator, so the whitespace
+# member is what matches in practice; the em/en dash members have never been exercised
+# and could be silently deleted as noise without failing any existing test.
+#
+# SYNTHETIC fixture — this shape does NOT yet exist in the real corpus. It is added here
+# to pin the branch so its members are not mistaken for dead code. When a real retro does
+# use a spaceless em/en dash separator, add a frozen corpus fixture and note it in
+# tests/fixtures/README.md; do NOT replace this synthetic case, which serves a different
+# purpose (branch coverage for a form the corpus has not yet produced).
+kit="$(mkkit c46-spaceless-dash)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## P1\xe2\x80\x94spaceless em-dash separator\n\n'
+  printf '## D2\xe2\x80\x93spaceless en-dash separator\n\n'
+  printf '## 3\xe2\x80\x94bare number with em-dash\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~3 proposed deltas' <<<"$OUT"; then
+  ok "46 spaceless separators (P1— em-dash, D2– en-dash, 3— bare) → ~3 counted" "(exit $RC)"
+else
+  no "46 spaceless separators (P1— em-dash, D2– en-dash, 3— bare) → ~3 counted" "exit=$RC out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1152,6 +1155,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
-[ "$skip_count" -gt 0 ] && echo "($skip_count real-corpus fixture(s) skipped — external files absent on this machine)"
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
