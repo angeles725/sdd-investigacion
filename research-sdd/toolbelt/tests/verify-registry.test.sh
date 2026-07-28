@@ -352,6 +352,97 @@ else
   no "15 only-excluded retros → §18 feedback not wired INFO still fires (B2 wiring)" "exit=$RC out=[$OUT]"
 fi
 
+# 16 — RED FIRST: bare `block<N>.md` files (no canonical prefix) → canonical discriminator
+#      returns 0; the counter is SILENT and neither the drift guard nor the §18 INFO can fire.
+#      After the fix, a WARN naming the count and reason fires instead of silence, and §18 fires
+#      too — a target with 13 unclassifiable blocks and no retro must not be exempted by its
+#      own non-canonical naming.
+kit="$(mkkit c16-unclassifiable)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 13\n<!-- /research-state.v1 -->\n' \
+  > "$tgt/RESEARCH-STATE.md"
+for i in $(seq 1 13); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
+# Claim 13 md (what the operator believes) so the unclaimed-count branch does not short-circuit
+# and both the unclassifiable guard and the §18 check remain reachable.
+write_targets "$kit" "$tgt::13 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'WARN[[:space:]]+targetA.*unclassifiable' <<<"$OUT" \
+   && grep -qE 'INFO[[:space:]]+targetA.*13 candidate block file\(s\) \(unclassifiable\)' <<<"$OUT"; then
+  ok "16 bare block<N>.md → unclassifiable WARN + §18 INFO fire (anti-silent-zero)" "(exit $RC)"
+else
+  no "16 bare block<N>.md → unclassifiable WARN + §18 INFO fire (anti-silent-zero)" "exit=$RC out=[$OUT]"
+fi
+
+# 17 — CANONICAL regression guard: foo-block1.md..foo-block5.md → discriminator counts 5,
+#      NO unclassifiable diagnostic emitted, behaviour unchanged from before this fix.
+#      A retro is provided so §18 INFO does not confuse the assertion.
+kit="$(mkkit c17-canonical-nochange)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 5 "foo"
+mkdir -p "$tgt/retros"; printf '# retro\nbody\n' > "$tgt/retros/2026-01-01-retro.md"
+write_targets "$kit" "$tgt::5 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'unclassifiable' <<<"$OUT" \
+   && grep -q '0 count drift' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "17 canonical foo-block<N>.md → no unclassifiable diagnostic, counted correctly" "(exit $RC)"
+else
+  no "17 canonical foo-block<N>.md → no unclassifiable diagnostic, counted correctly" "exit=$RC out=[$OUT]"
+fi
+
+# 18 — EMPTY corpus: no block files and no block-like candidates → no unclassifiable WARN.
+#      Ensures the guard does not false-alarm when real=0 AND no candidates exist.
+kit="$(mkkit c18-empty)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 0\n<!-- /research-state.v1 -->\n' \
+  > "$tgt/RESEARCH-STATE.md"
+write_targets "$kit" "$tgt::0 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'unclassifiable' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "18 empty corpus → no unclassifiable diagnostic, no false alarm" "(exit $RC)"
+else
+  no "18 empty corpus → no unclassifiable diagnostic, no false alarm" "exit=$RC out=[$OUT]"
+fi
+
+# 19 — FALSE-POSITIVE GUARD: ordinary corpus docs (README.md, INDEX.md, CATALOG.md,
+#      RESEARCH-STATE.md, SOURCES.md) carry no 'block'/'bloque' in their names and must
+#      NOT trigger the unclassifiable diagnostic. This guard matters most: a noisy false
+#      alarm on every session trains operators to ignore the signal, defeating its purpose.
+#
+#      Extended with boundary names that exercise the new matching rule: these are plausible
+#      corpus documents (especially in Spanish-authored corpora) that the OLD regex fired on,
+#      causing false alarms. All four must remain silent under the fixed rule:
+#        blocking-issues.md   — 'block' in name, but followed by a letter, not a digit
+#        block-diagram.md     — 'block' in name, followed by '-d', no digit after separator
+#        bloques-pendientes.md — 'bloque' in name, followed by 's', not a digit
+#        roadblock.md         — does NOT start with block/bloque; '/' appears before 'roadblock'
+#      The old comment INCORRECTLY named roadblock.md as the false-positive surface; in reality
+#      it never fired (path separator is before 'roadblock', not before 'block').
+kit="$(mkkit c19-fp-guard)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 0\n<!-- /research-state.v1 -->\n' \
+  > "$tgt/RESEARCH-STATE.md"
+printf '# README\n'  > "$tgt/README.md"
+printf '# INDEX\n'   > "$tgt/INDEX.md"
+printf '# CATALOG\n' > "$tgt/CATALOG.md"
+printf '# SOURCES\n' > "$tgt/SOURCES.md"
+# Boundary names that fire under the old '/(block|bloque)' regex but must not fire after the fix.
+printf '# blocking issues\n' > "$tgt/blocking-issues.md"
+printf '# block diagram\n'   > "$tgt/block-diagram.md"
+printf '# pendientes\n'      > "$tgt/bloques-pendientes.md"
+printf '# roadblock\n'       > "$tgt/roadblock.md"
+write_targets "$kit" "$tgt::0 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'unclassifiable' <<<"$OUT"; then
+  ok "19 ordinary docs + boundary names (blocking-issues/block-diagram/bloques-pendientes/roadblock) → no false alarm" "(exit $RC)"
+else
+  no "19 ordinary docs + boundary names (blocking-issues/block-diagram/bloques-pendientes/roadblock) → no false alarm" "exit=$RC out=[$OUT]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -417,6 +508,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-nc-contradiction: NC-CONTRADICTION-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-unclassifiable: neuter the unclassifiable-check guard (identified by # UNCLASSIFIABLE-CHECK
+  # sentinel in the SUT); the bare block<N>.md fixture must STOP emitting the WARN — proving test 16
+  # depends on the real guard and not on coincidental output.
+  echo "-- teeth-unclassifiable: neuter UNCLASSIFIABLE-CHECK; bare block<N>.md must NOT WARN --"
+  kit="$(mkkit teeth-unclassifiable)"; tgt="$kit/targetA"
+  mkdir -p "$tgt"
+  printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 13\n<!-- /research-state.v1 -->\n' \
+    > "$tgt/RESEARCH-STATE.md"
+  for i in $(seq 1 13); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
+  write_targets "$kit" "$tgt::13 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# UNCLASSIFIABLE-CHECK' "$mut"; then
+    sed -i '/# UNCLASSIFIABLE-CHECK/ s/.*/    if false; then  # UNCLASSIFIABLE-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    # Assert the WARN line is absent, not just the string "unclassifiable" — the §18 INFO noun
+    # now contains "unclassifiable" so a bare grep would false-fail even after correct neutering.
+    if [ "$mrc" = 0 ] && ! grep -qE 'WARN[[:space:]].*unclassifiable' <<<"$mout"; then
+      ok "teeth-unclassifiable: neutered guard → bare blocks emit NO unclassifiable WARN (test 16 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-unclassifiable: neutered mutant STILL emits unclassifiable WARN → test 16 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-unclassifiable: UNCLASSIFIABLE-CHECK sentinel not found in SUT (guard not implemented or marker missing)"
+  fi
+
+  # teeth-count-subst: neuter the count+noun substitution (identified by # SUBST-COUNT-CHECK sentinel
+  # in the SUT). When the substitution is a no-op, the INFO must report "0 block(s) on disk" instead
+  # of "13 candidate block file(s) (unclassifiable) on disk" — proving that test 16's explicit count
+  # assertion is load-bearing: deleting or breaking the substitution goes RED, not vacuously green.
+  # A marker guard (`grep -q '# SUBST-COUNT-CHECK'`) ensures a missed sed is detected and reported
+  # rather than passing vacuously.
+  echo "-- teeth-count-subst: neuter SUBST-COUNT-CHECK; INFO must NOT name 13 candidate files --"
+  kit="$(mkkit teeth-count-subst)"; tgt="$kit/targetA"
+  mkdir -p "$tgt"
+  printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 13\n<!-- /research-state.v1 -->\n' \
+    > "$tgt/RESEARCH-STATE.md"
+  for i in $(seq 1 13); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
+  write_targets "$kit" "$tgt::13 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# SUBST-COUNT-CHECK' "$mut"; then
+    # Replace the substitution guard with `if false; then` so the body never runs:
+    # _vr_effective_count stays at $real (0) and _vr_count_noun stays "block(s) on disk"
+    # — the pre-fix misleading output. Using `if false; then` preserves the fi structure.
+    sed -i '/# SUBST-COUNT-CHECK/ s/.*/      if false; then  # SUBST-COUNT-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -qE 'INFO[[:space:]]+targetA.*13 candidate block file' <<<"$mout"; then
+      ok "teeth-count-subst: neutered substitution → INFO no longer names 13 candidate files (test 16 count assertion has teeth)" "(exit $mrc)"
+    else
+      no "teeth-count-subst: neutered mutant STILL names 13 candidate files → test 16 count assertion is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-count-subst: SUBST-COUNT-CHECK sentinel not found in SUT (substitution not implemented or marker missing)"
   fi
 fi
 

@@ -163,12 +163,52 @@ for p in $paths; do
     drift=$((drift + 1))
   fi
 
+  # UNCLASSIFIABLE-BLOCK GUARD: when the canonical discriminator returns 0 yet the corpus root
+  # holds files whose names contain "block"/"bloque" but do not satisfy the canonical
+  # <prefix>-(block|bloque)<N>.md form, those files are completely invisible to the drift and §18
+  # checks — "could not classify" is indistinguishable from "nothing here" and the silence is total.
+  #
+  # First filter: require the basename to start with block/bloque followed by an optional separator
+  # (_/-) and a DIGIT. This admits bare numbered blocks (block1.md, bloque3.md, block_07.md) while
+  # correctly excluding plausible corpus documents — the ACTUAL false-positive surface, all of which
+  # the old '/(block|bloque)' rule fired on:
+  #   blocking-issues.md     — 'block' then 'i', no digit → excluded ✓
+  #   block-diagram.md       — 'block' then '-d', no digit after separator → excluded ✓
+  #   bloques-pendientes.md  — 'bloque' then 's', not a digit → excluded ✓
+  #   roadblock.md           — path separator is before 'roadblock', not before 'block'; this name
+  #                            never fired even under the old rule (the old comment was wrong).
+  # Residual false-positive: block-01.md fires (block + separator + digit). That shape looks like an
+  # attempt at a numbered block without a canonical prefix; the rename advisory is appropriate.
+  # Residual false-negative: un-numbered names (block-intro.md) do not fire; out of scope for a guard
+  # targeting the numbered-block corpus convention.
+  #
+  # No '|| true' on the first grep: the script runs set -uo pipefail WITHOUT -e, so grep exit-1
+  # (no match) does not abort the assignment and ${unclassifiable:-0} absorbs empty output. Adding
+  # '|| true' would convert grep exit-2 (ENOMEM/SIGPIPE) into silent success — exactly the confident
+  # zero this guard exists to prevent, reintroduced inside the guard itself.
+  #
+  # The check runs only when real==0 AND no local-generator authority overrode the count, so canonical
+  # corpora and CATALOG-driven totals are never affected.
+  unclassifiable=0
+  if [ "$real" -eq 0 ] && [ -z "$cat_authority" ]; then
+    unclassifiable="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+      | grep -iE '/(block|bloque)[_-]?[0-9]' \
+      | grep -vE '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' \
+      | wc -l | tr -d ' ')"
+    unclassifiable="${unclassifiable:-0}"
+    if [ "$unclassifiable" -gt 0 ]; then  # UNCLASSIFIABLE-CHECK
+      echo "WARN  $name — ${unclassifiable} unclassifiable candidate block file(s): names contain 'block'/'bloque' but do not match the canonical discriminator (<prefix>-(block|bloque)<N>.md); the block counter returns 0 — rename to make them visible to drift and §18 checks."
+    fi
+  fi
+
   # Reachability sanity: a corpus with blocks but NO §18 kit retros anywhere means the §18 feedback
   # loop can't be reached from this target. Advisory only (incipient targets legitimately have none)
   # — fires solely when the corpus actually advanced (real > tol) yet no non-excluded retro exists.
   # Files carrying '<!-- kit-retro: exclude -->' are not §18 kit retros and are filtered out, so a
   # target with ONLY excluded retros correctly fires this INFO.
-  if [ "$real" -gt "$tol" ]; then
+  # Also fires when the canonical discriminator sees 0 but unclassifiable candidates exist: a target
+  # with 13 bare block files and no retro must not be silenced by its own non-canonical naming.
+  if [ "$real" -gt "$tol" ] || [ "$unclassifiable" -gt 0 ]; then
     _vr_has_kit_retro=0
     while IFS= read -r _vr_rf; do
       [ -n "$_vr_rf" ] || continue
@@ -176,7 +216,20 @@ for p in $paths; do
       _vr_has_kit_retro=1; break
     done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
     if [ "$_vr_has_kit_retro" -eq 0 ]; then
-      echo "INFO  $name — ${real} block(s) on disk but no retros/*.md reachable under the target (§18 feedback not wired)."
+      # When canonical count is 0 but unclassifiable candidates exist, substitute both the count
+      # AND the noun so the INFO line is true standing alone. Reading "0 block(s) on disk" while
+      # the drift WARN above says 0 misleads the operator into editing TARGETS.md to 0 rather than
+      # renaming files. Reading "13 block(s) on disk" while the drift WARN says 0 suggests the drift
+      # is stale. Both half-readings produce the wrong action; changing the noun eliminates the
+      # contradiction: "13 candidate block file(s) (unclassifiable)" is unambiguous.
+      # When real > 0 (canonical case) the noun and count are unchanged — existing assertions hold.
+      _vr_effective_count="$real"
+      _vr_count_noun="block(s) on disk"
+      if [ "$real" -eq 0 ] && [ "$unclassifiable" -gt 0 ]; then  # SUBST-COUNT-CHECK
+        _vr_effective_count="$unclassifiable"
+        _vr_count_noun="candidate block file(s) (unclassifiable) on disk"
+      fi
+      echo "INFO  $name — ${_vr_effective_count} ${_vr_count_noun} but no retros/*.md reachable under the target (§18 feedback not wired)."
     fi
   fi
 done
