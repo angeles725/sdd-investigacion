@@ -96,7 +96,7 @@ Path portability — the `$RESEARCH_HOME` convention:
 | 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
-| 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **incipient** (1 md / git no / remote no / hook no; static STOP MET at B1) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430` (appId `7a26794d-2f82-4211-b6bf-cf5944bcc229`): remote app behind Google sign-in; sources are official AppSheet Help + product announcements + Google Developer forums `[CERT-web]`/`[CERT-a]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
+| 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **intermediate** (5 md / 2 runs / 1 retro / git yes / remote no / hook no; static STOP MET) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430` (appId `7a26794d-2f82-4211-b6bf-cf5944bcc229`): remote app behind Google sign-in; sources are official AppSheet Help + product announcements + Google Developer forums `[CERT-web]`/`[CERT-a]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
 
 ---
 
@@ -439,7 +439,24 @@ not a research-effort boundary.
 deduction and explicitly flagged as undocumented, unsupported, and a ToS question for the operator
 to settle. It is ranked LAST on purpose; channels 1–3 answer the real question without it.
 
-**Startup:** blocked. Resume when operator material arrives.
+**Run 2 (same day) — domains B4–B5** `[CERT]`. Operator supplied the App Documentation PDF (1751 pp.) and
+the backing workbook, then deferred the automation-bot gap to prioritise the two ERP-uncovered domains.
+Corpus now **5 blocks, 10/15 gaps**. Key findings: **status is not modelled as data** — it is derived from
+field emptiness and materialised as *slices* (`… Por autorizar`/`Pagados`, `MP en proceso`/
+`MPFINALIZADO_VISTA`), so **no state history exists to migrate** (B4 §4.3, resolves [C1]); purchasing is
+21,634 rows (49%) with a two-signature approval chain plus 3 empty tables from an abandoned design;
+maintenance is 15,600 rows (35%) built on a **user-configurable EAV form engine** with a three-signature
+chain, and **MC is a degraded clone of MP** (every Signature/DateTime collapsed to Text, 7 rows vs 304).
+Purchasing + maintenance = **84% of all app data**, none of it covered by the ERP.
+
+**Two §14 corrections applied this run**, both from one root cause — a first measurement pass left at the
+tool's default `--max-rows 5000`: B2 §2.5 (`Material Orden de CompraInterna` 4,898 → **11,385**, making it
+the app's largest table) and B3 §3.2 (data share 65% → **84%**). The retro's delta #4 (round-number
+truncation is a signal, never a measurement) was authored BEFORE the second instance was found, and the
+second instance is its confirmation.
+
+**Startup:** blocked on editor access (5 gaps: bot bodies — deferred by operator, slice row filters,
+[C2], sharing config, AppTemplate capture). Resume when editor screens arrive.
 
 ---
 
