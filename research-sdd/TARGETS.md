@@ -81,6 +81,7 @@ Sensitivity:
 | 18 | nave-panccadia | `/home/cristian/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `/home/cristian/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `/home/cristian/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
+| 21 | appsheet-tomapp | `/home/luis5983/investigacion/appsheet-tomapp` | **incipient** (1 md / git no / remote no / hook no; static STOP MET at B1) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430` (appId `7a26794d-2f82-4211-b6bf-cf5944bcc229`): remote app behind Google sign-in; sources are official AppSheet Help + product announcements + Google Developer forums `[CERT-web]`/`[CERT-a]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
 
 ---
 
@@ -400,6 +401,30 @@ files are renamed to the canonical pattern (e.g. `m2070-block1.md`).
 
 **Startup:** static loop closed (G13 — networked M2070W/FW AirPrint/eSCL end-to-end — remains
 the only genuinely hardware-blocked gap). Resolve the naming issue before the next archive run.
+
+### 21 — appsheet-tomapp `[CERT]`
+Feasibility research on **Google AppSheet app `tomappAS-986175430`** (appId
+`7a26794d-2f82-4211-b6bf-cf5944bcc229`), opened 2026-07-28. First target in the registry that is a
+**hosted SaaS app with no local artifact** — nothing to decompile, nothing on disk; the entire
+static phase is web + one unauthenticated live probe.
+
+**B1 finding (the whole point of the target)**: AppSheet apps have no exportable source. Staff
+confirm the app is internally "a large JSON document" (the **AppTemplate**) but it is never emitted
+`[CERT-a]`. All five official integration points reach **row data only**, never the definition
+`[CERT-web]`. The single sanctioned export is the **App Documentation PDF** (editor ▸ Info ▸
+Properties ▸ App Documentation) `[CERT-web]`. The real backend is an **external data store** (Sheets
+/ Cloud SQL / AppSheet DB) the operator already owns and can read directly `[INFER]`.
+
+**Static STOP MET at B1** (read-only-investigable = 0). The remaining 7 gaps are ALL blocked on
+owner-authenticated access — this target cannot advance one block without the operator supplying
+the App Documentation PDF, data-source access, or editor screenshots. That is an access boundary,
+not a research-effort boundary.
+
+**Note on `[INFER]` §1.7**: the devtools/AppTemplate-capture channel is documented as a structural
+deduction and explicitly flagged as undocumented, unsupported, and a ToS question for the operator
+to settle. It is ranked LAST on purpose; channels 1–3 answer the real question without it.
+
+**Startup:** blocked. Resume when operator material arrives.
 
 ---
 
