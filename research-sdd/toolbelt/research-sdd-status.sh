@@ -20,13 +20,35 @@
 # Exit: 0 ok · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
 
-target="${1:-}"; mode="${2:-status}"
-[ -d "$target" ] || { echo "usage: research-sdd-status.sh <target-dir> [--next]" >&2; exit 2; }
+target="${1:-}"
+[ -d "$target" ] || { echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]" >&2; exit 2; }
+shift
+mode="status"
+focus_slug=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --next|--sync-state) mode="$1"; shift ;;
+    --focus)
+      focus_slug="${2:-}"
+      [ -z "$focus_slug" ] && { echo "usage: --focus requires a focus slug" >&2; exit 2; }
+      shift 2 ;;
+    *) echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]" >&2; exit 2 ;;
+  esac
+done
 
-state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
-if [ ! -f "$state" ]; then
-  [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE under $target" || echo "no RESEARCH-STATE under $target — run research-sdd-init.sh"
-  exit 0
+if [ -n "$focus_slug" ]; then
+  # --focus <slug>: select exactly RESEARCH-STATE-<slug>.md, ignoring sibling focuses.
+  state="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  if [ ! -f "$state" ]; then
+    [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE-${focus_slug}.md under $target" || echo "no RESEARCH-STATE-${focus_slug}.md under $target — run research-sdd-init.sh"
+    exit 0
+  fi
+else
+  state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  if [ ! -f "$state" ]; then
+    [ "$mode" = "--next" ] && echo "BOOTSTRAP | no RESEARCH-STATE under $target" || echo "no RESEARCH-STATE under $target — run research-sdd-init.sh"
+    exit 0
+  fi
 fi
 corpus="$(dirname "$state")"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -43,6 +65,19 @@ fi
 # Fail closed: this script does NOT use `set -e`, so a failed/partial/syntax-broken source would be
 # swallowed and every focus-prefix call would silently return empty, mis-counting blocks. Abort early.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "research-sdd-status: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
+
+# Shared state-file enumeration — single definition of the "enumerate RESEARCH-STATE*.md" incantation
+# (WARNING 4: lib/state-files.sh was declared the SINGLE definition, but gate/aggregation consumers in
+# this file copy-pasted the find command instead of sourcing it; a change to the exclusion set in the
+# lib would silently diverge from those consumers on day one of the changeset). Sourcing here eliminates
+# the drift without changing the exclusion set — verify-state.sh:33 remains the authoritative reference.
+_SFLIB="$here/lib/state-files.sh"
+if [ ! -f "$_SFLIB" ]; then
+  echo "research-sdd-status: cannot find helper $_SFLIB" >&2; exit 1
+fi
+# shellcheck source=lib/state-files.sh
+. "$_SFLIB"
+declare -F list_state_files >/dev/null 2>&1 || { echo "research-sdd-status: helper $_SFLIB failed to define list_state_files" >&2; exit 1; }
 
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
@@ -245,11 +280,14 @@ if [ "$mode" = "--sync-state" ]; then
     printf 'requires_execution_open: %s\n' "$req"
     printf 'blocked_open: %s\n' "$bo"
     printf 'deferred_open: %s\n' "$def"
+    printf 'undocumented_findings: %s\n' "$uf"
     printf '<!-- /research-state.v1 -->'
   }
   # Reassigning the global `state` per iteration is deliberate: section/backlog_rows/blocked_body/env_get all
   # read $state at call time, so each focus derives from its OWN file (single source of truth, same helpers).
-  mapfile -t _states < <(find "$corpus" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort)
+  # Scan $target (not $corpus) so split-layout corpora (focuses in sibling subdirectories) are fully seeded;
+  # scanning only $corpus=dirname(first) left sibling focuses unseeded — the BLOCKER 2 / WARNING 4 root cause.
+  mapfile -t _states < <(list_state_files "$target")
   for state in "${_states[@]}"; do
     # Write THROUGH a symlinked state file to its real path (else the mv below would replace the symlink
     # with a regular file, silently breaking a shared/canonical state). readlink -f also canonicalizes a
@@ -286,6 +324,33 @@ if [ "$mode" = "--sync-state" ]; then
     else
       req="$(pick "$(req_prose)" "$(env_get requires_execution_open)")"
     fi
+    # undocumented_findings: distinguish the three cases that pick("","...") collapses into one silent 0.
+    # ABSENT       → seed 0 (METHODOLOGY §7 seeding contract; no warning — documented legacy path).
+    # VALID        → carry the integer forward unchanged.
+    # UNPARSEABLE  → warn loudly and carry the raw value forward; NOT replaced with 0 because that
+    #                would erase real debt silently (the exact silent-loss channel BLOCKER 1B closes).
+    #                verify-state CHECK G FAILs on the carried non-integer, so --next returns STALE.
+    #
+    # BLIND SPOT: env_get uses $1==key":" (whitespace field split).  A no-space typo like
+    # `undocumented_findings:7` makes $1=="undocumented_findings:7" which never matches, so env_get
+    # returns "" — identical to the ABSENT case — and the ABSENT branch would silently seed 0.
+    # FIX: if env_get returns empty, apply the SAME prefix probe as verify-state.sh's _uf_present
+    # (index-based, not whitespace-based) to decide absent vs present-but-unreadable-by-env_get.
+    _raw_uf="$(env_get undocumented_findings)"
+    if [ -z "$_raw_uf" ]; then
+      # Probe by KEY: prefix — matches `undocumented_findings:value` with or without a space after colon.
+      # Uses index() (literal string, no regex) to avoid false-positives from longer field names.
+      _raw_uf="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && index($0,"undocumented_findings:")==1{val=substr($0,length("undocumented_findings:")+1); sub(/^[[:space:]]*/,"",val); print val; exit}' "$state")"
+      # If still empty the line is genuinely absent → the case below takes the absent branch (seed 0).
+    fi
+    case "$_raw_uf" in
+      '')           uf=0 ;;
+      *[!0-9]*)
+        printf 'sync-state: WARN: %s: undocumented_findings=%s is not a non-negative integer; value NOT replaced with 0 — fix manually and re-run --sync-state.\n' \
+          "$(basename "$state")" "$_raw_uf" >&2
+        uf="$_raw_uf" ;;
+      *)            uf="$_raw_uf" ;;
+    esac
     repl="$(render_envelope)"
     tmp="$(mktemp "$(dirname "$state")/.rsdd-sync.XXXXXX")"
     if grep -q '<!-- research-state.v1 -->' "$state"; then
@@ -308,7 +373,7 @@ if [ "$mode" = "--sync-state" ]; then
         END { if (!done) { print ""; print repl } }' "$state" > "$tmp"
     fi
     mv "$tmp" "$state"
-    echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo deferred_open=$def"
+    echo "sync-state: $(basename "$state") → covered_blocks=$cb gaps_closed=$gc known_gaps=$kg investigable_open=$io requires_execution_open=$req blocked_open=$bo deferred_open=$def undocumented_findings=$uf"
   done
   exit 0
 fi
@@ -316,11 +381,28 @@ fi
 if [ "$mode" = "--next" ]; then
   # Refuse to hand out work on an internally inconsistent state (summary claims done while backlog
   # lists pending — verify-state.sh exits 1 on that). An agent trusting --next alone must reconcile first.
-  if ! "$here/verify-state.sh" "$corpus" >/dev/null 2>&1; then
+  # Use $target (not $corpus) so the STALE gate covers the same scope as the aggregation below: scanning
+  # only $corpus=dirname(first) would miss sibling focuses in a split-layout and give a false green light.
+  if ! "$here/verify-state.sh" "$target" >/dev/null 2>&1; then
     echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
     exit 0
   fi
-  resolve_next; exit 0
+  if [ -z "$focus_slug" ]; then
+    # Multi-focus guard (chihuahua/px-chart-classic regression + BLOCKER 2 split-layout): iterate every
+    # state file under $target (not just $corpus=dirname(first)), so focuses in sibling subdirectories are
+    # not missed. Return NEXT from the first active focus; only emit STOP when ALL focuses are stopped.
+    # Scanning $corpus alone was the C3 false-STOP root cause one directory level up: alpha (stopped)
+    # sorted first → corpus=alpha → aggregation never reached beta (active) → false STOP.
+    mapfile -t _next_states < <(list_state_files "$target")
+    for state in "${_next_states[@]}"; do
+      _r="$(resolve_next)"
+      case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
+    done
+    echo "STOP | read-only-investigable exhausted (0)"
+  else
+    resolve_next
+  fi
+  exit 0
 fi
 
 # --- default: structured status report ---------------------------------------------------------
@@ -355,7 +437,19 @@ else
   [ "$nopen" -gt 0 ] && echo "  contradictions  : ${nopen} open" || echo "  contradictions  : (none)"
 fi
 saturation_line
-printf '  next step       : '; resolve_next
+# next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
+# WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
+# "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.
+# Using a subshell keeps $state (and thus $corpus) unchanged in the parent for the footer below.
+printf '  next step       : '
+(
+  mapfile -t _ns_states < <(list_state_files "$target")
+  for state in "${_ns_states[@]}"; do
+    _r="$(resolve_next)"
+    case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
+  done
+  echo "STOP | read-only-investigable exhausted (0)"
+)
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
 exit 0   # a stale-mirror FAIL is REPORTED in the consistency line above; it must not become our exit code (contract: 0 ok / 2 bad args)

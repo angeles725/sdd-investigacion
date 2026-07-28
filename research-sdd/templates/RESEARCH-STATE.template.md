@@ -19,6 +19,11 @@
        • DECLARED-only — read from the prose and carried forward, NOT disk-validated: gaps_closed · known_gaps.
          verify-state only cross-checks the coverage ratio for the all-closed-while-pending desync (CHECK D),
          not these absolute values — keep them truthful by hand.
+       • MANUALLY-MAINTAINED — undocumented_findings: the researcher increments this when saving a project/
+         decision finding to memory (engram) WITHOUT a corresponding block; decrements it when the block is
+         written. Nothing in the kit observes memory saves — this is discipline, not automation. Gate behaviour:
+         verify-state.sh WARNs when > 3; FAILs when > 6; research-sdd-archive.sh refuses to close when > 0.
+         Memory is a MIRROR, not the record. A finding that exists only in memory is undocumented.
      Field names use UNDERSCORES on purpose: they must never collide with the prose greps below. -->
 <!-- research-state.v1 -->
 schema: research-state.v1
@@ -28,6 +33,8 @@ known_gaps: 0
 investigable_open: 3
 requires_execution_open: 1
 blocked_open: 1
+deferred_open: 0
+undocumented_findings: 0
 <!-- /research-state.v1 -->
 
 ## Coverage
@@ -72,3 +79,17 @@ blocked_open: 1
 - **Open gaps — blocked** (needs live system / hardware / keys → DYNAMIC phase §12 when available): <K>
 - Consecutive iterations with empty backlog (secondary): <0/2>
 - Budget cap (default safety net): <none | max-blocks N | max-tokens>
+
+## Dismissed file types
+
+<!-- Populated during BOOTSTRAP after census-target.sh (METHODOLOGY §6 step a2). Every file type starred
+     by the census (>= 5 files OR >= 1 MB aggregate) must be either CLAIMED by a backlog gap or listed here
+     with a stated reason. A starred type in neither is an unclosed audit hole.
+     Format (one line per dismissed type):
+       - .<ext> — <N> files · <M> MB — dismissed: <reason>
+     Example:
+       - .lnk — 312 files · 0.1 MB — dismissed: Windows shell shortcuts, no application data
+       - .mdb — 681 files · 450 MB — dismissed: Access databases, out of scope for this focus
+     If no types are dismissed (all starred types are covered by gaps), write: none -->
+
+- none

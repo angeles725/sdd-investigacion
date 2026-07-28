@@ -247,6 +247,8 @@ tb="$TMP/tb"; mkdir -p "$tb/lib"
 cp "$SUT" "$tb/research-sdd-archive.sh"
 cp "$HERE/../verify-sources.sh" "$tb/verify-sources.sh"   # present + passing
 cp "$HERE/../lib/retro-status.sh" "$tb/lib/retro-status.sh"  # required helper
+cp "$HERE/../lib/state-files.sh"  "$tb/lib/state-files.sh"   # required helper (uf-gate loop)
+cp "$HERE/../scan-secrets.sh"     "$tb/scan-secrets.sh"       # required helper (gate)
 # verify-state.sh deliberately NOT copied → the gate call resolves to a missing file (rc 127)
 out="$(bash "$tb/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 3 ] && grep -qi 'did not run' <<<"$out" && [ ! -f "$d/CATALOG.md" ]; then
@@ -612,6 +614,279 @@ else
   no "25 RETROS-INDEX.md in retros/ → excluded from format lint (no WARN)" "rc=$rc :: $(grep -iE 'warn.*index|index.*warn' <<<"$out" | head -1)"
 fi
 
+# ======================== undocumented_findings gate (C2 §18 retro delta) ==========================
+# The archive refuses to close while undocumented_findings > 0 regardless of verify-state's WARN
+# threshold (>3). This is stricter: any non-zero count means findings exist only in memory with no
+# block, and closing while undocumented is exactly the failure mode C2 was written to eliminate.
+
+# mkmulti <corpus> — two-focus corpus (RESEARCH-STATE-alpha.md + RESEARCH-STATE-beta.md),
+# NO flat RESEARCH-STATE.md. Both focus state files are fully valid (pass verify-state after
+# --sync-state). Each focus has one block on disk. Seeding: --sync-state derives covered_blocks,
+# investigable_open, etc. from the real state text, so the envelope is always correct.
+mkmulti() {
+  local d="$1"; mkdir -p "$d"
+  cat > "$d/RESEARCH-STATE-alpha.md" <<'EOF'
+# Alpha — Research State
+> Active focus.
+
+## Coverage
+
+- **Covered blocks**: 1 (alpha-block1)
+- **Coverage metric**: 1 / 1 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-27 | first gap | alpha-block1 | no · inline | 0 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+EOF
+  cat > "$d/RESEARCH-STATE-beta.md" <<'EOF'
+# Beta — Research State
+> Active focus.
+
+## Coverage
+
+- **Covered blocks**: 1 (beta-block1)
+- **Coverage metric**: 1 / 1 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-27 | first gap | beta-block1 | no · inline | 0 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+EOF
+  printf '# Alpha Block 1\nBody.\n' > "$d/alpha-block1.md"
+  printf '# Beta Block 1\nBody.\n'  > "$d/beta-block1.md"
+  : > "$d/INDEX.md"
+  # Seed research-state.v1 envelope in both focuses so verify-state passes.
+  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+}
+
+# 26 — undocumented_findings: 0 → archive passes (positive control; field present and clean).
+# mkgood + --sync-state seeds the field to 0; replace it explicitly to make the intent clear.
+d="$TMP/uf-ok"; mkgood "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 0"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "26 undocumented_findings=0 → archive passes (exit 0)" || no "26 uf=0: exit=$rc (want 0) :: $out"
+
+# 27 — undocumented_findings: 1 → REFUSED (exit 3); even a single unblocked finding must stop the close.
+# Replace the seeded field value (0 → 1). Inject-before-marker would create a duplicate and the archive
+# reads the first occurrence (0), so we REPLACE the existing line instead.
+d="$TMP/uf-refuse"; mkgood "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'undocumented_findings' <<<"$out" \
+  && ok "27 undocumented_findings=1 → REFUSED (exit 3, undocumented_findings in report)" \
+  || no "27 uf=1: exit=$rc (want 3) / mention=$(grep -ci 'undocumented_findings' <<<"$out") :: $out"
+
+# 28 — no undocumented_findings field (legacy corpus) → archive passes (field absent is treated as 0).
+# Strip the field seeded by --sync-state to simulate a corpus written before this field existed.
+d="$TMP/uf-absent"; mkgood "$d"
+awk '!/^undocumented_findings:/' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "28 no undocumented_findings field → archive passes (absent = 0, exit 0)" \
+  || no "28 uf-absent: exit=$rc (want 0) :: $out"
+
+# ======================== MULTI-FOCUS undocumented_findings gate (family fix) ==================
+# The bug: line 90 hardcoded "$corpus/RESEARCH-STATE.md"; in a multi-focus corpus that file does
+# not exist, so awk returns empty, ${_uf_val:-0} = "0", the gate silently passes, and the archive
+# closes even when a focus has undocumented_findings > 0. The fix iterates ALL RESEARCH-STATE*.md
+# files in the corpus. Tests 29-32 cover the four relevant cases; test 30 is the RED case that
+# exposes the bug on the unfixed SUT.
+
+# 29 — MULTI-FOCUS, both focuses UF=0 → archive passes (positive control).
+d="$TMP/mf-uf-ok"; mkmulti "$d"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 0 ] \
+  && ok "29 multi-focus UF=0 in both focuses → archive passes (exit 0)" \
+  || no "29 mf uf=0: exit=$rc (want 0) :: $out"
+
+# 30 — MULTI-FOCUS, alpha focus has UF=1 → REFUSED (exit 3). RED on unfixed SUT.
+# The old hardcoded path ($corpus/RESEARCH-STATE.md) does not exist in a pure multi-focus
+# corpus → awk returns empty → gate passes silently → archive exits 0 instead of 3.
+d="$TMP/mf-uf-refuse"; mkmulti "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
+  "$d/RESEARCH-STATE-alpha.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-alpha.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'undocumented_findings' <<<"$out" \
+  && ok "30 multi-focus UF=1 in alpha → REFUSED (exit 3, undocumented_findings in report)" \
+  || no "30 mf uf=1 alpha: exit=$rc (want 3) / mention=$(grep -ci 'undocumented_findings' <<<"$out") :: $out"
+
+# 31 — MULTI-FOCUS, beta focus has UF=2 → REFUSED (exit 3).
+d="$TMP/mf-uf-beta"; mkmulti "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 2"} {print}' \
+  "$d/RESEARCH-STATE-beta.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-beta.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'undocumented_findings' <<<"$out" \
+  && ok "31 multi-focus UF=2 in beta → REFUSED (exit 3)" \
+  || no "31 mf uf=2 beta: exit=$rc (want 3) :: $out"
+
+# 32 — MULTI-FOCUS, UF absent in both focuses → archive passes (absent = 0, legacy compat).
+d="$TMP/mf-uf-absent"; mkmulti "$d"
+awk '!/^undocumented_findings:/' "$d/RESEARCH-STATE-alpha.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-alpha.md"
+awk '!/^undocumented_findings:/' "$d/RESEARCH-STATE-beta.md"  > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-beta.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 0 ] \
+  && ok "32 multi-focus UF absent in all → archive passes (absent = 0, exit 0)" \
+  || no "32 mf uf-absent: exit=$rc (want 0) :: $out"
+
+# 33 — UF gate must FAIL CLOSED when the state-file enumeration yields NOTHING.
+# The loop reads from `list_state_files "$corpus"`, whose find swallows its own errors. If the
+# enumeration comes back empty (unreadable corpus dir, a find that died, a future refactor that
+# renames the state file), the while body never runs, gate_rc stays 0, and the archive closes
+# WITHOUT having inspected a single state file — the exact silent-pass shape this gate exists to
+# prevent, one layer up. A corpus is only reachable here because line 70 already found a state
+# file, so an empty enumeration is an impossible state, and an impossible state must be loud.
+# Simulated with a stub library so the assertion does not depend on filesystem permissions.
+d="$TMP/uf-empty-enum"; mkgood "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
+tbE="$TMP/tb-empty-enum"; mkdir -p "$tbE/lib"
+cp "$SUT" "$tbE/research-sdd-archive.sh"
+cp "$HERE/../verify-state.sh"     "$tbE/verify-state.sh"
+cp "$HERE/../verify-sources.sh"   "$tbE/verify-sources.sh"
+cp "$HERE/../scan-secrets.sh"     "$tbE/scan-secrets.sh"
+cp "$HERE/../lib/retro-status.sh" "$tbE/lib/retro-status.sh"
+cp "$HERE/../lib/focus-prefix.sh" "$tbE/lib/focus-prefix.sh"
+# STUB: enumeration returns nothing, as a permission-denied find would.
+printf '%s\n' '# shellcheck disable=SC2148' 'list_state_files() { return 0; }' > "$tbE/lib/state-files.sh"
+out="$(bash "$tbE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'undocumented_findings.*(no state file|could not|enumerat)' <<<"$out"; then
+  ok "33 empty state-file enumeration → REFUSED (exit 3), reported distinctly — gate cannot silently no-op"
+else
+  no "33 empty enum: exit=$rc (want 3) / distinct report=$(grep -ciE 'undocumented_findings.*(no state file|could not|enumerat)' <<<"$out") :: $out"
+fi
+
+# 34 — UF gate must FAIL CLOSED when list_state_files emits paths that do NOT exist on disk.
+# The counter incremented BEFORE the -f guard means "lines the enumerator returned", not
+# "files actually inspected". If every returned path fails -f, _uf_sf_count is non-zero but
+# ZERO state files were read — the empty-inspection guard stays silent while the archive
+# closes having inspected nothing. Moving the increment AFTER -f makes the counter mean
+# "files actually inspected", which is strictly stronger and catches this window too.
+d="$TMP/uf-noexist-paths"; mkgood "$d"
+tbNE="$TMP/tb-noexist"; mkdir -p "$tbNE/lib"
+cp "$SUT" "$tbNE/research-sdd-archive.sh"
+cp "$HERE/../verify-state.sh"     "$tbNE/verify-state.sh"
+cp "$HERE/../verify-sources.sh"   "$tbNE/verify-sources.sh"
+cp "$HERE/../scan-secrets.sh"     "$tbNE/scan-secrets.sh"
+cp "$HERE/../lib/retro-status.sh" "$tbNE/lib/retro-status.sh"
+cp "$HERE/../lib/focus-prefix.sh" "$tbNE/lib/focus-prefix.sh"
+# STUB: enumeration returns two paths that do not exist — simulates paths that vanished
+# between the find scan and the inspection loop, or a broken enumerator outputting garbage.
+printf '%s\n' '# shellcheck disable=SC2148' \
+  "list_state_files() { printf '%s\n' \"$d/DOES-NOT-EXIST-1.md\" \"$d/DOES-NOT-EXIST-2.md\"; }" \
+  > "$tbNE/lib/state-files.sh"
+out="$(bash "$tbNE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'undocumented_findings.*(no state file|could not|enumerat)' <<<"$out"; then
+  ok "34 all enumerated paths absent → REFUSED (exit 3, enumeration problem reported) — counter counts inspected, not enumerated"
+else
+  no "34 non-existent paths: exit=$rc (want 3) / distinct report=$(grep -ciE 'undocumented_findings.*(no state file|could not|enumerat)' <<<"$out") :: $out"
+fi
+
+# ======================== SPLIT-LAYOUT undocumented_findings gate ====================================
+# mkmulti places both state files FLAT in one directory ($dir/RESEARCH-STATE-alpha.md and
+# $dir/RESEARCH-STATE-beta.md). For that geometry corpus == target, so list_state_files "$corpus"
+# and list_state_files "$target" are identical — tests 29-32 passed while the scope bug was present.
+# The FAILING GEOMETRY is a SPLIT layout: each focus in its own sibling subdirectory
+# ($dir/alpha/RESEARCH-STATE.md, $dir/beta/RESEARCH-STATE.md). There corpus = $dir/alpha (the
+# first-found state directory), so scoping to "$corpus" only enumerates alpha and never sees beta.
+# Case 35 is the RED case that exposes the bug on the unfixed SUT.
+
+# mksplit <dir> — split-layout two-focus corpus: alpha and beta focuses in SIBLING SUBDIRECTORIES
+# rather than flat in one dir. Both focus directories are individually gate-clean (alpha passes
+# verify-state, verify-sources, and scan-secrets when called with the focus dir). UF is 0 in both
+# after --sync-state; callers that need UF>0 in a focus set it after calling mksplit.
+mksplit() {
+  local d="$1"
+  mkdir -p "$d/alpha" "$d/beta"
+  # --- alpha focus ---
+  cat > "$d/alpha/RESEARCH-STATE.md" <<'EOF'
+# Alpha — Research State
+> Active focus.
+
+## Coverage
+
+- **Covered blocks**: 1 (alpha-block1)
+- **Coverage metric**: 1 / 1 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-28 | first gap | alpha-block1 | no · inline | 0 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+EOF
+  printf '# Alpha Block 1\nBody.\n' > "$d/alpha/alpha-block1.md"
+  : > "$d/alpha/INDEX.md"
+  bash "$HERE/../research-sdd-status.sh" "$d/alpha" --sync-state >/dev/null 2>&1
+  # --- beta focus ---
+  cat > "$d/beta/RESEARCH-STATE.md" <<'EOF'
+# Beta — Research State
+> Active focus.
+
+## Coverage
+
+- **Covered blocks**: 1 (beta-block1)
+- **Coverage metric**: 1 / 1 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-28 | first gap | beta-block1 | no · inline | 0 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+EOF
+  printf '# Beta Block 1\nBody.\n' > "$d/beta/beta-block1.md"
+  : > "$d/beta/INDEX.md"
+  bash "$HERE/../research-sdd-status.sh" "$d/beta" --sync-state >/dev/null 2>&1
+}
+
+# 35 — SPLIT LAYOUT: UF=1 in a NON-FIRST sibling focus must REFUSE (exit 3). RED on unfixed SUT.
+# corpus = $d/alpha (first-found state dir via alphabetical sort + head -1), so
+# list_state_files "$corpus" only enumerates alpha and never inspects beta's UF=1 debt → exit 0.
+# The fix scopes the uf-gate to "$target" so ALL sibling focus directories are covered.
+# Guard: the report must name undocumented_findings (not merely exit 3 for some other gate reason).
+d="$TMP/split-uf"; mksplit "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
+  "$d/beta/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/beta/RESEARCH-STATE.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && grep -qi 'undocumented_findings' <<<"$out" \
+  && ok "35 split-layout: UF=1 in sibling subdir (beta) → REFUSED (exit 3, undocumented_findings in report)" \
+  || no "35 split-layout: exit=$rc (want 3) / mention=$(grep -ci 'undocumented_findings' <<<"$out") :: $out"
+
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the gate in a mutant, expect the stale fixture to archive instead of refusing --"
@@ -624,6 +899,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"   # archive.sh sources this from $(dirname $0)/lib/
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"   # verify-state.sh sources this from $(dirname $0)/lib/
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"    # archive.sh sources this for uf-gate iteration
   d="$TMP/teeth"; mkgood "$d"; sed -i 's#2 / 3 closed#3 / 3 closed#' "$d/RESEARCH-STATE.md"
   bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
   if [ "$mrc" = 0 ]; then ok "teeth: gate-neutered mutant archives a stale corpus → gate test has teeth"
@@ -640,6 +916,76 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$arc" = 0 ] && grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
       ok "teeth: name-only mutant WARNs on the add-1+modify-1 iteration → case 23a has teeth"
     else no "teeth: add-mutant rc=$arc / no WARN — case 23a does NOT depend on --diff-filter=A (THEATER)"; fi
+  fi
+
+  echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"
+  mutantUF="$TMP/archive.UFMUTANT.sh"
+  sed 's/gate_rc=1  # uf-gate-refuse/gate_rc=0  # MUTANT-uf-gate/' "$SUT" > "$mutantUF"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  d="$TMP/uf-teeth-gate"; mkgood "$d"
+  awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
+  if ! grep -q 'MUTANT-uf-gate' "$mutantUF"; then
+    no "teeth(uf): could not build uf mutant (uf-gate-refuse marker not found — did the SUT change?)"
+  else
+    bash "$mutantUF" "$d" >/dev/null 2>&1; ufmrc=$?
+    if [ "$ufmrc" = 0 ]; then
+      ok "teeth(uf): uf gate neutered → uf=1 corpus archives (exit 0) — uf refuse is load-bearing"
+    else no "teeth(uf): mutant exit=$ufmrc (want 0) — uf gate may not depend on gate_rc=1 # uf-gate-refuse (THEATER)"; fi
+  fi
+
+  echo "-- teeth(uf-split): revert uf-gate scope from \$target to \$corpus; split-layout UF=1 must then archive --"
+  # The uf-gate line after the fix is: done < <(list_state_files "$target")
+  # Reverting to "$corpus" reproduces the bug: corpus = first-focus dir, sibling focuses are skipped.
+  # A missed sed is DETECTED rather than passing vacuously: the replacement appends a marker comment,
+  # and we grep for it before running the mutant — if the grep fails, the sed did not find the line.
+  mutantSplit="$TMP/archive.SPLITMUTANT.sh"
+  sed 's/list_state_files "\$target")/list_state_files "\$corpus")  # MUTANT-uf-split/' "$SUT" > "$mutantSplit"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  d="$TMP/split-teeth"; mksplit "$d"
+  awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
+    "$d/beta/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/beta/RESEARCH-STATE.md"
+  if ! grep -q 'MUTANT-uf-split' "$mutantSplit"; then
+    no "teeth(uf-split): could not build split mutant (uf-gate target-scope line not found — did the SUT change?)"
+  else
+    bash "$mutantSplit" "$d" >/dev/null 2>&1; splitmrc=$?
+    if [ "$splitmrc" = 0 ]; then
+      ok "teeth(uf-split): scope-reversion mutant → split-layout UF=1 archives (exit 0) — \$target scope is load-bearing"
+    else no "teeth(uf-split): mutant exit=$splitmrc (want 0) — case 35 does NOT depend on \$target scope (THEATER)"; fi
+  fi
+
+  echo "-- teeth(mf-uf): multi-focus uf gate — UF=1 in one focus must refuse; neutered mutant must archive --"
+  # The marker is 'uf-gate-refuse'; the same sed that neuters single-focus also neuters the loop body.
+  mutantMFUF="$TMP/archive.MFUF-MUTANT.sh"
+  sed 's/gate_rc=1  # uf-gate-refuse/gate_rc=0  # MUTANT-uf-gate-mf/' "$SUT" > "$mutantMFUF"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  d="$TMP/mf-uf-teeth"; mkmulti "$d"
+  awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
+    "$d/RESEARCH-STATE-alpha.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-alpha.md"
+  if ! grep -q 'MUTANT-uf-gate-mf' "$mutantMFUF"; then
+    no "teeth(mf-uf): could not build mf-uf mutant (uf-gate-refuse marker not found — did the SUT change?)"
+  else
+    bash "$mutantMFUF" "$d" >/dev/null 2>&1; mfufmrc=$?
+    if [ "$mfufmrc" = 0 ]; then
+      ok "teeth(mf-uf): mf uf gate neutered → UF=1 in alpha-focus archives (exit 0) — mf uf refuse is load-bearing"
+    else no "teeth(mf-uf): mutant exit=$mfufmrc (want 0) — mf uf gate may not depend on uf-gate-refuse marker (THEATER)"; fi
   fi
 fi
 

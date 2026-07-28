@@ -544,12 +544,188 @@ else
   no "B5-DEFAULT: covered blocks line: $(grep -E 'covered blocks' <<<"$rep_a")"
 fi
 
+# ==================== MULTI-FOCUS FALSE-STOP (chihuahua/px-chart-classic regression) ====================
+
+# 46 — MULTI-FOCUS FALSE-STOP: a STOPPED focus that sorts alphabetically before an ACTIVE focus must NOT
+#      cause --next to return STOP while the active focus still has open gaps. Focus "apple" (stopped)
+#      sorts before "mango" (active, 1 pending gap). RED before the fix: state=head-1(apple) → STOP.
+#      After fix: scan all focuses, mango has NEXT → return NEXT. This is the exact shape of the real
+#      failure (chihuahua stopped, sorted first; px-chart-classic had 8 pending gaps → false STOP).
+d="$TMP/mf-false-stop"; mkdir -p "$d"
+{ printf '# Apple — Research State\n> intro\n'
+  env_lines 0 0 0 0 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
+  printf '| high | done gap | web | covered |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE-apple.md"
+{ printf '# Mango — Research State\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
+  printf '| high | open mango gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d/RESEARCH-STATE-mango.md"
+expect_next "$d" "NEXT | high | open mango gap" "multi-focus: STOPPED apple does not mask NEXT in mango (false-STOP regression)"
+
+# 46a — --focus apple returns STOP (selects only the stopped focus)
+got="$(bash "$SUT" "$d" --next --focus apple 2>/dev/null)"
+[ "$got" = "STOP | read-only-investigable exhausted (0)" ] && ok "--focus apple: returns STOP for the stopped focus" || no "--focus apple: got [$got] want STOP"
+
+# 46b — --focus mango returns NEXT (selects only the active focus)
+got="$(bash "$SUT" "$d" --next --focus mango 2>/dev/null)"
+[ "$got" = "NEXT | high | open mango gap" ] && ok "--focus mango: returns NEXT for the active focus" || no "--focus mango: got [$got] want NEXT"
+
+# 46c — SINGLE-FOCUS corpus: behavior unchanged after the multi-focus fix (regression guard).
+#       The only state file is RESEARCH-STATE.md — no multi-focus loop overhead, same output.
+d="$TMP/mf-single"; mkstate "$d" 1 "high|single focus gap|pending"
+expect_next "$d" "NEXT | high | single focus gap" "single-focus: --next unchanged after multi-focus fix"
+
+# ==================== BLOCKER 1B — --sync-state undocumented_findings carry-forward ====================
+
+# 47 — --sync-state absent-uf POSITIVE CONTROL: no undocumented_findings in the envelope → seeds 0
+#      silently (METHODOLOGY §7 seeding contract). No stderr warning must be emitted for an absent field.
+d="$TMP/sync-uf-absent"; mkdir -p "$d"
+{ echo '# T'; echo '> intro'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+warn47="$(bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"
+uf47="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+if [ "$uf47" = "0" ] && ! grep -qiE 'warn.*undocumented|undocumented.*warn' <<<"$warn47"; then
+  ok "sync-uf-absent: absent undocumented_findings → seeds 0 silently (seeding contract preserved, no stderr)"
+else no "sync-uf-absent: uf=$uf47 (want 0) · warn='$(echo "$warn47" | grep -iE 'undocumented' | head -1)'"; fi
+
+# 48 — --sync-state with UNPARSEABLE undocumented_findings: a non-integer value ('seven') must emit a
+#      loud warning AND must NOT silently replace the value with 0. This is the noisy-beats-silent fix:
+#      pick("", "seven") currently returns 0 (second arg fails is_int → falls through to 0). The three
+#      cases that pick() collapses into one must be loud vs. silent: absent→seed 0 (case 47), valid→carry
+#      (pass), UNPARSEABLE→warn and carry raw (this case). Assert on the resulting file content.
+d="$TMP/sync-uf-bad"; mkdir -p "$d"
+{ echo '# T'; echo '> intro'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: seven\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+warn48="$(bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"
+uf48="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+if grep -qiE 'undocumented_findings' <<<"$warn48" && [ "$uf48" != "0" ]; then
+  ok "sync-uf-bad: unparseable 'seven' → loud stderr warning AND value not silently zeroed (noisy-beats-silent)"
+else no "sync-uf-bad: uf48='$uf48' (want !0) · warn='$(echo "$warn48" | grep -iE 'undocumented' | head -1)' (want non-empty)"; fi
+
+# 48b — NO-SPACE valid integer: undocumented_findings:7 (colon immediately followed by digit, no space).
+#       env_get's awk uses $1==key":" which makes $1="undocumented_findings:7" — no match — so env_get
+#       returns "". Without a prefix-probe fallback, the case ''→uf=0 branch fires silently, erasing the
+#       real debt of 7. After the fix: prefix probe detects the line, extracts "7", integer branch →
+#       carry 7, no zeroing, no warning (value is valid — just malformed format).
+#       Assertion: value after --sync-state must be 7 (not 0).
+d="$TMP/sync-uf-nospace-int"; mkdir -p "$d"
+{ echo '# T'; echo '> intro'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings:7\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state 2>/dev/null
+uf48b="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+if [ "$uf48b" = "7" ]; then
+  ok "sync-uf-nospace-int: undocumented_findings:7 (no space) → --sync-state preserves 7, does not zero (no-space prefix probe fires)"
+else no "sync-uf-nospace-int: uf=$uf48b (want 7) — no-space valid-integer was silently zeroed (BLOCKER 1B nospace regression)"; fi
+
+# 48c — NO-SPACE non-integer: undocumented_findings:seven (no space + word value).
+#       Same blind spot as 48b but the extracted value is non-integer. After the fix: prefix probe
+#       detects the line, extracts "seven", non-integer branch → WARN on stderr AND carry forward
+#       (NOT 0). Before the fix: env_get returns "" → absent → seeds 0 silently.
+#       Assertions: (a) stderr contains 'undocumented_findings', (b) value in file is NOT 0.
+d="$TMP/sync-uf-nospace-nonint"; mkdir -p "$d"
+{ echo '# T'; echo '> intro'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings:seven\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+warn48c="$(bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"
+uf48c="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+if grep -qiE 'undocumented_findings' <<<"$warn48c" && [ "$uf48c" != "0" ]; then
+  ok "sync-uf-nospace-nonint: undocumented_findings:seven (no space) → warn on stderr AND value not zeroed"
+else no "sync-uf-nospace-nonint: uf=$uf48c (want !0) · warn='$(echo "$warn48c" | grep -iE 'undocumented' | head -1)' (want non-empty)"; fi
+
+# 48d — END-TO-END: after verify-state FAILs on a malformed no-space value, running --sync-state
+#       must NOT change the value to 0. This pins the invariant that the FAIL message's advice
+#       ("fix manually then re-seed") is safe to follow: running --sync-state on an unfixed file
+#       must not destroy debt. Uses the no-space non-integer shape (most dangerous: non-int PLUS
+#       no-space → both blind spots at once, previously resulted in silent zero).
+#       Assert: verify-state exit=1, then after --sync-state value is still not 0.
+d="$TMP/sync-uf-e2e"; mkdir -p "$d"
+{ echo '# T'; echo '> intro'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings:seven\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; vs_exit=$?
+bash "$SUT" "$d" --sync-state 2>/dev/null
+uf48d="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+if [ "$vs_exit" = "1" ] && [ "$uf48d" != "0" ]; then
+  ok "sync-uf-e2e: verify-state FAILs (exit=1) then --sync-state does NOT zero the no-space non-int value (invariant: FAIL+sync=safe)"
+else no "sync-uf-e2e: vs_exit=$vs_exit uf=$uf48d (want vs_exit=1 and uf!=0) — sync after verify-fail zeroed the value (doc/code trap)"; fi
+
+# ==================== BLOCKER 2 — SPLIT-LAYOUT: focuses in sibling subdirectories ====================
+
+# 49 — SPLIT-LAYOUT: one focus per SIBLING SUBDIRECTORY; the stopped alpha sorts alphabetically before
+#      the active beta. --next on the target MUST NOT return STOP while beta has open gaps.
+#      This is the identical C3 false-STOP as test 46, one level up: corpus=dirname(first)=$d/alpha,
+#      and the old aggregation only scanned $corpus, missing $d/beta entirely.
+d="$TMP/split-layout"; mkdir -p "$d/alpha" "$d/beta"
+{ printf '# Alpha — Research State\n> intro\n'
+  env_lines 0 0 0 0 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
+  printf '| high | done gap | web | covered |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 0\n'
+} > "$d/alpha/RESEARCH-STATE.md"
+{ printf '# Beta — Research State\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
+  printf '| high | open beta gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d/beta/RESEARCH-STATE.md"
+got49="$(bash "$SUT" "$d" --next 2>/dev/null)"
+case "$got49" in
+  NEXT\ *) ok "split-layout --next: stopped alpha does not mask NEXT in sibling beta (BLOCKER 2 fix)";;
+  STOP\ *) no "split-layout --next: false STOP (BLOCKER 2 regression) — expected NEXT from beta";;
+  *)       no "split-layout --next: got [$got49] — expected NEXT from beta";;
+esac
+
+# 50 — same split-layout: DEFAULT REPORT next step must not claim STOP (WARNING 3).
+#      The supervisor reads the default report; a false STOP there is the same misinformation C3 kills.
+rep50="$(bash "$SUT" "$d" 2>/dev/null)"
+if ! grep -qE 'next step[[:space:]]*:.*STOP' <<<"$rep50"; then
+  ok "split-layout default report: next step does not say STOP while beta has open gaps (WARNING 3 fix)"
+else
+  no "split-layout default-report: next step says STOP — got: $(grep 'next step' <<<"$rep50" | head -1)"
+fi
+
+# 51 — split-layout --sync-state seeds BOTH sibling focuses (alpha AND beta), not just alpha.
+#      Uses a FRESH fixture WITHOUT envelopes so that the seeded count reflects --sync-state's work.
+#      Before the fix, --sync-state used find on $corpus=dirname(first)=$d/alpha, seeding only alpha;
+#      beta would remain unseedeed (grep-c returns 0) → the test fails → proves the scope fix is needed.
+d51="$TMP/split-seed"; mkdir -p "$d51/alpha" "$d51/beta"
+{ printf '# Alpha — Research State\n> intro\n'
+  printf '## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
+  printf '| high | done gap | web | covered |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 0\n'
+} > "$d51/alpha/RESEARCH-STATE.md"
+{ printf '# Beta — Research State\n> intro\n'
+  printf '## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
+  printf '| high | open beta gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d51/beta/RESEARCH-STATE.md"
+bash "$SUT" "$d51" --sync-state >/dev/null 2>&1
+_a_seeded=$(grep -c '<!-- research-state.v1 -->' "$d51/alpha/RESEARCH-STATE.md")
+_b_seeded=$(grep -c '<!-- research-state.v1 -->' "$d51/beta/RESEARCH-STATE.md")
+if [ "$_a_seeded" = 1 ] && [ "$_b_seeded" = 1 ]; then
+  ok "split-layout --sync-state: seeds BOTH sibling focuses (alpha and beta, not just alpha)"
+else
+  no "split-layout --sync-state: alpha_seeded=$_a_seeded(want 1) beta_seeded=$_b_seeded(want 1)"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
-  # verify-state.sh now sources lib/focus-prefix.sh from $(dirname $0)/lib/, so seed that lib alongside it.
+  # verify-state.sh sources lib/focus-prefix.sh; status.sh also sources lib/state-files.sh after the fix.
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
 
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
   mutant="$TMP/status.MUTANT.sh"
@@ -569,6 +745,82 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   srep="$(bash "$smutant" "$d" 2>/dev/null)"
   if grep -q 'saturation      : SATURATED' <<<"$srep"; then ok "teeth: widened-threshold mutant over-flags an active window → saturation test has teeth"
   else no "teeth: sat mutant did not over-flag [$(grep -i saturation <<<"$srep")] — threshold not exercised (THEATER)"; fi
+
+  # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
+  # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
+  # sed mutation: add '; break' after _r="$(resolve_next)" so only apple is ever checked.
+  echo "-- teeth: break-after-first mutant returns STOP on mf-false-stop fixture; multi-focus scan has real teeth --"
+  mf_mutant="$TMP/status.MF-MUTANT.sh"
+  sed 's/_r="\$(resolve_next)"/_r="$(resolve_next)"; break/' "$SUT" > "$mf_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  mgot_mf="$(bash "$mf_mutant" "$TMP/mf-false-stop" --next 2>/dev/null)"
+  if [ "$mgot_mf" = "STOP | read-only-investigable exhausted (0)" ]; then
+    ok "mf-teeth: break-after-first mutant returns STOP on false-stop fixture → multi-focus scan has teeth"
+  else
+    no "mf-teeth: mutant returned [$mgot_mf] — scan not exercised (THEATER)"
+  fi
+
+  # BLOCKER 2 teeth: reuse break-after-first mutant on the SPLIT-LAYOUT fixture ($TMP/split-layout).
+  # In the split-layout, corpus=dirname(first)=$TMP/split-layout/alpha. The break-after-first mutant
+  # checks only alpha (stopped) and returns STOP, proving the scope fix (target vs. corpus) is needed.
+  echo "-- teeth: split-layout — break-after-first mutant on split fixture; must return STOP (proves scope fix) --"
+  mgot_sl="$(bash "$mf_mutant" "$TMP/split-layout" --next 2>/dev/null)"
+  if [ "$mgot_sl" = "STOP | read-only-investigable exhausted (0)" ]; then
+    ok "sl-teeth: break-after-first mutant returns STOP on split-layout → BLOCKER 2 scan scope fix has teeth"
+  else
+    no "sl-teeth: mutant returned [$mgot_sl] (want STOP) — split-layout scan scope not exercised (THEATER)"
+  fi
+
+  # BLOCKER 1B / nospace teeth: neuter the prefix probe's if-guard so the absent branch always runs for
+  # the no-space shape, producing silent uf=0 — the exact pre-fix regression. Proves test 48b is load-bearing.
+  echo "-- teeth: sync-uf-nospace — neuter prefix probe if-guard; no-space int fixture must silently zero --"
+  ns_mutant="$TMP/status.NS-MUTANT.sh"
+  # Mutation: replace `if [ -z "$_raw_uf" ]; then` with `if false; then` so the prefix probe never runs.
+  # The no-space case then takes the absent branch ('' → uf=0) silently.
+  sed 's/if \[ -z "\$_raw_uf" \]; then/if false; then  # MUTANT-NS: no-space probe neutered/' "$SUT" > "$ns_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-NS: no-space probe neutered' "$ns_mutant"; then
+    no "teeth(NS): could not build mutant (if [ -z \$_raw_uf ] guard not found — did the SUT change?)"
+  else
+    d_ns="$TMP/sync-uf-nospace-teeth"; mkdir -p "$d_ns"
+    { echo '# T'; echo '> intro'; echo
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings:7\n<!-- /research-state.v1 -->\n'; echo
+      echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+      echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d_ns/RESEARCH-STATE.md"
+    bash "$ns_mutant" "$d_ns" --sync-state 2>/dev/null
+    uf_ns="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d_ns/RESEARCH-STATE.md")"
+    if [ "$uf_ns" = "0" ]; then
+      ok "teeth(NS): neutered prefix probe silently zeros no-space int 7 → test 48b assertion is load-bearing"
+    else no "teeth(NS): mutant uf=$uf_ns (want 0) — probe guard is not the only defense (mutation did not restore the bug)"; fi
+  fi
+
+  # BLOCKER 1B teeth: make the always-absent mutant (seed 0 no matter what) → test 48 warning and
+  # file assertions both fail. This proves the new three-branch uf logic is load-bearing, not theater.
+  echo "-- teeth: sync-uf — always-absent mutant silently zeros unparseable uf; test 48 must detect it --"
+  ufb_mutant="$TMP/status.UFB-MUTANT.sh"
+  # Mutation: replace `case "$_raw_uf" in` with `case "" in` so the empty (absent) branch always runs,
+  # silently setting uf=0 for ALL values — the old pick("","seven")=0 silent-loss behavior.
+  sed 's/case "\$_raw_uf" in/case "" in  # MUTANT-UFB: always-absent/' "$SUT" > "$ufb_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-UFB: always-absent' "$ufb_mutant"; then
+    no "teeth(UFB): could not build mutant (if [ -z _raw_uf ] guard not found — did the SUT change?)"
+  else
+    warn_ufb="$(bash "$ufb_mutant" "$TMP/sync-uf-bad" --sync-state 2>&1 >/dev/null)"
+    uf_ufb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$TMP/sync-uf-bad/RESEARCH-STATE.md")"
+    # Re-seed the fixture to the known-bad state before running the mutant
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: seven\n<!-- /research-state.v1 -->\n' >> "$TMP/sync-uf-bad2/RESEARCH-STATE.md" 2>/dev/null || true
+    # Simpler: re-create the fixture in a fresh dir
+    d_ufb="$TMP/sync-uf-bad-teeth"; mkdir -p "$d_ufb"
+    { echo '# T'; echo '> intro'; echo
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: seven\n<!-- /research-state.v1 -->\n'; echo
+      echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+      echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d_ufb/RESEARCH-STATE.md"
+    warn_ufb="$(bash "$ufb_mutant" "$d_ufb" --sync-state 2>&1 >/dev/null)"
+    uf_ufb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d_ufb/RESEARCH-STATE.md")"
+    if ! grep -qiE 'undocumented_findings' <<<"$warn_ufb" && [ "$uf_ufb" = "0" ]; then
+      ok "teeth(UFB): always-absent mutant silently zeros 'seven' (no warn, uf=0) → test 48 assertions are load-bearing"
+    else no "teeth(UFB): mutant warn='$(echo "$warn_ufb" | grep -iE 'undocumented' | head -1)' uf=$uf_ufb (want no-warn and 0)"; fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

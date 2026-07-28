@@ -87,6 +87,12 @@ Always read first, in this order:
      r2, jadx etc. may live under linuxbrew Cellar / a dotnet dir / a jar path and still be off PATH
      (lesson: niagara assumed "Ghidra not available" when decompile-native.sh ghidra worked, losing
      the first native block's decompiler depth).
+  a2. File-type census (MANDATORY — run BEFORE building the coverage matrix):
+      $KIT/toolbelt/census-target.sh $TARGET
+      This produces an extension histogram with file counts and aggregate sizes. Every type marked *
+      (>= 5 files OR >= 1 MB aggregate) must be either claimed by a backlog gap or dismissed in
+      RESEARCH-STATE '## Dismissed file types' with a stated reason. A starred type in neither is
+      an unclosed audit hole and the run may not declare coverage complete. See METHODOLOGY §6.
   b. Determine which system it is, where its real sources/binaries are, and the corpus language. REGISTER
      the target in $KIT/TARGETS.md's master table right here (row: #, target, path, maturity, predominant
      artifact type, toolbelt wrapper, corpus language) — as part of bootstrap, NOT later: the retro sweeper
@@ -387,6 +393,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
 
 HARD RULES:
+  - MEMORY IS A MIRROR, NEVER A SUBSTITUTE. Every project/decision finding saved to memory (engram)
+    that has no corresponding block is undocumented. The corpus cannot cite it; reviewers cannot audit
+    it; a future agent reading the blocks will not see it. Rule: when you call mem_save for a finding
+    of type project or decision, increment `undocumented_findings` in RESEARCH-STATE immediately. When
+    you write the block, decrement it. A finding that lives only in memory is missing from the record.
   - READ-ONLY over the subject. Do not invent: no source ⇒ [INFER] or omit. Always cite.
   - SOURCE BEFORE AGENT — a gap counts as investigable ONLY once its source is confirmed reachable
     (the class/jar/binary/doc exists and the wrapper can read it). Confirm it BEFORE launching an

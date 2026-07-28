@@ -649,6 +649,132 @@ if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*deferred_open=0 != 1' <<<"$out"; th
   ok "B3b-FAIL: declared deferred_open=0 vs 1 deferred row → FAIL (CHECK F fires)"
 else no "B3b-FAIL: exit $(code "$d") :: $(grep -iE 'fail|deferred' <<<"$out" | head -1)"; fi
 
+# ======================== CHECK G — undocumented_findings (C2 §18 retro delta) ====================
+# env10 <covered> <gc> <kg> <io> <req> <bo> <def> <uf> — envelope including undocumented_findings
+env10(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\ndeferred_open: %s\nundocumented_findings: %s\n<!-- /research-state.v1 -->\n' "$@"; }
+
+# Minimal state file for G tests: no block files, no pending/blocked/deferred/req-execution rows.
+# Each case differs only in the undocumented_findings value so no other check can fire.
+_uf_fixture() {
+  local dir="$1" uf="$2"; mkdir -p "$dir"
+  { echo '# T — Research State'; echo
+    env10 0 0 0 0 0 0 0 "$uf"; echo
+    echo '## Gap-backlog (prioritized)'
+    echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+    echo '## Blocked gaps'; echo '- none'
+    echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  } > "$dir/RESEARCH-STATE.md"
+}
+
+# G-absent — legacy envelope (env9, no undocumented_findings field) → silent, exit 0.
+d="$TMP/uf-absent"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 0 0 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! echo "$out" | grep -qE 'FAIL.*undocumented_findings|WARN.*undocumented_findings'; then
+  ok "G-absent: no undocumented_findings field → silent (no FAIL/WARN), exit 0 (legacy corpora not penalized)"
+else no "G-absent: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# G-zero — undocumented_findings: 0 → exit 0, no FAIL or WARN about the field.
+# SUGGESTION 8: the summary line now shows the field value; 'silent' means no FAIL/WARN, not no mention.
+d="$TMP/uf-zero"; _uf_fixture "$d" 0
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! echo "$out" | grep -qE 'FAIL.*undocumented_findings|WARN.*undocumented_findings'; then
+  ok "G-zero: undocumented_findings=0 → exit 0, no FAIL or WARN"
+else no "G-zero: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# G-ok-max — undocumented_findings: 3 → exit 0, no WARN (WARN fires only above 3, not at 3).
+d="$TMP/uf-ok-max"; _uf_fixture "$d" 3
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! echo "$out" | grep -qE 'WARN.*undocumented_findings'; then
+  ok "G-ok-max: undocumented_findings=3 → exit 0, no WARN (boundary; WARN fires only >3)"
+else no "G-ok-max: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# G-warn — undocumented_findings: 4 → WARN printed, exit still 0 (advisory, not a STOP hazard yet).
+d="$TMP/uf-warn"; _uf_fixture "$d" 4
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && echo "$out" | grep -qE 'WARN.*undocumented_findings=4'; then
+  ok "G-warn: undocumented_findings=4 → WARN emitted, exit 0"
+else no "G-warn: exit $(code "$d") (want 0) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# G-warn-max — undocumented_findings: 6 → WARN still (FAIL fires only above 6, not at 6).
+d="$TMP/uf-warn-max"; _uf_fixture "$d" 6
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && echo "$out" | grep -qE 'WARN.*undocumented_findings=6'; then
+  ok "G-warn-max: undocumented_findings=6 → WARN still, exit 0 (FAIL threshold is >6)"
+else no "G-warn-max: exit $(code "$d") (want 0) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# G-fail — undocumented_findings: 7 → FAIL exit 1.
+d="$TMP/uf-fail"; _uf_fixture "$d" 7
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings=7'; then
+  ok "G-fail: undocumented_findings=7 → FAIL exit 1"
+else no "G-fail: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# G-nospace — undocumented_findings:7 (no space between key and value) must NOT report a clean envelope.
+# The awk parser uses whitespace to split fields; a no-space format means $1 = "undocumented_findings:7"
+# and env_field returns empty — BUT the LINE IS PRESENT. The gate must detect "line present but value
+# not a valid non-negative integer" and FAIL rather than treating it the same as the absent (silent) case.
+# Real regression: a researcher types `undocumented_findings:7` (no space) → old code silently exits 0
+# and --sync-state then rewrites to 0, erasing a real debt of 7 with no warning.
+d="$TMP/uf-nospace"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings:7\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+  ok "G-nospace: undocumented_findings:7 (no space) → FAIL exit 1 (line present, value unparseable)"
+else no "G-nospace: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
+
+# G-not-int — undocumented_findings: seven (word, not a digit) → FAIL.
+# env_field returns 'seven'; is_int('seven') is false. The gate cannot check debt and must FAIL,
+# not WARN, because the whole purpose of this counter is blocking the archive above threshold.
+d="$TMP/uf-not-int"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: seven\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+  ok "G-not-int: undocumented_findings: seven → FAIL exit 1 (non-integer value present)"
+else no "G-not-int: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
+
+# G-negative — undocumented_findings: -2 (negative) → FAIL.
+# Negative values are not valid for a non-negative integer counter; is_int('-2') is false.
+d="$TMP/uf-negative"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: -2\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+  ok "G-negative: undocumented_findings: -2 → FAIL exit 1 (negative is not a valid count)"
+else no "G-negative: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
+
+# G-nospace-nonint — undocumented_findings:seven (NO SPACE + non-integer) → FAIL.
+# Root class: no-space format makes env_field's awk see $1="undocumented_findings:seven" which never
+# matches $1==key":", so env_field returns "" — indistinguishable from absent WITHOUT a separate
+# presence probe. The _uf_present prefix probe (added in BLOCKER 1A fix) detects the line and then
+# "" from env_field fails is_int, triggering FAIL. This is the sibling of G-nospace (which tests
+# a valid int in no-space format) but stresses the non-integer value path.
+d="$TMP/uf-nospace-nonint"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings:seven\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+  ok "G-nospace-nonint: undocumented_findings:seven (no space) → FAIL exit 1 (prefix probe detects line, env_field sees empty → not-int)"
+else no "G-nospace-nonint: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -784,6 +910,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$mddgot" = 0 ]; then
       ok "teeth(B3b): neutered derive_deferred always returns 0 → false-passes → CHECK F is load-bearing"
     else no "teeth(B3b): mutant exit $mddgot (want 0) — deferred check may not depend on derive_deferred (THEATER)"; fi
+  fi
+
+  # ---- CHECK G mutation: raise threshold from 6 to 9999 → uf=7 stops FAILing (FAIL guard is load-bearing) ----
+  echo "-- teeth: CHECK G — raise -gt 6 threshold to 9999; expect uf=7 fixture to exit 0 (WARN only, not FAIL) --"
+  mutantG="$TMP/verify-state.CHECKG.MUTANT.sh"
+  sed 's/"\$e_uf" -gt 6/"\$e_uf" -gt 9999/' "$SUT" > "$mutantG"
+  if ! grep -q '"$e_uf" -gt 9999' "$mutantG"; then
+    no "teeth(G): could not build CHECK G mutant (\"\$e_uf\" -gt 6 not found — did the SUT change?)"
+  else
+    d="$TMP/uf-fail"   # reuse G-fail fixture: undocumented_findings=7
+    bash "$mutantG" "$d" >/dev/null 2>&1; mgot=$?
+    if [ "$mgot" = 0 ]; then
+      ok "teeth(G): threshold raised to 9999 → uf=7 false-passes (exit 0) — CHECK G FAIL guard is load-bearing"
+    else no "teeth(G): mutant exit $mgot (want 0) — uf=7 fixture does NOT depend on CHECK G FAIL (THEATER)"; fi
+  fi
+
+  # ---- CHECK G non-integer teeth: neuter the present-but-non-integer branch → G-not-int must false-pass ----
+  # Mutation: replace the opening condition of the new "present but not is_int" FAIL branch with `false`
+  # so that malformed values (seven, -2, no-space) are never caught. The G-not-int fixture must then
+  # exit 0 (false-pass), proving the guard is load-bearing and not theater.
+  echo "-- teeth: CHECK G non-int — neuter the non-integer FAIL branch; G-not-int fixture must false-pass --"
+  mutantGNI="$TMP/verify-state.GNOTINT.MUTANT.sh"
+  sed 's/if \[ -n "\$_uf_present" \] && ! is_int "\$e_uf"; then/if false; then  # MUTANT-GNI: non-integer check neutered/' "$SUT" > "$mutantGNI"
+  if ! grep -q 'MUTANT-GNI: non-integer check neutered' "$mutantGNI"; then
+    no "teeth(GNI): could not build mutant (non-integer guard line not found — did the SUT change?)"
+  else
+    d="$TMP/uf-not-int"   # reuse G-not-int fixture: undocumented_findings: seven
+    bash "$mutantGNI" "$d" >/dev/null 2>&1; mgnigot=$?
+    if [ "$mgnigot" = 0 ]; then
+      ok "teeth(GNI): neutered non-integer mutant exits 0 → G-not-int has teeth (non-integer FAIL branch is load-bearing)"
+    else no "teeth(GNI): mutant exit $mgnigot (want 0) — G-not-int may not depend on the non-integer branch (THEATER)"; fi
   fi
 fi
 

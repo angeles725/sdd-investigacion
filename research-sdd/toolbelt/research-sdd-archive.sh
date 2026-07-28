@@ -56,6 +56,15 @@ declare -F retro_review_status >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_lib failed to define retro_review_status" >&2; exit 1; }
 unset _lib
 
+# Source the shared state-file enumerator — required for the multi-focus undocumented_findings gate.
+_sflib="$here/lib/state-files.sh"
+if [ ! -f "$_sflib" ]; then echo "research-sdd-archive: cannot find helper $_sflib" >&2; exit 1; fi
+# shellcheck source=lib/state-files.sh
+. "$_sflib"
+declare -F list_state_files >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper $_sflib failed to define list_state_files" >&2; exit 1; }
+unset _sflib
+
 # Resolve the corpus root exactly like research-sdd-status.sh: shallowest RESEARCH-STATE, deterministically.
 # (No -e: a non-zero from find on an unreadable subtree is discarded, not fatal — the value is still correct.)
 state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
@@ -83,6 +92,47 @@ echo "  -- gates --"
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
 gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
+# undocumented_findings gate — scope is $target, NOT $corpus. INVARIANT: inspect EVERY focus under
+# the target, not only those under the first-discovered corpus directory. WHY: in a SPLIT layout
+# (focuses in sibling subdirectories rather than flat in one dir), $corpus is only the FIRST focus's
+# directory (line ~72: corpus=dirname of the shallowest state file). Scoping to $corpus silently
+# skips sibling focuses; any UF debt in them passes this gate unseen. The _uf_sf_count guard below
+# catches EMPTY enumeration (zero files inspected) but NOT PARTIAL enumeration (some focuses missed)
+# — that is why the scope itself must be $target so list_state_files reaches all focuses at maxdepth 3.
+# Multi-focus corpora have one state file per focus (RESEARCH-STATE-<slug>.md). Absent field or
+# non-integer → treated as 0 (legacy corpora predate this field). Any positive value in ANY focus
+# means at least one finding was saved to memory without a block; refuse until the researcher writes
+# the block(s), decrements the counter in the state file, then --sync-state.
+_uf_sf_count=0
+while IFS= read -r _uf_sf; do
+  [ -f "$_uf_sf" ] || continue
+  # Increment AFTER the -f guard so the counter measures files actually inspected, not lines
+  # the enumerator returned. If every enumerated path fails -f (e.g. paths that vanished
+  # between the find scan and this loop, or a broken enumerator outputting garbage), the
+  # counter stays 0 and the empty-inspection guard below fires — making this strictly
+  # stronger than counting enumerated lines.
+  _uf_sf_count=$((_uf_sf_count + 1))
+  _uf_val="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1=="undocumented_findings:"{print $2; exit}' "$_uf_sf" 2>/dev/null)"
+  case "${_uf_val:-0}" in
+    *[!0-9]*) ;;
+    0)         ;;
+    *)
+      echo "    undocumented_findings: REFUSE — $(basename "$_uf_sf"): undocumented_findings=${_uf_val} must be 0 before closing (write the missing block(s), decrement the counter in the state file, then --sync-state)"
+      gate_rc=1  # uf-gate-refuse
+      ;;
+  esac
+done < <(list_state_files "$target")
+# Fail-closed invariant: $target was verified above (find at line ~70 resolved a RESEARCH-STATE*.md
+# under it), so ZERO inspected files here is an IMPOSSIBLE state — the enumerator malfunctioned
+# (returned nothing or only non-existent paths) rather than debt being absent. Report as a toolchain
+# ERROR (distinct from a content FAIL, following the established gate() convention) so a broken
+# enumerator is never mistaken for a clean corpus. Third silent-pass shape in this family.
+# Note: this guard catches EMPTY enumeration; PARTIAL enumeration (some focuses missed) is prevented
+# by the $target scope above — this counter alone cannot substitute for the correct scope.
+if [ "$_uf_sf_count" -eq 0 ]; then
+  echo "    undocumented_findings: ERROR — could not enumerate state files (impossible: corpus was located but list_state_files returned nothing — inspect lib/state-files.sh)"
+  gate_rc=1  # uf-gate-enum-empty
+fi
 if [ "$gate_rc" != 0 ]; then
   echo "  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:"
   echo "    $here/verify-state.sh $corpus"

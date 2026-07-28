@@ -204,12 +204,19 @@ for state in "${states[@]}"; do
   e_def="$(env_field "$state" deferred_open)"
   e_gc="$(env_field "$state" gaps_closed)"
   e_kg="$(env_field "$state" known_gaps)"
+  # undocumented_findings — computed here (before the summary line) so SUGGESTION 8 can show it.
+  # _uf_present: whether the undocumented_findings LINE exists in the envelope at all.  env_field's awk
+  # requires `key: value` (space after colon); a no-space typo like `undocumented_findings:7` returns
+  # empty — identical to the absent case — so we use a separate presence check anchored to the key prefix.
+  # This distinguishes: absent (silent), present+valid (threshold checks), present+malformed (FAIL).
+  e_uf="$(env_field "$state" undocumented_findings)"
+  _uf_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print; exit}' "$state")"
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"
   echo "   covered blocks  : ${covered_claim:-<none>} claimed · ${ondisk} block file(s) on disk"
   echo "   backlog pending : ${pending}"
-  echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def}  (declared/derived)"
+  echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def} · undocumented_findings=${e_uf:-<none>}  (declared/derived; undocumented_findings is manually-maintained)"
 
   # ENVELOPE CHECK A (FAIL) — declared covered_blocks must equal on-disk block files (reuse `ondisk`).
   if ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; then
@@ -263,6 +270,29 @@ for state in "${states[@]}"; do
     fi
   elif [ "$d_def" -gt 0 ]; then
     echo "   WARN   envelope deferred_open missing while $d_def deferred backlog gap(s) found — seed it: --sync-state"
+  fi
+
+  # ENVELOPE CHECK G — undocumented_findings: value validation then threshold gates.
+  # e_uf and _uf_present are computed before the summary line above (SUGGESTION 8 visibility).
+  # THREE cases, not two: absent (silent — legacy seeding contract), valid integer (threshold checks),
+  # present-but-not-integer (FAIL — the gate cannot do its job; an unparseable value is a silent gate
+  # evasion because --sync-state's pick() previously returned 0 for any non-integer, erasing real debt).
+  # SEVERITY rationale: FAIL (not WARN) for unparseable, because the entire purpose of this counter is
+  # blocking an archive when debt > 6; an unparseable value makes that gate permanently invisible.
+  # Compare CHECK E (WARN for non-integer): CHECK E is a calibrated lower-bound gate; CHECK G is the
+  # only gate for this counter and has no fallback — "unparseable" means "gate evaded".
+  if [ -n "$_uf_present" ] && ! is_int "$e_uf"; then
+    echo "   FAIL   envelope undocumented_findings=${e_uf:-<unparseable>} is not a valid non-negative integer — the archive gate cannot check debt."
+    echo "          Correct the value manually in the envelope first (change it to a non-negative integer);"
+    echo "          then re-seed with --sync-state. Running --sync-state without fixing the value first"
+    echo "          will warn and carry the bad value forward — it will NOT zero it — but verify-state"
+    echo "          will continue to FAIL until the value is a valid non-negative integer."
+    frc=1; rc=1
+  elif is_int "$e_uf" && [ "$e_uf" -gt 6 ]; then
+    echo "   FAIL   envelope undocumented_findings=$e_uf > 6 — write the missing block(s), decrement to 0, re-seed: --sync-state. Memory is a MIRROR, not the record."
+    frc=1; rc=1
+  elif is_int "$e_uf" && [ "$e_uf" -gt 3 ]; then
+    echo "   WARN   envelope undocumented_findings=$e_uf > 3 — findings exist only in memory (no block); write the block(s) and decrement."
   fi
 
   # CHECK 1 (FAIL) — summary claims every gap closed, but the backlog still lists pending gaps.

@@ -288,7 +288,42 @@ endpoint. Record the working fallback in SOURCES.md so the next fetch skips the 
 
 ## 6. Research tools
 
-The loop profiles the artifact type (`profile-target.sh`) and picks the toolbelt wrapper:
+**BOOTSTRAP step a2 — file-type census (mandatory, before the coverage matrix).**
+Run `census-target.sh <target-path>` at the start of every target. This produces a
+file-extension histogram with aggregate sizes, and is **required before building the gap backlog**:
+
+```
+research-sdd/toolbelt/census-target.sh $TARGET
+```
+
+WHY this step is mandatory: a coverage matrix built from what you already noticed cannot surface
+what you never looked at. The failure is structural, not attentional — if you populate the backlog
+from files that already drew your attention, the invisible corpus (Access databases nobody opened,
+Visio diagrams nobody printed, compiled DDC programs nobody counted) never enters any gap. One
+three-second command surfaces all of it. A retro evidence: an `integration` focus closed 14 of 14
+gaps and declared coverage complete without ever running a census. It never opened 681 Access
+databases (450 MB), 161 Visio diagrams (76 MB), or 144 compiled DDC programs — file types that a
+three-second census would have put on the radar.
+
+**Threshold for audit obligation.** A file type is starred (*) when it meets either threshold:
+`--threshold-count N` (default 5 files) OR `--threshold-mb M` (default 1 MB aggregate). Every
+starred type must be either (a) claimed by a pending or covered gap in the backlog, or (b)
+explicitly dismissed in `RESEARCH-STATE.md §§ Dismissed file types` with a stated reason:
+
+```
+## Dismissed file types
+- .<ext> — <N> files · <M> MB — dismissed: <reason>
+```
+
+A starred type in neither is an unclosed audit hole, and the run may not declare coverage
+complete. "Dismissed" must explain WHY the type is out of scope — not just "not relevant".
+
+**Relationship to `profile-target.sh`.** `profile-target.sh` profiles binary artifact types to
+pick the right decompiler. `census-target.sh` is a broader, different tool: it counts ALL file
+types (including docs, databases, diagrams, and config files that `profile-target.sh` ignores)
+and applies the audit-obligation threshold. Run both; they answer different questions.
+
+The loop then profiles the artifact type (`profile-target.sh`) and picks the toolbelt wrapper:
 Java decompilation (Vineflower/CFR/Procyon), .NET (ilspycmd), native (Ghidra headless / r2 /
 ghidra-mcp), firmware (binwalk+yara), docs/web (fetch-doc). Detail and paths in
 [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md). Research is **always
@@ -312,6 +347,36 @@ project in their prompt rather than inferring it from cwd. (Lesson: a niagara mi
 wrong project #3993 and engram has no delete tool — a misfiled memory is permanent, so set `project`
 deliberately.) For a multi-focus target (§16), keep one project per target and disambiguate focuses via
 the topic key: `research/<target>/<focus>/gaps`, `.../progress`.
+
+**Memory is a MIRROR, not the record. `undocumented_findings` contract.**
+A finding that exists only in memory is undocumented — the corpus cannot cite it, reviewers
+cannot audit it, and a future agent reading the blocks will not see it. This failure is
+recurrent: evidence from a `pi5-decoding` retro showed that after a prior delta acknowledged
+the problem AND a block was written to fix it, four more findings (a 649-series trend
+catalogue, a cold-chain identification, a semantic-coverage-by-model finding, and a max_samples
+risk) went into commits and engram with no block.
+
+The `undocumented_findings` counter in `research-state.v1` tracks this debt:
+
+| Event | Action |
+|---|---|
+| `mem_save` a project/decision finding **without a block** | increment `undocumented_findings` by 1 |
+| Write the block; **edit `undocumented_findings` down by 1 in the state file** | call `--sync-state` to carry the new value forward (it cannot derive it from disk) |
+| Block written, field updated, counter at 0 | archive gate will pass |
+
+**This counter is manually maintained.** Nothing in the kit observes memory saves — there is no
+hook, no watcher, no automatic increment. The researcher is responsible for the count. The machine
+enforces the gate; the researcher maintains the number.
+
+**Gate behaviour (machine-checked):**
+- `verify-state.sh` WARNs when `undocumented_findings > 3`
+- `verify-state.sh` FAILs (blocks `--next`) when `undocumented_findings > 6`
+- `research-sdd-archive.sh` refuses to close when `undocumented_findings > 0`
+
+**Seeding.** The field starts at `undocumented_findings: 0` in a new RESEARCH-STATE.md.
+`--sync-state` carries the value forward (it cannot derive it from disk); if the field is
+absent in a legacy envelope, `--sync-state` seeds it to 0. The RESEARCH-STATE.template.md
+includes `undocumented_findings: 0` in the envelope for new targets.
 
 ## 8. Stopping criterion
 
