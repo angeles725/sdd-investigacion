@@ -1146,6 +1146,30 @@ relevant items, and the maintainer can track them as follow-up tasks. This avoid
 pessimistic one ("nothing applied until all ten are agreed") and the optimistic one (`applied` with deferred
 items silently dropped and forgotten).
 
+**Tools section.** The retro template ([`templates/retro.template.md`](templates/retro.template.md)) includes
+a TOOLS section that records every tool a run built, forked, or abandoned — the route back into the kit that
+the phantom "LEARNINGS ledger" never was. Each entry carries a VERDICT. The supervisor acts on each verdict
+on the retro branch: `promote` means the tool moves into `$KIT/toolbelt/` with a companion test under
+`toolbelt/tests/*.test.sh` (the kit's convention — every toolbelt script has one); `absorb` becomes an
+ordinary delta row against the named kit file and enters the standard retro-delta review cycle. `keep-local`
+and `no` close an entry and are recorded in the retro, but they differ in what to do with the tool after:
+
+- **`keep-local`** — the tool is real, works, and is worth keeping, but it is target-specific (tightly
+  coupled to one binary format, corpus shape, or environment) and cannot be promoted without a generalisation
+  effort that is out of scope now. **Keep it in the target**; do not copy or delete it. Note what would need
+  to change for promotion so a future retro can revisit the question with fresh context.
+
+- **`no`** — the tool is not worth keeping anywhere: it is a throwaway one-liner written during probing, is
+  already superseded by the block's findings, or duplicates an existing kit tool without adding value.
+  **Remove or ignore it**; no action is taken in the kit or the target.
+
+The template's worked-example rows T3 and T4 illustrate each verdict with a concrete case so the boundary
+is visible from the template alone without opening METHODOLOGY.
+
+An ORACLE finding — a tool that can SEE whether a result is correct rather than recompute it — is the
+highest-value promotion candidate and always warrants an explicit verdict, even when the run did not
+explicitly flag it.
+
 ## 19. Build/PoC loop (the requires-execution phase)
 
 The static loop (§1–§11) is READ-ONLY. Some gaps are answerable only by BUILDING and RUNNING something — a

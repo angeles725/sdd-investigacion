@@ -35,6 +35,31 @@ For each delta above, one line of rationale (WHY it matters, what it costs, expe
 
 - <what went wrong / broke / was done against the kit> → the delta above that would prevent it: #<n>.
 
+## Tools built, adapted, or outgrown
+
+> A run that builds, forks, or abandons a tool carries a signal about the kit's fitness. Record every
+> tool here — "we wrote a throwaway script" IS a CREATED entry, not nothing; under-reporting is the
+> failure mode. Each column is answerable from the corpus and the run's commits alone.
+>
+> **ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
+> **recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
+> instead of repeating the same arithmetic path that produced the result. Example: a tool that renders
+> a 3D model exactly as the viewer will draw it can detect a mirror-flip that passes all 21
+> length/area/angle checks — because reflection preserves magnitudes, no symmetric check can see it.
+> Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
+> candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
+>
+> **Why T-prefix in the first column:** the delta counter in `sweep-retros.sh` matches table rows
+> whose first cell is a bare integer. Tools rows start at T1, T2 … so the counter cannot confuse
+> them with delta rows (both tables start at 1; `sort -un` would otherwise merge them and over-report).
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | `nave-panccadia/tools/cad-view.py` · renders DXF regions exactly as AutoCAD draws them | — | — | `cad-view.py` · renders a DXF region as AutoCAD draws it; caught a region AutoCAD clips while every length check passed | `promote` · generic DXF visual oracle; not target-specific; needs test under `toolbelt/tests/` |
+| T2 | `niagara-research/tools/gen-catalog.py` · bespoke fork of the kit catalog generator | `$KIT/tools/gen-catalog.py` · silently dropped blocks not in its hard-coded list | kit's gen-catalog.py retired in this target; `archive.sh` already prefers the local fork | — | `absorb` · fold per-target block-type support into the kit version |
+| T3 | — | — | — | — | `keep-local` · example: a target-specific parser tuned to one binary's quirks — useful here, not promotable without generalising the format layer |
+| T4 | — | — | — | — | `no` · example: a throwaway one-liner written during probing that has no reuse value and is already superseded by the block's findings |
+
 ## Metrics
 
 - **Blocks reviewed**: <N>  ·  **§14 cross-block corrections in this run**: <x>  ·  **Rules skipped in practice**: <x>

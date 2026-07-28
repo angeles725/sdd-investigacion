@@ -105,7 +105,14 @@ fi
 
 echo ">> on branch $branch (from main). Proposed deltas to review/apply:"
 echo ""
-sed -n '/^## Proposed kit deltas/,/^## Already covered/p' "$retro" | sed '$d'
+# Both sed ranges use '^## ' (any level-2 heading) as the end address rather than a specific
+# section title. This bounds the output even when a section is renamed or reordered — if the
+# named end heading is absent, a specific-title range floods to EOF. The generic pattern
+# terminates at whatever heading follows, and sed '$d' still removes that closing heading line
+# so the output for a well-formed retro is identical to the specific-title approach.
+sed -n '/^## Proposed kit deltas/,/^## /p' "$retro" | sed '$d'
+echo ""
+sed -n '/^## Tools built, adapted, or outgrown/,/^## /p' "$retro" | sed '$d'
 echo ""
 echo ">> NEXT STEPS (supervisor):"
 echo "   1. Apply the ACCEPTED deltas to the kit files on THIS branch (skip duplicates/unneeded ones)."

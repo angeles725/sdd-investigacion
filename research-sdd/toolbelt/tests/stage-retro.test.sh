@@ -73,6 +73,58 @@ mkretro() {
   git -C "$repo" commit -qm "add retro $fname"
 }
 
+# mkretro_with_tools <repo> <target> <filename> : like mkretro but includes a tools section
+# between anti-patterns and metrics, so the stage-retro tools-range sed finds it.
+# NOTE: first column is T1, not 1 — the T-prefix prevents sweep-retros.sh counting tool rows
+# as delta rows (both tables start at 1; the delta counter uses sort -un over bare integers).
+mkretro_with_tools() {
+  local repo="$1" tgt="$2" fname="$3"
+  mkdir -p "$repo/$tgt/retros"
+  {
+    printf '<!-- review-status: pending -->\n'
+    printf '# retro\n\n'
+    printf '## Proposed kit deltas\n\n'
+    printf '| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n\n'
+    printf '## Already covered\n\n(none)\n\n'
+    printf '## Anti-patterns observed\n\n(none)\n\n'
+    printf '## Tools built, adapted, or outgrown\n\n'
+    printf '| # | CREATED (path - purpose) | ADAPTED | OUTGREW | ORACLE | VERDICT |\n'
+    printf '|---|---|---|---|---|---|\n'
+    printf '| T1 | `tools/t.py` - test tool | - | - | - | `keep-local` - target-specific |\n\n'
+    printf '## Metrics\n\n(placeholder)\n'
+  } > "$repo/$tgt/retros/$fname"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "add retro with tools $fname"
+}
+
+# mkretro_tools_noclose <repo> <target> <filename> : retro whose tools section is followed by
+# a heading other than '## Metrics'. Used to test Fix 2 (sed range must not flood to EOF when
+# the named end heading is absent — it should terminate at the first subsequent ^## heading).
+mkretro_tools_noclose() {
+  local repo="$1" tgt="$2" fname="$3"
+  mkdir -p "$repo/$tgt/retros"
+  {
+    printf '<!-- review-status: pending -->\n'
+    printf '# retro\n\n'
+    printf '## Proposed kit deltas\n\n'
+    printf '| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | r1 |\n\n'
+    printf '## Already covered\n\n(none)\n\n'
+    printf '## Tools built, adapted, or outgrown\n\n'
+    printf '| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |\n'
+    printf '|---|---|---|---|---|---|\n'
+    printf '| T1 | `tools/t.py` - test tool | - | - | - | keep-local |\n\n'
+    # The closing section is renamed to something other than '## Metrics'; if the sed range
+    # is bound by the specific title '## Metrics', it floods to EOF and the text below leaks.
+    # IMPORTANT: the sentinel must NOT be the last line — if it were, sed '$d' in the range
+    # pipeline would delete it by accident, making the test a false GREEN (flood but no evidence).
+    printf '## Honest verdict\n\n'
+    printf 'SENTINEL_THIS_MUST_NOT_APPEAR_IN_STAGE_RETRO_OUTPUT\n'
+    printf '(trailing line so sentinel is not last — sed $d only strips this line)\n'
+  } > "$repo/$tgt/retros/$fname"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "add retro tools-noclose $fname"
+}
+
 # branches <repo> : echo the retro/* local branches (empty when the destructive path never ran).
 branches() { git -C "$1" branch --list 'retro/*' | tr -d ' *'; }
 
@@ -198,6 +250,38 @@ else
   no "7 excluded retro → refused exit 2, no branch" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
 fi
 
+# 8 — TOOLS TABLE printed: a retro with a tools section must surface that section in stage-retro
+#     output alongside the proposed-deltas block so the supervisor reads tool promotions and
+#     absorb-verdicts at the same time as kit deltas. Assert on actual TABLE ROW content (a tool
+#     path that only appears in a row), not just the heading — so a mutant that prints only the
+#     heading still fails this case (the heading check alone has no tooth; see --prove-teeth).
+repo="$(mkrepo tools-print real)"
+mkretro_with_tools "$repo" "targetA" "r-tools.md"
+run "$repo" "targetA/retros/r-tools.md"
+if [ "$RC" = 0 ] \
+   && grep -q 'Tools built, adapted, or outgrown' <<<"$OUT" \
+   && grep -q 'tools/t.py' <<<"$OUT"; then
+  ok "8 retro with tools section -> tools table printed in stage-retro output" "(exit $RC)"
+else
+  no "8 retro with tools section -> tools table printed in stage-retro output" "exit=$RC out=[$OUT]"
+fi
+
+# 8b — TOOLS RANGE BOUNDED (Fix 2): a retro whose tools section is followed by a heading other
+#      than '## Metrics' must NOT flood stage-retro output to EOF. The sed range must terminate
+#      at the first subsequent ^## heading, regardless of its name.
+#      RED: current code uses '## Metrics' as the end anchor; a renamed heading causes it to run
+#      to EOF, printing the sentinel text. GREEN: generic '^## ' end address bounds it.
+repo="$(mkrepo tools-noclose real)"
+mkretro_tools_noclose "$repo" "targetA" "r-noclose.md"
+run "$repo" "targetA/retros/r-noclose.md"
+if [ "$RC" = 0 ] \
+   && grep -q 'Tools built, adapted, or outgrown' <<<"$OUT" \
+   && ! grep -q 'SENTINEL_THIS_MUST_NOT_APPEAR_IN_STAGE_RETRO_OUTPUT' <<<"$OUT"; then
+  ok "8b tools range bounded — renamed end heading does not flood to EOF" "(exit $RC)"
+else
+  no "8b tools range bounded — renamed end heading does not flood to EOF" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its
@@ -254,6 +338,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: excl-guard-neutered mutant stages excluded file (case 7 has teeth)" "()"
     else
       no "teeth: excl-guard-neutered mutant stages excluded file" "mutant stayed closed — case 7 is THEATER: branches=[$(branches "$repo")] [$outm]"
+    fi
+  fi
+
+  # Teeth for case 8: replace the tools sed range with a print of only the heading — no table
+  # rows. Proves the 'tools/t.py' row-content assertion in case 8 is load-bearing: the old
+  # heading-only check would PASS the mutant (heading is printed), but the new row-content check
+  # catches it (tool path is absent). RED = case 8 fails against the mutant.
+  echo "-- teeth: replace tools sed range with heading-only echo, expect case 8 row assertion to fail --"
+  # Build the anchor as a concatenation so the literal '$retro' and '$d' strings survive without
+  # expansion (same technique as the SUT itself uses for quoting these within single quotes).
+  q="'"
+  anchor_t8="sed -n ${q}/^## Tools built, adapted, or outgrown/,/^## /p${q} \"\$retro\" | sed ${q}\$d${q}"
+  if [[ "$content" != *"$anchor_t8"* ]]; then
+    no "teeth: locate tools sed range in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-tools real)"
+    mkretro_with_tools "$repo" "targetA" "r-tools.md"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    # Replace the tools sed range with an echo that only prints the heading — no table rows.
+    neutered_t8="echo '## Tools built, adapted, or outgrown'"
+    printf '%s\n' "${content/"$anchor_t8"/$neutered_t8}" > "$mutant"
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-tools
+    outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r-tools.md" 2>&1)"
+    # The mutant outputs the heading but NOT the table rows. Case 8's row-content assertion
+    # ('tools/t.py' must appear) must FAIL — meaning the mutant goes RED on that check.
+    if grep -q 'Tools built, adapted, or outgrown' <<<"$outm" \
+       && ! grep -q 'tools/t.py' <<<"$outm"; then
+      ok "teeth: tools-range mutant prints heading but no rows (case 8 row assertion has teeth)" "()"
+    else
+      no "teeth: tools-range mutant prints heading but no rows" "row found in mutant output — case 8 row assertion is THEATER: [$outm]"
     fi
   fi
 fi
