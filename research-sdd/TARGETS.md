@@ -79,6 +79,8 @@ Sensitivity:
 | 16 | computadoras | `/home/cristian/investigacion/computadoras` | **incipient** (6 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
 | 17 | hilton-bms | `/home/cristian/tunnel/Cliente/Cancun/HotelHilton` | **mature** (71 blocks / 4 runs / 2 retros / git yes / remote no) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
 | 18 | nave-panccadia | `/home/cristian/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
+| 19 | EduVolt-Designer | `/home/cristian/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
+| 20 | impresora-samsung-m2070 | `/home/cristian/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
 
 ---
 
@@ -364,6 +366,40 @@ reference anonymous `*U` blocks LibreDWG did not export.
 
 **Hook status**: `.claude/hooks/research-protocol.sh` installed by `research-sdd-init.sh`.
 **Startup:** continue — 9 read-only-investigable gaps remain, 0 requires-execution (next: G4 structural grid).
+
+### 19 — EduVolt-Designer `[CERT]`
+RE of **EduVolt Designer** — a Flutter Windows desktop app for industrial electrical diagram design
+(IEC 81346/60947/60445/61558 component library, `.evc`/`.evd` format, Pro/Free licensing gating,
+`wp-json/eduvolt/v1` backend, authored by EduVolt Academy). Artifact: Dart AOT native snapshot
+(`app.so`, read via `strings`/`readelf`) + native PE DLLs (`flutter_windows.dll`,
+`flutter_secure_storage_windows_plugin.dll`). 8 blocks produced 2026-06-28 via static
+strings/readelf/file; blutter installed but blocked (no cmake/ninja/Dart SDK in environment,
+see B1 §1.6). **Static investigable set EXHAUSTED**: every remaining open gap needs an x64
+Dart-AOT decompiler, a live license server, or hardware — none are static-read-only
+investigable; the §8 primary STOP criterion is effectively met. No retros/ directory.
+**Startup:** continue only if an x64 Dart-AOT decompiler (blutter or equivalent) becomes available.
+
+### 20 — impresora-samsung-m2070 `[CERT]`
+RE of the **Samsung M2070 Series MFP USB communication protocol**. `live-install`: real USB
+printer probed via `usbipd-win` / WSL USB/IP. 13 blocks produced 2026-07-04: 12 evidence
+blocks (B1–B11 static RE + B4 live USB hardware) + 1 corpus-closing synthesis (B12) + 1
+dynamic-phase live PJL probe (B13). Key findings: QPDL print protocol decoded at
+native-Samsung-source level (`rastertospl` Ghidra headless, B9); SSIP scan protocol == `xerox_mfp`
+wire (all 8 opcodes confirmed, `libsane-smfp.so` Ghidra headless, B10); live `@PJL` probe
+confirmed QPDL as firmware-declared language and captured real page-count + `LITESMSTATUS`
+bytes (B13, `[CERT-hw]`). Static STOP MET after B11 (read-only-investigable = 0).
+1 retro in `retros/`: `2026-07-04-m2070-usb-protocol.md` (7 proposed kit deltas including a
+verified `decompile-native.sh` Ghidra dot-prefix bug — **review-status: pending**).
+
+**Naming issue `[CERT]`**: block files are named `block1.md` … `block13.md` — no hyphenated
+prefix. The kit's canonical discriminator (`*-block*.md` / `*-bloque*.md`) matches **zero**
+files here. `verify-registry.sh` now reports these 13 as unclassifiable candidates and directs
+the operator to rename. However `research-sdd-archive.sh` and `sweep-retros.sh` still use the
+naive discriminator, so any gate built on a block count sees zero for this target until the
+files are renamed to the canonical pattern (e.g. `m2070-block1.md`).
+
+**Startup:** static loop closed (G13 — networked M2070W/FW AirPrint/eSCL end-to-end — remains
+the only genuinely hardware-blocked gap). Resolve the naming issue before the next archive run.
 
 ---
 
