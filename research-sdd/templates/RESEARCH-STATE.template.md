@@ -70,7 +70,12 @@ undocumented_findings: 0
 
 ## Blocked gaps (each tagged with what it needs)
 
-- <gap> — needs: <x64 Dart-AOT decompiler | live server | hardware/lab | NDA | missing tool: <name>>
+<!-- Each blocked/absent gap MUST carry both a `needs:` clause AND a `tried:` clause.
+     `needs:` names the missing resource. `tried:` lists the alternatives enumerated and the
+     measurement that ruled each out. A gap with `tried:` only listing "nothing" is unfinished.
+     verify-state.sh checks for the literal token `tried:` the same way it checks `needs:`.
+     A gap may not be declared `blocked` or `absent` without both clauses present. -->
+- <gap> — needs: <x64 Dart-AOT decompiler | live server | hardware/lab | NDA | missing tool: <name>> · tried: <alt1 (measured: X) | alt2 (measured: Y) | none enumerated yet→ gap still open>
 
 ## Stop control (primary = read-only-investigable exhaustion, METHODOLOGY §8)
 

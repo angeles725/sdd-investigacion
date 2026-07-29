@@ -2,6 +2,10 @@
 
 > Research of **<MODULE/COMPONENT>**: <scope in 1-2 lines — what it covers and what it does not>.
 >
+> Subject version: <vX.Y.Z | commit-sha | release-date | "unversioned"> — the version of the subject
+> this block was written against. An audit comparing against a different version must carry this stamp
+> to distinguish DRIFTED (subject moved) from REFUTED (was wrong at write time). See PROMPT-AUDIT.md.
+>
 > Sources: <real primary paths · documents in sources/... · URLs>.
 > Method: <how it was investigated: decompiler/tool/reading/web>. Markers (canonical list: METHODOLOGY §3):
 > `[CERT-hw]` verified against the live system/device — highest (`sources/probes/...`) ·
