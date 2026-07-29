@@ -12,6 +12,17 @@ the tools, [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md); the subject
 
 ---
 
+## Purpose
+
+This kit exists to refuse the ceiling. When a licensing wall, a missing source, or a vendor's refusal closes one path, that bounds one path — not the question. Before recording a limit, enumerate what else could answer the same question (§6 channel inventory, §6 file census). The detour is often better than the road it replaced.
+
+**The pair that makes this work:**
+
+1. **Never accept a ceiling on one source's word.** Enumerate alternatives before closing a route; the `tried:` clause in RESEARCH-STATE (§8) is how this is recorded durably.
+2. **Close a route with measurement, not with feeling.** A `blocked` entry without a measurement is an unfinished gap. A corpus full of unexamined alternatives is as useless as one that gave up early.
+
+---
+
 ## 1. Guiding principle
 
 Investigate **READ-ONLY** and produce **traceable** claims. Every claim carries its
@@ -54,6 +65,7 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 
 **Usage rules:**
 - Never raise a marker without the citation that backs it. No citation ⇒ `[INFER]`.
+- A field/semantic assignment derived ONLY from statistical distribution (byte-frequency analysis, uniform-distribution heuristics, correlation sweeps) is `[INFER]`, never `[CERT]` — regardless of how strong the correlation looks. It is promoted to `[CERT]` only by a symbol, a spec, or a documented anchor.
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
@@ -130,8 +142,10 @@ capture). HONESTY (§18): seal only when a wrong seal would genuinely mislead a 
 Identical to `niagara-research` (see [`templates/block.template.md`](templates/block.template.md)):
 
 1. **Title**: `# Block N — <descriptive title>`
-2. **Header blockquote** (`>`): WHAT it documents, SCOPE, exact SOURCES (real paths
-   + documents in `sources/` + URLs), and METHOD with the legend of markers used.
+2. **Header blockquote** (`>`): WHAT it documents, SCOPE, the **subject version** stamp
+   (`Subject version: vX.Y.Z | commit | date | "unversioned"` — required for DRIFTED/REFUTED
+   disambiguation in §13 audit mode), exact SOURCES (real paths + documents in `sources/` + URLs),
+   and METHOD with the legend of markers used.
 3. `---` line
 4. **Numbered sections** `## N.1 — Title \`[CERT]\``, with tables where they help (hierarchies,
    signatures, protocols, comparisons).
@@ -286,6 +300,17 @@ source via its init-data JSON (better evidence than a minified bundle). (c) **Di
 discourse.threejs.org) serve crawler-readable HTML directly, no bot-block, plus a lighter `/raw/<topic-id>`
 endpoint. Record the working fallback in SOURCES.md so the next fetch skips the dead path.
 
+**Falsified artifacts are preserved and labelled, never silently deleted.** An output that a later check
+proved unsound stays under `sources/probes/` with an explicit non-evidence marker in its filename and in
+the directory README (`NOT EVIDENCE — refuted by §N.x`). This keeps the near-miss auditable without leaving
+a citable-looking file for a future reader to trust.
+
+**CHM help files (`.chm`) produce a LOCAL source tree** — extracted with `7z x <file>.chm -o<dir>/` on
+Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted topic files under
+`sources/extracted/<basename>/Topics/` are `[CERT-doc]` assets, cited as
+`sources/extracted/<basename>/Topics/topicname.htm §section`. The tool-registry entry
+(`toolbelt/tool-registry.md`) covers the wrapper command and platform variants.
+
 ## 6. Research tools
 
 **BOOTSTRAP step a2 — file-type census (mandatory, before the coverage matrix).**
@@ -328,6 +353,82 @@ Java decompilation (Vineflower/CFR/Procyon), .NET (ilspycmd), native (Ghidra hea
 ghidra-mcp), firmware (binwalk+yara), docs/web (fetch-doc). Detail and paths in
 [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md). Research is **always
 READ-ONLY**: the system under study is never modified.
+
+**Protocol / binary-format reconstruction.** When the subject is an opaque wire format or a proprietary
+binary record layout — no symbol-bearing managed binary exists, only data — use this named three-step pattern:
+
+1. **Managed-member-first, anchors-first.** Inventory the whole artifact stack by type (§10 profile step)
+   BEFORE decompiling anything. Attack the highest-level managed component first — symbols survive where
+   the language preserves them (.NET assemblies, JARs). In parallel, harvest documentary anchors
+   (datasheets, config files containing known field→meaning pairs) BEFORE decompiling; these become the
+   cross-validation oracle. When the decompiled map reproduces all anchors, the map is trustworthy.
+
+2. **Known-plaintext attack on the binary.** Take identifiers already known to exist in the data
+   (room numbers, device IDs), encode them at several widths and endiannesses, and search the binary for
+   all hits. The GCD of the distances between consecutive hits of the same identifier gives the record
+   STRIDE. Walk ±stride from one confirmed hit to find section boundaries and detect paging. Validate a
+   candidate epoch against an EXTERNAL fact (a filename, a log timestamp) — a wrong epoch gives a date
+   that is decades off; the right one matches to the minute. Trap: a naive global stride sweep over a
+   misaligned offset manufactures convincing phantom values (constant fields from a neighbouring offset
+   appear as frequent "values"); confirm the stride is globally consistent before trusting any frequency
+   count.
+
+3. **Falsify formulas against a large corpus using PHYSICAL IMPOSSIBILITY.** Decode the entire available
+   corpus with the candidate formula and count values that are physically impossible (humidity > 100 %,
+   temperature below absolute zero, a bit-flag combination that cannot coexist). A formula that produces
+   ZERO impossible values across hundreds of thousands of records in hundreds of independent units is
+   confirmed by mass falsification. A formula that can produce an impossible value is refuted. This is a
+   stronger test than eyeballing plausible numbers and is nearly free when the corpus is already on disk.
+
+**Circular buffers — derive ranges with min/max, never first/last row.** In a circular buffer the write
+head wraps: row 0 is wherever the head happens to be, not the oldest sample. Derive time spans with
+`min()` / `max()` over the timestamp column, never by subtracting the first row from the last. A measured
+span that disagrees with the theoretical capacity (e.g. `record_count × sample_interval`) is a red flag
+about the READ model, not about the data — investigate the reading before dismissing the buffer.
+
+**Inference-from-sparse-evidence: a technique family.** Before hunting a new source, ask whether the data
+you already have can complete or score itself. Four facets of the same move:
+
+- **Sample-and-propagate by CLASS.** When a sparse field's semantics belong to a TYPE (controller model,
+  firmware version, schema class) rather than to an individual instance, a handful of samples per type
+  covers the whole population. Verify by cross-sample AGREEMENT WITHIN THE TYPE first — the agreement
+  rate IS the honest per-type confidence, and a low rate flags genuine type-level variation that propagation
+  cannot resolve.
+
+- **Internal-oracle scoring for heuristic or geometric inference.** When a claim rests on inference
+  (geometry, statistics, spatial heuristics), look for a redundant fact already present in the data that
+  the inference DID NOT USE, and score the inference against it. Report the agreement rate as the claim's
+  confidence. An inference with no scoring oracle stays `[INFER]`; one scored against an internal oracle
+  earns its measured rate. When a tool has a tunable threshold, sweep it against the oracle and commit the
+  sweep table as a comment next to the constant — the number alone is unfalsifiable; the table shows why
+  it is not set higher or lower. (P13 note: choose thresholds by sweep over the oracle, never by feel.)
+
+- **Learn-then-propagate by KEY.** For a partially-populated field whose values correlate with a structural
+  key (instance range, model code, path prefix, naming convention), learn the mapping from the LABELLED
+  subset (records that already carry the value) and propagate it to the UNLABELLED subset. The per-key
+  agreement rate from the labelled set is the honest per-key confidence — 100 % for a tight, consistent
+  range; 50 % for a sparse one; the output says which per row. Sibling of sample-and-propagate-by-CLASS:
+  CLASS propagates along a TYPE, this technique propagates along a KEY; both verify by internal agreement
+  rather than assertion.
+
+- **Normalise categories before measuring agreement.** When counting agreement over free-text categories,
+  normalise first (case, synonyms, typos, hierarchy) and report BOTH the raw and the normalised rates. A
+  46 % raw agreement rate that rises to 92 % after folding synonyms is not a weak signal — it is a dirty
+  vocabulary. Accepting the raw rate at face value discards a technique that resolves the problem and sends
+  the investigation toward a new source that will not help.
+
+**Entropy + byte histogram as a read-only encryption test.** When the question is "is this wire/blob
+encrypted?", compute Shannon entropy (bits/byte) and the byte-value histogram before assuming a cipher.
+~7.99–8.0 bits/byte with a near-flat histogram ⇒ ciphertext or maximally-compressed data; a lower entropy
+with a skewed histogram dominated by a handful of values (`0x00`, `0x80`, `0xc0`, `0xff`, etc.) ⇒ plaintext
+framing with ordinarily-compressed payload. Both measures are read-only and cheap:
+`python3 -c "import math,collections,sys; d=open(sys.argv[1],'rb').read(); c=collections.Counter(d); print(f'{-sum(v/len(d)*math.log2(v/len(d)) for v in c.values()):.4f} bits/byte')" blob.bin`.
+Windowed entropy (sliding over 256-byte blocks) localises encrypted vs. plaintext regions in a mixed blob.
+This is a first-pass check, not cipher identification: a strong compressor is indistinguishable from
+ciphertext at this level. `[CERT-hw]` evidence from the USB-protocol run: 5.8124 / 5.5961 bits/byte,
+histogram dominated by `0x00/0x80/0xc0/0xff` → verdict "not encrypted" (commit `bd91df0`).
+Placement note: `toolbelt/tool-registry.md` already routes firmware entropy through binwalk; this method
+is the complementary standalone check for wire captures and opaque blobs where binwalk is not the first tool.
 
 ## 7. State and memory (hybrid)
 
@@ -390,7 +491,12 @@ The loop stops on the FIRST of these (primary first):
    - **blocked** — needs a live system/hardware/server/keys/NDA. → the DYNAMIC phase (§12) if the
      hardware appears; otherwise out of scope.
    The static loop stops when **read-only-investigable = 0**, even if `requires-execution`/`blocked`
-   gaps remain. (The backlog rarely empties — each block uncovers 1-4 new gaps; exhaustion of the
+   gaps remain.
+
+**`tried:` clause for blocked and absence-closed entries.** A blocked or absence-closed gap entry must
+carry a `tried:` field — the alternatives enumerated and the measurement that ruled each one out.
+`verify-state.sh` checks for its presence the same way it checks the `needs:` clause. A `blocked` entry
+with no `tried:` is an unfinished gap: it bounds one path, not the question. (The backlog rarely empties — each block uncovers 1-4 new gaps; exhaustion of the
    *read-only* subset is the real terminator.)
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
@@ -406,7 +512,23 @@ the default status report. This is INFORMATIONAL only — it does NOT auto-STOP,
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
 open. (Proven on protocols B136: the Sox gap was closed by demonstrating Sox's absence across 973 jars,
 cited.) A negative closure needs the same evidence bar as a positive one: cite what you searched and how
-(paths, counts, the grep/scan that came back empty), not a bare "not found".
+(paths, counts, the grep/scan that came back empty), not a bare "not found". State the sample size and
+the test applied. And when a source fails the question you asked, record what question it DOES answer
+before closing it — a source containing no location data may still document control logic or engineering
+schematics (a separate open gap).
+
+**A negative found only in the vendor's OVERLAY is not proven absence.** When the target embeds a
+third-party runtime, SDK, or framework, a capability absent from the vendor's own classes may be
+inherited from the base platform. Before recording proven-absence, search the BASE platform too and state
+both scopes in the citation ("absent in `<vendor pkg>` AND in `<base platform pkg>`"). A negative whose
+search covered only the overlay is INCONCLUSIVE, not proven-absence. Cheap tell: does the target's class
+`extend` a base-platform type? Then the base platform is in scope.
+
+**A sub-agent's proven-absence inherits the sub-agent's search scope** — which is narrower than the full
+corpus. Before promoting a delegated negative to a gap closure, verify that the cited scope covers the
+relevant universe (all jars, all modules, the full platform); widen the search if it does not. A
+module-scoped "not found" is evidence for that module, not for the corpus. (Primary rule lives in
+PROMPT-LOOP §DELEGATE.)
 
 **Identity negatives ≠ feature absence (external-URL sweeps).** Proven-absence closes a gap by showing a
 feature is missing from a confirmed IN-SCOPE subject. A case-study/showcase sweep over user-supplied external
@@ -563,6 +685,24 @@ versioned with any corpus. Log it in `toolbelt/INSTALLED-TOOLS.md` like any othe
 and that it is a global MCP server, not a target-local binary), so a future session has a trace instead of a
 silently present-or-absent capability. A finding that depends on an MCP capability NAMES it, same as a CLI tool.
 
+**Four tool-decision cases** (beyond fresh install from a known recipe). When a run encounters a tool need,
+one of four cases applies — record it in RESEARCH-STATE and surface it at retro time:
+
+- **INSTALL** — the tool is new to this target; provision it via `install-tool.sh` (above). This is the
+  existing case.
+- **ADAPT / FORK** — an existing kit or target tool almost fits; the run modifies a copy for the local
+  need. Record what was changed, why the existing tool could not express it, and what would be needed to
+  merge the change upstream.
+- **CREATE** — no existing tool fits; the run authors one from scratch in `tools/`. Name it, document its
+  purpose and oracle (what it can SEE rather than recompute), and add it to the retro's TOOLS table for
+  promote/absorb/keep-local/no verdict.
+- **UPDATE-IN-USE** — a tool already in `tools/` is changed mid-run (parameter added, bug fixed, threshold
+  tuned). Record the change at the iteration where it happens, not only at retro time. A kit tool with a
+  parallel target copy that drifts is a maintenance debt; note whether the kit version needs the same
+  update.
+
+The per-iteration reporting obligation (announcing the case in the iteration record) is a PROMPT-LOOP rule.
+
 ## 11. Self-verification contract (in-block gatekeeping)
 
 Gatekeeping lives INSIDE the block-writing iteration, NOT in orchestrator Bash commands (those trigger
@@ -581,6 +721,14 @@ and MUST REPORT these checks:
   it feeds the §8 stop decision. For a **design/applied block** (integration plan, PoC design, cross-focus
   synthesis) a high ratio is EXPECTED and healthy, NOT an exhaustion signal, and does NOT close the focus
   (e.g. protocols B137 at ~0.48 was a sound integration plan). Declare the type so the ratio is read right.
+  Two non-standard types worth naming: a **MIXED** block (evidence + synthesis or verdict combined in one
+  block) and an **ABSENCE-CENTRED** block (primary finding IS a proven absence, with remaining content
+  deducing consequences). For both, the ratio is advisory — a high ratio in an absence-centred block is a
+  structural artifact (absence is cheap to certify, costly to reason about), not an exhaustion signal.
+  A synthesis block that cites only prior `[Block N]` cross-references will report `n/a` (no `[CERT*]`
+  markers) from `verify-block.sh` — this is the EXPECTED signature of a correctly-written DESIGN block,
+  not a defect. Declare MIXED or ABSENCE-CENTRED so the ratio is read correctly rather than triggering a
+  false exhaustion signal.
   The tally counts a block's OWN markers, not markers it QUOTES from another block for meta-purposes: a §14
   correction block that literally quotes a prior block's `[INFER]`/`[CERT]` token in order to correct it will
   have those quoted markers counted as if they were fresh claims, INFLATING the count. Think in RAW vs
@@ -635,6 +783,84 @@ caught later by **cross-block correction (§14)**, not by any per-iteration re-c
 error-capture mechanism is §14, not an orchestrator gatekeeper — per-block Bash re-verify only adds
 permission friction and driver bloat for no demonstrated catch.
 
+**Verifying the verifier.** When a run adds or relies on a guard, check, or oracle, these rules apply
+before trusting its verdict:
+
+- **Prove a guard by breaking it — and keep the proof as a re-runnable artifact.** Revert the guarded
+  subject PER-FILE (not as a set), run the guard against the reverted copy, and confirm the guard fires.
+  Keep the demonstration as a re-runnable script in the target's `tools/` (`prove-guards.py` or
+  equivalent) — a guard proved once by hand decays the moment the code changes; a committed proof survives.
+  Anchor the guard to its PRODUCER: reverting data while the producer still runs correctly proves nothing
+  about whether the guard watches the right output.
+
+- **Per-path verification → per-degree-of-freedom.** When elements reach the output by different transform
+  routes, each route needs its own check. But a guard that constrains N−1 of a defect's N degrees of
+  freedom reports PASS on a broken build. Before trusting a guard set, state which DEGREES OF FREEDOM each
+  guard constrains (position X, position Y, scale, orientation, presence/absence) and verify that the
+  union across all guards covers every degree the element actually has. A guard covering a path but not all
+  its dimensions is a partial guard.
+
+- **Instrument before theorising.** When an interaction yields no answer, an empty result, or an unexpected
+  count, the FIRST action is to add observability — dump the raw frame or payload, capture the exception,
+  log the actual request issued — NOT to form a hypothesis about the peer or the data. A hypothesis formed
+  without the bytes is unfalsifiable and costs a full iteration to test. Budget rule: if two consecutive
+  hypotheses have failed, instrument rather than hypothesise again.
+
+- **Compete rival hypotheses instead of validating one.** When a derived transform or mapping could
+  plausibly be wrong in more than one way, score ALL plausible wrong answers against the evidence and
+  require the correct one to win by a clear margin. A lone hypothesis that merely fits is not evidence that
+  alternatives do not fit better. (Close relative of `adversarial-verify` §3, which refutes one claim with
+  N skeptics; this method ranks N mutually exclusive candidates with one measurement.)
+
+- **Record computed-and-rejected measurements at the site.** When a measurement is computed and rejected
+  (wrong method, wrong filter, wrong assumption), record the number, the method, and the reason AT THE SITE
+  where a reader would naturally reach for the same approach — a comment in the tool, a note in the probe
+  output — not only in block prose. A silently deleted dead end gets re-walked; a rejection note at the
+  tool prevents the next reader from repeating the same failed path.
+
+- **"The verifier asserts more than it checks."** A guard whose NAME promises more than its CONDITION is a
+  silent false pass. Known forms: a literal `True` as the condition; an `except` branch that counts an
+  OMITTED comparison as approved; a constant expression that never evaluates the actual data; a regex whose
+  exclusion pattern never matches the real defect; a check that reads from a proxy (a cached JSON, a prior
+  build's output) while the defect lives in the rendered or live output; a token satisfied by its own
+  adjacent comment; a comparison window that crosses the boundary into a neighbouring record. Treat the
+  check's name as a claim and audit it the same way.
+
+- **Scope check: claim wider than measurement.** Before closing a block, compare the SCOPE of each central
+  claim against the scope of what was actually measured. If the claim speaks of a population (all devices,
+  all screens, the system) and the evidence is a sample (one device, one screen, one module), either measure
+  the population or rewrite the claim to its real scope. A well-cited sample is `[CERT]` for the sample and
+  `[INFER]` for the population. Cheap tell: a claim using a quantifier ("none", "all", "the system") backed
+  by a point measurement is missing the scope check.
+
+- **Coordinate-system handoffs are verification boundaries.** Any handoff between coordinate systems
+  (CAD +Y up vs three.js +Z toward viewer; job-network numbering vs live-bus numbering) is a boundary
+  that requires an ASYMMETRIC signature to test correctly — signed area, winding order, a known-handed
+  landmark. Symmetric measures (lengths, areas, counts, angle magnitudes) are INVARIANT under reflection
+  and cannot detect a coordinate-system flip or a handoff error; a fully mirrored model passes symmetric
+  checks with no failures.
+
+- **Viability is a property of the critical step, not the first.** A path of N steps is viable when the
+  step MOST LIKELY TO FAIL passes — normally the last step (read the data, receive the response, apply the
+  effect). "The door opens" (open/connect/auth succeeds) is evidence only about that step. Until the
+  critical step passes, the honest report is "step K of N passed; step N (critical) is untested." Applies
+  to PoC builds, integrations, chains of auth, multi-stage protocols: the enthusiasm of a first partial
+  success is exactly when over-claiming happens.
+
+- **State redundant-vs-complementary before combining sources.** When combining two sources to derive a
+  coverage or completeness metric, declare up front whether they are expected to be REDUNDANT (intersection
+  is the quality signal) or COMPLEMENTARY (union coverage is). A metric chosen before understanding the
+  source types will misreport: two complementary sources that never share items show 0 % intersection,
+  which reads as a join bug, not a design property. Check whether the record keys or device sets overlap
+  before choosing the metric.
+
+- **Verify the edit landed.** When modifying a deliverable by pattern or string replacement rather than a
+  structured edit, assert the new text is present afterwards (grep the new string, or make the script exit
+  non-zero on a non-match). A silent no-op edit is indistinguishable from a runtime bug and sends
+  debugging at the wrong layer. The same discipline applies to corpus files a later iteration was supposed
+  to update: a retro or state file that did not receive its intended update is a silent no-op with a longer
+  blast radius.
+
 **Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
 BUILD/PoC phase (§12), a per-block orchestrator Bash gate IS justified and expected — there it verifies
 PHYSICAL/EXTERNAL state the in-block self-report cannot vouch for and §14 cannot protect: the device was
@@ -668,7 +894,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
-- **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: (1) read-only probe —
+- **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: **(0) passive
+  capture** — redirect the vendor's own client or driver through a **file-backed sink** and capture
+  the genuine datastream byte-for-byte; no custom protocol client is written and no byte is sent to
+  the device. General form: any emit target with an existing vendor driver can be captured through a
+  file-backed or packet-capture sink before any probe is written. Print/scan instance: create a `FILE:`
+  Windows printer port and trigger a vendor test-page print to capture the wire stream ([CERT-hw]-grade).
+  Passive USB parallel: USBPcap/Wireshark host-side capture of the USB bus →
+  **(1) read-only probe** —
   including SAFE method/gate discovery: learn a destructive endpoint's allowed verbs and its auth gate
   WITHOUT triggering the op, via `OPTIONS` or a deliberately wrong-method request that returns `405 + Allow`
   (e.g. a GET on a POST-only `backups/reset` reveals the verb and the gate without detonating the wipe) →
@@ -683,6 +916,30 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   a GET on the resource after the POST that wrote it (e.g. GET `/nmodsreflow/config` confirming a POST
   `config_update`). The essential property is that confirmation does NOT come from the write's OWN response,
   not that a second wire protocol exists; never trust the write's own `200`.
+- **Attribution oracle for every READ on a routed protocol.** On any protocol where requests traverse a
+  router, gateway, or bridge (BACnet, BACnet/IP-to-MSTP, Modbus gateways, CAN bridges, any
+  store-and-forward relay), a reply arriving is NOT evidence of who replied. Before recording data as
+  evidence about a specific remote node, prove attribution: read an identity property of the TARGET ITSELF
+  (e.g. BACnet `Device` object's `object-identifier`) and require the responder to identify as the
+  requested node. If it answers as a different node, the data is UNATTRIBUTABLE and must not be recorded
+  as a finding about that node — regardless of how plausible it looks. Cheap tell: identical values across
+  devices that should differ (different vendors, different models) is an attribution failure until proven
+  otherwise. This is the read-side counterpart to the write oracle above.
+- **Counterfactual probe for silent failures.** When a feature produces correct-looking results but may be
+  operating in a degraded mode — no error, no timeout, no missing sample visible — measure it by adding a
+  parameter whose sole purpose is to DISABLE the feature. Run the same scenario with the flag on and off;
+  the difference between the two runs IS the measurement. A failure that produces no error and no missing
+  data is only detectable by this contrast. (Three instances from one engagement: `-NoRenew` to measure COV
+  subscription renewal; `-CovGiveUpAfter 999` to isolate per-device COV savings; `batch=1` vs `batch=N`
+  to measure pipeline timing against a single-request baseline.)
+- **Internal witness for ambiguous silence.** When the failure to detect produces silence
+  indistinguishable from valid silence (a COV point that never changed vs a COV subscription that expired;
+  a device that never answers vs a bus without activity), look for a field the TARGET SYSTEM computes
+  INDEPENDENTLY of your measurement channel and that reflects the internal state you want to observe. That
+  field is the witness. If the protocol provides one, read it; if not, add observability at the target side
+  (a heartbeat, a diagnostic field, a state log). Before concluding "silence = failure", confirm the
+  independent witness agrees. (Example: BACnet `time-remaining` on a COV subscription — the device reports
+  how long it considers the subscription valid, independently of whether notifications are arriving.)
 - **Synthetic-stimulus deploy-test (validate LOGIC with no live upstream data).** When validating a deployed
   flow/program whose REAL trigger (an external device/event) is not available, do not stop at "it reads
   correct on paper" — inject a SYNTHETIC stimulus (an `inject`/equivalent node feeding a representative
@@ -709,6 +966,13 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   default. The user lifts the block "for this session only"; record the grant with an explicit expiry
   (persist it), and re-arm the block when the session ends. Never carry an irreversible authorization
   across sessions.
+- **Cached network evidence carries a state field.** ARP/CAM/neighbour tables record both the layer-2
+  mapping AND the state of that mapping: `Stale` means the mapping was known but has not been reconfirmed
+  by the stack recently; `Reachable` means the stack confirmed the layer-2 address recently (presence
+  evidence). Never report presence from a cached table without checking the state field or taking an active
+  confirmation. Related: absence of ICMP/TCP response is not absence of device — embedded controllers may
+  speak Ethernet layer 2 and legitimately never answer IP; confirm absence via network infrastructure
+  tables (`Stale` + ping failure + no ICMP-filtered `Reachable`), not via a ping sweep alone.
 - **Re-measure ground-truth, never inherit it.** When entering a dynamic/hardware phase (or any new
   live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids — LIVE
   from the real system in THIS phase. Do NOT cite them from a prior note or earlier block: an inherited
@@ -739,8 +1003,16 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   in a hardware phase, the §17 resume rule inverts: check the PHYSICAL device state (is it left safe? was
   the write applied or reverted? re-measure the checksum live) BEFORE checking git/disk. A committed block
   is recoverable; a device left in a half-written state is not. Physical safety precedes artifact state.
+- **Live-install pre-flight checklist.** Before taking any action on a production target (compressing,
+  transferring, or archiving live data): (a) measure free disk space BEFORE writing to the target; (b)
+  verify archive or extraction completeness by entry count against a direct disk count BEFORE transferring
+  — a pipeline truncated upstream (e.g. `Select-Object -First N` terminating a `tar`) will report success
+  while delivering a partial archive; (c) delete temporary artifacts from the production host after
+  verified transfer; (d) SHA256-verify the transferred copy against the source; (e) never version client
+  production data — gitignore the data copy before staging anything.
 - **Environment setup** (e.g. WSL `networkingMode=mirrored` to reach a LAN device, run `wsl --shutdown`
-  from **Windows** PowerShell — not inside WSL) is a prerequisite; verify connectivity before probing.
+  from **Windows** PowerShell — not inside WSL; for USB targets, hand off the device via `usbipd-win`
+  bind/attach/detach — see `DYNAMIC-SETUP.md §1b`) is a prerequisite; verify connectivity before probing.
 
 ### 12b. Remote HTTP / cloud API targets (the frame that does NOT transfer from bench hardware)
 
@@ -782,12 +1054,19 @@ A mode distinct from gap-discovery: take EXISTING blocks (especially an older co
 this engine) and re-verify their claims against the primary source. Output is an **audit-delta**, NOT a
 new knowledge block. Per claim assign: **ESCALATED** (was `[CERT-a]`/hedged → now source-confirmed
 `[CERT]`), **CONFIRMED** (held), **DOWNGRADED** (unverifiable → `[INFER]`), **REFUTED** (the source
-contradicts it — the most valuable). Write the report under `audits/`, READ-ONLY on the audited corpus.
-Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md). Audits ALWAYS write to `$TARGET/audits/` (never the
+contradicts it — the claim was WRONG WHEN WRITTEN), **DRIFTED** (the claim was CORRECT WHEN WRITTEN but
+the subject has since moved — do NOT delete; version-annotate it and queue a REFRESH via
+[`PROMPT-REFRESH.md`](PROMPT-REFRESH.md)). **REFUTED and DRIFTED demand opposite treatment**: REFUTED →
+correct or delete per §14; DRIFTED → version-annotate to preserve the older version-scoped truth, then
+refresh. Write the report under `audits/`, READ-ONLY on the audited corpus.
+Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md).
+A verdict of **DRIFTED** (claim was correct at write time but the subject moved — see PROMPT-AUDIT.md)
+is not a §14 correction; it feeds the REFRESH cycle: [`PROMPT-REFRESH.md`](PROMPT-REFRESH.md).
+Audits ALWAYS write to `$TARGET/audits/` (never the
 kit), carry a `<!-- review-status: pending -->` marker, and are surfaced by `sweep-audits.sh` — the
 mirror of §18's retro sweep — with certainty verdicts routing to §14 corrections and coverage gaps to
-the §8 backlog, applied by the human (propose-never-apply). STATUS (honest): the audit VOCABULARY (ESCALATED / CONFIRMED
-/ DOWNGRADED / REFUTED) is exercised inline in normal blocks and §14 corrections (e.g. niagara B34 / B117 /
+the §8 backlog, applied by the human (propose-never-apply). STATUS (honest): the audit VOCABULARY
+(ESCALATED / CONFIRMED / DOWNGRADED / REFUTED / DRIFTED) is exercised inline in normal blocks and §14 corrections (e.g. niagara B34 / B117 /
 B119). The STANDALONE mode — a dedicated audit-delta under `audits/`, driven by PROMPT-AUDIT.md — was
 EXERCISED ONCE (2026-07-12) on niagara blocks 90+81: 24 claims → 13 ESCALATED · 11 CONFIRMED · 0 DOWNGRADED ·
 0 REFUTED (`niagara-research/audits/2026-07-12-certainty-audit.md`), the fleet's first `audits/` dir. It
@@ -857,6 +1136,22 @@ B64→B55). Make this a habit, not an accident:
   by `research-sdd-status.sh` (open count in the status report) so it is not forgotten at STOP, and resolved
   later per this section — the winning side then corrects the losing block and the row flips to `resolved`.
 - Every correction is logged in the correcting block's Connections and in RESEARCH-STATE's history.
+- **A deterministic error produces evidence indistinguishable from a law of the system.** Accumulating
+  concordant observations does NOT distinguish a systematic bug from a real pattern — the concordances are
+  an artifact of the same mechanism that produced the error. The only test is a NEW PREDICTION about cases
+  the prior observations did NOT cover, and verifying whether it fails. Before documenting a regular
+  mapping, transformation, or renumbering scheme as a site finding, derive a prediction that would only
+  hold if the pattern is real and test it against fresh cases that were NOT part of the training sample.
+  If the prediction fails, the apparent regularity was the defect. (Worked example: a job→live network
+  mapping with 184 concordant observations and consistent per-family offsets — all derived from a
+  `[byte] -shl 8` overflow that produced 0 for every input > 255; refuted when 383 predicted routes
+  failed to route.)
+- **Contrast, not translator, for derived mappings.** When a tool derives a mapping between two
+  representations of the same object (job-network IDs vs live-bus IDs; config-file values vs on-disk
+  state), design it to EXPOSE divergences rather than reconcile them silently. A translator makes the
+  data consistent; a contrast makes divergences visible. A divergence that a translator would "correct"
+  may be a real site fact — a renumbered trunk, a partial migration, a retired device never updated in
+  the job file — that a translator would permanently hide.
 
 ## 15. Corpus versioning (git)
 
@@ -1074,6 +1369,19 @@ The applying kit commit MUST carry a `Retro: <target>/retros/<file>@<target-sha>
 suggests it in its commit line) — the reverse of the retro's own forward `applied … · kit <sha>` marker — so
 "why does this kit rule exist" is traceable in both directions: kit commit → source retro, and retro → kit sha.
 
+**Apply and close are the SAME work unit.** Applying a retro delta and flipping the retro's
+`review-status` marker to `applied` are one atomic action, not two tasks where the second is optional.
+The cost of separating them: commits `9db7a02`, `1771839`, and `8e22f73` applied deltas from five
+different retros without touching a single marker. The sweep over-reported those five retros as fully
+open from that point, inflating the pending count by roughly 20 % of the headline at the time of
+discovery. The mechanism is not historical — any future commit that applies a delta without closing its
+retro immediately re-opens the same gap. **Rule:** when a commit applies one or more deltas from a
+retro, flip or update the marker in that same commit (or at the latest the same session). Use
+`applied + PARTIAL` if only some deltas were accepted (see PARTIAL-application state below). A marker
+left unflipped means the retro reads as open work — the sweep will report it as pending, its delta
+count will inflate the headline, and the next maintainer will waste time reconstructing what was already
+done.
+
 **MISSING-RETRO detector.** A run that closed WITHOUT producing a fresh retro loses that run's feedback
 silently — nobody notices until much later, if ever. `research-sdd-archive.sh` checks this at close time
 (comparing the newest block's git-added date against the newest retro's) and prints an advisory WARN when
@@ -1219,6 +1527,30 @@ hard-stops, never blind.
   to the reviewers as SEED claims. A review seeded by real usage friction finds spec-gap defects that blind
   code reading misses: a consumer forced to improvise undocumented fallbacks or invent unstated precedence
   surfaces exactly those gaps, which then land verbatim as confirmed review defects.
+- **Reimplement, do not relink.** A §19 deliverable derived from decompiled proprietary code must REIMPLEMENT
+  the mechanism (ideally against the public standard the vendor implements), never load, link against, or
+  redistribute vendor binaries. State the boundary in the deliverable's own header so the distinction
+  survives without the corpus. Where the mechanism IS a public standard, cite the standard, not the
+  decompilation, as the implementation's authority.
+- **A reimplementation is not done at its first correct result.** When a §19 deliverable reimplements a
+  mechanism learned from decompilation, the vendor's BATCHING and CACHING are part of the mechanism, not an
+  optimisation to add later: round-trip count, request batching, per-peer sizing, and persisted discovery
+  caches are usually visible in the same decompiled source as the sequence. Record a MEASURED cost (time,
+  round trips) for the deliverable and compare it against what the vendor's own implementation would issue.
+  An order-of-magnitude gap means the sequence was copied and the engineering was not.
+  - **Corollary — copying a vendor parameter requires copying its operating context.** A timeout designed
+    for continuous polling on a loaded bus is wrong for a one-shot census on an idle bus, even when the
+    protocol is identical. Before adopting a vendor parameter, state the conditions it was designed for and
+    confirm they match the intended use. If they do not, measure the appropriate value for the actual context
+    rather than inheriting the vendor's. (Worked example: a 24 s timeout correct for continuous-poll mode →
+    1 device recovered in a one-shot census, 24× slower — the operating conditions differed.)
+
+**CLOSE step — write build-phase findings as blocks before the phase ends.** When a requires-execution
+phase produces findings that would have been blocks had they come from the static loop, write them as
+blocks before the phase ends, citing the tools as `sources/probes/`. A deliverable is not a substitute
+for the evidence trail. A finding that exists only in a tool's docstring or in engram is undocumented —
+it is not cited, not verified, not connected to other blocks, and invisible to any reader of the corpus.
+Without this step, a productive build phase silently drains the corpus of its own discoveries.
 
 ## 20. Document mode (CAPTURE what you already know or just did)
 

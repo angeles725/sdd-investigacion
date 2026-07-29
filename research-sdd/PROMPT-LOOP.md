@@ -41,6 +41,9 @@ each delegation carries:
       destructive step, on corpus exhaustion). It is autonomous like self-paced, but each block still
       runs in a fresh delegated sub-agent (context stays lean) instead of inline. State the hard-stops
       before starting an auto run.
+    At iteration 1 of any orchestrated run, ANNOUNCE the sub-mode: "I am in supervised mode — prompt
+    me to continue after each block" or "I am in auto mode — I will chain until STOP." Without the
+    declaration the human cannot distinguish a supervised pause from a loop stall.
 
 Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
 `model` by cognitive demand (MODEL TIER rule) and never re-verify a block with orchestrator Bash (§11).
@@ -123,14 +126,27 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      real source paths in $TARGET/.claude/hooks/research-protocol.sh (for a NESTED corpus, prefix its
      block/INDEX/CATALOG paths with corpus/) — and register it in $TARGET/.claude/settings.json
      (matcher startup|resume|clear). (TARGETS.md registration is step b; gap-seeding is step e.)
+     Also create `$TARGET/tools/` and `$TARGET/tools/README.md` (columns: name · path · WHY —
+     used/adapted/downloaded/created/updated). Record every tool acquired during the run AT THE MOMENT
+     of acquisition, not reconstructed at retro time — the WHY is cheapest while the decision is live.
   e. POPULATE the scaffolded $CORPUS/RESEARCH-STATE.md (step c laid the empty template) with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
+     FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
+     Status |`); Priority must be `high`, `medium`, or `low` (not translated); Status must start with
+     `pending` for a gap to be treated as investigable. Non-conforming rows are SILENTLY IGNORED —
+     `verify-state.sh` will surface the mismatch, but only if run.
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      DELEGATE an audit sweep (Explore/general-purpose sub-agent) that returns a COVERAGE MATRIX —
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
      prioritized backlog from that matrix. (Proven on the protocols focus: the audit matrix seeded 6
      well-shaped gaps before a single block was written.) See METHODOLOGY §13.
+     GAP PREMISES ARE HYPOTHESES, not assertions — the initial research plan is a best guess from
+     outside the code. When investigation refutes a premise (e.g. a module assumed to belong to
+     subsystem Y has zero imports from it), RENAME the gap in RESEARCH-STATE to reflect the real
+     finding and issue a §14 correction if a prior block already asserted the wrong premise. A
+     refuted premise is itself a finding — name it honestly (e.g. "exportTags is NOT a tag-subsystem
+     component" is more useful than the original "exportTags runtime").
   e2. PRE-FLIGHT SOURCE EXISTENCE (anti-hallucination gate — before launching ANY iteration): for each
      planned gap, CONFIRM readable source material actually exists (the class/jar/binary/doc is present
      and reachable by the wrapper). A gap with NO reachable source must be marked blocked-on-<reason>
@@ -199,6 +215,17 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          loop must stay context-lean so it survives dozens of iterations before compaction — every raw
          decompiler dump you read inline shortens the loop's life. Keep inline only narrow, single-file reads
          you already know you need. (Small/narrow gaps: read inline, no sub-agent — delegation has its own cost.)
+       - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
+         delegated finding is a hypothesis with citation, not a fact. Before writing a block or
+         correcting a document on that basis: (a) resolve at least the `file:line` citations that
+         support a key claim — two sweeps in practice returned paths that did not exist on disk;
+         (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
+         grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
+         report with very few tool calls inferred instead of searched.
+         SCOPE of a sub-agent's proven-absence is narrower than the full corpus. Before promoting
+         a sub-agent negative to a gap closure, verify the cited scope covers the relevant universe
+         (e.g. all jars / all modules, not just the swept subtree). A module-scoped "not found" is
+         evidence for the module only — widen the search before accepting it.
        - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
          per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
          ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
@@ -218,6 +245,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
          (e.g. no Opus access), substitute one tier down and note it in the report.
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
+       - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
+         operational recommendation (an alert, an escalation, a client report), cast it as a
+         falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
+         Cost: typically one query. Value: prevented a wrong escalation costs far more. A block that
+         refutes its own initial hypothesis is a valid, high-value block type.
        - MODEL TIER ALSO governs NESTED sub-sweeps. A general-purpose sweep-agent (one whose toolset INCLUDES the
          Agent tool — NOT Explore/Plan, which lack it) MAY itself spawn a SUB-SWEEP, and each Agent call carries
          its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. Nesting caveat: prefer
@@ -231,6 +263,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date · [CERT-a] forum (URL) ·
        [INFER] deduction.  (canonical list: METHODOLOGY §3)
      Include the Connections section linking related [Block K].
+     For doc-synthesis blocks (where `[CERT-doc]` is the primary source), OPTIONALLY add a closing
+     section — e.g. "§N.x — What this doc does not resolve" — listing findings the official document
+     is silent about, cross-referencing corpus blocks whose evidence the guide omits. Vendor guides
+     document the happy path; decompilation reveals failure modes the guide never mentions.
   5. SELF-VERIFY + REPORT (in-block gatekeeping — see METHODOLOGY §11; the orchestrator does NOT run
      Bash gatekeepers, it TRUSTS this report. Per-block orchestrator Bash re-checks cost permission prompts
      and — proven on the protocols run — caught NOTHING; the real error capture mechanism is cross-block
@@ -244,6 +280,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
          confirm in the primary source first).
+       - Framework-semantic check for security/permission claims from delegated sweeps: token PRESENCE
+         passes the token-check but does not confirm semantic CORRECTNESS. A flag `permissions=
+         "unrestricted"` IS present in source and passes the token-check, yet may still filter through
+         `hasOperatorRead()` in calling code. Sub-agents read local syntax; they lack the driver's
+         accumulated framework model. For any claim about who can invoke what, what is protected or
+         exposed, cross-verify the INTERPRETATION against corpus-documented framework semantics
+         BEFORE incorporating it. Treat such claims as hypotheses pending semantic validation.
        - Marker tally: counts of [CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER] + the [INFER]/[CERT]
          ratio, AND the block TYPE. For an EVIDENCE block (decompilation/reading), a high ratio (>~0.5)
          signals this gap's investigable evidence is nearly exhausted — say so. For a DESIGN/APPLIED block
@@ -266,6 +309,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered. A gap may
          close by NEW investigation, by PROVEN ABSENCE, or by REMITTANCE (already answered by an existing
          cited block — cite [Block N] §N.x + "no new substance"; see METHODOLOGY §8).
+         PROVEN ABSENCE requires the same sampling discipline as a positive finding: state the sample
+         size and the test applied. A single sample that failed the question you asked is evidence for
+         that one case, not for the universe. ALSO record what question the source DOES answer — a
+         source that fails the gap question may answer a DIFFERENT open question (and that finding
+         belongs in a block or in the NEW-gaps register, not discarded).
        - BACK-FILL SOURCES.md's "Citing blocks" cell — when this block cites a source registered in SOURCES.md
          (this iteration, or an earlier one whose trailing cell is still blank), write THIS block's ID into that
          row's last column before closing the iteration. `fetch-doc.sh`'s `reg()` leaves the cell blank by design
@@ -306,6 +354,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      register the source) and keep looping. Once the gate passes it does the SAFE deterministic bookkeeping
      (regenerate CATALOG, touch INDEX) and prints a close-checklist of the JUDGMENT follow-ups it refuses to
      guess (synthesis block, §18 retro, iteration-history collapse, TARGETS.md mirror row, corpus commit).
+     NON-CORPUS AUDIT: also verify the target's operational documents (README, PLAN, RUNBOOK, ROLLBACK
+     if they exist) reflect the current block count and active focuses. `verify-registry.sh` mechanizes
+     the TARGETS.md row; the others are manual. A corpus that grew 17 blocks while the PLAN describes
+     the prior run is documentation debt invisible to corpus readers.
      Preview with `--dry-run`. It is CORPUS-scoped: it never edits the kit and never touches git — you do
      those from the checklist below.
      PUSH CADENCE (if the target has a remote — METHODOLOGY §15): push at STOP, at focus-close, and at
@@ -336,7 +388,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (BOOTSTRAP it if new). The loop does not die; it advances to the next axis.
        - CORPUS-level exhaustion (every focus done, nothing read-only-investigable anywhere): emit a final
          NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
-         (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — and, if that next phase is
+         (requires-execution build/PoC §19 — §19 CLOSE RULE: when a build/PoC phase produces
+         block-quality findings, write them as cited blocks using `sources/probes/` for tool evidence
+         BEFORE the phase ends; a deliverable is not a substitute for the evidence trail, and findings
+         that exist only in code/engram are invisible to the corpus —, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
        - OUT-OF-TREE APPLIED DELIVERABLE (a requires-execution close whose deliverable lands OUTSIDE $TARGET —
@@ -403,6 +458,27 @@ HARD RULES:
     (the class/jar/binary/doc exists and the wrapper can read it). Confirm it BEFORE launching an
     iteration agent at that gap; an unconfirmed gap is blocked-on-source-missing, not investigable.
     Never send an agent to a gap with no reachable source — it will pad [INFER] or invent (see BOOTSTRAP e2).
+    This check extends to PROPOSALS: a next-step plan naming specific artifacts must confirm those
+    artifacts exist before it is offered, at least as cheaply as the corpus allows (grep existing
+    blocks). A proposal acted on socially before it is confirmed technically is the costliest kind
+    of wrong claim.
+  - TOOL-BEFORE-AGENT (binary/native artifacts) — before delegating a sweep over a binary
+    (ELF/PE/.sys/.dll/firmware), the DRIVER runs `toolbelt/detect-tools.sh` first (learn which
+    decompiler is available) and `toolbelt/decompile-native.sh ghidra <bin> <out>` (or `r2`/`quick`
+    as fallback), then delegates with the analysis already in hand — never a generic agent "go
+    decompile it", which may fall back to `strings` and guess. The decompiled binary is to native RE
+    what a confirmed source is to a gap: without it the agent invents. Exception: `ghidra-mcp` for
+    interactive exploration, not batch.
+  - RE-MEASURE A DRAMATIC NEGATIVE. When an enumeration or join yields a striking negative result
+    (zero matches, near-total absence, a system that appears dead or empty), do NOT report it from
+    a single measurement. Re-derive it by an independent method — a different key, a different
+    grouping, a spot-check of raw records — before it enters a block. A counting artifact and a
+    genuine finding are indistinguishable in the output; only a second measurement separates them.
+    `verify-block.sh` cannot detect a wrong join key — this is a distinct failure class from
+    marker/citation errors.
+  - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
+    attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
+    clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)
   - SECRETS DISCIPLINE (live-install targets) — when the target is a REAL running installation/station,
     not a distributable artifact (TARGETS.md marks it `live-install`), NEVER extract or write credentials,
     keys, keyring/keystore material, tokens, or secrets into a block, sources/, or engram. Cite the
@@ -477,6 +553,9 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
     - the self-verify tally (tokens checked, marker counts, [INFER]/[CERT] ratio),
     - the MODEL TIER you used for any delegated sweep (haiku/sonnet/opus) — declaring it is mandatory;
       an unstated tier means the rule was skipped and the sweep silently inherited the driver's model,
+    - any TOOL DECISION made this iteration (installed, adapted, created, or outgrown) — one line:
+      `T<n>: <name> · <path> · WHY (used/adapted/downloaded/created/updated)`. This is the moment the
+      WHY is cheapest; a retro reconstructing tool decisions from memory is a post-hoc rationalization,
     - artifacts touched (block, CATALOG, INDEX, RESEARCH-STATE, sources/),
     - the next gap (or the stop declaration).
   Do NOT paste the block body, long decompiler dumps, or full file contents into the report.
