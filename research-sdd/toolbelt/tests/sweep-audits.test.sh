@@ -20,6 +20,8 @@ SUT="$HERE/../sweep-audits.sh"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT sources
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
+TP_LIB="$HERE/../lib/target-paths.sh"        # shared path derivation the SUT now sources
+[ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -33,6 +35,7 @@ mkkit() {
   mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/sweep-audits.sh"
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"
+  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"  # SUT sources this at $(dirname $0)/lib/
   printf '%s' "$kit"
 }
 
@@ -218,6 +221,58 @@ if [ "$RC" = 0 ] \
   ok "10 INDEX file in audits/ → excluded; real audit still listed" "(exit $RC)"
 else
   no "10 INDEX file in audits/ → excluded; real audit still listed" "exit=$RC out=[$OUT]"
+fi
+
+# 11 — FAIL-CLOSED on a broken target-paths helper. The SUT sources lib/target-paths.sh and
+#      the post-source declare-F check must abort when the function is not defined.
+#      RED before the retrofit: SUT ignores lib/target-paths.sh entirely and runs normally.
+kit="$(mkkit c11-broken-tp)"; tgt="$kit/targetA"
+mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 2
+write_targets "$kit" "$tgt"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no target_paths_all\n' \
+  > "$kit/toolbelt/lib/target-paths.sh"
+run "$kit"
+if [ "$RC" != 0 ] \
+   && grep -q 'failed to define target_paths_all' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "11 broken target-paths helper → fail-closed abort, no summary" "(exit $RC)"
+else
+  no "11 broken target-paths helper → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 12 — \$RESEARCH_HOME path form resolves. A TARGETS.md row written as \`\$RESEARCH_HOME/sub\`
+#      was invisible to the old backtick+slash grep; after the retrofit it expands and resolves.
+#      RED before retrofit: old grep sees nothing, summary is 0/0.
+kit="$(mkkit c12-rh-path)"
+_rh_base_a="$ROOT/rh_base_audit_$$"
+mkdir -p "$_rh_base_a"
+tgt="$_rh_base_a/rh_audit_target"
+mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 2
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `$RESEARCH_HOME/rh_audit_target` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_a" "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
+unset _rh_base_a
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
+  ok "12 \$RESEARCH_HOME path → expanded, audit surfaced" "(exit $RC)"
+else
+  no "12 \$RESEARCH_HOME path → expanded, audit surfaced" "exit=$RC out=[$OUT]"
+fi
+
+# 13 — ANTI-SILENT-ZERO: TARGETS.md with no backtick-wrapped paths → exit 1, ERROR message.
+#      RED before retrofit: inline grep returns empty, sweep exits 0 with empty counts.
+kit="$(mkkit c13-zeropaths)"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
+  > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 1 ] \
+   && grep -qi 'ERROR.*no usable target paths' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "13 no usable paths → exit 1, ERROR message, no summary" "(exit $RC)"
+else
+  no "13 no usable paths → exit 1, ERROR message, no summary" "exit=$RC out=[$OUT]"
 fi
 
 echo "== $pass passed · $fail failed =="
