@@ -178,23 +178,32 @@ Conversation with the user may be in any language. That language never leaks int
 
 ---
 
-## 11. Path Portability — IN FLIGHT, Not Resolved
+## 11. Path Portability — RESOLVED
 
-`TARGETS.md` is committed and shared, but its target paths are per-machine absolute paths
-(e.g. `` `/home/cristian/niagara-research` ``). They resolve on exactly one developer's laptop.
+All 18 `TARGETS.md` rows carry the portable form `` `$RESEARCH_HOME/<rest>` ``. No row hardcodes a
+per-machine absolute path any more.
 
-A `$RESEARCH_HOME` convention is being introduced to fix this. **That work is not finished.**
-The shared path-derivation pattern `` grep -oE '`/[^`]+`' `` (backtick + slash, anchoring on
-absolute paths) still appears unchanged in three scripts:
+Derivation is centralized in `research-sdd/toolbelt/lib/target-paths.sh`, sourced by
+`verify-registry.sh`, `sweep-retros.sh` and `sweep-audits.sh`. None of the three carries its own copy
+of the old inline pattern. The library handles `` `/abs/path` ``, `` `$RESEARCH_HOME/rest` `` and
+`` `${RESEARCH_HOME}/rest` ``, so a row written either way still resolves — the placeholder is the
+convention, not a hard requirement.
 
-| Script | Line |
-|---|---|
-| `research-sdd/toolbelt/verify-registry.sh` | 48 |
-| `research-sdd/toolbelt/sweep-retros.sh` | 39 |
-| `research-sdd/toolbelt/sweep-audits.sh` | 37 |
+**How the placeholder resolves:** `${RESEARCH_HOME:-$HOME}`. An unset `$RESEARCH_HOME` falls back to
+`$HOME`, which is what makes the registry portable rather than merely indirect: on another machine the
+same row resolves under that user's home with nothing to configure. Set `$RESEARCH_HOME` explicitly
+only when the corpora do NOT live under `$HOME`.
 
-**Warning:** Converting `TARGETS.md` rows to a placeholder such as
-`` `$RESEARCH_HOME/niagara-research` `` before those three scripts understand the placeholder
-will silently blind every fleet instrument — the regex will not match `$`-prefixed strings,
-every row will be skipped, and the instruments will report a clean sweep over nothing.
-Do not convert rows until the derivation is updated to handle the placeholder first.
+Two properties worth preserving if this is ever touched again:
+
+- **Derivation reads table rows only** (lines starting with optional whitespace then `|`). `TARGETS.md`
+  detail sections legitimately cite file paths in prose; a whole-file scan ingested those sentences as
+  targets. Five prose citations were being counted, including the version fragments `` `/v2` `` and
+  `` `/vN` ``, and one ending in `...` made every sweep declare itself PARTIAL over a target that did
+  not exist.
+- **A truncated path INSIDE a table row still passes through and still warns.** That is deliberate
+  (§7): a genuinely broken row must announce itself rather than vanish. It has its own test so a future
+  narrowing cannot silently remove it.
+
+Non-path tokens still pass through — `` `/mrdoob/three.js` `` is a GitHub slug, not a directory — and
+callers filter them with `[ -d ] || continue`. That is expected, not a defect.
