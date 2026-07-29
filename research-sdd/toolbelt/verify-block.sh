@@ -100,7 +100,17 @@ art_tail=':[0-9]+((-|‑|–)[0-9]+)?'                                       # :
 art_spans=$(grep -oE '\([^)]*\)|`[^`]*`' "$block")                       # parenthetical + backtick spans, one per line
 art_cites=$(printf '%s\n' "$art_spans" | grep -oiE "\\b${art_name}${art_tail}" | sort -u)
 bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+`' "$block" | tr -d '`' | sort -u)
-if [ -z "$art_cites" ] && [ -z "$bt_cites" ]; then
+# (c) Short-form :NNN citations — a bare colon + line number where the file is named in
+# surrounding prose or a table header. Two corpus-confirmed patterns:
+#   table rows  (pi5-decoding-block1: | :29 |)         — :NNN preceded by [|,[:space:]]
+#   code-block comments (pi5-decoding-block2: // :157) — :NNN after a // or # marker
+# Not file-verifiable (no filename present) but VISIBLE so the P6 WARN does not fire on
+# a well-cited block. Scope restricted to these two contexts: IP ports like 127.0.0.1:46272
+# have a digit before the colon and fall outside [[:space:]|,] → no match.
+_tbl_shorts=$(grep -E '^\s*\|' "$block" | grep -oE '[[:space:]|,]:[0-9]+' | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-TABLE
+_cmt_shorts=$(grep -oE '(//|#)[[:space:]]*:[0-9]+' "$block" | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-COMMENT
+short_cites=$(printf '%s\n%s\n' "${_tbl_shorts:-}" "${_cmt_shorts:-}" | sort -u | grep -v '^$')
+if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ]; then
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
   # exits 0 silently having checked nothing. Warn so the author notices the gap.
   if [ "$cert_total" -gt 0 ]; then  # P6-CERT-ZERO-CITE-WARN
@@ -156,6 +166,13 @@ if [ -n "$bt_cites" ]; then
       echo "   extern  $c  (not in target: beautified-temp / decompiled / snapshot — not script-verifiable)"
     fi
   done <<< "$bt_cites"
+fi
+# (c) Short-form cites — advisory only; not script-verifiable (no filename to resolve).
+if [ -n "$short_cites" ]; then
+  while IFS= read -r c; do
+    [ -z "$c" ] && continue
+    echo "   short   $c  (short form — file implied by context; not script-verifiable)"
+  done <<< "$short_cites"
 fi
 
 # 4. OCR-provenance flag — a [CERT-doc] citation sourced from an OCR'd (scanned) PDF is LOSSY

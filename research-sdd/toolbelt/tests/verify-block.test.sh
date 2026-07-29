@@ -346,6 +346,63 @@ out="$(run "$d")"
 if grep -qiE 'WARN.*\[CERT\]|\[CERT\].*WARN|WARN.*cert.*citation|WARN.*cert.*zero' <<<"$out"; then ok "P6: [CERT] with zero citations → WARN emitted"
 else no "P6: [CERT] with zero citations — no WARN :: $(grep -iE 'WARN|cert|citation' <<<"$out" | head -1)"; fi
 
+# ---- P6 deferred: short-form :NNN in table cells and code-block comments -------------------
+# The citation parser was not recognising two corpus-confirmed forms:
+#   (a) | :29 | in table rows  (pi5-decoding-block1: 38 columns of :NNN in a | row)
+#   (b) // :157 in code-block comments  (pi5-decoding-block2: constants block)
+# Either form suppresses the P6 WARN correctly; an IP port (127.0.0.1:46272) in a table
+# cell must NOT fire (the digit before the colon is outside [[:space:]|,]).
+
+# 33 — P6-table: short-form :NNN inside a table cell → reported as "short"; no WARN fires.
+d="$TMP/p6-short-table.md"
+{ echo "# Block 33 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## Field map [CERT]"
+  echo "Every row cites its line in the source file."
+  echo "| Field | Line |"
+  echo "|---|---|"
+  echo "| FIELD_A | :10 |"
+  echo "| FIELD_B | :15 |"
+} > "$d"
+out="$(run "$d")"
+if grep -qiE 'short.*:10|:10.*short' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert|no file:line' <<<"$out"; then
+  ok "P6-table: short-form :NNN in table cell → 'short' reported; no false WARN"
+else no "P6-table: table-cell short form missed :: $(grep -iE 'short|WARN|citation' <<<"$out" | head -2)"; fi
+
+# 34 — P6-comment: short-form :NNN in a code-block comment (// :NNN) → "short"; no WARN.
+d="$TMP/p6-short-comment.md"
+{ echo "# Block 34 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## Constants [CERT]"
+  printf '```csharp\n'
+  echo "CONST_A = 15;  // :157"
+  echo "CONST_B = 0;   // :159"
+  printf '```\n'
+} > "$d"
+out="$(run "$d")"
+if grep -qiE 'short.*:157|:157.*short' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert|no file:line' <<<"$out"; then
+  ok "P6-comment: short-form :NNN in code-block comment → 'short' reported; no false WARN"
+else no "P6-comment: code-comment short form missed :: $(grep -iE 'short|WARN|citation' <<<"$out" | head -2)"; fi
+
+# 35 — REGRESSION: IP:port in a table cell (127.0.0.1:46272) must NOT fire as a short cite.
+#      The digit before the colon is outside [[:space:]|,] → no match. WARN must still fire
+#      because cert_total > 0 and no real citation was found.
+d="$TMP/p6-no-ipport.md"
+{ echo "# Block 35 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## Network scan [CERT]"
+  echo "| Host | Purpose |"
+  echo "|---|---|"
+  echo "| 127.0.0.1:46272 | gateway |"
+} > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" && ! grep -qiE 'short.*:46272|:46272.*short' <<<"$out"; then
+  ok "P6-regression: IP:port in table cell NOT a short cite; WARN still fires (no false positive)"
+else no "P6-regression: IP:port wrongly fired or WARN suppressed :: $(grep -iE 'short|WARN|:46272' <<<"$out" | head -2)"; fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -399,6 +456,44 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6: P6-CERT-ZERO-CITE-WARN sentinel not found in SUT (P6 not implemented or marker missing)"
+  fi
+
+  # teeth-p6-short-tbl: neuter P6-SHORT-FORM-CITE-TABLE; table-cell :NNN must revert to WARN.
+  echo "-- teeth-p6-short-tbl: neuter P6-SHORT-FORM-CITE-TABLE; table :NNN must revert to WARN --"
+  mutant_sft="$TMP/verify-block.P6SFTTBL.sh"
+  if grep -q '# P6-SHORT-FORM-CITE-TABLE' "$SUT"; then
+    sed '/# P6-SHORT-FORM-CITE-TABLE/ s/.*/_tbl_shorts=""  # P6-SHORT-FORM-CITE-TABLE [NEUTERED]/' "$SUT" > "$mutant_sft"
+    d_sft="$TMP/p6-sft-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "## Field map [CERT]"
+      echo "| Field | Line |"; echo "|---|---|"; echo "| FIELD_A | :10 |"; } > "$d_sft"
+    mout_sft="$(bash "$mutant_sft" "$d_sft" 2>/dev/null)"
+    if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_sft"; then
+      ok "teeth-p6-short-tbl: neutered table extractor → table :NNN reverts to WARN (test 33 has teeth)"
+    else
+      no "teeth-p6-short-tbl: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|short' <<<"$mout_sft" | head -1)"
+    fi
+  else
+    no "teeth-p6-short-tbl: P6-SHORT-FORM-CITE-TABLE sentinel not found in SUT"
+  fi
+
+  # teeth-p6-short-cmt: neuter P6-SHORT-FORM-CITE-COMMENT; comment :NNN must revert to WARN.
+  echo "-- teeth-p6-short-cmt: neuter P6-SHORT-FORM-CITE-COMMENT; comment :NNN must revert to WARN --"
+  mutant_sfc="$TMP/verify-block.P6SFCMT.sh"
+  if grep -q '# P6-SHORT-FORM-CITE-COMMENT' "$SUT"; then
+    sed '/# P6-SHORT-FORM-CITE-COMMENT/ s/.*/_cmt_shorts=""  # P6-SHORT-FORM-CITE-COMMENT [NEUTERED]/' "$SUT" > "$mutant_sfc"
+    d_sfc="$TMP/p6-sfc-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "## Constants [CERT]"
+      printf '```csharp\n'; echo "CONST_A = 15;  // :157"; printf '```\n'; } > "$d_sfc"
+    mout_sfc="$(bash "$mutant_sfc" "$d_sfc" 2>/dev/null)"
+    if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_sfc"; then
+      ok "teeth-p6-short-cmt: neutered comment extractor → comment :NNN reverts to WARN (test 34 has teeth)"
+    else
+      no "teeth-p6-short-cmt: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|short' <<<"$mout_sfc" | head -1)"
+    fi
+  else
+    no "teeth-p6-short-cmt: P6-SHORT-FORM-CITE-COMMENT sentinel not found in SUT"
   fi
 fi
 

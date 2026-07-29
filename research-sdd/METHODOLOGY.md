@@ -1561,6 +1561,22 @@ hard-stops, never blind.
     confirm they match the intended use. If they do not, measure the appropriate value for the actual context
     rather than inheriting the vendor's. (Worked example: a 24 s timeout correct for continuous-poll mode →
     1 device recovered in a one-shot census, 24× slower — the operating conditions differed.)
+- **External oracle for visual/geometric deliverables (the §12 principle at build phase).** §12 requires
+  validating every write through an INDEPENDENT channel, not the one you wrote on — a write confirmed only
+  by its own channel is `[INFER]`, never `[CERT-hw]`. The same discipline applies when the deliverable has
+  a visual or geometric form. A validation script authored from the same corpus and assumptions as the build
+  re-checks the builder's model of the deliverable, not the result itself — a render always *looks* like
+  something, so a same-corpus check reads as evidence even when no independent channel confirmed it. To
+  close: verify through an external oracle not derived from the build pipeline. **What counts:** rendering
+  the output through an INDEPENDENT viewer (not the code that produced it) and comparing against the source
+  artifact; a measurement taken outside the build pipeline (e.g. an independent CAD/DXF renderer checking
+  geometry against the source drawing); or a documented human visual comparison against the source artifact,
+  preserved under `sources/probes/` and cited `[CERT-hw]`. **What does NOT count:** a validation script
+  authored from the same corpus or by the same agent that built the deliverable; a check that reads from the
+  build's own output data rather than the rendered or displayed result. Marker consequence: confirmed through
+  an external oracle → `[CERT-hw]`; confirmed only by a same-corpus script → `[INFER]`. (Evidence:
+  nave-panccadia B7–B9 — three consecutive defects past a 16/16–25/25 green gate, each caught only by the
+  operator looking at the render, not by any gate check.)
 
 **CLOSE step — write build-phase findings as blocks before the phase ends.** When a requires-execution
 phase produces findings that would have been blocks had they come from the static loop, write them as
