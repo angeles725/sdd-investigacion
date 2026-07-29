@@ -81,6 +81,7 @@ Sensitivity:
 | 18 | nave-panccadia | `/home/cristian/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `/home/cristian/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `/home/cristian/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
+| 22 | sdd-investigacion | `/home/cristian/investigacion/sdd-investigacion` | **intermediate** (27 blocks / 1 run / 0 retros / git yes / remote yes / hook yes) `[CERT]` · **SELF-REFERENTIAL** · corpus one MAJOR version stale → detail §22 | gentle-ai (Go ecosystem configurator) + its SDD layer in Claude Code / OpenCode: skill/prompt/contract markdown + `state.json` + CLI surface `[CERT]` | local `tools/gen-catalog.py` (corpus-specialized fork) + direct reading + `gh api` upstream | English `[CERT]` |
 
 ---
 
@@ -400,6 +401,53 @@ files are renamed to the canonical pattern (e.g. `m2070-block1.md`).
 
 **Startup:** static loop closed (G13 — networked M2070W/FW AirPrint/eSCL end-to-end — remains
 the only genuinely hardware-blocked gap). Resolve the naming issue before the next archive run.
+
+---
+
+### 22 — sdd-investigacion `[CERT]`
+
+**SELF-REFERENTIAL target: this row points at the kit repo itself.** The kit supervises a fleet of
+research corpora; it also *is* one. `research-sdd/README.md:197` says so outright — "the SDD
+mental-model corpus: the kit applied to itself, as a worked example". It went unregistered until
+2026-07-28, so for its whole life the fleet supervisor was the one corpus its own instruments never
+looked at: `verify-registry.sh`, `sweep-retros.sh`, `sweep-audits.sh` and `sweep-tools.sh` all derive
+their target list from this table, and this table did not mention it.
+
+**Corpus.** 27 blocks `sdd-mental-model-bloque1..27.md` at the repo ROOT (they match the canonical
+`<prefix>-(block|bloque)<N>.md` discriminator), plus `INDEX.md` and `CATALOG.md`. Subject: gentle-ai
+(Go ecosystem configurator) and its SDD layer as materialized in Claude Code / OpenCode. Written
+2026-06-28 by a read-only sweep with 7 parallel sub-agents, styled after the `niagara-research`
+corpus and using the same certainty markers.
+
+**No `RESEARCH-STATE.md` — BOOTSTRAP is owed.** The corpus has an index and a catalog but no gap
+backlog and no iteration history; `git log` shows only two commits (add, then translate to English).
+It was written in one pass and never ran the loop. `verify-registry.sh` therefore reports it as
+`corpus layout not resolvable … cannot recount blocks` — correctly refusing to invent a count rather
+than silently reporting zero.
+
+**Staleness — one full MAJOR version.** The corpus documents gentle-ai **v1.43.2**; the installed
+binary is **v2.2.0** `[CERT]`. A block-by-block audit on 2026-07-28 returned **8 STALE** (11, 12, 15,
+18, 19, 22, 26, 27) · **11 INCOMPLETE** (1, 2, 3, 10, 14, 16, 17, 20, 21, 24, 25) · **8 CURRENT**
+(4, 5, 6, 7, 8, 9, 13, 23). The cause is **Receipt-Driven Development**, introduced in `v1.47.0` on
+2026-07-10; the module moved to `/v2` because Go requires the `/vN` suffix at major ≥ 2
+(`Cellar/gentle-ai/2.2.0/README.md:29,159`). Uncovered subsystems: the whole `review` command family
+(3–5 blocks), `sdd-attempt`, `sdd-verify-validate`, the 4R lenses as native sub-agents,
+`skill-registry list`.
+
+> **Do not deep-document the `review` surface yet.** Upstream declares it unstable: *"RDD is unstable.
+> Every release from v1.47.0 onward is part of the RDD development line and may change"*
+> (`README.md:21`), and names `v1.46.0` as the last stable release without RDD. Document the
+> architecture and the contract — which stabilise first — and mark the CLI surface as moving.
+
+**Provenance caveat.** Each block's `SOURCES` header cites per-machine absolute paths
+(`/home/cristian/.claude/CLAUDE.md`, `/home/cristian/.config/opencode/skills/...`). Those citations
+resolve on one laptop only, and v2.2.0 has since rewritten several of the files they point at — so
+the provenance is both unportable and partly dangling. Re-cite when refreshing a block.
+
+**Tooling.** `tools/gen-catalog.py` at the repo root is a corpus-specialized fork of the kit
+generator: it matches `^sdd-mental-model-bloque(\d+)\.md$` rather than the generic prefix-aware
+discriminator (`toolbelt/tests/gen-catalog.test.sh:18,130`). `research-sdd-archive.sh` already
+prefers a target's local generator over the kit's for exactly this reason.
 
 ---
 
