@@ -102,6 +102,14 @@ derive_pending_rows() {
 # ## Non-investigable gaps (B3a: both headings are semantically identical; needs:-anchored so a bare
 # "- none" placeholder never inflates the count).
 derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# P23: count blocked/absent gap entries that carry `needs:` but NOT `tried:` (a tried: clause is
+# mandatory before a gap can be closed as absent-input; its absence means the operator parked the
+# gap without documenting what they attempted, collapsing absent-input and untried into one signal).
+derive_missing_tried() {
+  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } \
+    | grep -iE '^[[:space:]]*-[[:space:]].*needs:' \
+    | grep -civE 'tried:'
+}
 # B3b: derived deferred_open = count of OPEN backlog rows whose priority column is exactly "deferred"
 # (explicitly-parked gaps — operator decision, not blocked by hardware/keys). Closed rows (~~, ✅) excluded.
 # Mirrors count_deferred() in research-sdd-status.sh (same lockstep as the other derivations above).
@@ -272,6 +280,14 @@ for state in "${states[@]}"; do
     echo "   WARN   envelope deferred_open missing while $d_def deferred backlog gap(s) found — seed it: --sync-state"
   fi
 
+  # P23: blocked/absent gaps missing a tried: clause. A tried: entry documents what alternatives
+  # were explored and what measurement confirmed the gap was actually blocked (not just untried).
+  # WARN-only — never fails the run; this is advisory hygiene, not a structural defect.
+  d_missing_tried="$(derive_missing_tried "$state")"
+  if [ "${d_missing_tried:-0}" -gt 0 ]; then  # P23-MISSING-TRIED-WARN
+    echo "   WARN   $d_missing_tried blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input."
+  fi
+
   # ENVELOPE CHECK G — undocumented_findings: value validation then threshold gates.
   # e_uf and _uf_present are computed before the summary line above (SUGGESTION 8 visibility).
   # THREE cases, not two: absent (silent — legacy seeding contract), valid integer (threshold checks),
@@ -293,6 +309,16 @@ for state in "${states[@]}"; do
     frc=1; rc=1
   elif is_int "$e_uf" && [ "$e_uf" -gt 3 ]; then
     echo "   WARN   envelope undocumented_findings=$e_uf > 3 — findings exist only in memory (no block); write the block(s) and decrement."
+  fi
+
+  # P7: INDEX.md still contains template placeholders (<UPPER-CASE> tokens) while blocks exist on
+  # disk. A corpus whose INDEX.md was never updated is a half-open corpus; placeholders mislead
+  # readers about the subject and date. WARN-only — never fails the run (not a structural defect).
+  _idx="$(dirname "$state")/INDEX.md"
+  if [ "${ondisk:-0}" -gt 0 ] && [ -f "$_idx" ]; then
+    if grep -qE '<[A-Z]' "$_idx" 2>/dev/null; then  # P7-INDEX-PLACEHOLDER-WARN
+      echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk block file(s) on disk — update the corpus index."
+    fi
   fi
 
   # CHECK 1 (FAIL) — summary claims every gap closed, but the backlog still lists pending gaps.

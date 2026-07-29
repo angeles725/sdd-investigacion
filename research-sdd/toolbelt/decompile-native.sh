@@ -46,10 +46,18 @@ case "$MODE" in
     [ -x "$HEADLESS" ] || { echo "analyzeHeadless not found at $HEADLESS" >&2; exit 3; }
     PROJ="$OUT/ghidra-proj"; mkdir -p "$PROJ"
     SCRIPT_ARGS=()
-    [ "${4:-}" = "--script" ] && SCRIPT_ARGS=(-postScript "${5:?script}")
+    SCRIPT_DIRS="$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler/ghidra_scripts"
+    if [ "${4:-}" = "--script" ]; then
+      _script="${5:?script}"
+      _script_dir="$(cd "$(dirname "$_script")" && pwd)"
+      SCRIPT_ARGS=(-postScript "$(basename "$_script")")
+      SCRIPT_DIRS="$SCRIPT_DIRS;$_script_dir"
+    fi
     # Imports, analyzes and (if passed) runs a decompilation postScript.
+    # -postScript takes the script NAME; -scriptPath (dirs separated by ';') supplies the lookup path.
+    # Source: analyzeHeadlessREADME.md §-postScript and §-scriptPath.
     "$HEADLESS" "$PROJ" research_$$ -import "$BIN" -overwrite \
-      "${SCRIPT_ARGS[@]}" -scriptPath "$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler/ghidra_scripts"
+      "${SCRIPT_ARGS[@]}" -scriptPath "$SCRIPT_DIRS"
     echo "OK: Ghidra headless analysis of $BIN (project in $PROJ)"
     ;;
   *) echo "unknown mode: $MODE (ghidra-evidence|ghidra|r2|quick)" >&2; exit 2 ;;

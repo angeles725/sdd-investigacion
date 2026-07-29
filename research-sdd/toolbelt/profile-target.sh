@@ -39,7 +39,17 @@ suggest() {
     *"PE32"*|*"MS Windows"*)                    echo "decompile-net.sh? / decompile-native.sh" ;;
     *"PDF document"*)                           echo "fetch-doc.sh (extract text/OCR)" ;;
     *"firmware"*|*"filesystem"*)                echo "scan-firmware.sh" ;;
-    *"data"*|*"empty"*)                         echo "scan-firmware.sh + MANUAL (opaque/custom container; magic: $(magic "$2"))" ;;
+    *"data"*)
+      # P4: sample first 512 bytes; if >90% printable ASCII annotate as text-like.
+      _pt_total="$(dd if="$2" bs=512 count=1 2>/dev/null | wc -c)" || _pt_total=0
+      _pt_printable="$(dd if="$2" bs=512 count=1 2>/dev/null | tr -dc '\011\012\015\040-\176' | wc -c)" || _pt_printable=0
+      if [ "${_pt_total:-0}" -gt 0 ] && [ "$(( _pt_printable * 10 ))" -gt "$(( _pt_total * 9 ))" ]; then  # P4-TEXT-LIKE-ANNOT
+        echo "scan-firmware.sh + MANUAL (text-like — try reading it first; magic: $(magic "$2"))"
+      else
+        echo "scan-firmware.sh + MANUAL (opaque/custom container; magic: $(magic "$2"))"
+      fi
+      ;;
+    *"empty"*)                                  echo "scan-firmware.sh + MANUAL (opaque/custom container; magic: $(magic "$2"))" ;;
     *)                                          echo "scan-firmware.sh + MANUAL (magic: $(magic "$2"))" ;;
   esac
 }

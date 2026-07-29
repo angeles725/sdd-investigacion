@@ -32,6 +32,30 @@ WSL2 runs in an isolated NAT network (`172.x`), so it does NOT reach the host's 
   VM fully released) re-reads `.wslconfig`.
 - To revert: remove `networkingMode=mirrored` and `wsl --shutdown` again.
 
+## 1b. USB device reach (USB/IP over WSL)
+
+`networkingMode=mirrored` mirrors NETWORK only — it does **not** cover USB. USB is an exclusive
+hardware resource handed off one device at a time via `usbipd-win`.
+
+**Prerequisite (Windows side):** install `usbipd-win` (MSI from GitHub or `winget install usbipd`).
+
+**Workflow:**
+1. From **Windows PowerShell** (NOT inside WSL): `usbipd list` — find the `BUSID` (e.g. `1-8`).
+2. Bind (one-time, admin): `usbipd bind --busid <X-Y>`
+3. Attach to WSL: `usbipd attach --wsl --busid <X-Y>`
+   — Windows **loses** the device at this point; the printer (or other hardware) is inaccessible
+   from Windows until detach.
+4. Inside WSL: `lsusb` to confirm; then read sysfs descriptors at `/sys/bus/usb/devices/<X-Y>/`.
+5. **Detach when done — detach-verified safe-state gate.** From Windows PowerShell:
+   `usbipd detach --busid <X-Y>`. Confirm Windows regained the device (the USB analogue of
+   §12's "device left safe") before ending the session.
+
+### Common gotchas (USB/IP)
+- While attached to WSL, the device is **invisible to all Windows drivers** — printing, scanning, and
+  other host-side use of the device are impossible until detach.
+- `usbipd bind` is a one-time admin step per device; `attach` and `detach` do not require admin.
+- After `wsl --shutdown`, any active WSL USB attachment is dropped — re-attach after the VM restarts.
+
 ## 2. Protocol probe
 
 Build a READ-ONLY probe — a byte-for-byte port of the decompiled protocol client (so frames match
@@ -117,3 +141,5 @@ Then authenticate INSIDE the connect call, never on a command line:
   DISCIPLINE). Keep the script in scratchpad and delete it at session end.
 - Run READ commands (`client.exec_command(...)`), tee stdout to `<target>/sources/probes/` as `[CERT-hw]`,
   and keep the same read-first / write-supervised discipline as §3.
+
+For the PowerShell-over-SSH gotcha catalog (encoding, output capture, buffering, and language traps), see [`WINDOWS-SSH-PROBES.md`](WINDOWS-SSH-PROBES.md).

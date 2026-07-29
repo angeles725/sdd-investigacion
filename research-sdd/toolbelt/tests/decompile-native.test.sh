@@ -43,6 +43,28 @@ if [ "${_proj_base:-x}" = "ghidra-proj" ]; then
 else
   no "B2: ghidra project dir is '${_proj_base:-<empty>}' (want 'ghidra-proj', not '.ghidra-proj')"
 fi
+# B3 — caller script dir must be on -scriptPath; -postScript must receive the basename only.
+# Ghidra headless resolves -postScript by NAME against -scriptPath (analyzeHeadlessREADME.md
+# §-postScript); passing a full path silently fails (script not found under that bare name).
+# The separator for multiple -scriptPath directories is ';' (analyzeHeadlessREADME.md §-scriptPath).
+mkdir -p "$ROOT/scripts"
+: >"$ROOT/scripts/MyScript.java"
+if TEST_ROOT="$ROOT" RECORD="$ROOT/b3.args" "$SUT" ghidra "$INPUT" "$ROOT/out/b3" --script "$ROOT/scripts/MyScript.java"; then
+  if [ ! -s "$ROOT/b3.args" ]; then
+    no "B3: analyzeHeadless stub not invoked (b3.args is absent or empty)"
+  else
+    _ps_val="$(sed -n '/^-postScript$/{n; p; q}' "$ROOT/b3.args")"
+    _sp_val="$(sed -n '/^-scriptPath$/{n; p; q}' "$ROOT/b3.args")"
+    if [ "$_ps_val" = "MyScript.java" ] \
+      && printf '%s\n' "$_sp_val" | grep -Fq -- "$ROOT/scripts"; then
+      ok "B3: -postScript gets basename; caller dir is on -scriptPath"
+    else
+      no "B3: -postScript='$_ps_val' -scriptPath='$_sp_val' (want basename + caller dir)"
+    fi
+  fi
+else
+  no "B3: ghidra --script invocation failed"
+fi
 if TEST_ROOT="$ROOT" PATH="$ROOT/bin:$PATH" RECORD="$ROOT/r2.args" "$SUT" r2 "$INPUT" \
   && grep -Fxq -- "$INPUT" "$ROOT/r2.args"; then ok 'r2 mode still dispatches'; else no 'r2 mode'; fi
 if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
@@ -57,16 +79,39 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: per-test guard must not collapse into a suite-level skip --"
   _clean="$ROOT/clean-bin"; mkdir -p "$_clean"
-  for _c in bash mktemp rm mkdir cp chmod cat sed grep wc dirname head; do
+  for _c in bash mktemp rm mkdir cp chmod cat sed grep wc dirname basename head; do
     _p="$(builtin command -v "$_c" 2>/dev/null)"
     [ -n "$_p" ] && ln -s "$_p" "$_clean/$_c"
   done
   _out="$(PATH="$_clean" bash "$HERE/decompile-native.test.sh" 2>&1)"
   _np="$(printf '%s\n' "$_out" | grep -oE '^== [0-9]+' | grep -oE '[0-9]+')"
-  if [ "${_np:-0}" -ge 5 ]; then
-    ok "teeth: per-test guard keeps ≥5 host-independent tests with file/strings absent (${_np} passed)"
+  if [ "${_np:-0}" -ge 6 ]; then
+    ok "teeth: per-test guard keeps ≥6 host-independent tests with file/strings absent (${_np} passed)"
   else
-    no "teeth: per-test guard collapsed; ${_np:-0} tests ran without file/strings (want ≥5)"
+    no "teeth: per-test guard collapsed; ${_np:-0} tests ran without file/strings (want ≥6)"
+  fi
+  echo "-- B3 mutation: remove basename from -postScript; B3 must expose full path --"
+  _mutant="$ROOT/toolbelt/decompile-native.MUTANT.sh"
+  sed 's/$(basename "$_script")/$_script/' "$ROOT/toolbelt/decompile-native.sh" > "$_mutant"
+  chmod +x "$_mutant"
+  if grep -qF '$(basename "$_script")' "$_mutant"; then
+    no "B3 teeth: mutant still contains 'basename' — sed pattern not matched (did the SUT change?)"
+  else
+    mkdir -p "$ROOT/scripts_mut"
+    : >"$ROOT/scripts_mut/Mutant.java"
+    TEST_ROOT="$ROOT" RECORD="$ROOT/b3mut.args" \
+      bash "$_mutant" ghidra "$INPUT" "$ROOT/out/b3mut" --script "$ROOT/scripts_mut/Mutant.java" \
+      >/dev/null 2>&1 || true
+    if [ -s "$ROOT/b3mut.args" ]; then
+      _mps_val="$(sed -n '/^-postScript$/{n; p; q}' "$ROOT/b3mut.args")"
+      if [ "$_mps_val" != "Mutant.java" ]; then
+        ok "B3 teeth: mutant exposes full path to -postScript ('$_mps_val') — B3 detection confirmed"
+      else
+        no "B3 teeth: mutant still emits basename 'Mutant.java' — mutation had no effect (THEATER)"
+      fi
+    else
+      no "B3 teeth: mutant produced no RECORD file — cannot verify teeth"
+    fi
   fi
 fi
 

@@ -775,6 +775,73 @@ if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings
   ok "G-nospace-nonint: undocumented_findings:seven (no space) → FAIL exit 1 (prefix probe detects line, env_field sees empty → not-int)"
 else no "G-nospace-nonint: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
 
+# ---- P23: blocked/absent gaps missing a tried: clause (pi5 P23) --------------------------------
+# When a gap under ## Blocked gaps or ## Non-investigable gaps has a `needs:` clause but no
+# `tried:` clause, a WARN fires — absent-input gaps must document what alternatives were tried
+# before they can be closed. This distinguishes absent-input (genuinely blocked) from untried.
+
+# P23-warn — blocked entry with needs: but no tried: → WARN must fire, WARN-only (exit 0).
+d="$TMP/p23-warn"
+ewrite "$d" 0 3 5 1 0 1 "high|active gap|pending"   # ewrite always puts '- gpu profiling — needs: hardware'
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qiE 'WARN.*tried:' <<<"$out"; then
+  ok "P23: blocked gap with needs: but no tried: → WARN emitted, exit 0"
+else no "P23-warn: exit $(code "$d") :: $(grep -iE 'WARN.*tried\|tried' <<<"$out" | head -1)"; fi
+
+# P23-ok — blocked entry carries tried: → WARN must NOT fire.
+d="$TMP/p23-ok"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 5 1 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 5 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps'
+  echo '- gpu profiling — needs: hardware; tried: ssh probe (rejected: device offline)'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*tried:' <<<"$out"; then
+  ok "P23: blocked gap with tried: present → no WARN, exit 0"
+else no "P23-ok: exit $(code "$d") :: $(grep -iE 'WARN.*tried\|tried' <<<"$out" | head -1)"; fi
+
+# ---- P7: INDEX.md template placeholders while covered_blocks > 0 (pi5 P7) --------------------
+# When INDEX.md in the corpus dir contains <UPPER-CASE> template placeholders while at least
+# one block file is on disk (ondisk > 0), a WARN fires to prompt updating the corpus index.
+
+# P7-warn — INDEX.md with <SUBJECT> placeholder, 1 block file on disk → WARN must fire (exit 0).
+d="$TMP/p7-warn"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 1 0 3 1 0 0 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 0 / 3 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | gap A | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+printf '# <SUBJECT> — Corpus Index\n\nDate: <YYYY-MM-DD>\n' > "$d/INDEX.md"
+printf '# Block 1\n' > "$d/t-block1.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$out"; then
+  ok "P7: INDEX.md with <SUBJECT> placeholder + 1 block file → WARN emitted, exit 0"
+else no "P7-warn: exit $(code "$d") :: $(grep -iE 'WARN.*INDEX\|INDEX.*WARN\|placeholder' <<<"$out" | head -1)"; fi
+
+# P7-ok — INDEX.md without placeholders → WARN must NOT fire.
+d="$TMP/p7-ok"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 1 0 3 1 0 0 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 0 / 3 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | gap A | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+printf '# Project Alpha — Corpus Index\n\nDate: 2026-07-28\n' > "$d/INDEX.md"
+printf '# Block 1\n' > "$d/t-block1.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$out"; then
+  ok "P7: INDEX.md without placeholders → no WARN, exit 0"
+else no "P7-ok: exit $(code "$d") :: $(grep -iE 'WARN.*INDEX\|INDEX.*WARN\|placeholder' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -941,6 +1008,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$mgnigot" = 0 ]; then
       ok "teeth(GNI): neutered non-integer mutant exits 0 → G-not-int has teeth (non-integer FAIL branch is load-bearing)"
     else no "teeth(GNI): mutant exit $mgnigot (want 0) — G-not-int may not depend on the non-integer branch (THEATER)"; fi
+  fi
+
+  # ---- P23 mutation: neuter the tried: gate; the missing-tried fixture must stop WARNing ----
+  echo "-- teeth-P23: neuter P23-MISSING-TRIED-WARN; needs:/no-tried: fixture must NOT WARN --"
+  mutantP23="$TMP/verify-state.P23.MUTANT.sh"
+  if grep -q '# P23-MISSING-TRIED-WARN' "$SUT"; then
+    sed '/# P23-MISSING-TRIED-WARN/ s/.*/  if false; then  # P23-MISSING-TRIED-WARN [NEUTERED]/' "$SUT" > "$mutantP23"
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    d="$TMP/p23-warn"   # reuse P23-warn fixture (ewrite: blocked entry with needs: but no tried:)
+    mp23out="$(bash "$mutantP23" "$d" 2>/dev/null)"
+    if ! grep -qiE 'WARN.*tried:' <<<"$mp23out"; then
+      ok "teeth-P23: neutered gate → missing-tried fixture emits NO WARN (P23-warn has teeth)"
+    else
+      no "teeth-P23: neutered mutant STILL emits tried: WARN → P23 assertion is THEATER"
+    fi
+  else
+    no "teeth-P23: P23-MISSING-TRIED-WARN sentinel not found in SUT (P23 not implemented or marker missing)"
+  fi
+
+  # ---- P7 mutation: neuter the INDEX.md placeholder check; placeholder fixture must stop WARNing ----
+  echo "-- teeth-P7: neuter P7-INDEX-PLACEHOLDER-WARN; INDEX.md-placeholder fixture must NOT WARN --"
+  mutantP7="$TMP/verify-state.P7.MUTANT.sh"
+  if grep -q '# P7-INDEX-PLACEHOLDER-WARN' "$SUT"; then
+    sed '/# P7-INDEX-PLACEHOLDER-WARN/ s/.*/    if false; then  # P7-INDEX-PLACEHOLDER-WARN [NEUTERED]/' "$SUT" > "$mutantP7"
+    d="$TMP/p7-warn"   # reuse P7-warn fixture (INDEX.md with <SUBJECT> placeholder + 1 block file)
+    mp7out="$(bash "$mutantP7" "$d" 2>/dev/null)"
+    if ! grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$mp7out"; then
+      ok "teeth-P7: neutered gate → INDEX.md-placeholder fixture emits NO WARN (P7-warn has teeth)"
+    else
+      no "teeth-P7: neutered mutant STILL emits placeholder WARN → P7 assertion is THEATER"
+    fi
+  else
+    no "teeth-P7: P7-INDEX-PLACEHOLDER-WARN sentinel not found in SUT (P7 not implemented or marker missing)"
   fi
 fi
 

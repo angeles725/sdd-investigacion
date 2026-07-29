@@ -993,6 +993,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 50 — MARKER-HONESTY NOTE printed when pending > 0. The summary alone says "N pending" which
+#      a reader takes as "N units of work waiting." The note beneath the instructions must
+#      clarify that "pending" tracks the review-status MARKER, not whether each delta is still
+#      open work — a commit may have applied a delta without flipping the marker.
+#      RED before the note is added: no Note: line appears in the output.
+kit="$(mkkit c50-marker-note)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qi 'Note:.*MARKER\|without flipping the marker' <<<"$OUT"; then
+  ok "50 pending retros exist → marker-honesty note printed" "(exit $RC)"
+else
+  no "50 pending retros exist → marker-honesty note printed" "exit=$RC out=[$OUT]"
+fi
+
+# 51 — MARKER-HONESTY NOTE absent when queue is empty. When nothing is pending the
+#      instruction block (and its note) must not appear — the note is proportionate,
+#      appearing only where it changes a decision (the reviewer's next action).
+#      Negative control for case 50.
+kit="$(mkkit c51-no-note-when-clean)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'Nothing to review.' <<<"$OUT" \
+   && ! grep -qi 'Note:.*MARKER\|without flipping the marker' <<<"$OUT"; then
+  ok "51 no pending retros → marker-honesty note absent (clean run uncluttered)" "(exit $RC)"
+else
+  no "51 no pending retros → marker-honesty note absent (clean run uncluttered)" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
 # match (rename its pattern to a token no status ever equals) and re-run the APPLIED fixture:
@@ -1287,6 +1321,28 @@ STRIPPED
       ok "teeth T3: guard-removed mutant exits 0 with Summary (case 49 has teeth)" "()"
     else
       no "teeth T3: guard-removed mutant did not exit 0 with Summary — case 49 has no teeth" "rc=$rcm3 out=[$outm3]"
+    fi
+  fi
+
+  # Tooth N1: remove the marker-honesty note → pending run must NOT print it (case 50 has teeth).
+  # Use sed range-delete to remove the opening 'Note:' echo line AND the two continuation lines
+  # that follow it; a single-line replacement would leave the continuation lines in place and the
+  # 'without flipping the marker' pattern in case 50's grep would still match — a false PASS.
+  echo "-- teeth N1: remove marker-honesty note (all 3 lines); pending output must lack the note (case 50 has teeth) --"
+  anchor_n1='echo "Note: the count above tracks the review-status MARKER'
+  if ! grep -qF "$anchor_n1" "$SUT"; then
+    no "teeth N1: locate marker-honesty note in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-n1-no-note)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    sed '/Note: the count above tracks the review-status MARKER/,+2d' "$SUT" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if ! grep -qi 'Note:.*MARKER\|without flipping the marker' <<<"$outm"; then
+      ok "teeth N1: note-removed mutant omits marker note → case 50 would go RED (has teeth)" "()"
+    else
+      no "teeth N1: note-removed mutant still prints note — case 50 is THEATER" "out=[$outm]"
     fi
   fi
 fi

@@ -169,6 +169,9 @@ if [ "$pending" -eq 0 ]; then
 else
   echo "For each PENDING retro: review it, apply or dismiss its deltas in the kit,"
   echo "then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'."
+  echo "Note: the count above tracks the review-status MARKER, not whether each delta is open work."
+  echo "A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth"
+  echo "verifying against the kit before treating its full delta count as unresolved."
 fi
 
 # --- MISSING-RETRO fleet pass (Feature #25b): a run that ADVANCED the corpus but produced NO fresh retro
