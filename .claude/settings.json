@@ -6,25 +6,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/sweep-retros-hook.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/toolbelt/sweep-retros-hook.sh\"",
             "timeout": 30,
             "statusMessage": "Sweeping research-sdd retros…"
           },
           {
             "type": "command",
-            "command": "/home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/sweep-audits-hook.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/toolbelt/sweep-audits-hook.sh\"",
             "timeout": 30,
             "statusMessage": "Sweeping research-sdd audits…"
           },
           {
             "type": "command",
-            "command": "/home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/verify-registry-hook.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/toolbelt/verify-registry-hook.sh\"",
             "timeout": 30,
             "statusMessage": "Reconciling research-sdd registry…"
           },
           {
             "type": "command",
-            "command": "/home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/verify-kit-clean-hook.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/toolbelt/verify-kit-clean-hook.sh\"",
             "timeout": 15,
             "statusMessage": "Checking kit cleanliness…"
           }

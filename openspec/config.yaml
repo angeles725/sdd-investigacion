@@ -3,7 +3,7 @@
 # Mode: hybrid (Engram + OpenSpec)
 
 project: sdd-investigacion
-root: /home/cristian/investigacion/sdd-investigacion
+root: .   # repo root, resolved relative to the checkout — do not hardcode a machine path
 
 context: |
   Research-SDD toolbelt: a Bash + Python toolkit for binary analysis, firmware
@@ -19,7 +19,7 @@ strict_tdd: true
 
 testing:
   test_command: "bash research-sdd/toolbelt/tests/run-all.sh"
-  test_command_cwd: "/home/cristian/investigacion/sdd-investigacion"
+  test_command_cwd: "."   # repo root of the current checkout
   runner: run-all.sh (custom bash aggregator)
   framework: custom bash TAP-style + Node ESM
   last_known_passing: "1207/1207"
