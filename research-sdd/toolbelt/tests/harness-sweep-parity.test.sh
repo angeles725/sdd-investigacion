@@ -37,6 +37,16 @@ SETTINGS="$REPO/.claude/settings.json"
 SWEEP_TS="$TOOLBELT/opencode/research-sdd-sweep.ts"
 CODEX_GOLDEN="$REPO/research-sdd/install/tests/golden/plan-codex.txt"
 
+# --list-inputs: print harness input files as repo-relative paths, one per line.
+# ci-path-filter-coverage.test.sh calls this to derive its checked set at runtime
+# rather than maintaining a hardcoded duplicate list that can drift.
+if [ "${1:-}" = "--list-inputs" ]; then
+  printf '%s\n' "${SETTINGS#"$REPO/"}"
+  printf '%s\n' "${SWEEP_TS#"$REPO/"}"
+  printf '%s\n' "${CODEX_GOLDEN#"$REPO/"}"
+  exit 0
+fi
+
 for f in "$SETTINGS" "$SWEEP_TS" "$CODEX_GOLDEN"; do
   [ -f "$f" ] || { printf 'FATAL: source not found: %s\n' "$f" >&2; exit 2; }
 done
@@ -53,10 +63,14 @@ command -v jq >/dev/null 2>&1 \
 extract_claude() {
   local f="${1:-$SETTINGS}"
   jq -r '.hooks.SessionStart[0].hooks[].command' "$f" \
+    | sed 's/^"//; s/"$//' \
     | while IFS= read -r cmd; do
         base="$(basename "$cmd")"
         echo "${base%-hook.sh}"   # sweep-retros-hook.sh → sweep-retros
       done | sort
+  # sed strips surrounding literal double-quotes that wrap the command for
+  # space-safe expansion (e.g. "\"$CLAUDE_PROJECT_DIR/.../foo-hook.sh\"").
+  # Unquoted paths pass through unchanged — both forms must parse correctly.
 }
 
 extract_opencode() {
@@ -163,6 +177,45 @@ grep -q '`toolbelt/sweep-all.sh`' "$CODEX_GOLDEN" \
   && ok "codex: sweep-all.sh aggregator referenced in plan-codex.txt (single recommended command)" \
   || no "codex: sweep-all.sh NOT referenced in plan-codex.txt (expected as single recommended command)"
 
+# ---- 15: Quoted-command form (regression guard for PR #108) ----------------
+# extract_claude must tolerate commands wrapped in literal double-quotes, i.e.
+#   "command": "\"$CLAUDE_PROJECT_DIR/.../sweep-retros-hook.sh\""
+# The inner quotes are intentional (space-safe expansion); the parser must strip
+# them before basename so the "-hook.sh" suffix removal fires correctly.
+FIXTURE_QUOTED="$HERE/fixtures/settings-quoted.json"
+EXPECTED_QUOTED="$(printf 'sweep-audits\nsweep-retros\nverify-kit-clean\nverify-registry')"
+if [ -f "$FIXTURE_QUOTED" ]; then
+  QUOTED_SET="$(extract_claude "$FIXTURE_QUOTED")"
+  [ "$QUOTED_SET" = "$EXPECTED_QUOTED" ] \
+    && ok "quoted-commands: extract_claude strips surrounding quotes correctly" \
+    || no "quoted-commands: extract_claude did not strip surrounding quotes (got: $(printf '%s' "$QUOTED_SET" | tr '\n' ' '))"
+else
+  no "quoted-commands: fixture file missing — cannot test quote stripping: $FIXTURE_QUOTED"
+fi
+
+# ---- 16-17: --list-inputs contract -----------------------------------------
+# The mode must emit exactly the three harness input files as repo-relative paths,
+# one per line. ci-path-filter-coverage.test.sh consumes this at runtime so the
+# coverage check never drifts from the actual sources this test reads.
+LIST_OUT="$(bash "$HERE/harness-sweep-parity.test.sh" --list-inputs)"
+list_count=0
+while IFS= read -r _line; do
+  if [ -n "$_line" ]; then list_count=$((list_count + 1)); fi
+done <<< "$LIST_OUT"
+[ "$list_count" -eq 3 ] \
+  && ok "--list-inputs: emits exactly 3 repo-relative paths" \
+  || no "--list-inputs: expected 3 paths, got $list_count (output: $(printf '%s' "$LIST_OUT" | tr '\n' '|' | cut -c1-120))"
+
+list_bad=0
+while IFS= read -r _path; do
+  case "$_path" in
+    /*|*' '*) list_bad=$((list_bad + 1)) ;;
+  esac
+done <<< "$LIST_OUT"
+[ "$list_bad" -eq 0 ] \
+  && ok "--list-inputs: all paths are repo-relative single-word strings (no / prefix, no spaces)" \
+  || no "--list-inputs: $list_bad path(s) have a leading / or contain spaces — not valid repo-relative paths"
+
 # ---- NEGATIVE CONTROL: prove drift detection has teeth ---------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: inject drift into each surface; parity checks must catch it --"
@@ -194,6 +247,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth C: renaming sweep-retros in Codex golden detected as drift vs Claude"
   else
     no "teeth C: mutant Codex NOT caught — cross-surface comparison is theater"
+  fi
+
+  # Teeth D: prove the quote-stripping test has teeth.
+  # Simulate the pre-fix parser (no sed quote strip) against the quoted fixture;
+  # it must produce output DIFFERENT from the correct canonical set.
+  # If it produces the correct set, the fixture is not catching the bug and
+  # the assertion 15 would pass vacuously even with a broken parser.
+  mutant_cl_quoted="$(jq -r '.hooks.SessionStart[0].hooks[].command' "$FIXTURE_QUOTED" \
+      | while IFS= read -r cmd; do
+          base="$(basename "$cmd")"
+          echo "${base%-hook.sh}"   # intentionally no quote stripping — simulates the old bug
+        done | sort)"
+  if [ "$mutant_cl_quoted" != "$EXPECTED_QUOTED" ]; then
+    ok "teeth D: un-stripped parser yields wrong names from quoted fixture (quote-strip fix has teeth)"
+  else
+    no "teeth D: un-stripped parser passed — the fixture does not catch the bug (assertion 15 is theater)"
   fi
 fi
 
