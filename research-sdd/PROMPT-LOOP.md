@@ -180,6 +180,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      re-scoped or blocked-on-thin-source, never sent to an authoring agent.)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
+       - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
+         overlaps this gap — especially the block that opened it. Step 5's pre-loop INDEX.md read
+         names blocks; this check reads them. Cost: one targeted block read per gap. (Distinct from
+         the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
+         after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
+         documented the JNI boundary; required a §279.9 self-revision.)
        - Decompile/read: decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -417,6 +423,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
      the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a
      tool). The OUTLINE IS the work-list — there is NO AUDIT-FIRST discovery and no self-feeding backlog.
+     LARGE-SCALE §20 (outline > ~15 items — per-section-agent pattern): the sequential
+     one-item-per-iteration model is viable up to ~10–15 sections; beyond that the driver context
+     accumulates across the whole run, defeating context-lean delegation. At scale: (a) pre-extract
+     source material into per-section slices BEFORE dispatching — the source-before-agent rule applies
+     at slice level (each slice confirmed readable); (b) dispatch ONE agent per outline item, each
+     receiving its pre-extracted slice + the outline structure, returning ONLY cited findings
+     (file:line + load-bearing snippets), NOT raw dumps; (c) the driver writes the blocks from those
+     findings and runs SELF-VERIFY (step 4) per block. Model tier per cognitive demand (NORMAL CYCLE
+     step 3 MODEL TIER rule). Record in the iteration history as `method: per-section-agent · N sections`.
+     This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
+     changes is that N agents run in one dispatch round rather than N sequential iterations.
+     (Evidence: api-openness — 42 chapters, one dispatch round via `_extract/author_workflow.js`.)
   2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
      depends on GENRE:
        - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
@@ -443,7 +461,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      is NOT done.
   6. PRODUCE THE DELIVERABLE: besides the cited blocks, write the human-readable product —
      `HOWTO-<x>.md` / `SETUP-<x>.md` / `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain
-     deliverables under `$KIT/toolbelt/`).
+     deliverables under `$KIT/toolbelt/`). For REFERENCE-MANUAL corpora (a corpus whose blocks
+     document a large API/SDK/protocol), also produce COMPANION REFERENCE ARTIFACTS: a cheat sheet
+     (most-used paths on one page), a glossary, a symbol-to-chapter keyword index, and optionally a
+     single-file full-manual build. These are not blocks and carry no evidence markers — they are
+     navigator aids, not procedural deliverables. Place at $CORPUS root. (Evidence: api-openness —
+     CHEATSHEET.md, GLOSSARY.md, KEYWORD_INDEX.md, MANUAL_FULL.md alongside 42 chapters.)
   7. STOP when the OUTLINE is fully covered — NOT on gap-exhaustion (there is no gap set, so no
      read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
 
@@ -540,6 +563,11 @@ HARD RULES:
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft → Spanish, for continuity of its mature
     Spanish corpus), write blocks in THAT language. Otherwise English. Do not infer exceptions.
+    BOOTSTRAP commits the language in the TARGETS.md row (BOOTSTRAP step b). A mid-run switch is
+    a structured override: refresh the TARGETS.md row and note the transition block number and
+    reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
+    whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
+    English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
 

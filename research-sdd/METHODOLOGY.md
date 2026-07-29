@@ -69,6 +69,8 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
+- **Engram `#id` is NOT a valid `[CERT]` citation.** Engram is a MIRROR, not a primary source (§7). If the underlying fact came from live hardware or probe work, cite `[CERT-hw]` with the preserved probe output; if it is a researcher deduction stored in memory, cite `[INFER]`. A block that cites `engram #N` as `[CERT]` is not reproducible — a reviewer cannot follow that citation to the source.
+- **Physical-inspection evidence** — device photos, indicator-lamp readings, display-state images — is `[CERT-hw]` when the image file is archived under `sources/probes/` and cited by filename (`sources/probes/<photo>.jpg`). This extends the probe-output citation format to visual captures; a photo cited without archiving it first is `[INFER]`.
 - **The live system wins.** `[CERT-hw]`/`[CERT-live]` outranks `[CERT]`: if the live device OR remote
   service contradicts what the decompiled code implied, the observed live behavior is right — refute/correct
   the code-based claim and cite the probe/response output (e.g. B64 refuted B55 §55.3 against the real
@@ -152,6 +154,8 @@ Identical to `niagara-research` (see [`templates/block.template.md`](templates/b
 5. **Final section** `## N.x — Connections`: `[Block K]` links with the relationship explained.
 
 Each block is self-contained but linked. Size according to source density, not by quota.
+
+**Collaborative bridge block (Type: collaborative).** A block whose agent-authored half maps software features or findings to the gap, and whose DOMAIN or THEORY section carries explicit `[TO ANNOTATE]` placeholders for the human's engineering knowledge (EMC constraints, SI/PI limits, thermal budgets — facts the researcher cannot derive from source files alone). This is NOT an incomplete block — it is intentionally co-authored and valid in its partial state. Declare `Type: collaborative` in the header blockquote so `verify-block.sh` marker counts from empty placeholder sections are read as expected-zero rather than a marker-deficiency failure.
 
 > **Block file naming.** The canonical catalog/discriminator (`templates/gen-catalog.py`, `verify-state.sh`,
 > `research-sdd-archive.sh`) requires a focus/subject prefix — `<prefix>-blockN.md` (or `bloqueN.md`) — so a
@@ -299,6 +303,8 @@ bot-block or an anti-scraping shell, try a known fallback before giving up: (a) 
 source via its init-data JSON (better evidence than a minified bundle). (c) **Discourse** forums (e.g.
 discourse.threejs.org) serve crawler-readable HTML directly, no bot-block, plus a lighter `/raw/<topic-id>`
 endpoint. Record the working fallback in SOURCES.md so the next fetch skips the dead path.
+
+**Auth-gated portal (a 403 that is not bot-blocking).** The three fallbacks above bypass anti-scraping; they do not help when the 403 is a real login wall. A human informant with authorized access may supply verbatim page content: preserve it under `sources/web-snapshots/`, annotate the SOURCES.md row as `"tech-provided verbatim"` with the access barrier noted, and cite it `[CERT-web]` (the source is still the official manufacturer page regardless of how the content was obtained). Never cite content obtained by bypassing the auth gate itself — that crosses authorization, not anti-scraping.
 
 **Falsified artifacts are preserved and labelled, never silently deleted.** An output that a later check
 proved unsound stays under `sources/probes/` with an explicit non-evidence marker in its filename and in
@@ -701,6 +707,8 @@ one of four cases applies — record it in RESEARCH-STATE and surface it at retr
   parallel target copy that drifts is a maintenance debt; note whether the kit version needs the same
   update.
 
+**Oracle-first heuristic (check before you CREATE).** When the subject is a closed-source managed binary with its own IDE or SDK (Java, .NET), scan the vendor's shipped JAR or assembly tree for a `simulation/` or `emulation/` package DURING the §6 file census — before authoring any tool under the CREATE case. A vendor-bundled simulation engine is a privileged offline oracle: its outputs are validated against the vendor's own reference model rather than a reimplementation, making it independent by construction. Flag it in the TOOLS table as `ORACLE · vendor-bundled · IDENTIFY`; record where in the JAR it lives. If later used to validate a tool's output, it earns the second-highest trust position behind live hardware (`[CERT-hw]`).
+
 The per-iteration reporting obligation (announcing the case in the iteration record) is a PROMPT-LOOP rule.
 
 ## 11. Self-verification contract (in-block gatekeeping)
@@ -825,6 +833,15 @@ before trusting its verdict:
   build's output) while the defect lives in the rendered or live output; a token satisfied by its own
   adjacent comment; a comparison window that crosses the boundary into a neighbouring record. Treat the
   check's name as a claim and audit it the same way.
+
+- **Config-file keyword-poison (the guard that silently stops guarding).** When the research relies on a
+  constraint or rule file (a DRC ruleset, a lint config, a CI gate spec) as the test oracle, verify the
+  constraint engine's response to UNKNOWN tokens before trusting any result: some DSLs silently discard
+  unrecognised keywords, disabling all custom rules with exit 0 and no warning — a structural sibling of the
+  count-zero anti-pattern applied to config-file authoring. A mandatory CONTROL-POSITIVE — one rule that MUST
+  fire on a known-bad fixture — is the only reliable detector: if the control-positive goes clean, the config
+  is poisoned and every subsequent "pass" is a false one. Probe for this at the start of any DRC or
+  constraint-DSL investigation; do not trust a clean result until a control-positive has fired.
 
 - **Scope check: claim wider than measurement.** Before closing a block, compare the SCOPE of each central
   claim against the scope of what was actually measured. If the claim speaks of a population (all devices,
@@ -1592,6 +1609,8 @@ knowledge under a kit-level pointer. This is not optional bookkeeping: a real se
 setup from scratch even though `toolbelt/GHIDRA-MCP.md` already documented it, because Engram carried no
 pointer to it. The mirror is the safeguard against re-discovering what the kit already knows; a documented
 item with no Engram pointer is not done.
+
+**RESEARCH-STATE for corpora produced outside the loop.** When a corpus is authored by a bespoke multi-agent workflow rather than the standard PROMPT-LOOP (§2), a RESEARCH-STATE initialized at bootstrap but never iterated shows stale counts and triggers false-positive alerts from `sweep-retros.sh` and `verify-registry.sh`. Two valid approaches: **(a) do NOT initialize RESEARCH-STATE** — a missing state file is unambiguous (kit tools read it as not-started, which is accurate); OR **(b) initialize with `method: document-cycle-external`** in the state envelope — tools that inspect this field can distinguish it from an abandoned loop corpus and suppress false-positive missing-iteration alerts. Either is correct; what is wrong is a loop-format RESEARCH-STATE left at template-placeholder values while the corpus holds a different block count — that is the instrument reporting 0 when it has not actually looked.
 
 **Product.** Besides the cited blocks, document mode yields a human-readable deliverable — `HOWTO-<x>.md`,
 `SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`, toolchain deliverables under

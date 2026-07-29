@@ -181,6 +181,33 @@ length at each step; never scan forward for a terminal byte value.
 
 ---
 
+## 6. Windows-native CLI from WSL (interop staging)
+
+When a **Windows-native binary** (e.g. `kicad-cli.exe`, TIA Portal CLI, any IDE packaged for Windows only)
+must be invoked from WSL, its output path MUST reside on the Windows filesystem. Two failure modes:
+
+### UNC path failure — error 67
+
+A Windows-native binary writing to a UNC path (`\\wsl.localhost\Ubuntu\home\...`) receives
+**error 67 ("The network name cannot be found")** or silently discards its output. This is an
+OS-level constraint on Windows native file I/O, not a bug in the tool.
+
+**Fix:** stage both input and output under a Windows filesystem mount (`/mnt/c/tmp/<work>/`).
+Copy Linux-resident source files there first, invoke the binary with a Windows-native path, then
+copy results back to the Linux tree:
+
+```sh
+cp "$LINUX_SRC" /mnt/c/tmp/rsdd_work/input
+cmd.exe /c "kicad-cli.exe pcb drc --input C:\\tmp\\rsdd_work\\input --output C:\\tmp\\rsdd_work\\out.json"
+cp /mnt/c/tmp/rsdd_work/out.json "$RESULT_DIR/"
+```
+
+Use `cmd.exe /c` for plain invocations (one fewer quoting layer than `powershell -Command`).
+Delete the staging directory at session end. Evidence: kidcad B50 — `kicad-cli.exe` refused DRC output
+to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
+
+---
+
 ## Common gotchas summary
 
 | # | Gotcha | Silent failure mode | Fix |
@@ -194,6 +221,7 @@ length at each step; never scan forward for a terminal byte value.
 | 7 | Reserved variable name (`$PID`, etc.) | Exception kills code path silently | Prefix loop vars: `$dev`, `$ep` |
 | 8 | Case-insensitive shadowing | Internal init erases parameter default | Distinct prefix for internal state |
 | 9 | Tag-byte scan for region end | Desync on first false match in payload | Walk by length field |
+| 10 | Windows-native binary writing to UNC path (`\\wsl.localhost\...`) | Error 67 or silent output loss | Stage under `/mnt/c/...`; use `cmd.exe /c` for invocation |
 
 ---
 
@@ -206,4 +234,4 @@ length at each step; never scan forward for a terminal byte value.
 ---
 
 *Promoted from corpus §18 retros (METHODOLOGY §20 routing rule): integration P2 ·
-compass-discover D5 / D10 / D19.*
+compass-discover D5 / D10 / D19 · kidcad B50 (§6 Windows-native CLI staging).*

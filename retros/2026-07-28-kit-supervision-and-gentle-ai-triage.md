@@ -1,4 +1,4 @@
-<!-- review-status: pending -->
+<!-- review-status: applied 2026-07-29 · kit cc5e13a -->
 # Retro — sdd-investigacion · kit supervision + gentle-ai triage · 2026-07-28 · Research-SDD self-retrospective
 
 > Run reviewed: a supervision/maintenance session over the kit itself, plus a `/research-sdd` triage of the
