@@ -287,9 +287,10 @@ done < "$TARGETS_MD"
 # KIT-SELF-REGISTRATION GATE (kit-sup #6): warn if the kit repo itself is absent from TARGETS.md.
 # A fleet supervisor that omits itself is blind to its own state and cannot be supervised by the
 # same instruments it runs over all other corpora. WARN-only, PROPOSE-NEVER-APPLY (exit stays 0).
+_kit_parent="$(dirname "$KIT")"
 _kit_found=0
 while IFS=$'\t' read -r _rv_raw _rv_expanded; do
-  [ "$_rv_expanded" = "$KIT" ] && { _kit_found=1; break; }
+  { [ "$_rv_expanded" = "$KIT" ] || [ "$_rv_expanded" = "$_kit_parent" ]; } && { _kit_found=1; break; }  # KIT-PARENT-MATCH
 done <<< "$all_pairs"
 if [ "$_kit_found" -eq 0 ]; then
   echo "WARN  $(basename "$KIT") — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate)."  # KIT-SELF-REG-CHECK

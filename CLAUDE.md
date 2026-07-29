@@ -90,10 +90,14 @@ Never declare done without running it.
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
-Current suite: **77 suites** (75 `*.test.sh` + 2 `*.test.mjs`), **1,525 test cases** — 1,625 under
-`--prove-teeth`, which adds the mutation controls — measured at `e7172ad` plus the retro-backlog work
-unit. Re-measure rather than trusting this line if it looks stale. New suites dropped into
+Current suite: **78 suites** (76 `*.test.sh` + 2 `*.test.mjs`), **1,526 test cases** — 1,627 under
+`--prove-teeth`, which adds the mutation controls — measured at `73a6131` plus the registry-hygiene
+work unit. Re-measure rather than trusting this line if it looks stale. New suites dropped into
 `research-sdd/toolbelt/tests/` are picked up automatically — nothing to register.
+
+When scanning a suite log for failures, match the runner's own `  FAIL  ` prefix, not the bare string:
+tests legitimately assert that things fail, so `FAIL` appears inside many PASSING lines. A bare grep
+reports dozens of failures on a fully green run.
 
 Every toolbelt script must have a companion `*.test.sh` under `research-sdd/toolbelt/tests/`.
 

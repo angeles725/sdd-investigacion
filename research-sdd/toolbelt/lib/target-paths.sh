@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # target-paths.sh — shared target-path derivation for research-sdd sweeps.
-# Sourced (never executed); exports: target_paths_all.
+# Sourced (never executed); exports: target_paths_all, target_paths_pairs.
 #
+# Scans only markdown table rows (lines starting with optional whitespace then |).
 # Handles `/abs/path`, `$RESEARCH_HOME/rest`, and `${RESEARCH_HOME}/rest` forms.
-# Truncated '...' entries pass through so callers can WARN (sweep is PARTIAL).
+# Truncated '...' entries in table rows pass through so callers can WARN (sweep is PARTIAL).
 # Non-path tokens (e.g. `/mrdoob/three.js`) pass through; callers do [ -d ] || continue.
 
 # Idempotent: safe to source more than once.
@@ -22,10 +23,11 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
     fi
     local rh="${RESEARCH_HOME:-$HOME}"
     {
-      # Form 1: `/abs/path`
-      grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`'
-      # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — expand via awk.
-      grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' "$f" 2>/dev/null \
+      # Form 1: `/abs/path` — table rows only
+      grep -E '^\s*\|' "$f" 2>/dev/null | grep -oE '`/[^`]+`' 2>/dev/null | tr -d '`'
+      # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — table rows only; expand via awk.
+      grep -E '^\s*\|' "$f" 2>/dev/null \
+        | grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' 2>/dev/null \
         | tr -d '`' \
         | awk -v rh="$rh" '{
             sub(/^\$\{RESEARCH_HOME\}\//, rh "/")
@@ -52,11 +54,12 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
     fi
     local rh="${RESEARCH_HOME:-$HOME}"
     {
-      # Form 1: `/abs/path` — raw == expanded; emit as "<path>\t<path>".
-      grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | awk '{print $0 "\t" $0}'
-      # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — raw is kept as-is;
-      # expanded substitutes $RESEARCH_HOME. Emit as "<raw>\t<expanded>".
-      grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' "$f" 2>/dev/null \
+      # Form 1: `/abs/path` — table rows only; raw == expanded; emit as "<path>\t<path>".
+      grep -E '^\s*\|' "$f" 2>/dev/null | grep -oE '`/[^`]+`' 2>/dev/null | tr -d '`' | awk '{print $0 "\t" $0}'
+      # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — table rows only; raw is kept
+      # as-is; expanded substitutes $RESEARCH_HOME. Emit as "<raw>\t<expanded>".
+      grep -E '^\s*\|' "$f" 2>/dev/null \
+        | grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' 2>/dev/null \
         | tr -d '`' \
         | awk -v rh="$rh" '{
             raw=$0

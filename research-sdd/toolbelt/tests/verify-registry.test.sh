@@ -565,6 +565,28 @@ else
   no "25 kit absent → expected self-reg WARN but not found" "exit=$RC out=[$OUT]"
 fi
 
+# 26 — FALSE-POSITIVE: kit row registers the REPO ROOT (dirname $KIT), not the kit subdir.
+#      In sdd-investigacion, TARGETS.md row 22 registers /home/.../sdd-investigacion (repo root)
+#      while $KIT resolves to .../sdd-investigacion/research-sdd (the kit subdirectory).
+#      Both conventions are valid; the gate must accept either and NOT fire the self-reg WARN.
+repo26="$ROOT/c26-repo"          # the "repo root" that TARGETS.md will register
+kit26="$repo26/research-sdd"     # KIT resolves here: dirname(verify-registry.sh)/..
+mkdir -p "$kit26/toolbelt/lib" "$repo26"
+cp "$SUT" "$kit26/toolbelt/verify-registry.sh"
+cp "$LIB" "$kit26/toolbelt/lib/retro-status.sh"
+cp "$TP_LIB" "$kit26/toolbelt/lib/target-paths.sh"
+# Register the repo root with nc + 0 md → count check trivially passes (0 == 0), no other noise.
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26"
+} > "$kit26/TARGETS.md"
+OUT="$("$BASH_BIN" "$kit26/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$OUT"; then
+  ok "26 kit registered as REPO ROOT (dirname \$KIT) → no false-positive self-reg WARN" "(exit $RC)"
+else
+  no "26 kit registered as REPO ROOT → self-reg WARN fired (false positive)" "exit=$RC out=[$OUT]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -813,6 +835,32 @@ VRT2STRIPPED
   else
     no "teeth-rh-rowlookup: RH-ROW-LOOKUP sentinel not found in SUT (fix not implemented or marker missing)"
     unset _rh_base_teeth23
+  fi
+
+  # teeth-kit-parent-match: remove the || [...$_kit_parent...] branch from the gate; a kit
+  # registered via its repo root (dirname $KIT) must fire the self-reg WARN again — proving
+  # test 26 depends on the real parent-dir check and is not vacuously green.
+  echo "-- teeth-kit-parent-match: neuter parent-dir match; repo-root registration must re-WARN --"
+  repo26t="$ROOT/c26t-repo"
+  kit26t="$repo26t/research-sdd"
+  mkdir -p "$kit26t/toolbelt/lib" "$repo26t"
+  cp "$SUT" "$kit26t/toolbelt/verify-registry.sh"
+  cp "$LIB" "$kit26t/toolbelt/lib/retro-status.sh"
+  cp "$TP_LIB" "$kit26t/toolbelt/lib/target-paths.sh"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26t"
+  } > "$kit26t/TARGETS.md"
+  mut26t="$kit26t/toolbelt/verify-registry.sh"
+  if grep -qF '# KIT-PARENT-MATCH' "$mut26t"; then
+    sed -i 's/ || \[ "$_rv_expanded" = "$_kit_parent" \]//' "$mut26t"
+    mout26t="$("$BASH_BIN" "$mut26t" 2>&1)"; mrc26t=$?
+    if [ "$mrc26t" = 0 ] && grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$mout26t"; then
+      ok "teeth-kit-parent-match: neutered → repo-root registration fires WARN (test 26 has teeth)" "(exit $mrc26t)"
+    else
+      no "teeth-kit-parent-match: mutant did NOT fire self-reg WARN — test 26 has no teeth" "mrc=$mrc26t mout=[$mout26t]"
+    fi
+  else
+    no "teeth-kit-parent-match: KIT-PARENT-MATCH sentinel not found in SUT"
   fi
 fi
 
