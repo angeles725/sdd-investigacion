@@ -41,12 +41,14 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | DXF/DWG drawing | AutoCAD DXF exchange data / DWG binary drawing. NOT auto-detected: `dxf`/`dwg` are absent from `profile-target.sh`'s `BASE_EXT` allowlist — pass `EXTRA_EXT="dxf dwg"` to have it routed | ezdxf `addons.drawing` renderer — renders walls, entities, and layout geometry to **PNG or SVG** as a visual oracle | `render-drawing.sh <drawing.dxf\|.dwg> <out.png\|.svg> [--dpi N] [--style dark\|light\|white]` | ✅ |
 | PDF datasheet/manual | `PDF document` | **`extract-pdf.sh`** — tier 1 (text layer) `pymupdf4llm`→MD w/ tables + `<!-- p.N -->` anchors; tier 2 (scanned, `fonts=0`) `ocrmypdf`/`marker`/`docling`/`tesseract` OCR | `extract-pdf.sh` (download still via `fetch-doc.sh`) | ✅ |
 | Web page / forum / link | URL | `curl`/`wget` + `pandoc` → markdown | `fetch-doc.sh` | ✅ |
+| Device web-UI HTML config snapshot | HTML page captured from an embedded device's local HTTP config interface (e.g. `http://192.168.x.y/config/`) — NOT a public URL; do NOT use `fetch-doc.sh` or cite as `[CERT-web]` | Manual `curl -o snapshots/<name>.html http://<device-ip>/path` or browser save; cite as `[CERT] snapshots/<name>.html:<line>`; store under `snapshots/` in the corpus root | (direct) | ✅ |
 | Obfuscated JS | `.js` | `js-beautify` | (direct) | ✅ |
 | Source code | known extension | direct reading + CodeGraph | (direct) | ✅ |
+| XML IntelliSense / OpenAPI / protobuf API contract | `.xml` IntelliSense doc, `.yaml`/`.json` OpenAPI spec, `.proto` IDL — NOT auto-detected by `profile-target.sh`; pass `EXTRA_EXT="xml yaml proto"` as needed | Parse → slice by namespace / service / package → emit one MD or JSON per slice into `_extract/` + an `_extract/index.json` mapping slices to authors. Makes "source-before-agent" workable at API scale (see `api-openness/_extract/author_workflow.js` for a reference pipeline). | (direct, custom per-target; no kit wrapper) | ✅ |
 | Library/framework docs (MCP) | context7 / MCP query | `resolve-library-id` + `query-docs` | (MCP; snapshot load-bearing hits per METHODOLOGY §5) | ✅ |
 | MCP-server capability | added to `~/.claude.json` mcpServers | e.g. `chrome-devtools` (reach JS-rendered pages) | (MCP; log in INSTALLED-TOOLS.md per §10) | ✅ |
 | Browser / WebGL render target | headless Chrome (swiftshader) + local HTTP server | `tools/probe.mjs` (draw-call/triangle counts exact; FPS not) | (dynamic §12; `DYNAMIC-SETUP.md` §4) | ✅ |
-| Windows/PowerShell-over-SSH probe | live-install Windows host reachable via SSH | `powershell -NoProfile -EncodedCommand <b64>` via `connect-ssh.sh`; eight silent-failure gotchas documented | (dynamic §12; [`WINDOWS-SSH-PROBES.md`](WINDOWS-SSH-PROBES.md)) | ✅ |
+| Windows/PowerShell-over-SSH probe | live-install Windows host reachable via SSH | `powershell -NoProfile -EncodedCommand <b64>` via `connect-ssh.sh`; silent-failure gotchas documented (§1–5 SSH/PS; §6 Windows-native CLI from WSL) | (dynamic §12; [`WINDOWS-SSH-PROBES.md`](WINDOWS-SSH-PROBES.md)) | ✅ |
 
 ## Tool paths (verified)
 
@@ -119,6 +121,22 @@ In addition to the headless mode (always available), `ghidra-mcp` exposes Ghidra
 MCP server for interactive, agent-directed analysis. It requires Ghidra
 running with the plugin + an open binary (server at `127.0.0.1:8089`).
 See `GHIDRA-MCP.md` (generated after installation) for the usage flow.
+
+## Vendor-bundled simulation engine as oracle
+
+When a closed-source Java target ships its own simulation or emulation engine inside the vendor IDE or SDK
+JARs, that engine is the **privileged offline oracle** — it observes correct output from the vendor's
+reference model rather than recomputing it from a reimplementation.
+
+**How to identify one:** during the §6 file census, look for class names containing `Sim`, `Emulator`,
+`Interpreter`, `Offline`, or `Engine` in the vendor's own classpath. A bundled engine that accepts the
+target's native data format and produces execution output is an oracle promotion candidate.
+
+**Record it in the TOOLS table as `ORACLE`.** A harness driven by the vendor oracle is an INDEPENDENT
+verification path — it is not a reimplementation check. Evidence: logosoft B75 ran 253 assertions through
+Siemens' own `OfflineInterpreter` (`DE/siemens/ad/logo/simulation/`) to validate `GetFB`/`GetAVB` decode
+correctness without hardware; the oracle caught divergences that static decompilation analysis could not
+rule out.
 
 ## Capability detection (run BEFORE concluding a tool is missing)
 
@@ -205,6 +223,26 @@ defect (archive-blocking) · `2` = bad args. All are covered by `tests/*.test.sh
 | `verify-parity.sh <deliverable-file> <block-file-or-dir>` | corpus↔deliverable PARITY (subset check): every load-bearing value (hex color token, #RRGGBB/#RGB, case-insensitive) in a shipped deliverable (e.g. `prototypes/*/tokens.css`) must EXIST in the certified block palette it derives from — FAILs (exit 1) on any drifted/invented value the other gates miss (the pruebas-dashboards `tokens.css` drift, commits 6a9bc78/c27ec63) |
 
 Session-start sweep aggregator: `sweep-all.sh` runs `sweep-retros.sh`, `sweep-audits.sh`, `verify-registry.sh`, and `verify-kit-clean.sh` in sequence. Each script always runs independently — a failure or timeout in one does not abort the others. Exit: 0 if all four passed, non-zero if any failed or timed out. Intended for Codex and manual-run contexts (U-A20); redundant but harmless when Claude/OpenCode already execute the sweeps via their session-start hooks. Per-script timeout: `RSDD_SWEEP_TIMEOUT` (default 30 s).
+
+## DRC-fixture oracle (constraint-DSL CI gate)
+
+For any target that uses a **constraint DSL** (KiCad `.kicad_dru`, custom lint rules, firmware config
+schemas, access control policies) where an unknown keyword can **silently disable the entire rule-set**
+(exit 0, no stderr, no warning), build a fixture-based oracle with a **mandatory control-positive**:
+
+1. **Bad fixture** — a deliberately malformed rule (known-invalid keyword) that MUST fire a violation.
+2. **Good fixture** — the well-formed equivalent that MUST pass cleanly.
+3. **Control-positive assertion** — a rule that MUST fire on any valid board/input. If it passes clean,
+   the entire config was silently poisoned and the oracle must STOP with failure, not a green result.
+
+The control-positive is what makes the oracle trustworthy. **A fixture oracle without a control-positive
+proves nothing**: if the config is poisoned, every test passes and the suite declares victory over silence.
+This is the "keyword-poison" variant of the Anti-Silent-Zero doctrine (CLAUDE.md §7); the operative rule
+for research use lives in `METHODOLOGY.md` §11 under "verifying the verifier".
+
+Evidence: kidcad `tools/drc_harness/` caught four independent keyword-poison bugs in KiCad 10.0.3 (blocks
+B71, B73, B74, B77) using 14 bad/good fixture pairs across 7 constraint families. Each bug: exit 0, all
+custom rules silently disabled, no visible signal without the control-positive.
 
 ## Audit mode
 

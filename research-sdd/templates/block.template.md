@@ -19,6 +19,10 @@
 > original); anchor identity with the ORIGINAL file's `sha256` (METHODOLOGY §5).
 >
 > <Layer/area>. Connects [Block K] (<brief relationship>).
+>
+> **Type:** `standard` (default — omit this field) | `collaborative` — the agent authors the software/evidence
+> half; sections the human must supply carry `[TO ANNOTATE]`. A `collaborative` block is VALID in its partial
+> state and is NOT a coverage gap. See METHODOLOGY §4 for the full definition.
 
 ---
 
@@ -47,3 +51,11 @@ hierarchies, signatures, protocols, comparisons.>
 
 - **[Block K]** — <how it relates to this block>.
 - **[Block M]** — <...>.
+
+<!-- Collaborative block: when Type: collaborative, add one section per human-facing half using this pattern.
+
+## N.x — <Human-domain section title> [TO ANNOTATE]
+
+[TO ANNOTATE] — <one sentence describing what engineering knowledge or live measurement goes here>.
+
+-->
