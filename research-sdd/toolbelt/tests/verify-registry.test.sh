@@ -530,6 +530,41 @@ else
   no "23 \$RESEARCH_HOME row: raw token lookup, count reconciled, no 'no claimed' warn" "exit=$RC out=[$OUT]"
 fi
 
+# ---- KIT-SELF-REGISTRATION GATE (kit-sup #6) -------------------------------------------------------
+# verify-registry.sh must warn when the kit repo itself is NOT listed as a target in its own
+# TARGETS.md. A kit that supervises other corpora without supervising itself is the exact gap
+# kit-sup #6 closes.
+
+# 24 — kit IS in its own TARGETS.md → NO self-reg WARN.
+#      The kit row carries nc (no corpus) to avoid the contradiction check; the target is placed
+#      OUTSIDE the kit dir so the nc search can't see the target's RESEARCH-STATE.md.
+kit="$(mkkit c24-selfreg-ok)"
+tgt24="$ROOT/c24-selfreg-tgt"   # sibling of kit — not a subdir of kit
+mkcorpus "$tgt24" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | t1 | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt24"
+  printf '| 2 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$OUT"; then
+  ok "24 kit IS in own TARGETS.md → no self-reg WARN" "(exit $RC)"
+else
+  no "24 kit in TARGETS.md → self-reg WARN should not fire" "exit=$RC out=[$OUT]"
+fi
+
+# 25 — kit ABSENT from its own TARGETS.md → self-reg WARN fires, exit still 0 (WARN-only).
+kit="$(mkkit c25-selfreg-absent)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"   # kit dir is NOT included in TARGETS.md
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$OUT"; then
+  ok "25 kit ABSENT from TARGETS.md → self-reg WARN fires (exit 0)" "(exit $RC)"
+else
+  no "25 kit absent → expected self-reg WARN but not found" "exit=$RC out=[$OUT]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -611,9 +646,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -q '# UNCLASSIFIABLE-CHECK' "$mut"; then
     sed -i '/# UNCLASSIFIABLE-CHECK/ s/.*/    if false; then  # UNCLASSIFIABLE-CHECK [MUTATED]/' "$mut"
     mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
-    # Assert the WARN line is absent, not just the string "unclassifiable" — the §18 INFO noun
-    # now contains "unclassifiable" so a bare grep would false-fail even after correct neutering.
-    if [ "$mrc" = 0 ] && ! grep -qE 'WARN[[:space:]].*unclassifiable' <<<"$mout"; then
+    # Assert that targetA's unclassifiable WARN is absent. Pin to targetA explicitly: the kit name
+    # may contain "unclassifiable" (e.g. teeth-unclassifiable) and the self-reg gate now emits
+    # `WARN  <kit-name> — kit repo is NOT...`, which would false-match a bare .*unclassifiable pattern.
+    if [ "$mrc" = 0 ] && ! grep -qE 'WARN[[:space:]]+targetA.*unclassifiable' <<<"$mout"; then
       ok "teeth-unclassifiable: neutered guard → bare blocks emit NO unclassifiable WARN (test 16 has teeth)" "(exit $mrc)"
     else
       no "teeth-unclassifiable: neutered mutant STILL emits unclassifiable WARN → test 16 is THEATER" "mrc=$mrc mout=[$mout]"
@@ -731,6 +767,25 @@ VRT2STRIPPED
     else
       no "teeth VR-T3: guard-removed mutant did not show Summary without ERROR — case 22 has no teeth" "rc=$mrc_t3 out=[$mout_t3]"
     fi
+  fi
+
+  # teeth-kit-self-reg: neuter the KIT-SELF-REG-CHECK (kit-sup #6 gate); the kit-absent fixture
+  # (test 25) must STOP emitting the self-reg WARN, proving the assertion is load-bearing.
+  echo "-- teeth-kit-self-reg: neuter KIT-SELF-REG-CHECK; kit-absent fixture must NOT WARN --"
+  kit="$(mkkit teeth-kit-self-reg)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  write_targets "$kit" "$tgt::3 md"   # kit dir NOT in TARGETS.md (same fixture as test 25)
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# KIT-SELF-REG-CHECK' "$mut"; then
+    sed -i '/# KIT-SELF-REG-CHECK/ s/.*/  : # KIT-SELF-REG-CHECK [NEUTERED]/' "$mut"
+    mout_ksr="$("$BASH_BIN" "$mut" 2>&1)"; mrc_ksr=$?
+    if [ "$mrc_ksr" = 0 ] && ! grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$mout_ksr"; then
+      ok "teeth-kit-self-reg: neutered gate → kit-absent fixture emits NO self-reg WARN (test 25 has teeth)" "(exit $mrc_ksr)"
+    else
+      no "teeth-kit-self-reg: neutered mutant STILL emits self-reg WARN → test 25 is THEATER" "mrc=$mrc_ksr mout=[$mout_ksr]"
+    fi
+  else
+    no "teeth-kit-self-reg: KIT-SELF-REG-CHECK sentinel not found in SUT (gate not implemented or marker missing)"
   fi
 
   # teeth-rh-rowlookup: neuter the raw-token lookup (identified by # RH-ROW-LOOKUP sentinel in the

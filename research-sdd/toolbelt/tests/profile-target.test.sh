@@ -119,8 +119,19 @@ expect_has   "10 filesystem          → scan-firmware.sh" \
 # ---------------------------------------------------------------------------
 # FALLBACKS — the 'data'/'empty' arm and the catch-all '*)' arm both exist to
 # guarantee opaque/proprietary containers are NEVER silently skipped.
-expect_has   "11 generic 'data'      → firmware + MANUAL (opaque)" \
-  "$(mkcase c11 blob.scfx 'data')" \
+#
+# P4 NOTE: after the text-like annotation was added (P4), a 'data' fixture whose
+# content is purely printable ASCII would score >90% and route to 'text-like' rather
+# than 'opaque'. Test 11 must use a binary fixture so it continues to pin the opaque
+# path; the text-like path is pinned by test 25 (P4). The fixture is built manually
+# (mkcase can't inject binary bytes through a string arg): "data" prefix (4 printable
+# bytes) + bytes 1–49 (non-null control chars, all non-printable outside the
+# \011\012\015\040-\176 range used by the text-like check → ~13% printable < 90%).
+c11dir="$STAGE/c11"; mkdir -p "$c11dir"
+python3 -c "import sys; sys.stdout.buffer.write(b'data' + b'\x01' * 50)" \
+  > "$c11dir/blob.scfx"
+expect_has   "11 generic 'data' (binary) → firmware + MANUAL (opaque, not text-like)" \
+  "$c11dir" \
   'scan-firmware.sh + MANUAL (opaque'
 
 expect_has   "12 'empty' string      → firmware + MANUAL (opaque)" \
@@ -277,6 +288,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# P4 — TEXT-LIKE ANNOTATION. A 'data'-type file whose first 512 bytes are >90%
+# printable ASCII (space, tab, LF, CR, and glyphs 0x20–0x7E) should be annotated
+# "(text-like — try reading it first)" instead of the opaque label. The negative case
+# (binary 'data' file → opaque) is covered by the updated test 11 binary fixture above.
+c25dir="$STAGE/c25"; mkdir -p "$c25dir"
+# Fixture must be no-newline so the stub (cat of file) does not break the printf
+# table row — embedded newlines split the row and make awk miss the wrapper column.
+# 500 'a' bytes after "data" → 504 printable bytes, no newlines → ratio 100% > 90%.
+python3 -c "import sys; sys.stdout.buffer.write(b'data' + b'a' * 500)" \
+  > "$c25dir/textblob.dat"
+expect_has   "25 P4: 'data' file >90% printable ASCII → text-like annotation" \
+  "$c25dir" \
+  'text-like — try reading it first'
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Case 16 claims the .Net/Mono arm sitting ABOVE the
 # PE32 arm is what routes a .NET+PE32 file to net-only. Prove it: neuter that arm
 # on a throwaway SUT copy (rewrite its pattern to one that can never match) and
@@ -302,6 +328,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       *)
         no "teeth: mutant did NOT misroute" "got=[$mroute] — case-arm ordering test is THEATER" ;;
     esac
+  fi
+
+  # teeth-p4: neuter P4-TEXT-LIKE-ANNOT on a throwaway SUT copy; the all-ASCII
+  # 'data' fixture (same as test 25) must STOP emitting the text-like annotation —
+  # proving the annotation is load-bearing and test 25 is not theater.
+  echo "-- teeth-p4: neuter P4-TEXT-LIKE-ANNOT; ASCII 'data' fixture must NOT show text-like --"
+  p4sentinel='# P4-TEXT-LIKE-ANNOT'
+  p4content="$(cat "$SUT")"
+  if [[ "$p4content" != *"$p4sentinel"* ]]; then
+    no "teeth-p4: P4-TEXT-LIKE-ANNOT sentinel not found in SUT (P4 not implemented or marker missing)"
+  else
+    p4mutant="$TMP/profile-target.P4MUTANT.sh"
+    sed '/# P4-TEXT-LIKE-ANNOT/ s/.*/  if false; then  # P4-TEXT-LIKE-ANNOT [NEUTERED]/' \
+      "$SUT" > "$p4mutant"
+    p4dir_t="$TMP/p4dir"; mkdir -p "$p4dir_t"
+    python3 -c "import sys; sys.stdout.buffer.write(b'data' + b'a' * 500)" \
+      > "$p4dir_t/textblob.dat"
+    p4mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$p4mutant" "$p4dir_t" 2>&1)"
+    if ! grep -q 'text-like' <<<"$p4mout"; then
+      ok "teeth-p4: neutered annotation → ASCII 'data' fixture shows NO text-like (test 25 has teeth)"
+    else
+      no "teeth-p4: mutant STILL shows text-like → test 25 is THEATER" "p4mout=[$p4mout]"
+    fi
   fi
 fi
 

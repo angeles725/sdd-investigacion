@@ -39,6 +39,11 @@ assert_absent "  flat: NO per-target tools/gen-catalog.py (eje #2)" "$d/tools/ge
 assert_grep "  flat: .gitignore has .atl/"    ".atl/"    "$d/.gitignore"
 assert_grep "  flat: .gitignore has .claude/" ".claude/" "$d/.gitignore"
 [ -d "$d/.git" ] && ok "  flat: git initialized" || no "  flat: git initialized"
+# kit-sup #5: tools/ provenance ledger seeded at target root (distinct from eje #2 gen-catalog.py drift)
+assert_file "  flat: tools/README.md seeded"                     "$d/tools/README.md"
+[ -s "$d/tools/README.md" ] && ok "  flat: tools/README.md non-empty (anti-silent-zero)" \
+  || no "  flat: tools/README.md is empty or missing (anti-silent-zero)"
+assert_grep "  flat: tools/README.md is a provenance ledger"     "Provenance" "$d/tools/README.md"
 
 # GOOD 2 — auto nests when subject material is present; root stays clean
 d="$TMP/good-nested"; mkdir -p "$d"; : > "$d/app.html"
@@ -46,6 +51,9 @@ assert_exit 0 "GOOD auto: nests on subject material" "$d" --corpus auto
 assert_file   "  nested: corpus/INDEX.md"     "$d/corpus/INDEX.md"
 assert_absent "  nested: NO root INDEX.md"    "$d/INDEX.md"
 [ -d "$d/retros" ] && ok "  nested: retros/ at target root" || no "  nested: retros/ at root"
+# kit-sup #5: tools/ at TARGET root (not corpus subdir) in nested layout
+assert_file   "  nested: tools/README.md at target root"     "$d/tools/README.md"
+assert_absent "  nested: NO tools/ under corpus/"            "$d/corpus/tools/README.md"
 
 # GOOD 3 — auto on empty target → flat
 d="$TMP/good-auto-empty"; mkdir -p "$d"
@@ -127,6 +135,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: mutant clobbers curated state (exit 0, gone) → refuse tests have teeth"
     else
       no "teeth: mutant exit $mg / data present — refuse tests do NOT depend on the guard (THEATER)"
+    fi
+  fi
+
+  # Mutation 2: neuter tools-README seeding — prove tools-scaffold assertions have teeth
+  echo "-- teeth proof: omit tools-README cpf, expect README to be absent --"
+  mkdir -p "$TMP/tt/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/tt/templates"
+  tt_mutant="$TMP/tt/toolbelt/init.sh"
+  awk '/cpf.*tools-README\.template\.md/ { next } { print }' "$SUT" > "$tt_mutant"
+  if ! grep -qE 'cpf.*tools-README' "$SUT" || grep -qE 'cpf.*tools-README' "$tt_mutant"; then
+    no "teeth: could not build tools-scaffold mutant (cpf line not found or not removed)"
+  else
+    dt="$TMP/tth"; mkdir -p "$dt"
+    bash "$tt_mutant" "$dt" --corpus flat >/dev/null 2>&1
+    if [ ! -f "$dt/tools/README.md" ]; then
+      ok "teeth: mutant skipped tools/README.md → tools-scaffold tests have teeth"
+    else
+      no "teeth: mutant still produced tools/README.md — tools-scaffold tests are THEATER"
     fi
   fi
 fi

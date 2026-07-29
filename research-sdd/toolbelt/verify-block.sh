@@ -101,7 +101,13 @@ art_spans=$(grep -oE '\([^)]*\)|`[^`]*`' "$block")                       # paren
 art_cites=$(printf '%s\n' "$art_spans" | grep -oiE "\\b${art_name}${art_tail}" | sort -u)
 bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+`' "$block" | tr -d '`' | sort -u)
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ]; then
-  echo "   (no file:line citations found)"
+  # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
+  # exits 0 silently having checked nothing. Warn so the author notices the gap.
+  if [ "$cert_total" -gt 0 ]; then  # P6-CERT-ZERO-CITE-WARN
+    echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Add file:line citations or re-check the citation format."
+  else
+    echo "   (no file:line citations found)"
+  fi
 fi
 # (a) artifact cites — strict: MISSING (unpreserved evidence) and out-of-range both FAIL.
 if [ -n "$art_cites" ]; then
@@ -113,6 +119,13 @@ if [ -n "$art_cites" ]; then
       *-*) start="${rng%-*}"; end="${rng##*-}";;                         # a range: bounds-check BOTH ends
       *)   start="$rng"; end="$rng";;                                    # single line
     esac
+    # D6: the art_name regex extracts the bare filename; if the cite carries a PATH prefix
+    # (sources/probes/B10-x.txt:146) search the block text for the full cited path.
+    if [ ! -f "$target/$f" ]; then
+      _esc_f="$(printf '%s' "$f" | sed 's/\./\\./g')"
+      _full_path="$(grep -oiE "[a-zA-Z0-9_./-]+/${_esc_f}" "$block" 2>/dev/null | head -1)"
+      [ -n "$_full_path" ] && [ -f "$target/$_full_path" ] && f="$_full_path"  # D6-PATH-FALLBACK
+    fi
     if [ ! -f "$target/$f" ]; then
       echo "   MISSING! $c  (evidence artifact not preserved)"; rc=1
     else

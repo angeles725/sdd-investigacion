@@ -320,6 +320,32 @@ out="$(run "$d")"; rrc "$d"; rc=$?
 if [ "$rc" = "0" ] && ! grep -q 'MISSING' <<<"$out"; then ok "digit-only build refs (B7-2:1 vs B7-3:1) do NOT fire (no false MISSING, exit 0)"
 else no "B7-x:1 wrongly fired: rc=[$rc] :: $(grep -i 'MISSING' <<<"$out" | head -1)"; fi
 
+# ---- D6: artifact cites that carry a PATH PREFIX must resolve via the full path ---------------------
+# nav2 D6: when a cite is written as (sources/probes/B10-x.txt:146) the art_name regex extracts only
+# the bare basename B10-x.txt. The file exists under <target>/sources/probes/B10-x.txt but NOT at
+# <target>/B10-x.txt. Current behaviour: MISSING! + exit 1. Fixed behaviour: ok + exit 0.
+
+# 31 — D6: path-prefixed cite (sources/probes/B10-x.txt:146) — file at that subpath, not bare.
+#      Must resolve via the full cited path → ok + exit 0 (not MISSING).
+d="$TMP/d6-pathcite.md"; mkdir -p "$TMP/sources/probes"; seq 1 200 > "$TMP/sources/probes/B10-x.txt"
+{ echo "# Block 31 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Option order fixed (sources/probes/B10-x.txt:146). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! grep -q 'MISSING' <<<"$out"; then ok "D6: path-prefixed cite (sources/probes/B10-x.txt:146) resolved → ok + exit 0"
+else no "D6: path-prefixed cite not resolved: rc=[$rc] :: $(grep -iE 'B10-x|MISSING|ok' <<<"$out" | head -1)"; fi
+
+# ---- P6: [CERT] markers present but ZERO file:line citations → WARN (second half of pi5 P6) --------
+# When a block has [CERT] body markers but neither art_cites nor bt_cites resolve any file:line
+# citation, the citation gate exits 0 silently having checked nothing. P6 adds a WARN for that case.
+
+# 32 — P6: block has [CERT] in body, no file:line citations anywhere → WARN must fire.
+d="$TMP/p6-certnoncite.md"
+{ echo "# Block 32 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The flag is always set. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|\[CERT\].*WARN|WARN.*cert.*citation|WARN.*cert.*zero' <<<"$out"; then ok "P6: [CERT] with zero citations → WARN emitted"
+else no "P6: [CERT] with zero citations — no WARN :: $(grep -iE 'WARN|cert|citation' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -334,6 +360,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # With the strip neutered, either adj==raw (no second number shown) or the numbers match → no distinction.
   if [ -z "$madj" ] || [ "$mraw" = "$madj" ]; then ok "teeth: neutered mutant stops distinguishing legend → strip has teeth"
   else no "teeth: mutant still distinguished (raw=$mraw adj=$madj) — strip not exercised (THEATER)"; fi
+
+  # teeth-d6: neuter the D6 path-prefix fallback (D6-PATH-FALLBACK sentinel); the path-prefixed
+  # cite must go back to MISSING + exit 1, proving test 31 depends on the real fallback.
+  echo "-- teeth-d6: neuter D6-PATH-FALLBACK; path-prefixed cite must go MISSING + exit 1 --"
+  mutant_d6="$TMP/verify-block.D6MUTANT.sh"
+  if grep -q '# D6-PATH-FALLBACK' "$SUT"; then
+    sed '/# D6-PATH-FALLBACK/ s/.*/      : # D6-PATH-FALLBACK [NEUTERED]/' "$SUT" > "$mutant_d6"
+    mkdir -p "$TMP/sources/probes"; seq 1 200 > "$TMP/sources/probes/B10-x.txt"
+    d_d6="$TMP/d6-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "Option order fixed (sources/probes/B10-x.txt:146). \`[CERT]\`"; } > "$d_d6"
+    bash "$mutant_d6" "$d_d6" >/dev/null 2>/dev/null; md6_rc=$?
+    mout_d6="$(bash "$mutant_d6" "$d_d6" 2>/dev/null)"
+    if [ "$md6_rc" = "1" ] && grep -q 'MISSING' <<<"$mout_d6"; then
+      ok "teeth-d6: neutered D6 fallback → path-prefixed cite is MISSING + exit 1 (test 31 has teeth)"
+    else
+      no "teeth-d6: neutered D6 mutant did not produce MISSING: rc=[$md6_rc] :: $(grep -iE 'MISSING|ok|B10' <<<"$mout_d6" | head -1)"
+    fi
+  else
+    no "teeth-d6: D6-PATH-FALLBACK sentinel not found in SUT (D6 not implemented or marker missing)"
+  fi
+
+  # teeth-p6: neuter the P6 CERT-zero-cite WARN (P6-CERT-ZERO-CITE-WARN sentinel); the [CERT]+
+  # no-citations block must stop emitting the WARN, proving test 32 depends on the real branch.
+  echo "-- teeth-p6: neuter P6-CERT-ZERO-CITE-WARN; [CERT]+no-cites block must NOT WARN --"
+  mutant_p6="$TMP/verify-block.P6MUTANT.sh"
+  if grep -q '# P6-CERT-ZERO-CITE-WARN' "$SUT"; then
+    sed '/# P6-CERT-ZERO-CITE-WARN/ s/.*/  if false; then  # P6-CERT-ZERO-CITE-WARN [NEUTERED]/' "$SUT" > "$mutant_p6"
+    d_p6="$TMP/p6-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "The flag is always set. [CERT]"; } > "$d_p6"
+    mout_p6="$(bash "$mutant_p6" "$d_p6" 2>/dev/null)"
+    if ! grep -qiE 'WARN.*\[CERT\]|\[CERT\].*WARN|WARN.*cert' <<<"$mout_p6"; then
+      ok "teeth-p6: neutered P6 branch → no WARN emitted for [CERT]+no-cites (test 32 has teeth)"
+    else
+      no "teeth-p6: neutered P6 mutant STILL emitted WARN :: $(grep -iE 'WARN' <<<"$mout_p6" | head -1)"
+    fi
+  else
+    no "teeth-p6: P6-CERT-ZERO-CITE-WARN sentinel not found in SUT (P6 not implemented or marker missing)"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
