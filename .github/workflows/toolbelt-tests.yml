@@ -10,6 +10,9 @@ on:
       - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
+      # .claude/settings.json is a harness input for harness-sweep-parity.test.sh (SessionStart
+      # hook command paths).  Missing this entry caused PR #108 to merge without running the suite.
+      - ".claude/settings.json"
   pull_request:
     paths:
       - "research-sdd/toolbelt/**"
@@ -17,6 +20,7 @@ on:
       - "research-sdd/templates/**"
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
+      - ".claude/settings.json"
 
 jobs:
   toolbelt-tests:

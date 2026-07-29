@@ -86,13 +86,14 @@ Never declare done without running it.
 
 | Gate | Command | Standard |
 |---|---|---|
-| Shellcheck | `shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh` | Zero warnings. **`globstar` is required** — without it the glob matches depth 1 only (77 files instead of 124), silently skipping all of `lib/` and `tests/`. `.shellcheckrc` suppresses SC2015 and SC2016 — intentional silences for this codebase's idioms, not blanket ignores |
+| Shellcheck | `shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh` | Zero warnings. **`globstar` is required** — without it the glob matches depth 1 only, silently skipping all of `lib/` and `tests/` (currently 128 files match with it). `shopt` is a bash builtin: under zsh it errors out, but zsh globs `**` recursively on its own, so the coverage is still correct — check the file count, not the absence of an error. `.shellcheckrc` suppresses SC2015 and SC2016 — intentional silences for this codebase's idioms, not blanket ignores |
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
-Current suite: **74 suites** (72 `*.test.sh` + 2 `*.test.mjs`), **1,467 test cases** at `bf84d33`
-(HEAD). Re-measure rather than trusting this line if it looks stale. New suites dropped into
-`research-sdd/toolbelt/tests/` are picked up automatically — nothing to register.
+Current suite: **76 suites** (74 `*.test.sh` + 2 `*.test.mjs`), **1,500 test cases** — 1,589 under
+`--prove-teeth`, which adds the mutation controls — measured at `4d2a5bb`. Re-measure rather than
+trusting this line if it looks stale. New suites dropped into `research-sdd/toolbelt/tests/` are
+picked up automatically — nothing to register.
 
 Every toolbelt script must have a companion `*.test.sh` under `research-sdd/toolbelt/tests/`.
 
