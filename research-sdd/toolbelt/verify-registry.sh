@@ -33,6 +33,21 @@ _vr_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
 declare -F retro_is_excluded >/dev/null 2>&1 || retro_is_excluded() { return 1; }  # no-op fallback
 unset _vr_lib
 
+# Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
+# WARN-only contract: a missing or broken lib is still a loud signal, but exits 0 like all
+# other operational notices in this script. A missing lib before the TARGETS.md check is the
+# only case where target_paths_all can't be defined; callers get the clear error message.
+_vr_tp_lib="$(cd "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+if [ ! -f "$_vr_tp_lib" ]; then
+  echo "verify-registry: cannot find helper $_vr_tp_lib" >&2; exit 0
+fi
+# shellcheck source=lib/target-paths.sh
+. "$_vr_tp_lib"
+# Fail closed: source must DEFINE both functions — a partial source is otherwise swallowed.
+declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_all" >&2; exit 0; }
+declare -F target_paths_pairs >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_pairs" >&2; exit 0; }
+unset _vr_tp_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "verify-registry: cannot find $TARGETS_MD" >&2
   exit 0   # WARN-only contract: even a missing registry never fails the surfacing.
@@ -43,11 +58,19 @@ fi
 tol="${RSDD_REGISTRY_TOL:-2}"
 
 # Absolute target paths live in the TARGETS.md table as backtick-wrapped paths (same derivation as the
-# sweeps). Truncated ones (contain '...') can't be resolved to a real dir, so they're dropped — but
-# COLLECT them so the summary can WARN that this reconcile is PARTIAL instead of reading complete.
-all_paths=$(grep -oE '`/[^`]+`' "$TARGETS_MD" 2>/dev/null | tr -d '`' | sort -u)
-paths=$(printf '%s\n' "$all_paths" | grep -v '\.\.\.')
-skipped=$(printf '%s\n' "$all_paths" | grep '\.\.\.')
+# sweeps). target_paths_pairs emits "<raw>\t<expanded>" per entry so we can use the expanded path for
+# all filesystem operations while recovering the raw (as-written) token for row lookup — needed when
+# TARGETS.md stores `$RESEARCH_HOME/...` forms that do not match an expanded-path needle.
+# Truncated '...' entries pass through so the summary can WARN this reconcile is PARTIAL.
+all_pairs=$(target_paths_pairs "$TARGETS_MD")
+paths=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep -v '\.\.\.')
+skipped=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep '\.\.\.')
+# ANTI-SILENT-ZERO: zero usable paths is a loud error, not a silent empty reconcile.
+if [ -z "$paths" ]; then
+  echo "verify-registry: ERROR — no usable target paths in $TARGETS_MD" >&2
+  echo "verify-registry: check TARGETS.md has backtick-wrapped absolute or \$RESEARCH_HOME/... paths" >&2
+  exit 0  # WARN-only contract: never signals failure, but the error is explicit.
+fi
 
 skipped_names=""; skipped_count=0
 for s in $skipped; do
@@ -65,8 +88,11 @@ checked=0; drift=0; unresolved=0
 
 for p in $paths; do
   [ -n "$p" ] || continue
-  # The master-table row is the line carrying the EXACT backtick-wrapped path. Pull the FIRST such line.
-  needle="${bt}${p}${bt}"
+  # The master-table row is the line carrying the EXACT backtick-wrapped path. Use the raw
+  # (as-written) token from TARGETS.md as the needle — not the expanded path — so rows written
+  # in `$RESEARCH_HOME/...` form are matched even after $RESEARCH_HOME has been expanded.
+  raw_p="$(printf '%s\n' "$all_pairs" | awk -F'\t' -v p="$p" '$2==p{print $1;exit}')"  # RH-ROW-LOOKUP
+  needle="${bt}${raw_p:-$p}${bt}"
   row="$(grep -F -- "$needle" "$TARGETS_MD" 2>/dev/null | head -1)"
 
   # Claimed count: the Maturity column's leading "N md" (or "N blocks") token in that row.

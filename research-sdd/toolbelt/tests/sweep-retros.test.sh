@@ -26,6 +26,8 @@ SUT="$HERE/../sweep-retros.sh"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT now sources
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
+TP_LIB="$HERE/../lib/target-paths.sh"        # shared path derivation the SUT now sources
+[ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -39,6 +41,7 @@ mkkit() {
   mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/sweep-retros.sh"
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this at $(dirname $0)/lib/
+  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this at $(dirname $0)/lib/
   printf '%s' "$kit"
 }
 
@@ -934,6 +937,62 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 47 — FAIL-CLOSED on a broken target-paths helper. The SUT sources lib/target-paths.sh and
+#      must DEFINE target_paths_all before doing any path work. A helper that exists and sources
+#      cleanly but defines NO function must cause an immediate abort (non-zero exit, no summary).
+#      RED before the retrofit: the SUT ignores lib/target-paths.sh entirely and runs normally.
+kit="$(mkkit c47-broken-tp)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+write_targets "$kit" "$tgt"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no target_paths_all\n' \
+  > "$kit/toolbelt/lib/target-paths.sh"
+run "$kit"
+if [ "$RC" != 0 ] \
+   && grep -q 'failed to define target_paths_all' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "47 broken target-paths helper → fail-closed abort, no summary" "(exit $RC)"
+else
+  no "47 broken target-paths helper → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 48 — \$RESEARCH_HOME path form resolves (the whole point of the retrofit). A TARGETS.md row
+#      written as \`\$RESEARCH_HOME/sub/dir\` was INVISIBLE to the old backtick+slash grep.
+#      After the retrofit, target_paths_all expands the placeholder → the target resolves, its
+#      pending retro surfaces. RED before retrofit: old grep sees nothing, summary is 0/0.
+kit="$(mkkit c48-rh-path)"
+_rh_base="$ROOT/rh_base_$$"
+mkdir -p "$_rh_base"
+tgt="$_rh_base/rh_target"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 3
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `$RESEARCH_HOME/rh_target` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base" "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+unset _rh_base
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "48 \$RESEARCH_HOME path → expanded and resolved, retro surfaced" "(exit $RC)"
+else
+  no "48 \$RESEARCH_HOME path → expanded and resolved, retro surfaced" "exit=$RC out=[$OUT]"
+fi
+
+# 49 — ANTI-SILENT-ZERO: TARGETS.md with no backtick-wrapped paths → zero usable paths →
+#      exit 1 with a visible ERROR message, never a clean empty sweep.
+#      RED before retrofit: inline grep returns empty, sweep runs with no targets, exits 0.
+kit="$(mkkit c49-zeropaths)"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
+  > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 1 ] \
+   && grep -qi 'ERROR.*no usable target paths' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "49 no usable paths → exit 1, ERROR message, no summary" "(exit $RC)"
+else
+  no "49 no usable paths → exit 1, ERROR message, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
 # match (rename its pattern to a token no status ever equals) and re-run the APPLIED fixture:
@@ -1152,6 +1211,83 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth M5: { exit }-dropped mutant false-excludes body-position retro → 0/0 (case 27 has teeth)" "()"
   else
     no "teeth M5: { exit }-dropped mutant kept retro PENDING — case 27 is THEATER" "out=[$outm]"
+  fi
+
+  # Tooth T1: neuter the declare-F guard for target_paths_all → broken helper fails OPEN.
+  # Without the guard the SUT calls an undefined target_paths_all; bash reports "command not found",
+  # all_paths is empty, zero-paths guard fires (exit 1) but WITHOUT the "failed to define" message.
+  # Case 47 requires BOTH non-zero exit AND "failed to define" message → test goes RED. Teeth proven.
+  echo "-- teeth T1: neuter declare-F for target_paths_all; broken helper must fail OPEN without the right message --"
+  # The guard is a single-liner; replacing the whole line with ':' drops the || echo exit block entirely.
+  _tp_guard_anchor='declare -F target_paths_all >/dev/null 2>&1 || { echo "sweep-retros:'
+  if ! grep -qF "$_tp_guard_anchor" "$SUT"; then
+    no "teeth T1: locate declare-F target_paths_all guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-t1-no-tp-guard)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+    write_targets "$kit" "$tgt"
+    printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
+    mut="$kit/toolbelt/sweep-retros.sh"
+    # Entire single-line guard is replaced with no-op; the 'failed to define' echo is gone.
+    sed 's/declare -F target_paths_all .*/: # __T1_NEUTERED__/' "$SUT" > "$mut"
+    outm="$("$BASH_BIN" "$mut" 2>&1)"; rcm=$?
+    if [ "$rcm" != 0 ] && ! grep -q 'failed to define target_paths_all' <<<"$outm"; then
+      ok "teeth T1: guard-neutered mutant exits non-zero without 'failed to define' msg (case 47 has teeth)" "()"
+    else
+      no "teeth T1: mutant still said 'failed to define' or exited 0 — case 47 has no teeth" "rc=$rcm out=[$outm]"
+    fi
+  fi
+
+  # Tooth T2: strip RESEARCH_HOME expansion from target-paths.sh sandbox copy → case 48 goes RED.
+  # Without the $RESEARCH_HOME form, all_paths is empty, zero-paths guard fires (exit 1),
+  # no PENDING retro surfaces — test expects exit 0 + PENDING → RED.
+  echo "-- teeth T2: remove RESEARCH_HOME expansion; case 48 must go RED (no PENDING surfaced) --"
+  kit="$(mkkit teeth-t2-no-rh)"
+  _rh_base_t2="$ROOT/rh_base_t2_$$"
+  mkdir -p "$_rh_base_t2"
+  tgt="$_rh_base_t2/rh_target"
+  mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 3
+  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+    printf '| 1 | t1 | `$RESEARCH_HOME/rh_target` |\n'
+  } > "$kit/TARGETS.md"
+  # Write a stripped target-paths.sh that handles only /abs form (no RESEARCH_HOME expansion).
+  cat > "$kit/toolbelt/lib/target-paths.sh" <<'STRIPPED'
+#!/usr/bin/env bash
+if ! declare -F target_paths_all >/dev/null 2>&1; then
+  target_paths_all() {
+    local f="${1:-}"
+    [ -n "$f" ] || return 0
+    [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
+    grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | sort -u
+  }
+fi
+STRIPPED
+  outm2="$(RESEARCH_HOME="$_rh_base_t2" "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; rcm2=$?
+  unset _rh_base_t2
+  if ! grep -q 'PENDING' <<<"$outm2" || ! grep -q 'Summary: 1 pending / 1 retros' <<<"$outm2"; then
+    ok "teeth T2: RESEARCH_HOME-stripped mutant: no PENDING surfaced → case 48 has teeth" "()"
+  else
+    no "teeth T2: stripped mutant still surfaced PENDING — case 48 is THEATER" "rc=$rcm2 out=[$outm2]"
+  fi
+
+  # Tooth T3: remove zero-paths guard from SUT → case 49 goes RED (exits 0 with Summary).
+  echo "-- teeth T3: remove zero-paths guard; empty-paths run must exit 0 with Summary (case 49 has teeth) --"
+  _zp_anchor='if \[ -z "\$paths" \]; then'
+  if ! grep -qE "$_zp_anchor" "$SUT"; then
+    no "teeth T3: locate zero-paths guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-t3-no-zpguard)"
+    printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
+      > "$kit/TARGETS.md"
+    # Delete lines matching the guard block (if [ -z "$paths" ]; then ... fi).
+    # Use a temp file: copy SUT, remove the 4-line guard block with sed.
+    sed '/if \[ -z "\$paths" \]/,/^fi$/d' "$SUT" > "$kit/toolbelt/sweep-retros.sh"
+    outm3="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; rcm3=$?
+    if [ "$rcm3" = 0 ] && grep -q 'Summary:' <<<"$outm3" && ! grep -qi 'ERROR.*no usable' <<<"$outm3"; then
+      ok "teeth T3: guard-removed mutant exits 0 with Summary (case 49 has teeth)" "()"
+    else
+      no "teeth T3: guard-removed mutant did not exit 0 with Summary — case 49 has no teeth" "rc=$rcm3 out=[$outm3]"
+    fi
   fi
 fi
 

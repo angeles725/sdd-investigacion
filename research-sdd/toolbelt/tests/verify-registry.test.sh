@@ -25,6 +25,8 @@ SUT="$HERE/../verify-registry.sh"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 LIB="$HERE/../lib/retro-status.sh"   # shared helper the SUT now sources for retro_is_excluded
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
+TP_LIB="$HERE/../lib/target-paths.sh"  # shared path derivation the SUT now sources
+[ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -38,6 +40,7 @@ mkkit() {
   mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/verify-registry.sh"
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
+  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this for target_paths_all
   printf '%s' "$kit"
 }
 
@@ -443,6 +446,90 @@ else
   no "19 ordinary docs + boundary names (blocking-issues/block-diagram/bloques-pendientes/roadblock) → no false alarm" "exit=$RC out=[$OUT]"
 fi
 
+# 20 — FAIL-CLOSED on a broken target-paths helper. verify-registry now sources lib/target-paths.sh;
+#      a helper that exists but defines no function must cause an abort (exit 0, WARN-only contract)
+#      with a 'failed to define' message and no Summary line.
+#      RED before retrofit: SUT ignores lib/target-paths.sh entirely and runs normally.
+kit="$(mkkit c20-broken-tp)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no target_paths_all\n' \
+  > "$kit/toolbelt/lib/target-paths.sh"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'failed to define target_paths_all' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "20 broken target-paths helper → exit 0, 'failed to define' message, no summary" "(exit $RC)"
+else
+  no "20 broken target-paths helper → exit 0, 'failed to define' message, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 21 — \$RESEARCH_HOME path form resolves. A TARGETS.md row written as \`\$RESEARCH_HOME/sub\`
+#      was invisible to the old backtick+slash grep; after the retrofit it expands and the corpus
+#      directory IS walked (not "corpus layout not resolvable"). Note: the row-lookup inside
+#      verify-registry.sh uses the EXPANDED path as needle, but TARGETS.md stores the literal
+#      \`\$RESEARCH_HOME/...\` form, so the claimed-count row is empty → "no claimed N md" WARN fires.
+#      That is a pre-existing row-lookup limitation, NOT a regression of this retrofit.
+#      The key assertion: 1 target reconciled AND corpus was found (not "not resolvable").
+#      RED before retrofit: old grep sees nothing, Summary: 0 targets (or zero-paths guard fires).
+kit="$(mkkit c21-rh-path)"
+_rh_base_vr="$ROOT/rh_base_vr_$$"
+mkdir -p "$_rh_base_vr"
+tgt="$_rh_base_vr/rh_corpus"
+mkcorpus "$tgt" 4 "r"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | t1 | mature (4 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_vr" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_vr
+if [ "$RC" = 0 ] \
+   && grep -q 'reconciled 1 target' <<<"$OUT" \
+   && ! grep -q 'corpus layout not resolvable' <<<"$OUT"; then
+  ok "21 \$RESEARCH_HOME path → expanded, corpus found (not 'not resolvable'), 1 target reconciled" "(exit $RC)"
+else
+  no "21 \$RESEARCH_HOME path → expanded, corpus found (not 'not resolvable'), 1 target reconciled" "exit=$RC out=[$OUT]"
+fi
+
+# 22 — ANTI-SILENT-ZERO (WARN-only): TARGETS.md with no backtick paths → loud ERROR message,
+#      exit 0 (WARN-only contract), no Summary line.
+#      RED before retrofit: inline grep returns empty, run exits 0 with "reconciled 0 targets."
+kit="$(mkkit c22-zeropaths)"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
+  > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qi 'ERROR.*no usable target paths' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "22 no usable paths → exit 0 (WARN-only), ERROR message, no summary" "(exit $RC)"
+else
+  no "22 no usable paths → exit 0 (WARN-only), ERROR message, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 23 — $RESEARCH_HOME path: row uses `$RESEARCH_HOME/...` form, corpus on disk, claimed count
+#      matches real count → row IS found via the raw (as-written) token, count IS reconciled,
+#      "no claimed 'N md' count" WARN does NOT fire, "Registry consistent with reality" IS present.
+#      RED before fix: verify-registry uses the EXPANDED path as needle → grep misses the raw
+#      `$RESEARCH_HOME/...` form in TARGETS.md → claimed="" → "no claimed" WARN fires.
+kit="$(mkkit c23-rh-rowlookup)"
+_rh_base_vr23="$ROOT/rh_base_vr23_$$"
+mkdir -p "$_rh_base_vr23"
+tgt="$_rh_base_vr23/rh_corpus"
+mkcorpus "$tgt" 5 "r"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_vr23" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_vr23
+if [ "$RC" = 0 ] \
+   && grep -q 'reconciled 1 target' <<<"$OUT" \
+   && grep -q '0 count drift' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT" \
+   && ! grep -qE 'no claimed.*md.*count' <<<"$OUT"; then
+  ok "23 \$RESEARCH_HOME row: raw token lookup, count reconciled, no 'no claimed' warn" "(exit $RC)"
+else
+  no "23 \$RESEARCH_HOME row: raw token lookup, count reconciled, no 'no claimed' warn" "exit=$RC out=[$OUT]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -562,6 +649,115 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-count-subst: SUBST-COUNT-CHECK sentinel not found in SUT (substitution not implemented or marker missing)"
+  fi
+
+  # teeth-VR-T1: neuter declare-F for target_paths_all → broken helper fails OPEN without right message.
+  echo "-- teeth VR-T1: neuter declare-F for target_paths_all; broken helper must NOT say 'failed to define' --"
+  _vr_tp_anchor='declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry:'
+  if ! grep -qF "$_vr_tp_anchor" "$SUT"; then
+    no "teeth VR-T1: locate declare-F target_paths_all guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-vr-t1)"; tgt="$kit/targetA"
+    mkcorpus "$tgt" 3 "a"
+    write_targets "$kit" "$tgt::3 md"
+    printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
+    mut="$kit/toolbelt/verify-registry.sh"
+    # Entire single-line guard replaced with no-op; the 'failed to define' echo is gone.
+    sed 's/declare -F target_paths_all .*/: # __VRT1_NEUTERED__/' "$SUT" > "$mut"
+    mout_t1="$("$BASH_BIN" "$mut" 2>&1)"; mrc_t1=$?
+    if [ "$mrc_t1" = 0 ] && ! grep -q 'failed to define target_paths_all' <<<"$mout_t1"; then
+      ok "teeth VR-T1: guard-neutered mutant exits 0 without 'failed to define' (case 20 has teeth)" "()"
+    else
+      no "teeth VR-T1: mutant still said 'failed to define' — case 20 has no teeth" "rc=$mrc_t1 out=[$mout_t1]"
+    fi
+  fi
+
+  # teeth-VR-T2: remove RESEARCH_HOME expansion → case 21 goes RED (reconciled 0 targets, not 1).
+  echo "-- teeth VR-T2: strip RESEARCH_HOME expansion; case 21 must show 0 targets reconciled --"
+  kit="$(mkkit teeth-vr-t2)"
+  _rh_base_vt2="$ROOT/rh_vt2_$$"
+  mkdir -p "$_rh_base_vt2"
+  tgt="$_rh_base_vt2/rh_corpus"
+  mkcorpus "$tgt" 4 "r"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | t1 | mature (4 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+  } > "$kit/TARGETS.md"
+  # The stripped helper defines both functions so verify-registry.sh gets past the declare-F
+  # guards. Neither function handles $RESEARCH_HOME paths (Form 1 only: absolute `/` paths).
+  # With the $RESEARCH_HOME path in TARGETS.md, all_pairs is empty → zero-paths guard fires.
+  cat > "$kit/toolbelt/lib/target-paths.sh" <<'VRT2STRIPPED'
+#!/usr/bin/env bash
+if ! declare -F target_paths_all >/dev/null 2>&1; then
+  target_paths_all() {
+    local f="${1:-}"
+    [ -n "$f" ] || return 0
+    [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
+    grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | sort -u
+  }
+fi
+if ! declare -F target_paths_pairs >/dev/null 2>&1; then
+  target_paths_pairs() {
+    local f="${1:-}"
+    [ -n "$f" ] || return 0
+    [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
+    grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | awk '{print $0 "\t" $0}' | sort -u
+  }
+fi
+VRT2STRIPPED
+  mout_t2="$(RESEARCH_HOME="$_rh_base_vt2" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; mrc_t2=$?
+  unset _rh_base_vt2
+  # Without RESEARCH_HOME expansion, all_pairs yields nothing for the $RESEARCH_HOME/rh_corpus row →
+  # zero-paths guard fires (ERROR, no Summary). Case 21 expects 'reconciled 1 target'; this mutant
+  # cannot reach it — confirming case 21 depends on RESEARCH_HOME expansion in target_paths_pairs.
+  if ! grep -q 'reconciled 1 target' <<<"$mout_t2"; then
+    ok "teeth VR-T2: stripped mutant does not reconcile 1 target → case 21 has teeth" "()"
+  else
+    no "teeth VR-T2: stripped mutant still reconciled 1 target — case 21 is THEATER" "rc=$mrc_t2 out=[$mout_t2]"
+  fi
+
+  # teeth-VR-T3: remove the zero-paths guard → case 22 must exit 0 with Summary (no ERROR).
+  echo "-- teeth VR-T3: remove zero-paths guard; empty-paths run must show Summary not ERROR (case 22 has teeth) --"
+  _vr_zp_anchor='if \[ -z "\$paths" \]; then'
+  if ! grep -qE "$_vr_zp_anchor" "$SUT"; then
+    no "teeth VR-T3: locate zero-paths guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-vr-t3)"
+    printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
+      > "$kit/TARGETS.md"
+    sed '/if \[ -z "\$paths" \]/,/^fi$/d' "$SUT" > "$kit/toolbelt/verify-registry.sh"
+    mout_t3="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; mrc_t3=$?
+    if [ "$mrc_t3" = 0 ] && grep -q 'Summary:' <<<"$mout_t3" && ! grep -qi 'ERROR.*no usable' <<<"$mout_t3"; then
+      ok "teeth VR-T3: guard-removed mutant exits 0 with Summary (case 22 has teeth)" "()"
+    else
+      no "teeth VR-T3: guard-removed mutant did not show Summary without ERROR — case 22 has no teeth" "rc=$mrc_t3 out=[$mout_t3]"
+    fi
+  fi
+
+  # teeth-rh-rowlookup: neuter the raw-token lookup (identified by # RH-ROW-LOOKUP sentinel in the
+  # SUT). With the lookup neutered, raw_p="" → fallback to expanded path → grep misses the raw
+  # `$RESEARCH_HOME/...` form in TARGETS.md → claimed="" → "no claimed" WARN fires → test 23 RED.
+  echo "-- teeth-rh-rowlookup: neuter RH-ROW-LOOKUP; \$RESEARCH_HOME row must fire 'no claimed' WARN --"
+  kit="$(mkkit teeth-rh-rowlookup)"
+  _rh_base_teeth23="$ROOT/rh_teeth23_$$"
+  mkdir -p "$_rh_base_teeth23"
+  tgt="$_rh_base_teeth23/rh_corpus"
+  mkcorpus "$tgt" 5 "r"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+  } > "$kit/TARGETS.md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# RH-ROW-LOOKUP' "$mut"; then
+    sed -i '/# RH-ROW-LOOKUP/ s/.*/  raw_p=""  # RH-ROW-LOOKUP [MUTATED]/' "$mut"
+    mout_t23="$(RESEARCH_HOME="$_rh_base_teeth23" "$BASH_BIN" "$mut" 2>&1)"; mrc_t23=$?
+    unset _rh_base_teeth23
+    if [ "$mrc_t23" = 0 ] && grep -qE 'no claimed.*md.*count' <<<"$mout_t23"; then
+      ok "teeth-rh-rowlookup: neutered lookup → 'no claimed' WARN fires (test 23 has teeth)" "(exit $mrc_t23)"
+    else
+      no "teeth-rh-rowlookup: neutered mutant did NOT fire 'no claimed' WARN — test 23 has no teeth" "mrc=$mrc_t23 mout=[$mout_t23]"
+    fi
+  else
+    no "teeth-rh-rowlookup: RH-ROW-LOOKUP sentinel not found in SUT (fix not implemented or marker missing)"
+    unset _rh_base_teeth23
   fi
 fi
 

@@ -26,17 +26,34 @@ fi
 # here, so a failed/partial source would otherwise be swallowed and every audit read as 'none'.
 declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-audits: helper $LIB failed to define retro_review_status" >&2; exit 1; }
 
+# Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
+_sa_tp_lib="$(cd "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+if [ ! -f "$_sa_tp_lib" ]; then
+  echo "sweep-audits: cannot find helper $_sa_tp_lib" >&2; exit 1
+fi
+# shellcheck source=lib/target-paths.sh
+. "$_sa_tp_lib"
+# Fail closed: source must DEFINE the function — a partial source is otherwise swallowed.
+declare -F target_paths_all >/dev/null 2>&1 || { echo "sweep-audits: helper $_sa_tp_lib failed to define target_paths_all" >&2; exit 1; }
+unset _sa_tp_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "sweep-audits: cannot find $TARGETS_MD" >&2
   exit 1
 fi
 
 # Absolute target paths live in the TARGETS.md table as backtick-wrapped paths.
-# Truncated ones (contain '...') can't be resolved to a real dir, so they're dropped from the
-# sweep — but COLLECT them so the summary can WARN that it is PARTIAL instead of reading complete.
-all_paths=$(grep -oE '`/[^`]+`' "$TARGETS_MD" 2>/dev/null | tr -d '`' | sort -u)
+# target_paths_all handles /abs and $RESEARCH_HOME/... forms; truncated '...' entries
+# pass through so the summary can WARN the sweep is PARTIAL.
+all_paths=$(target_paths_all "$TARGETS_MD")
 paths=$(printf '%s\n' "$all_paths" | grep -v '\.\.\.')
 skipped=$(printf '%s\n' "$all_paths" | grep '\.\.\.')
+# ANTI-SILENT-ZERO: zero usable paths is a loud error, not a silent empty run.
+if [ -z "$paths" ]; then
+  echo "sweep-audits: ERROR — no usable target paths in $TARGETS_MD" >&2
+  echo "sweep-audits: check TARGETS.md has backtick-wrapped absolute or \$RESEARCH_HOME/... paths" >&2
+  exit 1
+fi
 
 skipped_names=""; skipped_count=0
 for s in $skipped; do
