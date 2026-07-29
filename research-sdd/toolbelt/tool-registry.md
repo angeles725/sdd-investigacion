@@ -37,6 +37,8 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | FACT Core firmware analysis plan (Docker Compose, internal-bridge) | any regular binary / firmware file (O_NOFOLLOW; content-addressed sha256) | `fact_plan.py` — DRY-RUN only; no docker-compose, no subprocess, no container started; `--privileged` REFUSED; `--network host` REFUSED; internal-bridge only | `fact_plan.py plan --firmware FILE --output DIR [--allow-docker]` ([`fact-plan.v1`](fact-plan.v1.md) + [`vm-determinism.v1`](vm-determinism.v1.md)); `--allow-docker` absent → exit 3 + offline plan | ✅ |
 | FACT Core firmware live run receipt | any regular binary / firmware file (O_NOFOLLOW; content-addressed sha256) | `lib/fact_exec.py` — `LiveFactExecutor`; compose override pins digests + `internal:true`; per-run project `fact-<uuid8>`; firmware TOCTOU read-then-PUT; REST poll; teardown in finally | `fact_plan.py plan --firmware FILE --output DIR --allow-docker [--rest-base-url URL]` ([`fact-run.v1`](fact-run.v1.md)); exit 0 + `fact-run.v1` JSON on success; exit 2 on hard error; exit 3 when flag absent | ✅ |
 | Firmware / packaged | `data` / known signatures | Binwalk scan + YARA (no extraction) | `scan-firmware.sh` | ✅ |
+| CHM help file | `MS Windows HtmlHelp Data` | `7z x <file>.chm -o<dir>/` (WSL/Linux, preferred); `extract_chmLib <file>.chm <dir>/` or `pychm` (WSL alternatives); `hh.exe -decompile <dir>/ <file>.chm` (Windows native). Extracted topics land under `sources/extracted/<basename>/Topics/`. | (direct) | ✅ |
+| DXF/DWG drawing | AutoCAD DXF exchange data / DWG binary drawing. NOT auto-detected: `dxf`/`dwg` are absent from `profile-target.sh`'s `BASE_EXT` allowlist — pass `EXTRA_EXT="dxf dwg"` to have it routed | ezdxf `addons.drawing` renderer — renders walls, entities, and layout geometry to **PNG or SVG** as a visual oracle | `render-drawing.sh <drawing.dxf\|.dwg> <out.png\|.svg> [--dpi N] [--style dark\|light\|white]` | ✅ |
 | PDF datasheet/manual | `PDF document` | **`extract-pdf.sh`** — tier 1 (text layer) `pymupdf4llm`→MD w/ tables + `<!-- p.N -->` anchors; tier 2 (scanned, `fonts=0`) `ocrmypdf`/`marker`/`docling`/`tesseract` OCR | `extract-pdf.sh` (download still via `fetch-doc.sh`) | ✅ |
 | Web page / forum / link | URL | `curl`/`wget` + `pandoc` → markdown | `fetch-doc.sh` | ✅ |
 | Obfuscated JS | `.js` | `js-beautify` | (direct) | ✅ |
@@ -44,6 +46,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Library/framework docs (MCP) | context7 / MCP query | `resolve-library-id` + `query-docs` | (MCP; snapshot load-bearing hits per METHODOLOGY §5) | ✅ |
 | MCP-server capability | added to `~/.claude.json` mcpServers | e.g. `chrome-devtools` (reach JS-rendered pages) | (MCP; log in INSTALLED-TOOLS.md per §10) | ✅ |
 | Browser / WebGL render target | headless Chrome (swiftshader) + local HTTP server | `tools/probe.mjs` (draw-call/triangle counts exact; FPS not) | (dynamic §12; `DYNAMIC-SETUP.md` §4) | ✅ |
+| Windows/PowerShell-over-SSH probe | live-install Windows host reachable via SSH | `powershell -NoProfile -EncodedCommand <b64>` via `connect-ssh.sh`; eight silent-failure gotchas documented | (dynamic §12; [`WINDOWS-SSH-PROBES.md`](WINDOWS-SSH-PROBES.md)) | ✅ |
 
 ## Tool paths (verified)
 
@@ -92,6 +95,23 @@ Direct adapter equivalent: `corroborate-ghidra.sh --input <binary> --output <new
 
 `decompile-native.sh ghidra <binary> <out-dir> [--script Script.java]` remains the raw, flexible headless
 route. It does not provide the curated schema, hardened isolation, bounded evidence, or provenance claims.
+
+### Stripped-binary: debug-string recovery
+
+When a stripped ELF/PE binary still calls a debug or logging helper with the signature
+`helper(level, "<srcfile.c>", <line>, "<funcname>", "<fmt>", …)`, the **original source file names,
+line numbers, and function names survive verbatim in `.rodata`** and can be recovered by string
+cross-reference — naming functions in a symtab-less binary at no cost.
+
+**In Ghidra:** open Window → Defined Strings; filter for `.c` / `.cpp` hits; right-click a string →
+Show References To — each caller's auto-name (`FUN_...`) can be renamed with the embedded `<funcname>`
+literal. Run this before concluding "no symbols".
+
+**In radare2:** `iz` lists `.rodata` strings; `axt @@ str.*` gives cross-references to each.
+
+Evidence (m2070 blocks 9–10): `FUN_0040f7a0(lvl,"splcommon.c",0x418,"WriteSPLPageHeader",…)` recovered
+`WriteSPLPageHeader` / `WriteBandHeader` / `compressBand` from stripped `rastertospl`; SSIP builders
+named via `"ERROR: <COMMAND>"` log-string xref in stripped `libsane-smfp` (commits `1a34528` / `b3e1ff2`).
 
 ## ghidra-mcp (agent-directed decompilation)
 

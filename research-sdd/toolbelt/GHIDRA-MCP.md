@@ -49,3 +49,30 @@ curl -X POST http://127.0.0.1:8089/run_analysis
 - **Triage / batch / scriptable** → `decompile-native.sh ghidra|r2|quick` (no live server needed).
 - **Interactive agent-directed research** (rename, document, data-flow,
   emulation) → ghidra-mcp with the server alive (Option B) + restart Claude Code.
+
+## Troubleshooting
+
+### Ghidra 12.1.2 crashes under JDK 26 — requires JDK 21
+
+Ghidra 12.1.2 enforces `application.java.min=21` and its launcher (`GhidraLauncher.launch`) throws
+under OpenJDK 26. The kit wrappers (`decompile-native.sh`, `corroborate-ghidra.sh`) resolve
+`JAVA_HOME` explicitly via `lib/tool-env.sh` and never use the PATH `java`, so they are immune.
+A MANUAL launch — GUI, `analyzeHeadless` invoked by hand, or a PyGhidra script run outside the
+kit — must force JDK 21:
+
+```sh
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64   # distro JDK 21
+# OR
+export JAVA_HOME=/home/linuxbrew/.linuxbrew/opt/openjdk@21   # Homebrew JDK 21
+```
+
+Verify with `$JAVA_HOME/bin/java -version` before launching.
+
+### PyGhidra / headless-Python needs a Java extraction post-script
+
+PyGhidra and headless Python analysis do NOT call `decompileFunction` in the same way as the GUI
+decompiler. To extract decompiled output from headless analysis (e.g. recovering specific functions
+by string cross-reference), write a Java post-script (`.java`) passed via `analyzeHeadless
+-postScript`; the Java post-script API has full access to the decompiler service. The equivalent
+Python path via PyGhidra is available but requires a matching `jpype` environment — the Java
+post-script route is simpler and was confirmed working in this environment (pi5-decoding B14).

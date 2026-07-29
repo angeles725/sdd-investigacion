@@ -49,3 +49,24 @@ invalid JSON publishes `status: failed` evidence and exits `1`. Unsafe input,
 tool identity/isolation failure, collision, or publication failure exits `2`
 without publishing a partial directory. Caps are configurable with
 `--timeout-seconds`, `--max-bytes`, `--max-functions`, and `--max-files`.
+
+## Analysis gotchas
+
+### Blind CTL_CODE-constant scan is an anti-pattern
+
+Scanning a binary for 32-bit integers whose bit layout matches a `CTL_CODE` pattern
+(`DeviceType | Function | Method | Access`) produces mostly **x86 opcodes**, not
+control codes. For example, `0x80838948` decodes as a plausible `CTL_CODE` but is
+the instruction `mov [rbx+...], eax` (`48 89 83 ...`).
+
+The same anti-pattern applies to any magic constant, offset, or semantic value
+extracted by scanning `.text` for matching bit patterns rather than following control
+flow.
+
+**Correct approach:** disassemble the dispatch handler that receives the value and
+read the constants the code ACTUALLY compares against. For Windows kernel drivers,
+that is the `IRP_MJ_DEVICE_CONTROL` handler at
+`DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]` (index 14) — find it in the
+driver-entry initialization, then read which constants it compares against
+`Parameters.DeviceIoControl.IoControlCode`. A pattern scan over `.text` is noise
+with the shape of signal.
