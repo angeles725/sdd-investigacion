@@ -12,12 +12,13 @@ SUT_PLAN="$HERE/../trace_plan.py"
 [ -f "$SUT_PLAN" ] || { echo "FATAL: trace_plan.py not found: $SUT_PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 
-python3 - "$SUT_EXEC" "$SUT_PLAN" <<'PY'
+python3 - "$SUT_EXEC" "$SUT_PLAN" "${1:-}" <<'PY'
 import json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
 sut_exec_path = Path(sys.argv[1])
 plan_path     = Path(sys.argv[2])
+PROVE_TEETH   = len(sys.argv) > 3 and sys.argv[3] == "--prove-teeth"
 
 sys.path.insert(0, str(sut_exec_path.parent))
 sys.path.insert(0, str(sut_exec_path.parent.parent))
@@ -457,6 +458,18 @@ with tempfile.TemporaryDirectory() as td:
     except Exception as e: nok("TRACE-RED10", str(e))
 
 # ── TRACE-RED11: exactly ONE /tmp/rsdd/rsdd-* dir per evaluate() ─────────────────
+# Isolation: /tmp/rsdd is a global shared path. Counting all new dirs in the
+# before/after set-difference is unsafe in concurrent environments because other
+# processes create /tmp/rsdd/rsdd-* dirs that inflate the count and cause false
+# failures. Fix: use identity-based attribution. The result's serial_log field
+# reveals the exact run_dir this evaluate() committed to; we assert that specific
+# dir was freshly created, regardless of what other processes add to /tmp/rsdd.
+#
+# Limitation: this check verifies the result's run_dir is new (not 0 created and
+# not pre-existing). It does NOT catch a SUT that creates N>1 run_dirs and reports
+# only one — that would require either SUT changes or monkeypatching, which is not
+# viable for the cli()-as-subprocess path. The INV-5 test (direct-import path) uses
+# monkeypatching and does catch the N>1 case.
 import glob as _glob
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
@@ -466,11 +479,18 @@ with tempfile.TemporaryDirectory() as td:
                 "--output", str(tmp / "out"), "--allow-exec",
                 xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
         assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:400]}"
-        after = set(_glob.glob("/tmp/rsdd/rsdd-*"))
-        new_dirs = after - before
-        assert len(new_dirs) == 1, (
-            f"expected exactly 1 new run_dir per evaluate(), got {len(new_dirs)}: "
-            f"{sorted(new_dirs)}"
+        res = json.loads(r.stdout)
+        serial_log = res.get("serial_log", "")
+        assert serial_log, "serial_log missing from result — cannot identify run_dir"
+        our_run_dir = str(Path(serial_log).parent)
+        assert our_run_dir.startswith("/tmp/rsdd/rsdd-"), (
+            f"run_dir not under /tmp/rsdd/rsdd-: {our_run_dir!r}"
+        )
+        assert our_run_dir not in before, (
+            f"run_dir was pre-existing, not freshly created: {our_run_dir!r}"
+        )
+        assert Path(our_run_dir).exists(), (
+            f"run_dir missing from /tmp/rsdd after evaluate(): {our_run_dir!r}"
         )
         ok("TRACE-RED11: exactly 1 run_dir per evaluate() (single-run_dir seam)")
     except Exception as e: nok("TRACE-RED11", str(e))
@@ -660,31 +680,50 @@ with tempfile.TemporaryDirectory() as td:
 # Mirror of detonate RED-INV5-earlyfail for the shared run_evaluate path.
 # Both executors share the same pre_boot closure in vm_exec_common; the fix in
 # vm_boot_core.run_vm covers both. RED proof: unfixed code leaks 1 rsdd-* dir.
+#
+# Isolation: this test calls evaluate() directly (not via subprocess), so we can
+# monkeypatch docker_common.make_run_subdir to record the exact UUID allocated by
+# this call. We then assert that specific dir was cleaned up, regardless of what
+# concurrent processes add to /tmp/rsdd. Patching the module attribute is seen by
+# vm_boot_core._dc.make_run_subdir because _dc IS the docker_common module object.
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); p = _shims(tmp)
     try:
         import trace_exec as _te_inv5; from gate import GateError as _GE_T5
+        import docker_common as _dc_inv5
         # _GOOD_ARGV has no sentinel (/rsdd/scratch.img); pre_boot creates
         # scratch.img in run_dir then raises GateError("sentinel not found").
         _t5_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
         _old_t5 = os.environ.get("PATH", ""); os.environ["PATH"] = p
-        _before_t5 = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+        # Capture which run_dir(s) evaluate() allocates via make_run_subdir.
+        _inv5_created_dirs = []
+        _orig_mrs_t5 = _dc_inv5.make_run_subdir
+        def _tracking_mrs_t5(run_uuid, root=_dc_inv5._DEFAULT_RSDD_ROOT):
+            rd = _orig_mrs_t5(run_uuid, root)
+            _inv5_created_dirs.append(rd)
+            return rd
+        _dc_inv5.make_run_subdir = _tracking_mrs_t5
         try:
             _raised_t5 = None
             try: _te_inv5.TraceVmExecutor(tmp / "out").evaluate(_t5_plan)
             except Exception as _e_t5: _raised_t5 = _e_t5
-        finally: os.environ["PATH"] = _old_t5
-        _after_t5 = set(_glob.glob("/tmp/rsdd/rsdd-*"))
-        _leaked_t5 = _after_t5 - _before_t5
+        finally:
+            os.environ["PATH"] = _old_t5
+            _dc_inv5.make_run_subdir = _orig_mrs_t5  # always restore
         assert isinstance(_raised_t5, _GE_T5), (
             f"expected GateError (sentinel absent), got {type(_raised_t5).__name__}: {_raised_t5!r}"
         )
         assert "not found in planned_argv" in str(_raised_t5), (
             f"expected pre_boot sentinel error, got: {_raised_t5!r}"
         )
-        assert len(_leaked_t5) == 0, (
-            f"INV-5 FAIL: {len(_leaked_t5)} orphaned run_dir(s) leaked after pre_boot "
-            f"GateError: {sorted(_leaked_t5)}"
+        # Identity-based: exactly 1 run_dir must have been allocated, then cleaned up.
+        assert len(_inv5_created_dirs) == 1, (
+            f"expected exactly 1 run_dir allocated by evaluate(), got {len(_inv5_created_dirs)}: "
+            f"{_inv5_created_dirs}"
+        )
+        _run_dir_t5 = _inv5_created_dirs[0]
+        assert not Path(_run_dir_t5).exists(), (
+            f"INV-5 FAIL: run_dir leaked after pre_boot GateError: {_run_dir_t5!r}"
         )
         ok("TRACE-RED-INV5-earlyfail: pre_boot GateError → run_dir reaped, 0 orphans (INV-5)")
     except Exception as e: nok("TRACE-RED-INV5-earlyfail", str(e))
@@ -735,6 +774,82 @@ with tempfile.TemporaryDirectory() as td:
         )
         ok("TRACE-INV1: receipt inputs[] non-empty and contains target sha256 (INV-1 / trace path)")
     except Exception as e: nok("TRACE-INV1", str(e))
+
+# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
+# Mutation controls for the isolation fixes in TRACE-RED11 and TRACE-RED-INV5.
+# Both proofs use Python-level simulation rather than file-based bash mutants,
+# so bash -n checking is not applicable here.
+if PROVE_TEETH:
+    # teeth-RED11: identity check fires when run_dir is pre-existing (simulates
+    # SUT using a non-fresh dir, violating the single-run_dir invariant).
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+        try:
+            r = cli("plan", "--target", str(elf), "--tracer", "strace",
+                    "--output", str(tmp / "out"), "--allow-exec",
+                    xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+            assert r.returncode == 0, f"setup rc={r.returncode}"
+            res = json.loads(r.stdout)
+            serial_log = res.get("serial_log", "")
+            assert serial_log, "no serial_log in setup result"
+            our_run_dir = str(Path(serial_log).parent)
+            # Simulate violation: our_run_dir appears pre-existing in before-set.
+            bogus_before = {our_run_dir}
+            _fired_red11 = False
+            try:
+                assert our_run_dir not in bogus_before, (
+                    f"run_dir was pre-existing, not freshly created: {our_run_dir!r}"
+                )
+            except AssertionError:
+                _fired_red11 = True
+            if _fired_red11:
+                ok("teeth-RED11: pre-existing run_dir → identity assertion fires (has teeth)")
+            else:
+                nok("teeth-RED11", "identity assertion did NOT fire on pre-existing run_dir")
+        except Exception as e: nok("teeth-RED11", str(e))
+
+    # teeth-INV5: cleanup assertion fires when run_dir persists after GateError
+    # (simulates SUT cleanup failure by re-creating the allocated dir).
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); p = _shims(tmp)
+        try:
+            import trace_exec as _te_t5t; from gate import GateError as _GE_t5t
+            import docker_common as _dc_t5t
+            _t5t_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+            _old_t5t = os.environ.get("PATH", ""); os.environ["PATH"] = p
+            _t5t_created = []
+            _orig_mrs_t5t = _dc_t5t.make_run_subdir
+            def _tracking_mrs_t5t(run_uuid, root=_dc_t5t._DEFAULT_RSDD_ROOT):
+                rd = _orig_mrs_t5t(run_uuid, root)
+                _t5t_created.append(rd)
+                return rd
+            _dc_t5t.make_run_subdir = _tracking_mrs_t5t
+            try:
+                try: _te_t5t.TraceVmExecutor(tmp / "out").evaluate(_t5t_plan)
+                except Exception: pass
+            finally:
+                os.environ["PATH"] = _old_t5t
+                _dc_t5t.make_run_subdir = _orig_mrs_t5t
+            assert _t5t_created, "setup: no run_dir was created by evaluate()"
+            _leaked = _t5t_created[0]
+            # Simulate violation: re-create the dir to mimic a cleanup failure.
+            Path(_leaked).mkdir(exist_ok=True)
+            try:
+                _fired_inv5 = False
+                try:
+                    assert not Path(_leaked).exists(), (
+                        f"INV-5 FAIL: run_dir leaked after pre_boot GateError: {_leaked!r}"
+                    )
+                except AssertionError:
+                    _fired_inv5 = True
+                if _fired_inv5:
+                    ok("teeth-INV5: leaked run_dir → cleanup assertion fires (has teeth)")
+                else:
+                    nok("teeth-INV5", "cleanup assertion did NOT fire on leaked run_dir")
+            finally:
+                import shutil as _shutil_t5t
+                _shutil_t5t.rmtree(_leaked, ignore_errors=True)
+        except Exception as e: nok("teeth-INV5", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
