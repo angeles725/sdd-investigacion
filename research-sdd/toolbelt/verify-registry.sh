@@ -111,6 +111,7 @@ for p in $paths; do
   # and no RESEARCH-STATE still receive the 'not resolvable' WARN — the anti-blank-silencer guarantee
   # enforced by tests 6 and 13. '/ nc' is detected by the ERE below; the sentinel comment is the
   # mutation target for the --prove-teeth nc teeth test.
+  # pipefail-audit: single-arg bash builtin printf — structurally immune regardless of $row size.
   if printf '%s' "$row" | grep -qE '/ nc[ /;)|]'; then  # NC-EXEMPT-CHECK
     name="$(basename "$p")"
     checked=$((checked + 1))

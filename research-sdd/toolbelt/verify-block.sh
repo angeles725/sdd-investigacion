@@ -179,6 +179,7 @@ if [ -n "$bt_cites" ]; then
       *-*) start="${rng%-*}"; end="${rng##*-}";;   # range form NNN-MMM
       *)   start="$rng"; end="$rng";;               # single line
     esac
+    # pipefail-audit: single-arg bash builtin printf — structurally immune regardless of $f size.
     printf '%s' "$f" | grep -qiE "^${art_name}$" && continue
     if [ "$start" -eq 0 ]; then
       echo "   RANGE!  $c  (start 0 is invalid — lines are 1-indexed)"; rc=1; continue

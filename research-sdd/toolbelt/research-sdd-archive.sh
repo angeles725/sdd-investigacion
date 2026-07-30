@@ -278,6 +278,8 @@ while IFS= read -r _lint_f; do
   _lint_status="$(retro_review_status "$_lint_f")"
   if [ -z "$_lint_status" ]; then
     _lint_base="$(basename "$_lint_f")"
+    # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
+    # Race onset for external producers: ~64 KB. Fleet max << onset; not reproduced.
     if head -10 "$_lint_f" 2>/dev/null | grep -qiE '^[[:space:]]*review-status:'; then
       echo "WARN: malformed review-status in $_lint_base — bare text marker in first 10 lines; wrap in '<!-- review-status: ... -->'" >&2
     else
@@ -293,6 +295,8 @@ echo "    · SYNTHESIS block (§8, optional): author a focus-closing block conso
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
 [ -n "${missing_retro_line:-}" ] && echo "${missing_retro_line}"
 [ -n "${one_block_line:-}" ] && echo "${one_block_line}"
+# pipefail-audit: external `find` producer looking for at most 1 directory entry (<100 B).
+# Race onset for external producers: ~64 KB. Fleet max << onset; 0/200 trials. Not reproduced.
 if find "$corpus" -maxdepth 1 -type d -name 'codegen' 2>/dev/null | grep -q .; then
   # ACTIVE detection (not a passive reminder): a shipped deliverable can close green with deliverable↔block
   # parity UNVERIFIED, contradicting "a green report can never sit over a broken corpus". Emit a LOUD warning

@@ -60,6 +60,8 @@ case "$MODE" in
     curl -fsSL "$URL" -o "$DEST" || wget -q "$URL" -O "$DEST"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     # extracts text if it is a PDF (so blocks can cite page/section)
+    # pipefail-audit: external `file -b` producer. Fleet max <100 B (single-line type description).
+    # Race onset for external producers: ~64 KB. Fleet max << onset; structurally safe.
     if file -b "$DEST" | grep -qi pdf; then
       pdftotext -layout "$DEST" "$SDIR/extracted/${NAME%.*}.txt" 2>/dev/null || true
     fi
