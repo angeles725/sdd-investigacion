@@ -96,7 +96,7 @@ Path portability — the `$RESEARCH_HOME` convention:
 | 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
-| 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **intermediate** (5 md / 2 runs / 1 retro / git yes / remote no / hook no; static STOP MET) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430` (appId `7a26794d-2f82-4211-b6bf-cf5944bcc229`): remote app behind Google sign-in; sources are official AppSheet Help + product announcements + Google Developer forums `[CERT-web]`/`[CERT-a]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
+| 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **mature** (8 md / 6 runs / 2 retros / git yes / remote yes / hook no; goal: total PDF coverage) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430`: operator-supplied App Documentation PDF (1751 pp) + backing workbook — detail §21 `[CERT-doc]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
 
 ---
 
@@ -418,6 +418,18 @@ files are renamed to the canonical pattern (e.g. `m2070-block1.md`).
 the only genuinely hardware-blocked gap). Resolve the naming issue before the next archive run.
 
 ### 21 — appsheet-tomapp `[CERT]`
+
+**Run 5-6 (2026-07-29) — the STOP was false.** Run 4 declared `investigable_open: 0` / STOP MET. Run 5
+retracted it: B7 was never recorded in the iteration history, G13 was marked blocked on a reason belonging
+to the RETIRED text parser (55 of 70 slices carry a complete `Row filter condition` in the geometry
+extract), and [C2] was carried open while two other files recorded it resolved. Coverage 12/17 -> 16/31.
+B8 followed (three divergent status machines; view wiring 95.9% default; a space-losing defect in our own
+extractor). From run 6 the STOP criterion is the target's own **`GOAL.md`** — total field-level coverage of
+the 1751-page export, measured by `tools/pdf-field-census.py` — which SUPERSEDES §8 gap-exhaustion here.
+Private remote: `ANGELES00004/research-appsheet-tomapp`.
+**Kit lesson (candidate delta): replacing an extractor must re-open every gap marked `blocked-on-source`,
+because the block reason was a property of the OLD tool.**
+
 Feasibility research on **Google AppSheet app `tomappAS-986175430`** (appId
 `7a26794d-2f82-4211-b6bf-cf5944bcc229`), opened 2026-07-28. First target in the registry that is a
 **hosted SaaS app with no local artifact** — nothing to decompile, nothing on disk; the entire

@@ -1,40 +1,60 @@
 == Research-SDD tool capability report ==
-host: Linux 5.15.167.4-microsoft-standard-WSL2 x86_64 · date: 2026-06-29T06:44:38Z · brew: /home/linuxbrew/.linuxbrew
+host: Linux 6.6.87.2-microsoft-standard-WSL2 x86_64 · date: 2026-07-28T21:31:40Z · brew: /home/linuxbrew/.linuxbrew
 
 [ native / binary ]
-  Ghidra headless        available   /home/linuxbrew/.linuxbrew/Cellar/ghidra/12.1/libexec/support/analyzeHeadless
-  radare2                available   /home/linuxbrew/.linuxbrew/bin/r2
-  objdump                available   /usr/bin/objdump
-  readelf                available   /usr/bin/readelf
-  nm                     available   /usr/bin/nm
-  strings                available   /usr/bin/strings
+  Ghidra headless        MISSING     (not on PATH nor known install dirs)
+  radare2                MISSING     (not on PATH nor known install dirs)
+  objdump                AVAILABLE   /usr/bin/objdump
+  readelf                AVAILABLE   /usr/bin/readelf
+  nm                     AVAILABLE   /usr/bin/nm
+  strings                AVAILABLE   /usr/bin/strings
+
+[ dynamic / network / emulation ]
+  tshark                 MISSING     (not on PATH nor known install dirs)
+  tcpdump                MISSING     (not on PATH nor known install dirs)
+  gdb                    MISSING     (not on PATH nor known install dirs)
+  gdb-multiarch          MISSING     (not on PATH nor known install dirs)
+  strace                 MISSING     (not on PATH nor known install dirs)
+  ltrace                 MISSING     (not on PATH nor known install dirs)
+  QEMU system            MISSING     (not on PATH nor known install dirs)
+  QEMU user-static       MISSING     (not on PATH nor known install dirs)
+  QEMU image             MISSING     (not on PATH nor known install dirs)
 
 [ java ]
-  java                   available   /home/linuxbrew/.linuxbrew/bin/java
-  javap                  available   /home/linuxbrew/.linuxbrew/bin/javap
-  Vineflower (jar)       available   /home/cristian/modules/Prototipos/Reflow/vineflower.jar
-  CFR (jar)              available   /home/cristian/modules/Prototipos/Reflow/cfr.jar
-  Procyon (jar)          available   /home/cristian/modules/Prototipos/modulos/procyon.jar
+  Java 21                MISSING     (usable Java 21 + javap not found)
+  javap 21               MISSING     (usable Java 21 + javap not found)
+  Vineflower (jar)       AVAILABLE   /home/luis5983/modules/Prototipos/Reflow/vineflower.jar (sha256=a615d07ddbbcd489369674f40e42df639c32be95410890b38f173d5c1e2ea39c)
+  CFR (jar)              AVAILABLE   /home/luis5983/modules/Prototipos/Reflow/cfr.jar (sha256=f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2)
+  Procyon (jar)          AVAILABLE   /home/luis5983/modules/Prototipos/modulos/procyon.jar (sha256=821da96012fc69244fa1ea298c90455ee4e021434bc796d3b9546ab24601b779)
 
 [ android ]
   jadx                   MISSING     (not on PATH nor known install dirs)
   apktool                MISSING     (not on PATH nor known install dirs)
 
 [ .net ]
-  ilspycmd               available   /home/cristian/.dotnet/tools/ilspycmd
+  ilspycmd               MISSING     (not on PATH nor known install dirs)
 
 [ firmware ]
-  binwalk                available   /usr/bin/binwalk
-  yara                   available   /home/linuxbrew/.linuxbrew/bin/yara
+  binwalk                MISSING     (not on PATH nor known install dirs)
+  yara                   MISSING     (not on PATH nor known install dirs)
+  Hyperscan pkg-config   MISSING     (libhs.pc not usable through pkg-config)
 
 [ docs / web ]
-  pdftotext              available   /home/linuxbrew/.linuxbrew/bin/pdftotext
-  pdfinfo                available   /home/linuxbrew/.linuxbrew/bin/pdfinfo
-  tesseract              available   /home/linuxbrew/.linuxbrew/bin/tesseract
-  pandoc                 available   /home/linuxbrew/.linuxbrew/bin/pandoc
+  pdftotext              AVAILABLE   /home/linuxbrew/.linuxbrew/bin/pdftotext
+  pdfinfo                AVAILABLE   /home/linuxbrew/.linuxbrew/bin/pdfinfo
+  tesseract              AVAILABLE   /home/linuxbrew/.linuxbrew/bin/tesseract
+  pandoc                 AVAILABLE   /home/linuxbrew/.linuxbrew/bin/pandoc
+  pymupdf4llm            AVAILABLE   /home/luis5983/.local/share/research-sdd-tools/venv/bin/python
+  ocrmypdf               MISSING     (not on PATH nor known install dirs)
+  marker                 MISSING     (not on PATH nor known install dirs)
+  docling                MISSING     (not on PATH nor known install dirs)
 
 [ python bytecode ]
   pycdc                  MISSING     (not on PATH nor known install dirs)
 
-Note: MISSING here means not detected — try install-tool.sh <recipe> before
-concluding a tool is unavailable. Re-run this script after any install.
+[ dynamic / instrumentation ]
+  frida                  MISSING     (not on PATH nor known install dirs)
+  frida-trace            MISSING     (not on PATH nor known install dirs)
+
+Note: AVAILABLE means the resolver found the tool AND its bounded validation passed.
+UNUSABLE means found but not runnable; MISSING means not detected.
