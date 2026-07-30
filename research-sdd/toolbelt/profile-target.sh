@@ -21,7 +21,7 @@ if [ -z "$TARGET" ] || [ ! -e "$TARGET" ]; then
 fi
 
 # Base extension allowlist + firmware/container/proprietary + caller-supplied EXTRA_EXT.
-BASE_EXT="jar class dll exe so bin pdf fw img rom hex dat scfx scf pak bundle apk ipa cab iso"
+BASE_EXT="jar class dll exe so bin pdf fw img rom hex dat scfx scf pak bundle apk ipa cab iso dxf dwg"
 ALL_EXT="$BASE_EXT ${EXTRA_EXT:-}"
 FIND_ARGS=()
 for e in $ALL_EXT; do FIND_ARGS+=(-iname "*.$e" -o); done
@@ -38,6 +38,7 @@ suggest() {
     *"ELF "*executable*|*"ELF "*shared*)        echo "decompile-native.sh" ;;
     *"PE32"*|*"MS Windows"*)                    echo "decompile-net.sh? / decompile-native.sh" ;;
     *"PDF document"*)                           echo "fetch-doc.sh (extract text/OCR)" ;;
+    *"AutoCAD"*)                               echo "render-drawing.sh" ;;
     *"firmware"*|*"filesystem"*)                echo "scan-firmware.sh" ;;
     *"data"*)
       # P4: sample first 512 bytes; if >90% printable ASCII annotate as text-like.
