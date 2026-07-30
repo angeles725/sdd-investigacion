@@ -278,6 +278,7 @@ while IFS= read -r _lint_f; do
   _lint_status="$(retro_review_status "$_lint_f")"
   if [ -z "$_lint_status" ]; then
     _lint_base="$(basename "$_lint_f")"
+    # pipefail-audit: head -10 writes at most 10 lines (~1 KB) — fits in pipe buffer, SAFE.
     if head -10 "$_lint_f" 2>/dev/null | grep -qiE '^[[:space:]]*review-status:'; then
       echo "WARN: malformed review-status in $_lint_base — bare text marker in first 10 lines; wrap in '<!-- review-status: ... -->'" >&2
     else
@@ -293,6 +294,8 @@ echo "    · SYNTHESIS block (§8, optional): author a focus-closing block conso
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
 [ -n "${missing_retro_line:-}" ] && echo "${missing_retro_line}"
 [ -n "${one_block_line:-}" ] && echo "${one_block_line}"
+# pipefail-audit: `find|grep-q.` — 200 trials, 0 misses. Did not reproduce. A race would
+# silently skip the parity advisory (warning only, exit stays 0). Not fixed; see notes above.
 if find "$corpus" -maxdepth 1 -type d -name 'codegen' 2>/dev/null | grep -q .; then
   # ACTIVE detection (not a passive reminder): a shipped deliverable can close green with deliverable↔block
   # parity UNVERIFIED, contradicting "a green report can never sit over a broken corpus". Emit a LOUD warning

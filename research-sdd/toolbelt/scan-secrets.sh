@@ -26,6 +26,10 @@ here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)"
 # Corpus root (mirror verify-sources.sh): prefer the target root when it directly holds blocks, else the
 # shallowest subdir that does (deterministic: depth, then lexical).
 corpus="$target"
+# pipefail-audit: `find|grep-q.` — 200+200 trials (quiet + load) 0/200 misses; did not reproduce.
+# A race would make ! invert a false pipeline failure to TRUE, descending when blocks ARE at root.
+# verify-sources.sh:24 fixed the identical pattern with -print -quit; no fix applied here because
+# the race was not demonstrated, and an unproven fix is a guess (§7 doctrine).
 if ! find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' 2>/dev/null | grep -q .; then
   anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null \
             | awk '{print gsub(/\//,"/") "\t" $0}' | sort -t"$(printf '\t')" -k1,1n -k2,2 | head -1 | cut -f2-)"
@@ -40,6 +44,8 @@ EXCL=(--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclud
 
 echo "== scan-secrets: $(basename "$target") =="
 [ "$corpus" != "$target" ] && echo "-- corpus root: ${corpus#"$target"/}/"
+# pipefail-audit: `grep|grep-qi` on TARGETS.md (48 KB, ~2 matching lines, ~640 B) — 200 trials,
+# 0 misses. Did not reproduce. A race would silently skip the live-install notice (advisory only).
 if grep -iE "\b$(basename "$target")\b" "$KIT/TARGETS.md" 2>/dev/null | grep -qi 'live-install'; then
   echo "-- target registered LIVE-INSTALL: SECRETS DISCIPLINE is a hard invariant here (zero secrets exfiltrated)."
 fi
@@ -87,11 +93,15 @@ while IFS= read -r line; do
   [ -z "$val" ] && continue
   case "$val" in '<'*|'$'*|'{'*|'*'*|'%'*) continue;; esac                       # placeholder / var / format
   case "$val" in *...*|*…*) continue;; esac                                      # truncated illustration (abc123…)
+  # pipefail-audit (lines 96-102): $val is one extracted token (<200 B); $content is one grep
+  # output line (<512 B). Each printf writes a single atomic string — no SIGPIPE race possible.
   printf '%s' "$val" | grep -q '[][()#]' && continue                             # markdown link / code structure
   printf '%s' "$val" | grep -qiE '^(x{3,}|redacted|changeme|example|placeholder|none|null|test|todo|your[_-]?)' && continue
   [ "${#val}" -ge 8 ] || continue                                                # too short to be a real secret
   printf '%s' "$val" | grep -qE '[A-Za-z]' && printf '%s' "$val" | grep -qE '[0-9]' || continue   # must mix (documented gap: all-alpha)
   # A bare hex value is a hash ONLY when its line cites it as one; otherwise a hex-shaped token is suspect.
+  # (Note: $content is one grep output line, not file content — SAFE short producer. A false
+  # pipeline failure here would suppress the continue → NOISY advisory, not a silent miss.)
   if printf '%s' "$val" | grep -qiE '^[0-9a-f]{32,64}$'; then
     printf '%s' "$content" | grep -qiE 'sha[0-9]*|md5|hash|checksum|digest|fingerprint' && continue
   fi

@@ -60,6 +60,7 @@ case "$MODE" in
     curl -fsSL "$URL" -o "$DEST" || wget -q "$URL" -O "$DEST"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     # extracts text if it is a PDF (so blocks can cite page/section)
+    # pipefail-audit: `file -b` emits one short line (~20 B) — single atomic write, SAFE.
     if file -b "$DEST" | grep -qi pdf; then
       pdftotext -layout "$DEST" "$SDIR/extracted/${NAME%.*}.txt" 2>/dev/null || true
     fi
