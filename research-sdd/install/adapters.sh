@@ -136,6 +136,7 @@ rsdd_render_section() {
     printf '%s\n' '  - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports'
     printf '%s\n' '  - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift'
     printf '%s\n' '  - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning'
+    printf '%s\n' '  - `toolbelt/sweep-tools.sh`      — unrecorded tools across all targets'
   fi
   if [ "$needs_mcp_doc" = "true" ]; then
     printf '%s\n' ''
