@@ -119,11 +119,11 @@ else no "multidrift: exit $(code "$d/tokens.css" "$d/block-1.md") :: $(grep -iE 
 # 12 — RACE-DETERMINISM (pipefail fix regression): a large block palette must never produce
 #      spurious DRIFT exits across repeated runs on an unchanged, clean deliverable.
 #      The previous `printf '%s\n' "${block_hexes[@]}" | grep -qxF -- "$h"` under pipefail
-#      had the same SIGPIPE shape as verify-sources.sh:210 — grep exits early, printf takes
+#      had the same SIGPIPE shape as verify-sources.sh:214 — grep exits early, printf takes
 #      SIGPIPE, the pipeline fails, and `!` inverts the failure to TRUE, falsely flagging a
 #      hex that IS in the block palette as DRIFT. Measured: 45/50 spurious exits at 1000
 #      entries (8 KB), 50/50 at 5000+ entries. The fix (here-string, no pipe) removes SIGPIPE
-#      entirely. 50 consecutive runs must all exit 0; any non-zero exit is a regression.
+#      entirely. At 100% pre-fix failure rate, 10 runs gives false-pass odds ~10^-10.
 #      Fixture size (1000 hexes × 8 bytes = 8 KB) was verified to reproduce before the fix.
 d="$TMP/race-det"; mkdir -p "$d/corpus"
 # Block file with 1000 distinct canonical hex tokens (awk for speed — no slow for-loop).
@@ -132,13 +132,13 @@ d="$TMP/race-det"; mkdir -p "$d/corpus"
 # Deliverable: first 3 hexes, ALL present in the block — must always exit 0.
 printf ':root { --a: #000001; --b: #000002; --c: #000003; }\n' > "$d/tokens.css"
 race_bad=0
-for _i in $(seq 1 50); do
+for _i in $(seq 1 10); do
   bash "$SUT" "$d/tokens.css" "$d/corpus" >/dev/null 2>&1 || race_bad=$((race_bad+1))
 done
 if [ "$race_bad" -eq 0 ]; then
-  ok "race-determinism: 50/50 runs on known-clean deliverable exited 0 (no spurious DRIFT)"
+  ok "race-determinism: 10/10 runs on known-clean deliverable exited 0 (no spurious DRIFT)"
 else
-  no "race-determinism: $race_bad/50 spurious DRIFT exits — pipefail race still active (fix not applied?)"
+  no "race-determinism: $race_bad/10 spurious DRIFT exits — pipefail race still active (fix not applied?)"
 fi
 
 # NEGATIVE CONTROL — prove the DRIFT detection has TEETH via mutation.

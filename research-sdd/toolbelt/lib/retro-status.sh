@@ -63,6 +63,8 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       { exit }
     ' "$f" 2>/dev/null \
       | grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$'
+      # pipefail-audit: external `awk` producer (leading HTML-comment block of a retro file).
+      # Fleet max 414 B (2026-07-06-kit-audit.md). Race onset: ~64 KB. Fleet max << onset; SAFE.
   }
 
   # retro_is_waived <file>
@@ -90,5 +92,6 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       { exit }
     ' "$f" 2>/dev/null \
       | grep -qiE '^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$'
+      # pipefail-audit: same awk producer as retro_is_excluded. Fleet max 414 B. SAFE.
   }
 fi

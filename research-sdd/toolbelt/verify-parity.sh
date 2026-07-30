@@ -89,10 +89,10 @@ fi
 # SUBSET CHECK — every deliverable hex must exist in the block palette set; each miss is drift.
 # Pre-join to a string so the per-hex lookup uses a here-string (no pipe) — removing the pipe
 # eliminates the SIGPIPE race: `printf|grep -qxF` under pipefail was the same pattern as
-# verify-sources.sh:210; grep exits early, printf takes SIGPIPE, the pipeline fails, and `!`
+# verify-sources.sh:214; grep exits early, printf takes SIGPIPE, the pipeline fails, and `!`
 # inverts the failure to TRUE, falsely labelling a present hex as DRIFT. Measured: 45/50
 # spurious exits at 1000 entries (8 KB) on this machine. The here-string has no producer
-# process, so no SIGPIPE can fire regardless of palette size.  # PARITY-CHECK
+# process, so no SIGPIPE can fire regardless of palette size.
 _block_hex_list="$(printf '%s\n' "${block_hexes[@]}")"
 rc=0
 for h in "${deliv_hexes[@]}"; do
