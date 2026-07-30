@@ -480,6 +480,36 @@ if grep -qiE 'short.*:159|:159.*short' <<<"$out" && grep -qiE 'short.*:161|:161.
   ok "P7-cmt-secondary: // :NNN,:MMM → both :159 and :161 as short; no WARN"
 else no "P7-cmt-secondary: secondary cite missed or WARN fires :: $(grep -iE 'short|WARN|:15[0-9]|:16[0-9]' <<<"$out" | head -3)"; fi
 
+# ---- P6-probe: sources/probes/ file citation suppresses P6 WARN (two-sided) -------------------------
+# §3's canonical [CERT-hw]/[CERT-live] format cites probe files WITHOUT a line number.
+# P6 must NOT fire when a cited sources/probes/ file EXISTS on disk.
+# P6 MUST still fire when ZERO citations of any kind exist — a one-sided test re-opens the defect.
+
+# 43 — P6-probe: [CERT-hw] body marker + existing sources/probes/ cite → no P6 WARN.
+d="$TMP/p6-probe-ok.md"; mkdir -p "$TMP/sources/probes/test-probe"
+printf 'probe content\n' > "$TMP/sources/probes/test-probe/probe-20260729.txt"
+{ echo "# Block 43 — t"; echo
+  echo "> Method: [CERT-hw] = live device response."; echo
+  echo "---"; echo
+  echo "## 43.1 Live response [CERT-hw]"
+  echo "[CERT-hw] (sources/probes/test-probe/probe-20260729.txt)"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'probe.*sources/probes' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$out"; then
+  ok "P6-probe: [CERT-hw] + existing probe file → cited, no P6 WARN"
+else no "P6-probe: probe-cited block wrongly WARNed or probe not reported :: $(grep -iE 'WARN|probe' <<<"$out" | head -2)"; fi
+
+# 44 — P6-probe (negative half): [CERT-hw] + zero citations of any kind → P6 WARN still fires.
+d="$TMP/p6-probe-nocite.md"
+{ echo "# Block 44 — t"; echo
+  echo "> Method: [CERT-hw] = live device response."; echo
+  echo "---"; echo
+  echo "## 44.1 Live response [CERT-hw]"
+  echo "The station answered unknown-object. [CERT-hw]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$out"; then
+  ok "P6-probe (negative): [CERT-hw] + zero citations → P6 WARN still fires"
+else no "P6-probe (negative): P6 WARN not emitted for [CERT-hw]+no-cites :: $(grep -iE 'WARN|cert|citation' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -608,6 +638,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p7-cmt-secondary: P7-CMT-SECONDARY sentinel not found in SUT"
+  fi
+
+  # teeth-p6-probe: neuter P6-PROBE-FILE-CITE; a probe-cited block must revert to P6 WARN.
+  # bash -n is run on the mutant first — a mutant with a syntax error cannot run and its control
+  # passes for the wrong reason (that exact defect was caught in this repo).
+  echo "-- teeth-p6-probe: neuter P6-PROBE-FILE-CITE; probe-cited block must revert to WARN --"
+  mutant_probe="$TMP/verify-block.P6PROBE.sh"
+  if grep -q '# P6-PROBE-FILE-CITE' "$SUT"; then
+    sed '/# P6-PROBE-FILE-CITE/ s/.*/      probe_found=""  # P6-PROBE-FILE-CITE [NEUTERED]/' "$SUT" > "$mutant_probe"
+    bash -n "$mutant_probe" 2>/dev/null; syntax_rc=$?
+    if [ "$syntax_rc" != "0" ]; then
+      no "teeth-p6-probe: mutant has syntax error (bash -n failed rc=$syntax_rc) — cannot run"
+    else
+      d_probe="$TMP/p6-probe-teeth.md"; mkdir -p "$TMP/sources/probes/test-probe"
+      printf 'probe content\n' > "$TMP/sources/probes/test-probe/probe-20260729.txt"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT-hw] = live device response."; echo
+        echo "---"; echo
+        echo "## Live response [CERT-hw]"
+        echo "[CERT-hw] (sources/probes/test-probe/probe-20260729.txt)"; } > "$d_probe"
+      mout_probe="$(bash "$mutant_probe" "$d_probe" 2>/dev/null)"
+      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$mout_probe"; then
+        ok "teeth-p6-probe: neutered probe detection → probe-cited block reverts to WARN (test 43 has teeth)"
+      else
+        no "teeth-p6-probe: neutered probe mutant did NOT revert to WARN :: $(grep -iE 'WARN|probe|cert' <<<"$mout_probe" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-probe: P6-PROBE-FILE-CITE sentinel not found in SUT (probe detection not implemented or marker missing)"
   fi
 fi
 

@@ -110,7 +110,25 @@ bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+(-[0-9]+)?`' "$block"
 _tbl_shorts=$(grep -E '^\s*\|' "$block" | grep -oE '[[:space:]|,]:[0-9]+' | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-TABLE
 _cmt_shorts=$(grep -oE '(//|#)[[:space:]]*:[0-9]+(,[[:space:]]*:[0-9]+)*' "$block" | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-COMMENT  # P7-CMT-SECONDARY
 short_cites=$(printf '%s\n%s\n' "${_tbl_shorts:-}" "${_cmt_shorts:-}" | sort -u | grep -v '^$')
-if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ]; then
+# (d) PROBE FILE citations — `sources/probes/<path>` appearing in the block body (parenthetical or
+#     backtick-wrapped, NO line number required). §3's canonical `[CERT-hw]`/`[CERT-live]` citation
+#     format cites probe output files without a line number (e.g. `[CERT-hw]` (`sources/probes/<dir>/<file>.txt`)).
+#     A cited-and-existing sources/probes/ file satisfies the citation gate; the P6 WARN is suppressed
+#     when at least one such path resolves on disk (retro 2026-07-29 #6 / §3 alignment).
+probe_cites=$(grep -oE 'sources/probes/[A-Za-z0-9_./-]+' "$block" | sort -u)
+probe_found=""
+if [ -n "$probe_cites" ]; then
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    if [ -f "$target/$p" ]; then
+      echo "   probe   $p"
+      probe_found=1  # P6-PROBE-FILE-CITE
+    else
+      echo "   extern  $p  (probe path not in target — not script-verifiable)"
+    fi
+  done <<< "$probe_cites"
+fi
+if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
   # exits 0 silently having checked nothing. Warn so the author notices the gap.
   if [ "$cert_total" -gt 0 ]; then  # P6-CERT-ZERO-CITE-WARN

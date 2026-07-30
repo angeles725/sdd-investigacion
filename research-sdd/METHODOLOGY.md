@@ -951,6 +951,15 @@ before trusting its verdict:
   is poisoned and every subsequent "pass" is a false one. Probe for this at the start of any DRC or
   constraint-DSL investigation; do not trust a clean result until a control-positive has fired.
 
+- **Negative-control / background rate.** A match rate, overlap count, or alarm frequency is not evidence
+  until measured against a CONTROL SET THAT SHOULD NOT MATCH. If the alarm fires on 40 % of a corpus,
+  the relevant question is: how often does it fire on a corpus known to be clean? A control set without
+  the target property — a device that has never been configured, a block that contains none of the tokens
+  under investigation — establishes the background rate. Without it, you cannot tell whether a 40 % hit
+  reflects a real signal or a noisy instrument. This is the negative twin of the CONTROL-POSITIVE rule:
+  one rule must fire on a known-bad fixture (control-positive); one must NOT fire on a known-good fixture
+  (control-negative). Run both before trusting any match count or alarm rate.
+
 - **Scope check: claim wider than measurement.** Before closing a block, compare the SCOPE of each central
   claim against the scope of what was actually measured. If the claim speaks of a population (all devices,
   all screens, the system) and the evidence is a sample (one device, one screen, one module), either measure
@@ -1090,7 +1099,13 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Scoped authorization for irreversible ops.** Irreversible/destructive actions are HARD-BLOCKED by
   default. The user lifts the block "for this session only"; record the grant with an explicit expiry
   (persist it), and re-arm the block when the session ends. Never carry an irreversible authorization
-  across sessions.
+  across sessions. **A grant is a CEILING, not an instruction** — exhaust offline/on-disk artefacts
+  BEFORE spending a live grant; if disk evidence answers the gap, the authorization is conserved.
+- **Verify tooling REMOVAL with the same rigour as placement.** Re-measure the removal on the host
+  (path absent, no residual files match the tool's signature) AND confirm that untouched processes
+  were not restarted (same-PID invariant: process identifiers before and after the visit must match).
+  "I did not touch the BMS" is a claim of intent; identical PIDs are a measurement of it. A restart
+  would change them even if every command was read-only.
 - **Cached network evidence carries a state field.** ARP/CAM/neighbour tables record both the layer-2
   mapping AND the state of that mapping: `Stale` means the mapping was known but has not been reconfirmed
   by the stack recently; `Reachable` means the stack confirmed the layer-2 address recently (presence
@@ -1105,6 +1120,11 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   probe; the live value was `0x87B961A9` (only B70 measured it live), which forced a correction (§14).
 - **Reclassify on hardware arrival.** Gaps marked `blocked` (§8) flip to investigable when the live
   system appears — update RESEARCH-STATE and re-run those.
+- **Reclassify on tool WITHDRAWAL.** The mirror of hardware arrival: when the tool/access/host a gap
+  depends on is WITHDRAWN (a live session ends, a scoped grant expires, a tool is uninstalled), flip its
+  gaps investigable→blocked in the SAME pass — update RESEARCH-STATE and re-run the §8 investigable
+  count. A gap left `pending — investigable` after its tooling is gone silently over-reports investigable
+  runway and corrupts the §8 STOP criterion.
 - **Tooling.** Build a read-only probe (a port of the decompiled protocol) and run it via
   [`toolbelt/probe.sh`](toolbelt/probe.sh), which preserves the raw output in `TARGET/sources/probes/`
   as `[CERT-hw]` evidence.
@@ -1187,6 +1207,16 @@ refresh. Write the report under `audits/`, READ-ONLY on the audited corpus.
 Driven by [`PROMPT-AUDIT.md`](PROMPT-AUDIT.md).
 A verdict of **DRIFTED** (claim was correct at write time but the subject moved — see PROMPT-AUDIT.md)
 is not a §14 correction; it feeds the REFRESH cycle: [`PROMPT-REFRESH.md`](PROMPT-REFRESH.md).
+
+**Operational suppression notes need an expiry.** §13's DRIFTED category covers BLOCK CLAIMS that
+drifted with the subject. Its operational cousin — an "ignore this alarm / known caveat" note in a
+state file — is riskier because it suppresses a MACHINE verdict, not just a prose claim, and is never
+caught by a §13 audit sweep. Any standing instruction to suppress a linter, `verify-state.sh`, or
+§7 alarm MUST carry a re-measurement date or explicit expiry condition (e.g. "caveat applies until
+`<condition>` — RESOLVED `<date>`"). A suppression note with no expiry converts a real `STALE` or
+`FAIL` into permanent noise, exactly as a DRIFTED claim does at block level — but harder to detect
+because the suppression lives in the instrument, not in the claim it was silencing.
+
 Audits ALWAYS write to `$TARGET/audits/` (never the
 kit), carry a `<!-- review-status: pending -->` marker, and are surfaced by `sweep-audits.sh` — the
 mirror of §18's retro sweep — with certainty verdicts routing to §14 corrections and coverage gaps to

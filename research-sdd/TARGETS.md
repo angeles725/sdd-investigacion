@@ -83,7 +83,7 @@ Sensitivity:
 | 14 | pruebas-dashboards | `$RESEARCH_HOME/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 4 retros + 1 corpus §18 + 3 client retros / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered — detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `$RESEARCH_HOME/investigacion/gateway-ug67` | **mature** (34 md / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 | 16 | computadoras | `$RESEARCH_HOME/investigacion/computadoras` | **incipient** (6 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
-| 17 | hilton-bms | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelHilton` | **mature** (86 blocks @2026-07-29 / 5 runs / 2 retros / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
+| 17 | hilton-bms | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelHilton` | **mature** (111 blocks @2026-07-30 / 5 runs / 2 retros / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
 | 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (35 blocks @2026-07-29, ACTIVE / 2 runs / 14-of-23 gaps / git yes / remote no / hook file yes / unregistered) `[CERT]` — §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
@@ -274,9 +274,10 @@ minimal ssh probe (read-only) + web (Trane/forum) — `decompile-native.sh`/`sca
 for control-flow questions.
 
 ### 17 — hilton-bms `[CERT]`
-**Focus status**: `integration` STOPPED 14/14 (15 blocks) · `pi5-decoding` 18 blocks · `compass-discover`
-**ACTIVE 19/43** (33 blocks) · `dashboard` 5 blocks (unnarrated below — needs its own paragraph).
-Block counts are the on-disk census (71 total, flat `corpus/`); the `n/m` gap ratios are as last
+**Focus status**: `integration` STOPPED 14/14 (15 blocks) · `pi5-decoding` 19 blocks · `compass-discover`
+**ACTIVE 19/43** (67 blocks) · `dashboard` 10 blocks (unnarrated below — needs its own paragraph).
+Block counts are the on-disk census (111 total @2026-07-30, flat `corpus/`, same census moment as the
+row above — see the active-corpus note below); the `n/m` gap ratios are as last
 reported by the focus and are NOT re-derived here. **Hook**: file installed by `research-sdd-init.sh` but still unregistered in
 `settings.json` (no matcher). **Writes**: READ-ONLY plus AUTHORIZED config mutations — see
 `ROLLBACK.md` at the target root.
@@ -295,7 +296,7 @@ gateways, 3 Niagara4 stations (one running **on the same host**, `station` on Fo
 UI on IIS (80/81/83/99, OIDC `client_id=Compass`), `bactalk` on 127.0.0.1:8088, SQL Server Express
 with a 150 MB job backup. Multi-brand site: CONRAD · HILTON · CASA TULKAL · SPA · KIDS CLUB.
 Three focuses: **integration** (STOPPED 14/14 — which viable paths exist to extract point data out of
-this BMS) · **pi5-decoding** (13 blocks — INNCOM PI5 protocol decoded, decoder DEPLOYED in production,
+this BMS) · **pi5-decoding** (19 blocks — INNCOM PI5 protocol decoded, decoder DEPLOYED in production,
 point semantics 9.1%→48.2%) · **compass-discover** (ACTIVE 19/43 — reverse-engineered how Compass
 discovers a controller's point universe, then replaced it: an independent BACnet client that censused
 503 live devices and a read-only collector reproducing Tridium's COV/poll ladder, all five parts
@@ -304,6 +305,9 @@ SECRETS DISCIPLINE applies throughout (cite structure of credentials/tokens, nev
 already carries five pre-existing remote-access tools (Radmin, TeamViewer, AnyDesk, RustDesk, RDP).
 **Hook status**: `.claude/hooks/research-protocol.sh` installed by `research-sdd-init.sh` but
 **unregistered** (no `settings.json` matcher yet).
+**Active-corpus note**: as of 2026-07-30 this corpus was under live research during the registry
+refresh — `compass-discover-block67.md` landed at 04:54, approximately one block per 10–20 minutes.
+A drift WARN on this row between sweeps is expected, not neglect; recount before treating it as stale.
 **Startup:** continue.
 
 ---
