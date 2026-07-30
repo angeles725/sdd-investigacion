@@ -230,6 +230,7 @@ to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
 - For serial-console one-shot PowerShell over WSL interop (not full SSH), see `DYNAMIC-SETUP.md §5`.
 - For paramiko-based SSH (password-only, no `-EncodedCommand`), see `DYNAMIC-SETUP.md §6`.
 - `push.sh` / `fetch.sh` — scp wrappers in the target's `tools/` directory.
+- **Pre-flight syntax check before pushing any `.ps1`**: `pslint.sh <file.ps1>` (kit toolbelt) — gotchas #1 and #2 in the summary table above document parse errors from encoding corruption or truncation; running `pslint.sh` locally catches those at the grammar level before the script ever crosses the SSH channel.
 
 ---
 

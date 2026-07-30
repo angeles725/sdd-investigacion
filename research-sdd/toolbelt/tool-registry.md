@@ -49,6 +49,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | MCP-server capability | added to `~/.claude.json` mcpServers | e.g. `chrome-devtools` (reach JS-rendered pages) | (MCP; log in INSTALLED-TOOLS.md per §10) | ✅ |
 | Browser / WebGL render target | headless Chrome (swiftshader) + local HTTP server | `tools/probe.mjs` (draw-call/triangle counts exact; FPS not) | (dynamic §12; `DYNAMIC-SETUP.md` §4) | ✅ |
 | Windows/PowerShell-over-SSH probe | live-install Windows host reachable via SSH | `powershell -NoProfile -EncodedCommand <b64>` via `connect-ssh.sh`; silent-failure gotchas documented (§1–5 SSH/PS; §6 Windows-native CLI from WSL) | (dynamic §12; [`WINDOWS-SSH-PROBES.md`](WINDOWS-SSH-PROBES.md)) | ✅ |
+| PowerShell source syntax (`.ps1`) | `.ps1` extension; NOT auto-detected by `profile-target.sh` | `pwsh` local — `[System.Management.Automation.Language.Parser]::ParseFile`; validates grammar only, not runtime semantics or PS 5.1/7 differences; path quoting uses env-var (not interpolation) so single-quote paths are safe | `pslint.sh <file.ps1> [...]` — exit 0 all clean · 1 errors found · 2 bad args · 3 pwsh unavailable; READ-ONLY, never modifies the file; fleet targets: HotelHilton (10 `.ps1`) and logosoft (`plc-client/`, 12 `.ps1`) | ✅ |
 
 ## Tool paths (verified)
 
