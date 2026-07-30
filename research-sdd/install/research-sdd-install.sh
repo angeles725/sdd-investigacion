@@ -220,20 +220,30 @@ install_one() {
   #    unless --force-skill, which backs up the existing file and overwrites with the kit source.
   #    WHY preserve by default: the deployed SKILL.md can carry retro-applied deltas written directly
   #    into it; an unconditional overwrite would silently destroy that knowledge.
+  #    States handled (both branches keep them distinguishable — CLAUDE.md §7):
+  #      source not found / not readable → [SKIP]; source-unreadable must be caught BEFORE cmp -s
+  #        (cmp -s exits 2 = "trouble" on an unreadable file, which reads as "differs" — wrong diagnosis)
+  #      dest is not a regular file (e.g. a directory) → [SKIP]; caught BEFORE cp would descend into it
+  #      dest not readable → [SKIP]; dest identical → no-op; dest diverged → warn+skip or force
+  #      --force-skill + existing backup → refuse (rc=1); backup may be the only copy of past deltas
   if [ "$dry" = 1 ]; then
-    # Print what the real run will ACTUALLY do — three distinguishable states (CLAUDE.md §7):
-    #   absent       → will install  (plain INSTALL line, no suffix)
-    #   byte-identical → no-op       (suffix: [up-to-date])
-    #   diverged     → warn+skip unless --force-skill (suffix: [SKIP …] or [will overwrite …])
-    # Also: not readable → will skip (suffix: [SKIP — not readable …])
+    # Print what the real run will ACTUALLY do — distinguishable states (CLAUDE.md §7).
     if [ ! -f "$src_skill" ]; then
       printf '  INSTALL %s (from kit %s) [SKIP — source SKILL not found]\n' "$skill_path" "$src_relkit"
+    elif [ ! -r "$src_skill" ]; then
+      printf '  INSTALL %s (from kit %s) [SKIP — source SKILL not readable; check permissions]\n' "$skill_path" "$src_relkit"
+    elif [ -e "$skill_path" ] && [ ! -f "$skill_path" ]; then
+      printf '  INSTALL %s (from kit %s) [SKIP — destination is not a regular file; remove it and re-run]\n' "$skill_path" "$src_relkit"
     elif [ -f "$skill_path" ] && [ ! -r "$skill_path" ]; then
       printf '  INSTALL %s (from kit %s) [SKIP — not readable; check permissions]\n' "$skill_path" "$src_relkit"
     elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
       printf '  INSTALL %s (from kit %s) [up-to-date]\n' "$skill_path" "$src_relkit"
     elif [ -f "$skill_path" ] && [ "$force" = 1 ]; then
-      printf '  INSTALL %s (from kit %s) [will overwrite; backup → %s]\n' "$skill_path" "$src_relkit" "$skill_path.local-backup"
+      if [ -e "$skill_path.local-backup" ]; then
+        printf '  INSTALL %s (from kit %s) [SKIP — backup %s already exists; rename or remove it first]\n' "$skill_path" "$src_relkit" "$skill_path.local-backup"
+      else
+        printf '  INSTALL %s (from kit %s) [will overwrite; backup → %s]\n' "$skill_path" "$src_relkit" "$skill_path.local-backup"
+      fi
     elif [ -f "$skill_path" ]; then
       printf '  INSTALL %s (from kit %s) [SKIP — diverged; use --force-skill to overwrite]\n' "$skill_path" "$src_relkit"
     else
@@ -243,15 +253,24 @@ install_one() {
     printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
     if [ ! -f "$src_skill" ]; then
       echo "research-sdd-install: [$h] source SKILL not found: $src_skill" >&2; rc=1
+    elif [ ! -r "$src_skill" ]; then
+      echo "research-sdd-install: [$h] source SKILL not readable: $src_skill" >&2; rc=1
     elif ! mkdir -p "$(dirname "$skill_path")"; then
       echo "research-sdd-install: [$h] mkdir failed for $(dirname "$skill_path")" >&2; rc=1
+    elif [ -e "$skill_path" ] && [ ! -f "$skill_path" ]; then
+      printf 'research-sdd-install: WARNING %s exists but is not a regular file — skipped (remove it and re-run)\n' "$skill_path" >&2
     elif [ -f "$skill_path" ] && [ ! -r "$skill_path" ]; then
       printf 'research-sdd-install: WARNING %s exists but is not readable (check permissions) — local content kept\n' "$skill_path" >&2
     elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
       : # byte-identical — silent no-op (idempotent re-run)
     elif [ -f "$skill_path" ] && [ "$force" = 1 ]; then
       bak="$skill_path.local-backup"
-      if ! cp "$skill_path" "$bak"; then
+      if [ -e "$bak" ]; then
+        # Refuse: the backup may be the ONLY copy of deltas from a prior --force-skill run.
+        # The operator resolves this by hand (rename or remove), keeping the decision explicit.
+        printf 'research-sdd-install: ERROR %s already exists — rename or remove it before re-running --force-skill (it may contain deltas you have not merged)\n' "$bak" >&2
+        rc=1
+      elif ! cp "$skill_path" "$bak"; then
         echo "research-sdd-install: [$h] backup failed → $bak" >&2; rc=1
       elif ! cp "$src_skill" "$skill_path"; then
         echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
