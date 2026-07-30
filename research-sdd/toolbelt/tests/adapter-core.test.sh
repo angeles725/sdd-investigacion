@@ -433,37 +433,167 @@ PY
 then ok "refuse_privileged_execution: SGID branch (getgid!=getegid, geteuid==getuid!=0) → AdapterError"; else no "refuse_privileged_execution SGID"; fi
 
 # 26. Convention: every adapter with an args.worker dispatch branch must call
-#     refuse_privileged_execution() in main() BEFORE that dispatch.
-#     Anti-vacuity guard: if no adapters are discovered the assertion fails.
+#     refuse_privileged_execution() in main() BEFORE that dispatch, checked via
+#     AST — comments, docstrings, and if-False dead branches do not satisfy the
+#     requirement.  Anti-vacuity: zero adapters discovered triggers failure.
 if python3 - "$HERE/.." <<'PY'
-import sys
+import ast, sys
 from pathlib import Path
+
+GUARD = "refuse_privileged_execution"
+
+def check_adapter(src, name):
+    tree = ast.parse(src, filename=name)
+    m = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "main"), None)
+    assert m is not None, f"{name}: no main() found"
+    # Nodes nested in an if-False dead branch are excluded from the check
+    dead = {
+        id(dn)
+        for node in ast.walk(m)
+        if (isinstance(node, ast.If) and
+            isinstance(node.test, ast.Constant) and node.test.value is False)
+        for stmt in node.body
+        for dn in ast.walk(stmt)
+    }
+    guard_lines = [
+        node.lineno for node in ast.walk(m)
+        if (isinstance(node, ast.Call) and
+            isinstance(node.func, ast.Name) and node.func.id == GUARD and
+            id(node) not in dead)
+    ]
+    dispatch_lines = [
+        node.lineno for node in ast.walk(m)
+        if (isinstance(node, ast.Attribute) and
+            node.attr == "worker" and
+            isinstance(node.value, ast.Name) and node.value.id == "args" and
+            id(node) not in dead)
+    ]
+    assert guard_lines, f"{name}: {GUARD} not called in main() (no live Call node)"
+    assert dispatch_lines, f"{name}: args.worker dispatch not found in main()"
+    assert min(guard_lines) < min(dispatch_lines), (
+        f"{name}: guard line {min(guard_lines)} must precede "
+        f"dispatch line {min(dispatch_lines)}"
+    )
 
 toolbelt = Path(sys.argv[1])
 adapters = [p for p in sorted(toolbelt.glob("*.py")) if "args.worker" in p.read_text()]
-
-assert len(adapters) > 0, (
+assert adapters, (
     f"vacuity: no adapter with args.worker dispatch found under {toolbelt} — "
     "glob broken or all adapters moved"
 )
-
-for path in adapters:
-    src = path.read_text()
-    main_start = src.find("def main(")
-    assert main_start >= 0, f"{path.name}: no main() found"
-    guard_pos = src.find("refuse_privileged_execution", main_start)
-    dispatch_pos = src.find("args.worker", main_start)
-    assert guard_pos >= 0, (
-        f"{path.name}: refuse_privileged_execution not called in main()"
-    )
-    assert dispatch_pos >= 0, (
-        f"{path.name}: args.worker dispatch not found in main()"
-    )
-    assert guard_pos < dispatch_pos, (
-        f"{path.name}: guard (pos {guard_pos}) must precede "
-        f"args.worker dispatch (pos {dispatch_pos})"
-    )
+for p in adapters:
+    check_adapter(p.read_text(), p.name)
 PY
-then ok "convention: all adapters with --worker dispatch call guard before dispatch in main()"; else no "adapter --worker guard convention"; fi
+then ok "convention: all adapters call guard (live AST Call) before dispatch in main()"; else no "adapter guard convention (AST)"; fi
+
+# ─── Prove-teeth (--prove-teeth): verify the AST convention check is not theatre ───────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  _PT_TMP="$ROOT/pt"
+  mkdir -p "$_PT_TMP"
+
+  # ast_check.py: exits 0 when the convention check REJECTS src passed as $1
+  #               (good — teeth work); exits 1 when it PASSES (bad — no teeth)
+  cat > "$_PT_TMP/ast_check.py" <<'PYEOF'
+import ast, sys
+from pathlib import Path
+G = "refuse_privileged_execution"
+src = Path(sys.argv[1]).read_text()
+try:
+    tree = ast.parse(src)
+except SyntaxError:
+    sys.exit(0)
+m = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"), None)
+if not m:
+    sys.exit(0)
+dead = {id(dn) for nd in ast.walk(m) if isinstance(nd, ast.If) and isinstance(nd.test, ast.Constant) and nd.test.value is False for st in nd.body for dn in ast.walk(st)}
+gl = [n.lineno for n in ast.walk(m) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == G and id(n) not in dead]
+dl = [n.lineno for n in ast.walk(m) if isinstance(n, ast.Attribute) and n.attr == "worker" and isinstance(n.value, ast.Name) and n.value.id == "args" and id(n) not in dead]
+sys.exit(1 if gl and dl and min(gl) < min(dl) else 0)
+PYEOF
+
+  _FC="$HERE/../firmware_carve.py"
+  [ -f "$_FC" ] || { no "teeth-setup: firmware_carve.py not found at $_FC"; }
+
+  # teeth-bypass1: comment mentions guard before dispatch — old textual test PASSED (bug)
+  _MUT="$_PT_TMP/b1.py"
+  python3 - "$_FC" "$_MUT" <<'PY'
+import sys; from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+Path(sys.argv[2]).write_text(src.replace(
+    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
+    "        # TODO: refuse_privileged_execution should be called here\n        if args.worker: return worker(args)",
+    1))
+PY
+  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
+    ok "teeth-bypass1: AST rejects comment-only mention (bypass B1 closed)"
+  else
+    no "teeth-bypass1: AST passed on comment-only mention — test has no teeth"
+  fi
+
+  # teeth-bypass2: if-False dead branch — old textual test PASSED (bug)
+  _MUT="$_PT_TMP/b2.py"
+  python3 - "$_FC" "$_MUT" <<'PY'
+import sys; from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+Path(sys.argv[2]).write_text(src.replace(
+    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
+    "        if False: refuse_privileged_execution()\n        if args.worker: return worker(args)",
+    1))
+PY
+  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
+    ok "teeth-bypass2: AST rejects guard in if-False dead branch (bypass B2 closed)"
+  else
+    no "teeth-bypass2: AST passed on if-False dead branch — test has no teeth"
+  fi
+
+  # teeth-bypass3: docstring mention before dispatch — old textual test PASSED (bug)
+  _MUT="$_PT_TMP/b3.py"
+  python3 - "$_FC" "$_MUT" <<'PY'
+import sys; from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+Path(sys.argv[2]).write_text(src.replace(
+    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
+    '        "refuse_privileged_execution is handled elsewhere"\n        if args.worker: return worker(args)',
+    1))
+PY
+  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
+    ok "teeth-bypass3: AST rejects docstring mention of guard (bypass B3 closed)"
+  else
+    no "teeth-bypass3: AST passed on docstring mention — test has no teeth"
+  fi
+
+  # teeth-M2: guard removed from main() entirely — must RED
+  _MUT="$_PT_TMP/m2.py"
+  python3 - "$_FC" "$_MUT" <<'PY'
+import sys; from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+Path(sys.argv[2]).write_text(src.replace(
+    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
+    "        if args.worker: return worker(args)",
+    1))
+PY
+  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
+    ok "teeth-M2: AST rejects absent guard in main() (M2 still red)"
+  else
+    no "teeth-M2: AST passed on absent guard — M2 has no teeth"
+  fi
+
+  # teeth-M7: guard placed after dispatch — must RED
+  _MUT="$_PT_TMP/m7.py"
+  python3 - "$_FC" "$_MUT" <<'PY'
+import sys; from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+Path(sys.argv[2]).write_text(src.replace(
+    "        refuse_privileged_execution()\n        if args.worker: return worker(args)",
+    "        if args.worker: return worker(args)\n        refuse_privileged_execution()",
+    1))
+PY
+  if python3 "$_PT_TMP/ast_check.py" "$_MUT" 2>/dev/null; then
+    ok "teeth-M7: AST rejects guard-after-dispatch (M7 still red)"
+  else
+    no "teeth-M7: AST passed on guard-after-dispatch — M7 has no teeth"
+  fi
+fi
 
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

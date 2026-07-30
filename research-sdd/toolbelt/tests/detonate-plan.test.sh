@@ -532,6 +532,53 @@ with tempfile.TemporaryDirectory() as td:
         ok("T-RTMOUNT-MOUNTPLAN-ABSENT: mount_plan omits runtime_tree_ro when --qemu-root absent")
     except Exception as e: nok("T-RTMOUNT-MOUNTPLAN-ABSENT", str(e))
 
+# ── T-BROAD-WARN-ROOT: /root triggers warning (issue #98, item 1) ────────────────────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out_root"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/root")
+        assert r.returncode == 3, f"got {r.returncode}"
+        assert "WARNING" in r.stderr, f"no WARNING for /root; stderr={r.stderr[:200]}"
+        ok("T-BROAD-WARN-ROOT: --qemu-root /root → WARNING on stderr (issue #98 item 1)")
+    except Exception as e: nok("T-BROAD-WARN-ROOT", str(e))
+
+# ── T-BROAD-WARN-EXIT0: WARNING on stderr AND stdout is pure JSON on exit 0 (issue #98, item 2)
+# Uses RSDD_EXEC_EXECUTOR stub that returns exit 0 (outcome != auth-required).
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out_e0"
+    stub = R/"stub.py"
+    stub.write_text("def execute(p): return {'outcome': 'dry-run-stub', 'plan': p}\n")
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","/usr",
+                "--allow-exec", xe={"RSDD_EXEC_EXECUTOR": str(stub)})
+        assert r.returncode == 0, f"expected exit 0 with stub; got {r.returncode}; stderr={r.stderr[:200]}"
+        assert "WARNING" in r.stderr, f"WARNING missing on stderr (exit-0 path); stderr={r.stderr[:200]}"
+        parsed = json.loads(r.stdout)
+        assert isinstance(parsed, dict), "stdout is not a JSON object"
+        ok("T-BROAD-WARN-EXIT0: exit-0 path → WARNING on stderr + stdout is pure JSON")
+    except Exception as e: nok("T-BROAD-WARN-EXIT0", str(e))
+
+# ── T-CAPS-BEFORE-WARN: broad --qemu-root warning emitted even when caps invalid (issue #98, item 3)
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out_caps"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),
+                "--qemu-root","/usr","--cpu-seconds","0")
+        assert r.returncode == 2, f"expected exit 2 (cap error); got {r.returncode}"
+        assert "WARNING" in r.stderr, f"WARNING not in stderr despite broad --qemu-root; stderr={r.stderr[:300]}"
+        ok("T-CAPS-BEFORE-WARN: broad --qemu-root warning emitted before cap validation (issue #98 item 3)")
+    except Exception as e: nok("T-CAPS-BEFORE-WARN", str(e))
+
+# ── T-EMPTY-QEMU-ROOT: empty --qemu-root → explicit reject (exit 2), no "WARNING: ...root" (issue #98, item 4)
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); s = R/"s.bin"; s.write_bytes(b"\x7fELF" + b"\x00"*16); out = R/"out_empty"
+    try:
+        r = cli("plan","--sample",str(s),"--output",str(out),"--qemu-root","")
+        assert r.returncode == 2, f"expected exit 2 for empty --qemu-root; got {r.returncode}"
+        assert "empty" in r.stderr.lower(), f"expected 'empty' rejection msg; stderr={r.stderr[:200]}"
+        ok("T-EMPTY-QEMU-ROOT: empty --qemu-root → exit 2 with explicit rejection (issue #98 item 4)")
+    except Exception as e: nok("T-EMPTY-QEMU-ROOT", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

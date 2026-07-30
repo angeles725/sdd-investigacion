@@ -78,6 +78,7 @@ suites_run=0
 suites_ok=0
 total_passed=0
 total_failed=0
+total_skipped=0     # count of per-test "  SKIP  " lines across all suites
 failed_suites=()    # "basename (exit N)" entries for the report
 suites_skipped=()   # basenames of suites that emitted a SKIP: line and exited 0
 
@@ -111,12 +112,15 @@ for suite in "${all_suites[@]}"; do
   fi
 
   # Parse the LAST matching summary line from the captured output.
+  # Also accumulate per-test skip lines ("  SKIP  ..." indented format).
   parsed_line=""
   while IFS= read -r line; do
     if [[ "$line" =~ $summary_re ]]; then
       parsed_line="$line"
       s_passed="${BASH_REMATCH[1]}"
       s_failed="${BASH_REMATCH[2]}"
+    elif [[ "$line" == "  SKIP  "* ]]; then
+      total_skipped=$((total_skipped + 1))
     fi
   done < "$tmp_out"
 
@@ -128,9 +132,8 @@ for suite in "${all_suites[@]}"; do
   # Suite-level outcome is driven by the EXIT CODE, not the parsed counts.
   # A suite that exits 0 with a "SKIP:" line on stdout is classified as skipped,
   # not passed. The line-start SKIP: form is the convention for whole-suite skips
-  # and is used by most suites. Known exceptions that use an indented no-colon form
-  # ("  SKIP  ...") instead: corroborate-pcap.test.sh and pcap-flows.test.sh — those
-  # two are not detected here and will be counted as passed if tshark is absent.
+  # and is used universally by all suites. Per-test skips use the indented form
+  # ("  SKIP  ...") and are counted separately in total_skipped.
   if [[ "$rc" -eq 0 ]] && grep -q '^SKIP:' "$tmp_out"; then
     suites_skipped+=("$base")
   else
@@ -177,6 +180,7 @@ if [[ ${#suites_skipped[@]} -gt 0 ]]; then
   done
 fi
 echo "Test cases passed: $total_passed"
+echo "Test cases skipped: $total_skipped"
 echo "Test cases failed: $total_failed"
 echo "==============================================================="
 

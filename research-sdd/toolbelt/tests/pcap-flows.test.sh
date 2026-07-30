@@ -4,7 +4,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../pcap-flows.sh"; MANIFEST="$HERE/../analysis_manifest.py"
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 if ! command -v tshark >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
-  echo "  SKIP  tshark or bwrap not in PATH — suite skipped (tool-missing)"
+  echo "SKIP: tshark or bwrap not in PATH — suite skipped (tool-missing)"
   echo "== 0 passed · 0 failed =="; exit 0
 fi
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0

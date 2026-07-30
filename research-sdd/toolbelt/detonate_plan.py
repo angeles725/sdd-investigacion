@@ -204,16 +204,20 @@ def plan_detonate(args: Any) -> int:
     try: _, input_size, input_sha = _file_identity(sample, max_bytes=args.max_input_bytes)
     except AdapterError as exc:
         print(f"detonate-plan: {exc}", file=sys.stderr); return 2
+    # Emit the broad-qemu-root warning BEFORE caps validation so operators see it
+    # even when caps are also wrong — the warning is diagnostic and independent.
+    qemu_root = getattr(args, "qemu_root", None)
+    if qemu_root is not None:
+        if qemu_root == "":
+            print("detonate-plan: --qemu-root must not be empty", file=sys.stderr); return 2
+        _rt_warn = _broad_qemu_root_msg(os.path.realpath(qemu_root), qemu_root)
+        if _rt_warn is not None:
+            print(f"detonate-plan: {_rt_warn}", file=sys.stderr)
     caps = {"cpu_seconds": args.cpu_seconds, "mem_bytes": args.max_mem_bytes,
             "wall_seconds": args.wall_seconds, "output_bytes": args.max_output_bytes}
     for k, v in caps.items():
         if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             print(f"detonate-plan: cap {k!r} must be positive int", file=sys.stderr); return 2
-    qemu_root = getattr(args, "qemu_root", None)
-    if qemu_root is not None:
-        _rt_warn = _broad_qemu_root_msg(os.path.realpath(qemu_root), qemu_root)
-        if _rt_warn is not None:
-            print(f"detonate-plan: {_rt_warn}", file=sys.stderr)
     kernel_path = args.kernel
     if qemu_root is not None and kernel_path == _DEFAULT_KERNEL:
         kernel_path = f"{_RT_TREE_DEST}/vmlinuz"

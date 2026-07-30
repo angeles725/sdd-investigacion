@@ -191,6 +191,48 @@ if [ "$rc" -ne 0 ] \
   ok "all-skip: all suites skip → exit 1 (no coverage), Suites skipped=2"
 else no "all-skip failed: rc=$rc :: $(grep -iE 'Suites (passed|skipped|failed)' <<<"$out" | tr '\n' ' ')"; fi
 
+# 12 — pcap-format: corroborate-pcap.test.sh and pcap-flows.test.sh must emit SKIP:
+#       (canonical whole-suite format recognized by run-all.sh) when tshark, capinfos,
+#       or bwrap are absent. RED before normalizing those two suites; GREEN after.
+#       Approach: build a minimal clean-bin PATH (no pcap tools), stub out the SUTs so
+#       the harness check passes, then run the real suites through a copy of run-all.sh.
+_c12root="$TMP/c12pfix"; mkdir -p "$_c12root/tests"
+cp "$SUT" "$_c12root/tests/run-all.sh"
+cp "$HERE/corroborate-pcap.test.sh" "$_c12root/tests/"
+cp "$HERE/pcap-flows.test.sh" "$_c12root/tests/"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/corroborate-pcap.sh"; chmod +x "$_c12root/corroborate-pcap.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/pcap-flows.sh";      chmod +x "$_c12root/pcap-flows.sh"
+touch "$_c12root/analysis_manifest.py"
+_c12bin="$TMP/c12bin"; mkdir -p "$_c12bin"
+for _c in bash dirname sort mktemp tee grep rm basename; do
+  _p="$(command -v "$_c" 2>/dev/null)"
+  [ -n "$_p" ] && ln -s "$_p" "$_c12bin/$_c" 2>/dev/null || true
+done
+out="$(PATH="$_c12bin" bash "$_c12root/tests/run-all.sh" 2>&1)"
+if grep -qF 'Suites skipped: 2' <<<"$out" \
+   && grep -qF 'Suites passed: 0' <<<"$out"; then
+  ok "pcap-format: pcap suites classified as SKIPPED when tshark/capinfos/bwrap absent"
+else
+  no "pcap-format: expected skipped=2/passed=0; got: $(grep -E 'Suites (passed|skipped)' <<<"$out" | tr '\n' ' ')"
+fi
+
+# 13 — per-test-skip-agg: per-test "  SKIP  " lines (tool-env T5, capa T14, etc.) must be
+#       counted and reported as "Test cases skipped: N" in the aggregate summary.
+#       RED before adding total_skipped to run-all.sh; GREEN after.
+w="$(newdir c13)"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "  SKIP  T5: unzip absent"\n'
+  printf 'echo "  SKIP  T12: too fast"\n'
+  printf 'echo "== 3 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/partial-skip.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"
+if grep -qF 'Test cases skipped: 2' <<<"$out"; then
+  ok "per-test-skip-agg: 2 per-test SKIP lines → 'Test cases skipped: 2' in aggregate"
+else
+  no "per-test-skip-agg: 'Test cases skipped: 2' absent; got: $(grep 'Test cases skipped' <<<"$out" || echo '<absent>')"
+fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -203,6 +245,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash "$w/run-all.sh" >/dev/null 2>&1; mrc=$?
   if [ "$mrc" -eq 0 ]; then ok "teeth: PIPESTATUS-neutered mutant reports green despite a failing fixture → exit-code teeth real"
   else no "teeth: mutant still failed (rc=$mrc) — PIPESTATUS mutation not exercised (THEATER)"; fi
+  # Mutation 2: neuter total_skipped counter → C13 per-test-skip aggregation teeth.
+  echo "-- teeth: zero-out total_skipped counter; per-test skip count must not show 1 --"
+  w="$TMP/teeth-skip"; mkdir -p "$w"
+  sed 's/total_skipped=\$((total_skipped + 1))/: # neutered/' "$SUT" > "$w/run-all.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "  SKIP  T5: skip me"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    printf 'exit 0\n'
+  } > "$w/skip.test.sh"
+  sout="$(bash "$w/run-all.sh" 2>&1)"
+  if ! grep -qF 'Test cases skipped: 1' <<<"$sout"; then
+    ok "teeth-skip: neutered counter does not report 1 skipped → per-test-skip teeth real"
+  else
+    no "teeth-skip: neutered counter still shows 1 skipped — aggregation teeth absent (THEATER)"
+  fi
 fi
 
 echo "== $pass passed $MID $fail failed =="

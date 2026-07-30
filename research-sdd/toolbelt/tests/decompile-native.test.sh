@@ -90,6 +90,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth: per-test guard collapsed; ${_np:-0} tests ran without file/strings (want ≥6)"
   fi
+  # M7 guard: on a tool-less PATH the quick-mode guard must emit SKIP (not FAIL).
+  # M7 mutation: removing `else` puts the run inside the then-block, so it fires when
+  # tools are absent and the SUT exits 127 (set -euo pipefail + file missing) → FAIL.
+  if printf '%s\n' "$_out" | grep -qF '  SKIP  quick mode' \
+     && ! printf '%s\n' "$_out" | grep -qF '  FAIL  quick mode'; then
+    ok "M7-base: clean-PATH run emits SKIP (not FAIL) for quick mode — guard working"
+  else
+    no "M7-base: quick mode did not emit SKIP-only in clean-PATH run — guard absent or broken"
+  fi
+  echo "-- M7 mutation: remove else so quick-mode runs inside the then-block --"
+  # Place mutant in toolbelt/tests/ so HERE/../decompile-native.sh resolves to the SUT copy.
+  mkdir -p "$ROOT/toolbelt/tests"
+  _m7="$ROOT/toolbelt/tests/decompile-native.M7.test.sh"
+  awk '/echo "  SKIP  quick mode/{print; getline; if ($0 !~ /^else$/) print; next} {print}' \
+    "$HERE/decompile-native.test.sh" > "$_m7"
+  chmod +x "$_m7"
+  _m7out="$(PATH="$_clean" bash "$_m7" 2>&1)"
+  if printf '%s\n' "$_m7out" | grep -qF '  FAIL  quick mode'; then
+    ok "M7-killed: else-removed mutant FAILs quick mode on tool-less PATH — M7 detected"
+  else
+    no "M7-killed: mutant did not FAIL quick mode on tool-less PATH — M7 survived (THEATER)"
+  fi
   echo "-- B3 mutation: remove basename from -postScript; B3 must expose full path --"
   _mutant="$ROOT/toolbelt/decompile-native.MUTANT.sh"
   sed 's/$(basename "$_script")/$_script/' "$ROOT/toolbelt/decompile-native.sh" > "$_mutant"

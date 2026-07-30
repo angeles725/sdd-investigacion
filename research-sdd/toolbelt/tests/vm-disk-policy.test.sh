@@ -857,6 +857,29 @@ try:
 except Exception as e:
     nok("VDP-BROAD-NOWARN", str(e))
 
+# ── VDP-ROOT-WARN: /root is in the broad set → warning (issue #98, item 1) ────────────
+# RED before fix: /root absent from _BROAD_QEMU_ROOT_DIRS → returns None.
+try:
+    _w = m.broad_qemu_root_message("/root", "/root")
+    assert _w is not None, "expected warning for /root but got None"
+    assert "WARNING" in _w, f"warning missing 'WARNING' token: {_w!r}"
+    ok("VDP-ROOT-WARN: /root in broad set → warning")
+except Exception as e:
+    nok("VDP-ROOT-WARN", str(e))
+
+# ── VDP-NORMPATH-TYPED-ROOT: normpath on typed catches /usr/../root via typed arm ────
+# resolved="/opt/x" (not in set) isolates the typed-normpath arm.
+# RED before fix: normed_typed = "/usr/../root" (no normpath) → not in set → None.
+# GREEN after: normpath("/usr/../root") = "/root" → in set (with /root added) → warning.
+# Kills normpath-removal mutation: removing normpath makes typed = "/usr/../root" → miss.
+try:
+    _w = m.broad_qemu_root_message("/opt/x", "/usr/../root")
+    assert _w is not None, "expected warning for typed=/usr/../root but got None"
+    assert "WARNING" in _w, f"warning missing 'WARNING' token: {_w!r}"
+    ok("VDP-NORMPATH-TYPED-ROOT: normpath on typed catches /usr/../root (kills normpath mutation)")
+except Exception as e:
+    nok("VDP-NORMPATH-TYPED-ROOT", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY

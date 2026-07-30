@@ -403,6 +403,83 @@ if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" && ! grep -qiE 'short.*:46272
   ok "P6-regression: IP:port in table cell NOT a short cite; WARN still fires (no false positive)"
 else no "P6-regression: IP:port wrongly fired or WARN suppressed :: $(grep -iE 'short|WARN|:46272' <<<"$out" | head -2)"; fi
 
+# ---- P7: range form `file.ext:NNN-MMM` in backtick cites -----------------------------------------------
+# The corpus overwhelmingly uses range citations (`BinaryEncoder.java:10-20`). The parser was blind to
+# every one of them: the old bt_cites pattern anchored on `:[0-9]+` only (no `-[0-9]+` continuation),
+# so a block with ONLY range cites triggered the P6 zero-citation WARN — a false positive on a
+# well-cited block. The extension adds `(-[0-9]+)?` to the extraction and validates both endpoints.
+
+# 36 — range cite in backticks, file absent → extern + NO false P6 WARN (the pre-fix false-positive case).
+d="$TMP/bt-range-extern.md"
+{ echo "# Block 36 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The method signature \`BinaryEncoder.java:10-20\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'extern.*BinaryEncoder\.java:10-20' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "bt range cite (absent file) → extern; no false P6 WARN"
+else no "bt range extern: got :: $(grep -iE 'extern|WARN|BinaryEncoder' <<<"$out" | head -2)"; fi
+
+# 37 — range cite in backticks, file present, end within bounds → ok + exit 0.
+d="$TMP/bt-range-ok.md"; seq 1 30 > "$TMP/bt-range-file.java"
+{ echo "# Block 37 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The method signature \`bt-range-file.java:10-20\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qE 'ok.*bt-range-file\.java:10-20' <<<"$out"; then ok "bt range cite in-bounds → ok + exit 0"
+else no "bt range in-bounds not ok: rc=[$rc] :: $(grep -iE 'ok|RANGE|extern|bt-range-file' <<<"$out" | head -1)"; fi
+
+# 38 — range cite in backticks, file present, end past EOF → RANGE! + exit 1.
+d="$TMP/bt-range-overflow.md"; seq 1 15 > "$TMP/bt-short.java"
+{ echo "# Block 38 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The entry point \`bt-short.java:10-25\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && grep -qE 'RANGE.*bt-short\.java:10-25' <<<"$out"; then ok "bt range cite end past EOF → RANGE! + exit 1"
+else no "bt range overflow not caught: rc=[$rc] :: $(grep -iE 'RANGE|ok|bt-short' <<<"$out" | head -1)"; fi
+
+# 39 — degenerate: :0-NNN (start is 0, invalid — lines are 1-indexed) → RANGE! + exit 1.
+d="$TMP/bt-range-zero.md"; seq 1 30 > "$TMP/bt-range-file.java"
+{ echo "# Block 39 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "From top \`bt-range-file.java:0-10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && grep -qE 'RANGE.*bt-range-file\.java:0-10' <<<"$out"; then ok "bt range :0-NNN (zero start, invalid) → RANGE! + exit 1"
+else no "bt range zero-start not caught: rc=[$rc] :: $(grep -iE 'RANGE|ok|bt-range-file' <<<"$out" | head -1)"; fi
+
+# 40 — degenerate: :10-3 reversed (start > end — defect in block) → RANGE! + exit 1.
+d="$TMP/bt-range-reversed.md"; seq 1 30 > "$TMP/bt-range-file.java"
+{ echo "# Block 40 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Reversed range \`bt-range-file.java:10-3\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && grep -qE 'RANGE.*bt-range-file\.java:10-3' <<<"$out"; then ok "bt range :10-3 reversed (defect) → RANGE! + exit 1"
+else no "bt range reversed not caught: rc=[$rc] :: $(grep -iE 'RANGE|ok|bt-range-file' <<<"$out" | head -1)"; fi
+
+# 41 — degenerate: :5-5 (single-line range, valid) → ok + exit 0.
+d="$TMP/bt-range-same.md"; seq 1 30 > "$TMP/bt-range-file.java"
+{ echo "# Block 41 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "One-line range \`bt-range-file.java:5-5\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qE 'ok.*bt-range-file\.java:5-5' <<<"$out"; then ok "bt range :5-5 (degenerate single-line range) → ok + exit 0"
+else no "bt range :5-5 not ok: rc=[$rc] :: $(grep -iE 'ok|RANGE|bt-range-file' <<<"$out" | head -1)"; fi
+
+# ---- P7: secondary short-form citation after a comma in a comment (// :NNN,:MMM) -------------------
+# `// :159,:161` captures :159 but the old pattern stopped there; :161 after the comma was invisible.
+# The fix extends the pattern with `(,[[:space:]]*:[0-9]+)*` so all comma-joined cites in one
+# comment token are captured. Discipline: the comma continuation is ONLY valid when a comment marker
+# already established the citation context — arbitrary prose is not affected.
+
+# 42 — secondary comment cite: // :NNN,:MMM → both :NNN and :MMM as short; no false WARN.
+d="$TMP/p7-cmt-secondary.md"
+{ echo "# Block 42 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## Constants [CERT]"
+  printf '```csharp\n'
+  echo "CONST_A = 15;  // :159,:161"
+  printf '```\n'
+} > "$d"
+out="$(run "$d")"
+if grep -qiE 'short.*:159|:159.*short' <<<"$out" && grep -qiE 'short.*:161|:161.*short' <<<"$out" \
+   && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "P7-cmt-secondary: // :NNN,:MMM → both :159 and :161 as short; no WARN"
+else no "P7-cmt-secondary: secondary cite missed or WARN fires :: $(grep -iE 'short|WARN|:15[0-9]|:16[0-9]' <<<"$out" | head -3)"; fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -494,6 +571,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-short-cmt: P6-SHORT-FORM-CITE-COMMENT sentinel not found in SUT"
+  fi
+
+  # teeth-p7-range-extract: neuter P7-BT-RANGE-EXTRACT; range-only block must revert to P6 WARN.
+  echo "-- teeth-p7-range-extract: neuter P7-BT-RANGE-EXTRACT; range-only block must revert to WARN --"
+  mutant_rng="$TMP/verify-block.P7RNGEXTRACT.sh"
+  if grep -q '# P7-BT-RANGE-EXTRACT' "$SUT"; then
+    sed '/# P7-BT-RANGE-EXTRACT/ s/.*/bt_cites=""  # P7-BT-RANGE-EXTRACT [NEUTERED]/' "$SUT" > "$mutant_rng"
+    d_rng="$TMP/p7-rng-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "The method \`BinaryEncoder.java:10-20\`. \`[CERT]\`"; } > "$d_rng"
+    mout_rng="$(bash "$mutant_rng" "$d_rng" 2>/dev/null)"
+    if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_rng"; then
+      ok "teeth-p7-range-extract: neutered bt_cites → range-only block reverts to WARN (test 36 has teeth)"
+    else
+      no "teeth-p7-range-extract: neutered mutant did not revert to WARN :: $(grep -iE 'WARN|cert|extern' <<<"$mout_rng" | head -1)"
+    fi
+  else
+    no "teeth-p7-range-extract: P7-BT-RANGE-EXTRACT sentinel not found in SUT"
+  fi
+
+  # teeth-p7-cmt-secondary: neuter P7-CMT-SECONDARY; secondary :161 must not be captured.
+  echo "-- teeth-p7-cmt-secondary: neuter P7-CMT-SECONDARY; // :NNN,:MMM must lose :MMM --"
+  mutant_cmtsec="$TMP/verify-block.P7CMTSEC.sh"
+  if grep -q '# P7-CMT-SECONDARY' "$SUT"; then
+    sed '/# P7-CMT-SECONDARY/ s/.*/_cmt_shorts=""  # P7-CMT-SECONDARY [NEUTERED]/' "$SUT" > "$mutant_cmtsec"
+    d_cmtsec="$TMP/p7-cmtsec-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "## Constants [CERT]"
+      printf '```csharp\n'; echo "CONST_A = 15;  // :159,:161"; printf '```\n'; } > "$d_cmtsec"
+    mout_cmtsec="$(bash "$mutant_cmtsec" "$d_cmtsec" 2>/dev/null)"
+    if ! grep -qiE 'short.*:161|:161.*short' <<<"$mout_cmtsec"; then
+      ok "teeth-p7-cmt-secondary: neutered secondary → :161 not captured (test 42 has teeth)"
+    else
+      no "teeth-p7-cmt-secondary: neutered mutant STILL captured :161 :: $(grep -iE ':161|short' <<<"$mout_cmtsec" | head -1)"
+    fi
+  else
+    no "teeth-p7-cmt-secondary: P7-CMT-SECONDARY sentinel not found in SUT"
   fi
 fi
 
