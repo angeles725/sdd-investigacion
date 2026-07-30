@@ -14,8 +14,8 @@ GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -285,6 +285,85 @@ if ! grep -q '# research-sdd:start' "$cfg" && ! grep -q '^\[mcp_servers.engram\]
   ok "inline dotted-key mcp_servers.engram detected as a conflict (warn+skip, byte-preserved)"
 else no "inline dotted-key mcp_servers.engram NOT detected — installer appended its own header anyway"; fi
 
+# 31 — dry-run on an IDENTICAL deployed skill prints [up-to-date], not a plain INSTALL.
+#      The §7 three-state rule applied to the plan: identical state must be distinguishable from absent.
+home="$TMP/dryrun-identical"
+bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1              # seed: real install
+out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"      # second run: identical
+if printf '%s\n' "$out" | grep -q 'INSTALL.*\[up-to-date\]'; then
+  ok "dry-run identical: shows [up-to-date] (absent vs identical distinguishable)"
+else no "dry-run identical: missing [up-to-date] (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
+
+# 32 — dry-run on a DIVERGED deployed skill prints SKIP and names --force-skill as the remedy.
+#      The plan must not promise an install it will then refuse to perform.
+home="$TMP/dryrun-diverged"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+printf '# custom deployed content — not kit source\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
+if printf '%s\n' "$out" | grep -q 'INSTALL.*SKIP.*--force-skill'; then
+  ok "dry-run diverged: shows SKIP and names --force-skill remedy"
+else no "dry-run diverged: plan wrong (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
+[ ! -f "$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup" ] \
+  && ok "dry-run diverged: no backup created" \
+  || no "dry-run diverged: backup created unexpectedly"
+
+# 33 — dry-run on a NOT-READABLE deployed skill prints SKIP (not INSTALL), naming permissions.
+#      Mirrors the real-run guard at line ~228 so the plan and real behavior agree.
+if [ "$(id -u)" -eq 0 ]; then
+  ok "dry-run unreadable SKILL.md check skipped (running as root — chmod 000 is a no-op)"
+else
+  home="$TMP/dryrun-unreadable"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+  printf '# some content\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+  chmod 000 "$home/.config/opencode/skills/research-sdd/SKILL.md"
+  out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
+  chmod 644 "$home/.config/opencode/skills/research-sdd/SKILL.md"
+  if printf '%s\n' "$out" | grep -q 'INSTALL.*SKIP.*not readable'; then
+    ok "dry-run unreadable: shows SKIP for permissions issue (not a plain INSTALL)"
+  else no "dry-run unreadable: wrong plan (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
+fi
+
+# 34 — --force-skill overwrites a diverged SKILL.md after backing it up to <path>.local-backup.
+#      The backup must contain the original content so the operator can recover any deltas.
+home="$TMP/force-overwrite"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+printf '# custom local content — NOT kit source\nmy local delta\n' \
+  > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+bash "$SUT" --force-skill --home "$home" --harness opencode >/dev/null 2>&1
+sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+bak_fo="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
+if grep -q 'OpenCode runtime adapter' "$sf"; then
+  ok "--force-skill installs kit source over diverged SKILL.md"
+else no "--force-skill did not install kit source (still diverged or missing)"; fi
+if [ -f "$bak_fo" ] && grep -q 'my local delta' "$bak_fo"; then
+  ok "--force-skill backs up diverged content before overwriting"
+else no "--force-skill backup missing or does not contain original content"; fi
+
+# 35 — --force-skill + --dry-run plans the overwrite (with backup path) but writes nothing.
+#      Exercises the compose requirement: force and dry-run must compose cleanly.
+home="$TMP/force-dry"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+printf '# custom\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+out="$(bash "$SUT" --force-skill --dry-run --home "$home" --harness opencode 2>&1)"
+sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+bak_fd="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
+if printf '%s\n' "$out" | grep -q 'INSTALL.*will overwrite.*backup'; then
+  ok "--force-skill + dry-run: plans overwrite and names backup path"
+else no "--force-skill + dry-run: plan wrong (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
+if grep -q '# custom' "$sf" && [ ! -f "$bak_fd" ]; then
+  ok "--force-skill + dry-run: writes nothing (file unchanged, no backup created)"
+else no "--force-skill + dry-run: mutated the filesystem"; fi
+
+# 36 — --help output contains --force-skill (regression guard for the hardcoded sed range in usage()).
+#      If the range drifts or the description is omitted, this test goes red immediately.
+out="$(bash "$SUT" --help 2>&1)"
+if printf '%s\n' "$out" | grep -q -- '--force-skill'; then
+  ok "--help documents --force-skill (sed range captures the new option line)"
+else no "--help missing --force-skill (sed line range in usage() drifted or description omitted)"; fi
+
+# 37 — unknown flag still returns exit 2 after the --force-skill case arm was added.
+#      Regression guard: the new arm must not accidentally absorb or reroute unknown flags.
+bash "$SUT" --unknown-arg-xyz 2>/dev/null; rc_unk=$?
+[ "$rc_unk" -eq 2 ] \
+  && ok "unknown flag still returns exit 2 (regression guard for new --force-skill case arm)" \
+  || no "unknown flag returned $rc_unk after --force-skill was added (expected 2)"
+
 # NEGATIVE CONTROL — neuter the idempotent splice (force blind append); two applies must then
 # leave TWO marked sections, proving test 6's idempotency assertion has teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -325,6 +404,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   n="$(grep -c '\[mcp_servers.engram\]' "$home/.codex/config.toml" 2>/dev/null || echo 0)"
   [ "$n" -ge 2 ] && ok "teeth: orphan-skip-less mutant duplicates [mcp_servers.engram] → orphan-skip has teeth" \
     || no "teeth: mutant did not duplicate ($n) — orphan-skip check is THEATER"
+
+  echo "-- teeth: collapse dry-run diverged label, expect test 32 [SKIP+--force-skill] check to fail --"
+  # Break the diverged dry-run branch by replacing the [SKIP label with a neutral string, so the
+  # grep for 'INSTALL.*SKIP.*--force-skill' no longer matches — test 32 goes red.
+  MUTANT4="$HERE/../research-sdd-install.MUTANT4.$$.sh"
+  sed 's/SKIP — diverged; use --force-skill to overwrite/up-to-date/' "$SUT" > "$MUTANT4"
+  home="$TMP/teeth-dryrun-diverged"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+  printf '# custom deployed content\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+  out_m4="$(bash "$MUTANT4" --dry-run --home "$home" --harness opencode 2>&1)"
+  if printf '%s\n' "$out_m4" | grep -q 'INSTALL.*SKIP.*--force-skill'; then
+    no "teeth: mutant still matched [SKIP+--force-skill] — dry-run diverged check is THEATER"
+  else
+    ok "teeth: diverged-label mutant breaks [SKIP+--force-skill] match → dry-run diverged check has teeth"
+  fi
+
+  echo "-- teeth: skip backup step in --force-skill, expect test 34 backup assertion to fail --"
+  # Remove the backup cp so --force-skill overwrites without creating the backup file. Test 34's
+  # check "backup contains original content" then fails because the backup never exists.
+  MUTANT5="$HERE/../research-sdd-install.MUTANT5.$$.sh"
+  sed '/cp "\$skill_path" "\$bak"/d' "$SUT" > "$MUTANT5"
+  home="$TMP/teeth-force-backup"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+  printf '# custom local content\nmy local delta\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
+  bash "$MUTANT5" --force-skill --home "$home" --harness opencode >/dev/null 2>&1
+  bak_t5="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
+  if [ -f "$bak_t5" ] && grep -q 'my local delta' "$bak_t5"; then
+    no "teeth: backup-less mutant still produced a backup — force-skill backup check is THEATER"
+  else
+    ok "teeth: backup-less mutant has no backup → force-skill backup check has teeth"
+  fi
 fi
 
 # 27 — DATA-LOSS REGRESSION: installing over a DIVERGED deployed SKILL.md must NOT clobber it.

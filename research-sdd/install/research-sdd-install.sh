@@ -6,11 +6,12 @@
 # per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so a 4th harness is one table row.
 #
 # Usage:
-#   research-sdd-install.sh [--harness claude|opencode|codex|all] [--home <dir>] [--dry-run]
+#   research-sdd-install.sh [--harness claude|opencode|codex|all] [--home <dir>] [--dry-run] [--force-skill]
 #
-#   --harness  which harness(es) to install into (default: all, in registration order)
-#   --home     the home dir whose config roots are targeted (default: $HOME)
-#   --dry-run  print the exact plan (files + rendered section) WITHOUT touching the filesystem
+#   --harness     which harness(es) to install into (default: all, in registration order)
+#   --home        the home dir whose config roots are targeted (default: $HOME)
+#   --dry-run     print the exact plan (files + rendered section) WITHOUT touching the filesystem
+#   --force-skill when the deployed SKILL.md has diverged, back it up and overwrite with the kit source
 #
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
@@ -22,7 +23,7 @@ KIT="$(cd "$SELF/.." && pwd)"
 # shellcheck source=adapters.sh
 . "$SELF/adapters.sh"
 
-usage() { sed -n '3,17p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,18p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
 
 # --- prompt-surfacing strategies: dispatched by the STRATEGY VALUE, never by harness name ----------
 # Each prints its plan line(s) + the rendered section, then (unless dry) performs the write.
@@ -200,8 +201,8 @@ _rsdd_register_mcp() {
 
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
-  local h="$1" home="$2" dry="$3" rc=0
-  local skill_path prompt_file strategy plugin_dir mcp_config slash dispatch src_relkit src_skill
+  local h="$1" home="$2" dry="$3" force="$4" rc=0
+  local skill_path prompt_file strategy plugin_dir mcp_config slash dispatch src_relkit src_skill bak
   skill_path="$(rsdd_field "$h" skill_path "$home")"
   prompt_file="$(rsdd_field "$h" prompt_file "$home")"
   strategy="$(rsdd_field "$h" prompt_strategy "$home")"
@@ -214,12 +215,32 @@ install_one() {
   printf 'harness=%s\n' "$h"
 
   # 1. harness-specific asset → this harness's skills dir (source resolved from the adapter table,
-  #    never branched on harness name). Before writing, compare against any existing deployed file:
-  #    identical → silent no-op; diverged → warn + skip (preserve local content, never clobber).
-  #    WHY preserve: the deployed SKILL.md can carry retro-applied deltas written directly into it;
-  #    an unconditional overwrite would silently destroy that knowledge.
-  printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
-  if [ "$dry" != 1 ]; then
+  #    never branched on harness name). Dry-run classifies the deployed skill state (§7 three-state
+  #    rule) and prints what WILL happen. Real run: identical → silent no-op; diverged → warn+skip
+  #    unless --force-skill, which backs up the existing file and overwrites with the kit source.
+  #    WHY preserve by default: the deployed SKILL.md can carry retro-applied deltas written directly
+  #    into it; an unconditional overwrite would silently destroy that knowledge.
+  if [ "$dry" = 1 ]; then
+    # Print what the real run will ACTUALLY do — three distinguishable states (CLAUDE.md §7):
+    #   absent       → will install  (plain INSTALL line, no suffix)
+    #   byte-identical → no-op       (suffix: [up-to-date])
+    #   diverged     → warn+skip unless --force-skill (suffix: [SKIP …] or [will overwrite …])
+    # Also: not readable → will skip (suffix: [SKIP — not readable …])
+    if [ ! -f "$src_skill" ]; then
+      printf '  INSTALL %s (from kit %s) [SKIP — source SKILL not found]\n' "$skill_path" "$src_relkit"
+    elif [ -f "$skill_path" ] && [ ! -r "$skill_path" ]; then
+      printf '  INSTALL %s (from kit %s) [SKIP — not readable; check permissions]\n' "$skill_path" "$src_relkit"
+    elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
+      printf '  INSTALL %s (from kit %s) [up-to-date]\n' "$skill_path" "$src_relkit"
+    elif [ -f "$skill_path" ] && [ "$force" = 1 ]; then
+      printf '  INSTALL %s (from kit %s) [will overwrite; backup → %s]\n' "$skill_path" "$src_relkit" "$skill_path.local-backup"
+    elif [ -f "$skill_path" ]; then
+      printf '  INSTALL %s (from kit %s) [SKIP — diverged; use --force-skill to overwrite]\n' "$skill_path" "$src_relkit"
+    else
+      printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
+    fi
+  else
+    printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
     if [ ! -f "$src_skill" ]; then
       echo "research-sdd-install: [$h] source SKILL not found: $src_skill" >&2; rc=1
     elif ! mkdir -p "$(dirname "$skill_path")"; then
@@ -228,8 +249,17 @@ install_one() {
       printf 'research-sdd-install: WARNING %s exists but is not readable (check permissions) — local content kept\n' "$skill_path" >&2
     elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
       : # byte-identical — silent no-op (idempotent re-run)
+    elif [ -f "$skill_path" ] && [ "$force" = 1 ]; then
+      bak="$skill_path.local-backup"
+      if ! cp "$skill_path" "$bak"; then
+        echo "research-sdd-install: [$h] backup failed → $bak" >&2; rc=1
+      elif ! cp "$src_skill" "$skill_path"; then
+        echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
+      else
+        printf '  BACKUP  %s → %s\n' "$skill_path" "$bak"
+      fi
     elif [ -f "$skill_path" ]; then
-      printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (inspect and re-run or delete to reinstall)\n' "$skill_path" >&2
+      printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)\n' "$skill_path" >&2
     elif ! cp "$src_skill" "$skill_path"; then
       echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
     fi
@@ -264,13 +294,14 @@ install_one() {
 }
 
 main() {
-  local harness="all" home="$HOME" dry=0
+  local harness="all" home="$HOME" dry=0 force=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --harness) harness="${2:-}"; shift 2 ;;
-      --home)    home="${2:-}"; shift 2 ;;
-      --dry-run) dry=1; shift ;;
-      -h|--help) usage; return 0 ;;
+      --harness)     harness="${2:-}"; shift 2 ;;
+      --home)        home="${2:-}"; shift 2 ;;
+      --dry-run)     dry=1; shift ;;
+      --force-skill) force=1; shift ;;
+      -h|--help)     usage; return 0 ;;
       *) echo "research-sdd-install: unknown argument '$1'" >&2; usage >&2; return 2 ;;
     esac
   done
@@ -288,7 +319,7 @@ main() {
   # but the overall exit code must be nonzero if ANY harness failed. Dry-run mutates nothing → 0.
   local rc=0
   for h in $list; do
-    install_one "$h" "$home" "$dry" || rc=1
+    install_one "$h" "$home" "$dry" "$force" || rc=1
   done
   return "$rc"
 }
