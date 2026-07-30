@@ -53,7 +53,7 @@ count_marker() {
     else
       body="$(cat "$f")"                         # no leading-blockquote fence → can't isolate the legend
     fi
-    printf '%s' "$body" | grep -qF "$marker" && n=$((n + 1))
+    grep -qF "$marker" <<< "$body" && n=$((n + 1))   # SIGPIPE-SAFE: herestring avoids printf|grep pipe race
   done
   printf '%s' "$n"
 }
@@ -77,23 +77,41 @@ if [ -f "$sources_md" ]; then
   if [ $((doc + a)) -gt 0 ] && [ "${rows:-0}" -eq 0 ]; then
     echo "   WARN: preserved-source markers exist but SOURCES.md has 0 data rows (registry unpopulated)."
   fi
-  # MALFORMED-ROW pre-check — §7 false-negative direction. SCOPED TO THE REGISTRY TABLE:
-  # SOURCES.md may contain multiple tables (secondary local-file inventories, etc.). The pre-check
-  # locates the FIRST table block that contains a "sha256" header cell (the registry marker in the
-  # 6-col template) and checks ONLY that block. Secondary tables after a non-table line are never
-  # reached. Two severity paths are distinguished (neither exits with rc=1 — both are §8 findings):
-  #   Schema non-conforming (registry header column count != 6): ONE WARN per file. Every data row
-  #     under that header is internally consistent with it, so per-row WARNs would be noise.
-  #   Conforming header + disagreeing row: per-row WARN with original SOURCES.md line number.
-  # L4/L6/D2 loops are also anchored to the registry block via process substitution (see below).
+  # MALFORMED-ROW pre-check — §7 false-negative direction.
+  # Groups consecutive |‐rows into "table blocks". In each block the first non-separator row is the
+  # HEADER. If the header contains a "sha256" cell it is the registry table (per the 6-col template).
+  # Two severity paths (neither exits with rc=1 — both are §8 findings):
+  #   Non-conforming registry header (NF != 8): ONE schema WARN per file. Data rows internally
+  #     consistent with a non-conforming header are noise — the operator must fix the schema first.
+  #   Conforming header (NF == 8) + data row whose NF disagrees: per-row WARN with line number.
+  # Secondary tables (different block, no sha256 in their header) are never warned about: their data
+  # rows match their OWN header's field count by definition. Orphaned appended rows (rows that start
+  # a new block but whose "header" row is actually a data row — the fetch-doc.sh reg() appended pattern)
+  # produce no warnings: their block "header" has no sha256, so no registry checks run on the block.
+  # NOTE: a cell VALUE containing the string "sha256" (not a header label) cannot trigger the registry
+  # detection because the check fires only on the FIRST non-separator row in each block (the header
+  # candidate), and we've already moved past header detection by the time data rows are processed.
+  # Escaped pipes (\|) inside cells are not handled and would produce a false per-row WARN; no current
+  # fleet file uses them (verified fleet-wide). The L4/L6/D2 loops are NOT anchored here — they scan
+  # the full file to preserve coverage of rows appended after headings.
   awk -F'|' '
-    !in_reg && /^\|/ && / sha256 / { in_reg=1; reg_nf=NF
-      if (NF!=8) { printf "   WARN: SOURCES.md registry header has %d columns (expected 6 per template); schema non-conforming (data rows not individually checked)\n", NF-2; bad_schema=1 }
-      next }
-    in_reg && !/^\|/ { in_reg=0; next }   # REGISTRY-BLOCK-EXIT
-    in_reg && $2~/^[- :]+$/ { next }
-    in_reg && !bad_schema && NF!=reg_nf {
-      printf "   WARN: SOURCES.md line %d — malformed row (got %d columns, expected 6); sha256/Blocks cells untrustworthy — fix the registry\n", NR, NF-2 }
+    BEGIN { in_blk=0; bk_nf=0; has_sha256=0; skip_rows=0 }
+    /^\|/ {
+      if ($2 ~ /^[- :]+$/) next
+      if (!in_blk) {
+        in_blk=1; bk_nf=NF; has_sha256=0; skip_rows=0
+        for (i=1;i<=NF;i++) { v=$i; gsub(/[`[:blank:]]/,"",v); if (tolower(v)=="sha256") {has_sha256=1;break} }
+        if (has_sha256 && NF!=8) {
+          printf "   WARN: SOURCES.md registry header has %d columns (expected 6 per template); schema non-conforming (data rows not individually checked)\n", NF-2
+          skip_rows=1
+        }
+        next
+      }
+      if (!skip_rows && has_sha256 && NF!=bk_nf)
+        printf "   WARN: SOURCES.md line %d — malformed row (got %d columns, expected 6); sha256/Blocks cells untrustworthy — fix the registry\n", NR, NF-2
+      next
+    }
+    { in_blk=0 }   # BLOCK-EXIT
   ' "$sources_md"
   # LEVEL 2b — preserved files on disk that are NOT named in the registry.
   while IFS= read -r f; do
@@ -109,9 +127,7 @@ if [ -f "$sources_md" ]; then
   # citation). This is the content cross-check. Parses both `B60` and `[Block 21]`/`Bloque 7`; empty and
   # em-dash cells yield no block and are skipped. Positive miss ⇒ FAIL; unresolvable block name ⇒ WARN only.
   cited=0
-  while IFS= read -r _row; do
-    pipes="${_row//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # L4-FIELD-GUARD: skip malformed rows (registry-block scope)
-    IFS='|' read -r _ fcell _ _ _ _ bcell _ <<< "$_row"
+  while IFS='|' read -r _ fcell _ _ _ _ bcell _; do
     file=$(printf '%s' "$fcell" | tr -d '[:blank:]')   # strip space AND tab: a tab-padded File cell must not spoof a FABRICATED-CITE
     file=${file//\`/}          # strip markdown code backticks so the basename greps cleanly
     [ -z "$file" ] && continue
@@ -138,7 +154,7 @@ if [ -f "$sources_md" ]; then
         fi
       fi
     done
-  done < <(awk '/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}' "$sources_md" 2>/dev/null)
+  done < "$sources_md"
   [ "$cited" -gt 0 ] && echo "-- cross-checked $cited registry→block citation claim(s) against block content"
 fi
 
@@ -230,7 +246,7 @@ MIN_PREFIX=8
 if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
   hverified=0; hunverif=0
   while IFS= read -r _raw; do
-    pipes="${_raw//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # L6-FIELD-GUARD: skip malformed rows (registry-block scope)
+    pipes="${_raw//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # L6-FIELD-GUARD: skip non-6-col rows (prevents sha256/Blocks cell misalignment)
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
@@ -273,7 +289,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
           ;;
       esac
     fi
-  done < <(awk '/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}' "$sources_md" 2>/dev/null)
+  done < "$sources_md"   # L6-SCOPE: full-file scan (catches rows appended after headings — the fetch-doc.sh reg() pattern)
   [ $((hverified + hunverif)) -gt 0 ] && \
     echo "-- web-snapshot hashes: $hverified verified · $hunverif unverifiable (missing/short-prefix = WARN)"
 elif [ -f "$sources_md" ] && grep -qE '^\| web-snapshots/' "$sources_md" 2>/dev/null; then
@@ -289,9 +305,7 @@ fi
 # disruptive rc=1 regressions. Making the gap visible is the safe, correct action here.
 if [ -f "$sources_md" ]; then
   _nskip=0
-  while IFS= read -r _raw; do
-    pipes="${_raw//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # skip malformed rows (registry-block scope)
-    IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
+  while IFS='|' read -r _ fcell _ _ _ shacell _; do
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     case "$key" in ''|File|*---*|web-snapshots/*) continue;; esac   # skip header, separator, web-snap
     [ -f "$corpus/sources/$key" ] || continue                       # file not on disk — nothing to verify
@@ -299,7 +313,7 @@ if [ -f "$sources_md" ]; then
     case "$reg" in ''|'('*) continue;; esac                         # empty or placeholder
     printf '%s' "$reg" | grep -qiE '^[0-9a-f]' || continue          # not hex-looking
     _nskip=$((_nskip + 1))
-  done < <(awk '/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}' "$sources_md" 2>/dev/null)
+  done < "$sources_md"
   [ "$_nskip" -gt 0 ] && \
     echo "-- non-web-snapshot rows with on-disk files and hashes: $_nskip not hash-verified (LEVEL 6 covers web-snapshots/ only)"
 fi

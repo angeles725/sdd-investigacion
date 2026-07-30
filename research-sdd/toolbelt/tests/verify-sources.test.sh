@@ -652,6 +652,73 @@ grep -qE 'WARN.*(malformed|schema)' <<<"$out" \
   || { printf '  PASS  %-42s (no spurious WARN for clean conforming registry)\n' "D1-CLEAN: no WARN on clean registry"; pass=$((pass+1)); }
 
 # ---------------------------------------------------------------------------
+# APPENDED-ROWS — the fetch-doc.sh reg() appended-rows pattern. The fleet's registries
+# were built by an old reg() that appends rows at EOF, AFTER ## Notes / ## Structure
+# headings, leaving rows that a block-scoped parser would never see. Real shape from
+# gateway-ug67/sources/SOURCES.md (documented in fetch-doc.sh:23-28):
+#
+#   | File | Type | ... | sha256 | Blocks |
+#   |---|...|
+#   | web-snapshots/ok.md | ... |           ← primary-block rows (before ## Notes)
+#   ## Notes
+#   ## Structure
+#   | web-snapshots/appended.md | ... |     ← appended rows, no header of their own
+#
+# A parser anchored to the first registry block never reaches the appended rows. The
+# L4 and L6 loops scan the FULL file (done < "$sources_md") to cover them. Without that,
+# a hash-mismatch in an appended row silently false-passes — this fixture catches it.
+d="$TMP/appended-rows-fail"; mkdir -p "$d/sources/web-snapshots"
+block "$d/ar-block1.md" '# Block 1' \
+  '## 1.1 cites sources/web-snapshots/ok.md and sources/web-snapshots/appended.md'
+snapshot "$d/sources/web-snapshots/ok.md"       '<div>ok content — hash registered correctly</div>'
+snapshot "$d/sources/web-snapshots/appended.md" '<div>appended content — registered hash is wrong</div>'
+_ar_ok_hash="$(sha256sum "$d/sources/web-snapshots/ok.md" | cut -d' ' -f1)"
+_ar_wrong="0000000000000000000000000000000000000000000000000000000000000000"
+{ printf '# External sources preserved\n\n'
+  printf '| File | Type | Origin (URL / channel) | Date (UTC) | sha256 | Blocks that cite it |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| web-snapshots/ok.md | web-snapshot | http://x | 2026-01-01 | %s | B1 |\n' "$_ar_ok_hash"
+  printf '\n## Notes\n\nNo additional notes.\n\n## Structure\n\n'
+  printf '| web-snapshots/appended.md | web-snapshot | http://y | 2026-01-01 | %s | B1 |\n' "$_ar_wrong"
+} > "$d/sources/SOURCES.md"
+assert_exit "$SUT" 1 "APPENDED-ROWS: appended-row hash-mismatch caught" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'hash-mismatch.*appended.md' <<<"$out" \
+  && { printf '  PASS  %-42s (full-file scan reported the appended-row mismatch)\n' "APPENDED-ROWS: hash-mismatch line present"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (hash-mismatch line missing — appended row not reached)\n' "APPENDED-ROWS: hash-mismatch line present"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
+# SIGPIPE-RACE DETERMINISM — count_marker must return the same count on every run.
+# The buggy printf|grep pipeline race: printf starts writing a 400KB body, grep exits
+# as soon as it finds the match on line 2 (~30 bytes), the read end of the pipe closes,
+# printf gets SIGPIPE (exit 141), set -o pipefail makes the pipeline exit non-zero, &&
+# does not fire, and the count is NOT incremented despite the match. The race is 100%
+# reliable at 400KB (verified: 0/200 matches on the pipeline form against this body).
+# The herestring fix (grep -qF "$marker" <<< "$body") has no pipe, so no SIGPIPE.
+d="$TMP/sigpipe-det"; mkdir -p "$d"
+# [CERT-doc] on line 2, followed by 400KB of filler. No legend fence → whole file is body.
+# grep exits immediately on line 2, leaving printf to SIGPIPE on the remaining 400KB.
+_sp_pad="$(head -c 409600 /dev/zero | tr '\0' 'x')"
+printf '# Block 1\n## 1.1 [CERT-doc] key finding — large-body determinism probe.\n%s\n' "$_sp_pad" \
+  > "$d/sd-block1.md"
+sources_registry "$d"   # SOURCES.md present so LEVEL 1 does not fail (doc > 0 requires registry)
+# Run 20 times; assert count is 1 each time (correct AND stable).
+_sprev="" ; _sstable=1
+for _si in $(seq 1 20); do
+  _sout="$(bash "$SUT" "$d" 2>&1)"
+  _sdoc="$(printf '%s' "$_sout" | grep -oE '\[CERT-doc\] [0-9]+' | grep -oE '[0-9]+')"
+  if [ -n "$_sprev" ] && [ "$_sdoc" != "$_sprev" ]; then _sstable=0; break; fi
+  _sprev="$_sdoc"
+done
+if [ "$_sstable" -eq 1 ] && [ "${_sprev:-}" = "1" ]; then
+  printf '  PASS  %-42s ([CERT-doc] 1 × 20 runs — herestring is deterministic)\n' "SIGPIPE-RACE: count stable and correct"
+  pass=$((pass+1))
+else
+  printf '  FAIL  %-42s (expected [CERT-doc] 1 × 20 runs, got %s on run %s)\n' "SIGPIPE-RACE: count stable and correct" "${_sprev:-empty}" "$_si"
+  fail=$((fail+1))
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -800,15 +867,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # D1B teeth: disable the REGISTRY-BLOCK-EXIT transition in the pre-check awk so in_reg
-  # stays 1 forever. Secondary table rows that appear after a heading are then treated as if
-  # inside the registry block and get per-row WARNs for their different column count. The
-  # D1-SECOND-TABLE assertion (expects zero WARNs) must fire. bash -n validated first.
-  echo "-- teeth proof: D1B — disable REGISTRY-BLOCK-EXIT, expect D1-SECOND-TABLE to show false-positive WARNs --"
+  # D1B teeth: disable the BLOCK-EXIT transition in the pre-check awk (change
+  # { in_blk=0 } to { }) so in_blk never resets to 0 after the primary block. The
+  # secondary table rows that appear after a heading are then treated as data rows of
+  # the primary (registry) block — they get per-row WARNs for their different column
+  # count (4 vs 8). The D1-SECOND-TABLE assertion (expects zero WARNs) must fire.
+  # bash -n validated first: a syntactically broken mutant cannot prove anything.
+  echo "-- teeth proof: D1B — disable BLOCK-EXIT, expect D1-SECOND-TABLE to show false-positive WARNs --"
   mutant_d1b="$TMP/verify-sources.MUTANT-D1B.sh"
-  sed 's/REGISTRY-BLOCK-EXIT/MUTANT-D1B/; /MUTANT-D1B/s/in_reg=0/in_reg=1/' "$SUT" > "$mutant_d1b"
+  sed 's/{ in_blk=0 }   # BLOCK-EXIT/{ }   # MUTANT-D1B: block-exit disabled/' "$SUT" > "$mutant_d1b"
   if ! grep -q 'MUTANT-D1B' "$mutant_d1b"; then
-    echo "  FAIL  could not build D1B mutant (REGISTRY-BLOCK-EXIT sentinel not found — did the SUT change?)"; fail=$((fail+1))
+    echo "  FAIL  could not build D1B mutant (BLOCK-EXIT sentinel not found — did the SUT change?)"; fail=$((fail+1))
   else
     bash -n "$mutant_d1b" 2>/dev/null; d1b_bn=$?
     if [ "$d1b_bn" -ne 0 ]; then
@@ -817,9 +886,76 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       d="$TMP/d1-second-table"   # built above: clean 6-col registry + secondary 2-col table
       md1b_out="$(bash "$mutant_d1b" "$d" 2>&1)"
       if grep -qE 'WARN.*(malformed|schema)' <<<"$md1b_out"; then
-        printf '  PASS  %-42s (mutant fires WARN on secondary → REGISTRY-BLOCK-EXIT load-bearing)\n' "teeth: D1B REGISTRY-BLOCK-EXIT → false-positive WARN"; pass=$((pass+1))
+        printf '  PASS  %-42s (mutant fires WARN on secondary → BLOCK-EXIT load-bearing)\n' "teeth: D1B BLOCK-EXIT → false-positive WARN"; pass=$((pass+1))
       else
-        printf '  FAIL  %-42s (mutant produced no WARN — REGISTRY-BLOCK-EXIT not load-bearing)\n' "teeth: D1B REGISTRY-BLOCK-EXIT"; fail=$((fail+1))
+        printf '  FAIL  %-42s (mutant produced no WARN — BLOCK-EXIT not load-bearing)\n' "teeth: D1B BLOCK-EXIT"; fail=$((fail+1))
+      fi
+    fi
+  fi
+
+  # APPENDED-ROWS teeth: revert L6 to the old registry-block scope (awk that reads only
+  # rows before the first non-table line) and assert the appended-rows fixture FALSE-PASSES
+  # (exit 0). Without the full-file scan, L6 never reaches the appended row's wrong hash.
+  # Uses the L6-SCOPE sentinel on the done line. bash -n validated first.
+  echo "-- teeth proof: APPENDED-ROWS — revert L6 to registry-block scope, expect appended hash to false-pass --"
+  mutant_appended="$TMP/verify-sources.MUTANT-APPENDED.sh"
+  _ar_l6ln=$(grep -n 'L6-SCOPE' "$SUT" | head -1 | cut -d: -f1)
+  if [ -z "$_ar_l6ln" ]; then
+    echo "  FAIL  could not build APPENDED-ROWS mutant (L6-SCOPE sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    { head -n $((_ar_l6ln - 1)) "$SUT"
+      printf '  done < <(awk '"'"'/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}'"'"' "$sources_md" 2>/dev/null)   # MUTANT-APPENDED: reverted to registry-block scope\n'
+      tail -n +"$((_ar_l6ln + 1))" "$SUT"
+    } > "$mutant_appended"
+    if ! grep -q 'MUTANT-APPENDED' "$mutant_appended"; then
+      echo "  FAIL  APPENDED-ROWS mutant build failed (replacement not found in output)"; fail=$((fail+1))
+    else
+      bash -n "$mutant_appended" 2>/dev/null; _mapp_bn=$?
+      if [ "$_mapp_bn" -ne 0 ]; then
+        echo "  FAIL  APPENDED-ROWS mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+      else
+        d="$TMP/appended-rows-fail"   # built above: appended row has wrong hash, real SUT exits 1
+        bash "$mutant_appended" "$d" >/dev/null 2>&1; _mapp_rc=$?
+        if [ "$_mapp_rc" = 0 ]; then
+          printf '  PASS  %-42s (mutant false-passes → full-file scan is load-bearing)\n' "teeth: APPENDED-ROWS mutant exit 0"; pass=$((pass+1))
+        else
+          printf '  FAIL  %-42s mutant exit %s (expected 0) — APPENDED-ROWS test may not depend on full-file scan.\n' "teeth: APPENDED-ROWS" "$_mapp_rc"; fail=$((fail+1))
+        fi
+      fi
+    fi
+  fi
+
+  # SIGPIPE-RACE teeth: revert count_marker to the old printf|grep pipeline form and
+  # assert the large-body fixture produces count=0 (the race fires). With the marker on
+  # line 2 and 400KB of filler, grep exits after ~30 bytes, printf gets SIGPIPE (exit 141),
+  # set -o pipefail makes the pipeline non-zero, && does not fire, count stays 0 instead of
+  # 1. The race is 100% reliable at 400KB (verified on main-branch before the fix).
+  # bash -n validated first.
+  echo "-- teeth proof: SIGPIPE-RACE — revert count_marker to pipeline form, expect [CERT-doc] count=0 --"
+  mutant_sigpipe="$TMP/verify-sources.MUTANT-SIGPIPE.sh"
+  _sp_saln=$(grep -n 'SIGPIPE-SAFE' "$SUT" | head -1 | cut -d: -f1)
+  if [ -z "$_sp_saln" ]; then
+    echo "  FAIL  could not build SIGPIPE mutant (SIGPIPE-SAFE sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    { head -n $((_sp_saln - 1)) "$SUT"
+      printf '%s\n' '    printf '"'"'%s'"'"' "$body" | grep -qF "$marker" && n=$((n + 1))   # MUTANT-SIGPIPE: pipeline reverted'
+      tail -n +"$((_sp_saln + 1))" "$SUT"
+    } > "$mutant_sigpipe"
+    if ! grep -q 'MUTANT-SIGPIPE' "$mutant_sigpipe"; then
+      echo "  FAIL  SIGPIPE mutant build failed (replacement not found in output)"; fail=$((fail+1))
+    else
+      bash -n "$mutant_sigpipe" 2>/dev/null; _msp_bn=$?
+      if [ "$_msp_bn" -ne 0 ]; then
+        echo "  FAIL  SIGPIPE mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+      else
+        d="$TMP/sigpipe-det"   # built above: [CERT-doc] on line 2, 400KB filler
+        _msp_out="$(bash "$mutant_sigpipe" "$d" 2>&1)"
+        _msp_doc="$(printf '%s' "$_msp_out" | grep -oE '\[CERT-doc\] [0-9]+' | grep -oE '[0-9]+')"
+        if [ "${_msp_doc:-}" = "0" ]; then
+          printf '  PASS  %-42s (pipeline mutant counts 0 → herestring fix is load-bearing)\n' "teeth: SIGPIPE-RACE mutant [CERT-doc]=0"; pass=$((pass+1))
+        else
+          printf '  FAIL  %-42s (mutant count=%s, expected 0 — race did not trigger or fixture too small)\n' "teeth: SIGPIPE-RACE" "${_msp_doc:-empty}"; fail=$((fail+1))
+        fi
       fi
     fi
   fi
