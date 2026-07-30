@@ -80,11 +80,25 @@ else
 fi
 
 # 3 — pwsh not on PATH → exit 3.
-# Restricted PATH (no pwsh, no fake stub) so PL-PWSH-CHECK fires.
-rc3=0; PATH="/usr/bin:/bin" "$BASH_BIN" "$SUT" "$CLEAN_PS1" >/dev/null 2>&1 || rc3=$?
-[[ "$rc3" -eq 3 ]] \
-  && ok "3  pwsh not on PATH → exit 3" \
-  || no "3  pwsh not on PATH → exit 3" "rc=$rc3"
+# The PATH must be EMPTY of everything, not merely trimmed to system dirs: a
+# machine where pwsh lives outside them (e.g. linuxbrew) hides it under
+# PATH=/usr/bin:/bin, while CI installs pwsh INTO them and the restriction does
+# nothing.  This test previously passed locally and failed in CI for exactly
+# that reason.  `command -v` is a bash builtin and PL-PWSH-CHECK exits before
+# the script needs any external binary, so an empty PATH is safe here.
+#
+# Assert the PRECONDITION rather than assuming it: if the restricted PATH can
+# still reach a pwsh, the test proves nothing about PL-PWSH-CHECK and must say
+# so instead of reporting a pass it did not earn.
+NOPATH="$TMP/nopath"; mkdir -p "$NOPATH"
+if PATH="$NOPATH" command -v pwsh >/dev/null 2>&1; then
+  no "3  pwsh not on PATH → exit 3" "precondition failed: pwsh still resolvable under PATH=$NOPATH"
+else
+  rc3=0; PATH="$NOPATH" "$BASH_BIN" "$SUT" "$CLEAN_PS1" >/dev/null 2>&1 || rc3=$?
+  [[ "$rc3" -eq 3 ]] \
+    && ok "3  pwsh not on PATH → exit 3" \
+    || no "3  pwsh not on PATH → exit 3" "rc=$rc3"
+fi
 
 # ── Tests 4-8: real pwsh required ─────────────────────────────────────────
 
@@ -163,7 +177,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     sed '/# PL-PWSH-CHECK/ s/.*/: # PL-PWSH-CHECK [NEUTERED]/' "$SUT" > "$mut1"
     chmod +x "$mut1"
     if "$BASH_BIN" -n "$mut1" 2>/dev/null; then
-      mrc1=0; PATH="/usr/bin:/bin" "$BASH_BIN" "$mut1" "$CLEAN_PS1" >/dev/null 2>&1 || mrc1=$?
+      # Same empty-PATH requirement as test 3: under PATH=/usr/bin:/bin a CI box
+      # with pwsh in a system dir never removes it, so the mutant would exit
+      # non-3 for the WRONG reason and this control would pass without biting.
+      mrc1=0; PATH="$NOPATH" "$BASH_BIN" "$mut1" "$CLEAN_PS1" >/dev/null 2>&1 || mrc1=$?
       if [[ "$mrc1" -ne 3 ]]; then
         ok "tooth-1: neutered PL-PWSH-CHECK → pwsh absent no longer gives exit 3 (test 3 bites)" "mrc=$mrc1"
       else
