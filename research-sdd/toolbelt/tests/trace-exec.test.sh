@@ -717,6 +717,11 @@ with tempfile.TemporaryDirectory() as td:
             f"expected pre_boot sentinel error, got: {_raised_t5!r}"
         )
         # Identity-based: exactly 1 run_dir must have been allocated, then cleaned up.
+        # Coverage boundary: a run_dir created via raw os.mkdir (bypassing make_run_subdir)
+        # is invisible to this check — created count stays 1 and no orphan is caught. That
+        # path is implausible (it bypasses the O_NOFOLLOW-anchored helper at
+        # lib/vm_boot_core.py:84, the only sanctioned creation point), but it IS the edge
+        # of what this test can see.
         assert len(_inv5_created_dirs) == 1, (
             f"expected exactly 1 run_dir allocated by evaluate(), got {len(_inv5_created_dirs)}: "
             f"{_inv5_created_dirs}"
@@ -850,6 +855,49 @@ if PROVE_TEETH:
                 import shutil as _shutil_t5t
                 _shutil_t5t.rmtree(_leaked, ignore_errors=True)
         except Exception as e: nok("teeth-INV5", str(e))
+
+    # teeth-INV5-double-alloc: len==1 assertion fires when make_run_subdir is called
+    # twice in one evaluate() (SUT double-allocation). This is the specific seam that
+    # RED11's narrowing depends on: RED11 gave up detecting N>1 run_dirs on the
+    # subprocess path; RED-INV5 covers it via monkeypatch. Without this control, the
+    # PR's central defence is stated only in a PR comment — one refactor away from theater.
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); p = _shims(tmp)
+        try:
+            import trace_exec as _te_dbl; from gate import GateError as _GE_dbl
+            import docker_common as _dc_dbl, uuid as _uuid_dbl, shutil as _shutil_dbl
+            _dbl_plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
+            _old_dbl = os.environ.get("PATH", ""); os.environ["PATH"] = p
+            _dbl_created = []
+            _orig_mrs_dbl = _dc_dbl.make_run_subdir
+            def _double_mrs_dbl(run_uuid, root=_dc_dbl._DEFAULT_RSDD_ROOT):
+                rd1 = _orig_mrs_dbl(run_uuid, root)
+                rd2 = _orig_mrs_dbl(_uuid_dbl.uuid4().hex, root)
+                _dbl_created.extend([rd1, rd2])
+                return rd1  # return first; second is the orphaned extra
+            _dc_dbl.make_run_subdir = _double_mrs_dbl
+            try:
+                try: _te_dbl.TraceVmExecutor(tmp / "out").evaluate(_dbl_plan)
+                except Exception: pass
+            finally:
+                os.environ["PATH"] = _old_dbl
+                _dc_dbl.make_run_subdir = _orig_mrs_dbl
+                for _d in _dbl_created:
+                    _shutil_dbl.rmtree(_d, ignore_errors=True)
+            assert _dbl_created, "setup: double-alloc patch never fired"
+            _fired_dbl = False
+            try:
+                assert len(_dbl_created) == 1, (
+                    f"expected exactly 1 run_dir allocated by evaluate(), got {len(_dbl_created)}: "
+                    f"{_dbl_created}"
+                )
+            except AssertionError:
+                _fired_dbl = True
+            if _fired_dbl:
+                ok("teeth-INV5-double-alloc: double make_run_subdir → len==1 assertion fires (has teeth)")
+            else:
+                nok("teeth-INV5-double-alloc", "len==1 did NOT fire on double allocation — no teeth")
+        except Exception as e: nok("teeth-INV5-double-alloc", str(e))
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
