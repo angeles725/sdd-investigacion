@@ -1,6 +1,14 @@
 # Tools — <TARGET NAME>
 
-Record every tool introduced during this research run and WHY it exists here.
+Record every tool the moment it is acquired or changed — not reconstructed at retro time.
+The rationale is cheapest while the decision is live; a backfill written weeks later loses
+exactly the information this ledger exists to hold (METHODOLOGY §10).
+
+**Scope:** this table covers tools born inside the research loop (created, adapted, or
+downloaded specifically for this investigation). Operational tooling that predates the
+loop (site clients, harvesters, dashboards, decoders) belongs in the target's operational
+inventory, not here — otherwise a target with dozens of operational scripts drowns the ledger.
+
 One row per tool. Provenance cases:
 
 | Provenance | Meaning |

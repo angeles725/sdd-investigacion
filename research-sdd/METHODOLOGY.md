@@ -707,6 +707,16 @@ one of four cases applies — record it in RESEARCH-STATE and surface it at retr
   parallel target copy that drifts is a maintenance debt; note whether the kit version needs the same
   update.
 
+**Write-at-acquisition rule (`tools/README.md`).** Record each row the moment the tool is acquired,
+created, or changed — never reconstructed at retro time. The rationale is cheapest while the decision is
+live, and a backfill written weeks later loses exactly what the ledger exists to hold: nine backfill
+retrospectives written in one day each reported the same limit — finished artifacts show what was DONE
+and never what was ABANDONED. Applies to all four cases above. This ledger is also what makes the
+do-not-reinvent rule enforceable: without a recorded purpose per tool, duplication can only be checked
+by comparing FILENAMES, which proves nothing — two targets can build the same wheel under different
+names and neither will ever know. The practice comes from a target that ran it before the kit did
+(HotelHilton's `tools/README.md`).
+
 **Oracle-first heuristic (check before you CREATE).** When the subject is a closed-source managed binary with its own IDE or SDK (Java, .NET), scan the vendor's shipped JAR or assembly tree for a `simulation/` or `emulation/` package DURING the §6 file census — before authoring any tool under the CREATE case. A vendor-bundled simulation engine is a privileged offline oracle: its outputs are validated against the vendor's own reference model rather than a reimplementation, making it independent by construction. Flag it in the TOOLS table as `ORACLE · vendor-bundled · IDENTIFY`; record where in the JAR it lives. If later used to validate a tool's output, it earns the second-highest trust position behind live hardware (`[CERT-hw]`).
 
 The per-iteration reporting obligation (announcing the case in the iteration record) is a PROMPT-LOOP rule.

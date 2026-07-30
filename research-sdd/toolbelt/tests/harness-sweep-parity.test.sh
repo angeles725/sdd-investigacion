@@ -125,17 +125,17 @@ claude_c=$(count_lines "$CLAUDE_SET")
 opencode_c=$(count_lines "$OPENCODE_SET")
 codex_c=$(count_lines "$CODEX_SET")
 
-[ "$claude_c" = 4 ] \
-  && ok "claude: exactly 4 scripts referenced" \
-  || no "claude: expected 4 scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
+[ "$claude_c" = 5 ] \
+  && ok "claude: exactly 5 scripts referenced" \
+  || no "claude: expected 5 scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 
-[ "$opencode_c" = 4 ] \
-  && ok "opencode: exactly 4 scripts referenced" \
-  || no "opencode: expected 4 scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
+[ "$opencode_c" = 5 ] \
+  && ok "opencode: exactly 5 scripts referenced" \
+  || no "opencode: expected 5 scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
 
-[ "$codex_c" = 4 ] \
-  && ok "codex: exactly 4 scripts referenced" \
-  || no "codex: expected 4 scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
+[ "$codex_c" = 5 ] \
+  && ok "codex: exactly 5 scripts referenced" \
+  || no "codex: expected 5 scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
 
 # ---- 7–9: Cross-surface equality -------------------------------------------
 if [ "$CLAUDE_SET" = "$OPENCODE_SET" ]; then
@@ -163,7 +163,7 @@ else
 fi
 
 # ---- 10–13: Canonical member presence (by exact name) ----------------------
-for script in sweep-retros sweep-audits verify-registry verify-kit-clean; do
+for script in sweep-retros sweep-audits verify-registry verify-kit-clean sweep-tools; do
   grep -qx "$script" <<<"$CLAUDE_SET" \
     && ok "canonical member present: $script" \
     || no "canonical member MISSING: $script  (claude set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"

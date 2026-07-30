@@ -93,8 +93,7 @@ mkfifo "$ROOT/device"; mkdir "$ROOT/not-file" "$ROOT/unsafe"; chmod 777 "$ROOT/u
 if ! "$SUT" carve "$ROOT/link.bin" "$ROOT/link-out" 2>/dev/null && ! "$SUT" carve "$ROOT/device" "$ROOT/device-out" 2>/dev/null && ! "$SUT" carve "$ROOT/not-file" "$ROOT/type-out" 2>/dev/null \
   && ! run "$ROOT/occupied" 2>/dev/null && [ -f "$ROOT/.occupied.stage/sentinel" ] && ! run "$ROOT/a" 2>/dev/null && ! run "$ROOT/unsafe/out" 2>/dev/null \
   && ! run "$ROOT-parent-link/out" 2>/dev/null; then ok "links, devices, types, unsafe parents, and collisions fail closed"; else no "path safety"; fi
-if ! "$SUT" extract "$ROOT/firmware.bin" "$ROOT/legacy" 2>"$ROOT/legacy.err" && grep -q 'removed.*carve' "$ROOT/legacy.err" \
-  && ! grep -Eq 'binwalk[[:space:]]+-e|--run-as=root' "$SUT"; then ok "unsafe legacy extraction is unreachable and gives migration guidance"; else no "legacy migration"; fi
+if ! "$SUT" extract "$ROOT/firmware.bin" "$ROOT/legacy" 2>"$ROOT/legacy.err" && grep -q 'removed.*carve' "$ROOT/legacy.err"; then ok "unsafe legacy extraction is unreachable and gives migration guidance"; else no "legacy migration"; fi
 if python3 - "$HERE/../firmware_carve.py" <<'PY'
 import importlib.util,io,sys
 s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f)

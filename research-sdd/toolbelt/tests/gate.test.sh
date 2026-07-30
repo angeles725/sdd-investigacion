@@ -5,7 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/gate.py"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+python3 - "$SUT" "${1:-}" <<'PY'
 import importlib.util, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -309,6 +309,32 @@ with tempfile.TemporaryDirectory() as _td15b:
     finally:
         if _old15b is not None: os.environ[_ev15b] = _old15b
         else: os.environ.pop(_ev15b, None)
+
+# ── teeth: neuter allow=False branch → case-2 (allow=False→auth-required) must go red ──
+if sys.argv[2] == "--prove-teeth":
+    print("-- teeth: neuter the allow=False branch; expect case-2 (allow=False→auth-required) to go red --")
+    with tempfile.TemporaryDirectory() as _td_teeth:
+        _mutant = Path(_td_teeth) / "gate.MUTANT.py"
+        _mutant_text = sut.read_text().replace(
+            "    if not allow:\n",
+            "    if False:  # MUTANT: allow=False branch neutered\n",
+        )
+        if "MUTANT" not in _mutant_text:
+            nok("teeth-allow-false: mutant not built — 'if not allow:' not matched in SUT (SUT may have changed)")
+        else:
+            _mutant.write_text(_mutant_text)
+            _ms2 = importlib.util.spec_from_file_location("gate_mutant", _mutant)
+            _mm2 = importlib.util.module_from_spec(_ms2); _ms2.loader.exec_module(_mm2)
+            try:
+                _rt = _mm2.execute_or_plan(_mm2.CAP_EXEC, False, PLAN, live_executor=None)
+                if _rt.get("outcome") == "authorization-required":
+                    nok("teeth-allow-false: mutant still returns auth-required → case-2 is THEATER")
+                else:
+                    ok(f"teeth-allow-false: allow=False branch neutered → wrong outcome {_rt.get('outcome')!r} → case-2 has teeth")
+            except _mm2.GateError:
+                ok("teeth-allow-false: neutered mutant raises GateError (not auth-required) → case-2 allow=False guard has teeth")
+            except Exception as _et:
+                nok(f"teeth-allow-false: unexpected exception {type(_et).__name__}: {_et}")
 
 print(f"== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)

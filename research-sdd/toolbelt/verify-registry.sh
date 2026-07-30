@@ -162,14 +162,52 @@ for p in $paths; do
   # CATALOG.md carries a "Total: N" (or "N bloques/blocks") line, trust THAT N as the authoritative real
   # count so a justified local total reconciles against its OWN authority instead of false-drifting.
   # Otherwise keep the canonical discriminator count. WARN-only/read-only is unchanged.
+  #
+  # CATALOG FRESHNESS CHECK: reading the CATALOG total without verifying it against disk means a sweep
+  # can transcribe a stale number and stamp [CERT] on it — confirmed defect (issue #104 §2). For each
+  # CATALOG-authority target, compare the CATALOG total against the on-disk discriminator count already
+  # computed above. A diff within tolerance is treated as disk-consistent (fresh). Beyond tolerance the
+  # CATALOG may be stale OR the generator legitimately counts differently (sub-series blocks, etc.) —
+  # both require operator verification. PROPOSE-NEVER-APPLY: never regenerate; report for the operator.
+  # Four distinguishable states: (1) CATALOG absent → discriminator used, silent; (2) CATALOG present +
+  # parseable total + diff ≤ tol → fresh, disk-consistent annotation; (3) CATALOG present + parseable
+  # total + diff > tol → WARN fires, with two sub-cases distinguished by whether the discriminator
+  # found anything: (3a) discriminator > 0 → CATALOG plausibly stale; (3b) discriminator == 0 →
+  # cannot prove which side is wrong (non-canonical naming OR stale CATALOG — opposite remedies);
+  # (4) CATALOG present + no parseable total → freshness undeterminable, WARN fires.
+  _vr_disc_was_zero=0   # set to 1 when disc=0 overrides real; signals the unclassifiable guard
   cat_authority=""
   gen="$corpus/tools/gen-catalog.py"
   cat_md="$corpus/CATALOG.md"
   if [ -f "$gen" ] && [ -f "$cat_md" ]; then
+    _cat_discriminator="$real"   # save before CATALOG may override; used for freshness check
+    _cat_name="$(basename "$p")" # name not yet assigned at this point in the loop
     # A "Total: N" line first; else the first "N bloques/blocks" token anywhere in CATALOG.md.
     cat_total="$(grep -iE 'total' "$cat_md" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
     [ -n "$cat_total" ] || cat_total="$(grep -oiE '[0-9]+[[:space:]]*(bloques?|blocks?)' "$cat_md" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
-    if [ -n "$cat_total" ]; then real="$cat_total"; cat_authority=" (CATALOG.md total via local gen-catalog.py)"; fi
+    if [ -n "$cat_total" ]; then
+      _cat_diff=$(( 10#${cat_total} - 10#${_cat_discriminator:-0} ))
+      [ "$_cat_diff" -lt 0 ] && _cat_diff=$(( -_cat_diff ))
+      if [ "$_cat_diff" -le "$tol" ]; then
+        cat_authority=" (CATALOG.md total via local gen-catalog.py; disk-consistent: discriminator=${_cat_discriminator})"
+      elif [ "$_cat_discriminator" -eq 0 ] && [ "$cat_total" -gt 0 ]; then
+        # Discriminator classified nothing; CATALOG claims a positive count. The two candidates have
+        # OPPOSITE remedies: non-canonical naming (discriminator requires <prefix>-(block|bloque)<N>.md)
+        # fixes with a rename; a stale CATALOG fixes with regeneration. Asserting either without proof
+        # is false inference — state the discrepancy and name both. Leave cat_authority empty so the
+        # unclassifiable guard can run and provide concrete file-level evidence.
+        echo "WARN  $_cat_name — discriminator found 0 classifiable blocks; CATALOG.md claims ${cat_total}; possible causes: non-canonical block naming (discriminator requires <prefix>-(block|bloque)<N>.md) or stale CATALOG — verify before trusting this count."  # CATALOG-DISC-ZERO
+        _vr_disc_was_zero=1  # tell the unclassifiable guard to run despite real > 0
+        # cat_authority intentionally left empty so the unclassifiable guard condition triggers
+      else
+        echo "WARN  $_cat_name — CATALOG.md total ${cat_total} vs on-disk discriminator ${_cat_discriminator} (diff ${_cat_diff} > tol ${tol}); CATALOG may be stale — regenerate and recheck before trusting this count."  # CATALOG-FRESHNESS-CHECK
+        cat_authority=" (CATALOG.md total via local gen-catalog.py; catalog-disk diff=${_cat_diff} — verify freshness)"
+      fi
+      real="$cat_total"
+    else
+      # CATALOG.md present but no parseable total — freshness undeterminable; use discriminator.
+      echo "WARN  $_cat_name — CATALOG.md present (gen-catalog.py registered) but no parseable total found; freshness undeterminable; using discriminator count (${_cat_discriminator})."  # CATALOG-NOPARSE
+    fi
   fi
 
   checked=$((checked + 1))
@@ -213,10 +251,12 @@ for p in $paths; do
   # '|| true' would convert grep exit-2 (ENOMEM/SIGPIPE) into silent success — exactly the confident
   # zero this guard exists to prevent, reintroduced inside the guard itself.
   #
-  # The check runs only when real==0 AND no local-generator authority overrode the count, so canonical
-  # corpora and CATALOG-driven totals are never affected.
+  # The check runs when the discriminator found 0 AND no authority has set cat_authority. Two triggers:
+  # (a) real==0 with no CATALOG authority (original case — bare discriminator returns 0, no CATALOG);
+  # (b) _vr_disc_was_zero==1 (CATALOG present but discriminator=0 — cannot classify; both candidates
+  #     named in the freshness WARN; cat_authority left empty so this guard runs to add concrete evidence).
   unclassifiable=0
-  if [ "$real" -eq 0 ] && [ -z "$cat_authority" ]; then
+  if { [ "$real" -eq 0 ] || [ "$_vr_disc_was_zero" -eq 1 ]; } && [ -z "$cat_authority" ]; then
     unclassifiable="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | grep -iE '/(block|bloque)[_-]?[0-9]' \
       | grep -vE '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' \

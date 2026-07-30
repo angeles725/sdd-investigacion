@@ -66,6 +66,22 @@ This rule exists because it was violated once: two writers were launched in para
 that was luck, not design. The durable lesson: read the FULL scope of every delegated task before
 launching a second writer.
 
+**Group a delta backlog by DESTINATION FILE, not by source retro.** Thirteen retros aimed ~74 deltas at
+the same handful of kit files; applying them retro-by-retro serialises everything through
+`METHODOLOGY.md` and cannot parallelise. Grouping by destination makes the file sets disjoint AND is
+what surfaces defects that are invisible one retro at a time: a delta asking BOOTSTRAP to seed `tools/`
+contradicted an init-script comment saying `tools/` was deliberately not scaffolded — each half reads
+as coherent alone. Same session, same cause: a registry row documenting an interface that did not
+exist, and an audit verdict with no field in the report template to hold it.
+
+**Only a quiet-tree gate report is authoritative.** While concurrent writers are editing, suites fail
+transiently and pass standalone — that is expected and must not be chased. It also means no gate run
+during that window proves anything. Re-run every gate after the last writer finishes, and reject the
+report shape "no failures among the suites that completed within the timeout": it is literally true and
+proves nothing, because a suite that never ran cannot fail. Demand the full aggregate line. Note also
+that a merged, CI-green PR is not a verified PR — two defects in one session came from code merged
+hours earlier and were found only by re-verifying the merged result.
+
 ---
 
 ## 4. Strict TDD
@@ -90,8 +106,8 @@ Never declare done without running it.
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
-Current suite: **78 suites** (76 `*.test.sh` + 2 `*.test.mjs`), **1,548 test cases** — 1,661 under
-`--prove-teeth`, which adds the mutation controls — measured at `7836a09` plus the open-issues
+Current suite: **79 suites** (77 `*.test.sh` + 2 `*.test.mjs`), **1,560 test cases** — 1,684 under
+`--prove-teeth`, which adds the mutation controls — measured at `7836a09` plus the hook-flag and test-teeth
 work unit. Re-measure rather than trusting this line if it looks stale. New suites dropped into
 `research-sdd/toolbelt/tests/` are picked up automatically — nothing to register.
 
@@ -140,6 +156,24 @@ A count of 0 that could equally mean any of these three is a bug.
 Most instruments are WARN-only and never fail — that is exactly what lets a silent zero hide.
 Avoid `|| true` after greps: it converts a real `grep` error (exit 2: ENOMEM / SIGPIPE) into a
 silent confident zero, reintroducing the problem inside the guard that exists to prevent it.
+
+**The false-negative direction.** The three states above ask "did the instrument look?". They do not
+ask "could it SEE what it was looking at?". A parser that only recognises some of the forms its input
+uses reports a low count while genuinely having looked — the three-state model is satisfied and the
+number is still wrong. `verify-block.sh` resolved 6 of 95 citations on a real block, exiting 0 with no
+warning, because it matched `file.ext:NNN` and the corpus overwhelmingly writes `file.ext:NNN-MMM`
+(1,790 such citations fleet-wide). An instrument that resolves a LOW count must be able to prove it
+recognises every form its input actually uses — enumerate the forms against real corpus data, not
+against the fixtures you wrote. A false negative destroys trust exactly the way a false positive does:
+one makes good evidence read as absent, the other makes noise read as a finding, and both teach the
+operator to stop believing the output.
+
+**Report only what you measured.** An instrument's output must not imply a claim wider than what it
+actually checked. `sweep-retros.sh` counts retros whose review-status MARKER is open — which is not the
+same claim as "this much work is waiting", and the gap between those readings was measured at ~20% of
+the headline. The fix is not to make the instrument guess; deltas are prose and it cannot. The fix is
+to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
+before trusting it as work.
 
 ---
 

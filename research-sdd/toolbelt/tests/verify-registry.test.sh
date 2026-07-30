@@ -837,6 +837,53 @@ VRT2STRIPPED
     unset _rh_base_teeth23
   fi
 
+  # teeth-catalog-disc-zero: neuter the CATALOG-DISC-ZERO sentinel; the disc=0 fixture (bare
+  # block<N>.md files, CATALOG=5) must STOP emitting the two-candidate reconciliation WARN —
+  # proving test 30 depends on the real disc-zero branch and is not vacuously green.
+  echo "-- teeth-catalog-disc-zero: neuter CATALOG-DISC-ZERO; disc=0 fixture must NOT WARN about reconciliation --"
+  kit="$(mkkit teeth-cat-disc-zero)"; tgt="$kit/targetA"
+  mkdir -p "$tgt"
+  printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 5\n<!-- /research-state.v1 -->\n' \
+    > "$tgt/RESEARCH-STATE.md"
+  for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
+  mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  write_targets "$kit" "$tgt::5 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# CATALOG-DISC-ZERO' "$mut"; then
+    sed -i '/# CATALOG-DISC-ZERO/ s/.*/        : # CATALOG-DISC-ZERO [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -q 'non-canonical block naming' <<<"$mout"; then
+      ok "teeth-catalog-disc-zero: neutered → disc=0 fixture emits NO two-candidate WARN (test 30 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-catalog-disc-zero: neutered mutant STILL emits two-candidate WARN → test 30 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-catalog-disc-zero: CATALOG-DISC-ZERO sentinel not found in SUT (disc-zero branch not implemented or marker missing)"
+  fi
+
+  # teeth-catalog-freshness: neuter the CATALOG-FRESHNESS-CHECK sentinel on the stale-WARN echo
+  # line; the stale fixture (disc=8, CATALOG=5, diff=3>tol=2) must STOP emitting the freshness WARN
+  # — proving test 27 is load-bearing and not vacuously green.
+  echo "-- teeth-catalog-freshness: neuter CATALOG-FRESHNESS-CHECK; stale fixture must NOT WARN about staleness --"
+  kit="$(mkkit teeth-cat-fresh)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 8 "a"
+  mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  write_targets "$kit" "$tgt::5 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# CATALOG-FRESHNESS-CHECK' "$mut"; then
+    sed -i '/# CATALOG-FRESHNESS-CHECK/ s/.*/        : # CATALOG-FRESHNESS-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -q 'CATALOG may be stale' <<<"$mout"; then
+      ok "teeth-catalog-freshness: neutered check → stale fixture emits NO freshness WARN (test 27 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-catalog-freshness: neutered check STILL emits freshness WARN → test 27 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-catalog-freshness: CATALOG-FRESHNESS-CHECK sentinel not found in SUT (freshness check not implemented or marker missing)"
+  fi
+
   # teeth-kit-parent-match: remove the || [...$_kit_parent...] branch from the gate; a kit
   # registered via its repo root (dirname $KIT) must fire the self-reg WARN again — proving
   # test 26 depends on the real parent-dir check and is not vacuously green.
@@ -862,6 +909,87 @@ VRT2STRIPPED
   else
     no "teeth-kit-parent-match: KIT-PARENT-MATCH sentinel not found in SUT"
   fi
+fi
+
+# 27 — CATALOG-FRESHNESS STALE: gen-catalog.py + CATALOG.md present; CATALOG claims 5 but
+#      discriminator counts 8 (diff 3 > tol 2) → freshness WARN fires naming the counts + diff.
+#      WARN-only: drift comparison (claimed=5 vs CATALOG=5) still passes → exit 0, no drift WARN.
+kit="$(mkkit c27-catalog-stale)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 8 "a"   # 8 real block files → discriminator=8
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"   # CATALOG claims 5 (stale)
+write_targets "$kit" "$tgt::5 md"   # claim matches the (stale) CATALOG total
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'WARN[[:space:]]+targetA.*CATALOG.*5.*discriminator 8' <<<"$OUT" \
+   && grep -q 'CATALOG may be stale' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+targetA.*refresh the row' <<<"$OUT"; then
+  ok "27 stale CATALOG (disc=8 vs CATALOG=5, diff 3>tol) → freshness WARN, no drift WARN, exit 0" "(exit $RC)"
+else
+  no "27 stale CATALOG (disc=8 vs CATALOG=5, diff 3>tol) → freshness WARN, no drift WARN, exit 0" "exit=$RC out=[$OUT]"
+fi
+
+# 28 — CATALOG-FRESHNESS FRESH: gen-catalog.py + CATALOG.md present; CATALOG claims 6 and
+#      discriminator counts 5 (diff 1 ≤ tol 2) → NO freshness WARN fires; drift=0, consistent.
+#      Negative control: a within-tolerance difference must NOT trigger a staleness alarm.
+kit="$(mkkit c28-catalog-fresh)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 5 "a"   # 5 real block files → discriminator=5
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+printf '# Catalogo\n\nTotal: **6 bloques**\n' > "$tgt/CATALOG.md"   # diff=1 ≤ tol=2 → fresh
+write_targets "$kit" "$tgt::6 md"   # claim matches CATALOG total
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'CATALOG may be stale' <<<"$OUT" \
+   && ! grep -q 'freshness undeterminable' <<<"$OUT" \
+   && grep -q '0 count drift' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "28 fresh CATALOG (disc=5 vs CATALOG=6, diff 1≤tol) → no freshness WARN, drift=0" "(exit $RC)"
+else
+  no "28 fresh CATALOG (disc=5 vs CATALOG=6, diff 1≤tol) → no freshness WARN, drift=0" "exit=$RC out=[$OUT]"
+fi
+
+# 29 — CATALOG-FRESHNESS UNDETERMINABLE: gen-catalog.py present + CATALOG.md present but CATALOG
+#      has no parseable total → freshness-undeterminable WARN fires; discriminator count is used.
+#      The four states (absent/fresh/stale/undeterminable) must all produce distinct output.
+kit="$(mkkit c29-catalog-noparse)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 5 "a"   # 5 real block files → discriminator=5
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+printf '# Catalogo\n\n(no total line here)\n' > "$tgt/CATALOG.md"   # no parseable total
+write_targets "$kit" "$tgt::5 md"   # claim matches discriminator → no drift
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'freshness undeterminable' <<<"$OUT" \
+   && ! grep -q 'CATALOG may be stale' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+targetA.*refresh the row' <<<"$OUT"; then
+  ok "29 CATALOG no parseable total → freshness-undeterminable WARN, no drift WARN, exit 0" "(exit $RC)"
+else
+  no "29 CATALOG no parseable total → freshness-undeterminable WARN, no drift WARN, exit 0" "exit=$RC out=[$OUT]"
+fi
+
+# 30 — CATALOG-DISC-ZERO: gen-catalog.py + CATALOG.md present; discriminator finds 0 (bare
+#      block<N>.md, no canonical <prefix>- component) while CATALOG claims 5. WARN must name BOTH
+#      candidate causes (non-canonical naming + stale CATALOG) and must NOT assert "CATALOG may be
+#      stale" alone. The unclassifiable guard must also fire, providing file-level evidence.
+#      No drift WARN (claimed=5 matches CATALOG=5). Exit 0.
+#      RED before fix: current code emits "CATALOG may be stale" (wrong cause) and suppresses
+#      the unclassifiable guard by setting cat_authority (wrong evidence chain).
+kit="$(mkkit c30-catalog-disc-zero)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 5\n<!-- /research-state.v1 -->\n' \
+  > "$tgt/RESEARCH-STATE.md"
+for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done  # bare naming, not canonical
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+write_targets "$kit" "$tgt::5 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'non-canonical block naming' <<<"$OUT" \
+   && ! grep -q 'CATALOG may be stale' <<<"$OUT" \
+   && grep -qE 'WARN[[:space:]]+targetA.*unclassifiable' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+targetA.*refresh the row' <<<"$OUT"; then
+  ok "30 disc=0 vs CATALOG=5 → both-candidate WARN, unclassifiable fires, no drift WARN, exit 0" "(exit $RC)"
+else
+  no "30 disc=0 vs CATALOG=5 → both-candidate WARN, unclassifiable fires, no drift WARN, exit 0" "exit=$RC out=[$OUT]"
 fi
 
 echo "== $pass passed · $fail failed =="
