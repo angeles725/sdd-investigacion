@@ -526,6 +526,132 @@ grep -qE 'sha256sum not found|cannot be checked' <<<"$_sha_out" \
   || { printf '  FAIL  %-42s (notice missing — silent pass)\n' "sha256sum unavailable: notice printed"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# DEFECT 1 — malformed row (wrong column count) must WARN with line number; loops must skip it.
+# A 5-col row shifts sha256 and Blocks cells left; the field-guard in LEVEL 4 and LEVEL 6
+# skips the row (preventing misparse) and the pre-check warns. Severity = WARN (§8: registry
+# finding, not a broken instrument — the human must fix the registry).
+
+# D1-WARN-1: a 5-col row (sha256 col missing) emits WARN + line number, exit 0.
+d="$TMP/d1-malformed-row"; mkdir -p "$d/sources/manuals"
+block "$d/d1-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — a local claim.'
+{ printf '# Sources\n\n'
+  printf '| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| manuals/guide.pdf | manual | http://x | 2026-01-01 | B1 |\n'
+} > "$d/sources/SOURCES.md"     # 5-col data row: sha256 missing, Blocks col = B1
+: > "$d/sources/manuals/guide.pdf"
+assert_exit "$SUT" 0 "D1-WARN: 5-col row exits 0 (WARN, not fail)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*malformed' <<<"$out" \
+  && { printf '  PASS  %-42s (malformed-row WARN emitted)\n' "D1-WARN: malformed WARN present"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (no malformed-row WARN)\n' "D1-WARN: malformed WARN present"; fail=$((fail+1)); }
+grep -qE 'WARN.*SOURCES\.md line [0-9]' <<<"$out" \
+  && { printf '  PASS  %-42s (WARN includes SOURCES.md line number)\n' "D1-WARN: line number in WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (WARN missing SOURCES.md line number)\n' "D1-WARN: line number in WARN"; fail=$((fail+1)); }
+
+# D1-SKIP-L6: a 5-col web-snapshot row must NOT produce "unverifiable-hash" from LEVEL 6.
+# Before fix: LEVEL 6 reads the Blocks cell ("B5") as sha256 → "prefix 2 chars < 8" misleading WARN.
+# After fix: the L6-FIELD-GUARD skips the row; only the pre-check malformed WARN appears.
+d="$TMP/d1-skip-l6"; mkdir -p "$d/sources"
+block "$d/d1l6-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — local claim.'
+{ printf '# Sources\n\n'
+  printf '| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | B5 |\n'
+} > "$d/sources/SOURCES.md"     # 5-col: "B5" lands in the sha256 slot in the buggy version
+snapshot "$d/sources/web-snapshots/foo.md" '<div>body</div>'
+assert_exit "$SUT" 0 "D1-SKIP-L6: 5-col web-snap row, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'unverifiable-hash' <<<"$out" \
+  && { printf '  FAIL  %-42s (misleading hash WARN present — row not skipped by field-guard)\n' "D1-SKIP-L6: no misleading unverifiable-hash"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no misleading hash output for malformed row)\n' "D1-SKIP-L6: no misleading unverifiable-hash"; pass=$((pass+1)); }
+
+# DEFECT 2 visibility — non-web-snapshot rows with on-disk files and hash-like cells must appear
+# in a "not hash-verified" count (§7: the operator must be able to see the uncovered surface).
+
+# D2-VISIBLE: a manuals/ row with a truncated-hash cell and an on-disk file → count line emitted.
+d="$TMP/d2-visible-skipped"; mkdir -p "$d/sources/manuals"
+block "$d/d2-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/manuals/guide.pdf §1 — a manual.'
+: > "$d/sources/manuals/guide.pdf"
+sources_registry "$d" "| manuals/guide.pdf | manual | http://x | 2026-01-01 | abcdef01… | B1 |"
+assert_exit "$SUT" 0 "D2-VISIBLE: non-web-snap hashed row, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'not hash-verified' <<<"$out" \
+  && { printf '  PASS  %-42s (unchecked hash count reported)\n' "D2-VISIBLE: non-web-snap hash count line"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (unchecked hash count NOT reported)\n' "D2-VISIBLE: non-web-snap hash count line"; fail=$((fail+1)); }
+
+# D2-EMPTY: empty registry → zero non-web-snapshot hashed rows → no count line.
+# Tests the three-state distinction: "no rows" vs "rows but no hash" vs "rows with hash".
+d="$TMP/d2-no-hashed-rows"; mkdir -p "$d"
+block "$d/d2n-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — local claim.'
+sources_registry "$d"   # empty registry (no data rows at all)
+assert_exit "$SUT" 0 "D2-EMPTY: empty registry, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'not hash-verified' <<<"$out" \
+  && { printf '  FAIL  %-42s (count line emitted for empty registry — §7 false positive)\n' "D2-EMPTY: no count for empty registry"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no spurious count line)\n' "D2-EMPTY: no count for empty registry"; pass=$((pass+1)); }
+
+# D1-SECOND-TABLE: SOURCES.md with a conforming 6-col registry followed by a secondary
+# table under a heading must produce ZERO malformed or schema WARNs. The secondary table
+# rows appear after a non-table line and are outside the registry block — the check must
+# never reach them. This is the regression guard for the hifref false-positive defect:
+# the all-rows awk flagged every row in the 2-col secondary table (10 false positives).
+d="$TMP/d1-second-table"; mkdir -p "$d/sources/web-snapshots"
+block "$d/d1st-block1.md" '# Block 1' '## 1.1 [CERT] sources/web-snapshots/page.html §2 — snapshot.'
+snapshot "$d/sources/web-snapshots/page.html" '<div>body</div>'
+{ printf '# External sources\n\n'
+  printf '| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| web-snapshots/page.html | web-snapshot | http://ex.com | 2026-01-01 | 280dbb9eb12b45d1\xe2\x80\xa6 | B1 |\n'
+  printf '\n## Local resources (not preserved externally)\n\n'
+  printf '| Archivo | Qu\xc3\xa9 aporta |\n'
+  printf '|---|---|\n'
+  printf '| local/notes.txt | Contextual background |\n'
+} > "$d/sources/SOURCES.md"
+assert_exit "$SUT" 0 "D1-SECOND-TABLE: secondary table, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*(malformed|schema)' <<<"$out" \
+  && { printf '  FAIL  %-42s (false-positive WARN on secondary table rows)\n' "D1-SECOND-TABLE: no WARN on secondary"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no spurious WARN for secondary table rows)\n' "D1-SECOND-TABLE: no WARN on secondary"; pass=$((pass+1)); }
+
+# D1-SCHEMA-WARN: a non-conforming registry header (fewer than 6 columns) → exactly ONE
+# schema-level WARN per file; rows internally consistent with the non-conforming header
+# must NOT generate per-row WARNs. Models the Alerton shape: 4-col registry header, rows
+# all consistently 4 columns. One WARN tells the operator to fix the schema; nine per-row
+# WARNs on rows that agree with their own header would be noise.
+d="$TMP/d1-schema-warn"; mkdir -p "$d/sources/docs"
+block "$d/d1sw-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — local claim.'
+: > "$d/sources/docs/file.pdf"; : > "$d/sources/docs/other.pdf"
+{ printf '# External sources\n\n'
+  printf '| File | Type | sha256 | Citing blocks |\n'
+  printf '|---|---|---|---|\n'
+  printf '| docs/file.pdf | document | abcde123 | B1 |\n'
+  printf '| docs/other.pdf | document | 98765432 | B1 |\n'
+} > "$d/sources/SOURCES.md"
+assert_exit "$SUT" 0 "D1-SCHEMA-WARN: non-conforming header, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+schema_warns=$(grep -c 'schema non-conforming' <<<"$out" || true)
+row_warns=$(grep -c 'WARN.*malformed row' <<<"$out" || true)
+[ "$schema_warns" -eq 1 ] \
+  && { printf '  PASS  %-42s (exactly 1 schema WARN)\n' "D1-SCHEMA-WARN: one schema WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (expected 1 schema WARN, got %d)\n' "D1-SCHEMA-WARN: one schema WARN" "$schema_warns"; fail=$((fail+1)); }
+[ "$row_warns" -eq 0 ] \
+  && { printf '  PASS  %-42s (zero per-row malformed WARNs)\n' "D1-SCHEMA-WARN: no per-row WARNs"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (expected 0 per-row WARNs, got %d)\n' "D1-SCHEMA-WARN: no per-row WARNs" "$row_warns"; fail=$((fail+1)); }
+
+# D1-CLEAN: fully conforming 6-col registry with well-formed data rows → zero malformed
+# or schema WARNs. The explicit "clean" regression guard (fourth shape).
+d="$TMP/d1-clean"; mkdir -p "$d/sources/manuals"
+block "$d/d1c-block1.md" '# Block 1' '## 1.1 [CERT] sources/manuals/guide.pdf \xc2\xa73 — manual.'
+: > "$d/sources/manuals/guide.pdf"
+sources_registry "$d" "| manuals/guide.pdf | manual | http://x | 2026-01-01 | aabbccdd01234567\xe2\x80\xa6 | B1 |"
+assert_exit "$SUT" 0 "D1-CLEAN: clean registry, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*(malformed|schema)' <<<"$out" \
+  && { printf '  FAIL  %-42s (spurious WARN on clean conforming registry)\n' "D1-CLEAN: no WARN on clean registry"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no spurious WARN for clean conforming registry)\n' "D1-CLEAN: no WARN on clean registry"; pass=$((pass+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -646,6 +772,55 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '  PASS  %-42s (mutant false-passes → prefix check has teeth)\n' "teeth: PREFIX-COMPARISON mutant exit 0"; pass=$((pass+1))
     else
       printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 8 not dependent on prefix compare.\n' "teeth: PREFIX-COMPARISON" "$m_pfx_got"; fail=$((fail+1))
+    fi
+  fi
+
+  # D1 teeth: disable the L6-FIELD-GUARD (the sentinel that skips malformed rows in LEVEL 6).
+  #   The D1-SKIP-L6 fixture has a 5-col web-snapshot row with "B5" in the sha256 slot. With the
+  #   guard disabled, LEVEL 6 processes it and emits "unverifiable-hash" (reads "B5" as a 2-char
+  #   hex prefix < MIN_PREFIX). With the guard active, the row is skipped and no hash output appears.
+  #   bash -n validated first: a mutant with a syntax error never runs, proving nothing (THEATER).
+  echo "-- teeth proof: D1 — disable L6-FIELD-GUARD, expect D1-SKIP-L6 to produce misleading unverifiable-hash --"
+  mutant_d1="$TMP/verify-sources.MUTANT-D1.sh"
+  awk '{ if ($0 ~ /L6-FIELD-GUARD/) print "  pipes=\"${_raw//[^|]/}\"; [ 1 -ne 1 ] && continue   # MUTANT-D1: L6 guard disabled"; else print }' "$SUT" > "$mutant_d1"
+  if ! grep -q 'MUTANT-D1: L6 guard disabled' "$mutant_d1"; then
+    echo "  FAIL  could not build D1 mutant (L6-FIELD-GUARD sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    bash -n "$mutant_d1" 2>/dev/null; d1_bn=$?
+    if [ "$d1_bn" -ne 0 ]; then
+      echo "  FAIL  D1 mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+    else
+      d="$TMP/d1-skip-l6"   # built above: 5-col web-snap row, B5 in sha256 slot
+      md1_out="$(bash "$mutant_d1" "$d" 2>&1)"
+      if grep -q 'unverifiable-hash' <<<"$md1_out"; then
+        printf '  PASS  %-42s (mutant fires misleading hash warn → guard is load-bearing)\n' "teeth: D1 L6-guard mutant → unverifiable-hash"; pass=$((pass+1))
+      else
+        printf '  FAIL  %-42s (mutant did not produce unverifiable-hash — guard not load-bearing)\n' "teeth: D1 L6-guard"; fail=$((fail+1))
+      fi
+    fi
+  fi
+
+  # D1B teeth: disable the REGISTRY-BLOCK-EXIT transition in the pre-check awk so in_reg
+  # stays 1 forever. Secondary table rows that appear after a heading are then treated as if
+  # inside the registry block and get per-row WARNs for their different column count. The
+  # D1-SECOND-TABLE assertion (expects zero WARNs) must fire. bash -n validated first.
+  echo "-- teeth proof: D1B — disable REGISTRY-BLOCK-EXIT, expect D1-SECOND-TABLE to show false-positive WARNs --"
+  mutant_d1b="$TMP/verify-sources.MUTANT-D1B.sh"
+  sed 's/REGISTRY-BLOCK-EXIT/MUTANT-D1B/; /MUTANT-D1B/s/in_reg=0/in_reg=1/' "$SUT" > "$mutant_d1b"
+  if ! grep -q 'MUTANT-D1B' "$mutant_d1b"; then
+    echo "  FAIL  could not build D1B mutant (REGISTRY-BLOCK-EXIT sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    bash -n "$mutant_d1b" 2>/dev/null; d1b_bn=$?
+    if [ "$d1b_bn" -ne 0 ]; then
+      echo "  FAIL  D1B mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+    else
+      d="$TMP/d1-second-table"   # built above: clean 6-col registry + secondary 2-col table
+      md1b_out="$(bash "$mutant_d1b" "$d" 2>&1)"
+      if grep -qE 'WARN.*(malformed|schema)' <<<"$md1b_out"; then
+        printf '  PASS  %-42s (mutant fires WARN on secondary → REGISTRY-BLOCK-EXIT load-bearing)\n' "teeth: D1B REGISTRY-BLOCK-EXIT → false-positive WARN"; pass=$((pass+1))
+      else
+        printf '  FAIL  %-42s (mutant produced no WARN — REGISTRY-BLOCK-EXIT not load-bearing)\n' "teeth: D1B REGISTRY-BLOCK-EXIT"; fail=$((fail+1))
+      fi
     fi
   fi
 fi

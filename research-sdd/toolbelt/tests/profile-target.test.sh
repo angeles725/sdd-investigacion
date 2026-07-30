@@ -303,6 +303,33 @@ expect_has   "25 P4: 'data' file >90% printable ASCII → text-like annotation" 
   'text-like — try reading it first'
 
 # ---------------------------------------------------------------------------
+# CAD (DXF / DWG) ROUTING — render-drawing.sh must be suggested for AutoCAD files.
+# Both extensions must be in BASE_EXT (discovered by find) AND the AutoCAD case arm
+# must route them to render-drawing.sh. ONE arm covers both because the real `file -b`
+# output for each contains the token "AutoCAD" (verified against the real fleet CAD
+# files in nave-panccadia/raw/). Using one test per extension is mandatory because
+# DXF and DWG produce DIFFERENT `file` strings; one positive does not prove the other.
+expect_route "26 DXF (AutoCAD Exchange Format) → render-drawing.sh" \
+  "$(mkcase c26 drawing.dxf 'AutoCAD Drawing Exchange Format, version 2007')" \
+  'render-drawing.sh'
+
+expect_route "27 DWG (DWG AutoDesk AutoCAD) → render-drawing.sh" \
+  "$(mkcase c27 drawing.dwg 'DWG AutoDesk AutoCAD 2007/2008/2009')" \
+  'render-drawing.sh'
+
+# Aggregation: DXF + DWG share the 'render-drawing.sh' first-word key in COUNT, so
+# the summary line must show 'render-drawing.sh 2' when both appear in one target.
+cad_agg="$STAGE/cad_agg"; mkdir -p "$cad_agg"
+printf '%s' 'AutoCAD Drawing Exchange Format, version 2007' > "$cad_agg/plan.dxf"
+printf '%s' 'DWG AutoDesk AutoCAD 2007/2008/2009'          > "$cad_agg/plan.dwg"
+cad_out="$(run_full "$cad_agg")"
+if grep -Eq 'render-drawing\.sh +2' <<<"$cad_out"; then
+  ok "28 aggregation: DXF + DWG → render-drawing.sh COUNT key = 2"
+else
+  no "28 aggregation: DXF + DWG → render-drawing.sh summary" "out=[$cad_out]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Case 16 claims the .Net/Mono arm sitting ABOVE the
 # PE32 arm is what routes a .NET+PE32 file to net-only. Prove it: neuter that arm
 # on a throwaway SUT copy (rewrite its pattern to one that can never match) and
@@ -350,6 +377,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-p4: neutered annotation → ASCII 'data' fixture shows NO text-like (test 25 has teeth)"
     else
       no "teeth-p4: mutant STILL shows text-like → test 25 is THEATER" "p4mout=[$p4mout]"
+    fi
+  fi
+
+  # teeth-autocad: neuter the AutoCAD case arm on a throwaway SUT copy; the DXF
+  # fixture (same description as test 26) must fall through to the catch-all and
+  # show 'scan-firmware.sh + MANUAL' instead of 'render-drawing.sh'. Proves tests
+  # 26-28 are not theater. bash -n validates the mutant parses before we run it —
+  # a mutant with a syntax error cannot run so the control would pass for the wrong reason.
+  echo "-- teeth-autocad: neuter AutoCAD case arm; DXF must fall through to catch-all --"
+  autocad_anchor='*"AutoCAD"*)'
+  autocad_repl='*"ZZZ_NEVER_MATCH_ZZZ"*)'
+  autocad_content="$(cat "$SUT")"
+  if [[ "$autocad_content" != *"$autocad_anchor"* ]]; then
+    no "teeth-autocad: locate AutoCAD case arm" "anchor not found — SUT drifted?"
+  else
+    autocad_mutant="$TMP/profile-target.AUTOCAD-MUTANT.sh"
+    printf '%s\n' "${autocad_content/"$autocad_anchor"/"$autocad_repl"}" > "$autocad_mutant"
+    if ! bash -n "$autocad_mutant" >/dev/null 2>&1; then
+      no "teeth-autocad: mutant parse check (bash -n)" "mutant has syntax error — teeth are theater"
+    else
+      teeth_cad_dir="$STAGE/teeth-autocad"; mkdir -p "$teeth_cad_dir"
+      printf '%s' 'AutoCAD Drawing Exchange Format, version 2007' > "$teeth_cad_dir/plan.dxf"
+      autocad_mout="$(PATH="$STUB:$PATH" "$BASH_BIN" "$autocad_mutant" "$teeth_cad_dir" 2>&1)"
+      autocad_mroute="$(awk -F ' [|] ' '/ [|] / { print $3; exit }' <<<"$autocad_mout")"
+      case "$autocad_mroute" in
+        *"render-drawing.sh"*)
+          no "teeth-autocad: mutant still routed to render-drawing.sh (arm neuter had no effect)" ;;
+        *"scan-firmware.sh + MANUAL"*)
+          ok "teeth-autocad: AutoCAD-arm-neutered mutant falls through to catch-all (tests 26-28 have teeth)" "($autocad_mroute)" ;;
+        *)
+          no "teeth-autocad: unexpected route on mutant" "got=[$autocad_mroute]" ;;
+      esac
     fi
   fi
 fi

@@ -77,6 +77,24 @@ if [ -f "$sources_md" ]; then
   if [ $((doc + a)) -gt 0 ] && [ "${rows:-0}" -eq 0 ]; then
     echo "   WARN: preserved-source markers exist but SOURCES.md has 0 data rows (registry unpopulated)."
   fi
+  # MALFORMED-ROW pre-check — §7 false-negative direction. SCOPED TO THE REGISTRY TABLE:
+  # SOURCES.md may contain multiple tables (secondary local-file inventories, etc.). The pre-check
+  # locates the FIRST table block that contains a "sha256" header cell (the registry marker in the
+  # 6-col template) and checks ONLY that block. Secondary tables after a non-table line are never
+  # reached. Two severity paths are distinguished (neither exits with rc=1 — both are §8 findings):
+  #   Schema non-conforming (registry header column count != 6): ONE WARN per file. Every data row
+  #     under that header is internally consistent with it, so per-row WARNs would be noise.
+  #   Conforming header + disagreeing row: per-row WARN with original SOURCES.md line number.
+  # L4/L6/D2 loops are also anchored to the registry block via process substitution (see below).
+  awk -F'|' '
+    !in_reg && /^\|/ && / sha256 / { in_reg=1; reg_nf=NF
+      if (NF!=8) { printf "   WARN: SOURCES.md registry header has %d columns (expected 6 per template); schema non-conforming (data rows not individually checked)\n", NF-2; bad_schema=1 }
+      next }
+    in_reg && !/^\|/ { in_reg=0; next }   # REGISTRY-BLOCK-EXIT
+    in_reg && $2~/^[- :]+$/ { next }
+    in_reg && !bad_schema && NF!=reg_nf {
+      printf "   WARN: SOURCES.md line %d — malformed row (got %d columns, expected 6); sha256/Blocks cells untrustworthy — fix the registry\n", NR, NF-2 }
+  ' "$sources_md"
   # LEVEL 2b — preserved files on disk that are NOT named in the registry.
   while IFS= read -r f; do
     [ -z "$f" ] && continue
@@ -91,7 +109,9 @@ if [ -f "$sources_md" ]; then
   # citation). This is the content cross-check. Parses both `B60` and `[Block 21]`/`Bloque 7`; empty and
   # em-dash cells yield no block and are skipped. Positive miss ⇒ FAIL; unresolvable block name ⇒ WARN only.
   cited=0
-  while IFS='|' read -r _ fcell _ _ _ _ bcell _; do
+  while IFS= read -r _row; do
+    pipes="${_row//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # L4-FIELD-GUARD: skip malformed rows (registry-block scope)
+    IFS='|' read -r _ fcell _ _ _ _ bcell _ <<< "$_row"
     file=$(printf '%s' "$fcell" | tr -d '[:blank:]')   # strip space AND tab: a tab-padded File cell must not spoof a FABRICATED-CITE
     file=${file//\`/}          # strip markdown code backticks so the basename greps cleanly
     [ -z "$file" ] && continue
@@ -118,7 +138,7 @@ if [ -f "$sources_md" ]; then
         fi
       fi
     done
-  done < "$sources_md"
+  done < <(awk '/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}' "$sources_md" 2>/dev/null)
   [ "$cited" -gt 0 ] && echo "-- cross-checked $cited registry→block citation claim(s) against block content"
 fi
 
@@ -209,7 +229,9 @@ done < <(find "$corpus/sources/web-snapshots" -type f 2>/dev/null)
 MIN_PREFIX=8
 if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
   hverified=0; hunverif=0
-  while IFS='|' read -r _ fcell _ _ _ shacell _; do
+  while IFS= read -r _raw; do
+    pipes="${_raw//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # L6-FIELD-GUARD: skip malformed rows (registry-block scope)
+    IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
     file="$corpus/sources/$key"
@@ -251,11 +273,35 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
           ;;
       esac
     fi
-  done < "$sources_md"
+  done < <(awk '/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}' "$sources_md" 2>/dev/null)
   [ $((hverified + hunverif)) -gt 0 ] && \
     echo "-- web-snapshot hashes: $hverified verified · $hunverif unverifiable (missing/short-prefix = WARN)"
 elif [ -f "$sources_md" ] && grep -qE '^\| web-snapshots/' "$sources_md" 2>/dev/null; then
   echo "-- web-snapshot hashes: sha256sum not found — hash integrity cannot be checked (WARN)"
+fi
+
+# DEFECT-2 VISIBILITY — §7: a count of 0 that collapses "no non-web-snapshot rows with hashes"
+# and "N rows present but not checked" is the bug. LEVEL 6 covers web-snapshots/ only; datasheets/,
+# manuals/, extracted/, and other subdirs may carry hash-like cells that are never verified. Count
+# those rows (6-col, file on disk, starts with a hex char) so the operator sees the uncovered surface.
+# Scope is intentionally NOT widened: a fleet scan found 4 would-be FAIL rows across active corpora
+# (gateway-ug67, impresora-samsung-m2070, niagara-research, pruebas-dashboards); widening would cause
+# disruptive rc=1 regressions. Making the gap visible is the safe, correct action here.
+if [ -f "$sources_md" ]; then
+  _nskip=0
+  while IFS= read -r _raw; do
+    pipes="${_raw//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # skip malformed rows (registry-block scope)
+    IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
+    key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
+    case "$key" in ''|File|*---*|web-snapshots/*) continue;; esac   # skip header, separator, web-snap
+    [ -f "$corpus/sources/$key" ] || continue                       # file not on disk — nothing to verify
+    reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
+    case "$reg" in ''|'('*) continue;; esac                         # empty or placeholder
+    printf '%s' "$reg" | grep -qiE '^[0-9a-f]' || continue          # not hex-looking
+    _nskip=$((_nskip + 1))
+  done < <(awk '/^\|/&&/ sha256 /{r=1} r&&/^\|/{print} r&&!/^\|/{r=0}' "$sources_md" 2>/dev/null)
+  [ "$_nskip" -gt 0 ] && \
+    echo "-- non-web-snapshot rows with on-disk files and hashes: $_nskip not hash-verified (LEVEL 6 covers web-snapshots/ only)"
 fi
 
 echo "== exit $rc =="
