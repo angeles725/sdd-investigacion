@@ -96,7 +96,7 @@ Path portability — the `$RESEARCH_HOME` convention:
 | 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (12 blocks / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
-| 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **mature** (8 md / 6 runs / 2 retros / git yes / remote yes / hook no; goal: total PDF coverage) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430`: operator-supplied App Documentation PDF (1751 pp) + backing workbook — detail §21 `[CERT-doc]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
+| 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **mature** (12 md / 8 runs / 3 retros / git yes / remote yes / hook no; **goal MET: PDF 221/221**) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430`: operator-supplied App Documentation PDF (1751 pp) + backing workbook — detail §21 `[CERT-doc]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
 
 ---
 
@@ -418,6 +418,18 @@ files are renamed to the canonical pattern (e.g. `m2070-block1.md`).
 the only genuinely hardware-blocked gap). Resolve the naming issue before the next archive run.
 
 ### 21 — appsheet-tomapp `[CERT]`
+
+**Run 6 close (2026-07-29) — GOAL MET.** Census **221/221 = 1.0** in all six PDF sections
+(tables 14 · columns 78 · slices 7 · views 60 · format_rules 19 · actions 43); `verify-claims` **478/478**;
+12 blocks; `research-sdd-archive.sh` closed at exit 0 — but only after REFUSING at exit 3 because
+`sources/SOURCES.md` had never existed while 13 blocks cited preserved sources since run 2 (a §5 hole no
+gap had named in four runs; this corpus was hand-bootstrapped, so `research-sdd-init.sh` never ran).
+Authorisation is enforced in exactly **three** places — 8 table `Expression for update`, 14 identity slice
+row-filters, 21 identity action conditions — and **none of them stops B10 §10.2's card bypass**, because
+all 416 actions are table-scoped, not slice-scoped. Retro **2026-07-29-total-pdf-coverage** proposes **10
+deltas (3 HIGHEST)**, `review-status: pending`. Caveat on record: coverage is 1.0 while
+`investigable_open` is 11, so §8's criterion is NOT met — logged as an operator decision, not resolved
+silently.
 
 **Run 5-6 (2026-07-29) — the STOP was false.** Run 4 declared `investigable_open: 0` / STOP MET. Run 5
 retracted it: B7 was never recorded in the iteration history, G13 was marked blocked on a reason belonging
