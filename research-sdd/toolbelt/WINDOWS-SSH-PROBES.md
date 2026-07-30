@@ -230,7 +230,14 @@ to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
 - For serial-console one-shot PowerShell over WSL interop (not full SSH), see `DYNAMIC-SETUP.md §5`.
 - For paramiko-based SSH (password-only, no `-EncodedCommand`), see `DYNAMIC-SETUP.md §6`.
 - `push.sh` / `fetch.sh` — scp wrappers in the target's `tools/` directory.
-- **Pre-flight syntax check before pushing any `.ps1`**: `pslint.sh <file.ps1>` (kit toolbelt) — gotchas #1 and #2 in the summary table above document parse errors from encoding corruption or truncation; running `pslint.sh` locally catches those at the grammar level before the script ever crosses the SSH channel.
+- **Pre-flight syntax check before pushing any `.ps1`**: `pslint.sh <file.ps1>` (kit toolbelt) — parses the
+  on-disk source with the same grammar Windows PowerShell 5.1 uses, so an author's own syntax error is caught
+  locally instead of on a production host.
+  **It does NOT catch gotchas #1 and #2.** Those are *transit-introduced*: #1 corrupts the script during the
+  `-EncodedCommand` send, #2 truncates it there. `pslint.sh` runs on the pristine file BEFORE transit and
+  structurally cannot see damage the channel inflicts afterwards. What it gives you against #1/#2 is
+  **disambiguation**: if the source lints clean here and the remote still reports a parse error, the fault is
+  the channel, not the script — which is the difference between re-reading your code and fixing your transport.
 
 ---
 

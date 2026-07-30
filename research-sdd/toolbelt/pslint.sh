@@ -25,6 +25,15 @@
 #   3  pwsh not found on PATH
 #
 # READ-ONLY: never modifies any .ps1 file.
+#
+# KNOWN BLIND SPOT (anti-silent-zero, CLAUDE.md §7 false-negative direction):
+# input is assumed UTF-8 or BOM-marked.  A malformed script saved as UTF-16LE
+# WITHOUT a BOM reports OK — ParseFile ingests the interleaved NUL bytes as
+# token filler and returns zero errors.  Verified: the same broken content in
+# UTF-8 is caught, the UTF-16LE-no-BOM copy is not.  All 22 live fleet .ps1
+# files are UTF-8, so this does not bite today, but an OK from this tool is
+# only as trustworthy as the file's encoding.  Check with `file -b` if a script
+# lints clean here and still fails to parse on the host.
 set -euo pipefail
 
 command -v pwsh >/dev/null 2>&1 || { printf 'pslint: pwsh not found; install via "brew install powershell"\n' >&2; exit 3; }  # PL-PWSH-CHECK
