@@ -39,6 +39,7 @@ const SWEEP = path.join(TOOLBELT, "sweep-retros.sh")
 const SWEEP_AUDITS = path.join(TOOLBELT, "sweep-audits.sh")
 const REGISTRY = path.join(TOOLBELT, "verify-registry.sh")
 const KIT_CLEAN = path.join(TOOLBELT, "verify-kit-clean.sh")
+const SWEEP_TOOLS = path.join(TOOLBELT, "sweep-tools.sh")
 
 async function underKitRepo(dir: string): Promise<boolean> {
   // The supervisor repo root = parent of the research-sdd kit dir. Surface only when the session's
@@ -96,6 +97,26 @@ export const ResearchSddSweepPlugin: Plugin = async (input) => {
           ? "Research-SDD KIT is NOT clean — commit/stash + push before staging §18 retros (else the retro branch/PR mixes unrelated history):"
           : `Research-SDD kit-clean check could not run (exit ${clean.code} — misconfigured path or not a git repo):`
       parts.push(hdr + "\n" + clean.out)
+    }
+
+    // 5. Tool ledger — mirror sweep-tools-hook.sh: silent when all tools ledgered, summary otherwise.
+    const tools = await run(SWEEP_TOOLS)
+    if (tools.code !== 0) {
+      parts.push(`Research-SDD tools sweep could not run (exit ${tools.code}):\n` + tools.out)
+    } else {
+      const summaryMatch = tools.out.match(/^Summary:.*$/m)
+      if (!summaryMatch) {
+        if (tools.out) parts.push("Research-SDD tools sweep: missing Summary line:\n" + tools.out)
+      } else {
+        const unrecordedMatch = summaryMatch[0].match(/(\d+) unrecorded/)
+        const unrecorded = unrecordedMatch ? parseInt(unrecordedMatch[1], 10) : 0
+        if (unrecorded > 0) {
+          const warnMatch = tools.out.match(/^WARN:.*$/m)
+          const detail = summaryMatch[0] + (warnMatch ? "\n" + warnMatch[0] : "") +
+            "\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+          parts.push("Research-SDD tool ledger (unrecorded tools found):\n" + detail)
+        }
+      }
     }
 
     return parts.length ? parts.join("\n\n") : null

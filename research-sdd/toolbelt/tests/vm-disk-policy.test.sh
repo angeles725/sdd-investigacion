@@ -883,3 +883,59 @@ except Exception as e:
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+_main_exit=$?
+
+# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  _tp=0; _tf=0
+  _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }
+  _tnok(){ printf '  FAIL  %s\n' "$1"; _tf=$((_tf+1)); }
+
+  # teeth-capdrop: removing "--cap-drop" from _REQUIRED_BWRAP lets argv without
+  # --cap-drop pass all checks; VDP-T10a (cap-drop absent) goes red -- has teeth.
+  python3 - "$SUT" <<'PY'
+import sys, types
+from pathlib import Path
+sut = Path(sys.argv[1]); src = sut.read_text()
+old = '    "--cap-drop",      # must be followed by ALL (value enforced in bwrap scan)'
+if old not in src:
+    print("MUTANT-SETUP-FAIL: cap-drop line not found -- SUT changed?", file=sys.stderr)
+    sys.exit(2)
+mut = src.replace(old, '    # "--cap-drop" removed  # MUTANT: cap-drop presence check removed', 1)
+m = types.ModuleType("vm_disk_policy"); m.__file__ = str(sut)
+exec(compile(mut, str(sut), "exec"), m.__dict__)
+G = m.GateError
+RUN_DIR = "/tmp/rsdd-test-run"; SCRATCH = f"{RUN_DIR}/scratch.img"
+# VDP-T10a argv: GOOD_ARGV minus --cap-drop ALL
+ARGV = [
+    "bwrap", "--die-with-parent", "--new-session", "--unshare-net", "--unshare-pid",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", SCRATCH, SCRATCH,
+    "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample",
+    "--", "qemu-system-x86_64",
+    "-kernel", "/rsdd/vmlinuz", "-m", "256", "-smp", "1", "-accel", "tcg",
+    "-nic", "none", "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-nographic", "-no-reboot",
+    "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+    "-drive", f"file={SCRATCH},snapshot=off,format=raw,if=virtio",
+    "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
+]
+try:
+    m.check_disk_policy(ARGV, run_dir=RUN_DIR)
+    sys.exit(1)   # no GateError -- cap-drop presence check removed -- has teeth
+except G:
+    sys.exit(0)   # GateError still raised without mutation -- no teeth
+PY
+  case $? in
+    1) _tok "teeth-capdrop: --cap-drop removal -> VDP-T10a passes mutant -> GateError assertion fires (has teeth)" ;;
+    0) _tnok "teeth-capdrop: GateError still raised with --cap-drop removed from required set -- assertion has NO teeth" ;;
+    *) _tnok "teeth-capdrop: mutation target not found (SUT changed?)" ;;
+  esac
+
+  echo "-- ${_tp} teeth-passed · ${_tf} teeth-failed --"
+  [ "${_tf}" -eq 0 ] || _main_exit=1
+fi
+
+exit $_main_exit

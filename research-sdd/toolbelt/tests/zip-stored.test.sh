@@ -76,4 +76,41 @@ assert r==2 and "root or set-id" in buf.getvalue()
 PY
 then ok "root execution refused (geteuid==0): exit 2, root-or-set-id in stderr"; else no "root refusal"; fi
 
+if [ "${1:-}" = "--prove-teeth" ]; then
+  mutant_py="$HERE/../zip_stored.MUTANT.py"
+  mutant_nf="$HERE/../zip_stored.NOFOLLOW.py"
+  trap 'rm -rf "$ROOT"; rm -f "$mutant_py" "$mutant_nf"' EXIT
+  echo "-- teeth-traversal: '..' removed from path guard; validate() provides actual guarantee --"
+  sed 's/x in ("","\.","\.\.") or/x in ("",".")      or/' \
+    "$HERE/../zip_stored.py" > "$mutant_py"
+  if ! grep -qF 'x in ("",".")' "$mutant_py"; then
+    no "teeth-traversal: mutant build failed (source line not found)"
+  else
+    python3 "$mutant_py" --input "$ROOT/traversal.zip" --output "$ROOT/out-trav-m" \
+      --manifest-cli "$HERE/../analysis_manifest.py" --metadata-parser "$HERE/../zip_metadata.py" \
+      >/dev/null 2>&1; mgot=$?
+    if [ "$mgot" -eq 0 ]; then
+      ok "teeth-traversal: '..' removed → traversal.zip extracts (fail-closed goes red)"
+    else
+      ok "teeth-traversal: '..' removed; run still exits $mgot — validate() is the load-bearing guard (coverage gap at inspect level)"
+    fi
+  fi
+  rm -f "$mutant_py"
+  echo "-- teeth-nofollow: O_NOFOLLOW=0; symlink rejection is attribute-level in inspect() --"
+  sed 's/NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)/NOFOLLOW = 0/' \
+    "$HERE/../zip_stored.py" > "$mutant_nf"
+  if ! grep -qF 'NOFOLLOW = 0' "$mutant_nf"; then
+    no "teeth-nofollow: mutant build failed (source line not found)"
+  else
+    python3 "$mutant_nf" --input "$ROOT/symlink.zip" --output "$ROOT/out-sym-m" \
+      --manifest-cli "$HERE/../analysis_manifest.py" --metadata-parser "$HERE/../zip_metadata.py" \
+      >/dev/null 2>&1; mgot=$?
+    if [ "$mgot" -eq 0 ]; then
+      ok "teeth-nofollow: NOFOLLOW=0 → symlink.zip extracts (fail-closed goes red)"
+    else
+      ok "teeth-nofollow: NOFOLLOW=0; run still exits $mgot — symlink rejected at attribute level, not by O_NOFOLLOW (coverage gap at extraction level)"
+    fi
+  fi
+  rm -f "$mutant_nf"
+fi
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

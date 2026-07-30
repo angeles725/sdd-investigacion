@@ -87,4 +87,32 @@ PY
 then ok "root execution (geteuid==0) refused — 'root or set-id' in stderr (full guard, fail-closed)"
 else no "root refusal"; fi
 
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-traversal: set safety.traversal=False; expect metadata-contract assertion to go red --"
+  mutant_py="$ROOT/zip_metadata.MUTANT.py"
+  sed 's/"traversal": "\.\." in parts,/"traversal": False,/' \
+    "$HERE/../zip_metadata.py" > "$mutant_py"
+  if ! grep -qF '"traversal": False, "backslash"' "$mutant_py"; then
+    no "teeth-traversal: mutant build failed (source line not found)"
+  else
+    python3 - "$mutant_py" "$ROOT/mixed.zip" "$HERE/.." >/dev/null 2>&1 <<'PY'
+import importlib.util, os, sys
+sys.path.insert(0, sys.argv[3])
+s = importlib.util.spec_from_file_location('zm', sys.argv[1])
+zm = importlib.util.module_from_spec(s); s.loader.exec_module(zm)
+fd = os.open(sys.argv[2], os.O_RDONLY)
+try:
+    parsed, _ = zm.inventory(fd, os.fstat(fd).st_size, 16*1024*1024, 10000, 65536)
+    assert parsed['entries'][1]['safety']['traversal']
+finally:
+    os.close(fd)
+PY
+    mgot=$?
+    if [ "$mgot" -ne 0 ]; then
+      ok "teeth-traversal: traversal=False → entries[1].safety.traversal assertion goes red"
+    else
+      no "teeth-traversal: mutant exit 0 — traversal assertion has no teeth"
+    fi
+  fi
+fi
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

@@ -276,6 +276,37 @@ PY
 then ok "canonical bytes: named constants produce same JSON as original inline dicts"; else no "canonical bytes: parity"; fi
 
 # ---------------------------------------------------------------------------
+# teeth: remove target_execution guard → T4 (target_execution=True raises ValueError) must go red
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+    echo "-- teeth: remove target_execution guard; expect T4 (ValueError on target_execution=True) to go red --"
+    _teeth_tmp="$(mktemp -d)"; trap 'rm -rf "$_teeth_tmp"' EXIT
+    mutant="$_teeth_tmp/isolation_profile.MUTANT.py"
+    sed 's/^    if target_execution:$/    if False:  # MUTANT: target_execution guard removed/' \
+        "$SUT" > "$mutant"
+    if ! grep -q 'MUTANT: target_execution guard removed' "$mutant"; then
+        no "teeth-target-exec: mutant not built — 'if target_execution:' not matched in SUT (SUT may have changed)"
+    else
+        result=$(python3 - "$mutant" 2>&1 <<'PY'
+import importlib.util, sys
+s = importlib.util.spec_from_file_location("ip_mutant", sys.argv[1])
+ip = importlib.util.module_from_spec(s); s.loader.exec_module(ip)
+try:
+    ip.make_profile("bad", target_execution=True)
+    print("NO_ERROR")
+except ValueError:
+    print("GOT_VALUEERROR")
+PY
+        )
+        if [ "$result" = "NO_ERROR" ]; then
+            ok "teeth-target-exec: guard removed → make_profile(target_execution=True) silently succeeds → T4 ValueError guard has teeth"
+        else
+            no "teeth-target-exec: mutant still raises ValueError ($result) → T4 is THEATER"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 echo
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sweep-all.sh — aggregator: run all four canonical Research-SDD session-start sweep scripts
+# sweep-all.sh — aggregator: run all five canonical Research-SDD session-start sweep scripts
 # in sequence, capture each exit status, print a clear per-script PASS/FAIL banner, and exit
 # non-zero if ANY script failed.
 #
@@ -9,7 +9,7 @@
 # aggregator is intended for manual or Codex use; it is harmless (but redundant) elsewhere.
 #
 # Each script runs INDEPENDENTLY: a failure or timeout is captured and reported, but NEVER
-# aborts the remaining scripts. All four always run. Exit is non-zero if ANY failed.
+# aborts the remaining scripts. All five always run. Exit is non-zero if ANY failed.
 #
 # Timeout: each script is run under `timeout $RSDD_SWEEP_TIMEOUT` (default 30 s, mirroring
 # the Claude SessionStart hook timeouts of 15–30 s and the OpenCode plugin 20 s timeout).
@@ -21,7 +21,7 @@
 #   - Stderr from each script is merged into stdout so all output is visible.
 #
 # Usage: toolbelt/sweep-all.sh
-# Exit : 0 all four scripts passed · non-zero at least one script failed or timed out
+# Exit : 0 all five scripts passed · non-zero at least one script failed or timed out
 # Env  : RSDD_SWEEP_TIMEOUT  per-script timeout in seconds (default 30)
 
 set -uo pipefail
@@ -33,6 +33,7 @@ SCRIPTS=(
   "$TOOLBELT/sweep-audits.sh"
   "$TOOLBELT/verify-registry.sh"
   "$TOOLBELT/verify-kit-clean.sh"
+  "$TOOLBELT/sweep-tools.sh"
 )
 
 TIMEOUT="${RSDD_SWEEP_TIMEOUT:-30}"

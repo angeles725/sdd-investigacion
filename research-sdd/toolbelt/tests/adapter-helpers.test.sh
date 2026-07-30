@@ -513,4 +513,65 @@ assert out[-1]=='--', f"must end with '--': {out}"
 PY
 then ok "G-2: bind_venv writable: normpath rejects ../ traversal; double-slash normalizes"; else no "G-2: writable normpath guard"; fi
 
+# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-normpath: removing normpath lets /tmp/rsdd/../etc/evil pass; G-2 assertion fires
+  python3 - "$SUT" "$ROOT" <<'PY'
+import sys, types
+from pathlib import Path
+sut = Path(sys.argv[1]); src = sut.read_text()
+old = "sandbox_path = os.path.normpath(sandbox_path)"
+if old not in src:
+    print("MUTANT-SETUP-FAIL: normpath target not found -- SUT changed?", file=sys.stderr)
+    sys.exit(2)
+mut = src.replace(old, "sandbox_path = sandbox_path  # MUTANT: normpath removed", 1)
+m = types.ModuleType("adapter_helpers"); m.__file__ = str(sut)
+exec(compile(mut, str(sut), "exec"), m.__dict__); ah = m
+r = Path(sys.argv[2])
+venv = r / "pt_v"; (venv / "bin").mkdir(parents=True, exist_ok=True)
+(venv / "bin" / "tool").write_text(""); (venv / "pyvenv.cfg").write_text("[python]\nversion=3.11\n")
+wdir = r / "pt_w"; wdir.mkdir(exist_ok=True)
+try:
+    ah.bind_venv(["bwrap", "--"], venv / "bin" / "tool",
+                 writable=[(wdir, "/tmp/rsdd/../etc/evil")])
+    sys.exit(1)   # traversal accepted -- G-2 assertion fires -- has teeth
+except ah.VenvBindError:
+    sys.exit(0)   # guard still fires without normpath -- no teeth
+PY
+  case $? in
+    1) ok "teeth-normpath: normpath removal -> traversal accepted -> G-2 assertion fires (has teeth)" ;;
+    0) no "teeth-normpath: G-2 stayed green with normpath removed -- assertion has NO teeth" ;;
+    *) no "teeth-normpath: mutation target not found (SUT changed?)" ;;
+  esac
+
+  # teeth-nofollow: removing O_NOFOLLOW lets symlinks through; B-2 assertion fires
+  python3 - "$SUT" "$ROOT" <<'PY'
+import sys, types
+from pathlib import Path
+sut = Path(sys.argv[1]); src = sut.read_text()
+old = 'flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)'
+if old not in src:
+    print("MUTANT-SETUP-FAIL: O_NOFOLLOW flags line not found -- SUT changed?", file=sys.stderr)
+    sys.exit(2)
+mut = src.replace(old, 'flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)  # MUTANT: O_NOFOLLOW removed', 1)
+m = types.ModuleType("adapter_helpers"); m.__file__ = str(sut)
+exec(compile(mut, str(sut), "exec"), m.__dict__); ah = m
+r = Path(sys.argv[2])
+tgt = r / "pt_tgt.pcap"; tgt.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\x00" * 20)
+lnk = r / "pt_lnk.pcap"
+if not lnk.exists():
+    lnk.symlink_to(tgt)
+try:
+    ah.pcap_magic_check(lnk)
+    sys.exit(1)   # symlink accepted -- B-2 assertion fires -- has teeth
+except ah.PcapMagicError:
+    sys.exit(0)   # guard still fires without O_NOFOLLOW -- no teeth
+PY
+  case $? in
+    1) ok "teeth-nofollow: O_NOFOLLOW removal -> symlink accepted -> B-2 assertion fires (has teeth)" ;;
+    0) no "teeth-nofollow: B-2 stayed green with O_NOFOLLOW removed -- assertion has NO teeth" ;;
+    *) no "teeth-nofollow: mutation target not found (SUT changed?)" ;;
+  esac
+fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

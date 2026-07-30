@@ -43,10 +43,16 @@ Master-table row format:
   WITHOUT the `nc` flag that also has no `RESEARCH-STATE.md` still receives the WARN — that is the
   error, not a non-corpus exemption.
 
-- The `hook` flag records **hook-file presence** (`<target>/.claude/hooks/research-protocol.sh`). Active
-  registration in `<target>/.claude/settings.json` (matcher `startup|resume|clear`) is tracked separately.
-  `hook file yes / unregistered` means the file was installed by `research-sdd-init.sh` but the
-  `settings.json` registration step was never completed, so the hook cannot fire.
+- The `hook` flag records whether a research loop hook is **registered and active**: the hook file exists
+  AND is referenced by a settings file that Claude Code loads for this project. Two valid registration
+  paths: (a) project-level `<target>/.claude/settings.json` or `settings.local.json` containing the hook
+  command; (b) user-level `~/.claude/settings.json` referencing the hook by absolute path. Purpose still
+  matters: a script with no relation to the research loop (e.g. a dev-server launcher) does not count
+  even if registered.
+  - `hook yes` — file present and referenced by a loaded settings file; the hook will fire.
+  - `hook file yes / unregistered` — file present but not referenced by any loaded settings file; cannot fire.
+  - `hook no` — no research loop hook file under the target.
+  - `hook deferred` — hook intentionally not installed yet (e.g. runtime does not honour project hooks).
 
 Sensitivity:
 
@@ -77,11 +83,11 @@ Sensitivity:
 | 14 | pruebas-dashboards | `$RESEARCH_HOME/prototipos/pruebas-dashboards` | **mature** (48 md / 7 runs / 4 retros + 1 corpus §18 + 3 client retros / git yes / remote yes / hook deferred) `[CERT]` — `anti-ai-ui` skill delivered — detail §14 | **Design-research corpus** on anti-AI-feel dashboard design — **no binaries**; web sources + book extracts + context7 library docs (full source list → detail §14) `[CERT]` | `webfetch` + context7 + manual extraction into `corpus/sources/` | English `[CERT]` |
 | 15 | gateway-ug67 | `$RESEARCH_HOME/investigacion/gateway-ug67` | **mature** (34 md / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** (physical device) — device + capacity focuses COMPLETE; focus narrative → detail §15 | **Live hardware**: Milesight UG67 Outdoor LoRaWAN Gateway (US915, fw 60.0.0.47, Quagga vtysh CLI) — serial console COM4 + web GUI (chrome-devtools) + official PDFs `[CERT-hw]`/`[CERT-doc]` | serial driver (`SerialPort` via WSL interop) + chrome-devtools MCP + `fetch-doc.sh` + `extract-pdf.sh`; dynamic/hardware phase §12 | English `[CERT]` |
 | 16 | computadoras | `$RESEARCH_HOME/investigacion/computadoras` | **incipient** (6 md / git yes / remote no / hook no) `[CERT]` · **`live-install`** (mini-PC + dead source PC, READ-ONLY) — single-focus activation-recovery; narrative → detail §16 | **Live-install investigation**: Trane Tracer Summit V17 SP18 (Summit.exe) on Win11 mini-PC; local MSI/EXE + old install copy on Windows C drive (WSL mnt); full source list → detail §16 `[CERT]` | Direct reading + `lessmsi`/`msiinfo` + ssh probe (read-only) + web (Trane/forum); `decompile-native.sh`/`scan-firmware.sh` if needed | English `[CERT]` |
-| 17 | hilton-bms | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelHilton` | **mature** (74 blocks / 4 runs / 2 retros / git yes / remote no) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
-| 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (35 blocks @2026-07-29, ACTIVE / 2 runs / 14-of-23 gaps / git yes / remote no / hook yes) `[CERT]` — CAD-to-3D reconstruction, §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
+| 17 | hilton-bms | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelHilton` | **mature** (86 blocks @2026-07-29 / 5 runs / 2 retros / git yes / remote yes / hook file yes / unregistered) `[CERT]` · **`live-install`** · **multi-focus** (4, one ACTIVE) — narrative → detail §17 | Alerton Compass 1.6.5 BMS job (offline copy) + live Windows host over Cloudflare Tunnel `[CERT]` | `mdb-tools` + own BACnet client (`tools/bacnet_discover.ps1`) + `pwsh` lint + read-only SSH/BACnet probes (§12) | English (corpus drifted to Spanish from `compass-discover` B8 on) `[CERT]` |
+| 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (35 blocks @2026-07-29, ACTIVE / 2 runs / 14-of-23 gaps / git yes / remote no / hook file yes / unregistered) `[CERT]` — §19 two-storey model DELIVERED; narrative → detail §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
-| 22 | sdd-investigacion | `$RESEARCH_HOME/investigacion/sdd-investigacion` | **intermediate** (27 blocks / 1 run / 0 retros / git yes / remote yes / hook yes) `[CERT]` · **SELF-REFERENTIAL** · corpus one MAJOR version stale → detail §22 | gentle-ai (Go ecosystem configurator) + its SDD layer in Claude Code / OpenCode: skill/prompt/contract markdown + `state.json` + CLI surface `[CERT]` | local `tools/gen-catalog.py` (corpus-specialized fork) + direct reading + `gh api` upstream | English `[CERT]` |
+| 22 | sdd-investigacion | `$RESEARCH_HOME/investigacion/sdd-investigacion` | **intermediate** (27 blocks / 1 run / 0 retros / git yes / remote yes / hook no) `[CERT]` · **SELF-REFERENTIAL** · corpus one MAJOR version stale → detail §22 | gentle-ai (Go ecosystem configurator) + its SDD layer in Claude Code / OpenCode: skill/prompt/contract markdown + `state.json` + CLI surface `[CERT]` | local `tools/gen-catalog.py` (corpus-specialized fork) + direct reading + `gh api` upstream | English `[CERT]` |
 
 ---
 
@@ -373,7 +379,7 @@ exactly ONE place it can be applied) and **`tools/prove-guards.py`**, which turn
 guard by breaking it" into a tool: it injects each guard's own defect and reports CAUGHT or MISSED. Conversion artefacts found: 8 of 217 dimensions lost associativity, and 36 `INSERT`s
 reference anonymous `*U` blocks LibreDWG did not export.
 
-**Hook status**: `.claude/hooks/research-protocol.sh` installed by `research-sdd-init.sh`.
+**Hook status**: `.claude/hooks/research-protocol.sh` installed by `research-sdd-init.sh` but **unregistered** — no `settings.json` or `settings.local.json` exists in this repo; the hook cannot fire.
 **Startup:** continue — 9 read-only-investigable gaps remain, 0 requires-execution (next: G4 structural grid).
 
 ### 19 — EduVolt-Designer `[CERT]`
