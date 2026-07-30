@@ -320,6 +320,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          that one case, not for the universe. ALSO record what question the source DOES answer — a
          source that fails the gap question may answer a DIFFERENT open question (and that finding
          belongs in a block or in the NEW-gaps register, not discarded).
+       - REVERSE BACKLOG SWEEP: after closing a gap OR retiring a §14 premise, re-read the open
+         backlog and re-scope or rename any gap whose PREMISE this block just answered or invalidated.
+         A gap that was opened as "is X true?" becomes stale if this block proved X false — it must
+         be updated or closed, not left as-is. This sweep is PREMISE-driven and distinct from the
+         NEXT-ITERATION ARCHIVE AUDIT (which checks bookkeeping counts — gap totals, marker sync);
+         the archive audit catches accounting errors; this sweep catches semantic drift in the
+         backlog itself. Run it inline, not as a separate pass.
        - BACK-FILL SOURCES.md's "Citing blocks" cell — when this block cites a source registered in SOURCES.md
          (this iteration, or an earlier one whose trailing cell is still blank), write THIS block's ID into that
          row's last column before closing the iteration. `fetch-doc.sh`'s `reg()` leaves the cell blank by design
