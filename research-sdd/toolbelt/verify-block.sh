@@ -99,7 +99,7 @@ art_tail=':[0-9]+((-|‑|–)[0-9]+)?'                                       # :
 # `(outer (inner) B124-x.txt:5)` is dropped — documented here so it is a known blind spot, not a silent one.
 art_spans=$(grep -oE '\([^)]*\)|`[^`]*`' "$block")                       # parenthetical + backtick spans, one per line
 art_cites=$(printf '%s\n' "$art_spans" | grep -oiE "\\b${art_name}${art_tail}" | sort -u)
-bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+`' "$block" | tr -d '`' | sort -u)
+bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+(-[0-9]+)?`' "$block" | tr -d '`' | sort -u)  # P7-BT-RANGE-EXTRACT
 # (c) Short-form :NNN citations — a bare colon + line number where the file is named in
 # surrounding prose or a table header. Two corpus-confirmed patterns:
 #   table rows  (pi5-decoding-block1: | :29 |)         — :NNN preceded by [|,[:space:]]
@@ -108,7 +108,7 @@ bt_cites=$(grep -oE '`[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+`' "$block" | tr -d '
 # a well-cited block. Scope restricted to these two contexts: IP ports like 127.0.0.1:46272
 # have a digit before the colon and fall outside [[:space:]|,] → no match.
 _tbl_shorts=$(grep -E '^\s*\|' "$block" | grep -oE '[[:space:]|,]:[0-9]+' | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-TABLE
-_cmt_shorts=$(grep -oE '(//|#)[[:space:]]*:[0-9]+' "$block" | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-COMMENT
+_cmt_shorts=$(grep -oE '(//|#)[[:space:]]*:[0-9]+(,[[:space:]]*:[0-9]+)*' "$block" | grep -oE ':[0-9]+')  # P6-SHORT-FORM-CITE-COMMENT  # P7-CMT-SECONDARY
 short_cites=$(printf '%s\n%s\n' "${_tbl_shorts:-}" "${_cmt_shorts:-}" | sort -u | grep -v '^$')
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ]; then
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
@@ -150,15 +150,32 @@ if [ -n "$art_cites" ]; then
   done <<< "$art_cites"
 fi
 # (b) generic backticked cites — skip any whose filename is an artifact (already handled strictly above).
+# A range `file.ext:NNN-MMM` asserts lines NNN through MMM exist: valid when NNN>=1, NNN<=MMM, MMM<=lines.
+# Degenerate :0-MMM (zero start) and :NNN-MMM reversed (start>end) are block defects → RANGE! + exit 1.
+# Degenerate :NNN-NNN (equal endpoints) is a single-line range and resolves as ok when in bounds.
 if [ -n "$bt_cites" ]; then
   while IFS= read -r c; do
     [ -z "$c" ] && continue
-    f="${c%:*}"; ln="${c##*:}"
+    f="${c%:*}"; rng="${c##*:}"
+    case "$rng" in
+      *-*) start="${rng%-*}"; end="${rng##*-}";;   # range form NNN-MMM
+      *)   start="$rng"; end="$rng";;               # single line
+    esac
     printf '%s' "$f" | grep -qiE "^${art_name}$" && continue
+    if [ "$start" -eq 0 ]; then
+      echo "   RANGE!  $c  (start 0 is invalid — lines are 1-indexed)"; rc=1; continue
+    fi
+    if [ "$start" -gt "$end" ]; then
+      echo "   RANGE!  $c  (reversed range: start $start > end $end — defect in block)"; rc=1; continue
+    fi
     if [ -f "$target/$f" ]; then
       total=$(wc -l < "$target/$f")
-      if [ "$ln" -le "$total" ]; then
-        echo "   ok      $c"
+      if [ "$end" -le "$total" ]; then
+        if [ "$start" = "$end" ]; then
+          echo "   ok      $c"
+        else
+          echo "   ok      $c  (range end verified; file has $total lines)"
+        fi
       else
         echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
       fi

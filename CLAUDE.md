@@ -90,8 +90,8 @@ Never declare done without running it.
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
-Current suite: **78 suites** (76 `*.test.sh` + 2 `*.test.mjs`), **1,529 test cases** — 1,632 under
-`--prove-teeth`, which adds the mutation controls — measured at `ed96daa` plus the deferred-delta
+Current suite: **78 suites** (76 `*.test.sh` + 2 `*.test.mjs`), **1,548 test cases** — 1,661 under
+`--prove-teeth`, which adds the mutation controls — measured at `7836a09` plus the open-issues
 work unit. Re-measure rather than trusting this line if it looks stale. New suites dropped into
 `research-sdd/toolbelt/tests/` are picked up automatically — nothing to register.
 

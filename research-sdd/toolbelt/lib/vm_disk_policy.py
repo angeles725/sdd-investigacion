@@ -8,6 +8,7 @@ trace can never ship a weaker policy than detonate.
 Pure functions only — no subprocess, no live I/O.
 """
 from __future__ import annotations
+import os
 import posixpath
 import sys
 from pathlib import Path
@@ -157,6 +158,9 @@ _BWRAP_MOUNT_ARITY: dict[str, int] = {
 # caught (e.g. a symlink /opt/evil -> /usr resolves to /usr, which is in the set).
 _BROAD_QEMU_ROOT_DIRS: frozenset[str] = frozenset({
     "/", "/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc",
+    # /root has the same credential-exposure profile as /etc — both expose sensitive
+    # system files to any process reading the ro-bound sandbox tree.
+    "/root",
 })
 
 
@@ -172,7 +176,13 @@ def broad_qemu_root_message(resolved_src: str, typed_src: str) -> str | None:
     This is a pure function — no filesystem I/O.  The caller resolves symlinks
     (os.path.realpath) and passes both the original and resolved strings.
     """
-    normed_typed = typed_src.rstrip("/") or "/"
+    # normpath collapses ".." traversal sequences in the typed string without
+    # filesystem I/O, so "/usr/../root" → "/root".  This is belt-and-suspenders
+    # on top of the realpath-resolved check: realpath already handles traversal
+    # and symlinks, but normpath guards the typed-path arm independently and
+    # provides correctness on systems where canonical paths diverge (e.g.
+    # macOS /etc → /private/etc means rstrip alone would miss canonical names).
+    normed_typed = os.path.normpath(typed_src) if typed_src else "/"
     normed_resolved = resolved_src.rstrip("/") or "/"
     if normed_typed not in _BROAD_QEMU_ROOT_DIRS and normed_resolved not in _BROAD_QEMU_ROOT_DIRS:
         return None

@@ -422,15 +422,23 @@ def main() -> int:  # noqa: C901 — intentionally comprehensive for safety
 
     # Write-all loop: os.write may return fewer bytes than requested on a
     # partial write (POSIX permits this when the payload exceeds PIPE_BUF or
-    # when interrupted; issue #95).  Loop until all bytes are flushed.
-    # The _memory_cap_result_bytes paths above are NOT wrapped here — those
-    # handlers are allocation-free (pre-serialized) and must remain so.
+    # when interrupted; issue #95).  memoryview(result_bytes)[_offset:] is
+    # zero-copy: CPython returns self only for the full b[0:] slice; any
+    # b[n:] where n > 0 allocates a new bytes object (verified empirically).
+    # The MemoryError guard closes the uncaught-OOM gap that existed when the
+    # loop sat outside the walk/serialize try block above: if serialization
+    # barely fit inside RLIMIT_AS and a loop iteration then exhausts it, the
+    # error is caught and exit 1 is returned; downstream detects truncated JSON.
     _offset = 0
-    while _offset < len(result_bytes):
-        _n = os.write(1, result_bytes[_offset:])
-        if _n == 0:
-            return 1  # cannot make progress; report broken fd as failure
-        _offset += _n
+    try:
+        _result_view = memoryview(result_bytes)
+        while _offset < len(result_bytes):
+            _n = os.write(1, _result_view[_offset:])
+            if _n == 0:
+                return 1  # cannot make progress; broken fd
+            _offset += _n
+    except MemoryError:
+        return 1  # partial stdout; downstream detects truncated JSON
     return 0
 
 
