@@ -139,6 +139,43 @@ votes keep plain SURVIVES). POLICY: the adversarial seal is **MANDATORY for conc
 and is NOT a blanket per-block gate (§11: a per-block re-verify caught nothing; §14 cross-block is the real error
 capture). HONESTY (§18): seal only when a wrong seal would genuinely mislead a downstream decision — never to pad a count.
 
+## 3b. Anatomy of a corpus (directory layout)
+
+A block's shape is defined in §4; this is the shape of the corpus AROUND it. The layout is not
+cosmetic — every fleet instrument searches fixed paths, so a target that stores something elsewhere
+becomes invisible to the instrument that should find it. That is measured, not hypothetical:
+`api-openness` keeps four tools under `_extract/` (one of them flagged `promote` by its own retro) and
+`sweep-tools.sh` reports `no tools directory` for it. The work exists, was evaluated, and cannot be seen.
+
+**Canonical layout.** `research-sdd-init.sh` scaffolds the first four; the rest appear as the run needs
+them and are canonical when they do:
+
+| Path | Holds | Created by |
+|---|---|---|
+| `<target>/retros/` | §18 self-retrospectives, one per run | BOOTSTRAP |
+| `<target>/tools/` | tools born inside the loop + `README.md` provenance ledger (§10) | BOOTSTRAP |
+| `<target>/.claude/hooks/` | the session hook — must ALSO be registered in a `settings.json` to fire | BOOTSTRAP |
+| `<corpus>/sources/` | preserved external evidence + `SOURCES.md` registry (§5) | BOOTSTRAP |
+| `<corpus>/sources/extracted/<basename>/` | text extracted from a preserved binary source (PDF, CHM) | on demand |
+| `<corpus>/sources/probes/<name>/` | full evidence of an out-of-tree §19 deliverable | on demand |
+| `<corpus>/audits/` | §13 audit reports | on demand |
+| `<corpus>/codegen/` | §19 build/PoC artifacts and round-trip evidence | on demand |
+| `<corpus>/` root | `INDEX.md`, `CATALOG.md`, `RESEARCH-STATE.md`, and the blocks | BOOTSTRAP |
+
+**Two block placements, both legitimate.** `<corpus>` is either the target root (flat) or a subdirectory
+such as `corpus/` (nested). Instruments resolve this by locating `RESEARCH-STATE*.md`, which is why that
+file's presence is load-bearing beyond its content — a corpus without it cannot be located at all, only
+guessed at.
+
+**Existing variants stay legitimate until migrated.** Six mature corpora predate this section and differ
+from each other; declaring a canon does not invalidate them. What it does require is that a deviation be
+DECLARED in `RESEARCH-STATE.md` rather than discovered later by an instrument reporting zero. An
+undeclared deviation is indistinguishable from an empty corpus, and the remedies are opposite.
+
+**The cost of divergence is paid by every instrument, forever.** `sweep-retros.sh` walks retros
+recursively and `verify-registry.sh` carries nested-corpus resolution because targets diverged first and
+the tools had to tolerate it afterwards. Each new variant makes every future instrument more defensive.
+
 ## 4. Anatomy of a block
 
 Identical to `niagara-research` (see [`templates/block.template.md`](templates/block.template.md)):
@@ -691,6 +728,29 @@ versioned with any corpus. Log it in `toolbelt/INSTALLED-TOOLS.md` like any othe
 and that it is a global MCP server, not a target-local binary), so a future session has a trace instead of a
 silently present-or-absent capability. A finding that depends on an MCP capability NAMES it, same as a CLI tool.
 
+**Search before you decide.** The four cases below are worded as if you already know what exists —
+ADAPT says an existing tool "almost fits", CREATE says "no existing tool fits". Neither is knowable
+without looking, and a run that skips the search does not choose CREATE, it DEFAULTS to it. Before
+recording a case, search three places and write down what you searched:
+
+1. `$KIT/toolbelt/tool-registry.md` — the kit catalogue, indexed by artifact type and technique. Search
+   by the ARTIFACT you are holding (`DXF`, `CHM`, `stripped ELF`) and by the JOB (`oracle`, `carve`,
+   `entropy`), not by the name you were about to give your script.
+2. `$TARGET/tools/README.md` — this corpus may already have it from an earlier run.
+3. The rest of the fleet — `toolbelt/sweep-tools.sh` lists every target carrying a `tools/` directory;
+   grep their ledgers for the same two axes.
+
+Record the search in the same entry as the decision: the terms used and what came back. **A CREATE with
+no recorded search is a claim, not a finding** — "nothing existed" and "I did not look" produce the same
+empty result, and only the record tells them apart.
+
+**Honest limit of this search today.** It is only as good as the ledgers, and most of the fleet has none:
+the census currently reports 293 tools with 6 recorded. Until the write-at-acquisition rule below has run
+for a while, a fleet-wide "not found" is WEAK evidence — it means "not found among the few that are
+described", not "does not exist". Say so when you record it, and prefer searching by artifact type in
+`tool-registry.md`, which IS complete for the kit's own tools. Comparing filenames is not searching:
+two targets can build the same wheel under different names and neither will ever know.
+
 **Four tool-decision cases** (beyond fresh install from a known recipe). When a run encounters a tool need,
 one of four cases applies — record it in RESEARCH-STATE and surface it at retro time:
 
@@ -706,6 +766,44 @@ one of four cases applies — record it in RESEARCH-STATE and surface it at retr
   tuned). Record the change at the iteration where it happens, not only at retro time. A kit tool with a
   parallel target copy that drifts is a maintenance debt; note whether the kit version needs the same
   update.
+- **RETIRE / SUPERSEDE** — a tool stops being used, or is replaced by another. The ledger records births
+  and, without this case, records no deaths — so it starts lying the moment anyone tidies up. Record what
+  replaces it, why, and the commit sha holding its last version.
+
+**Do not delete a tool — mark it superseded.** A script is kilobytes; the risk of deleting the better of
+two similar tools is not worth that saving. Keep the file, mark the row `superseded by <name> (<sha>)`,
+and let the reader see both. Delete only what is actively harmful (a leaked secret, a destructive
+one-liner), and record the sha first.
+
+The deletion cases worth naming, because each fails differently:
+
+- **The wrong one was deleted.** Two tools looked alike, the weaker survived. Recoverable ONLY under git:
+  `git log --diff-filter=D --name-only` finds the deletion, `git show <sha>^:<path>` reads it back,
+  `git checkout <sha>^ -- <path>` restores it. Verified on a real deletion in this repo.
+- **The target has no git.** Then none of the above exists and the loss is permanent. Three fleet targets
+  are in that state today. Before deleting ANYTHING in a target, check its `git` flag in `TARGETS.md` —
+  and prefer superseding, which needs no recovery at all.
+- **git yes, remote no.** Three further targets. History survives a mistake but not a dead disk, and
+  `ensure-remote.sh` exists precisely to close that. Recovery here is real but local-only; treat it as
+  one failure away from the case above.
+- **A shared tool was "improved" and broke the target using it differently.** UPDATE-IN-USE on a tool
+  that more than one corpus relies on is not a local edit. Before changing a kit tool or a promoted one,
+  name who else uses it (the same fleet-ledger grep as retirement) and state whether the change is
+  backward-compatible. A silent behaviour change is a deletion with extra steps: the old behaviour is
+  gone and nothing records that it ever existed.
+- **ADAPT with no decision.** A forked kit tool that is never resolved into "merge upstream" or "stays
+  local" becomes a third state that drifts from both. The ADAPT case already asks what merging would
+  take; the answer must be RECORDED, and if it is "cannot merge", the reason is the thing worth keeping.
+- **Another target depended on it.** Nobody tracks cross-target use. Before retiring, grep the fleet's
+  ledgers (`toolbelt/sweep-tools.sh` lists every target carrying `tools/`) and name in the row which
+  targets used it. An unrecorded dependant discovers the loss by failing.
+- **Promoted upstream, copy left behind.** A tool promoted into the kit while its target copy stays live
+  produces two truths that drift apart. Whichever survives must be named canonical in both ledgers, and
+  the other row must point at it.
+- **False duplication.** Same name, different behaviour — merging them silently drops a capability.
+  Different names, same behaviour — the duplication is invisible. Neither is decidable from filenames;
+  compare the recorded PURPOSE, which is why the search clause above and the write-at-acquisition rule
+  below are what make retirement safe rather than a guess.
 
 **Write-at-acquisition rule (`tools/README.md`).** Record each row the moment the tool is acquired,
 created, or changed — never reconstructed at retro time. The rationale is cheapest while the decision is

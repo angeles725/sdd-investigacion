@@ -198,10 +198,15 @@ done < <(find "$corpus/sources/web-snapshots" -type f 2>/dev/null)
 # compare against the registered cell (column 5). Only REGISTERED rows are checked — an on-disk snapshot that is
 # NOT registered is already LEVEL 5's orphan FAIL and must NOT be double-reported here.
 #   FULL 64-hex registered hash → recompute + compare; a MISMATCH is a FAIL (rc=1), like a broken chain.
-#   MISSING / placeholder `(unhashed…)` / TRUNCATED (fetch-doc.sh itself writes `${sha:0:16}…`, and legacy
-#     corpora truncate) → WARN only, never a FAIL: integrity is un-checkable, but hard-failing every existing
-#     corpus is worse than surfacing the debt. Parse the File cell like LEVEL 4/5 (strip backtick + ALL blanks)
-#     so a tab-padded or code-fenced cell still maps; the canonical key is the path relative to sources/.
+#   HEX PREFIX + `…` elision (e.g. `04adf2b071e479b2…`) → verify by PREFIX: recompute and check the disk
+#     hash starts with the registered prefix (case-insensitive). Mismatch → FAIL. Prefix < MIN_PREFIX hex
+#     chars → WEAK/unverifiable WARN. A 7-char prefix has only 28 bits of entropy, meaning birthday collisions
+#     at corpus scale; MIN_PREFIX = 8 (32 bits, ~1-in-4B per file) is the practical minimum.
+#   MISSING / placeholder `(unhashed…)` → WARN only: integrity is un-checkable, but hard-failing every
+#     existing corpus is worse than surfacing the debt.
+#   sha256sum unavailable → explicit notice; never a silent clean pass over unverified snapshots.
+#   Parse the File cell like LEVEL 4/5 (strip backtick + ALL blanks); canonical key = path relative to sources/.
+MIN_PREFIX=8
 if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
   hverified=0; hunverif=0
   while IFS='|' read -r _ fcell _ _ _ shacell _; do
@@ -220,18 +225,37 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
         hverified=$((hverified + 1))
       fi
     else
-      # Un-checkable registration: empty or a `(…)` placeholder is MISSING; anything else (a short hex prefix, or
-      # a `…`/`...`-elided hash) is TRUNCATED. Either way WARN only — never change rc.
+      # Not a full 64-hex. Distinguish empty/placeholder (unverifiable), valid prefix (checkable by prefix),
+      # and too-short or non-hex (weak/unverifiable).
       case "$reg" in
-        '' | '('*) reason=missing ;;
-        *)         reason=truncated ;;
+        '' | '('*)
+          echo "   unverifiable-hash: ${file#"$corpus"/} — registered hash is missing; integrity not checkable"
+          hunverif=$((hunverif + 1))
+          ;;
+        *)
+          # Strip trailing ellipsis (Unicode … or ASCII ...) and spaces to extract the raw hex prefix.
+          pfx="${reg%%…*}"; pfx="${pfx%%[.][.][.]*}"; pfx="$(printf '%s' "$pfx" | tr -d '[:space:]')"
+          pfx_lower="$(printf '%s' "$pfx" | tr 'A-F' 'a-f')"
+          if printf '%s' "$pfx_lower" | grep -qE '^[0-9a-f]+$' && [ "${#pfx_lower}" -ge "$MIN_PREFIX" ]; then
+            disk_pfx="$(sha256sum "$file" | cut -d' ' -f1 | cut -c1-"${#pfx_lower}")"   # PREFIX-COMPARISON compare
+            if [ "$pfx_lower" = "$disk_pfx" ]; then
+              hverified=$((hverified + 1))
+            else
+              echo "   prefix-mismatch: ${file#"$corpus"/} — registered prefix ${pfx_lower}… but file hashes ${disk_pfx}… (tampered or stale registration)"
+              rc=1
+            fi
+          else
+            echo "   unverifiable-hash: ${file#"$corpus"/} — registered hash is truncated (prefix ${#pfx} chars < $MIN_PREFIX; too short to verify)"
+            hunverif=$((hunverif + 1))
+          fi
+          ;;
       esac
-      echo "   unverifiable-hash: ${file#"$corpus"/} — registered hash is $reason; integrity not checkable"
-      hunverif=$((hunverif + 1))
     fi
   done < "$sources_md"
   [ $((hverified + hunverif)) -gt 0 ] && \
-    echo "-- web-snapshot hashes: $hverified verified · $hunverif unverifiable (missing/truncated registration = WARN)"
+    echo "-- web-snapshot hashes: $hverified verified · $hunverif unverifiable (missing/short-prefix = WARN)"
+elif [ -f "$sources_md" ] && grep -qE '^\| web-snapshots/' "$sources_md" 2>/dev/null; then
+  echo "-- web-snapshot hashes: sha256sum not found — hash integrity cannot be checked (WARN)"
 fi
 
 echo "== exit $rc =="

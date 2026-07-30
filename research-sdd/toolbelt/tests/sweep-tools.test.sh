@@ -117,7 +117,7 @@ else
   no "5 predicate reject → count shown separately (anti-silent-zero)" "exit=$RC out=[$OUT]"
 fi
 
-# 6 — T-ROW RECORDING. One tool recorded in a retro T-row, one not → 1 recorded / 1 unrecorded.
+# 6 — RETRO T-ROW RECORDING. One tool in a retro T-row, one not → 1 recorded (retro) / 1 unrecorded.
 kit="$(mkkit c6-recording)"; tgt="$kit/targetA"
 mktool "$tgt" "recorded.py"
 mktool "$tgt" "unrecorded.sh"
@@ -125,12 +125,12 @@ mkretro_trow "$tgt" "r1.md" "recorded.py"
 write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
-   && grep -q 'recorded (T-rows): 1' <<<"$OUT" \
+   && grep -q 'recorded (retro): 1' <<<"$OUT" \
    && grep -q 'unrecorded: 1' <<<"$OUT" \
-   && grep -q 'Summary:.*2 tool(s).*1 recorded.*1 unrecorded' <<<"$OUT"; then
-  ok "6 T-row recording → 1 recorded / 1 unrecorded" "(exit $RC)"
+   && grep -q 'Summary:.*2 tool(s).*1 recorded (retro).*1 unrecorded' <<<"$OUT"; then
+  ok "6 retro T-row → 1 recorded (retro), 1 unrecorded" "(exit $RC)"
 else
-  no "6 T-row recording → 1 recorded / 1 unrecorded" "exit=$RC out=[$OUT]"
+  no "6 retro T-row → 1 recorded (retro), 1 unrecorded" "exit=$RC out=[$OUT]"
 fi
 
 # 7 — MISSING TARGETS.md → exit non-zero, error message, no summary.
@@ -198,6 +198,56 @@ else
   no "11 retros exist but no T-table → distinct message" "exit=$RC out=[$OUT]"
 fi
 
+# 12 — LEDGER-ONLY. tools/README.md lists 2 tools; NO retro. Must report ledger recordings.
+kit="$(mkkit c12-ledger)"; tgt="$kit/targetA"
+mktool "$tgt" "ledger-tool.py"
+mktool "$tgt" "other-tool.sh"
+{ printf '| Tool | Path | Provenance |\n|---|---|---|\n'
+  printf '| ledger-tool.py | tools/ledger-tool.py | created |\n'
+  printf '| other-tool.sh | tools/other-tool.sh | created |\n'
+} > "$tgt/tools/README.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'recorded (ledger): 2' <<<"$OUT" \
+   && grep -q 'unrecorded: 0' <<<"$OUT" \
+   && grep -q 'Summary:.*2 tool(s).*2 recorded (ledger).*0 unrecorded' <<<"$OUT"; then
+  ok "12 ledger-only → 2 recorded (ledger), 0 unrecorded" "(exit $RC)"
+else
+  no "12 ledger-only → 2 recorded (ledger), 0 unrecorded" "exit=$RC out=[$OUT]"
+fi
+
+# 13 — BOTH SOURCES + no double-count. Tool A in retro AND ledger, B ledger-only, C neither.
+kit="$(mkkit c13-both)"; tgt="$kit/targetA"
+mktool "$tgt" "both.py"; mktool "$tgt" "ledger-only.sh"; mktool "$tgt" "neither.py"
+mkretro_trow "$tgt" "r1.md" "both.py"
+{ printf '| Tool | Path | Provenance |\n|---|---|---|\n'
+  printf '| both.py | tools/both.py | created |\n'
+  printf '| ledger-only.sh | tools/ledger-only.sh | created |\n'
+} > "$tgt/tools/README.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'recorded (retro): 1' <<<"$OUT" \
+   && grep -q 'recorded (ledger): 1' <<<"$OUT" \
+   && grep -q 'unrecorded: 1' <<<"$OUT" \
+   && grep -q 'Summary:.*3 tool(s).*1 recorded (retro).*1 recorded (ledger).*1 unrecorded' <<<"$OUT"; then
+  ok "13 retro+ledger, no double-count → 1 retro / 1 ledger / 1 unrecorded" "(exit $RC)"
+else
+  no "13 retro+ledger, no double-count → 1 retro / 1 ledger / 1 unrecorded" "exit=$RC out=[$OUT]"
+fi
+
+# 14 — LEDGER UNPARSEABLE. tools/README.md present but has no markdown table → WARN, no ledger count.
+kit="$(mkkit c14-noparseable)"; tgt="$kit/targetA"
+mktool "$tgt" "scan.py"
+printf 'Tools are documented in ESTADO-SITIO.md.\n\nNo table here.\n' > "$tgt/tools/README.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qiE 'WARN.*README.*table|WARN.*ledger' <<<"$OUT" \
+   && ! grep -q 'recorded (ledger):' <<<"$OUT"; then
+  ok "14 unparseable ledger → WARN shown, no 'recorded (ledger):' count" "(exit $RC)"
+else
+  no "14 unparseable ledger → WARN shown, no 'recorded (ledger):' count" "exit=$RC out=[$OUT]"
+fi
+
 # Teeth (mutation proof): only when --prove-teeth is passed.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth A: break extension matching → case-1 fixture (2 tools) must report 0, not 2.
@@ -210,6 +260,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth A: extension-broken mutant misses tools → case 1 goes red" "()"
   else
     no "teeth A: mutant still found 2 tools — case 1 is THEATER" "out=[$out_m]"
+  fi
+
+  # Tooth C: break ledger matching → case-12 fixture (2 ledger-only tools) must report 0, not 2.
+  kit_c="$(mkkit teeth-c)"; tgt_c="$kit_c/targetA"
+  mktool "$tgt_c" "ledger-tool.py"; mktool "$tgt_c" "other-tool.sh"
+  { printf '| Tool | Path | Provenance |\n|---|---|---|\n'
+    printf '| ledger-tool.py | tools/ledger-tool.py | created |\n'
+    printf '| other-tool.sh | tools/other-tool.sh | created |\n'
+  } > "$tgt_c/tools/README.md"
+  write_targets "$kit_c" "$tgt_c"
+  # Mutant: disable ledger match by changing sentinel in_ledger=1 to in_ledger=0
+  sed 's/in_ledger=1/in_ledger=0/' "$SUT" > "$kit_c/toolbelt/sweep-tools.sh"
+  out_c="$("$BASH_BIN" "$kit_c/toolbelt/sweep-tools.sh" 2>&1)"
+  if ! grep -q 'recorded (ledger): 2' <<<"$out_c"; then
+    ok "teeth C: ledger-match-broken mutant misses ledger → case 12 goes red" "()"
+  else
+    no "teeth C: mutant still found 2 ledger recordings — case 12 is THEATER" "out=[$out_c]"
   fi
 
   # Tooth B: Form-1-only mutant lib (no $RESEARCH_HOME expansion) → case-2 must fail.
