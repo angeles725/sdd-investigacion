@@ -134,8 +134,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      gaps in engram research/<target>/gaps.
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
      Status |`); Priority must be `high`, `medium`, or `low` (not translated); Status must start with
-     `pending` for a gap to be treated as investigable. Non-conforming rows are SILENTLY IGNORED —
-     `verify-state.sh` will surface the mismatch, but only if run.
+     `pending` for a gap to be treated as investigable. A row with the wrong Priority value is silently
+     skipped; a row whose cell count ≠ 4 triggers a WARN to stderr from `research-sdd-status.sh`
+     (`"WARN: malformed backlog row (N cells, expected 4 — a cell may contain a pipe): …"`) and is
+     then dropped — it is NOT silently ignored, and `verify-state.sh` is NOT the reporter. No inline
+     `|` is safe inside a cell, including the escaped form `\|`: awk splits on the literal pipe
+     character, so `\|` produces a spurious 5th cell and the same WARN + drop.
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      DELEGATE an audit sweep (Explore/general-purpose sub-agent) that returns a COVERAGE MATRIX —
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
@@ -147,6 +151,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      finding and issue a §14 correction if a prior block already asserted the wrong premise. A
      refuted premise is itself a finding — name it honestly (e.g. "exportTags is NOT a tag-subsystem
      component" is more useful than the original "exportTags runtime").
+     GAP NUMBERS ARE ALSO HYPOTHESES — when a gap's description contains a number that will serve
+     as a denominator or threshold (e.g. "N classes", "M entries"), re-derive it from the source
+     before using it, exactly as you would a structural premise. A wrong count silently scopes the
+     investigation to the wrong universe. (Specialisation of GAP PREMISES ARE HYPOTHESES above;
+     see also BOOTSTRAP e2's MEASURE rule and the deduplication caveat there.)
   e2. PRE-FLIGHT SOURCE EXISTENCE (anti-hallucination gate — before launching ANY iteration): for each
      planned gap, CONFIRM readable source material actually exists (the class/jar/binary/doc is present
      and reachable by the wrapper). A gap with NO reachable source must be marked blocked-on-<reason>
@@ -186,6 +195,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
          after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
          documented the JNI boundary; required a §279.9 self-revision.)
+       - READ THE RESIDUE BEFORE THEORISING: before forming a theory about why a remainder does not
+         fit — an unexplained bucket, a residual set, un-opened columns — READ those items first. A
+         theory built on unread data is [INFER] from zero evidence; the actual contents often disprove it.
        - Decompile/read: decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -221,6 +233,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          loop must stay context-lean so it survives dozens of iterations before compaction — every raw
          decompiler dump you read inline shortens the loop's life. Keep inline only narrow, single-file reads
          you already know you need. (Small/narrow gaps: read inline, no sub-agent — delegation has its own cost.)
+         Inline is viable when an external re-invoker exists (e.g. `/loop` with an interval), but the trade
+         is real: context accumulates per-inline-iteration and the loop compacts sooner; delegation pays a
+         sub-agent boundary cost but keeps context lean. Record a constrained inline run as
+         `inline (constraint: <reason>)` in the tier column so it reads as a deliberate choice, not a
+         silent rule violation (see RETURN CONTRACT).
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
@@ -251,6 +268,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
          (e.g. no Opus access), substitute one tier down and note it in the report.
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
+       - PRE-TEST POPULATION ANATOMY: before running a comparison or classification test, measure
+         the anatomy of the test population — how many items survive the eligibility filter, and
+         what fraction is auto-generated vs. semantic vs. absent. If the post-filter count is zero,
+         the test is NOT APPLICABLE and must not run. (Distinct from RE-MEASURE A DRAMATIC NEGATIVE,
+         which fires AFTER a striking result to verify it; this gate fires BEFORE the test, when the
+         population is still uncounted.)
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -348,7 +371,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          Do NOT run either EVERY iteration — a linter can only surface a NEW defect when ITS input changed, so
          triggering it on its input's edit adds ZERO redundant corpus re-scans while catching the defect in the
          iteration that introduced it, instead of letting it survive until STOP. The STOP run (step 7) stays as
-         the final backstop.
+         the final backstop. A linter that FAILS may still report a true finding in a different
+         check — read every line of its output before dismissing any of it.
        - Regenerate CATALOG.md: python3 $KIT/templates/gen-catalog.py $CORPUS (the kit generator over the corpus
          root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress).
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads
@@ -499,6 +523,12 @@ HARD RULES:
     decompile it", which may fall back to `strings` and guess. The decompiled binary is to native RE
     what a confirmed source is to a gap: without it the agent invents. Exception: `ghidra-mcp` for
     interactive exploration, not batch.
+  - DISK-FIRST (live probes) — when a gap registered as "needing a live probe" (§12) can be
+    answered from on-disk artifacts (decompiled code, downloaded docs, preserved sources), prefer
+    disk and only escalate to a §12 live probe after confirming disk cannot answer the gap question.
+    This governs WHEN to spend a live probe, not which evidence is more trustworthy: `[CERT-hw]`/
+    `[CERT-live]` still outrank `[CERT]` for identity/protocol questions (METHODOLOGY §3); DISK-FIRST
+    applies only when disk evidence is sufficient to answer the gap at the required certainty.
   - RE-MEASURE A DRAMATIC NEGATIVE. When an enumeration or join yields a striking negative result
     (zero matches, near-total absence, a system that appears dead or empty), do NOT report it from
     a single measurement. Re-derive it by an independent method — a different key, a different
@@ -586,8 +616,10 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
     - the gap closed,
     - the block path + a ONE-paragraph summary of what it found,
     - the self-verify tally (tokens checked, marker counts, [INFER]/[CERT] ratio),
-    - the MODEL TIER you used for any delegated sweep (haiku/sonnet/opus) — declaring it is mandatory;
-      an unstated tier means the rule was skipped and the sweep silently inherited the driver's model,
+    - the MODEL TIER you used for any delegated sweep (haiku/sonnet/opus), or `inline (constraint:
+      <reason>)` when an external re-invoker exists and inline was chosen deliberately — declaring it
+      is mandatory; an unstated tier means the rule was skipped and the sweep silently inherited the
+      driver's model,
     - any TOOL DECISION made this iteration (installed, adapted, created, or outgrown) — one line:
       `T<n>: <name> · <path> · WHY (used/adapted/downloaded/created/updated)`. This is the moment the
       WHY is cheapest; a retro reconstructing tool decisions from memory is a post-hoc rationalization,

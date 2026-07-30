@@ -460,6 +460,13 @@ you already have can complete or score itself. Four facets of the same move:
   vocabulary. Accepting the raw rate at face value discards a technique that resolves the problem and sends
   the investigation toward a new source that will not help.
 
+- **Split discrepancies by class before reporting an aggregate rate.** When a measurement produces a
+  population of discrepancies, classify them by operational type (cosmetic vs. semantic, abbreviation
+  vs. repurposing, layout vs. scheduling) before aggregating. An undifferentiated error rate over mixed
+  classes is not a finding. This is a third distinct discipline: "Normalise categories" removes
+  vocabulary noise within one class; "Sample-and-propagate by CLASS" propagates values across types;
+  this rule splits the OUTPUT population before any aggregate is computed.
+
 **Entropy + byte histogram as a read-only encryption test.** When the question is "is this wire/blob
 encrypted?", compute Shannon entropy (bits/byte) and the byte-value histogram before assuming a cipher.
 ~7.99–8.0 bits/byte with a near-flat histogram ⇒ ciphertext or maximally-compressed data; a lower entropy
@@ -641,8 +648,8 @@ phase (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) �
 safe, or handing off to the user when a human decision or hardware is required. Silent end only when there
 is no queued focus and no safe next phase.
 
-**A gap closes by remittance too.** Three closure categories now exist, not two: closed by NEW
-investigation, closed by PROVEN ABSENCE (above), and closed by REMITTANCE. A gap closes by remittance when
+**A gap closes by remittance too.** Four closure categories now exist, not three: closed by NEW
+investigation, closed by PROVEN ABSENCE (above), closed by REMITTANCE, and closed by RE-SCOPE. A gap closes by remittance when
 a later sweep shows it is ALREADY fully answered by an EXISTING cited block/section, with NO new substance
 to add. This is not padding and not a dropped gap: cite the exact prior `[Block N] §N.x` that covers it and
 state explicitly "closed by remittance — no new substance". It differs from proven-absence (which cites a
@@ -653,6 +660,12 @@ Restrict remittance to a GENUINELY PRIOR block — one already committed BEFORE 
 case where NEW content answering an adjacent gap lands in the SAME block/iteration you were writing is NOT
 remittance (it is new substance, just serendipitous): close that gap as closed-by-NEW-investigation citing
 the same-iteration `§N.x`, not as remittance. Reserve remittance for coverage that predates this iteration.
+
+**A gap closes by RE-SCOPE too.** A gap closes by re-scope when it turns out to belong to a different
+question. The re-scope record must state: (a) which focus the gap belongs to, (b) whether that focus
+exists — a re-scoped gap directed at a focus that does not yet exist must open that focus, (c) what
+conclusion elsewhere remains unresolved because of it, so the transferred gap does not silently vanish
+from the originating focus's ledger.
 
 **Reopening a STOPPED loop for a bounded experiment.** STOP is not permanent. A focus that reached STOP can
 be REOPENED — a new tool arrived, a hardware bench appeared, a targeted follow-up — WITHOUT a full
@@ -928,6 +941,14 @@ before trusting its verdict:
   alternatives do not fit better. (Close relative of `adversarial-verify` §3, which refutes one claim with
   N skeptics; this method ranks N mutually exclusive candidates with one measurement.)
 
+- **Defer instead of guess when two explanations fit.** When one observation admits two competing
+  explanations and neither is yet falsifiable — the distinguishing evidence has not been gathered —
+  record the observation, name both, defer the verdict, and open a gap. A deferred verdict is a finding;
+  a guessed verdict is a liability: in practice, corrections came from continuing to READ, not from
+  revisiting the guess. Distinct from "Compete rival hypotheses" (which scores candidates when the
+  distinguishing evidence EXISTS); distinct from §14's `CONTRADICTIONS.md` case (which records a
+  conflict between two existing claims) — here the observation has not yet resolved into any claim.
+
 - **Record computed-and-rejected measurements at the site.** When a measurement is computed and rejected
   (wrong method, wrong filter, wrong assumption), record the number, the method, and the reason AT THE SITE
   where a reader would naturally reach for the same approach — a comment in the tool, a note in the probe
@@ -966,6 +987,13 @@ before trusting its verdict:
   the population or rewrite the claim to its real scope. A well-cited sample is `[CERT]` for the sample and
   `[INFER]` for the population. Cheap tell: a claim using a quantifier ("none", "all", "the system") backed
   by a point measurement is missing the scope check.
+
+- **Test an attribution method on a known-answer case before deploying it.** The "prove a guard by
+  breaking it" principle extends to ATTRIBUTION METHODS, SIMILARITY METRICS, and HEURISTIC MAPPINGS.
+  Before trusting such a method on unknowns: (1) run it on at least one case whose correct answer is
+  already known and confirm it gives the right answer; (2) run it on a case known to be WRONG and
+  require the method to reject it. Both controls are required — a method that passes only the positive
+  may be trivially accepting; one that passes only the negative may be trivially rejecting.
 
 - **Coordinate-system handoffs are verification boundaries.** Any handoff between coordinate systems
   (CAD +Y up vs three.js +Z toward viewer; job-network numbering vs live-bus numbering) is a boundary
@@ -1286,6 +1314,12 @@ B64→B55). Make this a habit, not an accident:
   The same distinction runs in the hardware→code direction — a live `[CERT-hw]` finding can scope-clarify a
   `[CERT]` static claim (the deployment gates a real code-path) without refuting it; that case lives in §12.
 - In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
+- **Proactively scan for contradictions after computing a measurement.** The reactive rule above fires
+  when you revisit a prior claim. Add the proactive complement: after computing a measurement over a
+  population, search the corpus for prior measurements of the SAME population and verify they agree. If
+  they do not, issue a §14 correction — do not leave both figures standing unremarked. Use both together:
+  the reactive rule catches contradictions you encounter; the proactive rule catches ones you would not
+  encounter unless you went looking.
 - **When a conflict CANNOT yet be adjudicated**, do NOT force it into a premature `[INFER]` or drop it:
   record it in the corpus `CONTRADICTIONS.md` as `open` (source A says X, source B says Y). It is surfaced
   by `research-sdd-status.sh` (open count in the status report) so it is not forgotten at STOP, and resolved
