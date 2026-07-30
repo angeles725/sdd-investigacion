@@ -591,6 +591,25 @@ grep -q 'not hash-verified' <<<"$out" \
   && { printf '  FAIL  %-42s (count line emitted for empty registry — §7 false positive)\n' "D2-EMPTY: no count for empty registry"; fail=$((fail+1)); } \
   || { printf '  PASS  %-42s (no spurious count line)\n' "D2-EMPTY: no count for empty registry"; pass=$((pass+1)); }
 
+# D2-MALFORMED-NOT-COUNTED: a 5-col malformed row for a non-web-snapshot file must NOT
+# be counted by the D2 loop even if its shifted cell starts with a hex character.
+# TRANE shape: sha256 cell absent, Blocks cell ("B2") shifts into sha256 slot, and "B"
+# starts with a hex char (case-insensitive [0-9a-f] matches "B") — without the
+# D2-FIELD-GUARD this would count as 1.
+d="$TMP/d2-malformed-not-counted"; mkdir -p "$d/sources/docs"
+block "$d/d2mn-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — local claim.'
+: > "$d/sources/docs/manual.pdf"
+{ printf '# Sources\n\n'
+  printf '| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| docs/manual.pdf | datasheet | http://x | 2026-01-01 | B2 |\n'
+} > "$d/sources/SOURCES.md"     # 5-col: sha256 missing, "B2" shifts into sha256 slot
+assert_exit "$SUT" 0 "D2-MALFORMED-NOT-COUNTED: malformed row not counted, exit 0" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'not hash-verified' <<<"$out" \
+  && { printf '  FAIL  %-42s (D2 counted the malformed row — D2-FIELD-GUARD missing)\n' "D2-MALFORMED-NOT-COUNTED: no count line"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (malformed row skipped by D2-FIELD-GUARD)\n' "D2-MALFORMED-NOT-COUNTED: no count line"; pass=$((pass+1)); }
+
 # D1-SECOND-TABLE: SOURCES.md with a conforming 6-col registry followed by a secondary
 # table under a heading must produce ZERO malformed or schema WARNs. The secondary table
 # rows appear after a non-table line and are outside the registry block — the check must
@@ -717,6 +736,53 @@ else
   printf '  FAIL  %-42s (expected [CERT-doc] 1 × 20 runs, got %s on run %s)\n' "SIGPIPE-RACE: count stable and correct" "${_sprev:-empty}" "$_si"
   fail=$((fail+1))
 fi
+
+# ---------------------------------------------------------------------------
+# L6-FIELD-GUARD ASYMMETRY — the guard is -lt 7 (not -le 7 or -eq 7) on purpose.
+# A row with MORE than 7 pipes still has field 6 aligned; skipping it loses coverage.
+# A row with FEWER than 7 pipes has genuinely lost its sha256 cell (shifted left).
+# These two fixtures pin the two halves of that invariant.
+
+# L6-ASYM-EXTRA-PIPE: a web-snapshot row with 8 pipes (extra pipe inside the Blocks
+# cell). Field 6 (sha256) still aligns — the guard must NOT skip this row. The hash
+# intentionally mismatches, so the SUT must catch it (exit 1).
+d="$TMP/l6-asym-extra-pipe"; mkdir -p "$d/sources/web-snapshots"
+block "$d/ae-block1.md" '# Block 1' \
+  '## 1.1 cites sources/web-snapshots/extra.md'
+snapshot "$d/sources/web-snapshots/extra.md" '<div>extra pipe test — real content here</div>'
+_ae_wrong="0000000000000000000000000000000000000000000000000000000000000000"
+# Row has 8 pipes: "Blocks" cell contains a literal "|" inside a parenthetical note —
+# field 6 (sha256) is still at position 6 and holds the intentionally wrong hash.
+{ printf '# External sources preserved\n\n'
+  printf '| File | Type | Origin (URL / channel) | Date (UTC) | sha256 | Blocks that cite it |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| web-snapshots/extra.md | web-snapshot | http://x | 2026-01-01 | %s | B1 (see note|p.2) |\n' "$_ae_wrong"
+} > "$d/sources/SOURCES.md"
+assert_exit "$SUT" 1 "L6-ASYM-EXTRA-PIPE: 8-pipe row caught (hash-mismatch)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'hash-mismatch.*extra\.md' <<<"$out" \
+  && { printf '  PASS  %-42s (8-pipe row processed, mismatch reported)\n' "L6-ASYM-EXTRA-PIPE: hash-mismatch line"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (hash-mismatch missing — 8-pipe row skipped by guard?)\n' "L6-ASYM-EXTRA-PIPE: hash-mismatch line"; fail=$((fail+1)); }
+
+# L6-ASYM-FEW-PIPE: a 5-col web-snapshot row (6 pipes). The guard (-lt 7) skips it,
+# preventing a misparse where "B1" in the sha256 slot would trigger unverifiable-hash.
+# No unverifiable-hash in output; malformed-row WARN IS present from the pre-check awk.
+d="$TMP/l6-asym-few-pipe"; mkdir -p "$d/sources"
+block "$d/af-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — a local claim.'
+{ printf '# Sources\n\n'
+  printf '| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| web-snapshots/few.md | web-snapshot | http://x | 2026-01-01 | B1 |\n'
+} > "$d/sources/SOURCES.md"     # 5-col: sha256 cell missing, B1 shifts into sha256 slot
+snapshot "$d/sources/web-snapshots/few.md" '<div>body</div>'
+assert_exit "$SUT" 0 "L6-ASYM-FEW-PIPE: 5-col row, exit 0 (guard skips)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'unverifiable-hash' <<<"$out" \
+  && { printf '  FAIL  %-42s (misleading hash WARN from 5-col row — guard not skipping)\n' "L6-ASYM-FEW-PIPE: no unverifiable-hash"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no misleading hash output for 5-col row)\n' "L6-ASYM-FEW-PIPE: no unverifiable-hash"; pass=$((pass+1)); }
+grep -qE 'WARN.*malformed' <<<"$out" \
+  && { printf '  PASS  %-42s (malformed-row WARN present from pre-check)\n' "L6-ASYM-FEW-PIPE: malformed WARN present"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (malformed WARN missing)\n' "L6-ASYM-FEW-PIPE: malformed WARN present"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
@@ -956,6 +1022,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         else
           printf '  FAIL  %-42s (mutant count=%s, expected 0 — race did not trigger or fixture too small)\n' "teeth: SIGPIPE-RACE" "${_msp_doc:-empty}"; fail=$((fail+1))
         fi
+      fi
+    fi
+  fi
+
+  # L6-FIELD-GUARD-ASYM teeth: change -lt to -ne so EXTRA-PIPE rows are skipped.
+  #   The L6-ASYM-EXTRA-PIPE fixture has a web-snapshot row with 8 pipes and a wrong hash.
+  #   Real SUT: 8 >= 7 → guard does NOT skip → hash checked → mismatch → exit 1.
+  #   Mutant (-ne 7): 8 ≠ 7 → guard SKIPS the row → hash never checked → exit 0 (false-pass).
+  #   bash -n validated first: a syntactically broken mutant proves nothing (THEATER).
+  echo "-- teeth proof: L6-FIELD-GUARD-ASYM — change -lt to -ne, expect extra-pipe fixture to FALSE-PASS --"
+  mutant_l6asym="$TMP/verify-sources.MUTANT-L6ASYM.sh"
+  awk '{ if ($0 ~ /pipes=/ && $0 ~ /L6-FIELD-GUARD/) { sub(/-lt 7/, "-ne 7"); sub(/L6-FIELD-GUARD/, "MUTANT-L6ASYM: changed -lt to -ne"); } print }' "$SUT" > "$mutant_l6asym"
+  if ! grep -q 'MUTANT-L6ASYM' "$mutant_l6asym"; then
+    echo "  FAIL  could not build L6-ASYM mutant (L6-FIELD-GUARD code line not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    bash -n "$mutant_l6asym" 2>/dev/null; _ml6asym_bn=$?
+    if [ "$_ml6asym_bn" -ne 0 ]; then
+      echo "  FAIL  L6-ASYM mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+    else
+      d="$TMP/l6-asym-extra-pipe"   # fixture 1A: 8-pipe row with wrong hash — real SUT exits 1
+      bash "$mutant_l6asym" "$d" >/dev/null 2>&1; _ml6asym_rc=$?
+      if [ "$_ml6asym_rc" = 0 ]; then
+        printf '  PASS  %-42s (mutant false-passes → -lt asymmetry is load-bearing)\n' "teeth: L6-FIELD-GUARD-ASYM mutant exit 0"; pass=$((pass+1))
+      else
+        printf '  FAIL  %-42s mutant exit %s (expected 0) — asymmetric guard may not be load-bearing.\n' "teeth: L6-FIELD-GUARD-ASYM" "$_ml6asym_rc"; fail=$((fail+1))
       fi
     fi
   fi

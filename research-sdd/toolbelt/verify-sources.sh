@@ -21,7 +21,11 @@ target="${1:-}"
 # never rely on find's traversal order, since a flat target (e.g. niagara-research) also has
 # notes/bloque*.md that must NOT hijack the corpus root.
 corpus="$target"
-if ! find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' 2>/dev/null | grep -q .; then
+# `-print -quit` stops find at the first hit natively — no pipe, so no SIGPIPE. The previous
+# `find ... | grep -q .` had the same pipefail race as the two fixed below: a false pipeline failure
+# inverts to TRUE and sends a flat corpus down the descent branch it should never take.
+_rsdd_root_block="$(find "$target" -maxdepth 1 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -print -quit 2>/dev/null)"
+if [ -z "$_rsdd_root_block" ]; then
   anchor="$(find "$target" -maxdepth 3 -type f \( -iname '*block*.md' -o -iname '*bloque*.md' \) -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null \
             | awk '{print gsub(/\//,"/") "\t" $0}' | sort -t"$(printf '\t')" -k1,1n -k2,2 | head -1 | cut -f2-)"
   [ -n "$anchor" ] && corpus="$(dirname "$anchor")"
@@ -88,12 +92,20 @@ if [ -f "$sources_md" ]; then
   # rows match their OWN header's field count by definition. Orphaned appended rows (rows that start
   # a new block but whose "header" row is actually a data row — the fetch-doc.sh reg() appended pattern)
   # produce no warnings: their block "header" has no sha256, so no registry checks run on the block.
-  # NOTE: a cell VALUE containing the string "sha256" (not a header label) cannot trigger the registry
-  # detection because the check fires only on the FIRST non-separator row in each block (the header
-  # candidate), and we've already moved past header detection by the time data rows are processed.
+  # NOTE: a cell VALUE containing the string "sha256" COULD trigger registry detection IF that row
+  # becomes the first non-separator row of a new block — for example, an appended data row after a
+  # heading that starts a fresh block (the fetch-doc.sh reg() pattern). In that case the "header
+  # candidate" has sha256 in a data cell. This is unlikely but not impossible; if it occurs, the
+  # data row is treated as a non-conforming registry header (schema WARN), not as a data row.
   # Escaped pipes (\|) inside cells are not handled and would produce a false per-row WARN; no current
   # fleet file uses them (verified fleet-wide). The L4/L6/D2 loops are NOT anchored here — they scan
   # the full file to preserve coverage of rows appended after headings.
+  # Code-fenced tables (inside ```...``` blocks) that contain a sha256 header cell will draw a
+  # spurious schema WARN — the awk parser does not track fence state. No current fleet file does
+  # this, but a SOURCES.md that uses a fenced example table to document the schema would trigger it.
+  # Blank lines inside a registry table split the block: the blank line resets in_blk=0, so rows
+  # after it start a new block and never receive per-row WARNs (their shifted-field misparse is
+  # invisible). Advisory only — the fleet has no such tables, but the blind spot is real.
   awk -F'|' '
     BEGIN { in_blk=0; bk_nf=0; has_sha256=0; skip_rows=0 }
     /^\|/ {
@@ -199,7 +211,14 @@ while IFS= read -r f; do
   rel="${rel#"${rel%%[![:blank:]]*}"}"; rel="${rel%"${rel##*[![:blank:]]}"}"   # trim leading/trailing blanks
   base="$(basename "$f")"
   # Registration (HARD): rel must EXACTLY equal a registered File-column value — not a substring.
-  if ! printf '%s\n' "$registered" | grep -qxF "$rel"; then
+  # SIGPIPE-SAFE herestring, NOT `printf | grep -qxF`. Under `set -o pipefail` (line 15) grep -q exits at
+  # the first match and closes the pipe; printf takes SIGPIPE and the PIPELINE reports failure even though
+  # the match succeeded. `!` then inverts a false failure into a TRUE, so a snapshot that IS registered gets
+  # reported as an orphan and rc goes to 1. `$registered` holds every registered path — 175 lines on
+  # pruebas-dashboards — which is exactly the size where the race fires. Observed live: main's exit code on
+  # that corpus was 1,0,0,0,0,0 across six runs of unchanged input under load. A spurious FAIL is worse than
+  # the undercount this same pattern caused in count_marker: it declares provenance lost for a preserved file.
+  if ! grep -qxF "$rel" <<< "$registered"; then
     echo "   orphan-snapshot: ${f#"$corpus"/} (in web-snapshots/ but not registered in SOURCES.md — provenance lost)"
     rc=1
     continue
@@ -246,7 +265,16 @@ MIN_PREFIX=8
 if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
   hverified=0; hunverif=0
   while IFS= read -r _raw; do
-    pipes="${_raw//[^|]/}"; [ "${#pipes}" -ne 7 ] && continue   # L6-FIELD-GUARD: skip non-6-col rows (prevents sha256/Blocks cell misalignment)
+    # L6-FIELD-GUARD — ASYMMETRIC on purpose. A row with FEWER than 7 pipes has genuinely
+    # lost its sha256 cell: field 6 holds whatever shifted left (TRANE's `B2`/`B5` Blocks IDs),
+    # and reading it as a hash is the misparse this guard exists to stop. A row with MORE than
+    # 7 pipes has NOT lost it — the extra pipes are almost always unescaped characters inside a
+    # LATE cell, so fields 1-6 still align and the hash is verifiable. Skipping those too cost
+    # real coverage: pruebas-dashboards:150 went from verified to unverified, so a tamper there
+    # would no longer change the exit code. When extra pipes DO fall early, the misaligned cell
+    # will not look like a hash and lands in the existing unverifiable-hash path — reported,
+    # never silently passed — right beside the malformed-row WARN naming that line.
+    pipes="${_raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # L6-FIELD-GUARD
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
@@ -305,7 +333,9 @@ fi
 # disruptive rc=1 regressions. Making the gap visible is the safe, correct action here.
 if [ -f "$sources_md" ]; then
   _nskip=0
-  while IFS='|' read -r _ fcell _ _ _ shacell _; do
+  while IFS= read -r _d2raw; do
+    pipes="${_d2raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # D2-FIELD-GUARD: same asymmetric rule as L6
+    IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_d2raw"
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     case "$key" in ''|File|*---*|web-snapshots/*) continue;; esac   # skip header, separator, web-snap
     [ -f "$corpus/sources/$key" ] || continue                       # file not on disk — nothing to verify
