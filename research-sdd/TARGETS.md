@@ -275,8 +275,9 @@ for control-flow questions.
 
 ### 17 — hilton-bms `[CERT]`
 **Focus status**: `integration` STOPPED 14/14 (15 blocks) · `pi5-decoding` 19 blocks · `compass-discover`
-**ACTIVE 19/43** (66 blocks) · `dashboard` 10 blocks (unnarrated below — needs its own paragraph).
-Block counts are the on-disk census (110 total, flat `corpus/`); the `n/m` gap ratios are as last
+**ACTIVE 19/43** (67 blocks) · `dashboard` 10 blocks (unnarrated below — needs its own paragraph).
+Block counts are the on-disk census (111 total @2026-07-30, flat `corpus/`, same census moment as the
+row above — see the active-corpus note below); the `n/m` gap ratios are as last
 reported by the focus and are NOT re-derived here. **Hook**: file installed by `research-sdd-init.sh` but still unregistered in
 `settings.json` (no matcher). **Writes**: READ-ONLY plus AUTHORIZED config mutations — see
 `ROLLBACK.md` at the target root.
