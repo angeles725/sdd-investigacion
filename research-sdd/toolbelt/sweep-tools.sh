@@ -50,7 +50,7 @@ is_tool_file() {
   [ -x "$f" ]
 }
 
-total_tools=0; total_recorded=0; total_unrecorded=0; targets_checked=0
+total_tools=0; total_retro_recorded=0; total_ledger_recorded=0; total_unrecorded=0; targets_checked=0
 
 for p in $paths; do
   [ -n "$p" ] || continue
@@ -96,25 +96,64 @@ for p in $paths; do
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' \
             -not -iname '*index*.md' 2>/dev/null)
 
-  recorded=0; unrecorded=0
+  # Parse tools/README.md ledger — the primary write-at-acquisition record (METHODOLOGY §10).
+  # Three distinguishable states: none | no-table (unparseable) | parsed.
+  ledger_file="$p/tools/README.md"
+  ledger_status="none"; ledger_rows=""
+  if [ -f "$ledger_file" ]; then
+    # Collect all | lines that are NOT separator rows (|---|---|).
+    ledger_rows=$(grep -E '^\|' "$ledger_file" 2>/dev/null \
+      | grep -vE '^\|[[:space:]]*[-:]+[[:space:]]*\|' || true)
+    if [ -z "$ledger_rows" ]; then
+      ledger_status="no-table"
+    else
+      ledger_status="parsed"
+    fi
+  fi
+
+  retro_recorded=0; ledger_recorded=0; unrecorded=0
+  # BT: literal backtick for use in grep character classes (can't inline in double-quoted strings).
+  BT=$'\x60'
   for tool in "${tool_files[@]}"; do
     base="$(basename "$tool")"
-    if [ -n "$t_rows" ] && printf '%s\n' "$t_rows" | grep -qF "$base"; then
-      recorded=$((recorded + 1))
+    in_retro=0; in_ledger=0
+    [ -n "$t_rows" ] && printf '%s\n' "$t_rows" | grep -qF "$base" && in_retro=1
+    # Boundary-aware ledger match: require a cell-start or path separator before the basename
+    # so that `envelope.py` does not false-match inside `gf-envelope.py`.
+    # Preceding boundary: backtick, pipe, slash, or space.  Trailing: same set plus colon.
+    # SENTINEL: ledger match — change in_ledger=1 to in_ledger=0 to test tooth C
+    base_re="${base//./\\.}"
+    [ "$ledger_status" = "parsed" ] && \
+      printf '%s\n' "$ledger_rows" | \
+      grep -qE "(^|[${BT}|/ ])${base_re}([${BT}|/ :])" && in_ledger=1
+    if [ "$in_retro" -eq 1 ]; then
+      retro_recorded=$((retro_recorded + 1))
+    elif [ "$in_ledger" -eq 1 ]; then
+      ledger_recorded=$((ledger_recorded + 1))
     else
       unrecorded=$((unrecorded + 1))
     fi
   done
 
   total_tools=$((total_tools + ntools))
-  total_recorded=$((total_recorded + recorded))
+  total_retro_recorded=$((total_retro_recorded + retro_recorded))
+  total_ledger_recorded=$((total_ledger_recorded + ledger_recorded))
   total_unrecorded=$((total_unrecorded + unrecorded))
 
   printf '        tools: %d found' "$ntools"
   [ "$predicate_rejects" -gt 0 ] && \
     printf ' (%d non-tool file(s) in tools/ not counted)' "$predicate_rejects"
   printf '\n'
-  printf '        recorded (T-rows): %d  ·  unrecorded: %d' "$recorded" "$unrecorded"
+  # Ledger unreadable: WARN separately and omit the ledger count (anti-silent-zero:
+  # "recorded (ledger): 0" would be indistinguishable from "nobody wrote anything").
+  if [ "$ledger_status" = "no-table" ]; then
+    printf '        WARN: tools/README.md has no table — ledger unreadable\n'
+    printf '        recorded (retro): %d  ·  unrecorded: %d' "$retro_recorded" "$unrecorded"
+  else
+    # ledger_status = none (0 is correct: no ledger = no ledger entries) or parsed.
+    printf '        recorded (retro): %d  ·  recorded (ledger): %d  ·  unrecorded: %d' \
+      "$retro_recorded" "$ledger_recorded" "$unrecorded"
+  fi
   # Distinguish "no retros" from "retros exist but have no tools table".
   if [ "$retros_found" -eq 0 ]; then
     printf '  ·  no retros found'
@@ -125,7 +164,7 @@ for p in $paths; do
 done
 
 echo ""
-echo "Summary: ${total_tools} tool(s) across ${targets_checked} target(s) · ${total_recorded} recorded · ${total_unrecorded} unrecorded."
+echo "Summary: ${total_tools} tool(s) across ${targets_checked} target(s) · ${total_retro_recorded} recorded (retro) · ${total_ledger_recorded} recorded (ledger) · ${total_unrecorded} unrecorded."
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi

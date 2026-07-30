@@ -339,17 +339,20 @@ out="$(bash "$SUT" "$d" 2>&1)"
   && { printf '  PASS  %-42s (WARN, no fail)\n' "unhashed → unverifiable-hash WARN"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s (WARN missing or hard-failed)\n' "unhashed → unverifiable-hash WARN"; fail=$((fail+1)); }
 
-# GOOD 11 (LEGACY) — TRUNCATED hash `04adf2b071e479b2…` (exactly what fetch-doc.sh writes) → WARN, NOT a FAIL (0).
+# GOOD 11 — TRUNCATED hash (16 chars, matching the real file) → VERIFIED, exit 0, no finding.
+#   Pre-prefix-comparison: any truncated hash was WARN "unverifiable-hash". Post-comparison:
+#   a truncated-but-matching prefix is accepted as VERIFIED (no warn, no fail). Use the REAL
+#   first-16-chars of the file's sha256 so the prefix comparison succeeds.
 d="$TMP/good-truncated-hash"; mkdir -p "$d"
 block "$d/th-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — kit-truncated hash prefix.'
 snapshot "$d/sources/web-snapshots/foo.md" '<div>body with a display-truncated registered hash</div>'
-sources_registry "$d" '| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | 04adf2b071e479b2… | B1 |'
-assert_exit "$SUT" 0 "GOOD truncated hash snapshot (WARN not fail)" "$d"
+real_trunc="$(sha256sum "$d/sources/web-snapshots/foo.md" | cut -d' ' -f1 | cut -c1-16)"
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | ${real_trunc}… | B1 |"
+assert_exit "$SUT" 0 "GOOD truncated hash (matching prefix, verified)" "$d"
 out="$(bash "$SUT" "$d" 2>&1)"
-{ grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' <<<"$out" \
-  && ! grep -q 'hash-mismatch' <<<"$out"; } \
-  && { printf '  PASS  %-42s (truncated → WARN)\n' "truncated hash → unverifiable-hash WARN"; pass=$((pass+1)); } \
-  || { printf '  FAIL  %-42s (truncated WARN missing or failed)\n' "truncated hash → unverifiable-hash WARN"; fail=$((fail+1)); }
+grep -qE 'hash-mismatch|prefix-mismatch|unverifiable-hash' <<<"$out" \
+  && { printf '  FAIL  %-42s (matching prefix falsely flagged)\n' "truncated matching → no finding"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no finding for matching prefix)\n' "truncated matching → no finding"; pass=$((pass+1)); }
 
 # REGRESSION GUARD — an ORPHAN snapshot (LEVEL 5 FAIL) must NOT ALSO get a LEVEL 6 hash line (no double-report).
 #   Reuse the BAD 4 fixture: foo.md on disk, registry names nothing → orphan-snapshot only, no hash finding.
@@ -470,6 +473,59 @@ grep -qE 'WARN.*block5.*naming mismatch' <<<"$out" \
   || { printf '  FAIL  %-42s (WARN missing)\n' "B4-WARN: naming-mismatch WARN"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# LEVEL 6 — PREFIX COMPARISON. LEVEL 6 verifies full 64-hex registrations. But
+# legacy or hand-edited corpora may store only a PREFIX (e.g. `04adf2b071e479b2…`).
+# A prefix of ≥ 8 hex chars is verifiable by prefix: recompute sha256 and check the
+# disk hash starts with the registered prefix. Mismatch → content changed → FAIL.
+# Prefix < 8 chars → WEAK warn. Tool absent → explicit notice (never a silent pass).
+
+# BAD 8 — prefix-mismatch (RED-FIRST): truncated 16-char prefix that does NOT match
+#   the file on disk → FAIL (rc=1).
+#   [Before prefix comparison: truncated → WARN + exit 0 — the gap this closes.]
+d="$TMP/bad-prefix-mismatch"; mkdir -p "$d"
+block "$d/pm-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — prefix mismatch case.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>content that hashes to something other than all-zeros</div>'
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | 0000000000000000… | B1 |"
+assert_exit "$SUT" 1 "BAD: prefix-mismatch (truncated prefix does not match file)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'prefix-mismatch: sources/web-snapshots/foo.md' <<<"$out" \
+  && { printf '  PASS  %-42s (prefix-mismatch line printed)\n' "prefix-mismatch line printed"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (prefix-mismatch line missing)\n' "prefix-mismatch line printed"; fail=$((fail+1)); }
+
+# GOOD 13 — prefix too short (< 8 hex chars): WEAK warn, not a FAIL, exit 0.
+#   `a1b2c3d` = 7 chars (28 bits); below MIN_PREFIX=8. Surface the debt without hard-failing.
+d="$TMP/good-prefix-short"; mkdir -p "$d"
+block "$d/ps-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — short prefix case.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>some content</div>'
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | a1b2c3d… | B1 |"
+assert_exit "$SUT" 0 "GOOD: prefix too short (7 chars < 8) → WEAK warn (exit 0)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -q 'unverifiable-hash: sources/web-snapshots/foo.md' <<<"$out" \
+  && { printf '  PASS  %-42s (short prefix → unverifiable-hash WARN)\n' "short prefix emits WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (short prefix WARN missing)\n' "short prefix emits WARN"; fail=$((fail+1)); }
+
+# GOOD 14 — sha256sum unavailable: notice emitted, exit 0 (cannot verify but not a failure).
+#   A run that verified nothing because the tool was absent must NOT look like a clean pass.
+#   On systems where sha256sum shares /usr/bin with every other tool, PATH filtering cannot
+#   isolate it. Patch the availability check in the SUT to return false — same pattern as
+#   the other mutation controls — to prove the elif-branch fires and emits the notice.
+d="$TMP/sha256-unavailable"; mkdir -p "$d"
+block "$d/nu-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>body</div>'
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | (unhashed) | B1 |"
+_patched_sut="$TMP/sut-no-sha256.sh"
+sed 's/command -v sha256sum >/false >/' "$SUT" > "$_patched_sut"
+_sha_out="$(bash "$_patched_sut" "$d" 2>&1)"; _sha_rc=$?
+if [ "$_sha_rc" = 0 ]; then
+  printf '  PASS  %-42s (exit 0 with sha256sum patched absent)\n' "sha256sum unavailable: exit 0"; pass=$((pass+1))
+else
+  printf '  FAIL  %-42s exit %s (expected 0)\n' "sha256sum unavailable: exit 0" "$_sha_rc"; fail=$((fail+1))
+fi
+grep -qE 'sha256sum not found|cannot be checked' <<<"$_sha_out" \
+  && { printf '  PASS  %-42s (notice emitted)\n' "sha256sum unavailable: notice printed"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (notice missing — silent pass)\n' "sha256sum unavailable: notice printed"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -572,6 +628,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '  PASS  %-42s (disabled mutant false-passes → citation loop is load-bearing)\n' "teeth: B4 check-disabled mutant exit 0"; pass=$((pass+1))
     else
       printf '  FAIL  %-42s mutant exit %s (expected 0) — citation check may not depend on _cited_ok init (THEATER).\n' "teeth: B4" "$mb4got"; fail=$((fail+1))
+    fi
+  fi
+
+  # PREFIX-COMPARISON teeth: neutralize the disk_pfx computation so it always equals pfx_lower —
+  #   meaning the comparison always succeeds. BAD 8 (16-char prefix that doesn't match the file)
+  #   must then FALSE-PASS (exit 0), proving the PREFIX-COMPARISON is load-bearing.
+  echo "-- teeth proof: neutralize PREFIX-COMPARISON, expect BAD 8 to FALSE-PASS --"
+  mutant_pfx="$TMP/verify-sources.MUTANT-PFX.sh"
+  awk '{ if ($0 ~ /PREFIX-COMPARISON compare/) print "            disk_pfx=\"$pfx_lower\"  # MUTANT-PFX: comparison neutralized"; else print }' "$SUT" > "$mutant_pfx"
+  if ! grep -q 'MUTANT-PFX: comparison neutralized' "$mutant_pfx"; then
+    echo "  FAIL  could not build PREFIX mutant (sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    d="$TMP/bad-prefix-mismatch"   # reuse BAD 8: prefix 0000000000000000… never matches real content
+    bash "$mutant_pfx" "$d" >/dev/null 2>&1; m_pfx_got=$?
+    if [ "$m_pfx_got" = 0 ]; then
+      printf '  PASS  %-42s (mutant false-passes → prefix check has teeth)\n' "teeth: PREFIX-COMPARISON mutant exit 0"; pass=$((pass+1))
+    else
+      printf '  FAIL  %-42s mutant exit %s (expected 0). BAD 8 not dependent on prefix compare.\n' "teeth: PREFIX-COMPARISON" "$m_pfx_got"; fail=$((fail+1))
     fi
   fi
 fi
