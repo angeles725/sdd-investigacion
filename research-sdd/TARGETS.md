@@ -63,8 +63,8 @@ legal and is not a violation; only a **malformed** or **unknown** token triggers
 |---|---|---|---|
 | Block count | `N md` | `N blocks` · `N blocks @date` · `N blocks @date, ACTIVE` | Dominant form is `N md`. `@date` records the last-counted date; the `, ACTIVE` suffix marks an in-progress focus. |
 | Run count | `N runs` | `N run` | Count of loop runs that produced blocks. |
-| Focus count | `N focuses` | — | Used for niagara-research; tracks documented focus areas. |
-| Retro count | `N retros` | `N retros + M corpus §18 + K client retros` | **Optional** — absent means the field is not yet tracked. A declared count is reconciled by `verify-registry.sh` against non-excluded `<target>/retros/*.md` files (maxdepth 2). Excluded retros (`<!-- kit-retro: exclude -->`) do not count. `nc` rows are not retro-reconciled. |
+| Focus count | `N focuses` | `N focus` | Used for niagara-research; tracks documented focus areas. Singular accepted for consistency with `N run`. |
+| Retro count | `N retros` | `N retros + M corpus §18 + K client retros` | **Optional** — absent means the field is not yet tracked. A declared count is reconciled by `verify-registry.sh` against non-excluded `<target>/retros/*.md` files (maxdepth 4, same as `sweep-retros.sh` — finds depth-2 target-level retros AND depth-3 nested retros such as `<target>/research/retros/`). Excluded retros (`<!-- kit-retro: exclude -->`) do not count. `nc` rows are not retro-reconciled. |
 | Gap count | `N-of-M gaps` | — | Used for targets with a known gap list (e.g. nave-panccadia). |
 | nc flag | `nc` | — | Marks a non-corpus target (no RESEARCH-STATE.md by design). |
 | git | `git yes` · `git no` | — | Whether a git repo is initialized under the target. |

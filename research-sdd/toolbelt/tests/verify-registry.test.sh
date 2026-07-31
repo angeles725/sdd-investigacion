@@ -1102,6 +1102,137 @@ else
   no "36 excluded retro not counted: 1 real + 1 excluded vs claim 1 → no drift WARN" "exit=$RC out=[$OUT]"
 fi
 
+# 37 — BLOCKING 1 (last-position token): garbage in the LAST cell token must fire the schema
+#      WARN. The tokenizer bug (`printf '%s'` without trailing newline) causes `read` to return
+#      non-zero for the unterminated last line, silently dropping it.
+#      RED before fix: 'mature (4 md / git yes / ABSOLUTE NONSENSE LAST TOKEN)' emits NO WARN.
+kit="$(mkkit c37-last-token)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets_custom "$kit" "$tgt" "4 md / git yes / ABSOLUTE NONSENSE LAST TOKEN"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*ABSOLUTE NONSENSE LAST TOKEN" <<<"$OUT"; then
+  ok "37 garbage in LAST position → schema WARN fires (tokenizer last-token fix)" "(exit $RC)"
+else
+  no "37 garbage in LAST position → NO schema WARN (tokenizer drops last token — BLOCKING 1)" "exit=$RC out=[$OUT]"
+fi
+
+# 38 — BLOCKING 1 (single-token cell): a cell with exactly ONE garbage token must also be
+#      caught. With the bug, even a single-token cell is silently dropped because `printf '%s'`
+#      emits no trailing newline, making `read` fail immediately and skip the loop body.
+kit="$(mkkit c38-single-token)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets_custom "$kit" "$tgt" "COMPLETE GARBAGE ONLY TOKEN"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*COMPLETE GARBAGE" <<<"$OUT"; then
+  ok "38 single garbage token → schema WARN fires (tokenizer single-token fix)" "(exit $RC)"
+else
+  no "38 single garbage token → NO schema WARN (tokenizer drops single token — BLOCKING 1)" "exit=$RC out=[$OUT]"
+fi
+
+# 39 — BLOCKING 2 (unreadable retros dir): a target whose retros/ dir exists but is chmod 000
+#      must produce an OPERATIONAL WARN about inaccessibility, not a false retro count drift.
+#      RED before fix: find ... 2>/dev/null silently returns 0 retros → false 'claims N but 0' drift.
+kit="$(mkkit c39-unreadable-retros)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+printf '# real retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
+printf '# real retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
+write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+chmod 000 "$tgt/retros"
+run "$kit"
+chmod 755 "$tgt/retros"   # restore so cleanup works
+if [ "$RC" = 0 ] \
+   && grep -qiE 'WARN[[:space:]]+targetA.*(not accessible|permission)' <<<"$OUT" \
+   && ! grep -qiE 'WARN[[:space:]]+targetA.*[0-9]+ retro.*found' <<<"$OUT"; then
+  ok "39 unreadable retros/ → operational WARN, no false count drift (BLOCKING 2)" "(exit $RC)"
+else
+  no "39 unreadable retros/ → expected operational WARN but got false drift (BLOCKING 2 unfixed)" "exit=$RC out=[$OUT]"
+fi
+
+# 40 — MAJOR 4 (maxdepth 4): retro at depth 3 (<target>/research/retros/*.md) must be found.
+#      RED before fix: maxdepth 2 only reaches depth-2 retros; depth-3 retros are invisible.
+kit="$(mkkit c40-retro-depth3)"; tgt="$kit/targetA"
+mkcorpus "$tgt/research" 4 "a"   # corpus at depth 1 (research/); RESEARCH-STATE.md is there
+mkdir -p "$tgt/research/retros"
+printf '# retro at depth 3\nbody\n' > "$tgt/research/retros/2026-01-01.md"
+write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
+  ok "40 retro at depth 3 (research/retros/) → found (maxdepth 4), no drift WARN" "(exit $RC)"
+else
+  no "40 retro at depth 3 → NOT found (maxdepth 2 misses it — MAJOR 4 unfixed)" "exit=$RC out=[$OUT]"
+fi
+
+# 41 — BLOCKING 3 (anchored retro pattern): trailing garbage after 'N retros' must trigger NONCONFORM.
+#      Unanchored '^[0-9]+[[:space:]]+retros?' passes '3 retrograde motion'.
+kit="$(mkkit c41-retro-anchor)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets_custom "$kit" "$tgt" "4 md / 3 retrograde motion / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*retrograde" <<<"$OUT"; then
+  ok "41 '3 retrograde motion' → schema WARN fires (anchored retro pattern)" "(exit $RC)"
+else
+  no "41 '3 retrograde motion' → no WARN (unanchored retro pattern — BLOCKING 3)" "exit=$RC out=[$OUT]"
+fi
+
+# 42 — BLOCKING 3 (anchored block @date pattern): loose '(@.*)?' passes garbage after @.
+#      '4 md @garbage not a date' must trigger NONCONFORM.
+kit="$(mkkit c42-block-date-anchor)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets_custom "$kit" "$tgt" "4 md @garbage not a date / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema" <<<"$OUT"; then
+  ok "42 block '@garbage not a date' → schema WARN fires (tightened @date pattern)" "(exit $RC)"
+else
+  no "42 block '@garbage not a date' → no WARN (loose @date pattern — BLOCKING 3)" "exit=$RC out=[$OUT]"
+fi
+
+# 42b — BLOCKING 3 negative control: valid @date forms must still pass after pattern tightening.
+#       'N blocks @YYYY-MM-DD' and 'N blocks @YYYY-MM-DD, ACTIVE' both documented in the legend.
+kit="$(mkkit c42b-block-date-ok)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"; printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
+write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30 / git yes / hook yes"
+run "$kit"; date_ok=0
+[ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && date_ok=1
+write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30, ACTIVE / git yes / hook yes"
+run "$kit"; active_ok=0
+[ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && active_ok=1
+if [ "$date_ok" = 1 ] && [ "$active_ok" = 1 ]; then
+  ok "42b valid @date and @date,ACTIVE → both accepted, no schema WARN" "(date=$date_ok active=$active_ok)"
+else
+  no "42b valid @date forms → not all accepted after pattern tightening" "date=$date_ok active=$active_ok out=[$OUT]"
+fi
+
+# 43 — MINOR 5 (singular focus): '1 focus' must be accepted without a schema WARN.
+#      Pattern 'focuses?' expands to 'focuse?' (matches 'focuse' or 'focuses'), NOT 'focus'.
+kit="$(mkkit c43-singular-focus)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"; printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
+write_targets_custom "$kit" "$tgt" "4 md / 1 focus / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -qiE "WARN[[:space:]]+targetA.*not in schema.*focus" <<<"$OUT"; then
+  ok "43 '1 focus' (singular) → accepted, no schema WARN (MINOR 5 fix)" "(exit $RC)"
+else
+  no "43 '1 focus' (singular) → schema WARN fires (pattern 'focuses?' misses singular — MINOR 5)" "exit=$RC out=[$OUT]"
+fi
+
+# 44 — MINOR 6 (separate retro drift counter): a retro drift must appear in the summary as
+#      'N retro drift(s)', not as a count drift. Before fix, retro_drift increments `drift`.
+kit="$(mkkit c44-retro-drift-counter)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+for i in 1 2 3; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
+write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q '0 count drift' <<<"$OUT" \
+   && grep -q '1 retro drift' <<<"$OUT"; then
+  ok "44 retro drift → 0 count drift + 1 retro drift in summary (separate counters)" "(exit $RC)"
+else
+  no "44 retro drift → separate retro drift counter missing in summary (MINOR 6)" "exit=$RC out=[$OUT]"
+fi
+
 # ---- TEETH for new cases -----------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-retro-drift: neuter RETRO-DRIFT-CHECK sentinel; drift fixture (real=5, claim=2) must
@@ -1183,6 +1314,83 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-unknown-field: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-last-token: revert the tokenizer last-token fix (remove `|| [ -n "$_vr_tok" ]`) →
+  # the last-position garbage fixture (test 37) must STOP emitting the schema WARN, proving
+  # test 37 depends on the fix and not on coincidental output.
+  echo "-- teeth-last-token: revert tokenizer fix; last-position garbage must NOT WARN --"
+  kit="$(mkkit teeth-last-token)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  write_targets_custom "$kit" "$tgt" "4 md / git yes / ABSOLUTE NONSENSE LAST TOKEN"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# TOKENIZER-LAST-TOKEN-FIX' "$mut"; then
+    # Neuter: remove the '|| [ -n "$_vr_tok" ]' part so read's non-zero for the last
+    # unterminated line is no longer caught, silently dropping the last token again.
+    sed -i 's/ || \[ -n "\$_vr_tok" \]//' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*not in schema.*ABSOLUTE NONSENSE' <<<"$mout"; then
+      ok "teeth-last-token: reverted tokenizer → last-position garbage emits NO WARN (test 37 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-last-token: reverted mutant STILL emits WARN → test 37 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-last-token: TOKENIZER-LAST-TOKEN-FIX sentinel not found in SUT — fix not applied or marker drifted"
+  fi
+
+  # teeth-retro-unreadable: neuter RETRO-UNREADABLE-CHECK (the if-condition on the guard);
+  # the unreadable-dir fixture (test 39) must produce a false drift WARN instead of the
+  # operational WARN, proving test 39's assertion is load-bearing.
+  echo "-- teeth-retro-unreadable: neuter RETRO-UNREADABLE-CHECK; unreadable dir must produce false drift --"
+  kit="$(mkkit teeth-retro-unreadable)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  mkdir -p "$tgt/retros"
+  printf '# real retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
+  printf '# real retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  chmod 000 "$tgt/retros"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# RETRO-UNREADABLE-CHECK' "$mut"; then
+    sed -i '/# RETRO-UNREADABLE-CHECK/ s/.*/  if false; then  # RETRO-UNREADABLE-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    chmod 755 "$tgt/retros"  # restore for cleanup
+    # Without the guard: find on chmod-000 dir (2>/dev/null) → 0 retros → claimed=2 vs real=0 → drift WARN.
+    if [ "$mrc" = 0 ] \
+       && grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$mout" \
+       && ! grep -qiE 'not accessible|permission' <<<"$mout"; then
+      ok "teeth-retro-unreadable: neutered → false drift WARN fires, no operational WARN (test 39 has teeth)" "(exit $mrc)"
+    else
+      chmod 755 "$tgt/retros" 2>/dev/null
+      no "teeth-retro-unreadable: expected false drift WARN but did not get it" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    chmod 755 "$tgt/retros" 2>/dev/null
+    no "teeth-retro-unreadable: RETRO-UNREADABLE-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-retro-exclusion: remove the retro_is_excluded gate in the retro-counting loop;
+  # an excluded retro gets counted, causing the claims-1/real-2 fixture to drift —
+  # proves tests 15/36 depend on the gate (MINOR 7 mutation control).
+  echo "-- teeth-retro-excl: remove retro_is_excluded gate; excluded retro counted → drift fires --"
+  kit="$(mkkit teeth-retro-excl)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  mkdir -p "$tgt/retros"
+  printf '# real retro\nbody\n' > "$tgt/retros/2026-01-01-real.md"
+  printf '<!-- kit-retro: exclude -->\n# client retro\nbody\n' > "$tgt/retros/2026-01-02-client.md"
+  write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+  mut="$kit/toolbelt/verify-registry.sh"
+  # Target the retro-counting loop specifically (uses $_vr_rfile, not $_vr_rf used by reachability).
+  if grep -q 'retro_is_excluded "\$_vr_rfile" && continue' "$mut"; then
+    sed -i 's/retro_is_excluded "\$_vr_rfile" && continue/: # retro_is_excluded [NEUTERED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    # Neutered: counts 2 (1 real + 1 excluded) vs claimed 1 → drift WARN fires.
+    if [ "$mrc" = 0 ] && grep -qiE 'WARN[[:space:]]+targetA.*1 retro.*2 non-excluded|WARN[[:space:]]+targetA.*2 non-excluded.*1 retro' <<<"$mout"; then
+      ok "teeth-retro-excl: exclusion gate neutered → drift WARN fires (tests 15/36 have teeth)" "(exit $mrc)"
+    else
+      no "teeth-retro-excl: exclusion gate neutered but expected drift WARN not found" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-retro-excl: retro_is_excluded gate for \$_vr_rfile not found in SUT"
   fi
 fi
 
