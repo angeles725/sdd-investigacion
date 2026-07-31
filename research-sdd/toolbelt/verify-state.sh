@@ -157,6 +157,20 @@ derive_requires_execution() {
   echo "$n"
 }
 
+# block_scope validation helper (called inside the per-state loop).
+# Returns 0 when the field is absent (legal — defaults to per-focus) or holds a legal value.
+# Returns 1 and emits a FAIL when present but holding an illegal value (including empty).
+_validate_block_scope() {
+  local bs_present="$1" bs="$2"
+  [ -z "$bs_present" ] && return 0
+  case "$bs" in
+    per-focus|shared-global) return 0 ;;
+    *)
+      echo "   FAIL   envelope block_scope=${bs:-<empty>} is not a legal value — must be 'per-focus' or 'shared-global'"
+      return 1 ;;
+  esac
+}
+
 rc=0
 for state in "${states[@]}"; do
   echo "== verify-state: $(basename "$state") (target: $target) =="
@@ -192,12 +206,27 @@ for state in "${states[@]}"; do
   #    FOCUSES.md for the legacy RESEARCH-STATE.md case) and filter to only that focus's blocks.
   covered_claim="$(grep -iE 'covered blocks' "$state" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
   _fpfx="$(derive_focus_prefix "$state")"
-  if [ -n "$_fpfx" ]; then
+  # block_scope: optional envelope field — 'per-focus' (default when absent) or 'shared-global'.
+  # Present but neither legal value (including empty) is a hard FAIL: the gate must know which mode applies.
+  # This is the §7 three-state rule: absent ≠ empty ≠ illegal value.
+  e_bs="$(env_field "$state" block_scope)"
+  _bs_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print; exit}' "$state")"
+  _bs_valid=1  # set to 0 when present but holds an illegal value (including empty)
+  if ! _validate_block_scope "$_bs_present" "$e_bs"; then  # BS-BLOCK_SCOPE-VALIDATE
+    frc=1; rc=1; _bs_valid=0
+  fi
+  # Always compute the focus-blind global block count — needed for:
+  #   (a) block_scope: shared-global (this becomes the authoritative ondisk count), and
+  #   (b) the cannot-see diagnostic when per-focus ondisk==0 while other-prefix blocks exist.
+  _ondisk_global="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+    | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+  if [ "$_bs_valid" = 1 ] && [ -n "$_bs_present" ] && [ "$e_bs" = "shared-global" ]; then
+    ondisk="$_ondisk_global"  # BS-SHARED-GLOBAL-ONDISK
+  elif [ -n "$_fpfx" ]; then
     ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | grep -E "/${_fpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
   else
-    ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-      | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    ondisk="$_ondisk_global"
   fi
 
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
@@ -226,9 +255,16 @@ for state in "${states[@]}"; do
   echo "   backlog pending : ${pending}"
   echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def} · undocumented_findings=${e_uf:-<none>}  (declared/derived; undocumented_findings is manually-maintained)"
 
-  # ENVELOPE CHECK A (FAIL) — declared covered_blocks must equal on-disk block files (reuse `ondisk`).
+  # ENVELOPE CHECK A (FAIL) — declared covered_blocks must equal on-disk block files.
+  # For block_scope: shared-global, ondisk is already the global count (set above).
+  # For absent/per-focus with a focus prefix, distinguish the cannot-see case (focus-filtered=0 while
+  # other-prefix blocks exist) from a genuine zero or a real staleness mismatch.
   if ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; then
-    echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${ondisk} block file(s) on disk — re-seed: --sync-state"
+    if [ -n "$_fpfx" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # BS-CANNOT-SEE-COND
+      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>}: no block file matches prefix '${_fpfx}' — ${_ondisk_global} block file(s) exist under other prefixes; if the corpus uses shared block numbering across focuses, declare: block_scope: shared-global"
+    else
+      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${ondisk} block file(s) on disk — re-seed: --sync-state"
+    fi
     frc=1; rc=1
   fi
   # ENVELOPE CHECK B (FAIL, STOP-CRITICAL) — declared investigable_open must equal the NEXT-eligible set.
