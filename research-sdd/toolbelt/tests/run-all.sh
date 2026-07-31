@@ -130,26 +130,35 @@ for suite in "${all_suites[@]}"; do
   fi
 
   # Suite-level outcome is driven by the EXIT CODE, not the parsed counts.
-  # A suite that exits 0 with a "SKIP:" line on stdout is classified as skipped,
-  # not passed. The line-start SKIP: form is the convention for whole-suite skips
-  # and is used universally by all suites. Per-test skips use the indented form
-  # ("  SKIP  ...") and are counted separately in total_skipped.
+  # Classification priority (checked in order):
+  #   1. SKIP: A suite that exits 0 with a "SKIP:" line is classified as skipped.
+  #      Per-test skips use the indented "  SKIP  ..." form counted in total_skipped.
+  #   2. HARNESS ERROR: exit 2 (script-under-test missing) reported distinctly.
+  #   3. UNPARSED: any non-skip suite that contributed no parsed result must be
+  #      named and fail the run. Three distinct states:
+  #        no output      — tmp_out is empty (e.g. killed worker)
+  #        malformed      — output contains a summary-like line that did not match
+  #        no summary     — output is non-empty but has no summary-like line at all
+  #   4. Normal pass/fail by exit code.
   if [[ "$rc" -eq 0 ]] && grep -q '^SKIP:' "$tmp_out"; then
     suites_skipped+=("$base")
+  elif [[ "$rc" -eq 2 ]]; then
+    failed_suites+=("$base (HARNESS ERROR, exit 2)")
+  elif [[ -z "$parsed_line" ]]; then
+    if [[ ! -s "$tmp_out" ]]; then
+      failed_suites+=("$base (no output, exit $rc)")
+    elif grep -qiE 'passed.*failed|failed.*passed' "$tmp_out"; then
+      failed_suites+=("$base (malformed summary, exit $rc)")
+    else
+      failed_suites+=("$base (no summary line, exit $rc)")
+    fi
   else
     case "$rc" in
       0)
         suites_ok=$((suites_ok + 1))
         ;;
-      2)
-        failed_suites+=("$base (HARNESS ERROR, exit 2)")
-        ;;
       *)
-        if [[ -n "$parsed_line" ]]; then
-          failed_suites+=("$base (exit $rc)")
-        else
-          failed_suites+=("$base (exit $rc, no summary parsed)")
-        fi
+        failed_suites+=("$base (exit $rc)")
         ;;
     esac
   fi

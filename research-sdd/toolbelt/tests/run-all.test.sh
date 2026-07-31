@@ -233,6 +233,63 @@ else
   no "per-test-skip-agg: 'Test cases skipped: 2' absent; got: $(grep 'Test cases skipped' <<<"$out" || echo '<absent>')"
 fi
 
+# 14 — malformed-summary: fixture emits a slash-separated line (not middle-dot); runner names it
+#       and fails. Message must contain "malformed" (distinct from "no summary line").
+w="$(newdir c14)"
+mkfix_sh "$w/ok.test.sh" 2 0 0
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "== 3 passed / 2 failed =="\n'
+  printf 'exit 0\n'
+} > "$w/malformed.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && grep -qF 'malformed.test.sh' <<<"$out" && grep -qiF 'malformed' <<<"$out"; then
+  ok "malformed-summary: runner names the suite and fails with 'malformed' in message"
+else no "malformed-summary failed: rc=$rc :: $(grep -iE 'malformed|failed suite' <<<"$out" | tr '\n' ' ')"; fi
+
+# 15 — no-summary-line: fixture emits output but no summary-like line; runner names it distinctly
+#       and fails. Message must contain "no summary" and must NOT contain "malformed".
+w="$(newdir c15)"
+mkfix_sh "$w/ok.test.sh" 2 0 0
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "some output but no summary"\n'
+  printf 'exit 0\n'
+} > "$w/nosummary.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && grep -qF 'nosummary.test.sh' <<<"$out" && grep -qF 'no summary' <<<"$out" \
+   && ! grep -qF 'malformed' <<<"$out"; then
+  ok "no-summary-line: runner names suite, fails with 'no summary' (distinct from malformed)"
+else no "no-summary-line failed: rc=$rc :: $(grep -iE 'nosummary|no summary|malformed' <<<"$out" | tr '\n' ' ')"; fi
+
+# 16 — no-output: fixture exits 0 with absolutely no output; runner names it distinctly and fails.
+#       Message must contain "no output" and must NOT contain "no summary".
+w="$(newdir c16)"
+mkfix_sh "$w/ok.test.sh" 2 0 0
+{ printf '#!/usr/bin/env bash\n'
+  printf 'exit 0\n'
+} > "$w/noout.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && grep -qF 'noout.test.sh' <<<"$out" && grep -qF 'no output' <<<"$out" \
+   && ! grep -qF 'no summary' <<<"$out"; then
+  ok "no-output: runner names suite, fails with 'no output' (distinct from no-summary-line)"
+else no "no-output failed: rc=$rc :: $(grep -iE 'noout|no output|no summary' <<<"$out" | tr '\n' ' ')"; fi
+
+# 17 — skip-no-summary: a SKIP suite with no canonical summary is classified as skipped,
+#       NOT as unparsed. The new guard must not fire on the skip route.
+w="$(newdir c17)"
+mkfix_sh "$w/ok.test.sh" 2 0 0
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "SKIP: test-tool absent"\n'
+  printf 'exit 0\n'
+} > "$w/skipnosummary.test.sh"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'Suites skipped: 1' <<<"$out" \
+   && grep -qF 'skipnosummary.test.sh' <<<"$out" \
+   && ! grep -qF 'no summary' <<<"$out" \
+   && ! grep -qF 'no output' <<<"$out"; then
+  ok "skip-no-summary: skip suite without canonical summary is skipped, not unparsed (guard does not misfire)"
+else no "skip-no-summary failed: rc=$rc :: $(grep -iE 'Suites (passed|skipped)|no summary|no output' <<<"$out" | tr '\n' ' ')"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -245,7 +302,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash "$w/run-all.sh" >/dev/null 2>&1; mrc=$?
   if [ "$mrc" -eq 0 ]; then ok "teeth: PIPESTATUS-neutered mutant reports green despite a failing fixture → exit-code teeth real"
   else no "teeth: mutant still failed (rc=$mrc) — PIPESTATUS mutation not exercised (THEATER)"; fi
-  # Mutation 2: neuter total_skipped counter → C13 per-test-skip aggregation teeth.
+  # Mutation 2: neuter the unparsed-summary guard → malformed/no-summary fixtures must FALSE-PASS.
+  echo "-- teeth: neuter unparsed guard (elif false); malformed+no-summary must FALSE-PASS --"
+  w="$TMP/teeth-unparsed"; mkdir -p "$w"
+  sed 's/elif \[\[ -z "\$parsed_line" \]\]; then/elif false; then/' "$SUT" > "$w/run-all.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "== 3 passed / 2 failed =="\n'
+    printf 'exit 0\n'
+  } > "$w/malformed.test.sh"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "some output but no summary"\n'
+    printf 'exit 0\n'
+  } > "$w/nosummary.test.sh"
+  bash "$w/run-all.sh" >/dev/null 2>&1; mrc=$?
+  if [ "$mrc" -eq 0 ]; then
+    ok "teeth-unparsed: neutered guard lets malformed+no-summary FALSE-PASS → guard has real teeth"
+  else
+    no "teeth-unparsed: mutant still failed (rc=$mrc) — guard mutation not exercised (THEATER)"
+  fi
+  # Mutation 3: neuter total_skipped counter → C13 per-test-skip aggregation teeth.
   echo "-- teeth: zero-out total_skipped counter; per-test skip count must not show 1 --"
   w="$TMP/teeth-skip"; mkdir -p "$w"
   sed 's/total_skipped=\$((total_skipped + 1))/: # neutered/' "$SUT" > "$w/run-all.sh"
