@@ -649,8 +649,9 @@ safe, or handing off to the user when a human decision or hardware is required. 
 is no queued focus and no safe next phase.
 
 **A gap closes by remittance too.** Four closure categories now exist, not three: closed by NEW
-investigation, closed by PROVEN ABSENCE (above), closed by REMITTANCE, and closed by RE-SCOPE. A gap closes by remittance when
-a later sweep shows it is ALREADY fully answered by an EXISTING cited block/section, with NO new substance
+investigation, closed by PROVEN ABSENCE (above), closed by REMITTANCE, and closed by RE-SCOPE.
+A gap closes by remittance when a later sweep shows it is ALREADY fully answered by an EXISTING
+cited block/section, with NO new substance
 to add. This is not padding and not a dropped gap: cite the exact prior `[Block N] §N.x` that covers it and
 state explicitly "closed by remittance — no new substance". It differs from proven-absence (which cites a
 search that came back empty); remittance cites prior COVERAGE. Use it to avoid writing a redundant block
@@ -663,7 +664,7 @@ the same-iteration `§N.x`, not as remittance. Reserve remittance for coverage t
 
 **A gap closes by RE-SCOPE too.** A gap closes by re-scope when it turns out to belong to a different
 question. The re-scope record must state: (a) which focus the gap belongs to, (b) whether that focus
-exists — a re-scoped gap directed at a focus that does not yet exist must open that focus, (c) what
+exists (opening it is recommended when it does not yet exist, but is not mandatory), (c) what
 conclusion elsewhere remains unresolved because of it, so the transferred gap does not silently vanish
 from the originating focus's ledger.
 
@@ -991,9 +992,10 @@ before trusting its verdict:
 - **Test an attribution method on a known-answer case before deploying it.** The "prove a guard by
   breaking it" principle extends to ATTRIBUTION METHODS, SIMILARITY METRICS, and HEURISTIC MAPPINGS.
   Before trusting such a method on unknowns: (1) run it on at least one case whose correct answer is
-  already known and confirm it gives the right answer; (2) run it on a case known to be WRONG and
-  require the method to reject it. Both controls are required — a method that passes only the positive
-  may be trivially accepting; one that passes only the negative may be trivially rejecting.
+  already known and confirm it gives the right answer (this positive test is required); (2) where a
+  case known to be WRONG exists, require the method to reject it (the negative control is required
+  when such a case exists — a method that passes only the positive may be trivially accepting; one
+  that passes only the negative may be trivially rejecting).
 
 - **Coordinate-system handoffs are verification boundaries.** Any handoff between coordinate systems
   (CAD +Y up vs three.js +Z toward viewer; job-network numbering vs live-bus numbering) is a boundary
@@ -1318,8 +1320,9 @@ B64→B55). Make this a habit, not an accident:
   when you revisit a prior claim. Add the proactive complement: after computing a measurement over a
   population, search the corpus for prior measurements of the SAME population and verify they agree. If
   they do not, issue a §14 correction — do not leave both figures standing unremarked. Use both together:
-  the reactive rule catches contradictions you encounter; the proactive rule catches ones you would not
-  encounter unless you went looking.
+  the reactive rule fires when you revisit a claim; the periodic sweep (above) fires by subsystem on a
+  schedule; this rule fires at the moment a measurement is computed — triggered by the act of computing,
+  not by a later audit or encounter.
 - **When a conflict CANNOT yet be adjudicated**, do NOT force it into a premature `[INFER]` or drop it:
   record it in the corpus `CONTRADICTIONS.md` as `open` (source A says X, source B says Y). It is surfaced
   by `research-sdd-status.sh` (open count in the status report) so it is not forgotten at STOP, and resolved

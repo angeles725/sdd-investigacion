@@ -134,12 +134,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      gaps in engram research/<target>/gaps.
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
      Status |`); Priority must be `high`, `medium`, or `low` (not translated); Status must start with
-     `pending` for a gap to be treated as investigable. A row with the wrong Priority value is silently
-     skipped; a row whose cell count ≠ 4 triggers a WARN to stderr from `research-sdd-status.sh`
+     `pending` for a gap to be treated as investigable. The awk parser applies two checks in order,
+     and precedence matters: first it validates the Priority cell; only rows that pass then hit the
+     cell-count check. Consequently: a row with an invalid Priority is silently skipped — no WARN,
+     regardless of cell count; a valid-priority row with n ≠ 4 cells triggers a WARN to stderr
      (`"WARN: malformed backlog row (N cells, expected 4 — a cell may contain a pipe): …"`) and is
-     then dropped — it is NOT silently ignored, and `verify-state.sh` is NOT the reporter. No inline
-     `|` is safe inside a cell, including the escaped form `\|`: awk splits on the literal pipe
-     character, so `\|` produces a spurious 5th cell and the same WARN + drop.
+     then dropped. `verify-state.sh` is NOT the reporter. No inline `|` is safe inside a cell,
+     including the escaped form `\|`: awk splits on the literal pipe character — a `\|` inside the
+     Priority cell corrupts that cell (silent skip); a `\|` elsewhere (Priority intact) yields a
+     spurious 5th cell (WARN + drop).
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      DELEGATE an audit sweep (Explore/general-purpose sub-agent) that returns a COVERAGE MATRIX —
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
@@ -271,7 +274,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - PRE-TEST POPULATION ANATOMY: before running a comparison or classification test, measure
          the anatomy of the test population — how many items survive the eligibility filter, and
          what fraction is auto-generated vs. semantic vs. absent. If the post-filter count is zero,
-         the test is NOT APPLICABLE and must not run. (Distinct from RE-MEASURE A DRAMATIC NEGATIVE,
+         the test is NOT APPLICABLE and must not run — report the measured pre-filter and post-filter
+         counts in place of a vacuous result (the anatomy distinguishes "the filter consumed everything"
+         from "the input was absent", satisfying §7). (Distinct from RE-MEASURE A DRAMATIC NEGATIVE,
          which fires AFTER a striking result to verify it; this gate fires BEFORE the test, when the
          population is still uncounted.)
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
@@ -336,8 +341,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          step, not orchestration of the loop.
   6. UPDATE STATE (archive phase):
        - Mark the gap covered in RESEARCH-STATE.md + INDEX.md; REGISTER the NEW gaps uncovered. A gap may
-         close by NEW investigation, by PROVEN ABSENCE, or by REMITTANCE (already answered by an existing
-         cited block — cite [Block N] §N.x + "no new substance"; see METHODOLOGY §8).
+         close by NEW investigation, by PROVEN ABSENCE, by REMITTANCE (already answered by an existing
+         cited block — cite [Block N] §N.x + "no new substance"), or by RE-SCOPE (belongs to a different
+         question; state which focus it belongs to and whether it exists — see METHODOLOGY §8).
          PROVEN ABSENCE requires the same sampling discipline as a positive finding: state the sample
          size and the test applied. A single sample that failed the question you asked is evidence for
          that one case, not for the universe. ALSO record what question the source DOES answer — a
