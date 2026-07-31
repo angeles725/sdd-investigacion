@@ -270,7 +270,7 @@ if [ "$mode" = "--sync-state" ]; then
   # file's OWN directory — recomputed INSIDE the loop with the SAME strict discriminator + dirname scoping that
   # verify-state.sh:101 uses. A once-at-$corpus cb would disagree with verify-state for any focus file living in
   # a subdirectory (verify-state recomputes ondisk per dirname($state)), FAILing the envelope we just wrote.
-  render_envelope() {   # reads the per-file globals set in the loop below (cb/io/bo/gc/kg/req/def)
+  render_envelope() {   # reads the per-file globals: cb/gc/kg/io/req/bo/def/uf/_e_bs
     printf '<!-- research-state.v1 -->\n'
     printf 'schema: research-state.v1\n'
     printf 'covered_blocks: %s\n' "$cb"
@@ -281,6 +281,7 @@ if [ "$mode" = "--sync-state" ]; then
     printf 'blocked_open: %s\n' "$bo"
     printf 'deferred_open: %s\n' "$def"
     printf 'undocumented_findings: %s\n' "$uf"
+    [ -n "$_e_bs" ] && printf 'block_scope: %s\n' "$_e_bs"
     printf '<!-- /research-state.v1 -->'
   }
   # Reassigning the global `state` per iteration is deliberate: section/backlog_rows/blocked_body/env_get all
@@ -294,12 +295,25 @@ if [ "$mode" = "--sync-state" ]; then
     # plain path harmlessly. The temp then lives in the target's OWN directory so mv is a same-filesystem
     # atomic rename (a bare mktemp lands in TMPDIR, and a cross-device mv is a non-atomic copy+unlink).
     state="$(readlink -f "$state" 2>/dev/null || printf '%s' "$state")"
+    # block_scope: carry-forward through --sync-state round-trips so the declaration survives. env_get
+    # handles indented forms (whitespace-split awk). The no-space probe mirrors the undocumented_findings
+    # precedent (index==1 anchors to line-start; only legal values are carried — illegal values stay for
+    # verify-state to FAIL on). _e_bs is read into render_envelope via the shared shell scope.
+    _e_bs="$(env_get block_scope)"
+    if [ -z "$_e_bs" ]; then
+      _raw_bs="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && index($0,"block_scope:")==1{v=substr($0,length("block_scope:")+1); sub(/^[[:space:]]*/,"",v); print v; exit}' "$state")"
+      case "$_raw_bs" in per-focus|shared-global) _e_bs="$_raw_bs" ;; esac
+    fi
     # covered_blocks from THIS file's own directory — identical discriminator + dirname scoping to
-    # verify-state.sh, so declared cb can never disagree with the ondisk count verify-state recomputes.
-    # B5 FIX: apply the same focus-prefix filter as verify-state.sh so a multi-focus corpus sets the
-    # per-focus block count, not the total corpus count (RESEARCH-STATE-dashboard.md → dashboard-block*.md).
+    # verify-state.sh (single definition rule, prevents dual-authority drift on this count).
+    # B5 FIX: focus-prefix filter for multi-focus corpora; shared-global path mirrors BS-SHARED-GLOBAL-ONDISK.
     _sfpfx="$(derive_focus_prefix "$state")"
-    if [ -n "$_sfpfx" ]; then
+    if [ "$_e_bs" = "shared-global" ]; then
+      # block_scope: shared-global → use focus-blind global count, matching verify-state.sh's path so
+      # the two scripts always agree (invariant documented at status.sh:297-298).
+      cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+        | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | grep -E "/${_sfpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
     else

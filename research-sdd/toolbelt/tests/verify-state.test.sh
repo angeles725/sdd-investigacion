@@ -974,6 +974,39 @@ if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*covered_blocks=5' <<<"$out" && ! gr
   ok "BS-no-blocks: no block files at all (global=0) → standard FAIL, no shared-global hint"
 else no "BS-no-blocks: exit $(code "$d") :: $(grep -iE 'fail.*covered_blocks\|shared-global' <<<"$out" | head -1)"; fi
 
+# FOLLOW-UP 3: BS-indented — `  block_scope: shared-global` (leading spaces) must be detected as present.
+# env_field uses whitespace split so it correctly reads the value; but the _bs_present probe anchored
+# to /^block_scope:/ misses the indented form → treated as absent → per-focus path → ondisk=0 vs
+# e_covered=3 → FAIL. After fixing the probe to /^[[:space:]]*block_scope:/, the presence is detected,
+# shared-global path is taken, ondisk=3 → PASS.
+d="$TMP/bs-indented"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-bloque1.md"; printf 'x\n' > "$d/niagara-bloque2.md"; printf 'x\n' > "$d/niagara-bloque3.md"
+{ echo '# Chihuahua — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 3\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n  block_scope: shared-global\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BS-indented: '  block_scope: shared-global' (indented) detected present → shared-global path, exit 0"
+else no "BS-indented: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
+
+# FOLLOW-UP 4: BS-nospace-msg — block_scope:shared-global (no space after colon) must FAIL and the
+# message must name the no-space form (not just print '<empty>'). The exit-1 is already correct; the
+# fix is message quality so the operator knows exactly what to fix.
+d="$TMP/bs-nospace-msg"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope:shared-global\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-t.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qiE 'block_scope.*missing.space|missing.space.*block_scope|no.space.*block_scope|block_scope.*no.space|unparseable' <<<"$out"; then
+  ok "BS-nospace-msg: block_scope:shared-global (no space) → FAIL exit 1 with message naming the no-space form"
+else no "BS-nospace-msg: exit $(code "$d") :: $(grep -iE 'block_scope' <<<"$out" | head -1) (want FAIL + no-space message)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -1277,6 +1310,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if grep -q 'shared-global' <<<"$mbnbout"; then
       ok "teeth-BS-no-blocks: relaxed guard → global=0 emits shared-global hint → BS-no-blocks has teeth"
     else no "teeth-BS-no-blocks: mutant did NOT emit shared-global hint → BS-no-blocks may not depend on global guard (THEATER)"; fi
+  fi
+
+  # ---- FOLLOW-UP 3 mutation: neuter the whitespace-tolerant probe (sentinel BS-INDENTED-PROBE) ----
+  # BS-indented fixture (  block_scope: shared-global) must then report _bs_present="" → per-focus path
+  # → ondisk=0 vs e_covered=3 → FAIL (exit 1), proving the whitespace-tolerant probe is load-bearing.
+  echo "-- teeth-BS-indented: neuter BS-INDENTED-PROBE; indented form must be missed → FAIL --"
+  mutantBSI="$TMP/verify-state.BSINDENTED.MUTANT.sh"
+  sed '/# BS-INDENTED-PROBE$/s/_bs_present=.*/_bs_present=""  # MUTANT-BSI: probe neutered/' "$SUT" > "$mutantBSI"
+  if ! grep -q 'MUTANT-BSI' "$mutantBSI"; then
+    no "teeth-BS-indented: could not build mutant (BS-INDENTED-PROBE sentinel not found — did SUT change?)"
+  else
+    d="$TMP/bs-indented"
+    bash "$mutantBSI" "$d" >/dev/null 2>&1; mbsigot=$?
+    if [ "$mbsigot" = 1 ]; then
+      ok "teeth-BS-indented: neutered probe → indented form missed → FAIL (exit 1) → BS-indented has teeth"
+    else no "teeth-BS-indented: mutant exit $mbsigot (want 1) — indented probe not exercised (THEATER)"; fi
+  fi
+
+  # ---- FOLLOW-UP 4 mutation: replace 'unparseable' message branch with the old '<empty>' text ----
+  echo "-- teeth-BS-nospace-msg: old '<empty>' message; 'unparseable' check must miss --"
+  mutantBSNS="$TMP/verify-state.BSNOSPACE.MUTANT.sh"
+  sed 's/envelope block_scope is present but unparseable.*/envelope block_scope=<empty> is not a legal value — must be '"'"'per-focus'"'"' or '"'"'shared-global'"'"'/' "$SUT" > "$mutantBSNS"
+  if ! grep -q 'block_scope=<empty>' "$mutantBSNS"; then
+    no "teeth-BS-nospace-msg: could not build mutant (unparseable message line not found — did SUT change?)"
+  else
+    d="$TMP/bs-nospace-msg"
+    mbnsout="$(bash "$mutantBSNS" "$d" 2>/dev/null)"
+    if ! grep -qiE 'unparseable|missing.space|no.space' <<<"$mbnsout"; then
+      ok "teeth-BS-nospace-msg: old message → 'unparseable' check fails → BS-nospace-msg wording is load-bearing"
+    else no "teeth-BS-nospace-msg: reverted mutant STILL has the improved message — assertion is THEATER"; fi
   fi
 fi
 

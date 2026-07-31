@@ -166,7 +166,14 @@ _validate_block_scope() {
   case "$bs" in
     per-focus|shared-global) return 0 ;;
     *)
-      echo "   FAIL   envelope block_scope=${bs:-<empty>} is not a legal value — must be 'per-focus' or 'shared-global'"
+      if [ -z "$bs" ]; then
+        # bs_present non-empty but env_field returned empty: the line exists but is unparseable by the
+        # whitespace-field-split awk — most likely a missing space after the colon.  Mirrors the
+        # undocumented_findings precedent documented at :246-248.
+        echo "   FAIL   envelope block_scope is present but unparseable — check for a missing space after the colon (e.g. 'block_scope:shared-global' must be 'block_scope: shared-global') — must be 'per-focus' or 'shared-global'"
+      else
+        echo "   FAIL   envelope block_scope=${bs} is not a legal value — must be 'per-focus' or 'shared-global'"
+      fi
       return 1 ;;
   esac
 }
@@ -210,7 +217,7 @@ for state in "${states[@]}"; do
   # Present but neither legal value (including empty) is a hard FAIL: the gate must know which mode applies.
   # This is the §7 three-state rule: absent ≠ empty ≠ illegal value.
   e_bs="$(env_field "$state" block_scope)"
-  _bs_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print; exit}' "$state")"
+  _bs_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*block_scope:/{print; exit}' "$state")"  # BS-INDENTED-PROBE
   _bs_valid=1  # set to 0 when present but holds an illegal value (including empty)
   if ! _validate_block_scope "$_bs_present" "$e_bs"; then  # BS-BLOCK_SCOPE-VALIDATE
     frc=1; rc=1; _bs_valid=0
@@ -261,7 +268,7 @@ for state in "${states[@]}"; do
   # other-prefix blocks exist) from a genuine zero or a real staleness mismatch.
   if ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; then
     if [ -n "$_fpfx" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # BS-CANNOT-SEE-COND
-      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>}: no block file matches prefix '${_fpfx}' — ${_ondisk_global} block file(s) exist under other prefixes; if the corpus uses shared block numbering across focuses, declare: block_scope: shared-global"
+      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>}: no block file matches prefix '${_fpfx}' — ${_ondisk_global} block file(s) exist under other prefixes; if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state"
     else
       echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${ondisk} block file(s) on disk — re-seed: --sync-state"
     fi
