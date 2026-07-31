@@ -82,6 +82,20 @@ proves nothing, because a suite that never ran cannot fail. Demand the full aggr
 that a merged, CI-green PR is not a verified PR — two defects in one session came from code merged
 hours earlier and were found only by re-verifying the merged result.
 
+"It failed under load but passes standalone" is that same rejected report shape in different clothes,
+and it is only a valid explanation while concurrent writers are actually editing. With a single writer
+on a quiet tree it explains nothing and must be filed as a defect — see issue #129, where
+`corroborate-ghidra.test.sh` failed at 79/80 under one agent's own load and returned 80/80 immediately
+afterwards.
+
+**Isolate concurrent work in git worktrees, not in one checkout.** Disjoint file sets are necessary but
+not sufficient: `run-all.sh --prove-teeth` mutates implementation files in place, so any writer editing
+during a gate run invalidates it, which forces PRs to serialise. A worktree per PR removes the coupling
+by construction and lets units with disjoint file sets run concurrently. Constraints that are not
+optional: each worktree needs its OWN `.codegraph/` index — never copy or symlink another checkout's,
+because its root and checked-out bytes differ — and it must live under the home directory as
+`<repo-parent>/<repo-name>-worktrees/<name>`, never under `/tmp` or `/var/tmp`.
+
 ---
 
 ## 4. Strict TDD
@@ -126,6 +140,20 @@ This is the kit's established PR review budget (`sdd-mental-model-bloque17.md §
 
 When scope exceeds the budget: **split into chained PRs**. State explicitly what is deferred and why —
 silent scope compression is a defect, not a tidy scope trim.
+
+**Probe viability before the writer, not after the review.** The cheapest question in the loop is
+"what would make this unbuildable, and what does it yield if built?" — and it must be answered before
+a writer spends hours. A work unit whose measured yield is ZERO findings today has a near-zero ceiling
+on what it may cost, and that ceiling is a decision input, not a footnote. The `verify-block.sh`
+synthesis gate was measured at 145 remissions with 0 broken BEFORE implementation, and built anyway;
+it consumed 59% of a session's agent time and was closed unmerged because it delivered 19 false
+failures and disabled a working guard. Its other fatal fact — that blocks carry no machine-readable
+type, so detection could only guess from prose — was also knowable in minutes.
+
+The corollary: when the substrate has no schema, **doctrine comes first**. Prescribe the declaration,
+then build the checker against it. A parser over free-form prose inherits that prose's ambiguity no
+matter how good the regex. Same conclusion reached twice in one session — for block types, and for
+the `TARGETS.md` maturity cell whose 18 rows carried 25 distinct field shapes.
 
 ---
 
@@ -174,6 +202,25 @@ same claim as "this much work is waiting", and the gap between those readings wa
 the headline. The fix is not to make the instrument guess; deltas are prose and it cannot. The fix is
 to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
 before trusting it as work.
+
+**Acceptance is a fleet sweep, not the fixtures.** An instrument that reads corpora or the registry is
+accepted by running it against the REAL fleet, diffing against `main`, and classifying every new WARN
+and every exit-code flip by hand as true or false. Fixtures pin the behaviour the author already
+imagined; the corpus is where the forms nobody enumerated live. Three consecutive fixture-green
+versions of the `verify-block.sh` synthesis gate were each wrong on real data — one WARNed 15 times on
+a clean file, one reported `unrecog=0` over six real parser gaps, one misdetected ~50 evidence blocks
+and turned off the P6 anti-silent-zero WARN on all of them. Shellcheck, the full suite and
+`--prove-teeth` passed every time. That PR was closed rather than merged; its measurements are in
+issue #128.
+
+**Test the list edges, not just the middle.** A validator that walks a list needs its interesting case
+in FIRST, MIDDLE and LAST position, plus the single-element case. `verify-registry.sh` fed its token
+loop with `printf '%s' … | tr '/' '\n'`; with no trailing newline the final `read` returns non-zero and
+the loop body never runs for the last token, so the last field of all 18 rows was never validated and a
+single-field cell was never validated at all. Every fixture had placed its garbage mid-cell, so the
+tests AND their mutation controls passed. The instrument reported zero non-conforming fields, and that
+zero was read as confirmation — a zero that could not prove it had looked, inside the check written to
+stop exactly that.
 
 ---
 
