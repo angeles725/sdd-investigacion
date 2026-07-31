@@ -670,5 +670,392 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+
+# ==== NR-C: synthesis remission gate (8 cases + mutation controls) ====
+
+# 45 — C1: non-synthesis block → no synthesis gate output (regression guard).
+d="$TMP/c1-nonsyn.md"
+{ echo "# Block 50 — evidence block"; echo
+  echo "> Method: [CERT] = verified."; echo
+  echo "---"; echo
+  echo "## 50.1 claim [CERT]"; echo "The class does X [CERT]."; } > "$d"
+out="$(run "$d")"
+if ! grep -qiE 'synthesis remission gate|remission-ok|remission summary|SYN-ZERO-REM' <<<"$out"; then
+  ok "C1: non-synthesis block → no synthesis gate output (regression guard)"
+else no "C1: synthesis gate fired on non-synthesis block :: $(grep -iE 'synthesis|remission' <<<"$out" | head -1)"; fi
+
+# 46 — C2a: form 1 `[Block N]` §N.x → remission-ok (block file + section heading present).
+printf '# Block 295\n\n## 295.7 — TCP socket\nContent.\n' > "$TMP/block295.md"
+d="$TMP/c2a-f1.md"
+{ echo "# Block 315 — SYNTHESIS of the modbus focus"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 315.1 cross-ref"; echo "\`[Block 295]\` §295.7 — the transport"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'remission-ok.*295|295.*remission-ok' <<<"$out"; then
+  ok "C2a: form 1 \`[Block N]\` §N.x → remission-ok, exit 0"
+else no "C2a: form 1 not resolved: rc=[$rc] :: $(grep -iE 'remission|295' <<<"$out" | head -2)"; fi
+
+# 47 — C2b: form 2 B N §N.x → remission-ok.
+printf '# Block 2\n\n## 2.3 — inventory\nContent.\n' > "$TMP/block2.md"
+d="$TMP/c2b-f2.md"
+{ echo "# Block 9 — DESIGN / SYNTHESIS"; echo
+  echo "> BLOCK TYPE: DESIGN / SYNTHESIS. High [INFER] expected."; echo
+  echo "---"; echo
+  echo "## 9.1 site facts"; echo "36,239 points (B2 §2.3)"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'remission-ok.*\b2\b' <<<"$out"; then
+  ok "C2b: form 2 B N §N.x → remission-ok, exit 0"
+else no "C2b: form 2 not resolved: rc=[$rc] :: $(grep -iE 'remission|B2' <<<"$out" | head -2)"; fi
+
+# 48 — C2c: form 3 [Bloque N] §N.x → remission-ok (Spanish).
+printf '# Bloque 253\n\n## 253.2 — finding\nContent.\n' > "$TMP/logosoft-bloque253.md"
+d="$TMP/c2c-f3.md"
+{ echo "# Bloque 270 — SÍNTESIS del corpus"; echo
+  echo "> BLOQUE TIPO SÍNTESIS. Las citas son remisiones."; echo
+  echo "---"; echo
+  echo "## 270.1 hallazgos"; echo "[Bloque 253] §253.2 — el hallazgo"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'remission-ok.*253|253.*remission-ok' <<<"$out"; then
+  ok "C2c: form 3 [Bloque N] §N.x → remission-ok, exit 0"
+else no "C2c: form 3 not resolved: rc=[$rc] :: $(grep -iE 'remission|253' <<<"$out" | head -2)"; fi
+
+# 49 — C2d: form 4 [Block N §N.x] (section inside brackets) → remission-ok.
+printf '# Block 4\n\n## 4.1 — VID\nContent.\n' > "$TMP/block4.md"
+d="$TMP/c2d-f4.md"
+{ echo "# Block 12 — Synthesis: the USB model"; echo
+  echo "> BLOCK TYPE: design/synthesis (per METHODOLOGY §11)."; echo
+  echo "---"; echo
+  echo "## 12.1 topology"; echo "VID confirmed [Block 4 §4.1]."; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'remission-ok.*\b4\b' <<<"$out"; then
+  ok "C2d: form 4 [Block N §N.x] → remission-ok, exit 0"
+else no "C2d: form 4 not resolved: rc=[$rc] :: $(grep -iE 'remission|block 4' <<<"$out" | head -2)"; fi
+
+# 50 — C3: remission with MISSING SECTION → exit 1, message names "section" not "file".
+printf '# Block 8\n\n## 8.1 — heading only\nContent.\n' > "$TMP/block8.md"
+d="$TMP/c3-missec.md"
+{ echo "# Block 12 — Synthesis"; echo
+  echo "> BLOCK TYPE: design/synthesis."; echo
+  echo "---"; echo
+  echo "## 12.1 findings"; echo "[Block 8] §8.5 — section does not exist"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && grep -qiE 'REMISSION-MISSING-SECTION|missing.section|section.*not found' <<<"$out" \
+   && ! grep -qiE 'REMISSION-MISSING-FILE|file.*not found' <<<"$out"; then
+  ok "C3: section missing → exit 1, section message (not file message)"
+else no "C3: section-missing not caught or wrong message: rc=[$rc] :: $(grep -iE 'MISSING|remission' <<<"$out" | head -2)"; fi
+
+# 51 — C4: remission with MISSING FILE → exit 1, message names "file" (distinct from C3).
+d="$TMP/c4-misfile.md"
+{ echo "# Block 12 — Synthesis"; echo
+  echo "> BLOCK TYPE: design/synthesis."; echo
+  echo "---"; echo
+  echo "## 12.1 findings"; echo "[Block 99] §99.3 — block 99 does not exist"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "1" ] && grep -qiE 'REMISSION-MISSING-FILE|file.*not found' <<<"$out" \
+   && ! grep -qiE 'REMISSION-MISSING-SECTION|section.*not found' <<<"$out"; then
+  ok "C4: file missing → exit 1, file message (distinct from C3 section message)"
+else no "C4: file-missing not caught or non-distinct message: rc=[$rc] :: $(grep -iE 'MISSING|remission' <<<"$out" | head -2)"; fi
+
+# 52 — C5: self-reference (block number == current block) → skipped, exit 0, not resolved.
+d="$TMP/syn-block315.md"
+{ echo "# Block 315 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 315.1 self"; echo "[Block 315] §315.1 — self-reference to same block"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! grep -qiE 'remission-ok.*315|REMISSION-MISSING.*315' <<<"$out"; then
+  ok "C5: [Block N] §N.x where N=current block → skipped (self-ref), exit 0"
+else no "C5: self-reference not skipped: rc=[$rc] :: $(grep -iE 'remission.*315|315.*remission' <<<"$out" | head -2)"; fi
+
+# 53 — C6: [Block N] §N.x entirely inside a backtick code span → not parsed, exit 0.
+# block295.md already exists in TMP (from C2a) with §295.7; if parsed, remission-ok would fire.
+d="$TMP/c6-codespan.md"
+{ echo "# Block 315 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 315.1 example"; echo "Use the format \`[Block 295] §295.7\` for citations."; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && ! grep -qiE 'remission-ok.*295|REMISSION-MISSING.*295' <<<"$out"; then
+  ok "C6: [Block N] §N.x inside backtick code span → not parsed, exit 0"
+else no "C6: code-span remission was parsed: rc=[$rc] :: $(grep -iE 'remission.*295|295.*remission' <<<"$out" | head -2)"; fi
+
+# 54 — C7: unrecognised block-ref+§ form (form 5) → WARN emitted, exit stays 0.
+d="$TMP/c7-unrecog.md"
+{ echo "# Block 400 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 400.1 kidcad"; echo "[[bloque32]] §321 — kidcad form (form 5, deferred)"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'WARN.*unrecog|unrecog.*WARN|unrecognised|unrecognized' <<<"$out"; then
+  ok "C7: unrecognised form → WARN, exit 0"
+else no "C7: unrecognised form not warned: rc=[$rc] :: $(grep -iE 'WARN|unrecog|form' <<<"$out" | head -2)"; fi
+
+# 55 — C8: synthesis block with ZERO remission-shaped text → distinct "no remissions" summary
+#      (not confused with C7 which has candidates but they are unrecognised).
+d="$TMP/c8-zerorems.md"
+{ echo "# Block 500 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block. Editorial only."; echo
+  echo "---"; echo
+  echo "## 500.1 editorial"; echo "Commentary with no cross-block references at all."; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'NO remission-shaped|no remission|zero remission' <<<"$out" \
+   && ! grep -qiE 'WARN.*unrecog|unrecog.*WARN' <<<"$out"; then
+  ok "C8: zero remission-shaped text → 'no remissions' summary (distinct from C7 unrecognised)"
+else no "C8: zero-remission summary not distinct :: $(grep -iE 'remission|WARN|summary' <<<"$out" | head -2)"; fi
+
+# ---- Synthesis mutation controls (--prove-teeth) ----
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-C1: neuter SYN-GATE-DETECT; synthesis gate must not fire on synthesis block --"
+  mutant_C1="$TMP/vb.C1MUT.sh"
+  if grep -q '# SYN-GATE-DETECT' "$SUT"; then
+    sed '/# SYN-GATE-DETECT/ s/.*/if false; then  # SYN-GATE-DETECT [NEUTERED]/' "$SUT" > "$mutant_C1"
+    bash -n "$mutant_C1" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C1: mutant syntax error (rc=$_syn)"
+    else
+      d_C1="$TMP/c1t.md"
+      { echo "# Block 315 — SYNTHESIS"; echo; echo "> this is a SYNTHESIS block."; echo
+        echo "---"; echo; echo "## 315.1 x"; echo "[Block 295] §295.7 — ref"; } > "$d_C1"
+      mout="$(bash "$mutant_C1" "$d_C1" 2>/dev/null)"
+      if ! grep -qiE 'synthesis remission|remission-ok' <<<"$mout"; then
+        ok "teeth-C1: neutered gate → no gate output for synthesis block (test 46 has teeth)"
+      else no "teeth-C1: neutered gate still shows gate output :: $(grep -iE 'synthesis|remission' <<<"$mout" | head -1)"; fi
+    fi
+  else no "teeth-C1: SYN-GATE-DETECT sentinel not found in SUT"; fi
+
+  echo "-- teeth-C3: neuter SYN-MISSING-SECTION; section-missing must revert to exit 0 --"
+  mutant_C3="$TMP/vb.C3MUT.sh"
+  if grep -q '# SYN-MISSING-SECTION' "$SUT"; then
+    sed '/# SYN-MISSING-SECTION/ s/.*/      echo "   remission-warn  missing"  # SYN-MISSING-SECTION [NEUTERED]/' "$SUT" > "$mutant_C3"
+    bash -n "$mutant_C3" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C3: mutant syntax error"
+    else
+      d_C3="$TMP/c3t.md"
+      printf '# Block 8\n\n## 8.1 — heading\nContent.\n' > "$TMP/block8.md"
+      { echo "# Block 12 — Synthesis"; echo; echo "> BLOCK TYPE: design/synthesis."; echo
+        echo "---"; echo; echo "## 12.1 x"; echo "[Block 8] §8.5 — missing section"; } > "$d_C3"
+      bash "$mutant_C3" "$d_C3" >/dev/null 2>/dev/null; mc3_rc=$?
+      if [ "$mc3_rc" = "0" ]; then ok "teeth-C3: neutered section-missing → exit 0 (test 50 has teeth)"
+      else no "teeth-C3: neutered mutant still exits 1: rc=[$mc3_rc]"; fi
+    fi
+  else no "teeth-C3: SYN-MISSING-SECTION sentinel not found in SUT"; fi
+
+  echo "-- teeth-C4: neuter SYN-MISSING-FILE; file-missing message must collapse (C3/C4 not distinct) --"
+  mutant_C4="$TMP/vb.C4MUT.sh"
+  if grep -q '# SYN-MISSING-FILE' "$SUT"; then
+    sed '/# SYN-MISSING-FILE/ s/.*/      echo "   REMISSION-MISSING-SECTION  neutered"  # SYN-MISSING-FILE [NEUTERED]/' "$SUT" > "$mutant_C4"
+    bash -n "$mutant_C4" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C4: mutant syntax error"
+    else
+      d_C4="$TMP/c4t.md"
+      { echo "# Block 12 — Synthesis"; echo; echo "> BLOCK TYPE: design/synthesis."; echo
+        echo "---"; echo; echo "## 12.1 x"; echo "[Block 99] §99.3 — no such file"; } > "$d_C4"
+      mout="$(bash "$mutant_C4" "$d_C4" 2>/dev/null)"
+      if grep -qiE 'REMISSION-MISSING-SECTION' <<<"$mout" && ! grep -qiE 'REMISSION-MISSING-FILE' <<<"$mout"; then
+        ok "teeth-C4: neutered file-missing → C3/C4 messages collapse (test 51 has teeth)"
+      else no "teeth-C4: messages did not collapse :: $(grep -iE 'MISSING' <<<"$mout" | head -2)"; fi
+    fi
+  else no "teeth-C4: SYN-MISSING-FILE sentinel not found in SUT"; fi
+
+  echo "-- teeth-C5: neuter SYN-SELF-SKIP; self-reference must now be counted --"
+  mutant_C5="$TMP/vb.C5MUT.sh"
+  if grep -q '# SYN-SELF-SKIP' "$SUT"; then
+    sed '/# SYN-SELF-SKIP/ s/.*/:  # SYN-SELF-SKIP [NEUTERED]/' "$SUT" > "$mutant_C5"
+    bash -n "$mutant_C5" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C5: mutant syntax error"
+    else
+      d_C5="$TMP/c5t.md"; cp "$TMP/syn-block315.md" "$d_C5"
+      mout="$(bash "$mutant_C5" "$d_C5" 2>/dev/null)"
+      if grep -qiE 'remission-ok.*315|REMISSION-MISSING.*315' <<<"$mout"; then
+        ok "teeth-C5: neutered self-skip → self-ref counted (test 52 has teeth)"
+      else no "teeth-C5: neutered self-skip didn't count self-ref :: $(grep -iE 'remission.*315|315.*remission' <<<"$mout" | head -2)"; fi
+    fi
+  else no "teeth-C5: SYN-SELF-SKIP sentinel not found in SUT"; fi
+
+  echo "-- teeth-C6: neuter SYN-CODE-SPAN-FILTER; code-span remission must now be parsed --"
+  mutant_C6="$TMP/vb.C6MUT.sh"
+  if grep -q '# SYN-CODE-SPAN-FILTER' "$SUT"; then
+    sed '/# SYN-CODE-SPAN-FILTER/ s/.*/_bt_spans=""  # SYN-CODE-SPAN-FILTER [NEUTERED]/' "$SUT" > "$mutant_C6"
+    bash -n "$mutant_C6" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C6: mutant syntax error"
+    else
+      # block295.md (with §295.7 heading) must exist for the neutered parse to resolve
+      printf '# Block 295\n\n## 295.7 — TCP socket\nContent.\n' > "$TMP/block295.md"
+      d_C6="$TMP/c6t.md"
+      { echo "# Block 315 — SYNTHESIS"; echo; echo "> this is a SYNTHESIS block."; echo
+        echo "---"; echo; echo "## 315.1 example"
+        echo "Use the format \`[Block 295] §295.7\` for citations."; } > "$d_C6"
+      mout="$(bash "$mutant_C6" "$d_C6" 2>/dev/null)"
+      if grep -qiE 'remission-ok.*295|REMISSION-MISSING.*295' <<<"$mout"; then
+        ok "teeth-C6: neutered code-span filter → code-span remission now parsed (test 53 has teeth)"
+      else no "teeth-C6: neutered filter didn't parse code-span remission :: $(grep -iE 'remission.*295|295.*remission' <<<"$mout" | head -2)"; fi
+    fi
+  else no "teeth-C6: SYN-CODE-SPAN-FILTER sentinel not found in SUT"; fi
+
+  echo "-- teeth-C7: neuter SYN-UNRECOG; unrecognised form WARN must not fire --"
+  mutant_C7="$TMP/vb.C7MUT.sh"
+  if grep -q '# SYN-UNRECOG' "$SUT"; then
+    sed '/# SYN-UNRECOG/ s/.*/:  # SYN-UNRECOG [NEUTERED]/' "$SUT" > "$mutant_C7"
+    bash -n "$mutant_C7" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C7: mutant syntax error"
+    else
+      d_C7="$TMP/c7t.md"
+      { echo "# Block 400 — SYNTHESIS"; echo; echo "> this is a SYNTHESIS block."; echo
+        echo "---"; echo; echo "## 400.1 x"; echo "[[bloque32]] §321 — unrecognised"; } > "$d_C7"
+      mout="$(bash "$mutant_C7" "$d_C7" 2>/dev/null)"
+      if ! grep -qiE 'WARN.*unrecog|unrecog.*WARN|unrecognised' <<<"$mout"; then
+        ok "teeth-C7: neutered SYN-UNRECOG → no WARN for unrecognised form (test 54 has teeth)"
+      else no "teeth-C7: neutered WARN still fires :: $(grep -iE 'WARN|unrecog' <<<"$mout" | head -1)"; fi
+    fi
+  else no "teeth-C7: SYN-UNRECOG sentinel not found in SUT"; fi
+
+  echo "-- teeth-C8: neuter SYN-ZERO-REM; zero-remission distinct summary must disappear --"
+  mutant_C8="$TMP/vb.C8MUT.sh"
+  if grep -q '# SYN-ZERO-REM' "$SUT"; then
+    sed '/# SYN-ZERO-REM/ s/.*/:  # SYN-ZERO-REM [NEUTERED]/' "$SUT" > "$mutant_C8"
+    bash -n "$mutant_C8" 2>/dev/null; _syn=$?
+    if [ "$_syn" != "0" ]; then no "teeth-C8: mutant syntax error"
+    else
+      d_C8="$TMP/c8t.md"
+      { echo "# Block 500 — SYNTHESIS"; echo; echo "> this is a SYNTHESIS block."; echo
+        echo "---"; echo; echo "## 500.1 editorial"; echo "No cross-block references."; } > "$d_C8"
+      mout="$(bash "$mutant_C8" "$d_C8" 2>/dev/null)"
+      if ! grep -qiE 'NO remission-shaped|no remission|zero remission' <<<"$mout"; then
+        ok "teeth-C8: neutered zero-rem → no distinct 'no remissions' message (test 55 has teeth)"
+      else no "teeth-C8: neutered zero-rem still shows distinct message :: $(grep -iE 'no remission|zero' <<<"$mout" | head -1)"; fi
+    fi
+  else no "teeth-C8: SYN-ZERO-REM sentinel not found in SUT"; fi
+fi
+
+# ==== NR-C correction: pair-based dedup for unrecognised remissions ====
+
+# 56 — NR-C dedup: same remission 4 times → parsed counts it once, unrecog=0, no false WARN.
+printf '# Block 7\n\n## 7.1 heading\nContent.\n' > "$TMP/block7.md"
+d="$TMP/nrc-dedup.md"
+{ echo "# Block 316 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 316.1 first";   echo "B7 §7.1 — first mention"
+  echo "## 316.2 second";  echo "B7 §7.1 — second mention"
+  echo "## 316.3 third";   echo "B7 §7.1 — third mention"
+  echo "## 316.4 fourth";  echo "B7 §7.1 — fourth mention"; } > "$d"
+out="$(run "$d")"
+if grep -qE 'unrecog=0' <<<"$out" && ! grep -qiE 'WARN.*unrecog' <<<"$out"; then
+  ok "NR-C dedup: same remission ×4 → unrecog=0 (no false WARN)"
+else no "NR-C dedup: crying wolf on duplicate :: $(grep -E 'unrecog|WARN' <<<"$out" | head -2)"; fi
+
+# 57 — NR-C range-both: §N.x-§N.y where BOTH components parsed → unrecog=0.
+printf '# Block 8\n\n## 8.2 alpha\nContent.\n\n## 8.3 beta\nContent.\n' > "$TMP/block8.md"
+d="$TMP/nrc-range-both.md"
+{ echo "# Block 316 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 316.1"; echo "B8 §8.2 — standalone alpha"
+  echo "## 316.2"; echo "B8 §8.3 — standalone beta"
+  echo "## 316.3"; echo "B8 §8.2-§8.3 — compound range (both already parsed)"; } > "$d"
+out="$(run "$d")"
+if grep -qE 'unrecog=0' <<<"$out" && ! grep -qiE 'WARN.*unrecog' <<<"$out"; then
+  ok "NR-C range-both: §N.x-§N.y with both components parsed → unrecog=0"
+else no "NR-C range-both: range with both parsed still flagged :: $(grep -E 'unrecog|WARN' <<<"$out" | head -2)"; fi
+
+# 58 — NR-C range-one: §N.x-§N.y where only §N.x parsed → unrecog≥1, WARN, verbatim printed, exit 0.
+# block8.md already has §8.2; create a fresh one without §8.3.
+printf '# Block 8\n\n## 8.2 alpha\nContent.\n' > "$TMP/block8.md"
+d="$TMP/nrc-range-one.md"
+{ echo "# Block 316 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 316.1"; echo "B8 §8.2-§8.3 — range; only §8.2 parsed, §8.3 not independently verified"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'WARN.*unrecog' <<<"$out" && grep -qF 'B8 §8.2-§8.3' <<<"$out"; then
+  ok "NR-C range-one: range with unresolved endpoint → WARN, verbatim printed, exit 0"
+else no "NR-C range-one: rc=[$rc] :: $(grep -E 'unrecog|WARN|B8' <<<"$out" | head -2)"; fi
+
+# 59 — NR-C unknown: genuinely unknown form [[bloque27]] §277 (no dotted section) →
+#       unrecog=1, WARN, verbatim printed verbatim in output, exit 0.
+d="$TMP/nrc-unknown.md"
+{ echo "# Block 400 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 400.1"; echo "[[bloque27]] §277 — kidcad form (form 5, no dotted section)"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -qiE 'WARN.*unrecog' <<<"$out" && grep -qF '[[bloque27]] §277' <<<"$out"; then
+  ok "NR-C unknown: [[bloque27]] §277 → unrecog=1, WARN, verbatim printed, exit 0"
+else no "NR-C unknown: rc=[$rc] :: $(grep -iE 'WARN|unrecog|bloque27' <<<"$out" | head -2)"; fi
+
+# 60 — NR-C long-gap: broad detector's gap limit blocks long-gap false positives.
+# [Block N]** — prose longer than 20 chars §M.x must NOT be treated as a cross-block remission
+# (the §M.x is a self-reference to the current block, not block N's section).
+d="$TMP/nrc-longgap.md"
+{ echo "# Block 502 — SYNTHESIS"; echo
+  echo "> this is a SYNTHESIS block."; echo
+  echo "---"; echo
+  echo "## 502.1 audit"
+  echo "[Block 10]** — this prose is definitely longer than twenty chars §502.2"; } > "$d"
+out="$(run "$d")"
+# After the gap fix the long-gap form is not captured at all: either "unrecog=0" appears
+# in the summary line, or the block has no parseable forms so "NO remission-shaped text" fires
+# instead. In either case WARN must be absent.
+if ! grep -qiE 'WARN.*unrecog' <<<"$out" && \
+    (grep -qE 'unrecog=0' <<<"$out" || grep -qiE 'NO remission-shaped' <<<"$out"); then
+  ok "NR-C long-gap: [Block N]** long prose §M.x (gap>20) → not captured, no false WARN"
+else no "NR-C long-gap: false positive from long gap :: $(grep -iE 'WARN|unrecog|remission' <<<"$out" | head -2)"; fi
+
+# ---- Mutation control for NR-C correction (--prove-teeth) ----
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-NRC: neuter SYN-PAIR-CHECK; duplicate (×4) must revert to WARN --"
+  mutant_nrc="$TMP/vb.NRCMUT.sh"
+  if grep -q '# SYN-PAIR-CHECK' "$SUT"; then
+    sed '/# SYN-PAIR-CHECK/ s/.*/:  # SYN-PAIR-CHECK [NEUTERED]/' "$SUT" > "$mutant_nrc"
+    bash -n "$mutant_nrc" 2>/dev/null; _nrc_syn=$?
+    if [ "$_nrc_syn" != "0" ]; then
+      no "teeth-NRC: mutant syntax error (rc=$_nrc_syn) — cannot run"
+    else
+      printf '# Block 7\n\n## 7.1 heading\nContent.\n' > "$TMP/block7.md"
+      d_nrc="$TMP/nrc-dedup-mut.md"
+      { echo "# Block 316 — SYNTHESIS"; echo
+        echo "> this is a SYNTHESIS block."; echo
+        echo "---"; echo
+        echo "## 316.1 first";  echo "B7 §7.1 — first mention"
+        echo "## 316.2 second"; echo "B7 §7.1 — second mention"
+        echo "## 316.3 third";  echo "B7 §7.1 — third mention"
+        echo "## 316.4 fourth"; echo "B7 §7.1 — fourth mention"; } > "$d_nrc"
+      mout_nrc="$(bash "$mutant_nrc" "$d_nrc" 2>/dev/null)"
+      if grep -qiE 'WARN.*unrecog' <<<"$mout_nrc"; then
+        ok "teeth-NRC: neutered pair-check → WARN fires on ×4 duplicate (test 56 has teeth)"
+      else
+        no "teeth-NRC: WARN did not fire with pair-check neutered :: $(grep -iE 'WARN|unrecog' <<<"$mout_nrc" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-NRC: SYN-PAIR-CHECK sentinel not found in SUT"
+  fi
+
+  echo "-- teeth-NRC-GAP: neuter SYN-GAP-LIMIT; long-gap form must revert to WARN --"
+  mutant_nrcgap="$TMP/vb.NRCGAPMUT.sh"
+  if grep -q '# SYN-GAP-LIMIT' "$SUT"; then
+    sed '/# SYN-GAP-LIMIT/ s/{0,20}/*/' "$SUT" > "$mutant_nrcgap"
+    bash -n "$mutant_nrcgap" 2>/dev/null; _ngap_syn=$?
+    if [ "$_ngap_syn" != "0" ]; then
+      no "teeth-NRC-GAP: mutant syntax error (rc=$_ngap_syn) — cannot run"
+    else
+      d_ngap="$TMP/nrc-longgap-mut.md"
+      { echo "# Block 502 — SYNTHESIS"; echo
+        echo "> this is a SYNTHESIS block."; echo
+        echo "---"; echo
+        echo "## 502.1 audit"
+        echo "[Block 10]** — this prose is definitely longer than twenty chars §502.2"; } > "$d_ngap"
+      mout_ngap="$(bash "$mutant_nrcgap" "$d_ngap" 2>/dev/null)"
+      if grep -qiE 'WARN.*unrecog' <<<"$mout_ngap"; then
+        ok "teeth-NRC-GAP: neutered gap limit → WARN fires on long-gap form (test 60 has teeth)"
+      else
+        no "teeth-NRC-GAP: WARN did not fire with gap limit neutered :: $(grep -iE 'WARN|unrecog' <<<"$mout_ngap" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-NRC-GAP: SYN-GAP-LIMIT sentinel not found in SUT"
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

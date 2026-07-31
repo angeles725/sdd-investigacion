@@ -21,6 +21,12 @@ block="${1:-}"
 [ -f "$block" ] || { echo "usage: verify-block.sh <block.md> [target-dir]" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
 
+# Synthesis detection — header blockquote containing SYNTHESIS or SÍNTESIS marks a synthesis block.
+is_synthesis=0
+if grep -qiE '^>[[:space:]].*(SYNTHESIS|SÍNTESIS)' "$block"; then  # SYN-GATE-DETECT
+  is_synthesis=1
+fi
+
 echo "== verify-block: $(basename "$block") (target: $target) =="
 
 # 1. Marker tally — RAW (whole block) and ADJUSTED (claims only). `grep -oE '\[CERT\]'` does NOT match the
@@ -131,7 +137,9 @@ fi
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
   # exits 0 silently having checked nothing. Warn so the author notices the gap.
-  if [ "$cert_total" -gt 0 ]; then  # P6-CERT-ZERO-CITE-WARN
+  if [ "$is_synthesis" -eq 1 ]; then
+    echo "   (synthesis block — expected zero file:line citations; see synthesis remission gate below)"
+  elif [ "$cert_total" -gt 0 ]; then  # P6-CERT-ZERO-CITE-WARN
     echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Add file:line citations or re-check the citation format."
   else
     echo "   (no file:line citations found)"
@@ -245,6 +253,203 @@ if [ -d "$ext_dir" ]; then
   done < <(find "$ext_dir" -maxdepth 1 -name '*.md' 2>/dev/null)
 fi
 [ "$lossy_hits" -eq 0 ] && echo "   (none — no citation traces to an OCR-lossy extract)"
+
+# 5. Synthesis remission gate — for SYNTHESIS / SÍNTESIS blocks only.
+# Verifies that every block-level cross-reference (remission) resolves to an existing block file
+# and an existing section heading inside that file.
+# Exit contract: 1 when any file or section is missing; 0 when all parsed remissions resolve.
+# WARN (exit stays 0) for unrecognised block-ref+§ forms; distinct "no remissions" message when
+# no remission-shaped text at all.
+if [ "$is_synthesis" -eq 1 ]; then  # SYN-GATE-DETECT
+  echo "-- synthesis remission gate --"
+  # Current block number (extract from canonical name: prefix-(block|bloque)N[-suffix].md)
+  _bn=$(basename "$block" .md | grep -oiE '(block|bloque)[0-9]+' | grep -oE '[0-9]+' | tail -1)
+  _bn="${_bn:-0}"
+  # Code-span content: remissions whose token+section both appear inside `...` are prose examples.
+  _bt_spans=$(grep -oE '`[^`]*`' "$block" | tr '\n' '|')  # SYN-CODE-SPAN-FILTER
+
+  # _in_bt_span STR — returns 0 (true) when STR is a substring of a code span in the block.
+  _in_bt_span() { printf '%s' "$_bt_spans" | grep -qF "$1"; }
+
+  # --- Form extractors (all pipefail-safe: wc -l / grep -oE never error on no-match) ---
+  # Form 1: [Block N] §N.x or `[Block N]` §N.x — .{0,10} gap avoids arrow-pattern mismatch.
+  _f1_raw=$(grep -oE '\[Block [0-9]+\].{0,10}§[0-9]+\.[0-9][0-9a-z./:-]*' "$block" 2>/dev/null || true)
+  # Form 2: B N §N.x — compact (hilton/logosoft corpora).
+  _f2_raw=$(grep -oE '\bB[0-9]+ §[0-9]+\.[0-9][0-9a-z./:-]*' "$block" 2>/dev/null || true)
+  # Form 3: [Bloque N] §N.x — Spanish corpus.
+  _f3_raw=$(grep -oE '\[Bloque [0-9]+\].{0,10}§[0-9]+\.[0-9][0-9a-z./:-]*' "$block" 2>/dev/null || true)
+  # Form 4: [Block N §N.x] — section inside brackets (samsung m2070 corpus).
+  _f4_raw=$(grep -oE '\[Block [0-9]+ §[0-9]+\.[0-9][0-9a-z./:-]*\]' "$block" 2>/dev/null || true)
+
+  # Build deduplicated "BN SEC" list; strip code-span false positives per form.
+  _parsed_list=""
+  _parse_entry() {
+    # _parse_entry TOK BN_EXTRACTOR
+    # Shared tail: extract section, apply code-span filter, append to _parsed_list.
+    local _tok="$1" _tbn="$2" _sec
+    _in_bt_span "$_tok" && return
+    # Normalise section number: strip trailing letter suffix (§2.3b → 2.3), trailing sentence
+    # punctuation (§294.2. → 294.2, §312.2: → 312.2), and section-range suffix (§1.2-1.3 → 1.2).
+    # Range stripping takes only the start of a §N.x-N.y range — the start heading is checked;
+    # the end is noted as a known partial-verification (one range = one heading lookup).
+    _sec=$(printf '%s' "$_tok" | grep -oE '§[0-9]+\.[0-9][0-9a-z./:-]*' | head -1 | tr -d '§' | sed 's/[a-z]*$//; s/[.:-]$//; s/-.*$//')
+    [ -n "$_tbn" ] && [ -n "$_sec" ] && _parsed_list="${_parsed_list}${_tbn} ${_sec}"$'\n'
+  }
+  if [ -n "$_f1_raw" ]; then
+    while IFS= read -r _tok; do
+      [ -z "$_tok" ] && continue
+      _tbn=$(printf '%s' "$_tok" | grep -oE '\[Block [0-9]+\]' | grep -oE '[0-9]+' | head -1)
+      _parse_entry "$_tok" "$_tbn"
+    done <<< "$_f1_raw"
+  fi
+  if [ -n "$_f2_raw" ]; then
+    while IFS= read -r _tok; do
+      [ -z "$_tok" ] && continue
+      _tbn=$(printf '%s' "$_tok" | grep -oE '\bB[0-9]+' | grep -oE '[0-9]+' | head -1)
+      _parse_entry "$_tok" "$_tbn"
+    done <<< "$_f2_raw"
+  fi
+  if [ -n "$_f3_raw" ]; then
+    while IFS= read -r _tok; do
+      [ -z "$_tok" ] && continue
+      _tbn=$(printf '%s' "$_tok" | grep -oE '\[Bloque [0-9]+\]' | grep -oE '[0-9]+' | head -1)
+      _parse_entry "$_tok" "$_tbn"
+    done <<< "$_f3_raw"
+  fi
+  if [ -n "$_f4_raw" ]; then
+    while IFS= read -r _tok; do
+      [ -z "$_tok" ] && continue
+      _tbn=$(printf '%s' "$_tok" | grep -oE '\[Block [0-9]+' | grep -oE '[0-9]+' | head -1)
+      _parse_entry "$_tok" "$_tbn"
+    done <<< "$_f4_raw"
+  fi
+  _parsed_list=$(printf '%s' "$_parsed_list" | sort -u | grep -v '^$' || true)
+  _parsed_count=0
+  [ -n "$_parsed_list" ] && _parsed_count=$(printf '%s\n' "$_parsed_list" | wc -l | tr -d ' ')
+
+  # Broad candidate detector — catches unrecognised forms (form 5: [[bloqueN]], etc.).
+  # Two-pass approach so dedup is pair-based, not raw-occurrence-based:
+  #   Pass A — explicit §N.x-§N.y range forms (both endpoints visible in one match):
+  #             a range is recognised only when BOTH components are in _parsed_list.
+  #   Pass B — all other broad candidates (extended regex captures full section numbers):
+  #             a candidate is recognised when its primary pair is in _parsed_list; forms
+  #             without a dotted section (§N with no dot) are always unrecognised.
+  # N occurrences of the same form collapse to ONE entry; dedup key is the (block,section) pair.
+  # WARN prints up to 3 verbatim samples so the operator can act without re-running.
+  _unrecog_keys=""    # dedup: "BN SEC" or "BN SEC1|BN SEC2" (range forms)
+  _unrecog_samples="" # verbatim text of each unique unrecognised form
+
+  _add_unrecog() {
+    # _add_unrecog TEXT KEY — record TEXT as unrecognised if KEY not already tracked.
+    printf '%s\n' "$_unrecog_keys" | grep -qxF "$2" && return  # SYN-DEDUP-PAIRS
+    _unrecog_keys="${_unrecog_keys}${2}"$'\n'
+    _unrecog_samples="${_unrecog_samples}${1}"$'\n'
+  }
+  _ext_bn() {
+    # _ext_bn TEXT — extract block number (digits only) from a broad-match text.
+    printf '%s' "$1" | grep -oiE '\[{1,2}[Bb]l(ock|oque)[s]? *[0-9]+|\bB[0-9]+' | grep -oE '[0-9]+' | head -1
+  }
+
+  # Pass A: explicit range forms — §N.x-§N.y both visible in a single match.
+  # Gap limit: [^§]{0,20} prevents [Block N]** long-prose §M.x (self-reference) from matching.
+  _range_cands=$(grep -oE '(\[{1,2}[Bb]l(ock|oque)[s]? *[0-9]+|\bB[0-9]+)[^§]{0,20}§[0-9]+\.[0-9][0-9a-z./]*-§[0-9]+\.[0-9][0-9a-z./:-]*' \
+    "$block" 2>/dev/null | sort -u || true)
+  if [ -n "$_range_cands" ]; then
+    while IFS= read -r _rtok; do
+      [ -z "$_rtok" ] && continue
+      _rbn=$(_ext_bn "$_rtok")
+      [ -z "$_rbn" ] && continue
+      # Extract both section numbers from the range token (grep gives two §N.x lines).
+      _rsecs=$(printf '%s' "$_rtok" | grep -oE '§[0-9]+\.[0-9][0-9a-z./:-]*' | tr -d '§' | sed 's/[a-z]*$//; s/[.:-]$//; s/-.*$//')
+      _rsec1=$(printf '%s\n' "$_rsecs" | sed -n '1p'); _rsec2=$(printf '%s\n' "$_rsecs" | sed -n '2p')
+      [ -z "$_rsec1" ] || [ -z "$_rsec2" ] && continue
+      _r1=0; _r2=0
+      printf '%s\n' "$_parsed_list" | grep -qxF "${_rbn} ${_rsec1}" && _r1=1
+      printf '%s\n' "$_parsed_list" | grep -qxF "${_rbn} ${_rsec2}" && _r2=1
+      [ "$_r1" = "1" ] && [ "$_r2" = "1" ] && continue  # SYN-RANGE-CHECK: both parsed → recognised
+      _add_unrecog "$_rtok" "${_rbn} ${_rsec1}|${_rbn} ${_rsec2}"
+    done <<< "$_range_cands"
+  fi
+
+  # Pass B: all other broad candidates (extended to capture full section numbers).
+  # Gap limit [^§]{0,20}: prevents [Block N]** — long prose §M.x from matching as if
+  # §M.x were a section of block N (it is a self-reference to the current block).
+  _broad_cands=$(grep -oE '\[{1,2}[Bb]l(ock|oque)[s]? *[0-9]+[^§]{0,20}§[0-9][0-9a-z./:-]*|\bB[0-9]+ §[0-9][0-9a-z./:-]*' "$block" 2>/dev/null | sort -u || true)  # SYN-GAP-LIMIT
+  if [ -n "$_broad_cands" ]; then
+    while IFS= read -r _btok; do
+      [ -z "$_btok" ] && continue
+      _btbn=$(_ext_bn "$_btok")
+      [ -z "$_btbn" ] && continue
+      # A dotted section (§N.x) is required; forms without one are always unrecognised.
+      _btsec_full=$(printf '%s' "$_btok" | grep -oE '§[0-9]+\.[0-9][0-9a-z./:-]*' | head -1)
+      if [ -z "$_btsec_full" ]; then
+        _add_unrecog "$_btok" "${_btbn} NO-DOT"  # SYN-NODOT: form-5 or unknown variant
+        continue
+      fi
+      _btsec=$(printf '%s' "$_btsec_full" | tr -d '§' | sed 's/[a-z]*$//; s/[.:-]$//; s/-.*$//')
+      [ -z "$_btsec" ] && continue
+      _btpair="${_btbn} ${_btsec}"
+      # Skip if the same pair is already tracked by the range pass.
+      printf '%s\n' "$_unrecog_keys" | grep -qF "$_btpair" && continue
+      printf '%s\n' "$_parsed_list" | grep -qxF "$_btpair" && continue  # SYN-PAIR-CHECK: recognised
+      _add_unrecog "$_btok" "$_btpair"
+    done <<< "$_broad_cands"
+  fi
+
+  _unrecog=0
+  [ -n "$_unrecog_samples" ] && \
+    _unrecog=$(printf '%s\n' "$_unrecog_samples" | grep -c '[^[:space:]]' || true)
+  _unrecog="${_unrecog:-0}"
+
+  # --- Resolution loop ---
+  _resolved=0; _missing_sec=0; _missing_file=0
+
+  if [ -z "$_parsed_list" ] && [ -z "$_broad_cands" ] && [ -z "$_range_cands" ]; then
+    echo "   NO remission-shaped text found in synthesis block"  # SYN-ZERO-REM
+  else
+    if [ -n "$_parsed_list" ]; then
+      while IFS= read -r _entry; do
+        [ -z "$_entry" ] && continue
+        _tbn="${_entry%% *}"
+        _sec="${_entry##* }"
+        # Self-reference: skip (remission to the current block itself is a prose self-citation).
+        [ "$_tbn" = "$_bn" ] && continue  # SYN-SELF-SKIP
+        # Strip trailing letter suffix for heading lookup: §2.3b → 2.3 (b marks a sub-item).
+        _sec_bare=$(printf '%s' "$_sec" | sed 's/[a-z]*$//')
+        _sec_esc=$(printf '%s' "$_sec_bare" | sed 's/\./\\./g')
+        # Locate target block file (block|bloque, bare or prefixed names, leading zeros OK).
+        _tfile=$(find "$target" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+          | grep -iE "(block|bloque)0*${_tbn}(\.md$|-)" | head -1)
+        if [ -z "$_tfile" ]; then
+          echo "   REMISSION-MISSING-FILE  block ${_tbn} §${_sec}  (no matching file in target)"  # SYN-MISSING-FILE
+          _missing_file=$(( _missing_file + 1 )); rc=1
+        else
+          # Section heading: ^#{1,4}  N.x  followed by non-digit/non-dot or EOL.
+          if grep -qE "^#{1,4}[[:space:]]+${_sec_esc}([^.0-9]|$)" "$_tfile" 2>/dev/null; then
+            echo "   remission-ok  block ${_tbn} §${_sec}  ($(basename "$_tfile"))"
+            _resolved=$(( _resolved + 1 ))
+          else
+            echo "   REMISSION-MISSING-SECTION  block ${_tbn} §${_sec}  (heading not found in $(basename "$_tfile"))"
+            _missing_sec=$(( _missing_sec + 1 )); rc=1  # SYN-MISSING-SECTION
+          fi
+        fi
+      done <<< "$_parsed_list"
+    fi
+    if [ "$_unrecog" -gt 0 ]; then
+      echo "   WARN    ${_unrecog} unrecognised block-ref+§ form(s) — check for [[bloqueN]] (form 5) or new variants"  # SYN-UNRECOG
+      _samp_n=0
+      while IFS= read -r _sline; do
+        [ -z "$_sline" ] && continue
+        _samp_n=$(( _samp_n + 1 ))
+        [ "$_samp_n" -gt 3 ] && break
+        echo "      | ${_sline}"
+      done <<< "$_unrecog_samples"
+      _more=$(( _unrecog - 3 ))
+      [ "$_more" -gt 0 ] && echo "      … and ${_more} more"
+    fi
+    echo "   remission summary: parsed=${_parsed_count} resolved=${_resolved} missing-file=${_missing_file} missing-section=${_missing_sec} unrecog=${_unrecog}"
+  fi
+fi
 
 echo "== exit $rc =="
 exit $rc
