@@ -144,6 +144,6 @@ try:
     ok("no live execution: build_determinism calls no subprocess")
 except Exception as e: nok("no live execution", str(e))
 
-if failed: print(f"\n== {passed} passed · {failed} FAILED =="); sys.exit(1)
+if failed: print(f"\n== {passed} passed · {failed} failed =="); sys.exit(1)
 print(f"\n== {passed} passed · 0 failed ==")
 PY

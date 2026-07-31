@@ -80,9 +80,11 @@ total=$((pass+fail))
 [ "$total" -gt 0 ] || { echo "FATAL: zero tests executed." >&2; exit 2; }
 if [ "$fail" -gt 0 ]; then
   printf 'RESULT: %d passed / %d FAILED\n' "$pass" "$fail"
+  printf '== %d passed · %d failed ==\n' "$pass" "$fail"
   [ "${1:-}" = "--prove-teeth" ] || exit 1
 else
   printf 'RESULT: %d passed / 0 failed\n' "$pass"
+  printf '== %d passed · 0 failed ==\n' "$pass"
   [ "${1:-}" = "--prove-teeth" ] || exit 0
 fi
 
@@ -116,7 +118,9 @@ fi
 
 echo ""
 if [ "$fail" -gt 0 ]; then
-  printf 'RESULT (with teeth): %d passed / %d FAILED\n' "$pass" "$fail"; exit 1
+  printf 'RESULT (with teeth): %d passed / %d FAILED\n' "$pass" "$fail"
+  printf '== %d passed · %d failed ==\n' "$pass" "$fail"; exit 1
 else
-  printf 'RESULT (with teeth): %d passed / 0 failed\n' "$pass"; exit 0
+  printf 'RESULT (with teeth): %d passed / 0 failed\n' "$pass"
+  printf '== %d passed · 0 failed ==\n' "$pass"; exit 0
 fi
