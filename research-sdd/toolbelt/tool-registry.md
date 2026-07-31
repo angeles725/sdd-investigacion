@@ -113,6 +113,19 @@ decompiled functions; `RSDD_TIMEOUT` is the per-function decompiler deadline in 
 Output is one `<program>.c` per run. Each function gets a `/* ---- <name> @ <entry> ---- */` banner;
 failures appear inline as `/* FAILED: … */` rather than being dropped silently.
 
+**Origin and canonical copy (METHODOLOGY §10):** Promoted from
+`tools/ghidra/ExportDecompiledC.java` in the HotelHilton target corpus (block B57,
+commit `58e81a7`). The kit copy at `toolbelt/ghidra/ExportDecompiledC.java` is canonical;
+the target copy is superseded and should not be consulted.
+
+**B57 arg-order reconciliation:** B57 records that the `--script` wrapper route "did not work"
+(postScript never ran). The root cause was a missing `<out-dir>` argument in the recorded
+command — `decompile-native.sh ghidra <bin> <out-dir> --script <path>` is the correct form;
+without `<out-dir>`, `$4` is `--script` and the guard at `decompile-native.sh:50–55` that
+appends `-scriptPath` never fires. The route is NOT broken: the corrected invocation today
+yields `RSDD-EXPORT: 15 exported, 0 failed`. Note: the kit test suite (`ghidra-c-exporter.test.sh`)
+invokes `analyzeHeadless` directly; the `decompile-native.sh --script` path is currently untested.
+
 ### Stripped-binary: debug-string recovery
 
 When a stripped ELF/PE binary still calls a debug or logging helper with the signature
