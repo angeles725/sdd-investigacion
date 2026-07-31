@@ -97,10 +97,10 @@ mkheadless loglink; printf '%0100d\n' 0 >"$ROOT/outside.log"; outside_sum="$(sha
 mkheadless partial; if run partial && python3 -c 'import json,sys;assert json.load(open(sys.argv[1]))["status"]=="partial"' "$ROOT/partial/report.json"; then ok 'truthful partial evidence'; else no 'truthful partial evidence'; fi
 mkheadless dishonest; if ! run dishonest >/dev/null 2>&1 && python3 -c 'import json,sys;assert json.load(open(sys.argv[1]))["errors"]==["malformed-curated-output"]' "$ROOT/dishonest/report.json"; then ok 'dishonest output is failed'; else no 'dishonest output is failed'; fi
 mkheadless good; if ! RSDD_BWRAP=/bin/false run sandbox >/dev/null 2>&1 && [ ! -e "$ROOT/sandbox" ]; then ok 'sandbox failure publishes nothing'; else no 'sandbox failure publishes nothing'; fi
-mkheadless timeout; run swapped 3 >/dev/null 2>"$ROOT/swap.err" & pid=$!; for _ in $(seq 1 300); do [ "$(stat -c %a "$ROOT/.swapped.stage/tool/ghidra/support/analyzeHeadless" 2>/dev/null)" = 500 ] && break; sleep .01; done
-if [ "$(stat -c %a "$ROOT/.swapped.stage/tool/ghidra/support/analyzeHeadless" 2>/dev/null)" != 500 ]; then wait "$pid" 2>/dev/null || true; no 'source and tool swaps cannot change staged bytes — swap precondition did not arrive within deadline'; else printf 'changed\n' >"$ROOT/target.bin"; printf 'replacement\n' >"$ROOT/gh/support/analyzeHeadless"; wait "$pid"; rc=$?; if [ "$rc" -ne 0 ] && python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["input"]["source"]["sha256"]==d["input"]["staged"]["sha256"]' "$ROOT/swapped/report.json"; then ok 'source and tool swaps cannot change staged bytes'; else cat "$ROOT/swap.err"; no 'source and tool swap resistance'; fi; fi
-mkheadless timeout; run publication-race 1 >/dev/null 2>&1 & pid=$!; for _ in $(seq 1 300); do [ -e "$ROOT/.publication-race.stage/tool/ghidra/support/analyzeHeadless" ] && break; sleep .01; done
-if [ ! -e "$ROOT/.publication-race.stage/tool/ghidra/support/analyzeHeadless" ]; then wait "$pid" 2>/dev/null || true; no 'publication race replaces nothing — publication precondition did not arrive within deadline'; else mkdir "$ROOT/publication-race"; echo keep >"$ROOT/publication-race/keep"; wait "$pid"; rc=$?; if [ "$rc" -eq 2 ] && [ "$(cat "$ROOT/publication-race/keep")" = keep ] && [ ! -e "$ROOT/.publication-race.stage" ]; then ok 'publication race replaces nothing'; else no 'publication race'; fi; fi
+mkheadless timeout; run swapped 3 >/dev/null 2>"$ROOT/swap.err" & pid=$!; _swapped_arrived=0; for _ in $(seq 1 300); do [ "$(stat -c %a "$ROOT/.swapped.stage/tool/ghidra/support/analyzeHeadless" 2>/dev/null)" = 500 ] && _swapped_arrived=1 && break; sleep .01; done
+if [ "$_swapped_arrived" -eq 0 ]; then wait "$pid" 2>/dev/null || true; no 'source and tool swaps cannot change staged bytes — swap precondition did not arrive within deadline'; else printf 'changed\n' >"$ROOT/target.bin"; printf 'replacement\n' >"$ROOT/gh/support/analyzeHeadless"; wait "$pid"; rc=$?; if [ "$rc" -ne 0 ] && python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["input"]["source"]["sha256"]==d["input"]["staged"]["sha256"]' "$ROOT/swapped/report.json"; then ok 'source and tool swaps cannot change staged bytes'; else cat "$ROOT/swap.err"; no 'source and tool swap resistance'; fi; fi
+mkheadless timeout; run publication-race 1 >/dev/null 2>&1 & pid=$!; _pub_arrived=0; for _ in $(seq 1 300); do [ -e "$ROOT/.publication-race.stage/tool/ghidra/support/analyzeHeadless" ] && _pub_arrived=1 && break; sleep .01; done
+if [ "$_pub_arrived" -eq 0 ]; then wait "$pid" 2>/dev/null || true; no 'publication race replaces nothing — publication precondition did not arrive within deadline'; else mkdir "$ROOT/publication-race"; echo keep >"$ROOT/publication-race/keep"; wait "$pid"; rc=$?; if [ "$rc" -eq 2 ] && [ "$(cat "$ROOT/publication-race/keep")" = keep ] && [ ! -e "$ROOT/.publication-race.stage" ]; then ok 'publication race replaces nothing'; else no 'publication race'; fi; fi
 if [ "$(findmnt -T /mnt/c -n -o FSTYPE 2>/dev/null)" = 9p ]; then expect_no shared run "/mnt/c/rsdd-ghidra-$$"; else ok 'shared filesystem rejection (not mounted)'; fi
 mv "$ROOT/jdk/bin/java" "$ROOT/jdk/bin/java.real"; ln -s java.real "$ROOT/jdk/bin/java"; mkheadless good; if run java-link; then ok 'canonical Java symlink chain'; else no 'canonical Java symlink chain'; fi; rm "$ROOT/jdk/bin/java"; mv "$ROOT/jdk/bin/java.real" "$ROOT/jdk/bin/java"
 chmod 777 "$ROOT/jdk/bin/java"; expect_no unsafe-java run unsafe-java; chmod 755 "$ROOT/jdk/bin/java"
@@ -116,23 +116,26 @@ printf '#!/bin/sh\ntouch %s/MANIFEST_REPLACEMENT\nexit 9\n' "$ROOT" >"$ROOT/mani
 mkheadless good; run trust-stage-race >/dev/null 2>&1 & pid=$!; while [ ! -e "$ROOT/.trust-stage-race.stage/input/target.bin" ]; do sleep .001; done; mv "$ROOT/gh/support/analyzeHeadless" "$ROOT/gh/support/analyzeHeadless.old"; printf '#!/bin/sh\ntouch %s/TRUST_SWAP_EXECUTED\n' "$ROOT" >"$ROOT/gh/support/analyzeHeadless"; chmod 755 "$ROOT/gh/support/analyzeHeadless"; wait "$pid"; rc=$?; mv "$ROOT/gh/support/analyzeHeadless.old" "$ROOT/gh/support/analyzeHeadless"
 if [ "$rc" -eq 2 ] && [ ! -e "$ROOT/TRUST_SWAP_EXECUTED" ] && [ ! -e "$ROOT/trust-stage-race" ]; then ok 'validated Ghidra swap before staging fails closed'; else no 'trust-to-staging swap rejection'; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: polling precondition guard fires on exhaustion, not a silent fall-through --"
-  _pt="$(mktemp -d)"
-  # Positive: loop exhausts (condition never arrives), guard fires, sub_fail becomes 1.
-  _ptf=0; _h=0
-  for _ in $(seq 1 2); do [ -e "$_pt/never" ] && _h=1 && break; sleep .001; done
-  [ "$_h" -eq 1 ] || _ptf=$((_ptf+1))
-  [ "$_ptf" -eq 1 ] \
-    && ok "teeth: polling guard fires on exhaustion (not a silent fall-through)" \
-    || no "teeth: polling guard did not fire — loop would fall through silently"
-  # Mutation control: inverted guard fires when condition IS met, silent when exhausted.
-  # That mutant leaves sub_fail=0; the positive check [sub_fail==1] would fail on it.
-  _mf=0; _mh=0
-  for _ in $(seq 1 2); do [ -e "$_pt/never" ] && _mh=1 && break; sleep .001; done
-  [ "$_mh" -eq 0 ] || _mf=$((_mf+1))
-  [ "$_mf" -ne 1 ] \
-    && ok "teeth: mutant (inverted guard) leaves sub_fail=0 — [sub_fail==1] correctly fails on this mutant" \
-    || no "teeth: mutation control broken — mutant unexpectedly incremented sub_fail"
-  rm -rf "$_pt"
+  echo "-- teeth: arrival flags capture preconditions at break (TOCTOU fix) --"
+  # Tooth 1: swap poll loop must export _swapped_arrived via flag-at-break (not re-check).
+  # origin/main's silent fall-through never sets this variable; guard-with-recheck does not either.
+  if [ "${_swapped_arrived:-UNSET}" = "UNSET" ]; then
+    no "teeth: _swapped_arrived not set — swap poll loop missing flag-at-break (guard regresses to origin/main)"
+  else
+    ok "teeth: swap poll loop set _swapped_arrived=${_swapped_arrived} (flag-at-break present)"
+  fi
+  # Tooth 2: publication-race poll loop must export _pub_arrived via flag-at-break.
+  if [ "${_pub_arrived:-UNSET}" = "UNSET" ]; then
+    no "teeth: _pub_arrived not set — pub-race poll loop missing flag-at-break (guard regresses to origin/main)"
+  else
+    ok "teeth: pub-race poll loop set _pub_arrived=${_pub_arrived} (flag-at-break present)"
+  fi
+  # A third check was written here and removed before merge: it created a directory, flagged it at
+  # break, deleted it, and asserted the flag survived. That demonstrates the flag PATTERN on a toy
+  # loop; it observes nothing about the guards above, so no mutation of the shipped code can fail it.
+  # The version of this block that shipped in the first attempt was entirely of that kind, and an
+  # adversarial reviewer killed it by reverting lines 100-103 and watching all its assertions stay
+  # green. Teeth 1 and 2 above are kept precisely because that same revert makes them RED: the
+  # variables they read exist only when the flag-at-break guards are present.
 fi
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
