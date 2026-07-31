@@ -88,13 +88,26 @@ on a quiet tree it explains nothing and must be filed as a defect — see issue 
 `corroborate-ghidra.test.sh` failed at 79/80 under one agent's own load and returned 80/80 immediately
 afterwards.
 
-**Isolate concurrent work in git worktrees, not in one checkout.** Disjoint file sets are necessary but
-not sufficient: `run-all.sh --prove-teeth` mutates implementation files in place, so any writer editing
-during a gate run invalidates it, which forces PRs to serialise. A worktree per PR removes the coupling
-by construction and lets units with disjoint file sets run concurrently. Constraints that are not
-optional: each worktree needs its OWN `.codegraph/` index — never copy or symlink another checkout's,
-because its root and checked-out bytes differ — and it must live under the home directory as
-`<repo-parent>/<repo-name>-worktrees/<name>`, never under `/tmp` or `/var/tmp`.
+**Writers parallelise; only the GATE RUN needs a quiet tree.** An earlier version of this paragraph
+claimed `--prove-teeth` mutates implementation files in place and therefore forces PRs to serialise.
+That is FALSE and it cost a session's throughput. Measured: 25 samples over 500 s of a full
+`--prove-teeth` run, dirty-file count never moved; every `sed -i` in the suites targets a mutant COPY
+in a temp dir, never the live tree. What actually invalidates a gate is the paragraph above — writers
+editing *while the gate runs* — so the correct shape is: writers with disjoint file sets run
+CONCURRENTLY, then ONE gate run on a quiet tree. Not writer, gate, writer, gate.
+
+This matters more than parallelising the runner. On one session's measurements: ~9 h of sequential
+agent time against ~3 h of gates. Perfect gate parallelism buys ~1.3x; running three work units
+concurrently buys ~2x.
+
+**Disjoint file sets are not sufficient when two actors share one checkout** — they share the branch
+and the index, and `git checkout` is a whole-tree operation. A concurrent writer's branch switch
+discarded another's uncommitted work twice in one session. Note also that hand-made worktrees do NOT
+isolate a subagent here: the harness resets shell cwd to the repo root between commands, so a `cd` into
+a worktree is lost on the next call. Use the harness's own worktree isolation for delegated work; a
+hand-made worktree is fine for your own runs. Either way each worktree needs its OWN `.codegraph/`
+index — never copy or symlink another checkout's, because its root and checked-out bytes differ — and
+it must live under the home directory as `<repo-parent>/<repo-name>-worktrees/<name>`, never `/tmp`.
 
 ---
 
@@ -120,10 +133,15 @@ Never declare done without running it.
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
-Current suite: **79 suites** (77 `*.test.sh` + 2 `*.test.mjs`), **1,569 test cases** — 1,695 under
-`--prove-teeth`, which adds the mutation controls — measured at `14a042c` plus the tool-lifecycle
-work unit. Re-measure rather than trusting this line if it looks stale. New suites dropped into
-`research-sdd/toolbelt/tests/` are picked up automatically — nothing to register.
+**No suite or case counts are recorded here, deliberately.** For the current numbers run the gate; it
+is the authority and it cannot go stale. This file used to carry a snapshot; when it was last checked
+it read 79 suites against 81 on disk, and a case count the measurement had already moved past. Worse,
+two careful measurements of the same commit differed by 3 cases — a hand-written snapshot of a figure
+that is not even stable between runs is a synchronisation promise nobody can keep. Doctrine holds
+invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
+
+New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
+register.
 
 When scanning a suite log for failures, match the runner's own `  FAIL  ` prefix, not the bare string:
 tests legitimately assert that things fail, so `FAIL` appears inside many PASSING lines. A bare grep
@@ -196,6 +214,21 @@ against the fixtures you wrote. A false negative destroys trust exactly the way 
 one makes good evidence read as absent, the other makes noise read as a finding, and both teach the
 operator to stop believing the output.
 
+**An audit instrument must prove the coverage of its own enumerator.** Before treating a sweep as
+fleet-wide or complete, declare the phenomenon being audited, the input forms the instrument
+recognises, the forms it explicitly excludes, the corpus actually traversed, every unclassifiable
+candidate, and the evidence used to establish coverage. A sweep that honestly inspects one syntactic
+form does not establish absence of the wider behavioural family. `e727cde` audited the pipefail race
+across the fleet by enumerating `producer | grep -q`. `decompile-native.sh:27` reproducibly returns 141
+for `/bin/bash`: its `strings | head` pipeline belongs to the same early-terminating-consumer family,
+but was outside that enumerator. The audit was rigorous about what it looked at and silent about what
+it could not see.
+
+Measure incidence before scheduling remediation: a valid rule with zero observed occurrences is
+verifier discipline, not a repository work unit. "Capture the authority before transforming its output"
+is a correct rule — and ShellCheck reports zero SC2181 across the whole shell corpus, so it buys no
+backlog item here. A rule's truth and its current incidence are separate facts.
+
 **Report only what you measured.** An instrument's output must not imply a claim wider than what it
 actually checked. `sweep-retros.sh` counts retros whose review-status MARKER is open — which is not the
 same claim as "this much work is waiting", and the gap between those readings was measured at ~20% of
@@ -230,15 +263,22 @@ Kit tools **never modify target directories**. The doctrine is **propose-never-a
 for the human to act on; never auto-apply.
 
 - `verify-registry.sh`, `sweep-retros.sh`, `sweep-audits.sh` — WARN-only about **findings**: a pending
-  retro or a drifted row never fails the run. They DO `exit 1` on **operational** failure (TARGETS.md
-  missing, a `lib/` helper that failed to define its function). A finding is advisory; a broken
-  instrument is not — that distinction is §7 in practice.
+  retro or a drifted row never fails the run. They **MUST** `exit 1` on **operational** failure
+  (TARGETS.md missing, a `lib/` helper that failed to define its function). A finding is advisory; a
+  broken instrument is not — that distinction is §7 in practice.
+
+  **Known deviation:** `verify-registry.sh` currently exits **0** for both operational cases, while its
+  two siblings exit 1. Measured, not inferred. Tracked in issue #140; the note goes away when the
+  script is fixed, and the contract above stays either way. A defective behaviour observed in the field
+  does not get promoted to the official contract — that is why the sentence says MUST and not DO.
 - `TARGETS.md` is **never auto-edited** — not by the toolbelt, not by any kit session. Archive prints
   a "refresh the row" reminder; the human refreshes it by hand.
 - Build test fixtures under `research-sdd/toolbelt/tests/fixtures/` — never inside a live target directory.
 
-`propose-never-apply` is named in `TARGETS.md:35`, `METHODOLOGY.md` §13/§18/§20, and in
-`verify-registry.sh:15` and `verify-registry.sh:244`.
+`propose-never-apply` is named in `TARGETS.md`, `METHODOLOGY.md` §13/§18/§20, and throughout
+`verify-registry.sh` — `rg -i propose.never.apply` finds every site. Cited by search term rather than
+by line number on purpose: a line number into a file that grows is volatile telemetry in the same sense
+as a case count. The `:244` this line used to carry had already drifted off the mark it named.
 
 ---
 
