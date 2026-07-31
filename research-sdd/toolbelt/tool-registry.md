@@ -99,6 +99,20 @@ Direct adapter equivalent: `corroborate-ghidra.sh --input <binary> --output <new
 `decompile-native.sh ghidra <binary> <out-dir> [--script Script.java]` remains the raw, flexible headless
 route. It does not provide the curated schema, hardened isolation, bounded evidence, or provenance claims.
 
+**C decompilation export (gap + kit script):** Ghidra 12.1.2 ships no script that writes decompiled C
+to a file — its bundled Decompiler scripts (DecompilerStackProblemsFinder, FindPotentialDecompilerProblems,
+ShowCCalls) are analysis helpers, not exporters. `toolbelt/ghidra/ExportDecompiledC.java` fills this gap.
+Use it via the raw `--script` route above:
+
+    RSDD_OUT=<dir> [RSDD_FN_FILTER=<java-regex>] [RSDD_MAX_FN=<n>] [RSDD_TIMEOUT=<secs>] \
+      decompile-native.sh ghidra <binary> <out-dir> --script <path-to-ExportDecompiledC.java>
+
+`RSDD_FN_FILTER` is a Java unanchored regex applied to function names; omit at your peril on large
+binaries (a 3 MB PE holds thousands of functions). `RSDD_MAX_FN` caps the count of successfully
+decompiled functions; `RSDD_TIMEOUT` is the per-function decompiler deadline in seconds (default 120).
+Output is one `<program>.c` per run. Each function gets a `/* ---- <name> @ <entry> ---- */` banner;
+failures appear inline as `/* FAILED: … */` rather than being dropped silently.
+
 ### Stripped-binary: debug-string recovery
 
 When a stripped ELF/PE binary still calls a debug or logging helper with the signature
