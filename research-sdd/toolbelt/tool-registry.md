@@ -99,6 +99,33 @@ Direct adapter equivalent: `corroborate-ghidra.sh --input <binary> --output <new
 `decompile-native.sh ghidra <binary> <out-dir> [--script Script.java]` remains the raw, flexible headless
 route. It does not provide the curated schema, hardened isolation, bounded evidence, or provenance claims.
 
+**C decompilation export (gap + kit script):** Ghidra 12.1.2 ships no script that writes decompiled C
+to a file — its bundled Decompiler scripts (DecompilerStackProblemsFinder, FindPotentialDecompilerProblems,
+ShowCCalls) are analysis helpers, not exporters. `toolbelt/ghidra/ExportDecompiledC.java` fills this gap.
+Use it via the raw `--script` route above:
+
+    RSDD_OUT=<dir> [RSDD_FN_FILTER=<java-regex>] [RSDD_MAX_FN=<n>] [RSDD_TIMEOUT=<secs>] \
+      decompile-native.sh ghidra <binary> <out-dir> --script <path-to-ExportDecompiledC.java>
+
+`RSDD_FN_FILTER` is a Java unanchored regex applied to function names; omit at your peril on large
+binaries (a 3 MB PE holds thousands of functions). `RSDD_MAX_FN` caps the count of successfully
+decompiled functions; `RSDD_TIMEOUT` is the per-function decompiler deadline in seconds (default 120).
+Output is one `<program>.c` per run. Each function gets a `/* ---- <name> @ <entry> ---- */` banner;
+failures appear inline as `/* FAILED: … */` rather than being dropped silently.
+
+**Origin and canonical copy (METHODOLOGY §10):** Promoted from
+`tools/ghidra/ExportDecompiledC.java` in the HotelHilton target corpus (block B57,
+commit `58e81a7`). The kit copy at `toolbelt/ghidra/ExportDecompiledC.java` is canonical;
+the target copy is superseded and should not be consulted.
+
+**B57 arg-order reconciliation:** B57 records that the `--script` wrapper route "did not work"
+(postScript never ran). The root cause was a missing `<out-dir>` argument in the recorded
+command — `decompile-native.sh ghidra <bin> <out-dir> --script <path>` is the correct form;
+without `<out-dir>`, `$4` is `--script` and the guard at `decompile-native.sh:50–55` that
+appends `-scriptPath` never fires. The route is NOT broken: the corrected invocation today
+yields `RSDD-EXPORT: 15 exported, 0 failed`. Note: the kit test suite (`ghidra-c-exporter.test.sh`)
+invokes `analyzeHeadless` directly; the `decompile-native.sh --script` path is currently untested.
+
 ### Stripped-binary: debug-string recovery
 
 When a stripped ELF/PE binary still calls a debug or logging helper with the signature
