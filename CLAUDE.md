@@ -146,8 +146,8 @@ silent scope compression is a defect, not a tidy scope trim.
 a writer spends hours. A work unit whose measured yield is ZERO findings today has a near-zero ceiling
 on what it may cost, and that ceiling is a decision input, not a footnote. The `verify-block.sh`
 synthesis gate was measured at 145 remissions with 0 broken BEFORE implementation, and built anyway;
-it consumed 59% of a session's agent time and was closed unmerged because it delivered 19 false
-failures and disabled a working guard. Its other fatal fact — that blocks carry no machine-readable
+it consumed 3.6 hours of agent time across a scout, a writer, a correction and a review, and was closed
+unmerged because it delivered 19 false failures and disabled a working guard. Its other fatal fact — that blocks carry no machine-readable
 type, so detection could only guess from prose — was also knowable in minutes.
 
 The corollary: when the substrate has no schema, **doctrine comes first**. Prescribe the declaration,
