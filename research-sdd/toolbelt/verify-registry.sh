@@ -84,7 +84,7 @@ done
 # backtick path, so a backtick path resolves to exactly one row.)
 bt='`'
 
-checked=0; drift=0; unresolved=0
+checked=0; drift=0; retro_drift=0; unresolved=0
 
 for p in $paths; do
   [ -n "$p" ] || continue
@@ -103,6 +103,56 @@ for p in $paths; do
   # `/mrdoob/three.js` in the three.js row) that match the `/...` shape but are not corpora. Only the
   # truncated-'...' PARTIAL WARN reports "couldn't check"; a bare non-dir token is just not a corpus.
   [ -d "$p" ] || continue
+
+  # MATURITY PARENTHETICAL EXTRACTION: find the FIRST '(...)' in the row — always the maturity-field
+  # parenthetical. Using the whole row (not a fixed column index) makes this column-order-agnostic:
+  # it works with both the real 7-column TARGETS.md and the 4-column test-fixture tables without
+  # requiring the caller to know the column layout. The artifact column may also have parentheticals
+  # (e.g., '(.class)') but they appear AFTER the maturity parenthetical, so head -1 selects correctly.
+  # _vr_inner is kept for the retro reconciliation below (non-nc path).
+  _vr_paren="$(printf '%s' "$row" | grep -oE '\([^)]+\)' | head -1)"
+  _vr_inner="${_vr_paren#(}"; _vr_inner="${_vr_inner%)}"
+
+  # NON-CONFORMING MATURITY FIELD CHECK (WARN-only, runs for all non-truncated directory rows):
+  # tokenise _vr_inner by '/' and verify each token against the documented schema (TARGETS.md legend
+  # §Maturity cell field schema). A token that does not match any known pattern is surfaced verbatim.
+  # This mirrors the unclassifiable-block guard pattern: the instrument declares what it could not
+  # classify rather than silently passing.
+  # Known patterns: N md|blocks [@date[,...]] · N focuses · N runs|run · N retros[+...] ·
+  # N-of-N gaps · nc · git yes|no · remote yes|no · hook <anything> · unregistered.
+  # Absent parenthetical → no check (the row has no schema-validated fields; not an error).
+  if [ -n "$_vr_inner" ]; then
+    while IFS= read -r _vr_tok || [ -n "$_vr_tok" ]; do  # TOKENIZER-LAST-TOKEN-FIX
+      # trim leading/trailing whitespace
+      _vr_tok="${_vr_tok#"${_vr_tok%%[![:space:]]*}"}"; _vr_tok="${_vr_tok%"${_vr_tok##*[![:space:]]}"}"
+      [ -z "$_vr_tok" ] && continue
+      # Block count: N md / N blocks / N blocks @YYYY-MM-DD / N blocks @YYYY-MM-DD, ACTIVE
+      # The @date form is tightened to require an ISO date so loose garbage after @ is caught.
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+(md|blocks?)[[:space:]]*(@[0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]*,[[:space:]]*ACTIVE)?)?$' && continue
+      # Focus count: N focuses / N focus (singular consistent with N run / N runs)
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+focus(es)?$' && continue
+      # Run count: N runs / N run
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+runs?$' && continue
+      # Retro field: N retros / N retros + M corpus §18 + K client retros
+      # Anchored at end: '3 retrograde motion' must not pass (previously unanchored pattern did).
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+retros?([[:space:]]+\+.*)?$' && continue
+      # Gap count: N-of-N gaps
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+-of-[0-9]+[[:space:]]+gaps?$' && continue
+      # nc flag (bare, exact)
+      [ "$_vr_tok" = "nc" ] && continue
+      # git status
+      printf '%s' "$_vr_tok" | grep -qE '^git[[:space:]]+(yes|no)$' && continue
+      # remote status
+      printf '%s' "$_vr_tok" | grep -qE '^remote[[:space:]]+(yes|no)$' && continue
+      # hook (any form: hook yes / hook no / hook file yes / hook deferred / hook yes ×2 / …)
+      printf '%s' "$_vr_tok" | grep -qE '^hook[[:space:]]' && continue
+      # unregistered
+      [ "$_vr_tok" = "unregistered" ] && continue
+      # Unknown field — surface verbatim; same pattern as unclassifiable-block guard.
+      echo "WARN  $(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
+      unresolved=$((unresolved + 1))
+    done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
+  fi
 
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
   # nc-marked targets (tooling, doc, production app) never trigger a deep filesystem search.
@@ -213,6 +263,39 @@ for p in $paths; do
 
   checked=$((checked + 1))
   name="$(basename "$p")"
+
+  # RETRO RECONCILIATION: if the maturity cell declares an 'N retros' count, compare it against
+  # the actual non-excluded retros under the target (maxdepth 4, same as sweep-retros.sh — the
+  # single authority; maxdepth 2 was a dual-authority drift that would miss depth-3 retros such
+  # as <target>/research/retros/*.md). Reuses retro_is_excluded from lib/retro-status.sh (already
+  # sourced above). WARN-only: a drift is a finding; exit stays 0. Absent retro field is legal.
+  # nc rows are skipped (handled above).
+  _vr_retro_claimed="$(printf '%s' "$_vr_inner" | grep -oiE '[0-9]+[[:space:]]+retros?' | head -1 | grep -oE '[0-9]+' | head -1)"
+  if [ -n "$_vr_retro_claimed" ]; then
+    _vr_retro_real=0
+    _vr_retros_dir="$p/retros"
+    # §7 ANTI-SILENT-ZERO: distinguish four states for the primary retros/ directory.
+    # An unreadable dir is an OPERATIONAL condition — 2>/dev/null would convert it to a
+    # confident zero, manufacturing false drift (or false pass when claimed=0 but retros exist).
+    if [ -d "$_vr_retros_dir" ] && { [ ! -r "$_vr_retros_dir" ] || [ ! -x "$_vr_retros_dir" ]; }; then  # RETRO-UNREADABLE-CHECK
+      # Unreadable: surface as a distinct WARN; skip reconciliation so no false count fires.
+      echo "WARN  $name — retros/ at ${_vr_retros_dir} is not accessible (permission error); retro count cannot be verified — check filesystem permissions."  # RETRO-UNREADABLE-WARN
+    else
+      # Absent (legitimately 0 retros found), empty, or readable: count non-excluded retros.
+      # maxdepth 4 finds: depth 2 = <target>/retros/*.md; depth 3 = <target>/research/retros/*.md.
+      # 2>/dev/null guards only against spurious errors from intermediate dirs during deep traversal
+      # (primary retros/ accessibility already confirmed above; this does not suppress its errors).
+      while IFS= read -r _vr_rfile; do
+        [ -n "$_vr_rfile" ] || continue
+        retro_is_excluded "$_vr_rfile" && continue
+        _vr_retro_real=$((_vr_retro_real + 1))
+      done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+      if [ "$_vr_retro_real" -ne "${_vr_retro_claimed:-0}" ]; then
+        echo "WARN  $name — row claims ${_vr_retro_claimed} retro(s) but ${_vr_retro_real} non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply)."  # RETRO-DRIFT-CHECK
+        retro_drift=$((retro_drift + 1))
+      fi
+    fi
+  fi
 
   if [ -z "$claimed" ]; then
     echo "WARN  $name — no claimed '<N> md' count in its TARGETS.md row (real: $real blocks); add the count so it can be reconciled."
@@ -338,14 +421,15 @@ if [ "$_kit_found" -eq 0 ]; then
 fi
 
 echo ""
-echo "Summary: reconciled ${checked} target(s) · ${drift} count drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s)."
+echo "Summary: reconciled ${checked} target(s) · ${drift} count drift(s) · ${retro_drift} retro drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s)."
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: ${skipped_names}"
 fi
-if [ "$drift" -eq 0 ] && [ "$unresolved" -eq 0 ]; then
+if [ "$drift" -eq 0 ] && [ "$retro_drift" -eq 0 ] && [ "$unresolved" -eq 0 ]; then
   echo "Registry consistent with reality (within tolerance ${tol})."
 else
-  echo "For each drift: recount the corpus and refresh that target's 'N md' in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
+  [ "$drift" -gt 0 ] && echo "For each count drift: recount the corpus and refresh that target's 'N md' in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
+  [ "$retro_drift" -gt 0 ] && echo "For each retro drift: recount non-excluded retros and refresh the 'N retros' field in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
 fi
 
 # WARN-only contract: NEVER signal failure. A drift is a surfaced advisory, not an error.

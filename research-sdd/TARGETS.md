@@ -54,6 +54,24 @@ Master-table row format:
   - `hook no` — no research loop hook file under the target.
   - `hook deferred` — hook intentionally not installed yet (e.g. runtime does not honour project hooks).
 
+**Maturity cell field schema** — the parenthetical after the maturity level (`(field1 / field2 / …)`) is a
+`/`-separated sequence of typed fields. `verify-registry.sh` validates each token against the patterns
+below and WARNs on any token that does not match (WARN-only, propose-never-apply). An **absent** field is
+legal and is not a violation; only a **malformed** or **unknown** token triggers a WARN.
+
+| Field | Canonical form | Tolerated variants | Notes |
+|---|---|---|---|
+| Block count | `N md` | `N blocks` · `N blocks @date` · `N blocks @date, ACTIVE` | Dominant form is `N md`. `@date` records the last-counted date; the `, ACTIVE` suffix marks an in-progress focus. |
+| Run count | `N runs` | `N run` | Count of loop runs that produced blocks. |
+| Focus count | `N focuses` | `N focus` | Used for niagara-research; tracks documented focus areas. Singular accepted for consistency with `N run`. |
+| Retro count | `N retros` | `N retros + M corpus §18 + K client retros` | **Optional** — absent means the field is not yet tracked. A declared count is reconciled by `verify-registry.sh` against non-excluded `<target>/retros/*.md` files (maxdepth 4, same as `sweep-retros.sh` — finds depth-2 target-level retros AND depth-3 nested retros such as `<target>/research/retros/`). Excluded retros (`<!-- kit-retro: exclude -->`) do not count. `nc` rows are not retro-reconciled. |
+| Gap count | `N-of-M gaps` | — | Used for targets with a known gap list (e.g. nave-panccadia). |
+| nc flag | `nc` | — | Marks a non-corpus target (no RESEARCH-STATE.md by design). |
+| git | `git yes` · `git no` | — | Whether a git repo is initialized under the target. |
+| remote | `remote yes` · `remote no` | — | Whether a remote is configured. |
+| hook | `hook yes` · `hook no` · `hook file yes` · `hook deferred` | `hook yes ×N` · `hook yes; <narrative>` · `hook no; <narrative>` | Research loop hook status. Any token starting with `hook ` is accepted. |
+| unregistered | `unregistered` | — | Hook file present but not referenced by any loaded settings file. |
+
 Sensitivity:
 
 - **`live-install`** — the target is a REAL running installation/station (real credentials, keyring,
@@ -70,7 +88,7 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `$RESEARCH_HOME/niagara-research` | **mature** (290 md / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 1 | niagara-research | `$RESEARCH_HOME/niagara-research` | **mature** (312 md / 19 focuses / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
 | 2 | module-navigator | `$RESEARCH_HOME/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (6 md / nc / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
 | 3 | niagara-help | `$RESEARCH_HOME/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (2 md / nc / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `$RESEARCH_HOME/kidcad-research` | **mature** (79 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
