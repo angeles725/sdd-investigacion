@@ -992,5 +992,199 @@ else
   no "30 disc=0 vs CATALOG=5 → both-candidate WARN, unclassifiable fires, no drift WARN, exit 0" "exit=$RC out=[$OUT]"
 fi
 
+# ---- RETRO RECONCILIATION + MATURITY CELL SCHEMA VALIDATION -----------------------------------------
+# Tests 31–36: new functionality added in the registry-maturity-schema work unit.
+# Helper: write a TARGETS.md row with an explicit maturity parenthetical (claim is the full parens
+# content, not just the block count), so retro fields and unknown fields can be injected precisely.
+# write_targets_custom <kit> <target> <paren_content>
+write_targets_custom() {
+  local kit="$1" tgt="$2" paren="$3"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (%s) | `%s` |\n' "$paren" "$tgt"
+  } > "$kit/TARGETS.md"
+}
+
+# 31 — RETRO-MATCH: row declares N retros that matches the real non-excluded count → no retro WARN.
+kit="$(mkkit c31-retro-match)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+printf '# retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
+printf '# retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
+write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
+  ok "31 retro declared, matches disk (2==2) → no retro WARN" "(exit $RC)"
+else
+  no "31 retro declared, matches disk (2==2) → no retro WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 32 — RETRO-DRIFT: row claims N retros but the real count differs → WARN naming both counts, exit 0.
+kit="$(mkkit c32-retro-drift)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
+write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qiE 'WARN[[:space:]]+targetA.*2 retro.*5 non-excluded|WARN[[:space:]]+targetA.*5 non-excluded.*2 retro' <<<"$OUT"; then
+  ok "32 retro claimed 2 vs real 5 → WARN naming both, exit 0" "(exit $RC)"
+else
+  no "32 retro claimed 2 vs real 5 → WARN naming both, exit 0" "exit=$RC out=[$OUT]"
+fi
+
+# 33 — RETRO-ABSENT: no retro field in the cell → no retro WARN (absent is legal, not a violation).
+kit="$(mkkit c33-retro-absent)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
+write_targets_custom "$kit" "$tgt" "4 md / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
+  ok "33 no retro field in cell → no retro WARN (absent is legal)" "(exit $RC)"
+else
+  no "33 no retro field in cell → no retro WARN (absent is legal)" "exit=$RC out=[$OUT]"
+fi
+
+# 34 — RETRO-MALFORMED: cell contains a retro-shaped token that is not 'N retros' →
+#      surfaced as non-conforming field WARN (distinct from case 33's silence for absent).
+#      'retros: many' does not match ^[0-9]+ retros? and is not any other known pattern.
+kit="$(mkkit c34-retro-malformed)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*retros: many" <<<"$OUT"; then
+  ok "34 malformed retro token 'retros: many' → non-conforming WARN (distinct from absent)" "(exit $RC)"
+else
+  no "34 malformed retro token 'retros: many' → non-conforming WARN (distinct from absent)" "exit=$RC out=[$OUT]"
+fi
+
+# 34b — BLOCK-VARIANT ACCEPTANCE: 'N md', 'N blocks', 'N blocks @date' must all be accepted
+#       without triggering a non-conforming field WARN. None should generate a schema WARN.
+kit="$(mkkit c34b-block-variants)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+# Three sub-cases: each as its own TARGETS.md. Share the same kit/corpus, rewrite TARGETS.md.
+write_targets_custom "$kit" "$tgt" "4 md / git yes / hook yes"
+run "$kit"; md_ok=0; [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && md_ok=1
+write_targets_custom "$kit" "$tgt" "4 blocks / git yes / hook yes"
+run "$kit"; blocks_ok=0; [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && blocks_ok=1
+write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30 / git yes / hook yes"
+run "$kit"; date_ok=0; [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && date_ok=1
+if [ "$md_ok" = 1 ] && [ "$blocks_ok" = 1 ] && [ "$date_ok" = 1 ]; then
+  ok "34b block variants (N md / N blocks / N blocks @date) → all accepted, no schema WARN" "(all 3 sub-cases)"
+else
+  no "34b block variants → not all accepted" "md=$md_ok blocks=$blocks_ok date=$date_ok"
+fi
+
+# 35 — UNKNOWN-FIELD: a maturity cell token that matches no known schema pattern is surfaced
+#      verbatim in a WARN. The token 'widget yes' is not block/run/retro/git/remote/hook/nc/…
+kit="$(mkkit c35-unknown-field)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*widget yes" <<<"$OUT"; then
+  ok "35 unknown field 'widget yes' → non-conforming WARN verbatim" "(exit $RC)"
+else
+  no "35 unknown field 'widget yes' → non-conforming WARN verbatim" "exit=$RC out=[$OUT]"
+fi
+
+# 36 — EXCLUDED-RETROS-NOT-COUNTED: row claims 1 retro; disk has 1 real + 1 excluded → only the
+#      real one counts → declared count matches → NO drift WARN. Proves excluded retros are filtered.
+kit="$(mkkit c36-excluded-retro)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+mkdir -p "$tgt/retros"
+printf '# real retro\nbody\n' > "$tgt/retros/2026-01-01-real.md"
+printf '<!-- kit-retro: exclude -->\n# client retro\nbody\n' > "$tgt/retros/2026-01-02-client.md"
+write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
+  ok "36 excluded retro not counted: 1 real + 1 excluded vs claim 1 → no drift WARN" "(exit $RC)"
+else
+  no "36 excluded retro not counted: 1 real + 1 excluded vs claim 1 → no drift WARN" "exit=$RC out=[$OUT]"
+fi
+
+# ---- TEETH for new cases -----------------------------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-retro-drift: neuter RETRO-DRIFT-CHECK sentinel; drift fixture (real=5, claim=2) must
+  # stop emitting the WARN → proves test 32's WARN assertion is load-bearing.
+  echo "-- teeth-retro-drift: neuter RETRO-DRIFT-CHECK; drift fixture must NOT WARN about retros --"
+  kit="$(mkkit teeth-retro-drift)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  mkdir -p "$tgt/retros"
+  for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# RETRO-DRIFT-CHECK' "$mut"; then
+    sed -i '/# RETRO-DRIFT-CHECK/ s/.*/      : # RETRO-DRIFT-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$mout"; then
+      ok "teeth-retro-drift: neutered → drift fixture emits NO retro WARN (test 32 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-retro-drift: neutered mutant STILL emits retro WARN → test 32 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-retro-drift: RETRO-DRIFT-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-retro-exit0: add 'exit 1' in the drift branch; test 32's exit-0 assertion must now fail →
+  # proves the '[ "$RC" = 0 ]' in test 32 is load-bearing (not vacuously true).
+  echo "-- teeth-retro-exit0: drift branch exits 1; test 32 exit-0 assertion must fail --"
+  kit="$(mkkit teeth-retro-exit0)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  mkdir -p "$tgt/retros"
+  for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# RETRO-DRIFT-CHECK' "$mut"; then
+    # Append 'exit 1' immediately after the WARN line carrying the RETRO-DRIFT-CHECK sentinel.
+    sed -i '/# RETRO-DRIFT-CHECK/a\      exit 1' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" != 0 ]; then
+      ok "teeth-retro-exit0: exit-1 mutant exits non-zero → test 32 exit-0 check has teeth" "(exit $mrc)"
+    else
+      no "teeth-retro-exit0: exit-1 mutant still exited 0 → test 32 exit-0 check is THEATER" "mrc=$mrc"
+    fi
+  else
+    no "teeth-retro-exit0: RETRO-DRIFT-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-absent-vs-malformed: neuter NONCONFORM-FIELD-CHECK; 'retros: many' fixture must stop
+  # WARNing → proves test 34 is distinguishable from test 33 (absent vs malformed).
+  echo "-- teeth-absent-vs-malformed: neuter NONCONFORM-FIELD-CHECK; malformed must NOT WARN --"
+  kit="$(mkkit teeth-absent-malformed)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes / hook yes"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
+    sed -i '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -qiE 'not in schema' <<<"$mout"; then
+      ok "teeth-absent-vs-malformed: neutered → malformed token not flagged (test 34 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-absent-vs-malformed: neutered mutant STILL flags malformed → test 34 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-absent-vs-malformed: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-unknown-field: neuter NONCONFORM-FIELD-CHECK; 'widget yes' fixture must stop WARNing →
+  # proves test 35's schema-enforcement assertion is load-bearing.
+  echo "-- teeth-unknown-field: neuter NONCONFORM-FIELD-CHECK; 'widget yes' must NOT WARN --"
+  kit="$(mkkit teeth-unknown-field)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 4 "a"
+  write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes / hook yes"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
+    sed -i '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -qiE 'not in schema.*widget' <<<"$mout"; then
+      ok "teeth-unknown-field: neutered → 'widget yes' not flagged (test 35 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-unknown-field: neutered mutant STILL flags 'widget yes' → test 35 is THEATER" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-unknown-field: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

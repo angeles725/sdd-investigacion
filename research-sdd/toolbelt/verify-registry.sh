@@ -104,6 +104,54 @@ for p in $paths; do
   # truncated-'...' PARTIAL WARN reports "couldn't check"; a bare non-dir token is just not a corpus.
   [ -d "$p" ] || continue
 
+  # MATURITY PARENTHETICAL EXTRACTION: find the FIRST '(...)' in the row — always the maturity-field
+  # parenthetical. Using the whole row (not a fixed column index) makes this column-order-agnostic:
+  # it works with both the real 7-column TARGETS.md and the 4-column test-fixture tables without
+  # requiring the caller to know the column layout. The artifact column may also have parentheticals
+  # (e.g., '(.class)') but they appear AFTER the maturity parenthetical, so head -1 selects correctly.
+  # _vr_inner is kept for the retro reconciliation below (non-nc path).
+  _vr_paren="$(printf '%s' "$row" | grep -oE '\([^)]+\)' | head -1)"
+  _vr_inner="${_vr_paren#(}"; _vr_inner="${_vr_inner%)}"
+
+  # NON-CONFORMING MATURITY FIELD CHECK (WARN-only, runs for all non-truncated directory rows):
+  # tokenise _vr_inner by '/' and verify each token against the documented schema (TARGETS.md legend
+  # §Maturity cell field schema). A token that does not match any known pattern is surfaced verbatim.
+  # This mirrors the unclassifiable-block guard pattern: the instrument declares what it could not
+  # classify rather than silently passing.
+  # Known patterns: N md|blocks [@date[,...]] · N focuses · N runs|run · N retros[+...] ·
+  # N-of-N gaps · nc · git yes|no · remote yes|no · hook <anything> · unregistered.
+  # Absent parenthetical → no check (the row has no schema-validated fields; not an error).
+  if [ -n "$_vr_inner" ]; then
+    while IFS= read -r _vr_tok; do
+      # trim leading/trailing whitespace
+      _vr_tok="${_vr_tok#"${_vr_tok%%[![:space:]]*}"}"; _vr_tok="${_vr_tok%"${_vr_tok##*[![:space:]]}"}"
+      [ -z "$_vr_tok" ] && continue
+      # Block count: N md / N blocks / N blocks @date / N blocks @date, ACTIVE / …
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+(md|blocks?)[[:space:]]*(@.*)?$' && continue
+      # Focus count: N focuses
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+focuses?$' && continue
+      # Run count: N runs / N run
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+runs?$' && continue
+      # Retro field: N retros / N retros + M corpus §18 + K client retros / …
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+[[:space:]]+retros?' && continue
+      # Gap count: N-of-N gaps
+      printf '%s' "$_vr_tok" | grep -qiE '^[0-9]+-of-[0-9]+[[:space:]]+gaps?$' && continue
+      # nc flag (bare, exact)
+      [ "$_vr_tok" = "nc" ] && continue
+      # git status
+      printf '%s' "$_vr_tok" | grep -qE '^git[[:space:]]+(yes|no)$' && continue
+      # remote status
+      printf '%s' "$_vr_tok" | grep -qE '^remote[[:space:]]+(yes|no)$' && continue
+      # hook (any form: hook yes / hook no / hook file yes / hook deferred / hook yes ×2 / …)
+      printf '%s' "$_vr_tok" | grep -qE '^hook[[:space:]]' && continue
+      # unregistered
+      [ "$_vr_tok" = "unregistered" ] && continue
+      # Unknown field — surface verbatim; same pattern as unclassifiable-block guard.
+      echo "WARN  $(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
+      unresolved=$((unresolved + 1))
+    done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
+  fi
+
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
   # nc-marked targets (tooling, doc, production app) never trigger a deep filesystem search.
   # Convention: 'N md' for nc rows counts root-level .md only (maxdepth 1 — package-manager-safe;
@@ -213,6 +261,26 @@ for p in $paths; do
 
   checked=$((checked + 1))
   name="$(basename "$p")"
+
+  # RETRO RECONCILIATION: if the maturity cell declares an 'N retros' count, compare it against
+  # the actual non-excluded retros at <target>/retros/ (maxdepth 2 — the target-level retros/
+  # directory; nested corpus/retros/ are counted separately by the operator as 'N corpus §18').
+  # Reuses retro_is_excluded from lib/retro-status.sh (already sourced above). WARN-only: a drift
+  # is a finding, not an operational failure; exit stays 0. Absent retro field is legal (not a
+  # violation — forward-looking field, sparse in current rows). nc rows are skipped (handled above).
+  _vr_retro_claimed="$(printf '%s' "$_vr_inner" | grep -oiE '[0-9]+[[:space:]]+retros?' | head -1 | grep -oE '[0-9]+' | head -1)"
+  if [ -n "$_vr_retro_claimed" ]; then
+    _vr_retro_real=0
+    while IFS= read -r _vr_rfile; do
+      [ -n "$_vr_rfile" ] || continue
+      retro_is_excluded "$_vr_rfile" && continue
+      _vr_retro_real=$((_vr_retro_real + 1))
+    done < <(find "$p" -maxdepth 2 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+    if [ "$_vr_retro_real" -ne "${_vr_retro_claimed:-0}" ]; then
+      echo "WARN  $name — row claims ${_vr_retro_claimed} retro(s) but ${_vr_retro_real} non-excluded retro(s) found at <target>/retros/ — refresh the row (propose-never-apply)."  # RETRO-DRIFT-CHECK
+      drift=$((drift + 1))
+    fi
+  fi
 
   if [ -z "$claimed" ]; then
     echo "WARN  $name — no claimed '<N> md' count in its TARGETS.md row (real: $real blocks); add the count so it can be reconciled."
