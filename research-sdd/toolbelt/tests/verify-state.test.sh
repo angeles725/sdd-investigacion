@@ -842,6 +842,171 @@ if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$out
   ok "P7: INDEX.md without placeholders → no WARN, exit 0"
 else no "P7-ok: exit $(code "$d") :: $(grep -iE 'WARN.*INDEX\|INDEX.*WARN\|placeholder' <<<"$out" | head -1)"; fi
 
+# ========================= block_scope field (NR-A) =========================
+# env_bs: emit envelope lines including block_scope as the 9th param (all 9 fields).
+env_bs(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\ndeferred_open: %s\nundocumented_findings: %s\nblock_scope: %s\n<!-- /research-state.v1 -->\n' "$@"; }
+
+# BS-absent — REGRESSION GUARD: block_scope absent → per-focus behavior unchanged.
+# Two focuses share a dir; focus-a has 2 blocks, focus-b has 2 blocks. State for focus-a declares
+# covered_blocks=2 with NO block_scope field. Must pass BOTH before and after the NR-A change.
+d="$TMP/bs-absent"; mkdir -p "$d"
+printf 'x\n' > "$d/focus-a-block1.md"; printf 'x\n' > "$d/focus-a-block2.md"
+printf 'x\n' > "$d/focus-b-block1.md"; printf 'x\n' > "$d/focus-b-block2.md"
+{ echo '# Focus-A — Research State'; echo
+  env10 2 0 0 0 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-focus-a.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BS-absent: block_scope absent → per-focus (2 focus-a blocks counted not 4 total), exit 0"
+else no "BS-absent: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
+
+# BS-per-focus — block_scope: per-focus explicit → identical to absent.
+d="$TMP/bs-perfocus"; mkdir -p "$d"
+printf 'x\n' > "$d/focus-a-block1.md"; printf 'x\n' > "$d/focus-a-block2.md"
+printf 'x\n' > "$d/focus-b-block1.md"; printf 'x\n' > "$d/focus-b-block2.md"
+{ echo '# Focus-A — Research State'; echo
+  env_bs 2 0 0 0 0 0 0 0 "per-focus"; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-focus-a.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BS-per-focus: block_scope: per-focus → per-focus count (2 of 4 blocks), exit 0"
+else no "BS-per-focus: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
+
+# BS-global-ok — block_scope: shared-global, declared total == global on-disk count → PASSES.
+# Corpus shares a single prefix (niagara-mental-model-bloque). RESEARCH-STATE-chihuahua.md claims
+# covered_blocks=3 and declares block_scope: shared-global. CHECK A must compare against the global
+# count (3), not the chihuahua-prefix count (0) → passes.
+d="$TMP/bs-global-ok"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
+{ echo '# Chihuahua — Research State'; echo
+  env_bs 3 0 0 0 0 0 0 0 "shared-global"; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BS-global-ok: block_scope: shared-global, covered_blocks=3 == 3 global blocks → exit 0"
+else no "BS-global-ok: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks|ok ' <<<"$out" | head -1)"; fi
+
+# BS-global-stale — block_scope: shared-global, declared != global count → FAILS (staleness check has teeth).
+d="$TMP/bs-global-stale"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
+{ echo '# Chihuahua — Research State'; echo
+  env_bs 10 0 0 0 0 0 0 0 "shared-global"; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*covered_blocks=10 != 3' <<<"$out"; then
+  ok "BS-global-stale: block_scope: shared-global, covered_blocks=10 != 3 global → FAIL exit 1"
+else no "BS-global-stale: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out" | head -1)"; fi
+
+# BS-bogus — block_scope: bogus-value → FAILS with message naming both legal values.
+# covered_blocks=0 and 0 blocks on disk → CHECK A is silent; only block_scope validation fires.
+d="$TMP/bs-bogus"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env_bs 0 0 0 0 0 0 0 0 "bogus-value"; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-t.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*block_scope' <<<"$out" \
+   && grep -q 'per-focus' <<<"$out" && grep -q 'shared-global' <<<"$out"; then
+  ok "BS-bogus: block_scope: bogus-value → FAIL exit 1, message names both legal values"
+else no "BS-bogus: exit $(code "$d") :: $(grep -iE 'block_scope' <<<"$out" | head -1)"; fi
+
+# BS-empty — block_scope: (present but empty) → FAILS as malformed, NOT silently treated as absent.
+# §7 three-state rule: absent (no line) ≠ empty (line exists, value missing).
+d="$TMP/bs-empty"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: \n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-t.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*block_scope' <<<"$out"; then
+  ok "BS-empty: block_scope: (empty) → FAIL exit 1 (present+empty is malformed, not absent)"
+else no "BS-empty: exit $(code "$d") :: $(grep -iE 'block_scope' <<<"$out" | head -1)"; fi
+
+# BS-cannot-see — focus-filtered=0 while global > 0, block_scope absent → FAIL with distinguishing
+# message naming block_scope: shared-global. NOT a bare '!= N block file(s)' message.
+# Models the niagara defect: all focuses share niagara-mental-model-bloque; chihuahua- prefix=0.
+d="$TMP/bs-cannot-see"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
+{ echo '# Chihuahua — Research State'; echo
+  env10 3 0 0 0 0 0 0 0; echo   # covered_blocks=3, block_scope absent (→ per-focus, chihuahua- prefix)
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -q 'shared-global' <<<"$out" && ! grep -qE '!= [0-9]+ block file' <<<"$out"; then
+  ok "BS-cannot-see: focus-prefix=0 while global=3 → FAIL with shared-global hint, not bare '!= N'"
+else no "BS-cannot-see: exit $(code "$d") :: $(grep -iE 'shared-global\|!= ' <<<"$out" | head -1)"; fi
+
+# BS-no-blocks — no block files at all (global=0 too) → standard FAIL, NO shared-global hint.
+# Pair-control for BS-cannot-see: the two messages must be distinguishable.
+d="$TMP/bs-no-blocks"; mkdir -p "$d"
+{ echo '# Focus-X — Research State'; echo
+  env10 5 0 0 0 0 0 0 0; echo   # covered_blocks=5, no block_scope, zero block files
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-x.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*covered_blocks=5' <<<"$out" && ! grep -q 'shared-global' <<<"$out"; then
+  ok "BS-no-blocks: no block files at all (global=0) → standard FAIL, no shared-global hint"
+else no "BS-no-blocks: exit $(code "$d") :: $(grep -iE 'fail.*covered_blocks\|shared-global' <<<"$out" | head -1)"; fi
+
+# FOLLOW-UP 3: BS-indented — `  block_scope: shared-global` (leading spaces) must be detected as present.
+# env_field uses whitespace split so it correctly reads the value; but the _bs_present probe anchored
+# to /^block_scope:/ misses the indented form → treated as absent → per-focus path → ondisk=0 vs
+# e_covered=3 → FAIL. After fixing the probe to /^[[:space:]]*block_scope:/, the presence is detected,
+# shared-global path is taken, ondisk=3 → PASS.
+d="$TMP/bs-indented"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-bloque1.md"; printf 'x\n' > "$d/niagara-bloque2.md"; printf 'x\n' > "$d/niagara-bloque3.md"
+{ echo '# Chihuahua — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 3\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n  block_scope: shared-global\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BS-indented: '  block_scope: shared-global' (indented) detected present → shared-global path, exit 0"
+else no "BS-indented: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
+
+# FOLLOW-UP 4: BS-nospace-msg — block_scope:shared-global (no space after colon) must FAIL and the
+# message must name the no-space form (not just print '<empty>'). The exit-1 is already correct; the
+# fix is message quality so the operator knows exactly what to fix.
+d="$TMP/bs-nospace-msg"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope:shared-global\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-t.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qiE 'block_scope.*missing.space|missing.space.*block_scope|no.space.*block_scope|block_scope.*no.space|unparseable' <<<"$out"; then
+  ok "BS-nospace-msg: block_scope:shared-global (no space) → FAIL exit 1 with message naming the no-space form"
+else no "BS-nospace-msg: exit $(code "$d") :: $(grep -iE 'block_scope' <<<"$out" | head -1) (want FAIL + no-space message)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -1041,6 +1206,140 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-P7: P7-INDEX-PLACEHOLDER-WARN sentinel not found in SUT (P7 not implemented or marker missing)"
+  fi
+
+  # ---- block_scope (NR-A) mutation controls ----
+  # Restore the real lib (P23 already did this, but be explicit for clarity).
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+
+  # BS-absent + BS-per-focus mutation: neuter derive_focus_prefix → all blocks counted (4 vs declared 2).
+  echo "-- teeth-BS-absent: neuter derive_focus_prefix; 4 total blocks vs declared 2 → FAIL (has teeth) --"
+  sed 's/^  derive_focus_prefix() {$/  derive_focus_prefix() { return 0  # MUTANT-BSABSENT/' "$FPLIB" > "$TMP/lib/focus-prefix.sh"
+  mutantBSA="$TMP/verify-state.BSABSENT.MUTANT.sh"; cp "$SUT" "$mutantBSA"
+  d="$TMP/bs-absent"
+  bash "$mutantBSA" "$d" >/dev/null 2>&1; mbsagot=$?
+  if [ "$mbsagot" = 1 ]; then
+    ok "teeth-BS-absent: neutered prefix mutant → 4 blocks vs declared 2 → FAIL → BS-absent has teeth"
+  else no "teeth-BS-absent: mutant exit $mbsagot (want 1) → BS-absent may not depend on focus-prefix (THEATER)"; fi
+
+  echo "-- teeth-BS-per-focus: same mutant on bs-perfocus fixture; explicit per-focus also depends on prefix --"
+  d="$TMP/bs-perfocus"
+  bash "$mutantBSA" "$d" >/dev/null 2>&1; mbspfgot=$?
+  if [ "$mbspfgot" = 1 ]; then
+    ok "teeth-BS-per-focus: neutered prefix mutant → 4 blocks vs declared 2 → FAIL → BS-per-focus has teeth"
+  else no "teeth-BS-per-focus: mutant exit $mbspfgot (want 1) → BS-per-focus may not depend on focus-prefix (THEATER)"; fi
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"   # restore
+
+  # BS-global-ok mutation: replace ondisk="$_ondisk_global" with ondisk="0" (sentinel BS-SHARED-GLOBAL-ONDISK).
+  # shared-global fixture (covered_blocks=3, 3 global blocks) must then FAIL (3 ≠ 0).
+  echo "-- teeth-BS-global-ok: force ondisk=0 for shared-global; covered_blocks=3 vs 0 must FAIL --"
+  mutantBSGO="$TMP/verify-state.BSGLOBALOK.MUTANT.sh"
+  sed 's/ondisk="\$_ondisk_global"  # BS-SHARED-GLOBAL-ONDISK/ondisk="0"  # MUTANT-BSGO/' "$SUT" > "$mutantBSGO"
+  if ! grep -q 'MUTANT-BSGO' "$mutantBSGO"; then
+    no "teeth-BS-global-ok: could not build mutant (BS-SHARED-GLOBAL-ONDISK sentinel not found — did SUT change?)"
+  else
+    d="$TMP/bs-global-ok"
+    bash "$mutantBSGO" "$d" >/dev/null 2>&1; mbsgogot=$?
+    if [ "$mbsgogot" = 1 ]; then
+      ok "teeth-BS-global-ok: ondisk=0 mutant → covered_blocks=3 ≠ 0 → FAIL → BS-global-ok has teeth"
+    else no "teeth-BS-global-ok: mutant exit $mbsgogot (want 1) → shared-global ondisk selection not load-bearing (THEATER)"; fi
+  fi
+
+  # BS-global-stale mutation: neuter CHECK A → declared 10 vs 3 global undetected → exit 0.
+  echo "-- teeth-BS-global-stale: neuter CHECK A; covered_blocks=10 vs 3 must stop FAILing --"
+  mutantBSGS="$TMP/verify-state.BSGLOBALSTALE.MUTANT.sh"
+  sed 's/^\(  if ! is_int "\$e_covered" || \[ "\$e_covered" != "\$ondisk" \]; then\)$/  if false; then  # MUTANT-BSGS/' "$SUT" > "$mutantBSGS"
+  if ! grep -q 'MUTANT-BSGS' "$mutantBSGS"; then
+    no "teeth-BS-global-stale: could not build mutant (CHECK A guard line not found — did SUT change?)"
+  else
+    d="$TMP/bs-global-stale"
+    bash "$mutantBSGS" "$d" >/dev/null 2>&1; mbsgsgot=$?
+    if [ "$mbsgsgot" = 0 ]; then
+      ok "teeth-BS-global-stale: CHECK A neutered → 10 vs 3 undetected (exit 0) → BS-global-stale has teeth"
+    else no "teeth-BS-global-stale: mutant exit $mbsgsgot (want 0) → BS-global-stale does not depend on CHECK A (THEATER)"; fi
+  fi
+
+  # BS-bogus + BS-empty mutation: neuter block_scope validation (sentinel BS-BLOCK_SCOPE-VALIDATE).
+  # bogus-value and empty value must then exit 0 instead of 1.
+  echo "-- teeth-BS-bogus: neuter block_scope validation; bogus-value must stop FAILing --"
+  mutantBSVAL="$TMP/verify-state.BSVALIDATE.MUTANT.sh"
+  if grep -q '# BS-BLOCK_SCOPE-VALIDATE' "$SUT"; then
+    sed '/# BS-BLOCK_SCOPE-VALIDATE/ s/.*if ! _validate_block_scope.*/  if false; then  # MUTANT-BSVAL/' "$SUT" > "$mutantBSVAL"
+    d="$TMP/bs-bogus"
+    bash "$mutantBSVAL" "$d" >/dev/null 2>&1; mbsbgot=$?
+    if [ "$mbsbgot" = 0 ]; then
+      ok "teeth-BS-bogus: neutered validation → bogus-value exits 0 → BS-bogus has teeth"
+    else no "teeth-BS-bogus: mutant exit $mbsbgot (want 0) → BS-bogus does not depend on block_scope validation (THEATER)"; fi
+
+    echo "-- teeth-BS-empty: same mutant on bs-empty fixture; empty value also depends on validation --"
+    d="$TMP/bs-empty"
+    bash "$mutantBSVAL" "$d" >/dev/null 2>&1; mbsegot=$?
+    if [ "$mbsegot" = 0 ]; then
+      ok "teeth-BS-empty: neutered validation → empty value exits 0 → BS-empty has teeth"
+    else no "teeth-BS-empty: mutant exit $mbsegot (want 0) → BS-empty does not depend on block_scope validation (THEATER)"; fi
+  else
+    no "teeth-BS-bogus: BS-BLOCK_SCOPE-VALIDATE sentinel not found in SUT (block_scope validation not implemented)"
+    no "teeth-BS-empty: BS-BLOCK_SCOPE-VALIDATE sentinel not found in SUT (block_scope validation not implemented)"
+  fi
+
+  # BS-cannot-see mutation: neuter the distinguishing condition (sentinel BS-CANNOT-SEE-COND).
+  # The bs-cannot-see fixture must then emit the standard message (no shared-global hint) → test fails.
+  echo "-- teeth-BS-cannot-see: neuter the cannot-see distinguishing condition; standard message must fire --"
+  mutantBSCS="$TMP/verify-state.BSCANNOTSEE.MUTANT.sh"
+  if grep -q '# BS-CANNOT-SEE-COND' "$SUT"; then
+    sed 's/^    if \[ -n "\$_fpfx" \].*# BS-CANNOT-SEE-COND$/    if false; then  # MUTANT-BSCS/' "$SUT" > "$mutantBSCS"
+    d="$TMP/bs-cannot-see"
+    mbcsout="$(bash "$mutantBSCS" "$d" 2>/dev/null)"
+    if ! grep -q 'shared-global' <<<"$mbcsout"; then
+      ok "teeth-BS-cannot-see: neutered condition → standard message (no shared-global hint) → BS-cannot-see has teeth"
+    else no "teeth-BS-cannot-see: mutant STILL emits shared-global hint → BS-cannot-see assertion is THEATER"; fi
+  else
+    no "teeth-BS-cannot-see: BS-CANNOT-SEE-COND sentinel not found in SUT (cannot-see logic not implemented)"
+  fi
+
+  # BS-no-blocks mutation: change _ondisk_global -gt 0 to -ge 0 → condition fires even when global=0.
+  # bs-no-blocks fixture (global=0) must then emit the shared-global hint → test fails ('shared-global' appears).
+  echo "-- teeth-BS-no-blocks: relax _ondisk_global guard to -ge 0; global=0 fixture must now emit shared-global hint --"
+  mutantBSNB="$TMP/verify-state.BSNOBLOCKS.MUTANT.sh"
+  sed 's/\[ "\${_ondisk_global:-0}" -gt 0 \]/[ "${_ondisk_global:-0}" -ge 0 ]/' "$SUT" > "$mutantBSNB"
+  if ! grep -q '"\${_ondisk_global:-0}" -ge 0' "$mutantBSNB"; then
+    no "teeth-BS-no-blocks: could not build mutant (_ondisk_global -gt 0 pattern not found — did SUT change?)"
+  else
+    d="$TMP/bs-no-blocks"
+    mbnbout="$(bash "$mutantBSNB" "$d" 2>/dev/null)"
+    if grep -q 'shared-global' <<<"$mbnbout"; then
+      ok "teeth-BS-no-blocks: relaxed guard → global=0 emits shared-global hint → BS-no-blocks has teeth"
+    else no "teeth-BS-no-blocks: mutant did NOT emit shared-global hint → BS-no-blocks may not depend on global guard (THEATER)"; fi
+  fi
+
+  # ---- FOLLOW-UP 3 mutation: neuter the whitespace-tolerant probe (sentinel BS-INDENTED-PROBE) ----
+  # BS-indented fixture (  block_scope: shared-global) must then report _bs_present="" → per-focus path
+  # → ondisk=0 vs e_covered=3 → FAIL (exit 1), proving the whitespace-tolerant probe is load-bearing.
+  echo "-- teeth-BS-indented: neuter BS-INDENTED-PROBE; indented form must be missed → FAIL --"
+  mutantBSI="$TMP/verify-state.BSINDENTED.MUTANT.sh"
+  sed '/# BS-INDENTED-PROBE$/s/_bs_present=.*/_bs_present=""  # MUTANT-BSI: probe neutered/' "$SUT" > "$mutantBSI"
+  if ! grep -q 'MUTANT-BSI' "$mutantBSI"; then
+    no "teeth-BS-indented: could not build mutant (BS-INDENTED-PROBE sentinel not found — did SUT change?)"
+  else
+    d="$TMP/bs-indented"
+    bash "$mutantBSI" "$d" >/dev/null 2>&1; mbsigot=$?
+    if [ "$mbsigot" = 1 ]; then
+      ok "teeth-BS-indented: neutered probe → indented form missed → FAIL (exit 1) → BS-indented has teeth"
+    else no "teeth-BS-indented: mutant exit $mbsigot (want 1) — indented probe not exercised (THEATER)"; fi
+  fi
+
+  # ---- FOLLOW-UP 4 mutation: replace 'unparseable' message branch with the old '<empty>' text ----
+  echo "-- teeth-BS-nospace-msg: old '<empty>' message; 'unparseable' check must miss --"
+  mutantBSNS="$TMP/verify-state.BSNOSPACE.MUTANT.sh"
+  sed 's/envelope block_scope is present but unparseable.*/envelope block_scope=<empty> is not a legal value — must be '"'"'per-focus'"'"' or '"'"'shared-global'"'"'/' "$SUT" > "$mutantBSNS"
+  if ! grep -q 'block_scope=<empty>' "$mutantBSNS"; then
+    no "teeth-BS-nospace-msg: could not build mutant (unparseable message line not found — did SUT change?)"
+  else
+    d="$TMP/bs-nospace-msg"
+    mbnsout="$(bash "$mutantBSNS" "$d" 2>/dev/null)"
+    if ! grep -qiE 'unparseable|missing.space|no.space' <<<"$mbnsout"; then
+      ok "teeth-BS-nospace-msg: old message → 'unparseable' check fails → BS-nospace-msg wording is load-bearing"
+    else no "teeth-BS-nospace-msg: reverted mutant STILL has the improved message — assertion is THEATER"; fi
   fi
 fi
 

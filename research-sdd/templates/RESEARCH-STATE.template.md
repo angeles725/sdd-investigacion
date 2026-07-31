@@ -24,6 +24,12 @@
          written. Nothing in the kit observes memory saves — this is discipline, not automation. Gate behaviour:
          verify-state.sh WARNs when > 3; FAILs when > 6; research-sdd-archive.sh refuses to close when > 0.
          Memory is a MIRROR, not the record. A finding that exists only in memory is undocumented.
+       • OPTIONAL — block_scope: controls how verify-state counts on-disk block files for CHECK A.
+         Omit for the common case (§16 per-focus prefix layout — each focus has its own block prefix).
+         Set to 'shared-global' when ALL focuses in the corpus share ONE block-file prefix (e.g. niagara-
+         mental-model-bloque). With shared-global, CHECK A compares covered_blocks against the corpus-wide
+         block count, not the focus-filtered count. Legal values: 'per-focus' | 'shared-global'.
+         Present but empty, or any other value, is a hard FAIL — absent (omitted) is always legal.
      Field names use UNDERSCORES on purpose: they must never collide with the prose greps below. -->
 <!-- research-state.v1 -->
 schema: research-state.v1

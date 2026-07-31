@@ -529,6 +529,33 @@ enforces the gate; the researcher maintains the number.
 absent in a legacy envelope, `--sync-state` seeds it to 0. The RESEARCH-STATE.template.md
 includes `undocumented_findings: 0` in the envelope for new targets.
 
+**`block_scope` — corpus block-counting mode (optional envelope field).**
+By default (`block_scope` absent, or `block_scope: per-focus`), `verify-state.sh` CHECK A counts
+only the block files whose names carry the focus-specific prefix derived from the state filename
+(§16 prescribed layout: `RESEARCH-STATE-<focus>.md` ↔ `<focus>-block<N>.md`). This is correct
+for multi-focus corpora where each focus has its own prefix.
+
+Some corpora deliberately do NOT follow §16's per-focus layout: all focuses share one corpus-wide
+block prefix (e.g. `niagara-mental-model-bloque`). Declaring `block_scope: shared-global` tells
+`verify-state` to compare `covered_blocks` against the corpus-wide (focus-blind) block count
+instead. Without this declaration, CHECK A reports a false mismatch (focus-filtered count = 0 while
+the corpus has many blocks) and gives a misleading "= 0" message. Declaring it is how a shared-prefix
+corpus stays verifiable rather than silently failing.
+
+| Value | Meaning | CHECK A comparison |
+|---|---|---|
+| absent | same as `per-focus` (backward-compatible default) | focus-prefix filtered count |
+| `per-focus` | §16 layout — each focus has its own prefix | focus-prefix filtered count |
+| `shared-global` | all focuses share one corpus-wide prefix | global (focus-blind) count |
+
+**Gate behaviour:** present but empty, or any value other than `per-focus` / `shared-global`, is a
+hard FAIL — `verify-state` cannot proceed without knowing the counting mode. Absent is always legal.
+
+**Cannot-see diagnostic.** Even when `block_scope` is absent/per-focus, if the focus-filtered count
+is 0 while other-prefix blocks exist, `verify-state` emits a distinguishing FAIL message that names
+`block_scope: shared-global` as the declaration to add — rather than a bare "≠ 0 block file(s)"
+that hides which condition was actually hit.
+
 ## 8. Stopping criterion
 
 The loop stops on the FIRST of these (primary first):
