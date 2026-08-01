@@ -176,13 +176,38 @@ count_deferred() {
 backlog_rows() {
   # Normalize the row so both bounded (`| p | g | t | s |`) and outer-pipe-less GFM (`p | g | t | s`)
   # rows parse to exactly 4 cells; a pipe INSIDE a cell yields n!=4 → WARN (never a silent drop).
+  # An unknown priority value emits a diagnostic to stderr AND a INVALID_PRIORITY<TAB><value> sentinel
+  # to stdout. Callers that care check for the sentinel; callers that don't (derive_investigable etc.)
+  # safely ignore the 2-field sentinel line. Silently skips: deferred (parked), strikethrough (~~p~~),
+  # em-dash (—), and qualifier forms (e.g. "high (context)"). An unknown qualifier BASE fails closed.
   awk '
+    /^## Gap-backlog/ { in_backlog=1; in_data=0; next }
+    /^## / { in_backlog=0; in_data=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       p=tolower(a[1])
-      if (p!="high" && p!="medium" && p!="low") next
+      if (p~/^-/) { in_data=1; next }
+      if (p=="" || p=="priority" || p=="p" || p=="deferred") { next }
+      if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
+      if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
+      base=p; sub(/ *\([^)]*\)$/, "", base)
+      if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base silently skips; else fail closed
+        if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }
+        if (in_backlog && in_data) {
+          print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
+          print "INVALID_PRIORITY\t" p
+        }
+        next
+      }
+      if (p!="high" && p!="medium" && p!="low") {
+        if (in_backlog && in_data) {
+          print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
+          print "INVALID_PRIORITY\t" p
+        }
+        next
+      }
       if (n!=4) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr"; next }
       print p "\t" a[2] "\t" tolower(a[4]) }
   ' "$state"
@@ -295,6 +320,16 @@ if [ "$mode" = "--sync-state" ]; then
     # plain path harmlessly. The temp then lives in the target's OWN directory so mv is a same-filesystem
     # atomic rename (a bare mktemp lands in TMPDIR, and a cross-device mv is a non-atomic copy+unlink).
     state="$(readlink -f "$state" 2>/dev/null || printf '%s' "$state")"
+    # BACKLOG PARSE CHECK — refuse to seed an envelope from an unparseable backlog. Unknown priority
+    # values (not high/medium/low/deferred) emit an INVALID_PRIORITY sentinel to stdout; seeding from
+    # a partial backlog would record a wrong investigable_open, disarming verify-state's gate.
+    _brows_invalid="$(backlog_rows | grep '^INVALID_PRIORITY')"
+    if [ -n "$_brows_invalid" ]; then  # BP-SYNC-INVALID-REFUSE
+      printf 'sync-state: ERROR: %s: backlog NOT FULLY PARSEABLE — unknown priority value(s) found\n' \
+        "$(basename "$state")" >&2
+      printf '  (diagnostics above name the offending row(s); envelope NOT rewritten — fix the priority value(s) first)\n' >&2
+      exit 1
+    fi
     # block_scope: carry-forward through --sync-state round-trips so the declaration survives. env_get
     # handles indented forms (whitespace-split awk). The no-space probe mirrors the undocumented_findings
     # precedent (index==1 anchors to line-start; only legal values are carried — illegal values stay for

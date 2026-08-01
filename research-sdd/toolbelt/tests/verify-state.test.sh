@@ -1007,6 +1007,114 @@ if [ "$(code "$d")" = 1 ] && grep -qiE 'block_scope.*missing.space|missing.space
   ok "BS-nospace-msg: block_scope:shared-global (no space) → FAIL exit 1 with message naming the no-space form"
 else no "BS-nospace-msg: exit $(code "$d") :: $(grep -iE 'block_scope' <<<"$out" | head -1) (want FAIL + no-space message)"; fi
 
+# ====================== ISSUE #143 — unknown priority backlog parse check ========================
+# Unknown priorities silently dropped; fix detects INVALID_PRIORITY sentinels and FAILs before
+# any derivation runs. Suite-local helpers: build single-row bp fixtures and assert outcomes.
+mk_vocab_fixture() {
+  local d="$1" pval="$2" gdesc="$3" gtype="$4" gstatus="$5"; mkdir -p "$d"
+  { echo '# T — Research State'; echo
+    env10 0 0 1 0 0 0 0 0; echo
+    echo '## Gap-backlog (prioritized)'
+    echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+    echo "| $pval | $gdesc | $gtype | $gstatus |"; echo
+    echo '## Blocked gaps'; echo '- none'
+    echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  } > "$d/RESEARCH-STATE.md"
+}
+chk_skip_ok() {  # expect exit 0 and no INVALID_PRIORITY/NOT FULLY PARSEABLE output
+  local d="$1" msg="$2"; local out; out="$(run "$d")"
+  if [ "$(code "$d")" = 0 ] && ! grep -qiE 'NOT FULLY PARSEABLE|INVALID_PRIORITY' <<<"$out"; then ok "$msg"
+  else no "$msg — exit $(code "$d") :: $(grep -iE 'fail|parseable|invalid' <<<"$out" | head -1)"; fi
+}
+chk_skip_fail() {  # expect exit 1 and NOT FULLY PARSEABLE (invalid-base tests)
+  local d="$1" msg="$2"; local out; out="$(run "$d")"
+  if [ "$(code "$d")" = 1 ] && grep -qiE 'NOT FULLY PARSEABLE' <<<"$out"; then ok "$msg"
+  else no "$msg — exit $(code "$d") (want 1) :: $(grep -iE 'fail|parseable|invalid' <<<"$out" | head -1)"; fi
+}
+
+# BP-fail — unknown priority 'critical', laundered io=0 → FAIL exit 1 with diagnostic.
+# Core regression: WITHOUT the fix, verify-state PASSED (0==0) — laundred envelope silently accepted.
+mk_vocab_fixture "$TMP/bp-fail" 'critical' 'firmware parsing' 'web' 'pending'
+out="$(run "$TMP/bp-fail")"
+if [ "$(code "$TMP/bp-fail")" = 1 ] && grep -qE 'FAIL' <<<"$out" && grep -qiE 'critical|unknown|unparse|backlog' <<<"$out"; then
+  ok "BP-fail: unknown priority 'critical' (laundered io=0) → FAIL exit 1 with diagnostic"
+else no "BP-fail: exit $(code "$TMP/bp-fail") (want 1) :: $(grep -iE 'fail|critical|ok ' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# BP-typo — typo 'hight' FAILs with diagnostic (not silently dropped).
+mk_vocab_fixture "$TMP/bp-typo" 'hight' 'typo gap' 'web' 'pending'
+out="$(run "$TMP/bp-typo")"
+if [ "$(code "$TMP/bp-typo")" = 1 ] && grep -qE 'FAIL' <<<"$out" && grep -qiE 'hight|unknown|unparse|backlog' <<<"$out"; then
+  ok "BP-typo: priority typo 'hight' → FAIL exit 1 (not silently dropped)"
+else no "BP-typo: exit $(code "$TMP/bp-typo") (want 1) :: $(grep -iE 'fail|hight|ok ' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# BP-regression — valid priorities (high, medium, low) still pass after the fix (io=2).
+d="$TMP/bp-regression"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env10 0 0 3 2 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | gap-1 | web | pending |'
+  echo '| medium | gap-2 | web | pending |'
+  echo '| low | gap-3 | web | covered |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 2'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BP-regression: valid priorities (high, medium, low) still pass with the fix"
+else no "BP-regression: exit $(code "$d") (want 0) :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
+
+# BP-mixed — valid 'high' + 'critical' row → FAILS; laundered io=1 does NOT mask the unknown row.
+d="$TMP/bp-mixed-vs"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env10 0 0 2 1 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | valid gap | web | pending |'
+  echo '| critical | firmware parsing | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL' <<<"$out" && grep -qiE 'critical|unknown|unparse|backlog' <<<"$out"; then
+  ok "BP-mixed: 1 valid high + 1 critical → FAIL exit 1 (not silently routed around the invalid row)"
+else no "BP-mixed: exit $(code "$d") (want 1) :: $(grep -iE 'fail|critical|ok ' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# BP-deferred — 'deferred' is NOT flagged (known non-investigable). Regression: fix must not false-alarm.
+d="$TMP/bp-deferred"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env10 0 0 2 1 0 0 1 0; echo
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'
+  echo '| deferred | parked gap | analysis | ⏸ deferred — operator decision |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "BP-deferred: 'deferred' priority is NOT flagged as unknown (known non-investigable state)"
+else no "BP-deferred: exit $(code "$d") (want 0) :: $(grep -iE 'fail|deferred|ok ' <<<"$out" | head -1)"; fi
+
+# ---- Issue #143 corpus vocabulary: strikethrough / qualifier / em-dash skip forms ----
+# Real-corpus forms silently skipped; invalid qualifier base still fails closed (not an escape hatch).
+
+# BP-strikethrough — '~~high~~' silently skipped (nave-panccadia 24 rows, computadoras 8 rows).
+mk_vocab_fixture "$TMP/bp-strikethrough" '~~high~~' 'resolved gap' 'web' '~~covered~~'
+chk_skip_ok "$TMP/bp-strikethrough" "BP-strikethrough: '~~high~~' (strikethrough) silently skipped — NOT flagged"
+
+# BP-qualifier — 'high (cross-vibra)' (valid-base qualifier) silently skipped (pruebas-dashboards 21, three.js 1).
+mk_vocab_fixture "$TMP/bp-qualifier" 'high (cross-vibra)' 'vibra gap' 'web' 'pending (cross-vibra)'
+chk_skip_ok "$TMP/bp-qualifier" "BP-qualifier: 'high (cross-vibra)' (valid-base qualifier) silently skipped — NOT flagged"
+
+# BP-em-dash — '—' (em-dash placeholder) silently skipped (hifref 2 rows).
+mk_vocab_fixture "$TMP/bp-em-dash" '—' 'placeholder' '—' '—'
+chk_skip_ok "$TMP/bp-em-dash" "BP-em-dash: '—' (em-dash placeholder) silently skipped — NOT flagged"
+
+# BP-qualifier-invalid — 'hight (cross-vibra)' invalid base → fails closed. Not an escape hatch.
+mk_vocab_fixture "$TMP/bp-qualifier-invalid" 'hight (cross-vibra)' 'typo gap' 'web' 'pending'
+chk_skip_fail "$TMP/bp-qualifier-invalid" "BP-qualifier-invalid: 'hight (cross-vibra)' (invalid base) fails closed — qualifier is not an escape hatch"
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -1341,6 +1449,65 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-BS-nospace-msg: old message → 'unparseable' check fails → BS-nospace-msg wording is load-bearing"
     else no "teeth-BS-nospace-msg: reverted mutant STILL has the improved message — assertion is THEATER"; fi
   fi
+
+  # Suite-local helper: build a SUT mutant via sed, copy FPLIB, run fixture, assert exit == EXPECT.
+  cnt_occ() { awk -v n="$1" 'BEGIN{c=0}{s=$0;while((p=index(s,n))>0){c++;s=substr(s,p+length(n))}}END{print c}' "$2"; }
+  printf 'no match\n'                         > "$TMP/cnt-proof.txt"; _cp0="$(cnt_occ "BPSKIP-X" "$TMP/cnt-proof.txt")"
+  printf 'BPSKIP-X once\n'                    > "$TMP/cnt-proof.txt"; _cp1="$(cnt_occ "BPSKIP-X" "$TMP/cnt-proof.txt")"
+  printf 'BPSKIP-X and BPSKIP-X same line\n' > "$TMP/cnt-proof.txt"; _cp2="$(cnt_occ "BPSKIP-X" "$TMP/cnt-proof.txt")"
+  [ "$_cp0" = 0 ] && [ "$_cp1" = 1 ] && [ "$_cp2" = 2 ] && ok "cnt_occ: 0/1/2 same-line → 0/1/2 (self-proof)" || no "cnt_occ: proof failed (0=$_cp0 1=$_cp1 2=$_cp2)"
+  chk_bpskip_tooth() {
+    local label="$1" marker="$2" sedexpr="$3" fixdir="$4" expect="${5:-1}"
+    local mutant="$TMP/verify-state.${label}.MUTANT.sh"
+    echo "-- teeth-BP-${label}: neuter ${label} skip; fixture must exit ${expect} --"
+    local mc; mc="$(cnt_occ "$marker" "$SUT")"
+    [ "$mc" = 1 ] || { no "teeth-BP-${label}: anchor found $mc times in SUT (want exactly 1)"; return; }
+    sed "$sedexpr" "$SUT" > "$mutant"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    local sut_h mutant_h
+    sut_h="$(md5sum "$SUT" | cut -d' ' -f1)"; mutant_h="$(md5sum "$mutant" | cut -d' ' -f1)"
+    [ "$sut_h" != "$mutant_h" ] || { no "teeth-BP-${label}: sed no-op — mutant == SUT — recipe not applied"; return; }
+    bash "$mutant" "$fixdir" >/dev/null 2>&1; local got=$?
+    [ "$got" = "$expect" ] \
+      && ok "teeth-BP-${label}: neutered guard exits ${expect} — ${label} skip is load-bearing" \
+      || no "teeth-BP-${label}: mutant exit $got (want $expect) — THEATER"
+  }
+
+  # teeth-BP-parse-check: BP-fail fixture (laundered io=0) must false-pass — check is load-bearing.
+  chk_bpskip_tooth "BP-parse-check" "# BP-INVALID-PRIORITY-FAIL" \
+    's/if \[ -n "\$_bparse_invalid" \]; then  # BP-INVALID-PRIORITY-FAIL/if false; then  # MUTANT-BP/' \
+    "$TMP/bp-fail" 0
+
+  # Corpus vocabulary teeth: removing a skip makes fixture exit 1; invalid-base tested in reverse.
+  chk_bpskip_tooth "strikethrough" "BPSKIP-STRIKETHROUGH" '/BPSKIP-STRIKETHROUGH/s/if (p~/if (0 ~/' "$TMP/bp-strikethrough" 1
+  chk_bpskip_tooth "em-dash"       "BPSKIP-EMDASH"        '/BPSKIP-EMDASH/s/if (p~/if (0 ~/'        "$TMP/bp-em-dash"       1
+  chk_bpskip_tooth "qualifier"     "BPSKIP-QUALIFIER"      '/BPSKIP-QUALIFIER/s/if (base != p)/if (0)/' "$TMP/bp-qualifier" 1
+  cp "$TMP/verify-state.strikethrough.MUTANT.sh" "$TMP/verify-state.sh"  # Propagation: copy-2 mutant → status --next must return STALE
+  cp "$HERE/../research-sdd-status.sh" "$TMP/status.VS-PROP.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  _pst="$(bash "$TMP/status.VS-PROP.sh" "$TMP/bp-strikethrough" --next 2>/dev/null)"
+  [ "${_pst%%\ *}" = "STALE" ] && ok "teeth-BP-strikethrough-prop: neutered copy-2 → STALE in status" || no "teeth-BP-strikethrough-prop: [$_pst] (want STALE)"
+  cp "$TMP/verify-state.em-dash.MUTANT.sh" "$TMP/verify-state.sh"
+  _ped="$(bash "$TMP/status.VS-PROP.sh" "$TMP/bp-em-dash" --next 2>/dev/null)"
+  [ "${_ped%%\ *}" = "STALE" ] && ok "teeth-BP-em-dash-prop: neutered copy-2 → STALE in status" || no "teeth-BP-em-dash-prop: [$_ped] (want STALE)"
+  cp "$TMP/verify-state.qualifier.MUTANT.sh" "$TMP/verify-state.sh"
+  _pq="$(bash "$TMP/status.VS-PROP.sh" "$TMP/bp-qualifier" --next 2>/dev/null)"
+  [ "${_pq%%\ *}" = "STALE" ] && ok "teeth-BP-qualifier-prop: neutered copy-2 → STALE in status" || no "teeth-BP-qualifier-prop: [$_pq] (want STALE)"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"  # restore lib
+
+  # teeth-BP-qualifier-invalid: explicit (needs MUTANT-QV build-check); accept-all-bases → hight(x) false-passes.
+  echo "-- teeth-BP-qualifier-invalid: accept-all-bases mutant; hight(x) must false-pass (exit 0) --"
+  if grep -q 'BPSKIP-QUALIFIER' "$SUT"; then
+    sed 's/if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }/if (1) { next }  # MUTANT-QV/' \
+      "$SUT" > "$TMP/verify-state.QV.MUTANT.sh"
+    if ! grep -q 'MUTANT-QV' "$TMP/verify-state.QV.MUTANT.sh"; then
+      no "teeth-BP-qualifier-invalid: could not build accept-all-bases mutant (base-validity line not found)"
+    else
+      cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+      bash "$TMP/verify-state.QV.MUTANT.sh" "$TMP/bp-qualifier-invalid" >/dev/null 2>&1; mqvgot=$?
+      [ "$mqvgot" = 0 ] \
+        && ok "teeth-BP-qualifier-invalid: accept-all-bases mutant → hight(x) false-passes (exit 0) — base-validity is load-bearing" \
+        || no "teeth-BP-qualifier-invalid: mutant exit $mqvgot (want 0) — base-validity may not be the stopper (THEATER)"
+    fi
+  else no "teeth-BP-qualifier-invalid: BPSKIP-QUALIFIER not found in SUT"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
