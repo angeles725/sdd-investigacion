@@ -133,12 +133,16 @@ Never declare done without running it.
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
-**No suite or case counts are recorded here, deliberately.** For the current numbers run the gate; it
-is the authority and it cannot go stale. This file used to carry a snapshot; when it was last checked
-it read 79 suites against 81 on disk, and a case count the measurement had already moved past. Worse,
-two careful measurements of the same commit differed by 3 cases — a hand-written snapshot of a figure
-that is not even stable between runs is a synchronisation promise nobody can keep. Doctrine holds
-invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
+**No suite or case counts are recorded here, deliberately.** For the current numbers, run the gate. Its
+output is authoritative for that execution and that candidate — a later edit invalidates it, another
+environment may not reproduce it, and the runner has its own blind spots. Do not persist those counts
+here. This file used to carry a snapshot; when it was last checked it read 79 suites against 81 on
+disk, and a case count the measurement had already moved past. Worse,
+two local runs both reported 1,868 mutation cases while a separate verification pass in another context
+reported 1,871. The cause was not established, and no per-suite log survived from the other run:
+neither conditional coverage nor run-to-run variability could be confirmed or excluded. A figure that
+careful measurements disagree on is not one a hand-written snapshot can promise to track. Doctrine
+holds invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
 
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
 register.
