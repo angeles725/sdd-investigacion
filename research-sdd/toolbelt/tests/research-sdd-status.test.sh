@@ -741,6 +741,114 @@ if [ "$_vs53rc" = "0" ] && grep -qE 'covered_blocks=3/3' <<<"$_vs53out"; then
   ok "sync-bs-e2e: verify-state exits 0 with covered_blocks=3/3 (global count) after shared-global sync"
 else no "sync-bs-e2e: rc=$_vs53rc :: $(grep 'envelope' <<<"$_vs53out" | head -1) (want rc=0 + cb=3/3)"; fi
 
+# ---- ISSUE #143 — unknown priority concealment chain -----------------------------------------------
+# Unknown priorities (e.g. 'critical', 'urgent', typos) were silently dropped by backlog_rows().
+# The gap was concealed: scheduler returned STOP and --sync-state laundered a false-ok envelope.
+# mkbadprio <dir> <priority-value> [io=1|0]  io=0 = laundered (what --sync-state wrote under the bug)
+mkbadprio() {
+  local dir="$1" pval="$2" io="${3:-1}"; mkdir -p "$dir"
+  { echo "# T — Research State"; echo
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 1\ninvestigable_open: %s\nrequires_execution_open: 0\nblocked_open: 0\n<!-- /research-state.v1 -->\n' "$io"; echo
+    echo "## Gap-backlog (prioritized)"; echo
+    echo "| Priority | Gap | Artifact type / source | Status |"; echo "|---|---|---|---|"
+    echo "| $pval | firmware parsing | web | pending |"; echo
+    echo "## Blocked gaps"; echo "- none"; echo
+    echo "## Stop control"
+    echo "- **Open gaps — read-only investigable**: $io"
+  } > "$dir/RESEARCH-STATE.md"
+}
+
+# T54 — 'critical' (laundered io=0) → --next STALE (not STOP). Pre-fix: verify-state passed, gap concealed.
+d="$TMP/bp-laundered"; mkbadprio "$d" "critical" 0
+got54="$(next "$d")"
+case "$got54" in
+  STALE\ *) ok "T54: unknown priority 'critical' (laundered io=0) → --next STALE (not STOP)";;
+  STOP\ *)  no "T54: --next returned STOP — concealment chain still active (got [$got54])";;
+  NEXT\ *)  no "T54: --next returned NEXT on unparseable backlog (got [$got54])";;
+  *)        no "T54: unexpected output: [$got54]";;
+esac
+
+# T55 — unknown priority → --sync-state REFUSES (non-zero exit); envelope io=1 stays unchanged.
+d="$TMP/bp-syncrefuse"; mkbadprio "$d" "urgent" 1
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1; t55_rc=$?
+t55_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+[ "$t55_rc" -ne 0 ] && ok "T55: --sync-state exits non-zero on 'urgent' (refuses to rewrite)" \
+  || no "T55: --sync-state exited 0 — should have refused (exit non-zero)"
+[ "$t55_io" = "1" ] && ok "T55: envelope investigable_open unchanged at 1 — sync refused to launder" \
+  || no "T55: envelope changed to '$t55_io' (was 1) — sync should have refused"
+
+# T56 — concealment chain: sync refused (io=1 stays) → verify-state must still FAIL.
+d="$TMP/bp-chain"; mkbadprio "$d" "critical" 1
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1   # expected to REFUSE with the fix
+t56_vs="$(bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1 && echo "ok" || echo "FAIL")"
+[ "$t56_vs" = "FAIL" ] && ok "T56: after refused sync, verify-state still FAILs — chain not disarmed" \
+  || no "T56: verify-state reports '$t56_vs' (want FAIL) — chain was disarmed"
+
+# T57 — REGRESSION: valid priorities (high, medium, low) unchanged by the fix.
+d="$TMP/bp-valid"; mkstate "$d" 2 "high|shader gap|pending" "medium|loader gap|pending" "low|trivia|covered"
+expect_next "$d" "NEXT | high | shader gap" "T57: valid priorities (high/medium/low) unchanged by unknown-priority fix"
+
+# T58 — MIXED: valid 'high' + 'critical', laundered io=1 → STALE (fails closed, valid row not routed).
+d="$TMP/bp-mixed"; mkdir -p "$d"
+{ echo "# T — Research State"; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 2\ninvestigable_open: 1\nrequires_execution_open: 0\nblocked_open: 0\n<!-- /research-state.v1 -->\n'; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | Artifact type / source | Status |"; echo "|---|---|---|---|"
+  echo "| high | valid gap | web | pending |"
+  echo "| critical | firmware parsing | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 1"
+} > "$d/RESEARCH-STATE.md"
+got58="$(next "$d")"
+case "$got58" in
+  STALE\ *) ok "T58: mixed backlog (valid high + critical) → --next STALE (fails closed, valid row not routed)";;
+  NEXT\ *"valid gap"*) no "T58: --next routed the valid high gap despite unparseable backlog (got [$got58])";;
+  STOP\ *)  no "T58: --next returned STOP — concealment still active (got [$got58])";;
+  *)        no "T58: unexpected output: [$got58]";;
+esac
+
+# ---- Issue #143 corpus vocabulary: strikethrough / qualifier / em-dash skip forms ----
+# These forms must be silently skipped (not cause STALE). Invalid qualifier base still fails closed.
+
+# Suite-local helper: skip-form row + valid medium pending; io=1 (only medium counted after fix).
+mk_vocab_skip_fixture() {
+  local d="$1" pval="$2" gdesc="$3" gtype="$4" gstatus="$5"; mkdir -p "$d"
+  { echo "# T — Research State"; echo
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 2\ninvestigable_open: 1\nrequires_execution_open: 0\nblocked_open: 0\n<!-- /research-state.v1 -->\n'; echo
+    echo "## Gap-backlog (prioritized)"; echo
+    echo "| Priority | Gap | Artifact type / source | Status |"; echo "|---|---|---|---|"
+    echo "| $pval | $gdesc | $gtype | $gstatus |"
+    echo "| medium | active gap | web | pending |"; echo
+    echo "## Blocked gaps"; echo "- none"; echo
+    echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"
+  } > "$d/RESEARCH-STATE.md"
+}
+
+# T59 — '~~high~~' silently skipped; --next routes valid medium gap.
+d="$TMP/bp-strikethrough-status"
+mkstate "$d" 1 "~~high~~|resolved gap|~~covered~~" "medium|active gap|pending"
+expect_next "$d" "NEXT | medium | active gap" "T59: ~~high~~ (strikethrough) silently skipped — --next routes valid medium gap"
+
+# T60 — 'high (cross-vibra)' (valid-base qualifier) silently skipped; --next routes medium gap.
+# Cannot use mkstate: it counts all pending rows for io; with fix high(x) skipped → io=1 only.
+mk_vocab_skip_fixture "$TMP/bp-qualifier-status" 'high (cross-vibra)' 'vibra gap' 'web' 'pending (cross-vibra)'
+expect_next "$TMP/bp-qualifier-status" "NEXT | medium | active gap" "T60: 'high (cross-vibra)' (valid-base qualifier) silently skipped — --next routes medium gap"
+
+# T61 — '—' (em-dash) silently skipped; --next routes valid medium gap.
+mk_vocab_skip_fixture "$TMP/bp-em-dash-status" '—' 'placeholder' '—' '—'
+expect_next "$TMP/bp-em-dash-status" "NEXT | medium | active gap" "T61: '—' (em-dash placeholder) silently skipped — --next routes valid medium gap"
+
+# T62 — 'hight (cross-vibra)' (invalid base 'hight') → STALE. Qualifier form is not an escape hatch.
+d="$TMP/bp-qualifier-invalid-status"; mkbadprio "$d" "hight (cross-vibra)" 0
+got62="$(next "$d")"
+case "$got62" in
+  STALE\ *) ok "T62: 'hight (cross-vibra)' (invalid qualifier base 'hight') → --next STALE (fails closed)";;
+  NEXT\ *)  no "T62: --next returned NEXT on unparseable backlog (got [$got62])";;
+  STOP\ *)  no "T62: --next returned STOP — verify-state passed with invalid base (parse check not firing)";;
+  *)        no "T62: unexpected output: [$got62]";;
+esac
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -868,6 +976,66 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _bsm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
     [ -z "$_bsm" ] && ok "teeth-sync-bs: neutered mutant drops block_scope → test 52 is load-bearing" \
       || no "teeth-sync-bs: mutant bs=$_bsm (want empty) — THEATER"; fi
+
+  # ---- ISSUE #143 teeth -----------------------------------------------------------------------
+  # T54 targets copy-2 (verify-state.sh) via --next; T59-T62 target copy-1 (SUT::backlog_rows) via --sync-state.
+  # teeth-T54: neuter BP-INVALID-PRIORITY-FAIL in verify-state.sh; laundered io=0 fixture must return STOP.
+  echo "-- teeth-T54: neuter BP-INVALID-PRIORITY-FAIL in verify-state.sh; laundered fixture must return STOP --"
+  if grep -q '# BP-INVALID-PRIORITY-FAIL' "$HERE/../verify-state.sh"; then
+    sed 's/if \[ -n "\$_bparse_invalid" \]; then  # BP-INVALID-PRIORITY-FAIL/if false; then  # MUTANT-T54/' \
+      "$HERE/../verify-state.sh" > "$TMP/verify-state.sh"; cp "$SUT" "$TMP/status.T54.MUTANT.sh"
+    t54m="$(bash "$TMP/status.T54.MUTANT.sh" "$TMP/bp-laundered" --next 2>/dev/null)"
+    [ "${t54m%%\ *}" = "STOP" ] && ok "teeth-T54: neutered BP-INVALID-PRIORITY-FAIL → STOP — guard is load-bearing" \
+      || no "teeth-T54: mutant returned [$t54m] (want STOP)"
+  else no "teeth-T54: BP-INVALID-PRIORITY-FAIL not found in verify-state.sh"; fi
+
+  # T55: neuter BP-SYNC-INVALID-REFUSE; sync must exit 0 (proceeds) — refusal is load-bearing.
+  echo "-- teeth-T55: neuter sync-state refusal; unknown-priority fixture must exit 0 (no longer refused) --"
+  if grep -q '# BP-SYNC-INVALID-REFUSE' "$SUT"; then
+    sed 's/if \[ -n "\$_brows_invalid" \]; then  # BP-SYNC-INVALID-REFUSE/if false; then  # MUTANT-T55/' \
+      "$SUT" > "$TMP/status.T55.MUTANT.sh"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d_t55m="$TMP/bp-syncrefuse-mutant"; mkbadprio "$d_t55m" "urgent" 1
+    bash "$TMP/status.T55.MUTANT.sh" "$d_t55m" --sync-state >/dev/null 2>&1; t55m_rc=$?
+    [ "$t55m_rc" = 0 ] \
+      && ok "teeth-T55: neutered refusal → sync exits 0 (proceeds) — T55 refusal assertion has teeth" \
+      || no "teeth-T55: mutant exits non-zero ($t55m_rc) — T55 not dependent on refusal check (THEATER)"
+  else no "teeth-T55: BP-SYNC-INVALID-REFUSE not found in SUT"; fi
+
+  # ---- Corpus vocabulary teeth: T59–T62 (skip forms in SUT::backlog_rows; oracle: --sync-state) ----
+  # Copy-1 (SUT) skip guards: neutering makes --sync-state refuse (exit 1). T62 uses exit 0.
+  cnt_occ() { awk -v n="$1" 'BEGIN{c=0}{s=$0;while((p=index(s,n))>0){c++;s=substr(s,p+length(n))}}END{print c}' "$2"; }
+  printf 'no match\n'                         > "$TMP/cnt-proof.txt"; _cp0="$(cnt_occ "BPSKIP-X" "$TMP/cnt-proof.txt")"
+  printf 'BPSKIP-X once\n'                    > "$TMP/cnt-proof.txt"; _cp1="$(cnt_occ "BPSKIP-X" "$TMP/cnt-proof.txt")"
+  printf 'BPSKIP-X and BPSKIP-X same line\n' > "$TMP/cnt-proof.txt"; _cp2="$(cnt_occ "BPSKIP-X" "$TMP/cnt-proof.txt")"
+  [ "$_cp0" = 0 ] && [ "$_cp1" = 1 ] && [ "$_cp2" = 2 ] && ok "cnt_occ: 0/1/2 same-line → 0/1/2 (self-proof)" || no "cnt_occ: proof failed (0=$_cp0 1=$_cp1 2=$_cp2)"
+  chk_sut_bpskip_tooth() {
+    local label="$1" marker="$2" sedexpr="$3" fixdir="$4" expect_rc="${5:-1}"
+    local mutant="$TMP/status.${label}.MUTANT.sh"
+    echo "-- ${label}: GREEN exit $((1 - expect_rc)) / RED exit ${expect_rc} (SUT::backlog_rows) --"
+    local mc; mc="$(cnt_occ "$marker" "$SUT")"
+    [ "$mc" = 1 ] || { no "${label}: anchor found $mc times in SUT (want exactly 1)"; return; }
+    sed "$sedexpr" "$SUT" > "$mutant"
+    local sut_h mutant_h
+    sut_h="$(md5sum "$SUT" | cut -d' ' -f1)"; mutant_h="$(md5sum "$mutant" | cut -d' ' -f1)"
+    [ "$sut_h" != "$mutant_h" ] || { no "${label}: sed no-op — mutant == SUT — recipe not applied"; return; }
+    local green_rc; green_rc=$(( 1 - expect_rc ))
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    bash "$SUT" "$fixdir" --sync-state >/dev/null 2>&1; local got_g=$?
+    [ "$got_g" = "$green_rc" ] && ok "${label}-green: real SUT exits ${green_rc} — baseline healthy" \
+      || no "${label}-green: real SUT exits $got_g (want ${green_rc}) — SUT already broken"
+    bash "$mutant" "$fixdir" --sync-state >/dev/null 2>&1; local got_r=$?
+    [ "$got_r" = "$expect_rc" ] && ok "${label}-red: neutered exits ${expect_rc} — guard load-bearing" \
+      || no "${label}-red: mutant exits $got_r (want ${expect_rc}) — THEATER"
+  }
+  chk_sut_bpskip_tooth "teeth-T59" "BPSKIP-STRIKETHROUGH" '/BPSKIP-STRIKETHROUGH/s/if (p~/if (0 ~/'    "$TMP/bp-strikethrough-status" 1
+  chk_sut_bpskip_tooth "teeth-T60" "BPSKIP-QUALIFIER"     '/BPSKIP-QUALIFIER/s/if (base != p)/if (0)/' "$TMP/bp-qualifier-status"     1
+  chk_sut_bpskip_tooth "teeth-T61" "BPSKIP-EMDASH"        '/BPSKIP-EMDASH/s/if (p~/if (0 ~/'           "$TMP/bp-em-dash-status"       1
+  # teeth-T62: accept-all-bases in SUT::backlog_rows; hight(x) fixture must allow --sync-state (exit 0).
+  chk_sut_bpskip_tooth "teeth-T62" "BPSKIP-QUALIFIER" \
+    's/if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }/if (1) { next }  # MUTANT-T62/' \
+    "$TMP/bp-qualifier-invalid-status" 0
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"  # restore real verify-state.sh
 fi
 
 echo "== $pass passed · $fail failed =="

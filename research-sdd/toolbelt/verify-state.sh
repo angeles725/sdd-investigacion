@@ -50,14 +50,40 @@ is_int()    { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 # only verify-state.sh into a temp dir, so a sourced lib there would break it), which makes this a
 # DELIBERATE mirror that MUST stay in lockstep with status.sh and with what `--sync-state` writes.
 _section()      { awk -v h="$2" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$1"; }
-_backlog_rows() {                                   # emits "priority<TAB>gap<TAB>status" for real 4-col rows
+_backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col rows; INVALID_PRIORITY<TAB><val>
+  # for unknown priority values. Callers that derive counts safely ignore the 2-field sentinel (field 3
+  # absent so no count fires); the per-state backlog parse check below treats INVALID_PRIORITY as FAIL.
+  # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—), qualifier forms ("high (ctx)").
+  # An unknown qualifier BASE still fails closed. Mirrors backlog_rows() in status.sh exactly.
   awk '
+    /^## Gap-backlog/ { in_backlog=1; in_data=0; next }
+    /^## / { in_backlog=0; in_data=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
-      p=tolower(a[1]); if (p!="high" && p!="medium" && p!="low") next
-      if (n!=4) next                                # a pipe INSIDE a cell → skip (mirrors status.sh; not counted)
+      p=tolower(a[1])
+      if (p~/^-/) { in_data=1; next }
+      if (p=="" || p=="priority" || p=="p" || p=="deferred") { next }
+      if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
+      if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
+      base=p; sub(/ *\([^)]*\)$/, "", base)
+      if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base silently skips; else fail closed
+        if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }
+        if (in_backlog && in_data) {
+          print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
+          print "INVALID_PRIORITY\t" p
+        }
+        next
+      }
+      if (p!="high" && p!="medium" && p!="low") {
+        if (in_backlog && in_data) {
+          print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
+          print "INVALID_PRIORITY\t" p
+        }
+        next
+      }
+      if (n!=4) next
       print p "\t" a[2] "\t" tolower(a[4]) }' "$1"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
@@ -192,6 +218,22 @@ for state in "${states[@]}"; do
     echo "          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded."
     rc=1
     continue
+  fi
+
+  # BACKLOG PARSE CHECK (FAIL) — unknown priority values make the backlog NOT FULLY PARSEABLE.
+  # CLAUDE.md §7 three-state rule: unparseable != absent != empty. An unparseable backlog must not be
+  # laundered into investigable_open=0 by --sync-state (which would disarm this very gate).
+  # _bparse_out captures BOTH valid rows ("priority<TAB>gap<TAB>status") AND INVALID_PRIORITY sentinels.
+  # derive_investigable() etc. safely ignore 2-field sentinel lines (field 3 absent → "pending" never matches).
+  _bparse_out="$(_backlog_rows "$state")"
+  _bparse_invalid="$(printf '%s\n' "$_bparse_out" | grep '^INVALID_PRIORITY')"
+  if [ -n "$_bparse_invalid" ]; then  # BP-INVALID-PRIORITY-FAIL
+    echo "   FAIL   backlog NOT FULLY PARSEABLE — unknown priority value(s) found:"
+    printf '%s\n' "$_bparse_invalid" | while IFS=$'\t' read -r _ val; do
+      echo "          unknown priority value [$val] — valid: high, medium, low, deferred"
+    done
+    echo "          Fix the priority value(s) in the backlog, then re-seed: --sync-state"
+    frc=1; rc=1; continue
   fi
 
   # 1. backlog `pending` gap ROWS — leading-token status, NOT a whole-file word count (retro delta): the old
