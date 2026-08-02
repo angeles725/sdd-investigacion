@@ -80,35 +80,93 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant_py="$HERE/../zip_stored.MUTANT.py"
   mutant_nf="$HERE/../zip_stored.NOFOLLOW.py"
   trap 'rm -rf "$ROOT"; rm -f "$mutant_py" "$mutant_nf"' EXIT
-  echo "-- teeth-traversal: '..' removed from path guard; validate() provides actual guarantee --"
-  sed 's/x in ("","\.","\.\.") or/x in ("",".")      or/' \
-    "$HERE/../zip_stored.py" > "$mutant_py"
-  if ! grep -qF 'x in ("",".")' "$mutant_py"; then
-    no "teeth-traversal: mutant build failed (source line not found)"
+  cnt_occ() { awk -v n="$1" 'BEGIN{c=0}{s=$0;while((p=index(s,n))>0){c++;s=substr(s,p+length(n))}}END{print c}' "$2"; }
+  printf 'no match\n'                           > "$ROOT/cnt-proof.txt"
+  _cp0="$(cnt_occ "ZSTCNT-X" "$ROOT/cnt-proof.txt")"
+  printf 'ZSTCNT-X once\n'                      > "$ROOT/cnt-proof.txt"
+  _cp1="$(cnt_occ "ZSTCNT-X" "$ROOT/cnt-proof.txt")"
+  printf 'ZSTCNT-X and ZSTCNT-X same line\n'   > "$ROOT/cnt-proof.txt"
+  _cp2="$(cnt_occ "ZSTCNT-X" "$ROOT/cnt-proof.txt")"
+  [ "$_cp0" = 0 ] && [ "$_cp1" = 1 ] && [ "$_cp2" = 2 ] \
+    && ok "cnt_occ: 0/1/2 same-line → 0/1/2 (self-proof)" \
+    || no "cnt_occ: proof failed (0=$_cp0 1=$_cp1 2=$_cp2)"
+  echo "-- teeth-traversal: '..' removed from path guard; oracle is ROOT/x creation --"
+  _trav_c="$(cnt_occ 'x in ("",".","..") or' "$HERE/../zip_stored.py")"
+  if [ "$_trav_c" != 1 ]; then
+    no "teeth-traversal: anchor occurs $_trav_c time(s) in SUT (expected exactly 1); mutant not built"
   else
-    python3 "$mutant_py" --input "$ROOT/traversal.zip" --output "$ROOT/out-trav-m" \
-      --manifest-cli "$HERE/../analysis_manifest.py" --metadata-parser "$HERE/../zip_metadata.py" \
-      >/dev/null 2>&1; mgot=$?
-    if [ "$mgot" -eq 0 ]; then
-      ok "teeth-traversal: '..' removed → traversal.zip extracts (fail-closed goes red)"
+    sed 's/x in ("","\.","\.\.") or/x in ("",".")      or/' \
+      "$HERE/../zip_stored.py" > "$mutant_py"
+    if cmp -s "$mutant_py" "$HERE/../zip_stored.py"; then
+      no "teeth-traversal: mutant is byte-identical to SUT (sed anchor absent in source)"
+    elif grep -qF 'x in ("",".","..")' "$mutant_py"; then
+      no "teeth-traversal: sed did not remove '..'; original path-guard form still present in mutant"
     else
-      ok "teeth-traversal: '..' removed; run still exits $mgot — validate() is the load-bearing guard (coverage gap at inspect level)"
+      # Oracle: ROOT/x is created when traversal.zip escapes the stage directory.
+      # The mutation removes '..' from inspect()'s path guard; extract() then opens
+      # '..' relative to the stage fd and writes 'x' one level up in ROOT.
+      # Both healthy and mutant exit 2 because analysis_manifest._relative() rejects
+      # '..' in output paths before validate() ever runs.  Exit codes are diagnostics.
+      rm -f "$ROOT/x"
+      python3 "$HERE/../zip_stored.py" --input "$ROOT/traversal.zip" \
+        --output "$ROOT/out-trav-h" \
+        --manifest-cli "$HERE/../analysis_manifest.py" \
+        --metadata-parser "$HERE/../zip_metadata.py" \
+        >/dev/null 2>&1; hgot=$?
+      if [ -e "$ROOT/x" ]; then
+        rm -f "$ROOT/x"
+        no "teeth-traversal: healthy SUT created ROOT/x (GREEN oracle broken; hgot=$hgot)"
+      else
+        rm -f "$ROOT/x"
+        python3 "$mutant_py" --input "$ROOT/traversal.zip" \
+          --output "$ROOT/out-trav-m" \
+          --manifest-cli "$HERE/../analysis_manifest.py" \
+          --metadata-parser "$HERE/../zip_metadata.py" \
+          >/dev/null 2>&1; mgot=$?
+        if [ -e "$ROOT/x" ]; then
+          rm -f "$ROOT/x"
+          ok "teeth-traversal: '..' removed → ROOT/x created outside stage (fail-closed goes red); hgot=$hgot mgot=$mgot"
+        else
+          no "teeth-traversal: mutant did not create ROOT/x (RED oracle not reached); hgot=$hgot mgot=$mgot"
+        fi
+      fi
     fi
   fi
   rm -f "$mutant_py"
   echo "-- teeth-nofollow: O_NOFOLLOW=0; symlink rejection is attribute-level in inspect() --"
-  sed 's/NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)/NOFOLLOW = 0/' \
-    "$HERE/../zip_stored.py" > "$mutant_nf"
-  if ! grep -qF 'NOFOLLOW = 0' "$mutant_nf"; then
-    no "teeth-nofollow: mutant build failed (source line not found)"
+  _nf_c="$(cnt_occ 'NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)' "$HERE/../zip_stored.py")"
+  if [ "$_nf_c" != 1 ]; then
+    no "teeth-nofollow: anchor occurs $_nf_c time(s) in SUT (expected exactly 1); mutant not built"
   else
-    python3 "$mutant_nf" --input "$ROOT/symlink.zip" --output "$ROOT/out-sym-m" \
-      --manifest-cli "$HERE/../analysis_manifest.py" --metadata-parser "$HERE/../zip_metadata.py" \
-      >/dev/null 2>&1; mgot=$?
-    if [ "$mgot" -eq 0 ]; then
-      ok "teeth-nofollow: NOFOLLOW=0 → symlink.zip extracts (fail-closed goes red)"
+    sed 's/NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)/NOFOLLOW = 0/' \
+      "$HERE/../zip_stored.py" > "$mutant_nf"
+    if cmp -s "$mutant_nf" "$HERE/../zip_stored.py"; then
+      no "teeth-nofollow: mutant is byte-identical to SUT (sed anchor absent in source)"
+    elif ! grep -qF 'NOFOLLOW = 0' "$mutant_nf"; then
+      no "teeth-nofollow: mutant build failed (expected marker absent after sed)"
     else
-      ok "teeth-nofollow: NOFOLLOW=0; run still exits $mgot — symlink rejected at attribute level, not by O_NOFOLLOW (coverage gap at extraction level)"
+      python3 "$HERE/../zip_stored.py" --input "$ROOT/symlink.zip" \
+        --output "$ROOT/out-sym-h" \
+        --manifest-cli "$HERE/../analysis_manifest.py" \
+        --metadata-parser "$HERE/../zip_metadata.py" \
+        >/dev/null 2>&1; hgot_nf=$?
+      python3 "$mutant_nf" --input "$ROOT/symlink.zip" \
+        --output "$ROOT/out-sym-m" \
+        --manifest-cli "$HERE/../analysis_manifest.py" \
+        --metadata-parser "$HERE/../zip_metadata.py" \
+        >/dev/null 2>&1; mgot_nf=$?
+      if [ "$hgot_nf" -eq 0 ]; then
+        no "teeth-nofollow: healthy SUT accepted symlink.zip (GREEN side broken)"
+      elif [ "$mgot_nf" -eq 0 ]; then
+        ok "teeth-nofollow: NOFOLLOW=0 → symlink.zip extracts (fail-closed goes red)"
+      else
+        # Coverage gap: inspect() rejects the symlink at the attribute-level check
+        # (made_host==3 and mode is not S_ISREG) before any O_NOFOLLOW-guarded open()
+        # is reached.  O_NOFOLLOW guards against TOCTOU attacks (a symlink planted at
+        # the target path after inspect() returns), which require a race condition
+        # untestable with a static ZIP fixture.
+        echo "  SKIP  teeth-nofollow: NOFOLLOW=0; symlink.zip still exits $mgot_nf (healthy=$hgot_nf) — inspect() attribute-level check fires before O_NOFOLLOW executes; O_NOFOLLOW is a TOCTOU defense untestable with a static ZIP fixture"
+      fi
     fi
   fi
   rm -f "$mutant_nf"
