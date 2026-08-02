@@ -139,7 +139,8 @@ for suite in "${all_suites[@]}"; do
   #        no output      — tmp_out is empty (e.g. killed worker)
   #        malformed      — output contains a summary-like line that did not match
   #        no summary     — output is non-empty but has no summary-like line at all
-  #   4. Normal pass/fail by exit code.
+  #   4. ZERO CASES: exit 0 with a parsed 0/0 summary is failed as no coverage.
+  #   5. Normal pass/fail by exit code.
   if [[ "$rc" -eq 0 ]] && grep -q '^SKIP:' "$tmp_out"; then
     suites_skipped+=("$base")
   elif [[ "$rc" -eq 2 ]]; then
@@ -152,6 +153,8 @@ for suite in "${all_suites[@]}"; do
     else
       failed_suites+=("$base (no summary line, exit $rc)")
     fi
+  elif [[ -n "$parsed_line" && "$rc" -eq 0 && "$s_passed" -eq 0 && "$s_failed" -eq 0 ]]; then
+    failed_suites+=("$base (zero test cases, exit 0)")
   else
     case "$rc" in
       0)
