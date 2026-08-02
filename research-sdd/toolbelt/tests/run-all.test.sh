@@ -50,6 +50,16 @@ mkfix_skip(){ # file label
     printf 'exit 0\n'
   } > "$f"
 }
+zero_case_oracle(){ # runner workdir
+  local runner="$1" w="$2"
+  mkfix_sh "$w/pass.test.sh" 2 0 0
+  mkfix_sh "$w/zero.test.sh" 0 0 0
+  ORACLE_OUT="$(bash "$runner" 2>&1)"; ORACLE_RC=$?
+  [ "$ORACLE_RC" -eq 1 ] \
+    && grep -qF 'zero.test.sh (zero test cases, exit 0)' <<<"$ORACLE_OUT" \
+    && grep -qF 'Suites passed: 1' <<<"$ORACLE_OUT" \
+    && grep -qF 'Suites failed: 1' <<<"$ORACLE_OUT"
+}
 
 echo "== run-all.test.sh (SUT: run-all.sh) =="
 
@@ -290,6 +300,13 @@ if [ "$rc" -eq 0 ] \
   ok "skip-no-summary: skip suite without canonical summary is skipped, not unparsed (guard does not misfire)"
 else no "skip-no-summary failed: rc=$rc :: $(grep -iE 'Suites (passed|skipped)|no summary|no output' <<<"$out" | tr '\n' ' ')"; fi
 
+# 18 — zero-case: a non-skip suite that reports a valid 0/0 summary must be named as
+#       failed and must not increment suites_ok. A normal passing peer remains passing.
+w="$(newdir c18)"
+if zero_case_oracle "$w/run-all.sh" "$w"; then
+  ok "zero-case: valid 0/0 non-skip suite is named, fails run, and does not increment suites_ok"
+else no "zero-case failed: rc=$ORACLE_RC :: $(grep -iE 'Suites (passed|failed)|zero\.test' <<<"$ORACLE_OUT" | tr '\n' ' ')"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -334,6 +351,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth-skip: neutered counter does not report 1 skipped → per-test-skip teeth real"
   else
     no "teeth-skip: neutered counter still shows 1 skipped — aggregation teeth absent (THEATER)"
+  fi
+  # Mutation 4: neuter the zero-case branch and execute the same oracle as C18.
+  echo "-- teeth: neuter zero-case guard; the C18 behavioral oracle must go RED --"
+  w="$TMP/teeth-zero"; mkdir -p "$w"
+  zero_anchor='  elif [[ -n "$parsed_line" && "$rc" -eq 0 && "$s_passed" -eq 0 && "$s_failed" -eq 0 ]]; then'
+  zero_anchor_count="$(grep -Fxc -- "$zero_anchor" "$SUT")"
+  sed 's#  elif \[\[ -n "$parsed_line" && "$rc" -eq 0 && "$s_passed" -eq 0 && "$s_failed" -eq 0 \]\]; then#  elif { : > "$SCRIPT_DIR/zero-mutant-executed"; false; }; then#' "$SUT" > "$w/run-all.sh"
+  if [ "$zero_anchor_count" -ne 1 ]; then
+    no "teeth-zero: mutation anchor cardinality=$zero_anchor_count (want exactly 1)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-zero: mutation was a byte-identical no-op"
+  elif zero_case_oracle "$w/run-all.sh" "$w"; then
+    no "teeth-zero: neutered guard still satisfies zero-case oracle (THEATER)"
+  elif [ ! -f "$w/zero-mutant-executed" ]; then
+    no "teeth-zero: mutant predicate was not executed"
+  else
+    ok "teeth-zero: anchor=1, bytes changed, mutant executed, same zero-case oracle went RED"
   fi
 fi
 
