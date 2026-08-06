@@ -97,6 +97,7 @@ Path portability — the `$RESEARCH_HOME` convention:
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
 | 21 | appsheet-tomapp | `$RESEARCH_HOME/investigacion/appsheet-tomapp` | **mature** (35 blocks / 26 runs / 3 retros / git yes / remote yes / hook no; **M1–M5 MET, M6 OPEN 3 conjuncts, gate 1453 checks**) `[CERT]` · **hosted SaaS** (no local artifact) — detail §21 | Google AppSheet no-code app `tomappAS-986175430`: operator-supplied App Documentation PDF (1751 pp) + backing workbook — detail §21 `[CERT-doc]` | `webfetch` + `WebSearch`; no decompiler applies (nothing on disk). Future: operator-supplied App Documentation PDF → `extract-pdf.sh` | English `[CERT]` |
+| 22 | alser-erp-architecture | `$RESEARCH_HOME/investigacion/alser-erp-architecture` | **mature** (27 blocks / 1 run / git yes / remote yes / hook yes; **v1 blueprint COMPLETE — 27/27 gaps, 12/12 mandate, 5/5 GOAL; maintenance mode**) `[CERT]` · **design corpus** — detail §22 | **Design corpus** (ADRs/standards, no binaries): greenfield ALSER ERP architecture; evidence = operator's 7 master prompts + appsheet-legacy cross-target copies `[CERT]` | direct reading + `fetch-doc.sh` | English `[CERT]` |
 
 ---
 
@@ -481,6 +482,48 @@ second instance is its confirmation.
 
 **Startup:** blocked on editor access (5 gaps: bot bodies — deferred by operator, slice row filters,
 [C2], sharing config, AppTemplate capture). Resume when editor screens arrive.
+
+### 22 — alser-erp-architecture `[CERT]`
+
+**DESIGN corpus, not reverse-engineering** (pruebas-dashboards #14 precedent, applied to software
+architecture): the subject is the TARGET ARCHITECTURE of the greenfield ALSER ERP — the multi-tenant
+SaaS that replaces the AppSheet app `tomappAS-986175430` (target #21's subject). Blocks are ADRs,
+standards and domain dispositions (DESIGN/APPLIED type; high `[INFER]`/`[CERT]` ratio expected).
+Opened 2026-08-05 on operator directive: greenfield decision (current Vercel/CHECADOR code is NOT
+the base), autonomy grant (forks resolved by documented architect recommendation), git authority
+(commit/push/PR pre-authorized), indefinite GOAL-governed loop.
+
+**STOP criterion**: `GOAL.md` (v1 blueprint = 5 criteria incl. mandate coverage 12/12 areas +
+scaffold-ready + deliverable synced to the product repo) SUPERSEDES §8 gap-exhaustion — the
+appsheet-tomapp precedent; after v1 the loop continues in maintenance mode per the operator's
+"indefinite" directive.
+
+**Evidence base** (all preserved in `sources/`): the operator's two master prompts verbatim +
+session directives (`sources/requirements/`, the binding mandate) · 13 curated legacy references
+cross-target-copied from CHECADOR `docs/appsheet-legacy/` @ `1e7d0e0` (origin target #21) ·
+the CHECADOR production repo read live for lessons-learned (`[CERT]` by path).
+
+**Run 1 (2026-08-05) — v1 blueprint COMPLETE in 27 iterations.** Bootstrapped, then one cited
+block per gap through the full mandate. The operator delivered **7 master prompts** across the run
+(all preserved verbatim in `sources/requirements/`, live-injected to the backlog without
+re-bootstrap). Coverage: **27/27 gaps · 12/12 mandate areas · all 5 GOAL criteria**. Blocks:
+B1 requirements constitution + ADR-000..003 · B2/B4 mandate-extension intakes (R-01..R-65) ·
+B3 module map & dispositions (13-module roster, MVP = purchase cycle) · B5 process-discovery/
+acceptance gate · B6 tenancy & RLS · B7 repo skeleton · B8 data conventions · B9 authn/z+RBAC
+(prod-bug ledger) · B10 state machines · B11 async/integrations · B12 API pipeline · B13 EAV
+engine · B14 audit/observability · B15 security §58 program · B16 frontend · B17 testing/CI ·
+B18 migration/cutover · B19 onboarding/docs · B20 functional governance · B21 traceability ·
+B22 data governance · B23 reporting · B24 operations · B25 SaaS model · B26 governance process ·
+B27 deliverable sync + closing synthesis. Deliverable synced to the product repo
+`ANGELES00004/alser-erp` `docs/erp-architecture/` (PR #97, merged commit `85b77d1`). Private
+corpus remote: `ANGELES00004/research-alser-erp-architecture`. Engram mirrored under project
+`checador` (target project not yet resolvable; `.engram/config.json` committed for future in-dir
+sessions). §18 retro on disk in `retros/`.
+**Startup:** MAINTENANCE MODE — no investigable gap pending. Continue only when the operator
+answers an owner-pending decision (A-04/A-05/A-07/A-08, D1–D5, the 7 purchase-cycle questions) or
+adds new architecture questions; each becomes a new block + a deliverable re-sync. Implementation
+(building the modules) is a SEPARATE route (SDD / delegated-direct via the module DoR gate), not
+this design corpus.
 
 ---
 
