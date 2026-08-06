@@ -17,10 +17,30 @@ SUT="$HERE/../census-target.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0
-ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+TMP="$(mktemp -d)"
+# _mut16/_mut18 are placed in $HERE (not $TMP) so their dirname resolves to
+# the tests directory, keeping $SUT reachable.  Initialise to empty so the
+# trap below is safe before --prove-teeth assigns them.
+_mut16=""; _mut18=""
+trap 'rm -rf "$TMP"; [ -n "${_mut16:-}" ] && rm -f "$_mut16"; [ -n "${_mut18:-}" ] && rm -f "$_mut18"' EXIT
+pass=0; fail=0; skipped=0
+ok()   { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
+no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+skip() { printf '  SKIP  %-60s %s\n' "$1" "${2:-}"; skipped=$((skipped+1)); }
+
+# _IS_ROOT: always derived from id -u for ordinary invocations.
+# A lone environment variable cannot influence this.
+# The --prove-teeth block forces the root path only via TWO combined signals:
+#   (1) the explicit internal argument --_teeth-probe-root
+#   (2) the namespaced env marker _CENSUS_TEETH_PROBE="census-target.test.sh"
+# Neither signal alone is sufficient.  Coverage is a function of the machine,
+# not of what happens to be in the environment.
+_IS_ROOT=0
+[ "$(id -u)" = 0 ] && _IS_ROOT=1
+if [ "${1:-}" = "--_teeth-probe-root" ] \
+   && [ "${_CENSUS_TEETH_PROBE:-}" = "census-target.test.sh" ]; then
+  _IS_ROOT=1
+fi
 
 run()  { bash "$SUT" "$@" 2>&1; }
 code() { bash "$SUT" "$@" >/dev/null 2>&1; echo $?; }
@@ -180,8 +200,8 @@ fi
 d="$TMP/unreadable"; mkdir -p "$d/open" "$d/locked"
 printf 'x\n' > "$d/open/visible.txt"
 printf 'x\n' > "$d/locked/hidden.mdb"
-if [ "$(id -u)" = 0 ]; then
-  ok "16 unreadable dir warning — SKIPPED (running as root; chmod 000 does not deny traversal)"
+if [ "$_IS_ROOT" = 1 ]; then
+  skip "16 unreadable dir warning — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory)"
 else
   chmod 000 "$d/locked"
   out="$(run "$d")"; rcu=$?
@@ -211,8 +231,8 @@ fi
 # becomes invisible at exactly the moment the census is archived and trusted. The fix must
 # route the WARNING through stdout so it travels with the report body.
 # Skipped under root, where chmod 000 does not deny traversal.
-if [ "$(id -u)" = 0 ]; then
-  ok "18 WARNING on stdout — SKIPPED (running as root; chmod 000 does not deny traversal)"
+if [ "$_IS_ROOT" = 1 ]; then
+  skip "18 WARNING on stdout — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory)"
 else
   d="$TMP/unreadable-stdout"; mkdir -p "$d/open" "$d/locked"
   printf 'x\n' > "$d/open/visible.txt"
@@ -254,6 +274,217 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: mutant should star sub-threshold type but did not — guard may not be the decider" \
          "$(echo "$out_mut" | grep -i xyz | head -1)"
+    fi
+  fi
+
+  # ---------------------------------------------------------------------------
+  # SKIP-ACCOUNTING TEETH
+  # Cases 16 and 18 emit skip() (not ok()) when chmod 000 does not deny
+  # traversal, because the fixture cannot produce the locked-directory
+  # condition under test.  The teeth prove:
+  #   (a) the skip sites emit SKIP lines, not PASS lines;
+  #   (b) the pass counter is untouched by each skip call;
+  #   (c) re-routing either site back through ok() turns the control RED.
+  #
+  # Forcing mechanism: TWO combined signals are required — the explicit
+  # internal argument --_teeth-probe-root AND the namespaced env marker
+  # _CENSUS_TEETH_PROBE="census-target.test.sh".  A lone env variable
+  # (_IS_ROOT=1 or any single marker) cannot trigger forcing.
+  #
+  # Root-only branch coverage: neither skip site can be entered in this run
+  # (we are not root), so the accounting comes from the forced probe
+  # sub-invocations below.  What remains unverified: that an actual root
+  # process produces the same accounting — unobservable without being root.
+  # The probe sub-invocation is the closest verifiable proxy.
+  echo "-- skip-accounting: cases 16 and 18 must land in skipped, not pass --"
+
+  # cnt_occ: count non-overlapping literal occurrences of needle in file.
+  # Self-proved below with 0/1/2-on-one-line cases before any use.
+  cnt_occ() {
+    awk -v n="$1" \
+      'BEGIN{c=0}{s=$0;while((p=index(s,n))>0){c++;s=substr(s,p+length(n))}}END{print c}' \
+      "$2"
+  }
+  printf 'no match\n'                              > "$TMP/cnt-proof-skip.txt"
+  _cp0="$(cnt_occ "SKIPX16" "$TMP/cnt-proof-skip.txt")"
+  printf 'SKIPX16 once\n'                          > "$TMP/cnt-proof-skip.txt"
+  _cp1="$(cnt_occ "SKIPX16" "$TMP/cnt-proof-skip.txt")"
+  printf 'SKIPX16 and SKIPX16 same line\n'         > "$TMP/cnt-proof-skip.txt"
+  _cp2="$(cnt_occ "SKIPX16" "$TMP/cnt-proof-skip.txt")"
+  [ "$_cp0" = 0 ] && [ "$_cp1" = 1 ] && [ "$_cp2" = 2 ] \
+    && ok "cnt_occ (skip teeth): 0/1/2 same-line → 0/1/2 (self-proof)" \
+    || no "cnt_occ (skip teeth): proof failed (0=$_cp0 1=$_cp1 2=$_cp2)"
+
+  # Anchor cardinality: each skip site must appear exactly once in this file.
+  # Two techniques prevent self-reference:
+  #   (1) Split-variable construction: _a16+_bskip form the anchor at runtime;
+  #       neither half alone is the full anchor, so neither assignment line
+  #       contains it, and the cnt_occ call stores "${_a16}${_bskip}" as text
+  #       (unexpanded) — not the literal concatenation.
+  #   (2) Backreference sed: mutation lines use \( \) before the quote, inserting
+  #       a backslash that changes the byte sequence at that position so cnt_occ
+  #       cannot match those lines against the anchor.
+  #   Result: the anchor appears exactly once in the file — at the actual call.
+  _self="$HERE/census-target.test.sh"
+  _a16='skip "16 unreadable dir warning'
+  _a18='skip "18 WARNING on stdout'
+  _bskip=' — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory'
+
+  _anc16="$(cnt_occ "${_a16}${_bskip}" "$_self")"
+  if [ "$_anc16" = 1 ]; then
+    ok "anchor-16: skip site for case 16 occurs exactly once in test file"
+  else
+    no "anchor-16: occurs $_anc16 time(s) in test file (expected 1); mutation will target wrong site"
+  fi
+
+  _anc18="$(cnt_occ "${_a18}${_bskip}" "$_self")"
+  if [ "$_anc18" = 1 ]; then
+    ok "anchor-18: skip site for case 18 occurs exactly once in test file"
+  else
+    no "anchor-18: occurs $_anc18 time(s) in test file (expected 1); mutation will target wrong site"
+  fi
+
+  # Non-root baseline: fresh sub-invocation so _norm_pass is not polluted by
+  # teeth passes in this run's $pass counter.  Extract the full triple
+  # (passed, skipped, failed) so all isolation controls can compare it.
+  _norm_out="$(bash "$_self" 2>&1)"
+  _norm_pass="$(printf '%s\n' "$_norm_out" | awk '/^== [0-9]+ passed/{print $2}')"
+  _norm_skip_cnt="$(printf '%s\n' "$_norm_out" | grep -cE '^  SKIP  ')"
+  _norm_fail="$(printf '%s\n' "$_norm_out" | awk '/^== [0-9]+ passed/{print $5}')"
+
+  # Env-isolation control: _IS_ROOT=1 in an ordinary invocation must not
+  # change the coverage triple.  The comparison is triple-to-triple, not
+  # triple-to-zero: on a root machine id -u legitimately produces non-zero
+  # skips in the baseline, and demanding _env_skip=0 would false-fail there
+  # while reporting "coverage changed" over an unchanged result.
+  echo "-- env-isolation: _IS_ROOT=1 alone must not change coverage triple --"
+  _env_out="$(_IS_ROOT=1 bash "$_self" 2>&1)"
+  _env_pass="$(printf '%s\n' "$_env_out" | awk '/^== [0-9]+ passed/{print $2}')"
+  _env_skip="$(printf '%s\n' "$_env_out" | grep -cE '^  SKIP  ')"
+  _env_fail="$(printf '%s\n' "$_env_out" | awk '/^== [0-9]+ passed/{print $5}')"
+  if [ -n "$_norm_pass" ] \
+     && [ "$_env_pass" = "$_norm_pass" ] \
+     && [ "$_env_skip" = "$_norm_skip_cnt" ] \
+     && [ "$_env_fail" = "$_norm_fail" ]; then
+    ok "env-isolation: _IS_ROOT=1 in env → pass=$_env_pass skip=$_env_skip fail=$_env_fail (triple unchanged; baseline=$_norm_pass/$_norm_skip_cnt/$_norm_fail)"
+  else
+    no "env-isolation: _IS_ROOT=1 changed coverage — pass=${_env_pass:-?}/${_norm_pass:-?} skip=$_env_skip/${_norm_skip_cnt:-?} fail=${_env_fail:-?}/${_norm_fail:-?}"
+  fi
+
+  # Arg-alone control: --_teeth-probe-root WITHOUT _CENSUS_TEETH_PROBE must
+  # not activate forcing.  This tests the argument half of the two-signal
+  # requirement in isolation — a control that can catch someone dropping the
+  # marker check while the env-isolation control stays green.
+  echo "-- arg-alone: --_teeth-probe-root without _CENSUS_TEETH_PROBE must not activate forcing --"
+  _argonly_out="$(bash "$_self" --_teeth-probe-root 2>&1)"
+  _argonly_pass="$(printf '%s\n' "$_argonly_out" | awk '/^== [0-9]+ passed/{print $2}')"
+  _argonly_skip="$(printf '%s\n' "$_argonly_out" | grep -cE '^  SKIP  ')"
+  _argonly_fail="$(printf '%s\n' "$_argonly_out" | awk '/^== [0-9]+ passed/{print $5}')"
+  if [ -n "$_norm_pass" ] \
+     && [ "$_argonly_pass" = "$_norm_pass" ] \
+     && [ "$_argonly_skip" = "$_norm_skip_cnt" ] \
+     && [ "$_argonly_fail" = "$_norm_fail" ]; then
+    ok "arg-alone: --_teeth-probe-root alone → pass=$_argonly_pass skip=$_argonly_skip fail=$_argonly_fail (triple unchanged; baseline=$_norm_pass/$_norm_skip_cnt/$_norm_fail)"
+  else
+    no "arg-alone: --_teeth-probe-root alone changed coverage — pass=${_argonly_pass:-?}/${_norm_pass:-?} skip=$_argonly_skip/${_norm_skip_cnt:-?} fail=${_argonly_fail:-?}/${_norm_fail:-?}"
+  fi
+
+  # Forced-probe sub-invocation: both signals combined (arg + namespaced marker)
+  # → cases 16 and 18 take the skip branch.  No --prove-teeth: prevents recursion.
+  _root_out="$(_CENSUS_TEETH_PROBE="census-target.test.sh" bash "$_self" --_teeth-probe-root 2>&1)"
+
+  # Case 16 accounting (measured separately from case 18).
+  _skip16="$(printf '%s\n' "$_root_out" | grep -cE '^  SKIP  16 ')"
+  _pass16="$(printf '%s\n' "$_root_out" | grep -cE '^  PASS  16 ')"
+  if [ "$_skip16" = 1 ] && [ "$_pass16" = 0 ]; then
+    ok "skip-acct-16 (GREEN): forced-probe → SKIP line present (1), PASS line absent (0)"
+  else
+    no "skip-acct-16 (GREEN): skip=$_skip16 (want 1) pass=$_pass16 (want 0)"
+  fi
+
+  # Case 18 accounting (measured separately; not inferred from case 16 result).
+  _skip18="$(printf '%s\n' "$_root_out" | grep -cE '^  SKIP  18 ')"
+  _pass18="$(printf '%s\n' "$_root_out" | grep -cE '^  PASS  18 ')"
+  if [ "$_skip18" = 1 ] && [ "$_pass18" = 0 ]; then
+    ok "skip-acct-18 (GREEN): forced-probe → SKIP line present (1), PASS line absent (0)"
+  else
+    no "skip-acct-18 (GREEN): skip=$_skip18 (want 1) pass=$_pass18 (want 0)"
+  fi
+
+  # Summary pass count: the probe converts to SKIP only the sites the baseline
+  # did not already skip, so the expected PASS delta is derived from observed
+  # skip counts, not fixed at 2 — non-root baseline runs 16 and 18 as PASS so
+  # delta is 2; under root both are already skipped so delta is 0.  fail must be 0.
+  # Summary format: "== N passed · M failed ==" — $2=N, $4=·, $5=M.
+  _root_pass="$(printf '%s\n' "$_root_out" | awk '/^== [0-9]+ passed/{print $2}')"
+  _root_fail="$(printf '%s\n' "$_root_out" | awk '/^== [0-9]+ passed/{print $5}')"
+  _probe_skip_cnt="$(printf '%s\n' "$_root_out" | grep -cE '^  SKIP  ')"
+  _exp_delta=$(( _probe_skip_cnt - _norm_skip_cnt ))
+  if [ -n "$_root_pass" ] && [ -n "$_norm_pass" ] \
+     && [ "$_root_pass" = $((_norm_pass - _exp_delta)) ] && [ "$_root_fail" = 0 ]; then
+    ok "skip-summary: probe pass=$_root_pass = baseline pass=$_norm_pass − $_exp_delta; fail=$_root_fail (delta derived: probe skips=$_probe_skip_cnt, baseline skips=$_norm_skip_cnt)"
+  else
+    no "skip-summary: probe pass=${_root_pass:-?} (want $(( ${_norm_pass:-0} - _exp_delta ))) baseline=${_norm_pass:-?} delta=$_exp_delta probe-skips=$_probe_skip_cnt baseline-skips=$_norm_skip_cnt fail=${_root_fail:-?} (want 0)"
+  fi
+
+  # Env-isolation-nonzero: the forced-probe baseline has skip≠0 (cases 16 and
+  # 18).  Adding _IS_ROOT=1 to the environment of an already-forced invocation
+  # must not alter that triple.  This proves the triple comparison holds for
+  # a non-zero skip baseline — which the ordinary-baseline control cannot
+  # exercise on non-root machines (its baseline has 0 skips there).
+  echo "-- env-isolation-nonzero: _IS_ROOT=1 must not change the forced-probe triple (skip≠0 baseline) --"
+  _probe_skip="$(printf '%s\n' "$_root_out" | grep -cE '^  SKIP  ')"
+  _probe_env_out="$(_IS_ROOT=1 _CENSUS_TEETH_PROBE="census-target.test.sh" bash "$_self" --_teeth-probe-root 2>&1)"
+  _probe_env_pass="$(printf '%s\n' "$_probe_env_out" | awk '/^== [0-9]+ passed/{print $2}')"
+  _probe_env_skip="$(printf '%s\n' "$_probe_env_out" | grep -cE '^  SKIP  ')"
+  _probe_env_fail="$(printf '%s\n' "$_probe_env_out" | awk '/^== [0-9]+ passed/{print $5}')"
+  if [ "$_probe_env_pass" = "$_root_pass" ] \
+     && [ "$_probe_env_skip" = "$_probe_skip" ] \
+     && [ "$_probe_env_fail" = "$_root_fail" ]; then
+    ok "env-isolation-nonzero: forced-probe+_IS_ROOT=1 → pass=$_probe_env_pass skip=$_probe_env_skip fail=$_probe_env_fail (triple unchanged; baseline=$_root_pass/$_probe_skip/$_root_fail, skip≠0)"
+  else
+    no "env-isolation-nonzero: env changed forced-probe triple — baseline=${_root_pass}/${_probe_skip}/${_root_fail} env=${_probe_env_pass:-?}/${_probe_env_skip:-?}/${_probe_env_fail:-?}"
+  fi
+
+  # Mutation RED check: re-route case 16 skip → ok; forced-probe must show PASS
+  # line for case 16, not SKIP, and the pass summary increases by 1.
+  # Mutants live in $HERE so dirname "$0" resolves SUT correctly — no _TEETH_HERE.
+  # Backreference \( \) inserts a backslash-paren before the quote, making the
+  # sed line's byte sequence differ from the anchor so cnt_occ does not count it.
+  _mut16="$HERE/census-target.SKIPMUT16.sh"
+  sed 's/skip \("16 unreadable dir warning — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory\)/ok \1/' \
+    "$_self" > "$_mut16"
+  if cmp -s "$_mut16" "$_self"; then
+    no "skip-mut-16: mutant is byte-identical to test file — sed found no site to mutate"
+  else
+    _mut16_out="$(_CENSUS_TEETH_PROBE="census-target.test.sh" bash "$_mut16" --_teeth-probe-root 2>&1)"
+    _mut16_skip16="$(printf '%s\n' "$_mut16_out" | grep -cE '^  SKIP  16 ')"
+    _mut16_pass16="$(printf '%s\n' "$_mut16_out" | grep -cE '^  PASS  16 ')"
+    _mut16_sumpass="$(printf '%s\n' "$_mut16_out" | awk '/^== [0-9]+ passed/{print $2}')"
+    if [ "$_mut16_pass16" = 1 ] && [ "$_mut16_skip16" = 0 ] \
+       && [ -n "$_mut16_sumpass" ] && [ "$_mut16_sumpass" = $((_root_pass + 1)) ]; then
+      ok "skip-mut-16 (RED): mutant routes case-16 through ok — PASS present, SKIP absent, pass=$_mut16_sumpass (was $_root_pass)"
+    else
+      no "skip-mut-16 (RED): expected pass16=1 skip16=0 sumpass=$((_root_pass+1)); got pass16=$_mut16_pass16 skip16=$_mut16_skip16 sum=${_mut16_sumpass:-?}"
+    fi
+  fi
+
+  # Mutation RED check: re-route case 18 skip → ok; same accounting proof.
+  _mut18="$HERE/census-target.SKIPMUT18.sh"
+  sed 's/skip \("18 WARNING on stdout — SKIPPED (chmod 000 does not deny traversal; fixture cannot produce locked directory\)/ok \1/' \
+    "$_self" > "$_mut18"
+  if cmp -s "$_mut18" "$_self"; then
+    no "skip-mut-18: mutant is byte-identical to test file — sed found no site to mutate"
+  else
+    _mut18_out="$(_CENSUS_TEETH_PROBE="census-target.test.sh" bash "$_mut18" --_teeth-probe-root 2>&1)"
+    _mut18_skip18="$(printf '%s\n' "$_mut18_out" | grep -cE '^  SKIP  18 ')"
+    _mut18_pass18="$(printf '%s\n' "$_mut18_out" | grep -cE '^  PASS  18 ')"
+    _mut18_sumpass="$(printf '%s\n' "$_mut18_out" | awk '/^== [0-9]+ passed/{print $2}')"
+    if [ "$_mut18_pass18" = 1 ] && [ "$_mut18_skip18" = 0 ] \
+       && [ -n "$_mut18_sumpass" ] && [ "$_mut18_sumpass" = $((_root_pass + 1)) ]; then
+      ok "skip-mut-18 (RED): mutant routes case-18 through ok — PASS present, SKIP absent, pass=$_mut18_sumpass (was $_root_pass)"
+    else
+      no "skip-mut-18 (RED): expected pass18=1 skip18=0 sumpass=$((_root_pass+1)); got pass18=$_mut18_pass18 skip18=$_mut18_skip18 sum=${_mut18_sumpass:-?}"
     fi
   fi
 
