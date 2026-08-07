@@ -93,7 +93,6 @@ declare -A _RSDD_MCP_CONFIG_NAME=(
 #   mcp-servers-table — [mcp_servers.X] named tables (codex)
 #   plugins-array     — [[plugins]] array-of-tables keyed by `name` (reasonix)
 #   ""                — harness has no MCP config file; rsdd_render_mcp_toml is never called
-# shellcheck disable=SC2034
 declare -A _RSDD_MCP_TOML_SHAPE=(
   [claude]=""
   [opencode]=""
@@ -188,6 +187,11 @@ rsdd_render_section() {
       printf '%s\n' 'If you already define your own `name = "engram"` plugin entry, the installer warns and'
       printf '%s\n' 'skips rather than shadow it silently (reasonix de-duplicates [[plugins]] by name with last'
       printf '%s\n' 'entry winning, no warning); remove your entry to let it manage them.'
+    else
+      # Unknown shape: fail loudly rather than emitting a section with the risk sentence missing
+      # (anti-silent-zero §7 — a silent partial block is a defect, not an acceptable no-op).
+      printf 'rsdd_render_section: unknown mcp_toml_shape "%s"\n' "$mcp_shape" >&2
+      return 2
     fi
   fi
   printf '%s\n' '<!-- research-sdd:end -->'
