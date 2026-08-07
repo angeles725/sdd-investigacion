@@ -100,7 +100,7 @@ _rsdd_link_plugin() {
 # plan still prints the intended write. Symlink targets are written THROUGH (link preserved); an
 # unwritable target surfaces a write failure (nonzero).
 _rsdd_splice_file() {
-  local file="$1" dry="$2" start="$3" end="$4" label="$5" section="$6" conflict="${7:-}" on_orphan="${8:-append}"
+  local file="$1" dry="$2" start="$3" end="$4" label="$5" section="$6" conflict="${7:-}" on_orphan="${8:-append}" orphan_skip_reason="${9:-a duplicate TOML table}"
   printf '  SPLICE  %s  [%s]\n' "$file" "$label"
   emit_section "$section"
   [ "$dry" = 1 ] && return 0
@@ -140,7 +140,7 @@ _rsdd_splice_file() {
         # TOML path: appending would duplicate the [mcp_servers.*] tables the orphan already carries
         # (illegal TOML). Drop our staged $tmp, leave the real file byte-for-byte untouched, and skip.
         rm -f "$tmp"; [ "$scan" != "$tmp" ] && rm -f "$scan"
-        printf 'research-sdd-install: WARNING malformed research-sdd marker in %s (start without matching end) — skipped MCP registration to avoid a duplicate TOML table; repair the stray marker and re-run\n' "$file" >&2
+        printf 'research-sdd-install: WARNING malformed research-sdd marker in %s (start without matching end) — skipped MCP registration to avoid %s; repair the stray marker and re-run\n' "$file" "$orphan_skip_reason" >&2
         return 0
       fi
       printf 'research-sdd-install: WARNING malformed research-sdd marker in %s (start without matching end) — preserved existing content and appended a fresh section; please remove the stray marker\n' "$file" >&2
@@ -169,7 +169,7 @@ _rsdd_splice_file() {
 # preserving everything else. Thin wrapper over the generic splice; no duplicate-table guard needed.
 _surface__markdown_sections() {
   local harness="$1" home="$2" file="$3" dry="$4" section
-  section="$(rsdd_render_section "$harness" "$home")"
+  section="$(rsdd_render_section "$harness" "$home")" || return 2
   _rsdd_splice_file "$file" "$dry" \
     '<!-- research-sdd:start -->' '<!-- research-sdd:end -->' \
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
@@ -216,17 +216,26 @@ _rsdd_mcp_conflict_ere() {
 # Same splice engine as the prompt files; only the markers (TOML `#`-comment), the conflict ERE, and
 # the orphan mode (skip, not append — duplicate entries corrupt or silently override) differ.
 _rsdd_register_mcp() {
-  local file="$1" dry="$2" shape="$3" section conflict
+  local file="$1" dry="$2" shape="$3" section conflict orphan_reason
   section="$(rsdd_render_mcp_toml "$shape")"
   # on_orphan=skip: unlike markdown prompt files, an orphaned marker here must NOT append a fresh
   # block — doing so would produce a second entry that the harness silently resolves (last wins),
   # discarding the user's config without warning. Warn + skip; file left byte-for-byte untouched.
   conflict="$(_rsdd_mcp_conflict_ere "$shape")" || return 2
+  # Shape-specific orphan reason: mcp-servers-table → TOML parser rejects duplicate named tables;
+  # plugins-array → duplicate [[plugins]] is valid TOML but reasonix silently picks last-entry-wins,
+  # discarding the user's entry with no warning — a different risk, a different explanation.
+  case "$shape" in
+    mcp-servers-table) orphan_reason="a duplicate TOML table" ;;
+    plugins-array)     orphan_reason="last-wins shadowing (reasonix de-duplicates [[plugins]] by name, last entry wins silently)" ;;
+    *)                 orphan_reason="a duplicate entry" ;;
+  esac
   _rsdd_splice_file "$file" "$dry" \
     '# research-sdd:start' '# research-sdd:end' \
     'toml-sections: marker # research-sdd:start/end' "$section" \
     "$conflict" \
-    skip
+    skip \
+    "$orphan_reason"
 }
 
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------

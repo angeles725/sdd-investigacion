@@ -14,8 +14,8 @@ GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -367,7 +367,7 @@ if [ "$n_start" = 1 ] && ! grep -q '# research-sdd:end' "$cfg" && [ "$rc" = 0 ] 
    && diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
    && printf '%s' "$err" | grep -qi 'WARNING.*malformed research-sdd marker'; then
   ok "reasonix orphaned MCP marker: warn + SKIP, file byte-preserved"
-else no "reasonix orphaned MCP marker not skipped (starts=$n_start, has-end=$(grep -qc '# research-sdd:end' "$cfg"; echo $?), rc=$rc)"; fi
+else no "reasonix orphaned MCP marker not skipped (starts=$n_start, has-end=$(grep -c '# research-sdd:end' "$cfg" 2>/dev/null || echo 0), rc=$rc)"; fi
 # idempotent: re-running stays a no-op SKIP (file unchanged).
 bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
 diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
@@ -553,6 +553,74 @@ if [ -d "$sf_dir" ] && ! [ -f "$sf_dir/SKILL.md" ] \
   ok "dir-at-dest real run: directory preserved, warned, no file created inside"
 else no "dir-at-dest real run: wrong behavior (is dir? $([ -d "$sf_dir" ] && echo yes || echo no), inner-file? $([ -f "$sf_dir/SKILL.md" ] && echo yes || echo no))"; fi
 
+# 49 — rsdd_render_mcp_toml: unknown shape must exit 2, write to stderr, write NOTHING to stdout.
+#      The exit-2 guard at adapters.sh (declare -F dispatch check + return 2) is correct but has
+#      no test. This assertion pins it (anti-silent-zero §7: a silent partial TOML block is a bug).
+out_49="$TMP/ta-out"; err_49="$TMP/ta-err"
+ta_script="$TMP/ta-run.sh"
+printf '. %s\nrsdd_render_mcp_toml bogus-shape\n' "$HERE/../adapters.sh" > "$ta_script"
+bash "$ta_script" >"$out_49" 2>"$err_49"; rc_49=$?
+if [ "$rc_49" -eq 2 ] && grep -qi 'unknown shape' "$err_49" && [ ! -s "$out_49" ]; then
+  ok "rsdd_render_mcp_toml(bogus-shape): exit 2, stderr has 'unknown shape', stdout empty"
+else no "rsdd_render_mcp_toml(bogus-shape): wrong (rc=$rc_49, stderr='$(cat "$err_49")', stdout-empty=$([ ! -s "$out_49" ] && echo yes || echo no))"; fi
+
+# 50 — rsdd_render_section: unknown mcp_toml_shape (needs_mcp_doc=true) must fail loudly —
+#      non-zero exit + error on stderr. Without the else branch the if/elif falls through silently
+#      (exit 0, section rendered but missing the risk sentence). Also verifies the installer
+#      propagates the failure so install_one records rc=1, not silently installs the partial section.
+tb_adapters="$TMP/adapters-bogus-shape.sh"
+sed 's/\[codex\]="mcp-servers-table"/[codex]="bogus-shape"/' "$HERE/../adapters.sh" >"$tb_adapters"
+tb_script="$TMP/tb-run.sh"
+printf '. %s\nrsdd_render_section codex %s\n' "$tb_adapters" "$TMP/tb-home" >"$tb_script"
+bash "$tb_script" >"$TMP/tb-out" 2>"$TMP/tb-err"; rc_50=$?
+if [ "$rc_50" -ne 0 ] && [ -s "$TMP/tb-err" ]; then
+  ok "rsdd_render_section(bogus-shape): fails loudly (non-zero + error on stderr)"
+else no "rsdd_render_section(bogus-shape): silent (rc=$rc_50, stderr-empty=$([ ! -s "$TMP/tb-err" ] && echo yes || echo no))"; fi
+# Installer end-to-end: bogus shape must not silently install a section missing the risk sentence.
+tb_kit="$TMP/tb-fake-kit"
+mkdir -p "$tb_kit/install" "$tb_kit/skills/research-sdd"
+cp "$HERE/../research-sdd-install.sh" "$tb_kit/install/research-sdd-install.sh"
+cp "$tb_adapters" "$tb_kit/install/adapters.sh"
+printf '# test skill placeholder\n' > "$tb_kit/skills/research-sdd/SKILL.md"
+bash "$tb_kit/install/research-sdd-install.sh" --home "$TMP/tb-inst-home" --harness codex \
+  >/dev/null 2>"$TMP/tb-inst-err"; rc_50inst=$?
+# Prompt file must NOT be written when rsdd_render_section fails: a partial section missing the
+# risk sentence must never reach the file. Without the || return 2 propagation in
+# _surface__markdown_sections, the splice still runs (silently installing the incomplete section).
+tb_pf="$TMP/tb-inst-home/.codex/AGENTS.md"
+if [ "$rc_50inst" -ne 0 ] && [ ! -f "$tb_pf" ]; then
+  ok "installer with bogus mcp_toml_shape: non-zero exit + no partial section written to prompt file"
+else no "installer with bogus mcp_toml_shape: rc=$rc_50inst, prompt-file-exists=$([ -f "$tb_pf" ] && echo yes || echo no) — partial section silently installed"; fi
+
+# 51 — orphan-skip warning must state the shape-correct risk, not a one-size-fits-all message.
+#      codex (mcp-servers-table): reason = "duplicate TOML table" (TOML parsers reject duplicates).
+#      reasonix (plugins-array):  reason = last-wins/shadowing (duplicate [[plugins]] is valid TOML
+#        but reasonix silently de-duplicates by name, last entry wins, discarding the user's entry).
+#      Both: 'WARNING.*malformed research-sdd marker' prefix preserved (tests 25 + 48 contract).
+#      Both: file byte-preserved (warn+skip semantics unchanged).
+# codex orphan:
+home_51cx="$TMP/tc-codex"; mkdir -p "$home_51cx/.codex"
+printf '# research-sdd:start\n[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp"]\n' \
+  > "$home_51cx/.codex/config.toml"
+cp "$home_51cx/.codex/config.toml" "$TMP/tc-cx-orig"
+err_51cx="$(bash "$SUT" --home "$home_51cx" --harness codex 2>&1 >/dev/null)"
+if printf '%s' "$err_51cx" | grep -qi 'WARNING.*malformed research-sdd marker' \
+   && printf '%s' "$err_51cx" | grep -qi 'duplicate.*TOML table' \
+   && diff -q "$TMP/tc-cx-orig" "$home_51cx/.codex/config.toml" >/dev/null 2>&1; then
+  ok "codex orphan warning: 'duplicate TOML table' reason + byte-preserved"
+else no "codex orphan warning wrong (got: '$(printf '%s' "$err_51cx" | head -1)')"; fi
+# reasonix orphan:
+home_51rx="$TMP/tc-reasonix"; mkdir -p "$home_51rx/.reasonix"
+printf '# research-sdd:start\n[[plugins]]\nname = "engram"\ncommand = "engram"\n' \
+  > "$home_51rx/.reasonix/config.toml"
+cp "$home_51rx/.reasonix/config.toml" "$TMP/tc-rx-orig"
+err_51rx="$(bash "$SUT" --home "$home_51rx" --harness reasonix 2>&1 >/dev/null)"
+if printf '%s' "$err_51rx" | grep -qi 'WARNING.*malformed research-sdd marker' \
+   && printf '%s' "$err_51rx" | grep -qi 'last-wins\|shadowing' \
+   && diff -q "$TMP/tc-rx-orig" "$home_51rx/.reasonix/config.toml" >/dev/null 2>&1; then
+  ok "reasonix orphan warning: last-wins/shadow reason + byte-preserved"
+else no "reasonix orphan warning wrong (got: '$(printf '%s' "$err_51rx" | head -1)')"; fi
+
 # NEGATIVE CONTROL — neuter the idempotent splice (force blind append); two applies must then
 # leave TWO marked sections, proving test 6's idempotency assertion has teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -720,6 +788,45 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: shape-dispatch mutant emits wrong form ([mcp_servers.*] not [[plugins]]) → shape dispatch has teeth"
   else
     no "teeth: shape-dispatch mutant still produced [[plugins]] — shape dispatch check is THEATER"
+  fi
+
+  echo "-- teeth: neuter else fail-loud in rsdd_render_section; expect T-b silent-failure check to fail --"
+  # Remove the return 2 in the else branch so an unknown mcp_toml_shape exits 0 (silent) — the
+  # pre-fix behaviour. T-b's non-zero exit assertion then fails, proving the else is what makes it bite.
+  MUTANT10="$HERE/../adapters.MUTANT10.$$.sh"
+  sed '/rsdd_render_section: unknown mcp_toml_shape/{n; s/return 2/: # mutated/}' \
+    "$HERE/../adapters.sh" > "$MUTANT10"
+  bash -n "$MUTANT10" 2>/dev/null \
+    && ok "teeth: MUTANT10 parses (bash -n)" \
+    || no "teeth: MUTANT10 is a syntax error — mutation is theater"
+  ma_script="$TMP/ma-run.sh"
+  printf '. %s\nrsdd_render_section codex %s\n' "$MUTANT10" "$TMP/ma-home" >"$ma_script"
+  ma_bogus="$TMP/ma-adapters-bogus.sh"
+  sed 's/\[codex\]="mcp-servers-table"/[codex]="bogus-shape"/' "$MUTANT10" >"$ma_bogus"
+  printf '. %s\nrsdd_render_section codex %s\n' "$ma_bogus" "$TMP/ma-home" >"$ma_script"
+  bash "$ma_script" >/dev/null 2>/dev/null; rc_ma=$?
+  if [ "$rc_ma" -eq 0 ]; then
+    ok "teeth: else-neutered mutant exits 0 on unknown shape → T-b fail-loud check has teeth"
+  else
+    no "teeth: else-neutered mutant still exited $rc_ma — T-b fail-loud check is THEATER"
+  fi
+
+  echo "-- teeth: revert orphan-skip reason to wrong wording; expect T-c reasonix check to fail --"
+  # Replace the shape-correct plugins-array reason with the old one-size wording ("duplicate TOML
+  # table"). Reasonix orphan then warns with the wrong text — T-c's last-wins/shadowing grep fails.
+  MUTANT11="$HERE/../research-sdd-install.MUTANT11.$$.sh"
+  sed 's/last-wins shadowing/a duplicate TOML table/' "$SUT" > "$MUTANT11"
+  bash -n "$MUTANT11" 2>/dev/null \
+    && ok "teeth: MUTANT11 parses (bash -n)" \
+    || no "teeth: MUTANT11 is a syntax error — mutation is theater"
+  home_m11="$TMP/teeth-m11-rx"; mkdir -p "$home_m11/.reasonix"
+  printf '# research-sdd:start\n[[plugins]]\nname = "engram"\ncommand = "engram"\n' \
+    > "$home_m11/.reasonix/config.toml"
+  err_m11="$(bash "$MUTANT11" --home "$home_m11" --harness reasonix 2>&1 >/dev/null)"
+  if printf '%s' "$err_m11" | grep -qi 'last-wins\|shadowing'; then
+    no "teeth: wrong-reason mutant still matched last-wins/shadowing — T-c reasonix check is THEATER"
+  else
+    ok "teeth: wrong-reason mutant fails last-wins/shadowing grep → T-c reasonix check has teeth"
   fi
 fi
 
