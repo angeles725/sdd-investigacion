@@ -1,4 +1,4 @@
-<!-- review-status: pending -->
+<!-- review-status: applied 2026-08-07 · issue #160 -->
 # Retro - sdd-investigacion / DOCUMENT new-target bootstrap incident / 2026-08-03 / Research-SDD self-retrospective
 
 > Run reviewed: the failed first attempt and successful second attempt to document TradingView MCP capability hardening. Trigger: user-requested incident feedback after DOCUMENT completion.
@@ -38,6 +38,14 @@ The corrected execution classified the path as a new target, ran profile/census/
 
 - **#1** - The cost is one compact decision row. The impact is large: registration absence can no longer be mistaken for a user decision when explicit intent already resolves the destination.
 - **#2** - The cost is one wording correction and one cross-reference. It removes a literal mode conflict and makes clear that DOCUMENT skips discovery backlog seeding, not target scaffolding or registration.
+
+## Applied
+
+| # | File(s) | Section(s) changed |
+|---|---|---|
+| 1 | `research-sdd/skills/research-sdd/SKILL.md` · `research-sdd/toolbelt/opencode/SKILL.md` | **Target vs ad-hoc / live-install** — added unregistered-path decision gate paragraph immediately after "ad-hoc scope: triage it." in both files |
+| 2 | `research-sdd/skills/research-sdd/SKILL.md` · `research-sdd/toolbelt/opencode/SKILL.md` | **Modes table, exhaustive/heavy entry** — changed "ONLY mode that bootstraps" → "only DISCOVERY mode that bootstraps; a new-target DOCUMENT run also executes the mechanical BOOTSTRAP (steps a-c, including step-b TARGETS.md registration) before its outline cycle, skipping only gap-seeding (step e)" |
+| 2 | `research-sdd/PROMPT-LOOP.md` | **DOCUMENT CYCLE preamble** — added PREFLIGHT block (new-target path only) referencing BOOTSTRAP steps a, a2, b, c and explicitly excluding step e (gap-seeding) |
 
 ## Already covered (dedupe - proof the retro read the kit first)
 

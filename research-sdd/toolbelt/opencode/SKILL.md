@@ -77,7 +77,9 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   This is a LANDING mode, not a dead stop — it may promote itself (see auto-escalation).
 - **exhaustive / heavy** — "investigate thoroughly / a fondo", "document everything", "reconstruct the
   mental model", CONTINUE an existing corpus, OR a light pass that escalated. Run the full NORMAL CYCLE,
-  one cited block per iteration until STOP. This is the ONLY mode that bootstraps or continues a corpus.
+  one cited block per iteration until STOP. This is the only DISCOVERY mode that bootstraps or continues
+  a corpus; a new-target DOCUMENT run also executes the mechanical BOOTSTRAP (steps a-c, including step-b
+  TARGETS.md registration) before its outline cycle, skipping only gap-seeding (step e).
 - **document / capture** — the `document` sub-command, or "documentá esto" / "capturá el how-to" / "document
   what we just did". CAPTURES knowledge you already have or just produced (a how-to, a runbook, the steps of
   the session just lived) instead of DISCOVERING gaps. It is OUTLINE-driven: seed the full list of
@@ -100,10 +102,14 @@ the user explicitly set.
 default, never more than one.
 
 **Target vs ad-hoc / live-install.** If `<target-or-path>` resolves in `TARGETS.md` → real corpus target
-(heavy/continue). An arbitrary PATH not in `TARGETS.md` → ad-hoc scope: triage it, and only bootstrap a NEW
-target if the depth signals fire or the user asks. A downloaded install exposing `security/`, `licenses/`,
-or `certificates/` is a `live-install` artifact → apply the SECRETS DISCIPLINE (cite structure — Host IDs,
-formats, public keys — never private/secret VALUES).
+(heavy/continue). An arbitrary PATH not in `TARGETS.md` → ad-hoc scope: triage it. **Unregistered-path
+decision gate:** if the path is absent from `TARGETS.md` AND the request carries explicit `new`/`create`/
+`document`/exhaustive-documentation intent → classify as ad-hoc NEW target; announce BOOTSTRAP; run
+BOOTSTRAP steps a-c (profile, TARGETS.md registration, scaffold) then continue the selected mode.
+**Never** ask the user to choose an existing corpus or register manually merely because `TARGETS.md` lacks
+a row. Without such explicit intent → cheap triage; bootstrap only if depth signals fire or the user asks.
+A downloaded install exposing `security/`, `licenses/`, or `certificates/` is a `live-install` artifact →
+apply the SECRETS DISCIPLINE (cite structure — Host IDs, formats, public keys — never private/secret VALUES).
 
 ## What to do (in order) — EXHAUSTIVE/HEAVY mode (and continue)
 

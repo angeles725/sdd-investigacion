@@ -91,7 +91,9 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   not a dead stop — it may promote itself (see auto-escalation).
 - **exhaustive / heavy** — "investigate thoroughly / a fondo", "document everything", "reconstruct the
   mental model", CONTINUE an existing corpus, OR a light pass that escalated. Run the full NORMAL CYCLE,
-  one cited block per iteration until STOP. This is the ONLY mode that bootstraps or continues a corpus.
+  one cited block per iteration until STOP. This is the only DISCOVERY mode that bootstraps or continues
+  a corpus; a new-target DOCUMENT run also executes the mechanical BOOTSTRAP (steps a-c, including step-b
+  TARGETS.md registration) before its outline cycle, skipping only gap-seeding (step e).
 - **document / capture** — the `document` sub-command, or "documentá esto" / "capturá el how-to" / "document
   what we just did". CAPTURES knowledge you already have or just produced (a how-to, a runbook, the steps of
   the session just lived) instead of DISCOVERING gaps. It is OUTLINE-driven: seed the full list of
@@ -101,10 +103,9 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   REUSABLE toolchain/environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step) → the KIT
   (`toolbelt/` + register in `toolbelt/tool-registry.md`) plus an Engram pointer. Same `verify-block` gate,
   plus a MANDATORY Engram mirror so the doc stays recall-findable. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
-  (METHODOLOGY §20). **Caveat:** §20 is DEFINED-BUT-UNEXERCISED — the full `document` sub-command flow has
-  not yet been run end-to-end on a real target. Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`,
-  `toolbelt/GHIDRA-MCP.md`) predate the mode; treat document mode with the same "trial it before you trust
-  it" caution noted in METHODOLOGY §20.
+  (METHODOLOGY §20). §20 was first exercised end-to-end on a real target by the TradingView new-target
+  DOCUMENT run (target #23, B1-B3; see `retros/2026-08-03-document-unregistered-bootstrap-incident.md`).
+  Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) predate the mode.
 
 **AUTO-ESCALATE light → heavy — announce, do NOT re-ask.** A light/triage pass is allowed to promote
 itself. When it surfaces DEPTH — **≥3 investigable gaps**, OR a **binary/firmware** artifact, OR **multiple
@@ -119,10 +120,14 @@ default, never more than one.
 **Target vs ad-hoc / live-install.** If `<target-or-path>` resolves in `TARGETS.md` → real corpus target
 (heavy/continue) — UNLESS the request is a scoped factual question about it, in which case intent wins:
 answer it **quick** and offer to continue the heavy loop (the carve-out above). An arbitrary PATH not in
-`TARGETS.md` → ad-hoc scope: triage it, and only bootstrap a NEW
-target if the depth signals fire or the user asks. A downloaded install exposing `security/`, `licenses/`,
-or `certificates/` is a `live-install` artifact → apply the SECRETS DISCIPLINE (cite structure — Host IDs,
-formats, public keys — never private/secret VALUES).
+`TARGETS.md` → ad-hoc scope: triage it. **Unregistered-path decision gate:** if the path is absent from
+`TARGETS.md` AND the request carries explicit `new`/`create`/`document`/exhaustive-documentation intent →
+classify as ad-hoc NEW target; announce BOOTSTRAP; run BOOTSTRAP steps a-c (profile, TARGETS.md
+registration, scaffold) then continue the selected mode. **Never** ask the user to choose an existing
+corpus or register manually merely because `TARGETS.md` lacks a row. Without such explicit intent →
+cheap triage; bootstrap only if depth signals fire or the user asks. A downloaded install exposing
+`security/`, `licenses/`, or `certificates/` is a `live-install` artifact → apply the SECRETS DISCIPLINE
+(cite structure — Host IDs, formats, public keys — never private/secret VALUES).
 
 ## What to do (in order) — EXHAUSTIVE/HEAVY mode (and continue)
 
