@@ -175,27 +175,57 @@ _surface__markdown_sections() {
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
 }
 
-# codex MCP registration: idempotently splice the skill's MCP-server tables into the harness's shared
-# config.toml, guarded so a user-authored (unmarked) [mcp_servers.engram|codegraph] is never duplicated.
-# Same splice engine as the prompt files; only the markers (TOML `#`-comment), the conflict guard, and
-# the orphan mode (skip, not append — TOML forbids the duplicate table an append would create) differ —
-# all supplied as data.
+# _rsdd_mcp_conflict_ere <shape> — emit the ERE that detects a user-authored (unmarked) MCP entry
+# in the preserved config that our managed block would duplicate or shadow. Shape-dispatched so the
+# correct detection logic is used without branching on harness name.
+#
+# mcp-servers-table (codex): best-effort duplicate-TABLE guard (no full TOML parser).
+#   DETECTS: canonical bracket header `[mcp_servers.engram]` with optional internal whitespace, AND
+#     the inline dotted-key assignment `mcp_servers.engram = { ... }`.
+#   DOES NOT DETECT: exotic nested-inline forms (e.g. `engram = {...}` nested under a bare
+#     [mcp_servers] header, or multiline dotted paths) — a full-TOML-parse merge is a deliberate
+#     follow-up. On a suspected conflict the installer warns+skips rather than corrupt the file.
+#
+# plugins-array (reasonix): LINE-WISE DETECTION ONLY.
+#   DETECTS: `name = "engram"`, `name = 'engram'`, `name="engram"` (bare equality, optional
+#     whitespace, single or double quotes) — the forms reasonix uses for [[plugins]] entries.
+#   DOES NOT DETECT: the `name` key split across lines, name in a multiline-continued form, or
+#     whether the `name` key is inside a [[plugins]] block (TOML has no line-level block association).
+#   FALSE POSITIVES: a `name = "engram"` key outside a [[plugins]] block is treated as a conflict
+#     (warn+skip). This is intentional — a false positive is safer than silently shadowing a user
+#     entry, because reasonix's [[plugins]] last-wins de-duplication produces no warning at all.
+_rsdd_mcp_conflict_ere() {
+  local shape="$1"
+  case "$shape" in
+    mcp-servers-table)
+      printf '%s' '^[[:space:]]*\[[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*(engram|codegraph)[[:space:]]*\][[:space:]]*$|^[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*(engram|codegraph)[[:space:]]*='
+      ;;
+    plugins-array)
+      printf '%s' '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"'](engram|codegraph)["'"'"']'
+      ;;
+    *)
+      printf 'research-sdd-install: _rsdd_mcp_conflict_ere: unknown shape "%s"\n' "$shape" >&2
+      return 2
+      ;;
+  esac
+}
+
+# MCP registration: idempotently splice the skill's MCP-server entries into the harness's shared
+# config.toml, guarded so a user-authored (unmarked) entry is never duplicated or silently shadowed.
+# Shape-dispatched: codex uses [mcp_servers.*] named tables; reasonix uses [[plugins]] array-of-tables.
+# Same splice engine as the prompt files; only the markers (TOML `#`-comment), the conflict ERE, and
+# the orphan mode (skip, not append — duplicate entries corrupt or silently override) differ.
 _rsdd_register_mcp() {
-  local file="$1" dry="$2" section
-  section="$(rsdd_render_mcp_toml)"
-  # Best-effort duplicate-table guard (no full TOML parser). Catches the common spec-valid forms that
-  # define the same table PATH: the canonical AND internal-whitespace bracket header
-  # (`[mcp_servers.engram]`, `[ mcp_servers . engram ]`) and the inline dotted-key assignment
-  # (`mcp_servers.engram = { ... }`). Exotic nested-inline forms (e.g. `engram = {...}` nested under a
-  # `[mcp_servers]` header, or multiline dotted paths) remain undetected — an idempotent full-TOML-parse
-  # merge is a deliberate follow-up; here we prefer warn+skip on a suspected conflict over corrupting the
-  # file. A match anywhere in genuine user content aborts the splice (warn+skip), never appends blindly.
-  # on_orphan=skip: unlike the markdown prompt files, an orphaned marker here must NOT append a fresh
-  # block (our tables would then duplicate the orphan's) — warn + skip and leave the file byte-preserved.
+  local file="$1" dry="$2" shape="$3" section conflict
+  section="$(rsdd_render_mcp_toml "$shape")"
+  # on_orphan=skip: unlike markdown prompt files, an orphaned marker here must NOT append a fresh
+  # block — doing so would produce a second entry that the harness silently resolves (last wins),
+  # discarding the user's config without warning. Warn + skip; file left byte-for-byte untouched.
+  conflict="$(_rsdd_mcp_conflict_ere "$shape")" || return 2
   _rsdd_splice_file "$file" "$dry" \
     '# research-sdd:start' '# research-sdd:end' \
     'toml-sections: marker # research-sdd:start/end' "$section" \
-    '^[[:space:]]*\[[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*(engram|codegraph)[[:space:]]*\][[:space:]]*$|^[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*(engram|codegraph)[[:space:]]*=' \
+    "$conflict" \
     skip
 }
 
@@ -301,10 +331,13 @@ install_one() {
     fi
   fi
 
-  # 4. MCP registration — only when the table names a config file (codex config.toml). Idempotent
-  #    marked-block splice; preserves surrounding user config; warns+skips on a user-authored table.
+  # 4. MCP registration — only when the table names a config file (codex/reasonix config.toml).
+  #    Idempotent marked-block splice; preserves surrounding user config; warns+skips on a
+  #    user-authored entry. Shape comes from the adapter table (never branched on harness name).
   if [ -n "$mcp_config" ]; then
-    if ! _rsdd_register_mcp "$mcp_config" "$dry"; then
+    local shape
+    shape="$(rsdd_field "$h" mcp_toml_shape)"
+    if ! _rsdd_register_mcp "$mcp_config" "$dry" "$shape"; then
       echo "research-sdd-install: [$h] MCP config registration failed ($mcp_config)" >&2; rc=1
     fi
   fi

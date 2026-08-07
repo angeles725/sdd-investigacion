@@ -1,0 +1,32 @@
+harness=reasonix
+  INSTALL {HOME}/.reasonix/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  SPLICE  {HOME}/.reasonix/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: {HOME}/.reasonix/skills/research-sdd/SKILL.md
+  | 
+  | MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically
+  | into `~/.reasonix/config.toml` by the installer — an idempotent marked block
+  | (`# research-sdd:start` … `# research-sdd:end`) that preserves all surrounding user config.
+  | If you already define your own `name = "engram"` plugin entry, the installer warns and
+  | skips rather than shadow it silently (reasonix de-duplicates [[plugins]] by name with last
+  | entry winning, no warning); remove your entry to let it manage them.
+  | <!-- research-sdd:end -->
+  SPLICE  {HOME}/.reasonix/config.toml  [toml-sections: marker # research-sdd:start/end]
+  | # research-sdd:start
+  | # research-sdd-managed MCP servers — this block is spliced idempotently by the installer.
+  | # Edit via the installer, not by hand; surrounding user config is preserved.
+  | [[plugins]]
+  | name    = "engram"
+  | command = "engram"
+  | args    = ["mcp", "--tools=agent"]
+  | 
+  | [[plugins]]
+  | name    = "codegraph"
+  | command = "codegraph"
+  | args    = ["serve", "--mcp"]
+  | # research-sdd:end
+  slash_commands=false
