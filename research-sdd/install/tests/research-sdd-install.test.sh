@@ -14,8 +14,8 @@ GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -27,8 +27,8 @@ normkit(){ sed "s|$KITROOT|{KIT}|g"; }
 
 echo "== research-sdd-install.test.sh =="
 
-# 1..3 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
-for h in claude opencode codex; do
+# 1..4 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
+for h in claude opencode codex reasonix; do
   home="$TMP/dry-$h"
   out="$(bash "$SUT" --dry-run --home "$home" --harness "$h" 2>&1 | norm "$home" | normkit)"
   g="$GOLD/plan-$h.txt"
@@ -76,7 +76,7 @@ grep -q '<!-- research-sdd:start -->' "$home/.config/opencode/AGENTS.md" 2>/dev/
 # 10 — the install loop carries ZERO per-harness case arms (all divergence lives in the adapter table).
 #      A case arm is a harness name at a statement boundary followed by `|` or `)` (e.g. `claude)`);
 #      prose mentions like "(opencode)" in a comment are ignored.
-if grep -Eq '^[[:space:]]*(claude|opencode|codex)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
+if grep -Eq '^[[:space:]]*(claude|opencode|codex|reasonix)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
 else ok "install loop has no per-harness branching"; fi
 
 # 11 — CRITICAL 1: opencode's AGENTS.md is the user's GLOBAL system prompt. Installing MUST splice a
@@ -284,6 +284,95 @@ if ! grep -q '# research-sdd:start' "$cfg" && ! grep -q '^\[mcp_servers.engram\]
    && printf '%s' "$err" | grep -qi 'WARNING.*config.toml'; then
   ok "inline dotted-key mcp_servers.engram detected as a conflict (warn+skip, byte-preserved)"
 else no "inline dotted-key mcp_servers.engram NOT detected — installer appended its own header anyway"; fi
+
+# 42 — reasonix prompt section: no manual-sweep block (it has user-level hooks, needs_sweep=false)
+#      and DOES contain the MCP-config note (needs_mcp_config_doc=true) with config.toml path.
+home="$TMP/rx-doc"; bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
+rx="$home/.reasonix/AGENTS.md"
+if ! grep -q 'sweep-retros.sh' "$rx" && grep -qi 'registered automatically' "$rx" \
+   && grep -q 'config.toml' "$rx"; then
+  ok "reasonix AGENTS.md: no sweep block (hook fires), MCP-config note present"
+else no "reasonix AGENTS.md: sweep/MCP-doc check failed (sweep=$(grep -c 'sweep-retros.sh' "$rx" 2>/dev/null||echo 0), registered=$(grep -ci 'registered automatically' "$rx" 2>/dev/null||echo 0))"; fi
+
+# 43 — reasonix MCP: --dry-run plans config.toml registration with [[plugins]] form (not the
+#      [mcp_servers.*] table form used by codex). Writes NOTHING to the filesystem.
+home="$TMP/rx-mcp-dry"
+out="$(bash "$SUT" --dry-run --home "$home" --harness reasonix 2>&1)"
+if printf '%s\n' "$out" | grep -q "SPLICE  $home/.reasonix/config.toml" \
+   && printf '%s\n' "$out" | grep -q '\[\[plugins\]\]' \
+   && printf '%s\n' "$out" | grep -q 'name.*=.*"engram"'; then
+  ok "reasonix dry-run plans config.toml MCP registration ([[plugins]] form)"
+else no "reasonix dry-run did not plan config.toml write (got: $(printf '%s\n' "$out" | grep 'SPLICE\|\[\[' | head -5 || true))"; fi
+[ ! -e "$home/.reasonix/config.toml" ] \
+  && ok "reasonix dry-run creates no config.toml" \
+  || no "reasonix dry-run wrote config.toml"
+
+# 44 — reasonix MCP: a real run splices a MARKED block with BOTH [[plugins]] entries into config.toml.
+home="$TMP/rx-mcp-real"; bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
+cfg="$home/.reasonix/config.toml"
+if [ -f "$cfg" ] && grep -q '# research-sdd:start' "$cfg" && grep -q '# research-sdd:end' "$cfg" \
+   && grep -q '\[\[plugins\]\]' "$cfg" \
+   && grep -q 'name.*=.*"engram"' "$cfg" && grep -q 'name.*=.*"codegraph"' "$cfg"; then
+  ok "reasonix real run registers both plugins in a marked config.toml block ([[plugins]] form)"
+else no "reasonix config.toml MCP block missing/incomplete at $cfg"; fi
+
+# 45 — reasonix MCP: registration is byte-idempotent across re-runs (exactly one block, no growth),
+#      even with surrounding user TOML present.
+home="$TMP/rx-mcp-idem"; mkdir -p "$home/.reasonix"
+printf 'theme = "dark"\n' > "$home/.reasonix/config.toml"
+bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1; cp "$home/.reasonix/config.toml" "$TMP/rx-run1"
+bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
+cfg="$home/.reasonix/config.toml"
+n="$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null || echo 0)"
+if [ "$n" = 1 ] && diff -q "$TMP/rx-run1" "$cfg" >/dev/null 2>&1; then
+  ok "reasonix config.toml registration is byte-idempotent (one block, no growth)"
+else no "reasonix config.toml registration not idempotent (sections=$n)"; fi
+
+# 46 — reasonix MCP: pre-existing UNRELATED user TOML survives the splice untouched.
+home="$TMP/rx-preserve"; mkdir -p "$home/.reasonix"
+printf 'theme = "light"\n\n[[other_section]]\nfoo = "bar"\n' > "$home/.reasonix/config.toml"
+bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
+cfg="$home/.reasonix/config.toml"
+if grep -q 'theme = "light"' "$cfg" && grep -q '\[\[plugins\]\]' "$cfg"; then
+  ok "unrelated user reasonix TOML preserved alongside the managed MCP block"
+else no "unrelated user reasonix TOML clobbered during MCP splice"; fi
+
+# 47 — reasonix MCP: a pre-existing user-authored `name = "engram"` plugin entry must NOT be shadowed
+#      silently. Unlike TOML [mcp_servers.*] duplicate-table errors (codex), reasonix SILENTLY
+#      de-duplicates [[plugins]] by name with LAST WINS — which means appending our managed block would
+#      silently override the user's entry with no warning at all. The installer must warn and SKIP.
+home="$TMP/rx-conflict"; mkdir -p "$home/.reasonix"
+printf '[[plugins]]\nname    = "engram"\ncommand = "my-own-engram"\nargs    = ["x"]\n' \
+  > "$home/.reasonix/config.toml"
+err="$(bash "$SUT" --home "$home" --harness reasonix 2>&1 >/dev/null)"
+cfg="$home/.reasonix/config.toml"
+n="$(grep -c 'name.*=.*"engram"' "$cfg" 2>/dev/null || echo 0)"
+if [ "$n" = 1 ] && grep -q 'my-own-engram' "$cfg" && ! grep -q '# research-sdd:start' "$cfg" \
+   && printf '%s' "$err" | grep -qi 'WARNING.*config.toml'; then
+  ok "pre-existing user name=\"engram\" plugin preserved + warned (no silent shadow)"
+else no "user engram plugin shadowed/not warned (engram lines=$n, has-start=$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null||echo 0))"; fi
+
+# 48 — reasonix MCP: an orphaned '# research-sdd:start' (no matching end) must WARN and SKIP
+#      entirely — appending would create a second [[plugins]] name="engram" entry that reasonix
+#      silently resolves by letting our entry win, discarding the user's. Same skip-not-append
+#      contract as the codex TOML path (test 25).
+home="$TMP/rx-orphan"; mkdir -p "$home/.reasonix"
+printf '# research-sdd:start\n[[plugins]]\nname    = "engram"\ncommand = "engram"\nargs    = ["mcp", "--tools=agent"]\n' \
+  > "$home/.reasonix/config.toml"
+cp "$home/.reasonix/config.toml" "$TMP/rx-orphan-orig"
+err="$(bash "$SUT" --home "$home" --harness reasonix 2>&1 >/dev/null)"; rc=$?
+cfg="$home/.reasonix/config.toml"
+n_start="$(grep -c '# research-sdd:start' "$cfg" 2>/dev/null || true)"
+if [ "$n_start" = 1 ] && ! grep -q '# research-sdd:end' "$cfg" && [ "$rc" = 0 ] \
+   && diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
+   && printf '%s' "$err" | grep -qi 'WARNING.*malformed research-sdd marker'; then
+  ok "reasonix orphaned MCP marker: warn + SKIP, file byte-preserved"
+else no "reasonix orphaned MCP marker not skipped (starts=$n_start, has-end=$(grep -qc '# research-sdd:end' "$cfg"; echo $?), rc=$rc)"; fi
+# idempotent: re-running stays a no-op SKIP (file unchanged).
+bash "$SUT" --home "$home" --harness reasonix >/dev/null 2>&1
+diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
+  && ok "reasonix orphaned MCP marker skip is byte-idempotent (still a no-op on re-run)" \
+  || no "reasonix orphaned MCP marker changed the file on re-run (should stay a no-op skip)"
 
 # 31 — dry-run on an IDENTICAL deployed skill prints [up-to-date], not a plain INSTALL.
 #      The §7 three-state rule applied to the plan: identical state must be distinguishable from absent.
@@ -594,6 +683,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: MUTANT7 hides 'source not readable' → B3 check has teeth"
     fi
     chmod 644 "$m7kit/skills/research-sdd/SKILL.md"
+  fi
+
+  echo "-- teeth: neuter plugins-array conflict guard; expect user name=\"engram\" to be shadowed --"
+  # Kill the grep conflict check so the installer appends its managed block even when the user
+  # already has name="engram". Because reasonix LAST-WINS silently, the user's entry is then
+  # shadowed with no warning — proves the conflict guard is what prevents silent data loss.
+  MUTANT8="$HERE/../research-sdd-install.MUTANT8.$$.sh"
+  sed 's/grep -Eq "\$conflict" "\$scan"/false/' "$SUT" > "$MUTANT8"
+  bash -n "$MUTANT8" 2>/dev/null \
+    && ok "teeth: MUTANT8 parses (bash -n)" \
+    || no "teeth: MUTANT8 is a syntax error — mutation is theater"
+  home="$TMP/teeth-rx-conflict"; mkdir -p "$home/.reasonix"
+  printf '[[plugins]]\nname    = "engram"\ncommand = "USER-FIRST"\nargs    = ["x"]\n' \
+    > "$home/.reasonix/config.toml"
+  bash "$MUTANT8" --home "$home" --harness reasonix >/dev/null 2>&1
+  n_eng="$(grep -c 'name.*=.*"engram"' "$home/.reasonix/config.toml" 2>/dev/null || echo 0)"
+  [ "$n_eng" -ge 2 ] \
+    && ok "teeth: guard-less mutant shadows user engram plugin → plugins-array conflict guard has teeth" \
+    || no "teeth: mutant did not shadow (name-engram lines=$n_eng) — plugins-array conflict guard is THEATER"
+
+  echo "-- teeth: kill shape dispatch in rsdd_render_mcp_toml; expect wrong table form for reasonix --"
+  # Replace the shape argument so the installer always requests the mcp-servers-table form.
+  # For reasonix, this emits [mcp_servers.engram] instead of [[plugins]] — the wrong form, proving
+  # the shape dispatch is what selects the correct TOML structure.
+  MUTANT9="$HERE/../research-sdd-install.MUTANT9.$$.sh"
+  sed 's/rsdd_render_mcp_toml "\$shape"/rsdd_render_mcp_toml "mcp-servers-table"/' "$SUT" > "$MUTANT9"
+  bash -n "$MUTANT9" 2>/dev/null \
+    && ok "teeth: MUTANT9 parses (bash -n)" \
+    || no "teeth: MUTANT9 is a syntax error — mutation is theater"
+  home_m9="$TMP/teeth-rx-shape"
+  bash "$MUTANT9" --home "$home_m9" --harness reasonix >/dev/null 2>&1
+  cfg_m9="$home_m9/.reasonix/config.toml"
+  if [ -f "$cfg_m9" ] && grep -q '\[mcp_servers.engram\]' "$cfg_m9" \
+     && ! grep -q '\[\[plugins\]\]' "$cfg_m9"; then
+    ok "teeth: shape-dispatch mutant emits wrong form ([mcp_servers.*] not [[plugins]]) → shape dispatch has teeth"
+  else
+    no "teeth: shape-dispatch mutant still produced [[plugins]] — shape dispatch check is THEATER"
   fi
 fi
 
