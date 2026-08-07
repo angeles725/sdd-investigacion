@@ -271,10 +271,6 @@ for the human to act on; never auto-apply.
   (TARGETS.md missing, a `lib/` helper that failed to define its function). A finding is advisory; a
   broken instrument is not — that distinction is §7 in practice.
 
-  **Known deviation:** `verify-registry.sh` currently exits **0** for both operational cases, while its
-  two siblings exit 1. Measured, not inferred. Tracked in issue #140; the note goes away when the
-  script is fixed, and the contract above stays either way. A defective behaviour observed in the field
-  does not get promoted to the official contract — that is why the sentence says MUST and not DO.
 - `TARGETS.md` is **never auto-edited** — not by the toolbelt, not by any kit session. Archive prints
   a "refresh the row" reminder; the human refreshes it by hand.
 - Build test fixtures under `research-sdd/toolbelt/tests/fixtures/` — never inside a live target directory.

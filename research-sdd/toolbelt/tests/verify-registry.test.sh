@@ -11,7 +11,8 @@
 #   * a truncated '...' path row is DROPPED with the PARTIAL WARN naming its basename;
 #   * the tolerance guard boundary (== tol quiet, > tol WARNs);
 #   * a target with no RESEARCH-STATE → 'corpus layout not resolvable' WARN;
-#   * WARN-ONLY: exit is ALWAYS 0 (even missing TARGETS.md), never a failure signal.
+#   * operational failures (helper file absent, broken lib, missing TARGETS.md) → exit 1;
+#   * advisory findings (drift, schema) remain WARN-only → exit 0.
 # The canonical BLOCK_RE discriminator + backtick-path derivation are already pinned exhaustively by
 # gen-catalog / verify-state / sweep suites, so this suite spot-checks them via the count math.
 #
@@ -179,13 +180,16 @@ else
   no "6 no RESEARCH-STATE → 'not resolvable' WARN, exit 0" "exit=$RC out=[$OUT]"
 fi
 
-# 7 — MISSING TARGETS.md → WARN-only contract holds: exit 0 (NOT a failure), prints 'cannot find'.
+# 7 — MISSING TARGETS.md → operational failure: exit 1, prints 'cannot find', no Summary.
+#     Updated from the old exit-0 WARN-only contract in issue #140: verify-registry now matches
+#     the sibling scripts (sweep-retros, sweep-audits). A missing registry cannot be surfaced
+#     as an advisory finding; it is an operational failure that aborts the instrument.
 kit="$(mkkit c7-notargets)"   # no write_targets → TARGETS.md absent
 run "$kit"
-if [ "$RC" = 0 ] && grep -qi 'cannot find' <<<"$OUT"; then
-  ok "7 missing TARGETS.md → exit 0 (WARN-only), 'cannot find'" "(exit $RC)"
+if [ "$RC" = 1 ] && grep -qi 'cannot find' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "7 missing TARGETS.md → exit 1 (operational), 'cannot find', no summary" "(exit $RC)"
 else
-  no "7 missing TARGETS.md → exit 0 (WARN-only), 'cannot find'" "exit=$RC out=[$OUT]"
+  no "7 missing TARGETS.md → exit 1 (operational), 'cannot find', no summary" "exit=$RC out=[$OUT]"
 fi
 
 # 8 — ENV override RSDD_REGISTRY_TOL: with tol=50, claim 40 vs real 5 (diff 35) is now WITHIN tolerance → quiet.
@@ -446,22 +450,22 @@ else
   no "19 ordinary docs + boundary names (blocking-issues/block-diagram/bloques-pendientes/roadblock) → no false alarm" "exit=$RC out=[$OUT]"
 fi
 
-# 20 — FAIL-CLOSED on a broken target-paths helper. verify-registry now sources lib/target-paths.sh;
-#      a helper that exists but defines no function must cause an abort (exit 0, WARN-only contract)
-#      with a 'failed to define' message and no Summary line.
-#      RED before retrofit: SUT ignores lib/target-paths.sh entirely and runs normally.
+# 20 — FAIL-CLOSED on a broken target-paths helper. verify-registry sources lib/target-paths.sh;
+#      a helper that exists but defines no function must abort with exit 1, a 'failed to define'
+#      message, and no Summary line. Updated from the old exit-0 in issue #140: a broken
+#      instrument is an operational failure, not an advisory finding.
 kit="$(mkkit c20-broken-tp)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"
 write_targets "$kit" "$tgt::3 md"
 printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no target_paths_all\n' \
   > "$kit/toolbelt/lib/target-paths.sh"
 run "$kit"
-if [ "$RC" = 0 ] \
+if [ "$RC" = 1 ] \
    && grep -q 'failed to define target_paths_all' <<<"$OUT" \
    && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "20 broken target-paths helper → exit 0, 'failed to define' message, no summary" "(exit $RC)"
+  ok "20 broken target-paths helper → exit 1, 'failed to define' message, no summary" "(exit $RC)"
 else
-  no "20 broken target-paths helper → exit 0, 'failed to define' message, no summary" "exit=$RC out=[$OUT]"
+  no "20 broken target-paths helper → exit 1, 'failed to define' message, no summary" "exit=$RC out=[$OUT]"
 fi
 
 # 21 — \$RESEARCH_HOME path form resolves. A TARGETS.md row written as \`\$RESEARCH_HOME/sub\`
@@ -709,8 +713,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-count-subst: SUBST-COUNT-CHECK sentinel not found in SUT (substitution not implemented or marker missing)"
   fi
 
-  # teeth-VR-T1: neuter declare-F for target_paths_all → broken helper fails OPEN without right message.
-  echo "-- teeth VR-T1: neuter declare-F for target_paths_all; broken helper must NOT say 'failed to define' --"
+  # teeth-VR-T1: neuter declare-F for target_paths_all → broken helper lacks the specific message.
+  # This proves case 20's 'failed to define target_paths_all' message assertion is load-bearing.
+  # NOTE (issue #140): neutering only the target_paths_all guard leaves target_paths_pairs firing
+  # (exit 1), so the mutant may still exit non-zero — but via the OTHER guard, without the specific
+  # message. The assertion checks message absence only; exit code teeth are covered by M2 below.
+  echo "-- teeth VR-T1: neuter declare-F for target_paths_all; 'failed to define target_paths_all' msg must vanish --"
   _vr_tp_anchor='declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry:'
   if ! grep -qF "$_vr_tp_anchor" "$SUT"; then
     no "teeth VR-T1: locate declare-F target_paths_all guard in SUT" "anchor not found — SUT drifted?"
@@ -720,13 +728,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     write_targets "$kit" "$tgt::3 md"
     printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
     mut="$kit/toolbelt/verify-registry.sh"
-    # Entire single-line guard replaced with no-op; the 'failed to define' echo is gone.
+    # Entire single-line guard replaced with no-op; the 'failed to define target_paths_all' echo is gone.
     sed 's/declare -F target_paths_all .*/: # __VRT1_NEUTERED__/' "$SUT" > "$mut"
     mout_t1="$("$BASH_BIN" "$mut" 2>&1)"; mrc_t1=$?
-    if [ "$mrc_t1" = 0 ] && ! grep -q 'failed to define target_paths_all' <<<"$mout_t1"; then
-      ok "teeth VR-T1: guard-neutered mutant exits 0 without 'failed to define' (case 20 has teeth)" "()"
+    # Assert: specific message is absent (proves the message assertion in case 20 has teeth).
+    # Exit code may still be non-zero (via target_paths_pairs guard) — that is expected and correct.
+    if ! grep -q 'failed to define target_paths_all' <<<"$mout_t1"; then
+      ok "teeth VR-T1: guard-neutered mutant lacks 'failed to define target_paths_all' msg (case 20 msg-assertion has teeth)" "(exit $mrc_t1)"
     else
-      no "teeth VR-T1: mutant still said 'failed to define' — case 20 has no teeth" "rc=$mrc_t1 out=[$mout_t1]"
+      no "teeth VR-T1: mutant STILL has 'failed to define target_paths_all' msg — case 20 msg-assertion is THEATER" "rc=$mrc_t1 out=[$mout_t1]"
     fi
   fi
 
@@ -1391,6 +1401,185 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-retro-excl: retro_is_excluded gate for \$_vr_rfile not found in SUT"
+  fi
+fi
+
+# 45 — OPERATIONAL FAILURE: TARGETS.md missing → exit 1, explicit diagnostic, no summary.
+#      Before issue #140 fix, verify-registry exited 0 (old WARN-only contract). After the fix
+#      it must match the sibling scripts (sweep-retros, sweep-audits): a missing input is not an
+#      advisory finding, it is an operational failure that aborts the instrument.
+#      RED before fix: current code exits 0 (the SUT has 'exit 0' at the TARGETS.md guard).
+kit="$(mkkit c45-notargets-exit1)"   # no write_targets → TARGETS.md absent
+run "$kit"
+if [ "$RC" = 1 ] && grep -qi 'cannot find' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "45 missing TARGETS.md → exit 1 (operational), 'cannot find' msg, no summary" "(exit $RC)"
+else
+  no "45 missing TARGETS.md → exit 1 (operational), 'cannot find' msg, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 46 — OPERATIONAL FAILURE: target-paths helper exists but defines no required function → exit 1,
+#      explicit 'failed to define' diagnostic, no summary. Before issue #140 fix, verify-registry
+#      exited 0 (old WARN-only contract). After the fix it must match the sibling contract.
+#      RED before fix: current code exits 0 (SUT has 'exit 0' at declare-F target_paths_all guard).
+kit="$(mkkit c46-brokentp-exit1)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no target_paths_all\n' \
+  > "$kit/toolbelt/lib/target-paths.sh"
+run "$kit"
+if [ "$RC" = 1 ] \
+   && grep -q 'failed to define target_paths_all' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "46 broken target-paths helper → exit 1 (operational), 'failed to define', no summary" "(exit $RC)"
+else
+  no "46 broken target-paths helper → exit 1 (operational), 'failed to define', no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 47 — REGRESSION GUARD: advisory findings (drift, maturity schema) still exit 0 after the fix.
+#      The fix must only change operational-failure exit codes, not over-convert advisory WARNs.
+#      Sub-case a: drifted row → exit 0 + WARN (regression guard; passes before AND after fix).
+#      Sub-case b: clean kit  → exit 0 (regression guard for the happy path).
+#      NOTE: both sub-cases pass against the pre-fix code — this is a regression guard, not a RED case.
+kit="$(mkkit c47-drift-still-exit0)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 5 "a"
+write_targets "$kit" "$tgt::40 md"   # drift > tol
+run "$kit"
+drift_ok=0
+[ "$RC" = 0 ] && grep -qE 'WARN.*targetA.*drift' <<<"$OUT" && drift_ok=1
+kit2="$(mkkit c47b-clean-exit0)"; tgt2="$kit2/targetA"
+mkcorpus "$tgt2" 5 "a"
+write_targets "$kit2" "$tgt2::5 md"  # clean
+OUT2="$("$BASH_BIN" "$kit2/toolbelt/verify-registry.sh" 2>&1)"; RC2=$?
+clean_ok=0; [ "$RC2" = 0 ] && clean_ok=1
+if [ "$drift_ok" = 1 ] && [ "$clean_ok" = 1 ]; then
+  ok "47 advisory drift/clean still exit 0 after op-failure fix (regression guard)" "(drift_ok=$drift_ok clean_ok=$clean_ok)"
+else
+  no "47 advisory drift/clean regression guard failed" "drift_ok=$drift_ok drift_out=[$OUT] clean_ok=$clean_ok clean_out=[$OUT2]"
+fi
+
+# 48 — OPERATIONAL FAILURE: target-paths helper FILE absent (not found, before sourcing) →
+#      exit 1, 'cannot find helper' diagnostic, no 'failed to define' message (that is a
+#      sourcing failure, not a file-absent failure), no Summary line. This is site 1 and is
+#      distinct from site 2 (helper exists but target_paths_all undefined). Both start GREEN
+#      (the implementation already exists); teeth prove each guard independently.
+kit="$(mkkit c48-absent-tp-file)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+rm "$kit/toolbelt/lib/target-paths.sh"   # site 1: file absent (was copied by mkkit)
+run "$kit"
+if [ "$RC" = 1 ] \
+   && grep -q 'cannot find helper' <<<"$OUT" \
+   && ! grep -q 'failed to define' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "48 helper file absent → exit 1, 'cannot find helper', no 'failed to define', no summary" "(exit $RC)"
+else
+  no "48 helper file absent → exit 1, 'cannot find helper', no 'failed to define', no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 49 — OPERATIONAL FAILURE: target-paths helper DEFINES target_paths_all but NOT target_paths_pairs →
+#      execution passes site 2 (line-48 all-guard) and fails at site 3 (line-49 pairs-guard);
+#      exit 1, pairs-specific diagnostic, no 'failed to define target_paths_all' message (proves
+#      execution got past site 2), no Summary line. Starts GREEN; teeth prove the guard independently.
+kit="$(mkkit c49-missing-pairs-fn)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+# Stub: defines target_paths_all so line-48 guard passes; leaves target_paths_pairs undefined.
+printf '#!/usr/bin/env bash\n# stub: only target_paths_all defined\ntarget_paths_all() { :; }\n' \
+  > "$kit/toolbelt/lib/target-paths.sh"
+run "$kit"
+if [ "$RC" = 1 ] \
+   && grep -q 'failed to define target_paths_pairs' <<<"$OUT" \
+   && ! grep -q 'failed to define target_paths_all' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "49 pairs fn absent → exit 1, pairs-specific diagnostic, no all-fn msg, no summary" "(exit $RC)"
+else
+  no "49 pairs fn absent → exit 1, pairs-specific diagnostic, no all-fn msg, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# ---- TEETH for op-failure tests 45-46, 48-49 (issue #140 fix) ----------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # M1: revert the TARGETS-MISSING-CHECK guard (exit 1 → exit 0). Test 45 expects exit 1 for a
+  # missing TARGETS.md; the mutant must exit 0 so the assertion goes RED — proving test 45 depends
+  # on the real guard and is not vacuously green.
+  echo "-- M1-targets-missing: revert TARGETS-MISSING-CHECK; missing TARGETS.md must exit 0 (test 45 RED) --"
+  kit="$(mkkit teeth-m1-notargets)"   # no TARGETS.md
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# TARGETS-MISSING-CHECK' "$mut"; then
+    sed -i '/# TARGETS-MISSING-CHECK/ s/exit 1/exit 0/' "$mut"
+    mout_m1="$("$BASH_BIN" "$mut" 2>&1)"; mrc_m1=$?
+    if [ "$mrc_m1" = 0 ]; then
+      ok "M1 TARGETS-MISSING-CHECK reverted → mutant exits 0 (test 45 would fail → has teeth)" "(exit $mrc_m1)"
+    else
+      no "M1 TARGETS-MISSING-CHECK reverted but mutant still exits non-zero → test 45 has no teeth" "mrc=$mrc_m1 mout=[$mout_m1]"
+    fi
+  else
+    no "M1: TARGETS-MISSING-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  fi
+
+  # M-all (replaces old M2): revert ONLY the line-48 VR-TP-ALL-CHECK guard (exit 1 → exit 0),
+  # proving test 46 is load-bearing. Old M2 targeted VR-TP-FUNC-CHECK which appeared on BOTH
+  # lines 48 and 49 — collapsing two independent guards into one mutant. Now that the sentinels
+  # are differentiated (line 48: VR-TP-ALL-CHECK; line 49: VR-TP-PAIRS-CHECK), each guard has
+  # its own independent control. M-all covers test 46; M-pairs (below) covers test 49.
+  echo "-- M-all: revert VR-TP-ALL-CHECK (line 48 only); broken-helper must exit 0 (test 46 RED) --"
+  kit="$(mkkit teeth-m-all)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  write_targets "$kit" "$tgt::3 md"
+  printf '#!/usr/bin/env bash\n# broken: no target_paths_all\n' > "$kit/toolbelt/lib/target-paths.sh"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# VR-TP-ALL-CHECK' "$mut"; then
+    sed -i '/# VR-TP-ALL-CHECK/ s/exit 1/exit 0/' "$mut"
+    mout_ma="$("$BASH_BIN" "$mut" 2>&1)"; mrc_ma=$?
+    if [ "$mrc_ma" = 0 ]; then
+      ok "M-all: VR-TP-ALL-CHECK reverted → mutant exits 0 (test 46 has teeth)" "(exit $mrc_ma)"
+    else
+      no "M-all: reverted but mutant still exits non-zero → test 46 has no teeth" "mrc=$mrc_ma mout=[$mout_ma]"
+    fi
+  else
+    no "M-all: VR-TP-ALL-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  fi
+
+  # M-helper-file: revert ONLY the line-43 VR-TP-FILE-CHECK guard (exit 1 → exit 0). Test 48
+  # expects exit 1 for a missing helper file; the mutant exits 0 immediately after the echo
+  # (exit in an if-body exits the script, so lines 46-49 never run) → test 48 RED.
+  echo "-- M-helper-file: revert VR-TP-FILE-CHECK (line 43); helper-file-absent must exit 0 (test 48 RED) --"
+  kit="$(mkkit teeth-m-helper-file)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  write_targets "$kit" "$tgt::3 md"
+  rm "$kit/toolbelt/lib/target-paths.sh"   # same fixture as test 48
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# VR-TP-FILE-CHECK' "$mut"; then
+    sed -i '/# VR-TP-FILE-CHECK/ s/exit 1/exit 0/' "$mut"
+    mout_mf="$("$BASH_BIN" "$mut" 2>&1)"; mrc_mf=$?
+    if [ "$mrc_mf" = 0 ]; then
+      ok "M-helper-file: VR-TP-FILE-CHECK reverted → mutant exits 0 (test 48 has teeth)" "(exit $mrc_mf)"
+    else
+      no "M-helper-file: reverted but mutant still exits non-zero → test 48 has no teeth" "mrc=$mrc_mf mout=[$mout_mf]"
+    fi
+  else
+    no "M-helper-file: VR-TP-FILE-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  fi
+
+  # M-pairs: revert ONLY the line-49 VR-TP-PAIRS-CHECK guard (exit 1 → exit 0). Test 49 expects
+  # exit 1 for a helper that defines target_paths_all but not target_paths_pairs; the mutant
+  # exits 0 (line-48 guard passes, mutated line-49 exits 0 immediately) → test 49 RED.
+  echo "-- M-pairs: revert VR-TP-PAIRS-CHECK (line 49); pairs-fn-absent must exit 0 (test 49 RED) --"
+  kit="$(mkkit teeth-m-pairs)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  write_targets "$kit" "$tgt::3 md"
+  printf '#!/usr/bin/env bash\n# stub: only target_paths_all defined\ntarget_paths_all() { :; }\n' \
+    > "$kit/toolbelt/lib/target-paths.sh"   # same fixture as test 49
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# VR-TP-PAIRS-CHECK' "$mut"; then
+    sed -i '/# VR-TP-PAIRS-CHECK/ s/exit 1/exit 0/' "$mut"
+    mout_mp="$("$BASH_BIN" "$mut" 2>&1)"; mrc_mp=$?
+    if [ "$mrc_mp" = 0 ]; then
+      ok "M-pairs: VR-TP-PAIRS-CHECK reverted → mutant exits 0 (test 49 has teeth)" "(exit $mrc_mp)"
+    else
+      no "M-pairs: reverted but mutant still exits non-zero → test 49 has no teeth" "mrc=$mrc_mp mout=[$mout_mp]"
+    fi
+  else
+    no "M-pairs: VR-TP-PAIRS-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
   fi
 fi
 
