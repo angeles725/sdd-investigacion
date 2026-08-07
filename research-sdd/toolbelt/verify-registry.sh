@@ -12,12 +12,13 @@
 # Mirror of the sweeps (sweep-retros.sh / sweep-audits.sh): reads the target list from TARGETS.md as
 # backtick-wrapped absolute paths, DROPS truncated '...' paths and WARNs the sweep is PARTIAL.
 #
-# PROPOSE-NEVER-APPLY: WARN-only, READ-ONLY. It NEVER edits TARGETS.md or any corpus, and NEVER fails —
-# exit is ALWAYS 0 (drift is surfaced for the human to reconcile, never auto-applied). This matches the
-# archive reminder's contract ("archive is CORPUS-scoped; it never edits \$KIT/TARGETS.md").
+# PROPOSE-NEVER-APPLY: WARN-only, READ-ONLY. It NEVER edits TARGETS.md or any corpus. Findings (drift,
+# maturity schema) are advisory — exit is 0. OPERATIONAL failures (TARGETS.md absent, a lib/ helper that
+# fails to define its required function) exit 1, matching the sibling sweeps' contract (issue #140).
 #
 # Usage: verify-registry.sh
-# Exit: always 0 (WARN lines only). Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
+# Exit: 0 on clean or advisory findings; 1 on operational failure (missing registry or broken lib helper).
+# Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
 set -uo pipefail
 
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,23 +35,23 @@ declare -F retro_is_excluded >/dev/null 2>&1 || retro_is_excluded() { return 1; 
 unset _vr_lib
 
 # Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
-# WARN-only contract: a missing or broken lib is still a loud signal, but exits 0 like all
-# other operational notices in this script. A missing lib before the TARGETS.md check is the
-# only case where target_paths_all can't be defined; callers get the clear error message.
+# Dual contract: a missing helper file (file-existence guard below) and a broken sourced lib
+# (missing-function guards) are OPERATIONAL failures that exit 1, matching the sibling scripts
+# (issue #140). Advisory findings (drift, schema) remain WARN-only and always exit 0.
 _vr_tp_lib="$(cd "$(dirname "$0")" && pwd)/lib/target-paths.sh"
 if [ ! -f "$_vr_tp_lib" ]; then
-  echo "verify-registry: cannot find helper $_vr_tp_lib" >&2; exit 0
+  echo "verify-registry: cannot find helper $_vr_tp_lib" >&2; exit 1  # VR-TP-FILE-CHECK
 fi
 # shellcheck source=lib/target-paths.sh
 . "$_vr_tp_lib"
 # Fail closed: source must DEFINE both functions — a partial source is otherwise swallowed.
-declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_all" >&2; exit 0; }
-declare -F target_paths_pairs >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_pairs" >&2; exit 0; }
+declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_all" >&2; exit 1; }  # VR-TP-ALL-CHECK
+declare -F target_paths_pairs >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_pairs" >&2; exit 1; }  # VR-TP-PAIRS-CHECK
 unset _vr_tp_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
   echo "verify-registry: cannot find $TARGETS_MD" >&2
-  exit 0   # WARN-only contract: even a missing registry never fails the surfacing.
+  exit 1  # OPERATIONAL failure: cannot proceed without the registry.  # TARGETS-MISSING-CHECK
 fi
 
 # Tolerance: a small count drift is expected between a mid-run corpus and its last-committed row, so only
@@ -432,5 +433,5 @@ else
   [ "$retro_drift" -gt 0 ] && echo "For each retro drift: recount non-excluded retros and refresh the 'N retros' field in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
 fi
 
-# WARN-only contract: NEVER signal failure. A drift is a surfaced advisory, not an error.
+# Advisory findings (drift, schema) are never failures. Operational failure already exited 1 above.
 exit 0
