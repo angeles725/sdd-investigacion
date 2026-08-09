@@ -73,6 +73,48 @@ else
   if "$SOURCE" quick /bin/true >/dev/null; then ok 'quick mode still dispatches'; else no 'quick mode'; fi
 fi
 
+# Q2 — large strings output: quick mode must exit 0 when strings produces >40 lines.
+# A 100-string synthetic binary causes head to close the pipe after 40 lines, sending
+# SIGPIPE to strings.  The unpatched SUT (bare pipeline + set -euo pipefail) exits 141;
+# the patched SUT exits 0.  Fixture generated at runtime — no binary committed.
+if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
+  echo "  SKIP  Q2 large-strings (missing: file or strings)"
+else
+  _big="$ROOT/big.bin"
+  # Each string is ~2010 chars; 100 strings ≈ 200 KB >> 64 KB pipe buffer.
+  # strings -n 6 produces 100 output lines; head closes the pipe after 40,
+  # triggering SIGPIPE on strings before it finishes writing.
+  awk 'BEGIN{s=sprintf("%2000s","");gsub(/ /,"A",s);for(i=1;i<=100;i++)printf "LONGSTR%04d%s\n",i,s}' >"$_big"
+  if "$SOURCE" quick "$_big" >"$ROOT/q2.out" 2>&1; then
+    if grep -q 'LONGSTR' "$ROOT/q2.out"; then
+      ok "Q2: quick exits 0 and emits strings section when output exceeds 40 lines"
+    else
+      no "Q2: quick exits 0 but strings section absent from output"
+    fi
+  else
+    no "Q2: quick exits non-zero (want 0) — SIGPIPE not handled in strings pipeline"
+  fi
+fi
+
+# Q3 — genuine strings failure must NOT be silently swallowed.
+# A stub strings that exits 1 simulates a binary that cannot be opened.
+# The proper fix surfaces this (non-zero rc or explicit diagnostic); a blanket
+# '|| true' fix swallows it silently.  Mutation M10 below confirms Q3 catches that.
+if ! command -v file >/dev/null 2>&1; then
+  echo "  SKIP  Q3 strings-failure (missing: file)"
+else
+  _stubdir="$ROOT/stubstrings"
+  mkdir -p "$_stubdir"
+  printf '#!/bin/sh\necho "strings: stub: cannot open" >&2\nexit 1\n' >"$_stubdir/strings"
+  chmod +x "$_stubdir/strings"
+  PATH="$_stubdir:$PATH" "$SOURCE" quick /bin/true >"$ROOT/q3.out" 2>"$ROOT/q3.err"; _q3rc=$?
+  if [ "$_q3rc" -ne 0 ] || grep -q 'strings failed' "$ROOT/q3.err"; then
+    ok "Q3: genuine strings failure surfaces (rc=$_q3rc, not silently swallowed)"
+  else
+    no "Q3: genuine strings failure silently swallowed (rc=0, no diagnostic)"
+  fi
+fi
+
 # TEETH — prove the guard is per-test, not suite-level.
 # Run inner call with a clean PATH that omits file and strings; the host-independent
 # tests must still produce ≥4 passes. A suite-level guard produces 0 (exits early).
@@ -111,6 +153,42 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "M7-killed: else-removed mutant FAILs quick mode on tool-less PATH — M7 detected"
   else
     no "M7-killed: mutant did not FAIL quick mode on tool-less PATH — M7 survived (THEATER)"
+  fi
+  echo "-- M9 mutation: revert strings pipeline to bare (no SIGPIPE guard) → Q2 must go red --"
+  # Removes ' || { _sp=...' handler leaving the original bare pipeline.
+  _m9="$ROOT/toolbelt/decompile-native.M9.sh"
+  sed 's/ || { _sp=.*//' "$ROOT/toolbelt/decompile-native.sh" > "$_m9"
+  chmod +x "$_m9"
+  if grep -qF 'PIPESTATUS' "$_m9"; then
+    no "M9 setup: mutant still contains PIPESTATUS — sed pattern not matched (did the fix change?)"
+  else
+    _big_m9="$ROOT/big_m9.bin"
+    awk 'BEGIN{s=sprintf("%2000s","");gsub(/ /,"A",s);for(i=1;i<=100;i++)printf "LONGSTR%04d%s\n",i,s}' >"$_big_m9"
+    "$_m9" quick "$_big_m9" >/dev/null 2>&1; _m9rc=$?
+    if [ "$_m9rc" -ne 0 ]; then
+      ok "M9-killed: bare pipeline mutant exits non-zero ($_m9rc) for large-strings output — Q2 detection confirmed"
+    else
+      no "M9-killed: bare pipeline mutant exits 0 — M9 survived (THEATER)"
+    fi
+  fi
+  echo "-- M10 mutation: blanket || true swallows genuine strings failure → Q3 must go red --"
+  # Replaces the PIPESTATUS handler with || true, silencing genuine failure.
+  _m10="$ROOT/toolbelt/decompile-native.M10.sh"
+  sed 's/ || { _sp=.*/ || true/' "$ROOT/toolbelt/decompile-native.sh" > "$_m10"
+  chmod +x "$_m10"
+  if grep -qF '|| true' "$_m10" && ! grep -qF 'PIPESTATUS' "$_m10"; then
+    _stubdir_m10="$ROOT/stubstrings_m10"
+    mkdir -p "$_stubdir_m10"
+    printf '#!/bin/sh\necho "strings: stub" >&2\nexit 1\n' >"$_stubdir_m10/strings"
+    chmod +x "$_stubdir_m10/strings"
+    PATH="$_stubdir_m10:$PATH" "$_m10" quick /bin/true >/dev/null 2>"$ROOT/m10.err"; _m10rc=$?
+    if [ "$_m10rc" -eq 0 ] && ! grep -q 'strings failed' "$ROOT/m10.err"; then
+      ok "M10-killed: blanket || true mutant swallows genuine failure (rc=0, no diagnostic) — Q3 detection confirmed"
+    else
+      no "M10-killed: || true mutant did not swallow failure (rc=$_m10rc) — M10 survived (THEATER)"
+    fi
+  else
+    no "M10 setup: mutant not as expected (missing || true or still has PIPESTATUS)"
   fi
   echo "-- B3 mutation: remove basename from -postScript; B3 must expose full path --"
   _mutant="$ROOT/toolbelt/decompile-native.MUTANT.sh"
