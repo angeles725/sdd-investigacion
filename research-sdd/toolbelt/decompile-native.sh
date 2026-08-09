@@ -24,7 +24,8 @@ case "$MODE" in
   quick)
     echo "== file =="; file "$BIN"
     echo "== readelf -h =="; readelf -h "$BIN" 2>/dev/null | head -20 || true
-    echo "== strings (primeras 40) =="; strings -n 6 "$BIN" | head -40
+    echo "== strings (first 40) =="
+    strings -n 6 "$BIN" | head -40 || { _sp="${PIPESTATUS[0]}"; [ "$_sp" -eq 0 ] || [ "$_sp" -eq 141 ] || { echo "strings failed (rc=$_sp): $BIN" >&2; exit "$_sp"; }; }
     ;;
   r2)
     command -v r2 >/dev/null || { echo "r2 not installed" >&2; exit 3; }
