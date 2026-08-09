@@ -626,6 +626,21 @@ if [ "$uf48b" = "7" ]; then
   ok "sync-uf-nospace-int: undocumented_findings:7 (no space) → --sync-state preserves 7, does not zero (no-space prefix probe fires)"
 else no "sync-uf-nospace-int: uf=$uf48b (want 7) — no-space valid-integer was silently zeroed (BLOCKER 1B nospace regression)"; fi
 
+# 48b-indented-nospace — issue #126 item 2: `  undocumented_findings:7` (indented + no space after colon).
+# env_get: $1="undocumented_findings:7" (no trailing colon) → no match → empty.
+# Fallback probe (buggy): index($0,"undocumented_findings:")==1 → position 3 (leading spaces), not 1 → missed.
+# After fix (/^[[:space:]]*undocumented_findings:/ regex): matches → extracts "7" → preserved.
+d="$TMP/sync-uf-indented-nospace"; mkdir -p "$d"
+{ echo '# T'; echo '> intro'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n  undocumented_findings:7\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state 2>/dev/null
+_uf_inp="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+[ "$_uf_inp" = "7" ] \
+  && ok "sync-uf-indented-nospace: '  undocumented_findings:7' (indented+nospace) → preserved as 7 by whitespace-tolerant probe" \
+  || no "sync-uf-indented-nospace: uf=$_uf_inp (want 7) — indented+nospace value silently zeroed (probe whitespace-intolerant)"
+
 # 48c — NO-SPACE non-integer: undocumented_findings:seven (no space + word value).
 #       Same blind spot as 48b but the extracted value is non-integer. After the fix: prefix probe
 #       detects the line, extracts "seven", non-integer branch → WARN on stderr AND carry forward
@@ -740,6 +755,20 @@ _vs53out="$(bash "$HERE/../verify-state.sh" "$d52" 2>/dev/null)"; _vs53rc=$?
 if [ "$_vs53rc" = "0" ] && grep -qE 'covered_blocks=3/3' <<<"$_vs53out"; then
   ok "sync-bs-e2e: verify-state exits 0 with covered_blocks=3/3 (global count) after shared-global sync"
 else no "sync-bs-e2e: rc=$_vs53rc :: $(grep 'envelope' <<<"$_vs53out" | head -1) (want rc=0 + cb=3/3)"; fi
+
+# 53b — sync-bs-indented-nospace: issue #126 item 2 — `  block_scope:shared-global` (indented + no space).
+# env_get: $1="block_scope:shared-global" (no trailing colon) → no match → empty.
+# Fallback probe (buggy): index($0,"block_scope:")==1 → position 3 (leading spaces), not 1 → missed.
+# After fix (/^[[:space:]]*block_scope:/ regex): matches → extracts "shared-global" → carried through sync.
+d53b="$TMP/sync-bs-indented-nospace"; mkdir -p "$d53b"
+printf 'x\n' > "$d53b/niagara-bloque1.md"
+printf '# C\n> i\n<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 1\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n  block_scope:shared-global\n<!-- /research-state.v1 -->\n\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' \
+  > "$d53b/RESEARCH-STATE-chihuahua.md"
+bash "$SUT" "$d53b" --sync-state 2>/dev/null
+_bs53b="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d53b/RESEARCH-STATE-chihuahua.md")"
+[ "$_bs53b" = "shared-global" ] \
+  && ok "sync-bs-indented-nospace: '  block_scope:shared-global' (indented+nospace) → carried through sync (whitespace-tolerant probe)" \
+  || no "sync-bs-indented-nospace: bs=$_bs53b (want shared-global) — indented+nospace probe missed (whitespace-intolerant)"
 
 # ---- ISSUE #143 — unknown priority concealment chain -----------------------------------------------
 # Unknown priorities (e.g. 'critical', 'urgent', typos) were silently dropped by backlog_rows().
@@ -976,6 +1005,44 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _bsm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
     [ -z "$_bsm" ] && ok "teeth-sync-bs: neutered mutant drops block_scope → test 52 is load-bearing" \
       || no "teeth-sync-bs: mutant bs=$_bsm (want empty) — THEATER"; fi
+
+  # ---- ISSUE #126 teeth: whitespace-tolerant probe controls (sites 3 and 4) ----------------------
+  # Site 3 (BS-SYNC-PROBE): neuter the block_scope fallback probe → indented+nospace form must be missed.
+  echo "-- teeth-sync-bs-probe: neuter BS-SYNC-PROBE; indented+nospace block_scope must be lost after sync --"
+  mu_bsp="$TMP/status.BSPROBE.MUTANT.sh"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if grep -q '# BS-SYNC-PROBE' "$SUT"; then
+    sed '/# BS-SYNC-PROBE$/s/_raw_bs=.*/_raw_bs=""  # MUTANT-BSP: probe neutered/' "$SUT" > "$mu_bsp"
+    # Fresh fixture to avoid reading the already-synced d53b state:
+    d_bs_tooth="$TMP/bs-probe-tooth"; mkdir -p "$d_bs_tooth"
+    printf 'x\n' > "$d_bs_tooth/niagara-bloque1.md"
+    printf '# C\n> i\n<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 1\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n  block_scope:shared-global\n<!-- /research-state.v1 -->\n\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d_bs_tooth/RESEARCH-STATE-chihuahua.md"
+    bash "$mu_bsp" "$d_bs_tooth" --sync-state >/dev/null 2>&1
+    _bsm_tooth="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d_bs_tooth/RESEARCH-STATE-chihuahua.md")"
+    [ -z "$_bsm_tooth" ] \
+      && ok "teeth-sync-bs-probe: neutered probe → block_scope absent after sync — BS-SYNC-PROBE is load-bearing" \
+      || no "teeth-sync-bs-probe: mutant bs=$_bsm_tooth (want empty) — probe guard may not be the stopper (THEATER)"
+  else no "teeth-sync-bs-probe: BS-SYNC-PROBE sentinel not found in SUT"; fi
+
+  # Site 4 (UF-SYNC-PROBE): neuter the UF fallback probe → indented+nospace value must be zeroed.
+  echo "-- teeth-sync-uf-probe: neuter UF-SYNC-PROBE; indented+nospace undocumented_findings must be zeroed --"
+  mu_ufp="$TMP/status.UFPROBE.MUTANT.sh"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if grep -q '# UF-SYNC-PROBE' "$SUT"; then
+    sed '/# UF-SYNC-PROBE$/s/_raw_uf=.*/_raw_uf=""  # MUTANT-UFP: probe neutered/' "$SUT" > "$mu_ufp"
+    # Fresh fixture to avoid reading the already-synced sync-uf-indented-nospace state:
+    d_uf_tooth="$TMP/uf-probe-tooth"; mkdir -p "$d_uf_tooth"
+    { echo '# T'; echo '> intro'; echo
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n  undocumented_findings:7\n<!-- /research-state.v1 -->\n'; echo
+      echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+      echo '## Blocked gaps'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+    } > "$d_uf_tooth/RESEARCH-STATE.md"
+    bash "$mu_ufp" "$d_uf_tooth" --sync-state >/dev/null 2>&1
+    _ufm_tooth="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print $2; exit}' "$d_uf_tooth/RESEARCH-STATE.md")"
+    [ "$_ufm_tooth" = "0" ] \
+      && ok "teeth-sync-uf-probe: neutered probe → uf=0 for indented+nospace value — UF-SYNC-PROBE is load-bearing" \
+      || no "teeth-sync-uf-probe: mutant uf=$_ufm_tooth (want 0) — probe guard may not be the stopper (THEATER)"
+  else no "teeth-sync-uf-probe: UF-SYNC-PROBE sentinel not found in SUT"; fi
 
   # ---- ISSUE #143 teeth -----------------------------------------------------------------------
   # T54 targets copy-2 (verify-state.sh) via --next; T59-T62 target copy-1 (SUT::backlog_rows) via --sync-state.

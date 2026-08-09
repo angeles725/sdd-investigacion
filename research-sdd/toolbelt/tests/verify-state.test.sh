@@ -775,6 +775,46 @@ if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings
   ok "G-nospace-nonint: undocumented_findings:seven (no space) → FAIL exit 1 (prefix probe detects line, env_field sees empty → not-int)"
 else no "G-nospace-nonint: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
 
+# UF-indented-nonint — issue #126 item 2: `  undocumented_findings: seven` (indented, non-integer).
+# env_field uses awk default FS (ignores leading whitespace) → e_uf="seven".  But the _uf_present probe
+# anchored /^undocumented_findings:/ misses the indented form → _uf_present="" → CHECK-G at the not-int
+# branch (guarded by _uf_present) never fires on unmodified SUT.  After fix (probe widened to
+# /^[[:space:]]*undocumented_findings:/) the probe catches the indented form → FAIL exit 1.
+d="$TMP/uf-indented-nonint"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n  undocumented_findings: seven\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+  ok "UF-indented-nonint: '  undocumented_findings: seven' (indented non-int) → FAIL exit 1"
+else no "UF-indented-nonint: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
+
+# UF-pos-first — same but undocumented_findings is FIRST in the envelope (list-edges §7: FIRST position).
+d="$TMP/uf-pos-first"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\n  undocumented_findings: seven\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+[ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings' \
+  && ok "UF-pos-first: '  undocumented_findings: seven' FIRST in envelope → FAIL (probe is position-independent)" \
+  || no "UF-pos-first: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"
+
+# UF-pos-middle — field in the MIDDLE of the envelope (list-edges §7: MIDDLE position).
+d="$TMP/uf-pos-middle"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n  undocumented_findings: seven\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n<!-- /research-state.v1 -->\n'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+[ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings' \
+  && ok "UF-pos-middle: '  undocumented_findings: seven' MIDDLE in envelope → FAIL" \
+  || no "UF-pos-middle: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"
+
 # ---- P23: blocked/absent gaps missing a tried: clause (pi5 P23) --------------------------------
 # When a gap under ## Blocked gaps or ## Non-investigable gaps has a `needs:` clause but no
 # `tried:` clause, a WARN fires — absent-input gaps must document what alternatives were tried
@@ -1006,6 +1046,23 @@ out="$(run "$d")"
 if [ "$(code "$d")" = 1 ] && grep -qiE 'block_scope.*missing.space|missing.space.*block_scope|no.space.*block_scope|block_scope.*no.space|unparseable' <<<"$out"; then
   ok "BS-nospace-msg: block_scope:shared-global (no space) → FAIL exit 1 with message naming the no-space form"
 else no "BS-nospace-msg: exit $(code "$d") :: $(grep -iE 'block_scope' <<<"$out" | head -1) (want FAIL + no-space message)"; fi
+
+# BS-cannot-see-pass — issue #126 item 1: PASS-path WARN for the cannot-see conflation.
+# covered_blocks=0 and focus-filtered ondisk=0 (CHECK A passes: 0==0) while _ondisk_global > 0.
+# On unmodified SUT: CHECK A passes silently, exit 0 — no WARN fired.
+# After fix: WARN names the global count and suggests block_scope: shared-global.
+d="$TMP/bs-cannot-see-pass"; mkdir -p "$d"
+printf 'x\n' > "$d/other-bloque1.md"   # _ondisk_global=1; focus 'x-' prefix yields 0 focus-filtered
+{ echo '# X — Research State'; echo
+  env10 0 0 0 0 0 0 0 0; echo   # covered_blocks=0, block_scope absent → per-focus, x- prefix
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-x.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*covered_blocks=0' <<<"$out" && grep -q 'shared-global' <<<"$out"; then
+  ok "BS-cannot-see-pass: covered_blocks=0=focus-filtered but 1 global block → WARN with shared-global hint, exit 0"
+else no "BS-cannot-see-pass: exit $(code "$d") :: $(grep -iE 'warn\|covered_blocks' <<<"$out" | head -1) (want exit 0 + WARN)"; fi
 
 # ====================== ISSUE #143 — unknown priority backlog parse check ========================
 # Unknown priorities silently dropped; fix detects INVALID_PRIORITY sentinels and FAILs before
@@ -1448,6 +1505,59 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -qiE 'unparseable|missing.space|no.space' <<<"$mbnsout"; then
       ok "teeth-BS-nospace-msg: old message → 'unparseable' check fails → BS-nospace-msg wording is load-bearing"
     else no "teeth-BS-nospace-msg: reverted mutant STILL has the improved message — assertion is THEATER"; fi
+  fi
+
+  # ---- ISSUE #126 mutation controls ----------------------------------------------------------------
+
+  # (ii) teeth-UF-indented-probe: neuter UF-INDENTED-PROBE sentinel → indented non-int must go silent.
+  # UF-indented-nonint fixture uses '  undocumented_findings: seven'. On real SUT: _uf_present non-empty
+  # → CHECK-G FAIL fires (exit 1). Mutant sets _uf_present="" → FAIL silenced, exit 0 → test goes red.
+  echo "-- teeth-UF-indented-probe: neuter UF-INDENTED-PROBE; indented non-int must not FAIL --"
+  mutantUFI="$TMP/verify-state.UFI.MUTANT.sh"
+  if grep -q '# UF-INDENTED-PROBE' "$SUT"; then
+    sed '/# UF-INDENTED-PROBE$/s/_uf_present=.*/_uf_present=""  # MUTANT-UFI: probe neutered/' "$SUT" > "$mutantUFI"
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    d="$TMP/uf-indented-nonint"
+    bash "$mutantUFI" "$d" >/dev/null 2>&1; mufigot=$?
+    if [ "$mufigot" = 0 ]; then
+      ok "teeth-UF-indented-probe: neutered probe → indented non-int exits 0 (FAIL silenced) — UF-indented-nonint has teeth"
+    else no "teeth-UF-indented-probe: mutant exit $mufigot (want 0) — neutering did not silence FAIL (THEATER)"; fi
+  else
+    no "teeth-UF-indented-probe: UF-INDENTED-PROBE sentinel not found in SUT"
+  fi
+
+  # (iii) teeth-BS-cannot-see-pass-guard: replace PASS-path guard with if-false → WARN must stop firing.
+  # BS-cannot-see-pass fixture: on real SUT WARN fires (exit 0 with WARN). Mutant: if-false → silent.
+  echo "-- teeth-BS-cannot-see-pass-guard: if-false mutant; PASS-path WARN must go silent --"
+  mutantBCSP="$TMP/verify-state.BCSP.MUTANT.sh"
+  if grep -q '# BS-CANNOT-SEE-PASS' "$SUT"; then
+    sed 's/^  if is_int.*# BS-CANNOT-SEE-PASS$/  if false; then  # MUTANT-BCSP/' "$SUT" > "$mutantBCSP"
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    d="$TMP/bs-cannot-see-pass"
+    mbcspout="$(bash "$mutantBCSP" "$d" 2>/dev/null)"; mbcsprc=$?
+    if [ "$mbcsprc" = 0 ] && ! grep -qE 'WARN.*covered_blocks' <<<"$mbcspout"; then
+      ok "teeth-BS-cannot-see-pass-guard: if-false → WARN silent, exit 0 — PASS-path guard is load-bearing"
+    else no "teeth-BS-cannot-see-pass-guard: rc=$mbcsprc WARN=$(grep -E 'WARN' <<<"$mbcspout" | head -1) — THEATER"; fi
+  else
+    no "teeth-BS-cannot-see-pass-guard: BS-CANNOT-SEE-PASS sentinel not found in SUT"
+  fi
+
+  # (i) teeth-BS-cannot-see-pass-global: override _ondisk_global to 0 → item-1 WARN must stop firing.
+  # The bs-cannot-see-pass fixture (global=1 from other-bloque1.md) has the WARN fire on real SUT.
+  # With _ondisk_global=0, condition (_ondisk_global > 0) is FALSE → WARN silent. CHECK A stays green
+  # (exit 0): e_covered=0 == ondisk=0 → no FAIL. Proves the WARN reads the global count.
+  echo "-- teeth-BS-cannot-see-pass-global: zero _ondisk_global via sentinel; WARN must stop --"
+  mutantBGC="$TMP/verify-state.BGC.MUTANT.sh"
+  if grep -q '# BS-ONDISK-GLOBAL-COMPUTED' "$SUT"; then
+    sed 's/^  : # BS-ONDISK-GLOBAL-COMPUTED.*$/  _ondisk_global="0"  # MUTANT-BGC: override to 0/' "$SUT" > "$mutantBGC"
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    d="$TMP/bs-cannot-see-pass"
+    mbgcout="$(bash "$mutantBGC" "$d" 2>/dev/null)"; mbgcrc=$?
+    if [ "$mbgcrc" = 0 ] && ! grep -qE 'WARN.*covered_blocks' <<<"$mbgcout"; then
+      ok "teeth-BS-cannot-see-pass-global: zeroed _ondisk_global → WARN silent, exit 0 — item-1 WARN reads global count"
+    else no "teeth-BS-cannot-see-pass-global: rc=$mbgcrc WARN=$(grep -E 'WARN' <<<"$mbgcout" | head -1) — THEATER or CHECK A broken"; fi
+  else
+    no "teeth-BS-cannot-see-pass-global: BS-ONDISK-GLOBAL-COMPUTED sentinel not found in SUT"
   fi
 
   # Suite-local helper: build a SUT mutant via sed, copy FPLIB, run fixture, assert exit == EXPECT.

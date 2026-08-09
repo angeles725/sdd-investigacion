@@ -269,6 +269,7 @@ for state in "${states[@]}"; do
   #   (b) the cannot-see diagnostic when per-focus ondisk==0 while other-prefix blocks exist.
   _ondisk_global="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+  : # BS-ONDISK-GLOBAL-COMPUTED — override this line with _ondisk_global="0" to test cannot-see-pass teeth
   if [ "$_bs_valid" = 1 ] && [ -n "$_bs_present" ] && [ "$e_bs" = "shared-global" ]; then
     ondisk="$_ondisk_global"  # BS-SHARED-GLOBAL-ONDISK
   elif [ -n "$_fpfx" ]; then
@@ -296,7 +297,7 @@ for state in "${states[@]}"; do
   # empty — identical to the absent case — so we use a separate presence check anchored to the key prefix.
   # This distinguishes: absent (silent), present+valid (threshold checks), present+malformed (FAIL).
   e_uf="$(env_field "$state" undocumented_findings)"
-  _uf_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^undocumented_findings:/{print; exit}' "$state")"
+  _uf_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*undocumented_findings:/{print; exit}' "$state")"  # UF-INDENTED-PROBE
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"
@@ -315,6 +316,12 @@ for state in "${states[@]}"; do
       echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${ondisk} block file(s) on disk — re-seed: --sync-state"
     fi
     frc=1; rc=1
+  fi
+  # ENVELOPE CHECK A — PASS-PATH WARN (issue #126 item 1): covered_blocks=0 and focus-filtered ondisk=0
+  # (CHECK A passes: 0==0) while _ondisk_global > 0. The instrument could not take the count it certified
+  # because no block file matched the focus prefix. Advisory WARN per §8 (finding, not operational failure).
+  if is_int "$e_covered" && [ "$e_covered" = "$ondisk" ] && [ -n "$_fpfx" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # BS-CANNOT-SEE-PASS
+    echo "   WARN   envelope covered_blocks=0: declared 0 matches 0 focus-filtered on-disk — but ${_ondisk_global} block file(s) exist under other prefixes (focus '${_fpfx}' matches none); if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state"
   fi
   # ENVELOPE CHECK B (FAIL, STOP-CRITICAL) — declared investigable_open must equal the NEXT-eligible set.
   # This is the check that closes the premature-STOP class BY CONSTRUCTION: an under-declared count here
