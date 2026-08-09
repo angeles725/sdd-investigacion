@@ -93,7 +93,7 @@ ln -s nowhere "$ROOT/out-link"; expect_no out-link run out-link
 mkdir "$ROOT/collision"; echo keep >"$ROOT/collision/keep"; if ! run collision >/dev/null 2>&1 && [ "$(cat "$ROOT/collision/keep")" = keep ]; then ok collision; else no collision; fi
 mkdir "$ROOT/.foreign.stage"; echo keep >"$ROOT/.foreign.stage/keep"; expect_no foreign run foreign
 for mode in nonzero missing malformed sentinel flood timeout; do mkheadless "$mode"; if run "$mode" 1 100 >/dev/null 2>&1; then rc=0; else rc=$?; fi; if [ "$rc" -ne 0 ] && [ -f "$ROOT/$mode/report.json" ] && [ ! -e "$ROOT/.$mode.stage" ]; then ok "$mode publishes failed evidence and cleans"; else no "$mode publishes failed evidence and cleans"; fi; done
-mkheadless loglink; printf '%0100d\n' 0 >"$ROOT/outside.log"; outside_sum="$(sha256sum "$ROOT/outside.log")"; if ! run loglink 2 20 >/dev/null 2>&1 && [ "$(sha256sum "$ROOT/outside.log")" = "$outside_sum" ] && [ ! -e "$ROOT/loglink" ]; then ok 'sandbox log symlink cannot modify outside file'; else no 'sandbox log symlink safety'; fi
+mkheadless loglink; printf '%0100d\n' 0 >"$ROOT/outside.log"; outside_sum="$(sha256sum "$ROOT/outside.log")"; run loglink 2 2000 >/dev/null 2>&1; _loglink_rc=$?; if [ "$_loglink_rc" -eq 2 ] && [ "$(sha256sum "$ROOT/outside.log")" = "$outside_sum" ] && [ ! -e "$ROOT/loglink" ]; then ok 'sandbox log symlink cannot modify outside file'; else no 'sandbox log symlink safety'; fi
 mkheadless partial; if run partial && python3 -c 'import json,sys;assert json.load(open(sys.argv[1]))["status"]=="partial"' "$ROOT/partial/report.json"; then ok 'truthful partial evidence'; else no 'truthful partial evidence'; fi
 mkheadless dishonest; if ! run dishonest >/dev/null 2>&1 && python3 -c 'import json,sys;assert json.load(open(sys.argv[1]))["errors"]==["malformed-curated-output"]' "$ROOT/dishonest/report.json"; then ok 'dishonest output is failed'; else no 'dishonest output is failed'; fi
 mkheadless good; if ! RSDD_BWRAP=/bin/false run sandbox >/dev/null 2>&1 && [ ! -e "$ROOT/sandbox" ]; then ok 'sandbox failure publishes nothing'; else no 'sandbox failure publishes nothing'; fi
@@ -113,8 +113,10 @@ mkheadless good; cp "$ROOT/bin/bwrap" "$ROOT/bin/bwrap.swap"; printf '#!/bin/sh\
 mkheadless boolean; if ! run boolean >/dev/null 2>&1 && python3 -c 'import json,sys;assert json.load(open(sys.argv[1]))["errors"]==["malformed-curated-output"]' "$ROOT/boolean/report.json"; then ok 'boolean integer field rejected'; else no 'strict boolean integer typing'; fi
 printf '%s\n' '#!/usr/bin/env python3' 'import os,sys' "if sys.argv[1]=='create' and os.path.exists('$ROOT/manifest.swap'): os.replace('$ROOT/manifest.swap','$ROOT/manifest.py')" "os.execv(sys.executable,[sys.executable,'$MAN',*sys.argv[1:]])" >"$ROOT/manifest.py"
 printf '#!/bin/sh\ntouch %s/MANIFEST_REPLACEMENT\nexit 9\n' "$ROOT" >"$ROOT/manifest.swap"; chmod 755 "$ROOT/manifest.py" "$ROOT/manifest.swap"; mkheadless good; if RSDD_MANIFEST_CLI="$ROOT/manifest.py" run manifest-copy >/dev/null 2>&1 && [ ! -e "$ROOT/MANIFEST_REPLACEMENT" ]; then ok 'manifest CLI consumed through stable copy'; else no 'manifest CLI stable copy'; fi
-mkheadless good; run trust-stage-race >/dev/null 2>&1 & pid=$!; while [ ! -e "$ROOT/.trust-stage-race.stage/input/target.bin" ]; do sleep .001; done; mv "$ROOT/gh/support/analyzeHeadless" "$ROOT/gh/support/analyzeHeadless.old"; printf '#!/bin/sh\ntouch %s/TRUST_SWAP_EXECUTED\n' "$ROOT" >"$ROOT/gh/support/analyzeHeadless"; chmod 755 "$ROOT/gh/support/analyzeHeadless"; wait "$pid"; rc=$?; mv "$ROOT/gh/support/analyzeHeadless.old" "$ROOT/gh/support/analyzeHeadless"
-if [ "$rc" -eq 2 ] && [ ! -e "$ROOT/TRUST_SWAP_EXECUTED" ] && [ ! -e "$ROOT/trust-stage-race" ]; then ok 'validated Ghidra swap before staging fails closed'; else no 'trust-to-staging swap rejection'; fi
+rm -f "$ROOT/gate.go" "$ROOT/gate.ready"; mkheadless good; touch "$ROOT/gate-enabled"; run trust-stage-race >/dev/null 2>&1 & pid=$!; _tr_arrived=0; for _ in $(seq 1 300); do [ -e "$ROOT/gate.ready" ] && _tr_arrived=1 && break; sleep .01; done
+if [ "$_tr_arrived" -eq 0 ]; then wait "$pid" 2>/dev/null || true; rm -f "$ROOT/gate-enabled"; no 'trust-to-staging swap rejection — gate.ready not arrived'; else
+mv "$ROOT/.trust-stage-race.stage/tool/ghidra/support/analyzeHeadless" "$ROOT/tr-held"; printf '#!/bin/sh\ntouch %s/TRUST_SWAP_EXECUTED\nexit 9\n' "$ROOT" >"$ROOT/.trust-stage-race.stage/tool/ghidra/support/analyzeHeadless"; chmod 500 "$ROOT/.trust-stage-race.stage/tool/ghidra/support/analyzeHeadless"; touch "$ROOT/gate.go"; wait "$pid"; rc=$?; rm -f "$ROOT/gate-enabled"
+if [ "$rc" -eq 2 ] && [ ! -e "$ROOT/TRUST_SWAP_EXECUTED" ] && [ ! -e "$ROOT/trust-stage-race" ]; then ok 'validated Ghidra swap before staging fails closed'; else no 'trust-to-staging swap rejection'; fi; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: arrival flags capture preconditions at break (TOCTOU fix) --"
   # Tooth 1: swap poll loop must export _swapped_arrived via flag-at-break (not re-check).
@@ -137,5 +139,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # adversarial reviewer killed it by reverting lines 100-103 and watching all its assertions stay
   # green. Teeth 1 and 2 above are kept precisely because that same revert makes them RED: the
   # variables they read exist only when the flag-at-break guards are present.
+  # Tooth 3 (Item A): trust-stage gate.ready/gate.go poll must set _tr_arrived=1 via flag-at-break.
+  # _tr_arrived is always initialised to 0; removing `&& _tr_arrived=1 && break` leaves it 0, not unset.
+  # Check -ne 1 so both the full-revert (unset → default 0) and partial-revert (set to 0) go red.
+  if [ "${_tr_arrived:-0}" -ne 1 ]; then
+    no "teeth: _tr_arrived not 1 (got '${_tr_arrived:-UNSET}') — trust-stage gate.ready poll missing flag-at-break"
+  else
+    ok "teeth: trust-stage gate.ready poll set _tr_arrived=1 (gate handshake confirmed)"
+  fi
+  # Tooth 4 (Item B): loglink O_NOFOLLOW guard must be observed as rc=2, not merely rc≠0.
+  # Reverting cap to 20 races the diagnostic cap vs symlink; when cap fires first rc=1 not 2.
+  # Dropping _loglink_rc (reverting to `! run loglink 2 20`) also leaves this tooth red.
+  if [ "${_loglink_rc:-UNSET}" = "UNSET" ] || [ "$_loglink_rc" -ne 2 ]; then
+    no "teeth: loglink rc guard: expected _loglink_rc=2 got '${_loglink_rc:-UNSET}'"
+  else
+    ok "teeth: loglink O_NOFOLLOW guard observed as _loglink_rc=2"
+  fi
 fi
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
