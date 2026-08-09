@@ -331,12 +331,13 @@ if [ "$mode" = "--sync-state" ]; then
       exit 1
     fi
     # block_scope: carry-forward through --sync-state round-trips so the declaration survives. env_get
-    # handles indented forms (whitespace-split awk). The no-space probe mirrors the undocumented_findings
-    # precedent (index==1 anchors to line-start; only legal values are carried — illegal values stay for
-    # verify-state to FAIL on). _e_bs is read into render_envelope via the shared shell scope.
+    # handles indented+space forms (whitespace-split awk). Fallback probe uses the same whitespace-tolerant
+    # /^[[:space:]]*key:/ convention as verify-state.sh:262 and the UF probe below — catches indented and
+    # no-space forms. Only legal values are carried; illegal values stay for verify-state to FAIL on.
+    # _e_bs is read into render_envelope via the shared shell scope.
     _e_bs="$(env_get block_scope)"
     if [ -z "$_e_bs" ]; then
-      _raw_bs="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && index($0,"block_scope:")==1{v=substr($0,length("block_scope:")+1); sub(/^[[:space:]]*/,"",v); print v; exit}' "$state")"
+      _raw_bs="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*block_scope:/{v=$0; sub(/^[[:space:]]*block_scope:[[:space:]]*/,"",v); print v; exit}' "$state")"  # BS-SYNC-PROBE
       case "$_raw_bs" in per-focus|shared-global) _e_bs="$_raw_bs" ;; esac
     fi
     # covered_blocks from THIS file's own directory — identical discriminator + dirname scoping to
@@ -383,13 +384,13 @@ if [ "$mode" = "--sync-state" ]; then
     # BLIND SPOT: env_get uses $1==key":" (whitespace field split).  A no-space typo like
     # `undocumented_findings:7` makes $1=="undocumented_findings:7" which never matches, so env_get
     # returns "" — identical to the ABSENT case — and the ABSENT branch would silently seed 0.
-    # FIX: if env_get returns empty, apply the SAME prefix probe as verify-state.sh's _uf_present
-    # (index-based, not whitespace-based) to decide absent vs present-but-unreadable-by-env_get.
+    # FIX: if env_get returns empty, apply the SAME whitespace-tolerant probe as verify-state.sh's
+    # _uf_present (/^[[:space:]]*key:/ convention) to detect absent vs present-but-unreadable-by-env_get,
+    # including indented forms and no-space forms (e.g. `  undocumented_findings:7`).
     _raw_uf="$(env_get undocumented_findings)"
     if [ -z "$_raw_uf" ]; then
-      # Probe by KEY: prefix — matches `undocumented_findings:value` with or without a space after colon.
-      # Uses index() (literal string, no regex) to avoid false-positives from longer field names.
-      _raw_uf="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && index($0,"undocumented_findings:")==1{val=substr($0,length("undocumented_findings:")+1); sub(/^[[:space:]]*/,"",val); print val; exit}' "$state")"
+      # Probe by KEY regex: whitespace-tolerant, matches indented and no-space forms alike.
+      _raw_uf="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*undocumented_findings:/{val=$0; sub(/^[[:space:]]*undocumented_findings:[[:space:]]*/,"",val); print val; exit}' "$state")"  # UF-SYNC-PROBE
       # If still empty the line is genuinely absent → the case below takes the absent branch (seed 0).
     fi
     case "$_raw_uf" in
