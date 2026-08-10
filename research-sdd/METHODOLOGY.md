@@ -718,6 +718,81 @@ This is LIGHTER than the reopen above, which re-arms a genuinely-exhausted STOP 
 budget: here the loop never stopped, so the new gaps just extend the queue it is already draining (e.g. a
 backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at the user's request).
 
+## 8b. Gap-backlog cell grammar (issue #147)
+
+The `## Gap-backlog` table has two grammar-sensitive cells — **Priority** and **Status** — that
+historically carried uncontrolled free text. Both parsers silently dropped non-conforming rows:
+a `pending` row with a qualified Priority vanished from `investigable_open` without warning (same
+defect family as issue #143). This section declares the grammar; parser changes are its consequence.
+
+**Priority cell grammar.** Legal values (trimmed cell, ASCII, case-insensitive):
+
+```
+^(high|medium|low|deferred|—|~~(high|medium|low)~~)$
+```
+
+Routing-class table:
+
+| Value | Class | Routing |
+|---|---|---|
+| `high`, `medium`, `low` | routable | counted in `investigable_open`; `NEXT` walks high → medium → low |
+| `deferred` | parked | counted in `deferred_open`; never yields `NEXT` |
+| `—`, `~~high~~`, `~~medium~~`, `~~low~~` | closed | not counted anywhere |
+
+**`deferred` is normative.** It is a parked routing class with its own envelope field (`deferred_open`)
+and two dedicated readers (`count_deferred()` in `research-sdd-status.sh`, `derive_deferred()` in
+`verify-state.sh`). Use it for a gap explicitly set aside — not as a synonym for `low` or for an
+unknown priority. A `deferred` row never yields `NEXT` and never enters `investigable_open`.
+
+**Qualifiers are forbidden** in the Priority cell. Forms such as `high (cross-vibra)`,
+`medium (pending-scout)`, and `low (deferred)` are non-conforming: the parser drops the entire row
+before reading Status, so a `pending` row with a qualified priority silently vanishes from
+`investigable_open`. The observed qualifiers encoded four unrelated concepts (routing class,
+provenance/lineage, workflow debt, structural notes) with no single machine meaning — no safe
+strip-and-route is possible. Two forms already map to conforming values: `low (deferred)` → `deferred`;
+`(pending-scout)` belongs in Status decoration. Place nuance in the **Gap cell prose** or as
+**Status decoration** (everything after the leading Status token is free text).
+
+**Status cell contract.** Classification reads the **leading token** after stripping at most one
+leading `**`. Live tokens (the row stays open):
+
+| Token | Meaning |
+|---|---|
+| `pending` | the ONLY token that enters `investigable_open`; `NEXT` selection reads it |
+| `requires-execution` | open but not read-only; counted in `requires_execution_open` (§19) |
+| `blocked-on-<reason>` | open but blocked; `<reason>` matches `[a-z0-9/-]+` |
+
+Closed markers: `✅` or `~~` prefix ONLY. The bare words `covered`, `closed`, `done` do **not** close
+a row — they appear negated inside open asides and parsers cannot reliably distinguish the forms. Do
+not use them as closure markers. Everything after the leading token is **free decoration** (→ block
+ref, note, date).
+
+**Deprecated aliases.** `open` and `queued` are non-conforming aliases of `pending`. Migrate to `pending`.
+
+**Em-dash means closed and nothing else.** An open row must carry a real tier (`high`, `medium`, `low`,
+or `deferred`). Blocked-ness belongs in Status, not in an empty or `—` Priority cell.
+
+**Table shape.** The backlog heading grammar is closed: the exact base form `## Gap-backlog`
+(ASCII U+002D hyphen-minus), optionally followed by a single parenthetical descriptor on the same
+line — `## Gap-backlog (<descriptor>)`. Grammar: `^## Gap-backlog( \([^)]+\))?$`. Valid:
+`## Gap-backlog`, `## Gap-backlog (prioritized)`, `## Gap-backlog (investigable)`. Non-conforming:
+free text outside the parenthetical (`## Gap-backlog prioritized`, `## Gap-backlog extra (prioritized)`),
+`## Gap backlog` (space), a U+2011 non-breaking hyphen form, and `## Backlog de gaps`; tooling
+emits a provisional WARN naming the canonical forms. The table MUST be 4 columns:
+`| Priority | Gap | <type/source> | Status |`, Priority first. A literal `|` inside a cell MUST be
+written `&#124;` — the Markdown parser does not honour `\|`. One physical line per row.
+
+**Migration (propose-never-apply).** Corpus edits are always the human's; tooling WARNs and never
+auto-applies. Migration classes to address:
+
+- **Qualifiers** → strip qualifier; move qualifier prose to Gap cell or Status decoration.
+- Abbreviated or compound tiers (`med`, `MED`) → a real tier; `critical` → `high`.
+- `open` / `queued` → `pending`.
+- Open em-dash rows (Priority `—`, non-closed Status) → assign a real tier + appropriate Status.
+- Heading variants → `## Gap-backlog`.
+- Wrong column order or missing columns → 4-column canonical form.
+- Bare `|` inside cells → `&#124;`.
+
 ## 9. Golden rules
 
 1. **READ-ONLY** over the investigated subject. You never modify it.

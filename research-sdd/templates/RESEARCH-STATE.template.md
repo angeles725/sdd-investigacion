@@ -49,7 +49,11 @@ undocumented_findings: 0
 - **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)   ← ONE canonical coverage number, OVERWRITE it each iteration. Do NOT accrete contradictory assertions (e.g. an all-closed ratio, then a larger denominator declared later): if the gap universe grows, reconcile the denominator here to a single value. Per-iteration cumulative snapshots belong in "Iteration history" below, not as repeated coverage-metric lines. NOTE: the placeholder above carries no digits ON PURPOSE — keep it that way until you record a real ratio, so the machine envelope seeds gaps_closed/known_gaps=0 (nothing closed yet) instead of mis-parsing an example number. (`verify-state.sh` CHECK 3 WARNs on contradictory denominators outside the history table; it flags distinct DENOMINATORS only, so same-denominator numerator drift is on you to reconcile.)
 - **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below)
 
-## Gap-backlog (prioritized)
+## Gap-backlog
+
+<!-- Cell grammar declared in METHODOLOGY §8b. Priority: high | medium | low | deferred | — | ~~tier~~.
+     Status leading token: pending (enters investigable_open) | requires-execution | blocked-on-<reason> |
+     ✅ | ~~ (closed). Qualifiers in Priority are non-conforming. Heading grammar is closed: ## Gap-backlog, optionally one parenthetical descriptor. -->
 
 <!-- OPEN requires-execution (§19 build/PoC) gaps: keep them as backlog rows whose STATUS column carries
      `requires-execution` (the example row below, modeled on three.js's G41). That marker is what makes the
@@ -63,6 +67,7 @@ undocumented_findings: 0
 | high | <research question> | <Java/.NET/native/doc/web> | pending |
 | medium | <...> | <...> | pending |
 | low | <...> | <...> | pending |
+| deferred | <gap set aside — revisit when unblocking condition is met> | <...> | pending (parked; never NEXT — §8b) |
 | high | <build/PoC gap — answerable only by compiling/running something> | prototype build | requires-execution → §19 (not read-only; needs a build + re-measure) |
 
 ## Iteration history
