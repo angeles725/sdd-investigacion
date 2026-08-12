@@ -4,6 +4,14 @@ on:
   pull_request:
     types: [opened, edited, labeled, unlabeled, synchronize]
 
+# The github-script steps call issues.get and pulls.get. Without this block the
+# GITHUB_TOKEN runs with the repository default (read) and both calls fail with
+# "Resource not accessible by integration" (see issue #180). Grant only reads.
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
 jobs:
   check-issue-reference:
     name: Check Issue Reference
