@@ -83,3 +83,8 @@
 - name: "effort:large"
   color: "f8d7da"
   description: "> 4 hours or spans multiple files"
+
+# --- Size labels (set by maintainers) ---
+- name: "size:exception"
+  color: "d93f0b"
+  description: "Exceeds the ~400-line review budget — maintainer-accepted"
