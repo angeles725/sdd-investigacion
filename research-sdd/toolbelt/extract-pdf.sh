@@ -87,9 +87,32 @@ fi
 # ── Probe the text layer ─────────────────────────────────────────────────────
 FONTS=0
 have pdffonts && FONTS="$(pdffonts "$IN" 2>/dev/null | tail -n +3 | wc -l | tr -d ' ')"
-CHARS="$(pdftotext -f 1 -l 5 "$IN" - 2>/dev/null | tr -d '[:space:]' | wc -c | tr -d ' ')"
+
+# Run pdftotext once and reuse the sample for both the char count and the
+# mojibake check so the I/O cost is paid only once.
+_probe_tmp="$(mktemp)"
+pdftotext -f 1 -l 5 "$IN" - 2>/dev/null > "$_probe_tmp" || true
+CHARS="$(tr -d '[:space:]' < "$_probe_tmp" | wc -c | tr -d ' ')"
 HAS_TEXT=0
 { [ "${FONTS:-0}" -gt 0 ] && [ "${CHARS:-0}" -gt 100 ]; } && HAS_TEXT=1
+
+# ── Mojibake guard (broken/absent ToUnicode CMap → garbage text layer) ───────
+# When the text layer has fonts and chars but zero ASCII letters the ToUnicode
+# CMap is broken (classic UTF-8-as-Latin-1 double-encoding or absent mapping).
+# The garbage layer is treated as Tier 2: re-render rather than return garbage.
+# An explicit --engine override bypasses this check intentionally.
+# LIMITATION: this assumes a Latin-script corpus. A VALID non-Latin text layer
+# (CJK/Cyrillic/Arabic) also has zero ASCII letters and would be misrouted to
+# re-render. The fleet is English/Spanish (Latin) so incidence is nil; refine
+# the heuristic (e.g. detect U+FFFD / control-char density) if non-Latin PDFs
+# are ever added.
+IS_MOJIBAKE=0
+if [ "$HAS_TEXT" -eq 1 ] && [ -z "$ENGINE" ]; then
+  _ascii_count="$(tr -cd 'A-Za-z0-9' < "$_probe_tmp" | wc -c | tr -d ' ')"
+  [ "${_ascii_count:-0}" -eq 0 ] && IS_MOJIBAKE=1
+fi
+rm -f "$_probe_tmp"
+[ "$IS_MOJIBAKE" -eq 1 ] && HAS_TEXT=0
 
 # ── Tier 1: pymupdf4llm (text layer → markdown with tables + page anchors) ───
 tier1_pymupdf() {  # $1=source pdf  $2=out md  $3=method-label
@@ -228,7 +251,7 @@ else
   REL="text-layer"; case "$METHOD" in *ocr*|marker|docling|tesseract) REL="ocr-lossy (verify numbers/quotes)";; esac
   echo "extract-pdf: OK"
   echo "  method     : $METHOD  [$REL]"
-  echo "  text_layer : $([ "$HAS_TEXT" -eq 1 ] && echo yes || echo 'no (scanned)')  (fonts=$FONTS, sample_chars=$CHARS)"
+  echo "  text_layer : $([ "$HAS_TEXT" -eq 1 ] && echo yes || { [ "$IS_MOJIBAKE" -eq 1 ] && echo 'mojibake (garbled — re-render)' || echo 'no (scanned)'; })  (fonts=$FONTS, sample_chars=$CHARS)"
   echo "  pages      : ${RANGE:-all}/$PAGES_TOTAL"
   echo "  output     : $OUT"
   echo "  SOURCES.md : | $(basename "$IN") | PDF | local | ${SHA:0:12}… | method:$METHOD |"
