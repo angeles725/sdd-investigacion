@@ -290,6 +290,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          ONE level — nest a sub-sweep only for a punctual, well-scoped need; the specialized agents (Explore/Plan)
          cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use the Workflow engine
          (deterministic control, no per-hop context compression) instead of free-form native nesting.
+         ORCHESTRATED-MODE CAVEAT: when the delegating agent is ITSELF a sub-agent (orchestrated mode, one level
+         deep), the nested `model:` tier override may be unavailable in the harness — the inner Agent call may
+         fail with "agent type not available" (observed: B415 niagara/network-supervisor). Fallback: use Bash
+         directly for the mechanical sweep (haiku-tier work), or route deterministic fan-out through the Workflow
+         engine. Record the fallback as `inline (constraint: nested-tier-unavailable)` in the tier column.
   4. WRITE ONE BLOCK: create/update $CORPUS/<prefix>-blockN.md following the anatomy
      ($CORPUS = corpus root: default $TARGET, or $TARGET/corpus/ for an in-project target — METHODOLOGY §15)
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:
@@ -342,6 +347,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (an integration plan, a PoC design, a synthesis), a high ratio is EXPECTED and healthy, NOT an
          exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
+       - §14 BACK-POINTER CHECK (when a §14 correction was issued this iteration): confirm the OLD BLOCK
+         was actually edited to add the back-pointer note ("corrected in BN") — not just documented in the
+         new block's Connections. Evidence: `git show <old-block-path>` must show the added line. This check
+         is manual — the back-pointer is prose and no script can reliably detect which old block a correction
+         targets (§7 false-negative: prose-guessing parsers inherit the ambiguity of the prose they parse;
+         see verify-block synthesis-gate post-mortem, issue #128). 3 of 4 corrections in niagara/database
+         omitted the old-block edit; 1 of 3 in niagara/network-supervisor. A correction is not self-documenting:
+         the new block cites the old one; the old block MUST reference back so the audit trail is visible in
+         BOTH directions. A §14 correction whose old block has no back-pointer is an ORPHANED CORRECTION — it
+         looks complete from the new block but is invisible from the old one. Corrections that span more than
+         one prior tier (a chain of corrections) must add the back-pointer to EVERY corrected block in the
+         chain, not only the most recent.
        - MCP-doc snapshots: every LOAD-BEARING [CERT-web]-via-MCP citation (context7 et al.) snapshotted to
          sources/web-snapshots/ + registered in SOURCES.md (§5). Report Y/N + count — this gate is what stops
          §5's snapshot rule from being paper-only (context7 cites kept landing unsnapshotted across runs).
