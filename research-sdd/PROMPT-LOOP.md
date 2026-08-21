@@ -198,6 +198,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
          after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
          documented the JNI boundary; required a §279.9 self-revision.)
+       - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
+         further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
+         would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
+         boundary — the same family as GAP PREMISES ARE HYPOTHESES (BOOTSTRAP step e). When the
+         cost of a targeted follow-up is low (e.g. one decompile pass or one block), TEST the
+         judgment before accepting the closure. If a test REFUTES the judgment, issue a §14
+         correction on the prior block with a back-pointer. Evidence (retro 2026-08-07): B381
+         refuted B129 §129.7's "decompilation not load-bearing" — a scope-out that held unchallenged
+         for six weeks; the actual function bodies surfaced LocalSystem account, SERVICE_AUTO_START,
+         argv-passed passphrase, DPAPI-no-entropy, and REG_BINARY under HKLM — all load-bearing
+         security facts. A scope-out that costs one iteration to test is cheaper than six weeks of
+         missed findings.
        - READ THE RESIDUE BEFORE THEORISING: before forming a theory about why a remainder does not
          fit — an unexplained bucket, a residual set, un-opened columns — READ those items first. A
          theory built on unread data is [INFER] from zero evidence; the actual contents often disprove it.

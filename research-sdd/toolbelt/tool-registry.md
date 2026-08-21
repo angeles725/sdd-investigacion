@@ -131,6 +131,44 @@ appends `-scriptPath` never fires. The route is NOT broken: the corrected invoca
 yields `RSDD-EXPORT: 15 exported, 0 failed`. Note: the kit test suite (`ghidra-c-exporter.test.sh`)
 invokes `analyzeHeadless` directly; the `decompile-native.sh --script` path is currently untested.
 
+**Stripped-binary limitation — `RSDD_FN_FILTER` cannot select functions when symbols are absent:**
+`RSDD_FN_FILTER` is a Java regex applied to **function names**. On a symbol-stripped binary, all
+user-defined functions are auto-named `FUN_<addr>` by Ghidra. A name filter therefore matches
+nothing, and `ExportDecompiledC.java` produces empty (or near-empty) output with no error — a silent
+zero that looks like success. The `--script ExportDecompiledC.java` path is **not usable** for
+function selection on stripped binaries.
+
+**Workaround — string-anchored selection (`DecompileByString.java`):** instead of filtering by
+name, select functions by a STRING they REFERENCE. The approach: Ghidra's defined-data list is
+scanned for strings containing a target pattern (a log-message fragment, a protocol constant, a known
+function-name literal embedded in a logging call). Every `FUN_<addr>` that references a matched
+string is collected and its decompiled C body is exported. This bypasses the name-only limit
+entirely and is the primary selection strategy for stripped targets.
+
+Invocation (same raw `--script` route):
+
+    RSDD_OUT=<dir> decompile-native.sh ghidra <binary> <out-dir> \
+      --script <path-to-DecompileByString.java>
+
+Set the target string pattern in the `SEARCH_STRING` constant near the top of the script before the
+run. Output format is the same as `ExportDecompiledC.java` (one `.c` file, per-function banners).
+
+**Operator recipe (Ghidra GUI path — no script required for interactive sessions):** open the binary
+in Ghidra → Window → Defined Strings → filter for a known string (e.g. a log prefix, a protocol
+keyword) → right-click a match → Show References To → each caller `FUN_<addr>` is the function to
+decompile (Decompiler view, or right-click → Decompile `FUN_...`). Rename the `FUN_` using the
+embedded function-name literal when the logging pattern is `helper(level, "file.c", line, "funcname",
+…)` (see also Stripped-binary: debug-string recovery below).
+
+**Origin (retro 2026-08-07, niagara platform-native sub-pass B379–B382):** `DecompileByString.java`
+was written mid-run because `ExportDecompiledC.java` could not select functions in `nverify.exe`,
+`njre.dll`, and `plat.exe` (all stripped; user functions uniformly `FUN_*`). It drove all four
+decompile passes that produced the sub-pass's load-bearing security findings. Reference copy:
+`niagara-research/tools/ghidra-scripts/DecompileByString.java` (tools/README.md row, verdict
+`promote`). To promote to the kit, copy to `toolbelt/ghidra/DecompileByString.java`, add a
+`ghidra-string-selector.test.sh` companion, and update this registry entry — the kit copy then
+becomes canonical (same convention as `ExportDecompiledC.java`).
+
 ### Stripped-binary: debug-string recovery
 
 When a stripped ELF/PE binary still calls a debug or logging helper with the signature
