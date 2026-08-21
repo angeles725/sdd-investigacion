@@ -221,6 +221,9 @@ volatile URL nor the extract; `SOURCES.md` keeps the original URL and the hash. 
 [`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
 (text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
 so their citations get extra §11 scrutiny).
+
+**Already-on-disk official doc corpora (`fetch-doc.sh` is URL-only; local-origin sources use cp + sha256 + SOURCES.md row).** When official documentation is already on disk rather than fetched via URL, the preservation sequence is: (1) `cp -r <source-tree> sources/manuals/<focus>-docs/`; (2) `sha256sum` the preserved files to produce the integrity hash; (3) add a SOURCES.md row with the local-origin path in the origin cell and the full hash in the sha256 cell. Cite the preserved copy exactly as a URL-fetched manual; `[CERT-doc]` applies once the file is registered with a populated hash. Do not improvise per-run — the `jsonToolkit` focus preserved 33 files across 14 blocks with no kit recipe, repeating the same 3-step by convention and establishing the workflow gap: inconsistency risk (missing sha256, blank Blocks column, wrong granularity) is real.
+
 Check compliance mechanically — EDGE-TRIGGERED within the iteration right after an edit to `SOURCES.md` (only
 when a source was actually added/preserved that iteration — see §11), at loop STOP as the final backstop, or in a
 supervised review — with
@@ -299,6 +302,12 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
 - **Identity anchor.** As with minified JS, anchor by `sha256` + byte-count of the ORIGINAL `.apk`/`.dex`
   (record the obfuscator + version if detectable), so decompiler output — which is NOT 1:1 and varies by
   tool — stays reproducible against a fixed input.
+
+**Decompiler-string-scrubbed Java (Vineflower / Procyon — distinct from runtime-decode above).** When a Vineflower or Procyon decompiled `.java` tree renders string literals as a scrubber token (`n` / `ln`) everywhere a real string should appear in method bodies, the strings ARE present in the `.class` constant pool — the decompiler failed to render them, not the runtime. This is distinct from the runtime-decode hazard above (ProGuard/R8 — strings ENCRYPTED, plaintext only live): here the plaintext is statically reachable via bytecode; only the decompiler's rendering is untrustworthy.
+- **Detect by inspecting the `.class` constant pool directly.** Spot `n` / `ln` tokens in place of string literals across method bodies. Confirm via `javap -c <ClassName>` (real `ldc` constants appear) or `rg -a <expected-literal> <ClassName.class>` (plaintext in the binary).
+- **All string-dependent claims: cite bytecode or clean resources — NEVER the decompiled `.java`.** Derive every string-value claim from `javap -c -p <ClassName>` output or from preserved clean resources (`module.xml`, `.lexicon`, `extracted/` tree). A cite or grep over the decompiled `.java` for a method-body string is inadmissible when the decompiler has scrubbed it.
+- **Decompiled `.java` remains valid for structure only.** Class hierarchy, method signatures, control-flow shape, and import lists survive scrubbing intact — cite those freely. Any claim depending on a string literal in a method body stays `[INFER]` until confirmed via bytecode or a clean resource.
+- **Establish a FOUNDATION-BLOCK caveat; forward-cite it in every subsequent block header.** Scrubbing is a corpus-level hazard. Document it in the FOUNDATION evidence block (the first block that discovers it) and cite that caveat in all later block headers. This kept the discipline consistent across 6 evidence blocks (B350–B355 in the `electronicSignature` focus) and prevented ~40 potential `[CERT]` false-citations.
 
 **docSource dual-tree (one class living in TWO physical trees).** When a target ships BOTH a decompiled tree
 AND an SDK "doc source" tree for the SAME class (e.g. a `docSource/` shipped-source tree vs the
