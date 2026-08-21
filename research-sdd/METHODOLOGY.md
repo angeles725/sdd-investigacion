@@ -1238,6 +1238,16 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Backup-before-destroy (citable).** Before overwriting a program/image/config, READ and SAVE the current
   one to `sources/`, and VERIFY the backup actually restores. Keep it as both evidence and the revert
   target. A destructive step with no verified backup does not run.
+- **"What silently resets this?" — confirm a remote channel's dependencies before acting.** Before
+  relying on any configuration to keep a remote channel alive, enumerate what can silently undo it:
+  **suspend** (sleep policy restores defaults on wake), **network reclassification** (a firewall
+  `-Profile` flips to Public on reconnect, dropping inbound rules), **your own earlier automation**
+  (an event-triggered task re-runs DHCP-first logic on any network-change event and can override a
+  later manual static assignment), and the **DHCP lottery** on a segment with multiple DHCP servers.
+  Corollary: an auto-revert rescue must be verified to exist (read it back; abort if absent) AND its
+  target state must itself be safe under live conditions — reverting to DHCP on a two-DHCP-server
+  segment can land in a different failure, not the intended safe state.
+  (Evidence: computadoras B16 §16.20, B25 §25.3/§25.6/§25.7.)
 - **Security-remediation write — the fix STAYS APPLIED, not reverted.** The invasiveness ladder's rung (2)
   reversible-write recipe ends with a byte-identical RESTORE — correct for a PROBE. A permanent,
   user-authorized REMOVAL of a discovered live vulnerability (deleting a leftover/malicious flow, closing an
@@ -1254,6 +1264,13 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   (persist it), and re-arm the block when the session ends. Never carry an irreversible authorization
   across sessions. **A grant is a CEILING, not an instruction** — exhaust offline/on-disk artefacts
   BEFORE spending a live grant; if disk evidence answers the gap, the authorization is conserved.
+- **Reboot / NIC-reconfig on a physically-inaccessible host is DESTRUCTIVE-equivalent.** On a box with
+  no immediate physical access, a `Restart-Computer` or any network-interface reconfiguration that can
+  sever all remote channels is NOT a free validation step — it can leave both channels down with no
+  recovery for hours. Gate it identically to an irreversible write: require explicit operator go-ahead
+  AND a proven independent fallback (a human near the machine, or a second channel confirmed independent
+  of the one under test) BEFORE acting. Prefer designing the fix to need no reboot.
+  (Evidence: computadoras B23 §23.1 reboot → ~3 h lockout; B25 §25.3 secondary-IP add → second lockout.)
 - **Verify tooling REMOVAL with the same rigour as placement.** Re-measure the removal on the host
   (path absent, no residual files match the tool's signature) AND confirm that untouched processes
   were not restarted (same-PID invariant: process identifiers before and after the visit must match).
@@ -1343,10 +1360,11 @@ changes for §12b:
   (same rank as `[CERT-hw]`). A claim from the API's published DOCS is `[CERT-web]`. A claim resting only
   on the write's own success code is `[INFER]` until an independent read confirms it.
 
-**Honesty note (do not oversell).** No kit target has run this frame yet — the mature dynamic phases (§12)
-are all local devices/stations. `[CERT-live]` is defined here for the FIRST remote-API target; exercise it
-on a real endpoint before relying on it as a standing pattern, exactly as §11's adversarial-verify seal
-carries its own "trial before you trust it" caveat.
+**Honesty note.** First exercised on computadoras B23–B25 (Cloudflare tunnel API: GET/PUT tunnel
+configurations, connector status reads, Access app + service-token creation). One caveat the run
+surfaced: a repoint of a remote-managed tunnel ingress is a reversible WRITE (rung 2 of the
+invasiveness ladder in §12), not a pure read — save the full config before PUT, restore byte-identical
+in a finally block, and confirm via an independent GET (computadoras B23 §23.5 repoint-probe-restore).
 
 ### 12c. Own-but-not-host targets (edge / serverless / PaaS)
 
@@ -1974,10 +1992,9 @@ item with no Engram pointer is not done.
 via the §18 retro TOOLS section and land in `toolbelt/` only after the supervisor acts). Same `verify-block`
 gate as the static loop; STOP when the outline is covered.
 
-**STATUS (honest, do not oversell).** The DOCUMENT CYCLE is fully specified (SKILL.md + PROMPT-LOOP's DOCUMENT
-CYCLE) but has NOT been exercised end-to-end THROUGH the skill's `document` sub-command on a real target: its
-cited products (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) both PREDATE the mode (committed
-2026-06-28; the mode landed 2026-07-11) — they are the KIND of toolchain how-to this routing produces, not
-outputs of a real document-mode run. Treat §20 as DEFINED-BUT-UNEXERCISED until a real
-`/research-sdd <target> document` run produces a cited block + its mandatory Engram mirror — exactly as §11's
-adversarial seal and §12b's `[CERT-live]` frame each carry their own "trial it before you trust it" caveat.
+**STATUS (honest).** The DOCUMENT CYCLE is fully specified (SKILL.md + PROMPT-LOOP's DOCUMENT CYCLE) and has
+been exercised end-to-end on a real target: computadoras B16–B25 (~10 `method: document-cycle` blocks, each
+preserving probes under `sources/probes/`, each passing `verify-block.sh`, and each mirrored to Engram). The
+mode is EXERCISED. Maintainer caveat: those blocks were driven inline rather than through the skill's
+`document` sub-command — the `method: document-cycle` stamp confirms the DOCUMENT CYCLE contract was
+followed; whether the CLI surface was exercised is a separate question.
