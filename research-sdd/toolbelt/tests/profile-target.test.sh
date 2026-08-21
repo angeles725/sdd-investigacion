@@ -104,9 +104,9 @@ expect_route "7  PE32 / MS Windows   → net?/native" \
   "$(mkcase c7 app.exe 'PE32 executable (console) Intel 80386, for MS Windows')" \
   'decompile-net.sh? / decompile-native.sh'
 
-expect_route "8  PDF document        → fetch-doc.sh" \
+expect_route "8  PDF document        → fetch-doc.sh + extract-pdf.sh" \
   "$(mkcase c8 doc.pdf 'PDF document, version 1.7')" \
-  'fetch-doc.sh (extract text/OCR)'
+  'fetch-doc.sh (download) + extract-pdf.sh (page-anchored .md)'
 
 expect_has   "9  firmware            → scan-firmware.sh" \
   "$(mkcase c9 fw.fw 'u-boot legacy uImage firmware, ARM')" \

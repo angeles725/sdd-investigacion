@@ -37,7 +37,7 @@ suggest() {
     *".Net assembly"*|*"Mono/.Net"*)            echo "decompile-net.sh" ;;
     *"ELF "*executable*|*"ELF "*shared*)        echo "decompile-native.sh" ;;
     *"PE32"*|*"MS Windows"*)                    echo "decompile-net.sh? / decompile-native.sh" ;;
-    *"PDF document"*)                           echo "fetch-doc.sh (extract text/OCR)" ;;
+    *"PDF document"*)                           echo "fetch-doc.sh (download) + extract-pdf.sh (page-anchored .md)" ;;
     *"AutoCAD"*)                               echo "render-drawing.sh" ;;
     *"firmware"*|*"filesystem"*)                echo "scan-firmware.sh" ;;
     *"data"*)
