@@ -29,6 +29,15 @@ TARGET="${RESEARCH_TARGET:-?}"
 have() { command -v "$1" >/dev/null 2>&1 || [ -x "$1" ]; }
 ts()   { date -u +%FT%TZ; }
 
+usage() {
+  printf 'Usage:\n'
+  printf '  install-tool.sh <recipe>                               install by known recipe name (idempotent)\n'
+  printf '  install-tool.sh --check <cmd|path>                    available? exit 0/1 (no install)\n'
+  printf '  install-tool.sh --list                                list known recipes\n'
+  printf '  install-tool.sh --log <tool> "<how>" <target> <status>  record an external/manual install\n'
+  printf '  install-tool.sh --help|-h                             show this message\n'
+}
+
 log() { # tool | how | status | notes
   [ -f "$LOG" ] || printf '# Installed tools log — Research-SDD\n\n> Append-only. Written by install-tool.sh. status: installed | already | needs-approval | failed\n\n| Tool | How | Status | Target | Date (UTC) | Notes |\n|---|---|---|---|---|---|\n' > "$LOG"
   printf '| %s | `%s` | %s | %s | %s | %s |\n' "$1" "$2" "$3" "$TARGET" "$(ts)" "${4:-}" >> "$LOG"
@@ -39,9 +48,11 @@ sudo_n() { # run sudo non-interactively; return 100 if a password would be requi
 }
 
 case "${1:-}" in
-  --check) shift; have "${1:?cmd}" && exit 0 || exit 1 ;;
-  --list)  grep -oP '^\s+\K[a-z0-9_-]+(?=\)\s)' "$HERE/install-tool.sh" 2>/dev/null | sort -u; exit 0 ;;
-  --log)   shift; log "${1:?tool}" "${2:?how}" "${4:?status}" "external/manual"; exit 0 ;;
+  --help|-h) usage; exit 0 ;;
+  --check)   shift; have "${1:?cmd}" && exit 0 || exit 1 ;;
+  --list)    grep -oP '^\s+\K[a-z0-9_-]+(?=\)\s)' "$HERE/install-tool.sh" 2>/dev/null | sort -u; exit 0 ;;
+  --log)     shift; log "${1:?tool}" "${2:?how}" "${4:?status}" "external/manual"; exit 0 ;;
+  -*)        usage >&2; exit 2 ;;
 esac
 
 RECIPE="${1:?usage: install-tool.sh <recipe> | --check <cmd> | --list}"

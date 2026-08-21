@@ -251,6 +251,46 @@ stub "$box" pipx 0
 run "$box" frida
 assert_present "$box" "13 frida idempotency: both CLIs present" 0 already
 
+# 14 — --help → exit 0, usage printed, NO ledger write.
+#      The SUT currently has no --help handler; the flag falls through as a
+#      recipe name, reaches the *) branch, and brew install --help exits 0,
+#      writing a bogus "installed" row. These cases are RED until the guard lands.
+box="$(mkbox c14-help)"
+stub "$box" brew 0   # sentinel: if the flag leaks to *), brew exits 0 and log() fires
+run "$box" --help
+_no_ledger=$([ ! -f "$box/INSTALLED-TOOLS.md" ] && echo yes || echo no)
+_has_usage=$(printf '%s' "$OUT" | grep -qi 'install-tool' && echo yes || echo no)
+if [ "$RC" = 0 ] && [ "$_no_ledger" = yes ] && [ "$_has_usage" = yes ]; then
+  ok "14 --help → exit 0, usage, no ledger" "(exit $RC)"
+else
+  no "14 --help → exit 0, usage, no ledger" "exit=$RC no_ledger=$_no_ledger has_usage=$_has_usage"
+fi
+
+# 15 — -h → exit 0, usage printed, NO ledger write (same guard, short alias).
+box="$(mkbox c15-h)"
+stub "$box" brew 0
+run "$box" -h
+_no_ledger=$([ ! -f "$box/INSTALLED-TOOLS.md" ] && echo yes || echo no)
+_has_usage=$(printf '%s' "$OUT" | grep -qi 'install-tool' && echo yes || echo no)
+if [ "$RC" = 0 ] && [ "$_no_ledger" = yes ] && [ "$_has_usage" = yes ]; then
+  ok "15 -h → exit 0, usage, no ledger" "(exit $RC)"
+else
+  no "15 -h → exit 0, usage, no ledger" "exit=$RC no_ledger=$_no_ledger has_usage=$_has_usage"
+fi
+
+# 16 — unknown leading-dash flag → exit 2, NO ledger write.
+#      brew stubbed exit 0: reaching *) would let brew install --foo succeed and
+#      write a bogus "installed" row — that is the regression this case guards.
+box="$(mkbox c16-unknown-flag)"
+stub "$box" brew 0
+run "$box" --foo
+_no_ledger=$([ ! -f "$box/INSTALLED-TOOLS.md" ] && echo yes || echo no)
+if [ "$RC" = 2 ] && [ "$_no_ledger" = yes ]; then
+  ok "16 unknown flag → exit 2, no ledger" "(exit $RC)"
+else
+  no "16 unknown flag → exit 2, no ledger" "exit=$RC no_ledger=$_no_ledger out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate a throwaway copy of the ilspycmd guard into
 # the ACTUALLY-buggy grouped form the phantom review imagined —
@@ -277,6 +317,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: grouped mutant reinstalls present tool" "(case 1 has teeth)"
     else
       no "teeth: grouped mutant reinstalls present tool" "mutant did NOT reinstall — case 1 is THEATER; calls=[$(calls "$box")]"
+    fi
+  fi
+
+  echo "-- teeth: remove -*) guard, expect --foo to reach brew install and corrupt ledger --"
+  box="$(mkbox teeth-flag-guard-mutant)"
+  orig='  -*)        usage >&2; exit 2 ;;'
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"$orig"* ]]; then
+    no "teeth: build flag-guard mutant" "guard anchor not found — SUT drifted?"
+  else
+    printf '%s\n' "${content//"$orig"/}" > "$box/install-tool.sh"
+    stub "$box" brew 0   # brew exits 0 → log() fires → ledger created
+    run "$box" --foo
+    if [ -f "$box/INSTALLED-TOOLS.md" ] && grep -q 'installed' "$box/INSTALLED-TOOLS.md"; then
+      ok "teeth: flag-guard mutant writes ledger (cases 14-16 have teeth)" "(brew install --foo wrote log)"
+    else
+      no "teeth: flag-guard mutant writes ledger (cases 14-16 have teeth)" "ledger not written — exit=$RC out=[$OUT]"
     fi
   fi
 fi
