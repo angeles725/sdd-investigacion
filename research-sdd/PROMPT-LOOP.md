@@ -90,12 +90,27 @@ Always read first, in this order:
      r2, jadx etc. may live under linuxbrew Cellar / a dotnet dir / a jar path and still be off PATH
      (lesson: niagara assumed "Ghidra not available" when decompile-native.sh ghidra worked, losing
      the first native block's decompiler depth).
+     DESIGN/APPLIED corpus exception: if the corpus subject is external tooling or specifications
+     (no local binary or source tree to profile), `profile-target.sh` has no artifacts to classify
+     and `detect-tools.sh`'s host-capability report would go unused (nothing will be decompiled) —
+     skip both and record the skip in RESEARCH-STATE via the step-a2 DESIGN dismissal line (below),
+     which doubles as this confirmation. A skipped step with no note is indistinguishable from a
+     forgotten one.
   a2. File-type census (MANDATORY — run BEFORE building the coverage matrix):
       $KIT/toolbelt/census-target.sh $TARGET
       This produces an extension histogram with file counts and aggregate sizes. Every type marked *
       (>= 5 files OR >= 1 MB aggregate) must be either claimed by a backlog gap or dismissed in
       RESEARCH-STATE '## Dismissed file types' with a stated reason. A starred type in neither is
       an unclosed audit hole and the run may not declare coverage complete. See METHODOLOGY §6.
+      DESIGN corpus standard phrase: for a pure DESIGN/APPLIED corpus whose subject is external
+      tooling or specifications (the census finds only corpus scaffold files, not subject artifacts),
+      DISMISS the starred scaffold types explicitly — do not claim nothing was found, which would
+      leave a starred type neither claimed nor dismissed (an unclosed audit hole per the rule above).
+      Use the fixed grammar from METHODOLOGY §6, e.g. `- .md — <N> files · <M> MB — dismissed:
+      corpus scaffold, not subject artifacts (DESIGN corpus: subject is external tooling)`. Being a fixed grammar it CAN later be
+      recognized by a checker (doctrine-first: prescribe the declaration, then a future
+      verify-state.sh rule can gate on it); a free-form comment cannot. `verify-state.sh` does not
+      yet parse this section.
   b. Determine which system it is, where its real sources/binaries are, and the corpus language. REGISTER
      the target in $KIT/TARGETS.md's master table right here (row: #, target, path, maturity, predominant
      artifact type, toolbelt wrapper, corpus language) — as part of bootstrap, NOT later: the retro sweeper
@@ -190,6 +205,24 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      on an EXTERNAL source, run the SCOUT-BEFORE-BUILD certifiability gate — BOOTSTRAP e3 — before authoring:
      fetch+preserve the source and author ONLY on a CERTIFIABLE-NOW verdict; a PARTIAL/INSUFFICIENT source is
      re-scoped or blocked-on-thin-source, never sent to an authoring agent.)
+     KNOWN-OUTLINE DESIGN CORPUS variant: when the corpus is DESIGN/APPLIED type with a pre-fixed,
+     fully enumerable gap list (every gap is known and independent before any block is written), the
+     sequential one-gap-per-iteration SCOUT-BEFORE-BUILD sweeps may be replaced by a single batch
+     round — run all e3 scouts simultaneously, one per outline gap, then author each block in order
+     (one-per-commit). Two constraints keep the batch safe (METHODOLOGY §16 — no shared mutable state
+     between concurrent loops): (i) concurrent scouts must NOT write shared corpus state — each
+     preserves only under its own per-gap subdir, or returns fetched material for the DRIVER to
+     preserve, and SOURCES.md registration is serialized by the driver AFTER the round (fetch-doc.sh's
+     reg() is a read-insert into one shared table and races under parallel writers). This inverts the
+     DOCUMENT CYCLE step-1 pattern it otherwise resembles — there the driver pre-extracts and agents
+     return cited findings only; here too the driver must own the shared writes, for the same reason.
+     (ii) record all N verdicts ON DISK before authoring any block (the `scout: CERTIFIABLE-NOW ×N`
+     convention, plus blocked-on-thin-source for failures), so a crash between the batch and authoring
+     loses no verdict. The difference from DOCUMENT CYCLE is that here the gaps are under
+     INVESTIGATION, not pre-known content. The one-block-per-commit rule (LOOP CONTINUATION) and the
+     CERTIFIABLE-NOW authoring gate still apply; what changes is that N certifiability sweeps run in
+     one round rather than N sequential pre-authoring iterations. Not applicable to EVIDENCE corpora
+     where each iteration may uncover new gaps.
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
