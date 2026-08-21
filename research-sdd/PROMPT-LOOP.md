@@ -612,8 +612,13 @@ HARD RULES:
     VPN keys/certs/peer addresses (WireGuard/IPsec/OpenVPN) · INCIDENTAL THIRD-PARTY NEIGHBOR IDENTIFIERS —
     neighbor SSIDs/BSSIDs/MACs a LAN or wifi scan sweeps in are OTHER people's networks, not the target's;
     redact them too (non-obvious: a scan pulls them in for free).
+    **The conversation is an exfil surface.** A credential pasted into chat lands in the session
+    transcript/logs and is compromised immediately — treat it the same as a commit to a public
+    repository and rotate it without delay. Out-of-band delivery is not optional.
+    (Evidence: computadoras `cfut_` API token pasted into chat 3× across B23–B25.)
     LIVE-WRITE recipe that keeps this invariant on an AUTHENTICATED write: (a) authenticate out-of-band —
-    a curl `-K` config file in scratchpad, NEVER the credential in argv / probe cmdline / sources / engram;
+    a curl `-K` config file in scratchpad, NEVER the credential in argv / probe cmdline / sources /
+    engram / the conversation itself;
     (b) a secret-bearing body (e.g. a config) is backed up to scratchpad and cited by `sha256`+byte-count,
     NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
     independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
