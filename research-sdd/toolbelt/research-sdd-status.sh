@@ -435,8 +435,59 @@ if [ "$mode" = "--next" ]; then
   # Use $target (not $corpus) so the STALE gate covers the same scope as the aggregation below: scanning
   # only $corpus=dirname(first) would miss sibling focuses in a split-layout and give a false green light.
   if ! "$here/verify-state.sh" "$target" >/dev/null 2>&1; then
-    echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
-    exit 0
+    if [ -z "$focus_slug" ]; then
+      # Multi-focus bypass (issue #194): verify-state failed, but the failure may be ONLY from
+      # genuinely stopped focuses whose envelopes were not re-seeded after all gaps were covered.
+      # A stopped focus's stale envelope must NOT brick the corpus-wide --next result.
+      # Classify each focus: unparseable backlog OR active focus (d_inv>0) with a stale critical
+      # field → real STALE; stopped focus (parseable + d_inv=0) → skip (forgive stale envelope).
+      mapfile -t _stale_chk < <(list_state_files "$target")
+      _any_real_stale=0  # N194-STOPPED-BYPASS
+      # Bypass scope: multi-focus only. A stopped focus must have an active sibling to fall through
+      # to; a single-focus corpus with a failing verify-state has no such sibling and must always
+      # surface as STALE. This also prevents BPSKIP-form priorities (strikethrough, em-dash,
+      # qualifier) from driving count_investigable to 0 and being mistaken for a legitimate stop:
+      # in a single-focus corpus the ONLY way d_inv=0 is trustworthy is with a clean verify-state,
+      # which would have passed above and never reached this bypass path.
+      if [ "${#_stale_chk[@]}" -lt 2 ]; then
+        echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+        exit 0
+      fi
+      for state in "${_stale_chk[@]}"; do
+        # Unparseable backlog is always a real failure (concealment hazard, mirrors BP-INVALID-PRIORITY-FAIL).
+        if backlog_rows 2>/dev/null | grep -q '^INVALID_PRIORITY'; then
+          _any_real_stale=1; break
+        fi
+        _d_inv="$(count_investigable)"
+        if [ "${_d_inv}" != "0" ]; then
+          # Active focus — check critical envelope consistency (mirrors verify-state CHECK B + CHECK D).
+          if ! grep -q '<!-- research-state.v1 -->' "$state" 2>/dev/null; then
+            _any_real_stale=1; break
+          fi
+          _e_inv="$(env_get investigable_open)"
+          if [ "${_e_inv}" != "${_d_inv}" ]; then
+            _any_real_stale=1; break
+          fi
+          # CHECK D mirror: declared full coverage (gc==kg, kg>0) while investigable gaps remain.
+          _e_gc="$(env_get gaps_closed)"; _e_kg="$(env_get known_gaps)"
+          if [ -n "${_e_gc}" ] && [ -n "${_e_kg}" ] \
+             && printf '%s%s' "${_e_gc}" "${_e_kg}" | grep -qE '^[0-9]+$' \
+             && [ "${_e_kg}" -gt 0 ] 2>/dev/null \
+             && [ "${_e_gc}" = "${_e_kg}" ]; then
+            _any_real_stale=1; break
+          fi
+        fi
+        # d_inv=0 + parseable: genuinely stopped focus — its stale envelope is bypassed (#194).
+      done
+      if [ "${_any_real_stale}" = 1 ]; then
+        echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+        exit 0
+      fi
+      # All verify-state failures are from stopped focuses — fall through to aggregation.
+    else
+      echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+      exit 0
+    fi
   fi
   if [ -z "$focus_slug" ]; then
     # Multi-focus guard (chihuahua/px-chart-classic regression + BLOCKER 2 split-layout): iterate every

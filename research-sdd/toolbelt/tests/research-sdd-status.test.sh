@@ -883,6 +883,35 @@ case "$got62" in
   *)        no "T62: unexpected output: [$got62]";;
 esac
 
+# 63 — ISSUE #194: multi-focus --next MUST skip a STOPPED focus with a STALE envelope and return
+#      NEXT from the active sibling. Scenario: RESEARCH-STATE-stopped.md has all gaps covered but a
+#      stale envelope (investigable_open: 1 while the derived value is 0); RESEARCH-STATE-active.md
+#      has 1 pending gap and a correct envelope (investigable_open: 1). verify-state.sh fails on the
+#      stopped focus's stale envelope → old code returned STALE; after fix, the stopped focus is
+#      bypassed and NEXT is returned from the active sibling.
+d="$TMP/stopped-focus"; mkdir -p "$d"
+{ echo "# Stopped Focus"
+  echo
+  env_lines 0 0 0 1 0 0     # investigable_open: 1 (STALE — actual is 0; the only gap is covered)
+  echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | legacy done gap | web | covered |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"
+} > "$d/RESEARCH-STATE-stopped.md"
+{ echo "# Active Focus"
+  echo
+  env_lines 0 0 0 1 0 0     # investigable_open: 1 (correct — 1 pending gap)
+  echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | active pending gap | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"
+} > "$d/RESEARCH-STATE-active.md"
+expect_next "$d" "NEXT | high | active pending gap" "#194: stopped focus with stale envelope skipped — active sibling NEXT returned"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -1119,6 +1148,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     '/# BP-QUALIFIER-WARN/s/if (base=="high" || base=="medium" || base=="low" || base=="deferred") {/if (1) {/' \
     "$TMP/bp-qualifier-invalid-status" 0
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"  # restore real verify-state.sh
+
+  # issue #194 teeth: neuter the stopped-focus bypass (_any_real_stale=0 → =1) so that ANY
+  # verify-state failure triggers STALE immediately — the stopped-stale-envelope fixture must
+  # then return STALE, proving the bypass skip is load-bearing (not theater).
+  echo "-- teeth-#194: neuter stopped-bypass; stopped-stale-envelope corpus must return STALE --"
+  n194_mutant="$TMP/status.N194.MUTANT.sh"
+  if grep -q '# N194-STOPPED-BYPASS' "$SUT"; then
+    sed 's/_any_real_stale=0  # N194-STOPPED-BYPASS/_any_real_stale=1  # MUTANT-N194/' "$SUT" > "$n194_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    n194_got="$(bash "$n194_mutant" "$TMP/stopped-focus" --next 2>/dev/null)"
+    case "$n194_got" in
+      STALE\ *) ok "teeth-#194: neutered bypass → STALE on stopped-stale fixture — skip is load-bearing";;
+      NEXT\ *)  no "teeth-#194: mutant returned NEXT — bypass skip not exercised (THEATER)";;
+      *)        no "teeth-#194: mutant returned [$n194_got] (want STALE)";;
+    esac
+  else
+    no "teeth-#194: N194-STOPPED-BYPASS sentinel not found in SUT"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
