@@ -532,6 +532,42 @@ else
   no "nested layout: cite went extern or P6 WARN fired: rc=[$rc45] :: $(grep -iE 'extern.*src/tool|ok.*src/tool|WARN' <<<"$out45" | head -2)"
 fi
 
+# ---- P6-doc-aware: doc-grade-only blocks ([CERT-doc]/[CERT-web]/[CERT-a]) → P6 WARN suppressed ------
+# A doc/DESIGN corpus block legitimately cites preserved PDF/HTML via [CERT-doc]/[CERT-web]/[CERT-a]
+# and never cites a target file:line. The P6 WARN was a false positive on every such block, training
+# the operator to ignore it (retros 2026-08-12 web-hmi10cf #1, 2026-08-18 forense #1: all 9/9 and
+# 6/6 blocks tripped it respectively). Fix: detect doc-grade-only cert markers and suppress with an
+# informational note. Code-grade markers ([CERT-hw]/[CERT-live]/[CERT]) still trigger the WARN.
+
+# 46 — P6-doc-aware: [CERT-doc]-only block (doc corpus, no code artifacts) → no P6 WARN; info note instead.
+d="$TMP/p6-doconly.md"
+{ echo "# Block 46 — doc corpus"; echo
+  echo "> Method: [CERT-doc] = preserved PDF+page; [INFER] = deduction from doc."; echo
+  echo "---"; echo
+  echo "## 46.1 Config [CERT-doc]"
+  echo "The panel accepts BACnet/IP over UDP (Honeywell guide §3.2). [CERT-doc]"
+  echo "Default port is 47808 (Honeywell guide §3.2). [CERT-doc]"
+} > "$d"
+out="$(run "$d")"
+if ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$out"; then
+  ok "P6-doc-aware: [CERT-doc]-only block → no P6 WARN (doc-grade, file:line not expected)"
+else no "P6-doc-aware: false-positive WARN on doc-only block :: $(grep -iE 'WARN' <<<"$out" | head -1)"; fi
+
+# 47 — P6-doc-aware (negative): mixed [CERT-doc] + [CERT] with no file:line → P6 WARN still fires.
+#      Code-grade marker present → suppressor must NOT engage; WARN must still notify the operator.
+d="$TMP/p6-docmixed.md"
+{ echo "# Block 47 — mixed"; echo
+  echo "> Method: [CERT-doc] = PDF; [CERT] = code verified."; echo
+  echo "---"; echo
+  echo "## 47.1 Mixed [CERT-doc] + [CERT]"
+  echo "Config from spec (guide §3.2). [CERT-doc]"
+  echo "Flag always set in firmware. [CERT]"
+} > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$out"; then
+  ok "P6-doc-aware (negative): mixed [CERT-doc]+[CERT] with no file:line → P6 WARN still fires"
+else no "P6-doc-aware (negative): P6 WARN wrongly suppressed for mixed block :: $(grep -iE 'WARN|cert' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -720,6 +756,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-n-project-fallback: N-PROJECT-FALLBACK sentinel not found in SUT (fallback not implemented or marker missing)"
+  fi
+
+  # teeth-p6-doc-aware: neuter P6-DOC-AWARE-SUPPRESS; a [CERT-doc]-only block must revert to P6 WARN,
+  # proving test 46 depends on the real doc-awareness branch (not a structural no-op).
+  echo "-- teeth-p6-doc-aware: neuter P6-DOC-AWARE-SUPPRESS; [CERT-doc]-only block must revert to WARN --"
+  mutant_doc="$TMP/verify-block.P6DOCAWARE.sh"
+  if grep -q '# P6-DOC-AWARE-SUPPRESS' "$SUT"; then
+    sed '/# P6-DOC-AWARE-SUPPRESS/ s/.*/    if false; then  # P6-DOC-AWARE-SUPPRESS [NEUTERED]/' "$SUT" > "$mutant_doc"
+    bash -n "$mutant_doc" 2>/dev/null; doc_syntax=$?
+    if [ "$doc_syntax" != "0" ]; then
+      no "teeth-p6-doc-aware: mutant has syntax error (bash -n rc=$doc_syntax) — cannot run"
+    else
+      d_doc="$TMP/p6-docaware-teeth.md"
+      { echo "# Block — doc corpus"; echo
+        echo "> Method: [CERT-doc] = preserved PDF+page; [INFER] = deduction."; echo
+        echo "---"; echo
+        echo "## Config [CERT-doc]"
+        echo "The panel accepts BACnet/IP over UDP. [CERT-doc]"; } > "$d_doc"
+      mout_doc="$(bash "$mutant_doc" "$d_doc" 2>/dev/null)"
+      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$mout_doc"; then
+        ok "teeth-p6-doc-aware: neutered suppressor → [CERT-doc]-only block reverts to WARN (test 46 has teeth)"
+      else
+        no "teeth-p6-doc-aware: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|cert|doc' <<<"$mout_doc" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-doc-aware: P6-DOC-AWARE-SUPPRESS sentinel not found in SUT (doc-awareness not implemented or marker missing)"
   fi
 fi
 
