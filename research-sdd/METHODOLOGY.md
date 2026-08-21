@@ -1633,7 +1633,12 @@ the anomaly is never silent: a retro annotated with an unrecognized word would o
 pending queue without anyone acting on it. The vocabulary is kept to two words deliberately: more words → more
 code paths that silently interpret a status as "closed" → more ways for a proposal to evaporate unreviewed. If
 `applied` and `dismissed` feel too blunt for a given workflow, annotate the retro's body — do not widen the
-machine-readable marker.
+machine-readable marker. A **partially-applied** review — some deltas shipped, others deferred or kept
+staged — is the canonical case for this hatch: close the marker with `applied` and record the split in the
+body (e.g. `applied · <sha> · PARTIAL — shipped: D2-D5; DEFERRED: D1`), as existing retros already do. A
+dedicated `partial`/`staged` closing word is deliberately NOT added (issue #134): it would be one more code
+path that could read a retro as closed while its deferred deltas evaporate — the exact failure this two-word
+vocabulary exists to prevent — and every observed partial case is already legible via the body annotation.
 
 **Scope marker (opt-out) — `kit-retro: exclude`.** The sweeper walks retros recursively
 (`find … -maxdepth 4 -path '*/retros/*.md'`), so a `retros/` directory nested inside a corpus
