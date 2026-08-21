@@ -143,3 +143,83 @@ Then authenticate INSIDE the connect call, never on a command line:
   and keep the same read-first / write-supervised discipline as §3.
 
 For the PowerShell-over-SSH gotcha catalog (encoding, output capture, buffering, and language traps), see [`WINDOWS-SSH-PROBES.md`](WINDOWS-SSH-PROBES.md).
+
+### 6a. Cloudflare Access tunnel connect (sandboxed shell)
+
+When a live-install host sits behind a **Cloudflare Access tunnel** and the only path in is through
+`cloudflared`, the field pattern — a persistent backgrounded `cloudflared &` plus an `ssh -M -fN`
+multiplexed master — **does not survive this sandbox**: the sandbox kills the persistent master (exit 144)
+once the authenticated data-path goes persistent, even with `dangerouslyDisableSandbox`. The
+`cloudflared access ssh` ProxyCommand is also unreliable (intermittent `websocket: bad handshake`).
+Both are OUT for sandbox use.
+
+The proven stable method is **forward-TCP + one foreground `ssh` per read**:
+
+```sh
+# 1. Forward a local TCP port through the tunnel (background — exits with the ssh)
+cloudflared access tcp --hostname <host.example.com> --url 127.0.0.1:<PORT> &
+CF_PID=$!
+sleep 1   # allow the tunnel to negotiate
+
+# 2. One foreground ssh per read; service token via env, never argv
+CF_ACCESS_CLIENT_ID=<client-id> \
+CF_ACCESS_CLIENT_SECRET=<client-secret> \
+  ssh -p <PORT> -o StrictHostKeyChecking=no <user>@127.0.0.1 '<command>'
+
+kill "$CF_PID" 2>/dev/null
+```
+
+**Why this shape:** one `ssh` per read is lightweight and avoids `MaxStartups` limits; the backgrounded
+`cloudflared` exits with it and is not subject to the sandbox's long-lived-process kill. Source:
+`~/tunnel/Cliente/Panduit/pruebas/client/connect-ssh.sh` (the operator's committed wrapper for B28–B33):
+*"Metodo forward-TCP (estable; el ProxyCommand 'access ssh' a veces da 'websocket: bad handshake')"*.
+On a **normal interactive shell** outside the sandbox the `-M` master pattern still applies
+(`TRABAJANDO-CON-TUNELES.md §5`); this section is sandbox-only.
+
+Keep the service token out of argv: load it from a `secrets.env` (mode 600, git-ignored) and export
+it into the subprocess environment — PROMPT-LOOP SECRETS DISCIPLINE.
+
+#### Origin-signal table
+
+`cloudflared access` edge responses indicate connector health, but `websocket: bad handshake` is
+**ambiguous** — it fires for two distinct causes. Never declare a box unreachable from it alone.
+
+| Edge response | Cloudflare API (`status` / `conns_active_at`) | Interpretation |
+|---|---|---|
+| `websocket: bad handshake` | `status=down` · 0 connectors | Truly no origin — connector not running or host is off |
+| `websocket: bad handshake` | `status=healthy` · conns present | **Access rejected unauthenticated client** — service token missing or wrong |
+| `Connection reset by peer` | `status=healthy` · conns present | Origin reachable but SSH service broken (wrong port, not listening) |
+
+**Rule:** on `bad handshake`, cross-check `GET …/cfd_tunnel/<id>` (`status`, `conns_active_at`) AND
+retry WITH the Access service token (`CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`). Only
+`bad handshake` + API `status=down` / 0 connectors = truly no origin.
+
+Evidence: liveread session 2026-08-19 — the tunnel was healthy throughout (4 active connectors,
+`conns_active_at=2026-08-18T21:02Z`, `conns_inactive_at=None`) while repeated `cloudflared access`
+calls returned `bad handshake` because the service token was absent. The B16–B25 retro had codified
+`bad handshake = no origin` (B23.2); the liveread session corrected it — reconciliation verdict:
+never codify the bare signal as unambiguous.
+
+## 7. L2 discovery / firewalled-host identification (bridged segment)
+
+When probing a segment reachable only through a bridge host, IP-layer probes alone cannot distinguish
+a **powered-off** host from a **firewalled** one. These demand different remediation — the only chain
+that separates them:
+
+1. **Async ping sweep** — discovers hosts that answer ICMP.
+2. **Async TCP-connect sweep** — discovers hosts that drop ICMP but have open ports.
+3. **`Get-NetNeighbor` (ARP table)** — the decisive probe: SEEs L2-present hosts that are IP-silent.
+   A host **absent from ARP** → powered off (not a credentials problem); a host **present in ARP**
+   but silent to ICMP/TCP/SNMP → firewalled.
+4. **OUI vendor lookup** (e.g., `api.macvendors.com`) — manufacturer from MAC prefix; identifies
+   hardware class without touching the host.
+5. **Reverse DNS** (`Resolve-DnsName -Type PTR`) — names the host from its IP even when no port is open.
+6. **NBNS / NetBIOS node-status** (UDP 137) — Windows machine name without SMB.
+
+Run steps 1–3 **on the bridge host** (SSH into it first) — ARP is per-segment and cannot traverse a
+router hop. Steps 4–6 can run locally once MACs and IPs are collected.
+
+Evidence (2026-08-19 homelab session): `Get-NetNeighbor` showed `.34` ARP-absent (→ powered off, not
+a credentials problem) and revealed a new `.36` (L2-present, silent on ICMP/TCP/SNMP/BACnet). Reverse
+DNS named `.36` = `MXC-RAYL-T14S` — a Lenovo ThinkPad T14s laptop, identified without a single open
+port.
