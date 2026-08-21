@@ -515,6 +515,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      rows (the stale-mirror desync that let run-A emit a premature STOP). A non-zero exit means you are NOT at
      STOP: refresh the summary / reopen the metric and keep looping. If STOP did NOT fire, do NOT end
      your turn: reschedule and BEGIN the next iteration on the next gap (see LOOP CONTINUATION under HARD RULES).
+     ARTIFACT AUDIT before honoring STOP: sweep `$TARGET/tools/` and `$CORPUS/audits/` for analysis
+     dumps (`.txt` / `.c` / `.json`) produced by prior decompiler or probe runs but cited by no block.
+     A dump that covers an OPEN gap and is cited by no block is false-negative exhaustion — the STOP is
+     NOT honored until that dump's content is either captured as a block or explicitly dismissed.
+     `verify-sources.sh` and `verify-state.sh` do NOT perform this sweep; it is an operator/agent
+     obligation at every STOP gate. (Evidence: platform-native reopen — uncited decompiler output
+     covered an open gap the corpus called exhausted; detected 9 days late.)
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
@@ -660,9 +667,19 @@ HARD RULES:
     genuine finding are indistinguishable in the output; only a second measurement separates them.
     `verify-block.sh` cannot detect a wrong join key — this is a distinct failure class from
     marker/citation errors.
+  - RE-MEASURE A DRAMATIC POSITIVE. The same re-derive obligation applies when a live probe yields a
+    striking positive (an apparent security weakness, an unexpectedly open or downgraded service). Do
+    NOT escalate or capture it as a block from a single measurement. The banner-vs-protocol trap: a
+    probe tool's connection banner (e.g. openssl `CONNECTED`) is a TRANSPORT event — it records only
+    that the TCP connection was established, before the TLS handshake even runs, NOT that the server
+    accepted the specific protocol version under test. "The client cannot offer version X" is not the same claim as "the
+    server refused version X". Re-derive by an independent method or a targeted counter-probe before
+    treating the finding as confirmed. (Evidence: jace8000 — a transport banner misread as
+    TLS-version protocol acceptance, which nearly produced a false client-escalation; METHODOLOGY
+    §12 live-probe frames.)
   - N-SEARCH CONVENTION TRIGGER. When N ≥ 3 independent search strategies — different keys, layers,
     or geometric/structural approaches — all return zero for the same feature category, the aggregate
-    is a convention-inspection trigger, distinct from the single-result RE-MEASURE above. BEFORE
+    is a convention-inspection trigger, distinct from the single-result RE-MEASURE rules above. BEFORE
     launching a further symbol search, ask whether the corpus convention for this feature type encodes
     PRESENCE BY ABSENCE — the feature is where something is missing, not where a mark appears. If so,
     the next step is a structural or gap-reading pass, not another symbol search. Record the convention
