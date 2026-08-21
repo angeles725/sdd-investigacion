@@ -317,6 +317,30 @@ in the other, so the two are not interchangeable. Anchor the citation to the con
 vs the decompile-output dir), never to the bare class name. This is the same identity hazard as the
 beautified-temp and obfuscated-bytecode cases above: one logical class, more than one physical artifact.
 
+**Decompiler dump offset provenance (twin-binary check — static analog of RE-MEASURE GROUND-TRUTH).** When
+a preserved decompiler dump carries function offsets (an RVA, or an absolute VMA = image base + RVA),
+verify those offsets against the SPECIFIC sha256-anchored shipped binary with a live disassembler BEFORE
+citing any offset. Two related "twin"
+binaries compiled from identical C source sit at DIFFERENT addresses — a dump produced from binary A cannot
+be cited for binary B even when the source is identical. Publishing a wrong offset is a false `[CERT]` and
+a reproducibility failure: a reviewer following an `audits/B…:offset` citation lands at the wrong
+instruction. This is the static pre-authoring counterpart to §12's RE-MEASURE GROUND-TRUTH rule (which
+covers live/dynamic re-measurement); neither subsumes the other.
+
+Concrete gate (operator/agent, not automated by any kit script):
+- (a) Record the `sha256` of the binary that produced the dump at decompilation time.
+- (b) Seek to the cited offset in the SAME address space Ghidra reported — if the dump lists an RVA,
+  add the image base first, or r2 lands at the wrong instruction — and confirm the disassembly there
+  MATCHES the dump's instructions for that function, not merely that the address resolves (an address
+  mid-function still resolves and prints valid-looking bytes): `r2 -q -c "s <vma>;pd 4" <binary>` or
+  equivalent Ghidra navigation.
+- (c) If the anchored binary differs from the dump's source, re-decompile against the correct binary
+  before citing — `corroborate-native.sh` regenerates sha256-anchored offsets from the correct binary.
+
+Evidence: niagara B424 — Ghidra offsets `getHostVendor@0x5090` / `getVolume@0x5fa0` did NOT match the
+shipped `njre.dll` (sha256 `7007ff82…`); they belonged to the twin `nre.dll`. Resolved by re-verifying live
+in r2, then re-decompiling against the correct binary.
+
 **Bundle-evidence quality (is API X actually USED?).** Distinct from the beautified-temp rule above (which
 is about citing a beautified copy faithfully). When grepping a MINIFIED / FULL-LIBRARY JS bundle to prove a
 page actually USES an API, a **constructor-call / invocation token** (`new THREE.PathTracer(...)`) is
