@@ -1046,6 +1046,8 @@ before trusting its verdict:
   Anchor the guard to its PRODUCER: reverting data while the producer still runs correctly proves nothing
   about whether the guard watches the right output.
 
+- **Measure the guard's firing range against real production data.** After setting a threshold in a guard (distance, area, count, ratio), query the actual distribution of the guarded quantity over the full real dataset and confirm the threshold lies within that range. A threshold that no real sample crosses is dead code: the guard passes every real input, including broken ones. Synthetic injection proves the guard FIRES; a range check against real data proves it is REACHABLE. Both are required — state the blind spot of the injection proof (it cannot demonstrate reachability against real distributions) before claiming the guard is sound. Cross-reference: nave-panccadia B11's "name a test's blind spot" principle — synthetic injection is blind to this failure mode by construction. (Evidence: nave-panccadia B38 — v8 midpoint dedup threshold 0.6 m; all 20 real doorways × leaf midpoints yielded min 1.842 m, 3× the threshold; detected by measuring `min(dist)` against the JSON, not by reading the code.)
+
 - **Per-path verification → per-degree-of-freedom.** When elements reach the output by different transform
   routes, each route needs its own check. But a guard that constrains N−1 of a defect's N degrees of
   freedom reports PASS on a broken build. Before trusting a guard set, state which DEGREES OF FREEDOM each
@@ -1933,6 +1935,8 @@ hard-stops, never blind.
   an external oracle → `[CERT-hw]`; confirmed only by a same-corpus script → `[INFER]`. (Evidence:
   nave-panccadia B7–B9 — three consecutive defects past a 16/16–25/25 green gate, each caught only by the
   operator looking at the render, not by any gate check.)
+
+- **Regenerate and token-check before any visual judgment pass.** Before capturing screenshots or computing pixel diffs on a §19 build deliverable, regenerate the artifact fresh from the current source and confirm the fix token is present in the served bytes (`rg <new-token> <served.html>` or equivalent). An artifact whose filename does not change between builds is indistinguishable from a stale one without checking its content — a stale artifact absorbs the visual comparison and the fix is declared failing when it was never tested. This is the §11 "Verify the edit landed" discipline applied to build artifacts: it is a prerequisite for the visual pass, not a verification step, and must run before screenshots are captured or pixel diffs are computed. (Evidence: nave-panccadia B38 — the v8 HTML was generated BEFORE the v8 code changes; `rg nominal_width` returned zero hits in the served file; the fix was never served, never evaluated.)
 
 **CLOSE step — write build-phase findings as blocks before the phase ends.** When a requires-execution
 phase produces findings that would have been blocks had they come from the static loop, write them as
