@@ -208,6 +208,17 @@ to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
 
 ---
 
+## 7. Redfish probe traps (LOW)
+
+### HTTPS TLS failure on older PDU/BMC firmware — try plain HTTP first
+
+On older PDU or BMC firmware, the HTTPS Redfish endpoint can fail the TLS handshake from
+PowerShell 5.1 even when a permissive certificate callback is in place. Before concluding
+the Redfish tree is unreachable, retry the same endpoint over plain HTTP — evidence:
+a .45 EL2P PDU was read successfully over `http://` after `https://` rejected the handshake.
+
+---
+
 ## Common gotchas summary
 
 | # | Gotcha | Silent failure mode | Fix |
@@ -222,6 +233,7 @@ to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
 | 8 | Case-insensitive shadowing | Internal init erases parameter default | Distinct prefix for internal state |
 | 9 | Tag-byte scan for region end | Desync on first false match in payload | Walk by length field |
 | 10 | Windows-native binary writing to UNC path (`\\wsl.localhost\...`) | Error 67 or silent output loss | Stage under `/mnt/c/...`; use `cmd.exe /c` for invocation |
+| 11 | HTTPS Redfish TLS handshake failure (older PDU/BMC firmware) | Endpoint appears unreachable even with permissive cert callback | Retry the same path over plain HTTP |
 
 ---
 
