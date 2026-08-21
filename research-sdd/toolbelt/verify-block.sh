@@ -65,6 +65,10 @@ done
 # 2. [INFER]/[CERT] ratio — INFER over ALL cert-family markers, on ADJUSTED counts (the legend's one-of-each
 #    otherwise skews a low-count block).
 cert_total=$(( adj[CERT-hw] + adj[CERT-live] + adj[CERT] + adj[CERT-doc] + adj[CERT-web] + adj[CERT-a] ))
+# code_cert_total: markers that ARE expected to back file:line citations ([CERT-hw]/[CERT-live]/[CERT]).
+# doc-grade markers ([CERT-doc]/[CERT-web]/[CERT-a]) cite external preserved docs/PDFs and NEVER
+# produce target file:line cites — they are validated by verify-sources.sh + §5 token-check instead.
+code_cert_total=$(( adj[CERT-hw] + adj[CERT-live] + adj[CERT] ))
 infer=${adj[INFER]}
 if [ "$cert_total" -gt 0 ]; then
   ratio=$(awk "BEGIN{printf \"%.2f\", $infer/$cert_total}")
@@ -135,8 +139,17 @@ fi
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
   # exits 0 silently having checked nothing. Warn so the author notices the gap.
+  # P6-DOC-AWARE: when ALL cert markers are doc-grade ([CERT-doc]/[CERT-web]/[CERT-a]), file:line
+  # citations are not expected — those markers cite external preserved docs validated by
+  # verify-sources.sh + §5 token-check. Emitting a WARN on every doc-corpus block is a false
+  # positive that trains the operator to ignore the gate (retros 2026-08-12 #1, 2026-08-18 #1).
+  # Emit an informational note instead so the gate still reports rather than silently passing.
   if [ "$cert_total" -gt 0 ]; then  # P6-CERT-ZERO-CITE-WARN
-    echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Add file:line citations or re-check the citation format."
+    if [ "$code_cert_total" -eq 0 ]; then  # P6-DOC-AWARE-SUPPRESS
+      echo "   (doc-grade citations only ([CERT-doc]/[CERT-web]/[CERT-a]) — file:line not expected; validate tokens via verify-sources.sh + §5 token-check)"
+    else
+      echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Add file:line citations or re-check the citation format."
+    fi
   else
     echo "   (no file:line citations found)"
   fi
