@@ -314,13 +314,28 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
          confirm in the primary source first).
-       - Framework-semantic check for security/permission claims from delegated sweeps: token PRESENCE
-         passes the token-check but does not confirm semantic CORRECTNESS. A flag `permissions=
-         "unrestricted"` IS present in source and passes the token-check, yet may still filter through
-         `hasOperatorRead()` in calling code. Sub-agents read local syntax; they lack the driver's
-         accumulated framework model. For any claim about who can invoke what, what is protected or
-         exposed, cross-verify the INTERPRETATION against corpus-documented framework semantics
-         BEFORE incorporating it. Treat such claims as hypotheses pending semantic validation.
+       - Framework-semantic check for security/permission and behavioral capability claims from
+         delegated sweeps: token PRESENCE passes the token-check but does not confirm semantic
+         CORRECTNESS. A flag `permissions="unrestricted"` IS present in source and passes the
+         token-check, yet may still filter through `hasOperatorRead()` in calling code. Sub-agents
+         read local syntax; they lack the driver's accumulated framework model. Two trigger classes:
+         (a) SECURITY/PERMISSION: who can invoke what, what is protected or exposed;
+         (b) BEHAVIORAL CAPABILITY: any claim that a component "supports X", "handles Z for input
+         type T", or "produces Y" — when prior corpus blocks established a structural constraint
+         (a hardcoded field, a type mismatch, a profile boundary), verify the capability claim does
+         NOT contradict it (B365 §365.3: sweep cited `isHistoryQuery()` + `?period=` prepend →
+         "partially supports history table"; driver re-read `:750` found `select ordInSession`
+         hardcoded → the B359 NPE wall makes that claim wrong).
+         Cross-verify the INTERPRETATION against corpus-documented framework semantics BEFORE
+         incorporating it. Treat such claims as hypotheses pending semantic validation.
+         Three named outcomes — record each in the iteration-history row:
+           · CONFIRM: claim survives the semantic re-read.
+           · REFINE: claim is partly right; narrow its scope.
+           · DE-ESCALATION: driver re-read subtracts a false finding (B341 §341.8, B347: two
+             de-escalations; B349 §349.5 "subtracting a false finding"). DE-ESCALATION is a quality
+             signal — "downgrade honestly" (step 5 token-check) adjusts a marker; DE-ESCALATION
+             removes a finding the sweep should not have raised. Record it by name so retro
+             reviewers distinguish the two and recognize subtraction as success.
        - Marker tally: counts of [CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER] + the [INFER]/[CERT]
          ratio, AND the block TYPE. For an EVIDENCE block (decompilation/reading), a high ratio (>~0.5)
          signals this gap's investigable evidence is nearly exhausted — say so. For a DESIGN/APPLIED block
@@ -570,6 +585,15 @@ HARD RULES:
     genuine finding are indistinguishable in the output; only a second measurement separates them.
     `verify-block.sh` cannot detect a wrong join key — this is a distinct failure class from
     marker/citation errors.
+  - N-SEARCH CONVENTION TRIGGER. When N ≥ 3 independent search strategies — different keys, layers,
+    or geometric/structural approaches — all return zero for the same feature category, the aggregate
+    is a convention-inspection trigger, distinct from the single-result RE-MEASURE above. BEFORE
+    launching a further symbol search, ask whether the corpus convention for this feature type encodes
+    PRESENCE BY ABSENCE — the feature is where something is missing, not where a mark appears. If so,
+    the next step is a structural or gap-reading pass, not another symbol search. Record the convention
+    and the N failed strategies as its evidence (B37 §37.4: six independent searches — arcs, layer
+    filter, circle fit, modelspace, insert points, jamb pairs — all zero; convention: wall-stops, not
+    drawn symbols).
   - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
     attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
     clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)
