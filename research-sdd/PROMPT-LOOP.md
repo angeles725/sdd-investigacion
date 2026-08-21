@@ -213,6 +213,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - READ THE RESIDUE BEFORE THEORISING: before forming a theory about why a remainder does not
          fit — an unexplained bucket, a residual set, un-opened columns — READ those items first. A
          theory built on unread data is [INFER] from zero evidence; the actual contents often disprove it.
+       - ANNOTATION-BEFORE-DERIVATION: before deriving a quantity from a labelled source (CAD drawing,
+         schematic, datasheet), exhaustively search the annotation layer for a label that already carries
+         that value — size callouts, elevation/BOD tags, dimension strings. A quantity you are about to
+         derive is a hypothesis that no label exists; prove that absence before spending derivation
+         effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
+         RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e1).
+         (Evidence: COB-IM2 B6 asserted "zero NxM labels; width is geometric" from one regex pass; B8
+         found 563 `W"xH"` size labels and 886 BOD tags in the same drawing — derivation was unnecessary.
+         Corrected via §14, commit d7fd595.)
        - Decompile/read: decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
