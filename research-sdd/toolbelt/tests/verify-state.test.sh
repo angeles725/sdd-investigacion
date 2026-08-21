@@ -1530,6 +1530,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # ---- ISSUE #126 mutation controls ----------------------------------------------------------------
 
+  # (i) teeth-BS-cannot-see-pass-global: override _ondisk_global to 0 → item-1 WARN must stop firing.
+  # The bs-cannot-see-pass fixture (global=1 from other-bloque1.md) has the WARN fire on real SUT.
+  # With _ondisk_global=0, condition (_ondisk_global > 0) is FALSE → WARN silent. CHECK A stays green
+  # (exit 0): e_covered=0 == ondisk=0 → no FAIL. Proves the WARN reads the global count.
+  echo "-- teeth-BS-cannot-see-pass-global: zero _ondisk_global via sentinel; WARN must stop --"
+  mutantBGC="$TMP/verify-state.BGC.MUTANT.sh"
+  if grep -q '# BS-ONDISK-GLOBAL-COMPUTED' "$SUT"; then
+    sed 's/^  : # BS-ONDISK-GLOBAL-COMPUTED.*$/  _ondisk_global="0"  # MUTANT-BGC: override to 0/' "$SUT" > "$mutantBGC"
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    d="$TMP/bs-cannot-see-pass"
+    mbgcout="$(bash "$mutantBGC" "$d" 2>/dev/null)"; mbgcrc=$?
+    if [ "$mbgcrc" = 0 ] && ! grep -qE 'WARN.*covered_blocks' <<<"$mbgcout"; then
+      ok "teeth-BS-cannot-see-pass-global: zeroed _ondisk_global → WARN silent, exit 0 — item-1 WARN reads global count"
+    else no "teeth-BS-cannot-see-pass-global: rc=$mbgcrc WARN=$(grep -E 'WARN' <<<"$mbgcout" | head -1) — THEATER or CHECK A broken"; fi
+  else
+    no "teeth-BS-cannot-see-pass-global: BS-ONDISK-GLOBAL-COMPUTED sentinel not found in SUT"
+  fi
+
   # (ii) teeth-UF-indented-probe: neuter UF-INDENTED-PROBE sentinel → indented non-int must go silent.
   # UF-indented-nonint fixture uses '  undocumented_findings: seven'. On real SUT: _uf_present non-empty
   # → CHECK-G FAIL fires (exit 1). Mutant sets _uf_present="" → FAIL silenced, exit 0 → test goes red.
@@ -1561,24 +1579,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-BS-cannot-see-pass-guard: rc=$mbcsprc WARN=$(grep -E 'WARN' <<<"$mbcspout" | head -1) — THEATER"; fi
   else
     no "teeth-BS-cannot-see-pass-guard: BS-CANNOT-SEE-PASS sentinel not found in SUT"
-  fi
-
-  # (i) teeth-BS-cannot-see-pass-global: override _ondisk_global to 0 → item-1 WARN must stop firing.
-  # The bs-cannot-see-pass fixture (global=1 from other-bloque1.md) has the WARN fire on real SUT.
-  # With _ondisk_global=0, condition (_ondisk_global > 0) is FALSE → WARN silent. CHECK A stays green
-  # (exit 0): e_covered=0 == ondisk=0 → no FAIL. Proves the WARN reads the global count.
-  echo "-- teeth-BS-cannot-see-pass-global: zero _ondisk_global via sentinel; WARN must stop --"
-  mutantBGC="$TMP/verify-state.BGC.MUTANT.sh"
-  if grep -q '# BS-ONDISK-GLOBAL-COMPUTED' "$SUT"; then
-    sed 's/^  : # BS-ONDISK-GLOBAL-COMPUTED.*$/  _ondisk_global="0"  # MUTANT-BGC: override to 0/' "$SUT" > "$mutantBGC"
-    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-    d="$TMP/bs-cannot-see-pass"
-    mbgcout="$(bash "$mutantBGC" "$d" 2>/dev/null)"; mbgcrc=$?
-    if [ "$mbgcrc" = 0 ] && ! grep -qE 'WARN.*covered_blocks' <<<"$mbgcout"; then
-      ok "teeth-BS-cannot-see-pass-global: zeroed _ondisk_global → WARN silent, exit 0 — item-1 WARN reads global count"
-    else no "teeth-BS-cannot-see-pass-global: rc=$mbgcrc WARN=$(grep -E 'WARN' <<<"$mbgcout" | head -1) — THEATER or CHECK A broken"; fi
-  else
-    no "teeth-BS-cannot-see-pass-global: BS-ONDISK-GLOBAL-COMPUTED sentinel not found in SUT"
   fi
 
   # Suite-local helper: build a SUT mutant via sed, copy FPLIB, run fixture, assert exit == EXPECT.

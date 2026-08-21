@@ -333,7 +333,7 @@ if [ "$mode" = "--sync-state" ]; then
     fi
     # block_scope: carry-forward through --sync-state round-trips so the declaration survives. env_get
     # handles indented+space forms (whitespace-split awk). Fallback probe uses the same whitespace-tolerant
-    # /^[[:space:]]*key:/ convention as verify-state.sh:262 and the UF probe below — catches indented and
+    # /^[[:space:]]*key:/ convention as verify-state.sh (# BS-INDENTED-PROBE) and the UF probe below — catches indented and
     # no-space forms. Only legal values are carried; illegal values stay for verify-state to FAIL on.
     # _e_bs is read into render_envelope via the shared shell scope.
     _e_bs="$(env_get block_scope)"
