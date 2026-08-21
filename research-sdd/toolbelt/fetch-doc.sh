@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # fetch-doc.sh — downloads and PRESERVES external sources (datasheets, manuals,
-# forums, links) inside TARGET/sources/, with text extraction and a traceable
-# record in SOURCES.md. Research-SDD rule: URLs die; evidence does not.
+# forums, links) inside TARGET/sources/ with a traceable record in SOURCES.md.
+# fetch-doc downloads and registers; page-anchored extraction is extract-pdf.sh's job.
+# Research-SDD rule: URLs die; evidence does not.
 #
 # Usage:
 #   fetch-doc.sh doc <url> <target-dir> [datasheets|manuals] [name]
@@ -55,15 +56,18 @@ case "$MODE" in
     ;;
   doc)
     URL="${2:?url}"; TDIR="${3:?target-dir}"; SUB="${4:-datasheets}"
-    SDIR="$TDIR/sources"; mkdir -p "$SDIR/$SUB" "$SDIR/extracted"
+    SDIR="$TDIR/sources"; mkdir -p "$SDIR/$SUB"
     NAME="${5:-$(basename "${URL%%\?*}")}"; DEST="$SDIR/$SUB/$NAME"
     curl -fsSL "$URL" -o "$DEST" || wget -q "$URL" -O "$DEST"
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
-    # extracts text if it is a PDF (so blocks can cite page/section)
+    # When the saved file is a PDF, recommend the canonical page-anchored extraction tool.
+    # pdftotext -layout produces a FLAT .txt with NO page anchors — blocks cannot cite
+    # page/section from it (§5). Page-anchored extraction belongs to extract-pdf.sh, which
+    # produces sources/extracted/<name>.md with YAML front-matter (METHODOLOGY.md §5/§15).
     # pipefail-audit: external `file -b` producer. Fleet max <100 B (single-line type description).
     # Race onset for external producers: ~64 KB. Fleet max << onset; structurally safe.
     if file -b "$DEST" | grep -qi pdf; then
-      pdftotext -layout "$DEST" "$SDIR/extracted/${NAME%.*}.txt" 2>/dev/null || true
+      printf 'hint: PDF saved. For page-anchored citations (§5), run: extract-pdf.sh "%s"  (a flat pdftotext dump has no page anchors and must not be cited).\n' "$DEST" >&2
     fi
     reg "$SDIR" "$DEST" "$SUB" "$URL" "$SHA"
     echo "OK: $URL -> $DEST  (sha256 ${SHA:0:16}…, registered in SOURCES.md)"
