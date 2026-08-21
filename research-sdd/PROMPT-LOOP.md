@@ -349,6 +349,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          that one case, not for the universe. ALSO record what question the source DOES answer — a
          source that fails the gap question may answer a DIFFERENT open question (and that finding
          belongs in a block or in the NEW-gaps register, not discarded).
+         SYNTHESIS-BLOCK REGISTRATION RULE: a synthesis block (focus-closing iteration) is still
+         subject to this REGISTER rule. Any `requires-execution` gaps it uncovers MUST be added to
+         the BACKLOG TABLE, not only noted in the iteration-history "New gaps uncovered" column. An
+         entry only in iteration-history is invisible to `verify-state.sh` and the
+         `requires_execution_open` counter — the gap will never reach the investigable/scheduler
+         count. The "closing feel" of a synthesis block is precisely the blind spot where
+         registration gets skipped (evidence: niagara/email B334 uncovered email-G1
+         requires-execution; it appeared in iteration-history but the backlog had no row and
+         `requires_execution_open` stayed 0 — commit `11142b9`).
        - REVERSE BACKLOG SWEEP: after closing a gap OR retiring a §14 premise, re-read the open
          backlog and re-scope or rename any gap whose PREMISE this block just answered or invalidated.
          A gap that was opened as "is X true?" becomes stale if this block proved X false — it must
@@ -512,6 +521,19 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      CHEATSHEET.md, GLOSSARY.md, KEYWORD_INDEX.md, MANUAL_FULL.md alongside 42 chapters.)
   7. STOP when the OUTLINE is fully covered — NOT on gap-exhaustion (there is no gap set, so no
      read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
+     CLOSURE OBLIGATIONS: the outline-completion STOP inherits the following from the NORMAL CYCLE —
+     §20 previously carried none of these, which is why the hilton-bms/dashboard retro never auto-fired
+     and two blocks merged in one commit (commit `cabb6d7`):
+       - ONE-BLOCK-PER-COMMIT and the commit-message convention (`research(<target>/<focus>): B<n>
+         <slug>`) apply throughout the document cycle, not only at normal-cycle close (LOOP
+         CONTINUATION hard rule).
+       - SELF-RETROSPECTIVE (METHODOLOGY §18): delegate a fresh-context retro agent exactly as the
+         NORMAL CYCLE terminal trigger prescribes. §18 fires "at every FOCUS completion and always at
+         corpus-level STOP" — §20 had no equivalent step, so the retro never auto-fired on a document
+         run until now.
+       - TARGETS.md row refresh: update block count and run facts as part of closing the document run.
+       - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
+         close-checklist). Use `--dry-run` to preview.
 
 HARD RULES:
   - MEMORY IS A MIRROR, NEVER A SUBSTITUTE. Every project/decision finding saved to memory (engram)
