@@ -20,6 +20,10 @@ set -uo pipefail
 block="${1:-}"
 [ -f "$block" ] || { echo "usage: verify-block.sh <block.md> [target-dir]" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
+# Nested-corpus fallback: for a block inside a corpus sub-directory, own-project source lives above
+# the corpus dir and does not resolve under $target. Find the git root once (bounded — one git call,
+# no filesystem walk) so the bt_cite loop can try it as a secondary location before declaring extern.
+git_root=$(git -C "$target" rev-parse --show-toplevel 2>/dev/null) || git_root=""  # N-PROJECT-FALLBACK-INIT
 
 echo "== verify-block: $(basename "$block") (target: $target) =="
 
@@ -187,8 +191,12 @@ if [ -n "$bt_cites" ]; then
     if [ "$start" -gt "$end" ]; then
       echo "   RANGE!  $c  (reversed range: start $start > end $end — defect in block)"; rc=1; continue
     fi
-    if [ -f "$target/$f" ]; then
-      total=$(wc -l < "$target/$f")
+    _bt_resolve="$target/$f"
+    if [ ! -f "$_bt_resolve" ] && [ -n "$git_root" ] && [ "$git_root" != "$target" ] && [ -f "$git_root/$f" ]; then
+      _bt_resolve="$git_root/$f"  # N-PROJECT-FALLBACK
+    fi
+    if [ -f "$_bt_resolve" ]; then
+      total=$(wc -l < "$_bt_resolve")
       if [ "$end" -le "$total" ]; then
         if [ "$start" = "$end" ]; then
           echo "   ok      $c"

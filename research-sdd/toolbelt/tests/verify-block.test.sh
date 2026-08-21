@@ -510,6 +510,28 @@ if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$out"; then
   ok "P6-probe (negative): [CERT-hw] + zero citations → P6 WARN still fires"
 else no "P6-probe (negative): P6 WARN not emitted for [CERT-hw]+no-cites :: $(grep -iE 'WARN|cert|citation' <<<"$out" | head -1)"; fi
 
+# 45 — NESTED LAYOUT: block inside a corpus sub-directory; the cited source file lives ABOVE the corpus dir.
+#      target defaults to the corpus dir; the file is at <project>/<f>, not <corpus>/<f>.
+#      Pre-fix: extern + no P6 WARN (bt_cites non-empty suppresses P6). Fixed: ok + no P6 WARN.
+#      Requires a git repo at the project level so git rev-parse --show-toplevel works from the corpus.
+mkdir -p "$TMP/nested/src" "$TMP/nested/corpus"
+git -C "$TMP/nested" init -q 2>/dev/null
+seq 1 50 > "$TMP/nested/src/tool.sh"
+d="$TMP/nested/corpus/block45.md"
+{ echo "# Block 45 — nested layout"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## 45.1 Observation [CERT]"
+  echo "The function is defined at \`src/tool.sh:10\`. \`[CERT]\`"; } > "$d"
+out45="$(bash "$SUT" "$d" 2>/dev/null)"
+bash "$SUT" "$d" >/dev/null 2>/dev/null; rc45=$?
+if [ "$rc45" = "0" ] && grep -qE 'ok.*src/tool\.sh:10' <<<"$out45" \
+   && ! grep -qiE 'extern.*src/tool|WARN.*\[CERT\]|WARN.*cert' <<<"$out45"; then
+  ok "nested layout: own-source cite above corpus resolves ok + no P6 WARN"
+else
+  no "nested layout: cite went extern or P6 WARN fired: rc=[$rc45] :: $(grep -iE 'extern.*src/tool|ok.*src/tool|WARN' <<<"$out45" | head -2)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -667,6 +689,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-probe: P6-PROBE-FILE-CITE sentinel not found in SUT (probe detection not implemented or marker missing)"
+  fi
+
+  # teeth-n-project-fallback: neuter N-PROJECT-FALLBACK; nested-layout cite must revert to extern.
+  # The sentinel is on the _bt_resolve reassignment line only (# N-PROJECT-FALLBACK, end of line);
+  # the init line uses # N-PROJECT-FALLBACK-INIT and is NOT neutered so git_root is still derived.
+  echo "-- teeth-n-project-fallback: neuter N-PROJECT-FALLBACK; nested cite must revert to extern --"
+  mutant_npf="$TMP/verify-block.NPFMUTANT.sh"
+  if grep -q '# N-PROJECT-FALLBACK$' "$SUT"; then
+    sed '/# N-PROJECT-FALLBACK$/ s/.*/:  # N-PROJECT-FALLBACK [NEUTERED]/' "$SUT" > "$mutant_npf"
+    bash -n "$mutant_npf" 2>/dev/null; npf_syntax=$?
+    if [ "$npf_syntax" != "0" ]; then
+      no "teeth-n-project-fallback: mutant has syntax error (bash -n rc=$npf_syntax) — cannot run"
+    else
+      mkdir -p "$TMP/npf-nested/src" "$TMP/npf-nested/corpus"
+      git -C "$TMP/npf-nested" init -q 2>/dev/null
+      seq 1 50 > "$TMP/npf-nested/src/tool.sh"
+      d_npf="$TMP/npf-nested/corpus/block-npf.md"
+      { echo "# Block NPF — nested layout"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "---"; echo
+        echo "## NPF Observation [CERT]"
+        echo "The function is defined at \`src/tool.sh:10\`. \`[CERT]\`"; } > "$d_npf"
+      mout_npf="$(bash "$mutant_npf" "$d_npf" 2>/dev/null)"
+      if grep -qiE 'extern.*src/tool' <<<"$mout_npf"; then
+        ok "teeth-n-project-fallback: neutered fallback → nested cite goes extern (test 45 has teeth)"
+      else
+        no "teeth-n-project-fallback: neutered mutant did NOT revert to extern :: $(grep -iE 'extern|ok.*src|WARN' <<<"$mout_npf" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-n-project-fallback: N-PROJECT-FALLBACK sentinel not found in SUT (fallback not implemented or marker missing)"
   fi
 fi
 
