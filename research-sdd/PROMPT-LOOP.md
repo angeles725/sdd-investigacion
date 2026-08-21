@@ -514,9 +514,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS
          device) → the TARGET's corpus (`$CORPUS`), like any block.
        - REUSABLE TOOLCHAIN / environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step — useful
-         across ANY target) → the KIT: write it under `$KIT/toolbelt/` and REGISTER it in
-         `$KIT/toolbelt/tool-registry.md`, PLUS an Engram pointer. (The browser-appliance and serial bring-up
-         how-tos in `$KIT/toolbelt/DYNAMIC-SETUP.md` are exactly what this toolchain routing produces.)
+         across ANY target) → PROPOSE to the kit: record it in the §18 retro TOOLS section as a `promote`
+         (new toolbelt file) or `absorb` (delta into an existing kit file) candidate, PLUS an Engram pointer
+         so it is recall-findable immediately. The supervisor writes it to `$KIT/toolbelt/` and registers it
+         in `$KIT/toolbelt/tool-registry.md` after the run — kit changes are never applied from inside a run
+         (§18 propose-never-apply). (The browser-appliance and serial bring-up how-tos in
+         `$KIT/toolbelt/DYNAMIC-SETUP.md` are the kind of toolchain how-tos this routing eventually produces.)
   4. SELF-VERIFY: run `$KIT/toolbelt/verify-block.sh <block>` and the load-bearing token-check — the SAME
      gate as NORMAL CYCLE step 5. Procedure blocks preserve their probe evidence under `sources/probes/`
      (`[CERT-hw]` / `[CERT-live]`), same as §12.
@@ -528,7 +531,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      is NOT done.
   6. PRODUCE THE DELIVERABLE: besides the cited blocks, write the human-readable product —
      `HOWTO-<x>.md` / `SETUP-<x>.md` / `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain
-     deliverables under `$KIT/toolbelt/`). For REFERENCE-MANUAL corpora (a corpus whose blocks
+     deliverables are PROPOSED via the §18 retro TOOLS section and land in `$KIT/toolbelt/` only after
+     the supervisor acts). For REFERENCE-MANUAL corpora (a corpus whose blocks
      document a large API/SDK/protocol), also produce COMPANION REFERENCE ARTIFACTS: a cheat sheet
      (most-used paths on one page), a glossary, a symbol-to-chapter keyword index, and optionally a
      single-file full-manual build. These are not blocks and carry no evidence markers — they are

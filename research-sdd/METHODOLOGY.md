@@ -1953,9 +1953,12 @@ call: ask "does this knowledge serve OTHER targets too?"
 - Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS device) →
   the TARGET's corpus (`$CORPUS`), like any block.
 - REUSABLE toolchain / environment knowledge (how to bring up Ghidra, how to use bkcrack, a WSL setup step —
-  useful across ANY target) → the KIT: `toolbelt/` + a registration in `toolbelt/tool-registry.md`, PLUS an
-  Engram pointer. The browser-appliance and serial bring-up how-tos in `toolbelt/DYNAMIC-SETUP.md` are
-  exactly the toolchain how-tos this routing produces.
+  useful across ANY target) → PROPOSE to the kit: record it in the §18 retro TOOLS section as a `promote`
+  (new toolbelt file) or `absorb` (delta into an existing kit file) candidate, PLUS an Engram pointer so it
+  is recall-findable immediately. The supervisor writes it to `toolbelt/` and registers it in
+  `toolbelt/tool-registry.md` after the run — kit changes are never applied from inside a run
+  (§18 propose-never-apply). The browser-appliance and serial bring-up how-tos in `toolbelt/DYNAMIC-SETUP.md`
+  are the kind of toolchain how-tos this routing eventually produces.
 
 **Mandatory Engram mirror (the reason the mode exists).** Everything documented MUST be mirrored to Engram as
 topic pointers so it stays recall-findable — subject knowledge under `research/<target>/<topic>`, toolchain
@@ -1967,8 +1970,9 @@ item with no Engram pointer is not done.
 **RESEARCH-STATE for corpora produced outside the loop.** When a corpus is authored by a bespoke multi-agent workflow rather than the standard PROMPT-LOOP (§2), a RESEARCH-STATE initialized at bootstrap but never iterated shows stale counts and triggers false-positive alerts from `sweep-retros.sh` and `verify-registry.sh`. Two valid approaches: **(a) do NOT initialize RESEARCH-STATE** — a missing state file is unambiguous (kit tools read it as not-started, which is accurate); OR **(b) initialize with `method: document-cycle-external`** in the state envelope — tools that inspect this field can distinguish it from an abandoned loop corpus and suppress false-positive missing-iteration alerts. Either is correct; what is wrong is a loop-format RESEARCH-STATE left at template-placeholder values while the corpus holds a different block count — that is the instrument reporting 0 when it has not actually looked.
 
 **Product.** Besides the cited blocks, document mode yields a human-readable deliverable — `HOWTO-<x>.md`,
-`SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`, toolchain deliverables under
-`toolbelt/`). Same `verify-block` gate as the static loop; STOP when the outline is covered.
+`SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain deliverables are PROPOSED
+via the §18 retro TOOLS section and land in `toolbelt/` only after the supervisor acts). Same `verify-block`
+gate as the static loop; STOP when the outline is covered.
 
 **STATUS (honest, do not oversell).** The DOCUMENT CYCLE is fully specified (SKILL.md + PROMPT-LOOP's DOCUMENT
 CYCLE) but has NOT been exercised end-to-end THROUGH the skill's `document` sub-command on a real target: its
