@@ -61,7 +61,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 |---|---|
 | Java 21 + `javap` | resolved by `lib/tool-env.sh` (`JAVA_HOME` → `RESEARCH_SDD_JAVA_HOME` → stable Homebrew `opt` → distro JVM) |
 | Vineflower / CFR / Procyon | `*_JAR` → legacy env override → `RESEARCH_SDD_TOOL_HOME/java` → portable `$HOME` locations |
-| `ilspycmd` | `/home/cristian/.dotnet/tools/ilspycmd` |
+| `ilspycmd` | `ILSPYCMD` → PATH → portable `$HOME/.dotnet/tools/ilspycmd` |
 | Ghidra `analyzeHeadless` | `ANALYZE_HEADLESS` → `GHIDRA_HOME` → `GHIDRA_INSTALL_DIR` → PATH → stable Homebrew `opt` → `/opt/ghidra*` |
 | `radare2` / `objdump` / `readelf` / `nm` / `strings` | in PATH |
 | `binwalk` | `/usr/bin/binwalk` |

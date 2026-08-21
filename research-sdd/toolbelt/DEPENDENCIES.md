@@ -82,10 +82,11 @@ validates the resolved JAR structurally (correct expected class entry, archive
 integrity via `unzip`) without executing it. `corroborate-java.sh:15-24` uses
 exactly this resolver + probe pair.
 
-**`ilspycmd`** resolves via the `ILSPYCMD` env var, falling back to a literal
-absolute path hardcoded in `decompile-net.sh:11` (currently a `.dotnet/tools`
-path under a specific home directory — not `$HOME`-relative, so the override is
-required on any other machine). `decompile-net.sh` exports
+**`ilspycmd`** resolves via `rsdd_resolve_ilspy` in `lib/tool-env.sh`: the
+`ILSPYCMD` env var (authoritative — treated as unusable if set but not
+executable, never silently masked), then a PATH lookup, then the portable
+`$HOME/.dotnet/tools/ilspycmd` default (the `dotnet tool install -g` location —
+`$HOME`-relative, so no per-machine path is baked in). `decompile-net.sh` exports
 `DOTNET_ROLL_FORWARD=Major` so ilspycmd (targeting net6.0) rolls forward to
 the installed .NET 8 runtime. `detect-tools.sh`'s smoke test omits that env
 var and therefore reports UNUSABLE — the tool is functional via the script.
