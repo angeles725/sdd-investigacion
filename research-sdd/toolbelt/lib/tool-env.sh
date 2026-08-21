@@ -200,3 +200,32 @@ rsdd_file_sha256() {
   output="$(rsdd_capture_probe "$sha_bin" "$file")" || return 1
   printf '%s\n' "${output%% *}"
 }
+
+rsdd_resolve_ilspy() {
+  local candidate
+  # An explicit override is authoritative. Set-but-not-executable means unusable;
+  # do NOT fall through — same discipline as the *_JAR resolvers, so a typo is
+  # never silently masked by a different installation.
+  if [[ -v ILSPYCMD ]]; then
+    [ -x "$ILSPYCMD" ] || return 1
+    printf '%s\n' "$ILSPYCMD"
+    return 0
+  fi
+  # PATH lookup: dotnet tool install -g adds $HOME/.dotnet/tools to PATH when
+  # configured, so a user who ran `dotnet tool install -g ilspycmd` may have it
+  # on PATH already.
+  candidate="$(command -v ilspycmd 2>/dev/null || true)"
+  if [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  # Portable default: dotnet tool install -g always places tools under
+  # $HOME/.dotnet/tools regardless of PATH configuration — never a hardcoded
+  # per-user absolute path.
+  candidate="$HOME/.dotnet/tools/ilspycmd"
+  if [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  return 1
+}

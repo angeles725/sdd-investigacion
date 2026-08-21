@@ -8,8 +8,11 @@
 #   decompile-net.sh --il <in.dll> <out-dir>            # dump IL instead of C#
 set -euo pipefail
 
-ILSPY="${ILSPYCMD:-/home/cristian/.dotnet/tools/ilspycmd}"
-[ -x "$ILSPY" ] || { echo "ilspycmd not found at $ILSPY (install: dotnet tool install -g ilspycmd)" >&2; exit 3; }
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/tool-env.sh
+source "$HERE/lib/tool-env.sh"
+
+ILSPY="$(rsdd_resolve_ilspy)" || { echo "ilspycmd not found (set ILSPYCMD, add to PATH, or: dotnet tool install -g ilspycmd)" >&2; exit 3; }
 # ilspycmd 8.2.0 targets net6.0; the system only has runtime 8 (net6 is EOL).
 # Roll-forward to the highest available runtime instead of installing an old .NET.
 export DOTNET_ROLL_FORWARD="${DOTNET_ROLL_FORWARD:-Major}"
