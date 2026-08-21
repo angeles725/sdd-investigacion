@@ -1285,6 +1285,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   confirmation. Related: absence of ICMP/TCP response is not absence of device — embedded controllers may
   speak Ethernet layer 2 and legitimately never answer IP; confirm absence via network infrastructure
   tables (`Stale` + ping failure + no ICMP-filtered `Reachable`), not via a ping sweep alone.
+- **Probe output ≠ protocol acceptance.** A connection banner (e.g. openssl `CONNECTED`) records a TRANSPORT handshake, not server-side protocol or version acceptance; re-derive before escalating (PROMPT-LOOP.md HARD RULES → RE-MEASURE A DRAMATIC POSITIVE).
 - **Re-measure ground-truth, never inherit it.** When entering a dynamic/hardware phase (or any new
   live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids — LIVE
   from the real system in THIS phase. Do NOT cite them from a prior note or earlier block: an inherited
