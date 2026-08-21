@@ -608,6 +608,20 @@ carry a `tried:` field — the alternatives enumerated and the measurement that 
 `verify-state.sh` checks for its presence the same way it checks the `needs:` clause. A `blocked` entry
 with no `tried:` is an unfinished gap: it bounds one path, not the question. (The backlog rarely empties — each block uncovers 1-4 new gaps; exhaustion of the
    *read-only* subset is the real terminator.)
+
+**`blocked-by-design` vs `blocked-on-live-arrival`.** Two sub-types of `blocked` carry different resolutions:
+- **`blocked-by-design`**: the target has NO remote/live surface by design — an air-gapped kiosk, a device
+  with an internal all-block firewall, LOCAL-ONLY management. "Hardware arrival" (§12) can NEVER reclassify
+  these; the block is terminal for that channel. Record as static-only and do not re-attempt remotely.
+- **`blocked-on-live-arrival`**: a live surface EXISTS but is not reachable YET — pending hardware delivery,
+  network access, or credentials. These ARE candidates for §12 reclassification when access appears. The
+  discriminator is whether access can EVER arrive, not whether a surface exists: a surface with no credible
+  path to future access (permanent credential-lock, revoked NDA) is `blocked-by-design`-terminal despite
+  existing.
+Distinguish the two in the `tried:` clause: the evidence already describes WHY each alternative was ruled
+out; naming the sub-type tells a future reader whether to await hardware or treat the gap as permanently
+static-only.
+
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
 
@@ -1316,7 +1330,8 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   value may be stale. B66-B69 carried a bench-program checksum `05 3d 6e e4` inherited from an earlier
   probe; the live value was `0x87B961A9` (only B70 measured it live), which forced a correction (§14).
 - **Reclassify on hardware arrival.** Gaps marked `blocked` (§8) flip to investigable when the live
-  system appears — update RESEARCH-STATE and re-run those.
+  system appears — update RESEARCH-STATE and re-run those. Exception: `blocked-by-design` gaps (§8 — no
+  live surface by design) never reclassify, even on hardware arrival.
 - **Reclassify on tool WITHDRAWAL.** The mirror of hardware arrival: when the tool/access/host a gap
   depends on is WITHDRAWN (a live session ends, a scoped grant expires, a tool is uninstalled), flip its
   gaps investigable→blocked in the SAME pass — update RESEARCH-STATE and re-run the §8 investigable
