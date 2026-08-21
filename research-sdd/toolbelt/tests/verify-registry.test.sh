@@ -783,8 +783,11 @@ VRT2STRIPPED
     no "teeth VR-T2: stripped mutant still reconciled 1 target — case 21 is THEATER" "rc=$mrc_t2 out=[$mout_t2]"
   fi
 
-  # teeth-VR-T3: remove the zero-paths guard → case 22 must exit 0 with Summary (no ERROR).
-  echo "-- teeth VR-T3: remove zero-paths guard; empty-paths run must show Summary not ERROR (case 22 has teeth) --"
+  # teeth-VR-T3: remove the zero-paths guard → case 22 must lose its specific "no usable target
+  # paths" message. With the guard removed, the script now hits the ALL-ABSENT-CHECK (dir_reached=0
+  # after the empty-paths loop) → exits 1, emitting a different ERROR. Test 22 asserts exit 0 +
+  # the specific "no usable target paths" message; both fail on this mutant → test 22 has teeth.
+  echo "-- teeth VR-T3: remove zero-paths guard; 'no usable target paths' msg must vanish (case 22 has teeth) --"
   _vr_zp_anchor='if \[ -z "\$paths" \]; then'
   if ! grep -qE "$_vr_zp_anchor" "$SUT"; then
     no "teeth VR-T3: locate zero-paths guard in SUT" "anchor not found — SUT drifted?"
@@ -794,10 +797,12 @@ VRT2STRIPPED
       > "$kit/TARGETS.md"
     sed '/if \[ -z "\$paths" \]/,/^fi$/d' "$SUT" > "$kit/toolbelt/verify-registry.sh"
     mout_t3="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; mrc_t3=$?
-    if [ "$mrc_t3" = 0 ] && grep -q 'Summary:' <<<"$mout_t3" && ! grep -qi 'ERROR.*no usable' <<<"$mout_t3"; then
-      ok "teeth VR-T3: guard-removed mutant exits 0 with Summary (case 22 has teeth)" "()"
+    # The mutant no longer emits "no usable target paths" (zero-paths guard gone); instead
+    # ALL-ABSENT-CHECK fires. Test 22's `[ "$RC" = 0 ]` and specific-message assertions both fail.
+    if ! grep -qi 'ERROR.*no usable target paths' <<<"$mout_t3"; then
+      ok "teeth VR-T3: guard-removed mutant lacks 'no usable target paths' msg (case 22 has teeth)" "(exit $mrc_t3)"
     else
-      no "teeth VR-T3: guard-removed mutant did not show Summary without ERROR — case 22 has no teeth" "rc=$mrc_t3 out=[$mout_t3]"
+      no "teeth VR-T3: guard-removed mutant still shows 'no usable target paths' msg — case 22 has no teeth" "rc=$mrc_t3 out=[$mout_t3]"
     fi
   fi
 
@@ -1580,6 +1585,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "M-pairs: VR-TP-PAIRS-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  fi
+fi
+
+# 50 — ALL-ABSENT OPERATIONAL FAILURE: TARGETS.md has backtick paths but every resolved path is
+#      a non-existent directory. paths IS non-empty (passes the [ -z "$paths" ] guard), but the
+#      per-target [ -d ] check skips every entry, leaving checked == 0 and dir_reached == 0.
+#      Current code exits 0 with "Registry consistent with reality" — a false PASS (§7).
+#      After fix: exit 1 AND no "consistent with reality" in output.
+#      RED before fix: exits 0 + "consistent".
+kit="$(mkkit c50-all-absent)"
+nonexistent50="$kit/corpus-that-does-not-exist"
+write_targets "$kit" "$nonexistent50::5 md"
+run "$kit"
+if [ "$RC" = 1 ] \
+   && ! grep -qi 'consistent with reality' <<<"$OUT"; then
+  ok "50 all paths absent → exit 1, no 'consistent' (anti-silent-zero operational)" "(exit $RC)"
+else
+  no "50 all paths absent → should exit 1 but got exit 0 + 'consistent' (DEFECT)" "exit=$RC out=[$OUT]"
+fi
+
+# 51 — REGRESSION GUARD: at least one path reconciles → exit 0, normal verdict. The new guard
+#      must NOT over-fire when dir_reached >= 1 (i.e. when at least one dir exists on disk).
+#      Passes before AND after the fix (regression guard, not a RED case).
+kit="$(mkkit c51-one-reconciles)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 4 "a"
+write_targets "$kit" "$tgt::4 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'Registry consistent with reality' <<<"$OUT" \
+   && grep -q 'reconciled 1 target' <<<"$OUT"; then
+  ok "51 one target reconciles → exit 0 + normal verdict (guard does not over-fire)" "(exit $RC)"
+else
+  no "51 one reconciled target → regression guard failed" "exit=$RC out=[$OUT]"
+fi
+
+# ---- TEETH for all-absent guard (test 50) -----------------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-all-absent: neuter ALL-ABSENT-CHECK (exit 1 → exit 0); the all-absent fixture must exit 0,
+  # proving test 50 depends on the real guard and is not vacuously green.
+  echo "-- teeth-all-absent: neuter ALL-ABSENT-CHECK; all-absent fixture must exit 0 (test 50 RED) --"
+  kit="$(mkkit teeth-all-absent)"
+  nonexistent_t="$kit/corpus-that-does-not-exist"
+  write_targets "$kit" "$nonexistent_t::5 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# ALL-ABSENT-CHECK' "$mut"; then
+    sed -i '/# ALL-ABSENT-CHECK/ s/exit 1/exit 0/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ]; then
+      ok "teeth-all-absent: neutered guard → all-absent exits 0 (test 50 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-all-absent: neutered mutant still exits non-zero → test 50 has no teeth" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-all-absent: ALL-ABSENT-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
   fi
 fi
 

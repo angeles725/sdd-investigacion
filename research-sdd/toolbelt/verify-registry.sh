@@ -85,7 +85,7 @@ done
 # backtick path, so a backtick path resolves to exactly one row.)
 bt='`'
 
-checked=0; drift=0; retro_drift=0; unresolved=0
+checked=0; drift=0; retro_drift=0; unresolved=0; dir_reached=0
 
 for p in $paths; do
   [ -n "$p" ] || continue
@@ -104,6 +104,7 @@ for p in $paths; do
   # `/mrdoob/three.js` in the three.js row) that match the `/...` shape but are not corpora. Only the
   # truncated-'...' PARTIAL WARN reports "couldn't check"; a bare non-dir token is just not a corpus.
   [ -d "$p" ] || continue
+  dir_reached=$((dir_reached + 1))
 
   # MATURITY PARENTHETICAL EXTRACTION: find the FIRST '(...)' in the row — always the maturity-field
   # parenthetical. Using the whole row (not a fixed column index) makes this column-order-agnostic:
@@ -384,6 +385,19 @@ for p in $paths; do
     fi
   fi
 done
+
+# ANTI-SILENT-ZERO (all-absent guard): paths was non-empty but no registered path exists as a
+# directory on disk. Every backtick token resolved to an absent or non-directory path — the most
+# common cause is a wrong RESEARCH_HOME that doubles a path segment. This is an OPERATIONAL
+# FAILURE (§7): a zero dir_reached from a non-empty path list means the instrument looked at
+# nothing, so "Registry consistent with reality" would be a false PASS. Distinct from the case
+# where dirs EXIST but lack corpus state — in that case dir_reached >= 1, advisory WARNs fire, and
+# the exit stays 0. This guard covers only the absent-dir case (dir_reached == 0).
+if [ "$dir_reached" -eq 0 ]; then
+  echo "verify-registry: ERROR — no registered corpus path exists as a directory on disk." >&2
+  echo "verify-registry: Check RESEARCH_HOME (${RESEARCH_HOME:-(unset)}) and that corpora exist at the registered paths." >&2
+  exit 1  # ALL-ABSENT-CHECK
+fi
 
 # --- Master-table ROW HYGIENE lint (WARN-only) --------------------------------------------------------
 # CONVENTION (TARGETS.md legend): a master-table row is ONE scannable line per target
