@@ -198,6 +198,16 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      row of the block it gated — step 6), exactly as the model tier is persisted: authoring is gated on
      `CERTIFIABLE-NOW`, so the verdict must be auditable after the session, not left implicit in the transcript.
      See METHODOLOGY §13.
+  e4. PDF-HEAVY / DOCUMENTATION TARGET: if the corpus is primarily PRESERVED PDFs (manuals fetched
+     via `fetch-doc.sh` or already on disk in `sources/manuals/`), run
+     `$KIT/toolbelt/extract-pdf.sh` over the preserved PDFs BEFORE authoring block 1 — so
+     page-anchored `.md` exists in `sources/extracted/` from the start (a documentation corpus IS the
+     pages; range-limit per NORMAL CYCLE step 3 once gaps narrow). Without this step no page-anchored
+     `.md` exists and blocks fall back to unstable `L<n>` line citations (or an ad-hoc flat
+     `pdftotext` dump) instead of citable `sources/...pdf :p.N` anchors (lesson: WEB-HMI10-CF — 16
+     non-page-anchored citations across 9 blocks). Not applicable to targets with no PDFs; a mixed
+     corpus still extracts its PDFs at NORMAL CYCLE step 3, which also holds the extraction rules,
+     range guidance, and citation format.
   f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
