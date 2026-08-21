@@ -443,6 +443,16 @@ if [ "$mode" = "--next" ]; then
       # field → real STALE; stopped focus (parseable + d_inv=0) → skip (forgive stale envelope).
       mapfile -t _stale_chk < <(list_state_files "$target")
       _any_real_stale=0  # N194-STOPPED-BYPASS
+      # Bypass scope: multi-focus only. A stopped focus must have an active sibling to fall through
+      # to; a single-focus corpus with a failing verify-state has no such sibling and must always
+      # surface as STALE. This also prevents BPSKIP-form priorities (strikethrough, em-dash,
+      # qualifier) from driving count_investigable to 0 and being mistaken for a legitimate stop:
+      # in a single-focus corpus the ONLY way d_inv=0 is trustworthy is with a clean verify-state,
+      # which would have passed above and never reached this bypass path.
+      if [ "${#_stale_chk[@]}" -lt 2 ]; then
+        echo "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh $target"
+        exit 0
+      fi
       for state in "${_stale_chk[@]}"; do
         # Unparseable backlog is always a real failure (concealment hazard, mirrors BP-INVALID-PRIORITY-FAIL).
         if backlog_rows 2>/dev/null | grep -q '^INVALID_PRIORITY'; then
