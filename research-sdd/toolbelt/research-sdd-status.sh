@@ -179,7 +179,8 @@ backlog_rows() {
   # An unknown priority value emits a diagnostic to stderr AND a INVALID_PRIORITY<TAB><value> sentinel
   # to stdout. Callers that care check for the sentinel; callers that don't (derive_investigable etc.)
   # safely ignore the 2-field sentinel line. Silently skips: deferred (parked), strikethrough (~~p~~),
-  # em-dash (—), and qualifier forms (e.g. "high (context)"). An unknown qualifier BASE fails closed.
+  # em-dash (—). Qualifier forms (e.g. "high (context)") emit a provisional WARN to stderr naming the
+  # canonical stripped base and are still excluded. An unknown qualifier BASE fails closed.
   awk '
     /^## Gap-backlog/ { in_backlog=1; in_data=0; next }
     /^## / { in_backlog=0; in_data=0; next }
@@ -193,8 +194,8 @@ backlog_rows() {
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
       base=p; sub(/ *\([^)]*\)$/, "", base)
-      if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base silently skips; else fail closed
-        if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }
+      if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base emits WARN to stderr, still excluded; else fail closed
+        if (base=="high" || base=="medium" || base=="low" || base=="deferred") { if (in_backlog && in_data) print "WARN: non-conforming qualifier priority [" p "] — strip the qualifier to \"" base "\" per METHODOLOGY §8b; row excluded from investigable_open until migrated" > "/dev/stderr"; next }  # BP-QUALIFIER-WARN
         if (in_backlog && in_data) {
           print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
           print "INVALID_PRIORITY\t" p

@@ -53,8 +53,9 @@ _section()      { awk -v h="$2" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$1"; }
 _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col rows; INVALID_PRIORITY<TAB><val>
   # for unknown priority values. Callers that derive counts safely ignore the 2-field sentinel (field 3
   # absent so no count fires); the per-state backlog parse check below treats INVALID_PRIORITY as FAIL.
-  # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—), qualifier forms ("high (ctx)").
-  # An unknown qualifier BASE still fails closed. Mirrors backlog_rows() in status.sh exactly.
+  # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—). Qualifier forms ("high (ctx)")
+  # emit a provisional WARN to stderr and are still excluded. Unknown qualifier BASE fails closed.
+  # Mirrors backlog_rows() in status.sh exactly.
   awk '
     /^## Gap-backlog/ { in_backlog=1; in_data=0; next }
     /^## / { in_backlog=0; in_data=0; next }
@@ -68,8 +69,8 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
       base=p; sub(/ *\([^)]*\)$/, "", base)
-      if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base silently skips; else fail closed
-        if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }
+      if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base emits WARN to stderr, still excluded; else fail closed
+        if (base=="high" || base=="medium" || base=="low" || base=="deferred") { if (in_backlog && in_data) print "WARN: non-conforming qualifier priority [" p "] — strip the qualifier to \"" base "\" per METHODOLOGY §8b; row excluded from investigable_open until migrated" > "/dev/stderr"; next }  # BP-QUALIFIER-WARN
         if (in_backlog && in_data) {
           print "backlog: unknown priority [" p "] in row: " $0 > "/dev/stderr"
           print "INVALID_PRIORITY\t" p
@@ -83,7 +84,7 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
         }
         next
       }
-      if (n!=4) next
+      if (n!=4) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr"; next }  # VS-N4-WARN
       print p "\t" a[2] "\t" tolower(a[4]) }' "$1"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;

@@ -1154,15 +1154,36 @@ if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
 else no "BP-deferred: exit $(code "$d") (want 0) :: $(grep -iE 'fail|deferred|ok ' <<<"$out" | head -1)"; fi
 
 # ---- Issue #143 corpus vocabulary: strikethrough / qualifier / em-dash skip forms ----
-# Real-corpus forms silently skipped; invalid qualifier base still fails closed (not an escape hatch).
+# Real-corpus forms excluded; qualifier forms emit a provisional WARN to stderr naming the stripped base.
+# Invalid qualifier base still fails closed (not an escape hatch).
 
 # BP-strikethrough — '~~high~~' silently skipped (nave-panccadia 24 rows, computadoras 8 rows).
 mk_vocab_fixture "$TMP/bp-strikethrough" '~~high~~' 'resolved gap' 'web' '~~covered~~'
 chk_skip_ok "$TMP/bp-strikethrough" "BP-strikethrough: '~~high~~' (strikethrough) silently skipped — NOT flagged"
 
-# BP-qualifier — 'high (cross-vibra)' (valid-base qualifier) silently skipped (pruebas-dashboards 21, three.js 1).
+# BP-qualifier — 'high (cross-vibra)' (valid-base qualifier) excluded (pruebas-dashboards 21, three.js 1).
 mk_vocab_fixture "$TMP/bp-qualifier" 'high (cross-vibra)' 'vibra gap' 'web' 'pending (cross-vibra)'
-chk_skip_ok "$TMP/bp-qualifier" "BP-qualifier: 'high (cross-vibra)' (valid-base qualifier) silently skipped — NOT flagged"
+chk_skip_ok "$TMP/bp-qualifier" "BP-qualifier: 'high (cross-vibra)' (valid-base qualifier) excluded — exit 0, no INVALID_PRIORITY"
+# BP-qualifier-warn — same fixture: qualifier row must emit a provisional WARN to stderr naming stripped base 'high'.
+warn_bpq="$(bash "$SUT" "$TMP/bp-qualifier" 2>&1 >/dev/null)"
+grep -qE 'WARN.*non-conforming qualifier.*high' <<<"$warn_bpq" \
+  && ok "BP-qualifier-warn: qualifier row emits WARN to stderr naming base 'high'" \
+  || no "BP-qualifier-warn: no WARN emitted — got [$warn_bpq]"
+
+# n!=4-warn — a backlog row with an in-cell pipe (n=5) must emit WARN to stderr, parity with status.sh:211.
+d="$TMP/n4-warn"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env10 0 0 0 0 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | compare A | B render paths | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+warn_n4="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+grep -qiE 'WARN.*malformed backlog row' <<<"$warn_n4" \
+  && ok "n!=4-warn: in-cell-pipe row emits WARN to stderr (parity with status.sh)" \
+  || no "n!=4-warn: no WARN on n!=4 row — got [$warn_n4]"
 
 # BP-em-dash — '—' (em-dash placeholder) silently skipped (hifref 2 rows).
 mk_vocab_fixture "$TMP/bp-em-dash" '—' 'placeholder' '—' '—'
@@ -1591,6 +1612,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   chk_bpskip_tooth "strikethrough" "BPSKIP-STRIKETHROUGH" '/BPSKIP-STRIKETHROUGH/s/if (p~/if (0 ~/' "$TMP/bp-strikethrough" 1
   chk_bpskip_tooth "em-dash"       "BPSKIP-EMDASH"        '/BPSKIP-EMDASH/s/if (p~/if (0 ~/'        "$TMP/bp-em-dash"       1
   chk_bpskip_tooth "qualifier"     "BPSKIP-QUALIFIER"      '/BPSKIP-QUALIFIER/s/if (base != p)/if (0)/' "$TMP/bp-qualifier" 1
+  # teeth-BP-qualifier-warn: remove BP-QUALIFIER-WARN line → BP-qualifier-warn must go red (no WARN emitted).
+  echo "-- teeth-BP-qualifier-warn: remove WARN print; qualifier fixture must emit no WARN --"
+  bpqw_mutant="$TMP/verify-state.bpqw.MUTANT.sh"
+  sed '/# BP-QUALIFIER-WARN/d' "$SUT" > "$bpqw_mutant"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  warn_bpqm="$(bash "$bpqw_mutant" "$TMP/bp-qualifier" 2>&1 >/dev/null)"
+  if ! grep -qE 'WARN.*non-conforming qualifier' <<<"$warn_bpqm"; then
+    ok "teeth-BP-qualifier-warn: WARN-removed mutant emits no WARN — qualifier WARN assertion has teeth"
+  else
+    no "teeth-BP-qualifier-warn: mutant still emitted WARN — THEATER"
+  fi
+  # teeth-n4-warn: silence the n!=4 WARN → n!=4-warn must go red (no WARN emitted).
+  echo "-- teeth-n4-warn: silence VS-N4-WARN line; n4 fixture must emit no WARN --"
+  n4w_mutant="$TMP/verify-state.n4w.MUTANT.sh"
+  sed '/# VS-N4-WARN/s/.*/      if (n!=4) { next }  # MUTANT-N4/' "$SUT" > "$n4w_mutant"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  warn_n4m="$(bash "$n4w_mutant" "$TMP/n4-warn" 2>&1 >/dev/null)"
+  if ! grep -qiE 'WARN.*malformed backlog row' <<<"$warn_n4m"; then
+    ok "teeth-n4-warn: n!=4-WARN-silenced mutant emits no WARN — n4 WARN assertion has teeth"
+  else
+    no "teeth-n4-warn: mutant still emitted WARN — THEATER"
+  fi
   cp "$TMP/verify-state.strikethrough.MUTANT.sh" "$TMP/verify-state.sh"  # Propagation: copy-2 mutant → status --next must return STALE
   cp "$HERE/../research-sdd-status.sh" "$TMP/status.VS-PROP.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   _pst="$(bash "$TMP/status.VS-PROP.sh" "$TMP/bp-strikethrough" --next 2>/dev/null)"
@@ -1606,7 +1647,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-BP-qualifier-invalid: explicit (needs MUTANT-QV build-check); accept-all-bases → hight(x) false-passes.
   echo "-- teeth-BP-qualifier-invalid: accept-all-bases mutant; hight(x) must false-pass (exit 0) --"
   if grep -q 'BPSKIP-QUALIFIER' "$SUT"; then
-    sed 's/if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }/if (1) { next }  # MUTANT-QV/' \
+    sed '/# BP-QUALIFIER-WARN/s/if (base=="high" || base=="medium" || base=="low" || base=="deferred") {/if (1) {  # MUTANT-QV/' \
       "$SUT" > "$TMP/verify-state.QV.MUTANT.sh"
     if ! grep -q 'MUTANT-QV' "$TMP/verify-state.QV.MUTANT.sh"; then
       no "teeth-BP-qualifier-invalid: could not build accept-all-bases mutant (base-validity line not found)"
