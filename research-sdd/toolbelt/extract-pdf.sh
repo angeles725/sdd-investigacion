@@ -101,6 +101,11 @@ HAS_TEXT=0
 # CMap is broken (classic UTF-8-as-Latin-1 double-encoding or absent mapping).
 # The garbage layer is treated as Tier 2: re-render rather than return garbage.
 # An explicit --engine override bypasses this check intentionally.
+# LIMITATION: this assumes a Latin-script corpus. A VALID non-Latin text layer
+# (CJK/Cyrillic/Arabic) also has zero ASCII letters and would be misrouted to
+# re-render. The fleet is English/Spanish (Latin) so incidence is nil; refine
+# the heuristic (e.g. detect U+FFFD / control-char density) if non-Latin PDFs
+# are ever added.
 IS_MOJIBAKE=0
 if [ "$HAS_TEXT" -eq 1 ] && [ -z "$ENGINE" ]; then
   _ascii_count="$(tr -cd 'A-Za-z0-9' < "$_probe_tmp" | wc -c | tr -d ' ')"
