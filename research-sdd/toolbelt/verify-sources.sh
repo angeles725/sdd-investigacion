@@ -168,6 +168,35 @@ if [ -f "$sources_md" ]; then
     done
   done < "$sources_md"
   [ "$cited" -gt 0 ] && echo "-- cross-checked $cited registry→block citation claim(s) against block content"
+  # LEVEL-4-ANTI-SILENT-ZERO — §7 three-state discipline: cited=0 must prove it looked.
+  # Distinct states: (a) registry empty (rows=0) → nothing to cross-check → no WARN;
+  # (b) registry populated AND no block cites any source on disk → nothing to cross-check → no WARN;
+  # (c) registry populated AND blocks DO cite preserved sources on disk, but ALL "cite it"
+  #     cells are blank → cross-check silently skipped → fabrication is UNCHECKED → WARN.
+  if [ "$cited" -eq 0 ] && [ "${rows:-0}" -gt 0 ]; then   # L4-SILENT-ZERO-GUARD
+    # Divergence-free probe: use the SAME match mechanism as LEVEL-4's positive check (grep -qF)
+    # but derive basenames from FILES ON DISK in sources/ — not from SOURCES.md rows (which may
+    # be a never-back-filled scaffold). Eliminates extension-whitelist drift: any preserved file
+    # extension triggers detection. SOURCES.md itself is excluded; it is not a preserved source.
+    # Three states: (a) rows=0 → no WARN (guarded above); (b) rows>0, no on-disk source's
+    # basename appears in any block → no WARN; (c) rows>0, ≥1 on-disk source's basename
+    # appears in a block AND cited=0 → WARN.
+    _l4_disk_cites=""
+    while IFS= read -r _l4_f; do
+      [ -z "$_l4_f" ] && continue
+      _l4_base="$(basename "$_l4_f")"
+      [ -z "$_l4_base" ] && continue
+      for _l4_bf in "$corpus"/*.md; do
+        [ -f "$_l4_bf" ] || continue
+        if grep -qF "$_l4_base" "$_l4_bf" 2>/dev/null; then   # L4-PROBE-MATCH: same grep -qF as LEVEL-4 line 162
+          _l4_disk_cites="$_l4_base"; break 2
+        fi
+      done
+    done < <(find "$corpus/sources" -type f -not -name 'SOURCES.md' 2>/dev/null)
+    if [ -n "$_l4_disk_cites" ]; then
+      echo '   WARN: LEVEL-4 fabricated-citation cross-check ran on 0 declared block citations — no parseable B<n> reference in any "Blocks that cite it" cell — but blocks cite preserved sources on disk, so fabrication is UNCHECKED for this corpus.'
+    fi
+  fi
 fi
 
 # LEVEL 3 — sources/ paths cited in blocks must exist on disk.

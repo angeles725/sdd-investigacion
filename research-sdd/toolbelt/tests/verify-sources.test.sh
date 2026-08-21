@@ -785,6 +785,49 @@ grep -qE 'WARN.*malformed' <<<"$out" \
   || { printf '  FAIL  %-42s (malformed WARN missing)\n' "L6-ASYM-FEW-PIPE: malformed WARN present"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# L4-UNPOPULATED-BCELL — §7 anti-silent-zero: SOURCES.md has ≥1 registered row, ALL rows have a
+#   blank "Blocks that cite it" cell, AND ≥1 block cites a preserved sources/ path on disk.
+#   LEVEL-4 cross-check ran on 0 declared citations despite real block→source cites existing.
+#   The script must WARN that fabrication is UNCHECKED. (RED-FIRST: before the fix, this WARN is absent.)
+d="$TMP/l4-unpopulated-bcell"; mkdir -p "$d/sources"
+block "$d/up-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/ds.pdf §1 — cites a preserved datasheet.'
+: > "$d/sources/ds.pdf"
+sources_registry "$d" '| ds.pdf | datasheet | http://x | 2026-01-01 | abcd123 |  |'
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$out" \
+  && { printf '  PASS  %-42s (WARN emitted for unpopulated bcell)\n' "L4-UNPOPULATED-BCELL: WARN present"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (WARN absent — §7 silent-disable bug)\n' "L4-UNPOPULATED-BCELL: WARN present"; fail=$((fail+1)); }
+
+# NEGATIVE GUARD: L4-NO-DISK-CITES — SOURCES.md has rows AND blank "Blocks that cite it" cells,
+#   but NO block cites any sources/ path on disk → nothing to cross-check → WARN must NOT appear.
+#   With the divergence-free probe: "ds.pdf" does not appear in the block body → probe finds
+#   no match → no WARN. (Tests the (b) state of the three-state discipline.)
+d="$TMP/l4-no-disk-cites"; mkdir -p "$d/sources"
+block "$d/nd-block1.md" '# Block 1' '## 1.1 [CERT] file.c:1 — purely local claim, no sources/ reference.'
+: > "$d/sources/ds.pdf"
+sources_registry "$d" '| ds.pdf | datasheet | http://x | 2026-01-01 | abcd123 |  |'
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$out" \
+  && { printf '  FAIL  %-42s (spurious WARN fired — over-warning)\n' "L4-NO-DISK-CITES: no spurious WARN"; fail=$((fail+1)); } \
+  || { printf '  PASS  %-42s (no spurious WARN when no block cites sources)\n' "L4-NO-DISK-CITES: no spurious WARN"; pass=$((pass+1)); }
+
+# L4-NONWHITELIST-EXT — Defect 1: the disk-cite probe must use the same match mechanism as
+#   LEVEL-4's positive check. The OLD probe used a grep extension whitelist (.pdf|.md|…) that
+#   misses non-whitelisted extensions (.py, .png, .mib, …). A block citing sources/ds.py was
+#   invisible to the old probe → no WARN even though blocks cite a preserved source on disk.
+#   RED-FIRST: against the pre-fix SUT, the WARN-PRESENT assertion FAILS (WARN absent).
+#   After the divergence-free fix it PASSES.
+d="$TMP/l4-nonwhitelist-ext"; mkdir -p "$d/sources"
+block "$d/nx-block1.md" '# Block 1' '## 1.1 [CERT-doc] sources/ds.py §1 — cites a .py source outside the old whitelist.'
+: > "$d/sources/ds.py"
+sources_registry "$d" '| ds.py | script | http://x | 2026-01-01 | abcd123 |  |'
+assert_exit "$SUT" 0 "L4-NONWHITELIST-EXT: exit 0 (WARN, no fail)" "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$out" \
+  && { printf '  PASS  %-42s (WARN emitted for non-whitelist ext cite)\n' "L4-NONWHITELIST-EXT: WARN present"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s (WARN absent — non-whitelist ext not probed)\n' "L4-NONWHITELIST-EXT: WARN present"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -1022,6 +1065,56 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         else
           printf '  FAIL  %-42s (mutant count=%s, expected 0 — race did not trigger or fixture too small)\n' "teeth: SIGPIPE-RACE" "${_msp_doc:-empty}"; fail=$((fail+1))
         fi
+      fi
+    fi
+  fi
+
+  # L4-SILENT-ZERO teeth: neutralize the L4-SILENT-ZERO-GUARD so the WARN can never fire.
+  #   The L4-UNPOPULATED-BCELL fixture has a registry with rows but blank "cite it" cells, and a
+  #   block that cites sources/ on disk. Real SUT: guard fires → WARN emitted. Mutant (guard
+  #   replaced with `if false`): guard never fires → WARN absent → fixture FALSE-PASSES (no WARN).
+  #   bash -n validated first: a syntactically broken mutant proves nothing (THEATER).
+  echo "-- teeth proof: L4-SILENT-ZERO — neutralize guard, expect L4-UNPOPULATED-BCELL to FALSE-PASS (no WARN) --"
+  mutant_l4sz="$TMP/verify-sources.MUTANT-L4SZ.sh"
+  awk '{ if ($0 ~ /L4-SILENT-ZERO-GUARD/) print "  if false; then   # MUTANT-L4SZ: guard neutralized"; else print }' "$SUT" > "$mutant_l4sz"
+  if ! grep -q 'MUTANT-L4SZ: guard neutralized' "$mutant_l4sz"; then
+    echo "  FAIL  could not build L4SZ mutant (L4-SILENT-ZERO-GUARD sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    bash -n "$mutant_l4sz" 2>/dev/null; _ml4sz_bn=$?
+    if [ "$_ml4sz_bn" -ne 0 ]; then
+      echo "  FAIL  L4SZ mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+    else
+      d="$TMP/l4-unpopulated-bcell"   # reuse: registry rows present, blank cite cells, block cites sources/
+      _ml4sz_out="$(bash "$mutant_l4sz" "$d" 2>&1)"
+      if ! grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$_ml4sz_out"; then
+        printf '  PASS  %-42s (mutant silences WARN → guard is load-bearing)\n' "teeth: L4SZ guard mutant → no WARN"; pass=$((pass+1))
+      else
+        printf '  FAIL  %-42s (mutant still emits WARN — guard is not load-bearing, THEATER)\n' "teeth: L4SZ guard mutant"; fail=$((fail+1))
+      fi
+    fi
+  fi
+
+  # L4-PROBE-MATCH teeth: neutralize the divergence-free probe so it never finds a registered
+  #   basename in any block → _l4_disk_cites stays empty → the guard's WARN never fires.
+  #   The L4-NONWHITELIST-EXT fixture has ds.py registered, blank cite cells, and a block that
+  #   mentions ds.py. Real SUT: probe finds "ds.py" → WARN fires. Mutant: probe silenced →
+  #   no WARN → fixture FALSE-PASSES (WARN absent). bash -n validated first.
+  echo "-- teeth proof: L4-PROBE-MATCH — neutralize probe, expect L4-NONWHITELIST-EXT to FALSE-PASS (no WARN) --"
+  mutant_l4probe="$TMP/verify-sources.MUTANT-L4PROBE.sh"
+  awk '{ if ($0 ~ /L4-PROBE-MATCH/) print "        if false; then   # MUTANT-L4PROBE: probe neutralized"; else print }' "$SUT" > "$mutant_l4probe"
+  if ! grep -q 'MUTANT-L4PROBE: probe neutralized' "$mutant_l4probe"; then
+    echo "  FAIL  could not build L4-PROBE mutant (L4-PROBE-MATCH sentinel not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    bash -n "$mutant_l4probe" 2>/dev/null; _ml4p_bn=$?
+    if [ "$_ml4p_bn" -ne 0 ]; then
+      echo "  FAIL  L4-PROBE mutant does not parse (bash -n failed) — control would pass for the wrong reason (THEATER)"; fail=$((fail+1))
+    else
+      d="$TMP/l4-nonwhitelist-ext"   # reuse: ds.py registered, blank cite cells, block cites ds.py
+      _ml4p_out="$(bash "$mutant_l4probe" "$d" 2>&1)"
+      if ! grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$_ml4p_out"; then
+        printf '  PASS  %-42s (mutant silences WARN → probe is load-bearing)\n' "teeth: L4-PROBE-MATCH mutant → no WARN"; pass=$((pass+1))
+      else
+        printf '  FAIL  %-42s (mutant still emits WARN — probe is not load-bearing, THEATER)\n' "teeth: L4-PROBE-MATCH mutant"; fail=$((fail+1))
       fi
     fi
   fi
