@@ -882,6 +882,27 @@ if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$out
   ok "P7: INDEX.md without placeholders → no WARN, exit 0"
 else no "P7-ok: exit $(code "$d") :: $(grep -iE 'WARN.*INDEX\|INDEX.*WARN\|placeholder' <<<"$out" | head -1)"; fi
 
+# P7-fp — FALSE-POSITIVE GUARD: INDEX.md with legitimate <Uppercase-but-not-placeholder content
+#   (<I and <Instruction> — no real all-caps template token) + 1 block file on disk → WARN must NOT fire.
+#   RED before the fix: `<[A-Z]` matched `<I` (no closing >) and fired a spurious WARN.
+#   The anchored fix requires a closing > and an all-caps/digits/underscores/hyphens body, so
+#   `<Instruction text>` (mixed case) and `<I` (no >) are both silently passed over.
+d="$TMP/p7-fp"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 1 0 3 1 0 0 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 0 / 3 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | gap A | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+printf '# Project Beta — Corpus Index\n\nThe grammar accepts <Instruction text>. Variable types include <I and <B markers.\n' > "$d/INDEX.md"
+printf '# Block 1\n' > "$d/t-block1.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$out"; then
+  ok "P7-fp: INDEX.md with <I/<Instruction (no all-caps placeholder) → no WARN, exit 0"
+else no "P7-fp: exit $(code "$d") :: $(grep -iE 'WARN.*INDEX\|INDEX.*WARN\|placeholder' <<<"$out" | head -1)"; fi
+
 # ========================= block_scope field (NR-A) =========================
 # env_bs: emit envelope lines including block_scope as the 9th param (all 9 fields).
 env_bs(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\ndeferred_open: %s\nundocumented_findings: %s\nblock_scope: %s\n<!-- /research-state.v1 -->\n' "$@"; }
@@ -1392,6 +1413,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-P7: P7-INDEX-PLACEHOLDER-WARN sentinel not found in SUT (P7 not implemented or marker missing)"
+  fi
+
+  # ---- P7-fp mutation: revert P7 regex to <[A-Z]; the <I/<Instruction fixture must false-WARN ----
+  # Proves the closing-'>' + all-caps anchor is load-bearing: dropping it makes the FP fixture trigger.
+  echo "-- teeth-P7-fp: revert P7 regex to <[A-Z]; <I/<Instruction fixture must false-WARN (anchor load-bearing) --"
+  mutantP7fp="$TMP/verify-state.P7fp.MUTANT.sh"
+  sed 's/<\[A-Z\]\[A-Z0-9_-\]\*>/<[A-Z]/' "$SUT" > "$mutantP7fp"
+  d="$TMP/p7-fp"   # reuse P7-fp fixture (INDEX.md with <I/<Instruction — no real placeholder)
+  mp7fpout="$(bash "$mutantP7fp" "$d" 2>/dev/null)"
+  if grep -qiE 'WARN.*INDEX\.md.*placeholder' <<<"$mp7fpout"; then
+    ok "teeth-P7-fp: reverted regex → <I/<Instruction fixture false-WARNs (anchor is load-bearing)"
+  else
+    no "teeth-P7-fp: reverted regex does NOT false-WARN on <I/<Instruction content → anchor may be theater"
   fi
 
   # ---- block_scope (NR-A) mutation controls ----

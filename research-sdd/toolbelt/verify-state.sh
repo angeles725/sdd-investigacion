@@ -409,7 +409,7 @@ for state in "${states[@]}"; do
   # readers about the subject and date. WARN-only — never fails the run (not a structural defect).
   _idx="$(dirname "$state")/INDEX.md"
   if [ "${ondisk:-0}" -gt 0 ] && [ -f "$_idx" ]; then
-    if grep -qE '<[A-Z]' "$_idx" 2>/dev/null; then  # P7-INDEX-PLACEHOLDER-WARN
+    if grep -qE '<[A-Z][A-Z0-9_-]*>' "$_idx" 2>/dev/null; then  # P7-INDEX-PLACEHOLDER-WARN
       echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk block file(s) on disk — update the corpus index."
     fi
   fi
