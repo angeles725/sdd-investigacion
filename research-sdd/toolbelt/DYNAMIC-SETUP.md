@@ -31,6 +31,9 @@ WSL2 runs in an isolated NAT network (`172.x`), so it does NOT reach the host's 
 - Reopening Claude Code or the terminal does NOT restart the WSL VM. Only `wsl --shutdown` (with the
   VM fully released) re-reads `.wslconfig`.
 - To revert: remove `networkingMode=mirrored` and `wsl --shutdown` again.
+- **WSL PATH clobber (LOW).** A Bash step can lose its `PATH` mid-run so core tools (`rg`, `head`,
+  `tr`, etc.) report "command not found" unexpectedly. Defensively prepend
+  `export PATH=/usr/local/bin:/usr/bin:/bin` at the top of each Bash invocation on WSL targets.
 
 ## 1b. USB device reach (USB/IP over WSL)
 
