@@ -1485,6 +1485,11 @@ B64→B55). Make this a habit, not an accident:
 
 - While investigating, if you touch a fact another block asserts, CHECK it. If it's wrong, CORRECT the
   prior block transparently — keep the original text, add a note "corrected in BN" + the new citation.
+  **Scoping judgments are also subject to §14 correction.** A prior block's recorded scope-out
+  ("X is not load-bearing", "decompilation would add only implementation detail") is a testable
+  hypothesis, not a closed door (see PROMPT-LOOP INVESTIGATE step 3 — SCOPING JUDGMENTS ARE
+  HYPOTHESES). When investigation refutes that judgment, correct the prior block exactly as any
+  factual claim and add the back-pointer.
 - A `[CERT-hw]` finding that contradicts a `[CERT]` block MUST trigger a correction (hardware wins, §3).
 - **REFUTE vs CLARIFY-SCOPE — distinguish them.** A **refute** means the prior claim was WRONG. A
   **scope-clarification** means the prior claim was RIGHT for a DIFFERENT artifact/build (e.g. a dev-tree
