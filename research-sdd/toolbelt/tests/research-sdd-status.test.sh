@@ -859,10 +859,15 @@ d="$TMP/bp-strikethrough-status"
 mkstate "$d" 1 "~~high~~|resolved gap|~~covered~~" "medium|active gap|pending"
 expect_next "$d" "NEXT | medium | active gap" "T59: ~~high~~ (strikethrough) silently skipped — --next routes valid medium gap"
 
-# T60 — 'high (cross-vibra)' (valid-base qualifier) silently skipped; --next routes medium gap.
+# T60 — 'high (cross-vibra)' (valid-base qualifier) emits WARN to stderr, still excluded; --next routes medium gap.
 # Cannot use mkstate: it counts all pending rows for io; with fix high(x) skipped → io=1 only.
 mk_vocab_skip_fixture "$TMP/bp-qualifier-status" 'high (cross-vibra)' 'vibra gap' 'web' 'pending (cross-vibra)'
-expect_next "$TMP/bp-qualifier-status" "NEXT | medium | active gap" "T60: 'high (cross-vibra)' (valid-base qualifier) silently skipped — --next routes medium gap"
+expect_next "$TMP/bp-qualifier-status" "NEXT | medium | active gap" "T60: 'high (cross-vibra)' (valid-base qualifier) excluded — --next routes medium gap"
+# T60-warn — same fixture: qualifier row must emit a provisional WARN to stderr naming the stripped base 'high'.
+warn60="$(bash "$SUT" "$TMP/bp-qualifier-status" --next 2>&1 >/dev/null)"
+grep -qE 'WARN.*non-conforming qualifier.*high' <<<"$warn60" \
+  && ok "T60-warn: qualifier row emits WARN to stderr naming base 'high'" \
+  || no "T60-warn: no WARN emitted — got [$warn60]"
 
 # T61 — '—' (em-dash) silently skipped; --next routes valid medium gap.
 mk_vocab_skip_fixture "$TMP/bp-em-dash-status" '—' 'placeholder' '—' '—'
@@ -1097,10 +1102,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   chk_sut_bpskip_tooth "teeth-T59" "BPSKIP-STRIKETHROUGH" '/BPSKIP-STRIKETHROUGH/s/if (p~/if (0 ~/'    "$TMP/bp-strikethrough-status" 1
   chk_sut_bpskip_tooth "teeth-T60" "BPSKIP-QUALIFIER"     '/BPSKIP-QUALIFIER/s/if (base != p)/if (0)/' "$TMP/bp-qualifier-status"     1
+  # teeth-T60-warn: remove BP-QUALIFIER-WARN line → T60-warn must go red (no WARN emitted).
+  echo "-- teeth-T60-warn: remove WARN print; qualifier fixture must emit no WARN --"
+  warn_mutant_t60w="$TMP/status.T60W.MUTANT.sh"
+  sed '/# BP-QUALIFIER-WARN/d' "$SUT" > "$warn_mutant_t60w"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  warn60w="$(bash "$warn_mutant_t60w" "$TMP/bp-qualifier-status" --next 2>&1 >/dev/null)"
+  if ! grep -qE 'WARN.*non-conforming qualifier' <<<"$warn60w"; then
+    ok "teeth-T60-warn: WARN-removed mutant emits no WARN — qualifier WARN assertion has teeth"
+  else
+    no "teeth-T60-warn: mutant still emitted WARN — THEATER"
+  fi
   chk_sut_bpskip_tooth "teeth-T61" "BPSKIP-EMDASH"        '/BPSKIP-EMDASH/s/if (p~/if (0 ~/'           "$TMP/bp-em-dash-status"       1
   # teeth-T62: accept-all-bases in SUT::backlog_rows; hight(x) fixture must allow --sync-state (exit 0).
   chk_sut_bpskip_tooth "teeth-T62" "BPSKIP-QUALIFIER" \
-    's/if (base=="high" || base=="medium" || base=="low" || base=="deferred") { next }/if (1) { next }  # MUTANT-T62/' \
+    '/# BP-QUALIFIER-WARN/s/if (base=="high" || base=="medium" || base=="low" || base=="deferred") {/if (1) {/' \
     "$TMP/bp-qualifier-invalid-status" 0
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"  # restore real verify-state.sh
 fi
