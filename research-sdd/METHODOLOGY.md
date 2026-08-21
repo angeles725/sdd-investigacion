@@ -56,7 +56,7 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 | Marker | Meaning | How it is cited |
 |---|---|---|
 | `[CERT-hw]` | verified **empirically against the live system/device** — the real hardware/server responding, NOT "the code should". The **highest** certainty level. | `sources/probes/<run-output>.txt §…` + the probe that produced it |
-| `[CERT-live]` | verified **empirically against a live REMOTE service you do not own** (hosted / cloud / third-party HTTP API) — the real endpoint's runtime RESPONSE, not its published docs. Same top rank as `[CERT-hw]`; the risk model differs (rate-limits / ToS / authorization / metered cost, not physical bricking — §12 remote-API frame). | `sources/probes/<run-output>.txt §…` + the request that produced it |
+| `[CERT-live]` | verified **empirically against a live REMOTE service you do not own** (hosted / cloud / third-party HTTP API) — the real endpoint's runtime RESPONSE, not its published docs. Same top rank as `[CERT-hw]`; the risk model differs (rate-limits / ToS / authorization / metered cost, not physical bricking — §12b remote-API frame). A service you deploy and own (edge / serverless / PaaS — §12c) is **not** `[CERT-live]`; use `[CERT-hw]` there. | `sources/probes/<run-output>.txt §…` + the request that produced it |
 | `[CERT]` | verified by reading the **local primary source** (code, decompiled output, bytecode) | `file:line` or `file §section` |
 | `[CERT-doc]` | verified against an **official downloaded document** (datasheet/manual) | `sources/manuals/x.pdf §N` or `:p.N` |
 | `[CERT-web]` | verified against an **official web source** (manufacturer site, official online doc) | URL + access date |
@@ -1307,7 +1307,9 @@ PLC, your own station) — where the dominant risk is bricking and the ground-tr
 checksum. A **remote HTTP / cloud API you do not own** (a hosted SaaS endpoint, a third-party API) is a
 different subject: there is no unit to brick, no bench-vs-production physical confusion, no checksum-as-
 identity. The invasiveness ladder, cross-protocol/independent-read oracle, and "never trust the write's
-own 200" rules STILL apply. What changes:
+own 200" rules STILL apply. A service you **deploy and own** but do not host the infrastructure for
+(edge / serverless / PaaS) is a third frame — neither §12's hardware nor this one: see §12c. What
+changes for §12b:
 
 - **Authorization is the gate — and it covers READS too.** Probe only a service you are authorized on:
   your own account, a sandbox/test tenant, or written permission. Unlike a local device (where reads are
@@ -1333,6 +1335,39 @@ own 200" rules STILL apply. What changes:
 are all local devices/stations. `[CERT-live]` is defined here for the FIRST remote-API target; exercise it
 on a real endpoint before relying on it as a standing pattern, exactly as §11's adversarial-verify seal
 carries its own "trial before you trust it" caveat.
+
+### 12c. Own-but-not-host targets (edge / serverless / PaaS)
+
+A service the researcher **deploys and owns** but does not run the infrastructure for — a Cloudflare
+Worker, an edge function, a PaaS deployment. This is a third frame: neither §12's bench hardware (no
+unit to brick, no program checksum as identity, no physical bench-vs-production confusion) nor §12b's
+remote third-party API (you are the owner and administrator — authorization is not the gate, rate-
+limit / ToS discipline is not the primary risk).
+
+The invasiveness ladder, the "never trust the write's own 200" principle, and the SECRETS DISCIPLINE on
+response bodies carry over from §12 and §12b.
+
+- **DEPLOYED ≠ PROPAGATED.** A successful deploy receipt (HTTP 200 from the deploy API, a "success" CLI
+  output) confirms the platform accepted the artifact — it does NOT confirm the change is live at the
+  edge. Edge and serverless platforms propagate to points of presence over a window measured in seconds
+  to minutes; an immediate post-deploy probe may observe the old version at the PoP that served the
+  request. A live claim requires a **propagation re-measurement**: wait for the expected propagation
+  window, then re-probe. A single probe taken immediately after deploy is `[INFER]` — it tells you what
+  one PoP returned at that instant, not what the fleet serves after full propagation. The symptom can
+  look identical to a cache miss: `cache-control: no-cache` may help distinguish them, but propagation
+  and cache are separate phenomena — confirming one does not rule out the other. (Measured: hilton-bms
+  B11 §11.6 — immediately post-deploy the guarded route still returned 200; 5/5 probes returned 401
+  ~30 s later without a cache-bypass header; what first appeared to be a caching artefact was a
+  propagation race.)
+- **Marker.** A live claim confirmed by probing your own deployed service **after the propagation window**
+  earns `[CERT-hw]` — you own the service; its post-propagation response is as authoritative as a local
+  device under your administrative control. Do **not** use `[CERT-live]`: that marker is reserved for
+  services you do not own (§12b / §3). A claim resting on the deploy receipt alone, or on a single probe
+  taken immediately after deploy before the propagation window closes, is `[INFER]` until a post-
+  propagation re-measurement confirms it.
+- **Staging vs. production boundary.** If the platform provides a staging or preview environment, probe
+  staging first — the same caution as §12's bench-vs-production rule applies at the logical (environment)
+  level, not the physical one.
 
 ## 13. Audit mode (re-verify an existing corpus)
 
