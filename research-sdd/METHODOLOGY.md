@@ -956,20 +956,32 @@ and MUST REPORT these checks:
   FALSE-NEGATIVE on a token that is line-wrapped or built by string concatenation across lines, reporting
   "absent" for a token that is genuinely present. Before DOWNGRADING a `[CERT]` for an unresolved token, do a
   whitespace-normalized / multi-line re-check so a merely wrapped token is not wrongly demoted.
+  **Citation-form convention.** Bare `file:line` is acceptable in a block body when one source dominates
+  the evidence, but the SELF-VERIFY anchor for every load-bearing citation MUST carry the full
+  `filename:line` form — the only form `verify-block.sh` can resolve; an unqualified line number
+  classifies as `extern` and is invisible to the auditor (named pair: *bare `:line` body + full
+  `filename:line` self-verify anchor*). For `[CERT-doc]` citations over an HTML or doc source, the
+  anchor uses the **full HTML basename** from the `SOURCES.md` row (e.g. `JsonSchemaTypes-Json-70BA9870.html`)
+  — never a doc-title shorthand — so `verify-sources.sh` can resolve it.
 - **Marker tally** — counts of `[CERT]/[CERT-doc]/[CERT-web]/[CERT-a]/[INFER]`, plus the **`[INFER]`/
   `[CERT]` ratio** AND the **block type**. For an **evidence block** (decompilation/reading) a high ratio
   (>~0.5) is the automatic signal that the investigable evidence for this gap is nearly exhausted — say so;
   it feeds the §8 stop decision. For a **design/applied block** (integration plan, PoC design, cross-focus
   synthesis) a high ratio is EXPECTED and healthy, NOT an exhaustion signal, and does NOT close the focus
   (e.g. protocols B137 at ~0.48 was a sound integration plan). Declare the type so the ratio is read right.
-  Two non-standard types worth naming: a **MIXED** block (evidence + synthesis or verdict combined in one
-  block) and an **ABSENCE-CENTRED** block (primary finding IS a proven absence, with remaining content
-  deducing consequences). For both, the ratio is advisory — a high ratio in an absence-centred block is a
-  structural artifact (absence is cheap to certify, costly to reason about), not an exhaustion signal.
+  Three non-standard types worth naming: a **MIXED** block (evidence + synthesis or verdict combined in
+  one block; trigger: a section within the block draws `[INFER]` ACROSS prior blocks — not deductions
+  from this block's own `[CERT]` sources — declare MIXED rather than evidence), an **ABSENCE-CENTRED**
+  block (primary finding IS a proven absence, with remaining content deducing consequences), and a
+  **CAPTURE** block (§20 document mode — records what is already known or just done; there is no gap
+  backlog, so the coverage-ratio / exhaustion semantics do not apply — declare CAPTURE so the exhaustion
+  signal is not read as meaningful in a mode with no gaps). For all three, the ratio is advisory — a
+  high ratio in an absence-centred block is a structural artifact (absence is cheap to certify, costly
+  to reason about), not an exhaustion signal.
   A synthesis block that cites only prior `[Block N]` cross-references will report `n/a` (no `[CERT*]`
   markers) from `verify-block.sh` — this is the EXPECTED signature of a correctly-written DESIGN block,
-  not a defect. Declare MIXED or ABSENCE-CENTRED so the ratio is read correctly rather than triggering a
-  false exhaustion signal.
+  not a defect. Declare MIXED, ABSENCE-CENTRED, or CAPTURE so the ratio is read correctly rather than
+  triggering a false exhaustion signal.
   The tally counts a block's OWN markers, not markers it QUOTES from another block for meta-purposes: a §14
   correction block that literally quotes a prior block's `[INFER]`/`[CERT]` token in order to correct it will
   have those quoted markers counted as if they were fresh claims, INFLATING the count. Think in RAW vs
