@@ -119,8 +119,13 @@ row() {
 python_row() {
   label="$1"; cmd="$2"; smoke_arg="$3"; shift 3
   if path="$(resolve "$cmd" "$@")"; then
-    if RSDD_PROBE_TIMEOUT="${RSDD_PYTHON_PROBE_TIMEOUT:-20}" rsdd_run_probe "$path" "$smoke_arg"; then
+    RSDD_PROBE_TIMEOUT="${RSDD_PYTHON_PROBE_TIMEOUT:-20}" rsdd_run_probe "$path" "$smoke_arg"
+    probe_rc=$?
+    if [ "$probe_rc" -eq 0 ]; then
       printf '  %-22s AVAILABLE   %s\n' "$label" "$path"
+    elif [ "$probe_rc" -eq 124 ] || [ "$probe_rc" -eq 127 ] || [ "$probe_rc" -eq 137 ]; then
+      # 124 = timeout killed the probe (SIGTERM); 137 = timeout SIGKILL'd; 127 = timeout binary absent.
+      printf '  %-22s PROBE_FAILED %s (probe error: exit %d)\n' "$label" "$path" "$probe_rc"
     else
       printf '  %-22s UNUSABLE    %s (entrypoint smoke test failed)\n' "$label" "$path"
     fi
@@ -132,8 +137,16 @@ python_row() {
 jarrow() {
   label="$1"; name="$2"; digest=""
   if jar="$(rsdd_resolve_java_jar "$name")"; then
-    if rsdd_probe_java_jar "$name" "$jar" && digest="$(rsdd_file_sha256 "$jar")"; then
+    rsdd_probe_java_jar "$name" "$jar"; probe_rc=$?
+    if [ "$probe_rc" -eq 0 ] && digest="$(rsdd_file_sha256 "$jar")"; then
       printf '  %-22s AVAILABLE   %s (sha256=%s)\n' "$label" "$jar" "$digest"
+    elif [ "$probe_rc" -eq 127 ]; then
+      # 127 = probe infrastructure missing (e.g. unzip not found); cannot assess jar.
+      # NOTE: rc 124/137 (timeout) are intentionally absent here — rsdd_probe_java_jar
+      # in tool-env.sh collapses both to rc=1 via `rsdd_run_probe ... || return 1`,
+      # so a jar-probe timeout is indistinguishable from a validation failure and falls
+      # through to UNUSABLE.  Fixing that requires changing tool-env.sh (different owner).
+      printf '  %-22s PROBE_FAILED %s (probe error: exit %d)\n' "$label" "$jar" "$probe_rc"
     else
       printf '  %-22s UNUSABLE    %s (archive structure/digest validation failed)\n' "$label" "$jar"
     fi
@@ -178,8 +191,22 @@ report() {
     printf '  %-22s AVAILABLE   %s\n' "Java 21" "$java_home/bin/java"
     printf '  %-22s AVAILABLE   %s\n' "javap 21" "$java_home/bin/javap"
   else
-    printf '  %-22s MISSING     (usable Java 21 + javap not found)\n' "Java 21"
-    printf '  %-22s MISSING     (usable Java 21 + javap not found)\n' "javap 21"
+    # rsdd_resolve_java_home collapses internal probe timeouts to rc=1, so a timed-out
+    # probe is indistinguishable from a missing installation there.  Run a secondary probe
+    # on any java binary reachable via PATH to surface PROBE_FAILED vs MISSING.
+    # Note: rsdd_probe_ghidra similarly collapses; that path remains out of scope.
+    java_probe_bin="$(command -v java 2>/dev/null || true)"
+    java_probe_rc=0
+    if [ -n "$java_probe_bin" ]; then
+      rsdd_run_probe "$java_probe_bin" -version || java_probe_rc=$?
+    fi
+    if [ "$java_probe_rc" -eq 124 ] || [ "$java_probe_rc" -eq 127 ] || [ "$java_probe_rc" -eq 137 ]; then
+      printf '  %-22s PROBE_FAILED %s (probe error: exit %d)\n' "Java 21" "$java_probe_bin" "$java_probe_rc"
+      printf '  %-22s PROBE_FAILED %s (probe error: exit %d)\n' "javap 21" "$java_probe_bin" "$java_probe_rc"
+    else
+      printf '  %-22s MISSING     (usable Java 21 + javap not found)\n' "Java 21"
+      printf '  %-22s MISSING     (usable Java 21 + javap not found)\n' "javap 21"
+    fi
   fi
   jarrow "Vineflower (jar)" vineflower
   jarrow "CFR (jar)" cfr

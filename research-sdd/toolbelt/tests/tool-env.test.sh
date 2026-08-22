@@ -194,7 +194,7 @@ RSDD_TEST_SLOW=1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH="$ROOT/python-bin:$PATH" \
   bash "$DETECT" --cache "$PY_CACHE.slow" --quiet >/dev/null
 if grep -Eq '^  marker +AVAILABLE +' "$PY_CACHE" \
    && grep -Eq '^  docling +AVAILABLE +' "$PY_CACHE" \
-   && grep -Eq '^  marker +UNUSABLE +' "$PY_CACHE.slow"; then
+   && grep -Eq '^  marker +PROBE_FAILED +' "$PY_CACHE.slow"; then
   ok "8 pipx/symlink Python entrypoints are direct + bounded"
 else
   no "8 pipx/symlink Python entrypoints are probed directly" "$(grep -E 'marker|docling' "$PY_CACHE" | tr '\n' '|')"
