@@ -162,8 +162,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    LOOP CONTINUATION + RESCHEDULE CADENCE rules (self-paced: reschedule at the ~60s floor until STOP fires).
    Delegate heavy sweeps with the right MODEL TIER. Emit the per-iteration RETURN CONTRACT (including the
    tier used). At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
-   If the gap targets a BINARY artifact, the toolbelt native (`detect-tools.sh` → `decompile-native.sh`)
-   is your first move, not an option — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD RULES.
+   If the gap targets a BINARY artifact, first run `detect-tools.sh --require <decompiler>` to gate the
+   environment: it probes TOOL availability (not the binary) — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD
+   RULES. Then analyze with `decompile-native.sh <mode> <binary>`; for available modes (ghidra,
+   ghidra-evidence, r2, quick) and exact CLI forms, see `$KIT/toolbelt/tool-registry.md`.
    For a LONG unattended run, wrap the invocation with the `/loop` skill
    (`/loop /research-sdd <target> a fondo`) — it is the external re-invoker PROMPT-LOOP was designed for.
    Self-paced reschedule is best-effort and can halt after a single block under conversational guardrails;
