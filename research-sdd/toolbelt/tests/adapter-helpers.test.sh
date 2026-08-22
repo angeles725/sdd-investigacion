@@ -226,6 +226,76 @@ PY
 then ok "emit_evidence: reserved domain key raises ManifestError"; else no "emit_evidence: reserved key guard"; fi
 
 
+# A-6  warn_evidence — stderr pointer format; detail included / excluded cleanly
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util, io, pathlib, sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+dest=r/'a6_dst'
+
+# sub-case 1: detail non-empty → schema + path + detail all appear in stderr
+buf=io.StringIO(); _s=sys.stderr; sys.stderr=buf
+ah.warn_evidence(schema='test-schema.v1', destination=dest, detail='analyzer-exit:1')
+sys.stderr=_s
+out=buf.getvalue()
+assert 'test-schema.v1' in out, f"schema missing: {out!r}"
+assert str(dest/'test-schema.v1.json') in out, f"evidence path missing: {out!r}"
+assert 'analyzer-exit:1' in out, f"detail missing: {out!r}"
+
+# sub-case 2: detail empty → pointer still emitted but no empty parentheses
+buf2=io.StringIO(); sys.stderr=buf2
+ah.warn_evidence(schema='test-schema.v1', destination=dest, detail='')
+sys.stderr=_s
+out2=buf2.getvalue()
+assert 'test-schema.v1' in out2, f"schema missing on empty detail: {out2!r}"
+assert '()' not in out2, f"empty () must not appear: {out2!r}"
+assert str(dest/'test-schema.v1.json') in out2, f"evidence path missing on empty detail: {out2!r}"
+PY
+then ok "A-6: warn_evidence: stderr pointer with/without detail; no empty ()"; else no "A-6: warn_evidence pointer format"; fi
+
+# A-7  emit_evidence — auto-fires warn_evidence when errors non-empty; silent when empty
+if python3 - "$SUT" "$ROOT" <<'PY'
+import importlib.util, io, pathlib, sys
+def load(p):
+    s=importlib.util.spec_from_file_location(pathlib.Path(p).stem,p)
+    m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+ah=load(sys.argv[1]); r=pathlib.Path(sys.argv[2])
+stub=r/'ok_a7.py'; stub.write_text('import sys\nsys.exit(0)\n')
+
+# sub-case 1: errors non-empty → stderr pointer
+stage=r/'st_a7e'; (stage/'engine').mkdir(parents=True)
+dest=r/'dst_a7e'
+buf=io.StringIO(); _s=sys.stderr; sys.stderr=buf
+try:
+    ah.emit_evidence(stage=stage,schema='my-schema.v1',domain={},
+                     input_identity={},isolation={},limitations=[],
+                     errors=['analyzer-exit:1'],
+                     manifest_spec={'dummy':1},manifest_cli=pathlib.Path(stub),
+                     destination=dest,timeout=10)
+finally:
+    sys.stderr=_s
+out=buf.getvalue()
+assert 'my-schema.v1' in out, f"schema missing from stderr: {out!r}"
+assert str(dest/'my-schema.v1.json') in out, f"evidence path missing from stderr: {out!r}"
+
+# sub-case 2: errors empty → no stderr output
+stage2=r/'st_a7ok'; (stage2/'engine').mkdir(parents=True)
+dest2=r/'dst_a7ok'
+buf2=io.StringIO(); sys.stderr=buf2
+try:
+    ah.emit_evidence(stage=stage2,schema='my-schema.v1',domain={},
+                     input_identity={},isolation={},limitations=[],
+                     errors=[],
+                     manifest_spec={'dummy':1},manifest_cli=pathlib.Path(stub),
+                     destination=dest2,timeout=10)
+finally:
+    sys.stderr=_s
+assert buf2.getvalue()=='', f"stderr must be empty on no errors: {buf2.getvalue()!r}"
+PY
+then ok "A-7: emit_evidence auto-fires warn_evidence on errors; silent on empty errors"; else no "A-7: emit_evidence warn_evidence integration"; fi
+
 # ---------------------------------------------------------------------------
 # D-1  venv_root_for + bind_venv — synthetic venv happy path
 # ---------------------------------------------------------------------------
@@ -571,6 +641,46 @@ PY
     1) ok "teeth-nofollow: O_NOFOLLOW removal -> symlink accepted -> B-2 assertion fires (has teeth)" ;;
     0) no "teeth-nofollow: B-2 stayed green with O_NOFOLLOW removed -- assertion has NO teeth" ;;
     *) no "teeth-nofollow: mutation target not found (SUT changed?)" ;;
+  esac
+
+  # teeth-warn-evidence: dropping `if errors:` guard in emit_evidence causes
+  # the empty-errors assertion to fail (stderr non-empty when it should be silent).
+  python3 - "$SUT" "$ROOT" <<'PY'
+import sys, types, io
+from pathlib import Path
+sut = Path(sys.argv[1]); src = sut.read_text()
+# Target: the `if errors:` guard that gates warn_evidence inside emit_evidence
+old = "    if errors:\n        warn_evidence(schema=schema, destination=destination, detail=\", \".join(errors))"
+if old not in src:
+    print("MUTANT-SETUP-FAIL: if-errors guard not found in emit_evidence -- SUT changed?", file=sys.stderr)
+    sys.exit(2)
+mut = src.replace(old,
+    "    warn_evidence(schema=schema, destination=destination, detail=\", \".join(errors))  # MUTANT: guard removed",
+    1)
+m = types.ModuleType("adapter_helpers"); m.__file__ = str(sut)
+exec(compile(mut, str(sut), "exec"), m.__dict__); ah = m
+r = Path(sys.argv[2])
+stub = r / "ok_teeth.py"; stub.write_text("import sys\nsys.exit(0)\n")
+stage = r / "st_teeth"; (stage / "engine").mkdir(parents=True, exist_ok=True)
+dest = r / "dst_teeth"
+buf = io.StringIO(); _s = sys.stderr; sys.stderr = buf
+try:
+    ah.emit_evidence(stage=stage, schema="my-schema.v1", domain={},
+                     input_identity={}, isolation={}, limitations=[],
+                     errors=[],
+                     manifest_spec={"dummy": 1}, manifest_cli=stub,
+                     destination=dest, timeout=10)
+finally:
+    sys.stderr = _s
+if buf.getvalue() != "":
+    sys.exit(1)   # spurious stderr emitted -- A-7 empty-case assertion would fire -- has teeth
+else:
+    sys.exit(0)   # guard still silent without if-errors -- no teeth
+PY
+  case $? in
+    1) ok "teeth-warn-evidence: if-errors removal -> spurious stderr -> A-7 empty-case fires (has teeth)" ;;
+    0) no "teeth-warn-evidence: A-7 empty-case stayed green with guard removed -- NO teeth" ;;
+    *) no "teeth-warn-evidence: mutation target not found (SUT changed?)" ;;
   esac
 fi
 

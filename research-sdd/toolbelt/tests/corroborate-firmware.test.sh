@@ -123,4 +123,56 @@ printf mutation >>"$ROOT/fixture.bin"; wait "$pid"; rc=$?
 if [ "$rc" -eq 0 ] && python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["input"]["source"]["sha256"]=="sha256:"+sys.argv[2]==d["input"]["staged"]["sha256"]' "$ROOT/source-swap/firmware-static.v1.json" "$before"; then
   ok "source replacement cannot alter staged analysis bytes"; else no "source staging"; fi
 
+# warn-firmware: rc=1 path emits warn_evidence stderr pointer (§7 anti-silent-zero).
+# Uses a fake binwalk that exits 9 → errors non-empty → status="failed" → rc=1.
+fake fail9 <<'SH'
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Binwalk vfake'; exit; }
+exit 9
+SH
+if ! PATH="$ROOT/fail9:/usr/bin:/bin" RSDD_BINWALK_TEST_ONLY="$ROOT/fail9/binwalk" run "$ROOT/warn-fw-ptr" 2>"$ROOT/fw-warn.err" \
+  && grep -q 'firmware-static.v1' "$ROOT/fw-warn.err" \
+  && grep -q 'firmware-static.v1.json' "$ROOT/fw-warn.err"; then
+  ok "warn-firmware: rc=1 main() emits warn_evidence pointer for firmware-static.v1 in stderr"
+else no "warn-firmware: rc=1 warn_evidence pointer missing from stderr"; fi
+
+# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-warn-firmware: removing the inline if-guard makes the behavioral test go red.
+  # Creates a mutant corroborate_firmware.py without the `if status != "complete": warn_evidence(...)` block,
+  # runs it with the same fail9 fake binwalk (which forces rc=1), and asserts stderr is empty.
+  td_fw="$(mktemp -d)"
+  python3 - "$HERE/../corroborate_firmware.py" "$td_fw" <<'PY'
+import sys, pathlib, shutil
+sut = pathlib.Path(sys.argv[1]); td = pathlib.Path(sys.argv[2])
+src = sut.read_text()
+old = '        if status != "complete":\n            warn_evidence(schema=SCHEMA, destination=destination, detail=f"status={status}")\n'
+if old not in src:
+    print("MUTANT-SETUP-FAIL: inline guard not found -- SUT changed?", file=sys.stderr); sys.exit(2)
+shutil.copytree(sut.parent / 'lib', td / 'lib')
+shutil.copy2(sut.parent / 'analysis_manifest.py', td / 'analysis_manifest.py')
+(td / 'corroborate_firmware.py').write_text(src.replace(old, '', 1))
+# Copy fake binwalk from parent run (already created above)
+PY
+  mut_rc=$?
+  if [ "$mut_rc" -eq 0 ]; then
+    # Re-use the fail9 fake binwalk
+    cp "$ROOT/fail9/binwalk" "$td_fw/binwalk"
+    printf 'ELF' >"$td_fw/mut-input.bin"
+    PATH="$td_fw:/usr/bin:/bin" RSDD_BINWALK_TEST_ONLY="$td_fw/binwalk" \
+      python3 "$td_fw/corroborate_firmware.py" \
+      --input "$td_fw/mut-input.bin" --output "$td_fw/mut-out" \
+      --manifest-cli "$td_fw/analysis_manifest.py" \
+      2>"$td_fw/teeth.err" || true
+    if ! grep -q 'firmware-static.v1' "$td_fw/teeth.err" 2>/dev/null; then
+      ok "teeth-warn-firmware: guard removed → stderr empty → warn-firmware assertion fires (has teeth)"
+    else
+      no "teeth-warn-firmware: pointer still emitted without guard — NO teeth"
+    fi
+  else
+    no "teeth-warn-firmware: mutant setup failed (SUT changed?)"
+  fi
+  rm -rf "$td_fw"
+fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

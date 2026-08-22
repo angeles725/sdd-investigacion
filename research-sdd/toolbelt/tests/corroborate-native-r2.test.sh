@@ -129,4 +129,12 @@ if ! PATH="$ROOT/hang:$PATH" RSDD_R2="$ROOT/hang/r2" run "$ROOT/timeout" --timeo
   && [ ! -e "$ROOT/.timeout.stage" ]; then ok "timeout is bounded, published, and cleaned"
 else no "timeout evidence"; fi
 
+# warn-native: rc=1 path emits stderr pointer (§7 anti-silent-zero)
+# Uses the existing 'fail' fake r2 (r2 exits 9 → errors non-empty → rc=1).
+if ! PATH="$ROOT/fail:$PATH" RSDD_R2="$ROOT/fail/r2" run "$ROOT/failed-ptr" 2>"$ROOT/warn-native.err" \
+  && grep -q 'native-static.v1' "$ROOT/warn-native.err" \
+  && grep -q 'native-static.v1.json' "$ROOT/warn-native.err"; then
+  ok "rc=1 path emits warn_evidence stderr pointer for native-static.v1"
+else no "rc=1 warn_evidence pointer in native stderr"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

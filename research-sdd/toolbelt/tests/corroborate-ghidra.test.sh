@@ -158,5 +158,51 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     ok "teeth: loglink O_NOFOLLOW guard observed as _loglink_rc=2"
   fi
+
+  # teeth-warn-ghidra: removing the inline if-guard makes the behavioral test go red.
+  # Creates a mutant corroborate_ghidra.py without the `if completeness not in ...: warn_evidence(...)` block,
+  # runs it with the nonzero fake headless (Ghidra exits 9 → rc=1), and asserts stderr is empty.
+  td_gh="$(mktemp -d)"
+  python3 - "$HERE/../corroborate_ghidra.py" "$td_gh" <<'PY'
+import sys, pathlib, shutil
+sut = pathlib.Path(sys.argv[1]); td = pathlib.Path(sys.argv[2])
+src = sut.read_text()
+old = '        if completeness not in ("complete","partial"):\n            warn_evidence(schema=SCHEMA, destination=destination, detail=f"completeness={completeness}")\n'
+if old not in src:
+    print("MUTANT-SETUP-FAIL: inline guard not found -- SUT changed?", file=sys.stderr); sys.exit(2)
+shutil.copytree(sut.parent / 'lib', td / 'lib')
+shutil.copy2(sut.parent / 'analysis_manifest.py', td / 'analysis_manifest.py')
+(td / 'corroborate_ghidra.py').write_text(src.replace(old, '', 1))
+PY
+  mut_rc=$?
+  if [ "$mut_rc" -eq 0 ]; then
+    mkheadless nonzero
+    if ! ANALYZE_HEADLESS="$ROOT/gh/support/analyzeHeadless" JAVA_HOME="$ROOT/jdk" \
+        RSDD_BWRAP="${RSDD_BWRAP:-$ROOT/bin/bwrap}" RSDD_MANIFEST_CLI="$MAN" \
+        RSDD_TEST_ONLY_UNTRUSTED_BWRAP=1 \
+        python3 "$td_gh/corroborate_ghidra.py" --input "$ROOT/target.bin" \
+        --output "$td_gh/gh-out" --timeout-seconds 1 --max-diagnostic-bytes 100 \
+        --max-functions 2 --max-strings 2 --max-references 2 --max-string-chars 32 \
+        2>"$td_gh/teeth.err" \
+      && ! grep -q 'ghidra-corroboration.v1' "$td_gh/teeth.err" 2>/dev/null; then
+      ok "teeth-warn-ghidra: guard removed → stderr empty → warn-ghidra assertion fires (has teeth)"
+    else
+      no "teeth-warn-ghidra: pointer still emitted without guard — NO teeth"
+    fi
+  else
+    no "teeth-warn-ghidra: mutant setup failed (SUT changed?)"
+  fi
+  rm -rf "$td_gh"
 fi
+
+# warn-ghidra: rc=1 path emits warn_evidence stderr pointer (§7 anti-silent-zero).
+# Uses the existing nonzero headless mode (Ghidra exits 9 → errors non-empty →
+# completeness="failed" → rc=1).  mkheadless is a function defined earlier in this suite.
+mkheadless nonzero
+if ! run warn-gh-ptr 1 100 2>"$ROOT/gh-warn.err" \
+  && grep -q 'ghidra-corroboration.v1' "$ROOT/gh-warn.err" \
+  && grep -q 'ghidra-corroboration.v1.json' "$ROOT/gh-warn.err"; then
+  ok "warn-ghidra: rc=1 main() emits warn_evidence pointer for ghidra-corroboration.v1 in stderr"
+else no "warn-ghidra: rc=1 warn_evidence pointer missing from stderr"; fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

@@ -9,6 +9,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from lib.adapter_core import AdapterError, refuse_privileged_execution
+from lib.adapter_helpers import warn_evidence
 from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
 
 SCHEMA = "firmware-static.v1"
@@ -241,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
         write(stage / f"{SCHEMA}.json", report)
         if sum(path.is_file() for path in stage.rglob("*")) - 1 > args.max_files: raise FirmwareError("evidence file cap exceeded")
         publish(stage, destination); stage = None
+        if status != "complete":
+            warn_evidence(schema=SCHEMA, destination=destination, detail=f"status={status}")
         return 0 if status == "complete" else 1
     except (FirmwareError, AdapterError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         print(f"corroborate-firmware: {exc}", file=sys.stderr); return 2
