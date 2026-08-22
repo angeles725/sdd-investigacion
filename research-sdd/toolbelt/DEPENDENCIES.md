@@ -213,6 +213,19 @@ unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
 ```
 
+For unblob corroboration: `corroborate-unblob.sh` runs unblob inside a hardened
+bwrap sandbox with a **minimal `/usr`-only PATH** (`/usr/bin:/usr/sbin:/bin:/sbin`),
+deliberately excluding linuxbrew. unblob's external extractors must therefore
+resolve under `/usr`: an extractor installed **only** under linuxbrew (e.g. `lz4`,
+`zstd`) is invisible inside the sandbox, so the format it handles is not extracted
+(reported as `ExtractorDependencyNotFoundReport`, exit 1). Install unblob's
+extractors as distro packages so they land under `/usr` with their own libraries —
+`apt install zstd lz4 squashfs-tools`, plus `sasquatch` / `jefferson` /
+`ubi_reader` / erofs tools as the target formats require. Do NOT bind linuxbrew
+into the sandbox: it breaks the minimal profile and pulls in the Cellar
+dependency closure. Verify with `unblob --show-external-dependencies` and confirm
+each reported tool resolves under `/usr`, not linuxbrew.
+
 For Java decompiler JARs: `rsdd_resolve_java_jar()` checks env var overrides
 FIRST (authoritative — an invalid override fails hard, it never falls through),
 then `$RESEARCH_SDD_TOOL_HOME/java/` (default:
