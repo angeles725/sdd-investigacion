@@ -8,6 +8,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 |---|---|---|---|---|
 | JAR / `.class` Java | `Java class data` / `Zip archive` (jar) | Vineflower (pref.), CFR, Procyon, `javap -p -c` | `decompile-java.sh` | ✅ |
 | JAR corroboration evidence | Valid regular JAR/ZIP | Vineflower + CFR + Procyon + `javap` + `jdeps` | `corroborate-java.sh` (`java-corroboration.v1`) | ✅ |
+| JAR / `.class` JVM call-graph export | `Java class data` / `Zip archive` (jar) | SootUp call-graph exporter (Maven module `jvm-callgraph/`) | `jvm-callgraph.sh analyze [options]` | ✅ |
 | .NET DLL/EXE | `PE32 .NET assembly` / `Mono/.Net assembly` | `ilspycmd` (resolved via `rsdd_resolve_ilspy`; no pinned version) | `decompile-net.sh` | ✅ |
 | Native ELF/PE | `ELF ... executable` / `PE32 executable` | Ghidra headless (decompile) → r2/objdump fallback | `decompile-native.sh` | ✅ |
 | Native corroboration evidence | Regular native binary | radare2 static analysis in Bubblewrap | `corroborate-native.sh` (`native-static.v1`) | ✅ |
