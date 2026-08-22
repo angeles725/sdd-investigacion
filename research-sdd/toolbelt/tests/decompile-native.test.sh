@@ -9,6 +9,7 @@ cp "$SOURCE" "$ROOT/toolbelt/decompile-native.sh"
 cat >"$ROOT/toolbelt/lib/tool-env.sh" <<'SH'
 rsdd_resolve_java_home(){ printf '%s\n' "$TEST_ROOT/jdk"; }
 rsdd_resolve_ghidra_home(){ printf '%s\n' "$TEST_ROOT/gh"; }
+rsdd_resolve_r2(){ printf '%s\n' "$TEST_ROOT/bin/r2"; }
 SH
 cat >"$ROOT/toolbelt/corroborate-ghidra.sh" <<'SH'
 #!/bin/sh
@@ -67,6 +68,27 @@ else
 fi
 if TEST_ROOT="$ROOT" PATH="$ROOT/bin:$PATH" RECORD="$ROOT/r2.args" "$SUT" r2 "$INPUT" \
   && grep -Fxq -- "$INPUT" "$ROOT/r2.args"; then ok 'r2 mode still dispatches'; else no 'r2 mode'; fi
+# R2-brew: brew-only r2 — SUT must invoke the path returned by rsdd_resolve_r2, not bare r2.
+# Use a separate SUT copy whose stub tool-env.sh returns a brew-style path (r2-brew binary).
+mkdir -p "$ROOT/toolbelt-b2/lib" "$ROOT/toolbelt-b2/tests"
+cp "$ROOT/toolbelt/decompile-native.sh" "$ROOT/toolbelt-b2/decompile-native.sh"
+cat >"$ROOT/toolbelt-b2/lib/tool-env.sh" <<'SH'
+rsdd_resolve_java_home(){ printf '%s\n' "$TEST_ROOT/jdk"; }
+rsdd_resolve_ghidra_home(){ printf '%s\n' "$TEST_ROOT/gh"; }
+rsdd_resolve_r2(){ printf '%s\n' "$TEST_ROOT/bin/r2-brew"; }
+SH
+cat >"$ROOT/bin/r2-brew" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" >"$RECORD"
+SH
+chmod +x "$ROOT/bin/r2-brew"
+_sut_b2="$ROOT/toolbelt-b2/decompile-native.sh"
+if TEST_ROOT="$ROOT" RECORD="$ROOT/r2-brew.args" "$_sut_b2" r2 "$INPUT" \
+   && grep -Fxq -- "$INPUT" "$ROOT/r2-brew.args"; then
+  ok 'R2-brew: SUT invokes rsdd_resolve_r2 brew result, not bare r2'
+else
+  no 'R2-brew: SUT invokes rsdd_resolve_r2 brew result, not bare r2'
+fi
 if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
   echo "  SKIP  quick mode (missing: file or strings)"
 else

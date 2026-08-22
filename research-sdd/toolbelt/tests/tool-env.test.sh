@@ -215,6 +215,38 @@ else
   no "4 existing decompile-java env overrides still work" "exit=$RC calls=[$(cat "$ROOT/calls" 2>/dev/null)]"
 fi
 
+# 9 — rsdd_resolve_r2: PATH-hit case
+# Fake r2 on PATH; brew has no r2. Resolver must return the PATH binary.
+mkdir -p "$ROOT/r2-path-dir" "$ROOT/r2-empty"
+mkexec "$ROOT/r2-path-dir/r2" 'exit 0'
+r2_path_result="$(PATH="$ROOT/r2-path-dir" RSDD_BREW_PREFIX="$ROOT/r2-empty" rsdd_resolve_r2 2>/dev/null)"; r2_path_rc=$?
+if [ "$r2_path_rc" -eq 0 ] && [ "$r2_path_result" = "$ROOT/r2-path-dir/r2" ]; then
+  ok "9 rsdd_resolve_r2: PATH-hit resolves to PATH binary" "(path=$r2_path_result)"
+else
+  no "9 rsdd_resolve_r2: PATH-hit resolves to PATH binary" "rc=$r2_path_rc path=[$r2_path_result]"
+fi
+
+# 10 — rsdd_resolve_r2: brew-opt case (r2 NOT on PATH)
+# Fake brew prefix with opt/radare2/bin/r2; clean PATH has no r2.
+mkdir -p "$ROOT/r2-brew/opt/radare2/bin"
+mkexec "$ROOT/r2-brew/opt/radare2/bin/r2" 'exit 0'
+r2_brew_result="$(PATH="$ROOT/r2-empty" RSDD_BREW_PREFIX="$ROOT/r2-brew" rsdd_resolve_r2 2>/dev/null)"; r2_brew_rc=$?
+if [ "$r2_brew_rc" -eq 0 ] && [ "$r2_brew_result" = "$ROOT/r2-brew/opt/radare2/bin/r2" ]; then
+  ok "10 rsdd_resolve_r2: brew-opt resolves when r2 not on PATH" "(path=$r2_brew_result)"
+else
+  no "10 rsdd_resolve_r2: brew-opt resolves when r2 not on PATH" "rc=$r2_brew_rc path=[$r2_brew_result]"
+fi
+
+# 11 — rsdd_resolve_r2: nothing found → return 1 with empty output
+# RSDD_R2_USRBIN is a non-existent path so the /usr/bin/r2 fallback is hermetically
+# controlled and cannot fire on a host that happens to have radare2 installed.
+r2_miss_result="$(PATH="$ROOT/r2-empty" RSDD_BREW_PREFIX="$ROOT/r2-empty" RSDD_R2_USRBIN="$ROOT/r2-empty/no-r2" rsdd_resolve_r2 2>/dev/null)"; r2_miss_rc=$?
+if [ "$r2_miss_rc" -ne 0 ] && [ -z "$r2_miss_result" ]; then
+  ok "11 rsdd_resolve_r2: unresolvable r2 returns 1 with empty output"
+else
+  no "11 rsdd_resolve_r2: unresolvable r2 returns 1 with empty output" "rc=$r2_miss_rc path=[$r2_miss_result]"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # teeth 2: test-2 assertion must fail when the canonical tool-home candidates
 # are removed from the resolver. A mutant that replaces $tool_home/java/ with
@@ -235,6 +267,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth 2: canonical-home removal breaks all three JAR resolvers (test-2 assertion has teeth)"
   else
     no "teeth 2: mutant still resolved JAR(s) — test-2 assertion has no teeth: vf=[$vf_mut] cfr=[$cfr_mut] procyon=[$procyon_mut]"
+  fi
+fi
+
+# teeth 10: brew-opt candidate removal must break the brew-only r2 resolution case.
+# D1 fix: source under normal PATH so rsdd_resolve_r2 is defined, then restrict PATH
+#         only inside the function call — exactly as test 10 (the real test) does.
+# D2 fix: RSDD_R2_USRBIN points to a non-existent file so the /usr/bin/r2 fallback
+#         is hermetically blocked on hosts that happen to have radare2 installed.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth 10: brew-opt candidate removal breaks rsdd_resolve_r2 brew resolution --"
+  TMP_TEETH_R2="$(mktemp -d)"
+  trap 'rm -rf "$ROOT" "$TMP_TEETH_R2"' EXIT
+  sed 's|radare2/bin/r2|radare2/bin/R2-GONE|g' "$LIB" > "$TMP_TEETH_R2/tool-env-r2-mut.sh"
+  # Source under normal PATH ($1 = mutant lib, $2 = restricted PATH value for the call).
+  r2_mut_result="$(RSDD_BREW_PREFIX="$ROOT/r2-brew" RSDD_R2_USRBIN="$ROOT/r2-empty/no-r2" \
+    bash -c 'source "$1"; PATH="$2" rsdd_resolve_r2' \
+    _ "$TMP_TEETH_R2/tool-env-r2-mut.sh" "$ROOT/r2-empty" 2>/dev/null)"; r2_mut_rc=$?
+  if [ "$r2_mut_rc" -ne 0 ] && [ -z "$r2_mut_result" ]; then
+    ok "teeth 10: brew-opt candidate removal breaks r2 brew resolution (test-10 has teeth)"
+  else
+    no "teeth 10: mutant still resolved r2 via brew — test-10 has no teeth: path=[$r2_mut_result]"
   fi
 fi
 
