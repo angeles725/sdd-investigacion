@@ -2050,3 +2050,37 @@ preserving probes under `sources/probes/`, each passing `verify-block.sh`, and e
 mode is EXERCISED. Maintainer caveat: those blocks were driven inline rather than through the skill's
 `document` sub-command — the `method: document-cycle` stamp confirms the DOCUMENT CYCLE contract was
 followed; whether the CLI surface was exercised is a separate question.
+
+## 21. Wall protocol (blocked-artifact handling)
+
+A **wall** is any point where the loop cannot proceed at the required certainty because a *capability*
+is missing — not because the answer is absent: a tool is not installed, a format is unsupported, a
+path is unreadable, or a subprocess timed out. On another machine, walls are the NORMAL case. A wall
+is never a silent skip and never an invented `[INFER]`; it is a typed, recorded, human-visible state.
+
+**21.1 Typed wall states** (extend the §8 `blocked-on-<reason>` Status grammar; the absent/empty/
+no-match distinction still applies — never a bare zero):
+- `blocked-on-tool` — a required capability (decompiler, parser, MCP server) is not AVAILABLE. Name
+  the exact capability.
+- `unavailable` — an instrument RAN but could not produce a result (backend absent). Distinct from a
+  finding of zero: preserve the typed `unavailable` state, never coerce it to PASS or 0.
+- `refused` — the capability exists but declined (permission/gate/authorization). Record the refusal
+  scope; never retry-loop or launder it through another actor.
+
+**21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
+chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
+explicit:
+- Native ELF/PE/firmware: `ghidra → r2 → quick` (already in `decompile-native.sh`; never bare
+  `strings` — TOOL-BEFORE-AGENT).
+- JVM bytecode: `vineflower → cfr → procyon → javap`.
+- A new artifact class declares its chain HERE before a checker is built (doctrine-first).
+
+**21.3 Degrade with honesty.** A downgraded rung answers a NARROWER question. Record which rung
+produced the evidence. NEVER present a `quick` triage as a full decompile. If NO rung answers the gap
+at the required certainty, the gap stays OPEN as the typed state above — not closed, not padded, not
+dropped.
+
+**21.4 Provision before blocking.** `blocked-on-tool` names a capability; §10 (Self-provisioning) is
+the first response — try `install-tool.sh <tool>` (idempotent) BEFORE recording the block. Record the
+block only when provisioning is unavailable or declined, and surface the exact `install-tool.sh`
+invocation so the wall is one command from removed.

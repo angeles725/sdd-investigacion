@@ -667,6 +667,14 @@ HARD RULES:
     source is to a gap: without it the agent invents. Exception: `ghidra-mcp` for interactive
     exploration, not batch. Note: `--require` is model-executed doctrine at this stage; mechanical
     enforcement inside the driver wrapper is tracked as issue #253.
+    TOOL-BEFORE-AGENT is the native/decompiler instance of the general WALL rule below.
+  - WALL → TYPED BLOCK, NEVER SILENT SKIP (METHODOLOGY §21) — when the loop cannot proceed
+    because a capability is missing (tool absent, format unsupported, path unreadable, subprocess
+    timed out), record a typed wall state (`blocked-on-tool` / `unavailable` / `refused`) in
+    RESEARCH-STATE and surface the gap PLUS the `install-tool.sh` fix to the user. Walk the
+    declared fallback chain for the artifact class first (METHODOLOGY §21.2); record which rung
+    produced the evidence so the coverage gap is explicit. Never skip silently, never pad `[INFER]`,
+    never present a degraded-rung result as a full answer.
   - DISK-FIRST (live probes) — when a gap registered as "needing a live probe" (§12) can be
     answered from on-disk artifacts (decompiled code, downloaded docs, preserved sources), prefer
     disk and only escalate to a §12 live probe after confirming disk cannot answer the gap question.
