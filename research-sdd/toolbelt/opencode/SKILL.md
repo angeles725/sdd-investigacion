@@ -160,8 +160,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block. Delegate heavy sweeps with the
    right MODEL TIER (→ a `research-sweep-*` agent, adapter §1). Emit the per-iteration RETURN CONTRACT
    (including the tier used). At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
-   If the gap targets a BINARY artifact, the toolbelt native (`detect-tools.sh` → `decompile-native.sh`)
-   is your first move, not an option — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD RULES.
+   If the gap targets a BINARY artifact, first run `detect-tools.sh --require <decompiler>` to gate the
+   environment: it probes TOOL availability (not the binary) — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD
+   RULES. Then analyze with `decompile-native.sh <mode> <binary>`; for available modes (ghidra,
+   ghidra-evidence, r2, quick) and exact CLI forms, see `$KIT/toolbelt/tool-registry.md`.
    For a LONG unattended run, drive it with the external `research-loop.sh` re-invoker (adapter §2) — OpenCode
    has no native self-reschedule, so the shell IS the re-scheduler and guarantees the cadence.
 
