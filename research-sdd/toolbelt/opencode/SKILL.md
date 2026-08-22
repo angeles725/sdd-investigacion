@@ -25,7 +25,7 @@ derive it live each iteration (that is why RESUME exists).
 `toolbelt/`. Resolve it ONCE at start, in this order, and use the result for every `$KIT/...` reference below:
 
 1. `$RESEARCH_SDD_KIT` if that environment variable is set AND the directory it points at contains `METHODOLOGY.md`.
-2. Else the default checkout: `/home/cristian/investigacion/sdd-investigacion/research-sdd`.
+2. Else the default checkout `/home/cristian/investigacion/sdd-investigacion/research-sdd`, but only if that directory exists and contains `METHODOLOGY.md`; otherwise fall through to step 3.
 3. Else (relocated kit or second machine) locate it — e.g. `fd -t f METHODOLOGY.md` under the user's repos,
    confirming the hit also has `toolbelt/` and `PROMPT-LOOP.md` — and if still unfound, ask the user for the path.
 
