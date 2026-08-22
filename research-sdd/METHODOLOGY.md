@@ -390,11 +390,11 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 ## 6. Research tools
 
 **BOOTSTRAP step a2 — file-type census (mandatory, before the coverage matrix).**
-Run `census-target.sh <target-path>` at the start of every target. This produces a
+Run `$KIT/toolbelt/census-target.sh <target-path>` at the start of every target. This produces a
 file-extension histogram with aggregate sizes, and is **required before building the gap backlog**:
 
 ```
-research-sdd/toolbelt/census-target.sh $TARGET
+$KIT/toolbelt/census-target.sh $TARGET
 ```
 
 WHY this step is mandatory: a coverage matrix built from what you already noticed cannot surface

@@ -92,7 +92,7 @@ Always read first, in this order:
      the first native block's decompiler depth).
      DESIGN/APPLIED corpus exception: if the corpus subject is external tooling or specifications
      (no local binary or source tree to profile), `profile-target.sh` has no artifacts to classify
-     and no decompiler is needed — run `detect-tools.sh` (exit 0, report only) for the cache record
+     and no decompiler is needed — run `$KIT/toolbelt/detect-tools.sh` (exit 0, report only) for the cache record
      but skip the `--require` gate and record the skip in RESEARCH-STATE via the step-a2 DESIGN
      dismissal line (below). A skipped step with no note is indistinguishable from a forgotten one.
   a2. File-type census (MANDATORY — run BEFORE building the coverage matrix):
@@ -264,7 +264,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (Evidence: COB-IM2 B6 asserted "zero NxM labels; width is geometric" from one regex pass; B8
          found 563 `W"xH"` size labels and 886 BOD tags in the same drawing — derivation was unnecessary.
          Corrected via §14, commit d7fd595.)
-       - Decompile/read: decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh
+       - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
        - Live target? Before profiling, read the vendor's documented management/API port from the manual /
@@ -658,7 +658,7 @@ HARD RULES:
     of wrong claim.
   - TOOL-BEFORE-AGENT (binary/native artifacts) — before delegating a sweep over a binary
     (ELF/PE/.sys/.dll/firmware), the DRIVER runs:
-      `toolbelt/detect-tools.sh --require <decompiler-for-class>`
+      `$KIT/toolbelt/detect-tools.sh --require <decompiler-for-class>`
     where <decompiler-for-class> is: `ghidra` (or `r2`) for native ELF/PE/firmware;
     `vineflower`, `cfr`, or `procyon` for JVM bytecode; `jadx` for Android DEX.
     On a NON-ZERO exit, HALT: do NOT delegate, do NOT fall back to `strings`. Record the
