@@ -78,7 +78,11 @@ case "$ENGINE" in
   procyon)
     PROCYON="${JAR_OVERRIDE:-$(rsdd_resolve_java_jar procyon)}" || { echo "Procyon jar not found (set PROCYON_JAR)" >&2; exit 3; }
     [ -f "$PROCYON" ] || { echo "Procyon jar not found" >&2; exit 3; }
-    "$JAVA" "${JAVA_ARGS[@]}" -jar "$PROCYON" -jar "$IN" -o "$OUT"
+    if [[ "${IN,,}" == *.jar ]]; then
+      "$JAVA" "${JAVA_ARGS[@]}" -jar "$PROCYON" -jar "$IN" -o "$OUT"
+    else
+      "$JAVA" "${JAVA_ARGS[@]}" -jar "$PROCYON" -o "$OUT" "$IN"
+    fi
     ;;
   *) echo "unknown engine: $ENGINE (use vineflower|cfr|procyon)" >&2; exit 2 ;;
 esac
