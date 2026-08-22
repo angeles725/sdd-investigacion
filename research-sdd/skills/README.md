@@ -19,8 +19,9 @@ cp research-sdd/skills/research-sdd/SKILL.md ~/.claude/skills/research-sdd/SKILL
 
 Then it appears as `/research-sdd` in autocomplete (new sessions pick it up automatically).
 
-> Note: `SKILL.md` hardcodes the kit path `/home/cristian/investigacion/sdd-investigacion/research-sdd`.
-> If the kit moves, update that path in both the installed copy and this master.
+> Note: the installer (`research-sdd/install/research-sdd-install.sh`) injects a `Kit path:` line into
+> the harness prompt so the skill resolves the kit O(1) from the launcher block on any machine.
+> No per-user path is hardcoded in `SKILL.md`.
 
 ---
 

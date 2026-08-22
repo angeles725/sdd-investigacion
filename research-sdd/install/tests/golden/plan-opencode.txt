@@ -7,6 +7,7 @@ harness=opencode
   | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.config/opencode/skills/research-sdd/SKILL.md
+  | Kit path: {KIT}
   | <!-- research-sdd:end -->
   SYMLINK {HOME}/.config/opencode/plugins/research-sdd-sweep.ts -> {KIT}/toolbelt/opencode/research-sdd-sweep.ts
   slash_commands=true

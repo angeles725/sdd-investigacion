@@ -7,5 +7,6 @@ harness=claude
   | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.claude/skills/research-sdd/SKILL.md
+  | Kit path: {KIT}
   | <!-- research-sdd:end -->
   slash_commands=false

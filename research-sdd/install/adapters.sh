@@ -138,20 +138,39 @@ rsdd_field() {
   esac
 }
 
-# rsdd_render_section <harness> [home] — the single launcher body, wrapped in the idempotency markers.
+# rsdd_render_section <harness> [home] [kit] — the single launcher body, wrapped in idempotency markers.
 # Identical across harnesses EXCEPT the manual-sweep fallback, which is appended only where the table
 # says the harness has no automated sweep. The launcher TEXT itself is not forked per harness.
+#
+# <kit> is the absolute kit root — emitted as 'Kit path: ~/...' when under $home (tilde-relative,
+# machine-independent display), else as an absolute path. MUST NOT be empty: an empty kit path is an
+# operational failure (§7 anti-silent-zero) — the function fails loudly so the installer propagates
+# the error rather than silently injecting an unusable 'Kit path: ' line.
 rsdd_render_section() {
-  local harness="$1" home="${2:-$HOME}" skill_path needs_sweep needs_mcp_doc
+  local harness="$1" home="${2:-$HOME}" kit="${3:-}" skill_path needs_sweep needs_mcp_doc
+  if [ -z "$kit" ]; then
+    printf 'rsdd_render_section: kit path must not be empty\n' >&2
+    return 2
+  fi
   skill_path="$(rsdd_field "$harness" skill_path "$home")"
   needs_sweep="$(rsdd_field "$harness" needs_manual_sweep_doc "$home")"
   needs_mcp_doc="$(rsdd_field "$harness" needs_mcp_config_doc "$home")"
+  # Emit the kit path as ~/... when it lives under $home; else as the absolute path.
+  # The leading ~ is a LITERAL display character for the human reading the prompt — not a shell expansion.
+  local kit_rel
+  if [ "${kit#"$home/"}" != "$kit" ]; then
+    # shellcheck disable=SC2088
+    kit_rel='~/'"${kit#"$home/"}"
+  else
+    kit_rel="$kit"
+  fi
   printf '%s\n' '<!-- research-sdd:start -->'
   printf '%s\n' '## Research-SDD'
   printf '%s\n' ''
   printf '%s\n' 'Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the'
   printf '%s\n' 'single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).'
   printf '%s\n' "Skill file: $skill_path"
+  printf '%s\n' "Kit path: $kit_rel"
   if [ "$needs_sweep" = "true" ]; then
     printf '%s\n' ''
     printf '%s\n' 'Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session'

@@ -24,10 +24,16 @@ derive it live each iteration (that is why RESUME exists).
 `KIT` is the research-sdd kit directory — the one holding `METHODOLOGY.md`, `PROMPT-LOOP.md`, and
 `toolbelt/`. Resolve it ONCE at start, in this order, and use the result for every `$KIT/...` reference below:
 
+0. If this harness's system prompt carries a research-sdd launcher block with a `Kit path:` line,
+   expand it (replace a leading `~` with `$HOME`) and use that directory as the O(1) fast-path —
+   but still confirm it contains `METHODOLOGY.md` before trusting it; if the check fails, fall through.
 1. `$RESEARCH_SDD_KIT` if that environment variable is set AND the directory it points at contains `METHODOLOGY.md`.
-2. Else the default checkout `/home/cristian/investigacion/sdd-investigacion/research-sdd`, but only if that directory exists and contains `METHODOLOGY.md`; otherwise fall through to step 3.
-3. Else (relocated kit or second machine) locate it — e.g. `fd -t f METHODOLOGY.md` under the user's repos,
-   confirming the hit also has `toolbelt/` and `PROMPT-LOOP.md` — and if still unfound, ask the user for the path.
+2. Else (relocated kit or second machine) locate it — e.g. `fd -t f METHODOLOGY.md` under the user's
+   repos, confirming the hit also has `toolbelt/` and `PROMPT-LOOP.md`. Guards: never treat `$HOME`,
+   `/`, or any directory missing ALL THREE of `METHODOLOGY.md`, `toolbelt/`, and `PROMPT-LOOP.md` as the
+   kit. If `fd` returns multiple candidates, prefer one NOT under `.claude/worktrees/`; if still
+   multiple, list them and ask the user rather than silently picking one (anti-silent-zero).
+   If still unfound, ask the user for the path.
 
 The toolbelt scripts resolve their own location internally; `$KIT` is needed only to FIND the kit docs and
 invoke the scripts. Nothing downstream re-hardcodes this path.

@@ -115,6 +115,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A9: step-0 fast-path — twin must carry the injected Kit path: fast-path
+#     anchor so the harness can resolve the kit O(1) from the launcher block
+#     without a per-user hardcoded absolute.  Stable anchor: 'Kit path:'.
+# ---------------------------------------------------------------------------
+if grep -qF 'Kit path:' "$TWIN"; then
+  ok "A9: step-0 Kit path: fast-path anchor present in twin"
+else
+  no "A9: step-0 Kit path: fast-path anchor MISSING from twin"
+fi
+
+# ---------------------------------------------------------------------------
 # --prove-teeth: mutate the A1 invariant ("the 7 markers" → "the 5 markers")
 # in a COPY of the twin (never the live file).  The A1 positive assertion must
 # go RED; the A1-neg assertion must go RED.  Both teeth-controls must report ok.
@@ -136,6 +147,17 @@ if [ "$PROVE_TEETH" = "1" ]; then
     ok "teeth-A1-neg: A1-neg assertion goes RED on mutant (teeth confirmed)"
   else
     no "teeth-A1-neg: mutant does NOT have 'the 5 markers' — sed did not take (no teeth)"
+  fi
+
+  # A9 mutation: replace 'Kit path:' with 'Kit-path:' so the anchor disappears.
+  # A9's grep -qF 'Kit path:' must go RED — if it stays green the assertion has no teeth.
+  echo "-- prove-teeth: mutant removes 'Kit path:' anchor (A9 fast-path check) --"
+  mutant9="$TMP/SKILL.mutant9.md"
+  sed 's/Kit path:/Kit-path:/g' "$TWIN" > "$mutant9"
+  if grep -qF 'Kit path:' "$mutant9"; then
+    no "teeth-A9: mutant still has 'Kit path:' — sed did not take (no teeth)"
+  else
+    ok "teeth-A9: A9 assertion goes RED on mutant (teeth confirmed)"
   fi
 fi
 
