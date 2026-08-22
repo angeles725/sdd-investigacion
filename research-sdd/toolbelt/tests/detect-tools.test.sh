@@ -145,6 +145,7 @@ ln -sf /usr/bin/timeout "$BIN_G/timeout"   # needed by rsdd_run_probe / rsdd_cap
 ln -sf /usr/bin/grep "$BIN_G/grep"         # needed by --require gate (grep -F / -oE)
 ln -sf /usr/bin/head "$BIN_G/head"         # needed by --require gate (head -1)
 ln -sf /usr/bin/date "$BIN_G/date"         # avoids noisy date-not-found in $stderr_g
+ln -sf /usr/bin/mkdir "$BIN_G/mkdir"       # needed by mkdir -p for cache directory creation
 printf 'FAKE-JAR-CONTENT\n' > "$ROOT/fake-vineflower.jar"
 CACHE_G="$ROOT/cache-g.txt"
 stderr_g="$ROOT/stderr-g.txt"
@@ -178,6 +179,7 @@ ln -sf /usr/bin/grep      "$BIN_H/grep"     # --require gate
 ln -sf /usr/bin/head      "$BIN_H/head"     # --require gate
 ln -sf /usr/bin/date      "$BIN_H/date"     # report header date
 ln -sf /usr/bin/sleep     "$BIN_H/sleep"    # fake java stub body
+ln -sf /usr/bin/mkdir     "$BIN_H/mkdir"    # needed by mkdir -p for cache directory creation
 mkexec "$BIN_H/java" 'sleep 5'             # killed by timeout at 0.1 s → rc 124
 
 SHIM_H="$ROOT/shim-h"
@@ -205,6 +207,58 @@ if [ "$rc_h" -ne 0 ] \
 else
   no "h Java secondary probe: shim+sleeping java → PROBE_FAILED" \
      "rc=$rc_h msg=[$(cat "$stderr_h" 2>/dev/null)] line=[$java_line_h]"
+fi
+
+# ── Cache-location contract (tests i, j, k) ──────────────────────────────────
+
+# i — no cwd pollution: --quiet without --cache must NOT create any file in the cwd.
+# Default cache must land in the machine-scoped XDG/HOME path, never ./
+TEMP_CWD_I="$ROOT/temp-cwd-i"
+mkdir -p "$TEMP_CWD_I"
+FAKE_HOME_I="$ROOT/fake-home-i"
+mkdir -p "$FAKE_HOME_I"
+rc_i=0
+(
+  cd "$TEMP_CWD_I"
+  unset RESEARCH_TOOLS_CACHE XDG_CACHE_HOME
+  HOME="$FAKE_HOME_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --quiet >/dev/null 2>&1
+) || rc_i=$?
+machine_cache_i="$FAKE_HOME_I/.cache/research-sdd/tool-capabilities.txt"
+if [ ! -e "$TEMP_CWD_I/.research-tools.txt" ] && [ -f "$machine_cache_i" ]; then
+  ok "i no cwd pollution: default cache lands in HOME/.cache, not cwd" "(rc=$rc_i)"
+else
+  no "i no cwd pollution: default cache lands in HOME/.cache, not cwd" \
+     "rc=$rc_i cwd=$([ -e "$TEMP_CWD_I/.research-tools.txt" ] && echo polluted || echo clean) mc=$([ -f "$machine_cache_i" ] && echo written || echo absent)"
+fi
+
+# j — explicit --cache <abs-path> override still writes to the named file exactly.
+CACHE_J="$ROOT/explicit-j.txt"
+rc_j=0
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_J" --quiet >/dev/null 2>&1 || rc_j=$?
+if [ "$rc_j" -eq 0 ] && [ -f "$CACHE_J" ]; then
+  ok "j explicit --cache override: writes to named file, exits 0" "(rc=$rc_j)"
+else
+  no "j explicit --cache override: writes to named file, exits 0" \
+     "rc=$rc_j file=$([ -f "$CACHE_J" ] && echo present || echo absent)"
+fi
+
+# k — unwritable cache path: non-zero exit + stderr message (defect #2 was || true).
+# RESEARCH_TOOLS_CACHE points under a mode-000 dir → write fails → must be loud.
+UNWRITE_K="$ROOT/no-write-k"
+mkdir -p "$UNWRITE_K"
+chmod 000 "$UNWRITE_K"
+stderr_k="$ROOT/stderr-k.txt"
+rc_k=0
+RESEARCH_TOOLS_CACHE="$UNWRITE_K/cache.txt" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --quiet >/dev/null 2>"$stderr_k" || rc_k=$?
+chmod 755 "$UNWRITE_K"  # restore for trap cleanup
+if [ "$rc_k" -ne 0 ] && [ -s "$stderr_k" ]; then
+  ok "k unwritable cache: non-zero exit + stderr error message" "(rc=$rc_k)"
+else
+  no "k unwritable cache: non-zero exit + stderr error message" \
+     "rc=$rc_k stderr=[$(head -1 "$stderr_k" 2>/dev/null || true)]"
 fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
@@ -297,6 +351,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-h: mutant must NOT emit PROBE_FAILED for Java secondary probe timeout" \
        "line=[$java_line_mh]"
+  fi
+
+  # teeth-i (targets test i): mutant reverts CACHE default to cwd-relative ./.research-tools.txt
+  # → file appears in cwd → test-i [ ! -e cwd/.research-tools.txt ] goes RED.
+  MUT_I="$ROOT/detect-mut-i.sh"
+  sed 's|^CACHE=.*|CACHE="./.research-tools.txt"|' "$DETECT" > "$MUT_I"
+  chmod +x "$MUT_I"
+  TEMP_CWD_MUT_I="$ROOT/temp-cwd-mut-i"
+  mkdir -p "$TEMP_CWD_MUT_I"
+  FAKE_HOME_MUT_I="$ROOT/fake-home-mut-i"
+  mkdir -p "$FAKE_HOME_MUT_I"
+  (
+    cd "$TEMP_CWD_MUT_I"
+    unset RESEARCH_TOOLS_CACHE XDG_CACHE_HOME
+    HOME="$FAKE_HOME_MUT_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
+      bash "$MUT_I" --quiet >/dev/null 2>&1
+  ) || true
+  if [ -e "$TEMP_CWD_MUT_I/.research-tools.txt" ]; then
+    ok "teeth-i: cwd-relative mutant deposits file in cwd — test-i bites" "(file found in cwd)"
+  else
+    no "teeth-i: mutant must create .research-tools.txt in cwd" "(file absent)"
+  fi
+
+  # teeth-k (targets test k): mutant restores silent write (|| true) → exits 0 on failure
+  # → test-k [ rc -ne 0 ] goes RED.
+  UNWRITE_MK="$ROOT/no-write-mk"
+  mkdir -p "$UNWRITE_MK"
+  chmod 000 "$UNWRITE_MK"
+  MUT_K="$ROOT/detect-mut-k.sh"
+  sed 's#|| { printf.*cannot write cache file.*exit 1; }#|| true#' "$DETECT" > "$MUT_K"
+  chmod +x "$MUT_K"
+  rc_mk=0
+  RESEARCH_TOOLS_CACHE="$UNWRITE_MK/cache.txt" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUT_K" --quiet >/dev/null 2>/dev/null || rc_mk=$?
+  chmod 755 "$UNWRITE_MK"  # restore for cleanup
+  if [ "$rc_mk" -eq 0 ]; then
+    ok "teeth-k: write-swallow mutant exits 0 for unwritable cache — test-k bites" \
+       "(mutant rc=0)"
+  else
+    no "teeth-k: mutant must exit 0 (write error swallowed)" "mutant rc=$rc_mk"
   fi
 fi
 

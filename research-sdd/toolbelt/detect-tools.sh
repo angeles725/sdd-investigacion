@@ -9,7 +9,7 @@
 #
 # Usage:
 #   detect-tools.sh                          # print report to stdout AND cache it
-#   detect-tools.sh --cache <file>           # cache to <file> (default: ./.research-tools.txt)
+#   detect-tools.sh --cache <file>           # cache to <file> (default: $RESEARCH_TOOLS_CACHE or $HOME/.cache/research-sdd/tool-capabilities.txt)
 #   detect-tools.sh --quiet                  # only write the cache, no stdout
 #   detect-tools.sh --require <tool>[,...]   # gate: non-zero if any named tool is not AVAILABLE
 #
@@ -22,7 +22,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/tool-env.sh
 source "$HERE/lib/tool-env.sh"
 
-CACHE="./.research-tools.txt"
+CACHE="${RESEARCH_TOOLS_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/research-sdd/tool-capabilities.txt}"
 QUIET=0
 REQUIRE=""
 while [ $# -gt 0 ]; do
@@ -258,7 +258,9 @@ report() {
 }
 
 OUT="$(report)"
-printf '%s\n' "$OUT" > "$CACHE" 2>/dev/null || true
+_cache_dir="$(dirname "$CACHE")"
+mkdir -p "$_cache_dir" || { printf '%s: cannot create cache directory: %s\n' "${0##*/}" "$_cache_dir" >&2; exit 1; }
+printf '%s\n' "$OUT" > "$CACHE" || { printf '%s: cannot write cache file: %s\n' "${0##*/}" "$CACHE" >&2; exit 1; }
 [ "$QUIET" -eq 1 ] || printf '%s\n' "$OUT"
 [ "$QUIET" -eq 1 ] && echo "tool capability report cached → $CACHE"
 
