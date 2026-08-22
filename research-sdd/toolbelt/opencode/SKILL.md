@@ -167,6 +167,15 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    For a LONG unattended run, drive it with the external `research-loop.sh` re-invoker (adapter §2) — OpenCode
    has no native self-reschedule, so the shell IS the re-scheduler and guarantees the cadence.
 
+**Walls & evidence (never a silent skip).** A wall is a MISSING CAPABILITY, not an absent answer:
+record a TYPED state — `blocked-on-tool` (name the exact capability), `unavailable` (the instrument ran
+but produced no result), or `refused` (a gate/permission declined) — never a silent skip or an invented
+`[INFER]` (METHODOLOGY §21). Provision FIRST: try `$KIT/toolbelt/install-tool.sh <tool>` (§21.4), then
+walk the artifact class's fallback chain (§21.2) and record the last rung reached. For a BINARY artifact,
+a decompile is NOT evidence until corroborated: cross-check it with the matching
+`$KIT/toolbelt/corroborate-*.sh` wrapper (`tool-registry.md`) — an un-anchored offset can hit a twin
+binary (niagara B424).
+
 ## Execution mode
 
 Default is **self-paced** via the external `research-loop.sh` (adapter §2 — OpenCode has no native

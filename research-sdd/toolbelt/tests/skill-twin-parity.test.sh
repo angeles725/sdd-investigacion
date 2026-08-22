@@ -104,6 +104,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A8: Walls & evidence block — twin must carry the typed wall-state doctrine
+#     (blocked-on-tool) so the launcher surfaces METHODOLOGY §21, kept in sync
+#     with the main SKILL.md by the twin-sync convention.
+# ---------------------------------------------------------------------------
+if grep -qF 'blocked-on-tool' "$TWIN"; then
+  ok "A8: Walls & evidence block (blocked-on-tool typed state) present"
+else
+  no "A8: Walls & evidence block missing (blocked-on-tool absent)"
+fi
+
+# ---------------------------------------------------------------------------
 # --prove-teeth: mutate the A1 invariant ("the 7 markers" → "the 5 markers")
 # in a COPY of the twin (never the live file).  The A1 positive assertion must
 # go RED; the A1-neg assertion must go RED.  Both teeth-controls must report ok.
