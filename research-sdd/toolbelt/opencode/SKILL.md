@@ -49,6 +49,16 @@ a clean target; the request may be a one-off question. CLASSIFY intent first (ne
 If **nothing usable** was given: read `$KIT/TARGETS.md`, show the target table (name · maturity · artifact ·
 language), and ask which one — then proceed. Do not guess.
 
+## Key terms (quick reference)
+
+| Term | One-line meaning |
+|---|---|
+| **corpus** | The growing set of `.md` knowledge blocks for a target (+ `INDEX.md`, `CATALOG.md`, `RESEARCH-STATE.md`). |
+| **block** | One self-contained `.md` file capturing one researched gap — `<prefix>-blockN.md` or `<prefix>-bloqueN.md`. |
+| **gap** | An open research question in `RESEARCH-STATE.md`; the loop attacks one per iteration. |
+| **RESEARCH-STATE.md** | The per-target state file: coverage metric, prioritized gap backlog, iteration history. |
+| **SECRETS DISCIPLINE** | Hard rule (full text in PROMPT-LOOP): for `live-install` targets, cite secret STRUCTURE (formats, key lengths, host IDs), never secret VALUES. |
+
 ## Intent & depth — TRIAGE first, then RECOMMEND and PROCEED (do NOT interrogate)
 
 The request is not always a full research run — but the answer is almost never a question back to the user.
@@ -58,7 +68,10 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
 
 **TRIAGE — before any heavy work:**
 - `<target-or-path>` resolves in `TARGETS.md`, OR the user said `continue` / `a fondo` / `exhaustivo` /
-  "document everything" → go **heavy** directly. No triage, no question.
+  "document everything" → go **heavy** directly. No triage, no question. CARVE-OUT (intent wins): a
+  registered target resolves to HEAVY *unless* the request is a scoped factual question (a version, a
+  serial, "does it use X") — that is **quick** mode even against a registered target. Answer it directly
+  (quick) and OFFER to continue the heavy loop; do not force the full loop for a one-off lookup.
 - The explicit `document` sub-command, OR "documentá esto" / "capturá el how-to" / "document what we just
   did" → **document mode** (capture, not discover). This is DISTINCT from "document everything [about this
   system]", which is exhaustive DISCOVERY (heavy): document mode CAPTURES knowledge you already have or just
@@ -89,7 +102,9 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   REUSABLE toolchain/environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step) → the KIT
   (`toolbelt/` + register in `toolbelt/tool-registry.md`) plus an Engram pointer. Same `verify-block` gate,
   plus a MANDATORY Engram mirror so the doc stays recall-findable. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
-  (METHODOLOGY §20).
+  (METHODOLOGY §20). §20 was first exercised end-to-end on a real target by the TradingView new-target
+  DOCUMENT run (target #23, B1-B3; see `retros/2026-08-03-document-unregistered-bootstrap-incident.md`).
+  Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) predate the mode.
 
 **AUTO-ESCALATE light → heavy — announce, do NOT re-ask.** A light/triage pass is allowed to promote
 itself. When it surfaces DEPTH — **≥3 investigable gaps**, OR a **binary/firmware** artifact, OR **multiple
@@ -102,7 +117,9 @@ the user explicitly set.
 default, never more than one.
 
 **Target vs ad-hoc / live-install.** If `<target-or-path>` resolves in `TARGETS.md` → real corpus target
-(heavy/continue). An arbitrary PATH not in `TARGETS.md` → ad-hoc scope: triage it. **Unregistered-path
+(heavy/continue) — UNLESS the request is a scoped factual question about it, in which case intent wins:
+answer it **quick** and offer to continue the heavy loop (the carve-out above). An arbitrary PATH not in
+`TARGETS.md` → ad-hoc scope: triage it. **Unregistered-path
 decision gate:** if the path is absent from `TARGETS.md` AND the request carries explicit `new`/`create`/
 `document`/exhaustive-documentation intent → classify as ad-hoc NEW target; announce BOOTSTRAP; run
 BOOTSTRAP steps a-c (profile, TARGETS.md registration, scaffold) then continue the selected mode.
@@ -117,7 +134,7 @@ These steps apply to the heavy mode and to continuing a corpus. **quick** and **
 answer directly (quick) or run a scoped Explore and return the map (light) — do not bootstrap or loop.
 
 1. **Read the kit — these ARE the rules, do not summarize from memory:**
-   - `$KIT/METHODOLOGY.md` — phases, the 5 markers, block anatomy, §8 stopping + terminal trigger,
+   - `$KIT/METHODOLOGY.md` — phases, the 7 markers, block anatomy, §8 stopping + terminal trigger,
      §11 self-verify, §12 dynamic phase, §16 multi-focus, §17 resume, §18 self-retrospective.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
      (honor an APPROVED language override; otherwise English).
@@ -132,6 +149,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    Start from the next NOT-covered gap in the live backlog — not from any number a human typed.
    If the target/focus has NO `RESEARCH-STATE`/`INDEX` → run BOOTSTRAP (PROMPT-LOOP), including the
    ANGLE-first declaration for a mature/large target and AUDIT-FIRST backlog seeding.
+   REMOTE follow-up (do NOT auto-run): after resolving the target, check `git -C <target-path> remote`. If it
+   prints NO `origin`, SURFACE the one-liner "no remote — run `$KIT/toolbelt/ensure-remote.sh <target> --yes`
+   when you consent to a PRIVATE GitHub remote" and continue. Creating a remote is consent-gated and the
+   operator's call (METHODOLOGY §15) — never create or push one on their behalf.
 
 3. **Confirm the angle (mature/large or multi-focus targets only).** State the active focus/axis and what
    you will reconstruct. If ambiguous, surface it and ask — do not guess the focus.
@@ -139,6 +160,8 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block. Delegate heavy sweeps with the
    right MODEL TIER (→ a `research-sweep-*` agent, adapter §1). Emit the per-iteration RETURN CONTRACT
    (including the tier used). At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
+   If the gap targets a BINARY artifact, the toolbelt native (`detect-tools.sh` → `decompile-native.sh`)
+   is your first move, not an option — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD RULES.
    For a LONG unattended run, drive it with the external `research-loop.sh` re-invoker (adapter §2) — OpenCode
    has no native self-reschedule, so the shell IS the re-scheduler and guarantees the cadence.
 
