@@ -27,13 +27,26 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "child_process"
 import { promisify } from "util"
 import { realpath } from "fs/promises"
+import { realpathSync } from "fs"
+import { fileURLToPath } from "url"
 import path from "path"
 
 const execFileAsync = promisify(execFile)
 
-// Resolve the kit toolbelt: honor $RESEARCH_SDD_KIT (points at the research-sdd dir), else the
-// default checkout. Kept in lockstep with SKILL.md's "Resolving the kit path".
-const KIT_DIR = process.env.RESEARCH_SDD_KIT ?? "/home/cristian/investigacion/sdd-investigacion/research-sdd"
+// Resolve the kit dir: honor $RESEARCH_SDD_KIT (points at the research-ssd dir) first.
+// When unset, derive from the module's own canonical location by following any symlink
+// (e.g. ~/.config/opencode/plugins/ symlink → real toolbelt/opencode/ → ../../ = research-sdd/).
+// The catch MUST return a non-null string — path.join(KIT_DIR, ...) runs at module scope
+// and a null/undefined KIT_DIR would throw TypeError at import time, blocking OpenCode startup.
+export function deriveKitDir(): string {
+  try {
+    const self = realpathSync(fileURLToPath(import.meta.url))
+    return path.resolve(path.dirname(self), "..", "..")
+  } catch {
+    return "/nonexistent-research-sdd-kit"  // benign: underKitRepo's realpath fails → false → silence
+  }
+}
+const KIT_DIR = process.env.RESEARCH_SDD_KIT ?? deriveKitDir()
 const TOOLBELT = path.join(KIT_DIR, "toolbelt")
 const SWEEP = path.join(TOOLBELT, "sweep-retros.sh")
 const SWEEP_AUDITS = path.join(TOOLBELT, "sweep-audits.sh")
