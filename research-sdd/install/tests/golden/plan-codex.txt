@@ -7,6 +7,7 @@ harness=codex
   | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.codex/skills/research-sdd/SKILL.md
+  | Kit path: {KIT}
   | 
   | Session-start sweep (this harness fires NO pre-turn hook — run MANUALLY at session
   | start; all read-only, degrade to silence on failure):

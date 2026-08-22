@@ -169,7 +169,7 @@ _rsdd_splice_file() {
 # preserving everything else. Thin wrapper over the generic splice; no duplicate-table guard needed.
 _surface__markdown_sections() {
   local harness="$1" home="$2" file="$3" dry="$4" section
-  section="$(rsdd_render_section "$harness" "$home")" || return 2
+  section="$(rsdd_render_section "$harness" "$home" "$KIT")" || return 2
   _rsdd_splice_file "$file" "$dry" \
     '<!-- research-sdd:start -->' '<!-- research-sdd:end -->' \
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"

@@ -14,8 +14,8 @@ GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -800,10 +800,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && ok "teeth: MUTANT10 parses (bash -n)" \
     || no "teeth: MUTANT10 is a syntax error — mutation is theater"
   ma_script="$TMP/ma-run.sh"
-  printf '. %s\nrsdd_render_section codex %s\n' "$MUTANT10" "$TMP/ma-home" >"$ma_script"
   ma_bogus="$TMP/ma-adapters-bogus.sh"
   sed 's/\[codex\]="mcp-servers-table"/[codex]="bogus-shape"/' "$MUTANT10" >"$ma_bogus"
-  printf '. %s\nrsdd_render_section codex %s\n' "$ma_bogus" "$TMP/ma-home" >"$ma_script"
+  # Pass a non-empty kit path so the kit-empty guard passes and the function reaches the
+  # mcp_toml_shape else branch — that is the branch MUTANT10 neutered.
+  printf '. %s\nrsdd_render_section codex %s %s\n' "$ma_bogus" "$TMP/ma-home" "$KITROOT" >"$ma_script"
   bash "$ma_script" >/dev/null 2>/dev/null; rc_ma=$?
   if [ "$rc_ma" -eq 0 ]; then
     ok "teeth: else-neutered mutant exits 0 on unknown shape → T-b fail-loud check has teeth"
@@ -827,6 +828,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth: wrong-reason mutant still matched last-wins/shadowing — T-c reasonix check is THEATER"
   else
     ok "teeth: wrong-reason mutant fails last-wins/shadowing grep → T-c reasonix check has teeth"
+  fi
+
+  echo "-- teeth: remove 'Kit path:' from adapters.sh; expect test-52 'Kit path:' check to fail --"
+  # Strip the Kit path: printf line from adapters.sh so the rendered section no longer carries the
+  # fast-path anchor. Test 52's 'Kit path:' grep must then fail — proving the emit is what bites.
+  MUTANT12="$HERE/../adapters.MUTANT12.$$.sh"
+  sed '/printf.*Kit path:/d' "$HERE/../adapters.sh" > "$MUTANT12"
+  bash -n "$MUTANT12" 2>/dev/null \
+    && ok "teeth: MUTANT12 parses (bash -n)" \
+    || no "teeth: MUTANT12 is a syntax error — mutation is theater"
+  m12kit="$TMP/m12-fake-kit"
+  mkdir -p "$m12kit/install" "$m12kit/skills/research-sdd"
+  cp "$HERE/../research-sdd-install.sh" "$m12kit/install/research-sdd-install.sh"
+  cp "$MUTANT12" "$m12kit/install/adapters.sh"
+  printf '# placeholder skill\n' > "$m12kit/skills/research-sdd/SKILL.md"
+  home_m12="$TMP/teeth-m12-kitpath"
+  out_m12="$(bash "$m12kit/install/research-sdd-install.sh" --dry-run --home "$home_m12" --harness claude 2>&1)"
+  if printf '%s\n' "$out_m12" | grep -q 'Kit path:'; then
+    no "teeth: MUTANT12 still emits 'Kit path:' — test-52 Kit path check is THEATER"
+  else
+    ok "teeth: MUTANT12 omits 'Kit path:' → test-52 Kit path check has teeth"
   fi
 fi
 
@@ -882,6 +904,27 @@ else
   else
     no "SKILL.md unreadable (chmod 000): wrong or missing warning (expected 'not readable', got: [$err])"
   fi
+fi
+
+# 52 — the rendered launcher section must contain 'Kit path:' pointing at a
+#      harness-relative (~/...) or absolute kit root — the installer-injected
+#      fast-path that lets the SKILL.md skip the per-user hardcoded default.
+#      Test in both a dry-run plan and a real applied prompt file.
+home="$TMP/kitpath-check"
+# dry-run plan: 'Kit path:' must appear inside the rendered SPLICE block
+out_52="$(bash "$SUT" --dry-run --home "$home" --harness claude 2>&1)"
+if printf '%s\n' "$out_52" | grep -q 'Kit path:'; then
+  ok "52: dry-run plan contains 'Kit path:' in the rendered launcher section"
+else
+  no "52: dry-run plan is MISSING 'Kit path:' (fast-path not injected into launcher)"
+fi
+# real apply: the installed prompt file also carries 'Kit path:' in the splice
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
+pf_52="$home/.claude/CLAUDE.md"
+if grep -q 'Kit path:' "$pf_52" 2>/dev/null; then
+  ok "52: applied CLAUDE.md contains 'Kit path:' in the launcher section"
+else
+  no "52: applied CLAUDE.md is MISSING 'Kit path:' (fast-path not injected)"
 fi
 
 echo "== $pass passed · $fail failed =="

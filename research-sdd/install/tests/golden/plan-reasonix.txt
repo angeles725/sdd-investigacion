@@ -7,6 +7,7 @@ harness=reasonix
   | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.reasonix/skills/research-sdd/SKILL.md
+  | Kit path: {KIT}
   | 
   | MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically
   | into `~/.reasonix/config.toml` by the installer — an idempotent marked block
