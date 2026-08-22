@@ -77,5 +77,51 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# ======================== GATES assertion block ==========================
+# Verification-gate scripts that MUST appear in tool-registry.md.
+# These are the corpus-consistency gates (exit 0/1/2 contract), NOT artifact-routing wrappers.
+# This list is an explicit allowlist — do NOT use a verify-* glob, which would
+# false-positive on verify-kit-clean and verify-registry (sweeps, not gates) and
+# false-negative on scan-secrets.sh (a gate that does not start with verify-).
+GATES=(
+  verify-block.sh
+  verify-sources.sh
+  verify-state.sh
+  verify-corrections.sh
+  verify-parity.sh
+  scan-secrets.sh
+)
+
+check_gates() {
+  local reg="$1" g
+  for g in "${GATES[@]}"; do
+    if grep -qF "$g" "$reg"; then
+      ok "gate discoverable: $g"
+    else
+      no "gate NOT in registry: $g"
+    fi
+  done
+}
+
+check_gates "$REGISTRY"
+
+# ======================== GATES NEGATIVE CONTROL — --prove-teeth ==========================
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: remove scan-secrets.sh row from a registry copy; gates check must flag it --"
+  tmp_g="$(mktemp -d)"
+  trap 'rm -rf "$tmp_g"' EXIT
+  mutant_g="$tmp_g/tool-registry.md"
+  grep -v 'scan-secrets' "$REGISTRY" > "$mutant_g"
+  mut_gate_fail=0
+  for g in "${GATES[@]}"; do
+    grep -qF "$g" "$mutant_g" || mut_gate_fail=$((mut_gate_fail+1))
+  done
+  if [ "$mut_gate_fail" -gt 0 ]; then
+    ok "teeth: $mut_gate_fail gate(s) flagged as undiscoverable in mutated registry (gates check bites)"
+  else
+    no "teeth: removal of scan-secrets.sh row was NOT detected — gates check is toothless"
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
