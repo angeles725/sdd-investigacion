@@ -2073,6 +2073,27 @@ explicit:
 - Native ELF/PE/firmware: `ghidra → r2 → quick` (already in `decompile-native.sh`; never bare
   `strings` — TOOL-BEFORE-AGENT).
 - JVM bytecode: `vineflower → cfr → procyon → javap`.
+- .NET (PE32 .NET assembly): `ilspycmd → capa → quick` — full decompile via `decompile-net.sh`, then
+  capability evidence via `corroborate-capa.sh` (capa handles .NET), then `decompile-native.sh quick`
+  (file + strings). Below ilspycmd the question narrows to capabilities/strings, never source.
+- PDF / documentation: `extract-pdf.sh tier-1 → extract-pdf.sh tier-2 OCR → markitdown/pdftotext` —
+  text-layer (`pymupdf4llm`) first; OCR (`ocrmypdf`/`marker`/`docling`/`tesseract`, auto when `fonts=0`)
+  when there is no text layer; then a NON-cited quick read (`markitdown`/`pdftotext -layout`) that drops
+  the `:p.N` anchors and therefore cannot be cited as `[CERT]` page-anchored evidence.
+- PCAP / PCAPng: `pcap-flows.sh → corroborate-pcap.sh → capinfos` — flow reconstruction (conversations +
+  per-stream sha256 digests) first, then the offline summary + protocol hierarchy, then a bare `capinfos`
+  summary. No rung replays or captures live traffic.
+- Firmware / opaque blob: `corroborate-unblob.sh → scan-firmware.sh carve → scan-firmware.sh evidence` —
+  recursive extraction inventory first, then validated exact-byte carving (uImage / SquashFS v4 LE only),
+  then a non-extracting binwalk signature + entropy map; `squashfs-extract.sh` is the specialized branch
+  once a SquashFS filesystem is confirmed. Encrypted inner archives are a blocker WITH an attack path
+  (bkcrack known-plaintext, tool-registry), not a wall.
+- Android APK / DEX: `jadx → apktool → quick` — full decompile (`install-tool.sh jadx`), then resources +
+  smali (`install-tool.sh apktool`), then `unzip` + strings triage. All three are self-provisioned, so
+  §21.4 (`install-tool.sh` first) applies before recording `blocked-on-tool`.
+- Web / minified JS bundle: `js-beautify → CodeGraph → context7` — readable reformat first, then structural
+  reading via CodeGraph / direct source, then identify a bundled third-party library by its API via the
+  context7 MCP instead of reading it. Prove an API is actually USED, not merely present (bundle-evidence rule).
 - A new artifact class declares its chain HERE before a checker is built (doctrine-first).
 
 **21.3 Degrade with honesty.** A downgraded rung answers a NARROWER question. Record which rung
