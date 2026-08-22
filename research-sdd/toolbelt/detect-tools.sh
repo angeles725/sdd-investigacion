@@ -8,11 +8,14 @@
 # linuxbrew cost the first native block its decompiler depth (lesson: niagara).
 #
 # Usage:
-#   detect-tools.sh                 # print report to stdout AND cache it
-#   detect-tools.sh --cache <file>  # cache to <file> (default: ./.research-tools.txt)
-#   detect-tools.sh --quiet         # only write the cache, no stdout
+#   detect-tools.sh                          # print report to stdout AND cache it
+#   detect-tools.sh --cache <file>           # cache to <file> (default: ./.research-tools.txt)
+#   detect-tools.sh --quiet                  # only write the cache, no stdout
+#   detect-tools.sh --require <tool>[,...]   # gate: non-zero if any named tool is not AVAILABLE
 #
-# Exit: always 0 (a report, not a gate). Status is AVAILABLE|UNUSABLE|MISSING.
+# Exit: 0 = report produced (default); 1 = --require gate failed; 2 = usage error.
+# Status values in report: AVAILABLE | UNUSABLE | MISSING | PROBE_FAILED.
+# PROBE_FAILED means the probe could not complete (timeout/127) — distinct from MISSING.
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,13 +24,59 @@ source "$HERE/lib/tool-env.sh"
 
 CACHE="./.research-tools.txt"
 QUIET=0
+REQUIRE=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --cache) CACHE="${2:?path}"; shift 2 ;;
-    --quiet) QUIET=1; shift ;;
-    *) echo "usage: $0 [--cache <file>] [--quiet]" >&2; exit 2 ;;
+    --cache)   CACHE="${2:?path}"; shift 2 ;;
+    --quiet)   QUIET=1; shift ;;
+    --require) REQUIRE="${2-}"; [ -n "$REQUIRE" ] || { echo "usage: $0 [--cache <file>] [--quiet] [--require <tool>[,<tool>...]]" >&2; exit 2; }; shift 2 ;;
+    *) echo "usage: $0 [--cache <file>] [--quiet] [--require <tool>[,<tool>...]]" >&2; exit 2 ;;
   esac
 done
+
+# require_label <name> — maps a canonical tool name to its report label.
+# Returns 0 on success, 1 for unknown names (caller exits 2).
+require_label() {
+  case "$1" in
+    ghidra)        printf '%s\n' "Ghidra headless" ;;
+    r2|radare2)    printf '%s\n' "radare2" ;;
+    objdump)       printf '%s\n' "objdump" ;;
+    readelf)       printf '%s\n' "readelf" ;;
+    nm)            printf '%s\n' "nm" ;;
+    strings)       printf '%s\n' "strings" ;;
+    tshark)        printf '%s\n' "tshark" ;;
+    tcpdump)       printf '%s\n' "tcpdump" ;;
+    gdb)           printf '%s\n' "gdb" ;;
+    gdb-multiarch) printf '%s\n' "gdb-multiarch" ;;
+    strace)        printf '%s\n' "strace" ;;
+    ltrace)        printf '%s\n' "ltrace" ;;
+    qemu-system)   printf '%s\n' "QEMU system" ;;
+    qemu-user)     printf '%s\n' "QEMU user-static" ;;
+    qemu-img)      printf '%s\n' "QEMU image" ;;
+    vineflower)    printf '%s\n' "Vineflower (jar)" ;;
+    cfr)           printf '%s\n' "CFR (jar)" ;;
+    procyon)       printf '%s\n' "Procyon (jar)" ;;
+    jadx)          printf '%s\n' "jadx" ;;
+    apktool)       printf '%s\n' "apktool" ;;
+    ilspycmd)      printf '%s\n' "ilspycmd" ;;
+    binwalk)       printf '%s\n' "binwalk" ;;
+    yara)          printf '%s\n' "yara" ;;
+    pdftotext)     printf '%s\n' "pdftotext" ;;
+    pdfinfo)       printf '%s\n' "pdfinfo" ;;
+    tesseract)     printf '%s\n' "tesseract" ;;
+    pandoc)        printf '%s\n' "pandoc" ;;
+    pymupdf4llm)   printf '%s\n' "pymupdf4llm" ;;
+    ocrmypdf)      printf '%s\n' "ocrmypdf" ;;
+    marker)        printf '%s\n' "marker" ;;
+    docling)       printf '%s\n' "docling" ;;
+    pycdc)         printf '%s\n' "pycdc" ;;
+    frida)         printf '%s\n' "frida" ;;
+    frida-trace)   printf '%s\n' "frida-trace" ;;
+    java|java21)   printf '%s\n' "Java 21" ;;
+    javap)         printf '%s\n' "javap 21" ;;
+    *) return 1 ;;
+  esac
+}
 
 # Resolve a command: PATH first, then a list of candidate absolute paths / globs.
 # Echoes the resolved path (or empty) and returns 0 if found.
@@ -50,8 +99,13 @@ BREW="$(rsdd_brew_prefix || true)"
 row() {
   label="$1"; cmd="$2"; smoke_arg="$3"; shift 3
   if path="$(resolve "$cmd" "$@")"; then
-    if rsdd_run_probe "$path" "$smoke_arg"; then
+    rsdd_run_probe "$path" "$smoke_arg"; probe_rc=$?
+    if [ "$probe_rc" -eq 0 ]; then
       printf '  %-22s AVAILABLE   %s\n' "$label" "$path"
+    elif [ "$probe_rc" -eq 124 ] || [ "$probe_rc" -eq 127 ]; then
+      # 124 = timeout killed the probe; 127 = timeout binary absent.
+      # Either way the probe machinery could not run — distinct from UNUSABLE.
+      printf '  %-22s PROBE_FAILED %s (probe error: exit %d)\n' "$label" "$path" "$probe_rc"
     else
       printf '  %-22s UNUSABLE    %s (smoke test failed)\n' "$label" "$path"
     fi
@@ -180,4 +234,42 @@ OUT="$(report)"
 printf '%s\n' "$OUT" > "$CACHE" 2>/dev/null || true
 [ "$QUIET" -eq 1 ] || printf '%s\n' "$OUT"
 [ "$QUIET" -eq 1 ] && echo "tool capability report cached → $CACHE"
-exit 0
+
+# --require gate: evaluate after the report is produced so --quiet/--cache still work.
+gate_rc=0
+if [ -n "$REQUIRE" ]; then
+  IFS=',' read -ra _req_list <<< "$REQUIRE"
+  for _tool in "${_req_list[@]}"; do
+    _label="$(require_label "$_tool")" || {
+      printf '%s: --require: unknown tool "%s" — not in known set\n' \
+        "$(basename "$0")" "$_tool" >&2
+      exit 2
+    }
+    # grep -F treats label as literal string (handles parens in "Vineflower (jar)" etc.)
+    _status="$(printf '%s\n' "$OUT" \
+      | grep -F "  $_label " \
+      | grep -oE 'AVAILABLE|UNUSABLE|MISSING|PROBE_FAILED' \
+      | head -1 || true)"
+    case "${_status:-}" in
+      AVAILABLE)
+        : ;;
+      MISSING)
+        printf 'REQUIRE FAILED [%s] MISSING — install it and re-run detect-tools.sh\n' \
+          "$_tool" >&2
+        gate_rc=1 ;;
+      UNUSABLE)
+        printf 'REQUIRE FAILED [%s] UNUSABLE — found but smoke test failed (present but broken is not usable)\n' \
+          "$_tool" >&2
+        gate_rc=1 ;;
+      PROBE_FAILED)
+        printf 'REQUIRE FAILED [%s] could not determine — probe failed (timeout or environment error); treating as unavailable\n' \
+          "$_tool" >&2
+        gate_rc=1 ;;
+      *)
+        printf 'REQUIRE FAILED [%s] — label "%s" not found in report (internal error)\n' \
+          "$_tool" "$_label" >&2
+        gate_rc=1 ;;
+    esac
+  done
+fi
+exit "$gate_rc"

@@ -92,10 +92,9 @@ Always read first, in this order:
      the first native block's decompiler depth).
      DESIGN/APPLIED corpus exception: if the corpus subject is external tooling or specifications
      (no local binary or source tree to profile), `profile-target.sh` has no artifacts to classify
-     and `detect-tools.sh`'s host-capability report would go unused (nothing will be decompiled) —
-     skip both and record the skip in RESEARCH-STATE via the step-a2 DESIGN dismissal line (below),
-     which doubles as this confirmation. A skipped step with no note is indistinguishable from a
-     forgotten one.
+     and no decompiler is needed — run `detect-tools.sh` (exit 0, report only) for the cache record
+     but skip the `--require` gate and record the skip in RESEARCH-STATE via the step-a2 DESIGN
+     dismissal line (below). A skipped step with no note is indistinguishable from a forgotten one.
   a2. File-type census (MANDATORY — run BEFORE building the coverage matrix):
       $KIT/toolbelt/census-target.sh $TARGET
       This produces an extension histogram with file counts and aggregate sizes. Every type marked *
@@ -658,12 +657,16 @@ HARD RULES:
     blocks). A proposal acted on socially before it is confirmed technically is the costliest kind
     of wrong claim.
   - TOOL-BEFORE-AGENT (binary/native artifacts) — before delegating a sweep over a binary
-    (ELF/PE/.sys/.dll/firmware), the DRIVER runs `toolbelt/detect-tools.sh` first (learn which
-    decompiler is available) and `toolbelt/decompile-native.sh ghidra <bin> <out>` (or `r2`/`quick`
-    as fallback), then delegates with the analysis already in hand — never a generic agent "go
-    decompile it", which may fall back to `strings` and guess. The decompiled binary is to native RE
-    what a confirmed source is to a gap: without it the agent invents. Exception: `ghidra-mcp` for
-    interactive exploration, not batch.
+    (ELF/PE/.sys/.dll/firmware), the DRIVER runs:
+      `toolbelt/detect-tools.sh --require <decompiler-for-class>`
+    where <decompiler-for-class> is: `ghidra` (or `r2`) for native ELF/PE/firmware;
+    `vineflower`, `cfr`, or `procyon` for JVM bytecode; `jadx` for Android DEX.
+    On a NON-ZERO exit, HALT: do NOT delegate, do NOT fall back to `strings`. Record the
+    missing decompiler as blocked-on-tool in RESEARCH-STATE and surface the gap to the user.
+    Proceed to decompile ONLY on exit 0. The decompiled binary is to native RE what a confirmed
+    source is to a gap: without it the agent invents. Exception: `ghidra-mcp` for interactive
+    exploration, not batch. Note: `--require` is model-executed doctrine at this stage; mechanical
+    enforcement inside the driver wrapper is tracked as issue #253.
   - DISK-FIRST (live probes) — when a gap registered as "needing a live probe" (§12) can be
     answered from on-disk artifacts (decompiled code, downloaded docs, preserved sources), prefer
     disk and only escalate to a §12 live probe after confirming disk cannot answer the gap question.
