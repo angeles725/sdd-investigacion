@@ -10,7 +10,7 @@ WRAPPER="$HERE/../jvm-callgraph.sh"
 # `command -v java` is NOT enough: the suite compiles with `javac --release 21`,
 # so a present-but-older java (as on minimal CI images) must still skip. Resolve
 # Java 21 exactly as the suite does, via the shared rsdd_resolve_java_home helper.
-_JAVA21="$(RESEARCH_SDD_JAVA_HOME="${RESEARCH_SDD_JAVA_HOME:-/home/linuxbrew/.linuxbrew/opt/openjdk@21}" bash -c 'source "$1"; rsdd_resolve_java_home' _ "$HERE/../lib/tool-env.sh" 2>/dev/null)"
+_JAVA21="$(bash -c 'source "$1"; rsdd_resolve_java_home' _ "$HERE/../lib/tool-env.sh" 2>/dev/null)"
 # rsdd_resolve_java_home returns any resolvable JDK (it does not gate on version),
 # so verify the major feature version is >= 21 — an older javac cannot `--release 21`.
 _JAVAC_MAJOR="$([ -x "${_JAVA21:-}/bin/javac" ] && "$_JAVA21/bin/javac" -version 2>&1 | grep -oE '[0-9]+' | head -1)"
@@ -54,7 +54,7 @@ JAVA
 cat > "$ROOT/src/fixture/Sink.java" <<'JAVA'
 package fixture; final class Sink { static void write(String value) { System.out.println(value); } }
 JAVA
-JAVA21="$(RESEARCH_SDD_JAVA_HOME="${RESEARCH_SDD_JAVA_HOME:-/home/linuxbrew/.linuxbrew/opt/openjdk@21}" bash -c 'source "$1"; rsdd_resolve_java_home' _ "$HERE/../lib/tool-env.sh")"
+JAVA21="$_JAVA21"
 "$JAVA21/bin/javac" --release 21 -d "$ROOT/classes" "$ROOT"/src/fixture/*.java
 "$JAVA21/bin/jar" --create --file "$ROOT/fixture.jar" -C "$ROOT/classes" .
 

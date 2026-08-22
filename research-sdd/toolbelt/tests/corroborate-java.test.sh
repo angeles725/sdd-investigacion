@@ -21,7 +21,12 @@ pass=0; fail=0
 ok() { echo "  PASS  $1"; pass=$((pass+1)); }
 no() { echo "  FAIL  $1: ${2:-}"; fail=$((fail+1)); }
 
-REAL_JAVA="$(RESEARCH_SDD_JAVA_HOME="${RESEARCH_SDD_JAVA_HOME:-/home/linuxbrew/.linuxbrew/opt/openjdk@21}" bash -c 'source "$1"; rsdd_resolve_java_home' _ "$HERE/../lib/tool-env.sh")"
+REAL_JAVA="$(bash -c 'source "$1"; rsdd_resolve_java_home' _ "$HERE/../lib/tool-env.sh" 2>/dev/null)"
+if [ -z "$REAL_JAVA" ] || [ ! -x "$REAL_JAVA/bin/javac" ]; then
+  echo "SKIP: corroborate-java tests (missing: usable Java 21)"
+  echo "== 0 passed · 0 failed =="
+  exit 0
+fi
 mkdir -p "$ROOT/src/fixture" "$ROOT/classes" "$ROOT/fake-java/bin" "$ROOT/fake-runtime/bin" "$ROOT/tools" "$ROOT/space dir"
 MARKER="$ROOT/FIXTURE_EXECUTED"
 WRAPPER_MARKER="$ROOT/WRAPPER_EXECUTED"
