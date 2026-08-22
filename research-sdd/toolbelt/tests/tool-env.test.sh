@@ -63,19 +63,24 @@ BREW="$ROOT/brew"; HOME_FAKE="$ROOT/home"
 mkexec "$BREW/opt/openjdk@21/bin/java" 'echo '\''openjdk version "21.0.1"'\'' >&2; exit 0'
 mkexec "$BREW/opt/openjdk@21/bin/javap" 'echo 21.0.1; exit 0'
 mkexec "$BREW/opt/ghidra/libexec/support/analyzeHeadless" 'echo Headless Analyzer Usage: analyzeHeadless; exit 1'
-mkdir -p "$HOME_FAKE/modules/Prototipos/Reflow" "$HOME_FAKE/modules/Prototipos/modulos"
-: > "$HOME_FAKE/modules/Prototipos/Reflow/vineflower.jar"
-: > "$HOME_FAKE/modules/Prototipos/Reflow/cfr.jar"
-: > "$HOME_FAKE/modules/Prototipos/modulos/procyon.jar"
+mkdir -p "$HOME_FAKE/.local/share/research-sdd-tools/java"
+: > "$HOME_FAKE/.local/share/research-sdd-tools/java/vineflower.jar"
+: > "$HOME_FAKE/.local/share/research-sdd-tools/java/cfr.jar"
+: > "$HOME_FAKE/.local/share/research-sdd-tools/java/procyon.jar"
+_tool_home="$HOME_FAKE/.local/share/research-sdd-tools"
 jhome="$(HOME="$HOME_FAKE" JAVA_HOME="$ROOT/broken-java" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_home 2>/dev/null)"
 vf="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_jar vineflower 2>/dev/null)"
+cfr_j="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_jar cfr 2>/dev/null)"
+procyon_j="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_jar procyon 2>/dev/null)"
 gh="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_ghidra_home 2>/dev/null)"
 if [ "$jhome" = "$BREW/opt/openjdk@21" ] \
-   && [ "$vf" = "$HOME_FAKE/modules/Prototipos/Reflow/vineflower.jar" ] \
+   && [ "$vf" = "$_tool_home/java/vineflower.jar" ] \
+   && [ "$cfr_j" = "$_tool_home/java/cfr.jar" ] \
+   && [ "$procyon_j" = "$_tool_home/java/procyon.jar" ] \
    && [ "$gh" = "$BREW/opt/ghidra/libexec" ]; then
-  ok "2 stable off-PATH Java/JAR/Ghidra resolution" "(no Cellar pin)"
+  ok "2 stable off-PATH Java/JAR/Ghidra resolution" "(canonical tool-home; no Cellar pin)"
 else
-  no "2 stable off-PATH Java/JAR/Ghidra resolution" "java=[$jhome] vf=[$vf] gh=[$gh]"
+  no "2 stable off-PATH Java/JAR/Ghidra resolution" "java=[$jhome] vf=[$vf] cfr=[$cfr_j] procyon=[$procyon_j] gh=[$gh]"
 fi
 
 # 3 — A file being executable is not enough. The capability report must classify
@@ -208,6 +213,29 @@ if [ "$RC" = 0 ] && grep -Fq -- "-jar $ROOT/vineflower.jar $ROOT/input.jar $ROOT
   ok "4 existing decompile-java env overrides still work" "(exit $RC)"
 else
   no "4 existing decompile-java env overrides still work" "exit=$RC calls=[$(cat "$ROOT/calls" 2>/dev/null)]"
+fi
+
+# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
+# teeth 2: test-2 assertion must fail when the canonical tool-home candidates
+# are removed from the resolver. A mutant that replaces $tool_home/java/ with
+# a non-existent prefix makes all three JAR resolvers return empty — if the
+# assertion were to pass on that mutant, the test has no teeth.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: canonical tool-home JAR candidates must be required by test 2 --"
+  TMP_TEETH="$(mktemp -d)"
+  trap 'rm -rf "$ROOT" "$TMP_TEETH"' EXIT
+  sed 's|\$tool_home/java/|/dev/null/no-such-dir/|g' "$LIB" > "$TMP_TEETH/tool-env-mut.sh"
+  vf_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+    bash -c 'source "$1"; rsdd_resolve_java_jar vineflower' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
+  cfr_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+    bash -c 'source "$1"; rsdd_resolve_java_jar cfr' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
+  procyon_mut="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+    bash -c 'source "$1"; rsdd_resolve_java_jar procyon' _ "$TMP_TEETH/tool-env-mut.sh" 2>/dev/null)"
+  if [ -z "$vf_mut" ] && [ -z "$cfr_mut" ] && [ -z "$procyon_mut" ]; then
+    ok "teeth 2: canonical-home removal breaks all three JAR resolvers (test-2 assertion has teeth)"
+  else
+    no "teeth 2: mutant still resolved JAR(s) — test-2 assertion has no teeth: vf=[$vf_mut] cfr=[$cfr_mut] procyon=[$procyon_mut]"
+  fi
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"

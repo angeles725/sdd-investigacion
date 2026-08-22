@@ -72,20 +72,17 @@ rsdd_resolve_java_jar() {
     vineflower)
       for candidate in \
         "$tool_home/java/vineflower.jar" \
-        "$HOME/modules/Prototipos/Reflow/vineflower.jar" \
         "${brew:+$brew/opt/vineflower/libexec/vineflower.jar}"; do
         [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
       done
       ;;
     cfr)
-      for candidate in "$tool_home/java/cfr.jar" "$HOME/modules/Prototipos/Reflow/cfr.jar"; do
-        [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
-      done
+      candidate="$tool_home/java/cfr.jar"
+      [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
       ;;
     procyon)
-      for candidate in "$tool_home/java/procyon.jar" "$HOME/modules/Prototipos/modulos/procyon.jar"; do
-        [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
-      done
+      candidate="$tool_home/java/procyon.jar"
+      [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
       ;;
   esac
   return 1
