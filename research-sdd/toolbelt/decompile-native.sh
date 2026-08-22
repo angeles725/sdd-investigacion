@@ -31,8 +31,8 @@ case "$MODE" in
     strings -n 6 "$BIN" | head -40 || { _sp="${PIPESTATUS[0]}"; [ "$_sp" -eq 0 ] || [ "$_sp" -eq 141 ] || { echo "strings failed (rc=$_sp): $BIN" >&2; exit "$_sp"; }; }
     ;;
   r2)
-    command -v r2 >/dev/null || { echo "r2 not installed" >&2; exit 3; }
-    r2 -q -A -c 'afl; s main; pdf' "$BIN" 2>/dev/null || r2 -q -A -c 'afl' "$BIN"
+    _r2="$(rsdd_resolve_r2)" || { echo "r2 not installed (not on PATH, brew, or /usr)" >&2; exit 3; }
+    "$_r2" -q -A -c 'afl; s main; pdf' "$BIN" 2>/dev/null || "$_r2" -q -A -c 'afl' "$BIN"
     ;;
   ghidra-evidence)
     OUT="${3:?new out-dir required}"

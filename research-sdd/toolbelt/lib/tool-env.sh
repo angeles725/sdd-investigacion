@@ -126,6 +126,38 @@ rsdd_resolve_ghidra_home() {
   return 1
 }
 
+rsdd_resolve_r2() {
+  local brew candidate
+  # An explicit override is authoritative. Set-but-not-executable means unusable;
+  # do NOT fall through — same discipline as the *_JAR resolvers and rsdd_resolve_ilspy,
+  # so a typo is never silently masked by a different installation.
+  if [[ -v R2 ]]; then
+    [ -x "$R2" ] || return 1
+    printf '%s\n' "$R2"
+    return 0
+  fi
+  # PATH lookup: most common installation site (package manager or manual install).
+  candidate="$(command -v r2 2>/dev/null || true)"
+  if [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  # Homebrew opt symlink (linuxbrew and macOS): stable, Cellar-version-independent.
+  brew="$(rsdd_brew_prefix || true)"
+  candidate="${brew:+$brew/opt/radare2/bin/r2}"
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  # Distro fallback: standard /usr/bin location (e.g. apt install radare2).
+  # RSDD_R2_USRBIN overrides /usr/bin/r2 for hermetic tests; default is /usr/bin/r2.
+  if [ -x "${RSDD_R2_USRBIN:-/usr/bin/r2}" ]; then
+    printf '%s\n' "${RSDD_R2_USRBIN:-/usr/bin/r2}"
+    return 0
+  fi
+  return 1
+}
+
 rsdd_system_pkgconfig_path() {
   local candidate out=""
   if [ -n "${RSDD_SYSTEM_PKGCONFIG_PATH:-}" ]; then
