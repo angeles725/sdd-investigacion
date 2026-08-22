@@ -2105,3 +2105,46 @@ dropped.
 the first response — try `install-tool.sh <tool>` (idempotent) BEFORE recording the block. Record the
 block only when provisioning is unavailable or declined, and surface the exact `install-tool.sh`
 invocation so the wall is one command from removed.
+
+## 22. Breakthrough ledger (the decisive-solution index)
+
+The corpus records EVERYTHING; the **breakthrough ledger** records the FEW decisive solutions — the
+technique that finally cracked a target — so they stay findable instead of buried under hundreds of
+blocks. A block that captures such a solution is TAGGED, and a fleet-wide index points at all of them.
+
+**22.1 The marker.** A block whose finding is a decisive breakthrough declares a `**Breakthrough:**`
+field in its header blockquote (alongside `**Type:**`, §4):
+
+> **Breakthrough:** <one line — WHAT was cracked and HOW>
+
+Presence of the field tags the block; absence is the default (not a breakthrough). This is ORTHOGONAL to
+the §3 certainty markers: `[CERT]` states how STRONG the evidence is; `Breakthrough:` states that this
+block is a crown-jewel SOLUTION. A block is both `[CERT]` and a breakthrough when a decisive solution is
+also verified — the common case.
+
+**22.2 The four coordinates.** Every ledger entry answers the four questions that get forgotten: WHAT
+problem was cracked, HOW (the technique), WHERE it is documented (block `path:line`), and WHERE it is
+remembered (Engram topic-key). Three already live in the block (what/how are intrinsic; the block IS the
+"where documented"); the Engram mirror supplies the fourth. The ledger adds only the cross-target INDEX
+that points at them — that index is the whole feature.
+
+**22.3 The fleet index — `BREAKTHROUGHS.md`.** `research-sdd/BREAKTHROUGHS.md` is the kit-level,
+cross-target registry, one row per breakthrough:
+
+| target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+
+It is a REGISTRY like `TARGETS.md`, and like `TARGETS.md` it is **never auto-edited** (§8): the human, or
+a research-loop session working ON that target, writes the row after tagging the block. An instrument may
+PROPOSE rows and WARN on drift; it NEVER applies (propose-never-apply).
+
+**22.4 Back-fill is target-owned.** Blocks live in target corpora, which the kit READS but never WRITES
+(§8). Tagging a block with `**Breakthrough:**` is therefore the operator's / research-loop's act, not a
+kit-maintenance one. The kit sweep `sweep-breakthroughs.sh` reads the corpora, cross-checks the tagged
+blocks against `BREAKTHROUGHS.md`, and WARNs — never fails on a finding — on: a block tagged but ABSENT
+from the index (unindexed breakthrough), an index row whose block NO LONGER carries the marker (drift),
+and, at INFO, a corpus with ZERO tagged breakthroughs. It MUST distinguish absent-input / empty-input /
+no-match (§7) and `exit 1` only on OPERATIONAL failure, never on a finding.
+
+**22.5 What NOT to tag.** Not every `[CERT]` block is a breakthrough. Tag only the DECISIVE turn — the
+technique without which the target stayed closed (the decrypt, the auth path, the gateway, the
+load-code RPC). If EVERYTHING is a breakthrough, nothing is; keep the ledger to the crown jewels.

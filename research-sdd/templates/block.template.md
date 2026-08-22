@@ -23,6 +23,11 @@
 > **Type:** `standard` (default — omit this field) | `collaborative` — the agent authors the software/evidence
 > half; sections the human must supply carry `[TO ANNOTATE]`. A `collaborative` block is VALID in its partial
 > state and is NOT a coverage gap. See METHODOLOGY §4 for the full definition.
+>
+> **Breakthrough:** `<omit unless this block captures a DECISIVE solution>` — one line: WHAT was cracked and
+> HOW. Presence tags this block for the fleet ledger (`BREAKTHROUGHS.md`, METHODOLOGY §22); it is ORTHOGONAL
+> to the `[CERT*]` markers (those state evidence strength, this states crown-jewel-ness). Tag only the
+> decisive turn, not every verified finding.
 
 ---
 
