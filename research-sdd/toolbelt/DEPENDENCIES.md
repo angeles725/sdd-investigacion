@@ -88,10 +88,15 @@ exactly this resolver + probe pair.
 `ILSPYCMD` env var (authoritative — treated as unusable if set but not
 executable, never silently masked), then a PATH lookup, then the portable
 `$HOME/.dotnet/tools/ilspycmd` default (the `dotnet tool install -g` location —
-`$HOME`-relative, so no per-machine path is baked in). `decompile-net.sh` exports
-`DOTNET_ROLL_FORWARD=Major` so ilspycmd (targeting net6.0) rolls forward to
-the installed .NET 8 runtime. `detect-tools.sh`'s smoke test omits that env
-var and therefore reports UNUSABLE — the tool is functional via the script.
+`$HOME`-relative, so no per-machine path is baked in). `decompile-net.sh`
+locates the .NET runtime via `_rsdd_dotnet_root`: `RSDD_DOTNET_ROOT` (kit
+override — fail-closed if set but unusable) → ambient `DOTNET_ROOT` (may fall
+through to derivation when unusable, fixing old-runtime shadowing) → derived
+from the `dotnet` binary on PATH. Each candidate is validated by running
+`DOTNET_ROOT=<candidate> ilspycmd --version`; structural existence alone is not
+accepted. `DOTNET_ROLL_FORWARD=Major` is still exported for resilience.
+`detect-tools.sh`'s smoke test omits DOTNET_ROOT and therefore reports UNUSABLE
+— the tool is functional via the script.
 
 **`r2`** is resolved by `corroborate_native.py:154` via `RSDD_R2` env var
 then PATH. The binary name is `r2`, not `radare2`.
@@ -202,7 +207,7 @@ pdfinfo, pdftotext, pdffonts, pdftoppm       # poppler PDF tools
 tesseract, ocrmypdf (or marker/docling)      # PDF Tier 2 OCR
 pandoc                                       # web-page → Markdown (fetch-doc.sh web mode)
 curl (or wget)                               # document downloads (fetch-doc.sh)
-ilspycmd + .NET 8 runtime                    # .NET decompilation (DOTNET_ROLL_FORWARD=Major)
+ilspycmd (any version) + compatible .NET runtime  # .NET decompilation; runtime located via DOTNET_ROOT resolution in decompile-net.sh (RSDD_DOTNET_ROOT → DOTNET_ROOT → derived from dotnet binary; each probed with ilspycmd --version)
 gh                                           # GitHub remote (ensure-remote.sh)
 unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
