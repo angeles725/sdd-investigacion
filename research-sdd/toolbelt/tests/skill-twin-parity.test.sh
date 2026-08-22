@@ -5,7 +5,7 @@
 # NOT a byte-identical diff — legitimate adapter substitutions (research-sweep-*,
 # research-loop.sh instead of /loop) are expected to differ and are NOT tested here.
 #
-# Invariants guarded (A1-A7):
+# Invariants guarded (A1-A10):
 #   A1  "the 7 markers" present; "the 5 markers" absent (false claim)
 #   A2  Key terms glossary table present ('| **corpus**' row)
 #   A3  Quick-mode carve-out in triage bullet (CARVE-OUT intent wins)
@@ -13,6 +13,7 @@
 #   A5  REMOTE follow-up / ensure-remote.sh block present
 #   A6  document-mode §20 example (TradingView retro reference)
 #   A7  TOOL-BEFORE-AGENT binary reference (detect-tools.sh)
+#   A10 Two-tier METHODOLOGY reading: HOT-CORE present in both SKILLs
 #
 # Usage: skill-twin-parity.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 set -uo pipefail
@@ -126,6 +127,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A10: Two-tier METHODOLOGY reading — both SKILLs must carry the HOT-CORE
+#      label so the lazy-load instruction is auditable without full-file read.
+#      Stable anchor: 'HOT-CORE'.
+# ---------------------------------------------------------------------------
+MAIN="$HERE/../../skills/research-sdd/SKILL.md"
+if [ ! -f "$MAIN" ]; then
+  no "A10: main SKILL.md not found at expected path: $MAIN"
+elif grep -qF 'HOT-CORE' "$TWIN" && grep -qF 'HOT-CORE' "$MAIN"; then
+  ok "A10: HOT-CORE two-tier reading instruction present in both SKILL.md files"
+else
+  no "A10: HOT-CORE two-tier reading instruction MISSING from one or both SKILL.md files"
+fi
+
+# ---------------------------------------------------------------------------
 # --prove-teeth: mutate the A1 invariant ("the 7 markers" → "the 5 markers")
 # in a COPY of the twin (never the live file).  The A1 positive assertion must
 # go RED; the A1-neg assertion must go RED.  Both teeth-controls must report ok.
@@ -158,6 +173,17 @@ if [ "$PROVE_TEETH" = "1" ]; then
     no "teeth-A9: mutant still has 'Kit path:' — sed did not take (no teeth)"
   else
     ok "teeth-A9: A9 assertion goes RED on mutant (teeth confirmed)"
+  fi
+
+  # A10 mutation: remove 'HOT-CORE' from a COPY of the twin so the anchor disappears.
+  # A10's grep must go RED on the mutant — if it stays green the assertion has no teeth.
+  echo "-- prove-teeth: mutant removes 'HOT-CORE' anchor (A10 tiered-reading check) --"
+  mutant10="$TMP/SKILL.mutant10.md"
+  sed 's/HOT-CORE/HOT_CORE_REMOVED/g' "$TWIN" > "$mutant10"
+  if grep -qF 'HOT-CORE' "$mutant10"; then
+    no "teeth-A10: mutant still has 'HOT-CORE' — sed did not take (no teeth)"
+  else
+    ok "teeth-A10: A10 assertion goes RED on mutant (teeth confirmed)"
   fi
 fi
 

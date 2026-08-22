@@ -140,8 +140,22 @@ These steps apply to the heavy mode and to continuing a corpus. **quick** and **
 answer directly (quick) or run a scoped Explore and return the map (light) — do not bootstrap or loop.
 
 1. **Read the kit — these ARE the rules, do not summarize from memory:**
-   - `$KIT/METHODOLOGY.md` — phases, the 7 markers, block anatomy, §8 stopping + terminal trigger,
-     §11 self-verify, §12 dynamic phase, §16 multi-focus, §17 resume, §18 self-retrospective.
+   - `$KIT/METHODOLOGY.md` — the rules. Do NOT ingest all 21 sections every iteration; it is a reference,
+     not a monolith to reload each block. Load it in two tiers — lazy-load is NOT skip: every rule still
+     applies, you only DEFER loading a section until its phase fires, and reading it is MANDATORY then.
+     - HOT-CORE — read IN FULL every iteration (framing + the per-block contract): §1 guiding principle,
+       §2 phases, §3 the 7 markers, §4 block anatomy, §7 state/memory, §8 stopping + terminal trigger,
+       §9 golden rules, §11 self-verify, §17 resume.
+     - SITUATIONAL — read the named section IN FULL the moment its phase triggers, by number: §5 sources →
+       adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
+       wrapper per artifact type; §10 self-provisioning → a required tool is missing (before recording
+       `blocked-on-tool`); §12 dynamic phase → validating a finding against a LIVE system; §13 audit mode →
+       running an AUDIT; §14 cross-block consistency → a block CORRECTS another; §15 corpus versioning →
+       corpus bootstrap ($CORPUS) or a git commit/remote; §16 multi-focus → the target has multiple
+       focuses; §18 self-retrospective → at STOP / terminal trigger; §19 build/PoC loop → the gap REQUIRES
+       EXECUTION; §20 document mode → the `document` sub-command; §21 wall protocol → you hit a WALL.
+       If unsure whether a section's phase is active, READ IT — a wrongly-skipped rule costs more than the
+       tokens saved.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
      (honor an APPROVED language override; otherwise English).
    - `$KIT/toolbelt/tool-registry.md` — which wrapper per artifact type.
