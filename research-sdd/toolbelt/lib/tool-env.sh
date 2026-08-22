@@ -258,3 +258,61 @@ rsdd_resolve_ilspy() {
   fi
   return 1
 }
+
+# _rsdd_dotnet_probe ROOT ILSPY — return 0 iff ROOT is a usable ilspycmd runtime root.
+# Pre-filter: shared/Microsoft.NETCore.App must exist (cheap structural check).
+# Real gate: DOTNET_ROOT=ROOT ilspycmd --version exits 0 within RSDD_PROBE_TIMEOUT seconds.
+_rsdd_dotnet_probe() {
+  local root="$1" ilspy="$2" timeout_bin
+  [ -d "$root/shared/Microsoft.NETCore.App" ] || return 1
+  timeout_bin="$(command -v timeout 2>/dev/null || true)"
+  if [ -x "${timeout_bin:-}" ]; then
+    DOTNET_ROOT="$root" "$timeout_bin" "${RSDD_PROBE_TIMEOUT:-10}" "$ilspy" --version >/dev/null 2>&1
+  else
+    DOTNET_ROOT="$root" "$ilspy" --version >/dev/null 2>&1
+  fi
+}
+
+# rsdd_resolve_dotnet_root ILSPY — resolve and validate the .NET runtime root for ilspycmd.
+# Prints the resolved DOTNET_ROOT path and exits 0; exits 1 if no usable root is found.
+#
+# Priority: RSDD_DOTNET_ROOT override → ambient DOTNET_ROOT → derived from dotnet binary
+#   (checking the binary dir and its libexec sibling, covering stock and brew layouts).
+# Each candidate is probed with "DOTNET_ROOT=<candidate> ilspycmd --version" — structural
+# existence alone is not accepted (an empty or too-old runtime exits 131/150).
+# RSDD_DOTNET_ROOT is fail-closed: if set but unusable, it errors without falling through.
+rsdd_resolve_dotnet_root() {
+  local ilspy="$1" candidate dir parent dotnet_bin
+
+  # RSDD_DOTNET_ROOT: kit's own explicit knob. Authoritative — if set but does not
+  # probe clean, fail closed; do NOT fall through to a different runtime (mirrors
+  # the *_JAR resolver discipline: "explicit override is authoritative; a typo must
+  # never be silently masked by a fallback").
+  if [ -n "${RSDD_DOTNET_ROOT:-}" ]; then
+    if _rsdd_dotnet_probe "${RSDD_DOTNET_ROOT}" "$ilspy"; then
+      printf '%s\n' "${RSDD_DOTNET_ROOT}"; return 0
+    fi
+    echo "ERROR: RSDD_DOTNET_ROOT='${RSDD_DOTNET_ROOT}' is set but ilspycmd --version failed with it (usability probe failed). Fix or unset RSDD_DOTNET_ROOT." >&2
+    return 1
+  fi
+
+  # Ambient DOTNET_ROOT (set by environment/distro, not the kit): try it, but allow
+  # fall-through if the probe fails. This fixes silent shadowing by an old runtime
+  # (e.g. /usr/lib/dotnet holding only .NET 8 when ilspycmd requires net10.0).
+  if [ -n "${DOTNET_ROOT:-}" ]; then
+    _rsdd_dotnet_probe "${DOTNET_ROOT}" "$ilspy" && { printf '%s\n' "${DOTNET_ROOT}"; return 0; }
+    # Fall through to derivation.
+  fi
+
+  # Derive from the dotnet binary on PATH.
+  dotnet_bin="$(command -v dotnet 2>/dev/null || true)"
+  [ -x "$dotnet_bin" ] || return 1
+  dir="$(dirname "$(realpath "$dotnet_bin")")"
+  parent="$(dirname "$dir")"
+  # Check the binary directory first (stock/tarball installs place shared/ alongside dotnet).
+  # Also check the libexec sibling (brew wraps dotnet from bin/ with the runtime in libexec/).
+  for candidate in "$dir" "$parent/libexec"; do
+    _rsdd_dotnet_probe "$candidate" "$ilspy" && { printf '%s\n' "$candidate"; return 0; }
+  done
+  return 1
+}

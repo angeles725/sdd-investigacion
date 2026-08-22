@@ -394,5 +394,80 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# il — ilspycmd AVAILABLE when binary found and DOTNET_ROOT resolvable via RSDD_DOTNET_ROOT.
+# Asserts that detect-tools.sh resolves DOTNET_ROOT before the smoke test, so a working
+# ilspycmd is reported AVAILABLE instead of UNUSABLE. This is the gap documented in
+# DEPENDENCIES.md: the old row() smoke test ran without DOTNET_ROOT.
+#
+# The stub exits 0 ONLY when DOTNET_ROOT is non-empty in its environment — so the old
+# bare row() (which does NOT set DOTNET_ROOT) would see exit 1 → UNUSABLE (the bug),
+# while the fixed code (which resolves and exports DOTNET_ROOT first) sees exit 0 → AVAILABLE.
+RUNTIME_IL="$ROOT/runtime-il"
+mkdir -p "$RUNTIME_IL/shared/Microsoft.NETCore.App"
+BIN_IL="$ROOT/bin-il"; mkdir -p "$BIN_IL"
+mkexec "$BIN_IL/ilspycmd" '[ -n "${DOTNET_ROOT:-}" ] && exit 0; exit 1'
+CACHE_IL="$ROOT/cache-il.txt"
+rc_il=0
+# RSDD_DOTNET_ROOT pins the runtime; DOTNET_ROOT is explicitly unset so the stub's
+# exit code is determined entirely by whether detect-tools.sh sets it.
+env -u DOTNET_ROOT \
+  RSDD_DOTNET_ROOT="$RUNTIME_IL" PATH="$BIN_IL:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_IL" --quiet >/dev/null 2>&1 || rc_il=$?
+ilspy_line_il="$(grep -F '  ilspycmd ' "$CACHE_IL" 2>/dev/null | head -1 || true)"
+if [ "$rc_il" -eq 0 ] && printf '%s\n' "$ilspy_line_il" | grep -q 'AVAILABLE'; then
+  ok "il ilspycmd: binary + resolvable DOTNET_ROOT → AVAILABLE" "(rc=$rc_il)"
+else
+  no "il ilspycmd: binary + resolvable DOTNET_ROOT → AVAILABLE" \
+     "rc=$rc_il line=[$ilspy_line_il]"
+fi
+
+# il2 — ilspycmd UNUSABLE when binary found but DOTNET_ROOT cannot be resolved.
+# RSDD_DOTNET_ROOT points to a dir with shared/ but ilspycmd --version always fails
+# (simulates wrong runtime version). Must report UNUSABLE, NOT AVAILABLE or MISSING.
+RUNTIME_IL2="$ROOT/runtime-il2"
+mkdir -p "$RUNTIME_IL2/shared/Microsoft.NETCore.App"
+BIN_IL2="$ROOT/bin-il2"; mkdir -p "$BIN_IL2"
+# Stub: always exits 1 for --version (runtime probe always fails).
+mkexec "$BIN_IL2/ilspycmd" '[ "$1" = "--version" ] && exit 1; exit 0'
+CACHE_IL2="$ROOT/cache-il2.txt"
+rc_il2=0
+env -u DOTNET_ROOT \
+  RSDD_DOTNET_ROOT="$RUNTIME_IL2" PATH="$BIN_IL2:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_IL2" --quiet >/dev/null 2>&1 || rc_il2=$?
+ilspy_line_il2="$(grep -F '  ilspycmd ' "$CACHE_IL2" 2>/dev/null | head -1 || true)"
+if [ "$rc_il2" -eq 0 ] && printf '%s\n' "$ilspy_line_il2" | grep -q 'UNUSABLE'; then
+  ok "il2 ilspycmd: binary found but DOTNET_ROOT probe fails → UNUSABLE" "(rc=$rc_il2)"
+else
+  no "il2 ilspycmd: binary found but DOTNET_ROOT probe fails → UNUSABLE" \
+     "rc=$rc_il2 line=[$ilspy_line_il2]"
+fi
+
+# ── Teeth for il/il2 tests ───────────────────────────────────────────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-il: uses a shim lib where rsdd_resolve_dotnet_root always returns 1.
+  # This simulates the old behavior (no DOTNET_ROOT set before probe).
+  # The DOTNET_ROOT-sensitive stub will see no DOTNET_ROOT → exits 1 → UNUSABLE.
+  # Test-il expects AVAILABLE → goes RED. Confirms test-il has teeth.
+  SHIM_IL="$ROOT/shim-il"
+  mkdir -p "$SHIM_IL/lib"
+  REAL_TOOL_ENV_IL="$HERE/../lib/tool-env.sh"
+  printf '. "%s"\nrsdd_resolve_dotnet_root() { return 1; }\n' \
+    "$REAL_TOOL_ENV_IL" > "$SHIM_IL/lib/tool-env.sh"
+  ln -sf "$DETECT" "$SHIM_IL/detect-tools.sh"
+  CACHE_MIL="$ROOT/cache-mil.txt"
+  env -u DOTNET_ROOT \
+    RSDD_DOTNET_ROOT="$RUNTIME_IL" PATH="$BIN_IL:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$SHIM_IL/detect-tools.sh" --cache "$CACHE_MIL" --quiet >/dev/null 2>&1 || true
+  ilspy_line_mil="$(grep -F '  ilspycmd ' "$CACHE_MIL" 2>/dev/null | head -1 || true)"
+  # rsdd_resolve_dotnet_root always fails → UNUSABLE (or MISSING). Test-il expects AVAILABLE → bites.
+  if ! printf '%s\n' "$ilspy_line_mil" | grep -q 'AVAILABLE'; then
+    ok "teeth-il: rsdd_resolve_dotnet_root=fail shim → not AVAILABLE → test-il bites" \
+       "(line=[$ilspy_line_mil])"
+  else
+    no "teeth-il: shim still shows AVAILABLE — test-il has no teeth" \
+       "(line=[$ilspy_line_mil])"
+  fi
+fi
+
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

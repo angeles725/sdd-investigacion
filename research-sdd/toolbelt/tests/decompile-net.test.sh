@@ -404,12 +404,13 @@ SH
     fi
   fi
 
-  # D1-empty TEETH — mutant replaces _rsdd_dotnet_probe body with bare -d check (removes probe).
-  # The ambient-DOTNET_ROOT path uses _rsdd_dotnet_probe; replacing its body makes the mutant
-  # accept an empty/unusable root → D1-empty must go RED.
-  echo "-- teeth: mutant replaces _rsdd_dotnet_probe with bare -d check; D1-empty must go RED --"
-  MUTANT_D1E="$TMP/decompile-net.MUTANT-noprobe.sh"
-  python3 - "$SUT" "$MUTANT_D1E" <<'PYEOF'
+  # D1-empty TEETH — _rsdd_dotnet_probe is now in lib/tool-env.sh; mutate the lib.
+  # Replacing the probe body with a bare -d check makes the mutant accept an empty/unusable
+  # runtime → D1-empty must go RED.
+  echo "-- teeth: mutant replaces _rsdd_dotnet_probe in lib/tool-env.sh with bare -d check; D1-empty must go RED --"
+  MUTANT_D1E_DIR="$TMP/td1e_mut"
+  mkdir -p "$MUTANT_D1E_DIR/lib"
+  python3 - "$HERE/../lib/tool-env.sh" "$MUTANT_D1E_DIR/lib/tool-env.sh" <<'PYEOF'
 import sys, re
 text = open(sys.argv[1]).read()
 # Replace the _rsdd_dotnet_probe function body with a bare directory test only (no ilspy run)
@@ -419,8 +420,10 @@ result = re.sub(
     text, flags=re.MULTILINE | re.DOTALL)
 open(sys.argv[2], 'w').write(result)
 PYEOF
-  if grep -qF '"$ILSPY" --version' "$MUTANT_D1E"; then
-    no "teeth D1-empty: mutant still contains ilspy --version probe — substitution failed"
+  # Copy real SUT into mutant dir so HERE=$MUTANT_D1E_DIR → sources the mutant lib.
+  cp "$SUT" "$MUTANT_D1E_DIR/decompile-net.sh"
+  if grep -qF '"$ilspy" --version' "$MUTANT_D1E_DIR/lib/tool-env.sh"; then
+    no "teeth D1-empty: mutant lib still contains ilspy --version probe — substitution failed"
   else
     box_td1e="$TMP/td1e"
     mkdir -p "$box_td1e/bin" "$box_td1e/home" "$box_td1e/bad_root/shared/Microsoft.NETCore.App"
@@ -435,30 +438,33 @@ SH
     env -u ILSPYCMD -u RSDD_DOTNET_ROOT \
       DOTNET_ROOT="$box_td1e/bad_root" \
       PATH="$box_td1e/bin" HOME="$box_td1e/home" \
-      "$BASH_BIN" "$MUTANT_D1E" --list "$dll_td1e" >/dev/null 2>&1; rc_td1e=$?
+      "$BASH_BIN" "$MUTANT_D1E_DIR/decompile-net.sh" --list "$dll_td1e" >/dev/null 2>&1; rc_td1e=$?
     # D1-empty asserts exit 3. Mutant accepts the empty root (bare -d only) → exits 0 → D1-empty RED.
     if ! [ "$rc_td1e" -eq 3 ]; then
-      ok "teeth D1-empty: mutant (bare -d) accepts unusable root → D1-empty goes RED"
+      ok "teeth D1-empty: mutant lib (bare -d) accepts unusable root → D1-empty goes RED"
     else
       no "teeth D1-empty: mutant still exits 3 — D1-empty has no teeth"
     fi
   fi
 
-  # D2-rsdd-bad TEETH — mutant removes fail-closed guard for RSDD_DOTNET_ROOT, allowing fall-through.
-  echo "-- teeth: mutant removes RSDD_DOTNET_ROOT fail-closed block; D2-rsdd-bad must go RED --"
-  MUTANT_D2R="$TMP/decompile-net.MUTANT-rsdd-fallthrough.sh"
-  python3 - "$SUT" "$MUTANT_D2R" <<'PYEOF'
+  # D2-rsdd-bad TEETH — RSDD_DOTNET_ROOT block is now in lib/tool-env.sh; mutate the lib.
+  # Removing the fail-closed block lets the function fall through to DOTNET_ROOT → D2-rsdd-bad must go RED.
+  echo "-- teeth: mutant removes RSDD_DOTNET_ROOT fail-closed block from lib/tool-env.sh; D2-rsdd-bad must go RED --"
+  MUTANT_D2R_DIR="$TMP/td2r_mut"
+  mkdir -p "$MUTANT_D2R_DIR/lib"
+  python3 - "$HERE/../lib/tool-env.sh" "$MUTANT_D2R_DIR/lib/tool-env.sh" <<'PYEOF'
 import sys, re
 text = open(sys.argv[1]).read()
-# Remove the RSDD_DOTNET_ROOT special-case block so it falls through to DOTNET_ROOT handling
+# Remove the RSDD_DOTNET_ROOT special-case block from rsdd_resolve_dotnet_root so it falls through
 result = re.sub(
     r'  # RSDD_DOTNET_ROOT:.*?^  fi\n\n',
     '',
     text, flags=re.MULTILINE | re.DOTALL)
 open(sys.argv[2], 'w').write(result)
 PYEOF
-  if grep -q 'Fix or unset RSDD_DOTNET_ROOT' "$MUTANT_D2R" 2>/dev/null; then
-    no "teeth D2-rsdd-bad: mutant still has fail-closed message — substitution failed"
+  cp "$SUT" "$MUTANT_D2R_DIR/decompile-net.sh"
+  if grep -q 'Fix or unset RSDD_DOTNET_ROOT' "$MUTANT_D2R_DIR/lib/tool-env.sh" 2>/dev/null; then
+    no "teeth D2-rsdd-bad: mutant lib still has fail-closed message — substitution failed"
   else
     box_td2r="$TMP/td2r"
     mkdir -p "$box_td2r/bin" "$box_td2r/home" \
@@ -481,23 +487,27 @@ SH
       RSDD_DOTNET_ROOT="$box_td2r/bad_root" \
       DOTNET_ROOT="$box_td2r/good_root" \
       PATH="$box_td2r/bin" HOME="$box_td2r/home" \
-      "$BASH_BIN" "$MUTANT_D2R" --list "$dll_td2r" >/dev/null 2>&1; rc_td2r=$?
+      "$BASH_BIN" "$MUTANT_D2R_DIR/decompile-net.sh" --list "$dll_td2r" >/dev/null 2>&1; rc_td2r=$?
     dotnet_seen_td2r="$(cat "$rec_td2r" 2>/dev/null || echo UNSET)"
     # D2-rsdd-bad: exit 3 AND no DOTNET_ROOT used.
     # Mutant falls through to DOTNET_ROOT (good_root) → exits 0 + DOTNET_ROOT seen → RED.
     if ! ( [ "$rc_td2r" -eq 3 ] && [ -z "$dotnet_seen_td2r" ] ); then
-      ok "teeth D2-rsdd-bad: mutant (fall-through) reaches DOTNET_ROOT → D2-rsdd-bad goes RED"
+      ok "teeth D2-rsdd-bad: mutant lib (fall-through) reaches DOTNET_ROOT → D2-rsdd-bad goes RED"
     else
       no "teeth D2-rsdd-bad: mutant still exits 3 + no DOTNET_ROOT — D2-rsdd-bad has no teeth"
     fi
   fi
 
-  # D3 TEETH — mutant renames RSDD_DOTNET_ROOT; override must be ignored.
-  echo "-- teeth: mutant renames RSDD_DOTNET_ROOT; expect D3 to go RED --"
-  MUTANT_D3="$TMP/decompile-net.MUTANT-norsdd.sh"
-  sed 's/RSDD_DOTNET_ROOT/RSDD_DOTNET_ROOT_DISABLED/g' "$SUT" > "$MUTANT_D3"
-  if ! grep -q 'RSDD_DOTNET_ROOT_DISABLED' "$MUTANT_D3"; then
-    no "teeth D3: could not build mutant (RSDD_DOTNET_ROOT not found — SUT drifted?)"
+  # D3 TEETH — RSDD_DOTNET_ROOT check is now in lib/tool-env.sh; mutate the lib.
+  # Renaming RSDD_DOTNET_ROOT makes the resolver ignore the override → D3 must go RED.
+  echo "-- teeth: mutant renames RSDD_DOTNET_ROOT in lib/tool-env.sh; expect D3 to go RED --"
+  MUTANT_D3_DIR="$TMP/td3_mut"
+  mkdir -p "$MUTANT_D3_DIR/lib"
+  sed 's/RSDD_DOTNET_ROOT/RSDD_DOTNET_ROOT_DISABLED/g' "$HERE/../lib/tool-env.sh" \
+    > "$MUTANT_D3_DIR/lib/tool-env.sh"
+  cp "$SUT" "$MUTANT_D3_DIR/decompile-net.sh"
+  if ! grep -q 'RSDD_DOTNET_ROOT_DISABLED' "$MUTANT_D3_DIR/lib/tool-env.sh"; then
+    no "teeth D3: could not build mutant (RSDD_DOTNET_ROOT not found in lib — drifted?)"
   else
     box_td3="$TMP/td3"
     mkdir -p "$box_td3/bin" "$box_td3/home" "$box_td3/override_root/shared/Microsoft.NETCore.App"
@@ -514,11 +524,11 @@ SH
     env -u ILSPYCMD -u DOTNET_ROOT \
       RSDD_DOTNET_ROOT="$box_td3/override_root" \
       PATH="$box_td3/bin" HOME="$box_td3/home" \
-      "$BASH_BIN" "$MUTANT_D3" --list "$dll_td3" >/dev/null 2>&1; rc_td3=$?
+      "$BASH_BIN" "$MUTANT_D3_DIR/decompile-net.sh" --list "$dll_td3" >/dev/null 2>&1; rc_td3=$?
     dotnet_root_td3="$(cat "$rec_td3_env" 2>/dev/null || echo UNSET)"
     # D3 assertion: rc=0 AND DOTNET_ROOT=override_root. Mutant ignores RSDD_DOTNET_ROOT → exit 3.
     if ! ( [ "$rc_td3" -eq 0 ] && [ "$dotnet_root_td3" = "$box_td3/override_root" ] ); then
-      ok "teeth D3: mutant breaks D3 (RSDD_DOTNET_ROOT ignored → D3 goes RED)"
+      ok "teeth D3: mutant lib (RSDD_DOTNET_ROOT renamed) breaks D3 → D3 goes RED"
     else
       no "teeth D3: mutant did NOT break D3 — D3 is THEATER"
     fi

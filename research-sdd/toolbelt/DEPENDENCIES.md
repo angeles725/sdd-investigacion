@@ -95,8 +95,9 @@ through to derivation when unusable, fixing old-runtime shadowing) → derived
 from the `dotnet` binary on PATH. Each candidate is validated by running
 `DOTNET_ROOT=<candidate> ilspycmd --version`; structural existence alone is not
 accepted. `DOTNET_ROLL_FORWARD=Major` is still exported for resilience.
-`detect-tools.sh`'s smoke test omits DOTNET_ROOT and therefore reports UNUSABLE
-— the tool is functional via the script.
+`detect-tools.sh` resolves DOTNET_ROOT via `rsdd_resolve_dotnet_root` (the same
+function used by `decompile-net.sh`) before reporting availability, so the two
+agree: a working ilspycmd is reported AVAILABLE in both places.
 
 **`r2`** is resolved by `corroborate_native.py:154` via `RSDD_R2` env var
 then PATH. The binary name is `r2`, not `radare2`.
