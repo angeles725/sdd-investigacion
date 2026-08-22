@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_helpers import warn_evidence
 from lib.isolation_profile import make_profile
 SCHEMA = "ghidra-corroboration.v1"
 SENTINEL = b"RSDD-SENTINEL"
@@ -318,7 +319,10 @@ def main(argv: list[str] | None = None) -> int:
         (stage/"manifest-spec.json").unlink(); subprocess.run([sys.executable,manifest_cli,"validate",str(manifest)],check=True,pass_fds=(manifest_fd,))
         for fd,path,record in locked: verify_lock(fd,path,record)
         if sum(p.is_file() for p in stage.rglob("*")) > args.max_files: raise GhidraError("evidence file cap exceeded")
-        publish(stage,destination); stage=None; return 0 if completeness in ("complete","partial") else 1
+        publish(stage,destination); stage=None
+        if completeness not in ("complete","partial"):
+            warn_evidence(schema=SCHEMA, destination=destination, detail=f"completeness={completeness}")
+        return 0 if completeness in ("complete","partial") else 1
     except (GhidraError,OSError,subprocess.SubprocessError,json.JSONDecodeError) as exc:
         print(f"corroborate-ghidra: {exc}",file=sys.stderr); return 2
     finally:

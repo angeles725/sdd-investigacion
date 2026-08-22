@@ -24,6 +24,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_helpers import warn_evidence
 from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
 
 SCHEMA = "java-corroboration.v1"
@@ -647,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
         }
         module._atomic_write(stage / f"{SCHEMA}.json", module.canonical_bytes(report), False)
         publish(stage, destination, args.overwrite); stage = None
+        if failures:
+            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(failures))
         return 1 if failures else 0
     except (CorroborationError, module.ManifestError, OSError, zipfile.BadZipFile, subprocess.SubprocessError) as exc:
         print(f"corroborate-java: {exc}", file=sys.stderr); return 2

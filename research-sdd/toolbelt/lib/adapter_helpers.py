@@ -180,6 +180,11 @@ def emit_evidence(
     destination:    Final publish path (must not exist).
     timeout:        Seconds applied to EVERY manifest-CLI subprocess.run call.
                     Mandatory; default 60. Raise ManifestError on expiry.
+
+    Caller contract: this function calls warn_evidence when errors is non-empty.
+    A caller that passes non-fatal errors (errors != []) while returning rc=0
+    would emit a spurious stderr pointer; only pass errors that correspond to
+    a non-zero exit code.
     """
     # Guard 1: schema must be a safe single-component filename to prevent
     # path traversal when building stage/{schema}.json.
@@ -237,6 +242,9 @@ def emit_evidence(
         ac.publish(stage, destination)
     except (AdapterError, OSError) as exc:
         raise ManifestError(f"publish failed: {exc}") from exc
+
+    if errors:
+        warn_evidence(schema=schema, destination=destination, detail=", ".join(errors))
 
 
 # ---------------------------------------------------------------------------
@@ -640,3 +648,30 @@ def run_truncation(run_errors: list[str], tool: str) -> tuple[bool, list[str]]:
         for cap in fired
     ]
     return bool(fired), limitations
+
+
+# ---------------------------------------------------------------------------
+# HELPER G — warn_evidence (§7 anti-silent-zero stderr pointer for rc=1 returns)
+# ---------------------------------------------------------------------------
+
+def warn_evidence(*, schema: str, destination, detail: str = "") -> None:
+    """Print a one-line stderr pointer to the evidence file on rc=1 returns.
+
+    Called automatically by emit_evidence when errors is non-empty, and
+    inline by adapters that hand-write publish or key on non-errors flags.
+
+    Format with detail:    "{schema}: completed with issues ({detail}) — see {destination}/{schema}.json"
+    Format without detail: "{schema}: completed with issues — see {destination}/{schema}.json"
+
+    Parameters
+    ----------
+    schema:      Evidence schema identifier, e.g. "native-static.v1".
+    destination: Path to the evidence destination directory (as Path or str).
+    detail:      Short human-readable description of the issue (e.g. "analyzer-exit:1").
+                 Pass "" or omit to emit the pointer without a detail clause.
+    """
+    _detail = f" ({detail})" if detail else ""
+    print(
+        f"{schema}: completed with issues{_detail} — see {destination}/{schema}.json",
+        file=sys.stderr,
+    )

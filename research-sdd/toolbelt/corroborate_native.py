@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
+from lib.adapter_helpers import warn_evidence
 from lib.isolation_profile import PROFILE_BWRAP_STATIC_NETWORK_DENIED
 
 SCHEMA = "native-static.v1"
@@ -202,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
         write(stage / f"{SCHEMA}.json", report)
         if sum(1 for path in stage.rglob("*") if path.is_file() and path != stage / "input/target.bin") > args.max_files: raise NativeError("evidence file cap exceeded")
         publish(stage, destination); stage = None
+        if errors or truncated:
+            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(errors))
         return 1 if errors or truncated else 0
     except (NativeError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         print(f"corroborate-native: {exc}", file=sys.stderr); return 2
