@@ -217,7 +217,25 @@ report() {
   row "apktool" apktool --version "${BREW:+$BREW/bin/apktool}"
   echo ""
   echo "[ .net ]"
-  row "ilspycmd" ilspycmd --version "$HOME/.dotnet/tools/ilspycmd"
+  # ilspycmd requires DOTNET_ROOT to be set for its apphost to load the runtime. The
+  # generic row() function runs the smoke test without DOTNET_ROOT, causing a false
+  # UNUSABLE on hosts where the runtime is at a non-default path (e.g. linuxbrew).
+  # Use rsdd_resolve_dotnet_root (lib/tool-env.sh) — the same resolver that
+  # decompile-net.sh uses — so that detect-tools.sh and the pipeline agree on availability.
+  _detect_ilspycmd() {
+    local ilspy dotnet_root
+    ilspy="$(rsdd_resolve_ilspy)" || {
+      printf '  %-22s MISSING     (not on PATH nor known install dirs)\n' "ilspycmd"
+      return
+    }
+    dotnet_root="$(rsdd_resolve_dotnet_root "$ilspy")" || dotnet_root=""
+    if [ -n "$dotnet_root" ]; then
+      printf '  %-22s AVAILABLE   %s (DOTNET_ROOT=%s)\n' "ilspycmd" "$ilspy" "$dotnet_root"
+    else
+      printf '  %-22s UNUSABLE    %s (DOTNET_ROOT could not be resolved; install .NET 10+ or set RSDD_DOTNET_ROOT)\n' "ilspycmd" "$ilspy"
+    fi
+  }
+  _detect_ilspycmd
   echo ""
   echo "[ firmware ]"
   row "binwalk" binwalk --help /usr/bin/binwalk "${BREW:+$BREW/bin/binwalk}"
