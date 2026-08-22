@@ -70,14 +70,16 @@ be executable with parent dir named `support`); ② `GHIDRA_HOME` env var
 `support/analyzeHeadless`); ⑥ `/opt/ghidra*` glob fallback (sorted by
 version, non-Homebrew tarball installs).
 
-**Java decompiler JARs** (`rsdd_resolve_java_jar()`, `lib/tool-env.sh:48-92`):
+**Java decompiler JARs** (`rsdd_resolve_java_jar()`, `lib/tool-env.sh`):
 first checks `VINEFLOWER_JAR` / `CFR_JAR` / `PROCYON_JAR` env vars (and their
 legacy aliases `VINEFLOWER` / `CFR` / `PROCYON`) — an explicitly set var is
 authoritative and never falls through. If unset, searches
 `$RESEARCH_SDD_TOOL_HOME/java/` (default:
-`~/.local/share/research-sdd-tools/java/`) and a few host-specific well-known
-paths as fallback. On a host where the JARs exist at any fallback path, **no
-env var export is required**. `rsdd_probe_java_jar()` (`lib/tool-env.sh:182-194`)
+`~/.local/share/research-sdd-tools/java/`); Vineflower additionally resolves
+via the Homebrew `opt/vineflower` path. There are **no per-user fallback
+paths** — provision the JARs into the canonical tool home with
+`install-tool.sh <name>`, or set the override env var. On a host where the JAR
+is at the canonical tool home, **no env var export is required**. `rsdd_probe_java_jar()` (`lib/tool-env.sh:182-194`)
 validates the resolved JAR structurally (correct expected class entry, archive
 integrity via `unzip`) without executing it. `corroborate-java.sh:15-24` uses
 exactly this resolver + probe pair.
@@ -209,7 +211,9 @@ shellcheck, bats, jq                         # dev/CI tooling
 For Java decompiler JARs: `rsdd_resolve_java_jar()` checks env var overrides
 FIRST (authoritative — an invalid override fails hard, it never falls through),
 then `$RESEARCH_SDD_TOOL_HOME/java/` (default:
-`~/.local/share/research-sdd-tools/java/`), then a few host-specific well-known
-paths. Place the JARs at the tool_home path and no env var export is required. SHA256 pins are recorded in
+`~/.local/share/research-sdd-tools/java/`); Vineflower additionally resolves via
+the Homebrew `opt` path. There are no per-user fallback paths. Provision the
+JARs into the tool_home path with `install-tool.sh <name>` and no env var
+export is required. SHA256 pins are recorded in
 `corroborate_java.py` (`DEFAULT_PINS`); use those to verify the correct
 versions.
