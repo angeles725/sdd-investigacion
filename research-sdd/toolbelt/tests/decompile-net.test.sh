@@ -22,6 +22,8 @@ DIRNAME_BIN="$(type -P dirname)"; [ -n "$DIRNAME_BIN" ] || { echo "FATAL: dirnam
 
 echo "== decompile-net.test.sh (SUT: $(basename "$SUT")) =="
 
+REALPATH_BIN="$(type -P realpath)"; [ -n "$REALPATH_BIN" ] || { echo "FATAL: realpath not found on PATH" >&2; exit 2; }
+
 # Stub ilspycmd: records all arguments one per line, then exits 0.
 STUB="$TMP/ilspycmd"; RECORD="$TMP/args.txt"; DLL="$TMP/test.dll"
 cat > "$STUB" <<'SH'
@@ -71,13 +73,13 @@ fi
 # P2 — ILSPYCMD unset; ilspycmd present on a controlled PATH → resolver uses PATH.
 # Hermetic: box/bin has only our ilspycmd stub + dirname coreutil (needed by SUT's HERE=);
 # HOME has no .dotnet/tools/ilspycmd so the $HOME fallback cannot fire.
-box_p2="$TMP/p2"; mkdir -p "$box_p2/bin" "$box_p2/home"
+box_p2="$TMP/p2"; mkdir -p "$box_p2/bin" "$box_p2/home" "$box_p2/runtime/shared/Microsoft.NETCore.App"
 ln -s "$DIRNAME_BIN" "$box_p2/bin/dirname"
 rec_p2="$box_p2/p2.rec"; touch "$rec_p2"
 printf '#!/bin/sh\nprintf "called\\n" >> "%s"\nexit 0\n' "$rec_p2" > "$box_p2/bin/ilspycmd"
 chmod +x "$box_p2/bin/ilspycmd"
 dll_p2="$box_p2/test.dll"; touch "$dll_p2"
-env -u ILSPYCMD PATH="$box_p2/bin" HOME="$box_p2/home" \
+env -u ILSPYCMD DOTNET_ROOT="$box_p2/runtime" PATH="$box_p2/bin" HOME="$box_p2/home" \
   "$BASH_BIN" "$SUT" --list "$dll_p2" >/dev/null 2>&1; rc_p2=$?
 if [ "$rc_p2" -eq 0 ] && [ -s "$rec_p2" ]; then
   ok "P2: PATH resolution: ilspycmd found via PATH when ILSPYCMD unset"
@@ -86,7 +88,7 @@ else
 fi
 
 # P3 — ILSPYCMD=executable is authoritative (overrides a different stub on PATH).
-box_p3="$TMP/p3"; mkdir -p "$box_p3/bin" "$box_p3/home" "$box_p3/override"
+box_p3="$TMP/p3"; mkdir -p "$box_p3/bin" "$box_p3/home" "$box_p3/override" "$box_p3/runtime/shared/Microsoft.NETCore.App"
 ln -s "$DIRNAME_BIN" "$box_p3/bin/dirname"
 rec_p3_ilspy="$box_p3/ilspy.rec"; rec_p3_path="$box_p3/path.rec"
 touch "$rec_p3_ilspy" "$rec_p3_path"
@@ -96,7 +98,7 @@ ilspy_stub_p3="$box_p3/override/myilspy"
 printf '#!/bin/sh\nprintf "called\\n" >> "%s"\nexit 0\n' "$rec_p3_ilspy" > "$ilspy_stub_p3"
 chmod +x "$ilspy_stub_p3"
 dll_p3="$box_p3/test.dll"; touch "$dll_p3"
-ILSPYCMD="$ilspy_stub_p3" PATH="$box_p3/bin" HOME="$box_p3/home" \
+ILSPYCMD="$ilspy_stub_p3" DOTNET_ROOT="$box_p3/runtime" PATH="$box_p3/bin" HOME="$box_p3/home" \
   "$BASH_BIN" "$SUT" --list "$dll_p3" >/dev/null 2>&1; rc_p3=$?
 if [ "$rc_p3" -eq 0 ] && [ -s "$rec_p3_ilspy" ] && ! [ -s "$rec_p3_path" ]; then
   ok "P3: ILSPYCMD=executable is authoritative (overrides PATH)"
@@ -117,6 +119,137 @@ if [ "$rc_p4" -eq 3 ] && ! [ -s "$rec_p4" ]; then
   ok "P4: ILSPYCMD=nonexistent → exit 3 (no fallthrough to PATH)"
 else
   no "P4: no-fallthrough: exit=$rc_p4 rec=$(cat "$rec_p4" 2>/dev/null)"
+fi
+
+# ---------------------------------------------------------------------------
+# D1 — DOTNET_ROOT derived from dotnet binary (stock layout) and exported.
+# Hermetic: box has dirname, realpath, a fake dotnet binary in its own root dir
+# (which also holds shared/Microsoft.NETCore.App/), and an ilspycmd stub that
+# records the DOTNET_ROOT it received in its environment.
+box_d1="$TMP/d1"
+mkdir -p "$box_d1/bin" "$box_d1/home" "$box_d1/fake_root/shared/Microsoft.NETCore.App"
+printf '#!/bin/sh\nexit 0\n' > "$box_d1/fake_root/dotnet"
+chmod +x "$box_d1/fake_root/dotnet"
+ln -s "$DIRNAME_BIN"  "$box_d1/bin/dirname"
+ln -s "$REALPATH_BIN" "$box_d1/bin/realpath"
+# symlink in PATH → realpath resolves it to the real binary inside fake_root
+ln -s "$box_d1/fake_root/dotnet" "$box_d1/bin/dotnet"
+rec_d1_env="$box_d1/ilspy.env"; touch "$rec_d1_env"
+dll_d1="$box_d1/test.dll"; touch "$dll_d1"
+cat > "$box_d1/bin/ilspycmd" <<SH
+#!/bin/sh
+[ "\$1" = "--version" ] && exit 0
+printf '%s\n' "\${DOTNET_ROOT:-UNSET}" >> "$rec_d1_env"
+exit 0
+SH
+chmod +x "$box_d1/bin/ilspycmd"
+env -u ILSPYCMD -u DOTNET_ROOT -u RSDD_DOTNET_ROOT \
+  PATH="$box_d1/bin" HOME="$box_d1/home" \
+  "$BASH_BIN" "$SUT" --list "$dll_d1" >/dev/null 2>&1; rc_d1=$?
+dotnet_root_d1="$(cat "$rec_d1_env" 2>/dev/null || echo UNSET)"
+if [ "$rc_d1" -eq 0 ] && [ "$dotnet_root_d1" = "$box_d1/fake_root" ]; then
+  ok "D1: DOTNET_ROOT derived from dotnet binary and exported to ilspycmd"
+else
+  no "D1: exit=$rc_d1 DOTNET_ROOT seen='$dotnet_root_d1' (want '$box_d1/fake_root')"
+fi
+
+# D2 — No DOTNET_ROOT resolves → exit 3, message names DOTNET_ROOT.
+# ilspycmd IS present so exit 3 can only come from the DOTNET_ROOT guard, not ilspy.
+box_d2="$TMP/d2"
+mkdir -p "$box_d2/bin" "$box_d2/home"
+ln -s "$DIRNAME_BIN" "$box_d2/bin/dirname"
+printf '#!/bin/sh\nexit 0\n' > "$box_d2/bin/ilspycmd"
+chmod +x "$box_d2/bin/ilspycmd"
+dll_d2="$box_d2/test.dll"; touch "$dll_d2"
+err_d2="$TMP/d2.err"
+env -u ILSPYCMD -u DOTNET_ROOT -u RSDD_DOTNET_ROOT \
+  PATH="$box_d2/bin" HOME="$box_d2/home" \
+  "$BASH_BIN" "$SUT" --list "$dll_d2" 2>"$err_d2" >/dev/null; rc_d2=$?
+if [ "$rc_d2" -eq 3 ] && grep -qi 'DOTNET_ROOT' "$err_d2" 2>/dev/null; then
+  ok "D2: no DOTNET_ROOT resolves → exit 3 with DOTNET_ROOT named in error"
+else
+  no "D2: exit=$rc_d2 err=$(cat "$err_d2" 2>/dev/null || echo empty)"
+fi
+
+# D3 — RSDD_DOTNET_ROOT override is honored (no dotnet binary needed).
+box_d3="$TMP/d3"
+mkdir -p "$box_d3/bin" "$box_d3/home" "$box_d3/override_root/shared/Microsoft.NETCore.App"
+ln -s "$DIRNAME_BIN" "$box_d3/bin/dirname"
+rec_d3_env="$box_d3/ilspy.env"; touch "$rec_d3_env"
+dll_d3="$box_d3/test.dll"; touch "$dll_d3"
+cat > "$box_d3/bin/ilspycmd" <<SH
+#!/bin/sh
+[ "\$1" = "--version" ] && exit 0
+printf '%s\n' "\${DOTNET_ROOT:-UNSET}" >> "$rec_d3_env"
+exit 0
+SH
+chmod +x "$box_d3/bin/ilspycmd"
+env -u ILSPYCMD -u DOTNET_ROOT \
+  RSDD_DOTNET_ROOT="$box_d3/override_root" \
+  PATH="$box_d3/bin" HOME="$box_d3/home" \
+  "$BASH_BIN" "$SUT" --list "$dll_d3" >/dev/null 2>&1; rc_d3=$?
+dotnet_root_d3="$(cat "$rec_d3_env" 2>/dev/null || echo UNSET)"
+if [ "$rc_d3" -eq 0 ] && [ "$dotnet_root_d3" = "$box_d3/override_root" ]; then
+  ok "D3: RSDD_DOTNET_ROOT override honored and exported as DOTNET_ROOT"
+else
+  no "D3: exit=$rc_d3 DOTNET_ROOT seen='$dotnet_root_d3' (want '$box_d3/override_root')"
+fi
+
+# D1-empty — DOTNET_ROOT candidate has shared/Microsoft.NETCore.App but is empty/unusable.
+# ilspycmd --version fails (simulates a runtime that exists on disk but can't load the tool).
+# Expects exit 3: existence-only check is not sufficient — usability must be probed.
+box_d1e="$TMP/d1e"
+mkdir -p "$box_d1e/bin" "$box_d1e/home" "$box_d1e/bad_root/shared/Microsoft.NETCore.App"
+ln -s "$DIRNAME_BIN" "$box_d1e/bin/dirname"
+cat > "$box_d1e/bin/ilspycmd" <<'SH'
+#!/bin/sh
+[ "$1" = "--version" ] && exit 1
+exit 0
+SH
+chmod +x "$box_d1e/bin/ilspycmd"
+dll_d1e="$box_d1e/test.dll"; touch "$dll_d1e"
+err_d1e="$TMP/d1e.err"
+env -u ILSPYCMD -u RSDD_DOTNET_ROOT \
+  DOTNET_ROOT="$box_d1e/bad_root" \
+  PATH="$box_d1e/bin" HOME="$box_d1e/home" \
+  "$BASH_BIN" "$SUT" --list "$dll_d1e" 2>"$err_d1e" >/dev/null; rc_d1e=$?
+if [ "$rc_d1e" -eq 3 ]; then
+  ok "D1-empty: DOTNET_ROOT with empty/unusable runtime → probe fails → exit 3"
+else
+  no "D1-empty: exit=$rc_d1e (want 3; existence-only check accepted unusable runtime)"
+fi
+
+# D2-rsdd-bad — RSDD_DOTNET_ROOT set but ilspycmd --version fails.
+# Must exit 3 loudly; must NOT fall through to use the valid ambient DOTNET_ROOT.
+box_d2r="$TMP/d2r"
+mkdir -p "$box_d2r/bin" "$box_d2r/home" \
+         "$box_d2r/bad_root/shared/Microsoft.NETCore.App" \
+         "$box_d2r/good_root/shared/Microsoft.NETCore.App"
+ln -s "$DIRNAME_BIN" "$box_d2r/bin/dirname"
+rec_d2r="$box_d2r/ilspy.rec"; touch "$rec_d2r"
+# Stub: --version exits 0 only for good_root; all other calls record DOTNET_ROOT.
+cat > "$box_d2r/bin/ilspycmd" <<SH
+#!/bin/sh
+if [ "\$1" = "--version" ]; then
+  [ "\${DOTNET_ROOT:-}" = "$box_d2r/good_root" ] && exit 0
+  exit 1
+fi
+printf '%s\n' "\${DOTNET_ROOT:-UNSET}" >> "$rec_d2r"
+exit 0
+SH
+chmod +x "$box_d2r/bin/ilspycmd"
+dll_d2r="$box_d2r/test.dll"; touch "$dll_d2r"
+err_d2r="$TMP/d2r.err"
+env -u ILSPYCMD \
+  RSDD_DOTNET_ROOT="$box_d2r/bad_root" \
+  DOTNET_ROOT="$box_d2r/good_root" \
+  PATH="$box_d2r/bin" HOME="$box_d2r/home" \
+  "$BASH_BIN" "$SUT" --list "$dll_d2r" 2>"$err_d2r" >/dev/null; rc_d2r=$?
+dotnet_seen_d2r="$(cat "$rec_d2r" 2>/dev/null || echo UNSET)"
+if [ "$rc_d2r" -eq 3 ] && [ -z "$dotnet_seen_d2r" ]; then
+  ok "D2-rsdd-bad: RSDD_DOTNET_ROOT unusable → exit 3, did NOT fall through to DOTNET_ROOT"
+else
+  no "D2-rsdd-bad: exit=$rc_d2r seen='$dotnet_seen_d2r' (want exit 3 + no DOTNET_ROOT used)"
 fi
 
 # TEETH — prove that assertions fail against broken implementations.
@@ -173,7 +306,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$SUT" "$MUTANT_SUT_T1"
 
     # P3 on mutant: ILSPYCMD=executable — mutant ignores it → PATH stub runs, ILSPY stub idle.
-    box_t1p3="$TMP/t1p3"; mkdir -p "$box_t1p3/bin" "$box_t1p3/home" "$box_t1p3/override"
+    # DOTNET_ROOT is provided so the mutant gets past the DOTNET_ROOT guard and reaches exec.
+    box_t1p3="$TMP/t1p3"; mkdir -p "$box_t1p3/bin" "$box_t1p3/home" "$box_t1p3/override" "$box_t1p3/runtime/shared/Microsoft.NETCore.App"
     ln -s "$DIRNAME_BIN" "$box_t1p3/bin/dirname"
     rec_t1_ilspy="$TMP/t1.ilspy.rec"; rec_t1_path="$TMP/t1.path.rec"
     touch "$rec_t1_ilspy" "$rec_t1_path"
@@ -183,7 +317,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '#!/bin/sh\nprintf "called\\n" >> "%s"\nexit 0\n' "$rec_t1_path" > "$box_t1p3/bin/ilspycmd"
     chmod +x "$box_t1p3/bin/ilspycmd"
     dll_t1="$TMP/t1.dll"; touch "$dll_t1"
-    ILSPYCMD="$ilspy_stub_t1" PATH="$box_t1p3/bin" HOME="$box_t1p3/home" \
+    ILSPYCMD="$ilspy_stub_t1" DOTNET_ROOT="$box_t1p3/runtime" PATH="$box_t1p3/bin" HOME="$box_t1p3/home" \
       "$BASH_BIN" "$MUTANT_SUT_T1" --list "$dll_t1" >/dev/null 2>&1; rc_t1p3=$?
     # P3 assertion: ILSPY stub called AND PATH stub NOT called. On mutant this FAILS.
     if ! ( [ "$rc_t1p3" -eq 0 ] && [ -s "$rec_t1_ilspy" ] && ! [ -s "$rec_t1_path" ] ); then
@@ -193,19 +327,200 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
 
     # P4 on mutant: ILSPYCMD=nonexistent — mutant ignores it → PATH stub runs, exit 0 not 3.
-    box_t1p4="$TMP/t1p4"; mkdir -p "$box_t1p4/bin" "$box_t1p4/home"
+    # DOTNET_ROOT is provided so the mutant reaches exec (stub calls → exit 0, not 3).
+    box_t1p4="$TMP/t1p4"; mkdir -p "$box_t1p4/bin" "$box_t1p4/home" "$box_t1p4/runtime/shared/Microsoft.NETCore.App"
     ln -s "$DIRNAME_BIN" "$box_t1p4/bin/dirname"
     rec_t1p4="$TMP/t1p4.rec"; touch "$rec_t1p4"
     printf '#!/bin/sh\nprintf "called\\n" >> "%s"\nexit 0\n' "$rec_t1p4" > "$box_t1p4/bin/ilspycmd"
     chmod +x "$box_t1p4/bin/ilspycmd"
     dll_t1p4="$TMP/t1p4.dll"; touch "$dll_t1p4"
-    ILSPYCMD="$box_t1p4/nonexistent" PATH="$box_t1p4/bin" HOME="$box_t1p4/home" \
+    ILSPYCMD="$box_t1p4/nonexistent" DOTNET_ROOT="$box_t1p4/runtime" PATH="$box_t1p4/bin" HOME="$box_t1p4/home" \
       "$BASH_BIN" "$MUTANT_SUT_T1" --list "$dll_t1p4" >/dev/null 2>&1; rc_t1p4=$?
-    # P4 assertion: exit 3 AND PATH stub idle. On mutant this FAILS.
+    # P4 assertion: exit 3 AND PATH stub idle. On mutant this FAILS (exit 0, stub called).
     if ! ( [ "$rc_t1p4" -eq 3 ] && ! [ -s "$rec_t1p4" ] ); then
       ok "teeth P4: mutant breaks P4 (ILSPYCMD ignored → P4 goes RED)"
     else
       no "teeth P4: mutant did NOT break P4 — P4 is THEATER"
+    fi
+  fi
+
+  # D1 TEETH — mutant removes 'export DOTNET_ROOT'; ilspycmd must see DOTNET_ROOT=UNSET.
+  echo "-- teeth: mutant removes 'export DOTNET_ROOT'; expect D1 to go RED --"
+  MUTANT_D1="$TMP/decompile-net.MUTANT-noexport.sh"
+  sed '/^export DOTNET_ROOT$/d' "$SUT" > "$MUTANT_D1"
+  if grep -q '^export DOTNET_ROOT$' "$MUTANT_D1"; then
+    no "teeth D1: could not build mutant (export DOTNET_ROOT still present)"
+  else
+    box_td1="$TMP/td1"
+    mkdir -p "$box_td1/bin" "$box_td1/home" "$box_td1/fake_root/shared/Microsoft.NETCore.App"
+    printf '#!/bin/sh\nexit 0\n' > "$box_td1/fake_root/dotnet"
+    chmod +x "$box_td1/fake_root/dotnet"
+    ln -s "$DIRNAME_BIN"  "$box_td1/bin/dirname"
+    ln -s "$REALPATH_BIN" "$box_td1/bin/realpath"
+    ln -s "$box_td1/fake_root/dotnet" "$box_td1/bin/dotnet"
+    rec_td1_env="$TMP/td1.ilspy.env"; touch "$rec_td1_env"
+    dll_td1="$box_td1/test.dll"; touch "$dll_td1"
+    cat > "$box_td1/bin/ilspycmd" <<SH
+#!/bin/sh
+[ "\$1" = "--version" ] && exit 0
+printf '%s\n' "\${DOTNET_ROOT:-UNSET}" >> "$rec_td1_env"
+exit 0
+SH
+    chmod +x "$box_td1/bin/ilspycmd"
+    env -u ILSPYCMD -u DOTNET_ROOT -u RSDD_DOTNET_ROOT \
+      PATH="$box_td1/bin" HOME="$box_td1/home" \
+      "$BASH_BIN" "$MUTANT_D1" --list "$dll_td1" >/dev/null 2>&1; rc_td1=$?
+    dotnet_root_td1="$(cat "$rec_td1_env" 2>/dev/null || echo UNSET)"
+    # D1 assertion requires rc=0 AND DOTNET_ROOT=fake_root. Mutant: DOTNET_ROOT=UNSET → D1 fails.
+    if ! ( [ "$rc_td1" -eq 0 ] && [ "$dotnet_root_td1" = "$box_td1/fake_root" ] ); then
+      ok "teeth D1: mutant breaks D1 (no export → DOTNET_ROOT unseen → D1 goes RED)"
+    else
+      no "teeth D1: mutant did NOT break D1 — D1 is THEATER"
+    fi
+  fi
+
+  # D2 TEETH — mutant changes error exit 3 to exit 0; D2 must go RED.
+  echo "-- teeth: mutant changes DOTNET_ROOT error exit 3 to exit 0; expect D2 to go RED --"
+  MUTANT_D2="$TMP/decompile-net.MUTANT-exit0.sh"
+  sed 's/exit 3 # DOTNET_ROOT_UNRESOLVED/exit 0 # DOTNET_ROOT_UNRESOLVED/' "$SUT" > "$MUTANT_D2"
+  if ! grep -q 'exit 0 # DOTNET_ROOT_UNRESOLVED' "$MUTANT_D2"; then
+    no "teeth D2: could not build mutant (marker not found — SUT drifted?)"
+  else
+    box_td2="$TMP/td2"
+    mkdir -p "$box_td2/bin" "$box_td2/home"
+    ln -s "$DIRNAME_BIN" "$box_td2/bin/dirname"
+    printf '#!/bin/sh\nexit 0\n' > "$box_td2/bin/ilspycmd"
+    chmod +x "$box_td2/bin/ilspycmd"
+    dll_td2="$box_td2/test.dll"; touch "$dll_td2"
+    err_td2="$TMP/td2.err"
+    env -u ILSPYCMD -u DOTNET_ROOT -u RSDD_DOTNET_ROOT \
+      PATH="$box_td2/bin" HOME="$box_td2/home" \
+      "$BASH_BIN" "$MUTANT_D2" --list "$dll_td2" 2>"$err_td2" >/dev/null; rc_td2=$?
+    # D2 assertion: rc=3 AND DOTNET_ROOT in stderr. Mutant exits 0 → D2 fails.
+    if ! ( [ "$rc_td2" -eq 3 ] && grep -qi 'DOTNET_ROOT' "$err_td2" 2>/dev/null ); then
+      ok "teeth D2: mutant breaks D2 (exit 0 instead of 3 → D2 goes RED)"
+    else
+      no "teeth D2: mutant did NOT break D2 — D2 is THEATER"
+    fi
+  fi
+
+  # D1-empty TEETH — mutant replaces _rsdd_dotnet_probe body with bare -d check (removes probe).
+  # The ambient-DOTNET_ROOT path uses _rsdd_dotnet_probe; replacing its body makes the mutant
+  # accept an empty/unusable root → D1-empty must go RED.
+  echo "-- teeth: mutant replaces _rsdd_dotnet_probe with bare -d check; D1-empty must go RED --"
+  MUTANT_D1E="$TMP/decompile-net.MUTANT-noprobe.sh"
+  python3 - "$SUT" "$MUTANT_D1E" <<'PYEOF'
+import sys, re
+text = open(sys.argv[1]).read()
+# Replace the _rsdd_dotnet_probe function body with a bare directory test only (no ilspy run)
+result = re.sub(
+    r'_rsdd_dotnet_probe\(\) \{.*?^}',
+    '_rsdd_dotnet_probe() {\n  [ -d "$1/shared/Microsoft.NETCore.App" ]\n}',
+    text, flags=re.MULTILINE | re.DOTALL)
+open(sys.argv[2], 'w').write(result)
+PYEOF
+  if grep -qF '"$ILSPY" --version' "$MUTANT_D1E"; then
+    no "teeth D1-empty: mutant still contains ilspy --version probe — substitution failed"
+  else
+    box_td1e="$TMP/td1e"
+    mkdir -p "$box_td1e/bin" "$box_td1e/home" "$box_td1e/bad_root/shared/Microsoft.NETCore.App"
+    ln -s "$DIRNAME_BIN" "$box_td1e/bin/dirname"
+    cat > "$box_td1e/bin/ilspycmd" <<'SH'
+#!/bin/sh
+[ "$1" = "--version" ] && exit 1
+exit 0
+SH
+    chmod +x "$box_td1e/bin/ilspycmd"
+    dll_td1e="$box_td1e/test.dll"; touch "$dll_td1e"
+    env -u ILSPYCMD -u RSDD_DOTNET_ROOT \
+      DOTNET_ROOT="$box_td1e/bad_root" \
+      PATH="$box_td1e/bin" HOME="$box_td1e/home" \
+      "$BASH_BIN" "$MUTANT_D1E" --list "$dll_td1e" >/dev/null 2>&1; rc_td1e=$?
+    # D1-empty asserts exit 3. Mutant accepts the empty root (bare -d only) → exits 0 → D1-empty RED.
+    if ! [ "$rc_td1e" -eq 3 ]; then
+      ok "teeth D1-empty: mutant (bare -d) accepts unusable root → D1-empty goes RED"
+    else
+      no "teeth D1-empty: mutant still exits 3 — D1-empty has no teeth"
+    fi
+  fi
+
+  # D2-rsdd-bad TEETH — mutant removes fail-closed guard for RSDD_DOTNET_ROOT, allowing fall-through.
+  echo "-- teeth: mutant removes RSDD_DOTNET_ROOT fail-closed block; D2-rsdd-bad must go RED --"
+  MUTANT_D2R="$TMP/decompile-net.MUTANT-rsdd-fallthrough.sh"
+  python3 - "$SUT" "$MUTANT_D2R" <<'PYEOF'
+import sys, re
+text = open(sys.argv[1]).read()
+# Remove the RSDD_DOTNET_ROOT special-case block so it falls through to DOTNET_ROOT handling
+result = re.sub(
+    r'  # RSDD_DOTNET_ROOT:.*?^  fi\n\n',
+    '',
+    text, flags=re.MULTILINE | re.DOTALL)
+open(sys.argv[2], 'w').write(result)
+PYEOF
+  if grep -q 'Fix or unset RSDD_DOTNET_ROOT' "$MUTANT_D2R" 2>/dev/null; then
+    no "teeth D2-rsdd-bad: mutant still has fail-closed message — substitution failed"
+  else
+    box_td2r="$TMP/td2r"
+    mkdir -p "$box_td2r/bin" "$box_td2r/home" \
+             "$box_td2r/bad_root/shared/Microsoft.NETCore.App" \
+             "$box_td2r/good_root/shared/Microsoft.NETCore.App"
+    ln -s "$DIRNAME_BIN" "$box_td2r/bin/dirname"
+    rec_td2r="$box_td2r/ilspy.rec"; touch "$rec_td2r"
+    cat > "$box_td2r/bin/ilspycmd" <<SH
+#!/bin/sh
+if [ "\$1" = "--version" ]; then
+  [ "\${DOTNET_ROOT:-}" = "$box_td2r/good_root" ] && exit 0
+  exit 1
+fi
+printf '%s\n' "\${DOTNET_ROOT:-UNSET}" >> "$rec_td2r"
+exit 0
+SH
+    chmod +x "$box_td2r/bin/ilspycmd"
+    dll_td2r="$box_td2r/test.dll"; touch "$dll_td2r"
+    env -u ILSPYCMD \
+      RSDD_DOTNET_ROOT="$box_td2r/bad_root" \
+      DOTNET_ROOT="$box_td2r/good_root" \
+      PATH="$box_td2r/bin" HOME="$box_td2r/home" \
+      "$BASH_BIN" "$MUTANT_D2R" --list "$dll_td2r" >/dev/null 2>&1; rc_td2r=$?
+    dotnet_seen_td2r="$(cat "$rec_td2r" 2>/dev/null || echo UNSET)"
+    # D2-rsdd-bad: exit 3 AND no DOTNET_ROOT used.
+    # Mutant falls through to DOTNET_ROOT (good_root) → exits 0 + DOTNET_ROOT seen → RED.
+    if ! ( [ "$rc_td2r" -eq 3 ] && [ -z "$dotnet_seen_td2r" ] ); then
+      ok "teeth D2-rsdd-bad: mutant (fall-through) reaches DOTNET_ROOT → D2-rsdd-bad goes RED"
+    else
+      no "teeth D2-rsdd-bad: mutant still exits 3 + no DOTNET_ROOT — D2-rsdd-bad has no teeth"
+    fi
+  fi
+
+  # D3 TEETH — mutant renames RSDD_DOTNET_ROOT; override must be ignored.
+  echo "-- teeth: mutant renames RSDD_DOTNET_ROOT; expect D3 to go RED --"
+  MUTANT_D3="$TMP/decompile-net.MUTANT-norsdd.sh"
+  sed 's/RSDD_DOTNET_ROOT/RSDD_DOTNET_ROOT_DISABLED/g' "$SUT" > "$MUTANT_D3"
+  if ! grep -q 'RSDD_DOTNET_ROOT_DISABLED' "$MUTANT_D3"; then
+    no "teeth D3: could not build mutant (RSDD_DOTNET_ROOT not found — SUT drifted?)"
+  else
+    box_td3="$TMP/td3"
+    mkdir -p "$box_td3/bin" "$box_td3/home" "$box_td3/override_root/shared/Microsoft.NETCore.App"
+    ln -s "$DIRNAME_BIN" "$box_td3/bin/dirname"
+    rec_td3_env="$TMP/td3.ilspy.env"; touch "$rec_td3_env"
+    dll_td3="$box_td3/test.dll"; touch "$dll_td3"
+    cat > "$box_td3/bin/ilspycmd" <<SH
+#!/bin/sh
+[ "\$1" = "--version" ] && exit 0
+printf '%s\n' "\${DOTNET_ROOT:-UNSET}" >> "$rec_td3_env"
+exit 0
+SH
+    chmod +x "$box_td3/bin/ilspycmd"
+    env -u ILSPYCMD -u DOTNET_ROOT \
+      RSDD_DOTNET_ROOT="$box_td3/override_root" \
+      PATH="$box_td3/bin" HOME="$box_td3/home" \
+      "$BASH_BIN" "$MUTANT_D3" --list "$dll_td3" >/dev/null 2>&1; rc_td3=$?
+    dotnet_root_td3="$(cat "$rec_td3_env" 2>/dev/null || echo UNSET)"
+    # D3 assertion: rc=0 AND DOTNET_ROOT=override_root. Mutant ignores RSDD_DOTNET_ROOT → exit 3.
+    if ! ( [ "$rc_td3" -eq 0 ] && [ "$dotnet_root_td3" = "$box_td3/override_root" ] ); then
+      ok "teeth D3: mutant breaks D3 (RSDD_DOTNET_ROOT ignored → D3 goes RED)"
+    else
+      no "teeth D3: mutant did NOT break D3 — D3 is THEATER"
     fi
   fi
 fi

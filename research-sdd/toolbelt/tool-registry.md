@@ -8,7 +8,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 |---|---|---|---|---|
 | JAR / `.class` Java | `Java class data` / `Zip archive` (jar) | Vineflower (pref.), CFR, Procyon, `javap -p -c` | `decompile-java.sh` | ✅ |
 | JAR corroboration evidence | Valid regular JAR/ZIP | Vineflower + CFR + Procyon + `javap` + `jdeps` | `corroborate-java.sh` (`java-corroboration.v1`) | ✅ |
-| .NET DLL/EXE | `PE32 .NET assembly` / `Mono/.Net assembly` | `ilspycmd` (8.2.0) | `decompile-net.sh` | ✅ |
+| .NET DLL/EXE | `PE32 .NET assembly` / `Mono/.Net assembly` | `ilspycmd` (resolved via `rsdd_resolve_ilspy`; no pinned version) | `decompile-net.sh` | ✅ |
 | Native ELF/PE | `ELF ... executable` / `PE32 executable` | Ghidra headless (decompile) → r2/objdump fallback | `decompile-native.sh` | ✅ |
 | Native corroboration evidence | Regular native binary | radare2 static analysis in Bubblewrap | `corroborate-native.sh` (`native-static.v1`) | ✅ |
 | Native curated evidence | Regular native binary | Ghidra curated exporter in Bubblewrap | `decompile-native.sh ghidra-evidence` (`ghidra-corroboration.v1`) | ✅ |
@@ -80,6 +80,10 @@ environment variables (`VINEFLOWER_JAR`, `CFR_JAR`, `PROCYON_JAR`; legacy
 `GHIDRA_INSTALL_DIR`, `ILSPYCMD`, `JAVA_HOME`, `RESEARCH_SDD_JAVA_HOME`,
 `RESEARCH_SDD_TOOL_HOME`), so the toolbelt is portable without editing scripts.
 `RSDD_BREW_PREFIX` exists for hermetic/alternate-prefix resolution.
+`RSDD_DOTNET_ROOT` is the kit's own .NET runtime override for `decompile-net.sh`
+(authoritative — fail-closed if set but unusable, no fall-through); the ambient
+`DOTNET_ROOT` may fall through to derivation when unusable (resilience for
+distro-installed runtimes that are too old for the current ilspycmd target).
 Explicit decompiler/Ghidra overrides are authoritative and fail closed when invalid.
 Use `corroborate-java.sh` when claims need deterministic multi-engine inventories,
 signatures, dependency evidence, per-tool manifests, and preserved partial failures.
