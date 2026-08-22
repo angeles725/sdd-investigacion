@@ -77,6 +77,55 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# ======================== NATIVE-MODES assertion block ==========================
+# Every mode decompile-native.sh accepts must be documented in tool-registry.md.
+# Modes derived from the script's usage header and case statement:
+#   ghidra, ghidra-evidence, r2, quick
+# For 'ghidra', the search pattern includes a trailing space to avoid matching
+# 'ghidra-evidence' as a false positive.
+NATIVE_MODES=(ghidra ghidra-evidence r2 quick)
+
+check_native_modes() {
+  local reg="$1" mode pattern
+  for mode in "${NATIVE_MODES[@]}"; do
+    if [ "$mode" = "ghidra" ]; then
+      pattern="decompile-native.sh ghidra "
+    else
+      pattern="decompile-native.sh $mode"
+    fi
+    if grep -qF "$pattern" "$reg"; then
+      ok "native mode documented: $mode"
+    else
+      no "native mode NOT documented in registry: $mode (search: $pattern)"
+    fi
+  done
+}
+
+check_native_modes "$REGISTRY"
+
+# ======================== NATIVE-MODES NEGATIVE CONTROL — --prove-teeth ==========================
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: remove decompile-native.sh r2 row from a registry copy; modes check must flag it --"
+  tmp_m="$(mktemp -d)"
+  trap 'rm -rf "$tmp_m"' EXIT
+  mutant_m="$tmp_m/tool-registry.md"
+  grep -v 'decompile-native\.sh r2' "$REGISTRY" > "$mutant_m"
+  mut_mode_fail=0
+  for mode in "${NATIVE_MODES[@]}"; do
+    if [ "$mode" = "ghidra" ]; then
+      pattern="decompile-native.sh ghidra "
+    else
+      pattern="decompile-native.sh $mode"
+    fi
+    grep -qF "$pattern" "$mutant_m" || mut_mode_fail=$((mut_mode_fail+1))
+  done
+  if [ "$mut_mode_fail" -gt 0 ]; then
+    ok "teeth: $mut_mode_fail mode(s) flagged as undocumented in mutated registry (modes check bites)"
+  else
+    no "teeth: removal of r2 row was NOT detected — modes check is toothless"
+  fi
+fi
+
 # ======================== GATES assertion block ==========================
 # Verification-gate scripts that MUST appear in tool-registry.md.
 # These are the corpus-consistency gates (exit 0/1/2 contract), NOT artifact-routing wrappers.
