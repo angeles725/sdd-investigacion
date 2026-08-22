@@ -126,6 +126,77 @@ case "$RECIPE" in
     else log frida "pipx install frida-tools" failed "pipx missing or install failed; ensure ~/.local/bin on PATH"; exit 4; fi ;;
   ilspycmd)  have ilspycmd || have "$HOME/.dotnet/tools/ilspycmd" && { log ilspycmd "dotnet tool (present)" already; exit 0; }; dotnet tool install -g ilspycmd >/dev/null 2>&1 && { log ilspycmd "dotnet tool install -g ilspycmd" installed; exit 0; } || { log ilspycmd "dotnet tool ilspycmd" failed; exit 4; } ;;
 
+  vineflower) # Java decompiler — pinned release jar into the canonical tool home.
+    # Idempotent: if the jar exists and its sha256 matches the pin, skip re-download.
+    DEST="${RESEARCH_SDD_TOOL_HOME:-$HOME/.local/share/research-sdd-tools}/java/vineflower.jar"
+    VF_PIN="1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d"
+    VF_URL="https://github.com/Vineflower/vineflower/releases/download/1.12.0/vineflower-1.12.0.jar"
+    if [ -f "$DEST" ] && echo "$VF_PIN  $DEST" | sha256sum -c --status -; then
+      log vineflower "pinned jar present" already "sha256 $VF_PIN"; echo "$DEST"; exit 0
+    fi
+    if ! mkdir -p "${DEST%/*}"; then
+      log vineflower "$VF_URL" failed "cannot create dir ${DEST%/*}"; exit 4
+    fi
+    TMP="$(mktemp)"
+    if ! { curl -fsSL "$VF_URL" -o "$TMP" || wget -q "$VF_URL" -O "$TMP"; }; then
+      rm -f "$TMP"; log vineflower "$VF_URL" failed "download error"; exit 4
+    fi
+    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate
+      rm -f "$TMP"; log vineflower "$VF_URL" failed "sha256 mismatch"; exit 4
+    fi
+    if ! mv "$TMP" "$DEST"; then  # vineflower: verified
+      rm -f "$TMP"; log vineflower "$VF_URL" failed "mv to DEST failed"; exit 4
+    fi
+    log vineflower "$VF_URL" installed "pinned $VF_PIN"
+    echo "$DEST"; exit 0 ;;
+
+  cfr) # Java decompiler — pinned release jar into the canonical tool home.
+    DEST="${RESEARCH_SDD_TOOL_HOME:-$HOME/.local/share/research-sdd-tools}/java/cfr.jar"
+    CFR_PIN="f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2"
+    CFR_URL="https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar"
+    if [ -f "$DEST" ] && echo "$CFR_PIN  $DEST" | sha256sum -c --status -; then
+      log cfr "pinned jar present" already "sha256 $CFR_PIN"; echo "$DEST"; exit 0
+    fi
+    if ! mkdir -p "${DEST%/*}"; then
+      log cfr "$CFR_URL" failed "cannot create dir ${DEST%/*}"; exit 4
+    fi
+    TMP="$(mktemp)"
+    if ! { curl -fsSL "$CFR_URL" -o "$TMP" || wget -q "$CFR_URL" -O "$TMP"; }; then
+      rm -f "$TMP"; log cfr "$CFR_URL" failed "download error"; exit 4
+    fi
+    if ! echo "$CFR_PIN  $TMP" | sha256sum -c --status -; then
+      rm -f "$TMP"; log cfr "$CFR_URL" failed "sha256 mismatch"; exit 4
+    fi
+    if ! mv "$TMP" "$DEST"; then
+      rm -f "$TMP"; log cfr "$CFR_URL" failed "mv to DEST failed"; exit 4
+    fi
+    log cfr "$CFR_URL" installed "pinned $CFR_PIN"
+    echo "$DEST"; exit 0 ;;
+
+  procyon) # Java decompiler — pinned release jar into the canonical tool home.
+    # Tag is v0.6.0 (with 'v'); asset is procyon-decompiler-0.6.0.jar (no 'v').
+    DEST="${RESEARCH_SDD_TOOL_HOME:-$HOME/.local/share/research-sdd-tools}/java/procyon.jar"
+    PROCYON_PIN="821da96012fc69244fa1ea298c90455ee4e021434bc796d3b9546ab24601b779"
+    PROCYON_URL="https://github.com/mstrobel/procyon/releases/download/v0.6.0/procyon-decompiler-0.6.0.jar"
+    if [ -f "$DEST" ] && echo "$PROCYON_PIN  $DEST" | sha256sum -c --status -; then
+      log procyon "pinned jar present" already "sha256 $PROCYON_PIN"; echo "$DEST"; exit 0
+    fi
+    if ! mkdir -p "${DEST%/*}"; then
+      log procyon "$PROCYON_URL" failed "cannot create dir ${DEST%/*}"; exit 4
+    fi
+    TMP="$(mktemp)"
+    if ! { curl -fsSL "$PROCYON_URL" -o "$TMP" || wget -q "$PROCYON_URL" -O "$TMP"; }; then
+      rm -f "$TMP"; log procyon "$PROCYON_URL" failed "download error"; exit 4
+    fi
+    if ! echo "$PROCYON_PIN  $TMP" | sha256sum -c --status -; then
+      rm -f "$TMP"; log procyon "$PROCYON_URL" failed "sha256 mismatch"; exit 4
+    fi
+    if ! mv "$TMP" "$DEST"; then
+      rm -f "$TMP"; log procyon "$PROCYON_URL" failed "mv to DEST failed"; exit 4
+    fi
+    log procyon "$PROCYON_URL" installed "pinned $PROCYON_PIN"
+    echo "$DEST"; exit 0 ;;
+
   *)
     # Unknown recipe: try a generic user-space install, never pipe-to-shell.
     if have brew && brew install "$RECIPE" >/dev/null 2>&1; then log "$RECIPE" "brew install $RECIPE (generic)" installed; exit 0

@@ -64,7 +64,7 @@ the verified laboratory artifacts; set `VINEFLOWER_SHA256`, `CFR_SHA256`, or
 
 | Analyzer | Trusted SHA-256 |
 |---|---|
-| Vineflower | `a615d07ddbbcd489369674f40e42df639c32be95410890b38f173d5c1e2ea39c` |
+| Vineflower | `1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d` |
 | CFR | `f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2` |
 | Procyon | `821da96012fc69244fa1ea298c90455ee4e021434bc796d3b9546ab24601b779` |
 

@@ -54,7 +54,7 @@ SUT="$HERE/../install-tool.sh"
 #     bash by absolute path (so the hermetic PATH can't hide it); coreutils that the
 #     covered dispatch paths actually invoke.  type -P skips functions/aliases.
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not found on PATH" >&2; exit 2; }
-CORE_UTILS=(dirname date grep sort)   # dirname:HERE=  date:ts()/log()  grep,sort:--list
+CORE_UTILS=(dirname date grep sort mktemp mkdir mv rm cp)   # dirname:HERE=  date:ts()/log()  grep,sort:--list  mktemp/mkdir/mv/rm/cp:java recipes; cp:stub_download materialise
 CORE_PATHS=()
 for u in "${CORE_UTILS[@]}"; do
   p="$(type -P "$u")"; [ -n "$p" ] || { echo "FATAL: required coreutil '$u' not on PATH" >&2; exit 2; }
@@ -63,6 +63,11 @@ done
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
+
+# Shared fixture for java recipe download stubs — a small placeholder file.
+# sha256sum is always STUBBED per-case, so the actual content is irrelevant.
+FIXTURE_JAR="$ROOT/fixture.jar"
+printf 'RSDD_TEST_FIXTURE_JAR\n' > "$FIXTURE_JAR"
 ok() { printf '  PASS  %-46s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-46s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
@@ -95,12 +100,36 @@ stub() {
   chmod +x "$box/bin/$name"
 }
 
+# stub_download <box> <name> <exit> [fixture]: like stub(), but if <fixture> is given
+#   the stub also copies <fixture> to the path found after -o or -O in its argv.
+#   This lets curl/wget fakes materialise a downloaded file without hitting the network.
+#   When fixture is omitted no file is written — use that to simulate a failed download.
+stub_download() {
+  local box="$1" name="$2" code="$3" fixture="${4:-}"
+  {
+    printf '#!%s\n' "$BASH_BIN"
+    printf 'echo "%s $*" >> "%s/calls.log"\n' "$name" "$box"
+    if [ -n "$fixture" ]; then
+      printf 'fixture=%s\n' "$(printf '%q' "$fixture")"
+      printf 'prev=""\n'
+      printf 'for arg; do\n'
+      printf '  if [ "$prev" = "-o" ] || [ "$prev" = "-O" ]; then cp "$fixture" "$arg"; break; fi\n'
+      printf '  prev="$arg"\n'
+      printf 'done\n'
+    fi
+    printf 'exit %s\n' "$code"
+  } > "$box/bin/$name"
+  chmod +x "$box/bin/$name"
+}
+
 # run <box> <args...> : invoke the SUT copy with a HERMETIC PATH ("$box/bin" ONLY)
 #   and HOME redirected into the box. bash is called by ABSOLUTE path so the empty
 #   host PATH cannot hide the interpreter. Captures combined output in OUT, exit in RC.
 run() {
   local box="$1"; shift
-  OUT="$(PATH="$box/bin" HOME="$box/home" "$BASH_BIN" "$box/install-tool.sh" "$@" 2>&1)"; RC=$?
+  # RESEARCH_SDD_TOOL_HOME is explicitly forced to the sandbox path so any exported
+  # value in the caller's environment cannot escape the hermetic box (defect 3 guard).
+  OUT="$(PATH="$box/bin" HOME="$box/home" RESEARCH_SDD_TOOL_HOME="$box/home/.local/share/research-sdd-tools" "$BASH_BIN" "$box/install-tool.sh" "$@" 2>&1)"; RC=$?
 }
 
 calls()     { cat "$1/calls.log" 2>/dev/null; }
@@ -292,6 +321,130 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Java download recipes (vineflower, cfr, procyon) — cases 17-25.
+#
+# HARNESS EXTENSION: stub_download (defined above) creates a curl/wget stub that
+# writes a fixture file to the -o/-O destination so the recipe's filesystem ops run
+# for real without hitting the network. sha256sum is STUBBED per-case (exit 0 =
+# hash matches; exit 1 = mismatch). mktemp/mkdir/mv/rm are real coreutils (CORE_UTILS).
+
+# 17 — vineflower: fresh install → curl downloads, sha256 ok → installed, DEST created.
+box="$(mkbox c17-vf-fresh)"
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+stub "$box" sha256sum 0
+DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+run "$box" vineflower
+if [ "$RC" = 0 ] && grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = installed ] && [ -f "$DEST_VF" ] && [ -s "$DEST_VF" ] && cmp -s "$DEST_VF" "$FIXTURE_JAR"; then
+  ok "17 vineflower: fresh install → downloaded, installed" "(exit $RC · curl · installed · DEST non-empty · matches fixture)"
+else
+  no "17 vineflower: fresh install" "exit=$RC curl=$(grep -c curl "$box/calls.log" 2>/dev/null || echo 0) status=$(logstatus "$box") dest=$([ -f "$DEST_VF" ] && echo yes || echo no) nonempty=$([ -s "$DEST_VF" ] && echo yes || echo no) match=$(cmp -s "$DEST_VF" "$FIXTURE_JAR" && echo yes || echo no)"
+fi
+
+# 18 — vineflower: sha256 mismatch → abort, no DEST, exit non-zero.
+box="$(mkbox c18-vf-mismatch)"
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+stub "$box" sha256sum 1   # always fails = mismatch
+DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+run "$box" vineflower
+if [ "$RC" -ne 0 ] && [ ! -f "$DEST_VF" ]; then
+  ok "18 vineflower: sha256 mismatch → exit non-zero, no DEST" "(exit $RC)"
+else
+  no "18 vineflower: sha256 mismatch" "exit=$RC dest=$([ -f "$DEST_VF" ] && echo yes || echo no)"
+fi
+
+# 19 — vineflower: idempotency → DEST present, hash ok → already, no download.
+box="$(mkbox c19-vf-idem)"
+stub "$box" sha256sum 0
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+mkdir -p "$(dirname "$DEST_VF")"; cp "$FIXTURE_JAR" "$DEST_VF"
+run "$box" vineflower
+if [ "$RC" = 0 ] && ! grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = already ]; then
+  ok "19 vineflower: idempotency → already, no download" "(exit $RC · no curl · already)"
+else
+  no "19 vineflower: idempotency" "exit=$RC curl=$(grep -c curl "$box/calls.log" 2>/dev/null || echo 0) status=$(logstatus "$box")"
+fi
+
+# 20 — vineflower: download failure → curl + wget both fail → exit non-zero, no DEST.
+box="$(mkbox c20-vf-dl-fail)"
+stub "$box" curl 1
+stub "$box" wget 1
+stub "$box" sha256sum 0
+DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+run "$box" vineflower
+if [ "$RC" -ne 0 ] && [ ! -f "$DEST_VF" ]; then
+  ok "20 vineflower: download fail → exit non-zero, no DEST" "(exit $RC)"
+else
+  no "20 vineflower: download fail" "exit=$RC dest=$([ -f "$DEST_VF" ] && echo yes || echo no)"
+fi
+
+# 21 — cfr: fresh install.
+box="$(mkbox c21-cfr-fresh)"
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+stub "$box" sha256sum 0
+DEST_CFR="$box/home/.local/share/research-sdd-tools/java/cfr.jar"
+run "$box" cfr
+if [ "$RC" = 0 ] && grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = installed ] && [ -f "$DEST_CFR" ] && [ -s "$DEST_CFR" ] && cmp -s "$DEST_CFR" "$FIXTURE_JAR"; then
+  ok "21 cfr: fresh install → installed" "(exit $RC · curl · installed · DEST non-empty · matches fixture)"
+else
+  no "21 cfr: fresh install" "exit=$RC curl=$(grep -c curl "$box/calls.log" 2>/dev/null || echo 0) status=$(logstatus "$box") dest=$([ -f "$DEST_CFR" ] && echo yes || echo no) nonempty=$([ -s "$DEST_CFR" ] && echo yes || echo no) match=$(cmp -s "$DEST_CFR" "$FIXTURE_JAR" && echo yes || echo no)"
+fi
+
+# 22 — cfr: idempotency.
+box="$(mkbox c22-cfr-idem)"
+stub "$box" sha256sum 0
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+DEST_CFR="$box/home/.local/share/research-sdd-tools/java/cfr.jar"
+mkdir -p "$(dirname "$DEST_CFR")"; cp "$FIXTURE_JAR" "$DEST_CFR"
+run "$box" cfr
+if [ "$RC" = 0 ] && ! grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = already ]; then
+  ok "22 cfr: idempotency → already, no download" "(exit $RC · no curl · already)"
+else
+  no "22 cfr: idempotency" "exit=$RC curl=$(grep -c curl "$box/calls.log" 2>/dev/null || echo 0) status=$(logstatus "$box")"
+fi
+
+# 23 — procyon: fresh install.
+box="$(mkbox c23-procyon-fresh)"
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+stub "$box" sha256sum 0
+DEST_PROCYON="$box/home/.local/share/research-sdd-tools/java/procyon.jar"
+run "$box" procyon
+if [ "$RC" = 0 ] && grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = installed ] && [ -f "$DEST_PROCYON" ] && [ -s "$DEST_PROCYON" ] && cmp -s "$DEST_PROCYON" "$FIXTURE_JAR"; then
+  ok "23 procyon: fresh install → installed" "(exit $RC · curl · installed · DEST non-empty · matches fixture)"
+else
+  no "23 procyon: fresh install" "exit=$RC curl=$(grep -c curl "$box/calls.log" 2>/dev/null || echo 0) status=$(logstatus "$box") dest=$([ -f "$DEST_PROCYON" ] && echo yes || echo no) nonempty=$([ -s "$DEST_PROCYON" ] && echo yes || echo no) match=$(cmp -s "$DEST_PROCYON" "$FIXTURE_JAR" && echo yes || echo no)"
+fi
+
+# 24 — procyon: idempotency.
+box="$(mkbox c24-procyon-idem)"
+stub "$box" sha256sum 0
+stub_download "$box" curl 0 "$FIXTURE_JAR"
+stub "$box" wget 1
+DEST_PROCYON="$box/home/.local/share/research-sdd-tools/java/procyon.jar"
+mkdir -p "$(dirname "$DEST_PROCYON")"; cp "$FIXTURE_JAR" "$DEST_PROCYON"
+run "$box" procyon
+if [ "$RC" = 0 ] && ! grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = already ]; then
+  ok "24 procyon: idempotency → already, no download" "(exit $RC · no curl · already)"
+else
+  no "24 procyon: idempotency" "exit=$RC curl=$(grep -c curl "$box/calls.log" 2>/dev/null || echo 0) status=$(logstatus "$box")"
+fi
+
+# 25 — --list includes vineflower, cfr, procyon.
+box="$(mkbox c25-list-java)"
+run "$box" --list
+if [ "$RC" = 0 ] && grep -qx 'vineflower' <<<"$OUT" && grep -qx 'cfr' <<<"$OUT" && grep -qx 'procyon' <<<"$OUT"; then
+  ok "25 --list → includes vineflower, cfr, procyon" "(exit $RC)"
+else
+  no "25 --list → includes vineflower, cfr, procyon" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate a throwaway copy of the ilspycmd guard into
 # the ACTUALLY-buggy grouped form the phantom review imagined —
 #     have ilspycmd || { have "$HOME/.dotnet/tools/ilspycmd" && { … exit 0; }; }
@@ -334,6 +487,71 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: flag-guard mutant writes ledger (cases 14-16 have teeth)" "(brew install --foo wrote log)"
     else
       no "teeth: flag-guard mutant writes ledger (cases 14-16 have teeth)" "ledger not written — exit=$RC out=[$OUT]"
+    fi
+  fi
+  echo "-- teeth: skip vineflower sha256 gate; mismatch test (18) must detect the missing guard --"
+  box="$(mkbox teeth-java-skip-sha256)"
+  orig='    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate'
+  new='    if false; then  # MUTANT: sha256 gate bypassed'
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"$orig"* ]]; then
+    no "teeth: build sha256-skip mutant" "anchor not found — SUT drifted?"
+  else
+    printf '%s\n' "${content/"$orig"/"$new"}" > "$box/install-tool.sh"
+    stub_download "$box" curl 0 "$FIXTURE_JAR"
+    stub "$box" wget 1
+    stub "$box" sha256sum 1   # fails: correct gate would reject; mutant does not
+    DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+    run "$box" vineflower
+    if [ "$RC" = 0 ] && [ -f "$DEST_VF" ]; then
+      ok "teeth: sha256-skip mutant installs despite mismatch" "(case 18 has teeth)"
+    else
+      no "teeth: sha256-skip mutant installs despite mismatch" "exit=$RC dest=$([ -f "$DEST_VF" ] && echo yes || echo no) — case 18 is THEATER"
+    fi
+  fi
+
+  echo "-- teeth: drop -o from vineflower curl; case 17 non-empty check must go RED --"
+  box="$(mkbox teeth-curl-no-dest)"
+  orig='curl -fsSL "$VF_URL" -o "$TMP"'
+  new_curl='curl -fsSL "$VF_URL"'
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"$orig"* ]]; then
+    no "teeth: build curl-no-dest mutant" "anchor not found — SUT drifted?"
+  else
+    printf '%s\n' "${content/"$orig"/"$new_curl"}" > "$box/install-tool.sh"
+    stub_download "$box" curl 0 "$FIXTURE_JAR"
+    stub "$box" wget 1
+    stub "$box" sha256sum 0
+    DEST_VF_T="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+    run "$box" vineflower
+    # Mutant exits 0 and moves the EMPTY mktemp file to DEST — DEST exists but is empty.
+    # The strengthened case 17 assertion (non-empty + cmp) would catch this; the tooth
+    # passes when the mutant produces that empty-DEST outcome.
+    if [ "$RC" = 0 ] && [ -f "$DEST_VF_T" ] && ! [ -s "$DEST_VF_T" ]; then
+      ok "teeth: curl-no-dest mutant: DEST empty (case 17 materialization check has teeth)" "(non-empty assertion bites)"
+    else
+      no "teeth: curl-no-dest mutant: expected exit 0 + empty DEST" "exit=$RC dest=$([ -f "$DEST_VF_T" ] && echo yes || echo no) size=$([ -s "$DEST_VF_T" ] && echo nonempty || echo empty)"
+    fi
+  fi
+
+  echo "-- teeth: move-before-verify mutant; mismatch test (18) must catch DEST created early --"
+  box="$(mkbox teeth-java-move-before-verify)"
+  orig=$'    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "sha256 mismatch"; exit 4\n    fi\n    if ! mv "$TMP" "$DEST"; then  # vineflower: verified\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "mv to DEST failed"; exit 4\n    fi'
+  new=$'    if ! mv "$TMP" "$DEST"; then  # MUTANT: moved before verify\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "mv to DEST failed"; exit 4\n    fi\n    if ! echo "$VF_PIN  $TMP" | sha256sum -c --status -; then  # vineflower sha256 gate\n      rm -f "$TMP"; log vineflower "$VF_URL" failed "sha256 mismatch"; exit 4\n    fi'
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"$orig"* ]]; then
+    no "teeth: build move-before-verify mutant" "anchor not found — SUT drifted?"
+  else
+    printf '%s\n' "${content/"$orig"/"$new"}" > "$box/install-tool.sh"
+    stub_download "$box" curl 0 "$FIXTURE_JAR"
+    stub "$box" wget 1
+    stub "$box" sha256sum 1   # fails: with mutant, DEST was already moved before the check
+    DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
+    run "$box" vineflower
+    if [ -f "$DEST_VF" ]; then
+      ok "teeth: move-before-verify mutant leaves corrupt file at DEST" "(case 18 has teeth for DEST check)"
+    else
+      no "teeth: move-before-verify mutant leaves corrupt file at DEST" "dest not created — case 18's DEST assertion is THEATER"
     fi
   fi
 fi
