@@ -4,15 +4,15 @@
 # Assertions (in order):
 #   1. sweep-all.sh exists on disk
 #   2. sweep-all.sh is executable
-#   3. All-pass: all 5 stubs exit 0 → sweep-all exits 0
+#   3. All-pass: all 6 stubs exit 0 → sweep-all exits 0
 #   4. One-fail: one stub exits 1 → sweep-all exits non-zero
-#   5. Run-all: even when one stub fails, all 5 stubs are called (no early bail)
+#   5. Run-all: even when one stub fails, all 6 stubs are called (no early bail)
 #   6. Banners: PASS banner for passing script; FAIL banner for failing script
 #   7. Timeout: a hanging stub is killed after timeout → sweep-all exits non-zero
 #   8. Timeout-banner: the FAIL banner includes a timeout indication for the killed script
 #
 # All behavioral tests (3-8) are implemented by copying sweep-all.sh into a temp dir
-# alongside stub replacements of the four canonical scripts, so sweep-all.sh's own
+# alongside stub replacements of the six canonical scripts, so sweep-all.sh's own
 # TOOLBELT=$(dirname $0) resolution finds the stubs rather than the real scripts.
 #
 # Usage: sweep-all.test.sh
@@ -56,7 +56,7 @@ mkdir -p "$FAKE"
 cp "$SUT" "$FAKE/sweep-all.sh"
 chmod +x "$FAKE/sweep-all.sh"
 
-CANONICAL=(sweep-retros.sh sweep-audits.sh verify-registry.sh verify-kit-clean.sh sweep-tools.sh)
+CANONICAL=(sweep-retros.sh sweep-audits.sh sweep-breakthroughs.sh verify-registry.sh verify-kit-clean.sh sweep-tools.sh)
 
 # make_stub <name> <exit_code> — write a stub script that logs its name then exits
 make_stub() {
@@ -85,7 +85,7 @@ make_hanging_stub() {
 for s in "${CANONICAL[@]}"; do make_stub "$s" 0; done
 OUT="$(bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] \
-  && ok "3 all-pass: all 5 stubs pass → sweep-all exits 0" \
+  && ok "3 all-pass: all 6 stubs pass → sweep-all exits 0" \
   || no "3 all-pass: expected exit 0 got $RC (out=[$OUT])"
 
 # ---- 4. One-fail → exit non-zero ------------------------------------------
@@ -105,9 +105,9 @@ done
 make_logging_stub "sweep-audits.sh" 1 "$CALL_LOG"
 OUT="$(bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
 called_count="$(grep -c '^' "$CALL_LOG" 2>/dev/null || echo 0)"
-[ "$called_count" -eq 5 ] && [ "$RC" -ne 0 ] \
-  && ok "5 run-all: all 5 stubs called despite failure (calls=$called_count, rc=$RC)" \
-  || no "5 run-all: expected calls=5 rc!=0, got calls=$called_count rc=$RC (out=[$OUT])"
+[ "$called_count" -eq 6 ] && [ "$RC" -ne 0 ] \
+  && ok "5 run-all: all 6 stubs called despite failure (calls=$called_count, rc=$RC)" \
+  || no "5 run-all: expected calls=6 rc!=0, got calls=$called_count rc=$RC (out=[$OUT])"
 
 # ---- 6. PASS/FAIL banners per script ---------------------------------------
 for s in "${CANONICAL[@]}"; do make_stub "$s" 0; done
@@ -148,8 +148,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   chmod +x "$TMP/mutant-sweep-all.sh"
   bash "$TMP/mutant-sweep-all.sh" > /dev/null 2>&1 || true
   mutant_calls="$(grep -c '^' "$CALL_LOG_T" 2>/dev/null || echo 0)"
-  if [ "$mutant_calls" -lt 5 ]; then
-    ok "teeth: early-bail mutant calls $mutant_calls < 5 → run-all check would catch it (RED)"
+  if [ "$mutant_calls" -lt 6 ]; then
+    ok "teeth: early-bail mutant calls $mutant_calls < 6 → run-all check would catch it (RED)"
   else
     no "teeth: mutant called $mutant_calls scripts — run-all check is THEATER"
   fi

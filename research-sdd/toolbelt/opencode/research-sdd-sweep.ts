@@ -1,14 +1,18 @@
 /**
  * research-sdd-sweep — OpenCode plugin adapter for the Research-SDD session-start surfacing
  *
- * Claude Code surfaces two things when the SUPERVISOR project (the kit repo, sdd-investigacion)
+ * Claude Code surfaces sweep results when the SUPERVISOR project (the kit repo, sdd-investigacion)
  * opens, wired from that project's `.claude/settings.json` SessionStart hooks:
- *   1. `sweep-retros.sh`      — pending §18 self-retrospective proposals across all targets.
- *   2. `verify-kit-clean.sh`  — a banner ONLY when the kit is dirty / unpushed (silent when clean).
+ *   1. `sweep-retros.sh`          — pending §18 self-retrospective proposals across all targets.
+ *   2. `sweep-audits.sh`          — pending §13 audit reports per target.
+ *   3. `sweep-breakthroughs.sh`   — unindexed/drifted §22 breakthrough ledger entries.
+ *   4. `verify-registry.sh`       — TARGETS.md master-table drift.
+ *   5. `verify-kit-clean.sh`      — a banner ONLY when the kit is dirty / unpushed (silent when clean).
+ *   6. `sweep-tools.sh`           — unrecorded tools across all targets.
  *
- * OpenCode does not fire `.claude` hooks, so those two banners never appeared there — the kit
+ * OpenCode does not fire `.claude` hooks, so those banners never appeared there — the kit
  * maintainer could open the supervisor in OpenCode and miss pending retros or a dirty tree. This
- * plugin is the OpenCode equivalent: it runs the SAME two kit scripts and appends their output to
+ * plugin is the OpenCode equivalent: it runs the SAME kit scripts and appends their output to
  * the model's system context, the OpenCode analog of a Claude hook's `additionalContext`.
  *
  * Canonical source lives in the KIT (`research-sdd/toolbelt/opencode/`); a symlink under
@@ -50,6 +54,7 @@ const KIT_DIR = process.env.RESEARCH_SDD_KIT ?? deriveKitDir()
 const TOOLBELT = path.join(KIT_DIR, "toolbelt")
 const SWEEP = path.join(TOOLBELT, "sweep-retros.sh")
 const SWEEP_AUDITS = path.join(TOOLBELT, "sweep-audits.sh")
+const SWEEP_BREAKTHROUGHS = path.join(TOOLBELT, "sweep-breakthroughs.sh")
 const REGISTRY = path.join(TOOLBELT, "verify-registry.sh")
 const KIT_CLEAN = path.join(TOOLBELT, "verify-kit-clean.sh")
 const SWEEP_TOOLS = path.join(TOOLBELT, "sweep-tools.sh")
@@ -98,11 +103,15 @@ export const ResearchSddSweepPlugin: Plugin = async (input) => {
     const audits = await run(SWEEP_AUDITS)
     if (audits.out) parts.push("Research-SDD pending audits (per-target §13):\n" + audits.out)
 
-    // 3. Registry reconcile — master-table 'N md' vs the real corpus block count (WARN-only, exit 0).
+    // 3. Breakthrough ledger — unindexed/drifted §22 breakthrough entries (WARN-only, exit 0).
+    const breakthroughs = await run(SWEEP_BREAKTHROUGHS)
+    if (breakthroughs.out) parts.push("Research-SDD breakthrough ledger (§22):\n" + breakthroughs.out)
+
+    // 4. Registry reconcile — master-table 'N md' vs the real corpus block count (WARN-only, exit 0).
     const registry = await run(REGISTRY)
     if (registry.out) parts.push("Research-SDD registry drift (TARGETS.md vs reality):\n" + registry.out)
 
-    // 4. Kit-clean — mirror verify-kit-clean-hook.sh: silent on clean (code 0), banner otherwise.
+    // 5. Kit-clean — mirror verify-kit-clean-hook.sh: silent on clean (code 0), banner otherwise.
     const clean = await run(KIT_CLEAN)
     if (clean.code !== 0) {
       const hdr =
@@ -112,7 +121,7 @@ export const ResearchSddSweepPlugin: Plugin = async (input) => {
       parts.push(hdr + "\n" + clean.out)
     }
 
-    // 5. Tool ledger — mirror sweep-tools-hook.sh: silent when all tools ledgered, summary otherwise.
+    // 6. Tool ledger — mirror sweep-tools-hook.sh: silent when all tools ledgered, summary otherwise.
     const tools = await run(SWEEP_TOOLS)
     if (tools.code !== 0) {
       parts.push(`Research-SDD tools sweep could not run (exit ${tools.code}):\n` + tools.out)
