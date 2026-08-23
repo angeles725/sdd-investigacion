@@ -143,12 +143,26 @@ regen_capa() {
     normalized="$(python3 - "$raw_file" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+# input.source.path — host path to the input binary before staging.
 if isinstance(d.get("input"), dict):
-    if "path" in d["input"]: d["input"]["path"] = "__INPUT_PATH__"
-    if "file" in d["input"]: d["input"]["file"] = "__INPUT_PATH__"
-if isinstance(d.get("isolation"), dict) and isinstance(d["isolation"].get("launcher"), dict):
-    if "path" in d["isolation"]["launcher"]:
-        d["isolation"]["launcher"]["path"] = "__BWRAP_PATH__"
+    src = d["input"].get("source", {})
+    if "path" in src:
+        src["path"] = "__INPUT_PATH__"
+# isolation.launcher.path — bwrap binary on the host.
+if isinstance(d.get("isolation"), dict):
+    lnch = d["isolation"].get("launcher", {})
+    if "path" in lnch:
+        lnch["path"] = "__BWRAP_PATH__"
+# capabilities.tool.path + capabilities.argv[] — capa binary and argv absolute paths.
+if isinstance(d.get("capabilities"), dict):
+    cap = d["capabilities"]
+    tool = cap.get("tool", {})
+    if "path" in tool:
+        tool["path"] = "__TOOL_PATH__"
+    argv = cap.get("argv", [])
+    for i, arg in enumerate(argv):
+        if isinstance(arg, str) and arg.startswith("/"):
+            argv[i] = "__TOOL_PATH__" if i == 0 else f"__ABS_PATH_{i}__"
 print(json.dumps(d, indent=2, sort_keys=True))
 PY
 )"
@@ -224,12 +238,26 @@ PY
     normalized="$(python3 - "$raw_file" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+# input.source.path — host path to the input binary before staging.
 if isinstance(d.get("input"), dict):
-    if "path" in d["input"]: d["input"]["path"] = "__INPUT_PATH__"
-    if "file" in d["input"]: d["input"]["file"] = "__INPUT_PATH__"
-if isinstance(d.get("isolation"), dict) and isinstance(d["isolation"].get("launcher"), dict):
-    if "path" in d["isolation"]["launcher"]:
-        d["isolation"]["launcher"]["path"] = "__BWRAP_PATH__"
+    src = d["input"].get("source", {})
+    if "path" in src:
+        src["path"] = "__INPUT_PATH__"
+# isolation.launcher.path — bwrap binary on the host.
+if isinstance(d.get("isolation"), dict):
+    lnch = d["isolation"].get("launcher", {})
+    if "path" in lnch:
+        lnch["path"] = "__BWRAP_PATH__"
+# strings.tool.path + strings.argv[] — floss binary and argv absolute paths.
+if isinstance(d.get("strings"), dict):
+    strings = d["strings"]
+    tool = strings.get("tool", {})
+    if "path" in tool:
+        tool["path"] = "__TOOL_PATH__"
+    argv = strings.get("argv", [])
+    for i, arg in enumerate(argv):
+        if isinstance(arg, str) and arg.startswith("/"):
+            argv[i] = "__TOOL_PATH__" if i == 0 else f"__ABS_PATH_{i}__"
 print(json.dumps(d, indent=2, sort_keys=True))
 PY
 )"
