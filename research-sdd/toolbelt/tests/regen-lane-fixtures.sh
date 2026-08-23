@@ -76,6 +76,7 @@ esac
 KNOWN_SUITES=(
   capa
   corroborate-ghidra
+  corroborate-native-r2
   floss
   ghidra-c-exporter
   ghidra-exporter
@@ -878,6 +879,168 @@ PY
   fi
 
   write_fixture "$suite" "report" "$normalized"
+}
+
+# regen_corroborate_native_r2 — runs corroborate-native on a gcc-compiled ELF
+# and normalizes the report to a host-path-free committed fixture.
+#
+# Fixtures produced:
+#   corroborate-native-r2/happy.json  — full run, status=complete, functions_emitted>=1.
+#   corroborate-native-r2/capped.json — --max-functions 1, status=partial, emitted=1.
+#
+# Normalization (all machine-specific fields replaced with stable placeholders):
+#   input.source.path → <INPUT_PATH>; input size fields → <SIZE>
+#   input sha256 pair (source == staged) → <SHA_INPUT>
+#   isolation.launcher path/size → <BWRAP_PATH>/<SIZE>; sha256 → <BWRAP_SHA>
+#   engine.version → <R2_VERSION>; engine.manifest_identity → <MANIFEST_IDENTITY>
+#   engine.launcher.source path/size → <R2_PATH>/<SIZE>
+#   engine.launcher sha256 pair (source == staged) → <SHA_R2>
+#   Relative logical paths (input/target.bin, engine/r2) kept as-is.
+#   engine.argv kept as-is (all entries relative, safe to commit).
+#   runtime.python → <PYTHON>; runtime.kernel → <KERNEL>
+#
+# CONTENT-ADDRESSED MANIFEST TRAP (spec correction D): the on-disk
+#   engine/analysis-manifest.v1.json is NEVER normalized — verify recomputes
+#   identity from raw bytes and a normalized manifest would fail.  Only the
+#   engine.manifest_identity scalar in the report JSON is replaced with
+#   <MANIFEST_IDENTITY>.
+#
+# Requires: r2, gcc, /usr/bin/bwrap (root-owned), python3.
+# shellcheck disable=SC2317  # regen function called via name; not reachable by static flow
+regen_corroborate_native_r2() {
+  local toolbelt="$SCRIPT_DIR/.."
+  local sut="$toolbelt/corroborate-native.sh"
+
+  if ! [ -x "$sut" ]; then
+    echo "regen_corroborate_native_r2: SUT not found: $sut; skipping" >&2
+    return 0
+  fi
+
+  for _regen_tool in r2 gcc python3; do
+    command -v "$_regen_tool" >/dev/null 2>&1 || {
+      echo "regen_corroborate_native_r2: '$_regen_tool' not found; skipping" >&2
+      return 0
+    }
+  done
+  if ! [ -x /usr/bin/bwrap ]; then
+    echo "regen_corroborate_native_r2: /usr/bin/bwrap not found or not executable; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Compile tiny ELF with a constructor that writes TARGET_EXECUTED if executed.
+  # bwrap isolation must prevent this; the fixture records the analysis, not execution.
+  cat >"$tmp/fixture.c" <<'CSRC'
+#include <stdio.h>
+__attribute__((constructor)) static void marker(void){FILE*f=fopen("TARGET_EXECUTED","w");if(f)fclose(f);}
+static int helper(int n){return n+7;} int main(void){return helper(35)==42?0:1;}
+CSRC
+  gcc -O0 -g -fno-pie -no-pie -o "$tmp/fixture.elf" "$tmp/fixture.c" || {
+    echo "regen_corroborate_native_r2: gcc failed; aborting" >&2; return 1
+  }
+
+  # Inline normalizer (called per fixture; reads raw JSON from stdin via sys.argv[1]).
+  # Verifies sha256 equality pairs before replacing with distinct placeholders:
+  #   <SHA_INPUT> for the input binary pair, <SHA_R2> for the r2 launcher pair.
+  # This preserves both equality invariants independently (a single global placeholder
+  # would let an input↔r2 swap pass undetected — spec correction C).
+  _normalize() {
+    local raw="$1"
+    python3 - "$raw" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+
+# Verify equality pairs before normalizing (SUT correctness gate).
+inp = d["input"]
+assert inp["source"]["sha256"] == inp["staged"]["sha256"], (
+    f"input sha256 mismatch: {inp['source']['sha256']!r} != {inp['staged']['sha256']!r}")
+lnch = d["engine"]["launcher"]
+assert lnch["source"]["sha256"] == lnch["staged"]["sha256"], (
+    f"r2 launcher sha256 mismatch: {lnch['source']['sha256']!r} != {lnch['staged']['sha256']!r}")
+
+# input — absolute path + machine-specific size and sha256
+d["input"]["source"]["path"] = "<INPUT_PATH>"
+d["input"]["source"]["size"] = "<SIZE>"
+d["input"]["source"]["sha256"] = "<SHA_INPUT>"
+d["input"]["staged"]["size"] = "<SIZE>"
+d["input"]["staged"]["sha256"] = "<SHA_INPUT>"
+# input.staged.path == "input/target.bin" — relative logical path, kept as-is
+
+# runtime
+d["runtime"]["python"] = "<PYTHON>"
+d["runtime"]["kernel"] = "<KERNEL>"
+
+# isolation.launcher (bwrap binary) — absolute path, machine-specific
+d["isolation"]["launcher"]["path"] = "<BWRAP_PATH>"
+d["isolation"]["launcher"]["size"] = "<SIZE>"
+d["isolation"]["launcher"]["sha256"] = "<BWRAP_SHA>"
+# isolation.profile is a constant struct, no paths to normalize
+
+# engine
+d["engine"]["version"] = "<R2_VERSION>"
+d["engine"]["manifest_identity"] = "<MANIFEST_IDENTITY>"
+d["engine"]["launcher"]["source"]["path"] = "<R2_PATH>"
+d["engine"]["launcher"]["source"]["size"] = "<SIZE>"
+d["engine"]["launcher"]["source"]["sha256"] = "<SHA_R2>"
+d["engine"]["launcher"]["staged"]["size"] = "<SIZE>"
+d["engine"]["launcher"]["staged"]["sha256"] = "<SHA_R2>"
+# engine.launcher.staged.path == "engine/r2" — relative, kept as-is
+# engine.argv == ["engine/r2", *SAFE_R2] — all relative, safe to commit
+
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+  }
+
+  # --- Happy run (complete, no cap) ---
+  local out_happy="$tmp/out_happy"
+  bash "$sut" --input "$tmp/fixture.elf" --output "$out_happy" 2>/dev/null || {
+    echo "regen_corroborate_native_r2: happy run failed" >&2; return 1
+  }
+  local normalized_happy
+  normalized_happy="$(_normalize "$out_happy/native-static.v1.json")" || {
+    echo "regen_corroborate_native_r2: normalization failed for happy" >&2; return 1
+  }
+  if [[ -z "$normalized_happy" ]]; then
+    echo "regen_corroborate_native_r2: normalization produced empty output (happy)" >&2; return 1
+  fi
+  # Mandatory leak check (model: regen_ghidra_c_exporter :378-385).
+  # Any remaining host path aborts the regen — do NOT trust the normalizer blind.
+  if printf '%s\n' "$normalized_happy" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_corroborate_native_r2: host path leaked after normalization (happy) — aborting" >&2
+    printf '%s\n' "$normalized_happy" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+  write_fixture "corroborate-native-r2" "happy" "$normalized_happy"
+
+  # --- Capped run (--max-functions 1, status=partial, exits 1) ---
+  local out_capped="$tmp/out_capped"
+  bash "$sut" --input "$tmp/fixture.elf" --output "$out_capped" --max-functions 1 2>/dev/null
+  local capped_rc=$?
+  # SUT exits 1 for partial (truncated=true) — this is expected, not an error.
+  if [[ "$capped_rc" -ne 1 ]]; then
+    echo "regen_corroborate_native_r2: capped run should exit 1 (partial), got $capped_rc" >&2
+    return 1
+  fi
+  local normalized_capped
+  normalized_capped="$(_normalize "$out_capped/native-static.v1.json")" || {
+    echo "regen_corroborate_native_r2: normalization failed for capped" >&2; return 1
+  }
+  if [[ -z "$normalized_capped" ]]; then
+    echo "regen_corroborate_native_r2: normalization produced empty output (capped)" >&2; return 1
+  fi
+  if printf '%s\n' "$normalized_capped" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_corroborate_native_r2: host path leaked after normalization (capped) — aborting" >&2
+    printf '%s\n' "$normalized_capped" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+  write_fixture "corroborate-native-r2" "capped" "$normalized_capped"
 }
 
 # --- Main ---------------------------------------------------------------------
