@@ -130,16 +130,22 @@ else
   no "files without extension: expected '(no ext)' group" "$(echo "$out" | head -5 | tr '\n' '|')"
 fi
 
-# 11 — .git directory excluded: git object files must not appear.
+# 11 — .git directory excluded: git objects must NOT inflate the '(no ext)' count.
+# census-target.sh prints a histogram (count/ext/MB) — it NEVER prints filenames.
+# Asserting that the filename 'abc123' is absent was pure theater; the real guard is the
+# -not -path '*/.git/*' find flag. With the exclusion active, the only no-extension file
+# (the .git object) is skipped → '(no ext)' row must be ABSENT. If the exclusion is
+# removed the object IS counted and '(no ext)' appears. The prove-teeth tooth confirms this.
 d="$TMP/with-git"; mkdir -p "$d/.git/objects"
-printf 'x\n' > "$d/.git/objects/abc123"  # git internal file
-printf 'x\n' > "$d/real.txt"
+printf 'x\n' > "$d/.git/objects/abc123"  # no-extension file inside .git — must be excluded
+printf 'x\n' > "$d/real.txt"              # .txt extension — appears in histogram, not (no ext)
 out="$(run "$d")"
-# Objects dir should be excluded; '(no ext)' count should be 0 or only count real.txt
-if ! echo "$out" | grep -q 'abc123'; then
-  ok ".git/ directory excluded from census" "(git object not in output)"
+if ! echo "$out" | grep -qF '(no ext)'; then
+  ok "11 .git/ excluded: '(no ext)' row absent (only no-ext file is the .git object)" \
+     "(git exclusion works)"
 else
-  no ".git/ not excluded: git file appeared in output"
+  no "11 .git/ not excluded: '(no ext)' row present — git object counted in histogram" \
+     "$(echo "$out" | grep '(no ext)')"
 fi
 
 # ---------------------------------------------------------------------------
@@ -485,6 +491,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "skip-mut-18 (RED): mutant routes case-18 through ok — PASS present, SKIP absent, pass=$_mut18_sumpass (was $_root_pass)"
     else
       no "skip-mut-18 (RED): expected pass18=1 skip18=0 sumpass=$((_root_pass+1)); got pass18=$_mut18_pass18 skip18=$_mut18_skip18 sum=${_mut18_sumpass:-?}"
+    fi
+  fi
+
+  echo "-- teeth-git: remove .git exclusion; (no ext) row must appear for the git object --"
+  d_git="$TMP/teeth-git-dir"; mkdir -p "$d_git/.git/objects"
+  printf 'x\n' > "$d_git/.git/objects/noext"  # no-extension file inside .git
+  printf 'x\n' > "$d_git/real.txt"             # .txt extension — unrelated to (no ext)
+
+  out_sut_git="$(run "$d_git")"
+  if echo "$out_sut_git" | grep -qF '(no ext)'; then
+    no "teeth-git pre-check: SUT shows (no ext) row (baseline broken — can't prove tooth)"
+  else
+    ok "teeth-git pre-check: SUT does NOT show (no ext) row (git object excluded — baseline clean)"
+    git_anchor="-not -path '*/.git/*' "
+    sut_git_content="$(cat "$SUT")"
+    if [[ "$sut_git_content" != *"$git_anchor"* ]]; then
+      no "teeth-git: .git exclusion anchor not found in SUT — SUT drifted?"
+    else
+      mutant_git="$TMP/census-target.GIT-MUTANT.sh"
+      printf '%s\n' "${sut_git_content/"$git_anchor"/}" > "$mutant_git"
+      chmod +x "$mutant_git"
+      out_mut_git="$(bash "$mutant_git" "$d_git" 2>&1)"
+      if echo "$out_mut_git" | grep -qF '(no ext)'; then
+        ok "teeth-git: mutant (no .git exclusion) shows (no ext) row — exclusion is load-bearing (case 11 has teeth)"
+      else
+        no "teeth-git: mutant should show (no ext) for git object but did not" \
+           "$(echo "$out_mut_git" | head -5 | tr '\n' '|')"
+      fi
     fi
   fi
 

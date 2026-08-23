@@ -56,25 +56,16 @@ else
   no "§21 appears BEFORE §20 (line $line21 <= line $line20) — wrong order"
 fi
 
-# ── typed wall states (whole-file — states must be defined in §21 but
-#    checking whole-file is acceptable: tokens don't exist elsewhere yet) ──────
+# ── typed wall states ──────────────────────────────────────────────────────────
+# 'blocked-on-tool' is checked whole-file (prove-teeth tooth M1 confirms it has teeth).
+# 'unavailable' and 'refused' are checked §21-scoped: 'unavailable' appears elsewhere in
+# METHODOLOGY.md (model-tier context), so a whole-file grep is theater on a cleared §21.
+# Both scoped checks are covered by teeth M3/M4 in the --prove-teeth block below.
 
 if grep -qF 'blocked-on-tool' "$METHODOLOGY"; then
   ok "METHODOLOGY.md mentions typed state 'blocked-on-tool'"
 else
   no "METHODOLOGY.md missing typed state 'blocked-on-tool'"
-fi
-
-if grep -qF 'unavailable' "$METHODOLOGY"; then
-  ok "METHODOLOGY.md mentions typed state 'unavailable'"
-else
-  no "METHODOLOGY.md missing typed state 'unavailable'"
-fi
-
-if grep -qF 'refused' "$METHODOLOGY"; then
-  ok "METHODOLOGY.md mentions typed state 'refused'"
-else
-  no "METHODOLOGY.md missing typed state 'refused'"
 fi
 
 # ── §21 section body checks (extract lines from § heading to next §) ──────────
@@ -115,6 +106,18 @@ else
     ok "§21 mentions 'quick' in fallback chain"
   else
     no "§21 missing 'quick' in fallback chain"
+  fi
+
+  if echo "$section21" | grep -qF 'unavailable'; then
+    ok "§21 mentions typed state 'unavailable' (scoped to §21 body)"
+  else
+    no "§21 missing typed state 'unavailable'"
+  fi
+
+  if echo "$section21" | grep -qF 'refused'; then
+    ok "§21 mentions typed state 'refused' (scoped to §21 body)"
+  else
+    no "§21 missing typed state 'refused'"
   fi
 fi
 
@@ -179,6 +182,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth-M2: swapped-order mutant has §21 before §20 — order assertion goes RED (teeth proven)"
   else
     no "teeth-M2: swapped-order mutant did not invert the order (line20=$m_line20 line21=$m_line21)"
+  fi
+
+  # teeth-M3: remove 'unavailable' from §21 body only; the §21-scoped check must go RED.
+  # Whole-file 'unavailable' would survive (line 709 outside §21) — confirming the old
+  # whole-file check was theater. The scoped check is the real guard.
+  MUT_M3="$TMPDIR_PT/METHODOLOGY-m3.md"
+  awk '/^## 21[.] Wall protocol/{in21=1} in21 && /^## [0-9]+[.]/ && !/^## 21[.]/{in21=0} in21 && /unavailable/{next} {print}' \
+    "$METHODOLOGY" > "$MUT_M3"
+  section21_m3="$(awk '/^## 21[.] Wall protocol/{found=1; print; next} found && /^## [0-9]/{exit} found{print}' "$MUT_M3")"
+  if echo "$section21_m3" | grep -qF 'unavailable'; then
+    no "teeth-M3: 'unavailable' still present in §21 body after mutation — sed did not take"
+  else
+    ok "teeth-M3: 'unavailable' absent from §21 body — scoped assertion goes RED (teeth proven)"
+  fi
+
+  # teeth-M4: remove 'refused' from §21 body; the §21-scoped check must go RED.
+  MUT_M4="$TMPDIR_PT/METHODOLOGY-m4.md"
+  awk '/^## 21[.] Wall protocol/{in21=1} in21 && /^## [0-9]+[.]/ && !/^## 21[.]/{in21=0} in21 && /refused/{next} {print}' \
+    "$METHODOLOGY" > "$MUT_M4"
+  section21_m4="$(awk '/^## 21[.] Wall protocol/{found=1; print; next} found && /^## [0-9]/{exit} found{print}' "$MUT_M4")"
+  if echo "$section21_m4" | grep -qF 'refused'; then
+    no "teeth-M4: 'refused' still present in §21 body after mutation — sed did not take"
+  else
+    ok "teeth-M4: 'refused' absent from §21 body — scoped assertion goes RED (teeth proven)"
   fi
 fi
 
