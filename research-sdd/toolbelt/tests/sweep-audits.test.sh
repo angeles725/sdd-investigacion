@@ -275,5 +275,29 @@ else
   no "13 no usable paths → exit 1, ERROR message, no summary" "exit=$RC out=[$OUT]"
 fi
 
+# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED audit to false-surface as PENDING --"
+  anchor='      applied|dismissed) continue ;;'
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"$anchor"* ]]; then
+    no "teeth: locate applied|dismissed skip arm" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-applied)"; tgt="$kit/targetA"
+    mkaudit "$tgt" "applied.md" "<!-- review-status: applied 2026-01-01 · kit deadbeef -->" 2
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-audits.sh"        # replace the sandbox copy with the mutant
+    neutered='      __teeth_never_matches__) continue ;;'
+    printf '%s\n' "${content/"$anchor"/$neutered}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'PENDING' <<<"$outm"; then
+      ok "teeth: skip-neutered mutant false-surfaces applied audit as PENDING" "(case 2 has teeth)"
+    else
+      no "teeth: skip-neutered mutant should surface applied audit as PENDING" \
+         "mutant stayed quiet — case 2 is THEATER: [$outm]"
+    fi
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

@@ -301,9 +301,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }
   _tnok(){ printf '  FAIL  %s\n' "$1"; _tf=$((_tf+1)); }
 
-  # teeth-traversal (finding): removing ".." from _relative does NOT turn red --
-  # root constraint in _file_identity independently rejects ../escape.bin.
-  # This is a defense-in-depth finding: the guard exists but is not test-isolated.
+  # teeth-traversal: removing ".." from _relative must let an intra-root traversal
+  # (subdir/../result.txt) slip through -- proving the ".." guard is load-bearing.
+  # The prior tooth used ../escape.bin which is independently caught by the root
+  # constraint in _file_identity; that means the assertion still passed on a broken SUT
+  # (defense-in-depth, not test isolation). The intra-root path stays within root, so
+  # only the ".." guard can catch it: mutant accepts it (rc=0), SUT rejects it (rc=2).
   python3 - "$SUT" <<'PY'
 import sys, json, subprocess, tempfile
 from pathlib import Path
@@ -314,11 +317,15 @@ if old not in src:
     sys.exit(2)
 mut = src.replace(old, 'any(part in ("", ".") for part in path.parts)', 1)
 mp = Path(tempfile.mkdtemp()) / "analysis_manifest.py"; mp.write_text(mut)
-def run(*args):
+def run_sut(*args):
+    return subprocess.run([sys.executable, str(sut), *map(str, args)], capture_output=True, text=True)
+def run_mut(*args):
     return subprocess.run([sys.executable, str(mp), *map(str, args)], capture_output=True, text=True)
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     (root / "sample.bin").write_bytes(b"hello")
+    (root / "subdir").mkdir()                          # safe intermediate dir (stays in root)
+    (root / "result.txt").write_bytes(b"output data")  # traversal target -- within root
     tool = root / "bin" / "tool"; tool.parent.mkdir(parents=True); tool.write_bytes(b"#!/bin/false\n"); tool.chmod(0o700)
     (root / "evidence").mkdir(); (root / "evidence" / "stdout.txt").write_bytes(b""); (root / "evidence" / "stderr.txt").write_bytes(b"")
     spec = {"schema_version": "analysis-manifest.v1",
@@ -332,18 +339,73 @@ with tempfile.TemporaryDirectory() as tmp:
             "completeness": "complete",
             "isolation_profile": {"name": "wsl-static", "static_only": True,
                                   "network_access": False, "target_execution": False}}
-    bad = dict(spec); bad["outputs"] = ["../escape.bin"]
+    # intra-root traversal: subdir/../result.txt resolves to result.txt (within root)
+    # root constraint will NOT catch this -- only the ".." guard in _relative does
+    bad = dict(spec); bad["outputs"] = ["subdir/../result.txt"]
     (root / "bad.json").write_text(json.dumps(bad))
-    r = run("create", "--root", root, "--spec", root / "bad.json", "--output", root / "x.json")
-    # FINDING: root constraint in _file_identity catches ../escape.bin even without ".." guard
-    if r.returncode == 2:
-        sys.exit(0)  # finding confirmed -- root constraint is the real isolator
-    sys.exit(1)      # unexpected: traversal accepted (or wrong exit) -- report as fail
+    r_sut = run_sut("create", "--root", root, "--spec", root / "bad.json", "--output", root / "x.json")
+    if r_sut.returncode != 2:
+        print(f"TOOTH-PRECHECK-FAIL: SUT accepted intra-root traversal (rc={r_sut.returncode}); cannot prove tooth", file=sys.stderr)
+        sys.exit(2)
+    r_mut = run_mut("create", "--root", root, "--spec", root / "bad.json", "--output", root / "x.json")
+    if r_mut.returncode != 2:
+        sys.exit(0)   # mutant accepts intra-root traversal -- ".." guard is load-bearing (has teeth)
+    sys.exit(1)       # mutant still rejects -- ".." guard is redundant for this path (no teeth)
 PY
   case $? in
-    0) _tok "teeth-traversal (finding): '..' guard not isolated -- root constraint catches ../escape.bin independently (defense-in-depth)" ;;
-    1) _tnok "teeth-traversal: unexpected -- traversal accepted or wrong exit code from mutant" ;;
-    *) _tnok "teeth-traversal: mutation target not found (SUT changed?)" ;;
+    0) _tok "teeth-traversal: '..' guard isolated -- intra-root subdir/../result.txt accepted by mutant, rejected by SUT (has teeth)" ;;
+    1) _tnok "teeth-traversal: '..' guard NOT isolated -- mutant still rejects intra-root traversal (no teeth)" ;;
+    *) _tnok "teeth-traversal: mutation target not found or pre-check failed (SUT changed?)" ;;
+  esac
+
+  # teeth-env-secret: neutralizing SECRET_VALUE_RE in sanitize_environment must let a
+  # Bearer token in an allowlisted env key slip through (rc=0 instead of rc=2).
+  # 'LANG' is in ENV_ALLOWLIST, so only SECRET_VALUE_RE.search(item) blocks 'Bearer abc123'.
+  # With that check disabled the value passes; the assertion at lines ~87-91 goes RED.
+  python3 - "$SUT" <<'PY'
+import sys, json, subprocess, tempfile
+from pathlib import Path
+sut = Path(sys.argv[1]); src = sut.read_text()
+old = "SECRET_VALUE_RE.search(item)"
+if old not in src:
+    print("MUTANT-SETUP-FAIL: SECRET_VALUE_RE.search(item) not found -- SUT changed?", file=sys.stderr)
+    sys.exit(2)
+mut = src.replace(old, "False  # MUTANT: secret value check disabled", 1)
+mp = Path(tempfile.mkdtemp()) / "analysis_manifest.py"; mp.write_text(mut)
+def run_sut(*args):
+    return subprocess.run([sys.executable, str(sut), *map(str, args)], capture_output=True, text=True)
+def run_mut(*args):
+    return subprocess.run([sys.executable, str(mp), *map(str, args)], capture_output=True, text=True)
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root / "sample.bin").write_bytes(b"hello")
+    tool = root / "bin" / "tool"; tool.parent.mkdir(parents=True); tool.write_bytes(b"#!/bin/false\n"); tool.chmod(0o700)
+    (root / "evidence").mkdir(); (root / "evidence" / "stdout.txt").write_bytes(b""); (root / "evidence" / "stderr.txt").write_bytes(b"")
+    spec = {"schema_version": "analysis-manifest.v1",
+            "input": {"path": "sample.bin", "detected_type": "data"},
+            "tool": {"name": "t", "version": "1", "executable": str(tool), "artifacts": []},
+            "argv": [str(tool)], "environment": {"LANG": "Bearer abc123"},
+            "run": {"started_at": "2026-01-01T00:00:00Z", "ended_at": "2026-01-01T00:00:01Z",
+                    "duration_ms": 1000, "exit_code": 0, "signal": None},
+            "stdout_path": "evidence/stdout.txt", "stderr_path": "evidence/stderr.txt",
+            "outputs": [], "findings": [], "limitations": [], "errors": [],
+            "completeness": "complete",
+            "isolation_profile": {"name": "wsl-static", "static_only": True,
+                                  "network_access": False, "target_execution": False}}
+    (root / "bad.json").write_text(json.dumps(spec))
+    r_sut = run_sut("create", "--root", root, "--spec", root / "bad.json", "--output", root / "x.json")
+    if r_sut.returncode != 2:
+        print(f"TOOTH-PRECHECK-FAIL: SUT accepted Bearer env value (rc={r_sut.returncode}); cannot prove tooth", file=sys.stderr)
+        sys.exit(2)
+    r_mut = run_mut("create", "--root", root, "--spec", root / "bad.json", "--output", root / "x.json")
+    if r_mut.returncode != 2:
+        sys.exit(0)   # mutant accepts Bearer value -- SECRET_VALUE_RE check is load-bearing (has teeth)
+    sys.exit(1)       # mutant still rejects -- check is redundant or blocked elsewhere (no teeth)
+PY
+  case $? in
+    0) _tok "teeth-env-secret: SECRET_VALUE_RE disabled -> Bearer env value accepted -> assertion fires RED (has teeth)" ;;
+    1) _tnok "teeth-env-secret: mutant still rejects Bearer env value -- env-secret check may not be the sole isolator (no teeth)" ;;
+    *) _tnok "teeth-env-secret: mutation target not found or pre-check failed (SUT changed?)" ;;
   esac
 
   # teeth-fstat: removing fstat mismatch check lets a concurrently modified file pass;
