@@ -1,0 +1,26 @@
+{
+  "analysis": {"timed_out": false},
+  "caps": {"exports": 2, "functions": 2, "imports": 2, "references": 2, "string_chars": 32, "strings": 2, "symbols": 2},
+  "counts": {
+    "exports":    {"emitted": 0, "exact": true, "observed": 0},
+    "functions":  {"emitted": 0, "exact": true, "observed": 0},
+    "imports":    {"emitted": 0, "exact": true, "observed": 0},
+    "references": {"emitted": 0, "exact": true, "observed": 0},
+    "strings":    {"emitted": 0, "exact": true, "observed": 0},
+    "symbols":    {"emitted": 0, "exact": true, "observed": 0}
+  },
+  "errors": [],
+  "exports": [],
+  "functions": [],
+  "imports": [],
+  "limitations": ["static"],
+  "program": {"compiler": "x", "format": "ELF", "image_base": "0", "language": "x", "md5": "0", "name": "target.bin"},
+  "references": [],
+  "schema": "ghidra-curated-evidence.v1",
+  "status": "complete",
+  "string_values_truncated": 0,
+  "strings": [],
+  "symbols": [],
+  "truncation": {"exports": false, "functions": false, "imports": false, "references": false, "strings": false, "symbols": false},
+  "warnings": []
+}

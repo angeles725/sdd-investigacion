@@ -75,6 +75,7 @@ esac
 # Add new suite names here when adding a regen_<suite>() function below.
 KNOWN_SUITES=(
   capa
+  corroborate-ghidra
   floss
   ghidra-c-exporter
   ghidra-exporter
@@ -659,6 +660,224 @@ PY
 
   _unblob_run_and_write "happy"
   _unblob_run_and_write "depth_capped" --max-depth 2
+}
+
+# regen_corroborate_ghidra — writes curated input fixtures from Python (no real Ghidra),
+# then regenerates report.json by running the SUT with real bwrap + fake stubs.
+#
+# Fixtures produced:
+#   corroborate-ghidra/curated_happy.json    — valid complete curated evidence.
+#   corroborate-ghidra/curated_dishonest.json — status=complete but truncation lie (partial).
+#   corroborate-ghidra/curated_sentinel.json  — raw RSDD-SENTINEL bytes (no JSON).
+#   corroborate-ghidra/report.json           — normalized corroboration report (real bwrap).
+#
+# Normalization of report.json (§7 — all host-specific fields):
+#   input.source.path, provenance[*].source.path, isolation.launcher.path → __*_PATH__
+#   all sha256 values → __SHA256__; all size values → __SIZE__
+#   ghidra.version → __GHIDRA_VERSION__; runtime.python → __PYTHON__; runtime.kernel → __KERNEL__
+#   ghidra.argv omitted (contains absolute paths + timestamps — not stable across machines).
+#
+# Curated fixture regen is always cheap (pure Python, no real tool).
+# report.json regen requires: bwrap (/usr/bin/bwrap), gcc, python3.
+# shellcheck disable=SC2317  # regen function called via name; not reachable by static flow
+regen_corroborate_ghidra() {
+  local toolbelt="$SCRIPT_DIR/.."
+  local suite="corroborate-ghidra"
+  local fix_dir="$FIXTURE_BASE/$suite"
+  mkdir -p "$fix_dir"
+
+  # --- Curated input fixtures (pure Python, no real Ghidra/bwrap needed) ---
+  python3 - "$fix_dir" <<'PY'
+import json, pathlib, sys
+fix_dir = pathlib.Path(sys.argv[1])
+
+caps = {"exports": 2, "functions": 2, "imports": 2, "references": 2,
+        "string_chars": 32, "strings": 2, "symbols": 2}
+program = {"compiler": "x", "format": "ELF", "image_base": "0",
+           "language": "x", "md5": "0", "name": "target.bin"}
+base_counts = {k: {"emitted": 0, "exact": True, "observed": 0}
+               for k in ("exports","functions","imports","references","strings","symbols")}
+base_trunc  = {k: False for k in base_counts}
+
+# curated_happy.json — valid complete curated evidence
+happy = {
+    "analysis": {"timed_out": False}, "caps": caps, "counts": base_counts,
+    "errors": [], "exports": [], "functions": [], "imports": [], "limitations": ["static"],
+    "program": program, "references": [], "schema": "ghidra-curated-evidence.v1",
+    "status": "complete", "string_values_truncated": 0, "strings": [], "symbols": [],
+    "truncation": base_trunc, "warnings": [],
+}
+(fix_dir / "curated_happy.json").write_text(
+    json.dumps(happy, indent=2, sort_keys=True) + "\n")
+
+# curated_dishonest.json — status=complete but truncation["functions"]=True (lie)
+import copy
+dishonest = copy.deepcopy(happy)
+dishonest["truncation"]["functions"] = True
+dishonest["counts"]["functions"]     = {"emitted": 0, "exact": False, "observed": 1}
+(fix_dir / "curated_dishonest.json").write_text(
+    json.dumps(dishonest, indent=2, sort_keys=True) + "\n")
+
+# curated_sentinel.json — raw RSDD-SENTINEL bytes (no JSON, no trailing newline)
+(fix_dir / "curated_sentinel.json").write_bytes(b"RSDD-SENTINEL")
+
+print(f"wrote curated_happy.json, curated_dishonest.json, curated_sentinel.json")
+PY
+  local py_rc=$?
+  if [[ "$py_rc" -ne 0 ]]; then
+    echo "regen_corroborate_ghidra: curated fixture generation failed (rc=$py_rc)" >&2
+    return 1
+  fi
+
+  # --- report.json (real bwrap + fake stubs; skip if bwrap unavailable) ---
+  if ! [[ -x /usr/bin/bwrap ]]; then
+    echo "regen_corroborate_ghidra: /usr/bin/bwrap not found; skipping report.json regen" >&2
+    return 0
+  fi
+  for _regen_tool in gcc python3; do
+    command -v "$_regen_tool" >/dev/null 2>&1 || {
+      echo "regen_corroborate_ghidra: '$_regen_tool' not found; skipping report.json regen" >&2
+      return 0
+    }
+  done
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Compile tiny ELF target (constructor marker for TARGET_EXECUTED check).
+  cat >"$tmp/target.c" <<'CSRC'
+#include <stdio.h>
+__attribute__((constructor)) static void marker(void){FILE*f=fopen("TARGET_EXECUTED","w");if(f)fclose(f);}
+int main(void){return 0;}
+CSRC
+  gcc -o "$tmp/target.bin" "$tmp/target.c" || {
+    echo "regen_corroborate_ghidra: gcc failed; skipping report.json regen" >&2; return 0
+  }
+
+  # Set up fake Ghidra stubs (no real Ghidra needed).
+  mkdir -p "$tmp/gh/support" "$tmp/gh/Ghidra/Framework/Utility/lib" "$tmp/jdk/bin"
+  printf 'application.name=Ghidra\napplication.version=12.1-regen\n' \
+    >"$tmp/gh/Ghidra/application.properties"
+  for f in support/launch.sh support/launch.properties support/LaunchSupport.jar \
+            Ghidra/Framework/Utility/lib/Utility.jar; do
+    printf '%s\n' "$f" >"$tmp/gh/$f"
+  done
+  cat >"$tmp/jdk/bin/java" <<'SH'; chmod 755 "$tmp/jdk/bin/java"
+#!/bin/sh
+[ "${1:-}" = -version ] && { echo 'openjdk version "21.0.1"' >&2; exit 0; }; exit 0
+SH
+  cp "$tmp/jdk/bin/java" "$tmp/jdk/bin/javap"
+  # Fake analyzeHeadless (good mode — outputs valid curated JSON).
+  cat >"$tmp/gh/support/analyzeHeadless" <<'SH'; chmod 755 "$tmp/gh/support/analyzeHeadless"
+#!/bin/sh
+[ "${1:-}" = -help ] && { echo 'Headless Analyzer Usage'; exit 0; }
+java --adapter-probe || exit 8
+out=''; log=''; scriptlog=''; prev=''
+for x in "$@"; do
+  [ "$prev" = CuratedEvidenceExporter.java ] && out="$x"
+  [ "$prev" = -log ] && log="$x"; [ "$prev" = -scriptlog ] && scriptlog="$x"
+  prev="$x"
+done
+printf 'stdout\n'; printf 'log\n' >"$log"; printf 'scriptlog\n' >"$scriptlog"
+python3 - "$out" <<'PY'
+import json, sys
+caps = {"functions":2,"symbols":2,"imports":2,"exports":2,"strings":2,"references":2,"string_chars":32}
+names = list(caps)[:6]
+d = {"schema":"ghidra-curated-evidence.v1","status":"complete",
+     "program":{"name":"target.bin","format":"ELF","language":"x","compiler":"x","image_base":"0","md5":"0"},
+     "analysis":{"timed_out":False},"caps":caps,
+     "truncation":{n:False for n in names},
+     "counts":{n:{"emitted":0,"observed":0,"exact":True} for n in names},
+     "string_values_truncated":0,"warnings":[],"errors":[],"limitations":["static"]}
+for n in names: d[n] = []
+open(sys.argv[1],"w").write(json.dumps(d,separators=(",",":"))+"\n")
+PY
+SH
+
+  local out_dir="$tmp/out"
+  local man="$toolbelt/analysis_manifest.py"
+  ANALYZE_HEADLESS="$tmp/gh/support/analyzeHeadless" \
+  JAVA_HOME="$tmp/jdk" \
+  RSDD_BWRAP="/usr/bin/bwrap" \
+  RSDD_MANIFEST_CLI="$man" \
+  RSDD_TEST_ONLY_UNTRUSTED_BWRAP=0 \
+    bash "$toolbelt/corroborate-ghidra.sh" \
+      --input "$tmp/target.bin" --output "$out_dir" \
+      --timeout-seconds 30 --max-diagnostic-bytes 2000 \
+      --max-functions 2 --max-strings 2 --max-references 2 --max-string-chars 32 \
+    2>/dev/null
+  local sut_rc=$?
+  if [[ "$sut_rc" -ne 0 ]] || [[ ! -f "$out_dir/report.json" ]]; then
+    echo "regen_corroborate_ghidra: SUT run failed (rc=$sut_rc); skipping report.json regen" >&2
+    return 0
+  fi
+
+  # Normalize: replace all host paths / sha256 / size / version fields.
+  local normalized
+  normalized="$(python3 - "$out_dir/report.json" <<'PY'
+import json, sys
+from pathlib import Path
+
+def normalize(obj, depth=0):
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if k == "path" and isinstance(v, str) and v.startswith("/"):
+                out[k] = f"__PATH_{k.upper()}__"
+            elif k in ("sha256",) and isinstance(v, str):
+                out[k] = "__SHA256__"
+            elif k in ("size",) and isinstance(v, int):
+                out[k] = "__SIZE__"
+            elif k == "version" and depth == 1 and isinstance(v, str):
+                out[k] = "__GHIDRA_VERSION__"
+            elif k == "python" and isinstance(v, str):
+                out[k] = "__PYTHON__"
+            elif k == "kernel" and isinstance(v, str):
+                out[k] = "__KERNEL__"
+            elif k == "argv":
+                out[k] = ["__ARGV__"]  # omit volatile argv
+            else:
+                out[k] = normalize(v, depth + 1)
+        return out
+    elif isinstance(obj, list):
+        return [normalize(i, depth + 1) for i in obj]
+    return obj
+
+raw = json.loads(Path(sys.argv[1]).read_text())
+normalized = normalize(raw)
+# Flatten path placeholders per provenance entry for readability.
+for i, entry in enumerate(normalized.get("provenance", [])):
+    for side in ("source", "staged"):
+        if isinstance(entry.get(side), dict) and entry[side].get("path") == "__PATH_PATH__":
+            entry[side]["path"] = f"__PROVENANCE_{i}_SOURCE_PATH__" if side == "source" else entry[side]["path"]
+# Fix input.source.path placeholder
+if isinstance(normalized.get("input"), dict):
+    src = normalized["input"].get("source", {})
+    if src.get("path") == "__PATH_PATH__":
+        src["path"] = "__INPUT_PATH__"
+# Fix isolation.launcher.path placeholder
+if isinstance(normalized.get("isolation"), dict):
+    lnch = normalized["isolation"].get("launcher", {})
+    if lnch.get("path") == "__PATH_PATH__":
+        lnch["path"] = "__BWRAP_PATH__"
+print(json.dumps(normalized, indent=2, sort_keys=True))
+PY
+  )"
+  if [[ -z "$normalized" ]]; then
+    echo "regen_corroborate_ghidra: normalization produced empty output" >&2; return 1
+  fi
+
+  # Leak check: normalized output must not contain host paths.
+  if printf '%s\n' "$normalized" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_corroborate_ghidra: host path leaked after normalization — aborting" >&2
+    printf '%s\n' "$normalized" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+
+  write_fixture "$suite" "report" "$normalized"
 }
 
 # --- Main ---------------------------------------------------------------------

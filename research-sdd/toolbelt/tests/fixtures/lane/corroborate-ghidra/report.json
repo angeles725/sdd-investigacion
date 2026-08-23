@@ -1,0 +1,70 @@
+{
+  "caps": {
+    "analysis_seconds": 90,
+    "cpus": 2,
+    "diagnostic_bytes": 2000,
+    "files": 64,
+    "functions": 2,
+    "heap_mb": 2048,
+    "output_bytes": 8000000,
+    "references": 2,
+    "string_chars": 32,
+    "strings": 2,
+    "wall_seconds": 2
+  },
+  "errors": [],
+  "ghidra": {
+    "manifest": "analysis-manifest.v1.json",
+    "version": "__GHIDRA_VERSION__"
+  },
+  "input": {
+    "source": {
+      "path": "__INPUT_PATH__",
+      "sha256": "__SHA256__",
+      "size": "__SIZE__"
+    },
+    "staged": {
+      "path": "input/target.bin",
+      "sha256": "__SHA256__",
+      "size": "__SIZE__"
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "__BWRAP_PATH__",
+      "sha256": "__SHA256__",
+      "size": "__SIZE__"
+    },
+    "network_access": false,
+    "new_session": true,
+    "read_only_host_root": true,
+    "synthetic_user_state": true,
+    "target_execution": false
+  },
+  "limitations": [
+    "Listed launch-chain files, exporter, Java, Bubblewrap, and manifest CLI have byte provenance; Bubblewrap executes from its staged FD and argv[0] binds that staged artifact; the read-only remainder of Ghidra and JDK trees is unbound.",
+    "Ghidra parses untrusted input in-process; Bubblewrap is not a hostile-parser boundary."
+  ],
+  "provenance": [
+    {"source": {"path": "__EXPORTER_PATH__",  "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "script/CuratedEvidenceExporter.java", "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__BWRAP_PATH__",      "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/bwrap",                                "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__MANIFEST_PATH__",   "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/manifest.py",                          "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__CHAIN_PATH_0__",    "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/ghidra/support/analyzeHeadless",        "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__CHAIN_PATH_1__",    "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/ghidra/support/launch.sh",              "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__CHAIN_PATH_2__",    "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/ghidra/support/launch.properties",      "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__CHAIN_PATH_3__",    "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/ghidra/support/LaunchSupport.jar",      "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__CHAIN_PATH_4__",    "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/ghidra/Ghidra/Framework/Utility/lib/Utility.jar", "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__CHAIN_PATH_5__",    "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/ghidra/Ghidra/application.properties",  "sha256": "__SHA256__", "size": "__SIZE__"}},
+    {"source": {"path": "__JAVA_PATH__",       "sha256": "__SHA256__", "size": "__SIZE__"}, "staged": {"path": "tool/jdk/bin/java",                          "sha256": "__SHA256__", "size": "__SIZE__"}}
+  ],
+  "run": {
+    "exit_code": 0,
+    "signal": null
+  },
+  "runtime": {
+    "kernel": "__KERNEL__",
+    "python": "__PYTHON__"
+  },
+  "schema": "ghidra-corroboration.v1",
+  "status": "complete"
+}
