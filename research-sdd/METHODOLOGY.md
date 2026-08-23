@@ -1201,6 +1201,26 @@ gets its OWN scoped adversarial re-check on the fix delta before any terminal ve
 fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
 the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
 
+**Kit test-lane contract (toolbelt quality gate).** The toolbelt gate (`run-all.sh`) defaults to the
+**fast** lane: suites load fixture-cached assertions instead of spawning the real tool (Ghidra, r2,
+bwrap, etc.), keeping the full suite under ~30 s.  Two additional lanes are available via
+`RSDD_TEST_LANE=slow|all`.  Select with the env var or, for ergonomics, a `--lane` flag if the runner
+exposes one.
+
+| Lane | Meaning |
+|------|---------|
+| `fast` (default) | Fixture-cached assertions; real tool NOT spawned. |
+| `slow` | Real tool run; containment guards still asserted. |
+| `all`  | Both fast and slow paths exercised. |
+
+Fixtures live under `tests/fixtures/lane/<suite>/<name>.json`; regenerate with
+`tests/regen-lane-fixtures.sh` (requires a real tool install).
+
+**Critical anti-#128 rule:** containment guards (bwrap / qemu / docker flags) are ALWAYS asserted in
+the fast lane — only the spawn / real-tool-run is deferred.  A fast-lane suite MUST emit a normal
+`== N passed · N failed ==` summary and MUST NOT emit a `SKIP:` line (`run-all.sh` counts
+`SKIP:+exit0` as skipped, which is lost coverage).
+
 ## 12. Dynamic phase (validation against a live system)
 
 The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, loop-able. When a LIVE system
