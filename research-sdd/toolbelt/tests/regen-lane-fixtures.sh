@@ -75,6 +75,7 @@ esac
 # Add new suite names here when adding a regen_<suite>() function below.
 KNOWN_SUITES=(
   capa
+  corroborate-firmware
   corroborate-ghidra
   corroborate-native-r2
   floss
@@ -661,6 +662,185 @@ PY
 
   _unblob_run_and_write "happy"
   _unblob_run_and_write "depth_capped" --max-depth 2
+}
+
+# regen_corroborate_firmware — runs corroborate-firmware on a tiny synthetic binary
+# using a DETERMINISTIC FAKE binwalk (ARCHETYPE B: real bwrap + fake tool).
+#
+# The fake binwalk is lifted verbatim from the existing test suite (lines 77-81):
+#   --help → 'Binwalk vfake'; else → 3 fixed findings (0/1/2).
+# Building from the fake is cleaner than real binwalk: fixed version string, no
+# /usr/bin/binwalk absolute paths that would leak into the fixture.
+#
+# Fixtures produced:
+#   corroborate-firmware/happy.json  — full fake-of-3, status=complete, emitted=3.
+#   corroborate-firmware/capped.json — --max-findings 2; status=partial, emitted=2, total=3.
+#
+# Normalization (all machine-specific fields replaced with stable placeholders):
+#   input.source.path → __INPUT_PATH__; input size fields → __SIZE__
+#   input sha256 pair (source == staged) → <SHA_INPUT>
+#   isolation.launcher path/size/sha256 → __BWRAP_PATH__/__SIZE__/<BWRAP_SHA>
+#   engine.version → __BINWALK_VERSION__; engine.manifest_identity → __MANIFEST_IDENTITY__
+#   engine.launcher.source path/size → __BINWALK_PATH__/__SIZE__
+#   engine.launcher sha256 pair (source == staged) → <SHA_BINWALK>
+#   engine.launcher.staged.size → __SIZE__
+#   Relative logical paths (input/firmware.bin, engine/binwalk) kept as-is.
+#   engine.argv kept as-is (all entries relative, safe to commit).
+#
+# CONTENT-ADDRESSED MANIFEST NOTE: the on-disk engine/analysis-manifest.v1.json is
+#   NEVER normalized — verify recomputes identity from raw bytes and a normalized
+#   manifest would fail.  Only the engine.manifest_identity scalar in the report
+#   JSON is replaced with __MANIFEST_IDENTITY__.
+#
+# Requires: /usr/bin/bwrap (root-owned), python3.  Graceful skip if bwrap absent.
+# shellcheck disable=SC2317  # regen function called via name; not reachable by static flow
+regen_corroborate_firmware() {
+  local toolbelt="$SCRIPT_DIR/.."
+  local sut_py="$toolbelt/corroborate_firmware.py"
+  local man="$toolbelt/analysis_manifest.py"
+
+  if [ ! -f "$sut_py" ]; then
+    echo "regen_corroborate_firmware: SUT not found: $sut_py; skipping" >&2
+    return 0
+  fi
+  if [ ! -f "$man" ]; then
+    echo "regen_corroborate_firmware: analysis_manifest.py not found: $man; skipping" >&2
+    return 0
+  fi
+
+  # Real bwrap is required for the isolation report.
+  if ! [ -x /usr/bin/bwrap ]; then
+    echo "regen_corroborate_firmware: /usr/bin/bwrap not found or not executable; skipping" >&2
+    return 0
+  fi
+
+  command -v python3 >/dev/null 2>&1 || {
+    echo "regen_corroborate_firmware: python3 not found; skipping" >&2
+    return 0
+  }
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Fake binwalk: lifted verbatim from the existing test (original lines 77-81).
+  # --help → 'Binwalk vfake'; else → 3 deterministic findings at offsets 0,1,2.
+  mkdir -p "$tmp/fake-bwalk"
+  cat >"$tmp/fake-bwalk/binwalk" <<'SH'
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Binwalk vfake'; exit; }
+printf '0 0x0 first\n1 0x1 second\n2 0x2 third\n'
+SH
+  chmod +x "$tmp/fake-bwalk/binwalk"
+
+  # Tiny input binary — just needs to be a regular, non-symlink file.
+  printf '\x7fELF' >"$tmp/firmware.bin"
+
+  # _normalize_fw <raw-json-file>
+  #   Verifies sha256 equality pairs before replacing with distinct placeholders.
+  #   <SHA_INPUT>:  input.source.sha256 == input.staged.sha256 (same content)
+  #   <SHA_BINWALK>: engine.launcher.source.sha256 == engine.launcher.staged.sha256
+  #   Distinct placeholders keep an input↔binwalk swap detectable.
+  _normalize_fw() {
+    python3 - "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+
+# Verify equality pairs before normalizing (SUT correctness gate).
+inp = d["input"]
+assert inp["source"]["sha256"] == inp["staged"]["sha256"], (
+    f"input sha256 mismatch: {inp['source']['sha256']!r} != {inp['staged']['sha256']!r}")
+lnch = d["engine"]["launcher"]
+assert lnch["source"]["sha256"] == lnch["staged"]["sha256"], (
+    f"binwalk sha256 mismatch: {lnch['source']['sha256']!r} != {lnch['staged']['sha256']!r}")
+
+# input — absolute source path + machine-specific sizes and sha256
+d["input"]["source"]["path"] = "__INPUT_PATH__"
+d["input"]["source"]["size"] = "__SIZE__"
+d["input"]["source"]["sha256"] = "<SHA_INPUT>"
+d["input"]["staged"]["size"] = "__SIZE__"
+d["input"]["staged"]["sha256"] = "<SHA_INPUT>"
+# input.staged.path == "input/firmware.bin" — relative logical path, kept as-is
+
+# isolation.launcher (bwrap binary) — absolute path, machine-specific
+d["isolation"]["launcher"]["path"] = "__BWRAP_PATH__"
+d["isolation"]["launcher"]["size"] = "__SIZE__"
+d["isolation"]["launcher"]["sha256"] = "<BWRAP_SHA>"
+# isolation.profile is a constant struct; no paths to normalize
+
+# engine
+d["engine"]["version"] = "__BINWALK_VERSION__"
+d["engine"]["manifest_identity"] = "__MANIFEST_IDENTITY__"
+d["engine"]["launcher"]["source"]["path"] = "__BINWALK_PATH__"
+d["engine"]["launcher"]["source"]["size"] = "__SIZE__"
+d["engine"]["launcher"]["source"]["sha256"] = "<SHA_BINWALK>"
+d["engine"]["launcher"]["staged"]["size"] = "__SIZE__"
+d["engine"]["launcher"]["staged"]["sha256"] = "<SHA_BINWALK>"
+# engine.launcher.staged.path == "engine/binwalk" — relative, kept as-is
+# engine.argv == ["engine/binwalk","-B","-E","-N","input/firmware.bin"] — all relative
+
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+  }
+
+  # --- Happy run (complete, no cap, fake binwalk) ---
+  local out_happy="$tmp/out_happy"
+  RSDD_BINWALK_TEST_ONLY="$tmp/fake-bwalk/binwalk" \
+    PATH="$tmp/fake-bwalk:/usr/bin:/bin" \
+    python3 "$sut_py" \
+      --input "$tmp/firmware.bin" --output "$out_happy" \
+      --manifest-cli "$man" 2>/dev/null \
+  || {
+    echo "regen_corroborate_firmware: happy run failed" >&2; return 1
+  }
+
+  local normalized_happy
+  normalized_happy="$(_normalize_fw "$out_happy/firmware-static.v1.json")" || {
+    echo "regen_corroborate_firmware: normalization failed for happy" >&2; return 1
+  }
+  if [[ -z "$normalized_happy" ]]; then
+    echo "regen_corroborate_firmware: normalization produced empty output (happy)" >&2; return 1
+  fi
+  # Mandatory in-regen leak check (model: regen_corroborate_native_r2 :1010-1016).
+  if printf '%s\n' "$normalized_happy" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_corroborate_firmware: host path leaked after normalization (happy) — aborting" >&2
+    printf '%s\n' "$normalized_happy" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+  write_fixture "corroborate-firmware" "happy" "$normalized_happy"
+
+  # --- Capped run (--max-findings 2; status=partial; exits 1) ---
+  local out_capped="$tmp/out_capped"
+  RSDD_BINWALK_TEST_ONLY="$tmp/fake-bwalk/binwalk" \
+    PATH="$tmp/fake-bwalk:/usr/bin:/bin" \
+    python3 "$sut_py" \
+      --input "$tmp/firmware.bin" --output "$out_capped" \
+      --max-findings 2 \
+      --manifest-cli "$man" 2>/dev/null
+  local capped_rc=$?
+  # SUT exits 1 for partial (truncated=true) — this is expected, not an error.
+  if [[ "$capped_rc" -ne 1 ]]; then
+    echo "regen_corroborate_firmware: capped run should exit 1 (partial), got $capped_rc" >&2
+    return 1
+  fi
+
+  local normalized_capped
+  normalized_capped="$(_normalize_fw "$out_capped/firmware-static.v1.json")" || {
+    echo "regen_corroborate_firmware: normalization failed for capped" >&2; return 1
+  }
+  if [[ -z "$normalized_capped" ]]; then
+    echo "regen_corroborate_firmware: normalization produced empty output (capped)" >&2; return 1
+  fi
+  if printf '%s\n' "$normalized_capped" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_corroborate_firmware: host path leaked after normalization (capped) — aborting" >&2
+    printf '%s\n' "$normalized_capped" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+  write_fixture "corroborate-firmware" "capped" "$normalized_capped"
 }
 
 # regen_corroborate_ghidra — writes curated input fixtures from Python (no real Ghidra),

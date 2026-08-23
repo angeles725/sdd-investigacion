@@ -1,0 +1,101 @@
+{
+  "caps": {
+    "max_diagnostic_bytes": 2000000,
+    "max_files": 7,
+    "max_findings": 10000,
+    "max_input_bytes": 1073741824,
+    "max_processes": 32,
+    "timeout_seconds": 30
+  },
+  "counts": {
+    "entropy_total": 0,
+    "findings_emitted": 3,
+    "findings_total": 3,
+    "signatures_total": 3
+  },
+  "engine": {
+    "argv": [
+      "engine/binwalk",
+      "-B",
+      "-E",
+      "-N",
+      "input/firmware.bin"
+    ],
+    "launcher": {
+      "source": {
+        "path": "__BINWALK_PATH__",
+        "sha256": "<SHA_BINWALK>",
+        "size": "__SIZE__"
+      },
+      "staged": {
+        "path": "engine/binwalk",
+        "sha256": "<SHA_BINWALK>",
+        "size": "__SIZE__"
+      }
+    },
+    "manifest": "engine/analysis-manifest.v1.json",
+    "manifest_identity": "__MANIFEST_IDENTITY__",
+    "name": "binwalk",
+    "run": {
+      "exit_code": 0,
+      "signal": null
+    },
+    "test_override": true,
+    "version": "__BINWALK_VERSION__"
+  },
+  "entropy": [],
+  "errors": [],
+  "input": {
+    "source": {
+      "path": "__INPUT_PATH__",
+      "sha256": "<SHA_INPUT>",
+      "size": "__SIZE__"
+    },
+    "staged": {
+      "path": "input/firmware.bin",
+      "sha256": "<SHA_INPUT>",
+      "size": "__SIZE__"
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "__BWRAP_PATH__",
+      "sha256": "<BWRAP_SHA>",
+      "size": "__SIZE__"
+    },
+    "profile": {
+      "name": "bubblewrap-static-network-denied",
+      "network_access": false,
+      "static_only": true,
+      "target_execution": false
+    }
+  },
+  "limitations": [
+    "Binwalk signatures and entropy edges are heuristic, not proof of extractability or execution behavior.",
+    "The distro Binwalk package, Python dependencies, and magic database are read-only but are not artifact-bound by this report.",
+    "Bubblewrap on WSL2 is defense in depth, not a hostile-parser security boundary; use a disposable VM for hostile firmware.",
+    "RSDD_BINWALK_TEST_ONLY selected a test analyzer; this is not official Binwalk evidence."
+  ],
+  "schema": "firmware-static.v1",
+  "signatures": [
+    {
+      "description": "first",
+      "hex": "0x0",
+      "offset": 0
+    },
+    {
+      "description": "second",
+      "hex": "0x1",
+      "offset": 1
+    },
+    {
+      "description": "third",
+      "hex": "0x2",
+      "offset": 2
+    }
+  ],
+  "status": "complete",
+  "truncated": {
+    "findings": false
+  }
+}
