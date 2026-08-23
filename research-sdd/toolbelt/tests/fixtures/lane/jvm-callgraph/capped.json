@@ -1,0 +1,116 @@
+{
+  "algorithm": "CHA",
+  "analyzer": {
+    "path": "__ANALYZER_PATH__",
+    "sha256": "__SHA256__",
+    "size": "__SIZE__"
+  },
+  "caps": {
+    "max_depth": 1,
+    "max_edges": 1,
+    "max_entry_matches": 100,
+    "max_nodes": 1,
+    "max_paths": 1,
+    "max_xrefs": 1
+  },
+  "completeness": "partial",
+  "counts": {
+    "edges_emitted": 1,
+    "edges_total": 5,
+    "nodes_emitted": 1,
+    "nodes_total": 6,
+    "paths_emitted": 1,
+    "unresolved_emitted": 2,
+    "unresolved_total": 2,
+    "xrefs_total": 2
+  },
+  "edges": [
+    {
+      "callee": "<fixture.Router: void route(int)>",
+      "caller": "<fixture.App: void main(java.lang.String[])>"
+    }
+  ],
+  "entries": [
+    "<fixture.App: void main(java.lang.String[])>"
+  ],
+  "entry_selection": {
+    "contains": [],
+    "discovered_main": true,
+    "exact": []
+  },
+  "errors": [],
+  "inputs": {
+    "dependencies": [],
+    "primary": {
+      "path": "__INPUT_PATH__",
+      "sha256": "__SHA256__",
+      "size": "__SIZE__"
+    }
+  },
+  "limitations": [
+    "CHA may overapproximate virtual dispatch targets.",
+    "SootUp 2.0.0 CHA does not model invokedynamic call edges.",
+    "JDK runtime classes are not expanded; runtime calls can remain unresolved.",
+    "Some reachable methods were unresolved; add dependency JARs for better coverage.",
+    "One or more configured evidence caps truncated the report."
+  ],
+  "nodes": [
+    "<fixture.App: void main(java.lang.String[])>"
+  ],
+  "paths": [
+    {
+      "entry": "<fixture.App: void main(java.lang.String[])>",
+      "methods": [
+        "<fixture.App: void main(java.lang.String[])>"
+      ],
+      "sink": "<fixture.App: void main(java.lang.String[])>"
+    }
+  ],
+  "reverse_xrefs": [
+    {
+      "callers": [],
+      "sink": "<fixture.App: void main(java.lang.String[])>"
+    },
+    {
+      "callers": [
+        "<fixture.App: void main(java.lang.String[])>"
+      ],
+      "sink": "<fixture.Router: void route(int)>"
+    }
+  ],
+  "runtime": {
+    "java_home": "__JAVA_HOME__",
+    "launcher": {
+      "path": "__JAVA_LAUNCHER_PATH__",
+      "sha256": "__SHA256__",
+      "size": "__SIZE__"
+    },
+    "major": 21,
+    "vendor": "__JAVA_VENDOR__",
+    "version": "__JAVA_VERSION__"
+  },
+  "schema": "jvm-callgraph.v1",
+  "sink_selection": [
+    "fixture"
+  ],
+  "tool": {
+    "components": [
+      "org.soot-oss:sootup.callgraph:2.0.0",
+      "org.soot-oss:sootup.java.bytecode.frontend:2.0.0"
+    ],
+    "name": "research-sdd-jvm-callgraph",
+    "version": "1.0.0"
+  },
+  "truncated": {
+    "depth": false,
+    "edges": true,
+    "nodes": true,
+    "paths": true,
+    "unresolved": false,
+    "xrefs": true
+  },
+  "unresolved": [
+    "<java.io.PrintStream: void println(java.lang.String)>",
+    "<java.lang.Integer: java.lang.String toString(int)>"
+  ]
+}

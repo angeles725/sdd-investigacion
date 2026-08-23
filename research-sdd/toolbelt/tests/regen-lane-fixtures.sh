@@ -81,6 +81,7 @@ KNOWN_SUITES=(
   floss
   ghidra-c-exporter
   ghidra-exporter
+  jvm-callgraph
   kaitai
   unblob
 )
@@ -1059,6 +1060,189 @@ PY
   fi
 
   write_fixture "$suite" "report" "$normalized"
+}
+
+# regen_jvm_callgraph — runs the jvm-callgraph SUT on a synthetic App→Router→Transform→Sink
+# fixture jar and normalizes the JSON report to a host-path-free committed fixture.
+#
+# Fixtures produced:
+#   jvm-callgraph/happy.json  — full run with Sink-specific filter; entries/paths/xrefs intact.
+#   jvm-callgraph/capped.json — tight caps (max-nodes=1 etc); truncated.nodes/edges/xrefs/paths=true.
+#
+# Normalization (all machine-specific fields replaced with stable placeholders):
+#   runtime.java_home              → __JAVA_HOME__
+#   runtime.launcher.path          → __JAVA_LAUNCHER_PATH__
+#   runtime.launcher.{sha256,size} → __SHA256__ / __SIZE__
+#   runtime.version                → __JAVA_VERSION__
+#   runtime.vendor                 → __JAVA_VENDOR__
+#   runtime.major                  kept as integer (fast-lane asserts >= 21, not exact value)
+#   analyzer.path                  → __ANALYZER_PATH__
+#   analyzer.{sha256,size}         → __SHA256__ / __SIZE__  (build-nondeterministic: jar timestamps)
+#   inputs.primary.path            → __INPUT_PATH__
+#   inputs.primary.{sha256,size}   → __SHA256__ / __SIZE__
+#   inputs.dependencies[i].{path,sha256,size} → normalized (empty for our fixture)
+#
+# CRITICAL: java is under /home/linuxbrew on this machine, so runtime.java_home and
+# runtime.launcher.path contain the 'linuxbrew' token.  The normalizer MUST replace both
+# before the mandatory in-regen leak-check or regen aborts.
+#
+# Requires: java 21+, mvn, python3.
+# shellcheck disable=SC2317  # regen function called via name; not reachable by static flow
+regen_jvm_callgraph() {
+  local toolbelt="$SCRIPT_DIR/.."
+  local wrapper="$toolbelt/jvm-callgraph.sh"
+  local jar="$toolbelt/jvm-callgraph/target/jvm-callgraph.jar"
+
+  # Source tool-env for Java resolution helpers.
+  # shellcheck source=../lib/tool-env.sh
+  source "$toolbelt/lib/tool-env.sh"
+
+  local java_home
+  java_home="$(rsdd_resolve_java_home 2>/dev/null || true)"
+  if [ -z "$java_home" ] || [ ! -x "$java_home/bin/javac" ]; then
+    echo "regen_jvm_callgraph: usable Java not found; skipping" >&2
+    return 0
+  fi
+  local javac_major
+  javac_major="$("$java_home/bin/javac" -version 2>&1 | grep -oE '[0-9]+' | head -1)"
+  if [ "${javac_major:-0}" -lt 21 ]; then
+    echo "regen_jvm_callgraph: javac major=${javac_major} < 21; skipping" >&2
+    return 0
+  fi
+  if ! command -v mvn >/dev/null 2>&1; then
+    echo "regen_jvm_callgraph: mvn not found; skipping" >&2
+    return 0
+  fi
+
+  # Build analyzer jar if missing; reuse target/jvm-callgraph.jar when already present.
+  if [ ! -f "$jar" ]; then
+    echo "regen_jvm_callgraph: jar missing; building with mvn -o -B -ntp package" >&2
+    (cd "$toolbelt/jvm-callgraph" && mvn -o -B -ntp package -q) || {
+      echo "regen_jvm_callgraph: mvn build failed; aborting" >&2; return 1
+    }
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Compile App→Router→Transform→Sink fixture jar.
+  # No MARKER side-effect here; the fixture is for call-graph analysis only.
+  mkdir -p "$tmp/src/fixture" "$tmp/classes"
+  cat > "$tmp/src/fixture/App.java" <<'JAVA'
+package fixture;
+public final class App {
+  public static void main(String[] args) { Router.route(args.length); }
+}
+JAVA
+  cat > "$tmp/src/fixture/Router.java" <<'JAVA'
+package fixture; final class Router { static void route(int value) { Transform.normalize(value); } }
+JAVA
+  cat > "$tmp/src/fixture/Transform.java" <<'JAVA'
+package fixture; final class Transform { static void normalize(int value) { Sink.write(Integer.toString(value)); } }
+JAVA
+  cat > "$tmp/src/fixture/Sink.java" <<'JAVA'
+package fixture; final class Sink { static void write(String value) { System.out.println(value); } }
+JAVA
+  "$java_home/bin/javac" --release 21 -d "$tmp/classes" "$tmp"/src/fixture/*.java || {
+    echo "regen_jvm_callgraph: javac failed; aborting" >&2; return 1
+  }
+  "$java_home/bin/jar" --create --file "$tmp/fixture.jar" -C "$tmp/classes" . || {
+    echo "regen_jvm_callgraph: jar creation failed; aborting" >&2; return 1
+  }
+
+  # Inline normalizer: replaces all host-specific fields with stable placeholders.
+  # runtime.major is kept as an integer (assertion is >= 21, not exact value).
+  _normalize_jvm() {
+    python3 - "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+
+# runtime — all host-specific: java_home, launcher path/sha256/size, version, vendor.
+# runtime.major is kept as the actual integer — the fast-lane test asserts >= 21.
+d["runtime"]["java_home"] = "__JAVA_HOME__"
+d["runtime"]["launcher"]["path"] = "__JAVA_LAUNCHER_PATH__"
+d["runtime"]["launcher"]["sha256"] = "__SHA256__"
+d["runtime"]["launcher"]["size"] = "__SIZE__"
+d["runtime"]["version"] = "__JAVA_VERSION__"
+d["runtime"]["vendor"] = "__JAVA_VENDOR__"
+
+# analyzer — build-nondeterministic: Maven/jar embed zip timestamps → hash changes
+# every mvn package invocation even with identical source.
+d["analyzer"]["path"] = "__ANALYZER_PATH__"
+d["analyzer"]["sha256"] = "__SHA256__"
+d["analyzer"]["size"] = "__SIZE__"
+
+# inputs.primary — fixture jar path and hash.
+d["inputs"]["primary"]["path"] = "__INPUT_PATH__"
+d["inputs"]["primary"]["sha256"] = "__SHA256__"
+d["inputs"]["primary"]["size"] = "__SIZE__"
+
+# inputs.dependencies — normalize if present (empty for our fixture; future-proof).
+for i, dep in enumerate(d["inputs"].get("dependencies", [])):
+    dep["path"] = f"__DEP_{i}_PATH__"
+    dep["sha256"] = "__SHA256__"
+    dep["size"] = "__SIZE__"
+
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+  }
+
+  # --- Happy run ---
+  local out_happy="$tmp/happy.json"
+  bash "$wrapper" analyze \
+    --input "$tmp/fixture.jar" \
+    --sink-contains "fixture.Sink: void write" \
+    --max-depth 8 --max-paths 10 --max-nodes 100 --max-edges 100 --max-xrefs 100 \
+    --output "$out_happy" 2>/dev/null || {
+    echo "regen_jvm_callgraph: happy run failed; aborting" >&2; return 1
+  }
+
+  local normalized_happy
+  normalized_happy="$(_normalize_jvm "$out_happy")" || {
+    echo "regen_jvm_callgraph: normalization failed for happy" >&2; return 1
+  }
+  if [[ -z "$normalized_happy" ]]; then
+    echo "regen_jvm_callgraph: normalization produced empty output (happy)" >&2; return 1
+  fi
+  # Mandatory in-regen leak-check (model: regen_corroborate_native_r2).
+  # java lives under /home/linuxbrew — 'linuxbrew' token MUST be caught if missed.
+  if printf '%s\n' "$normalized_happy" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_jvm_callgraph: host path leaked after normalization (happy) — aborting" >&2
+    printf '%s\n' "$normalized_happy" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+  write_fixture "jvm-callgraph" "happy" "$normalized_happy"
+
+  # --- Capped run (tight caps; truncated.nodes/edges/xrefs/paths expected True) ---
+  # Uses --sink-contains fixture (broader than happy) to produce more xrefs across all
+  # fixture-package sinks, ensuring xrefsCut fires even with max-xrefs=1.
+  local out_capped="$tmp/capped.json"
+  bash "$wrapper" analyze \
+    --input "$tmp/fixture.jar" \
+    --sink-contains fixture \
+    --max-depth 1 --max-paths 1 --max-nodes 1 --max-edges 1 --max-xrefs 1 \
+    --output "$out_capped" 2>/dev/null || {
+    echo "regen_jvm_callgraph: capped run failed; aborting" >&2; return 1
+  }
+
+  local normalized_capped
+  normalized_capped="$(_normalize_jvm "$out_capped")" || {
+    echo "regen_jvm_callgraph: normalization failed for capped" >&2; return 1
+  }
+  if [[ -z "$normalized_capped" ]]; then
+    echo "regen_jvm_callgraph: normalization produced empty output (capped)" >&2; return 1
+  fi
+  if printf '%s\n' "$normalized_capped" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_jvm_callgraph: host path leaked after normalization (capped) — aborting" >&2
+    printf '%s\n' "$normalized_capped" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+  write_fixture "jvm-callgraph" "capped" "$normalized_capped"
 }
 
 # regen_corroborate_native_r2 — runs corroborate-native on a gcc-compiled ELF
