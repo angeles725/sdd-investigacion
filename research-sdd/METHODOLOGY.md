@@ -1221,6 +1221,35 @@ the fast lane — only the spawn / real-tool-run is deferred.  A fast-lane suite
 `== N passed · N failed ==` summary and MUST NOT emit a `SKIP:` line (`run-all.sh` counts
 `SKIP:+exit0` as skipped, which is lost coverage).
 
+**Rule R2 — fast-lane teeth come from the live module, not the frozen fixture.** A fast-lane
+suite's teeth (the assertion that must go red under `--prove-teeth`) MUST come from a LIVE import of
+the SUT — a unit assertion over an importable constant or pure function — NEVER from the committed
+fixture. A fixture captures the value BEFORE any mutation and is not regenerated during
+`--prove-teeth`, so a fixture-only assertion stays green after the SUT is mutated: theater, not teeth
+(§4 FABLE maxim). The fixture DOCUMENTS the report shape; the live import BITES. Exemplars:
+`corroborate-native-r2` imports `SAFE_R2`; `corroborate-firmware` imports `require_private` /
+`normalized`. **Exception:** a suite whose SUT has no importable oracle (a pure-Java analyzer such as
+`jvm-callgraph` or the `ghidra-*` exporters) cannot get live-import teeth; its fast-lane
+`--prove-teeth` mutates a COPY of the fixture, which proves the assertion bites but NOT that a SUT
+regression is caught, and therefore claims ZERO fast anti-#128 credit. This exception MUST be declared
+in the test-file header; the real SUT-regression teeth for such a suite (mutate the analyzer +
+rebuild) stay slow-only. A computed value that is not an importable constant (e.g. a finding cap) is
+the same case: its fast tooth is a fixture-level structural check and its real regression tooth lives
+in the slow lane. Every fixture-copy or SUT-copy mutation MUST be drift-guarded — fail loud with a
+`MUTANT-SETUP-FAIL` when the mutated token is absent, never silently green.
+
+**Rule R5 — the content-addressed manifest `verify` is slow-only and never enters a fixture.**
+Suites that produce an `analysis-manifest.v1` (native, firmware, java) MUST keep `analysis_manifest.py
+verify` in the SLOW lane. It is not fixture-portable: `verify` re-resolves the tool launcher on the
+LIVE machine and rehashes it (e.g. `/usr/bin/bwrap`, re-resolved from `PATH`, NOT stored in the
+fixture), so on any other machine it raises `file-backed tool identity changed` even when every file
+inside the fixture tree rehashes fine. The fast lane asserts only the normalized top-level report and
+never reads or verifies the manifest; `validate` (pure schema + identity recompute over the JSON, no
+filesystem) is fast-safe if a cheap manifest check is wanted. The manifest `identity` is a content
+hash that excludes the three volatile run fields (`started_at`, `ended_at`, `duration_ms`), so
+`manifest_identity` is stable run-to-run on one machine — a fixture placeholder is honest — but
+machine/version-bound: regenerate the fixture on tool or launcher drift.
+
 ## 12. Dynamic phase (validation against a live system)
 
 The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, loop-able. When a LIVE system
