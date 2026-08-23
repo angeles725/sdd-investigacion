@@ -1,0 +1,69 @@
+{
+  "capabilities": {
+    "argv": [
+      "/home/cristian/.local/share/pipx/venvs/flare-capa/bin/capa",
+      "-r",
+      "/tmp/rsdd/capa-rules",
+      "-j",
+      "/tmp/rsdd/work/input/binary.bin"
+    ],
+    "capa_version": "capa 9.4.0",
+    "caps": {
+      "max_capabilities": 1,
+      "timeout": 300
+    },
+    "items": [
+      {
+        "attack_ids": [],
+        "match_count": 2,
+        "mbc_ids": [],
+        "name": "contain loop",
+        "namespace": ""
+      }
+    ],
+    "rules_path_digest": "sha256:fcdf8126cadeb6166939d39ff90f904bee543c06fac6270f0a08c2db9513c29b",
+    "tool": {
+      "path": "/home/cristian/.local/share/pipx/venvs/flare-capa/bin/capa",
+      "sha256": "sha256:a93754cb8e6ac3cd113e4083fb654f735da08ea8be5f7e08773519388d7a4842",
+      "size": 200
+    },
+    "total_count": 3,
+    "total_sampled": 1,
+    "truncated": true
+  },
+  "errors": [],
+  "input": {
+    "source": {
+      "path": "/tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/8e3adb80-5e43-4df3-a842-2844c5468f17/scratchpad/capa_fixtures/happy.elf",
+      "sha256": "sha256:4b5a5694e3c0e8b1d58fc52ac6ef076e55e72c2f53195243ac86d5ff517cc2f6",
+      "size": 26936
+    },
+    "staged": {
+      "path": "input/binary.bin",
+      "sha256": "sha256:4b5a5694e3c0e8b1d58fc52ac6ef076e55e72c2f53195243ac86d5ff517cc2f6",
+      "size": 26936
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "__BWRAP_PATH__",
+      "sha256": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712",
+      "size": 72160
+    },
+    "profile": {
+      "name": "bubblewrap-capa-offline",
+      "network_access": false,
+      "static_only": true,
+      "target_execution": false
+    }
+  },
+  "limitations": [
+    "capa performs static analysis using the vivisect backend; results vary by binary format (PE, ELF, .NET) and may miss capabilities requiring dynamic analysis.",
+    "Only capabilities matched by the supplied rule set are reported; the installed capa version is captured dynamically in capabilities.capa_version.",
+    "Bubblewrap on WSL2 provides network isolation but is not a full hostile-parser security boundary; use a disposable VM for actively hostile samples.",
+    "Caps (--max-capabilities, --timeout) and output/process limits bound resource use; any cap that fires is reported in limitations and truncated is set true \u2014 never silent.",
+    "inventory truncated: capability cap 1 reached (total_count=3)"
+  ],
+  "schema": "capa-evidence.v1",
+  "status": "complete"
+}

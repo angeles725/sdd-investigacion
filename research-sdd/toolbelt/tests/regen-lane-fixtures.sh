@@ -74,9 +74,8 @@ esac
 # --- Registered suites --------------------------------------------------------
 # Add new suite names here when adding a regen_<suite>() function below.
 KNOWN_SUITES=(
-  # Example placeholder — replace with real suite names as each PR converts a suite.
-  # corroborate-ghidra
-  # corroborate-native-r2
+  capa
+  floss
 )
 
 # --- Helpers ------------------------------------------------------------------
@@ -97,15 +96,148 @@ write_fixture() {
 # Each function receives no arguments.  It must invoke the real tool in slow lane
 # and call write_fixture() for every fixture it produces.
 #
-# Template:
+# Normalization: machine-specific paths (input file path, bwrap launcher path)
+# are replaced with placeholder strings so committed fixtures are deterministic
+# and pass on any machine.  Schema structure and SUT-logic values are preserved.
+
+# regen_capa — captures capa evidence output on /bin/true.
+# Fixtures produced:
+#   capa/happy.json    — standard happy-path run; total_count ≥ 1.
+#   capa/capped.json   — run with --max-capabilities 1; truncated=True.
 #
-# regen_corroborate_ghidra() {
-#   local output rc=0
-#   output="$(RSDD_TEST_LANE=slow bash "$SCRIPT_DIR/corroborate-ghidra.test.sh" 2>&1)" || rc=$?
-#   # Parse or capture the relevant output into JSON fixture format.
-#   write_fixture "corroborate-ghidra" "baseline" \
-#     "$(printf '{"exit":%d,"output":%s}' "$rc" "$(printf '%s' "$output" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")"
-# }
+# Requires: capa, bwrap, python3, RSDD_CAPA_RULES rules directory.
+regen_capa() {
+  local toolbelt="$SCRIPT_DIR/.."
+  local rules_dir="${RSDD_CAPA_RULES:-$HOME/.local/share/capa-rules}"
+
+  if ! command -v capa >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
+    echo "regen_capa: capa or bwrap not found; skipping" >&2
+    return 0
+  fi
+  if ! [ -d "$rules_dir" ]; then
+    echo "regen_capa: rules dir absent: $rules_dir; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  cp /bin/true "$tmp/happy.elf"
+
+  _capa_run_and_write() {
+    local name="$1"; shift
+    local out_dir="$tmp/out_${name}"
+    if ! bash "$toolbelt/corroborate-capa.sh" \
+        --input "$tmp/happy.elf" --output "$out_dir" --timeout 300 "$@" 2>/dev/null; then
+      echo "regen_capa: capa run failed for fixture '$name'" >&2
+      return 1
+    fi
+    local raw_file="$tmp/raw_capa_${name}.json"
+    cp "$out_dir/capa-evidence.v1.json" "$raw_file"
+    # Normalize machine-specific paths to stable placeholders.
+    # python3 reads its script from stdin (heredoc); raw_file is sys.argv[1].
+    local normalized
+    normalized="$(python3 - "$raw_file" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+if isinstance(d.get("input"), dict):
+    if "path" in d["input"]: d["input"]["path"] = "__INPUT_PATH__"
+    if "file" in d["input"]: d["input"]["file"] = "__INPUT_PATH__"
+if isinstance(d.get("isolation"), dict) and isinstance(d["isolation"].get("launcher"), dict):
+    if "path" in d["isolation"]["launcher"]:
+        d["isolation"]["launcher"]["path"] = "__BWRAP_PATH__"
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+)"
+    write_fixture "capa" "$name" "$normalized"
+  }
+
+  _capa_run_and_write "happy"
+  _capa_run_and_write "capped" --max-capabilities 1
+}
+
+# regen_floss — captures floss evidence output on a generated tiny PE32.
+# Fixtures produced:
+#   floss/happy.json      — standard happy-path run; total_count ≥ 1.
+#   floss/capped.json     — run with --max-strings 2; truncated=True.
+#   floss/len_capped.json — run with --max-string-len 5; values ≤ 5 chars.
+#
+# Requires: floss, bwrap, python3.
+regen_floss() {
+  local toolbelt="$SCRIPT_DIR/.."
+
+  if ! command -v floss >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
+    echo "regen_floss: floss or bwrap not found; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Generate tiny PE32 with known static strings.
+  python3 - "$tmp/tiny_pe.exe" <<'PY'
+import struct, sys
+
+def pe32_with_strings(strings_list):
+    dos = bytearray(64)
+    dos[0:2] = b'MZ'
+    struct.pack_into('<I', dos, 0x3C, 64)
+    coff = struct.pack('=HHIIIHH', 0x014c, 1, 0, 0, 0, 0xe0, 0x0102)
+    part1 = b'\x0b\x01\x01\x00' + struct.pack('=IIIIII', 0, 0x200, 0, 0x1000, 0x1000, 0x2000)
+    part2 = struct.pack('=III', 0x400000, 0x1000, 0x200)
+    part3 = struct.pack('=HHHHHH', 4, 0, 0, 0, 4, 0)
+    part4 = struct.pack('=IIIIHH', 0, 0x3000, 0x200, 0, 3, 0)
+    part5 = struct.pack('=IIIIII', 0x100000, 0x1000, 0x100000, 0x1000, 0, 16)
+    opt = part1 + part2 + part3 + part4 + part5 + bytes(128)
+    sec = struct.pack('=8sIIIIIIHHI', b'.rdata\x00\x00',
+                      0x200, 0x1000, 0x200, 0x200, 0, 0, 0, 0, 0x40000040)
+    hdr_raw = bytes(dos) + b'PE\x00\x00' + coff + opt + sec
+    hdr = hdr_raw + bytes(0x200 - len(hdr_raw))
+    sd = b''.join(s.encode() + b'\x00' for s in strings_list)
+    pad = 0x200 - (len(sd) % 0x200)
+    if pad < 0x200:
+        sd += bytes(pad)
+    return hdr + sd
+
+strings = ['StaticAlphaString', 'StaticBetaString', 'StaticGammaString',
+           'ObfuscatedTokenXYZ', 'SecretKeyValue123']
+with open(sys.argv[1], 'wb') as f:
+    f.write(pe32_with_strings(strings))
+PY
+
+  _floss_run_and_write() {
+    local name="$1"; shift
+    local out_dir="$tmp/out_${name}"
+    if ! bash "$toolbelt/corroborate-floss.sh" \
+        --input "$tmp/tiny_pe.exe" --output "$out_dir" "$@" 2>/dev/null; then
+      echo "regen_floss: floss run failed for fixture '$name'" >&2
+      return 1
+    fi
+    local raw_file="$tmp/raw_floss_${name}.json"
+    cp "$out_dir/floss-evidence.v1.json" "$raw_file"
+    # python3 reads its script from stdin (heredoc); raw_file is sys.argv[1].
+    local normalized
+    normalized="$(python3 - "$raw_file" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+if isinstance(d.get("input"), dict):
+    if "path" in d["input"]: d["input"]["path"] = "__INPUT_PATH__"
+    if "file" in d["input"]: d["input"]["file"] = "__INPUT_PATH__"
+if isinstance(d.get("isolation"), dict) and isinstance(d["isolation"].get("launcher"), dict):
+    if "path" in d["isolation"]["launcher"]:
+        d["isolation"]["launcher"]["path"] = "__BWRAP_PATH__"
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+)"
+    write_fixture "floss" "$name" "$normalized"
+  }
+
+  _floss_run_and_write "happy"
+  _floss_run_and_write "capped"     --max-strings 2
+  _floss_run_and_write "len_capped" --max-string-len 5
+}
 
 # --- Main ---------------------------------------------------------------------
 
