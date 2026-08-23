@@ -76,6 +76,7 @@ esac
 KNOWN_SUITES=(
   capa
   floss
+  ghidra-exporter
   kaitai
   unblob
 )
@@ -267,6 +268,119 @@ PY
   _floss_run_and_write "happy"
   _floss_run_and_write "capped"     --max-strings 2
   _floss_run_and_write "len_capped" --max-string-len 5
+}
+
+# regen_ghidra_exporter — runs Ghidra 3x on a synthetic gcc ELF and writes fixtures.
+# Fixtures produced:
+#   ghidra-exporter/full.json    — generous caps (4096 4096 4096 4096 4096 4096 256);
+#                                  status complete, all counts exact.
+#   ghidra-exporter/capped.json — tight caps (1 1 1 1 1 1 16); status partial,
+#                                  all kinds emitted<observed, string values ≤16 chars.
+#   ghidra-exporter/long.json   — string_chars=32 (4096 4096 4096 4096 4096 4096 32);
+#                                  status partial, CURATED_LONG_STRING capped at 32.
+#
+# NOTE: Fixtures are NOT byte-reproducible cross-machine — md5 and addresses depend
+# on the host-compiled ELF. Fixtures are version-scoped to Ghidra 12.1.2.  Any
+# change to the C source or gcc flags invalidates existing fixtures; re-run this
+# script to regenerate them.
+#
+# Requires: Ghidra 12.1.2, gcc, java21, python3, timeout.
+# shellcheck disable=SC2317  # regen function called via name; not reachable by static flow
+regen_ghidra_exporter() {
+  local toolbelt="$SCRIPT_DIR/.."
+
+  # Source tool-env for Ghidra/Java resolution helpers.
+  # shellcheck source=../lib/tool-env.sh
+  source "$toolbelt/lib/tool-env.sh"
+
+  local ghidra_home java21
+  ghidra_home="$(rsdd_resolve_ghidra_home 2>/dev/null || true)"
+  java21="$(rsdd_resolve_java_home 2>/dev/null || true)"
+
+  if [ -z "$ghidra_home" ] || [ -z "$java21" ] || ! rsdd_probe_ghidra "$ghidra_home"; then
+    echo "regen_ghidra_exporter: usable Ghidra unavailable; skipping" >&2
+    return 0
+  fi
+
+  local version
+  version="$(awk -F= '$1=="application.version"{print $2}' \
+    "$ghidra_home/Ghidra/application.properties")"
+  if [ "$version" != "12.1.2" ]; then
+    echo "regen_ghidra_exporter: expected Ghidra 12.1.2, found $version; skipping" >&2
+    return 0
+  fi
+
+  for _tool in gcc python3 timeout; do
+    command -v "$_tool" >/dev/null 2>&1 || {
+      echo "regen_ghidra_exporter: '$_tool' not found; skipping" >&2
+      return 0
+    }
+  done
+
+  local exporter="$toolbelt/ghidra/CuratedEvidenceExporter.java"
+  if [ ! -f "$exporter" ]; then
+    echo "regen_ghidra_exporter: exporter not found: $exporter; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Synthetic C source — same as the slow-lane test to ensure assertion compatibility.
+  cat >"$tmp/fixture.c" <<'EOF'
+#include <stdio.h>
+int fixture_global=17;
+__attribute__((constructor)) static void forbidden(void){FILE*f=fopen("TARGET_EXECUTED","w");if(f){fputs("executed",f);fclose(f);}}
+__attribute__((visibility("default"))) int exported_add(int n){return n+fixture_global;}
+static int named_helper(int n){return exported_add(n)+1;}
+const char *long_evidence="CURATED_LONG_STRING_ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz_0123456789_repeat_repeat_repeat";
+int main(void){puts(long_evidence);return named_helper(1)==19?0:1;}
+EOF
+  gcc -O0 -rdynamic -fno-pie -no-pie -o "$tmp/fixture.elf" "$tmp/fixture.c"
+
+  _ghidra_run_and_write() {
+    local name="$1"; shift
+    local run_dir="$tmp/run_$name"
+    mkdir -p "$run_dir/project" "$run_dir/home" "$run_dir/xdg-cache" "$run_dir/xdg-config"
+    local out_json="$tmp/out_$name.json"
+    (cd "$tmp" && \
+      HOME="$run_dir/home" XDG_CACHE_HOME="$run_dir/xdg-cache" \
+      XDG_CONFIG_HOME="$run_dir/xdg-config" \
+      JAVA_HOME="$java21" JAVA_TOOL_OPTIONS="-Duser.home=$run_dir/home" \
+      timeout 180 "$ghidra_home/support/analyzeHeadless" \
+        "$run_dir/project" curated \
+        -import "$tmp/fixture.elf" -analysisTimeoutPerFile 120 \
+        -scriptPath "$toolbelt/ghidra" \
+        -postScript CuratedEvidenceExporter.java "$out_json" "$@" \
+        -deleteProject \
+        >"$run_dir/headless.log" 2>&1)
+    local rc=$?
+    if [ "$rc" -ne 0 ] || [ ! -f "$out_json" ]; then
+      echo "regen_ghidra_exporter: Ghidra run failed for fixture '$name' (rc=$rc)" >&2
+      cat "$run_dir/headless.log" >&2
+      return 1
+    fi
+    # Schema v1 is host-path-free by design — verify and write as-is (no normalization).
+    # The exporter emits compact sorted JSON + trailing LF: that IS the canonical encoding.
+    local raw; raw="$(cat "$out_json")"
+    python3 - "$out_json" <<'PY' || { echo "regen_ghidra_exporter: $name normalization check failed" >&2; return 1; }
+import json, pathlib, sys
+raw = pathlib.Path(sys.argv[1]).read_bytes()
+d = json.loads(raw)
+# Verify canonical encoding (compact sorted JSON + LF).
+canonical = (json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(',',':')) + '\n').encode()
+assert raw == canonical, "output is not canonical compact JSON+LF"
+# Verify no host paths leaked into schema v1 output.
+for token in raw.decode('utf-8').split('"'):
+    assert '/home/' not in token and '/tmp/' not in token, f"host path leaked: {token!r}"
+PY
+    write_fixture "ghidra-exporter" "$name" "$raw"
+  }
+
+  _ghidra_run_and_write "full"   4096 4096 4096 4096 4096 4096 256
+  _ghidra_run_and_write "capped"    1    1    1    1    1    1  16
+  _ghidra_run_and_write "long"   4096 4096 4096 4096 4096 4096  32
 }
 
 # regen_kaitai — captures kaitai evidence output on a deterministic demo schema+binary.
