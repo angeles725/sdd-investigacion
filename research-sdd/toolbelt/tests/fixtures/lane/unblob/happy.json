@@ -1,0 +1,96 @@
+{
+  "errors": [],
+  "extraction": {
+    "argv": [
+      "__UNBLOB_PATH__",
+      "--extract-dir",
+      "__ABS_PATH_2__",
+      "--report",
+      "__ABS_PATH_4__",
+      "--log",
+      "__ABS_PATH_6__",
+      "-d",
+      "10",
+      "__ABS_PATH_9__"
+    ],
+    "caps": {
+      "max_depth": 10,
+      "max_entries": 10000,
+      "max_total_bytes": 268435456,
+      "timeout": 120
+    },
+    "entries": [
+      {
+        "depth": 2,
+        "path": "firmware.bin_extract/gzip.uncompressed",
+        "sha256": "sha256:d85f1eebf35d985d8ff532ddeed8e08e3b493b7cb1b6a5d77eb8e56714170fd3",
+        "size": 10240,
+        "type": "file"
+      },
+      {
+        "depth": 4,
+        "path": "firmware.bin_extract/gzip.uncompressed_extract/tree/a.txt",
+        "sha256": "sha256:8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8",
+        "size": 5,
+        "type": "file"
+      },
+      {
+        "depth": 4,
+        "path": "firmware.bin_extract/gzip.uncompressed_extract/tree/b.txt",
+        "sha256": "sha256:f44e64e75f3948e9f73f8dfa94721c4ce8cbb4f265c4790c702b2d41cfbf2753",
+        "size": 4,
+        "type": "file"
+      },
+      {
+        "depth": 4,
+        "path": "firmware.bin_extract/gzip.uncompressed_extract/tree/c.txt",
+        "sha256": "sha256:be9d587defa1f0c09ef49eb17e206983a5f8f8289e4281860bd0ee5a19592c67",
+        "size": 5,
+        "type": "file"
+      }
+    ],
+    "entry_count": 4,
+    "tool": {
+      "path": "__UNBLOB_PATH__",
+      "sha256": "sha256:4aa92434f1be5013122c1f6e0961db61f0be64b3501b068c15da5920231ad582",
+      "size": 197
+    },
+    "total_size_bytes": 10254,
+    "truncated": false,
+    "unblob_report_tasks": 8
+  },
+  "input": {
+    "source": {
+      "path": "__INPUT_PATH__",
+      "sha256": "sha256:136418b12cae96f7c743bee4416828a6042a765ee9caf33f936d06f4d37d0fc0",
+      "size": 190
+    },
+    "staged": {
+      "path": "__STAGED_PATH__",
+      "sha256": "sha256:136418b12cae96f7c743bee4416828a6042a765ee9caf33f936d06f4d37d0fc0",
+      "size": 190
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "__BWRAP_PATH__",
+      "sha256": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712",
+      "size": 72160
+    },
+    "profile": {
+      "name": "bubblewrap-unblob-offline",
+      "network_access": false,
+      "static_only": true,
+      "target_execution": false
+    }
+  },
+  "limitations": [
+    "unblob extracts structure only; semantic analysis of content is not performed.",
+    "Inventory entries are regular files only; directories, symlinks, special files, and hardlinked files are skipped (each skip is recorded as an error string).",
+    "unblob type identification is based on magic bytes and heuristics; encrypted or obfuscated formats may not be identified and will produce empty inventories.",
+    "Bubblewrap on WSL2 provides network isolation but is not a full hostile-parser security boundary; use a disposable VM for actively hostile firmware.",
+    "Caps (--max-entries, --max-total-bytes, --max-depth, --timeout) limit resource use; any cap that fires is reported in limitations and never silently truncated."
+  ],
+  "schema": "unblob-evidence.v1",
+  "status": "complete"
+}

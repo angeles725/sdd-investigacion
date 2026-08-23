@@ -76,6 +76,8 @@ esac
 KNOWN_SUITES=(
   capa
   floss
+  kaitai
+  unblob
 )
 
 # --- Helpers ------------------------------------------------------------------
@@ -237,6 +239,157 @@ PY
   _floss_run_and_write "happy"
   _floss_run_and_write "capped"     --max-strings 2
   _floss_run_and_write "len_capped" --max-string-len 5
+}
+
+# regen_kaitai — captures kaitai evidence output on a deterministic demo schema+binary.
+# Fixtures produced:
+#   kaitai/happy.json   — standard happy-path run; structure.truncated=false.
+#   kaitai/capped.json  — run with --max-fields 2; structure.truncated=true.
+#
+# Requires: kaitai-struct-compiler, bwrap, python3, kaitai venv python.
+regen_kaitai() {
+  local toolbelt="$SCRIPT_DIR/.."
+  local kaitai_py="${RSDD_KAITAI_PY:-$HOME/.local/share/rsdd-kaitai/bin/python}"
+
+  if ! command -v kaitai-struct-compiler >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
+    echo "regen_kaitai: kaitai-struct-compiler or bwrap not found; skipping" >&2
+    return 0
+  fi
+  if ! [ -x "$kaitai_py" ]; then
+    echo "regen_kaitai: kaitai venv python not found: $kaitai_py; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # demo.ksy: magic(2B LE), count(u2 LE), value(u4 LE) — deterministic schema.
+  cat > "$tmp/demo.ksy" << 'EOKSY'
+meta:
+  id: demo
+  endian: le
+seq:
+  - id: magic
+    contents: [0x4b, 0x53]
+  - id: count
+    type: u2
+  - id: value
+    type: u4
+EOKSY
+
+  # sample.bin: KS + count=3 (u2 LE) + value=0xdeadbeef (u4 LE) = 8 bytes.
+  python3 -c "open('$tmp/sample.bin', 'wb').write(b'KS\x03\x00\xef\xbe\xad\xde')"
+
+  _kaitai_run_and_write() {
+    local name="$1"; shift
+    local out_dir="$tmp/out_${name}"
+    if ! bash "$toolbelt/corroborate-kaitai.sh" \
+        --input "$tmp/sample.bin" --ksy "$tmp/demo.ksy" \
+        --output "$out_dir" --timeout 120 "$@" 2>/dev/null; then
+      echo "regen_kaitai: run failed for fixture '$name'" >&2
+      return 1
+    fi
+    local raw_file="$tmp/raw_kaitai_${name}.json"
+    cp "$out_dir/kaitai-evidence.v1.json" "$raw_file"
+    # Normalize machine-specific paths; preserve sha256 and other fields.
+    local normalized
+    normalized="$(python3 - "$raw_file" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+if isinstance(d.get("input"), dict):
+    src = d["input"].get("source", {})
+    if "path" in src:
+        src["path"] = "__INPUT_PATH__"
+if isinstance(d.get("ksy_identity"), dict):
+    if "path" in d["ksy_identity"]:
+        d["ksy_identity"]["path"] = "__KSY_PATH__"
+if isinstance(d.get("isolation"), dict):
+    lnch = d["isolation"].get("launcher", {})
+    if "path" in lnch:
+        lnch["path"] = "__BWRAP_PATH__"
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+)"
+    write_fixture "kaitai" "$name" "$normalized"
+  }
+
+  _kaitai_run_and_write "happy"
+  _kaitai_run_and_write "capped" --max-fields 2
+}
+
+# regen_unblob — captures unblob evidence output on a deterministic tar.gz.
+# Fixtures produced:
+#   unblob/happy.json        — standard happy-path run; extraction.truncated=false.
+#   unblob/depth_capped.json — run with --max-depth 2; extraction.truncated=true,
+#                              depth-cap limitation present.
+#
+# Requires: unblob, bwrap, python3.
+# Archive is deterministic: --sort=name --mtime='2024-01-01 00:00:00'.
+regen_unblob() {
+  local toolbelt="$SCRIPT_DIR/.."
+
+  if ! command -v unblob >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
+    echo "regen_unblob: unblob or bwrap not found; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # good.tgz: deterministic tar.gz with 3 known-content files.
+  # --sort=name + fixed --mtime produces byte-identical archives across runs.
+  mkdir -p "$tmp/tree"
+  printf 'alpha' > "$tmp/tree/a.txt"
+  printf 'beta'  > "$tmp/tree/b.txt"
+  printf 'gamma' > "$tmp/tree/c.txt"
+  tar -C "$tmp" --sort=name --mtime='2024-01-01 00:00:00' -czf "$tmp/good.tgz" tree
+
+  _unblob_run_and_write() {
+    local name="$1"; shift
+    local out_dir="$tmp/out_${name}"
+    if ! bash "$toolbelt/corroborate-unblob.sh" \
+        --input "$tmp/good.tgz" --output "$out_dir" "$@" 2>/dev/null; then
+      echo "regen_unblob: run failed for fixture '$name'" >&2
+      return 1
+    fi
+    local raw_file="$tmp/raw_unblob_${name}.json"
+    cp "$out_dir/unblob-evidence.v1.json" "$raw_file"
+    # Normalize all machine-specific and absolute paths; preserve sha256 and other fields.
+    # argv may contain /tmp/rsdd/... paths (adapter work dirs) — normalize those too.
+    local normalized
+    normalized="$(python3 - "$raw_file" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+if isinstance(d.get("input"), dict):
+    src = d["input"].get("source", {})
+    if "path" in src:
+        src["path"] = "__INPUT_PATH__"
+    stg = d["input"].get("staged", {})
+    if "path" in stg:
+        stg["path"] = "__STAGED_PATH__"
+if isinstance(d.get("isolation"), dict):
+    lnch = d["isolation"].get("launcher", {})
+    if "path" in lnch:
+        lnch["path"] = "__BWRAP_PATH__"
+if isinstance(d.get("extraction"), dict):
+    tool = d["extraction"].get("tool", {})
+    if "path" in tool:
+        tool["path"] = "__UNBLOB_PATH__"
+    # Normalize every element of argv that is an absolute path.
+    argv = d["extraction"].get("argv", [])
+    for i, arg in enumerate(argv):
+        if isinstance(arg, str) and arg.startswith("/"):
+            argv[i] = "__UNBLOB_PATH__" if i == 0 else f"__ABS_PATH_{i}__"
+print(json.dumps(d, indent=2, sort_keys=True))
+PY
+)"
+    write_fixture "unblob" "$name" "$normalized"
+  }
+
+  _unblob_run_and_write "happy"
+  _unblob_run_and_write "depth_capped" --max-depth 2
 }
 
 # --- Main ---------------------------------------------------------------------

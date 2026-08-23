@@ -1,0 +1,92 @@
+{
+  "compile": {
+    "generated_parser": {
+      "path": "engine/gen/demo.py",
+      "sha256": "sha256:1e882042a29334fbcae21b30f2fd4d516cd55ce62b467913c78447f3152c2f7b",
+      "size": 1361
+    },
+    "ksc_version": "kaitai-struct-compiler 0.11"
+  },
+  "errors": [],
+  "input": {
+    "source": {
+      "path": "__INPUT_PATH__",
+      "sha256": "sha256:59b9ddc4a4dd37961e013d6456bed33d36d0e6a68964fd3ed3e5f7c9388e9a06",
+      "size": 8
+    },
+    "staged": {
+      "path": "input/binary.bin",
+      "sha256": "sha256:59b9ddc4a4dd37961e013d6456bed33d36d0e6a68964fd3ed3e5f7c9388e9a06",
+      "size": 8
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "__BWRAP_PATH__",
+      "sha256": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712"
+    },
+    "profile": {
+      "name": "bubblewrap-kaitai-offline",
+      "network_access": false,
+      "static_only": true,
+      "target_execution": false
+    }
+  },
+  "ksy_identity": {
+    "path": "__KSY_PATH__",
+    "sha256": "sha256:98e16793a776320e6d13ccc0dbcc4b4683b3eb83d19bc2630275449a1156be34",
+    "size": 130
+  },
+  "limitations": [
+    "Kaitai Struct driver operates read-only; the binary is never executed.",
+    "Only top-level SEQ_FIELDS are walked; implicit/computed fields and instances are not captured.",
+    "Bubblewrap on WSL2 is defense-in-depth, not a hostile-parser security boundary; use a disposable VM for adversarial binaries."
+  ],
+  "runtime_version": "0.11",
+  "schema": "kaitai-evidence.v1",
+  "status": "complete",
+  "structure": {
+    "counts": {
+      "sampled": 3,
+      "total_fields": 3
+    },
+    "fields": [
+      {
+        "end": 2,
+        "name": "magic",
+        "path": "magic",
+        "size": 2,
+        "start": 0,
+        "type": "bytes",
+        "value": {
+          "hex": "4b53",
+          "sha256": "sha256:f647ceea9954f0f48f97ed165b681d8457a3930be039b902bfeb83777a2471e8",
+          "size": 2,
+          "value_truncated": false
+        }
+      },
+      {
+        "end": 4,
+        "name": "count",
+        "path": "count",
+        "size": 2,
+        "start": 2,
+        "type": "int",
+        "value": 3
+      },
+      {
+        "end": 8,
+        "name": "value",
+        "path": "value",
+        "size": 4,
+        "start": 4,
+        "type": "int",
+        "value": 3735928559
+      }
+    ],
+    "module": "demo",
+    "parse_error": null,
+    "root_type": "Demo",
+    "truncated": false
+  }
+}
