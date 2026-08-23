@@ -1,0 +1,119 @@
+{
+  "errors": [],
+  "input": {
+    "source": {
+      "path": "/tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/8e3adb80-5e43-4df3-a842-2844c5468f17/scratchpad/floss_fixtures/tiny_pe.exe",
+      "sha256": "sha256:13901b0196e3bd71b83a6c527a6b3d6ba569873495da9356e2116ce3a3f788e2",
+      "size": 1024
+    },
+    "staged": {
+      "path": "input/binary.bin",
+      "sha256": "sha256:13901b0196e3bd71b83a6c527a6b3d6ba569873495da9356e2116ce3a3f788e2",
+      "size": 1024
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "__BWRAP_PATH__",
+      "sha256": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712",
+      "size": 72160
+    },
+    "profile": {
+      "name": "bubblewrap-floss-offline",
+      "network_access": false,
+      "static_only": true,
+      "target_execution": false
+    }
+  },
+  "limitations": [
+    "floss performs static + emulation-based string recovery; results vary by binary format and obfuscation technique.",
+    "Stack string, tight string, and decoded string extraction requires PE format; ELF and other formats yield static strings only \u2014 a non-zero exit is recorded as an error and evidence is published with status=failed.",
+    "Bubblewrap on WSL2 provides network isolation but is not a full hostile-parser security boundary; use a disposable VM for actively hostile samples.",
+    "Caps (--max-strings, --max-string-len, --timeout) and output/process limits bound resource use; any cap that fires is reported in limitations and truncated is set true \u2014 never silent.",
+    "inventory truncated: string-length cap 5 reached"
+  ],
+  "schema": "floss-evidence.v1",
+  "status": "complete",
+  "strings": {
+    "argv": [
+      "/home/cristian/.local/share/pipx/venvs/flare-floss/bin/floss",
+      "-j",
+      "/tmp/rsdd/work/input/binary.bin"
+    ],
+    "caps": {
+      "max_string_len": 5,
+      "max_strings": 2000,
+      "timeout": 120
+    },
+    "decoded_strings": {
+      "count": 0,
+      "sampled": 0,
+      "strings": [],
+      "truncated": false
+    },
+    "floss_version": "floss 3.1.1",
+    "stack_strings": {
+      "count": 0,
+      "sampled": 0,
+      "strings": [],
+      "truncated": false
+    },
+    "static_strings": {
+      "count": 6,
+      "sampled": 6,
+      "strings": [
+        {
+          "encoding": "ASCII",
+          "offset": 312,
+          "sha256": "sha256:80b60d5e60436726b5750856faf41cf29c195d04a223accf796f9644e51cab37",
+          "value": ".rdat"
+        },
+        {
+          "encoding": "ASCII",
+          "offset": 512,
+          "sha256": "sha256:00f02535ac8ce0c82baa04a523c032a974eccbad6a3af9a2a366928da224cbac",
+          "value": "Stati"
+        },
+        {
+          "encoding": "ASCII",
+          "offset": 530,
+          "sha256": "sha256:00f02535ac8ce0c82baa04a523c032a974eccbad6a3af9a2a366928da224cbac",
+          "value": "Stati"
+        },
+        {
+          "encoding": "ASCII",
+          "offset": 547,
+          "sha256": "sha256:00f02535ac8ce0c82baa04a523c032a974eccbad6a3af9a2a366928da224cbac",
+          "value": "Stati"
+        },
+        {
+          "encoding": "ASCII",
+          "offset": 565,
+          "sha256": "sha256:a3060c3a5fca52c680967c1e9113868b05e1f3932376eb0c1acbf4de5bbf4e7d",
+          "value": "Obfus"
+        },
+        {
+          "encoding": "ASCII",
+          "offset": 584,
+          "sha256": "sha256:69a751a9d46e67814c6abae004b5aaf7c1dd6c650571c599c8c3aa1261d81650",
+          "value": "Secre"
+        }
+      ],
+      "truncated": false
+    },
+    "tight_strings": {
+      "count": 0,
+      "sampled": 0,
+      "strings": [],
+      "truncated": false
+    },
+    "tool": {
+      "path": "/home/cristian/.local/share/pipx/venvs/flare-floss/bin/floss",
+      "sha256": "sha256:79df91b4b6447629676e4c9fd397ede5138eb464ad3d8321132a43871617ed35",
+      "size": 202
+    },
+    "total_count": 6,
+    "total_sampled": 6,
+    "truncated": true
+  }
+}
