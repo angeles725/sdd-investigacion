@@ -1,11 +1,11 @@
 {
   "capabilities": {
     "argv": [
-      "/home/cristian/.local/share/pipx/venvs/flare-capa/bin/capa",
+      "__TOOL_PATH__",
       "-r",
-      "/tmp/rsdd/capa-rules",
+      "__ABS_PATH_2__",
       "-j",
-      "/tmp/rsdd/work/input/binary.bin"
+      "__ABS_PATH_4__"
     ],
     "capa_version": "capa 9.4.0",
     "caps": {
@@ -23,7 +23,7 @@
     ],
     "rules_path_digest": "sha256:fcdf8126cadeb6166939d39ff90f904bee543c06fac6270f0a08c2db9513c29b",
     "tool": {
-      "path": "/home/cristian/.local/share/pipx/venvs/flare-capa/bin/capa",
+      "path": "__TOOL_PATH__",
       "sha256": "sha256:a93754cb8e6ac3cd113e4083fb654f735da08ea8be5f7e08773519388d7a4842",
       "size": 200
     },
@@ -34,7 +34,7 @@
   "errors": [],
   "input": {
     "source": {
-      "path": "/tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/8e3adb80-5e43-4df3-a842-2844c5468f17/scratchpad/capa_fixtures/happy.elf",
+      "path": "__INPUT_PATH__",
       "sha256": "sha256:4b5a5694e3c0e8b1d58fc52ac6ef076e55e72c2f53195243ac86d5ff517cc2f6",
       "size": 26936
     },

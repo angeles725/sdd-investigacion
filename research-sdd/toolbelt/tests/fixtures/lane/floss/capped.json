@@ -2,7 +2,7 @@
   "errors": [],
   "input": {
     "source": {
-      "path": "/tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/8e3adb80-5e43-4df3-a842-2844c5468f17/scratchpad/floss_fixtures/tiny_pe.exe",
+      "path": "__INPUT_PATH__",
       "sha256": "sha256:13901b0196e3bd71b83a6c527a6b3d6ba569873495da9356e2116ce3a3f788e2",
       "size": 1024
     },
@@ -36,9 +36,9 @@
   "status": "complete",
   "strings": {
     "argv": [
-      "/home/cristian/.local/share/pipx/venvs/flare-floss/bin/floss",
+      "__TOOL_PATH__",
       "-j",
-      "/tmp/rsdd/work/input/binary.bin"
+      "__ABS_PATH_2__"
     ],
     "caps": {
       "max_string_len": 256,
@@ -84,7 +84,7 @@
       "truncated": false
     },
     "tool": {
-      "path": "/home/cristian/.local/share/pipx/venvs/flare-floss/bin/floss",
+      "path": "__TOOL_PATH__",
       "sha256": "sha256:79df91b4b6447629676e4c9fd397ede5138eb464ad3d8321132a43871617ed35",
       "size": 202
     },
