@@ -1,0 +1,183 @@
+{
+  "caps": {
+    "max_bytes": 2000000,
+    "max_files": 8,
+    "max_functions": 10000,
+    "timeout_seconds": 30
+  },
+  "counts": {
+    "functions_emitted": 13,
+    "functions_total": 13
+  },
+  "engine": {
+    "argv": [
+      "engine/r2",
+      "-NN",
+      "-S",
+      "-x",
+      "-q",
+      "-e",
+      "scr.color=0",
+      "-e",
+      "scr.utf8=false",
+      "-e",
+      "scr.interactive=false",
+      "-c",
+      "aaa;aflj",
+      "input/target.bin"
+    ],
+    "launcher": {
+      "source": {
+        "path": "<R2_PATH>",
+        "sha256": "<SHA_R2>",
+        "size": "<SIZE>"
+      },
+      "staged": {
+        "path": "engine/r2",
+        "sha256": "<SHA_R2>",
+        "size": "<SIZE>"
+      }
+    },
+    "manifest": "engine/analysis-manifest.v1.json",
+    "manifest_identity": "<MANIFEST_IDENTITY>",
+    "name": "radare2",
+    "run": {
+      "exit_code": 0,
+      "signal": null
+    },
+    "version": "<R2_VERSION>"
+  },
+  "errors": [],
+  "functions": [
+    {
+      "name": "dbg.helper",
+      "nargs": 1,
+      "nbbs": 1,
+      "size": 19,
+      "type": "fcn"
+    },
+    {
+      "name": "dbg.main",
+      "nargs": 0,
+      "nbbs": 1,
+      "size": 29,
+      "type": "fcn"
+    },
+    {
+      "name": "dbg.marker",
+      "nargs": 0,
+      "nbbs": 3,
+      "size": 53,
+      "type": "fcn"
+    },
+    {
+      "name": "entry.fini0",
+      "nargs": 0,
+      "nbbs": 3,
+      "size": 33,
+      "type": "fcn"
+    },
+    {
+      "name": "entry.init0",
+      "nargs": 0,
+      "nbbs": 1,
+      "size": 6,
+      "type": "fcn"
+    },
+    {
+      "name": "entry0",
+      "nargs": 1,
+      "nbbs": 1,
+      "size": 37,
+      "type": "fcn"
+    },
+    {
+      "name": "sym._dl_relocate_static_pie",
+      "nargs": 0,
+      "nbbs": 1,
+      "size": 5,
+      "type": "fcn"
+    },
+    {
+      "name": "sym._fini",
+      "nargs": 0,
+      "nbbs": 1,
+      "size": 13,
+      "type": "fcn"
+    },
+    {
+      "name": "sym._init",
+      "nargs": 0,
+      "nbbs": 3,
+      "size": 27,
+      "type": "fcn"
+    },
+    {
+      "name": "sym.deregister_tm_clones",
+      "nargs": 0,
+      "nbbs": 4,
+      "size": 33,
+      "type": "fcn"
+    },
+    {
+      "name": "sym.imp.fclose",
+      "nargs": 0,
+      "nbbs": 1,
+      "size": 10,
+      "type": "fcn"
+    },
+    {
+      "name": "sym.imp.fopen",
+      "nargs": 0,
+      "nbbs": 1,
+      "size": 10,
+      "type": "fcn"
+    },
+    {
+      "name": "sym.register_tm_clones",
+      "nargs": 0,
+      "nbbs": 4,
+      "size": 49,
+      "type": "fcn"
+    }
+  ],
+  "input": {
+    "source": {
+      "path": "<INPUT_PATH>",
+      "sha256": "<SHA_INPUT>",
+      "size": "<SIZE>"
+    },
+    "staged": {
+      "path": "input/target.bin",
+      "sha256": "<SHA_INPUT>",
+      "size": "<SIZE>"
+    }
+  },
+  "isolation": {
+    "launcher": {
+      "path": "<BWRAP_PATH>",
+      "sha256": "<BWRAP_SHA>",
+      "size": "<SIZE>"
+    },
+    "profile": {
+      "name": "bubblewrap-static-network-denied",
+      "network_access": false,
+      "static_only": true,
+      "target_execution": false
+    }
+  },
+  "limitations": [
+    "radare2 aaa is heuristic and can miss or over-identify functions.",
+    "The trusted analyzer can read the host filesystem through Bubblewrap's read-only root bind.",
+    "Bubblewrap on WSL2 reduces filesystem and network exposure but is not a hostile-sample security boundary; use a disposable VM."
+  ],
+  "runtime": {
+    "kernel": "<KERNEL>",
+    "python": "<PYTHON>"
+  },
+  "schema": "native-static.v1",
+  "status": "complete",
+  "truncated": {
+    "functions": false
+  }
+}
