@@ -76,6 +76,7 @@ esac
 KNOWN_SUITES=(
   capa
   floss
+  ghidra-c-exporter
   ghidra-exporter
   kaitai
   unblob
@@ -268,6 +269,132 @@ PY
   _floss_run_and_write "happy"
   _floss_run_and_write "capped"     --max-strings 2
   _floss_run_and_write "len_capped" --max-string-len 5
+}
+
+# regen_ghidra_c_exporter — runs Ghidra 1x on a tiny synthetic ELF and writes happy.json.
+# Fixtures produced:
+#   ghidra-c-exporter/happy.json — real decompiled C output from ExportDecompiledC.java;
+#                                   c_output has function bodies with ';'; summary_line
+#                                   has a non-zero exported count.
+#
+# broken.json is a static, hand-crafted fixture (banners present, all functions FAILED,
+# 0 exported).  It is NOT regenerated here — it must survive regen unchanged.
+#
+# Normalization:
+#   summary_line: absolute output path → __OUT_PATH__
+#   c_output banners: entry addresses (hex) → __ENTRY__
+#   C bodies: not scrubbed (iVar1/FUN_/ordering are stable across fast-lane predicates
+#             that only check for ';' and '/* ---- ')
+#
+# Requires: Ghidra, gcc, java21, timeout.
+# shellcheck disable=SC2317  # regen function called via name; not reachable by static flow
+regen_ghidra_c_exporter() {
+  local toolbelt="$SCRIPT_DIR/.."
+
+  # shellcheck source=../lib/tool-env.sh
+  source "$toolbelt/lib/tool-env.sh"
+
+  local ghidra_home java21
+  ghidra_home="$(rsdd_resolve_ghidra_home 2>/dev/null || true)"
+  java21="$(rsdd_resolve_java_home 2>/dev/null || true)"
+
+  if [ -z "$ghidra_home" ] || [ -z "$java21" ] || ! rsdd_probe_ghidra "$ghidra_home"; then
+    echo "regen_ghidra_c_exporter: usable Ghidra unavailable; skipping" >&2
+    return 0
+  fi
+
+  for _regen_tool in gcc timeout; do
+    command -v "$_regen_tool" >/dev/null 2>&1 || {
+      echo "regen_ghidra_c_exporter: '$_regen_tool' not found; skipping" >&2
+      return 0
+    }
+  done
+
+  local exporter="$toolbelt/ghidra/ExportDecompiledC.java"
+  if [ ! -f "$exporter" ]; then
+    echo "regen_ghidra_c_exporter: SUT not found: $exporter; skipping" >&2
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  # Tiny synthetic ELF — same source as the slow-lane integration test so the
+  # predicate set (ck_fn_body, ck_nonzero_exports, etc.) is compatible.
+  cat >"$tmp/fix.c" <<'CSRC'
+#include <stdio.h>
+static int helper(int n) { return n * 2; }
+int main(void) { printf("%d\n", helper(21)); return 0; }
+CSRC
+  gcc -O0 -fno-pie -no-pie -o "$tmp/fix.elf" "$tmp/fix.c"
+
+  local run_dir="$tmp/run_happy"
+  local out_dir="$tmp/out_happy"
+  mkdir -p "$run_dir/project" "$run_dir/home" \
+           "$run_dir/xdg-cache" "$run_dir/xdg-config" "$out_dir"
+
+  ( HOME="$run_dir/home" XDG_CACHE_HOME="$run_dir/xdg-cache" \
+    XDG_CONFIG_HOME="$run_dir/xdg-config" \
+    JAVA_HOME="$java21" JAVA_TOOL_OPTIONS="-Duser.home=$run_dir/home" \
+    RSDD_OUT="$out_dir" \
+    timeout 240 "$ghidra_home/support/analyzeHeadless" \
+      "$run_dir/project" cexport \
+      -import "$tmp/fix.elf" -analysisTimeoutPerFile 120 \
+      -scriptPath "$toolbelt/ghidra" \
+      -postScript ExportDecompiledC.java \
+      -deleteProject \
+      >"$tmp/headless.log" 2>&1 )
+  local rc=$?
+
+  if [ "$rc" -ne 0 ] || [ ! -f "$out_dir/fix.elf.c" ]; then
+    echo "regen_ghidra_c_exporter: Ghidra run failed (rc=$rc)" >&2
+    cat "$tmp/headless.log" >&2
+    return 1
+  fi
+
+  # Extract only the RSDD-EXPORT summary line from headless.log.
+  # headless.log is large (Ghidra startup/analysis noise); never commit it.
+  local summary_line
+  summary_line="$(grep 'RSDD-EXPORT:' "$tmp/headless.log" | grep ' exported,' | tail -1 | tr -d '\r')"
+  if [ -z "$summary_line" ]; then
+    echo "regen_ghidra_c_exporter: RSDD-EXPORT summary line not found in headless.log" >&2
+    return 1
+  fi
+
+  # Normalize: abs output path → __OUT_PATH__.
+  summary_line="$(printf '%s' "$summary_line" | sed 's| -> .*/fix\.elf\.c$| -> __OUT_PATH__/fix.elf.c|')"
+
+  # Read C output, then normalize entry addresses in banners.
+  # C bodies are NOT scrubbed (iVar1/FUN_/ordering tolerated by fast-lane predicates).
+  local c_output
+  c_output="$(cat "$out_dir/fix.elf.c" | sed 's|@ [0-9a-fA-F]\+|@ __ENTRY__|g')"
+
+  # Write to temp files for Python JSON assembly.
+  printf '%s' "$c_output" > "$tmp/c_output.txt"
+  printf '%s' "$summary_line" > "$tmp/summary_line.txt"
+
+  # Leak check: normalized output must contain no host paths.
+  if printf '%s\n%s\n' "$c_output" "$summary_line" \
+       | grep -qE '/home/|/tmp/|cristian|linuxbrew|\.dotnet'; then
+    echo "regen_ghidra_c_exporter: host path leaked after normalization — aborting" >&2
+    printf '%s\n%s\n' "$c_output" "$summary_line" \
+      | grep -E '/home/|/tmp/|cristian|linuxbrew|\.dotnet' >&2
+    return 1
+  fi
+
+  local normalized
+  normalized="$(python3 - "$tmp/c_output.txt" "$tmp/summary_line.txt" <<'PY'
+import json, pathlib, sys
+c_output = pathlib.Path(sys.argv[1]).read_text()
+summary_line = pathlib.Path(sys.argv[2]).read_text()
+d = {"c_output": c_output, "summary_line": summary_line}
+print(json.dumps(d, indent=2, ensure_ascii=False))
+PY
+  )"
+
+  write_fixture "ghidra-c-exporter" "happy" "$normalized"
+  echo "regen_ghidra_c_exporter: broken.json is static — not regenerated" >&2
 }
 
 # regen_ghidra_exporter — runs Ghidra 3x on a synthetic gcc ELF and writes fixtures.

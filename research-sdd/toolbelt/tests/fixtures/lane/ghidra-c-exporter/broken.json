@@ -1,0 +1,4 @@
+{
+  "c_output": "/* rsdd ghidra C export\n   program : fix.elf\n   filter  : <none — ALL functions>\n*/\n\n/* ---- helper @ __ENTRY__ ---- */\n/* FAILED: no results */\n\n/* ---- main @ __ENTRY__ ---- */\n/* FAILED: no results */\n",
+  "summary_line": "RSDD-EXPORT: 0 exported, 2 failed, 0 filtered out -> __OUT_PATH__/fix.elf.c"
+}
