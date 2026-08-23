@@ -13,11 +13,12 @@ harness=codex
   | start; all read-only, degrade to silence on failure):
   |   Single command (recommended): `toolbelt/sweep-all.sh`
   |   Individual scripts (canonical; sweep-all.sh runs these in sequence):
-  |   - `toolbelt/sweep-retros.sh`     — pending section 18 self-retrospective proposals
-  |   - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports
-  |   - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift
-  |   - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning
-  |   - `toolbelt/sweep-tools.sh`      — unrecorded tools across all targets
+  |   - `toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals
+  |   - `toolbelt/sweep-audits.sh`        — pending section 13 audit reports
+  |   - `toolbelt/sweep-breakthroughs.sh` — unindexed/drifted section 22 breakthrough ledger entries
+  |   - `toolbelt/verify-registry.sh`     — TARGETS.md master-table drift
+  |   - `toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning
+  |   - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets
   | 
   | MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically
   | into `~/.codex/config.toml` by the installer — an idempotent marked block

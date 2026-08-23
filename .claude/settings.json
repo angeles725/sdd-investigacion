@@ -18,6 +18,12 @@
           },
           {
             "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/toolbelt/sweep-breakthroughs-hook.sh\"",
+            "timeout": 30,
+            "statusMessage": "Sweeping research-sdd breakthrough ledger…"
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/toolbelt/verify-registry-hook.sh\"",
             "timeout": 30,
             "statusMessage": "Reconciling research-sdd registry…"
