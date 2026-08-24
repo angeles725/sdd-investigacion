@@ -224,6 +224,24 @@ else
   no "7 --list → 0, names ilspycmd + yara + frida" "exit=$RC out=[$OUT]"
 fi
 
+# 7b — every tool with a wrapper/evidence contract in this toolbelt has a --list recipe.
+#      These were installed by hand once and left with no recipe, so a fresh machine
+#      could detect them MISSING but had no way to self-install. --list is the catalog a
+#      contextless session reads; a recipe absent here is invisible to that session.
+#      NB: the --list regex only captures single-name `recipe)` labels, so an alias form
+#      (`kaitai|ksc)`) silently drops from the catalog — these must stay canonical-single.
+box="$(mkbox c7b-newtools)"
+run "$box" --list
+missing=""
+for r in kaitai capa floss unblob krak2 bwrap diec hexedit bvi; do
+  grep -qx "$r" <<<"$OUT" || missing="$missing $r"
+done
+if [ "$RC" = 0 ] && [ -z "$missing" ]; then
+  ok "7b --list carries every wrapped tool's recipe" "(9/9)"
+else
+  no "7b --list carries every wrapped tool's recipe" "exit=$RC missing:$missing"
+fi
+
 # 8 — IDEMPOTENCY on a brew recipe. brew present + yara present → brew_install
 #     short-circuits on `have yara` → `already`, exit 0, NO `brew install`.
 box="$(mkbox c8-yara-present)"
@@ -552,6 +570,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: move-before-verify mutant leaves corrupt file at DEST" "(case 18 has teeth for DEST check)"
     else
       no "teeth: move-before-verify mutant leaves corrupt file at DEST" "dest not created — case 18's DEST assertion is THEATER"
+    fi
+  fi
+
+  # teeth for 7b: revert kaitai to the alias form `kaitai|ksc)` on a throwaway copy
+  # and confirm it DROPS from --list. Proves case 7b actually guards the discoverability
+  # regression (the --list regex only captures single-name labels), not just presence.
+  echo "-- teeth: alias-form recipe (kaitai|ksc) must drop from --list, breaking 7b --"
+  box="$(mkbox teeth-alias-list)"
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"  kaitai) brew_install"* ]]; then
+    no "teeth: build alias-form mutant" "kaitai recipe anchor not found — SUT drifted?"
+  else
+    printf '%s\n' "${content/"  kaitai) brew_install"/"  kaitai|ksc) brew_install"}" > "$box/install-tool.sh"
+    run "$box" --list
+    if ! grep -qx 'kaitai' <<<"$OUT"; then
+      ok "teeth: alias-form kaitai drops from --list → case 7b bites" "(kaitai absent)"
+    else
+      no "teeth: alias-form kaitai still in --list — case 7b is theater" "(still listed)"
     fi
   fi
 fi

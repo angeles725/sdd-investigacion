@@ -197,6 +197,54 @@ case "$RECIPE" in
     log procyon "$PROCYON_URL" installed "pinned $PROCYON_PIN"
     echo "$DEST"; exit 0 ;;
 
+  kaitai) brew_install kaitai-struct-compiler kaitai-struct-compiler && exit 0 || { log kaitai "brew kaitai-struct-compiler" failed "needs brew + java at runtime"; exit 4; } ;;
+  hexedit)    brew_install hexedit hexedit && exit 0 || { log hexedit "brew hexedit" failed; exit 4; } ;;
+  bvi)        brew_install bvi bvi && exit 0 || { log bvi "brew bvi" failed; exit 4; } ;;
+
+  capa) # capability detection (flare-capa) — pipx CLI in ~/.local/bin
+    have capa && { log capa "pipx (present)" already; exit 0; }
+    have pipx || return 4 2>/dev/null
+    # flare-capa builds cleanly on 3.12; force it (pipx defaults to the newest python
+    # on PATH, and some capa deps lack wheels for the very newest interpreter).
+    if have pipx && pipx install --python python3.12 flare-capa >/dev/null 2>&1; then
+      log capa "pipx --python python3.12 flare-capa" installed "capa -> ~/.local/bin"; exit 0
+    else log capa "pipx flare-capa" failed "pipx/python3.12 missing"; exit 4; fi ;;
+
+  floss) # obfuscated/stack string extraction (flare-floss) — pipx CLI
+    have floss && { log floss "pipx (present)" already; exit 0; }
+    # floss compiles C++ bindings (pybind11); it needs a python WITH dev headers.
+    # System python3.12 here lacks them, so use brew's python explicitly.
+    BREW_PY="$(command -v /home/linuxbrew/.linuxbrew/bin/python3 2>/dev/null || true)"
+    if have pipx && [ -n "$BREW_PY" ] && pipx install --python "$BREW_PY" flare-floss >/dev/null 2>&1; then
+      log floss "pipx --python <brew> flare-floss" installed "floss -> ~/.local/bin"; exit 0
+    else log floss "pipx flare-floss" failed "needs pipx + a python with dev headers (brew python)"; exit 4; fi ;;
+
+  unblob) # modern firmware extraction — pipx CLI
+    have unblob && { log unblob "pipx (present)" already; exit 0; }
+    BREW_PY="$(command -v /home/linuxbrew/.linuxbrew/bin/python3 2>/dev/null || true)"
+    if have pipx && pipx install ${BREW_PY:+--python "$BREW_PY"} unblob >/dev/null 2>&1; then
+      log unblob "pipx unblob" installed "unblob -> ~/.local/bin"; exit 0
+    else log unblob "pipx unblob" failed "needs pipx"; exit 4; fi ;;
+
+  krak2) # JVM bytecode assemble/disassemble (Krakatau v2, Rust)
+    # The ONLY modify-capable tool here: patch a .class/.jar without sources or deps
+    # (dis -> edit .j -> asm). READ-ONLY doctrine — operate on copies in scratchpad,
+    # never on a corpus. No crates.io publish and no binary release: build from git.
+    have krak2 && { log krak2 "cargo (present)" already; exit 0; }
+    have cargo || { log krak2 "cargo missing" needs-approval "install rust first (brew install rust)"; exit 3; }
+    if cargo install --git https://github.com/Storyyeller/Krakatau --root "$HOME/.local" >/dev/null 2>&1; then
+      log krak2 "cargo install --git Storyyeller/Krakatau" installed "krak2 -> ~/.local/bin"; exit 0
+    else log krak2 "cargo install Krakatau" failed "cargo build failed"; exit 4; fi ;;
+
+  bwrap) # sandbox — gates the whole slow test lane; MUST be root-owned (apt), never brew.
+    have bwrap && { log bwrap "apt (present)" already; exit 0; }
+    sudo_n apt-get install -y -q bubblewrap >/dev/null 2>&1 && { log bwrap "sudo apt bubblewrap" installed; exit 0; } \
+      || { [ $? = 100 ] && { log bwrap "sudo apt bubblewrap" needs-approval "sudo password required"; exit 3; }; log bwrap "apt bubblewrap" failed; exit 4; } ;;
+
+  diec) # Detect It Easy console — packer/compiler/format triage. Distro .deb needs sudo.
+    have diec && { log diec "apt (present)" already; exit 0; }
+    log diec "manual" needs-approval "install the matching .deb from horsicq/DIE-engine releases with sudo apt install ./die_<ver>_Ubuntu_<rel>_amd64.deb"; exit 3 ;;
+
   *)
     # Unknown recipe: try a generic user-space install, never pipe-to-shell.
     if have brew && brew install "$RECIPE" >/dev/null 2>&1; then log "$RECIPE" "brew install $RECIPE (generic)" installed; exit 0
