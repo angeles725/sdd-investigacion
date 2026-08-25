@@ -46,3 +46,4 @@
 | bwrap | `apt (present)` | already | ? | 2026-08-24T04:23:31Z |  |
 | latex | `apt (present); TeX Live 2023/Debian pdflatex/xelatex/lualatex/latexmk` | already | kit | 2026-08-25T19:47:14Z | external/manual |
 | circuitikz | `apt/texlive (present); circuitikz.sty` | already | kit | 2026-08-25T19:47:14Z | external/manual |
+| diec | `apt (present); /usr/bin/diec Detect-It-Easy CLI` | already | kit | 2026-08-25T19:58:59Z | external/manual |

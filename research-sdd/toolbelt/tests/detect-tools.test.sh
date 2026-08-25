@@ -297,6 +297,34 @@ else
   no "m report prints a row for every blind-spot tool" "missing:$_m_missing"
 fi
 
+# n — new section headers [ hex ] and [ modify / patch ] appear in the report.
+CACHE_N="$ROOT/cache-n.txt"
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_N" --quiet >/dev/null 2>&1 || true
+_n_missing=""
+for _sec_hdr in "[ hex ]" "[ modify / patch ]"; do
+  grep -qF "$_sec_hdr" "$CACHE_N" || _n_missing="$_n_missing $_sec_hdr"
+done
+if [ -z "$_n_missing" ]; then
+  ok "n report prints [ hex ] and [ modify / patch ] section headers" "(2/2)"
+else
+  no "n report prints [ hex ] and [ modify / patch ] section headers" "missing:$_n_missing"
+fi
+
+# o — new tool rows (krak2, diec, hexedit, bvi) appear in the report.
+CACHE_O="$ROOT/cache-o.txt"
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_O" --quiet >/dev/null 2>&1 || true
+_o_missing=""
+for _tool_lbl in "krak2" "diec" "hexedit" "bvi"; do
+  grep -q "^  ${_tool_lbl} " "$CACHE_O" || _o_missing="$_o_missing $_tool_lbl"
+done
+if [ -z "$_o_missing" ]; then
+  ok "o report prints a row for each new #296 tool" "(4/4)"
+else
+  no "o report prints a row for each new #296 tool" "missing:$_o_missing"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
@@ -533,6 +561,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-m: mutant still prints bwrap row — test-m has no teeth" \
        "(line=[$(grep '^  bwrap' "$CACHE_MM" | head -1)])"
+  fi
+
+  # teeth-n (targets test n): mutant removes the [ hex ] section header.
+  # Asserts that test-n detects a missing section header.
+  MUTN="$ROOT/detect-mutn.sh"
+  sed '/echo "\[ hex \]"/d' "$DETECT" > "$MUTN"
+  chmod +x "$MUTN"
+  CACHE_MN="$ROOT/cache-mn.txt"
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTN" --cache "$CACHE_MN" --quiet >/dev/null 2>&1 || true
+  if ! grep -qF "[ hex ]" "$CACHE_MN"; then
+    ok "teeth-n: section-deleted mutant drops [ hex ] from report — test-n bites" "(header absent)"
+  else
+    no "teeth-n: mutant still has [ hex ] header — test-n has no teeth" \
+       "(line=[$(grep '\[ hex \]' "$CACHE_MN" | head -1)])"
+  fi
+
+  # teeth-o (targets test o): mutant removes the krak2 row.
+  # Asserts that test-o detects a missing tool label.
+  MUTO="$ROOT/detect-muto.sh"
+  sed '/row "krak2"/d' "$DETECT" > "$MUTO"
+  chmod +x "$MUTO"
+  CACHE_MO="$ROOT/cache-mo.txt"
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTO" --cache "$CACHE_MO" --quiet >/dev/null 2>&1 || true
+  if ! grep -q "^  krak2 " "$CACHE_MO"; then
+    ok "teeth-o: row-deleted mutant drops krak2 from report — test-o bites" "(row absent)"
+  else
+    no "teeth-o: mutant still prints krak2 row — test-o has no teeth" \
+       "(line=[$(grep '^  krak2 ' "$CACHE_MO" | head -1)])"
   fi
 fi
 
