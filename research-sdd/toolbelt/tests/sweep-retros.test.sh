@@ -1026,6 +1026,38 @@ else
   no "51 no pending retros → marker-honesty note absent (clean run uncluttered)" "exit=$RC out=[$OUT]"
 fi
 
+# 52 — RENAME TRADEOFF (accepted, --follow removed for performance). A retro is CREATED in an early
+#      commit under one name, then RENAMED in a later commit. Without --follow, git-log's
+#      diff-filter=A/added-date lookup dates the file from the RENAME commit, not its original
+#      creation — this is the documented, ACCEPTED tradeoff (see sweep-retros.sh comments above the
+#      git-log call): --follow costs 15x more per invocation and the fleet-wide sweep makes hundreds
+#      of these calls, so it was removed to make the sweep complete inside the session-start hook's
+#      30s timeout. This case is RED against a --follow'd SUT (the deep-past creation date would win
+#      and the retro would ESCALATE) and GREEN after --follow's removal (the recent rename date wins,
+#      under the age threshold, so the retro stays un-escalated).
+kit="$(mkkit c52-rename-tradeoff)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n' \
+  > "$tgt/retros/orig.md"
+git -C "$tgt" init -q -b main
+git -C "$tgt" config user.email t@example.com
+git -C "$tgt" config user.name tester
+git -C "$tgt" add -A
+GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+  git -C "$tgt" commit -q -m "add orig.md"
+git -C "$tgt" mv retros/orig.md retros/renamed.md
+GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
+  git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && ! grep -q 'ESCALATED (aged' <<<"$OUT"; then
+  ok "52 renamed-after-creation retro dated from rename commit, not original add (accepted --follow tradeoff)" "(exit $RC)"
+else
+  no "52 renamed-after-creation retro dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -1321,6 +1353,39 @@ STRIPPED
       ok "teeth T3: guard-removed mutant exits 0 with Summary (case 49 has teeth)" "()"
     else
       no "teeth T3: guard-removed mutant did not exit 0 with Summary — case 49 has no teeth" "rc=$rcm3 out=[$outm3]"
+    fi
+  fi
+
+  # Tooth R1: re-add --follow to a mutant copy → case 52's renamed-retro fixture must ESCALATE
+  # (dated from its deep-past ORIGINAL creation, not the recent rename commit). Proves case 52 is not
+  # vacuous: the --follow removal is the deciding factor, not some other detail of the fixture.
+  echo "-- teeth R1: re-add --follow; renamed-retro fixture must ESCALATE again (case 52 has teeth) --"
+  anchor_r1='added="$(git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"'
+  if [[ "$content" != *"$anchor_r1"* ]]; then
+    no "teeth R1: locate git-log added-date call in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-r1-follow)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n' \
+      > "$tgt/retros/orig.md"
+    git -C "$tgt" init -q -b main
+    git -C "$tgt" config user.email t@example.com
+    git -C "$tgt" config user.name tester
+    git -C "$tgt" add -A
+    GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+      git -C "$tgt" commit -q -m "add orig.md"
+    git -C "$tgt" mv retros/orig.md retros/renamed.md
+    GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
+      git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
+    followed="${anchor_r1/log --diff-filter=A/log --follow --diff-filter=A}"
+    printf '%s\n' "${content/"$anchor_r1"/$followed}" > "$mutant"
+    outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'ESCALATED (aged' <<<"$outm"; then
+      ok "teeth R1: --follow-restored mutant escalates from original creation date (case 52 has teeth)" "()"
+    else
+      no "teeth R1: --follow-restored mutant did not escalate — case 52 is THEATER" "out=[$outm]"
     fi
   fi
 
