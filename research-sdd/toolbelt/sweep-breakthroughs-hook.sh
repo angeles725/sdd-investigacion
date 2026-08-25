@@ -3,7 +3,20 @@
 # additionalContext so unindexed/drifted breakthroughs surface when the supervisor project opens.
 # Wired from .claude/settings.json (SessionStart). Read-only. Twin of sweep-retros-hook.sh.
 here="$(cd "$(dirname "$0")" && pwd)"
-out="$("$here/sweep-breakthroughs.sh" 2>/dev/null)"
+out="$("$here/sweep-breakthroughs.sh" 2>&1)"; rc=$?
+
+# Operational failure: the sweep could not run — surface rather than pass silently.
+if [ "$rc" -ne 0 ]; then
+  hdr="Research-SDD breakthroughs sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg h "$hdr" --arg c "$out" \
+      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
+  else
+    printf '%s\n%s\n' "$hdr" "$out"
+  fi
+  exit 0
+fi
+
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg c "$out" \
     '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD breakthrough ledger sweep (§22):\n"+$c)}}'
