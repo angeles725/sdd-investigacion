@@ -183,6 +183,7 @@ rsdd_render_section() {
     printf '%s\n' '  - `toolbelt/verify-registry.sh`     — TARGETS.md master-table drift'
     printf '%s\n' '  - `toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning'
     printf '%s\n' '  - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets'
+    printf '%s\n' '  - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry'
   fi
   if [ "$needs_mcp_doc" = "true" ]; then
     # Derive the config file path as a home-relative ~/... string (machine-independent).

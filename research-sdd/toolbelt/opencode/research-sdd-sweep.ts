@@ -9,6 +9,7 @@
  *   4. `verify-registry.sh`       — TARGETS.md master-table drift.
  *   5. `verify-kit-clean.sh`      — a banner ONLY when the kit is dirty / unpushed (silent when clean).
  *   6. `sweep-tools.sh`           — unrecorded tools across all targets.
+ *   7. `verify-tool-catalog.sh`   — installed tools missing a capability-catalog entry.
  *
  * OpenCode does not fire `.claude` hooks, so those banners never appeared there — the kit
  * maintainer could open the supervisor in OpenCode and miss pending retros or a dirty tree. This
@@ -58,6 +59,7 @@ const SWEEP_BREAKTHROUGHS = path.join(TOOLBELT, "sweep-breakthroughs.sh")
 const REGISTRY = path.join(TOOLBELT, "verify-registry.sh")
 const KIT_CLEAN = path.join(TOOLBELT, "verify-kit-clean.sh")
 const SWEEP_TOOLS = path.join(TOOLBELT, "sweep-tools.sh")
+const TOOL_CATALOG = path.join(TOOLBELT, "verify-tool-catalog.sh")
 
 async function underKitRepo(dir: string): Promise<boolean> {
   // The supervisor repo root = parent of the research-sdd kit dir. Surface only when the session's
@@ -137,6 +139,29 @@ export const ResearchSddSweepPlugin: Plugin = async (input) => {
           const detail = summaryMatch[0] + (warnMatch ? "\n" + warnMatch[0] : "") +
             "\nRun toolbelt/sweep-tools.sh for per-target breakdown."
           parts.push("Research-SDD tool ledger (unrecorded tools found):\n" + detail)
+        }
+      }
+    }
+
+    // 7. Tool catalog — mirror verify-tool-catalog-hook.sh: silent when every logged tool is
+    // cataloged (or the log is legitimately empty-input); summary otherwise.
+    const catalog = await run(TOOL_CATALOG)
+    if (catalog.code !== 0) {
+      parts.push(`Research-SDD tool catalog check could not run (exit ${catalog.code}):\n` + catalog.out)
+    } else {
+      const catalogSummaryMatch = catalog.out.match(/^Summary:.*$/m)
+      if (!catalogSummaryMatch) {
+        if (catalog.out && !/empty-input|no tool log rows/i.test(catalog.out)) {
+          parts.push("Research-SDD tool catalog check: missing Summary line:\n" + catalog.out)
+        }
+      } else {
+        const notCatalogedMatch = catalogSummaryMatch[0].match(/(\d+) not cataloged/)
+        const notCataloged = notCatalogedMatch ? parseInt(notCatalogedMatch[1], 10) : 0
+        if (notCataloged > 0) {
+          const warnLines = catalog.out.match(/^WARN.*$/gm)
+          const detail = (warnLines ? warnLines.join("\n") + "\n" : "") + catalogSummaryMatch[0] +
+            "\nRun toolbelt/verify-tool-catalog.sh for the full list."
+          parts.push("Research-SDD tool catalog drift (installed but not cataloged):\n" + detail)
         }
       }
     }
