@@ -9,8 +9,11 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | JAR / `.class` Java | `Java class data` / `Zip archive` (jar) | Vineflower (pref.), CFR, Procyon, `javap -p -c` | `decompile-java.sh` | ✅ |
 | JAR corroboration evidence | Valid regular JAR/ZIP | Vineflower + CFR + Procyon + `javap` + `jdeps` | `corroborate-java.sh` (`java-corroboration.v1`) | ✅ |
 | JAR / `.class` JVM call-graph export | `Java class data` / `Zip archive` (jar) | SootUp call-graph exporter (Maven module `jvm-callgraph/`) | `jvm-callgraph.sh analyze [options]` | ✅ |
+| JVM bytecode assemble / disassemble | `Java class data` / `Zip archive` (jar) | krak2 (Krakatau2 2.0.0-alpha) — round-trip `.class` disassemble/assemble | (direct) | ✅ |
 | .NET DLL/EXE | `PE32 .NET assembly` / `Mono/.Net assembly` | `ilspycmd` (resolved via `rsdd_resolve_ilspy`; no pinned version) | `decompile-net.sh` | ✅ |
 | Native ELF/PE | `ELF ... executable` / `PE32 executable` | Ghidra headless (decompile) → r2/objdump fallback | `decompile-native.sh` | ✅ |
+| File-type / packer / compiler / entropy detection | any regular binary or firmware blob | diec (Detect-It-Easy CLI) | (direct) | ✅ |
+| Manual byte-level inspection / patching | any regular binary | hexedit / bvi (interactive hex editors) | (direct; manual step) | ✅ |
 | Native corroboration evidence | Regular native binary | radare2 static analysis in Bubblewrap | `corroborate-native.sh` (`native-static.v1`) | ✅ |
 | Native curated evidence | Regular native binary | Ghidra curated exporter in Bubblewrap | `decompile-native.sh ghidra-evidence` (`ghidra-corroboration.v1`) | ✅ |
 | Native ELF/PE — r2 fallback | Native binary; Ghidra unavailable or a fast disassembly suffices | radare2 static analysis (`aaa` full analysis + `pdf` of `main`; falls back to `afl` if `main` absent; no GUI) | `decompile-native.sh r2 <binary>` | ✅ |
@@ -84,6 +87,9 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | `typst` (0.15.1 — deliverable report generation, see "Deliverable / report generation" above) | `/home/linuxbrew/.linuxbrew/bin/typst` (linuxbrew); resolved via `command -v typst` |
 | LaTeX (`pdflatex`/`xelatex`/`lualatex`/`latexmk` — TeX Live 2023/Debian; deliverable circuit/report generation, see "Deliverable / report generation" above) | `/usr/bin/pdflatex` etc. (apt, root-owned); resolved via `command -v pdflatex` |
 | CircuiTikZ (LaTeX circuit-diagram package) | `/usr/share/texlive/texmf-dist/tex/latex/circuitikz/circuitikz.sty` (apt); resolved via `kpsewhich circuitikz.sty` |
+| krak2 (Krakatau2 — JVM bytecode assembler/disassembler) | `~/.local/bin/krak2` (cargo); resolved via `command -v krak2` |
+| diec (Detect-It-Easy CLI — file-type/packer/entropy detection) | `/usr/bin/diec` (apt, root-owned); resolved via `command -v diec` |
+| hexedit / bvi (interactive hex editors — manual byte inspection) | `/home/linuxbrew/.linuxbrew/bin/hexedit`, `/home/linuxbrew/.linuxbrew/bin/bvi` (linuxbrew); resolved via `command -v` |
 
 ## Environment override
 
