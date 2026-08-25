@@ -218,9 +218,10 @@ echo "    blocks on disk : $blocks · retros: $retros · iteration-history rows:
 # comparison would fire on almost every git target (any unrelated commit is newer than a checkout mtime), so
 # the added-date of the block itself is the signal. PURE DETECTION — advisory WARN (exit stays 0, like the
 # codegen/ parity WARN); it never auto-generates a retro (propose-never-apply).
-rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added) epoch if tracked, else file mtime, else 0
+rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURRENT path — no --follow,
+  # same rename tradeoff as sweep-retros.sh) epoch if tracked, else file mtime, else 0
   local d="$1" f="$2" e
-  e="$(git -C "$d" log --follow --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
+  e="$(git -C "$d" log --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
   [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
   printf '%s' "$e"
 }

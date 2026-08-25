@@ -91,10 +91,13 @@ for p in $paths; do
     esac
     pending=$((pending + 1))
     claims=$(grep -cE '^\| *[0-9]+ \|' "$f" 2>/dev/null)
-    # Age from the git FIRST-COMMIT date of THIS file, falling back to file mtime when untracked or the dir
-    # is not a git repo — so a non-git target never crashes the sweep.
+    # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path, falling back to file mtime when
+    # untracked or the dir is not a git repo — so a non-git target never crashes the sweep.
+    # NO --follow: rename-following is ~15x slower per call (same tradeoff as sweep-retros.sh; see comments
+    # there). Accepted tradeoff: a file RENAMED after creation is dated from its rename commit, not its
+    # original creation — rare for audit files, and a slow sweep is worse than an occasionally later date.
     epoch=""
-    added="$(git -C "$p" log --follow --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
+    added="$(git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
     [ -n "$added" ] && epoch="$(date -d "$added" +%s 2>/dev/null || echo '')"
     [ -n "$epoch" ] || epoch="$(stat -c %Y "$f" 2>/dev/null || echo "$now")"
     age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
