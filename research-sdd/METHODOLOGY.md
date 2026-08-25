@@ -894,6 +894,12 @@ it** (the Wrapper column — or the `(direct)` pattern for a manual tool with no
 and the `.mdb`/CHM rows already do). `toolbelt/verify-tool-catalog.sh` is the anti-silent-zero backstop
 that WARNs when a logged install never got cataloged — treat its WARN as a reminder you skipped, not as
 the mechanism that does the cataloging for you (propose-never-apply: it never edits the registry itself).
+The guard matches case-insensitively, so a logged lowercase name (`vineflower`) finds a Title-case catalog
+entry (`Vineflower`) without extra work. When the logged name and the display name differ entirely (e.g.
+`install-tool.sh` logs `kaitai-struct-compiler` but the catalog entry's display name is `ksc`), the
+catalog row MUST carry the logged name as a searchable alias token — append `(alias: <logged-name>)` to
+the Tool cell of the relevant row. The whole-word case-insensitive match then finds it. Do NOT invent a
+new catalog section; one alias token per row is sufficient and keeps the registry human-readable.
 
 **MCP-server capabilities count as tools too.** §10 was written for `install-tool.sh` binaries, but a
 capability added via an MCP server — e.g. a `chrome-devtools` MCP to reach a JS-rendered chunk a no-JS crawl

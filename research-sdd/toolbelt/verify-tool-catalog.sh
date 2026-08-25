@@ -81,9 +81,15 @@ missing_list=""
 while IFS= read -r tool || [ -n "$tool" ]; do
   [ -n "$tool" ] || continue
   total=$((total + 1))
-  # Whole-word fixed-string match anywhere in tool-registry.md — covers both the capability table's
-  # "Tool" column and the "## Tool paths (verified)" table, since both live in the same file.
-  if grep -qwF -- "$tool" "$REGISTRY_MD"; then
+  # Case-insensitive, whole-word, fixed-string match anywhere in tool-registry.md — covers both
+  # the capability table's "Tool" column and the "## Tool paths (verified)" table, since both live
+  # in the same file. Case-insensitive (-i) reconciles tools whose install-tool.sh LOGGED name uses
+  # lowercase while the catalog display name uses Title or upper case (e.g. 'vineflower' / 'Vineflower',
+  # 'cfr' / 'CFR', 'procyon' / 'Procyon'). Name-divergent tools (where the logged name differs from
+  # the display name entirely, e.g. 'kaitai-struct-compiler' logged vs 'ksc' displayed) MUST carry
+  # the logged name as an alias token in the catalog row so the whole-word match finds it
+  # (e.g. append "(alias: kaitai-struct-compiler)" to the row's Tool cell — see tool-registry.md).
+  if grep -qiwF -- "$tool" "$REGISTRY_MD"; then
     cataloged=$((cataloged + 1))
   else
     missing=$((missing + 1))
