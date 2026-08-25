@@ -258,7 +258,7 @@ Known recipes:
 
 | Domain / artifact | Recipe | Tool | Notes |
 |---|---|---|---|
-| Dart/Flutter AOT (`app.so`) | `install-tool.sh blutter` | worawit/blutter | git clone + pip; needs cmake/C++ & a Dart SDK for full native dump |
+| Dart/Flutter AOT (`app.so`) | `install-tool.sh blutter` | worawit/blutter (alias: blutter-build) | git clone + pip; needs cmake/C++ & a Dart SDK for full native dump; `blutter-build` is the from-source exe-compile step (logged separately) |
 | Android APK/DEX | `install-tool.sh jadx` / `apktool` | jadx / apktool | brew or apt |
 | Python bytecode (`.pyc`) | `install-tool.sh pycdc` / `uncompyle6` | pycdc / decompyle3 | pycdc needs cmake |
 | .NET (`.dll`/`.exe`) | `install-tool.sh ilspycmd` | ilspycmd | already present in this env |
