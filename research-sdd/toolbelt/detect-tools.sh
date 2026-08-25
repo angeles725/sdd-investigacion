@@ -79,6 +79,10 @@ require_label() {
     frida-trace)   printf '%s\n' "frida-trace" ;;
     java|java21)   printf '%s\n' "Java 21" ;;
     javap)         printf '%s\n' "javap 21" ;;
+    krak2)         printf '%s\n' "krak2" ;;
+    diec)          printf '%s\n' "diec" ;;
+    hexedit)       printf '%s\n' "hexedit" ;;
+    bvi)           printf '%s\n' "bvi" ;;
     *) return 1 ;;
   esac
 }
@@ -179,6 +183,10 @@ report() {
   row "readelf" readelf --version "${BREW:+$BREW/bin/readelf}" /usr/bin/readelf
   row "nm" nm --version "${BREW:+$BREW/bin/nm}" /usr/bin/nm
   row "strings" strings --version "${BREW:+$BREW/bin/strings}" /usr/bin/strings
+  echo ""
+  echo "[ hex ]"
+  row "hexedit" hexedit --help "${BREW:+$BREW/bin/hexedit}"
+  row "bvi" bvi --help "${BREW:+$BREW/bin/bvi}"
   echo ""
   echo "[ dynamic / network / emulation ]"
   row "tshark" tshark --version /usr/bin/tshark
@@ -287,11 +295,17 @@ report() {
   echo "[ triage / capability ]"
   row "capa" capa --version "$HOME/.local/bin/capa" "${BREW:+$BREW/bin/capa}"
   row "floss" floss --version "$HOME/.local/bin/floss" "${BREW:+$BREW/bin/floss}"
+  row "diec" diec --version /usr/bin/diec "${BREW:+$BREW/bin/diec}"
   echo ""
   echo "[ dynamic / instrumentation ]"
   # frida-tools is a pipx/venv install → CLIs live in ~/.local/bin (see install-tool.sh frida).
   row "frida" frida --version "$HOME/.local/bin/frida" "${BREW:+$BREW/bin/frida}"
   row "frida-trace" frida-trace --version "$HOME/.local/bin/frida-trace" "${BREW:+$BREW/bin/frida-trace}"
+  echo ""
+  echo "[ modify / patch ]"
+  # krak2 = Krakatau2 JVM bytecode assembler/disassembler; the only modify-capable tool in this
+  # toolbelt (as of #296). Kept visually apart from the read-only analysis sections.
+  row "krak2" krak2 --version "$HOME/.local/bin/krak2" "${BREW:+$BREW/bin/krak2}"
   echo ""
   echo "Note: AVAILABLE means the resolver found the tool AND its bounded validation passed."
   echo "UNUSABLE means found but not runnable; MISSING means not detected."
