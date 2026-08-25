@@ -177,11 +177,12 @@ rsdd_render_section() {
     printf '%s\n' 'start; all read-only, degrade to silence on failure):'
     printf '%s\n' '  Single command (recommended): `toolbelt/sweep-all.sh`'
     printf '%s\n' '  Individual scripts (canonical; sweep-all.sh runs these in sequence):'
-    printf '%s\n' '  - `toolbelt/sweep-retros.sh`     — pending section 18 self-retrospective proposals'
-    printf '%s\n' '  - `toolbelt/sweep-audits.sh`     — pending section 13 audit reports'
-    printf '%s\n' '  - `toolbelt/verify-registry.sh`  — TARGETS.md master-table drift'
-    printf '%s\n' '  - `toolbelt/verify-kit-clean.sh` — kit dirty / unpushed warning'
-    printf '%s\n' '  - `toolbelt/sweep-tools.sh`      — unrecorded tools across all targets'
+    printf '%s\n' '  - `toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals'
+    printf '%s\n' '  - `toolbelt/sweep-audits.sh`        — pending section 13 audit reports'
+    printf '%s\n' '  - `toolbelt/sweep-breakthroughs.sh` — unindexed/drifted section 22 breakthrough ledger entries'
+    printf '%s\n' '  - `toolbelt/verify-registry.sh`     — TARGETS.md master-table drift'
+    printf '%s\n' '  - `toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning'
+    printf '%s\n' '  - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets'
   fi
   if [ "$needs_mcp_doc" = "true" ]; then
     # Derive the config file path as a home-relative ~/... string (machine-independent).
