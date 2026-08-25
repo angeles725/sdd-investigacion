@@ -195,6 +195,53 @@ else
   no "10 narrative '## <tool>' section entries are checked; uncataloged one WARNs" "exit=$RC out=[$OUT]"
 fi
 
+# 11 — case-insensitive match: logged lowercase tool name ('vineflower') vs cataloged Title-case
+# ('Vineflower') in tool-registry.md. Must count as CATALOGED (no WARN). Without -i the match
+# fails and a false WARN fires — this is the exact false-negative the case fix closes.
+kit="$(mkkit c11-case)"
+{ installed_header; printf '| vineflower | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
+  > "$kit/INSTALLED-TOOLS.md"
+{ printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
+  printf '| JAR decompile | Vineflower direct |\n'
+} > "$kit/tool-registry.md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q '0 not cataloged' <<<"$OUT" && ! grep -q "WARN.*'vineflower'" <<<"$OUT"; then
+  ok "11 case-insensitive: logged 'vineflower' matches cataloged 'Vineflower' → no WARN" "(exit $RC)"
+else
+  no "11 case-insensitive: logged 'vineflower' matches cataloged 'Vineflower' → no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 12 — alias token: logged 'kaitai-struct-compiler' vs display name 'ksc' in catalog.
+# (a) WITH the alias token 'kaitai-struct-compiler' present in the row  → CATALOGED, no WARN.
+# (b) WITHOUT the alias token (only display name 'ksc')                 → NOT cataloged, WARN fires.
+# Both directions must hold to prove the alias token is what carries the match.
+kit="$(mkkit c12-alias)"
+{ installed_header; printf '| kaitai-struct-compiler | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
+  > "$kit/INSTALLED-TOOLS.md"
+# (a) alias present
+{ printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
+  printf '| Binary parse | ksc 0.11 (alias: kaitai-struct-compiler) direct |\n'
+} > "$kit/tool-registry.md"
+run "$kit"
+alias_present_rc=$RC; alias_present_out="$OUT"
+# (b) alias absent (only display name 'ksc')
+{ printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
+  printf '| Binary parse | ksc 0.11 direct |\n'
+} > "$kit/tool-registry.md"
+run "$kit"
+alias_absent_rc=$RC; alias_absent_out="$OUT"
+if [ "$alias_present_rc" = 0 ] \
+   && grep -q '0 not cataloged' <<<"$alias_present_out" \
+   && ! grep -q "WARN.*'kaitai-struct-compiler'" <<<"$alias_present_out" \
+   && [ "$alias_absent_rc" = 0 ] \
+   && grep -q "WARN.*'kaitai-struct-compiler'" <<<"$alias_absent_out" \
+   && grep -q '1 not cataloged' <<<"$alias_absent_out"; then
+  ok "12 alias token: cataloged via alias in ksc row; without alias → WARN fires" "(exit $alias_present_rc / $alias_absent_rc)"
+else
+  no "12 alias token: expected CATALOGED with alias, NOT-CATALOGED without" \
+    "with_alias=[exit=$alias_present_rc out=$alias_present_out] without_alias=[exit=$alias_absent_rc out=$alias_absent_out]"
+fi
+
 # ======================== TEETH (mutation proof) — --prove-teeth ==========================
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: verify-tool-catalog.sh must go RED under meaningful mutations --"
@@ -252,8 +299,8 @@ open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
     > "$kit/tool-registry.md"
   python3 -c "
 src = open('$SUT').read()
-old = 'grep -qwF'
-new = 'grep -qF'
+old = 'grep -qiwF'
+new = 'grep -qiF'
 assert old in src, 'mutation anchor not found in SUT'
 open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
 "
@@ -283,6 +330,46 @@ open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
     ok "teeth D: Form-2 extraction stripped → '## <tool>' entry vanishes → test 10 catches it (RED)"
   else
     no "teeth D: Form-2 stripped but section tool still seen — mutation ineffective"
+  fi
+
+  # Tooth E: strip -i from the matcher (grep -qiwF → grep -qwF) — logged lowercase tool names
+  # cataloged only in Title/upper case must then generate false WARNs (the false-negative
+  # the case fix closes). Case 11 (vineflower/Vineflower) must catch this and go RED.
+  kit="$(mkkit tE-no-case-i)"
+  { installed_header; printf '| vineflower | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
+    > "$kit/INSTALLED-TOOLS.md"
+  { printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
+    printf '| JAR decompile | Vineflower direct |\n'
+  } > "$kit/tool-registry.md"
+  python3 -c "
+src = open('$SUT').read()
+old = 'grep -qiwF'
+new = 'grep -qwF'
+assert old in src, 'mutation anchor not found in SUT'
+open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
+"
+  chmod +x "$kit/verify-tool-catalog.sh"
+  run "$kit"
+  if grep -q "WARN.*'vineflower'" <<<"$OUT"; then
+    ok "teeth E: -i stripped → case mismatch generates false WARN for 'vineflower' → case 11 catches it (RED)"
+  else
+    no "teeth E: -i stripped but WARN absent — mutation ineffective, -i not what suppresses the WARN"
+  fi
+
+  # Tooth F: alias token drives the match — removing it from the fixture must cause a WARN.
+  # Uses the un-mutated SUT to prove that without the alias token in the registry row, the logged
+  # name 'kaitai-struct-compiler' cannot match display-only 'ksc', confirming the alias is the carrier.
+  kit="$(mkkit tF-alias-removed)"
+  { installed_header; printf '| kaitai-struct-compiler | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
+    > "$kit/INSTALLED-TOOLS.md"
+  { printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
+    printf '| Binary parse | ksc 0.11 direct |\n'
+  } > "$kit/tool-registry.md"
+  run "$kit"
+  if grep -q "WARN.*'kaitai-struct-compiler'" <<<"$OUT" && grep -q '1 not cataloged' <<<"$OUT"; then
+    ok "teeth F: alias token absent from registry row → 'kaitai-struct-compiler' WARNs as expected (RED)"
+  else
+    no "teeth F: alias token absent but no WARN — fixture or SUT behavior changed" "out=[$OUT]"
   fi
 fi
 
