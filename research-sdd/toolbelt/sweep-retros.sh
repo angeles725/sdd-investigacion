@@ -137,10 +137,18 @@ for p in $paths; do
           | grep -oE '[0-9]+'
       } | sort -un | wc -l | tr -d ' '
     )
-    # Age from the git FIRST-COMMIT date of THIS file (when it entered review), falling back to file mtime
-    # when the file is untracked or the dir is not a git repo — so a non-git target never crashes the sweep.
+    # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
+    # under that name), falling back to file mtime when the file is untracked or the dir is not a git
+    # repo — so a non-git target never crashes the sweep.
+    # NO --follow: rename-following is 15x slower per call (measured: 0.405s/call with --follow vs
+    # 0.027s/call without, on a 526-commit / 473-file target) and this sweep makes hundreds of these
+    # calls per run — with --follow the sweep took ~200s and was killed by the session-start hook's
+    # 30s timeout, surfacing nothing. Accepted tradeoff: a file RENAMED after creation is now dated
+    # from its rename commit, not its original creation — rare for retro/block files (they are not
+    # routinely renamed post-creation), and a sweep that never completes is worse than an occasionally
+    # later "added" date.
     epoch=""
-    added="$(git -C "$p" log --follow --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
+    added="$(git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
     [ -n "$added" ] && epoch="$(date -d "$added" +%s 2>/dev/null || echo '')"
     [ -n "$epoch" ] || epoch="$(stat -c %Y "$f" 2>/dev/null || echo "$now")"
     age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
@@ -182,9 +190,10 @@ fi
 # is newer than a checkout mtime — so the added-date of the block itself is the signal.) PURE DETECTION — it
 # only FLAGS the gap for the human; it never auto-generates a retro (propose-never-apply). Reuses the same
 # $paths derivation (truncated '...' paths already skipped + WARNed above).
-rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added) epoch if tracked, else file mtime, else 0
+rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURRENT path — no --follow,
+  # see the rename tradeoff note above rsdd's sibling lookup) epoch if tracked, else file mtime, else 0
   local d="$1" f="$2" e
-  e="$(git -C "$d" log --follow --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
+  e="$(git -C "$d" log --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
   [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
   printf '%s' "$e"
 }
