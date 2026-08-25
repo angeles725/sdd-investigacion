@@ -58,6 +58,12 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Windows/PowerShell SNMP v2c probe | Windows bridge with no net-snmp; UDP/161 not forwardable via `ssh -L` | Hand-built BER `Snmp-Get` / `Snmp-Walk` / `Snmp-Set` over `UdpClient`; SNMP-enabled ≠ SNMP-answering gotchas documented | (dynamic §12; [`snmp-ps.md`](snmp-ps.md)) | ✅ |
 | Cloudflare-Tunnel + Windows-SSH bring-up | Provisioning sshd + cloudflared on a live-install Windows appliance from scratch | Five compiled scars: host-key ACLs, firewall `-Profile Any`, service machine-binding, `sc.exe` deletion guard, safety-net task verification | [`WINDOWS-SSH-BRINGUP.md`](WINDOWS-SSH-BRINGUP.md) | ✅ |
 
+### Deliverable / report generation
+
+| Artifact type | Detection (`file`) | Tool | Wrapper | Status |
+|---|---|---|---|---|
+| Deliverable: findings report / learning manual → PDF or DOCX | certified Markdown blocks (kit output) | typst 0.15.1 via `pandoc --pdf-engine=typst` (PDF, reproducible w/ SOURCE_DATE_EPOCH); `pandoc … -o x.docx` for DOCX (no engine) | (direct; future publish-report.sh) | ✅ |
+
 ## Tool paths (verified)
 
 | Tool | Path |
@@ -74,6 +80,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | PDF→MD venv (`pymupdf4llm`, `ocrmypdf`, `marker`, `docling`, `pdfplumber`, torch-cpu) | `~/.local/share/research-sdd-tools/venv` (override: `RESEARCH_SDD_VENV`) |
 | TShark/tcpdump, GDB/gdb-multiarch, strace/ltrace, QEMU system/user-static/img | system CLI paths; each is smoke-tested by `detect-tools.sh` |
 | Hyperscan (`libhs.pc`) | system multiarch pkg-config dirs, injected only into the `rsdd_pkg_config` child process |
+| `typst` (0.15.1 — deliverable report generation, see "Deliverable / report generation" above) | `/home/linuxbrew/.linuxbrew/bin/typst` (linuxbrew); resolved via `command -v typst` |
 
 ## Environment override
 

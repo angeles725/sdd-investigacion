@@ -200,6 +200,14 @@ a decompile is NOT evidence until corroborated: cross-check it with the matching
 `$KIT/toolbelt/corroborate-*.sh` wrapper (`tool-registry.md`) — an un-anchored offset can hit a twin
 binary (niagara B424).
 
+**Installing a tool is not the end of provisioning — cataloging it is.** `install-tool.sh` auto-logs
+every install to `INSTALLED-TOOLS.md`; that half needs no action. Adding the path (Tool paths table),
+purpose (Artifact type row), and how-to-use (Wrapper column, or `(direct)` for a manual tool) to
+`toolbelt/tool-registry.md` is YOUR job, done proactively as part of the install — do it unprompted,
+same as you would save a decision to memory without being asked. `toolbelt/verify-tool-catalog.sh` is
+the anti-silent-zero backstop that WARNs on a logged-but-uncataloged tool; treat its WARN as a missed
+step, not a substitute for doing it.
+
 ## Execution mode
 
 Default is **self-paced** (this session becomes the loop driver and self-reschedules). For a long run that
