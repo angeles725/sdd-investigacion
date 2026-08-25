@@ -19,6 +19,7 @@ harness=codex
   |   - `toolbelt/verify-registry.sh`     — TARGETS.md master-table drift
   |   - `toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning
   |   - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets
+  |   - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry
   | 
   | MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically
   | into `~/.codex/config.toml` by the installer — an idempotent marked block

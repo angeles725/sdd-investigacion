@@ -884,6 +884,17 @@ Safety line (independent of the autonomy level): only **known recipes / official
 (with the command used), (b) tools it needed but could NOT install (and why → these are what to ask
 the user about), and (c) recommended tools for the domain. Source of truth: `toolbelt/INSTALLED-TOOLS.md`.
 
+**Installing a tool is not complete until it is CATALOGED.** `install-tool.sh` auto-appends every
+install attempt to `toolbelt/INSTALLED-TOOLS.md` — that LOG half is automatic and needs no action from
+you. It does NOT write `toolbelt/tool-registry.md`, the CAPABILITY CATALOG half: **that is your job**,
+done proactively as part of the install, unprompted, the same way a decision or a bugfix gets saved to
+memory without being asked. Cataloging a tool means adding, in `tool-registry.md`: its **path** (a row
+in "## Tool paths (verified)"), **what it's for** (an Artifact type / Detection row), and **how to use
+it** (the Wrapper column — or the `(direct)` pattern for a manual tool with no kit wrapper, as js-beautify
+and the `.mdb`/CHM rows already do). `toolbelt/verify-tool-catalog.sh` is the anti-silent-zero backstop
+that WARNs when a logged install never got cataloged — treat its WARN as a reminder you skipped, not as
+the mechanism that does the cataloging for you (propose-never-apply: it never edits the registry itself).
+
 **MCP-server capabilities count as tools too.** §10 was written for `install-tool.sh` binaries, but a
 capability added via an MCP server — e.g. a `chrome-devtools` MCP to reach a JS-rendered chunk a no-JS crawl
 cannot — is provisioning too, and it lives in GLOBAL session config (`~/.claude.json` `mcpServers`), not
