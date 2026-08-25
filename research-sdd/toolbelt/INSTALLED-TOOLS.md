@@ -21,3 +21,26 @@
 - **Invocación**: `bkcrack -C <clean.zip> -c <entry> -p <plainfile> -o <offset>` (offset = coord del stream COMPRIMIDO, mín -12). Recupera claves internas X Y Z; luego `-r <len> ?p` recupera password, `-k X Y Z -d out` descifra. El `.bin` lleva 1024 bytes de prefijo: `dd bs=1024 skip=1` para el zip limpio.
 - **Gotcha clave**: el known-plaintext debe ser de una región STORED (verbatim). Los deflaters que COMPRIMEN los runs de NUL (padding del tar) anulan el KP estructural trivial. En Milesight, sólo `42_r4` trae `upgrade_tool.tar.gz` como `ZipCrypto Store` (gzip verbatim) → KP = FNAME del gzip.
 - **Nota**: READ-ONLY — opera sobre copias en scratchpad, nunca sobre el `.bin` del corpus.
+| vineflower | `https://github.com/Vineflower/vineflower/releases/download/1.12.0/vineflower-1.12.0.jar` | installed | ? | 2026-08-23T23:58:44Z | pinned 1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d |
+| cfr | `https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar` | installed | ? | 2026-08-23T23:58:44Z | pinned f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2 |
+| procyon | `https://github.com/mstrobel/procyon/releases/download/v0.6.0/procyon-decompiler-0.6.0.jar` | installed | ? | 2026-08-23T23:58:45Z | pinned 821da96012fc69244fa1ea298c90455ee4e021434bc796d3b9546ab24601b779 |
+| jadx | `brew install jadx` | installed | ? | 2026-08-23T23:59:19Z |  |
+| apktool | `brew install apktool` | installed | ? | 2026-08-23T23:59:24Z |  |
+| yara | `brew (present)` | already | ? | 2026-08-23T23:59:24Z |  |
+| jadx | `brew (present)` | already | ? | 2026-08-23T23:59:35Z |  |
+| frida | `pipx install frida-tools` | failed | ? | 2026-08-24T00:00:14Z | pipx missing or install failed; ensure ~/.local/bin on PATH |
+| uncompyle6 | `pip decompyle3` | failed | ? | 2026-08-24T00:00:15Z |  |
+| ilspycmd | `dotnet tool ilspycmd` | failed | ? | 2026-08-24T00:00:15Z |  |
+| frida | `pipx install frida-tools` | failed | ? | 2026-08-24T00:00:26Z | pipx missing or install failed; ensure ~/.local/bin on PATH |
+| frida | `pipx install frida-tools` | installed | ? | 2026-08-24T00:01:28Z | frida + frida-trace -> ~/.local/bin |
+| pycdc | `git clone zrax/pycdc + cmake make` | installed | ? | 2026-08-24T00:02:43Z | /home/cristian/dev/pycdc |
+| uncompyle6 | `pip decompyle3` | failed | ? | 2026-08-24T00:02:44Z |  |
+| ilspycmd | `dotnet tool install -g ilspycmd` | installed | ? | 2026-08-24T00:03:59Z |  |
+| kaitai-struct-compiler | `brew (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| hexedit | `brew (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| bvi | `brew (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| capa | `pipx (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| floss | `pipx (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| unblob | `pipx (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| krak2 | `cargo (present)` | already | ? | 2026-08-24T04:23:31Z |  |
+| bwrap | `apt (present)` | already | ? | 2026-08-24T04:23:31Z |  |

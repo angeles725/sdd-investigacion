@@ -110,7 +110,8 @@ Sensitivity:
 | 24 | web-hmi10cf | `$RESEARCH_HOME/Honeywell/WEB-HMI10-CF` | **intermediate** (9 md @2026-08-12 / 1 run / git yes / remote no / hook file yes) `[CERT]` · **`live-install`** — detail §24 | Honeywell/CentraLine **WEB-HMI10/CF** 10.1" HTML5 web panel (i.MX8M Mini Cortex-A53, Linux, Chromium kiosk) — 4 official PDFs; artifact detail → §24 `[CERT-doc]`/`[CERT-hw]` | `fetch-doc.sh` + `extract-pdf.sh`; live probes (§12) pending reachability | English `[CERT]` |
 | 25 | forense | `$RESEARCH_HOME/investigacion/forense` | **intermediate** (6 md / 1 run / 1 retro / git yes / remote no / hook file yes) `[CERT]` — STOP 6/6; DESIGN/APPLIED; companion to #17 | Defensive data-protection design (own work product only; strict defensive scope) — crypto containers, signatures, timestamping, tamper-evident logs, Cloudflare access alerts `[CERT-web]`/`[CERT-doc]` | `fetch-doc.sh` + WebFetch/WebSearch | English `[CERT]` |
 | 26 | COB-IM2 | `$RESEARCH_HOME/investigacion/COB-IM2` | **incipient** (12 md @2026-08-21 / git yes / remote no / hook file yes) `[CERT]` — detail §26 | Architectural/mechanical CAD: three AutoCAD-2018 (`AC1032`) DWG sheets (14A/B/C); artifact detail → §26 `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (probes adapted from #18) | English `[CERT]` |
-| 27 | hotelpalace-tunnel | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelPalace` | **incipient** (6 blocks @2026-08-22 / 1 run / git yes / remote no / hook file yes) `[CERT]` · **`live-install`** · nested corpus under `corpus/` · document-mode (§20) — companion to #17 | Cloudflare Tunnel install bundle (`palace-pc`, remote-managed) for the hotel PC (`10.2.40.11`): PowerShell/.bat installers, OpenSSH-over-tunnel access; runbook of failure modes | Direct reading of bundle scripts | Spanish (operational runbook for MX site tech) `[CERT]` |
+| 27 | hotelpalace-tunnel | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelPalace` | **incipient** (1 block @2026-08-25 / 1 run / git yes / remote no / hook no) `[CERT]` · **`live-install`** · nested corpus under `corpus/` · document-mode (§20) — companion to #17 — detail §27 | Cloudflare Tunnel install bundle (`palace-pc`, remote-managed) for the hotel PC (`10.2.40.11`): PowerShell/.bat installers, OpenSSH-over-tunnel access; runbook of failure modes | Direct reading of bundle scripts | Spanish (operational runbook for MX site tech) `[CERT]` |
+| 28 | sullair | `$RESEARCH_HOME/investigacion/sullair` | **intermediate** (20 md @2026-08-24 / 11-of-13 gaps / git yes / remote yes / hook file yes) `[CERT]` · nested corpus under `corpus/`; remote `angeles725/investigacion-sullair` PRIVATE — detail §28 | Sullair Supervisor air-compressor controllers comms — RS-485 + Modbus protocol RE; 1 PRIMARY PDF + secondary consultant report + AI-artifact HTML, no binary `[CERT-doc]` — detail §28 | `extract-pdf.sh` + `fetch-doc.sh` + web scout | English (corpus) `[CERT]` |
 
 ---
 
@@ -521,6 +522,25 @@ three AutoCAD-2018 (`AC1032`) DWG sheets (14A/B/C) of one level-4 floor, discipl
 INBAS; authored duct network on `HVAC - Ductos`, the rest is a traced-PDF underlay `[CERT]`.
 **12-gap backlog**; §19 3D-viewer deliverable → `disenos/COB-IM2/`.
 **Startup:** continue; probes adapted from #18.
+
+### 27 — hotelpalace-tunnel `[CERT]`
+
+**`live-install`**, document-mode (§20). Nested corpus under `corpus/`, companion to #17 (hilton-bms).
+Cloudflare Tunnel install bundle (`palace-pc`, remote-managed) for the hotel PC (`10.2.40.11`):
+PowerShell/.bat installers, OpenSSH-over-tunnel access; runbook of failure modes `[CERT]`.
+**RECONSTRUCTED after WSL2 loss:** the prior 6-block corpus @2026-08-22 had no remote or engram
+mirror and was lost with the WSL2 wipe; only 1 block survived reconstruction. **Needs a private
+remote** so it cannot be lost again.
+**Startup:** re-establish a private remote, then continue reading the bundle scripts.
+
+### 28 — sullair `[CERT]`
+
+Nested corpus under `corpus/`, prefix `sullair-`; remote `angeles725/investigacion-sullair` (PRIVATE).
+DESIGN/DOC corpus: RS-485 + Modbus protocol reverse-engineering from primary manuals. Sources: 1
+PRIMARY PDF (User Manual 02250146-049 R02) + a secondary consultant report citing Protocol Manual
+02250057-696 and Modbus spec 02250162-949 + an AI-artifact HTML; no binary `[CERT]`.
+**11-of-13 gaps** open; corpus is at 20 blocks (@2026-08-24).
+**Startup:** continue protocol RE from the primary manuals.
 
 ---
 
