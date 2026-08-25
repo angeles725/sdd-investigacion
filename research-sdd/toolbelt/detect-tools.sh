@@ -60,7 +60,12 @@ require_label() {
     apktool)       printf '%s\n' "apktool" ;;
     ilspycmd)      printf '%s\n' "ilspycmd" ;;
     binwalk)       printf '%s\n' "binwalk" ;;
+    unblob)        printf '%s\n' "unblob" ;;
     yara)          printf '%s\n' "yara" ;;
+    bwrap)         printf '%s\n' "bwrap (sandbox)" ;;
+    capa)          printf '%s\n' "capa" ;;
+    floss)         printf '%s\n' "floss" ;;
+    kaitai|ksc)    printf '%s\n' "kaitai-struct-compiler" ;;
     pdftotext)     printf '%s\n' "pdftotext" ;;
     pdfinfo)       printf '%s\n' "pdfinfo" ;;
     tesseract)     printf '%s\n' "tesseract" ;;
@@ -238,7 +243,12 @@ report() {
   _detect_ilspycmd
   echo ""
   echo "[ firmware ]"
+  # binwalk MUST resolve to the root-owned /usr/bin/binwalk: corroborate_firmware.py
+  # rejects any other path (chain of custody). A brew copy is user-writable and
+  # produces evidence the wrapper will refuse.
   row "binwalk" binwalk --help /usr/bin/binwalk "${BREW:+$BREW/bin/binwalk}"
+  row "unblob" unblob --help "$HOME/.local/bin/unblob" "${BREW:+$BREW/bin/unblob}"
+  row "kaitai-struct-compiler" kaitai-struct-compiler --version "${BREW:+$BREW/bin/kaitai-struct-compiler}" /usr/bin/kaitai-struct-compiler
   row "yara" yara --version "${BREW:+$BREW/bin/yara}" /usr/bin/yara
   if hs_version="$(rsdd_pkg_config --modversion libhs 2>/dev/null)"; then
     printf '  %-22s AVAILABLE   libhs %s (command-local system pkg-config path)\n' "Hyperscan pkg-config" "$hs_version"
@@ -265,6 +275,18 @@ report() {
   echo ""
   echo "[ python bytecode ]"
   row "pycdc" pycdc --help "$HOME/dev/pycdc/pycdc"
+  echo ""
+  echo "[ isolation / sandbox ]"
+  # bwrap gates the ENTIRE slow test lane and every wrapper that runs an analyzer
+  # over untrusted input. Absent, `RSDD_TEST_LANE=slow` skips whole suites and
+  # emits `0 passed / 0 failed` with exit 0 — a green report over an unexercised
+  # toolchain. It was invisible to this report until 2026-08-23.
+  # It must be root-owned and non-writable (corroborate_ghidra.py, firmware_carve.py).
+  row "bwrap (sandbox)" bwrap --version /usr/bin/bwrap "${BREW:+$BREW/bin/bwrap}"
+  echo ""
+  echo "[ triage / capability ]"
+  row "capa" capa --version "$HOME/.local/bin/capa" "${BREW:+$BREW/bin/capa}"
+  row "floss" floss --version "$HOME/.local/bin/floss" "${BREW:+$BREW/bin/floss}"
   echo ""
   echo "[ dynamic / instrumentation ]"
   # frida-tools is a pipx/venv install → CLIs live in ~/.local/bin (see install-tool.sh frida).

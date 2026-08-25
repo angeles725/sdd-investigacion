@@ -261,6 +261,42 @@ else
      "rc=$rc_k stderr=[$(head -1 "$stderr_k" 2>/dev/null || true)]"
 fi
 
+# l — blind-spot tools are KNOWN names (regression guard).
+# bwrap, capa, floss, unblob and the kaitai compiler all have wrappers, evidence
+# contracts and test suites in this toolbelt, yet none appeared in this report
+# until 2026-08-23. bwrap's absence is the worst: it gates the ENTIRE slow lane,
+# so every slow suite emitted `0 passed / 0 failed` with exit 0 while the report
+# still read AVAILABLE for 35 of 38 tools.
+# Assertion is exit-code-shaped, not availability-shaped: an unknown --require
+# name exits 2 (see case e). Any other exit proves the name is mapped. That is
+# deterministic on every host, unlike asserting MISSING for a tool the host has.
+for _bs_tool in bwrap capa floss unblob kaitai; do
+  rc_l=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --cache "$ROOT/cache-l-$_bs_tool.txt" --quiet \
+    --require "$_bs_tool" 2>/dev/null >/dev/null || rc_l=$?
+  if [ "$rc_l" -ne 2 ]; then
+    ok "l --require $_bs_tool: name is mapped (not exit 2)" "(rc=$rc_l)"
+  else
+    no "l --require $_bs_tool: name unknown to require_label" "rc=$rc_l"
+  fi
+done
+
+# m — the report actually PRINTS a row for each blind-spot tool.
+# Case l only proves the name resolves; this proves the operator can SEE it.
+CACHE_M="$ROOT/cache-m.txt"
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_M" --quiet >/dev/null 2>&1 || true
+_m_missing=""
+for _bs_label in "bwrap (sandbox)" "capa" "floss" "unblob" "kaitai-struct-compiler"; do
+  grep -q "^  ${_bs_label} " "$CACHE_M" || _m_missing="$_m_missing $_bs_label"
+done
+if [ -z "$_m_missing" ]; then
+  ok "m report prints a row for every blind-spot tool" "(5/5)"
+else
+  no "m report prints a row for every blind-spot tool" "missing:$_m_missing"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
@@ -466,6 +502,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-il: shim still shows AVAILABLE — test-il has no teeth" \
        "(line=[$ilspy_line_mil])"
+  fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-l (targets test l): mutant drops bwrap from require_label.
+  # Mutation is applied to a COPY under $ROOT — never to $DETECT itself.
+  MUTL="$ROOT/detect-mutl.sh"
+  sed '/^    bwrap)  *printf/d' "$DETECT" > "$MUTL"
+  chmod +x "$MUTL"
+  rc_ml=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTL" --cache "$ROOT/cache-ml.txt" --quiet --require bwrap \
+    >/dev/null 2>/dev/null || rc_ml=$?
+  if [ "$rc_ml" -eq 2 ]; then
+    ok "teeth-l: unmapped-bwrap mutant exits 2 — test-l bites" "(mutant rc=2)"
+  else
+    no "teeth-l: mutant must exit 2 for unmapped bwrap" "mutant rc=$rc_ml"
+  fi
+
+  # teeth-m (targets test m): mutant deletes the bwrap report row.
+  MUTM="$ROOT/detect-mutm.sh"
+  sed '/row "bwrap (sandbox)"/d' "$DETECT" > "$MUTM"
+  chmod +x "$MUTM"
+  CACHE_MM="$ROOT/cache-mm.txt"
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTM" --cache "$CACHE_MM" --quiet >/dev/null 2>&1 || true
+  if ! grep -q '^  bwrap (sandbox) ' "$CACHE_MM"; then
+    ok "teeth-m: row-deleted mutant drops bwrap from report — test-m bites" "(row absent)"
+  else
+    no "teeth-m: mutant still prints bwrap row — test-m has no teeth" \
+       "(line=[$(grep '^  bwrap' "$CACHE_MM" | head -1)])"
   fi
 fi
 
