@@ -275,6 +275,36 @@ else
   no "13 no usable paths → exit 1, ERROR message, no summary" "exit=$RC out=[$OUT]"
 fi
 
+# 14 — RENAME TRADEOFF (accepted, --follow removed for performance). An audit is CREATED in an early
+#      commit under one name, then RENAMED in a later commit. Without --follow, git-log's
+#      diff-filter=A/added-date lookup dates the file from the RENAME commit, not its original
+#      creation — this is the documented, ACCEPTED tradeoff (mirrors sweep-retros.sh case 52 and the
+#      --follow removal in sweep-retros.sh for the same reason). This case is RED against a --follow'd
+#      SUT (the deep-past creation date would win and the audit would ESCALATE) and GREEN after
+#      --follow's removal (the recent rename date wins, under the age threshold, audit stays un-escalated).
+kit="$(mkkit c14-rename-tradeoff)"; tgt="$kit/targetA"
+mkdir -p "$tgt/audits"
+printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | some claim | CONFIRMED |\n' \
+  > "$tgt/audits/orig.md"
+git -C "$tgt" init -q -b main
+git -C "$tgt" config user.email t@example.com
+git -C "$tgt" config user.name tester
+git -C "$tgt" add -A
+GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+  git -C "$tgt" commit -q -m "add orig.md"
+git -C "$tgt" mv audits/orig.md audits/renamed.md
+GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
+  git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
+write_targets "$kit" "$tgt"
+OUT="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && ! grep -q 'ESCALATED (aged' <<<"$OUT"; then
+  ok "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "(exit $RC)"
+else
+  no "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED audit to false-surface as PENDING --"
@@ -295,6 +325,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: skip-neutered mutant should surface applied audit as PENDING" \
          "mutant stayed quiet — case 2 is THEATER: [$outm]"
+    fi
+  fi
+
+  echo "-- teeth(rename-tradeoff): reintroduce --follow to added= lookup; renamed-after-creation audit must ESCALATE --"
+  follow_anchor='git -C "$p" log --diff-filter=A --format=%aI -1 -- "$f"'
+  if [[ "$content" != *"$follow_anchor"* ]]; then
+    no "teeth(rename-tradeoff): locate added= git-log line" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-rename-tradeoff)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/audits"
+    printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | some claim | CONFIRMED |\n' \
+      > "$tgt/audits/orig.md"
+    git -C "$tgt" init -q -b main
+    git -C "$tgt" config user.email t@example.com
+    git -C "$tgt" config user.name tester
+    git -C "$tgt" add -A
+    GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+      git -C "$tgt" commit -q -m "add orig.md"
+    git -C "$tgt" mv audits/orig.md audits/renamed.md
+    GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
+      git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
+    write_targets "$kit" "$tgt"
+    follow_replacement='git -C "$p" log --follow --diff-filter=A --format=%aI -1 -- "$f"'
+    mutant="$kit/toolbelt/sweep-audits.sh"
+    printf '%s\n' "${content/"$follow_anchor"/$follow_replacement}" > "$mutant"
+    outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'ESCALATED (aged' <<<"$outm"; then
+      ok "teeth(rename-tradeoff): --follow mutant ESCALATES renamed-after-creation audit → case 14 has teeth"
+    else
+      no "teeth(rename-tradeoff): --follow mutant did not ESCALATE — case 14 is THEATER: [$outm]"
     fi
   fi
 fi

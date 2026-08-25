@@ -887,6 +887,67 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
   && ok "35 split-layout: UF=1 in sibling subdir (beta) → REFUSED (exit 3, undocumented_findings in report)" \
   || no "35 split-layout: exit=$rc (want 3) / mention=$(grep -ci 'undocumented_findings' <<<"$out") :: $out"
 
+# 36 — RENAME TRADEOFF (accepted, --follow removed from rsdd_added_epoch() for performance, mirrors
+#      sweep-retros.sh and sweep-audits.sh). A retro is CREATED at a deep-past date under one name,
+#      then RENAMED in a later commit (AFTER the block was added). Without --follow, rsdd_added_epoch()
+#      dates the retro from its RENAME commit (2026-02-01, after the block at 2026-01-10) → newest retro
+#      epoch > newest block epoch → NO MISSING-RETRO WARN. With --follow (pre-fix), the original
+#      creation date (year 2000) would be used → newest block epoch > newest retro epoch → WARN fires.
+#      This case is RED against the --follow'd SUT (WARN fires) and GREEN after removal (no WARN).
+d="$TMP/rename-tradeoff"
+mkdir -p "$d"
+git -C "$d" init -q -b main
+git -C "$d" config user.email t@example.com
+git -C "$d" config user.name tester
+cat > "$d/RESEARCH-STATE.md" <<'EOF'
+# T — Research State
+
+## Coverage
+
+- **Covered blocks**: 1 (B1)
+- **Coverage metric**: 2 / 3 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | still-open gap | web | pending |
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-07 | first gap | B1 | no · inline | 1 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+EOF
+: > "$d/INDEX.md"
+git -C "$d" add -A
+GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" \
+  git -C "$d" commit -q -m "baseline"
+printf '# Block 1\nBody.\n' > "$d/t-block1.md"
+git -C "$d" add t-block1.md
+GIT_AUTHOR_DATE="2026-01-10T00:00:00" GIT_COMMITTER_DATE="2026-01-10T00:00:00" \
+  git -C "$d" commit -q -m "add block1"
+mkdir -p "$d/retros"
+printf '# retro\n' > "$d/retros/orig-retro.md"
+git -C "$d" add retros/orig-retro.md
+GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+  git -C "$d" commit -q -m "add orig-retro.md (deep-past)"
+git -C "$d" mv retros/orig-retro.md retros/retro-focus.md
+GIT_AUTHOR_DATE="2026-02-01T00:00:00" GIT_COMMITTER_DATE="2026-02-01T00:00:00" \
+  git -C "$d" commit -q -m "rename orig-retro.md to retro-focus.md"
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qi 'MISSING-RETRO' <<<"$out"; then
+  ok "36 renamed-after-creation retro dated from rename commit (after block) → no MISSING-RETRO WARN (accepted --follow tradeoff)"
+else
+  no "36 renamed-after-creation retro dated from rename commit (after block) → no MISSING-RETRO WARN (accepted --follow tradeoff)" \
+     "rc=$rc :: $(grep -i 'retro\|MISSING' <<<"$out" | head -2)"
+fi
+
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the gate in a mutant, expect the stale fixture to archive instead of refusing --"
@@ -986,6 +1047,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$mfufmrc" = 0 ]; then
       ok "teeth(mf-uf): mf uf gate neutered → UF=1 in alpha-focus archives (exit 0) — mf uf refuse is load-bearing"
     else no "teeth(mf-uf): mutant exit=$mfufmrc (want 0) — mf uf gate may not depend on uf-gate-refuse marker (THEATER)"; fi
+  fi
+
+  echo "-- teeth(rename-tradeoff): reintroduce --follow to rsdd_added_epoch; renamed retro must trigger MISSING-RETRO WARN --"
+  mutantR="$TMP/archive.RENAME-MUTANT.sh"
+  sed 's/log --diff-filter=A --format=%ct/log --follow --diff-filter=A --format=%ct/' "$SUT" > "$mutantR"
+  if ! grep -q 'log --follow --diff-filter=A --format=%ct' "$mutantR"; then
+    no "teeth(rename-tradeoff): could not build rename mutant (anchor 'log --diff-filter=A --format=%ct' not found — SUT drifted?)"
+  else
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+    cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+    mkdir -p "$TMP/lib"
+    cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+    cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+    cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+    out_m="$(bash "$mutantR" "$TMP/rename-tradeoff" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out_m"; then
+      ok "teeth(rename-tradeoff): --follow mutant triggers MISSING-RETRO WARN → case 36 has teeth"
+    else
+      no "teeth(rename-tradeoff): --follow mutant did not WARN :: mrc=$mrc :: $(grep -i 'retro\|MISSING' <<<"$out_m" | head -2)"
+    fi
   fi
 fi
 
