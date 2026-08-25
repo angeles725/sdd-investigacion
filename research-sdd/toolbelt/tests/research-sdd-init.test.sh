@@ -87,9 +87,14 @@ assert_absent "  dup: NO second root INDEX.md" "$d/INDEX.md"
 assert_grep   "  dup: nested corpus untouched" "REAL NESTED CORPUS" "$d/corpus/INDEX.md"
 
 # BAD 4 (SILENT FAILURE) — read-only target → FATAL exit 2, tree left empty
+# Also pins that the SUT's own writability probe fired (not an incidental downstream mkdir failure).
 d="$TMP/bad-readonly"; mkdir -p "$d"; chmod 555 "$d"
+ro_stderr="$(bash "$SUT" "$d" --corpus flat 2>&1 1>/dev/null)"
 assert_exit 2 "BAD: read-only target fails loud (exit 2)" "$d" --corpus flat
 assert_absent "  readonly: no INDEX created" "$d/INDEX.md"
+grep -q "not writable" <<< "$ro_stderr" \
+  && ok "  readonly: SUT's own writability probe fired ('not writable' in stderr)" \
+  || no "  readonly: SUT's writability probe DID NOT fire (no 'not writable' in stderr)"
 chmod u+w "$d"
 
 # BAD 5 — nonexistent target dir
@@ -102,18 +107,30 @@ assert_grep "  gitignore: node_modules/ intact on its own line" "node_modules/" 
 grep -qxF 'node_modules/' "$d/.gitignore" && ok "  gitignore: node_modules/ not fused" || no "  gitignore: node_modules/ FUSED with next pattern"
 
 # ROLLBACK 7 — a template fails mid-scaffold → clean up what THIS run created, leave NO partial tree
+# PRECIOUS.md is pre-existing: rollback must NOT delete it (data-loss guard).
+# A mutant rollback doing rm -rf "$target"/* would destroy PRECIOUS.md while the absence
+# assertions all still pass — this sentinel makes the over-deletion visible (proven below).
 cp -r "$HERE/../../templates" "$TMP/rbk-templates"
 mkdir -p "$TMP/rbk/toolbelt"; cp "$SUT" "$TMP/rbk/toolbelt/init.sh"; ln -sfn "$TMP/rbk-templates" "$TMP/rbk/templates"
 chmod 000 "$TMP/rbk-templates/RESEARCH-STATE.template.md"   # 2nd cp fails after INDEX is copied
 d="$TMP/rollback"; mkdir -p "$d"
+printf 'PRECIOUS\n' > "$d/PRECIOUS.md"    # pre-existing file this run did NOT create
 bash "$TMP/rbk/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1; rc=$?
 [ "$rc" != 0 ] && ok "ROLLBACK: mid-scaffold failure exits non-zero (exit $rc)" || no "ROLLBACK: mid-scaffold failure exited 0"
 assert_absent "  rollback: partial INDEX.md removed" "$d/INDEX.md"
 assert_absent "  rollback: partial tools/ removed"   "$d/tools"
 assert_absent "  rollback: no orphaned .claude/"     "$d/.claude"
 assert_absent "  rollback: no orphaned retros/"      "$d/retros"
-# the tree must be COMPLETELY clean after rollback (no leftover of any kind)
-[ -z "$(ls -A "$d" 2>/dev/null)" ] && ok "  rollback: target dir fully clean" || no "  rollback: leftovers: $(ls -A "$d" | tr '\n' ' ')"
+# sentinel must survive intact — rollback is scoped to what THIS run created
+[ -f "$d/PRECIOUS.md" ] && ok "  rollback: sentinel PRECIOUS.md survived (rollback is scoped)" \
+  || no "  rollback: sentinel PRECIOUS.md was DELETED — rollback over-deleted (DATA LOSS BUG)"
+grep -qxF 'PRECIOUS' "$d/PRECIOUS.md" 2>/dev/null \
+  && ok "  rollback: sentinel content unchanged (bytes intact)" \
+  || no "  rollback: sentinel content corrupted or missing"
+# only the sentinel must remain — no scaffold artifacts left behind
+leftover="$(find "$d" -maxdepth 1 -mindepth 1 ! -name 'PRECIOUS.md' 2>/dev/null)"
+[ -z "$leftover" ] && ok "  rollback: only sentinel remains (no scaffold artifacts)" \
+  || no "  rollback: unexpected entries alongside sentinel: $leftover"
 chmod u+w "$TMP/rbk-templates/RESEARCH-STATE.template.md"
 
 # --force overrides the refuse

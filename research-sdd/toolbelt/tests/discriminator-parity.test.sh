@@ -32,6 +32,10 @@ ALLOW="verify-sources.sh scan-secrets.sh"   # the only scripts allowed to carry 
 
 # 1 — every STRICT-family script carries the exact canonical regex (byte-identical, no drift).
 strict_family=(verify-state.sh research-sdd-status.sh research-sdd-archive.sh verify-parity.sh)
+# Guard footguns: empty STRICT → grep -qF "" matches every line (false green).
+# Empty strict_family → missing="" vacuously green; ${arr[@]} with set -u also errors.
+[ -n "$STRICT" ] || { echo "FATAL: STRICT is empty — harness is broken" >&2; exit 2; }
+[ "${#strict_family[@]}" -gt 0 ] || { echo "FATAL: strict_family is empty — harness is broken" >&2; exit 2; }
 missing=""
 for s in "${strict_family[@]}"; do
   [ -f "$TB/$s" ] || { missing="$missing $s(absent)"; continue; }
@@ -66,6 +70,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && ok "teeth: loose glob injected into verify-state.sh is caught (allowlist has teeth)" \
     || no "teeth: mutant NOT caught — the allowlist check is theater [$moff]"
   rm -rf "$tmp"
+
+  # check1 teeth — drift STRICT regex by one char in a copy; check1's grep must fail on it.
+  # Proven: drifting [0-9]+ → [0-9]* makes grep -qF "$STRICT" return non-zero (no match),
+  # which is exactly the condition that adds a script to `missing` in check1.
+  echo "-- teeth: drift STRICT regex in a copy; check 1 must flag it as missing --"
+  tmp_c1="$(mktemp -d)"
+  cp "$TB/verify-state.sh" "$tmp_c1/verify-state.sh" 2>/dev/null
+  if ! grep -qF "$STRICT" "$tmp_c1/verify-state.sh"; then
+    no "teeth: MUTANT-SETUP-FAIL — STRICT literal absent from verify-state.sh copy"
+  else
+    sed -i 's/\[0-9\]+(-/[0-9]*(-/g' "$tmp_c1/verify-state.sh"
+    if grep -qF "$STRICT" "$tmp_c1/verify-state.sh"; then
+      no "teeth: MUTANT-SETUP-FAIL — drift had no effect on verify-state.sh copy"
+    else
+      ok "teeth: drifted verify-state.sh no longer matches STRICT → check1 catches drift"
+    fi
+  fi
+  rm -rf "$tmp_c1"
 fi
 
 echo "== $pass passed · $fail failed =="
