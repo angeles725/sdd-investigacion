@@ -63,6 +63,7 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | Artifact type | Detection (`file`) | Tool | Wrapper | Status |
 |---|---|---|---|---|
 | Deliverable: findings report / learning manual → PDF or DOCX | certified Markdown blocks (kit output) | typst 0.15.1 via `pandoc --pdf-engine=typst` (PDF, reproducible w/ SOURCE_DATE_EPOCH); `pandoc … -o x.docx` for DOCX (no engine) | (direct; future publish-report.sh) | ✅ |
+| Deliverable: circuit / schematic diagram → PDF or SVG | certified block descriptions of a circuit (nodes, nets, components) | LaTeX (`pdflatex`/`xelatex`/`lualatex`, TeX Live 2023) + CircuiTikZ package for circuit drawing; `latexmk` for builds; `dvisvgm` for SVG output | (direct; future publish-report.sh) | ✅ |
 
 ## Tool paths (verified)
 
@@ -81,6 +82,8 @@ verified in this environment (WSL Ubuntu, 2026-06-28).
 | TShark/tcpdump, GDB/gdb-multiarch, strace/ltrace, QEMU system/user-static/img | system CLI paths; each is smoke-tested by `detect-tools.sh` |
 | Hyperscan (`libhs.pc`) | system multiarch pkg-config dirs, injected only into the `rsdd_pkg_config` child process |
 | `typst` (0.15.1 — deliverable report generation, see "Deliverable / report generation" above) | `/home/linuxbrew/.linuxbrew/bin/typst` (linuxbrew); resolved via `command -v typst` |
+| LaTeX (`pdflatex`/`xelatex`/`lualatex`/`latexmk` — TeX Live 2023/Debian; deliverable circuit/report generation, see "Deliverable / report generation" above) | `/usr/bin/pdflatex` etc. (apt, root-owned); resolved via `command -v pdflatex` |
+| CircuiTikZ (LaTeX circuit-diagram package) | `/usr/share/texlive/texmf-dist/tex/latex/circuitikz/circuitikz.sty` (apt); resolved via `kpsewhich circuitikz.sty` |
 
 ## Environment override
 
