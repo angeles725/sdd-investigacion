@@ -10,7 +10,7 @@
 #   list that would rot) and fails if any harness adds, drops, or renames a sweep script relative
 #   to the canonical set.
 #
-# Surfaces parsed (all three must agree on the same 6 canonical names):
+# Surfaces parsed (all three must agree on the same 7 canonical names):
 #   Claude   : .claude/settings.json                  — SessionStart hook command paths
 #   OpenCode : toolbelt/opencode/research-sdd-sweep.ts — path.join(TOOLBELT, "*.sh") constants
 #   Codex    : install/tests/golden/plan-codex.txt     — backtick-quoted toolbelt/ entries
@@ -18,7 +18,7 @@
 # Canonical name normalisation:
 #   Claude wires -hook.sh wrapper scripts; strip "-hook" suffix to recover the base name that
 #   the other two harnesses reference directly. Result: sweep-retros, sweep-audits,
-#   sweep-breakthroughs, verify-registry, verify-kit-clean, sweep-tools.
+#   sweep-breakthroughs, verify-registry, verify-kit-clean, sweep-tools, verify-tool-catalog.
 #
 # Usage: harness-sweep-parity.test.sh [--prove-teeth]
 # Exit : 0 all held · 1 regression · 2 harness error (source file missing / jq absent)
@@ -120,22 +120,22 @@ CODEX_SET="$(extract_codex)"
   && ok "codex: parsed non-empty script set from plan-codex.txt" \
   || no "codex: empty parse (backtick format in golden changed?)"
 
-# ---- 4–6: Cardinality (exactly 4 per surface) ------------------------------
+# ---- 4–6: Cardinality (exactly 7 per surface) ------------------------------
 claude_c=$(count_lines "$CLAUDE_SET")
 opencode_c=$(count_lines "$OPENCODE_SET")
 codex_c=$(count_lines "$CODEX_SET")
 
-[ "$claude_c" = 6 ] \
-  && ok "claude: exactly 6 scripts referenced" \
-  || no "claude: expected 6 scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
+[ "$claude_c" = 7 ] \
+  && ok "claude: exactly 7 scripts referenced" \
+  || no "claude: expected 7 scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 
-[ "$opencode_c" = 6 ] \
-  && ok "opencode: exactly 6 scripts referenced" \
-  || no "opencode: expected 6 scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
+[ "$opencode_c" = 7 ] \
+  && ok "opencode: exactly 7 scripts referenced" \
+  || no "opencode: expected 7 scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
 
-[ "$codex_c" = 6 ] \
-  && ok "codex: exactly 6 scripts referenced" \
-  || no "codex: expected 6 scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
+[ "$codex_c" = 7 ] \
+  && ok "codex: exactly 7 scripts referenced" \
+  || no "codex: expected 7 scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
 
 # ---- 7–9: Cross-surface equality -------------------------------------------
 if [ "$CLAUDE_SET" = "$OPENCODE_SET" ]; then
@@ -162,8 +162,8 @@ else
   printf '    codex   : %s\n' "$(echo "$CODEX_SET"    | tr '\n' ' ')"
 fi
 
-# ---- 10–13: Canonical member presence (by exact name) ----------------------
-for script in sweep-retros sweep-audits sweep-breakthroughs verify-registry verify-kit-clean sweep-tools; do
+# ---- 10–14: Canonical member presence (by exact name) ----------------------
+for script in sweep-retros sweep-audits sweep-breakthroughs verify-registry verify-kit-clean sweep-tools verify-tool-catalog; do
   grep -qx "$script" <<<"$CLAUDE_SET" \
     && ok "canonical member present: $script" \
     || no "canonical member MISSING: $script  (claude set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
