@@ -27,13 +27,138 @@ echo "== extract-pdf.test.sh (SUT: $(basename "$SUT")) =="
 # Fixture creation requires python3 + fitz (PyMuPDF); SUT requires poppler.
 # Whole-suite skip uses the "SKIP: ..." prefix so run-all.sh classifies it as
 # a skipped suite rather than a failed one.
-_skip_all() { echo "SKIP: $*"; echo "== 0 passed · 0 failed =="; exit 0; }
+# ── Tests 3–4: tier2_marker / tier2_docling [ -s "$2" ] guard ─────────────────
+# These tests use a minimal pre-built PDF (base64-embedded, no fitz needed) and
+# stub converters controlled via PATH.  They run ahead of the fitz skip guard so
+# that CI environments without PyMuPDF still exercise the new guard.
+#
+# The minimal PDF is the same fixture used by fetch-doc.test.sh: a valid Catalog→
+# Pages→Page→Contents PDF (type1/Helvetica, "Hello" text, correct xref, ~535 B).
+_min_pdf="$TMP/minimal.pdf"
+base64 -d <<'ENDPDF' > "$_min_pdf"
+JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBv
+Ymo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlw
+ZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgNjEyIDc5Ml0vUmVzb3VyY2VzPDwvRm9u
+dDw8L0YxIDUgMCBSPj4+Pi9Db250ZW50cyA0IDAgUj4+ZW5kb2JqCjQgMCBvYmo8PC9MZW5ndGgg
+Mzc+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDEwMCA3MDAgVGQgKEhlbGxvKSBUaiBFVAplbmRzdHJl
+YW0KZW5kb2JqCjUgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2
+ZXRpY2E+PmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAw
+MDAgbiAKMDAwMDAwMDA1MiAwMDAwMCBuIAowMDAwMDAwMTAxIDAwMDAwIG4gCjAwMDAwMDAyMTEg
+MDAwMDAgbiAKMDAwMDAwMDI5NSAwMDAwMCBuIAp0cmFpbGVyPDwvU2l6ZSA2L1Jvb3QgMSAwIFI+
+PgpzdGFydHhyZWYKMzU2CiUlRU9GCg==
+ENDPDF
 
-command -v python3 >/dev/null 2>&1 || _skip_all "python3 not found — needed to create PDF fixtures"
-python3 -c "import fitz" 2>/dev/null   || _skip_all "PyMuPDF/fitz not found — needed to create PDF fixtures"
-for _t in pdfinfo pdftotext pdffonts; do
-  command -v "$_t" >/dev/null 2>&1 || _skip_all "$_t not in PATH — required by SUT"
+if ! command -v pdfinfo >/dev/null 2>&1; then
+  printf '  SKIP  tier2_marker/docling guard tests: pdfinfo not in PATH (required by SUT)\n'
+else
+  mkdir -p "$TMP/bin"
+
+  # stub: exits 0 but creates no .md in --output_dir (failure case)
+  _stub_noop="$TMP/bin/marker_single"
+  printf '#!/bin/sh\n# stub: exits 0, produces no .md in --output_dir\nexit 0\n' > "$_stub_noop"
+  chmod +x "$_stub_noop"
+
+  _rc3=0
+  PATH="$TMP/bin:$PATH" bash "$SUT" -f --engine marker \
+    -o "$TMP/out-marker-noop.md" "$_min_pdf" >/dev/null 2>&1 || _rc3=$?
+  if [ "$_rc3" -ne 0 ] && [ ! -s "$TMP/out-marker-noop.md" ]; then
+    ok "tier2_marker [ -s guard ]: stub-no-output → non-zero exit, no output file"
+  else
+    no "tier2_marker [ -s guard ]: expected failure; got rc=$_rc3 file=$([ -s "$TMP/out-marker-noop.md" ] && echo non-empty || echo empty/absent)"
+  fi
+
+  _stub_docling="$TMP/bin/docling"
+  printf '#!/bin/sh\n# stub: exits 0, produces no .md in --output_dir\nexit 0\n' > "$_stub_docling"
+  chmod +x "$_stub_docling"
+
+  _rc4=0
+  PATH="$TMP/bin:$PATH" bash "$SUT" -f --engine docling \
+    -o "$TMP/out-docling-noop.md" "$_min_pdf" >/dev/null 2>&1 || _rc4=$?
+  if [ "$_rc4" -ne 0 ] && [ ! -s "$TMP/out-docling-noop.md" ]; then
+    ok "tier2_docling [ -s guard ]: stub-no-output → non-zero exit, no output file"
+  else
+    no "tier2_docling [ -s guard ]: expected failure; got rc=$_rc4 file=$([ -s "$TMP/out-docling-noop.md" ] && echo non-empty || echo empty/absent)"
+  fi
+
+  if [ "${1:-}" = "--prove-teeth" ]; then
+    # Teeth A: success-path stub + guard mutated to always return 1 → SUT must fail
+    echo "-- teeth A: tier2_marker size-guard mutated to 'return 1'; success-stub must then fail --"
+    cat > "$_stub_noop" <<'STUBEOF'
+#!/bin/sh
+# stub: exits 0 and creates a .md with content in --output_dir
+nextdir=0; tmpdir=""
+for a; do
+  if [ "$nextdir" = 1 ]; then tmpdir="$a"; nextdir=0
+  elif [ "$a" = "--output_dir" ]; then nextdir=1; fi
 done
+[ -n "$tmpdir" ] && mkdir -p "$tmpdir" && printf '# Stub output\n\nContent.\n' > "$tmpdir/output.md"
+exit 0
+STUBEOF
+    chmod +x "$_stub_noop"
+
+    MUTANT_A="$TMP/extract-pdf.MUTANT-sz-A.sh"
+    sed '/^tier2_marker()/,/^tier2_docling()/ {
+      s/\[ -s "[$]2" \] && echo OK || return 1/return 1/
+    }' "$SUT" > "$MUTANT_A"
+
+    if ! grep -q 'return 1$' "$MUTANT_A"; then
+      no "teeth-A: could not build tier2_marker size-guard mutant"
+    else
+      _rcA=0
+      PATH="$TMP/bin:$PATH" bash "$MUTANT_A" -f --engine marker \
+        -o "$TMP/out-mutA.md" "$_min_pdf" >/dev/null 2>&1 || _rcA=$?
+      if [ "$_rcA" -ne 0 ]; then
+        ok "teeth-A: size-guard mutant (always return 1) causes failure → guard has teeth on success path"
+      else
+        no "teeth-A: size-guard mutant still exits 0 — guard is NOT load-bearing (THEATER)"
+      fi
+    fi
+
+    # Teeth B: failure-path stub (no .md) + [ -n "$md" ] guard removed
+    # Without that guard, cat "" fails but set -uo/no-e lets echo OK run (YAML header
+    # written before cat); so SUT exits 0.  Test expects non-zero → would be RED.
+    echo "-- teeth B: [ -n \"\$md\" ] guard removed; stub-no-output must then cause SUT to exit 0 --"
+    printf '#!/bin/sh\n# stub: exits 0, produces no .md\nexit 0\n' > "$_stub_noop"
+    chmod +x "$_stub_noop"
+
+    MUTANT_B="$TMP/extract-pdf.MUTANT-sz-B.sh"
+    sed '/^tier2_marker()/,/^tier2_docling()/ {
+      s/\[ -n "\$md" \] || { rm -rf "\$tmp"; return 1; }/: # NEUTERED md-guard/
+    }' "$SUT" > "$MUTANT_B"
+
+    if ! grep -q 'NEUTERED md-guard' "$MUTANT_B"; then
+      no "teeth-B: could not build [ -n \"\$md\" ] mutant"
+    else
+      _rcB=0
+      PATH="$TMP/bin:$PATH" bash "$MUTANT_B" -f --engine marker \
+        -o "$TMP/out-mutB.md" "$_min_pdf" >/dev/null 2>&1 || _rcB=$?
+      # Mutant exits 0 (YAML header written before cat "" fails; [ -s ] sees header).
+      if [ "$_rcB" -eq 0 ]; then
+        ok "teeth-B: guard-removed mutant exits 0 on stub-no-output → failure-path test has teeth"
+      else
+        no "teeth-B: guard-removed mutant exits non-zero (rc=$_rcB) — teeth unclear"
+      fi
+    fi
+  fi
+fi
+
+# ── fitz-dependent tests (mojibake detection) ─────────────────────────────────
+# Run only when python3+fitz+poppler are all present; print per-section SKIP
+# messages otherwise so the global summary still reflects the counts above.
+_have_fitz=false
+_have_poppler=true
+command -v python3 >/dev/null 2>&1 && python3 -c "import fitz" 2>/dev/null && _have_fitz=true
+for _t in pdfinfo pdftotext pdffonts; do
+  command -v "$_t" >/dev/null 2>&1 || { _have_poppler=false; break; }
+done
+
+if ! $_have_fitz || ! $_have_poppler; then
+  if ! $_have_poppler; then
+    printf '  SKIP  mojibake tests: pdffonts/pdftotext/pdfinfo not in PATH\n'
+  else
+    printf '  SKIP  mojibake tests: python3+fitz not found\n'
+  fi
+else
 
 # ── Fixture: good text PDF ────────────────────────────────────────────────────
 # FONTS > 0, CHARS > 100, high ASCII ratio — should route to Tier 1.
@@ -154,6 +279,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 fi
+fi  # end fitz-dependent block
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

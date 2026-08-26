@@ -59,6 +59,7 @@ case "$MODE" in
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/$SUB"
     NAME="${5:-$(basename "${URL%%\?*}")}"; DEST="$SDIR/$SUB/$NAME"
     curl -fsSL "$URL" -o "$DEST" || wget -q "$URL" -O "$DEST"
+    [ -s "$DEST" ] || { echo "fetch-doc: empty body: $URL" >&2; rm -f "$DEST"; exit 1; }
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     # When the saved file is a PDF, recommend the canonical page-anchored extraction tool.
     # pdftotext -layout produces a FLAT .txt with NO page anchors — blocks cannot cite
@@ -78,6 +79,7 @@ case "$MODE" in
     SLUG="$(echo "$URL" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
     DEST="$SDIR/web-snapshots/$SLUG.md"
     HTML="$(mktemp)"; curl -fsSL "$URL" -o "$HTML" || wget -q "$URL" -O "$HTML"
+    [ -s "$HTML" ] || { echo "fetch-doc: empty body: $URL" >&2; rm -f "$HTML"; exit 1; }
     if command -v pandoc >/dev/null; then
       pandoc -f html -t gfm "$HTML" -o "$DEST" 2>/dev/null || cp "$HTML" "$DEST"
     else cp "$HTML" "$DEST"; fi

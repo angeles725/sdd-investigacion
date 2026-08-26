@@ -265,5 +265,88 @@ EOF
   fi
 fi
 
+# ─── doc-mode empty-body guard (Tests 9–10) ──────────────────────────────────
+# A 200-with-empty-body must NOT be registered in SOURCES.md (§7 false-success fix).
+# We use a real 0-byte file and fetch it with file://, which curl handles.
+# These tests are guarded by $_have_curl (same guard as Tests 6-8).
+_empty_doc="$TMP/empty.bin"; : > "$_empty_doc"    # guaranteed 0-byte file
+_empty_html="$TMP/empty.html"; : > "$_empty_html"
+
+if ! $_have_curl; then
+  printf '  SKIP  doc-empty-{9..10}: curl not available\n'
+else
+  # Test 9: doc mode — empty body must cause non-zero exit and must NOT register a row
+  d9="$TMP/empty-doc/target"; mkdir -p "$d9"
+  _rc9=0
+  bash "$SUT" doc "file://$_empty_doc" "$d9" datasheets "empty.bin" \
+    >/dev/null 2>"$TMP/err9.txt" || _rc9=$?
+  _row9=false
+  [ -f "$d9/sources/SOURCES.md" ] && grep -q 'empty.bin' "$d9/sources/SOURCES.md" && _row9=true
+  if [ "$_rc9" -ne 0 ] && ! $_row9; then
+    ok "doc empty-body: non-zero exit and no SOURCES.md row registered"
+  else
+    no "doc empty-body: expected failure+no-row; got rc=$_rc9 row=$_row9 (err: $(cat "$TMP/err9.txt"))"
+  fi
+
+  # Test 10: web mode — empty HTML body must cause non-zero exit and must NOT register
+  d10="$TMP/empty-web/target"; mkdir -p "$d10"
+  _rc10=0
+  bash "$SUT" web "file://$_empty_html" "$d10" \
+    >/dev/null 2>"$TMP/err10.txt" || _rc10=$?
+  _slug10="$(echo "file://$_empty_html" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+  _dest10="$d10/sources/web-snapshots/$_slug10.md"
+  _row10=false
+  [ -f "$d10/sources/SOURCES.md" ] && grep -q "$_slug10" "$d10/sources/SOURCES.md" && _row10=true
+  if [ "$_rc10" -ne 0 ] && ! $_row10; then
+    ok "web empty-body: non-zero exit and no SOURCES.md row registered"
+  else
+    no "web empty-body: expected failure+no-row; got rc=$_rc10 row=$_row10 dest-exists=$([ -s "$_dest10" ] && echo yes || echo no) (err: $(cat "$TMP/err10.txt"))"
+  fi
+
+  # ── Teeth for doc empty-body guard ───────────────────────────────────────────
+  if [ "${1:-}" = "--prove-teeth" ]; then
+    echo "-- teeth: remove doc [ -s \"\$DEST\" ] guard; empty body must then register + OK --"
+    gmutant="$TMP/fetch-doc.GMUTANT.sh"
+    # Remove the empty-body guard line in doc mode (the [ -s "$DEST" ] line we added).
+    sed '/\[ -s "\$DEST" \] || { echo "fetch-doc: empty body/d' "$SUT" > "$gmutant"
+    if grep -q '\[ -s "\$DEST" \]' "$gmutant"; then
+      no "teeth-doc-empty: could not build guard mutant ([ -s \"\$DEST\" ] line still present)"
+    else
+      d9m="$TMP/teeth-doc-empty/target"; mkdir -p "$d9m"
+      _rc9m=0
+      bash "$gmutant" doc "file://$_empty_doc" "$d9m" datasheets "empty.bin" \
+        >/dev/null 2>/dev/null || _rc9m=$?
+      _row9m=false
+      [ -f "$d9m/sources/SOURCES.md" ] && grep -q 'empty.bin' "$d9m/sources/SOURCES.md" && _row9m=true
+      if [ "$_rc9m" -eq 0 ] && $_row9m; then
+        ok "teeth-doc-empty: guard-removed mutant exits 0 and registers row → Test 9 has teeth"
+      else
+        no "teeth-doc-empty: mutant rc=$_rc9m row=$_row9m (expected 0+row)"
+      fi
+    fi
+
+    echo "-- teeth: remove web [ -s \"\$HTML\" ] guard; empty HTML must then register + OK --"
+    gwmutant="$TMP/fetch-doc.GWMUTANT.sh"
+    # Remove the [ -s "$HTML" ] guard line in web mode (checks raw download before pandoc).
+    sed '/\[ -s "\$HTML" \] || { echo "fetch-doc: empty body/d' "$SUT" > "$gwmutant"
+    if grep -q '"fetch-doc: empty body.*\$HTML' "$gwmutant"; then
+      no "teeth-web-empty: could not build guard mutant (guard line still present)"
+    else
+      d10m="$TMP/teeth-web-empty/target"; mkdir -p "$d10m"
+      _rc10m=0
+      bash "$gwmutant" web "file://$_empty_html" "$d10m" \
+        >/dev/null 2>/dev/null || _rc10m=$?
+      _slug10m="$(echo "file://$_empty_html" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+      _row10m=false
+      [ -f "$d10m/sources/SOURCES.md" ] && grep -q "$_slug10m" "$d10m/sources/SOURCES.md" && _row10m=true
+      if [ "$_rc10m" -eq 0 ] && $_row10m; then
+        ok "teeth-web-empty: guard-removed mutant exits 0 and registers row → Test 10 has teeth"
+      else
+        no "teeth-web-empty: mutant rc=$_rc10m row=$_row10m (expected 0+row)"
+      fi
+    fi
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
