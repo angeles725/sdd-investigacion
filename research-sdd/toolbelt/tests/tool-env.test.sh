@@ -225,10 +225,13 @@ else
 fi
 
 # 4 — Backward-compatible decompile-java invocation still accepts the existing
-# env overrides, but now reaches them through the shared resolver.
+# env overrides, but now reaches them through the shared resolver. The java stub
+# also writes a .java to the out-dir (last positional arg) so decompile-java's
+# non-empty-output guard is satisfied — this test exercises env-override routing,
+# not the empty-output failure path (that is covered by decompile-java.test.sh NJ1).
 mkdir -p "$ROOT/wrapper-java/bin" "$ROOT/out"
 mkexec "$ROOT/wrapper-java/bin/java" \
-  'if [ "${1:-}" = -version ]; then echo '\''openjdk version "21.0.1"'\'' >&2; else printf '\''%s\n'\'' "$*" > "$RSDD_CALLS"; fi; exit 0'
+  'if [ "${1:-}" = -version ]; then echo '\''openjdk version "21.0.1"'\'' >&2; else _o="${!#}"; printf '\''%s\n'\'' "$*" > "$RSDD_CALLS"; mkdir -p "$_o" 2>/dev/null; printf '\''class X{}\n'\'' > "$_o/Decompiled.java"; fi; exit 0'
 mkexec "$ROOT/wrapper-java/bin/javap" 'exit 0'
 : > "$ROOT/vineflower.jar"; : > "$ROOT/input.jar"
 RSDD_CALLS="$ROOT/calls" JAVA_HOME="$ROOT/wrapper-java" VINEFLOWER="$ROOT/vineflower.jar" \

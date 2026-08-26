@@ -38,4 +38,7 @@ OUT="${2:?out-dir required}"
 mkdir -p "$OUT"
 # -p generates a navigable .csproj; without -p it dumps a single .cs
 "$ILSPY" -p "$IN" -o "$OUT" || "$ILSPY" "$IN" -o "$OUT"
+# Verify ilspycmd actually decompiled something: at least one .cs file must exist in $OUT.
+# ilspycmd returns 0 for obfuscated/empty/unsupported assemblies without emitting any source.
+find "$OUT" -type f -name '*.cs' -print -quit | grep -q . || { echo "WARN: ilspycmd exited 0 but produced no .cs files in $OUT (assembly may be obfuscated or unsupported)" >&2; exit 1; }
 echo "OK: $IN -> $OUT  (ilspycmd)"

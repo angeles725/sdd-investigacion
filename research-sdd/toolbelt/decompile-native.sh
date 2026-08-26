@@ -62,6 +62,10 @@ case "$MODE" in
     # Source: analyzeHeadlessREADME.md §-postScript and §-scriptPath.
     "$HEADLESS" "$PROJ" research_$$ -import "$BIN" -overwrite \
       "${SCRIPT_ARGS[@]}" -scriptPath "$SCRIPT_DIRS"
+    # Verify Ghidra actually imported the binary: the program entry lives at depth >=2 inside
+    # $PROJ (e.g. <name>.rep/idata/...). If analyzeHeadless exits 0 but writes nothing there
+    # (obfuscated/empty/unsupported binary, or a misconfigured headless install), do not claim OK.
+    find "$PROJ" -mindepth 2 -type f -print -quit | grep -q . || { echo "WARN: Ghidra exited 0 but no analysis artifacts found below $PROJ (binary may be obfuscated or unsupported)" >&2; exit 1; }
     echo "OK: Ghidra headless analysis of $BIN (project in $PROJ)"
     ;;
   *) echo "unknown mode: $MODE (ghidra-evidence|ghidra|r2|quick)" >&2; exit 2 ;;
