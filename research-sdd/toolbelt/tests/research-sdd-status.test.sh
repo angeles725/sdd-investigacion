@@ -411,7 +411,8 @@ cat > "$d/RESEARCH-STATE-beta.md" <<'EOF'
 ## Stop control
 - **Open gaps — read-only investigable**: 0
 EOF
-bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+bash "$SUT" "$d" --sync-state --focus alpha >/dev/null 2>&1
+bash "$SUT" "$d" --sync-state --focus beta  >/dev/null 2>&1
 _envf() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && $1==k":"{print $2; exit}' "$1"; }
 a_seed=$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE-alpha.md")
 b_seed=$(grep -c '<!-- research-state.v1 -->' "$d/RESEARCH-STATE-beta.md")
@@ -442,15 +443,17 @@ if [ -L "$d/RESEARCH-STATE.md" ] && grep -q '<!-- research-state.v1 -->' "$d/rea
 else no "symlink: still-link=$([ -L "$d/RESEARCH-STATE.md" ] && echo yes || echo NO) seeded-real=$(grep -qc '<!-- research-state.v1 -->' "$d/real/state.md" 2>/dev/null && echo yes || echo no)"; fi
 
 # 42 — MULTI-FOCUS with a focus in a SUBDIRECTORY: covered_blocks must be derived PER STATE FILE's own dir
-#      (like verify-state.sh:101), NOT once at the corpus root. A shared root-cb would be seeded into the
-#      subdir focus's envelope and verify-state (per-dir ondisk) would FAIL the envelope --sync-state just
-#      wrote. Teeth: root has 2 blocks, the subdir focus has 1 — a shared cb would wrongly seed 2 into both.
-d="$TMP/subdir-cb"; mkdir -p "$d/legacy"
+#      (like verify-state.sh:101), NOT once at the corpus root. Teeth: root has 2 blocks, subdir focus has 1.
+#      Each file is seeded in single-focus mode: root first (only 1 file in $d), then legacy separately by
+#      targeting its own subdirectory (only 1 file there). This avoids the scope-guard refusal (FIX 2).
+d="$TMP/subdir-cb"; mkdir -p "$d"
 printf '# root\n> x\n## Gap-backlog\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE.md"
 printf 'x\n' > "$d/proj-block1.md"; printf 'x\n' > "$d/proj-block2.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1    # single-focus: only RESEARCH-STATE.md exists here yet
+mkdir -p "$d/legacy"
 printf '# legacy\n> x\n## Gap-backlog\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/legacy/RESEARCH-STATE-legacy.md"
 printf 'x\n' > "$d/legacy/legacy-block1.md"   # §16: block prefix mirrors state suffix (legacy- from RESEARCH-STATE-legacy.md)
-bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+bash "$SUT" "$d/legacy" --sync-state >/dev/null 2>&1    # single-focus: only legacy file in this subdir
 root_cb=$(_envf "$d/RESEARCH-STATE.md" covered_blocks); leg_cb=$(_envf "$d/legacy/RESEARCH-STATE-legacy.md" covered_blocks)
 if [ "$root_cb" = 2 ] && [ "$leg_cb" = 1 ] && bash "$HERE/../verify-state.sh" "$d" >/dev/null 2>&1; then
   ok "per-dir covered_blocks (root=2, subdir focus=1), verify-state agrees"
@@ -519,7 +522,8 @@ printf 'x\n' > "$d/alpha-block1.md"; printf 'x\n' > "$d/alpha-block2.md"
 printf 'x\n' > "$d/beta-block1.md";  printf 'x\n' > "$d/beta-block2.md"; printf 'x\n' > "$d/beta-block3.md"
 printf '# Alpha\n> intro\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE-alpha.md"
 printf '# Beta\n> intro\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d/RESEARCH-STATE-beta.md"
-bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+bash "$SUT" "$d" --sync-state --focus alpha >/dev/null 2>&1
+bash "$SUT" "$d" --sync-state --focus beta  >/dev/null 2>&1
 a_cb="$(envf_b5 "$d/RESEARCH-STATE-alpha.md" covered_blocks)"
 b_cb="$(envf_b5 "$d/RESEARCH-STATE-beta.md" covered_blocks)"
 if [ "$a_cb" = 2 ] && [ "$b_cb" = 3 ]; then
@@ -710,10 +714,10 @@ else
   no "split-layout default-report: next step says STOP — got: $(grep 'next step' <<<"$rep50" | head -1)"
 fi
 
-# 51 — split-layout --sync-state seeds BOTH sibling focuses (alpha AND beta), not just alpha.
-#      Uses a FRESH fixture WITHOUT envelopes so that the seeded count reflects --sync-state's work.
-#      Before the fix, --sync-state used find on $corpus=dirname(first)=$d/alpha, seeding only alpha;
-#      beta would remain unseedeed (grep-c returns 0) → the test fails → proves the scope fix is needed.
+# 51 — split-layout --sync-state seeds BOTH sibling focuses by targeting each subdir separately.
+#      Each subdir contains a single RESEARCH-STATE.md (no slug) so the scope guard does not fire.
+#      The prior behavior (seeding both via a single target-wide sweep) is replaced by explicit
+#      per-subdir invocations that satisfy FIX 2 (scope guard) while still seeding every focus.
 d51="$TMP/split-seed"; mkdir -p "$d51/alpha" "$d51/beta"
 { printf '# Alpha — Research State\n> intro\n'
   printf '## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
@@ -725,11 +729,12 @@ d51="$TMP/split-seed"; mkdir -p "$d51/alpha" "$d51/beta"
   printf '| high | open beta gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
   printf '- **Open gaps — read-only investigable**: 1\n'
 } > "$d51/beta/RESEARCH-STATE.md"
-bash "$SUT" "$d51" --sync-state >/dev/null 2>&1
+bash "$SUT" "$d51/alpha" --sync-state >/dev/null 2>&1
+bash "$SUT" "$d51/beta"  --sync-state >/dev/null 2>&1
 _a_seeded=$(grep -c '<!-- research-state.v1 -->' "$d51/alpha/RESEARCH-STATE.md")
 _b_seeded=$(grep -c '<!-- research-state.v1 -->' "$d51/beta/RESEARCH-STATE.md")
 if [ "$_a_seeded" = 1 ] && [ "$_b_seeded" = 1 ]; then
-  ok "split-layout --sync-state: seeds BOTH sibling focuses (alpha and beta, not just alpha)"
+  ok "split-layout --sync-state: seeds BOTH sibling focuses (via per-subdir targeting)"
 else
   no "split-layout --sync-state: alpha_seeded=$_a_seeded(want 1) beta_seeded=$_b_seeded(want 1)"
 fi
@@ -970,6 +975,75 @@ d="$TMP/nm-blocked-fp"; mkstate "$d" 1 "high|real gap|pending"
 nm_warn_blk="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
 ! grep -qi 'near-miss' <<<"$nm_warn_blk" && ok "64f: '## Blocked gaps' → no near-miss WARN (false-positive guard)" || no "64f: '## Blocked gaps' falsely triggered near-miss: [$nm_warn_blk]"
 
+# ==================== FIX 1 — GENERALIZED PREAMBLE CARRY-FORWARD ====================
+
+# T-PREAMBLE-ROUNDTRIP: a RESEARCH-STATE carrying method:, block_scope:, and an unknown field
+# foo: bar (the generalization sentinel), plus stale count fields → after --sync-state all three
+# preamble fields survive verbatim AND the count is reconciled to the on-disk truth.
+# Before the fix: method: (and any unknown field) were silently dropped; only block_scope: had
+# an explicit carry-forward. The foo: bar case is ESSENTIAL — it proves the generalization, not
+# just a method:-special-case.
+d="$TMP/preamble-rt"; mkdir -p "$d"
+{ echo "# T"
+  echo "> intro"
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 99\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nmethod: document-cycle-external\nblock_scope: per-focus\nfoo: bar\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog"; echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | the gap | web | pending |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 1"
+} > "$d/RESEARCH-STATE.md"
+bash "$SUT" "$d" --sync-state >/dev/null 2>&1
+_pr_method="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^method:/{$1=""; sub(/^[[:space:]]*/,""); print; exit}' "$d/RESEARCH-STATE.md")"
+_pr_bscope="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+_pr_foo="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^foo:/{$1=""; sub(/^[[:space:]]*/,""); print; exit}' "$d/RESEARCH-STATE.md")"
+_pr_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d/RESEARCH-STATE.md")"
+if [ "$_pr_method" = "document-cycle-external" ] && [ "$_pr_bscope" = "per-focus" ] && [ "$_pr_foo" = "bar" ]; then
+  ok "preamble-roundtrip: method:, block_scope:, and unknown foo: bar all survive --sync-state (generalized carry-forward)"
+else
+  no "preamble-roundtrip: method=$_pr_method(want document-cycle-external) bscope=$_pr_bscope(want per-focus) foo=$_pr_foo(want bar)"
+fi
+[ "$_pr_io" = "1" ] \
+  && ok "preamble-roundtrip: investigable_open reconciled to 1 (counts still reconcile after carry-forward)" \
+  || no "preamble-roundtrip: investigable_open=$_pr_io(want 1) — reconciliation broken by carry-forward"
+
+# ==================== FIX 2 — SCOPE GUARD (DON'T CLOBBER SIBLINGS) ====================
+
+# T-SIBLING-GUARD: --sync-state WITHOUT --focus on a multi-focus corpus (2 RESEARCH-STATE-*.md)
+# must refuse with WARN on stderr, exit non-zero, and leave BOTH files byte-for-byte unchanged.
+# Before the fix: the sweep ran on all files, clobbering preamble fields (issue #368 root cause).
+d="$TMP/sibling-guard"; mkdir -p "$d"
+_sg_env() { printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 99\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nmethod: some-method\n<!-- /research-state.v1 -->\n'; }
+{ echo "# A"; echo "> intro"; _sg_env
+  echo; echo "## Gap-backlog"; echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "## Blocked gaps"; echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"
+} > "$d/RESEARCH-STATE-alpha.md"
+{ echo "# B"; echo "> intro"; _sg_env
+  echo; echo "## Gap-backlog"; echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "## Blocked gaps"; echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"
+} > "$d/RESEARCH-STATE-beta.md"
+_sg_hash_a_before="$(md5sum "$d/RESEARCH-STATE-alpha.md" | cut -d' ' -f1)"
+_sg_hash_b_before="$(md5sum "$d/RESEARCH-STATE-beta.md" | cut -d' ' -f1)"
+_sg_warn="$(bash "$SUT" "$d" --sync-state 2>&1 >/dev/null)"; _sg_rc=$?
+_sg_hash_a_after="$(md5sum "$d/RESEARCH-STATE-alpha.md" | cut -d' ' -f1)"
+_sg_hash_b_after="$(md5sum "$d/RESEARCH-STATE-beta.md" | cut -d' ' -f1)"
+if [ "$_sg_rc" -ne 0 ] && grep -qi 'WARN' <<<"$_sg_warn" \
+   && [ "$_sg_hash_a_before" = "$_sg_hash_a_after" ] && [ "$_sg_hash_b_before" = "$_sg_hash_b_after" ]; then
+  ok "sibling-guard: multi-focus without --focus refuses (WARN stderr, exit non-zero, files unchanged)"
+else
+  no "sibling-guard: rc=$_sg_rc warn=$(grep -qi WARN <<<"$_sg_warn" && echo yes || echo no) a_changed=$([ "$_sg_hash_a_before" != "$_sg_hash_a_after" ] && echo YES || echo no) b_changed=$([ "$_sg_hash_b_before" != "$_sg_hash_b_after" ] && echo YES || echo no)"
+fi
+
+# T-SIBLING-GUARD-FOCUS: with --focus, only the targeted file is seeded; the other is unchanged.
+_sg_hash_b_snap="$(md5sum "$d/RESEARCH-STATE-beta.md" | cut -d' ' -f1)"
+bash "$SUT" "$d" --sync-state --focus alpha >/dev/null 2>&1
+_sg_hash_b_after_focus="$(md5sum "$d/RESEARCH-STATE-beta.md" | cut -d' ' -f1)"
+_pr_alpha_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d/RESEARCH-STATE-alpha.md")"
+if [ "$_sg_hash_b_snap" = "$_sg_hash_b_after_focus" ] && [ "$_pr_alpha_io" = "0" ]; then
+  ok "sibling-guard-focus: --focus alpha touches only alpha (beta unchanged, alpha.io reconciled to 0)"
+else
+  no "sibling-guard-focus: beta_changed=$([ "$_sg_hash_b_snap" != "$_sg_hash_b_after_focus" ] && echo YES || echo no) alpha.io=$_pr_alpha_io(want 0)"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -1073,9 +1147,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(UFB): mutant warn='$(echo "$warn_ufb" | grep -iE 'undocumented' | head -1)' uf=$uf_ufb (want no-warn and 0)"; fi
   fi
 
-  # sync-bs teeth: re-sync d52 in sequence.
-  # Run cb-neuter FIRST (block_scope still present → real SUT gives 3, mutant gives 0 → diff proves teeth).
-  # Run bs-neuter SECOND (block_scope still present after cb-neuter → real SUT keeps it, mutant drops it).
+  # sync-bs teeth: re-sync d52 to verify cb branch.
+  # After FIX 1 (generalized preamble carry-forward), block_scope is always carried via _extra_env_lines.
+  # teeth-sync-bs-cb: neuter shared-global cb branch → cb drops.
+  # teeth-sync-bs: neuter PREAMBLE-CARRY-FORWARD printf → unknown field (foo:bar) lost.
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   echo "-- teeth-sync-bs-cb: neuter shared-global cb branch; must reseed cb=0 while bs remains --"
   mu_cb="$TMP/status.SYNCCB.MUTANT.sh"
@@ -1087,20 +1162,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _cbm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
     [ "$_cbm" = "0" ] && ok "teeth-sync-bs-cb: neutered cb branch → cb=0 (focus-filtered) → test 52 cb is load-bearing" \
       || no "teeth-sync-bs-cb: mutant cb=$_cbm (want 0) — THEATER"; fi
-  echo "-- teeth-sync-bs: neuter block_scope printf; field must vanish after re-sync --"
+  echo "-- teeth-sync-bs: neuter PREAMBLE-CARRY-FORWARD printf; unknown field foo:bar must vanish after re-sync --"
   mu_sbs="$TMP/status.SYNCBS.MUTANT.sh"
-  sed 's/\[ -n "\$_e_bs" \] && printf .block_scope/: # MUTANT-SYNCBS/' "$SUT" > "$mu_sbs"
-  if ! grep -q 'MUTANT-SYNCBS' "$mu_sbs"; then
-    no "teeth-sync-bs: could not build mutant (block_scope printf pattern not found — did SUT change?)"
+  sed 's/\[ -n "\$_extra_env_lines" \] && printf/: # MUTANT-PCF/' "$SUT" > "$mu_sbs"
+  if ! grep -q 'MUTANT-PCF' "$mu_sbs"; then
+    no "teeth-sync-bs: could not build mutant (PREAMBLE-CARRY-FORWARD printf pattern not found — did SUT change?)"
   else
-    bash "$mu_sbs" "$d52" --sync-state >/dev/null 2>&1
-    _bsm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
-    [ -z "$_bsm" ] && ok "teeth-sync-bs: neutered mutant drops block_scope → test 52 is load-bearing" \
-      || no "teeth-sync-bs: mutant bs=$_bsm (want empty) — THEATER"; fi
+    d_pcf="$TMP/pcf-tooth"; mkdir -p "$d_pcf"
+    { printf '# T\n> intro\n<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nfoo: bar\n<!-- /research-state.v1 -->\n\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_pcf/RESEARCH-STATE.md"
+    bash "$mu_sbs" "$d_pcf" --sync-state >/dev/null 2>&1
+    _pcfm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^foo:/{$1=""; sub(/^[[:space:]]*/,""); print; exit}' "$d_pcf/RESEARCH-STATE.md")"
+    [ -z "$_pcfm" ] && ok "teeth-sync-bs: neutered PREAMBLE-CARRY-FORWARD → foo:bar lost — carry-forward is load-bearing" \
+      || no "teeth-sync-bs: mutant foo=$_pcfm (want empty) — THEATER"; fi
 
   # ---- ISSUE #126 teeth: whitespace-tolerant probe controls (sites 3 and 4) ----------------------
-  # Site 3 (BS-SYNC-PROBE): neuter the block_scope fallback probe → indented+nospace form must be missed.
-  echo "-- teeth-sync-bs-probe: neuter BS-SYNC-PROBE; indented+nospace block_scope must be lost after sync --"
+  # Site 3 (BS-SYNC-PROBE): neuter the block_scope fallback probe → indented+nospace form missed by _e_bs.
+  # After FIX 1 (generalized carry-forward), block_scope: is always carried via _extra_env_lines regardless
+  # of whether the probe fires. The probe's role is now ONLY setting _e_bs for the covered_blocks branch:
+  # probe neutered → _e_bs="" → _sfpfx="chihuahua-" filter → niagara-bloque1.md not matched → cb=0.
+  echo "-- teeth-sync-bs-probe: neuter BS-SYNC-PROBE; indented+nospace _e_bs missed → cb must drop to 0 --"
   mu_bsp="$TMP/status.BSPROBE.MUTANT.sh"
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   if grep -q '# BS-SYNC-PROBE' "$SUT"; then
@@ -1110,10 +1191,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf 'x\n' > "$d_bs_tooth/niagara-bloque1.md"
     printf '# C\n> i\n<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 1\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n  block_scope:shared-global\n<!-- /research-state.v1 -->\n\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' > "$d_bs_tooth/RESEARCH-STATE-chihuahua.md"
     bash "$mu_bsp" "$d_bs_tooth" --sync-state >/dev/null 2>&1
-    _bsm_tooth="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d_bs_tooth/RESEARCH-STATE-chihuahua.md")"
-    [ -z "$_bsm_tooth" ] \
-      && ok "teeth-sync-bs-probe: neutered probe → block_scope absent after sync — BS-SYNC-PROBE is load-bearing" \
-      || no "teeth-sync-bs-probe: mutant bs=$_bsm_tooth (want empty) — probe guard may not be the stopper (THEATER)"
+    # Probe neutered → _e_bs="" → _sfpfx="chihuahua-" branch → niagara-bloque1 not matched → cb=0.
+    # Real SUT: probe fires → _e_bs=shared-global → global count = 1.
+    _cbm_tooth="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d_bs_tooth/RESEARCH-STATE-chihuahua.md")"
+    [ "$_cbm_tooth" = "0" ] \
+      && ok "teeth-sync-bs-probe: neutered probe → cb=0 (focus-filtered, indented+nospace _e_bs missed) — BS-SYNC-PROBE is load-bearing" \
+      || no "teeth-sync-bs-probe: mutant cb=$_cbm_tooth (want 0) — probe guard may not be the stopper (THEATER)"
   else no "teeth-sync-bs-probe: BS-SYNC-PROBE sentinel not found in SUT"; fi
 
   # Site 4 (UF-SYNC-PROBE): neuter the UF fallback probe → indented+nospace value must be zeroed.

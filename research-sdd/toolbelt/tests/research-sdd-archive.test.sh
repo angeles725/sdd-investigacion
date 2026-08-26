@@ -677,7 +677,9 @@ EOF
   printf '# Beta Block 1\nBody.\n'  > "$d/beta-block1.md"
   : > "$d/INDEX.md"
   # Seed research-state.v1 envelope in both focuses so verify-state passes.
-  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+  # FIX 2 (issue #368): --sync-state on a multi-focus corpus now requires --focus; seed each in turn.
+  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus alpha >/dev/null 2>&1
+  bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus beta  >/dev/null 2>&1
 }
 
 # 26 — undocumented_findings: 0 → archive passes (positive control; field present and clean).
