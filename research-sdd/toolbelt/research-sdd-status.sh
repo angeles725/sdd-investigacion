@@ -297,7 +297,7 @@ if [ "$mode" = "--sync-state" ]; then
   # file's OWN directory — recomputed INSIDE the loop with the SAME strict discriminator + dirname scoping that
   # verify-state.sh:101 uses. A once-at-$corpus cb would disagree with verify-state for any focus file living in
   # a subdirectory (verify-state recomputes ondisk per dirname($state)), FAILing the envelope we just wrote.
-  render_envelope() {   # reads the per-file globals: cb/gc/kg/io/req/bo/def/uf/_e_bs
+  render_envelope() {   # reads the per-file globals: cb/gc/kg/io/req/bo/def/uf/_extra_env_lines
     printf '<!-- research-state.v1 -->\n'
     printf 'schema: research-state.v1\n'
     printf 'covered_blocks: %s\n' "$cb"
@@ -308,7 +308,7 @@ if [ "$mode" = "--sync-state" ]; then
     printf 'blocked_open: %s\n' "$bo"
     printf 'deferred_open: %s\n' "$def"
     printf 'undocumented_findings: %s\n' "$uf"
-    [ -n "$_e_bs" ] && printf 'block_scope: %s\n' "$_e_bs"
+    [ -n "$_extra_env_lines" ] && printf '%s\n' "$_extra_env_lines"  # PREAMBLE-CARRY-FORWARD
     printf '<!-- /research-state.v1 -->'
   }
   # Reassigning the global `state` per iteration is deliberate: section/backlog_rows/blocked_body/env_get all
@@ -316,6 +316,22 @@ if [ "$mode" = "--sync-state" ]; then
   # Scan $target (not $corpus) so split-layout corpora (focuses in sibling subdirectories) are fully seeded;
   # scanning only $corpus=dirname(first) left sibling focuses unseeded — the BLOCKER 2 / WARNING 4 root cause.
   mapfile -t _states < <(list_state_files "$target")
+  # When --focus is given, restrict the sync to that single file only (avoids seeding siblings).
+  if [ -n "$focus_slug" ]; then
+    _focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+    if [ ! -f "$_focused" ]; then
+      printf 'sync-state: no RESEARCH-STATE-%s.md under %s\n' "$focus_slug" "$target" >&2; exit 1
+    fi
+    _states=("$_focused")
+  fi
+  # FIX 2: scope guard — refuse to silently rewrite all siblings when no --focus is given.
+  # Multiple RESEARCH-STATE files in a corpus must be targeted one at a time so that per-focus
+  # preamble fields are never clobbered by a corpus-wide sweep.
+  if [ -z "$focus_slug" ] && [ "${#_states[@]}" -gt 1 ]; then
+    printf 'sync-state: WARN: %d RESEARCH-STATE files found under %s — use --focus <slug> to target one focus (refusing without explicit scope)\n' \
+      "${#_states[@]}" "$target" >&2
+    exit 1  # SYNC-SCOPE-GUARD
+  fi
   for state in "${_states[@]}"; do
     # Write THROUGH a symlinked state file to its real path (else the mv below would replace the symlink
     # with a regular file, silently breaking a shared/canonical state). readlink -f also canonicalizes a
@@ -341,6 +357,28 @@ if [ "$mode" = "--sync-state" ]; then
     if [ -z "$_e_bs" ]; then
       _raw_bs="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*block_scope:/{v=$0; sub(/^[[:space:]]*block_scope:[[:space:]]*/,"",v); print v; exit}' "$state")"  # BS-SYNC-PROBE
       case "$_raw_bs" in per-focus|shared-global) _e_bs="$_raw_bs" ;; esac
+    fi
+    # Generalized preamble carry-forward: collect all non-owned lines from the existing
+    # envelope, normalized (leading whitespace stripped, space ensured after colon).
+    # The 9 owned keys below are recomputed fresh every run; every other line —
+    # block_scope:, method:, or any unknown future field — passes through unchanged.
+    # Empty on first-seed (fence absent): nothing to carry forward yet.
+    _extra_env_lines=''
+    if grep -q '<!-- research-state.v1 -->' "$state"; then
+      _extra_env_lines="$(awk '
+        /<!-- research-state.v1 -->/{b=1;next}
+        /<!-- \/research-state.v1 -->/{b=0}
+        b {
+          line=$0; sub(/^[[:space:]]+/,"",line)
+          colon=index(line,":")
+          if (colon==0) next
+          key=substr(line,1,colon-1)
+          if (key=="schema"||key=="covered_blocks"||key=="gaps_closed"||key=="known_gaps"||
+              key=="investigable_open"||key=="requires_execution_open"||key=="blocked_open"||
+              key=="deferred_open"||key=="undocumented_findings") next
+          val=substr(line,colon+1); sub(/^[[:space:]]+/,"",val); sub(/[[:space:]]+$/,"",val)
+          printf "%s: %s\n",key,val
+        }' "$state")"  # PREAMBLE-CARRY-FORWARD
     fi
     # covered_blocks from THIS file's own directory — identical discriminator + dirname scoping to
     # verify-state.sh (single definition rule, prevents dual-authority drift on this count).
