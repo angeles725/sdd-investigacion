@@ -82,32 +82,39 @@ run_clean() {
 }
 
 BAD_OUT="$(run_bad)"
+# Empty-capture guard: a fork-fail on the capture yields empty, not a content failure.
+[ -n "$BAD_OUT" ] || no "BAD_OUT: SUT produced no output (capture fork-fail?)"
 
 # --- 3. CHECK 1 fires: declared count (2) != real count (3) -----------------
-printf '%s\n' "$BAD_OUT" | grep -qiE 'count mismatch|declares no section' \
+_lower="${BAD_OUT,,}"
+re='count mismatch|declares no section'
+[[ "$_lower" =~ $re ]] \
   && ok "3 CHECK 1: stale-count WARN fires when declared (2) != real (3)" \
   || no "3 CHECK 1: expected count-mismatch WARN (out=[$BAD_OUT])"
 
 # --- 4. CHECK 2 fires: §3 not referenced ------------------------------------
-printf '%s\n' "$BAD_OUT" | grep -qE '§3' \
+re='§3'
+[[ "$BAD_OUT" =~ $re ]] \
   && ok "4 CHECK 2: orphan §3 WARN fires" \
   || no "4 CHECK 2: expected §3 orphan WARN (out=[$BAD_OUT])"
 
 # --- 5. CHECK 3 fires: retros/nonexistent-fixture.md resolves under neither root ---
-printf '%s\n' "$BAD_OUT" | grep -q 'nonexistent-fixture' \
-  && printf '%s\n' "$BAD_OUT" | grep -q 'does not exist' \
+[[ "$BAD_OUT" == *nonexistent-fixture* ]] \
+  && [[ "$BAD_OUT" == *'does not exist'* ]] \
   && ok "5 CHECK 3: broken citation WARN fires for retros/nonexistent-fixture.md" \
   || no "5 CHECK 3: expected broken-citation WARN for nonexistent-fixture.md (out=[$BAD_OUT])"
 
 # --- 6. repo-root fallback: retros/repo-only.md must NOT produce a WARN -----
 # skill-bad.md cites retros/repo-only.md which exists at $REPO_ROOT/retros/repo-only.md
 # but NOT at $KIT_ROOT/retros/repo-only.md. Guard must resolve it at repo root → no WARN.
-printf '%s\n' "$BAD_OUT" | grep -q 'repo-only' \
+[[ "$BAD_OUT" == *repo-only* ]] \
   && no "6 CHECK 3 repo-root fallback: got unexpected WARN for repo-only.md (out=[$BAD_OUT])" \
   || ok "6 CHECK 3 repo-root fallback: retros/repo-only.md (repo-root-only) produces no WARN"
 
 # --- 7. All findings appear in bad-scenario summary -------------------------
-printf '%s\n' "$BAD_OUT" | grep -qiE 'Findings:.*[1-9]' \
+_lower="${BAD_OUT,,}"
+re='findings:.*[1-9]'
+[[ "$_lower" =~ $re ]] \
   && ok "7 bad-scenario summary reports ≥1 findings" \
   || no "7 bad-scenario summary: expected ≥1 findings (out=[$BAD_OUT])"
 
@@ -116,18 +123,26 @@ BAD_RC=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_BAD" \
          RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MISMATCH" \
          RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
          bash "$SUT" 2>&1; echo $?)
-printf '%s\n' "$BAD_RC" | tail -1 | grep -q '^0$' \
+# Extract last line (exit code) without forking: ##*$'\n' strips everything through last newline.
+[[ "${BAD_RC##*$'\n'}" == "0" ]] \
   && ok "8 exit 0 on advisory findings (WARN-only instrument)" \
   || no "8 expected exit 0 on findings (got $BAD_RC)"
 
 # --- 9. Clean scenario: zero WARN lines emitted -----------------------------
 CLEAN_OUT="$(run_clean)"
-printf '%s\n' "$CLEAN_OUT" | grep -qE '^WARN' \
+# Empty-capture guard.
+[ -n "$CLEAN_OUT" ] || no "CLEAN_OUT: SUT produced no output (capture fork-fail?)"
+# ^WARN line-anchor: prepend \n so every line start is preceded by \n in the LHS;
+# pattern $'\n'WARN then matches any line starting with WARN without relying on ^ inside
+# a group (which glibc ERE may not treat as a start anchor).
+re=$'\n'WARN
+[[ $'\n'"$CLEAN_OUT" =~ $re ]] \
   && no "9 clean scenario: unexpected WARN line (out=[$CLEAN_OUT])" \
   || ok "9 clean scenario: no WARN lines emitted"
 
 # --- 10. Clean scenario: summary shows 0 findings in all categories ---------
-printf '%s\n' "$CLEAN_OUT" | grep -qE 'Findings:.*0 stale-count.*0 orphan.*0 broken.*0 readme-range' \
+re='Findings:.*0 stale-count.*0 orphan.*0 broken.*0 readme-range'
+[[ "$CLEAN_OUT" =~ $re ]] \
   && ok "10 clean scenario: summary shows 0 findings in all categories (incl. readme-range)" \
   || no "10 clean summary expected 0 findings incl. readme-range (out=[$CLEAN_OUT])"
 
@@ -136,13 +151,14 @@ OP_RC=$(RSDD_METHODOLOGY="/nonexistent/method.md" RSDD_SKILL="$SKILL_CLEAN" \
         RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
         RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
         bash "$SUT" 2>&1; echo $?)
-printf '%s\n' "$OP_RC" | tail -1 | grep -q '^1$' \
+[[ "${OP_RC##*$'\n'}" == "1" ]] \
   && ok "11 exit 1 on missing METHODOLOGY (operational failure)" \
   || no "11 expected exit 1 for missing METHODOLOGY (got $OP_RC)"
 
 # --- 12. Summary proves instrument looked (anti-silent-zero) ----------------
 # The clean summary must include the real_count (3) in the "## N. sections" phrase.
-printf '%s\n' "$CLEAN_OUT" | grep -qE 'checked METHODOLOGY\.md \([0-9]+ top-level' \
+re='checked METHODOLOGY\.md \([0-9]+ top-level'
+[[ "$CLEAN_OUT" =~ $re ]] \
   && ok "12 summary proves instrument looked (real_count printed in summary)" \
   || no "12 summary missing proof of what was checked (out=[$CLEAN_OUT])"
 
@@ -160,7 +176,7 @@ else
           RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
           bash "$SUT" 2>&1; echo $?)
   chmod 644 "$UNREADABLE"; rm -f "$UNREADABLE"
-  printf '%s\n' "$UR_RC" | tail -1 | grep -q '^1$' \
+  [[ "${UR_RC##*$'\n'}" == "1" ]] \
     && ok "13 exit 1 on unreadable METHODOLOGY (operational failure)" \
     || no "13 expected exit 1 for unreadable METHODOLOGY (got $UR_RC)"
 fi
@@ -168,7 +184,8 @@ fi
 # --- 14. CHECK 4 fires: README declares §1–§2 but real count is 3 -----------
 # run_bad() uses README_MISMATCH (declares §1–§2). method-3.md has 3 sections.
 # Guard must emit a readme-range WARN visible in BAD_OUT.
-printf '%s\n' "$BAD_OUT" | grep -qE 'README.*§1.*§2|§1.*§2.*METHODOLOGY' \
+re='README.*§1.*§2|§1.*§2.*METHODOLOGY'
+[[ "$BAD_OUT" =~ $re ]] \
   && ok "14 CHECK 4: readme-range WARN fires (README declares §1–§2, real count is 3)" \
   || no "14 CHECK 4: expected README-range WARN for §1–§2 vs real 3 (out=[$BAD_OUT])"
 
@@ -177,25 +194,36 @@ README_ABSENT_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
                     RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="/nonexistent/readme.md" \
                     RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                     bash "$SUT" 2>&1; echo $?)
-printf '%s\n' "$README_ABSENT_OUT" | grep -qiE 'README.*not found' \
+# Empty-capture guard (echo $? ensures content, but guard is a safety net).
+[ -n "$README_ABSENT_OUT" ] || no "README_ABSENT_OUT: SUT produced no output (capture fork-fail?)"
+# Case-insensitive: lowercase both operands; pattern is already lowercase.
+_lower="${README_ABSENT_OUT,,}"
+re='readme.*not found'
+[[ "$_lower" =~ $re ]] \
   && ok "15a README absent: degraded WARN fires" \
   || no "15a expected degraded WARN for absent README (out=[$README_ABSENT_OUT])"
-printf '%s\n' "$README_ABSENT_OUT" | tail -1 | grep -q '^0$' \
+[[ "${README_ABSENT_OUT##*$'\n'}" == "0" ]] \
   && ok "15b README absent: exit code stays 0 (degraded mode, NOT operational failure)" \
-  || no "15b expected exit 0 for absent README (got tail=$(printf '%s\n' "$README_ABSENT_OUT" | tail -1))"
+  || no "15b expected exit 0 for absent README (got last_line=${README_ABSENT_OUT##*$'\n'})"
 
 # --- 16. README present but no §-range: distinct WARN fires -----------------
 README_NO_RANGE_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
                       RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_NO_RANGE" \
                       RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                       bash "$SUT" 2>&1)
-printf '%s\n' "$README_NO_RANGE_OUT" | grep -qiE 'declares no.*§-range|no.*§-range' \
+# Empty-capture guard.
+[ -n "$README_NO_RANGE_OUT" ] || no "README_NO_RANGE_OUT: SUT produced no output (capture fork-fail?)"
+# Case-insensitive: lowercase both operands.
+_lower="${README_NO_RANGE_OUT,,}"
+re='declares no.*§-range|no.*§-range'
+[[ "$_lower" =~ $re ]] \
   && ok "16 README present but no §-range: distinct 'declares no §-range' WARN fires" \
   || no "16 expected 'declares no §-range' WARN (out=[$README_NO_RANGE_OUT])"
 
 # --- 17. Summary proves README was checked (anti-silent-zero) ---------------
 # The clean summary must include the §-range upper bound in the "§-range upper: N" phrase.
-printf '%s\n' "$CLEAN_OUT" | grep -qE '§-range upper: [0-9]+' \
+re='§-range upper: [0-9]+'
+[[ "$CLEAN_OUT" =~ $re ]] \
   && ok "17 summary proves README was checked (§-range upper printed; anti-silent-zero)" \
   || no "17 summary missing README §-range upper bound (out=[$CLEAN_OUT])"
 
@@ -207,7 +235,11 @@ DECOY_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_DECOY" \
             RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
             RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
             bash "$SUT" 2>&1)
-printf '%s\n' "$DECOY_OUT" | grep -qE '^WARN.*count mismatch|^WARN.*declares no section' \
+# Empty-capture guard.
+[ -n "$DECOY_OUT" ] || no "DECOY_OUT: SUT produced no output (capture fork-fail?)"
+# ^WARN.*... line-anchor: prepend \n so \nWARN anchors per-line without ^ inside a group.
+re=$'\n''WARN.*(count mismatch|declares no section)'
+[[ $'\n'"$DECOY_OUT" =~ $re ]] \
   && no "18 anchor: hardened anchor should pick 'all 3 sections' but got stale-count WARN (out=[$DECOY_OUT])" \
   || ok "18 anchor: hardened anchor picks 'all 3 sections' from decoy-SKILL → no stale-count WARN"
 
@@ -233,12 +265,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
                  RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                  bash "$mutant" 2>&1)
-    if printf '%s\n' "$MUTANT_OUT" | grep -qE '^WARN'; then
+    # Empty-capture guard.
+    [ -n "$MUTANT_OUT" ] || no "MUTANT_OUT: SUT produced no output (capture fork-fail?)"
+    re=$'\n'WARN
+    if [[ $'\n'"$MUTANT_OUT" =~ $re ]]; then
       ok "teeth CHECK 1: broken real-count mutant WARNs on clean fixture → test 9 would go RED"
     else
       no "teeth CHECK 1: mutant produced no WARN on clean fixture — no effect (THEATER)"
     fi
-    if printf '%s\n' "$MUTANT_OUT" | grep -qE 'Findings:.*[1-9]'; then
+    re='Findings:.*[1-9]'
+    if [[ "$MUTANT_OUT" =~ $re ]]; then
       ok "teeth CHECK 1: mutant summary shows ≥1 finding → test 10 would go RED"
     else
       no "teeth CHECK 1: mutant summary still shows 0 findings — no effect on summary (THEATER)"
@@ -260,7 +296,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                   RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
                   RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                   bash "$mutant2" 2>&1)
-    if printf '%s\n' "$MUTANT2_OUT" | grep -qE '^WARN.*top-level METHODOLOGY'; then
+    # Empty-capture guard.
+    [ -n "$MUTANT2_OUT" ] || no "MUTANT2_OUT: SUT produced no output (capture fork-fail?)"
+    re=$'\n''WARN.*top-level METHODOLOGY'
+    if [[ $'\n'"$MUTANT2_OUT" =~ $re ]]; then
       ok "teeth CHECK 2: negation-mutant false-WARNs orphans on clean fixture → test 9 would go RED"
     else
       no "teeth CHECK 2: mutant produced no orphan WARN on clean fixture — no effect (THEATER)"
@@ -283,7 +322,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                   RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MISMATCH" \
                   RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                   bash "$mutant3" 2>&1)
-    if printf '%s\n' "$MUTANT3_OUT" | grep -q 'repo-only'; then
+    # Empty-capture guard.
+    [ -n "$MUTANT3_OUT" ] || no "MUTANT3_OUT: SUT produced no output (capture fork-fail?)"
+    if [[ "$MUTANT3_OUT" == *repo-only* ]]; then
       ok "teeth CHECK 3: no-repo-root mutant false-WARNs for repo-only.md → test 6 would go RED"
     else
       no "teeth CHECK 3: mutant did not WARN for repo-only.md — no effect (THEATER)"
@@ -309,7 +350,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                 RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                 bash "$mutant4" 2>&1; echo $?)
       chmod 644 "$UR2"; rm -f "$UR2"
-      if printf '%s\n' "$MUT4_RC" | tail -1 | grep -q '^1$'; then
+      if [[ "${MUT4_RC##*$'\n'}" == "1" ]]; then
         no "teeth OP: mutant still exited 1 on unreadable file — no effect (THEATER)"
       else
         ok "teeth OP: no-readability-guard mutant fails to exit 1 on unreadable METHODOLOGY → test 13 would go RED"
@@ -331,7 +372,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                   RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
                   RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                   bash "$mutant5" 2>&1)
-    if printf '%s\n' "$MUTANT5_OUT" | grep -qE '^WARN.*§-range|^WARN.*README'; then
+    # Empty-capture guard.
+    [ -n "$MUTANT5_OUT" ] || no "MUTANT5_OUT: SUT produced no output (capture fork-fail?)"
+    re=$'\n''WARN.*(§-range|README)'
+    if [[ $'\n'"$MUTANT5_OUT" =~ $re ]]; then
       ok "teeth README-range: broken regex causes WARN on matching README → test 9 would go RED"
     else
       no "teeth README-range: mutant produced no README-range WARN on matching README — no effect (THEATER)"
@@ -354,7 +398,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                   RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
                   RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                   bash "$mutant6" 2>&1)
-    if printf '%s\n' "$MUTANT6_OUT" | grep -qE '^WARN.*count mismatch|^WARN.*declares no section'; then
+    # Empty-capture guard.
+    [ -n "$MUTANT6_OUT" ] || no "MUTANT6_OUT: SUT produced no output (capture fork-fail?)"
+    re=$'\n''WARN.*(count mismatch|declares no section)'
+    if [[ $'\n'"$MUTANT6_OUT" =~ $re ]]; then
       ok "teeth ANCHOR: naive-anchor mutant picks decoy '5 sections' → stale-count WARN fires → test 18 would go RED"
     else
       no "teeth ANCHOR: mutant did not produce stale-count WARN on decoy-SKILL — no effect (THEATER)"
