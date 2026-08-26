@@ -39,6 +39,7 @@ research-sdd/
 ├── METHODOLOGY.md              # the full contract (§1–§22): markers, block anatomy, sources, stopping, document mode, breakthrough ledger…
 ├── PROMPT-LOOP.md              # the per-iteration operational prompt (what goes into the loop)
 ├── PROMPT-AUDIT.md             # the audit-mode prompt (re-verify an existing corpus)
+├── PROMPT-REFRESH.md           # the refresh-mode prompt (rewrite a block whose subject has DRIFTED)
 ├── TARGETS.md                  # master table of registered research targets
 ├── skills/research-sdd/SKILL.md# launcher / depth classifier (quick · light · exhaustive)
 ├── templates/                  # block, INDEX, RESEARCH-STATE, SOURCES, CONTRADICTIONS, retro, audit templates + gen-catalog.py + hook-sessionstart.sh
