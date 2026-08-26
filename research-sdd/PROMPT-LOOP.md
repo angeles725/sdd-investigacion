@@ -153,16 +153,20 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
-     Status |`); Priority must be `high`, `medium`, or `low` (not translated); Status must start with
-     `pending` for a gap to be treated as investigable. The awk parser applies two checks in order,
-     and precedence matters: first it validates the Priority cell; only rows that pass then hit the
-     cell-count check. Consequently: a row with an invalid Priority is silently skipped — no WARN,
-     regardless of cell count; a valid-priority row with n ≠ 4 cells triggers a WARN to stderr
-     (`"WARN: malformed backlog row (N cells, expected 4 — a cell may contain a pipe): …"`) and is
-     then dropped. `verify-state.sh` is NOT the reporter. No inline `|` is safe inside a cell,
-     including the escaped form `\|`: awk splits on the literal pipe character — a `\|` inside the
-     Priority cell corrupts that cell (silent skip); a `\|` elsewhere (Priority intact) yields a
-     spurious 5th cell (WARN + drop).
+     Status |`); Priority must be `high`, `medium`, or `low` (or `deferred` for a parked gap; not
+     translated); Status must start with `pending` for a gap to be treated as investigable. The awk
+     parser applies two checks in order, and precedence matters: first it validates the Priority cell;
+     only rows that pass then hit the cell-count check. An UNKNOWN Priority base (not `high`/`medium`/
+     `low`/`deferred`) is NOT silent: it WARNs to stderr (`"backlog: unknown priority [X] in row: …"`)
+     AND emits an `INVALID_PRIORITY` sentinel that `verify-state.sh` reads, so `--sync-state` refuses
+     on it. A non-conforming QUALIFIER form (e.g. `high (ctx)`) likewise WARNs and is excluded. Only
+     the deliberately-excluded forms — `deferred`, a struck `~~tier~~`, an em-dash `—`, and header
+     sentinel rows — are skipped silently, and those are valid exclusions, not errors. A valid-priority
+     row with n ≠ 4 cells triggers a separate WARN to stderr (`"WARN: malformed backlog row (N cells,
+     expected 4 — a cell may contain a pipe): …"`) and is then dropped. No inline `|` is safe inside a
+     cell, including the escaped form `\|`: awk splits on the literal pipe character — a `\|` inside the
+     Priority cell garbles it into an unknown priority (WARN + `INVALID_PRIORITY` sentinel); a `\|`
+     elsewhere (Priority intact) yields a spurious 5th cell (WARN + drop).
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      DELEGATE an audit sweep (Explore/general-purpose sub-agent) that returns a COVERAGE MATRIX —
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
