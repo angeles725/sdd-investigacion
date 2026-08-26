@@ -85,6 +85,10 @@ require_label() {
     bvi)           printf '%s\n' "bvi" ;;
     latex)         printf '%s\n' "latex" ;;
     circuitikz)    printf '%s\n' "circuitikz" ;;
+    capinfos)      printf '%s\n' "capinfos" ;;
+    unsquashfs)    printf '%s\n' "unsquashfs" ;;
+    pwsh)          printf '%s\n' "pwsh" ;;
+    ezdxf)         printf '%s\n' "ezdxf" ;;
     *) return 1 ;;
   esac
 }
@@ -193,6 +197,7 @@ report() {
   echo "[ dynamic / network / emulation ]"
   row "tshark" tshark --version /usr/bin/tshark
   row "tcpdump" tcpdump --version /usr/bin/tcpdump
+  row "capinfos" capinfos -v /usr/bin/capinfos "${BREW:+$BREW/bin/capinfos}"
   row "gdb" gdb --version /usr/bin/gdb
   row "gdb-multiarch" gdb-multiarch --version /usr/bin/gdb-multiarch
   row "strace" strace --version /usr/bin/strace
@@ -251,6 +256,7 @@ report() {
     fi
   }
   _detect_ilspycmd
+  row "pwsh" pwsh --version "${BREW:+$BREW/bin/pwsh}"
   echo ""
   echo "[ firmware ]"
   # binwalk MUST resolve to the root-owned /usr/bin/binwalk: corroborate_firmware.py
@@ -260,6 +266,7 @@ report() {
   row "unblob" unblob --help "$HOME/.local/bin/unblob" "${BREW:+$BREW/bin/unblob}"
   row "kaitai-struct-compiler" kaitai-struct-compiler --version "${BREW:+$BREW/bin/kaitai-struct-compiler}" /usr/bin/kaitai-struct-compiler
   row "yara" yara --version "${BREW:+$BREW/bin/yara}" /usr/bin/yara
+  row "unsquashfs" unsquashfs -v /usr/bin/unsquashfs /usr/sbin/unsquashfs "${BREW:+$BREW/bin/unsquashfs}"
   if hs_version="$(rsdd_pkg_config --modversion libhs 2>/dev/null)"; then
     printf '  %-22s AVAILABLE   libhs %s (command-local system pkg-config path)\n' "Hyperscan pkg-config" "$hs_version"
   else
@@ -294,6 +301,14 @@ report() {
     printf '  %-22s AVAILABLE   %s\n' "circuitikz" "$_ctz_path"
   else
     printf '  %-22s MISSING     (kpsewhich circuitikz.sty not found — install texlive-pictures)\n' "circuitikz"
+  fi
+  # ezdxf is a system python3 library (not venv-isolated) used by render-drawing.sh.
+  # Probe via the same interpreter render-drawing.sh:38 uses: the system python3.
+  _py3_ezdxf="$(command -v python3 2>/dev/null || true)"
+  if [ -n "$_py3_ezdxf" ] && rsdd_run_probe "$_py3_ezdxf" -c 'import ezdxf'; then
+    printf '  %-22s AVAILABLE   %s\n' "ezdxf" "$_py3_ezdxf"
+  else
+    printf '  %-22s MISSING     (python3 -c "import ezdxf" failed — pip install ezdxf)\n' "ezdxf"
   fi
   echo ""
   echo "[ python bytecode ]"
