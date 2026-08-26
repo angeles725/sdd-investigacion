@@ -67,7 +67,7 @@ Always read first, in this order:
          HOT-CORE (read in full now): §1 §2 §3 the 7 markers §4 §7 §8 §9 §11 §17 — framing + per-block contract.
          SITUATIONAL (read the section in full when its phase fires): §5 source-added · §6 profiling/wrapper ·
          §10 tool-missing · §12 live-probe · §13 audit · §14 correction · §15 corpus-git · §16 multi-focus ·
-         §18 STOP · §19 build/PoC · §20 document-mode · §21 wall. Unsure a phase is active -> read it.
+         §18 STOP · §19 build/PoC · §20 document-mode · §21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
   4. $CORPUS/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]
@@ -139,14 +139,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
      `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
      $CORPUS (METHODOLOGY §15) and creates INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md ·
-     the SessionStart hook · retros/ · .gitignore, and `git init`s the TARGET — all from
+     the SessionStart hook · retros/ · tools/ + tools/README.md · .gitignore, and `git init`s the TARGET — all from
      $KIT/templates. It REFUSES over an existing corpus, so it can never duplicate one (--force overrides).
      Then do the JUDGMENT follow-ups it prints (it cannot guess them): ADAPT the hook — replace <SUBJECT> +
      real source paths in $TARGET/.claude/hooks/research-protocol.sh (for a NESTED corpus, prefix its
      block/INDEX/CATALOG paths with corpus/) — and register it in $TARGET/.claude/settings.json
      (matcher startup|resume|clear). (TARGETS.md registration is step b; gap-seeding is step e.)
-     Also create `$TARGET/tools/` and `$TARGET/tools/README.md` (columns: name · path · WHY —
-     used/adapted/downloaded/created/updated). Record every tool acquired during the run AT THE MOMENT
+     The init already scaffolds `$TARGET/tools/` + `$TARGET/tools/README.md` (columns: name · path · WHY —
+     used/adapted/downloaded/created/updated) — do NOT recreate them. RECORD every tool acquired during the run AT THE MOMENT
      of acquisition, not reconstructed at retro time — the WHY is cheapest while the decision is live.
   e. POPULATE the scaffolded $CORPUS/RESEARCH-STATE.md (step c laid the empty template) with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
