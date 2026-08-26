@@ -31,8 +31,9 @@ answering any research question, ALWAYS follow this order:
    - <path to binaries/decompiled output/source code of the system under study>
 
 4. PROVENANCE AND CERTAINTY (mandatory markers on every claim):
-   [CERT] local primary · [CERT-doc] official document (sources/) · [CERT-web] official web ·
-   [CERT-a] forum/secondary · [INFER] deduction. No citation ⇒ [INFER] or omit.
+   [CERT-hw] live system/device (highest) · [CERT-live] live remote service · [CERT] local primary ·
+   [CERT-doc] official document (sources/) · [CERT-web] official web · [CERT-a] forum/secondary ·
+   [INFER] deduction. No citation ⇒ [INFER] or omit.
 
 5. EXTERNAL EVIDENCE: if you find a relevant datasheet/manual/forum/link, DOWNLOAD it with
    fetch-doc.sh (lands in sources/ + registered in SOURCES.md) and cite the local file.
