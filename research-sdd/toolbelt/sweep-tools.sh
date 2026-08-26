@@ -73,7 +73,7 @@ for p in $paths; do
     else
       predicate_rejects=$((predicate_rejects + 1))
     fi
-  done < <(find "$p/tools" -type f 2>/dev/null | sort)
+  done < <(find "$p/tools" -type f -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/.venv/*' -not -path '*/.git/*' 2>/dev/null | sort)
 
   printf 'TARGET  %s\n' "$name"
   if [ "$all_files" -eq 0 ]; then

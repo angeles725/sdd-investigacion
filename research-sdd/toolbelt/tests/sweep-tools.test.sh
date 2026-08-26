@@ -248,6 +248,23 @@ else
   no "14 unparseable ledger → WARN shown, no 'recorded (ledger):' count" "exit=$RC out=[$OUT]"
 fi
 
+# 15 — DEPENDENCY DIRS EXCLUDED. tools/ has 2 real tools plus a node_modules/ full of .js/.py
+#      files (deps, not tools) — including an executable one. The census must NOT count them, so a
+#      stray `npm install` / `pip install` under tools/ cannot inflate the count (reproducible census).
+kit="$(mkkit c15-deps)"; tgt="$kit/targetA"
+mktool "$tgt" "scan.py"; mktool "$tgt" "extract.sh"
+mkdir -p "$tgt/tools/node_modules/pkg" "$tgt/tools/__pycache__"
+printf 'x\n' > "$tgt/tools/node_modules/pkg/index.js"
+printf 'x\n' > "$tgt/tools/node_modules/pkg/dep.py"
+chmod +x "$tgt/tools/node_modules/pkg/dep.py"
+printf 'x\n' > "$tgt/tools/__pycache__/mod.cpython-314.pyc"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] && grep -q 'tools: 2 found' <<<"$OUT"; then
+  ok "15 dependency dirs (node_modules/__pycache__) excluded → 2 found, not inflated" "(exit $RC)"
+else
+  no "15 dependency dirs excluded → 2 found, not inflated" "exit=$RC out=[$OUT]"
+fi
+
 # Teeth (mutation proof): only when --prove-teeth is passed.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth A: break extension matching → case-1 fixture (2 tools) must report 0, not 2.
@@ -294,6 +311,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth B: Form-2-dropped mutant misses \$RESEARCH_HOME → case 2 goes red" "()"
   else
     no "teeth B: mutant still found tool — case 2 is THEATER" "out=[$out_b]"
+  fi
+
+  # Tooth D: strip the dependency-dir exclusions from the find → node_modules deps get counted →
+  #          case-15 fixture reports more than 2.
+  kit_d="$(mkkit teeth-d)"; tgt_d="$kit_d/targetA"
+  mktool "$tgt_d" "scan.py"; mktool "$tgt_d" "extract.sh"
+  mkdir -p "$tgt_d/tools/node_modules/pkg"
+  printf 'x\n' > "$tgt_d/tools/node_modules/pkg/index.js"
+  printf 'x\n' > "$tgt_d/tools/node_modules/pkg/dep.py"
+  write_targets "$kit_d" "$tgt_d"
+  sed "s/-not -path '[^']*'//g" "$SUT" > "$kit_d/toolbelt/sweep-tools.sh"
+  out_d="$("$BASH_BIN" "$kit_d/toolbelt/sweep-tools.sh" 2>&1)"
+  if ! grep -q 'tools: 2 found' <<<"$out_d"; then
+    ok "teeth D: exclude-stripped mutant counts node_modules deps → case 15 goes red" "()"
+  else
+    no "teeth D: mutant still found only 2 — case 15 is THEATER" "out=[$out_d]"
   fi
 fi
 
