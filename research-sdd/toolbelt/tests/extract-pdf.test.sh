@@ -281,5 +281,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 fi  # end fitz-dependent block
 
+# Whole-suite skip: when NO case ran (tier2 needs pdfinfo; mojibake needs
+# python3+fitz+poppler — all can be absent on CI), emit a "SKIP:" line so
+# run-all.sh classifies this as a SKIPPED suite, not a "zero test cases" failure
+# (run-all.sh:144 keys skip off '^SKIP:'; without it a fully-skipped run is a fail).
+if [ $((pass + fail)) -eq 0 ]; then
+  echo "SKIP: extract-pdf.test.sh — required tools absent (pdfinfo/poppler/fitz); no cases executed"
+  exit 0
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
