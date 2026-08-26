@@ -117,7 +117,16 @@ done < <(grep -rniIP "${INCL[@]}" "${EXCL[@]}" -e "${KWID}\s*[=:]" "$corpus" 2>/
 # `\x00` here is the literal 4-char PCRE escape (a bash $'\x00' arg would collapse to an empty pattern that
 # matches every file). `-a` is REQUIRED: without it GNU grep refuses to match inside a file it deems binary,
 # so the NUL never gets found and the count is a false 0. `-a` forces the text match so the NUL is detected.
-nulls=$(grep -ralP "${INCL[@]}" "${EXCL[@]}" '\x00' "$corpus" 2>/dev/null | grep -c . || true)
+_nul_tmp="$(mktemp)"
+grep -ralP "${INCL[@]}" "${EXCL[@]}" '\x00' "$corpus" 2>/dev/null > "$_nul_tmp"
+_nul_rc=$?
+if [ "$_nul_rc" -ge 2 ]; then
+  echo "   WARN: NUL-byte scan FAILED (grep exit $_nul_rc) — binary-skip detection incomplete; inspect corpus manually."
+  nulls=0
+else
+  nulls=$(grep -c . < "$_nul_tmp" || true)
+fi
+rm -f "$_nul_tmp"
 [ "${nulls:-0}" -gt 0 ] && echo "-- ⚠ $nulls in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually."
 
 echo "-- summary: $hits high-confidence leak(s) · $warns advisory warning(s) · $nulls binary-skipped --"

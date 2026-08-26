@@ -87,6 +87,32 @@ out="$(runout "$d")"
 if ! grep -qiE 'audits/ exists at the kit' <<<"$out"; then ok "no audits/ dir → no audits-WARN (no false positive)"
 else no "audits-WARN fired without an audits/ dir :: $out"; fi
 
+# 10 — git-status failure (git exits non-zero after a successful rev-parse) must NOT report CLEAN and must
+#       exit non-zero. A git stub is placed first on PATH: it returns a plausible repo root for rev-parse
+#       but exits 5 for 'status --porcelain', simulating an internal git error.
+_stub10="$TMP/stub-bin-10"
+mkdir -p "$_stub10"
+cat > "$_stub10/git" << STUB10
+#!/usr/bin/env bash
+case "\$*" in
+  *rev-parse*--show-toplevel*)   echo "/tmp/fake-root"; exit 0 ;;
+  *rev-parse*--abbrev-ref*)      echo "main";           exit 0 ;;
+  *status*--porcelain*)          exit 5                         ;;
+  *rev-list*)                    echo "0";              exit 0 ;;
+  *)                                                    exit 0 ;;
+esac
+STUB10
+chmod +x "$_stub10/git"
+d="$TMP/gitstatusfail"; mkdir -p "$d"
+out="$(PATH="$_stub10:$PATH" bash "$SUT" "$d" 2>&1)"
+PATH="$_stub10:$PATH" bash "$SUT" "$d" >/dev/null 2>&1; _grc=$?
+if [ "$_grc" -ne 0 ] && ! grep -qiE 'working tree.*CLEAN|verdict.*: clean' <<<"$out" \
+   && grep -qiE 'git status failed|cannot determine' <<<"$out"; then
+  ok "git-status failure → non-zero exit + error reported, NOT CLEAN"
+else
+  no "git-status failure not detected: exit=$_grc :: $out"
+fi
+
 # NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the porcelain dirty-check, expect the dirty fixture to pass as clean --"
@@ -95,6 +121,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   d="$TMP/teeth"; mkrepo "$d"; echo "changed" > "$d/f.txt"
   bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
   [ "$mrc" = 0 ] && ok "teeth: dirty-check-neutered mutant reports clean → check has teeth" || no "teeth: mutant exit=$mrc — dirty check not exercised (THEATER)"
+
+  # Additional mutation control: neuter the git-status rc-check; the git-fail stub must then exit 0 (CLEAN).
+  echo "-- teeth: neuter the git_rc check, expect git-status failure to pass silently as clean --"
+  mutant2="$TMP/verify-kit-clean.MUTANT2.sh"
+  sed 's/git_rc=\$?/git_rc=0/' "$SUT" > "$mutant2"
+  d_tf="$TMP/teeth-gitfail"; mkdir -p "$d_tf"
+  PATH="$_stub10:$PATH" bash "$mutant2" "$d_tf" >/dev/null 2>&1; mrc2=$?
+  [ "$mrc2" -eq 0 ] && ok "teeth: git-rc-check-neutered mutant exits 0 (silently clean) → rc-check has teeth" \
+    || no "teeth: mutant exit=$mrc2 — git-status rc check not exercised (THEATER)"
 fi
 
 echo "== $pass passed · $fail failed =="
