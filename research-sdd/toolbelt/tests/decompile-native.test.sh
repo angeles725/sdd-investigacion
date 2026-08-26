@@ -18,6 +18,10 @@ SH
 cat >"$ROOT/gh/support/analyzeHeadless" <<'SH'
 #!/bin/sh
 printf '%s\n' "$@" >"$RECORD"
+# Simulate a real Ghidra import: create a program entry (depth >= 2) inside the project dir
+# ($1), which is what analyzeHeadless produces when it actually imports a binary.
+# HEADLESS_EMPTY=1 suppresses this to test the non-empty-output guard.
+[ "${HEADLESS_EMPTY:-0}" = "1" ] || { mkdir -p "$1/ghidraproj.rep/00"; touch "$1/ghidraproj.rep/00/content.prp"; }
 SH
 cat >"$ROOT/bin/r2" <<'SH'
 #!/bin/sh
@@ -65,6 +69,17 @@ if TEST_ROOT="$ROOT" RECORD="$ROOT/b3.args" "$SUT" ghidra "$INPUT" "$ROOT/out/b3
   fi
 else
   no "B3: ghidra --script invocation failed"
+fi
+# N1 — Ghidra exits 0 but writes no files to PROJ → must not print OK, exit non-zero.
+# Controlled via HEADLESS_EMPTY=1: the analyzeHeadless stub skips the project.gpr sentinel
+# when this variable is set. Without it (normal runs), the stub creates the sentinel so that
+# the non-empty guard passes and existing tests are unaffected.
+HEADLESS_EMPTY=1 TEST_ROOT="$ROOT" RECORD="$ROOT/n1.args" "$SUT" ghidra "$INPUT" "$ROOT/out/n1" \
+  >"$ROOT/n1.out" 2>"$ROOT/n1.err"; _n1rc=$?
+if [ "$_n1rc" -ne 0 ] && ! grep -q '^OK' "$ROOT/n1.out"; then
+  ok "N1: Ghidra exits 0 + empty PROJ → wrapper exits non-zero, no OK"
+else
+  no "N1: Ghidra exits 0 + empty PROJ → must exit non-zero (got rc=$_n1rc)"
 fi
 if TEST_ROOT="$ROOT" PATH="$ROOT/bin:$PATH" RECORD="$ROOT/r2.args" "$SUT" r2 "$INPUT" \
   && grep -Fxq -- "$INPUT" "$ROOT/r2.args"; then ok 'r2 mode still dispatches'; else no 'r2 mode'; fi
@@ -337,6 +352,24 @@ fi
       fi
     else
       no "B3 teeth: mutant produced no RECORD file — cannot verify teeth"
+    fi
+  fi
+  echo "-- MN1 mutation: remove PROJ non-empty guard; N1 must go RED --"
+  # Mutant removes the 'find ... -mindepth' guard line from the ghidra case.
+  # Running the empty-output stub (HEADLESS_EMPTY=1) against the mutant must print OK and
+  # exit 0 — confirming N1 has teeth (the guard is the only thing that stops OK on empty PROJ).
+  _mn1="$ROOT/toolbelt/decompile-native.MN1.sh"
+  sed '/mindepth/d' "$ROOT/toolbelt/decompile-native.sh" > "$_mn1"
+  chmod +x "$_mn1"
+  if grep -q 'mindepth' "$_mn1"; then
+    no "MN1 setup: guard line still present in mutant — sed did not match (did the guard change?)"
+  else
+    HEADLESS_EMPTY=1 TEST_ROOT="$ROOT" RECORD="$ROOT/mn1.args" "$_mn1" ghidra "$INPUT" "$ROOT/out/mn1" \
+      >"$ROOT/mn1.out" 2>"$ROOT/mn1.err"; _mn1rc=$?
+    if [ "$_mn1rc" -eq 0 ] && grep -q '^OK' "$ROOT/mn1.out"; then
+      ok "MN1-killed: guard-removed mutant exits 0+OK on empty PROJ → N1 bites"
+    else
+      no "MN1-killed: guard-removed mutant must print OK on empty PROJ (got rc=$_mn1rc) — N1 has no teeth"
     fi
   fi
 fi

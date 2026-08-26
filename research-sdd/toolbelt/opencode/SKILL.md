@@ -205,7 +205,10 @@ purpose (Artifact type row), and how-to-use (Wrapper column, or `(direct)` for a
 `toolbelt/tool-registry.md` is YOUR job, done proactively as part of the install — do it unprompted,
 same as you would save a decision to memory without being asked. `toolbelt/verify-tool-catalog.sh` is
 the anti-silent-zero backstop that WARNs on a logged-but-uncataloged tool; treat its WARN as a missed
-step, not a substitute for doing it.
+step, not a substitute for doing it. The guard matches case-insensitively, so a logged lowercase name
+finds a Title-case entry without extra work. When the logged name and the catalog display name differ
+entirely (e.g. `kaitai-struct-compiler` logged, `ksc` displayed), append `(alias: <logged-name>)` to
+the Tool cell of the relevant catalog row so the whole-word match finds it.
 
 ## Execution mode
 

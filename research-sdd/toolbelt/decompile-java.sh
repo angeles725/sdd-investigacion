@@ -86,4 +86,7 @@ case "$ENGINE" in
     ;;
   *) echo "unknown engine: $ENGINE (use vineflower|cfr|procyon)" >&2; exit 2 ;;
 esac
+# Verify the decompiler actually produced source: at least one .java file must exist in $OUT.
+# All three engines return 0 for obfuscated/empty/unsupported input without writing any source.
+find "$OUT" -type f -name '*.java' -print -quit | grep -q . || { echo "WARN: $ENGINE decompiler exited 0 but produced no .java files in $OUT (input may be obfuscated or unsupported)" >&2; exit 1; }
 echo "OK: $IN -> $OUT  (engine=$ENGINE)"
