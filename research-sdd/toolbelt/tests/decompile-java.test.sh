@@ -143,6 +143,50 @@ else
   no "e procyon+.JAR(upper): -jar <jar> or -o missing -- case-sensitive bug" "argv=[$argv_e]"
 fi
 
+# ── NJ1 / NJ0 — non-empty output guard ───────────────────────────────────────
+# NJ1: engine exits 0 but produces no .java files → wrapper must exit non-zero, no OK.
+# Reuses FAKE_JAVA_HOME: stub java exits 0, writes ARGV, but never creates .java files.
+_nj1_out="$ROOT/nj1-out"
+JAVA_HOME="$FAKE_JAVA_HOME" \
+  VINEFLOWER_JAR="$FAKE_VINEFLOWER" \
+  JAVA_ARGV_LOG="$ROOT/nj1.log" \
+  bash "$SUT" "$FAKE_CLASS" "$_nj1_out" --engine vineflower \
+  >"$ROOT/nj1.stdout" 2>"$ROOT/nj1.stderr"; _nj1rc=$?
+if [ "$_nj1rc" -ne 0 ] && ! grep -q '^OK' "$ROOT/nj1.stdout"; then
+  ok "NJ1: engine exits 0 but no .java files → wrapper exits non-zero, no OK"
+else
+  no "NJ1: engine exits 0 but no .java files → must exit non-zero (got rc=$_nj1rc)"
+fi
+
+# NJ0: success baseline: engine exits 0 and creates .java files → wrapper exits 0, prints OK.
+# Uses a separate java stub that writes a sentinel .java to the last positional (out-dir).
+NJ0_JAVA_HOME="$ROOT/java21-with-output"
+mkdir -p "$NJ0_JAVA_HOME/bin"
+cat > "$NJ0_JAVA_HOME/bin/java" <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-version" ]; then
+  echo 'openjdk version "21.0.1" 2023-10-17'
+  exit 0
+fi
+# Last positional arg is the output directory for vineflower/cfr.
+_out="${@: -1}"
+mkdir -p "$_out"
+touch "$_out/Decompiled.java"
+exit 0
+STUB
+chmod +x "$NJ0_JAVA_HOME/bin/java"
+cp "$NJ0_JAVA_HOME/bin/java" "$NJ0_JAVA_HOME/bin/javap"
+_nj0_out="$ROOT/nj0-out"
+JAVA_HOME="$NJ0_JAVA_HOME" \
+  VINEFLOWER_JAR="$FAKE_VINEFLOWER" \
+  bash "$SUT" "$FAKE_CLASS" "$_nj0_out" --engine vineflower \
+  >"$ROOT/nj0.stdout" 2>"$ROOT/nj0.stderr"; _nj0rc=$?
+if [ "$_nj0rc" -eq 0 ] && grep -q '^OK' "$ROOT/nj0.stdout"; then
+  ok "NJ0: engine creates .java file → wrapper exits 0, prints OK"
+else
+  no "NJ0: engine creates .java file → must exit 0 and print OK (got rc=$_nj0rc)"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 # Mutants live in $MUTANT_DIR (a sub-directory of ROOT) — never in the live tree.
 # lib/tool-env.sh was copied there at setup so the relative source resolves.
@@ -173,6 +217,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth-2: never-jar mutant omits -jar <jar> — test (b) bites" ""
   else
     no "teeth-2: never-jar mutant must omit -jar <jar>" "argv=[$argv_m2]"
+  fi
+
+  # MNJ1 TEETH — remove the .java non-empty guard; NJ1 must go RED.
+  # The mutant strips 'find ... *.java ... exit 1' so the engine's empty output passes to OK.
+  echo "-- MNJ1 mutation: remove .java non-empty guard; NJ1 must go RED --"
+  MNJ1="$MUTANT_DIR/decompile-java.mnj1.sh"
+  sed '/find.*\.java.*exit 1/d' "$SUT" > "$MNJ1"
+  chmod +x "$MNJ1"
+  if grep -q "find.*\.java.*exit 1" "$MNJ1"; then
+    no "MNJ1 setup: guard line still in mutant — sed did not match (did the guard change?)" ""
+  else
+    _mnj1_out="$ROOT/mnj1-out"
+    JAVA_HOME="$FAKE_JAVA_HOME" \
+      VINEFLOWER_JAR="$FAKE_VINEFLOWER" \
+      JAVA_ARGV_LOG="$ROOT/mnj1.log" \
+      bash "$MNJ1" "$FAKE_CLASS" "$_mnj1_out" --engine vineflower \
+      >"$ROOT/mnj1.stdout" 2>/dev/null; _mnj1rc=$?
+    if [ "$_mnj1rc" -eq 0 ] && grep -q '^OK' "$ROOT/mnj1.stdout"; then
+      ok "MNJ1-killed: guard-removed mutant exits 0+OK on no .java → NJ1 bites" ""
+    else
+      no "MNJ1-killed: guard-removed mutant must print OK on no .java (got rc=$_mnj1rc) — NJ1 has no teeth" ""
+    fi
   fi
 fi
 
