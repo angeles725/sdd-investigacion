@@ -707,5 +707,107 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# t — new hard-dep labels are RECOGNIZED: --require exits ≠2 for all 4.
+# AVAILABLE (exit 0) or MISSING (exit 1) are both acceptable; exit 2 means unknown label.
+for _nd_tool in capinfos unsquashfs pwsh ezdxf; do
+  rc_t=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --cache "$ROOT/cache-t-${_nd_tool}.txt" --quiet \
+    --require "$_nd_tool" 2>/dev/null >/dev/null || rc_t=$?
+  if [ "$rc_t" -ne 2 ]; then
+    ok "t --require $_nd_tool: name is mapped (not exit 2)" "(rc=$rc_t)"
+  else
+    no "t --require $_nd_tool: name unknown to require_label" "rc=$rc_t"
+  fi
+done
+
+# u — report prints a status row for each new hard-dep tool.
+CACHE_U="$ROOT/cache-u.txt"
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_U" --quiet >/dev/null 2>&1 || true
+_u_missing=""
+for _nd_lbl in "capinfos" "unsquashfs" "pwsh" "ezdxf"; do
+  grep -q "^  ${_nd_lbl} " "$CACHE_U" || _u_missing="$_u_missing $_nd_lbl"
+done
+if [ -z "$_u_missing" ]; then
+  ok "u report prints a row for each new hard-dep tool" "(4/4)"
+else
+  no "u report prints a row for each new hard-dep tool" "missing:$_u_missing"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: new hard-dep label mutations --"
+
+  # teeth-t1 (targets test t): mutant drops capinfos from require_label.
+  MUT_T1="$ROOT/detect-mut-t1.sh"
+  sed '/^    capinfos)  *printf/d' "$DETECT" > "$MUT_T1"
+  chmod +x "$MUT_T1"
+  rc_mt1=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUT_T1" --cache "$ROOT/cache-mt1.txt" --quiet --require capinfos \
+    >/dev/null 2>/dev/null || rc_mt1=$?
+  if [ "$rc_mt1" -eq 2 ]; then
+    ok "teeth-t1: capinfos removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  else
+    no "teeth-t1: mutant must exit 2 for unmapped capinfos" "mutant rc=$rc_mt1"
+  fi
+
+  # teeth-t2 (targets test t): mutant drops unsquashfs from require_label.
+  MUT_T2="$ROOT/detect-mut-t2.sh"
+  sed '/^    unsquashfs)  *printf/d' "$DETECT" > "$MUT_T2"
+  chmod +x "$MUT_T2"
+  rc_mt2=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUT_T2" --cache "$ROOT/cache-mt2.txt" --quiet --require unsquashfs \
+    >/dev/null 2>/dev/null || rc_mt2=$?
+  if [ "$rc_mt2" -eq 2 ]; then
+    ok "teeth-t2: unsquashfs removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  else
+    no "teeth-t2: mutant must exit 2 for unmapped unsquashfs" "mutant rc=$rc_mt2"
+  fi
+
+  # teeth-t3 (targets test t): mutant drops pwsh from require_label.
+  MUT_T3="$ROOT/detect-mut-t3.sh"
+  sed '/^    pwsh)  *printf/d' "$DETECT" > "$MUT_T3"
+  chmod +x "$MUT_T3"
+  rc_mt3=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUT_T3" --cache "$ROOT/cache-mt3.txt" --quiet --require pwsh \
+    >/dev/null 2>/dev/null || rc_mt3=$?
+  if [ "$rc_mt3" -eq 2 ]; then
+    ok "teeth-t3: pwsh removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  else
+    no "teeth-t3: mutant must exit 2 for unmapped pwsh" "mutant rc=$rc_mt3"
+  fi
+
+  # teeth-t4 (targets test t): mutant drops ezdxf from require_label.
+  MUT_T4="$ROOT/detect-mut-t4.sh"
+  sed '/^    ezdxf)  *printf/d' "$DETECT" > "$MUT_T4"
+  chmod +x "$MUT_T4"
+  rc_mt4=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUT_T4" --cache "$ROOT/cache-mt4.txt" --quiet --require ezdxf \
+    >/dev/null 2>/dev/null || rc_mt4=$?
+  if [ "$rc_mt4" -eq 2 ]; then
+    ok "teeth-t4: ezdxf removed from require_label → exit 2 — test-t bites" "(mutant rc=2)"
+  else
+    no "teeth-t4: mutant must exit 2 for unmapped ezdxf" "mutant rc=$rc_mt4"
+  fi
+
+  # teeth-u (targets test u): mutant drops the capinfos row from report().
+  MUT_U="$ROOT/detect-mut-u.sh"
+  sed '/row "capinfos"/d' "$DETECT" > "$MUT_U"
+  chmod +x "$MUT_U"
+  CACHE_MU="$ROOT/cache-mu.txt"
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUT_U" --cache "$CACHE_MU" --quiet >/dev/null 2>&1 || true
+  if ! grep -q "^  capinfos " "$CACHE_MU"; then
+    ok "teeth-u: row-deleted mutant drops capinfos from report — test-u bites" "(row absent)"
+  else
+    no "teeth-u: mutant still prints capinfos row — test-u has no teeth" \
+       "(line=[$(grep '^  capinfos ' "$CACHE_MU" | head -1)])"
+  fi
+fi
+
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
