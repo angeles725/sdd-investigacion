@@ -17,6 +17,22 @@ JAVA_WRAPPER="$HERE/../decompile-java.sh"
 # shellcheck source=../lib/tool-env.sh
 source "$LIB"
 
+# ── Suite hermeticity: unset resolver override variables ─────────────────────
+# lib/tool-env.sh treats these as authoritative overrides that short-circuit
+# resolution before any fixture-controlled env is consulted. Without this block
+# a dev shell that exports, e.g., VINEFLOWER_JAR or GHIDRA_HOME will have those
+# real installs leak past the per-call env (HOME=, RSDD_BREW_PREFIX=, …) and
+# cause tests 2, 4, 5, 7, and teeth-2 to pass or fail based on the host rather
+# than the fixtures. PATH is intentionally NOT unset — tests 3, 8, 9, 10 set
+# their own PATH where needed.
+unset JAVA_HOME RESEARCH_SDD_JAVA_HOME RESEARCH_SDD_TOOL_HOME
+unset VINEFLOWER_JAR VINEFLOWER CFR_JAR CFR PROCYON_JAR PROCYON
+unset ANALYZE_HEADLESS GHIDRA_HOME GHIDRA_INSTALL_DIR
+unset RSDD_BREW_PREFIX HOMEBREW_PREFIX
+unset R2 RSDD_R2_USRBIN ILSPYCMD
+unset RSDD_DOTNET_ROOT DOTNET_ROOT
+unset RSDD_SYSTEM_PKGCONFIG_PATH PKG_CONFIG_PATH PKG_CONFIG_BIN
+
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-52s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
@@ -72,7 +88,10 @@ jhome="$(HOME="$HOME_FAKE" JAVA_HOME="$ROOT/broken-java" RSDD_BREW_PREFIX="$BREW
 vf="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_jar vineflower 2>/dev/null)"
 cfr_j="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_jar cfr 2>/dev/null)"
 procyon_j="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_java_jar procyon 2>/dev/null)"
-gh="$(HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_ghidra_home 2>/dev/null)"
+# PATH is restricted to block command -v analyzeHeadless from finding a real
+# host install; the resolver falls through to the RSDD_BREW_PREFIX check, which
+# is the fixture path this test verifies.
+gh="$(PATH="$ROOT/bin" HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" rsdd_resolve_ghidra_home 2>/dev/null)"
 if [ "$jhome" = "$BREW/opt/openjdk@21" ] \
    && [ "$vf" = "$_tool_home/java/vineflower.jar" ] \
    && [ "$cfr_j" = "$_tool_home/java/cfr.jar" ] \
@@ -118,7 +137,12 @@ mkexec "$ROOT/probe-java/bin/java" \
 mkexec "$ROOT/probe-java/bin/javap" 'exit 0'
 : > "$ROOT/java-calls"
 STRUCT_CACHE="$ROOT/structural-capabilities.txt"
-JAVA_HOME="$ROOT/probe-java" RSDD_JAVA_CALLS="$ROOT/java-calls" \
+# PATH is restricted to /usr/bin:/bin so detect-tools.sh cannot discover real
+# RE tools (apktool, jadx, …) installed on the dev machine; those would be
+# probed via "java -jar <real.jar>", polluting java-calls and breaking
+# assertion 2.  Standard tools (unzip, sha256sum, timeout, bash) are in
+# /usr/bin on this platform, so the structural probe and hash still work.
+PATH=/usr/bin:/bin JAVA_HOME="$ROOT/probe-java" RSDD_JAVA_CALLS="$ROOT/java-calls" \
   VINEFLOWER_JAR="$ROOT/structural-vf.jar" HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
   bash "$DETECT" --cache "$STRUCT_CACHE" --quiet >/dev/null
 if JAVA_HOME="$ROOT/probe-java" RSDD_JAVA_CALLS="$ROOT/java-calls" \
