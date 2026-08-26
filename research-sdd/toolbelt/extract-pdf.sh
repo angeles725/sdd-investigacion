@@ -173,7 +173,7 @@ tier2_marker() {  # $1=src $2=out
   [ -n "$md" ] || { rm -rf "$tmp"; return 1; }
   { echo "---"; echo "source_pdf: $1"; echo "sha256: $SHA"; echo "pages_total: $PAGES_TOTAL";
     echo "method: marker"; echo "reliability: ocr-lossy"; echo "---"; echo; cat "$md"; } > "$2"
-  rm -rf "$tmp"; echo OK
+  rm -rf "$tmp"; [ -s "$2" ] && echo OK || return 1
 }
 tier2_docling() {  # $1=src $2=out
   [ -n "$DOCLING" ] || return 3
@@ -183,7 +183,7 @@ tier2_docling() {  # $1=src $2=out
   [ -n "$md" ] || { rm -rf "$tmp"; return 1; }
   { echo "---"; echo "source_pdf: $1"; echo "sha256: $SHA"; echo "pages_total: $PAGES_TOTAL";
     echo "method: docling"; echo "reliability: ocr-lossy"; echo "---"; echo; cat "$md"; } > "$2"
-  rm -rf "$tmp"; echo OK
+  rm -rf "$tmp"; [ -s "$2" ] && echo OK || return 1
 }
 
 # ── Tier 2 default: ocrmypdf → text layer → Tier 1 ───────────────────────────
