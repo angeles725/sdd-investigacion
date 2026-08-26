@@ -912,6 +912,64 @@ d="$TMP/stopped-focus"; mkdir -p "$d"
 } > "$d/RESEARCH-STATE-active.md"
 expect_next "$d" "NEXT | high | active pending gap" "#194: stopped focus with stale envelope skipped — active sibling NEXT returned"
 
+# 64 — near-miss: '## Gap backlog' (space instead of hyphen) → WARN on stderr from backlog_rows.
+# Envelope investigable_open=1 because the awk final print has no in_backlog guard: the row inside
+# the near-miss section IS returned, making derive_investigable=1; the envelope must match so
+# verify-state passes and status.sh reaches resolve_next → backlog_rows → WARN fires.
+d="$TMP/nm-space"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; echo "## Gap backlog"; echo
+  echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | g1 | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+nm_warn_space="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
+grep -qi 'near-miss' <<<"$nm_warn_space" && ok "64: near-miss '## Gap backlog' → WARN on stderr" || no "64: near-miss '## Gap backlog' — no WARN (got: $nm_warn_space)"
+
+# 64b — near-miss: '## Backlog de gaps' (Spanish heading) → WARN on stderr
+d="$TMP/nm-spanish"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; echo "## Backlog de gaps"; echo
+  echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | g1 | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+nm_warn_es="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
+grep -qi 'near-miss' <<<"$nm_warn_es" && ok "64b: near-miss '## Backlog de gaps' → WARN on stderr" || no "64b: near-miss '## Backlog de gaps' — no WARN"
+
+# 64c — near-miss: '## Gap-backlog prioritized' (text outside parens) → WARN on stderr
+d="$TMP/nm-noparens"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; echo "## Gap-backlog prioritized"; echo
+  echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | g1 | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+nm_warn_np="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
+grep -qi 'near-miss' <<<"$nm_warn_np" && ok "64c: near-miss '## Gap-backlog prioritized' → WARN on stderr" || no "64c: near-miss '## Gap-backlog prioritized' — no WARN"
+
+# 64d — near-miss: U+2011 non-breaking hyphen 'Gap‑backlog' → WARN on stderr
+d="$TMP/nm-nbhyphen"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; printf '## Gap\xe2\x80\x91backlog\n'; echo
+  echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | g1 | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+nm_warn_nb="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
+grep -qi 'near-miss' <<<"$nm_warn_nb" && ok "64d: near-miss U+2011 'Gap‑backlog' → WARN on stderr" || no "64d: U+2011 near-miss — no WARN"
+
+# 64e — canonical '## Gap-backlog (prioritized)' must NOT warn (happy-path regression guard)
+d="$TMP/nm-canonical"; mkdir -p "$d"
+{ echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; echo "## Gap-backlog (prioritized)"; echo
+  echo "| P | G | t | S |"; echo "|-|-|-|-|"
+  echo "| high | real gap | web | pending |"; echo
+  echo "## Blocked gaps"; echo "- none"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+nm_warn_can="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
+! grep -qi 'near-miss' <<<"$nm_warn_can" && ok "64e: canonical '## Gap-backlog (prioritized)' → no near-miss WARN" || no "64e: canonical form falsely warned: [$nm_warn_can]"
+
+# 64f — '## Blocked gaps' heading must NOT trigger near-miss WARN (false-positive guard)
+d="$TMP/nm-blocked-fp"; mkstate "$d" 1 "high|real gap|pending"
+nm_warn_blk="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
+! grep -qi 'near-miss' <<<"$nm_warn_blk" && ok "64f: '## Blocked gaps' → no near-miss WARN (false-positive guard)" || no "64f: '## Blocked gaps' falsely triggered near-miss: [$nm_warn_blk]"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -1165,6 +1223,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
   else
     no "teeth-#194: N194-STOPPED-BYPASS sentinel not found in SUT"
+  fi
+
+  # near-miss WARN teeth: neuter the NM-WARN branch → near-miss fixture must stop WARNing.
+  echo "-- teeth-NM: neuter near-miss WARN (NM-WARN tag); '## Gap backlog' fixture must stop WARNing --"
+  nm_mutant="$TMP/status.NM-MUTANT.sh"
+  sed 's|> "/dev/stderr" }  # NM-WARN|> "/dev/null" }  # MUTANT-NM: near-miss WARN neutered|' "$SUT" > "$nm_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-NM: near-miss WARN neutered' "$nm_mutant"; then
+    no "teeth-NM: could not build mutant (NM-WARN tag not found in SUT — did the SUT change?)"
+  else
+    nm_warn_orig="$(bash "$SUT" "$TMP/nm-space" --next 2>&1 >/dev/null)"
+    nm_warn_mut="$(bash "$nm_mutant" "$TMP/nm-space" --next 2>&1 >/dev/null)"
+    if grep -qi 'near-miss' <<<"$nm_warn_orig" && ! grep -qi 'near-miss' <<<"$nm_warn_mut"; then
+      ok "teeth-NM: original WARNs on '## Gap backlog', mutant stays silent → near-miss WARN has teeth"
+    else
+      no "teeth-NM: orig warns=[$(grep -ci 'near-miss' <<<"$nm_warn_orig")] mut warns=[$(grep -ci 'near-miss' <<<"$nm_warn_mut")] — WARN not load-bearing"
+    fi
   fi
 fi
 

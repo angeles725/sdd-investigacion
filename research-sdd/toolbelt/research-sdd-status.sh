@@ -182,7 +182,8 @@ backlog_rows() {
   # em-dash (—). Qualifier forms (e.g. "high (context)") emit a provisional WARN to stderr naming the
   # canonical stripped base and are still excluded. An unknown qualifier BASE fails closed.
   awk '
-    /^## Gap-backlog/ { in_backlog=1; in_data=0; next }
+    /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; next }
+    /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
     /^## / { in_backlog=0; in_data=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next

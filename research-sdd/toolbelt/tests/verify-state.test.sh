@@ -1214,6 +1214,66 @@ chk_skip_ok "$TMP/bp-em-dash" "BP-em-dash: '—' (em-dash placeholder) silently 
 mk_vocab_fixture "$TMP/bp-qualifier-invalid" 'hight (cross-vibra)' 'typo gap' 'web' 'pending'
 chk_skip_fail "$TMP/bp-qualifier-invalid" "BP-qualifier-invalid: 'hight (cross-vibra)' (invalid base) fails closed — qualifier is not an escape hatch"
 
+# NM-space — near-miss '## Gap backlog' (space instead of hyphen) → WARN on stderr from _backlog_rows.
+d="$TMP/nm-space"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env_lines 0 0 0 0 0 0; echo
+  echo '## Gap backlog'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | g1 | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+nm_warn_vs="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+grep -qi 'near-miss' <<<"$nm_warn_vs" \
+  && ok "NM-space: '## Gap backlog' → near-miss WARN on stderr from _backlog_rows" \
+  || no "NM-space: '## Gap backlog' — no WARN (got: $nm_warn_vs)"
+
+# NM-noparens — near-miss '## Gap-backlog prioritized' (text outside parens) → WARN on stderr
+d="$TMP/nm-noparens"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env_lines 0 0 0 0 0 0; echo
+  echo '## Gap-backlog prioritized'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | g1 | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+nm_warn_np="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+grep -qi 'near-miss' <<<"$nm_warn_np" \
+  && ok "NM-noparens: '## Gap-backlog prioritized' → near-miss WARN on stderr" \
+  || no "NM-noparens: '## Gap-backlog prioritized' — no WARN (got: $nm_warn_np)"
+
+# NM-canonical — '## Gap-backlog (prioritized)' canonical form → NO near-miss WARN (happy-path regression guard)
+d="$TMP/nm-canonical"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env_lines 0 0 0 1 0 0; echo
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | real gap | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+nm_warn_can="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+! grep -qi 'near-miss' <<<"$nm_warn_can" \
+  && ok "NM-canonical: '## Gap-backlog (prioritized)' → no near-miss WARN" \
+  || no "NM-canonical: canonical form falsely warned: [$nm_warn_can]"
+
+# NM-blocked-fp — '## Blocked gaps' must NOT trigger near-miss WARN (false-positive guard)
+d="$TMP/nm-blocked-fp"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env_lines 0 0 0 1 0 0; echo
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | real gap | web | pending |'; echo
+  echo '## Blocked gaps'; echo '- none'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+nm_warn_blk="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+! grep -qi 'near-miss' <<<"$nm_warn_blk" \
+  && ok "NM-blocked-fp: '## Blocked gaps' → no near-miss WARN (false-positive guard)" \
+  || no "NM-blocked-fp: '## Blocked gaps' falsely triggered near-miss: [$nm_warn_blk]"
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -1693,6 +1753,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         || no "teeth-BP-qualifier-invalid: mutant exit $mqvgot (want 0) — base-validity may not be the stopper (THEATER)"
     fi
   else no "teeth-BP-qualifier-invalid: BPSKIP-QUALIFIER not found in SUT"; fi
+
+  # near-miss WARN teeth: neuter the NM-WARN branch → near-miss fixture must stop WARNing.
+  echo "-- teeth-NM: neuter near-miss WARN (NM-WARN tag); '## Gap backlog' fixture must stop WARNing --"
+  nm_mutant="$TMP/verify-state.NM-MUTANT.sh"
+  sed 's|> "/dev/stderr" }  # NM-WARN|> "/dev/null" }  # MUTANT-NM: near-miss WARN neutered|' "$SUT" > "$nm_mutant"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if ! grep -q 'MUTANT-NM: near-miss WARN neutered' "$nm_mutant"; then
+    no "teeth-NM: could not build mutant (NM-WARN tag not found in SUT — did the SUT change?)"
+  else
+    nm_warn_orig="$(bash "$SUT" "$TMP/nm-space" 2>&1 >/dev/null)"
+    nm_warn_mut="$(bash "$nm_mutant" "$TMP/nm-space" 2>&1 >/dev/null)"
+    if grep -qi 'near-miss' <<<"$nm_warn_orig" && ! grep -qi 'near-miss' <<<"$nm_warn_mut"; then
+      ok "teeth-NM: original WARNs on '## Gap backlog', mutant stays silent → near-miss WARN has teeth"
+    else
+      no "teeth-NM: orig warns=[$(grep -ci 'near-miss' <<<"$nm_warn_orig")] mut warns=[$(grep -ci 'near-miss' <<<"$nm_warn_mut")] — WARN not load-bearing"
+    fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
