@@ -36,7 +36,7 @@ The toolbelt is written for **Linux / GNU userland**:
 
 ```
 research-sdd/
-├── METHODOLOGY.md              # the full contract (§1–§20): markers, block anatomy, sources, stopping, document mode…
+├── METHODOLOGY.md              # the full contract (§1–§22): markers, block anatomy, sources, stopping, document mode, breakthrough ledger…
 ├── PROMPT-LOOP.md              # the per-iteration operational prompt (what goes into the loop)
 ├── PROMPT-AUDIT.md             # the audit-mode prompt (re-verify an existing corpus)
 ├── TARGETS.md                  # master table of registered research targets
@@ -92,7 +92,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`verify-state.sh`](toolbelt/verify-state.sh) | `<target-dir>` | Living-mirror lint — catches a stale summary that would emit a premature STOP. |
 | [`verify-sources.sh`](toolbelt/verify-sources.sh) | `<target-dir>` | `SOURCES.md` preservation linter — every cited source is downloaded, present, and registered. |
 | [`scan-secrets.sh`](toolbelt/scan-secrets.sh) | `<target-dir>` | Fails closed if a high-confidence secret **value** leaked into authored content. |
-| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs `sweep-retros.sh`, `sweep-audits.sh`, `verify-registry.sh`, and `verify-kit-clean.sh` in sequence; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude/OpenCode. |
+| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude/OpenCode. |
 
 ### Close
 
