@@ -21,6 +21,11 @@ rc=0
 
 # 1. Working tree — any staged / unstaged / untracked change makes it DIRTY.
 porcelain="$(git -C "$root" status --porcelain 2>/dev/null)"
+git_rc=$?
+if [ "$git_rc" -ne 0 ]; then
+  echo "   git status failed (rc=$git_rc) — cannot determine cleanliness" >&2
+  exit 1
+fi
 if [ -n "$porcelain" ]; then
   staged=$(git -C "$root" diff --cached --name-only 2>/dev/null | grep -c . || true)
   unstaged=$(git -C "$root" diff --name-only 2>/dev/null | grep -c . || true)

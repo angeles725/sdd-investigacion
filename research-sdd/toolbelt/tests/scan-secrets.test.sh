@@ -163,6 +163,24 @@ d="$TMP/no-template"; mkdir -p "$d/corpus"
 printf '# Block 1\n\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n' > "$d/corpus/foo-block1.md"
 [ "$(runrc "$d")" = 1 ] && ok "POSITIVE: template-free corpus scans + catches the key (exit 1)" || no "no-template corpus exit=$(runrc "$d") (want 1)"
 
+# 25 — NUL-scan producer failure (grep exit ≥2) must emit a SCAN-FAILURE WARN, never silently read as 0.
+#      Stubs grep so that any call carrying the '\x00' pattern exits 2 (ENOMEM-class error); all other
+#      grep calls are forwarded to the real binary so the rest of the scan still runs.
+_real_grep=/usr/bin/grep
+_stub25="$TMP/stub-bin-25"
+mkdir -p "$_stub25"
+cat > "$_stub25/grep" << STUB25
+#!/usr/bin/env bash
+for arg in "\$@"; do [ "\$arg" = '\\x00' ] && exit 2; done
+exec "$_real_grep" "\$@"
+STUB25
+chmod +x "$_stub25/grep"
+d="$TMP/nulscanfail"; newcorpus "$d"
+out="$(PATH="$_stub25:$PATH" bash "$SUT" "$d" 2>&1)"
+grep -qiE 'NUL-byte scan FAILED|binary-skip detection incomplete' <<<"$out" \
+  && ok "NUL-scan producer exit-2 → SCAN-FAILURE WARN (not silent zero)" \
+  || no "NUL-scan producer exit-2 not reported as failure :: $out"
+
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the PEM detector, expect the private-key fixture to stop being flagged --"
@@ -172,6 +190,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { echo "-----BEGIN OPENSSH PRIVATE KEY-----"; echo "b3BlbnNzaC1rZXk"; echo "-----END OPENSSH PRIVATE KEY-----"; } >> "$d/t-block1.md"
   bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
   [ "$mrc" = 0 ] && ok "teeth: PEM-neutered mutant stops flagging the key → detector has teeth" || no "teeth: mutant still flagged (exit $mrc) — PEM detection not exercised (THEATER)"
+
+  # Additional mutation control: neuter the NUL-scan rc-check; the producer-fail case must then NOT WARN.
+  echo "-- teeth: neuter the _nul_rc check, expect producer exit-2 to pass silently as 0 --"
+  mutant_nul="$TMP/scan-secrets.MUTANT-nul.sh"
+  sed 's/_nul_rc=\$?/_nul_rc=0/g' "$SUT" > "$mutant_nul"
+  d_nf="$TMP/teeth-nul"; newcorpus "$d_nf"
+  out_nf="$(PATH="$_stub25:$PATH" bash "$mutant_nul" "$d_nf" 2>&1)"
+  grep -qiE 'NUL-byte scan FAILED|binary-skip detection incomplete' <<<"$out_nf" \
+    && no "teeth-nul: neutered mutant still reported SCAN-FAIL — rc-check not exercised (THEATER)" \
+    || ok "teeth-nul: neutered mutant passes silently — rc-check has teeth"
 fi
 
 echo "== $pass passed · $fail failed =="
