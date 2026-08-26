@@ -47,6 +47,12 @@ skill="$home/.claude/skills/research-sdd/SKILL.md"
 if [ -f "$skill" ] && grep -q 'Research-SDD launcher' "$skill"; then ok "apply installs neutral SKILL.md (claude)"
 else no "SKILL.md not installed for claude at $skill"; fi
 [ -f "$home/.codex/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (codex leg)" || no "codex SKILL.md missing"
+sf_oc5="$home/.config/opencode/skills/research-sdd/SKILL.md"
+if [ -f "$sf_oc5" ] && grep -q 'OpenCode runtime adapter' "$sf_oc5"; then
+  ok "apply installs OpenCode SKILL.md with adapter section (--harness all)"
+else
+  no "OpenCode SKILL.md missing or lacks adapter section at $sf_oc5"
+fi
 
 # 6 — apply is idempotent: run twice, exactly ONE marked section in the prompt file.
 home="$TMP/idem"
@@ -849,6 +855,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth: MUTANT12 still emits 'Kit path:' — test-52 Kit path check is THEATER"
   else
     ok "teeth: MUTANT12 omits 'Kit path:' → test-52 Kit path check has teeth"
+  fi
+
+  echo "-- teeth: fake-kit opencode SKILL without adapter text; expect test-5 adapter assertion to go RED --"
+  # Prove that if the installed opencode SKILL.md lacks 'OpenCode runtime adapter', the new
+  # assertion in test 5 would catch it.  Build a fake kit whose toolbelt/opencode/SKILL.md has
+  # the adapter section header stripped — the installed file then also lacks it, so the grep fails.
+  t5kit="$TMP/teeth-t5-fake-kit"
+  mkdir -p "$t5kit/install" "$t5kit/skills/research-sdd" "$t5kit/toolbelt/opencode"
+  cp "$HERE/../research-sdd-install.sh" "$t5kit/install/research-sdd-install.sh"
+  cp "$HERE/../adapters.sh" "$t5kit/install/adapters.sh"
+  printf '# kit neutral skill placeholder\n' > "$t5kit/skills/research-sdd/SKILL.md"
+  sed '/OpenCode runtime adapter/d' "$KITROOT/toolbelt/opencode/SKILL.md" > "$t5kit/toolbelt/opencode/SKILL.md"
+  home_t5="$TMP/teeth-t5-oc-home"
+  bash "$t5kit/install/research-sdd-install.sh" --home "$home_t5" --harness opencode >/dev/null 2>&1
+  sf_t5="$home_t5/.config/opencode/skills/research-sdd/SKILL.md"
+  if [ -f "$sf_t5" ] && ! grep -q 'OpenCode runtime adapter' "$sf_t5"; then
+    ok "teeth-t5: opencode SKILL without adapter → test-5 adapter assertion goes RED (teeth confirmed)"
+  else
+    no "teeth-t5: adapter text still present in mutant install — test-5 adapter assertion is THEATER"
   fi
 fi
 

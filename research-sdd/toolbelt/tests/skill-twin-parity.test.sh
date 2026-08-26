@@ -5,7 +5,7 @@
 # NOT a byte-identical diff — legitimate adapter substitutions (research-sweep-*,
 # research-loop.sh instead of /loop) are expected to differ and are NOT tested here.
 #
-# Invariants guarded (A1-A10):
+# Invariants guarded (A1-A11):
 #   A1  "the 7 markers" present; "the 5 markers" absent (false claim)
 #   A2  Key terms glossary table present ('| **corpus**' row)
 #   A3  Quick-mode carve-out in triage bullet (CARVE-OUT intent wins)
@@ -14,6 +14,7 @@
 #   A6  document-mode §20 example (TradingView retro reference)
 #   A7  TOOL-BEFORE-AGENT binary reference (detect-tools.sh)
 #   A10 Two-tier METHODOLOGY reading: HOT-CORE present in both SKILLs
+#   A11 Tool-catalog alias guidance present in both SKILLs (alias: + kaitai-struct-compiler)
 #
 # Usage: skill-twin-parity.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 set -uo pipefail
@@ -141,6 +142,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A11: Both SKILLs must carry the tool-catalog alias guidance — the convention
+#      for when the logged name and the catalog display name differ entirely
+#      (e.g. kaitai-struct-compiler logged, ksc displayed).
+#      Stable anchors: 'alias:' and 'kaitai-struct-compiler' (the ksc example).
+#      Guards the #364 drift class: a twin that loses this guidance fails A11.
+# ---------------------------------------------------------------------------
+MAIN="$HERE/../../skills/research-sdd/SKILL.md"
+if [ ! -f "$MAIN" ]; then
+  no "A11: main SKILL.md not found at expected path: $MAIN"
+elif grep -qF 'alias:' "$TWIN" && grep -qF 'kaitai-struct-compiler' "$TWIN" \
+  && grep -qF 'alias:' "$MAIN" && grep -qF 'kaitai-struct-compiler' "$MAIN"; then
+  ok "A11: alias guidance (alias: + kaitai-struct-compiler) present in both SKILL.md files"
+else
+  no "A11: alias guidance missing from one or both SKILL.md files (ksc/kaitai-struct-compiler drift)"
+fi
+
+# ---------------------------------------------------------------------------
 # --prove-teeth: mutate the A1 invariant ("the 7 markers" → "the 5 markers")
 # in a COPY of the twin (never the live file).  The A1 positive assertion must
 # go RED; the A1-neg assertion must go RED.  Both teeth-controls must report ok.
@@ -184,6 +202,17 @@ if [ "$PROVE_TEETH" = "1" ]; then
     no "teeth-A10: mutant still has 'HOT-CORE' — sed did not take (no teeth)"
   else
     ok "teeth-A10: A10 assertion goes RED on mutant (teeth confirmed)"
+  fi
+
+  # A11 mutation: replace 'kaitai-struct-compiler' with 'ksc-binary' in a COPY of the twin.
+  # A11's grep must go RED on the mutant — if it stays green the assertion has no teeth.
+  echo "-- prove-teeth: mutant removes 'kaitai-struct-compiler' anchor (A11 alias-guidance check) --"
+  mutant11="$TMP/SKILL.mutant11.md"
+  sed 's/kaitai-struct-compiler/ksc-binary/g' "$TWIN" > "$mutant11"
+  if grep -qF 'kaitai-struct-compiler' "$mutant11"; then
+    no "teeth-A11: mutant still has 'kaitai-struct-compiler' — sed did not take (no teeth)"
+  else
+    ok "teeth-A11: A11 assertion goes RED on mutant (teeth confirmed)"
   fi
 fi
 
