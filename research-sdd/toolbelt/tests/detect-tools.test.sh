@@ -325,6 +325,54 @@ else
   no "o report prints a row for each new #296 tool" "missing:$_o_missing"
 fi
 
+# p — [ deliverable / render ] section header appears in report.
+CACHE_P="$ROOT/cache-p.txt"
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_P" --quiet >/dev/null 2>&1 || true
+if grep -qF "[ deliverable / render ]" "$CACHE_P"; then
+  ok "p report prints [ deliverable / render ] section header"
+else
+  no "p report prints [ deliverable / render ] section header" "header absent from report"
+fi
+
+# q — latex and circuitikz labels appear in the report.
+CACHE_Q="$ROOT/cache-q.txt"
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_Q" --quiet >/dev/null 2>&1 || true
+_q_missing=""
+for _lbl in "latex" "circuitikz"; do
+  grep -q "^  ${_lbl} " "$CACHE_Q" || _q_missing="$_q_missing $_lbl"
+done
+if [ -z "$_q_missing" ]; then
+  ok "q report prints latex and circuitikz rows" "(2/2)"
+else
+  no "q report prints latex and circuitikz rows" "missing:$_q_missing"
+fi
+
+# r — --require latex exits 0 (pdflatex installed on this machine).
+# This also proves the name is mapped in require_label (previously exit 2).
+CACHE_R="$ROOT/cache-r.txt"
+rc_r=0
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_R" --quiet --require latex >/dev/null 2>&1 || rc_r=$?
+if [ "$rc_r" -eq 0 ]; then
+  ok "r --require latex: exits 0 (pdflatex installed)" "(rc=$rc_r)"
+else
+  no "r --require latex: exits 0 (pdflatex installed)" "rc=$rc_r"
+fi
+
+# s — --require circuitikz exits 0 (circuitikz.sty installed on this machine).
+# This also proves the name is mapped in require_label (previously exit 2).
+CACHE_S="$ROOT/cache-s.txt"
+rc_s=0
+HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_S" --quiet --require circuitikz >/dev/null 2>&1 || rc_s=$?
+if [ "$rc_s" -eq 0 ]; then
+  ok "s --require circuitikz: exits 0 (circuitikz.sty installed)" "(rc=$rc_s)"
+else
+  no "s --require circuitikz: exits 0 (circuitikz.sty installed)" "rc=$rc_s"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
@@ -591,6 +639,64 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-o: mutant still prints krak2 row — test-o has no teeth" \
        "(line=[$(grep '^  krak2 ' "$CACHE_MO" | head -1)])"
+  fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-p (targets test p): mutant removes the [ deliverable / render ] section header.
+  MUTP="$ROOT/detect-mutp.sh"
+  sed '/echo "\[ deliverable \/ render \]"/d' "$DETECT" > "$MUTP"
+  chmod +x "$MUTP"
+  CACHE_MP="$ROOT/cache-mp.txt"
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTP" --cache "$CACHE_MP" --quiet >/dev/null 2>&1 || true
+  if ! grep -qF "[ deliverable / render ]" "$CACHE_MP"; then
+    ok "teeth-p: section-deleted mutant drops [ deliverable / render ] — test-p bites" "(header absent)"
+  else
+    no "teeth-p: mutant still has [ deliverable / render ] — test-p has no teeth" \
+       "(line=[$(grep 'deliverable' "$CACHE_MP" | head -1)])"
+  fi
+
+  # teeth-q (targets test q): mutant removes the latex row.
+  MUTQ="$ROOT/detect-mutq.sh"
+  sed '/row "latex"/d' "$DETECT" > "$MUTQ"
+  chmod +x "$MUTQ"
+  CACHE_MQ="$ROOT/cache-mq.txt"
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTQ" --cache "$CACHE_MQ" --quiet >/dev/null 2>&1 || true
+  if ! grep -q "^  latex " "$CACHE_MQ"; then
+    ok "teeth-q: row-deleted mutant drops latex from report — test-q bites" "(row absent)"
+  else
+    no "teeth-q: mutant still prints latex row — test-q has no teeth" \
+       "(line=[$(grep '^  latex ' "$CACHE_MQ" | head -1)])"
+  fi
+
+  # teeth-r (targets test r): mutant drops latex from require_label → exit 2.
+  MUTR="$ROOT/detect-mutr.sh"
+  sed '/^    latex)/d' "$DETECT" > "$MUTR"
+  chmod +x "$MUTR"
+  rc_mr=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTR" --cache "$ROOT/cache-mr.txt" --quiet --require latex \
+    >/dev/null 2>/dev/null || rc_mr=$?
+  if [ "$rc_mr" -eq 2 ]; then
+    ok "teeth-r: latex removed from require_label → exit 2 — test-r bites" "(mutant rc=2)"
+  else
+    no "teeth-r: mutant must exit 2 for unmapped latex" "mutant rc=$rc_mr"
+  fi
+
+  # teeth-s (targets test s): mutant drops circuitikz from require_label → exit 2.
+  MUTS="$ROOT/detect-muts.sh"
+  sed '/^    circuitikz)/d' "$DETECT" > "$MUTS"
+  chmod +x "$MUTS"
+  rc_ms=0
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$MUTS" --cache "$ROOT/cache-ms.txt" --quiet --require circuitikz \
+    >/dev/null 2>/dev/null || rc_ms=$?
+  if [ "$rc_ms" -eq 2 ]; then
+    ok "teeth-s: circuitikz removed from require_label → exit 2 — test-s bites" "(mutant rc=2)"
+  else
+    no "teeth-s: mutant must exit 2 for unmapped circuitikz" "mutant rc=$rc_ms"
   fi
 fi
 

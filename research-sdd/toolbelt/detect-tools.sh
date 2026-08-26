@@ -83,6 +83,8 @@ require_label() {
     diec)          printf '%s\n' "diec" ;;
     hexedit)       printf '%s\n' "hexedit" ;;
     bvi)           printf '%s\n' "bvi" ;;
+    latex)         printf '%s\n' "latex" ;;
+    circuitikz)    printf '%s\n' "circuitikz" ;;
     *) return 1 ;;
   esac
 }
@@ -280,6 +282,19 @@ report() {
   row "ocrmypdf" ocrmypdf --version "$PDF_VENV/bin/ocrmypdf" "${BREW:+$BREW/bin/ocrmypdf}" /usr/bin/ocrmypdf
   python_row "marker" marker_single --help "$PDF_VENV/bin/marker_single" "${BREW:+$BREW/bin/marker_single}"
   python_row "docling" docling --help "$PDF_VENV/bin/docling" "${BREW:+$BREW/bin/docling}"
+  echo ""
+  echo "[ deliverable / render ]"
+  # LaTeX engine: binary-backed, probed via pdflatex --version.
+  row "latex" pdflatex --version /usr/bin/pdflatex "${BREW:+$BREW/bin/pdflatex}"
+  # circuitikz is a LaTeX package (not a binary); probe via kpsewhich.
+  _kpsewhich="$(command -v kpsewhich 2>/dev/null || true)"
+  _ctz_path=""
+  [ -n "$_kpsewhich" ] && _ctz_path="$("$_kpsewhich" circuitikz.sty 2>/dev/null || true)"
+  if [ -n "$_ctz_path" ]; then
+    printf '  %-22s AVAILABLE   %s\n' "circuitikz" "$_ctz_path"
+  else
+    printf '  %-22s MISSING     (kpsewhich circuitikz.sty not found — install texlive-pictures)\n' "circuitikz"
+  fi
   echo ""
   echo "[ python bytecode ]"
   row "pycdc" pycdc --help "$HOME/dev/pycdc/pycdc"
