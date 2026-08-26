@@ -252,6 +252,51 @@ else
   no "D2-rsdd-bad: exit=$rc_d2r seen='$dotnet_seen_d2r' (want exit 3 + no DOTNET_ROOT used)"
 fi
 
+# ---------------------------------------------------------------------------
+# NE1 — ilspycmd exits 0 but produces no .cs files → wrapper must exit non-zero, no OK.
+# Uses a minimal hermetic box: an ilspycmd stub that exits 0 for all calls (incl. --version)
+# but never writes any .cs files; RSDD_DOTNET_ROOT pointing at a valid-looking runtime dir.
+_ne1_dir="$TMP/ne1"
+mkdir -p "$_ne1_dir/runtime/shared/Microsoft.NETCore.App" "$_ne1_dir/out"
+cat > "$_ne1_dir/ilspycmd" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$_ne1_dir/ilspycmd"
+_ne1_dll="$_ne1_dir/test.dll"; touch "$_ne1_dll"
+ILSPYCMD="$_ne1_dir/ilspycmd" RSDD_DOTNET_ROOT="$_ne1_dir/runtime" \
+  bash "$SUT" "$_ne1_dll" "$_ne1_dir/out" >"$_ne1_dir/stdout" 2>"$_ne1_dir/stderr"; _ne1rc=$?
+if [ "$_ne1rc" -ne 0 ] && ! grep -q '^OK' "$_ne1_dir/stdout"; then
+  ok "NE1: ilspycmd exits 0 but no .cs files → wrapper exits non-zero, no OK"
+else
+  no "NE1: ilspycmd exits 0 but no .cs files → must exit non-zero (got rc=$_ne1rc)"
+fi
+
+# NE0 — success baseline: ilspycmd exits 0 and writes a .cs file → wrapper exits 0, prints OK.
+# The stub parses -o <out> from its argv and creates a sentinel .cs file there.
+_ne0_dir="$TMP/ne0"
+mkdir -p "$_ne0_dir/runtime/shared/Microsoft.NETCore.App" "$_ne0_dir/out"
+cat > "$_ne0_dir/ilspycmd" <<'SH'
+#!/bin/sh
+_out=""
+_prev=""
+for _a in "$@"; do
+  [ "$_prev" = "-o" ] && _out="$_a"
+  _prev="$_a"
+done
+[ -z "$_out" ] || { mkdir -p "$_out"; touch "$_out/Decompiled.cs"; }
+exit 0
+SH
+chmod +x "$_ne0_dir/ilspycmd"
+_ne0_dll="$_ne0_dir/test.dll"; touch "$_ne0_dll"
+ILSPYCMD="$_ne0_dir/ilspycmd" RSDD_DOTNET_ROOT="$_ne0_dir/runtime" \
+  bash "$SUT" "$_ne0_dll" "$_ne0_dir/out" >"$_ne0_dir/stdout" 2>"$_ne0_dir/stderr"; _ne0rc=$?
+if [ "$_ne0rc" -eq 0 ] && grep -q '^OK' "$_ne0_dir/stdout"; then
+  ok "NE0: ilspycmd creates .cs file → wrapper exits 0, prints OK"
+else
+  no "NE0: ilspycmd creates .cs file → must exit 0 and print OK (got rc=$_ne0rc)"
+fi
+
 # TEETH — prove that assertions fail against broken implementations.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutant SUTs placed under $TMP compute HERE=$TMP and source $TMP/lib/tool-env.sh.
@@ -531,6 +576,29 @@ SH
       ok "teeth D3: mutant lib (RSDD_DOTNET_ROOT renamed) breaks D3 → D3 goes RED"
     else
       no "teeth D3: mutant did NOT break D3 — D3 is THEATER"
+    fi
+  fi
+
+  # MNE1 TEETH — remove the .cs non-empty guard from the SUT; NE1 must go RED.
+  # The mutant strips the 'find ... *.cs ... exit 1' guard so ilspycmd empty output
+  # passes through to OK — confirming NE1 has teeth.
+  echo "-- MNE1 mutation: remove .cs non-empty guard; NE1 must go RED --"
+  MUTANT_NE1="$TMP/decompile-net.MUTANT-ne1.sh"
+  sed '/find.*\.cs.*exit 1/d' "$SUT" > "$MUTANT_NE1"
+  chmod +x "$MUTANT_NE1"
+  if grep -q "find.*\.cs.*exit 1" "$MUTANT_NE1"; then
+    no "MNE1 setup: guard line still in mutant — sed did not match (did the guard change?)"
+  else
+    mkdir -p "$TMP/mne1/runtime/shared/Microsoft.NETCore.App" "$TMP/mne1/out"
+    printf '#!/bin/sh\nexit 0\n' > "$TMP/mne1/ilspycmd"
+    chmod +x "$TMP/mne1/ilspycmd"
+    touch "$TMP/mne1/test.dll"
+    ILSPYCMD="$TMP/mne1/ilspycmd" RSDD_DOTNET_ROOT="$TMP/mne1/runtime" \
+      bash "$MUTANT_NE1" "$TMP/mne1/test.dll" "$TMP/mne1/out" >"$TMP/mne1.stdout" 2>/dev/null; _mne1rc=$?
+    if [ "$_mne1rc" -eq 0 ] && grep -q '^OK' "$TMP/mne1.stdout"; then
+      ok "MNE1-killed: guard-removed mutant exits 0+OK on no .cs → NE1 bites"
+    else
+      no "MNE1-killed: guard-removed mutant must print OK on no .cs (got rc=$_mne1rc) — NE1 has no teeth"
     fi
   fi
 fi
