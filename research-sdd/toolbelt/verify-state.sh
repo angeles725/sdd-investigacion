@@ -57,7 +57,8 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
   # emit a provisional WARN to stderr and are still excluded. Unknown qualifier BASE fails closed.
   # Mirrors backlog_rows() in status.sh exactly.
   awk '
-    /^## Gap-backlog/ { in_backlog=1; in_data=0; next }
+    /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; next }
+    /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
     /^## / { in_backlog=0; in_data=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
