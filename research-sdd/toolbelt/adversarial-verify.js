@@ -12,7 +12,11 @@
 // web-verifiable claims are expensive). Note: `args` may arrive as an array OR as a
 // JSON-encoded string, hence the defensive JSON.parse below.
 //
-// RULE: majority-refute kills. survives iff refutes < 2 of the valid votes.
+// RULE (see adversarial-verdict.mjs — single source of truth): DYNAMIC majority over the
+// VALID (non-null) votes — KILLED when refutes >= ceil(valid/2); below quorum → INSUFFICIENT
+// (a degraded panel is never sealed); a claim that clears the kill threshold is SEALED only
+// when the mean surviving-vote confidence >= the threshold, else INSUFFICIENT. (The ">=2 of 3"
+// on line 6 is just this rule at the default full panel of N=3.)
 // MODEL: skeptics run on model:'sonnet'.
 //
 // RETURNS: { survived, killed, total, results[] } — each result carries its verdict,
