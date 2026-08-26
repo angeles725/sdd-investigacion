@@ -37,14 +37,17 @@ _cit_kit="${RSDD_KIT:-$KIT}"
 _cit_repo="${RSDD_REPO:-$(cd "$KIT/.." && pwd)}"
 
 # --- Operational guards -------------------------------------------------------
-# Missing METHODOLOGY or SKILL is an operational failure (cannot proceed).
+# Missing OR UNREADABLE METHODOLOGY/SKILL is an operational failure (cannot proceed).
+# The readability check is essential: an exists-but-unreadable file would let grep
+# exit 2 and yield real_count=0, producing spurious stale/orphan findings instead of
+# a clean operational failure — a silent-zero edge inside the anti-silent-zero guard.
 # Missing PROMPT-LOOP is a degraded-mode WARN (orphan check still runs on SKILL only).
-if [ ! -f "$RSDD_METHODOLOGY" ]; then
-  echo "verify-doc-consistency: cannot find METHODOLOGY at $RSDD_METHODOLOGY" >&2
+if [ ! -f "$RSDD_METHODOLOGY" ] || [ ! -r "$RSDD_METHODOLOGY" ]; then
+  echo "verify-doc-consistency: cannot find or read METHODOLOGY at $RSDD_METHODOLOGY" >&2
   exit 1
 fi
-if [ ! -f "$RSDD_SKILL" ]; then
-  echo "verify-doc-consistency: cannot find SKILL at $RSDD_SKILL" >&2
+if [ ! -f "$RSDD_SKILL" ] || [ ! -r "$RSDD_SKILL" ]; then
+  echo "verify-doc-consistency: cannot find or read SKILL at $RSDD_SKILL" >&2
   exit 1
 fi
 

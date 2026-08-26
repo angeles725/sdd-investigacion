@@ -13,9 +13,10 @@
 #   10    clean scenario: summary shows 0 findings in all categories
 #   11    operational failure: missing METHODOLOGY → exit 1
 #   12    summary always proves the instrument looked (real_count in output)
+#   13    operational failure: unreadable METHODOLOGY → exit 1 (root-safe; skipped as root)
 #   --prove-teeth:
-#         mutant breaks the SECTION-COUNT-GREP computation → clean fixture produces
-#         a stale-count WARN → "0 findings" assertion goes red
+#         one mutant per check (CHECK 1/2/3) plus the readability guard — each proves the
+#         corresponding assertion goes red under a real mutation (theater controls fail loud)
 #
 # Exit: 0 all held · 1 regression · 2 harness error (SUT missing)
 
@@ -130,12 +131,30 @@ printf '%s\n' "$CLEAN_OUT" | grep -qE 'checked METHODOLOGY\.md \([0-9]+ top-leve
   && ok "12 summary proves instrument looked (real_count printed in summary)" \
   || no "12 summary missing proof of what was checked (out=[$CLEAN_OUT])"
 
+# --- 13. Operational failure: unreadable METHODOLOGY → exit 1 ---------------
+# An exists-but-unreadable METHODOLOGY must fail operationally, NOT yield real_count=0
+# and spurious findings. chmod 000 is still readable as root, so skip when euid==0.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "  SKIP  13 unreadable-METHODOLOGY test (running as root: chmod 000 still readable)"
+else
+  UNREADABLE="$(mktemp)"
+  cp "$METHOD" "$UNREADABLE"
+  chmod 000 "$UNREADABLE"
+  UR_RC=$(RSDD_METHODOLOGY="$UNREADABLE" RSDD_SKILL="$SKILL_CLEAN" \
+          RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+          bash "$SUT" 2>&1; echo $?)
+  chmod 644 "$UNREADABLE"; rm -f "$UNREADABLE"
+  printf '%s\n' "$UR_RC" | tail -1 | grep -q '^1$' \
+    && ok "13 exit 1 on unreadable METHODOLOGY (operational failure)" \
+    || no "13 expected exit 1 for unreadable METHODOLOGY (got $UR_RC)"
+fi
+
 # =============================================================================
-# Teeth — mutation proof (one mutant per check)
+# Teeth — mutation proof (one mutant per check + the readability guard)
 # =============================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
-  mutant="$(mktemp)"; mutant2="$(mktemp)"; mutant3="$(mktemp)"
-  trap 'rm -f "$mutant" "$mutant2" "$mutant3"' EXIT
+  mutant="$(mktemp)"; mutant2="$(mktemp)"; mutant3="$(mktemp)"; mutant4="$(mktemp)"
+  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4"' EXIT
 
   # ---- CHECK 1 teeth: break SECTION-COUNT-GREP, clean fixture must WARN ------
   echo "-- teeth CHECK 1: SECTION-COUNT-GREP mutant must break the clean-scenario assertion --"
@@ -202,6 +221,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth CHECK 3: no-repo-root mutant false-WARNs for repo-only.md → test 6 would go RED"
     else
       no "teeth CHECK 3: mutant did not WARN for repo-only.md — no effect (THEATER)"
+    fi
+  fi
+
+  # ---- readability-guard teeth: drop the [ -r ] check; unreadable file must stop exiting 1 --
+  echo "-- teeth OP: readability-guard mutant must break the unreadable-METHODOLOGY assertion (test 13) --"
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "  SKIP  teeth OP: running as root (chmod 000 still readable)"
+  else
+    # Mutate: strip the "|| [ ! -r "$RSDD_METHODOLOGY" ]" readability clause.
+    # sed BRE: \[ \] literal brackets, \$ literal $. Only the -f check remains, so an
+    # unreadable-but-existing file passes the guard → grep exit 2 → real_count=0 →
+    # spurious findings and exit 0 instead of the operational exit 1 → test 13 goes RED.
+    sed 's/ || \[ ! -r "\$RSDD_METHODOLOGY" \]//' "$SUT" > "$mutant4"
+    if grep -q '! -r "$RSDD_METHODOLOGY"' "$mutant4"; then
+      no "teeth OP: could not build mutant (readability clause still present — did the guard change?)"
+    else
+      UR2="$(mktemp)"; cp "$METHOD" "$UR2"; chmod 000 "$UR2"
+      MUT4_RC=$(RSDD_METHODOLOGY="$UR2" RSDD_SKILL="$SKILL_CLEAN" \
+                RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                bash "$mutant4" 2>&1; echo $?)
+      chmod 644 "$UR2"; rm -f "$UR2"
+      if printf '%s\n' "$MUT4_RC" | tail -1 | grep -q '^1$'; then
+        no "teeth OP: mutant still exited 1 on unreadable file — no effect (THEATER)"
+      else
+        ok "teeth OP: no-readability-guard mutant fails to exit 1 on unreadable METHODOLOGY → test 13 would go RED"
+      fi
     fi
   fi
 fi
