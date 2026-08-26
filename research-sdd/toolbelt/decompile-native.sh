@@ -23,7 +23,7 @@ BIN="${2:?binary required}"
 case "$MODE" in
   quick)
     echo "== file =="; file "$BIN"
-    echo "== readelf -h =="; readelf -h "$BIN" 2>/dev/null | head -20 || true
+    echo "== readelf -h =="; readelf -h "$BIN" 2>/dev/null | head -20 || { _sp="${PIPESTATUS[0]}"; [ "$_sp" -eq 0 ] || [ "$_sp" -eq 141 ] || { echo "readelf failed (rc=$_sp): $BIN" >&2; exit "$_sp"; }; }
     echo "== strings (first 40) =="
     # head closes the pipe after 40 lines, so strings dies of SIGPIPE and the pipeline's
     # first-stage exit status is 141 (= 128 + SIGPIPE(13)) — the expected early-termination

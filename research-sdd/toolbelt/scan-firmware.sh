@@ -21,7 +21,7 @@ case "$MODE" in
     ;;
   scan)
     command -v binwalk >/dev/null || { echo "binwalk not installed" >&2; exit 3; }
-    binwalk -E "${2:?file}" 2>/dev/null | head -5 || true   # entropy
+    binwalk -E "${2:?file}" 2>/dev/null | head -5 || { _sp="${PIPESTATUS[0]}"; [ "$_sp" -eq 0 ] || [ "$_sp" -eq 141 ] || { echo "binwalk entropy scan failed (rc=$_sp): $2" >&2; exit "$_sp"; }; }   # entropy
     binwalk "${2:?file}"                                     # signatures/sections
     ;;
   extract)

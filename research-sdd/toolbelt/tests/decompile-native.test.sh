@@ -107,7 +107,12 @@ else
   # strings -n 6 produces 100 output lines; head closes the pipe after 40,
   # triggering SIGPIPE on strings before it finishes writing.
   awk 'BEGIN{s=sprintf("%2000s","");gsub(/ /,"A",s);for(i=1;i<=100;i++)printf "LONGSTR%04d%s\n",i,s}' >"$_big"
-  if "$SOURCE" quick "$_big" >"$ROOT/q2.out" 2>&1; then
+  # Stub readelf to exit 0 so the test isolates the strings SIGPIPE path only.
+  # Without this, the readelf PIPESTATUS guard surfaces readelf's non-zero exit on
+  # the synthetic non-ELF file, which is correct behaviour but not what Q2 tests.
+  _q2_stubdir="$ROOT/q2stubs"; mkdir -p "$_q2_stubdir"
+  printf '#!/bin/sh\nexit 0\n' >"$_q2_stubdir/readelf"; chmod +x "$_q2_stubdir/readelf"
+  if PATH="$_q2_stubdir:$PATH" "$SOURCE" quick "$_big" >"$ROOT/q2.out" 2>&1; then
     if grep -q 'LONGSTR' "$ROOT/q2.out"; then
       ok "Q2: quick exits 0 and emits strings section when output exceeds 40 lines"
     else
@@ -134,6 +139,25 @@ else
     ok "Q3: genuine strings failure surfaces (rc=$_q3rc, not silently swallowed)"
   else
     no "Q3: genuine strings failure silently swallowed (rc=0, no diagnostic)"
+  fi
+fi
+
+# Q4 — genuine readelf failure must NOT be silently swallowed.
+# A stub readelf that exits 2 simulates a binary that cannot be analyzed.
+# The proper fix surfaces this (non-zero rc or explicit diagnostic); a blanket
+# '|| true' fix swallows it silently.  Mutation M11 below confirms Q4 catches that.
+if ! command -v file >/dev/null 2>&1; then
+  echo "  SKIP  Q4 readelf-failure (missing: file)"
+else
+  _stubdir_q4="$ROOT/stubreadelf"
+  mkdir -p "$_stubdir_q4"
+  printf '#!/bin/sh\necho "readelf: stub: cannot open" >&2\nexit 2\n' >"$_stubdir_q4/readelf"
+  chmod +x "$_stubdir_q4/readelf"
+  PATH="$_stubdir_q4:$PATH" "$SOURCE" quick /bin/true >"$ROOT/q4.out" 2>"$ROOT/q4.err"; _q4rc=$?
+  if [ "$_q4rc" -ne 0 ] || grep -q 'readelf failed' "$ROOT/q4.err"; then
+    ok "Q4: genuine readelf failure surfaces (rc=$_q4rc, not silently swallowed)"
+  else
+    no "Q4: genuine readelf failure silently swallowed (rc=0, no diagnostic)"
   fi
 fi
 
@@ -243,7 +267,33 @@ STUBEOF
       no "M10 setup: mutant not as expected (missing || true or still has PIPESTATUS)"
     fi
   fi
-  echo "-- M9/M10 absent-tools guard: restricted PATH must emit SKIP, never a false kill --"
+  echo "-- M11 mutation: revert readelf pipeline to || true → Q4 must go red --"
+  # Guard: file is needed by the quick-mode preamble (echo "== file =="; file "$BIN").
+  if ! command -v file >/dev/null 2>&1; then
+    echo "  SKIP  M11 (tools unavailable: missing file)"
+  else
+    _m11="$ROOT/toolbelt/decompile-native.M11.sh"
+    # Revert only the readelf guard; the strings guard (line 31) is unaffected because
+    # the address regex /readelf.*head/ matches only the readelf pipeline line.
+    sed '/readelf.*head/s/ || { _sp=.*/ || true/' "$ROOT/toolbelt/decompile-native.sh" > "$_m11"
+    chmod +x "$_m11"
+    # readelf line now has || true; strings guard still has PIPESTATUS.
+    if grep -qF '|| true' "$_m11" && grep -qF 'PIPESTATUS' "$_m11"; then
+      _stubdir_m11="$ROOT/stubreadelf_m11"
+      mkdir -p "$_stubdir_m11"
+      printf '#!/bin/sh\necho "readelf: stub" >&2\nexit 2\n' >"$_stubdir_m11/readelf"
+      chmod +x "$_stubdir_m11/readelf"
+      PATH="$_stubdir_m11:$PATH" "$_m11" quick /bin/true >/dev/null 2>"$ROOT/m11.err"; _m11rc=$?
+      if [ "$_m11rc" -eq 0 ] && ! grep -q 'readelf failed' "$ROOT/m11.err"; then
+        ok "M11-killed: blanket || true mutant swallows readelf failure (rc=0, no diagnostic) — Q4 detection confirmed"
+      else
+        no "M11-killed: || true mutant did not swallow readelf failure (rc=$_m11rc) — M11 survived (THEATER)"
+      fi
+    else
+      no "M11 setup: mutant not as expected (missing || true, or PIPESTATUS already absent)"
+    fi
+  fi
+  echo "-- M9/M10/M11 absent-tools guard: restricted PATH must emit SKIP, never a false kill --"
   # Build a minimal PATH containing neither 'file' nor 'strings' to verify the guards.
   _absent_dir="$ROOT/absent-tools"
   mkdir -p "$_absent_dir"
@@ -254,15 +304,17 @@ STUBEOF
 if ! command -v file >/dev/null 2>&1 || ! command -v strings >/dev/null 2>&1; then
     echo "  SKIP  M9 (tools unavailable: missing file or strings)"
     echo "  SKIP  M10 (tools unavailable: missing file or strings)"
-else
-    echo "UNEXPECTED-NOT-SKIPPED"
+fi
+if ! command -v file >/dev/null 2>&1; then
+    echo "  SKIP  M11 (tools unavailable: missing file)"
 fi
 ')
   if printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M9' \
-     && printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M10'; then
-    ok "M9/M10-guard: absent file/strings → SKIP emitted (no false kill possible)"
+     && printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M10' \
+     && printf '%s\n' "$_guard_out" | grep -qF '  SKIP  M11'; then
+    ok "M9/M10/M11-guard: absent file/strings → SKIP emitted (no false kill possible)"
   else
-    no "M9/M10-guard: absent tools did not emit SKIP for M9 and M10 — guard broken"
+    no "M9/M10/M11-guard: absent tools did not emit expected SKIPs — guard broken"
   fi
   echo "-- B3 mutation: remove basename from -postScript; B3 must expose full path --"
   _mutant="$ROOT/toolbelt/decompile-native.MUTANT.sh"
