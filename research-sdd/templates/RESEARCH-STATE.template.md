@@ -39,7 +39,7 @@ known_gaps: 0
 investigable_open: 3
 requires_execution_open: 1
 blocked_open: 1
-deferred_open: 0
+deferred_open: 1
 undocumented_findings: 0
 <!-- /research-state.v1 -->
 
@@ -61,7 +61,8 @@ undocumented_findings: 0
      rows and catches a premature build-STOP (envelope 0 while marked rows remain). Close one by striking it
      (~~) or flipping Status to `✅ cubierto — B<k>` like any other row. NOTE: this example row is REAL to the
      parsers (an HTML comment would not hide a table row from them), so the placeholder envelope above says
-     requires_execution_open: 1 — --sync-state re-derives it once you edit the backlog. -->
+     requires_execution_open: 1 (and the deferred example row likewise seeds deferred_open: 1 — verify-state
+     CHECK F would flag a 0 mismatch) — --sync-state re-derives both once you edit the backlog. -->
 | Priority | Gap | Artifact type / source | Status |
 |---|---|---|---|
 | high | <research question> | <Java/.NET/native/doc/web> | pending |
