@@ -2,12 +2,14 @@
 # verify-doc-consistency.sh — guards kit entry-point docs against discoverability drift.
 #
 # WHY: METHODOLOGY.md grows new sections faster than SKILL.md and PROMPT-LOOP.md are
-# updated. Three channels of silent drift have been observed:
+# updated. Four channels of silent drift have been observed:
 #   1. The "N sections" count in SKILL.md falls behind the real section count in METHODOLOGY.
 #   2. A new section gets no §N reference in SKILL.md or PROMPT-LOOP.md (orphan section).
 #   3. SKILL.md cites a retros/ path that resolves under neither the kit root nor the
 #      repo root. (Some retros live at the repo root rather than under the kit sub-tree;
 #      either location counts as resolved — WARN only when the path is missing in both.)
+#   4. README.md's "§1–§N" METHODOLOGY span declaration drifts out of sync with the
+#      real section count in METHODOLOGY.md.
 #
 # PROPOSE-NEVER-APPLY: WARN-only, READ-ONLY. Findings are advisory — exit 0.
 # Operational failures (missing/unreadable required files) exit 1.
@@ -18,6 +20,7 @@
 #   RSDD_METHODOLOGY  path to METHODOLOGY.md (default: $KIT/METHODOLOGY.md)
 #   RSDD_SKILL        path to SKILL.md      (default: $KIT/skills/research-sdd/SKILL.md)
 #   RSDD_PROMPTLOOP   path to PROMPT-LOOP.md (default: $KIT/PROMPT-LOOP.md)
+#   RSDD_README       path to README.md      (default: $KIT/README.md)
 #   RSDD_KIT          kit root for resolving retros/ citations (default: $KIT)
 #   RSDD_REPO         repo root for resolving retros/ citations (default: parent of $KIT)
 set -uo pipefail
@@ -28,6 +31,7 @@ KIT="$(cd "$(dirname "$0")/.." && pwd)"
 RSDD_METHODOLOGY="${RSDD_METHODOLOGY:-$KIT/METHODOLOGY.md}"
 RSDD_SKILL="${RSDD_SKILL:-$KIT/skills/research-sdd/SKILL.md}"
 RSDD_PROMPTLOOP="${RSDD_PROMPTLOOP:-$KIT/PROMPT-LOOP.md}"
+RSDD_README="${RSDD_README:-$KIT/README.md}"
 
 # Citation resolution roots: retros/ citations in SKILL.md are checked against BOTH.
 # Some retros live at the repo root (parent of KIT) rather than under the kit sub-tree;
@@ -42,6 +46,7 @@ _cit_repo="${RSDD_REPO:-$(cd "$KIT/.." && pwd)}"
 # exit 2 and yield real_count=0, producing spurious stale/orphan findings instead of
 # a clean operational failure — a silent-zero edge inside the anti-silent-zero guard.
 # Missing PROMPT-LOOP is a degraded-mode WARN (orphan check still runs on SKILL only).
+# Missing README is a degraded-mode WARN (§-range check skipped; README is less core).
 if [ ! -f "$RSDD_METHODOLOGY" ] || [ ! -r "$RSDD_METHODOLOGY" ]; then
   echo "verify-doc-consistency: cannot find or read METHODOLOGY at $RSDD_METHODOLOGY" >&2
   exit 1
@@ -55,6 +60,8 @@ fi
 stale_count=0
 orphan_count=0
 broken_cite_count=0
+readme_range_count=0
+readme_declared_upper=""   # populated by CHECK 4; used in anti-silent-zero summary
 
 # =============================================================================
 # CHECK 1 — anti-stale-count
@@ -69,8 +76,10 @@ broken_cite_count=0
 # still captures "0" from wc. Without -e this does not abort the script.
 real_count=$(grep -E '^## [0-9]+\.' "$RSDD_METHODOLOGY" | wc -l | tr -d ' ')  # SECTION-COUNT-GREP
 
-# Extract the integer N from SKILL.md's "N sections" declaration.
-declared_line=$(grep -E '[0-9]+[[:space:]]+sections' "$RSDD_SKILL" 2>/dev/null | head -1)
+# Extract the integer N from SKILL.md's "all N sections" declaration.
+# Anchored on "all N sections" so a stray "N sections" phrase elsewhere in SKILL
+# cannot be mis-picked as the declared count.
+declared_line=$(grep -E 'all[[:space:]]+[0-9]+[[:space:]]+sections' "$RSDD_SKILL" 2>/dev/null | head -1)  # SKILL-COUNT-GREP
 if [ -z "$declared_line" ]; then
   echo "WARN  SKILL.md declares no section count — expected a phrase like 'Do NOT ingest all N sections'; add it so the count stays in sync with METHODOLOGY.md."
   stale_count=$((stale_count + 1))
@@ -129,17 +138,45 @@ while IFS= read -r cite; do
 done < <(grep -oE 'retros/[^)[:space:]]+\.md' "$RSDD_SKILL" 2>/dev/null | sort -u)
 
 # =============================================================================
+# CHECK 4 — README §-range check
+# README.md declares the METHODOLOGY span as "§1–§<upper>" (e.g. "§1–§22").
+# Parse the upper bound N and compare to real_count. WARN on mismatch.
+# Accepts both EN-DASH (U+2013 '–') and ASCII hyphen ('-') as the range separator.
+# Hyphen placed first in the character class [-–] to avoid invalid-range in ERE.
+# Missing README is a degraded-mode WARN (NOT operational exit 1 — README is less
+# core than METHODOLOGY/SKILL). Present but no parseable §-range: WARN distinct.
+# =============================================================================
+if [ ! -f "$RSDD_README" ]; then
+  echo "WARN  README.md not found at $RSDD_README — cannot verify §-range declaration (degraded mode; README is not required for operation)."
+  readme_range_count=$((readme_range_count + 1))
+else
+  # [-–]: hyphen first (literal) then EN-DASH (U+2013) — avoids invalid-range in ERE.
+  readme_range_line=$(grep -oE '§1[-–]§[0-9]+' "$RSDD_README" 2>/dev/null | head -1)  # README-RANGE-GREP
+  if [ -z "$readme_range_line" ]; then
+    echo "WARN  README.md is present but declares no §-range (expected pattern '§1–§N' or '§1-§N') — add a §1–§N range so the METHODOLOGY span stays documented."
+    readme_range_count=$((readme_range_count + 1))
+  else
+    readme_declared_upper=$(printf '%s' "$readme_range_line" | grep -oE '[0-9]+$')
+    if [ "$readme_declared_upper" != "$real_count" ]; then
+      echo "WARN  README.md declares §1–§${readme_declared_upper} but METHODOLOGY.md has ${real_count} top-level ## N. sections — update the §-range in README.md."
+      readme_range_count=$((readme_range_count + 1))
+    fi
+  fi
+fi
+
+# =============================================================================
 # Summary — anti-silent-zero (§7): always print what was checked and how many
 # findings so a zero count is never ambiguous (absent/empty/no-match are distinct).
 # Printing real_count proves the instrument actually traversed METHODOLOGY.md.
+# Printing readme_declared_upper (or N/A) proves the README §-range was checked.
 # =============================================================================
 echo ""
-echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md"
-echo "  Findings: ${stale_count} stale-count · ${orphan_count} orphan section(s) · ${broken_cite_count} broken citation(s)"
-if [ "$stale_count" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$broken_cite_count" -eq 0 ]; then
+echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md · README.md (§-range upper: ${readme_declared_upper:-N/A})"
+echo "  Findings: ${stale_count} stale-count · ${orphan_count} orphan section(s) · ${broken_cite_count} broken citation(s) · ${readme_range_count} readme-range"
+if [ "$stale_count" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$broken_cite_count" -eq 0 ] && [ "$readme_range_count" -eq 0 ]; then
   echo "Doc consistency: clean."
 else
-  echo "Doc consistency: ${stale_count} stale-count finding(s); ${orphan_count} orphan section(s); ${broken_cite_count} broken citation(s) — see WARNs above (propose-never-apply; never auto-edited)."
+  echo "Doc consistency: ${stale_count} stale-count finding(s); ${orphan_count} orphan section(s); ${broken_cite_count} broken citation(s); ${readme_range_count} readme-range finding(s) — see WARNs above (propose-never-apply; never auto-edited)."
 fi
 
 # Advisory findings never affect the exit code. Operational failures already exited 1 above.

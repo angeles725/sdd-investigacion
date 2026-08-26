@@ -7,16 +7,23 @@
 #   4     CHECK 2 fires: §3 not referenced in bad-skill or empty promptloop
 #   5     CHECK 3 fires: retros/nonexistent-fixture.md resolves under neither root
 #   6     repo-root fallback: retros/repo-only.md resolves at repo root → no WARN
-#   7     all three bad-scenario findings appear in summary
+#   7     all bad-scenario findings appear in summary (≥1)
 #   8     exit 0 on advisory findings (WARN-only instrument)
 #   9     clean scenario: zero WARN lines emitted
-#   10    clean scenario: summary shows 0 findings in all categories
+#   10    clean scenario: summary shows 0 findings in all categories (incl. readme-range)
 #   11    operational failure: missing METHODOLOGY → exit 1
 #   12    summary always proves the instrument looked (real_count in output)
 #   13    operational failure: unreadable METHODOLOGY → exit 1 (root-safe; skipped as root)
+#   14    CHECK 4 fires: README declares §1–§2 but real count is 3 → readme-range WARN
+#   15a/b README absent: degraded WARN fires; exit code stays 0 (NOT 1)
+#   16    README present but no §-range: distinct "declares no §-range" WARN fires
+#   17    summary proves README was checked (§-range upper shown; anti-silent-zero)
+#   18    anchor: skill-decoy has "5 sections" decoy before "all 3 sections"; hardened
+#          anchor picks 3 (not 5) → no stale-count WARN
 #   --prove-teeth:
-#         one mutant per check (CHECK 1/2/3) plus the readability guard — each proves the
-#         corresponding assertion goes red under a real mutation (theater controls fail loud)
+#         CHECK 1/2/3 mutants + readability guard (existing) ·
+#         README-RANGE-GREP mutant (new) · SKILL-COUNT-GREP anchor mutant (new) —
+#         each proves the corresponding assertion goes red under a real mutation
 #
 # Exit: 0 all held · 1 regression · 2 harness error (SUT missing)
 
@@ -45,7 +52,11 @@ echo "== verify-doc-consistency.test.sh =="
 METHOD="$FIXTURES/method-3.md"
 SKILL_BAD="$FIXTURES/skill-bad.md"
 SKILL_CLEAN="$FIXTURES/skill-clean.md"
+SKILL_DECOY="$FIXTURES/skill-decoy.md"
 PROMPTLOOP="$FIXTURES/promptloop-empty.md"
+README_MISMATCH="$FIXTURES/readme-mismatch.md"
+README_MATCH="$FIXTURES/readme-match.md"
+README_NO_RANGE="$FIXTURES/readme-no-range.md"
 KIT_ROOT="$FIXTURES"          # kit root for citation resolution
 REPO_ROOT="$FIXTURES/repo-root"  # repo root for citation resolution
 
@@ -54,6 +65,7 @@ run_bad() {
   RSDD_METHODOLOGY="$METHOD" \
   RSDD_SKILL="$SKILL_BAD" \
   RSDD_PROMPTLOOP="$PROMPTLOOP" \
+  RSDD_README="$README_MISMATCH" \
   RSDD_KIT="$KIT_ROOT" \
   RSDD_REPO="$REPO_ROOT" \
     bash "$SUT" 2>&1
@@ -63,6 +75,7 @@ run_clean() {
   RSDD_METHODOLOGY="$METHOD" \
   RSDD_SKILL="$SKILL_CLEAN" \
   RSDD_PROMPTLOOP="$PROMPTLOOP" \
+  RSDD_README="$README_MATCH" \
   RSDD_KIT="$KIT_ROOT" \
   RSDD_REPO="$REPO_ROOT" \
     bash "$SUT" 2>&1
@@ -100,7 +113,8 @@ printf '%s\n' "$BAD_OUT" | grep -qiE 'Findings:.*[1-9]' \
 
 # --- 8. Exit 0 on advisory findings (WARN-only) -----------------------------
 BAD_RC=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_BAD" \
-         RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+         RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MISMATCH" \
+         RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
          bash "$SUT" 2>&1; echo $?)
 printf '%s\n' "$BAD_RC" | tail -1 | grep -q '^0$' \
   && ok "8 exit 0 on advisory findings (WARN-only instrument)" \
@@ -113,13 +127,14 @@ printf '%s\n' "$CLEAN_OUT" | grep -qE '^WARN' \
   || ok "9 clean scenario: no WARN lines emitted"
 
 # --- 10. Clean scenario: summary shows 0 findings in all categories ---------
-printf '%s\n' "$CLEAN_OUT" | grep -qE 'Findings:.*0 stale-count.*0 orphan.*0 broken' \
-  && ok "10 clean scenario: summary shows 0 findings in all categories" \
-  || no "10 clean summary expected 0 findings (out=[$CLEAN_OUT])"
+printf '%s\n' "$CLEAN_OUT" | grep -qE 'Findings:.*0 stale-count.*0 orphan.*0 broken.*0 readme-range' \
+  && ok "10 clean scenario: summary shows 0 findings in all categories (incl. readme-range)" \
+  || no "10 clean summary expected 0 findings incl. readme-range (out=[$CLEAN_OUT])"
 
 # --- 11. Operational failure: missing METHODOLOGY → exit 1 ------------------
 OP_RC=$(RSDD_METHODOLOGY="/nonexistent/method.md" RSDD_SKILL="$SKILL_CLEAN" \
-        RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+        RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+        RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
         bash "$SUT" 2>&1; echo $?)
 printf '%s\n' "$OP_RC" | tail -1 | grep -q '^1$' \
   && ok "11 exit 1 on missing METHODOLOGY (operational failure)" \
@@ -141,7 +156,8 @@ else
   cp "$METHOD" "$UNREADABLE"
   chmod 000 "$UNREADABLE"
   UR_RC=$(RSDD_METHODOLOGY="$UNREADABLE" RSDD_SKILL="$SKILL_CLEAN" \
-          RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+          RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+          RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
           bash "$SUT" 2>&1; echo $?)
   chmod 644 "$UNREADABLE"; rm -f "$UNREADABLE"
   printf '%s\n' "$UR_RC" | tail -1 | grep -q '^1$' \
@@ -149,12 +165,59 @@ else
     || no "13 expected exit 1 for unreadable METHODOLOGY (got $UR_RC)"
 fi
 
+# --- 14. CHECK 4 fires: README declares §1–§2 but real count is 3 -----------
+# run_bad() uses README_MISMATCH (declares §1–§2). method-3.md has 3 sections.
+# Guard must emit a readme-range WARN visible in BAD_OUT.
+printf '%s\n' "$BAD_OUT" | grep -qE 'README.*§1.*§2|§1.*§2.*METHODOLOGY' \
+  && ok "14 CHECK 4: readme-range WARN fires (README declares §1–§2, real count is 3)" \
+  || no "14 CHECK 4: expected README-range WARN for §1–§2 vs real 3 (out=[$BAD_OUT])"
+
+# --- 15. README absent: degraded WARN fires; exit code stays 0 --------------
+README_ABSENT_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+                    RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="/nonexistent/readme.md" \
+                    RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                    bash "$SUT" 2>&1; echo $?)
+printf '%s\n' "$README_ABSENT_OUT" | grep -qiE 'README.*not found' \
+  && ok "15a README absent: degraded WARN fires" \
+  || no "15a expected degraded WARN for absent README (out=[$README_ABSENT_OUT])"
+printf '%s\n' "$README_ABSENT_OUT" | tail -1 | grep -q '^0$' \
+  && ok "15b README absent: exit code stays 0 (degraded mode, NOT operational failure)" \
+  || no "15b expected exit 0 for absent README (got tail=$(printf '%s\n' "$README_ABSENT_OUT" | tail -1))"
+
+# --- 16. README present but no §-range: distinct WARN fires -----------------
+README_NO_RANGE_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+                      RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_NO_RANGE" \
+                      RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                      bash "$SUT" 2>&1)
+printf '%s\n' "$README_NO_RANGE_OUT" | grep -qiE 'declares no.*§-range|no.*§-range' \
+  && ok "16 README present but no §-range: distinct 'declares no §-range' WARN fires" \
+  || no "16 expected 'declares no §-range' WARN (out=[$README_NO_RANGE_OUT])"
+
+# --- 17. Summary proves README was checked (anti-silent-zero) ---------------
+# The clean summary must include the §-range upper bound in the "§-range upper: N" phrase.
+printf '%s\n' "$CLEAN_OUT" | grep -qE '§-range upper: [0-9]+' \
+  && ok "17 summary proves README was checked (§-range upper printed; anti-silent-zero)" \
+  || no "17 summary missing README §-range upper bound (out=[$CLEAN_OUT])"
+
+# --- 18. Anchor: skill-decoy picks "all 3 sections" not "5 sections" decoy --
+# skill-decoy.md has "5 sections" (decoy) BEFORE "all 3 sections" (real declaration).
+# The hardened anchor 'all[[:space:]]+[0-9]+[[:space:]]+sections' skips the decoy
+# and picks 3. A naive '[0-9]+[[:space:]]+sections' would pick the decoy 5.
+DECOY_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_DECOY" \
+            RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+            RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+            bash "$SUT" 2>&1)
+printf '%s\n' "$DECOY_OUT" | grep -qE '^WARN.*count mismatch|^WARN.*declares no section' \
+  && no "18 anchor: hardened anchor should pick 'all 3 sections' but got stale-count WARN (out=[$DECOY_OUT])" \
+  || ok "18 anchor: hardened anchor picks 'all 3 sections' from decoy-SKILL → no stale-count WARN"
+
 # =============================================================================
 # Teeth — mutation proof (one mutant per check + the readability guard)
 # =============================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   mutant="$(mktemp)"; mutant2="$(mktemp)"; mutant3="$(mktemp)"; mutant4="$(mktemp)"
-  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4"' EXIT
+  mutant5="$(mktemp)"; mutant6="$(mktemp)"
+  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4" "$mutant5" "$mutant6"' EXIT
 
   # ---- CHECK 1 teeth: break SECTION-COUNT-GREP, clean fixture must WARN ------
   echo "-- teeth CHECK 1: SECTION-COUNT-GREP mutant must break the clean-scenario assertion --"
@@ -167,7 +230,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth CHECK 1: could not build mutant (SECTION-COUNT-GREP sentinel not found — did the guard change?)"
   else
     MUTANT_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
-                 RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                 RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+                 RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                  bash "$mutant" 2>&1)
     if printf '%s\n' "$MUTANT_OUT" | grep -qE '^WARN'; then
       ok "teeth CHECK 1: broken real-count mutant WARNs on clean fixture → test 9 would go RED"
@@ -193,7 +257,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth CHECK 2: could not build mutant (negation still present after sed — did the guard change?)"
   else
     MUTANT2_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
-                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+                  RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                   bash "$mutant2" 2>&1)
     if printf '%s\n' "$MUTANT2_OUT" | grep -qE '^WARN.*top-level METHODOLOGY'; then
       ok "teeth CHECK 2: negation-mutant false-WARNs orphans on clean fixture → test 9 would go RED"
@@ -215,7 +280,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth CHECK 3: could not build mutant (repo-root clause still present — did the guard change?)"
   else
     MUTANT3_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_BAD" \
-                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MISMATCH" \
+                  RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                   bash "$mutant3" 2>&1)
     if printf '%s\n' "$MUTANT3_OUT" | grep -q 'repo-only'; then
       ok "teeth CHECK 3: no-repo-root mutant false-WARNs for repo-only.md → test 6 would go RED"
@@ -239,7 +305,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       UR2="$(mktemp)"; cp "$METHOD" "$UR2"; chmod 000 "$UR2"
       MUT4_RC=$(RSDD_METHODOLOGY="$UR2" RSDD_SKILL="$SKILL_CLEAN" \
-                RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+                RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
                 bash "$mutant4" 2>&1; echo $?)
       chmod 644 "$UR2"; rm -f "$UR2"
       if printf '%s\n' "$MUT4_RC" | tail -1 | grep -q '^1$'; then
@@ -247,6 +314,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         ok "teeth OP: no-readability-guard mutant fails to exit 1 on unreadable METHODOLOGY → test 13 would go RED"
       fi
+    fi
+  fi
+
+  # ---- README-range teeth: break README-RANGE-GREP; matching README must WARN --
+  echo "-- teeth README-range: README-RANGE-GREP mutant must break the clean-README assertion (test 9) --"
+  # Mutate: replace [0-9]+ in the README-RANGE-GREP sentinel line with NOMATCH.
+  # Result: grep -oE '§1[-–]§NOMATCH' never matches any §1–§N declaration, so
+  # readme_range_line is empty → "declares no §-range" WARN fires even on a correctly
+  # declared README → test 9 (no WARN in clean scenario) goes RED.
+  sed '/README-RANGE-GREP/s/\[0-9\]+/NOMATCH/' "$SUT" > "$mutant5"
+  if ! grep -q 'NOMATCH' "$mutant5"; then
+    no "teeth README-range: could not build mutant (README-RANGE-GREP sentinel not found — did the guard change?)"
+  else
+    MUTANT5_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+                  RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  bash "$mutant5" 2>&1)
+    if printf '%s\n' "$MUTANT5_OUT" | grep -qE '^WARN.*§-range|^WARN.*README'; then
+      ok "teeth README-range: broken regex causes WARN on matching README → test 9 would go RED"
+    else
+      no "teeth README-range: mutant produced no README-range WARN on matching README — no effect (THEATER)"
+    fi
+  fi
+
+  # ---- SKILL-COUNT-GREP anchor teeth: naive anchor picks decoy "5 sections" --
+  echo "-- teeth ANCHOR: SKILL-COUNT-GREP naive mutant must break the decoy-SKILL assertion (test 18) --"
+  # Mutate: on the SKILL-COUNT-GREP sentinel line, change 'all[' to '[' so the
+  # anchor 'all[[:space:]]+[0-9]+[[:space:]]+sections' degrades to the naive
+  # '[[:space:]]+[0-9]+[[:space:]]+sections'. On skill-decoy.md the naive pattern
+  # hits "5 sections" first (the decoy line precedes the real one) → declared_count=5
+  # ≠ real_count=3 → stale-count WARN fires → test 18 (no stale-count WARN on
+  # decoy-SKILL) goes RED.
+  sed '/SKILL-COUNT-GREP/s/all\[/[/' "$SUT" > "$mutant6"
+  if grep -q "all\[" "$mutant6"; then
+    no "teeth ANCHOR: could not build mutant (SKILL-COUNT-GREP anchor still has 'all[' — did the guard change?)"
+  else
+    MUTANT6_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_DECOY" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_README="$README_MATCH" \
+                  RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  bash "$mutant6" 2>&1)
+    if printf '%s\n' "$MUTANT6_OUT" | grep -qE '^WARN.*count mismatch|^WARN.*declares no section'; then
+      ok "teeth ANCHOR: naive-anchor mutant picks decoy '5 sections' → stale-count WARN fires → test 18 would go RED"
+    else
+      no "teeth ANCHOR: mutant did not produce stale-count WARN on decoy-SKILL — no effect (THEATER)"
     fi
   fi
 fi
