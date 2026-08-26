@@ -59,6 +59,7 @@ language), and ask which one — then proceed. Do not guess.
 
 | Term | One-line meaning |
 |---|---|
+| **target** | The system/artifact under study, registered in `TARGETS.md` (name · path · maturity · artifact · language). `$TARGET` = its root dir; the corpus is built FOR it and may live AT `$TARGET` (flat) or under `$TARGET/corpus/` (nested) — that corpus root is `$CORPUS`. |
 | **corpus** | The growing set of `.md` knowledge blocks for a target (+ `INDEX.md`, `CATALOG.md`, `RESEARCH-STATE.md`). |
 | **block** | One self-contained `.md` file capturing one researched gap — `<prefix>-blockN.md` or `<prefix>-bloqueN.md`. |
 | **gap** | An open research question in `RESEARCH-STATE.md`; the loop attacks one per iteration. |
@@ -150,7 +151,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
        wrapper per artifact type; §10 self-provisioning → a required tool is missing (before recording
        `blocked-on-tool`); §12 dynamic phase → validating a finding against a LIVE system; §13 audit mode →
-       running an AUDIT; §14 cross-block consistency → a block CORRECTS another; §15 corpus versioning →
+       running an AUDIT (operational prompt: `PROMPT-AUDIT.md`); §14 cross-block consistency → a block CORRECTS another; §15 corpus versioning →
        corpus bootstrap ($CORPUS) or a git commit/remote; §16 multi-focus → the target has multiple
        focuses; §18 self-retrospective → at STOP / terminal trigger; §19 build/PoC loop → the gap REQUIRES
        EXECUTION; §20 document mode → the `document` sub-command; §21 wall protocol → you hit a WALL; §22

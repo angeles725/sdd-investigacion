@@ -66,7 +66,7 @@ Always read first, in this order:
        defer LOADING a section until its phase fires, and reading it is MANDATORY then):
          HOT-CORE (read in full now): §1 §2 §3 the 7 markers §4 §7 §8 §9 §11 §17 — framing + per-block contract.
          SITUATIONAL (read the section in full when its phase fires): §5 source-added · §6 profiling/wrapper ·
-         §10 tool-missing · §12 live-probe · §13 audit · §14 correction · §15 corpus-git · §16 multi-focus ·
+         §10 tool-missing · §12 live-probe · §13 audit (prompt: PROMPT-AUDIT.md) · §14 correction · §15 corpus-git · §16 multi-focus ·
          §18 STOP · §19 build/PoC · §20 document-mode · §21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
@@ -144,7 +144,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      Then do the JUDGMENT follow-ups it prints (it cannot guess them): ADAPT the hook — replace <SUBJECT> +
      real source paths in $TARGET/.claude/hooks/research-protocol.sh (for a NESTED corpus, prefix its
      block/INDEX/CATALOG paths with corpus/) — and register it in $TARGET/.claude/settings.json
-     (matcher startup|resume|clear). (TARGETS.md registration is step b; gap-seeding is step e.)
+     (matcher startup|resume|clear). (TARGETS.md registration is step b; gap-seeding is step e. There is
+     no step d — bootstrap runs a · a2 · b · b2 · c · e · e2 · e3 · e4 · f.)
      The init already scaffolds `$TARGET/tools/` + `$TARGET/tools/README.md` (columns: name · path · WHY —
      used/adapted/downloaded/created/updated) — do NOT recreate them. RECORD every tool acquired during the run AT THE MOMENT
      of acquisition, not reconstructed at retro time — the WHY is cheapest while the decision is live.
