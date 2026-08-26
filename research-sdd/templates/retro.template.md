@@ -1,4 +1,5 @@
 <!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
 # Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective
 
 > Run reviewed: <focus / block range, e.g. nmodsreflow B138-B150>. Trigger: <focus-completion | corpus-STOP | every-N-blocks>.

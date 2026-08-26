@@ -1,4 +1,5 @@
 <!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this audit's findings are reviewed and applied (or 'dismissed') in the kit; sweep-audits.sh reads this marker to report which audits are still open (METHODOLOGY §13). -->
 # Audit — <BLOCK or CORPUS> · Research-SDD certainty audit
 
 > What was audited: <block(s) / corpus>.
