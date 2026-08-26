@@ -355,10 +355,14 @@ CACHE_R="$ROOT/cache-r.txt"
 rc_r=0
 HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_R" --quiet --require latex >/dev/null 2>&1 || rc_r=$?
-if [ "$rc_r" -eq 0 ]; then
-  ok "r --require latex: exits 0 (pdflatex installed)" "(rc=$rc_r)"
+# The label is now RECOGNIZED (was exit 2). Present → 0, absent → 1, NEVER 2 — that is the
+# load-bearing invariant, and it holds whether or not LaTeX is installed (CI has no LaTeX).
+if command -v pdflatex >/dev/null 2>&1; then
+  if [ "$rc_r" -eq 0 ]; then ok "r --require latex: exit 0 (pdflatex present)" "(rc=$rc_r)"
+  else no "r --require latex: exit 0 (pdflatex present)" "rc=$rc_r"; fi
 else
-  no "r --require latex: exits 0 (pdflatex installed)" "rc=$rc_r"
+  if [ "$rc_r" -eq 1 ]; then ok "r --require latex: exit 1 (pdflatex absent; label recognized, not exit 2)" "(rc=$rc_r)"
+  else no "r --require latex: label recognized (not exit 2) when pdflatex absent" "rc=$rc_r"; fi
 fi
 
 # s — --require circuitikz exits 0 (circuitikz.sty installed on this machine).
@@ -367,10 +371,13 @@ CACHE_S="$ROOT/cache-s.txt"
 rc_s=0
 HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_S" --quiet --require circuitikz >/dev/null 2>&1 || rc_s=$?
-if [ "$rc_s" -eq 0 ]; then
-  ok "s --require circuitikz: exits 0 (circuitikz.sty installed)" "(rc=$rc_s)"
+# Same invariant as test r: label RECOGNIZED (never exit 2). Present → 0, absent → 1.
+if kpsewhich circuitikz.sty >/dev/null 2>&1; then
+  if [ "$rc_s" -eq 0 ]; then ok "s --require circuitikz: exit 0 (circuitikz.sty present)" "(rc=$rc_s)"
+  else no "s --require circuitikz: exit 0 (circuitikz.sty present)" "rc=$rc_s"; fi
 else
-  no "s --require circuitikz: exits 0 (circuitikz.sty installed)" "rc=$rc_s"
+  if [ "$rc_s" -eq 1 ]; then ok "s --require circuitikz: exit 1 (absent; label recognized, not exit 2)" "(rc=$rc_s)"
+  else no "s --require circuitikz: label recognized (not exit 2) when absent" "rc=$rc_s"; fi
 fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
