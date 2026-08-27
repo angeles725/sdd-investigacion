@@ -147,7 +147,7 @@ if [ "$git_did_init" = 1 ]; then
   echo "  git    : initialized a new repo in the target"
 else
   echo "  git    : target is ALREADY under git — corpus files land untracked (git add as needed)"
-  echo "           the .claude/ hook is gitignored (init appended .claude/ to .gitignore) — git add --force to track it, or leave it ignored"
+  echo "           the .claude/ hook is gitignored (.claude/ is in .gitignore) — git add --force to track it, or leave it ignored"
 fi
 echo "  remote : no remote — run $KIT/toolbelt/ensure-remote.sh $target --yes when you consent to push (PRIVATE, consent-gated)"
 echo
