@@ -179,6 +179,25 @@ bash "$SUT" "$d" --corpus flat > "$TMP/nextstep.out" 2>/dev/null
 assert_grep "next-step: research-sdd-status.sh pointer" "research-sdd-status.sh" "$TMP/nextstep.out"
 assert_grep "next-step: BOOTSTRAP in next-step section" "BOOTSTRAP" "$TMP/nextstep.out"
 
+# --- Reframe: CONFIRM/THEN group markers and non-regressions ---
+d="$TMP/reframe"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat > "$TMP/reframe.out" 2>/dev/null
+assert_grep "reframe: CONFIRM group header present" "CONFIRM these are done" "$TMP/reframe.out"
+assert_grep "reframe: THEN group header present" "THEN do next (post-scaffold)" "$TMP/reframe.out"
+assert_grep "reframe: item-1 consequence unchanged" "cannot see its retros/" "$TMP/reframe.out"
+assert_grep "reframe: item-2 cross-ref unchanged" "PROMPT-LOOP §b/§b2" "$TMP/reframe.out"
+# Ordering: CONFIRM < item1 < THEN < item3 (group markers must frame items in correct order)
+cl=$(grep -nF "CONFIRM these are done"      "$TMP/reframe.out" | head -1 | cut -d: -f1)
+i1=$(grep -nF "1. REGISTER the target row"  "$TMP/reframe.out" | head -1 | cut -d: -f1)
+tl=$(grep -nF "THEN do next (post-scaffold)" "$TMP/reframe.out" | head -1 | cut -d: -f1)
+i3=$(grep -nF "3. SEED"                     "$TMP/reframe.out" | head -1 | cut -d: -f1)
+if [ -n "$cl" ] && [ -n "$i1" ] && [ -n "$tl" ] && [ -n "$i3" ] \
+   && [ "$cl" -lt "$i1" ] && [ "$i1" -lt "$tl" ] && [ "$tl" -lt "$i3" ]; then
+  ok "reframe: group order CONFIRM<item1<THEN<item3"
+else
+  no "reframe: group order wrong (CONFIRM=$cl item1=$i1 THEN=$tl item3=$i3)"
+fi
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -283,6 +302,69 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth M4: research-sdd-status.sh absent in mutant output — next-step assertion has teeth"
     else
       no "teeth M4: research-sdd-status.sh still present in mutant output — THEATER"
+    fi
+  fi
+
+  # Mutation M5: delete CONFIRM group header → CONFIRM these are done absent from stdout
+  echo "-- teeth proof M5: delete CONFIRM group header → CONFIRM these are done absent --"
+  mkdir -p "$TMP/m5/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m5/templates"
+  m5_mutant="$TMP/m5/toolbelt/init.sh"
+  awk '/CONFIRM these are done/ { next } { print }' "$SUT" > "$m5_mutant"
+  if grep -qF 'CONFIRM these are done' "$m5_mutant"; then
+    no "teeth M5: could not build mutant (CONFIRM header line not removed)"
+  else
+    dm5="$TMP/m5t"; mkdir -p "$dm5"
+    bash "$m5_mutant" "$dm5" --corpus flat > "$TMP/m5.out" 2>/dev/null
+    if ! grep -qF "CONFIRM these are done" "$TMP/m5.out" 2>/dev/null; then
+      ok "teeth M5: CONFIRM header absent in mutant output — CONFIRM assertion has teeth"
+    else
+      no "teeth M5: CONFIRM header still present in mutant output — THEATER"
+    fi
+  fi
+
+  # Mutation M6: delete THEN group header → THEN do next (post-scaffold) absent from stdout
+  echo "-- teeth proof M6: delete THEN group header → THEN do next (post-scaffold) absent --"
+  mkdir -p "$TMP/m6/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m6/templates"
+  m6_mutant="$TMP/m6/toolbelt/init.sh"
+  awk '/THEN do next \(post-scaffold\)/ { next } { print }' "$SUT" > "$m6_mutant"
+  if grep -qF 'THEN do next (post-scaffold)' "$m6_mutant"; then
+    no "teeth M6: could not build mutant (THEN header line not removed)"
+  else
+    dm6="$TMP/m6t"; mkdir -p "$dm6"
+    bash "$m6_mutant" "$dm6" --corpus flat > "$TMP/m6.out" 2>/dev/null
+    if ! grep -qF "THEN do next (post-scaffold)" "$TMP/m6.out" 2>/dev/null; then
+      ok "teeth M6: THEN header absent in mutant output — THEN assertion has teeth"
+    else
+      no "teeth M6: THEN header still present in mutant output — THEATER"
+    fi
+  fi
+
+  # Mutation M7: move CONFIRM marker down after item-2 (forward-safe reorder: destination AFTER source)
+  # → CONFIRM appears AFTER item-1 in output, breaking CONFIRM<item1 while keeping both markers present.
+  # This isolates ORDER, not presence — proving the ordering assertion has teeth.
+  echo "-- teeth proof M7: move CONFIRM after item-2 → CONFIRM>item1 in output, ordering assertion has teeth --"
+  mkdir -p "$TMP/m7/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m7/templates"
+  m7_mutant="$TMP/m7/toolbelt/init.sh"
+  awk '/CONFIRM these are done/ { cf=$0; next } /2\. CLASSIFY the artifact/ { print; if (cf!="") { print cf; cf="" } next } { print }' "$SUT" > "$m7_mutant"
+  # Build-check: CONFIRM must be PRESENT and AFTER item-2 in the mutant file (not a silent delete)
+  if ! grep -qF 'CONFIRM these are done' "$m7_mutant"; then
+    no "teeth M7: could not build reorder mutant (CONFIRM these are done absent — degraded to delete)"
+  else
+    m7_cf_line=$(grep -nF "CONFIRM these are done"  "$m7_mutant" | head -1 | cut -d: -f1)
+    m7_i2_line=$(grep -nF "2. CLASSIFY the artifact" "$m7_mutant" | head -1 | cut -d: -f1)
+    if [ -n "$m7_cf_line" ] && [ -n "$m7_i2_line" ] && [ "$m7_cf_line" -gt "$m7_i2_line" ]; then
+      ok "teeth M7: mutant has CONFIRM after item-2 in script (CONFIRM=$m7_cf_line item2=$m7_i2_line) — not a delete"
+      dm7="$TMP/m7t"; mkdir -p "$dm7"
+      bash "$m7_mutant" "$dm7" --corpus flat > "$TMP/m7.out" 2>/dev/null
+      m7_out_cf=$(grep -nF "CONFIRM these are done"     "$TMP/m7.out" | head -1 | cut -d: -f1)
+      m7_out_i1=$(grep -nF "1. REGISTER the target row" "$TMP/m7.out" | head -1 | cut -d: -f1)
+      if [ -n "$m7_out_cf" ] && [ -n "$m7_out_i1" ] && [ "$m7_out_cf" -gt "$m7_out_i1" ]; then
+        ok "teeth M7: CONFIRM now after item-1 in mutant output — ordering assertion has teeth"
+      else
+        no "teeth M7: ordering not broken in mutant output (CONFIRM=$m7_out_cf item1=$m7_out_i1) — THEATER"
+      fi
+    else
+      no "teeth M7: could not verify reorder — CONFIRM not after item-2 (CONFIRM=$m7_cf_line item2=$m7_i2_line)"
     fi
   fi
 fi
