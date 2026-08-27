@@ -172,6 +172,9 @@ echo "Summary: ${total_tagged} tagged breakthrough(s) across corpora · ${warn_u
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi
+if [ "$warn_unindexed" -eq 0 ] && [ "$warn_drift" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
+  echo "Ledger consistent — all tagged breakthroughs indexed, no drift."
+fi
 if [ "$warn_unindexed" -gt 0 ]; then
   echo "For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
 fi

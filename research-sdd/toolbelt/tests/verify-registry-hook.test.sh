@@ -49,12 +49,13 @@ printf '%s\n' "$OUT" | grep -qi 'could not run\|error\|exit 1' \
   && ok "3 registry check failure (rc=1) → operational-failure banner emitted" \
   || no "3 registry check failure → expected 'could not run' banner (exit=$RC out=[$OUT])"
 
-# 4. Success (sweep exits 0) → normal header present in output.
+# 4. Success (sweep exits 0) → neutral "registry check" header (not "registry drift").
+# "drift" implies findings on a clean run; "check" is neutral.
 write_stub 0 "INFO: all 18 rows match block counts"
 OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"; RC=$?
-printf '%s\n' "$OUT" | grep -qi 'registry drift\|TARGETS' \
-  && ok "4 success (rc=0) → normal registry-drift header emitted" \
-  || no "4 success → expected normal header (exit=$RC out=[$OUT])"
+printf '%s\n' "$OUT" | grep -qi 'registry check' \
+  && ok "4 success (rc=0) → neutral 'registry check' header emitted" \
+  || no "4 success → expected 'registry check' header (exit=$RC out=[$OUT])"
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -72,6 +73,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)"
   else
     no "teeth A: mutant still emits failure banner — sed pattern may not match fixed hook"
+  fi
+
+  # Tooth B: revert "registry check" to "registry drift" → test 4 goes RED.
+  sed 's/registry check/registry drift/g' \
+    "$SUT" > "$TMP/mutant-hook.sh"
+  chmod +x "$TMP/mutant-hook.sh"
+  write_stub 0 "INFO: all 18 rows match block counts"
+  cp "$TMP/mutant-hook.sh" "$TMP/verify-registry-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/verify-registry-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qi 'registry check'; then
+    ok "teeth B: reverted to 'registry drift' mutant → test 4 would catch it (RED)"
+  else
+    no "teeth B: mutant still matches 'registry check' — tooth has no bite"
   fi
 fi
 
