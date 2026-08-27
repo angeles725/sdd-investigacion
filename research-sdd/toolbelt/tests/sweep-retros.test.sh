@@ -1059,6 +1059,49 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Sentinel cases (RSDD-STATE declared state)
+# S1 — clean: all retros applied, no blocks, no skipped → RSDD-STATE: clean (last stdout line)
+kit="$(mkkit s1-sentinel-clean)"; tgt="$kit/targetA"
+mkretro "$tgt" "applied.md" "<!-- review-status: applied 2026-01-01 · kit abc -->" 0
+write_targets "$kit" "$tgt"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: clean" ]; then
+  ok "S1 all-clean + no-skipped → RSDD-STATE: clean (last stdout line)" "(exit $RC)"
+else
+  no "S1 all-clean + no-skipped → expected RSDD-STATE: clean as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# S2 — attention via missing_retro: block 2 days old, no retros → missing_retro=1 → RSDD-STATE: attention
+kit="$(mkkit s2-sentinel-attention)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# block content\n' > "$tgt/t-block1.md"
+touch -d '2 days ago' "$tgt/t-block1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: attention" ]; then
+  ok "S2 missing_retro=1 → RSDD-STATE: attention (last stdout line)" "(exit $RC)"
+else
+  no "S2 missing_retro=1 → expected RSDD-STATE: attention as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# S3 — partial: skipped>0 + all findings zero → RSDD-STATE: partial
+kit="$(mkkit s3-sentinel-partial)"; tgt="$kit/targetA"
+mkretro "$tgt" "applied.md" "<!-- review-status: applied 2026-01-01 · kit abc -->" 0
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgt"
+  printf '| 2 | t2 | `$RESEARCH_HOME/no/path/...` |\n'
+} > "$kit/TARGETS.md"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: partial" ]; then
+  ok "S3 skipped>0 + findings=0 → RSDD-STATE: partial (last stdout line)" "(exit $RC)"
+else
+  no "S3 skipped>0 + findings=0 → expected RSDD-STATE: partial as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
 # match (rename its pattern to a token no status ever equals) and re-run the APPLIED fixture:
@@ -1408,6 +1451,29 @@ STRIPPED
       ok "teeth N1: note-removed mutant omits marker note → case 50 would go RED (has teeth)" "()"
     else
       no "teeth N1: note-removed mutant still prints note — case 50 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth S1: drop missing_retro from FINDINGS expression → missing_retro-only attention fixture
+  # becomes FINDINGS=0 → clean → S2 would go RED. Verifies missing_retro is counted.
+  echo "-- teeth S1: drop missing_retro from FINDINGS; attention fixture must flip to clean (S2 RED) --"
+  findings_anchor='FINDINGS=$((pending + missing_retro))'
+  if ! grep -qF "$findings_anchor" "$SUT"; then
+    no "teeth S1: FINDINGS expression not found in SUT" "anchor not found — SUT drifted?"
+  else
+    kit_s1t="$(mkkit teeth-s1-findings)"; tgt_s1t="$kit_s1t/targetA"
+    mkdir -p "$tgt_s1t"
+    printf '# block content\n' > "$tgt_s1t/t-block1.md"
+    touch -d '2 days ago' "$tgt_s1t/t-block1.md"
+    write_targets "$kit_s1t" "$tgt_s1t"
+    sed "s/FINDINGS=\$((pending + missing_retro))/FINDINGS=\$((pending))/" \
+      "$SUT" > "$kit_s1t/toolbelt/sweep-retros.sh"
+    outm_s1t="$("$BASH_BIN" "$kit_s1t/toolbelt/sweep-retros.sh" 2>&1)"
+    last_s1t="$(printf '%s\n' "$outm_s1t" | tail -1)"
+    if [ "$last_s1t" = "RSDD-STATE: clean" ]; then
+      ok "teeth S1: missing_retro-dropped mutant flips to clean → S2 would go RED (has teeth)" "()"
+    else
+      no "teeth S1: mutant still reports attention — sed may be a no-op or S2 has no teeth" "last=[$last_s1t]"
     fi
   fi
 fi

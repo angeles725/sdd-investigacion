@@ -305,6 +305,47 @@ else
   no "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
 fi
 
+# ---------------------------------------------------------------------------
+# Sentinel cases (RSDD-STATE declared state)
+# SA1 — clean: all audits applied, no skipped → RSDD-STATE: clean (last stdout line)
+kit="$(mkkit sa1-sentinel-clean)"; tgt="$kit/targetA"
+mkaudit "$tgt" "applied.md" "<!-- review-status: applied 2026-01-01 · kit abc -->" 0
+write_targets "$kit" "$tgt"
+OUT="$("$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: clean" ]; then
+  ok "SA1 all-clean + no-skipped → RSDD-STATE: clean (last stdout line)" "(exit $RC)"
+else
+  no "SA1 all-clean + no-skipped → expected RSDD-STATE: clean as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# SA2 — attention: one pending audit → pending=1 → RSDD-STATE: attention
+kit="$(mkkit sa2-sentinel-attention)"; tgt="$kit/targetA"
+mkaudit "$tgt" "pending.md" "-" 1
+write_targets "$kit" "$tgt"
+OUT="$("$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: attention" ]; then
+  ok "SA2 pending=1 → RSDD-STATE: attention (last stdout line)" "(exit $RC)"
+else
+  no "SA2 pending=1 → expected RSDD-STATE: attention as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# SA3 — partial: skipped>0 + all findings zero → RSDD-STATE: partial
+kit="$(mkkit sa3-sentinel-partial)"; tgt="$kit/targetA"
+mkaudit "$tgt" "applied.md" "<!-- review-status: applied 2026-01-01 · kit abc -->" 0
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgt"
+  printf '| 2 | t2 | `$RESEARCH_HOME/no/path/...` |\n'
+} > "$kit/TARGETS.md"
+OUT="$("$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: partial" ]; then
+  ok "SA3 skipped>0 + findings=0 → RSDD-STATE: partial (last stdout line)" "(exit $RC)"
+else
+  no "SA3 skipped>0 + findings=0 → expected RSDD-STATE: partial as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED audit to false-surface as PENDING --"
@@ -355,6 +396,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth(rename-tradeoff): --follow mutant ESCALATES renamed-after-creation audit → case 14 has teeth"
     else
       no "teeth(rename-tradeoff): --follow mutant did not ESCALATE — case 14 is THEATER: [$outm]"
+    fi
+  fi
+
+  # Tooth SA1: zero-out pending in FINDINGS expression → attention fixture flips to clean → SA2 RED.
+  echo "-- teeth SA1: zero pending in FINDINGS; attention fixture must flip to clean (SA2 RED) --"
+  sa_findings_anchor='FINDINGS=$((pending))'
+  if ! grep -qF "$sa_findings_anchor" "$SUT"; then
+    no "teeth SA1: FINDINGS expression not found in SUT" "anchor not found — SUT drifted?"
+  else
+    kit_sa1t="$(mkkit teeth-sa1-findings)"; tgt_sa1t="$kit_sa1t/targetA"
+    mkaudit "$tgt_sa1t" "pending.md" "-" 1
+    write_targets "$kit_sa1t" "$tgt_sa1t"
+    sed 's/FINDINGS=\$((pending))/FINDINGS=0/' \
+      "$SUT" > "$kit_sa1t/toolbelt/sweep-audits.sh"
+    outm_sa1t="$("$BASH_BIN" "$kit_sa1t/toolbelt/sweep-audits.sh" 2>&1)"
+    last_sa1t="$(printf '%s\n' "$outm_sa1t" | tail -1)"
+    if [ "$last_sa1t" = "RSDD-STATE: clean" ]; then
+      ok "teeth SA1: pending-zeroed mutant flips to clean → SA2 would go RED (has teeth)" "()"
+    else
+      no "teeth SA1: mutant still reports attention — sed may be a no-op or SA2 has no teeth" "last=[$last_sa1t]"
     fi
   fi
 fi

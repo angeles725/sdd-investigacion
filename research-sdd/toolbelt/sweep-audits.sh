@@ -128,3 +128,9 @@ else
   echo "coverage gaps into the §8 backlog, then flip the marker to"
   echo "'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
 fi
+# --- Declared state sentinel (RSDD-STATE) ---
+FINDINGS=$((pending))
+if [ "$FINDINGS" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then st=clean
+elif [ "$skipped_count" -gt 0 ] && [ "$FINDINGS" -eq 0 ]; then st=partial
+else st=attention; fi
+echo "RSDD-STATE: $st"

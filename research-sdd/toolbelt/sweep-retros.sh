@@ -197,7 +197,7 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
   [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
   printf '%s' "$e"
 }
-waived_count=0; waived_names=""   # targets with a retro-waived marker; suppressed from MISSING-RETRO
+waived_count=0; waived_names=""; missing_retro=0   # targets waived + MISSING-RETRO counter
 for p in $paths; do
   [ -d "$p" ] || continue
   # Scan this target's retros/ for a retro-waived marker before doing the advancement check.
@@ -235,9 +235,16 @@ for p in $paths; do
   # forever even years later.
   if [ "$nb" -gt 0 ] && [ "$nb" -gt "$nr" ] && [ "$now" -gt "$(( nb + grace_secs ))" ]; then
     echo "MISSING-RETRO: $p advanced with no retro for the latest run"
+    missing_retro=$((missing_retro + 1))
   fi
 done
 # Report waived targets in summary so the suppression is never invisible.
 if [ "$waived_count" -gt 0 ]; then
   echo "waived: ${waived_count} target(s) — MISSING-RETRO suppressed: ${waived_names}"
 fi
+# --- Declared state sentinel (RSDD-STATE) ---
+FINDINGS=$((pending + missing_retro))
+if [ "$FINDINGS" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then st=clean
+elif [ "$skipped_count" -gt 0 ] && [ "$FINDINGS" -eq 0 ]; then st=partial
+else st=attention; fi
+echo "RSDD-STATE: $st"

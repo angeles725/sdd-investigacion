@@ -17,6 +17,11 @@ if [ "$rc" -ne 0 ]; then
   exit 0
 fi
 
+# Silence-on-clean: extract the RSDD-STATE sentinel from the script output; if "clean", skip
+# emitting to the session (§7: a missing sentinel is not-clean → hook emits as usual).
+state="$(printf '%s\n' "$out" | grep '^RSDD-STATE:' | tail -1 | cut -d' ' -f2)"
+if [ "${state:-}" = "clean" ]; then exit 0; fi
+
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg c "$out" \
     '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD registry check (TARGETS.md vs reality):\n"+$c)}}'

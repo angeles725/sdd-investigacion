@@ -447,5 +447,11 @@ else
   [ "$retro_drift" -gt 0 ] && echo "For each retro drift: recount non-excluded retros and refresh the 'N retros' field in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
 fi
 
+# --- Declared state sentinel (RSDD-STATE) ---
+FINDINGS=$((drift + retro_drift + unresolved + rowlint))
+if [ "$FINDINGS" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then st=clean
+elif [ "$skipped_count" -gt 0 ] && [ "$FINDINGS" -eq 0 ]; then st=partial
+else st=attention; fi
+echo "RSDD-STATE: $st"
 # Advisory findings (drift, schema) are never failures. Operational failure already exited 1 above.
 exit 0

@@ -477,6 +477,52 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Sentinel cases (RSDD-STATE declared state)
+# SB1 — clean: ledger consistent, no skipped → RSDD-STATE: clean (last stdout line)
+kit="$(mkkit sb1-sentinel-clean)"; tgtA="$kit/targetA"
+mkblock_tagged "$tgtA" "pfx-block1.md"
+ln_sb1=$(tagged_lineno "$tgtA/pfx-block1.md")
+write_targets "$kit" "$tgtA"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln_sb1\` | k |"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: clean" ]; then
+  ok "SB1 ledger consistent + no-skipped → RSDD-STATE: clean (last stdout line)" "(exit $RC)"
+else
+  no "SB1 ledger consistent + no-skipped → expected RSDD-STATE: clean as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# SB2 — attention: warn_unindexed=1 → RSDD-STATE: attention
+kit="$(mkkit sb2-sentinel-attention)"; tgtA="$kit/targetA"
+mkblock_tagged "$tgtA" "pfx-block1.md"
+write_targets "$kit" "$tgtA"
+write_breakthroughs "$kit" ""   # empty ledger → block unindexed
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: attention" ]; then
+  ok "SB2 warn_unindexed=1 → RSDD-STATE: attention (last stdout line)" "(exit $RC)"
+else
+  no "SB2 warn_unindexed=1 → expected RSDD-STATE: attention as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# SB3 — partial: skipped>0 + findings=0 → RSDD-STATE: partial
+kit="$(mkkit sb3-sentinel-partial)"; tgtA="$kit/targetA"
+mkblock_tagged "$tgtA" "pfx-block1.md"
+ln_sb3=$(tagged_lineno "$tgtA/pfx-block1.md")
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgtA"
+  printf '| 2 | t2 | `$RESEARCH_HOME/no/path/...` |\n'
+} > "$kit/TARGETS.md"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln_sb3\` | k |"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: partial" ]; then
+  ok "SB3 skipped>0 + findings=0 → RSDD-STATE: partial (last stdout line)" "(exit $RC)"
+else
+  no "SB3 skipped>0 + findings=0 → expected RSDD-STATE: partial as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -612,6 +658,30 @@ if grep -q 'Ledger consistent' <<<"$OUT"; then
   mut_ok "M6 skipped-guard bypassed → case 23 (partial run) goes RED (sentence present)" "(sentence present on mutant)"
 else
   mut_no "M6 skipped-guard bypassed → mutation not detected by case 23" "out=[$OUT]"
+fi
+
+# Tooth SB1: drop warn_drift from FINDINGS expression → drift-only attention fixture flips to
+# clean → SB2 (when using a drift fixture) would go RED. Verifies warn_drift is counted.
+echo "-- teeth SB1: drop warn_drift from FINDINGS; drift-only fixture must flip to clean (SB2 variant RED) --"
+sb_findings_anchor='FINDINGS=$((warn_unindexed + warn_drift))'
+if ! grep -qF "$sb_findings_anchor" "$SUT"; then
+  mut_no "teeth SB1: FINDINGS expression not found in SUT" "anchor not found — SUT drifted?"
+else
+  # Drift-only fixture: block indexed in ledger, but ledger block file no longer has marker
+  mut_kit_sb1="$(mkkit teeth-sb1-findings)"
+  tgt_sb1="$mut_kit_sb1/targetA"
+  mkblock "$tgt_sb1" "pfx-block1.md"   # block file exists but lacks marker
+  write_targets "$mut_kit_sb1" "$tgt_sb1"
+  # Ledger points to the block (claims marker present) → drift → warn_drift=1
+  write_breakthroughs "$mut_kit_sb1" "| 1 | tgt | w | \`$tgt_sb1/pfx-block1.md:1\` | k |"
+  mutant_sb1="$(mutate_sut "sb1-drop-drift" 's/FINDINGS=\$((warn_unindexed + warn_drift))/FINDINGS=$((warn_unindexed))/')"
+  run_mutant "$mut_kit_sb1" "$mutant_sb1"
+  last_sb1="$(printf '%s\n' "$OUT" | tail -1)"
+  if [ "$last_sb1" = "RSDD-STATE: clean" ]; then
+    mut_ok "teeth SB1: drift-dropped mutant flips to clean → SB2 variant would go RED (has teeth)" "()"
+  else
+    mut_no "teeth SB1: mutant still reports attention — sed may be a no-op or has no teeth" "last=[$last_sb1]"
+  fi
 fi
 
 total_fail=$(( fail + mut_fail ))

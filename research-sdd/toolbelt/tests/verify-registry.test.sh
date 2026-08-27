@@ -1620,6 +1620,55 @@ else
   no "51 one reconciled target → regression guard failed" "exit=$RC out=[$OUT]"
 fi
 
+# ---------------------------------------------------------------------------
+# Sentinel cases (RSDD-STATE declared state)
+# SR1 — clean: registry consistent, no skipped → RSDD-STATE: clean (last stdout line)
+# mkcorpus creates blocks, write_targets adds N md claim so drift=0 and unresolved=0.
+kit="$(mkkit sr1-sentinel-clean)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: clean" ]; then
+  ok "SR1 registry consistent + no-skipped → RSDD-STATE: clean (last stdout line)" "(exit $RC)"
+else
+  no "SR1 registry consistent + no-skipped → expected RSDD-STATE: clean as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# SR2 — attention: rowlint=1 → RSDD-STATE: attention
+# Create a target with an oversized master-table row (> 200 chars) to trigger rowlint.
+# Use maturity cell with N md claim (2 md, drift within tol) so unresolved=0 and drift=0.
+# The oversized content goes in a separate extra cell at the end to keep the row's N md parseable.
+kit="$(mkkit sr2-sentinel-attention)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 2 "a"
+long_suffix="$(printf 'x%.0s' {1..210})"  # 210-char extra cell, exceeds RSDD_ROW_MAXLEN=200
+{ printf '# targets\n\n| # | name | maturity | path | extra |\n|---|---|---|---|---|\n'
+  printf '| 1 | t1 | mature (2 md / git yes / hook yes) | `%s` | %s |\n' "$tgt" "$long_suffix"
+} > "$kit/TARGETS.md"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: attention" ]; then
+  ok "SR2 rowlint=1 → RSDD-STATE: attention (last stdout line)" "(exit $RC)"
+else
+  no "SR2 rowlint=1 → expected RSDD-STATE: attention as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
+# SR3 — partial: skipped>0 + findings=0 → RSDD-STATE: partial
+# Use write_targets format (maturity with N md claim) so unresolved=0; add truncated path for skipped=1.
+kit="$(mkkit sr3-sentinel-partial)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | t1 | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  printf '| 2 | t2 | mature (1 md / git yes / hook yes) | `$RESEARCH_HOME/no/path/...` |\n'
+} > "$kit/TARGETS.md"
+run "$kit"
+last_line="$(printf '%s\n' "$OUT" | tail -1)"
+if [ "$RC" = 0 ] && [ "$last_line" = "RSDD-STATE: partial" ]; then
+  ok "SR3 skipped>0 + findings=0 → RSDD-STATE: partial (last stdout line)" "(exit $RC)"
+else
+  no "SR3 skipped>0 + findings=0 → expected RSDD-STATE: partial as last stdout" "exit=$RC last=[$last_line] out=[$OUT]"
+fi
+
 # ---- TEETH for all-absent guard (test 50) -----------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-all-absent: neuter ALL-ABSENT-CHECK (exit 1 → exit 0); the all-absent fixture must exit 0,
@@ -1639,6 +1688,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-all-absent: ALL-ABSENT-CHECK sentinel not found in SUT (guard not implemented or marker drifted)"
+  fi
+
+  # Tooth SR1: drop rowlint from FINDINGS expression → rowlint-only attention fixture flips to
+  # clean → SR2 would go RED. Verifies rowlint is included in FINDINGS.
+  echo "-- teeth SR1: drop rowlint from FINDINGS; rowlint-only fixture must flip to clean (SR2 RED) --"
+  vr_findings_anchor='FINDINGS=$((drift + retro_drift + unresolved + rowlint))'
+  kit_sr1t="$(mkkit teeth-sr1-findings)"; tgt_sr1t="$kit_sr1t/targetA"
+  mkcorpus "$tgt_sr1t" 2 "a"
+  long_cell_t="$(printf 'x%.0s' {1..210})"
+  { printf '# targets\n\n| # | name | maturity | path | extra |\n|---|---|---|---|---|\n'
+    printf '| 1 | t1 | mature (2 md / git yes / hook yes) | `%s` | %s |\n' "$tgt_sr1t" "$long_cell_t"
+  } > "$kit_sr1t/TARGETS.md"
+  if ! grep -qF "$vr_findings_anchor" "$SUT"; then
+    no "teeth SR1: FINDINGS expression not found in SUT" "anchor not found — SUT drifted?"
+  else
+    sed 's/FINDINGS=\$((drift + retro_drift + unresolved + rowlint))/FINDINGS=$((drift + retro_drift + unresolved))/' \
+      "$SUT" > "$kit_sr1t/toolbelt/verify-registry.sh"
+    outm_sr1t="$("$BASH_BIN" "$kit_sr1t/toolbelt/verify-registry.sh" 2>&1)"
+    last_sr1t="$(printf '%s\n' "$outm_sr1t" | tail -1)"
+    if [ "$last_sr1t" = "RSDD-STATE: clean" ]; then
+      ok "teeth SR1: rowlint-dropped mutant flips to clean → SR2 would go RED (has teeth)" "()"
+    else
+      no "teeth SR1: mutant still reports attention — sed may be a no-op or SR2 has no teeth" "last=[$last_sr1t]"
+    fi
   fi
 fi
 
