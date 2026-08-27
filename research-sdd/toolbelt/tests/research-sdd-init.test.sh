@@ -179,6 +179,14 @@ bash "$SUT" "$d" --corpus flat > "$TMP/nextstep.out" 2>/dev/null
 assert_grep "next-step: research-sdd-status.sh pointer" "research-sdd-status.sh" "$TMP/nextstep.out"
 assert_grep "next-step: BOOTSTRAP in next-step section" "BOOTSTRAP" "$TMP/nextstep.out"
 
+# --- Reframe: CONFIRM/THEN group markers and non-regressions ---
+d="$TMP/reframe"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat > "$TMP/reframe.out" 2>/dev/null
+assert_grep "reframe: CONFIRM group header present" "CONFIRM these are done" "$TMP/reframe.out"
+assert_grep "reframe: THEN group header present" "THEN do next (post-scaffold)" "$TMP/reframe.out"
+assert_grep "reframe: item-1 consequence unchanged" "cannot see its retros/" "$TMP/reframe.out"
+assert_grep "reframe: item-2 cross-ref unchanged" "PROMPT-LOOP §b/§b2" "$TMP/reframe.out"
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -283,6 +291,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth M4: research-sdd-status.sh absent in mutant output — next-step assertion has teeth"
     else
       no "teeth M4: research-sdd-status.sh still present in mutant output — THEATER"
+    fi
+  fi
+
+  # Mutation M5: delete CONFIRM group header → CONFIRM these are done absent from stdout
+  echo "-- teeth proof M5: delete CONFIRM group header → CONFIRM these are done absent --"
+  mkdir -p "$TMP/m5/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m5/templates"
+  m5_mutant="$TMP/m5/toolbelt/init.sh"
+  awk '/CONFIRM these are done/ { next } { print }' "$SUT" > "$m5_mutant"
+  if grep -qF 'CONFIRM these are done' "$m5_mutant"; then
+    no "teeth M5: could not build mutant (CONFIRM header line not removed)"
+  else
+    dm5="$TMP/m5t"; mkdir -p "$dm5"
+    bash "$m5_mutant" "$dm5" --corpus flat > "$TMP/m5.out" 2>/dev/null
+    if ! grep -qF "CONFIRM these are done" "$TMP/m5.out" 2>/dev/null; then
+      ok "teeth M5: CONFIRM header absent in mutant output — CONFIRM assertion has teeth"
+    else
+      no "teeth M5: CONFIRM header still present in mutant output — THEATER"
+    fi
+  fi
+
+  # Mutation M6: delete THEN group header → THEN do next (post-scaffold) absent from stdout
+  echo "-- teeth proof M6: delete THEN group header → THEN do next (post-scaffold) absent --"
+  mkdir -p "$TMP/m6/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m6/templates"
+  m6_mutant="$TMP/m6/toolbelt/init.sh"
+  awk '/THEN do next \(post-scaffold\)/ { next } { print }' "$SUT" > "$m6_mutant"
+  if grep -qF 'THEN do next (post-scaffold)' "$m6_mutant"; then
+    no "teeth M6: could not build mutant (THEN header line not removed)"
+  else
+    dm6="$TMP/m6t"; mkdir -p "$dm6"
+    bash "$m6_mutant" "$dm6" --corpus flat > "$TMP/m6.out" 2>/dev/null
+    if ! grep -qF "THEN do next (post-scaffold)" "$TMP/m6.out" 2>/dev/null; then
+      ok "teeth M6: THEN header absent in mutant output — THEN assertion has teeth"
+    else
+      no "teeth M6: THEN header still present in mutant output — THEATER"
     fi
   fi
 fi

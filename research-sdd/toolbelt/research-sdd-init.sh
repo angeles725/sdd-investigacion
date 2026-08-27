@@ -151,10 +151,12 @@ else
 fi
 echo "  remote : no remote — run $KIT/toolbelt/ensure-remote.sh $target --yes when you consent to push (PRIVATE, consent-gated)"
 echo
-echo "-- JUDGMENT follow-ups (NOT mechanizable — do these next) --"
+echo "-- JUDGMENT follow-ups (NOT mechanizable) --"
+echo "-- CONFIRM these are done — they belong at PROMPT-LOOP §b/§b2, BEFORE this scaffold (do them NOW if skipped) --"
 echo "  1. REGISTER the target row in $KIT/TARGETS.md (name·path·maturity·artifact·wrapper·language) (PROMPT-LOOP §b)"
 echo "     — else sweep-retros.sh cannot see its retros/ (§18)."
 echo "  2. CLASSIFY the artifact + declare the ANGLE (PROMPT-LOOP §b/§b2); run profile-target.sh + detect-tools.sh."
+echo "-- THEN do next (post-scaffold) --"
 echo "  3. SEED 5-15 real gaps into $corpus/RESEARCH-STATE.md (audit-first for a mature corpus) (§e)."
 echo "  4. REGISTER + ADAPT the hook (§c follow-up): put research-protocol.sh in $target/.claude/settings.json"
 echo "     (matcher startup|resume|clear); replace <SUBJECT> + real source paths."
