@@ -137,6 +137,48 @@ chmod u+w "$TMP/rbk-templates/RESEARCH-STATE.template.md"
 d="$TMP/force"; mkdir -p "$d"; printf 'SENTINEL\n' > "$d/INDEX.md"
 assert_exit 0 "--force re-scaffolds over existing" "$d" --corpus flat --force
 
+# --- Item 1: PROMPT-LOOP cross-references (stdout capture, no-prefix run) ---
+d="$TMP/xref"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat > "$TMP/xref.out" 2>/dev/null
+assert_grep "xref: step-1 has PROMPT-LOOP §b)" "PROMPT-LOOP §b)" "$TMP/xref.out"
+assert_grep "xref: step-3 has §e)" "§e)" "$TMP/xref.out"
+assert_grep "xref: step-4 has §c follow-up)" "§c follow-up)" "$TMP/xref.out"
+
+# --- Item 1: step-5 conditional transparency ---
+d="$TMP/nopfx"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat > "$TMP/nopfx.out" 2>/dev/null
+assert_grep "step-5 note present in no-prefix run" "no --prefix given" "$TMP/nopfx.out"
+if grep -qF "5. Block files use the prefix:" "$TMP/nopfx.out" 2>/dev/null; then
+  no "step-5 absent in no-prefix run"
+else
+  ok "step-5 absent in no-prefix run"
+fi
+d="$TMP/pfx"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat --prefix foo > "$TMP/pfx.out" 2>/dev/null
+assert_grep "step-5 present in prefix run" "5. Block files use the prefix: foo-blockN.md" "$TMP/pfx.out"
+if grep -qF "no --prefix given" "$TMP/pfx.out" 2>/dev/null; then
+  no "no-prefix note absent in prefix run"
+else
+  ok "no-prefix note absent in prefix run"
+fi
+
+# --- Item 2: already-git split message (dynamic $TMP fixture, never tests/fixtures/) ---
+if ! command -v git >/dev/null 2>&1; then
+  echo "  SKIP  already-git: git not on PATH"
+else
+  d="$TMP/already-git"; mkdir -p "$d"; git -C "$d" init -q 2>/dev/null
+  bash "$SUT" "$d" --corpus flat > "$TMP/agit.out" 2>/dev/null
+  assert_grep "already-git: corpus files land untracked" "corpus files land untracked" "$TMP/agit.out"
+  assert_grep "already-git: .claude/ hook is gitignored" ".claude/ hook is gitignored" "$TMP/agit.out"
+  assert_grep "already-git: git add --force mentioned" "git add --force" "$TMP/agit.out"
+fi
+
+# --- Item 3: NEXT next-step pointer and BOOTSTRAP mental model ---
+d="$TMP/nextstep"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat > "$TMP/nextstep.out" 2>/dev/null
+assert_grep "next-step: research-sdd-status.sh pointer" "research-sdd-status.sh" "$TMP/nextstep.out"
+assert_grep "next-step: BOOTSTRAP in next-step section" "BOOTSTRAP" "$TMP/nextstep.out"
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -169,6 +211,78 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: mutant skipped tools/README.md → tools-scaffold tests have teeth"
     else
       no "teeth: mutant still produced tools/README.md — tools-scaffold tests are THEATER"
+    fi
+  fi
+
+  # Mutation M1: strip (PROMPT-LOOP §b) from step-1 → §b) absent in stdout
+  echo "-- teeth proof M1: strip (PROMPT-LOOP §b) from step-1 echo → §b) absent --"
+  mkdir -p "$TMP/m1/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m1/templates"
+  m1_mutant="$TMP/m1/toolbelt/init.sh"
+  awk '/\(PROMPT-LOOP §b\)/ { sub(/\(PROMPT-LOOP §b\)/, ""); } { print }' "$SUT" > "$m1_mutant"
+  if grep -qF '(PROMPT-LOOP §b)' "$m1_mutant"; then
+    no "teeth M1: could not build mutant ((PROMPT-LOOP §b) still present after strip)"
+  else
+    dm1="$TMP/m1t"; mkdir -p "$dm1"
+    bash "$m1_mutant" "$dm1" --corpus flat > "$TMP/m1.out" 2>/dev/null
+    if ! grep -qF "§b)" "$TMP/m1.out" 2>/dev/null; then
+      ok "teeth M1: §b) absent after strip — step-1 cross-ref assertion has teeth"
+    else
+      no "teeth M1: §b) still present in mutant output — THEATER"
+    fi
+  fi
+
+  # Mutation M2: always-print step-5 (remove prefix guard) → no-prefix ABSENT assertion flips red
+  echo "-- teeth proof M2: remove prefix-if guard → step-5 appears in no-prefix run --"
+  mkdir -p "$TMP/m2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m2/templates"
+  m2_mutant="$TMP/m2/toolbelt/init.sh"
+  awk '/if \[ -n "\$prefix" \]/ { print "if true; then  # MUTANT: always print step 5"; next } { print }' "$SUT" > "$m2_mutant"
+  if ! grep -q 'MUTANT: always print step 5' "$m2_mutant"; then
+    no "teeth M2: could not build mutant (prefix-if line not found)"
+  else
+    dm2="$TMP/m2t"; mkdir -p "$dm2"
+    bash "$m2_mutant" "$dm2" --corpus flat > "$TMP/m2.out" 2>/dev/null
+    if grep -qF "5. Block files use the prefix:" "$TMP/m2.out" 2>/dev/null; then
+      ok "teeth M2: step-5 present in no-prefix mutant run — absent assertion has teeth"
+    else
+      no "teeth M2: step-5 NOT present in mutant run — absent assertion is THEATER"
+    fi
+  fi
+
+  # Mutation M3: remove gitignored split line → gitignored/--force absent from already-git output
+  echo "-- teeth proof M3: remove gitignored line → gitignored/--force absent --"
+  mkdir -p "$TMP/m3/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m3/templates"
+  m3_mutant="$TMP/m3/toolbelt/init.sh"
+  awk '/\.claude\/ hook is gitignored/ { next } { print }' "$SUT" > "$m3_mutant"
+  if grep -qF '.claude/ hook is gitignored' "$m3_mutant"; then
+    no "teeth M3: could not build mutant (gitignored line not removed)"
+  else
+    if ! command -v git >/dev/null 2>&1; then
+      echo "  SKIP  teeth M3: git not on PATH"
+    else
+      dm3="$TMP/m3t"; mkdir -p "$dm3"; git -C "$dm3" init -q 2>/dev/null
+      bash "$m3_mutant" "$dm3" --corpus flat > "$TMP/m3.out" 2>/dev/null
+      if ! grep -qF "gitignored" "$TMP/m3.out" 2>/dev/null && ! grep -qF "git add --force" "$TMP/m3.out" 2>/dev/null; then
+        ok "teeth M3: gitignored/--force absent in mutant output — already-git assertions have teeth"
+      else
+        no "teeth M3: gitignored or --force still present in mutant output — THEATER"
+      fi
+    fi
+  fi
+
+  # Mutation M4: delete NEXT echo line → research-sdd-status.sh absent from stdout
+  echo "-- teeth proof M4: delete NEXT echo → research-sdd-status.sh absent --"
+  mkdir -p "$TMP/m4/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m4/templates"
+  m4_mutant="$TMP/m4/toolbelt/init.sh"
+  awk '/NEXT: run.*research-sdd-status\.sh/ { next } { print }' "$SUT" > "$m4_mutant"
+  if grep -qF 'NEXT: run' "$m4_mutant"; then
+    no "teeth M4: could not build mutant (NEXT echo line not removed)"
+  else
+    dm4="$TMP/m4t"; mkdir -p "$dm4"
+    bash "$m4_mutant" "$dm4" --corpus flat > "$TMP/m4.out" 2>/dev/null
+    if ! grep -qF "research-sdd-status.sh" "$TMP/m4.out" 2>/dev/null; then
+      ok "teeth M4: research-sdd-status.sh absent in mutant output — next-step assertion has teeth"
+    else
+      no "teeth M4: research-sdd-status.sh still present in mutant output — THEATER"
     fi
   fi
 fi
