@@ -19,8 +19,8 @@ fi
 
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg c "$out" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD registry drift (TARGETS.md vs reality):\n"+$c)}}'
+    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD registry check (TARGETS.md vs reality):\n"+$c)}}'
 else
   # jq missing: fall back to a plain print (still shows in transcript).
-  printf 'Research-SDD registry drift (TARGETS.md vs reality):\n%s\n' "$out"
+  printf 'Research-SDD registry check (TARGETS.md vs reality):\n%s\n' "$out"
 fi

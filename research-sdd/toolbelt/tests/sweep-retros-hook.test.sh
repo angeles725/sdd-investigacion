@@ -56,6 +56,13 @@ printf '%s\n' "$OUT" | grep -qi 'retro sweep\|§18' \
   && ok "4 success (rc=0) → normal retro header emitted" \
   || no "4 success → expected normal header (exit=$RC out=[$OUT])"
 
+# 5. Failure banner uses singular "retro sweep" (not "retros sweep").
+write_stub 1 "sweep-retros: cannot find TARGETS.md"
+OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
+printf '%s\n' "$OUT" | grep -qi 'retro sweep could not run' \
+  && ok "5 failure banner wording: 'retro sweep could not run' (singular, not 'retros')" \
+  || no "5 failure banner wording: expected 'retro sweep could not run' (exit=$RC out=[$OUT])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook must go red when rc-check is neutered --"
@@ -72,6 +79,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)"
   else
     no "teeth A: mutant still emits failure banner — sed pattern may not match fixed hook"
+  fi
+
+  # Tooth B: revert failure-banner wording to "retros sweep" → test 5 goes RED.
+  sed 's/retro sweep could not run/retros sweep could not run/' \
+    "$SUT" > "$TMP/mutant-hook.sh"
+  chmod +x "$TMP/mutant-hook.sh"
+  write_stub 1 "sweep-retros: cannot find TARGETS.md"
+  cp "$TMP/mutant-hook.sh" "$TMP/sweep-retros-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qi 'retro sweep could not run'; then
+    ok "teeth B: reverted to 'retros sweep' mutant → test 5 would catch it (RED)"
+  else
+    no "teeth B: mutant still matches 'retro sweep could not run' — tooth has no bite"
   fi
 fi
 

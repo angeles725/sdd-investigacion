@@ -441,6 +441,41 @@ else
   no "21 truncated '...' path → filtered, WARN PARTIAL" "exit=$RC out=[$OUT]"
 fi
 
+# 22 — LEDGER-CONSISTENT: clean run (0 unindexed, 0 drifted, 0 skipped) → sentence present.
+# The script must emit "Ledger consistent — all tagged breakthroughs indexed, no drift."
+# when its own computed counts show a genuinely complete-and-clean sweep.
+kit="$(mkkit c22-ledger-clean)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"
+ln=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'Ledger consistent' <<<"$OUT"; then
+  ok "22 clean run → 'Ledger consistent' sentence present" "(exit $RC)"
+else
+  no "22 clean run → 'Ledger consistent' sentence present" "exit=$RC out=[$OUT]"
+fi
+
+# 23 — NO LEDGER-CONSISTENT SENTENCE on partial run (skipped_count > 0).
+# A sweep with skipped targets is not fully complete; the sentence must be ABSENT.
+# (Mutation M6 proves this assertion bites by removing the skipped_count guard.)
+kit="$(mkkit c23-ledger-partial)"; tgtA="$kit/targetA"
+mkblock_tagged "$tgtA" "pfx-block1.md"
+ln=$(tagged_lineno "$tgtA/pfx-block1.md")
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgtA"
+  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
+} > "$kit/TARGETS.md"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'Ledger consistent' <<<"$OUT"; then
+  ok "23 partial run (skipped > 0) → 'Ledger consistent' sentence absent" "(exit $RC)"
+else
+  no "23 partial run (skipped > 0) → 'Ledger consistent' sentence absent" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
@@ -557,6 +592,26 @@ if ! grep -qi 'cannot find' <<<"$OUT"; then
   mut_ok "M5 muted-TARGETS-echo → case 8 goes RED (no 'cannot find' in output)" "(cannot find absent on mutant)"
 else
   mut_no "M5 muted-TARGETS-echo → mutation not detected by case 8" "out=[$OUT]"
+fi
+
+# M6: Replace skipped_count -eq 0 with -ge 0 (always true) → sentence appears on partial runs.
+# Case 23 (partial run → sentence absent) must go RED.
+mut_kit="$(mkkit m6-ledger-no-skipped-guard)"; tgtA="$mut_kit/targetA"
+mkblock_tagged "$tgtA" "pfx-block1.md"
+ln=$(tagged_lineno "$tgtA/pfx-block1.md")
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgtA"
+  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
+} > "$mut_kit/TARGETS.md"
+write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln\` | k |"
+# Mutation: change skipped_count -eq 0 to -ge 0 (always true for non-negative count)
+mutant="$(mutate_sut "ledger-skipped-guard-bypass" 's/skipped_count" -eq 0/skipped_count" -ge 0/')"
+run_mutant "$mut_kit" "$mutant"
+# With mutation, sentence appears even on partial sweeps → case 23 assertion (absent) fails
+if grep -q 'Ledger consistent' <<<"$OUT"; then
+  mut_ok "M6 skipped-guard bypassed → case 23 (partial run) goes RED (sentence present)" "(sentence present on mutant)"
+else
+  mut_no "M6 skipped-guard bypassed → mutation not detected by case 23" "out=[$OUT]"
 fi
 
 total_fail=$(( fail + mut_fail ))

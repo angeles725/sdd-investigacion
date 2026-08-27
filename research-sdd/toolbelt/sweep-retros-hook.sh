@@ -7,7 +7,7 @@ out="$("$here/sweep-retros.sh" 2>&1)"; rc=$?
 
 # Operational failure: the sweep could not run — surface rather than pass silently.
 if [ "$rc" -ne 0 ]; then
-  hdr="Research-SDD retros sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
+  hdr="Research-SDD retro sweep could not run (exit $rc — check TARGETS.md and lib/ helper):"
   if command -v jq >/dev/null 2>&1; then
     jq -n --arg h "$hdr" --arg c "$out" \
       '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:($h+"\n"+$c)}}'
