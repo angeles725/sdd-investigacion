@@ -1428,6 +1428,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   speak Ethernet layer 2 and legitimately never answer IP; confirm absence via network infrastructure
   tables (`Stale` + ping failure + no ICMP-filtered `Reachable`), not via a ping sweep alone.
 - **Probe output ≠ protocol acceptance.** A connection banner (e.g. openssl `CONNECTED`) records a TRANSPORT handshake, not server-side protocol or version acceptance; re-derive before escalating (PROMPT-LOOP.md HARD RULES → RE-MEASURE A DRAMATIC POSITIVE).
+- **Module-loaded ≠ path-taken.** Which implementation actually RUNS is a runtime fact, not a static
+  one: a component can be LOADED — present in imports, exports, or a registry — without being the ACTIVE
+  path for a given operation. Determining which code path executes requires a live stack/provider census
+  taken WHILE the operation runs, never an inference from static import/export topology alone. This
+  applies to any runtime plugin registry, SPI, or multi-provider runtime where several implementations
+  are present and load order or provider precedence decides which one wins.
+  (Evidence: static exports inferred DSA verify ran through a native module; a live census during the
+  operation showed 0 hits — the real path was a Java provider, BouncyCastle.)
 - **Re-measure ground-truth, never inherit it.** When entering a dynamic/hardware phase (or any new
   live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids — LIVE
   from the real system in THIS phase. Do NOT cite them from a prior note or earlier block: an inherited
@@ -2227,6 +2235,15 @@ no-match distinction still applies — never a bare zero):
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
 explicit:
+
+**Own-surface first (pre-check).** Before walking any chain below OR provisioning a replacement tool
+(§21.4), first exhaust the TARGET'S OWN surface as a zero-cost instrument: the launcher's own `-help`
+and pass-through options, its `.properties`/config files, and its exported symbols. Any target that
+carries a CLI or config surface can answer part of the question about itself before a single external
+tool is installed — this is the cheapest first move and it PRECEDES the chain, it is not a rung inside
+one. (Evidence: an `nre -@<option>` JVM pass-through found via `nre -help` after 3 wrong tool-walls;
+`nre.properties:46` plus `nre.dll` exported symbols unblocked B533/B535 — zero new installs.)
+
 - Native ELF/PE/firmware: `ghidra → r2 → quick` (already in `decompile-native.sh`; never bare
   `strings` — TOOL-BEFORE-AGENT).
 - JVM bytecode: `vineflower → cfr → procyon → javap`.
