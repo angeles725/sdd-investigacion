@@ -341,6 +341,29 @@ Evidence: niagara B424 — Ghidra offsets `getHostVendor@0x5090` / `getVolume@0x
 shipped `njre.dll` (sha256 `7007ff82…`); they belonged to the twin `nre.dll`. Resolved by re-verifying live
 in r2, then re-decompiling against the correct binary.
 
+**Source-repo version-tag pinning (source analog of the twin-binary check).** The check above guards
+native-binary drift; this guards the same citation-drift hazard for a versioned open-source repo, where
+a `file:line` anchored to the wrong version is a false `[CERT]`. Whenever a gap draws on a versioned repo:
+- **Tag-pinning obligation.** A delegation prompt for a source-repo sweep MUST supply the EXACT published
+  version tag of the subject binary. `main` or the default branch is FORBIDDEN — its lines drift from
+  every past release.
+- **Re-verify discipline.** The driver re-verifies every load-bearing `file:line` against source at that
+  exact tag before sealing a block; a sweep line is never citable on the sub-agent's word alone.
+- **Hypothesis rule.** An unanchored sweep line (worked from `main`) or one carrying an approximate or
+  acknowledged range is a HYPOTHESIS, not citable evidence — hold it at `[INFER]` until re-verified at
+  the pinned tag.
+- **Citation grade.** Fetched `.go` (or equivalent) source from a pinned repo is `[CERT]` per §3 — local
+  primary source, code — NOT `[CERT-doc]` (which §3 reserves for an official downloaded document). This
+  APPLIES the existing §3 canon; it defines no new marker.
+- **Preservation destination.** Preserve the pinned source under `sources/go-src/<tag>/` (a LOCKED, shared
+  convention — do not rename it) with the full `sha256` of each fetched file and a `SOURCES.md` row. HOW
+  the tree is obtained is out of scope here; this rule mandates only the destination and the verification
+  discipline, never a fetch recipe.
+
+Evidence (triple-sourced): ops-B2 — a delegated sweep returned `2024.11.0` lines for a `2026.8.2` binary;
+ops-B4 — approximate lines even after the tag was stated; warp D-WARP-1 — 21 `.go` files fetched
+on-demand with no kit recipe, the driver improvising the `sources/go-src/<tag>/` layout from scratch.
+
 **Bundle-evidence quality (is API X actually USED?).** Distinct from the beautified-temp rule above (which
 is about citing a beautified copy faithfully). When grepping a MINIFIED / FULL-LIBRARY JS bundle to prove a
 page actually USES an API, a **constructor-call / invocation token** (`new THREE.PathTracer(...)`) is
