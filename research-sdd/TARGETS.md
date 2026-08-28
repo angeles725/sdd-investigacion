@@ -61,16 +61,27 @@ legal and is not a violation; only a **malformed** or **unknown** token triggers
 
 | Field | Canonical form | Tolerated variants | Notes |
 |---|---|---|---|
-| Block count | `N md` | `N blocks` · `N blocks @date` · `N blocks @date, ACTIVE` | Dominant form is `N md`. `@date` records the last-counted date; the `, ACTIVE` suffix marks an in-progress focus. |
+| Block count | `N md` | `N block @YYYY-MM-DD` · `N blocks` · `N blocks @YYYY-MM-DD` · `N blocks @YYYY-MM-DD, ACTIVE` | Dominant form is `N md`. `@date` records the last-counted date; the `, ACTIVE` suffix marks an in-progress focus. A date, when present, MUST be strict ISO `@YYYY-MM-DD`; the checker rejects other date shapes. |
 | Run count | `N runs` | `N run` | Count of loop runs that produced blocks. |
 | Focus count | `N focuses` | `N focus` | Used for niagara-research; tracks documented focus areas. Singular accepted for consistency with `N run`. |
-| Retro count | `N retros` | `N retros + M corpus §18 + K client retros` | **Optional** — absent means the field is not yet tracked. A declared count is reconciled by `verify-registry.sh` against non-excluded `<target>/retros/*.md` files (maxdepth 4, same as `sweep-retros.sh` — finds depth-2 target-level retros AND depth-3 nested retros such as `<target>/research/retros/`). Excluded retros (`<!-- kit-retro: exclude -->`) do not count. `nc` rows are not retro-reconciled. |
-| Gap count | `N-of-M gaps` | — | Used for targets with a known gap list (e.g. nave-panccadia). |
+| Retro count | `N retros` | `N retro` · `N retros + M corpus §18 + K client retros` | **Optional** — absent means the field is not yet tracked. A declared count is reconciled by `verify-registry.sh` against non-excluded `<target>/retros/*.md` files (maxdepth 4, same as `sweep-retros.sh` — finds depth-2 target-level retros AND depth-3 nested retros such as `<target>/research/retros/`). Excluded retros (`<!-- kit-retro: exclude -->`) do not count. `nc` rows are not retro-reconciled. |
+| Gap count | `N-of-M gaps` | `N-of-M gap` | Used for targets with a known gap list (e.g. nave-panccadia). |
 | nc flag | `nc` | — | Marks a non-corpus target (no RESEARCH-STATE.md by design). |
 | git | `git yes` · `git no` | — | Whether a git repo is initialized under the target. |
 | remote | `remote yes` · `remote no` | — | Whether a remote is configured. |
 | hook | `hook yes` · `hook no` · `hook file yes` · `hook deferred` | `hook yes ×N` · `hook yes; <narrative>` · `hook no; <narrative>` | Research loop hook status. Any token starting with `hook ` is accepted. |
 | unregistered | `unregistered` | — | Hook file present but not referenced by any loaded settings file. |
+
+**Delimiter constraint (hard).** No field value may contain a bare `/`. The parenthetical is tokenized
+by splitting on `/` (`verify-registry.sh` treats every `/` as a field separator), so a slash inside a
+value — a GitHub repo slug (`owner/name`) or an `N/M` ratio (`15/15`) — is split mid-value into spurious
+tokens that match no pattern and raise NOPARSE WARNs.
+
+**Out-of-parenthetical placement.** Content that needs a `/` — per-focus completion ratios, remote repo
+slugs, PRIVATE/visibility flags — MUST live OUTSIDE the parenthetical, in the cell narrative (after the
+`·` separators) or the `§detail` block. Precedent: row #17 (hilton-bms) carries `· **multi-focus**
+(4, one ACTIVE)` as narrative with a clean parenthetical; row #28 (sullair) carries
+``remote `owner/name` PRIVATE`` as narrative. This also preserves the "one scannable line ≤200 chars" rule.
 
 Sensitivity:
 
