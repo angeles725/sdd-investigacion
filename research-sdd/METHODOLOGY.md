@@ -1553,6 +1553,15 @@ matrix (subsystem × depth × static-vs-dynamic × known-vs-gap); the prioritize
 This is the recommended BOOTSTRAP path (PROMPT-LOOP step e) whenever the corpus is large enough that a
 hand-listed plan would miss areas — proven on the protocols focus (matrix → 6 well-shaped gaps).
 
+**Scale the bootstrap to the taxonomy's size — one boundary, two sides.** As a working heuristic (revise on
+contradiction), let the number of candidate surfaces decide HOW to seed. When a package is small and legible
+— up to roughly 20 classes/commands you can read directly — seed the gaps INLINE and skip the delegated
+sweep, which would cost more than it returns. Above that same ~20 boundary, where a hand-listed plan would
+miss areas, delegate the audit-first sweep above; for a LARGE taxonomy, fan it into PARALLEL audit shards
+over disjoint surface sets so no single agent holds the whole universe. The ~20 count is the single
+partition: at or below it, inline triage; above it, delegated and (when large) parallel audit — a working
+figure, not a hard gate.
+
 **Backlog SIZING comes from a MEASURED count, never a hand-guess.** Whenever a gap's size feeds
 prioritization (how many classes/commands/files a subsystem holds), take the number from an ACTUAL count over
 the real dir (`find … | wc -l`), never an eyeball estimate — hand-guesses are wildly wrong: a guessed
@@ -1562,6 +1571,36 @@ same-named dir silently mis-sizes the gap. When the count is over DECOMPILED cod
 decompiler-pipeline trees: a project decompiled by BOTH procyon and vineflower yields ~2× the raw `.java`
 files (an "easyBinding 119" was 62 distinct classes). Count DISTINCT fully-qualified class names, not raw
 `.java` files.
+
+**Sweep numeric claims are ESTIMATES until tool-counted.** The SIZING rule above governs the driver sizing
+a gap; its sweep-side complement governs any number a DELEGATED sweep emits back. A sweep reporting "64
+opcodes", "8 handlers", or "48 states" with no actual count has GUESSED — measured runs put those three at
+256, 10, and 3. So a surfaced count that was not tool-counted MUST read as an estimate: "approximately N in
+`<package/dir>`", naming the counting method it would use (`find … | wc -l`, `fd -e java`, class-name dedup)
+and the scope boundary it ranges over. A bare integer presented as fact, with no method and no scope, is
+the defect this rule stops — the reader cannot tell a measurement from a guess (§7).
+
+**Verify a gap's PREMISE before sealing it.** A sweep proposes gaps from names it INFERS exist — a
+`module.xml` component, a `ClassName.java`, an expected subsystem. Before a proposed gap enters the backlog,
+confirm its premise against the real tree (`fd ClassName.java`, read the actual `module.xml` identity,
+`[ -d ]` the dir): roughly a third of hand-inferred premises do not survive that check, and a gap sealed on
+a wrong premise sends a writer to author a block that cannot be cited. This is the gap-shaping cousin of §7 —
+an instrument proposing work must prove the work's subject exists.
+
+**Shape gaps by independence AND certifiable depth — SPLIT and MERGE are one rule, not rival absolutes.**
+Two retros read as contradictory — one said MERGE thin adjacent gaps, one said SPLIT independent gaps into a
+parallel fan-out — but they answer one question with one discriminating test: *could this gap alone produce
+a self-contained citable block at ≥substantive depth?* The honest-depth label a scout assigns each gap —
+**substantive**, **short-concrete**, or **collapsible-thin** — is the input. When gaps are genuinely
+INDEPENDENT and each certifies to substantive depth alone, keep them separate (and fan them out in
+parallel); when gaps are ADJACENT and any one alone is only collapsible-thin, MERGE them into one work unit
+that clears the depth bar together. Neither is the default — the test decides, and depth labels, not gap
+count, feed it.
+
+**Surface the uncovered BASE module for specialization-of-generic gaps.** When a proposed gap SPECIALIZES a
+generic mechanism (a subclass, a concrete strategy, a themed variant), check whether the generic base is
+itself covered; if not, surface the base as its own backlog gap. As a working heuristic, revise on
+contradiction: a specialization documented over an undocumented base leaves the load-bearing mechanism uncited.
 
 **Scout-before-build (certifiability, not just existence).** The pre-flight existence+size check (PROMPT-LOOP e2)
 confirms a source is REACHABLE and measures how big it is — it does NOT judge whether the source is rich enough
@@ -1574,6 +1613,13 @@ runs first (does the source exist, how big), scout adds the judgment e2 omits (i
 `PARTIAL`/`INSUFFICIENT` gap is re-scoped or marked blocked-on-thin-source, never handed to an authoring agent
 that would pad `[INFER]`.
 
+**Name the jar, then open it — a reachable jar is a backlog gap, not a permanent `[INFER]`.** When a claim
+cannot be certified because its implementing classes live in a named, REACHABLE artifact (a jar, an apk, a
+bundled archive you can point at), that is not terminal `[INFER]`: it is a decompile-me BACKLOG GAP. Name
+the jar, queue opening it — extract, decompile, author the cited block from the recovered source. Only a
+source genuinely absent or unreachable settles to `[INFER]`. §13 is the CANONICAL HOME for this
+backlog-seeding rule; a future §5 source-citation unit should CROSS-REFERENCE this paragraph, never restate it.
+
 **Coverage audit ≠ certainty audit.** The audit above (and PROMPT-AUDIT) checks whether existing CLAIMS
 are TRUE. A **coverage audit** answers a different, recurring user question — "did we cover EVERYTHING?" —
 by mapping the corpus against the code UNIVERSE, not re-verifying claims. Delegate a sweep that returns:
@@ -1583,6 +1629,13 @@ whether the untouched areas matter for the mission or are out of scope. Output g
 certainty audit, but its verdict feeds the §8 backlog (untouched-but-relevant areas become new gaps), not
 the marker escalation. Do not conflate the two: a corpus can be 100% certain on what it covered and still
 cover only 18% of the universe.
+
+**A sweep MUST reconcile against PRIOR coverage as a named output section.** Distinct from the driver-side
+PROMPT-LOOP check asking "did we already cover this?", every bootstrap or coverage sweep MUST carry an
+explicit RECONCILIATION section in its OUTPUT stating, per proposed gap, whether an existing block already
+covers it (skip), partially covers it (narrow the gap), or leaves it open (seed it). Without it a sweep
+re-proposes work the corpus already did, and the human cannot tell a new gap from a rediscovered one. The
+reconciliation is advisory output the human applies (propose-never-apply, §8), never an auto-dedup.
 
 ## 14. Cross-block consistency
 
