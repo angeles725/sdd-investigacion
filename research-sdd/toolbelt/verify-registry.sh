@@ -85,7 +85,7 @@ done
 # backtick path, so a backtick path resolves to exactly one row.)
 bt='`'
 
-checked=0; drift=0; retro_drift=0; unresolved=0; dir_reached=0
+checked=0; drift=0; retro_drift=0; unresolved=0; dir_reached=0; attention=0
 
 for p in $paths; do
   [ -n "$p" ] || continue
@@ -250,16 +250,19 @@ for p in $paths; do
         # is false inference — state the discrepancy and name both. Leave cat_authority empty so the
         # unclassifiable guard can run and provide concrete file-level evidence.
         echo "WARN  $_cat_name — discriminator found 0 classifiable blocks; CATALOG.md claims ${cat_total}; possible causes: non-canonical block naming (discriminator requires <prefix>-(block|bloque)<N>.md) or stale CATALOG — verify before trusting this count."  # CATALOG-DISC-ZERO
+        attention=$((attention + 1))
         _vr_disc_was_zero=1  # tell the unclassifiable guard to run despite real > 0
         # cat_authority intentionally left empty so the unclassifiable guard condition triggers
       else
         echo "WARN  $_cat_name — CATALOG.md total ${cat_total} vs on-disk discriminator ${_cat_discriminator} (diff ${_cat_diff} > tol ${tol}); CATALOG may be stale — regenerate and recheck before trusting this count."  # CATALOG-FRESHNESS-CHECK
+        attention=$((attention + 1))
         cat_authority=" (CATALOG.md total via local gen-catalog.py; catalog-disk diff=${_cat_diff} — verify freshness)"
       fi
       real="$cat_total"
     else
       # CATALOG.md present but no parseable total — freshness undeterminable; use discriminator.
       echo "WARN  $_cat_name — CATALOG.md present (gen-catalog.py registered) but no parseable total found; freshness undeterminable; using discriminator count (${_cat_discriminator})."  # CATALOG-NOPARSE
+      attention=$((attention + 1))
     fi
   fi
 
@@ -282,6 +285,7 @@ for p in $paths; do
     if [ -d "$_vr_retros_dir" ] && { [ ! -r "$_vr_retros_dir" ] || [ ! -x "$_vr_retros_dir" ]; }; then  # RETRO-UNREADABLE-CHECK
       # Unreadable: surface as a distinct WARN; skip reconciliation so no false count fires.
       echo "WARN  $name — retros/ at ${_vr_retros_dir} is not accessible (permission error); retro count cannot be verified — check filesystem permissions."  # RETRO-UNREADABLE-WARN
+      attention=$((attention + 1))
     else
       # Absent (legitimately 0 retros found), empty, or readable: count non-excluded retros.
       # maxdepth 4 finds: depth 2 = <target>/retros/*.md; depth 3 = <target>/research/retros/*.md.
@@ -350,6 +354,7 @@ for p in $paths; do
     unclassifiable="${unclassifiable:-0}"
     if [ "$unclassifiable" -gt 0 ]; then  # UNCLASSIFIABLE-CHECK
       echo "WARN  $name — ${unclassifiable} unclassifiable candidate block file(s): names contain 'block'/'bloque' but do not match the canonical discriminator (<prefix>-(block|bloque)<N>.md); the block counter returns 0 — rename to make them visible to drift and §18 checks."
+      attention=$((attention + 1))
     fi
   fi
 
@@ -433,14 +438,15 @@ while IFS=$'\t' read -r _rv_raw _rv_expanded; do
 done <<< "$all_pairs"
 if [ "$_kit_found" -eq 0 ]; then
   echo "WARN  $(basename "$KIT") — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate)."  # KIT-SELF-REG-CHECK
+  attention=$((attention + 1))
 fi
 
 echo ""
-echo "Summary: reconciled ${checked} target(s) · ${drift} count drift(s) · ${retro_drift} retro drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s)."
+echo "Summary: reconciled ${checked} target(s) · ${drift} count drift(s) · ${retro_drift} retro drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s) · ${attention} attention."
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: ${skipped_names}"
 fi
-if [ "$drift" -eq 0 ] && [ "$retro_drift" -eq 0 ] && [ "$unresolved" -eq 0 ]; then
+if [ "$drift" -eq 0 ] && [ "$retro_drift" -eq 0 ] && [ "$unresolved" -eq 0 ] && [ "$rowlint" -eq 0 ] && [ "$attention" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
   echo "Registry consistent with reality (within tolerance ${tol})."
 else
   [ "$drift" -gt 0 ] && echo "For each count drift: recount the corpus and refresh that target's 'N md' in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."

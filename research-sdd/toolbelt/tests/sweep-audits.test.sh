@@ -305,6 +305,38 @@ else
   no "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
 fi
 
+# 15 — skipped_count>0 (truncated '...' path) → "Nothing to review." ABSENT even when pending=0.
+#      RED before fix: current gate is `pending==0` only; a PARTIAL with no pending still prints
+#      "Nothing to review." which is false because the sweep did not inspect the skipped target.
+kit="$(mkkit c15-skip-clean)"; tgtA="$kit/targetA"
+mkaudit "$tgtA" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgtA"
+  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'WARN: 1 target\(s\) skipped' <<<"$OUT" \
+   && ! grep -q 'Nothing to review.' <<<"$OUT"; then
+  ok "15 skipped_count>0 (PARTIAL, pending=0) → 'Nothing to review.' ABSENT" "(exit $RC)"
+else
+  no "15 skipped_count>0 → 'Nothing to review.' ABSENT — FAILED (skipped_count not gated)" "exit=$RC out=[$OUT]"
+fi
+
+# 16 — inverse control: no pending AND no skipped → "Nothing to review." PRESENT.
+#      §7 guard: if this control goes RED the gate is an always-suppress defect.
+kit="$(mkkit c16-no-skip-clean)"; tgt="$kit/targetA"
+mkaudit "$tgt" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qiE 'PARTIAL' <<<"$OUT" \
+   && grep -q 'Nothing to review.' <<<"$OUT"; then
+  ok "16 no pending, no skip → 'Nothing to review.' PRESENT (inverse control)" "(exit $RC)"
+else
+  no "16 no pending, no skip → 'Nothing to review.' PRESENT — FAILED (always-suppress defect)" "exit=$RC out=[$OUT]"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED audit to false-surface as PENDING --"
@@ -325,6 +357,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: skip-neutered mutant should surface applied audit as PENDING" \
          "mutant stayed quiet — case 2 is THEATER: [$outm]"
+    fi
+  fi
+
+  echo "-- teeth-skipped-gate-sa: remove &&skipped_count==0 conjunct; PARTIAL+0-pending must regain 'Nothing to review.' --"
+  skipped_anchor='if [ "$pending" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then'
+  if [[ "$content" != *"$skipped_anchor"* ]]; then
+    no "teeth-skipped-gate-sa: locate skipped_count==0 conjunct in SUT" "anchor not found — gate not implemented"
+  else
+    kit="$(mkkit teeth-skipped-sa)"; tgtA="$kit/targetA"
+    mkaudit "$tgtA" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
+    { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+      printf '| 1 | t1 | `%s` |\n' "$tgtA"
+      printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
+    } > "$kit/TARGETS.md"
+    mutant="$kit/toolbelt/sweep-audits.sh"
+    neutered='if [ "$pending" -eq 0 ]; then'
+    printf '%s\n' "${content/"$skipped_anchor"/$neutered}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'Nothing to review.' <<<"$outm"; then
+      ok "teeth-skipped-gate-sa: conjunct removed → PARTIAL+0-pending regains 'Nothing to review.' (case 15 teeth)"
+    else
+      no "teeth-skipped-gate-sa: 'Nothing to review.' still absent after removing conjunct — case 15 has no teeth" \
+         "mutant=[$outm]"
     fi
   fi
 

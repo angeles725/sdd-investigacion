@@ -121,7 +121,7 @@ echo "Summary: ${pending} pending / ${total} audits across targets."
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi
-if [ "$pending" -eq 0 ]; then
+if [ "$pending" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
   echo "Nothing to review."
 else
   echo "For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed"
