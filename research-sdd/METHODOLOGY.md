@@ -1273,6 +1273,21 @@ The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, lo
 becomes available (device, server, PLC), a DYNAMIC phase validates the static findings against it. This
 phase is DIFFERENT and must NOT run as a blind autonomous loop:
 
+- **Static-install boundary (vendor-disk / daemon boundary).** The static/live split is a STATE
+  predicate, not a file-location one: the distinguishing fact is EXECUTION, not where the bytes live.
+  Vendor software installed to disk with its daemon NOT started is still STATIC territory (§1–§11).
+  Disk-read, decompilation, `grep`/`rg`, `javap`, and `fd` over the installed tree are READ-ONLY and
+  run autonomously under the static loop — installing and reading a vendor package never crosses into
+  this phase. The LIVE-EXECUTION CROSSING is any of: (a) executing the vendor launcher or daemon; (b)
+  setting a runtime-root env var the daemon consumes as its home (e.g. `NIAGARA_HOME`,
+  `NIAGARA_USER_HOME`); or (c) spawning any subprocess that initializes vendor runtime state. Each of
+  these is a MUTATION — it writes DB tables, a license cache, socket files, and log dirs — so it falls
+  under this section's supervised + scoped-authorization cadence, NEVER the static loop's autonomous
+  one. (Disambiguation: this is a DIFFERENT concept from the "Live-install pre-flight checklist" bullet
+  below, which governs data-op safety on a running production host; do not conflate the two terms.)
+  Concrete Niagara case: decompiling `nre`/station JARs from the installed tree is static and
+  autonomous; executing `nre`, or exporting `NIAGARA_HOME` for a daemonized subprocess that boots the
+  station, crosses the boundary and requires §12 supervision.
 - **Supervised, not loop-blind.** Each interaction with the live system is deliberate; the orchestrator
   reviews before the next step. No `/loop` self-pacing against hardware. The DELEGATE / MODEL-TIER rules
   (PROMPT-LOOP) govern the static loop's HEAVY SWEEPS, not this phase: narrow live probes and a live
