@@ -2172,6 +2172,8 @@ the first response — try `install-tool.sh <tool>` (idempotent) BEFORE recordin
 block only when provisioning is unavailable or declined, and surface the exact `install-tool.sh`
 invocation so the wall is one command from removed.
 
+**21.5 One final attempt before terminal.** After the chain is walked (§21.2–§21.3) and self-provisioning exhausted (§21.4), make exactly one direct, concrete attempt at the original question — not vague persistence and not retry-until-success — and record it with its measured result in the `tried:` clause (§8); that attempt is terminal and opens no loop, since the §8 SCOPED, AUTHORIZED reopen (a bounded experiment on a genuinely-exhausted STOP, §8 "Reopening a STOPPED loop") remains the only path back to an exhausted question.
+
 ## 22. Breakthrough ledger (the decisive-solution index)
 
 The corpus records EVERYTHING; the **breakthrough ledger** records the FEW decisive solutions — the
