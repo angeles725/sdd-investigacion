@@ -321,6 +321,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
+       - SYSTEMATIC-OFFSET CAVEAT (extends item (a)) — when the sweep SOURCE is a CONCATENATED dump
+         or a DECOMPILED-context file, a systematic line-number offset makes EVERY reported citation
+         untrustworthy, so re-grep ALL load-bearing citations, not just the "key claim" ones (10/10
+         blocks in one focus were offset-wrong). This ADDS to item (a) for those two source types
+         only; it does not relax (a)/(b)/(c) or the "ALWAYS when the report is an ABSENCE" framing.
+       - HIDDEN-FLAG CROSS-CHECK — for a Go-CLI target block whose sweep SOURCE was `--help` output,
+         also read the Go source's `cli.Flag` registrations for `Hidden: true` entries: they appear
+         in neither `--help` nor `--help-all` yet may be operationally critical (4 missed in one
+         sweep). Scoped to `--help`-sourced Go-CLI blocks only, not every Go CLI target.
          SCOPE of a sub-agent's proven-absence is narrower than the full corpus. Before promoting
          a sub-agent negative to a gap closure, verify the cited scope covers the relevant universe
          (e.g. all jars / all modules, not just the swept subtree). A module-scoped "not found" is
