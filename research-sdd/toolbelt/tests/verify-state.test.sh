@@ -27,6 +27,10 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 run(){ bash "$SUT" "$1" 2>/dev/null; }
 # code <dir> : run the SUT and echo only its exit code.
 code(){ bash "$SUT" "$1" >/dev/null 2>&1; echo $?; }
+# runf <dir> [extra-args...]: run the SUT with additional flags (e.g. --focus <slug>), drop stderr.
+runf(){ bash "$SUT" "$@" 2>/dev/null; }
+# codef <dir> [extra-args...]: same but capture only the exit code.
+codef(){ bash "$SUT" "$@" >/dev/null 2>&1; echo $?; }
 # state <dir> <line...> : create <dir> and drop a RESEARCH-STATE.md with the given lines.
 state(){ local d="$1"; shift; mkdir -p "$d"; printf '%s\n' "$@" > "$d/RESEARCH-STATE.md"; }
 # addenv <dir> <covered> <gaps_closed> <known_gaps> <investigable_open> <requires_exec_open> <blocked_open>
@@ -1274,6 +1278,150 @@ nm_warn_blk="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
   && ok "NM-blocked-fp: '## Blocked gaps' → no near-miss WARN (false-positive guard)" \
   || no "NM-blocked-fp: '## Blocked gaps' falsely triggered near-miss: [$nm_warn_blk]"
 
+# ============================ FOCUS SCOPING (--focus <slug>) ============================
+# Cases F1–F4 verify the --focus <slug> interface added to verify-state.sh.
+# Without --focus the script lints every RESEARCH-STATE*.md; with --focus it lints ONLY the one
+# file matching RESEARCH-STATE-<slug>.md, suppressing noise from unrelated focuses.
+# §7 three-state rule: absent-focus (no such file, exit 2) ≠ exists-but-thin (linted, exit 1/0)
+# ≠ no-state-files-at-all (already covered by case 2 in this suite).
+#
+# PRE-FIX RED check (MANDATORY per strict-TDD): each new test is run against the pre-fix SUT
+# (a64b316:verify-state.sh) in the prove-teeth section below to confirm it goes RED for the right
+# reason. The right reason is always: pre-fix ignores --focus, lints all files.
+
+# F1 — --focus slug on a two-file consistent corpus → lints ONLY the selected file.
+#      Exactly 1 "== verify-state:" header in output; exit 0 when selected focus is consistent.
+#      RED before fix: pre-fix ignores --focus, lints both → 2 headers → assertion fails.
+d="$TMP/focus-single-hit"; mkdir -p "$d"
+{ echo '# Database — Research State'; echo
+  env_lines 0 5 5 0 0 0; echo
+  echo 'coverage metric: 5 / 5 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-database.md"
+{ echo '# Email — Research State'; echo
+  env_lines 0 3 3 0 0 0; echo
+  echo 'coverage metric: 3 / 3 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-email.md"
+out="$(runf "$d" --focus database)"
+if [ "$(codef "$d" --focus database)" = 0 ] \
+   && grep -c '== verify-state:' <<<"$out" | grep -q '^1$'; then
+  ok "F1 --focus database: lints ONLY RESEARCH-STATE-database.md (1 header, exit 0)"
+else no "F1 --focus: exit=$(codef "$d" --focus database) headers=$(grep -c '== verify-state:' <<<"$out" || true) (want exit 0, 1 header)"; fi
+
+# F2 — --focus slug with NO matching file → exit 2 (absent-focus), actionable message.
+#      §7: DISTINCT from "no RESEARCH-STATE*.md at all" — the dir HAS email, just not the slug.
+#      RED before fix: pre-fix ignores --focus, lints email (consistent) → exit 0 → test expects exit 2.
+d="$TMP/focus-absent"; mkdir -p "$d"
+{ echo '# Email — Research State'; echo
+  env_lines 0 3 3 0 0 0; echo
+  echo 'coverage metric: 3 / 3 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-email.md"
+f2_msg="$(bash "$SUT" "$d" --focus database 2>&1 >/dev/null)"
+if [ "$(codef "$d" --focus database)" = 2 ] \
+   && grep -q 'RESEARCH-STATE-database\.md' <<<"$f2_msg"; then
+  ok "F2 --focus database (no matching file) → exit 2 + actionable absent-focus message"
+else no "F2: exit=$(codef "$d" --focus database) msg=$(printf '%s' "$f2_msg" | head -1) (want exit 2 + filename)"; fi
+
+# F2b — §7 three-state: absent-focus (exit 2) ≠ exists-but-thin (reaches lint, NOT exit 2).
+#       Dir has RESEARCH-STATE-database.md (thin, no envelope → lint FAIL → exit 1) + email (consistent).
+#       Assertions: (a) exit is NOT 2, (b) exactly 1 header (focused on database only).
+#       RED before fix: pre-fix lints BOTH → 2 headers → assertion (b) fails for the right reason.
+d="$TMP/focus-thin-match"; mkdir -p "$d"
+{ echo '# Database — Research State'
+  echo 'coverage metric: 5 / 5 gaps closed'
+  echo '## Gap-backlog'; echo '- gap done'
+} > "$d/RESEARCH-STATE-database.md"   # no envelope → lint FAIL, but the FILE EXISTS
+{ echo '# Email — Research State'; echo
+  env_lines 0 3 3 0 0 0; echo
+  echo 'coverage metric: 3 / 3 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-email.md"
+f2b_rc="$(codef "$d" --focus database)"
+f2b_out="$(runf "$d" --focus database)"
+if [ "$f2b_rc" != 2 ] \
+   && grep -c '== verify-state:' <<<"$f2b_out" | grep -q '^1$'; then
+  ok "F2b --focus thin-match: file EXISTS → NOT exit 2 (exit $f2b_rc), 1 header (absent-focus ≠ thin-exists)"
+else no "F2b: exit=$f2b_rc headers=$(grep -c '== verify-state:' <<<"$f2b_out" || true) (want exit!=2, 1 header)"; fi
+
+# F2c — §7 three-state: EMPTY focus file (0-byte) ≠ absent (exit 2) ≠ thin-nonempty (F2b).
+#        A 0-byte RESEARCH-STATE-<slug>.md satisfies `-f` (file exists) but NOT `-s` (non-empty).
+#        The focus guard `[ ! -f "$_focused" ]` treats it as PRESENT → reaches the lint path, NOT
+#        the absent-guard exit 2. has_env fails on 0 bytes → exit 1; focus-scoping still restricts
+#        output to exactly 1 file header (only the focused file is linted).
+#        F2b's nonempty-but-thin fixture passes under both -f and a -s mutation (the file has content
+#        so -s is also true → the boundary is invisible). This 0-byte fixture exposes the -f vs -s
+#        distinction that F2b left untested, closing the §7 EMPTY-state gap.
+#        RED before fix: pre-fix ignores --focus → lints all → header count != 1 → F2c red.
+d="$TMP/focus-empty-file"; mkdir -p "$d"
+: > "$d/RESEARCH-STATE-database.md"   # 0-byte — satisfies -f (exists), NOT -s (non-empty)
+# Consistent sibling to isolate: the ONLY not-clean signal is the empty focus file; no other check fires.
+{ echo '# Email — Research State'; echo
+  env_lines 0 3 3 0 0 0; echo
+  echo 'coverage metric: 3 / 3 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-email.md"
+# Sanity: confirm fixture is genuinely 0-byte (prevents a stale fixture from masking the -f/-s boundary).
+[ ! -s "$d/RESEARCH-STATE-database.md" ] || { echo "FATAL: F2c fixture RESEARCH-STATE-database.md is not 0-byte" >&2; exit 2; }
+f2c_rc="$(codef "$d" --focus database)"
+f2c_out="$(runf "$d" --focus database)"
+if [ "$f2c_rc" != 2 ] \
+   && grep -c '== verify-state:' <<<"$f2c_out" | grep -q '^1$'; then
+  ok "F2c --focus empty-file: 0-byte file EXISTS (-f true) → NOT exit 2 (exit $f2c_rc), 1 header (§7 empty ≠ absent)"
+else no "F2c: exit=$f2c_rc headers=$(grep -c '== verify-state:' <<<"$f2c_out" || true) (want exit!=2, 1 header)"; fi
+
+# F3 — Noise suppression: multi-focus corpus; ONLY email stale; --focus database → exit 0, no FAIL noise.
+#      This is the load-bearing case: proves the stale sibling is fully suppressed.
+#      RED before fix: pre-fix lints both → email STALE fires exit 1 with FAIL/PREMATURE STOP.
+d="$TMP/focus-noise-suppress"; mkdir -p "$d"
+{ echo '# Database — Research State'; echo
+  env_lines 0 5 5 0 0 0; echo
+  echo 'coverage metric: 5 / 5 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-database.md"
+{ echo '# Email — Research State'; echo
+  env_lines 0 0 23 2 0 0; echo
+  echo 'coverage metric: 23 / 23 declared gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | gap A | web | pending |'
+  echo '| high | gap B | web | pending |'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 2'
+} > "$d/RESEARCH-STATE-email.md"
+out="$(runf "$d" --focus database)"
+if [ "$(codef "$d" --focus database)" = 0 ] && ! grep -qE 'FAIL|PREMATURE STOP' <<<"$out"; then
+  ok "F3 --focus database: stale email suppressed → exit 0, no FAIL/PREMATURE STOP in output"
+else no "F3: exit=$(codef "$d" --focus database) FAIL=$(grep -cE 'FAIL|PREMATURE' <<<"$out" || true) (want exit 0, no FAIL noise)"; fi
+
+# F4 — --focus with no slug arg → exit 2 (usage error), distinct from absent-focus.
+#      Uses a dir with a consistent state file so pre-fix (ignoring --focus) exits 0.
+#      RED before fix: pre-fix ignores --focus, lints consistent file → exit 0 → test expects exit 2.
+d="$TMP/focus-no-slug"; mkdir -p "$d"
+{ echo '# Database — Research State'; echo
+  env_lines 0 5 5 0 0 0; echo
+  echo 'coverage metric: 5 / 5 gaps closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+} > "$d/RESEARCH-STATE-database.md"
+if [ "$(codef "$d" --focus)" = 2 ]; then
+  ok "F4 --focus (no slug) → exit 2 (usage error)"
+else no "F4: exit=$(codef "$d" --focus) (want 2 — usage error when slug missing)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -1769,6 +1917,110 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-NM: orig warns=[$(grep -ci 'near-miss' <<<"$nm_warn_orig")] mut warns=[$(grep -ci 'near-miss' <<<"$nm_warn_mut")] — WARN not load-bearing"
     fi
+  fi
+
+  # ============================ FOCUS SCOPING mutation controls ============================
+  # Mutation 1 (FOCUS-FILTER): neuter the focus-filter branch → --focus ignored; lints all files.
+  # This makes F1/F2/F2b/F3 revert to pre-fix behavior and go RED.
+  echo "-- teeth-FOCUS-FILTER: neuter FOCUS-FILTER; focus tests must revert to lint-all (pre-fix) --"
+  mutantFOC="$TMP/verify-state.FOCUS.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# FOCUS-FILTER' "$SUT"; then
+    sed '/# FOCUS-FILTER$/s/if \[ -n "\$focus_slug" \]; then/if false; then  # MUTANT-FOCUS/' "$SUT" > "$mutantFOC"
+    if ! grep -q '# MUTANT-FOCUS' "$mutantFOC"; then
+      no "teeth-FOCUS-FILTER: could not build mutant (FOCUS-FILTER sentinel not found — did SUT change?)"
+    else
+      # F1 teeth: neutered mutant lints BOTH consistent files → 2 headers (not 1)
+      echo "-- teeth-FOCUS-F1: neutered → must show 2 headers, not 1 --"
+      foc1_out="$(bash "$mutantFOC" "$TMP/focus-single-hit" --focus database 2>/dev/null)"
+      if ! grep -c '== verify-state:' <<<"$foc1_out" | grep -q '^1$'; then
+        ok "teeth-FOCUS-F1: neutered → multiple headers (not 1) — focus isolation has teeth"
+      else
+        no "teeth-FOCUS-F1: neutered mutant still shows only 1 header — THEATER"
+      fi
+      # F2 teeth: neutered mutant lints email (consistent) → exit 0, not 2
+      echo "-- teeth-FOCUS-F2: neutered → must exit 0 (not 2) —"
+      bash "$mutantFOC" "$TMP/focus-absent" --focus database >/dev/null 2>&1; mfoc2rc=$?
+      if [ "$mfoc2rc" != 2 ]; then
+        ok "teeth-FOCUS-F2: neutered → exit $mfoc2rc (not 2) — absent-focus guard has teeth"
+      else
+        no "teeth-FOCUS-F2: neutered mutant still exits 2 — THEATER"
+      fi
+      # F2b teeth: neutered mutant lints BOTH (thin + consistent) → 2 headers
+      echo "-- teeth-FOCUS-F2b: neutered → must show 2 headers, not 1 --"
+      foc2b_out="$(bash "$mutantFOC" "$TMP/focus-thin-match" --focus database 2>/dev/null)"
+      if ! grep -c '== verify-state:' <<<"$foc2b_out" | grep -q '^1$'; then
+        ok "teeth-FOCUS-F2b: neutered → multiple headers (not 1) — thin-match isolation has teeth"
+      else
+        no "teeth-FOCUS-F2b: neutered mutant still shows only 1 header — THEATER"
+      fi
+      # F2c teeth: neutered mutant lints BOTH (empty + consistent) → 2 headers (pre-fix RED path)
+      echo "-- teeth-FOCUS-F2c: neutered → must show 2 headers, not 1 --"
+      foc2c_out="$(bash "$mutantFOC" "$TMP/focus-empty-file" --focus database 2>/dev/null)"
+      if ! grep -c '== verify-state:' <<<"$foc2c_out" | grep -q '^1$'; then
+        ok "teeth-FOCUS-F2c: neutered → multiple headers (not 1) — empty-file isolation has teeth (pre-fix RED)"
+      else
+        no "teeth-FOCUS-F2c: neutered mutant still shows only 1 header — THEATER"
+      fi
+      # F3 teeth: neutered mutant lints both → stale email fires FAIL/PREMATURE STOP → exit 1
+      echo "-- teeth-FOCUS-F3: neutered → stale sibling must fire FAIL/PREMATURE STOP --"
+      foc3_out="$(bash "$mutantFOC" "$TMP/focus-noise-suppress" --focus database 2>/dev/null)"
+      bash "$mutantFOC" "$TMP/focus-noise-suppress" --focus database >/dev/null 2>&1; mfoc3rc=$?
+      if [ "$mfoc3rc" = 1 ] && grep -q 'PREMATURE STOP' <<<"$foc3_out"; then
+        ok "teeth-FOCUS-F3: neutered → stale sibling FAIL fires (exit 1, PREMATURE STOP) — noise-suppression has teeth"
+      else
+        no "teeth-FOCUS-F3: neutered mutant: rc=$mfoc3rc PREMATURE=$(grep -c 'PREMATURE STOP' <<<"$foc3_out" || true) — THEATER"
+      fi
+    fi
+  else
+    no "teeth-FOCUS-FILTER: FOCUS-FILTER sentinel not found in SUT (focus branch not implemented)"
+  fi
+
+  # teeth-F2C-empty (-f→-s): the anti-collapse tooth F2b lacked. F2b's nonempty-but-thin fixture
+  # is non-empty, so both -f and -s would be true → `! -s` false → the guard would NOT exit 2 even
+  # under -f→-s mutation; the -f/-s boundary is invisible to F2b. The 0-byte F2c fixture is where
+  # the two operators diverge: `-f` → file exists (don't exit 2); `-s` → file is empty (exit 2).
+  # Mutating the guard to `[ ! -s "$_focused" ]` collapses the §7 EMPTY state into ABSENT.
+  # F2c expects exit ≠ 2; mutant exits 2 → F2c goes RED. This is the tooth that closes the gap.
+  echo "-- teeth-F2C-empty: -f→-s in focus-absent guard; 0-byte focus file must exit 2 (anti-collapse) --"
+  mutantF2C="$TMP/verify-state.F2C.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if ! grep -q '! -f "$_focused"' "$SUT"; then
+    no "teeth-F2C-empty: anchor '! -f \"\$_focused\"' not found in SUT — guard drifted; update anchor"
+  else
+    sed 's/\[ ! -f "\$_focused" \]/[ ! -s "$_focused" ]/' "$SUT" > "$mutantF2C"
+    _sut_f2c_h="$(md5sum "$SUT" | cut -d' ' -f1)"; _mut_f2c_h="$(md5sum "$mutantF2C" | cut -d' ' -f1)"
+    if [ "$_sut_f2c_h" = "$_mut_f2c_h" ]; then
+      no "teeth-F2C-empty: sed no-op — mutant == SUT — -f→-s recipe not applied (guard may have drifted)"
+    else
+      bash "$mutantF2C" "$TMP/focus-empty-file" --focus database >/dev/null 2>&1; mf2c_rc=$?
+      if [ "$mf2c_rc" = 2 ]; then
+        ok "teeth-F2C-empty: -f→-s mutant exits 2 on 0-byte file — anti-collapse tooth bites (§7 empty ≠ absent)"
+      else
+        no "teeth-F2C-empty: -f→-s mutant exit $mf2c_rc (want 2) — THEATER"
+      fi
+    fi
+  fi
+
+  # Mutation 2 (FOCUS-EMPTY-SLUG-GUARD): change exit 2 → exit 0 on the empty-slug guard.
+  # F4 test expects exit 2; mutant exits 0 → F4 goes RED.
+  echo "-- teeth-FOCUS-F4: FOCUS-EMPTY-SLUG-GUARD exit 2→0; --focus (no slug) must exit 0 (not 2) --"
+  mutantF4="$TMP/verify-state.FOCUSF4.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# FOCUS-EMPTY-SLUG-GUARD' "$SUT"; then
+    sed '/# FOCUS-EMPTY-SLUG-GUARD$/s/exit 2/exit 0/' "$SUT" > "$mutantF4"
+    if ! grep -q 'exit 0.*# FOCUS-EMPTY-SLUG-GUARD' "$mutantF4"; then
+      no "teeth-FOCUS-F4: could not build mutant (FOCUS-EMPTY-SLUG-GUARD sentinel not found — did SUT change?)"
+    else
+      bash "$mutantF4" "$TMP/focus-no-slug" --focus >/dev/null 2>&1; mf4rc=$?
+      if [ "$mf4rc" = 0 ]; then
+        ok "teeth-FOCUS-F4: exit 2→0 mutant exits 0 → F4 'exit 2' assertion goes red — empty-slug guard has teeth"
+      else
+        no "teeth-FOCUS-F4: mutant exit $mf4rc (want 0) — THEATER"
+      fi
+    fi
+  else
+    no "teeth-FOCUS-F4: FOCUS-EMPTY-SLUG-GUARD sentinel not found in SUT"
   fi
 fi
 
