@@ -1058,6 +1058,60 @@ else
   no "52 renamed-after-creation retro dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
 fi
 
+# 53 — CLEAN SENTINEL must NOT fire before the MISSING-RETRO pass is complete (sentinel
+#      relocation, PR #2). A fleet with pending==0 but ≥1 MISSING-RETRO target printed
+#      "Nothing to review." AND THEN "MISSING-RETRO: ..." — a §7 false-clean (clean claimed
+#      before the instrument finished looking). After the fix the sentinel is relocated to
+#      AFTER the MISSING-RETRO pass and gated on missing==0 in addition to pending==0.
+#
+#      FIXTURE ISOLATION (learned from PR #1 contamination): one target carries an applied retro
+#      (pending=0 contribution, no blocks → no MISSING-RETRO from it), one target carries an old
+#      block + NO retros (missing=1, pending=0 from it). No skipped targets. Each signal is
+#      exclusive: only missing>0 is what must suppress the sentinel — not pending, not skipped.
+#
+#      RED on pre-fix SUT: sentinel fires at pending==0 before MISSING-RETRO is computed →
+#      "Nothing to review." prints despite the fleet not having been fully inspected.
+kit="$(mkkit c53-missing-clean)"; tgt_clean="$kit/targetA"; tgt_miss="$kit/targetB"
+mkretro "$tgt_clean" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+mkdir -p "$tgt_miss"
+printf '# b\n' > "$tgt_miss/t-block1.md"
+touch -d '2 days ago' "$tgt_miss/t-block1.md"   # old block (past 24h grace) → MISSING-RETRO fires; nr=0 (no retros)
+write_targets "$kit" "$tgt_clean" "$tgt_miss"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'Nothing to review.' <<<"$OUT" \
+   && grep -q "MISSING-RETRO: $tgt_miss advanced" <<<"$OUT"; then
+  ok "53 pending=0 + MISSING-RETRO target → clean sentinel ABSENT; MISSING-RETRO printed" "(exit $RC)"
+else
+  no "53 pending=0 + MISSING-RETRO target → clean sentinel ABSENT; MISSING-RETRO printed" "exit=$RC out=[$OUT]"
+fi
+
+# 54 — PARTIAL SWEEP must NOT print "Nothing to review." (skipped_count gate, PR #2 correction).
+#      A fleet with skipped_count>0 (truncated '...' path in TARGETS.md) but pending==0 and
+#      missing==0 must be reported as PARTIAL, NOT clean. Before the PR #2 fix the sentinel was
+#      gated on pending==0 only, so a PARTIAL sweep with pending=0 silently claimed "Nothing to
+#      review." despite the sweep being incomplete.
+#
+#      FIXTURE ISOLATION: one clean target (applied retro, no block files → pending=0, missing=0);
+#      one TARGETS.md entry whose path contains '...' → skipped_count=1, excluded before [ -d ].
+#      The ONLY not-clean signal is skipped_count; pending and missing stay 0.
+#
+#      RED on pre-fix SUT (7170e21): gate was pending==0 only → "Nothing to review." fires despite
+#      skipped_count>0 (PARTIAL sweep). GREEN on fixed SUT: gate requires skipped_count==0 too.
+kit="$(mkkit c54-partial-clean)"; tgt_clean="$kit/targetA"
+tgt_skip="$kit/truncated...path"   # '...' → filtered into skipped_count before [ -d ] check
+mkretro "$tgt_clean" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+# tgt_skip intentionally absent on disk — the '...' grep filters it before any [ -d ] walk
+write_targets "$kit" "$tgt_clean" "$tgt_skip"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'Nothing to review.' <<<"$OUT" \
+   && grep -q 'PARTIAL' <<<"$OUT"; then
+  ok "54 skipped_count>0 (PARTIAL sweep) → clean sentinel ABSENT; PARTIAL WARN printed" "(exit $RC)"
+else
+  no "54 skipped_count>0 (PARTIAL sweep) → clean sentinel ABSENT; PARTIAL WARN printed" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -1408,6 +1462,58 @@ STRIPPED
       ok "teeth N1: note-removed mutant omits marker note → case 50 would go RED (has teeth)" "()"
     else
       no "teeth N1: note-removed mutant still prints note — case 50 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth SR1: drop the [ "$missing" -eq 0 ] conjunct from the relocated sentinel gate →
+  # a run with pending==0 + ≥1 MISSING-RETRO now prints "Nothing to review." (sentinel fires
+  # before the fleet is fully inspected) → case 53 goes RED. Proves the missing gate is the
+  # load-bearing invariant of the relocation, not just decorative code.
+  # Uses sed to excise the conjunct (bash glob patterns interpret [ as a character class, so
+  # bash string substitution cannot match it literally).
+  echo "-- teeth SR1: drop missing gate; pending=0 + MISSING-RETRO → sentinel fires (case 53 has teeth) --"
+  if ! grep -qF '&& [ "$missing" -eq 0 ] && [ "$skipped_count" -eq 0 ]' "$SUT"; then
+    no "teeth SR1: locate missing gate in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-sr1-no-miss-gate)"; tgt_clean="$kit/targetA"; tgt_miss="$kit/targetB"
+    mkretro "$tgt_clean" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+    mkdir -p "$tgt_miss"
+    printf '# b\n' > "$tgt_miss/t-block1.md"
+    touch -d '2 days ago' "$tgt_miss/t-block1.md"   # old block → MISSING-RETRO fires; no retros → nr=0
+    write_targets "$kit" "$tgt_clean" "$tgt_miss"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    # Excise " && [ "$missing" -eq 0 ]" from the sentinel condition.
+    # \[ and \] escape bracket characters in sed BRE; \$ matches literal $.
+    sed 's/ && \[ "\$missing" -eq 0 \]//' "$SUT" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'Nothing to review.' <<<"$outm"; then
+      ok "teeth SR1: missing-gate-dropped mutant fires sentinel despite MISSING-RETRO (case 53 has teeth)" "()"
+    else
+      no "teeth SR1: missing-gate-dropped mutant silent — case 53 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth SR2: drop the [ "$skipped_count" -eq 0 ] conjunct from the relocated sentinel gate →
+  # a run with pending==0 + missing==0 + skipped_count>0 (PARTIAL) now prints "Nothing to review."
+  # despite the sweep being incomplete → case 54 goes RED. Proves the skipped_count gate is the
+  # load-bearing invariant for the PARTIAL-sweep correction, not decorative code.
+  # Uses the same anchor as SR1 (confirming the full gate string is present), then sed-excises
+  # only the skipped_count conjunct; \[ and \] escape brackets in sed BRE, \$ matches literal $.
+  echo "-- teeth SR2: drop skipped_count gate; PARTIAL sweep (pending=0, missing=0) → sentinel fires (case 54 has teeth) --"
+  if ! grep -qF '&& [ "$missing" -eq 0 ] && [ "$skipped_count" -eq 0 ]' "$SUT"; then
+    no "teeth SR2: locate skipped_count gate in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-sr2-no-skip-gate)"; tgt_clean="$kit/targetA"
+    tgt_skip="$kit/truncated...path"
+    mkretro "$tgt_clean" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+    write_targets "$kit" "$tgt_clean" "$tgt_skip"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    sed 's/ && \[ "\$skipped_count" -eq 0 \]//' "$SUT" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'Nothing to review.' <<<"$outm"; then
+      ok "teeth SR2: skip-gate-dropped mutant fires sentinel despite PARTIAL sweep (case 54 has teeth)" "()"
+    else
+      no "teeth SR2: skip-gate-dropped mutant silent — case 54 is THEATER" "out=[$outm]"
     fi
   fi
 fi
