@@ -123,6 +123,7 @@ Sensitivity:
 | 26 | COB-IM2 | `$RESEARCH_HOME/investigacion/COB-IM2` | **incipient** (12 md @2026-08-21 / git yes / remote no / hook file yes) `[CERT]` — detail §26 | Architectural/mechanical CAD: three AutoCAD-2018 (`AC1032`) DWG sheets (14A/B/C); artifact detail → §26 `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (probes adapted from #18) | English `[CERT]` |
 | 27 | hotelpalace-tunnel | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelPalace` | **incipient** (1 block @2026-08-25 / 1 run / git yes / remote no / hook no) `[CERT]` · **`live-install`** · nested corpus under `corpus/` · document-mode (§20) — companion to #17 — detail §27 | Cloudflare Tunnel install bundle (`palace-pc`, remote-managed) for the hotel PC (`10.2.40.11`): PowerShell/.bat installers, OpenSSH-over-tunnel access; runbook of failure modes | Direct reading of bundle scripts | Spanish (operational runbook for MX site tech) `[CERT]` |
 | 28 | sullair | `$RESEARCH_HOME/investigacion/sullair` | **intermediate** (20 md @2026-08-24 / 11-of-13 gaps / git yes / remote yes / hook file yes) `[CERT]` · nested corpus under `corpus/`; remote `angeles725/investigacion-sullair` PRIVATE — detail §28 | Sullair Supervisor air-compressor controllers comms — RS-485 + Modbus protocol RE; 1 PRIMARY PDF + secondary consultant report + AI-artifact HTML, no binary `[CERT-doc]` — detail §28 | `extract-pdf.sh` + `fetch-doc.sh` + web scout | English (corpus) `[CERT]` |
+| 29 | cloudflare-tunnels | `$RESEARCH_HOME/investigacion/cloudflare` | **mature** (34 md @2026-08-28 / 24 runs / 4 retros / git yes / remote yes / hook yes) `[CERT]` · **multi-focus** (3, all COMPLETE) · remote `angeles725/research-cloudflare` PRIVATE — detail §29 | Cloudflare Tunnel technology (`cloudflared` v2026.8.2, Go daemon) — local binary + official docs + open-source Go repo; NOT a client install (no site secrets) `[CERT]` | `fetch-doc.sh` + direct Go reading + CodeGraph + local `cloudflared --help` (read-only) | English `[CERT]` |
 
 ---
 
@@ -554,6 +555,29 @@ PRIMARY PDF (User Manual 02250146-049 R02) + a secondary consultant report citin
 **Startup:** continue protocol RE from the primary manuals.
 
 ---
+
+### 29 — cloudflare-tunnels `[CERT]`
+
+Technology-research corpus on **Cloudflare Tunnel** — the `cloudflared` daemon (v2026.8.2, Go),
+installed locally at `/home/cristian/.local/bin/cloudflared`. Distinct from the client-install rows
+(#17 hilton-bms, #27 hotelpalace-tunnel) which USE a tunnel to reach a specific site: this target
+documents the TECHNOLOGY itself. Flat corpus at target root, **multi-focus** (§16):
+
+- **ops** (operation-config) — COMPLETE (15 blocks, 15/15 gaps): CLI verb tree, `config.yml`/ingress
+  schema, DNS routing, credentials/identity, remote- vs locally-managed, service install, replicas/HA,
+  transport knobs, metrics/logging. `RESEARCH-STATE-ops.md` ↔ `ops-block<N>.md`.
+- **ztna** (zero-trust-security) — COMPLETE (10 blocks, 10/10 gaps): Cloudflare Access, policies, tunnel
+  tokens/credentials threat model, service auth (server-side access policy). `RESEARCH-STATE-ztna.md` ↔
+  `ztna-block<N>.md`.
+- **warp** (warp-routing / private-network) — COMPLETE (9 blocks + 1 remittance, 10/10 gaps):
+  `WarpRoutingConfig` wire-vs-resolved model, local-vs-remote config merge & hot-reload, WARP client-side
+  connectivity — complements ztna (server-side access policy). `RESEARCH-STATE-warp.md` ↔ `warp-block<N>.md`.
+
+Sources: the local binary (`--help` tree, `strings` → `[CERT]`/`[CERT-hw]`), the open-source
+`cloudflared` Go repo (github.com/cloudflare/cloudflared → `[CERT]`), and official Cloudflare docs
+(developers.cloudflare.com → `[CERT-web]`). No client secrets — SECRETS DISCIPLINE not triggered
+(this is the public technology, not a live site install).
+**Status:** all 3 focuses COMPLETE (ops 15/15 · ztna 10/10 · warp 10/10); BOOTSTRAP audit-seeded 2026-08-28.
 
 ## Targets whose type I could NOT confirm 100%
 
