@@ -168,6 +168,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      Priority cell garbles it into an unknown priority (WARN + `INVALID_PRIORITY` sentinel); a `\|`
      elsewhere (Priority intact) yields a spurious 5th cell (WARN + drop).
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
+     PRE-DECLARE REMITTANCES FIRST (new focus over a mature MULTI-FOCUS corpus — before the sweep):
+     read `$CORPUS/FOCUSES.md` (the focus index, METHODOLOGY §16) + the target `INDEX.md` for subjects an
+     EXISTING block already answers, and PRE-DECLARE those as REMITTANCE gaps WITH their [Block N] §N.x
+     citations BEFORE delegating the audit sweep — so the sweep seeds only genuinely-new gaps instead of
+     re-inflating the backlog with already-covered subjects. Distinct from the per-gap PRIOR COVERAGE CHECK
+     (NORMAL CYCLE step 3), which fires during investigation of ONE gap; this fires ONCE at focus-open
+     across the whole prior corpus. THEN:
      DELEGATE an audit sweep (Explore/general-purpose sub-agent) that returns a COVERAGE MATRIX —
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
      prioritized backlog from that matrix. (Proven on the protocols focus: the audit matrix seeded 6
@@ -194,6 +201,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      code collapse duplicate decompiler-pipeline trees first — count DISTINCT fully-qualified class names, not
      raw `.java` (a project decompiled by BOTH procyon and vineflower doubles the raw file count; "easyBinding
      119" was 62 distinct classes). See METHODOLOGY §13.
+     CLASS-EXISTENCE SUB-CHECK (extends this e2 gate, NOT a new gate) — when a gap's NAME carries a specific
+     class-name token, also run `fd <ClassName>.java` (exact-class existence) IN ADDITION to the source/jar
+     existence check above, BEFORE sealing the gap into the backlog. e2's reachability check can PASS on a
+     reachable containing jar while the SPECIFICALLY-named class is absent (BWManager / BAbstractDiscovery /
+     BCellTable each had no such class) — a gap named after a nonexistent class burns its opening iteration
+     on a §14 premise correction. A name-carried class `fd` cannot find is blocked-on-source-missing (or
+     renamed per GAP PREMISES ARE HYPOTHESES, step e), exactly like any other unreachable source.
   e3. SCOUT-BEFORE-BUILD (certifiability gate — the CERTIFIABILITY sibling of e2's EXISTENCE check, for
      EXTERNAL-source gaps): e2 confirms a source EXISTS + measures its SIZE; it does NOT fetch, preserve, or
      judge whether the source is rich enough to CERTIFY a block. For an external source (design/doc/web/spec
@@ -493,6 +507,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - CLASSIFY the whole backlog into investigable vs blocked-on-<reason> (tool-missing / x64-tool /
          live-server / hardware) and record both counts in RESEARCH-STATE.md.
        - Update the coverage METRIC as a ratio (gaps closed / known gaps), NOT a free-floating %.
+       - WRITE the coverage counts with the tool, never hand-edit them: run
+         `$KIT/toolbelt/research-sdd-status.sh $TARGET --sync-state` to (re)write the state envelope's
+         coverage counts from the tool's OWN measurement, rather than hand-editing covered_blocks or
+         hand-counting with `fd`/`find` (whose extension-regex can diverge from the tool's — a hand
+         `fd 'bloque[0-9]+\.md$'`=408 vs the tool's 409). The ratio bullet above is the DISPLAYED metric;
+         this is how its numerator/denominator get WRITTEN so they cannot drift from the instrument that
+         later lints them (verify-state.sh, steps 5/7). SCRIPTS-LANE note: if `--sync-state`'s count and
+         `verify-state.sh`'s ever DISAGREE, that reconcile is a scripts-lane concern (route to the peer who
+         owns those scripts), out of scope for this doctrine.
        - EDGE-TRIGGERED LINT (in-edit, scoped — these are the AGENT'S OWN calculators, exactly like step 5's
          verify-block, NOT orchestrator gates; see METHODOLOGY §11): right after editing the RESEARCH-STATE
          summary, run `$KIT/toolbelt/verify-state.sh $CORPUS` (cheap — one file); and ONLY if you edited
@@ -694,6 +717,12 @@ HARD RULES:
     declared fallback chain for the artifact class first (METHODOLOGY §21.2); record which rung
     produced the evidence so the coverage gap is explicit. Never skip silently, never pad `[INFER]`,
     never present a degraded-rung result as a full answer.
+  - PROBE THE PREMISE BEFORE ACCEPTING `blocked-on-<tool>`. Before sealing a gap as blocked on a missing
+    tool, first test the gap's PREMISE against artifacts ALREADY on disk — a block can DISSOLVE on premise
+    failure rather than needing new tooling (G39 "blocked on leaf-cut-into-wall": 0/9 leaves had the
+    assumed collinear gap, so the premise failed and the block evaporated — no tool was ever needed). This
+    is the blocked-tag instance of GAP PREMISES ARE HYPOTHESES (BOOTSTRAP step e): a cheap on-disk probe
+    can turn a tool-request into a closed premise error. (1 observed case; cheap sub-rule.)
   - DISK-FIRST (live probes) — when a gap registered as "needing a live probe" (§12) can be
     answered from on-disk artifacts (decompiled code, downloaded docs, preserved sources), prefer
     disk and only escalate to a §12 live probe after confirming disk cannot answer the gap question.
@@ -726,6 +755,13 @@ HARD RULES:
     and the N failed strategies as its evidence (B37 §37.4: six independent searches — arcs, layer
     filter, circle fit, modelspace, insert points, jamb pairs — all zero; convention: wall-stops, not
     drawn symbols).
+  - TWO CORRECT COUNTS THAT DISAGREE = CONVENTION SIGNAL. Two INDEPENDENT counts of the same feature that
+    disagree yet are BOTH correct under different conventions (e.g. 8 drawn leaf+swing symbols ⊂ 21
+    operator-counted openings) are a convention-inspection signal, not an error on one side — and the gap
+    between them MEASURES the fraction the narrower convention captures. Distinct from GAP NUMBERS ARE ALSO
+    HYPOTHESES (one count is WRONG) and from N-SEARCH CONVENTION TRIGGER above (N≥3 strategies all ZERO):
+    here both counts are positive and correct. Resolve by naming each convention and testing the subset
+    hypothesis, not by re-searching. (1 observed case; cheap sub-rule, not new machinery.)
   - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
     attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
     clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)
