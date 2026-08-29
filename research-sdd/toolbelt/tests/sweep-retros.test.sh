@@ -1058,6 +1058,34 @@ else
   no "52 renamed-after-creation retro dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
 fi
 
+# 53 — CLEAN SENTINEL must NOT fire before the MISSING-RETRO pass is complete (sentinel
+#      relocation, PR #2). A fleet with pending==0 but ≥1 MISSING-RETRO target printed
+#      "Nothing to review." AND THEN "MISSING-RETRO: ..." — a §7 false-clean (clean claimed
+#      before the instrument finished looking). After the fix the sentinel is relocated to
+#      AFTER the MISSING-RETRO pass and gated on missing==0 in addition to pending==0.
+#
+#      FIXTURE ISOLATION (learned from PR #1 contamination): one target carries an applied retro
+#      (pending=0 contribution, no blocks → no MISSING-RETRO from it), one target carries an old
+#      block + NO retros (missing=1, pending=0 from it). No skipped targets. Each signal is
+#      exclusive: only missing>0 is what must suppress the sentinel — not pending, not skipped.
+#
+#      RED on pre-fix SUT: sentinel fires at pending==0 before MISSING-RETRO is computed →
+#      "Nothing to review." prints despite the fleet not having been fully inspected.
+kit="$(mkkit c53-missing-clean)"; tgt_clean="$kit/targetA"; tgt_miss="$kit/targetB"
+mkretro "$tgt_clean" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+mkdir -p "$tgt_miss"
+printf '# b\n' > "$tgt_miss/t-block1.md"
+touch -d '2 days ago' "$tgt_miss/t-block1.md"   # old block (past 24h grace) → MISSING-RETRO fires; nr=0 (no retros)
+write_targets "$kit" "$tgt_clean" "$tgt_miss"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'Nothing to review.' <<<"$OUT" \
+   && grep -q "MISSING-RETRO: $tgt_miss advanced" <<<"$OUT"; then
+  ok "53 pending=0 + MISSING-RETRO target → clean sentinel ABSENT; MISSING-RETRO printed" "(exit $RC)"
+else
+  no "53 pending=0 + MISSING-RETRO target → clean sentinel ABSENT; MISSING-RETRO printed" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -1408,6 +1436,34 @@ STRIPPED
       ok "teeth N1: note-removed mutant omits marker note → case 50 would go RED (has teeth)" "()"
     else
       no "teeth N1: note-removed mutant still prints note — case 50 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth SR1: drop the [ "$missing" -eq 0 ] conjunct from the relocated sentinel gate →
+  # a run with pending==0 + ≥1 MISSING-RETRO now prints "Nothing to review." (sentinel fires
+  # before the fleet is fully inspected) → case 53 goes RED. Proves the missing gate is the
+  # load-bearing invariant of the relocation, not just decorative code.
+  # Uses sed to excise the conjunct (bash glob patterns interpret [ as a character class, so
+  # bash string substitution cannot match it literally).
+  echo "-- teeth SR1: drop missing gate; pending=0 + MISSING-RETRO → sentinel fires (case 53 has teeth) --"
+  if ! grep -qF '&& [ "$missing" -eq 0 ] && [ "$skipped_count" -eq 0 ]' "$SUT"; then
+    no "teeth SR1: locate missing gate in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-sr1-no-miss-gate)"; tgt_clean="$kit/targetA"; tgt_miss="$kit/targetB"
+    mkretro "$tgt_clean" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+    mkdir -p "$tgt_miss"
+    printf '# b\n' > "$tgt_miss/t-block1.md"
+    touch -d '2 days ago' "$tgt_miss/t-block1.md"   # old block → MISSING-RETRO fires; no retros → nr=0
+    write_targets "$kit" "$tgt_clean" "$tgt_miss"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    # Excise " && [ "$missing" -eq 0 ]" from the sentinel condition.
+    # \[ and \] escape bracket characters in sed BRE; \$ matches literal $.
+    sed 's/ && \[ "\$missing" -eq 0 \]//' "$SUT" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'Nothing to review.' <<<"$outm"; then
+      ok "teeth SR1: missing-gate-dropped mutant fires sentinel despite MISSING-RETRO (case 53 has teeth)" "()"
+    else
+      no "teeth SR1: missing-gate-dropped mutant silent — case 53 is THEATER" "out=[$outm]"
     fi
   fi
 fi

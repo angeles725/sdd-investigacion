@@ -78,7 +78,7 @@ case "$grace_hours" in
                grace_hours=24;;
 esac
 grace_secs=$(( grace_hours * 3600 ))
-pending=0; total=0
+pending=0; missing=0; total=0
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
 # Resolve retros RECURSIVELY with the SAME predicate the MISSING-RETRO fleet pass below uses
 # (find "$p" -path '*/retros/*.md'), so a nested-corpus target that keeps its retros deeper (e.g.
@@ -172,9 +172,7 @@ echo "Summary: ${pending} pending / ${total} retros across targets."
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi
-if [ "$pending" -eq 0 ]; then
-  echo "Nothing to review."
-else
+if [ "$pending" -gt 0 ]; then
   echo "For each PENDING retro: review it, apply or dismiss its deltas in the kit,"
   echo "then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'."
   echo "Note: the count above tracks the review-status MARKER, not whether each delta is open work."
@@ -235,9 +233,17 @@ for p in $paths; do
   # forever even years later.
   if [ "$nb" -gt 0 ] && [ "$nb" -gt "$nr" ] && [ "$now" -gt "$(( nb + grace_secs ))" ]; then
     echo "MISSING-RETRO: $p advanced with no retro for the latest run"
+    missing=$((missing+1))
   fi
 done
 # Report waived targets in summary so the suppression is never invisible.
 if [ "$waived_count" -gt 0 ]; then
   echo "waived: ${waived_count} target(s) — MISSING-RETRO suppressed: ${waived_names}"
+fi
+# Clean-verdict sentinel — relocated AFTER the MISSING-RETRO pass so the whole run is
+# visible before the claim. Gated on missing==0 (no MISSING-RETRO findings) AND
+# skipped_count==0 (not a PARTIAL sweep) in addition to pending==0. Any of the three
+# signals being non-zero means the fleet has not been fully and cleanly inspected.
+if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
+  echo "Nothing to review."
 fi
