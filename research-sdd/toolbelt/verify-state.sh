@@ -8,8 +8,8 @@
 # living-mirror rule already MANDATES refreshing the row on run close — this mechanizes the check so the
 # rule is enforced, not just remembered.
 #
-# Usage: verify-state.sh <target-dir>
-# Exit: 0 = consistent · 1 = inconsistency (stale mirror) · 2 = bad args / no state file.
+# Usage: verify-state.sh <target-dir> [--focus <slug>]
+# Exit: 0 = consistent · 1 = inconsistency (stale mirror) · 2 = bad args / no state file / absent-focus.
 set -uo pipefail
 
 # Shared focus-prefix derivation — single source of truth (verify-state.sh and research-sdd-status.sh
@@ -27,11 +27,31 @@ fi
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
 
 target="${1:-}"
-[ -d "$target" ] || { echo "usage: verify-state.sh <target-dir>" >&2; exit 2; }
-# Lint EVERY RESEARCH-STATE*.md under the target (a reopened / multi-focus corpus keeps one per
-# focus). Exit 2 only when NONE exists; otherwise aggregate: rc=1 if ANY state file fails CHECK 1.
-mapfile -t states < <(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null)
-[ "${#states[@]}" -gt 0 ] || { echo "verify-state: no RESEARCH-STATE*.md under $target" >&2; exit 2; }
+[ -d "$target" ] || { echo "usage: verify-state.sh <target-dir> [--focus <slug>]" >&2; exit 2; }
+shift  # consume the target-dir positional arg; remaining args are optional flags
+focus_slug=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --focus)
+      focus_slug="${2:-}"
+      [ -z "$focus_slug" ] && { echo "usage: verify-state.sh <target-dir> [--focus <slug>]" >&2; exit 2; }  # FOCUS-EMPTY-SLUG-GUARD
+      shift 2 ;;
+    *) echo "usage: verify-state.sh <target-dir> [--focus <slug>]" >&2; exit 2 ;;
+  esac
+done
+if [ -n "$focus_slug" ]; then  # FOCUS-FILTER
+  _focused="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" \
+    -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  if [ ! -f "$_focused" ]; then
+    echo "verify-state: no RESEARCH-STATE-${focus_slug}.md found under $target" >&2; exit 2
+  fi
+  states=("$_focused")
+else
+  # Lint EVERY RESEARCH-STATE*.md under the target (a reopened / multi-focus corpus keeps one per
+  # focus). Exit 2 only when NONE exists; otherwise aggregate: rc=1 if ANY state file fails CHECK 1.
+  mapfile -t states < <(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null)
+  [ "${#states[@]}" -gt 0 ] || { echo "verify-state: no RESEARCH-STATE*.md under $target" >&2; exit 2; }
+fi
 
 # ---------------------------------------------------------------------------------------------------
 # research-state.v1 ENVELOPE — the machine-validated contract (retro delta: port of gentle-ai's
