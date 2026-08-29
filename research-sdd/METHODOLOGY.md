@@ -307,6 +307,7 @@ ENCRYPTS string constants (plaintext only at runtime), and hides flow behind ref
 - **Detect by inspecting the `.class` constant pool directly.** Spot `n` / `ln` tokens in place of string literals across method bodies. Confirm via `javap -c <ClassName>` (real `ldc` constants appear) or `rg -a <expected-literal> <ClassName.class>` (plaintext in the binary).
 - **All string-dependent claims: cite bytecode or clean resources — NEVER the decompiled `.java`.** Derive every string-value claim from `javap -c -p <ClassName>` output or from preserved clean resources (`module.xml`, `.lexicon`, `extracted/` tree). A cite or grep over the decompiled `.java` for a method-body string is inadmissible when the decompiler has scrubbed it.
 - **Decompiled `.java` remains valid for structure only.** Class hierarchy, method signatures, control-flow shape, and import lists survive scrubbing intact — cite those freely. Any claim depending on a string literal in a method body stays `[INFER]` until confirmed via bytecode or a clean resource.
+  - **But the class-NAME token itself can be partially mangled.** A decompiler (Vineflower / Procyon) can garble the class-name TOKEN in the emitted source (`public abstract class ln extends BWbFieldEditor`) while the FILE NAME and PARENT TYPE stay real. This is structurally distinct from string-literal scrubbing (which hits method-body strings, not the type name) AND from full obfuscation (which ALSO renames the file). When the class-name token is mangled, cite the class by FILE PATH + PARENT TYPE + existence, NEVER the garbled token; body-level behavioural claims stay `[INFER]`. (Evidence: niagara workbench focus, 6/12 blocks — B427/B429/B435-438.)
 - **Establish a FOUNDATION-BLOCK caveat; forward-cite it in every subsequent block header.** Scrubbing is a corpus-level hazard. Document it in the FOUNDATION evidence block (the first block that discovers it) and cite that caveat in all later block headers. This kept the discipline consistent across 6 evidence blocks (B350–B355 in the `electronicSignature` focus) and prevented ~40 potential `[CERT]` false-citations.
 
 **docSource dual-tree (one class living in TWO physical trees).** When a target ships BOTH a decompiled tree
@@ -356,7 +357,7 @@ a `file:line` anchored to the wrong version is a false `[CERT]`. Whenever a gap 
   primary source, code — NOT `[CERT-doc]` (which §3 reserves for an official downloaded document). This
   APPLIES the existing §3 canon; it defines no new marker.
 - **Preservation destination.** Preserve the pinned source under `sources/go-src/<tag>/` (a LOCKED, shared
-  convention — do not rename it) with the full `sha256` of each fetched file and a `SOURCES.md` row. HOW
+  convention — do not rename it) with the full `sha256` of each fetched file (of the tag-verified tree) and a `SOURCES.md` row. HOW
   the tree is obtained is out of scope here; this rule mandates only the destination and the verification
   discipline, never a fetch recipe.
 
