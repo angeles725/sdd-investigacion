@@ -1673,8 +1673,11 @@ fi
 
 # 52 — CATALOG-DISC-ZERO attention gate: disc=0 vs CATALOG>0 fires the CATALOG-DISC-ZERO WARN →
 #      attention becomes nonzero → clean line ABSENT (claimed=5=CATALOG → no drift WARN).
-#      RED before fix: current code still prints "Registry consistent with reality" despite the WARN.
-kit="$(mkkit c52-attn-disc-zero)"; tgt="$kit/targetA"
+#      Target is OUTSIDE the kit sandbox to avoid the nc-contradiction false trigger: a RESEARCH-STATE.md
+#      inside $kit would be found by the nc-scan (find $kit -maxdepth 3) → unresolved++ → clean line absent
+#      on BOTH pre-fix and post-fix SUT, masking the attention gate and making the test vacuous theater.
+#      RED before fix: pre-fix SUT (no attention counter) prints "Registry consistent with reality" despite the WARN.
+kit="$(mkkit c52-attn-disc-zero)"; tgt="$ROOT/c52-ext-tgt"
 mkdir -p "$tgt"
 printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 5\n<!-- /research-state.v1 -->\n' \
   > "$tgt/RESEARCH-STATE.md"
@@ -1693,8 +1696,9 @@ fi
 
 # 53 — CATALOG-FRESHNESS attention gate: stale CATALOG (disc=8, CATALOG=5, diff=3>tol) fires
 #      the freshness WARN → attention++ → clean line ABSENT (claimed=5=CATALOG → no drift WARN).
-#      RED before fix: clean line still prints.
-kit="$(mkkit c53-attn-freshness)"; tgt="$kit/targetA"
+#      Target is OUTSIDE the kit sandbox to avoid the nc-contradiction false trigger.
+#      RED before fix: pre-fix SUT (no attention counter) prints "Registry consistent with reality" despite the WARN.
+kit="$(mkkit c53-attn-freshness)"; tgt="$ROOT/c53-ext-tgt"
 mkcorpus "$tgt" 8 "a"
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
 printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
@@ -1709,9 +1713,10 @@ else
 fi
 
 # 54 — CATALOG-NOPARSE attention gate: CATALOG.md present but no parseable total fires the
-#      NOPARSE WARN → attention++ → clean line ABSENT (disc count used, claimed matches).
-#      RED before fix: clean line still prints.
-kit="$(mkkit c54-attn-noparse)"; tgt="$kit/targetA"
+#      NOPARSE WARN → attention++ → clean line ABSENT (disc count used, claimed=disc → no drift WARN).
+#      Target is OUTSIDE the kit sandbox to avoid the nc-contradiction false trigger.
+#      RED before fix: pre-fix SUT (no attention counter) prints "Registry consistent with reality" despite the WARN.
+kit="$(mkkit c54-attn-noparse)"; tgt="$ROOT/c54-ext-tgt"
 mkcorpus "$tgt" 5 "a"
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
 printf '# Catalogo\n\n(no total line)\n' > "$tgt/CATALOG.md"
@@ -1727,10 +1732,13 @@ fi
 
 # 55 — RETRO-UNREADABLE attention gate: retros/ dir chmod 000 fires the inaccessible WARN →
 #      attention++ → clean line ABSENT. Non-root guard: root bypasses perms (§7 hazard).
+#      Target is OUTSIDE the kit sandbox to avoid the nc-contradiction false trigger.
+#      Uses $ROOT/c55-ext/targetA so basename stays "targetA" (WARN message uses basename).
+#      RED before fix: pre-fix SUT (no attention counter) prints "Registry consistent with reality" despite the WARN.
 if [ "$EUID" -eq 0 ]; then
   echo "  SKIP  55 RETRO-UNREADABLE attention gate — running as root; chmod 000 bypassed (§7 guard)"
 else
-  kit="$(mkkit c55-attn-unreadable)"; tgt="$kit/targetA"
+  kit="$(mkkit c55-attn-unreadable)"; tgt="$ROOT/c55-ext/targetA"
   mkcorpus "$tgt" 4 "a"
   mkdir -p "$tgt/retros"
   printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
@@ -1751,9 +1759,11 @@ fi
 # 56 — UNCLASSIFIABLE attention gate: bare block<N>.md (no canonical prefix) fires the
 #      unclassifiable WARN → attention++ → clean line ABSENT.
 #      Fixture: claimed=0 md so discriminator=0 matches claimed=0 (no drift contamination).
+#      Target is OUTSIDE the kit sandbox to avoid the nc-contradiction false trigger.
+#      Uses $ROOT/c56-ext/targetA so basename stays "targetA" (WARN message uses basename).
 #      The UNCLASSIFIABLE WARN fires because 5 bare block*.md files are present but unclassifiable.
-#      RED before fix: clean line still prints (test 16 proves the WARN fires, this proves gate).
-kit="$(mkkit c56-attn-unclassifiable)"; tgt="$kit/targetA"
+#      RED before fix: pre-fix SUT (no attention counter) prints "Registry consistent with reality" despite the WARN.
+kit="$(mkkit c56-attn-unclassifiable)"; tgt="$ROOT/c56-ext/targetA"
 mkdir -p "$tgt"
 printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 0\n<!-- /research-state.v1 -->\n' \
   > "$tgt/RESEARCH-STATE.md"
@@ -1878,6 +1888,119 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-attn-disc-zero: CATALOG-DISC-ZERO sentinel not found in SUT"
+  fi
+
+  # teeth-attn-freshness: remove the attention++ after CATALOG-FRESHNESS-CHECK; isolated fixture
+  # (disc=8 canonical, claimed=5=CATALOG → no drift; FRESHNESS is the sole suppressor) must regain
+  # the clean line → proves test 53 depends on the FRESHNESS increment.
+  # Target is OUTSIDE the kit sandbox so nc-contradiction does not co-fire.
+  echo "-- teeth-attn-freshness: remove attention++ at CATALOG-FRESHNESS-CHECK; test 53 fixture must regain clean line --"
+  kit="$(mkkit teeth-attn-freshness)"; tgt="$ROOT/teeth-freshness-ext-tgt"
+  mkcorpus "$tgt" 8 "a"
+  mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  # claimed=5=CATALOG(5) → drift=0; disc=8 vs CATALOG=5 diff=3>tol → FRESHNESS fires → attention=1 (isolated).
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
+    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# CATALOG-FRESHNESS-CHECK' "$mut"; then
+    sed -i '/# CATALOG-FRESHNESS-CHECK/{n;/attention=/d}' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
+      ok "teeth-attn-freshness: attention++ removed → freshness fixture regains clean line (test 53 teeth)" "(exit $mrc)"
+    else
+      no "teeth-attn-freshness: clean line still absent after removing attention++ — test 53 has no teeth" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-attn-freshness: CATALOG-FRESHNESS-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-attn-noparse: remove the attention++ after CATALOG-NOPARSE; isolated fixture
+  # (disc=5 canonical, claimed=5=disc → no drift; CATALOG exists but no parseable total → NOPARSE is
+  # the sole suppressor) must regain the clean line → proves test 54 depends on the NOPARSE increment.
+  # Target is OUTSIDE the kit sandbox so nc-contradiction does not co-fire.
+  echo "-- teeth-attn-noparse: remove attention++ at CATALOG-NOPARSE; test 54 fixture must regain clean line --"
+  kit="$(mkkit teeth-attn-noparse)"; tgt="$ROOT/teeth-noparse-ext-tgt"
+  mkcorpus "$tgt" 5 "a"
+  mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+  printf '# Catalogo\n\n(no total line)\n' > "$tgt/CATALOG.md"
+  # claimed=5=disc → drift=0; CATALOG unparseable → NOPARSE fires → attention=1 (isolated).
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
+    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# CATALOG-NOPARSE' "$mut"; then
+    sed -i '/# CATALOG-NOPARSE/{n;/attention=/d}' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
+      ok "teeth-attn-noparse: attention++ removed → noparse fixture regains clean line (test 54 teeth)" "(exit $mrc)"
+    else
+      no "teeth-attn-noparse: clean line still absent after removing attention++ — test 54 has no teeth" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-attn-noparse: CATALOG-NOPARSE sentinel not found in SUT"
+  fi
+
+  # teeth-attn-retro-unreadable: remove the attention++ after RETRO-UNREADABLE-WARN; isolated fixture
+  # (disc=4=claimed → no drift; retros/ chmod 000 → RETRO-UNREADABLE is the sole suppressor) must regain
+  # the clean line → proves test 55 depends on the RETRO-UNREADABLE increment.
+  # Target is OUTSIDE the kit sandbox so nc-contradiction does not co-fire.
+  # Skipped when running as root (chmod 000 has no effect for root; same guard as test 55).
+  if [ "$EUID" -ne 0 ]; then
+    echo "-- teeth-attn-retro-unreadable: remove attention++ at RETRO-UNREADABLE-WARN; test 55 fixture must regain clean line --"
+    kit="$(mkkit teeth-attn-retro-unread)"; tgt="$ROOT/teeth-retro-unread-ext/targetA"
+    mkcorpus "$tgt" 4 "a"
+    mkdir -p "$tgt/retros"
+    printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
+    printf '# retro\nbody\n' > "$tgt/retros/2026-01-02.md"
+    # disc=4=claimed → no drift; retros declared so reconciliation runs → RETRO-UNREADABLE fires (sole suppressor).
+    { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+      printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
+      printf '| 1 | targetA | mature (4 md / 2 retros / git yes / hook yes) | `%s` |\n' "$tgt"
+    } > "$kit/TARGETS.md"
+    mut="$kit/toolbelt/verify-registry.sh"
+    if grep -q '# RETRO-UNREADABLE-WARN' "$mut"; then
+      sed -i '/# RETRO-UNREADABLE-WARN/{n;/attention=/d}' "$mut"
+      chmod 000 "$tgt/retros"
+      mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+      chmod 755 "$tgt/retros"
+      if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
+        ok "teeth-attn-retro-unreadable: attention++ removed → unreadable-retros fixture regains clean line (test 55 teeth)" "(exit $mrc)"
+      else
+        no "teeth-attn-retro-unreadable: clean line still absent after removing attention++ — test 55 has no teeth" "mrc=$mrc mout=[$mout]"
+      fi
+    else
+      no "teeth-attn-retro-unreadable: RETRO-UNREADABLE-WARN sentinel not found in SUT"
+    fi
+  fi
+
+  # teeth-attn-unclassifiable: remove the attention++ at UNCLASSIFIABLE-CHECK; isolated fixture
+  # (5 bare block*.md, claimed=0=disc → no drift, no CATALOG so DISC-ZERO does not co-fire;
+  # UNCLASSIFIABLE is the sole suppressor) must regain the clean line → proves test 56 depends on it.
+  # Target is OUTSIDE the kit sandbox so nc-contradiction does not co-fire.
+  echo "-- teeth-attn-unclassifiable: remove attention++ at UNCLASSIFIABLE-CHECK; test 56 fixture must regain clean line --"
+  kit="$(mkkit teeth-attn-unclassifiable)"; tgt="$ROOT/teeth-unclassifiable-ext/targetA"
+  mkdir -p "$tgt"
+  printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 0\n<!-- /research-state.v1 -->\n' \
+    > "$tgt/RESEARCH-STATE.md"
+  for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
+  # No CATALOG.md / gen-catalog.py — DISC-ZERO cannot co-fire; only UNCLASSIFIABLE fires → attention=1.
+  write_targets "$kit" "$tgt::0 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# UNCLASSIFIABLE-CHECK' "$mut"; then
+    # Sentinel is on the 'if' line; attention++ is two lines below (after the echo line).
+    sed -i '/# UNCLASSIFIABLE-CHECK/{n;n;/attention=/d}' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
+      ok "teeth-attn-unclassifiable: attention++ removed → unclassifiable fixture regains clean line (test 56 teeth)" "(exit $mrc)"
+    else
+      no "teeth-attn-unclassifiable: clean line still absent after removing attention++ — test 56 has no teeth" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-attn-unclassifiable: UNCLASSIFIABLE-CHECK sentinel not found in SUT"
   fi
 
   # teeth-attn-kit-self-reg: remove the attention++ after KIT-SELF-REG-CHECK; kit-absent fixture
