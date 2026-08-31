@@ -568,6 +568,22 @@ if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero' <<<"$out"; then
   ok "P6-doc-aware (negative): mixed [CERT-doc]+[CERT] with no file:line → P6 WARN still fires"
 else no "P6-doc-aware (negative): P6 WARN wrongly suppressed for mixed block :: $(grep -iE 'WARN|cert' <<<"$out" | head -1)"; fi
 
+# 48 — P6 WARN wording (jace8000 D3): the WARN message must name the expected file:line-free case
+#      (synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks) and point the author to
+#      their block-type declaration, so a legitimate citation-free block does not read as a defect.
+#      It must NOT advise "add file:line citations" as the sole remedy.
+d="$TMP/p6-wording.md"
+{ echo "# Block 48 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The flag is always set. [CERT]"; } > "$d"
+out="$(run "$d")"
+warn_line="$(grep -iE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" | head -1)"
+if echo "$warn_line" | grep -qiE 'synthesis|REMITTANCE' \
+   && echo "$warn_line" | grep -qiE 'block.type|block type|declaration'; then
+  ok "P6 WARN wording: names expected file:line-free case and points to block-type declaration"
+else
+  no "P6 WARN wording: expected-case phrase or block-type pointer missing :: [$warn_line]"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -783,6 +799,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-doc-aware: P6-DOC-AWARE-SUPPRESS sentinel not found in SUT (doc-awareness not implemented or marker missing)"
+  fi
+  # teeth-p6-wording: mutate the new P6 WARN message by stripping the "synthesis / REMITTANCE" expected-case
+  # phrase; the warn line must then lack it, proving test 48's assertion bites (would fail on this mutant).
+  echo "-- teeth-p6-wording: strip 'synthesis / REMITTANCE' phrase from P6 WARN; test 48 must detect absence --"
+  mutant_wording="$TMP/verify-block.P6WORDING.sh"
+  sed 's/Expected for synthesis \/ REMITTANCE[^"]*;//' "$SUT" > "$mutant_wording"
+  d_wording="$TMP/p6-wording-teeth.md"
+  { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+    echo "The flag is always set. [CERT]"; } > "$d_wording"
+  mout_wording="$(bash "$mutant_wording" "$d_wording" 2>/dev/null)"
+  mwarn_wording="$(grep -iE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_wording" | head -1)"
+  if ! echo "$mwarn_wording" | grep -qiE 'synthesis|REMITTANCE'; then
+    ok "teeth-p6-wording: mutant lacks 'synthesis / REMITTANCE' → test 48 assertion would fail (has teeth)"
+  else
+    no "teeth-p6-wording: mutant STILL contains 'synthesis/REMITTANCE' — mutation did not take :: [$mwarn_wording]"
   fi
 fi
 
