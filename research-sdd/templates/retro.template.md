@@ -11,6 +11,12 @@
 
 > Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
 > Each delta: the concrete change · the target file/section · evidence · priority.
+>
+> **Canonical form (machine-counted by sweep-retros.sh):** one row per delta, first cell a bare digit
+> (`| 1 |`, `| 2 |` …). The counter reads ONLY this section and ONLY rows whose first cell is a bare
+> integer. Non-numeric IDs (`| D1 |`, `| W1 |`, `| ES-A |`) or prose under this heading trigger a
+> WARN in the sweep — the reviewer must count by hand. Heading-style declarations outside this section
+> are also non-conforming. Use the table below to stay machine-countable.
 
 | # | Proposed change | Target (file · §/section) | Evidence (block / commit / § / transcript ref) | Type | Priority |
 |---|---|---|---|---|---|
