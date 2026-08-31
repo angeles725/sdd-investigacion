@@ -65,6 +65,7 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 
 **Usage rules:**
 - Never raise a marker without the citation that backs it. No citation ⇒ `[INFER]`.
+- **Negative-existence claims carry the same open-it obligation as positive ones.** A negative existence claim about a named artifact ("no `com.tridium.niagarad.license.*` exists in `niagarad.jar`") is `[CERT]` ONLY if that EXACT named artifact was opened/decompiled. An agent asserting absence about an artifact it did NOT open is `[INFER]`, never `[CERT]` — the same discipline that requires a positive claim to cite the opened source applies symmetrically to absence.
 - A field/semantic assignment derived ONLY from statistical distribution (byte-frequency analysis, uniform-distribution heuristics, correlation sweeps) is `[INFER]`, never `[CERT]` — regardless of how strong the correlation looks. It is promoted to `[CERT]` only by a symbol, a spec, or a documented anchor.
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
@@ -1473,6 +1474,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   sink sharing an ALREADY-PROVEN privileged path — deliberately NOT re-detonated, since one live proof of
   the pattern suffices and re-firing is risk without new information) / **DEFERRED-requires-execution**
   (needs a built probe → §19). Consolidate them in a per-defect verdict table in the phase's terminal block.
+- **A negative dynamic result is a first-class finding, not a failed probe.** When a requires-execution step returns a NEGATIVE (the expected behaviour does NOT occur), record it with the same evidence standard as a positive result, and immediately check whether any prior block asserted the corresponding POSITIVE. If one does, §14-correct it in the same pass — do not defer to a later audit or wait for the operator to ask. This is the proactive execution-result pairing rule; it complements §14's proactive measurement-scan rule. B534's honest negative ("moved file is native") §14-corrected B532's "one Java method = HostId gate", but only because the operator kept asking; this rule makes the pairing mandatory on every negative execution result.
 - **After an incident, check the DEVICE first (refines §17).** If an iteration was killed/crashed mid-write
   in a hardware phase, the §17 resume rule inverts: check the PHYSICAL device state (is it left safe? was
   the write applied or reverted? re-measure the checksum live) BEFORE checking git/disk. A committed block
@@ -1701,6 +1703,7 @@ B64→B55). Make this a habit, not an accident:
   HYPOTHESES). When investigation refutes that judgment, correct the prior block exactly as any
   factual claim and add the back-pointer.
 - A `[CERT-hw]` finding that contradicts a `[CERT]` block MUST trigger a correction (hardware wins, §3).
+- **Correction-on-absence guard.** A §14 correction that retracts or refutes a prior finding ON THE BASIS OF an absence MUST first re-verify that absence in the EXACT named artifact — never a sibling. Absence in a sibling does not prove absence in the target: B478 retracted a "no `niagarad.license.*`" claim that came from opening only `nre.jar`, not `niagarad.jar`, and the wrong correction propagated to four artifacts before revert. Because a correction propagates across the corpus, an unverified absence driving it multiplies the error; re-verify the absence in the exact named artifact, never a sibling, before issuing the correction.
 - **REFUTE vs CLARIFY-SCOPE — distinguish them.** A **refute** means the prior claim was WRONG. A
   **scope-clarification** means the prior claim was RIGHT for a DIFFERENT artifact/build (e.g. a dev-tree
   vs the shipped binary, one version vs another) and only needs a scope note — NOT a refutation. Label it
