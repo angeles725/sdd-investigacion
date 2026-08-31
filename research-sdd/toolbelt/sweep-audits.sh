@@ -67,6 +67,7 @@ done
 now="$(date +%s)"
 age_days="${RSDD_RETRO_AGE_DAYS:-7}"   # ESCALATE pending items older than this many days (override via env)
 pending=0; total=0
+absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<claims>\t<status>\t<age_d>\t<tag>" for oldest-first sort
 # Resolve audits RECURSIVELY (find "$p" -path '*/audits/*.md'), mirroring sweep-retros.sh's retro pass, so a
 # nested-corpus target that keeps its audits deeper (e.g. <target>/research/audits/*.md) is walked here too —
@@ -76,8 +77,24 @@ pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<claims>\t<status>\t<age_d>
 # contents, not audit reports — counting one as an audit would surface it as a bogus '~0 audited claims' item.
 declare -A rsdd_seen_audit=()
 for p in $paths; do
-  [ -d "$p" ] || continue
-  while IFS= read -r f; do
+  # Anti-silent-zero §7: distinguish absent-input from empty-input from no-match.
+  if [ ! -d "$p" ]; then
+    echo "INFO: corpus not found (absent-input): $p"
+    absent_targets=$((absent_targets + 1))
+    continue
+  fi
+  # Collect audit files for this target first to detect empty-input before processing.
+  # A two-pass approach (collect then iterate) lets us distinguish "dir exists, 0 audits"
+  # from "dir missing" — both produced silent zeros before this fix.
+  _sa_files=()
+  while IFS= read -r _f; do
+    [ -n "$_f" ] && _sa_files+=("$_f")
+  done < <(find "$p" -maxdepth 4 -path '*/audits/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+  if [ "${#_sa_files[@]}" -eq 0 ]; then
+    echo "INFO: corpus exists, no audits found (empty-input): $p"
+    continue
+  fi
+  for f in "${_sa_files[@]}"; do
     [ -n "$f" ] || continue
     key="$(realpath -- "$f" 2>/dev/null || printf '%s' "$f")"
     [ -n "${rsdd_seen_audit[$key]:-}" ] && continue
@@ -105,7 +122,7 @@ for p in $paths; do
     tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
     pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$epoch" "$f" "$p" "${claims:-?}" "${status:-none}" "$age_d" "$tag")")
-  done < <(find "$p" -maxdepth 4 -path '*/audits/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+  done
 done
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale audits lead.
@@ -118,12 +135,19 @@ fi
 
 echo ""
 echo "Summary: ${pending} pending / ${total} audits across targets."
+if [ "$absent_targets" -gt 0 ]; then
+  echo "INFO: ${absent_targets} target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above."
+fi
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi
+# "Nothing to review." only when pending=0 AND no truncated-path skips. Absent-input targets (INFO
+# lines above + count below) do NOT suppress this message — the queue is genuinely empty regardless.
 if [ "$pending" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
   echo "Nothing to review."
-else
+fi
+# Pending-action guidance is printed ONLY when there are pending audits to act on (never at 0 pending).
+if [ "$pending" -gt 0 ]; then
   echo "For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed"
   echo "coverage gaps into the §8 backlog, then flip the marker to"
   echo "'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."

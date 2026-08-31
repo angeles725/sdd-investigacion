@@ -337,6 +337,61 @@ else
   no "16 no pending, no skip → 'Nothing to review.' PRESENT — FAILED (always-suppress defect)" "exit=$RC out=[$OUT]"
 fi
 
+# 17 — ABSENT target dir → INFO absent-input line (§7 anti-silent-zero).
+#      Before fix: `[ -d "$p" ] || continue` silently drops the non-existent dir with no output.
+#      After fix:  an INFO absent-input line is emitted, and the present target still sweeps normally.
+#      RED before fix: `grep -q 'INFO.*absent-input'` fails (no output for absent dir).
+kit="$(mkkit c17-absent)"; tgtPresent="$kit/presentTarget"; tgtAbsent="$kit/nonexistent-dir-$$"
+mkaudit "$tgtPresent" "a1.md" "<!-- review-status: pending -->" 2
+write_targets "$kit" "$tgtPresent" "$tgtAbsent"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'INFO.*absent-input' <<<"$OUT" \
+   && grep -q "$tgtAbsent" <<<"$OUT" \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
+  ok "17 absent target dir → INFO absent-input; present target still swept" "(exit $RC)"
+else
+  no "17 absent target dir → INFO absent-input; present target still swept" "exit=$RC out=[$OUT]"
+fi
+
+# 18 — EMPTY target dir (exists but has no audits/*.md) → INFO empty-input line (§7 anti-silent-zero).
+#      Before fix: dir passes `[ -d ]`, find runs, while body never executes — silent zero for that target.
+#      After fix:  INFO empty-input line emitted when find returns 0 audit files.
+#      RED before fix: `grep -q 'INFO.*empty-input'` fails (no output for empty corpus).
+kit="$(mkkit c18-empty)"; tgtPresent="$kit/targetA"; tgtEmpty="$kit/emptyCorpus"
+mkdir -p "$tgtEmpty"   # exists on disk but contains no audits/*.md
+mkaudit "$tgtPresent" "a1.md" "<!-- review-status: pending -->" 2
+write_targets "$kit" "$tgtPresent" "$tgtEmpty"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'INFO.*empty-input' <<<"$OUT" \
+   && grep -q "$tgtEmpty" <<<"$OUT" \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
+  ok "18 corpus exists, no audits → INFO empty-input; present target still swept" "(exit $RC)"
+else
+  no "18 corpus exists, no audits → INFO empty-input; present target still swept" "exit=$RC out=[$OUT]"
+fi
+
+# 19 — ABSENT target + 0 pending → "Nothing to review." PRESENT (absent_targets must not suppress it).
+#      Absent-input targets are disclosed via INFO lines; the review queue is still genuinely empty.
+#      "Nothing to review." must appear. Pending-action guidance must NOT appear (pending=0).
+#      RED if absent_targets gates "Nothing to review." (that was the regression caught by QA fleet gate).
+kit="$(mkkit c19-absent-clean)"; tgtAbsent="$kit/nonexistent-only-$$"
+{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+  printf '| 1 | t1 | `%s` |\n' "$tgtAbsent"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'INFO.*absent-input' <<<"$OUT" \
+   && grep -q 'Nothing to review.' <<<"$OUT" \
+   && ! grep -q 'For each PENDING audit' <<<"$OUT"; then
+  ok "19 absent target + 0 pending → 'Nothing to review.' PRESENT; guidance ABSENT" "(exit $RC)"
+else
+  no "19 absent target + 0 pending → 'Nothing to review.' PRESENT; guidance ABSENT" "exit=$RC out=[$OUT]"
+fi
+
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED audit to false-surface as PENDING --"
@@ -361,6 +416,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth-skipped-gate-sa: remove &&skipped_count==0 conjunct; PARTIAL+0-pending must regain 'Nothing to review.' --"
+  # Gate is now 2 conjuncts: pending==0 AND skipped_count==0 (absent_targets no longer in gate).
   skipped_anchor='if [ "$pending" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then'
   if [[ "$content" != *"$skipped_anchor"* ]]; then
     no "teeth-skipped-gate-sa: locate skipped_count==0 conjunct in SUT" "anchor not found — gate not implemented"
@@ -372,8 +428,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
     } > "$kit/TARGETS.md"
     mutant="$kit/toolbelt/sweep-audits.sh"
-    neutered='if [ "$pending" -eq 0 ]; then'
-    printf '%s\n' "${content/"$skipped_anchor"/$neutered}" > "$mutant"
+    # Remove the skipped_count conjunct so the gate becomes `pending==0` only →
+    # PARTIAL+0-pending fires "Nothing to review." → case 15 goes RED.
+    # NOTE: bash ${content/pattern/repl} mishandles [ ] as glob metacharacters, so sed is used here.
+    sed 's/if \[ "\$pending" -eq 0 \] && \[ "\$skipped_count" -eq 0 \]; then/if [ "$pending" -eq 0 ]; then/' "$SUT" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -q 'Nothing to review.' <<<"$outm"; then
       ok "teeth-skipped-gate-sa: conjunct removed → PARTIAL+0-pending regains 'Nothing to review.' (case 15 teeth)"
@@ -381,6 +439,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-skipped-gate-sa: 'Nothing to review.' still absent after removing conjunct — case 15 has no teeth" \
          "mutant=[$outm]"
     fi
+  fi
+
+  echo "-- teeth(absent-input): suppress INFO emit; absent target must NOT be silently dropped (case 17 teeth) --"
+  absent_anchor='    echo "INFO: corpus not found (absent-input): $p"'
+  if [[ "$content" != *"$absent_anchor"* ]]; then
+    no "teeth(absent-input): locate absent-input INFO emit" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-absent)"; tgtPresent="$kit/presentTarget"; tgtAbsent="$kit/nonexistent-dir-$$"
+    mkaudit "$tgtPresent" "a1.md" "<!-- review-status: pending -->" 2
+    write_targets "$kit" "$tgtPresent" "$tgtAbsent"
+    mutant="$kit/toolbelt/sweep-audits.sh"
+    neutered='    : # INFO suppressed by mutation'
+    printf '%s\n' "${content/"$absent_anchor"/$neutered}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    # Check specifically for the PER-TARGET absent-input line (with the path), not the summary INFO
+    # which also contains "absent-input" but carries the count, not the path.
+    if ! grep -qF "INFO: corpus not found (absent-input): $tgtAbsent" <<<"$outm"; then
+      ok "teeth(absent-input): mutant silently drops absent dir — per-target INFO absent-input gone (case 17 has teeth)"
+    else
+      no "teeth(absent-input): per-target INFO still appears after suppression — case 17 is THEATER: [$outm]"
+    fi
+  fi
+
+  echo "-- teeth(guidance-gate): make guidance unconditional; 0-pending must NOT print pending-action guidance --"
+  # Use sed: bash ${content/...} mishandles [ ] as glob metacharacters.
+  kit="$(mkkit teeth-guidance)"; tgtAbsent="$kit/nonexistent-guidance-$$"
+  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+    printf '| 1 | t1 | `%s` |\n' "$tgtAbsent"
+  } > "$kit/TARGETS.md"
+  mutant="$kit/toolbelt/sweep-audits.sh"
+  # Mutation: remove the pending>0 gate so guidance is unconditional.
+  sed 's/if \[ "\$pending" -gt 0 \]; then/if true; then/' "$SUT" > "$mutant"
+  outm="$("$BASH_BIN" "$mutant" 2>&1)"
+  if grep -q 'For each PENDING audit' <<<"$outm"; then
+    ok "teeth(guidance-gate): unconditional mutant prints guidance at 0 pending (case 19 has teeth)"
+  else
+    no "teeth(guidance-gate): guidance still absent after removing gate — case 19 is THEATER: [$outm]"
   fi
 
   echo "-- teeth(rename-tradeoff): reintroduce --follow to added= lookup; renamed-after-creation audit must ESCALATE --"
