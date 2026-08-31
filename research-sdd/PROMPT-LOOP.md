@@ -256,6 +256,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      CERTIFIABLE-NOW authoring gate still apply; what changes is that N certifiability sweeps run in
      one round rather than N sequential pre-authoring iterations. Not applicable to EVIDENCE corpora
      where each iteration may uncover new gaps.
+     OPERATOR-INJECTED GAP (MID-LOOP PARALLEL). When the operator adds a new high-priority gap while
+     a sweep for the current gap is already in flight (two concurrent Agent/Task calls), it is safe to
+     launch the new gap's sweep concurrently PROVIDED: (a) the two sweeps read INDEPENDENT source trees
+     (no shared mutable state — the same constraint as §16 concurrent scouts); (b) the driver serializes
+     BLOCK WRITING — one block per commit, as usual. Add the new gap to the backlog IMMEDIATELY with
+     `status: pending` and record the injection timestamp in the iteration-history row. Both sweep
+     results return; write the first-finishing block, then the second. This is NOT a §16 multi-focus
+     split (the gaps share one focus); it is a cost-discipline exception to sequential sweep dispatch.
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
@@ -264,6 +272,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
          after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
          documented the JNI boundary; required a §279.9 self-revision.)
+         REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
+         but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
+         the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
+         this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
+         sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
+         the driver closes without authoring a block. This prevents wasted investigation if the gap is
+         remittance at fine grain even when the audit cleared it at coarse grain. (Evidence: apis focus
+         API5/API6/API8, 2026-08-25: 3/8 gaps REMITTANCE-risk; all 3 turned out genuine.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -397,6 +413,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        [CERT-hw] sources/probes/... (highest) · [CERT-live] live remote-service response (§12b) ·
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date · [CERT-a] forum (URL) ·
        [INFER] deduction.  (canonical list: METHODOLOGY §3)
+     LOCAL DOC CORPUS CITE DISCIPLINE: at the first `[CERT-doc]` claim in a block that draws from a
+     new local doc corpus (sources preserved under `sources/manuals/<focus>-docs/`), cite by the FULL
+     HTML basename exactly as registered in the SOURCES.md row — NOT a doc-title shorthand or a
+     truncated form. METHODOLOGY §5 encodes this at the registry level; this surfaces it as a prompted
+     gate at the per-block cite-point so a sub-agent does not have to remember the §5 policy
+     independently. (Evidence: B336 `e975837` — early draft used a shorthand, caught and fixed inline
+     before commit; a shorthand breaks `verify-sources.sh`'s FABRICATED-citation cross-check.)
      Include the Connections section linking related [Block K].
      For doc-synthesis blocks (where `[CERT-doc]` is the primary source), OPTIONALLY add a closing
      section — e.g. "§N.x — What this doc does not resolve" — listing findings the official document
@@ -410,7 +433,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - MECHANIZE the counting: run `$KIT/toolbelt/verify-block.sh <block>` and paste its output — the
          marker tally, [INFER]/[CERT] ratio and [CERT] file:line citation-resolution are COMPUTED, not
          remembered (it exits non-zero on a cited file:line whose line is out of range). It is your own
-         calculator, not an orchestrator gate. `extern` citations (beautified/decompiled/snapshot) are not
+         calculator, not an orchestrator gate.
+         VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
+         all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
+         etc.), verify-block classifies them as `extern` — it prints "ZERO file:line citations resolved"
+         and exits 0. This WARN is EXPECTED, not an error: the script cannot follow a decompiler output
+         path. The mechanized citation gate has checked nothing for that block; the burden falls ENTIRELY
+         on the inline token-verify in this step 5. Self-verify must record this explicitly — e.g.
+         "verify-block: 0 resolved (all extern — decompiled trees); sole citation gate = inline
+         token-verify N/M rows" — so the omission is visible, not silently assumed covered. Separately:
+         a SOURCE_ROOT mapping (not yet implemented) would let the script resolve decompiled paths; the
+         absence of that config is the root cause. Until it exists, inline token-verify is non-negotiable
+         for any decompile-based block. `extern` citations (beautified/decompiled/snapshot) are not
          script-verifiable — still token-check those by reading.
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
@@ -518,7 +552,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          owns those scripts), out of scope for this doctrine.
        - EDGE-TRIGGERED LINT (in-edit, scoped — these are the AGENT'S OWN calculators, exactly like step 5's
          verify-block, NOT orchestrator gates; see METHODOLOGY §11): right after editing the RESEARCH-STATE
-         summary, run `$KIT/toolbelt/verify-state.sh $CORPUS` (cheap — one file); and ONLY if you edited
+         summary, run `$KIT/toolbelt/verify-state.sh $CORPUS --focus <focus-slug>` (cheap — one file;
+         `--focus` scopes the scan to the active focus's RESEARCH-STATE file, avoiding FAIL noise from
+         unrelated focuses in a multi-focus corpus — an unscoped run scans ALL RESEARCH-STATE*.md and
+         drove the covered_blocks-to-satisfy-noise anti-pattern); and ONLY if you edited
          SOURCES.md this iteration (a source was added/preserved), run `$KIT/toolbelt/verify-sources.sh $CORPUS`.
          Do NOT run either EVERY iteration — a linter can only surface a NEW defect when ITS input changed, so
          triggering it on its input's edit adds ZERO redundant corpus re-scans while catching the defect in the
@@ -561,7 +598,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
      step 5's verify-block.sh: per-block marker/citation math is checked in-iteration, source-registry
      integrity is checked once at STOP (it reads the whole corpus).
-     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $CORPUS` BEFORE honoring STOP —
+     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $CORPUS --focus <focus-slug>` BEFORE honoring STOP —
      it exits non-zero when the coverage summary claims all gaps closed while the backlog still lists `pending`
      rows (the stale-mirror desync that let run-A emit a premature STOP). A non-zero exit means you are NOT at
      STOP: refresh the summary / reopen the metric and keep looping. If STOP did NOT fire, do NOT end
