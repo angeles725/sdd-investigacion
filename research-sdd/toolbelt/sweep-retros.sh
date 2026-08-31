@@ -115,28 +115,79 @@ for p in $paths; do
       *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
     esac
     pending=$((pending + 1))
-    # Count proposed deltas — forms derived from the LIVE CORPUS, not retro.template.md.
-    # Template drift caused under-reporting twice: only D-prefix headings were recognised,
-    # leaving P-prefix (P1, P2 …) and bare-numbered (1., 2. …) retros at ~0 deltas.
-    # Under-reporting is the failure mode this guard exists to prevent: a "~0 deltas"
-    # display invites bulk dismissal of the richest content. Over-counting on generic
-    # numbered headings (e.g. "## 1. Introduction") is the ACCEPTED safe direction; no
-    # heuristics are added to avoid it, because every such heuristic risks re-introducing
-    # under-counting.
-    #   Form 1 (table row):    '| <n> | …' — first cell is a bare integer.
-    #   Form 2 (letter+num):   '## P<n>', '## D<n>', '## G<n>' … — any single letter
-    #                          followed immediately by a number, then a separator.
-    #   Form 3 (bare number):  '## <n>. title' or '## <n> — title' — number + separator.
-    #   Form 4 (Delta word):   '## Delta <n>' — backward compat with the template form.
-    # sort -un deduplicates so a retro using both table and heading shapes for the same
-    # delta number counts it once.
-    deltas=$(
-      {
-        grep -oE '^\| *[0-9]+ \|' "$f" 2>/dev/null | grep -oE '[0-9]+'
-        grep -oiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+|Delta[[:space:]]+[0-9]+)[[:space:].—–-]' "$f" 2>/dev/null \
-          | grep -oE '[0-9]+'
-      } | sort -un | wc -l | tr -d ' '
-    )
+    # Count proposed deltas — SECTION-SCOPED, doctrine-first (see retro.template.md).
+    # THE LOAD-BEARING INVARIANT: a retro with any delta indicator never reports confident 0.
+    #
+    # THREE COUNTING FORMS (precedence: form 1 > form 2 > form 3):
+    #   FORM 1 — canonical section + TABLE: count non-separator data rows (ID-agnostic).
+    #   FORM 2 — canonical section + no table: count delta-ENTRY ###-headings.
+    #            Delta-entry heading = separator-shaped: has em-dash/en-dash after short
+    #            token (e.g. "### D1 — ...", "### DELTA-1 — ...", "### PN-A — ...").
+    #            Structural headings (### Rationale, ### Evidence, ### Dedup) have no
+    #            em-dash and are not counted. Bug guard: section exit uses /^##[^#]/ (not
+    #            /^##/), so ### headings do NOT exit the section prematurely.
+    #   FORM 3 — no canonical section: count "## Delta "-prefixed separator-shaped ##-headings
+    #            (e.g. "## Delta W1 — ...", "## Delta SO1 — ...", "## Delta 1 — ...").
+    #
+    # WARN CASES (counted as "?"):
+    #   WARN-A: canonical section found, no table (form 1), no delta-entry sub-headings (form 2)
+    #           → "delta section present but not in countable form — count by hand"
+    #   WARN-B: no canonical section, no "## Delta"-headed deltas (form 3), but non-canonical
+    #           indicators present (per-delta headings without "## Delta" prefix, letter+digit,
+    #           bare-number headings) → "non-conforming delta declaration — count by hand"
+    #
+    # CANONICAL HEADING SET (tolerant, case-insensitive):
+    #   "## [N. ] Proposed kit delta[s][ (...)| EOL]"  (tightened: excludes "verdict" etc.)
+    #   "## Proposed delta[s][...]"
+    #   "## Delta proposals[...]"
+    #   "## Deltas NUEVOS[...]"
+    _sec_r=$(awk '
+      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0 }
+      { low=tolower($0) }
+      low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]*\(|[[:space:]]*$)/ ||
+      low ~ /^## proposed delta/                                                     ||
+      low ~ /^## delta proposals/                                                    ||
+      low ~ /^## deltas nuevos/                                                      { in_sec=1; found=1; next }
+      /^##[^#]/ && in_sec { in_sec=0 }
+      in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
+      in_sec && /^###[^#]/ && /—/ { h3d++ }
+      !in_sec && low ~ /^## delta / && /—/ { d3++ }
+      END {
+        data = (rows > 0) ? rows - 1 : 0
+        if (found) {
+          if      (data  > 0) print found+0 ":1:" data+0
+          else if (h3d   > 0) print found+0 ":2:" h3d+0
+          else                print found+0 ":w:0"
+        } else {
+          if (d3 > 0) print "0:3:" d3+0
+          else        print "0:n:0"
+        }
+      }
+    ' "$f")
+    _sec_found="${_sec_r%%:*}"
+    _sec_rest="${_sec_r#*:}"; _sec_form="${_sec_rest%%:*}"; _sec_cnt="${_sec_rest##*:}"
+    delta_warn=""
+    if [ "$_sec_found" = 1 ]; then
+      case "$_sec_form" in
+        1|2) deltas="$_sec_cnt" ;;                          # form 1 (table) or form 2 (### entries)
+        *)   delta_warn="delta section present but not in countable form — count by hand"
+             deltas="?" ;;                                  # WARN-A: canonical section, pure prose
+      esac
+    else
+      case "$_sec_form" in
+        3)   deltas="$_sec_cnt" ;;                          # form 3 (## Delta-prefixed headings)
+        *)   # WARN-B or confident zero — check for non-canonical indicators
+             if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
+                || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
+               delta_warn="non-conforming delta declaration — count by hand"
+               deltas="?"                                   # WARN-B
+             else
+               deltas=0                                     # confident zero — no indicators at all
+             fi
+             ;;
+      esac
+    fi
+    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt
     # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
     # under that name), falling back to file mtime when the file is untracked or the dir is not a git
     # repo — so a non-git target never crashes the sweep.
@@ -154,17 +205,22 @@ for p in $paths; do
     age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
     age_d=$(( age_s / 86400 ))
     tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
-    pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
-      "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag")")
+    # Use \x1f (ASCII Unit Separator) as field delimiter — it is not a whitespace IFS character,
+    # so consecutive delimiters (e.g. when $tag and/or $delta_warn are empty) are NOT collapsed
+    # by IFS splitting in `read`.  A plain tab as IFS is whitespace: two consecutive tabs become
+    # one separator and the empty $tag field disappears, shifting $delta_warn into the tag slot.
+    pending_rows+=("$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' \
+      "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag" "$delta_warn")")
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 done
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
 if [ "${#pending_rows[@]}" -gt 0 ]; then
-  while IFS=$'\t' read -r _ep f p deltas status age_d tag; do
+  while IFS=$'\x1f' read -r _ep f p deltas status age_d tag delta_warn; do
     echo "PENDING  $f"
     echo "         target: $p  ·  ~${deltas} proposed deltas  ·  status: ${status}  ·  age: ${age_d}d${tag}"
-  done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\t' -k1,1)
+    [ -n "$delta_warn" ] && echo "         WARN: ${delta_warn}"
+  done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\x1f' -k1,1)
 fi
 
 echo ""

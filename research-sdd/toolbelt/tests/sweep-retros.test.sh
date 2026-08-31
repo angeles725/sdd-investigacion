@@ -150,15 +150,24 @@ else
   no "4 delta count → exactly N reported" "exit=$RC out=[$OUT]"
 fi
 
-# 5 — ZERO deltas. A pending retro with no numbered delta rows still surfaces, reporting '~0'.
+# 5 — ZERO numeric rows in canonical section → WARN, never silent ~0.
+#     A pending retro whose '## Proposed kit deltas' section has a table header/separator
+#     row but NO data rows (nd=0) cannot distinguish "genuinely 0 deltas" from "deltas
+#     written in non-numeric form that the counter cannot see" — so the counter must
+#     WARN and show ~? instead of silently reporting ~0. The human counts by hand.
+#     RED on the old digit-extraction counter: it reported ~0 (silent).
+#     RED on the old behaviour (STATE 2): removing the 0-row WARN (tooth D1) must cause
+#     this case to silently report ~0 again.
 kit="$(mkkit c5-zero)"; tgt="$kit/targetA"
 mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 0
 write_targets "$kit" "$tgt"
 run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~0 proposed deltas' <<<"$OUT"; then
-  ok "5 zero deltas → pending, ~0 reported" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "5 canonical section, 0 numeric rows → WARN 'not in countable form' + ~?" "(exit $RC)"
 else
-  no "5 zero deltas → pending, ~0 reported" "exit=$RC out=[$OUT]"
+  no "5 canonical section, 0 numeric rows → WARN 'not in countable form' + ~?" "exit=$RC out=[$OUT]"
 fi
 
 # 6 — ABSENT marker → pending with 'status: none'. No review-status line at all means the retro
@@ -583,11 +592,14 @@ else
   no "28 unrecognized status 'accepted' → PENDING + WARN printed" "exit=$RC out=[$OUT]"
 fi
 
-# 29 — Delta count for heading-style deltas ('## D<n>'). A retro that lists its deltas
-#      as '## D1 — ...' / '## D2 — ...' section headings (not a markdown table) must report
-#      the correct delta count. The old counter only matched '| <digits> |' table rows and
-#      would report ~0 for a heading-only retro.
-#      RED before G2 fix: the count stays at 0 for a heading-only retro.
+# 29 — Heading-style deltas ('## D<n>') without canonical section → WARN, never silent ~0.
+#      A retro that lists deltas as '## D1 — ...' per-delta headings (no '## Proposed kit
+#      deltas' section) cannot be machine-counted; the section-scoped counter detects the
+#      D-prefix letter+digit headings as non-canonical delta indicators and WARNs the reviewer
+#      to count by hand. The invariant: a retro with any delta indicator never reports ~0.
+#      RED on the old counter: it reported ~3 from the heading forms but the digit-extraction
+#      approach was fragile and prone to false negatives on section-heading variants.
+#      Doctrine says: WARN loudly when non-canonical, never a confident count from headings.
 kit="$(mkkit c29-headingdeltas)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -600,10 +612,11 @@ write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q '~3 proposed deltas' <<<"$OUT"; then
-  ok "29 heading-style deltas (## D<n>) → counted correctly (~3)" "(exit $RC)"
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "29 heading-style D<n> (no canonical section) → WARN 'non-conforming' + ~?" "(exit $RC)"
 else
-  no "29 heading-style deltas (## D<n>) → counted correctly (~3)" "exit=$RC out=[$OUT]"
+  no "29 heading-style D<n> (no canonical section) → WARN 'non-conforming' + ~?" "exit=$RC out=[$OUT]"
 fi
 
 # 30 — Grace window: block committed VERY RECENTLY (within grace from now) → no alert.
@@ -680,10 +693,14 @@ else
   no "32b aged block without waiver → MISSING-RETRO fires (differential control for test 32)" "exit=$RC out=[$OUT]"
 fi
 
-# 33 — Delta dedup coverage: table rows 1-3 + heading-style D4-D5 (no overlap) → 5 total.
-#      When a retro uses BOTH table rows (numbers 1-3) AND heading-style deltas (D4, D5),
-#      the combined count must be 5: no overlap, all five distinct delta numbers counted once.
-#      Covers the dedup path (sort -un) when the two forms produce NON-OVERLAPPING numbers.
+# 33 — Section-scoped count: canonical section 3 rows; D4-D5 headings outside are ignored.
+#      When the canonical '## Proposed kit deltas' section has 3 numeric rows and the retro
+#      ALSO has D4/D5 heading-style deltas OUTSIDE that section, the counter counts ONLY the
+#      3 rows inside the canonical section — it does not count headings outside it.
+#      No WARN: canonical section was found and had countable rows (STATE 1).
+#      Before the section-scoped fix, the old dedup pipeline counted 5 (rows 1-3 + D4, D5).
+#      After: strict section scope → 3.  The D4/D5 headings are informational outside the
+#      canonical section and do not affect the count.
 kit="$(mkkit c33-dedup-nooverlap)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -696,10 +713,11 @@ write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q '~5 proposed deltas' <<<"$OUT"; then
-  ok "33 mixed table+heading (no overlap): rows 1-3 + D4-D5 → 5 deltas" "(exit $RC)"
+   && grep -q '~3 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "33 section-scoped: canonical 3 rows + D4-D5 outside → ~3 (headings outside not counted)" "(exit $RC)"
 else
-  no "33 mixed table+heading (no overlap): rows 1-3 + D4-D5 → 5 deltas" "exit=$RC out=[$OUT]"
+  no "33 section-scoped: canonical 3 rows + D4-D5 outside → ~3 (headings outside not counted)" "exit=$RC out=[$OUT]"
 fi
 
 # 34 — Delta dedup coverage: table rows 1-3 + heading-style D1-D3 (full overlap) → 3 unique.
@@ -745,10 +763,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 36 — P-prefix heading style (synthetic). A retro that lists deltas as '## P<n> — title'
-#      headings must count them correctly. P is a Proposal prefix found in the real corpus;
-#      the old counter only recognised D-prefix, so P-prefix retros rendered as ~0 deltas.
-#      RED before this fix.
+# 36 — P-prefix heading style (## P<n>) without canonical section → WARN (non-conforming).
+#      Doctrine-first: the counter binds to the canonical '## Proposed kit deltas' section.
+#      A retro with only P-prefix headings has no canonical section; the counter detects
+#      '## P1 — ...' as a non-canonical letter+digit heading indicator and WARNs.
+#      The value is the loud WARN over the fragile heading-count (which could under-count
+#      or over-count on section-heading variants invisible to the old heuristic).
 kit="$(mkkit c36-pprefix)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -761,16 +781,19 @@ write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q '~3 proposed deltas' <<<"$OUT"; then
-  ok "36 P-prefix heading style (## P<n>) → counted correctly (~3)" "(exit $RC)"
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "36 P-prefix (## P<n>, no canonical section) → WARN 'non-conforming' + ~?" "(exit $RC)"
 else
-  no "36 P-prefix heading style (## P<n>) → counted correctly (~3)" "exit=$RC out=[$OUT]"
+  no "36 P-prefix (## P<n>, no canonical section) → WARN 'non-conforming' + ~?" "exit=$RC out=[$OUT]"
 fi
 
-# 37 — Bare-number heading style (synthetic). A retro whose proposal headings are plain
-#      numbered sections ('## 1. title', '## 2. title' …) must count them correctly.
-#      This shape appears in the real corpus; the old counter did not recognise bare
-#      numbers, so such retros rendered as ~0 deltas. RED before this fix.
+# 37 — Bare-number heading style (## N.) without canonical section → WARN (non-conforming).
+#      Doctrine: the counter binds to the canonical '## Proposed kit deltas' section.
+#      A retro with only bare-number headings ('## 1. title') has no canonical section;
+#      the counter detects the bare-number heading as a non-canonical indicator and WARNs.
+#      WARN is the honest signal: the reviewer must count by hand, not trust a fragile
+#      heuristic that was prone to false negatives on section-heading variants.
 kit="$(mkkit c37-barenum)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -783,10 +806,11 @@ write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q '~3 proposed deltas' <<<"$OUT"; then
-  ok "37 bare-number heading style (## N. title) → counted correctly (~3)" "(exit $RC)"
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "37 bare-number (## N., no canonical section) → WARN 'non-conforming' + ~?" "(exit $RC)"
 else
-  no "37 bare-number heading style (## N. title) → counted correctly (~3)" "exit=$RC out=[$OUT]"
+  no "37 bare-number (## N., no canonical section) → WARN 'non-conforming' + ~?" "exit=$RC out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------
@@ -816,80 +840,102 @@ fi
 
 FIXTURES="$HERE/fixtures"
 
-# 38 — P-prefix headings, 6 items: P1–P5 real proposals plus P6 "what worked well"
-#      (accepted over-count: the P-prefix rule counts all P-headed sections).
+# 38 — Corpus fixture: P-prefix headings, no canonical section → WARN (non-conforming).
+#      The real retro uses ## P1 … ## P6 headings with no '## Proposed kit deltas' section.
+#      Under doctrine-first counting, any P-prefix heading is a non-canonical delta indicator
+#      → STATE 3: WARN "non-conforming declaration — count by hand". Never a confident count.
+#      Before the section-scoped fix, this fixture counted ~6 via heading extraction.
 kit="$(mkkit c38-pprefix6)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/p-prefix-headings-6.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~6 proposed deltas' <<<"$OUT"; then
-  ok "38 corpus: p-prefix-headings-6.md → P-prefix (6 items), ~6 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "38 corpus: p-prefix-headings-6.md → WARN 'non-conforming' + ~? (no canonical section)" "(exit $RC)"
 else
-  no "38 corpus: p-prefix-headings-6.md → P-prefix (6 items), ~6 deltas" "exit=$RC out=[$OUT]"
+  no "38 corpus: p-prefix-headings-6.md → WARN 'non-conforming' + ~? (no canonical section)" "exit=$RC out=[$OUT]"
 fi
 
-# 39 — P-prefix headings, 23 items (P1–P23): the large P-prefix retro that was
-#      the clearest victim of the P-blind counter (the richest content rendered as ~0).
+# 39 — Corpus fixture: P-prefix headings, 23 items, no canonical section → WARN.
+#      The largest P-prefix retro — the one that rendered as ~0 before the heading-counter
+#      fix and now, under doctrine-first, renders as WARN (non-conforming).
 kit="$(mkkit c39-pprefix23)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/p-prefix-headings-23.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~23 proposed deltas' <<<"$OUT"; then
-  ok "39 corpus: p-prefix-headings-23.md → P-prefix (23 items), ~23 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "39 corpus: p-prefix-headings-23.md → WARN 'non-conforming' + ~? (no canonical section)" "(exit $RC)"
 else
-  no "39 corpus: p-prefix-headings-23.md → P-prefix (23 items), ~23 deltas" "exit=$RC out=[$OUT]"
+  no "39 corpus: p-prefix-headings-23.md → WARN 'non-conforming' + ~? (no canonical section)" "exit=$RC out=[$OUT]"
 fi
 
-# 40 — D-prefix headings, 12 items (D1–D12, non-contiguous order): already counted
-#      correctly before the P-prefix fix; anchored here to catch any regression.
+# 40 — Corpus fixture: D-prefix headings, 12 items, no canonical section → WARN.
+#      Regression anchor: these D-prefix headings were counted correctly by the old heading
+#      counter; under section-scoped doctrine they are non-conforming and WARN instead.
 kit="$(mkkit c40-dprefix12)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/d-prefix-headings-12.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~12 proposed deltas' <<<"$OUT"; then
-  ok "40 corpus: d-prefix-headings-12.md → D-prefix (12 items), ~12 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "40 corpus: d-prefix-headings-12.md → WARN 'non-conforming' + ~? (no canonical section)" "(exit $RC)"
 else
-  no "40 corpus: d-prefix-headings-12.md → D-prefix (12 items), ~12 deltas" "exit=$RC out=[$OUT]"
+  no "40 corpus: d-prefix-headings-12.md → WARN 'non-conforming' + ~? (no canonical section)" "exit=$RC out=[$OUT]"
 fi
 
-# 41 — D-prefix headings, 7 items (D13–D19): second of three D-prefix fixtures.
+# 41 — Corpus fixture: D-prefix headings, 7 items (D13–D19) → WARN.
 kit="$(mkkit c41-dprefix7)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/d-prefix-headings-7.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~7 proposed deltas' <<<"$OUT"; then
-  ok "41 corpus: d-prefix-headings-7.md → D-prefix (7 items), ~7 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "41 corpus: d-prefix-headings-7.md → WARN 'non-conforming' + ~? (no canonical section)" "(exit $RC)"
 else
-  no "41 corpus: d-prefix-headings-7.md → D-prefix (7 items), ~7 deltas" "exit=$RC out=[$OUT]"
+  no "41 corpus: d-prefix-headings-7.md → WARN 'non-conforming' + ~? (no canonical section)" "exit=$RC out=[$OUT]"
 fi
 
-# 42 — D-prefix headings, 4 items (D20–D23): third of three D-prefix fixtures.
+# 42 — Corpus fixture: D-prefix headings, 4 items (D20–D23) → WARN.
 kit="$(mkkit c42-dprefix4)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/d-prefix-headings-4.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~4 proposed deltas' <<<"$OUT"; then
-  ok "42 corpus: d-prefix-headings-4.md → D-prefix (4 items), ~4 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "42 corpus: d-prefix-headings-4.md → WARN 'non-conforming' + ~? (no canonical section)" "(exit $RC)"
 else
-  no "42 corpus: d-prefix-headings-4.md → D-prefix (4 items), ~4 deltas" "exit=$RC out=[$OUT]"
+  no "42 corpus: d-prefix-headings-4.md → WARN 'non-conforming' + ~? (no canonical section)" "exit=$RC out=[$OUT]"
 fi
 
-# 43 — Delta table with letter-suffix rows: '| 1b |' and '| 1c |' do NOT match the
-#      '| <digits> |' pattern, so only rows '| 1 |' and '| 2 |' count → 2.
-#      Anchors the letter-suffix exclusion so it is not accidentally widened.
-kit="$(mkkit c43-lettersuffix2)"; tgt="$kit/targetA"
+# 43 — Delta table with letter-suffix rows: '| 1b |' and '| 1c |' count as data rows
+#      under ID-agnostic counting. The fixture has 4 data rows (| 1 |, | 1b |, | 1c |, | 2 |)
+#      → ~4 deltas. Previously the strict '| <digits> |' pattern counted only ~2; under
+#      doctrine-first ID-agnostic counting, the first-column content is irrelevant — every
+#      non-separator table row under the canonical section is one delta.
+kit="$(mkkit c43-lettersuffix4)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/delta-table-letter-suffix-2.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~2 proposed deltas' <<<"$OUT"; then
-  ok "43 corpus: delta-table-letter-suffix-2.md → letter-suffix rows uncounted, ~2 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~4 proposed deltas' <<<"$OUT"; then
+  ok "43 corpus: delta-table-letter-suffix-2.md → ID-agnostic: all 4 data rows counted (~4)" "(exit $RC)"
 else
-  no "43 corpus: delta-table-letter-suffix-2.md → letter-suffix rows uncounted, ~2 deltas" "exit=$RC out=[$OUT]"
+  no "43 corpus: delta-table-letter-suffix-2.md → ID-agnostic: all 4 data rows counted (~4)" "exit=$RC out=[$OUT]"
 fi
 
-# 44 — Bare-number headings, 5 items (## 1. through ## 5., including the "what worked
-#      well" section — accepted over-count per the bare-number rule).
+# 44 — Corpus fixture: bare-number headings (## 1., ## 2. … ## 5.), no canonical section.
+#      Under doctrine-first counting, bare-number headings (`## N.`) are a non-canonical
+#      delta indicator (matching pattern [0-9]+[.—–-]) with no canonical `## Proposed kit
+#      deltas` section → STATE 3: WARN "non-conforming declaration — count by hand". The
+#      old heading-extraction counter counted ~5; under section-scoped doctrine it WARNs.
 kit="$(mkkit c44-barenum5)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"; cp "$FIXTURES/bare-number-headings-5.md" "$tgt/retros/"
 write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q '~5 proposed deltas' <<<"$OUT"; then
-  ok "44 corpus: bare-number-headings-5.md → bare-number headings (5 items), ~5 deltas" "(exit $RC)"
+if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "44 corpus: bare-number-headings-5.md → WARN 'non-conforming' + ~? (no canonical section)" "(exit $RC)"
 else
-  no "44 corpus: bare-number-headings-5.md → bare-number headings (5 items), ~5 deltas" "exit=$RC out=[$OUT]"
+  no "44 corpus: bare-number-headings-5.md → WARN 'non-conforming' + ~? (no canonical section)" "exit=$RC out=[$OUT]"
 fi
 
 # 45 — Plain delta table, 5 items: simple '| 1 |' … '| 5 |' table format; already
@@ -905,13 +951,13 @@ fi
 
 # ---------------------------------------------------------------------------
 # 46 — SPACELESS SEPARATORS: em dash (—, U+2014) and en dash (–, U+2013) directly
-#      after the delta number, with no space before them.
+#      after the delta number, with no space before them — NO canonical section.
 #
-# The heading regex at sweep-retros.sh:119 includes '—' and '–' in its separator class
-# [[:space:].—–-] so that '## P1—title' and '## D1–title' (spaceless) are recognised.
-# Every fixture from the real corpus puts a SPACE before the separator, so the whitespace
-# member is what matches in practice; the em/en dash members have never been exercised
-# and could be silently deleted as noise without failing any existing test.
+# The non-canonical indicator check in sweep-retros.sh includes '—' and '–' in its
+# separator class [[:space:].—–-] so that '## P1—title' and '## D2–title' (spaceless)
+# are recognised as non-canonical delta indicators → STATE 3: WARN "non-conforming
+# declaration — count by hand". Under doctrine-first counting, only the canonical
+# `## Proposed kit deltas` table form produces a numeric count.
 #
 # SYNTHETIC fixture — this shape does NOT yet exist in the real corpus. It is added here
 # to pin the branch so its members are not mistaken for dead code. When a real retro does
@@ -930,10 +976,11 @@ write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q '~3 proposed deltas' <<<"$OUT"; then
-  ok "46 spaceless separators (P1— em-dash, D2– en-dash, 3— bare) → ~3 counted" "(exit $RC)"
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
+  ok "46 spaceless separators (P1— D2– 3—, no canonical section) → WARN 'non-conforming' + ~?" "(exit $RC)"
 else
-  no "46 spaceless separators (P1— em-dash, D2– en-dash, 3— bare) → ~3 counted" "exit=$RC out=[$OUT]"
+  no "46 spaceless separators (P1— D2– 3—, no canonical section) → WARN 'non-conforming' + ~?" "exit=$RC out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1113,6 +1160,190 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 55 — STATE 4: No delta indicators at all → confident 0, no WARN.
+#      A retro with no recognisable delta marker (no ## Proposed kit deltas heading, no
+#      letter+digit/bare-number headings, no Proposed/Delta/Deltas container heading) must
+#      report exactly `~0 proposed deltas` with NO WARN. This proves the four-state model
+#      is complete: STATE 4 is the only path that yields a confident 0.
+kit="$(mkkit c55-nodelta)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro — target · focus · 2026-08-01\n\n'
+  printf '## Already covered\n\n- lesson A → already in kit\n\n'
+  printf '## Honest verdict\n\nNo new deltas.\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "55 no delta indicators → confident ~0, no WARN" "(exit $RC)"
+else
+  no "55 no delta indicators → confident ~0, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 56 — '## Proposed deltas' is a CANONICAL section heading → table rows COUNT (STATE 1).
+#      Under the tolerant heading recogniser, '## Proposed deltas' matches the fleet corpus
+#      form and is treated as canonical. A table with 1 data row under it counts as ~1.
+#      No WARN: canonical section found, table present.
+kit="$(mkkit c56-proposed-deltas)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed deltas\n\n'
+  printf '| # | Change |\n|---|---|\n| 1 | delta W1 |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~1 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "56 '## Proposed deltas' (canonical form) → table rows counted, ~1, no WARN" "(exit $RC)"
+else
+  no "56 '## Proposed deltas' (canonical form) → table rows counted, ~1, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 57 — FORM 3: '## Delta W1 —' separator-shaped headings outside canonical section → COUNT.
+#      Each '## Delta <id> — <title>' line is a form-3 delta-entry heading. Two such headings
+#      must count as ~2 proposed deltas with no WARN. The '## Delta ' prefix + em-dash separator
+#      is what makes these machine-countable (vs '## D1 —' which is not ## Delta-prefixed).
+#      RED on the old code (would WARN 'non-conforming'); proves form-3 counting works.
+kit="$(mkkit c57-delta-word)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Delta W1 — some fix\n\n## Delta W2 — another fix\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~2 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "57 '## Delta W1/W2 — …' form-3 headings → ~2 counted, no WARN" "(exit $RC)"
+else
+  no "57 '## Delta W1/W2 — …' form-3 headings → ~2 counted, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 58 — INVARIANT: any delta indicator (canonical or non-canonical) must never produce
+#      '~0 proposed deltas' in the output. This catches silent-zero regressions that slip
+#      past individual state tests. Verified against three fixtures:
+#        (a) canonical section + numeric rows → STATE 1: ~N (never 0)
+#        (b) canonical section + 0 numeric rows → STATE 2: ~? (never 0)
+#        (c) non-canonical indicators only → STATE 3: ~? (never 0)
+#      Confident ~0 is ONLY allowed in STATE 4 (no indicators at all).
+_inv_pass=0; _inv_fail=0
+# (a) STATE 1 fixture
+kit="$(mkkit c58a-inv-state1)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | Change |\n|---|---|\n| 1 | delta one |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if ! grep -q '~0 proposed deltas' <<<"$OUT"; then _inv_pass=$((_inv_pass+1))
+else _inv_fail=$((_inv_fail+1)); fi
+# (b) STATE 2 fixture (canonical section, D-prefix rows only)
+kit="$(mkkit c58b-inv-state2)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| D1 | not numeric | file | evidence | new | HIGH |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if ! grep -q '~0 proposed deltas' <<<"$OUT"; then _inv_pass=$((_inv_pass+1))
+else _inv_fail=$((_inv_fail+1)); fi
+# (c) STATE 3 fixture (P-prefix headings, no canonical section)
+kit="$(mkkit c58c-inv-state3)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## P1 — some delta\n\n## P2 — another delta\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if ! grep -q '~0 proposed deltas' <<<"$OUT"; then _inv_pass=$((_inv_pass+1))
+else _inv_fail=$((_inv_fail+1)); fi
+if [ "$_inv_fail" = 0 ]; then
+  ok "58 INVARIANT: any delta indicator → never ~0 (STATE 1/2/3 all non-zero)" "($_inv_pass/3 checks passed)"
+else
+  no "58 INVARIANT: any delta indicator → never ~0 (STATE 1/2/3 all non-zero)" "$_inv_fail/3 checks reported ~0 — silent zero regression"
+fi
+
+# 59 — ID-AGNOSTIC TABLE COUNTING: D-prefix table rows in canonical section → COUNT (STATE 1).
+#      The dominant corpus convention uses non-numeric IDs (| D1 |, | W1 |, | PN-A |) in the
+#      delta table. Under the ID-agnostic row counter, these count exactly like | 1 |, | 2 |.
+#      No WARN: the canonical section has a table with data rows.
+#      RED on the old strict numeric counter (would report STATE 2 WARN + ~? for D-prefix rows).
+kit="$(mkkit c59-dprefix-table)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | Change | Target | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| D1 | first delta | METHODOLOGY.md §5 | B01 | new | HIGH |\n'
+  printf '| D2 | second delta | PROMPT-LOOP.md | B02 | refinement | MED |\n'
+  printf '| D3 | third delta | METHODOLOGY.md §12 | B03 | new | LOW |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~3 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "59 D-prefix table rows in canonical section → ~3 counted, no WARN (ID-agnostic)" "(exit $RC)"
+else
+  no "59 D-prefix table rows in canonical section → ~3 counted, no WARN (ID-agnostic)" "exit=$RC out=[$OUT]"
+fi
+
+# 60 — FORM 2: canonical section + separator-shaped ### heading → COUNT.
+#      '### D1 — title' under '## Proposed kit deltas' is a delta-entry heading (has '—').
+#      The section exit uses /^##[^#]/ so the ### heading does NOT exit the section prematurely.
+#      Must count ~1, no WARN. RED on the old /^##/ bug (which exited on the first ### line).
+kit="$(mkkit c60-form2-h3)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '### D1 — first fix of this run\n\nsome prose about it\n\n'
+  printf '## Next section\n\nnot a delta.\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~1 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "60 form 2: '### D1 — …' in canonical section → ~1 counted, no WARN" "(exit $RC)"
+else
+  no "60 form 2: '### D1 — …' in canonical section → ~1 counted, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 61 — FORM 2 over-count guard: structural ### headings (no '—') are NOT counted.
+#      Delta section has '### D1 — title' (delta, has '—') and '### Rationale' (structural,
+#      no '—'). Must count ~1 (delta only), not ~2 (delta+structural).
+#      Proves the separator-shape discriminator works: only ### with '—' count as delta entries.
+kit="$(mkkit c61-form2-noover)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '### D1 — first delta\n\n'
+  printf '### Rationale\n\nsome reasoning without em-dash\n\n'
+  printf '### D2 — second delta\n\n'
+  printf '### Evidence\n\nno em-dash here either\n\n'
+  printf '## Already covered\n\nnot a delta section.\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~2 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "61 form 2 over-count guard: '### Rationale'/'### Evidence' (no —) not counted → ~2 not ~4" "(exit $RC)"
+else
+  no "61 form 2 over-count guard: structural ### without — excluded → ~2 not ~4" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
 # match (rename its pattern to a token no status ever equals) and re-run the APPLIED fixture:
@@ -1140,27 +1371,82 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Second teeth (negative control for the delta count). Case 4 claims '~N proposed deltas' is a
-  # real tally of the '| <digits> |' rows. Break the table-row grep on a throwaway copy so it can
-  # never match a numbered row, then re-run a 5-delta pending fixture: the mutant MUST report '~0'.
-  # The anchor targets the first grep in the G2 dedup pipeline (grep -oE form; the old -cE form was
-  # refactored when dedup was added). Breaking it silences ALL table-row matches; case 4 has teeth
-  # only if the count drops to 0.
-  echo "-- teeth: break the delta-count regex, expect a 5-delta retro to miscount as ~0 --"
-  anchor2="grep -oE '^\| *[0-9]+ \|'"
+  # real tally of the ID-agnostic data rows inside the canonical section, computed by the awk
+  # script's END clause (form-1 path: print found+0 ":1:" data+0). Force the form-1 print line
+  # to emit WARN-A path instead; then re-run a 5-delta pending fixture: the count disappears
+  # and WARN appears. Case 4 has teeth only if the count disappears and WARN appears.
+  # Also proves test 59 (D-prefix table fixture must COUNT, not WARN).
+  echo "-- teeth: force awk form-1 path to WARN-A, expect STATE-1 fixture to downgrade to WARN + ~? --"
+  anchor2='print found+0 ":1:" data+0'
   if [[ "$content" != *"$anchor2"* ]]; then
-    no "teeth: locate delta-count regex" "anchor not found — SUT drifted?"
+    no "teeth: locate awk END form-1 data-count clause" "anchor not found — SUT drifted?"
   else
     kit="$(mkkit teeth-count)"; tgt="$kit/targetA"
     mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 5
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    broken="grep -oE '^__never_a_delta_row__'"
+    broken='print found+0 ":w:0"'                   # force WARN-A path regardless of rows seen
     printf '%s\n' "${content/"$anchor2"/$broken}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
-    if grep -q '~0 proposed deltas' <<<"$outm" && ! grep -q '~5 proposed deltas' <<<"$outm"; then
-      ok "teeth: count-regex-broken mutant miscounts deltas (~0 not ~5)" "(case 4 has teeth)"
+    if grep -qF '~? proposed deltas' <<<"$outm" \
+       && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
+       && ! grep -q '~5 proposed deltas' <<<"$outm"; then
+      ok "teeth: awk-form1-forced-warn mutant downgrades STATE-1 to WARN-A (case 4 + 59 have teeth)" "()"
     else
-      no "teeth: count-regex-broken mutant miscounts deltas (~0 not ~5)" "mutant kept counting — case 4 is THEATER: [$outm]"
+      no "teeth: awk-form1-forced-warn mutant downgrades STATE-1 to WARN-A (case 4 is THEATER)" "mutant=[$outm]"
+    fi
+  fi
+
+  # Teeth F2 + F3 — form-2 and form-3 counting teeth.
+  # F2: break the ### delta-entry counter (h3d++) → form-2 fixture (no table, ### D1 —) must WARN
+  # F3: break the ## Delta counter (d3++) → form-3 fixture (## Delta W1/W2 —) must fall through to
+  #     indicator grep and WARN (non-conforming), not count.
+  echo "-- teeth F2: break h3d++; form-2 fixture (### D1 — under canonical) must WARN, not count --"
+  anchor_f2='h3d++'
+  if [[ "$content" != *"$anchor_f2"* ]]; then
+    no "teeth F2: locate h3d++ counter in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-f2-h3d)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n# Retro\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf '### D1 — first delta of the run\n\nsome prose\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_f2"/h3d=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -qF '~? proposed deltas' <<<"$outm" \
+       && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
+       && ! grep -q '~1 proposed deltas' <<<"$outm"; then
+      ok "teeth F2: h3d-zeroed mutant WARNs form-2 fixture (case 60 has teeth)" "()"
+    else
+      no "teeth F2: h3d-zeroed mutant must WARN form-2 fixture — case 60 is THEATER" "mutant=[$outm]"
+    fi
+  fi
+
+  echo "-- teeth F3: break d3++; form-3 fixture (## Delta W1/W2 —) must WARN non-conforming, not count --"
+  anchor_f3='d3++'
+  if [[ "$content" != *"$anchor_f3"* ]]; then
+    no "teeth F3: locate d3++ counter in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-f3-d3)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n# Retro\n\n'
+      printf '## Delta W1 — some fix\n\n## Delta W2 — another fix\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_f3"/d3=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -qF '~? proposed deltas' <<<"$outm" \
+       && grep -qi 'WARN.*non-conforming delta declaration' <<<"$outm" \
+       && ! grep -q '~2 proposed deltas' <<<"$outm"; then
+      ok "teeth F3: d3-zeroed mutant WARNs form-3 fixture (case 57 has teeth)" "()"
+    else
+      no "teeth F3: d3-zeroed mutant must WARN form-3 fixture — case 57 is THEATER" "mutant=[$outm]"
     fi
   fi
 
@@ -1273,44 +1559,50 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth E4: fixture without exclude marker surfaces as PENDING (anti-vacuity)" "retro did not surface — test structure is trivially passing: [$outv]"
   fi
 
-  # Tooth G3 — narrow the heading regex back to D-only: P-prefix and bare-number fixtures must
-  # then both miscount as ~0. Proves that the widened alternation ([A-Za-z][0-9]+|[0-9]+|Delta)
-  # — not some other mechanism — is what makes cases 36/37/38/39/44 pass.
-  # Uses sed BRE literal substitution (not bash ${var/pat} which interprets '[' as a glob class).
-  # Anchor: the unique alternation string that differs old from new; grep -F for literal presence.
-  echo "-- teeth G3: narrow heading regex to D-only; P-prefix and bare-number must miscount as ~0 --"
-  if ! grep -qF '[A-Za-z][0-9]+|[0-9]+|Delta' "$SUT"; then
-    no "teeth G3: locate widened heading regex in SUT" "anchor not found — SUT drifted?"
+  # Tooth G3 — break the per-delta heading indicator grep: P-prefix and bare-number fixtures
+  # must then silently show ~0 (STATE 4) instead of WARN + ~? (STATE 3). Proves that the
+  # '|| grep -qiE' per-delta check (matching [A-Za-z][0-9]+|[0-9]+) — NOT some other
+  # mechanism — is what produces the STATE 3 WARN for cases 36/37/38/39/44.
+  # Mutation: replace the FIRST '|| grep -qiE' in the SUT (the per-delta check) with
+  # '|| false #' so that check never fires; the container heading grep still works.
+  # P-prefix (## P1 —) and bare-number (## 1.) don't match the container heading pattern
+  # (Proposed|Delta|Deltas) → fall through to STATE 4 → confident ~0, no WARN.
+  echo "-- teeth G3: break per-delta indicator grep; P-prefix and bare-number must silently show ~0 --"
+  anchor_g3='|| grep -qiE'
+  if [[ "$content" != *"$anchor_g3"* ]]; then
+    no "teeth G3: locate per-delta indicator grep in SUT" "anchor not found — SUT drifted?"
   else
-    # Build P-prefix fixture (same as case 36)
+    # Build P-prefix fixture (same structure as case 36)
     kit_gp="$(mkkit teeth-g3-pprefix)"; tgt_gp="$kit_gp/targetA"
     mkdir -p "$tgt_gp/retros"
     { printf '<!-- review-status: pending -->\n# Retro\n\n'
       printf '## P1 — first\n\n## P2 — second\n\n## P3 — third\n'
     } > "$tgt_gp/retros/r1.md"
     write_targets "$kit_gp" "$tgt_gp"
-    # Build bare-number fixture (same as case 37)
+    # Build bare-number fixture (same structure as case 37)
     kit_gb="$(mkkit teeth-g3-barenum)"; tgt_gb="$kit_gb/targetA"
     mkdir -p "$tgt_gb/retros"
     { printf '<!-- review-status: pending -->\n# Retro\n\n'
       printf '## 1. First\n\n## 2. Second\n\n## 3. Third\n'
     } > "$tgt_gb/retros/r1.md"
     write_targets "$kit_gb" "$tgt_gb"
-    # Write the D-only mutant via sed BRE: \[ matches literal [, + and | are literal in BRE.
-    # Replaces '[A-Za-z][0-9]+|[0-9]+|Delta' with 'D[0-9]+|Delta' so the group becomes
-    # (D[0-9]+|Delta[[:space:]]+[0-9]+), which matches only D-prefix and Delta-word headings.
-    sed 's/\[A-Za-z\]\[0-9\]+|\[0-9\]+|Delta/D\[0-9\]+|Delta/' \
-      "$SUT" > "$kit_gp/toolbelt/sweep-retros.sh"
+    # Write the mutant: replace the FIRST '|| grep -qiE' (per-delta check) with
+    # '|| false 2>/dev/null' so the per-delta indicator is dead while keeping the
+    # rest of the line (the regex arg through '2>/dev/null; then') syntactically valid.
+    # We do NOT use '# ...' as suffix because that would comment out '; then' and
+    # produce a parse error.
+    neutered_g3='|| false 2>/dev/null'
+    printf '%s\n' "${content/"$anchor_g3"/$neutered_g3}" > "$kit_gp/toolbelt/sweep-retros.sh"
     cp "$kit_gp/toolbelt/sweep-retros.sh" "$kit_gb/toolbelt/sweep-retros.sh"
     outm_p="$("$BASH_BIN" "$kit_gp/toolbelt/sweep-retros.sh" 2>&1)"
     outm_b="$("$BASH_BIN" "$kit_gb/toolbelt/sweep-retros.sh" 2>&1)"
     if grep -q '~0 proposed deltas' <<<"$outm_p" \
-       && ! grep -q '~3 proposed deltas' <<<"$outm_p" \
+       && ! grep -qi 'WARN' <<<"$outm_p" \
        && grep -q '~0 proposed deltas' <<<"$outm_b" \
-       && ! grep -q '~3 proposed deltas' <<<"$outm_b"; then
-      ok "teeth G3: D-only mutant miscounts P-prefix and bare-number as ~0 (cases 36/37 have teeth)" "()"
+       && ! grep -qi 'WARN' <<<"$outm_b"; then
+      ok "teeth G3: per-delta-broken mutant silently shows ~0 for P-prefix and bare-number (cases 36/37/38/39/44 have teeth)" "()"
     else
-      no "teeth G3: D-only mutant miscounts P-prefix and bare-number as ~0" "p=[$outm_p] b=[$outm_b]"
+      no "teeth G3: per-delta-broken mutant must show ~0 + no WARN for P-prefix and bare-number" "p=[$outm_p] b=[$outm_b]"
     fi
   fi
 
