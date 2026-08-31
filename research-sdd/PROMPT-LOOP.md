@@ -256,6 +256,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      CERTIFIABLE-NOW authoring gate still apply; what changes is that N certifiability sweeps run in
      one round rather than N sequential pre-authoring iterations. Not applicable to EVIDENCE corpora
      where each iteration may uncover new gaps.
+     OPERATOR-INJECTED GAP (MID-LOOP PARALLEL). When the operator adds a new high-priority gap while
+     a sweep for the current gap is already in flight (two concurrent Agent/Task calls), it is safe to
+     launch the new gap's sweep concurrently PROVIDED: (a) the two sweeps read INDEPENDENT source trees
+     (no shared mutable state — the same constraint as §16 concurrent scouts); (b) the driver serializes
+     BLOCK WRITING — one block per commit, as usual. Add the new gap to the backlog IMMEDIATELY with
+     `status: pending` and record the injection timestamp in the iteration-history row. Both sweep
+     results return; write the first-finishing block, then the second. This is NOT a §16 multi-focus
+     split (the gaps share one focus); it is a cost-discipline exception to sequential sweep dispatch.
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
@@ -264,6 +272,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
          after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
          documented the JNI boundary; required a §279.9 self-revision.)
+         REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
+         but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
+         the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
+         this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
+         sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
+         the driver closes without authoring a block. This prevents wasted investigation if the gap is
+         remittance at fine grain even when the audit cleared it at coarse grain. (Evidence: apis focus
+         API5/API6/API8, 2026-08-25: 3/8 gaps REMITTANCE-risk; all 3 turned out genuine.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -410,7 +426,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - MECHANIZE the counting: run `$KIT/toolbelt/verify-block.sh <block>` and paste its output — the
          marker tally, [INFER]/[CERT] ratio and [CERT] file:line citation-resolution are COMPUTED, not
          remembered (it exits non-zero on a cited file:line whose line is out of range). It is your own
-         calculator, not an orchestrator gate. `extern` citations (beautified/decompiled/snapshot) are not
+         calculator, not an orchestrator gate.
+         VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
+         all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
+         etc.), verify-block classifies them as `extern` — it prints "ZERO file:line citations resolved"
+         and exits 0. This WARN is EXPECTED, not an error: the script cannot follow a decompiler output
+         path. The mechanized citation gate has checked nothing for that block; the burden falls ENTIRELY
+         on the inline token-verify in this step 5. Self-verify must record this explicitly — e.g.
+         "verify-block: 0 resolved (all extern — decompiled trees); sole citation gate = inline
+         token-verify N/M rows" — so the omission is visible, not silently assumed covered. Separately:
+         a SOURCE_ROOT mapping (not yet implemented) would let the script resolve decompiled paths; the
+         absence of that config is the root cause. Until it exists, inline token-verify is non-negotiable
+         for any decompile-based block. `extern` citations (beautified/decompiled/snapshot) are not
          script-verifiable — still token-check those by reading.
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
