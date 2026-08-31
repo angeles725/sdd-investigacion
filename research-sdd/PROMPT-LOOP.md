@@ -413,6 +413,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        [CERT-hw] sources/probes/... (highest) · [CERT-live] live remote-service response (§12b) ·
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date · [CERT-a] forum (URL) ·
        [INFER] deduction.  (canonical list: METHODOLOGY §3)
+     LOCAL DOC CORPUS CITE DISCIPLINE: at the first `[CERT-doc]` claim in a block that draws from a
+     new local doc corpus (sources preserved under `sources/manuals/<focus>-docs/`), cite by the FULL
+     HTML basename exactly as registered in the SOURCES.md row — NOT a doc-title shorthand or a
+     truncated form. METHODOLOGY §5 encodes this at the registry level; this surfaces it as a prompted
+     gate at the per-block cite-point so a sub-agent does not have to remember the §5 policy
+     independently. (Evidence: B336 `e975837` — early draft used a shorthand, caught and fixed inline
+     before commit; a shorthand breaks `verify-sources.sh`'s FABRICATED-citation cross-check.)
      Include the Connections section linking related [Block K].
      For doc-synthesis blocks (where `[CERT-doc]` is the primary source), OPTIONALLY add a closing
      section — e.g. "§N.x — What this doc does not resolve" — listing findings the official document
@@ -545,7 +552,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          owns those scripts), out of scope for this doctrine.
        - EDGE-TRIGGERED LINT (in-edit, scoped — these are the AGENT'S OWN calculators, exactly like step 5's
          verify-block, NOT orchestrator gates; see METHODOLOGY §11): right after editing the RESEARCH-STATE
-         summary, run `$KIT/toolbelt/verify-state.sh $CORPUS` (cheap — one file); and ONLY if you edited
+         summary, run `$KIT/toolbelt/verify-state.sh $CORPUS --focus <focus-slug>` (cheap — one file;
+         `--focus` scopes the scan to the active focus's RESEARCH-STATE file, avoiding FAIL noise from
+         unrelated focuses in a multi-focus corpus — an unscoped run scans ALL RESEARCH-STATE*.md and
+         drove the covered_blocks-to-satisfy-noise anti-pattern); and ONLY if you edited
          SOURCES.md this iteration (a source was added/preserved), run `$KIT/toolbelt/verify-sources.sh $CORPUS`.
          Do NOT run either EVERY iteration — a linter can only surface a NEW defect when ITS input changed, so
          triggering it on its input's edit adds ZERO redundant corpus re-scans while catching the defect in the
@@ -588,7 +598,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      sources/SOURCES.md, or a cited sources/ file is absent on disk. This is the corpus-level twin of
      step 5's verify-block.sh: per-block marker/citation math is checked in-iteration, source-registry
      integrity is checked once at STOP (it reads the whole corpus).
-     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $CORPUS` BEFORE honoring STOP —
+     MECHANIZE the living-mirror check too: run `$KIT/toolbelt/verify-state.sh $CORPUS --focus <focus-slug>` BEFORE honoring STOP —
      it exits non-zero when the coverage summary claims all gaps closed while the backlog still lists `pending`
      rows (the stale-mirror desync that let run-A emit a premature STOP). A non-zero exit means you are NOT at
      STOP: refresh the summary / reopen the metric and keep looping. If STOP did NOT fire, do NOT end
