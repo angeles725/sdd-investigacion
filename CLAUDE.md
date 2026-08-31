@@ -129,7 +129,7 @@ Never declare done without running it.
 
 | Gate | Command | Standard |
 |---|---|---|
-| Shellcheck | `shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh` | Zero warnings. **`globstar` is required** — without it the glob matches depth 1 only, silently skipping all of `lib/` and `tests/` (currently 128 files match with it). `shopt` is a bash builtin: under zsh it errors out, but zsh globs `**` recursively on its own, so the coverage is still correct — check the file count, not the absence of an error. `.shellcheckrc` suppresses SC2015 and SC2016 — intentional silences for this codebase's idioms, not blanket ignores |
+| Shellcheck | `shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh` | Zero warnings. **`globstar` is required** — without it the glob matches depth 1 only, silently skipping all of `lib/` and `tests/`. `shopt` is a bash builtin: under zsh it errors out, but zsh globs `**` recursively on its own, so the coverage is still correct — check the file count, not the absence of an error. `.shellcheckrc` suppresses SC2015 and SC2016 — intentional silences for this codebase's idioms, not blanket ignores |
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 
@@ -223,8 +223,8 @@ fleet-wide or complete, declare the phenomenon being audited, the input forms th
 recognises, the forms it explicitly excludes, the corpus actually traversed, every unclassifiable
 candidate, and the evidence used to establish coverage. A sweep that honestly inspects one syntactic
 form does not establish absence of the wider behavioural family. `e727cde` audited the pipefail race
-across the fleet by enumerating `producer | grep -q`. `decompile-native.sh:27` reproducibly returns 141
-for `/bin/bash`: its `strings | head` pipeline belongs to the same early-terminating-consumer family,
+across the fleet by enumerating `producer | grep -q`. `decompile-native.sh`'s `strings | head` pipeline reproducibly returns 141
+for `/bin/bash`: it belongs to the same early-terminating-consumer family,
 but was outside that enumerator. The audit was rigorous about what it looked at and silent about what
 it could not see.
 
