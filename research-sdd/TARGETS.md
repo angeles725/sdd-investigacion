@@ -67,6 +67,18 @@ legal and is not a violation; only a **malformed** or **unknown** token triggers
 | Retro count | `N retros` | `N retro` · `N retros + M corpus §18 + K client retros` | **Optional** — absent means the field is not yet tracked. A declared count is reconciled by `verify-registry.sh` against non-excluded `<target>/retros/*.md` files (maxdepth 4, same as `sweep-retros.sh` — finds depth-2 target-level retros AND depth-3 nested retros such as `<target>/research/retros/`). Excluded retros (`<!-- kit-retro: exclude -->`) do not count. `nc` rows are not retro-reconciled. |
 | Gap count | `N-of-M gaps` | `N-of-M gap` | Used for targets with a known gap list (e.g. nave-panccadia). |
 | nc flag | `nc` | — | Marks a non-corpus target (no RESEARCH-STATE.md by design). |
+
+**Block-file counting (corpus targets)** — `N md` counts **root-level block files only**:
+`find <target> -maxdepth 1 -type f -name '*.md'` whose basename matches the canonical block-file
+discriminator `<prefix>-(block|bloque)<N>[-suffix].md` (a non-empty `<prefix>-` is required; the trailing
+`-suffix` is optional). Subdirectories such as `notes/` — holding drafts, fragments, and `RETRACTED-*` /
+`*-draft` work-in-progress — are **NOT** counted; only root-level committed blocks are. A sub-lettered
+part (`bloque40-A.md`) counts as its **own FILE**: `N md` counts FILES, whereas the `N blocks` variant
+counts logical block NUMBERS, which can be fewer (e.g. `bloque40-A/B/C/D` = 4 files but 1 logical block).
+The authoritative count is this kit-side read-only disk discriminator (`verify-registry.sh`). Where a
+target ships a local `CATALOG.md`, its header total is a **target-owned cross-check only** and is NOT
+authoritative for this field: a stale or hand-edited CATALOG header that disagrees with disk is a
+target-side regeneration task (§8, operator-owned), never a value the registry adopts.
 | git | `git yes` · `git no` | — | Whether a git repo is initialized under the target. |
 | remote | `remote yes` · `remote no` | — | Whether a remote is configured. |
 | hook | `hook yes` · `hook no` · `hook file yes` · `hook deferred` | `hook yes ×N` · `hook yes; <narrative>` · `hook no; <narrative>` | Research loop hook status. Any token starting with `hook ` is accepted. |
