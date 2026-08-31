@@ -2308,6 +2308,8 @@ the §3 certainty markers: `[CERT]` states how STRONG the evidence is; `Breakthr
 block is a crown-jewel SOLUTION. A block is both `[CERT]` and a breakthrough when a decisive solution is
 also verified — the common case.
 
+Proof-of-function is a THIRD, independent axis from both. The `Breakthrough:` marker requires a DEMONSTRATED crack of the target (§22.5) — a deduced-but-undemonstrated technique is not tagged even when its sub-claims are `[CERT]`. Crucially, proof-of-function is orthogonal to `[CERT]` provenance strength: an `[INFER]`-provenance block that documents a demonstrated crack still earns the marker. Decisive rule: demonstrated → tag (regardless of `[CERT]`/`[INFER]`); merely deduced → do not tag (regardless of `[CERT]`).
+
 **22.2 The four coordinates.** Every ledger entry answers the four questions that get forgotten: WHAT
 problem was cracked, HOW (the technique), WHERE it is documented (block `path:line`), and WHERE it is
 remembered (Engram topic-key). Three already live in the block (what/how are intrinsic; the block IS the
