@@ -12,11 +12,12 @@
 > Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
 > Each delta: the concrete change · the target file/section · evidence · priority.
 >
-> **Canonical form (machine-counted by sweep-retros.sh):** one row per delta, first cell a bare digit
-> (`| 1 |`, `| 2 |` …). The counter reads ONLY this section and ONLY rows whose first cell is a bare
-> integer. Non-numeric IDs (`| D1 |`, `| W1 |`, `| ES-A |`) or prose under this heading trigger a
-> WARN in the sweep — the reviewer must count by hand. Heading-style declarations outside this section
-> are also non-conforming. Use the table below to stay machine-countable.
+> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> equally; any non-separator table row is one delta. The counter skips the header row and every
+> `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
+> triggers a WARN — the reviewer must count by hand. Heading-style declarations **outside** this
+> section are non-conforming. Use the table below to stay machine-countable.
 
 | # | Proposed change | Target (file · §/section) | Evidence (block / commit / § / transcript ref) | Type | Priority |
 |---|---|---|---|---|---|
@@ -56,9 +57,10 @@ For each delta above, one line of rationale (WHY it matters, what it costs, expe
 > Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
 > candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
 >
-> **Why T-prefix in the first column:** the delta counter in `sweep-retros.sh` matches table rows
-> whose first cell is a bare integer. Tools rows start at T1, T2 … so the counter cannot confuse
-> them with delta rows (both tables start at 1; `sort -un` would otherwise merge them and over-report).
+> **Why T-prefix in the first column:** the tools table lives under a different heading from
+> `## Proposed kit deltas`, so the delta counter does not see it regardless of column ID. The T-prefix
+> is a human-readability convention — it makes tool rows visually distinct from delta rows when both
+> tables are visible side by side.
 
 | # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
 |---|---|---|---|---|---|

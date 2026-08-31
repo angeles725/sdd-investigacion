@@ -116,24 +116,39 @@ for p in $paths; do
     esac
     pending=$((pending + 1))
     # Count proposed deltas — SECTION-SCOPED, doctrine-first (see retro.template.md).
-    # Canonical form: '## Proposed kit deltas' section with ONE TABLE ROW per delta whose
-    # first cell is a bare digit ( | N | … ).  Three-state honesty — never a confident 0
-    # when delta indicators are present:
-    #   STATE 1: canonical section present, N countable rows → count N.
-    #   STATE 2: canonical section present, 0 rows (non-numeric IDs or prose/empty table)
+    # Canonical form: a table under a recognised canonical section heading, ONE ROW per
+    # delta, ID column FREE-FORM (| D1 |, | W1 |, | PN-A |, | 1 | all count equally).
+    # Three-state honesty — never a confident 0 when delta indicators are present:
+    #   STATE 1: canonical section present, N data rows in table → count N.
+    #   STATE 2: canonical section present, but no table / header-only table
     #            → WARN "delta section present but not in countable form — count by hand".
     #   STATE 3: canonical section absent, non-canonical delta indicator detected
-    #            (any ## Proposed/Delta/Deltas heading, or per-delta letter+digit or
-    #            bare-number heading) → WARN "non-conforming delta declaration — count by hand".
+    #            (per-delta word headings ## Delta X, letter+digit, or bare-number
+    #            headings) → WARN "non-conforming delta declaration — count by hand".
     #   STATE 4: no canonical section, no indicators → confident 0 (no deltas proposed).
     # THE LOAD-BEARING INVARIANT: a retro with any delta indicator never reports confident 0.
+    #
+    # CANONICAL HEADING SET (tolerant, case-insensitive — bounded by fleet corpus):
+    #   "## [N. ] Proposed kit delta[s][...]"  (primary, singular/plural, parentheticals)
+    #   "## Proposed delta[s][...]"            (shorter English form)
+    #   "## Delta proposals[...]"              (inverted form)
+    #   "## Deltas NUEVOS[...]"                (Spanish form)
+    #
+    # ROW COUNTING: count every '|' line that is NOT a separator (|---|...|), then
+    # subtract 1 for the header row. data = max(rows_counted - 1, 0).
     _sec_r=$(awk '
-      BEGIN { in_sec=0; found=0; cnt=0 }
+      BEGIN { in_sec=0; found=0; rows=0 }
       { low=tolower($0) }
-      low ~ /^## proposed kit deltas[[:space:]]*$/ { in_sec=1; found=1; next }
+      low ~ /^## ([0-9]+\. )?proposed kit delta/ ||
+      low ~ /^## proposed delta/                 ||
+      low ~ /^## delta proposals/                ||
+      low ~ /^## deltas nuevos/                  { in_sec=1; found=1; next }
       /^##/ && in_sec { in_sec=0 }
-      in_sec && /^\| *[0-9]+ *\|/ { cnt++ }
-      END { print found+0 ":" cnt+0 }
+      in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
+      END {
+        data = (rows > 0) ? rows - 1 : 0
+        print found+0 ":" data+0
+      }
     ' "$f")
     _sec_found="${_sec_r%%:*}"; _sec_cnt="${_sec_r##*:}"
     delta_warn=""
