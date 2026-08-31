@@ -116,60 +116,78 @@ for p in $paths; do
     esac
     pending=$((pending + 1))
     # Count proposed deltas — SECTION-SCOPED, doctrine-first (see retro.template.md).
-    # Canonical form: a table under a recognised canonical section heading, ONE ROW per
-    # delta, ID column FREE-FORM (| D1 |, | W1 |, | PN-A |, | 1 | all count equally).
-    # Three-state honesty — never a confident 0 when delta indicators are present:
-    #   STATE 1: canonical section present, N data rows in table → count N.
-    #   STATE 2: canonical section present, but no table / header-only table
-    #            → WARN "delta section present but not in countable form — count by hand".
-    #   STATE 3: canonical section absent, non-canonical delta indicator detected
-    #            (per-delta word headings ## Delta X, letter+digit, or bare-number
-    #            headings) → WARN "non-conforming delta declaration — count by hand".
-    #   STATE 4: no canonical section, no indicators → confident 0 (no deltas proposed).
     # THE LOAD-BEARING INVARIANT: a retro with any delta indicator never reports confident 0.
     #
-    # CANONICAL HEADING SET (tolerant, case-insensitive — bounded by fleet corpus):
-    #   "## [N. ] Proposed kit delta[s][...]"  (primary, singular/plural, parentheticals)
-    #   "## Proposed delta[s][...]"            (shorter English form)
-    #   "## Delta proposals[...]"              (inverted form)
-    #   "## Deltas NUEVOS[...]"                (Spanish form)
+    # THREE COUNTING FORMS (precedence: form 1 > form 2 > form 3):
+    #   FORM 1 — canonical section + TABLE: count non-separator data rows (ID-agnostic).
+    #   FORM 2 — canonical section + no table: count delta-ENTRY ###-headings.
+    #            Delta-entry heading = separator-shaped: has em-dash/en-dash after short
+    #            token (e.g. "### D1 — ...", "### DELTA-1 — ...", "### PN-A — ...").
+    #            Structural headings (### Rationale, ### Evidence, ### Dedup) have no
+    #            em-dash and are not counted. Bug guard: section exit uses /^##[^#]/ (not
+    #            /^##/), so ### headings do NOT exit the section prematurely.
+    #   FORM 3 — no canonical section: count "## Delta "-prefixed separator-shaped ##-headings
+    #            (e.g. "## Delta W1 — ...", "## Delta SO1 — ...", "## Delta 1 — ...").
     #
-    # ROW COUNTING: count every '|' line that is NOT a separator (|---|...|), then
-    # subtract 1 for the header row. data = max(rows_counted - 1, 0).
+    # WARN CASES (counted as "?"):
+    #   WARN-A: canonical section found, no table (form 1), no delta-entry sub-headings (form 2)
+    #           → "delta section present but not in countable form — count by hand"
+    #   WARN-B: no canonical section, no "## Delta"-headed deltas (form 3), but non-canonical
+    #           indicators present (per-delta headings without "## Delta" prefix, letter+digit,
+    #           bare-number headings) → "non-conforming delta declaration — count by hand"
+    #
+    # CANONICAL HEADING SET (tolerant, case-insensitive):
+    #   "## [N. ] Proposed kit delta[s][ (...)| EOL]"  (tightened: excludes "verdict" etc.)
+    #   "## Proposed delta[s][...]"
+    #   "## Delta proposals[...]"
+    #   "## Deltas NUEVOS[...]"
     _sec_r=$(awk '
-      BEGIN { in_sec=0; found=0; rows=0 }
+      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0 }
       { low=tolower($0) }
-      low ~ /^## ([0-9]+\. )?proposed kit delta/ ||
-      low ~ /^## proposed delta/                 ||
-      low ~ /^## delta proposals/                ||
-      low ~ /^## deltas nuevos/                  { in_sec=1; found=1; next }
-      /^##/ && in_sec { in_sec=0 }
+      low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]*\(|[[:space:]]*$)/ ||
+      low ~ /^## proposed delta/                                                     ||
+      low ~ /^## delta proposals/                                                    ||
+      low ~ /^## deltas nuevos/                                                      { in_sec=1; found=1; next }
+      /^##[^#]/ && in_sec { in_sec=0 }
       in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
+      in_sec && /^###[^#]/ && /—/ { h3d++ }
+      !in_sec && low ~ /^## delta / && /—/ { d3++ }
       END {
         data = (rows > 0) ? rows - 1 : 0
-        print found+0 ":" data+0
+        if (found) {
+          if      (data  > 0) print found+0 ":1:" data+0
+          else if (h3d   > 0) print found+0 ":2:" h3d+0
+          else                print found+0 ":w:0"
+        } else {
+          if (d3 > 0) print "0:3:" d3+0
+          else        print "0:n:0"
+        }
       }
     ' "$f")
-    _sec_found="${_sec_r%%:*}"; _sec_cnt="${_sec_r##*:}"
+    _sec_found="${_sec_r%%:*}"
+    _sec_rest="${_sec_r#*:}"; _sec_form="${_sec_rest%%:*}"; _sec_cnt="${_sec_rest##*:}"
     delta_warn=""
     if [ "$_sec_found" = 1 ]; then
-      if [ "${_sec_cnt:-0}" -gt 0 ]; then
-        deltas="$_sec_cnt"                                  # STATE 1 — canonical count
-      else
-        delta_warn="delta section present but not in countable form — count by hand"
-        deltas="?"                                          # STATE 2
-      fi
+      case "$_sec_form" in
+        1|2) deltas="$_sec_cnt" ;;                          # form 1 (table) or form 2 (### entries)
+        *)   delta_warn="delta section present but not in countable form — count by hand"
+             deltas="?" ;;                                  # WARN-A: canonical section, pure prose
+      esac
     else
-      # STATE 3 or 4 — canonical section absent; check for non-canonical indicators
-      if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
-         || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
-        delta_warn="non-conforming delta declaration — count by hand"
-        deltas="?"                                          # STATE 3
-      else
-        deltas=0                                            # STATE 4 — confident zero
-      fi
+      case "$_sec_form" in
+        3)   deltas="$_sec_cnt" ;;                          # form 3 (## Delta-prefixed headings)
+        *)   # WARN-B or confident zero — check for non-canonical indicators
+             if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
+                || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
+               delta_warn="non-conforming delta declaration — count by hand"
+               deltas="?"                                   # WARN-B
+             else
+               deltas=0                                     # confident zero — no indicators at all
+             fi
+             ;;
+      esac
     fi
-    unset _sec_r _sec_found _sec_cnt
+    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt
     # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
     # under that name), falling back to file mtime when the file is untracked or the dir is not a git
     # repo — so a non-git target never crashes the sweep.

@@ -1203,10 +1203,11 @@ else
   no "56 '## Proposed deltas' (canonical form) → table rows counted, ~1, no WARN" "exit=$RC out=[$OUT]"
 fi
 
-# 57 — STATE 3: per-delta word heading '## Delta W1 —' → WARN.
-#      A heading of the form '## Delta W1 — description' uses a word-prefix style, not the
-#      canonical table form. It matches the non-canonical container indicator pattern
-#      (Proposed|Delta|Deltas) via the '## Delta' prefix → WARN.
+# 57 — FORM 3: '## Delta W1 —' separator-shaped headings outside canonical section → COUNT.
+#      Each '## Delta <id> — <title>' line is a form-3 delta-entry heading. Two such headings
+#      must count as ~2 proposed deltas with no WARN. The '## Delta ' prefix + em-dash separator
+#      is what makes these machine-countable (vs '## D1 —' which is not ## Delta-prefixed).
+#      RED on the old code (would WARN 'non-conforming'); proves form-3 counting works.
 kit="$(mkkit c57-delta-word)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -1216,11 +1217,11 @@ mkdir -p "$tgt/retros"
 write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -qF '~? proposed deltas' <<<"$OUT" \
-   && grep -qi 'WARN.*non-conforming delta declaration' <<<"$OUT"; then
-  ok "57 '## Delta W1 — …' word-prefix headings → WARN 'non-conforming' + ~?" "(exit $RC)"
+   && grep -q '~2 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "57 '## Delta W1/W2 — …' form-3 headings → ~2 counted, no WARN" "(exit $RC)"
 else
-  no "57 '## Delta W1 — …' word-prefix headings → WARN 'non-conforming' + ~?" "exit=$RC out=[$OUT]"
+  no "57 '## Delta W1/W2 — …' form-3 headings → ~2 counted, no WARN" "exit=$RC out=[$OUT]"
 fi
 
 # 58 — INVARIANT: any delta indicator (canonical or non-canonical) must never produce
@@ -1295,6 +1296,53 @@ else
   no "59 D-prefix table rows in canonical section → ~3 counted, no WARN (ID-agnostic)" "exit=$RC out=[$OUT]"
 fi
 
+# 60 — FORM 2: canonical section + separator-shaped ### heading → COUNT.
+#      '### D1 — title' under '## Proposed kit deltas' is a delta-entry heading (has '—').
+#      The section exit uses /^##[^#]/ so the ### heading does NOT exit the section prematurely.
+#      Must count ~1, no WARN. RED on the old /^##/ bug (which exited on the first ### line).
+kit="$(mkkit c60-form2-h3)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '### D1 — first fix of this run\n\nsome prose about it\n\n'
+  printf '## Next section\n\nnot a delta.\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~1 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "60 form 2: '### D1 — …' in canonical section → ~1 counted, no WARN" "(exit $RC)"
+else
+  no "60 form 2: '### D1 — …' in canonical section → ~1 counted, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 61 — FORM 2 over-count guard: structural ### headings (no '—') are NOT counted.
+#      Delta section has '### D1 — title' (delta, has '—') and '### Rationale' (structural,
+#      no '—'). Must count ~1 (delta only), not ~2 (delta+structural).
+#      Proves the separator-shape discriminator works: only ### with '—' count as delta entries.
+kit="$(mkkit c61-form2-noover)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '### D1 — first delta\n\n'
+  printf '### Rationale\n\nsome reasoning without em-dash\n\n'
+  printf '### D2 — second delta\n\n'
+  printf '### Evidence\n\nno em-dash here either\n\n'
+  printf '## Already covered\n\nnot a delta section.\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~2 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN' <<<"$OUT"; then
+  ok "61 form 2 over-count guard: '### Rationale'/'### Evidence' (no —) not counted → ~2 not ~4" "(exit $RC)"
+else
+  no "61 form 2 over-count guard: structural ### without — excluded → ~2 not ~4" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
@@ -1324,28 +1372,81 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Second teeth (negative control for the delta count). Case 4 claims '~N proposed deltas' is a
   # real tally of the ID-agnostic data rows inside the canonical section, computed by the awk
-  # script's END clause (data = rows - 1 for the header).  Force the END clause to always output
-  # data=0; then re-run a 5-delta pending fixture: with found=1 but data=0 the mutant goes to
-  # STATE 2 (WARN + ~?) instead of STATE 1 (~5).  Case 4 has teeth only if the count disappears
-  # and WARN appears instead.  Also proves test 59 (D-prefix table fixture must COUNT, not WARN).
-  echo "-- teeth: force awk data=0, expect STATE-1 fixture to downgrade to STATE-2 WARN + ~? --"
-  anchor2='print found+0 ":" data+0'
+  # script's END clause (form-1 path: print found+0 ":1:" data+0). Force the form-1 print line
+  # to emit WARN-A path instead; then re-run a 5-delta pending fixture: the count disappears
+  # and WARN appears. Case 4 has teeth only if the count disappears and WARN appears.
+  # Also proves test 59 (D-prefix table fixture must COUNT, not WARN).
+  echo "-- teeth: force awk form-1 path to WARN-A, expect STATE-1 fixture to downgrade to WARN + ~? --"
+  anchor2='print found+0 ":1:" data+0'
   if [[ "$content" != *"$anchor2"* ]]; then
-    no "teeth: locate awk END data-count clause" "anchor not found — SUT drifted?"
+    no "teeth: locate awk END form-1 data-count clause" "anchor not found — SUT drifted?"
   else
     kit="$(mkkit teeth-count)"; tgt="$kit/targetA"
     mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 5
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    broken='print found+0 ":0"'                     # force data=0 regardless of rows seen
+    broken='print found+0 ":w:0"'                   # force WARN-A path regardless of rows seen
     printf '%s\n' "${content/"$anchor2"/$broken}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm" \
        && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
        && ! grep -q '~5 proposed deltas' <<<"$outm"; then
-      ok "teeth: awk-END-forced-0 mutant downgrades STATE-1 to STATE-2 WARN (case 4 + 59 have teeth)" "()"
+      ok "teeth: awk-form1-forced-warn mutant downgrades STATE-1 to WARN-A (case 4 + 59 have teeth)" "()"
     else
-      no "teeth: awk-END-forced-0 mutant downgrades STATE-1 to STATE-2 WARN (case 4 is THEATER)" "mutant=$OUTM [$outm]"
+      no "teeth: awk-form1-forced-warn mutant downgrades STATE-1 to WARN-A (case 4 is THEATER)" "mutant=[$outm]"
+    fi
+  fi
+
+  # Teeth F2 + F3 — form-2 and form-3 counting teeth.
+  # F2: break the ### delta-entry counter (h3d++) → form-2 fixture (no table, ### D1 —) must WARN
+  # F3: break the ## Delta counter (d3++) → form-3 fixture (## Delta W1/W2 —) must fall through to
+  #     indicator grep and WARN (non-conforming), not count.
+  echo "-- teeth F2: break h3d++; form-2 fixture (### D1 — under canonical) must WARN, not count --"
+  anchor_f2='h3d++'
+  if [[ "$content" != *"$anchor_f2"* ]]; then
+    no "teeth F2: locate h3d++ counter in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-f2-h3d)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n# Retro\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf '### D1 — first delta of the run\n\nsome prose\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_f2"/h3d=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -qF '~? proposed deltas' <<<"$outm" \
+       && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
+       && ! grep -q '~1 proposed deltas' <<<"$outm"; then
+      ok "teeth F2: h3d-zeroed mutant WARNs form-2 fixture (case 60 has teeth)" "()"
+    else
+      no "teeth F2: h3d-zeroed mutant must WARN form-2 fixture — case 60 is THEATER" "mutant=[$outm]"
+    fi
+  fi
+
+  echo "-- teeth F3: break d3++; form-3 fixture (## Delta W1/W2 —) must WARN non-conforming, not count --"
+  anchor_f3='d3++'
+  if [[ "$content" != *"$anchor_f3"* ]]; then
+    no "teeth F3: locate d3++ counter in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-f3-d3)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n# Retro\n\n'
+      printf '## Delta W1 — some fix\n\n## Delta W2 — another fix\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_f3"/d3=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -qF '~? proposed deltas' <<<"$outm" \
+       && grep -qi 'WARN.*non-conforming delta declaration' <<<"$outm" \
+       && ! grep -q '~2 proposed deltas' <<<"$outm"; then
+      ok "teeth F3: d3-zeroed mutant WARNs form-3 fixture (case 57 has teeth)" "()"
+    else
+      no "teeth F3: d3-zeroed mutant must WARN form-3 fixture — case 57 is THEATER" "mutant=[$outm]"
     fi
   fi
 
