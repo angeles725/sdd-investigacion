@@ -115,28 +115,46 @@ for p in $paths; do
       *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
     esac
     pending=$((pending + 1))
-    # Count proposed deltas — forms derived from the LIVE CORPUS, not retro.template.md.
-    # Template drift caused under-reporting twice: only D-prefix headings were recognised,
-    # leaving P-prefix (P1, P2 …) and bare-numbered (1., 2. …) retros at ~0 deltas.
-    # Under-reporting is the failure mode this guard exists to prevent: a "~0 deltas"
-    # display invites bulk dismissal of the richest content. Over-counting on generic
-    # numbered headings (e.g. "## 1. Introduction") is the ACCEPTED safe direction; no
-    # heuristics are added to avoid it, because every such heuristic risks re-introducing
-    # under-counting.
-    #   Form 1 (table row):    '| <n> | …' — first cell is a bare integer.
-    #   Form 2 (letter+num):   '## P<n>', '## D<n>', '## G<n>' … — any single letter
-    #                          followed immediately by a number, then a separator.
-    #   Form 3 (bare number):  '## <n>. title' or '## <n> — title' — number + separator.
-    #   Form 4 (Delta word):   '## Delta <n>' — backward compat with the template form.
-    # sort -un deduplicates so a retro using both table and heading shapes for the same
-    # delta number counts it once.
-    deltas=$(
-      {
-        grep -oE '^\| *[0-9]+ \|' "$f" 2>/dev/null | grep -oE '[0-9]+'
-        grep -oiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+|Delta[[:space:]]+[0-9]+)[[:space:].—–-]' "$f" 2>/dev/null \
-          | grep -oE '[0-9]+'
-      } | sort -un | wc -l | tr -d ' '
-    )
+    # Count proposed deltas — SECTION-SCOPED, doctrine-first (see retro.template.md).
+    # Canonical form: '## Proposed kit deltas' section with ONE TABLE ROW per delta whose
+    # first cell is a bare digit ( | N | … ).  Three-state honesty — never a confident 0
+    # when delta indicators are present:
+    #   STATE 1: canonical section present, N countable rows → count N.
+    #   STATE 2: canonical section present, 0 rows (non-numeric IDs or prose/empty table)
+    #            → WARN "delta section present but not in countable form — count by hand".
+    #   STATE 3: canonical section absent, non-canonical delta indicator detected
+    #            (any ## Proposed/Delta/Deltas heading, or per-delta letter+digit or
+    #            bare-number heading) → WARN "non-conforming delta declaration — count by hand".
+    #   STATE 4: no canonical section, no indicators → confident 0 (no deltas proposed).
+    # THE LOAD-BEARING INVARIANT: a retro with any delta indicator never reports confident 0.
+    _sec_r=$(awk '
+      BEGIN { in_sec=0; found=0; cnt=0 }
+      { low=tolower($0) }
+      low ~ /^## proposed kit deltas[[:space:]]*$/ { in_sec=1; found=1; next }
+      /^##/ && in_sec { in_sec=0 }
+      in_sec && /^\| *[0-9]+ *\|/ { cnt++ }
+      END { print found+0 ":" cnt+0 }
+    ' "$f")
+    _sec_found="${_sec_r%%:*}"; _sec_cnt="${_sec_r##*:}"
+    delta_warn=""
+    if [ "$_sec_found" = 1 ]; then
+      if [ "${_sec_cnt:-0}" -gt 0 ]; then
+        deltas="$_sec_cnt"                                  # STATE 1 — canonical count
+      else
+        delta_warn="delta section present but not in countable form — count by hand"
+        deltas="?"                                          # STATE 2
+      fi
+    else
+      # STATE 3 or 4 — canonical section absent; check for non-canonical indicators
+      if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
+         || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
+        delta_warn="non-conforming delta declaration — count by hand"
+        deltas="?"                                          # STATE 3
+      else
+        deltas=0                                            # STATE 4 — confident zero
+      fi
+    fi
+    unset _sec_r _sec_found _sec_cnt
     # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
     # under that name), falling back to file mtime when the file is untracked or the dir is not a git
     # repo — so a non-git target never crashes the sweep.
@@ -154,17 +172,22 @@ for p in $paths; do
     age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
     age_d=$(( age_s / 86400 ))
     tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
-    pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
-      "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag")")
+    # Use \x1f (ASCII Unit Separator) as field delimiter — it is not a whitespace IFS character,
+    # so consecutive delimiters (e.g. when $tag and/or $delta_warn are empty) are NOT collapsed
+    # by IFS splitting in `read`.  A plain tab as IFS is whitespace: two consecutive tabs become
+    # one separator and the empty $tag field disappears, shifting $delta_warn into the tag slot.
+    pending_rows+=("$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s' \
+      "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag" "$delta_warn")")
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 done
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
 if [ "${#pending_rows[@]}" -gt 0 ]; then
-  while IFS=$'\t' read -r _ep f p deltas status age_d tag; do
+  while IFS=$'\x1f' read -r _ep f p deltas status age_d tag delta_warn; do
     echo "PENDING  $f"
     echo "         target: $p  ·  ~${deltas} proposed deltas  ·  status: ${status}  ·  age: ${age_d}d${tag}"
-  done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\t' -k1,1)
+    [ -n "$delta_warn" ] && echo "         WARN: ${delta_warn}"
+  done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\x1f' -k1,1)
 fi
 
 echo ""
