@@ -784,6 +784,8 @@ many; instead, once a focus crosses a threshold (a 3rd+ reopen, or >25 iteration
 prior runs' rows into a one-line-per-run summary (blocks, gaps closed, coverage ratio, retro link) and keep
 only the CURRENT run's rows verbose.
 
+**A STOPPED focus may also be reopened to raise its evidence grade — a grade-upgrade reopen.** The paragraph above covers new tool / new question / hardware bench as the reopen motive; grade-upgrade reopen names a second, distinct category: the SAME questions are re-examined at higher fidelity (e.g. strings/RTTI evidence → decompiled function bodies) to produce stronger answers to questions already asked, not to pursue new ones. Its distinguishing risk is re-derivation (redundant churn that re-covers known ground) — not scope-creep — and that difference demands its own honesty discipline: **PRIOR-COVERAGE → REMIT → DEEPEN**. Start by auditing what the prior run established; REMIT those findings (cite, do not re-derive them); only then DEEPEN the grade with higher-fidelity evidence. A grade-upgrade that skips the REMIT step re-derives prior work and forfeits the legitimacy of the reopen. This category is legitimate and distinct from churn: the 2026-08-07 platform-native Ghidra sub-pass reopened a STOPPED native-decompilation focus to upgrade strings/RTTI evidence to decompiled function bodies, and surfaced 4 security facts that lower-fidelity evidence had not reached.
+
 **Live backlog injection ≠ reopening a STOPPED loop.** When the user adds new questions WHILE a focus is
 still ACTIVE (not stopped, not exhausted), the loop simply APPENDS them to the current backlog and widens its
 scope (renumbering as needed) — no new bootstrap, no fresh authorization, no separate additive budget cap.
