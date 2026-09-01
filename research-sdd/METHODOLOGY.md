@@ -70,6 +70,13 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 - A security finding or a critical claim sitting at `[CERT-a]` (forum) must
   try to escalate to `[CERT]`/`[CERT-doc]` before being accepted.
 - The `verify` phase audits exactly this.
+- **Static-defect / runtime-exploitability split.** When a code-level security defect is confirmed in
+  source (`[CERT]`) but whether it is EXPLOITABLE depends on runtime/container/framework semantics NOT
+  documented in the corpus, SPLIT the claim — assert the code omission as `[CERT]`, mark exploitability
+  as `[INFER]`, and open a named requires-execution child gap (§8) to reproduce it. Do NOT assert the
+  vulnerability as real, and do NOT dismiss it as benign; state the bounded blast radius from what IS
+  known statically. (This is the static-authoring sibling of §12's post-live CONFIRMED/GATED/DEFERRED
+  verdicts.)
 - **Engram `#id` is NOT a valid `[CERT]` citation.** Engram is a MIRROR, not a primary source (§7). If the underlying fact came from live hardware or probe work, cite `[CERT-hw]` with the preserved probe output; if it is a researcher deduction stored in memory, cite `[INFER]`. A block that cites `engram #N` as `[CERT]` is not reproducible — a reviewer cannot follow that citation to the source.
 - **Physical-inspection evidence** — device photos, indicator-lamp readings, display-state images — is `[CERT-hw]` when the image file is archived under `sources/probes/` and cited by filename (`sources/probes/<photo>.jpg`). This extends the probe-output citation format to visual captures; a photo cited without archiving it first is `[INFER]`.
 - **The live system wins.** `[CERT-hw]`/`[CERT-live]` outranks `[CERT]`: if the live device OR remote
@@ -629,6 +636,12 @@ The loop stops on the FIRST of these (primary first):
      hardware appears; otherwise out of scope.
    The static loop stops when **read-only-investigable = 0**, even if `requires-execution`/`blocked`
    gaps remain.
+
+**Static+live gap-split rule.** When a single gap has BOTH a static-readable component AND a live/execution
+component, SPLIT it into TWO backlog entries at seeding time: one for the static half (read-only-investigable
+— close it in the current loop) and one for the live half (requires-execution → §19). Do NOT leave the whole
+gap as `requires-execution` or `blocked-on-live` because one half needs execution: an unsplit gap loses its
+static work permanently when the loop exits.
 
 **`tried:` clause for blocked and absence-closed entries.** A blocked or absence-closed gap entry must
 carry a `tried:` field — the alternatives enumerated and the measurement that ruled each one out.
@@ -1887,7 +1900,9 @@ harvested by reviewing an actual session transcript against the current rules. �
 the loop instead of a manual favor: at the end of a run, the loop proposes its own upgrades.
 
 **When it fires.** At every FOCUS completion, and ALWAYS at corpus-level STOP (§8 terminal trigger). For a
-very long single focus, it MAY also fire every ~10 blocks so lessons don't wait until the end.
+very long single focus, it MAY also fire every ~10 blocks so lessons don't wait until the end. Also fires:
+(a) proactively, whenever a run yields a REUSABLE METHOD or hits a REPEATED FRICTION — do not wait for STOP
+or operator intervention; (b) at §20 document-mode completion; (c) at session close.
 
 **What it does.** The driver DELEGATES a fresh-context retro agent (fresh context is the point — independent
 judgment, not the driver's own rationalizations). The retro agent:
@@ -2177,6 +2192,8 @@ reuses the kit's markers (§3), block anatomy (§4), the verify-block gate (§11
 conventions unchanged. Invoked `/research-sdd <target> document "<what to document>"` (SKILL.md); the
 operational contract is PROMPT-LOOP's DOCUMENT CYCLE. One-line essence: research-sdd DISCOVERS; document mode
 CAPTURES what you already know or just did, and always mirrors it to Engram so it stays findable.
+
+**Cross-ref §18:** a document-mode run ends with the same §18 retrospective pass a discovery run does — fire it at §20 completion before handing off.
 
 **CAPTURE vs DISCOVER.** The static loop uncovers gaps and self-feeds a backlog; document mode does the
 opposite — it SEEDS the full list of topics/steps up front (the outline IS the work-list) and STOPS when the

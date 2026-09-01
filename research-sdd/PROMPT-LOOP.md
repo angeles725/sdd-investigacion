@@ -640,6 +640,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          new, each with evidence (block/commit/§ refs) and a priority. It writes the proposal to
          $TARGET/retros/ + engram research/<target>/retro and SURFACES it in the return. It does NOT edit the
          kit — kit changes are human-reviewed and human-committed. This is how the kit learns from real runs.
+       - RETRO CHECKPOINT: before closing the RETURN, confirm whether a §18 retro is pending. If one was
+         not delegated yet (e.g. this is a document-mode run or an early-stop), state: "Retro pending?
+         (Y / list what)" and, if yes, delegate it now before handing off.
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
   This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
@@ -766,6 +769,13 @@ HARD RULES:
     This governs WHEN to spend a live probe, not which evidence is more trustworthy: `[CERT-hw]`/
     `[CERT-live]` still outrank `[CERT]` for identity/protocol questions (METHODOLOGY §3); DISK-FIRST
     applies only when disk evidence is sufficient to answer the gap at the required certainty.
+  - REAL-ARTIFACT-FIRST (packaged artifact inspection) — When a gap is about physical packaging / layout /
+    on-disk artifact SHAPE, inspect the REAL packaged artifact directly (e.g. `unzip -l`/`unzip -p` over
+    the signed jar) before/alongside the decompiled tree — `META-INF` signing entries, jar-entry taxonomy,
+    and manifest bytes are INVISIBLE in decompiled source. Distinct from DISK-FIRST (which is disk-vs-live):
+    this targets the packaged artifact vs the decompiled source. RIDER (source>jar for intent): when the
+    finding is about INTENT (over-permission, dead code, config), prefer SOURCE if available — a packaged
+    artifact shows declarations; source shows whether they are real or scaffold.
   - RE-MEASURE A DRAMATIC NEGATIVE. When an enumeration or join yields a striking negative result
     (zero matches, near-total absence, a system that appears dead or empty), do NOT report it from
     a single measurement. Re-derive it by an independent method — a different key, a different
