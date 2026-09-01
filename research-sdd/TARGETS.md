@@ -75,10 +75,12 @@ discriminator `<prefix>-(block|bloque)<N>[-suffix].md` (a non-empty `<prefix>-` 
 `*-draft` work-in-progress — are **NOT** counted; only root-level committed blocks are. A sub-lettered
 part (`bloque40-A.md`) counts as its **own FILE**: `N md` counts FILES, whereas the `N blocks` variant
 counts logical block NUMBERS, which can be fewer (e.g. `bloque40-A/B/C/D` = 4 files but 1 logical block).
-The authoritative count is this kit-side read-only disk discriminator (`verify-registry.sh`). Where a
-target ships a local `CATALOG.md`, its header total is a **target-owned cross-check only** and is NOT
-authoritative for this field: a stale or hand-edited CATALOG header that disagrees with disk is a
-target-side regeneration task (§8, operator-owned), never a value the registry adopts.
+The count comes from this kit-side read-only disk discriminator (`verify-registry.sh`), EXCEPT that a
+target's local `CATALOG.md` header total is adopted when it is **self-consistent** — i.e. the header
+equals the CATALOG's own block-row count. A self-consistent generator legitimately counts blocks the
+naive discriminator's pattern may miss (e.g. non-numbered entries), so its total is trusted. A header
+that DISAGREES with its own rows is **stale** and is NOT adopted: the disk discriminator is used and a
+WARN asks the operator to regenerate the CATALOG (a §8 target-side task).
 | git | `git yes` · `git no` | — | Whether a git repo is initialized under the target. |
 | remote | `remote yes` · `remote no` | — | Whether a remote is configured. |
 | hook | `hook yes` · `hook no` · `hook file yes` · `hook deferred` | `hook yes ×N` · `hook yes; <narrative>` · `hook no; <narrative>` | Research loop hook status. Any token starting with `hook ` is accepted. |
