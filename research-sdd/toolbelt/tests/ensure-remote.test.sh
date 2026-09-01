@@ -293,6 +293,18 @@ else
   no "12 --name with no value → refuse 2, NO gh call" "exit=$RC(want 2) calls=[$(calls "$box")]"
 fi
 
+# 13 — EXEC BIT. The tracked SUT must carry the executable bit (100755 in git) so that
+#     the documented direct-invocation `run $KIT/toolbelt/ensure-remote.sh $target --yes`
+#     (research-sdd-init.sh:152) succeeds without `permission denied` / ENOEXEC.
+#     The existing cases 1-12 all invoke via "$BASH_BIN" "$box/ensure-remote.sh" and
+#     therefore cannot catch a missing exec bit — this case pins the tracked mode.
+if [ -x "$SUT" ]; then
+  ok "13 SUT is directly executable (tracked git mode must be 100755)"
+else
+  no "13 SUT is directly executable (tracked git mode must be 100755)" \
+     "mode=$(stat -c '%a' "$SUT" 2>/dev/null || echo unknown) — not executable; need chmod+git update-index"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate the guard two ways and prove each assertion
 # above would FLIP to failure — otherwise those assertions are theater.
@@ -365,6 +377,21 @@ fi
       no "teeth3: mutant PUSHES despite a tracked *.pem" "mutant did NOT push — case 8 is THEATER; calls=[$(calls "$box")]"
     fi
   fi
+
+  # T4 — strip the exec bit from a copy of the SUT; case 13's [ -x "$SUT" ] must now
+  #      be VIOLATED. Proves the exec-bit check is not theater: a non-executable copy
+  #      correctly fails the assertion, matching what the tracked 100644 state produced
+  #      before the fix.
+  echo "-- teeth 4: strip exec bit from SUT copy, expect [ -x ] to FAIL --"
+  tmp_sut="$(mktemp)"
+  cp "$SUT" "$tmp_sut"
+  chmod -x "$tmp_sut"
+  if [ ! -x "$tmp_sut" ]; then
+    ok "teeth4: non-exec mutant fails [ -x ] — case 13 has teeth"
+  else
+    no "teeth4: non-exec mutant still executable — case 13 is THEATER"
+  fi
+  rm -f "$tmp_sut"
 fi
 
 echo "== $pass passed · $fail failed =="
