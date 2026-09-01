@@ -79,6 +79,7 @@ case "$grace_hours" in
 esac
 grace_secs=$(( grace_hours * 3600 ))
 pending=0; missing=0; total=0
+absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
 # Resolve retros RECURSIVELY with the SAME predicate the MISSING-RETRO fleet pass below uses
 # (find "$p" -path '*/retros/*.md'), so a nested-corpus target that keeps its retros deeper (e.g.
@@ -90,7 +91,12 @@ pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>
 # · status none' (three.js). Both this pass and the MISSING-RETRO pass below carry the same exclusion.
 declare -A rsdd_seen_retro=()
 for p in $paths; do
-  [ -d "$p" ] || continue
+  # Anti-silent-zero §7: distinguish absent-input from empty-input from no-match.
+  if [ ! -d "$p" ]; then
+    echo "INFO: corpus not found (absent-input): $p"
+    absent_targets=$((absent_targets + 1))
+    continue
+  fi
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     key="$(realpath -- "$f" 2>/dev/null || printf '%s' "$f")"
@@ -225,6 +231,9 @@ fi
 
 echo ""
 echo "Summary: ${pending} pending / ${total} retros across targets."
+if [ "$absent_targets" -gt 0 ]; then
+  echo "INFO: ${absent_targets} target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above."
+fi
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi
@@ -253,7 +262,7 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
 }
 waived_count=0; waived_names=""   # targets with a retro-waived marker; suppressed from MISSING-RETRO
 for p in $paths; do
-  [ -d "$p" ] || continue
+  if [ ! -d "$p" ]; then continue; fi   # already disclosed as absent-input in the pending pass above
   # Scan this target's retros/ for a retro-waived marker before doing the advancement check.
   # A waived target acknowledges a deliberate decision not to reconstruct a retro for a dormant
   # run — typically placed as <target>/retros/retro-waived.md carrying both '<!-- kit-retro:

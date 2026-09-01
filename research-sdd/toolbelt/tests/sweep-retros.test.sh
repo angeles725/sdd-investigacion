@@ -1344,6 +1344,58 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 62 — ABSENT TARGET (§7 absent-input disclosure). A listed target whose directory does NOT
+#      exist on disk must emit one INFO line naming the absent path, a footer counting it,
+#      and exit 0 (advisory, not operational failure). The clean sentinel must still appear
+#      because the queue is genuinely empty and absent_targets must NOT suppress it.
+#      RED on the old '[ -d "$p" ] || continue' (silent skip): no INFO line, no footer.
+kit="$(mkkit c62-absent)"; tgt="$kit/nonexistent-target"
+# Do NOT mkdir tgt — it must be absent on disk.
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qF "INFO: corpus not found (absent-input): $tgt" <<<"$OUT" \
+   && grep -qF 'INFO: 1 target(s) not traversed (absent-input)' <<<"$OUT" \
+   && grep -q 'Nothing to review.' <<<"$OUT"; then
+  ok "62 absent target → INFO line + footer disclosed, exit 0, clean sentinel" "(exit $RC)"
+else
+  no "62 absent target → INFO line + footer disclosed, exit 0, clean sentinel" "exit=$RC out=[$OUT]"
+fi
+
+# 63 — PRESENT TARGET output unchanged when mixed with absent target. A fleet with one absent
+#      and one present target (with a pending retro) must surface the PENDING retro identically
+#      to a fleet with only the present target — absent-input disclosure must not perturb
+#      present-target behavior.
+kit="$(mkkit c63-mixed)"; tgtA="$kit/present-target"; tgtB="$kit/absent-target"
+mkretro "$tgtA" "r1.md" "<!-- review-status: pending -->" 2
+# tgtB is intentionally absent (not mkdir'd).
+write_targets "$kit" "$tgtA" "$tgtB"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'r1.md' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT" \
+   && grep -qF "INFO: corpus not found (absent-input): $tgtB" <<<"$OUT"; then
+  ok "63 mixed present+absent → PENDING surfaced, INFO for absent, present output unchanged" "(exit $RC)"
+else
+  no "63 mixed present+absent → PENDING surfaced, INFO for absent, present output unchanged" "exit=$RC out=[$OUT]"
+fi
+
+# 64 — NO DOUBLE INFO for absent target across both passes (pending + MISSING-RETRO). Each
+#      absent target must produce exactly ONE INFO line. The MISSING-RETRO pass must skip absent
+#      targets silently — not re-emit the INFO. Pins the two-pass dedup invariant.
+kit="$(mkkit c64-no-double)"; tgt="$kit/nonexistent-target"
+# Do NOT mkdir tgt — it must be absent on disk.
+write_targets "$kit" "$tgt"
+run "$kit"
+_info_count=$(grep -cF "INFO: corpus not found (absent-input): $tgt" <<<"$OUT" 2>/dev/null || echo 0)
+if [ "$RC" = 0 ] && [ "$_info_count" -eq 1 ]; then
+  ok "64 absent target → INFO emitted exactly once (no duplicate across two passes)" "(count=$_info_count exit $RC)"
+else
+  no "64 absent target → INFO emitted exactly once (no duplicate across two passes)" "count=$_info_count exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Cases 2/3 claim the 'applied|dismissed) continue' skip is what
 # keeps reviewed retros OUT of the pending queue. Mutate a throwaway copy so that arm can never
 # match (rename its pattern to a token no status ever equals) and re-run the APPLIED fixture:
@@ -1806,6 +1858,26 @@ STRIPPED
       ok "teeth SR2: skip-gate-dropped mutant fires sentinel despite PARTIAL sweep (case 54 has teeth)" "()"
     else
       no "teeth SR2: skip-gate-dropped mutant silent — case 54 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth A1: neuter the absent-input INFO emission in the pending pass → absent target reverts to
+  # silent skip. Case 62 expects the INFO line to be present; with it gone the case would go RED
+  # (absent target silently vanishes, same as before the fix). Proves case 62 has teeth.
+  echo "-- teeth A1: neuter absent-input INFO; absent target must revert to silent skip (case 62 has teeth) --"
+  anchor_a1='echo "INFO: corpus not found (absent-input): $p"'
+  if [[ "$content" != *"$anchor_a1"* ]]; then
+    no "teeth A1: locate absent-input INFO echo in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-a1-absent)"; tgt="$kit/nonexistent-target"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_a1"/: # __A1_NO_INFO__}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if ! grep -qF "INFO: corpus not found" <<<"$outm"; then
+      ok "teeth A1: INFO-neutered mutant silent on absent target (case 62 has teeth)" "()"
+    else
+      no "teeth A1: INFO-neutered mutant still prints INFO — case 62 is THEATER" "out=[$outm]"
     fi
   fi
 fi
