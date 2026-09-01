@@ -69,9 +69,12 @@ legal and is not a violation; only a **malformed** or **unknown** token triggers
 | nc flag | `nc` | — | Marks a non-corpus target (no RESEARCH-STATE.md by design). |
 
 **Block-file counting (corpus targets)** — `N md` counts **root-level block files only**:
-`find <target> -maxdepth 1 -type f -name '*.md'` whose basename matches the canonical block-file
+`find <target> -maxdepth 1 -type f -name '*.md'` whose basename matches the kit's **naive** block-file
 discriminator `<prefix>-(block|bloque)<N>[-suffix].md` (a non-empty `<prefix>-` is required; the trailing
-`-suffix` is optional). Subdirectories such as `notes/` — holding drafts, fragments, and `RETRACTED-*` /
+`-suffix` is optional). This number-required pattern is the FALLBACK counter, not the last word: where a
+target ships a self-consistent local `CATALOG.md` (see below), that CATALOG's total is the authoritative
+`N md` and may legitimately EXCEED this pattern by counting non-numbered blocks it misses (e.g. a
+consolidado range like `1-3`, or a non-numbered `…bloque-test-infrastructure.md`). Subdirectories such as `notes/` — holding drafts, fragments, and `RETRACTED-*` /
 `*-draft` work-in-progress — are **NOT** counted; only root-level committed blocks are. A sub-lettered
 part (`bloque40-A.md`) counts as its **own FILE**: `N md` counts FILES, whereas the `N blocks` variant
 counts logical block NUMBERS, which can be fewer (e.g. `bloque40-A/B/C/D` = 4 files but 1 logical block).
