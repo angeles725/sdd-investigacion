@@ -249,7 +249,9 @@ kit="$(mkkit c10-catalog)"; tgt="$ROOT/c10-ext/targetA"
 mkdir -p "$(dirname "$tgt")"
 mkcorpus "$tgt" 5 "a"                                   # 5 real block files → discriminator=5
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-printf '# Catalogo de bloques\n\nTotal: **40 bloques**\n' > "$tgt/CATALOG.md"
+{ printf '# Catalogo de bloques\n\nTotal: **40 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  for _ci in $(seq 1 40); do printf '| %d | f%d.md | T%d |\n' "$_ci" "$_ci" "$_ci"; done
+} > "$tgt/CATALOG.md"
 write_targets "$kit" "$tgt::40 md"                      # claim matches the CATALOG total
 run "$kit"
 match_ok=0
@@ -263,7 +265,9 @@ match_ok=0
 kit2="$(mkkit c10b-catalog-drift)"; tgt2="$kit2/targetA"
 mkcorpus "$tgt2" 5 "a"
 mkdir -p "$tgt2/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt2/tools/gen-catalog.py"
-printf '# Catalogo de bloques\n\nTotal: **40 bloques**\n' > "$tgt2/CATALOG.md"
+{ printf '# Catalogo de bloques\n\nTotal: **40 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  for _ci in $(seq 1 40); do printf '| %d | f%d.md | T%d |\n' "$_ci" "$_ci" "$_ci"; done
+} > "$tgt2/CATALOG.md"
 write_targets "$kit2" "$tgt2::5 md"                     # claim matches the discriminator, NOT the CATALOG
 OUT2="$("$BASH_BIN" "$kit2/toolbelt/verify-registry.sh" 2>&1)"; RC2=$?
 drift_ok=0
@@ -882,7 +886,9 @@ VRT2STRIPPED
     > "$tgt/RESEARCH-STATE.md"
   for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
   mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  { printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+    printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+  } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows
   write_targets "$kit" "$tgt::5 md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# CATALOG-DISC-ZERO' "$mut"; then
@@ -904,7 +910,9 @@ VRT2STRIPPED
   kit="$(mkkit teeth-cat-fresh)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 8 "a"
   mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  { printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+    printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+  } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 rows; disc=8 → freshness WARN fires
   write_targets "$kit" "$tgt::5 md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# CATALOG-FRESHNESS-CHECK' "$mut"; then
@@ -952,8 +960,10 @@ fi
 kit="$(mkkit c27-catalog-stale)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 8 "a"   # 8 real block files → discriminator=8
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"   # CATALOG claims 5 (stale)
-write_targets "$kit" "$tgt::5 md"   # claim matches the (stale) CATALOG total
+{ printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+} > "$tgt/CATALOG.md"   # CATALOG claims 5, table has 5 rows (self-consistent)
+write_targets "$kit" "$tgt::5 md"   # claim matches the CATALOG total
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -qE 'WARN[[:space:]]+targetA.*CATALOG.*5.*discriminator 8' <<<"$OUT" \
@@ -970,7 +980,9 @@ fi
 kit="$(mkkit c28-catalog-fresh)"; tgt="$ROOT/c28-ext-tgt"
 mkcorpus "$tgt" 5 "a"   # 5 real block files → discriminator=5
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-printf '# Catalogo\n\nTotal: **6 bloques**\n' > "$tgt/CATALOG.md"   # diff=1 ≤ tol=2 → fresh
+{ printf '# Catalogo\n\nTotal: **6 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n| 6 | f6.md | T6 |\n'
+} > "$tgt/CATALOG.md"   # diff=1 ≤ tol=2 → fresh; 6 rows matches header=6 (self-consistent)
 write_targets "$kit" "$tgt::6 md"   # claim matches CATALOG total
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1014,7 +1026,9 @@ printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 5\n<!-- /research
   > "$tgt/RESEARCH-STATE.md"
 for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done  # bare naming, not canonical
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+{ printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+} > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows
 write_targets "$kit" "$tgt::5 md"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1683,7 +1697,9 @@ printf '# state\n\n<!-- research-state.v1 -->\ncovered_blocks: 5\n<!-- /research
   > "$tgt/RESEARCH-STATE.md"
 for i in $(seq 1 5); do printf '# Block %d\n' "$i" > "$tgt/block${i}.md"; done
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+{ printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+} > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows
 write_targets "$kit" "$tgt::5 md"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1701,7 +1717,9 @@ fi
 kit="$(mkkit c53-attn-freshness)"; tgt="$ROOT/c53-ext-tgt"
 mkcorpus "$tgt" 8 "a"
 mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+{ printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+} > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows; disc=8 → freshness WARN fires
 write_targets "$kit" "$tgt::5 md"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1857,9 +1875,72 @@ else
   no "60 L154 NONCONFORM → attention=0 in summary — FAILED (gate or double-count)" "exit=$RC out=[$OUT]"
 fi
 
+# 61 — CATALOG SELF-CONSISTENT (cat_total == cat_rows, disc ≠ cat_total): CATALOG.md header (17)
+#      equals its own table row count (17), but disc=5. Self-consistency gate MUST adopt CATALOG total
+#      as real=17 (not disc=5). No stale-header WARN fires. FRESHNESS WARN may fire (diff=12>tol).
+#      No drift WARN (claimed=17 matches CATALOG=17).
+kit="$(mkkit c61-catalog-selfcons)"; tgt="$ROOT/c61-ext-tgt"
+mkcorpus "$tgt" 5 "a"   # 5 real block files → discriminator=5
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+{ printf '# Catalog\n\nTotal: **17 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  for _ci in $(seq 1 17); do printf '| %d | f%d.md | T%d |\n' "$_ci" "$_ci" "$_ci"; done
+} > "$tgt/CATALOG.md"
+write_targets "$kit" "$tgt::17 md"   # claim matches CATALOG total (17), not disc=5
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'stale header' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+[a-z0-9_A-Z-]*.*refresh the row' <<<"$OUT"; then
+  ok "61 self-consistent CATALOG (cat_total=17==cat_rows, disc=5) → CATALOG adopted, no stale-header WARN, no drift WARN" "(exit $RC)"
+else
+  no "61 self-consistent CATALOG (cat_total=17==cat_rows, disc=5) → CATALOG adopted, no stale-header WARN, no drift WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 62 — STALE CATALOG HEADER (cat_total ≠ cat_rows): header claims 722 but table has only 3 data
+#      rows (cat_rows=3). disc=5 canonical block files. Self-consistency gate MUST reject CATALOG total;
+#      real stays at disc=5. STALE-HEADER WARN fires naming 722 and 3. No drift WARN (claimed=5=real=5).
+kit="$(mkkit c62-catalog-stalehdr)"; tgt="$ROOT/c62-ext-tgt"
+mkcorpus "$tgt" 5 "a"   # 5 real block files → discriminator=5
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+{ printf '# Catalog\n\nTotal: **722 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  for _ci in $(seq 1 3); do printf '| %d | f%d.md | T%d |\n' "$_ci" "$_ci" "$_ci"; done
+} > "$tgt/CATALOG.md"
+write_targets "$kit" "$tgt::5 md"   # claim matches disc=5 (not stale header=722)
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'stale header' <<<"$OUT" \
+   && grep -q '722' <<<"$OUT" \
+   && grep -q ' 3 ' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+[a-z0-9_A-Z-]*.*refresh the row' <<<"$OUT"; then
+  ok "62 stale CATALOG header (cat_total=722, cat_rows=3, disc=5) → stale-header WARN, real=5, no drift WARN" "(exit $RC)"
+else
+  no "62 stale CATALOG header (cat_total=722, cat_rows=3, disc=5) → stale-header WARN, real=5, no drift WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 63 — FULLY-AGREEING (cat_total == cat_rows == disc): header=17, table rows=17, disc=17.
+#      Behavior must be IDENTICAL to before the fix — CATALOG adopted, no stale-header WARN, no drift
+#      WARN, clean line present (diff=0≤tol → fresh, no attention, all counters zero).
+kit="$(mkkit c63-catalog-allagree)"; tgt="$ROOT/c63-ext-tgt"
+mkcorpus "$tgt" 17 "a"   # 17 real block files → discriminator=17
+mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+{ printf '# Catalog\n\nTotal: **17 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+  for _ci in $(seq 1 17); do printf '| %d | f%d.md | T%d |\n' "$_ci" "$_ci" "$_ci"; done
+} > "$tgt/CATALOG.md"
+write_targets "$kit" "$tgt::17 md"   # claim matches everything
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'stale header' <<<"$OUT" \
+   && ! grep -q 'CATALOG may be stale' <<<"$OUT" \
+   && ! grep -qE 'WARN[[:space:]]+[a-z0-9_A-Z-]*.*refresh the row' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "63 fully-agreeing (cat_total=17==cat_rows==disc) → no stale-header WARN, no drift, clean line" "(exit $RC)"
+else
+  no "63 fully-agreeing (cat_total=17==cat_rows==disc) → no stale-header WARN, no drift, clean line" "exit=$RC out=[$OUT]"
+fi
+
 # ---- TEETH for attention-gate tests 52-60 ------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-attn-disc-zero: remove the attention++ after CATALOG-DISC-ZERO. Fixture isolation:
+  # NO bare block*.md files (so UNCLASSIFIABLE does NOT fire) — only DISC-ZERO (disc=0 vs CATALOG=5).
   # NO bare block*.md files (so UNCLASSIFIABLE does NOT fire) — only DISC-ZERO (disc=0 vs CATALOG=5).
   # That means attention is solely from DISC-ZERO. Removing its increment → attention=0 → clean line
   # reappears. Proves test 52 (which allows UNCLASSIFIABLE to co-fire) depends on the DISC-ZERO site.
@@ -1871,7 +1952,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     > "$tgt/RESEARCH-STATE.md"
   printf '# README\n' > "$tgt/README.md"
   mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  { printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+    printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+  } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows
   # claimed=5 = CATALOG total → drift=0; only DISC-ZERO fires → attention=1 (isolated).
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
@@ -1898,7 +1981,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   kit="$(mkkit teeth-attn-freshness)"; tgt="$ROOT/teeth-freshness-ext-tgt"
   mkcorpus "$tgt" 8 "a"
   mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  { printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+    printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+  } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 rows; disc=8 → freshness WARN fires
   # claimed=5=CATALOG(5) → drift=0; disc=8 vs CATALOG=5 diff=3>tol → FRESHNESS fires → attention=1 (isolated).
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
@@ -2036,7 +2121,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     > "$tgt/RESEARCH-STATE.md"
   printf '# README\n' > "$tgt/README.md"
   mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
-  printf '# Catalogo\n\nTotal: **5 bloques**\n' > "$tgt/CATALOG.md"
+  { printf '# Catalogo\n\nTotal: **5 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+    printf '| 1 | f1.md | T1 |\n| 2 | f2.md | T2 |\n| 3 | f3.md | T3 |\n| 4 | f4.md | T4 |\n| 5 | f5.md | T5 |\n'
+  } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows; disc=0 → DISC-ZERO fires
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
     printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
@@ -2124,6 +2211,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-l154-nodc: NONCONFORM-FIELD-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-catalog-selfconsistency: force the CATALOG-SELFCONSISTENCY-CHECK gate to always-false
+  # (replace the if-condition with `false` so the stale branch never fires). The stale fixture from
+  # test 62 (cat_total=722, cat_rows=3, disc=5) must NO LONGER emit the stale-header WARN — proving
+  # test 62 depends on the real gate and is not vacuously green.
+  echo "-- teeth-catalog-selfconsistency: force gate always-false; stale fixture must NOT emit stale-header WARN --"
+  kit="$(mkkit teeth-cat-selfcons)"; tgt="$ROOT/teeth-catsc-ext-tgt"
+  mkcorpus "$tgt" 5 "a"   # disc=5
+  mkdir -p "$tgt/tools"; printf '#!/usr/bin/env python3\n# gen-catalog\n' > "$tgt/tools/gen-catalog.py"
+  { printf '# Catalog\n\nTotal: **722 bloques**\n\n| # | file | title |\n|---|---|---|\n'
+    for _ci in $(seq 1 3); do printf '| %d | f%d.md | T%d |\n' "$_ci" "$_ci" "$_ci"; done
+  } > "$tgt/CATALOG.md"   # stale: header=722, only 3 data rows (cat_rows=3)
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
+    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '# CATALOG-SELFCONSISTENCY-CHECK' "$mut"; then
+    sed -i '/# CATALOG-SELFCONSISTENCY-CHECK/ s/if \[/if false \&\& \[/' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && ! grep -q 'stale header' <<<"$mout"; then
+      ok "teeth-catalog-selfconsistency: gate forced → stale fixture emits NO stale-header WARN (test 62 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-catalog-selfconsistency: gate forced but stale WARN still present — test 62 has no teeth" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-catalog-selfconsistency: CATALOG-SELFCONSISTENCY-CHECK sentinel not found in SUT"
   fi
 fi
 
