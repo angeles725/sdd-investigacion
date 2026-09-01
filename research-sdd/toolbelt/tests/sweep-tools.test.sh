@@ -81,23 +81,26 @@ else
   no "2 \$RESEARCH_HOME path form → expanded, tool found" "exit=$RC out=[$OUT]"
 fi
 
-# 3 — NO tools/ directory → distinct "no tools directory" (not "0 found").
+# 3 — NO tools/ directory → distinct INFO empty-input message (not "0 found" or silent skip).
 kit="$(mkkit c3-nodir)"; tgt="$kit/targetA"
 mkdir -p "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'no tools directory' <<<"$OUT"; then
-  ok "3 no tools/ directory → distinct 'no tools directory' message" "(exit $RC)"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO:.*no tools.*directory' <<<"$OUT" \
+   && ! grep -qE 'tools: [0-9]+ found' <<<"$OUT"; then
+  ok "3 no tools/ directory → INFO empty-input, no found count" "(exit $RC)"
 else
-  no "3 no tools/ directory → distinct 'no tools directory' message" "exit=$RC out=[$OUT]"
+  no "3 no tools/ directory → INFO empty-input, no found count" "exit=$RC out=[$OUT]"
 fi
 
-# 4 — tools/ EXISTS but EMPTY → "exists but is empty", not "no tools directory".
+# 4 — tools/ EXISTS but EMPTY → INFO empty-input with 'exists but is empty', not 'no tools directory'.
 kit="$(mkkit c4-empty)"; tgt="$kit/targetA"
 mkdir -p "$tgt/tools"; write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'exists but is empty' <<<"$OUT" \
-   && ! grep -q 'no tools directory' <<<"$OUT"; then
-  ok "4 empty tools/ → 'exists but is empty', not 'no tools directory'" "(exit $RC)"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO:.*exists but is empty' <<<"$OUT" \
+   && ! grep -qE 'INFO:.*no tools.*directory' <<<"$OUT"; then
+  ok "4 empty tools/ → INFO 'exists but is empty', not 'no tools directory'" "(exit $RC)"
 else
-  no "4 empty tools/ → 'exists but is empty', not 'no tools directory'" "exit=$RC out=[$OUT]"
+  no "4 empty tools/ → INFO 'exists but is empty', not 'no tools directory'" "exit=$RC out=[$OUT]"
 fi
 
 # 5 — PREDICATE REJECTS. tools/ has a file that matches no extension and has no exec bit → must
@@ -265,6 +268,59 @@ else
   no "15 dependency dirs excluded → 2 found, not inflated" "exit=$RC out=[$OUT]"
 fi
 
+# 16 — LIB EXCLUSION (*_lib). tools/ has 1 top-level .py and a module_nav_lib/ subdir with 2 .py files.
+#      Library modules must be DISCLOSED separately, not counted in the tool total (§7 Part A).
+#      No double-disclosure: the lib count appears once; Summary reflects top-level tools only.
+kit="$(mkkit c16-lib)"; tgt="$kit/targetA"
+mktool "$tgt" "main_tool.py"
+mkdir -p "$tgt/tools/module_nav_lib"
+printf '#!/usr/bin/env python3\n# lib module\n' > "$tgt/tools/module_nav_lib/parser.py"
+printf '#!/usr/bin/env python3\n# lib module\n' > "$tgt/tools/module_nav_lib/scanner.py"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'tools: 1 found' <<<"$OUT" \
+   && grep -qE '2 library module' <<<"$OUT" \
+   && grep -q 'Summary:.*1 tool(s).*1 target' <<<"$OUT" \
+   && ! grep -qE 'tools: 3 found' <<<"$OUT"; then
+  ok "16 *_lib/ dir → 1 tool + 2 lib modules disclosed, Summary shows 1" "(exit $RC)"
+else
+  no "16 *_lib/ dir → 1 tool + 2 lib modules disclosed, Summary shows 1" "exit=$RC out=[$OUT]"
+fi
+
+# 16b — PACKAGE-INTERNAL EXCLUSION (__init__.py). tools/ has 1 top-level tool + a subdir
+#        with __init__.py (Python package). Package-internal .py files are library modules,
+#        not standalone tools.
+kit="$(mkkit c16b-pkg)"; tgt="$kit/targetA"
+mktool "$tgt" "main_tool.py"
+mkdir -p "$tgt/tools/my_package"
+printf '#!/usr/bin/env python3\n' > "$tgt/tools/my_package/__init__.py"
+printf '#!/usr/bin/env python3\n# helper\n' > "$tgt/tools/my_package/helper.py"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'tools: 1 found' <<<"$OUT" \
+   && grep -qE '[0-9]+ library module' <<<"$OUT" \
+   && grep -q 'Summary:.*1 tool(s).*1 target' <<<"$OUT"; then
+  ok "16b __init__.py package subdir → package internals disclosed, not counted as tools" "(exit $RC)"
+else
+  no "16b __init__.py package subdir → package internals disclosed, not counted as tools" "exit=$RC out=[$OUT]"
+fi
+
+# 17 — ABSENT-INPUT THREE-STATE. One real target + one non-existent path in TARGETS.md.
+#      Must emit INFO per absent target, footer count, exit 0; real target still processed.
+kit="$(mkkit c17-absent)"; tgt="$kit/targetA"
+mktool "$tgt" "scan.py"
+write_targets "$kit" "$tgt" "$kit/nonexistent-target"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'INFO: corpus not found (absent-input):' <<<"$OUT" \
+   && grep -qE 'INFO:.*1 target.*not traversed.*absent-input' <<<"$OUT" \
+   && grep -q 'TARGET.*targetA' <<<"$OUT" \
+   && grep -q 'Summary:.*1 tool' <<<"$OUT"; then
+  ok "17 absent target → INFO per target + footer count, real target processed, exit 0" "(exit $RC)"
+else
+  no "17 absent target → INFO per target + footer count, real target processed, exit 0" "exit=$RC out=[$OUT]"
+fi
+
 # Teeth (mutation proof): only when --prove-teeth is passed.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth A: break extension matching → case-1 fixture (2 tools) must report 0, not 2.
@@ -327,6 +383,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth D: exclude-stripped mutant counts node_modules deps → case 15 goes red" "()"
   else
     no "teeth D: mutant still found only 2 — case 15 is THEATER" "out=[$out_d]"
+  fi
+
+  # Tooth E: kill *_lib discriminator → lib modules get counted as tools →
+  #          case-16 fixture reports 3 tools instead of 1.
+  kit_e="$(mkkit teeth-e)"; tgt_e="$kit_e/targetA"
+  mktool "$tgt_e" "main_tool.py"
+  mkdir -p "$tgt_e/tools/module_nav_lib"
+  printf '#!/usr/bin/env python3\n# lib\n' > "$tgt_e/tools/module_nav_lib/parser.py"
+  printf '#!/usr/bin/env python3\n# lib\n' > "$tgt_e/tools/module_nav_lib/scanner.py"
+  write_targets "$kit_e" "$tgt_e"
+  # Mutant: make *_lib case never match by replacing the glob with a literal non-matching name
+  sed 's/[*]_lib) return 0/NOMATCH_LIB) return 0/' "$SUT" > "$kit_e/toolbelt/sweep-tools.sh"
+  out_e="$("$BASH_BIN" "$kit_e/toolbelt/sweep-tools.sh" 2>&1)"
+  if ! grep -q 'tools: 1 found' <<<"$out_e"; then
+    ok "teeth E: *_lib-broken mutant counts lib modules as tools → case 16 goes red" "()"
+  else
+    no "teeth E: mutant still reported 1 tool — case 16 is THEATER" "out=[$out_e]"
+  fi
+
+  # Tooth F: disable absent-input INFO → case-17 fixture must not find INFO line.
+  kit_f="$(mkkit teeth-f)"; tgt_f="$kit_f/targetA"
+  mktool "$tgt_f" "scan.py"
+  write_targets "$kit_f" "$tgt_f" "$kit_f/nonexistent-target"
+  # Mutant: suppress the per-absent-target INFO echo
+  sed 's/echo "INFO: corpus not found/true # disabled:/' "$SUT" > "$kit_f/toolbelt/sweep-tools.sh"
+  out_f="$("$BASH_BIN" "$kit_f/toolbelt/sweep-tools.sh" 2>&1)"
+  if ! grep -q 'INFO: corpus not found (absent-input):' <<<"$out_f"; then
+    ok "teeth F: absent-INFO-disabled mutant hides absent target → case 17 goes red" "()"
+  else
+    no "teeth F: mutant still showed INFO line — case 17 is THEATER" "out=[$out_f]"
   fi
 fi
 
