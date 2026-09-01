@@ -70,13 +70,28 @@ is_int()    { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 # only verify-state.sh into a temp dir, so a sourced lib there would break it), which makes this a
 # DELIBERATE mirror that MUST stay in lockstep with status.sh and with what `--sync-state` writes.
 _section()      { awk -v h="$2" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$1"; }
+# BR-CACHE: avoids re-running the _backlog_rows awk (and re-emitting its structural WARNs to stderr)
+# when multiple checks within the same per-state pass all call _backlog_rows. Without the cache each
+# of the four callers (_bparse_out, derive_pending_rows, derive_investigable, derive_requires_execution)
+# re-runs the full awk and re-emits every NM-WARN/VS-N4-WARN, producing 4× duplicates per structure
+# issue. The cache ensures the awk and its WARNs run ONCE per state file.
+_BR_CACHED_FILE=""
+_BR_CACHED_ROWS=""
+
 _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col rows; INVALID_PRIORITY<TAB><val>
   # for unknown priority values. Callers that derive counts safely ignore the 2-field sentinel (field 3
   # absent so no count fires); the per-state backlog parse check below treats INVALID_PRIORITY as FAIL.
   # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—). Qualifier forms ("high (ctx)")
   # emit a provisional WARN to stderr and are still excluded. Unknown qualifier BASE fails closed.
   # Mirrors backlog_rows() in status.sh exactly.
-  awk '
+  # Same file as last call → return cached rows; structural WARNs already emitted once.
+  if [ "$_BR_CACHED_FILE" = "$1" ]; then  # BR-CACHE-HIT
+    [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
+    return
+  fi
+  # BR-CACHE-MISS: run awk; WARNs go to stderr exactly once; capture stdout for subsequent calls.
+  _BR_CACHED_FILE="$1"
+  _BR_CACHED_ROWS="$(awk '
     /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; next }
     /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
     /^## / { in_backlog=0; in_data=0; next }
@@ -106,7 +121,8 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
         next
       }
       if (n!=4) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr"; next }  # VS-N4-WARN
-      print p "\t" a[2] "\t" tolower(a[4]) }' "$1"
+      print p "\t" a[2] "\t" tolower(a[4]) }' "$1")"
+  [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
 # used in older/TRANE/EduVolt corpora). Both sections follow the same "- <name> — needs: …" convention.
@@ -247,7 +263,14 @@ for state in "${states[@]}"; do
   # laundered into investigable_open=0 by --sync-state (which would disarm this very gate).
   # _bparse_out captures BOTH valid rows ("priority<TAB>gap<TAB>status") AND INVALID_PRIORITY sentinels.
   # derive_investigable() etc. safely ignore 2-field sentinel lines (field 3 absent → "pending" never matches).
-  _bparse_out="$(_backlog_rows "$state")"
+  #
+  # BR-CACHE-PRIME-CALL: call _backlog_rows DIRECTLY in the main shell (not inside $(...)) so that
+  # _BR_CACHED_FILE and _BR_CACHED_ROWS are set here and inherited by all subshells spawned by the
+  # derive-function calls below. Without this prime call, each $(_backlog_rows) or < <(_backlog_rows)
+  # invocation runs in its own subshell where the cache assignment never propagates back, causing awk
+  # (and its structural WARNs) to re-run 4× per state. stdout is discarded; WARNs go to stderr once.
+  _backlog_rows "$state" > /dev/null  # BR-CACHE-PRIME-CALL
+  _bparse_out="$_BR_CACHED_ROWS"
   _bparse_invalid="$(printf '%s\n' "$_bparse_out" | grep '^INVALID_PRIORITY')"
   if [ -n "$_bparse_invalid" ]; then  # BP-INVALID-PRIORITY-FAIL
     echo "   FAIL   backlog NOT FULLY PARSEABLE — unknown priority value(s) found:"
@@ -264,7 +287,13 @@ for state in "${states[@]}"; do
   pending="$(derive_pending_rows "$state")"
 
   # 2. coverage metric "X / Y ... closed"
-  metric="$(grep -iE 'coverage metric|declared gaps closed|gaps? closed' "$state" 2>/dev/null | head -1)"
+  # CM-ANCHOR-GREP: anchor to the *canonical* 'Coverage metric:' line (with optional bold ** marks)
+  # instead of the old broad pattern ('gaps? closed', 'declared gaps closed') that also matched
+  # iteration-history TABLE HEADERS like '| Gap closed |' — the first such header shadowed the
+  # real metric line via head-1, reporting <none> for the oem-honeywell-tail corpus (line 84 vs 104).
+  # Mirrors the derive_pending_rows precedent at §263: anchor to STRUCTURE (the 'Coverage metric:'
+  # key), not to a vocabulary word that appears in both the key and unrelated table headers.
+  metric="$(grep -iE '\*{0,2}coverage metric\*{0,2}:' "$state" 2>/dev/null | head -1)"  # CM-ANCHOR-GREP
   xy="$(printf '%s' "$metric" | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
   cx="${xy%%/*}"; cy="${xy##*/}"
 

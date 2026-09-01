@@ -1422,6 +1422,79 @@ if [ "$(codef "$d" --focus)" = 2 ]; then
   ok "F4 --focus (no slug) → exit 2 (usage error)"
 else no "F4: exit=$(codef "$d" --focus) (want 2 — usage error when slug missing)"; fi
 
+# ============================ PART A: coverage-metric anchor (MA) ============================
+# Verifies that the metric grep anchors to 'Coverage metric:' (with optional bold **) and does NOT
+# pick up table headers whose row contains 'Gap closed' / 'gaps closed'.
+# Smoking-gun shape: an '## Iteration history' table header '| Gap closed |' appears BEFORE the
+# real '**Coverage metric**: **13 / 15**' line. The old head-1 picked the table header and
+# reported <none>; the fix anchors to 'coverage metric:' to skip table headers.
+
+# MA-1 (RED before fix): table-header shadow. '| Iteration | Date | Gap closed | Coverage |'
+#   comes BEFORE '**Coverage metric**: **13 / 15**'. The old grep matches 'Gap closed' via
+#   'gaps? closed', head-1 picks it, no ratio found → summary 'coverage metric : <none>'.
+#   After fix: anchored grep skips the table header, picks the real metric line → 13/15.
+d="$TMP/metric-anchor-table-header"; mkdir -p "$d"
+{ echo '# OEM Tail — Research State'; echo
+  env_lines 0 13 15 0 0 0; echo
+  echo '## Iteration history'
+  echo '| Iteration | Date | Gap closed | Coverage (after) |'
+  echo '|---|---|---|---|'
+  echo '| B1 | 2024-01 | gap-alpha | 1/15 |'
+  echo '| B12 | 2024-12 | gap-omega | 12/15 |'
+  echo ''
+  echo '## Coverage'
+  echo '- **Coverage metric**: **13 / 15** declared gaps closed'
+  echo ''
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if grep -qE 'coverage metric\s*:\s*13/15' <<<"$out"; then
+  ok "MA-1: table-header 'Gap closed' does NOT shadow real **Coverage metric**: line → 13/15 detected"
+else no "MA-1: expected 13/15 got: $(grep -iE 'coverage metric' <<<"$out" | head -1)"; fi
+
+# MA-2 (negative control, must PASS both before and after fix): unbolded 'Coverage metric: 7 / 7'
+#   with NO table header above. Pins that the fix does not break the simple unbolded form.
+d="$TMP/metric-anchor-unbolded"; mkdir -p "$d"
+{ echo '# Platform — Research State'; echo
+  env_lines 0 7 7 0 0 0; echo
+  echo '## Coverage'
+  echo 'Coverage metric: 7 / 7 declared gaps closed'
+  echo ''
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if grep -qE 'coverage metric\s*:\s*7/7' <<<"$out"; then
+  ok "MA-2 neg-control: unbolded 'Coverage metric: 7 / 7' still detected as 7/7 (no regression)"
+else no "MA-2: expected 7/7 got: $(grep -iE 'coverage metric' <<<"$out" | head -1)"; fi
+
+# ============================ PART B: duplicate-WARN dedupe (DW) ============================
+# _backlog_rows() is called 4× per state (bparse_out, derive_pending_rows, derive_investigable,
+# derive_requires_execution). Each call re-runs awk and re-emits structural WARNs to stderr,
+# producing 4× the same WARN. The cache (BR-CACHE-HIT) deduplicates to 1× per state.
+
+# DW-1 (RED before fix): near-miss heading emits the WARN exactly ONCE per state.
+#   Before fix: NM-WARN fires on every _backlog_rows call → 4 identical WARNs on stderr.
+#   After fix: cache returns cached rows on calls 2-4 → awk re-run skipped → 1 WARN total.
+d="$TMP/dup-warn-once"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env_lines 0 0 0 0 0 0; echo
+  echo '## Gap backlog'      # near-miss (space not hyphen) → NM-WARN from _backlog_rows
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+nm_stderr_dw="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+nm_count_dw="$(grep -c 'near-miss' <<<"$nm_stderr_dw")"
+if [ "$nm_count_dw" = 1 ]; then
+  ok "DW-1: near-miss WARN emitted exactly ONCE per state (not ${nm_count_dw}×) — BR cache deduplicates"
+else no "DW-1: near-miss WARN appeared ${nm_count_dw}× (want exactly 1) — deduplication missing or broken"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -2022,6 +2095,54 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-FOCUS-F4: FOCUS-EMPTY-SLUG-GUARD sentinel not found in SUT"
   fi
+
+  # ---- MA-1 teeth: revert metric grep to old pattern; table-header fixture must report <none> ----
+  # The fix anchors to 'coverage metric:'; the old pattern matched 'gaps? closed' → head-1 picked
+  # the table header → <none>. Mutation: replace the anchored grep (tagged CM-ANCHOR-GREP) with the
+  # old broad pattern. MA-1 expects 13/15; mutant reports <none> → MA-1 goes RED.
+  echo "-- teeth-MA-1: revert metric grep to old 'gaps? closed' pattern; table-header fixture must report <none> --"
+  mutantMA="$TMP/verify-state.MA.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# CM-ANCHOR-GREP' "$SUT"; then
+    sed '/# CM-ANCHOR-GREP/s/.*/  metric="$(grep -iE '"'"'coverage metric|declared gaps closed|gaps? closed'"'"' "$state" 2>\/dev\/null | head -1)"/' \
+      "$SUT" > "$mutantMA"
+    if ! grep -q "gaps? closed" "$mutantMA"; then
+      no "teeth-MA-1: could not build mutant (CM-ANCHOR-GREP sentinel not found or replacement failed)"
+    else
+      ma_mut_out="$(bash "$mutantMA" "$TMP/metric-anchor-table-header" 2>/dev/null)"
+      if grep -qE 'coverage metric\s*:\s*<none>' <<<"$ma_mut_out"; then
+        ok "teeth-MA-1: old broad pattern → table-header shadows real metric → <none> reported → MA-1 anchor is load-bearing"
+      else
+        no "teeth-MA-1: old pattern did NOT report <none> — got: $(grep -iE 'coverage metric' <<<"$ma_mut_out" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-MA-1: CM-ANCHOR-GREP sentinel not found in SUT (metric grep not tagged — did SUT change?)"
+  fi
+
+  # ---- DW-1 teeth: neuter the BR cache → near-miss WARN must fire multiple times ----
+  # With the cache, awk runs once → 1 NM-WARN. Without it (BR-CACHE-HIT bypassed), awk runs
+  # 4× → 4 NM-WARNs. Mutation: replace the cache-hit return with a no-op (cache always misses).
+  echo "-- teeth-DW-1: neuter BR-CACHE-HIT; near-miss WARN must fire >1 time (deduplication is load-bearing) --"
+  mutantDW="$TMP/verify-state.DW.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# BR-CACHE-HIT' "$SUT"; then
+    sed '/# BR-CACHE-HIT/s/.*/  if false; then  # MUTANT-DW: cache neutered/' "$SUT" > "$mutantDW"
+    if ! grep -q 'MUTANT-DW: cache neutered' "$mutantDW"; then
+      no "teeth-DW-1: could not build mutant (BR-CACHE-HIT sentinel substitution failed)"
+    else
+      dw_mut_stderr="$(bash "$mutantDW" "$TMP/dup-warn-once" 2>&1 >/dev/null)"
+      dw_mut_count="$(grep -c 'near-miss' <<<"$dw_mut_stderr")"
+      if [ "$dw_mut_count" -gt 1 ]; then
+        ok "teeth-DW-1: neutered cache → ${dw_mut_count}× near-miss WARNs (>1) → DW-1 deduplication is load-bearing"
+      else
+        no "teeth-DW-1: neutered mutant emitted ${dw_mut_count}× WARN (want >1) — DW-1 may not depend on cache (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-DW-1: BR-CACHE-HIT sentinel not found in SUT (cache not implemented or not tagged)"
+  fi
+
 fi
 
 echo "== $pass passed · $fail failed =="
