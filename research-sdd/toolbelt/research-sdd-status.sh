@@ -138,9 +138,9 @@ iter_gaps_rows() {
       ph=0; for(k=1;k<=n;k++){ if(a[k] ~ /^<.*>$/) ph=1 }    # <n>/<date>… template row → skip silently
       if (ph) next
       cell=a[ngcol]  # NG-COL-BYNAME
-      if (cell=="") next
       idx=a[1]; sub(/^it\./,"",idx)
       if (match(idx,/^[0-9]+/)) sk=substr(idx,RSTART,RLENGTH); else sk=seq
+      if (cell=="") { print "row\t" sk "\tbad\t(empty)"; next }   # empty cell is unreadable, NOT silently skipped (#442 review)
       isnone = (tolower(cell) ~ /^none/ || tolower(cell) ~ /^ningun/ || tolower(cell) ~ /^ningún/)  # NG-NONE
       if (cell ~ /^\+?[0-9]+/) { v=cell; sub(/^\+/,"",v); match(v,/^[0-9]+/); print "row\t" sk "\tok\t" (substr(v,RSTART,RLENGTH)+0) }
       else if (isnone) { print "row\t" sk "\tok\t0" }
@@ -172,7 +172,7 @@ saturation_line() {
   # subset — a readable-but-older row must never rescue an unreadable tail (#420).
   badwin="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad"' | grep -c .)"
   if [ "$badwin" -gt 0 ]; then  # NG-WINDOW
-    wforms="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad"{print $3}' | awk '!seen[$0]++' | head -2 | paste -sd',' -)"
+    wforms="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
     echo "${pad}unreadable window — ${badwin} of last ${w} rows unrecognised (forms: ${wforms})"; return
   fi
   if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)"; return; fi
@@ -181,7 +181,7 @@ saturation_line() {
   nbad="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad"' | grep -c .)"
   warn=""
   if [ "$nbad" -gt 0 ]; then
-    forms="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad"{print $3}' | awk '!seen[$0]++' | head -2 | paste -sd',' -)"
+    forms="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
     warn="  [WARN: ${nbad} of ${nrows} rows unreadable (forms: ${forms})]"
   fi
   if [ "$sum" -eq 0 ]; then

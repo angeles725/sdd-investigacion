@@ -335,6 +335,11 @@ rep="$(bash "$SUT" "$d" 2>/dev/null)"
 if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '[WARN: 1 of 4 rows unreadable (forms: IC1–IC4 seeded)]' <<<"$rep"; then ok "#420 saturation: readable window + older unreadable row → SATURATED with named partial WARN"
 else no "#420 partial-warn ($(grep -i saturation <<<"$rep"))"; fi
 
+# 29h — an EMPTY New-gaps cell is reported as (empty), never silently skipped (explorador #442 review)
+d="$TMP/sat-empty"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 |  |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: (empty))' <<<"$rep" && ok "#420 saturation: empty New-gaps cell reported as (empty), not silently skipped" || no "#420 empty-cell ($(grep -i saturation <<<"$rep"))"
+
 # 29f — index forms `it.N` parse for ordering; out-of-order rows still take the correct last-3 window
 d="$TMP/sat-itidx"; mkiter_h "$d" "| # | New gaps uncovered |" "| it.4 | 9 |" "| it.1 | 0 |" "| it.2 | 0 |" "| it.3 | 0 |"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
