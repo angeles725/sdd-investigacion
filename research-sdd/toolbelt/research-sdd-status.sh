@@ -105,40 +105,89 @@ count_open_contra() {
     END { print c+0 }' "$@"
 }
 
-# Iteration-history "New gaps uncovered" rows → "iter#<TAB>new-gaps", ONE line per DATA row whose
-# `#` (col 1) AND New-gaps (col 6 == LAST cell) are BOTH real integers. The header row ("#"), the
-# "---" separator, and any `<n>` template placeholder are non-integer → skipped. Scoped to the bounded
-# `## Iteration history` section only (never whole-file), mirroring the section()/backlog_rows idioms.
+# Iteration-history parser → a TYPED stream, ONE record per line (TAB-separated):
+#   row\t<sortkey>\t<new-gaps>  a data row whose New-gaps cell is recognised (sortkey = the parsed
+#                               iteration index, else file order — the table is chronological)
+#   bad\t<raw-cell>             a data row whose New-gaps cell is present but UNRECOGNISED
+#                               (gap-id list `G12`/`B3-G4`, `—`, prose) — reported, never guessed (§7)
+#   col_none\t<header>          the table has no New-gaps / Nuevos gaps column at all
+# The New-gaps column is selected BY HEADER NAME (/new gaps|nuevos gaps/i), NEVER by position: the fleet
+# writes 8 header shapes and it is the last cell in only some of them (issue #420, 35/50 tables were
+# BLIND under the old last-cell + integer-only rule). Recognised cell forms: a LEADING integer (`3`,
+# `+1`, `3 new`, `2 seeded`, `3 new (focus STOP)`) → that integer; the `none…` family (`none`,
+# `none net-new · …`, `none new — …`) → 0. A row with any `<...>` angle-bracket template placeholder
+# cell is skipped silently (not a real iteration). Scoped to the bounded `## Iteration history` section
+# only, mirroring the section()/backlog_rows idioms.
 iter_gaps_rows() {
   section '## Iteration history' | awk '
-    { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
-      if (line !~ /\|/) next
-      sub(/^\|/,"",line); sub(/\|$/,"",line)
-      n=split(line,a,"|"); if (n<2) next
-      idx=a[1]; gsub(/^[ \t]+|[ \t]+$/,"",idx)
-      ng=a[n];  gsub(/^[ \t]+|[ \t]+$/,"",ng)
-      if (idx !~ /^[0-9]+$/) next                    # data rows only (skips header + "---" separator)
-      if (ng  !~ /^[0-9]+$/) next                    # New-gaps must be a real integer (skips <n>)
-      print idx "\t" ng }'
+    function trim(s){ gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
+    index($0,"<!--")>0 || index($0,"-->")>0 { next }        # skip HTML comments (may embed pipes)
+    { l=trim($0)
+      if (l !~ /\|/) next
+      sub(/^\|/,"",l); sub(/\|$/,"",l)
+      n=split(l,a,"|"); for(k=1;k<=n;k++) a[k]=trim(a[k])
+      issep=1; for(k=1;k<=n;k++){ if(a[k] !~ /^:?-+:?$/){issep=0;break} }
+      if (issep) next                                        # markdown "---" separator row
+      if (!have_header) {                                    # first non-separator table row = header
+        have_header=1
+        for(k=1;k<=n;k++){ if(tolower(a[k]) ~ /new gaps|nuevos gaps/){ ngcol=k; break } }
+        if (ngcol==0){ print "col_none\t" l; exit }
+        next
+      }
+      seq++
+      ph=0; for(k=1;k<=n;k++){ if(a[k] ~ /^<.*>$/) ph=1 }    # <n>/<date>… template row → skip silently
+      if (ph) next
+      cell=a[ngcol]  # NG-COL-BYNAME
+      idx=a[1]; sub(/^it\./,"",idx)
+      if (match(idx,/^[0-9]+/)) sk=substr(idx,RSTART,RLENGTH); else sk=seq
+      if (cell=="") { print "row\t" sk "\tbad\t(empty)"; next }   # empty cell is unreadable, NOT silently skipped (#442 review)
+      isnone = (tolower(cell) ~ /^none/ || tolower(cell) ~ /^ningun/ || tolower(cell) ~ /^ningún/)  # NG-NONE
+      if (cell ~ /^\+?[0-9]+/) { v=cell; sub(/^\+/,"",v); match(v,/^[0-9]+/); print "row\t" sk "\tok\t" (substr(v,RSTART,RLENGTH)+0) }
+      else if (isnone) { print "row\t" sk "\tok\t0" }
+      else { print "row\t" sk "\tbad\t" cell } }'      # gap-id lists (B754-G1/G2, IC1–IC4 seeded), — , prose
 }
 
 # SATURATION signal — INFORMATIONAL ONLY (a soft REVIEW prompt, NOT an auto-STOP). §8's read-only
 # exhaustion stays the terminal trigger; exit codes, resolve_next, and the --next contract are UNTOUCHED
-# (mirrors how contradictions are surfaced above). Over the LAST 3 numeric iterations (ordered by #):
-#   THRESHOLD = the window sums to EXACTLY 0 new gaps → SATURATED (review); any positive sum → active.
-# <3 numeric rows → insufficient history; the section absent → (no iteration history). Never errors.
+# (mirrors how contradictions are surfaced above). Over the LAST 3 recognised iterations (ordered by the
+# parsed index): THRESHOLD = the window sums to EXACTLY 0 new gaps → SATURATED (review); any positive sum
+# → active. THREE-STATE HONESTY (#420, §7): the section absent → (no iteration history); present but with
+# no New-gaps column → "no New-gaps column (header: …)"; rows the parser could not read → a VISIBLE
+# "N of M rows unreadable (forms: …)" WARN so a blind parse can never masquerade as "insufficient
+# history (0)". <3 recognised rows → insufficient history. Never errors.
 saturation_line() {
   local pad='  saturation      : '
   grep -qF '## Iteration history' "$state" || { echo "${pad}(no iteration history)"; return; }
-  local rows n sum
-  rows="$(iter_gaps_rows | sort -t$'\t' -k1,1n)"
-  n="$(printf '%s' "$rows" | grep -c .)"
-  if [ "$n" -lt 3 ]; then echo "${pad}insufficient history ($n iterations)"; return; fi
-  sum="$(printf '%s\n' "$rows" | tail -n 3 | awk -F'\t' '{s+=$2} END{print s+0}')"
+  local stream colhdr data nrows w window badwin wforms nbad forms sum warn
+  stream="$(iter_gaps_rows)"
+  colhdr="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="col_none"{print $2; exit}')"
+  if [ -n "$colhdr" ]; then echo "${pad}no New-gaps column (header: ${colhdr})"; return; fi
+  # all data rows (readable + unreadable), ordered by iteration index (file order when unreadable)
+  data="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="row"{print $2"\t"$3"\t"$4}' | sort -t$'\t' -k1,1n)"
+  nrows="$(printf '%s' "$data" | grep -c .)"
+  if [ "$nrows" -lt 1 ]; then echo "${pad}insufficient history (0 iterations)"; return; fi
+  w=$(( nrows < 3 ? nrows : 3 ))
+  window="$(printf '%s\n' "$data" | tail -n "$w")"
+  # WINDOW HONESTY: if any row in the last-3 window is unreadable, do NOT compute on the readable
+  # subset — a readable-but-older row must never rescue an unreadable tail (#420).
+  badwin="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad"' | grep -c .)"
+  if [ "$badwin" -gt 0 ]; then  # NG-WINDOW
+    wforms="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
+    echo "${pad}unreadable window — ${badwin} of last ${w} rows unrecognised (forms: ${wforms})"; return
+  fi
+  if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)"; return; fi
+  sum="$(printf '%s\n' "$window" | awk -F'\t' '{s+=$3} END{print s+0}')"
+  # named partial WARN: readable window, but older rows the parser could not read
+  nbad="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad"' | grep -c .)"
+  warn=""
+  if [ "$nbad" -gt 0 ]; then
+    forms="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
+    warn="  [WARN: ${nbad} of ${nrows} rows unreadable (forms: ${forms})]"
+  fi
   if [ "$sum" -eq 0 ]; then
-    echo "${pad}SATURATED (review) — last 3 iterations netted 0 new gaps"
+    echo "${pad}SATURATED (review) — last 3 iterations netted 0 new gaps${warn}"
   else
-    echo "${pad}active ($sum new gaps in last 3 iter)"
+    echo "${pad}active ($sum new gaps in last 3 iter)${warn}"
   fi
 }
 

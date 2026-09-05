@@ -231,6 +231,22 @@ mkiter() {
   } > "$dir/RESEARCH-STATE.md"
 }
 
+# mkiter_h <dir> <header-row> <data-row>... — iteration-history table with an ARBITRARY header line and
+# RAW data rows (caller writes full `| … |` rows). Lets a case exercise header-name column selection,
+# non-last New-gaps columns, and leading-integer / none / gap-id cell forms (#420).
+mkiter_h() {
+  local dir="$1" hdr="$2"; shift 2; mkdir -p "$dir"
+  local ncol sep i; ncol=$(awk -F'|' '{print NF-2}' <<<"$hdr"); sep="|"
+  for ((i=0;i<ncol;i++)); do sep="$sep---|"; done
+  { echo "# T"; echo; echo "## Gap-backlog"; echo
+    echo "| P | G | t | S |"; echo "|-|-|-|-|"; echo "| high | g1 | web | pending |"; echo
+    echo "## Iteration history"; echo
+    echo "$hdr"; echo "$sep"
+    for r in "$@"; do echo "$r"; done
+    echo; echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"
+  } > "$dir/RESEARCH-STATE.md"
+}
+
 # 24 — last 3 iterations net 0 new gaps → SATURATED (review) signal in the DEFAULT status report
 d="$TMP/sat"; mkiter "$d" 1 "1|0" "2|0" "3|0"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
@@ -286,6 +302,48 @@ before="$(next "$d")"
 after="$(next "$d")"
 if [ "$before" = "$after" ] && ! grep -qi saturation <<<"$after"; then ok "--next contract unchanged by an iteration-history table"
 else no "--next leaked: before[$before] after[$after]"; fi
+
+# --- #420: saturation parser reads New-gaps BY HEADER NAME + lenient cell forms + 3-state honesty ---
+# 29a — New-gaps chosen by header name even when it is NOT the last column (last col is prose)
+d="$TMP/sat-byname"; mkiter_h "$d" "| # | New gaps | Result |" "| 1 | 0 | did |" "| 2 | 0 | did |" "| 3 | 0 | did |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps' <<<"$rep" && ok "#420 saturation: New-gaps selected by header name, not position" || no "#420 by-name ($(grep -i saturation <<<"$rep"))"
+
+# 29b — leading-integer cell forms (`2 new`, `+1`) are recognised as their integer
+d="$TMP/sat-leadint"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 2 new |" "| 2 | 0 |" "| 3 | +1 |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : active (3 new gaps in last 3 iter)' <<<"$rep" && ok "#420 saturation: leading-integer cells (2 new / +1) parsed" || no "#420 leadint ($(grep -i saturation <<<"$rep"))"
+
+# 29c — the `none…` family (incl. Spanish `ninguno`) counts as 0 → an all-none window is SATURATED
+d="$TMP/sat-none"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | none net-new · yes · sonnet |" "| 2 | ninguno para este focus |" "| 3 | none |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps' <<<"$rep" && ok "#420 saturation: none/ninguno family cells count as 0" || no "#420 none ($(grep -i saturation <<<"$rep"))"
+
+# 29d — a table with NO New-gaps column is reported honestly, NOT as blind 'insufficient history (0)'
+d="$TMP/sat-nocol"; mkiter_h "$d" "| Iter | Block | Gap | Result |" "| 1 | B1 | g | did |" "| 2 | B2 | g | did |" "| 3 | B3 | g | did |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : no New-gaps column (header:' <<<"$rep" && ok "#420 saturation: no New-gaps column reported (not blind 'insufficient history')" || no "#420 no-col ($(grep -i saturation <<<"$rep"))"
+
+# 29e — an unreadable row in the last-3 window → 'unreadable window' (never computed on the readable subset)
+d="$TMP/sat-unread"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| 4 | B754-G1/G2 |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: B754-G1/G2)' <<<"$rep" && ok "#420 saturation: unreadable tail row → unreadable window, not computed on readable subset" || no "#420 unread-window ($(grep -i saturation <<<"$rep"))"
+
+# 29g — a readable last-3 window with an OLDER unreadable row → SATURATED/active + a named partial WARN
+d="$TMP/sat-partial"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | IC1–IC4 seeded |" "| 2 | 0 |" "| 3 | 0 |" "| 4 | 0 |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '[WARN: 1 of 4 rows unreadable (forms: IC1–IC4 seeded)]' <<<"$rep"; then ok "#420 saturation: readable window + older unreadable row → SATURATED with named partial WARN"
+else no "#420 partial-warn ($(grep -i saturation <<<"$rep"))"; fi
+
+# 29h — an EMPTY New-gaps cell is reported as (empty), never silently skipped (explorador #442 review)
+d="$TMP/sat-empty"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 |  |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: (empty))' <<<"$rep" && ok "#420 saturation: empty New-gaps cell reported as (empty), not silently skipped" || no "#420 empty-cell ($(grep -i saturation <<<"$rep"))"
+
+# 29f — index forms `it.N` parse for ordering; out-of-order rows still take the correct last-3 window
+d="$TMP/sat-itidx"; mkiter_h "$d" "| # | New gaps uncovered |" "| it.4 | 9 |" "| it.1 | 0 |" "| it.2 | 0 |" "| it.3 | 0 |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -q 'saturation      : active (9 new gaps in last 3 iter)' <<<"$rep" && ok "#420 saturation: it.N index parsed and rows ordered by it" || no "#420 it-index ($(grep -i saturation <<<"$rep"))"
 
 # 30 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders,
 #      no real corpus state) must resolve to BOOTSTRAP, not parse the template as work. The find must
@@ -1070,6 +1128,48 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   srep="$(bash "$smutant" "$d" 2>/dev/null)"
   if grep -q 'saturation      : SATURATED' <<<"$srep"; then ok "teeth: widened-threshold mutant over-flags an active window → saturation test has teeth"
   else no "teeth: sat mutant did not over-flag [$(grep -i saturation <<<"$srep")] — threshold not exercised (THEATER)"; fi
+
+  # #420 teeth (a): revert New-gaps column selection to the LAST column; a fixture whose New-gaps column
+  # is NOT last (last col is prose 'Result') must then misread and lose SATURATED.
+  echo "-- teeth-#420a: last-column-fallback mutant misreads a non-last New-gaps column --"
+  a420_mut="$TMP/status.420A.MUTANT.sh"
+  if grep -q '# NG-COL-BYNAME' "$SUT"; then
+    sed 's/cell=a\[ngcol\]  # NG-COL-BYNAME/cell=a[n]  # MUTANT-420A/' "$SUT" > "$a420_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat420a"; mkiter_h "$d" "| # | New gaps | Result |" "| 1 | 0 | did |" "| 2 | 0 | did |" "| 3 | 0 | did |"
+    a420_rep="$(bash "$a420_mut" "$d" 2>/dev/null)"
+    if ! grep -q 'saturation      : SATURATED' <<<"$a420_rep"; then
+      ok "teeth-#420a: last-column mutant loses SATURATED → header-name selection has teeth"
+    else no "teeth-#420a: mutant still SATURATED [$(grep -i saturation <<<"$a420_rep")] — column-by-name not exercised (THEATER)"; fi
+  else no "teeth-#420a: NG-COL-BYNAME sentinel not found in SUT"; fi
+
+  # #420 teeth (b): drop none/ninguno recognition; an all-`none…` window must flip off SATURATED.
+  echo "-- teeth-#420b: none/ninguno-blind mutant flips an all-none window off SATURATED --"
+  b420_mut="$TMP/status.420B.MUTANT.sh"
+  if grep -q '# NG-NONE' "$SUT"; then
+    sed '/# NG-NONE/s/isnone = .*/isnone = 0  # MUTANT-420B/' "$SUT" > "$b420_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat420b"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | none net-new · yes · sonnet |" "| 2 | ninguno para este focus |" "| 3 | none |"
+    b420_rep="$(bash "$b420_mut" "$d" 2>/dev/null)"
+    if ! grep -q 'saturation      : SATURATED' <<<"$b420_rep" && grep -q 'unreadable window' <<<"$b420_rep"; then
+      ok "teeth-#420b: none/ninguno-blind mutant flips all-none window to unreadable → none-recognition has teeth"
+    else no "teeth-#420b: mutant [$(grep -i saturation <<<"$b420_rep")] — none-recognition not exercised (THEATER)"; fi
+  else no "teeth-#420b: NG-NONE sentinel not found in SUT"; fi
+
+  # #420 teeth (c): neuter window honesty; a mutant that computes on the readable subset must turn an
+  # unreadable-window fixture into SATURATED (readable-but-older rows wrongly rescue an unreadable tail).
+  echo "-- teeth-#420c: window-honesty neutered → an unreadable-window fixture wrongly computes SATURATED --"
+  c420_mut="$TMP/status.420C.MUTANT.sh"
+  if grep -q '# NG-WINDOW' "$SUT"; then
+    sed 's/if \[ "\$badwin" -gt 0 \]; then  # NG-WINDOW/if false; then  # MUTANT-420C/' "$SUT" > "$c420_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat420c"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| 4 | 0 |" "| 5 | B754-G1/G2 |"
+    c420_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    c420_mrep="$(bash "$c420_mut" "$d" 2>/dev/null)"
+    if grep -q 'saturation      : unreadable window' <<<"$c420_orig" && grep -q 'saturation      : SATURATED' <<<"$c420_mrep"; then
+      ok "teeth-#420c: window-honesty neutered → mutant computes SATURATED on an unreadable window → guard has teeth"
+    else no "teeth-#420c: orig=[$(grep -i saturation <<<"$c420_orig")] mut=[$(grep -i saturation <<<"$c420_mrep")] — window honesty not load-bearing (THEATER)"; fi
+  else no "teeth-#420c: NG-WINDOW sentinel not found in SUT"; fi
 
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
