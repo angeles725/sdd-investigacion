@@ -43,12 +43,13 @@ write_stub() {
   chmod +x "$TMP/verify-tool-catalog-hook.sh"
 }
 
-# 3. Silent when every logged tool is cataloged (0 not cataloged).
+# 3. Declared-clean sentinel when every logged tool is cataloged (0 not cataloged).
+#    A silent clean run is the defect (#380 precedent) — sentinel MUST be emitted.
 write_stub 0 "Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged."
 OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-[ -z "$OUT" ] && [ "$RC" -eq 0 ] \
-  && ok "3 all-cataloged (0 not cataloged) → silent, exit 0" \
-  || no "3 all-cataloged → expected silence, got exit=$RC out=[$OUT]"
+printf '%s\n' "$OUT" | grep -q 'Research-SDD tool catalog: clean (5 logged tools, 0 uncataloged).' \
+  && ok "3 all-cataloged (0 not cataloged) → declared-clean sentinel emitted" \
+  || no "3 all-cataloged → expected clean sentinel, got exit=$RC out=[$OUT]"
 
 # 4. Emits drift when not-cataloged > 0.
 write_stub 0 "$(printf 'WARN  installed-but-not-cataloged: '\''typst'\'' is logged...\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.')"
@@ -101,7 +102,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Tooth A: mutant hook always exits 0 without output (ignores not-cataloged count).
   # Test 4 (not-cataloged > 0 → emits drift summary) must catch this and go RED.
-  sed 's/\[ "\${missing:-0}" = "0" \] && exit 0/exit 0/' \
+  # Mutant: insert unconditional exit 0 right after the missing= parse line — hook exits
+  # silently regardless of the not-cataloged count, so drift goes unreported.
+  sed '/missing.*not cataloged/a\  exit 0' \
     "$SUT" > "$TMP/mutant-hook.sh"
   chmod +x "$TMP/mutant-hook.sh"
   write_stub 0 "$(printf 'Summary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.')"
@@ -114,6 +117,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth A: always-silent mutant produces no output → test 4 would catch it (RED)"
   else
     no "teeth A: mutant still emits output — mutation did not silence correctly, check mutant"
+  fi
+
+  # Tooth C: mutant makes the clean state silent (reverts to old exit-0 idiom) → test 3 goes RED.
+  # Mutant: replace sentinel emission with bare exit 0 (no jq call, no output).
+  echo "-- teeth C: clean-silent mutant → test 3 (declared-clean sentinel) must catch it --"
+  sed '/CLEAN-SENTINEL/c\  exit 0' \
+    "$SUT" > "$TMP/mutant-hook-c.sh"
+  chmod +x "$TMP/mutant-hook-c.sh"
+  write_stub 0 "$(printf 'Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged.')"
+  cp "$TMP/mutant-hook-c.sh" "$TMP/verify-tool-catalog-hook.sh"
+  MUTANT_OUT_C="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT_C" | grep -q 'Research-SDD tool catalog: clean'; then
+    ok "teeth C: clean-silent mutant omits sentinel → test 3 would catch it (RED)"
+  else
+    no "teeth C: mutant still emits clean sentinel — tooth has no bite"
   fi
 
   # Tooth B: neutralize _vtch_warn_rc so WARN-line extraction error passes silently → test 8 goes red.
