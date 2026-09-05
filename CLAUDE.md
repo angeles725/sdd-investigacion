@@ -350,8 +350,9 @@ carries the incident that produced it; none restates §3–§8.
    is an independent interface claim — the same class as "test the list edges" (§7).
 4. **The shared checkout's local `main` never advances.** Every merge happens remotely and every session
    writes in a worktree, so any read of "current" kit content must come from a worktree on `origin/main`
-   (`git fetch && git worktree add <sibling> origin/main`), never from the shared tree. Reading the stale tree
-   produced a false "sentence not present" during D10.
+   (`git fetch && git worktree add <sibling> origin/main`), never from the shared tree. The lead session grepped the
+   stale shared tree for a sentence D6 had merged hours earlier and got "not present" while scoping D10 —
+   the sentence was on `origin/main`, not in the tree it read.
 5. **Retro markers carry MERGE shas, not branch shas.** Writers stamped `applied · kit <branch sha>`;
    squash-merge makes those dangle. Re-stamp with the merge sha in the same session (24 retros this
    campaign). Flip markers in a target corpus with `git add <file>` only — never a checkout, stash, or reset in
