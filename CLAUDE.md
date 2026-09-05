@@ -121,7 +121,9 @@ it must live under the home directory as `<repo-parent>/<repo-name>-worktrees/<n
 
 `run-all.sh --prove-teeth` forwards the flag to every `*.test.sh` suite that implements a mutation
 self-test. It does NOT generate mutations for you — a new suite has teeth only if you write them.
-Never declare done without running it.
+Never declare done without running it. Since kit issue #426 the aggregate also names the suites that
+accepted the flag and ran no mutation control (`Suites without teeth: N — [names]`); a new suite that
+appears in that list is not done. `--require-teeth` turns the list into an exit-1 gate (opt-in, §5).
 
 ---
 
@@ -132,6 +134,7 @@ Never declare done without running it.
 | Shellcheck | `shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh` | Zero warnings. **`globstar` is required** — without it the glob matches depth 1 only, silently skipping all of `lib/` and `tests/`. `shopt` is a bash builtin: under zsh it errors out, but zsh globs `**` recursively on its own, so the coverage is still correct — check the file count, not the absence of an error. `.shellcheckrc` suppresses SC2015 and SC2016 — intentional silences for this codebase's idioms, not blanket ignores |
 | Test suite | `bash research-sdd/toolbelt/tests/run-all.sh` | All suites pass; skipped ≠ passed; zero-coverage run exits 1 |
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
+| Teeth coverage | `bash research-sdd/toolbelt/tests/run-all.sh --require-teeth` | Exit 0 only when every `*.test.sh` suite runs mutation controls. Implies `--prove-teeth`; the aggregate prints `Suites without teeth: N — [names] (vocabulary check: a "teeth" case with no real mutant is a review item)`, `Suites with teeth but no banner: N`, and `Suites n/a for teeth (node): N`. Opt-in (kit issue #426): the default gate stays green while the 21 forensics/VM suites listed there have no mutants — run it to see the debt, not to hide it |
 
 **No suite or case counts are recorded here, deliberately.** For the current numbers, run the gate. Its
 output is authoritative for that execution and that candidate — a later edit invalidates it, another
