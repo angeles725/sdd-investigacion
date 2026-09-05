@@ -1384,16 +1384,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-#449e: wforms reverted to \$window → reopen form re-appears → guard has teeth (NG-WFORMS-ITER-ONLY) --"
   e449e_mut="$TMP/status.449E.MUTANT.sh"
   if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
-    sed 's/printf .%s.n. "\$iter_window" | awk.*NG-WFORMS-ITER-ONLY/printf '"'"'%s\n'"'"' "$window" | awk -F'"'"'\\t'"'"' '"'"'$2=="bad" \&\& !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}'"'"'  # MUTANT-449E/' "$SUT" > "$e449e_mut" 2>/dev/null
-    if [ ! -s "$e449e_mut" ]; then
-      # fallback: line-based substitution using the sentinel line number
-      wforms_line="$(grep -n 'NG-WFORMS-ITER-ONLY' "$SUT" | head -1 | cut -d: -f1)"
-      if [ -n "$wforms_line" ]; then
-        head -n "$((wforms_line - 1))" "$SUT" > "$e449e_mut"
-        printf '    wforms="$(printf '"'"'%%s\\n'"'"' "$window" | awk -F'"'"'\\t'"'"' '"'"'$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}'"'"')"  # MUTANT-449E\n' >> "$e449e_mut"
-        tail -n "+$((wforms_line + 1))" "$SUT" >> "$e449e_mut"
-      fi
-    fi
+    # mutant: on the NG-WFORMS-ITER-ONLY line, swap "$iter_window" back to "$window"
+    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$window"/' "$SUT" > "$e449e_mut"
     cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
     d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
     e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
@@ -1408,11 +1400,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-#476: reopen-tail wforms reverted to \$window → REOPEN-form appears + verdict unchanged --"
   t476_mut="$TMP/status.476.MUTANT.sh"
   if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
-    wforms476_line="$(grep -n 'NG-WFORMS-ITER-ONLY' "$SUT" | head -1 | cut -d: -f1)"
-    if [ -n "$wforms476_line" ]; then
-      head -n "$((wforms476_line - 1))" "$SUT" > "$t476_mut"
-      printf '    wforms="$(printf '"'"'%%s\\n'"'"' "$window" | awk -F'"'"'\\t'"'"' '"'"'$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}'"'"')"  # MUTANT-476\n' >> "$t476_mut"
-      tail -n "+$((wforms476_line + 1))" "$SUT" >> "$t476_mut"
+    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$window"/' "$SUT" > "$t476_mut"
+    wforms476_line=""  # use sed-based mutant directly (no line split needed)
+    if [ -s "$t476_mut" ]; then
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       d="$TMP/sat476"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
       t476_orig="$(bash "$SUT" "$d" 2>/dev/null)"
