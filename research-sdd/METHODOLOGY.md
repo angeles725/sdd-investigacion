@@ -1258,6 +1258,26 @@ permission friction and driver bloat for no demonstrated catch.
 
 **To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #1)
 
+**Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
+BUILD/PoC phase (§12), a per-block orchestrator Bash gate IS justified and expected — there it verifies
+PHYSICAL/EXTERNAL state the in-block self-report cannot vouch for and §14 cannot protect: the device was
+left safe (baseline restored, a write reverted, the checksum re-measured live), the blast-radius of a
+write was contained, the PoC's round-trip actually ran. §14 catches wrong CLAIMS across blocks; it does
+not catch a bricked device or an un-reverted write. Static blocks trust the self-report; live/destructive
+iterations gate on real-world state.
+A **batch of FIXES** in a build/QA/execution phase (§19) is likewise OUTSIDE the static self-report contract:
+it is a NEW change surface, and the fixer's own directed/green tests do NOT substitute for verification. It
+gets its OWN scoped adversarial re-check on the fix delta before any terminal verdict — see §19 (a round of
+fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
+the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
+
+## 11b. Verifying the verifier and the kit test-lane contract
+
+SITUATIONAL, not part of the per-block HOT-CORE: read this section IN FULL when a run adds or changes a guard,
+check, oracle, or test lane in the KIT (toolbelt scripts and their suites). A research loop writing a block needs
+§11 above, not this section. The text below was moved here verbatim from §11 (kit issue #454) so the per-block
+contract stops paying ~164 lines per iteration for kit-maintenance rules.
+
 **Verifying the verifier.** When a run adds or relies on a guard, check, or oracle, these rules apply
 before trusting its verdict:
 
@@ -1371,19 +1391,6 @@ before trusting its verdict:
   debugging at the wrong layer. The same discipline applies to corpus files a later iteration was supposed
   to update: a retro or state file that did not receive its intended update is a silent no-op with a longer
   blast radius.
-
-**Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
-BUILD/PoC phase (§12), a per-block orchestrator Bash gate IS justified and expected — there it verifies
-PHYSICAL/EXTERNAL state the in-block self-report cannot vouch for and §14 cannot protect: the device was
-left safe (baseline restored, a write reverted, the checksum re-measured live), the blast-radius of a
-write was contained, the PoC's round-trip actually ran. §14 catches wrong CLAIMS across blocks; it does
-not catch a bricked device or an un-reverted write. Static blocks trust the self-report; live/destructive
-iterations gate on real-world state.
-A **batch of FIXES** in a build/QA/execution phase (§19) is likewise OUTSIDE the static self-report contract:
-it is a NEW change surface, and the fixer's own directed/green tests do NOT substitute for verification. It
-gets its OWN scoped adversarial re-check on the fix delta before any terminal verdict — see §19 (a round of
-fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
-the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
 
 **Kit test-lane contract (toolbelt quality gate).** The toolbelt gate (`run-all.sh`) defaults to the
 **fast** lane: suites load fixture-cached assertions instead of spawning the real tool (Ghidra, r2,
