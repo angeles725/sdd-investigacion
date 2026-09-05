@@ -621,6 +621,10 @@ the focus's OWN state file, in this order: a `## Covered blocks` list when prese
 cannot-see, never a FAIL against the corpus total (§7 three-state rule). The corpus-wide count is still
 printed, as INFO (`corpus total N, shared-global`). `--sync-state` writes the attributed count. A focus whose
 envelope disagrees with its own listed ids is a TRUE finding and stays a FAIL.
+**Instrument status (readback against the live code, kit issue #423):** until #423 lands, `verify-state.sh`
+still compares `covered_blocks` against the corpus-wide file count under `shared-global` (its CHECK A has no
+attribution step yet). On a shared-global corpus treat that FAIL as noise and do NOT run `--sync-state` on a
+focus file — it would write the corpus total. #423 removes this paragraph when the instrument matches.
 
 | Value | Meaning | CHECK A comparison |
 |---|---|---|
@@ -1875,8 +1879,9 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   | `document` | a §20 document-mode focus (outline-driven, no gap backlog) |
 
   `closed` is NOT a token — write `stopped`. Regional variants (`reabierto`) are non-conforming — write the
-  token. A checker reads the token only, WARNs by row on anything else, and never guesses (propose-never-apply:
-  migrating an existing row is the operator's edit). Why closed: the live niagara index carried four prescribed
+  token. No checker reads this cell yet (a WARN-only FOCUSES↔RESEARCH-STATE drift sweep is a wave-2 kit unit);
+  when one exists it MUST read the token only, WARN by row on anything else, and never guess
+  (propose-never-apply: migrating an existing row is the operator's edit). Why closed: the live niagara index carried four prescribed
   words plus `CLOSED (13/13; …)`, `document 4/4`, `reabierto (18/31)` and ≥12 parenthetical shapes, and a row
   saying `planned (0/8)` while its state file said `stopped (12/12)` nearly cost a heavy re-derivation loop; a
   cell no instrument can read cannot be checked for that drift (TARGETS.md maturity cell, retro delta
