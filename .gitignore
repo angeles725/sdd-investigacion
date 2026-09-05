@@ -14,3 +14,6 @@ __pycache__/
 # detect-tools.sh capability-report cache (written to CWD by default;
 # DEPENDENCIES.md instructs running the script, so it appears anywhere)
 .research-tools.txt
+
+# Claude Code agent worktrees — ephemeral; make the kit-clean gate portable
+.claude/worktrees/
