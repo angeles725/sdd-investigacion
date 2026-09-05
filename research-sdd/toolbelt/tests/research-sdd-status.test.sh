@@ -345,6 +345,7 @@ d="$TMP/sat-itidx"; mkiter_h "$d" "| # | New gaps uncovered |" "| it.4 | 9 |" "|
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
 grep -q 'saturation      : active (9 new gaps in last 3 iter)' <<<"$rep" && ok "#420 saturation: it.N index parsed and rows ordered by it" || no "#420 it-index ($(grep -i saturation <<<"$rep"))"
 
+
 # 29i — #449: a `—`-indexed bootstrap row in the TAIL is STRUCTURAL, not a window row; last 3 NUMERIC
 #       iterations are all 0 → SATURATED with the excluded-rows note (never plain SATURATED without it)
 d="$TMP/sat-struct-tail"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
@@ -360,6 +361,20 @@ rep="$(bash "$SUT" "$d" 2>/dev/null)"
 if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '· latest unnumbered row seeded 5 gaps — not yet an iteration' <<<"$rep"; then
   ok "#449 saturation: reopen-tail row seeded note appended — fresh reopen not plain SATURATED"
 else no "#449 reopen-seed ($(grep -i saturation <<<"$rep"))"; fi
+
+# 29k — #476: a `—` reopen row whose position sorts it into the last-w of all_sorted must NOT contribute
+#       its form to wforms. wforms is numbered-only (iter_window). Two-part assertion:
+#       (a) REOPEN-form is ABSENT from wforms (iter-only fix);
+#       (b) verdict count is unchanged (badwin uses iter_window — already correct post-#449).
+#       Fixture: iter1(ok,0), iter2(bad,BAD-ITER-form), iter3(ok,0), —(bad,REOPEN-form).
+#       all_sorted last-3: iter2(bad),iter3(ok),struct(bad) — old code would show REOPEN-form in wforms.
+#       iter_window last-3: iter1(ok),iter2(bad),iter3(ok) — badwin=1, wforms=BAD-ITER-form only.
+d="$TMP/sat-reopen-wforms"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+sat476="$(grep 'saturation' <<<"$rep")"
+if ! grep -qF 'REOPEN-form' <<<"$sat476" && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$sat476"; then
+  ok "#476 reopen-tail: REOPEN-form absent from wforms; verdict count (badwin=1) unchanged"
+else no "#476 reopen-tail: sat=[${sat476}] — expected REOPEN-form absent and 'unreadable window — 1 of last 3 rows unrecognised'"; fi
 
 # 30 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders,
 #      no real corpus state) must resolve to BOOTSTRAP, not parse the template as work. The find must
@@ -1295,6 +1310,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-#420c: orig=[$(grep -i saturation <<<"$c420_orig")] mut=[$(grep -i saturation <<<"$c420_mrep")] — window honesty not load-bearing (THEATER)"; fi
   else no "teeth-#420c: NG-WINDOW sentinel not found in SUT"; fi
 
+
   # #449 teeth (a): drop NG-STRUCT-SPLIT — revert to the old "all rows are window rows" behaviour by
   # making struct rows appear as "row" records. A fixture with a `—`-indexed bootstrap row in the tail
   # currently reports SATURATED+excluded-note; the mutant must flip to unreadable-window (the old bug).
@@ -1340,47 +1356,68 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-#449c: orig=[$(grep -i saturation <<<"$c449_orig")] mut=[$(grep -i saturation <<<"$c449_mrep")] — excluded note not load-bearing (THEATER)"; fi
   else no "teeth-#449c: note_struct assignment not found in SUT"; fi
 
-  # #449 teeth (d): unstable sort reorders tied-sk forms → stable tie-break guard has teeth.
-  # Fixture: struct row BETWEEN iter1 and iter2 (sk=2 tie). Stream: iter1(sk=1,bad), struct(sk=2,bad), iter2(sk=2,bad), iter3(sk=3,bad).
-  # Stable sort all_sorted: iter1(sk=1), struct(sk=2,file-pos=2), iter2(sk=2,file-pos=3), iter3(sk=3). tail-3: struct,iter2,iter3.
-  # window wforms: STRUCT-form (file-first at sk=2) then ITER-form-2 → "STRUCT-form,ITER-form-2".
-  # Mutant (sort without -s): "I"<"S" alphabetically → iter2 before struct at sk=2 → tail-3: iter2,struct,iter3 → wforms: ITER-form-2,STRUCT-form → red.
-  echo "-- teeth-#449d: unstable-sort mutant reorders tied-sk forms → stable tie-break guard has teeth --"
+  # #449 teeth (d): unstable sort reorders tied-sk forms in the partial-WARN sample → stable sort is load-bearing.
+  # Fixture: iter1(ok,3), struct(bad,STRUCT-bad-form) at seq=2 tying sk=2 with iter2(bad,ITER-bad-2), iter3(ok,5), iter4(ok,3), iter5(ok,2).
+  # Window (last-3 iter): iter3,iter4,iter5 — all ok → no badwin, no NG-WINDOW path.
+  # partial-WARN: 3 bad rows (iter1,struct,iter2). Stable sort all_sorted at sk=2: struct before iter2 (file-pos).
+  # First 2 distinct bad forms: ITER-bad-1,STRUCT-bad-form. Unstable sort flips sk=2 tie → forms: ITER-bad-1,ITER-bad-2.
+  echo "-- teeth-#449d: unstable-sort mutant reorders partial-WARN forms at tied sk → stable tie-break guard has teeth --"
   d449d_mut="$TMP/status.449D.MUTANT.sh"
   if grep -q 'NG-FORMS-STABLE-SORT' "$SUT"; then
     sed 's/sort -s -t/sort -t/' "$SUT" > "$d449d_mut"
     cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-    d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | ITER-form-1 |" "| — | STRUCT-form |" "| 2 | ITER-form-2 |" "| 3 | ITER-form-3 |"
+    d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | ITER-bad-1 |" "| — | STRUCT-bad-form |" "| 2 | ITER-bad-2 |" "| 3 | 5 |" "| 4 | 3 |" "| 5 | 2 |"
     d449d_orig="$(bash "$SUT" "$d" 2>/dev/null)"
     d449d_mrep="$(bash "$d449d_mut" "$d" 2>/dev/null)"
-    if grep -qF 'forms: STRUCT-form,ITER-form-2' <<<"$d449d_orig" && grep -qF 'forms: ITER-form-2,STRUCT-form' <<<"$d449d_mrep"; then
-      ok "teeth-#449d: unstable-sort mutant reorders tied-sk forms → stable tie-break guard has teeth"
-    else no "teeth-#449d: orig=[$(grep -i 'unreadable\|WARN' <<<"$d449d_orig")] mut=[$(grep -i 'unreadable\|WARN' <<<"$d449d_mrep")] — stable tie-break not load-bearing (THEATER)"; fi
+    if grep -qF 'forms: ITER-bad-1,STRUCT-bad-form' <<<"$d449d_orig" && grep -qF 'forms: ITER-bad-1,ITER-bad-2' <<<"$d449d_mrep"; then
+      ok "teeth-#449d: unstable-sort mutant reorders partial-WARN forms at tied sk → stable tie-break guard has teeth"
+    else no "teeth-#449d: orig=[$(grep -i 'WARN\|saturation' <<<"$d449d_orig")] mut=[$(grep -i 'WARN\|saturation' <<<"$d449d_mrep")] — stable tie-break not load-bearing (THEATER)"; fi
   else no "teeth-#449d: NG-FORMS-STABLE-SORT sentinel not found in SUT"; fi
 
-  # #449 teeth (e): all_sorted computed without struct rows → struct-first bad cell dropped → red.
-  # Fixture: struct row BETWEEN iter2 and iter3, tying at sk=3. Stream: iter1(ok), iter2(ok), struct(sk=3,bad), iter3(sk=3,bad), iter4(bad).
-  # all_sorted tail-3: struct(sk=3,file-first), iter3(sk=3,file-second), iter4(sk=4) → wforms: STRUCT-seed-bad,ITER-bad-3.
-  # Mutant: all_sorted drops ||$1=="struct" → struct absent from window → wforms: ITER-bad-3,ITER-bad-4 → red.
-  echo "-- teeth-#449e: all_sorted without struct rows → struct-first cell dropped from wforms → red --"
+  # #449 teeth (e): #476 — wforms must source iter_window only; a structural row that sorts into the
+  # last-w of all_sorted must NOT appear in wforms. Under the old code (wforms from $window), a reopen
+  # tail row at sk=4 enters the all_sorted window and contributes REOPEN-form.
+  # Fixture: iter1(ok,0), iter2(bad,BAD-ITER-form), iter3(ok,0), —(bad,REOPEN-form) (sk=4).
+  # all_sorted last-3: iter2(bad),iter3(ok),struct(bad) — REOPEN-form would appear in old wforms.
+  # After fix (wforms from iter_window): iter1,iter2,iter3 → only BAD-ITER-form.
+  # Mutant: revert wforms to use $window → REOPEN-form re-appears → red.
+  echo "-- teeth-#449e: wforms reverted to \$all_sorted → reopen form re-appears → guard has teeth (NG-WFORMS-ITER-ONLY) --"
   e449e_mut="$TMP/status.449E.MUTANT.sh"
-  if grep -q 'NG-WFORMS-STRUCT' "$SUT"; then
-    wforms_line="$(grep -n 'NG-WFORMS-STRUCT' "$SUT" | head -1 | cut -d: -f1)"
-    if [ -n "$wforms_line" ]; then
-      head -n "$((wforms_line - 1))" "$SUT" > "$e449e_mut"
-      cat >> "$e449e_mut" << 'MUTANT_449E_EOF'
-  all_sorted="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="row"{print $2"\t"$3"\t"$4}' | sort -s -t$'\t' -k1,1n)"  # MUTANT-449E: struct rows excluded from all_sorted
-MUTANT_449E_EOF
-      tail -n "+$((wforms_line + 1))" "$SUT" >> "$e449e_mut"
+  if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
+    # mutant: on the NG-WFORMS-ITER-ONLY line, swap "$iter_window" to "$all_sorted" (includes struct rows)
+    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$all_sorted"/' "$SUT" > "$e449e_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
+    e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    e449e_mrep="$(bash "$e449e_mut" "$d" 2>/dev/null)"
+    if ! grep -qF 'REOPEN-form' <<<"$e449e_orig" && grep -qF 'REOPEN-form' <<<"$e449e_mrep"; then
+      ok "teeth-#449e: wforms reverted to all_sorted → reopen-form re-appears → iter-only guard has teeth"
+    else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — wforms iter-only guard not load-bearing (THEATER)"; fi
+  else no "teeth-#449e: NG-WFORMS-ITER-ONLY sentinel not found in SUT"; fi
+
+  # #476 reopen-tail two-part tooth: (a) REOPEN-form absent from wforms (iter-only fix),
+  # (b) verdict count unchanged (badwin=iter_window, already correct post-#449).
+  echo "-- teeth-#476: reopen-tail wforms reverted to \$all_sorted → REOPEN-form appears + verdict unchanged --"
+  t476_mut="$TMP/status.476.MUTANT.sh"
+  if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
+    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$all_sorted"/' "$SUT" > "$t476_mut"
+    if [ -s "$t476_mut" ]; then
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-      d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| — | STRUCT-seed-bad |" "| 3 | ITER-bad-3 |" "| 4 | ITER-bad-4 |"
-      e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
-      e449e_mrep="$(bash "$e449e_mut" "$d" 2>/dev/null)"
-      if grep -qF 'forms: STRUCT-seed-bad,ITER-bad-3' <<<"$e449e_orig" && grep -qF 'forms: ITER-bad-3,ITER-bad-4' <<<"$e449e_mrep"; then
-        ok "teeth-#449e: all_sorted struct-excluded mutant drops struct-first cell → struct guard has teeth"
-      else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — all_sorted struct guard not load-bearing (THEATER)"; fi
-    else no "teeth-#449e: NG-WFORMS-STRUCT line not found by grep -n"; fi
-  else no "teeth-#449e: NG-WFORMS-STRUCT sentinel not found in SUT"; fi
+      d="$TMP/sat476"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
+      t476_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+      t476_mrep="$(bash "$t476_mut" "$d" 2>/dev/null)"
+      # (a) orig: REOPEN-form absent; mutant: REOPEN-form present
+      # (b) verdict count: both must show "1 of last 3 rows unrecognised" (badwin unchanged)
+      t476_orig_sat="$(grep 'saturation' <<<"$t476_orig")"
+      t476_mrep_sat="$(grep 'saturation' <<<"$t476_mrep")"
+      if ! grep -qF 'REOPEN-form' <<<"$t476_orig_sat" && grep -qF 'REOPEN-form' <<<"$t476_mrep_sat" \
+         && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$t476_orig_sat" \
+         && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$t476_mrep_sat"; then
+        ok "teeth-#476: wforms reverted to \$all_sorted → REOPEN-form re-appears; verdict count unchanged (guard has teeth)"
+      else no "teeth-#476: orig=[${t476_orig_sat}] mut=[${t476_mrep_sat}] — reopen-tail iter-only not load-bearing (THEATER)"; fi
+    else no "teeth-#476: NG-WFORMS-ITER-ONLY line not found by grep -n"; fi
+  else no "teeth-#476: NG-WFORMS-ITER-ONLY sentinel not found in SUT"; fi
+
 
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
