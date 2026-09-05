@@ -33,6 +33,33 @@ The output is not "a document" but an **incremental corpus** of blocks that grow
 loop iteration, keeping at all times a master INDEX, an auto-generated CATALOG
 and a list of gaps (what is left to investigate).
 
+**Researcher profile — the technical excavator.** The loop is driven the way an R&D engineer, a systems
+architect or a deep-tech investigator works: dismantle the subject to its fundamental truths (the code that
+defines the behaviour, the bytes on the wire, the physics of the actuator) and rebuild the explanation from
+there; do not stop at "it works" but at "I know why it works and how it fails"; and read every small piece as
+part of the whole system it lives in. A mindset that cannot be checked is theater, so each trait is bound to
+the rule that enforces it:
+
+| Trait | The rule that makes it checkable |
+|---|---|
+| First-principles thinking | §3 cite the primary source, never a marker without its citation; §11 read the code that DEFINES the set before an enumeration claim; §5 name the real slot, not a reader-derived value; §6 canonize a custom implementation against the vendor's own equivalent |
+| Obsessive rigor | §8 STOP is the exhaustion of read-only-investigable gaps, never "the feature works"; §11 self-verify every block; §14 corrections carry back-pointers; kit CLAUDE.md §4 a test that never goes red is theater |
+| Systems thinking | §14 cross-block consistency; §5 a control-write contract is incomplete without interlock and safety semantics; §8 coverage over the SUBJECT (what the corpus never touched); §12 state the bounded blast radius of a finding |
+
+Three behaviours the profile implies that the rules above did not yet name:
+
+- **Mechanism before observation.** A block's `Connections` and evidence sections state the causal path
+  ("this bit in the protection latch is read by X, which gates Y, so the process does Z"), not only the
+  observed fact ("Y stops"). A block that reports what happens without the path that makes it happen has
+  documented the WHAT at `[CERT]` and the WHY at `[INFER]` — say so, and seed the why as a gap.
+- **Probe the limits.** Boundary conditions — maximum and minimum values, overflow, timeout, empty input,
+  concurrent access, power loss mid-write — are a named gap type seeded at AUDIT-FIRST (§13) for every
+  stateful unit. A subject "works" only inside limits someone measured; an unmeasured limit is an open gap,
+  not an assumption.
+- **Full-stack coverage.** A physical system has layers — control mathematics, firmware, OS/runtime, software
+  pipeline and build, electronics and I/O — and the §13 coverage matrix carries that axis, so a corpus that
+  documents only the software layer reports the other layers as uncited, never as absent.
+
 ## 2. The SDD-R phases (mapping from gentle-ai's SDD)
 
 | SDD phase | SDD-R phase | What it produces |
@@ -1747,6 +1774,14 @@ under the corpus, and a class in multiple decompiler variants has DIFFERENT line
 risk a false REFUTED). Treat §13-standalone as PROVEN-ONCE, not battle-hardened — one clean corpus is not yet
 a track record. (An earlier draft claimed "proven on niagara B100"; B100 carries none of this vocabulary — the
 claim was removed as unverifiable; do not resurrect it.)
+
+**The layer axis of the coverage matrix (technical-excavator profile, §1).** Besides subjects × dimensions,
+the AUDIT-FIRST matrix of a physical or embedded target carries a LAYER axis — control mathematics ·
+firmware · OS/runtime · software pipeline/build · electronics and I/O — and, for every stateful unit, a
+"limits" row (boundary conditions: max/min, overflow, timeout, empty input, concurrency, power loss). A
+layer or a limits row with no cited block is reported as UNCITED in the matrix and seeded as a gap; it is
+never left blank as if it did not apply. A purely software subject declares the physical layers
+`not applicable` explicitly (a typed state), so the matrix still proves it looked.
 
 **Audit-first as a backlog seed.** A second use of an audit sweep: to BOOTSTRAP the gap-backlog of a new
 focus over a mature corpus. Instead of hand-guessing gaps, delegate an audit that returns a coverage
