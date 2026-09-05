@@ -943,39 +943,49 @@ if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
   ok "BS-per-focus: block_scope: per-focus → per-focus count (2 of 4 blocks), exit 0"
 else no "BS-per-focus: exit $(code "$d") :: $(grep -iE 'fail|ok ' <<<"$out" | head -1)"; fi
 
-# BS-global-ok — block_scope: shared-global, declared total == global on-disk count → PASSES.
-# Corpus shares a single prefix (niagara-mental-model-bloque). RESEARCH-STATE-chihuahua.md claims
-# covered_blocks=3 and declares block_scope: shared-global. CHECK A must compare against the global
-# count (3), not the chihuahua-prefix count (0) → passes.
+# BS-global-ok — block_scope: shared-global, covered_blocks == attributed count → PASSES.
+# Corpus has 5 blocks on disk (corpus total) but focus only attributes B1,B2,B3 (from Iteration history).
+# covered_blocks=3 matches attributed=3; corpus total 5 is informational. SUT must exit 0.
 d="$TMP/bs-global-ok"; mkdir -p "$d"
-printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
-printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
-printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
+for _bgi in 1 2 3 4 5; do printf 'x\n' > "$d/niagara-mental-model-bloque${_bgi}.md"; done
 { echo '# Chihuahua — Research State'; echo
-  env_bs 3 0 0 0 0 0 0 0 "shared-global"; echo
+  env_bs 3 0 0 0 0 0 0 0 "shared-global"; echo   # covered_blocks=3, attributed=3 → PASS
   echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
   echo '## Blocked gaps'; echo '- none'
   echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  echo '## Iteration history'; echo
+  echo '| # | Date | Gap closed | Block | Delegated? · model | New gaps |'
+  echo '|---|---|---|---|---|---|'
+  echo '| 1 | 2026-01-01 | gap-A | B1 | no · inline | none |'
+  echo '| 2 | 2026-01-02 | gap-B | B2 | no · inline | none |'
+  echo '| 3 | 2026-01-03 | gap-C | B3 | no · inline | none |'
 } > "$d/RESEARCH-STATE-chihuahua.md"
 out="$(run "$d")"
 if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
-  ok "BS-global-ok: block_scope: shared-global, covered_blocks=3 == 3 global blocks → exit 0"
+  ok "BS-global-ok: block_scope: shared-global, covered_blocks=3 == attributed 3 (corpus 5) → exit 0"
 else no "BS-global-ok: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks|ok ' <<<"$out" | head -1)"; fi
 
-# BS-global-stale — block_scope: shared-global, declared != global count → FAILS (staleness check has teeth).
+# BS-global-stale — block_scope: shared-global, covered_blocks != attributed count → FAILS (mismatch check has teeth).
+# Iteration history attributes B1,B2,B3 (attributed=3). declared covered_blocks=10 → mismatch → FAIL.
 d="$TMP/bs-global-stale"; mkdir -p "$d"
 printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
 printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
 printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
 { echo '# Chihuahua — Research State'; echo
-  env_bs 10 0 0 0 0 0 0 0 "shared-global"; echo
+  env_bs 10 0 0 0 0 0 0 0 "shared-global"; echo   # covered_blocks=10, attributed=3 → MISMATCH
   echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
   echo '## Blocked gaps'; echo '- none'
   echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  echo '## Iteration history'; echo
+  echo '| # | Date | Gap closed | Block | Delegated? · model | New gaps |'
+  echo '|---|---|---|---|---|---|'
+  echo '| 1 | 2026-01-01 | gap-A | B1 | no · inline | none |'
+  echo '| 2 | 2026-01-02 | gap-B | B2 | no · inline | none |'
+  echo '| 3 | 2026-01-03 | gap-C | B3 | no · inline | none |'
 } > "$d/RESEARCH-STATE-chihuahua.md"
 out="$(run "$d")"
 if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*covered_blocks=10 != 3' <<<"$out"; then
-  ok "BS-global-stale: block_scope: shared-global, covered_blocks=10 != 3 global → FAIL exit 1"
+  ok "BS-global-stale: block_scope: shared-global, covered_blocks=10 != attributed 3 → FAIL exit 1"
 else no "BS-global-stale: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out" | head -1)"; fi
 
 # BS-bogus — block_scope: bogus-value → FAILS with message naming both legal values.
@@ -1088,6 +1098,79 @@ out="$(run "$d")"
 if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*covered_blocks=0' <<<"$out" && grep -q 'shared-global' <<<"$out"; then
   ok "BS-cannot-see-pass: covered_blocks=0=focus-filtered but 1 global block → WARN with shared-global hint, exit 0"
 else no "BS-cannot-see-pass: exit $(code "$d") :: $(grep -iE 'warn\|covered_blocks' <<<"$out" | head -1) (want exit 0 + WARN)"; fi
+
+# ====================== ISSUE #423 — shared-global attributed-count CHECK A ========================
+
+# SG-unverifiable — block_scope: shared-global, no attributed blocks (no ## Covered blocks, no Iteration history)
+# → INFO 'unverifiable under shared-global', never FAIL against corpus total, exit 0.
+d="$TMP/sg-unverifiable"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
+{ echo '# Chihuahua — Research State'; echo
+  env_bs 0 0 0 0 0 0 0 0 "shared-global"; echo   # covered_blocks=0, no attributed ids → unverifiable
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'INFO.*unverifiable' <<<"$out" && grep -qE 'INFO.*corpus total' <<<"$out"; then
+  ok "SG-unverifiable: shared-global + no attributed ids → INFO (not FAIL) + corpus total INFO, exit 0"
+else no "SG-unverifiable: exit $(code "$d") :: $(grep -iE 'info|fail' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# SG-true-mismatch — block_scope: shared-global, covered_blocks=19 while Iteration history shows B1..B17.
+# A focus whose envelope disagrees with its OWN attributed ids stays a TRUE FAIL (not suppressed).
+# This is the tooth-2 base fixture: declared 19, attributed 17 → FAIL exit 1.
+d="$TMP/sg-true-mismatch"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
+{ echo '# KitControl — Research State'; echo
+  env_bs 19 0 0 0 0 0 0 0 "shared-global"; echo   # covered_blocks=19, attributed=17 → MISMATCH
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  echo '## Iteration history'; echo
+  echo '| # | Date | Gap closed | Block | Delegated? · model | New gaps |'
+  echo '|---|---|---|---|---|---|'
+  for _sgk in $(seq 1 17); do echo "| ${_sgk} | 2026-01-01 | gap-${_sgk} | B${_sgk} | no · inline | none |"; done
+} > "$d/RESEARCH-STATE-kitControl.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*covered_blocks=19 != 17' <<<"$out"; then
+  ok "SG-true-mismatch: covered_blocks=19 vs attributed 17 → FAIL exit 1 (true mismatch stays a FAIL)"
+else no "SG-true-mismatch: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out" | head -1)"; fi
+
+# SG-scope — two focuses sharing shared-global corpus.
+# focus-a: covered_blocks=3, attributed=3 (B1,B2,B3) → CLEAN.
+# focus-b: covered_blocks=10, attributed=3 (B1,B2,B3) → MISMATCH.
+# --focus focus-a must exit 0: scoped to focus-a only; focus-b mismatch must NOT propagate.
+_sg_iter3() {   # emit 3-row Iteration history (B1,B2,B3) for shared-global fixtures
+  echo '## Iteration history'; echo
+  echo '| # | Date | Gap closed | Block | Delegated? · model | New gaps |'
+  echo '|---|---|---|---|---|---|'
+  for _sgj in 1 2 3; do echo "| ${_sgj} | 2026-01-01 | gap-${_sgj} | B${_sgj} | no · inline | none |"; done
+}
+d="$TMP/sg-scope"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-mental-model-bloque1.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque2.md"
+printf 'x\n' > "$d/niagara-mental-model-bloque3.md"
+{ echo '# FocusA — Research State'; echo
+  env_bs 3 0 0 0 0 0 0 0 "shared-global"; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  _sg_iter3
+} > "$d/RESEARCH-STATE-focus-a.md"
+{ echo '# FocusB — Research State'; echo
+  env_bs 10 0 0 0 0 0 0 0 "shared-global"; echo   # mismatch: covered_blocks=10, attributed=3
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  _sg_iter3
+} > "$d/RESEARCH-STATE-focus-b.md"
+rc_scope="$(codef "$d" --focus focus-a)"
+out_scope="$(runf "$d" --focus focus-a)"
+if [ "$rc_scope" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out_scope"; then
+  ok "SG-scope: --focus focus-a scoped → exit 0 (focus-b mismatch must not propagate)"
+else no "SG-scope: exit $rc_scope :: $(grep -iE 'fail|ok ' <<<"$out_scope" | head -1)"; fi
 
 # ====================== ISSUE #143 — unknown priority backlog parse check ========================
 # Unknown priorities silently dropped; fix detects INVALID_PRIORITY sentinels and FAILs before
@@ -1732,33 +1815,65 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth-BS-per-focus: mutant exit $mbspfgot (want 1) → BS-per-focus may not depend on focus-prefix (THEATER)"; fi
   cp "$FPLIB" "$TMP/lib/focus-prefix.sh"   # restore
 
-  # BS-global-ok mutation: replace ondisk="$_ondisk_global" with ondisk="0" (sentinel BS-SHARED-GLOBAL-ONDISK).
-  # shared-global fixture (covered_blocks=3, 3 global blocks) must then FAIL (3 ≠ 0).
-  echo "-- teeth-BS-global-ok: force ondisk=0 for shared-global; covered_blocks=3 vs 0 must FAIL --"
+  # BS-global-ok mutation: revert _derive_attributed_sg to corpus total → attributed-match fixture FAILs.
+  # fixture: covered_blocks=3, attributed=3, corpus=5 → PASS; mutant: attributed=corpus=5 → 3≠5 → FAIL.
+  echo "-- teeth-BS-global-ok: revert _derive_attributed_sg to corpus total; attributed-match fixture must FAIL --"
   mutantBSGO="$TMP/verify-state.BSGLOBALOK.MUTANT.sh"
-  sed 's/ondisk="\$_ondisk_global"  # BS-SHARED-GLOBAL-ONDISK/ondisk="0"  # MUTANT-BSGO/' "$SUT" > "$mutantBSGO"
-  if ! grep -q 'MUTANT-BSGO' "$mutantBSGO"; then
-    no "teeth-BS-global-ok: could not build mutant (BS-SHARED-GLOBAL-ONDISK sentinel not found — did SUT change?)"
+  sed 's/^_derive_attributed_sg() {$/_derive_attributed_sg() { echo "$_ondisk_global"; return  # MUTANT-SGOK/' "$SUT" > "$mutantBSGO"
+  if ! grep -q 'MUTANT-SGOK' "$mutantBSGO"; then
+    no "teeth-BS-global-ok: could not build mutant (_derive_attributed_sg header not found — did SUT change?)"
   else
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
     d="$TMP/bs-global-ok"
     bash "$mutantBSGO" "$d" >/dev/null 2>&1; mbsgogot=$?
     if [ "$mbsgogot" = 1 ]; then
-      ok "teeth-BS-global-ok: ondisk=0 mutant → covered_blocks=3 ≠ 0 → FAIL → BS-global-ok has teeth"
-    else no "teeth-BS-global-ok: mutant exit $mbsgogot (want 1) → shared-global ondisk selection not load-bearing (THEATER)"; fi
+      ok "teeth-BS-global-ok: corpus-total mutant → covered_blocks=3 ≠ corpus 5 → FAIL → attributed check has teeth"
+    else no "teeth-BS-global-ok: mutant exit $mbsgogot (want 1) — attributed check not load-bearing (THEATER)"; fi
   fi
 
-  # BS-global-stale mutation: neuter CHECK A → declared 10 vs 3 global undetected → exit 0.
-  echo "-- teeth-BS-global-stale: neuter CHECK A; covered_blocks=10 vs 3 must stop FAILing --"
+  # BS-global-stale mutation: neuter SG-ATTR-CHECK → attributed mismatch (10 vs 3) undetected → exit 0.
+  echo "-- teeth-BS-global-stale: neuter SG-ATTR-CHECK; covered_blocks=10 vs attributed 3 must stop FAILing --"
   mutantBSGS="$TMP/verify-state.BSGLOBALSTALE.MUTANT.sh"
-  sed 's/^\(  if ! is_int "\$e_covered" || \[ "\$e_covered" != "\$ondisk" \]; then\)$/  if false; then  # MUTANT-BSGS/' "$SUT" > "$mutantBSGS"
+  sed 's/^\( *\)elif ! is_int "\$e_covered" || \[ "\$e_covered" != "\$_sg_attributed" \]; then  # SG-ATTR-CHECK$/\1elif false; then  # MUTANT-BSGS/' "$SUT" > "$mutantBSGS"
   if ! grep -q 'MUTANT-BSGS' "$mutantBSGS"; then
-    no "teeth-BS-global-stale: could not build mutant (CHECK A guard line not found — did SUT change?)"
+    no "teeth-BS-global-stale: could not build mutant (SG-ATTR-CHECK sentinel not found — did SUT change?)"
   else
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
     d="$TMP/bs-global-stale"
     bash "$mutantBSGS" "$d" >/dev/null 2>&1; mbsgsgot=$?
     if [ "$mbsgsgot" = 0 ]; then
-      ok "teeth-BS-global-stale: CHECK A neutered → 10 vs 3 undetected (exit 0) → BS-global-stale has teeth"
-    else no "teeth-BS-global-stale: mutant exit $mbsgsgot (want 0) → BS-global-stale does not depend on CHECK A (THEATER)"; fi
+      ok "teeth-BS-global-stale: SG-ATTR-CHECK neutered → 10 vs 3 undetected (exit 0) → mismatch check has teeth"
+    else no "teeth-BS-global-stale: mutant exit $mbsgsgot (want 0) → mismatch check not load-bearing (THEATER)"; fi
+  fi
+
+  # SG-skip-attribution tooth (tooth-2): set _sg_attributed=0 → unverifiable INFO → true mismatch undetected.
+  echo "-- teeth-SG-skip-attribution: set _sg_attributed=0; covered_blocks=19/attributed=17 must false-pass --"
+  mutantSGSA="$TMP/verify-state.SGSKIPATRIB.MUTANT.sh"
+  sed 's/^\( *\)_sg_attributed=.*# SG-DERIVE-ATTRIBUTED$/\1_sg_attributed="0"  # MUTANT-SGSA/' "$SUT" > "$mutantSGSA"
+  if ! grep -q 'MUTANT-SGSA' "$mutantSGSA"; then
+    no "teeth-SG-skip-attribution: could not build mutant (SG-DERIVE-ATTRIBUTED sentinel not found — did SUT change?)"
+  else
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    d="$TMP/sg-true-mismatch"
+    bash "$mutantSGSA" "$d" >/dev/null 2>&1; msgsagot=$?
+    if [ "$msgsagot" = 0 ]; then
+      ok "teeth-SG-skip-attribution: attribution skipped → 19≠17 undetected (exit 0) — true-mismatch has teeth"
+    else no "teeth-SG-skip-attribution: mutant exit $msgsagot (want 0) — skip has no effect (THEATER)"; fi
+  fi
+
+  # SG-scope tooth (tooth-3): neutered FOCUS-FILTER lints both focuses; focus-b mismatch propagates → exit 1.
+  echo "-- teeth-SG-scope: neutered FOCUS-FILTER; focus-b mismatch propagates to --focus focus-a call → exit 1 --"
+  if grep -q '# FOCUS-FILTER' "$SUT"; then
+    mutantSGSCOPE="$TMP/verify-state.SGSCOPE.MUTANT.sh"
+    cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+    sed '/# FOCUS-FILTER$/s/if \[ -n "\$focus_slug" \]; then/if false; then  # MUTANT-SGSCOPE/' "$SUT" > "$mutantSGSCOPE"
+    d="$TMP/sg-scope"
+    bash "$mutantSGSCOPE" "$d" --focus focus-a >/dev/null 2>&1; msgsgot=$?
+    if [ "$msgsgot" = 1 ]; then
+      ok "teeth-SG-scope: neutered filter → focus-b mismatch propagates (exit 1) — focus scoping has teeth"
+    else no "teeth-SG-scope: mutant exit $msgsgot (want 1) — SG-scope isolation not load-bearing (THEATER)"; fi
+  else
+    no "teeth-SG-scope: FOCUS-FILTER sentinel not found in SUT"
   fi
 
   # BS-bogus + BS-empty mutation: neuter block_scope validation (sentinel BS-BLOCK_SCOPE-VALIDATE).

@@ -249,6 +249,31 @@ _validate_block_scope() {
   esac
 }
 
+# Under shared-global, derive count of blocks ATTRIBUTED to this focus.
+# Source 1 (preferred): distinct B<n> ids in the '## Covered blocks' section body.
+# Source 2 (fallback): distinct B<n> ids in the '## Iteration history' Block column.
+# Returns 0 when neither yields any id (unverifiable — §7 three-state rule).
+_derive_attributed_sg() {
+  local sf="$1" ids n
+  ids="$(_section "$sf" '## Covered blocks' | grep -oE '\bB[0-9]+\b' | sort -u)"
+  if [ -z "$ids" ]; then
+    ids="$(_section "$sf" '## Iteration history' | awk '
+      BEGIN { blockcol=0 }
+      /\|/ {
+        gsub(/\r$/, "")
+        n = split($0, a, "|")
+        if (!blockcol) {
+          for (i=1; i<=n; i++) { v=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",v); if (tolower(v)=="block") blockcol=i }
+          next
+        }
+        if (blockcol && n >= blockcol) { v=a[blockcol]; gsub(/^[ \t]+|[ \t]+$/,"",v); print v }
+      }' | grep -oE '\bB[0-9]+\b' | sort -u)"
+  fi
+  [ -z "$ids" ] && { echo 0; return; }
+  n="$(printf '%s\n' "$ids" | wc -l | tr -d ' ')"
+  echo "${n:-0}"
+}
+
 rc=0
 for state in "${states[@]}"; do
   echo "== verify-state: $(basename "$state") (target: $target) =="
@@ -323,13 +348,17 @@ for state in "${states[@]}"; do
     frc=1; rc=1; _bs_valid=0
   fi
   # Always compute the focus-blind global block count — needed for:
-  #   (a) block_scope: shared-global (this becomes the authoritative ondisk count), and
+  #   (a) block_scope: shared-global (corpus-total INFO and cannot-see diagnostic), and
   #   (b) the cannot-see diagnostic when per-focus ondisk==0 while other-prefix blocks exist.
   _ondisk_global="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
     | block_file_filter | wc -l | tr -d ' ')"
   : # BS-ONDISK-GLOBAL-COMPUTED — override this line with _ondisk_global="0" to test cannot-see-pass teeth
+  _sg_attributed=""   # SG-ATTR-INIT: empty when per-focus; populated when shared-global
+  _sg_check_a_done=0  # SG-CHECK-A-SKIP: 1 = shared-global handled covered_blocks CHECK A above
   if [ "$_bs_valid" = 1 ] && [ -n "$_bs_present" ] && [ "$e_bs" = "shared-global" ]; then
-    ondisk="$_ondisk_global"  # BS-SHARED-GLOBAL-ONDISK
+    _sg_attributed="$(_derive_attributed_sg "$state")"  # SG-DERIVE-ATTRIBUTED
+    ondisk="$_ondisk_global"   # corpus total; used in summary only — CHECK A uses attributed count
+    _sg_check_a_done=1
   elif [ -n "$_fpfx" ]; then
     ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | block_file_filter "${_fpfx}" | wc -l | tr -d ' ')"
@@ -363,11 +392,22 @@ for state in "${states[@]}"; do
   echo "   backlog pending : ${pending}"
   echo "   envelope        : covered_blocks=${e_covered:-<none>}/${ondisk} · investigable_open=${e_inv:-<none>}/${d_inv} · requires_execution_open=${e_req:-<none>}/${d_req} · blocked_open=${e_blocked:-<none>}/${d_blocked} · deferred_open=${e_def:-<none>}/${d_def} · undocumented_findings=${e_uf:-<none>}  (declared/derived; undocumented_findings is manually-maintained)"
 
-  # ENVELOPE CHECK A (FAIL) — declared covered_blocks must equal on-disk block files.
-  # For block_scope: shared-global, ondisk is already the global count (set above).
-  # For absent/per-focus with a focus prefix, distinguish the cannot-see case (focus-filtered=0 while
-  # other-prefix blocks exist) from a genuine zero or a real staleness mismatch.
-  if ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; then
+  # ENVELOPE CHECK A (shared-global) — attributed block count comparison (SG-CHECK-A-SKIP).
+  # covered_blocks must equal blocks ATTRIBUTED to this focus (from ## Covered blocks or Iteration history);
+  # corpus-wide total is informational only. When no attributed ids are listed: INFO (never FAIL).
+  if [ "$_sg_check_a_done" = 1 ]; then
+    echo "   INFO   corpus total ${_ondisk_global} block file(s) (shared-global, informational)"  # SG-CORPUS-INFO
+    if [ "${_sg_attributed:-0}" -eq 0 ]; then  # SG-UNVERIFIABLE-COND
+      echo "   INFO   covered_blocks unverifiable under shared-global: no attributed block ids listed"
+    elif ! is_int "$e_covered" || [ "$e_covered" != "$_sg_attributed" ]; then  # SG-ATTR-CHECK
+      echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>} != ${_sg_attributed} attributed block(s) under shared-global — re-seed: --sync-state"
+      frc=1; rc=1
+    fi
+  fi
+  # ENVELOPE CHECK A (per-focus) — declared covered_blocks must equal on-disk block files (absent/per-focus).
+  # Shared-global is handled above (SG-CHECK-A-SKIP). For absent/per-focus with a focus prefix, distinguish
+  # the cannot-see case (focus-filtered=0 while other-prefix blocks exist) from a genuine zero or real mismatch.
+  if [ "$_sg_check_a_done" = 0 ] && { ! is_int "$e_covered" || [ "$e_covered" != "$ondisk" ]; }; then  # SG-CHECK-A-SKIP
     if [ -n "$_fpfx" ] && [ "${ondisk:-0}" -eq 0 ] && [ "${_ondisk_global:-0}" -gt 0 ] && [ "$_bs_valid" = 1 ] && [ "$e_bs" != "shared-global" ]; then  # BS-CANNOT-SEE-COND
       echo "   FAIL   envelope covered_blocks=${e_covered:-<missing>}: no block file matches prefix '${_fpfx}' — ${_ondisk_global} block file(s) exist under other prefixes; if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state"
     else
