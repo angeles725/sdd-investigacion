@@ -120,11 +120,13 @@ for p in $paths; do
     case "$status" in
       applied|dismissed) continue ;;
     esac
-    # Warn on any status word that is neither a known open state nor a closing word.
-    # 'pending' and an absent marker are normal open states; do not warn on those.
+    # Warn on absent marker (operator must add one) and on any status word that is neither
+    # a known open state nor a closing word. 'pending' is the only recognized open state
+    # without a WARN; an absent marker surfaces a WARN so untriaged retros are visible.
     # Only 'applied' and 'dismissed' close a retro — no synonyms, no widening the vocabulary.
     case "$status" in
-      ""|pending) ;;
+      pending) ;;
+      "") echo "WARN: no review-status marker — add '<!-- review-status: pending -->'" ;;
       *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
     esac
     pending=$((pending + 1))
@@ -155,12 +157,20 @@ for p in $paths; do
     #   "## Delta proposals[...]"
     #   "## Deltas NUEVOS[...]"
     _sec_r=$(awk '
-      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0 }
+      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""; canon=0 }
       { low=tolower($0) }
-      low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]*\(|[[:space:]]*$)/ ||
-      low ~ /^## proposed delta/                                                     ||
-      low ~ /^## delta proposals/                                                    ||
-      low ~ /^## deltas nuevos/                                                      { in_sec=1; found=1; next }
+      # Canonical section headings (recognized, no deprecation WARN).
+      # Numbered form widened to allow trailing text (e.g. "for the next version …").
+      low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
+      low ~ /^## proposed delta/                                      ||
+      low ~ /^## delta proposals/                                     ||
+      low ~ /^## deltas nuevos/                                       { in_sec=1; found=1; canon=1; depr_h=""; next }
+      # Deprecated alias headings (recognized + WARN-migrate; ignored when a canonical section
+      # already appeared — the canonical section is authoritative and auxiliary alias sections
+      # such as ## Delta details for expanded write-ups do not trigger a migration WARN).
+      low ~ /^## summary of proposed delta/                           ||
+      low ~ /^## summary of new deltas/                               ||
+      low ~ /^## delta details([[:space:]]|$)/                        { in_sec=1; found=1; if (!canon && !depr_h) depr_h=$0; next }
       /^##[^#]/ && in_sec { in_sec=0 }
       in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
       in_sec && /^###[^#]/ && /—/ { h3d++ }
@@ -168,15 +178,17 @@ for p in $paths; do
       END {
         data = (rows > 0) ? rows - 1 : 0
         if (found) {
-          if      (data  > 0) print found+0 ":1:" data+0
-          else if (h3d   > 0) print found+0 ":2:" h3d+0
-          else                print found+0 ":w:0"
+          if      (data  > 0) printf "1:1:%d\001%s\n", data+0, depr_h
+          else if (h3d   > 0) printf "1:2:%d\001%s\n", h3d+0, depr_h
+          else                printf "1:w:0\001%s\n",          depr_h
         } else {
-          if (d3 > 0) print "0:3:" d3+0
-          else        print "0:n:0"
+          if (d3 > 0) printf "0:3:%d\001\n", d3+0
+          else        printf "0:n:0\001\n"
         }
       }
     ' "$f")
+    _depr_h="${_sec_r#*$'\001'}"
+    _sec_r="${_sec_r%%$'\001'*}"
     _sec_found="${_sec_r%%:*}"
     _sec_rest="${_sec_r#*:}"; _sec_form="${_sec_rest%%:*}"; _sec_cnt="${_sec_rest##*:}"
     delta_warn=""
@@ -189,18 +201,22 @@ for p in $paths; do
     else
       case "$_sec_form" in
         3)   deltas="$_sec_cnt" ;;                          # form 3 (## Delta-prefixed headings)
-        *)   # WARN-B or confident zero — check for non-canonical indicators
+        *)   # WARN-B or no-delta-section — check for non-canonical indicators
              if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
                 || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
                delta_warn="non-conforming delta declaration — count by hand"
                deltas="?"                                   # WARN-B
              else
-               deltas=0                                     # confident zero — no indicators at all
+               deltas="no delta section found (empty-input)"  # distinct state: no section, no indicators
              fi
              ;;
       esac
     fi
-    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt
+    # Deprecated heading WARN: overrides WARN-A; migration guidance takes priority.
+    if [ -n "$_depr_h" ]; then
+      delta_warn="deprecated delta heading [${_depr_h}] — migrate to '## Proposed kit deltas' per §18"
+    fi
+    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt _depr_h
     # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
     # under that name), falling back to file mtime when the file is untracked or the dir is not a git
     # repo — so a non-git target never crashes the sweep.
@@ -231,7 +247,11 @@ done
 if [ "${#pending_rows[@]}" -gt 0 ]; then
   while IFS=$'\x1f' read -r _ep f p deltas status age_d tag delta_warn; do
     echo "PENDING  $f"
-    echo "         target: $p  ·  ~${deltas} proposed deltas  ·  status: ${status}  ·  age: ${age_d}d${tag}"
+    if [ "$deltas" = "no delta section found (empty-input)" ]; then
+      echo "         target: $p  ·  ${deltas}  ·  status: ${status}  ·  age: ${age_d}d${tag}"
+    else
+      echo "         target: $p  ·  ~${deltas} proposed deltas  ·  status: ${status}  ·  age: ${age_d}d${tag}"
+    fi
     [ -n "$delta_warn" ] && echo "         WARN: ${delta_warn}"
   done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\x1f' -k1,1)
 fi
