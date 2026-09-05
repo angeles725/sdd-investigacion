@@ -25,7 +25,8 @@ answering any research question, ALWAYS follow this order:
    - decompile-native.sh -> native ELF/PE (Ghidra headless / r2)  | ghidra-mcp for directed analysis
    - scan-firmware.sh    -> firmware/packaged (binwalk + yara)
    - fetch-doc.sh        -> download and PRESERVE datasheets/manuals/forums in sources/
-   (Kit: /home/cristian/investigacion/sdd-investigacion/research-sdd/toolbelt/)
+   (Kit: <KIT>/toolbelt/ — resolve <KIT> to your local Research-SDD kit root,
+    e.g. $RESEARCH_HOME/sdd-investigacion/research-sdd or wherever you cloned it.)
 
 3. PRIMARY SOURCES of the subject (real paths — fill in per target):
    - <path to binaries/decompiled output/source code of the system under study>

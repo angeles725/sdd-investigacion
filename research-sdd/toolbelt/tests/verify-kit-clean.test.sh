@@ -113,6 +113,66 @@ else
   no "git-status failure not detected: exit=$_grc :: $out"
 fi
 
+# 11 — DIRTY with all counters 0 (contradiction) → WARN fires.
+# Stub git so that status --porcelain is non-empty but diff/ls-files return nothing.
+_stub11="$TMP/stub-bin-11"; mkdir -p "$_stub11"
+cat > "$_stub11/git" << 'STUB11'
+#!/usr/bin/env bash
+case "$*" in
+  *rev-parse*--show-toplevel*)            echo "/tmp/fake-r11"; exit 0 ;;
+  *rev-parse*--abbrev-ref*HEAD*)          echo "main";          exit 0 ;;
+  *status*--porcelain*)                   printf '?? newfile.txt\n'; exit 0 ;;
+  *diff*--cached*--name-only*)            exit 0 ;;
+  *diff*--name-only*)                     exit 0 ;;
+  *ls-files*--others*--exclude-standard*) exit 0 ;;
+  *rev-list*)                             echo "0"; exit 0 ;;
+  *rev-parse*upstream*)                   exit 1 ;;
+  *)                                      exit 0 ;;
+esac
+STUB11
+chmod +x "$_stub11/git"
+d11="$TMP/contradiction"; mkdir -p "$d11"
+out11="$(PATH="$_stub11:$PATH" bash "$SUT" "$d11" 2>&1)"
+if printf '%s\n' "$out11" | grep -qi 'counters disagree\|all three counters read 0'; then
+  ok "11 all-counters-0 contradiction → WARN fires"
+else
+  no "11 contradiction WARN missing (out=[$out11])"
+fi
+
+# 12 — grep exits 2 (counter failure) → WARN: count FAILED fires.
+_stub12="$TMP/stub-bin-12"; mkdir -p "$_stub12"
+cat > "$_stub12/git" << 'STUB12'
+#!/usr/bin/env bash
+case "$*" in
+  *rev-parse*--show-toplevel*)            echo "/tmp/fake-r12"; exit 0 ;;
+  *rev-parse*--abbrev-ref*HEAD*)          echo "main";          exit 0 ;;
+  *status*--porcelain*)                   printf 'M  modified.txt\n'; exit 0 ;;
+  *diff*--cached*--name-only*)            printf 'modified.txt\n'; exit 0 ;;
+  *diff*--name-only*)                     exit 0 ;;
+  *ls-files*--others*--exclude-standard*) exit 0 ;;
+  *rev-list*)                             echo "0"; exit 0 ;;
+  *rev-parse*upstream*)                   exit 1 ;;
+  *)                                      exit 0 ;;
+esac
+STUB12
+chmod +x "$_stub12/git"
+cat > "$_stub12/grep" << 'STUBGREP'
+#!/usr/bin/env bash
+# Exit 2 (grep error) for -c (count) calls; pass through all others.
+case "$*" in
+  *-c*) exit 2 ;;
+  *)    /usr/bin/grep "$@" ;;
+esac
+STUBGREP
+chmod +x "$_stub12/grep"
+d12="$TMP/greparr"; mkdir -p "$d12"
+out12="$(PATH="$_stub12:$PATH" bash "$SUT" "$d12" 2>&1)"
+if printf '%s\n' "$out12" | grep -qi 'count FAILED\|grep exit'; then
+  ok "12 grep exit 2 on counter → 'count FAILED' WARN fires"
+else
+  no "12 count-FAILED WARN missing (out=[$out12])"
+fi
+
 # NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the porcelain dirty-check, expect the dirty fixture to pass as clean --"
@@ -130,6 +190,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   PATH="$_stub10:$PATH" bash "$mutant2" "$d_tf" >/dev/null 2>&1; mrc2=$?
   [ "$mrc2" -eq 0 ] && ok "teeth: git-rc-check-neutered mutant exits 0 (silently clean) → rc-check has teeth" \
     || no "teeth: mutant exit=$mrc2 — git-status rc check not exercised (THEATER)"
+
+  # Tooth: reintroduce || true on one counter + stub grep to exit 2 → contradiction/failed WARN disappears.
+  echo "-- teeth: || true on counter + grep exit 2 → WARNs must disappear (tests 11+12 go RED) --"
+  mutant3="$TMP/verify-kit-clean.MUTANT3.sh"
+  # Neuter the _sgrc check by replacing grep -c . with 'grep -c . || true' style:
+  # Replace '; _sgrc=$?' with '|| true); _sgrc=$?' and remove the WARN checks.
+  sed 's/grep -c \./grep -c . || true/g; /WARN: DIRTY but all three counters/d; /WARN: staged count FAILED/d; /WARN: unstaged count FAILED/d; /WARN: untracked count FAILED/d' \
+    "$SUT" > "$mutant3"
+  # Run the contradiction scenario (stub11) against mutant3 — WARN must be absent.
+  out_m3="$(PATH="$_stub11:$PATH" bash "$mutant3" "$d11" 2>&1)"
+  if ! printf '%s\n' "$out_m3" | grep -qi 'counters disagree\|count FAILED'; then
+    ok "teeth: || true mutant silences contradiction/failed WARNs → tests 11+12 would catch it (RED)"
+  else
+    no "teeth: || true mutant still emits WARNs — tooth has no bite"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

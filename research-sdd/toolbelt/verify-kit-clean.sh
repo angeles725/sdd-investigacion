@@ -27,9 +27,19 @@ if [ "$git_rc" -ne 0 ]; then
   exit 1
 fi
 if [ -n "$porcelain" ]; then
-  staged=$(git -C "$root" diff --cached --name-only 2>/dev/null | grep -c . || true)
-  unstaged=$(git -C "$root" diff --name-only 2>/dev/null | grep -c . || true)
-  untracked=$(git -C "$root" ls-files --others --exclude-standard 2>/dev/null | grep -c . || true)
+  _staged_out=$(git -C "$root" diff --cached --name-only 2>/dev/null); _src=$?
+  _unstaged_out=$(git -C "$root" diff --name-only 2>/dev/null); _urc=$?
+  _untracked_out=$(git -C "$root" ls-files --others --exclude-standard 2>/dev/null); _trc=$?
+  staged=$(printf '%s\n' "$_staged_out" | grep -c .); _sgrc=$?; [ "$_sgrc" -ge 2 ] && staged=0
+  unstaged=$(printf '%s\n' "$_unstaged_out" | grep -c .); _ugrc=$?; [ "$_ugrc" -ge 2 ] && unstaged=0
+  untracked=$(printf '%s\n' "$_untracked_out" | grep -c .); _tgrc=$?; [ "$_tgrc" -ge 2 ] && untracked=0
+  _plines=$(printf '%s\n' "$porcelain" | grep -c .)
+  if [ "$staged" -eq 0 ] && [ "$unstaged" -eq 0 ] && [ "$untracked" -eq 0 ]; then
+    echo "   WARN: DIRTY but all three counters read 0 — porcelain has ${_plines} line(s); counters disagree"
+  fi
+  [ "$_sgrc" -ge 2 ] && echo "   WARN: staged count FAILED (grep exit $_sgrc) — cleanliness report incomplete"
+  [ "$_ugrc" -ge 2 ] && echo "   WARN: unstaged count FAILED (grep exit $_ugrc) — cleanliness report incomplete"
+  [ "$_tgrc" -ge 2 ] && echo "   WARN: untracked count FAILED (grep exit $_tgrc) — cleanliness report incomplete"
   echo "   working tree : DIRTY — uncommitted: ${staged} staged · ${unstaged} unstaged · ${untracked} untracked"
   rc=1
 else
