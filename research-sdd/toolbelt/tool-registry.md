@@ -4,6 +4,11 @@ Map of **artifact type → tool → wrapper**. The loop runs `profile-target.sh`
 over the target's binaries (uses `file`) and picks the wrapper. All paths are
 verified in this environment (WSL Ubuntu, 2026-06-28).
 
+**Scope: KIT wrappers only.** This registry documents scripts that live in `toolbelt/`. A tool a target
+writes for itself (`<target>/tools/*.py`, documented in that target's `tools/README.md`) is TARGET tooling:
+it is tracked fleet-wide by `sweep-tools.sh` (the SessionStart tool ledger) and enters this registry only
+through a §18 `promote` verdict that moves it into `toolbelt/`. Do not add target-side tools here.
+
 | Artifact type | Detection (`file`) | Tool | Wrapper | Status |
 |---|---|---|---|---|
 | JAR / `.class` Java | `Java class data` / `Zip archive` (jar) | Vineflower (pref.), CFR, Procyon, `javap -p -c` | `decompile-java.sh` | ✅ |
