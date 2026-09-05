@@ -85,6 +85,33 @@ case "$grace_hours" in
                grace_hours=24;;
 esac
 grace_secs=$(( grace_hours * 3600 ))
+
+# --- RSDD_PROFILE: per-phase wall-time profiling (measurement only; no optimisation). ---
+# When RSDD_PROFILE=1, emits 'profile: <phase> <seconds>' to STDERR after the sweep.
+# EPOCHREALTIME is bash 5+ only; on bash 4 the unavailable sentinel is emitted instead.
+# ZERO behaviour change when RSDD_PROFILE is unset or 0: stdout is byte-identical.
+_rsdd_prof=0
+_rsdd_prof_us_pend=0; _rsdd_prof_us_waiv=0
+_rsdd_prof_us_rn=0; _rsdd_prof_us_bn=0   # retro-newest / block-newest sub-timers
+_rsdd_prof_t0=0; _rsdd_prof_t0_waiv=0; _rsdd_prof_t0_sub=0; _rsdd_prof_t0_total=0
+_rsdd_now=0  # global set by _rsdd_prof_us — avoids subshell overhead on every timer call
+# Pure-bash timer: sets _rsdd_now to epoch microseconds. No subprocess → negligible cost.
+_rsdd_prof_us() {
+  local _e="${EPOCHREALTIME:-0.000000}" _s _f
+  _s="${_e%.*}"; _f="${_e#*.}"
+  _f="${_f}000000"; _f="${_f:0:6}"
+  _rsdd_now=$(( 10#"${_s:-0}" * 1000000 + 10#"${_f:-0}" ))
+}
+# Microseconds → "N.NNNNNN" seconds string. Uses bash builtin printf — no awk subprocess.
+_rsdd_prof_sec() { printf '%d.%06d' "$(( $1 / 1000000 ))" "$(( $1 % 1000000 ))"; }
+if [ "${RSDD_PROFILE:-0}" = "1" ]; then
+  if [ -z "${EPOCHREALTIME:-}" ]; then   # bash < 5: EPOCHREALTIME not a special variable
+    printf 'profile: unavailable (no EPOCHREALTIME)\n' >&2
+  else
+    _rsdd_prof=1
+  fi
+fi
+
 pending=0; missing=0; total=0
 absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
 pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>\t<tag>" for oldest-first sort
@@ -97,6 +124,9 @@ pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<deltas>\t<status>\t<age_d>
 # generated tables of contents, not proposals — counting one as a retro surfaced it as '~0 proposed deltas
 # · status none' (three.js). Both this pass and the MISSING-RETRO pass below carry the same exclusion.
 declare -A rsdd_seen_retro=()
+# Both pending-pass and total start at the same point so total = pending + gap + waiver.
+# The gap (print/summary section between the two loops) is unmeasured overhead.
+[ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0="$_rsdd_now"; _rsdd_prof_t0_total="$_rsdd_now"; }  # pending-pass + total start
 for p in $paths; do
   # Anti-silent-zero §7: distinguish absent-input from empty-input from no-match.
   if [ ! -d "$p" ]; then
@@ -240,6 +270,7 @@ for p in $paths; do
       "$epoch" "$f" "$p" "${deltas:-?}" "${status:-none}" "$age_d" "$tag" "$delta_warn")")
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
 done
+[ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_pend=$(( _rsdd_prof_us_pend + _rsdd_now - _rsdd_prof_t0 )); }  # pending-pass stop
 
 # Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale proposals lead.
 if [ "${#pending_rows[@]}" -gt 0 ]; then
@@ -286,6 +317,7 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
   printf '%s' "$e"
 }
 waived_count=0; waived_names=""   # targets with a retro-waived marker; suppressed from MISSING-RETRO
+[ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_waiv="$_rsdd_now"; }  # waiver-pass start
 for p in $paths; do
   if [ ! -d "$p" ]; then continue; fi   # already disclosed as absent-input in the pending pass above
   # Scan this target's retros/ for a retro-waived marker before doing the advancement check.
@@ -303,17 +335,21 @@ for p in $paths; do
     continue   # suppress MISSING-RETRO for this target
   fi
   nr=0   # newest retro added-date under this target
+  [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_sub="$_rsdd_now"; }  # retro-newest-pass start
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     # Skip excluded files so a client-artifact retro does not set nr and suppress MISSING-RETRO.
     retro_is_excluded "$rf" && continue
     m="$(rsdd_added_epoch "$p" "$rf")"; [ "${m:-0}" -gt "$nr" ] && nr="$m"
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+  [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_rn=$(( _rsdd_prof_us_rn + _rsdd_now - _rsdd_prof_t0_sub )); }  # RSDD_PROFILE_RN_ACC
   nb=0   # newest block added-date under this target (gen-catalog's block/bloque discriminator)
+  [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_sub="$_rsdd_now"; }  # block-newest-pass start
   while IFS= read -r bf; do
     [ -n "$bf" ] || continue
     m="$(rsdd_added_epoch "$p" "$bf")"; [ "${m:-0}" -gt "$nb" ] && nb="$m"
   done < <(find "$p" -type f -name '*.md' 2>/dev/null | block_file_filter)
+  [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_bn=$(( _rsdd_prof_us_bn + _rsdd_now - _rsdd_prof_t0_sub )); }  # RSDD_PROFILE_BN_ACC
   # Only meaningful when the corpus has blocks (nb>0) and the block is newer than the retro
   # (nb>nr — the corpus genuinely advanced past it). Fire when the newest block is itself older
   # than the grace window measured from NOW: the run has been idle long enough that any in-flight
@@ -326,6 +362,7 @@ for p in $paths; do
     missing=$((missing+1))
   fi
 done
+[ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_waiv=$(( _rsdd_prof_us_waiv + _rsdd_now - _rsdd_prof_t0_waiv )); }  # RSDD_PROFILE_WAIV_ACC
 # Report waived targets in summary so the suppression is never invisible.
 if [ "$waived_count" -gt 0 ]; then
   echo "waived: ${waived_count} target(s) — MISSING-RETRO suppressed: ${waived_names}"
@@ -336,4 +373,14 @@ fi
 # signals being non-zero means the fleet has not been fully and cleanly inspected.
 if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
   echo "Nothing to review."
+fi
+# Emit profiling summary after all stdout output so profile lines do not interleave with
+# normal output (profile goes to STDERR; stdout is byte-identical to a non-profile run).
+if [ "$_rsdd_prof" = 1 ]; then
+  _rsdd_prof_us; _rsdd_prof_us_total=$(( _rsdd_now - _rsdd_prof_t0_total ))
+  printf 'profile: pending-pass %s\n'      "$(_rsdd_prof_sec "$_rsdd_prof_us_pend")" >&2
+  printf 'profile: waiver-pass %s\n'       "$(_rsdd_prof_sec "$_rsdd_prof_us_waiv")" >&2
+  printf 'profile: retro-newest-pass %s\n' "$(_rsdd_prof_sec "$_rsdd_prof_us_rn")"   >&2
+  printf 'profile: block-newest-pass %s\n' "$(_rsdd_prof_sec "$_rsdd_prof_us_bn")"   >&2
+  printf 'profile: total %s\n'             "$(_rsdd_prof_sec "$_rsdd_prof_us_total")" >&2
 fi
