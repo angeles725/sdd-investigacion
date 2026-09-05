@@ -165,7 +165,7 @@ iter_gaps_rows() {
 saturation_line() {
   local pad='  saturation      : '
   grep -qF '## Iteration history' "$state" || { echo "${pad}(no iteration history)"; return; }
-  local stream colhdr iter_data struct_data nrows nstruct w window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok
+  local stream colhdr iter_data struct_data nrows nstruct w window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok _forms_src
   stream="$(iter_gaps_rows)"
   colhdr="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="col_none"{print $2; exit}')"
   if [ -n "$colhdr" ]; then echo "${pad}no New-gaps column (header: ${colhdr})"; return; fi
@@ -197,12 +197,13 @@ saturation_line() {
   fi
   if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)${note_struct}${note_seed}"; return; fi
   sum="$(printf '%s\n' "$window" | awk -F'\t' '{s+=$3} END{print s+0}')"
-  # named partial WARN: bad rows from iter AND struct count toward M (total data rows)
+  # partial WARN: count and collect forms in FILE ORDER over ALL data rows (struct cells included)
   total_rows=$(( nrows + nstruct ))
-  nbad="$(printf '%s\n%s\n' "$iter_data" "$struct_data" | awk -F'\t' '$2=="bad"' | grep -c .)"
+  _forms_src="$stream"  # NG-WARN-FILE-ORDER: file order; sortkey-sort here breaks form ordering
+  nbad="$(printf '%s\n' "$_forms_src" | awk -F'\t' '($1=="row"||$1=="struct") && $3=="bad"' | grep -c .)"
   warn=""
   if [ "$nbad" -gt 0 ]; then
-    forms="$(printf '%s\n%s\n' "$iter_data" "$struct_data" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
+    forms="$(printf '%s\n' "$_forms_src" | awk -F'\t' '($1=="row"||$1=="struct") && $3=="bad" && !seen[$4]++ {n++; if(n<=2)o=o (n>1?",":"") $4} END{print o}')"
     warn="  [WARN: ${nbad} of ${total_rows} rows unreadable (forms: ${forms})]"
   fi
   if [ "$sum" -eq 0 ]; then

@@ -1340,6 +1340,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-#449c: orig=[$(grep -i saturation <<<"$c449_orig")] mut=[$(grep -i saturation <<<"$c449_mrep")] — excluded note not load-bearing (THEATER)"; fi
   else no "teeth-#449c: note_struct assignment not found in SUT"; fi
 
+  # #449 teeth (d): forms sample sorted by sortkey → file-reversed fixture reorders forms → red.
+  # Mutant: _forms_src uses sortkey-sorted iter_data (stream format prepended) instead of "$stream".
+  # Fixture: 5 rows; last 3 by sortkey (4,5,6) are all ok → partial WARN path.
+  # File order: idx=3 (first-form, bad), idx=2 (second-form, bad), then 4,5,6 ok.
+  # Real (file order)  : forms: first-form,second-form.
+  # Mutant (sortkey)   : forms: second-form,first-form  (sk=2 before sk=3).
+  echo "-- teeth-#449d: sortkey-sorted mutant reorders forms → file-order guard has teeth --"
+  d449d_mut="$TMP/status.449D.MUTANT.sh"
+  if grep -q 'NG-WARN-FILE-ORDER' "$SUT"; then
+    # Build the mutant by replacing the _forms_src sentinel line with a sortkey-sorted version.
+    sentinel_line="$(grep -n 'NG-WARN-FILE-ORDER' "$SUT" | head -1 | cut -d: -f1)"
+    if [ -n "$sentinel_line" ]; then
+      head -n "$((sentinel_line - 1))" "$SUT" > "$d449d_mut"
+      # Replacement line: _forms_src uses iter_data (sortkey-sorted) converted back to stream format.
+      # printf '%%s\\n' → %s\n (level-1 printf produces the literal text '%s\n' for the mutant file)
+      printf '  _forms_src="$(printf '"'"'%%s\\n'"'"' "$iter_data" | awk -F'"'"'\\t'"'"' '"'"'{print "row\\t"$0}'"'"')"  # MUTANT-449D: sortkey-sorted forms\n' >> "$d449d_mut"
+      tail -n "+$((sentinel_line + 1))" "$SUT" >> "$d449d_mut"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 3 | first-form |" "| 2 | second-form |" "| 4 | 0 |" "| 5 | 0 |" "| 6 | 0 |"
+      d449d_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+      d449d_mrep="$(bash "$d449d_mut" "$d" 2>/dev/null)"
+      if grep -qF 'forms: first-form,second-form' <<<"$d449d_orig" && grep -qF 'forms: second-form,first-form' <<<"$d449d_mrep"; then
+        ok "teeth-#449d: sortkey-sorted mutant reorders forms → file-order guard has teeth"
+      else no "teeth-#449d: orig=[$(grep -i 'WARN' <<<"$d449d_orig")] mut=[$(grep -i 'WARN' <<<"$d449d_mrep")] — file-order guard not load-bearing (THEATER)"; fi
+    else no "teeth-#449d: NG-WARN-FILE-ORDER line not found by grep -n"; fi
+  else no "teeth-#449d: NG-WARN-FILE-ORDER sentinel not found in SUT"; fi
+
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
   # sed mutation: add '; break' after _r="$(resolve_next)" so only apple is ever checked.
