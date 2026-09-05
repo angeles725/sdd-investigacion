@@ -11,11 +11,13 @@
 #   directory is picked up automatically — nothing is hardcoded.
 #
 # Usage:
-#   ./run-all.sh [--prove-teeth]
+#   ./run-all.sh [--prove-teeth|--require-teeth]
 #
-#   --prove-teeth   Forwarded ONLY to the *.test.sh suites (mutation self-test /
-#                   negative control). It is NEVER passed to the .mjs suite,
-#                   which has no such flag and whose teeth check always runs.
+#   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
+#                    negative control). Node suites are n/a (they have no flag).
+#                    Reports "Suites without teeth" in the aggregate block.
+#   --require-teeth  Implies --prove-teeth; exits 1 when any *.test.sh suite
+#                    lacks teeth (opt-in stricter gate; default behavior unchanged).
 #
 # Per-suite exit codes (honored for suite-level outcome):
 #   0 = all tests passed
@@ -35,17 +37,25 @@ set -uo pipefail
 # --- Locate our own directory (CWD-independent) ---------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- Optional flag --------------------------------------------------------
-# No arg = fine; --prove-teeth = enable teeth mode; anything else is rejected so
+# --- Optional flags -------------------------------------------------------
+# No arg = fine; a valid flag = enable that mode; anything else is rejected so
 # a typo (e.g. --prove-teath) can't silently disable teeth while reporting green.
 PROVE_TEETH=""
+REQUIRE_TEETH=""
 if [[ -n "${1:-}" ]]; then
-  if [[ "$1" == "--prove-teeth" ]]; then
-    PROVE_TEETH="--prove-teeth"
-  else
-    echo "unknown flag: $1; usage: run-all.sh [--prove-teeth]" >&2
-    exit 2
-  fi
+  case "$1" in
+    --prove-teeth)
+      PROVE_TEETH="--prove-teeth"
+      ;;
+    --require-teeth)
+      PROVE_TEETH="--prove-teeth"
+      REQUIRE_TEETH=1
+      ;;
+    *)
+      echo "unknown flag: $1; usage: run-all.sh [--prove-teeth|--require-teeth]" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 # --- Discover suites deterministically ------------------------------------
@@ -81,6 +91,9 @@ total_failed=0
 total_skipped=0     # count of per-test "  SKIP  " lines across all suites
 failed_suites=()    # "basename (exit N)" entries for the report
 suites_skipped=()   # basenames of suites that emitted a SKIP: line and exited 0
+# Teeth-tracking (populated only under --prove-teeth; empty under plain run).
+sh_no_teeth=()         # stripped basenames: 0 banners, no flag handling in source
+sh_teeth_nobanner=()   # stripped basenames: handles flag in source, 0 banners at runtime
 
 tmp_out="$(mktemp)"
 trap 'rm -f "$tmp_out"' EXIT
@@ -127,6 +140,20 @@ for suite in "${all_suites[@]}"; do
   if [[ -n "$parsed_line" ]]; then
     total_passed=$((total_passed + s_passed))
     total_failed=$((total_failed + s_failed))
+  fi
+
+  # --- Teeth-banner detection (--prove-teeth only; .test.sh suites only) ----
+  # Runtime: grep captured output for banner lines emitted under --prove-teeth.
+  # Static: grep suite source for flag-handling keyword to classify no-banner suites.
+  if [[ -n "$PROVE_TEETH" && "$base" == *.test.sh ]]; then
+    base_noext="${base%.test.sh}"
+    if grep -qEi '^[[:space:]]*(--|==)[[:space:]]*teeth\b' "$tmp_out" 2>/dev/null; then
+      : # has teeth banners — no tracking needed
+    elif grep -qE '(--prove-teeth|PROVE_TEETH)' "$suite" 2>/dev/null; then
+      sh_teeth_nobanner+=("$base_noext")
+    else
+      sh_no_teeth+=("$base_noext")
+    fi
   fi
 
   # Suite-level outcome is driven by the EXIT CODE, not the parsed counts.
@@ -194,11 +221,35 @@ fi
 echo "Test cases passed: $total_passed"
 echo "Test cases skipped: $total_skipped"
 echo "Test cases failed: $total_failed"
+# --- Teeth report (--prove-teeth / --require-teeth only) ------------------
+if [[ -n "$PROVE_TEETH" ]]; then
+  # Sort the tracked lists.
+  _nt_sorted=(); if [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
+    mapfile -t _nt_sorted < <(printf '%s\n' "${sh_no_teeth[@]}" | sort)
+  fi
+  _nb_sorted=(); if [[ ${#sh_teeth_nobanner[@]} -gt 0 ]]; then
+    mapfile -t _nb_sorted < <(printf '%s\n' "${sh_teeth_nobanner[@]}" | sort)
+  fi
+  # Build comma-separated name strings.
+  _nt_names=""; for _n in "${_nt_sorted[@]}"; do _nt_names="${_nt_names:+$_nt_names, }$_n"; done
+  _nb_names=""; for _n in "${_nb_sorted[@]}"; do _nb_names="${_nb_names:+$_nb_names, }$_n"; done
+  # SENTINEL-NO-TEETH-BANNER
+  echo "Suites without teeth: ${#_nt_sorted[@]} — [$_nt_names]"
+  echo "(vocabulary check: a \"teeth\" case with no real mutant is a review item)"
+  echo "Suites n/a for teeth (node): ${#mjs_suites[@]}"
+  if [[ ${#_nb_sorted[@]} -gt 0 ]]; then
+    echo "Suites with teeth but no banner: ${#_nb_sorted[@]} — [$_nb_names]"
+  fi
+fi
 echo "==============================================================="
 
 # Exit 0 only if no suite failed AND at least one suite actually passed.
 # A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
 if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]]; then
+  # SENTINEL-REQUIRE-TEETH-EXIT
+  if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
+    exit 1
+  fi
   exit 0
 else
   exit 1
