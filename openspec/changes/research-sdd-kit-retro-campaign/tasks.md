@@ -181,20 +181,21 @@ Chain strategy: stacked-to-main
 
 ---
 
-### U3 — `coverage-map.sh` new instrument (issue #421, mejorador) [blocked-by: D6 done ✓; no file-lock with U11]
+### U3 — `coverage-map.sh` new instrument (issue #421, mejorador) [blocked-by: D6 done ✓; no file-lock with U11] [x]
 
 > Branch: `feat/u3-coverage-map`
 > Files: `research-sdd/toolbelt/coverage-map.sh` (new); `research-sdd/toolbelt/tests/coverage-map.test.sh` (new); `research-sdd/toolbelt/tool-registry.md` (one row)
 > **Satisfies**: `kit-subject-coverage` spec req coverage-map.sh
 
-- [ ] RED: assert absent corpus path → `subject: absent-input (<path> not traversable)` + exit non-zero; assert 0-class-basename corpus → `subject: empty-input (0 class basenames)`; assert `ambiguous basenames excluded: N` and `modules: <cited>/<total> cited · <uncited> never cited` always print (anti-silent-zero)
-- [ ] IMPL: build `basename → module` index over subject tree; DROP every basename mapping to >1 module (5,530 on niagara) and every basename shorter than 4 chars; scan block files (via `block_file_filter` once U11 merges, or inline regex until then) for each surviving basename with word-boundary matching (`\b` / `[^A-Za-z0-9_]` guards, so `Foo` never matches `FooBar`); rank uncited modules by size (dependency centrality not computable — 2 `module.xml` fleet-wide); add `tool-registry.md` row
-- [ ] MUTANT: (a) remove ambiguity exclusion → 148-uncited figure must change; (b) replace `\b` with substring match → cited count must rise
-- [ ] FLEET: `coverage-map.sh` on niagara + panccadia → reproduces 148 uncited / 170 cited / 5,530 ambiguous; every module listed as uncited verifiably not cited in any block file; tool-registry.md row present
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff (0 new false WARN expected)
+- [x] RED: assert absent corpus path → `subject: absent-input (<path> not traversable)` + exit non-zero; assert 0-class-basename corpus → `subject: empty-input (0 class basenames)`; assert `ambiguous basenames excluded: N` and `modules: <cited>/<total> cited · <uncited> never cited` always print (anti-silent-zero)
+- [x] IMPL: build `basename → module` index over subject tree; DROP every basename mapping to >1 module (5,530 on niagara) and every basename shorter than 4 chars; scan block files (via `block_file_filter` once U11 merges, or inline regex until then) for each surviving basename with word-boundary matching (`\b` / `[^A-Za-z0-9_]` guards, so `Foo` never matches `FooBar`); rank uncited modules by size (dependency centrality not computable — 2 `module.xml` fleet-wide); add `tool-registry.md` row
+- [x] MUTANT: (a) remove ambiguity exclusion → 148-uncited figure must change; (b) replace `\b` with substring match → cited count must rise
+- [x] FLEET: `coverage-map.sh` on niagara + panccadia → reproduces 148 uncited / 170 cited / 5,530 ambiguous; every module listed as uncited verifiably not cited in any block file; tool-registry.md row present
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff (0 new false WARN expected)
 
 ---
 
+  - Done: PR #451 merged as 0c90262 (2026-09-05).
 ## Phase 3: Shared-Lib Extraction — Critical Path (mejorador)
 
 > U11 is the critical-path unit. It unlocks U2, U4, U7, U8a (through same-file locks). It must NOT start until U1 (#442) has merged.
@@ -310,6 +311,28 @@ Chain strategy: stacked-to-main
 - [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck; confirm `--full` diff vs U8a baseline empty
 
 ---
+
+## Phase 2b: Wave-2 units added during the campaign (explorador doctrine · mejorador tests)
+
+### D7 — §21.2 unmountable media, §12 mutating live install, §14 threat-model axis, §19 tool-vs-PoC (issue #447, explorador) [x]
+- [x] PR #448 merged as 185ad74; retros jace8000-sd, live-cutover, jace-data-at-rest, jace-history-audit closed.
+
+### D8 — deferred harvested deltas across §5/§6/§8/§11/§12/§16/§18/§19/§21 (issue #450, explorador) [x]
+- [x] PR #452 merged as e0b701a; 10 niagara retros updated (markers re-stamped with e0b701a).
+
+### D9 — §11 split: kit-maintenance doctrine to situational §11b, HOT-CORE 823 → 664 lines (issue #454, explorador) [x]
+- [x] PR #455 merged as da2781b; verbatim move verified by removed/added line-set diff.
+
+### D10 — tool-registry.md scope note: kit wrappers only (issue #457, explorador)
+- [ ] PR #458 open (probador gate).
+
+### U13 — saturation window excludes unnumbered structural rows, never silently (issue #449, mejorador) [blocked-by: #435 U11, #424 U4 — same file]
+- [ ] RED: fixture with a `—` bootstrap row in the tail; reopen-tail fixture with a positive seeded count.
+- [ ] IMPL: exclude structural rows from the window + insufficient count; append `[N unnumbered row(s) … excluded]`; append `latest unnumbered row seeded N gaps — not yet an iteration` when the last row is unnumbered with a positive count.
+- [ ] TEETH: 3 mutants named in #449. FLEET: exactly the 3 named focuses move out of `unreadable window`.
+
+### U14 — test speed: hermetic PATH + probe timeouts in detect-tools/tool-env/verify-parity (issue #453, mejorador) [x]
+- [x] PR #456 merged as 6fef040; baseline detect-tools 243.6 s of 471.5 s total; after-numbers recorded by probador.
 
 ## Phase 6: Campaign Close
 
