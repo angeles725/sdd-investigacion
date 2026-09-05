@@ -1927,7 +1927,8 @@ else
 fi
 
 # 67 — NO REVIEW-STATUS MARKER: a retro with no leading marker emits
-#      'WARN: no review-status marker — add <!-- review-status: pending -->'.
+#      'WARN: no review-status marker in <basename> — add <!-- review-status: pending -->'.
+#      The WARN must name the retro file so it is actionable (F2, kit #436).
 #      RED on main: the empty-status case was silently swallowed by '""|pending) ;;'.
 kit="$(mkkit c67-nomarker-warn)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
@@ -1939,11 +1940,11 @@ mkdir -p "$tgt/retros"
 write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -qi "WARN.*no review-status marker" <<<"$OUT" \
+   && grep -qi "WARN.*no review-status marker.*r1\.md" <<<"$OUT" \
    && grep -q "add '<!-- review-status: pending -->'" <<<"$OUT"; then
-  ok "67 no review-status marker → WARN emitted with add-marker guidance" "(exit $RC)"
+  ok "67 no review-status marker → WARN names retro file + emits add-marker guidance" "(exit $RC)"
 else
-  no "67 no review-status marker → WARN emitted with add-marker guidance" "exit=$RC out=[$OUT]"
+  no "67 no review-status marker → WARN names retro file + emits add-marker guidance" "exit=$RC out=[$OUT]"
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1997,8 +1998,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Tooth MK: remove the no-marker WARN emission → an unmarked retro goes silent → case 67 has teeth.
-  echo "-- teeth MK: remove marker-WARN; unmarked retro must go silent (case 67 has teeth) --"
+  # Tooth MK: remove the no-marker WARN emission → WARN disappears including the filename →
+  # case 67 (which now checks for both WARN and basename) goes RED.
+  echo "-- teeth MK: remove marker-WARN echo; WARN+filename must vanish (case 67 has teeth) --"
   anchor_mk='WARN: no review-status marker'
   if [[ "$content_nd" != *"$anchor_mk"* ]]; then
     no "teeth MK: locate marker-WARN in SUT" "anchor not found — SUT drifted?"
@@ -2014,8 +2016,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$kit/toolbelt/sweep-retros.sh"
     printf '%s\n' "${content_nd/"$anchor_mk"/"__MK_REMOVED__"}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
-    if ! grep -qi 'WARN.*no review-status marker' <<<"$outm"; then
-      ok "teeth MK: marker-WARN-removed mutant silent for unmarked retro (case 67 has teeth)" "()"
+    # Both the WARN text and the basename (r1.md) must be absent — confirms case 67 goes RED.
+    if ! grep -qi 'WARN.*no review-status marker' <<<"$outm" \
+       && ! grep -qi 'WARN.*r1\.md' <<<"$outm"; then
+      ok "teeth MK: marker-WARN-removed mutant silent (WARN+filename gone) — case 67 has teeth" "()"
     else
       no "teeth MK: marker-WARN-removed mutant still warns — case 67 is THEATER" "out=[$outm]"
     fi

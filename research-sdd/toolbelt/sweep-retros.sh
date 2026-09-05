@@ -126,7 +126,7 @@ for p in $paths; do
     # Only 'applied' and 'dismissed' close a retro — no synonyms, no widening the vocabulary.
     case "$status" in
       pending) ;;
-      "") echo "WARN: no review-status marker — add '<!-- review-status: pending -->'" ;;
+      "") echo "WARN: no review-status marker in $(basename "$f") — add '<!-- review-status: pending -->'" ;;
       *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
     esac
     pending=$((pending + 1))
