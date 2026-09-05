@@ -821,7 +821,7 @@ those units cited by at least one block — the research analogue of code covera
 top-level modules with Java, 170 cited by some block, 148 (47 %) never cited by any of 763 blocks, while every focus
 reported its known-gap ratio honestly. Its consumer is §13 AUDIT-FIRST: uncited units are candidate gaps to SEED, not
 findings. Ambiguity is reported, never absorbed (a class name present in two modules is excluded from the join and
-counted). **Instrument:** `toolbelt/coverage-map.sh` (kit issue #421) implements both rules; run it with `--top N` and declare the numbers in RESEARCH-STATE.
+counted). **Instrument:** `toolbelt/coverage-map.sh` (kit issue #421) implements both rules below; run it with `--top N`, declare the two numbers (unexcluded, and with the corpus's `coverage-exclude.txt`) in RESEARCH-STATE, and treat every listed uncited unit as a candidate gap to seed (§13 AUDIT-FIRST), never as a finding.
 
 **A unit counts as CITED only when one of its unambiguous file basenames appears in a block as an extension-bearing token (`<basename>.<ext>`, word-bounded, case-sensitive) or inside a path token; a bare class or file stem in prose is never a citation** (§3 citations are `file:line`). Measured on niagara: bare-stem matching turned `This.java`, `Open.java`, `User.java` from bundled third-party code into false citations and hid ~91 uncovered modules. (Source: kit issue #421 fleet acceptance, 2026-09-05)
 
