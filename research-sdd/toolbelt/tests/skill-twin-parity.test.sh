@@ -159,6 +159,52 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A12: Installed SKILL.md drift guard (third twin).
+#      Resolved via rsdd_field (install/adapters.sh); never a hardcoded path.
+#      All three states are INFO-only — drift is expected until the operator
+#      re-runs the installer.  The suite never fails on drift or absence.
+# ---------------------------------------------------------------------------
+ADAPTERS="$HERE/../../install/adapters.sh"
+
+# _a12_installed_check <home> <main_skill>
+# Prints one canonical INFO string (no leading prefix) to stdout.
+# Four states: absent-input / error-reading (diff rc≥2) / DRIFT / in sync.
+# Never collapses absence or error to in-sync (§7 anti-silent-zero).
+_a12_installed_check() {
+  local home="$1" main_skill="$2"
+  local installed_path diff_patch _drc hunks lines
+  installed_path="$(rsdd_field claude skill_path "$home")"
+  if [ ! -f "$installed_path" ]; then
+    printf 'installed copy: absent-input (%s not found) — drift check skipped\n' \
+           "$installed_path"
+    return 0
+  fi
+  diff_patch="$(diff -u "$installed_path" "$main_skill")"; _drc=$?
+  if [ "$_drc" -ge 2 ]; then
+    printf 'installed copy: error reading — drift check inconclusive (diff rc=%s)\n' "$_drc"
+    return 0
+  fi
+  hunks="$(printf '%s\n' "$diff_patch" | grep -c '^@@')" || true
+  lines="$(printf '%s\n' "$diff_patch" | grep -c '^+[^+]')" || true
+  if [ "${hunks:-0}" -eq 0 ]; then
+    printf 'installed copy: in sync\n'
+  else
+    printf 'installed copy: DRIFT — %s hunk(s) / %s line(s) behind the kit copy\n' \
+           "${hunks:-0}" "${lines:-0}"
+  fi
+}
+
+if [ ! -f "$ADAPTERS" ]; then
+  no "A12: install/adapters.sh not found at expected path: $ADAPTERS"
+else
+  # shellcheck source=research-sdd/install/adapters.sh
+  . "$ADAPTERS"
+  _a12_out="$(_a12_installed_check "${RSDD_INSTALL_HOME:-$HOME}" "$MAIN")"
+  printf '  INFO  A12: %s\n' "$_a12_out"
+  ok "A12: installed drift check ran (see INFO line above)"
+fi
+
+# ---------------------------------------------------------------------------
 # --prove-teeth: mutate the A1 invariant ("the 7 markers" → "the 5 markers")
 # in a COPY of the twin (never the live file).  The A1 positive assertion must
 # go RED; the A1-neg assertion must go RED.  Both teeth-controls must report ok.
@@ -213,6 +259,76 @@ if [ "$PROVE_TEETH" = "1" ]; then
     no "teeth-A11: mutant still has 'kaitai-struct-compiler' — sed did not take (no teeth)"
   else
     ok "teeth-A11: A11 assertion goes RED on mutant (teeth confirmed)"
+  fi
+
+  # A12 teeth: RSDD_INSTALL_HOME → stale fixture home (1 hunk behind kit).
+  # Stale output must contain 'DRIFT — 1 hunk(s)' and must NOT contain 'in sync'.
+  # A12 teeth: RSDD_INSTALL_HOME → absent fixture home.
+  # Absent output must contain 'absent-input' and must NOT contain 'in sync'.
+  # Both collapse-mutants (drift→in-sync, absent→in-sync) go RED.
+  if [ -f "$ADAPTERS" ]; then
+    echo "-- prove-teeth: A12 stale fixture — exact hunk count; not in sync --"
+    _fx_stale="$TMP/stale-home"
+    mkdir -p "$_fx_stale/.claude/skills/research-sdd"
+    # One-line file: always exactly 1 hunk behind the kit (context bridges the whole diff)
+    printf 'FIXTURE: deliberately stale SKILL.md\n' \
+      > "$_fx_stale/.claude/skills/research-sdd/SKILL.md"
+    _stale_out="$(_a12_installed_check "$_fx_stale" "$MAIN")"
+    if printf '%s\n' "$_stale_out" | grep -qF 'DRIFT — 1 hunk(s)'; then
+      ok "teeth-A12-stale: stale fixture reports DRIFT — 1 hunk(s) (exact count)"
+    else
+      no "teeth-A12-stale: expected 'DRIFT — 1 hunk(s)'; got: $_stale_out"
+    fi
+    # Mutant: collapse drift → in sync — must go RED (stale must not report 'in sync')
+    if printf '%s\n' "$_stale_out" | grep -qF 'in sync'; then
+      no "teeth-A12-stale-collapse: stale wrongly reports 'in sync' (drift→in-sync mutant undetected)"
+    else
+      ok "teeth-A12-stale-collapse: drift→in-sync mutant goes RED (teeth confirmed)"
+    fi
+
+    echo "-- prove-teeth: A12 absent fixture — absent-input; not in sync --"
+    _fx_absent="$TMP/absent-home"
+    mkdir -p "$_fx_absent"
+    # No .claude/skills/research-sdd/SKILL.md present
+    _absent_out="$(_a12_installed_check "$_fx_absent" "$MAIN")"
+    if printf '%s\n' "$_absent_out" | grep -qF 'absent-input'; then
+      ok "teeth-A12-absent: absent fixture reports absent-input"
+    else
+      no "teeth-A12-absent: expected 'absent-input'; got: $_absent_out"
+    fi
+    # Mutant: collapse absent → in sync — must go RED (absent must not report 'in sync')
+    if printf '%s\n' "$_absent_out" | grep -qF 'in sync'; then
+      no "teeth-A12-absent-collapse: absent wrongly reports 'in sync' (absent→in-sync mutant undetected)"
+    else
+      ok "teeth-A12-absent-collapse: absent→in-sync mutant goes RED (teeth confirmed)"
+    fi
+
+    # A12 teeth: unreadable installed file — [ -f ] is TRUE but diff exits ≥2.
+    # Must report 'inconclusive', NOT 'in sync'.
+    # Skip if running as root (root ignores mode-000 and diff would succeed).
+    echo "-- prove-teeth: A12 unreadable fixture — inconclusive; not in sync --"
+    if [ "$(id -u)" = "0" ]; then
+      ok "teeth-A12-unreadable: skipped (running as root; chmod 000 does not block root)"
+    else
+      _fx_unread="$TMP/unread-home"
+      mkdir -p "$_fx_unread/.claude/skills/research-sdd"
+      _unread_skill="$_fx_unread/.claude/skills/research-sdd/SKILL.md"
+      : > "$_unread_skill"
+      chmod 000 "$_unread_skill"
+      _unread_out="$(_a12_installed_check "$_fx_unread" "$MAIN")"
+      chmod 644 "$_unread_skill"   # restore so TMP cleanup can remove it
+      if printf '%s\n' "$_unread_out" | grep -qF 'inconclusive'; then
+        ok "teeth-A12-unreadable: unreadable fixture reports inconclusive"
+      else
+        no "teeth-A12-unreadable: expected 'inconclusive'; got: $_unread_out"
+      fi
+      # Mutant: collapse error → in sync (the old || true code path)
+      if printf '%s\n' "$_unread_out" | grep -qF 'in sync'; then
+        no "teeth-A12-unreadable-collapse: unreadable wrongly reports 'in sync' (error→in-sync mutant undetected)"
+      else
+        ok "teeth-A12-unreadable-collapse: error→in-sync mutant goes RED (teeth confirmed)"
+      fi
+    fi
   fi
 fi
 
