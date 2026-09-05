@@ -41,6 +41,30 @@ mkfix_harness(){ # file
   } > "$1"
 }
 newdir(){ local w="$TMP/$1"; mkdir -p "$w"; cp "$SUT" "$w/run-all.sh"; printf '%s' "$w"; }
+# A suite WITH teeth: handles --prove-teeth AND emits a "-- teeth:" banner.
+mkfix_teeth(){ # file
+  local f="$1"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'if [ "${1:-}" = "--prove-teeth" ]; then\n'
+    printf '  echo "-- teeth: fixture mutation control --"\n'
+    printf '  echo "  PASS  teeth-fixture: mutant verified --"\n'
+    printf 'fi\n'
+    printf 'echo "== 2 passed %s 0 failed =="\n' "$MID"
+    printf 'exit 0\n'
+  } > "$f"
+}
+# A suite that handles --prove-teeth but emits NO "-- teeth:" banner (no-banner category).
+mkfix_teeth_nobanner(){ # file
+  local f="$1"
+  { printf '#!/usr/bin/env bash\n'
+    printf '# PROVE_TEETH handled — but no banner line emitted\n'
+    printf 'if [ "${1:-}" = "--prove-teeth" ]; then\n'
+    printf '  echo "  PASS  prove-teeth: handled (no banner)"\n'
+    printf 'fi\n'
+    printf 'echo "== 2 passed %s 0 failed =="\n' "$MID"
+    printf 'exit 0\n'
+  } > "$f"
+}
 # A suite-level skip fixture: emits SKIP: on stdout, prints a 0/0 summary, exits 0.
 mkfix_skip(){ # file label
   local f="$1" label="$2"
@@ -307,6 +331,48 @@ if zero_case_oracle "$w/run-all.sh" "$w"; then
   ok "zero-case: valid 0/0 non-skip suite is named, fails run, and does not increment suites_ok"
 else no "zero-case failed: rc=$ORACLE_RC :: $(grep -iE 'Suites (passed|failed)|zero\.test' <<<"$ORACLE_OUT" | tr '\n' ' ')"; fi
 
+# 19 — prove-teeth banner: the no-teeth suite is listed; the clause and node-n/a line appear.
+w="$(newdir c19)"
+mkfix_sh    "$w/nt.test.sh" 3 0 0  # no teeth — mkfix_sh never handles --prove-teeth
+mkfix_teeth "$w/wt.test.sh"        # has teeth banner
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+if grep -qF "Suites without teeth: 1 — [nt]" <<<"$out" \
+   && grep -qF '(vocabulary check:' <<<"$out" \
+   && grep -qF 'Suites n/a for teeth (node):' <<<"$out"; then
+  ok "prove-teeth-banner: no-teeth suite listed, clause present, node-n/a line present"
+else no "prove-teeth-banner failed: $(grep -iE 'Suites without|vocabulary|n.a for' <<<"$out" | tr '\n' '|')"; fi
+
+# 20 — require-teeth: exits 1 when there are no-teeth suites.
+w="$(newdir c20)"
+mkfix_sh    "$w/nt.test.sh" 3 0 0
+mkfix_teeth "$w/wt.test.sh"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'Suites without teeth: 1' <<<"$out"; then
+  ok "--require-teeth: exits 1 when no-teeth suites exist"
+else no "--require-teeth-fail: rc=$rc :: $(grep 'Suites without' <<<"$out" | tr '\n' ' ')"; fi
+
+# 21 — require-teeth: exits 0 when all suites have teeth (no-teeth list is empty).
+w="$(newdir c21)"
+mkfix_teeth "$w/wt1.test.sh"
+mkfix_teeth "$w/wt2.test.sh"
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'Suites without teeth: 0 — []' <<<"$out"; then
+  ok "--require-teeth: exits 0 when all suites have teeth"
+else no "--require-teeth-ok: rc=$rc :: $(grep 'Suites without' <<<"$out" | tr '\n' ' ')"; fi
+
+# 22 — with-teeth-but-no-banner: a suite that handles --prove-teeth but emits no banner
+#       must appear in the "Suites with teeth but no banner" line, not in "without teeth".
+w="$(newdir c22)"
+mkfix_sh          "$w/nt.test.sh"  3 0 0  # truly no teeth
+mkfix_teeth       "$w/wt.test.sh"          # has teeth banner
+mkfix_teeth_nobanner "$w/nb.test.sh"       # handles flag, no banner
+out="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+if grep -qF 'Suites without teeth: 1 — [nt]' <<<"$out" \
+   && grep -qF 'Suites with teeth but no banner: 1' <<<"$out" \
+   && grep -qF 'nb' <<<"$(grep 'but no banner' <<<"$out")"; then
+  ok "with-teeth-no-banner: no-banner suite in its own category, not counted as no-teeth"
+else no "with-teeth-no-banner failed: $(grep -iE 'Suites without|but no banner' <<<"$out" | tr '\n' '|')"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -368,6 +434,48 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-zero: mutant predicate was not executed"
   else
     ok "teeth-zero: anchor=1, bytes changed, mutant executed, same zero-case oracle went RED"
+  fi
+  # Mutation 5: neuter --require-teeth exit-1 via SENTINEL; a no-teeth fixture must
+  #             then exit 0 under --require-teeth, proving the exit path has real teeth.
+  echo "-- teeth: neuter SENTINEL-REQUIRE-TEETH-EXIT; require-teeth must no longer exit 1 --"
+  w="$TMP/teeth-require"; mkdir -p "$w"
+  sentinel5='  # SENTINEL-REQUIRE-TEETH-EXIT'
+  sentinel5_count="$(grep -Fc "$sentinel5" "$SUT")"
+  sed '/SENTINEL-REQUIRE-TEETH-EXIT/{n;s/if \[\[ -n "\$REQUIRE_TEETH" \]\]/if false/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel5_count" -ne 1 ]; then
+    no "teeth-require: SENTINEL-REQUIRE-TEETH-EXIT not found exactly once (count=$sentinel5_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-require: require-teeth mutation was a byte-identical no-op"
+  else
+    mkfix_sh    "$w/nt.test.sh" 3 0 0
+    mkfix_teeth "$w/wt.test.sh"
+    bash "$w/run-all.sh" --require-teeth >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -eq 0 ]; then
+      ok "teeth-require: neutered exit guard exits 0 despite no-teeth suite → exit path has real teeth"
+    else
+      no "teeth-require: mutant still exited $mrc — require-teeth exit mutation not exercised (THEATER)"
+    fi
+  fi
+  # Mutation 6: silence SENTINEL-NO-TEETH-BANNER; the "Suites without teeth:" line must
+  #             disappear, proving the banner output path has real teeth.
+  echo "-- teeth: silence SENTINEL-NO-TEETH-BANNER; 'Suites without teeth:' must vanish --"
+  w="$TMP/teeth-banner"; mkdir -p "$w"
+  sentinel6='  # SENTINEL-NO-TEETH-BANNER'
+  sentinel6_count="$(grep -Fc "$sentinel6" "$SUT")"
+  sed '/SENTINEL-NO-TEETH-BANNER/{n;s/echo "Suites without teeth:/: # silenced # echo "Suites without teeth:/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel6_count" -ne 1 ]; then
+    no "teeth-banner: SENTINEL-NO-TEETH-BANNER not found exactly once (count=$sentinel6_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-banner: banner silence mutation was a byte-identical no-op"
+  else
+    mkfix_sh    "$w/nt.test.sh" 3 0 0
+    mkfix_teeth "$w/wt.test.sh"
+    mout="$(bash "$w/run-all.sh" --prove-teeth 2>&1)"
+    if ! grep -qF 'Suites without teeth:' <<<"$mout"; then
+      ok "teeth-banner: silenced banner absent from output → banner output has real teeth"
+    else
+      no "teeth-banner: banner still present after silencing → banner output teeth absent (THEATER)"
+    fi
   fi
 fi
 
