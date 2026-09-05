@@ -6,7 +6,8 @@
 # short basenames, always-print lines, --exclude-file, --exclude (command-line).
 # Teeth (--prove-teeth): (a) hardcoded UNCITED=0, (b) ambiguity exclusion removed,
 # (c) substring vs word-boundary on ext-bearing token, (d) bare-stem instead of ext-
-# bearing token (METHODOLOGY §3 core defect), (e) excluded-by-declaration line silenced.
+# bearing token (METHODOLOGY §3 core defect), (e) excluded-by-declaration line silenced,
+# (f) loosen path-token to bare dir — class-file extension required.
 #
 # Usage: coverage-map.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness failure.
 set -uo pipefail
@@ -341,6 +342,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-e: SENTINEL-E: comment not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (f): path-token requires class-file extension — bare dir must NOT cite
+  # Fixture: module bacnetDb (7 chars, ≥6); corpus mentions bare "bacnetDb/" (no .java).
+  # Original (tightened): requires <mod>[-/]<path>.<ext> → 0/1 cited (bare dir no match).
+  # Mutant (revert to bare dir): <mod>/ matches → 1/1 cited.
+  echo "-- teeth-f: loosen path-token to bare dir; bacnetDb/ must not cite --"
+  MUTANT_F="$ROOT/cov-map.MUT-F.sh"
+  # SENTINEL-F: path-token requires class-file extension (loosen to bare dir to mutate)
+  if grep -q 'SENTINEL-F:' "$SUT"; then
+    sed 's#_ptok_pat=".*#_ptok_pat="(^|[^A-Za-z0-9_])${re_mod}/"#' "$SUT" > "$MUTANT_F"
+    SF="$ROOT/sf"; CF="$ROOT/cf"
+    mk_unit "$SF" "bacnetDb" "BACnetSchema.java"  # 7 chars, ≥6
+    mk_corpus "$CF" "proj-bloque1.md" "see bacnetDb/ for the schema directory overview"
+    rout_f="$(run "$CF" --subject "$SF" 2>/dev/null)"
+    mout_f="$(bash "$MUTANT_F" "$CF" --subject "$SF" 2>/dev/null)"
+    if printf '%s' "$rout_f" | grep -qE '0/1 cited' \
+       && printf '%s' "$mout_f" | grep -qE '1/1 cited'; then
+      ok "teeth-f: bare dir bacnetDb/ not cited (original); bare-dir mutant cites — bites"
+    else
+      no "teeth-f: path-token tightening mutation did not bite" \
+         "orig=$(printf '%s' "$rout_f" | grep modules:) mut=$(printf '%s' "$mout_f" | grep modules:)"
+    fi
+  else
+    no "teeth-f: SENTINEL-F: comment not found in SUT"
   fi
 fi
 

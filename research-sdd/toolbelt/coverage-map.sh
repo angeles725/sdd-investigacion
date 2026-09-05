@@ -93,8 +93,9 @@ else
   EXCL_SOURCE="none"
 fi
 
-# ---------- extension list (one per line)
+# ---------- extension list (one per line) and alternation for path-token grep
 printf '%s\n' "$EXT_CSV" | tr ',' '\n' | grep -v '^$' > "$TMP/exts.txt"
+ext_alt="$(printf '%s' "$EXT_CSV" | tr ',' '|' | tr -d ' ')"
 
 # ---------- find units: dirs at --depth under --subject containing ≥1 file with listed ext
 : > "$TMP/units_all.txt"
@@ -198,11 +199,13 @@ while IFS= read -r unit; do
   mod="$(basename "$unit")"
   cited=0
 
-  # path-token check: <mod>/ at a word boundary (non-alphanum before mod name)
+  # path-token check: <mod>[-/]<path>.<ext> — module leads to a class file (not a bare dir).
   # Only for module names ≥6 chars to avoid false-positives from common short names.
   if [ "${#mod}" -ge 6 ]; then
     re_mod="$(printf '%s' "$mod" | sed 's/[.+*?^${}|[\\()]/\\&/g')"
-    if grep -qE "(^|[^A-Za-z0-9_])${re_mod}/" "$TMP/corpus.txt" 2>/dev/null; then
+    # SENTINEL-F: path-token requires class-file extension (loosen to bare dir to mutate)
+    _ptok_pat="(^|[^A-Za-z0-9_])${re_mod}[-/][^[:space:]]*\.(${ext_alt})\b"
+    if grep -qE "$_ptok_pat" "$TMP/corpus.txt" 2>/dev/null; then
       cited=1
     fi
   fi
