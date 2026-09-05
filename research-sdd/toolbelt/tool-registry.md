@@ -322,6 +322,32 @@ defect (archive-blocking) · `2` = bad args. All are covered by `tests/*.test.sh
 
 Session-start sweep aggregator: `sweep-all.sh` runs `sweep-retros.sh`, `sweep-audits.sh`, `verify-registry.sh`, and `verify-kit-clean.sh` in sequence. Each script always runs independently — a failure or timeout in one does not abort the others. Exit: 0 if all four passed, non-zero if any failed or timed out. Intended for Codex and manual-run contexts (U-A20); redundant but harmless when Claude/OpenCode already execute the sweeps via their session-start hooks. Per-script timeout: `RSDD_SWEEP_TIMEOUT` (default 30 s).
 
+## Operator toolbelt (corpus lifecycle & kit maintenance)
+
+Scripts the supervisor/operator runs directly. None of these are invoked by the research loop itself
+and none modify the target corpus (propose-never-apply §8). Each `*-hook.sh` is a SessionStart wrapper
+that surfaces its companion sweep as `additionalContext`; silence = clean.
+
+| Tool | Purpose |
+|---|---|
+| `census-target.sh <target-path> [--threshold-count N] [--threshold-mb M]` | File-type histogram over ALL files in a research target (BOOTSTRAP mandatory step a2, METHODOLOGY §6). Stars types exceeding count/size thresholds — starred types must be claimed by a gap or dismissed. Exit 0 (information tool); exit 2 bad args. |
+| `ensure-remote.sh <target-dir> [--yes] [--name <repo>]` | Create a PRIVATE-BY-CONSTRUCTION GitHub remote for a corpus and push it (METHODOLOGY §15). Hard-codes `--private`; refuses organization owners; requires `--yes` or `RSDD_ALLOW_REMOTE=1`; sweeps secrets before push; verifies visibility before any push. Exit 0 = remote present; 2 = bad args/not a git repo/no valid repo name; 3 = no consent (--yes / RSDD_ALLOW_REMOTE=1 absent); 4 = owner is an organization (refused); 5 = secret leak (scan refused push); 6 = visibility-verify failed (repo not confirmed private); 7 = gh missing/login unresolved/scan-secrets missing/create or push failed. |
+| `research-sdd-init.sh <target-dir> [--corpus auto\|nested\|flat] [--prefix <slug>] [--force]` | Mechanical BOOTSTRAP scaffolder: creates corpus skeleton, copies templates, git-inits, rolls back on failure (METHODOLOGY BOOTSTRAP). Refuses if a corpus already exists. Emits follow-up checklist for the judgment half (classify artifact, seed gaps, register target). Exit 0 = scaffolded; 1 = post-scaffold artifact missing (internal failure); 2 = bad args/not writable/missing template; 3 = corpus already exists (refused). |
+| `research-sdd-status.sh <target-dir> [--next\|--sync-state] [--focus <slug>]` | Structured status + deterministic next-gap for a corpus. `--next` emits `NEXT\|STOP\|STALE\|BOOTSTRAP` line. `--sync-state` re-seeds the research-state envelope from ground truth (idempotent). Exit 0; 1 = lib helper missing or failed to define function, or sync-state target not found; 2 = bad args. |
+| `research-sdd-archive.sh <target-dir> [--dry-run]` | Gated close discipline: runs consistency gates (verify-state, verify-sources), regenerates CATALOG, touches INDEX, emits close-checklist. Refuses (exit 3) if a gate did not pass. Never authors content, never edits the kit, never touches git. Exit 0 = archived or dry-run; 1 = not a directory or lib helper failure; 2 = bad args/no RESEARCH-STATE; 3 = gate refused. |
+| `stage-retro.sh <path-to-retro.md>` | Stages ONE pending §18 retro as a kit branch (METHODOLOGY §18). Git plumbing only — creates the branch, prints deltas + next steps. Applying deltas is the supervisor's judgment, never mechanical. Exit 1 = bad args/missing file/lib helper failure; 2 = retro not pending (already applied/dismissed) or unknown flag; 3 = kit has uncommitted changes; 4 = cannot checkout main; 5 = main has unpushed commits (mixed-history guard). |
+| `sweep-tools.sh` | Fleet tool census: finds tools under `<target>/tools/` across all TARGETS.md entries, cross-checks against `T<N>` retro rows, reports unrecorded tools. WARN-only; read-only. Exit 1 on operational failure (TARGETS.md or lib helper missing). |
+| `sweep-breakthroughs.sh` | Fleet Breakthrough Ledger drift guard (METHODOLOGY §22). WARNs on blocks tagged `**Breakthrough:**` absent from BREAKTHROUGHS.md, and ledger rows whose block lost the tag. Anti-silent-zero: absent/empty/no-match are always distinct. Exit 1 on operational failure only. |
+| `sweep-audits-hook.sh` | SessionStart wrapper for `sweep-audits.sh` — surfaces pending §13 audit reports as `additionalContext`. Silent on clean; surfaces sweep failures loudly. |
+| `sweep-breakthroughs-hook.sh` | SessionStart wrapper for `sweep-breakthroughs.sh` — surfaces unindexed/drifted breakthroughs as `additionalContext`. |
+| `sweep-retros-hook.sh` | SessionStart wrapper for `sweep-retros.sh` — surfaces pending §18 retros as `additionalContext`. |
+| `sweep-tools-hook.sh` | SessionStart wrapper for `sweep-tools.sh` — emits unrecorded-tool headline ONLY when unrecorded tools exist; silent when every tool is ledgered (avoids flooding context). |
+| `verify-kit-clean-hook.sh` | SessionStart wrapper for `verify-kit-clean.sh` — emits a DIRTY/unpushed banner only when the kit is not clean; silent when clean. |
+| `verify-registry-hook.sh` | SessionStart wrapper for `verify-registry.sh` — surfaces TARGETS.md `N md` vs real block-count drift as `additionalContext`. |
+| `verify-doc-consistency.sh` | Guards kit entry-point docs (SKILL.md, PROMPT-LOOP.md, README.md) against section-count drift vs METHODOLOGY.md and orphan §N references. WARN-only, read-only. Exit 0 on clean or findings; 1 on operational failure (missing required doc). |
+| `verify-tool-catalog.sh` | Drift guard: cross-checks INSTALLED-TOOLS.md log entries against tool-registry.md capability rows. WARNs on installed tools with no catalog entry; never edits either file. Exit 1 only on operational failure (either input file missing). |
+| `verify-tool-catalog-hook.sh` | SessionStart wrapper for `verify-tool-catalog.sh` — emits drift notice ONLY when uncataloged tools exist; silent when catalog is complete. |
+
 ## DRC-fixture oracle (constraint-DSL CI gate)
 
 For any target that uses a **constraint DSL** (KiCad `.kicad_dru`, custom lint rules, firmware config

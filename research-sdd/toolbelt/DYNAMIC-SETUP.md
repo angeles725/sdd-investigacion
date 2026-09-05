@@ -59,6 +59,36 @@ hardware resource handed off one device at a time via `usbipd-win`.
 - `usbipd bind` is a one-time admin step per device; `attach` and `detach` do not require admin.
 - After `wsl --shutdown`, any active WSL USB attachment is dropped — re-attach after the VM restarts.
 
+## 1c. Raw-image a physical/removable disk (when `wsl --mount` fails)
+
+_Source: niagara-research/retros/2026-08-30-jace8000-sd-focus-retro.md (delta D1, HIGH)_
+
+WSL auto-mounts only `C:`. A removable disk (SD card in a reader, USB stick) often cannot be reached
+by `drvfs`, and `wsl --mount --bare \\.\PhysicalDrive<N>` frequently fails on removable media
+(`error 0x8007000f — device not ready / not found`). §1b (usbipd) attaches the device but leaves
+WSL without a driver for an exotic on-disk filesystem (→ §1d / no-mount parser). The reliable path is
+**raw-image on the Windows side, analyze on the WSL side**:
+
+1. From **Windows PowerShell** (elevated), find the disk: `Get-Disk` / `Get-Disk | Get-Partition` —
+   note the `Number` and total `Size`. Confirm it is the right disk by size **before** touching it.
+2. Raw-read the whole physical disk with a **robust** FileStream loop. Three gotchas make the naive
+   loop silently wrong:
+   - **A 0-length read is NOT EOF on `\\.\PhysicalDrive`.** The naive `while (($n = $fs.Read(...)) -gt 0)`
+     stops early on a spurious short read → TRUNCATED image that looks complete. Drive the loop by the
+     known total size (`Get-Disk.Size`), not by "read returned 0".
+   - **Int32 overflow on a >2 GB disk.** `[Math]::Min($remaining, $chunk)` binds the `int,int` overload
+     and silently caps any size above 2,147,483,647 to Int32. Cast every size/offset to `[long]`.
+   - **Seek per chunk.** Seek to the running byte offset before each `Read` — never trust sequential
+     position across a raw device handle.
+   Record `errs=0` / exact byte count vs `Get-Disk.Size` as the completeness oracle
+   (jace8000-sd B673: `4,018,143,232 B, errs=0`).
+3. From **WSL**, analyze the `.img` read-only (partition table, per-partition offsets, `file`,
+   `strings`, a userspace FS parser). Never write back to the physical device.
+
+**The raw `.img` is secret-bearing** (it contains every partition's keyrings, shadow, config files) —
+keep it in the scratchpad only; never commit it to `sources/` or the repo. Commit only the derived
+tree/manifest (names + sizes + sha256 per file, identifiers masked). See PROMPT-LOOP SECRETS DISCIPLINE.
+
 ## 2. Protocol probe
 
 Build a READ-ONLY probe — a byte-for-byte port of the decompiled protocol client (so frames match
@@ -84,6 +114,22 @@ does not fit it. Gotchas from the first web dynamic phase:
   exact** regardless of GPU backend. State the distinction so a future phase does not discard the good
   metrics (call/triangle counts) along with the bad (FPS). Preserve the probe (`tools/probe.mjs`) and its
   launch flags as reusable `[CERT-hw]` evidence via `probe.sh`.
+- **`page.screenshot` times out on a live WebGL scene under software GL** — use CDP
+  `Page.captureScreenshot` as the fallback (no stability wait; fires immediately).
+  Alternatively, switch off the WebGL tab and screenshot a non-3D view first.
+- **Relaunch the browser per viewport** — never reuse a Playwright browser context across viewport
+  changes; context reuse reliably throws "Failed to open a new tab" on the software-GL path. One
+  `chromium.launch()` per viewport measurement.
+- **Confirm what the server is actually serving before each run.** A stale HTTP server left from a
+  prior run can serve the wrong file on a reused port (e.g. `8791` still serving the 2D module while
+  the 3D viewer is on `8799`). Start a fresh server on a fresh port and verify the `Content-Type`
+  header or a known token in the page body.
+- **CORS/origin boundary in e2e checks.** When the verified endpoint enforces an origin allowlist
+  (e.g. only the production URL), a headless-from-localhost Playwright test is CORS-blocked by design —
+  this is not a code bug. Confirm the backend contract out-of-band with `curl` (non-browser),
+  and verify CORS headers separately. Source: niagara-research/retros/2026-09-03-live-cutover-and-authenticated-control-retro.md (#3).
+
+_Source: niagara-research/retros/2026-09-03-research-sdd-document-mode-live-subject-retro.md (#3 T2); niagara-research/retros/2026-09-03-live-cutover-and-authenticated-control-retro.md (#3); panccadia-3d-viewer/retros/2026-09-03-panccadia-3d-viewer-document-run.md (T2)._
 
 ### 4a. Browser appliance / SPA web GUI (chrome-devtools MCP)
 
