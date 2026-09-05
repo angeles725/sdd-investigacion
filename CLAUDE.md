@@ -328,3 +328,42 @@ Two properties worth preserving if this is ever touched again:
 
 Non-path tokens still pass through — `` `/mrdoob/three.js` `` is a GitHub slug, not a directory — and
 callers filter them with `[ -d ] || continue`. That is expected, not a defect.
+
+---
+
+## 12. Multi-Session Campaigns — Measured Lessons
+
+Rules distilled from the 2026-09-05 kit campaign (three concurrent sessions, 14 PRs merged in one day). Each
+carries the incident that produced it; none restates §3–§8.
+
+1. **Doctrine describes the instrument as it IS, plus the next PR's contract.** Three doctrine PRs carried
+   present-tense claims about code that did not exist yet (#427 first draft, #430 alias list, #445 Type
+   wording); each was caught by doc↔code readback before merge. Every "until kit issue #N lands …" note is
+   owned by whichever side merges SECOND: an instrument PR landing after its doctrine rewrites or deletes the
+   note as part of its unit; a doctrine PR gated after its instrument merged rewrites the note before gating.
+2. **Stacked PRs after a squash-merge:** rebase the child with `git rebase --onto origin/main <old-base-tip>`
+   and retarget its base with `gh api -X PATCH repos/{owner}/{repo}/pulls/<N> -f base=main` (`gh pr edit
+   --base` fails here on a projectCards GraphQL deprecation). #434 went `dirty` because its branch still
+   carried #427/#430's original commits after those had squash-merged.
+3. **Registry and interface rows get a FULL row-by-row readback, never a sample.** A 5-of-17 sample of new
+   tool-registry rows found one wrong exit-code clause; the ordered full pass found four more (#446). Each row
+   is an independent interface claim — the same class as "test the list edges" (§7).
+4. **The shared checkout's local `main` never advances.** Every merge happens remotely and every session
+   writes in a worktree, so any read of "current" kit content must come from a worktree on `origin/main`
+   (`git fetch && git worktree add <sibling> origin/main`), never from the shared tree. The lead session grepped the
+   stale shared tree for a sentence D6 had merged hours earlier and got "not present" while scoping D10 —
+   the sentence was on `origin/main`, not in the tree it read.
+5. **Retro markers carry MERGE shas, not branch shas.** Writers stamped `applied · kit <branch sha>`;
+   squash-merge makes those dangle. Re-stamp with the merge sha in the same session (24 retros this
+   campaign). Flip markers in a target corpus with `git add <file>` only — never a checkout, stash, or reset in
+   a peer-owned tree — and never push a target repo another lane is writing.
+6. **Measure the yield before the writer — the rule bit both ways in one day.** A Bayesian saturation model
+   lost to the naive rule on 349 real transitions (not built); a shared test harness would have saved 1 % of
+   test LOC while making the gate's summary line a single point of failure (not built); a non-hermetic PATH
+   in one suite cost 244 s of a 472 s run (built: run-all −55 %, #453).
+7. **Same-file units are serial even between disjoint-set writers, and a lib extraction locks every
+   consumer.** #435 touches nine scripts, so it precedes the units that edit any of them; snapshot the
+   real-corpus output of every consumer BEFORE writing a line — the byte-identical diff is the gate.
+8. **Two reviews, different defect classes, in parallel.** An adversarial content cross-read (empty cell
+   silently skipped in #442; a paragraph spliced mid-sentence in #452) and a quiet-tree mechanical gate
+   (fleet diff, mutant-by-mutant, registry full pass) catch different things; every instrument PR gets both.
