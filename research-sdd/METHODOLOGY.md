@@ -1274,6 +1274,17 @@ permission friction and driver bloat for no demonstrated catch.
 
 **For an ENUMERATION or set-membership claim, read the code that DEFINES the set before answering.** "Is X on the dashboard", "which slots does Y expose" — any membership claim about an authoritative enumerable list must be settled by reading the list's definition (the array, the method that populates it, the config that declares members) whole, once. An agent summary or partial read of adjacent code is not a substitute; two operator-caught errors in one session — `freeze*` misclassified, `startDelay` misclassified — were both prevented by a single 55-line read of `DashboardReader.java:80-134`. (Source: 2026-09-03-research-sdd-commissioning-map-consulting-retro.md #1)
 
+**A boolean named `*Protect`, `*Enable` or `*Mode` may be a CONFIG flag, not the active STATE.** Before treating
+such a slot as "happening now", read what SETS it and what READS it: an enable flag says the behaviour is armed, not
+that it is running. Derive the live condition from the OUTPUT state (the actuator, the status enum, the measured
+value) and refine it with the config flag — never the reverse. A viewer read `FreezeProtect` as "protection active"
+and had to be corrected twice. (Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D3)
+
+**A vendor "since" or elapsed anchor may not reset on sub-cycles.** Compute an episode duration from the transition
+YOU track (the timestamp at which the condition you define became true), not from the vendor's own anchor, and state
+which transition the duration counts from. A `coolingSince` anchor that survived defrost sub-cycles produced a false
+"running 22 h"; the fix was a locally tracked elapsed counter. (Source: same retro, D4; B19 §19.3)
+
 **To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #1)
 
 **Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
