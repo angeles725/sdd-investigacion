@@ -1452,6 +1452,12 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   (2) reversible write — read-and-save the current value first, hold an oracle, restore in a `finally` →
   (3) destructive write — backup-first (below) → (4) irreversible — last, and only under scoped
   authorization (below). Announce which rung each step is on.
+- **A live install that CAN mutate is verified without ever mutating production.** When the target accepts
+  writes (a station, a controller, a tenant API), credentials come from a mode-600 file OUTSIDE the repo
+  and are never echoed, and verification uses a scratch object, a dry-run surface, or rung (1) discovery —
+  never a real production write. A mutation performed "to see what happens" during verification is a §12
+  incident to record, not evidence; the cutover retro that produced this rule had to prove afterwards that
+  nothing had moved.
 - **Cross-protocol oracle for every write.** Validate a write through an INDEPENDENT channel, not the one
   you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
   read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
@@ -1818,6 +1824,11 @@ B64→B55). Make this a habit, not an accident:
   block is not wrongly read as sloppy. Only call it a refute when the two describe the SAME artifact.
   The same distinction runs in the hardware→code direction — a live `[CERT-hw]` finding can scope-clarify a
   `[CERT]` static claim (the deployment gates a real code-path) without refuting it; that case lives in §12.
+- **The threat-model axis clarifies scope too.** A later block that changes WHO the attacker is or WHAT they
+  already hold (an insider with the station password vs a network attacker; an attacker holding the SD
+  card vs one on the wire) CLARIFIES the prior block's scope rather than refuting it, and must name the
+  axis that moved ("correct against a network attacker; this block assumes physical media in hand") so
+  two true statements about different threat models are not read as a contradiction.
 - In audit mode (§13), or periodically, sweep blocks on the same subsystem for contradictions.
 - **Proactively scan for contradictions after computing a measurement.** The reactive rule above fires
   when you revisit a prior claim. Add the proactive complement: after computing a measurement over a
@@ -2255,6 +2266,15 @@ hard-stops, never blind.
   independent channel. The canonical form is a ROUND-TRIP byte-diff: take the real bytes → parse with your
   port → re-emit → diff against the original. A zero diff earns `[CERT]` on the reconstructed logic; a
   nonzero diff is the finding (it shows exactly where your model of the format is wrong).
+- **Classify each build before writing it: reusable tool or one-off PoC.** A reusable tool (a read-only
+  parser for a filesystem or store the kit will meet again) gets a `toolbelt/` home, a `tool-registry.md`
+  row and a companion test; a one-off PoC lives in the scratchpad and is cited through its preserved output
+  under `sources/probes/`. Deciding late is how tools end up uncatalogued (§18 `promote`/`absorb` verdicts
+  exist for exactly this hand-off).
+- **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
+  keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
+  skeletons — the §3 SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a reader
+  whose default output must be redacted by hand afterwards will leak on the first forgotten run.
 - **Stop counter: `requires-execution` → 0.** The static loop stops at read-only-investigable = 0; the
   build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
   in RESEARCH-STATE exactly like the investigable count.
@@ -2470,6 +2490,13 @@ one. (Evidence: an `nre -@<option>` JVM pass-through found via `nre -help` after
 - Web / minified JS bundle: `js-beautify → CodeGraph → context7` — readable reformat first, then structural
   reading via CodeGraph / direct source, then identify a bundled third-party library by its API via the
   context7 MCP instead of reading it. Prove an API is actually USED, not merely present (bundle-evidence rule).
+- Physical media / unmountable filesystem (SD card, eMMC, disk image the host cannot mount): `read-only
+  mount → raw image → read-only structure parser → carve/strings triage`. When `wsl --mount` or the OS
+  refuses the medium, image it raw (`toolbelt/DYNAMIC-SETUP.md` §1c — the image is secret-bearing, scratchpad
+  only) and read the filesystem with a READ-ONLY parser written as a §19 deliverable whose oracle is the
+  filesystem's own self-describing structure (superblock magic, inode tables, directory entries that resolve),
+  never a round-trip byte diff; the last rung is carving and strings over the image. Record the rung reached
+  (jace8000-sd: the QNX6 medium fell through mount and was read at the parser rung).
 - A new artifact class declares its chain HERE before a checker is built (doctrine-first).
 
 **21.3 Degrade with honesty.** A downgraded rung answers a NARROWER question. Record which rung
