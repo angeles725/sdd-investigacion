@@ -583,15 +583,15 @@ framing with ordinarily-compressed payload. Both measures are read-only and chea
 `python3 -c "import math,collections,sys; d=open(sys.argv[1],'rb').read(); c=collections.Counter(d); print(f'{-sum(v/len(d)*math.log2(v/len(d)) for v in c.values()):.4f} bits/byte')" blob.bin`.
 Windowed entropy (sliding over 256-byte blocks) localises encrypted vs. plaintext regions in a mixed blob.
 This is a first-pass check, not cipher identification: a strong compressor is indistinguishable from
-ciphertext at this level. For a FIRMWARE image the ambiguity is partly resolvable: legitimately-compressed
+ciphertext at this level. `[CERT-hw]` evidence from the USB-protocol run: 5.8124 / 5.5961 bits/byte,
+histogram dominated by `0x00/0x80/0xc0/0xff` → verdict "not encrypted" (commit `bd91df0`).
+Placement note: `toolbelt/tool-registry.md` already routes firmware entropy through binwalk; this method
+is the complementary standalone check for wire captures and opaque blobs where binwalk is not the first tool.
+For a FIRMWARE image the ambiguity is partly resolvable: legitimately-compressed
 firmware (uImage/IFS/gzip/lzo) retains a container/header magic that binwalk catches, so **flat ~8.0-bit
 entropy PLUS zero binwalk signatures across the whole image** ⇒ encrypted is the strong reading. Keep the
 verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and the gap becomes a blocked
 child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
-`[CERT-hw]` evidence from the USB-protocol run: 5.8124 / 5.5961 bits/byte,
-histogram dominated by `0x00/0x80/0xc0/0xff` → verdict "not encrypted" (commit `bd91df0`).
-Placement note: `toolbelt/tool-registry.md` already routes firmware entropy through binwalk; this method
-is the complementary standalone check for wire captures and opaque blobs where binwalk is not the first tool.
 
 **Custom-implementation survey against the vendor's equivalent in `organized/docSource`.** To validate whether a custom implementation over the Baja framework is correct, search `organized/docSource` for the Tridium component that implements the EQUIVALENT concept (by concept, not class name) and compare hooks, guards, and primitives. A fleet survey returning 0 hits for the anti-pattern across all first-party classes is strong deviation evidence: a pattern absent from all vendor code is not a style choice but a genuine departure from the idiom. Record the count — a zero is a finding, not an absence of data. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #3)
 
