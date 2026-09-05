@@ -1102,6 +1102,53 @@ else
   no "sibling-guard-focus: beta_changed=$([ "$_sg_hash_b_snap" != "$_sg_hash_b_after_focus" ] && echo YES || echo no) alpha.io=$_pr_alpha_io(want 0)"
 fi
 
+# T-BOLD-PENDING-REPORT (#424): **pending** Status cell is counted in the default pending-backlog line.
+d_bp424="$TMP/bold-pending-report"; mkdir -p "$d_bp424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | bold-gap | web | **pending** |"
+  echo "| medium | bare-gap | web | pending |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_bp424/RESEARCH-STATE.md"
+_bp424_rep="$(bash "$SUT" "$d_bp424" 2>/dev/null)"
+_bp424_ph="$(grep 'pending backlog' <<<"$_bp424_rep" | head -1)"
+if grep -q 'high=1' <<<"$_bp424_ph" && grep -q 'medium=1' <<<"$_bp424_ph"; then
+  ok "bold-pending-report: **pending** and bare pending both counted in pending backlog line (#424)"
+else
+  no "bold-pending-report: pending backlog [$_bp424_ph] — want high=1 medium=1 (**pending** may be dropped)"
+fi
+
+# T-BOLD-PENDING-SYNC (#424): --sync-state counts **pending** as investigable_open.
+d_bs424="$TMP/bold-pending-sync"; mkdir -p "$d_bs424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | bold-gap | web | **pending** |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_bs424/RESEARCH-STATE.md"
+bash "$SUT" "$d_bs424" --sync-state >/dev/null 2>&1
+_bs424_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d_bs424/RESEARCH-STATE.md")"
+[ "$_bs424_io" = "1" ] \
+  && ok "bold-pending-sync: --sync-state counts **pending** as investigable_open=1 (#424)" \
+  || no "bold-pending-sync: investigable_open=$_bs424_io (want 1) — **pending** still dropped (#424)"
+
+# T-UNRECOG-WARN (#424): unrecognised Status token emits a WARN to stderr.
+d_uw424="$TMP/unrecog-warn"; mkdir -p "$d_uw424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | open-gap | web | open |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_uw424/RESEARCH-STATE.md"
+_uw424_warn="$(bash "$SUT" "$d_uw424" --sync-state 2>&1 >/dev/null)"
+grep -qi 'unrecognised' <<<"$_uw424_warn" \
+  && ok "unrecog-warn: 'open' token emits WARN: unrecognised Status token to stderr (#424)" \
+  || no "unrecog-warn: no 'unrecognised' WARN on stderr for 'open' status token — silent drop persists (#424)"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -1407,6 +1454,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
   else
     no "teeth-#194: N194-STOPPED-BYPASS sentinel not found in SUT"
+  fi
+
+  # issue #424 teeth-BOLD-STRIP: neuter ** strip in count_investigable; **pending** must stay dropped.
+  echo "-- teeth-#424-bold-strip: neuter BOLD-STRIP sentinel; **pending** must not count investigable --"
+  bold_mutant="$TMP/status.BOLD-MUTANT.sh"
+  sed '/# BOLD-STRIP$/s/.*/    lead="$st"  # MUTANT-BOLD: strip neutered/' "$SUT" > "$bold_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-BOLD' "$bold_mutant"; then
+    no "teeth-#424-bold-strip: could not build mutant (BOLD-STRIP sentinel not found in SUT — did SUT change?)"
+  else
+    d_boldtooth="$TMP/bold-strip-tooth"; mkdir -p "$d_boldtooth"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | bold-gap | web | **pending** |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_boldtooth/RESEARCH-STATE.md"
+    bash "$bold_mutant" "$d_boldtooth" --sync-state >/dev/null 2>&1
+    _io_boldtooth="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d_boldtooth/RESEARCH-STATE.md")"
+    [ "$_io_boldtooth" = "0" ] \
+      && ok "teeth-#424-bold-strip: neutered strip → io=0 for **pending** row — BOLD-STRIP is load-bearing" \
+      || no "teeth-#424-bold-strip: mutant io=$_io_boldtooth (want 0) — strip may not be stopper (THEATER)"
+  fi
+
+  # issue #424 teeth-UNRECOG-WARN: neutering the WARN silences 'open'-token stderr output.
+  echo "-- teeth-#424-unrecog-warn: neuter UNRECOG-STATUS-WARN; 'open'-token must stop WARNing --"
+  unrecog_mutant="$TMP/status.UNRECOG-MUTANT.sh"
+  sed 's|>&2 ;;  # UNRECOG-STATUS-WARN|>/dev/null ;;  # MUTANT-UNRECOG: WARN silenced|' "$SUT" > "$unrecog_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-UNRECOG' "$unrecog_mutant"; then
+    no "teeth-#424-unrecog-warn: could not build mutant (UNRECOG-STATUS-WARN sentinel not found in SUT — did SUT change?)"
+  else
+    d_urecogtooth="$TMP/unrecog-warn-tooth"; mkdir -p "$d_urecogtooth"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | open-gap | web | open |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_urecogtooth/RESEARCH-STATE.md"
+    orig_warn_ur="$(bash "$SUT" "$d_urecogtooth" --sync-state 2>&1 >/dev/null)"
+    mut_warn_ur="$(bash "$unrecog_mutant" "$d_urecogtooth" --sync-state 2>&1 >/dev/null)"
+    if grep -qi 'unrecognised' <<<"$orig_warn_ur" && ! grep -qi 'unrecognised' <<<"$mut_warn_ur"; then
+      ok "teeth-#424-unrecog-warn: original WARNs on 'open' token, mutant stays silent — WARN is load-bearing"
+    else
+      no "teeth-#424-unrecog-warn: orig warns=$(grep -c 'unrecognised' <<<"$orig_warn_ur") mut=$(grep -c 'unrecognised' <<<"$mut_warn_ur") — WARN not load-bearing"
+    fi
   fi
 
   # near-miss WARN teeth: neuter the NM-WARN branch → near-miss fixture must stop WARNing.

@@ -273,11 +273,13 @@ backlog_rows() {
 
 resolve_next() {
   local rows; rows="$(backlog_rows)"             # compute ONCE — else the WARN fires per priority tier
-  local prio pri gap st
+  local prio pri gap st lead tok
   for prio in high medium low; do
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
-      [ "${st%% *}" = "pending" ] || continue     # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
+      lead="${st#\*\*}"; lead="${lead%\*\*}"       # §8b: strip at most one leading ** (and closing pair)
+      tok="${lead%% *}"
+      [ "$tok" = "pending" ] || continue           # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
       is_blocked "$gap" && continue
       printf 'NEXT | %s | %s\n' "$pri" "$gap"; return 0
     done < <(printf '%s\n' "$rows" | awk -F'\t' -v P="$prio" '$1==P')
@@ -294,10 +296,18 @@ resolve_next() {
 # derived investigable_open, reusing THIS script's backlog_rows/is_blocked — IDENTICAL to resolve_next's
 # NEXT-eligibility set (single source of truth), and to what verify-state.sh recomputes.
 count_investigable() {
-  local gap st n=0
+  local gap st lead tok n=0
   while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
     [ -z "$gap" ] && continue
-    [ "${st%% *}" = "pending" ] || continue
+    lead="${st#\*\*}"; lead="${lead%\*\*}"       # §8b: strip at most one leading ** (and closing pair)  # BOLD-STRIP
+    tok="${lead%% *}"
+    [ "$tok" = "pending" ] || {
+      case "$tok" in
+        requires-execution*|blocked-on-*|'~~'*|'✅'*) ;;
+        *) printf 'WARN: unrecognised Status token [%s] in gap: %s\n' "$tok" "$gap" >&2 ;;  # UNRECOG-STATUS-WARN
+      esac
+      continue
+    }
     is_blocked "$gap" && continue
     n=$((n+1))
   done < <(backlog_rows 2>/dev/null)
@@ -618,7 +628,7 @@ fi
 inv="$(inv_count)"
 req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)
 blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)
-ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$3=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
+ph=$(backlog_rows 2>/dev/null | awk -F'\t' '{st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
 echo "  coverage metric : ${metric:-<none>}"
