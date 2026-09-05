@@ -309,13 +309,8 @@ fi
 # is newer than a checkout mtime — so the added-date of the block itself is the signal.) PURE DETECTION — it
 # only FLAGS the gap for the human; it never auto-generates a retro (propose-never-apply). Reuses the same
 # $paths derivation (truncated '...' paths already skipped + WARNed above).
-rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURRENT path — no --follow,
-  # see the rename tradeoff note above rsdd's sibling lookup) epoch if tracked, else file mtime, else 0
-  local d="$1" f="$2" e
-  e="$(git -C "$d" log --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
-  [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
-  printf '%s' "$e"
-}
+# rsdd_added_epoch() removed by U19 / #489: replaced by a per-target one-walk epoch map.
+# The map is built lazily inside the MISSING-RETRO fleet loop (see below).
 waived_count=0; waived_names=""   # targets with a retro-waived marker; suppressed from MISSING-RETRO
 [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_waiv="$_rsdd_now"; }  # waiver-pass start
 for p in $paths; do
@@ -334,20 +329,53 @@ for p in $paths; do
     waived_names="${waived_names:+$waived_names, }$p"
     continue   # suppress MISSING-RETRO for this target
   fi
+  # U19 / #489: one git-log walk per target builds a path→first-add-epoch map, replacing
+  # hundreds of per-file rsdd_added_epoch calls. git log walks newest-first; always-overwriting
+  # means the last value stored per path comes from the OLDEST commit (first ADD), matching the
+  # removed rsdd_added_epoch semantics exactly. No --follow (same rename tradeoff documented above
+  # for the pending pass). SENTINEL: _rsdd_epoch_map_ok=1 only when the target is a git repo.
+  unset _rsdd_epoch_map
+  declare -A _rsdd_epoch_map
+  _rsdd_epoch_map_ok=0
+  _rsdd_epoch_ct=""
+  if git -C "$p" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _rsdd_epoch_map_ok=1
+    while IFS= read -r _line; do
+      case "$_line" in
+        EPOCH:*) _rsdd_epoch_ct="${_line#EPOCH:}" ;;
+        "")      continue ;;
+        *)       [ -n "$_rsdd_epoch_ct" ] && _rsdd_epoch_map["$_line"]="$_rsdd_epoch_ct"  # RSDD_U19_FIRST_ADD
+                 ;;
+      esac
+    done < <(git -C "$p" log --diff-filter=A --name-only --format='EPOCH:%ct' 2>/dev/null)
+  fi
+  unset _rsdd_epoch_ct
   nr=0   # newest retro added-date under this target
   [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_sub="$_rsdd_now"; }  # retro-newest-pass start
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     # Skip excluded files so a client-artifact retro does not set nr and suppress MISSING-RETRO.
     retro_is_excluded "$rf" && continue
-    m="$(rsdd_added_epoch "$p" "$rf")"; [ "${m:-0}" -gt "$nr" ] && nr="$m"
+    _rel="${rf#"${p%/}/"}"
+    if [ "$_rsdd_epoch_map_ok" = 1 ] && [ -n "${_rsdd_epoch_map["$_rel"]:-}" ]; then
+      m="${_rsdd_epoch_map["$_rel"]}"
+    else
+      m="$(stat -c %Y "$rf" 2>/dev/null || echo 0)"  # RSDD_U19_FALLBACK_RN
+    fi
+    [ "${m:-0}" -gt "$nr" ] && nr="$m"
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
   [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_rn=$(( _rsdd_prof_us_rn + _rsdd_now - _rsdd_prof_t0_sub )); }  # RSDD_PROFILE_RN_ACC
   nb=0   # newest block added-date under this target (gen-catalog's block/bloque discriminator)
   [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_sub="$_rsdd_now"; }  # block-newest-pass start
   while IFS= read -r bf; do
     [ -n "$bf" ] || continue
-    m="$(rsdd_added_epoch "$p" "$bf")"; [ "${m:-0}" -gt "$nb" ] && nb="$m"
+    _rel="${bf#"${p%/}/"}"
+    if [ "$_rsdd_epoch_map_ok" = 1 ] && [ -n "${_rsdd_epoch_map["$_rel"]:-}" ]; then
+      m="${_rsdd_epoch_map["$_rel"]}"
+    else
+      m="$(stat -c %Y "$bf" 2>/dev/null || echo 0)"  # RSDD_U19_FALLBACK_BN
+    fi
+    [ "${m:-0}" -gt "$nb" ] && nb="$m"
   done < <(find "$p" -type f -name '*.md' 2>/dev/null | block_file_filter)
   [ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_bn=$(( _rsdd_prof_us_bn + _rsdd_now - _rsdd_prof_t0_sub )); }  # RSDD_PROFILE_BN_ACC
   # Only meaningful when the corpus has blocks (nb>0) and the block is newer than the retro
