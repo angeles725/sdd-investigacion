@@ -71,6 +71,13 @@ mkretro() {
 # run <kit> : invoke the sandbox copy of the SUT, capture stdout+stderr into OUT, exit into RC.
 run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?; }
 
+# run_profile <kit> : invoke with RSDD_PROFILE=1; capture STDOUT_P/STDERR_P/RC separately.
+run_profile() {
+  local _ef; _ef="$(mktemp "$ROOT/prof.XXXXXX")"
+  STDOUT_P="$(RSDD_PROFILE=1 "$BASH_BIN" "$1/toolbelt/sweep-retros.sh" 2>"$_ef")"; RC=$?
+  STDERR_P="$(cat "$_ef")"; rm -f "$_ef"
+}
+
 # mkretro_git <target> <filename> <marker-line|-> <ndeltas> <git-date> <mtime> : like mkretro, but the
 # target becomes a hermetic git repo and the retro's git FIRST-COMMIT date is set INDEPENDENTLY of its
 # file mtime via GIT_AUTHOR_DATE/GIT_COMMITTER_DATE (deterministic — no wall-clock flakiness; the sibling
@@ -1947,6 +1954,89 @@ else
   no "67 no review-status marker → WARN names retro file + emits add-marker guidance" "exit=$RC out=[$OUT]"
 fi
 
+# 68 — RSDD_PROFILE=1: five 'profile: <phase> <seconds>' lines on STDERR (correct phase
+#      names, numeric seconds). pending-pass + waiver-pass reconcile with total within ±15%
+#      (total = pending + gap + waiver; gap = print/summary section between loops, typically
+#      < 5% on real corpora; ±15% is the right floor for a minimal unit-test fixture).
+#      RED on baseline: no RSDD_PROFILE support → zero profile lines on STDERR.
+kit="$(mkkit c68-profile-basic)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+printf '# b\n' > "$tgt/t-block1.md"
+touch -d '2 days ago' "$tgt/t-block1.md"   # aged past grace → waiver pass calls find+stat
+write_targets "$kit" "$tgt"
+run_profile "$kit"
+_p68_pend="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
+_p68_waiv="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
+_p68_rn="$(  grep '^profile: retro-newest-pass ' <<<"$STDERR_P" | awk '{print $NF}')"
+_p68_bn="$(  grep '^profile: block-newest-pass ' <<<"$STDERR_P" | awk '{print $NF}')"
+_p68_tot="$( grep '^profile: total '             <<<"$STDERR_P" | awk '{print $NF}')"
+_p68_recon="$(awk -v p="${_p68_pend:-0}" -v w="${_p68_waiv:-0}" -v t="${_p68_tot:-0}" \
+  'BEGIN{if(t==0){print "skip";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
+         print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'profile:' <<<"$STDOUT_P" \
+   && grep -qE '^profile: pending-pass [0-9]+\.[0-9]+$'      <<<"$STDERR_P" \
+   && grep -qE '^profile: waiver-pass [0-9]+\.[0-9]+$'       <<<"$STDERR_P" \
+   && grep -qE '^profile: retro-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
+   && grep -qE '^profile: block-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
+   && grep -qE '^profile: total [0-9]+\.[0-9]+$'             <<<"$STDERR_P" \
+   && [ "$_p68_recon" = "ok" ]; then
+  ok "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" "(exit $RC)"
+else
+  no "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" \
+     "RC=$RC recon=$_p68_recon stderr=[$STDERR_P]"
+fi
+
+# 69 — RSDD_PROFILE unset/0: ZERO behaviour change — no 'profile:' lines on stdout or
+#      stderr, stdout byte-identical to the baseline run without RSDD_PROFILE set.
+#      RED on a buggy implementation that emits profile: to stdout or corrupts normal output.
+kit="$(mkkit c69-profile-noop)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+write_targets "$kit" "$tgt"
+run "$kit"; STDOUT_BASE="$OUT"; RC_BASE="$RC"
+STDOUT_0="$(RSDD_PROFILE=0 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>/dev/null)"; RC_0=$?
+STDOUT_1="$(RSDD_PROFILE=1 "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>/dev/null)"; RC_1=$?
+if [ "$RC_BASE" = 0 ] && [ "$RC_0" = 0 ] && [ "$RC_1" = 0 ] \
+   && ! grep -q 'profile:' <<<"$STDOUT_BASE" \
+   && ! grep -q 'profile:' <<<"$STDOUT_0"    \
+   && ! grep -q 'profile:' <<<"$STDOUT_1"    \
+   && [ "$STDOUT_BASE" = "$STDOUT_0" ]        \
+   && [ "$STDOUT_BASE" = "$STDOUT_1" ]; then
+  ok "69 RSDD_PROFILE unset/0 → no profile: on stdout, stdout byte-identical to baseline" "(exit $RC_BASE)"
+else
+  no "69 RSDD_PROFILE unset/0 → no profile: on stdout, stdout byte-identical to baseline" \
+     "RC_BASE=$RC_BASE RC_0=$RC_0 RC_1=$RC_1 base_has=$(grep -c 'profile:' <<<"$STDOUT_BASE") 1_has=$(grep -c 'profile:' <<<"$STDOUT_1") diff=$(diff <(printf '%s' "$STDOUT_BASE") <(printf '%s' "$STDOUT_1") | head -3)"
+fi
+
+# 70 — Simulated bash<5 (EPOCHREALTIME unavailable): exactly one 'profile: unavailable
+#      (no EPOCHREALTIME)' line on STDERR, no other profile: lines.  The unavailable path is
+#      exercised via a mutant that replaces the EPOCHREALTIME guard with 'true' (always-empty),
+#      simulating a bash 4 environment where EPOCHREALTIME is not a special variable.
+#      RED on baseline: no RSDD_PROFILE support → zero lines on STDERR.
+kit="$(mkkit c70-profile-noepoch)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+write_targets "$kit" "$tgt"
+_anchor70='[ -z "${EPOCHREALTIME:-}" ]'
+_content70="$(cat "$SUT")"
+if [[ "$_content70" != *"$_anchor70"* ]]; then
+  no "70 bash<5 simulation: EPOCHREALTIME guard anchor not found in SUT — SUT drifted?" ""
+else
+  _mutant70="$kit/toolbelt/sweep-retros.sh"
+  printf '%s\n' "${_content70/"$_anchor70"/true}" > "$_mutant70"
+  _ef70="$(mktemp "$ROOT/prof.XXXXXX")"
+  RSDD_PROFILE=1 "$BASH_BIN" "$_mutant70" >/dev/null 2>"$_ef70"; RC_70=$?
+  STDERR_70="$(cat "$_ef70")"; rm -f "$_ef70"
+  _p70_count="$(grep -c '^profile:' <<<"$STDERR_70" 2>/dev/null || printf '0')"
+  if [ "$RC_70" = 0 ] \
+     && grep -qF 'profile: unavailable (no EPOCHREALTIME)' <<<"$STDERR_70" \
+     && [ "$_p70_count" = 1 ]; then
+    ok "70 bash<5 simulation → 'unavailable' sentinel on STDERR, exactly one profile: line" "(exit $RC_70)"
+  else
+    no "70 bash<5 simulation → 'unavailable' sentinel on STDERR, exactly one profile: line" \
+       "RC=$RC_70 count=$_p70_count stderr=[$STDERR_70]"
+  fi
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -2059,6 +2149,41 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth CD: canon=1 mutant suppresses WARN — CD tooth has bite" "()"
     else
       no "teeth CD: canon=1 mutant still warns — CD is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth PRWT: zero the waiver accumulator → waiver reports 0.000000, pending+waiver ≠ total
+  # → case 68 reconciliation (±5%) goes RED.  Anchor: the accumulation line at end of the
+  # waiver loop, which carries the RSDD_PROFILE_WAIV_ACC sentinel comment.
+  echo "-- teeth PRWT: zero waiver accumulator; pend+waiv must no longer reconcile with total (case 68 has teeth) --"
+  _anchor_prwt='_rsdd_prof_us_waiv=$(( _rsdd_prof_us_waiv + _rsdd_now - _rsdd_prof_t0_waiv )); }  # RSDD_PROFILE_WAIV_ACC'
+  _content_prwt="$(cat "$SUT")"
+  if [[ "$_content_prwt" != *"$_anchor_prwt"* ]]; then
+    no "teeth PRWT: waiver-accumulator anchor not found in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-prwt)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+    printf '# b\n' > "$tgt/t-block1.md"
+    touch -d '2 days ago' "$tgt/t-block1.md"
+    write_targets "$kit" "$tgt"
+    _mutant_prwt="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${_content_prwt/"$_anchor_prwt"/"_rsdd_prof_us_waiv=0; }  # RSDD_PROFILE_WAIV_ACC"}" > "$_mutant_prwt"
+    _ef_prwt="$(mktemp "$ROOT/prof.XXXXXX")"
+    RSDD_PROFILE=1 "$BASH_BIN" "$_mutant_prwt" >/dev/null 2>"$_ef_prwt"; RC_M=$?
+    STDERR_M="$(cat "$_ef_prwt")"; rm -f "$_ef_prwt"
+    _prwt_waiv="$(grep '^profile: waiver-pass '  <<<"$STDERR_M" | awk '{print $NF}')"
+    _prwt_pend="$(grep '^profile: pending-pass ' <<<"$STDERR_M" | awk '{print $NF}')"
+    _prwt_tot="$( grep '^profile: total '        <<<"$STDERR_M" | awk '{print $NF}')"
+    # Waiver must be exactly 0.000000; reconciliation must fail (diff/total ≥ 5%).
+    _prwt_waiv_zero=0; [ "$_prwt_waiv" = "0.000000" ] && _prwt_waiv_zero=1
+    _prwt_recon="$(awk -v p="${_prwt_pend:-0}" -v w="${_prwt_waiv:-0}" -v t="${_prwt_tot:-0}" \
+      'BEGIN{if(t==0){print "skip";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
+             print (diff/t >= 0.20) ? "reconcile-fails" : "reconcile-ok " sum " vs " t}')"
+    if [ "$RC_M" = 0 ] && [ "$_prwt_waiv_zero" = 1 ] && [ "$_prwt_recon" = "reconcile-fails" ]; then
+      ok "teeth PRWT: waiver-zeroed mutant → waiver=0, reconciliation fails — case 68 has teeth" "()"
+    else
+      no "teeth PRWT: waiver-zeroed mutant must break reconciliation — case 68 is THEATER" \
+         "waiv=$_prwt_waiv pend=$_prwt_pend total=$_prwt_tot recon=$_prwt_recon stderr=[$STDERR_M]"
     fi
   fi
 fi
