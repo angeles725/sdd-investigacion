@@ -33,6 +33,9 @@ mkexec() {
 
 echo "== detect-tools.test.sh =="
 
+# Capture real PATH before any fixture manipulation (used by hermetic-path teeth).
+ORIG_PATH="$PATH"
+
 # Hermetic env: redirect HOME and BREW so no real host tools are discovered.
 FAKE_HOME="$ROOT/home"
 FAKE_BREW="$ROOT/brew"
@@ -41,7 +44,8 @@ mkdir -p "$FAKE_HOME"
 # a — no --require: exit 0, cache written (default behavior byte-for-byte unchanged)
 CACHE_A="$ROOT/cache-a.txt"
 rc_a=0
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_A" --quiet >/dev/null 2>&1 || rc_a=$?
 if [ "$rc_a" -eq 0 ] && [ -f "$CACHE_A" ]; then
   ok "a no --require: exits 0 and writes cache" "(rc=$rc_a)"
@@ -55,7 +59,8 @@ BIN_B="$ROOT/bin-b"; mkdir -p "$BIN_B"
 mkexec "$BIN_B/objdump" 'echo objdump-fake-2.39; exit 0'
 CACHE_B="$ROOT/cache-b.txt"
 rc_b=0
-PATH="$BIN_B:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH="$BIN_B:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_B" --quiet --require objdump >/dev/null 2>&1 || rc_b=$?
 if [ "$rc_b" -eq 0 ]; then
   ok "b --require present tool: exits 0" "(rc=$rc_b)"
@@ -70,6 +75,7 @@ CACHE_C="$ROOT/cache-c.txt"
 stderr_c="$ROOT/stderr-c.txt"
 rc_c=0
 env -u ANALYZE_HEADLESS -u GHIDRA_HOME -u GHIDRA_INSTALL_DIR \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH=/usr/bin:/bin \
   HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_C" --quiet --require ghidra >/dev/null 2>"$stderr_c" || rc_c=$?
 # Assert MISSING explicitly: on a host where ghidra half-resolves (UNUSABLE) or
@@ -90,7 +96,8 @@ mkexec "$BIN_D/objdump" 'sleep 5'   # killed by timeout at 0.1 s → exit 124 fr
 CACHE_D="$ROOT/cache-d.txt"
 stderr_d="$ROOT/stderr-d.txt"
 rc_d=0
-RSDD_PROBE_TIMEOUT=0.1 PATH="$BIN_D:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH="$BIN_D:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_D" --quiet --require objdump >/dev/null 2>"$stderr_d" || rc_d=$?
 report_d="$(cat "$CACHE_D" 2>/dev/null || true)"
 objdump_line="$(printf '%s\n' "$report_d" | grep -E 'objdump' | head -1 || true)"
@@ -105,7 +112,8 @@ fi
 
 # e — unknown tool name → exit 2 (usage error, like existing invalid-arg path)
 rc_e=0
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$ROOT/cache-e.txt" --quiet \
   --require nonexistent-xyz-tool 2>/dev/null >/dev/null || rc_e=$?
 if [ "$rc_e" -eq 2 ]; then
@@ -122,7 +130,7 @@ CACHE_F="$ROOT/cache-f.txt"
 stderr_f="$ROOT/stderr-f.txt"
 rc_f=0
 RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-  PATH="$BIN_F:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  PATH="$BIN_F:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_F" --quiet --require marker >/dev/null 2>"$stderr_f" || rc_f=$?
 report_f="$(cat "$CACHE_F" 2>/dev/null || true)"
 marker_line="$(printf '%s\n' "$report_f" | grep -F '  marker ' | head -1 || true)"
@@ -150,7 +158,8 @@ printf 'FAKE-JAR-CONTENT\n' > "$ROOT/fake-vineflower.jar"
 CACHE_G="$ROOT/cache-g.txt"
 stderr_g="$ROOT/stderr-g.txt"
 rc_g=0
-VINEFLOWER_JAR="$ROOT/fake-vineflower.jar" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  VINEFLOWER_JAR="$ROOT/fake-vineflower.jar" \
   PATH="$BIN_G" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   /bin/bash "$DETECT" --cache "$CACHE_G" --quiet --require vineflower >/dev/null 2>"$stderr_g" || rc_g=$?
 report_g="$(cat "$CACHE_G" 2>/dev/null || true)"
@@ -194,7 +203,7 @@ ln -sf "$DETECT" "$SHIM_H/detect-tools.sh"
 CACHE_H="$ROOT/cache-h.txt"
 stderr_h="$ROOT/stderr-h.txt"
 rc_h=0
-RSDD_PROBE_TIMEOUT=0.1 \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
   PATH="$BIN_H" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   /bin/bash "$SHIM_H/detect-tools.sh" \
   --cache "$CACHE_H" --quiet --require java >/dev/null 2>"$stderr_h" || rc_h=$?
@@ -221,7 +230,8 @@ rc_i=0
 (
   cd "$TEMP_CWD_I"
   unset RESEARCH_TOOLS_CACHE XDG_CACHE_HOME
-  HOME="$FAKE_HOME_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$DETECT" --quiet >/dev/null 2>&1
 ) || rc_i=$?
 machine_cache_i="$FAKE_HOME_I/.cache/research-sdd/tool-capabilities.txt"
@@ -233,10 +243,9 @@ else
 fi
 
 # j — explicit --cache <abs-path> override still writes to the named file exactly.
-CACHE_J="$ROOT/explicit-j.txt"
-rc_j=0
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_J" --quiet >/dev/null 2>&1 || rc_j=$?
+# #453 perf: CACHE_A reused — case a already ran with --cache "$CACHE_A" (same feature, same env).
+CACHE_J="$CACHE_A"
+rc_j="$rc_a"
 if [ "$rc_j" -eq 0 ] && [ -f "$CACHE_J" ]; then
   ok "j explicit --cache override: writes to named file, exits 0" "(rc=$rc_j)"
 else
@@ -251,7 +260,9 @@ mkdir -p "$UNWRITE_K"
 chmod 000 "$UNWRITE_K"
 stderr_k="$ROOT/stderr-k.txt"
 rc_k=0
-RESEARCH_TOOLS_CACHE="$UNWRITE_K/cache.txt" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin RESEARCH_TOOLS_CACHE="$UNWRITE_K/cache.txt" \
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --quiet >/dev/null 2>"$stderr_k" || rc_k=$?
 chmod 755 "$UNWRITE_K"  # restore for trap cleanup
 if [ "$rc_k" -ne 0 ] && [ -s "$stderr_k" ]; then
@@ -270,23 +281,26 @@ fi
 # Assertion is exit-code-shaped, not availability-shaped: an unknown --require
 # name exits 2 (see case e). Any other exit proves the name is mapped. That is
 # deterministic on every host, unlike asserting MISSING for a tool the host has.
+# #453 perf: combined comma-separated --require covers all 5 labels in one SUT run.
+# If any label is unmapped (→ exit 2), ALL assertions below fail (load-bearing).
+CACHE_L="$ROOT/cache-l.txt"
+rc_l_all=0
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_L" --quiet \
+  --require bwrap,capa,floss,unblob,kaitai 2>/dev/null >/dev/null || rc_l_all=$?
 for _bs_tool in bwrap capa floss unblob kaitai; do
-  rc_l=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$DETECT" --cache "$ROOT/cache-l-$_bs_tool.txt" --quiet \
-    --require "$_bs_tool" 2>/dev/null >/dev/null || rc_l=$?
-  if [ "$rc_l" -ne 2 ]; then
-    ok "l --require $_bs_tool: name is mapped (not exit 2)" "(rc=$rc_l)"
+  if [ "$rc_l_all" -ne 2 ]; then
+    ok "l --require $_bs_tool: name is mapped (not exit 2)" "(rc=$rc_l_all)"
   else
-    no "l --require $_bs_tool: name unknown to require_label" "rc=$rc_l"
+    no "l --require $_bs_tool: name unknown to require_label" "rc=$rc_l_all"
   fi
 done
 
 # m — the report actually PRINTS a row for each blind-spot tool.
 # Case l only proves the name resolves; this proves the operator can SEE it.
-CACHE_M="$ROOT/cache-m.txt"
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_M" --quiet >/dev/null 2>&1 || true
+# #453 perf: CACHE_A (same env: PATH=/usr/bin:/bin + FAKE_HOME + FAKE_BREW) reused — no new SUT run.
+CACHE_M="$CACHE_A"
 _m_missing=""
 for _bs_label in "bwrap (sandbox)" "capa" "floss" "unblob" "kaitai-struct-compiler"; do
   grep -q "^  ${_bs_label} " "$CACHE_M" || _m_missing="$_m_missing $_bs_label"
@@ -298,9 +312,8 @@ else
 fi
 
 # n — new section headers [ hex ] and [ modify / patch ] appear in the report.
-CACHE_N="$ROOT/cache-n.txt"
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_N" --quiet >/dev/null 2>&1 || true
+# #453 perf: CACHE_A reused.
+CACHE_N="$CACHE_A"
 _n_missing=""
 for _sec_hdr in "[ hex ]" "[ modify / patch ]"; do
   grep -qF "$_sec_hdr" "$CACHE_N" || _n_missing="$_n_missing $_sec_hdr"
@@ -312,9 +325,8 @@ else
 fi
 
 # o — new tool rows (krak2, diec, hexedit, bvi) appear in the report.
-CACHE_O="$ROOT/cache-o.txt"
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_O" --quiet >/dev/null 2>&1 || true
+# #453 perf: CACHE_A reused.
+CACHE_O="$CACHE_A"
 _o_missing=""
 for _tool_lbl in "krak2" "diec" "hexedit" "bvi"; do
   grep -q "^  ${_tool_lbl} " "$CACHE_O" || _o_missing="$_o_missing $_tool_lbl"
@@ -326,9 +338,8 @@ else
 fi
 
 # p — [ deliverable / render ] section header appears in report.
-CACHE_P="$ROOT/cache-p.txt"
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_P" --quiet >/dev/null 2>&1 || true
+# #453 perf: CACHE_A reused.
+CACHE_P="$CACHE_A"
 if grep -qF "[ deliverable / render ]" "$CACHE_P"; then
   ok "p report prints [ deliverable / render ] section header"
 else
@@ -336,9 +347,8 @@ else
 fi
 
 # q — latex and circuitikz labels appear in the report.
-CACHE_Q="$ROOT/cache-q.txt"
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_Q" --quiet >/dev/null 2>&1 || true
+# #453 perf: CACHE_A reused.
+CACHE_Q="$CACHE_A"
 _q_missing=""
 for _lbl in "latex" "circuitikz"; do
   grep -q "^  ${_lbl} " "$CACHE_Q" || _q_missing="$_q_missing $_lbl"
@@ -353,7 +363,8 @@ fi
 # This also proves the name is mapped in require_label (previously exit 2).
 CACHE_R="$ROOT/cache-r.txt"
 rc_r=0
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_R" --quiet --require latex >/dev/null 2>&1 || rc_r=$?
 # The label is now RECOGNIZED (was exit 2). Present → 0, absent → 1, NEVER 2 — that is the
 # load-bearing invariant, and it holds whether or not LaTeX is installed (CI has no LaTeX).
@@ -369,7 +380,8 @@ fi
 # This also proves the name is mapped in require_label (previously exit 2).
 CACHE_S="$ROOT/cache-s.txt"
 rc_s=0
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_S" --quiet --require circuitikz >/dev/null 2>&1 || rc_s=$?
 # Same invariant as test r: label RECOGNIZED (never exit 2). Present → 0, absent → 1.
 if kpsewhich circuitikz.sty >/dev/null 2>&1; then
@@ -392,6 +404,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   chmod +x "$MUT1"
   rc_m1=0
   env -u ANALYZE_HEADLESS -u GHIDRA_HOME -u GHIDRA_INSTALL_DIR \
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH=/usr/bin:/bin \
     HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT1" --cache "$ROOT/cache-m1.txt" --quiet --require ghidra \
     >/dev/null 2>/dev/null || rc_m1=$?
@@ -408,7 +421,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed 's/PROBE_FAILED/MISSING/g' "$DETECT" > "$MUT2"
   chmod +x "$MUT2"
   stderr_m2="$ROOT/stderr-m2.txt"
-  RSDD_PROBE_TIMEOUT=0.1 PATH="$BIN_D:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH="$BIN_D:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT2" --cache "$ROOT/cache-m2.txt" --quiet --require objdump \
     >/dev/null 2>"$stderr_m2" || true
   if ! grep -qi 'could not determine' "$stderr_m2"; then
@@ -422,7 +436,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-3 (targets test f): MUT2 (PROBE_FAILED→MISSING globally) run against test-f setup.
   # python_row timeout → mutant prints MISSING, not PROBE_FAILED → test-f assertion bites.
   RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
-    PATH="$BIN_F:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    PATH="$BIN_F:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT2" --cache "$ROOT/cache-m2f.txt" --quiet \
     >/dev/null 2>/dev/null || true
   marker_line_m2f="$(cat "$ROOT/cache-m2f.txt" 2>/dev/null | grep -F '  marker ' | head -1 || true)"
@@ -436,7 +450,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # teeth-4 (targets test g): MUT2 run against test-g setup (vineflower jar, unzip absent).
   # jarrow rc 127 → mutant prints MISSING, not PROBE_FAILED → test-g assertion bites.
-  VINEFLOWER_JAR="$ROOT/fake-vineflower.jar" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    VINEFLOWER_JAR="$ROOT/fake-vineflower.jar" \
     PATH="$BIN_G" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     /bin/bash "$MUT2" --cache "$ROOT/cache-m2g.txt" --quiet \
     >/dev/null 2>/dev/null || true
@@ -458,7 +473,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "$REAL_TOOL_ENV" > "$SHIM_H_MUT/lib/tool-env.sh"
   ln -sf "$MUT2" "$SHIM_H_MUT/detect-tools.sh"
 
-  RSDD_PROBE_TIMEOUT=0.1 \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
     PATH="$BIN_H" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     /bin/bash "$SHIM_H_MUT/detect-tools.sh" \
     --cache "$ROOT/cache-mh.txt" --quiet \
@@ -484,7 +499,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   (
     cd "$TEMP_CWD_MUT_I"
     unset RESEARCH_TOOLS_CACHE XDG_CACHE_HOME
-    HOME="$FAKE_HOME_MUT_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+      PATH=/usr/bin:/bin HOME="$FAKE_HOME_MUT_I" RSDD_BREW_PREFIX="$FAKE_BREW" \
       bash "$MUT_I" --quiet >/dev/null 2>&1
   ) || true
   if [ -e "$TEMP_CWD_MUT_I/.research-tools.txt" ]; then
@@ -502,7 +518,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed 's#|| { printf.*cannot write cache file.*exit 1; }#|| true#' "$DETECT" > "$MUT_K"
   chmod +x "$MUT_K"
   rc_mk=0
-  RESEARCH_TOOLS_CACHE="$UNWRITE_MK/cache.txt" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin RESEARCH_TOOLS_CACHE="$UNWRITE_MK/cache.txt" \
+    HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT_K" --quiet >/dev/null 2>/dev/null || rc_mk=$?
   chmod 755 "$UNWRITE_MK"  # restore for cleanup
   if [ "$rc_mk" -eq 0 ]; then
@@ -530,7 +548,9 @@ rc_il=0
 # RSDD_DOTNET_ROOT pins the runtime; DOTNET_ROOT is explicitly unset so the stub's
 # exit code is determined entirely by whether detect-tools.sh sets it.
 env -u DOTNET_ROOT \
-  RSDD_DOTNET_ROOT="$RUNTIME_IL" PATH="$BIN_IL:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  RSDD_DOTNET_ROOT="$RUNTIME_IL" PATH="$BIN_IL:/usr/bin:/bin" \
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_IL" --quiet >/dev/null 2>&1 || rc_il=$?
 ilspy_line_il="$(grep -F '  ilspycmd ' "$CACHE_IL" 2>/dev/null | head -1 || true)"
 if [ "$rc_il" -eq 0 ] && printf '%s\n' "$ilspy_line_il" | grep -q 'AVAILABLE'; then
@@ -551,7 +571,9 @@ mkexec "$BIN_IL2/ilspycmd" '[ "$1" = "--version" ] && exit 1; exit 0'
 CACHE_IL2="$ROOT/cache-il2.txt"
 rc_il2=0
 env -u DOTNET_ROOT \
-  RSDD_DOTNET_ROOT="$RUNTIME_IL2" PATH="$BIN_IL2:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  RSDD_DOTNET_ROOT="$RUNTIME_IL2" PATH="$BIN_IL2:/usr/bin:/bin" \
+  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
   bash "$DETECT" --cache "$CACHE_IL2" --quiet >/dev/null 2>&1 || rc_il2=$?
 ilspy_line_il2="$(grep -F '  ilspycmd ' "$CACHE_IL2" 2>/dev/null | head -1 || true)"
 if [ "$rc_il2" -eq 0 ] && printf '%s\n' "$ilspy_line_il2" | grep -q 'UNUSABLE'; then
@@ -575,7 +597,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ln -sf "$DETECT" "$SHIM_IL/detect-tools.sh"
   CACHE_MIL="$ROOT/cache-mil.txt"
   env -u DOTNET_ROOT \
-    RSDD_DOTNET_ROOT="$RUNTIME_IL" PATH="$BIN_IL:$PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    RSDD_DOTNET_ROOT="$RUNTIME_IL" PATH="$BIN_IL:/usr/bin:/bin" \
+    HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$SHIM_IL/detect-tools.sh" --cache "$CACHE_MIL" --quiet >/dev/null 2>&1 || true
   ilspy_line_mil="$(grep -F '  ilspycmd ' "$CACHE_MIL" 2>/dev/null | head -1 || true)"
   # rsdd_resolve_dotnet_root always fails → UNUSABLE (or MISSING). Test-il expects AVAILABLE → bites.
@@ -595,7 +619,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    bwrap)  *printf/d' "$DETECT" > "$MUTL"
   chmod +x "$MUTL"
   rc_ml=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTL" --cache "$ROOT/cache-ml.txt" --quiet --require bwrap \
     >/dev/null 2>/dev/null || rc_ml=$?
   if [ "$rc_ml" -eq 2 ]; then
@@ -609,7 +634,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/row "bwrap (sandbox)"/d' "$DETECT" > "$MUTM"
   chmod +x "$MUTM"
   CACHE_MM="$ROOT/cache-mm.txt"
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTM" --cache "$CACHE_MM" --quiet >/dev/null 2>&1 || true
   if ! grep -q '^  bwrap (sandbox) ' "$CACHE_MM"; then
     ok "teeth-m: row-deleted mutant drops bwrap from report — test-m bites" "(row absent)"
@@ -624,7 +650,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/echo "\[ hex \]"/d' "$DETECT" > "$MUTN"
   chmod +x "$MUTN"
   CACHE_MN="$ROOT/cache-mn.txt"
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTN" --cache "$CACHE_MN" --quiet >/dev/null 2>&1 || true
   if ! grep -qF "[ hex ]" "$CACHE_MN"; then
     ok "teeth-n: section-deleted mutant drops [ hex ] from report — test-n bites" "(header absent)"
@@ -639,7 +666,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/row "krak2"/d' "$DETECT" > "$MUTO"
   chmod +x "$MUTO"
   CACHE_MO="$ROOT/cache-mo.txt"
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTO" --cache "$CACHE_MO" --quiet >/dev/null 2>&1 || true
   if ! grep -q "^  krak2 " "$CACHE_MO"; then
     ok "teeth-o: row-deleted mutant drops krak2 from report — test-o bites" "(row absent)"
@@ -655,7 +683,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/echo "\[ deliverable \/ render \]"/d' "$DETECT" > "$MUTP"
   chmod +x "$MUTP"
   CACHE_MP="$ROOT/cache-mp.txt"
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTP" --cache "$CACHE_MP" --quiet >/dev/null 2>&1 || true
   if ! grep -qF "[ deliverable / render ]" "$CACHE_MP"; then
     ok "teeth-p: section-deleted mutant drops [ deliverable / render ] — test-p bites" "(header absent)"
@@ -669,7 +698,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/row "latex"/d' "$DETECT" > "$MUTQ"
   chmod +x "$MUTQ"
   CACHE_MQ="$ROOT/cache-mq.txt"
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTQ" --cache "$CACHE_MQ" --quiet >/dev/null 2>&1 || true
   if ! grep -q "^  latex " "$CACHE_MQ"; then
     ok "teeth-q: row-deleted mutant drops latex from report — test-q bites" "(row absent)"
@@ -683,7 +713,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    latex)/d' "$DETECT" > "$MUTR"
   chmod +x "$MUTR"
   rc_mr=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTR" --cache "$ROOT/cache-mr.txt" --quiet --require latex \
     >/dev/null 2>/dev/null || rc_mr=$?
   if [ "$rc_mr" -eq 2 ]; then
@@ -697,7 +728,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    circuitikz)/d' "$DETECT" > "$MUTS"
   chmod +x "$MUTS"
   rc_ms=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUTS" --cache "$ROOT/cache-ms.txt" --quiet --require circuitikz \
     >/dev/null 2>/dev/null || rc_ms=$?
   if [ "$rc_ms" -eq 2 ]; then
@@ -709,22 +741,24 @@ fi
 
 # t — new hard-dep labels are RECOGNIZED: --require exits ≠2 for all 4.
 # AVAILABLE (exit 0) or MISSING (exit 1) are both acceptable; exit 2 means unknown label.
+# #453 perf: combined comma-separated --require covers all 4 labels in one SUT run.
+CACHE_T="$ROOT/cache-t.txt"
+rc_t_all=0
+RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_T" --quiet \
+  --require capinfos,unsquashfs,pwsh,ezdxf 2>/dev/null >/dev/null || rc_t_all=$?
 for _nd_tool in capinfos unsquashfs pwsh ezdxf; do
-  rc_t=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-    bash "$DETECT" --cache "$ROOT/cache-t-${_nd_tool}.txt" --quiet \
-    --require "$_nd_tool" 2>/dev/null >/dev/null || rc_t=$?
-  if [ "$rc_t" -ne 2 ]; then
-    ok "t --require $_nd_tool: name is mapped (not exit 2)" "(rc=$rc_t)"
+  if [ "$rc_t_all" -ne 2 ]; then
+    ok "t --require $_nd_tool: name is mapped (not exit 2)" "(rc=$rc_t_all)"
   else
-    no "t --require $_nd_tool: name unknown to require_label" "rc=$rc_t"
+    no "t --require $_nd_tool: name unknown to require_label" "rc=$rc_t_all"
   fi
 done
 
 # u — report prints a status row for each new hard-dep tool.
-CACHE_U="$ROOT/cache-u.txt"
-HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
-  bash "$DETECT" --cache "$CACHE_U" --quiet >/dev/null 2>&1 || true
+# #453 perf: CACHE_A reused — same env (PATH=/usr/bin:/bin + FAKE_HOME + FAKE_BREW), no new SUT run.
+CACHE_U="$CACHE_A"
 _u_missing=""
 for _nd_lbl in "capinfos" "unsquashfs" "pwsh" "ezdxf"; do
   grep -q "^  ${_nd_lbl} " "$CACHE_U" || _u_missing="$_u_missing $_nd_lbl"
@@ -743,7 +777,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    capinfos)  *printf/d' "$DETECT" > "$MUT_T1"
   chmod +x "$MUT_T1"
   rc_mt1=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT_T1" --cache "$ROOT/cache-mt1.txt" --quiet --require capinfos \
     >/dev/null 2>/dev/null || rc_mt1=$?
   if [ "$rc_mt1" -eq 2 ]; then
@@ -757,7 +792,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    unsquashfs)  *printf/d' "$DETECT" > "$MUT_T2"
   chmod +x "$MUT_T2"
   rc_mt2=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT_T2" --cache "$ROOT/cache-mt2.txt" --quiet --require unsquashfs \
     >/dev/null 2>/dev/null || rc_mt2=$?
   if [ "$rc_mt2" -eq 2 ]; then
@@ -771,7 +807,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    pwsh)  *printf/d' "$DETECT" > "$MUT_T3"
   chmod +x "$MUT_T3"
   rc_mt3=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT_T3" --cache "$ROOT/cache-mt3.txt" --quiet --require pwsh \
     >/dev/null 2>/dev/null || rc_mt3=$?
   if [ "$rc_mt3" -eq 2 ]; then
@@ -785,7 +822,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/^    ezdxf)  *printf/d' "$DETECT" > "$MUT_T4"
   chmod +x "$MUT_T4"
   rc_mt4=0
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT_T4" --cache "$ROOT/cache-mt4.txt" --quiet --require ezdxf \
     >/dev/null 2>/dev/null || rc_mt4=$?
   if [ "$rc_mt4" -eq 2 ]; then
@@ -799,13 +837,77 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed '/row "capinfos"/d' "$DETECT" > "$MUT_U"
   chmod +x "$MUT_U"
   CACHE_MU="$ROOT/cache-mu.txt"
-  HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH=/usr/bin:/bin HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$MUT_U" --cache "$CACHE_MU" --quiet >/dev/null 2>&1 || true
   if ! grep -q "^  capinfos " "$CACHE_MU"; then
     ok "teeth-u: row-deleted mutant drops capinfos from report — test-u bites" "(row absent)"
   else
     no "teeth-u: mutant still prints capinfos row — test-u has no teeth" \
        "(line=[$(grep '^  capinfos ' "$CACHE_MU" | head -1)])"
+  fi
+fi
+
+# z_guard — HERMETIC-PATH-GUARD: fake objdump records its own PATH to a log.
+# After the hermetic SUT run, asserts the recorded PATH contains ONLY the fake bin
+# dir and the two standard coreutils dirs (/usr/bin, /bin); any real system dir leaks.
+# [SENTINEL: hermetic-path-guard]
+BIN_GUARD="$ROOT/bin-guard"; mkdir -p "$BIN_GUARD"
+GUARD_LOG="$ROOT/guard-path.log"
+mkexec "$BIN_GUARD/objdump" 'printf "%s\n" "$PATH" >> "$RSDD_GUARD_PATH_LOG"
+exit 0'
+CACHE_GUARD="$ROOT/cache-guard.txt"
+RSDD_GUARD_PATH_LOG="$GUARD_LOG" \
+  RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+  PATH="$BIN_GUARD:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+  bash "$DETECT" --cache "$CACHE_GUARD" --quiet >/dev/null 2>&1 || true
+if [ -s "$GUARD_LOG" ]; then
+  _guard_path="$(head -1 "$GUARD_LOG")"
+  # Check every colon-separated component: allow only BIN_GUARD, /usr/bin, /bin.
+  _guard_leak=0
+  _guard_save_IFS="$IFS"; IFS=:
+  for _guard_comp in $_guard_path; do
+    case "$_guard_comp" in
+      "$BIN_GUARD"|"/usr/bin"|"/bin") ;;
+      *) _guard_leak=1 ;;
+    esac
+  done
+  IFS="$_guard_save_IFS"
+  if [ "$_guard_leak" -eq 0 ]; then
+    ok "z_guard hermetic PATH at probe time" "(only allowed components)"
+  else
+    no "z_guard hermetic PATH at probe time" "leaked: $_guard_path"
+  fi
+else
+  no "z_guard hermetic PATH at probe time" "guard log empty (probe never ran)"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-guard (targets z_guard): mutant restores ":$ORIG_PATH" so SUT sees real PATH.
+  # The recorded PATH must contain at least one real system dir → z_guard bites.
+  GUARD_LOG_MUT="$ROOT/guard-path-mut.log"
+  RSDD_GUARD_PATH_LOG="$GUARD_LOG_MUT" \
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH="$BIN_GUARD:$ORIG_PATH" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --cache "$ROOT/cache-guard-mut.txt" --quiet >/dev/null 2>&1 || true
+  if [ -s "$GUARD_LOG_MUT" ]; then
+    _mut_path="$(head -1 "$GUARD_LOG_MUT")"
+    _mut_leak=0
+    _mut_save_IFS="$IFS"; IFS=:
+    for _mut_comp in $_mut_path; do
+      case "$_mut_comp" in
+        "$BIN_GUARD"|"/usr/bin"|"/bin") ;;
+        *) _mut_leak=1 ;;
+      esac
+    done
+    IFS="$_mut_save_IFS"
+    if [ "$_mut_leak" -eq 1 ]; then
+      ok "teeth-guard: real-PATH mutant leaks non-hermetic dirs — z_guard bites" "(PATH has extra: $_mut_path)"
+    else
+      no "teeth-guard: mutant must leak real PATH dirs" "PATH=$_mut_path"
+    fi
+  else
+    no "teeth-guard: guard log empty for mutant run (probe never ran)" ""
   fi
 fi
 
