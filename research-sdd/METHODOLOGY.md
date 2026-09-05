@@ -691,11 +691,6 @@ envelope disagrees with its own listed ids is a TRUE finding and stays a FAIL. A
 membership, so one block MAY be attributed to several focuses (a cross-focus synthesis block legitimately
 appears in each focus that cites it as covered); `covered_blocks` counts the focus's OWN set and the sets are
 not required to partition the corpus — the corpus total is therefore not the sum of the focus counts.
-**Instrument status (readback against the live code, kit issue #423):** until #423 lands, `verify-state.sh`
-still compares `covered_blocks` against the corpus-wide file count under `shared-global` (its CHECK A has no
-attribution step yet). On a shared-global corpus treat that FAIL as noise and do NOT run `--sync-state` on a
-focus file — it would write the corpus total. #423 removes this paragraph when the instrument matches.
-
 | Value | Meaning | CHECK A comparison |
 |---|---|---|
 | absent | same as `per-focus` (backward-compatible default) | focus-prefix filtered count |
