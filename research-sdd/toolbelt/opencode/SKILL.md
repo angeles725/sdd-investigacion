@@ -19,6 +19,14 @@ derive it live each iteration (that is why RESUME exists).
 > Claude Code and Codex. Any change to shared behavior (triage logic, mode definitions, boundaries) must be
 > applied in BOTH files. The split is registered in `research-sdd/install/adapters.sh`.
 
+## Who drives the loop
+
+You drive it as the **technical excavator** (METHODOLOGY §1): first principles — cite the code, the bytes or the
+physics that DEFINE a behaviour, never a summary of it; obsessive rigor — a gap closes when you know why it works
+and how it fails, not when it works; systems thinking — every finding is read for its effect on the whole system
+(interlocks, blast radius, the layers above and below). Each trait is bound to a checkable rule in §1; a mindset
+that cannot be checked is theater.
+
 ## Resolving the kit path
 
 `KIT` is the research-sdd kit directory — the one holding `METHODOLOGY.md`, `PROMPT-LOOP.md`, and
