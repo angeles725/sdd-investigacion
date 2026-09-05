@@ -256,6 +256,41 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      CERTIFIABLE-NOW authoring gate still apply; what changes is that N certifiability sweeps run in
      one round rather than N sequential pre-authoring iterations. Not applicable to EVIDENCE corpora
      where each iteration may uncover new gaps.
+     SYNTHESIS-GUIDE FOCUS. A focus whose entire purpose is to distill N closed prior focuses into a
+     `docs/` guide or recommendations document — adding no new primary evidence — is a named focus
+     type. Sources are corpus blocks (existing [Block N] entries), not binaries or external documents;
+     the KNOWN-OUTLINE DESIGN CORPUS variant does NOT apply (nothing to scout). Each gap = one guide
+     section; every block is DESIGN/SYNTHESIS type; the STOP criterion is all gaps closed AND
+     `docs/<guide>.md` finalized. Declare "DESIGN/SYNTHESIS corpus — high [INFER] ratio EXPECTED" in
+     RESEARCH-STATE at bootstrap. Distinct from DOCUMENT MODE (§20) and from a focus-closing synthesis
+     block (step 7). (Source: 2026-08-30-module-best-practices-focus-retro.md Δ1)
+       verify-block WARN "ZERO file:line citations resolved" is EXPECTED on any synthesis block whose
+     citations are exclusively [Block N] cross-references — verify-block exits 0; the WARN is
+     informational. Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies
+     to the [Block N] citations: confirm the finding attributed to [Block N] §N.x actually appears in
+     that block's cited section. Record: "verify-block: exit 0, WARN expected (synthesis block;
+     [Block N] token-check: N citations confirmed)." (Source: 2026-08-30-module-best-practices-focus-retro.md Δ2)
+       SYNTHESIS-GUIDE FOCUS PAIR. When corpus evidence divides along two orthogonal axes (WHAT: rules
+     / HOW: process), two sequential SYNTHESIS-GUIDE focuses may run over the same source blocks, each
+     producing a distinct `docs/` deliverable. "Same evidence, different shape" is NOT a remittance.
+     Declare the pair relationship in each focus's RESEARCH-STATE header. The second focus is almost
+     always fully inline — the first loaded the shared blocks into session context.
+     (Source: 2026-08-30-module-dev-workflow-focus-retro.md W1)
+       SYNTHESIS-FOCUS DELEGATION HEURISTIC. The "3-4 files" trigger does not apply to a
+     SYNTHESIS-GUIDE focus (sources are blocks, not binaries). DELEGATE (sonnet) when the gap draws on
+     4+ prior blocks NOT yet read in this session; INLINE when the material was returned by a prior
+     sweep in the SAME session (in-hand). After compaction, re-apply from scratch. Record:
+     `yes · sonnet (synthesis — N blocks, first read)` or `no · inline (material in-hand)`.
+     (Source: 2026-08-30-module-best-practices-focus-retro.md Δ3)
+       DELIVERABLE AUTHORING. Anchor to the operator's existing mental model first — name their terms
+     before introducing the system's abstraction. Commit to ONE model per explanation; oscillating
+     between two framings mid-explanation is the leading source of confusion in operator-facing manuals.
+     (Source: 2026-08-30-coldroom-module-build-retro.md #3)
+       OUT-OF-SCOPE OPERATOR QUESTION MID-FOCUS. When the operator asks a question outside the current
+     focus's declared angle: (1) answer inline from corpus knowledge; (2) label it out-of-scope for
+     focus `<X>`; (3) do NOT add a gap to the current RESEARCH-STATE; (4) offer a named future focus
+     as a one-line breadcrumb. If the question is genuinely on the border of the declared angle, add it
+     as a new gap instead. (Source: 2026-08-30-module-dev-workflow-focus-retro.md W2)
      OPERATOR-INJECTED GAP (MID-LOOP PARALLEL). When the operator adds a new high-priority gap while
      a sweep for the current gap is already in flight (two concurrent Agent/Task calls), it is safe to
      launch the new gap's sweep concurrently PROVIDED: (a) the two sweeps read INDEPENDENT source trees
@@ -264,6 +299,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      `status: pending` and record the injection timestamp in the iteration-history row. Both sweep
      results return; write the first-finishing block, then the second. This is NOT a §16 multi-focus
      split (the gaps share one focus); it is a cost-discipline exception to sequential sweep dispatch.
+     SEEDED-BACKLOG ALL-AT-ONCE. When the operator confirms "all / ve por todos" over a fully seeded
+     backlog, launch the remaining independent sweeps CONCURRENTLY — do not serialize them one per
+     iteration. Synthesize results on completion. The same concurrent-scout constraints apply:
+     independent source trees, serialized block writing. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #2)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
@@ -344,6 +383,24 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          sub-agent boundary cost but keeps context lean. Record a constrained inline run as
          `inline (constraint: <reason>)` in the tier column so it reads as a deliberate choice, not a
          silent rule violation (see RETURN CONTRACT).
+         SECRETS-SENSITIVE INLINE OVERRIDE. The file-count delegation trigger and the config-artifact
+         delegation variant below are OVERRIDDEN when artifacts are SECRET-BEARING (key files, shadow
+         hashes, keystores, credential configs). Stay INLINE regardless of file count: a delegated sub-
+         agent's cited findings for a secrets-bearing gap include key bytes or credential strings —
+         exactly what SECRETS DISCIPLINE forbids in the driver context. Record as
+         `no · inline (constraint: secrets-sensitive — <artifact type>)`. Applies only when the secret
+         store is the SUBJECT, not when a directory merely contains secrets en passant. Pair with the
+         STRUCTURE-ONLY BINARY INSPECTION RECIPE in SECRETS DISCIPLINE for the safe inline technique.
+         (Source: 2026-08-30-jace-data-at-rest-focus-retro.md ΔB)
+         CONFIG-ARTIFACT DELEGATION VARIANT. For a focus targeting a single large config artifact (BOG/
+         XML/JSON) with N gaps each corresponding to a distinct named container, scope each sub-agent by
+         CONTAINER PATH rather than file count — "3-4 files" does not apply to a single-file artifact.
+         Specify: (a) full artifact reference + line range; (b) exact container path (e.g.
+         `/Drivers/NiagaraNetwork`). Each gap = one container = one block. (Source: 2026-08-30-jace-station-config-focus-retro.md Δ2)
+         QUICK-MODE DELEGATION. When answering a scoped operator question under quick mode (§20/§17),
+         the three-source sweep MAY be delegated to a single bounded sub-agent when the answer requires
+         deep decompiled-code reading — one bounded worker returns cited verdict + file:line without
+         inflating the parent. (Source: 2026-09-03-research-sdd-obix-quick-mode-retro.md #3)
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
@@ -364,6 +421,16 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          a sub-agent negative to a gap closure, verify the cited scope covers the relevant universe
          (e.g. all jars / all modules, not just the swept subtree). A module-scoped "not found" is
          evidence for the module only — widen the search before accepting it.
+         SWEEP CONTRADICTS DRIVER'S PRIOR INLINE STATEMENT. When a delegated sweep returns evidence
+         that contradicts an assertion the driver made INLINE to the operator (not a block), acknowledge
+         the refinement BEFORE or WHILE writing the block: (1) name what the inline answer said and where
+         it was incomplete; (2) state the sweep's contradicting finding with its citation; (3) write the
+         block using the refined framing. This is NOT a §14 (no block back-pointer); it is a
+         conversational acknowledgment. Trigger: only when the correction would change the operator's
+         behavior. (Source: 2026-08-30-station-organization-focus-retro.md SO1)
+         PEER CATCH. When a parallel session or the operator disputes a claim, re-open the PRIMARY source
+         (not the decompile that seeded the claim) and correct the block with a §14 back-pointer; a peer
+         catch is first-class evidence. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #5)
        - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
          per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
          ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
@@ -476,6 +543,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          signals this gap's investigable evidence is nearly exhausted — say so. For a DESIGN/APPLIED block
          (an integration plan, a PoC design, a synthesis), a high ratio is EXPECTED and healthy, NOT an
          exhaustion signal — it does not close the focus. Declare which type it is so the ratio is read right.
+         CORROBORATION-FROM-INDEPENDENT-STORE is a named valid EVIDENCE block type. A block whose primary
+         finding is the CONFIRMATION of prior [INFER] or [CERT-hw] claims from a data source INDEPENDENT
+         of the source that generated those claims is high-value evidence, NOT an exhaustion signal. Declare
+         it as `EVIDENCE (corroboration — independent store)` in the self-verify tally. A corroboration
+         block's [INFER] ratio is expected LOW by construction — read it as "prior [INFER] elevated toward
+         [CERT-hw] by independent witness," not as diminishing returns. (Source: 2026-08-30-jace-history-audit-focus-retro.md R2)
        - Artifacts: block file exists, CATALOG regenerated, INDEX/RESEARCH-STATE updated.
        - §14 BACK-POINTER CHECK (when a §14 correction was issued this iteration): confirm the OLD BLOCK
          was actually edited to add the back-pointer note ("corrected in BN") — not just documented in the
@@ -823,6 +896,32 @@ HARD RULES:
     VPN keys/certs/peer addresses (WireGuard/IPsec/OpenVPN) · INCIDENTAL THIRD-PARTY NEIGHBOR IDENTIFIERS —
     neighbor SSIDs/BSSIDs/MACs a LAN or wifi scan sweeps in are OTHER people's networks, not the target's;
     redact them too (non-obvious: a scan pulls them in for free).
+    SCOPE EXTENDS beyond the `live-install` target: apply the same "cite structure, never value" rule
+    to the operator's own environment (`~/.cloudflared/`, shell dotfiles, keyrings) and to relayed peer
+    material (a config a colleague sent). The rule is unchanged; only the trigger broadens.
+    (Source: 2026-09-03-obix-and-loginless-dashboard-runbooks-retro.md D2)
+    REDACTED-FILE GENERATION WORKFLOW. When preserving a REDACTED copy in `sources/probes/`: (1) generate
+    in scratchpad, never directly in `sources/`; (2) verify the mask worked with a SILENT count: `grep -c
+    '<secret-pattern>' <masked-temp>` must return `0` — do NOT use bare `grep <pattern>` (no `-c`), which
+    prints the raw value on a missed match; (3) test the mask pattern on a known-sample snippet FIRST
+    before running over the full artifact; (4) only after a verified zero, move to `sources/probes/` and
+    register in SOURCES.md. (Source: 2026-08-30-jace-station-config-focus-retro.md Δ1)
+    RAW DISK/MEDIA IMAGE IS SECRET-BEARING. A full `dd`/PowerShell raw image of a physical device
+    contains every partition's secrets (`/etc/shadow`, keyrings, keystores, config credentials) — keep it
+    in the SCRATCHPAD ONLY, never under `sources/`. Commit ONLY the DERIVED tree/manifest: paths + sizes
+    + per-file sha256, with Host IDs and credential values masked. Anchor the image's identity by its
+    sha256 recorded out of the repo. (Source: 2026-08-30-jace8000-sd-focus-retro.md D3)
+    STRUCTURE-ONLY BINARY INSPECTION RECIPE. To identify the FORMAT or TYPE of a secret-bearing binary
+    without printing its value, use this ordered recipe — none of these steps print key/hash bytes:
+    (1) MAGIC BYTES: `od -A x -N 8 -t x1z <file>` — identifies container format from first 8 bytes;
+    (2) SIZE: `wc -c <file>` — identifies key length (32 B = AES-256 raw key, 665 B = wrapped blob);
+    (3) DISTINCT-BYTE-COUNT (entropy proxy): `od -An -tu1 <file> | tr ' ' '\n' | sort -nu | wc -l` —
+    200+ distinct values = ciphertext/wrapped key; low = framing/plaintext structure;
+    (4) DELIMITER SKELETON: for a TEXT-FORMAT secret field, `sed 's/[a-zA-Z0-9]/x/g'` reveals
+    separators, prefix tags, and segment counts while eliminating every hash/salt/key byte — quote only
+    the skeleton, never the original. This recipe answers "what FORMAT is this field?"; the §6 entropy
+    test answers the orthogonal question "is this blob encrypted?". Run whichever the gap needs.
+    (Source: 2026-08-30-jace-data-at-rest-focus-retro.md ΔA)
     **The conversation is an exfil surface.** A credential pasted into chat lands in the session
     transcript/logs and is compromised immediately — treat it the same as a commit to a public
     repository and rotate it without delay. Out-of-band delivery is not optional.
