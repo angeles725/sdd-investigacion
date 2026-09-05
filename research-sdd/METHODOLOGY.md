@@ -704,13 +704,17 @@ the default status report. This is INFORMATIONAL only — it does NOT auto-STOP,
 
 **The saturation prompt reads the `New gaps uncovered` cell by header name, and the cell needs a leading count.**
 Write `3 new — G7, G8, G9` or `none`, never a bare identifier list (`B754-G1/G2`, `IC1–IC4 seeded`): measured on
-the fleet, 35 of 50 iteration-history tables were unreadable to the saturation parser, and the dominant residue was
-identifier lists, which an instrument must REPORT as unreadable, not count by guessing (kit issue #420 — until it
-lands `research-sdd-status.sh` reads the LAST column as the count and prints "insufficient history" on tables it
-cannot read; treat that line as "unreadable", not as "short history"). Contract for #420: the column is selected
-by header name (`New gaps` / `Nuevos gaps`, never by position) and each cell counts as its leading integer (`3`,
-`+1`, `3 new`) or `0` for the `none…` / `ninguno` family — gap-id lists (`G12`) and `—` are reported as unreadable
-rather than guessed, per the cell grammar declared in `templates/RESEARCH-STATE.template.md`.
+the fleet before kit issue #420, 35 of 50 iteration-history tables were unreadable to the saturation parser, and
+the dominant residue was identifier lists. **Instrument (as of #420, merged 0df9a51):** `research-sdd-status.sh`
+selects the column by header name (`New gaps` / `Nuevos gaps`, never by position); each cell counts as its
+leading integer (`3`, `+1`, `3 new`) or `0` for the `none…` / `ninguno` family; gap-id lists, `—` and empty cells
+are REPORTED as unreadable — `unreadable window — N of last 3 rows unrecognised (forms: …)` when they sit in the
+window, a `[WARN: N of M rows unreadable]` suffix when older — never guessed; a table with no such column prints
+`no New-gaps column (header: …)`. The cell grammar is declared in `templates/RESEARCH-STATE.template.md`.
+Structural rows with no iteration number (`—`-indexed bootstrap, reopen and synthesis rows) are not iterations:
+kit issue #449 excludes them from the last-3 window with a visible `[N unnumbered row(s) excluded]` note and,
+when the latest row is an unnumbered row that seeded gaps, appends `latest unnumbered row seeded N gaps — not
+yet an iteration`; until #449 lands they count as window rows.
 
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
