@@ -126,17 +126,24 @@ for p in $paths; do
   nlib=${#lib_module_files[@]}
 
   # Collect T-rows from every retro (same recursive find as sweep-retros.sh).
-  t_rows=""; retros_found=0; retros_with_table=0
+  t_rows=""; retros_found=0; retros_with_table=0; retro_scan_errors=0
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     retros_found=$((retros_found + 1))
-    chunk=$(grep -E '^\| T[0-9]+' "$rf" 2>/dev/null || true)
-    if [ -n "$chunk" ]; then
+    # No '|| true': grep exit-1 (no T-rows in this retro) is benign; exit ≥2 must surface — §7.
+    chunk=$(grep -E '^\| T[0-9]+' "$rf" 2>/dev/null)
+    _st_chunk_rc=$?
+    if [ "$_st_chunk_rc" -ge 2 ]; then
+      retro_scan_errors=$((retro_scan_errors + 1))
+    elif [ -n "$chunk" ]; then
       retros_with_table=$((retros_with_table + 1))
       t_rows="${t_rows}${chunk}"$'\n'
     fi
   done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' \
             -not -iname '*index*.md' 2>/dev/null)
+  if [ "$retro_scan_errors" -gt 0 ]; then
+    printf '   WARN: %d retro(s) unreadable during T-row scan (grep error)\n' "$retro_scan_errors"
+  fi
 
   # Parse tools/README.md ledger — the primary write-at-acquisition record (METHODOLOGY §10).
   # Three distinguishable states: none | no-table (unparseable) | parsed.
@@ -144,9 +151,13 @@ for p in $paths; do
   ledger_status="none"; ledger_rows=""
   if [ -f "$ledger_file" ]; then
     # Collect all | lines that are NOT separator rows (|---|---|).
+    # No '|| true': grep exit-1 (no non-separator rows) is benign; exit ≥2 must surface — §7.
     ledger_rows=$(grep -E '^\|' "$ledger_file" 2>/dev/null \
-      | grep -vE '^\|[[:space:]]*[-:]+[[:space:]]*\|' || true)
-    if [ -z "$ledger_rows" ]; then
+      | grep -vE '^\|[[:space:]]*[-:]+[[:space:]]*\|')
+    _st_ledger_rc=$?
+    if [ "$_st_ledger_rc" -ge 2 ]; then
+      ledger_status="error"
+    elif [ -z "$ledger_rows" ]; then
       ledger_status="no-table"
     else
       ledger_status="parsed"
@@ -190,9 +201,12 @@ for p in $paths; do
   [ "$predicate_rejects" -gt 0 ] && \
     printf ' (%d non-tool file(s) in tools/ not counted)' "$predicate_rejects"
   printf '\n'
-  # Ledger unreadable: WARN separately and omit the ledger count (anti-silent-zero:
+  # Ledger unreadable or errored: WARN separately and omit ledger count (anti-silent-zero:
   # "recorded (ledger): 0" would be indistinguishable from "nobody wrote anything").
-  if [ "$ledger_status" = "no-table" ]; then
+  if [ "$ledger_status" = "error" ]; then
+    printf '        WARN: tools/README.md scan FAILED (grep error) — ledger count unavailable\n'
+    printf '        recorded (retro): %d  ·  unrecorded: %d' "$retro_recorded" "$unrecorded"
+  elif [ "$ledger_status" = "no-table" ]; then
     printf '        WARN: tools/README.md has no table — ledger unreadable\n'
     printf '        recorded (retro): %d  ·  unrecorded: %d' "$retro_recorded" "$unrecorded"
   else

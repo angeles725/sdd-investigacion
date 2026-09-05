@@ -42,7 +42,12 @@ unrecorded="$(printf '%s\n' "$summary" | grep -oE '[0-9]+ unrecorded' | grep -oE
 [ "${unrecorded:-0}" = "0" ] && exit 0
 
 # Unrecorded tools found — emit summary (+ PARTIAL WARN if present) and prompt for detail.
-warn_line="$(printf '%s\n' "$out" | grep '^WARN:' || true)"
+# No '|| true': grep exit-1 (no WARN lines present) is benign; exit ≥2 must surface — §7.
+warn_line="$(printf '%s\n' "$out" | grep '^WARN:')"
+_sth_warn_rc=$?
+if [ "$_sth_warn_rc" -ge 2 ]; then
+  warn_line="(WARN-line extraction failed: grep exit $_sth_warn_rc)"
+fi
 detail="${summary}${warn_line:+$'\n'$warn_line}"$'\n'"Run toolbelt/sweep-tools.sh for per-target breakdown."
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg c "$detail" \

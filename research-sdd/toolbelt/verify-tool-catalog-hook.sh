@@ -44,7 +44,12 @@ missing="$(printf '%s\n' "$summary" | grep -oE '[0-9]+ not cataloged' | grep -oE
 [ "${missing:-0}" = "0" ] && exit 0
 
 # Drift found — emit the WARN lines + summary, prompting for the full-detail command.
-warn_lines="$(printf '%s\n' "$out" | grep '^WARN' || true)"
+# No '|| true': grep exit-1 (no WARN lines present) is benign; exit ≥2 must surface — §7.
+warn_lines="$(printf '%s\n' "$out" | grep '^WARN')"
+_vtch_warn_rc=$?
+if [ "$_vtch_warn_rc" -ge 2 ]; then
+  warn_lines="(WARN-line extraction failed: grep exit $_vtch_warn_rc)"
+fi
 detail="${warn_lines}${warn_lines:+$'\n'}${summary}"$'\n'"Run toolbelt/verify-tool-catalog.sh for the full list."
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg c "$detail" \

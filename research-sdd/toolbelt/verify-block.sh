@@ -252,16 +252,30 @@ if [ -d "$ext_dir" ]; then
     # A block may cite the PDF, the extracted/ file, OR a web-snapshots/ mirror of the same OCR —
     # so match on the pdf stem, the extract stem, AND the loose key (grep -F: literal, brackets-safe).
     hits=""
+    _vb_grep_err=0
     for tok in "$pdf_base" "$ext_stem" "$loose"; do
       [ -n "$tok" ] || continue
-      h=$(grep -nF "$tok" "$block" 2>/dev/null || true)
+      # No '|| true': grep exit-1 (tok absent from block) is benign; exit ≥2 must surface — §7.
+      h=$(grep -nF "$tok" "$block" 2>/dev/null)
+      _vb_h_rc=$?
+      [ "$_vb_h_rc" -ge 2 ] && { _vb_grep_err=$_vb_h_rc; continue; }
       [ -n "$h" ] && hits="${hits}${h}"$'\n'
     done
-    hits=$(printf '%s' "$hits" | grep -vE '^[[:space:]]*$' | sort -t: -k1n -u || true)
-    if [ -n "$hits" ]; then
-      echo "   OCR!    lines citing OCR-lossy '$ext_stem' — re-verify numbers/quotes/serials vs page image:"
-      printf '%s\n' "$hits" | sed 's/^/           /'
-      lossy_hits=$((lossy_hits+1))
+    if [ "$_vb_grep_err" -ge 2 ]; then
+      printf '   WARN: citation resolution FAILED (grep exit %d) — unresolved (grep exit R)\n' "$_vb_grep_err"
+    else
+      # No '|| true': with pipefail, exit ≥2 must surface — §7.
+      hits=$(printf '%s' "$hits" | grep -vE '^[[:space:]]*$' | sort -t: -k1n -u)
+      _vb_dedup_rc=$?
+      if [ "$_vb_dedup_rc" -ge 2 ]; then
+        printf '   WARN: citation dedup FAILED (grep exit %d) — unresolved (grep exit R)\n' "$_vb_dedup_rc"
+        hits=""
+      fi
+      if [ -n "$hits" ]; then
+        echo "   OCR!    lines citing OCR-lossy '$ext_stem' — re-verify numbers/quotes/serials vs page image:"
+        printf '%s\n' "$hits" | sed 's/^/           /'
+        lossy_hits=$((lossy_hits+1))
+      fi
     fi
   done < <(find "$ext_dir" -maxdepth 1 -name '*.md' 2>/dev/null)
 fi

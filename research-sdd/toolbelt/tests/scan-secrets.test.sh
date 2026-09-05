@@ -181,6 +181,23 @@ grep -qiE 'NUL-byte scan FAILED|binary-skip detection incomplete' <<<"$out" \
   && ok "NUL-scan producer exit-2 → SCAN-FAILURE WARN (not silent zero)" \
   || no "NUL-scan producer exit-2 not reported as failure :: $out"
 
+# 26 — NUL-byte count failure (grep -c exit ≥2, site 127) must emit a COUNT-FAILED WARN.
+#      Stubs grep so the inner count call (grep -c . with no file arg) exits 2 while the outer
+#      NUL scan passes, reaching the else branch where the count grep lives.
+_stub26="$TMP/stub-bin-26"
+mkdir -p "$_stub26"
+cat > "$_stub26/grep" << STUB26
+#!/usr/bin/env bash
+[ "\$#" -eq 2 ] && [ "\$1" = "-c" ] && [ "\$2" = "." ] && exit 2
+exec "${_real_grep:-/usr/bin/grep}" "\$@"
+STUB26
+chmod +x "$_stub26/grep"
+d_nc="$TMP/nullcount-fail"; newcorpus "$d_nc"
+out_nc="$(PATH="$_stub26:$PATH" bash "$SUT" "$d_nc" 2>&1)"
+grep -qiE 'NUL-byte count FAILED|count unavailable' <<<"$out_nc" \
+  && ok "26 NUL-byte count grep exit-2 → COUNT-FAILED WARN (not silent zero)" \
+  || no "26 NUL-byte count grep exit-2 not reported as failure :: $out_nc"
+
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the PEM detector, expect the private-key fixture to stop being flagged --"
@@ -200,6 +217,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   grep -qiE 'NUL-byte scan FAILED|binary-skip detection incomplete' <<<"$out_nf" \
     && no "teeth-nul: neutered mutant still reported SCAN-FAIL — rc-check not exercised (THEATER)" \
     || ok "teeth-nul: neutered mutant passes silently — rc-check has teeth"
+
+  # Teeth for test 26: neutralize _vsec_nulls_rc so count-fail passes silently — test 26 must go red.
+  echo "-- teeth: neutralize _vsec_nulls_rc; count exit-2 must pass silently → test 26 goes red --"
+  mutant_nc="$TMP/scan-secrets.MUTANT-nc.sh"
+  sed 's/_vsec_nulls_rc=\$?/_vsec_nulls_rc=0/' "$SUT" > "$mutant_nc"
+  d_nc2="$TMP/teeth-nc"; newcorpus "$d_nc2"
+  out_ncm="$(PATH="$_stub26:$PATH" bash "$mutant_nc" "$d_nc2" 2>&1)"
+  grep -qiE 'NUL-byte count FAILED|count unavailable' <<<"$out_ncm" \
+    && no "teeth-nc: rc-zeroed mutant still emitted WARN — test 26 is THEATER" \
+    || ok "teeth-nc: rc-zeroed mutant passes silently — count-fail guard has teeth"
 fi
 
 echo "== $pass passed · $fail failed =="
