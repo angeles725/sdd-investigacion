@@ -79,6 +79,13 @@ fi
 . "$_SFLIB"
 declare -F list_state_files >/dev/null 2>&1 || { echo "research-sdd-status: helper $_SFLIB failed to define list_state_files" >&2; exit 1; }
 
+_BFLIB="$here/lib/block-files.sh"
+if [ ! -f "$_BFLIB" ]; then echo "research-sdd-status: cannot find helper $_BFLIB" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_BFLIB"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "research-sdd-status: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _BFLIB
+
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
 stopctl()      { section '## Stop control'; }
@@ -437,13 +444,13 @@ if [ "$mode" = "--sync-state" ]; then
       # block_scope: shared-global → use focus-blind global count, matching verify-state.sh's path so
       # the two scripts always agree (invariant documented at status.sh:297-298).
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+        | block_file_filter | wc -l | tr -d ' ')"
     elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | grep -E "/${_sfpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+        | block_file_filter "${_sfpfx}" | wc -l | tr -d ' ')"
     else
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+        | block_file_filter | wc -l | tr -d ' ')"
     fi
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
@@ -603,10 +610,10 @@ covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+'
 _stpfx="$(derive_focus_prefix "$state")"
 if [ -n "$_stpfx" ]; then
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-    | grep -E "/${_stpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+    | block_file_filter "${_stpfx}" | wc -l | tr -d ' ')"
 else
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-    | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    | block_file_filter | wc -l | tr -d ' ')"
 fi
 inv="$(inv_count)"
 req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)

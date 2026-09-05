@@ -94,4 +94,22 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       | grep -qiE '^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$'
       # pipefail-audit: same awk producer as retro_is_excluded. Fleet max 414 B. SAFE.
   }
+
+  # retro_has_bare_marker <file>
+  #   Returns 0 (true) when the file's first 10 lines carry a bare (non-HTML-comment) line
+  #   matching `^[[:space:]]*review-status:` — a malformed marker that should be wrapped in
+  #   `<!-- review-status: ... -->`. Returns 1 otherwise.
+  #
+  # Consumers: research-sdd-archive.sh format lint — distinguishes "malformed" from "absent".
+  # Algorithm: identical to the inline `head -10 | grep` the archive previously carried; routing
+  # it here makes lib/retro-status.sh the SINGLE definition of "review-status presence" logic
+  # (U11 centralisation). Uses head -10 (not the awk leading-block scan) to preserve byte-identical
+  # fleet output — the two scanning strategies can differ on edge cases (see design.md D-3 note).
+  retro_has_bare_marker() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 1
+    head -10 "$f" 2>/dev/null | grep -qiE '^[[:space:]]*review-status:'
+    # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
+    # Race onset for external producers: ~64 KB. Fleet max << onset; SAFE.
+  }
 fi

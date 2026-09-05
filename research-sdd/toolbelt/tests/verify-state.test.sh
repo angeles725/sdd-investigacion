@@ -1503,6 +1503,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # verify-state.sh to $TMP so the mutant status.sh can call it as $here/verify-state.sh).
   mkdir -p "$TMP/lib"
   cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"  # SUT sources at $(dirname $0)/lib/
 
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
   mutant="$TMP/verify-state.MUTANT.sh"

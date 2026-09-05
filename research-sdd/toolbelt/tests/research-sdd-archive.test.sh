@@ -248,6 +248,7 @@ cp "$SUT" "$tb/research-sdd-archive.sh"
 cp "$HERE/../verify-sources.sh" "$tb/verify-sources.sh"   # present + passing
 cp "$HERE/../lib/retro-status.sh" "$tb/lib/retro-status.sh"  # required helper
 cp "$HERE/../lib/state-files.sh"  "$tb/lib/state-files.sh"   # required helper (uf-gate loop)
+cp "$HERE/../lib/block-files.sh"  "$tb/lib/block-files.sh"   # required helper (block discriminator)
 cp "$HERE/../scan-secrets.sh"     "$tb/scan-secrets.sh"       # required helper (gate)
 # verify-state.sh deliberately NOT copied → the gate call resolves to a missing file (rc 127)
 out="$(bash "$tb/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
@@ -767,6 +768,7 @@ cp "$HERE/../verify-sources.sh"   "$tbE/verify-sources.sh"
 cp "$HERE/../scan-secrets.sh"     "$tbE/scan-secrets.sh"
 cp "$HERE/../lib/retro-status.sh" "$tbE/lib/retro-status.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$tbE/lib/focus-prefix.sh"
+cp "$HERE/../lib/block-files.sh"  "$tbE/lib/block-files.sh"   # required helper (block discriminator)
 # STUB: enumeration returns nothing, as a permission-denied find would.
 printf '%s\n' '# shellcheck disable=SC2148' 'list_state_files() { return 0; }' > "$tbE/lib/state-files.sh"
 out="$(bash "$tbE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
@@ -790,6 +792,7 @@ cp "$HERE/../verify-sources.sh"   "$tbNE/verify-sources.sh"
 cp "$HERE/../scan-secrets.sh"     "$tbNE/scan-secrets.sh"
 cp "$HERE/../lib/retro-status.sh" "$tbNE/lib/retro-status.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$tbNE/lib/focus-prefix.sh"
+cp "$HERE/../lib/block-files.sh"  "$tbNE/lib/block-files.sh"  # required helper (block discriminator)
 # STUB: enumeration returns two paths that do not exist — simulates paths that vanished
 # between the find scan and the inspection loop, or a broken enumerator outputting garbage.
 printf '%s\n' '# shellcheck disable=SC2148' \
@@ -963,6 +966,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"   # archive.sh sources this from $(dirname $0)/lib/
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"   # verify-state.sh sources this from $(dirname $0)/lib/
   cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"    # archive.sh sources this for uf-gate iteration
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"    # archive.sh sources this for block_file_filter
   d="$TMP/teeth"; mkgood "$d"; sed -i 's#2 / 3 closed#3 / 3 closed#' "$d/RESEARCH-STATE.md"
   bash "$mutant" "$d" >/dev/null 2>&1; mrc=$?
   if [ "$mrc" = 0 ]; then ok "teeth: gate-neutered mutant archives a stale corpus → gate test has teeth"
@@ -991,6 +995,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
   d="$TMP/uf-teeth-gate"; mkgood "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
   if ! grep -q 'MUTANT-uf-gate' "$mutantUF"; then
@@ -1016,6 +1021,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
   d="$TMP/split-teeth"; mksplit "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
     "$d/beta/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/beta/RESEARCH-STATE.md"
@@ -1039,6 +1045,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
   d="$TMP/mf-uf-teeth"; mkmulti "$d"
   awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
     "$d/RESEARCH-STATE-alpha.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-alpha.md"
@@ -1064,6 +1071,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
     cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
     cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+    cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
     out_m="$(bash "$mutantR" "$TMP/rename-tradeoff" 2>&1)"; mrc=$?
     if [ "$mrc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out_m"; then
       ok "teeth(rename-tradeoff): --follow mutant triggers MISSING-RETRO WARN → case 36 has teeth"

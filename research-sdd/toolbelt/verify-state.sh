@@ -26,6 +26,13 @@ fi
 # false-pass that masks cross-focus block-count mismatches). Abort before any corpus check.
 declare -F derive_focus_prefix >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define derive_focus_prefix" >&2; exit 1; }
 
+_BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_BFLIB"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-state: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _BFLIB
+
 target="${1:-}"
 [ -d "$target" ] || { echo "usage: verify-state.sh <target-dir> [--focus <slug>]" >&2; exit 2; }
 shift  # consume the target-dir positional arg; remaining args are optional flags
@@ -319,13 +326,13 @@ for state in "${states[@]}"; do
   #   (a) block_scope: shared-global (this becomes the authoritative ondisk count), and
   #   (b) the cannot-see diagnostic when per-focus ondisk==0 while other-prefix blocks exist.
   _ondisk_global="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-    | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    | block_file_filter | wc -l | tr -d ' ')"
   : # BS-ONDISK-GLOBAL-COMPUTED — override this line with _ondisk_global="0" to test cannot-see-pass teeth
   if [ "$_bs_valid" = 1 ] && [ -n "$_bs_present" ] && [ "$e_bs" = "shared-global" ]; then
     ondisk="$_ondisk_global"  # BS-SHARED-GLOBAL-ONDISK
   elif [ -n "$_fpfx" ]; then
     ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-      | grep -E "/${_fpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+      | block_file_filter "${_fpfx}" | wc -l | tr -d ' ')"
   else
     ondisk="$_ondisk_global"
   fi

@@ -145,6 +145,9 @@ fi
 
 # NEGATIVE CONTROL — prove the DRIFT detection has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Seed block-files.sh into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
   echo "-- teeth: neuter the per-hex membership guard; expect the DRIFT fixture to stop exiting 1 --"
   mutant="$TMP/verify-parity.MUTANT.sh"
   # Force the drift branch's guard false so a missing hex can never be flagged.
