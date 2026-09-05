@@ -202,6 +202,19 @@ Each block is self-contained but linked. Size according to source density, not b
 
 **Collaborative bridge block (Type: collaborative).** A block whose agent-authored half maps software features or findings to the gap, and whose DOMAIN or THEORY section carries explicit `[TO ANNOTATE]` placeholders for the human's engineering knowledge (EMC constraints, SI/PI limits, thermal budgets — facts the researcher cannot derive from source files alone). This is NOT an incomplete block — it is intentionally co-authored and valid in its partial state. Declare `Type: collaborative` in the header blockquote so a reviewer reads the empty placeholder sections as intentional (expected-zero), not a marker deficiency. This is a human-facing convention only: `verify-block.sh` does NOT parse `Type:` and will still tally the empty sections in its marker counts — read that tally in light of the declared type; do not expect the script to suppress it.
 
+**Block `Type` field — closed grammar (kit issues #128, #422).** The header blockquote's `**Type:**` line is read by
+its LEADING token, after stripping at most one leading `**`; everything after the token is free decoration. Legal
+tokens: `standard` (the default — omit the line), `evidence` (alias of `standard`), `synthesis`, `mixed`,
+`absence-centred`, `capture`, `document` (alias of `capture`), `collaborative`, `audit`. Why a closed grammar: the
+template listed five values while real blocks wrote `evidence (primary modbus spec)`, `synthesis (no new
+decompilation)`, `document / runbook` — 8 of 763 niagara blocks declared any type and none used a template value, so
+no instrument could ever read it (the same free-form-cell failure as the TARGETS.md maturity cell and the FOCUSES.md
+status cell). **Instrument status (readback against the live code):** until #422 lands, `verify-block.sh` does not
+parse `Type:`; its "[CERT] markers present but ZERO file:line citations resolved" WARN fires on every synthesis /
+capture / absence-centred block and is EXPECTED there — the reviewer's substitute is the `[Block N]` token check
+(PROMPT-LOOP). #422 makes `verify-block.sh` read the token and downgrade that WARN to INFO for the declared types;
+an unrecognised token then WARNs by name, never silently.
+
 > **Block file naming.** The canonical catalog/discriminator (`templates/gen-catalog.py`, `verify-state.sh`,
 > `research-sdd-archive.sh`) requires a focus/subject prefix — `<prefix>-blockN.md` (or `bloqueN.md`) — so a
 > no-prefix `blockN.md` is silently dropped. A single-focus corpus that names its files `blockN.md` with NO
@@ -689,6 +702,20 @@ when the LAST 3 numeric iterations net EXACTLY 0 new gaps it reports `saturation
 the default status report. This is INFORMATIONAL only — it does NOT auto-STOP, change exit codes, or alter
 `--next`; it complements the §8 STOP decision by flagging a diminishing-returns subject for human/agent review.
 
+**The saturation prompt reads the `New gaps uncovered` cell by header name, and the cell needs a leading count.**
+Write `3 new — G7, G8, G9` or `none`, never a bare identifier list (`B754-G1/G2`, `IC1–IC4 seeded`): measured on
+the fleet before kit issue #420, 35 of 50 iteration-history tables were unreadable to the saturation parser, and
+the dominant residue was identifier lists. **Instrument (as of #420, merged 0df9a51):** `research-sdd-status.sh`
+selects the column by header name (`New gaps` / `Nuevos gaps`, never by position); each cell counts as its
+leading integer (`3`, `+1`, `3 new`) or `0` for the `none…` / `ninguno` family; gap-id lists, `—` and empty cells
+are REPORTED as unreadable — `unreadable window — N of last 3 rows unrecognised (forms: …)` when they sit in the
+window, a `[WARN: N of M rows unreadable]` suffix when older — never guessed; a table with no such column prints
+`no New-gaps column (header: …)`. The cell grammar is declared in `templates/RESEARCH-STATE.template.md`.
+Structural rows with no iteration number (`—`-indexed bootstrap, reopen and synthesis rows) are not iterations:
+kit issue #449 excludes them from the last-3 window with a visible `[N unnumbered row(s) excluded]` note and,
+when the latest row is an unnumbered row that seeded gaps, appends `latest unnumbered row seeded N gaps — not
+yet an iteration`; until #449 lands they count as window rows.
+
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
 open. (Proven on protocols B136: the Sox gap was closed by demonstrating Sox's absence across 973 jars,
@@ -724,6 +751,16 @@ feature's presence.
 On stopping, declare: blocks written, the **coverage metric** (gaps closed / known gaps — a ratio,
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
+
+**Coverage over the SUBJECT is a second, different metric — declare it when the subject has structure.** `gaps closed /
+known gaps` is a ratio over the gaps you KNOW; it cannot see the units of the subject no gap ever named. When the
+subject has its own structural units (modules, packages, source directories, chapters), also declare the fraction of
+those units cited by at least one block — the research analogue of code coverage. Measured on niagara-research: 318
+top-level modules with Java, 170 cited by some block, 148 (47 %) never cited by any of 763 blocks, while every focus
+reported its known-gap ratio honestly. Its consumer is §13 AUDIT-FIRST: uncited units are candidate gaps to SEED, not
+findings. Ambiguity is reported, never absorbed (a class name present in two modules is excluded from the join and
+counted). **Instrument status:** none until kit issue #421 lands `toolbelt/coverage-map.sh`; until then compute it by
+hand or declare "coverage over the subject: not measured".
 
 **PAUSED (budget-cap) ≠ STOPPED (exhaustion).** Distinguish the two in RESEARCH-STATE vocabulary. A halt on
 the budget-cap safety-net (criterion 3) while read-only-investigable gaps are STILL open is a PAUSE, not a
@@ -1965,6 +2002,12 @@ very long single focus, it MAY also fire every ~10 blocks so lessons don't wait 
 (a) proactively, whenever a run yields a REUSABLE METHOD or hits a REPEATED FRICTION — do not wait for STOP
 or operator intervention; (b) at §20 document-mode completion; (c) at session close.
 
+**It also fires for sessions that wrote no block.** An APPLIED / build-along session (the operator builds or deploys
+with the corpus as the guide) and a POST-CLOSE ADDENDUM (new evidence lands on a focus already STOPPED) both
+produce lessons the focus-STOP trigger above never sees — ~10 of 30 recent retros described exactly such sessions
+and were written only because the operator asked. Treat "the session changed how the next one should run" as the
+trigger, not "a focus stopped".
+
 **What it does.** The driver DELEGATES a fresh-context retro agent (fresh context is the point — independent
 judgment, not the driver's own rationalizations). The retro agent:
 
@@ -1978,6 +2021,19 @@ judgment, not the driver's own rationalizations). The retro agent:
    become "codify Y".
 4. **Writes the proposal** to `$TARGET/retros/<date>-<focus>.md` (from `$KIT/templates/retro.template.md`)
    and mirrors it to engram `research/<target>/retro`, and SURFACES it in the return contract.
+
+   **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
+   `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).
+   The sweeper accepts, and nothing else, these enumerated aliases: today `## Proposed deltas`, `## Delta proposals`,
+   `## Deltas nuevos` and a numbered `## N. Proposed kit deltas` (`sweep-retros.sh`); kit unit U7 adds the forms
+   measured in real retros — `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`
+   and the numbered heading with a trailing parenthetical. Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
+   are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
+   pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
+   canonical delta section is unreviewable until its author fixes the heading — the honesty clause below covers
+   "no new deltas", not a missing section. **Instrument status:** until kit unit U7 lands, `sweep-retros.sh` can
+   still print a confident `~0 proposed deltas` on a retro whose deltas live in prose; U7 makes it print
+   "no delta section found" instead and never a confident zero.
 
 **Hard boundary — propose, never apply.** The retro agent does NOT edit the kit. Kit changes are reviewed and
 committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
