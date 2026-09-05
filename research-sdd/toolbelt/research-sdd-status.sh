@@ -277,7 +277,8 @@ resolve_next() {
   for prio in high medium low; do
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
-      lead="${st#\*\*}"; lead="${lead%\*\*}"       # §8b: strip at most one leading ** (and closing pair)
+      case "$gap" in *'~~'*) continue ;; esac      # struck-through gap name: resolved row, skip silently
+      lead="${st#\*\*}"; lead="${lead/\*\*/}"       # §8b: strip leading ** and its closing pair (handles **pending** (note))
       tok="${lead%% *}"
       [ "$tok" = "pending" ] || continue           # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
       is_blocked "$gap" && continue
@@ -299,11 +300,12 @@ count_investigable() {
   local gap st lead tok n=0
   while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
     [ -z "$gap" ] && continue
-    lead="${st#\*\*}"; lead="${lead%\*\*}"       # §8b: strip at most one leading ** (and closing pair)  # BOLD-STRIP
+    case "$gap" in *'~~'*) continue ;; esac      # struck-through gap name: resolved row, skip silently  # STRICKEN-GAP-SKIP
+    lead="${st#\*\*}"; lead="${lead/\*\*/}"       # §8b: strip leading ** and its closing pair (handles **pending** (note))  # BOLD-STRIP
     tok="${lead%% *}"
     [ "$tok" = "pending" ] || {
       case "$tok" in
-        requires-execution*|blocked-on-*|'~~'*|'✅'*) ;;
+        requires-execution*|blocked-on-*|blocked|'~~'*|'✅'*|closed|\[closed\]|covered|\[covered\]|done|\[done\]|cubierto|\[cubierto\]) ;;  # DONE-TOKENS
         *) printf 'WARN: unrecognised Status token [%s] in gap: %s\n' "$tok" "$gap" >&2 ;;  # UNRECOG-STATUS-WARN
       esac
       continue
@@ -628,7 +630,7 @@ fi
 inv="$(inv_count)"
 req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)
 blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)
-ph=$(backlog_rows 2>/dev/null | awk -F'\t' '{st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
+ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
 echo "  coverage metric : ${metric:-<none>}"
