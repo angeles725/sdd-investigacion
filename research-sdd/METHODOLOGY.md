@@ -707,7 +707,10 @@ Write `3 new — G7, G8, G9` or `none`, never a bare identifier list (`B754-G1/G
 the fleet, 35 of 50 iteration-history tables were unreadable to the saturation parser, and the dominant residue was
 identifier lists, which an instrument must REPORT as unreadable, not count by guessing (kit issue #420 — until it
 lands `research-sdd-status.sh` reads the LAST column as the count and prints "insufficient history" on tables it
-cannot read; treat that line as "unreadable", not as "short history").
+cannot read; treat that line as "unreadable", not as "short history"). Contract for #420: the column is selected
+by header name (`New gaps` / `Nuevos gaps`, never by position) and each cell counts as its leading integer (`3`,
+`+1`, `3 new`) or `0` for the `none…` / `ninguno` family — gap-id lists (`G12`) and `—` are reported as unreadable
+rather than guessed, per the cell grammar declared in `templates/RESEARCH-STATE.template.md`.
 
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
