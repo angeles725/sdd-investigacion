@@ -65,6 +65,12 @@ _Source: panccadia-3d-viewer/retros/2026-09-04-deploy-windows-minipc.md; panccad
 
 ## Gotchas
 
+- **`schtasks /End` + `/Run` does NOT kill a detached `node` child.** The old process keeps the port and keeps
+  serving stale code while the task reports "restarted". Kill the child first —
+  `Get-CimInstance Win32_Process | Where-Object CommandLine -like '*<script>*' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`
+  — then `schtasks /Run`, then verify the change took effect LIVE (a request against the served copy), not by
+  the task status. (Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D2; B17 §17.2)
+
 - **`rc=$?` after a pipe reports the last command's exit, not the pipe's.** Piping `scp ... | grep`
   made a successful transfer appear as `rc=1` (grep matched nothing). This is the **exit-code-laundering
   family** documented in CLAUDE.md §7 (`rc=$?` after a producer/consumer pipe reports the consumer's

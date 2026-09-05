@@ -151,6 +151,22 @@ drive its real DOM through the `chrome-devtools` MCP instead of porting a protoc
 - **Use `evaluate_script` for bulk field reads** — one script that harvests many config fields at once beats
   N snapshot round-trips. Preserve a sanitized capture under `sources/probes/` as `[CERT-hw]`.
 
+### 4b. Pre-deploy syntax check for a standalone HTML whose main `<script>` is `type="module"`
+
+Validate the inline block AS A MODULE, not as a classic script: extract it and feed it to
+`node --check --input-type=module` on STDIN (`--input-type=module` on a FILE path errors with
+`ERR_INPUT_TYPE_NOT_ALLOWED`). Byte identity between local and served copies (md5) and matched `</script>` counts
+do NOT catch a parse-MODE error — a mismatched quote passed a script-mode `node --check` and blanked the page in
+production. Run the module-mode check as the last step before every deploy of such a viewer.
+(Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D1; B17 §17.3)
+
+### 4c. Egress-heavy live viewer on a Realtime-backed table (reusable pattern)
+
+When a viewer polls a hosted Realtime/database table and the plan is quota-bound, write only the rows that
+CHANGED since the last cycle to the live table and debounce the client's per-change re-reads; the "live" feel
+survives and egress/messages drop by about an order of magnitude (337 → ~17 rows per cycle in the field).
+(Source: same retro, D5; B15 §15.2–§15.3)
+
 ## 5. Serial / COM console acquisition (SSH-off device)
 
 When a live-install device is reachable ONLY over a serial port — SSH/Telnet are disabled and the network
