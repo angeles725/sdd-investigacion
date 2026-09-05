@@ -1367,6 +1367,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-#449d: NG-WARN-FILE-ORDER line not found by grep -n"; fi
   else no "teeth-#449d: NG-WARN-FILE-ORDER sentinel not found in SUT"; fi
 
+  # #449 teeth (e): wforms computed without struct rows → struct-first bad cell dropped → red.
+  # Fixture: — row (STRUCT-seed-bad, file-order-first, unreadable) then 3 iter rows all bad.
+  # All 3 iter rows are in the window → unreadable-window path triggered.
+  # Real (struct included): forms: STRUCT-seed-bad,ITER-bad-1.
+  # Mutant (struct dropped): forms: ITER-bad-1,ITER-bad-2   (struct cell absent).
+  echo "-- teeth-#449e: wforms drops struct rows → struct-first bad cell missing from forms → red --"
+  e449e_mut="$TMP/status.449E.MUTANT.sh"
+  if grep -q 'NG-WFORMS-STRUCT' "$SUT"; then
+    wforms_line="$(grep -n 'NG-WFORMS-STRUCT' "$SUT" | head -1 | cut -d: -f1)"
+    if [ -n "$wforms_line" ]; then
+      head -n "$((wforms_line - 1))" "$SUT" > "$e449e_mut"
+      printf '    wforms="$(printf '"'"'%%s\\n'"'"' "$stream" | awk -F'"'"'\\t'"'"' '"'"'$1=="row" && $3=="bad" && !seen[$4]++ {n++; if(n<=2)o=o (n>1?",":"") $4} END{print o}'"'"')"  # MUTANT-449E: struct rows excluded from wforms\n' >> "$e449e_mut"
+      tail -n "+$((wforms_line + 1))" "$SUT" >> "$e449e_mut"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| — | STRUCT-seed-bad |" "| 1 | ITER-bad-1 |" "| 2 | ITER-bad-2 |" "| 3 | ITER-bad-3 |"
+      e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+      e449e_mrep="$(bash "$e449e_mut" "$d" 2>/dev/null)"
+      if grep -qF 'forms: STRUCT-seed-bad,ITER-bad-1' <<<"$e449e_orig" && grep -qF 'forms: ITER-bad-1,ITER-bad-2' <<<"$e449e_mrep"; then
+        ok "teeth-#449e: wforms struct-excluded mutant drops struct-first cell → file-order guard has teeth"
+      else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — wforms struct guard not load-bearing (THEATER)"; fi
+    else no "teeth-#449e: NG-WFORMS-STRUCT line not found by grep -n"; fi
+  else no "teeth-#449e: NG-WFORMS-STRUCT sentinel not found in SUT"; fi
+
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
   # sed mutation: add '; break' after _r="$(resolve_next)" so only apple is ever checked.

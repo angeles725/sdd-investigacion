@@ -192,7 +192,7 @@ saturation_line() {
   # subset — a readable-but-older row must never rescue an unreadable tail (#420).
   badwin="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad"' | grep -c .)"
   if [ "$badwin" -gt 0 ]; then  # NG-WINDOW
-    wforms="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
+    wforms="$(printf '%s\n' "$stream" | awk -F'\t' '($1=="row"||$1=="struct") && $3=="bad" && !seen[$4]++ {n++; if(n<=2)o=o (n>1?",":"") $4} END{print o}')"  # NG-WFORMS-STRUCT: file order, struct cells included
     echo "${pad}unreadable window — ${badwin} of last ${w} rows unrecognised (forms: ${wforms})${note_struct}${note_seed}"; return
   fi
   if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)${note_struct}${note_seed}"; return; fi
