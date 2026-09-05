@@ -165,7 +165,7 @@ iter_gaps_rows() {
 saturation_line() {
   local pad='  saturation      : '
   grep -qF '## Iteration history' "$state" || { echo "${pad}(no iteration history)"; return; }
-  local stream colhdr iter_data struct_data all_sorted nrows nstruct w window iter_window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok
+  local stream colhdr iter_data struct_data all_sorted nrows nstruct w iter_window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok
   stream="$(iter_gaps_rows)"
   colhdr="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="col_none"{print $2; exit}')"
   if [ -n "$colhdr" ]; then echo "${pad}no New-gaps column (header: ${colhdr})"; return; fi
@@ -189,7 +189,6 @@ saturation_line() {
   fi
   if [ "$nrows" -lt 1 ]; then echo "${pad}insufficient history (0 iterations)${note_struct}${note_seed}"; return; fi
   w=$(( nrows < 3 ? nrows : 3 ))
-  window="$(printf '%s\n' "$all_sorted" | tail -n "$w")"
   iter_window="$(printf '%s\n' "$iter_data" | tail -n "$w")"
   # WINDOW HONESTY: if any iter row in the last-w iter window is unreadable, do NOT compute on the
   # readable subset — a readable-but-older row must never rescue an unreadable tail (#420).

@@ -1381,11 +1381,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # all_sorted last-3: iter2(bad),iter3(ok),struct(bad) — REOPEN-form would appear in old wforms.
   # After fix (wforms from iter_window): iter1,iter2,iter3 → only BAD-ITER-form.
   # Mutant: revert wforms to use $window → REOPEN-form re-appears → red.
-  echo "-- teeth-#449e: wforms reverted to \$window → reopen form re-appears → guard has teeth (NG-WFORMS-ITER-ONLY) --"
+  echo "-- teeth-#449e: wforms reverted to \$all_sorted → reopen form re-appears → guard has teeth (NG-WFORMS-ITER-ONLY) --"
   e449e_mut="$TMP/status.449E.MUTANT.sh"
   if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
-    # mutant: on the NG-WFORMS-ITER-ONLY line, swap "$iter_window" back to "$window"
-    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$window"/' "$SUT" > "$e449e_mut"
+    # mutant: on the NG-WFORMS-ITER-ONLY line, swap "$iter_window" to "$all_sorted" (includes struct rows)
+    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$all_sorted"/' "$SUT" > "$e449e_mut"
     cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
     d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
     e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
@@ -1397,11 +1397,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # #476 reopen-tail two-part tooth: (a) REOPEN-form absent from wforms (iter-only fix),
   # (b) verdict count unchanged (badwin=iter_window, already correct post-#449).
-  echo "-- teeth-#476: reopen-tail wforms reverted to \$window → REOPEN-form appears + verdict unchanged --"
+  echo "-- teeth-#476: reopen-tail wforms reverted to \$all_sorted → REOPEN-form appears + verdict unchanged --"
   t476_mut="$TMP/status.476.MUTANT.sh"
   if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
-    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$window"/' "$SUT" > "$t476_mut"
-    wforms476_line=""  # use sed-based mutant directly (no line split needed)
+    sed '/NG-WFORMS-ITER-ONLY/ s/"\$iter_window"/"$all_sorted"/' "$SUT" > "$t476_mut"
     if [ -s "$t476_mut" ]; then
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       d="$TMP/sat476"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
@@ -1414,7 +1413,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       if ! grep -qF 'REOPEN-form' <<<"$t476_orig_sat" && grep -qF 'REOPEN-form' <<<"$t476_mrep_sat" \
          && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$t476_orig_sat" \
          && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$t476_mrep_sat"; then
-        ok "teeth-#476: wforms reverted to \$window → REOPEN-form re-appears; verdict count unchanged (guard has teeth)"
+        ok "teeth-#476: wforms reverted to \$all_sorted → REOPEN-form re-appears; verdict count unchanged (guard has teeth)"
       else no "teeth-#476: orig=[${t476_orig_sat}] mut=[${t476_mrep_sat}] — reopen-tail iter-only not load-bearing (THEATER)"; fi
     else no "teeth-#476: NG-WFORMS-ITER-ONLY line not found by grep -n"; fi
   else no "teeth-#476: NG-WFORMS-ITER-ONLY sentinel not found in SUT"; fi
