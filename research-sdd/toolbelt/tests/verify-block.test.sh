@@ -712,6 +712,57 @@ else
   no "56 P6-TYPE-CLASSIFY: standard wrongly suppressed WARN or emitted INFO :: $(grep -iE 'WARN|INFO' <<<"$out" | head -2)"
 fi
 
+# ---- P6-TYPE-STRIP fix: backtick-wrapped legal tokens must parse correctly ---------------------------
+# Fleet found 5 false-positives: **Type:** `capture` and **Type:** `mixed` emitted WARN with empty
+# token because the old ordered strip (s/^\*\*//; s/^`//; s/^[[:space:]]*//) ran s/^`// BEFORE
+# stripping the leading space — leaving the backtick intact when the value started with " `token`".
+# The fix uses an order-independent combined strip: s/^[[:space:]*`]*// (space, asterisk, backtick
+# in any order). Also: uppercase/non-conformant tokens (e.g. GAP-CLOSING SWEEP) must WARN by NAME,
+# not by empty token ''.
+
+# 57 — backtick-wrapped 'capture' (fleet: bloque792/798/799 format) → INFO (not WARN).
+d="$TMP/p6-type-bt-capture.md"
+{ echo "# Block 57 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** \`capture\` — §20 document mode"; echo
+  echo "---"; echo
+  echo "## Known state [CERT]"; echo "The configuration is X. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*expected for declared type capture' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "57 P6-TYPE-STRIP: backtick-wrapped 'capture' → INFO (order-independent strip)"
+else
+  no "57 P6-TYPE-STRIP: backtick-wrapped 'capture' not parsed correctly :: $(grep -iE 'INFO|WARN.*cert' <<<"$out" | head -2)"
+fi
+
+# 58 — backtick-wrapped 'mixed' (citation-expected) → WARN, NOT INFO, NOT 'empty token '''.
+d="$TMP/p6-type-bt-mixed.md"
+{ echo "# Block 58 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** \`mixed\` — evidence + synthesis"; echo
+  echo "---"; echo
+  echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" && ! grep -qiE 'INFO.*declared type' <<<"$out" \
+   && ! grep -qE "token ''" <<<"$out"; then
+  ok "58 P6-TYPE-STRIP: backtick-wrapped 'mixed' → WARN (recognized, citation-expected, not empty-token)"
+else
+  no "58 P6-TYPE-STRIP: backtick 'mixed' wrong output :: $(grep -iE 'INFO|WARN|token' <<<"$out" | head -2)"
+fi
+
+# 59 — uppercase non-conformant token → WARN names the raw token (not empty '').
+d="$TMP/p6-type-uppercase.md"
+{ echo "# Block 59 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** GAP-CLOSING SWEEP — special form"; echo
+  echo "---"; echo
+  echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*unrecogni' <<<"$out" && grep -q 'GAP-CLOSING' <<<"$out" && ! grep -qE "token ''" <<<"$out"; then
+  ok "59 P6-TYPE-DISPLAY: uppercase non-conformant → WARN names 'GAP-CLOSING' (not empty '')"
+else
+  no "59 P6-TYPE-DISPLAY: uppercase not named in WARN :: $(grep -iE 'WARN|GAP|token' <<<"$out" | head -2)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -978,6 +1029,60 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-type-unrecognised: P6-TYPE-UNRECOGNISED sentinel not found in SUT"
+  fi
+
+  # teeth-p6-type-strip: clear the combined strip (sentinel P6-TYPE-STRIP); backtick-wrapped token must revert
+  # to WARN — the tooth proves test 57 depends on the order-independent strip, not just any strip.
+  echo "-- teeth-p6-type-strip: clear combined strip; backtick-capture must revert to WARN --"
+  mutant_tstrip="$TMP/verify-block.P6TYPESTRIP.sh"
+  if grep -q '# P6-TYPE-STRIP' "$SUT"; then
+    sed '/# P6-TYPE-STRIP/ s/.*/        _type_stripped=""  # P6-TYPE-STRIP [NEUTERED]/' "$SUT" > "$mutant_tstrip"
+    bash -n "$mutant_tstrip" 2>/dev/null; tstrip_syntax=$?
+    if [ "$tstrip_syntax" != "0" ]; then
+      no "teeth-p6-type-strip: mutant has syntax error (bash -n rc=$tstrip_syntax) — cannot run"
+    else
+      d_tstrip="$TMP/p6-type-strip-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        printf '> **Type:** `capture`\n'; echo
+        echo "---"; echo
+        echo "## Known state [CERT]"; echo "The config is X. [CERT]"; } > "$d_tstrip"
+      mout_tstrip="$(bash "$mutant_tstrip" "$d_tstrip" 2>/dev/null)"
+      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_tstrip" && ! grep -qiE 'INFO.*declared type' <<<"$mout_tstrip"; then
+        ok "teeth-p6-type-strip: cleared strip → backtick-capture reverts to WARN (test 57 has teeth)"
+      else
+        no "teeth-p6-type-strip: mutant did NOT revert to WARN :: $(grep -iE 'WARN|INFO|cert' <<<"$mout_tstrip" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-type-strip: P6-TYPE-STRIP sentinel not found in SUT"
+  fi
+
+  # teeth-p6-type-display: null the _type_warn_name fallback (P6-TYPE-DISPLAY); uppercase fixture must output ''
+  # instead of the named token — proves test 59 depends on the raw-stripped display, not just any WARN.
+  echo "-- teeth-p6-type-display: null display-name fallback; uppercase token must print '' (not named) --"
+  mutant_tdisp="$TMP/verify-block.P6TYPEDISP.sh"
+  if grep -q '# P6-TYPE-DISPLAY' "$SUT"; then
+    sed '/# P6-TYPE-DISPLAY/ s/.*/        _type_warn_name=$_type_token  # P6-TYPE-DISPLAY [NEUTERED]/' "$SUT" > "$mutant_tdisp"
+    bash -n "$mutant_tdisp" 2>/dev/null; tdisp_syntax=$?
+    if [ "$tdisp_syntax" != "0" ]; then
+      no "teeth-p6-type-display: mutant has syntax error (bash -n rc=$tdisp_syntax) — cannot run"
+    else
+      d_tdisp="$TMP/p6-type-disp-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "> **Type:** GAP-CLOSING SWEEP — special form"; echo
+        echo "---"; echo
+        echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d_tdisp"
+      mout_tdisp="$(bash "$mutant_tdisp" "$d_tdisp" 2>/dev/null)"
+      if grep -qE "token ''" <<<"$mout_tdisp" && ! grep -q 'GAP-CLOSING' <<<"$mout_tdisp"; then
+        ok "teeth-p6-type-display: nulled display → uppercase token prints '' not named (test 59 has teeth)"
+      else
+        no "teeth-p6-type-display: mutant output wrong :: $(grep -iE 'token|GAP|WARN' <<<"$mout_tdisp" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-type-display: P6-TYPE-DISPLAY sentinel not found in SUT"
   fi
 
   # teeth-p6-wording: mutate the new P6 WARN message by stripping the "synthesis / REMITTANCE" expected-case
