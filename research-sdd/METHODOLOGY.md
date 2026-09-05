@@ -604,16 +604,33 @@ for multi-focus corpora where each focus has its own prefix.
 
 Some corpora deliberately do NOT follow §16's per-focus layout: all focuses share one corpus-wide
 block prefix (e.g. `niagara-mental-model-bloque`). Declaring `block_scope: shared-global` tells
-`verify-state` to compare `covered_blocks` against the corpus-wide (focus-blind) block count
-instead. Without this declaration, CHECK A reports a false mismatch (focus-filtered count = 0 while
+`verify-state` that the on-disk file count is corpus-wide and therefore says nothing about THIS focus.
+Without this declaration, CHECK A reports a false mismatch (focus-filtered count = 0 while
 the corpus has many blocks) and gives a misleading "= 0" message. Declaring it is how a shared-prefix
 corpus stays verifiable rather than silently failing.
+
+**Under `shared-global`, `covered_blocks` is the number of blocks ATTRIBUTED to the focus — never the
+corpus-wide total.** The corpus total is a moving target that no stopped focus can keep up with: measured on
+the niagara index, 40 of 61 focus envelopes carried a frozen corpus-wide snapshot (`266`, `607`, `747` …)
+from the day they were synced and could never equal the live count again, so every focus reported FAIL and
+`--sync-state` would have overwritten a focus that owns 19 blocks with `758`. The attributed count is stable:
+a stopped focus's set does not change when a sibling focus writes. CHECK A derives the attributed set from
+the focus's OWN state file, in this order: a `## Covered blocks` list when present; otherwise the distinct
+`B<n>` ids in the focus's `## Iteration history` Block column. When neither yields an id, CHECK A reports
+`covered_blocks unverifiable under shared-global (no attributed block ids listed)` as INFO — an honest
+cannot-see, never a FAIL against the corpus total (§7 three-state rule). The corpus-wide count is still
+printed, as INFO (`corpus total N, shared-global`). `--sync-state` writes the attributed count. A focus whose
+envelope disagrees with its own listed ids is a TRUE finding and stays a FAIL.
+**Instrument status (readback against the live code, kit issue #423):** until #423 lands, `verify-state.sh`
+still compares `covered_blocks` against the corpus-wide file count under `shared-global` (its CHECK A has no
+attribution step yet). On a shared-global corpus treat that FAIL as noise and do NOT run `--sync-state` on a
+focus file — it would write the corpus total. #423 removes this paragraph when the instrument matches.
 
 | Value | Meaning | CHECK A comparison |
 |---|---|---|
 | absent | same as `per-focus` (backward-compatible default) | focus-prefix filtered count |
 | `per-focus` | §16 layout — each focus has its own prefix | focus-prefix filtered count |
-| `shared-global` | all focuses share one corpus-wide prefix | global (focus-blind) count |
+| `shared-global` | all focuses share one corpus-wide prefix | blocks attributed to the focus (own state); corpus total as INFO |
 
 **Gate behaviour:** present but empty, or any value other than `per-focus` / `shared-global`, is a
 hard FAIL — `verify-state` cannot proceed without knowing the counting mode. Absent is always legal.
@@ -1842,11 +1859,37 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
 - **One RESEARCH-STATE per focus.** Each focus gets its own `RESEARCH-STATE-<focus>.md` under `$CORPUS` (its own
   coverage ratio + gap backlog). Pick a short, stable `<focus>` slug (the angle from PROMPT-LOOP §b2).
 - **A focus index.** Keep a small `FOCUSES.md` at the corpus root `$CORPUS` (or a top "## Focuses" section in
-  `INDEX.md`) listing each focus as **active / paused / stopped / planned**, its `RESEARCH-STATE-<focus>.md`,
-  and its block prefix. This is how the loop (and a human) knows which focuses exist and which is current.
+  `INDEX.md`) listing each focus, its status, its `RESEARCH-STATE-<focus>.md`, and its block prefix. This is how
+  the loop (and a human) knows which focuses exist and which is current.
   A **planned** focus is one whose RESEARCH-STATE + backlog are already committed but which has 0 blocks yet;
   because it is already initialized, the loop must NOT re-BOOTSTRAP it as a duplicate — it picks up the
   existing state and writes its first block.
+- **Focus-status cell grammar (closed vocabulary, §8b style).** The status cell is read by its LEADING token,
+  after stripping at most one leading `**`; everything after the token is free decoration (a parenthetical
+  ratio such as `stopped (12/12; +B556)` is the convention). Legal tokens:
+
+  | Token | Meaning |
+  |---|---|
+  | `active` | the loop is currently writing blocks for this focus |
+  | `paused` | halted on the budget cap or by the operator with investigable gaps still queued (§8 PAUSED ≠ STOPPED) |
+  | `stopped` | read-only-investigable = 0 declared; reopen per §8 |
+  | `planned` | state + backlog committed, 0 blocks yet |
+  | `bootstrapping` | BOOTSTRAP in progress — state file may be incomplete |
+  | `reopened` | a STOPPED focus re-armed for a bounded experiment or grade-upgrade (§8) |
+  | `document` | a §20 document-mode focus (outline-driven, no gap backlog) |
+
+  `closed` is NOT a token — write `stopped`. Regional variants (`reabierto`) are non-conforming — write the
+  token. No checker reads this cell yet (a WARN-only FOCUSES↔RESEARCH-STATE drift sweep is a wave-2 kit unit);
+  when one exists it MUST read the token only, WARN by row on anything else, and never guess
+  (propose-never-apply: migrating an existing row is the operator's edit). Why closed: the live niagara index carried four prescribed
+  words plus `CLOSED (13/13; …)`, `document 4/4`, `reabierto (18/31)` and ≥12 parenthetical shapes, and a row
+  saying `planned (0/8)` while its state file said `stopped (12/12)` nearly cost a heavy re-derivation loop; a
+  cell no instrument can read cannot be checked for that drift (TARGETS.md maturity cell, retro delta
+  declaration and the block `Type` field all failed the same way — doctrine before checker).
+- **Focus status in a remittance note is a verifiable claim.** Before writing "closed by remittance to focus X
+  (stopped)" or handing off to "the next queued focus", confirm the status from `FOCUSES.md` AND the focus's
+  own `RESEARCH-STATE-<focus>.md` header; when they disagree, the state file wins and the index row is a drift
+  finding to surface.
 - **Naming convention.** Blocks carry a focus-aware prefix (e.g. `spyder-blockN.md`,
   `platform-native-blockN.md`) so a flat `ls` stays readable; state mirrors them as
   `RESEARCH-STATE-<focus>.md`.
@@ -1876,6 +1919,24 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
   cross-cutting action mid-flight while another is still writing.
 - **Concurrency is a context-budget decision.** Run loops in parallel only while the orchestrator stays
   lean (it just routes task-notifications). If the orchestrator starts doing real work per loop, serialize.
+- **Global block-number allocation under `shared-global`.** When focuses share one corpus-wide block prefix
+  (§7 `block_scope: shared-global`), the block NUMBER is a shared resource and two concurrent lanes will
+  collide on it (observed: two same-day retros both self-numbered "(3/3)"; a `gen-catalog.py` regeneration
+  picked up a peer's untracked B725). Rule: before writing a block, a lane CLAIMS the next number through ONE
+  allocation channel — a message to the lane that owns numbering for this run, or, when no owner is live, a
+  committed `<!-- next-block: N -->` marker at the top of `CATALOG.md` that the claimant advances in the same
+  commit — and waits for the confirmation (or the commit) before using it. A claimed number is never reused,
+  even if the block is abandoned (record the abandonment in the state file). A block written without a
+  confirmed claim is PROVISIONAL: do not cite it by number, do not regenerate the catalog over it. Per-focus
+  layouts (`<focus>-block<N>.md`) do not need this — their numbering spaces are disjoint by construction.
+- **A peer-owned dirty tree is a hard read-only boundary; one checkout is never shared for writes.** A lane
+  never runs `git checkout`, `git stash`, `git reset`, `git pull --rebase` on a shared tree, or a catalog /
+  index regeneration over files another live lane is writing (`git checkout` is a whole-tree operation: a
+  peer's branch switch discarded uncommitted work twice in one kit-maintenance session — kit CLAUDE.md §3).
+  Each concurrent lane writes in its OWN worktree (or its own clone) and integrates through commits; a
+  cross-lane action over the shared tree waits on the BARRIER above. Reading a peer's untracked or uncommitted
+  file is allowed only as evidence marked as such (`[INFER]` until the peer commits) — never as a citation
+  target by number.
 
 ## 17. Incident & resume (after a kill / crash / interruption)
 
