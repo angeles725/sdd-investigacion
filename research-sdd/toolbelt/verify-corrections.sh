@@ -19,12 +19,19 @@
 #       args / no block files.
 set -uo pipefail
 
+_vc_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+if [ ! -f "$_vc_bf_lib" ]; then echo "verify-corrections: cannot find helper $_vc_bf_lib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_vc_bf_lib"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-corrections: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _vc_bf_lib
+
 target="${1:-}"
 [ -d "$target" ] || { echo "usage: verify-corrections.sh <target-dir>" >&2; exit 2; }
 
 # Block files: `<prefix>-(block|bloque)<N>[-suffix].md` (the corpus-wide discriminator). Exclude templates/.git.
 mapfile -t blocks < <(find "$target" -maxdepth 3 -type f -name '*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null \
-  | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | sort)
+  | block_file_filter | sort)
 [ "${#blocks[@]}" -gt 0 ] || { echo "verify-corrections: no block files under $target" >&2; exit 2; }
 
 # Trailing block NUMBER from a block filename (t-block33.md → 33; ug67-bloque8-foo.md → 8).

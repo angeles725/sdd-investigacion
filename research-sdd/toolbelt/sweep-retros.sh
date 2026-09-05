@@ -39,6 +39,13 @@ fi
 declare -F target_paths_all >/dev/null 2>&1 || { echo "sweep-retros: helper $_sr_tp_lib failed to define target_paths_all" >&2; exit 1; }
 unset _sr_tp_lib
 
+_sr_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+if [ ! -f "$_sr_bf_lib" ]; then echo "sweep-retros: cannot find helper $_sr_bf_lib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_sr_bf_lib"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "sweep-retros: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _sr_bf_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "sweep-retros: cannot find $TARGETS_MD" >&2
   exit 1
@@ -288,7 +295,7 @@ for p in $paths; do
   while IFS= read -r bf; do
     [ -n "$bf" ] || continue
     m="$(rsdd_added_epoch "$p" "$bf")"; [ "${m:-0}" -gt "$nb" ] && nb="$m"
-  done < <(find "$p" -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$')
+  done < <(find "$p" -type f -name '*.md' 2>/dev/null | block_file_filter)
   # Only meaningful when the corpus has blocks (nb>0) and the block is newer than the retro
   # (nb>nr — the corpus genuinely advanced past it). Fire when the newest block is itself older
   # than the grace window measured from NOW: the run has been idle long enough that any in-flight

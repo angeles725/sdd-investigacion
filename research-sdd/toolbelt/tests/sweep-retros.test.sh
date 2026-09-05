@@ -42,6 +42,7 @@ mkkit() {
   cp "$SUT" "$kit/toolbelt/sweep-retros.sh"
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this at $(dirname $0)/lib/
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this at $(dirname $0)/lib/
+  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
   printf '%s' "$kit"
 }
 

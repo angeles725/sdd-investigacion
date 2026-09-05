@@ -49,6 +49,13 @@ declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry: helper $
 declare -F target_paths_pairs >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_pairs" >&2; exit 1; }  # VR-TP-PAIRS-CHECK
 unset _vr_tp_lib
 
+_vr_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+if [ ! -f "$_vr_bf_lib" ]; then echo "verify-registry: cannot find helper $_vr_bf_lib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_vr_bf_lib"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-registry: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _vr_bf_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "verify-registry: cannot find $TARGETS_MD" >&2
   exit 1  # OPERATIONAL failure: cannot proceed without the registry.  # TARGETS-MISSING-CHECK
@@ -206,7 +213,7 @@ for p in $paths; do
   # Count real block files with the CANONICAL discriminator (gen-catalog.py's BLOCK_RE == archive ==
   # verify-state): `<prefix>-(block|bloque)<N>[-suffix].md` at the corpus root. NOT a loose `*block*`
   # glob — a decoy like `blocked-notes.md` must not inflate the count. Single definition, no drift.
-  real="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+  real="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | wc -l | tr -d ' ')"
 
   # LOCAL-GENERATOR AUTHORITY (Feature #37): a target with its OWN catalog generator
   # (<corpus>/tools/gen-catalog.py) legitimately produces a CATALOG total that differs from the raw
@@ -371,7 +378,7 @@ for p in $paths; do
   if { [ "$real" -eq 0 ] || [ "$_vr_disc_was_zero" -eq 1 ]; } && [ -z "$cat_authority" ]; then
     unclassifiable="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | grep -iE '/(block|bloque)[_-]?[0-9]' \
-      | grep -vE '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' \
+      | block_file_filter -v \
       | wc -l | tr -d ' ')"
     unclassifiable="${unclassifiable:-0}"
     if [ "$unclassifiable" -gt 0 ]; then  # UNCLASSIFIABLE-CHECK

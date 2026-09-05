@@ -21,6 +21,14 @@
 #       missing files.
 set -uo pipefail
 
+_vp_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+if [ ! -f "$_vp_bf_lib" ]; then echo "verify-parity: cannot find helper $_vp_bf_lib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_vp_bf_lib"
+# SENTINEL — TOOTH-3: removing this guard means a broken lib no longer exits 1.
+declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-parity: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _vp_bf_lib
+
 deliverable="${1:-}"
 block="${2:-}"
 [ -n "$deliverable" ] && [ -n "$block" ] || { echo "usage: verify-parity.sh <deliverable-file> <block-file-or-dir>" >&2; exit 2; }
@@ -65,7 +73,7 @@ block_files=()
 if [ -d "$block" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] && block_files+=("$f")
-  done < <(find "$block" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | sort)
+  done < <(find "$block" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | sort)
   [ "${#block_files[@]}" -gt 0 ] || { echo "verify-parity: no <prefix>-(block|bloque)<N>.md under $block" >&2; exit 2; }
 else
   block_files=("$block")

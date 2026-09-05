@@ -1109,6 +1109,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"  # SUT sources at $(dirname $0)/lib/
 
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
   mutant="$TMP/status.MUTANT.sh"

@@ -42,6 +42,13 @@ declare -F target_paths_all >/dev/null 2>&1 || {
 }
 unset _sb_tp_lib
 
+_sb_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+if [ ! -f "$_sb_bf_lib" ]; then echo "sweep-breakthroughs: cannot find helper $_sb_bf_lib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_sb_bf_lib"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "sweep-breakthroughs: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _sb_bf_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "sweep-breakthroughs: cannot find $TARGETS_MD" >&2
   exit 1
@@ -113,7 +120,7 @@ for p in $paths; do
   while IFS= read -r bf; do
     [ -n "$bf" ] && block_files+=("$bf")
   done < <(find "$p" -type f -name '*.md' 2>/dev/null \
-             | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' \
+             | block_file_filter \
              | sort)
 
   if [ "${#block_files[@]}" -eq 0 ]; then

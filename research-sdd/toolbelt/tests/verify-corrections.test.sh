@@ -79,6 +79,9 @@ else no "cfref: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROL — neuter the FAIL in a mutant; the one-directional fixture must then pass (exit 0).
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # Seed block-files.sh into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
   echo "-- teeth: neuter the reciprocal-backlink FAIL (rc=1 → rc=0); expect the one-directional fixture to pass --"
   mutant="$TMP/verify-corrections.MUTANT.sh"
   sed 's/rc=1/rc=0/g' "$SUT" > "$mutant"
