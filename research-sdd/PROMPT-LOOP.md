@@ -714,9 +714,16 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          new, each with evidence (block/commit/§ refs) and a priority. It writes the proposal to
          $TARGET/retros/ + engram research/<target>/retro and SURFACES it in the return. It does NOT edit the
          kit — kit changes are human-reviewed and human-committed. This is how the kit learns from real runs.
-       - RETRO CHECKPOINT: before closing the RETURN, confirm whether a §18 retro is pending. If one was
-         not delegated yet (e.g. this is a document-mode run or an early-stop), state: "Retro pending?
-         (Y / list what)" and, if yes, delegate it now before handing off.
+       - RETRO CHECKPOINT (EXIT CONDITION, not a question): a run that wrote or changed ANY block, RESEARCH-STATE,
+         CATALOG or INDEX file is NOT OVER until a retro produced from `$KIT/templates/retro.template.md` exists in
+         `$TARGET/retros/` newer than the newest changed block, carrying `<!-- review-status: pending -->` and a
+         `## Proposed kit deltas` table (or the §18 honesty line "no new deltas; the kit already covers this run").
+         Free-form session notes, "lessons" lists, or a heading of your own are NOT a retro (measured 2026-09-05:
+         3 targets advanced with no retro; 7 of 12 new retros were unmarked, wrongly headed, or empty). Before the
+         final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
+         `retro: pending`. Enforcement: `$KIT/toolbelt/retro-gate.sh` runs as the target's Stop hook and blocks the
+         session ONCE with the exact missing element until this holds (kit issue #479; until it lands, this
+         paragraph is the only gate — treat it as one).
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
   This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
@@ -987,6 +994,7 @@ HARD RULES:
     you wrote/updated, and how many new gaps remain queued.
 
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
+  retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
   Keep the per-iteration report CONCISE — full detail lives in the block, NOT the report
   (a huge report bloats context for no gain). This report closes ONE iteration; unless STOP fired, the
   next iteration starts right after it. Report ONLY:
