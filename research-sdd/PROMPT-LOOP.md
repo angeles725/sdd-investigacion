@@ -267,7 +267,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      block (step 7). (Source: 2026-08-30-module-best-practices-focus-retro.md Δ1)
        verify-block WARN "ZERO file:line citations resolved" is EXPECTED on any synthesis block whose
      citations are exclusively [Block N] cross-references — verify-block exits 0; the WARN is
-     informational. Until kit issue #422 lands, verify-block does not read the Type token; after it, the WARN becomes INFO for declared synthesis blocks. Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies
+     informational. verify-block reads the Type token (kit issue #422): the WARN is INFO for a declared synthesis block. Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies
      to the [Block N] citations: confirm the finding attributed to [Block N] §N.x actually appears in
      that block's cited section. Record: "verify-block: exit 0, WARN expected (synthesis block;
      [Block N] token-check: N citations confirmed)." (Source: 2026-08-30-module-best-practices-focus-retro.md Δ2)

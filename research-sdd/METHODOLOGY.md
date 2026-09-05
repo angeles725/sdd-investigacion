@@ -222,7 +222,7 @@ Identical to `niagara-research` (see [`templates/block.template.md`](templates/b
 
 Each block is self-contained but linked. Size according to source density, not by quota.
 
-**Collaborative bridge block (Type: collaborative).** A block whose agent-authored half maps software features or findings to the gap, and whose DOMAIN or THEORY section carries explicit `[TO ANNOTATE]` placeholders for the human's engineering knowledge (EMC constraints, SI/PI limits, thermal budgets — facts the researcher cannot derive from source files alone). This is NOT an incomplete block — it is intentionally co-authored and valid in its partial state. Declare `Type: collaborative` in the header blockquote so a reviewer reads the empty placeholder sections as intentional (expected-zero), not a marker deficiency. This is a human-facing convention only: `verify-block.sh` does NOT parse `Type:` and will still tally the empty sections in its marker counts — read that tally in light of the declared type; do not expect the script to suppress it.
+**Collaborative bridge block (Type: collaborative).** A block whose agent-authored half maps software features or findings to the gap, and whose DOMAIN or THEORY section carries explicit `[TO ANNOTATE]` placeholders for the human's engineering knowledge (EMC constraints, SI/PI limits, thermal budgets — facts the researcher cannot derive from source files alone). This is NOT an incomplete block — it is intentionally co-authored and valid in its partial state. Declare `Type: collaborative` in the header blockquote so a reviewer reads the empty placeholder sections as intentional (expected-zero), not a marker deficiency. `verify-block.sh` reads the `Type:` token (kit issue #422) but still tallies the empty `[TO ANNOTATE]` sections in its marker counts — read that tally in light of the declared type; the token only re-grades the ZERO-citations WARN.
 
 **Block `Type` field — closed grammar (kit issues #128, #422).** The header blockquote's `**Type:**` line is read by
 its LEADING token, after stripping at most one leading `**`; everything after the token is free decoration. Legal
@@ -231,11 +231,7 @@ tokens: `standard` (the default — omit the line), `evidence` (alias of `standa
 template listed five values while real blocks wrote `evidence (primary modbus spec)`, `synthesis (no new
 decompilation)`, `document / runbook` — 8 of 763 niagara blocks declared any type and none used a template value, so
 no instrument could ever read it (the same free-form-cell failure as the TARGETS.md maturity cell and the FOCUSES.md
-status cell). **Instrument status (readback against the live code):** until #422 lands, `verify-block.sh` does not
-parse `Type:`; its "[CERT] markers present but ZERO file:line citations resolved" WARN fires on every synthesis /
-capture / absence-centred block and is EXPECTED there — the reviewer's substitute is the `[Block N]` token check
-(PROMPT-LOOP). #422 makes `verify-block.sh` read the token and downgrade that WARN to INFO for the declared types;
-an unrecognised token then WARNs by name, never silently.
+status cell). **Instrument (as of kit issue #422):** `verify-block.sh` reads the leading `Type` token: for `synthesis`, `capture`, `document` and `absence-centred` blocks the "[CERT] markers present but ZERO file:line citations resolved" WARN becomes INFO `expected for declared type <t>`; a block with no `Type:` line keeps the WARN plus a one-line hint naming this grammar; an unrecognised token WARNs by name, never silently.
 
 > **Block file naming.** The canonical catalog/discriminator (`templates/gen-catalog.py`, `verify-state.sh`,
 > `research-sdd-archive.sh`) requires a focus/subject prefix — `<prefix>-blockN.md` (or `bloqueN.md`) — so a
