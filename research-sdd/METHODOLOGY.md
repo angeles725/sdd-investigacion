@@ -454,6 +454,10 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 `sources/extracted/<basename>/Topics/topicname.htm §section`. The tool-registry entry
 (`toolbelt/tool-registry.md`) covers the wrapper command and platform variants.
 
+**Slot vs. reader-derived value (API/facade boundary).** When documenting a data contract that crosses a servlet or facade boundary, distinguish a REAL slot (one the facade emits directly) from a reader-DERIVED value (one the servlet computes from anchor slots at read time) BEFORE naming any ord. Read the reader code (e.g. `DashboardReader.java`) — a derived value is absent from the oBIX facade; a facade poller will never find it and must instead read the anchor slots and recompute. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #2)
+
+**Control-write contract is incomplete without interlock semantics.** When relaying or documenting a control-WRITE ord (e.g. an HOA mode that overrides an automation loop), surface what interlocks the write bypasses and what safety limits it still respects. A write-ord contract that names only the values (`0/1/2`) without its interlock and safety semantics is evidence of what the write does, not evidence of what it may harm. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #5)
+
 ## 6. Research tools
 
 **BOOTSTRAP step a2 — file-type census (mandatory, before the coverage matrix).**
@@ -496,6 +500,8 @@ Java decompilation (Vineflower/CFR/Procyon), .NET (ilspycmd), native (Ghidra hea
 ghidra-mcp), firmware (binwalk+yara), docs/web (fetch-doc). Detail and paths in
 [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md). Research is **always
 READ-ONLY**: the system under study is never modified.
+
+**Focus-inherited census (scoped focus over an already-censused corpus).** When a new focus (§16) opens over a target whose parent corpus was already censused at its bootstrap, and the focus reads only a SUBSET of artifacts that census already classified, the focus MAY inherit the parent census instead of re-running `census-target.sh`. Conditions: (a) the focus introduces no new subject-artifact type; (b) the inheritance is DECLARED in the focus's `RESEARCH-STATE-<focus>.md §§ Dismissed file types` with the fixed form: `- none — census inherited from parent corpus bootstrap (scoped focus; reads subset <path> already classified)`. No checker reads this declaration yet; the fixed grammar makes it auditable when one exists. A silent skip is indistinguishable from a forgotten census. (Source: 2026-08-30-alarm-webhook-focus-retro.md D1)
 
 **Protocol / binary-format reconstruction.** When the subject is an opaque wire format or a proprietary
 binary record layout — no symbol-bearing managed binary exists, only data — use this named three-step pattern:
@@ -567,6 +573,8 @@ you already have can complete or score itself. Four facets of the same move:
   vocabulary noise within one class; "Sample-and-propagate by CLASS" propagates values across types;
   this rule splits the OUTPUT population before any aggregate is computed.
 
+**Giant single-line artifact navigation (minified / base64-laden files).** When a target file has multi-MB lines (base64 data URIs, minified JS, packed HTML), `Read` exceeds its token budget and a naive `grep -n` dumps mega-lines. Navigate with `sed -n 'A,Bp' | cut -c1-160` for known ranges. Apply a line-length filter FIRST for any keyword search — `awk 'length<300'` or a Python `for i,l in enumerate(open(f)): if len(l)<N and pat.search(l): print(i,l)` — for both LOCATING a symbol and CLASSIFYING the file (framework detection): `grep -ci "vue|d3"` returning 800+ hits on a minified file is base64 noise; `awk 'length<300' | grep` returned the correct "0 real hits → not Vue/D3" verdict. (Source: 2026-09-01-large-single-file-navigation-retro.md #1; 2026-09-03-research-sdd-cross-session-verify-retro.md #2)
+
 **Entropy + byte histogram as a read-only encryption test.** When the question is "is this wire/blob
 encrypted?", compute Shannon entropy (bits/byte) and the byte-value histogram before assuming a cipher.
 ~7.99–8.0 bits/byte with a near-flat histogram ⇒ ciphertext or maximally-compressed data; a lower entropy
@@ -579,6 +587,15 @@ ciphertext at this level. `[CERT-hw]` evidence from the USB-protocol run: 5.8124
 histogram dominated by `0x00/0x80/0xc0/0xff` → verdict "not encrypted" (commit `bd91df0`).
 Placement note: `toolbelt/tool-registry.md` already routes firmware entropy through binwalk; this method
 is the complementary standalone check for wire captures and opaque blobs where binwalk is not the first tool.
+For a FIRMWARE image the ambiguity is partly resolvable: legitimately-compressed
+firmware (uImage/IFS/gzip/lzo) retains a container/header magic that binwalk catches, so **flat ~8.0-bit
+entropy PLUS zero binwalk signatures across the whole image** ⇒ encrypted is the strong reading. Keep the
+verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and the gap becomes a blocked
+child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
+
+**Custom-implementation survey against the vendor's equivalent in `organized/docSource`.** To validate whether a custom implementation over the Baja framework is correct, search `organized/docSource` for the Tridium component that implements the EQUIVALENT concept (by concept, not class name) and compare hooks, guards, and primitives. A fleet survey returning 0 hits for the anti-pattern across all first-party classes is strong deviation evidence: a pattern absent from all vendor code is not a style choice but a genuine departure from the idiom. Record the count — a zero is a finding, not an absence of data. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #3)
+
+**Obfuscated `docSource` is a tool wall, not evidence.** When method names in `docSource` are mangled (Vineflower/Procyon emitting `ln`/`n` tokens in place of real names), that tree cannot support `[CERT]` claims about internals. Prefer the vineflower tree for clean names; if the vineflower tree is also mangled, mark the claim `[INFER]` or decline to write a thin block. Never `[CERT]` a claim derived from an `ln`-mangled method body. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #3)
 
 **Calibrated discriminators are symmetric and reusable.** A classifier calibrated on a confirmed-positive layer is a symmetric discriminator for any layer of the same geometric kind (e.g. line segments or polylines claimed to belong to a structural category). Run it against the candidate and compare the score to the baseline from the confirmed layer: high score → confirmed as that kind; near-zero → not. The two scores together are the evidence, and the discriminator needs no rewrite or recalibration per candidate — same tool, same threshold, opposite answer on opposite input, the contrast itself the finding. (Evidence: nave-panccadia B36 §36.2–§36.4 — a pairing/thickness test calibrated on a confirmed wall layer scored 91.7 % there vs. 0 % interior pairing on the candidate, classifying it non-wall with no new test.)
 
@@ -741,6 +758,11 @@ fire. `research-sdd-status.sh` surfaces this from the `## Iteration history` "Ne
 when the LAST 3 numeric iterations net EXACTLY 0 new gaps it reports `saturation : SATURATED (review)` in
 the default status report. This is INFORMATIONAL only — it does NOT auto-STOP, change exit codes, or alter
 `--next`; it complements the §8 STOP decision by flagging a diminishing-returns subject for human/agent review.
+On a mature corpus, saturation + a deliberate APPLICATION PIVOT — auditing project modules against the corpus,
+synthesizing a security map, or handing findings to a build session — is a legitimate terminal SUPERIOR to a
+thin re-derivation of already-covered ground. When the status report shows saturation and the marginal value
+of a new block is lower than the value of applying existing coverage, pivot explicitly rather than continuing
+for iteration count. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #1)
 
 **The saturation prompt reads the `New gaps uncovered` cell by header name, and the cell needs a leading count.**
 Write `3 new — G7, G8, G9` or `none`, never a bare identifier list (`B754-G1/G2`, `IC1–IC4 seeded`): measured on
@@ -799,8 +821,11 @@ those units cited by at least one block — the research analogue of code covera
 top-level modules with Java, 170 cited by some block, 148 (47 %) never cited by any of 763 blocks, while every focus
 reported its known-gap ratio honestly. Its consumer is §13 AUDIT-FIRST: uncited units are candidate gaps to SEED, not
 findings. Ambiguity is reported, never absorbed (a class name present in two modules is excluded from the join and
-counted). **Instrument status:** none until kit issue #421 lands `toolbelt/coverage-map.sh`; until then compute it by
-hand or declare "coverage over the subject: not measured".
+counted). **Instrument status:** kit issue #421 (`coverage-map.sh`, PR #451) implements both rules below; until it merges compute by hand or declare "coverage over the subject: not measured".
+
+**A unit counts as CITED only when one of its unambiguous file basenames appears in a block as an extension-bearing token (`<basename>.<ext>`, word-bounded, case-sensitive) or inside a path token; a bare class or file stem in prose is never a citation** (§3 citations are `file:line`). Measured on niagara: bare-stem matching turned `This.java`, `Open.java`, `User.java` from bundled third-party code into false citations and hid ~91 uncovered modules. (Source: kit issue #421 fleet acceptance, 2026-09-05)
+
+**The coverage universe is DECLARED, never inferred.** Units outside the research question (bundled third-party libraries such as commonsIo, hsqldb, qpid) are listed in a `coverage-exclude.txt` at the corpus root, one glob per line; the instrument prints `excluded by declaration: N unit(s)` every run. A hidden default exclusion list would be an inferred universe. The tool never writes `coverage-exclude.txt` (propose-never-apply); the top-N uncited list is what makes an operator see a vendor bundle and declare it out-of-scope. (Source: kit issue #421 fleet acceptance, 2026-09-05)
 
 **PAUSED (budget-cap) ≠ STOPPED (exhaustion).** Distinguish the two in RESEARCH-STATE vocabulary. A halt on
 the budget-cap safety-net (criterion 3) while read-only-investigable gaps are STILL open is a PAUSE, not a
@@ -893,6 +918,8 @@ prior runs' rows into a one-line-per-run summary (blocks, gaps closed, coverage 
 only the CURRENT run's rows verbose.
 
 **A STOPPED focus may also be reopened to raise its evidence grade — a grade-upgrade reopen.** The paragraph above covers new tool / new question / hardware bench as the reopen motive; grade-upgrade reopen names a second, distinct category: the SAME questions are re-examined at higher fidelity (e.g. strings/RTTI evidence → decompiled function bodies) to produce stronger answers to questions already asked, not to pursue new ones. Its distinguishing risk is re-derivation (redundant churn that re-covers known ground) — not scope-creep — and that difference demands its own honesty discipline: **PRIOR-COVERAGE → REMIT → DEEPEN**. Start by auditing what the prior run established; REMIT those findings (cite, do not re-derive them); only then DEEPEN the grade with higher-fidelity evidence. A grade-upgrade that skips the REMIT step re-derives prior work and forfeits the legitimacy of the reopen. This category is legitimate and distinct from churn: the 2026-08-07 platform-native Ghidra sub-pass reopened a STOPPED native-decompilation focus to upgrade strings/RTTI evidence to decompiled function bodies, and surfaced 4 security facts that lower-fidelity evidence had not reached.
+
+**A mid-run operator sub-request that is cheap and cross-cutting becomes a BONUS block, not a deferral or a new focus.** When the operator injects a small, orthogonal question during an active campaign ("check the bit constants", "what are the framework flags?") that can be answered in the current context without derailing the focus, absorb it as an extra gap and deliver the block inline. Reserve backlog deferral for requests that are large, out-of-scope for the current angle, or require a separate bootstrap. Track the bonus gap in the backlog and the iteration record — do not let it vanish. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #3)
 
 **Live backlog injection ≠ reopening a STOPPED loop.** When the user adds new questions WHILE a focus is
 still ACTIVE (not stopped, not exhausted), the loop simply APPENDS them to the current backlog and widens its
@@ -1227,6 +1254,10 @@ caught later by **cross-block correction (§14)**, not by any per-iteration re-c
 error-capture mechanism is §14, not an orchestrator gatekeeper — per-block Bash re-verify only adds
 permission friction and driver bloat for no demonstrated catch.
 
+**For an ENUMERATION or set-membership claim, read the code that DEFINES the set before answering.** "Is X on the dashboard", "which slots does Y expose" — any membership claim about an authoritative enumerable list must be settled by reading the list's definition (the array, the method that populates it, the config that declares members) whole, once. An agent summary or partial read of adjacent code is not a substitute; two operator-caught errors in one session — `freeze*` misclassified, `startDelay` misclassified — were both prevented by a single 55-line read of `DashboardReader.java:80-134`. (Source: 2026-09-03-research-sdd-commissioning-map-consulting-retro.md #1)
+
+**To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #1)
+
 **Verifying the verifier.** When a run adds or relies on a guard, check, or oracle, these rules apply
 before trusting its verdict:
 
@@ -1438,6 +1469,12 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
+- **The live oBIX / Slot-Sheet is the first-choice oracle to arbitrate between competing hypotheses on a
+  running system.** When two explanations compete and the code does not settle them, read the LIVE STATE
+  first: a slot null while `mode=interval` is a malfunction; the same slot null while `mode=schedule` is
+  by design. One oBIX GET request settles a branch that multiple code-reading sessions may not close.
+  Mandatory corollary: always read the MODE or condition field next to the value — a value read without
+  its mode is ambiguous and cannot confirm or refute a hypothesis. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #2)
 - **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: **(0) passive
   capture** — redirect the vendor's own client or driver through a **file-backed sink** and capture
   the genuine datastream byte-for-byte; no custom protocol client is written and no byte is sent to
@@ -1993,6 +2030,16 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   per iteration, declare it explicitly a focus-boundary-only field and have the tooling read the TRUE on-disk
   block count in between rather than trusting the stale parent line.
 
+**Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2)
+
+**Peer-session-triggered focus.** A focus may be requested by a PEER agent session (a teammate Claude), not the human operator, and its deliverable may be returned to that peer as consumer. Disciplines: (1) a peer-supplied backlog is a valid seed PROVIDED the driver still pre-declares remittances (BOOTSTRAP e) and runs the per-gap prior-coverage check; (2) the cross-session deliverable is a MIRROR, not the record — corpus blocks remain the citable artifact; (3) consumer identity does not waive census (or its declared inheritance, §6 focus-inherited census), source-preservation, or self-verify obligations. (Source: 2026-08-30-alarm-webhook-focus-retro.md D2)
+
+**APPLIED / BUILD-ALONG focus.** When the operator executes a deliverable in live external tools (compiling, signing, deploying) and the loop's role flips from *probe unknowns* to *capture the live-verified procedure and emit operator-facing deliverables*, name this an APPLIED focus. Characteristics: high `[CERT-live]`/`[CERT-hw]` ratio, deliverable-first, gaps arrive from the operator's live questions rather than a backlog sweep. The §18 retro trigger fires at the natural close of an applied session, not only at a focus STOP — a session that changed how the next one should run is a retro trigger regardless of whether any focus reached its investigable-zero criterion. (Source: 2026-08-30-coldroom-module-build-retro.md #1)
+
+**Distributed multi-session diagnosis split by source.** When the target is a live system with multiple evidence sources, split the investigation across peer sessions by source: one reads the CODE (highest behavioral fidelity), one reads the VENDOR ORIGINAL in `organized/docSource` (canonization against the idiom), one probes the LIVE SYSTEM by oBIX/Slot-Sheet (`[CERT-live]`). Each session arbitrates branches the others cannot close alone. Cross-session hygiene: each session cites its source with a marker; a correction from a peer requires re-opening the PRIMARY source, not merely accepting the peer's assertion. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #1)
+
+**Census → taxonomy → playbook triad for "document everything about X across many instances."** When the request covers N instances of the same kind (module families, component families), the canonical decomposition is: (1) fan out N parallel Explore sweeps (one per family, same questions); (2) synthesize a TAXONOMY block (how they differ, what patterns emerge); (3) write an OUR-MODULES PLAYBOOK block (what the findings mean for what the team builds). Seed the gaps as `census/<family>`, `taxonomy`, and `playbook` up front; parallel sweeps produce comparable, mergeable evidence and keep parent context clean. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #1)
+
 **Concurrent loops under one orchestrator.** Focuses (or whole targets) can run in PARALLEL, not just
 sequentially — a lean orchestrator drives N independent loops at once (proven: logosoft build/PoC + niagara
 Spyder running simultaneously as background agents). Rules that keep this safe:
@@ -2085,6 +2132,8 @@ judgment, not the driver's own rationalizations). The retro agent:
    "no new deltas", not a missing section. **Instrument status:** until kit unit U7 lands, `sweep-retros.sh` can
    still print a confident `~0 proposed deltas` on a retro whose deltas live in prose; U7 makes it print
    "no delta section found" instead and never a confident zero.
+
+**At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #7)
 
 **Hard boundary — propose, never apply.** The retro agent does NOT edit the kit. Kit changes are reviewed and
 committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
@@ -2271,6 +2320,7 @@ hard-stops, never blind.
   row and a companion test; a one-off PoC lives in the scratchpad and is cited through its preserved output
   under `sources/probes/`. Deciding late is how tools end up uncatalogued (§18 `promote`/`absorb` verdicts
   exist for exactly this hand-off).
+- **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #6)
 - **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
   keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
   skeletons — the §3 SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a reader
@@ -2466,8 +2516,7 @@ tool is installed — this is the cheapest first move and it PRECEDES the chain,
 one. (Evidence: an `nre -@<option>` JVM pass-through found via `nre -help` after 3 wrong tool-walls;
 `nre.properties:46` plus `nre.dll` exported symbols unblocked B533/B535 — zero new installs.)
 
-- Native ELF/PE/firmware: `ghidra → r2 → quick` (already in `decompile-native.sh`; never bare
-  `strings` — TOOL-BEFORE-AGENT).
+- Native ELF/PE/firmware: **check for symbols first** (`readelf -h`/`nm` — is the binary stripped?). A symbol-bearing ELF's `nm`/`readelf -d`/`strings` inventory is `[CERT]` identity evidence and EXEMPT from the §5 twin-binary offset check (there is no offset to verify for a symbol-name citation); RESERVE `ghidra → r2` body-decompilation for what symbols/strings cannot answer (parameter values, control flow). For a STRIPPED binary the chain is `ghidra → r2 → quick` as before (never bare `strings` — TOOL-BEFORE-AGENT). (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D1)
 - JVM bytecode: `vineflower → cfr → procyon → javap`.
 - .NET (PE32 .NET assembly): `ilspycmd → capa → quick` — full decompile via `decompile-net.sh`, then
   capability evidence via `corroborate-capa.sh` (capa handles .NET), then `decompile-native.sh quick`
