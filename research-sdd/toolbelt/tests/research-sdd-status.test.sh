@@ -345,6 +345,22 @@ d="$TMP/sat-itidx"; mkiter_h "$d" "| # | New gaps uncovered |" "| it.4 | 9 |" "|
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
 grep -q 'saturation      : active (9 new gaps in last 3 iter)' <<<"$rep" && ok "#420 saturation: it.N index parsed and rows ordered by it" || no "#420 it-index ($(grep -i saturation <<<"$rep"))"
 
+# 29i — #449: a `—`-indexed bootstrap row in the TAIL is STRUCTURAL, not a window row; last 3 NUMERIC
+#       iterations are all 0 → SATURATED with the excluded-rows note (never plain SATURATED without it)
+d="$TMP/sat-struct-tail"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '[1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]' <<<"$rep"; then
+  ok "#449 saturation: bootstrap tail row excluded from window → SATURATED with excluded-rows note"
+else no "#449 struct-tail ($(grep -i saturation <<<"$rep"))"; fi
+
+# 29j — #449: last data row is a reopen that seeded gaps → appends 'latest unnumbered row seeded N gaps'
+#       so a fresh reopen never reads plain SATURATED
+d="$TMP/sat-reopen-seed"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | 5 seeded |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '· latest unnumbered row seeded 5 gaps — not yet an iteration' <<<"$rep"; then
+  ok "#449 saturation: reopen-tail row seeded note appended — fresh reopen not plain SATURATED"
+else no "#449 reopen-seed ($(grep -i saturation <<<"$rep"))"; fi
+
 # 30 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders,
 #      no real corpus state) must resolve to BOOTSTRAP, not parse the template as work. The find must
 #      exclude `*.template.md`. RED before the fix: the template was picked as the state file and its
@@ -1278,6 +1294,93 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-#420c: window-honesty neutered → mutant computes SATURATED on an unreadable window → guard has teeth"
     else no "teeth-#420c: orig=[$(grep -i saturation <<<"$c420_orig")] mut=[$(grep -i saturation <<<"$c420_mrep")] — window honesty not load-bearing (THEATER)"; fi
   else no "teeth-#420c: NG-WINDOW sentinel not found in SUT"; fi
+
+  # #449 teeth (a): drop NG-STRUCT-SPLIT — revert to the old "all rows are window rows" behaviour by
+  # making struct rows appear as "row" records. A fixture with a `—`-indexed bootstrap row in the tail
+  # currently reports SATURATED+excluded-note; the mutant must flip to unreadable-window (the old bug).
+  echo "-- teeth-#449a: NG-STRUCT-SPLIT neutered → bootstrap tail row counts as window row → unreadable-window --"
+  a449_mut="$TMP/status.449A.MUTANT.sh"
+  if grep -q '# NG-STRUCT-SPLIT' "$SUT"; then
+    # mutant: collapse struct type back to row so structural rows enter the window
+    sed 's/{ sk=substr(idx,RSTART,RLENGTH); type="row" } else { sk=seq; type="struct" }  # NG-STRUCT/{ sk=substr(idx,RSTART,RLENGTH); type="row" } else { sk=seq; type="row" }  # MUTANT-449A/' "$SUT" > "$a449_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449a"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
+    a449_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    a449_mrep="$(bash "$a449_mut" "$d" 2>/dev/null)"
+    if grep -q 'saturation      : SATURATED' <<<"$a449_orig" && grep -q 'unreadable window' <<<"$a449_mrep"; then
+      ok "teeth-#449a: NG-STRUCT-SPLIT neutered → bootstrap row enters window → unreadable-window (guard has teeth)"
+    else no "teeth-#449a: orig=[$(grep -i saturation <<<"$a449_orig")] mut=[$(grep -i saturation <<<"$a449_mrep")] — struct-split not load-bearing (THEATER)"; fi
+  else no "teeth-#449a: NG-STRUCT-SPLIT sentinel not found in SUT"; fi
+
+  # #449 teeth (b): drop the seed note; a reopen-tail fixture must read plain SATURATED without it.
+  echo "-- teeth-#449b: seed note dropped → reopen-tail fixture reads plain SATURATED (no seed note) --"
+  b449_mut="$TMP/status.449B.MUTANT.sh"
+  if grep -q 'note_seed=' "$SUT"; then
+    sed 's/note_seed="\s*· latest unnumbered.*/note_seed=""  # MUTANT-449B: seed note disabled/' "$SUT" > "$b449_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449b"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | 5 seeded |"
+    b449_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    b449_mrep="$(bash "$b449_mut" "$d" 2>/dev/null)"
+    if grep -qF '· latest unnumbered row seeded 5 gaps' <<<"$b449_orig" && ! grep -qF '· latest unnumbered row seeded' <<<"$b449_mrep"; then
+      ok "teeth-#449b: seed note dropped → reopen-tail reads plain SATURATED without note (guard has teeth)"
+    else no "teeth-#449b: orig=[$(grep -i saturation <<<"$b449_orig")] mut=[$(grep -i saturation <<<"$b449_mrep")] — seed note not load-bearing (THEATER)"; fi
+  else no "teeth-#449b: note_seed assignment not found in SUT"; fi
+
+  # #449 teeth (c): drop excluded-rows note → silently excludes structural rows with no announcement.
+  echo "-- teeth-#449c: excluded-rows note dropped → struct-tail fixture reads SATURATED silently (no note) --"
+  c449_mut="$TMP/status.449C.MUTANT.sh"
+  if grep -q 'note_struct=' "$SUT"; then
+    sed 's/note_struct="\s*\[${nstruct}.*/note_struct=""  # MUTANT-449C: excluded note disabled/' "$SUT" > "$c449_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449c"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
+    c449_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    c449_mrep="$(bash "$c449_mut" "$d" 2>/dev/null)"
+    if grep -qF '[1 unnumbered row(s)' <<<"$c449_orig" && ! grep -qF '[1 unnumbered row(s)' <<<"$c449_mrep"; then
+      ok "teeth-#449c: excluded-rows note dropped → struct-tail reads SATURATED silently (guard has teeth)"
+    else no "teeth-#449c: orig=[$(grep -i saturation <<<"$c449_orig")] mut=[$(grep -i saturation <<<"$c449_mrep")] — excluded note not load-bearing (THEATER)"; fi
+  else no "teeth-#449c: note_struct assignment not found in SUT"; fi
+
+  # #449 teeth (d): unstable sort reorders tied-sk forms → stable tie-break guard has teeth.
+  # Fixture: struct row BETWEEN iter1 and iter2 (sk=2 tie). Stream: iter1(sk=1,bad), struct(sk=2,bad), iter2(sk=2,bad), iter3(sk=3,bad).
+  # Stable sort all_sorted: iter1(sk=1), struct(sk=2,file-pos=2), iter2(sk=2,file-pos=3), iter3(sk=3). tail-3: struct,iter2,iter3.
+  # window wforms: STRUCT-form (file-first at sk=2) then ITER-form-2 → "STRUCT-form,ITER-form-2".
+  # Mutant (sort without -s): "I"<"S" alphabetically → iter2 before struct at sk=2 → tail-3: iter2,struct,iter3 → wforms: ITER-form-2,STRUCT-form → red.
+  echo "-- teeth-#449d: unstable-sort mutant reorders tied-sk forms → stable tie-break guard has teeth --"
+  d449d_mut="$TMP/status.449D.MUTANT.sh"
+  if grep -q 'NG-FORMS-STABLE-SORT' "$SUT"; then
+    sed 's/sort -s -t/sort -t/' "$SUT" > "$d449d_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | ITER-form-1 |" "| — | STRUCT-form |" "| 2 | ITER-form-2 |" "| 3 | ITER-form-3 |"
+    d449d_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    d449d_mrep="$(bash "$d449d_mut" "$d" 2>/dev/null)"
+    if grep -qF 'forms: STRUCT-form,ITER-form-2' <<<"$d449d_orig" && grep -qF 'forms: ITER-form-2,STRUCT-form' <<<"$d449d_mrep"; then
+      ok "teeth-#449d: unstable-sort mutant reorders tied-sk forms → stable tie-break guard has teeth"
+    else no "teeth-#449d: orig=[$(grep -i 'unreadable\|WARN' <<<"$d449d_orig")] mut=[$(grep -i 'unreadable\|WARN' <<<"$d449d_mrep")] — stable tie-break not load-bearing (THEATER)"; fi
+  else no "teeth-#449d: NG-FORMS-STABLE-SORT sentinel not found in SUT"; fi
+
+  # #449 teeth (e): all_sorted computed without struct rows → struct-first bad cell dropped → red.
+  # Fixture: struct row BETWEEN iter2 and iter3, tying at sk=3. Stream: iter1(ok), iter2(ok), struct(sk=3,bad), iter3(sk=3,bad), iter4(bad).
+  # all_sorted tail-3: struct(sk=3,file-first), iter3(sk=3,file-second), iter4(sk=4) → wforms: STRUCT-seed-bad,ITER-bad-3.
+  # Mutant: all_sorted drops ||$1=="struct" → struct absent from window → wforms: ITER-bad-3,ITER-bad-4 → red.
+  echo "-- teeth-#449e: all_sorted without struct rows → struct-first cell dropped from wforms → red --"
+  e449e_mut="$TMP/status.449E.MUTANT.sh"
+  if grep -q 'NG-WFORMS-STRUCT' "$SUT"; then
+    wforms_line="$(grep -n 'NG-WFORMS-STRUCT' "$SUT" | head -1 | cut -d: -f1)"
+    if [ -n "$wforms_line" ]; then
+      head -n "$((wforms_line - 1))" "$SUT" > "$e449e_mut"
+      cat >> "$e449e_mut" << 'MUTANT_449E_EOF'
+  all_sorted="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="row"{print $2"\t"$3"\t"$4}' | sort -s -t$'\t' -k1,1n)"  # MUTANT-449E: struct rows excluded from all_sorted
+MUTANT_449E_EOF
+      tail -n "+$((wforms_line + 1))" "$SUT" >> "$e449e_mut"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| — | STRUCT-seed-bad |" "| 3 | ITER-bad-3 |" "| 4 | ITER-bad-4 |"
+      e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+      e449e_mrep="$(bash "$e449e_mut" "$d" 2>/dev/null)"
+      if grep -qF 'forms: STRUCT-seed-bad,ITER-bad-3' <<<"$e449e_orig" && grep -qF 'forms: ITER-bad-3,ITER-bad-4' <<<"$e449e_mrep"; then
+        ok "teeth-#449e: all_sorted struct-excluded mutant drops struct-first cell → struct guard has teeth"
+      else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — all_sorted struct guard not load-bearing (THEATER)"; fi
+    else no "teeth-#449e: NG-WFORMS-STRUCT line not found by grep -n"; fi
+  else no "teeth-#449e: NG-WFORMS-STRUCT sentinel not found in SUT"; fi
 
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.

@@ -767,7 +767,7 @@ window, a `[WARN: N of M rows unreadable]` suffix when older — never guessed; 
 Structural rows with no iteration number (`—`-indexed bootstrap, reopen and synthesis rows) are not iterations:
 kit issue #449 excludes them from the last-3 window with a visible `[N unnumbered row(s) excluded]` note and,
 when the latest row is an unnumbered row that seeded gaps, appends `latest unnumbered row seeded N gaps — not
-yet an iteration`; until #449 lands they count as window rows.
+yet an iteration` (`research-sdd-status.sh`, kit issue #449).
 
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
