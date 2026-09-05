@@ -321,6 +321,73 @@ else
   no "17 absent target → INFO per target + footer count, real target processed, exit 0" "exit=$RC out=[$OUT]"
 fi
 
+# 18 — RETRO SCAN ERROR (site 133). A grep error while scanning retro files must emit a WARN
+#       instead of silently treating the retro as having no T-rows.
+#       Stubs grep so calls with pattern '^\| T[0-9]+' exit 2 (ENOMEM-class error).
+_st_real_grep=/usr/bin/grep
+_stub_st18="$ROOT/stub-bin-st18"; mkdir -p "$_stub_st18"
+cat > "$_stub_st18/grep" << STUB_ST18
+#!/usr/bin/env bash
+[ "\$#" -ge 2 ] && [ "\$2" = '^\| T[0-9]+' ] && exit 2
+exec "${_st_real_grep}" "\$@"
+STUB_ST18
+chmod +x "$_stub_st18/grep"
+kit18="$(mkkit c18-retro-err)"; tgt18="$kit18/targetA"
+mktool "$tgt18" "tool.sh"
+mkretro_trow "$tgt18" "retro1.md" "tool.sh"
+write_targets "$kit18" "$tgt18"
+OUT18="$(PATH="$_stub_st18:$PATH" "$BASH_BIN" "$kit18/toolbelt/sweep-tools.sh" 2>&1)"; RC18=$?
+if grep -q 'retro(s) unreadable during T-row scan' <<<"$OUT18"; then
+  ok "18 retro scan grep exit-2 → WARN emitted (not silent)" "(exit $RC18)"
+else
+  no "18 retro scan grep exit-2 not reported" "exit=$RC18 out=[$OUT18]"
+fi
+
+# 19 — LEDGER SCAN ERROR on SECOND grep (site 148, rc2). A grep error in the separator-filter
+#       stage must set ledger_status="error" and emit a WARN instead of silently counting 0.
+#       Stubs grep so the separator-filter call (pattern '^\|[[:space:]]*[-:]+[[:space:]]*\|') exits 2.
+_stub_st19="$ROOT/stub-bin-st19"; mkdir -p "$_stub_st19"
+cat > "$_stub_st19/grep" << STUB_ST19
+#!/usr/bin/env bash
+[ "\$#" -ge 2 ] && [ "\$2" = '^\|[[:space:]]*[-:]+[[:space:]]*\|' ] && exit 2
+exec "${_st_real_grep}" "\$@"
+STUB_ST19
+chmod +x "$_stub_st19/grep"
+kit19="$(mkkit c19-ledger-err)"; tgt19="$kit19/targetA"
+mktool "$tgt19" "scan.py"
+{ printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
+  > "$tgt19/tools/README.md"
+write_targets "$kit19" "$tgt19"
+OUT19="$(PATH="$_stub_st19:$PATH" "$BASH_BIN" "$kit19/toolbelt/sweep-tools.sh" 2>&1)"; RC19=$?
+if grep -q 'scan FAILED.*ledger count unavailable' <<<"$OUT19"; then
+  ok "19 ledger scan second-grep exit-2 (rc2) → WARN emitted (ledger_status=error)" "(exit $RC19)"
+else
+  no "19 ledger scan second-grep exit-2 not reported" "exit=$RC19 out=[$OUT19]"
+fi
+
+# 19b — LEDGER SCAN ERROR on FIRST grep (site 148, rc1). A grep error in the row-collect stage
+#        (PIPESTATUS[0]) must ALSO set ledger_status="error". Previously only rc2 ($?) was captured;
+#        this test proves PIPESTATUS[0] is now checked independently — §7.
+#        Stubs grep so the row-collect call (pattern '^\|' with flag -E) exits 2.
+_stub_st19b="$ROOT/stub-bin-st19b"; mkdir -p "$_stub_st19b"
+cat > "$_stub_st19b/grep" << STUB_ST19B
+#!/usr/bin/env bash
+[ "\$1" = "-E" ] && [ "\$2" = '^\|' ] && exit 2
+exec "${_st_real_grep}" "\$@"
+STUB_ST19B
+chmod +x "$_stub_st19b/grep"
+kit19b="$(mkkit c19b-ledger-rc1)"; tgt19b="$kit19b/targetA"
+mktool "$tgt19b" "scan.py"
+{ printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
+  > "$tgt19b/tools/README.md"
+write_targets "$kit19b" "$tgt19b"
+OUT19b="$(PATH="$_stub_st19b:$PATH" "$BASH_BIN" "$kit19b/toolbelt/sweep-tools.sh" 2>&1)"; RC19b=$?
+if grep -q 'scan FAILED.*ledger count unavailable' <<<"$OUT19b"; then
+  ok "19b ledger scan first-grep exit-2 (rc1) → WARN emitted (PIPESTATUS[0] captured)" "(exit $RC19b)"
+else
+  no "19b ledger scan first-grep exit-2 not reported (rc1 gap)" "exit=$RC19b out=[$OUT19b]"
+fi
+
 # Teeth (mutation proof): only when --prove-teeth is passed.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth A: break extension matching → case-1 fixture (2 tools) must report 0, not 2.
@@ -413,6 +480,58 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth F: absent-INFO-disabled mutant hides absent target → case 17 goes red" "()"
   else
     no "teeth F: mutant still showed INFO line — case 17 is THEATER" "out=[$out_f]"
+  fi
+
+  # Tooth G: neutralize _st_chunk_rc so retro scan error passes silently → test 18 goes red.
+  echo "-- teeth G: neutralize _st_chunk_rc; retro-scan exit-2 must pass silently → test 18 goes red --"
+  kit_g="$(mkkit teeth-g)"; tgt_g="$kit_g/targetA"
+  mktool "$tgt_g" "tool.sh"
+  mkretro_trow "$tgt_g" "retro1.md" "tool.sh"
+  write_targets "$kit_g" "$tgt_g"
+  sed 's/_st_chunk_rc=\$?/_st_chunk_rc=0/' "$SUT" > "$kit_g/toolbelt/sweep-tools.sh"
+  out_g="$(PATH="$_stub_st18:$PATH" "$BASH_BIN" "$kit_g/toolbelt/sweep-tools.sh" 2>&1)"
+  if grep -q 'retro(s) unreadable during T-row scan' <<<"$out_g"; then
+    no "teeth G: rc-zeroed mutant still emitted WARN — test 18 is THEATER" "out=[$out_g]"
+  else
+    ok "teeth G: rc-zeroed mutant passes silently — retro-scan guard has teeth" "()"
+  fi
+
+  # Tooth H: zero BOTH rc1 and rc2 (simulates the pre-PIPESTATUS path that only sees $?) so any
+  #   pipeline error passes silently → test 19 (second-grep stub) goes red.
+  # Note: zeroing only rc2 is insufficient because a second-grep exit-2 causes SIGPIPE on the
+  # first grep (rc1→141), so rc1 alone would still trigger the WARN. Zeroing both proves that
+  # the PIPESTATUS capture is what lets pipeline errors surface.
+  echo "-- teeth H: zero both rcs (pre-PIPESTATUS path); second-grep exit-2 must pass silently → test 19 goes red --"
+  kit_h="$(mkkit teeth-h)"; tgt_h="$kit_h/targetA"
+  mktool "$tgt_h" "scan.py"
+  { printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
+    > "$tgt_h/tools/README.md"
+  write_targets "$kit_h" "$tgt_h"
+  sed -e 's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' \
+      -e 's/_st_ledger_rc2=\${_st_ledger_ps\[1\]}/_st_ledger_rc2=0/' \
+      "$SUT" > "$kit_h/toolbelt/sweep-tools.sh"
+  out_h="$(PATH="$_stub_st19:$PATH" "$BASH_BIN" "$kit_h/toolbelt/sweep-tools.sh" 2>&1)"
+  if grep -q 'scan FAILED.*ledger count unavailable' <<<"$out_h"; then
+    no "teeth H: both-rcs-zeroed mutant still emitted WARN — test 19 is THEATER" "out=[$out_h]"
+  else
+    ok "teeth H: both-rcs-zeroed mutant passes silently — PIPESTATUS capture has teeth" "()"
+  fi
+
+  # Tooth H2: neutralize _st_ledger_rc1 (PIPESTATUS[0]) so first-grep error passes silently → test 19b goes red.
+  # This is the critical proof: a mutant that reads ONLY rc2 (ignoring rc1) goes RED under first-grep stub.
+  echo "-- teeth H2: neutralize _st_ledger_rc1; first-grep exit-2 must pass silently → test 19b goes red --"
+  kit_h2="$(mkkit teeth-h2)"; tgt_h2="$kit_h2/targetA"
+  mktool "$tgt_h2" "scan.py"
+  { printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
+    > "$tgt_h2/tools/README.md"
+  write_targets "$kit_h2" "$tgt_h2"
+  # Mutant: zero rc1 only — simulates the pre-fix "read only last rc" behaviour (the old gap)
+  sed 's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' "$SUT" > "$kit_h2/toolbelt/sweep-tools.sh"
+  out_h2="$(PATH="$_stub_st19b:$PATH" "$BASH_BIN" "$kit_h2/toolbelt/sweep-tools.sh" 2>&1)"
+  if grep -q 'scan FAILED.*ledger count unavailable' <<<"$out_h2"; then
+    no "teeth H2: rc1-zeroed mutant still emitted WARN — test 19b is THEATER" "out=[$out_h2]"
+  else
+    ok "teeth H2: rc1-zeroed mutant passes silently — first-grep guard has teeth" "()"
   fi
 fi
 

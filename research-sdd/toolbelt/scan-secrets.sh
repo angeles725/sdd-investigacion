@@ -124,7 +124,14 @@ if [ "$_nul_rc" -ge 2 ]; then
   echo "   WARN: NUL-byte scan FAILED (grep exit $_nul_rc) — binary-skip detection incomplete; inspect corpus manually."
   nulls=0
 else
-  nulls=$(grep -c . < "$_nul_tmp" || true)
+  # No '|| true': grep -c exits 1 on empty file (benign, count=0); exit ≥2 (ENOMEM/SIGPIPE)
+  # must surface as WARN, not collapse to a silent confident 0 — §7.
+  nulls=$(grep -c . < "$_nul_tmp")
+  _vsec_nulls_rc=$?
+  if [ "$_vsec_nulls_rc" -ge 2 ]; then
+    printf '   WARN: NUL-byte count FAILED (grep exit %d) — count unavailable\n' "$_vsec_nulls_rc"
+    nulls=0
+  fi
 fi
 rm -f "$_nul_tmp"
 [ "${nulls:-0}" -gt 0 ] && echo "-- ⚠ $nulls in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually."

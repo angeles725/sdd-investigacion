@@ -584,6 +584,49 @@ else
   no "P6 WARN wording: expected-case phrase or block-type pointer missing :: [$warn_line]"
 fi
 
+# 49 — OCR citation resolution grep error (site 257): grep -nF exits 2 → WARN emitted (not silent).
+#       Stubs grep so any -nF call (used only for OCR token-in-block lookup) exits 2.
+_vb_real_grep=/usr/bin/grep
+_stub_vb49="$TMP/stub-bin-vb49"; mkdir -p "$_stub_vb49"
+cat > "$_stub_vb49/grep" << STUB_VB49
+#!/usr/bin/env bash
+[ "\$1" = "-nF" ] && exit 2
+exec "$_vb_real_grep" "\$@"
+STUB_VB49
+chmod +x "$_stub_vb49/grep"
+d_vb49="$TMP/vb49-ocr-target"; mkdir -p "$d_vb49/sources/extracted"
+printf 'source_pdf: somepaper.pdf\nreliability: ocr-lossy\n\nContent.\n' \
+  > "$d_vb49/sources/extracted/somepaper-pp1.md"
+block_vb49="$d_vb49/target-block1.md"
+{ echo "# Block 1 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "## Result [CERT]"; echo "See somepaper-pp1 for details. [CERT]"; } > "$block_vb49"
+out_vb49="$(PATH="$_stub_vb49:$PATH" bash "$SUT" "$block_vb49" "$d_vb49" 2>&1)"
+grep -qiE 'citation resolution FAILED|unresolved.*grep exit' <<<"$out_vb49" \
+  && ok "49 OCR cite grep -nF exit-2 → citation resolution WARN (not silent)" \
+  || no "49 OCR cite grep -nF exit-2 not reported :: $out_vb49"
+
+# 50 — OCR citation dedup grep error (site 260): dedup pipeline grep -vE exits 2 → WARN emitted.
+#       Stubs grep so any -vE call with the blank-line filter pattern exits 2.
+_stub_vb50="$TMP/stub-bin-vb50"; mkdir -p "$_stub_vb50"
+cat > "$_stub_vb50/grep" << STUB_VB50
+#!/usr/bin/env bash
+[ "\$1" = "-vE" ] && [ "\$2" = '^[[:space:]]*$' ] && exit 2
+exec "$_vb_real_grep" "\$@"
+STUB_VB50
+chmod +x "$_stub_vb50/grep"
+# Fixture: same as vb49 but we need grep -nF to succeed so dedup is reached.
+# Use the real grep for -nF; only stub the -vE blank-line filter.
+d_vb50="$TMP/vb50-ocr-target"; mkdir -p "$d_vb50/sources/extracted"
+printf 'source_pdf: otherpaper.pdf\nreliability: ocr-lossy\n\nContent.\n' \
+  > "$d_vb50/sources/extracted/otherpaper-pp2.md"
+block_vb50="$d_vb50/target-block2.md"
+{ echo "# Block 2 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "## Result [CERT]"; echo "See otherpaper-pp2 for details. [CERT]"; } > "$block_vb50"
+out_vb50="$(PATH="$_stub_vb50:$PATH" bash "$SUT" "$block_vb50" "$d_vb50" 2>&1)"
+grep -qiE 'citation dedup FAILED|unresolved.*grep exit' <<<"$out_vb50" \
+  && ok "50 OCR cite dedup grep -vE exit-2 → dedup WARN emitted (not silent)" \
+  || no "50 OCR cite dedup grep -vE exit-2 not reported :: $out_vb50"
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -815,6 +858,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-p6-wording: mutant STILL contains 'synthesis/REMITTANCE' — mutation did not take :: [$mwarn_wording]"
   fi
+
+  # Tooth vb49: neutralize _vb_grep_err so cite-resolution error passes silently → test 49 goes red.
+  echo "-- teeth-vb49: neutralize _vb_grep_err; -nF exit-2 must pass silently → test 49 goes red --"
+  mutant_vb49="$TMP/verify-block.MUTANT-VB49.sh"
+  sed 's/_vb_grep_err=\$_vb_h_rc/_vb_grep_err=0/' "$SUT" > "$mutant_vb49"
+  out_vb49m="$(PATH="$_stub_vb49:$PATH" bash "$mutant_vb49" "$block_vb49" "$d_vb49" 2>&1)"
+  grep -qiE 'citation resolution FAILED|unresolved.*grep exit' <<<"$out_vb49m" \
+    && no "teeth-vb49: rc-zeroed mutant still emitted WARN — test 49 is THEATER" \
+    || ok "teeth-vb49: rc-zeroed mutant passes silently — cite-resolution guard has teeth"
+
+  # Tooth vb50: neutralize _vb_dedup_rc so dedup error passes silently → test 50 goes red.
+  echo "-- teeth-vb50: neutralize _vb_dedup_rc; -vE exit-2 must pass silently → test 50 goes red --"
+  mutant_vb50="$TMP/verify-block.MUTANT-VB50.sh"
+  sed 's/_vb_dedup_rc=\$?/_vb_dedup_rc=0/' "$SUT" > "$mutant_vb50"
+  out_vb50m="$(PATH="$_stub_vb50:$PATH" bash "$mutant_vb50" "$block_vb50" "$d_vb50" 2>&1)"
+  grep -qiE 'citation dedup FAILED|unresolved.*grep exit' <<<"$out_vb50m" \
+    && no "teeth-vb50: rc-zeroed mutant still emitted WARN — test 50 is THEATER" \
+    || ok "teeth-vb50: rc-zeroed mutant passes silently — dedup guard has teeth"
 fi
 
 echo "== $pass passed · $fail failed =="
