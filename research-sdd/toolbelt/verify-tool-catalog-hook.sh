@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# SessionStart hook wrapper — runs verify-tool-catalog.sh and emits additionalContext ONLY when
-# drift exists (an installed tool with no capability-catalog entry). Silent when every logged tool
-# is cataloged. Wired from .claude/settings.json (SessionStart). Read-only. Twin of sweep-tools-hook.sh.
+# SessionStart hook wrapper — runs verify-tool-catalog.sh and emits additionalContext.
+# When every logged tool is cataloged: emits a declared-clean sentinel (#380 precedent, never silent).
+# When drift exists: emits WARN lines + summary. Wired from .claude/settings.json (SessionStart).
+# Read-only. Twin of sweep-tools-hook.sh.
 here="$(cd "$(dirname "$0")" && pwd)"
 out="$("$here/verify-tool-catalog.sh" 2>&1)"; rc=$?
 
@@ -40,8 +41,18 @@ fi
 # Parse "not cataloged" count from the summary line.
 missing="$(printf '%s\n' "$summary" | grep -oE '[0-9]+ not cataloged' | grep -oE '^[0-9]+')"
 
-# Every logged tool is cataloged — stay silent (mirrors sweep-tools-hook.sh's clean-exit idiom).
-[ "${missing:-0}" = "0" ] && exit 0
+# Every logged tool is cataloged — emit declared-clean sentinel (#380 precedent; never silent on clean).
+if [ "${missing:-0}" = "0" ]; then
+  logged="$(printf '%s\n' "$summary" | grep -oE 'Summary: [0-9]+' | grep -oE '[0-9]+$')"
+  sentinel="Research-SDD tool catalog: clean (${logged:-?} logged tools, 0 uncataloged)."  # CLEAN-SENTINEL
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg c "$sentinel" \
+      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}'
+  else
+    printf '%s\n' "$sentinel"
+  fi
+  exit 0
+fi
 
 # Drift found — emit the WARN lines + summary, prompting for the full-detail command.
 # No '|| true': grep exit-1 (no WARN lines present) is benign; exit ≥2 must surface — §7.
