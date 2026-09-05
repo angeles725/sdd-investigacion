@@ -2017,9 +2017,10 @@ judgment, not the driver's own rationalizations). The retro agent:
 
    **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
    `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).
-   The sweeper also accepts these enumerated aliases, and nothing else: `## Proposed deltas`, `## Delta proposals`,
-   `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`, and a numbered
-   `## N. Proposed kit deltas …`. Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
+   The sweeper accepts, and nothing else, these enumerated aliases: today `## Proposed deltas`, `## Delta proposals`,
+   `## Deltas nuevos` and a numbered `## N. Proposed kit deltas` (`sweep-retros.sh`); kit unit U7 adds the forms
+   measured in real retros — `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`
+   and the numbered heading with a trailing parenthetical. Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
    are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
    pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
    canonical delta section is unreviewable until its author fixes the heading — the honesty clause below covers
