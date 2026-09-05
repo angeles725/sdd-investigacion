@@ -260,13 +260,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      `docs/` guide or recommendations document — adding no new primary evidence — is a named focus
      type. Sources are corpus blocks (existing [Block N] entries), not binaries or external documents;
      the KNOWN-OUTLINE DESIGN CORPUS variant does NOT apply (nothing to scout). Each gap = one guide
-     section; every block is DESIGN/SYNTHESIS type; the STOP criterion is all gaps closed AND
+     section; every block declares `Type: synthesis` in its header (METHODOLOGY §4 closed grammar); the STOP criterion is all gaps closed AND
      `docs/<guide>.md` finalized. Declare "DESIGN/SYNTHESIS corpus — high [INFER] ratio EXPECTED" in
      RESEARCH-STATE at bootstrap. Distinct from DOCUMENT MODE (§20) and from a focus-closing synthesis
      block (step 7). (Source: 2026-08-30-module-best-practices-focus-retro.md Δ1)
        verify-block WARN "ZERO file:line citations resolved" is EXPECTED on any synthesis block whose
      citations are exclusively [Block N] cross-references — verify-block exits 0; the WARN is
-     informational. Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies
+     informational. Until kit issue #422 lands, verify-block does not read the Type token; after it, the WARN becomes INFO for declared synthesis blocks. Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies
      to the [Block N] citations: confirm the finding attributed to [Block N] §N.x actually appears in
      that block's cited section. Record: "verify-block: exit 0, WARN expected (synthesis block;
      [Block N] token-check: N citations confirmed)." (Source: 2026-08-30-module-best-practices-focus-retro.md Δ2)
@@ -397,7 +397,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          CONTAINER PATH rather than file count — "3-4 files" does not apply to a single-file artifact.
          Specify: (a) full artifact reference + line range; (b) exact container path (e.g.
          `/Drivers/NiagaraNetwork`). Each gap = one container = one block. (Source: 2026-08-30-jace-station-config-focus-retro.md Δ2)
-         QUICK-MODE DELEGATION. When answering a scoped operator question under quick mode (§20/§17),
+         QUICK-MODE DELEGATION. When answering a scoped operator question under quick mode (quick mode — SKILL.md triage; document mode §20),
          the three-source sweep MAY be delegated to a single bounded sub-agent when the answer requires
          deep decompiled-code reading — one bounded worker returns cited verdict + file:line without
          inflating the parent. (Source: 2026-09-03-research-sdd-obix-quick-mode-retro.md #3)
