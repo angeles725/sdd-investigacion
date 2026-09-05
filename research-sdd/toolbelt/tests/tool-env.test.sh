@@ -111,7 +111,7 @@ for tool in gdb-multiarch strace ltrace tshark tcpdump qemu-system-x86_64 qemu-a
   mkexec "$BIN/$tool" 'echo tool-version-1; exit 0'
 done
 CACHE="$ROOT/capabilities.txt"
-PATH="$BIN:$PATH" RSDD_BREW_PREFIX="$BREW" HOME="$HOME_FAKE" \
+PATH="$BIN:/usr/bin:/bin" RSDD_BREW_PREFIX="$BREW" HOME="$HOME_FAKE" \
   bash "$DETECT" --cache "$CACHE" --quiet >/dev/null
 if grep -Eq '^  gdb +UNUSABLE +' "$CACHE" \
    && grep -Eq '^  tshark +AVAILABLE +' "$CACHE" \
@@ -211,9 +211,9 @@ mkexec "$ROOT/python-target/docling" '[ "${1:-}" = --help ]'
 ln -s "$ROOT/python-target/marker" "$ROOT/python-bin/marker_single"
 ln -s "$ROOT/python-target/docling" "$ROOT/python-bin/docling"
 PY_CACHE="$ROOT/python-capabilities.txt"
-PATH="$ROOT/python-bin:$PATH" HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
+PATH="$ROOT/python-bin:/usr/bin:/bin" HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
   bash "$DETECT" --cache "$PY_CACHE" --quiet >/dev/null
-RSDD_TEST_SLOW=1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH="$ROOT/python-bin:$PATH" \
+RSDD_TEST_SLOW=1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 PATH="$ROOT/python-bin:/usr/bin:/bin" \
   HOME="$HOME_FAKE" RSDD_BREW_PREFIX="$BREW" \
   bash "$DETECT" --cache "$PY_CACHE.slow" --quiet >/dev/null
 if grep -Eq '^  marker +AVAILABLE +' "$PY_CACHE" \

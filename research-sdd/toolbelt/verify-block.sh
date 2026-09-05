@@ -148,7 +148,31 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
     if [ "$code_cert_total" -eq 0 ]; then  # P6-DOC-AWARE-SUPPRESS
       echo "   (doc-grade citations only ([CERT-doc]/[CERT-web]/[CERT-a]) — file:line not expected; validate tokens via verify-sources.sh + §5 token-check)"
     else
-      echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+      # P6-TYPE-PARSE: extract the leading Type token from the block's header blockquote.
+      # Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit
+      # Strip is ORDER-INDEPENDENT: leading spaces, asterisks (bold close) and backticks removed in any combination,
+      # so **Type:** `capture` → capture and **Type:** synthesis → synthesis both parse correctly.
+      _type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
+      _type_token=""
+      _type_stripped=""
+      if [ -n "$_type_raw" ]; then
+        _type_after=$(printf '%s' "$_type_raw" | sed 's/.*[Tt]ype://')
+        _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
+        _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
+      fi
+      # Classify: INFO for no-citation declared types; WARN-by-name for unrecognised; WARN+hint for absent Type line.
+      if printf '%s\n' synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-CLASSIFY
+        echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
+      elif [ -n "$_type_raw" ] && ! printf '%s\n' standard evidence mixed collaborative audit synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-UNRECOGNISED
+        # Name the raw stripped value when the leading-token grep yielded empty (uppercase/prose non-conformant).
+        _type_warn_name="${_type_token:-${_type_stripped%% *}}"  # P6-TYPE-DISPLAY
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
+      elif [ -z "$_type_raw" ]; then
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+        echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
+      else
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+      fi
     fi
   else
     echo "   (no file:line citations found)"
@@ -252,16 +276,30 @@ if [ -d "$ext_dir" ]; then
     # A block may cite the PDF, the extracted/ file, OR a web-snapshots/ mirror of the same OCR —
     # so match on the pdf stem, the extract stem, AND the loose key (grep -F: literal, brackets-safe).
     hits=""
+    _vb_grep_err=0
     for tok in "$pdf_base" "$ext_stem" "$loose"; do
       [ -n "$tok" ] || continue
-      h=$(grep -nF "$tok" "$block" 2>/dev/null || true)
+      # No '|| true': grep exit-1 (tok absent from block) is benign; exit ≥2 must surface — §7.
+      h=$(grep -nF "$tok" "$block" 2>/dev/null)
+      _vb_h_rc=$?
+      [ "$_vb_h_rc" -ge 2 ] && { _vb_grep_err=$_vb_h_rc; continue; }
       [ -n "$h" ] && hits="${hits}${h}"$'\n'
     done
-    hits=$(printf '%s' "$hits" | grep -vE '^[[:space:]]*$' | sort -t: -k1n -u || true)
-    if [ -n "$hits" ]; then
-      echo "   OCR!    lines citing OCR-lossy '$ext_stem' — re-verify numbers/quotes/serials vs page image:"
-      printf '%s\n' "$hits" | sed 's/^/           /'
-      lossy_hits=$((lossy_hits+1))
+    if [ "$_vb_grep_err" -ge 2 ]; then
+      printf '   WARN: citation resolution FAILED (grep exit %d) — unresolved (grep exit R)\n' "$_vb_grep_err"
+    else
+      # No '|| true': with pipefail, exit ≥2 must surface — §7.
+      hits=$(printf '%s' "$hits" | grep -vE '^[[:space:]]*$' | sort -t: -k1n -u)
+      _vb_dedup_rc=$?
+      if [ "$_vb_dedup_rc" -ge 2 ]; then
+        printf '   WARN: citation dedup FAILED (grep exit %d) — unresolved (grep exit R)\n' "$_vb_dedup_rc"
+        hits=""
+      fi
+      if [ -n "$hits" ]; then
+        echo "   OCR!    lines citing OCR-lossy '$ext_stem' — re-verify numbers/quotes/serials vs page image:"
+        printf '%s\n' "$hits" | sed 's/^/           /'
+        lossy_hits=$((lossy_hits+1))
+      fi
     fi
   done < <(find "$ext_dir" -maxdepth 1 -name '*.md' 2>/dev/null)
 fi

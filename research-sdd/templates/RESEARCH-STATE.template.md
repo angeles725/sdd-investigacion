@@ -26,10 +26,13 @@
          Memory is a MIRROR, not the record. A finding that exists only in memory is undocumented.
        • OPTIONAL — block_scope: controls how verify-state counts on-disk block files for CHECK A.
          Omit for the common case (§16 per-focus prefix layout — each focus has its own block prefix).
-         Set to 'shared-global' when ALL focuses in the corpus share ONE block-file prefix (e.g. niagara-
-         mental-model-bloque). With shared-global, CHECK A compares covered_blocks against the corpus-wide
-         block count, not the focus-filtered count. Legal values: 'per-focus' | 'shared-global'.
-         Present but empty, or any other value, is a hard FAIL — absent (omitted) is always legal.
+         Set to 'shared-global' when ALL focuses share ONE corpus-wide block-file prefix (e.g. niagara-
+         mental-model-bloque). Under shared-global, covered_blocks = blocks ATTRIBUTED to this focus
+         (from a '## Covered blocks' list, else distinct B<n> ids in '## Iteration history' Block column);
+         the corpus-wide total is printed as INFO only. When no attributed ids are found, CHECK A reports
+         'unverifiable' as INFO — never FAIL against the corpus total (§7 three-state rule). Legal values:
+         'per-focus' | 'shared-global'. Present but empty, or any other value, is a hard FAIL — absent
+         (omitted) is always legal.
      Field names use UNDERSCORES on purpose: they must never collide with the prose greps below. -->
 <!-- research-state.v1 -->
 schema: research-state.v1

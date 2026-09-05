@@ -79,6 +79,13 @@ fi
 . "$_SFLIB"
 declare -F list_state_files >/dev/null 2>&1 || { echo "research-sdd-status: helper $_SFLIB failed to define list_state_files" >&2; exit 1; }
 
+_BFLIB="$here/lib/block-files.sh"
+if [ ! -f "$_BFLIB" ]; then echo "research-sdd-status: cannot find helper $_BFLIB" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_BFLIB"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "research-sdd-status: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _BFLIB
+
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
 stopctl()      { section '## Stop control'; }
@@ -139,12 +146,12 @@ iter_gaps_rows() {
       if (ph) next
       cell=a[ngcol]  # NG-COL-BYNAME
       idx=a[1]; sub(/^it\./,"",idx)
-      if (match(idx,/^[0-9]+/)) sk=substr(idx,RSTART,RLENGTH); else sk=seq
-      if (cell=="") { print "row\t" sk "\tbad\t(empty)"; next }   # empty cell is unreadable, NOT silently skipped (#442 review)
+      if (match(idx,/^[0-9]+/)) { sk=substr(idx,RSTART,RLENGTH); type="row" } else { sk=seq; type="struct" }  # NG-STRUCT
+      if (cell=="") { print type "\t" sk "\tbad\t(empty)"; next }   # empty cell is unreadable, NOT silently skipped (#442 review)
       isnone = (tolower(cell) ~ /^none/ || tolower(cell) ~ /^ningun/ || tolower(cell) ~ /^ningún/)  # NG-NONE
-      if (cell ~ /^\+?[0-9]+/) { v=cell; sub(/^\+/,"",v); match(v,/^[0-9]+/); print "row\t" sk "\tok\t" (substr(v,RSTART,RLENGTH)+0) }
-      else if (isnone) { print "row\t" sk "\tok\t0" }
-      else { print "row\t" sk "\tbad\t" cell } }'      # gap-id lists (B754-G1/G2, IC1–IC4 seeded), — , prose
+      if (cell ~ /^\+?[0-9]+/) { v=cell; sub(/^\+/,"",v); match(v,/^[0-9]+/); print type "\t" sk "\tok\t" (substr(v,RSTART,RLENGTH)+0) }
+      else if (isnone) { print type "\t" sk "\tok\t0" }
+      else { print type "\t" sk "\tbad\t" cell } }'      # gap-id lists (B754-G1/G2, IC1–IC4 seeded), — , prose
 }
 
 # SATURATION signal — INFORMATIONAL ONLY (a soft REVIEW prompt, NOT an auto-STOP). §8's read-only
@@ -158,36 +165,53 @@ iter_gaps_rows() {
 saturation_line() {
   local pad='  saturation      : '
   grep -qF '## Iteration history' "$state" || { echo "${pad}(no iteration history)"; return; }
-  local stream colhdr data nrows w window badwin wforms nbad forms sum warn
+  local stream colhdr iter_data struct_data all_sorted nrows nstruct w window iter_window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok
   stream="$(iter_gaps_rows)"
   colhdr="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="col_none"{print $2; exit}')"
   if [ -n "$colhdr" ]; then echo "${pad}no New-gaps column (header: ${colhdr})"; return; fi
-  # all data rows (readable + unreadable), ordered by iteration index (file order when unreadable)
-  data="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="row"{print $2"\t"$3"\t"$4}' | sort -t$'\t' -k1,1n)"
-  nrows="$(printf '%s' "$data" | grep -c .)"
-  if [ "$nrows" -lt 1 ]; then echo "${pad}insufficient history (0 iterations)"; return; fi
+  # iteration rows: parsable numeric index; structural rows: bootstrap/reopen/synthesis (no numeric idx)  # NG-STRUCT-SPLIT
+  iter_data="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="row"{print $2"\t"$3"\t"$4}' | sort -t$'\t' -k1,1n)"
+  struct_data="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="struct"{print $2"\t"$3"\t"$4}')"
+  nrows="$(printf '%s' "$iter_data" | grep -c .)"
+  nstruct="$(printf '%s' "$struct_data" | grep -c .)"
+  # All data rows sorted stably by sk — struct rows at seq=K tie with iter rows at index=K; file position wins ties
+  all_sorted="$(printf '%s\n' "$stream" | awk -F'\t' '($1=="row"||$1=="struct"){print $2"\t"$3"\t"$4}' | sort -s -t$'\t' -k1,1n)"  # NG-FORMS-STABLE-SORT NG-WFORMS-STRUCT
+  # excluded-rows note — never silent: structural rows are always announced (#449)
+  note_struct=""
+  if [ "$nstruct" -gt 0 ]; then
+    note_struct="  [${nstruct} unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]"
+  fi
+  # latest-unnumbered-row-seeded note: last data row in file order is a struct with ok positive gaps
+  note_seed=""
+  last_struct_ok="$(printf '%s\n' "$stream" | awk -F'\t' '($1=="row"||$1=="struct"){t=$1;s=$3;v=$4} END{if(t=="struct"&&s=="ok"&&v+0>0)print v+0}')"
+  if [ -n "$last_struct_ok" ]; then
+    note_seed="  · latest unnumbered row seeded ${last_struct_ok} gaps — not yet an iteration"
+  fi
+  if [ "$nrows" -lt 1 ]; then echo "${pad}insufficient history (0 iterations)${note_struct}${note_seed}"; return; fi
   w=$(( nrows < 3 ? nrows : 3 ))
-  window="$(printf '%s\n' "$data" | tail -n "$w")"
-  # WINDOW HONESTY: if any row in the last-3 window is unreadable, do NOT compute on the readable
-  # subset — a readable-but-older row must never rescue an unreadable tail (#420).
-  badwin="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad"' | grep -c .)"
+  window="$(printf '%s\n' "$all_sorted" | tail -n "$w")"
+  iter_window="$(printf '%s\n' "$iter_data" | tail -n "$w")"
+  # WINDOW HONESTY: if any iter row in the last-w iter window is unreadable, do NOT compute on the
+  # readable subset — a readable-but-older row must never rescue an unreadable tail (#420).
+  badwin="$(printf '%s\n' "$iter_window" | awk -F'\t' '$2=="bad"' | grep -c .)"
   if [ "$badwin" -gt 0 ]; then  # NG-WINDOW
     wforms="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
-    echo "${pad}unreadable window — ${badwin} of last ${w} rows unrecognised (forms: ${wforms})"; return
+    echo "${pad}unreadable window — ${badwin} of last ${w} rows unrecognised (forms: ${wforms})${note_struct}${note_seed}"; return
   fi
-  if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)"; return; fi
-  sum="$(printf '%s\n' "$window" | awk -F'\t' '{s+=$3} END{print s+0}')"
-  # named partial WARN: readable window, but older rows the parser could not read
-  nbad="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad"' | grep -c .)"
+  if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)${note_struct}${note_seed}"; return; fi
+  sum="$(printf '%s\n' "$iter_window" | awk -F'\t' '{s+=$3} END{print s+0}')"
+  # partial WARN: count and collect forms in sortkey order (stable — ties by file position, struct included)
+  total_rows=$(( nrows + nstruct ))
+  nbad="$(printf '%s\n' "$all_sorted" | awk -F'\t' '$2=="bad"' | grep -c .)"
   warn=""
   if [ "$nbad" -gt 0 ]; then
-    forms="$(printf '%s\n' "$data" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
-    warn="  [WARN: ${nbad} of ${nrows} rows unreadable (forms: ${forms})]"
+    forms="$(printf '%s\n' "$all_sorted" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
+    warn="  [WARN: ${nbad} of ${total_rows} rows unreadable (forms: ${forms})]"
   fi
   if [ "$sum" -eq 0 ]; then
-    echo "${pad}SATURATED (review) — last 3 iterations netted 0 new gaps${warn}"
+    echo "${pad}SATURATED (review) — last 3 iterations netted 0 new gaps${warn}${note_struct}${note_seed}"
   else
-    echo "${pad}active ($sum new gaps in last 3 iter)${warn}"
+    echo "${pad}active ($sum new gaps in last 3 iter)${warn}${note_struct}${note_seed}"
   fi
 }
 
@@ -266,11 +290,14 @@ backlog_rows() {
 
 resolve_next() {
   local rows; rows="$(backlog_rows)"             # compute ONCE — else the WARN fires per priority tier
-  local prio pri gap st
+  local prio pri gap st lead tok
   for prio in high medium low; do
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
-      [ "${st%% *}" = "pending" ] || continue     # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
+      case "$gap" in *'~~'*) continue ;; esac      # struck-through gap name: resolved row, skip silently
+      lead="${st#\*\*}"; lead="${lead/\*\*/}"       # §8b: strip leading ** and its closing pair (handles **pending** (note))
+      tok="${lead%% *}"
+      [ "$tok" = "pending" ] || continue           # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
       is_blocked "$gap" && continue
       printf 'NEXT | %s | %s\n' "$pri" "$gap"; return 0
     done < <(printf '%s\n' "$rows" | awk -F'\t' -v P="$prio" '$1==P')
@@ -287,10 +314,19 @@ resolve_next() {
 # derived investigable_open, reusing THIS script's backlog_rows/is_blocked — IDENTICAL to resolve_next's
 # NEXT-eligibility set (single source of truth), and to what verify-state.sh recomputes.
 count_investigable() {
-  local gap st n=0
+  local gap st lead tok n=0
   while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
     [ -z "$gap" ] && continue
-    [ "${st%% *}" = "pending" ] || continue
+    case "$gap" in *'~~'*) continue ;; esac      # struck-through gap name: resolved row, skip silently  # STRICKEN-GAP-SKIP
+    lead="${st#\*\*}"; lead="${lead/\*\*/}"       # §8b: strip leading ** and its closing pair (handles **pending** (note))  # BOLD-STRIP
+    tok="${lead%% *}"
+    [ "$tok" = "pending" ] || {
+      case "$tok" in
+        requires-execution*|blocked-on-*|blocked|'~~'*|'✅'*|closed|\[closed\]|covered|\[covered\]|done|\[done\]|cubierto|\[cubierto\]) ;;  # DONE-TOKENS
+        *) printf 'WARN: unrecognised Status token [%s] in gap: %s\n' "$tok" "$gap" >&2 ;;  # UNRECOG-STATUS-WARN
+      esac
+      continue
+    }
     is_blocked "$gap" && continue
     n=$((n+1))
   done < <(backlog_rows 2>/dev/null)
@@ -437,13 +473,13 @@ if [ "$mode" = "--sync-state" ]; then
       # block_scope: shared-global → use focus-blind global count, matching verify-state.sh's path so
       # the two scripts always agree (invariant documented at status.sh:297-298).
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+        | block_file_filter | wc -l | tr -d ' ')"
     elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | grep -E "/${_sfpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+        | block_file_filter "${_sfpfx}" | wc -l | tr -d ' ')"
     else
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+        | block_file_filter | wc -l | tr -d ' ')"
     fi
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
@@ -603,15 +639,15 @@ covered="$(section '## Coverage' | grep -iE 'covered blocks' | grep -oE '[0-9]+'
 _stpfx="$(derive_focus_prefix "$state")"
 if [ -n "$_stpfx" ]; then
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-    | grep -E "/${_stpfx}(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md\$" | wc -l | tr -d ' ')"
+    | block_file_filter "${_stpfx}" | wc -l | tr -d ' ')"
 else
   ondisk="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-    | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+    | block_file_filter | wc -l | tr -d ' ')"
 fi
 inv="$(inv_count)"
 req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)
 blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)
-ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$3=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
+ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
 echo "  coverage metric : ${metric:-<none>}"

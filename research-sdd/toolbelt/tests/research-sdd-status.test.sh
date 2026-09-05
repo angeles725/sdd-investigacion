@@ -345,6 +345,37 @@ d="$TMP/sat-itidx"; mkiter_h "$d" "| # | New gaps uncovered |" "| it.4 | 9 |" "|
 rep="$(bash "$SUT" "$d" 2>/dev/null)"
 grep -q 'saturation      : active (9 new gaps in last 3 iter)' <<<"$rep" && ok "#420 saturation: it.N index parsed and rows ordered by it" || no "#420 it-index ($(grep -i saturation <<<"$rep"))"
 
+
+# 29i — #449: a `—`-indexed bootstrap row in the TAIL is STRUCTURAL, not a window row; last 3 NUMERIC
+#       iterations are all 0 → SATURATED with the excluded-rows note (never plain SATURATED without it)
+d="$TMP/sat-struct-tail"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '[1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]' <<<"$rep"; then
+  ok "#449 saturation: bootstrap tail row excluded from window → SATURATED with excluded-rows note"
+else no "#449 struct-tail ($(grep -i saturation <<<"$rep"))"; fi
+
+# 29j — #449: last data row is a reopen that seeded gaps → appends 'latest unnumbered row seeded N gaps'
+#       so a fresh reopen never reads plain SATURATED
+d="$TMP/sat-reopen-seed"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | 5 seeded |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'saturation      : SATURATED' <<<"$rep" && grep -qF '· latest unnumbered row seeded 5 gaps — not yet an iteration' <<<"$rep"; then
+  ok "#449 saturation: reopen-tail row seeded note appended — fresh reopen not plain SATURATED"
+else no "#449 reopen-seed ($(grep -i saturation <<<"$rep"))"; fi
+
+# 29k — #476: a `—` reopen row whose position sorts it into the last-w of all_sorted must NOT contribute
+#       its form to wforms. wforms is numbered-only (iter_window). Two-part assertion:
+#       (a) REOPEN-form is ABSENT from wforms (iter-only fix);
+#       (b) verdict count is unchanged (badwin uses iter_window — already correct post-#449).
+#       Fixture: iter1(ok,0), iter2(bad,BAD-ITER-form), iter3(ok,0), —(bad,REOPEN-form).
+#       all_sorted last-3: iter2(bad),iter3(ok),struct(bad) — old code would show REOPEN-form in wforms.
+#       iter_window last-3: iter1(ok),iter2(bad),iter3(ok) — badwin=1, wforms=BAD-ITER-form only.
+d="$TMP/sat-reopen-wforms"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+sat476="$(grep 'saturation' <<<"$rep")"
+if ! grep -qF 'REOPEN-form' <<<"$sat476" && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$sat476"; then
+  ok "#476 reopen-tail: REOPEN-form absent from wforms; verdict count (badwin=1) unchanged"
+else no "#476 reopen-tail: sat=[${sat476}] — expected REOPEN-form absent and 'unreadable window — 1 of last 3 rows unrecognised'"; fi
+
 # 30 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders,
 #      no real corpus state) must resolve to BOOTSTRAP, not parse the template as work. The find must
 #      exclude `*.template.md`. RED before the fix: the template was picked as the state file and its
@@ -1102,6 +1133,113 @@ else
   no "sibling-guard-focus: beta_changed=$([ "$_sg_hash_b_snap" != "$_sg_hash_b_after_focus" ] && echo YES || echo no) alpha.io=$_pr_alpha_io(want 0)"
 fi
 
+# T-BOLD-PENDING-REPORT (#424): **pending** Status cell is counted in the default pending-backlog line.
+d_bp424="$TMP/bold-pending-report"; mkdir -p "$d_bp424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | bold-gap | web | **pending** |"
+  echo "| medium | bare-gap | web | pending |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_bp424/RESEARCH-STATE.md"
+_bp424_rep="$(bash "$SUT" "$d_bp424" 2>/dev/null)"
+_bp424_ph="$(grep 'pending backlog' <<<"$_bp424_rep" | head -1)"
+if grep -q 'high=1' <<<"$_bp424_ph" && grep -q 'medium=1' <<<"$_bp424_ph"; then
+  ok "bold-pending-report: **pending** and bare pending both counted in pending backlog line (#424)"
+else
+  no "bold-pending-report: pending backlog [$_bp424_ph] — want high=1 medium=1 (**pending** may be dropped)"
+fi
+
+# T-BOLD-PENDING-SYNC (#424): --sync-state counts **pending** as investigable_open.
+d_bs424="$TMP/bold-pending-sync"; mkdir -p "$d_bs424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | bold-gap | web | **pending** |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_bs424/RESEARCH-STATE.md"
+bash "$SUT" "$d_bs424" --sync-state >/dev/null 2>&1
+_bs424_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d_bs424/RESEARCH-STATE.md")"
+[ "$_bs424_io" = "1" ] \
+  && ok "bold-pending-sync: --sync-state counts **pending** as investigable_open=1 (#424)" \
+  || no "bold-pending-sync: investigable_open=$_bs424_io (want 1) — **pending** still dropped (#424)"
+
+# T-UNRECOG-WARN (#424): unrecognised Status token emits a WARN to stderr.
+d_uw424="$TMP/unrecog-warn"; mkdir -p "$d_uw424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | open-gap | web | open |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_uw424/RESEARCH-STATE.md"
+_uw424_warn="$(bash "$SUT" "$d_uw424" --sync-state 2>&1 >/dev/null)"
+grep -qi 'unrecognised' <<<"$_uw424_warn" \
+  && ok "unrecog-warn: 'open' token emits WARN: unrecognised Status token to stderr (#424)" \
+  || no "unrecog-warn: no 'unrecognised' WARN on stderr for 'open' status token — silent drop persists (#424)"
+
+# T-DONE-SILENT (#424b): recognised done-marker tokens are silent — no false-positive WARN flood.
+d_ds424="$TMP/done-silent"; mkdir -p "$d_ds424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g-closed | web | closed |"
+  echo "| high | g-covered | web | [covered] |"
+  echo "| medium | g-done | web | done |"
+  echo "| low | g-blocked | web | blocked |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_ds424/RESEARCH-STATE.md"
+_ds424_warn="$(bash "$SUT" "$d_ds424" --sync-state 2>&1 >/dev/null)"
+! grep -qi 'unrecognised' <<<"$_ds424_warn" \
+  && ok "done-silent: closed/[covered]/done/blocked emit no WARN — done-marker set is recognised (#424b)" \
+  || no "done-silent: got WARN on done-marker token — false-positive flood persists: [$_ds424_warn]"
+
+# T-NOVEL-WARN (#424b): novel token (frobnicate) still emits a named WARN after done-set expansion.
+d_nw424="$TMP/novel-warn"; mkdir -p "$d_nw424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | frob-gap | web | frobnicate |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_nw424/RESEARCH-STATE.md"
+_nw424_warn="$(bash "$SUT" "$d_nw424" --sync-state 2>&1 >/dev/null)"
+grep -qi 'unrecognised' <<<"$_nw424_warn" \
+  && ok "novel-warn: frobnicate token still emits WARN — novel tokens not blanket-silenced (#424b)" \
+  || no "novel-warn: frobnicate was silently dropped — enumerated set may have become a catch-all (#424b)"
+
+# T-STRICKEN-GAP (#424b): struck-through gap name is skipped silently (no WARN despite unrecognised status).
+d_sg424="$TMP/stricken-gap"; mkdir -p "$d_sg424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | ~~resolved-gap~~ | web | [covered] |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_sg424/RESEARCH-STATE.md"
+_sg424_warn="$(bash "$SUT" "$d_sg424" --sync-state 2>&1 >/dev/null)"
+! grep -qi 'unrecognised' <<<"$_sg424_warn" \
+  && ok "stricken-gap: struck-through gap name is skipped silently — no WARN for resolved row (#424b)" \
+  || no "stricken-gap: got WARN on struck-through gap — stricken-gap skip not applied: [$_sg424_warn]"
+
+# T-BOLDFIX (#424b): **pending** (note) counts as investigable (closing ** not at end of lead).
+d_bf424="$TMP/boldfix-pending"; mkdir -p "$d_bf424"
+{ printf '# T\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  echo; echo "## Gap-backlog (prioritized)"; echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | decorated-gap | web | **pending** (uncovered by B7) |"
+  echo; echo "## Blocked gaps"; echo; echo "## Stop control"
+  echo "- **Open gaps — read-only investigable**: 0"
+} > "$d_bf424/RESEARCH-STATE.md"
+bash "$SUT" "$d_bf424" --sync-state >/dev/null 2>&1
+_bf424_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d_bf424/RESEARCH-STATE.md")"
+[ "$_bf424_io" = "1" ] \
+  && ok "boldfix: **pending** (note) counts as investigable_open=1 — closing ** in mid-string stripped (#424b)" \
+  || no "boldfix: investigable_open=$_bf424_io (want 1) — **pending** (note) still dropped (#424b)"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -1109,6 +1247,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"  # SUT sources at $(dirname $0)/lib/
 
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
   mutant="$TMP/status.MUTANT.sh"
@@ -1170,6 +1309,126 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-#420c: window-honesty neutered → mutant computes SATURATED on an unreadable window → guard has teeth"
     else no "teeth-#420c: orig=[$(grep -i saturation <<<"$c420_orig")] mut=[$(grep -i saturation <<<"$c420_mrep")] — window honesty not load-bearing (THEATER)"; fi
   else no "teeth-#420c: NG-WINDOW sentinel not found in SUT"; fi
+
+
+  # #449 teeth (a): drop NG-STRUCT-SPLIT — revert to the old "all rows are window rows" behaviour by
+  # making struct rows appear as "row" records. A fixture with a `—`-indexed bootstrap row in the tail
+  # currently reports SATURATED+excluded-note; the mutant must flip to unreadable-window (the old bug).
+  echo "-- teeth-#449a: NG-STRUCT-SPLIT neutered → bootstrap tail row counts as window row → unreadable-window --"
+  a449_mut="$TMP/status.449A.MUTANT.sh"
+  if grep -q '# NG-STRUCT-SPLIT' "$SUT"; then
+    # mutant: collapse struct type back to row so structural rows enter the window
+    sed 's/{ sk=substr(idx,RSTART,RLENGTH); type="row" } else { sk=seq; type="struct" }  # NG-STRUCT/{ sk=substr(idx,RSTART,RLENGTH); type="row" } else { sk=seq; type="row" }  # MUTANT-449A/' "$SUT" > "$a449_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449a"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
+    a449_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    a449_mrep="$(bash "$a449_mut" "$d" 2>/dev/null)"
+    if grep -q 'saturation      : SATURATED' <<<"$a449_orig" && grep -q 'unreadable window' <<<"$a449_mrep"; then
+      ok "teeth-#449a: NG-STRUCT-SPLIT neutered → bootstrap row enters window → unreadable-window (guard has teeth)"
+    else no "teeth-#449a: orig=[$(grep -i saturation <<<"$a449_orig")] mut=[$(grep -i saturation <<<"$a449_mrep")] — struct-split not load-bearing (THEATER)"; fi
+  else no "teeth-#449a: NG-STRUCT-SPLIT sentinel not found in SUT"; fi
+
+  # #449 teeth (b): drop the seed note; a reopen-tail fixture must read plain SATURATED without it.
+  echo "-- teeth-#449b: seed note dropped → reopen-tail fixture reads plain SATURATED (no seed note) --"
+  b449_mut="$TMP/status.449B.MUTANT.sh"
+  if grep -q 'note_seed=' "$SUT"; then
+    sed 's/note_seed="\s*· latest unnumbered.*/note_seed=""  # MUTANT-449B: seed note disabled/' "$SUT" > "$b449_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449b"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | 5 seeded |"
+    b449_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    b449_mrep="$(bash "$b449_mut" "$d" 2>/dev/null)"
+    if grep -qF '· latest unnumbered row seeded 5 gaps' <<<"$b449_orig" && ! grep -qF '· latest unnumbered row seeded' <<<"$b449_mrep"; then
+      ok "teeth-#449b: seed note dropped → reopen-tail reads plain SATURATED without note (guard has teeth)"
+    else no "teeth-#449b: orig=[$(grep -i saturation <<<"$b449_orig")] mut=[$(grep -i saturation <<<"$b449_mrep")] — seed note not load-bearing (THEATER)"; fi
+  else no "teeth-#449b: note_seed assignment not found in SUT"; fi
+
+  # #449 teeth (c): drop excluded-rows note → silently excludes structural rows with no announcement.
+  echo "-- teeth-#449c: excluded-rows note dropped → struct-tail fixture reads SATURATED silently (no note) --"
+  c449_mut="$TMP/status.449C.MUTANT.sh"
+  if grep -q 'note_struct=' "$SUT"; then
+    sed 's/note_struct="\s*\[${nstruct}.*/note_struct=""  # MUTANT-449C: excluded note disabled/' "$SUT" > "$c449_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449c"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| 3 | 0 |" "| — | MA1-7 seeded |"
+    c449_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    c449_mrep="$(bash "$c449_mut" "$d" 2>/dev/null)"
+    if grep -qF '[1 unnumbered row(s)' <<<"$c449_orig" && ! grep -qF '[1 unnumbered row(s)' <<<"$c449_mrep"; then
+      ok "teeth-#449c: excluded-rows note dropped → struct-tail reads SATURATED silently (guard has teeth)"
+    else no "teeth-#449c: orig=[$(grep -i saturation <<<"$c449_orig")] mut=[$(grep -i saturation <<<"$c449_mrep")] — excluded note not load-bearing (THEATER)"; fi
+  else no "teeth-#449c: note_struct assignment not found in SUT"; fi
+
+  # #449 teeth (d): unstable sort reorders tied-sk forms in the partial-WARN sample → stable sort is load-bearing.
+  # Fixture: iter1(ok,3), struct(bad,STRUCT-bad-form) at seq=2 tying sk=2 with iter2(bad,ITER-bad-2), iter3(ok,5), iter4(ok,3), iter5(ok,2).
+  # Window (last-3 iter): iter3,iter4,iter5 — all ok → no badwin, no NG-WINDOW path.
+  # partial-WARN: 3 bad rows (iter1,struct,iter2). Stable sort all_sorted at sk=2: struct before iter2 (file-pos).
+  # First 2 distinct bad forms: ITER-bad-1,STRUCT-bad-form. Unstable sort flips sk=2 tie → forms: ITER-bad-1,ITER-bad-2.
+  echo "-- teeth-#449d: unstable-sort mutant reorders partial-WARN forms at tied sk → stable tie-break guard has teeth --"
+  d449d_mut="$TMP/status.449D.MUTANT.sh"
+  if grep -q 'NG-FORMS-STABLE-SORT' "$SUT"; then
+    sed 's/sort -s -t/sort -t/' "$SUT" > "$d449d_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | ITER-bad-1 |" "| — | STRUCT-bad-form |" "| 2 | ITER-bad-2 |" "| 3 | 5 |" "| 4 | 3 |" "| 5 | 2 |"
+    d449d_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    d449d_mrep="$(bash "$d449d_mut" "$d" 2>/dev/null)"
+    if grep -qF 'forms: ITER-bad-1,STRUCT-bad-form' <<<"$d449d_orig" && grep -qF 'forms: ITER-bad-1,ITER-bad-2' <<<"$d449d_mrep"; then
+      ok "teeth-#449d: unstable-sort mutant reorders partial-WARN forms at tied sk → stable tie-break guard has teeth"
+    else no "teeth-#449d: orig=[$(grep -i 'WARN\|saturation' <<<"$d449d_orig")] mut=[$(grep -i 'WARN\|saturation' <<<"$d449d_mrep")] — stable tie-break not load-bearing (THEATER)"; fi
+  else no "teeth-#449d: NG-FORMS-STABLE-SORT sentinel not found in SUT"; fi
+
+  # #449 teeth (e): #476 — wforms must source iter_window only; a structural row that sorts into the
+  # last-w of all_sorted must NOT appear in wforms. Under the old code (wforms from $window), a reopen
+  # tail row at sk=4 enters the all_sorted window and contributes REOPEN-form.
+  # Fixture: iter1(ok,0), iter2(bad,BAD-ITER-form), iter3(ok,0), —(bad,REOPEN-form) (sk=4).
+  # all_sorted last-3: iter2(bad),iter3(ok),struct(bad) — REOPEN-form would appear in old wforms.
+  # After fix (wforms from iter_window): iter1,iter2,iter3 → only BAD-ITER-form.
+  # Mutant: revert wforms to use $window → REOPEN-form re-appears → red.
+  echo "-- teeth-#449e: wforms reverted to \$window → reopen form re-appears → guard has teeth (NG-WFORMS-ITER-ONLY) --"
+  e449e_mut="$TMP/status.449E.MUTANT.sh"
+  if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
+    sed 's/printf .%s.n. "\$iter_window" | awk.*NG-WFORMS-ITER-ONLY/printf '"'"'%s\n'"'"' "$window" | awk -F'"'"'\\t'"'"' '"'"'$2=="bad" \&\& !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}'"'"'  # MUTANT-449E/' "$SUT" > "$e449e_mut" 2>/dev/null
+    if [ ! -s "$e449e_mut" ]; then
+      # fallback: line-based substitution using the sentinel line number
+      wforms_line="$(grep -n 'NG-WFORMS-ITER-ONLY' "$SUT" | head -1 | cut -d: -f1)"
+      if [ -n "$wforms_line" ]; then
+        head -n "$((wforms_line - 1))" "$SUT" > "$e449e_mut"
+        printf '    wforms="$(printf '"'"'%%s\\n'"'"' "$window" | awk -F'"'"'\\t'"'"' '"'"'$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}'"'"')"  # MUTANT-449E\n' >> "$e449e_mut"
+        tail -n "+$((wforms_line + 1))" "$SUT" >> "$e449e_mut"
+      fi
+    fi
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
+    e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    e449e_mrep="$(bash "$e449e_mut" "$d" 2>/dev/null)"
+    if ! grep -qF 'REOPEN-form' <<<"$e449e_orig" && grep -qF 'REOPEN-form' <<<"$e449e_mrep"; then
+      ok "teeth-#449e: wforms reverted to all_sorted → reopen-form re-appears → iter-only guard has teeth"
+    else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — wforms iter-only guard not load-bearing (THEATER)"; fi
+  else no "teeth-#449e: NG-WFORMS-ITER-ONLY sentinel not found in SUT"; fi
+
+  # #476 reopen-tail two-part tooth: (a) REOPEN-form absent from wforms (iter-only fix),
+  # (b) verdict count unchanged (badwin=iter_window, already correct post-#449).
+  echo "-- teeth-#476: reopen-tail wforms reverted to \$window → REOPEN-form appears + verdict unchanged --"
+  t476_mut="$TMP/status.476.MUTANT.sh"
+  if grep -q 'NG-WFORMS-ITER-ONLY' "$SUT"; then
+    wforms476_line="$(grep -n 'NG-WFORMS-ITER-ONLY' "$SUT" | head -1 | cut -d: -f1)"
+    if [ -n "$wforms476_line" ]; then
+      head -n "$((wforms476_line - 1))" "$SUT" > "$t476_mut"
+      printf '    wforms="$(printf '"'"'%%s\\n'"'"' "$window" | awk -F'"'"'\\t'"'"' '"'"'$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}'"'"')"  # MUTANT-476\n' >> "$t476_mut"
+      tail -n "+$((wforms476_line + 1))" "$SUT" >> "$t476_mut"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      d="$TMP/sat476"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | BAD-ITER-form |" "| 3 | 0 |" "| — | REOPEN-form |"
+      t476_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+      t476_mrep="$(bash "$t476_mut" "$d" 2>/dev/null)"
+      # (a) orig: REOPEN-form absent; mutant: REOPEN-form present
+      # (b) verdict count: both must show "1 of last 3 rows unrecognised" (badwin unchanged)
+      t476_orig_sat="$(grep 'saturation' <<<"$t476_orig")"
+      t476_mrep_sat="$(grep 'saturation' <<<"$t476_mrep")"
+      if ! grep -qF 'REOPEN-form' <<<"$t476_orig_sat" && grep -qF 'REOPEN-form' <<<"$t476_mrep_sat" \
+         && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$t476_orig_sat" \
+         && grep -qF 'unreadable window — 1 of last 3 rows unrecognised' <<<"$t476_mrep_sat"; then
+        ok "teeth-#476: wforms reverted to \$window → REOPEN-form re-appears; verdict count unchanged (guard has teeth)"
+      else no "teeth-#476: orig=[${t476_orig_sat}] mut=[${t476_mrep_sat}] — reopen-tail iter-only not load-bearing (THEATER)"; fi
+    else no "teeth-#476: NG-WFORMS-ITER-ONLY line not found by grep -n"; fi
+  else no "teeth-#476: NG-WFORMS-ITER-ONLY sentinel not found in SUT"; fi
+
 
   # multi-focus teeth: break the loop after the FIRST state only (apple, which is stopped) — the
   # fixture must then return STOP instead of NEXT, proving the multi-state scan is the fix.
@@ -1406,6 +1665,138 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
   else
     no "teeth-#194: N194-STOPPED-BYPASS sentinel not found in SUT"
+  fi
+
+  # issue #424b teeth-DONE-TOKENS: replace enumerated set with catch-all; frobnicate must stay silent (→ red).
+  # Also proves closed/covered are ENUMERATED (direction a) and frobnicate still WARNs (direction b).
+  echo "-- teeth-#424b-done-tokens: catch-all replaces enum; frobnicate must go silent → enum is load-bearing --"
+  donetok_mutant="$TMP/status.DONETOK-MUTANT.sh"
+  sed '/# DONE-TOKENS$/s/.*/        *) ;;  # MUTANT-DONETOK: catch-all (enumerated done-set removed)/' "$SUT" > "$donetok_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-DONETOK' "$donetok_mutant"; then
+    no "teeth-#424b-done-tokens: could not build mutant (DONE-TOKENS sentinel not found in SUT — did SUT change?)"
+  else
+    d_dtfrob="$TMP/done-tok-frob"; mkdir -p "$d_dtfrob"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | frob-gap | web | frobnicate |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_dtfrob/RESEARCH-STATE.md"
+    # direction (a): original on closed-status fixture → silent (done-set recognised)
+    d_dtclosed="$TMP/done-tok-closed"; mkdir -p "$d_dtclosed"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | g-closed | web | closed |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_dtclosed/RESEARCH-STATE.md"
+    orig_warn_closed="$(bash "$SUT" "$d_dtclosed" --sync-state 2>&1 >/dev/null)"
+    # direction (b): original on frobnicate → WARN; mutant (catch-all) on frobnicate → silent
+    orig_warn_frob="$(bash "$SUT" "$d_dtfrob" --sync-state 2>&1 >/dev/null)"
+    mut_warn_frob="$(bash "$donetok_mutant" "$d_dtfrob" --sync-state 2>&1 >/dev/null)"
+    ok_a=0; ok_b=0; ok_c=0
+    ! grep -qi 'unrecognised' <<<"$orig_warn_closed" && ok_a=1
+    grep -qi 'unrecognised' <<<"$orig_warn_frob" && ok_b=1
+    ! grep -qi 'unrecognised' <<<"$mut_warn_frob" && ok_c=1
+    if [ "$ok_a$ok_b$ok_c" = "111" ]; then
+      ok "teeth-#424b-done-tokens: closed is silent (a), frobnicate WARNs (b), catch-all silences frobnicate (c) — enum is load-bearing"
+    else
+      no "teeth-#424b-done-tokens: closed_silent=$ok_a frob_warns=$ok_b catchall_silent=$ok_c (want 1 1 1)"
+    fi
+  fi
+
+  # issue #424b teeth-STRICKEN-GAP-SKIP: neuter the ~~ gap-name skip; unrecognised-status stricken gap must WARN.
+  echo "-- teeth-#424b-stricken-gap: neuter STRICKEN-GAP-SKIP; stricken-gap+novel-status must WARN --"
+  stricken_mutant="$TMP/status.STRICKEN-MUTANT.sh"
+  sed '/# STRICKEN-GAP-SKIP$/s/.*/    : # MUTANT-STRICKEN: struck-through skip neutered/' "$SUT" > "$stricken_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-STRICKEN' "$stricken_mutant"; then
+    no "teeth-#424b-stricken-gap: could not build mutant (STRICKEN-GAP-SKIP sentinel not found in SUT — did SUT change?)"
+  else
+    d_stricken="$TMP/stricken-gap-tooth"; mkdir -p "$d_stricken"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | ~~resolved-gap~~ | web | frobnicate |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_stricken/RESEARCH-STATE.md"
+    orig_warn_stricken="$(bash "$SUT" "$d_stricken" --sync-state 2>&1 >/dev/null)"
+    mut_warn_stricken="$(bash "$stricken_mutant" "$d_stricken" --sync-state 2>&1 >/dev/null)"
+    if ! grep -qi 'unrecognised' <<<"$orig_warn_stricken" && grep -qi 'unrecognised' <<<"$mut_warn_stricken"; then
+      ok "teeth-#424b-stricken-gap: original silent on stricken gap, mutant WARNs — STRICKEN-GAP-SKIP is load-bearing"
+    else
+      no "teeth-#424b-stricken-gap: orig_warns=$(grep -c 'unrecognised' <<<"$orig_warn_stricken") mut_warns=$(grep -c 'unrecognised' <<<"$mut_warn_stricken") — skip may not be stopper"
+    fi
+  fi
+
+  # issue #424b teeth-BOLDFIX: revert closing-** strip to suffix-only; **pending** (note) must drop.
+  echo "-- teeth-#424b-boldfix: revert closing-** strip (suffix-only); **pending** (note) must not count investigable --"
+  boldfix_mutant="$TMP/status.BOLDFIX-MUTANT.sh"
+  # Revert: change lead="${lead/\*\*/}" to lead="${lead%\*\*}" on the BOLD-STRIP line
+  sed '/# BOLD-STRIP$/s/.*/    lead="${st#\\*\\*}"; lead="${lead%\\*\\*}"  # MUTANT-BOLDFIX: suffix-only strip (reverted)/' "$SUT" > "$boldfix_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-BOLDFIX' "$boldfix_mutant"; then
+    no "teeth-#424b-boldfix: could not build mutant (BOLD-STRIP sentinel not found in SUT — did SUT change?)"
+  else
+    d_boldfix="$TMP/boldfix-tooth"; mkdir -p "$d_boldfix"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | decorated-gap | web | **pending** (uncovered by B7) |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_boldfix/RESEARCH-STATE.md"
+    bash "$boldfix_mutant" "$d_boldfix" --sync-state >/dev/null 2>&1
+    _io_boldfix="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d_boldfix/RESEARCH-STATE.md")"
+    [ "$_io_boldfix" = "0" ] \
+      && ok "teeth-#424b-boldfix: suffix-only mutant → io=0 for **pending** (note) — closing-** fix is load-bearing" \
+      || no "teeth-#424b-boldfix: mutant io=$_io_boldfix (want 0) — closing-** fix may not be stopper (THEATER)"
+  fi
+
+  # issue #424 teeth-BOLD-STRIP: neuter ** strip in count_investigable; **pending** must stay dropped.
+  echo "-- teeth-#424-bold-strip: neuter BOLD-STRIP sentinel; **pending** must not count investigable --"
+  bold_mutant="$TMP/status.BOLD-MUTANT.sh"
+  sed '/# BOLD-STRIP$/s/.*/    lead="$st"  # MUTANT-BOLD: strip neutered/' "$SUT" > "$bold_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-BOLD' "$bold_mutant"; then
+    no "teeth-#424-bold-strip: could not build mutant (BOLD-STRIP sentinel not found in SUT — did SUT change?)"
+  else
+    d_boldtooth="$TMP/bold-strip-tooth"; mkdir -p "$d_boldtooth"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | bold-gap | web | **pending** |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_boldtooth/RESEARCH-STATE.md"
+    bash "$bold_mutant" "$d_boldtooth" --sync-state >/dev/null 2>&1
+    _io_boldtooth="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^investigable_open:/{print $2; exit}' "$d_boldtooth/RESEARCH-STATE.md")"
+    [ "$_io_boldtooth" = "0" ] \
+      && ok "teeth-#424-bold-strip: neutered strip → io=0 for **pending** row — BOLD-STRIP is load-bearing" \
+      || no "teeth-#424-bold-strip: mutant io=$_io_boldtooth (want 0) — strip may not be stopper (THEATER)"
+  fi
+
+  # issue #424 teeth-UNRECOG-WARN: neutering the WARN silences 'open'-token stderr output.
+  echo "-- teeth-#424-unrecog-warn: neuter UNRECOG-STATUS-WARN; 'open'-token must stop WARNing --"
+  unrecog_mutant="$TMP/status.UNRECOG-MUTANT.sh"
+  sed 's|>&2 ;;  # UNRECOG-STATUS-WARN|>/dev/null ;;  # MUTANT-UNRECOG: WARN silenced|' "$SUT" > "$unrecog_mutant"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  if ! grep -q 'MUTANT-UNRECOG' "$unrecog_mutant"; then
+    no "teeth-#424-unrecog-warn: could not build mutant (UNRECOG-STATUS-WARN sentinel not found in SUT — did SUT change?)"
+  else
+    d_urecogtooth="$TMP/unrecog-warn-tooth"; mkdir -p "$d_urecogtooth"
+    { printf '# T\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | open-gap | web | open |\n\n'
+      printf '## Blocked gaps\n\n## Stop control\n\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$d_urecogtooth/RESEARCH-STATE.md"
+    orig_warn_ur="$(bash "$SUT" "$d_urecogtooth" --sync-state 2>&1 >/dev/null)"
+    mut_warn_ur="$(bash "$unrecog_mutant" "$d_urecogtooth" --sync-state 2>&1 >/dev/null)"
+    if grep -qi 'unrecognised' <<<"$orig_warn_ur" && ! grep -qi 'unrecognised' <<<"$mut_warn_ur"; then
+      ok "teeth-#424-unrecog-warn: original WARNs on 'open' token, mutant stays silent — WARN is load-bearing"
+    else
+      no "teeth-#424-unrecog-warn: orig warns=$(grep -c 'unrecognised' <<<"$orig_warn_ur") mut=$(grep -c 'unrecognised' <<<"$mut_warn_ur") — WARN not load-bearing"
+    fi
   fi
 
   # near-miss WARN teeth: neuter the NM-WARN branch → near-miss fixture must stop WARNing.

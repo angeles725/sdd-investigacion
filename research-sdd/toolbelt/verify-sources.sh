@@ -76,9 +76,15 @@ fi
 if [ -f "$sources_md" ]; then
   # LEVEL 2 — the registry has real DATA rows, not just header/separator. (sha256 is often TRUNCATED in the
   # display, e.g. three.js '04adf2b…', so count populated table rows rather than full 64-hex hashes.)
-  rows=$(grep -E '^\| ' "$sources_md" 2>/dev/null | grep -vcE '^\| *File|^\|[-:| ]+$' || true)
+  # No '|| true': with pipefail, exit-1 (no matching rows) leaves rows="0" and $?=1 (benign).
+  # grep exit ≥2 (ENOMEM/SIGPIPE) must surface as WARN, not collapse to a confident 0 — §7.
+  rows=$(grep -E '^\| ' "$sources_md" 2>/dev/null | grep -vcE '^\| *File|^\|[-:| ]+$')
+  _vsrc_rows_rc=$?
+  if [ "$_vsrc_rows_rc" -ge 2 ]; then
+    printf '   WARN: SOURCES.md row scan FAILED (grep exit %d) — row count unavailable\n' "$_vsrc_rows_rc"
+  fi
   echo "-- SOURCES.md present · registered data rows: ${rows:-0}"
-  if [ $((doc + a)) -gt 0 ] && [ "${rows:-0}" -eq 0 ]; then
+  if [ $((doc + a)) -gt 0 ] && [ "${rows:-0}" -eq 0 ] && [ "$_vsrc_rows_rc" -lt 2 ]; then
     echo "   WARN: preserved-source markers exist but SOURCES.md has 0 data rows (registry unpopulated)."
   fi
   # MALFORMED-ROW pre-check — §7 false-negative direction.

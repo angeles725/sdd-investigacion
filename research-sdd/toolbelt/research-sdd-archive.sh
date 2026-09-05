@@ -54,7 +54,17 @@ declare -F retro_is_excluded >/dev/null 2>&1 \
 # retro_review_status is also needed for the format lint at close time.
 declare -F retro_review_status >/dev/null 2>&1 \
   || { echo "research-sdd-archive: helper $_lib failed to define retro_review_status" >&2; exit 1; }
+declare -F retro_has_bare_marker >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper $_lib failed to define retro_has_bare_marker" >&2; exit 1; }
 unset _lib
+
+_bflib="$here/lib/block-files.sh"
+if [ ! -f "$_bflib" ]; then echo "research-sdd-archive: cannot find helper $_bflib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_bflib"
+declare -F block_file_filter >/dev/null 2>&1 \
+  || { echo "research-sdd-archive: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _bflib
 
 # Source the shared state-file enumerator — required for the multi-focus undocumented_findings gate.
 _sflib="$here/lib/state-files.sh"
@@ -197,7 +207,7 @@ echo "    index          : $index"
 # --- MIRROR FACTS: computed for the close-checklist (archive is CORPUS-scoped; it never edits \$KIT/TARGETS.md) --
 # Count blocks with gen-catalog.py's OWN discriminator (`<prefix>-block|bloque<num>.md`), not a loose
 # `*block*.md` glob — otherwise a decoy like `blocked-notes.md` inflates the count fed to the TARGETS.md row.
-blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | wc -l | tr -d ' ')"
+blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | wc -l | tr -d ' ')"
 # Count only non-excluded retros — files carrying '<!-- kit-retro: exclude -->' are not §18 kit retros.
 retros=0
 while IFS= read -r _rfe; do
@@ -235,7 +245,7 @@ newest_block_epoch=0
 while IFS= read -r bf; do
   [ -n "$bf" ] || continue
   m="$(rsdd_added_epoch "$corpus" "$bf")"; [ "${m:-0}" -gt "$newest_block_epoch" ] && newest_block_epoch="$m"
-done < <(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | grep -E '/[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$')
+done < <(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter)
 if [ "$blocks" -gt 0 ] && { [ "$retros" -eq 0 ] || [ "$newest_block_epoch" -gt "$newest_retro_epoch" ]; }; then
   if [ "$retros" -eq 0 ]; then rdate="none"; else rdate="$(date -d "@$newest_retro_epoch" +%Y-%m-%d 2>/dev/null || echo '?')"; fi
   echo "WARN: corpus advanced ($blocks block(s)) but the newest §18 retro is $rdate — a retro for this run may be" >&2
@@ -257,7 +267,7 @@ if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
     # that adds one block AND MODIFIES an existing block to add the §14 reciprocal 'corrected in BN' backlink
     # (which the sibling verify-corrections feature now mandates in the SAME iteration) is NOT a violation.
     nbf="$(git -C "$corpus" show --diff-filter=A --name-only --format= "$sha" 2>/dev/null \
-      | grep -E '(^|/)[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$' | sort -u | wc -l | tr -d ' ')"
+      | block_file_filter | sort -u | wc -l | tr -d ' ')"
     [ "${nbf:-0}" -ge 2 ] && multi_block_commits="${multi_block_commits}${multi_block_commits:+ }${sha:0:9}(${nbf} blocks)"
   done < <(git -C "$corpus" log --format=%H --since="@${newest_retro_epoch:-0}" 2>/dev/null)
 fi
@@ -279,9 +289,8 @@ while IFS= read -r _lint_f; do
   _lint_status="$(retro_review_status "$_lint_f")"
   if [ -z "$_lint_status" ]; then
     _lint_base="$(basename "$_lint_f")"
-    # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
-    # Race onset for external producers: ~64 KB. Fleet max << onset; not reproduced.
-    if head -10 "$_lint_f" 2>/dev/null | grep -qiE '^[[:space:]]*review-status:'; then
+    # retro_has_bare_marker uses head -10 — same algorithm the inline code used.
+    if retro_has_bare_marker "$_lint_f"; then
       echo "WARN: malformed review-status in $_lint_base — bare text marker in first 10 lines; wrap in '<!-- review-status: ... -->'" >&2
     else
       echo "WARN: no review-status marker in leading block of $_lint_base — add '<!-- review-status: pending -->' at the top" >&2

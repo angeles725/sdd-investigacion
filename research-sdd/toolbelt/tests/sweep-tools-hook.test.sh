@@ -79,6 +79,22 @@ printf '%s\n' "$OUT" | grep -q 'WARN' \
   && ok "7 PARTIAL WARN included when unrecorded > 0" \
   || no "7 PARTIAL WARN → expected WARN in output (exit=$RC out=[$OUT])"
 
+# 8. WARN-line extraction grep error (exit ≥2) must append failure notice; never silently empty warn_line.
+#    Stubs grep so any call for '^WARN:' (the extraction call in the hook) exits 2.
+_sth_real_grep=/usr/bin/grep
+_stub_sth8="$TMP/stub-bin-sth8"; mkdir -p "$_stub_sth8"
+cat > "$_stub_sth8/grep" << STUB_STH8
+#!/usr/bin/env bash
+[ "\$1" = '^WARN:' ] && exit 2
+exec "${_sth_real_grep}" "\$@"
+STUB_STH8
+chmod +x "$_stub_sth8/grep"
+write_stub 0 "$(printf 'Summary: 1 tool(s) across 1 target(s) · 0 recorded · 1 unrecorded.')"
+OUT_STH8="$(PATH="$_stub_sth8:$PATH" bash "$TMP/sweep-tools-hook.sh" 2>&1)"; RC_STH8=$?
+printf '%s\n' "$OUT_STH8" | grep -qiE 'WARN-line extraction failed|grep exit' \
+  && ok "8 WARN-line extraction grep exit-2 → failure notice in output" \
+  || no "8 WARN-line extraction grep exit-2 not reported (exit=$RC_STH8 out=[$OUT_STH8])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook must go red when silence is broken --"
@@ -99,6 +115,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth A: mutant still emits output — mutation did not silence correctly, check mutant"
   fi
+
+  # Tooth B: neutralize _sth_warn_rc so WARN-line extraction error passes silently → test 8 goes red.
+  echo "-- teeth B: neutralize _sth_warn_rc; extraction exit-2 must pass silently → test 8 goes red --"
+  mutant_sth_b="$TMP/mutant-hook-b.sh"
+  sed 's/_sth_warn_rc=\$?/_sth_warn_rc=0/' "$SUT" > "$mutant_sth_b"
+  write_stub 0 "$(printf 'Summary: 1 tool(s) across 1 target(s) · 0 recorded · 1 unrecorded.')"
+  cp "$TMP/stub-out.txt" "$TMP/stub-out-sth8.txt"
+  printf '#!/usr/bin/env bash\ncat "%s"\nexit 0\n' "$TMP/stub-out-sth8.txt" > "$TMP/sweep-tools.sh"
+  cp "$mutant_sth_b" "$TMP/sweep-tools-hook.sh"
+  out_sth8m="$(PATH="$_stub_sth8:$PATH" bash "$TMP/sweep-tools-hook.sh" 2>&1)"
+  printf '%s\n' "$out_sth8m" | grep -qiE 'WARN-line extraction failed|grep exit' \
+    && no "teeth B: rc-zeroed mutant still emitted notice — test 8 is THEATER" \
+    || ok "teeth B: rc-zeroed mutant passes silently — extraction guard has teeth"
 fi
 
 echo "== $pass passed · $fail failed =="

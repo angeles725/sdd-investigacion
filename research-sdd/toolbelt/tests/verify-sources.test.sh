@@ -828,6 +828,27 @@ grep -qE 'WARN.*LEVEL-4.*UNCHECKED' <<<"$out" \
   || { printf '  FAIL  %-42s (WARN absent — non-whitelist ext not probed)\n' "L4-NONWHITELIST-EXT: WARN present"; fail=$((fail+1)); }
 
 # ---------------------------------------------------------------------------
+# 49 — SOURCES.md row scan grep error (exit ≥2, site verify-sources.sh:79) must emit a WARN;
+#      never collapse to a confident 0 that passes the "registry unpopulated" check falsely.
+#      Stubs grep so the first pipeline call (pattern '^\| ') exits 2 (ENOMEM-class error).
+_vs_real_grep=/usr/bin/grep
+_stub_vs49="$TMP/stub-bin-vs49"
+mkdir -p "$_stub_vs49"
+cat > "$_stub_vs49/grep" << STUB_VS49
+#!/usr/bin/env bash
+[ "\$1" = "-vcE" ] && exit 2
+exec "$_vs_real_grep" "\$@"
+STUB_VS49
+chmod +x "$_stub_vs49/grep"
+d_vs49="$TMP/vs49-scan-fail"
+sources_registry "$d_vs49" '| doc.pdf | doc | http://x | 2026-01-01 | abc123 |  |'
+block "$d_vs49/b1.md" '# Block 1' '[CERT-doc] doc.pdf:1.'
+out_vs49="$(PATH="$_stub_vs49:$PATH" bash "$SUT" "$d_vs49" 2>&1)"
+grep -qiE 'row scan FAILED|row count unavailable' <<<"$out_vs49" \
+  && { printf '  PASS  %-42s (WARN emitted)\n' "49 row-scan grep exit-2 → WARN"; pass=$((pass+1)); } \
+  || { printf '  FAIL  %-42s :: %s\n' "49 row-scan grep exit-2 not reported" "$out_vs49"; fail=$((fail+1)); }
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: mutate corpus-root resolution, expect the flagship to FALSE-PASS --"
@@ -1142,6 +1163,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         printf '  FAIL  %-42s mutant exit %s (expected 0) — asymmetric guard may not be load-bearing.\n' "teeth: L6-FIELD-GUARD-ASYM" "$_ml6asym_rc"; fail=$((fail+1))
       fi
     fi
+  fi
+
+  # Teeth for test 49: neutralize _vsrc_rows_rc so row-scan error passes silently → test 49 goes red.
+  echo "-- teeth: neutralize _vsrc_rows_rc; row-scan exit-2 must pass silently → test 49 goes red --"
+  mutant_vs49="$TMP/verify-sources.MUTANT-VS49.sh"
+  sed 's/_vsrc_rows_rc=\$?/_vsrc_rows_rc=0/' "$SUT" > "$mutant_vs49"
+  if ! grep -q '_vsrc_rows_rc=0' "$mutant_vs49"; then
+    echo "  FAIL  could not build VS49 mutant (rc line not found — did the SUT change?)"; fail=$((fail+1))
+  else
+    out_vs49m="$(PATH="$_stub_vs49:$PATH" bash "$mutant_vs49" "$d_vs49" 2>&1)"
+    grep -qiE 'row scan FAILED|row count unavailable' <<<"$out_vs49m" \
+      && { echo "  FAIL  teeth-vs49: rc-zeroed mutant still emitted WARN — test 49 is THEATER"; fail=$((fail+1)); } \
+      || { printf '  PASS  %-42s (test 49 has teeth)\n' "teeth-vs49: rc-zeroed mutant silent"; pass=$((pass+1)); }
   fi
 fi
 

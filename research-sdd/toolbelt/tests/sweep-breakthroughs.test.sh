@@ -32,6 +32,7 @@ mkkit() {
   mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/sweep-breakthroughs.sh"
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"
+  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
   printf '%s' "$kit"
 }
 

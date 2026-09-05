@@ -42,6 +42,7 @@ mkkit() {
   cp "$SUT" "$kit/toolbelt/verify-registry.sh"
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this for target_paths_all
+  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
   printf '%s' "$kit"
 }
 
@@ -603,6 +604,7 @@ mkdir -p "$kit26/toolbelt/lib" "$repo26"
 cp "$SUT" "$kit26/toolbelt/verify-registry.sh"
 cp "$LIB" "$kit26/toolbelt/lib/retro-status.sh"
 cp "$TP_LIB" "$kit26/toolbelt/lib/target-paths.sh"
+cp "$HERE/../lib/block-files.sh" "$kit26/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
 # Register the repo root with nc + 0 md → count check trivially passes (0 == 0), no other noise.
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26"
@@ -937,6 +939,7 @@ VRT2STRIPPED
   cp "$SUT" "$kit26t/toolbelt/verify-registry.sh"
   cp "$LIB" "$kit26t/toolbelt/lib/retro-status.sh"
   cp "$TP_LIB" "$kit26t/toolbelt/lib/target-paths.sh"
+  cp "$HERE/../lib/block-files.sh" "$kit26t/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26t"
   } > "$kit26t/TARGETS.md"

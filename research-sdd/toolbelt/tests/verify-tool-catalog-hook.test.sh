@@ -79,6 +79,22 @@ OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
   && ok "7 empty-input sentence → silent (legitimate, not an anomaly), exit 0" \
   || no "7 empty-input → expected silence, got exit=$RC out=[$OUT]"
 
+# 8. WARN-line extraction grep error (exit ≥2) must append failure notice; never silently empty warn_lines.
+#    Stubs grep so any call for '^WARN' (the extraction call in the hook) exits 2.
+_vtch_real_grep=/usr/bin/grep
+_stub_vtch8="$TMP/stub-bin-vtch8"; mkdir -p "$_stub_vtch8"
+cat > "$_stub_vtch8/grep" << STUB_VTCH8
+#!/usr/bin/env bash
+[ "\$1" = '^WARN' ] && exit 2
+exec "${_vtch_real_grep}" "\$@"
+STUB_VTCH8
+chmod +x "$_stub_vtch8/grep"
+write_stub 0 "$(printf 'Summary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.')"
+OUT_VTCH8="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC_VTCH8=$?
+printf '%s\n' "$OUT_VTCH8" | grep -qiE 'WARN-line extraction failed|grep exit' \
+  && ok "8 WARN-line extraction grep exit-2 → failure notice in output" \
+  || no "8 WARN-line extraction grep exit-2 not reported (exit=$RC_VTCH8 out=[$OUT_VTCH8])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook must go red when silence is broken --"
@@ -99,6 +115,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth A: mutant still emits output — mutation did not silence correctly, check mutant"
   fi
+
+  # Tooth B: neutralize _vtch_warn_rc so WARN-line extraction error passes silently → test 8 goes red.
+  echo "-- teeth B: neutralize _vtch_warn_rc; extraction exit-2 must pass silently → test 8 goes red --"
+  mutant_vtch_b="$TMP/mutant-hook-vtch-b.sh"
+  sed 's/_vtch_warn_rc=\$?/_vtch_warn_rc=0/' "$SUT" > "$mutant_vtch_b"
+  write_stub 0 "$(printf 'Summary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.')"
+  cp "$TMP/stub-out.txt" "$TMP/stub-out-vtch8.txt"
+  printf '#!/usr/bin/env bash\ncat "%s"\nexit 0\n' "$TMP/stub-out-vtch8.txt" \
+    > "$TMP/verify-tool-catalog.sh"
+  cp "$mutant_vtch_b" "$TMP/verify-tool-catalog-hook.sh"
+  out_vtch8m="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"
+  printf '%s\n' "$out_vtch8m" | grep -qiE 'WARN-line extraction failed|grep exit' \
+    && no "teeth B: rc-zeroed mutant still emitted notice — test 8 is THEATER" \
+    || ok "teeth B: rc-zeroed mutant passes silently — extraction guard has teeth"
 fi
 
 echo "== $pass passed · $fail failed =="

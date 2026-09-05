@@ -149,7 +149,8 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        §9 golden rules, §11 self-verify, §17 resume.
      - SITUATIONAL — read the named section IN FULL the moment its phase triggers, by number: §5 sources →
        adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
-       wrapper per artifact type; §10 self-provisioning → a required tool is missing (before recording
+       wrapper per artifact type; §11b verifying the verifier / kit test-lane contract → adding or changing a guard, check, oracle,
+       or test lane in the KIT (never needed to write a block); §10 self-provisioning → a required tool is missing (before recording
        `blocked-on-tool`); §12 dynamic phase → validating a finding against a LIVE system; §13 audit mode →
        running an AUDIT (operational prompt: `PROMPT-AUDIT.md`); §14 cross-block consistency → a block CORRECTS another; §15 corpus versioning →
        corpus bootstrap ($CORPUS) or a git commit/remote; §16 multi-focus → the target has multiple
