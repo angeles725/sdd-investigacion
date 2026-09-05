@@ -157,20 +157,18 @@ for p in $paths; do
     #   "## Delta proposals[...]"
     #   "## Deltas NUEVOS[...]"
     _sec_r=$(awk '
-      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""; canon=0 }
+      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h="" }
       { low=tolower($0) }
       # Canonical section headings (recognized, no deprecation WARN).
       # Numbered form widened to allow trailing text (e.g. "for the next version …").
       low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
       low ~ /^## proposed delta/                                      ||
       low ~ /^## delta proposals/                                     ||
-      low ~ /^## deltas nuevos/                                       { in_sec=1; found=1; canon=1; depr_h=""; next }
-      # Deprecated alias headings (recognized + WARN-migrate; ignored when a canonical section
-      # already appeared — the canonical section is authoritative and auxiliary alias sections
-      # such as ## Delta details for expanded write-ups do not trigger a migration WARN).
+      low ~ /^## deltas nuevos/                                       { in_sec=1; found=1; next }
+      # Deprecated alias headings (recognized + WARN-migrate unconditionally).
       low ~ /^## summary of proposed delta/                           ||
       low ~ /^## summary of new deltas/                               ||
-      low ~ /^## delta details([[:space:]]|$)/                        { in_sec=1; found=1; if (!canon && !depr_h) depr_h=$0; next }
+      low ~ /^## delta details([[:space:]]|$)/                        { in_sec=1; found=1; if (!depr_h) depr_h=$0; next }
       /^##[^#]/ && in_sec { in_sec=0 }
       in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
       in_sec && /^###[^#]/ && /—/ { h3d++ }

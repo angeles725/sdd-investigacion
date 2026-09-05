@@ -2020,6 +2020,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MK: marker-WARN-removed mutant still warns — case 67 is THEATER" "out=[$outm]"
     fi
   fi
+  # Tooth CD: canonical section present THEN deprecated alias → deprecated WARN still fires.
+  # Mutant restores canon=1 to confirm the guard was actually doing the suppression.
+  echo "-- teeth CD: canonical+deprecated retro; restoring canon=1 must suppress the WARN (CD has teeth) --"
+  if [[ "$content_nd" != *'if (!depr_h) depr_h=$0'* ]]; then
+    no "teeth CD: locate unconditional depr_h guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-cd)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n'
+      printf '# Retro (canonical then deprecated)\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n\n'
+      printf '## Delta details\n\nExtra write-up here.\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    # Baseline: branch code must WARN on the deprecated heading even after canonical section.
+    out_base="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+    if grep -q 'deprecated delta heading' <<<"$out_base"; then
+      ok "teeth CD: baseline (canon=1 removed) warns on deprecated alias after canonical section" "()"
+    else
+      no "teeth CD: baseline must warn on deprecated alias — canon=1 suppression was not removed" "out=[$out_base]"
+    fi
+    # Mutant: reintroduce canon=1 suppression; WARN must disappear (confirming the tooth has bite).
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    content_cd="$(cat "$SUT")"
+    content_cd="${content_cd//'{ in_sec=1; found=1; next }'/'{ in_sec=1; found=1; canon=1; depr_h=""; next }'}"
+    content_cd="${content_cd//'if (!depr_h) depr_h=$0'/'if (!canon && !depr_h) depr_h=$0'}"
+    content_cd="${content_cd//'BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h="" }'/'BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""; canon=0 }'}"
+    printf '%s\n' "$content_cd" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if ! grep -q 'deprecated delta heading' <<<"$outm"; then
+      ok "teeth CD: canon=1 mutant suppresses WARN — CD tooth has bite" "()"
+    else
+      no "teeth CD: canon=1 mutant still warns — CD is THEATER" "out=[$outm]"
+    fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
