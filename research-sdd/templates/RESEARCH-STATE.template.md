@@ -73,8 +73,13 @@ undocumented_findings: 0
 
 ## Iteration history
 
-<!-- "New gaps uncovered" (col 6) feeds the saturation signal: research-sdd-status.sh flags SATURATED (review)
-     when the last 3 numeric iterations net 0 new gaps — a soft review-prompt complementing §8 STOP. -->
+<!-- "New gaps uncovered" feeds the saturation signal: research-sdd-status.sh selects this column BY HEADER
+     NAME (/new gaps|nuevos gaps/i — NOT by position) and flags SATURATED (review) when the last 3 iterations
+     net 0 new gaps — a soft review-prompt complementing §8 STOP. New-gaps CELL GRAMMAR: a leading integer
+     (`3`, `+1`, `3 new`, `2 seeded`) or the `none…` family (`none`, `none net-new`, `ninguno`) = 0. Gap-id
+     lists (`G12`, `B754-G1/G2`, `IC1–IC4 seeded`) and `—` are NOT counted — the instrument reports them as
+     unreadable, never guessing. START the cell with the count (`3 new — G7, G8, G9`) or `none`/`ninguno`;
+     a bare identifier list is not machine-readable. -->
 
 | # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
 |---|---|---|---|---|---|
