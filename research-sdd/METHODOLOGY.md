@@ -63,6 +63,28 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 | `[CERT-a]` | asserted by a **secondary source** (forum, blog, answer) — lower confidence | URL (ideally preserved in `sources/`) |
 | `[INFER]` | researcher's deduction, not literal in any source | — |
 
+**Taxonomy decisions under load (kit issue #433 — the table above is closed; these are the rulings).**
+Several runs proposed new meanings for existing markers; absorbing any one alone would have split the
+taxonomy, so they were decided together:
+- **`[CERT-a]` keeps its single meaning** — asserted by a secondary source (forum, blog, answer). It is NOT
+  the marker for a citation a delegated agent or a teammate gathered: such a citation is `[CERT]` (or the
+  matching `-doc`/`-web`) once the DRIVER has opened the source, and carries NO marker until then — a
+  teammate's claim is a claim (source-verify before labeling; a peer catch is first-class evidence to
+  re-open the primary source with, not a citation by itself). It is also NOT the marker for coordination
+  notes between lanes: notes are context, kept under `sources/notes/`, cited as context, never as `[CERT-*]`.
+- **`[CERT-hw]` vs `[CERT-live]`, stated once.** `-hw` is a physical device or an OFFLINE physical-media image
+  you hold (an imaged SD card or disk counts — the evidence came from your own medium); `-live` is a running
+  remote service or station you probed and do not own. A service you deploy and own stays `-hw` (§12c).
+  Liveness is itself a claim: before labeling `-live`, verify freshness (timestamp, changing counter, a
+  response you provoked) — a cached or replayed response is `[CERT-doc]` at best.
+- **When `[CERT-live]` and `[CERT-doc]` disagree, the live response wins** — then fix the doc citation and
+  record the disagreement (§14). A runtime behaviour derived from code (`[CERT]`) wants a `[CERT-live]`
+  cross-check whenever a live oracle exists; the two ranks answer different questions.
+- **Numeric constants are `[CERT]` only with a fresh `file:line` grep in the same session** — a number copied
+  from a prior block inherits that block's citation, not a new `[CERT]`.
+- **No git, no problem — but say so:** when the subject has no version control, the file `mtime` (or the
+  artifact `sha256`) is the `Subject version` stamp, declared as such.
+
 **Usage rules:**
 - Never raise a marker without the citation that backs it. No citation ⇒ `[INFER]`.
 - **Negative-existence claims carry the same open-it obligation as positive ones.** A negative existence claim about a named artifact ("no `com.tridium.niagarad.license.*` exists in `niagarad.jar`") is `[CERT]` ONLY if that EXACT named artifact was opened/decompiled. An agent asserting absence about an artifact it did NOT open is `[INFER]`, never `[CERT]` — the same discipline that requires a positive claim to cite the opened source applies symmetrically to absence.
@@ -579,6 +601,21 @@ wrong project #3993 and engram has no delete tool — a misfiled memory is perma
 deliberately.) For a multi-focus target (§16), keep one project per target and disambiguate focuses via
 the topic key: `research/<target>/<focus>/gaps`, `.../progress`.
 
+**Unregistered-target fallback (do not skip the mirror).** The convention above assumes the target has an Engram
+project. An ad-hoc path, a brand-new target, or a `document` run over something not in `TARGETS.md` may have
+none — two document runs hit this independently and one silently skipped the mirror. Rule: mirror under the
+KIT's project (`sdd-investigacion`) with a topic key that names the target slug (`research/<target-slug>/…`),
+state that fallback in the block ("Engram: mirrored under the kit project — target unregistered"), and note it
+in the §18 retro so registration can follow. A finding with no mirror is undocumented (contract below); a
+missing project is not a reason to lose it.
+
+**Memory is evidence about memory, not about the subject.** `mem_search` returning nothing is NOT proof of
+absence — say "no Engram hit" and search the corpus and the source (the same three-state rule instruments
+follow: absent index, empty index, no match). A memory a human asserts from recall ("I think we found that in
+July") is a claim until the cited block or source is re-opened. And a finding already cited `[CERT]` in a
+block is an ASSET: re-cite it by block id (`[Block N] §N.x`) instead of re-deriving it — re-derivation costs
+a sweep and risks a second, slightly different number.
+
 **Memory is a MIRROR, not the record. `undocumented_findings` contract.**
 A finding that exists only in memory is undocumented — the corpus cannot cite it, reviewers
 cannot audit it, and a future agent reading the blocks will not see it. This failure is
@@ -633,7 +670,10 @@ the focus's OWN state file, in this order: a `## Covered blocks` list when prese
 `covered_blocks unverifiable under shared-global (no attributed block ids listed)` as INFO — an honest
 cannot-see, never a FAIL against the corpus total (§7 three-state rule). The corpus-wide count is still
 printed, as INFO (`corpus total N, shared-global`). `--sync-state` writes the attributed count. A focus whose
-envelope disagrees with its own listed ids is a TRUE finding and stays a FAIL.
+envelope disagrees with its own listed ids is a TRUE finding and stays a FAIL. Attribution is per-focus set
+membership, so one block MAY be attributed to several focuses (a cross-focus synthesis block legitimately
+appears in each focus that cites it as covered); `covered_blocks` counts the focus's OWN set and the sets are
+not required to partition the corpus — the corpus total is therefore not the sum of the focus counts.
 **Instrument status (readback against the live code, kit issue #423):** until #423 lands, `verify-state.sh`
 still compares `covered_blocks` against the corpus-wide file count under `shared-global` (its CHECK A has no
 attribution step yet). On a shared-global corpus treat that FAIL as noise and do NOT run `--sync-state` on a
@@ -2319,6 +2359,16 @@ PROMPT-LOOP BOOTSTRAP e). The outline is seeded from three sources: (a) what the
 their notes, (c) RECONSTRUCTing the steps of the session just lived (a how-to for connecting an EM500 sensor,
 bringing up a tool). One block transcribes + cites one outline item.
 
+**FREEZE THE LIVE SUBJECT FIRST.** Document mode often captures a subject that is MOVING while you write —
+a running app, a deployed viewer, a working tree another lane edits. Before citing it, SNAPSHOT it: record the
+subject's identity in the block header `Subject version` stamp (commit sha, or the `sha256`/md5 of the artifact
+set, or the mtime when nothing better exists) and cite the SNAPSHOT (`subject-snapshot-vN/…`), never the live
+path. When the subject moves, re-snapshot (v(N+1)) and say which blocks cite which snapshot. Evidence: in one
+document run the subject's md5 drifted 1335aad0 → dbd52496 → 433630f3 while blocks were being written, and the
+rule was applied again twice (snapshots v6, v7) — three independent validations from two targets. A block that
+cites a live path is not reproducible the day after it is written. Corollary: a cached or downloaded artifact
+pins its RESOLVED location (or the resolver command that produced it) in the citation, not the URL it started from.
+
 **The procedure / how-to genre.** A block's evidence base depends on what it documents. Documenting how
 something in the SUBJECT works is ordinary `[CERT]` file:line. Documenting a PROCEDURE — a how-to (connect an
 EM500 sensor, bring up a tool, a runbook step) — has a different evidence base: the SESSION itself is the
@@ -2338,6 +2388,14 @@ call: ask "does this knowledge serve OTHER targets too?"
   `toolbelt/tool-registry.md` after the run — kit changes are never applied from inside a run
   (§18 propose-never-apply). The browser-appliance and serial bring-up how-tos in `toolbelt/DYNAMIC-SETUP.md`
   are the kind of toolchain how-tos this routing eventually produces.
+
+**Quick-mode terminals and client knowledge.** A quick-mode answer (SKILL.md triage) that produced a real finding
+terminates in TWO writes, not zero: an Engram finding under the target project, and a SEED line in the target's
+gap backlog when the question deserves a block later — otherwise the answer evaporates with the session. When a
+quick answer DRIFTS from "what is" into design advice ("you should build it as …"), MARK the shift in the reply;
+advice is `[INFER]` about the future, not evidence about the subject. Knowledge about a CLIENT's site, people,
+or commercial context routes to the client's own log, never to the research corpus — the corpus documents the
+subject, and a client fact in a block is both a confidentiality leak and a citation nobody can verify.
 
 **Mandatory Engram mirror (the reason the mode exists).** Everything documented MUST be mirrored to Engram as
 topic pointers so it stays recall-findable — subject knowledge under `research/<target>/<topic>`, toolchain
