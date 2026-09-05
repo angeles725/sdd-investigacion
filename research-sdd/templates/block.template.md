@@ -20,14 +20,14 @@
 >
 > <Layer/area>. Connects [Block K] (<brief relationship>).
 >
-> **Type:** `standard` (default — omit this field) | `collaborative` — the agent authors the software/evidence
-> half; sections the human must supply carry `[TO ANNOTATE]`. A `collaborative` block is VALID in its partial
-> state and is NOT a coverage gap (METHODOLOGY §4). | `mixed` — evidence + synthesis/verdict combined (a
-> section draws `[INFER]` across PRIOR blocks, not this block's own `[CERT]`) | `absence-centred` — the
-> primary finding IS a proven absence (remaining content deduces consequences) | `capture` — §20 document
-> mode (records what is already known/done; no gap backlog). Declare `mixed`/`absence-centred`/`capture` so
-> `verify-block.sh` reads the high `[INFER]`/`[CERT]` ratio correctly instead of as a false exhaustion
-> signal (METHODOLOGY §11).
+> **Type:** (closed grammar §4) `standard` (default — omit this field) | `evidence` (alias of `standard`) |
+> `synthesis` — conclusions drawn from prior blocks; file:line cites not expected | `mixed` — evidence +
+> synthesis combined (a section draws `[INFER]` across PRIOR blocks) | `absence-centred` — the primary
+> finding IS a proven absence | `capture` — §20 document mode (records known/done; no gap backlog) |
+> `document` (alias of `capture`) | `collaborative` — agent-authored evidence half + `[TO ANNOTATE]`
+> placeholders for the human; valid in its partial state, NOT a coverage gap (METHODOLOGY §4) | `audit`.
+> `verify-block.sh` downgrades the ZERO-citations WARN to INFO for `synthesis`, `capture`, `document`, and
+> `absence-centred`; all other tokens keep the WARN (METHODOLOGY §11, kit issue #422).
 >
 > **Breakthrough:** `<omit unless this block captures a DECISIVE solution>` — one line: WHAT was cracked and
 > HOW. Presence tags this block for the fleet ledger (`BREAKTHROUGHS.md`, METHODOLOGY §22); it is ORTHOGONAL

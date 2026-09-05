@@ -627,6 +627,91 @@ grep -qiE 'citation dedup FAILED|unresolved.*grep exit' <<<"$out_vb50" \
   && ok "50 OCR cite dedup grep -vE exit-2 → dedup WARN emitted (not silent)" \
   || no "50 OCR cite dedup grep -vE exit-2 not reported :: $out_vb50"
 
+# ---- P6-TYPE-CLASSIFY: Type token parsing changes WARN to INFO for declared no-citation types ------------
+
+# 51 — declared 'synthesis' block with [CERT]+no-cites → INFO, not WARN.
+d="$TMP/p6-type-synthesis.md"
+{ echo "# Block 51 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** synthesis (no file:line cites — cross-block refs only)"; echo
+  echo "---"; echo
+  echo "## Summary [CERT]"; echo "The module is initialized via [Block 5]. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*expected for declared type synthesis' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "51 P6-TYPE-CLASSIFY: declared synthesis → INFO (not WARN)"
+else
+  no "51 P6-TYPE-CLASSIFY: synthesis not downgraded to INFO :: $(grep -iE 'INFO|WARN.*cert|cert.*zero' <<<"$out" | head -2)"
+fi
+
+# 52 — unrecognised Type token → WARN that names the token (never silent).
+d="$TMP/p6-type-unrecognised.md"
+{ echo "# Block 52 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** experimental-new-type"; echo
+  echo "---"; echo
+  echo "## Result [CERT]"; echo "The flag is always set. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*unrecogni' <<<"$out" && grep -q 'experimental-new-type' <<<"$out"; then
+  ok "52 P6-TYPE-UNRECOGNISED: unrecognised token named in WARN"
+else
+  no "52 P6-TYPE-UNRECOGNISED: token not named :: $(grep -iE 'WARN|experimental|INFO' <<<"$out" | head -2)"
+fi
+
+# 53 — declared 'capture' (alias of document) → INFO, not WARN.
+d="$TMP/p6-type-capture.md"
+{ echo "# Block 53 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** capture — §20 document mode"; echo
+  echo "---"; echo
+  echo "## Known state [CERT]"; echo "The configuration is X. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*expected for declared type capture' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "53 P6-TYPE-CLASSIFY: declared capture → INFO (not WARN)"
+else
+  no "53 P6-TYPE-CLASSIFY: capture not downgraded to INFO :: $(grep -iE 'INFO|WARN.*cert' <<<"$out" | head -2)"
+fi
+
+# 54 — no Type line → WARN fires + grammar hint emitted.
+d="$TMP/p6-type-none.md"
+{ echo "# Block 54 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## Result [CERT]"; echo "The flag is always set. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" && grep -qiE 'HINT.*[Tt]ype.*token|[Hh]int.*[Dd]eclare' <<<"$out"; then
+  ok "54 P6-TYPE-CLASSIFY: no Type line → WARN + grammar hint"
+else
+  no "54 P6-TYPE-CLASSIFY: no-type WARN or hint missing :: $(grep -iE 'WARN|HINT' <<<"$out" | head -3)"
+fi
+
+# 55 — declared 'document' type (alias of capture) → INFO, not WARN.
+d="$TMP/p6-type-document.md"
+{ echo "# Block 55 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** document / runbook"; echo
+  echo "---"; echo
+  echo "## Runbook [CERT]"; echo "Procedure is defined in the ops guide. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*expected for declared type document' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "55 P6-TYPE-CLASSIFY: declared document → INFO (not WARN)"
+else
+  no "55 P6-TYPE-CLASSIFY: document not downgraded to INFO :: $(grep -iE 'INFO|WARN.*cert' <<<"$out" | head -2)"
+fi
+
+# 56 — declared 'standard' type (citation-expected) → WARN still fires.
+d="$TMP/p6-type-standard.md"
+{ echo "# Block 56 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** standard — primary evidence block"; echo
+  echo "---"; echo
+  echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" && ! grep -qiE 'INFO.*declared type' <<<"$out"; then
+  ok "56 P6-TYPE-CLASSIFY: declared standard (citation-expected) → WARN still fires (not INFO)"
+else
+  no "56 P6-TYPE-CLASSIFY: standard wrongly suppressed WARN or emitted INFO :: $(grep -iE 'WARN|INFO' <<<"$out" | head -2)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -843,6 +928,58 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-p6-doc-aware: P6-DOC-AWARE-SUPPRESS sentinel not found in SUT (doc-awareness not implemented or marker missing)"
   fi
+  # teeth-p6-type-classify: neuter P6-TYPE-CLASSIFY; synthesis fixture must revert to WARN (not INFO).
+  echo "-- teeth-p6-type-classify: neuter P6-TYPE-CLASSIFY; synthesis block must revert to WARN --"
+  mutant_type="$TMP/verify-block.P6TYPECLASSIFY.sh"
+  if grep -q '# P6-TYPE-CLASSIFY' "$SUT"; then
+    sed '/# P6-TYPE-CLASSIFY/ s/.*/        if false; then  # P6-TYPE-CLASSIFY [NEUTERED]/' "$SUT" > "$mutant_type"
+    bash -n "$mutant_type" 2>/dev/null; type_syntax=$?
+    if [ "$type_syntax" != "0" ]; then
+      no "teeth-p6-type-classify: mutant has syntax error (bash -n rc=$type_syntax) — cannot run"
+    else
+      d_type="$TMP/p6-type-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "> **Type:** synthesis"; echo
+        echo "---"; echo
+        echo "## Summary [CERT]"; echo "The module is initialized via [Block 5]. [CERT]"; } > "$d_type"
+      mout_type="$(bash "$mutant_type" "$d_type" 2>/dev/null)"
+      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_type" && ! grep -qiE 'INFO.*declared type' <<<"$mout_type"; then
+        ok "teeth-p6-type-classify: neutered classify → synthesis reverts to WARN (test 51 has teeth)"
+      else
+        no "teeth-p6-type-classify: neutered mutant did NOT revert to WARN :: $(grep -iE 'WARN|INFO|cert' <<<"$mout_type" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-type-classify: P6-TYPE-CLASSIFY sentinel not found in SUT"
+  fi
+
+  # teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must stop naming itself.
+  echo "-- teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must not appear in output --"
+  mutant_unrec="$TMP/verify-block.P6TYPEUNREC.sh"
+  if grep -q '# P6-TYPE-UNRECOGNISED' "$SUT"; then
+    sed '/# P6-TYPE-UNRECOGNISED/ s/.*/      elif false; then  # P6-TYPE-UNRECOGNISED [NEUTERED]/' "$SUT" > "$mutant_unrec"
+    bash -n "$mutant_unrec" 2>/dev/null; unrec_syntax=$?
+    if [ "$unrec_syntax" != "0" ]; then
+      no "teeth-p6-type-unrecognised: mutant has syntax error (bash -n rc=$unrec_syntax) — cannot run"
+    else
+      d_unrec="$TMP/p6-unrec-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "> **Type:** experimental-new-type"; echo
+        echo "---"; echo
+        echo "## Result [CERT]"; echo "The flag is always set. [CERT]"; } > "$d_unrec"
+      mout_unrec="$(bash "$mutant_unrec" "$d_unrec" 2>/dev/null)"
+      if ! grep -q 'experimental-new-type' <<<"$mout_unrec"; then
+        ok "teeth-p6-type-unrecognised: neutered branch → token name absent from output (test 52 has teeth)"
+      else
+        no "teeth-p6-type-unrecognised: neutered mutant STILL named the token :: $(grep -iE 'experimental|WARN' <<<"$mout_unrec" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-p6-type-unrecognised: P6-TYPE-UNRECOGNISED sentinel not found in SUT"
+  fi
+
   # teeth-p6-wording: mutate the new P6 WARN message by stripping the "synthesis / REMITTANCE" expected-case
   # phrase; the warn line must then lack it, proving test 48's assertion bites (would fail on this mutant).
   echo "-- teeth-p6-wording: strip 'synthesis / REMITTANCE' phrase from P6 WARN; test 48 must detect absence --"

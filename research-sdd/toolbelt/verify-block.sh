@@ -148,7 +148,28 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
     if [ "$code_cert_total" -eq 0 ]; then  # P6-DOC-AWARE-SUPPRESS
       echo "   (doc-grade citations only ([CERT-doc]/[CERT-web]/[CERT-a]) — file:line not expected; validate tokens via verify-sources.sh + §5 token-check)"
     else
-      echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+      # P6-TYPE-PARSE: extract the leading Type token from the block's header blockquote.
+      # Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit
+      # Leading token: after "Type:" colon, strip at most one "**" close-bold (e.g. **Type:**) or "`" and spaces.
+      _type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
+      _type_token=""
+      if [ -n "$_type_raw" ]; then
+        # Strip everything through "Type:"; then strip optional ** (bold close), optional `, then leading spaces.
+        _type_after=$(printf '%s' "$_type_raw" | sed 's/.*[Tt]ype://')
+        _type_stripped=$(printf '%s' "$_type_after" | sed 's/^\*\*//; s/^`//; s/^[[:space:]]*//')
+        _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
+      fi
+      # Classify: INFO for no-citation declared types; WARN-by-name for unrecognised; WARN+hint for absent Type line.
+      if printf '%s\n' synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-CLASSIFY
+        echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
+      elif [ -n "$_type_raw" ] && ! printf '%s\n' standard evidence mixed collaborative audit synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-UNRECOGNISED
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_token'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
+      elif [ -z "$_type_raw" ]; then
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+        echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
+      else
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+      fi
     fi
   else
     echo "   (no file:line citations found)"
