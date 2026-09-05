@@ -168,17 +168,22 @@ ADAPTERS="$HERE/../../install/adapters.sh"
 
 # _a12_installed_check <home> <main_skill>
 # Prints one canonical INFO string (no leading prefix) to stdout.
-# Three-state (§7): absent-input / DRIFT / in sync — never collapses absence to in-sync.
+# Four states: absent-input / error-reading (diff rc≥2) / DRIFT / in sync.
+# Never collapses absence or error to in-sync (§7 anti-silent-zero).
 _a12_installed_check() {
   local home="$1" main_skill="$2"
-  local installed_path diff_patch hunks lines
+  local installed_path diff_patch _drc hunks lines
   installed_path="$(rsdd_field claude skill_path "$home")"
   if [ ! -f "$installed_path" ]; then
     printf 'installed copy: absent-input (%s not found) — drift check skipped\n' \
            "$installed_path"
     return 0
   fi
-  diff_patch="$(diff -u "$installed_path" "$main_skill")" || true
+  diff_patch="$(diff -u "$installed_path" "$main_skill")"; _drc=$?
+  if [ "$_drc" -ge 2 ]; then
+    printf 'installed copy: error reading — drift check inconclusive (diff rc=%s)\n' "$_drc"
+    return 0
+  fi
   hunks="$(printf '%s\n' "$diff_patch" | grep -c '^@@')" || true
   lines="$(printf '%s\n' "$diff_patch" | grep -c '^+[^+]')" || true
   if [ "${hunks:-0}" -eq 0 ]; then
@@ -296,6 +301,33 @@ if [ "$PROVE_TEETH" = "1" ]; then
       no "teeth-A12-absent-collapse: absent wrongly reports 'in sync' (absent→in-sync mutant undetected)"
     else
       ok "teeth-A12-absent-collapse: absent→in-sync mutant goes RED (teeth confirmed)"
+    fi
+
+    # A12 teeth: unreadable installed file — [ -f ] is TRUE but diff exits ≥2.
+    # Must report 'inconclusive', NOT 'in sync'.
+    # Skip if running as root (root ignores mode-000 and diff would succeed).
+    echo "-- prove-teeth: A12 unreadable fixture — inconclusive; not in sync --"
+    if [ "$(id -u)" = "0" ]; then
+      ok "teeth-A12-unreadable: skipped (running as root; chmod 000 does not block root)"
+    else
+      _fx_unread="$TMP/unread-home"
+      mkdir -p "$_fx_unread/.claude/skills/research-sdd"
+      _unread_skill="$_fx_unread/.claude/skills/research-sdd/SKILL.md"
+      : > "$_unread_skill"
+      chmod 000 "$_unread_skill"
+      _unread_out="$(_a12_installed_check "$_fx_unread" "$MAIN")"
+      chmod 644 "$_unread_skill"   # restore so TMP cleanup can remove it
+      if printf '%s\n' "$_unread_out" | grep -qF 'inconclusive'; then
+        ok "teeth-A12-unreadable: unreadable fixture reports inconclusive"
+      else
+        no "teeth-A12-unreadable: expected 'inconclusive'; got: $_unread_out"
+      fi
+      # Mutant: collapse error → in sync (the old || true code path)
+      if printf '%s\n' "$_unread_out" | grep -qF 'in sync'; then
+        no "teeth-A12-unreadable-collapse: unreadable wrongly reports 'in sync' (error→in-sync mutant undetected)"
+      else
+        ok "teeth-A12-unreadable-collapse: error→in-sync mutant goes RED (teeth confirmed)"
+      fi
     fi
   fi
 fi
