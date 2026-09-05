@@ -165,7 +165,7 @@ iter_gaps_rows() {
 saturation_line() {
   local pad='  saturation      : '
   grep -qF '## Iteration history' "$state" || { echo "${pad}(no iteration history)"; return; }
-  local stream colhdr iter_data struct_data nrows nstruct w window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok _forms_src
+  local stream colhdr iter_data struct_data all_sorted nrows nstruct w window iter_window badwin wforms nbad forms sum warn note_struct note_seed total_rows last_struct_ok
   stream="$(iter_gaps_rows)"
   colhdr="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="col_none"{print $2; exit}')"
   if [ -n "$colhdr" ]; then echo "${pad}no New-gaps column (header: ${colhdr})"; return; fi
@@ -174,6 +174,8 @@ saturation_line() {
   struct_data="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="struct"{print $2"\t"$3"\t"$4}')"
   nrows="$(printf '%s' "$iter_data" | grep -c .)"
   nstruct="$(printf '%s' "$struct_data" | grep -c .)"
+  # All data rows sorted stably by sk — struct rows at seq=K tie with iter rows at index=K; file position wins ties
+  all_sorted="$(printf '%s\n' "$stream" | awk -F'\t' '($1=="row"||$1=="struct"){print $2"\t"$3"\t"$4}' | sort -s -t$'\t' -k1,1n)"  # NG-FORMS-STABLE-SORT NG-WFORMS-STRUCT
   # excluded-rows note — never silent: structural rows are always announced (#449)
   note_struct=""
   if [ "$nstruct" -gt 0 ]; then
@@ -187,23 +189,23 @@ saturation_line() {
   fi
   if [ "$nrows" -lt 1 ]; then echo "${pad}insufficient history (0 iterations)${note_struct}${note_seed}"; return; fi
   w=$(( nrows < 3 ? nrows : 3 ))
-  window="$(printf '%s\n' "$iter_data" | tail -n "$w")"
-  # WINDOW HONESTY: if any row in the last-3 window is unreadable, do NOT compute on the readable
-  # subset — a readable-but-older row must never rescue an unreadable tail (#420).
-  badwin="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad"' | grep -c .)"
+  window="$(printf '%s\n' "$all_sorted" | tail -n "$w")"
+  iter_window="$(printf '%s\n' "$iter_data" | tail -n "$w")"
+  # WINDOW HONESTY: if any iter row in the last-w iter window is unreadable, do NOT compute on the
+  # readable subset — a readable-but-older row must never rescue an unreadable tail (#420).
+  badwin="$(printf '%s\n' "$iter_window" | awk -F'\t' '$2=="bad"' | grep -c .)"
   if [ "$badwin" -gt 0 ]; then  # NG-WINDOW
-    wforms="$(printf '%s\n' "$stream" | awk -F'\t' '($1=="row"||$1=="struct") && $3=="bad" && !seen[$4]++ {n++; if(n<=2)o=o (n>1?",":"") $4} END{print o}')"  # NG-WFORMS-STRUCT: file order, struct cells included
+    wforms="$(printf '%s\n' "$window" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
     echo "${pad}unreadable window — ${badwin} of last ${w} rows unrecognised (forms: ${wforms})${note_struct}${note_seed}"; return
   fi
   if [ "$nrows" -lt 3 ]; then echo "${pad}insufficient history ($nrows iterations)${note_struct}${note_seed}"; return; fi
-  sum="$(printf '%s\n' "$window" | awk -F'\t' '{s+=$3} END{print s+0}')"
-  # partial WARN: count and collect forms in FILE ORDER over ALL data rows (struct cells included)
+  sum="$(printf '%s\n' "$iter_window" | awk -F'\t' '{s+=$3} END{print s+0}')"
+  # partial WARN: count and collect forms in sortkey order (stable — ties by file position, struct included)
   total_rows=$(( nrows + nstruct ))
-  _forms_src="$stream"  # NG-WARN-FILE-ORDER: file order; sortkey-sort here breaks form ordering
-  nbad="$(printf '%s\n' "$_forms_src" | awk -F'\t' '($1=="row"||$1=="struct") && $3=="bad"' | grep -c .)"
+  nbad="$(printf '%s\n' "$all_sorted" | awk -F'\t' '$2=="bad"' | grep -c .)"
   warn=""
   if [ "$nbad" -gt 0 ]; then
-    forms="$(printf '%s\n' "$_forms_src" | awk -F'\t' '($1=="row"||$1=="struct") && $3=="bad" && !seen[$4]++ {n++; if(n<=2)o=o (n>1?",":"") $4} END{print o}')"
+    forms="$(printf '%s\n' "$all_sorted" | awk -F'\t' '$2=="bad" && !seen[$3]++ {n++; if(n<=2)o=o (n>1?",":"") $3} END{print o}')"
     warn="  [WARN: ${nbad} of ${total_rows} rows unreadable (forms: ${forms})]"
   fi
   if [ "$sum" -eq 0 ]; then

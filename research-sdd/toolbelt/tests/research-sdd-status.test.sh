@@ -1340,53 +1340,45 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-#449c: orig=[$(grep -i saturation <<<"$c449_orig")] mut=[$(grep -i saturation <<<"$c449_mrep")] — excluded note not load-bearing (THEATER)"; fi
   else no "teeth-#449c: note_struct assignment not found in SUT"; fi
 
-  # #449 teeth (d): forms sample sorted by sortkey → file-reversed fixture reorders forms → red.
-  # Mutant: _forms_src uses sortkey-sorted iter_data (stream format prepended) instead of "$stream".
-  # Fixture: 5 rows; last 3 by sortkey (4,5,6) are all ok → partial WARN path.
-  # File order: idx=3 (first-form, bad), idx=2 (second-form, bad), then 4,5,6 ok.
-  # Real (file order)  : forms: first-form,second-form.
-  # Mutant (sortkey)   : forms: second-form,first-form  (sk=2 before sk=3).
-  echo "-- teeth-#449d: sortkey-sorted mutant reorders forms → file-order guard has teeth --"
+  # #449 teeth (d): unstable sort reorders tied-sk forms → stable tie-break guard has teeth.
+  # Fixture: struct row BETWEEN iter1 and iter2 (sk=2 tie). Stream: iter1(sk=1,bad), struct(sk=2,bad), iter2(sk=2,bad), iter3(sk=3,bad).
+  # Stable sort all_sorted: iter1(sk=1), struct(sk=2,file-pos=2), iter2(sk=2,file-pos=3), iter3(sk=3). tail-3: struct,iter2,iter3.
+  # window wforms: STRUCT-form (file-first at sk=2) then ITER-form-2 → "STRUCT-form,ITER-form-2".
+  # Mutant (sort without -s): "I"<"S" alphabetically → iter2 before struct at sk=2 → tail-3: iter2,struct,iter3 → wforms: ITER-form-2,STRUCT-form → red.
+  echo "-- teeth-#449d: unstable-sort mutant reorders tied-sk forms → stable tie-break guard has teeth --"
   d449d_mut="$TMP/status.449D.MUTANT.sh"
-  if grep -q 'NG-WARN-FILE-ORDER' "$SUT"; then
-    # Build the mutant by replacing the _forms_src sentinel line with a sortkey-sorted version.
-    sentinel_line="$(grep -n 'NG-WARN-FILE-ORDER' "$SUT" | head -1 | cut -d: -f1)"
-    if [ -n "$sentinel_line" ]; then
-      head -n "$((sentinel_line - 1))" "$SUT" > "$d449d_mut"
-      # Replacement line: _forms_src uses iter_data (sortkey-sorted) converted back to stream format.
-      # printf '%%s\\n' → %s\n (level-1 printf produces the literal text '%s\n' for the mutant file)
-      printf '  _forms_src="$(printf '"'"'%%s\\n'"'"' "$iter_data" | awk -F'"'"'\\t'"'"' '"'"'{print "row\\t"$0}'"'"')"  # MUTANT-449D: sortkey-sorted forms\n' >> "$d449d_mut"
-      tail -n "+$((sentinel_line + 1))" "$SUT" >> "$d449d_mut"
-      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-      d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 3 | first-form |" "| 2 | second-form |" "| 4 | 0 |" "| 5 | 0 |" "| 6 | 0 |"
-      d449d_orig="$(bash "$SUT" "$d" 2>/dev/null)"
-      d449d_mrep="$(bash "$d449d_mut" "$d" 2>/dev/null)"
-      if grep -qF 'forms: first-form,second-form' <<<"$d449d_orig" && grep -qF 'forms: second-form,first-form' <<<"$d449d_mrep"; then
-        ok "teeth-#449d: sortkey-sorted mutant reorders forms → file-order guard has teeth"
-      else no "teeth-#449d: orig=[$(grep -i 'WARN' <<<"$d449d_orig")] mut=[$(grep -i 'WARN' <<<"$d449d_mrep")] — file-order guard not load-bearing (THEATER)"; fi
-    else no "teeth-#449d: NG-WARN-FILE-ORDER line not found by grep -n"; fi
-  else no "teeth-#449d: NG-WARN-FILE-ORDER sentinel not found in SUT"; fi
+  if grep -q 'NG-FORMS-STABLE-SORT' "$SUT"; then
+    sed 's/sort -s -t/sort -t/' "$SUT" > "$d449d_mut"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    d="$TMP/sat449d"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | ITER-form-1 |" "| — | STRUCT-form |" "| 2 | ITER-form-2 |" "| 3 | ITER-form-3 |"
+    d449d_orig="$(bash "$SUT" "$d" 2>/dev/null)"
+    d449d_mrep="$(bash "$d449d_mut" "$d" 2>/dev/null)"
+    if grep -qF 'forms: STRUCT-form,ITER-form-2' <<<"$d449d_orig" && grep -qF 'forms: ITER-form-2,STRUCT-form' <<<"$d449d_mrep"; then
+      ok "teeth-#449d: unstable-sort mutant reorders tied-sk forms → stable tie-break guard has teeth"
+    else no "teeth-#449d: orig=[$(grep -i 'unreadable\|WARN' <<<"$d449d_orig")] mut=[$(grep -i 'unreadable\|WARN' <<<"$d449d_mrep")] — stable tie-break not load-bearing (THEATER)"; fi
+  else no "teeth-#449d: NG-FORMS-STABLE-SORT sentinel not found in SUT"; fi
 
-  # #449 teeth (e): wforms computed without struct rows → struct-first bad cell dropped → red.
-  # Fixture: — row (STRUCT-seed-bad, file-order-first, unreadable) then 3 iter rows all bad.
-  # All 3 iter rows are in the window → unreadable-window path triggered.
-  # Real (struct included): forms: STRUCT-seed-bad,ITER-bad-1.
-  # Mutant (struct dropped): forms: ITER-bad-1,ITER-bad-2   (struct cell absent).
-  echo "-- teeth-#449e: wforms drops struct rows → struct-first bad cell missing from forms → red --"
+  # #449 teeth (e): all_sorted computed without struct rows → struct-first bad cell dropped → red.
+  # Fixture: struct row BETWEEN iter2 and iter3, tying at sk=3. Stream: iter1(ok), iter2(ok), struct(sk=3,bad), iter3(sk=3,bad), iter4(bad).
+  # all_sorted tail-3: struct(sk=3,file-first), iter3(sk=3,file-second), iter4(sk=4) → wforms: STRUCT-seed-bad,ITER-bad-3.
+  # Mutant: all_sorted drops ||$1=="struct" → struct absent from window → wforms: ITER-bad-3,ITER-bad-4 → red.
+  echo "-- teeth-#449e: all_sorted without struct rows → struct-first cell dropped from wforms → red --"
   e449e_mut="$TMP/status.449E.MUTANT.sh"
   if grep -q 'NG-WFORMS-STRUCT' "$SUT"; then
     wforms_line="$(grep -n 'NG-WFORMS-STRUCT' "$SUT" | head -1 | cut -d: -f1)"
     if [ -n "$wforms_line" ]; then
       head -n "$((wforms_line - 1))" "$SUT" > "$e449e_mut"
-      printf '    wforms="$(printf '"'"'%%s\\n'"'"' "$stream" | awk -F'"'"'\\t'"'"' '"'"'$1=="row" && $3=="bad" && !seen[$4]++ {n++; if(n<=2)o=o (n>1?",":"") $4} END{print o}'"'"')"  # MUTANT-449E: struct rows excluded from wforms\n' >> "$e449e_mut"
+      cat >> "$e449e_mut" << 'MUTANT_449E_EOF'
+  all_sorted="$(printf '%s\n' "$stream" | awk -F'\t' '$1=="row"{print $2"\t"$3"\t"$4}' | sort -s -t$'\t' -k1,1n)"  # MUTANT-449E: struct rows excluded from all_sorted
+MUTANT_449E_EOF
       tail -n "+$((wforms_line + 1))" "$SUT" >> "$e449e_mut"
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-      d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| — | STRUCT-seed-bad |" "| 1 | ITER-bad-1 |" "| 2 | ITER-bad-2 |" "| 3 | ITER-bad-3 |"
+      d="$TMP/sat449e"; mkiter_h "$d" "| # | New gaps uncovered |" "| 1 | 0 |" "| 2 | 0 |" "| — | STRUCT-seed-bad |" "| 3 | ITER-bad-3 |" "| 4 | ITER-bad-4 |"
       e449e_orig="$(bash "$SUT" "$d" 2>/dev/null)"
       e449e_mrep="$(bash "$e449e_mut" "$d" 2>/dev/null)"
-      if grep -qF 'forms: STRUCT-seed-bad,ITER-bad-1' <<<"$e449e_orig" && grep -qF 'forms: ITER-bad-1,ITER-bad-2' <<<"$e449e_mrep"; then
-        ok "teeth-#449e: wforms struct-excluded mutant drops struct-first cell → file-order guard has teeth"
-      else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — wforms struct guard not load-bearing (THEATER)"; fi
+      if grep -qF 'forms: STRUCT-seed-bad,ITER-bad-3' <<<"$e449e_orig" && grep -qF 'forms: ITER-bad-3,ITER-bad-4' <<<"$e449e_mrep"; then
+        ok "teeth-#449e: all_sorted struct-excluded mutant drops struct-first cell → struct guard has teeth"
+      else no "teeth-#449e: orig=[$(grep -i 'unreadable' <<<"$e449e_orig")] mut=[$(grep -i 'unreadable' <<<"$e449e_mrep")] — all_sorted struct guard not load-bearing (THEATER)"; fi
     else no "teeth-#449e: NG-WFORMS-STRUCT line not found by grep -n"; fi
   else no "teeth-#449e: NG-WFORMS-STRUCT sentinel not found in SUT"; fi
 
