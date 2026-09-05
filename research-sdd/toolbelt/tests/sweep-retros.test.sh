@@ -1161,11 +1161,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 55 — STATE 4: No delta indicators at all → confident 0, no WARN.
-#      A retro with no recognisable delta marker (no ## Proposed kit deltas heading, no
-#      letter+digit/bare-number headings, no Proposed/Delta/Deltas container heading) must
-#      report exactly `~0 proposed deltas` with NO WARN. This proves the four-state model
-#      is complete: STATE 4 is the only path that yields a confident 0.
+# 55 — STATE 4: No delta indicators at all → distinct 'no delta section found (empty-input)', no WARN.
+#      A retro with no recognisable delta heading (no canonical, no deprecated, no non-canonical
+#      indicators) must print 'no delta section found (empty-input)' instead of a confident '~0'.
+#      STATE 4 is still the only path that produces no indicator WARN — it just never claims a
+#      confident zero for a retro whose canonical section might simply be absent.
 kit="$(mkkit c55-nodelta)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
@@ -1176,11 +1176,11 @@ mkdir -p "$tgt/retros"
 write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q '~0 proposed deltas' <<<"$OUT" \
+   && grep -q 'no delta section found (empty-input)' <<<"$OUT" \
    && ! grep -qi 'WARN' <<<"$OUT"; then
-  ok "55 no delta indicators → confident ~0, no WARN" "(exit $RC)"
+  ok "55 no delta indicators → no delta section found (empty-input), no WARN" "(exit $RC)"
 else
-  no "55 no delta indicators → confident ~0, no WARN" "exit=$RC out=[$OUT]"
+  no "55 no delta indicators → no delta section found (empty-input), no WARN" "exit=$RC out=[$OUT]"
 fi
 
 # 56 — '## Proposed deltas' is a CANONICAL section heading → table rows COUNT (STATE 1).
@@ -1231,7 +1231,7 @@ fi
 #        (a) canonical section + numeric rows → STATE 1: ~N (never 0)
 #        (b) canonical section + 0 numeric rows → STATE 2: ~? (never 0)
 #        (c) non-canonical indicators only → STATE 3: ~? (never 0)
-#      Confident ~0 is ONLY allowed in STATE 4 (no indicators at all).
+#      STATE 4 (no indicators at all) outputs 'no delta section found (empty-input)' (case 55).
 _inv_pass=0; _inv_fail=0
 # (a) STATE 1 fixture
 kit="$(mkkit c58a-inv-state1)"; tgt="$kit/targetA"
@@ -1425,12 +1425,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Second teeth (negative control for the delta count). Case 4 claims '~N proposed deltas' is a
   # real tally of the ID-agnostic data rows inside the canonical section, computed by the awk
-  # script's END clause (form-1 path: print found+0 ":1:" data+0). Force the form-1 print line
-  # to emit WARN-A path instead; then re-run a 5-delta pending fixture: the count disappears
-  # and WARN appears. Case 4 has teeth only if the count disappears and WARN appears.
+  # script's END clause (form-1 path: printf "1:1:%d\001%s\n", data+0, depr_h). Force the form-1
+  # print line to emit WARN-A path instead; then re-run a 5-delta pending fixture: the count
+  # disappears and WARN appears. Case 4 has teeth only if the count disappears and WARN appears.
   # Also proves test 59 (D-prefix table fixture must COUNT, not WARN).
   echo "-- teeth: force awk form-1 path to WARN-A, expect STATE-1 fixture to downgrade to WARN + ~? --"
-  anchor2='print found+0 ":1:" data+0'
+  anchor2='printf "1:1:%d\001%s\n", data+0, depr_h'
   if [[ "$content" != *"$anchor2"* ]]; then
     no "teeth: locate awk END form-1 data-count clause" "anchor not found — SUT drifted?"
   else
@@ -1438,7 +1438,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 5
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    broken='print found+0 ":w:0"'                   # force WARN-A path regardless of rows seen
+    broken='printf "1:w:0\001%s\n",          depr_h'  # force WARN-A path regardless of rows seen
     printf '%s\n' "${content/"$anchor2"/$broken}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm" \
@@ -1649,13 +1649,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$kit_gp/toolbelt/sweep-retros.sh" "$kit_gb/toolbelt/sweep-retros.sh"
     outm_p="$("$BASH_BIN" "$kit_gp/toolbelt/sweep-retros.sh" 2>&1)"
     outm_b="$("$BASH_BIN" "$kit_gb/toolbelt/sweep-retros.sh" 2>&1)"
-    if grep -q '~0 proposed deltas' <<<"$outm_p" \
+    if grep -q 'no delta section found (empty-input)' <<<"$outm_p" \
        && ! grep -qi 'WARN' <<<"$outm_p" \
-       && grep -q '~0 proposed deltas' <<<"$outm_b" \
+       && grep -q 'no delta section found (empty-input)' <<<"$outm_b" \
        && ! grep -qi 'WARN' <<<"$outm_b"; then
-      ok "teeth G3: per-delta-broken mutant silently shows ~0 for P-prefix and bare-number (cases 36/37/38/39/44 have teeth)" "()"
+      ok "teeth G3: per-delta-broken mutant shows 'no delta section found' for P-prefix + bare-number (cases 36/37/38/39/44 have teeth)" "()"
     else
-      no "teeth G3: per-delta-broken mutant must show ~0 + no WARN for P-prefix and bare-number" "p=[$outm_p] b=[$outm_b]"
+      no "teeth G3: per-delta-broken mutant must show 'no delta section found' + no WARN for P-prefix + bare-number" "p=[$outm_p] b=[$outm_b]"
     fi
   fi
 
@@ -1879,6 +1879,186 @@ STRIPPED
       ok "teeth A1: INFO-neutered mutant silent on absent target (case 62 has teeth)" "()"
     else
       no "teeth A1: INFO-neutered mutant still prints INFO — case 62 is THEATER" "out=[$outm]"
+    fi
+  fi
+fi
+
+# 65 — DEPRECATED ALIAS: '## Summary of proposed deltas' is recognized, counts table rows,
+#      and emits a WARN-migrate message. The alias is counted exactly like a canonical section
+#      (form 1) but the WARN is appended so the author knows to rename the heading.
+#      RED on main: the heading falls to 'no delta section found' (not recognized).
+kit="$(mkkit c65-depr-summary)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## Summary of proposed deltas\n\n'
+  printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~1 proposed deltas' <<<"$OUT" \
+   && grep -qi "WARN.*deprecated delta heading.*Summary of proposed deltas" <<<"$OUT" \
+   && grep -qi "migrate to.*Proposed kit deltas.*§18" <<<"$OUT"; then
+  ok "65 '## Summary of proposed deltas' → ~1 counted + deprecated WARN (alias recognized)" "(exit $RC)"
+else
+  no "65 '## Summary of proposed deltas' → ~1 counted + deprecated WARN (alias recognized)" "exit=$RC out=[$OUT]"
+fi
+
+# 66 — NUMBERED CANONICAL WITH TRAILING TEXT: '## 1. Proposed kit deltas for the next version …'
+#      counts silently as a canonical heading (no deprecated WARN). The widened pattern now
+#      accepts any trailing text after 'proposed kit deltas?' — not just '(' or EOL.
+#      RED on main: the trailing text stops the old pattern, heading falls to no-delta-section.
+kit="$(mkkit c66-numbered-trailing)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n# Retro\n\n'
+  printf '## 1. Proposed kit deltas for the next version — mega session\n\n'
+  printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q '~1 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN.*deprecated' <<<"$OUT"; then
+  ok "66 '## 1. Proposed kit deltas for the next version — …' → ~1 counted, no deprecated WARN" "(exit $RC)"
+else
+  no "66 '## 1. Proposed kit deltas for the next version — …' → ~1 counted, no deprecated WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 67 — NO REVIEW-STATUS MARKER: a retro with no leading marker emits
+#      'WARN: no review-status marker in <basename> — add <!-- review-status: pending -->'.
+#      The WARN must name the retro file so it is actionable (F2, kit #436).
+#      RED on main: the empty-status case was silently swallowed by '""|pending) ;;'.
+kit="$(mkkit c67-nomarker-warn)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '# Retro (no marker)\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"; run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qi "WARN.*no review-status marker.*r1\.md" <<<"$OUT" \
+   && grep -q "add '<!-- review-status: pending -->'" <<<"$OUT"; then
+  ok "67 no review-status marker → WARN names retro file + emits add-marker guidance" "(exit $RC)"
+else
+  no "67 no review-status marker → WARN names retro file + emits add-marker guidance" "exit=$RC out=[$OUT]"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
+  echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
+  anchor_nd='deltas="no delta section found (empty-input)"'
+  content_nd="$(cat "$SUT")"
+  if [[ "$content_nd" != *"$anchor_nd"* ]]; then
+    no "teeth ND: locate no-delta-section sentinel in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-nd)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n# Retro\n\n'
+      printf '## Already covered\n\n- lesson A → already in kit\n\n'
+      printf '## Honest verdict\n\nNo new deltas.\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content_nd/"$anchor_nd"/deltas=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q '~0 proposed deltas' <<<"$outm"; then
+      ok "teeth ND: sentinel-removed mutant shows ~0 — case 55 has teeth" "()"
+    else
+      no "teeth ND: sentinel-removed mutant must show ~0 — case 55 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth DA: remove the 'summary of proposed delta' alias from awk → its retro drops to
+  # no-delta-section, count disappears → case 65 has teeth.
+  echo "-- teeth DA: remove 'summary of proposed delta' alias; case 65 retro must lose its count --"
+  anchor_da='low ~ /^## summary of proposed delta/'
+  if [[ "$content_nd" != *"$anchor_da"* ]]; then
+    no "teeth DA: locate summary-of-proposed-delta alias in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-da)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n# Retro\n\n'
+      printf '## Summary of proposed deltas\n\n'
+      printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content_nd/"$anchor_da"/"low ~ /^## __removed__/"}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if ! grep -q '~1 proposed deltas' <<<"$outm"; then
+      ok "teeth DA: alias-removed mutant drops count (case 65 has teeth)" "()"
+    else
+      no "teeth DA: alias-removed mutant still shows ~1 — case 65 is THEATER" "out=[$outm]"
+    fi
+  fi
+
+  # Tooth MK: remove the no-marker WARN emission → WARN disappears including the filename →
+  # case 67 (which now checks for both WARN and basename) goes RED.
+  echo "-- teeth MK: remove marker-WARN echo; WARN+filename must vanish (case 67 has teeth) --"
+  anchor_mk='WARN: no review-status marker'
+  if [[ "$content_nd" != *"$anchor_mk"* ]]; then
+    no "teeth MK: locate marker-WARN in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-mk)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '# Retro (no marker)\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content_nd/"$anchor_mk"/"__MK_REMOVED__"}" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    # Both the WARN text and the basename (r1.md) must be absent — confirms case 67 goes RED.
+    if ! grep -qi 'WARN.*no review-status marker' <<<"$outm" \
+       && ! grep -qi 'WARN.*r1\.md' <<<"$outm"; then
+      ok "teeth MK: marker-WARN-removed mutant silent (WARN+filename gone) — case 67 has teeth" "()"
+    else
+      no "teeth MK: marker-WARN-removed mutant still warns — case 67 is THEATER" "out=[$outm]"
+    fi
+  fi
+  # Tooth CD: canonical section present THEN deprecated alias → deprecated WARN still fires.
+  # Mutant restores canon=1 to confirm the guard was actually doing the suppression.
+  echo "-- teeth CD: canonical+deprecated retro; restoring canon=1 must suppress the WARN (CD has teeth) --"
+  if [[ "$content_nd" != *'if (!depr_h) depr_h=$0'* ]]; then
+    no "teeth CD: locate unconditional depr_h guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-cd)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n'
+      printf '# Retro (canonical then deprecated)\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n\n'
+      printf '## Delta details\n\nExtra write-up here.\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    # Baseline: branch code must WARN on the deprecated heading even after canonical section.
+    out_base="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+    if grep -q 'deprecated delta heading' <<<"$out_base"; then
+      ok "teeth CD: baseline (canon=1 removed) warns on deprecated alias after canonical section" "()"
+    else
+      no "teeth CD: baseline must warn on deprecated alias — canon=1 suppression was not removed" "out=[$out_base]"
+    fi
+    # Mutant: reintroduce canon=1 suppression; WARN must disappear (confirming the tooth has bite).
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    content_cd="$(cat "$SUT")"
+    content_cd="${content_cd//'{ in_sec=1; found=1; next }'/'{ in_sec=1; found=1; canon=1; depr_h=""; next }'}"
+    content_cd="${content_cd//'if (!depr_h) depr_h=$0'/'if (!canon && !depr_h) depr_h=$0'}"
+    content_cd="${content_cd//'BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h="" }'/'BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""; canon=0 }'}"
+    printf '%s\n' "$content_cd" > "$mutant"
+    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    if ! grep -q 'deprecated delta heading' <<<"$outm"; then
+      ok "teeth CD: canon=1 mutant suppresses WARN — CD tooth has bite" "()"
+    else
+      no "teeth CD: canon=1 mutant still warns — CD is THEATER" "out=[$outm]"
     fi
   fi
 fi

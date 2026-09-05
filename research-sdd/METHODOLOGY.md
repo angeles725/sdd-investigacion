@@ -2120,16 +2120,13 @@ judgment, not the driver's own rationalizations). The retro agent:
 
    **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
    `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).
-   The sweeper accepts, and nothing else, these enumerated aliases: today `## Proposed deltas`, `## Delta proposals`,
-   `## Deltas nuevos` and a numbered `## N. Proposed kit deltas` (`sweep-retros.sh`); kit unit U7 adds the forms
-   measured in real retros — `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`
-   and the numbered heading with a trailing parenthetical. Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
+   The sweeper accepts, and nothing else, these enumerated aliases (`sweep-retros.sh`, kit issue #436): `## Proposed deltas`, `## Delta proposals`,
+   `## Deltas nuevos`, a numbered `## N. Proposed kit deltas` with or without a trailing parenthetical, and — as DEPRECATED forms
+   that count but warn to migrate — `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`. Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
    are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
    pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
    canonical delta section is unreviewable until its author fixes the heading — the honesty clause below covers
-   "no new deltas", not a missing section. **Instrument status:** until kit unit U7 lands, `sweep-retros.sh` can
-   still print a confident `~0 proposed deltas` on a retro whose deltas live in prose; U7 makes it print
-   "no delta section found" instead and never a confident zero.
+   "no new deltas", not a missing section. **Instrument (as of kit issue #436):** `sweep-retros.sh` prints `no delta section found (empty-input)` for a PENDING retro with no canonical delta section — never a confident `~0` — warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
 
 **At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #7)
 
