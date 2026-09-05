@@ -722,8 +722,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          3 targets advanced with no retro; 7 of 12 new retros were unmarked, wrongly headed, or empty). Before the
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
          `retro: pending`. Enforcement: `$KIT/toolbelt/retro-gate.sh` runs as the target's Stop hook and blocks the
-         session ONCE with the exact missing element until this holds (kit issue #479; until it lands, this
-         paragraph is the only gate — treat it as one).
+         session ONCE with the exact missing element until this holds (enforced by the target's Stop hook `retro-gate.sh` once wired — kit issue #479).
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
   This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
