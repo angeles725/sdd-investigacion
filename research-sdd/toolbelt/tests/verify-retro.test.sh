@@ -23,7 +23,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-retro.sh"
 FIX="$HERE/fixtures/verify-retro"
+RG_LIB="$HERE/../lib/retro-grammar.sh"   # shared grammar lib sourced by verify-retro.sh (#483)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+[ -f "$RG_LIB" ] || { echo "FATAL: retro-grammar helper not found: $RG_LIB" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
@@ -170,6 +172,11 @@ make_mutant_replace() {
   chmod +x "$dst"
 }
 
+# Mutant scripts in $TMP need a lib/ subdir with retro-grammar.sh so verify-retro.sh's
+# lib-sourcing guard does not abort before the sentinel blocks under test are reached.
+mkdir -p "$TMP/lib"
+cp "$RG_LIB" "$TMP/lib/retro-grammar.sh"
+
 # MUTANT M1: strip the marker check → marker-missing fixture must exit 1 but mutant returns 0
 M1="$TMP/mutant_m1.sh"
 make_mutant_delete_sentinel "SENTINEL-MARKER-CHECK" "$SUT" "$M1"
@@ -202,6 +209,22 @@ make_mutant_delete_sentinel "SENTINEL-HONESTY-CHECK" "$SUT" "$M4"
 bash "$M4" "$FIX/honesty-line.md" >/dev/null 2>&1; _rc=$?
 [ "$_rc" = 1 ] && tok "M4: honesty mutant rejects honesty-line fixture (control goes RED → $SUT honesty check bites)" \
   || tno "M4: honesty mutant did NOT reject honesty-line fixture (control should have been RED)"
+
+# MUTANT M5 (new — #483 extraction guard): retro_grammar_delta_info fail-closed guard.
+# Place a broken (comment-only) retro-grammar.sh in a sandbox dir alongside verify-retro.sh;
+# the lib exists so the file-existence check passes, but the declare-F guard fires because
+# the function was never defined. verify-retro.sh must exit 2 with the right message.
+_m5_dir="$TMP/m5-sandbox"
+mkdir -p "$_m5_dir/lib"
+cp "$SUT" "$_m5_dir/verify-retro.sh"; chmod +x "$_m5_dir/verify-retro.sh"
+printf '#!/usr/bin/env bash\n# broken lib: retro_grammar_delta_info not defined\n' \
+  > "$_m5_dir/lib/retro-grammar.sh"
+_m5_out="$(bash "$_m5_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m5_rc=$?
+if [ "$_m5_rc" = 2 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"$_m5_out"; then
+  tok "M5: broken retro-grammar.sh → verify-retro exits 2 with 'failed to define' (guard bites)"
+else
+  tno "M5: broken retro-grammar.sh guard did not fire — rc=$_m5_rc out=[$_m5_out]"
+fi
 
 echo ""
 echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="
