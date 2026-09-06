@@ -52,8 +52,8 @@ separate INFO line. After the fix, the 6/6 sampled niagara-research focuses that
 Attribution source, in order (issue #423, doctrine PR #427): a `## Covered blocks` list in the focus state
 when present; otherwise the distinct `B<n>` ids in the focus's own `## Iteration history` Block column. When
 neither yields an id, CHECK A MUST print the INFO line
-`covered_blocks unverifiable under shared-global (no attributed block ids listed)` and MUST NOT FAIL.
-The corpus-total INFO line MUST read `corpus total N (shared-global, informational)`. `--sync-state` MUST
+`covered_blocks unverifiable under shared-global: no attributed block ids listed` (verify-state.sh:401) and MUST NOT FAIL.
+The corpus-total INFO line MUST read `corpus total N block file(s) (shared-global, informational)` (verify-state.sh:399). `--sync-state` MUST
 write the attributed count, never the corpus total. A focus whose envelope disagrees with its own listed
 ids remains a FAIL (true finding).
 
