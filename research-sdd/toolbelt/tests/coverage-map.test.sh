@@ -242,6 +242,38 @@ else
   no "15. all-comment exclude file: unexpected WARN or wrong exclusion count" "out=$out15"
 fi
 
+# ---- 16. whitespace in corpus subdirectory path: space-named dir still read (#506)
+# Pre-fix: xargs cat word-splits the space → block dropped → module uncited.
+# Post-fix: while-read loop passes full path to cat → module cited.
+S16="$ROOT/s16"; C16="$ROOT/c16"
+mk_unit "$S16" "mod_a" "DistinctWidget.java"
+mkdir -p "$C16/sub dir"   # directory whose name contains a space
+printf 'DistinctWidget.java is referenced here\n' > "$C16/sub dir/proj-bloque1.md"
+out16="$(run "$C16" --subject "$S16")"
+if printf '%s' "$out16" | grep -qE '1/1 cited'; then
+  ok "16. space in corpus subdir: DistinctWidget.java cited through space-path block"
+else
+  no "16. space in corpus subdir: expected 1/1 cited" "out=$out16"
+fi
+
+# ---- 17. unreadable block file: WARN fires to stderr, not silenced (§7 #506)
+# Root guard: chmod 000 is not effective as root (owner can always read).
+S17="$ROOT/s17"; C17="$ROOT/c17"
+mk_unit "$S17" "mod_a" "AppCore.java"
+mk_corpus "$C17" "proj-bloque1.md" "AppCore.java is the core class"
+chmod 000 "$C17/proj-bloque1.md"
+if [ "$(id -u)" -eq 0 ]; then
+  ok "17-skip (running as root; chmod 000 does not prevent read)"
+else
+  out17="$(rune "$C17" --subject "$S17")"
+  if printf '%s' "$out17" | grep -q 'WARN:.*block files unreadable'; then
+    ok "17. unreadable block: WARN fires in stderr (#506)"
+  else
+    no "17. unreadable block: expected WARN, got none" "out=$out17"
+  fi
+  chmod 644 "$C17/proj-bloque1.md"
+fi
+
 # ==========================================================================
 # TEETH — mutant verification (--prove-teeth only)
 # ==========================================================================
@@ -466,6 +498,66 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-h: SENTINEL-G: comment not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (i): revert to xargs word-split → space-path block dropped → module uncited → RED
+  echo "-- teeth-i: xargs mutant word-splits space subdir; module must go uncited --"
+  MUTANT_I="$ROOT/cov-map.MUT-I.sh"
+  # SENTINEL-CORPUS-WS: whitespace-safe per-block cat
+  if grep -q 'SENTINEL-CORPUS-WS:' "$SUT"; then
+    awk '
+      /SENTINEL-CORPUS-WS:/ {
+        in_b=1
+        print "xargs cat < \"$TMP/blocks.txt\" > \"$TMP/corpus.txt\" 2>/dev/null || true"
+        next
+      }
+      in_b && /^# ---------- citation check/ { in_b=0; print; next }
+      in_b { next }
+      { print }
+    ' "$SUT" > "$MUTANT_I"
+    SI="$ROOT/si"; CI="$ROOT/ci"
+    mk_unit "$SI" "mod_a" "DistinctWidget.java"
+    mkdir -p "$CI/sub dir"
+    printf 'DistinctWidget.java is referenced here\n' > "$CI/sub dir/proj-bloque1.md"
+    rout_i="$(run "$CI" --subject "$SI" 2>/dev/null)"
+    mout_i="$(bash "$MUTANT_I" "$CI" --subject "$SI" 2>/dev/null)"
+    if printf '%s' "$rout_i" | grep -qE '1/1 cited' \
+       && printf '%s' "$mout_i" | grep -qE '0/1 cited'; then
+      ok "teeth-i: original cites space-path block (1/1); xargs mutant drops it (0/1) — bites"
+    else
+      no "teeth-i: whitespace-safe mutation did not change citation" \
+         "orig=$(printf '%s' "$rout_i" | grep 'modules:') mut=$(printf '%s' "$mout_i" | grep 'modules:')"
+    fi
+  else
+    no "teeth-i: SENTINEL-CORPUS-WS: not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (j): silence WARN printf → unreadable block goes unreported → RED
+  echo "-- teeth-j: drop-WARN mutant; unreadable block WARN must disappear --"
+  MUTANT_J="$ROOT/cov-map.MUT-J.sh"
+  # SENTINEL-CORPUS-WARN: warn on dropped blocks
+  if grep -q 'SENTINEL-CORPUS-WARN:' "$SUT"; then
+    sed 's/printf .WARN: %d of %d block files.*/: # MUTATED-J/' "$SUT" > "$MUTANT_J"
+    SJ="$ROOT/sj"; CJ="$ROOT/cj"
+    mk_unit "$SJ" "mod_a" "AppCore.java"
+    mk_corpus "$CJ" "proj-bloque1.md" "AppCore.java is here"
+    chmod 000 "$CJ/proj-bloque1.md"
+    if [ "$(id -u)" -eq 0 ]; then
+      ok "teeth-j: skipped (running as root; chmod 000 not effective for root)"
+    else
+      rout_j="$(bash "$SUT" "$CJ" --subject "$SJ" 2>&1)"
+      mout_j="$(bash "$MUTANT_J" "$CJ" --subject "$SJ" 2>&1)"
+      if printf '%s' "$rout_j" | grep -q 'WARN:.*block files unreadable' \
+         && ! printf '%s' "$mout_j" | grep -q 'WARN:.*block files unreadable'; then
+        ok "teeth-j: original WARNs on unreadable block; drop-WARN mutant silences it — bites"
+      else
+        no "teeth-j: drop-WARN mutant did not change WARN output" \
+           "orig_warn=$(printf '%s' "$rout_j" | grep -c 'WARN:') mut_warn=$(printf '%s' "$mout_j" | grep -c 'WARN:')"
+      fi
+      chmod 644 "$CJ/proj-bloque1.md"
+    fi
+  else
+    no "teeth-j: SENTINEL-CORPUS-WARN: not found in SUT (cannot anchor mutation)"
   fi
 fi
 

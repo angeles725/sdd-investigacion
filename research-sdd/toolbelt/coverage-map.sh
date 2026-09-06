@@ -203,7 +203,21 @@ if [ "$BLOCK_COUNT" -eq 0 ]; then
 fi
 
 # ---------- concatenate all block files for fast repeated grep
-xargs cat < "$TMP/blocks.txt" > "$TMP/corpus.txt" 2>/dev/null || true
+# SENTINEL-CORPUS-WS: whitespace-safe per-block cat; tracks unreadable drops (#506)
+_corpus_listed="$BLOCK_COUNT"
+_corpus_read=0
+: > "$TMP/corpus.txt"
+while IFS= read -r _bf; do
+  if cat "$_bf" >> "$TMP/corpus.txt" 2>/dev/null; then
+    _corpus_read=$((_corpus_read + 1))
+  fi
+done < "$TMP/blocks.txt"
+if [ "$_corpus_read" -lt "$_corpus_listed" ]; then
+  _unreadable=$((_corpus_listed - _corpus_read))
+  # SENTINEL-CORPUS-WARN: warn on dropped blocks (#506; mutant: silence this printf)
+  printf 'WARN: %d of %d block files unreadable — citation counts are LOWER bounds\n' \
+    "$_unreadable" "$_corpus_listed" >&2
+fi
 
 # ---------- citation check: one pass per module
 # SENTINEL-A: count uncited (mutant target)
