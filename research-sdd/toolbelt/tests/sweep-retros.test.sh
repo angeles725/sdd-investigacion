@@ -2037,6 +2037,77 @@ else
   fi
 fi
 
+# 71 — U19 FIRST-ADD epoch: block ADD→DELETE→RE-ADD; retro between the two adds → no MISSING-RETRO.
+# Proves the one-walk map uses the FIRST (oldest) add epoch for the block, not the most-recent
+# re-add. Block is added 2000-01-01, deleted, then re-added 3 days ago. Retro committed 2 years
+# ago (newer than 2000, older than 3 days ago). With first-add semantics: block epoch = 2000 <
+# retro epoch (2 years ago) → no MISSING-RETRO. With last-add semantics: block epoch = 3 days
+# ago > retro epoch → MISSING-RETRO fires (tooth FA below proves this).
+# Tooth FA anchor: the always-overwrite in the map-build loop (RSDD_U19_FIRST_ADD comment).
+kit="$(mkkit c71-first-add)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+git -C "$tgt" init -q -b main
+git -C "$tgt" config user.email t@example.com
+git -C "$tgt" config user.name tester
+# Commit 1: add block file at ancient date (2000-01-01)
+printf '# block\n' > "$tgt/t-block1.md"
+git -C "$tgt" add t-block1.md
+GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+  git -C "$tgt" commit -q -m "add block"
+# Commit 2: delete block file
+git -C "$tgt" rm -q t-block1.md
+GIT_AUTHOR_DATE="2001-01-01T00:00:00" GIT_COMMITTER_DATE="2001-01-01T00:00:00" \
+  git -C "$tgt" commit -q -m "delete block"
+# Commit 3: re-add block file 3 days ago (past 24h grace window)
+printf '# block\n' > "$tgt/t-block1.md"
+git -C "$tgt" add t-block1.md
+_c71_now="$(date -d '3 days ago' +%Y-%m-%dT%H:%M:%S)"
+GIT_AUTHOR_DATE="$_c71_now" GIT_COMMITTER_DATE="$_c71_now" \
+  git -C "$tgt" commit -q -m "re-add block"
+unset _c71_now
+# Commit 4: add retro 2 years ago (between first-add and re-add by time)
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+git -C "$tgt" add "retros/r1.md"
+_c71_retro="$(date -d '2 years ago' +%Y-%m-%dT%H:%M:%S)"
+GIT_AUTHOR_DATE="$_c71_retro" GIT_COMMITTER_DATE="$_c71_retro" \
+  git -C "$tgt" commit -q -m "add retro"
+unset _c71_retro
+write_targets "$kit" "$tgt"
+run "$kit"
+# first-add epoch (2000) < retro epoch (2 years ago) → no MISSING-RETRO
+if [ "$RC" = 0 ] && ! grep -qF "MISSING-RETRO: $tgt" <<<"$OUT"; then
+  ok "71 U19 first-add: ADD→DELETE→RE-ADD block; first epoch wins → no MISSING-RETRO" "(exit $RC)"
+else
+  no "71 U19 first-add: ADD→DELETE→RE-ADD block; first epoch wins → no MISSING-RETRO" "exit=$RC out=[$OUT]"
+fi
+
+# 72 — U19 UNTRACKED FALLBACK: block exists on disk but is not committed → mtime used as epoch.
+# The git-log walk produces no entry for the untracked file; the lookup misses the map and falls
+# back to stat mtime. Block mtime is 2 days ago (past the 24h grace window); retro epoch is
+# ancient (2000-01-01). With mtime fallback: block epoch > retro epoch → MISSING-RETRO fires.
+# Without fallback (tooth UF below): block epoch = 0 → nb stays 0 → MISSING-RETRO silent.
+kit="$(mkkit c72-untracked-fallback)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+git -C "$tgt" init -q -b main
+git -C "$tgt" config user.email t@example.com
+git -C "$tgt" config user.name tester
+# Commit only the retro (ancient date) — block file remains untracked
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+git -C "$tgt" add "retros/r1.md"
+GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+  git -C "$tgt" commit -q -m "add retro"
+# Block file is UNTRACKED (not in any commit)
+printf '# block\n' > "$tgt/t-block1.md"
+touch -d '2 days ago' "$tgt/t-block1.md"   # mtime = 2 days ago (past 24h grace window)
+write_targets "$kit" "$tgt"
+run "$kit"
+# mtime fallback: block mtime (2 days ago) > retro epoch (2000) → MISSING-RETRO must fire
+if [ "$RC" = 0 ] && grep -qF "MISSING-RETRO: $tgt" <<<"$OUT"; then
+  ok "72 U19 untracked block: absent from git log, stat mtime fallback → MISSING-RETRO fires" "(exit $RC)"
+else
+  no "72 U19 untracked block: absent from git log, stat mtime fallback → MISSING-RETRO fires" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -2150,6 +2221,86 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth CD: canon=1 mutant still warns — CD is THEATER" "out=[$outm]"
     fi
+  fi
+
+  # Tooth FA: change always-overwrite to only-set-if-not-present in the epoch map build →
+  # the map retains the NEWEST (last-add) epoch instead of the OLDEST (first-add) epoch →
+  # case 71's fixture (block first-add=2000, re-add=3 days ago, retro=2 years ago) now sees
+  # block epoch = 3 days ago > retro epoch → MISSING-RETRO fires → case 71 goes RED.
+  echo "-- teeth FA: only-set-if-not-present mutant keeps last-add epoch; case 71 must go RED (MISSING-RETRO fires) --"
+  _anchor_fa='[ -n "$_rsdd_epoch_ct" ] && _rsdd_epoch_map["$_line"]="$_rsdd_epoch_ct"  # RSDD_U19_FIRST_ADD'
+  _content_fa="$(cat "$SUT")"
+  if [[ "$_content_fa" != *"$_anchor_fa"* ]]; then
+    no "teeth FA: locate RSDD_U19_FIRST_ADD anchor in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-fa)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    git -C "$tgt" init -q -b main
+    git -C "$tgt" config user.email t@example.com
+    git -C "$tgt" config user.name tester
+    printf '# block\n' > "$tgt/t-block1.md"
+    git -C "$tgt" add t-block1.md
+    GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+      git -C "$tgt" commit -q -m "add block"
+    git -C "$tgt" rm -q t-block1.md
+    GIT_AUTHOR_DATE="2001-01-01T00:00:00" GIT_COMMITTER_DATE="2001-01-01T00:00:00" \
+      git -C "$tgt" commit -q -m "delete block"
+    printf '# block\n' > "$tgt/t-block1.md"
+    git -C "$tgt" add t-block1.md
+    _fa_now="$(date -d '3 days ago' +%Y-%m-%dT%H:%M:%S)"
+    GIT_AUTHOR_DATE="$_fa_now" GIT_COMMITTER_DATE="$_fa_now" \
+      git -C "$tgt" commit -q -m "re-add block"
+    unset _fa_now
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+    git -C "$tgt" add "retros/r1.md"
+    _fa_retro="$(date -d '2 years ago' +%Y-%m-%dT%H:%M:%S)"
+    GIT_AUTHOR_DATE="$_fa_retro" GIT_COMMITTER_DATE="$_fa_retro" \
+      git -C "$tgt" commit -q -m "add retro"
+    unset _fa_retro
+    write_targets "$kit" "$tgt"
+    _mutant_fa="$kit/toolbelt/sweep-retros.sh"
+    _mutant_anchor_fa='[ -n "$_rsdd_epoch_ct" ] && [ -z "${_rsdd_epoch_map["$_line"]:-}" ] && _rsdd_epoch_map["$_line"]="$_rsdd_epoch_ct"  # RSDD_U19_FIRST_ADD'
+    printf '%s\n' "${_content_fa/"$_anchor_fa"/"$_mutant_anchor_fa"}" > "$_mutant_fa"
+    _outm_fa="$("$BASH_BIN" "$_mutant_fa" 2>&1)"
+    # Mutant (last-add) → block epoch = 3 days ago > retro epoch → MISSING-RETRO fires
+    if grep -qF "MISSING-RETRO: $tgt" <<<"$_outm_fa"; then
+      ok "teeth FA: only-set-if-not-present mutant fires MISSING-RETRO — case 71 has teeth" "()"
+    else
+      no "teeth FA: only-set-if-not-present mutant silent — case 71 is THEATER" "out=[$_outm_fa]"
+    fi
+    unset _mutant_fa _mutant_anchor_fa _outm_fa _anchor_fa _content_fa
+  fi
+
+  # Tooth UF: replace the block-newest stat fallback with m=0 → untracked block is invisible
+  # (epoch 0 → nb stays 0) → case 72's MISSING-RETRO disappears → case 72 goes RED.
+  echo "-- teeth UF: zero block fallback; untracked block must become invisible (case 72 has teeth) --"
+  _anchor_uf='m="$(stat -c %Y "$bf" 2>/dev/null || echo 0)"  # RSDD_U19_FALLBACK_BN'
+  _content_uf="$(cat "$SUT")"
+  if [[ "$_content_uf" != *"$_anchor_uf"* ]]; then
+    no "teeth UF: locate RSDD_U19_FALLBACK_BN anchor in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-uf)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    git -C "$tgt" init -q -b main
+    git -C "$tgt" config user.email t@example.com
+    git -C "$tgt" config user.name tester
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 1
+    git -C "$tgt" add "retros/r1.md"
+    GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
+      git -C "$tgt" commit -q -m "add retro"
+    printf '# block\n' > "$tgt/t-block1.md"
+    touch -d '2 days ago' "$tgt/t-block1.md"
+    write_targets "$kit" "$tgt"
+    _mutant_uf="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${_content_uf/"$_anchor_uf"/'m=0  # RSDD_U19_FALLBACK_BN'}" > "$_mutant_uf"
+    _outm_uf="$("$BASH_BIN" "$_mutant_uf" 2>&1)"
+    # Mutant (fallback dropped) → block invisible → no MISSING-RETRO → test 72 goes RED
+    if ! grep -qF "MISSING-RETRO: $tgt" <<<"$_outm_uf"; then
+      ok "teeth UF: fallback-zeroed mutant silences MISSING-RETRO — case 72 has teeth" "()"
+    else
+      no "teeth UF: fallback-zeroed mutant still fires MISSING-RETRO — case 72 is THEATER" "out=[$_outm_uf]"
+    fi
+    unset _mutant_uf _outm_uf _anchor_uf _content_uf
   fi
 
   # Tooth PRWT: zero the waiver accumulator → waiver reports 0.000000, pending+waiver ≠ total
