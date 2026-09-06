@@ -28,6 +28,8 @@ LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT now 
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
 TP_LIB="$HERE/../lib/target-paths.sh"        # shared path derivation the SUT now sources
 [ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
+RG_LIB="$HERE/../lib/retro-grammar.sh"       # shared delta-heading grammar the SUT now sources
+[ -f "$RG_LIB" ] || { echo "FATAL: retro-grammar helper not found: $RG_LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -40,9 +42,10 @@ mkkit() {
   local kit="$ROOT/$1"
   mkdir -p "$kit/toolbelt/lib"
   cp "$SUT" "$kit/toolbelt/sweep-retros.sh"
-  cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this at $(dirname $0)/lib/
-  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this at $(dirname $0)/lib/
-  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"       # SUT sources this at $(dirname $0)/lib/
+  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"   # SUT sources this at $(dirname $0)/lib/
+  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh"     # SUT sources this for block_file_filter
+  cp "$RG_LIB" "$kit/toolbelt/lib/retro-grammar.sh"  # SUT sources this for retro_grammar_delta_info
   printf '%s' "$kit"
 }
 
@@ -1413,6 +1416,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED retro to false-surface as PENDING --"
   anchor='      applied|dismissed) continue ;;'
   content="$(cat "$SUT")"
+  lib_content="$(cat "$RG_LIB")"       # grammar-teeth anchors live in lib after #483 extraction
   if [[ "$content" != *"$anchor"* ]]; then
     no "teeth: locate applied|dismissed skip arm" "anchor not found — SUT drifted?"
   else
@@ -1432,22 +1436,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Second teeth (negative control for the delta count). Case 4 claims '~N proposed deltas' is a
   # real tally of the ID-agnostic data rows inside the canonical section, computed by the awk
-  # script's END clause (form-1 path: printf "1:1:%d\001%s\n", data+0, depr_h). Force the form-1
-  # print line to emit WARN-A path instead; then re-run a 5-delta pending fixture: the count
-  # disappears and WARN appears. Case 4 has teeth only if the count disappears and WARN appears.
-  # Also proves test 59 (D-prefix table fixture must COUNT, not WARN).
+  # script's END clause (form-1 path: printf "1:1:%d\001%s\001%d\001%d\001%s\n", data, ...).
+  # Force the form-1 print line to emit WARN-A path instead; then re-run a 5-delta pending fixture:
+  # the count disappears and WARN appears. Case 4 has teeth only if the count disappears and WARN
+  # appears. Also proves test 59 (D-prefix table fixture must COUNT, not WARN).
+  # Grammar moved to lib/retro-grammar.sh — mutate the lib copy, not the SUT.
   echo "-- teeth: force awk form-1 path to WARN-A, expect STATE-1 fixture to downgrade to WARN + ~? --"
-  anchor2='printf "1:1:%d\001%s\n", data+0, depr_h'
-  if [[ "$content" != *"$anchor2"* ]]; then
-    no "teeth: locate awk END form-1 data-count clause" "anchor not found — SUT drifted?"
+  anchor2='printf "1:1:%d\001%s\001%d\001%d\001%s\n", data,'
+  if [[ "$lib_content" != *"$anchor2"* ]]; then
+    no "teeth: locate awk END form-1 data-count clause" "anchor not found in lib — retro-grammar.sh drifted?"
   else
     kit="$(mkkit teeth-count)"; tgt="$kit/targetA"
     mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 5
     write_targets "$kit" "$tgt"
-    mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    broken='printf "1:w:0\001%s\n",          depr_h'  # force WARN-A path regardless of rows seen
-    printf '%s\n' "${content/"$anchor2"/$broken}" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    mutant="$kit/toolbelt/lib/retro-grammar.sh"     # mutate the lib copy (grammar extracted to lib)
+    broken='printf "1:w:0\001%s\001%d\001%d\001%s\n",         depr_h, unrec_found, unrec_data, unrec_heading'  # WARN-A
+    printf '%s\n' "${lib_content/"$anchor2"/$broken}" > "$mutant"
+    outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm" \
        && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
        && ! grep -q '~5 proposed deltas' <<<"$outm"; then
@@ -1463,8 +1468,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   #     indicator grep and WARN (non-conforming), not count.
   echo "-- teeth F2: break h3d++; form-2 fixture (### D1 — under canonical) must WARN, not count --"
   anchor_f2='h3d++'
-  if [[ "$content" != *"$anchor_f2"* ]]; then
-    no "teeth F2: locate h3d++ counter in SUT" "anchor not found — SUT drifted?"
+  if [[ "$lib_content" != *"$anchor_f2"* ]]; then
+    no "teeth F2: locate h3d++ counter in lib" "anchor not found in lib — retro-grammar.sh drifted?"
   else
     kit="$(mkkit teeth-f2-h3d)"; tgt="$kit/targetA"
     mkdir -p "$tgt/retros"
@@ -1474,9 +1479,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '### D1 — first delta of the run\n\nsome prose\n'
     } > "$tgt/retros/r1.md"
     write_targets "$kit" "$tgt"
-    mutant="$kit/toolbelt/sweep-retros.sh"
-    printf '%s\n' "${content/"$anchor_f2"/h3d=0}" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    mutant="$kit/toolbelt/lib/retro-grammar.sh"     # mutate the lib copy (grammar extracted to lib)
+    printf '%s\n' "${lib_content/"$anchor_f2"/h3d=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm" \
        && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
        && ! grep -q '~1 proposed deltas' <<<"$outm"; then
@@ -1488,8 +1493,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth F3: break d3++; form-3 fixture (## Delta W1/W2 —) must WARN non-conforming, not count --"
   anchor_f3='d3++'
-  if [[ "$content" != *"$anchor_f3"* ]]; then
-    no "teeth F3: locate d3++ counter in SUT" "anchor not found — SUT drifted?"
+  if [[ "$lib_content" != *"$anchor_f3"* ]]; then
+    no "teeth F3: locate d3++ counter in lib" "anchor not found in lib — retro-grammar.sh drifted?"
   else
     kit="$(mkkit teeth-f3-d3)"; tgt="$kit/targetA"
     mkdir -p "$tgt/retros"
@@ -1498,9 +1503,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '## Delta W1 — some fix\n\n## Delta W2 — another fix\n'
     } > "$tgt/retros/r1.md"
     write_targets "$kit" "$tgt"
-    mutant="$kit/toolbelt/sweep-retros.sh"
-    printf '%s\n' "${content/"$anchor_f3"/d3=0}" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    mutant="$kit/toolbelt/lib/retro-grammar.sh"     # mutate the lib copy (grammar extracted to lib)
+    printf '%s\n' "${lib_content/"$anchor_f3"/d3=0}" > "$mutant"
+    outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm" \
        && grep -qi 'WARN.*non-conforming delta declaration' <<<"$outm" \
        && ! grep -q '~2 proposed deltas' <<<"$outm"; then
@@ -1537,6 +1542,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "(case 17 has teeth)"
     else
       no "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "mutant stayed closed — case 17 is THEATER: rc=$rcm [$outm]"
+    fi
+  fi
+
+  # Tooth RG1: fail-closed guard for retro_grammar_delta_info.
+  # The retro-grammar.sh lib is sourced then guarded with declare-F. A broken (comment-only) lib
+  # causes the guard to exit 1 with "failed to define retro_grammar_delta_info". Proves the guard
+  # is live — not a no-op that lets a broken lib silently fall through (#483 extraction contract).
+  echo "-- teeth RG1: broken retro-grammar.sh must fail closed with 'failed to define retro_grammar_delta_info' --"
+  _rg_guard_anchor='declare -F retro_grammar_delta_info >/dev/null 2>&1 || { echo "sweep-retros:'
+  if ! grep -qF "$_rg_guard_anchor" "$SUT"; then
+    no "teeth RG1: locate declare-F retro_grammar_delta_info guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-rg1-guard)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+    write_targets "$kit" "$tgt"
+    printf '#!/usr/bin/env bash\n# broken lib: retro_grammar_delta_info not defined\n' \
+      > "$kit/toolbelt/lib/retro-grammar.sh"
+    outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; rcm=$?
+    if [ "$rcm" != 0 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"$outm"; then
+      ok "teeth RG1: broken retro-grammar.sh guard fails closed (exit $rcm + right message)" "()"
+    else
+      no "teeth RG1: broken retro-grammar.sh guard must fail closed" "rc=$rcm out=[$outm]"
     fi
   fi
 
@@ -2136,10 +2163,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Tooth DA: remove the 'summary of proposed delta' alias from awk → its retro drops to
   # no-delta-section, count disappears → case 65 has teeth.
+  # Grammar moved to lib/retro-grammar.sh — mutate the lib copy, not the SUT.
   echo "-- teeth DA: remove 'summary of proposed delta' alias; case 65 retro must lose its count --"
   anchor_da='low ~ /^## summary of proposed delta/'
-  if [[ "$content_nd" != *"$anchor_da"* ]]; then
-    no "teeth DA: locate summary-of-proposed-delta alias in SUT" "anchor not found — SUT drifted?"
+  if [[ "$lib_content" != *"$anchor_da"* ]]; then
+    no "teeth DA: locate summary-of-proposed-delta alias in lib" "anchor not found in lib — retro-grammar.sh drifted?"
   else
     kit="$(mkkit teeth-da)"; tgt="$kit/targetA"
     mkdir -p "$tgt/retros"
@@ -2149,9 +2177,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '| # | delta | rationale |\n|---|---|---|\n| 1 | fix foo | because |\n'
     } > "$tgt/retros/r1.md"
     write_targets "$kit" "$tgt"
-    mutant="$kit/toolbelt/sweep-retros.sh"
-    printf '%s\n' "${content_nd/"$anchor_da"/"low ~ /^## __removed__/"}" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    mutant="$kit/toolbelt/lib/retro-grammar.sh"     # mutate the lib copy (grammar extracted to lib)
+    printf '%s\n' "${lib_content/"$anchor_da"/"low ~ /^## __removed__/"}" > "$mutant"
+    outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if ! grep -q '~1 proposed deltas' <<<"$outm"; then
       ok "teeth DA: alias-removed mutant drops count (case 65 has teeth)" "()"
     else
@@ -2186,10 +2214,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
   # Tooth CD: canonical section present THEN deprecated alias → deprecated WARN still fires.
-  # Mutant restores canon=1 to confirm the guard was actually doing the suppression.
+  # Mutant adds canon=1 logic to the lib to confirm the unconditional guard drives the WARN.
+  # Grammar moved to lib/retro-grammar.sh — mutate the lib copy, not the SUT.
   echo "-- teeth CD: canonical+deprecated retro; restoring canon=1 must suppress the WARN (CD has teeth) --"
-  if [[ "$content_nd" != *'if (!depr_h) depr_h=$0'* ]]; then
-    no "teeth CD: locate unconditional depr_h guard in SUT" "anchor not found — SUT drifted?"
+  if [[ "$lib_content" != *'if (!depr_h) depr_h=$0'* ]]; then
+    no "teeth CD: locate unconditional depr_h guard in lib" "anchor not found in lib — retro-grammar.sh drifted?"
   else
     kit="$(mkkit teeth-cd)"; tgt="$kit/targetA"
     mkdir -p "$tgt/retros"
@@ -2201,21 +2230,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '## Delta details\n\nExtra write-up here.\n'
     } > "$tgt/retros/r1.md"
     write_targets "$kit" "$tgt"
-    # Baseline: branch code must WARN on the deprecated heading even after canonical section.
+    # Baseline: real lib must WARN on the deprecated heading even after canonical section.
     out_base="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if grep -q 'deprecated delta heading' <<<"$out_base"; then
-      ok "teeth CD: baseline (canon=1 removed) warns on deprecated alias after canonical section" "()"
+      ok "teeth CD: baseline (unconditional guard) warns on deprecated alias after canonical section" "()"
     else
-      no "teeth CD: baseline must warn on deprecated alias — canon=1 suppression was not removed" "out=[$out_base]"
+      no "teeth CD: baseline must warn on deprecated alias — guard not firing" "out=[$out_base]"
     fi
-    # Mutant: reintroduce canon=1 suppression; WARN must disappear (confirming the tooth has bite).
-    mutant="$kit/toolbelt/sweep-retros.sh"
-    content_cd="$(cat "$SUT")"
-    content_cd="${content_cd//'{ in_sec=1; found=1; next }'/'{ in_sec=1; found=1; canon=1; depr_h=""; next }'}"
+    # Mutant: reintroduce canon=1 suppression in the lib; WARN must disappear.
+    mutant="$kit/toolbelt/lib/retro-grammar.sh"     # mutate the lib copy (grammar extracted to lib)
+    content_cd="$lib_content"
+    # Add canon=1 in canonical action: { in_sec=1; in_unrec=0; found=1; next }
+    content_cd="${content_cd//'{ in_sec=1; in_unrec=0; found=1; next }'/'{ in_sec=1; in_unrec=0; found=1; canon=1; depr_h=""; next }'}"
+    # Gate depr_h on canon not yet set: if (!depr_h) → if (!canon && !depr_h)
     content_cd="${content_cd//'if (!depr_h) depr_h=$0'/'if (!canon && !depr_h) depr_h=$0'}"
-    content_cd="${content_cd//'BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h="" }'/'BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""; canon=0 }'}"
     printf '%s\n' "$content_cd" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
+    outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if ! grep -q 'deprecated delta heading' <<<"$outm"; then
       ok "teeth CD: canon=1 mutant suppresses WARN — CD tooth has bite" "()"
     else

@@ -22,13 +22,28 @@
 # grep exit 2 (I/O error) is not silently collapsed into "no match". The file is verified
 # readable before any grep, making exit 2 extremely unlikely, but never silently ignored.
 #
-# Keep in sync with sweep-retros.sh delta-heading grammar
-# (candidate for a shared lib once #438 lands)
+# Delta-heading grammar lives in lib/retro-grammar.sh (shared with sweep-retros.sh).
 
 _usage() {
   printf 'Usage: %s <retro.md>\n' "$(basename "$0")" >&2
   printf '  exit 0 = conforming, exit 1 = non-conforming, exit 2 = bad args\n' >&2
 }
+
+# ── Shared delta-heading grammar lib ─────────────────────────────────────────
+# lib/retro-grammar.sh is the single source of truth for canonical/deprecated heading
+# recognition, table-row counting, and unrecognised-heading detection (Rules 1–3).
+# Sourced here so verify-retro.sh and sweep-retros.sh share identical grammar.
+_vr_rg_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-grammar.sh"
+if [ ! -f "$_vr_rg_lib" ]; then
+  printf 'verify-retro: cannot find helper %s\n' "$_vr_rg_lib" >&2
+  exit 2
+fi
+# shellcheck source=lib/retro-grammar.sh
+. "$_vr_rg_lib"
+# Fail closed: existence is not enough — the source must have DEFINED the function.
+declare -F retro_grammar_delta_info >/dev/null 2>&1 || \
+  { printf 'verify-retro: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info\n' >&2; exit 2; }
+unset _vr_rg_lib
 
 # ── Argument validation ───────────────────────────────────────────────────────
 if [ $# -ne 1 ]; then
@@ -116,100 +131,33 @@ fi
 # ── (b) delta section check (§7 four-class) ───────────────────────────────────
 # SENTINEL-DELTA-CHECK-START
 #
-# Keep in sync with sweep-retros.sh delta-heading grammar
-# (candidate for a shared lib once #438 lands)
-#
-# Canonical headings (case-insensitive):
-#   ## [N. ]Proposed kit delta[s][...]
-#   ## Proposed delta[...]
-#   ## Delta proposals[...]
-#   ## Deltas NUEVOS[...]
-# Deprecated aliases (accepted, emit WARN to migrate):
-#   ## Summary of proposed delta[...]
-#   ## Summary of new deltas[...]
-#   ## Delta details[...]
-#
-# Unrecognised-heading detection (delta-intent, outside the grammar):
-#   Rule 1: ## [N. ]delta<s>?<whitespace-or-paren>  (e.g. "## Delta index")
-#   Rule 2: " kit delt" (space-separated "kit delta/deltas"), NOT negated by "not"
-#            (e.g. "## Consolidated kit deltas" but NOT "## Friction (not kit deltas)")
-#   Rule 3: "(kit-delta" (parenthetical hyphenated compound)
-#            (e.g. "## Lessons (kit-delta candidates...)")
-#
-# Output: "<canon_found>\001<canon_data>\001<depr>\001<unrec_found>\001<unrec_data>\001<unrec_heading>"
-# Uses \001 as separator to survive headings with colons, slashes, etc.
-_delta_info=$(awk '
-  BEGIN {
-    in_canon=0; found=0; rows=0; depr=0
-    in_unrec=0; unrec_found=0; unrec_rows=0; unrec_heading=""
-  }
-  { low=tolower($0) }
-
-  # CANONICAL HEADINGS
-  low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
-  low ~ /^## proposed delta/                                      ||
-  low ~ /^## delta proposals/                                     ||
-  low ~ /^## deltas nuevos/                                       {
-    in_canon=1; in_unrec=0; found=1; next
-  }
-
-  # DEPRECATED ALIAS HEADINGS (accepted + migrate-WARN)
-  low ~ /^## summary of proposed delta/                           ||
-  low ~ /^## summary of new deltas/                               ||
-  low ~ /^## delta details([[:space:]]|$)/                        {
-    in_canon=1; in_unrec=0; found=1; depr=1; next
-  }
-
-  # OTHER ## HEADINGS (level-2 only; ### are sub-sections, left in the active scope)
-  /^##[^#]/ {
-    in_canon=0
-    if (!found) {
-      # Check for unrecognised delta-intent heading
-      is_unrec=0
-      # Rule 1: starts with ## [N. ]delta (case-insensitive via low)
-      if (low ~ /^## [0-9. ]*deltas?([[:space:]]|[(]|$)/) is_unrec=1
-      # Rule 2: space-separated "kit delta/deltas", not negated
-      if (!is_unrec && low ~ / kit delt/ && low !~ /not +kit +delt/) is_unrec=1
-      # Rule 3: parenthetical (kit-delta (hyphenated compound)
-      if (!is_unrec && low ~ /\(kit-delta/) is_unrec=1
-      if (is_unrec && !unrec_found) {
-        unrec_found=1; in_unrec=1
-        unrec_heading=$0
-      } else {
-        in_unrec=0
-      }
-    } else {
-      in_unrec=0
-    }
-    next
-  }
-
-  # Count non-separator |rows in canonical section
-  in_canon && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
-  # Count non-separator |rows in unrecognised section
-  in_unrec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { unrec_rows++ }
-
-  END {
-    # Subtract 1 for the header row (same counting as sweep-retros.sh)
-    canon_data = (rows     > 0) ? rows     - 1 : 0
-    unrec_data  = (unrec_rows > 0) ? unrec_rows - 1 : 0
-    printf "%d\001%d\001%d\001%d\001%d\001%s\n",
-      found, canon_data, depr, unrec_found, unrec_data, unrec_heading
-  }
-' "$f")
+# Grammar sourced from lib/retro-grammar.sh (shared with sweep-retros.sh).
+# Output format: <found>:<form>:<count>\001<depr_h>\001<unrec_found>\001<unrec_data>\001<unrec_heading>
+_delta_info=$(retro_grammar_delta_info "$f")
 # SENTINEL-DELTA-CHECK-END
 
-# Parse awk output (using \001 separator)
-_cf="${_delta_info%%$'\001'*}"                      # canon_found
-_rest="${_delta_info#*$'\001'}"
-_cd="${_rest%%$'\001'*}"                            # canon_data
-_rest="${_rest#*$'\001'}"
-_dp="${_rest%%$'\001'*}"                            # depr
-_rest="${_rest#*$'\001'}"
-_uf="${_rest%%$'\001'*}"                            # unrec_found
-_rest="${_rest#*$'\001'}"
-_ud="${_rest%%$'\001'*}"                            # unrec_data
-_uh="${_rest#*$'\001'}"                             # unrec_heading (may contain spaces)
+# Parse lib output (\001-separated fields; first field is colon-separated <found>:<form>:<count>).
+_vr_first="${_delta_info%%$'\001'*}"                # "<found>:<form>:<count>"
+_cf="${_vr_first%%:*}"                              # canon_found (0|1)
+_vr_rest_first="${_vr_first#*:}"
+_vr_form="${_vr_rest_first%%:*}"                    # form (1|2|3|w|n)
+_vr_count="${_vr_rest_first##*:}"                   # count for the active form
+_vr_rest="${_delta_info#*$'\001'}"                  # after first \001
+_vr_depr_h="${_vr_rest%%$'\001'*}"                  # depr_h text (empty if none)
+_dp=0; [ -n "$_vr_depr_h" ] && _dp=1              # deprecated boolean
+_vr_rest="${_vr_rest#*$'\001'}"                     # after second \001
+_uf="${_vr_rest%%$'\001'*}"                         # unrec_found (0|1)
+_vr_rest="${_vr_rest#*$'\001'}"
+_ud="${_vr_rest%%$'\001'*}"                         # unrec_data
+_uh="${_vr_rest#*$'\001'}"                          # unrec_heading (may contain spaces)
+# _cd: canonical table data rows — only form-1 (table rows) is conforming for verify-retro.
+# Form-2 (### entries) and form-w (no countable rows) both map to _cd=0 so the
+# empty-section check triggers correctly (identical to the prior standalone awk behaviour).
+case "$_vr_form" in
+  1) _cd="$_vr_count" ;;
+  *) _cd=0 ;;
+esac
+unset _vr_first _vr_rest_first _vr_form _vr_count _vr_rest _vr_depr_h
 
 # Check for §18 honesty line (anywhere in the file).
 # File is already verified readable above, so grep exit 2 should not occur.

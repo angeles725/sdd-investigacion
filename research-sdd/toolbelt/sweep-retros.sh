@@ -46,6 +46,15 @@ if [ ! -f "$_sr_bf_lib" ]; then echo "sweep-retros: cannot find helper $_sr_bf_l
 declare -F block_file_filter >/dev/null 2>&1 || { echo "sweep-retros: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
 unset _sr_bf_lib
 
+# Shared delta-heading grammar — canonical/deprecated heading recognition, row counting,
+# and unrecognised-heading detection (Rules 1–3). Single source of truth with verify-retro.sh.
+_sr_rg_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-grammar.sh"
+if [ ! -f "$_sr_rg_lib" ]; then echo "sweep-retros: cannot find helper $_sr_rg_lib" >&2; exit 1; fi
+# shellcheck source=lib/retro-grammar.sh
+. "$_sr_rg_lib"
+declare -F retro_grammar_delta_info >/dev/null 2>&1 || { echo "sweep-retros: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+unset _sr_rg_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "sweep-retros: cannot find $TARGETS_MD" >&2
   exit 1
@@ -181,41 +190,11 @@ for p in $paths; do
     #           indicators present (per-delta headings without "## Delta" prefix, letter+digit,
     #           bare-number headings) → "non-conforming delta declaration — count by hand"
     #
-    # CANONICAL HEADING SET (tolerant, case-insensitive):
-    #   "## [N. ] Proposed kit delta[s][ (...)| EOL]"  (tightened: excludes "verdict" etc.)
-    #   "## Proposed delta[s][...]"
-    #   "## Delta proposals[...]"
-    #   "## Deltas NUEVOS[...]"
-    _sec_r=$(awk '
-      BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h="" }
-      { low=tolower($0) }
-      # Canonical section headings (recognized, no deprecation WARN).
-      # Numbered form widened to allow trailing text (e.g. "for the next version …").
-      low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
-      low ~ /^## proposed delta/                                      ||
-      low ~ /^## delta proposals/                                     ||
-      low ~ /^## deltas nuevos/                                       { in_sec=1; found=1; next }
-      # Deprecated alias headings (recognized + WARN-migrate unconditionally).
-      low ~ /^## summary of proposed delta/                           ||
-      low ~ /^## summary of new deltas/                               ||
-      low ~ /^## delta details([[:space:]]|$)/                        { in_sec=1; found=1; if (!depr_h) depr_h=$0; next }
-      /^##[^#]/ && in_sec { in_sec=0 }
-      in_sec && /^\|/ && $0 !~ /^\|[-: |]+\|?[[:space:]]*$/ { rows++ }
-      in_sec && /^###[^#]/ && /—/ { h3d++ }
-      !in_sec && low ~ /^## delta / && /—/ { d3++ }
-      END {
-        data = (rows > 0) ? rows - 1 : 0
-        if (found) {
-          if      (data  > 0) printf "1:1:%d\001%s\n", data+0, depr_h
-          else if (h3d   > 0) printf "1:2:%d\001%s\n", h3d+0, depr_h
-          else                printf "1:w:0\001%s\n",          depr_h
-        } else {
-          if (d3 > 0) printf "0:3:%d\001\n", d3+0
-          else        printf "0:n:0\001\n"
-        }
-      }
-    ' "$f")
-    _depr_h="${_sec_r#*$'\001'}"
+    # Grammar lives in lib/retro-grammar.sh (single source of truth with verify-retro.sh).
+    # Output: <found>:<form>:<count>\001<depr_h>\001<unrec_found>\001<unrec_data>\001<unrec_heading>
+    _sec_r=$(retro_grammar_delta_info "$f")
+    _temp_depr="${_sec_r#*$'\001'}"
+    _depr_h="${_temp_depr%%$'\001'*}"
     _sec_r="${_sec_r%%$'\001'*}"
     _sec_found="${_sec_r%%:*}"
     _sec_rest="${_sec_r#*:}"; _sec_form="${_sec_rest%%:*}"; _sec_cnt="${_sec_rest##*:}"
@@ -244,7 +223,7 @@ for p in $paths; do
     if [ -n "$_depr_h" ]; then
       delta_warn="deprecated delta heading [${_depr_h}] — migrate to '## Proposed kit deltas' per §18"
     fi
-    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt _depr_h
+    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt _depr_h _temp_depr
     # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
     # under that name), falling back to file mtime when the file is untracked or the dir is not a git
     # repo — so a non-git target never crashes the sweep.
