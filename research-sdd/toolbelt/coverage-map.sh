@@ -76,12 +76,27 @@ if [ "$EXCL_FILE_EXPLICIT" -eq 0 ] && [ -f "$CORPUS_DIR/coverage-exclude.txt" ];
 fi
 # Collect --exclude args (one glob per line; filter blank lines)
 : > "$TMP/excl_args.txt"
-printf '%s\n' "$EXCL_EXTRA" | grep -v '^$' >> "$TMP/excl_args.txt" || true
+# _args_rc==1: EXCL_EXTRA was empty (no --exclude given) — benign
+# _args_rc>=2: filter error (classified per §7; input is printf so ≥2 is exceptional)
+_args_rc=0
+printf '%s\n' "$EXCL_EXTRA" | grep -v '^$' >> "$TMP/excl_args.txt" || _args_rc=$?
+if [ "$_args_rc" -ge 2 ]; then
+  printf 'WARN: exclude-args filter FAILED (grep exit %d) — exclusions unavailable, counts unexcluded\n' \
+    "$_args_rc" >&2
+fi
 # Build combined pattern list (skip blank lines and #-comment lines from file)
 : > "$TMP/excl_patterns.txt"
 if [ -n "$EXCL_FILE" ] && [ -f "$EXCL_FILE" ]; then
-  grep -v '^[[:space:]]*#' "$EXCL_FILE" | grep -v '^[[:space:]]*$' \
-    >> "$TMP/excl_patterns.txt" || true
+  # SENTINEL-G: capture exclude-file read rc (§7 || true removed, fix #500)
+  _excl_rc=0
+  grep -v '^[[:space:]]*#' "$EXCL_FILE" > "$TMP/excl_raw.txt" || _excl_rc=$?
+  if [ "$_excl_rc" -ge 2 ]; then
+    printf 'WARN: exclude-file read FAILED (grep exit %d) — exclusions unavailable, counts unexcluded\n' \
+      "$_excl_rc" >&2
+  else
+    # _excl_rc==0 (patterns present) or 1 (all-comment file → 0 real patterns); both benign
+    grep -v '^[[:space:]]*$' "$TMP/excl_raw.txt" >> "$TMP/excl_patterns.txt" || true
+  fi
 fi
 cat "$TMP/excl_args.txt" >> "$TMP/excl_patterns.txt"
 # Determine source label for always-printed declaration line
