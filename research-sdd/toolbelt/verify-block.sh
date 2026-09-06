@@ -156,7 +156,9 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
       _type_token=""
       _type_stripped=""
       if [ -n "$_type_raw" ]; then
-        _type_after=$(printf '%s' "$_type_raw" | sed 's/.*[Tt]ype://')
+        # BQ-STRIP: strip blockquote marker before parsing so > **TYPE: VALUE** names VALUE, not >.
+        _type_no_bq=$(printf '%s' "$_type_raw" | sed 's/^[[:space:]]*>[[:space:]]*//')  # P6-BQ-STRIP
+        _type_after=$(printf '%s' "$_type_no_bq" | sed 's/.*[Tt][Yy][Pp][Ee]://')  # P6-BQ-TYPECASE
         _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
         _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
       fi
@@ -164,8 +166,8 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
       if printf '%s\n' synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-CLASSIFY
         echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
       elif [ -n "$_type_raw" ] && ! printf '%s\n' standard evidence mixed collaborative audit synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-UNRECOGNISED
-        # Name the raw stripped value when the leading-token grep yielded empty (uppercase/prose non-conformant).
-        _type_warn_name="${_type_token:-${_type_stripped%% *}}"  # P6-TYPE-DISPLAY
+        # Name the real value when token is empty (uppercase/non-conformant); strip closing ** and trailing punctuation.
+        _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P6-TYPE-DISPLAY
         echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
       elif [ -z "$_type_raw" ]; then
         echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
