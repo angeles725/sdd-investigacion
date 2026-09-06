@@ -763,6 +763,31 @@ else
   no "59 P6-TYPE-DISPLAY: uppercase not named in WARN :: $(grep -iE 'WARN|GAP|token' <<<"$out" | head -2)"
 fi
 
+# ---- P6-BQ-STRIP: blockquote-prefixed ALL-CAPS type line (> **TYPE: VALUE**) must name the real value ----
+# bloque274 / bloque279: type line is `> **TYPE: GAP-CLOSING SWEEP.**` — blockquote prefix, uppercase TYPE,
+# value INSIDE the bold. The WARN must name the real token (GAP-CLOSING SWEEP), not the blockquote marker (>).
+# CRITICAL: classification is UNCHANGED — the block is still unrecognised → WARN. Not accepted, not INFO.
+
+# 60 — blockquote-prefixed ALL-CAPS > **TYPE: VALUE.** → WARN names real value, not '>'.
+d="$TMP/p6-bq-allcaps.md"
+{ echo "# Block 60 — t"; echo
+  echo "> **TYPE: GAP-CLOSING SWEEP.**"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d"
+out="$(run "$d")"
+# WARN must fire (block is still unrecognised — not a valid Type domain extension).
+# WARN must name 'GAP-CLOSING SWEEP' (the real value), NOT '>'.
+# INFO must NOT fire (block is not accepted).
+if grep -qiE 'WARN.*unrecogni' <<<"$out" \
+   && grep -q 'GAP-CLOSING SWEEP' <<<"$out" \
+   && ! grep -qE "token '>'" <<<"$out" \
+   && ! grep -qiE 'INFO.*declared' <<<"$out"; then
+  ok "60 P6-BQ-STRIP: blockquote ALL-CAPS > **TYPE: VALUE.** → WARN names 'GAP-CLOSING SWEEP' (not '>'); still WARN'd"
+else
+  no "60 P6-BQ-STRIP: wrong output :: $(grep -iE 'WARN|INFO|GAP|token' <<<"$out" | head -3)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -1118,6 +1143,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   grep -qiE 'citation dedup FAILED|unresolved.*grep exit' <<<"$out_vb50m" \
     && no "teeth-vb50: rc-zeroed mutant still emitted WARN — test 50 is THEATER" \
     || ok "teeth-vb50: rc-zeroed mutant passes silently — dedup guard has teeth"
+
+  # teeth-p6-bq-strip: neuter both the blockquote strip (P6-BQ-STRIP) and the case-insensitive TYPE
+  # sed (P6-BQ-TYPECASE); the fixture must revert to naming '>' instead of 'GAP-CLOSING SWEEP' — that
+  # is what the original bug produced. Both sentinels are part of the same logical fix: strip is a no-op
+  # if the sed still fails to extract the value, so both must be neutered to demonstrate the old naming.
+  echo "-- teeth-p6-bq-strip: neuter BQ-STRIP + TYPE-case sed; fixture must revert to naming '>' --"
+  mutant_bqs="$TMP/verify-block.P6BQSTRIP.sh"
+  if grep -q '# P6-BQ-STRIP' "$SUT" && grep -q '# P6-BQ-TYPECASE' "$SUT"; then
+    sed \
+      -e '/# P6-BQ-STRIP/ s/.*/        _type_no_bq="$_type_raw"  # P6-BQ-STRIP [NEUTERED]/' \
+      -e '/# P6-BQ-TYPECASE/ s/\[Tt\]\[Yy\]\[Pp\]\[Ee\]/[Tt]ype/' \
+      "$SUT" > "$mutant_bqs"
+    bash -n "$mutant_bqs" 2>/dev/null; bqs_syntax=$?
+    if [ "$bqs_syntax" != "0" ]; then
+      no "teeth-p6-bq-strip: mutant has syntax error (bash -n rc=$bqs_syntax) — cannot run"
+    else
+      d_bqs="$TMP/p6-bq-strip-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> **TYPE: GAP-CLOSING SWEEP.**"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "---"; echo
+        echo "## Finding [CERT]"; echo "The method is defined. [CERT]"; } > "$d_bqs"
+      mout_bqs="$(bash "$mutant_bqs" "$d_bqs" 2>/dev/null)"
+      if grep -qE "token '>'" <<<"$mout_bqs" && ! grep -q 'GAP-CLOSING SWEEP' <<<"$mout_bqs"; then
+        ok "teeth-p6-bq-strip: neutered mutant names '>' not 'GAP-CLOSING SWEEP' (test 60 has teeth)"
+      else
+        no "teeth-p6-bq-strip: mutant wrong output :: $(grep -iE "token|GAP|'>'" <<<"$mout_bqs" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-bq-strip: P6-BQ-STRIP or P6-BQ-TYPECASE sentinel not found in SUT"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
