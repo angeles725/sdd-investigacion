@@ -6,6 +6,9 @@ Total SessionStart hook output MUST remain under 8,000 characters. `sweep-retros
 produce a compact summary under 3,000 characters. `verify-tool-catalog-hook.sh` MUST emit a
 non-empty sentinel when clean, making a clean run distinguishable from a crash.
 
+> Verify note (2026-09-06): measured total after #437 is 8.7–9.4k chars across the 7 hooks; the two largest (sweep-breakthroughs-hook 2.8k, sweep-audits-hook 2.4k) print 17 absent-input INFO lines each. Follow-up instrument unit: kit issue #501 (expected total < 5k). The 8k target stands as the acceptance for that unit.
+
+
 ## Requirements
 
 ### Requirement: sweep-retros-hook.sh Summary Mode
