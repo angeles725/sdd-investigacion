@@ -422,12 +422,12 @@ Chain strategy: stacked-to-main
 
 ### Blocking follow-up from sdd-verify
 
-- [ ] CRIT-1: add a `tool-registry.md` row for `DEPLOY-WINDOWS-MINIPC.md` (next to the `DYNAMIC-SETUP.md` / `REMOTE-POWERSHELL.md` / `BACNET-TRENDLOG.md` / `NIAGARA-N4-FRAMEWORK.md` rows at `tool-registry.md:303-306`), or amend the `kit-session-cost` D2 scenario. Blocks archive.
-- [ ] Campaign retro (METHODOLOGY §18): this multi-session campaign is itself a retro trigger; write it before archive.
+- [x] CRIT-1: add a `tool-registry.md` row for `DEPLOY-WINDOWS-MINIPC.md` (next to the `DYNAMIC-SETUP.md` / `REMOTE-POWERSHELL.md` / `BACNET-TRENDLOG.md` / `NIAGARA-N4-FRAMEWORK.md` rows at `tool-registry.md:303-306`), or amend the `kit-session-cost` D2 scenario. Blocks archive.
+- [x] Campaign retro (METHODOLOGY §18): this multi-session campaign is itself a retro trigger; write it before archive.
 
 ### sdd-archive
 
-- [ ] Run `sdd-archive` to close this change; update `tool-registry.md` rows for `coverage-map.sh` and `lib/block-files.sh` as prompted; refresh the `research-sdd-kit-retro-campaign` openspec change entry
+- [x] Run `sdd-archive` to close this change; update `tool-registry.md` rows for `coverage-map.sh` and `lib/block-files.sh` as prompted; refresh the `research-sdd-kit-retro-campaign` openspec change entry
 
 ---
 
