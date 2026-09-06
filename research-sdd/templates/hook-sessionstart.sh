@@ -4,7 +4,29 @@
 #   <TARGET>/.claude/hooks/research-protocol.sh
 # and register it in <TARGET>/.claude/settings.json (matcher startup|resume|clear).
 # Replace <SUBJECT> and the source/tool paths with the target's.
+#
+# §479: also records the session-start git sha so retro-gate.sh can detect
+# which research files changed during this session.
 set -euo pipefail
+
+# Read session_id from Stop-hook JSON stdin (§479 session-sha recording)
+_hook_stdin=$(cat)
+_session_id=$(printf '%s' "$_hook_stdin" | jq -r '.session_id // empty' 2>/dev/null) || _session_id=""
+
+# Record session-start git sha for retro-gate.sh (hooks live two levels below target)
+_hook_target="$(cd "$(dirname "$0")/../.." && pwd)"
+if [ -n "$_session_id" ]; then
+  _sha=$(git -C "$_hook_target" rev-parse HEAD 2>/dev/null) || _sha=""
+  if [ -n "$_sha" ]; then
+    mkdir -p "$_hook_target/.claude"
+    printf '%s\n' "$_sha" > "$_hook_target/.claude/.rsdd-session-${_session_id}"
+  fi
+  # Rotate stale session state files (older than 7 days) to prevent accumulation
+  find "$_hook_target/.claude" -maxdepth 1 \
+    \( -name '.rsdd-session-*' -o -name '.rsdd-retro-blocked-*' \) \
+    -mtime +7 -delete 2>/dev/null || true
+fi
+unset _hook_stdin _session_id _sha _hook_target
 
 read -r -d '' CTX <<'EOF' || true
 RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)

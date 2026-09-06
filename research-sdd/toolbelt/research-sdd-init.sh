@@ -40,7 +40,7 @@ done
 target="$(cd "$target" && pwd)"
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
-for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh tools-README.template.md; do
+for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
 
@@ -107,6 +107,11 @@ cpf "$TPL/RESEARCH-STATE.template.md" "$corpus/RESEARCH-STATE.md"
 cpf "$TPL/SOURCES.template.md"        "$corpus/sources/SOURCES.md"
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
+# §479 retro-gate Stop hook: copy template and replace <KIT>/<TARGET> placeholders
+_rg_hook="$target/.claude/hooks/retro-gate-stop.sh"
+cpf "$TPL/hook-stop-retro-gate.sh" "$_rg_hook"
+sed -i "s|<KIT>|$KIT|g; s|<TARGET>|$target|g" "$_rg_hook"
+chmod +x "$_rg_hook"
 
 # .gitignore guard (METHODOLOGY §15). Ensure a trailing newline first so we never fuse
 # onto a pre-existing last line the user authored.
@@ -121,7 +126,8 @@ if ! git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then git -C "$target"
 
 # --- post-flight verification (success is EARNED, not assumed) ----------------
 for f in "$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/sources/SOURCES.md" \
-         "$target/.claude/hooks/research-protocol.sh" "$target/tools/README.md"; do
+         "$target/.claude/hooks/research-protocol.sh" "$target/.claude/hooks/retro-gate-stop.sh" \
+         "$target/tools/README.md"; do
   [ -f "$f" ] || { echo "FATAL: expected artifact missing after scaffold: $f" >&2; exit 1; }
 done
 trap - ERR   # scaffold verified — disarm rollback
@@ -169,4 +175,17 @@ fi
 echo
 echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
 echo "  mental model: you now have a VALID-but-EMPTY corpus; the JUDGMENT follow-ups turn it into a real research target."
+echo
+echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself) --"
+echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
+printf '%s\n' '{' \
+  '  "hooks": {' \
+  '    "Stop": [' \
+  '      {"matcher":"","hooks":[{"type":"command","command":"'"$target/.claude/hooks/retro-gate-stop.sh"'"}]}' \
+  '    ],' \
+  '    "SessionStart": [' \
+  '      {"matcher":"","hooks":[{"type":"command","command":"'"$target/.claude/hooks/research-protocol.sh"'"}]}' \
+  '    ]' \
+  '  }' \
+  '}'
 echo "== done =="
