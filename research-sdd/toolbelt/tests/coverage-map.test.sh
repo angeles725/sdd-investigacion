@@ -206,6 +206,42 @@ else
   no "--exclude: failed" "out=$out excl_line=$excl_line13"
 fi
 
+# ---- 14. unreadable exclude file → WARN fires (§7 || true hole, fix #500)
+# grep exits ≥2 when it cannot read the file; WARN must appear in stderr.
+# Root guard: chmod 000 is ineffective when running as root.
+S14="$ROOT/s14"; C14="$ROOT/c14"
+mk_unit "$S14" "appMain" "AppEntry.java"
+mk_corpus "$C14" "proj-bloque1.md" "AppEntry.java is the entry point"
+EXCL14="$ROOT/excl14.txt"
+printf 'vendorExcluded\n' > "$EXCL14"
+chmod 000 "$EXCL14"
+if [ "$(id -u)" -eq 0 ]; then
+  ok "14-skip (running as root; chmod 000 does not prevent read — root can always read)"
+else
+  out14="$(rune "$C14" --subject "$S14" --exclude-file "$EXCL14")"
+  if printf '%s' "$out14" | grep -q 'WARN: exclude-file read FAILED'; then
+    ok "14. unreadable exclude file: WARN fires (not silently empty, #500)"
+  else
+    no "14. unreadable exclude file: expected WARN line, got none" "out=$out14"
+  fi
+  chmod 644 "$EXCL14"
+fi
+
+# ---- 15. all-comment exclude file (rc==1 benign) → no WARN, 0 exclusions
+# grep -v '^#' exits 1 when all lines are comments; that is a legitimate empty set.
+S15="$ROOT/s15"; C15="$ROOT/c15"
+mk_unit "$S15" "appMain" "AppEntry.java"
+mk_corpus "$C15" "proj-bloque1.md" "nothing matching here at all"
+EXCL15="$ROOT/excl15.txt"
+printf '# This line is a comment\n# Another comment\n\n' > "$EXCL15"
+out15="$(rune "$C15" --subject "$S15" --exclude-file "$EXCL15")"
+if ! printf '%s' "$out15" | grep -q 'WARN:' \
+   && printf '%s' "$out15" | grep -q 'excluded by declaration: 0'; then
+  ok "15. all-comment exclude file: no WARN, rc==1 treated as benign empty set"
+else
+  no "15. all-comment exclude file: unexpected WARN or wrong exclusion count" "out=$out15"
+fi
+
 # ==========================================================================
 # TEETH — mutant verification (--prove-teeth only)
 # ==========================================================================
@@ -367,6 +403,69 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-f: SENTINEL-F: comment not found in SUT"
+  fi
+
+  # ---- tooth (g): unreadable exclude file → WARN fires; drop-WARN mutant → RED
+  # Fixture: chmod 000 exclude file → grep exits ≥2.
+  # Original fix (SENTINEL-G): captures rc, WARNs on ≥2.
+  # Mutant: comments out the WARN printf → WARN disappears → RED.
+  echo "-- teeth-g: unreadable file → WARN; drop-WARN mutant must go RED --"
+  MUTANT_G="$ROOT/cov-map.MUT-G.sh"
+  # SENTINEL-G: capture exclude-file read rc
+  if grep -q 'SENTINEL-G:' "$SUT"; then
+    SG="$ROOT/sg"; CG="$ROOT/cg"
+    mk_unit "$SG" "appMain" "AppEntry.java"
+    mk_corpus "$CG" "proj-bloque1.md" "nothing matches here"
+    EXCL_G="$ROOT/excl_g.txt"
+    printf 'vendorLib\n' > "$EXCL_G"
+    chmod 000 "$EXCL_G"
+    if [ "$(id -u)" -eq 0 ]; then
+      ok "teeth-g: skipped (running as root; chmod 000 not effective for root)"
+    else
+      rout_g="$(bash "$SUT" "$CG" --subject "$SG" --exclude-file "$EXCL_G" 2>&1)"
+      sed 's/printf.*exclude-file read FAILED.*/: # MUTATED-G/' "$SUT" > "$MUTANT_G"
+      mout_g="$(bash "$MUTANT_G" "$CG" --subject "$SG" --exclude-file "$EXCL_G" 2>&1)"
+      if printf '%s' "$rout_g" | grep -q 'WARN: exclude-file read FAILED' \
+         && ! printf '%s' "$mout_g" | grep -q 'WARN: exclude-file read FAILED'; then
+        ok "teeth-g: original WARNs on unreadable file; drop-WARN mutant silences it — bites"
+      else
+        no "teeth-g: drop-WARN mutant did not change WARN output" \
+           "orig_warn=$(printf '%s' "$rout_g" | grep -c 'WARN:' || true) mut_warn=$(printf '%s' "$mout_g" | grep -c 'WARN:' || true)"
+      fi
+      chmod 644 "$EXCL_G"
+    fi
+  else
+    no "teeth-g: SENTINEL-G: comment not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (h): restore || true → rc ≥2 no longer captured → no WARN → RED
+  # Mutant: replace '|| _excl_rc=$?' with '|| true' → _excl_rc stays 0 → WARN never fires.
+  echo "-- teeth-h: revert || true; WARN must disappear for unreadable file → RED --"
+  MUTANT_H="$ROOT/cov-map.MUT-H.sh"
+  if grep -q 'SENTINEL-G:' "$SUT"; then
+    SH_="$ROOT/sh2"; CH_="$ROOT/ch2"
+    mk_unit "$SH_" "appMain" "AppEntry.java"
+    mk_corpus "$CH_" "proj-bloque1.md" "nothing matches here"
+    EXCL_H="$ROOT/excl_h.txt"
+    printf 'vendorLib\n' > "$EXCL_H"
+    chmod 000 "$EXCL_H"
+    if [ "$(id -u)" -eq 0 ]; then
+      ok "teeth-h: skipped (running as root; chmod 000 not effective for root)"
+    else
+      rout_h="$(bash "$SUT" "$CH_" --subject "$SH_" --exclude-file "$EXCL_H" 2>&1)"
+      sed 's/|| _excl_rc=\$?/|| true/' "$SUT" > "$MUTANT_H"
+      mout_h="$(bash "$MUTANT_H" "$CH_" --subject "$SH_" --exclude-file "$EXCL_H" 2>&1)"
+      if printf '%s' "$rout_h" | grep -q 'WARN: exclude-file read FAILED' \
+         && ! printf '%s' "$mout_h" | grep -q 'WARN: exclude-file read FAILED'; then
+        ok "teeth-h: original WARNs; || true revert silences WARN — bites"
+      else
+        no "teeth-h: || true revert did not change WARN output" \
+           "orig_warn=$(printf '%s' "$rout_h" | grep -c 'WARN:' || true) mut_warn=$(printf '%s' "$mout_h" | grep -c 'WARN:' || true)"
+      fi
+      chmod 644 "$EXCL_H"
+    fi
+  else
+    no "teeth-h: SENTINEL-G: comment not found in SUT (cannot anchor mutation)"
   fi
 fi
 
