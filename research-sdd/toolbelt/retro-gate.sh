@@ -36,6 +36,25 @@ done
 declare -F block_file_filter >/dev/null 2>&1 || { printf 'retro-gate: block_file_filter not defined\n' >&2; exit 0; }
 declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_excluded not defined\n' >&2; exit 0; }
 
+# ── Pure-bash JSON string escaper (decision channel must not depend on jq) ────
+_json_escape_reason() {
+  local s="$1"
+  local _dq='"'
+  s="${s//\\/\\\\}"          # \ → \\  (must be first)
+  s="${s//$_dq/\\$_dq}"     # " → \"
+  s="${s//$'\n'/\\n}"       # newline → \n
+  printf '%s' "$s"
+}
+
+# SENTINEL-JQ-PROBE-START
+# ── Probe: jq required for JSON parsing ──────────────────────────────────────
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'retro-gate: state=allow branch=degraded (jq missing — cannot read hook JSON) target=%s\n' \
+    "$(basename "$TARGET")" >&2
+  exit 0
+fi
+# SENTINEL-JQ-PROBE-END
+
 # ── Read stdin JSON ───────────────────────────────────────────────────────────
 _json=$(cat)
 _session_id=$(printf '%s' "$_json" | jq -r '.session_id // empty' 2>/dev/null) || _session_id=""
@@ -195,6 +214,9 @@ if [ -n "$_block_reason" ]; then
   fi
   printf 'retro-gate: state=block branch=retro-pending changed=%s retro=%s target=%s\n' \
     "$_n_changed" "$(basename "$_retro_label")" "$(basename "$TARGET")" >&2
-  jq -cn --arg reason "$_block_reason" '{"decision":"block","reason":$reason}'
+  # SENTINEL-PURE-BASH-EMITTER-START
+  _reason_esc="$(_json_escape_reason "$_block_reason")"
+  printf '{"decision":"block","reason":"%s"}\n' "$_reason_esc"
+  # SENTINEL-PURE-BASH-EMITTER-END
 fi
 # SENTINEL-BLOCK-END

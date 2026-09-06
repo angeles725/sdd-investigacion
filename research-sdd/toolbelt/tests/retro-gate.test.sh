@@ -96,6 +96,40 @@ run_mutant() {
   ERR="$(cat "$errf")"; rm -f "$errf"
 }
 
+# Build NOJQ_PATH: PATH without the directory that contains jq.
+# dirname/basename live in /usr/bin (separate from linuxbrew bin where jq lives),
+# so excluding jq's dir leaves all other necessary tools accessible.
+_JQ_BIN="$(command -v jq 2>/dev/null)"
+if [ -n "$_JQ_BIN" ]; then
+  _JQ_DIR="$(dirname "$_JQ_BIN")"
+  NOJQ_PATH=""
+  _oifs="$IFS"; IFS=':'
+  for _pd in $PATH; do
+    IFS="$_oifs"
+    [ "$_pd" = "$_JQ_DIR" ] && continue
+    NOJQ_PATH="${NOJQ_PATH:+$NOJQ_PATH:}$_pd"
+  done
+  IFS="$_oifs"
+else
+  NOJQ_PATH="$PATH"  # jq already absent; PATH is already jq-free
+fi
+
+# run_gate_nojq <target> <json_str> → sets OUT RC ERR; hides jq from PATH
+run_gate_nojq() {
+  local tgt="$1" json="$2" errf
+  errf="$ROOT/err_nojq.$$"
+  OUT="$(printf '%s' "$json" | PATH="$NOJQ_PATH" "$BASH_BIN" "$SUT" "$tgt" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+
+# run_mutant_nojq <mutant_path> <target> <json_str> → sets OUT RC ERR; hides jq from PATH
+run_mutant_nojq() {
+  local m="$1" tgt="$2" json="$3" errf
+  errf="$ROOT/merr_nojq.$$"
+  OUT="$(printf '%s' "$json" | PATH="$NOJQ_PATH" "$BASH_BIN" "$m" "$tgt" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+
 echo "== retro-gate.test.sh (SUT: $(basename "$SUT")) =="
 
 # ─── BAD ARGS ────────────────────────────────────────────────────────────────
@@ -187,6 +221,40 @@ printf '%s' "$OUT" | grep -qF 'retro.template.md' && ok "BLOCK: non-conforming r
 printf '%s' "$OUT" | grep -qF 'missing elements' && ok "BLOCK: non-conforming reason has missing elements" \
   || no "BLOCK: non-conforming — reason missing 'missing elements': $OUT"
 
+# ─── (7) jq absent → degrade allow (exit 0, degraded stderr, no block JSON) ──
+T6="$ROOT/t6"; mkgit "$T6"; SID6="sess-006"
+mksessionfile "$T6" "$SID6" "202609050800"
+mkblock "$T6" "niagara-block1.md" "2026-09-05T10:00:00"
+
+_j6="$(mkjson "$SID6" "false")"
+run_gate_nojq "$T6" "$_j6"
+[ "$RC" -eq 0 ] && ok "DEGRADE: jq absent → exit 0 (hook contract)" \
+  || no "DEGRADE: jq absent — want exit 0, got $RC"
+[ -z "$OUT" ] && ok "DEGRADE: jq absent → no block JSON on stdout" \
+  || no "DEGRADE: jq absent — unexpected stdout: $OUT"
+printf '%s' "$ERR" | grep -q 'branch=degraded' && ok "DEGRADE: jq absent → branch=degraded in stderr" \
+  || no "DEGRADE: jq absent — stderr missing 'branch=degraded': $ERR"
+printf '%s' "$ERR" | grep -q 'jq missing' && ok "DEGRADE: jq absent → 'jq missing' in stderr" \
+  || no "DEGRADE: jq absent — stderr missing 'jq missing': $ERR"
+
+# ─── (8) Pure-bash emitter: block JSON is valid + handles embedded " in reason ─
+# Use target whose basename contains a double-quote — the reason embeds it.
+T7="$ROOT/t7-dq\"test"; mkgit "$T7"; SID7="sess-007"
+mksessionfile "$T7" "$SID7" "202609050800"
+mkblock "$T7" "niagara-block1.md" "2026-09-05T10:00:00"
+
+_j7="$(mkjson "$SID7" "false")"
+run_gate "$T7" "$_j7"
+[ "$RC" -eq 0 ] && ok "EMITTER: block with dq-name → exit 0" || no "EMITTER: dq-name — want 0, got $RC"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "EMITTER: dq-name → decision=block present" \
+  || no "EMITTER: dq-name — missing decision:block: $OUT"
+if command -v jq >/dev/null 2>&1; then
+  printf '%s' "$OUT" | jq . >/dev/null 2>&1 \
+    && ok "EMITTER: block JSON with \" in reason is valid JSON (jq parses it)" \
+    || no "EMITTER: block JSON failed jq parse (escaping bug): $OUT"
+fi
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -277,6 +345,43 @@ run_mutant "$M4" "$TM4" "$_jm4"
 printf '%s' "$OUT" | grep -qF 'retro.template.md' \
   && no "TOOTH reason-not-actionable: mutant should lack template ref but it was present" \
   || ok "TOOTH reason-not-actionable: mutant reason lacks template ref (RED as expected)"
+
+# ── TOOTH 5: degraded-stderr-dropped — mutant removes jq probe (no degraded line) ─
+# Mutant: SENTINEL-JQ-PROBE-START…END removed → no degraded stderr on no-jq path.
+# PATH="" hides jq; the mutant continues silently (no degraded line on stderr).
+M5="$(mkmutant 'degraded-stderr-dropped' 'SENTINEL-JQ-PROBE-START' 'SENTINEL-JQ-PROBE-END')"
+TM5="$ROOT/m5"; mkgit "$TM5"; SM5="m5-sess"
+mksessionfile "$TM5" "$SM5" "202609050800"
+mkblock "$TM5" "niagara-block1.md" "2026-09-05T10:00:00"
+_jm5="$(mkjson "$SM5" "false")"
+run_mutant_nojq "$M5" "$TM5" "$_jm5"
+# Mutant has no probe → no 'branch=degraded' in stderr (RED as expected)
+printf '%s' "$ERR" | grep -q 'branch=degraded' \
+  && no "TOOTH degraded-stderr-dropped: mutant should NOT emit degraded line but it did" \
+  || ok "TOOTH degraded-stderr-dropped: mutant silent (no degraded stderr) — RED as expected"
+
+# ── TOOTH 6: jq-emitter-reverted — mutant removes both probe+emitter sentinels ──
+# Mutant: no probe (no early exit on jq-absent) AND reverts to jq-cn emitter.
+# With jq absent, the reverted jq-cn fails silently → no block JSON on stdout.
+M6="$MUT_KIT/toolbelt/mutant-jq-emitter.sh"
+sed "/# SENTINEL-JQ-PROBE-START/,/# SENTINEL-JQ-PROBE-END/d" "$SUT" | \
+awk '
+  /# SENTINEL-PURE-BASH-EMITTER-START/ { in_e=1; print; next }
+  /# SENTINEL-PURE-BASH-EMITTER-END/ { in_e=0;
+    print "  jq -cn --arg reason \"$_block_reason\" '"'"'{\"decision\":\"block\",\"reason\":$reason}'"'"'";
+    print; next }
+  in_e { next }
+  { print }
+' > "$M6"; chmod +x "$M6"
+TM6="$ROOT/m6"; mkgit "$TM6"; SM6="m6-sess"
+mksessionfile "$TM6" "$SM6" "202609050800"
+mkblock "$TM6" "niagara-block1.md" "2026-09-05T10:00:00"
+_jm6="$(mkjson "$SM6" "false")"
+run_mutant_nojq "$M6" "$TM6" "$_jm6"
+# Mutant: jq-cn fails silently → no block JSON on stdout (RED = silent allow)
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && no "TOOTH jq-emitter-reverted: mutant should produce no block JSON (no jq) but it did" \
+  || ok "TOOTH jq-emitter-reverted: mutant silent block (no jq-cn output) — RED as expected"
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo
