@@ -125,59 +125,68 @@ Chain strategy: stacked-to-main
 
 ---
 
-### U6 — `run-all.sh` teeth accounting (issue #426, mejorador) [blocked-by: none; land FIRST in Phase 2]
+### U6 — `run-all.sh` teeth accounting (issue #426, mejorador) [x]
+
+> **Delivered**: PR #462 merged as `055d604` (2026-09-05). U6 baseline commit = `055d604` — every later gate report cites it.
+> **Measured at sdd-verify (`af83e7a`)**: `Suites without teeth: 21` and `Suites n/a for teeth (node): 2`. The `22` / `1` written below were the forecast at planning time; the fleet moved. The numbers below are kept as the historic plan, not as live telemetry.
 
 > Branch: `feat/u6-teeth-accounting`
 > Files: `research-sdd/toolbelt/tests/run-all.sh` (:96-112, :172-197)
 > **Satisfies**: `kit-instrument-honesty` spec req teeth accounting
 
-- [ ] RED: assert `--prove-teeth` emits line matching `Suites without teeth: 22 — [...]` (sorted names); assert `--require-teeth` exits non-zero; assert default run aggregate block is byte-identical before/after; assert `Suites n/a for teeth (node): 1` for the `.mjs` suite
-- [ ] IMPL: count teeth-banner lines (`^\s*(--|==)\s*teeth\b`, case-insensitive, enumerator: 249 banners across 56 suites of which one uses `==` at `test-lane.test.sh:181`) from captured `$tmp_out` per suite; cross-check against static `grep -l '"--prove-teeth"'` set (78 files) → suites with banner vs those with flag but no banner are distinct states; `.mjs` suites forward nothing and classify as `n/a (node suite — teeth always run)`; add `--require-teeth` flag that exits 1 when without-teeth list non-empty; new lines print ONLY under `--prove-teeth` (default aggregate unchanged)
-- [ ] MUTANT: (a) add stub suite that greps `--prove-teeth` and prints no banner → must land in banner-less bucket not with-teeth bucket; (b) remove `==` alternative from banner enumerator → banner count drops by exactly one suite
-- [ ] FLEET: `bash run-all.sh --prove-teeth` on quiet tree → 22 named without teeth; `Suites n/a for teeth (node): 1`; default run byte-identical; `--require-teeth` exits 1
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` + shellcheck; record U6 baseline commit — all subsequent gate reports MUST cite it
+- [x] RED: assert `--prove-teeth` emits line matching `Suites without teeth: 22 — [...]` (sorted names); assert `--require-teeth` exits non-zero; assert default run aggregate block is byte-identical before/after; assert `Suites n/a for teeth (node): 1` for the `.mjs` suite
+- [x] IMPL: count teeth-banner lines (`^\s*(--|==)\s*teeth\b`, case-insensitive, enumerator: 249 banners across 56 suites of which one uses `==` at `test-lane.test.sh:181`) from captured `$tmp_out` per suite; cross-check against static `grep -l '"--prove-teeth"'` set (78 files) → suites with banner vs those with flag but no banner are distinct states; `.mjs` suites forward nothing and classify as `n/a (node suite — teeth always run)`; add `--require-teeth` flag that exits 1 when without-teeth list non-empty; new lines print ONLY under `--prove-teeth` (default aggregate unchanged)
+- [x] MUTANT: (a) add stub suite that greps `--prove-teeth` and prints no banner → must land in banner-less bucket not with-teeth bucket; (b) remove `==` alternative from banner enumerator → banner count drops by exactly one suite
+- [x] FLEET: `bash run-all.sh --prove-teeth` on quiet tree → 22 named without teeth; `Suites n/a for teeth (node): 1`; default run byte-identical; `--require-teeth` exits 1
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` + shellcheck; record U6 baseline commit — all subsequent gate reports MUST cite it
 
 ---
 
-### U12 — 8 unguarded `|| true` (issue #441, mejorador) [blocked-by: none; must precede U5 (#422) and U8a (#437)]
+### U12 — 8 unguarded `|| true` (issue #441, mejorador) [x]
+
+> **Delivered**: PR #463 merged as `2f83114` (2026-09-05). 8 sites, each with a typed `grep exit R` string.
 
 > Branch: `feat/u12-remove-or-true`
 > Files: `research-sdd/toolbelt/verify-sources.sh` (:79); `research-sdd/toolbelt/scan-secrets.sh` (:127); `research-sdd/toolbelt/sweep-tools.sh` (:133,:148); `research-sdd/toolbelt/sweep-tools-hook.sh` (:45); `research-sdd/toolbelt/verify-tool-catalog-hook.sh` (:47); `research-sdd/toolbelt/verify-block.sh` (:257,:260); companion test suites for each file
 > **Satisfies**: `kit-instrument-honesty` spec req three-state honesty + `|| true` elimination
 
-- [ ] RED: per site — stub `grep` to exit 2; assert the site's typed `error` string appears AND the run does NOT report a confident 0; write as one new test case per site in the companion test suite
-- [ ] IMPL: at each site capture rc, then classify — rc 1 = legitimate `no-match`/`empty-input` (name which); rc ≥2 = `error` + WARN. Exact typed strings per design: `verify-sources.sh` → `registered data rows: 0 (no-match — N table line(s), all header/separator)` / `(empty-input — no table lines)` / `WARN: SOURCES.md row scan FAILED (grep exit R) — row count unavailable`; `scan-secrets.sh` → `WARN: NUL-byte count FAILED (grep exit R) — count unavailable` (never 0); `sweep-tools.sh` → `WARN: N retro(s) unreadable during T-row scan (grep exit R)` + `ledger_status="error"`; both hooks → append `(WARN-line extraction failed: grep exit R)` to emitted detail; `verify-block.sh` → `(scan INCOMPLETE — grep exit R; OCR-lossy check unreliable)` replacing `(none — …)` at :268
-- [ ] MUTANT: per site — restore `|| true` → assertion that the typed `error` string appears must go red (8 teeth, one per site)
-- [ ] FLEET: per site with grep-stubbed exit 2 → 8/8 surface `error`; 0/8 report a confident 0; 0 new false WARN on real corpus (grep exits 0 or 1 normally)
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff at each site
+- [x] RED: per site — stub `grep` to exit 2; assert the site's typed `error` string appears AND the run does NOT report a confident 0; write as one new test case per site in the companion test suite
+- [x] IMPL: at each site capture rc, then classify — rc 1 = legitimate `no-match`/`empty-input` (name which); rc ≥2 = `error` + WARN. Exact typed strings per design: `verify-sources.sh` → `registered data rows: 0 (no-match — N table line(s), all header/separator)` / `(empty-input — no table lines)` / `WARN: SOURCES.md row scan FAILED (grep exit R) — row count unavailable`; `scan-secrets.sh` → `WARN: NUL-byte count FAILED (grep exit R) — count unavailable` (never 0); `sweep-tools.sh` → `WARN: N retro(s) unreadable during T-row scan (grep exit R)` + `ledger_status="error"`; both hooks → append `(WARN-line extraction failed: grep exit R)` to emitted detail; `verify-block.sh` → `(scan INCOMPLETE — grep exit R; OCR-lossy check unreliable)` replacing `(none — …)` at :268
+- [x] MUTANT: per site — restore `|| true` → assertion that the typed `error` string appears must go red (8 teeth, one per site)
+- [x] FLEET: per site with grep-stubbed exit 2 → 8/8 surface `error`; 0/8 report a confident 0; 0 new false WARN on real corpus (grep exits 0 or 1 normally)
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff at each site
 
 ---
 
-### U9 — Hygiene bundle (issue #439, mejorador) [blocked-by: none, concurrent]
+### U9 — Hygiene bundle (issue #439, mejorador) [x]
+
+> **Delivered**: PR #473 merged as `87c26d5` (2026-09-05).
 
 > Branch: `feat/u9-hygiene-bundle`
 > Files: `research-sdd/toolbelt/verify-kit-clean.sh` (:29-34); `.gitignore`; `research-sdd/toolbelt/verify-doc-consistency.sh` (mode 100644→100755); `research-sdd/templates/hook-sessionstart.sh` (:28); companion test suite for `verify-kit-clean.sh`
 > **Satisfies**: `kit-hygiene-portability` spec req hygiene bundle
 
-- [ ] RED: assert `verify-kit-clean.sh` emits `WARN: DIRTY but all three counters read 0 — porcelain has N line(s); counters disagree` on contradiction input (non-empty porcelain, all counters 0); assert `WARN: <counter> count FAILED (grep exit R) — cleanliness report incomplete` when grep stubbed to exit 2 on one counter
-- [ ] IMPL: capture each counter's rc instead of `|| true`; cross-check against `git status --porcelain`; DIRTY with all counters 0 + non-empty porcelain → WARN + rc 1; add `.claude/worktrees/` to `.gitignore`; `chmod 100755` on `verify-doc-consistency.sh` (fix class of #417); replace hardcoded kit path in `templates/hook-sessionstart.sh` with `${RESEARCH_SDD_KIT:-<KIT>}/toolbelt/` placeholder + resolution sentence (artifact is copied to other machines)
-- [ ] MUTANT: reintroduce `|| true` on one counter + stub `grep` to exit 2 → contradiction WARN must disappear (test asserts the WARN IS present without `|| true`, goes red when reintroduced)
-- [ ] FLEET: `verify-kit-clean.sh` on dirty tree and clean tree → hook stops reporting permanent NOT-clean; `hook-sessionstart.sh` contains no absolute path outside a placeholder; `git ls-files --stage verify-doc-consistency.sh` → mode 100755; `git status` with `.claude/worktrees/` present → not listed as untracked
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff
+- [x] RED: assert `verify-kit-clean.sh` emits `WARN: DIRTY but all three counters read 0 — porcelain has N line(s); counters disagree` on contradiction input (non-empty porcelain, all counters 0); assert `WARN: <counter> count FAILED (grep exit R) — cleanliness report incomplete` when grep stubbed to exit 2 on one counter
+- [x] IMPL: capture each counter's rc instead of `|| true`; cross-check against `git status --porcelain`; DIRTY with all counters 0 + non-empty porcelain → WARN + rc 1; add `.claude/worktrees/` to `.gitignore`; `chmod 100755` on `verify-doc-consistency.sh` (fix class of #417); replace hardcoded kit path in `templates/hook-sessionstart.sh` with `${RESEARCH_SDD_KIT:-<KIT>}/toolbelt/` placeholder + resolution sentence (artifact is copied to other machines)
+- [x] MUTANT: reintroduce `|| true` on one counter + stub `grep` to exit 2 → contradiction WARN must disappear (test asserts the WARN IS present without `|| true`, goes red when reintroduced)
+- [x] FLEET: `verify-kit-clean.sh` on dirty tree and clean tree → hook stops reporting permanent NOT-clean; `hook-sessionstart.sh` contains no absolute path outside a placeholder; `git ls-files --stage verify-doc-consistency.sh` → mode 100755; `git status` with `.claude/worktrees/` present → not listed as untracked
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff
 
 ---
 
-### U10 — Installed-skill drift detection (issue #440, mejorador) [blocked-by: none, concurrent; NOT a SessionStart hook]
+### U10 — Installed-skill drift detection (issue #440, mejorador) [x]
+
+> **Delivered**: PR #477 merged as `2f8dfec` (2026-09-05). Gate found and closed a §7 diff-rc hole in v1.
 
 > Branch: `feat/u10-installed-skill-drift`
 > Files: `research-sdd/toolbelt/tests/skill-twin-parity.test.sh`
 > **Satisfies**: `kit-hygiene-portability` spec req installed-skill drift
 
-- [ ] RED: assert suite reports `installed copy: DRIFT — N hunk(s) / M line(s) behind the kit copy` when `RSDD_INSTALL_HOME` points to stale fixture; assert `installed copy: absent-input (<resolved path> not found) — drift check skipped` when home is empty; assert NOT `in sync` for either non-sync case
-- [ ] IMPL: extend `skill-twin-parity.test.sh` with third twin = installed copy at `rsdd_field claude skill_path "${RSDD_INSTALL_HOME:-$HOME}"` (uses `install/adapters.sh:116-123` home parameter — no hardcoded `~/.claude/…`); report drift BY HUNK (`diff -u … | grep -c '^@@'`) + line count; absent → typed `absent-input` string; do NOT add to `.claude/settings.json` SessionStart hooks
-- [ ] MUTANT: (a) point `RSDD_INSTALL_HOME` at stale fixture → suite must report exact hunk count (5 today); (b) point at empty home → absent-input line must print and suite must NOT report `in sync`
-- [ ] FLEET: real `$HOME` → 15 stale lines / 5 hunks detected; stale fixture home → DRIFT with exact count; empty fixture home → absent-input; confirm `.claude/settings.json` does NOT list this as a SessionStart hook
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck
+- [x] RED: assert suite reports `installed copy: DRIFT — N hunk(s) / M line(s) behind the kit copy` when `RSDD_INSTALL_HOME` points to stale fixture; assert `installed copy: absent-input (<resolved path> not found) — drift check skipped` when home is empty; assert NOT `in sync` for either non-sync case
+- [x] IMPL: extend `skill-twin-parity.test.sh` with third twin = installed copy at `rsdd_field claude skill_path "${RSDD_INSTALL_HOME:-$HOME}"` (uses `install/adapters.sh:116-123` home parameter — no hardcoded `~/.claude/…`); report drift BY HUNK (`diff -u … | grep -c '^@@'`) + line count; absent → typed `absent-input` string; do NOT add to `.claude/settings.json` SessionStart hooks
+- [x] MUTANT: (a) point `RSDD_INSTALL_HOME` at stale fixture → suite must report exact hunk count (5 today); (b) point at empty home → absent-input line must print and suite must NOT report `in sync`
+- [x] FLEET: real `$HOME` → 15 stale lines / 5 hunks detected; stale fixture home → DRIFT with exact count; empty fixture home → absent-input; confirm `.claude/settings.json` does NOT list this as a SessionStart hook
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck
 
 ---
 
@@ -202,18 +211,20 @@ Chain strategy: stacked-to-main
 
 ---
 
-### U11 — `lib/block-files.sh` centralised discriminator (issue #435, mejorador) [blocked-by: U1 #442 merge; unlocks U2 #423, U4 #424, U7 #436, U8a #437]
+### U11 — `lib/block-files.sh` centralised discriminator (issue #435, mejorador) [x]
+
+> **Delivered**: PR #464 merged as `f470656` (2026-09-05). 16 sites migrated.
 
 > Branch: `feat/u11-block-files-lib`
 > Files: `research-sdd/toolbelt/lib/block-files.sh` (new); `research-sdd/toolbelt/research-sdd-status.sh` (:391,394,397,557,560); `research-sdd/toolbelt/research-sdd-archive.sh` (:200,238,260,284); `research-sdd/toolbelt/verify-state.sh` (:322,328); `research-sdd/toolbelt/verify-registry.sh` (:209 strict + :373-374 inverse `-v`); `research-sdd/toolbelt/verify-parity.sh` (:68); `research-sdd/toolbelt/verify-corrections.sh` (:27); `research-sdd/toolbelt/sweep-retros.sh` (:291); `research-sdd/toolbelt/sweep-breakthroughs.sh` (:116); companion test suite
 > **Satisfies**: `kit-hygiene-portability` spec req centralised discriminator
 
-- [ ] RED (byte-identical): snapshot stdout+stderr of all 16 sites on `main` against real corpora (niagara + panccadia) BEFORE writing any code; assert post-migration `diff` is empty at each site — this is the acceptance gate, not a fixture
-- [ ] RED (function guard): assert `declare -F block_file_filter` succeeds after sourcing; assert exit 1 + `<script>: helper lib/block-files.sh failed to define block_file_filter` when lib is missing or broken
-- [ ] IMPL: create `lib/block-files.sh` — idempotent sourced-never-executed; `block_file_filter [-v] [<focus_prefix>]`: stdin filter, stdout = matching paths, exit = grep's verbatim status (NEVER laundered), `-v` = inverse; regex: `(^|/)[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$`; with prefix P: `(^|/)P(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$`; `${_fpfx}` interpolated unescaped (byte-identical mandate; escaping deferred as follow-up); route `research-sdd-archive.sh:284` → `retro_review_status` / `retro_has_bare_marker` (lib/retro-status.sh), replacing `head -10 | grep '^review-status:'`; migrate all 16 call sites with `declare -F` fail-closed guard at each
-- [ ] MUTANT: (a) change anchor to `^` only → `discriminator-parity.test.sh` FAMILY 1 / FAMILY 2 classification must go red; (b) make `[^/]+-` optional → `blocked-notes.md` decoy must be counted (false positive)
-- [ ] FLEET (anchor proof obligation): for each of 16 sites, `diff <(main-build-output) <(new-build-output)` on real corpora → diff EMPTY; anything non-empty blocks the merge (byte-identical is not an assumption, it is a proof obligation)
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff all 16 sites; `discriminator-parity.test.sh` FAMILY 1/FAMILY 2 pass; `research-sdd-archive.sh` contains no `head -10 | grep '^review-status:'` pattern
+- [x] RED (byte-identical): snapshot stdout+stderr of all 16 sites on `main` against real corpora (niagara + panccadia) BEFORE writing any code; assert post-migration `diff` is empty at each site — this is the acceptance gate, not a fixture
+- [x] RED (function guard): assert `declare -F block_file_filter` succeeds after sourcing; assert exit 1 + `<script>: helper lib/block-files.sh failed to define block_file_filter` when lib is missing or broken
+- [x] IMPL: create `lib/block-files.sh` — idempotent sourced-never-executed; `block_file_filter [-v] [<focus_prefix>]`: stdin filter, stdout = matching paths, exit = grep's verbatim status (NEVER laundered), `-v` = inverse; regex: `(^|/)[^/]+-(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$`; with prefix P: `(^|/)P(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$`; `${_fpfx}` interpolated unescaped (byte-identical mandate; escaping deferred as follow-up); route `research-sdd-archive.sh:284` → `retro_review_status` / `retro_has_bare_marker` (lib/retro-status.sh), replacing `head -10 | grep '^review-status:'`; migrate all 16 call sites with `declare -F` fail-closed guard at each
+- [x] MUTANT: (a) change anchor to `^` only → `discriminator-parity.test.sh` FAMILY 1 / FAMILY 2 classification must go red; (b) make `[^/]+-` optional → `blocked-notes.md` decoy must be counted (false positive)
+- [x] FLEET (anchor proof obligation): for each of 16 sites, `diff <(main-build-output) <(new-build-output)` on real corpora → diff EMPTY; anything non-empty blocks the merge (byte-identical is not an assumption, it is a proof obligation)
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff all 16 sites; `discriminator-parity.test.sh` FAMILY 1/FAMILY 2 pass; `research-sdd-archive.sh` contains no `head -10 | grep '^review-status:'` pattern
 
 ---
 
@@ -223,60 +234,68 @@ Chain strategy: stacked-to-main
 
 ---
 
-### U2 — `verify-state.sh` shared-global `covered_blocks` fix (issue #423, mejorador) [blocked-by: D4 done ✓, U11 #435]
+### U2 — `verify-state.sh` shared-global `covered_blocks` fix (issue #423, mejorador) [x]
+
+> **Delivered**: PR #465 merged as `fd82e82` (2026-09-05).
 
 > Branch: `feat/u2-shared-global-covered-blocks`
 > Files: `research-sdd/toolbelt/verify-state.sh` (:309-331); companion test suite
 > **Satisfies**: `kit-subject-coverage` spec req verify-state.sh shared-global semantics
 
-- [ ] RED: fixture `block_scope: shared-global` with 19 attributed blocks in 758-block corpus → assert `covered_blocks: 19 attributed (shared-global)` + INFO `corpus total 758 (shared-global, informational)`; no FAIL emitted
-- [ ] RED: fixture with no attributed block IDs listed → assert INFO `covered_blocks unverifiable under shared-global (no attributed block ids listed)` + MUST NOT FAIL
-- [ ] IMPL: under `block_scope: shared-global`, attribution set = union of block numbers from `## Coverage` `B1..BN`/`B<k>` tokens AND `Block` column of `## Iteration history`, intersected with on-disk canonical block files by `blocknum()` grammar (`verify-corrections.sh:31`); corpus total → separate INFO line; `--sync-state` writes attributed count NOT corpus total; focus whose envelope disagrees with its own listed IDs remains a FAIL (true finding)
-- [ ] MUTANT: make attribution fall back to `_ondisk_global` → 6 sampled niagara focuses must FAIL again
-- [ ] FLEET: `verify-state.sh` over 6 sampled niagara focuses + 2 non-shared targets → 6/6 FAIL→PASS; non-shared targets byte-identical
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; assert per-focus output on non-shared-global targets unchanged
+- [x] RED: fixture `block_scope: shared-global` with 19 attributed blocks in 758-block corpus → assert `covered_blocks: 19 attributed (shared-global)` + INFO `corpus total 758 (shared-global, informational)`; no FAIL emitted
+- [x] RED: fixture with no attributed block IDs listed → assert INFO `covered_blocks unverifiable under shared-global (no attributed block ids listed)` + MUST NOT FAIL
+- [x] IMPL: under `block_scope: shared-global`, attribution set = union of block numbers from `## Coverage` `B1..BN`/`B<k>` tokens AND `Block` column of `## Iteration history`, intersected with on-disk canonical block files by `blocknum()` grammar (`verify-corrections.sh:31`); corpus total → separate INFO line; `--sync-state` writes attributed count NOT corpus total; focus whose envelope disagrees with its own listed IDs remains a FAIL (true finding)
+- [x] MUTANT: make attribution fall back to `_ondisk_global` → 6 sampled niagara focuses must FAIL again
+- [x] FLEET: `verify-state.sh` over 6 sampled niagara focuses + 2 non-shared targets → 6/6 FAIL→PASS; non-shared targets byte-identical
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; assert per-focus output on non-shared-global targets unchanged
 
 ---
 
-### U4 — `research-sdd-status.sh` bold `**pending**` + WARN on unknown tokens (issue #424, mejorador) [blocked-by: U11 #435; wait for #442 merge before branching from updated main]
+### U4 — `research-sdd-status.sh` bold `**pending**` + WARN on unknown tokens (issue #424, mejorador) [x]
+
+> **Delivered**: PR #466 merged as `d8cd2c7` (2026-09-05).
 
 > Branch: `feat/u4-status-cell-bold`
 > Files: `research-sdd/toolbelt/research-sdd-status.sh` (:184-235); companion test suite
 > **Satisfies**: `kit-instrument-honesty` spec req status cell parsing
 
-- [ ] RED: fixture `****pending****` (greedy bold, 4 asterisks) → assert rejected before fix; fixture `**pending**` → resolves as `pending` after fix; fixture with unknown token → `INVALID_STATUS\t<token>` on stdout + WARN on stderr
-- [ ] IMPL: strip AT MOST ONE leading `**` and AT MOST ONE trailing `**` from Status cell before `tolower` (§8b); closed token vocabulary: `pending`, `requires-execution`, `blocked-on-*`, `✅`, `~~`; unknown → stderr `WARN: non-conforming status token [<tok>] — strip decoration per METHODOLOGY §8b; row excluded from investigable_open until migrated` + stdout `INVALID_STATUS\t<token>` (mirrors `INVALID_PRIORITY` idiom exactly)
-- [ ] MUTANT: (a) strip `**` greedily (all leading asterisks) → `****pending****` fixture must stop being rejected (wrong); (b) remove the strip entirely → bold fixture's `--next` must revert to the medium-priority row
-- [ ] FLEET: `--next` over all 70 state files → bold-`**pending**` rows now resolve; new `INVALID_STATUS` lines all hand-classified true/false; byte-identical output for non-affected rows
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; `--next` golden unchanged for non-bold fixtures
+- [x] RED: fixture `****pending****` (greedy bold, 4 asterisks) → assert rejected before fix; fixture `**pending**` → resolves as `pending` after fix; fixture with unknown token → `INVALID_STATUS\t<token>` on stdout + WARN on stderr
+- [x] IMPL: strip AT MOST ONE leading `**` and AT MOST ONE trailing `**` from Status cell before `tolower` (§8b); closed token vocabulary: `pending`, `requires-execution`, `blocked-on-*`, `✅`, `~~`; unknown → stderr `WARN: non-conforming status token [<tok>] — strip decoration per METHODOLOGY §8b; row excluded from investigable_open until migrated` + stdout `INVALID_STATUS\t<token>` (mirrors `INVALID_PRIORITY` idiom exactly)
+- [x] MUTANT: (a) strip `**` greedily (all leading asterisks) → `****pending****` fixture must stop being rejected (wrong); (b) remove the strip entirely → bold fixture's `--next` must revert to the medium-priority row
+- [x] FLEET: `--next` over all 70 state files → bold-`**pending**` rows now resolve; new `INVALID_STATUS` lines all hand-classified true/false; byte-identical output for non-affected rows
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; `--next` golden unchanged for non-bold fixtures
 
 ---
 
-### U7 — `sweep-retros.sh` typed delta state + aliases + missing markers (issue #436, mejorador) [blocked-by: D6 done ✓, U11 #435]
+### U7 — `sweep-retros.sh` typed delta state + aliases + missing markers (issue #436, mejorador) [x]
+
+> **Delivered**: PR #475 merged as `a26253e` (2026-09-05). 23 fleet WARNs hand-classified, all true positives.
 
 > Branch: `feat/u7-sweep-retros-delta-state`
 > Files: `research-sdd/toolbelt/sweep-retros.sh` (:124-196); companion test suite
 > **Satisfies**: `kit-instrument-honesty` spec req sweep-retros typed delta-missing state; `kit-doctrine-grammar` spec req enumerated heading set
 
-- [ ] RED: fixture PENDING retro with no canonical delta-section heading → assert `no delta section found (empty-input)` not `~0`; fixture with deprecated alias heading → assert `WARN: deprecated delta heading [<h>] — migrate to '## Proposed kit deltas' per §18`; fixture retro with no `review-status:` line → assert `WARN: no review-status marker — add '<!-- review-status: pending -->'`
-- [ ] IMPL: add distinct no-delta-section state (`~0 proposed deltas` → `no delta section found (empty-input)` for PENDING retro with zero indicators); add 4 measured DEPRECATED heading aliases: `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`, `## <N>. PROPOSED kit deltas for the next version …` — each emits WARN to migrate; surface retros with no review-status marker via `retro_review_status` returning empty; existing WARN-A/WARN-B `?` strings unchanged; NO prose regex extension (closed enumerated set only, per D-2 design decision)
-- [ ] MUTANT: (a) remove no-delta-section branch → 4 known retros must revert to confident `~0`; (b) remove one alias → its retro drops back to `?`
-- [ ] FLEET: `sweep-retros.sh` over 99 fleet retros → 4 confident-zero false negatives → typed state; 9 aliased headings counted; 5 unmarked retros surfaced; 78-pending total unchanged; `Summary:` line byte-identical in both modes
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; assert existing WARN-A/WARN-B strings unchanged
+- [x] RED: fixture PENDING retro with no canonical delta-section heading → assert `no delta section found (empty-input)` not `~0`; fixture with deprecated alias heading → assert `WARN: deprecated delta heading [<h>] — migrate to '## Proposed kit deltas' per §18`; fixture retro with no `review-status:` line → assert `WARN: no review-status marker — add '<!-- review-status: pending -->'`
+- [x] IMPL: add distinct no-delta-section state (`~0 proposed deltas` → `no delta section found (empty-input)` for PENDING retro with zero indicators); add 4 measured DEPRECATED heading aliases: `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`, `## <N>. PROPOSED kit deltas for the next version …` — each emits WARN to migrate; surface retros with no review-status marker via `retro_review_status` returning empty; existing WARN-A/WARN-B `?` strings unchanged; NO prose regex extension (closed enumerated set only, per D-2 design decision)
+- [x] MUTANT: (a) remove no-delta-section branch → 4 known retros must revert to confident `~0`; (b) remove one alias → its retro drops back to `?`
+- [x] FLEET: `sweep-retros.sh` over 99 fleet retros → 4 confident-zero false negatives → typed state; 9 aliased headings counted; 5 unmarked retros surfaced; 78-pending total unchanged; `Summary:` line byte-identical in both modes
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; assert existing WARN-A/WARN-B strings unchanged
 
 ---
 
-### U5 — `verify-block.sh` Type parser (issue #422, mejorador) [blocked-by: D6 done ✓, U12 #441]
+### U5 — `verify-block.sh` Type parser (issue #422, mejorador) [x]
+
+> **Delivered**: PR #467 merged as `11b4e77` (2026-09-05). Hardened later by U15 (#468 → PR #493).
 
 > Branch: `feat/u5-block-type-parser`
 > Files: `research-sdd/toolbelt/verify-block.sh` (:80, :140-156); companion test suite
 > **Satisfies**: `kit-doctrine-grammar` spec req block Type grammar; `kit-instrument-honesty` spec req
 
-- [ ] RED: fixture `Type: unknown-value` → assert `WARN: unrecognised block Type [unknown-value] — closed domain is <…> per §4`; fixture `Type: synthesis` with zero citations → assert ZERO-citation diagnostic emitted at INFO not WARN; fixture with no Type header → assert `(no Type declared — P6 WARN applies; declare it per METHODOLOGY §4)`
-- [ ] IMPL: parse `Type:` leading token against D6's closed domain (adopt observed fleet values: `evidence`, `synthesis`, `document`, `capture`, `absence-centred` as the closed set — D6 owns the definition); out-of-domain token → WARN naming the token + listing the domain; when declared type is `synthesis` / `capture` / `absence-centred`, P6 ZERO-citation WARN at :151 → INFO; existing P6 WARN / doc-grade INFO strings otherwise unchanged
-- [ ] MUTANT: mutant that ignores the Type token entirely → WARN must re-raise on a declared-synthesis fixture (P6 WARN appears)
-- [ ] FLEET: `verify-block.sh` over 763 niagara blocks → 8 declared-Type blocks change class; other 755 byte-identical; every new WARN hand-classified true/false
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff
+- [x] RED: fixture `Type: unknown-value` → assert `WARN: unrecognised block Type [unknown-value] — closed domain is <…> per §4`; fixture `Type: synthesis` with zero citations → assert ZERO-citation diagnostic emitted at INFO not WARN; fixture with no Type header → assert `(no Type declared — P6 WARN applies; declare it per METHODOLOGY §4)`
+- [x] IMPL: parse `Type:` leading token against D6's closed domain (adopt observed fleet values: `evidence`, `synthesis`, `document`, `capture`, `absence-centred` as the closed set — D6 owns the definition); out-of-domain token → WARN naming the token + listing the domain; when declared type is `synthesis` / `capture` / `absence-centred`, P6 ZERO-citation WARN at :151 → INFO; existing P6 WARN / doc-grade INFO strings otherwise unchanged
+- [x] MUTANT: mutant that ignores the Type token entirely → WARN must re-raise on a declared-synthesis fixture (P6 WARN appears)
+- [x] FLEET: `verify-block.sh` over 763 niagara blocks → 8 declared-Type blocks change class; other 755 byte-identical; every new WARN hand-classified true/false
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff
 
 ---
 
@@ -284,31 +303,35 @@ Chain strategy: stacked-to-main
 
 ---
 
-### U8a — `sweep-retros.sh` summary mode + hook clean sentinel (issue #437, mejorador) [blocked-by: U11 #435, U7 #436, U12 #441]
+### U8a — `sweep-retros.sh` summary mode + hook clean sentinel (issue #437, mejorador) [x]
+
+> **Delivered**: PR #478 merged as `58bed7e` (2026-09-05). Measured 1,738 B at gate time; 1,855 B at sdd-verify.
 
 > Branch: `feat/u8a-sweep-retros-summary`
 > Files: `research-sdd/toolbelt/sweep-retros.sh` (:224-239); `research-sdd/toolbelt/verify-tool-catalog-hook.sh` (:44); companion test suite
 > **Satisfies**: `kit-session-cost` spec req summary mode + clean sentinel
 
-- [ ] RED: assert default `sweep-retros.sh` output < 3,000 chars on real kit; assert absent-input targets collapsed to ONE `INFO:` counted line (not one per target); assert `sweep-retros.sh --full` diff is empty vs today's default byte-for-byte; assert `verify-tool-catalog-hook.sh` emits non-empty sentinel on clean run; assert `Summary:` line byte-identical in both modes
-- [ ] IMPL: summary mode = oldest 5 PENDING rows + `… and N more — run sweep-retros.sh --full`; absent targets → `INFO: N target(s) not traversed (absent-input) — corpus directory not found; run --full to list them.` (ONE line); `--full` reproduces today's default exactly (byte-identical); `verify-tool-catalog-hook.sh` emits `Research-SDD tool catalog: clean (N logged tools, 0 uncataloged).` sentinel instead of 0 bytes
-- [ ] MUTANT: force summary mode with 0 pending → sentinel/collapse lines must still print (silent clean run is the defect); mutant that removes hook sentinel → test must go red
-- [ ] FLEET: `sweep-retros.sh` char count < 3,000; `--full` diff vs today's default empty; hook char count with sentinel; absent-input targets counted in one line; `Summary:` line diff: both modes identical
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; hook sentinel present in output
+- [x] RED: assert default `sweep-retros.sh` output < 3,000 chars on real kit; assert absent-input targets collapsed to ONE `INFO:` counted line (not one per target); assert `sweep-retros.sh --full` diff is empty vs today's default byte-for-byte; assert `verify-tool-catalog-hook.sh` emits non-empty sentinel on clean run; assert `Summary:` line byte-identical in both modes
+- [x] IMPL: summary mode = oldest 5 PENDING rows + `… and N more — run sweep-retros.sh --full`; absent targets → `INFO: N target(s) not traversed (absent-input) — corpus directory not found; run --full to list them.` (ONE line); `--full` reproduces today's default exactly (byte-identical); `verify-tool-catalog-hook.sh` emits `Research-SDD tool catalog: clean (N logged tools, 0 uncataloged).` sentinel instead of 0 bytes
+- [x] MUTANT: force summary mode with 0 pending → sentinel/collapse lines must still print (silent clean run is the defect); mutant that removes hook sentinel → test must go red
+- [x] FLEET: `sweep-retros.sh` char count < 3,000; `--full` diff vs today's default empty; hook char count with sentinel; absent-input targets counted in one line; `Summary:` line diff: both modes identical
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck + fleet diff; hook sentinel present in output
 
 ---
 
-### U8b — `sweep-retros.sh` RSDD_PROFILE=1 wall-time profile (issue #438, mejorador) [blocked-by: U8a #437]
+### U8b — `sweep-retros.sh` RSDD_PROFILE=1 wall-time profile (issue #438, mejorador) [x]
+
+> **Delivered**: PR #488 merged as `91e5572` (2026-09-05). Measurement-only; zero-stdout invariant held (unset/0/1 byte-identical, profile goes to stderr).
 
 > Branch: `feat/u8b-sweep-retros-profile`
 > Files: `research-sdd/toolbelt/sweep-retros.sh` (measurement instrumentation only); companion test suite
 > **Satisfies**: `kit-session-cost` spec req (profile deliverable, not optimisation)
 
-- [ ] RED: assert `RSDD_PROFILE=1` emits per-phase `profile: <phase> <seconds>` lines to stderr; assert `profile: unavailable (no EPOCHREALTIME)` when bash < 5; assert phase sum reconciles with `total` (within floating-point rounding)
-- [ ] IMPL: `RSDD_PROFILE=1` accumulates wall time via `$EPOCHREALTIME` per phase to stderr: `pending-pass`, `waiver-pass`, `retro-newest-pass`, `block-newest-pass` (:288-291, one `git log` per block file), `total`; fallback message when unavailable; NO change to any `git` invocation (design D-6 mandate); deliverable = profile TABLE + go/no-go recommendation, not an optimisation (CLAUDE.md §6 — probe viability before writer)
-- [ ] MUTANT: suppress one phase timer → phase sum stops reconciling with `total` (test asserts reconciliation, goes red)
-- [ ] FLEET: `RSDD_PROFILE=1 bash sweep-retros.sh` on niagara; record phase breakdown table; record go/no-go; `--full` diff still empty after this PR
-- [ ] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck; confirm `--full` diff vs U8a baseline empty
+- [x] RED: assert `RSDD_PROFILE=1` emits per-phase `profile: <phase> <seconds>` lines to stderr; assert `profile: unavailable (no EPOCHREALTIME)` when bash < 5; assert phase sum reconciles with `total` (within floating-point rounding)
+- [x] IMPL: `RSDD_PROFILE=1` accumulates wall time via `$EPOCHREALTIME` per phase to stderr: `pending-pass`, `waiver-pass`, `retro-newest-pass`, `block-newest-pass` (:288-291, one `git log` per block file), `total`; fallback message when unavailable; NO change to any `git` invocation (design D-6 mandate); deliverable = profile TABLE + go/no-go recommendation, not an optimisation (CLAUDE.md §6 — probe viability before writer)
+- [x] MUTANT: suppress one phase timer → phase sum stops reconciling with `total` (test asserts reconciliation, goes red)
+- [x] FLEET: `RSDD_PROFILE=1 bash sweep-retros.sh` on niagara; record phase breakdown table; record go/no-go; `--full` diff still empty after this PR
+- [x] GATE: probador quiet-tree `run-all.sh` + `--prove-teeth` (cite U6 baseline) + shellcheck; confirm `--full` diff vs U8a baseline empty
 
 ---
 
@@ -323,16 +346,60 @@ Chain strategy: stacked-to-main
 ### D9 — §11 split: kit-maintenance doctrine to situational §11b, HOT-CORE 823 → 664 lines (issue #454, explorador) [x]
 - [x] PR #455 merged as da2781b; verbatim move verified by removed/added line-set diff.
 
-### D10 — tool-registry.md scope note: kit wrappers only (issue #457, explorador)
-- [ ] PR #458 open (probador gate).
+### D10 — tool-registry.md scope note: kit wrappers only (issue #457, explorador) [x]
+- [x] PR #458 merged as `ab83e5f` (2026-09-05).
 
-### U13 — saturation window excludes unnumbered structural rows, never silently (issue #449, mejorador) [blocked-by: #435 U11, #424 U4 — same file]
-- [ ] RED: fixture with a `—` bootstrap row in the tail; reopen-tail fixture with a positive seeded count.
-- [ ] IMPL: exclude structural rows from the window + insufficient count; append `[N unnumbered row(s) … excluded]`; append `latest unnumbered row seeded N gaps — not yet an iteration` when the last row is unnumbered with a positive count.
-- [ ] TEETH: 3 mutants named in #449. FLEET: exactly the 3 named focuses move out of `unreadable window`.
+### U13 — saturation window excludes unnumbered structural rows, never silently (issue #449, mejorador) [x]
+
+> **Delivered**: PR #474 merged as `1c90f59` (2026-09-05). Fleet-71 showed EXACTLY the 3 named flips.
+- [x] RED: fixture with a `—` bootstrap row in the tail; reopen-tail fixture with a positive seeded count.
+- [x] IMPL: exclude structural rows from the window + insufficient count; append `[N unnumbered row(s) … excluded]`; append `latest unnumbered row seeded N gaps — not yet an iteration` when the last row is unnumbered with a positive count.
+- [x] TEETH: 3 mutants named in #449. FLEET: exactly the 3 named focuses move out of `unreadable window`.
 
 ### U14 — test speed: hermetic PATH + probe timeouts in detect-tools/tool-env/verify-parity (issue #453, mejorador) [x]
 - [x] PR #456 merged as 6fef040; baseline detect-tools 243.6 s of 471.5 s total; after-numbers recorded by probador.
+
+### U15 — `verify-block.sh` names the real Type token on blockquote-prefixed lines (issue #468, mejorador) [x]
+- [x] Delivered: PR #493 merged as `82b88fb` (2026-09-06). `P6-BQ-STRIP` at `verify-block.sh:160` strips the `>` marker before parsing, so `> **TYPE: VALUE**` names VALUE, not `>`. Gate confirmed the domain was NOT widened — both real blocks stay WARNed.
+
+### U16 — saturation `wforms` sourced from `iter_window` (numbered rows only) (issue #476, mejorador) [x]
+- [x] Delivered: PR #486 merged as `a5d3876` (2026-09-05). Gate HELD v1 for SC2034 dead code; v2 merged.
+
+### U17 — `verify-retro.sh` §18 conformance checker + retro-gate Stop hook (issue #479, mejorador) [x]
+- [x] PR 1 of 2: `verify-retro.sh` single-retro conformance checker — PR #490 merged as `6ea74c0` (2026-09-05). Isolation matrix unconfounded; 12-retro fleet 5 PASS / 7 FAIL; §7 exit 2/0/1 distinct.
+- [x] PR 2 of 2: `retro-gate.sh` Stop hook + `templates/hook-stop-retro-gate.sh` + init wiring — PR #492 merged as `1e9a0a2` (2026-09-06). `stop_hook_active` loop-safety verified against the real hook field.
+
+### U18 — `lib/retro-grammar.sh` shared delta-heading grammar (issue #483, mejorador) [x]
+- [x] Delivered: PR #495 merged as `dd2de6b` (2026-09-06). Structural no-inline-duplicate check; `verify-retro` calibration identical, `sweep-retros` byte-identical.
+
+### U19 — one `git log --name-only` walk per target instead of per-block (issue #489, mejorador) [x]
+- [x] Delivered: PR #491 merged as `e973341` (2026-09-05). Sweep output byte-identical after age normalisation (~5x faster).
+
+### U20 — `retro-gate.sh` guards against missing `jq` (issue #494, mejorador) [x]
+- [x] Delivered: PR #496 merged as `af83e7a` (2026-09-06). No-jq path announces `state=allow branch=degraded` instead of silently allowing (§7); pure-bash JSON escaper keeps the decision channel jq-independent.
+
+### D11 — CLAUDE.md §12 multi-session campaign lessons (issue #460, explorador) [x]
+- [x] Delivered: PR #461 merged as `e042726` (2026-09-05).
+
+### D12 — CLAUDE.md §5 `--require-teeth` gate row + §4 teeth-coverage sentence (issue #469, explorador) [x]
+- [x] Delivered: PR #470 merged as `fd6762f` (2026-09-05).
+
+### D13 — anchor the `--require-teeth` row on the `SENTINEL-NO-TEETH-BANNER` search term (issue #471, explorador) [x]
+- [x] Delivered: PR #472 merged as `a6e62eb` (2026-09-05). Anchor verified present at `tests/run-all.sh:236`.
+
+### D14 — §18 retro is an exit condition of every `/research-sdd` run (issue #480, explorador) [x]
+- [x] Delivered: PR #481 merged as `bd262f5` (2026-09-05). Doctrine half of #479; both SKILL twins carry the clause identically.
+
+### D15 — harvest of the 2026-09-05 retros: §11 cautions, DYNAMIC-SETUP 4b/4c, DEPLOY detached-node gotcha (issue #482, explorador) [x]
+- [x] Delivered: PR #487 merged as `7ad2b92` (2026-09-05). §11-disjoint; every delta source-cited.
+
+### D16 — technical-excavator researcher profile (§1 + SKILL framing) and §13 limits/layer axis (issue #484, explorador) [x]
+- [x] Delivered: PR #485 merged as `24069c3` (2026-09-05). Traits converted to rules; typed `not applicable` state.
+
+### Planning artifacts (explorador) [x]
+- [x] SDD planning artifacts for this change — PR #444 merged as `f1435e6` (2026-09-05).
+- [x] tasks.md sync after wave 1 — PR #459 merged as `4e714be` (2026-09-05).
+- [x] verify-report.md + final tasks sync — this PR.
 
 ## Phase 6: Campaign Close
 
@@ -351,7 +418,12 @@ Chain strategy: stacked-to-main
 
 ### sdd-verify
 
-- [ ] Run `sdd-verify` after all instrument PRs merge to main; verify the six spec capabilities (`kit-instrument-honesty`, `kit-doctrine-grammar`, `kit-subject-coverage`, `kit-session-cost`, `kit-hygiene-portability`) and every success criterion from `proposal.md`
+- [x] Run `sdd-verify` after all instrument PRs merge to main; verify the spec capabilities (`kit-instrument-honesty`, `kit-doctrine-grammar`, `kit-subject-coverage`, `kit-session-cost`, `kit-hygiene-portability`) and every success criterion from `proposal.md` — **DONE**, see `verify-report.md`: verdict FAIL, 1 CRITICAL (CRIT-1: `DEPLOY-WINDOWS-MINIPC.md` has no `tool-registry.md` row), 9 WARNING, 3 SUGGESTION; all four gates green at `af83e7a`
+
+### Blocking follow-up from sdd-verify
+
+- [ ] CRIT-1: add a `tool-registry.md` row for `DEPLOY-WINDOWS-MINIPC.md` (next to the `DYNAMIC-SETUP.md` / `REMOTE-POWERSHELL.md` / `BACNET-TRENDLOG.md` / `NIAGARA-N4-FRAMEWORK.md` rows at `tool-registry.md:303-306`), or amend the `kit-session-cost` D2 scenario. Blocks archive.
+- [ ] Campaign retro (METHODOLOGY §18): this multi-session campaign is itself a retro trigger; write it before archive.
 
 ### sdd-archive
 
