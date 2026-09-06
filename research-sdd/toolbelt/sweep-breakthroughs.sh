@@ -106,11 +106,13 @@ ledger_pointers=$(
 total_tagged=0
 warn_unindexed=0
 warn_drift=0
+absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
 
 for p in $paths; do
   # Anti-silent-zero §7: distinguish absent-input from empty-input from no-match.
   if [ ! -d "$p" ]; then
     echo "INFO: corpus not found (absent-input): $p"
+    absent_targets=$((absent_targets + 1))
     continue
   fi
 
@@ -176,6 +178,9 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 echo "Summary: ${total_tagged} tagged breakthrough(s) across corpora · ${warn_unindexed} unindexed · ${warn_drift} drifted."
+if [ "$absent_targets" -gt 0 ]; then
+  echo "INFO: ${absent_targets} target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above."
+fi
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
 fi
