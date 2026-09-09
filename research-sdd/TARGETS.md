@@ -137,7 +137,7 @@ Sensitivity:
 | 23 | tradingview-mcp | `$RESEARCH_HOME/TRADINGVIEW` | **intermediate** (52 blocks @2026-08-21 / 1 run / 6 retros / git yes / remote yes / hook yes) `[CERT]` — nested corpus under `corpus/`; narrative → §23 | Node.js MCP/CLI source over TradingView Desktop CDP; nested documentation corpus `[CERT]` | Direct reading + offline Node tests | English `[CERT]` |
 | 24 | web-hmi10cf | `$RESEARCH_HOME/Honeywell/WEB-HMI10-CF` | **intermediate** (9 md @2026-08-12 / 1 run / git yes / remote no / hook file yes) `[CERT]` · **`live-install`** — detail §24 | Honeywell/CentraLine **WEB-HMI10/CF** 10.1" HTML5 web panel (i.MX8M Mini Cortex-A53, Linux, Chromium kiosk) — 4 official PDFs; artifact detail → §24 `[CERT-doc]`/`[CERT-hw]` | `fetch-doc.sh` + `extract-pdf.sh`; live probes (§12) pending reachability | English `[CERT]` |
 | 25 | forense | `$RESEARCH_HOME/investigacion/forense` | **intermediate** (6 md / 1 run / 1 retro / git yes / remote no / hook file yes) `[CERT]` — STOP 6/6; DESIGN/APPLIED; companion to #17 | Defensive data-protection design (own work product only; strict defensive scope) — crypto containers, signatures, timestamping, tamper-evident logs, Cloudflare access alerts `[CERT-web]`/`[CERT-doc]` | `fetch-doc.sh` + WebFetch/WebSearch | English `[CERT]` |
-| 26 | COB-IM2 | `$RESEARCH_HOME/investigacion/COB-IM2` | **incipient** (19 md @2026-08-31 / git yes / remote no / hook file yes) `[CERT]` — detail §26 | Architectural/mechanical CAD: three AutoCAD-2018 (`AC1032`) DWG sheets (14A/B/C); artifact detail → §26 `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (probes adapted from #18) | English `[CERT]` |
+| 26 | COB-IM2 | `$RESEARCH_HOME/investigacion/COB-IM2` | **intermediate** (37 blocks / 2 runs / 1 retro / git yes / remote yes / hook file yes) `[CERT]` → §26 | HVAC DWG 9-sheet | ezdxf+tools | English |
 | 27 | hotelpalace-tunnel | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelPalace` | **incipient** (1 block @2026-08-25 / 1 run / git yes / remote no / hook no) `[CERT]` · **`live-install`** · nested corpus under `corpus/` · document-mode (§20) — companion to #17 — detail §27 | Cloudflare Tunnel install bundle (`palace-pc`, remote-managed) for the hotel PC (`10.2.40.11`): PowerShell/.bat installers, OpenSSH-over-tunnel access; runbook of failure modes | Direct reading of bundle scripts | Spanish (operational runbook for MX site tech) `[CERT]` |
 | 28 | sullair | `$RESEARCH_HOME/investigacion/sullair` | **intermediate** (20 md @2026-08-24 / 11-of-13 gaps / git yes / remote yes / hook file yes) `[CERT]` · nested corpus under `corpus/`; remote `angeles725/investigacion-sullair` PRIVATE — detail §28 | Sullair Supervisor air-compressor controllers comms — RS-485 + Modbus protocol RE; 1 PRIMARY PDF + secondary consultant report + AI-artifact HTML, no binary `[CERT-doc]` — detail §28 | `extract-pdf.sh` + `fetch-doc.sh` + web scout | English (corpus) `[CERT]` |
 | 29 | cloudflare-tunnels | `$RESEARCH_HOME/investigacion/cloudflare` | **mature** (34 md @2026-08-28 / 24 runs / 4 retros / git yes / remote yes / hook yes) `[CERT]` · **multi-focus** (3, all COMPLETE) · remote `angeles725/research-cloudflare` PRIVATE — detail §29 | Cloudflare Tunnel technology (`cloudflared` v2026.8.2, Go daemon) — local binary + official docs + open-source Go repo; NOT a client install (no site secrets) `[CERT]` | `fetch-doc.sh` + direct Go reading + CodeGraph + local `cloudflared --help` (read-only) | English `[CERT]` |
@@ -550,8 +550,19 @@ internal firewall + WSL2-mirrored TCP prevent reachability). Live probes (§12) 
 Nested corpus, prefix `cob-`; **BOOTSTRAP 2026-08-19**. Architectural/mechanical CAD sibling of #18:
 three AutoCAD-2018 (`AC1032`) DWG sheets (14A/B/C) of one level-4 floor, discipline IM2 (HVAC), firm
 INBAS; authored duct network on `HVAC - Ductos`, the rest is a traced-PDF underlay `[CERT]`.
-**12-gap backlog**; §19 3D-viewer deliverable → `disenos/COB-IM2/`.
-**Startup:** continue; probes adapted from #18.
+Remote: `angeles725/research-cob-im2` (private).
+
+**Run 1 (2026-08-25):** B1–B13; 9-sheet frame/layer/extraction surveys; L2/L3/L4 duct networks extracted
+(1 122/1 148/2 356 m); §19 3D viewers; parallel-pairs network graph; 34/38 closure ratio at retro.
+
+**Run 2 (2026-09-09):** B21–B38; L4 v3 pipeline capture (closed-rect-first, seam dedupe, assembly);
+plate oracle (georef rms ≤0.034 m, 120/124 cells); ASTRA R6 cross-check (§14 corrected — ASTRA coords
+sheet-local); label/BOD v3 (inverted predicate fixed, chain conflict 13/208); BOD ownership (6
+wrong_label_owner; G39 fix required); cross-level anchor dy=−1.638 m/dx=−34.298 m (CERT); title block
+(Ford/Reaclima/8362-001/1:100); L3 label density deficit REAL (2.09 vs 2.79/100 m); continuity-round
+capture B38. Static loop STOP: investigable_open=0; 5 requires-execution open (G30/G33/G35/G37/G39).
+
+**Startup:** peer extractor session owns G30/G33/G35/G37/G39; admit arc-aware blob and re-score oracle.
 
 ### 27 — hotelpalace-tunnel `[CERT]`
 
