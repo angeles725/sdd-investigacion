@@ -97,6 +97,7 @@ PROFILE_BWRAP_CAPA_OFFLINE   = make_profile("bubblewrap-capa-offline")
 PROFILE_BWRAP_FLOSS_OFFLINE  = make_profile("bubblewrap-floss-offline")
 PROFILE_BWRAP_KAITAI_OFFLINE = make_profile("bubblewrap-kaitai-offline")
 PROFILE_BWRAP_UNBLOB_OFFLINE = make_profile("bubblewrap-unblob-offline")
+PROFILE_BWRAP_IFC_OFFLINE    = make_profile("bubblewrap-ifc-offline")
 
 # SquashFS extractor running unsquashfs inside bubblewrap.
 PROFILE_BWRAP_UNSQUASHFS = make_profile("bwrap-unsquashfs")
