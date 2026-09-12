@@ -106,6 +106,11 @@ then PATH. The binary name is `r2`, not `radare2`.
 `RSDD_KAITAI_PY` defaults to `$HOME/.local/share/rsdd-kaitai/bin/python`
 (set at `tests/kaitai.test.sh:19`).
 
+**`ifcopenshell`** (Python module) is loaded via the rsdd-ifc venv.
+`RSDD_IFC_PY` defaults to `$HOME/.local/share/rsdd-ifc/bin/python`.
+Provision with `python3 -m venv ~/.local/share/rsdd-ifc && ~/.local/share/rsdd-ifc/bin/pip install ifcopenshell`.
+`RSDD_IFC_DRIVER` overrides the inner driver script path (test use only; defaults to `lib/ifc_driver.py`).
+
 **`frida` / `frida-trace`** are resolved via `FRIDA_BIN` / `FRIDA_TRACE_BIN`
 env vars in `dynamic.sh`, defaulting to the bare command names on PATH.
 

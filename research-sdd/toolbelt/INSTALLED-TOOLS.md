@@ -4,6 +4,7 @@
 
 | Tool | How | Status | Target | Date (UTC) | Notes |
 |---|---|---|---|---|---|
+| ifcopenshell | `python3 -m venv ~/.local/share/rsdd-ifc && ~/.local/share/rsdd-ifc/bin/pip install ifcopenshell` | installed | kit | 2026-09-12T00:00:00Z | v0.8.5; rsdd-ifc venv; used by corroborate-ifc.sh (ifc-evidence.v1) |
 | blutter | `git clone worawit/blutter + pip --user (requests pyelftools capstone)` | installed | EduVolt-Designer | 2026-06-28T09:57:27Z | /home/cristian/dev/blutter; needs cmake+C++ & a Dart SDK at build/run time for full native dump |
 | blutter-build | `brew(cmake ninja dart-sdk capstone icu4c pkg-config)+venv(capstone pyelftools requests); dartvm3.9.0_android_x64 static lib BUILT ok; blutter exe FAILED to compile: arm64-only disassembler/dumper (CSREG_DART_THR / AsmInstruction undefined for x64); --no-analysis also fails. EduVolt app.so is windows/x64 -> unsupported by blutter` | failed | EduVolt-Designer | 2026-06-28T10:28:36Z | external/manual |
 | blutter | `compat precheck (file: ELF 64-bit LSB shared object, x86-64, ve)` | incompatible | EduVolt-Designer | 2026-06-28T17:46:14Z | ARM64-only tool; target is x64/x86 -> NOT building (saves ~20min dead-end). Use strings/manual or an x64 Dart-AOT tool |
