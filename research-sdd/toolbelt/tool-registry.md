@@ -67,6 +67,15 @@ through a §18 `promote` verdict that moves it into `toolbelt/`. Do not add targ
 | Windows/PowerShell SNMP v2c probe | Windows bridge with no net-snmp; UDP/161 not forwardable via `ssh -L` | Hand-built BER `Snmp-Get` / `Snmp-Walk` / `Snmp-Set` over `UdpClient`; SNMP-enabled ≠ SNMP-answering gotchas documented | (dynamic §12; [`snmp-ps.md`](snmp-ps.md)) | ✅ |
 | Cloudflare-Tunnel + Windows-SSH bring-up | Provisioning sshd + cloudflared on a live-install Windows appliance from scratch | Five compiled scars: host-key ACLs, firewall `-Profile Any`, service machine-binding, `sc.exe` deletion guard, safety-net task verification | [`WINDOWS-SSH-BRINGUP.md`](WINDOWS-SSH-BRINGUP.md) | ✅ |
 
+### Live-probe / install-audit instruments
+
+Tools whose input is a live host, port, or install-tree rather than a static file artifact. Plan-only
+guard (exit 3 without the explicit opt-in flag) is mandatory for all rows in this table (spec §2).
+
+| Input / trigger | Detection | Approach | Wrapper | Tested |
+|---|---|---|---|---|
+| `host:port` | live BACnet/IP host (UDP/47808) | ANSI/ASHRAE 135 BACnet/IP reachability; unicast + broadcast Who-Is (SVC 0x08); Read-BDT + Read-FDT; stdlib `socket`; plan-only exit 3 without `--allow-live-probe`; read-only (Who-Is + BDT/FDT reads only; no Write-BDT or Register-Foreign-Device) | `corroborate-bacnet.sh` ([`bacnet-evidence.v1`](bacnet-evidence.v1.md)) | ✅ |
+
 ### Deliverable / report generation
 
 | Artifact type | Detection (`file`) | Tool | Wrapper | Status |
