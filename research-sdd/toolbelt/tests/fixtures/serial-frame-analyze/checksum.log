@@ -1,0 +1,4 @@
+# checksum test: last byte = (~sum(body)+1) & 0xFF
+   0.000s  len=  3  81 01 7e
+   0.100s  len=  3  81 01 7e
+   0.200s  len=  3  82 01 7d

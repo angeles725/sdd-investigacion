@@ -1,0 +1,8 @@
+# CRC16-Modbus LE fixture: 4-byte frames where last 2 bytes = CRC16-Modbus(body[0:-2]) LE
+# Frame format: body[0] body[1] crc_lo crc_hi
+# CRC16-Modbus([81,01]) = 0x20A0 → bytes A0 20
+# CRC16-Modbus([82,02]) = 0xD1E0 → bytes E0 D1
+# CRC16-Modbus([83,03]) = 0x8120 → bytes 20 81
+   0.000000  len=4  81 01 a0 20
+   0.100000  len=4  82 02 e0 d1
+   0.200000  len=4  83 03 20 81
