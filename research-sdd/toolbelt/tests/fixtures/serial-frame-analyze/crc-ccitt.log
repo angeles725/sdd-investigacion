@@ -1,0 +1,8 @@
+# CRC16-CCITT (FALSE, init=0xFFFF) BE fixture: 4-byte frames where last 2 bytes = CRC16-CCITT(body[0:-2]) BE
+# Frame format: body[0] body[1] crc_hi crc_lo
+# CRC16-CCITT([81,01]) = 0x2587 → bytes 25 87
+# CRC16-CCITT([82,02]) = 0x40B7 → bytes 40 B7
+# CRC16-CCITT([83,03]) = 0x63A7 → bytes 63 A7
+   0.000000  len=4  81 01 25 87
+   0.100000  len=4  82 02 40 b7
+   0.200000  len=4  83 03 63 a7

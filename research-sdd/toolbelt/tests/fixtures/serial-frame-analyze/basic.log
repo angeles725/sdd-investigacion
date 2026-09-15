@@ -1,0 +1,5 @@
+# serial frame capture  port=/dev/ttyUSB0  baud=19200
+   0.000s  len=  3  81 00 17
+   0.100s  len=  3  81 00 18
+   0.200s  len=  5  81 01 02 03 ff
+   0.300s  len=  3  81 00 19
