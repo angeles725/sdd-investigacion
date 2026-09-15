@@ -79,6 +79,7 @@ a live-network probe, modifies system state, or exercises hardware. Read-only di
 | Input / trigger | Detection | Approach | Wrapper | Tested |
 |---|---|---|---|---|
 | `host:port` | live BACnet/IP host (UDP/47808) | ANSI/ASHRAE 135 BACnet/IP reachability; unicast + broadcast Who-Is (SVC 0x08); Read-BDT + Read-FDT; stdlib `socket`; plan-only exit 3 without `--allow-live-probe`; read-only (Who-Is + BDT/FDT reads only; no Write-BDT or Register-Foreign-Device) | `corroborate-bacnet.sh` ([`bacnet-evidence.v1`](bacnet-evidence.v1.md)) | ✅ |
+| serial port device + baud rate | `/dev/ttyUSB*` or any serial device node | Passive idle-gap framing; read-only (never writes to port); baud-rate entropy sweep (`sweep`) + idle-gap frame capture (`capture`); `--allow-live-probe` must appear AFTER the subcommand; pyserial (deferred import — plan-only path works without it); plan-only exit 3 without `--allow-live-probe`; sweep where all bauds fail or yield zero bytes → exit 1 `status:failed`; `capture --log <txt>` emits canonical text log readable by `serial-frame-analyze`; 1 001-frame cap (off-by-one: `_MAX_FRAMES=1000` post-append `>=` check) with `truncated:true` visibility; 64 KB read cap per baud-sweep candidate; three distinct plan-only/all-fail/complete states | `serial-frame-capture.sh` ([`serial-frame.v1`](serial-frame.v1.md)) | ✅ |
 
 ### Deliverable / report generation
 
