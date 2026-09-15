@@ -69,8 +69,10 @@ through a §18 `promote` verdict that moves it into `toolbelt/`. Do not add targ
 
 ### Live-probe / install-audit instruments
 
-Tools whose input is a live host, port, or install-tree rather than a static file artifact. Plan-only
-guard (exit 3 without the explicit opt-in flag) is mandatory for all rows in this table (spec §2).
+Tools whose input is a live host, port, or install-tree rather than a static file artifact. A
+plan-only guard (exit 3 without the explicit opt-in flag) is required for any wrapper that performs
+a live-network probe, modifies system state, or exercises hardware. Read-only directory scans
+(dir-walk only, no network I/O or state changes) are exempt from the plan-only guard requirement.
 
 | Input / trigger | Detection | Approach | Wrapper | Tested |
 |---|---|---|---|---|

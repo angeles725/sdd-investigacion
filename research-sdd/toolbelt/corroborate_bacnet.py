@@ -376,4 +376,11 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (OverflowError, OSError) as _exc:
+        # Any unhandled socket/OS error from the live-probe path (e.g. bad port,
+        # unresolvable host, ENETUNREACH, EPERM) is an operational error.
+        # Exit 2 — no evidence file has been written at this point.
+        print(f"corroborate-bacnet: ERROR — {_exc}", file=sys.stderr)
+        sys.exit(2)

@@ -15,11 +15,14 @@ no UDP frames are sent and no network connection is made.
 A live BACnet/IP host reachable over UDP.  Accepted inputs:
 
 - **`--host`** (required): IP address of the target BACnet/IP field device or BBMD.
+- **`--output`** (required): directory where `bacnet-evidence.v1.json` is written.
 - **`--port`** (default 47808 / 0xBAC0): BACnet/IP UDP port.
+- **`--src-port`** (default 0 = ephemeral): local UDP bind port.
 - **`--local-bcast`**: broadcast address of the local interface (e.g. `192.168.1.255`);
   required to exercise the broadcast Who-Is path.  Omitting it skips the broadcast probe.
 - **`--bbmd`**: optional additional IP probed as a candidate BBMD; `--host` is always probed.
 - **`--timeout`** (default 3.0 s): per-probe UDP listen window.
+- **`--json`**: also write evidence to stdout as JSON.
 
 Only ANSI/ASHRAE 135 read-only service primitives are sent:
 - Unconfirmed-Request Who-Is (unicast, and broadcast when `--local-bcast` is provided)
@@ -55,11 +58,11 @@ State-changing operations (Write-BDT 0x01, Register-Foreign-Device 0x05) are nev
 | `probes.unicast_who_is.instance` | BACnet device instance number (integer) from I-Am, or `null` |
 | `probes.broadcast_who_is.local_bcast` | Broadcast IP used, or `null` when `--local-bcast` not supplied |
 | `probes.broadcast_who_is.responders` | Map of `{ip: [instance, …]}` for all I-Am replies |
-| `probes.broadcast_who_is.crossed_from_target_subnet` | Subset of `responders` sharing the first three octets with `--host` (cross-subnet reach) |
+| `probes.broadcast_who_is.crossed_from_target_subnet` | Subset of `responders` sharing the first three octets with `--host` (hard-coded /24 assumption; if `--host` is on the same /24 as the runner, this set is non-empty by design and the `REBIND OK` verdict is trivial) |
 | `probes.broadcast_who_is.same_as_local` | Subset of `responders` on a different /24 than `--host` |
 | `probes.broadcast_who_is.note` | Present (with skip explanation) when `--local-bcast` was not supplied |
 | `probes.bbmd_probe` | Map of `{host_ip: {is_bbmd, bdt, fdt}}` for each candidate probed |
-| `probes.bbmd_probe.<ip>.is_bbmd` | `true` when a Read-BDT-Ack was received from that IP |
+| `probes.bbmd_probe.<ip>.is_bbmd` | `true` when a Read-BDT-Ack was received within the probe window (any source; not filtered by source IP) |
 | `probes.bbmd_probe.<ip>.bdt` | BDT entry list (`{addr, mask}` per entry) or `null` when not a BBMD |
 | `probes.bbmd_probe.<ip>.fdt` | FDT entry list (`{addr, ttl_s, remaining_s}` per entry) or `null` |
 | `verdict_code` | `"ok"` / `"rebind_fail"` / `"inconclusive"` |
