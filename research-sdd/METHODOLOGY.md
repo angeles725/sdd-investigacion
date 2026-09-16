@@ -886,6 +886,27 @@ delegated. The driver loop itself — marker discipline, `[INFER]` deductions, s
 on the session's strong model. Substitute one tier down when a model is unavailable, and note it.
 (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
 
+**Multi-phase workflows and delegated research MUST assign a model per effort level — never let every
+delegated agent inherit the driver's model.** Map by cognitive demand: `haiku` for mechanical work
+(locate, enumerate, copy, format); `sonnet` for structural extraction, verification, and adversarial
+review; `opus` for scope/synthesis decisions only. Adversarial-verify skeptics and 4R review lenses
+are structural work and run at sonnet — confirmed by `adversarial-verify.js` (`// MODEL: skeptics run
+on model:'sonnet'`) and model-tiers.v1.md §1 ("4R review lenses" listed under structural
+tier). A pipeline where every delegated agent runs on `opus` wastes capacity and is an explicit
+defect, not a conservative default. Set the tier explicitly on every delegation (per-harness syntax
+in model-tiers.v1.md §2; e.g. `model: 'sonnet'` on an Agent/Task call in Claude Code).
+**Concrete example — deep-research-style workflow:** invoke the built-in with per-phase tier
+overrides: Scope=opus, Search=haiku, Fetch=sonnet, Verify=sonnet, Synthesize=opus. Verify stays on
+sonnet because adversarial/judgment load exceeds haiku's capacity. Do NOT vendor the built-in
+workflow into the kit; override its per-phase models at invocation.
+**Verify stays on `sonnet` — the one-tier-down fallback does not apply.** Refutation and
+verification voters (per-block self-verify, the `adversarial-verify` step, oracle cross-checks) MUST
+NOT drop to `haiku`. The general fallback rule (model-tiers.v1.md §2: "substitute one tier down when
+the recommended tier is unavailable") does NOT apply here: if `sonnet` is unavailable, verification
+runs inline on the driver or is deferred — never degraded to `haiku`. A `haiku` verifier lacks the
+reasoning depth to catch subtle mis-certifications and produces false `[CERT]` without the oversight
+the step exists to provide.
+
 **Closed loop while working, open loop when done (terminal trigger).** The loop is a closed control system
 while read-only-investigable > 0: it self-corrects and self-continues. When that set hits 0, it does NOT
 just declare and die — it OPENS to the environment and fires the next action. At FOCUS-level exhaustion it
@@ -1470,6 +1491,18 @@ hash that excludes the three volatile run fields (`started_at`, `ended_at`, `dur
 `manifest_identity` is stable run-to-run on one machine — a fixture placeholder is honest — but
 machine/version-bound: regenerate the fixture on tool or launcher drift.
 
+**Rule R6 — a kit gate's calibration corpus must be a frozen fixture, not a live-fleet count.**
+This rule applies to KIT GATES ONLY (toolbelt instruments and their test suites under §11b). A count,
+threshold, or truth-set used to CALIBRATE a kit gate must be locked into a committed, immutable
+fixture at the time the gate is established. A live-fleet count that mutates mid-campaign (because
+blocks are added, retros advance, or target rows grow) is a dated snapshot: a gate that recalibrates
+silently against a moving baseline may show green for reasons unrelated to the artifact under review.
+Regenerate and commit the fixture deliberately when the baseline is intentionally updated; document
+the reason. Target-side discriminators (the "Calibrated discriminators" paragraph in §6) are separate instruments with their own
+calibration context; their calibration corpus is committed inside the TARGET corpus, not the kit.
+The frozen-fixture requirement applies to the calibration corpus only — the instrument's own test
+fixtures follow the R2 rule.
+
 ## 12. Dynamic phase (validation against a live system)
 
 The static loop (§1–§11) is READ-ONLY decompilation — safe, autonomous, loop-able. When a LIVE system
@@ -1531,6 +1564,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   never a real production write. A mutation performed "to see what happens" during verification is a §12
   incident to record, not evidence; the cutover retro that produced this rule had to prove afterwards that
   nothing had moved.
+  **Minimal-privilege principal — a surface-dependent capability, not a universal step.** When a live
+  write is required, check first for existing low-privilege accounts before attempting to mint a
+  minimal-privilege ephemeral principal. Minting is a SURFACE-DEPENDENT capability: cloud SaaS
+  platforms, managed IAM (AWS/GCP/Azure), cloud API gateways, and multi-tenant web services typically
+  CAN create ephemeral identities (test users, scoped API keys, short-lived service accounts); embedded
+  controllers, PLC/SCADA stacks, protocol bridges, and hardware I/O APIs typically CANNOT. When minting
+  is not available, fall back to the dry-run/scratch-object approach above with the existing credential;
+  do not treat ephemeral-principal creation as a universal prerequisite or a blocking requirement.
 - **Cross-protocol oracle for every write.** Validate a write through an INDEPENDENT channel, not the one
   you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
   read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
@@ -1539,6 +1580,21 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   a GET on the resource after the POST that wrote it (e.g. GET `/nmodsreflow/config` confirming a POST
   `config_update`). The essential property is that confirmation does NOT come from the write's OWN response,
   not that a second wire protocol exists; never trust the write's own `200`.
+- **Cross-source ground-truth calibration.** When a target exposes the SAME real-world quantities
+  through two distinct protocols — one decoded (e.g. application-level telemetry, parsed BACnet objects)
+  and one raw (e.g. Modbus registers, unprocessed device-buffer reads) — tap BOTH concurrently and
+  timestamp each matching pair. Every timestamped (decoded, raw) pair where the two channels agree is a
+  free calibration point: it cross-validates the decoding pipeline, the protocol mapping, and the
+  timestamp alignment at zero additional cost. Cross-source calibration transfers to any target sharing
+  the same two-layer observation pattern. Caveats: (a) both channels must sample the same physical
+  quantity at overlapping or aligned timestamps — a slow-polling channel against a fast-changing value
+  produces apparent disagreement from stale readings, not a mapping error; (b) protocol-level
+  abstractions (units, scaling, reference frames) must be reconciled before comparing; (c) a consistent
+  disagreement is a finding (decoding bug, register-offset error, timezone discrepancy), not a
+  dismissed channel difference. Record agreeing pairs as `[CERT-hw]`/`[CERT-live]` per channel
+  (hardware-controlled targets per §12; remote services you do not own per §12b); record
+  disagreements as `[INFER — cross-source discrepancy: decoded=X raw=Y]` with both values preserved
+  (in-bracket form per §3 taxonomy; no new marker is introduced).
 - **Attribution oracle for every READ on a routed protocol.** On any protocol where requests traverse a
   router, gateway, or bridge (BACnet, BACnet/IP-to-MSTP, Modbus gateways, CAN bridges, any
   store-and-forward relay), a reply arriving is NOT evidence of who replied. Before recording data as
@@ -1571,9 +1627,22 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   WRITE actually applied", this asks "does the LOGIC run correctly given no live upstream data". It finds bugs
   static reading never surfaces — a deploy-test caught a real `TypeError [ERR_UNKNOWN_ENCODING]` and then
   confirmed the fix on a second run. A flow that merely LOOKS correct is not a flow that RUNS.
+  **DISK-FIRST corollary:** a self-built inbound scaffold (a probe, a test harness, a replay driver)
+  that exercises the source validates the CODE — it earns `[CERT]` (defined in §3 as verified by
+  reading the local primary source; this extends the marker to cover a self-built execution harness
+  over that source, not a deployed instance), not `[CERT-hw]`. The deployment may never instantiate
+  the capability: a passing code-level scaffold can coexist with a deployment that warrants the
+  GATED-BY-DEPLOYMENT verdict (the feature is disabled, absent, or not wired up in the running
+  instance). Prefer DISK-FIRST followed by a deployment-instantiation check; if that check reveals
+  the capability is not deployed, assign the verdict GATED-BY-DEPLOYMENT — do not conflate a passing
+  source-level test with a confirmed live deployment.
 - **Backup-before-destroy (citable).** Before overwriting a program/image/config, READ and SAVE the current
   one to `sources/`, and VERIFY the backup actually restores. Keep it as both evidence and the revert
   target. A destructive step with no verified backup does not run.
+  **Multi-point load/concurrency extension:** before a multi-point load or concurrency test, ENUMERATE
+  the full point set and snapshot EVERY point's current value AND link-status BEFORE the first write —
+  not incrementally. A point-by-point snapshot taken while writes proceed mixes pre- and post-write
+  state; it is not a pre-write baseline and cannot serve as a reliable rollback target.
 - **"What silently resets this?" — confirm a remote channel's dependencies before acting.** Before
   relying on any configuration to keep a remote channel alive, enumerate what can silently undo it:
   **suspend** (sleep policy restores defaults on wake), **network reclassification** (a firewall
@@ -1655,8 +1724,15 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   for the SAME artifact. (This is §14's REFUTE-vs-CLARIFY-SCOPE distinction, in the hardware→code direction.)
 - **Live-verification verdicts (name each defect's outcome).** Distinct from §13's certainty-audit verbs
   (those re-verify a static corpus). For each static defect validated live, assign one: **CONFIRMED** (a
-  live oracle reproduced it) / **NOT-REPRODUCED** (the live system did not exhibit it) / **GATED** (code-path
-  real, live deployment auth-gates it — the scope-clarify case above) / **CONFIRMED-BY-PARITY** (a sibling
+  live oracle reproduced it) / **NOT-REPRODUCED** (the code-path was exercised and the live system did
+  not exhibit the defect — path must have been reached; contrast with GATED-BY-DEPLOYMENT where the
+  path could not be exercised at all) / **GATED** (code-path real, live deployment auth-gates it —
+  the scope-clarify case above) / **GATED-BY-DEPLOYMENT** (the capability exists in the code but is
+  NOT instantiated in THIS deployment — disabled, absent, or not wired up in the running instance;
+  the path could not be exercised, not merely that it was exercised and produced no defect; distinct
+  from GATED, where auth blocks a deployed path; remediation for GATED is authorization, for
+  GATED-BY-DEPLOYMENT it is deployment configuration or redeployment) /
+  **CONFIRMED-BY-PARITY** (a sibling
   sink sharing an ALREADY-PROVEN privileged path — deliberately NOT re-detonated, since one live proof of
   the pattern suffices and re-firing is risk without new information) / **DEFERRED-requires-execution**
   (needs a built probe → §19). Consolidate them in a per-defect verdict table in the phase's terminal block.
