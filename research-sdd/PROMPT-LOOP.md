@@ -45,6 +45,11 @@ each delegation carries:
     me to continue after each block" or "I am in auto mode — I will chain until STOP." Without the
     declaration the human cannot distinguish a supervised pause from a loop stall.
 
+**ScheduleWakeup is for the autonomous/self-paced mode only.** Never issue a ScheduleWakeup when an
+operator is present — in orchestrated mode the operator or the driver re-invokes; chain the next
+iteration in the same turn instead (signal "continue" at the end of the iteration report). Issuing ScheduleWakeup under orchestrated mode
+spawns a rogue autonomous loop alongside the operator, creating two competing drivers.
+
 Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
 `model` by cognitive demand (MODEL TIER rule) and never re-verify a block with orchestrator Bash (§11).
 
@@ -563,6 +568,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          looks complete from the new block but is invisible from the old one. Corrections that span more than
          one prior tier (a chain of corrections) must add the back-pointer to EVERY corrected block in the
          chain, not only the most recent.
+       - FORWARD-RESOLUTION POINTER (when THIS block resolves an OPEN OBSERVATION recorded in a PRIOR
+         block — distinct from a §14 correction; an observation is a noted question or uncertainty, not
+         an asserted error): edit that prior block to add a forward pointer before closing this iteration,
+         e.g. "resolved in [Block N] §N.x". This keeps the prior block from appearing open-ended when
+         read in isolation.
        - MCP-doc snapshots: every LOAD-BEARING [CERT-web]-via-MCP citation (context7 et al.) snapshotted to
          sources/web-snapshots/ + registered in SOURCES.md (§5). Report Y/N + count — this gate is what stops
          §5's snapshot rule from being paper-only (context7 cites kept landing unsnapshotted across runs).
@@ -862,6 +872,12 @@ HARD RULES:
     This governs WHEN to spend a live probe, not which evidence is more trustworthy: `[CERT-hw]`/
     `[CERT-live]` still outrank `[CERT]` for identity/protocol questions (METHODOLOGY §3); DISK-FIRST
     applies only when disk evidence is sufficient to answer the gap at the required certainty.
+    GATED-BY-DEPLOYMENT corollary: a self-built inbound scaffold (a probe, a test harness, a replay
+    driver) validates the CODE and earns `[CERT]`, not `[CERT-hw]`; a passing code-level scaffold can
+    coexist with a deployment that never instantiates the capability. Prefer DISK-FIRST followed by a
+    deployment-instantiation check; if that check reveals the capability is not deployed, assign the
+    GATED-BY-DEPLOYMENT verdict. See METHODOLOGY §12 (synthetic-stimulus / GATED-BY-DEPLOYMENT
+    treatment) for the full framing — this corollary surfaces it at the DISK-FIRST decision point.
   - REAL-ARTIFACT-FIRST (packaged artifact inspection) — When a gap is about physical packaging / layout /
     on-disk artifact SHAPE, inspect the REAL packaged artifact directly (e.g. `unzip -l`/`unzip -p` over
     the signed jar) before/alongside the decompiled tree — `META-INF` signing entries, jar-entry taxonomy,
@@ -953,6 +969,12 @@ HARD RULES:
     NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
     independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
     dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
+    MINIMAL-PRIVILEGE CAVEAT: minting an ephemeral principal is a SURFACE-DEPENDENT capability — cloud
+    platforms and managed IAM (AWS/GCP/Azure) typically can; embedded controllers, PLC/SCADA stacks,
+    and hardware I/O APIs typically cannot. Check for an existing low-privilege account FIRST. When
+    minting is unavailable, fall back to the benign disposable-marker mutation of step (c) above (or a
+    dry-run) with an existing credential. See
+    METHODOLOGY §12 for the surface-by-surface breakdown.
     REMEDIATION BRANCH (when the write REMOVES a discovered vulnerability, not a probe): a permanent,
     user-authorized security remediation is NOT the reversible-probe case — its correct END-STATE is the fix
     APPLIED, not reverted. Steps (a),(b),(d) still hold (out-of-band auth, sha256 backup-before-destroy, minimal
@@ -1041,6 +1063,9 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
       `T<n>: <name> · <path> · WHY (used/adapted/downloaded/created/updated)`. This is the moment the
       WHY is cheapest; a retro reconstructing tool decisions from memory is a post-hoc rationalization,
     - artifacts touched (block, CATALOG, INDEX, RESEARCH-STATE, sources/),
+    - BREAKTHROUGH (if demonstrated this iteration): name the proven recipe as a distinct
+      `Breakthrough: <one line>` field — do not bury it in the block summary. METHODOLOGY §22
+      defines the marker and the ledger; this checkpoint ensures the report surfaces it explicitly,
     - the next gap (or the stop declaration).
   Do NOT paste the block body, long decompiler dumps, or full file contents into the report.
 ```
