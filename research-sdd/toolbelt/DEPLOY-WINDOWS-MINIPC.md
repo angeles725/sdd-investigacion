@@ -83,3 +83,25 @@ _Source: panccadia-3d-viewer/retros/2026-09-04-deploy-windows-minipc.md; panccad
   so the deploy does not need the WSL oBIX forward (`localhost:18443`) up. That forward is only for
   local inspection from WSL; relaunch it (`instalacion/.../tunnel-jace.sh`) when needed separately.
 - **GitHub push may fail transiently over Cloudflare SSH** — retry once before diagnosing.
+
+- **oBIX StatusNumeric write: use the `/value` child slot, not the parent.** A PUT to the parent
+  `StatusNumeric` slot fails with `"Cannot translate"` and the parent never advertises its `/value`
+  child in the oBIX discovery response. Write the setpoint with a bare real to the child slot:
+  `PUT …/StatusNumeric/value` with body `<real val="<N>"/>`. An attribute-only form
+  (`<obj val="<N>"/>` at the parent) is silently accepted but zeroes the setpoint instead of setting
+  it. (Source: panccadia)
+
+- **PowerShell 5.1 `Invoke-WebRequest` cannot reach a JACE self-signed TLS endpoint**, even with a
+  custom `ServerCertificateValidationCallback` that unconditionally returns `$true` — the .NET
+  `ServicePointManager` callback is ignored in non-interactive PS 5.1 sessions over SSH. Use Node.js
+  for oBIX probes instead: `https.request({ rejectUnauthorized: false, … })` in a `.mjs` script works
+  reliably. To avoid CLIXML noise from `powershell -EncodedCommand` over SSH, prefer `scp`-ing the
+  `.mjs` to the remote and running `node script.mjs` directly rather than passing the script inline.
+  (Source: panccadia)
+
+- **A long `wrangler pages deploy` can outlive the OAuth token** — the upload phase can take several
+  minutes on a slow connection, and a short-lived browser OAuth session expires mid-flight, causing a
+  mysterious auth error late in the upload rather than at the start. Recover with `wrangler login`
+  (re-opens the SSO browser flow) rather than assuming credentials were absent or mismatched. Retry
+  the deploy immediately after; credentials are cached and the second attempt completes without
+  interruption. (Source: panccadia)

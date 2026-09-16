@@ -89,6 +89,48 @@ WSL without a driver for an exotic on-disk filesystem (→ §1d / no-mount parse
 keep it in the scratchpad only; never commit it to `sources/` or the repo. Commit only the derived
 tree/manifest (names + sizes + sha256 per file, identifiers masked). See PROMPT-LOOP SECRETS DISCIPLINE.
 
+## 1d. USB-serial converter bridge (FTDI / CP210x → WSL `/dev/ttyUSB0`)
+
+_Source: niagara-research retros, niagara jace9000 serial-capture work._
+
+When a serial-only device (e.g. a Niagara JACE 9000 console port) must be captured from WSL and the
+adapter is an FTDI or CP210x USB-serial converter, bridge it from the Windows COM port into WSL via
+`usbipd` — the same mechanism as §1b, but the target is the USB-serial adapter rather than a storage
+device.
+
+**Workflow:**
+1. From **Windows PowerShell** (NOT inside WSL): `usbipd list` — find the USB-serial adapter's `BUSID`
+   (look for "USB Serial Converter", "Silicon Labs CP210x", or "FTDI"). Note the `BUSID` (e.g. `3-2`).
+2. Bind (one-time, admin): `usbipd bind --busid <X-Y>`
+3. Attach to WSL: `usbipd attach --wsl --busid <X-Y>`
+4. Inside WSL: confirm with `ls /dev/ttyUSB*` — the adapter appears as `/dev/ttyUSB0` (or `ttyUSB1`
+   if another is present). Verify with `udevadm info /dev/ttyUSB0 | grep -i serial`.
+5. Run the capture: use `toolbelt/serial-frame-capture.sh` or `minicom`/`picocom` on the device.
+6. **Detach when done — detach-verified safe-state gate.** From Windows PowerShell:
+   `usbipd detach --busid <X-Y>`. Confirm the COM port reappears in Windows Device Manager before
+   ending the session (the serial analogue of "device left safe").
+
+### Operator-coordination obligation
+
+Bridging a USB-serial adapter **disconnects it from Windows entirely** for the duration of the
+attachment. If an operator is using the same adapter (e.g. their own terminal emulator on the JACE
+console port), attaching it to WSL drops their session.
+
+**Required before every attach:**
+1. **Get explicit consent** from the operator that they are not using the adapter.
+2. **Detach immediately** after capture is complete — do not leave it attached between sessions.
+3. **Confirm the operator regained the device**: ask them to verify the COM port is visible again in
+   Device Manager or their terminal emulator before the session ends.
+
+Never attach without consent; never leave the adapter bridged overnight or across sessions.
+
+### Common gotchas (USB-serial via USB/IP)
+- `/dev/ttyUSB0` may need group permission: add your user to `dialout` (`sudo usermod -aG dialout $USER`,
+  then re-login) or run capture tools with `sudo`.
+- After `wsl --shutdown`, any active WSL USB attachment is dropped — re-attach after the VM restarts.
+- On reattach, the device node index may change (`ttyUSB0` → `ttyUSB1`): always verify with `ls /dev/ttyUSB*`.
+- `usbipd bind` is a one-time admin step per adapter; `attach` and `detach` do not require admin.
+
 ## 2. Protocol probe
 
 Build a READ-ONLY probe — a byte-for-byte port of the decompiled protocol client (so frames match
