@@ -56,6 +56,8 @@ EOF
   # Seed the research-state.v1 envelope so the corpus passes verify-state's new envelope gate (else the
   # archive's verify-state gate REFUSES on the missing envelope). --sync-state derives from this same corpus.
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+  # Seed a fresh close-retro so the MISSING-RETRO gate (D6) is silent for cases that represent a closed run.
+  add_close_retro "$corpus"
 }
 
 # mkgood_git <corpus> <retro-git-date> <block-git-date> <retro-mtime> <block-mtime> : a hermetic git
@@ -112,6 +114,16 @@ EOF
   GIT_AUTHOR_DATE="$bdate" GIT_COMMITTER_DATE="$bdate" git -C "$corpus" commit -q -m "add block1"
   touch -d "$bmtime" "$corpus/t-block1.md"
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+}
+
+# add_close_retro <corpus> — seed a fresh close-retro with a far-future mtime into <corpus>/retros/
+# so the MISSING-RETRO gate (D6) is silent for test fixtures that represent a closed run (retro present).
+# For non-git corpora rsdd_added_epoch falls back to file mtime; the future date ensures the retro's
+# mtime epoch exceeds any current-time block mtime. For git fixtures, use a git commit instead.
+add_close_retro() {
+  local c="$1"; mkdir -p "$c/retros"
+  printf '<!-- review-status: pending -->\n# Close retro — test fixture\n' > "$c/retros/2099-01-01-close.md"
+  touch -d '2099-01-01' "$c/retros/2099-01-01-close.md"
 }
 
 echo "== research-sdd-archive.test.sh =="
@@ -332,62 +344,54 @@ EOF
 bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "real state + template coexist → archives via the real state (exit 0)" || no "real-plus-template exit=$rc (want 0)"
 
-# 20 — MISSING-RETRO detector (Feature #25a, §18): a corpus with blocks on disk but NO retro under retros/
-#      surfaces a LOUD advisory WARN (feedback for THIS run may be lost) — exit stays 0 (advisory, like the
-#      codegen/ parity WARN), and it NEVER auto-generates a retro (propose-never-apply). mkgood has one block;
-#      the archive detector is immediate (no grace window) so the WARN fires as soon as the corpus advances.
-d="$TMP/missingretro"; mkgood "$d"
-err="$(bash "$SUT" "$d" 2>&1 1>/dev/null)"; rc=$?
-if [ "$rc" = 0 ] && grep -qiE 'retro .*may be' <<<"$err" && grep -qi 'MISSING-RETRO' <<<"$err"; then
-  ok "blocks + no retro → MISSING-RETRO WARN (advisory, exit 0)"
-else no "no MISSING-RETRO WARN with blocks+no retro :: rc=$rc :: $(head -2 <<<"$err")"; fi
+# 20 — MISSING-RETRO gate (D6 promotion, §18): a corpus with blocks advanced past the newest §18 retro
+#      must be REFUSED (exit 3, hard gate). mkgood now seeds a close-retro; we remove it to expose the gate.
+d="$TMP/missingretro"; mkgood "$d"; rm -rf "$d/retros"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'MISSING-RETRO.*REFUSE' <<<"$out"; then
+  ok "blocks + no retro → MISSING-RETRO gate REFUSED (exit 3)"
+else no "no MISSING-RETRO gate with blocks+no retro :: rc=$rc :: $(head -2 <<<"$out")"; fi
 
-# 20a — an OLD retro (mtime older than the newest block) still counts as 'corpus advanced past the retro' →
-#       WARN. TMP is not a git repo, so the advancement signal is the block mtime (git commit epoch is 0).
-#       The archive detector fires immediately when the block is newer than the newest retro.
-d="$TMP/oldretro"; mkgood "$d"; mkdir -p "$d/retros"
+# 20a — an OLD retro (mtime older than the newest block) → corpus advanced past it → REFUSED (exit 3).
+#       TMP is not a git repo, so the advancement signal is the block mtime (git commit epoch is 0).
+#       mkgood seeds a close-retro (2099); remove it and add only an old one (2020) to expose the gate.
+d="$TMP/oldretro"; mkgood "$d"; rm -rf "$d/retros"; mkdir -p "$d/retros"
 : > "$d/retros/2020-01-01-focus.md"; touch -d '2020-01-01' "$d/retros/2020-01-01-focus.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
-  ok "blocks newer than an OLD retro → MISSING-RETRO WARN"
-else no "old-retro corpus did not WARN :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
+if [ "$rc" = 3 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
+  ok "blocks newer than an OLD retro → MISSING-RETRO gate REFUSED (exit 3)"
+else no "old-retro corpus did not REFUSE :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
 
-# 20b — NEGATIVE CONTROL: a retro NEWER than every block (run just closed with its retro) must NOT WARN — the
-#       detector fires only on genuine advancement past the newest retro.
-d="$TMP/freshretro"; mkgood "$d"; mkdir -p "$d/retros"
-: > "$d/retros/2030-01-01-focus.md"; touch -d '2030-01-01' "$d/retros/2030-01-01-focus.md"
+# 20b — NEGATIVE CONTROL: a retro NEWER than every block (run just closed with its retro) must NOT REFUSE —
+#       the gate fires only on genuine advancement past the newest retro. The mkgood close-retro (2099)
+#       is already newer than any current block mtime, so this test does not remove it.
+d="$TMP/freshretro"; mkgood "$d"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && ! grep -qi 'MISSING-RETRO' <<<"$out"; then
-  ok "retro newer than blocks → no MISSING-RETRO WARN (negative control)"
-else no "fresh-retro corpus WARNed spuriously :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
+  ok "retro newer than blocks → no MISSING-RETRO REFUSE (negative control)"
+else no "fresh-retro corpus REFUSED spuriously :: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
 
 # 20c — EXCLUDED-ONLY RETROS (B2): a corpus with blocks AND a §18-excluded retro (carrying
-#       '<!-- kit-retro: exclude -->') is still effectively retro-free from the §18 perspective.
-#       The MISSING-RETRO WARN must still fire (the excluded retro must NOT suppress it), and
-#       the 'retros: N' mirror fact must count 0 (excluded files are not §18 kit retros).
-#       RED before wiring retro_is_excluded in archive.sh: the old find-pipe-wc counted the
-#       excluded file, reporting retros:1 and suppressing MISSING-RETRO. The archive detector
-#       fires immediately (no grace window): blocks > 0 && retros == 0.
-d="$TMP/excluded-retro"; mkgood "$d"; mkdir -p "$d/retros"
+#       '<!-- kit-retro: exclude -->') is still effectively retro-free — the excluded retro must
+#       NOT suppress the MISSING-RETRO gate. The corpus must be REFUSED (exit 3).
+#       mkgood seeds a close-retro; remove it, then add only the excluded retro so the gate fires.
+d="$TMP/excluded-retro"; mkgood "$d"; rm -rf "$d/retros"; mkdir -p "$d/retros"
 printf '<!-- kit-retro: exclude -->\n# client retro — not §18\n' > "$d/retros/client.md"
-touch "$d/retros/client.md"   # FRESH mtime — would suppress MISSING-RETRO if counted as a real retro
+touch "$d/retros/client.md"   # FRESH mtime — would suppress gate if counted as a qualifying retro
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] \
-   && grep -qi 'MISSING-RETRO' <<<"$out" \
-   && grep -qE 'retros: 0( |$|\·|\·)' <<<"$out"; then
-  ok "20c excluded-only retro → retros:0 + MISSING-RETRO WARN still fires (B2 wiring)"
-else no "20c excluded-retro: rc=$rc retros=$(grep 'retros:' <<<"$out" | head -1) :: $(grep -i retro <<<"$out" | head -2)"; fi
+if [ "$rc" = 3 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
+  ok "20c excluded-only retro → MISSING-RETRO gate REFUSED (exit 3) — excluded retro does not suppress gate"
+else no "20c excluded-retro: rc=$rc :: $(grep -i retro <<<"$out" | head -2)"; fi
 
 # 21 — GIT-ADDED-DATE path, exercised for real (Feature #25a): block git-added AFTER retro, but mtimes say
-#      the OPPOSITE (retro mtime later than block mtime). A detector reading mtime instead of the git date
-#      would stay silent; reading the git date correctly WARNs despite the misleading mtimes.
+#      the OPPOSITE (retro mtime later than block mtime). The gate must read the git-added date → REFUSED (exit 3).
 d="$TMP/git-warn"
 mkgood_git "$d" "2026-01-10T00:00:00" "2026-03-01T00:00:00" "2030-01-01" "2020-01-01"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
-  ok "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)"
+if [ "$rc" = 3 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
+  ok "21 git-added-date: block added after retro (mtime says opposite) → REFUSED exit 3 (git date wins)"
 else
-  no "21 git-added-date: block added after retro (mtime says opposite) → WARN (git date wins)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
+  no "21 git-added-date: block added after retro (mtime says opposite) → REFUSED exit 3 (git date wins)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
 fi
 
 # 21a — NEGATIVE CONTROL for 21: git dates reversed (retro added AFTER block), mtimes again say the
@@ -403,18 +407,16 @@ else
 fi
 
 # 21b — FIX-1 REGRESSION PIN (relative-target invocation): the SAME fixture as case 21 (block genuinely
-#       added after retro by git date), invoked with a RELATIVE target from cwd=$TMP. Before the
-#       relative-path absolutize fix, `target`/`corpus` stayed relative, `git -C "$corpus" log -- "$rf"`
-#       double-resolved and never matched, EVERY file silently fell back to mtime, and the misleading
-#       mtimes (case 21's fixture: retro mtime LATER than block mtime) would flip the verdict to "no WARN"
-#       — exactly backwards. This must still WARN under a relative invocation.
+#       added after retro by git date), invoked with a RELATIVE target from cwd=$TMP. The gate must still
+#       REFUSE (exit 3) under a relative invocation — git date resolution must work correctly when the target
+#       is passed as a relative path.
 d="$TMP/git-warn-rel"
 mkgood_git "$d" "2026-01-10T00:00:00" "2026-03-01T00:00:00" "2030-01-01" "2020-01-01"
 out="$(cd "$TMP" && bash "$SUT" "$(basename "$d")" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
-  ok "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)"
+if [ "$rc" = 3 ] && grep -qi 'MISSING-RETRO' <<<"$out"; then
+  ok "21b RELATIVE target resolves git dates correctly → REFUSED exit 3 (FIX-1 regression pin)"
 else
-  no "21b RELATIVE target still resolves git dates correctly → WARN (FIX-1 regression pin)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
+  no "21b RELATIVE target resolves git dates correctly → REFUSED exit 3 (FIX-1 regression pin)" "rc=$rc :: $(grep -i retro <<<"$out" | head -2)"
 fi
 
 # mkrun_git <corpus> <together|split> — a hermetic 2-block git corpus. baseline + retro commit (OLD dates),
@@ -466,6 +468,11 @@ EOF
     git -C "$corpus" add t-block2.md
     GIT_AUTHOR_DATE="2026-03-02T00:00:00" GIT_COMMITTER_DATE="2026-03-02T00:00:00" git -C "$corpus" commit -q -m "B2"
   fi
+  # Close retro (git commit AFTER blocks): satisfies MISSING-RETRO gate (D6). prior_retro_epoch
+  # stays at the 2026-02-01 old retro — the OBPC window still spans the 2026-03-xx block commits.
+  printf '<!-- review-status: pending -->\n# Close retro — git fixture\n' > "$corpus/retros/2026-close-retro.md"
+  git -C "$corpus" add retros/2026-close-retro.md
+  GIT_AUTHOR_DATE="2026-04-01T00:00:00" GIT_COMMITTER_DATE="2026-04-01T00:00:00" git -C "$corpus" commit -q -m "close retro"
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
 }
 
@@ -532,6 +539,10 @@ EOF
   printf '# Block 1\nOriginal claim.\n\n> Note: corrected in B2.\n' > "$corpus/t-block1.md"
   git -C "$corpus" add -A
   GIT_AUTHOR_DATE="2026-03-01T00:00:00" GIT_COMMITTER_DATE="2026-03-01T00:00:00" git -C "$corpus" commit -q -m "B2 + §14 backlink into B1"
+  # Close retro (git commit AFTER blocks): satisfies MISSING-RETRO gate (D6).
+  printf '<!-- review-status: pending -->\n# Close retro — git fixture\n' > "$corpus/retros/2026-close-retro.md"
+  git -C "$corpus" add retros/2026-close-retro.md
+  GIT_AUTHOR_DATE="2026-04-01T00:00:00" GIT_COMMITTER_DATE="2026-04-01T00:00:00" git -C "$corpus" commit -q -m "close retro"
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
 }
 
@@ -681,6 +692,8 @@ EOF
   # FIX 2 (issue #368): --sync-state on a multi-focus corpus now requires --focus; seed each in turn.
   bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus alpha >/dev/null 2>&1
   bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus beta  >/dev/null 2>&1
+  # Seed a fresh close-retro so the MISSING-RETRO gate (D6) is silent.
+  add_close_retro "$d"
 }
 
 # 26 — undocumented_findings: 0 → archive passes (positive control; field present and clean).
@@ -877,6 +890,9 @@ EOF
   printf '# Beta Block 1\nBody.\n' > "$d/beta/beta-block1.md"
   : > "$d/beta/INDEX.md"
   bash "$HERE/../research-sdd-status.sh" "$d/beta" --sync-state >/dev/null 2>&1
+  # Seed fresh close-retros in both focuses so the MISSING-RETRO gate (D6) is silent.
+  add_close_retro "$d/alpha"
+  add_close_retro "$d/beta"
 }
 
 # 35 — SPLIT LAYOUT: UF=1 in a NON-FIRST sibling focus must REFUSE (exit 3). RED on unfixed SUT.
@@ -952,6 +968,24 @@ else
   no "36 renamed-after-creation retro dated from rename commit (after block) → no MISSING-RETRO WARN (accepted --follow tradeoff)" \
      "rc=$rc :: $(grep -i 'retro\|MISSING' <<<"$out" | head -2)"
 fi
+
+# 37 — MISSING-RETRO GATE (D6: promoted from advisory WARN to hard gate): a corpus with blocks
+#      advanced past the newest §18 retro must REFUSE with exit 3 (gate code), not merely WARN.
+#      mkgood now seeds a close-retro; remove it to expose the gate (no retro → condition fires).
+d="$TMP/missing-retro-gate"; mkgood "$d"; rm -rf "$d/retros"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'MISSING-RETRO.*REFUSE' <<<"$out"; then
+  ok "37 MISSING-RETRO gate: corpus advanced past retro → REFUSED (exit 3)"
+else no "37 MISSING-RETRO gate: exit=$rc (want 3) / gate line=$(grep -cE 'MISSING-RETRO.*REFUSE' <<<"$out") :: $(head -2 <<<"$out")"; fi
+
+# 37a — NEGATIVE CONTROL: a corpus with a valid pending retro (newer than all blocks) must still
+#       close (exit 0) — the MISSING-RETRO gate has no false positive.
+d="$TMP/missing-retro-gate-neg"; mkgood "$d"; mkdir -p "$d/retros"
+: > "$d/retros/2030-01-01-fresh.md"; touch -d '2030-01-01' "$d/retros/2030-01-01-fresh.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qiE 'MISSING-RETRO.*REFUSE' <<<"$out"; then
+  ok "37a MISSING-RETRO gate (neg): valid recent retro → archive passes (exit 0, no false positive)"
+else no "37a MISSING-RETRO gate (neg): exit=$rc (want 0) :: $(grep -iE 'MISSING-RETRO|REFUSE' <<<"$out" | head -1)"; fi
 
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1058,7 +1092,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(mf-uf): mutant exit=$mfufmrc (want 0) — mf uf gate may not depend on uf-gate-refuse marker (THEATER)"; fi
   fi
 
-  echo "-- teeth(rename-tradeoff): reintroduce --follow to rsdd_added_epoch; renamed retro must trigger MISSING-RETRO WARN --"
+  echo "-- teeth(rename-tradeoff): reintroduce --follow to rsdd_added_epoch; renamed retro must trigger MISSING-RETRO gate (exit 3) --"
   mutantR="$TMP/archive.RENAME-MUTANT.sh"
   sed 's/log --diff-filter=A --format=%ct/log --follow --diff-filter=A --format=%ct/' "$SUT" > "$mutantR"
   if ! grep -q 'log --follow --diff-filter=A --format=%ct' "$mutantR"; then
@@ -1073,11 +1107,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
     cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
     out_m="$(bash "$mutantR" "$TMP/rename-tradeoff" 2>&1)"; mrc=$?
-    if [ "$mrc" = 0 ] && grep -qi 'MISSING-RETRO' <<<"$out_m"; then
-      ok "teeth(rename-tradeoff): --follow mutant triggers MISSING-RETRO WARN → case 36 has teeth"
+    # After D6 promotion: the --follow mutant dates the retro from year-2000 (before the 2026-01-10 block)
+    # → MISSING-RETRO gate fires → exit 3 (was: advisory WARN + exit 0 pre-D6).
+    if [ "$mrc" = 3 ] && grep -qi 'MISSING-RETRO' <<<"$out_m"; then
+      ok "teeth(rename-tradeoff): --follow mutant triggers MISSING-RETRO gate (exit 3) → case 36 has teeth"
     else
-      no "teeth(rename-tradeoff): --follow mutant did not WARN :: mrc=$mrc :: $(grep -i 'retro\|MISSING' <<<"$out_m" | head -2)"
+      no "teeth(rename-tradeoff): --follow mutant did not trigger MISSING-RETRO gate :: mrc=$mrc :: $(grep -i 'retro\|MISSING' <<<"$out_m" | head -2)"
     fi
+  fi
+
+  echo "-- teeth(missing-retro-gate): neuter ONLY the missing-retro gate; corpus-advanced case must then archive --"
+  mutantMRG="$TMP/archive.MRG-MUTANT.sh"
+  sed 's/gate_rc=1  # missing-retro-gate-refuse/gate_rc=0  # MUTANT-missing-retro-gate/' "$SUT" > "$mutantMRG"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
+  d_mrg="$TMP/mr-gate-teeth"; mkgood "$d_mrg"; rm -rf "$d_mrg/retros"   # no retro → missing-retro condition
+  if ! grep -q 'MUTANT-missing-retro-gate' "$mutantMRG"; then
+    no "teeth(missing-retro-gate): could not build mutant (missing-retro-gate-refuse marker not found — did the SUT change?)"
+  else
+    bash "$mutantMRG" "$d_mrg" >/dev/null 2>&1; mrgmrc=$?
+    if [ "$mrgmrc" = 0 ]; then
+      ok "teeth(missing-retro-gate): gate neutered → corpus-advanced archives (exit 0) — missing-retro gate is load-bearing"
+    else no "teeth(missing-retro-gate): mutant exit=$mrgmrc (want 0) — gate may not depend on gate_rc=1 # missing-retro-gate-refuse (THEATER)"; fi
   fi
 fi
 
