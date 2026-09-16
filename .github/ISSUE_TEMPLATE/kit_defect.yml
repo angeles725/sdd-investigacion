@@ -1,0 +1,108 @@
+name: Kit Defect (surfaced during work)
+description: A defect or error that surfaced while running the research-sdd kit or applying its retros. May be auto-filed by an agent when an error arises.
+labels: ["bug", "status:needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # Kit Defect
+
+        Use this when a defect or error surfaces **during kit work** — running an instrument, applying a
+        retro delta, a gate failure, or a defect found by adversarial review that is out of the current
+        change's scope. It captures how it happened, where, in what form, and what the root cause is.
+
+        > **How this works:**
+        > 1. This issue is filed with `status:needs-review` (an agent may file it automatically when an error arises).
+        > 2. A maintainer reviews it — adds `status:approved` if it is a real, in-scope work unit.
+        > 3. Only then is a fix PR opened. Zero-incidence defects are documented and closed, not fixed (CLAUDE.md §6/§7).
+        >
+        > See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. Facts only — never guess a root cause.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "What happened"
+      description: Observed behavior vs. expected behavior — the exact symptom.
+      placeholder: |
+        Expected: ...
+        Observed: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: "Where"
+      description: Repo + file / instrument / doctrine section, and the commit sha (or origin/main tip) it was seen on.
+      placeholder: |
+        repo: angeles725/sdd-investigacion @ <sha>
+        file/instrument: research-sdd/toolbelt/<script>.sh (or METHODOLOGY §N)
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: "How it happened (trigger / repro)"
+      description: The action, command, or step that surfaced it. Minimal steps to reproduce.
+      placeholder: |
+        1. Ran `<command>`
+        2. Against `<input/corpus>`
+        3. Observed `<result>`
+    validations:
+      required: true
+
+  - type: textarea
+    id: form
+    attributes:
+      label: "In what form (symptom)"
+      description: The exact output — error text, exit code, wrong count, spurious WARN, silent zero, etc. Auto-formatted as code.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: "Root cause"
+      description: The verified cause. If not yet established, write "not yet established" — never guess.
+      placeholder: not yet established
+    validations:
+      required: true
+
+  - type: textarea
+    id: incidence
+    attributes:
+      label: "Incidence / impact"
+      description: Measured occurrences across the fleet (CLAUDE.md §6/§7) and the consequence. Zero incidence = verifier-discipline candidate (document, do not schedule).
+      placeholder: |
+        incidence: <N> occurrences across <corpus/fleet> (measured <date> @ <sha>)
+        consequence: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "Evidence"
+      description: Logs, shas, PR / review refs, measurements — identifiers a reader can chase.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: fix-recipe
+    attributes:
+      label: "Fix recipe / next step"
+      description: The minimal fix if known, or the next investigation step. If deferred, say why.
+    validations:
+      required: false
+
+  - type: input
+    id: discovered-during
+    attributes:
+      label: "Discovered during"
+      description: The campaign / PR / work unit in which this surfaced.
+      placeholder: "e.g. target-retro kit-delta campaign, unit applying <retro>"
+    validations:
+      required: true
