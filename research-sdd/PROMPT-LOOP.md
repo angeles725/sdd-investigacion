@@ -185,6 +185,27 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
      prioritized backlog from that matrix. (Proven on the protocols focus: the audit matrix seeded 6
      well-shaped gaps before a single block was written.) See METHODOLOGY §13.
+     AUDIT BOOTSTRAP PRODUCTION SCOPE. When opening an AUDIT focus — a focus whose purpose is to
+     assess the security, correctness, or compliance of a set of artifacts — establish FIRST which
+     of those artifacts are actually deployed in production. Severity ratings for findings in
+     artifacts not deployed carry no operational weight; an audit whose production scope is undefined
+     is ungrounded. Confirm scope from a deployment manifest, a running process list, or an
+     installed-package check BEFORE deriving priorities from the audit matrix findings. (See also
+     the GATED-BY-DEPLOYMENT corollary under HARD RULES DISK-FIRST / METHODOLOGY §12, which applies
+     the same deployment-instantiation check at individual-block verdict time rather than at
+     bootstrap.) (Evidence: niagara own-modules-audit — findings were severity-rated before the
+     production subset was established; several high-severity findings targeted modules never loaded
+     in the production station.)
+     FILTER-CALIBRATION DOMAIN. Any classification filter, threshold, or scoring function calibrated
+     against ONE corpus subset implicitly defines that subset as its universe — a gap that falls
+     outside the calibration population may register as absent without a WARN. Before applying a
+     filter derived from one population to a broader corpus, STATE the calibration domain explicitly
+     in the sweep prompt or the gap description. A filter whose coverage domain is undeclared is an
+     instrument whose false-negative floor is unknown. (METHODOLOGY §6 licenses calibrated
+     discriminators as symmetric and reusable within the same artifact kind; cross-kind reuse
+     requires re-stating the calibration domain — that is the boundary this rule marks.) (Evidence:
+     blender-llm B21-B37 — a relevance filter calibrated on the documentation sub-corpus was applied
+     fleet-wide; gaps in native-binary content registered as absent rather than out-of-domain.)
      GAP PREMISES ARE HYPOTHESES, not assertions — the initial research plan is a best guess from
      outside the code. When investigation refutes a premise (e.g. a module assumed to belong to
      subsystem Y has zero imports from it), RENAME the gap in RESEARCH-STATE to reflect the real
@@ -237,6 +258,26 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      non-page-anchored citations across 9 blocks). Not applicable to targets with no PDFs; a mixed
      corpus still extracts its PDFs at NORMAL CYCLE step 3, which also holds the extraction rules,
      range guidance, and citation format.
+     PDF CORPUS FAMILY-BLOCK. When a documentation corpus contains ≥10 near-identical terse spec
+     sheets from a hardware family (each sheet documents one SKU but the schema, field names, and
+     section structure are identical across the family), a single dense FAMILY block — one table row
+     per sheet with page citations — is PERMITTED and RECOMMENDED over one thin block per sheet.
+     Thin per-sheet blocks add no coverage depth and dilute the index; the uniform structure across
+     the family IS the finding. Surface the family-block option to the operator before proceeding —
+     the choice is explicit, not automatic. Use `Type: evidence` in the block header (the rows are
+     [CERT-doc] page-cited; `family-survey` is outside the METHODOLOGY §4 closed grammar); name the FAMILY-BLOCK pattern in the block's gap-description prose or
+     opening blockquote so reviewers understand the table structure. Cite every individual sheet's
+     relevant page in the table. (Evidence: niagara optimizer-docs — a 12-sheet hardware-spec family
+     produced 12 near-duplicate thin blocks before the pattern was named; a single dense evidence
+     block would have covered the same ground in one iteration.)
+     RELEVANCE-TRIAGE CHECKPOINT (PDF CORPUS). When a documentation corpus mixes a small set of
+     high-relevance goal documents (product manuals, design specs, protocol references) with a large
+     bulk of low-relevance material (marketing datasheets, compliance certificates, unrelated
+     application notes), run a TRIAGE PASS before auto-processing the bulk: rank the full set by
+     relevance to the declared investigation angle, identify the high-relevance documents and the
+     bulk, and present the operator a go/no-go decision before spending extraction time on low-value
+     PDFs. (Evidence: niagara optimizer-docs — bulk extraction of low-relevance datasheets consumed
+     multiple blocks before a triage pass would have redirected effort to the goal manuals.)
   f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
@@ -885,6 +926,21 @@ HARD RULES:
     this targets the packaged artifact vs the decompiled source. RIDER (source>jar for intent): when the
     finding is about INTENT (over-permission, dead code, config), prefer SOURCE if available — a packaged
     artifact shows declarations; source shows whether they are real or scaffold.
+  - NAME-THE-JAR ⇒ OPEN-THE-JAR. Citing a JAR, DLL, archive, or packaged artifact by name is not
+    evidence about its contents — the name confirms only that the container exists on disk.
+    Decompile or extract the artifact before claiming anything about what it implements, licenses,
+    or registers; "the jar is present" is a pre-condition, not a finding. A jar cited for licensing
+    evidence with no decompilation is [INFER], not [CERT]. (Evidence: niagara licensing — a jar was
+    cited as confirming a licensing mechanism; decompilation revealed a different mechanism.)
+  - MULTI-MARKER BOOTSTRAP FUSION. A bootstrap gap (or any gap) that draws simultaneously from
+    multiple independent evidence channels — e.g. [CERT-doc]+[CERT-web]+[CERT]+[CERT-live] all
+    supporting the same claim — is a valid FUSION. Name it as fusion explicitly in the self-verify
+    tally so reviewers read the redundancy as corroboration; see the sibling
+    CORROBORATION-FROM-INDEPENDENT-STORE pattern (NORMAL CYCLE step 5 self-verify tally), which
+    prescribes the same declaration for evidence blocks. Each marker still requires the evidence its
+    tier demands; this rule names the multi-source convergence as a corroboration pattern, not as a
+    waiver of per-marker standards. (Evidence: niagara jace9000 bootstrap — four-channel convergence
+    was flagged as a mixing anomaly; it was corroboration from independent sources.)
   - RE-MEASURE A DRAMATIC NEGATIVE. When an enumeration or join yields a striking negative result
     (zero matches, near-total absence, a system that appears dead or empty), do NOT report it from
     a single measurement. Re-derive it by an independent method — a different key, a different
@@ -921,6 +977,16 @@ HARD RULES:
   - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
     attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
     clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)
+  - OFFENSIVE/DUAL-USE GAP DESCOPING. When a gap is descoped because investigating it would produce
+    offensive or dual-use findings (an attack vector, an exploit path, a capability that enables
+    harm), do NOT remove it from the backlog silently. Mark it `blocked-on-dual-use` in
+    RESEARCH-STATE with the descope reason so the decision is visible to peer sessions and future
+    runs. The descope reason occupies the `tried:` position required by the blocked-gap rule above
+    — e.g. `tried: descoped — dual-use, <one-line reason>` — so the entry satisfies both rules.
+    A silently-deleted gap is indistinguishable from a gap that was never discovered;
+    `blocked-on-dual-use` preserves the evaluation record without propagating the harmful content.
+    (Evidence: niagara signing-pki-live — a descoped gap was removed from the backlog; later
+    sessions could not determine whether it had been evaluated or simply forgotten.)
   - SECRETS DISCIPLINE (live-install targets) — when the target is a REAL running installation/station,
     not a distributable artifact (TARGETS.md marks it `live-install`), NEVER extract or write credentials,
     keys, keyring/keystore material, tokens, or secrets into a block, sources/, or engram. Cite the
@@ -1043,6 +1109,19 @@ HARD RULES:
     reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
     English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
+  - PKILL -F WRAPPER-SHELL MATCH. `pkill -f <pattern>` matches any process whose full command line
+    contains <pattern> — including the enclosing `zsh -c`/`sh -c`/`bash -c` wrapper the harness
+    wraps every Bash call in. When the pattern string appears inside that wrapper's argv, pkill signals
+    every match — killing the enclosing session shell as well as (or instead of) the intended child. The naive remedy `kill $(pgrep -f <pattern>)` returns
+    the SAME wrapper PIDs and has the same effect. Safe alternatives: (a) record the target PID at
+    spawn (`$!` or a PID file) and kill that specific PID; (b) match by exact process name (`pkill
+    -x <name>` / `pgrep -x <name>`), which matches the process NAME (`comm`, truncated to 15 chars on
+    Linux) rather than the command line and so cannot match a `zsh`/`bash` wrapper — but a target name
+    longer than 15 chars will silently not match; (c) the bracket idiom
+    `pkill -f '[p]attern'` — the bracketed first character matches the target process line, but
+    the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
+    wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv. (Evidence: blender-llm B6 — a cleanup invocation matched the wrapper shell and
+    terminated the wrong process.)
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
 
