@@ -73,6 +73,8 @@ undocumented_findings: 0
 | low | <...> | <...> | pending |
 | deferred | <gap set aside — revisit when unblocking condition is met> | <...> | pending (parked; never NEXT — §8b) |
 | high | <build/PoC gap — answerable only by compiling/running something> | prototype build | requires-execution → §19 (not read-only; needs a build + re-measure) |
+| medium | <gap blocked pending a specific resource or tool — e.g. signing-pki-dynamic: full PKI chain without live device access> | <native/doc/live-system> | blocked-on-dual-use (cannot ship a complete PoC that re-uses the vendor signing key) |
+| low | <gap blocked because a required tool is absent or unavailable> | <native/tool> | blocked-on-tool (e.g. no Dart-AOT decompiler available; no live JACE accessible) |
 
 ## Iteration history
 
