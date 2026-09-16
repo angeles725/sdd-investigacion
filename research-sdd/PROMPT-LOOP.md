@@ -708,12 +708,25 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (ledger, fix log, consumer run, artifacts) under $CORPUS/sources/probes/<name>/ and cite it `[CERT-hw]`
          from the closing block. Full treatment: METHODOLOGY §19.
        - SELF-RETROSPECTIVE (at every focus completion, and always at corpus-level STOP — METHODOLOGY §18):
-         before handing off, DELEGATE a fresh-context retro agent to review THIS run and PROPOSE kit deltas
-         (rules that were skipped, techniques you improvised that the kit lacks, gaps that stalled). It reads
-         the current $KIT/PROMPT-LOOP.md + METHODOLOGY.md FIRST and dedupes — proposes only what is genuinely
-         new, each with evidence (block/commit/§ refs) and a priority. It writes the proposal to
-         $TARGET/retros/ + engram research/<target>/retro and SURFACES it in the return. It does NOT edit the
-         kit — kit changes are human-reviewed and human-committed. This is how the kit learns from real runs.
+         before handing off, DELEGATE a fresh-context retro agent to review THIS run and PROPOSE kit deltas.
+         The journal (METHODOLOGY §18 journal mode) is a SUPPLEMENTAL SOURCE — the full run review still
+         runs. The retro agent: (1) reads $KIT/PROMPT-LOOP.md + METHODOLOGY.md FIRST and dedupes; (2) reviews
+         the run — blocks written, §14 corrections, rules skipped, improvised techniques; (3) reads journal
+         entries via `mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>",
+         limit: 20)` — FTS phrase match over all columns, NOT a topic_key prefix scan; pass
+         `project: "<target>"` explicitly (kit cwd yields zero target hits); pass `limit: 20` explicitly
+         (default is 10); filter results by title convention `<YYYY-MM-DD> <category>:` to drop FTS
+         overmatches; if the result count equals 20, flag possible truncation; dedup across prior §18
+         firings in this session, then dedup near-duplicates; curate and flag non-conforming entries
+         explicitly; (4) merges journal candidates with run-review candidates and promotes worthwhile ones
+         to `## Proposed kit deltas` rows; (5) records the retrieval state explicitly: if zero hits,
+         records search-returned-nothing or nothing-captured; if count equals 20, records
+         possibly-truncated — these are DISTINCT states (see METHODOLOGY §18 retrieval-states table);
+         continues with the run review in all cases.
+         It writes the proposal to $TARGET/retros/ + engram research/<target>/retro and SURFACES it in the
+         return. The `## Proposed kit deltas` table and `review-status: pending` marker consumed by
+         `sweep-retros.sh` are UNCHANGED. It does NOT edit the kit — kit changes are human-reviewed and
+         human-committed. This is how the kit learns from real runs.
        - RETRO CHECKPOINT (EXIT CONDITION, not a question): a run that wrote or changed ANY block, RESEARCH-STATE,
          CATALOG or INDEX file is NOT OVER until a retro produced from `$KIT/templates/retro.template.md` exists in
          `$TARGET/retros/` newer than the newest changed block, carrying `<!-- review-status: pending -->` and a
@@ -980,6 +993,25 @@ HARD RULES:
     delay also keeps the prompt cache warm (≤300s), so back-to-back iterations are cheaper AND faster.
     Only stretch the delay when you are genuinely BLOCKED waiting on something external (an install
     building, a live server coming up) — never just to space out ready decompilation work.
+  - INSTANT CAPTURE (mid-loop kit insights). When a defect, capability idea, algorithm, formula, or
+    process insight surfaces during any loop step, save a conforming journal entry via `mem_save`
+    BEFORE the loop continues — deferred capture (saving at the terminal instead of the moment) is
+    out of spec. Required fields: `title: "<YYYY-MM-DD> <category>: <insight>"` (category ∈
+    improvement / defect / tool-idea / algorithm-idea / formula-idea), `topic_key:
+    "research/<target>/journal/<YYYY-MM-DD>-<HHMMSS>"` (UTC; unique across sessions and parallel
+    focus lanes; for multi-focus targets use
+    `research/<target>/<focus>/journal/<YYYY-MM-DD>-<HHMMSS>` — same §16 convention),
+    `project: "<target>"`, `type: bugfix | discovery | pattern` (do NOT use "decision" — see
+    METHODOLOGY §18 type carve-out), and `content: "<one-line description> — evidence: <block/§/ref>"`.
+    <HHMMSS> is agent-supplied: read the clock per entry (`date -u +%Y-%m-%d-%H%M%S` yields the full
+    suffix) — an LLM has no clock of its own; if two insights surface within the same second, re-read
+    the clock or append -2, -3, never reusing one timestamp for two entries. Omit session_id: Engram
+    resolves the target project's active session, or falls back to manual-save-<target>, via resolveFallbackSessionID;
+    passing the harness session_id causes session_project_mismatch because it belongs to the
+    orchestrator project. One insight = one `mem_save` call under a unique key. §18 consolidates
+    these entries at the TERMINAL TRIGGER (METHODOLOGY §18 journal mode). NOTE: this is a DISTINCT
+    concern from MEMORY IS A MIRROR above — research findings destined for corpus blocks follow that
+    rule; kit-methodology insights destined for the retro follow this one. Both apply simultaneously.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft → Spanish, for continuity of its mature

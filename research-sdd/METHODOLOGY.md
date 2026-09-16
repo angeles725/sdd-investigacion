@@ -2157,7 +2157,8 @@ judgment, not the driver's own rationalizations). The retro agent:
    only what is genuinely new; a lesson the kit already encodes is noted as "already covered", not re-proposed.
 2. **Reviews the run** — blocks written, `§14` cross-block corrections, gaps that stalled or got mis-classified,
    rules that were SKIPPED in practice (e.g. a model tier never set, a gate run where the kit says not to), and
-   techniques the operator IMPROVISED that the kit does not name.
+   techniques the operator IMPROVISED that the kit does not name; and consolidates any journal entries
+   captured mid-run via instant capture (see **Journal mode** sub-section below).
 3. **Proposes kit deltas** — each with: the concrete change, the target file/section, EVIDENCE (block / commit /
    `§` / transcript refs), and a priority. Anti-patterns become "add a rule that prevents X"; improvised wins
    become "codify Y".
@@ -2353,6 +2354,137 @@ is visible from the template alone without opening METHODOLOGY.
 An ORACLE finding — a tool that can SEE whether a result is correct rather than recompute it — is the
 highest-value promotion candidate and always warrants an explicit verdict, even when the run did not
 explicitly flag it.
+
+**Journal mode — instant capture and §18 consolidation.** The §18 retro fires at the terminal — a
+batch recall of everything the run surfaced. The gap: mid-run insights (tool ideas, algorithms,
+formulas, process improvements) are often forgotten by the terminal, and end-of-loop recall
+structurally biases toward doctrine prose. The fix is not a new store — it is a convention layered
+over existing Engram capture: each insight is saved the instant it surfaces as a separate Engram
+observation; §18 reads and consolidates them at the terminal, supplementing (not replacing) the
+existing run review.
+
+**Journal entry format (one insight = one observation).** Each insight is saved as a single Engram
+observation with one line of substance. Required fields:
+
+- Category tag: exactly one from `{improvement, defect, tool-idea, algorithm-idea, formula-idea}`
+- Short English description (CLAUDE.md §9 language contract)
+- The date and UTC time are embedded in the `topic_key` (see below) for retrieval and in the title for readability
+
+Example title: `2026-09-16 tool-idea: a wrapper for X that reads Y format and returns Z`
+
+Entries with an absent or unrecognized category, non-English text, or multi-line content body are
+flagged at §18 consolidation and MUST NOT be silently promoted.
+
+**Capture substrate — per-entry observations with unique keys (Engram upsert contract).** Engram
+`mem_save` with a fixed `topic_key` is an UPSERT: every call under the same key REPLACES the
+previous observation. The journal MUST use a UNIQUE `topic_key` per entry so each insight creates
+an independent, non-overwriting observation:
+
+    mem_save(
+      title: "<YYYY-MM-DD> <category>: <insight>",  -- category ∈ improvement/defect/tool-idea/algorithm-idea/formula-idea
+      topic_key: "research/<target>/journal/<YYYY-MM-DD>-<HHMMSS>",  -- UTC timestamp; unique across sessions and parallel focus lanes
+      project: "<target>",
+      type: "bugfix | discovery | pattern",    -- see type carve-out note below; do not use "decision"
+      content: "<one-line description> — evidence: <block/§/ref>"
+    )
+    -- Multi-focus targets (§16): use research/<target>/<focus>/journal/<YYYY-MM-DD>-<HHMMSS>
+    -- (same convention as research/<target>/<focus>/gaps in §16 Engram project convention).
+    -- Omit session_id: Engram's resolveFallbackSessionID attaches the target project's active
+    -- session, or falls back to manual-save-<target>. Passing the harness session_id causes
+    -- session_project_mismatch because the harness session belongs to the orchestrator project, not <target>.
+    -- <HHMMSS> is agent-supplied: read the clock per entry (`date -u +%Y-%m-%d-%H%M%S` yields the full
+    -- <YYYY-MM-DD>-<HHMMSS> suffix) — an LLM has no clock of its own. If two insights surface within the
+    -- same second, re-read the clock or append -2, -3 to the suffix; never reuse one timestamp for two
+    -- entries (that reintroduces the upsert-overwrite the timestamp key exists to prevent).
+
+**Retrieval at §18:** Use `mem_search(query: "research/<target>/journal", project: "<target>", limit: 20)`
+to retrieve journal entries. Important behavioral notes:
+- **FTS phrase match, not a prefix scan.** `mem_search` performs an FTS5 unicode61 phrase match over
+  ALL indexed columns (title, content, type, project, topic_key). The query string is treated as a
+  phrase. Well-formed journal entries will match; overmatches are possible. Because `topic_key` is NOT
+  exposed in `mem_search` output, filter results by the title convention `<YYYY-MM-DD> <category>:` to
+  drop overmatches.
+- **Always pass `project: "<target>"` explicitly.** Without it, Engram resolves project from the agent's
+  cwd; a retro agent running in the kit directory gets zero hits from the target project. If `<target>`
+  is not a registered Engram project, the call returns `error_code: unknown_project` (not "no memories");
+  in that case use the kit-project fallback slug `research/<target-slug>/…` under the kit project
+  (see the "Unregistered-target fallback" convention in the kit).
+- **Always pass `limit: 20` explicitly.** The default is 10, not 20; calling without a limit silently
+  caps results at 10. `MaxSearchResults` is clamped to 20 server-side regardless of a larger requested
+  value, so `limit: 20` is always the safe ceiling.
+- To scope to a single run date, narrow the query: `query: "research/<target>/journal/<YYYY-MM-DD>",
+  project: "<target>", limit: 20`. The date tokens (`2026`, `09`, `16`) form a consecutive phrase
+  before the time segment, so the date-scoped query remains valid even though keys now include
+  a `<HHMMSS>` suffix.
+- **Truncation flag:** if the result count equals the `limit` (20), there may be additional entries not
+  retrieved. Flag possible truncation and page with narrower date queries or multiple calls (CLAUDE.md
+  §7 anti-silent-zero). The `MaxSearchResults=20` server clamp means this flag stays robust regardless
+  of what value is requested.
+
+**Type carve-out — journal entries are exempt from `undocumented_findings`.** The MEMORY IS A MIRROR
+rule (PROMPT-LOOP HARD RULES, METHODOLOGY §7) increments `undocumented_findings` for `type: project or decision`
+observations that lack a corpus block; `research-sdd-archive.sh` refuses to close at
+`undocumented_findings > 0`. A kit insight in the journal has no corresponding corpus block BY DESIGN
+(it is retro-destined, not block-destined). Use `type: bugfix | discovery | pattern` — these do not
+trigger the `undocumented_findings` counter and accurately categorize kit insights.
+
+One insight = one `mem_save` call under a unique key. Deferred capture (saved at the terminal
+instead of the moment) is out of spec. **Measure-before-build (CLAUDE.md §6):** a dedicated capture
+command is built ONLY after a run measures a concrete gap the convention cannot cover — for example,
+that the limit-20 cap causes silent truncation in real runs, or that `mem_save` is demonstrably
+skipped in practice. Until that incidence is measured, the zero-tooling convention is preferred
+(CLAUDE.md §7: a valid rule with zero measured incidence buys no backlog item). Record the
+measurement in the run's retro if a gap surfaces.
+
+**§18 consolidation — journal supplements the run review.** The journal is an ADDITIONAL SOURCE; the
+existing run review (blocks, corrections, skipped rules, improvised techniques) STILL RUNS. When the
+TERMINAL TRIGGER fires §18, the retro agent follows the existing "What it does" steps 1 and 2
+unchanged, then adds a journal consolidation pass:
+
+1. **Reads the current kit FIRST** (existing step 1 — unchanged).
+2. **Reviews the run** (existing step 2 — unchanged): blocks, §14 corrections, skipped rules,
+   improvised techniques.
+3. **Journal consolidation** (supplemental, when entries exist):
+   a. `mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20)`
+      (or broader query) to retrieve this run's journal entries. Filter results by title convention
+      `<YYYY-MM-DD> <category>:` to drop FTS overmatches. Note the count returned; if it equals
+      20 (the limit), flag possible truncation and page via narrower queries or additional calls.
+   b. DEDUP across §18 firings: §18 fires multiple times per session (per-focus, every ~N blocks,
+      §20, session-close). An entry promoted in a prior §18 firing of the same session is already
+      in the retro — skip it, do not re-promote.
+   c. DEDUP near-duplicates: collapse entries describing the same insight into one candidate.
+   d. CURATE: flag non-conforming entries (absent/unrecognized category, non-English, multi-line)
+      explicitly; they are not promoted silently.
+4. **Merge and promote** worthwhile candidates from both the run review and the journal to
+   `## Proposed kit deltas` rows in the retro file.
+
+§18 REMAINS the mandatory promotion gate — the retro agent PROPOSES rows, the maintainer reviews
+and applies (propose-never-apply, METHODOLOGY §13/§18). Nothing auto-promotes. The retro's
+`## Proposed kit deltas` table and `review-status: pending` marker (consumed by `sweep-retros.sh`)
+are UNCHANGED — this change adds journal as a supplemental source; it does not alter the output
+shape or the downstream review contract.
+
+**Journal-retrieval states (CLAUDE.md §7 anti-silent-zero).** §18 fires regardless of journal
+state. Three states are DISTINCT and must each produce an explicit, non-silent record. The first two
+are zero-hit (absent-journal) states; the third is a partial-retrieval state (entries WERE returned,
+they may be incomplete) — do NOT group it with the absent-journal states:
+
+| State | When it applies | What to record in the retro |
+|---|---|---|
+| `search-returned-nothing` | `mem_search` returned zero hits | No entries found. May mean entries were never written, or were written under a different project or key. |
+| `nothing-captured` | Retro agent has positive knowledge no `mem_save` calls were made this run | E.g. the run pre-dates journal-mode adoption; the absence is confirmed, not just inferred. |
+| `possibly-truncated` | `mem_search` returned exactly `limit` (20) results | Entries WERE returned but may be incomplete. There may be additional entries not retrieved; do not treat the 20 as the complete set. Page via narrower queries or additional calls. |
+
+In all states §18 still fires and produces a retro. The §18 honesty clause is retained
+verbatim: a run that surfaces nothing new says "no new deltas; the kit already covers this run."
+
+**Open questions (measured criteria before any tooling is built).**
+- *Date-prefix scoping*: `"research/<target>/journal/<YYYY-MM-DD>"` scopes to one calendar day; a
+  run spanning midnight requires a broader query or two prefix calls. Until a run measures this as a
+  concrete gap, the per-date prefix is preferred.
+- *Retro agent context inflation*: can the retro agent query the journal prefix within its fresh
+  context without inflating it? Both remain measured criteria before any tooling is built (CLAUDE.md
+  §6 doctrine-first).
 
 ## 19. Build/PoC loop (the requires-execution phase)
 
