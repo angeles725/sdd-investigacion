@@ -21,7 +21,7 @@
 # Exit: 0 = archived (or dry-run); the GATE is the archive decision — consolidate steps are BEST-EFFORT and a
 #           failure there is reported LOUDLY (stderr + checklist) but keeps exit 0, so callers gate on 0/2/3.
 #       2 = bad args / no RESEARCH-STATE (nothing to archive).
-#       3 = REFUSED: a consistency gate (verify-state / verify-sources) did not pass — reconcile first.
+#       3 = REFUSED: a consistency gate (verify-state / verify-sources / MISSING-RETRO) did not pass — reconcile first.
 set -uo pipefail
 
 target=""; dry=0
@@ -84,6 +84,15 @@ rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 
 echo "== research-sdd-archive: $(basename "$target")  ·  corpus: $rel$([ "$dry" = 1 ] && echo '  ·  DRY-RUN') =="
 
+# Helper used by both the MISSING-RETRO gate and the ONE-BLOCK-PER-COMMIT detector.
+rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURRENT path — no --follow,
+  # same rename tradeoff as sweep-retros.sh) epoch if tracked, else file mtime, else 0
+  local d="$1" f="$2" e
+  e="$(git -C "$d" log --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
+  [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+  printf '%s' "$e"
+}
+
 # --- GATE: never archive an inconsistent corpus (this is the load-bearing part) --------------------
 # Delegate to the two sibling linters. verify-state catches the stale-mirror / premature-STOP desync;
 # verify-sources catches a broken source registry. Either non-zero blocks the close (fail-closed). A linter
@@ -142,6 +151,41 @@ done < <(list_state_files "$target")
 if [ "$_uf_sf_count" -eq 0 ]; then
   echo "    undocumented_findings: ERROR — could not enumerate state files (impossible: corpus was located but list_state_files returned nothing — inspect lib/state-files.sh)"
   gate_rc=1  # uf-gate-enum-empty
+fi
+# --- MISSING-RETRO gate (D6: promoted from advisory WARN — § niagara-research retro 2026-08-25):
+# A corpus that has advanced past the newest §18 retro must be refused, not merely warned.
+# States: blocks=0 → no advancement (silent); retros=0 with blocks>0 → no qualifying retro ever
+# (gate fires); retros>0 but newest_block_epoch>newest_retro_epoch → corpus advanced (gate fires);
+# retros>0 with newest_retro_epoch>=newest_block_epoch → valid retro covers this run (silent).
+# Computed here (before the gate decision) so the close is refused BEFORE consolidation runs.
+# Respects retro_is_excluded() — excluded retros (kit-retro: exclude) are not §18 retros.
+#
+# newest_block_epoch is computed FIRST so prior_retro_epoch (the newest retro ≤ newest_block_epoch)
+# can be tracked inline in the retro loop. prior_retro_epoch is the ONE-BLOCK-PER-COMMIT detector's
+# window start (the previous run's retro), kept distinct from newest_retro_epoch (the close retro).
+blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | wc -l | tr -d ' ')"
+newest_block_epoch=0
+while IFS= read -r _mr_bf; do
+  [ -n "$_mr_bf" ] || continue
+  _mr_e="$(rsdd_added_epoch "$corpus" "$_mr_bf")"; [ "${_mr_e:-0}" -gt "$newest_block_epoch" ] && newest_block_epoch="$_mr_e"
+done < <(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter)
+retros=0; newest_retro_epoch=0; prior_retro_epoch=0
+while IFS= read -r _mr_rf; do
+  [ -n "$_mr_rf" ] || continue
+  retro_is_excluded "$_mr_rf" && continue
+  retros=$((retros + 1))
+  _mr_e="$(rsdd_added_epoch "$corpus" "$_mr_rf")"
+  [ "${_mr_e:-0}" -gt "$newest_retro_epoch" ] && newest_retro_epoch="$_mr_e"
+  # prior_retro_epoch: the newest qualifying retro whose epoch is ≤ newest_block_epoch — this is the
+  # "end of the previous run" and anchors the ONE-BLOCK-PER-COMMIT window so that a close retro
+  # (added after blocks to satisfy this gate) does not shift the OBPC window past all the blocks.
+  [ "${_mr_e:-0}" -le "$newest_block_epoch" ] && [ "${_mr_e:-0}" -gt "$prior_retro_epoch" ] && prior_retro_epoch="$_mr_e"
+done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
+if [ "${blocks:-0}" -gt 0 ] && { [ "$retros" -eq 0 ] || [ "$newest_block_epoch" -gt "$newest_retro_epoch" ]; }; then
+  if [ "$retros" -eq 0 ]; then _mr_rdate="none"
+  else _mr_rdate="$(date -d "@$newest_retro_epoch" +%Y-%m-%d 2>/dev/null || echo '?')"; fi
+  echo "    MISSING-RETRO  : REFUSE — corpus advanced past the newest §18 retro ($_mr_rdate) — delegate a retro before closing (propose-never-apply)"
+  gate_rc=1  # missing-retro-gate-refuse
 fi
 if [ "$gate_rc" != 0 ]; then
   echo "  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:"
@@ -205,60 +249,20 @@ echo "    catalog        : $catalog"
 echo "    index          : $index"
 
 # --- MIRROR FACTS: computed for the close-checklist (archive is CORPUS-scoped; it never edits \$KIT/TARGETS.md) --
-# Count blocks with gen-catalog.py's OWN discriminator (`<prefix>-block|bloque<num>.md`), not a loose
-# `*block*.md` glob — otherwise a decoy like `blocked-notes.md` inflates the count fed to the TARGETS.md row.
-blocks="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | wc -l | tr -d ' ')"
-# Count only non-excluded retros — files carrying '<!-- kit-retro: exclude -->' are not §18 kit retros.
-retros=0
-while IFS= read -r _rfe; do
-  [ -n "$_rfe" ] || continue
-  retro_is_excluded "$_rfe" && continue
-  retros=$((retros + 1))
-done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
+# $blocks and $retros are already computed in the MISSING-RETRO gate section above (same discriminators:
+# gen-catalog strict block-file filter; excluded retros omitted from the count).
 # Iteration-history rows: data rows in the "## Iteration history" table (numeric first cell; header/separator excluded).
 histrows="$(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0} f' "$state" \
   | awk '{l=$0; gsub(/^[ \t]+|[ \t]+$/,"",l); sub(/^\|/,"",l); n=split(l,a,"|"); gsub(/^[ \t]+|[ \t]+$/,"",a[1]); if (a[1] ~ /^[0-9]+$/) c++} END{print c+0}')"
 echo "  -- mirror facts (for the TARGETS.md row refresh; not applied here) --"
 echo "    blocks on disk : $blocks · retros: $retros · iteration-history rows: $histrows"
 
-# --- MISSING-RETRO detector (Feature #25a, §18): catch a run that CLOSED without producing a fresh retro
-# (lost feedback). Compares the newest BLOCK's date against the newest RETRO's date using the SAME date source
-# for both (git FIRST-COMMIT/added epoch, fallback to file mtime when untracked) — a like-for-like comparison,
-# so a block ADDED after the newest retro means the corpus advanced past it. A mixed git-commit-vs-mtime
-# comparison would fire on almost every git target (any unrelated commit is newer than a checkout mtime), so
-# the added-date of the block itself is the signal. PURE DETECTION — advisory WARN (exit stays 0, like the
-# codegen/ parity WARN); it never auto-generates a retro (propose-never-apply).
-rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURRENT path — no --follow,
-  # same rename tradeoff as sweep-retros.sh) epoch if tracked, else file mtime, else 0
-  local d="$1" f="$2" e
-  e="$(git -C "$d" log --diff-filter=A --format=%ct -1 -- "$f" 2>/dev/null)"
-  [ -n "$e" ] || e="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
-  printf '%s' "$e"
-}
-newest_retro_epoch=0
-while IFS= read -r rf; do
-  [ -n "$rf" ] || continue
-  retro_is_excluded "$rf" && continue   # excluded retros do not count toward MISSING-RETRO detection
-  m="$(rsdd_added_epoch "$corpus" "$rf")"; [ "${m:-0}" -gt "$newest_retro_epoch" ] && newest_retro_epoch="$m"
-done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
-newest_block_epoch=0
-while IFS= read -r bf; do
-  [ -n "$bf" ] || continue
-  m="$(rsdd_added_epoch "$corpus" "$bf")"; [ "${m:-0}" -gt "$newest_block_epoch" ] && newest_block_epoch="$m"
-done < <(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter)
-if [ "$blocks" -gt 0 ] && { [ "$retros" -eq 0 ] || [ "$newest_block_epoch" -gt "$newest_retro_epoch" ]; }; then
-  if [ "$retros" -eq 0 ]; then rdate="none"; else rdate="$(date -d "@$newest_retro_epoch" +%Y-%m-%d 2>/dev/null || echo '?')"; fi
-  echo "WARN: corpus advanced ($blocks block(s)) but the newest §18 retro is $rdate — a retro for this run may be" >&2
-  echo "      lost; delegate a fresh-context retro before close (MISSING-RETRO detector never auto-generates one)." >&2
-  missing_retro_line="    · ⚠ MISSING-RETRO (§18): corpus advanced past the newest retro ($rdate) — delegate a retro for THIS run before close (propose-never-apply; not auto-generated)."
-fi
-
 # --- ONE-BLOCK-PER-COMMIT detector (§ PROMPT-LOOP LOOP CONTINUATION): the "one block per commit" hard rule
 # was violated in prose-only practice despite a named precedent (three.js B15+B16; ug67 B29+B30, B32+B33) —
 # prose alone did not hold it. Mechanize it as a cheap git gate (mirroring §11's endorsement of corpus-level
-# mechanical checks): flag any commit in THIS run (newer than the newest retro; ALL history when there is no
+# mechanical checks): flag any commit in THIS run (newer than the PRIOR retro — the latest retro at or before the newest block, so a close retro added AFTER the blocks keeps the window; ALL history when there is no
 # retro yet) whose diff touches 2+ distinct block files. PURE DETECTION — advisory WARN (exit stays 0, like
-# MISSING-RETRO / codegen parity); it never rewrites history. Uses the corpus-wide block-file discriminator.
+# the codegen parity check; the MISSING-RETRO gate below now REFUSES instead of warning); it never rewrites history. Uses the corpus-wide block-file discriminator.
 multi_block_commits=""
 if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
   while IFS= read -r sha; do
@@ -269,7 +273,7 @@ if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
     nbf="$(git -C "$corpus" show --diff-filter=A --name-only --format= "$sha" 2>/dev/null \
       | block_file_filter | sort -u | wc -l | tr -d ' ')"
     [ "${nbf:-0}" -ge 2 ] && multi_block_commits="${multi_block_commits}${multi_block_commits:+ }${sha:0:9}(${nbf} blocks)"
-  done < <(git -C "$corpus" log --format=%H --since="@${newest_retro_epoch:-0}" 2>/dev/null)
+  done < <(git -C "$corpus" log --format=%H --since="@${prior_retro_epoch:-0}" 2>/dev/null)
 fi
 if [ -n "$multi_block_commits" ]; then
   echo "WARN: ONE-BLOCK-PER-COMMIT violated — commit(s) landing 2+ block files this run: $multi_block_commits" >&2
@@ -281,7 +285,7 @@ fi
 # The sweeper gates on the LEADING HTML-comment block — a bare-text 'review-status:' line (not
 # wrapped in '<!-- ... -->') is invisible to it, so the retro sits in an ambiguous, un-reviewable
 # state indefinitely.  Catch this at close time with an advisory WARN (exit stays 0, consistent
-# with MISSING-RETRO and codegen parity).  Does not block: the marker is advisory at close time;
+# with the codegen parity check).  Does not block: the marker is advisory at close time;
 # the human owns the retro content.
 while IFS= read -r _lint_f; do
   [ -n "$_lint_f" ] || continue
@@ -303,7 +307,6 @@ echo "  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the cl
 [ -n "$consolidate_err" ] && echo "    · ⚠ CONSOLIDATE: $consolidate_err (a mechanical step failed — fix before relying on the archive)."
 echo "    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal."
 echo "    · RETRO (§18): delegate a fresh-context retro agent → $target/retros/<date>-<focus>.md (review-status: pending)."
-[ -n "${missing_retro_line:-}" ] && echo "${missing_retro_line}"
 [ -n "${one_block_line:-}" ] && echo "${one_block_line}"
 # pipefail-audit: external `find` producer looking for at most 1 directory entry (<100 B).
 # Race onset for external producers: ~64 KB. Fleet max << onset; 0/200 trials. Not reproduced.
