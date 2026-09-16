@@ -386,7 +386,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          that value — size callouts, elevation/BOD tags, dimension strings. A quantity you are about to
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
-         RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e1).
+         RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
          (Evidence: COB-IM2 B6 asserted "zero NxM labels; width is geometric" from one regex pass; B8
          found 563 `W"xH"` size labels and 886 BOD tags in the same drawing — derivation was unnecessary.
          Corrected via §14, commit d7fd595.)
