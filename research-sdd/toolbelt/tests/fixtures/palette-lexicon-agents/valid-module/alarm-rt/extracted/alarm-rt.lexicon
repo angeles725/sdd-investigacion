@@ -1,0 +1,6 @@
+# Alarm module lexicon
+alarm.displayName=Alarm
+alarm.icon=alarm.png
+alarm.description=This is the alarm module
+alarm.displayName=Alarm Override
+alarm.status=active

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bajaObjectGraph version="1.0">
+<p m="b=baja" t="b:Folder">
+<p m="alarm=alarm" n="AlarmSource" t="alarm:AlarmSource" />
+<p m="alarm=alarm" n="AlarmDb" t="alarm:AlarmDb" />
+</p>
+</bajaObjectGraph>
