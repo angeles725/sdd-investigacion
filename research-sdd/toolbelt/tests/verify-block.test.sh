@@ -831,6 +831,22 @@ else
   no "63 T-VB1: P6 WARN missing on genuinely-uncited block :: $(grep -iE 'WARN|INFO|CERT' <<<"$out" | head -3)"
 fi
 
+# 64 — T-VB2: declared 'decision' block with [CERT]+no-cites → INFO, not WARN.
+# A decision block (migration pick, tool selection, architecture ruling) has high [INFER] ratio and
+# zero file:line citations by design — same downgrade treatment as synthesis.
+d="$TMP/p6-type-decision.md"
+{ echo "# Block 64 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** decision — migration pick"; echo
+  echo "---"; echo
+  echo "## Decision [CERT]"; echo "Chose approach A over B. [CERT]"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*expected for declared type decision' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out"; then
+  ok "64 T-VB2 P6-TYPE-CLASSIFY: declared decision → INFO (not WARN)"
+else
+  no "64 T-VB2 P6-TYPE-CLASSIFY: decision not downgraded to INFO :: $(grep -iE 'INFO|WARN.*cert|cert.*zero|unrecogni' <<<"$out" | head -2)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -1217,6 +1233,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-bq-strip: P6-BQ-STRIP or P6-BQ-TYPECASE sentinel not found in SUT"
+  fi
+
+  # teeth-p6-type-classify-decision: remove 'decision' from the P6-TYPE-CLASSIFY list;
+  # the decision fixture must revert to WARN (falls to the else path with type present but not classified).
+  echo "-- teeth-p6-type-classify-decision: remove decision from P6-TYPE-CLASSIFY; block must revert to WARN --"
+  mutant_tdec="$TMP/verify-block.P6TYPEDEC.sh"
+  if grep -q '# P6-TYPE-CLASSIFY' "$SUT"; then
+    sed '/# P6-TYPE-CLASSIFY/ s/ decision//' "$SUT" > "$mutant_tdec"
+    bash -n "$mutant_tdec" 2>/dev/null; tdec_syntax=$?
+    if [ "$tdec_syntax" != "0" ]; then
+      no "teeth-p6-type-classify-decision: mutant has syntax error (bash -n rc=$tdec_syntax) — cannot run"
+    else
+      d_tdec="$TMP/p6-type-decision-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "> **Type:** decision"; echo
+        echo "---"; echo
+        echo "## Decision [CERT]"; echo "Chose approach A over B. [CERT]"; } > "$d_tdec"
+      mout_tdec="$(bash "$mutant_tdec" "$d_tdec" 2>/dev/null)"
+      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_tdec" && ! grep -qiE 'INFO.*declared type' <<<"$mout_tdec"; then
+        ok "teeth-p6-type-classify-decision: removed decision → block reverts to WARN (test 64 has teeth)"
+      else
+        no "teeth-p6-type-classify-decision: mutant did NOT revert to WARN :: $(grep -iE 'WARN|INFO|cert' <<<"$mout_tdec" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-type-classify-decision: P6-TYPE-CLASSIFY sentinel not found in SUT"
   fi
 
   # T-VB1 teeth-jar-entry: neuter the jar-entry echo line (VB1-JAR-ENTRY-CITE sentinel);

@@ -170,7 +170,7 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
       echo "   (doc-grade citations only ([CERT-doc]/[CERT-web]/[CERT-a]) — file:line not expected; validate tokens via verify-sources.sh + §5 token-check)"
     else
       # P6-TYPE-PARSE: extract the leading Type token from the block's header blockquote.
-      # Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit
+      # Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision
       # Strip is ORDER-INDEPENDENT: leading spaces, asterisks (bold close) and backticks removed in any combination,
       # so **Type:** `capture` → capture and **Type:** synthesis → synthesis both parse correctly.
       _type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
@@ -184,15 +184,15 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
         _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
       fi
       # Classify: INFO for no-citation declared types; WARN-by-name for unrecognised; WARN+hint for absent Type line.
-      if printf '%s\n' synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-CLASSIFY
+      if printf '%s\n' synthesis capture document absence-centred decision | grep -qxF "$_type_token"; then  # P6-TYPE-CLASSIFY
         echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
-      elif [ -n "$_type_raw" ] && ! printf '%s\n' standard evidence mixed collaborative audit synthesis capture document absence-centred | grep -qxF "$_type_token"; then  # P6-TYPE-UNRECOGNISED
+      elif [ -n "$_type_raw" ] && ! printf '%s\n' standard evidence mixed collaborative audit synthesis capture document absence-centred decision | grep -qxF "$_type_token"; then  # P6-TYPE-UNRECOGNISED
         # Name the real value when token is empty (uppercase/non-conformant); strip closing ** and trailing punctuation.
         _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P6-TYPE-DISPLAY
-        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
+        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
       elif [ -z "$_type_raw" ]; then
         echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
-        echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit."
+        echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
       else
         echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
       fi
