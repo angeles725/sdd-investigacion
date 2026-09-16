@@ -448,6 +448,19 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          the three-source sweep MAY be delegated to a single bounded sub-agent when the answer requires
          deep decompiled-code reading — one bounded worker returns cited verdict + file:line without
          inflating the parent. (Source: 2026-09-03-research-sdd-obix-quick-mode-retro.md #3)
+         COMBINED-SWEEP FOR INDEPENDENT SMALL GAPS: when ≥2 small gaps each require reading 1-3 files
+         on DIFFERENT subsystems, their pooled file count crosses the "~3-4 files or classes"
+         delegation threshold — this is the exception to the "(Small/narrow gaps: read inline,
+         no sub-agent — delegation has its own cost.)" note. Delegate a single agent covering both,
+         returning cleanly separated sections per gap, authored as separate blocks afterward.
+         Constraint: the subsystems must be independent (no shared mutable state between sweeps).
+         RECURSIVE FAN-OUT CITATION BOUNDARY: in a recursive fan-out (e.g. multi-level sharding), raw
+         reading stays at the LEAVES — only cited snippets (file:line + load-bearing text) propagate up
+         to the coordinator. The coordinator does not re-read leaf material; the citations are the unit
+         of propagation. State this in the delegated prompt so the sub-agent does not dump raw content.
+         COORDINATOR ADVANCES ORTHOGONAL WORK: while a delegated sweep is executing, advance
+         independent work — prior-block validation, data-structure analysis, backlog review — rather
+         than idling. The coordinator's lean context is the resource that enables this; use it.
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
@@ -478,6 +491,23 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          PEER CATCH. When a parallel session or the operator disputes a claim, re-open the PRIMARY source
          (not the decompile that seeded the claim) and correct the block with a §14 back-pointer; a peer
          catch is first-class evidence. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #5)
+         RE-DERIVE DELEGATED COUNTS: counts returned by a delegated sweep (XML parse, config
+         enumeration, file census) that serve as a denominator or completeness claim are hypotheses —
+         re-grep every load-bearing count independently before using it. Distinct from re-grep-absence
+         (item b above): this fires on POSITIVE counts too. An XML/config/bog sweep count is a
+         starting point, not a settled number. (Distinct from RE-MEASURE A DRAMATIC NEGATIVE, which
+         fires after a striking result; this fires on ANY delegated numeric claim that will drive scope
+         or conclusions. Distinct from GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e), which fires on
+         numbers in the gap's own DESCRIPTION before a sweep — this fires on numbers the sweep RETURNS
+         after running.)
+         DELEGATED-CLAIM-REVERSAL: when a delegated scout's claim drives an architectural conclusion
+         (A⇒B — "A implies B"), test the reversed direction (B⇒A) before accepting it — A⇒B may be
+         wrong as stated while B⇒A is trivially true. A single-direction confirmation passes the
+         VERIFY BEFORE ACTING token-check but leaves the architectural conclusion unexamined.
+         SWEEP-PUNT-TO-ANOTHER-LAYER: when a delegated sweep answers a SECURITY/SAFETY question with
+         "the check, if any, is in <other layer> (not surveyed)", read that layer before authoring the
+         conclusion — the punt is a scope flag, not a closure. A sweep that documents its own blind
+         spot is honest; acting on its conclusion without filling the blind spot is not.
        - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
          per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
          ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
@@ -510,6 +540,22 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
          Cost: typically one query. Value: prevented a wrong escalation costs far more. A block that
          refutes its own initial hypothesis is a valid, high-value block type.
+         DELEGATED SWEEP OPERATIONAL CLAIMS (HIGH-FALSIFICATION-PRIORITY): a decompilation sweep
+         that concludes about LIVE STATE — endpoint alive/dead, feature availability, service
+         deployed — is structurally unreliable: decompiled code reflects what was SHIPPED, not what
+         is RUNNING NOW. Apply FALSIFY BEFORE REPORTING MANDATORILY for any such claim; confirm
+         against a live probe (§12) or current operational evidence before authoring.
+       - REACHABLE ≠ REPRESENTATIVE: before using a live endpoint response as evidence, confirm it
+         is the PRODUCTION PATH, not a debug/test stub. A reachable URL proves only that the
+         transport works. Check documented service paths (vendor manual, API spec, or prior corpus
+         blocks) or cross-reference with block-documented operational context before treating the
+         response as production evidence.
+       - CROSS-FOCUS SECURITY FEED: when a mechanics or coverage sweep incidentally finds a security
+         footgun in decompiled code — an exposed credential store, an unguarded admin channel, an
+         unsafe default — ADD a gap entry to the security focus's backlog in the same iteration. A
+         breadcrumb comment in the current block is passive and searchable only by readers of that
+         block; a backlog entry is durable, appears in `research-sdd-status.sh --focus <security-focus-slug>`
+         output, and will eventually be investigated. Both is better than either alone.
        - MODEL TIER ALSO governs NESTED sub-sweeps. A general-purpose sweep-agent (one whose toolset INCLUDES the
          Agent tool — NOT Explore/Plan, which lack it) MAY itself spawn a SUB-SWEEP, and each Agent call carries
          its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. Nesting caveat: prefer
@@ -560,6 +606,29 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          absence of that config is the root cause. Until it exists, inline token-verify is non-negotiable
          for any decompile-based block. `extern` citations (beautified/decompiled/snapshot) are not
          script-verifiable — still token-check those by reading.
+         BASE-RELATIVE CITATION BLIND SPOT: verify-block resolves `[CERT]` paths against two
+         roots in order: (1) `$target` — the second CLI argument, defaulting to the block's own
+         directory; (2) the git toplevel of `$target` (N-PROJECT-FALLBACK). The blind spot is a
+         path relative to a directory that is NEITHER `$target` NOR `$target`'s git toplevel —
+         for example, a path relative to a corpus sub-directory (e.g. `sources/`) when the block
+         dir is `$target`, or relative to a parent project root when the corpus is its own git
+         repo and `$target` was passed explicitly as a different directory. Such a path is
+         classified `extern` — appearing unresolvable though it is local. Fix: ensure citations
+         resolve against `$target` or its git toplevel. A `[CERT]` that verify-block marks
+         `extern` for a local file is a citation-form bug, not a decompiler limitation.
+         TALLY-LINE TOKEN INFLATION: verify-block.sh counts ALL bracketed marker tokens in the
+         block body after the header-legend fence — including a self-verify tally line written
+         with the same syntax (`[CERT] 12`, `[INFER] 5`). This inflates the reported count by 1
+         per type. Two compatible remedies: (a) keep the tally in the RETURN CONTRACT / iteration
+         report (not in the block body) — METHODOLOGY §11's "literal verify-block.sh output"
+         mandate applies to the RETURN, not to block content; or (b) if the tally must appear in
+         the block body, run verify-block BEFORE appending the self-verify section and paste
+         those pre-paste numbers; note that a re-run over the FINISHED block inflates each type
+         by the number of bracketed tokens the pasted text contains — +1/type for a
+         one-token-per-type tally line or table; +2 [CERT], +2 [INFER], +1 each other type
+         (zero-count types read 1) for the full literal output. Do NOT write plain numerals
+         (`CERT 12`) as a substitute in the RETURN — §11 requires the literal bracketed
+         verify-block.sh output there.
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
          confirm in the primary source first).
@@ -652,6 +721,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          NEXT-ITERATION ARCHIVE AUDIT (which checks bookkeeping counts — gap totals, marker sync);
          the archive audit catches accounting errors; this sweep catches semantic drift in the
          backlog itself. Run it inline, not as a separate pass.
+         REMITTANCE GAP REOPENING: METHODOLOGY §8 defines remittance as a gap-closure category
+         that avoids writing a redundant block — so there is no "remittance block" to upgrade.
+         When a gap closed-by-remittance later gains direct evidence that confirms the remitted
+         claim, REOPEN the gap in RESEARCH-STATE (set status back to `pending`) and close it by
+         NEW investigation in the normal cycle. The new block cites the prior remission chain in
+         its Connections section (e.g. "original gap closed-by-remittance to [Block N] §N.x;
+         now confirmed directly"). Record the reopen + reclosure in the iteration-history row.
        - BACK-FILL SOURCES.md's "Citing blocks" cell — when this block cites a source registered in SOURCES.md
          (this iteration, or an earlier one whose trailing cell is still blank), write THIS block's ID into that
          row's last column before closing the iteration. `fetch-doc.sh`'s `reg()` leaves the cell blank by design
@@ -735,6 +811,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      `verify-sources.sh` and `verify-state.sh` do NOT perform this sweep; it is an operator/agent
      obligation at every STOP gate. (Evidence: platform-native reopen — uncited decompiler output
      covered an open gap the corpus called exhausted; detected 9 days late.)
+     TERMINAL-TIER CONVERGENCE: when a focus runs a second investigation tier over first-tier child
+     gaps (revisiting sub-gaps surfaced by a prior block), record residues as in-block sub-sections
+     rather than seeding new grandchild backlog rows. Grandchild rows re-inflate the investigable
+     count and prevent the STOP criterion from firing on a focus that is structurally complete. A
+     bounded second-pass is a block annotation; a genuinely new open question is a new backlog row.
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
@@ -787,6 +868,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
          `retro: pending`. Enforcement: `$KIT/toolbelt/retro-gate.sh` runs as the target's Stop hook and blocks the
          session ONCE with the exact missing element until this holds (enforced by the target's Stop hook `retro-gate.sh` once wired — kit issue #479).
+         OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
+         language elsewhere — the retro is mandatory whenever research files changed (block /
+         RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
+         mid-focus interruption, or a focus-level stop. A paused run whose files changed is NOT
+         retro-exempt. This is the PROMPT-LOOP loop-step mirror of the METHODOLOGY §8
+         OPERATOR-DIRECTED PAUSE rule, which is the authority for the `PAUSED (operator-directed)`
+         RESEARCH-STATE label.
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
   This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
@@ -882,6 +970,11 @@ HARD RULES:
     artifacts exist before it is offered, at least as cheaply as the corpus allows (grep existing
     blocks). A proposal acted on socially before it is confirmed technically is the costliest kind
     of wrong claim.
+    ANONYMOUS-FETCH 403 ≠ ABSENT: a `git clone` or anonymous HTTP fetch returning HTTP 403
+    (Forbidden) — not 404 (Not Found) — means the resource may exist but is access-gated:
+    auth-gated, WAF-gated, or bot-gated (401 is the canonical auth-required code; a 403 may
+    indicate any of these). Document an access-gated gap; do NOT mark the source as absent or
+    treat the gap as blocked-on-source-missing. A 403 is an access boundary, not an absence signal.
   - TOOL-BEFORE-AGENT (binary/native artifacts) — before delegating a sweep over a binary
     (ELF/PE/.sys/.dll/firmware), the DRIVER runs:
       `$KIT/toolbelt/detect-tools.sh --require <decompiler-for-class>`
@@ -958,6 +1051,16 @@ HARD RULES:
     treating the finding as confirmed. (Evidence: jace8000 — a transport banner misread as
     TLS-version protocol acceptance, which nearly produced a false client-escalation; METHODOLOGY
     §12 live-probe frames.)
+  - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE. When a derived or aggregated view of the
+    data is inconsistent (conflicting counts, missing rows, version mismatch between two summaries),
+    go to the SOURCE ARTIFACT rather than cross-referencing other derived views — each derived view
+    may propagate the same upstream defect. Independently, when an enumeration or count is
+    implausibly LARGE (thousands on a system known to be small), treat it as a hypothesis about
+    instrument error FIRST — re-derive via an independent method before treating the result as a
+    finding. For the near-zero direction (near-zero on a large system), use RE-MEASURE A DRAMATIC
+    NEGATIVE (two rules above), which already prescribes an independent re-derive. These are
+    the same family: a derived view is an instrument; its inconsistency is evidence it may be
+    reporting wrong.
   - N-SEARCH CONVENTION TRIGGER. When N ≥ 3 independent search strategies — different keys, layers,
     or geometric/structural approaches — all return zero for the same feature category, the aggregate
     is a convention-inspection trigger, distinct from the single-result RE-MEASURE rules above. BEFORE
@@ -1081,6 +1184,18 @@ HARD RULES:
     delay also keeps the prompt cache warm (≤300s), so back-to-back iterations are cheaper AND faster.
     Only stretch the delay when you are genuinely BLOCKED waiting on something external (an install
     building, a live server coming up) — never just to space out ready decompilation work.
+  - BASH-TOOL PATH NOT PERSISTENT: the shell state (including PATH) is reset between Bash tool
+    calls on every platform — the harness initializes each call from the user's shell profile, so
+    PATH changes made in one call are gone in the next. When a native tool (decompiler, scan
+    utility, custom script) lives off the default PATH, two approaches: (a) durable — add the
+    tool's directory to your shell profile so the harness picks it up on each init; (b) fallback
+    — prepend in EVERY Bash call: `export PATH=<tool-dir>:$PATH && <command>`. Do not rely on a
+    PATH set in a prior call. Cross-reference: BOOTSTRAP (a) / detect-tools.sh already covers
+    off-PATH decompilers ("may live under linuxbrew Cellar … and still be off PATH").
+  - WAKEUP GUARD (self-paced mode): before issuing a ScheduleWakeup, check whether one is already
+    armed for this loop — do not double-schedule. One armed wakeup per iteration is the invariant.
+    (Distinct from the "ScheduleWakeup for autonomous mode only" rule above — that governs WHEN to
+    use it; this governs how many.)
   - INSTANT CAPTURE (mid-loop kit insights). When a defect, capability idea, algorithm, formula, or
     process insight surfaces during any loop step, save a conforming journal entry via `mem_save`
     BEFORE the loop continues — deferred capture (saving at the terminal instead of the moment) is
