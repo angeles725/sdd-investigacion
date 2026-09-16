@@ -96,7 +96,12 @@ undocumented_findings: 0
      `needs:` names the missing resource. `tried:` lists the alternatives enumerated and the
      measurement that ruled each out. A gap with `tried:` only listing "nothing" is unfinished.
      verify-state.sh checks for the literal token `tried:` the same way it checks `needs:`.
-     A gap may not be declared `blocked` or `absent` without both clauses present. -->
+     A gap may not be declared `blocked` or `absent` without both clauses present.
+     When a gap closes by proven absence, its `- name — needs:` entry transforms to a prose
+     note or is removed from this section; `derive_blocked` no longer counts it, and it is
+     credited to `gaps_closed`. The closing evidence block — citing scope, method, and count
+     — is the durable closure record; the `needs:`/`tried:` requirement above governs only
+     pre-closure entries. -->
 - <gap> — needs: <x64 Dart-AOT decompiler | live server | hardware/lab | NDA | missing tool: <name>> · tried: <alt1 (measured: X) | alt2 (measured: Y) | none enumerated yet→ gap still open>
 
 ## Stop control (primary = read-only-investigable exhaustion, METHODOLOGY §8)
