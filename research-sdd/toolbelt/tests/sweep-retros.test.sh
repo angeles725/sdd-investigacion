@@ -71,6 +71,17 @@ mkretro() {
   } > "$tgt/retros/$fname"
 }
 
+# wire_target <target> : create a minimal .claude/settings.json that wires retro-gate under the
+# "Stop" event block so the wiring-status pass stays quiet (no absent-settings or unwired WARN)
+# for tests focused on other behaviour. Writes real JSON so the awk Stop-scoped check passes.
+# Call after the target dir already exists (mkretro/mkdir ensures that).
+wire_target() {
+  local t="$1"
+  mkdir -p "$t/.claude"
+  printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}\n' \
+    > "$t/.claude/settings.json"
+}
+
 # run <kit> : invoke the sandbox copy of the SUT, capture stdout+stderr into OUT, exit into RC.
 run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-retros.sh" 2>&1)"; RC=$?; }
 
@@ -720,6 +731,7 @@ mkdir -p "$tgt/retros"
   printf '| 1 | d1 | r |\n| 2 | d2 | r |\n| 3 | d3 | r |\n\n'
   printf '## D4 — heading four\n\n## D5 — heading five\n'
 } > "$tgt/retros/r1.md"
+wire_target "$tgt"
 write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1183,7 +1195,7 @@ mkdir -p "$tgt/retros"
   printf '## Already covered\n\n- lesson A → already in kit\n\n'
   printf '## Honest verdict\n\nNo new deltas.\n'
 } > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"; run "$kit"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
    && grep -q 'no delta section found (empty-input)' <<<"$OUT" \
@@ -1204,7 +1216,7 @@ mkdir -p "$tgt/retros"
   printf '## Proposed deltas\n\n'
   printf '| # | Change |\n|---|---|\n| 1 | delta W1 |\n'
 } > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"; run "$kit"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
    && grep -q '~1 proposed deltas' <<<"$OUT" \
@@ -1225,7 +1237,7 @@ mkdir -p "$tgt/retros"
   printf '<!-- review-status: pending -->\n# Retro\n\n'
   printf '## Delta W1 — some fix\n\n## Delta W2 — another fix\n'
 } > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"; run "$kit"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
    && grep -q '~2 proposed deltas' <<<"$OUT" \
@@ -1297,7 +1309,7 @@ mkdir -p "$tgt/retros"
   printf '| D2 | second delta | PROMPT-LOOP.md | B02 | refinement | MED |\n'
   printf '| D3 | third delta | METHODOLOGY.md §12 | B03 | new | LOW |\n'
 } > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"; run "$kit"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
    && grep -q '~3 proposed deltas' <<<"$OUT" \
@@ -1319,7 +1331,7 @@ mkdir -p "$tgt/retros"
   printf '### D1 — first fix of this run\n\nsome prose about it\n\n'
   printf '## Next section\n\nnot a delta.\n'
 } > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"; run "$kit"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
    && grep -q '~1 proposed deltas' <<<"$OUT" \
@@ -1344,7 +1356,7 @@ mkdir -p "$tgt/retros"
   printf '### Evidence\n\nno em-dash here either\n\n'
   printf '## Already covered\n\nnot a delta section.\n'
 } > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"; run "$kit"
+wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
    && grep -q '~2 proposed deltas' <<<"$OUT" \
@@ -1665,14 +1677,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     { printf '<!-- review-status: pending -->\n# Retro\n\n'
       printf '## P1 — first\n\n## P2 — second\n\n## P3 — third\n'
     } > "$tgt_gp/retros/r1.md"
-    write_targets "$kit_gp" "$tgt_gp"
+    wire_target "$tgt_gp"; write_targets "$kit_gp" "$tgt_gp"
     # Build bare-number fixture (same structure as case 37)
     kit_gb="$(mkkit teeth-g3-barenum)"; tgt_gb="$kit_gb/targetA"
     mkdir -p "$tgt_gb/retros"
     { printf '<!-- review-status: pending -->\n# Retro\n\n'
       printf '## 1. First\n\n## 2. Second\n\n## 3. Third\n'
     } > "$tgt_gb/retros/r1.md"
-    write_targets "$kit_gb" "$tgt_gb"
+    wire_target "$tgt_gb"; write_targets "$kit_gb" "$tgt_gb"
     # Write the mutant: replace the FIRST '|| grep -qiE' (per-delta check) with
     # '|| false 2>/dev/null' so the per-delta indicator is dead while keeping the
     # rest of the line (the regex arg through '2>/dev/null; then') syntactically valid.
@@ -2135,6 +2147,153 @@ else
   no "72 U19 untracked block: absent from git log, stat mtime fallback → MISSING-RETRO fires" "exit=$RC out=[$OUT]"
 fi
 
+# 73 — WIRING-STATUS wired: target whose .claude/settings.json invokes retro-gate → no WARN,
+#      wired count increments in summary. Confirms the wired path is silent (no WARN emitted).
+kit="$(mkkit c73-wired)"; tgt="$kit/targetA"
+mkdir -p "$tgt/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt/.claude/settings.json"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN.*retro-gate' <<<"$OUT" \
+   && grep -q 'Wiring:.*1 wired' <<<"$OUT"; then
+  ok "73 wired target → no WARN, wired=1 in summary" "(exit $RC)"
+else
+  no "73 wired target → no WARN, wired=1 in summary" "exit=$RC out=[$OUT]"
+fi
+
+# 74 — WIRING-STATUS unwired: .claude/settings.json exists but has no retro-gate invocation →
+#      WARN "retro-gate not wired in <target>/.claude/settings.json" (distinct from absent-settings).
+kit="$(mkkit c74-unwired)"; tgt="$kit/targetA"
+mkdir -p "$tgt/.claude"
+printf '{"hooks":{}}\n' > "$tgt/.claude/settings.json"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'WARN.*retro-gate not wired in' <<<"$OUT" \
+   && grep -qF "$tgt/.claude/settings.json" <<<"$OUT" \
+   && grep -q 'Wiring:.*1 unwired' <<<"$OUT"; then
+  ok "74 unwired target → WARN 'not wired in <target>/.claude/settings.json'" "(exit $RC)"
+else
+  no "74 unwired target → WARN 'not wired in <target>/.claude/settings.json'" "exit=$RC out=[$OUT]"
+fi
+
+# 75 — WIRING-STATUS absent-settings: target dir exists but has NO .claude/settings.json →
+#      WARN containing 'absent-settings' (DISTINCT from unwired — §7 three-state doctrine).
+#      RED on an implementation that collapses absent-settings into the unwired bucket.
+kit="$(mkkit c75-absent-settings)"; tgt="$kit/targetA"
+mkdir -p "$tgt"    # target dir exists; no .claude/ or settings.json
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'WARN.*absent-settings' <<<"$OUT" \
+   && grep -qF "$tgt" <<<"$OUT" \
+   && grep -q 'Wiring:.*1 absent-settings' <<<"$OUT"; then
+  ok "75 absent-settings target → WARN 'absent-settings' (distinct from unwired)" "(exit $RC)"
+else
+  no "75 absent-settings target → WARN 'absent-settings' (distinct from unwired)" "exit=$RC out=[$OUT]"
+fi
+
+# 76 — WIRING-STATUS non-directory skip: a TARGETS.md entry whose resolved path is a GitHub
+#      slug (non-directory, [ ! -d ] true) must be SKIPPED in the wiring pass — no WARN, no
+#      absent-settings WARN either (the target just does not exist on disk).
+#      Uses the '...' filtering of the existing paths derivation — the non-dir target never
+#      enters the wiring loop. We test with an absent target dir (absent-input) to confirm the
+#      wiring loop also skips [ ! -d ] paths (same guard as the fleet pass).
+kit="$(mkkit c76-nondir-skip)"; tgt_real="$kit/targetReal"; tgt_fake="/mrdoob/three.js"
+mkretro "$tgt_real" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 1
+mkdir -p "$tgt_real/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_real/.claude/settings.json"
+write_targets "$kit" "$tgt_real" "$tgt_fake"
+run "$kit"
+# tgt_fake is a non-directory; the wiring pass must not WARN for it (only the real target counts)
+if [ "$RC" = 0 ] \
+   && ! grep -q "WARN.*$tgt_fake" <<<"$OUT" \
+   && grep -q 'Wiring:.*1 wired' <<<"$OUT"; then
+  ok "76 non-directory path → skipped in wiring pass, no WARN for it" "(exit $RC)"
+else
+  no "76 non-directory path → skipped in wiring pass, no WARN for it" "exit=$RC out=[$OUT]"
+fi
+
+# 77 — WIRING-STATUS multi-target summary: 1 wired + 1 unwired + 1 absent-settings → summary
+#      line reflects all three counts correctly. Confirms aggregation across targets.
+kit="$(mkkit c77-multi-wiring)"
+tgt_w="$kit/targetWired"; tgt_u="$kit/targetUnwired"; tgt_a="$kit/targetAbsent"
+mkdir -p "$tgt_w/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_w/.claude/settings.json"
+mkdir -p "$tgt_u/.claude"
+printf '{"hooks":{}}\n' > "$tgt_u/.claude/settings.json"
+mkdir -p "$tgt_a"   # no .claude/settings.json
+write_targets "$kit" "$tgt_w" "$tgt_u" "$tgt_a"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'Wiring:.*1 wired.*1 unwired.*1 absent-settings' <<<"$OUT"; then
+  ok "77 multi-target wiring: 1 wired / 1 unwired / 1 absent-settings in summary" "(exit $RC)"
+else
+  no "77 multi-target wiring: 1 wired / 1 unwired / 1 absent-settings in summary" "exit=$RC out=[$OUT]"
+fi
+
+# 78 — WIRING-STATUS wrong-event: retro-gate under SessionStart only (NOT under Stop) → UNWIRED.
+#      Prevents the wiring check from false-wiring a target where retro-gate appears in a
+#      different hook event block. The awk Stop-scoped check must NOT find it under SessionStart.
+#      RED on a whole-file grep implementation (would report wired; no WARN).
+kit="$(mkkit c78-wrong-event)"; tgt="$kit/targetA"
+mkdir -p "$tgt/.claude"
+printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}],"Stop":[]}}\n' \
+  > "$tgt/.claude/settings.json"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'WARN.*retro-gate not wired in' <<<"$OUT" \
+   && grep -q 'Wiring:.*1 unwired' <<<"$OUT"; then
+  ok "78 wrong-event: retro-gate under SessionStart (not Stop) → WARN unwired" "(exit $RC)"
+else
+  no "78 wrong-event: retro-gate under SessionStart (not Stop) → WARN unwired" "exit=$RC out=[$OUT]"
+fi
+
+# 79 — WIRING-STATUS deny/comment guard: retro-gate in permissions.deny (NOT under Stop) → UNWIRED.
+#      A permissions.deny entry or a comment field mentioning retro-gate must NOT classify as wired.
+#      RED on a whole-file grep implementation (would find 'retro-gate' anywhere → false wired).
+kit="$(mkkit c79-deny-notStop)"; tgt="$kit/targetA"
+mkdir -p "$tgt/.claude"
+printf '{"permissions":{"deny":["retro-gate"]},"hooks":{"Stop":[]}}\n' \
+  > "$tgt/.claude/settings.json"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'WARN.*retro-gate not wired in' <<<"$OUT" \
+   && grep -q 'Wiring:.*1 unwired' <<<"$OUT"; then
+  ok "79 deny/comment: retro-gate in deny rule (not under Stop) → WARN unwired" "(exit $RC)"
+else
+  no "79 deny/comment: retro-gate in deny rule (not under Stop) → WARN unwired" "exit=$RC out=[$OUT]"
+fi
+
+# 80 — WIRING-STATUS unreadable: settings.json exists but chmod 000 → WARN 'unreadable'
+#      (distinct from absent-settings and unwired — §7 four-state doctrine). Skipped when
+#      EUID=0: root always succeeds on chmod-000 files, so the branch is unreachable there.
+if [ "$EUID" -eq 0 ]; then
+  ok "80 unreadable settings.json → SKIPPED (running as root; root reads any file)" "EUID=0"
+else
+  kit="$(mkkit c80-unreadable)"; tgt="$kit/targetA"
+  mkdir -p "$tgt/.claude"
+  printf '{"hooks":{"Stop":[]}}\n' > "$tgt/.claude/settings.json"
+  chmod 000 "$tgt/.claude/settings.json"
+  write_targets "$kit" "$tgt"
+  run "$kit"
+  chmod 644 "$tgt/.claude/settings.json"   # restore for cleanup
+  if [ "$RC" = 0 ] \
+     && grep -q 'WARN.*retro-gate wiring unknown' <<<"$OUT" \
+     && grep -qF "$tgt/.claude/settings.json" <<<"$OUT" \
+     && grep -q 'Wiring:.*1 unreadable' <<<"$OUT"; then
+    ok "80 unreadable settings.json → WARN 'unreadable' (distinct from absent-settings/unwired)" "(exit $RC)"
+  else
+    no "80 unreadable settings.json → WARN 'unreadable' (distinct from absent-settings/unwired)" "exit=$RC out=[$OUT]"
+  fi
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -2366,6 +2525,98 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth PRWT: waiver-zeroed mutant must break reconciliation — case 68 is THEATER" \
          "waiv=$_prwt_waiv pend=$_prwt_pend total=$_prwt_tot recon=$_prwt_recon stderr=[$STDERR_M]"
     fi
+  fi
+
+  # Tooth WS: collapse absent-settings into unwired — change the absent-settings WARN so it
+  # emits the unwired message instead. Case 75 checks for 'absent-settings' in the WARN; with
+  # the distinct label gone it goes RED, proving the two states are tested separately and not
+  # interchangeable. Anchor: the full absent-settings WARN echo line in the wiring pass.
+  echo "-- teeth WS: collapse absent-settings WARN into unwired message; case 75 must go RED (absent-settings label disappears) --"
+  _anchor_ws='    echo "WARN: retro-gate hook absent-settings — no .claude/settings.json: $p"'
+  _content_ws="$(cat "$SUT")"
+  if [[ "$_content_ws" != *"$_anchor_ws"* ]]; then
+    no "teeth WS: locate absent-settings WARN anchor in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-ws)"; tgt="$kit/targetA"
+    mkdir -p "$tgt"   # target dir exists; no .claude/settings.json → absent-settings input
+    write_targets "$kit" "$tgt"
+    _mutant_ws="$kit/toolbelt/sweep-retros.sh"
+    # Mutation: emit the unwired message instead of the absent-settings message.
+    _mutation_ws='    echo "WARN: retro-gate not wired in $p/.claude/settings.json"'
+    printf '%s\n' "${_content_ws/"$_anchor_ws"/"$_mutation_ws"}" > "$_mutant_ws"
+    _outm_ws="$("$BASH_BIN" "$_mutant_ws" 2>&1)"
+    # Mutant must NOT emit a WARN with 'absent-settings' (case 75 would fail) but MUST emit
+    # the unwired WARN ('not wired in'). The summary line still contains 'absent-settings' as
+    # a column label — so we check for WARN.*absent-settings, not bare 'absent-settings'.
+    if ! grep -q 'WARN.*absent-settings' <<<"$_outm_ws" && grep -q 'not wired in' <<<"$_outm_ws"; then
+      ok "teeth WS: collapsed mutant drops absent-settings WARN label — case 75 has teeth" "()"
+    else
+      no "teeth WS: collapsed mutant must drop absent-settings WARN label — case 75 is THEATER" "out=[$_outm_ws]"
+    fi
+    unset _mutant_ws _mutation_ws _outm_ws _anchor_ws _content_ws
+  fi
+
+  # Tooth WG: remove the Stop-block scoping from the awk — change
+  #   'if (in_stop && $0 ~ /retro-gate/) { found=1 }  # RSDD_WS_STOP_SCOPE'
+  # to a whole-file match (no 'in_stop' guard). The wrong-event fixture (case 78: retro-gate
+  # under SessionStart, not Stop) must now report WIRED (no WARN), proving the Stop-scoping
+  # awk is the deciding factor, not mere file membership.
+  echo "-- teeth WG: remove Stop-scoping from awk; wrong-event fixture must false-wire (case 78 has teeth) --"
+  _anchor_wg='        } else if (in_stop && substr($0,i,10)=="retro-gate") {   # RSDD_WS_STOP_SCOPE'
+  _content_wg="$(cat "$SUT")"
+  if [[ "$_content_wg" != *"$_anchor_wg"* ]]; then
+    no "teeth WG: locate RSDD_WS_STOP_SCOPE anchor in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-wg)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/.claude"
+    # wrong-event fixture: retro-gate under SessionStart only
+    printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}],"Stop":[]}}\n' \
+      > "$tgt/.claude/settings.json"
+    write_targets "$kit" "$tgt"
+    _mutant_wg="$kit/toolbelt/sweep-retros.sh"
+    # Mutant: drop the in_stop guard — whole-file match, no Stop scoping
+    _mutation_wg='        } else if (substr($0,i,10)=="retro-gate") {   # RSDD_WS_STOP_SCOPE (mutated)'
+    printf '%s\n' "${_content_wg/"$_anchor_wg"/"$_mutation_wg"}" > "$_mutant_wg"
+    _outm_wg="$("$BASH_BIN" "$_mutant_wg" 2>&1)"
+    # Without Stop-scoping: retro-gate found in SessionStart → false-wired (no WARN, 1 wired)
+    if ! grep -q 'WARN.*retro-gate not wired' <<<"$_outm_wg" && grep -q 'Wiring:.*1 wired' <<<"$_outm_wg"; then
+      ok "teeth WG: stop-scope-removed mutant false-wires wrong-event fixture — case 78 has teeth" "()"
+    else
+      no "teeth WG: stop-scope-removed mutant must false-wire wrong-event fixture — case 78 is THEATER" "out=[$_outm_wg]"
+    fi
+    unset _anchor_wg _content_wg _mutant_wg _mutation_wg _outm_wg
+  fi
+
+  # Tooth WU: remove the unreadable branch (elif [ ! -r ] + echo + counter) →
+  # a chmod-000 settings.json falls through to the awk check. awk cannot read it → exit 1 (not
+  # found) → the else branch fires: UNWIRED WARN instead of UNREADABLE WARN. Case 80 expects
+  # WARN.*retro-gate wiring unknown; without the branch it gets WARN.*retro-gate not wired → RED.
+  # Skipped when EUID=0: root reads any file, so the unreadable branch is never reachable there.
+  echo "-- teeth WU: remove unreadable branch; chmod-000 file must get unwired WARN instead (case 80 has teeth) --"
+  _anchor_wu='elif \[ ! -r "\$_ws_settings" \]'
+  if ! grep -qE "$_anchor_wu" "$SUT"; then
+    no "teeth WU: locate unreadable branch in SUT" "anchor not found — SUT drifted?"
+  elif [ "$EUID" -eq 0 ]; then
+    ok "teeth WU → SKIPPED (running as root; root reads any file — unreadable branch unreachable)" "EUID=0"
+  else
+    kit="$(mkkit teeth-wu)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/.claude"
+    printf '{"hooks":{"Stop":[]}}\n' > "$tgt/.claude/settings.json"
+    chmod 000 "$tgt/.claude/settings.json"
+    write_targets "$kit" "$tgt"
+    _mutant_wu="$kit/toolbelt/sweep-retros.sh"
+    # Delete the 3-line unreadable branch: elif condition + echo + counter
+    sed '/elif \[ ! -r "\$_ws_settings" \]/,+2d' "$SUT" > "$_mutant_wu"
+    _outm_wu="$("$BASH_BIN" "$_mutant_wu" 2>&1)"
+    chmod 644 "$tgt/.claude/settings.json"  # restore for cleanup
+    # Without the unreadable branch: awk tries to read → fails → else fires → unwired WARN
+    if grep -q 'WARN.*retro-gate not wired in' <<<"$_outm_wu" \
+       && ! grep -q 'WARN.*retro-gate wiring unknown' <<<"$_outm_wu"; then
+      ok "teeth WU: unreadable-branch-removed mutant → unwired WARN, not unreadable — case 80 has teeth" "()"
+    else
+      no "teeth WU: unreadable-branch-removed mutant must give unwired WARN — case 80 is THEATER" "out=[$_outm_wu]"
+    fi
+    unset _mutant_wu _outm_wu _anchor_wu
   fi
 fi
 

@@ -374,6 +374,60 @@ done
 if [ "$waived_count" -gt 0 ]; then
   echo "waived: ${waived_count} target(s) — MISSING-RETRO suppressed: ${waived_names}"
 fi
+# --- WIRING-STATUS pass: for each resolvable target, check whether .claude/settings.json
+# wires the §18 retro-gate Stop hook (METHODOLOGY §18). WARN-only — propose-never-apply.
+# Three states per §7 anti-silent-zero (absent-settings / unwired / wired are distinct;
+# unreadable is a fourth loud-failure state, never silently treated as wired or unwired).
+# awk-based: no jq, no runtime dep beyond awk (always available). The awk scopes the
+# retro-gate check to the "Stop" event block only — prevents false-wired from retro-gate
+# appearing in other event blocks (SessionStart), permissions.deny, or comment fields.
+# No §7 DEGRADED-axis dep probe needed — awk is always present.
+# Non-directory paths (GitHub slugs) are skipped via [ -d ] — same guard as the fleet passes.
+_ws_wired=0; _ws_unwired=0; _ws_absent=0; _ws_unreadable=0
+for p in $paths; do
+  [ -d "$p" ] || continue
+  _ws_settings="$p/.claude/settings.json"
+  if [ ! -e "$_ws_settings" ]; then                               # RSDD_WS_ABSENT_CHECK
+    echo "WARN: retro-gate hook absent-settings — no .claude/settings.json: $p"
+    _ws_absent=$(( _ws_absent + 1 ))
+  elif [ ! -r "$_ws_settings" ]; then                             # RSDD_WS_UNREADABLE_CHECK
+    echo "WARN: retro-gate wiring unknown — unreadable: $_ws_settings"
+    _ws_unreadable=$(( _ws_unreadable + 1 ))
+  elif awk '
+    BEGIN { in_stop=0; stop_depth=0; depth=0; found=0 }
+    {
+      n=length($0); i=1
+      while (i<=n) {
+        c=substr($0,i,1)
+        if (c=="{" || c=="[") {
+          depth++
+        } else if (c=="}" || c=="]") {
+          depth--
+          if (in_stop && depth<=stop_depth) { in_stop=0 }
+        } else if (!in_stop && substr($0,i,6)=="\"Stop\"") {
+          j=i+6
+          while (j<=n && (substr($0,j,1)==" " || substr($0,j,1)=="\t")) j++
+          if (j<=n && substr($0,j,1)==":") { in_stop=1; stop_depth=depth }
+          i=j
+        } else if (in_stop && substr($0,i,10)=="retro-gate") {   # RSDD_WS_STOP_SCOPE
+          found=1
+        }
+        i++
+      }
+    }
+    END { exit !found }
+  ' "$_ws_settings" 2>/dev/null; then                             # RSDD_WS_WIRED_CHECK
+    _ws_wired=$(( _ws_wired + 1 ))
+  else
+    echo "WARN: retro-gate not wired in $p/.claude/settings.json"
+    _ws_unwired=$(( _ws_unwired + 1 ))
+  fi
+done
+unset _ws_settings
+_ws_total=$(( _ws_wired + _ws_unwired + _ws_absent + _ws_unreadable ))
+echo "Wiring: ${_ws_wired} wired / ${_ws_unwired} unwired / ${_ws_absent} absent-settings / ${_ws_unreadable} unreadable — ${_ws_total} targets checked."
+unset _ws_total _ws_wired _ws_unwired _ws_absent _ws_unreadable
+
 # Clean-verdict sentinel — relocated AFTER the MISSING-RETRO pass so the whole run is
 # visible before the claim. Gated on missing==0 (no MISSING-RETRO findings) AND
 # skipped_count==0 (not a PARTIAL sweep) in addition to pending==0. Any of the three
