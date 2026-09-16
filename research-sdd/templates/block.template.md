@@ -27,10 +27,9 @@
 > `document` (alias of `capture`) | `collaborative` — agent-authored evidence half + `[TO ANNOTATE]`
 > placeholders for the human; valid in its partial state, NOT a coverage gap (METHODOLOGY §4) | `audit` |
 > `decision` — choice among alternatives (migration pick, tool selection, architecture ruling); high `[INFER]`
-> ratio and zero `file:line` expected, as with `synthesis`; `verify-block.sh` does not yet read this token
-> and will WARN.
-> `verify-block.sh` downgrades the ZERO-citations WARN to INFO for `synthesis`, `capture`, `document`, and
-> `absence-centred`; all other tokens keep the WARN (METHODOLOGY §11, kit issue #422).
+> ratio and zero `file:line` expected, as with `synthesis`; graded as INFO for the zero-citations check.
+> `verify-block.sh` downgrades the ZERO-citations WARN to INFO for `synthesis`, `capture`, `document`,
+> `absence-centred`, and `decision`; all other tokens keep the WARN (METHODOLOGY §11, kit issue #422, T-VB2).
 >
 > **Breakthrough:** `<omit unless this block captures a DECISIVE solution>` — one line: WHAT was cracked and
 > HOW. Presence tags this block for the fleet ledger (`BREAKTHROUGHS.md`, METHODOLOGY §22); it is ORTHOGONAL

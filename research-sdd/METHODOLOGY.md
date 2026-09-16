@@ -286,12 +286,11 @@ tokens: `standard` (the default — omit the line), `evidence` (alias of `standa
 `absence-centred`, `capture`, `document` (alias of `capture`), `collaborative`, `audit`, `decision` (a block
 whose deliverable is a choice among alternatives — migration pick, tool selection, architecture ruling; a high
 `[INFER]` ratio and zero `file:line` citations are expected and correct for this type, as with `synthesis`;
-`verify-block.sh` does not yet read this token and will WARN on it — a future instrument PR should grade
-it as INFO for the ZERO-citations warning). (Source: 2026-09-16-blender-llm-b11-migration-decision-retro.md delta #1) Why a closed grammar: the
+`verify-block.sh` grades it as INFO for the ZERO-citations check, like `synthesis`). (Source: 2026-09-16-blender-llm-b11-migration-decision-retro.md delta #1, extended by T-VB2) Why a closed grammar: the
 template listed five values while real blocks wrote `evidence (primary modbus spec)`, `synthesis (no new
 decompilation)`, `document / runbook` — 8 of 763 niagara blocks declared any type and none used a template value, so
 no instrument could ever read it (the same free-form-cell failure as the TARGETS.md maturity cell and the FOCUSES.md
-status cell). **Instrument (as of kit issue #422):** `verify-block.sh` reads the leading `Type` token: for `synthesis`, `capture`, `document` and `absence-centred` blocks the "[CERT] markers present but ZERO file:line citations resolved" WARN becomes INFO `expected for declared type <t>`; a block with no `Type:` line keeps the WARN plus a one-line hint naming this grammar; an unrecognised token WARNs by name, never silently.
+status cell). **Instrument (as of kit issue #422, extended by T-VB2):** `verify-block.sh` reads the leading `Type` token: for `synthesis`, `capture`, `document`, `absence-centred`, and `decision` blocks the "[CERT] markers present but ZERO file:line citations resolved" WARN becomes INFO `expected for declared type <t>`; a block with no `Type:` line keeps the WARN plus a one-line hint naming this grammar; an unrecognised token WARNs by name, never silently.
 
 > **Block file naming.** The canonical catalog/discriminator (`templates/gen-catalog.py`, `verify-state.sh`,
 > `research-sdd-archive.sh`) requires a focus/subject prefix — `<prefix>-blockN.md` (or `bloqueN.md`) — so a
