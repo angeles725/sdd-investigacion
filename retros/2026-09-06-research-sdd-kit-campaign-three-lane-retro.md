@@ -1,4 +1,4 @@
-<!-- review-status: pending -->
+<!-- review-status: applied 2026-09-16 · kit 6bf7614 (#1–9 → CLAUDE.md §3/§5/§6/§7), 30cadd0 (#7 METHODOLOGY §11b), cf7f092 (#10 sweep-retros wiring) -->
 <!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
 # Retro — sdd-investigacion (the kit itself) · three-lane kit-maintenance campaign · 2026-09-06 · Research-SDD self-retrospective
 

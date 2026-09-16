@@ -1,4 +1,4 @@
-<!-- review-status: pending -->
+<!-- review-status: applied 2026-09-16 · kit 6bf7614 (PR #533 — D1/D2/D3 → CLAUDE.md §3/§4) -->
 <!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
 # Retro — sdd-investigacion · doctrine-lane 7-units + teeth/design/basing deltas · 2026-08-28 · Research-SDD self-retrospective
 
