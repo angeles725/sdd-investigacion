@@ -48,6 +48,7 @@ is indicative: the actual model is always user-configured outside this repo.
 **Fallback rule (all harnesses)**: when the recommended tier is unavailable, substitute
 one tier down and note it in the report.  This rule is stated in PROMPT-LOOP.md:209–210
 and METHODOLOGY.md:395; it carries over to OpenCode and Codex unchanged.
+**Exemption — verification/refutation voters**: if `sonnet` is unavailable for a verification or refutation step, run inline on the driver or defer — never substitute `haiku` (METHODOLOGY §11b).
 
 ---
 
