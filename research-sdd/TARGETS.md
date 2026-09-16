@@ -148,6 +148,7 @@ Sensitivity:
 | 33 | mini-pc | `$RESEARCH_HOME/investigacion/mini-pc` | **active** (12 md · 1 retro @2026-09-13 / 2 runs / nested corpus / git yes / remote yes `angeles725/investigacion-mini-pc` / hook no; document-cycle COMPLETE 12/12; B12 incidente/operación de campo) `[CERT-live]` — detail §33 | Aprovisionamiento de mini-PC Windows como nodo de tunel: kit USB offline (`instalacion-minipc/`, `INSTALAR.bat`, solo-mouse, auto-deteccion) — parte 1 (doble IP via netsh, OpenSSH solo-llave hardened, resiliencia energia/BIOS Dell `cctk`, registro + INVENTARIO) + parte 2 tunel Cloudflare remote-managed (Access SSO email-OTP + service token + CA short-lived, conector cloudflared); verificado en Windows real (`DESKTOP-N3FMUUB`) `[CERT-live]` | direct reading + interop WSL/Windows + SSH probes (read-only) + Cloudflare API | Spanish (runbook operativo) · technical EN markers `[CERT-live]` |
 | 34 | fluke-177x-datos | `$RESEARCH_HOME/investigacion/fluke-177x-datos` | **incipient** (0 blocks @2026-09-12 / bootstrap / flat corpus / git yes / remote no / hook no; DESIGN/web corpus) `[CERT-live]` | Fluke 1777+1775 PQ analyzers data-extraction research: REST API (protocol 5.0.0, only GET /device open) + VNC 5900 + Energy Analyze Plus + Fluke Connect; scanned NO Modbus/BACnet/OPC-UA `[CERT-live]` | `fetch-doc.sh` + WebSearch/WebFetch | Spanish (recomendacion) · technical EN markers |
 | 35 | hisense | `$RESEARCH_HOME/prototipos/clientes/hisense` | **incipient** (3 blocks @2026-09-15 / 1 run / nested corpus / git yes / remote no / hook no; **document-cycle** COMPLETE) `[CERT-hw]` · companion to #30/#31 — detail §35 | Standalone 3D HVAC dashboard (single 669 KB `index.html`) migrated from Cloudflare Workers to Vercel, custom domain `hisense.angeles-group.org` (DNS stays on Cloudflare): Vercel static CLI deploy + DNS cutover (delete Workers Custom Domain, add A→76.76.21.21 DNS-only) `[CERT-hw]` | Vercel CLI + Cloudflare API (DNS) + `curl` verify | English (corpus) · Spanish UI subject `[CERT-hw]` |
+| 36 | blender-llm | `$RESEARCH_HOME/investigacion/blender-llm` | **incipient** (0 blocks @2026-09-16 / bootstrap / flat corpus / git yes / remote no / hook yes; **document-cycle** IN PROGRESS) `[CERT-hw]` · DESIGN/APPLIED — detail §36 | Blender MCP + LLM ecosystem: ahujasid community MCP server (v1.7, Blender 5.2.2 Windows + WSL2 client), alternative MCP servers, security/telemetry, LLM powerups, HVAC workflow — Windows↔WSL2 bridge via mirrored networking localhost:9876 `[CERT-hw]` | direct reading + WebSearch/WebFetch (ecosystem) | English `[CERT-hw]` |
 
 ---
 
@@ -624,6 +625,18 @@ Bootstrap 2026-09-11: nested corpus under `corpus/`; git initialized; no remote 
 
 **Run 1 (2026-09-11):** document-mode run B1–B5 — platform identity, Solis API, daemon architecture, failures, data catalog.
 **Run 2 (2026-09-11):** document-mode extension B6–B10 — Solis time-series, FlexOM full capture, FlexOM history XLSX, CDP-attach technique, delivery dashboard (Cloudflare Pages). §14 back-pointers applied to B3/B4/B5. Corpus complete.
+
+---
+
+### 36 — blender-llm `[CERT-hw]`
+
+DESIGN/APPLIED corpus. Subject is the Blender MCP ecosystem and LLM-driven workflow, not a local binary/source tree. Corpus language: English.
+
+Investigation angle (§b2): LLM-driven Blender via MCP — 4 axes: (1) mcp-servers (ahujasid + alternatives), (2) addons (CAD/HVAC/power-user), (3) configuration (WSL2+Windows bridge, telemetry, skill), (4) llm-tools/workflow (powerups, failure modes, HVAC application). DESIGN dismissal applies: no binary profiling.
+
+Setup verified 2026-09-15: Blender 5.2.2 (Windows) ↔ WSL2 Claude Code via `networkingMode=mirrored` + `hostAddressLoopback=true` on `localhost:9876`. Community add-on ahujasid/blender-mcp v1.7 connected. End-to-end test: ping→pong, get_scene_info, GN duct test (8v/12e/6f).
+
+**Bootstrap (2026-09-16):** flat corpus, git yes, remote no (consent-gated), hook yes. Document-mode capture of session-handoff.md + memory files + SKILL.md.
 
 ---
 
