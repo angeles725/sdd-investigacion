@@ -7,6 +7,14 @@
 > run's blocks/commits/§14 corrections, and proposes kit deltas. READ-ONLY on the kit — this report only
 > PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
 
+<!-- Journal source: deltas in the table below may originate from session journal entries
+     consolidated at §18 (METHODOLOGY §18 journal mode). The retro agent queries
+     mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20),
+     deduplicates entries, and promotes worthwhile ones. No auto-promotion — the pending
+     review-status marker (consumed by sweep-retros.sh) is unchanged.
+     Note: a capability-proposal slot (tool-idea / algorithm-idea / formula-idea + measurement
+     criterion) is not part of this template; see METHODOLOGY §18 journal mode for the per-entry
+     category taxonomy. -->
 ## Proposed kit deltas
 
 > Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
