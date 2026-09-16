@@ -526,6 +526,13 @@ READ-ONLY**: the system under study is never modified.
 
 **Focus-inherited census (scoped focus over an already-censused corpus).** When a new focus (§16) opens over a target whose parent corpus was already censused at its bootstrap, and the focus reads only a SUBSET of artifacts that census already classified, the focus MAY inherit the parent census instead of re-running `census-target.sh`. Conditions: (a) the focus introduces no new subject-artifact type; (b) the inheritance is DECLARED in the focus's `RESEARCH-STATE-<focus>.md §§ Dismissed file types` with the fixed form: `- none — census inherited from parent corpus bootstrap (scoped focus; reads subset <path> already classified)`. No checker reads this declaration yet; the fixed grammar makes it auditable when one exists. A silent skip is indistinguishable from a forgotten census. (Source: 2026-08-30-alarm-webhook-focus-retro.md D1)
 
+**A residual category is not noise until someone has read it.** Naming a classifier output bucket `other`,
+`misc`, or `unclassified` is a decision to stop looking, not a conclusion. Record any residual bucket with
+its size and open a gap to read it — everything measured downstream inherits the omission silently.
+This extends the dismissed-file-types doctrine: a residual left unread is an unclosed audit hole, not a
+valid classification. Sizing the bucket first (how many items, what fraction) determines whether the gap
+warrants its own block or can be folded into an adjacent one. (Source: blender-llm B35)
+
 **Protocol / binary-format reconstruction.** When the subject is an opaque wire format or a proprietary
 binary record layout — no symbol-bearing managed binary exists, only data — use this named three-step pattern:
 
@@ -1062,6 +1069,11 @@ auto-applies. Migration classes to address:
    pattern — a `*Handle` may be a POJO not an enum; a `BI*FE` may be a concrete class, not a `BInterface`.
    State any name-implied kind as a HYPOTHESIS and confirm it against the actual declaration line before
    writing it `[CERT]`.
+10. **When disambiguation by geometry or proximity is ambiguous, look for a conserved quantity.** A
+    proximity or similarity threshold degrades smoothly into nonsense as it grows; there is no value at which
+    it is safely wrong. A conservation law does not degrade: a candidate either satisfies it or does not, at
+    any distance. Prefer the physical constraint as the primary FILTER and geometry as the tiebreak.
+    (see CONSERVATION CHECK, §11) (Source: blender-llm B29/B32)
 
 Corpus language: **English by default** — for new targets and targets with no existing corpus.
 **Exception (user-approved, per target):** a target with an established corpus in another language MAY
@@ -1976,6 +1988,28 @@ over disjoint surface sets so no single agent holds the whole universe. The ~20 
 partition: at or below it, inline triage; above it, delegated and (when large) parallel audit — a working
 figure, not a hard gate.
 
+**Recursive auto-sharding for artifacts that exceed a single context window.** When a reading surface is
+too large for one agent to hold, the coordinator fans the question into disjoint sub-questions, delegates
+to parallel sub-agents, and each sub-agent may recursively delegate its own sub-questions. Only cited
+conclusions (file:line + snippet) surface upward; raw content stays in the leaves. Named pattern:
+coordinator sweep → disjoint parallel shards → recursive auto-sharding (general-purpose/fork sub-agents; Explore/Plan leaves cannot sub-delegate) → cited output.
+Observed at one nested level (coordinator → sweeps → leaves); this is the gated exception to PROMPT-LOOP's prefer-ONE-level nesting caveat — for deeper or structured fan-out that caveat's Workflow-engine route still applies.
+This is the mechanism that converts "artifact too large to read" into "covered in parallel in one pass".
+(Source: fluke-177x-datos 2026-09-13-auto-sharding-recursivo-de-agentes, 2026-09-13-orquestacion-sweeps-paralelos-decompilado)
+
+**Gate for recursive auto-sharding (default OFF).** Enable recursive auto-sharding only when the reading
+surface genuinely exceeds a single context window AND the sub-questions are independently answerable.
+Born disabled; it activates on those two triggers together. For trivial slices, resolve inline or use
+flat delegation — recursive fan-out on a small question is over-orchestration that multiplies token cost
+without adding coverage. (Source: fluke-177x-datos 2026-09-13-auto-sharding-recursivo-de-agentes,
+2026-09-13-orquestacion-sweeps-paralelos-decompilado)
+
+**A multi-stage data pipeline must account for every record it discards.** When a pipeline stage drops
+records silently (waveforms, metadata rows, secondary tables), any coverage claim downstream is overstated
+by exactly the proportion dropped. Audit what each stage keeps versus discards, and log it explicitly; a
+stage that cannot state its discard count has not proved its coverage. (Source: fluke-177x-datos
+2026-09-13-doctrina-detenerse-corto-y-explorar)
+
 **Backlog SIZING comes from a MEASURED count, never a hand-guess.** Whenever a gap's size feeds
 prioritization (how many classes/commands/files a subsystem holds), take the number from an ACTUAL count over
 the real dir (`find … | wc -l`), never an eyeball estimate — hand-guesses are wildly wrong: a guessed
@@ -2043,6 +2077,13 @@ whether the untouched areas matter for the mission or are out of scope. Output g
 certainty audit, but its verdict feeds the §8 backlog (untouched-but-relevant areas become new gaps), not
 the marker escalation. Do not conflate the two: a corpus can be 100% certain on what it covered and still
 cover only 18% of the universe.
+
+**In a multi-focus corpus, a focus-level coverage audit is not a corpus-level universe sweep.** A
+run that audits each focus for completeness may still leave entire artifact families never chartered
+to any focus. Periodically map all artifact families against all focuses to confirm the universe is
+partitioned, not merely that each partition is internally complete — a focus stopping at
+investigable-zero is correct for its own scope; it does not prove the whole-universe scope is
+covered. (Source: niagara 2026-09-14-module-mechanics-coverage-run)
 
 **A sweep MUST reconcile against PRIOR coverage as a named output section.** Distinct from the driver-side
 PROMPT-LOOP check asking "did we already cover this?", every bootstrap or coverage sweep MUST carry an
@@ -2299,6 +2340,12 @@ and B122 both did). Before re-launching an interrupted iteration:
    remaining archive steps rather than restarting the whole iteration.
 4. After any incident (wrong cwd, accidental mutation, interrupted run), reconcile engram against the
    on-disk truth before continuing — files are the source of truth, engram is the mirror.
+5. **Assumptions inherited from a compaction are hypotheses until re-verified.** A post-compaction summary
+   may present a prior finding as established fact because it was established in the session that was
+   compacted. Before building on any load-bearing claim a recovered summary presents as settled,
+   re-verify it against the primary source — the summary cannot distinguish a verified claim from an
+   unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
+   2026-09-13-camino-b-end-to-end-completo)
 
 ## 18. Self-retrospective (the kit learns from its own runs)
 
