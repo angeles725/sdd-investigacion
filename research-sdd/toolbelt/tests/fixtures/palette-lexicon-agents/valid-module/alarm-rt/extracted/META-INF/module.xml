@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module>
+<type name="AlarmSource" class="com.example.alarm.BAlarmSource">
+  <agent>
+    <on type="baja:Component"/>
+  </agent>
+</type>
+</module>
