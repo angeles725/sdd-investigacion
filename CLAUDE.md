@@ -104,10 +104,32 @@ concurrently buys ~2x.
 and the index, and `git checkout` is a whole-tree operation. A concurrent writer's branch switch
 discarded another's uncommitted work twice in one session. Note also that hand-made worktrees do NOT
 isolate a subagent here: the harness resets shell cwd to the repo root between commands, so a `cd` into
-a worktree is lost on the next call. Use the harness's own worktree isolation for delegated work; a
-hand-made worktree is fine for your own runs. Either way each worktree needs its OWN `.codegraph/`
-index — never copy or symlink another checkout's, because its root and checked-out bytes differ — and
-it must live under the home directory as `<repo-parent>/<repo-name>-worktrees/<name>`, never `/tmp`.
+a worktree is lost on the next call. Use the harness's own worktree isolation for delegated work — pass `isolation: "worktree"` and read
+back the returned worktree path before the first edit; launching a writer in the same session is not
+isolation (the harness resets cwd between commands, and the shared index survives); a hand-made
+worktree is fine for your own runs — three-lane #2. Either way each worktree needs its OWN
+`.codegraph/` index — never copy or symlink another checkout's, because its root and checked-out
+bytes differ — and it must live under the home directory as
+`<repo-parent>/<repo-name>-worktrees/<name>`, never `/tmp`.
+
+**`sdd-design` and other architectural-phase agents must not edit source files.** A delegation prompt
+for a design or planning agent must say "artifact only, no source edits"; if the agent needs
+filesystem access, launch it with `isolation: "worktree"`. Unit 7's sdd-design agent stray-edited
+live `METHODOLOGY.md` on the shared checkout; `git restore` discarded it and apply re-ran from
+scratch — doc-lane #1.
+
+**Worktree branches must be based on `origin/main` explicitly.** Run `git fetch` then base the new
+branch on `origin/main`, never on the shared checkout's local HEAD, which is stale (see §12.4). On
+2026-08-28 all seven unit branches started from local `ec9c2a2` while `origin/main` was at `db5ed3f`
+(seven merges ahead); the 3-way merges stayed clean only because the edited sections did not overlap
+— verified, not guaranteed. Inside a harness-created worktree, satisfy this with
+`git fetch && git rebase origin/main` (or `git reset --hard origin/main`) before the first edit
+— doc-lane #3.
+
+**Cross-session ordering messages must name the FILE SETS being locked or released, not unit names.**
+"PR-A is done" is ambiguous when PR-A touches nine files; "PR-A releases `lib/target-paths.sh` and
+`sweep-retros.sh`" lets the next writer confirm it holds nothing those files depend on. Unit names
+drift; file sets do not — three-lane #9.
 
 ---
 
@@ -124,6 +146,12 @@ self-test. It does NOT generate mutations for you — a new suite has teeth only
 Never declare done without running it. Since kit issue #426 the aggregate also names the suites that
 accepted the flag and ran no mutation control (`Suites without teeth: N — [names]`); a new suite that
 appears in that list is not done. `--require-teeth` turns the list into an exit-1 gate (opt-in, §5).
+
+**RED-before-fix must be EXECUTED against the pre-fix SUT, not just asserted in a comment.** Swap
+the SUT bytes to the pre-fix state, run the new tests, and require each to fail for the right reason
+— a wrong-reason failure (crash, missing import, fixture error) is the same as no failure. A "RED
+before fix" note in a commit message is not verified teeth; only executing the suite against the
+broken code is — doc-lane #2.
 
 ---
 
@@ -156,6 +184,26 @@ reports dozens of failures on a fully green run.
 
 Every toolbelt script must have a companion `*.test.sh` under `research-sdd/toolbelt/tests/`.
 
+**Spec acceptance scenarios must not carry bare literal counts.** A scenario may cite
+`measured N on <YYYY-MM-DD> at <sha>` as a reference point; it must never use a bare N as an
+assertion literal the gate compares against a live run. Live telemetry belongs to the instrument that
+produces it; this extends the "no persisted counts" principle above to `openspec/**/spec.md` artifacts
+— three-lane #8.
+
+**A per-hook budget win that leaves the aggregate over budget is an unfalsifiable measurement.** The
+SessionStart hook budget is output characters, not wall time (`openspec/specs/kit-session-cost/spec.md`:
+under 8,000 characters total). State the aggregate character count, measure every registered hook
+after each trim, and keep the aggregate in the instrument's own output. #437 (58bed7e) cut
+`sweep-retros-hook.sh` from ~19,799 to 1,768 characters; the 7-hook aggregate still measured
+8.7–9.4 k characters — over budget — closed by #504 — three-lane #4.
+
+**A gate's calibration corpus must be a frozen fixture, not a live-fleet count.** A fleet count drawn
+on the current day is a dated snapshot; the next commit moves it, and the gate then compares a stale
+number against live output. Build a frozen fixture, commit it, and compare the gate's output against
+that. The live-fleet reading is still taken, dated, and hand-verified alongside — it documents the
+current state as a snapshot, but it is never the assertion the gate checks. Distinct from METHODOLOGY
+§11b, which governs where the tooth bites; this governs what the gate compares against — three-lane #7.
+
 ---
 
 ## 6. Work-Unit Budget
@@ -179,6 +227,13 @@ The corollary: when the substrate has no schema, **doctrine comes first**. Presc
 then build the checker against it. A parser over free-form prose inherits that prose's ambiguity no
 matter how good the regex. Same conclusion reached twice in one session — for block types, and for
 the `TARGETS.md` maturity cell whose 18 rows carried 25 distinct field shapes.
+
+**A sampling-rule change — or any calibration-constant change — is its own work unit.** Never fold it
+inside a bug fix. This is the inverse of the "silent scope compression is a defect" rule: the fleet
+gate anchors on instrument output (§12.7: byte-identical diff), so a widened rule inside a bugfix
+shows up as unexplained fleet churn and breaks the acceptance baseline. #449/#474 (1c90f59)
+re-sampled ~14 focuses that had no structural rows; the ruling was corrected before merge, keeping
+the verdict-flip count to exactly 3 — three-lane #5.
 
 ---
 
@@ -231,6 +286,18 @@ for `/bin/bash`: it belongs to the same early-terminating-consumer family,
 but was outside that enumerator. The audit was rigorous about what it looked at and silent about what
 it could not see.
 
+Re-run the enumerator at EVERY new instrument's acceptance gate. A closed enumeration certifies only
+the files it walked on that day; a corpus added the next week is outside that certificate. Each new
+acceptance sweep must re-run the enumerator, re-declare the corpus traversed, and reclassify any new
+unclassifiable candidates — three-lane #3.
+
+**A third question precedes both: could the instrument run at all?** The three-state table asks "did
+it look?"; the false-negative paragraph above asks "could it see?". Every script with a runtime dependency (`jq`,
+`git`, `python3`, a compiled tool) must PROBE for it at startup and emit a typed `degraded` state on
+absence — never allow or pass silently. A `degraded` result is not a zero; it is a separate signal
+that says the environment was incomplete and the measurement is invalid. `retro-gate.sh` (#492
+1e9a0a2) allowed with `jq` absent — empty stdout, exit 0; probe added in #496 af83e7a — three-lane #1.
+
 Measure incidence before scheduling remediation: a valid rule with zero observed occurrences is
 verifier discipline, not a repository work unit. "Capture the authority before transforming its output"
 is a correct rule — and ShellCheck reports zero SC2181 across the whole shell corpus, so it buys no
@@ -242,6 +309,13 @@ same claim as "this much work is waiting", and the gap between those readings wa
 the headline. The fix is not to make the instrument guess; deltas are prose and it cannot. The fix is
 to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
 before trusting it as work.
+
+**Two samples with different scopes need two names.** A single label over two populations is
+unfalsifiable. `research-sdd-status.sh` printed one `forms:` sample sourced from the sorted window (numbered and structural rows)
+while the sibling reading counted numbered rows only — the same label, two populations,
+neither checkable. #476/#486 (a5d3876) split them: `wforms` sources from `iter_window` (recent
+window only, `# NG-WFORMS-ITER-ONLY`) and `forms` from `all_sorted` (all rows) — the two output
+lines now name the populations they sample — three-lane #6.
 
 **Acceptance is a fleet sweep, not the fixtures.** An instrument that reads corpora or the registry is
 accepted by running it against the REAL fleet, diffing against `main`, and classifying every new WARN
