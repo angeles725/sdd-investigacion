@@ -16,23 +16,29 @@
 # hitting an unreadable subtree) must NOT abort the tool. The two genuine mutations are guarded explicitly.
 #
 # Usage:
-#   research-sdd-archive.sh <target-dir>              gate + consolidate (regenerate CATALOG, touch INDEX) + checklist
-#   research-sdd-archive.sh <target-dir> --dry-run    report what WOULD happen; mutate nothing
+#   research-sdd-archive.sh <target-dir>                          gate + consolidate (regenerate CATALOG, touch INDEX) + checklist
+#   research-sdd-archive.sh <target-dir> --dry-run                report what WOULD happen; mutate nothing
+#   research-sdd-archive.sh <target-dir> --focus <name>           scope UF gate to a single focus (RESEARCH-STATE-<name>.md)
+#   research-sdd-archive.sh <target-dir> --focus <name> --dry-run scoped dry-run
 # Exit: 0 = archived (or dry-run); the GATE is the archive decision — consolidate steps are BEST-EFFORT and a
 #           failure there is reported LOUDLY (stderr + checklist) but keeps exit 0, so callers gate on 0/2/3.
-#       2 = bad args / no RESEARCH-STATE (nothing to archive).
+#       2 = bad args / no RESEARCH-STATE (nothing to archive) / unknown --focus slug.
 #       3 = REFUSED: a consistency gate (verify-state / verify-sources / scan-secrets / undocumented_findings / MISSING-RETRO) did not pass — reconcile first.
 set -uo pipefail
 
-target=""; dry=0
+target=""; dry=0; focus_slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry=1; shift;;
+    --focus)
+      focus_slug="${2:-}"
+      [ -n "$focus_slug" ] || { echo "research-sdd-archive: --focus requires a focus name" >&2; exit 2; }
+      shift 2;;
     -*) echo "research-sdd-archive: unknown flag: $1" >&2; exit 2;;
     *)  [ -z "$target" ] && target="$1" || { echo "research-sdd-archive: unexpected extra arg: $1" >&2; exit 2; }; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-archive.sh <target-dir> [--dry-run]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-archive.sh <target-dir> [--focus <name>] [--dry-run]" >&2; exit 2; }
 target="${target%/}"   # a trailing slash would defeat the corpus-relative prefix strip below
 # Absolutize a RELATIVE target NOW, before it seeds $state/$corpus. Left relative, `find "$corpus" ...`
 # below yields relative paths, and `git -C "$corpus" log -- "$rf"` (rsdd_added_epoch) double-resolves them
@@ -79,6 +85,14 @@ unset _sflib
 # (No -e: a non-zero from find on an unreadable subtree is discarded, not fatal — the value is still correct.)
 state="$(find "$target" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
 [ -n "$state" ] && [ -f "$state" ] || { echo "research-sdd-archive: no RESEARCH-STATE*.md under $target — nothing to archive (run research-sdd-init.sh)" >&2; exit 2; }
+# T-AR1: when --focus <slug> was given, override $state to the focus-specific state file.
+# Exit 2 when the requested focus does not exist under $target.
+if [ -n "$focus_slug" ]; then
+  _focus_state="$(find "$target" -maxdepth 3 -name "RESEARCH-STATE-${focus_slug}.md" -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
+  [ -n "$_focus_state" ] && [ -f "$_focus_state" ] \
+    || { echo "research-sdd-archive: focus '$focus_slug' not found under $target (no RESEARCH-STATE-${focus_slug}.md)" >&2; exit 2; }
+  state="$_focus_state"
+fi  # AR1-FOCUS-SCOPE
 corpus="$(dirname "$state")"
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 
@@ -111,17 +125,23 @@ echo "  -- gates --"
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
 gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
-# undocumented_findings gate — scope is $target, NOT $corpus. INVARIANT: inspect EVERY focus under
-# the target, not only those under the first-discovered corpus directory. WHY: in a SPLIT layout
-# (focuses in sibling subdirectories rather than flat in one dir), $corpus is only the FIRST focus's
-# directory (line ~72: corpus=dirname of the shallowest state file). Scoping to $corpus silently
-# skips sibling focuses; any UF debt in them passes this gate unseen. The _uf_sf_count guard below
-# catches EMPTY enumeration (zero files inspected) but NOT PARTIAL enumeration (some focuses missed)
-# — that is why the scope itself must be $target so list_state_files reaches all focuses at maxdepth 3.
+# undocumented_findings gate — default scope is $target, NOT $corpus. INVARIANT: inspect EVERY
+# focus under the target, not only those under the first-discovered corpus directory. WHY: in a
+# SPLIT layout (focuses in sibling subdirectories rather than flat in one dir), $corpus is only the
+# FIRST focus's directory (line ~72: corpus=dirname of the shallowest state file). Scoping to
+# $corpus silently skips sibling focuses; any UF debt in them passes this gate unseen. The
+# _uf_sf_count guard below catches EMPTY enumeration (zero files inspected) but NOT PARTIAL
+# enumeration (some focuses missed) — that is why the scope must be $target so list_state_files
+# reaches all focuses at maxdepth 3. EXCEPTION: when --focus <slug> was given (AR1), the gate is
+# intentionally scoped to the single named focus; all other focuses are out of scope for this run.
 # Multi-focus corpora have one state file per focus (RESEARCH-STATE-<slug>.md). Absent field or
-# non-integer → treated as 0 (legacy corpora predate this field). Any positive value in ANY focus
-# means at least one finding was saved to memory without a block; refuse until the researcher writes
-# the block(s), decrements the counter in the state file, then --sync-state.
+# non-integer → treated as 0 (legacy corpora predate this field). Any positive value in ANY
+# inspected focus means at least one finding was saved to memory without a block; refuse until the
+# researcher writes the block(s), decrements the counter in the state file, then --sync-state.
+# AR1-FOCUS-SCOPE: scope UF enumeration to the single named focus when --focus was given.
+_uf_sf_src() {
+  [ -n "$focus_slug" ] && printf '%s\n' "$state" || list_state_files "$target"  # AR1-FOCUS-SCOPE
+}
 _uf_sf_count=0
 while IFS= read -r _uf_sf; do
   [ -f "$_uf_sf" ] || continue
@@ -140,7 +160,11 @@ while IFS= read -r _uf_sf; do
       gate_rc=1  # uf-gate-refuse
       ;;
   esac
-done < <(list_state_files "$target")
+done < <(_uf_sf_src)
+# Report scope so the operator can verify what was inspected (§7: report only what you measured).
+if [ -n "$focus_slug" ]; then
+  echo "    undocumented_findings: scoped to focus $focus_slug — $_uf_sf_count of $(list_state_files "$target" | wc -l | tr -d ' ') state file(s) inspected"
+fi
 # Fail-closed invariant: $target was verified above (find at line ~70 resolved a RESEARCH-STATE*.md
 # under it), so ZERO inspected files here is an IMPOSSIBLE state — the enumerator malfunctioned
 # (returned nothing or only non-existent paths) rather than debt being absent. Report as a toolchain

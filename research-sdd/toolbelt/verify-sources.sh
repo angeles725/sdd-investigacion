@@ -210,8 +210,8 @@ missing=0
 while IFS= read -r ref; do
   [ -z "$ref" ] && continue
   [ -f "$corpus/$ref" ] || { echo "   cited-but-missing: $ref"; missing=1; rc=1; }
-done < <(grep -rhoE 'sources/[A-Za-z0-9_./-]+\.(pdf|md|html|htm|txt|json)' "$corpus"/*.md 2>/dev/null \
-           | grep -vF '...' | grep -vF 'SOURCES.md' | sort -u)
+done < <(grep -rhoE 'sources/[A-Za-z0-9_./-]+\.(jsonl|ndjson|gz|pdf|md|html|htm|txt|json)' "$corpus"/*.md 2>/dev/null \
+           | grep -vF '...' | grep -vF 'SOURCES.md' | sort -u)  # VS1-LEVEL3-REGEX
 [ "$missing" = 0 ] && echo "-- all sources/ paths cited in blocks exist on disk (or none cited)"
 
 # LEVEL 5 — web-snapshot INTEGRITY. Lives OUTSIDE the `[ -f "$sources_md" ]` block on purpose: it must also

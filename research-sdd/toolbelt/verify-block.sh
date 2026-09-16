@@ -136,6 +136,27 @@ if [ -n "$probe_cites" ]; then
     fi
   done <<< "$probe_cites"
 fi
+# (e) JAR!ENTRY citations — e.g. control-rt.jar!META-INF/module.xml — recognized non-resolvable:
+#     a Java archive entry path is not a local file:line. Print for visibility; P6 WARN still fires
+#     because jar entries do not satisfy the file:line citation gate (§7 false-negative direction).
+jar_cites=$(grep -oE '[A-Za-z0-9_.-]+\.jar![A-Za-z0-9_./-]+' "$block" | sort -u)
+if [ -n "$jar_cites" ]; then
+  while IFS= read -r jc; do
+    [ -z "$jc" ] && continue
+    echo "   jar-entry  $jc  (jar archive path — not file-verifiable)"  # VB1-JAR-ENTRY-CITE
+  done <<< "$jar_cites"
+fi
+# (f) [BNNN] synthesis back-references — e.g. [B7], [B12] — recognized non-resolvable:
+#     an intra-corpus back-reference token is not a local file:line. Print for visibility; P6 WARN
+#     still fires because [BNNN] tokens are a common cross-reference idiom (5k+ fleet-wide) and
+#     suppressing P6 on their presence would silence the anti-silent-zero guard on real evidence blocks.
+synth_refs=$(grep -oE '\[B[0-9]+\]' "$block" | sort -u)
+if [ -n "$synth_refs" ]; then
+  while IFS= read -r sr; do
+    [ -z "$sr" ] && continue
+    echo "   synth-ref  $sr  (block back-reference — not file-verifiable)"  # VB1-SYNTH-REF
+  done <<< "$synth_refs"
+fi
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
   # exits 0 silently having checked nothing. Warn so the author notices the gap.

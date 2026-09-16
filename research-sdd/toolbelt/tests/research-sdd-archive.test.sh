@@ -987,6 +987,31 @@ if [ "$rc" = 0 ] && ! grep -qiE 'MISSING-RETRO.*REFUSE' <<<"$out"; then
   ok "37a MISSING-RETRO gate (neg): valid recent retro → archive passes (exit 0, no false positive)"
 else no "37a MISSING-RETRO gate (neg): exit=$rc (want 0) :: $(grep -iE 'MISSING-RETRO|REFUSE' <<<"$out" | head -1)"; fi
 
+# ==================== T-AR1 — --focus <name> scoping ====================
+
+# 38 — T-AR1: --focus alpha scopes UF gate to alpha only; beta's UF=1 must not block alpha's archive.
+d="$TMP/ar1-focus"; mkmulti "$d"
+awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' \
+  "$d/RESEARCH-STATE-beta.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-beta.md"
+out38="$(bash "$SUT" "$d" --focus alpha --dry-run 2>&1)"; rc38=$?
+[ "$rc38" = 0 ] \
+  && ok "38 T-AR1: --focus alpha scopes UF gate (beta UF=1 ignored) → archive passes (exit 0)" \
+  || no "38 T-AR1: --focus alpha: exit=$rc38 (want 0) :: $(grep -iE 'refuse|uf|undoc' <<<"$out38" | head -2)"
+
+# 39 — T-AR1: --focus with unknown slug → loud exit 2, error names the missing focus.
+d="$TMP/ar1-unknown"; mkmulti "$d"
+out39="$(bash "$SUT" "$d" --focus unknown-slug 2>&1)"; rc39=$?
+[ "$rc39" = 2 ] && grep -qi 'unknown-slug' <<<"$out39" \
+  && ok "39 T-AR1: --focus unknown-slug → exit 2, error names missing focus" \
+  || no "39 T-AR1: unknown-slug: exit=$rc39 (want 2) / mention=$(grep -ci 'unknown-slug' <<<"$out39") :: $(head -1 <<<"$out39")"
+
+# 40 — T-AR1 regression: no --focus → default behavior preserved (exit 0 on clean corpus).
+d="$TMP/ar1-default"; mkgood "$d"
+out40="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc40=$?
+[ "$rc40" = 0 ] \
+  && ok "40 T-AR1 regression: no --focus → archive proceeds normally (exit 0)" \
+  || no "40 T-AR1 regression: no --focus: exit=$rc40 (want 0) :: $(head -2 <<<"$out40")"
+
 # NEGATIVE CONTROL — neuter the gate in a mutant; the STALE fixture must then archive (exit 0) not refuse.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the gate in a mutant, expect the stale fixture to archive instead of refusing --"
@@ -1042,12 +1067,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth(uf-split): revert uf-gate scope from \$target to \$corpus; split-layout UF=1 must then archive --"
-  # The uf-gate line after the fix is: done < <(list_state_files "$target")
+  # The uf-gate enumeration is now in _uf_sf_src(); the fallback (non-focus-slug) path calls
+  # list_state_files "$target" with the AR1-FOCUS-SCOPE sentinel.
   # Reverting to "$corpus" reproduces the bug: corpus = first-focus dir, sibling focuses are skipped.
   # A missed sed is DETECTED rather than passing vacuously: the replacement appends a marker comment,
   # and we grep for it before running the mutant — if the grep fails, the sed did not find the line.
   mutantSplit="$TMP/archive.SPLITMUTANT.sh"
-  sed 's/list_state_files "\$target")/list_state_files "\$corpus")  # MUTANT-uf-split/' "$SUT" > "$mutantSplit"
+  sed 's/|| list_state_files "\$target"  # AR1-FOCUS-SCOPE/|| list_state_files "\$corpus"  # AR1-FOCUS-SCOPE  # MUTANT-uf-split/' "$SUT" > "$mutantSplit"
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
   cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
@@ -1135,6 +1161,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$mrgmrc" = 0 ]; then
       ok "teeth(missing-retro-gate): gate neutered → corpus-advanced archives (exit 0) — missing-retro gate is load-bearing"
     else no "teeth(missing-retro-gate): mutant exit=$mrgmrc (want 0) — gate may not depend on gate_rc=1 # missing-retro-gate-refuse (THEATER)"; fi
+  fi
+
+  # T-AR1 teeth: neuter AR1-FOCUS-SCOPE; --focus alpha must no longer scope UF gate → beta UF=1 blocks it.
+  echo "-- teeth-ar1: neuter AR1-FOCUS-SCOPE; --focus alpha must revert to full-corpus UF scan --"
+  mutant_ar1="$TMP/archive.AR1-MUTANT.sh"
+  sed 's/\[ -n "\$focus_slug" \] && printf.*# AR1-FOCUS-SCOPE/list_state_files "$target"  # AR1-FOCUS-SCOPE [MUTANT]/' "$SUT" > "$mutant_ar1"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
+  if ! grep -q 'AR1-FOCUS-SCOPE \[MUTANT\]' "$mutant_ar1"; then
+    no "teeth-ar1: could not build mutant (AR1-FOCUS-SCOPE sentinel not found in SUT)"
+  else
+    bash "$mutant_ar1" "$TMP/ar1-focus" --focus alpha --dry-run >/dev/null 2>&1; rc_ar1m=$?
+    [ "$rc_ar1m" = 3 ] \
+      && ok "teeth-ar1: mutant exit 3 on --focus alpha (beta UF=1 not scoped) — AR1 scope is load-bearing" \
+      || no "teeth-ar1: mutant exit=$rc_ar1m (want 3) — scope may not be load-bearing"
   fi
 fi
 
