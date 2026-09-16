@@ -21,7 +21,7 @@
 # Exit: 0 = archived (or dry-run); the GATE is the archive decision — consolidate steps are BEST-EFFORT and a
 #           failure there is reported LOUDLY (stderr + checklist) but keeps exit 0, so callers gate on 0/2/3.
 #       2 = bad args / no RESEARCH-STATE (nothing to archive).
-#       3 = REFUSED: a consistency gate (verify-state / verify-sources / MISSING-RETRO) did not pass — reconcile first.
+#       3 = REFUSED: a consistency gate (verify-state / verify-sources / scan-secrets / undocumented_findings / MISSING-RETRO) did not pass — reconcile first.
 set -uo pipefail
 
 target=""; dry=0

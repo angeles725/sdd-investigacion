@@ -2337,11 +2337,12 @@ done.
 
 **MISSING-RETRO detector.** A run that closed WITHOUT producing a fresh retro loses that run's feedback
 silently — nobody notices until much later, if ever. `research-sdd-archive.sh` checks this at close time
-(comparing the newest block's git-added date against the newest retro's) and prints an advisory WARN when
-the corpus advanced past its newest retro; [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) runs the
-same check across the whole fleet, surfacing a `MISSING-RETRO: <target> advanced with no retro for the
-latest run` line for every target that needs one. Like the rest of this section, it is surface-only
-(propose-never-apply) — it flags the gap for a human to act on, it never generates a retro itself.
+(comparing the newest block's git-added date against the newest retro's) and **REFUSES the close (exit 3)**
+when the corpus advanced past its newest retro (blocks > 0 and no qualifying retro ever, or newest block
+newer than newest retro); [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) runs the same check
+across the whole fleet, surfacing a `MISSING-RETRO: <target> advanced with no retro for the latest run`
+line for every target that needs one. The fleet sweep is surface-only (propose-never-apply); the archive
+gate is a hard refusal — it flags the gap and stops the close, it never generates a retro itself.
 
 **MISSING-RETRO grace window (sweep only).** When blocks and their retro arrive in the same session — the
 retro committed minutes after the last block — the fleet sweeper can falsely flag the corpus as neglected
@@ -2357,11 +2358,11 @@ the alert forever even years later — that is why it was rejected.
 
 The archive-time detector in `research-sdd-archive.sh` deliberately carries NO grace window. The asymmetry is
 intentional: archive runs at the moment of human close — that IS the end of the in-flight period, so
-in-flight tolerance is a category error there. A grace window in the archive would suppress the warning on
+in-flight tolerance is a category error there. A grace window in the archive would suppress the refusal on
 essentially every real close (the block was just committed), making the instrument quieter than it was before
 the window existed. The archive's governing principle is "noisy beats silent"; at close time the right
-behaviour is to be loud, not to defer. Any inconsistency between a swept MISSING-RETRO and a silent archive
-close would be confusing; the deliberate choice here is to make them asymmetric by design, not by accident.
+behaviour is to refuse, not to defer. The archive gate and the fleet sweep are explicitly asymmetric by
+design: the sweep warns and defers (surface-only); the archive refuses and stops.
 
 **Retro-waived convention.** Some targets run exploratory or throwaway sessions where a formal §18 retro
 would produce no useful delta — the run's every lesson is already encoded from a prior run, or the run was
