@@ -848,6 +848,47 @@ grep -qiE 'row scan FAILED|row count unavailable' <<<"$out_vs49" \
   && { printf '  PASS  %-42s (WARN emitted)\n' "49 row-scan grep exit-2 → WARN"; pass=$((pass+1)); } \
   || { printf '  FAIL  %-42s :: %s\n' "49 row-scan grep exit-2 not reported" "$out_vs49"; fail=$((fail+1)); }
 
+# 50 — T-VS1: .jsonl cited but not on disk → LEVEL 3 must catch it (extract full .jsonl path, not .json).
+d_vs1_jsonl="$TMP/vs1-jsonl"; mkdir -p "$d_vs1_jsonl/sources"
+block "$d_vs1_jsonl/vs1-block1.md" '# Block 1' 'Evidence at sources/data.jsonl (raw event stream).'
+out_vs1_jsonl="$(bash "$SUT" "$d_vs1_jsonl" 2>&1)"; rc_vs1_jsonl=$?
+if [ "$rc_vs1_jsonl" = 1 ] && grep -qF 'sources/data.jsonl' <<<"$out_vs1_jsonl"; then
+  printf '  PASS  %-42s (exit 1, correct path in output)\n' "50 T-VS1: .jsonl cited-but-missing → LEVEL 3 caught"; pass=$((pass+1))
+else
+  printf '  FAIL  %-42s :: rc=%s jsonl=%s out=%s\n' "50 T-VS1: .jsonl not caught correctly" "$rc_vs1_jsonl" "$(grep -c 'data.jsonl' <<<"$out_vs1_jsonl")" "$(grep 'sources/' <<<"$out_vs1_jsonl" | head -1)"; fail=$((fail+1))
+fi
+
+# 51 — T-VS1: .ndjson cited but not on disk → LEVEL 3 must catch it.
+d_vs1_ndjson="$TMP/vs1-ndjson"; mkdir -p "$d_vs1_ndjson/sources"
+block "$d_vs1_ndjson/vs1-block1.md" '# Block 1' 'Log data at sources/events.ndjson.'
+out_vs1_ndjson="$(bash "$SUT" "$d_vs1_ndjson" 2>&1)"; rc_vs1_ndjson=$?
+if [ "$rc_vs1_ndjson" = 1 ] && grep -qF 'sources/events.ndjson' <<<"$out_vs1_ndjson"; then
+  printf '  PASS  %-42s (exit 1)\n' "51 T-VS1: .ndjson cited-but-missing → LEVEL 3 caught"; pass=$((pass+1))
+else
+  printf '  FAIL  %-42s :: rc=%s ndjson=%s\n' "51 T-VS1: .ndjson not caught" "$rc_vs1_ndjson" "$(grep -c 'events.ndjson' <<<"$out_vs1_ndjson")"; fail=$((fail+1))
+fi
+
+# 52 — T-VS1: .tar.gz cited but not on disk → LEVEL 3 must catch it.
+d_vs1_tgz="$TMP/vs1-tgz"; mkdir -p "$d_vs1_tgz/sources"
+block "$d_vs1_tgz/vs1-block1.md" '# Block 1' 'Snapshot at sources/archive.tar.gz.'
+out_vs1_tgz="$(bash "$SUT" "$d_vs1_tgz" 2>&1)"; rc_vs1_tgz=$?
+if [ "$rc_vs1_tgz" = 1 ] && grep -qF 'sources/archive.tar.gz' <<<"$out_vs1_tgz"; then
+  printf '  PASS  %-42s (exit 1)\n' "52 T-VS1: .tar.gz cited-but-missing → LEVEL 3 caught"; pass=$((pass+1))
+else
+  printf '  FAIL  %-42s :: rc=%s tgz=%s\n' "52 T-VS1: .tar.gz not caught" "$rc_vs1_tgz" "$(grep -c 'archive.tar.gz' <<<"$out_vs1_tgz")"; fail=$((fail+1))
+fi
+
+# 53 — T-VS1: .jsonl cited AND exists on disk → LEVEL 3 passes (exit 0, no false-positive).
+d_vs1_ok="$TMP/vs1-jsonl-ok"; mkdir -p "$d_vs1_ok/sources"
+printf 'data\n' > "$d_vs1_ok/sources/data.jsonl"
+block "$d_vs1_ok/vs1-block1.md" '# Block 1' 'Evidence at sources/data.jsonl (raw event stream).'
+out_vs1_ok="$(bash "$SUT" "$d_vs1_ok" 2>&1)"; rc_vs1_ok=$?
+if [ "$rc_vs1_ok" = 0 ]; then
+  printf '  PASS  %-42s (exit 0)\n' "53 T-VS1: .jsonl cited and exists → LEVEL 3 passes"; pass=$((pass+1))
+else
+  printf '  FAIL  %-42s :: rc=%s %s\n' "53 T-VS1: existing .jsonl falsely failed" "$rc_vs1_ok" "$(grep -iE 'cited-but|missing' <<<"$out_vs1_ok" | head -1)"; fail=$((fail+1))
+fi
+
 # ---------------------------------------------------------------------------
 # NEGATIVE CONTROL — prove the FLAGSHIP test has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1163,6 +1204,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         printf '  FAIL  %-42s mutant exit %s (expected 0) — asymmetric guard may not be load-bearing.\n' "teeth: L6-FIELD-GUARD-ASYM" "$_ml6asym_rc"; fail=$((fail+1))
       fi
     fi
+  fi
+
+  # T-VS1 teeth: revert LEVEL 3 regex (remove jsonl|ndjson|gz|); .ndjson fixture must false-pass (silent miss).
+  echo "-- teeth-vs1: revert LEVEL 3 regex (drop jsonl/ndjson/gz); .ndjson fixture must no longer be caught --"
+  mutant_vs1="$TMP/verify-sources.VS1-MUTANT.sh"
+  sed 's/# VS1-LEVEL3-REGEX$/# VS1-LEVEL3-REGEX [MUTANT]/' \
+    "$SUT" | sed 's/(jsonl|ndjson|gz|/(/' > "$mutant_vs1"
+  if ! grep -q 'VS1-LEVEL3-REGEX \[MUTANT\]' "$mutant_vs1"; then
+    printf '  FAIL  %-42s\n' "teeth-vs1: could not build VS1 mutant (VS1-LEVEL3-REGEX sentinel not found)"; fail=$((fail+1))
+  else
+    bash "$mutant_vs1" "$d_vs1_ndjson" >/dev/null 2>&1; rc_vs1m=$?
+    [ "$rc_vs1m" = 1 ] \
+      && { printf '  FAIL  %-42s :: exit %s\n' "teeth-vs1: reverted regex still catches .ndjson — THEATER" "$rc_vs1m"; fail=$((fail+1)); } \
+      || { printf '  PASS  %-42s (.ndjson silently passes on revert)\n' "teeth-vs1: LEVEL 3 revert → .ndjson false-passes"; pass=$((pass+1)); }
   fi
 
   # Teeth for test 49: neutralize _vsrc_rows_rc so row-scan error passes silently → test 49 goes red.

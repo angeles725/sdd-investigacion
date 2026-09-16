@@ -1804,6 +1804,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-NM: orig warns=[$(grep -ci 'near-miss' <<<"$nm_warn_orig")] mut warns=[$(grep -ci 'near-miss' <<<"$nm_warn_mut")] — WARN not load-bearing"
     fi
   fi
+
 fi
 
 echo "== $pass passed · $fail failed =="

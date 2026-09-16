@@ -788,6 +788,49 @@ else
   no "60 P6-BQ-STRIP: wrong output :: $(grep -iE 'WARN|INFO|GAP|token' <<<"$out" | head -3)"
 fi
 
+# 61 — T-VB1: jar!entry citation only → jar-entry visibility line printed AND P6 WARN still fires.
+# Jar paths are not file:line citations; the anti-silent-zero guard must still fire so the author
+# knows the citation gate checked nothing resolvable.
+d="$TMP/vb1-jar.md"
+{ echo "# Block — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "JAR entry control-rt.jar!META-INF/module.xml pinned at v3.2. [CERT]"; } > "$d"
+out="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'jar-entry' <<<"$out" && grep -qiE 'WARN.*ZERO.*citation|WARN.*checked nothing' <<<"$out"; then
+  ok "61 T-VB1: jar!entry → jar-entry printed AND P6 WARN fires (anti-silent-zero preserved)"
+else
+  no "61 T-VB1: wrong output: jar=$(grep -ci 'jar-entry' <<<"$out") warn=$(grep -ciE 'WARN.*ZERO|WARN.*nothing' <<<"$out") :: $(grep -iE 'jar|WARN|CERT' <<<"$out" | head -3)"
+fi
+
+# 62 — T-VB1: [BNNN] back-reference only → synth-ref visibility line printed AND P6 WARN still fires.
+# [BNNN] tokens are a common corpus cross-reference idiom (5k+ fleet-wide), not file:line citations;
+# suppressing the WARN on their presence would silence the anti-silent-zero guard on real evidence blocks.
+d="$TMP/vb1-synth.md"
+{ echo "# Block — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "As established in [B7] and [B12], the pattern holds. [CERT]"; } > "$d"
+out="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -q 'synth-ref' <<<"$out" && grep -qiE 'WARN.*ZERO.*citation|WARN.*checked nothing' <<<"$out"; then
+  ok "62 T-VB1: [BNNN] back-ref → synth-ref printed AND P6 WARN fires (anti-silent-zero preserved)"
+else
+  no "62 T-VB1: wrong output: synth=$(grep -ci 'synth-ref' <<<"$out") warn=$(grep -ciE 'WARN.*ZERO|WARN.*nothing' <<<"$out") :: $(grep -iE 'synth|WARN|CERT' <<<"$out" | head -3)"
+fi
+
+# 63 — T-VB1: genuinely NO citations (no jar, no synth, no file:line) → P6 WARN fires (anti-silent-zero).
+d="$TMP/vb1-nocite.md"
+{ echo "# Block — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "---"; echo
+  echo "No citations at all. [CERT]"; } > "$d"
+out="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -qiE 'WARN.*ZERO.*citation|WARN.*checked nothing' <<<"$out"; then
+  ok "63 T-VB1: no citations → P6 WARN still fires (anti-silent-zero preserved)"
+else
+  no "63 T-VB1: P6 WARN missing on genuinely-uncited block :: $(grep -iE 'WARN|INFO|CERT' <<<"$out" | head -3)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -1174,6 +1217,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-bq-strip: P6-BQ-STRIP or P6-BQ-TYPECASE sentinel not found in SUT"
+  fi
+
+  # T-VB1 teeth-jar-entry: neuter the jar-entry echo line (VB1-JAR-ENTRY-CITE sentinel);
+  # jar!entry fixture must no longer print the jar-entry visibility line.
+  echo "-- teeth-vb1-jar-entry: neuter VB1-JAR-ENTRY-CITE echo; jar!entry visibility must disappear --"
+  mutant_vb1="$TMP/verify-block.VB1-MUTANT.sh"
+  sed 's/echo.*jar-entry.*# VB1-JAR-ENTRY-CITE/: # VB1-JAR-ENTRY-CITE [MUTANT]/' "$SUT" > "$mutant_vb1"
+  if ! grep -q 'VB1-JAR-ENTRY-CITE \[MUTANT\]' "$mutant_vb1"; then
+    no "teeth-vb1-jar-entry: could not build mutant (VB1-JAR-ENTRY-CITE sentinel not found in SUT — did the SUT change?)"
+  else
+    orig_vb1="$(bash "$SUT" "$TMP/vb1-jar.md" 2>/dev/null)"
+    mut_vb1="$(bash "$mutant_vb1" "$TMP/vb1-jar.md" 2>/dev/null)"
+    orig_has_jar=0; mut_no_jar=0
+    grep -q 'jar-entry' <<<"$orig_vb1" && orig_has_jar=1
+    ! grep -q 'jar-entry' <<<"$mut_vb1" && mut_no_jar=1
+    if [ "$orig_has_jar$mut_no_jar" = "11" ]; then
+      ok "teeth-vb1-jar-entry: original shows jar-entry, mutant does not → echo line is load-bearing"
+    else
+      no "teeth-vb1-jar-entry: orig_has_jar=$orig_has_jar mut_no_jar=$mut_no_jar (want 1 1)"
+    fi
+  fi
+
+  # T-VB1 teeth-synth-ref: neuter the synth-ref echo line (VB1-SYNTH-REF sentinel);
+  # [BNNN]-only fixture must no longer print the synth-ref visibility line.
+  echo "-- teeth-vb1-synth-ref: neuter VB1-SYNTH-REF echo; back-ref visibility must disappear --"
+  mutant_vb1s="$TMP/verify-block.VB1S-MUTANT.sh"
+  sed 's/echo.*synth-ref.*# VB1-SYNTH-REF/: # VB1-SYNTH-REF [MUTANT]/' "$SUT" > "$mutant_vb1s"
+  if ! grep -q 'VB1-SYNTH-REF \[MUTANT\]' "$mutant_vb1s"; then
+    no "teeth-vb1-synth-ref: could not build mutant (VB1-SYNTH-REF sentinel not found in SUT — did the SUT change?)"
+  else
+    orig_vb1s="$(bash "$SUT" "$TMP/vb1-synth.md" 2>/dev/null)"
+    mut_vb1s="$(bash "$mutant_vb1s" "$TMP/vb1-synth.md" 2>/dev/null)"
+    orig_has_synth=0; mut_no_synth=0
+    grep -q 'synth-ref' <<<"$orig_vb1s" && orig_has_synth=1
+    ! grep -q 'synth-ref' <<<"$mut_vb1s" && mut_no_synth=1
+    if [ "$orig_has_synth$mut_no_synth" = "11" ]; then
+      ok "teeth-vb1-synth-ref: original shows synth-ref, mutant does not → echo line is load-bearing"
+    else
+      no "teeth-vb1-synth-ref: orig_has_synth=$orig_has_synth mut_no_synth=$mut_no_synth (want 1 1)"
+    fi
   fi
 fi
 
