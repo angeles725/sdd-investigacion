@@ -25,7 +25,10 @@
 > synthesis combined (a section draws `[INFER]` across PRIOR blocks) | `absence-centred` — the primary
 > finding IS a proven absence | `capture` — §20 document mode (records known/done; no gap backlog) |
 > `document` (alias of `capture`) | `collaborative` — agent-authored evidence half + `[TO ANNOTATE]`
-> placeholders for the human; valid in its partial state, NOT a coverage gap (METHODOLOGY §4) | `audit`.
+> placeholders for the human; valid in its partial state, NOT a coverage gap (METHODOLOGY §4) | `audit` |
+> `decision` — choice among alternatives (migration pick, tool selection, architecture ruling); high `[INFER]`
+> ratio and zero `file:line` expected, as with `synthesis`; `verify-block.sh` does not yet read this token
+> and will WARN.
 > `verify-block.sh` downgrades the ZERO-citations WARN to INFO for `synthesis`, `capture`, `document`, and
 > `absence-centred`; all other tokens keep the WARN (METHODOLOGY §11, kit issue #422).
 >

@@ -141,6 +141,35 @@ taxonomy, so they were decided together:
   evidence for identity. (A live station's default dashboard showed 2 cards `[CERT-live]` while a real on-disk
   config held the true 20-type / 26-card catalog.) The live instance still WINS on identity — it just cannot
   certify a breadth it never had to render.
+- **Tracker-close is not a fix in your build.** A tracker item marked closed/resolved is `[CERT-web]`
+  evidence about the TRACKER STATE, not `[CERT-hw]`/`[CERT]` evidence about the version you have installed.
+  Before treating a "closed" CVE or issue as resolved, verify the fix is present in the installed build —
+  code-check or live probe. The installed/live evidence outranks the tracker exactly as live outranks doc.
+  (Source: 2026-09-16-blender-llm-b15-b16-source-and-security-retro.md delta #1)
+- **Name the gate condition for a gated defect.** When a defect is GATED — code present but unreachable
+  until a specific action enables it (enabling a provider, deploying a handler, granting a flag) — the gate
+  condition is a FIRST-CLASS component of the exploitability verdict alongside the static defect claim. Extend
+  the static-defect / runtime-exploitability split above: record "what flips this live" in the same block as
+  the defect. A verdict of "present" or "benign" without the gate is incomplete.
+  (Source: 2026-09-16-blender-llm-b15-b16-source-and-security-retro.md delta #3)
+- **In-code maintainer comments are primary-source evidence.** An inline comment stating a safety invariant
+  or contract (e.g. `"never call X from here — not thread-safe, silently lost"`) is a legitimate `[CERT]`
+  citation for the INTENT of that code, distinct from the behaviour the code implements. Cite it by `file:line`
+  like any other source — it is first-party, versioned, and co-located with the implementation. Do not
+  downgrade it to `[CERT-a]` merely because it is prose.
+  (Source: 2026-09-16-blender-llm-b10-bridge-threading-retro.md delta #2)
+- **CAPABILITY ≠ ENABLED.** For a pluggable integration (asset providers, optional backends, feature flags),
+  documentation saying the system SUPPORTS X is `[CERT-web]` evidence about capability — not evidence X is
+  currently ON. Query the live status endpoint and record supported-vs-enabled separately. A `[CERT-web]`
+  "supports" claim and a `[CERT-hw]` "enabled right now" claim answer different questions; conflating them
+  inflates the attack surface assessment (cf. §12 GATED-BY-DEPLOYMENT).
+  (Source: 2026-09-16-blender-llm-b14-asset-pipeline-retro.md delta #1)
+- **Per-record certainty for heuristic datasets.** When a block emits a DATASET produced by a heuristic
+  algorithm (not a set of individual prose claims), certainty markers must travel per record — each record
+  carrying its own evidence class, match evidence, and issues list. A single block-level confidence annotation
+  is unusable downstream; a record the heuristic could not match is either `[INFER]` or an explicit
+  `unmatched` entry, never a silent drop.
+  (Source: 2026-09-16-blender-llm-b17-b20-duct-pipeline-retro.md delta #5)
 
 **`[INFER]` sub-convention — a "corpus-assigned" value.** A distinct, disciplined use of `[INFER]`: a source
 specifies a value by named ROLE only (not a concrete value), and the researcher ASSIGNS the concrete value. This
@@ -254,7 +283,11 @@ Each block is self-contained but linked. Size according to source density, not b
 **Block `Type` field — closed grammar (kit issues #128, #422).** The header blockquote's `**Type:**` line is read by
 its LEADING token, after stripping at most one leading `**`; everything after the token is free decoration. Legal
 tokens: `standard` (the default — omit the line), `evidence` (alias of `standard`), `synthesis`, `mixed`,
-`absence-centred`, `capture`, `document` (alias of `capture`), `collaborative`, `audit`. Why a closed grammar: the
+`absence-centred`, `capture`, `document` (alias of `capture`), `collaborative`, `audit`, `decision` (a block
+whose deliverable is a choice among alternatives — migration pick, tool selection, architecture ruling; a high
+`[INFER]` ratio and zero `file:line` citations are expected and correct for this type, as with `synthesis`;
+`verify-block.sh` does not yet read this token and will WARN on it — a future instrument PR should grade
+it as INFO for the ZERO-citations warning). (Source: 2026-09-16-blender-llm-b11-migration-decision-retro.md delta #1) Why a closed grammar: the
 template listed five values while real blocks wrote `evidence (primary modbus spec)`, `synthesis (no new
 decompilation)`, `document / runbook` — 8 of 763 niagara blocks declared any type and none used a template value, so
 no instrument could ever read it (the same free-form-cell failure as the TARGETS.md maturity cell and the FOCUSES.md
@@ -480,6 +513,8 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 **Slot vs. reader-derived value (API/facade boundary).** When documenting a data contract that crosses a servlet or facade boundary, distinguish a REAL slot (one the facade emits directly) from a reader-DERIVED value (one the servlet computes from anchor slots at read time) BEFORE naming any ord. Read the reader code (e.g. `DashboardReader.java`) — a derived value is absent from the oBIX facade; a facade poller will never find it and must instead read the anchor slots and recompute. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #2)
 
 **Control-write contract is incomplete without interlock semantics.** When relaying or documenting a control-WRITE ord (e.g. an HOA mode that overrides an automation loop), surface what interlocks the write bypasses and what safety limits it still respects. A write-ord contract that names only the values (`0/1/2`) without its interlock and safety semantics is evidence of what the write does, not evidence of what it may harm. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #5)
+
+**App INSTALL / artifact as a first-order source.** When the vendor ships an INSTALL tree (setup.exe, .msi, .dmg, or equivalent) alongside the binary being analyzed, treat its configuration files, XML schemas, limit tables, and resource templates as FIRST-ORDER evidence — outranking inference from the decompiled binary when both disagree. The install's declared values (threshold tables, unit labels, constraint XML) are the literal contract; the decompiler can only guess at them from float-constant pools. Preserve relevant install-tree files in `sources/` like any other primary source and cite them as `[CERT]` via `file:line` (not `[CERT-doc]` — they are first-party configuration, not downloaded documentation). (Source: 2026-09-13-mejora-continua-de-la-doctrina.md row 4)
 
 ## 6. Research tools
 
@@ -1074,6 +1109,13 @@ auto-applies. Migration classes to address:
     it is safely wrong. A conservation law does not degrade: a candidate either satisfies it or does not, at
     any distance. Prefer the physical constraint as the primary FILTER and geometry as the tiebreak.
     (see CONSERVATION CHECK, §11) (Source: blender-llm B29/B32)
+11. **PROPRIETARY-OPERATOR-DATA discipline.** When the research subject is the operator's own non-secret but
+    confidential data (client CAD plans, a BOM, a project inventory), cite the SCHEMA + ONE representative
+    record + aggregate statistics — keep the raw full inventory in the operator's own location, never copy it
+    wholesale into the corpus. Preserve only researcher-computed derivations and schemas. This is distinct from
+    SECRETS DISCIPLINE (which covers credentials/keys): confidential-but-non-secret engineering data uses a
+    structure+sample contract, not a structure-only redaction.
+    (Source: 2026-09-16-blender-llm-b12-b13-cad-application-retro.md delta #1)
 
 Corpus language: **English by default** — for new targets and targets with no existing corpus.
 **Exception (user-approved, per target):** a target with an established corpus in another language MAY
@@ -2282,6 +2324,8 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   per iteration, declare it explicitly a focus-boundary-only field and have the tooling read the TRUE on-disk
   block count in between rather than trusting the stale parent line.
 
+**Consolidation focus.** When the deliverable is a REFERENCE TABLE or master synthesis rather than new evidence discovery, declare the focus angle as a consolidation focus. Characteristics: most gaps are REMITTANCE (pre-declared before the sweep begins); the audit sweep targets what is NOT yet consolidated, not what is not yet investigated; the closing block is a synthesis/reference block, not a new evidence block; `[INFER]`/`[CERT]` ratios expected to be high in the synthesis block. This sets correct angle expectations at bootstrap (PROMPT-LOOP step b2) and avoids misleading low-citation WARNs on the synthesis block. (Source: 2026-08-29-ports-focus-retro.md DELTA-2)
+
 **Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2)
 
 **Peer-session-triggered focus.** A focus may be requested by a PEER agent session (a teammate Claude), not the human operator, and its deliverable may be returned to that peer as consumer. Disciplines: (1) a peer-supplied backlog is a valid seed PROVIDED the driver still pre-declares remittances (BOOTSTRAP e) and runs the per-gap prior-coverage check; (2) the cross-session deliverable is a MIRROR, not the record — corpus blocks remain the citable artifact; (3) consumer identity does not waive census (or its declared inheritance, §6 focus-inherited census), source-preservation, or self-verify obligations. (Source: 2026-08-30-alarm-webhook-focus-retro.md D2)
@@ -2901,6 +2945,12 @@ no-match distinction still applies — never a bare zero):
   finding of zero: preserve the typed `unavailable` state, never coerce it to PASS or 0.
 - `refused` — the capability exists but declined (permission/gate/authorization). Record the refusal
   scope; never retry-loop or launder it through another actor.
+- `not-extracted` — the source EXISTS in a shipped artifact (jar, archive) but was never decompiled
+  or extracted into the corpus tree. Distinct from `unavailable` (instrument ran, backend absent) and
+  `blocked-on-tool` (capability not installed). Resolution path: re-run the decompiler on that
+  specific artifact — not "install a tool" or "find a live backend". Record the class-absence
+  evidence (`find`/`grep class <Name> = empty` + `ls <module>/` confirms archive-only).
+  (Source: 2026-09-14-module-mechanics-closeout-retro.md C1)
 
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
