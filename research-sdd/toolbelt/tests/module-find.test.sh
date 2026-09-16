@@ -4,8 +4,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../module-find.sh"
-FIXTURES="$HERE/fixtures/module-find"
-mkdir -p "$FIXTURES"
 
 [ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
@@ -15,22 +13,22 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# FX: all fixture generation goes into tmpdir — never into the committed tree
+FX="$ROOT/mf_fixtures"
 
 # ---------------------------------------------------------------------------
 # Build hermetic fixture source trees (never inside a live target dir).
-# Fixtures are written once and not regenerated if already present.
+# All fixtures are generated fresh into $FX (tmpdir) on every run.
 # ---------------------------------------------------------------------------
-python3 - "$FIXTURES" <<'PY'
+python3 - "$FX" <<'PY'
 import os, sys
 
 out = sys.argv[1]
 
 def write(p, content):
-    """Write fixture file; skip if already present (idempotent)."""
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    if not os.path.exists(p):
-        with open(p, 'w', encoding='utf-8') as f:
-            f.write(content)
+    with open(p, 'w', encoding='utf-8') as f:
+        f.write(content)
 
 # slot-tree: a minimal Java module source with known annotations
 # BSlotClass: single-line NiagaraProperty + multi-line NiagaraProperty + extends + action
@@ -80,16 +78,15 @@ PY
 # ---------------------------------------------------------------------------
 # Fixture generation for new test cases (container, comment-paren, isreg, unreadable, containment)
 # ---------------------------------------------------------------------------
-python3 - "$FIXTURES" <<'PY2'
+python3 - "$FX" <<'PY2'
 import os, sys
 
 out = sys.argv[1]
 
 def write(p, content):
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    if not os.path.exists(p):
-        with open(p, 'w', encoding='utf-8') as f:
-            f.write(content)
+    with open(p, 'w', encoding='utf-8') as f:
+        f.write(content)
 
 # container-tree: class with container-form @NiagaraProperties({...}) and @NiagaraActions({...})
 # This is the BLOCKER fixture: tool must emit one record per nested annotation, not one total.
@@ -158,7 +155,7 @@ fi
 # ---------------------------------------------------------------------------
 # T2: symlink root → exit 2 (symlink guard on source root)
 # ---------------------------------------------------------------------------
-ln -sf "$FIXTURES/slot-tree" "$ROOT/sym-tree"
+ln -sf "$FX/slot-tree" "$ROOT/sym-tree"
 _t2_exit=0
 "$SUT" "$ROOT/sym-tree" --output "$ROOT/t2.json" 2>/dev/null \
   || _t2_exit=$?
@@ -199,7 +196,7 @@ fi
 #     Proves the instrument looked (scanned key present, not absent)
 # ---------------------------------------------------------------------------
 _t5_exit=0
-"$SUT" "$FIXTURES/empty-tree" --output "$ROOT/t5.json" 2>/dev/null \
+"$SUT" "$FX/empty-tree" --output "$ROOT/t5.json" 2>/dev/null \
   || _t5_exit=$?
 if [ "$_t5_exit" -eq 0 ]; then
   if python3 - "$ROOT/t5.json" <<'PY' 2>/dev/null
@@ -227,7 +224,7 @@ fi
 #     Dot-dir (.hidden/) must be pruned (noise slot must not appear).
 # ---------------------------------------------------------------------------
 _t6_exit=0
-"$SUT" "$FIXTURES/slot-tree" --output "$ROOT/t6.json" 2>/dev/null \
+"$SUT" "$FX/slot-tree" --output "$ROOT/t6.json" 2>/dev/null \
   || _t6_exit=$?
 if [ "$_t6_exit" -eq 0 ]; then
   if python3 - "$ROOT/t6.json" <<'PY' 2>/dev/null
@@ -274,7 +271,7 @@ fi
 #     Distinguishes "no-match" from "empty tree" (scanned > 0 proves it looked)
 # ---------------------------------------------------------------------------
 _t7_exit=0
-"$SUT" "$FIXTURES/no-annotations" --output "$ROOT/t7.json" 2>/dev/null \
+"$SUT" "$FX/no-annotations" --output "$ROOT/t7.json" 2>/dev/null \
   || _t7_exit=$?
 if [ "$_t7_exit" -eq 0 ]; then
   if python3 - "$ROOT/t7.json" <<'PY' 2>/dev/null
@@ -301,7 +298,7 @@ fi
 echo "victim-content" > "$ROOT/victim.txt"
 ln -sf "$ROOT/victim.txt" "$ROOT/out_sym.json"
 _t8_exit=0
-"$SUT" "$FIXTURES/slot-tree" --output "$ROOT/out_sym.json" \
+"$SUT" "$FX/slot-tree" --output "$ROOT/out_sym.json" \
   2>/dev/null || _t8_exit=$?
 _victim_ok=0
 [ "$(cat "$ROOT/victim.txt" 2>/dev/null)" = "victim-content" ] && _victim_ok=1
@@ -316,7 +313,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "existing" > "$ROOT/pre_existing.json"
 _t9_exit=0
-"$SUT" "$FIXTURES/slot-tree" --output "$ROOT/pre_existing.json" \
+"$SUT" "$FX/slot-tree" --output "$ROOT/pre_existing.json" \
   2>/dev/null || _t9_exit=$?
 if [ "$_t9_exit" -eq 2 ]; then
   ok "T9 pre-existing output: exit 2 (O_CREAT|O_EXCL refused)"
@@ -331,7 +328,7 @@ fi
 #      GREEN after fix: per-fragment split emits one record each.
 # ---------------------------------------------------------------------------
 _t10_exit=0
-"$SUT" "$FIXTURES/container-tree" --output "$ROOT/t10.json" 2>/dev/null \
+"$SUT" "$FX/container-tree" --output "$ROOT/t10.json" 2>/dev/null \
   || _t10_exit=$?
 if [ "$_t10_exit" -eq 0 ]; then
   if python3 - "$ROOT/t10.json" <<'PY' 2>/dev/null
@@ -369,7 +366,7 @@ fi
 #      GREEN after fix: comment parens stripped before counting.
 # ---------------------------------------------------------------------------
 _t11_exit=0
-"$SUT" "$FIXTURES/comment-paren-tree" --output "$ROOT/t11.json" 2>/dev/null \
+"$SUT" "$FX/comment-paren-tree" --output "$ROOT/t11.json" 2>/dev/null \
   || _t11_exit=$?
 if [ "$_t11_exit" -eq 0 ]; then
   if python3 - "$ROOT/t11.json" <<'PY' 2>/dev/null
@@ -398,9 +395,12 @@ fi
 #      Creates a symlink .java in the isreg-tree and verifies scanned count = 1
 #      (only the real BReal.java) and only 'realSlot' appears.
 # ---------------------------------------------------------------------------
-# Create symlink .java inside isreg-tree at test time (not in Python heredoc)
-_isreg_dir="$FIXTURES/isreg-tree"
-ln -sf "$FIXTURES/slot-tree/BSlotClass.java" "$_isreg_dir/BSymLink.java" 2>/dev/null || true
+# Build isreg-tree entirely in tmpdir: copy the regular file from $FX and
+# create the symlink there — never write into the committed tests/fixtures tree.
+_isreg_dir="$ROOT/isreg-tree"
+mkdir -p "$_isreg_dir"
+cp "$FX/isreg-tree/BReal.java" "$_isreg_dir/BReal.java"
+ln -s "$FX/slot-tree/BSlotClass.java" "$_isreg_dir/BSymLink.java"
 _t12_exit=0
 "$SUT" "$_isreg_dir" --output "$ROOT/t12.json" 2>/dev/null \
   || _t12_exit=$?
@@ -426,14 +426,15 @@ fi
 
 # ---------------------------------------------------------------------------
 # T13: unreadable .java → status:failed + exit 1
-#      chmod 000 the file before running the tool; restore after.
+#      chmod 000 the file inside $FX (tmpdir); $FX is cleaned by EXIT trap.
+#      The committed unreadable-tree/BUnreadable.java is never touched.
 # ---------------------------------------------------------------------------
-_unreadable_file="$FIXTURES/unreadable-tree/BUnreadable.java"
+_unreadable_file="$FX/unreadable-tree/BUnreadable.java"
 chmod 000 "$_unreadable_file" 2>/dev/null
 _t13_exit=0
-"$SUT" "$FIXTURES/unreadable-tree" --output "$ROOT/t13.json" 2>/dev/null \
+"$SUT" "$FX/unreadable-tree" --output "$ROOT/t13.json" 2>/dev/null \
   || _t13_exit=$?
-chmod 644 "$_unreadable_file" 2>/dev/null  # restore regardless
+chmod 644 "$_unreadable_file" 2>/dev/null  # defensive restore within tmpdir
 if [ "$_t13_exit" -eq 1 ]; then
   if python3 - "$ROOT/t13.json" <<'PY' 2>/dev/null
 import json, sys
@@ -457,7 +458,7 @@ fi
 # ---------------------------------------------------------------------------
 _cont_dir="$ROOT/containment-tree"
 mkdir -p "$_cont_dir"
-ln -sf "$FIXTURES/slot-tree" "$_cont_dir/escaped" 2>/dev/null || true
+ln -sf "$FX/slot-tree" "$_cont_dir/escaped" 2>/dev/null || true
 _t14_exit=0
 "$SUT" "$_cont_dir" --output "$ROOT/t14.json" 2>/dev/null \
   || _t14_exit=$?
@@ -580,7 +581,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
 else
   _m2_exit=0
   python3 "$MUTDIR/module_find.py" \
-    "$FIXTURES/slot-tree" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
+    "$FX/slot-tree" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
   _m2_setpoint=""
   if [ -f "$ROOT/m2.json" ]; then
     _m2_setpoint="$(python3 -c \
@@ -610,7 +611,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
 else
   _m3_exit=0
   python3 "$MUTDIR/module_find.py" \
-    "$FIXTURES/slot-tree" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
+    "$FX/slot-tree" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
   _m3_setpoint=""
   if [ -f "$ROOT/m3.json" ]; then
     _m3_setpoint="$(python3 -c \
@@ -641,7 +642,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
 else
   _m4_exit=0
   python3 "$MUTDIR/module_find.py" \
-    "$FIXTURES/container-tree" --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
+    "$FX/container-tree" --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
   # Check via @NiagaraActions({...}) container: stopOp must be missing when [:1] truncates.
   # The actions container is accumulated as one buf; _extract_annotation_fragments splits it.
   _m4_stopop=""

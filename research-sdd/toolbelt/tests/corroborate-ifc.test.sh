@@ -5,7 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../corroborate-ifc.sh"
 MANIFEST="$HERE/../analysis_manifest.py"
-FIXTURES="$HERE/fixtures/corroborate-ifc"
+# FIXTURES is assigned below after ROOT is created — generation goes into tmpdir
 
 # ---------------------------------------------------------------------------
 # Tool availability guards — skip cleanly when dependencies are absent
@@ -29,6 +29,8 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# Build fixtures into tmpdir — never into the committed tests/fixtures tree
+FIXTURES="$ROOT/ifc_fixtures"
 mkdir -p "$FIXTURES"
 
 # ---------------------------------------------------------------------------

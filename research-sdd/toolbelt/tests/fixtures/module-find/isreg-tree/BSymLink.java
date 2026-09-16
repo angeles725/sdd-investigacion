@@ -1,1 +1,0 @@
-/home/cristian/investigacion/sdd-investigacion/.claude/worktrees/agent-ade919430a1b66b0e/research-sdd/toolbelt/tests/fixtures/module-find/slot-tree/BSlotClass.java

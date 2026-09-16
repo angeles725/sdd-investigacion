@@ -4,9 +4,6 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../niagara-security-audit.sh"
-FIXTURES="$HERE/fixtures/niagara-security-audit"
-mkdir -p "$FIXTURES"
-
 [ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 
@@ -15,11 +12,19 @@ ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# FX: all fixture generation goes into tmpdir — never into the committed tree
+FX="$ROOT/fixtures"
+
+# Guard: FX must be under ROOT (tmpdir), not the committed tests/fixtures tree
+case "$FX" in
+  "$ROOT"*) ;;
+  *) echo "FATAL: FX=$FX must be under tmpdir ROOT=$ROOT" >&2; exit 2 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Build fixture install trees (hermetic; never inside a live target dir)
 # ---------------------------------------------------------------------------
-python3 - "$FIXTURES" <<'PY'
+python3 - "$FX" <<'PY'
 import os, sys, zipfile, io
 
 out = sys.argv[1]
@@ -138,16 +143,15 @@ make_jar(os.path.join(moddir, 'plain-unsigned.jar'),
 # ---- T24 fixture: bog-large.zip (file.xml > _MAX_BOG_INFLATE = 32 MiB) ----
 # Well-formed ZIP; content = 32 MiB + 1 byte of 'A' (no bog attributes).
 # Used to verify that the bounded-read guard truncates oversized entries.
-# Created once; subsequent runs reuse it.
+# Created fresh in $FX (tmpdir) on every run — no persistence needed.
 _bog_large = os.path.join(bogs, 'bog-large.zip')
-if not os.path.exists(_bog_large):
-    _cap_inflate = 32 * 1024 * 1024
-    _large_bytes = b'A' * (_cap_inflate + 1)
-    _buf = io.BytesIO()
-    with zipfile.ZipFile(_buf, 'w', zipfile.ZIP_DEFLATED) as _z:
-        _z.writestr('file.xml', _large_bytes)
-    with open(_bog_large, 'wb') as _f:
-        _f.write(_buf.getvalue())
+_cap_inflate = 32 * 1024 * 1024
+_large_bytes = b'A' * (_cap_inflate + 1)
+_buf = io.BytesIO()
+with zipfile.ZipFile(_buf, 'w', zipfile.ZIP_DEFLATED) as _z:
+    _z.writestr('file.xml', _large_bytes)
+with open(_bog_large, 'wb') as _f:
+    _f.write(_buf.getvalue())
 
 # ---- T25 fixture: jar-bomb-home with bomb.jar (module.xml > _MAX_MODULE_XML = 64 KiB) ----
 # Well-formed JAR; module.xml starts with a wildcard KeyRingPermission then 'A' padding.
@@ -181,7 +185,7 @@ fi
 # ---------------------------------------------------------------------------
 # T2: symlink root → exit 2 (symlink guard on install root)
 # ---------------------------------------------------------------------------
-ln -sf "$FIXTURES/secure-home" "$ROOT/sym-home"
+ln -sf "$FX/secure-home" "$ROOT/sym-home"
 _t2_exit=0
 "$SUT" "$ROOT/sym-home" --output "$ROOT/t2.json" 2>/dev/null \
   || _t2_exit=$?
@@ -209,7 +213,7 @@ fi
 #     (proves instrument looked; all checks are MANUAL/NA but count > 0)
 # ---------------------------------------------------------------------------
 _t4_exit=0
-"$SUT" "$FIXTURES/empty-home" --output "$ROOT/t4.json" 2>/dev/null \
+"$SUT" "$FX/empty-home" --output "$ROOT/t4.json" 2>/dev/null \
   || _t4_exit=$?
 if [ "$_t4_exit" -eq 0 ]; then
   if python3 - "$ROOT/t4.json" <<'PY' 2>/dev/null
@@ -235,7 +239,7 @@ fi
 # T5: secure install → exit 0, SEC-01/SEC-05/SEC-07 all PASS
 # ---------------------------------------------------------------------------
 _t5_exit=0
-"$SUT" "$FIXTURES/secure-home" --output "$ROOT/t5.json" 2>/dev/null \
+"$SUT" "$FX/secure-home" --output "$ROOT/t5.json" 2>/dev/null \
   || _t5_exit=$?
 if [ "$_t5_exit" -eq 0 ]; then
   if python3 - "$ROOT/t5.json" <<'PY' 2>/dev/null
@@ -264,7 +268,7 @@ fi
 # T6: insecure install → exit 0, SEC-01 FAIL, SEC-07 FAIL, checks_fail >= 2
 # ---------------------------------------------------------------------------
 _t6_exit=0
-"$SUT" "$FIXTURES/insecure-home" --output "$ROOT/t6.json" 2>/dev/null \
+"$SUT" "$FX/insecure-home" --output "$ROOT/t6.json" 2>/dev/null \
   || _t6_exit=$?
 if [ "$_t6_exit" -eq 0 ]; then
   if python3 - "$ROOT/t6.json" <<'PY' 2>/dev/null
@@ -295,7 +299,7 @@ fi
 echo "victim-content" > "$ROOT/victim.txt"
 ln -sf "$ROOT/victim.txt" "$ROOT/out_sym.json"
 _t7_exit=0
-"$SUT" "$FIXTURES/secure-home" --output "$ROOT/out_sym.json" \
+"$SUT" "$FX/secure-home" --output "$ROOT/out_sym.json" \
   2>/dev/null || _t7_exit=$?
 _victim_ok=0
 [ "$(cat "$ROOT/victim.txt" 2>/dev/null)" = "victim-content" ] && _victim_ok=1
@@ -310,7 +314,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "existing" > "$ROOT/pre_existing.json"
 _t8_exit=0
-"$SUT" "$FIXTURES/secure-home" --output "$ROOT/pre_existing.json" \
+"$SUT" "$FX/secure-home" --output "$ROOT/pre_existing.json" \
   2>/dev/null || _t8_exit=$?
 if [ "$_t8_exit" -eq 2 ]; then
   ok "T8 pre-existing output: exit 2 (O_CREAT|O_EXCL refused)"
@@ -322,7 +326,7 @@ fi
 # T9: SEC-16 always FAIL (architectural — no config knob exists)
 # ---------------------------------------------------------------------------
 _t9_exit=0
-"$SUT" "$FIXTURES/secure-home" --output "$ROOT/t9.json" 2>/dev/null \
+"$SUT" "$FX/secure-home" --output "$ROOT/t9.json" 2>/dev/null \
   || _t9_exit=$?
 if [ "$_t9_exit" -eq 0 ]; then
   if python3 - "$ROOT/t9.json" <<'PY' 2>/dev/null
@@ -347,8 +351,8 @@ fi
 #      (BLOCKER: raw-byte grep on deflated ZIP gave false PASS)
 # ---------------------------------------------------------------------------
 _t10_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-exec-on.zip" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-exec-on.zip" \
   --output "$ROOT/t10.json" 2>/dev/null || _t10_exit=$?
 if [ "$_t10_exit" -eq 0 ]; then
   if python3 - "$ROOT/t10.json" <<'PY' 2>/dev/null
@@ -371,8 +375,8 @@ fi
 # T11: ZIP bog + --station → SEC-08 PASS when exec=false
 # ---------------------------------------------------------------------------
 _t11_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-exec-off.zip" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-exec-off.zip" \
   --output "$ROOT/t11.json" 2>/dev/null || _t11_exit=$?
 if [ "$_t11_exit" -eq 0 ]; then
   if python3 - "$ROOT/t11.json" <<'PY' 2>/dev/null
@@ -396,8 +400,8 @@ fi
 #      (BLOCKER: raw bytes missed SyslogService in deflated data → false FAIL)
 # ---------------------------------------------------------------------------
 _t12_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-syslog-on.zip" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-syslog-on.zip" \
   --output "$ROOT/t12.json" 2>/dev/null || _t12_exit=$?
 if [ "$_t12_exit" -eq 0 ]; then
   if python3 - "$ROOT/t12.json" <<'PY' 2>/dev/null
@@ -421,8 +425,8 @@ fi
 #      (BLOCKER: wrong attr name EncryptionKeySource vs reversibleEncodingKeySource → false FAIL)
 # ---------------------------------------------------------------------------
 _t13_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-ext-key.zip" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-ext-key.zip" \
   --output "$ROOT/t13.json" 2>/dev/null || _t13_exit=$?
 if [ "$_t13_exit" -eq 0 ]; then
   if python3 - "$ROOT/t13.json" <<'PY' 2>/dev/null
@@ -445,8 +449,8 @@ fi
 # T14: ZIP bog + --station → SEC-12 FAIL when no encoding key source
 # ---------------------------------------------------------------------------
 _t14_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-no-key.zip" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-no-key.zip" \
   --output "$ROOT/t14.json" 2>/dev/null || _t14_exit=$?
 if [ "$_t14_exit" -eq 0 ]; then
   if python3 - "$ROOT/t14.json" <<'PY' 2>/dev/null
@@ -470,8 +474,8 @@ fi
 #      (format unrecognized → never a false PASS/FAIL)
 # ---------------------------------------------------------------------------
 _t15_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-binary.dat" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-binary.dat" \
   --output "$ROOT/t15.json" 2>/dev/null || _t15_exit=$?
 if [ "$_t15_exit" -eq 0 ]; then
   if python3 - "$ROOT/t15.json" <<'PY' 2>/dev/null
@@ -499,8 +503,8 @@ fi
 # T16: plaintext XML bog → SEC-08 FAIL when exec=true (non-ZIP path)
 # ---------------------------------------------------------------------------
 _t16_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-plaintext.xml" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-plaintext.xml" \
   --output "$ROOT/t16.json" 2>/dev/null || _t16_exit=$?
 if [ "$_t16_exit" -eq 0 ]; then
   if python3 - "$ROOT/t16.json" <<'PY' 2>/dev/null
@@ -524,7 +528,7 @@ fi
 #      (MINOR-1: absent dir → empty list → PASS was §7 wrong)
 # ---------------------------------------------------------------------------
 _t17_exit=0
-"$SUT" "$FIXTURES/insecure-home" --output "$ROOT/t17.json" 2>/dev/null \
+"$SUT" "$FX/insecure-home" --output "$ROOT/t17.json" 2>/dev/null \
   || _t17_exit=$?
 if [ "$_t17_exit" -eq 0 ]; then
   if python3 - "$ROOT/t17.json" <<'PY' 2>/dev/null
@@ -549,7 +553,7 @@ fi
 #      (MINOR-2: absent station must not collapse to not-given message)
 # ---------------------------------------------------------------------------
 _t18_exit=0
-"$SUT" "$FIXTURES/secure-home" \
+"$SUT" "$FX/secure-home" \
   --station "$ROOT/nonexistent-config.bog" \
   --output "$ROOT/t18.json" 2>/dev/null || _t18_exit=$?
 if [ "$_t18_exit" -eq 0 ]; then
@@ -628,7 +632,7 @@ fi
 #      (coverage: sec05_covered=True mutation must be catchable)
 # ---------------------------------------------------------------------------
 _t21_exit=0
-"$SUT" "$FIXTURES/insecure-home" --output "$ROOT/t21.json" 2>/dev/null \
+"$SUT" "$FX/insecure-home" --output "$ROOT/t21.json" 2>/dev/null \
   || _t21_exit=$?
 if [ "$_t21_exit" -eq 0 ]; then
   if python3 - "$ROOT/t21.json" <<'PY' 2>/dev/null
@@ -652,7 +656,7 @@ fi
 #      (coverage: lic_hits mutation must be catchable)
 # ---------------------------------------------------------------------------
 _t22_exit=0
-"$SUT" "$FIXTURES/lic-hit-home" --output "$ROOT/t22.json" 2>/dev/null \
+"$SUT" "$FX/lic-hit-home" --output "$ROOT/t22.json" 2>/dev/null \
   || _t22_exit=$?
 if [ "$_t22_exit" -eq 0 ]; then
   if python3 - "$ROOT/t22.json" <<'PY' 2>/dev/null
@@ -676,7 +680,7 @@ fi
 #      (coverage: keyring mutation must be catchable; also tests JAR count visibility)
 # ---------------------------------------------------------------------------
 _t23_exit=0
-"$SUT" "$FIXTURES/modules-wild-home" --output "$ROOT/t23.json" 2>/dev/null \
+"$SUT" "$FX/modules-wild-home" --output "$ROOT/t23.json" 2>/dev/null \
   || _t23_exit=$?
 if [ "$_t23_exit" -eq 0 ]; then
   if python3 - "$ROOT/t23.json" <<'PY' 2>/dev/null
@@ -706,8 +710,8 @@ fi
 #      M12 mutation (removing the guard) makes this test FAIL.
 # ---------------------------------------------------------------------------
 _t24_exit=0
-"$SUT" "$FIXTURES/secure-home" \
-  --station "$FIXTURES/bogs/bog-large.zip" \
+"$SUT" "$FX/secure-home" \
+  --station "$FX/bogs/bog-large.zip" \
   --output "$ROOT/t24.json" 2>/dev/null || _t24_exit=$?
 if [ "$_t24_exit" -eq 0 ]; then
   if python3 - "$ROOT/t24.json" <<'PY' 2>/dev/null
@@ -734,7 +738,7 @@ fi
 #      the bounded-read guard skips it.  M13 mutation reveals the wildcard (FAIL).
 # ---------------------------------------------------------------------------
 _t25_exit=0
-"$SUT" "$FIXTURES/jar-bomb-home" --output "$ROOT/t25.json" 2>/dev/null \
+"$SUT" "$FX/jar-bomb-home" --output "$ROOT/t25.json" 2>/dev/null \
   || _t25_exit=$?
 if [ "$_t25_exit" -eq 0 ]; then
   if python3 - "$ROOT/t25.json" <<'PY' 2>/dev/null
@@ -812,7 +816,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m2_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/insecure-home" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
+    "$FX/insecure-home" --output "$ROOT/m2.json" 2>/dev/null || _m2_exit=$?
   _m2_sec01=""
   if [ -f "$ROOT/m2.json" ]; then
     _m2_sec01="$(python3 -c \
@@ -840,7 +844,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m3_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/insecure-home" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
+    "$FX/insecure-home" --output "$ROOT/m3.json" 2>/dev/null || _m3_exit=$?
   _m3_sec07=""
   if [ -f "$ROOT/m3.json" ]; then
     _m3_sec07="$(python3 -c \
@@ -870,8 +874,8 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m4_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/secure-home" \
-    --station "$FIXTURES/bogs/bog-exec-on.zip" \
+    "$FX/secure-home" \
+    --station "$FX/bogs/bog-exec-on.zip" \
     --output "$ROOT/m4.json" 2>/dev/null || _m4_exit=$?
   _m4_sec08=""
   if [ -f "$ROOT/m4.json" ]; then
@@ -900,8 +904,8 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m5_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/secure-home" \
-    --station "$FIXTURES/bogs/bog-ext-key.zip" \
+    "$FX/secure-home" \
+    --station "$FX/bogs/bog-ext-key.zip" \
     --output "$ROOT/m5.json" 2>/dev/null || _m5_exit=$?
   _m5_sec12=""
   if [ -f "$ROOT/m5.json" ]; then
@@ -930,7 +934,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m6_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/insecure-home" --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
+    "$FX/insecure-home" --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
   _m6_sec06=""
   if [ -f "$ROOT/m6.json" ]; then
     _m6_sec06="$(python3 -c \
@@ -958,7 +962,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m7_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/secure-home" \
+    "$FX/secure-home" \
     --station "$ROOT/nonexistent-m7.bog" \
     --output "$ROOT/m7.json" 2>/dev/null || _m7_exit=$?
   _m7_obs=""
@@ -1011,7 +1015,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m9_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/insecure-home" --output "$ROOT/m9.json" 2>/dev/null || _m9_exit=$?
+    "$FX/insecure-home" --output "$ROOT/m9.json" 2>/dev/null || _m9_exit=$?
   _m9_sec05=""
   if [ -f "$ROOT/m9.json" ]; then
     _m9_sec05="$(python3 -c \
@@ -1043,7 +1047,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m10_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/lic-hit-home" --output "$ROOT/m10.json" 2>/dev/null || _m10_exit=$?
+    "$FX/lic-hit-home" --output "$ROOT/m10.json" 2>/dev/null || _m10_exit=$?
   _m10_sec06=""
   if [ -f "$ROOT/m10.json" ]; then
     _m10_sec06="$(python3 -c \
@@ -1071,7 +1075,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m11_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/modules-wild-home" --output "$ROOT/m11.json" 2>/dev/null || _m11_exit=$?
+    "$FX/modules-wild-home" --output "$ROOT/m11.json" 2>/dev/null || _m11_exit=$?
   _m11_sec15=""
   if [ -f "$ROOT/m11.json" ]; then
     _m11_sec15="$(python3 -c \
@@ -1101,8 +1105,8 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m12_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/secure-home" \
-    --station "$FIXTURES/bogs/bog-large.zip" \
+    "$FX/secure-home" \
+    --station "$FX/bogs/bog-large.zip" \
     --output "$ROOT/m12.json" 2>/dev/null || _m12_exit=$?
   _m12_sec08=""
   if [ -f "$ROOT/m12.json" ]; then
@@ -1133,7 +1137,7 @@ elif cmp -s "$ORIG_PY" "$MUTDIR/niagara_security_audit.py"; then
 else
   _m13_exit=0
   python3 "$MUTDIR/niagara_security_audit.py" \
-    "$FIXTURES/jar-bomb-home" --output "$ROOT/m13.json" 2>/dev/null || _m13_exit=$?
+    "$FX/jar-bomb-home" --output "$ROOT/m13.json" 2>/dev/null || _m13_exit=$?
   _m13_sec15=""
   if [ -f "$ROOT/m13.json" ]; then
     _m13_sec15="$(python3 -c \
