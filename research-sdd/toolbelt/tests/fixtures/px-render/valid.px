@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<px version="1.0"><content><ScrollPane>
+<CanvasPane name="cv" viewSize="400.0,300.0">
+<Label layout="10.0,10.0,200.0,30.0" text="Room 1" font="bold 18.0pt Arial"/>
+<ImageButton layout="10.0,50.0,60.0,20.0" text="Auto"/>
+<Picture layout="10.0,80.0,40.0,40.0" image="file:^images/on.png"/>
+</CanvasPane></ScrollPane></content></px>
