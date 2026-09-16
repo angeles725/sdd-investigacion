@@ -801,9 +801,9 @@ positive one: if the investigation shows a thing is NOT there — cited as such 
 open. (Proven on protocols B136: the Sox gap was closed by demonstrating Sox's absence across 973 jars,
 cited.) A negative closure needs the same evidence bar as a positive one: cite what you searched and how
 (paths, counts, the grep/scan that came back empty), not a bare "not found". State the sample size and
-the test applied. And when a source fails the question you asked, record what question it DOES answer
+the test applied, and the forms recognised. And when a source fails the question you asked, record what question it DOES answer
 before closing it — a source containing no location data may still document control logic or engineering
-schematics (a separate open gap).
+schematics (a separate open gap). A zero from an instrument that has never fired on any real positive needs a control-positive first (§11b).
 
 **A negative found only in the vendor's OVERLAY is not proven absence.** When the target embeds a
 third-party runtime, SDK, or framework, a capability absent from the vendor's own classes may be
@@ -832,6 +832,8 @@ On stopping, declare: blocks written, the **coverage metric** (gaps closed / kno
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
+**ACTIVE CLOSE: audit before declaring a gap closed or a deliverable done.** Before declaring done, explicitly audit: (a) what surface was NOT inspected, (b) what assumptions were inherited from a prior block or agent, and (c) whether the deliverable matches the ground truth that is available. The default question after "done" is "what didn't I explore?", not "ship it". A gap declared closed without an active-close audit may carry unacknowledged scope gaps and inherited assumptions — two of the most common sources of false closures in multi-block campaigns. (Source: fluke-177x-datos)
+
 **Coverage over the SUBJECT is a second, different metric — declare it when the subject has structure.** `gaps closed /
 known gaps` is a ratio over the gaps you KNOW; it cannot see the units of the subject no gap ever named. When the
 subject has its own structural units (modules, packages, source directories, chapters), also declare the fraction of
@@ -845,14 +847,17 @@ counted). **Instrument:** `toolbelt/coverage-map.sh` (kit issue #421) implements
 
 **The coverage universe is DECLARED, never inferred.** Units outside the research question (bundled third-party libraries such as commonsIo, hsqldb, qpid) are listed in a `coverage-exclude.txt` at the corpus root, one glob per line; the instrument prints `excluded by declaration: N unit(s)` every run. A hidden default exclusion list would be an inferred universe. The tool never writes `coverage-exclude.txt` (propose-never-apply); the top-N uncited list is what makes an operator see a vendor bundle and declare it out-of-scope. (Source: kit issue #421 fleet acceptance, 2026-09-05)
 
+**`known_gaps` DENOMINATOR MUST BE LIVE.** The `known_gaps` count — the denominator of the coverage ratio `gaps_closed / known_gaps` — must equal `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open` at every point in the run; it is NOT frozen at the bootstrap seed count. Whenever a child gap is seeded mid-run, bump `known_gaps` immediately. A stale denominator inflates the coverage ratio: a run that closes 10 gaps against a 10-gap bootstrap reads 100 % even when it seeded 4 new gaps it never addressed. Two caveats: (a) `blocked_open` is disk-derived from the `- … needs:` rows under `## Blocked gaps` / `## Non-investigable gaps` (CHECK C pins it). `derive_blocked` matches the literal `needs:` token — a `~~struck~~` row still counts (measured) — so any row carrying `needs:` is in `blocked_open` by construction. Count each gap in exactly ONE term of the identity: while an absence-closed entry keeps the `needs:`/`tried:` row that §8 and the RESEARCH-STATE template require, it belongs to `blocked_open` and must NOT also be credited to `gaps_closed`. Crediting such a gap to `gaps_closed` would require removing the literal `needs:` token from its row, which the template currently forbids for absent entries — so this reconciliation is an open doctrine question, not something to resolve silently here. (b) `known_gaps` and `gaps_closed` are DECLARED-only (not disk-validated); `verify-state.sh` CHECK 3 WARNs only on two-or-more DISTINCT denominators among the canonical coverage lines OUTSIDE the `## Iteration history` table (which it strips first); it never reads the envelope `known_gaps` field. Only CHECK D's corner (`gaps_closed == known_gaps` while investigable gaps remain) is enforced automatically; general `known_gaps` drift (a stale denominator with open gaps still counted) is not. (Source: niagara module-mechanics-closeout)
+
 **PAUSED (budget-cap) ≠ STOPPED (exhaustion).** Distinguish the two in RESEARCH-STATE vocabulary. A halt on
 the budget-cap safety-net (criterion 3) while read-only-investigable gaps are STILL open is a PAUSE, not a
 genuine STOP — word it "PAUSED (budget cap; N gaps still investigable)", never "STOPPED", so a future reader
-does not mistake a budget pause for real completion. The terminal-trigger machinery (the §8 focus-closing
-synthesis, the §18 retro) MAY still fire on a pause — a run worth pausing is usually worth consolidating —
-but the report must LABEL the halt as a pause and list the still-investigable gaps as the resume point.
+does not mistake a budget pause for real completion. The §18 retro MUST fire whenever any research file changed (RETRO CHECKPOINT EXIT CONDITION — mandatory on any pause, not optional). The §8 focus-closing synthesis MAY still fire — a run worth pausing is usually worth consolidating.
+The report must LABEL the halt as a pause and list the still-investigable gaps as the resume point.
 Resuming a pause needs no new authorization (the gaps were already queued); that is lighter than "Reopening
 a STOPPED loop" below, which reopens a genuinely-exhausted focus for a NEW question.
+
+**OPERATOR-DIRECTED PAUSE is a named pause type.** When a loop is halted by an explicit operator instruction — not by a budget cap and not by exhaustion — record the state as `PAUSED (operator-directed)` in RESEARCH-STATE, distinct from `PAUSED (budget cap; N gaps still investigable)`. The RETRO CHECKPOINT EXIT CONDITION (PROMPT-LOOP step 7 STOPPING → RETRO CHECKPOINT) is mandatory whenever any research file changed; it applies on an operator-directed pause exactly as on a budget-cap pause. Until a PROMPT-LOOP mirror for the operator-directed pause label lands, cross-reference this §8 rule. (Source: niagara optimizer-docs)
 
 **Two execution modes.** The NORMAL CYCLE runs under either: **self-paced** (`/loop`, no human present —
 the loop agent drives, self-reschedules, and delegates only each gap's heavy sweep) or **orchestrated** (a
@@ -1321,6 +1326,16 @@ gets its OWN scoped adversarial re-check on the fix delta before any terminal ve
 fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
 the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
 
+**UNANIMITY IS AN ARTIFACT DETECTOR: a 100 % hit-rate must be re-verified by an independent method.** A result where every item in the corpus matches — every gap closes, every token resolves, every check passes — is itself suspicious. Before trusting a unanimous result, re-verify by an independent method: re-key the join on a different column, group by an orthogonal dimension, or sample a disjoint subset. A 100 % rate on a real corpus almost always signals that the instrument is matching on an artefact of its own structure rather than the target signal. (Source: blender-llm B17-B20)
+
+**MATCHING COUNTS ARE NOT A JOIN: equal cardinality does not establish intersection.** When two sets produced by different methods both return N items, the temptation is to treat them as the same N items — they are not, until the join is measured directly (inner-join on the key, count matching rows). An equal-cardinality coincidence that survives without a direct join check is a latent false positive. (Source: blender-llm B17-B20)
+
+**CONSERVATION CHECK: quantities that must sum or balance must be explicitly checked.** If a model or state machine has quantities that should be conserved (inputs = outputs, allocations = capacity, counts before = counts after), compute the balance explicitly — do not read it from the design description. An un-checked conservation invariant is invisible until a discrepancy surfaces in a downstream consumer. (Source: blender-llm B21-B37)
+
+**RESEARCH-TO-QUOTE BRIDGE: map cited evidence to every quoted number in a synthesis report.** When a synthesis block carries effort, size, or cost metrics intended for a report audience, add a SYNTHESIS note that explicitly maps the cited evidence to each quoted number — e.g. "N hours from blocks B7, B12, B19 (heuristic; ±30 %)". Without the bridge, a reader cannot distinguish a measured quantity from an inference, and the number travels without its uncertainty. (Source: niagara-research reports focus)
+
+**DECODED FIELD NAME IS A HYPOTHESIS.** A field name inferred from surrounding context — protocol position, adjacent labels, vendor convention — is a hypothesis, not a fact. Confirm it against the answer key (the system's own export or dump) before computing any derived value from it. A wrong field name does not raise an error; it silently propagates the wrong value through every downstream calculation. (Source: fluke-177x-datos) For the live-system answer key that makes field-name confirmation possible, see SCALE GROUND TRUTH and SAME-SNAPSHOT COMPARISON in §12.
+
 ## 11b. Verifying the verifier and the kit test-lane contract
 
 SITUATIONAL, not part of the per-block HOT-CORE: read this section IN FULL when a run adds or changes a guard,
@@ -1441,6 +1456,8 @@ before trusting its verdict:
   debugging at the wrong layer. The same discipline applies to corpus files a later iteration was supposed
   to update: a retro or state file that did not receive its intended update is a silent no-op with a longer
   blast radius.
+
+**A GATE IS ONLY WORTH WHAT ITS REFERENCE IS WORTH: validate the reference before trusting the gate.** A red/green gate built on a defective reference misleads: it may pass a broken artefact because the reference itself is wrong. Before trusting a gate's verdict, confirm the reference was independently verified — not derived from the same source or method the gate is checking. (Source: blender-llm B21-B37)
 
 **Kit test-lane contract (toolbelt quality gate).** The toolbelt gate (`run-all.sh`) defaults to the
 **fast** lane: suites load fixture-cached assertions instead of spawning the real tool (Ghidra, r2,
@@ -1801,6 +1818,8 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   the pattern suffices and re-firing is risk without new information) / **DEFERRED-requires-execution**
   (needs a built probe → §19). Consolidate them in a per-defect verdict table in the phase's terminal block.
 - **A negative dynamic result is a first-class finding, not a failed probe.** When a requires-execution step returns a NEGATIVE (the expected behaviour does NOT occur), record it with the same evidence standard as a positive result, and immediately check whether any prior block asserted the corresponding POSITIVE. If one does, §14-correct it in the same pass — do not defer to a later audit or wait for the operator to ask. This is the proactive execution-result pairing rule; it complements §14's proactive measurement-scan rule. B534's honest negative ("moved file is native") §14-corrected B532's "one Java method = HostId gate", but only because the operator kept asking; this rule makes the pairing mandatory on every negative execution result.
+- **SCALE GROUND TRUTH: seek the artefact the system itself PRODUCES as the answer key.** When validating by reproduction, the most reliable answer key is the export, report, or dump the live system produces under its own rules — not a reference transcribed from documentation or a prior analysis. The system-produced artefact reveals field-name bugs, missing fields, and encoding differences that documentation and captures hide. (Source: fluke-177x-datos)
+- **SAME-SNAPSHOT COMPARISON: compare against the EXACT same data snapshot.** When validating by reproduction, any size or timestamp difference between the reference and the test data simulates a false discrepancy. Compare the reproduction against the operator's own artefact from the same measurement session — not a same-day but different-session sample, not a re-export from a different firmware revision. A false discrepancy from mismatched snapshots wastes an iteration and may mask a real bug behind the size-change noise. (Source: fluke-177x-datos)
 - **After an incident, check the DEVICE first (refines §17).** If an iteration was killed/crashed mid-write
   in a hardware phase, the §17 resume rule inverts: check the PHYSICAL device state (is it left safe? was
   the write applied or reverted? re-measure the checksum live) BEFORE checking git/disk. A committed block
