@@ -1513,8 +1513,9 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   predicate, not a file-location one: the distinguishing fact is EXECUTION, not where the bytes live.
   Vendor software installed to disk with its daemon NOT started is still STATIC territory (§1–§11).
   Disk-read, decompilation, `grep`/`rg`, `javap`, and `fd` over the installed tree are READ-ONLY and
-  run autonomously under the static loop — installing and reading a vendor package never crosses into
-  this phase. The LIVE-EXECUTION CROSSING is any of: (a) executing the vendor launcher or daemon; (b)
+  run autonomously under the static loop — unpacking or copying a vendor package to disk never
+  crosses into this phase; an installer that initializes vendor runtime state crosses via clause (c)
+  below. The LIVE-EXECUTION CROSSING is any of: (a) executing the vendor launcher or daemon; (b)
   setting a runtime-root env var the daemon consumes as its home (e.g. `NIAGARA_HOME`,
   `NIAGARA_USER_HOME`); or (c) spawning any subprocess that initializes vendor runtime state. Each of
   these is a MUTATION — it writes DB tables, a license cache, socket files, and log dirs — so it falls
@@ -1524,6 +1525,22 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   Concrete Niagara case: decompiling `nre`/station JARs from the installed tree is static and
   autonomous; executing `nre`, or exporting `NIAGARA_HOME` for a daemonized subprocess that boots the
   station, crosses the boundary and requires §12 supervision.
+- **Vendor installer that initializes runtime state is a mutation — snapshot first.** An installer
+  that registers a service, spawns a vendor subprocess, or writes outside the install prefix (DB
+  tables, license cache, socket files, log dirs) crosses the static/live boundary via clause (c)
+  above and requires §12 supervised cadence — not the static loop's autonomous step. A pure
+  unpack or copy-to-disk stays static. Before running any such installer: (a) snapshot the current
+  environment state (installed packages, PATH, relevant config dirs, service list); (b) treat the
+  run as a §12 mutation. A silent installer that initializes undocumented runtime state is precisely
+  the case this rule protects against. (Evidence: niagara-research (licensing-deepdive focus))
+- **Mutating the cited subject invalidates prior citations — re-anchor to a preserved snapshot.**
+  If a probe modifies the target (installs a package, writes a config, restarts a service), any
+  citation issued against the PRE-MUTATION state now refers to a changed artifact. Before continuing:
+  (a) preserve a pre-mutation snapshot per the Backup-before-destroy rule below; (b) re-anchor every prior
+  citation referring to the now-changed subject to that snapshot, making the version boundary
+  explicit; (c) issue new evidence from the post-mutation state as distinct, version-tagged claims.
+  Mixing pre- and post-mutation evidence under the same citation is an evidence-integrity violation.
+  (Evidence: blender-llm B6)
 - **Supervised, not loop-blind.** Each interaction with the live system is deliberate; the orchestrator
   reviews before the next step. No `/loop` self-pacing against hardware. The DELEGATE / MODEL-TIER rules
   (PROMPT-LOOP) govern the static loop's HEAVY SWEEPS, not this phase: narrow live probes and a live
@@ -1544,6 +1561,15 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   by design. One oBIX GET request settles a branch that multiple code-reading sessions may not close.
   Mandatory corollary: always read the MODE or condition field next to the value — a value read without
   its mode is ambiguous and cannot confirm or refute a hypothesis. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #2)
+- **Arm a local network sink and verify it is recording before the first probe.** Before sending
+  any stimulus to the live target (a network request, a UI action, a protocol handshake), a local
+  sink such as `strace -e trace=network`, `ss -tnp`, Wireshark/tcpdump, or a forwarding proxy must
+  be ARMED AND VERIFIED as a prerequisite for rung (0) of the invasiveness ladder below. An
+  unverified probe window cannot distinguish "the feature did not communicate" from "capture was off
+  when communication happened." Checklist: (1) start the capture tool; (2) confirm a known-good
+  baseline event appears in its output (a heartbeat, a test packet, a log line); (3) only then send
+  the stimulus under test. A window where the capture was unconfirmed at the moment of stimulus
+  yields no `[CERT-hw]`-grade evidence. (Evidence: blender-llm B6)
 - **Invasiveness ladder (fixed order).** Escalate deliberately, never skip a rung: **(0) passive
   capture** — redirect the vendor's own client or driver through a **file-backed sink** and capture
   the genuine datastream byte-for-byte; no custom protocol client is written and no byte is sent to
@@ -1572,6 +1598,13 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   controllers, PLC/SCADA stacks, protocol bridges, and hardware I/O APIs typically CANNOT. When minting
   is not available, fall back to the dry-run/scratch-object approach above with the existing credential;
   do not treat ephemeral-principal creation as a universal prerequisite or a blocking requirement.
+- **Direct operator authorization names the target — a peer-relayed summary is never authorization.**
+  For any §12 operation that writes a live or operational system, authorization must come directly
+  from the operator in a message that names the specific target, interface, and action. A
+  peer-relayed summary ("they said it was OK"), a contextual inference, or a standing grant from a
+  prior session does not authorize a new write. Go back to the operator directly if the
+  authorization chain is ambiguous or indirect. A write under fresh authorization still enters the
+  invasiveness ladder at its lowest applicable rung — do not skip (0)–(1). (Evidence: panccadia-3d-viewer)
 - **Cross-protocol oracle for every write.** Validate a write through an INDEPENDENT channel, not the one
   you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
   read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
@@ -1580,6 +1613,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   a GET on the resource after the POST that wrote it (e.g. GET `/nmodsreflow/config` confirming a POST
   `config_update`). The essential property is that confirmation does NOT come from the write's OWN response,
   not that a second wire protocol exists; never trust the write's own `200`.
+- **Control-link propagation settle before read-back.** When verifying a write propagates through a
+  control link (BAS/BMS point-to-controller, PLC output register, any link-mediated channel), allow
+  a settle window (~1 s typical; longer for slow-polling links) before the read-back probe. An
+  immediate read-back can catch the pre-propagation state — the link has not yet delivered the write
+  to the downstream node — and falsely report no propagation while the write is still in flight.
+  Rule: send write → wait one settle window → read back through an independent channel. If the
+  channel's poll cycle is known, wait at least one full cycle. (Evidence: panccadia-3d-viewer; for
+  the analogous edge/serverless propagation case see the DEPLOYED ≠ PROPAGATED rule in §12c.)
 - **Cross-source ground-truth calibration.** When a target exposes the SAME real-world quantities
   through two distinct protocols — one decoded (e.g. application-level telemetry, parsed BACnet objects)
   and one raw (e.g. Modbus registers, unprocessed device-buffer reads) — tap BOTH concurrently and
@@ -1660,6 +1701,19 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   backup-before-destroy + a dual/independent oracle, but "verified restore (byte-identical)" is replaced by
   "verified fix + confirmed no side-effect on OTHER state". Do not restore a vulnerability by rote compliance
   with the probe recipe — the backup is retained for rollback, not applied.
+- **Vendor menu key-numbering is firmware-version-dependent — confirm live before pressing.** A
+  vendor document's numbered key map for a serial or web menu is a snapshot of one firmware version:
+  menu structure, item order, and key assignments change across firmware releases. Before pressing
+  any key or submitting any menu command: (a) retrieve the firmware/software version from the live
+  device; (b) compare against the document's stated firmware version; (c) if they differ, treat the
+  key mapping as unconfirmed and enumerate the live menu before acting. A mismatch that goes
+  undetected can trigger a different action than intended, including an irreversible one.
+  (Evidence: niagara-research (jace9000 focus))
+- **Pre-interaction mutation map — classify READ-ONLY vs mutating keys before live interaction.**
+  Before any menu-driven or command-driven interaction with a live system, map which operations are
+  read-only and which mutate state ON THIS FIRMWARE. Produce a per-key (READ / MUTATING /
+  IRREVERSIBLE) table from the live menu before acting; classify any key whose type is uncertain as
+  MUTATING for escalation purposes. (Evidence: niagara-research (jace9000 focus))
 - **Device identity ≠ program identity.** A checksum/version identifies the loaded PROGRAM, not the physical
   UNIT. Confirming you are on the BENCH and not PRODUCTION is out-of-band (who plugged in what), never
   inferred from the program you read. Do this BEFORE any write — a prior session wrote to PRODUCTION
@@ -1689,6 +1743,16 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   speak Ethernet layer 2 and legitimately never answer IP; confirm absence via network infrastructure
   tables (`Stale` + ping failure + no ICMP-filtered `Reachable`), not via a ping sweep alone.
 - **Probe output ≠ protocol acceptance.** A connection banner (e.g. openssl `CONNECTED`) records a TRANSPORT handshake, not server-side protocol or version acceptance; re-derive before escalating (PROMPT-LOOP.md HARD RULES → RE-MEASURE A DRAMATIC POSITIVE).
+- **Vendor's own tool succeeds → probe failure is almost certainly client-side.** When the vendor's
+  official client, SDK, or CLI succeeds against the same live target that your probe is failing
+  against (same host, same credentials, same endpoint), the device or service is almost certainly
+  healthy — the failure is in your probe's client-side implementation: protocol encoding, auth
+  header shape, TLS configuration, request framing. Exhaust this hypothesis before attributing the
+  failure to device state, network, or a transient error. Verification: (1) confirm the official
+  tool's test is genuinely equivalent (same endpoint, same credentials, same operation); (2) if
+  equivalent and it passes, isolate the client-side delta between your probe and the vendor tool;
+  (3) only after ruling out client-side differences escalate to device or network diagnosis.
+  (Evidence: fluke-177x-datos)
 - **Module-loaded ≠ path-taken.** Which implementation actually RUNS is a runtime fact, not a static
   one: a component can be LOADED — present in imports, exports, or a registry — without being the ACTIVE
   path for a given operation. Determining which code path executes requires a live stack/provider census
@@ -1748,6 +1812,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   while delivering a partial archive; (c) delete temporary artifacts from the production host after
   verified transfer; (d) SHA256-verify the transferred copy against the source; (e) never version client
   production data — gitignore the data copy before staging anything.
+- **Cross-host path-namespace failure class (WSL2 / Windows).** A path valid in one host
+  environment is a different — often invalid — string in a cross-execution context: a WSL2 Linux
+  path (`/home/user/...`) becomes `\\wsl$\Ubuntu\home\user\...` from a Windows process, and a
+  Windows path (`C:\Users\...`) is not accessible inside WSL2 without `/mnt/c/...` translation.
+  Name this as a distinct failure class: when a probe fails with a path error in a cross-host
+  invocation, classify it as a path-namespace mismatch before diagnosing device or network state.
+  Resolution: translate the path to the target host's namespace before passing it — use the
+  Windows→WSL (`wslpath -u`) or WSL→Windows (`wslpath -w`) converter. (Evidence: blender-llm B7–B9)
 - **Environment setup** (e.g. WSL `networkingMode=mirrored` to reach a LAN device, run `wsl --shutdown`
   from **Windows** PowerShell — not inside WSL; for USB targets, hand off the device via `usbipd-win`
   bind/attach/detach — see `DYNAMIC-SETUP.md §1b`) is a prerequisite; verify connectivity before probing.
