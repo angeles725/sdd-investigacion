@@ -452,22 +452,22 @@ if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL +envelope requires_execution_open=0 
 else no "req-premature: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
 
 # 30 — same fixture, envelope AGREES (requires_execution_open=1) → exit 0 and CHECK E fully silent.
-d="$TMP/req-agree"; ewrite "$d" 0 4 10 1 1 1 "high|open read-only gap|pending" \
+d="$TMP/req-agree"; ewrite "$d" 0 4 7 1 1 1 "high|open read-only gap|pending" \
   "high|G41 equipment LOD|requires-execution → §19 (not read-only; needs a build + re-measure)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
   ok "marked-open row + declared 1 → exit 0, CHECK E silent (backlog-anchored agreement)"
-else no "req-agree: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
+else no "req-agree: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
 # 31 — PROSE-TRACKED corpus (the logosoft shape): NO backlog marker at all, envelope carries a nonzero
 #      declared count → exit 0 with CHECK E silent. Pins the calibration: a strict equality gate would
 #      false-FAIL every prose-tracked corpus (declared N vs derived 0), which is exactly what CHECK E
 #      must NOT do — derived 0 proves nothing.
-d="$TMP/req-prose-only"; ewrite "$d" 0 4 10 1 1 1 "high|open read-only gap|pending"
+d="$TMP/req-prose-only"; ewrite "$d" 0 4 7 1 1 1 "high|open read-only gap|pending"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
   ok "prose-tracked (no marker) + declared 1 → exit 0, silent (no false FAIL on logosoft-shape corpora)"
-else no "req-prose-only: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
+else no "req-prose-only: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
 # 32 — MIRROR HYGIENE: 1 marked-open row but the envelope declares 3 → WARN printed, exit UNCHANGED (0).
 #      Divergence with marked rows on disk is drift worth surfacing, but only the 0-direction is a hazard.
@@ -481,13 +481,13 @@ else no "req-hygiene: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$
 # 33 — CLOSED markers EXCLUDED from the derivation: a struck-through gap (~~) and a '✅ cubierto — B7x'
 #      status both carry the requires-execution token but are CLOSED rows (the logosoft closed-backlog
 #      shape) → derived 0, declared 0 → exit 0, CHECK E silent (closed rows never re-arm the build loop).
-d="$TMP/req-closed"; ewrite "$d" 0 4 10 0 0 1 \
+d="$TMP/req-closed"; ewrite "$d" 0 4 5 0 0 1 \
   "high|~~G50 old build gap~~|requires-execution → §19" \
   "high|G51 landed PoC|requires-execution ✅ cubierto — B72"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
   ok "struck-through / cubierto requires-execution rows excluded → derived 0, exit 0"
-else no "req-closed: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
+else no "req-closed: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
 # 33a — REGRESSION (false-NEGATIVE, both judges): two OPEN requires-execution rows whose status carries a
 #      NEGATED closure word ("not yet covered", "not yet done") — the OLD unanchored substring closed-test
@@ -506,11 +506,11 @@ else no "req-negated-open: exit $(code "$d") :: $(grep -iE 'requires_execution' 
 #      an ordinary pending gap ("pending (requires-execution)") — the OLD unanchored open-test (*requires-
 #      execution*) wrongly counted this as an open build gap. Envelope declares 0 and there is NO real
 #      marked-open build row → CHECK E must stay SILENT (exit 0, no false FAIL).
-d="$TMP/req-freetext-mention"; ewrite "$d" 0 4 10 1 0 1 "medium|future scope note|pending (requires-execution)"
+d="$TMP/req-freetext-mention"; ewrite "$d" 0 4 6 1 0 1 "medium|future scope note|pending (requires-execution)"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution'; then
+if [ "$(code "$d")" = 0 ] && ! grep -E '^   (FAIL|WARN)' <<<"$out" | grep -q 'requires_execution_open'; then
   ok "free-text 'pending (requires-execution)' mention NOT counted → exit 0, CHECK E silent (no false FAIL)"
-else no "req-freetext-mention: exit $(code "$d") :: $(grep -iE 'requires_execution' <<<"$out" | head -1)"; fi
+else no "req-freetext-mention: exit $(code "$d") :: $(grep -iE 'requires_execution_open' <<<"$out" | head -1)"; fi
 
 # CRLF — a RESEARCH-STATE.md saved with Windows line endings must still verify OK. Before env_field's
 # trailing-CR strip, awk left '\r' on each value and is_int('0\r') was FALSE, so EVERY envelope check
@@ -1578,6 +1578,111 @@ if [ "$nm_count_dw" = 1 ]; then
   ok "DW-1: near-miss WARN emitted exactly ONCE per state (not ${nm_count_dw}×) — BR cache deduplicates"
 else no "DW-1: near-miss WARN appeared ${nm_count_dw}× (want exactly 1) — deduplication missing or broken"; fi
 
+# ============================ ENVELOPE CHECK H — known_gaps declared identity (IDENT) ============================
+# CHECK H fires WARN when declared known_gaps ≠ sum of its five DECLARED envelope counters:
+#   gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open == known_gaps
+# All counters must be declared integers — skip silently if any is missing/malformed.
+# This is an internal-consistency check on the envelope; disk-vs-declared staleness is CHECK B/C/E/F's job.
+# WHY declared-only: prose-tracked corpora declare e_req>0 but d_req=0 (no backlog marker) — a
+# derived-counter check false-fires on them. Using declared counters matches §8 doctrine field names exactly.
+# WARN-ONLY: premature-STOP is owned by CHECK B/D; this is advisory mirror hygiene.
+
+# e9write <dir> <covered> <gc> <kg> <io> <req> <bo> <def> <backlog-row...> — like ewrite but includes
+# deferred_open in the envelope (env9). Used for IDENT fixtures that need an explicit deferred_open value
+# (e.g. def=0 for IDENT-A/B/C). Note: absent deferred_open is now treated as 0 (IDENTITY-DEF-ABSENT-AS-ZERO),
+# so ewrite fixtures also participate in CHECK H — see IDENT-D for the absent-def path.
+e9write() {
+  local dir="$1" cb="$2" gc="$3" kg="$4" io="$5" req="$6" bo="$7" def="$8"; shift 8; mkdir -p "$dir"
+  { echo '# T — Research State'; echo
+    env9 "$cb" "$gc" "$kg" "$io" "$req" "$bo" "$def"; echo
+    echo '## Coverage'; echo "- **Coverage metric**: $gc / $kg closed"; echo
+    echo '## Gap-backlog (prioritized)'; echo
+    echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+    local r p g s; for r in "$@"; do IFS='|' read -r p g s <<<"$r"; echo "| $p | $g | web | $s |"; done; echo
+    echo '## Blocked gaps'; echo '- gpu profiling — needs: hardware'; echo
+    echo '## Stop control'; echo "- **Open gaps — read-only investigable**: $io"
+  } > "$dir/RESEARCH-STATE.md"
+}
+
+# IDENT-A (teeth/RED case): declared identity fails — declared sum ≠ kg → WARN fires.
+# e_gc=4, e_kg=10, e_inv=2, e_blocked=1, e_def=0, e_req=0 → declared sum=7 ≠ kg=10.
+# Per-term checks all pass: d_inv=2=e_inv, d_blocked=1=e_blocked, d_def=0=e_def, d_req=0 and e_req=0.
+# RED before fix (derived-counter code): old code emitted different WARN text → new grep does not match
+# → case fails. After fix: new WARN text matches → PASS.
+d="$TMP/ident-mismatch"
+e9write "$d" 0 4 10 2 0 1 0 "high|gap A|pending" "high|gap B|pending"
+out="$(run "$d")"
+if grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$out"; then
+  ok "IDENT-A: declared sum (gc=4+inv=2+blocked=1+def=0+req=0=7) ≠ kg=10 → stale-denominator WARN emitted"
+else no "IDENT-A: declared sum=7 ≠ kg=10 → WARN expected; got: $(grep -iE 'warn.*known_gaps' <<<"$out" | head -1)"; fi
+
+# IDENT-B (negative control): declared identity holds → no stale-denominator WARN.
+# e_gc=4, e_kg=7, e_inv=2, e_blocked=1, e_def=0, e_req=0 → declared sum=7 = kg=7 → silent.
+d="$TMP/ident-match"
+e9write "$d" 0 4 7 2 0 1 0 "high|gap A|pending" "high|gap B|pending"
+out="$(run "$d")"
+if ! grep -qE 'WARN.*stale denominator' <<<"$out"; then
+  ok "IDENT-B: declared identity (gc=4+inv=2+blocked=1+def=0+req=0=7) = kg=7 → no stale-denominator WARN"
+else no "IDENT-B: false-alarm WARN on matching declared denominator: $(grep -iE 'warn.*known_gaps' <<<"$out" | head -1)"; fi
+
+# IDENT-C (prose-tracked negative control): declared identity holds; d_req=0 (req gap prose-tracked only).
+# e_gc=4, e_kg=7, e_inv=1, e_blocked=1, e_def=0, e_req=1 → declared sum=4+1+1+0+1=7 = kg=7 → no WARN.
+# d_req=0: the single pending backlog row has no requires-execution marker; req is prose-tracked (logosoft shape).
+# RED on the FABLE-#1 derived-counter draft; pinned by teeth-IDENT-C.
+# Old _identity_sum = e_gc+d_inv+d_blocked+d_def+d_req = 4+1+1+0+0 = 6 ≠ kg=7 → false WARN → assertion fails → RED.
+# GREEN on new declared-counter code: _identity_sum = e_gc+e_inv+e_blocked+e_def+e_req = 4+1+1+0+1=7=kg → no WARN.
+d="$TMP/ident-prose-req"
+e9write "$d" 0 4 7 1 1 1 0 "high|gap A|pending"
+out="$(run "$d")"
+if ! grep -qE 'WARN.*stale denominator' <<<"$out"; then
+  ok "IDENT-C: prose-tracked req (e_req=1, d_req=0, declared sum=7=kg) → no false stale-denominator WARN"
+else no "IDENT-C: false-alarm on prose-tracked req (declared sum=4+1+1+0+1=7=kg but WARN fires): $(grep -iE 'warn.*known_gaps' <<<"$out" | head -1)"; fi
+
+# IDENT-D (absent-deferred_open, stale): ewrite fixture (no deferred_open field) with kg ≠ gc+inv+blocked+req.
+# gc=4, kg=10, e_inv=2, e_blocked=1, _h_def=0 (absent-as-0), e_req=0 → sum=7 ≠ kg=10 → WARN MUST FIRE.
+# Proves the absent-as-0 fix is active: if the guard still required is_int(e_def), this would be silent.
+d="$TMP/ident-absent-def"
+ewrite "$d" 0 4 10 2 0 1 "high|gap A|pending" "high|gap B|pending"
+out="$(run "$d")"
+if grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$out"; then
+  ok "IDENT-D: absent deferred_open (ewrite), kg=10 ≠ sum=7 → stale-denominator WARN fires (absent def counted as 0)"
+else no "IDENT-D: absent deferred_open, kg=10 ≠ sum=7 → WARN expected (absent def must not skip); got: $(grep -iE 'warn.*known_gaps' <<<"$out" | head -1)"; fi
+
+# IDENT-D-malformed: deferred_open set to non-integer "none" — must not crash; def treated as 0 (is_int split).
+# (a) kg consistent (gc=4, kg=7, inv=2, blocked=1, req=0 → sum=7 with _h_def=0) → no stale WARN, no crash.
+d="$TMP/ident-mal-def-ok"
+mkdir -p "$d"
+{ printf '# T — Research State\n\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 4\nknown_gaps: 7\n'
+  printf 'investigable_open: 2\nrequires_execution_open: 0\nblocked_open: 1\ndeferred_open: none\n<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 4 / 7 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | gap A | web | pending |\n| high | gap B | web | pending |\n\n'
+  printf '## Blocked gaps\n- gpu profiling — needs: hardware\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 2\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(bash "$SUT" "$d" 2>&1)"
+if ! grep -qE 'WARN.*stale denominator' <<<"$out" && ! grep -qiE 'unbound variable|arithmetic expression' <<<"$out"; then
+  ok "IDENT-D-malformed(a): deferred_open=none, kg=7=sum → no stale-denominator WARN, no arithmetic crash"
+else no "IDENT-D-malformed(a): unexpected WARN or crash; $(grep -E 'unbound|arithmetic|stale denominator' <<<"$out" | head -2 | tr '\n' ' ')"; fi
+
+# (b) kg inconsistent (gc=4, kg=10, inv=2, blocked=1, req=0 → sum=7 ≠ kg=10) → stale WARN fires (def=0), no crash.
+d="$TMP/ident-mal-def-stale"
+mkdir -p "$d"
+{ printf '# T — Research State\n\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\ngaps_closed: 4\nknown_gaps: 10\n'
+  printf 'investigable_open: 2\nrequires_execution_open: 0\nblocked_open: 1\ndeferred_open: none\n<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 4 / 10 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | gap A | web | pending |\n| high | gap B | web | pending |\n\n'
+  printf '## Blocked gaps\n- gpu profiling — needs: hardware\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 2\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(bash "$SUT" "$d" 2>&1)"
+if grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$out" && ! grep -qiE 'unbound variable|arithmetic expression' <<<"$out"; then
+  ok "IDENT-D-malformed(b): deferred_open=none, kg=10≠sum=7 → stale-denominator WARN fires (def=0), no crash"
+else no "IDENT-D-malformed(b): WARN expected or crash detected; warn=$(grep -iE 'warn.*known_gaps|stale denominator' <<<"$out" | head -1); err=$(grep -iE 'unbound|arithmetic' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -2257,6 +2362,78 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-DW-1: BR-CACHE-HIT sentinel not found in SUT (cache not implemented or not tagged)"
+  fi
+
+  # ---- teeth-IDENT: neuter IDENTITY-SUM-CHECK → stale-denominator WARN must disappear ----
+  # Mutation: replace the comparison `[ "$_identity_sum" -ne "$e_kg" ]` with `false`.
+  # The stale-denominator fixture (ident-mismatch, kg=10, declared sum=7) must no longer emit the WARN →
+  # IDENT-A's 'WARN expected' assertion would go RED, proving the check is load-bearing.
+  echo "-- teeth-IDENT: neuter IDENTITY-SUM-CHECK; stale-denominator WARN must be absent --"
+  mutantIDENT="$TMP/verify-state.IDENT.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# IDENTITY-SUM-CHECK' "$SUT"; then
+    sed '/# IDENTITY-SUM-CHECK/s/\[ "\$_identity_sum" -ne "\$e_kg" \]/false/' "$SUT" > "$mutantIDENT"
+    if ! grep -q 'false.*# IDENTITY-SUM-CHECK' "$mutantIDENT"; then
+      no "teeth-IDENT: could not build mutant (IDENTITY-SUM-CHECK sentinel substitution failed — did SUT change?)"
+    else
+      ident_mut_out="$(bash "$mutantIDENT" "$TMP/ident-mismatch" 2>/dev/null)"
+      if ! grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$ident_mut_out"; then
+        ok "teeth-IDENT: neutered IDENTITY-SUM-CHECK → stale-denominator WARN absent → IDENT-A is load-bearing"
+      else
+        no "teeth-IDENT: neutered mutant still emitted stale-denominator WARN — THEATER"
+      fi
+    fi
+  else
+    no "teeth-IDENT: IDENTITY-SUM-CHECK sentinel not found in SUT (check not implemented or not tagged)"
+  fi
+
+  # ---- teeth-IDENT-C: replace IDENTITY-REQ-VAR (e_req) → d_req in sum; prose-tracked fixture must WARN ----
+  # Mutation: replace e_req with d_req in the _identity_sum line (anchored by IDENTITY-REQ-VAR sentinel).
+  # For the prose-tracked fixture (ident-prose-req: e_req=1, d_req=0, declared sum=7=kg):
+  #   mutant uses d_req=0 → sum = e_gc+e_inv+e_blocked+_h_def+d_req = 4+1+1+0+0 = 6 ≠ kg=7
+  #   → stale-denominator WARN fires → IDENT-C's "no WARN" assertion goes RED → teeth proved.
+  # This proves the declared-vs-derived distinction in the sum is load-bearing.
+  echo "-- teeth-IDENT-C: replace e_req→d_req (IDENTITY-REQ-VAR); prose-tracked fixture must fire WARN --"
+  mutantIDENT_C="$TMP/verify-state.IDENT_C.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# IDENTITY-REQ-VAR' "$SUT"; then
+    sed '/# IDENTITY-REQ-VAR/s/e_req/d_req/' "$SUT" > "$mutantIDENT_C"
+    if ! grep -q 'd_req.*# IDENTITY-REQ-VAR' "$mutantIDENT_C"; then
+      no "teeth-IDENT-C: could not build mutant (IDENTITY-REQ-VAR sentinel substitution failed — did SUT change?)"
+    else
+      ident_c_mut_out="$(bash "$mutantIDENT_C" "$TMP/ident-prose-req" 2>/dev/null)"
+      if grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$ident_c_mut_out"; then
+        ok "teeth-IDENT-C: e_req→d_req mutant fires stale-denominator WARN on prose-tracked fixture → IDENT-C declared-vs-derived distinction is load-bearing"
+      else
+        no "teeth-IDENT-C: e_req→d_req mutant did NOT fire stale-denominator WARN — IDENT-C may have no teeth against the declared/derived distinction"
+      fi
+    fi
+  else
+    no "teeth-IDENT-C: IDENTITY-REQ-VAR sentinel not found in SUT (check not implemented or not tagged)"
+  fi
+
+  # ---- teeth-IDENT-D: restore is_int(e_def) in IDENTITY-INT-GUARD → absent-def fixture must go silent ----
+  # Mutation: prepend `is_int "$e_def" &&` before `is_int "$e_req"; then` on the IDENTITY-INT-GUARD line.
+  # IDENT-D's ewrite fixture has no deferred_open → e_def="" → is_int("") = false → guard short-circuits →
+  # CHECK H skips → stale-denominator WARN absent.
+  # IDENT-D's 'WARN expected' assertion goes RED, proving the absent-def-as-0 path is load-bearing.
+  echo "-- teeth-IDENT-D: restore is_int(e_def) in IDENTITY-INT-GUARD; absent-def fixture must go silent --"
+  mutantIDENT_D="$TMP/verify-state.IDENT_D.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# IDENTITY-INT-GUARD' "$SUT"; then
+    sed '/# IDENTITY-INT-GUARD/s/is_int "\$e_req"; then/is_int "$e_def" \&\& is_int "$e_req"; then/' "$SUT" > "$mutantIDENT_D"
+    if ! grep -q 'is_int.*e_def.*# IDENTITY-INT-GUARD' "$mutantIDENT_D"; then
+      no "teeth-IDENT-D: could not build mutant (IDENTITY-INT-GUARD substitution failed — did SUT change?)"
+    else
+      ident_d_mut_out="$(bash "$mutantIDENT_D" "$TMP/ident-absent-def" 2>/dev/null)"
+      if ! grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$ident_d_mut_out"; then
+        ok "teeth-IDENT-D: restored is_int(e_def) → absent-def fixture silent → IDENT-D absent-as-0 fix is load-bearing"
+      else
+        no "teeth-IDENT-D: restored is_int(e_def) mutant still WARNed on absent-def fixture — THEATER"
+      fi
+    fi
+  else
+    no "teeth-IDENT-D: IDENTITY-INT-GUARD sentinel not found in SUT"
   fi
 
 fi
