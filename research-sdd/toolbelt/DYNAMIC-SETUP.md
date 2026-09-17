@@ -1,5 +1,25 @@
 # Dynamic phase — environment setup
 
+## 0. First-run install (WSL2 Ubuntu)
+
+Before anything else, run the kit installer to satisfy BASELINE dependencies and wire the
+skill into your AI harness. This is idempotent — safe to re-run.
+
+```bash
+# BASELINE only (git, python3, jq, node ≥20, shellcheck, pipx, skill wiring):
+bash research-sdd/install/install.sh
+
+# With dynamic/network analysis tools:
+bash research-sdd/install/install.sh --with-net --with-pcap
+
+source ~/.bashrc   # reload env vars set by the installer
+```
+
+Use `--dry-run` to preview the full plan without touching anything.
+See `research-sdd/install/install.sh --help` for all flags and heavy tiers.
+
+---
+
 Prerequisites to reach a **live system** (device / server / PLC) from this environment and probe it
 READ-ONLY (METHODOLOGY §12). Verify connectivity BEFORE building or running any probe.
 
