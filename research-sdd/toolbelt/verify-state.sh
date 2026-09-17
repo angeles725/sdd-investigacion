@@ -470,6 +470,36 @@ for state in "${states[@]}"; do
     echo "   WARN   envelope deferred_open missing while $d_def deferred backlog gap(s) found — seed it: --sync-state"
   fi
 
+  # ENVELOPE CHECK H (WARN-ONLY) — known_gaps declared identity: declared known_gaps must equal the sum
+  # of its five DECLARED constituent terms (all from the envelope, not derived from disk):
+  #   gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open == known_gaps
+  # This is an INTERNAL-CONSISTENCY check on the declared envelope fields. Disk-vs-declared staleness for
+  # each individual term is already CHECK B/C/E/F's job — mixing derived values here conflates two invariants
+  # and causes false positives on prose-tracked corpora (e.g. e_req=1 declared but d_req=0 → declared sum
+  # correct but a derived-counter check would false-fire). Using declared counters matches §8 doctrine exactly.
+  # LEGACY ENVELOPES: deferred_open predates some envelopes. Treat absent as 0 (mirrors CHECK F: "both sides
+  # zero → no mismatch, silent" — same reasoning: pre-field corpora have 0 deferred rows by construction).
+  # Do NOT apply absent-as-0 to any other field: e_inv/e_blocked/e_req absent means malformed envelope
+  # (already caught by the individual field-presence checks); do not guess a sum from partial data.
+  # Real-corpus examples (niagara-research, COB-IM2, blender-llm, HotelHilton, HotelPalace, sullair,
+  # fluke-177x, all present corpora swept 2026-09-16; 20 true-positive WARNs measured that date):
+  #   apis: gc+inv+blocked+def+req ≠ kg; build-kit-campaign8: kg=20 (= gc declared) OMITS declared req=6;
+  #   oem-honeywell-tail: kg=0 but requires_execution_open=1 declared;
+  #   optimizer-docs: gc=14 + blocked_open=6 declared → sum=20 ≠ kg=14 (also flagged by CHECK C for disk
+  #   divergence — both invariants true, different checks); energeticos/webChart/database similarly.
+  # WHY no-SIGPIPE-fallback: all five declared counters are already shell variables read above —
+  # no grep pipe needed (§7: || echo 0 converts a real error into a confident zero).
+  # WARN-ONLY: premature-STOP is owned by CHECK B (investigable_open) and CHECK D (full-coverage corner).
+  # Skip when any of the five CORE declared counters (e_gc, e_kg, e_inv, e_blocked, e_req) is non-integer
+  # (present-but-malformed field is already caught by the individual field-presence checks).
+  _h_def=0; is_int "$e_def" && _h_def="$e_def"  # IDENTITY-DEF-ABSENT-AS-ZERO: absent OR non-integer deferred_open ⇒ 0 (CHECK F's is_int split)
+  if is_int "$e_gc" && is_int "$e_kg" && is_int "$e_inv" && is_int "$e_blocked" && is_int "$e_req"; then  # IDENTITY-INT-GUARD
+    _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req ))  # IDENTITY-REQ-VAR
+    if [ "$_identity_sum" -ne "$e_kg" ]; then  # IDENTITY-SUM-CHECK
+      echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=$_identity_sum — stale denominator; reconcile."
+    fi
+  fi
+
   # P23: blocked/absent gaps missing a tried: clause. A tried: entry documents what alternatives
   # were explored and what measurement confirmed the gap was actually blocked (not just untried).
   # WARN-only — never fails the run; this is advisory hygiene, not a structural defect.
