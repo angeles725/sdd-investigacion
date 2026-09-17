@@ -2303,8 +2303,14 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   | `document` | a §20 document-mode focus (outline-driven, no gap backlog) |
 
   `closed` is NOT a token — write `stopped`. Regional variants (`reabierto`) are non-conforming — write the
-  token. No checker reads this cell yet (a WARN-only FOCUSES↔RESEARCH-STATE drift sweep is a wave-2 kit unit);
-  when one exists it MUST read the token only, WARN by row on anything else, and never guess
+  token. `research-sdd-status.sh --next` reads and validates the leading token of this cell (recognising
+  column headers `Status` and `Estado`, stripping the leading `**` and its closing pair (§8b half-bold
+  `**stopped** (12/12)`), `` `backtick` ``, and `[link](…)` decoration before matching),
+  skips focuses declared `stopped` or `paused` even when open investigable gaps remain, and
+  emits a `WARN` to stderr for any row whose token is outside the closed vocabulary or for any state file
+  the index lacks a row for. `--focus <slug>` (explicit selection) bypasses the skip intentionally. A
+  WARN-only FOCUSES↔RESEARCH-STATE drift sweep is still a wave-2 unit. Every checker (this one included)
+  MUST read the token only, WARN by row on anything outside the vocabulary, and never guess
   (propose-never-apply: migrating an existing row is the operator's edit). Why closed: the live niagara index carried four prescribed
   words plus `CLOSED (13/13; …)`, `document 4/4`, `reabierto (18/31)` and ≥12 parenthetical shapes, and a row
   saying `planned (0/8)` while its state file said `stopped (12/12)` nearly cost a heavy re-derivation loop; a

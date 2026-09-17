@@ -372,6 +372,86 @@ env_get() { awk -v k="$1" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/resear
 # 0. NEVER invent: an unparseable declared field falls back to what was already recorded, not a guess.
 pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$2";; esac;; *) echo "$1";; esac; }
 
+# _read_focuses_tok — read and validate the leading status token for a focus from FOCUSES.md.
+# This is the FIRST checker to read the focus-status cell (METHODOLOGY §16).
+# Args: $1=FOCUSES.md path  $2=state-file basename (e.g. RESEARCH-STATE-alpha.md)
+# Stdout: validated leading token (lowercased), or empty when absent/not-found/non-conforming.
+# Grammar: active|paused|stopped|planned|bootstrapping|reopened|document (METHODOLOGY §16).
+# closed is NOT a valid token; regional variants are non-conforming (METHODOLOGY §16).
+# Columns recognised by header: Focus (identity), Status|Estado (status), Research-State|State file (identity).
+# Cell decoration stripped before matching: `backtick-wrap` and **bold-wrap** (BOLD-STRIP).
+# WARNs to stderr: token outside closed vocabulary, or state file absent from the index.
+_read_focuses_tok() {
+  local ffile="$1" sbase="$2"
+  [ -f "$ffile" ] || return  # N194-FOCUSES-SKIP-FN
+  local fslug="${sbase#RESEARCH-STATE-}"; fslug="${fslug%.md}"
+  awk -v sbase="$sbase" -v fslug="$fslug" '
+    function trim(s)  { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    function strip_markup(s,   r) {
+      r = s
+      if (r ~ /^\[[^]]*\]\([^)]*\)$/) { sub(/^\[/, "", r); sub(/\]\(.*\)$/, "", r) }  # link [text](url) — LINK-STRIP
+      if (r ~ /^`[^`]*`$/)            { sub(/^`/, "", r); sub(/`$/, "", r) }            # backtick-wrap
+      sub(/^\*\*/, "", r); sub(/\*\*/, "", r)                                            # BOLD-STRIP + §8b half-bold
+      return r
+    }
+    function lead_tok(s,   t) {
+      t = strip_markup(s); sub(/[[:space:]].*$/, "", t); return tolower(t)
+    }
+    BEGIN { hdone=0; fcol=0; scol=0; sfcol=0; found=0 }
+    {
+      if (index($0, "|") == 0) next
+      line = $0
+      sub(/^\|/, "", line); sub(/\|$/, "", line)
+      n = split(line, a, "|"); for (k=1; k<=n; k++) a[k] = trim(a[k])
+      issep=1; for (k=1; k<=n; k++) { if (a[k] !~ /^:?-+:?$/) { issep=0; break } }
+      if (issep) next
+      if (!hdone) {
+        hdone = 1
+        for (k=1; k<=n; k++) {
+          h = tolower(a[k])
+          if (h == "focus")                                fcol  = k
+          if (h == "status" || h == "estado")              scol  = k
+          if (h == "research-state" || h == "state file") sfcol = k
+        }
+        if (scol == 0 && fcol > 0) scol = fcol + 1  # fallback: column after Focus
+        next
+      }
+      # identity match: Focus column and state-file column only (D4 — no any-cell hazard)
+      matched = 0
+      if (fcol > 0 && fcol <= n) {
+        cv = strip_markup(a[fcol])
+        if (cv == sbase || cv == fslug) matched = 1
+      }
+      if (!matched && sfcol > 0 && sfcol <= n) {
+        cv = strip_markup(a[sfcol])
+        if (cv == sbase || cv == fslug) matched = 1
+      }
+      if (!matched) next
+      # row found — validate status cell
+      found = 1
+      if (scol == 0 || scol > n) {
+        print "WARN: FOCUSES.md row " fslug ": no status column found" > "/dev/stderr"
+        exit
+      }
+      tok = lead_tok(a[scol])
+      if (tok == "active"   || tok == "paused"       || tok == "stopped" ||
+          tok == "planned"  || tok == "bootstrapping" || tok == "reopened" ||
+          tok == "document") {
+        print tok; exit
+      }
+      # token outside closed vocabulary → WARN, return empty (no skip triggered)
+      print "WARN: FOCUSES.md row " fslug ": unreadable/nonconforming status token [" strip_markup(a[scol]) "]" > "/dev/stderr"
+      exit
+    }
+    END {
+      # FOCUSES.md present with a table but no matching row → drift WARN
+      if (hdone && !found) {
+        print "WARN: FOCUSES.md has no row for " sbase > "/dev/stderr"
+      }
+    }
+  ' "$ffile"
+}
+
 if [ "$mode" = "--sync-state" ]; then
   # Seed the research-state.v1 envelope in EVERY RESEARCH-STATE*.md of the corpus. §16 multi-focus corpora
   # keep ONE state file per focus, each with its OWN backlog. Seeding only the head-1 file (as this did before)
@@ -581,6 +661,14 @@ if [ "$mode" = "--next" ]; then
         if backlog_rows 2>/dev/null | grep -q '^INVALID_PRIORITY'; then
           _any_real_stale=1; break
         fi
+        # FOCUSES.md check BEFORE count_investigable: skip stopped/paused focuses without calling
+        # count_investigable, which would emit WARNs for non-standard gap-status tokens in a
+        # focus the operator has declared done. This keeps stderr clean for stopped focuses.  # N194-FOCUSES-SKIP
+        _sfoc_file="$(dirname "$state")/FOCUSES.md"
+        _sfoc_tok="$(_read_focuses_tok "$_sfoc_file" "$(basename "$state")")"
+        if [ "$_sfoc_tok" = "stopped" ] || [ "$_sfoc_tok" = "paused" ]; then
+          continue
+        fi
         _d_inv="$(count_investigable)"
         if [ "${_d_inv}" != "0" ]; then
           # Active focus — check critical envelope consistency (mirrors verify-state CHECK B + CHECK D).
@@ -619,11 +707,26 @@ if [ "$mode" = "--next" ]; then
     # Scanning $corpus alone was the C3 false-STOP root cause one directory level up: alpha (stopped)
     # sorted first → corpus=alpha → aggregation never reached beta (active) → false STOP.
     mapfile -t _next_states < <(list_state_files "$target")
+    _nxt_skip_gaps=0
     for state in "${_next_states[@]}"; do
+      _nxt_foc_slug="$(basename "$state" .md)"; _nxt_foc_slug="${_nxt_foc_slug#RESEARCH-STATE-}"
+      _nxt_foc_file="$(dirname "$state")/FOCUSES.md"
+      _nxt_foc_tok="$(_read_focuses_tok "$_nxt_foc_file" "$(basename "$state")")"  # N194-FOCUSES-SKIP
+      if [ "$_nxt_foc_tok" = "stopped" ] || [ "$_nxt_foc_tok" = "paused" ]; then
+        printf 'INFO: skipped %s (focus-status: %s in FOCUSES.md)\n' "$_nxt_foc_slug" "$_nxt_foc_tok" >&2
+        [ -r "$state" ] || printf 'WARN: cannot read state file %s\n' "$state" >&2
+        _nxt_skip_d_inv="$(count_investigable 2>/dev/null)"
+        [ "${_nxt_skip_d_inv:-0}" != "0" ] && _nxt_skip_gaps=$(( _nxt_skip_gaps + 1 ))
+        continue
+      fi
       _r="$(resolve_next)"
       case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
     done
-    echo "STOP | read-only-investigable exhausted (0)"
+    if [ "$_nxt_skip_gaps" -gt 0 ]; then
+      echo "STOP | no active focus (${_nxt_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)"
+    else
+      echo "STOP | read-only-investigable exhausted (0)"
+    fi
   else
     resolve_next
   fi
@@ -668,12 +771,27 @@ saturation_line
 # Using a subshell keeps $state (and thus $corpus) unchanged in the parent for the footer below.
 printf '  next step       : '
 (
+  _ns_skip_gaps=0
   mapfile -t _ns_states < <(list_state_files "$target")
   for state in "${_ns_states[@]}"; do
+    _ns_foc_slug="$(basename "$state" .md)"; _ns_foc_slug="${_ns_foc_slug#RESEARCH-STATE-}"
+    _ns_foc_file="$(dirname "$state")/FOCUSES.md"
+    _ns_foc_tok="$(_read_focuses_tok "$_ns_foc_file" "$(basename "$state")")"
+    if [ "$_ns_foc_tok" = "stopped" ] || [ "$_ns_foc_tok" = "paused" ]; then
+      printf 'INFO: skipped %s (focus-status: %s in FOCUSES.md)\n' "$_ns_foc_slug" "$_ns_foc_tok" >&2
+      [ -r "$state" ] || printf 'WARN: cannot read state file %s\n' "$state" >&2
+      _ns_inv="$(count_investigable 2>/dev/null)"
+      [ "${_ns_inv:-0}" != "0" ] && _ns_skip_gaps=$(( _ns_skip_gaps + 1 ))
+      continue
+    fi
     _r="$(resolve_next)"
     case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
   done
-  echo "STOP | read-only-investigable exhausted (0)"
+  if [ "$_ns_skip_gaps" -gt 0 ]; then
+    echo "STOP | no active focus (${_ns_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)"
+  else
+    echo "STOP | read-only-investigable exhausted (0)"
+  fi
 )
 echo "  --- consistency (verify-state.sh) ---"
 "$here/verify-state.sh" "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'
