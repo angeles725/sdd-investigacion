@@ -1240,6 +1240,174 @@ _bf424_io="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.
   && ok "boldfix: **pending** (note) counts as investigable_open=1 — closing ** in mid-string stripped (#424b)" \
   || no "boldfix: investigable_open=$_bf424_io (want 1) — **pending** (note) still dropped (#424b)"
 
+# ==================== T-SS2 — FOCUSES.md declared stopped/paused skip ====================
+# A focus declared paused in FOCUSES.md with d_inv>0 must be SKIPPED by --next even though
+# it still has open investigable gaps; --next must return NEXT from an active sibling.
+# RED before fix: the paused focus slug sorts before the active one (aaa < zzz), so the
+# current loop hands it out first — wrong. After fix: FOCUSES.md check skips it.
+d_ss2="$TMP/ss2-paused"; mkdir -p "$d_ss2"
+# Focus "aaa-paused": d_inv=1 (one pending gap), correct envelope (investigable_open=1)
+{ printf '# Paused Focus\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | paused-open-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2/RESEARCH-STATE-aaa-paused.md"
+# Focus "zzz-active": d_inv=1 (one pending gap), correct envelope
+{ printf '# Active Focus\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | active-pending-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2/RESEARCH-STATE-zzz-active.md"
+# FOCUSES.md: aaa-paused is paused (d_inv>0 — the key test), zzz-active is active
+{ printf '# Focus Registry\n\n'
+  printf '| Focus | Status | State file | Block prefix |\n'
+  printf '|---|---|---|---|\n'
+  printf '| aaa-paused | paused (14 open gaps) | RESEARCH-STATE-aaa-paused.md | ap- |\n'
+  printf '| zzz-active | active | RESEARCH-STATE-zzz-active.md | za- |\n'
+} > "$d_ss2/FOCUSES.md"
+# T-SS2a: paused focus is skipped; active sibling is returned
+expect_next "$d_ss2" "NEXT | high | active-pending-gap" \
+  "T-SS2a: paused focus with d_inv>0 in FOCUSES.md is skipped — active sibling returned"
+
+# T-SS2b: when ALL focuses are paused/stopped (none active) → STOP
+d_ss2b="$TMP/ss2-all-paused"; mkdir -p "$d_ss2b"
+{ printf '# Alpha\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | alpha-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2b/RESEARCH-STATE-alpha.md"
+{ printf '# Beta\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | beta-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2b/RESEARCH-STATE-beta.md"
+{ printf '# Focus Registry\n\n| Focus | Status | State file | Block prefix |\n|---|---|---|---|\n'
+  printf '| alpha | stopped (gaps post-stop) | RESEARCH-STATE-alpha.md | a- |\n'
+  printf '| beta  | paused (budget cap) | RESEARCH-STATE-beta.md | b- |\n'
+} > "$d_ss2b/FOCUSES.md"
+expect_next "$d_ss2b" "STOP | no active focus (2 declared stopped/paused in FOCUSES.md with open gaps)" \
+  "T-SS2b: all focuses declared stopped/paused in FOCUSES.md with open gaps → descriptive STOP"
+
+# T-SS2c: FOCUSES.md absent → fall back to existing behavior (no skip)
+d_ss2c="$TMP/ss2-no-focuses"; mkdir -p "$d_ss2c"
+{ printf '# Active\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | fallback-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2c/RESEARCH-STATE.md"
+# No FOCUSES.md — must NOT skip anything
+expect_next "$d_ss2c" "NEXT | high | fallback-gap" \
+  "T-SS2c: FOCUSES.md absent → no skip, existing behavior preserved"
+
+# T-SS2d: frozen multi-corpus fixture — niagara format (Estado, bold focus, backtick state-file) AND
+# HotelHilton format (half-bold status **token** (...), link-wrapped state-file [f.md](f.md)).
+# RED-before-fix: paused focus (aaa) sorts BEFORE active (zzz) so the base SUT returns niafoo-gap;
+# new SUT skips paused + hilton-stopped + base, returning niabar-gap.  D9 fix.
+d_ss2d="$TMP/ss2-niagara-fmt"; mkdir -p "$d_ss2d"
+# Focus aaa-niafoo-paused (sorts FIRST): bold focus, bold+parens status, backtick state-file (niagara form)
+{ printf '# Focus aaa-niafoo-paused (niagara: bold focus, bold+parens status, backtick state-file)\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | niafoo-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2d/RESEARCH-STATE-aaa-niafoo-paused.md"
+# Focus zzz-hilton-stopped (sorts SECOND): half-bold status, link-wrapped state-file (HotelHilton form)
+{ printf '# Focus zzz-hilton-stopped (hilton: half-bold **stopped** (...), link state-file)\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | hilton-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2d/RESEARCH-STATE-zzz-hilton-stopped.md"
+# Focus zzz-niabar-active (sorts THIRD): bare focus, bare status, backtick state-file — the NEXT source
+{ printf '# Focus zzz-niabar-active (bare tokens, active)\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | niabar-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2d/RESEARCH-STATE-zzz-niabar-active.md"
+# Base focus: RESEARCH-STATE.md (no slug suffix — stopped, 0 open gaps, sfcol match)
+{ printf '# Base focus: sfcol match only\n> intro\n'
+  env_lines 0 0 0 0 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 0\n'
+} > "$d_ss2d/RESEARCH-STATE.md"
+# FOCUSES.md: niagara-format header (Estado), mixes niagara + HotelHilton cell forms
+{ printf '# Corpus Index\n\n'
+  printf '| Focus | Estado | RESEARCH-STATE | Ambito |\n'
+  printf '|---|---|---|---|\n'
+  # niagara form: bold focus, bold+parens status, backtick state-file
+  printf '| **aaa-niafoo-paused** | **paused (3 open; budget cap)** | `RESEARCH-STATE-aaa-niafoo-paused.md` | paused focus |\n'
+  # HotelHilton form: bare focus, half-bold status **token** (...), link-wrapped state-file — D8 fix
+  printf '| zzz-hilton-stopped | **stopped** (complete 3/3) | [RESEARCH-STATE-zzz-hilton-stopped.md](RESEARCH-STATE-zzz-hilton-stopped.md) | hilton stopped |\n'
+  # bare tokens, backtick state-file
+  printf '| zzz-niabar-active | active | `RESEARCH-STATE-zzz-niabar-active.md` | active focus |\n'
+  # (base) row: state-file RESEARCH-STATE.md — matches via sfcol only
+  printf '| (base) | stopped | `RESEARCH-STATE.md` | base framework |\n'
+} > "$d_ss2d/FOCUSES.md"
+# T-SS2d: skips aaa-niafoo-paused (niagara bold), zzz-hilton-stopped (hilton half-bold+link), base (sfcol)
+# RED-before-fix: paused aaa sorts first → base returns niafoo-gap; new returns niabar-gap
+expect_next "$d_ss2d" "NEXT | high | niabar-gap" \
+  "T-SS2d: niagara+HotelHilton FOCUSES.md forms — bold/half-bold/link/sfcol skip; active returned"
+
+# T-SS2d-sfcol: state-file-column match path — (base) RESEARCH-STATE.md, stopped, single focus with open gap.
+# base SUT → NEXT | high | base-gap; new SUT → STOP (sfcol match detected stopped).
+d_ss2d_sfcol="$TMP/ss2-sfcol-match"; mkdir -p "$d_ss2d_sfcol"
+{ printf '# Base focus (sfcol match only)\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | base-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2d_sfcol/RESEARCH-STATE.md"
+{ printf '| Focus | Estado | RESEARCH-STATE |\n|---|---|---|\n'
+  printf '| (base) | stopped | `RESEARCH-STATE.md` |\n'
+} > "$d_ss2d_sfcol/FOCUSES.md"
+expect_next "$d_ss2d_sfcol" \
+  "STOP | no active focus (1 declared stopped/paused in FOCUSES.md with open gaps)" \
+  "T-SS2d-sfcol: (base) row matched via state-file column — stopped, single focus → STOP reason"
+
+# T-SS2e: STALE-bypass respects FOCUSES.md (D5 path: STALE gate + FOCUSES.md skip interact correctly).
+# Scenario: verify-state fails because a paused focus has a mismatched envelope; but FOCUSES.md
+# declares that focus as paused, so the STALE bypass treats it as bypassed → _any_real_stale=0 →
+# fall through → NEXT from the active sibling.
+d_ss2e="$TMP/ss2-stale-bypass"; mkdir -p "$d_ss2e"
+# Focus "ss2e-paused": envelope says investigable_open=0 but backlog has 1 pending gap → verify-state FAIL.
+# Also declared paused in FOCUSES.md → STALE bypass should skip it.
+{ printf '# Paused (stale envelope)\n> intro\n'
+  env_lines 0 0 0 0 0 0   # envelope: investigable_open=0 (mismatches backlog → verify-state FAIL)
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | paused-stale-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'  # contradicts envelope
+} > "$d_ss2e/RESEARCH-STATE-ss2e-paused.md"
+# Focus "ss2e-active": valid envelope, 1 pending gap → NEXT source
+{ printf '# Active\n> intro\n'
+  env_lines 0 0 0 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | active-stale-sibling-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '- **Open gaps — read-only investigable**: 1\n'
+} > "$d_ss2e/RESEARCH-STATE-ss2e-active.md"
+{ printf '# Focus Registry\n\n| Focus | Status | State file | Block prefix |\n|---|---|---|---|\n'
+  printf '| ss2e-paused | paused (stale envelope test) | RESEARCH-STATE-ss2e-paused.md | p- |\n'
+  printf '| ss2e-active | active | RESEARCH-STATE-ss2e-active.md | a- |\n'
+} > "$d_ss2e/FOCUSES.md"
+# T-SS2e: FOCUSES.md-declared paused focus with stale envelope → STALE bypass treats it as bypassed
+# → active sibling's NEXT is returned (not STALE)
+expect_next "$d_ss2e" "NEXT | high | active-stale-sibling-gap" \
+  "T-SS2e: STALE-bypass respects FOCUSES.md — paused focus with stale envelope is bypassed; active NEXT"
+
+# T-SS2f: default-status subshell skips declared stopped/paused focuses and emits the correct STOP reason.
+# Uses the d_ss2b fixture (both focuses stopped/paused with open gaps).
+# Assert on the "next step" line in the default status output.
+_ns_got="$(bash "$SUT" "$d_ss2b" 2>/dev/null | grep 'next step')"
+[ "$_ns_got" = "  next step       : STOP | no active focus (2 declared stopped/paused in FOCUSES.md with open gaps)" ] \
+  && ok "T-SS2f: default-status subshell emits accurate STOP reason when all focuses are paused/stopped with open gaps" \
+  || no "T-SS2f: default-status next-step got [$_ns_got]"
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -1654,6 +1822,57 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
   else
     no "teeth-#194: N194-STOPPED-BYPASS sentinel not found in SUT"
+  fi
+
+  # T-SS2 teeth: neuter _read_focuses_tok at the function body entry point (N194-FOCUSES-SKIP-FN)
+  # so that ALL three skip paths (--next aggregation, STALE bypass, default-status subshell) are
+  # disabled simultaneously.  Bites T-SS2a (--next), T-SS2e (STALE bypass), T-SS2f (default-status).
+  echo "-- teeth-SS2: neuter _read_focuses_tok via N194-FOCUSES-SKIP-FN; all three skip paths must re-surface --"
+  ss2_mutant="$TMP/status.SS2.MUTANT.sh"
+  if grep -q '# N194-FOCUSES-SKIP-FN' "$SUT"; then
+    # Replace the file-existence guard (the first statement in the function body) with a bare
+    # return so _read_focuses_tok always returns empty regardless of input.
+    sed '/# N194-FOCUSES-SKIP-FN/s/\[ -f "\$ffile" \] || return.*/return  # MUTANT-SS2: _read_focuses_tok disabled/' "$SUT" > "$ss2_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    # Direction A: --next aggregation (T-SS2a fixture: paused aaa sorts before active zzz)
+    ss2a_mgot="$(bash "$ss2_mutant" "$TMP/ss2-paused" --next 2>/dev/null)"
+    if [ "$ss2a_mgot" = "NEXT | high | paused-open-gap" ]; then
+      ok "teeth-SS2-A: neutered _read_focuses_tok → NEXT | high | paused-open-gap — --next skip is load-bearing"
+    else
+      no "teeth-SS2-A: mutant returned [$ss2a_mgot] (want NEXT | high | paused-open-gap) — --next skip is THEATER or fixture broken"
+    fi
+    # Direction B: STALE bypass (T-SS2e fixture: paused focus has stale envelope)
+    ss2e_mgot="$(bash "$ss2_mutant" "$TMP/ss2-stale-bypass" --next 2>/dev/null)"
+    case "$ss2e_mgot" in
+      STALE\ *) ok "teeth-SS2-B: neutered _read_focuses_tok → paused stale focus not bypassed → STALE — STALE-bypass skip is load-bearing";;
+      *)        no "teeth-SS2-B: mutant returned [$ss2e_mgot] — STALE-bypass skip is THEATER or fixture broken";;
+    esac
+    # Direction C: default-status subshell (T-SS2b fixture: both focuses paused/stopped with open gaps)
+    ss2f_mgot="$(bash "$ss2_mutant" "$TMP/ss2-all-paused" 2>/dev/null | grep 'next step')"
+    if echo "$ss2f_mgot" | grep -q 'NEXT'; then
+      ok "teeth-SS2-C: neutered _read_focuses_tok → default-status next-step returns NEXT (skip removed) — default-status skip is load-bearing"
+    else
+      no "teeth-SS2-C: mutant default-status next-step [$ss2f_mgot] — expected NEXT, skip not biting"
+    fi
+    # Direction D: niagara+HotelHilton fixture (T-SS2d) — D8+D9 regression fixture must bite.
+    # With mutant: paused aaa sorts first → niafoo-gap returned (skip disabled).
+    # Proves bold/half-bold/link stripping AND sort-first positioning are load-bearing.
+    ss2d_mgot="$(bash "$ss2_mutant" "$TMP/ss2-niagara-fmt" --next 2>/dev/null)"
+    if [ "$ss2d_mgot" = "NEXT | high | niafoo-gap" ]; then
+      ok "teeth-SS2-D: neutered _read_focuses_tok on niagara+hilton fixture → NEXT | high | niafoo-gap — D1/D8 fix is load-bearing"
+    else
+      no "teeth-SS2-D: mutant returned [$ss2d_mgot] (want NEXT | high | niafoo-gap) — fixture not biting"
+    fi
+    # Direction D-sfcol: sfcol-match fixture (T-SS2d-sfcol) — (base) RESEARCH-STATE.md stopped, single focus.
+    # With mutant: (base) row undetected → NEXT | high | base-gap; new SUT → STOP (sfcol match fires).
+    ss2d_sfcol_mgot="$(bash "$ss2_mutant" "$TMP/ss2-sfcol-match" --next 2>/dev/null)"
+    if [ "$ss2d_sfcol_mgot" = "NEXT | high | base-gap" ]; then
+      ok "teeth-SS2-D-sfcol: neutered on sfcol fixture → NEXT | high | base-gap — sfcol skip path is load-bearing"
+    else
+      no "teeth-SS2-D-sfcol: mutant returned [$ss2d_sfcol_mgot] (want NEXT | high | base-gap) — sfcol path THEATER or fixture broken"
+    fi
+  else
+    no "teeth-SS2: N194-FOCUSES-SKIP-FN sentinel not found in SUT"
   fi
 
   # issue #424b teeth-DONE-TOKENS: replace enumerated set with catch-all; frobnicate must stay silent (→ red).
