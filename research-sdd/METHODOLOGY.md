@@ -3129,6 +3129,18 @@ no-match distinction still applies — never a bare zero):
   specific artifact — not "install a tool" or "find a live backend". Record the class-absence
   evidence (`find`/`grep class <Name> = empty` + `ls <module>/` confirms archive-only).
   (Source: 2026-09-14-module-mechanics-closeout-retro.md C1)
+- `not-buildable` — the instrument ran and produced a result, but the result carries **no
+  discriminating signal** for the question being asked: every tested discriminator fails together.
+  Only this state means *stop asking* — `unavailable` and `blocked-on-tool` say *try again with a
+  different instrument or a provisioned tool*. Record the tested discriminators and their results; do
+  not retry with the same class of instrument. (Evidence: B58 — three discriminators on a 121/124
+  split, all fail; G33 closes with a measured reason rather than a deferral.)
+- `transport-timeout-succeeded` — the transport returned a timeout error, but the operation
+  **completed on the far side**. The states above all presume the work did not happen; recording this
+  case as any of them is false. Rule: on a transport timeout, **inspect the artifact before
+  classifying the wall** — if the operation completed, no wall occurred. (Evidence: B60 §60.3 —
+  `Connection to Blender lost: timed out` from the MCP transport while the operation completed inside
+  Blender.)
 
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
@@ -3142,7 +3154,14 @@ tool is installed — this is the cheapest first move and it PRECEDES the chain,
 one. (Evidence: an `nre -@<option>` JVM pass-through found via `nre -help` after 3 wrong tool-walls;
 `nre.properties:46` plus `nre.dll` exported symbols unblocked B533/B535 — zero new installs.)
 
-- Native ELF/PE/firmware: **check for symbols first** (`readelf -h`/`nm` — is the binary stripped?). A symbol-bearing ELF's `nm`/`readelf -d`/`strings` inventory is `[CERT]` identity evidence and EXEMPT from the §5 twin-binary offset check (there is no offset to verify for a symbol-name citation); RESERVE `ghidra → r2` body-decompilation for what symbols/strings cannot answer (parameter values, control flow). For a STRIPPED binary the chain is `ghidra → r2 → quick` as before (never bare `strings` — TOOL-BEFORE-AGENT). (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D1)
+The same principle extends to **drawn evidence in artifacts**: when associating two elements in a
+document or diagram, look for an association the author already recorded — a leader line, a reference,
+a foreign key — before inferring one from geometry or proximity (nearest-body, clustering). An
+explicit author-drawn link is own-surface evidence; a geometric inference is a derived guess. (Evidence:
+B63 §63.5 — following the drafter's leader line resolved 71 bodies and reproduced B23's 0.610 m
+24-inch module by an independent path; nearest-body geometric inference had collapsed.)
+
+- Native ELF/PE/firmware: **check for symbols first** (`readelf -h`/`nm` — is the binary stripped?). A symbol-bearing ELF's `nm`/`readelf -d`/`strings` inventory is `[CERT]` identity evidence and EXEMPT from the §5 twin-binary offset check (there is no offset to verify for a symbol-name citation); RESERVE `ghidra → r2` body-decompilation for what symbols/strings cannot answer (parameter values, control flow). For a STRIPPED binary the chain is `ghidra → r2 → quick` as before (never bare `strings` — TOOL-BEFORE-AGENT). (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D1) — For a **negative-existence** question (is identifier X absent from this binary?), the string table (`nm`/`readelf -s`/`strings .rdata` on Windows PE) is first-class: reconcile against a live runtime or a corroborating population and record the reconciled count; decompilation adds nothing once string reconciliation closes the question. (Evidence: B51 §51.2–§51.3 — 2,505 live vs 2,244 compiled reconciled to 8, all explained; `strings` + two corroborating populations answered it; the decompile was not needed.)
 - JVM bytecode: `vineflower → cfr → procyon → javap`.
 - .NET (PE32 .NET assembly): `ilspycmd → capa → quick` — full decompile via `decompile-net.sh`, then
   capability evidence via `corroborate-capa.sh` (capa handles .NET), then `decompile-native.sh quick`
@@ -3183,6 +3202,14 @@ dropped.
 the first response — try `install-tool.sh <tool>` (idempotent) BEFORE recording the block. Record the
 block only when provisioning is unavailable or declined, and surface the exact `install-tool.sh`
 invocation so the wall is one command from removed.
+
+**Probe by resolution, not by PATH.** `command -v` and `which` answer only whether the tool is on the
+current `PATH` — a different question. Package managers (Homebrew keg-only, APT alternatives, Nix
+closures) routinely keep versioned formulae off `PATH` by design. Before concluding a tool is absent,
+probe by resolution: check the package manager's own cellar or store path (e.g.
+`brew --prefix <tool>`, `/nix/store`, `/usr/lib/jvm`). A `blocked-on-tool` recorded on a PATH miss
+alone can be false. (Evidence: B54 §54.1 — `llvm-pdbutil` recorded absent, actually present under
+Homebrew's keg-only `opt/` prefix; the false wall diverted the line into a multi-hour decompile.)
 
 **21.5 One final attempt before terminal.** After the chain is walked (§21.2–§21.3) and self-provisioning exhausted (§21.4), make exactly one direct, concrete attempt at the original question — not vague persistence and not retry-until-success — and record it with its measured result in the `tried:` clause (§8); that attempt is terminal and opens no loop, since the §8 SCOPED, AUTHORIZED reopen (a bounded experiment on a genuinely-exhausted STOP, §8 "Reopening a STOPPED loop") remains the only path back to an exhausted question.
 
