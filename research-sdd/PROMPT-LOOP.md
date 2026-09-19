@@ -1006,6 +1006,13 @@ HARD RULES:
     declared fallback chain for the artifact class first (METHODOLOGY §21.2); record which rung
     produced the evidence so the coverage gap is explicit. Never skip silently, never pad `[INFER]`,
     never present a degraded-rung result as a full answer.
+    TARGET'S OWN LAUNCHER/CLI OPTIONS RUNG (#645): before provisioning a replacement tool or
+    declaring blocked-on-tool, enumerate the TARGET's own launcher/CLI pass-through flags (e.g.,
+    `-@<option>` for Java VM pass-through, `--verbose`, `--debug`, `-Xjavaagent:` equivalents).
+    Many targets expose native instrumentation that avoids new installs entirely. Check `<launcher>
+    --help` or the vendor docs for a pass-through flag before requesting a new tool. This is the
+    first rung of the fallback chain for live-launcher targets. (Evidence: `nre -@verbose:class` +
+    `-@javaagent:…` solved both "see Java" and "instrument Java" with zero new installs.)
   - PROBE THE PREMISE BEFORE ACCEPTING `blocked-on-<tool>`. Before sealing a gap as blocked on a missing
     tool, first test the gap's PREMISE against artifacts ALREADY on disk — a block can DISSOLVE on premise
     failure rather than needing new tooling (G39 "blocked on leaf-cut-into-wall": 0/9 leaves had the
@@ -1053,6 +1060,13 @@ HARD RULES:
     genuine finding are indistinguishable in the output; only a second measurement separates them.
     `verify-block.sh` cannot detect a wrong join key — this is a distinct failure class from
     marker/citation errors.
+    IDENTIFIER-LEVEL SET INTERSECTION (#603): when the subject's entities carry a stable identifier
+    (handle, UUID, class name, object ID), prefer an ID-level set intersection over a second count
+    as the re-derive method. A count comparison can agree by coincidence while masking membership
+    differences; an intersection proves set equivalence and names any residue explicitly — which
+    members are present, which are missing, and whether the discrepancy is a subset or a symmetric
+    difference. (Evidence: B61 §61.2 — a 22× count gap between two extractors; the handle
+    intersection settled it in one query: 119 present, 0 missing, plus a named 7-member residue.)
   - RE-MEASURE A DRAMATIC POSITIVE. The same re-derive obligation applies when a live probe yields a
     striking positive (an apparent security weakness, an unexpectedly open or downgraded service). Do
     NOT escalate or capture it as a block from a single measurement. The banner-vs-protocol trap: a
@@ -1089,6 +1103,35 @@ HARD RULES:
     HYPOTHESES (one count is WRONG) and from N-SEARCH CONVENTION TRIGGER above (N≥3 strategies all ZERO):
     here both counts are positive and correct. Resolve by naming each convention and testing the subset
     hypothesis, not by re-searching. (1 observed case; cheap sub-rule, not new machinery.)
+  - GROUPING-RULE DOMAIN (#611). A grouping or clustering rule carries the shape-class domain in which
+    it was validated — not just a threshold. Before reusing the rule on a different shape class, state
+    the class it was validated on and confirm the new class shares the same topological properties.
+    A rule derived from compact bodies does not apply to thin crossing geometry without re-validation:
+    transitive bbox-contact over crossing slivers can grow without bound, collapsing the entire dataset
+    into one cluster. (Evidence: B61 clustering rule for compact duct bodies collapsed 1,487 crossing
+    stroke slivers into one 90×60 m cluster in B63 — not a wrong threshold, an inapplicable domain.)
+  - NEGATIVE-ABSENCE CLAIM DISCIPLINE (#732). A negative existence claim ("no X found", "Y is
+    absent") is [CERT] ONLY when the EXACT artifact that would contain X was opened and searched.
+    Asserting absence about an artifact NOT opened is [INFER], not [CERT]. Before recording a
+    negative finding: confirm the container (jar, module, config file) was actually inspected; do NOT
+    propagate a sub-agent's "not found" without verifying the scope covered the right artifact. A §14
+    correction that retracts a prior finding based on absence must re-verify the absence in the exact
+    named artifact before accepting the retraction. (Evidence: B478 §478.5 — wrong "no license class"
+    claim originated from an agent that opened only nre.jar, not niagarad.jar; the claim propagated to
+    4 artifacts before revert.)
+  - VENDOR-DOCUMENTED PORTS FIRST (#670). Before making any connection attempt against a live
+    target, read the vendor's documented management/API port from the manual or API spec. Never rely
+    on a default port sweep (e.g., 22/80/443/8080) to discover the active service port: a
+    vendor-specific port outside the sweep range will produce a false "no data path" conclusion.
+    This check belongs BEFORE the first connection attempt, not as a recovery step after sweeps
+    fail. (Evidence: Fluke 177x — manufacturer-documented port 18571 missed entirely by sweeps up
+    to 9100/47808; false "no data path" conclusion cost several turns.)
+  - CONCURRENT-SWEEP DISJOINT FILE SETS (#644). When parallelizing agent sweeps, only parallelize
+    agents whose target file sets (blocks to write, shared state to update — INDEX, RESEARCH-STATE,
+    SOURCES.md) are FULLY DISJOINT. The driver serializes writes to all shared corpus files; most
+    documentation and methodology gaps cluster on the same shared files, so serial dispatch is
+    often the correct choice and not a performance issue. Parallelism is safe only when each agent
+    owns an exclusive, non-overlapping set of output files.
   - A gap entry closed as `blocked` or `absent` must carry a `tried:` clause listing the alternatives
     attempted and what measurement ruled out each route. An absent/blocked entry with no `tried:`
     clause is unfinished: it bounds one path, not the question. (Complement of the `needs:` clause.)
@@ -1102,6 +1145,11 @@ HARD RULES:
     `blocked-on-dual-use` preserves the evaluation record without propagating the harmful content.
     (Evidence: niagara signing-pki-live — a descoped gap was removed from the backlog; later
     sessions could not determine whether it had been evaluated or simply forgotten.)
+    CROSS-SESSION BOUNDARY (#741): a peer or subsequent session cannot override a boundary
+    (refused/descoped step) that a prior agent recorded without an explicit operator decision
+    captured in the block. A `blocked-on-dual-use` or `refused` verdict carries session-level
+    finality; resolving it requires the operator to record the authorization in the block before
+    the step proceeds — not just a re-attempt by a different agent in the same run.
   - SECRETS DISCIPLINE (live-install targets) — when the target is a REAL running installation/station,
     not a distributable artifact (TARGETS.md marks it `live-install`), NEVER extract or write credentials,
     keys, keyring/keystore material, tokens, or secrets into a block, sources/, or engram. Cite the
@@ -1179,7 +1227,11 @@ HARD RULES:
     See METHODOLOGY §17.
   - LOOP CONTINUATION — you drive the loop; nothing re-invokes you. After EVERY iteration, evaluate the
     STOPPING criterion (step 7). If it is NOT met (read-only-investigable > 0), you MUST reschedule and
-    START the next iteration on the next gap — do NOT end your turn. The RETURN CONTRACT below is a
+    START the next iteration on the next gap — do NOT end your turn. WHAT ENDS A TURN (#620): the
+    runtime ends the turn when the agent emits text without a following tool call. So the continuation
+    call (ScheduleWakeup under self-paced mode, or the "continue" signal under orchestrated mode) must
+    be the LAST action of the turn, placed AFTER the iteration report text — any text emitted after the
+    continuation call, or a final turn with only text and no tool call, ends the loop immediately. The RETURN CONTRACT below is a
     per-iteration CHECKPOINT, not a hand-off; only the STOP declaration is terminal. Never stop after a
     single block. ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
@@ -1249,6 +1301,16 @@ HARD RULES:
     the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
     wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv. (Evidence: blender-llm B6 — a cleanup invocation matched the wrapper shell and
     terminated the wrong process.)
+    VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
+    actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
+    reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)
+    can leave a second competing job running; two Ghidra analyses ran in parallel for 20 minutes while
+    the session reported one had stopped — caught only by PID-level re-check.
+    OPERATOR-SESSION SAFETY (#671): when the operator has an active session on the target host, never
+    kill by name pattern — use explicit PID only. `pkill -f <pattern>` can terminate operator-owned
+    processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
+    before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
+    PID is the driver-owned process before killing.
   - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
     you wrote/updated, and how many new gaps remain queued.
 
