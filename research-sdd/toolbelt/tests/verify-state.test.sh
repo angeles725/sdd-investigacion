@@ -988,6 +988,34 @@ if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*covered_blocks=10 != 3' <<<"$out"; 
   ok "BS-global-stale: block_scope: shared-global, covered_blocks=10 != attributed 3 → FAIL exit 1"
 else no "BS-global-stale: exit $(code "$d") :: $(grep -iE 'fail|covered_blocks' <<<"$out" | head -1)"; fi
 
+# SG-check2-no-false-warn — CHECK 2 must NOT fire for shared-global when prose 'Covered blocks: N'
+# matches the attributed count but differs from corpus total.
+# Bug: for block_scope: shared-global, ondisk = corpus total (here 5), but covered_claim = 3 (from
+# prose '**Covered blocks:** 3 of 5'). CHECK 2 compared covered_claim (3) against ondisk (5) → false WARN.
+# Fix: skip CHECK 2 when _sg_check_a_done = 1 (shared-global path taken).
+# Fixture: corpus=5 blocks, focus attributes B1+B2+B3 (attributed=3, covered_blocks=3 = correct).
+# After fix: CHECK 2 skipped → exit 0, no WARN. Before fix: exit 0 + WARN 'disagrees with 5'.
+d="$TMP/sg-check2-no-false-warn"; mkdir -p "$d"
+for _bgi in 1 2 3 4 5; do printf 'x\n' > "$d/niagara-mental-model-bloque${_bgi}.md"; done
+{ echo '# Chihuahua — Research State'; echo
+  env_bs 3 0 0 0 0 0 0 0 "shared-global"; echo   # covered_blocks=3, attributed=3 → SG CHECK A passes
+  echo '## Summary'; echo
+  echo '**Covered blocks:** 3 of 5 (B1, B2, B3 attributed to this focus)'; echo
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  echo '## Iteration history'; echo
+  echo '| # | Date | Gap closed | Block | Delegated? · model | New gaps |'
+  echo '|---|---|---|---|---|---|'
+  echo '| 1 | 2026-01-01 | gap-A | B1 | no · inline | none |'
+  echo '| 2 | 2026-01-02 | gap-B | B2 | no · inline | none |'
+  echo '| 3 | 2026-01-03 | gap-C | B3 | no · inline | none |'
+} > "$d/RESEARCH-STATE-chihuahua.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -q 'disagrees with' <<<"$out"; then
+  ok "SG-check2-no-false-warn: shared-global prose 'Covered blocks: 3 of 5', attributed=3, corpus=5 → no CHECK 2 WARN, exit 0"
+else no "SG-check2-no-false-warn: exit $(code "$d") :: $(grep -E 'disagrees|WARN.*Covered|FAIL' <<<"$out" | head -2 | tr '\n' '|') (want exit 0 + no false WARN)"; fi
+
 # BS-bogus — block_scope: bogus-value → FAILS with message naming both legal values.
 # covered_blocks=0 and 0 blocks on disk → CHECK A is silent; only block_scope validation fires.
 d="$TMP/bs-bogus"; mkdir -p "$d"
@@ -1979,6 +2007,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-SG-scope: mutant exit $msgsgot (want 1) — SG-scope isolation not load-bearing (THEATER)"; fi
   else
     no "teeth-SG-scope: FOCUS-FILTER sentinel not found in SUT"
+  fi
+
+  # SG-check2-skip tooth: remove _sg_check_a_done guard from CHECK 2 (SG-CHECK2-COND) → false WARN fires.
+  # Mutation: strip [ "$_sg_check_a_done" = 0 ] && from the SG-CHECK2-COND if-line → CHECK 2 runs for
+  # shared-global → prose 'Covered blocks: 3 of 5' vs corpus 5 triggers WARN on the no-false-warn fixture.
+  echo "-- teeth-sg-check2-skip: remove _sg_check_a_done guard from SG-CHECK2-COND; false WARN must fire --"
+  mu_sgck2="$TMP/verify-state.SGCK2.MUTANT.sh"
+  if grep -q '# SG-CHECK2-COND' "$SUT"; then
+    sed '/# SG-CHECK2-COND/ { s/ && \[ "\$_sg_check_a_done" = 0 \]//; s/# SG-CHECK2-COND/# MUTANT-SGCK2/ }' "$SUT" > "$mu_sgck2"
+    if ! grep -q 'MUTANT-SGCK2' "$mu_sgck2"; then
+      no "teeth-sg-check2-skip: could not build mutant (SG-CHECK2-COND substitution failed — did SUT change?)"
+    else
+      cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+      d="$TMP/sg-check2-no-false-warn"
+      sgck2_out="$(bash "$mu_sgck2" "$d" 2>/dev/null)"
+      if grep -q 'disagrees with' <<<"$sgck2_out"; then
+        ok "teeth-sg-check2-skip: guard removed → false WARN fires on SG fixture → CHECK 2 SG guard is load-bearing"
+      else no "teeth-sg-check2-skip: guard removed but no false WARN on SG fixture (THEATER)"; fi
+    fi
+  else
+    no "teeth-sg-check2-skip: SG-CHECK2-COND sentinel not found in SUT"
   fi
 
   # BS-bogus + BS-empty mutation: neuter block_scope validation (sentinel BS-BLOCK_SCOPE-VALIDATE).
