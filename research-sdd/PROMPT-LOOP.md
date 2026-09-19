@@ -863,6 +863,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          CATALOG or INDEX file is NOT OVER until a retro produced from `$KIT/templates/retro.template.md` exists in
          `$TARGET/retros/` newer than the newest changed block, carrying `<!-- review-status: pending -->` and a
          `## Proposed kit deltas` table (or the §18 honesty line "no new deltas; the kit already covers this run").
+         Then run `$KIT/toolbelt/stage-retro-issues.sh <retro>` (dry-run to preview, then `--apply`) so each OPEN
+         delta becomes a `status:needs-review` issue on the kit repo as it is proposed — backlog-first, dedup-guarded
+         (§18). It is read-only without `--apply` and emits `degraded` when `gh` is absent.
          Free-form session notes, "lessons" lists, or a heading of your own are NOT a retro (measured 2026-09-05:
          3 targets advanced with no retro; 7 of 12 new retros were unmarked, wrongly headed, or empty). Before the
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
