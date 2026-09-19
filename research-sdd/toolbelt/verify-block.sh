@@ -137,27 +137,39 @@ if [ -n "$probe_cites" ]; then
   done <<< "$probe_cites"
 fi
 # (e) JAR!ENTRY citations — e.g. control-rt.jar!META-INF/module.xml — recognized non-resolvable:
-#     a Java archive entry path is not a local file:line. Print for visibility; P6 WARN still fires
-#     because jar entries do not satisfy the file:line citation gate (§7 false-negative direction).
+#     a Java archive entry path is not a local file:line. Print for visibility; P6 WARN is
+#     suppressed when these are the ONLY citations present (like `extern` for backtick cites) —
+#     the gate is not blind; it recognized the form. Issues #771/#774/#780.
 jar_cites=$(grep -oE '[A-Za-z0-9_.-]+\.jar![A-Za-z0-9_./-]+' "$block" | sort -u)
+jar_found=""
 if [ -n "$jar_cites" ]; then
   while IFS= read -r jc; do
     [ -z "$jc" ] && continue
     echo "   jar-entry  $jc  (jar archive path — not file-verifiable)"  # VB1-JAR-ENTRY-CITE
   done <<< "$jar_cites"
+  jar_found=1
 fi
 # (f) [BNNN] synthesis back-references — e.g. [B7], [B12] — recognized non-resolvable:
 #     an intra-corpus back-reference token is not a local file:line. Print for visibility; P6 WARN
-#     still fires because [BNNN] tokens are a common cross-reference idiom (5k+ fleet-wide) and
-#     suppressing P6 on their presence would silence the anti-silent-zero guard on real evidence blocks.
+#     is suppressed when these are the ONLY citations present — the gate recognized the form.
+#     Issues #771/#774/#780.
 synth_refs=$(grep -oE '\[B[0-9]+\]' "$block" | sort -u)
+synth_found=""
 if [ -n "$synth_refs" ]; then
   while IFS= read -r sr; do
     [ -z "$sr" ] && continue
     echo "   synth-ref  $sr  (block back-reference — not file-verifiable)"  # VB1-SYNTH-REF
   done <<< "$synth_refs"
+  synth_found=1
 fi
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
+  # P6-NONRESOLVABLE-SUPPRESS: when the only citations present are recognized non-resolvable forms
+  # (jar archive entries and/or [BNNN] block back-references), the gate is not blind — it identified
+  # the forms. Emit an informational note instead of the WARN; the visibility lines above already
+  # show what was found. This suppresses the spurious WARN reported in issues #771/#774/#780.
+  if [ -n "$jar_found" ] || [ -n "$synth_found" ]; then  # P6-NONRESOLVABLE-GUARD
+    [ "$cert_total" -gt 0 ] && echo "   (only non-file-verifiable citations recognized: ${jar_found:+archive-entry paths }${synth_found:+[BNNN] back-references }— see entries above; token-verify inline against cited artifacts)"  # P6-NONRESOLVABLE-SUPPRESS
+  else
   # P6: [CERT] body markers present but no file:line citations resolved → the citation gate
   # exits 0 silently having checked nothing. Warn so the author notices the gap.
   # P6-DOC-AWARE: when ALL cert markers are doc-grade ([CERT-doc]/[CERT-web]/[CERT-a]), file:line
@@ -200,6 +212,7 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
   else
     echo "   (no file:line citations found)"
   fi
+  fi  # close jar_found/synth_found branch
 fi
 # (a) artifact cites — strict: MISSING (unpreserved evidence) and out-of-range both FAIL.
 if [ -n "$art_cites" ]; then

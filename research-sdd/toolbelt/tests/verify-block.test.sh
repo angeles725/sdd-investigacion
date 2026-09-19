@@ -788,34 +788,35 @@ else
   no "60 P6-BQ-STRIP: wrong output :: $(grep -iE 'WARN|INFO|GAP|token' <<<"$out" | head -3)"
 fi
 
-# 61 — T-VB1: jar!entry citation only → jar-entry visibility line printed AND P6 WARN still fires.
-# Jar paths are not file:line citations; the anti-silent-zero guard must still fire so the author
-# knows the citation gate checked nothing resolvable.
+# 61 — VB1-FIX: jar!entry citation only → jar-entry visibility printed AND NO P6 WARN.
+# Fix for #771/#774/#780: a jar archive path IS a recognized non-resolvable citation form
+# (like `extern` for backtick cites); the gate is not blind. Suppress the false WARN;
+# keep the visibility line so the author knows the form was seen.
 d="$TMP/vb1-jar.md"
 { echo "# Block — t"; echo
   echo "> Method: [CERT] = x."; echo
   echo "---"; echo
   echo "JAR entry control-rt.jar!META-INF/module.xml pinned at v3.2. [CERT]"; } > "$d"
 out="$(bash "$SUT" "$d" 2>/dev/null)"
-if grep -q 'jar-entry' <<<"$out" && grep -qiE 'WARN.*ZERO.*citation|WARN.*checked nothing' <<<"$out"; then
-  ok "61 T-VB1: jar!entry → jar-entry printed AND P6 WARN fires (anti-silent-zero preserved)"
+if grep -q 'jar-entry' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero|WARN.*nothing' <<<"$out"; then
+  ok "61 VB1-FIX: jar!entry only → jar-entry printed; NO P6 WARN (non-resolvable but recognized)"
 else
-  no "61 T-VB1: wrong output: jar=$(grep -ci 'jar-entry' <<<"$out") warn=$(grep -ciE 'WARN.*ZERO|WARN.*nothing' <<<"$out") :: $(grep -iE 'jar|WARN|CERT' <<<"$out" | head -3)"
+  no "61 VB1-FIX: wrong output: jar=$(grep -ci 'jar-entry' <<<"$out") warn=$(grep -ciE 'WARN.*CERT|WARN.*zero|WARN.*nothing' <<<"$out") :: $(grep -iE 'jar|WARN|INFO|CERT' <<<"$out" | head -3)"
 fi
 
-# 62 — T-VB1: [BNNN] back-reference only → synth-ref visibility line printed AND P6 WARN still fires.
-# [BNNN] tokens are a common corpus cross-reference idiom (5k+ fleet-wide), not file:line citations;
-# suppressing the WARN on their presence would silence the anti-silent-zero guard on real evidence blocks.
+# 62 — VB1-FIX: [BNNN] back-reference only → synth-ref visibility printed AND NO P6 WARN.
+# Fix for #771/#774/#780: a block back-reference [BNNN] is a recognized non-resolvable citation
+# form; the gate is not blind. Suppress the false WARN; keep the synth-ref visibility line.
 d="$TMP/vb1-synth.md"
 { echo "# Block — t"; echo
   echo "> Method: [CERT] = x."; echo
   echo "---"; echo
   echo "As established in [B7] and [B12], the pattern holds. [CERT]"; } > "$d"
 out="$(bash "$SUT" "$d" 2>/dev/null)"
-if grep -q 'synth-ref' <<<"$out" && grep -qiE 'WARN.*ZERO.*citation|WARN.*checked nothing' <<<"$out"; then
-  ok "62 T-VB1: [BNNN] back-ref → synth-ref printed AND P6 WARN fires (anti-silent-zero preserved)"
+if grep -q 'synth-ref' <<<"$out" && ! grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero|WARN.*nothing' <<<"$out"; then
+  ok "62 VB1-FIX: [BNNN] back-ref only → synth-ref printed; NO P6 WARN (non-resolvable but recognized)"
 else
-  no "62 T-VB1: wrong output: synth=$(grep -ci 'synth-ref' <<<"$out") warn=$(grep -ciE 'WARN.*ZERO|WARN.*nothing' <<<"$out") :: $(grep -iE 'synth|WARN|CERT' <<<"$out" | head -3)"
+  no "62 VB1-FIX: wrong output: synth=$(grep -ci 'synth-ref' <<<"$out") warn=$(grep -ciE 'WARN.*CERT|WARN.*zero|WARN.*nothing' <<<"$out") :: $(grep -iE 'synth|WARN|INFO|CERT' <<<"$out" | head -3)"
 fi
 
 # 63 — T-VB1: genuinely NO citations (no jar, no synth, no file:line) → P6 WARN fires (anti-silent-zero).
@@ -1260,6 +1261,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-p6-type-classify-decision: P6-TYPE-CLASSIFY sentinel not found in SUT"
+  fi
+
+  # teeth-p6-nonresolvable: neuter the P6-NONRESOLVABLE-GUARD condition (force always-false);
+  # jar!entry-only fixture must revert to emitting the P6 WARN because suppression is bypassed.
+  echo "-- teeth-p6-nonresolvable: neuter P6-NONRESOLVABLE-GUARD; jar-only block must revert to P6 WARN --"
+  mutant_p6nr="$TMP/verify-block.P6NR-MUTANT.sh"
+  if grep -q '# P6-NONRESOLVABLE-GUARD' "$SUT"; then
+    sed '/# P6-NONRESOLVABLE-GUARD/ s/if .*/if false; then  # P6-NONRESOLVABLE-GUARD [MUTANT]/' "$SUT" > "$mutant_p6nr"
+    bash -n "$mutant_p6nr" 2>/dev/null; p6nr_syntax=$?
+    if [ "$p6nr_syntax" != "0" ]; then
+      no "teeth-p6-nonresolvable: mutant has syntax error (bash -n rc=$p6nr_syntax) — cannot run"
+    else
+      mut_p6nr_out="$(bash "$mutant_p6nr" "$TMP/vb1-jar.md" 2>/dev/null)"
+      if grep -qiE 'WARN.*\[CERT\]|WARN.*cert|WARN.*zero|WARN.*nothing' <<<"$mut_p6nr_out" \
+         && ! grep -qiE 'non-file-verifiable|jar-entry paths|BNNN.*back-ref' <<<"$mut_p6nr_out"; then
+        ok "teeth-p6-nonresolvable: guard-neutered mutant reverts to P6 WARN for jar-only (suppression is load-bearing)"
+      else
+        no "teeth-p6-nonresolvable: mutant did not revert to WARN :: $(grep -iE 'WARN|INFO|non-file|jar' <<<"$mut_p6nr_out" | head -2)"
+      fi
+    fi
+  else
+    no "teeth-p6-nonresolvable: P6-NONRESOLVABLE-GUARD sentinel not found in SUT"
   fi
 
   # T-VB1 teeth-jar-entry: neuter the jar-entry echo line (VB1-JAR-ENTRY-CITE sentinel);
