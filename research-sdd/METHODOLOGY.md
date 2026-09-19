@@ -825,8 +825,23 @@ Distinguish the two in the `tried:` clause: the evidence already describes WHY e
 out; naming the sub-type tells a future reader whether to await hardware or treat the gap as permanently
 static-only.
 
+**A refused or deferred-by-policy step must become a typed backlog row in the same pass.** When a gap
+is explicitly refused (dual-use constraint, policy restriction, budget decision) or deferred by operator
+instruction, it must be re-typed into the `## Gap-backlog` table as a `blocked (requires-…)` row with its
+`tried:` and `needs:` clauses — exactly like a tool wall. A prose deferral note in a block is not a
+backlog entry: it cannot be found by `verify-state.sh` derivation, does not appear in `investigable_open`,
+and silently vanishes when the loop advances. A typed gap row is recall-findable; a prose note is not.
+(Source: niagara D4 — SP-G11 was queued as a blocked row only after the operator explicitly asked)
+
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
+
+**A long analysis is justified by a question only it can answer, not by having already started it.**
+When a cheaper instrument answers the question mid-run, stop the expensive one immediately and close
+the gap with the cheaper tool's answer. A running Ghidra decompile does not earn priority over a
+`llvm-pdbutil` census that already produced the same answer in minutes — the question is answered,
+and continuing is waste, not rigor. (Source: blender-llm Δ6, B54 §54.5 — Ghidra stopped at
+24:28/12.5 GB once `llvm-pdbutil` produced the census)
 
 **Saturation is a soft REVIEW prompt, not a fourth STOP criterion.** The backlog rarely empties (each
 block uncovers 1-4 new gaps), so a subject can be substantively SATURATED long before the criteria above
@@ -853,6 +868,19 @@ Structural rows with no iteration number (`—`-indexed bootstrap, reopen and sy
 kit issue #449 excludes them from the last-3 window with a visible `[N unnumbered row(s) excluded]` note and,
 when the latest row is an unnumbered row that seeded gaps, appends `latest unnumbered row seeded N gaps — not
 yet an iteration` (`research-sdd-status.sh`, kit issue #449).
+
+**LOAD-BEARING-ANSWER-COMPLETE: write an intermediate synthesis block when the focus's declared
+load-bearing question is answered before all gaps close.** Once that question is settled, write an
+intermediate synthesis block that: (a) states which gaps are now covered and confirms the load-bearing
+answer, (b) labels every remaining open gap as secondary-detail — explicitly stating whether it can
+change the core answer — and (c) does NOT close the focus. Subsequent blocks then confirm or refine
+secondary details without re-deriving the primary answer. This is distinct from the focus-closing
+synthesis (which fires at FOCUS-level exhaustion): the intermediate synthesis checkpoint lets a focus
+accumulate secondary evidence without obscuring that the primary question is already settled. A gap
+labeled "secondary detail — does not change composition answer" at this checkpoint is honest about its
+weight; a focus that skips this checkpoint forces the reader to re-derive primacy from the block sequence.
+(Source: niagara RP-C — B362 written at 6/9; R3/R7/R8 labeled "secondary detail — does not change
+composition answer"; B363–B365 confirmed without altering the primary answer)
 
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
@@ -891,6 +919,15 @@ NOT a free-floating percentage), the list of **blocked gaps each tagged with the
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
 **ACTIVE CLOSE: audit before declaring a gap closed or a deliverable done.** Before declaring done, explicitly audit: (a) what surface was NOT inspected, (b) what assumptions were inherited from a prior block or agent, and (c) whether the deliverable matches the ground truth that is available. The default question after "done" is "what didn't I explore?", not "ship it". A gap declared closed without an active-close audit may carry unacknowledged scope gaps and inherited assumptions — two of the most common sources of false closures in multi-block campaigns. (Source: fluke-177x-datos)
+
+**Pre-stop artifact audit: check for uncited decompiler dumps before honoring `investigable=0`.**
+Before honoring a STOP or `investigable=0` declaration, check `$TARGET/tools/` and `$CORPUS/audits/`
+for decompiler dump files not cited in any corpus block. An uncited dump is body-grade evidence that
+was acquired but never captured — a false-negative exhaustion signal. If any uncited dump covers a gap
+with no block-level body evidence, the STOP MUST NOT be honored: produce the missing block, then
+recheck. This check is mandatory even when the dump was produced by a prior session or agent run; the
+file's age does not make it cited. (Source: niagara D1 — `decomp-hostid.txt`/`decomp-dsfspi.txt`
+found nine days after a false `investigable=0` declaration; 2026-08-07 STOP was false)
 
 **Coverage over the SUBJECT is a second, different metric — declare it when the subject has structure.** `gaps closed /
 known gaps` is a ratio over the gaps you KNOW; it cannot see the units of the subject no gap ever named. When the
