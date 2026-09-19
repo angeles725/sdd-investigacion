@@ -606,6 +606,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          a sub-agent negative to a gap closure, verify the cited scope covers the relevant universe
          (e.g. all jars / all modules, not just the swept subtree). A module-scoped "not found" is
          evidence for the module only — widen the search before accepting it.
+         EXTERNAL-REPO ABSENCE: when a scout returns absence from a NARROW file set in an external
+         repository, do not merely widen the file list — clone the repo and grep the whole tree,
+         enumerating every relevant literal (`.connect()` calls, URL constants, config keys). A
+         narrow-set negative is inconclusive; a tree-wide grep is the minimum re-test before
+         accepting absence as [CERT]. (Evidence: B8 §8.7 — scout 3-file negative upgraded to
+         tree-wide [CERT] zero-match after full clone grep; #572.)
          SWEEP CONTRADICTS DRIVER'S PRIOR INLINE STATEMENT. When a delegated sweep returns evidence
          that contradicts an assertion the driver made INLINE to the operator (not a block), acknowledge
          the refinement BEFORE or WHILE writing the block: (1) name what the inline answer said and where
@@ -652,6 +658,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
          (e.g. no Opus access), substitute one tier down and note it in the report.
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
+       - LONG BUILD DELEGATION (§19 iterations): write the full build spec to a scratchpad file
+         BEFORE launching the implementation agent, and pass the file path in the delegation
+         prompt rather than embedding the spec inline (inline specs bloat the launch turn and
+         cannot be amended without a re-launch). If a constraint is discovered or the operator
+         issues a correction mid-flight, deliver the updated spec file via the continuation
+         mechanism (SendMessage in Claude Code) rather than killing and re-launching — re-launch
+         discards accumulated implementation context and pays the startup cost again. Note: the
+         continuation mechanism is harness-specific; if the harness lacks one, prefer shorter
+         well-scoped delegations that are cheap to relaunch. (Evidence: nave-panccadia D19.)
        - PRE-TEST POPULATION ANATOMY: before running a comparison or classification test, measure
          the anatomy of the test population — how many items survive the eligibility filter, and
          what fraction is auto-generated vs. semantic vs. absent. If the post-filter count is zero,
@@ -709,10 +724,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          output, and will eventually be investigated. Both is better than either alone.
        - MODEL TIER ALSO governs NESTED sub-sweeps. A general-purpose sweep-agent (one whose toolset INCLUDES the
          Agent tool — NOT Explore/Plan, which lack it) MAY itself spawn a SUB-SWEEP, and each Agent call carries
-         its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. Nesting caveat: prefer
-         ONE level — nest a sub-sweep only for a punctual, well-scoped need; the specialized agents (Explore/Plan)
-         cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use the Workflow engine
-         (deterministic control, no per-hop context compression) instead of free-form native nesting.
+         its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. DO NOT NEST
+         sub-agents: include this as a standing instruction in every delegation prompt (word it explicitly, e.g.
+         "Do NOT spawn sub-agents or use the Agent tool inside this sweep"). A sub-agent that nests silently hides
+         its findings from the driver; recovery requires SendMessage and risks losing partial results (evidence:
+         WB02 B428 — sweep nested, driver recovered via SendMessage). At most ONE level of nesting, only for a
+         punctual well-scoped need; the specialized agents (Explore/Plan) cannot sub-delegate at all. For
+         STRUCTURED fan-out or multiple controlled levels, use the Workflow engine (deterministic control, no
+         per-hop context compression) instead of free-form native nesting.
          ORCHESTRATED-MODE CAVEAT: when the delegating agent is ITSELF a sub-agent (orchestrated mode, one level
          deep), the nested `model:` tier override may be unavailable in the harness — the inner Agent call may
          fail with "agent type not available" (observed: B415 niagara/network-supervisor). Fallback: use Bash
@@ -987,6 +1006,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      iterating past structural convergence (evidence: module-mechanics focus hit `investigable_open=0`
      after MM1–MM32 + 29 children; "sigue" re-opened Section-E as a new tier — correct, but only
      because the operator explicitly declared it; an autonomous run must stop at convergence).
+     FRONTIER-REOPEN DECISION SHAPE: at STOP-CANDIDATE, run a coverage/section audit before
+     honoring STOP. If the audit reveals >2 contiguous section entries uncovered OR >1 named
+     sub-topic with no block coverage, that is a new tier, not an in-block residue — declare
+     it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration
+     of the new tier and seed the backlog from the uncovered entries. A single in-child residue
+     stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared
+     this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is a
+     silent operator-only call an autonomous run cannot replicate. (Evidence: module-mechanics
+     focus — operator's silent "sigue" reopened Section-E; #564.)
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
@@ -1496,7 +1524,14 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
     - BREAKTHROUGH (if demonstrated this iteration): name the proven recipe as a distinct
       `Breakthrough: <one line>` field — do not bury it in the block summary. METHODOLOGY §22
       defines the marker and the ledger; this checkpoint ensures the report surfaces it explicitly,
-    - the next gap (or the stop declaration).
+    - CONTINUATION TOKEN (required): end every report with exactly one of:
+        `next: <gap-id>` — the next gap to investigate (loop continues),
+        `STOP: <reason>` — when the STOP criterion fires.
+      A report that ends without either token is a halted-but-silent stop: the operator has no
+      signal to distinguish "checkpoint, continuing" from "stopped". Never substitute a question
+      ("shall I continue?", "want me to go on?", or any variant) for the continuation token —
+      in a research-loop flow this is a contract violation, not politeness; the loop self-continues
+      until STOP fires explicitly (SKILL.md "answer is almost never a question back").
   Do NOT paste the block body, long decompiler dumps, or full file contents into the report.
 ```
 
