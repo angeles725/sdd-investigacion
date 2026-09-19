@@ -174,6 +174,90 @@ for ino in range(1, N_DEEP + 1):
 with open(os.path.join(out, 'deep.img'), 'wb') as f:
     f.write(bytes(img_dp))
 
+# oom.img: valid superblock with num_blocks=0x7FFFFFFF; the LONGFILE root-node
+# (always read unconditionally during parse()) has a 3-level indirect tree and a
+# declared size of 0x80000000 (2 GB).  With the old cap
+# (min(size, num_blocks*bs) ≈ 2 GB) the loop tries to accumulate 2 GB and takes
+# ~40 s → detectable by a 5-second timeout.  With the fstat-based cap
+# (min(size, file_size-offset) ≈ 14 KB) the loop stops after ~28 iterations.
+# Inode 1 is a plain small directory so _detect_off (which checks di_size < 50 M)
+# succeeds and parse proceeds to the longfile read.
+# Layout (off=1, bs=512):
+#   block 3 (byte 2048): inode table — inode 1: size=32, mode=dir, ptr0=8, levels=0
+#   block 4 (byte 2560): L3 indirect: all 128 pointers → block 5
+#   block 5 (byte 3072): L2 indirect: all 128 pointers → block 6
+#   block 6 (byte 3584): L1 indirect: all 128 pointers → block 7
+#   block 7 (byte 4096): data block (512 bytes = leaf for longfile tree)
+#   block 8 (byte 4608): root-dir data (32 zeros = one empty dirent slot)
+OOM_IMG_SIZE = 0x3000  # 12288 bytes (covers all blocks through block 23)
+img_oom = bytearray(OOM_IMG_SIZE)
+
+sb_oom = bytearray(4096)
+struct.pack_into('<I',    sb_oom,   0, 0x68191122)
+struct.pack_into('<IIII', sb_oom,  48, BS, 1, 0, 0x7FFFFFFF)  # num_blocks inflated
+# Inode root-node: size=128 (1 inode), ptr0=3, levels=0
+struct.pack_into('<Q', sb_oom, 72, 128)
+struct.pack_into('<I', sb_oom, 80, 3)
+for i in range(1, 16):
+    struct.pack_into('<I', sb_oom, 80 + i*4, 0xffffffff)
+sb_oom[144] = 0  # levels=0
+# Longfile root-node: size=0x80000000 (2 GB), ptr0=4, levels=3  ← CRAFTED
+struct.pack_into('<Q', sb_oom, 232, 0x80000000)
+struct.pack_into('<I', sb_oom, 240, 4)
+for i in range(1, 16):
+    struct.pack_into('<I', sb_oom, 240 + i*4, 0xffffffff)
+sb_oom[304] = 3  # levels=3 for longfile
+img_oom[8192:8192+4096] = sb_oom
+
+# Inode table at block 3 (byte 2048): inode 1 — small dir (size=32, passes _detect_off)
+inode_oom = bytearray(128)
+struct.pack_into('<Q', inode_oom,  0, 32)     # size = 32 (one dirent slot)
+struct.pack_into('<H', inode_oom, 32, 0x4000) # mode = directory
+struct.pack_into('<I', inode_oom, 36, 8)      # ptr0 → block 8 (root-dir data)
+for i in range(1, 16):
+    struct.pack_into('<I', inode_oom, 36 + i*4, 0xffffffff)
+inode_oom[100] = 0  # levels=0
+img_oom[2048:2048+128] = inode_oom
+
+# Block 4 (byte 2560): L3 indirect — all 128 pointers → block 5
+for i in range(128):
+    struct.pack_into('<I', img_oom, 2560 + i*4, 5)
+
+# Block 5 (byte 3072): L2 indirect — all 128 pointers → block 6
+for i in range(128):
+    struct.pack_into('<I', img_oom, 3072 + i*4, 6)
+
+# Block 6 (byte 3584): L1 indirect — all 128 pointers → block 7
+for i in range(128):
+    struct.pack_into('<I', img_oom, 3584 + i*4, 7)
+
+# Block 7 (byte 4096): 512-byte data leaf (zeros — longfile leaf content)
+# (already zeroed)
+
+# Block 8 (byte 4608): root-dir data block — 32 zeros (de_ino=0 everywhere → empty)
+# (already zeroed)
+
+with open(os.path.join(out, 'oom.img'), 'wb') as f:
+    f.write(bytes(img_oom))
+
+# truncated_dir.img: valid QNX6 with root dir inode claiming size=32 (one dirent)
+# but its data block pointer (block 99) is past the end of the image.
+# _read_rn_file returns b'' because _rawblk past EOF returns b''.
+# Without the truncation check → silent zero (status:complete, entries=[]).
+# With the check → _QNX6Error → status:failed.
+img_tr = bytearray(13312)
+img_tr[8192:8192+4096] = make_base_sb(1)
+inode_tr = bytearray(128)
+struct.pack_into('<Q', inode_tr,  0, 32)   # size=32 (one dirent worth)
+struct.pack_into('<H', inode_tr, 32, 0x4000)
+struct.pack_into('<I', inode_tr, 36, 99)   # ptr0 → block 99 (past EOF)
+for i in range(1, 16):
+    struct.pack_into('<I', inode_tr, 36 + i*4, 0xffffffff)
+inode_tr[100] = 0  # levels=0
+img_tr[2048:2048+128] = inode_tr
+with open(os.path.join(out, 'truncated_dir.img'), 'wb') as f:
+    f.write(bytes(img_tr))
+
 PY
 
 # ---------------------------------------------------------------------------
@@ -400,6 +484,62 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T13: non-regular input (FIFO) → exit 2, no hang (#518 S_ISREG guard)
+# ---------------------------------------------------------------------------
+mkfifo "$ROOT/fifo.img"
+_t13_exit=0
+timeout 5 "$SUT" list --input "$ROOT/fifo.img" --output "$ROOT/t13.json" \
+  2>/dev/null || _t13_exit=$?
+if [ "$_t13_exit" -eq 2 ] && [ ! -f "$ROOT/t13.json" ]; then
+  ok "T13 FIFO input: exit 2, no JSON, no hang"
+else
+  no "T13 FIFO input: expected exit 2 + no JSON (no hang), got exit $_t13_exit"
+fi
+
+# ---------------------------------------------------------------------------
+# T14: crafted num_blocks=0x7FFFFFFF + 3-level longfile tree → no hang
+#      (#514 MINOR-1: fstat-based cap must stop the read at file_size, not 2 GB)
+# Pre-fix: longfile _read_rn_file loops ~4 M iterations → timeout in 5 s.
+# Post-fix: loop stops after ~28 iterations → exits in << 1 s.
+# ---------------------------------------------------------------------------
+_t14_exit=0
+# Pre-fix: ~2M leaf-block iterations (longfile 3-level tree) takes ~4 s → exits 124.
+# Post-fix: fstat cap stops the loop at ~28 iterations → completes in << 1 s.
+timeout 2 "$SUT" list --input "$FIXTURES/oom.img" --output "$ROOT/t14.json" \
+  2>/dev/null || _t14_exit=$?
+# Must complete within the timeout: exit 0 or 1 (not 124).
+# If exit 1, a valid JSON file must be present (no raw traceback).
+if [ "$_t14_exit" -eq 0 ] || { [ "$_t14_exit" -eq 1 ] && python3 - "$ROOT/t14.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert 'status' in d
+PY
+}; then
+  ok "T14 crafted num_blocks: exit $_t14_exit, no hang, clean result"
+else
+  no "T14 crafted num_blocks: expected exit 0 or 1 (no hang), got exit $_t14_exit"
+fi
+
+# ---------------------------------------------------------------------------
+# T15: truncated directory data block → typed error (§7 anti-silent-zero)
+#      (#514 MINOR-2: status:failed, not status:complete with total_entries=0)
+# ---------------------------------------------------------------------------
+_t15_exit=0
+"$SUT" list --input "$FIXTURES/truncated_dir.img" --output "$ROOT/t15.json" \
+  2>/dev/null || _t15_exit=$?
+if [ "$_t15_exit" -eq 1 ] && python3 - "$ROOT/t15.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d['status'] == 'failed', f"expected 'failed', got {d['status']!r}"
+assert len(d.get('errors', [])) > 0, "errors list must be non-empty"
+PY
+then
+  ok "T15 truncated dir: exit 1, status:failed, errors non-empty (not silent-zero)"
+else
+  no "T15 truncated dir: expected exit 1 + status:failed, got exit $_t15_exit"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary (non-teeth path)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" != "--prove-teeth" ]; then
@@ -510,6 +650,164 @@ else
     mut_ok "M4 path-slash detected (path is '$_m4_path', not '/file')"
   else
     mut_no "M4 path-slash: mutation NOT detected (path still '/file')"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M5: Replace walk-error append with pass (walk errors silently ignored) ----
+# Expected: T8 (bad inode) and T9 (indirect EOF) no longer produce status:failed
+# → status:complete + empty entries → assertions fail
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+sed -i 's/errors.append(f"walk error: {exc}")/pass  # MUTANT_M5/' \
+  "$MUTDIR/qnx6_read.py"
+if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
+  mut_no "M5 walk-error: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
+  mut_no "M5 walk-error: sed had no effect"
+else
+  _m5a_exit=0
+  python3 "$MUTDIR/qnx6_read.py" list \
+    --input "$FIXTURES/bad_inode.img" --output "$ROOT/m5a.json" 2>/dev/null \
+    || _m5a_exit=$?
+  _m5a_ok=0
+  # Mutation: walk errors swallowed → T8 assertion fails (status:complete, not failed)
+  python3 - "$ROOT/m5a.json" <<'PY' 2>/dev/null && _m5a_ok=1
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d['status'] == 'failed'
+PY
+  if [ "$_m5a_ok" -eq 0 ]; then
+    mut_ok "M5 walk-error removal detected (T8: bad-inode no longer status:failed)"
+  else
+    mut_no "M5 walk-error: mutation NOT detected (T8 still status:failed)"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M6: Remove visited-inode guard (cycle detection disabled) ---------------
+# Expected: cyclic.img loops infinitely → T10 timeout → exit 124, not 0
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+sed -i 's/if ino in visited:/if False:  # MUTANT_M6/' "$MUTDIR/qnx6_read.py"
+if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
+  mut_no "M6 cycle-guard: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
+  mut_no "M6 cycle-guard: sed had no effect"
+else
+  _m6_exit=0
+  timeout 5 python3 "$MUTDIR/qnx6_read.py" list \
+    --input "$FIXTURES/cyclic.img" --output "$ROOT/m6.json" 2>/dev/null \
+    || _m6_exit=$?
+  if [ "$_m6_exit" -ne 0 ]; then
+    mut_ok "M6 cycle-guard removal detected (exit $_m6_exit, not 0)"
+  else
+    mut_no "M6 cycle-guard: mutation NOT detected (still exits 0)"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M7: Restore old num_blocks-based cap (fstat cap removed) ----------------
+# Expected: oom.img longfile read runs ~2 M iterations → exceeds 2 s timeout
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+# Replace the fstat-based cap with the old num_blocks-based cap.
+# The sed target is the unique 'real_file_bytes' assignment line.
+sed -i 's/real_file_bytes = max(0, os.fstat(self._fd).st_size - self._poff)/real_file_bytes = self.num_blocks * self._bs  # MUTANT_M7/' \
+  "$MUTDIR/qnx6_read.py"
+if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
+  mut_no "M7 fstat-cap: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
+  mut_no "M7 fstat-cap: sed had no effect"
+else
+  _m7_exit=0
+  timeout 2 python3 "$MUTDIR/qnx6_read.py" list \
+    --input "$FIXTURES/oom.img" --output "$ROOT/m7.json" 2>/dev/null \
+    || _m7_exit=$?
+  if [ "$_m7_exit" -ne 0 ] && [ "$_m7_exit" -ne 1 ]; then
+    mut_ok "M7 fstat-cap removal detected (exit $_m7_exit ≠ 0 or 1, i.e., timed out)"
+  else
+    mut_no "M7 fstat-cap: mutation NOT detected (still exits 0 or 1 within 2 s)"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M8: Remove truncated[0] = True (depth-cap truncation flag suppressed) ---
+# Expected: deep.img still exits 0 but truncated:false instead of true → T11 fails
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+sed -i 's/truncated\[0\] = True/pass  # MUTANT_M8/' "$MUTDIR/qnx6_read.py"
+if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
+  mut_no "M8 truncated-flag: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
+  mut_no "M8 truncated-flag: sed had no effect"
+else
+  _m8_exit=0
+  python3 "$MUTDIR/qnx6_read.py" list \
+    --input "$FIXTURES/deep.img" --output "$ROOT/m8.json" 2>/dev/null \
+    || _m8_exit=$?
+  _m8_trunc=""
+  [ -f "$ROOT/m8.json" ] && _m8_trunc="$(python3 -c \
+    "import json; d=json.load(open('$ROOT/m8.json')); print(d.get('truncated'))" 2>/dev/null)"
+  if [ "$_m8_exit" -eq 0 ] && [ "$_m8_trunc" != "True" ]; then
+    mut_ok "M8 truncated-flag removal detected (truncated is '$_m8_trunc', not True)"
+  else
+    mut_no "M8 truncated-flag: mutation NOT detected (truncated still True or wrong exit)"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M9: Remove O_EXCL and O_NOFOLLOW from output write (combined guard) ------
+# O_NOFOLLOW alone is not detectable when the symlink target exists (O_EXCL would
+# still return EEXIST).  Removing both O_EXCL and O_NOFOLLOW lets the tool follow
+# the symlink and truncate+write the victim → T12 fails (exit 0, victim changed).
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+# Replace the flags expression (no trailing comment so the comma is preserved).
+sed -i 's/os\.O_WRONLY | os\.O_CREAT | os\.O_EXCL | _O_NOFOLLOW | _O_CLOEXEC/os.O_WRONLY | os.O_CREAT | _O_CLOEXEC/' \
+  "$MUTDIR/qnx6_read.py"
+if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
+  mut_no "M9 output-guards: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
+  mut_no "M9 output-guards: sed had no effect"
+else
+  echo "victim-m9" > "$ROOT/victim9.txt"
+  ln -sf "$ROOT/victim9.txt" "$ROOT/out9_sym.json"
+  _m9_exit=0
+  python3 "$MUTDIR/qnx6_read.py" list \
+    --input "$FIXTURES/valid.img" --output "$ROOT/out9_sym.json" \
+    2>/dev/null || _m9_exit=$?
+  _m9_victim="$(cat "$ROOT/victim9.txt" 2>/dev/null)"
+  # Without the guards: symlink is followed and victim is overwritten → exit 0, victim changed
+  if [ "$_m9_exit" -ne 2 ] || [ "$_m9_victim" = "victim-m9" ]; then
+    mut_ok "M9 output-guards removal detected (exit $_m9_exit, victim overwritten)"
+  else
+    mut_no "M9 output-guards: mutation NOT detected"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M10: Remove O_NONBLOCK from input open (FIFO no longer opens non-blocking) -
+# The S_ISREG check requires a non-blocking open to work: without O_NONBLOCK,
+# opening a FIFO blocks indefinitely → T13 timeout → exit 124 ≠ 2.
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+sed -i 's/os\.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK/os.O_RDONLY | _O_NOFOLLOW/' \
+  "$MUTDIR/qnx6_read.py"
+if ! python3 -m py_compile "$MUTDIR/qnx6_read.py" 2>/dev/null; then
+  mut_no "M10 O_NONBLOCK: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/qnx6_read.py"; then
+  mut_no "M10 O_NONBLOCK: sed had no effect"
+else
+  mkfifo "$ROOT/m10_fifo.img" 2>/dev/null || true
+  _m10_exit=0
+  timeout 3 python3 "$MUTDIR/qnx6_read.py" list \
+    --input "$ROOT/m10_fifo.img" --output "$ROOT/m10.json" 2>/dev/null \
+    || _m10_exit=$?
+  if [ "$_m10_exit" -ne 2 ]; then
+    mut_ok "M10 O_NONBLOCK removal detected (FIFO blocks → exit $_m10_exit, not 2)"
+  else
+    mut_no "M10 O_NONBLOCK: mutation NOT detected (still exits 2)"
   fi
 fi
 rm -rf "$MUTDIR"

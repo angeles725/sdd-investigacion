@@ -25,6 +25,7 @@ import errno
 import hashlib
 import json
 import os
+import stat
 import struct
 import sys
 from pathlib import Path
@@ -37,9 +38,12 @@ _DIRENT_SIZE = 32
 _LONGNAME_SENTINEL = 0xFF
 _MAX_DEPTH = 40
 
-# O_NOFOLLOW / O_CLOEXEC are Linux-specific; getattr guards for other OSes
-_O_NOFOLLOW = getattr(os, 'O_NOFOLLOW', 0)
-_O_CLOEXEC  = getattr(os, 'O_CLOEXEC', 0)
+# O_NOFOLLOW / O_CLOEXEC / O_NONBLOCK are Linux-specific; getattr guards for other OSes.
+# O_NONBLOCK is required so that opening a FIFO, socket, or block device does not block
+# indefinitely; the S_ISREG check below then rejects non-regular inputs.
+_O_NOFOLLOW  = getattr(os, 'O_NOFOLLOW',  0)
+_O_CLOEXEC   = getattr(os, 'O_CLOEXEC',   0)
+_O_NONBLOCK  = getattr(os, 'O_NONBLOCK',  0)
 
 
 # ---------------------------------------------------------------------------
@@ -116,13 +120,14 @@ class QNX6Reader:
     def _read_rn_file(self, size, ptrs, levels):
         if size == 0:
             return b''
-        # Cap reads at min(size, num_blocks * block_size) to bound memory on
-        # crafted images with inflated size fields (MINOR 3b').
-        cap = (
-            min(size, self.num_blocks * self._bs)
-            if self.num_blocks > 0
-            else size
-        )
+        # Cap reads at real (st_size - partition_offset) so a crafted superblock
+        # with inflated size or num_blocks cannot drive an unbounded accumulation.
+        # This bounds the bytearray regardless of what the untrusted superblock claims.
+        try:
+            real_file_bytes = max(0, os.fstat(self._fd).st_size - self._poff)
+        except OSError:
+            real_file_bytes = size  # fstat failed; fall back to declared size
+        cap = min(size, real_file_bytes) if real_file_bytes > 0 else size
         buf = bytearray()
         for blk in self._leaf_blks(ptrs, levels):
             buf += self._rawblk(blk)
@@ -176,6 +181,15 @@ class QNX6Reader:
     def listdir(self, ino):
         node = self.inode(ino)
         data = self._read_rn_file(node['size'], node['ptrs'], node['levels'])
+        # Distinguish truncated read from genuinely-empty directory (§7 anti-silent-zero).
+        # If the returned data is shorter than the declared directory size, the data
+        # block is past EOF or the image is cut mid-dirent — that is a parse error,
+        # not an empty directory.
+        if node['size'] > 0 and len(data) < node['size']:
+            raise _QNX6Error(
+                f"directory data truncated: inode {ino} declared {node['size']} bytes"
+                f" but only {len(data)} were readable (image truncated or block past EOF)"
+            )
         entries = []
         for o in range(0, len(data), _DIRENT_SIZE):
             e = data[o:o + _DIRENT_SIZE]
@@ -237,9 +251,14 @@ class QNX6Reader:
 # ---------------------------------------------------------------------------
 
 def _open_ro(path):
-    """Open path read-only, rejecting symlinks via O_NOFOLLOW."""
+    """Open path read-only, rejecting symlinks via O_NOFOLLOW.
+
+    O_NONBLOCK is included so that opening a FIFO or other special file does not
+    block waiting for a writer.  The caller must check S_ISREG immediately after
+    and reject non-regular inputs.  On regular files O_NONBLOCK has no effect.
+    """
     try:
-        return os.open(str(path), os.O_RDONLY | _O_NOFOLLOW)
+        return os.open(str(path), os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
             raise OSError(errno.ELOOP, "is a symbolic link (rejected)", str(path)) from exc
@@ -295,6 +314,11 @@ def cmd_list(args):
             return 2
 
         stat_result = os.fstat(fd)
+        if not stat.S_ISREG(stat_result.st_mode):
+            sys.stderr.write(
+                f"qnx6-read: {args.input}: not a regular file (rejected)\n"
+            )
+            return 2
         sha256 = _sha256_fd(fd)
 
         rdr = QNX6Reader(fd, args.partition_offset)
@@ -367,6 +391,13 @@ def cmd_extract(args):
             fd = _open_ro(args.input)
         except OSError as exc:
             sys.stderr.write(f"qnx6-read: {args.input}: {exc.strerror}\n")
+            return 2
+
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            sys.stderr.write(
+                f"qnx6-read: {args.input}: not a regular file (rejected)\n"
+            )
             return 2
 
         rdr = QNX6Reader(fd, args.partition_offset)
