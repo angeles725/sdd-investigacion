@@ -354,6 +354,21 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      backlog, launch the remaining independent sweeps CONCURRENTLY — do not serialize them one per
      iteration. Synthesize results on completion. The same concurrent-scout constraints apply:
      independent source trees, serialized block writing. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #2)
+     GAP-PREMISE RE-DERIVE AT CHOOSE: a gap that has sat in the backlog may carry an unverified
+     number in its description (class count, doc count, entry count). Before prioritising it, re-derive
+     that number from source — a stale count silently scopes the investigation to the wrong universe.
+     See GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP step e) for the full rule; this is the step-1
+     trigger point for that check, applied at the moment of selection, not only at bootstrap time.
+     (Evidence: B57 §57.1 — G28 "4.3 doc corpus" was actually 5.1; sat at medium priority for 39
+     blocks on an unverified number.)
+     PER-ITERATION VALUE GATE: before starting investigation, classify the gap as MECHANISM (behavior,
+     code path, protocol) or REFERENCE-CATALOG (a table of SKUs, address maps, register layouts, data
+     sheets with no behavioral question). Reference-catalog gaps get a `catalog-batch` qualifier in
+     RESEARCH-STATE and are deferred to a dedicated reference-batch iteration that may author multiple
+     blocks in one pass; the one-per-commit main loop runs mechanism gaps only. Do not spend full
+     mechanism-loop overhead on a gap whose answer is a structured table with no behavior to reason
+     about. (Evidence: niagara B899–B928 — investigable children degraded from mechanism-rich sessions
+     to pure reference catalogs; absence of this gate drove full per-commit cost with no mechanism yield.)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
@@ -370,6 +385,24 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          the driver closes without authoring a block. This prevents wasted investigation if the gap is
          remittance at fine grain even when the audit cleared it at coarse grain. (Evidence: apis focus
          API5/API6/API8, 2026-08-25: 3/8 gaps REMITTANCE-risk; all 3 turned out genuine.)
+         REMITTANCE-TO-EVIDENCE UPGRADE: when the PRIOR COVERAGE CHECK finds a gap already answered
+         but only at [CERT-web]/[CERT-a]/[INFER] (asserted from docs or memory), reading the PRIMARY
+         SOURCE to lift the same claim to [CERT] is genuine new substance — NOT a remittance. The
+         marker-tier upgrade justifies authoring a new block even though the coverage question is
+         settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
+         the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
+         case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
+         not a wasted iteration. (Evidence: B10 — G14 fully covered by B4 §4.2/§4.5 at [CERT-web];
+         B10 read the actual bridge code and upgraded the main-thread claim to [CERT]; verify-block:
+         5/5 resolved, ratio 0.11.)
+         OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
+         operator's data package, check whether the package already carries a pre-existing human
+         classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
+         label field). A human classification is a REFERENCE STANDARD the extractor can be scored
+         against — do not build a filter first and lose that calibration opportunity. (Evidence:
+         `Dep_Ductos_crudos` classified 845 four-vertex duct bodies across four categories; scoring
+         B61's extractor against it yielded 231/231 CANDIDATO_RECTO and 44/44 CAJA_REVISAR —
+         100 % precision on everything the workbook calls duct, a claim no self-built filter could make.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -458,6 +491,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          no sub-agent — delegation has its own cost.)" note. Delegate a single agent covering both,
          returning cleanly separated sections per gap, authored as separate blocks afterward.
          Constraint: the subsystems must be independent (no shared mutable state between sweeps).
+         SIBLING-GAP MOMENTUM: when a delegated sweep for the current gap is already in flight,
+         investigating a small (≤2-file) sibling gap inline is a valid momentum tactic — add the
+         sibling to the backlog first, then read it inline concurrently with the sweep. The driver
+         serializes block writing as usual; both sweep result and inline result are written before
+         any state update. (Evidence: GQL-G3 investigated inline while GQL-G2's 4-file sweep ran;
+         two independent source trees, sequential block writes.)
          RECURSIVE FAN-OUT CITATION BOUNDARY: in a recursive fan-out (e.g. multi-level sharding), raw
          reading stays at the LEAVES — only cited snippets (file:line + load-bearing text) propagate up
          to the coordinator. The coordinator does not re-read leaf material; the citations are the unit
@@ -472,6 +511,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
+         PHYSICAL-ACTION FACTS (highest-priority VERIFY): for any cited fact a human will act on
+         physically — wiring instructions, terminal maps, part numbers, safety values, calibration
+         constants — the orchestrator MUST sample-verify those citations against the real source
+         BEFORE relaying them, not only before writing the block. The [CERT-doc] requirement is
+         necessary but not sufficient here: verify-before-relay, not only verify-before-block. The
+         driver must have read the cited line; trusting the sub-agent's accuracy for a fact that may
+         cause hardware damage or a safety incident is not acceptable. Record: "physical-action verify:
+         N citations checked against real source, all confirmed." (Evidence: commissioning sweeps for
+         24 Vac wiring and terminal maps — driver verified before relaying, all accurate.)
        - SYSTEMATIC-OFFSET CAVEAT (extends item (a)) — when the sweep SOURCE is a CONCATENATED dump
          or a DECOMPILED-context file, a systematic line-number offset makes EVERY reported citation
          untrustworthy, so re-grep ALL load-bearing citations, not just the "key claim" ones (10/10
@@ -539,6 +587,32 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          from "the input was absent", satisfying §7). (Distinct from RE-MEASURE A DRAMATIC NEGATIVE,
          which fires AFTER a striking result to verify it; this gate fires BEFORE the test, when the
          population is still uncounted.)
+         API-FILTER SILENT-DECLINE EXTENSION: after applying an API call (select, filter, mark) that
+         reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
+         against the intended count before proceeding. A filter that silently declines entries produces
+         no error and no warning — the discrepancy is only visible by comparing intent vs. result.
+         (Evidence: B60 §60.4 — `select_set(True)` called on 4,041 objects, raised for none;
+         `select_get()` returned 3,187; 854 objects vanished silently, exporter reported success.)
+         NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
+         package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
+         (X %)` as a headline on every census. A complement gate or coverage claim applied after a
+         narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
+         that must be named. (Evidence: B62 §62.1–§62.3 — LWPOLYLINE on one layer = 9,563 of 45,572
+         entities (21.0 %); the B61 complement gate passed because its denominator was the
+         already-narrowed 2,629; the unread 79 % held round diffusers, VAVs, and 287 m² of geometry.)
+         SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
+         SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
+         any value the researcher picks — a subject-declared threshold produces a partition with no
+         researcher-chosen numbers anywhere. (Evidence: B63 §63.2 — every tag declared
+         `char_height = 0.1525 m`; using it partitioned 7,901 closed shapes into exactly accounted
+         groups summing to the full population.)
+         IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
+         DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
+         proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
+         instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
+         identifier is per-type or per-instance before using it as a grouping key. (Evidence: B65
+         §65.2 — 212 tag occurrences carried 44 distinct strings; `SD-1` appeared ×78; indexing by
+         tag string collapsed 78 occurrences into 1 and was wrong for 6 of 7 families.)
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -718,6 +792,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          registration gets skipped (evidence: niagara/email B334 uncovered email-G1
          requires-execution; it appeared in iteration-history but the backlog had no row and
          `requires_execution_open` stayed 0 — commit `11142b9`).
+         SAME-COMMIT CHILD-GAP RULE (extends SYNTHESIS-BLOCK REGISTRATION RULE): register all child
+         gaps surfaced by a synthesis block in RESEARCH-STATE in the SAME commit as the synthesis
+         block itself. A gap named in the synthesis report but absent from RESEARCH-STATE at commit
+         time is invisible to `verify-state.sh` and may be permanently lost if the session ends
+         before a planned follow-up registration. This also applies to any iteration, not only
+         synthesis: whenever "New gaps uncovered" is non-empty, the backlog rows must exist in the
+         same commit. (Evidence: B413 synthesis named 3 child gaps only in the block body; a separate
+         driver commit `a852383` was needed to register them in RESEARCH-STATE.)
        - REVERSE BACKLOG SWEEP: after closing a gap OR retiring a §14 premise, re-read the open
          backlog and re-scope or rename any gap whose PREMISE this block just answered or invalidated.
          A gap that was opened as "is X true?" becomes stale if this block proved X false — it must
@@ -737,6 +819,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          row's last column before closing the iteration. `fetch-doc.sh`'s `reg()` leaves the cell blank by design
          (a later manual back-fill); leaving it blank silently disables `verify-sources.sh`'s FABRICATED-citation
          cross-check for that row — the check only cross-validates rows that DO list a block (METHODOLOGY §5).
+         PRESERVATION-SURFACES-CORRECTIONS: a §5 debt-closing pass that verifies bare-URL citations
+         routinely surfaces link drift (a repo rename, an issue state change, a moved page) that
+         demands §14 corrections on prior blocks. Budget for those corrections when scoping a
+         preservation gap — do not treat them as scope creep; they are the expected second-order
+         output of a careful preservation pass. (Evidence: B15 — closing G17 preservation debt
+         surfaced a repo rename (§15.2) and upstream-closed issue states (§15.3), both §14
+         corrections to B2/B3.)
        - RECORD the iteration in RESEARCH-STATE's Iteration history table INCLUDING the delegated? · model
          tier column (no·inline / yes·haiku|sonnet|opus) — persist the tier on disk, not only in the report,
          so tier-compliance stays auditable after the session ends. For an EXTERNAL-source iteration, record the
