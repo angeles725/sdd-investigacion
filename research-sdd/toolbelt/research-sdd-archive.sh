@@ -113,16 +113,21 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
 # that exits >1 (missing / not executable / bad args) is reported DISTINCTLY from a real content FAIL so a
 # broken toolchain is not mistaken for a stale mirror.
 gate_rc=0
-gate() {  # <label> <sibling-script> <content-fail-message>
-  local rc; "$here/$2" "$corpus" >/dev/null 2>&1; rc=$?
+gate() {  # <label> <sibling-script> <content-fail-message> [extra-args...]
+  local rc _label="$1" _script="$2" _msg="$3"; shift 3
+  "$here/$_script" "$corpus" "$@" >/dev/null 2>&1; rc=$?
   case "$rc" in
-    0) echo "    $1 : ok";;
-    1) echo "    $1 : FAIL — $3"; gate_rc=1;;
-    *) echo "    $1 : ERROR — $2 did not run (exit $rc) — check it exists and is executable"; gate_rc=1;;
+    0) echo "    $_label : ok";;
+    1) echo "    $_label : FAIL — $_msg"; gate_rc=1;;
+    *) echo "    $_label : ERROR — $_script did not run (exit $rc) — check it exists and is executable"; gate_rc=1;;
   esac
 }
 echo "  -- gates --"
-gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)"
+# AR2-VSTATE-FOCUS-SCOPE: when --focus is given, scope verify-state to that focus so a stale sibling
+# focus does not block a clean focus from archiving (issue #647). verify-state already supports --focus.
+_vstate_args=()
+[ -n "$focus_slug" ] && _vstate_args=("--focus" "$focus_slug")  # AR2-VSTATE-FOCUS-SCOPE
+gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)" "${_vstate_args[@]}"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
 gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
 # undocumented_findings gate — default scope is $target, NOT $corpus. INVARIANT: inspect EVERY

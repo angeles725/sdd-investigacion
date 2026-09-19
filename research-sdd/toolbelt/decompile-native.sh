@@ -51,16 +51,48 @@ case "$MODE" in
     PROJ="$OUT/ghidra-proj"; mkdir -p "$PROJ"
     SCRIPT_ARGS=()
     SCRIPT_DIRS="$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler/ghidra_scripts"
-    if [ "${4:-}" = "--script" ]; then
-      _script="${5:?script}"
-      _script_dir="$(cd "$(dirname "$_script")" && pwd)"
-      SCRIPT_ARGS=(-postScript "$(basename "$_script")")
-      SCRIPT_DIRS="$SCRIPT_DIRS;$_script_dir"
+    _pdb_file=""
+    shift 3  # consume MODE BIN OUT; remaining $@ are optional flags
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --script)
+          _script="${2:?--script requires a path}"; shift 2
+          _script_dir="$(cd "$(dirname "$_script")" && pwd)"
+          SCRIPT_ARGS=(-postScript "$(basename "$_script")")
+          SCRIPT_DIRS="$SCRIPT_DIRS;$_script_dir";;
+        --pdb)
+          _pdb_file="${2:?--pdb requires a file path}"; shift 2;;
+        *) echo "decompile-native: unknown ghidra flag: $1" >&2; exit 2;;
+      esac
+    done
+    # Honour GHIDRA_MAXMEM for JVM heap; auto-detect from total RAM when unset (#588).
+    if [ -n "${GHIDRA_MAXMEM:-}" ]; then
+      export MAXMEM="$GHIDRA_MAXMEM"  # MX1-MAXMEM-EXPORT-SENTINEL
+    else
+      _total_kb="$(awk '/MemTotal/{print $2; exit}' /proc/meminfo 2>/dev/null || true)"
+      if [ -n "$_total_kb" ]; then
+        _half_gb=$(( _total_kb / 1024 / 1024 / 2 ))
+        [ "$_half_gb" -lt 2 ] && _half_gb=2
+        export MAXMEM="${_half_gb}g"
+      fi
+    fi
+    # Stage PDB alongside the binary for Ghidra symbol resolution (#588).
+    # Ghidra searches next to the imported binary; copy PDB under both its original name
+    # and the binary-stem name (both forms appear in PE debug directories).
+    _import_bin="$BIN"
+    if [ -n "$_pdb_file" ]; then
+      [ -f "$_pdb_file" ] || { echo "decompile-native: PDB file not found: $_pdb_file" >&2; exit 2; }
+      _stage="$OUT/pdb-stage"; mkdir -p "$_stage"
+      cp "$BIN" "$_stage/$(basename "$BIN")"
+      cp "$_pdb_file" "$_stage/$(basename "$_pdb_file")"
+      _bin_stem="${BIN##*/}"; _bin_stem="${_bin_stem%.*}"
+      [ "$(basename "$_pdb_file")" != "${_bin_stem}.pdb" ] && cp "$_pdb_file" "$_stage/${_bin_stem}.pdb"
+      _import_bin="$_stage/$(basename "$BIN")"  # PDB1-STAGE-PATH-SENTINEL
     fi
     # Imports, analyzes and (if passed) runs a decompilation postScript.
     # -postScript takes the script NAME; -scriptPath (dirs separated by ';') supplies the lookup path.
     # Source: analyzeHeadlessREADME.md §-postScript and §-scriptPath.
-    "$HEADLESS" "$PROJ" research_$$ -import "$BIN" -overwrite \
+    "$HEADLESS" "$PROJ" research_$$ -import "$_import_bin" -overwrite \
       "${SCRIPT_ARGS[@]}" -scriptPath "$SCRIPT_DIRS"
     # Verify Ghidra actually imported the binary: the program entry lives at depth >=2 inside
     # $PROJ (e.g. <name>.rep/idata/...). If analyzeHeadless exits 0 but writes nothing there
