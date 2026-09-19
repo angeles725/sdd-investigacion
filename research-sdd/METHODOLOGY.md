@@ -3106,6 +3106,10 @@ rule was applied again twice (snapshots v6, v7) — three independent validation
 cites a live path is not reproducible the day after it is written. Corollary: a cached or downloaded artifact
 pins its RESOLVED location (or the resolver command that produced it) in the citation, not the URL it started from.
 
+**Pipeline-repo subjects.** When the subject's data directories are REWRITTEN by each pipeline run, the snapshot rule has a specific form: cite only committed blob references (`git show <sha>:<path>`) for any measurement that enters the corpus — never a working-tree path as primary evidence. Three failure modes recur: (1) *stale table* — a prior run's output survives at the current path and reads as fresh data; (2) *phantom regression* — a mid-run snapshot captures an intermediate state and produces a plausible-wrong number; (3) *working-tree drift* — the directory is rewritten while the block is being written, so citations diverge. Enforcement path: per-artifact sha256 execution-provenance stamp in the block header + a `--allow-unpinned` build guard that rejects working-tree paths without an explicit override.
+
+**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate.
+
 **The procedure / how-to genre.** A block's evidence base depends on what it documents. Documenting how
 something in the SUBJECT works is ordinary `[CERT]` file:line. Documenting a PROCEDURE — a how-to (connect an
 EM500 sensor, bring up a tool, a runbook step) — has a different evidence base: the SESSION itself is the
@@ -3113,6 +3117,16 @@ evidence, i.e. the commands run, the GUI navigated, the outputs. Preserve them u
 cite them `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase (§12) already does. Document
 mode introduces NO new marker: a captured procedure is empirical evidence of a live interaction, which is
 precisely what `[CERT-hw]`/`[CERT-live]` already mean.
+
+**Evidence in document-mode blocks — three clarifications.**
+
+*(1) Runtime-script and narrative-process corpora.* When the source corpus is a set of runtime scripts or a narrative process document with no public API docs, `[CERT]` file:line citations of those files ARE the primary evidence — not a deficiency. The `verify-block.sh` WARN "ZERO file:line citations resolved" fires on `Type: document` blocks that cite document sections by header (`PROCESS.md §n`, no `:line`); this warns that SECTION references were not resolved as evidence citations — it does not mean the block is undercited. Distinguish document-mode section citations (a narrative anchor, no line number required) from evidence citations (a code or probe fact, requiring file:line).
+
+*(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder.
+
+*(3) External-product steps in runbook blocks.* A runbook block often mixes corpus `[CERT]` facts (this device's config, locally verified) with external-product steps (how to configure the DNS provider, how to invoke the hosting API). Keep these visually separate: external steps verified against an official source are `[CERT-web]` (URL + access date, §3); unverified external steps are `[INFER]`. A block where `[CERT]` and `[CERT-web]/[INFER]` rows are interleaved without separation is a reviewer red flag — the reader cannot tell which claims are locally verified. Document mode introduces no new markers for this: `[CERT-web]` and `[INFER]` already cover it.
+
+**Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
 **Auto-routed destination (subject vs toolchain).** The key decision — made by the MODE, not by the user per
 call: ask "does this knowledge serve OTHER targets too?"
@@ -3147,6 +3161,8 @@ item with no Engram pointer is not done.
 `SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain deliverables are PROPOSED
 via the §18 retro TOOLS section and land in `toolbelt/` only after the supervisor acts). Same `verify-block`
 gate as the static loop; STOP when the outline is covered.
+
+**HANDOFF document type.** When a corpus covers a system that goes into production during investigation, add a `HANDOFF.md` at the corpus root: a non-investigation file recording operational state — deploy location, live processes, secrets structure, restart procedures, and known gaps. Investigation blocks are not designed to answer "how do I restart this process?"; HANDOFF.md is. It is NOT a block — `verify-block.sh` does not gate it — but it IS a corpus file change, so the §18 retro gate fires on it. Mirror it to Engram under `research/<target>/handoff` so it is recall-findable in future sessions.
 
 **STATUS (honest).** The DOCUMENT CYCLE is fully specified (SKILL.md + PROMPT-LOOP's DOCUMENT CYCLE) and has
 been exercised end-to-end on a real target: computadoras B16–B25 (~10 `method: document-cycle` blocks, each
