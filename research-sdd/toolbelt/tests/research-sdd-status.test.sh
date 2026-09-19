@@ -1576,6 +1576,69 @@ else
   no "T-567-SS: spurious malformed-row WARN for COVERED pipe row in status.sh; warn=$(grep -m1 'malformed backlog row' <<<"$_t567_err")"
 fi
 
+# ==================== T-627 — RETRO-DUE state in --next (issue #627) ====================
+# retro_due_state <dir> <bsr>: valid state file with blocks_since_retro: <bsr> and one pending gap.
+retro_due_state() {
+  local d="$1" bsr="$2"; mkdir -p "$d"
+  { printf '# T-627 Research State\n\n'
+    printf '<!-- research-state.v1 -->\n'
+    printf 'schema: research-state.v1\ncovered_blocks: 0\n'
+    printf 'gaps_closed: 0\nknown_gaps: 1\n'
+    printf 'investigable_open: 1\nrequires_execution_open: 0\nblocked_open: 0\n'
+    printf 'undocumented_findings: 0\nblocks_since_retro: %s\n' "$bsr"
+    printf '<!-- /research-state.v1 -->\n\n'
+    printf '## Gap-backlog\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+    printf '| high | retro-due-test-gap | web | pending |\n\n'
+    printf '## Blocked gaps\n- none\n\n'
+    printf '## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+  } > "$d/RESEARCH-STATE.md"
+}
+
+# T-627a: blocks_since_retro=11 (exceeds threshold 10) → RETRO-DUE from --next  # RD-PRIORITY-STALE-CASE
+d="$TMP/t627-retro-due"; retro_due_state "$d" 11
+got="$(next "$d")"
+case "$got" in
+  RETRO-DUE\ *) ok "T-627a: blocks_since_retro=11 > 10 → RETRO-DUE | ... from --next";;
+  *) no "T-627a: expected RETRO-DUE, got [$got]";;
+esac
+
+# T-627b: blocks_since_retro=10 (AT threshold; gate fires at >10) → NEXT (not RETRO-DUE)
+d="$TMP/t627-bsr-at"; retro_due_state "$d" 10
+got="$(next "$d")"
+case "$got" in
+  NEXT\ *) ok "T-627b: blocks_since_retro=10 (at threshold, >10 fires) → NEXT (not RETRO-DUE)";;
+  *) no "T-627b: expected NEXT for bsr=10, got [$got]";;
+esac
+
+# T-627c: blocks_since_retro absent → NEXT (silent when field absent)
+d="$TMP/t627-bsr-absent"; mkstate "$d" 1 "high|retro-absent-gap|pending"
+got="$(next "$d")"
+case "$got" in
+  NEXT\ *) ok "T-627c: blocks_since_retro absent → NEXT (silent when field absent)";;
+  *) no "T-627c: expected NEXT when bsr absent, got [$got]";;
+esac
+
+# T-627d: STALE beats RETRO-DUE — inconsistent envelope + bsr=11 → STALE (not RETRO-DUE)
+d="$TMP/t627-stale-beats-rd"; mkdir -p "$d"
+{ printf '# T-627d stale+bsr state\n\n'
+  printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\ncovered_blocks: 0\n'
+  printf 'gaps_closed: 0\nknown_gaps: 1\n'
+  printf 'investigable_open: 5\n'
+  printf 'requires_execution_open: 0\nblocked_open: 0\n'
+  printf 'undocumented_findings: 0\nblocks_since_retro: 11\n'
+  printf '<!-- /research-state.v1 -->\n\n'
+  printf '## Gap-backlog\n\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | stale-gap | web | pending |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+} > "$d/RESEARCH-STATE.md"
+got="$(next "$d")"
+case "$got" in
+  STALE\ *) ok "T-627d: STALE beats RETRO-DUE — inconsistent envelope (e_inv=5 vs d_inv=1) + bsr=11 → STALE";;
+  *) no "T-627d: expected STALE, got [$got]";;
+esac
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -2340,6 +2403,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-SS-567-COVERED-PIPE: SS-567-COVERED-PIPE-SKIP sentinel not found in SUT"
+  fi
+
+  # ---- teeth-627: neuter RD-BLOCKS-SINCE-RETRO-CHECK; T-627a (bsr=11 RETRO-DUE) must return NEXT.
+  # Mutation: replace the echo+exit in the RETRO-DUE block with a no-op comment.
+  # T-627a expects RETRO-DUE → with the check neutered, the SUT falls through to NEXT | high | ...
+  # → T-627a's `RETRO-DUE *` case never matches → assertion goes RED → RD-BLOCKS-SINCE-RETRO-CHECK is load-bearing.
+  echo "-- teeth-627: neuter RD-THRESHOLD-CHECK; bsr=11 fixture must fall through to NEXT --"
+  rd_mutant="$TMP/status.RD627.MUTANT.sh"
+  if grep -q '# RD-THRESHOLD-CHECK' "$SUT"; then
+    sed '/# RD-THRESHOLD-CHECK$/s/if printf.*/if false; then  # MUTANT-RD627/' "$SUT" > "$rd_mutant"
+    if grep -q '# RD-THRESHOLD-CHECK' "$rd_mutant"; then
+      no "teeth-627: could not build mutant (sed did not replace RD-THRESHOLD-CHECK — check sed pattern)"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      rd_got="$(bash "$rd_mutant" "$TMP/t627-retro-due" --next 2>/dev/null)"
+      case "$rd_got" in
+        NEXT\ *) ok "teeth-627: neutered RD-BLOCKS-SINCE-RETRO-CHECK → bsr=11 returns NEXT → T-627a goes RED → check is load-bearing";;
+        RETRO-DUE\ *) no "teeth-627: mutant still returned RETRO-DUE — RD-BLOCKS-SINCE-RETRO-CHECK is THEATER or mutant broken";;
+        *) no "teeth-627: mutant returned unexpected [$rd_got] — fixture or mutant broken";;
+      esac
+    fi
+  else
+    no "teeth-627: RD-BLOCKS-SINCE-RETRO-CHECK sentinel not found in SUT"
   fi
 
 fi

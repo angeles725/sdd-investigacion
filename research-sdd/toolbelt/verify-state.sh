@@ -401,6 +401,10 @@ for state in "${states[@]}"; do
   # This distinguishes: absent (silent), present+valid (threshold checks), present+malformed (FAIL).
   e_uf="$(env_field "$state" undocumented_findings)"
   _uf_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*undocumented_findings:/{print; exit}' "$state")"  # UF-INDENTED-PROBE
+  # blocks_since_retro — same pattern as undocumented_findings: optional manually-maintained counter.
+  # _bsr_present: whether the blocks_since_retro LINE exists in the envelope at all (probe for CHECK P18).
+  e_bsr="$(env_field "$state" blocks_since_retro)"
+  _bsr_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*blocks_since_retro:/{print; exit}' "$state")"  # P18-BSR-PROBE
   # KSW-EXTRACT: known_stale_warns — comma-separated suppression ids. env_field uses `$2` (splits on spaces)
   # but this value may contain spaces between items; use a full-line awk to extract reliably.
   e_ksw="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*known_stale_warns:/{v=$0; sub(/^[[:space:]]*known_stale_warns:[[:space:]]*/,"",v); sub(/[[:space:]]+$/,"",v); print v; exit}' "$state")"  # KSW-EXTRACT
@@ -549,6 +553,18 @@ for state in "${states[@]}"; do
     frc=1; rc=1
   elif is_int "$e_uf" && [ "$e_uf" -gt 3 ]; then
     echo "   WARN   envelope undocumented_findings=$e_uf > 3 — findings exist only in memory (no block); write the block(s) and decrement."
+  fi
+
+  # ENVELOPE CHECK P18 — blocks_since_retro: §18 cadence threshold lint.
+  # THREE cases (same rationale as CHECK G): absent (silent — optional manually-maintained field),
+  # valid integer and >10 (WARN — cadence advisory, not structural failure so not FAIL),
+  # present-but-non-integer (FAIL — gate cannot do its job).
+  # Threshold from METHODOLOGY §18 "every ~10 blocks" → warn when the counter exceeds 10.
+  if [ -n "$_bsr_present" ] && ! is_int "$e_bsr"; then
+    echo "   FAIL   envelope blocks_since_retro=${e_bsr:-<unparseable>} is not a valid non-negative integer — fix the value manually."  # P18-NONINT-FAIL-CASE
+    frc=1; rc=1
+  elif is_int "$e_bsr" && [ "$e_bsr" -gt 10 ]; then  # P18-THRESHOLD-WARN-CASE
+    echo "   WARN   envelope blocks_since_retro=$e_bsr > 10 — §18 retro cadence exceeded; write a retro and reset to 0."
   fi
 
   # P7: INDEX.md still contains template placeholders (<UPPER-CASE> tokens) while blocks exist on
