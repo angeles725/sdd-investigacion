@@ -4,7 +4,9 @@
 # Covers: absent-input (file not found); empty-input (no delta section);
 # no-match (applied retro, no orphaned issues); tracked (stub returns matching
 # issue); untracked (stub returns no issue); orphaned (stub returns signature
-# for a now-shipped row); degraded (gh absent from PATH); --all over >=2 targets.
+# for a now-shipped row); degraded (gh absent from PATH); --all over >=2 targets;
+# json-flag (gh called with --json body, not --template); gh-fail-degraded (gh
+# query returns non-zero → non-zero exit + typed degraded, never false untracked).
 #
 # Usage: reconcile-issues.test.sh                (run the suite)
 #        reconcile-issues.test.sh --prove-teeth  (run suite + mutation teeth)
@@ -98,6 +100,7 @@ mkbox_all() {
 #   mode=tracked-row1 : issue list echoes a Source retro line for row 1 of r-tracked.md
 #   mode=orphaned-row1: issue list echoes a Source retro line for row 1 of r-orphaned.md
 #                       (a shipped row, so the script reports orphaned)
+#   mode=fail-query   : gh issue list exits non-zero (simulates real gh rejecting bad invocation)
 #   mode=nomatch (default): issue list returns empty (all untracked)
 mk_gh_stub() {
   local box="$1" mode="${2:-nomatch}"
@@ -116,6 +119,9 @@ mk_gh_stub() {
         ;;
       orphaned-row1)
         printf '  *" issue list "*) printf "Source retro: target-foo/retros/r-orphaned.md · 1\\n"; exit 0 ;;\n'
+        ;;
+      fail-query)
+        printf '  *" issue list "*) printf "gh: error: use --json when using --jq\\n" >&2; exit 1 ;;\n'
         ;;
       noauth|nomatch)
         printf '  *" issue list "*) exit 0 ;;\n'
@@ -275,6 +281,42 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 9 — JSON-FLAG: gh issue list must be called with --json body (R2-001/R3/R4)
+# Pre-fix code uses --template without --json; the stub logs all args so we
+# can assert --json body is present in the recorded call.
+box="$(mkbox case-json-flag)"
+mk_gh_stub "$box" nomatch   # logs args to gh.log; exits 0 on issue list
+retro="$(mk_retro "$box" target-foo r-jsonflag.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
+run "$box" "$retro"
+_gh_log_9="$box/bin/gh.log"
+_log_contents_9="$(cat "$_gh_log_9" 2>/dev/null)"
+if [ -f "$_gh_log_9" ] && grep -qF ' --json body' "$_gh_log_9"; then
+  ok "9 json-flag: gh issue list called with --json body" "(exit $RC)"
+else
+  no "9 json-flag: gh issue list called with --json body" \
+    "exit=$RC log=[$_log_contents_9]"
+fi
+
+# ---------------------------------------------------------------------------
+# 10 — GH-FAIL-DEGRADED: gh query non-zero → non-zero exit + typed degraded:
+# Pre-fix code emits WARN, continues with empty bodies, exits 0 with untracked:.
+# Post-fix must emit degraded: and exit non-zero (§7 typed-degraded contract).
+box="$(mkbox case-ghfail)"
+mk_gh_stub "$box" "fail-query"
+retro="$(mk_retro "$box" target-foo r-ghfail.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
+run "$box" "$retro"
+if [ "$RC" != 0 ] && printf '%s' "$OUT" | grep -qi 'degraded:'; then
+  ok "10 gh-fail-degraded: gh query failure → non-zero + degraded message" "(exit $RC)"
+else
+  no "10 gh-fail-degraded: gh query failure → non-zero + degraded message" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -362,6 +404,58 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "T3 teeth: locate orphaned check anchor" "anchor '$anchor_t3' not found in SUT"
+  fi
+
+  # TOOTH T4: Neuter the --json body flag (simulate pre-fix invocation).
+  # Replace --json body with --json number so the logged call no longer contains
+  # the exact ' --json body' string that case 9 asserts.
+  echo "-- teeth T4: neuter --json body flag --"
+  if grep -qF ' --json body' "$SUT"; then
+    box_t4="$(mkbox teeth-json-flag)"
+    mk_gh_stub "$box_t4" nomatch
+    retro_t4="$(mk_retro "$box_t4" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | test delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t4="$box_t4/research-sdd/toolbelt/reconcile-issues.sh"
+    sed 's/--json body/--json number/' "$SUT" > "$mutant_t4"
+    PATH="$box_t4/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t4" "$retro_t4" >/dev/null 2>&1
+    _log_t4="$box_t4/bin/gh.log"
+    if ! grep -qF ' --json body' "$_log_t4" 2>/dev/null; then
+      ok "T4 teeth: --json body neutered → log no longer has --json body (case 9 has teeth)" "()"
+    else
+      no "T4 teeth: --json body neutered → log should not have --json body" \
+        "case 9 may be THEATER: log=[$( cat "$_log_t4" 2>/dev/null )]"
+    fi
+  else
+    no "T4 teeth: locate --json body in SUT" "'--json body' not found in SUT"
+  fi
+
+  # TOOTH T5: Neuter the degraded return on gh query failure.
+  # Anchor RECONCILE_ISSUES_GH_DEGRADED_RETURN: immediately precedes return 1.
+  # Replacing return 1 with a no-op means case 10 sees exit 0 instead of non-zero.
+  echo "-- teeth T5: neuter degraded return --"
+  anchor_t5='RECONCILE_ISSUES_GH_DEGRADED_RETURN:'
+  if grep -q "$anchor_t5" "$SUT"; then
+    box_t5="$(mkbox teeth-ghfail)"
+    mk_gh_stub "$box_t5" "fail-query"
+    retro_t5="$(mk_retro "$box_t5" target-foo r-ghfail.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | test delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t5="$box_t5/research-sdd/toolbelt/reconcile-issues.sh"
+    sed "/${anchor_t5}/{ n; s/.*/    : # teeth-t5-degraded-return-removed/ }" \
+      "$SUT" > "$mutant_t5"
+    out_t5="$(PATH="$box_t5/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t5" "$retro_t5" 2>&1)"; rc_t5=$?
+    # Test 10 passes on (RC!=0 AND degraded: present). Tooth passes if mutant exits 0.
+    if [ "$rc_t5" -eq 0 ]; then
+      ok "T5 teeth: degraded return neutered → exit 0 (case 10 has teeth)" "()"
+    else
+      no "T5 teeth: degraded return neutered → should exit 0" \
+        "case 10 may be THEATER: rc=$rc_t5 out=[$out_t5]"
+    fi
+  else
+    no "T5 teeth: locate degraded return anchor" "anchor '$anchor_t5' not found in SUT"
   fi
 
 fi  # --prove-teeth

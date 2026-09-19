@@ -101,6 +101,7 @@ declare -F target_paths_all >/dev/null 2>&1 \
 _fleet_tracked=0
 _fleet_untracked=0
 _fleet_orphaned=0
+_fleet_degraded=0
 _fleet_retros=0
 
 # ---------------------------------------------------------------------------
@@ -114,6 +115,7 @@ audit_retro() {
   retro_basename="$(basename "$retro_path")"
 
   local r_tracked=0 r_untracked=0 r_orphaned=0
+  local _gh_rc _gh_stderr_file _gh_err_msg
 
   # --- Parse review-status and PARTIAL marker (mirrors stage-retro-issues.sh logic)
   local _status
@@ -228,17 +230,32 @@ ${_rln}"
   fi
 
   # --- Broad GitHub query: all open issues referencing this retro file
-  # Returns text that may include Source retro: ... · <row-id> lines.
+  # Retrieves the body of each matching open issue; bodies carry the
+  #   "Source retro: <target>/retros/<file> · <row-id>"  signature.
+  # §7 contract: query failure → typed degraded + return 1, never false untracked.
+  # gh requires --json when --jq is used; --template also requires --json.
   local _sig_prefix="${target_nm}/retros/${retro_basename}"
   local _all_bodies=""
-  if ! _all_bodies="$(gh issue list \
+  _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
+  # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
+  _all_bodies="$(gh issue list \
       --repo "$_REPO" \
       --state open \
       --search "\"Source retro: ${_sig_prefix} ·\"" \
-      --template '{{range .}}{{.body}}{{"\n"}}{{end}}' 2>/dev/null)"; then
-    echo "WARN: gh issue list failed for $retro_basename — output may be incomplete" >&2
-    _all_bodies=""
+      --json body \
+      --jq '.[].body' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
+  if [ "$_gh_rc" -ne 0 ]; then
+    if [ -n "$_gh_stderr_file" ]; then
+      _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
+      rm -f "$_gh_stderr_file"
+    else
+      _gh_err_msg=""
+    fi
+    echo "degraded: gh issue list failed for $retro_basename (exit $_gh_rc)${_gh_err_msg:+ — }${_gh_err_msg}" >&2
+    # RECONCILE_ISSUES_GH_DEGRADED_RETURN: anchor for T5 tooth — return 1 on query failure
+    return 1
   fi
+  [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
 
   # Extract row-ids referenced in open issues for this retro
   local _issue_row_ids=""
@@ -326,6 +343,7 @@ if [ "$_mode" = "single" ]; then
   fi
 
   audit_retro "$retro" "$_tgt_name"
+  exit $?
 
 elif [ "$_mode" = "all" ]; then
   if [ ! -f "$TARGETS_MD" ]; then
@@ -350,7 +368,7 @@ elif [ "$_mode" = "all" ]; then
       [ -f "$_rfile" ] || continue
       _found_retros=1
       _found_any_retro=1
-      audit_retro "$_rfile" "$_tgt_nm"
+      audit_retro "$_rfile" "$_tgt_nm" || _fleet_degraded=$((_fleet_degraded+1))
     done < <(find "$_retros_dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
 
     if [ "$_found_retros" -eq 0 ]; then
@@ -362,8 +380,9 @@ elif [ "$_mode" = "all" ]; then
     echo "empty-input: no retro files found across all targets" >&2
   fi
 
-  printf 'fleet-summary: tracked=%d untracked=%d orphaned=%d retros=%d\n' \
-    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_orphaned" "$_fleet_retros"
+  printf 'fleet-summary: tracked=%d untracked=%d orphaned=%d degraded=%d retros=%d\n' \
+    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_retros"
+  [ "$_fleet_degraded" -eq 0 ] || exit 1
 fi
 
 exit 0
