@@ -191,7 +191,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block. Delegate heavy sweeps with the
    right MODEL TIER (→ a `research-sweep-*` agent, adapter §1). Emit the per-iteration RETURN CONTRACT
-   (including the tier used). At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
+   (including the tier used); every non-STOP return MUST end with a **continuation token** —
+   `next: <gap-id> · rescheduled via research-loop.sh` or `next: <gap-id> · self-paced (N pending)`. A
+   return without one is a silently stopped iteration. Ending with "shall I continue?" is a contract
+   violation. At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
    The run is NOT OVER until the retro exists (from `$KIT/templates/retro.template.md`, `<!-- review-status: pending -->`,
    `## Proposed kit deltas` table or the honesty line) — this applies to quick, document and applied runs too, not only
    to STOP. State `retro: written <path>` or `retro: not-due` in the final return. A target wired with the kit's Stop hook
@@ -226,9 +229,13 @@ the Tool cell of the relevant catalog row so the whole-word match finds it.
 ## Execution mode
 
 Default is **self-paced** via the external `research-loop.sh` (adapter §2 — OpenCode has no native
-self-reschedule; the shell is the re-scheduler). For a long run that must not stall, that IS the robust path.
-If a human wants to review between blocks, run **orchestrated** instead (native `task` per iteration, adapter
-§3). Do not ask which mode — default to self-paced and mention `research-loop.sh` for long runs.
+self-reschedule; the shell IS the re-scheduler and guarantees the cadence).
+
+**Heavy / continue:** when the mode resolves to heavy or continue and this session was invoked directly by a
+human (not via `research-loop.sh`), surface the launch instruction BEFORE the first iteration — announce
+"for cadence, start `research-loop.sh <target> [focus]` in a terminal" — then run the first iteration
+immediately. This is a BOOTSTRAP-level action, not optional advice. If a human wants to review between
+blocks, run **orchestrated** instead (native `task` per iteration, adapter §3). Do not ask which mode.
 
 ## Boundaries
 
