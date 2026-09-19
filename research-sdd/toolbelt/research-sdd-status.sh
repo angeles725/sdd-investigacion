@@ -756,6 +756,25 @@ if [ "$mode" = "--next" ]; then
       exit 0
     fi
   fi
+  # RETRO-DUE (§18 cadence): after STALE passes, check for blocks_since_retro > 10.
+  # Check the relevant state file(s): just $state for single-focus, all active files for multi-focus.
+  # Emits RETRO-DUE and exits before NEXT/STOP so the cadence advisory reaches the caller.  # RD-BLOCKS-SINCE-RETRO-CHECK
+  _rd_threshold=10
+  if [ -n "$focus_slug" ]; then
+    _rd_states=("$state")
+  else
+    mapfile -t _rd_states < <(list_state_files "$target")
+  fi
+  for state in "${_rd_states[@]}"; do
+    _rd_foc_file="$(dirname "$state")/FOCUSES.md"
+    _rd_foc_tok="$(_read_focuses_tok "$_rd_foc_file" "$(basename "$state")")"
+    if [ "$_rd_foc_tok" = "stopped" ] || [ "$_rd_foc_tok" = "paused" ]; then continue; fi
+    _rd_bsr="$(env_get blocks_since_retro)"
+    if printf '%s' "$_rd_bsr" | grep -qE '^[0-9]+$' && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then  # RD-THRESHOLD-CHECK
+      echo "RETRO-DUE | ${_rd_bsr} blocks since last retro (§18 threshold: ${_rd_threshold})"
+      exit 0
+    fi
+  done
   if [ -z "$focus_slug" ]; then
     # Multi-focus guard (chihuahua/px-chart-classic regression + BLOCKER 2 split-layout): iterate every
     # state file under $target (not just $corpus=dirname(first)), so focuses in sibling subdirectories are

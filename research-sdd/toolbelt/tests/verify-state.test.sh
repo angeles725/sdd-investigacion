@@ -1940,6 +1940,67 @@ else
   no "T-566c: unknown id falsely suppressed a WARN; msgs=$(grep -iE '^\s*WARN' <<<"$out" | head -3 | tr '\n' '|')"
 fi
 
+# ==================== CHECK P18 — blocks_since_retro §18 cadence threshold ====================
+# Helper: build a minimal valid state with the given envelope + gap-backlog, no block files on disk.
+# bsr_state <dir> <bsr-value>: creates RESEARCH-STATE.md with blocks_since_retro: <bsr-value> in the envelope.
+bsr_state() {
+  local d="$1" bsr="$2"; mkdir -p "$d"
+  { printf '# T-P18 Research State\n\n'
+    printf '<!-- research-state.v1 -->\n'
+    printf 'schema: research-state.v1\n'
+    printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\n'
+    printf 'requires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\n'
+    printf 'undocumented_findings: 0\nblocks_since_retro: %s\n' "$bsr"
+    printf '<!-- /research-state.v1 -->\n\n'
+    printf '## Gap-backlog\n\n| P | G | t | S |\n|---|---|---|---|\n\n'
+    printf '## Blocked gaps\n- none\n\n'
+    printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+  } > "$d/RESEARCH-STATE.md"
+}
+
+# T-P18a — blocks_since_retro ABSENT from envelope → silent (no WARN, exit 0)
+d="$TMP/p18-absent"
+tablestate "$d" 3 5 2   # metric 3/5, 2 pending, envelope has no bsr field
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'blocks_since_retro' <<<"$out"; then
+  ok "T-P18a: blocks_since_retro absent from envelope → silent (no WARN)"
+else no "T-P18a: expected silent, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro' <<<"$out" | head -1)"; fi
+
+# T-P18b — blocks_since_retro=9 (below threshold 10) → no WARN
+d="$TMP/p18-below"; bsr_state "$d" 9
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*blocks_since_retro' <<<"$out"; then
+  ok "T-P18b: blocks_since_retro=9 (below threshold) → no WARN"
+else no "T-P18b: expected no WARN for bsr=9, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro' <<<"$out" | head -1)"; fi
+
+# T-P18c — blocks_since_retro=10 (AT threshold, not exceeded; gate fires at >10) → no WARN
+d="$TMP/p18-at"; bsr_state "$d" 10
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*blocks_since_retro' <<<"$out"; then
+  ok "T-P18c: blocks_since_retro=10 (at threshold, >10 fires) → no WARN"
+else no "T-P18c: expected no WARN for bsr=10, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro' <<<"$out" | head -1)"; fi
+
+# T-P18d — blocks_since_retro=11 (EXCEEDS threshold) → WARN (not FAIL; cadence is advisory)  # P18-THRESHOLD-WARN-CASE
+d="$TMP/p18-exceeded"; bsr_state "$d" 11
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qiE 'WARN.*blocks_since_retro.*11.*>.*10' <<<"$out"; then
+  ok "T-P18d: blocks_since_retro=11 > 10 → WARN (not FAIL; cadence advisory)"
+else no "T-P18d: expected WARN for bsr=11, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro|WARN' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# T-P18e — blocks_since_retro=xyz (non-integer) → FAIL (gate cannot do its job)  # P18-NONINT-FAIL-CASE
+d="$TMP/p18-nonint"; bsr_state "$d" "xyz"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qiE 'FAIL.*blocks_since_retro' <<<"$out"; then
+  ok "T-P18e: blocks_since_retro=xyz (non-integer) → FAIL (gate cannot check cadence)"
+else no "T-P18e: expected FAIL for non-integer bsr, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro|FAIL' <<<"$out" | head -2 | tr '\n' '|')"; fi
+
+# T-P18f — blocks_since_retro=20 (well above threshold) → WARN surfaced
+d="$TMP/p18-high"; bsr_state "$d" 20
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qiE 'WARN.*blocks_since_retro.*20' <<<"$out"; then
+  ok "T-P18f: blocks_since_retro=20 → WARN (cadence enforcement)"
+else no "T-P18f: expected WARN for bsr=20, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro' <<<"$out" | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -2876,6 +2937,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-566-KSW-CHECK2: KSW-CHECK2-SUPPRESS sentinel not found in SUT"
+  fi
+
+  # ---- CHECK P18 teeth (issue #630): neuter threshold guard → T-P18d (bsr=11 WARN) must go RED.
+  echo "-- teeth-P18: neuter P18-THRESHOLD-WARN-CASE (replace condition with false); T-P18d WARN must vanish --"
+  if grep -q '# P18-THRESHOLD-WARN-CASE' "$HERE/../verify-state.sh"; then
+    mutantP18="$TMP/verify-state.P18.MUTANT.sh"
+    sed '/# P18-THRESHOLD-WARN-CASE$/s/elif is_int.*/elif false; then  # MUTANT-P18/' \
+      "$HERE/../verify-state.sh" > "$mutantP18"
+    if grep -q '# P18-THRESHOLD-WARN-CASE' "$mutantP18"; then
+      no "teeth-P18: could not build mutant (sed did not replace P18-THRESHOLD-WARN-CASE — check sed pattern)"
+    else
+      p18_mut_out="$(bash "$mutantP18" "$TMP/p18-exceeded" 2>/dev/null)"
+      if ! grep -qiE 'WARN.*blocks_since_retro' <<<"$p18_mut_out"; then
+        ok "teeth-P18: neutered threshold → bsr=11 no WARN emitted → T-P18d assertion goes RED → P18-THRESHOLD-WARN-CASE is load-bearing"
+      else
+        no "teeth-P18: mutant still emitted blocks_since_retro WARN — P18-THRESHOLD-WARN-CASE is THEATER or mutant broken"
+      fi
+    fi
+  else
+    no "teeth-P18: P18-THRESHOLD-WARN-CASE sentinel not found in SUT"
   fi
 
 fi
