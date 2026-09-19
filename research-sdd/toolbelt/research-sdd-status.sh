@@ -360,6 +360,39 @@ count_requires_execution() {
   done < <(backlog_rows 2>/dev/null)
   echo "$n"
 }
+# count_all_known_gaps — total backlog row count (all valid-priority rows, all statuses, excluding deferred).
+# Used to derive known_gaps when the backlog total exceeds the coverage metric Y (issue #568): a new gap
+# added to the backlog bumps this count even when the coverage metric prose is stale.
+# Deferred rows are counted separately (count_deferred) and passed in by the caller.
+# INVALID_PRIORITY rows are excluded — they are not countable and are reported separately.
+count_all_known_gaps() {
+  backlog_rows 2>/dev/null | grep -v '^INVALID_PRIORITY' | wc -l | tr -d ' '  # KG-ALL-BACKLOG
+}
+# count_attributed_sg — attributed covered-blocks count for block_scope: shared-global, mirroring
+# _derive_attributed_sg() in verify-state.sh so --sync-state and CHECK A always agree.
+# Source 1 (preferred): distinct B<n> ids in '## Covered blocks' body.
+# Source 2 (fallback): distinct B<n> ids in the Block column of '## Iteration history'.
+# Returns 0 when neither source yields any id (unverifiable — caller falls back to corpus-wide count).
+count_attributed_sg() {
+  local ids n
+  ids="$(section '## Covered blocks' | grep -oE '\bB[0-9]+\b' | sort -u)"
+  if [ -z "$ids" ]; then
+    ids="$(section '## Iteration history' | awk '
+      BEGIN { blockcol=0 }
+      /\|/ {
+        gsub(/\r$/, "")
+        n = split($0, a, "|")
+        if (!blockcol) {
+          for (i=1; i<=n; i++) { v=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",v); if (tolower(v)=="block") blockcol=i }
+          next
+        }
+        if (blockcol && n >= blockcol) { v=a[blockcol]; gsub(/^[ \t]+|[ \t]+$/,"",v); print v }
+      }' | grep -oE '\bB[0-9]+\b' | sort -u)"
+  fi
+  [ -z "$ids" ] && { echo 0; return; }
+  n="$(printf '%s\n' "$ids" | wc -l | tr -d ' ')"
+  echo "${n:-0}"
+}
 # requires-execution count from the `## Stop control` prose. Parenthesized asides are stripped FIRST and
 # the number is anchored to the token itself, not to the whole line: the real logosoft line reads
 # `— requires-execution (NO read-only; …, METHODOLOGY §8)**: **0 — AGOTADO.**`, and the old bare
@@ -549,10 +582,16 @@ if [ "$mode" = "--sync-state" ]; then
     # B5 FIX: focus-prefix filter for multi-focus corpora; shared-global path mirrors BS-SHARED-GLOBAL-ONDISK.
     _sfpfx="$(derive_focus_prefix "$state")"
     if [ "$_e_bs" = "shared-global" ]; then
-      # block_scope: shared-global → use focus-blind global count, matching verify-state.sh's path so
-      # the two scripts always agree (invariant documented at status.sh:297-298).
-      cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-        | block_file_filter | wc -l | tr -d ' ')"
+      # block_scope: shared-global → use attributed B<n> count (mirrors verify-state.sh CHECK A via
+      # count_attributed_sg / _derive_attributed_sg respectively, so the two scripts always agree).
+      # Falls back to corpus-wide file count only when no B<n> ids are attributed (SG-UNVERIFIABLE-COND).
+      _attr_sg="$(count_attributed_sg)"  # SG-ATTR-SYNC
+      if [ "${_attr_sg:-0}" -gt 0 ] 2>/dev/null; then
+        cb="$_attr_sg"
+      else
+        cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+          | block_file_filter | wc -l | tr -d ' ')"
+      fi
     elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
         | block_file_filter "${_sfpfx}" | wc -l | tr -d ' ')"
@@ -567,7 +606,19 @@ if [ "$mode" = "--sync-state" ]; then
     # value when a figure is absent/unparseable (never invent — see pick()).
     cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
     gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
-    kg="$(pick "${cov##*/}" "$(env_get known_gaps)")"
+    # known_gaps: take the larger of the backlog-derived total and the coverage metric Y (issue #568).
+    # Backlog-derived: captures newly-added gaps even when the coverage metric prose is stale.
+    # Coverage metric Y: preserved when closed gaps are tracked only in the prose and not as backlog rows.
+    _dkg="$(count_all_known_gaps)"
+    _dkg_total=$(( ${_dkg:-0} + ${def:-0} ))
+    _cm_kg="${cov##*/}"
+    if printf '%s' "${_dkg_total}" | grep -qE '^[0-9]+$' \
+       && printf '%s' "${_cm_kg:-0}" | grep -qE '^[0-9]+$' \
+       && [ "${_dkg_total}" -gt "${_cm_kg:-0}" ] 2>/dev/null; then
+      kg="${_dkg_total}"  # KG-BACKLOG-EXCEEDS
+    else
+      kg="$(pick "${_cm_kg}" "$(env_get known_gaps)")"
+    fi
     # requires_execution_open PREFERS the backlog-derived count (rows whose Status carries the
     # `requires-execution` marker → disk-anchored, in lockstep with verify-state.sh's CHECK E) and only
     # falls back to the prose stop-control number / previous envelope when NO row is marked — a marked
@@ -657,17 +708,18 @@ if [ "$mode" = "--next" ]; then
         exit 0
       fi
       for state in "${_stale_chk[@]}"; do
-        # Unparseable backlog is always a real failure (concealment hazard, mirrors BP-INVALID-PRIORITY-FAIL).
-        if backlog_rows 2>/dev/null | grep -q '^INVALID_PRIORITY'; then
-          _any_real_stale=1; break
-        fi
-        # FOCUSES.md check BEFORE count_investigable: skip stopped/paused focuses without calling
-        # count_investigable, which would emit WARNs for non-standard gap-status tokens in a
-        # focus the operator has declared done. This keeps stderr clean for stopped focuses.  # N194-FOCUSES-SKIP
+        # FOCUSES.md check FIRST (issue #641): a stopped/paused focus with malformed priority must be
+        # skipped before the INVALID_PRIORITY guard fires, or its unparseable backlog bricks the corpus.
+        # Extends N194-STOPPED-BYPASS to also cover stopped focuses whose priority column is unknown.
+        # The INVALID_PRIORITY guard below is therefore only reached for ACTIVE focuses.  # N194-FOCUSES-SKIP  # N641-FOCUSES-BEFORE-INVALID-PRIORITY
         _sfoc_file="$(dirname "$state")/FOCUSES.md"
         _sfoc_tok="$(_read_focuses_tok "$_sfoc_file" "$(basename "$state")")"
         if [ "$_sfoc_tok" = "stopped" ] || [ "$_sfoc_tok" = "paused" ]; then
           continue
+        fi
+        # Unparseable backlog is a real failure for ACTIVE focuses (concealment hazard, BP-INVALID-PRIORITY-FAIL).
+        if backlog_rows 2>/dev/null | grep -q '^INVALID_PRIORITY'; then
+          _any_real_stale=1; break
         fi
         _d_inv="$(count_investigable)"
         if [ "${_d_inv}" != "0" ]; then
