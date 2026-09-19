@@ -193,7 +193,11 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block, and self-continue per the
    LOOP CONTINUATION + RESCHEDULE CADENCE rules (self-paced: reschedule at the ~60s floor until STOP fires).
    Delegate heavy sweeps with the right MODEL TIER. Emit the per-iteration RETURN CONTRACT (including the
-   tier used). At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
+   tier used); every non-STOP return MUST end with a **continuation token** —
+   `next: <gap-id> · rescheduled via <mechanism>` (e.g. `next: G12 · rescheduled via /loop(1200s)` or
+   `next: G12 · self-scheduled in 60s`). A return without one is a silently stopped iteration. Ending with
+   "shall I continue?" or any equivalent question is a contract violation — the no-question rule from the
+   triage section is a HARD rule inside the loop. At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
    The run is NOT OVER until the retro exists (from `$KIT/templates/retro.template.md`, `<!-- review-status: pending -->`,
    `## Proposed kit deltas` table or the honesty line) — this applies to quick, document and applied runs too, not only
    to STOP. State `retro: written <path>` or `retro: not-due` in the final return. A target wired with the kit's Stop hook
@@ -229,10 +233,15 @@ the Tool cell of the relevant catalog row so the whole-word match finds it.
 
 ## Execution mode
 
-Default is **self-paced** (this session becomes the loop driver and self-reschedules). For a long run that
-must not stall, prefer **`/loop`-driven** (external re-invoker — most robust). If a human wants to review
-between blocks, run **orchestrated** instead (chain one sub-agent per iteration; see PROMPT-LOOP
-"Two execution modes"). Do not ask which mode — default to self-paced and mention `/loop` for long runs.
+Default is **self-paced** (this session becomes the loop driver and self-reschedules). Self-paced is
+best-effort and can halt after a single block under conversational guardrails; **`/loop`** guarantees
+the cadence.
+
+**Heavy / continue:** when the mode resolves to heavy or continue and no external re-invoker is already
+active, launch `/loop /research-sdd <target> [focus]` BEFORE the first iteration — this is a
+BOOTSTRAP-level action, not optional advice. Announce it ("launching `/loop`") and proceed; do not stop
+to ask. If a human wants to review between blocks, run **orchestrated** instead (chain one sub-agent per
+iteration; see PROMPT-LOOP "Two execution modes"). Do not ask which mode.
 
 ## Boundaries
 
