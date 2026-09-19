@@ -41,6 +41,14 @@ each delegation carries:
       destructive step, on corpus exhaustion). It is autonomous like self-paced, but each block still
       runs in a fresh delegated sub-agent (context stays lean) instead of inline. State the hard-stops
       before starting an auto run.
+      ORCHESTRATED-AUTO-AT-SCALE variant: when the corpus is large (~30+ planned iterations), delegate
+      EACH iteration — investigate + write block + self-verify — to a FRESH sub-agent (sonnet tier).
+      The sub-agent returns cited findings AND self-reports; the DRIVER: (1) reads the self-report;
+      (2) runs the NEXT-ITERATION ARCHIVE AUDIT (step 6); (3) owns ALL git operations — commit, push,
+      INDEX/RESEARCH-STATE flips — the sub-agent does NOT commit. This keeps driver context lean across
+      dozens of iterations with no compaction stall. The driver trusts the sub-agent's self-report
+      (§11); spot-check only when a report smells off. (Proven: ~30 delegated sub-agents in the
+      n4-distribution campaign — 2026-09-18 — with no parent-context compaction.)
     At iteration 1 of any orchestrated run, ANNOUNCE the sub-mode: "I am in supervised mode — prompt
     me to continue after each block" or "I am in auto mode — I will chain until STOP." Without the
     declaration the human cannot distinguish a supervised pause from a loop stall.
@@ -199,6 +207,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      cell, including the escaped form `\|`: awk splits on the literal pipe character — a `\|` inside the
      Priority cell garbles it into an unknown priority (WARN + `INVALID_PRIORITY` sentinel); a `\|`
      elsewhere (Priority intact) yields a spurious 5th cell (WARN + drop).
+     FOCUS-DISTINCTNESS CHECK (new focus on a mature corpus — before step a, before any scaffold):
+     read all existing RESEARCH-STATE files and the corpus INDEX.md, then compare the proposed focus
+     angle against existing focus names and their covered subjects. If the proposed angle substantially
+     duplicates an existing focus's covered blocks (>~50 % of the proposed gaps are already answered by
+     existing evidence), REJECT or RESCOPE the focus rather than investing in a bootstrap. Use
+     `tools/check-coverage.py` if present; otherwise read FOCUSES.md + INDEX.md manually. A focus
+     whose core coverage already exists is wasted research, not complementary investigation. Record the
+     check as "focus-distinctness: OK — <reason>" or "focus-distinctness: REJECTED — <overlap
+     evidence>" in RESEARCH-STATE when the focus is opened. (Evidence: frontier bootstrap breadth
+     checks surfaced proposed focuses with significant corpus overlap; catching this at bootstrap is
+     cheap, catching it mid-loop is not.)
+
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      PRE-DECLARE REMITTANCES FIRST (new focus over a mature MULTI-FOCUS corpus — before the sweep):
      read `$CORPUS/FOCUSES.md` (the focus index, METHODOLOGY §16) + the target `INDEX.md` for subjects an
@@ -211,6 +231,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      subsystem × current-depth × static-vs-dynamic × known-vs-gap — WITHOUT dumping content. Derive the
      prioritized backlog from that matrix. (Proven on the protocols focus: the audit matrix seeded 6
      well-shaped gaps before a single block was written.) See METHODOLOGY §13.
+     LARGE-TAXONOMY PARALLEL AUDIT: for a taxonomy with >~20 surfaces, split the audit across
+     PARALLEL agents by partition (e.g. each covers 10-15 surfaces), then MERGE the sub-matrices
+     before seeding the backlog. The coverage matrix contract is unchanged; only the fan-out changes.
+     REMITTANCE-DOMINANT EXPECTATION: for a mature corpus with a "broad enumeration" request (a new
+     focus over a well-studied system), expect MOST surfaces to already be covered — the audit's
+     PRIMARY value is the small delta set of genuinely new gaps. Seed ONLY non-covered gaps. Record
+     the REMITTANCE list in RESEARCH-STATE (e.g. "~30 confirmed REMITTANCE, 8 new gaps seeded") so
+     the relative size is auditable. (Evidence: apis focus — 2 parallel sonnet agents split ~40
+     surfaces; ~30 REMITTANCE confirmed, 8 genuinely new.)
      AUDIT BOOTSTRAP PRODUCTION SCOPE. When opening an AUDIT focus — a focus whose purpose is to
      assess the security, correctness, or compliance of a set of artifacts — establish FIRST which
      of those artifacts are actually deployed in production. Severity ratings for findings in
@@ -581,6 +610,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
          support a key claim — two sweeps in practice returned paths that did not exist on disk;
+         CWD-PATH BUG FIRST: before concluding a cited file does not exist (and thus concluding the
+         sub-agent fabricated sources), rule out a cwd/relative-path bug — verify with
+         `find <repo-root> -name <basename>` from the repo root. A file that returns "No such file"
+         from inside a subdirectory may exist relative to the project root. (Evidence: spyder
+         commissioning — `ls niagara-help/docs-text/<file>` from inside docs-text/ returned "No
+         such file" for every file; briefly concluded hallucination; files existed, cwd was wrong.)
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
@@ -813,7 +848,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (a hardcoded field, a type mismatch, a profile boundary), verify the capability claim does
          NOT contradict it (B365 §365.3: sweep cited `isHistoryQuery()` + `?period=` prepend →
          "partially supports history table"; driver re-read `:750` found `select ordInSession`
-         hardcoded → the B359 NPE wall makes that claim wrong).
+         hardcoded → the B359 NPE wall makes that claim wrong);
+         (c) ENVIRONMENT/RUNTIME-VERSION: any claim about compiler target, JVM version, SDK level,
+         or runtime environment. Verify by DIRECT MEASUREMENT before accepting — e.g.
+         `od -An -j6 -N2 -tu2 --endian=big X.class` reads the class file's major-version byte and
+         is the authoritative JVM target check; do NOT rely on a sweep's prose claim. A wrong
+         version cascades to wrong feasibility verdicts. (Evidence: B616/B617 — sweep returned
+         "runs on Java 11"; direct class-file measurement gave major=52 (Java 8); §14 correction
+         required.)
          Cross-verify the INTERPRETATION against corpus-documented framework semantics BEFORE
          incorporating it. Treat such claims as hypotheses pending semantic validation.
          Three named outcomes — record each in the iteration-history row:
@@ -1006,6 +1048,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      iterating past structural convergence (evidence: module-mechanics focus hit `investigable_open=0`
      after MM1–MM32 + 29 children; "sigue" re-opened Section-E as a new tier — correct, but only
      because the operator explicitly declared it; an autonomous run must stop at convergence).
+     FRONTIER MODE (5th investigation mode — full definition in METHODOLOGY §8): covers genuinely
+     unexplored territory with no prior corpus coverage. The sweep strategy is BREADTH-FIRST with
+     LIGHTER BLOCK DENSITY — the goal is a coverage map across many sub-areas, not deep certification
+     of one. Declare "MODE: frontier" in RESEARCH-STATE at bootstrap. A frontier focus is NOT under
+     depth pressure from the [INFER]/[CERT] ratio: the ratio is expected HIGH and signals a need to
+     return later with targeted deep-dive modes, NOT exhaustion. Distinct from a deep-dive focus
+     reopened via FRONTIER-REOPEN (below), which continues an existing corpus; a frontier MODE focus
+     starts with no prior evidence on its proposed surfaces.
      FRONTIER-REOPEN DECISION SHAPE: at STOP-CANDIDATE, run a coverage/section audit before
      honoring STOP. If the audit reveals >2 contiguous section entries uncovered OR >1 named
      sub-topic with no block coverage, that is a new tier, not an in-block residue — declare
@@ -1029,7 +1079,18 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          (requires-execution build/PoC §19 — §19 CLOSE RULE: when a build/PoC phase produces
          block-quality findings, write them as cited blocks using `sources/probes/` for tool evidence
          BEFORE the phase ends; a deliverable is not a substitute for the evidence trail, and findings
-         that exist only in code/engram are invisible to the corpus —, or the DYNAMIC/hardware phase §12) — and, if that next phase is
+         that exist only in code/engram are invisible to the corpus.
+         VISUAL/GEOMETRIC ORACLE (extends §19 CLOSE RULE): for a deliverable with a visual or geometric
+         form (a rendered model, a floor plan, a spatial diagram), §19 close MUST include a comparison
+         against a RENDERING of the source — and, when the deliverable is itself rendered, against a
+         render of the deliverable AS ITS VIEWER draws it (not of the raw data feeding it). Symmetric
+         measures such as lengths, areas, and counts are INVARIANT under reflection and cannot detect
+         mirror/flip errors. A gate authored from the same corpus as the build inherits the build's
+         geometric blind spots. Three consecutive defects (inverted slab bounding box, mirrored plan,
+         doubly-flipped slab) each passed a green numeric gate and were caught only by the operator
+         looking at the render. The EXTERNAL ORACLE is the comparison render, not the corpus-authored
+         numeric gate. Record: "visual oracle: rendering compared vs. source, N discrepancies noted."
+         —, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
        - OUT-OF-TREE APPLIED DELIVERABLE (a requires-execution close whose deliverable lands OUTSIDE $TARGET —
