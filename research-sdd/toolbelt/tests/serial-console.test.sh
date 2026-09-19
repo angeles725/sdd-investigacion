@@ -59,19 +59,19 @@ make_stub() {
 
 # ---- 2. No mode → usage + exit 2 --------------------------------------------
 OUT="$(bash "$SUT" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'usage' \
+[ "$RC" -eq 2 ] && grep -qF 'usage' <<<"$OUT" \
   && ok "2 no mode → exit 2 + usage on stderr" \
   || no "2 no mode → expected exit 2 + usage, got exit=$RC out=[$OUT]"
 
 # ---- 3. Unknown mode → usage + exit 2 + "unknown mode" message --------------
 OUT="$(bash "$SUT" frobble 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'unknown mode' \
+[ "$RC" -eq 2 ] && grep -qF 'unknown mode' <<<"$OUT" \
   && ok "3 unknown mode → exit 2 + unknown-mode message" \
   || no "3 unknown mode → expected exit 2 + unknown-mode, got exit=$RC out=[$OUT]"
 
 # ---- 4. list + absent POWERSHELL_BIN → exit 3 + interop message -------------
 OUT="$(POWERSHELL_BIN="$ABSENT" bash "$SUT" list 2>&1)"; RC=$?
-[ "$RC" -eq 3 ] && printf '%s\n' "$OUT" | grep -qF 'cannot reach' \
+[ "$RC" -eq 3 ] && grep -qF 'cannot reach' <<<"$OUT" \
   && ok "4 list + absent bin → exit 3 + interop message" \
   || no "4 list + absent bin → expected exit 3 + interop msg, got exit=$RC out=[$OUT]"
 
@@ -84,7 +84,7 @@ OUT="$(POWERSHELL_BIN="$ABSENT" bash "$SUT" check 2>&1)"; RC=$?
 # ---- 6. check + stub printing "OK" → exit 0 + "interop: OK" ----------------
 STUB6="$(make_stub "$TMP/t6" 0 "OK")"
 OUT="$(POWERSHELL_BIN="$STUB6" bash "$SUT" check 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qF 'interop: OK' \
+[ "$RC" -eq 0 ] && grep -qF 'interop: OK' <<<"$OUT" \
   && ok "6 check + OK stub → exit 0 + 'interop: OK'" \
   || no "6 check + OK stub → expected exit 0 + interop: OK, got exit=$RC out=[$OUT]"
 
@@ -97,13 +97,13 @@ OUT="$(POWERSHELL_BIN="$STUB7" bash "$SUT" check 2>&1)"; RC=$?
 
 # ---- 8. run: too few args → exit 2 + usage ----------------------------------
 OUT="$(bash "$SUT" run /tmp COM3 9600 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'usage' \
+[ "$RC" -eq 2 ] && grep -qF 'usage' <<<"$OUT" \
   && ok "8 run: too few args → exit 2 + usage" \
   || no "8 run: too few args → expected exit 2 + usage, got exit=$RC out=[$OUT]"
 
 # ---- 9. run: too many args → exit 2 + usage ---------------------------------
 OUT="$(bash "$SUT" run /tmp COM3 9600 cmd extra 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'usage' \
+[ "$RC" -eq 2 ] && grep -qF 'usage' <<<"$OUT" \
   && ok "9 run: too many args → exit 2 + usage" \
   || no "9 run: too many args → expected exit 2 + usage, got exit=$RC out=[$OUT]"
 
@@ -111,32 +111,32 @@ OUT="$(bash "$SUT" run /tmp COM3 9600 cmd extra 2>&1)"; RC=$?
 # no_dash() rejects paths that start with '-'; the error message says
 # "must not start with '-'".
 OUT="$(bash "$SUT" run -bad-dir COM3 9600 "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF "must not start with" \
+[ "$RC" -eq 2 ] && grep -qF "must not start with" <<<"$OUT" \
   && ok "10 run: dash-leading target-dir → exit 2 + must-not-start-with message" \
   || no "10 run: dash-leading target-dir → expected exit 2, got exit=$RC out=[$OUT]"
 
 # ---- 11. run: bad COM port (lowercase) → exit 2 + com-port message ----------
 OUT="$(bash "$SUT" run "$TMP" com3 9600 "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'com-port' \
+[ "$RC" -eq 2 ] && grep -qF 'com-port' <<<"$OUT" \
   && ok "11 run: bad COM port (lowercase) → exit 2 + com-port message" \
   || no "11 run: bad COM port → expected exit 2 + com-port msg, got exit=$RC out=[$OUT]"
 
 # ---- 12. run: non-numeric baud → exit 2 + baud message ---------------------
 OUT="$(bash "$SUT" run "$TMP" COM3 fast "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'baud' \
+[ "$RC" -eq 2 ] && grep -qF 'baud' <<<"$OUT" \
   && ok "12 run: non-numeric baud → exit 2 + baud message" \
   || no "12 run: non-numeric baud → expected exit 2 + baud msg, got exit=$RC out=[$OUT]"
 
 # ---- 13. run: empty command → exit 2 + empty message -----------------------
 OUT="$(bash "$SUT" run "$TMP" COM3 9600 "" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s\n' "$OUT" | grep -qF 'empty' \
+[ "$RC" -eq 2 ] && grep -qF 'empty' <<<"$OUT" \
   && ok "13 run: empty command → exit 2 + empty message" \
   || no "13 run: empty command → expected exit 2 + empty msg, got exit=$RC out=[$OUT]"
 
 # ---- 14. run + absent POWERSHELL_BIN (all args valid) → exit 3 + interop ---
 # The have() check is after validation; pass all valid args to reach it.
 OUT="$(POWERSHELL_BIN="$ABSENT" bash "$SUT" run "$TMP" COM3 9600 "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 3 ] && printf '%s\n' "$OUT" | grep -qF 'cannot reach' \
+[ "$RC" -eq 3 ] && grep -qF 'cannot reach' <<<"$OUT" \
   && ok "14 run + absent bin → exit 3 + interop message" \
   || no "14 run + absent bin → expected exit 3 + interop msg, got exit=$RC out=[$OUT]"
 
@@ -148,8 +148,8 @@ OUT15="$(POWERSHELL_BIN="$STUB15" bash "$SUT" run "$TDIR15" COM3 9600 "show vers
 RC15=$?
 FILE15="$(find "$TDIR15/sources/probes" -name 'serial-COM3-*.txt' 2>/dev/null | head -1)"
 [ "$RC15" -eq 0 ] \
-  && printf '%s\n' "$OUT15" | grep -qF 'preserved:' \
-  && printf '%s\n' "$OUT15" | grep -qF '[CERT-hw]' \
+  && grep -qF 'preserved:' <<<"$OUT15" \
+  && grep -qF '[CERT-hw]' <<<"$OUT15" \
   && [ -n "$FILE15" ] && [ -f "$FILE15" ] \
   && ok "15 run OK (rc=0) → file created + 'preserved: [CERT-hw]' in output + exit 0" \
   || no "15 run OK → expected exit 0 + preserved file + preserved: [CERT-hw], got exit=$RC15 file=[$FILE15] out=[$OUT15]"
@@ -174,7 +174,7 @@ STUB17="$(make_stub "$TMP/t17-stub" 0 "hw")"
 OUT17="$(POWERSHELL_BIN="$STUB17" bash "$SUT" run "$TDIR17" COM3 9600 "show ver" 2>&1)"
 RC17=$?
 chmod 755 "$TDIR17"
-[ "$RC17" -eq 4 ] && printf '%s\n' "$OUT17" | grep -qF 'cannot create preservation dir' \
+[ "$RC17" -eq 4 ] && grep -qF 'cannot create preservation dir' <<<"$OUT17" \
   && ok "17 mkdir failure → exit 4 + cannot-create-preservation-dir message" \
   || no "17 mkdir failure → expected exit 4 + cannot create preservation dir, got exit=$RC17 out=[$OUT17]"
 
@@ -189,7 +189,7 @@ STUB18="$(make_stub "$TMP/t18-stub" 0 "hw output")"
 OUT18="$(POWERSHELL_BIN="$STUB18" bash "$SUT" run "$TDIR18" COM3 9600 "show ver" 2>&1)"
 RC18=$?
 chmod 755 "$OUTDIR18"
-[ "$RC18" -eq 5 ] && printf '%s\n' "$OUT18" | grep -qF 'preservation FAILED' \
+[ "$RC18" -eq 5 ] && grep -qF 'preservation FAILED' <<<"$OUT18" \
   && ok "18 tee failure → exit 5 + preservation-failed message" \
   || no "18 tee failure → expected exit 5 + preservation FAILED, got exit=$RC18 out=[$OUT18]"
 
