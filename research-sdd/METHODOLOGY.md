@@ -2597,7 +2597,11 @@ the loop instead of a manual favor: at the end of a run, the loop proposes its o
 **When it fires.** At every FOCUS completion, and ALWAYS at corpus-level STOP (§8 terminal trigger). For a
 very long single focus, it MAY also fire every ~10 blocks so lessons don't wait until the end. Also fires:
 (a) proactively, whenever a run yields a REUSABLE METHOD or hits a REPEATED FRICTION — do not wait for STOP
-or operator intervention; (b) at §20 document-mode completion; (c) at session close.
+or operator intervention; (b) at §20 document-mode completion; (c) at session close;
+(d) at a §21 wall exit when the exit was triggered by a toolbelt wrapper (blocked-on-tool or config-cap exit) —
+record a narrow tooling-only retro note AT THE MOMENT of the wall, do not wait for STOP. In document-mode runs
+(§20) there is no focus-completion or corpus STOP trigger, so a §21 wall exit is often the only §18 trigger
+that fires in the session; deferring until "the user asks" loses it entirely.
 
 **It also fires for sessions that wrote no block.** An APPLIED / build-along session (the operator builds or deploys
 with the corpus as the guide) and a POST-CLOSE ADDENDUM (new evidence lands on a focus already STOPPED) both
@@ -2640,6 +2644,14 @@ judgment, not the driver's own rationalizations). The retro agent:
 
 **At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #7)
 
+**Cross-kit boundary — research-sdd retros propose research-sdd-kit deltas only.** A research-sdd session may
+spawn a large downstream implementation campaign on a DIFFERENT kit (e.g. `build-n4-module-kit`). Research stays
+READ-ONLY over its subject; the implementation route (ODD/BUILD-LOOP) is separately authorized in that kit.
+Research-sdd retros propose deltas for the research-sdd kit ONLY — not for the downstream kit. Lessons that
+belong to the downstream kit go into that kit's own retro system: surface them in the cross-kit corpus-index
+note above, or file them directly in that kit's issue tracker. Proposing deltas across the boundary conflates
+two method stacks and makes both harder to audit.
+
 **Hard boundary — propose, never apply.** The retro agent does NOT edit the kit. Kit changes are reviewed and
 committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
 This preserves both the audit trail and the rule that the operator — not an autonomous agent — owns the method.
@@ -2653,9 +2665,11 @@ not in practice: measured on 2026-09-05, three targets advanced with no retro fo
 retros written that day only five followed the contract (three carried no `review-status` marker, three used a
 heading of their own instead of `## Proposed kit deltas`, two declared a heading with no rows). Sessions do not
 skip §18 out of malice — the only detector (`sweep-retros.sh` MISSING-RETRO) runs in the KIT's SessionStart, in a
-different session, after the fact. Rule: a run that wrote or changed any block, RESEARCH-STATE, CATALOG or INDEX
-file ends only when a retro produced from `templates/retro.template.md` exists newer than the newest changed
-block, with the marker and a countable delta table (or the honesty line). The driver states `retro: written
+different session, after the fact. Rule: a run that wrote or changed any block, RESEARCH-STATE, CATALOG, INDEX,
+or HANDOFF/closure document ends only when a retro produced from `templates/retro.template.md` exists newer
+than the newest changed file, with the marker and a countable delta table (or the honesty line). A HANDOFF or
+closure document is a corpus mutation just as a block is; the retro gate covers it by the same rule.
+The driver states `retro: written
 <path>` or `retro: not-due` in its final return (PROMPT-LOOP RETRO CHECKPOINT). **Instrument (kit issue #479):** `toolbelt/verify-retro.sh <retro.md>` is the typed conformance check (absent-input / empty-input / non-conforming / PASS, each named) and `toolbelt/retro-gate.sh <target>` is the target's Stop hook: it allows when nothing research-related changed or when `stop_hook_active` is set, blocks ONCE with the exact missing element otherwise, and never blocks twice in a session. `research-sdd-init.sh` prints the `.claude/settings.json` wiring; the operator applies it per target (propose-never-apply). The sweeper's `Wiring:` summary line reports per-target hook status: `wired` means retro-gate is present under the `"Stop"` event block specifically (not merely anywhere in the file), `unwired` means `.claude/settings.json` exists but the Stop-block entry is missing, `absent-settings` means no `.claude/settings.json` at all, and `unreadable` means the file exists but cannot be read; `settings.local.json` is not scanned.
 
 **Review lifecycle — nothing sits unreviewed.** A retro is generated by a target run but ACTED ON by the kit
@@ -2837,7 +2851,13 @@ is visible from the template alone without opening METHODOLOGY.
 
 An ORACLE finding — a tool that can SEE whether a result is correct rather than recompute it — is the
 highest-value promotion candidate and always warrants an explicit verdict, even when the run did not
-explicitly flag it.
+explicitly flag it. The ORACLE column in the retro template covers two distinct question classes:
+**CONSTRUCTION** ("is each element correct?") and **SELECTION** ("were the right elements chosen from
+the source set?"). A dimensional-readback or similarity check answers construction; only an independent
+reference-set comparison answers selection — a construction oracle cannot substitute for a selection oracle.
+Additionally, an oracle must not need to disturb or mutate the subject to read it: a check that requires
+enlarging, bevelings, or modifying the subject before it becomes measurable is a construction fixture, not a
+selection oracle.
 
 **Journal mode — instant capture and §18 consolidation.** The §18 retro fires at the terminal — a
 batch recall of everything the run surfaced. The gap: mid-run insights (tool ideas, algorithms,
@@ -3069,6 +3089,28 @@ hard-stops, never blind.
 - **Pixel-diff attribution requires an isolated control.** A pixel diff proves THAT something changed, not WHAT changed it. Before attributing a rendered-image delta to a specific cause, ISOLATE the variable: compare the candidate build against a no-op/without-the-change build that is otherwise identical. Without an isolated control, a pixel diff is correlation, not attribution — other simultaneous variables (dependency version, renderer state, font loading) can produce the same diff. Distinct from the regenerate-and-token-check rule above (which proves the browser received new bytes) and from the external-oracle rule (which verifies the result through an independent channel): this rule is about not asserting a CAUSE for a visual change without eliminating competing causes. (Evidence: nave-panccadia v9 build retro, `retros/2026-08-05-v9-build-run.md` D17 / B38 — a 1,018-pixel diff attributed to a midpoint dedup was actually a same-commit door-template change.)
 - **Multi-artifact co-registration: validate through a label-independent channel.** When aligning two artifacts by deriving a transform from labeled landmarks, a transform that fits the landmarks is necessary but not sufficient — the landmarks constrain a family of solutions, and the correct one is not guaranteed. VALIDATE the alignment through a LABEL-INDEPENDENT channel: compare content or geometry overlap in regions the landmarks did not constrain, and run NEGATIVE CONTROLS — pairs that SHOULD fail alignment — to confirm the method has discriminatory power. A spurious fit (the transform satisfies the landmarks but misaligns the content) is undetectable without an independent check. (The §11 negative-control and known-answer-attribution rules applied to a registration transform; the new obligation here is the label-independent channel. Evidence: COB-IM2 B4 §4.3–4.4 — `coregister.py`, commit `9cc0bd3`: the correct offset beats no-offset and wrong-offset controls by 1–2 orders of magnitude.)
 - **Offline/zero-network verification for self-contained visual deliverables.** For an assembled self-contained visual deliverable (e.g. a single HTML build), VERIFY it is truly offline: (a) grep the assembled artifact for external `fetch`/`import()`/XHR/remote-URL references and confirm zero are present; (b) confirm the deliverable renders correctly with the network disabled. This verifies the assembly step actually inlined all dependencies rather than leaving live references. A deliverable mechanically proven offline this way is `[CERT-hw]`; one merely asserted offline is `[INFER]`. The concrete build recipe and network-isolation procedure for design3d tool deliverables live in the design3d skill, not here. (Evidence: COB-IM2 B11 §11.3 — commit `99b84cb`, `qa-render-offline.png` from a byte-identical offline build.)
+
+- **Generate for lookup, not for exposure.** When a deliverable surface can be generated from introspection
+  (e.g. an operator catalog, a symbol table, a schema dump), measure the consumer's budget before shipping the
+  full generated set as an interface. A complete translation of the wrong-sized thing is still the wrong-sized
+  thing: count the fraction of the generated interface the corpus actually consumed before committing to a
+  full build, and prefer a targeted lookup over a complete export. (Evidence: a 788,716-byte operator
+  catalog generated from 2,505 operators where the corpus used six in 48 blocks — 0.24% utilization; no
+  client carries the full set.)
+
+- **Build procedure as a documented artifact.** A §19 deliverable's build procedure is itself an artifact —
+  commit the build script and any compiled output adjacent to the source under `codegen/` AND mirror the
+  procedure to Engram as a PROCEDURE observation (`type: discovery`, topic key `research/<target>/build/<name>`).
+  A corpus narrative mention is not recall-findable in a future session; only the Engram mirror makes the
+  procedure retrievable. A source file without a committed build procedure has an implicit dependency on the
+  operator's memory, not the corpus — future sessions will re-derive it at cost.
+
+- **Per-candidate lineage for multi-candidate automated passes.** When a multi-candidate automated pass
+  (side-tap, label-shared, gap-close, or similar) makes decisions that enter the corpus, emit per-candidate
+  lineage — the model sha256, pass timestamp, and decision taken — alongside the decision record. This makes
+  the cohort samplable reproducibly at any future commit and lets admission audits compare cohorts across
+  builds. Per-candidate lineage is cheap at emit time and expensive to reconstruct later; a stale pass table
+  without stamps is unauditable and creates the same silent-zero risk as an unlabeled finding.
 
 **CLOSE step — write build-phase findings as blocks before the phase ends.** When a requires-execution
 phase produces findings that would have been blocks had they come from the static loop, write them as
