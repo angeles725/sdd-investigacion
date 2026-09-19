@@ -158,6 +158,28 @@ exactly what the real software sends). Issue only READ commands; confirm read-on
 Run it through `toolbelt/probe.sh run <target-dir> <probe>` so the raw output is preserved in
 `<target>/sources/probes/` as `[CERT-hw]` evidence.
 
+### 2a. Binary-format RE tips
+
+**Grep decompiled C source for `.cpp`/`.h` strings to map module structure.**
+_Source: fluke-177x-datos/retros/2026-09-13-fluke-177x-protocol-re-campaign.md · prose delta 5_
+
+Compiled Go and C++ binaries embed source-path strings in log/error messages. Before reading
+function bodies, run:
+```bash
+grep '\.cpp"' <decompiled.c>   # or .h", .go, etc.
+```
+This yields a free module map — class names, file owners, call relationships — accelerating
+directed sweeps with zero extra tooling.
+
+**Rosetta-stone method for binary-format RE (input+output, full-diff validation).**
+_Source: fluke-177x-datos/retros/2026-09-13-doctrina-detenerse-corto-y-explorar.md · row 5_
+
+When reverse-engineering a binary format, look for an artifact that bundles BOTH the raw INPUT
+and the parsed OUTPUT (e.g. an app-internal `.fca2` bundle that carries a `.fel.raw` alongside
+its parquet export). This gives a 100 %-validatable ground truth: parse the raw input with your
+decoder and compare byte-for-byte with the known-good output. Use this as the primary acceptance
+gate before relying on partial structural observations alone.
+
 ## 3. Read-first, write-supervised
 
 Reads against a running system are safe when the protocol is read-only in RUN. **Writes** (load
@@ -228,6 +250,39 @@ When a viewer polls a hosted Realtime/database table and the plan is quota-bound
 CHANGED since the last cycle to the live table and debounce the client's per-change re-reads; the "live" feel
 survives and egress/messages drop by about an order of magnitude (337 → ~17 rows per cycle in the field).
 (Source: same retro, D5; B15 §15.2–§15.3)
+
+### 4d. Managed background for persistent servers (run_in_background, not nohup)
+
+_Source: fluke-177x-datos/retros/2026-09-13-replica-fea-dashboard-e-install.md · row 3_
+
+For any server or process that must survive across multiple tool turns — a local HTTP server, a
+dashboard, a polling loop — use the **managed background mechanism** (`run_in_background` parameter
+on the Bash tool) instead of `nohup &`.
+
+A process launched with `nohup &` inside a tool wrapper is killed when the wrapper exits (exit 144
+in the sandbox). A process launched via `run_in_background` is handed off to the harness and survives
+between turns.
+
+**Rule:** if a process must be alive for the next tool call, `nohup &` is wrong; `run_in_background`
+is the correct shape.
+
+### 4e. pgrep self-match (daemon health checks)
+
+_Source: api-paneles/retros/2026-09-11-paneles-completion.md · row 3_
+
+`pgrep -f <pattern>` matches itself when the pattern string appears in the `pgrep` command's own
+argv. This is common in zsh and silently returns a PID even when the target process is dead, making
+daemon health checks falsely report "alive".
+
+**Fix — prefer name-exact match:**
+```bash
+pgrep -x node          # exact process name; no self-match risk
+```
+When `-f` is unavoidable, filter the pgrep's own PID from the result:
+```bash
+pgrep -f <pattern> | grep -v "^$$\$"
+```
+**Evidence:** the pattern reproduced in `refresh-loop.sh` (api-paneles B9 §9.4).
 
 ## 5. Serial / COM console acquisition (SSH-off device)
 
@@ -326,6 +381,23 @@ Evidence: liveread session 2026-08-19 — the tunnel was healthy throughout (4 a
 calls returned `bad handshake` because the service token was absent. The B16–B25 retro had codified
 `bad handshake = no origin` (B23.2); the liveread session corrected it — reconciliation verdict:
 never codify the bare signal as unambiguous.
+
+### 6b. Persistent SSH local forwards (ssh -L) fail in the sandbox
+
+_Source: fluke-177x-datos/retros/2026-09-13-fluke-177x-protocol-re-campaign.md · prose delta 3_
+
+`ssh -L <local-port>:<host>:<remote-port>` requires keeping a persistent listening socket open.
+The tool sandbox kills any such persistent process on exit (exit 144) — the same mechanism as the
+`-M` master documented in §6a. One-shot remote commands (`ssh host "cmd"`) work; persistent
+tunnels/listeners do not.
+
+**Fix — sandbox shape:**
+Any persistent tunnel or listener must be launched from the operator's real terminal (`wsl.exe`
+or a `.bat` file), not from a Bash tool call. Then use `ssh host "cmd"` (one-shot per turn) to
+send individual commands through the already-running tunnel.
+
+**WSL2 note:** WSL2 only forwards `localhost` to listeners started via `wsl.exe`; a listener
+started inside WSL via the Bash tool is not reachable from Windows at `localhost`.
 
 ## 7. L2 discovery / firewalled-host identification (bridged segment)
 
