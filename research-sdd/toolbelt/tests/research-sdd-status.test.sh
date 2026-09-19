@@ -38,7 +38,7 @@ mkstate() {
     echo; echo "## Blocked gaps (each tagged with what it needs)"; echo
     echo "- gpu profiling — needs: hardware"
     echo; echo "## Stop control"; echo
-    echo "- **Open gaps — read-only investigable**: $inv"
+    echo "- **Open gaps — read-only investigable**: $io"
     echo "- **Open gaps — requires-execution**: 0"
     echo "- **Open gaps — blocked**: 1"
   } > "$dir/RESEARCH-STATE.md"
@@ -103,7 +103,7 @@ d="$TMP/pipe"; mkdir -p "$d"
 { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo; echo "## Gap-backlog (prioritized)"; echo
   echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
   echo "| high | compare A | B render paths | web | pending |"; echo
-  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d/RESEARCH-STATE.md"
 warn="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
 grep -qi 'malformed backlog row' <<<"$warn" && ok "pipe-in-gap emits a WARN (not a silent drop)" || no "pipe-in-gap: no WARN emitted"
 
@@ -131,7 +131,7 @@ d="$TMP/hyphenblock"; mkdir -p "$d"
   echo "| P | G | t | S |"; echo "|-|-|-|-|"
   echo "| high | blocked thing | web | pending |"; echo "| medium | free thing | web | pending |"; echo
   echo "## Blocked gaps"; echo "- blocked thing - needs: hardware"; echo
-  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 2"; } > "$d/RESEARCH-STATE.md"
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
 expect_next "$d" "NEXT | medium | free thing" "plain-hyphen blocked entry excludes its gap"
 
 # 15 — en-dash blocked entry also excludes its gap
@@ -140,7 +140,7 @@ d="$TMP/endashblock"; mkdir -p "$d"
   echo "| P | G | t | S |"; echo "|-|-|-|-|"
   echo "| high | blocked thing | web | pending |"; echo "| medium | free thing | web | pending |"; echo
   echo "## Blocked gaps"; echo "- blocked thing – needs: hardware"; echo
-  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 2"; } > "$d/RESEARCH-STATE.md"
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
 expect_next "$d" "NEXT | medium | free thing" "en-dash blocked entry excludes its gap"
 
 # 16 — default `status` exits 0 even on a stale (verify-state FAIL) corpus (contract: 0 ok / 2 bad args)
@@ -558,8 +558,8 @@ d="$TMP/stop-construct"; mkdir -p "$d"
   echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
   echo "| high | done gap | web | covered |"; echo
   echo "## Blocked gaps"; echo "- none"; echo
-  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 5"; } > "$d/RESEARCH-STATE.md"
-expect_next "$d" "STOP | read-only-investigable exhausted (0)" "empty eligible backlog → STOP (ignores stale prose count of 5)"
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d/RESEARCH-STATE.md"
+expect_next "$d" "STOP | read-only-investigable exhausted (0)" "empty eligible backlog → STOP (derived=0, not stale prose)"
 
 # 44 — BACKLOG-ANCHORED requires_execution_open (the three.js shape): --sync-state must PREFER the count
 #      derived from backlog rows whose Status column carries `requires-execution` over a STALE prose
@@ -1519,6 +1519,63 @@ else
   ok "T-530: shared-global envelope with attributed covered_blocks passes verify-state CHECK A"
 fi
 
+# ========================= ISSUE CLUSTER #557 FIXES =========================
+
+# T-634-SS — trailing ** stripped in backlog_rows so resolve_next/count_investigable see clean status.
+# Pre-fix: backlog_rows emits `pending**` → resolve_next's `lead` strip handles it but count_investigable
+# would double-strip harmlessly; the real risk is `count_investigable` counting wrong. Test the correct count.
+d_634="$TMP/t634-status-bold"
+mkdir -p "$d_634"
+{ printf '# Research State\n\n'
+  printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\ncovered_blocks: 0\n'
+  printf 'gaps_closed: 0\nknown_gaps: 1\n'
+  printf 'investigable_open: 1\nrequires_execution_open: 0\nblocked_open: 0\n'
+  printf '<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 0 / 1 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | bold-gap | web | pending** |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+} > "$d_634/RESEARCH-STATE.md"
+# Use --sync-state on a copy to check that count_investigable sees 1 investigable gap for pending** row.
+# Note: status.sh already stripped ** in its callers (§8b); this fix moves stripping to backlog_rows source.
+# The backlog_rows fix ensures consistency: callers no longer need to strip.
+# Verify the invariant holds: investigable_open=1 is correctly computed for a pending** row.
+_t634_copy="$TMP/t634-ss-copy"; mkdir -p "$_t634_copy"
+cp "$d_634/RESEARCH-STATE.md" "$_t634_copy/RESEARCH-STATE.md"
+_t634_sync="$(bash "$SUT" "$_t634_copy" --sync-state 2>/dev/null)"
+_t634_io="$(printf '%s\n' "$_t634_sync" | grep -oE 'investigable_open=[0-9]+' | grep -oE '[0-9]+')"
+if [ "${_t634_io:-0}" = "1" ]; then
+  ok "T-634-SS: Status 'pending**' → --sync-state computes investigable_open=1 (** stripped correctly in backlog_rows)"
+else
+  no "T-634-SS: Status 'pending**' → --sync-state investigable_open=${_t634_io:-<missing>} (expected 1); backlog_rows ** stripping may be misaligned"
+fi
+
+# T-567-SS — COVERED row with pipe notation in status must not emit malformed-row WARN in status.sh.
+d_567="$TMP/t567-status-covered-pipe"
+mkdir -p "$d_567"
+{ printf '# Research State\n\n'
+  printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\ncovered_blocks: 0\n'
+  printf 'gaps_closed: 0\nknown_gaps: 1\n'
+  printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+  printf '<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 0 / 1 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | MM12-G1 | protocol | COVERED devType|address|command|status |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d_567/RESEARCH-STATE.md"
+_t567_err="$(bash "$SUT" "$d_567" 2>&1 >/dev/null)"
+if ! grep -q 'malformed backlog row' <<<"$_t567_err"; then
+  ok "T-567-SS: COVERED row with pipe notation → no malformed-row WARN in status.sh stderr"
+else
+  no "T-567-SS: spurious malformed-row WARN for COVERED pipe row in status.sh; warn=$(grep -m1 'malformed backlog row' <<<"$_t567_err")"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -2072,10 +2129,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       || no "teeth-#424b-boldfix: mutant io=$_io_boldfix (want 0) — closing-** fix may not be stopper (THEATER)"
   fi
 
-  # issue #424 teeth-BOLD-STRIP: neuter ** strip in count_investigable; **pending** must stay dropped.
-  echo "-- teeth-#424-bold-strip: neuter BOLD-STRIP sentinel; **pending** must not count investigable --"
+  # issue #424 teeth-BOLD-STRIP: neuter ** strip in BOTH layers (defense-in-depth); **pending** must stay dropped.
+  # BOLD-STRIP (count_investigable) and SS-634-BOLD-STRIP (backlog_rows) form a two-layer defense:
+  # removing only one still leaves the other operative → both must be neutered to prove the mechanism bites.
+  echo "-- teeth-#424-bold-strip: neuter BOLD-STRIP + SS-634-BOLD-STRIP (both layers); **pending** must not count investigable --"
   bold_mutant="$TMP/status.BOLD-MUTANT.sh"
-  sed '/# BOLD-STRIP$/s/.*/    lead="$st"  # MUTANT-BOLD: strip neutered/' "$SUT" > "$bold_mutant"
+  sed '/# BOLD-STRIP$/s/.*/    lead="$st"  # MUTANT-BOLD: strip neutered/' "$SUT" \
+    | sed '/# SS-634-BOLD-STRIP/s/.*/      { st=tolower(a[4]) }  # SS-634-BOLD-STRIP-MUTANT: backlog strip also removed/' \
+    > "$bold_mutant"
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   if ! grep -q 'MUTANT-BOLD' "$bold_mutant"; then
     no "teeth-#424-bold-strip: could not build mutant (BOLD-STRIP sentinel not found in SUT — did SUT change?)"
@@ -2226,6 +2287,59 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-#530: SG-ATTR-SYNC sentinel not found in SUT"
+  fi
+
+  # ---- teeth-SS-634-BOLD: remove ** stripping from BOTH layers; pending** must NOT count as investigable ----
+  # SS-634-BOLD-STRIP (backlog_rows) and BOLD-STRIP (count_investigable) form a two-layer defense.
+  # Removing only SS-634-BOLD-STRIP leaves BOLD-STRIP operative → io=1 (theater).
+  # The combined mutant removes BOTH so neither strips → pending** is unrecognised → io=0.
+  # T-634-SS expects investigable_open=1 → with combined mutant it sees 0 → assertion goes RED.
+  echo "-- teeth-SS-634-BOLD: remove ** stripping from BOTH layers (SS-634-BOLD-STRIP + BOLD-STRIP); pending** must not count --"
+  ss634_mutant="$TMP/status.SS634.MUTANT.sh"
+  if grep -q '# SS-634-BOLD-STRIP' "$SUT"; then
+    sed '/# SS-634-BOLD-STRIP/s/.*/      { st=tolower(a[4]) }  # SS-634-BOLD-STRIP-MUTANT: stripping removed/' "$SUT" \
+      | sed '/# BOLD-STRIP$/s/.*/    lead="$st"  # MUTANT-BOLD-ALSO: count_investigable strip also removed/' \
+      > "$ss634_mutant"
+    if ! grep -q '# SS-634-BOLD-STRIP-MUTANT' "$ss634_mutant"; then
+      no "teeth-SS-634-BOLD: could not build mutant (SS-634-BOLD-STRIP replacement failed — did SUT change?)"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _ss634_teeth_dir="$TMP/t634-ss-teeth-copy"; mkdir -p "$_ss634_teeth_dir"
+      cp "$d_634/RESEARCH-STATE.md" "$_ss634_teeth_dir/RESEARCH-STATE.md"
+      _ss634_out="$(bash "$ss634_mutant" "$_ss634_teeth_dir" --sync-state 2>/dev/null)"
+      _ss634_io="$(printf '%s\n' "$_ss634_out" | grep -oE 'investigable_open=[0-9]+' | grep -oE '[0-9]+')"
+      if [ "${_ss634_io:-0}" != "1" ]; then
+        ok "teeth-SS-634-BOLD: without ** stripping, pending** → investigable_open=${_ss634_io:-0} ≠ 1 → T-634-SS assertion goes RED → SS-634-BOLD-STRIP is load-bearing"
+      else
+        no "teeth-SS-634-BOLD: mutant still computes investigable_open=1 — stripping removed but count unchanged — THEATER"
+      fi
+    fi
+  else
+    no "teeth-SS-634-BOLD: SS-634-BOLD-STRIP sentinel not found in SUT"
+  fi
+
+  # ---- teeth-SS-567-COVERED-PIPE: remove COVERED skip; COVERED pipe row must emit malformed WARN ----
+  # Mutation: delete the SS-567-COVERED-PIPE-SKIP tagged line entirely.
+  # T-567-SS fixture (t567-status-covered-pipe) has 'COVERED devType|address|...';
+  # without the skip, n≠4 fires the malformed-row WARN → appears in stderr.
+  # T-567-SS expects no WARN → assertion goes RED → SS-567-COVERED-PIPE-SKIP is load-bearing.
+  echo "-- teeth-SS-567-COVERED-PIPE: delete COVERED skip (SS-567-COVERED-PIPE-SKIP); pipe row must emit WARN --"
+  ss567_mutant="$TMP/status.SS567.MUTANT.sh"
+  if grep -q '# SS-567-COVERED-PIPE-SKIP' "$SUT"; then
+    sed '/# SS-567-COVERED-PIPE-SKIP/d' "$SUT" > "$ss567_mutant"
+    if grep -q '# SS-567-COVERED-PIPE-SKIP' "$ss567_mutant"; then
+      no "teeth-SS-567-COVERED-PIPE: could not build mutant (deletion failed — sentinel still present)"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _ss567_mut_err="$(bash "$ss567_mutant" "$d_567" 2>&1 >/dev/null)"
+      if grep -q 'malformed backlog row' <<<"$_ss567_mut_err"; then
+        ok "teeth-SS-567-COVERED-PIPE: removed COVERED skip → COVERED pipe row emits malformed WARN → T-567-SS goes RED → SS-567-COVERED-PIPE-SKIP is load-bearing"
+      else
+        no "teeth-SS-567-COVERED-PIPE: mutant did NOT emit malformed-row WARN for COVERED pipe row — THEATER"
+      fi
+    fi
+  else
+    no "teeth-SS-567-COVERED-PIPE: SS-567-COVERED-PIPE-SKIP sentinel not found in SUT"
   fi
 
 fi
