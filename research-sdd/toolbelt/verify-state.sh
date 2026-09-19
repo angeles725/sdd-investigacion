@@ -127,8 +127,12 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
         }
         next
       }
-      if (n!=4) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr"; next }  # VS-N4-WARN
-      print p "\t" a[2] "\t" tolower(a[4]) }' "$1")"
+      if (n!=4) {
+        if (in_backlog && in_data && tolower(a[4]) ~ /^covered/) { next }  # VS-567-COVERED-PIPE-SKIP: COVERED rows may carry pipe notation in status summary; skip silently
+        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr" }  # VS-N4-WARN
+        next }
+      { st=tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # VS-634-BOLD-STRIP: strip leading/trailing ** (markdown bold artifacts) from status field
+      print p "\t" a[2] "\t" st }' "$1")"
   [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
@@ -313,6 +317,18 @@ for state in "${states[@]}"; do
     frc=1; rc=1; continue
   fi
 
+  # GB-PRESENT-CHECK (FAIL) — a backlog section heading must be PRESENT. Absent ≠ empty (§7 anti-silent-zero).
+  # A corpus without any backlog heading is structurally incomplete: derive_investigable returns 0 silently,
+  # which launders a missing section into investigable_open=0 (false ok).
+  # The check accepts any `## ` heading that contains "backlog" (case-insensitive): canonical
+  # `## Gap-backlog`, legacy `## Backlog`, and near-miss forms like `## Gap backlog` (which the NM-WARN
+  # already flags). A near-miss heading IS present — its mis-spelling is a different class of problem from
+  # total absence. The check fires only when there is truly NO heading containing "backlog" at all.
+  if ! grep -qiE '^##[[:space:]].*backlog' "$state" 2>/dev/null; then  # GB-PRESENT-CHECK
+    echo "   FAIL   ## Gap-backlog section absent — section must be present (even if empty). Add it and re-seed: --sync-state"
+    frc=1; rc=1; continue
+  fi
+
   # 1. backlog `pending` gap ROWS — leading-token status, NOT a whole-file word count (retro delta): the old
   #    `grep -icE '\bpending\b'` counted every prose mention of "pending" (iteration-history narratives,
   #    coverage notes) as a gap, false-firing CHECK 1 and forcing edits to HISTORY. Anchor to backlog rows.
@@ -385,6 +401,10 @@ for state in "${states[@]}"; do
   # This distinguishes: absent (silent), present+valid (threshold checks), present+malformed (FAIL).
   e_uf="$(env_field "$state" undocumented_findings)"
   _uf_present="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*undocumented_findings:/{print; exit}' "$state")"  # UF-INDENTED-PROBE
+  # KSW-EXTRACT: known_stale_warns — comma-separated suppression ids. env_field uses `$2` (splits on spaces)
+  # but this value may contain spaces between items; use a full-line awk to extract reliably.
+  e_ksw="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^[[:space:]]*known_stale_warns:/{v=$0; sub(/^[[:space:]]*known_stale_warns:[[:space:]]*/,"",v); sub(/[[:space:]]+$/,"",v); print v; exit}' "$state")"  # KSW-EXTRACT
+  _ksw_has() { printf '%s\n' "${e_ksw}" | tr ',' '\n' | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' | grep -qxF "$1"; }
 
   echo "-- summary --"
   echo "   coverage metric : ${xy:-<none>}"
@@ -537,7 +557,26 @@ for state in "${states[@]}"; do
   _idx="$(dirname "$state")/INDEX.md"
   if [ "${ondisk:-0}" -gt 0 ] && [ -f "$_idx" ]; then
     if grep -qE '<[A-Z][A-Z0-9_-]*>' "$_idx" 2>/dev/null; then  # P7-INDEX-PLACEHOLDER-WARN
-      echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk block file(s) on disk — update the corpus index."
+      if _ksw_has "p7-index-placeholder"; then  # KSW-P7-SUPPRESS
+        echo "   INFO   INDEX.md placeholder WARN suppressed (known_stale_warns: p7-index-placeholder)"
+      else
+        echo "   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while $ondisk block file(s) on disk — update the corpus index."
+      fi
+    fi
+  fi
+
+  # SC-CROSS-CHECK (FAIL) — stop-control prose "Open gaps — read-only investigable: N" must match the
+  # backlog-derived d_inv. The stop-control section is the human-readable STOP decision surface; a stale
+  # number there points to a different N than the envelope and misleads the operator into a premature STOP.
+  # Only fires when the prose line is PRESENT (absent prose = a different structural problem, not this check).
+  # SC-CROSS-CHECK: stop-control prose format is "**Open gaps — read-only investigable**: N" (bold markers
+  # wrap the label, colon follows the closing **). Accept both `investigable**: N` and `investigable: N`.
+  _sc_prose="$(grep -iE 'read-only investigable\*{0,2}:[[:space:]]*[0-9]+' "$state" 2>/dev/null | head -1)"
+  if [ -n "$_sc_prose" ]; then
+    _sc_n="$(printf '%s' "$_sc_prose" | grep -oE '[0-9]+' | tail -1)"
+    if [ -n "$_sc_n" ] && [ "$_sc_n" != "$d_inv" ]; then  # SC-CROSS-CHECK
+      echo "   FAIL   stop-control prose 'read-only-investigable: ${_sc_n}' but backlog derives ${d_inv} investigable gap(s) — refresh the Stop control section and re-seed: --sync-state"
+      frc=1; rc=1
     fi
   fi
 
@@ -554,7 +593,11 @@ for state in "${states[@]}"; do
   # reflects attributed blocks (a focus-level count), so comparing them always misfires when the
   # focus has not covered all corpus blocks.
   if [ -n "${covered_claim:-}" ] && [ "${ondisk:-0}" -gt 0 ] && [ "$_sg_check_a_done" = 0 ] && [ "$covered_claim" != "$ondisk" ]; then  # SG-CHECK2-COND
-    echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk block file(s) on disk — refresh the mirror."
+    if _ksw_has "check-2-covered-blocks"; then  # KSW-CHECK2-SUPPRESS
+      echo "   INFO   covered-blocks mismatch WARN suppressed (known_stale_warns: check-2-covered-blocks)"
+    else
+      echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk block file(s) on disk — refresh the mirror."
+    fi
   fi
 
   # CHECK 3 (WARN) — contradictory CANONICAL coverage numbers. RESEARCH-STATE must carry ONE canonical

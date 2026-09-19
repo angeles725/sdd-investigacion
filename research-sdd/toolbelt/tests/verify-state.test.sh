@@ -1711,6 +1711,235 @@ if grep -qE 'WARN.*sum of declared counters.*stale denominator' <<<"$out" && ! g
   ok "IDENT-D-malformed(b): deferred_open=none, kg=10≠sum=7 → stale-denominator WARN fires (def=0), no crash"
 else no "IDENT-D-malformed(b): WARN expected or crash detected; warn=$(grep -iE 'warn.*known_gaps|stale denominator' <<<"$out" | head -1); err=$(grep -iE 'unbound|arithmetic' <<<"$out" | head -1)"; fi
 
+# ========================= ISSUE CLUSTER #557 FIXES =========================
+
+# T-634a — trailing ** stripped from status in derive_investigable / derive_pending_rows (§8b).
+# A row with Status `pending**` (markdown bold artifact from rich editing) must be counted as pending.
+# Pre-fix: ${st%% *} sees `pending**` ≠ `pending` → derive_investigable returns 0 → CHECK B: 0≠1 → FAIL.
+# Post-fix: ** stripped at _backlog_rows output → st=`pending`, derives 1 = env 1 → exit 0.
+d="$TMP/t634-trailing-bold"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 1 2 1 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 1 / 2 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | open-gap | web | pending** |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-634a: Status 'pending**' (trailing bold) → counted as pending, investigable_open=1 matches derived, exit 0"
+else
+  no "T-634a: Status 'pending**' not counted as pending; exit=$(code "$d"); msg=$(grep -iE 'investigable_open|FAIL' <<<"$out" | head -1)"
+fi
+
+# T-634b — status **pending** (both leading and trailing bold) → also counted correctly.
+d="$TMP/t634-double-bold"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 1 2 1 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 1 / 2 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | open-gap | web | **pending** |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-634b: Status '**pending**' (double bold) → counted as pending, investigable_open=1 matches derived, exit 0"
+else
+  no "T-634b: Status '**pending**' not counted; exit=$(code "$d"); msg=$(grep -iE 'investigable_open|FAIL' <<<"$out" | head -1)"
+fi
+
+# T-567 — COVERED row with pipe notation in Status must not emit a malformed-row WARN.
+# COVERED rows legitimately carry protocol-field summaries (`devType|address|...`) that make the row
+# appear to have > 4 cells. These are COVERED, not malformed; the WARN is spurious noise.
+# Pre-fix: WARN emitted to stderr.  Post-fix: WARN suppressed (COVERED rows silently skip).
+d="$TMP/t567-covered-pipe"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 0 0 0 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 0 / 1 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | MM12-G1 | protocol | COVERED devType|address|command|status |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE.md"
+t567_err="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+if [ "$(code "$d")" = 0 ] && ! grep -q 'malformed backlog row' <<<"$t567_err"; then
+  ok "T-567: COVERED row with pipe notation → no malformed-row WARN, exit 0"
+else
+  no "T-567: spurious malformed-row WARN for COVERED pipe row; warn=$(grep -m1 'malformed backlog row' <<<"$t567_err")"
+fi
+
+# T-567b — positive control: a non-COVERED row with pipe notation (real malformed case) STILL warns.
+d="$TMP/t567-noncovered-pipe"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 0 0 0 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 0 / 1 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | pipe-gap | protocol | pending | extra-cell |\n\n'  # NOT covered → still a WARN
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE.md"
+t567b_err="$(bash "$SUT" "$d" 2>&1 >/dev/null)"
+if grep -q 'malformed backlog row' <<<"$t567b_err"; then
+  ok "T-567b: non-COVERED row with pipe notation → malformed-row WARN still fires (positive control)"
+else
+  no "T-567b: non-COVERED malformed row WARN missing (positive control broken)"
+fi
+
+# T-599a — missing ## Gap-backlog section → FAIL (absent ≠ empty, §7 anti-silent-zero).
+# Pre-fix: derive_investigable=0 silently matches envelope=0 → exit 0 (false ok).
+# Post-fix: absent heading detected → FAIL, exit 1.
+d="$TMP/t599-no-backlog"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 2 5 0 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 2 / 5 closed\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 3\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qiE 'FAIL.*Gap-backlog.*absent|FAIL.*absent.*Gap-backlog' <<<"$out"; then
+  ok "T-599a: missing ## Gap-backlog section → FAIL (absent section detected), exit 1"
+else
+  no "T-599a: missing Gap-backlog silently passed; exit=$(code "$d"); msg=$(grep -iE 'fail|gap.backlog|ok ' <<<"$out" | head -1)"
+fi
+
+# T-599b — present but EMPTY ## Gap-backlog section → no absent-section FAIL (empty ≠ absent).
+d="$TMP/t599-empty-backlog"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 2 2 0 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 2 / 2 closed\n\n'
+  printf '## Gap-backlog\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-599b: present but empty ## Gap-backlog → no absent-section FAIL (empty ≠ absent), exit 0"
+else
+  no "T-599b: empty Gap-backlog wrongly triggered absent-section FAIL; exit=$(code "$d"); msg=$(grep -iE 'fail|gap.backlog|ok ' <<<"$out" | head -1)"
+fi
+
+# T-599c — stop-control prose count matches derived investigable_open → no cross-check FAIL.
+d="$TMP/t599-stopctl-match"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 1 3 2 0 0; printf '\n'
+  printf '## Coverage\n- **Coverage metric**: 1 / 3 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | gap-A | web | pending |\n'
+  printf '| medium | gap-B | web | pending |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 2\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-599c: stop-control prose=2 matches derived=2 → no cross-check FAIL, exit 0"
+else
+  no "T-599c: false mismatch FAIL; exit=$(code "$d"); msg=$(grep -iE 'stop.control|investigable|fail' <<<"$out" | head -1)"
+fi
+
+# T-599d — stop-control prose says 3 but backlog-derived is 1 → FAIL (cross-check mismatch).
+# Pre-fix: no cross-check → exit 0 (false ok).
+# Post-fix: mismatch detected → FAIL, exit 1.
+d="$TMP/t599-stopctl-mismatch"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 1 3 1 0 0; printf '\n'  # investigable_open=1 matches derived=1 (CHECK B passes)
+  printf '## Coverage\n- **Coverage metric**: 1 / 3 closed\n\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | gap-A | web | pending |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 3\n'  # stale: prose says 3 but derived=1
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qiE 'FAIL.*[Ss]top.control.*prose.*[0-9]|FAIL.*read-only-investigable.*but backlog' <<<"$out"; then
+  ok "T-599d: stop-control prose=3 vs derived=1 → FAIL (cross-check mismatch), exit 1"
+else
+  no "T-599d: stop-control mismatch not detected; exit=$(code "$d"); msg=$(grep -iE 'stop.control|investigable|fail' <<<"$out" | head -2 | tr '\n' ' ')"
+fi
+
+# T-566a — known_stale_warns: p7-index-placeholder suppresses the P7 INDEX placeholder WARN.
+# Pre-fix: known_stale_warns field is unknown → WARN emitted normally.
+# Post-fix: field recognised → INFO emitted ("suppressed (known_stale_warns)"); no WARN.
+d="$TMP/t566-p7-suppress"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-block1.md"   # ondisk=1 so P7 check runs
+printf '<SUBJECT>\n<YYYY-MM-DD>\n' > "$d/INDEX.md"   # placeholder triggers P7
+{ printf '# Research State\n\n'
+  printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\n'
+  printf 'covered_blocks: 1\n'
+  printf 'gaps_closed: 2\nknown_gaps: 2\n'
+  printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+  printf 'known_stale_warns: p7-index-placeholder\n'
+  printf '<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 2 / 2 closed\n\n'
+  printf '## Gap-backlog\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] \
+   && grep -qiE 'INFO.*p7-index-placeholder' <<<"$out" \
+   && ! grep -qE '^\s*WARN.*placeholder' <<<"$out"; then
+  ok "T-566a: known_stale_warns=p7-index-placeholder → P7 WARN suppressed to INFO, exit 0"
+else
+  no "T-566a: P7 WARN not suppressed; exit=$(code "$d"); msgs=$(grep -iE '^\s*WARN.*placeholder|INFO.*p7' <<<"$out" | head -2 | tr '\n' '|')"
+fi
+
+# T-566b — known_stale_warns: check-2-covered-blocks suppresses CHECK 2 (covered_blocks mismatch WARN).
+# Pre-fix: WARN emitted normally.  Post-fix: INFO emitted instead; no WARN.
+d="$TMP/t566-check2-suppress"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-block1.md"   # ondisk=1; claim=5 → mismatch triggers CHECK 2 WARN
+{ printf '# Research State\n\n'
+  printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\n'
+  printf 'covered_blocks: 1\n'
+  printf 'gaps_closed: 2\nknown_gaps: 2\n'
+  printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+  printf 'known_stale_warns: check-2-covered-blocks\n'
+  printf '<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 2 / 2 closed\nCovered blocks: 5\n\n'
+  printf '## Gap-backlog\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] \
+   && grep -qiE 'INFO.*check-2-covered-blocks.*suppressed|INFO.*suppressed.*check-2-covered-blocks' <<<"$out" \
+   && ! grep -qE 'WARN.*disagrees with' <<<"$out"; then
+  ok "T-566b: known_stale_warns=check-2-covered-blocks → CHECK 2 WARN suppressed to INFO, exit 0"
+else
+  no "T-566b: CHECK 2 WARN not suppressed; exit=$(code "$d"); msgs=$(grep -iE 'WARN.*disagrees|INFO.*suppressed' <<<"$out" | head -2 | tr '\n' '|')"
+fi
+
+# T-566c — unknown suppression id in known_stale_warns → no false suppression (WARNs still fire).
+d="$TMP/t566-unknown-id"; mkdir -p "$d"
+printf 'x\n' > "$d/niagara-block1.md"
+printf '<SUBJECT>\n' > "$d/INDEX.md"
+{ printf '# Research State\n\n'
+  printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\n'
+  printf 'covered_blocks: 1\n'
+  printf 'gaps_closed: 2\nknown_gaps: 2\n'
+  printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+  printf 'known_stale_warns: unknown-warn-id\n'
+  printf '<!-- /research-state.v1 -->\n\n'
+  printf '## Coverage\n- **Coverage metric**: 2 / 2 closed\nCovered blocks: 5\n\n'
+  printf '## Gap-backlog\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if grep -qE '^\s*WARN.*disagrees with' <<<"$out" && grep -qE '^\s*WARN.*placeholder' <<<"$out"; then
+  ok "T-566c: unknown suppression id → no false suppression (both P7 and CHECK 2 WARNs fire)"
+else
+  no "T-566c: unknown id falsely suppressed a WARN; msgs=$(grep -iE '^\s*WARN' <<<"$out" | head -3 | tr '\n' '|')"
+fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -1767,14 +1996,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Teeth for case 25 (the CORE regression) — neuter ENVELOPE CHECK B (investigable_open); the under-declared
   # fixture must then STOP exiting 1, proving the premature-STOP guard is genuinely load-bearing (not theater).
+  # NOTE: SC-CROSS-CHECK (#599) also fires when stop-control prose diverges from derived.  To isolate CHECK B,
+  # we use a fresh fixture where prose=derived (2) so SC-CROSS-CHECK stays silent, and only the envelope
+  # mismatch (declared=0 vs derived=2) can trigger a failure.  Without CHECK B, the mutant exits 0.
   echo "-- teeth: neuter ENVELOPE CHECK B (investigable_open); expect the under-declared fixture to pass --"
   mutantE="$TMP/verify-state.ENVB.MUTANT.sh"
   sed 's/^\( *\)if ! is_int "\$e_inv" .*then$/\1if false; then  # MUTANT: envelope investigable check neutered/' "$SUT" > "$mutantE"
   if ! grep -q 'MUTANT: envelope investigable check neutered' "$mutantE"; then
     no "teeth(envB): could not build mutant (CHECK B guard line not found — did the SUT change?)"
   else
-    d="$TMP/env-inv-under"   # reuse case 25 fixture: declared investigable_open=0 while 2 pending remain
-    bash "$mutantE" "$d" >/dev/null 2>&1; egot=$?
+    # Isolation fixture: envelope investigable_open=0 (under-declared) but prose=2 (matches derived).
+    # SC-CROSS-CHECK: prose=2 == derived=2 → silent.  CHECK B (neutered): silent.  → exit 0.
+    d_envb_iso="$TMP/env-inv-under-envb-iso"; mkdir -p "$d_envb_iso"
+    { printf '# T — Research State\n\n'
+      printf '<!-- research-state.v1 -->\n'
+      printf 'schema: research-state.v1\ncovered_blocks: 0\n'
+      printf 'gaps_closed: 4\nknown_gaps: 10\n'
+      printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 1\n'
+      printf '<!-- /research-state.v1 -->\n\n'
+      printf '## Coverage\n- **Coverage metric**: 4 / 10 closed\n\n'
+      printf '## Gap-backlog (prioritized)\n\n'
+      printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | reconstruct pipeline | web | pending |\n'
+      printf '| medium | map loaders | web | pending |\n\n'
+      printf '## Blocked gaps\n- gpu profiling — needs: hardware\n\n'
+      printf '## Stop control\n- **Open gaps — read-only investigable**: 2\n'
+    } > "$d_envb_iso/RESEARCH-STATE.md"
+    bash "$mutantE" "$d_envb_iso" >/dev/null 2>&1; egot=$?
     if [ "$egot" = 0 ]; then
       ok "teeth: neutered envelope-investigable mutant false-passes (exit 0) → case 25 has teeth"
     else no "teeth(envB): mutant exit $egot (want 0) — case 25 does NOT depend on CHECK B (THEATER)"; fi
@@ -2483,6 +2731,151 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-IDENT-D: IDENTITY-INT-GUARD sentinel not found in SUT"
+  fi
+
+  # ---- teeth-634-BOLD: remove ** stripping from _backlog_rows; pending** row must NOT be counted ----
+  # Mutation: replace the VS-634-BOLD-STRIP tagged awk line with one that omits gsub calls.
+  # T-634a fixture (t634-trailing-bold) has Status 'pending**'; without stripping, st='pending**'
+  # does not match 'pending' → derive_investigable=0 ≠ envelope=1 → CHECK B FAIL → exit 1.
+  # T-634a expects exit 0 → assertion goes RED → VS-634-BOLD-STRIP is load-bearing.
+  echo "-- teeth-634-BOLD: remove ** stripping (VS-634-BOLD-STRIP); pending** row must NOT count as investigable --"
+  mutant634="$TMP/verify-state.634-BOLD.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# VS-634-BOLD-STRIP' "$SUT"; then
+    sed '/# VS-634-BOLD-STRIP/s/.*/      { st=tolower(a[4]) }  # VS-634-BOLD-STRIP-MUTANT: stripping removed/' "$SUT" > "$mutant634"
+    if ! grep -q '# VS-634-BOLD-STRIP-MUTANT' "$mutant634"; then
+      no "teeth-634-BOLD: could not build mutant (VS-634-BOLD-STRIP replacement failed — did SUT change?)"
+    else
+      m634_out="$(bash "$mutant634" "$TMP/t634-trailing-bold" 2>/dev/null)"
+      m634_rc=$?
+      if [ "$m634_rc" != 0 ] || ! grep -qE 'ok +envelope validated' <<<"$m634_out"; then
+        ok "teeth-634-BOLD: mutant without ** stripping fails T-634a (pending** unrecognised) → VS-634-BOLD-STRIP is load-bearing"
+      else
+        no "teeth-634-BOLD: mutant without ** stripping still passed T-634a — THEATER"
+      fi
+    fi
+  else
+    no "teeth-634-BOLD: VS-634-BOLD-STRIP sentinel not found in SUT"
+  fi
+
+  # ---- teeth-567-COVERED-PIPE: remove COVERED-row skip; COVERED pipe row must emit malformed WARN ----
+  # Mutation: delete the VS-567-COVERED-PIPE-SKIP tagged line entirely.
+  # T-567 fixture (t567-covered-pipe) has 'COVERED devType|address|...'; without the skip,
+  # n≠4 fires the VS-N4-WARN → malformed WARN appears in stderr.
+  # T-567 expects no WARN → assertion goes RED → VS-567-COVERED-PIPE-SKIP is load-bearing.
+  echo "-- teeth-567-COVERED-PIPE: delete COVERED skip line (VS-567-COVERED-PIPE-SKIP); pipe row must emit WARN --"
+  mutant567="$TMP/verify-state.567-COVERED.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# VS-567-COVERED-PIPE-SKIP' "$SUT"; then
+    sed '/# VS-567-COVERED-PIPE-SKIP/d' "$SUT" > "$mutant567"
+    if grep -q '# VS-567-COVERED-PIPE-SKIP' "$mutant567"; then
+      no "teeth-567-COVERED-PIPE: could not build mutant (deletion failed — sentinel still present)"
+    else
+      t567m_err="$(bash "$mutant567" "$TMP/t567-covered-pipe" 2>&1 >/dev/null)"
+      if grep -q 'malformed backlog row' <<<"$t567m_err"; then
+        ok "teeth-567-COVERED-PIPE: removed COVERED skip → COVERED pipe row emits malformed WARN → T-567 goes RED → VS-567-COVERED-PIPE-SKIP is load-bearing"
+      else
+        no "teeth-567-COVERED-PIPE: mutant did NOT emit malformed-row WARN for COVERED pipe row — THEATER"
+      fi
+    fi
+  else
+    no "teeth-567-COVERED-PIPE: VS-567-COVERED-PIPE-SKIP sentinel not found in SUT"
+  fi
+
+  # ---- teeth-599-GB-PRESENT: negate GB-PRESENT-CHECK condition; absent backlog must pass silently ----
+  # Mutation: change 'if ! grep' → 'if grep' so the FAIL fires when backlog IS present, not absent.
+  # T-599a fixture (t599-no-backlog) has no ## Gap-backlog heading; with inverted condition,
+  # grep finds nothing → 'if grep' is false → FAIL block not entered → exits 0 (false ok).
+  # T-599a expects exit 1 + FAIL message → assertion goes RED → GB-PRESENT-CHECK is load-bearing.
+  echo "-- teeth-599-GB-PRESENT: negate GB-PRESENT-CHECK condition; absent backlog must exit 0 (FAIL suppressed) --"
+  mutantGB="$TMP/verify-state.599-GB.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# GB-PRESENT-CHECK' "$SUT"; then
+    sed '/# GB-PRESENT-CHECK$/s/if ! grep/if grep/' "$SUT" > "$mutantGB"
+    if ! grep -q 'if grep.*# GB-PRESENT-CHECK' "$mutantGB"; then
+      no "teeth-599-GB-PRESENT: could not build mutant (negation failed — GB-PRESENT-CHECK line not found or changed?)"
+    else
+      gb_mut_out="$(bash "$mutantGB" "$TMP/t599-no-backlog" 2>/dev/null)"
+      if ! grep -qiE 'FAIL.*Gap-backlog.*absent|FAIL.*absent.*Gap-backlog' <<<"$gb_mut_out"; then
+        ok "teeth-599-GB-PRESENT: negated condition → absent backlog undetected → T-599a absent-FAIL assertion goes RED → GB-PRESENT-CHECK is load-bearing"
+      else
+        no "teeth-599-GB-PRESENT: negated mutant still produced absent-Gap-backlog FAIL — THEATER"
+      fi
+    fi
+  else
+    no "teeth-599-GB-PRESENT: GB-PRESENT-CHECK sentinel not found in SUT"
+  fi
+
+  # ---- teeth-599-SC-CROSS: neuter SC-CROSS-CHECK; stop-control mismatch must go undetected ----
+  # Mutation: replace [ "$_sc_n" != "$d_inv" ] with false so the mismatch condition never fires.
+  # T-599d fixture (t599-stopctl-mismatch) has prose=3 but derived=1; with neutered check,
+  # the mismatch is not caught → exits 0 (false ok).
+  # T-599d expects exit 1 + FAIL message → assertion goes RED → SC-CROSS-CHECK is load-bearing.
+  echo "-- teeth-599-SC-CROSS: neuter SC-CROSS-CHECK; stop-control prose mismatch must be undetected --"
+  mutantSC="$TMP/verify-state.599-SC.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# SC-CROSS-CHECK$' "$SUT"; then
+    sed '/# SC-CROSS-CHECK$/s/\[ "\$_sc_n" != "\$d_inv" \]/false/' "$SUT" > "$mutantSC"
+    if ! grep -q 'false.*# SC-CROSS-CHECK' "$mutantSC"; then
+      no "teeth-599-SC-CROSS: could not build mutant (SC-CROSS-CHECK substitution failed — did SUT change?)"
+    else
+      bash "$mutantSC" "$TMP/t599-stopctl-mismatch" >/dev/null 2>&1; sc_mut_rc=$?
+      if [ "$sc_mut_rc" = 0 ]; then
+        ok "teeth-599-SC-CROSS: neutered SC-CROSS-CHECK → stop-control mismatch undetected → mutant exits 0 → T-599d assertion goes RED → SC-CROSS-CHECK is load-bearing"
+      else
+        no "teeth-599-SC-CROSS: neutered mutant still exits $sc_mut_rc for mismatch fixture — THEATER (another check may fire; review fixture)"
+      fi
+    fi
+  else
+    no "teeth-599-SC-CROSS: SC-CROSS-CHECK sentinel not found in SUT"
+  fi
+
+  # ---- teeth-566-KSW-P7: replace _ksw_has with false; P7 suppress must be skipped → WARN fires ----
+  # Mutation: replace _ksw_has "p7-index-placeholder" with false so the suppress branch is never taken.
+  # T-566a fixture (t566-p7-suppress) has known_stale_warns=p7-index-placeholder and INDEX.md placeholders;
+  # with false, suppress block skipped → WARN fires instead of INFO.
+  # T-566a expects no WARN + INFO line → assertion goes RED → KSW-P7-SUPPRESS is load-bearing.
+  echo "-- teeth-566-KSW-P7: replace _ksw_has with false (KSW-P7-SUPPRESS); P7 WARN must fire despite known_stale_warns --"
+  mutantP7="$TMP/verify-state.566-P7.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# KSW-P7-SUPPRESS' "$SUT"; then
+    sed '/# KSW-P7-SUPPRESS/s/_ksw_has "p7-index-placeholder"/false/' "$SUT" > "$mutantP7"
+    if ! grep -q 'if false.*# KSW-P7-SUPPRESS' "$mutantP7"; then
+      no "teeth-566-KSW-P7: could not build mutant (KSW-P7-SUPPRESS substitution failed — did SUT change?)"
+    else
+      p7_mut_out="$(bash "$mutantP7" "$TMP/t566-p7-suppress" 2>/dev/null)"
+      if grep -qE '^\s*WARN.*placeholder' <<<"$p7_mut_out"; then
+        ok "teeth-566-KSW-P7: _ksw_has→false → suppress skipped → P7 WARN fires → T-566a no-WARN assertion goes RED → KSW-P7-SUPPRESS is load-bearing"
+      else
+        no "teeth-566-KSW-P7: mutant did NOT emit P7 placeholder WARN when suppress was disabled — THEATER"
+      fi
+    fi
+  else
+    no "teeth-566-KSW-P7: KSW-P7-SUPPRESS sentinel not found in SUT"
+  fi
+
+  # ---- teeth-566-KSW-CHECK2: replace _ksw_has with false; CHECK 2 suppress skipped → WARN fires ----
+  # Mutation: replace _ksw_has "check-2-covered-blocks" with false.
+  # T-566b fixture (t566-check2-suppress) has known_stale_warns=check-2-covered-blocks and
+  # covered_blocks mismatch (claim=5, ondisk=1); with false, WARN fires instead of INFO.
+  # T-566b expects no WARN + INFO → assertion goes RED → KSW-CHECK2-SUPPRESS is load-bearing.
+  echo "-- teeth-566-KSW-CHECK2: replace _ksw_has with false (KSW-CHECK2-SUPPRESS); CHECK 2 WARN must fire --"
+  mutantCK2="$TMP/verify-state.566-CK2.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# KSW-CHECK2-SUPPRESS' "$SUT"; then
+    sed '/# KSW-CHECK2-SUPPRESS/s/_ksw_has "check-2-covered-blocks"/false/' "$SUT" > "$mutantCK2"
+    if ! grep -q 'if false.*# KSW-CHECK2-SUPPRESS' "$mutantCK2"; then
+      no "teeth-566-KSW-CHECK2: could not build mutant (KSW-CHECK2-SUPPRESS substitution failed — did SUT change?)"
+    else
+      ck2_mut_out="$(bash "$mutantCK2" "$TMP/t566-check2-suppress" 2>/dev/null)"
+      if grep -qE 'WARN.*disagrees with' <<<"$ck2_mut_out"; then
+        ok "teeth-566-KSW-CHECK2: _ksw_has→false → CHECK 2 suppress skipped → mismatch WARN fires → T-566b no-WARN assertion goes RED → KSW-CHECK2-SUPPRESS is load-bearing"
+      else
+        no "teeth-566-KSW-CHECK2: mutant did NOT emit CHECK 2 disagrees WARN when suppress was disabled — THEATER"
+      fi
+    fi
+  else
+    no "teeth-566-KSW-CHECK2: KSW-CHECK2-SUPPRESS sentinel not found in SUT"
   fi
 
 fi

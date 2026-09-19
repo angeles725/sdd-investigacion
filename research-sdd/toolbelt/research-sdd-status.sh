@@ -282,8 +282,12 @@ backlog_rows() {
         }
         next
       }
-      if (n!=4) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr"; next }
-      print p "\t" a[2] "\t" tolower(a[4]) }
+      if (n!=4) {
+        if (in_backlog && in_data && tolower(a[4]) ~ /^covered/) { next }  # SS-567-COVERED-PIPE-SKIP: COVERED rows may carry pipe notation in status summary; skip silently
+        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr" }
+        next }
+      { st=tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # SS-634-BOLD-STRIP: strip leading/trailing ** (markdown bold artifacts) from status field
+      print p "\t" a[2] "\t" st }
   ' "$state"
 }
 
