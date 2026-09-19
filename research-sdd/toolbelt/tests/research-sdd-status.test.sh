@@ -1408,6 +1408,117 @@ _ns_got="$(bash "$SUT" "$d_ss2b" 2>/dev/null | grep 'next step')"
   && ok "T-SS2f: default-status subshell emits accurate STOP reason when all focuses are paused/stopped with open gaps" \
   || no "T-SS2f: default-status next-step got [$_ns_got]"
 
+# T-641: stopped focus with malformed priority (MED) must NOT brick --next for the healthy active focus.
+# Bug #641: the INVALID_PRIORITY check fires before the FOCUSES.md stopped-check in the bypass loop,
+# so a stopped focus with MED priority locks _any_real_stale=1 and returns STALE instead of NEXT.
+# Fix: FOCUSES.md stopped-check runs first; stopped focuses are skipped before INVALID_PRIORITY fires.
+d_641="$TMP/t641-stopped-malformed"; mkdir -p "$d_641"
+{ printf '# Stopped Focus (malformed priority MED)\n> intro\n'
+  env_lines 0 0 0 0 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| MED | legacy malformed gap | web | pending |\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d_641/RESEARCH-STATE-641-stopped.md"
+{ printf '# Active Focus (healthy, high priority)\n> intro\n'
+  env_lines 0 0 1 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | healthy gap | web | pending |\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+} > "$d_641/RESEARCH-STATE-641-active.md"
+{ printf '| Focus | Status | State-file |\n|---|---|---|\n'
+  printf '| 641-stopped | stopped | RESEARCH-STATE-641-stopped.md |\n'
+  printf '| 641-active | active | RESEARCH-STATE-641-active.md |\n'
+} > "$d_641/FOCUSES.md"
+expect_next "$d_641" "NEXT | high | healthy gap" \
+  "T-641: stopped focus with malformed priority (MED) does not brick --next for the active sibling"
+
+# T-641b: positive control — an ACTIVE focus with malformed priority must still STALE the corpus.
+# A stopped malformed focus is forgiven (T-641); an active one is a real failure.
+d_641b="$TMP/t641b-active-malformed"; mkdir -p "$d_641b"
+{ printf '# Active Focus (malformed priority MED)\n> intro\n'
+  env_lines 0 0 0 0 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| MED | active malformed gap | web | pending |\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d_641b/RESEARCH-STATE-641b-bad.md"
+{ printf '# Active Focus (healthy, high priority)\n> intro\n'
+  env_lines 0 0 1 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | healthy gap b | web | pending |\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 1\n'
+} > "$d_641b/RESEARCH-STATE-641b-good.md"
+{ printf '| Focus | Status | State-file |\n|---|---|---|\n'
+  printf '| 641b-bad | active | RESEARCH-STATE-641b-bad.md |\n'
+  printf '| 641b-good | active | RESEARCH-STATE-641b-good.md |\n'
+} > "$d_641b/FOCUSES.md"
+_t641b_got="$(next "$d_641b")"
+case "$_t641b_got" in
+  STALE\ *) ok "T-641b: active focus with malformed priority (MED) → STALE (positive control)" ;;
+  *) no "T-641b: expected STALE, got [$_t641b_got]" ;;
+esac
+
+# T-568: --sync-state derives known_gaps from backlog total when it exceeds the coverage metric Y.
+# Bug #568: stale coverage metric (4/9) prevented known_gaps from updating when a new gap was added,
+# resulting in kg=9 even though the backlog now has 10 rows.
+# Fix (KG-BACKLOG-EXCEEDS): when backlog_total > metric_Y, use the backlog count.
+d_568="$TMP/t568-kg-derive"; mkdir -p "$d_568"
+{ printf '# T568\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\n'
+  printf 'gaps_closed: 4\nknown_gaps: 9\ninvestigable_open: 6\nrequires_execution_open: 0\n'
+  printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+  printf '\n## Coverage\n- **Coverage metric**: 4 / 9 closed\n'
+  printf '\n## Gap-backlog (prioritized)\n| P | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | g1 | web | covered |\n'
+  printf '| high | g2 | web | covered |\n'
+  printf '| medium | g3 | web | covered |\n'
+  printf '| low | g4 | web | covered |\n'
+  printf '| high | g5 | web | pending |\n'
+  printf '| high | g6 | web | pending |\n'
+  printf '| medium | g7 | web | pending |\n'
+  printf '| low | g8 | web | pending |\n'
+  printf '| medium | g9 | web | pending |\n'
+  printf '| high | g10-new | web | pending |\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 6\n'
+} > "$d_568/RESEARCH-STATE.md"
+bash "$SUT" "$d_568" --sync-state >/dev/null 2>&1
+_t568_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^known_gaps:/{print $2; exit}' "$d_568/RESEARCH-STATE.md")"
+[ "$_t568_kg" = "10" ] \
+  && ok "T-568: --sync-state derives known_gaps=10 (backlog 10 rows > stale metric Y=9)" \
+  || no "T-568: kg=$_t568_kg (want 10) — stale coverage metric Y prevailed over backlog row count"
+
+# T-530: --sync-state under block_scope: shared-global uses attributed B<n> count, not corpus-wide.
+# Bug #530: 5 .md files on disk but only 3 are attributed (B1-B3 in ## Covered blocks).
+# --sync-state wrote covered_blocks=5 (corpus-wide); verify-state CHECK A expects covered_blocks=3 (attributed).
+# Fix (SG-ATTR-SYNC): use count_attributed_sg() when attributed count > 0.
+d_530="$TMP/t530-sg-attributed"; mkdir -p "$d_530"
+printf 'x\n' > "$d_530/focus-bloque1.md"
+printf 'x\n' > "$d_530/focus-bloque2.md"
+printf 'x\n' > "$d_530/focus-bloque3.md"
+printf 'x\n' > "$d_530/focus-bloque4.md"
+printf 'x\n' > "$d_530/focus-bloque5.md"
+{ printf '# T530\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 3\n'
+  printf 'gaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\n'
+  printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n'
+  printf '<!-- /research-state.v1 -->\n'
+  printf '\n## Covered blocks\nB1, B2, B3\n'
+  printf '\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d_530/RESEARCH-STATE-sg.md"
+bash "$SUT" "$d_530" --sync-state >/dev/null 2>&1
+_t530_cb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d_530/RESEARCH-STATE-sg.md")"
+if [ "$_t530_cb" = "3" ]; then
+  ok "T-530: shared-global --sync-state uses attributed count (3 B<n> ids, not 5 corpus-wide files)"
+else
+  no "T-530: cb=$_t530_cb (want 3) — --sync-state wrote corpus-wide file count instead of attributed"
+fi
+_t530_vs_out="$(bash "$HERE/../verify-state.sh" "$d_530" 2>&1)"
+if echo "$_t530_vs_out" | grep -q 'FAIL'; then
+  no "T-530: verify-state FAILs with attributed covered_blocks (expected CHECK A to pass)"
+else
+  ok "T-530: shared-global envelope with attributed covered_blocks passes verify-state CHECK A"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -2022,6 +2133,99 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-NM: orig warns=[$(grep -ci 'near-miss' <<<"$nm_warn_orig")] mut warns=[$(grep -ci 'near-miss' <<<"$nm_warn_mut")] — WARN not load-bearing"
     fi
+  fi
+
+  # T-641 teeth: inject an early INVALID_PRIORITY check BEFORE the FOCUSES.md stopped-check so that a
+  # stopped focus with a malformed priority bricks the bypass loop (reverting the pre-fix bug order).
+  # The T-641 fixture (stopped MED + active high) must return STALE instead of NEXT.
+  echo "-- teeth-#641: early INVALID_PRIORITY before FOCUSES check; stopped-MED corpus must return STALE --"
+  n641_mutant="$TMP/status.N641.MUTANT.sh"
+  if grep -q '# N641-FOCUSES-BEFORE-INVALID-PRIORITY' "$SUT"; then
+    awk '/# N641-FOCUSES-BEFORE-INVALID-PRIORITY/{
+      print "        # MUTANT-641: INVALID_PRIORITY check moved before FOCUSES skip (reverts bug order)"
+      print "        if backlog_rows 2>/dev/null | grep -q '"'"'^INVALID_PRIORITY'"'"'; then"
+      print "          _any_real_stale=1; break  # MUTANT-641-EARLY"
+      print "        fi"
+    } { print }' "$SUT" > "$n641_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    n641_mgot="$(bash "$n641_mutant" "$d_641" --next 2>/dev/null)"
+    case "$n641_mgot" in
+      STALE\ *) ok "teeth-#641: early INVALID_PRIORITY mutant → STALE on stopped-MED corpus — fix is load-bearing" ;;
+      NEXT\ *)  no "teeth-#641: mutant returned NEXT — fix is THEATER (INVALID_PRIORITY guard is not the stopper)" ;;
+      *)        no "teeth-#641: mutant returned [$n641_mgot] (want STALE)" ;;
+    esac
+  else
+    no "teeth-#641: N641-FOCUSES-BEFORE-INVALID-PRIORITY sentinel not found in SUT"
+  fi
+
+  # T-568 teeth: disable KG-BACKLOG-EXCEEDS branch so known_gaps always falls back to the coverage
+  # metric Y even when the backlog total exceeds it. The T-568 fixture must then keep kg=9 (stale).
+  echo "-- teeth-#568: disable KG-BACKLOG-EXCEEDS; stale-metric corpus must keep known_gaps=9 --"
+  n568_mutant="$TMP/status.N568.MUTANT.sh"
+  if grep -q '# KG-BACKLOG-EXCEEDS' "$SUT"; then
+    sed 's/kg="${_dkg_total}"  # KG-BACKLOG-EXCEEDS/kg=""  # MUTANT-568: backlog-derived kg disabled/' "$SUT" > "$n568_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    n568_fixture="$TMP/t568-teeth-fix"; mkdir -p "$n568_fixture"
+    { printf '# T568-teeth\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\n'
+      printf 'gaps_closed: 4\nknown_gaps: 9\ninvestigable_open: 6\nrequires_execution_open: 0\n'
+      printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\n<!-- /research-state.v1 -->\n'
+      printf '\n## Coverage\n- **Coverage metric**: 4 / 9 closed\n'
+      printf '\n## Gap-backlog (prioritized)\n| P | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | g1 | web | covered |\n'
+      printf '| high | g2 | web | covered |\n'
+      printf '| medium | g3 | web | covered |\n'
+      printf '| low | g4 | web | covered |\n'
+      printf '| high | g5 | web | pending |\n'
+      printf '| high | g6 | web | pending |\n'
+      printf '| medium | g7 | web | pending |\n'
+      printf '| low | g8 | web | pending |\n'
+      printf '| medium | g9 | web | pending |\n'
+      printf '| high | g10-new | web | pending |\n'
+      printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 6\n'
+    } > "$n568_fixture/RESEARCH-STATE.md"
+    bash "$n568_mutant" "$n568_fixture" --sync-state >/dev/null 2>&1
+    _n568_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^known_gaps:/{print $2; exit}' "$n568_fixture/RESEARCH-STATE.md")"
+    if [ "$_n568_kg" != "10" ]; then
+      ok "teeth-#568: KG-BACKLOG-EXCEEDS disabled → known_gaps=${_n568_kg} ≠ 10 — backlog-derived kg is load-bearing"
+    else
+      no "teeth-#568: mutant still wrote known_gaps=10 — KG-BACKLOG-EXCEEDS is not the active path (THEATER)"
+    fi
+  else
+    no "teeth-#568: KG-BACKLOG-EXCEEDS sentinel not found in SUT"
+  fi
+
+  # T-530 teeth: disable SG-ATTR-SYNC by forcing _attr_sg=0 so the corpus-wide fallback always runs.
+  # The T-530 fixture (5 disk files, 3 attributed) must then get covered_blocks=5 (corpus-wide).
+  echo "-- teeth-#530: disable SG-ATTR-SYNC; shared-global corpus must revert to corpus-wide count --"
+  n530_mutant="$TMP/status.N530.MUTANT.sh"
+  if grep -q '# SG-ATTR-SYNC' "$SUT"; then
+    sed 's/_attr_sg="$(count_attributed_sg)"  # SG-ATTR-SYNC/_attr_sg=0  # MUTANT-530: attributed count disabled/' "$SUT" > "$n530_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    n530_fixture="$TMP/t530-teeth-fix"; mkdir -p "$n530_fixture"
+    printf 'x\n' > "$n530_fixture/focus-bloque1.md"
+    printf 'x\n' > "$n530_fixture/focus-bloque2.md"
+    printf 'x\n' > "$n530_fixture/focus-bloque3.md"
+    printf 'x\n' > "$n530_fixture/focus-bloque4.md"
+    printf 'x\n' > "$n530_fixture/focus-bloque5.md"
+    { printf '# T530-teeth\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 3\n'
+      printf 'gaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\n'
+      printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n'
+      printf '<!-- /research-state.v1 -->\n'
+      printf '\n## Covered blocks\nB1, B2, B3\n'
+      printf '\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n'
+      printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+    } > "$n530_fixture/RESEARCH-STATE-sg.md"
+    bash "$n530_mutant" "$n530_fixture" --sync-state >/dev/null 2>&1
+    _n530_cb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$n530_fixture/RESEARCH-STATE-sg.md")"
+    if [ "$_n530_cb" != "3" ]; then
+      ok "teeth-#530: SG-ATTR-SYNC disabled → covered_blocks=${_n530_cb} ≠ 3 — attributed count is load-bearing"
+    else
+      no "teeth-#530: mutant still wrote covered_blocks=3 — SG-ATTR-SYNC is not the active path (THEATER)"
+    fi
+  else
+    no "teeth-#530: SG-ATTR-SYNC sentinel not found in SUT"
   fi
 
 fi
