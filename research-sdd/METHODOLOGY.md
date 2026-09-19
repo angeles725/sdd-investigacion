@@ -2473,6 +2473,26 @@ sweeper [`toolbelt/sweep-retros.sh`](toolbelt/sweep-retros.sh) reads TARGETS.md,
 are always surfaced, even when nobody remembered to bring them. This closes the self-improvement loop:
 §18 GENERATES proposals autonomously; the sweeper ROUTES them; the human REVIEWS and applies (propose-never-apply).
 
+**Backlog-first — a delta is born as a GitHub issue (kit issue #557).** The retro marker routes proposals, but a
+marker in a target repo is not a navigable backlog: the fleet accumulated a large open-delta backlog with no triage view.
+Backlog-first fixes the routing layer without touching the evidence layer. At the moment a delta is proposed
+(§18 step 3, inside the target run), the driver ALSO opens one issue per delta on the kit repo
+(`sdd-investigacion`), labelled `status:needs-review` + `priority:<the delta's priority>` + `target:<name>`, its
+body linking to the source retro and quoting the proposed change. The target session stays read-only and opens
+NO kit PR — issue only.
+
+**Source of truth is hybrid.** The issue is authoritative for OPEN / triage / backlog; the retro marker records
+the FINAL `applied · #N` for offline provenance. This keeps the kit offline-first: the marker still resolves with
+no network, and any future `sweep-retros.sh`↔`gh` bridge MUST emit a typed `degraded` state when `gh` or the
+network is absent (§7), never a silent zero. A delta is never deleted from a retro — the retro is the evidence,
+the issue is the tracker.
+
+**The PR closes the issue and flips the marker together.** When the maintainer applies a delta (the same-work-unit
+rule below still holds), the `stage-retro.sh` branch/PR carries `Closes #<issue>` and flips the retro marker to
+`applied · #N` in the same commit. Merge = applied; close-without-merge = dismissed — mirrored on both the issue
+and the marker. A delta about the kit found DURING a kit session may open its issue and PR together; a delta born
+in a target run may not.
+
 **Review-status vocabulary (two words, not three).** The only status words that close a retro are `applied`
 and `dismissed`. `pending` and empty are treated identically — unreviewed. Any other word — a typo, an
 experiment (`accepted`, `reviewed`, `done`) — is treated as pending AND the sweeper emits a visible `WARN` so
