@@ -2448,7 +2448,11 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   skips focuses declared `stopped` or `paused` even when open investigable gaps remain, and
   emits a `WARN` to stderr for any row whose token is outside the closed vocabulary or for any state file
   the index lacks a row for. `--focus <slug>` (explicit selection) bypasses the skip intentionally. A
-  WARN-only FOCUSES↔RESEARCH-STATE drift sweep is still a wave-2 unit. Every checker (this one included)
+  WARN-only FOCUSES↔RESEARCH-STATE drift sweep is still a wave-2 unit; when such a sweep is scheduled as a
+  wave-2 follow-up, the closing unit must record **confirmation evidence** — exact gap count before and after
+  reconciliation — so the next retro can verify the sweep's impact. "Confirmed clean" means every FOCUSES.md
+  row that triggered the WARN now agrees with its RESEARCH-STATE header, and those counts are stated
+  explicitly in the closing note. Every checker (this one included)
   MUST read the token only, WARN by row on anything outside the vocabulary, and never guess
   (propose-never-apply: migrating an existing row is the operator's edit). Why closed: the live niagara index carried four prescribed
   words plus `CLOSED (13/13; …)`, `document 4/4`, `reabierto (18/31)` and ≥12 parenthetical shapes, and a row
@@ -2473,12 +2477,36 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   — undercounting by up to 5 blocks across 5 consecutive child iterations). If you would rather not touch it
   per iteration, declare it explicitly a focus-boundary-only field and have the tooling read the TRUE on-disk
   block count in between rather than trusting the stale parent line.
+- **INDEX.md coverage: mandatory-per-block or explicitly read-on-demand.** A hand-maintained `INDEX.md`
+  Pending/Coverage summary drifts on fast runs — two focuses both triggered a `verify-state.sh` WARN on stale
+  `covered_blocks` after 9–14 blocks in a single session day. Declare one model and stick to it: (A) refresh
+  the summary at every block iteration alongside the parent count, or (B) drop the hand-maintained mirror and
+  point `INDEX.md` at `RESEARCH-STATE-<focus>.md` as the single source of truth. A mirror that promises
+  consistency it cannot guarantee under load is a slow defect, not a feature. (Source:
+  cloudflare/retros/2026-08-28-corpus-complete.md D-CORPUS-1)
+- **Corpus-level close trigger.** When the FINAL open focus of a multi-focus corpus reaches STOP, in addition
+  to its per-focus §18 retro, write a **corpus-close retro** summarizing all focuses: what each found, how
+  they related, and proposed next-focus candidates. Without this trigger, multi-focus corpora close with
+  per-focus retros but no top-level closure artifact — the corpus-close retro was written retroactively the
+  next session when the trigger was missing. (Source: cloudflare/retros/2026-08-28-corpus-complete.md
+  D-CORPUS-2)
 
 **Consolidation focus.** When the deliverable is a REFERENCE TABLE or master synthesis rather than new evidence discovery, declare the focus angle as a consolidation focus. Characteristics: most gaps are REMITTANCE (pre-declared before the sweep begins); the audit sweep targets what is NOT yet consolidated, not what is not yet investigated; the closing block is a synthesis/reference block, not a new evidence block; `[INFER]`/`[CERT]` ratios expected to be high in the synthesis block. This sets correct angle expectations at bootstrap (PROMPT-LOOP step b2) and avoids misleading low-citation WARNs on the synthesis block. (Source: 2026-08-29-ports-focus-retro.md DELTA-2)
 
 **Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2)
 
 **Peer-session-triggered focus.** A focus may be requested by a PEER agent session (a teammate Claude), not the human operator, and its deliverable may be returned to that peer as consumer. Disciplines: (1) a peer-supplied backlog is a valid seed PROVIDED the driver still pre-declares remittances (BOOTSTRAP e) and runs the per-gap prior-coverage check; (2) the cross-session deliverable is a MIRROR, not the record — corpus blocks remain the citable artifact; (3) consumer identity does not waive census (or its declared inheritance, §6 focus-inherited census), source-preservation, or self-verify obligations. (Source: 2026-08-30-alarm-webhook-focus-retro.md D2)
+
+**Peer-axis-split focus.** When the SAME binary or artifact is analyzed by two peer sessions using DIFFERENT
+analysis techniques (e.g. one Java-decompiles the archive, one native-REs the extracted binary), open a
+peer-axis-split: each session owns one analysis axis and neither re-does the other's work. Disciplines: (1)
+**dedup handoff** — at each block boundary, exchange a structured handoff listing any symbols or findings
+both sessions touched, so the second session credits the first with a back-pointer rather than re-deriving;
+(2) **credit attribution** — a finding first uncovered by the peer session is cited as "native RE by sibling
+session `<slug>`" before the corpus block claims it; (3) shared CORPUS writes still serialize through the
+barrier above; (4) the two sets of blocks are linked via §14 cross-block pointers where their findings refine
+or contradict each other. Distinct from "Sibling / twin focus" (same technique on different platforms): here
+one artifact is split by technique, not by platform. (Source: niagara-research/retros/2026-08-24-licensing-deepdive.md D6)
 
 **APPLIED / BUILD-ALONG focus.** When the operator executes a deliverable in live external tools (compiling, signing, deploying) and the loop's role flips from *probe unknowns* to *capture the live-verified procedure and emit operator-facing deliverables*, name this an APPLIED focus. Characteristics: high `[CERT-live]`/`[CERT-hw]` ratio, deliverable-first, gaps arrive from the operator's live questions rather than a backlog sweep. The §18 retro trigger fires at the natural close of an applied session, not only at a focus STOP — a session that changed how the next one should run is a retro trigger regardless of whether any focus reached its investigable-zero criterion. (Source: 2026-08-30-coldroom-module-build-retro.md #1)
 
@@ -2498,6 +2526,15 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
   across focuses, a shared-resource write — waits on a BARRIER: it fires only when ALL participating loops
   have reached the agreed point (e.g. "commit when BOTH have stopped"). Never let one loop take a
   cross-cutting action mid-flight while another is still writing.
+- **Admission-audit gate for cross-lane consumed artifacts.** When one lane (the CONSUMER) reads a committed
+  data artifact produced by a PEER lane (the PRODUCER), gate the consume on a structured admission audit
+  before citing the artifact in the corpus. The audit checklist compares: new inferred items since the prior
+  admitted baseline; dropped items with no explanation; unexplained field changes. Verdicts: `§ADMIT`
+  (rationale required) allows corpus citation; `§HOLD` blocks it until the hold condition is resolved.
+  Record the audit at `sources/probes/<round>/admission-<sha>.md`. A HOLD at one commit correctly blocked
+  corpus citation for half a day; without the protocol, unexplained item drops enter the corpus as
+  regressions. A target-agnostic checklist template lives at `templates/admission-audit.template.md` (create
+  when first needed for a corpus). (Source: COB-IM2/retros/2026-09-09-cob-im2-continuity-round.md D2)
 - **Concurrency is a context-budget decision.** Run loops in parallel only while the orchestrator stays
   lean (it just routes task-notifications). If the orchestrator starts doing real work per loop, serialize.
 - **Global block-number allocation under `shared-global`.** When focuses share one corpus-wide block prefix
@@ -2518,6 +2555,16 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
   cross-lane action over the shared tree waits on the BARRIER above. Reading a peer's untracked or uncommitted
   file is allowed only as evidence marked as such (`[INFER]` until the peer commits) — never as a citation
   target by number.
+
+**Intra-focus parallel gap fan-out.** When a single focus has open gaps that map to DISJOINT file sets
+with no cross-gap dependency, those sweeps may be launched concurrently as waves rather than
+one-per-block sequentially. Wave discipline: (1) identify disjoint gap groups — gaps are disjoint when
+their file sets do not overlap and no gap depends on another gap's findings; (2) launch each wave as one
+sub-agent, each claiming a provisional block number before launch (same allocation channel as the global
+block-number rule above); (3) merge results and reconcile the RESEARCH-STATE when all waves land.
+Distinct from multi-focus parallelism (separate focuses): this runs concurrent sweeps within one focus's
+backlog. Sub-agent mechanics follow PROMPT-LOOP §delegation. (Evidence: webChart W3-W9 — 7 sweeps over
+disjoint directories launched as 4+3 waves, B370-B376. Source: niagara-research/retros/2026-08-05-webChart.md WC-A)
 
 ## 17. Incident & resume (after a kill / crash / interruption)
 
