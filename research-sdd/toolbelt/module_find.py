@@ -73,6 +73,138 @@ def _within_root(real_root, path):
 
 
 # ---------------------------------------------------------------------------
+# Java lexical helpers (issue #521)
+# ---------------------------------------------------------------------------
+
+def _code_only(text):
+    """Return text with string literals and Java comments removed.
+
+    Strips: double-quoted strings (handles \\" escapes), single-quoted char
+    literals, // line comments, and /* */ block comments.  Newlines are
+    preserved so split('\\n') returns the same line count as the input.
+
+    Used for annotation keyword detection and paren depth counting so that
+    parens and keywords inside strings/comments do not affect either check.
+    """
+    out = []
+    state = 0  # 0 NORMAL  1 DQUOTE  2 SQUOTE  3 LINE_COMMENT  4 BLOCK_COMMENT
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if state == 0:
+            if c == '"':
+                state = 1
+            elif c == "'":
+                state = 2
+            elif c == '/' and i + 1 < n:
+                if text[i + 1] == '/':
+                    state = 3
+                    i += 2
+                    continue
+                if text[i + 1] == '*':
+                    state = 4
+                    i += 2
+                    continue
+                out.append(c)
+            else:
+                out.append(c)
+        elif state == 1:  # double-quoted string — omit content
+            if c == '\\':
+                i += 2
+                continue
+            if c == '"':
+                state = 0
+        elif state == 2:  # single-quoted char literal — omit content
+            if c == '\\':
+                i += 2
+                continue
+            if c == "'":
+                state = 0
+        elif state == 3:  # line comment — keep newline for split sync
+            if c == '\n':
+                out.append('\n')
+                state = 0
+        elif state == 4:  # block comment — keep newlines
+            if c == '\n':
+                out.append('\n')
+            elif c == '*' and i + 1 < n and text[i + 1] == '/':
+                state = 0
+                i += 2
+                continue
+        i += 1
+    return ''.join(out)
+
+
+def _strip_comments(text):
+    """Return text with Java comments removed but string literals intact.
+
+    Strips // line comments and /* */ block comments; double- and
+    single-quoted literals are preserved verbatim (backslash escapes
+    inside them are handled so the closing delimiter is recognised
+    correctly).  Newlines are preserved.
+
+    Used to build the annotation accumulation buffer in _parse_file so
+    that the annotation fragment extractor operates on comment-free
+    source and regex extraction of name/type/flags fields still works.
+    """
+    out = []
+    state = 0  # 0 NORMAL  1 DQUOTE  2 SQUOTE  3 LINE_COMMENT  4 BLOCK_COMMENT
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if state == 0:
+            if c == '"':
+                state = 1
+                out.append(c)
+            elif c == "'":
+                state = 2
+                out.append(c)
+            elif c == '/' and i + 1 < n:
+                if text[i + 1] == '/':
+                    state = 3
+                    i += 2
+                    continue
+                if text[i + 1] == '*':
+                    state = 4
+                    i += 2
+                    continue
+                out.append(c)
+            else:
+                out.append(c)
+        elif state == 1:  # double-quoted string — preserve verbatim
+            out.append(c)
+            if c == '\\':
+                i += 1
+                if i < n:
+                    out.append(text[i])
+            elif c == '"':
+                state = 0
+        elif state == 2:  # single-quoted char literal — preserve verbatim
+            out.append(c)
+            if c == '\\':
+                i += 1
+                if i < n:
+                    out.append(text[i])
+            elif c == "'":
+                state = 0
+        elif state == 3:  # line comment — discard, keep newline
+            if c == '\n':
+                out.append('\n')
+                state = 0
+        elif state == 4:  # block comment — discard, keep newlines
+            if c == '\n':
+                out.append('\n')
+            elif c == '*' and i + 1 < n and text[i + 1] == '/':
+                state = 0
+                i += 2
+                continue
+        i += 1
+    return ''.join(out)
+
+
+# ---------------------------------------------------------------------------
 # Annotation fragment extractor
 # ---------------------------------------------------------------------------
 
@@ -90,6 +222,12 @@ def _extract_annotation_fragments(buf, tag):
 
     The search key is tag + '(' exactly, so '@NiagaraProperty(' never
     matches '@NiagaraProperties(' (which starts with 'Properties').
+
+    The paren-balance walk uses a lexical state machine so that parens
+    inside double-quoted strings, single-quoted char literals, and /* */
+    block comments do not affect the depth counter (fixes C-1, issue #521).
+    buf is expected to have been built from _strip_comments output so that
+    // line comments are already absent.
     """
     fragments = []
     search_from = 0
@@ -99,18 +237,43 @@ def _extract_annotation_fragments(buf, tag):
         if idx == -1:
             break
         # Walk forward from the opening '(' counting paren depth.
+        # lex states: 0 NORMAL  1 DQUOTE  2 SQUOTE  4 BLOCK_COMMENT
         paren_start = idx + len(tag)  # index of '('
         depth = 0
+        lex = 0
         i = paren_start
         while i < len(buf):
-            if buf[i] == "(":
-                depth += 1
-            elif buf[i] == ")":
-                depth -= 1
-                if depth == 0:
-                    fragments.append(buf[idx : i + 1])
-                    search_from = i + 1
-                    break
+            c = buf[i]
+            if lex == 0:
+                if c == '"':
+                    lex = 1  # enter double-quoted string
+                elif c == "'":
+                    lex = 2  # enter single-quoted char literal
+                elif c == '/' and i + 1 < len(buf) and buf[i + 1] == '*':
+                    lex = 4  # enter block comment
+                    i += 1   # skip '*' on next iteration
+                elif c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                    if depth == 0:
+                        fragments.append(buf[idx : i + 1])
+                        search_from = i + 1
+                        break
+            elif lex == 1:  # inside double-quoted string
+                if c == '\\':
+                    i += 1  # skip escaped char
+                elif c == '"':
+                    lex = 0
+            elif lex == 2:  # inside single-quoted char literal
+                if c == '\\':
+                    i += 1
+                elif c == "'":
+                    lex = 0
+            elif lex == 4:  # inside block comment
+                if c == '*' and i + 1 < len(buf) and buf[i + 1] == '/':
+                    lex = 0
+                    i += 1
             i += 1
         else:
             # Unbalanced — skip past this tag occurrence and continue.
@@ -209,24 +372,31 @@ def _parse_file(cls, content, slots, actions, extends, errors):
     # Paren-balance annotation join: handles both single-line and multi-line
     # @NiagaraProperty / @NiagaraAction annotations.
     #
-    # A // comment containing '(' may inflate the depth counter and pull extra
-    # lines into buf.  The per-fragment split in _extract_annotation_fragments
-    # correctly extracts all annotation spans from the wider buffer regardless.
-    lines = content.split("\n")
+    # Two pre-computed views of the content are used (issue #521):
+    #   stripped_lines — comments stripped, string literals intact; used for
+    #                    annotation keyword detection and the accumulation buf
+    #                    so that commented-out annotations (C-2) are ignored
+    #                    and regex extraction of name/type/flags still works.
+    #   code_lines     — comments AND string contents stripped; used only for
+    #                    paren depth counting so parens inside strings (C-1)
+    #                    do not inflate the depth counter.
+    stripped_content = _strip_comments(content)   # M7-TARGET: C-2 comment guard
+    stripped_lines = stripped_content.split("\n")
+    code_lines = _code_only(content).split("\n")
     i = 0
-    while i < len(lines):
-        ln = lines[i]
-        if "@NiagaraProperty" not in ln and "@NiagaraAction" not in ln:
+    while i < len(stripped_lines):
+        stripped_ln = stripped_lines[i]
+        if "@NiagaraProperty" not in stripped_ln and "@NiagaraAction" not in stripped_ln:
             i += 1
             continue
 
         # Start paren-balance accumulation.
-        buf = ln
-        depth = ln.count("(") - ln.count(")")
+        buf = stripped_ln
+        depth = code_lines[i].count("(") - code_lines[i].count(")")
         j = i + 1
-        while depth > 0 and j < len(lines):
-            buf += " " + lines[j]
-            depth += lines[j].count("(") - lines[j].count(")")
+        while depth > 0 and j < len(stripped_lines):
+            buf += " " + stripped_lines[j]
+            depth += code_lines[j].count("(") - code_lines[j].count(")")
             j += 1
         i = j
 

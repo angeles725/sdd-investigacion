@@ -521,6 +521,107 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Fixtures for C-1 (string-paren-tree) and C-2 (line-comment-tree) — issue #521
+# ---------------------------------------------------------------------------
+python3 - "$FX" <<'PY_521'
+import os, sys
+
+out = sys.argv[1]
+
+def write(p, content):
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+# C-1: a ( inside a string value inflates the outer paren-balance counter;
+# the next sibling annotation is pulled into the same buf and the fragment
+# extractor's naïve depth count cannot balance the first span → "first" lost.
+write(os.path.join(out, 'string-paren-tree', 'BStringParen.java'), '''\
+package com.example;
+public class BStringParen extends BBase {
+    @NiagaraProperty(name = "first", tag = "make(")
+    @NiagaraProperty(name = "second", type = "numeric")
+    public void doSomething() {}
+}
+''')
+
+# C-2: a // line comment that contains @NiagaraProperty must not emit a ghost
+# slot; only the real annotation below the comment should appear.
+write(os.path.join(out, 'line-comment-tree', 'BCommented.java'), '''\
+package com.example;
+public class BCommented extends BBase {
+    // @NiagaraProperty(name = "ghost", type = "boolean")
+    @NiagaraProperty(name = "real", type = "numeric")
+    public void doSomething() {}
+}
+''')
+
+PY_521
+
+# ---------------------------------------------------------------------------
+# T16: C-1 false-negative — ( inside a string literal inflates depth
+#      Both "first" and "second" slots must be extracted.
+#      RED before fix: "first" is lost — depth inflated by string (, next
+#      annotation pulled into buf, fragment extractor falls to unbalanced path.
+#      GREEN after fix: string-aware depth counter and fragment extractor.
+# ---------------------------------------------------------------------------
+_t16_exit=0
+"$SUT" "$FX/string-paren-tree" --output "$ROOT/t16.json" 2>/dev/null \
+  || _t16_exit=$?
+if [ "$_t16_exit" -eq 0 ]; then
+  if python3 - "$ROOT/t16.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d['status'] == 'complete', f"bad status: {d.get('status')!r}"
+slot_names = {s['slot'] for s in d['slots']}
+assert 'first' in slot_names, \
+    f"C-1: 'first' slot missing (string ( inflated depth, span unbalanced); slots={slot_names}"
+assert 'second' in slot_names, \
+    f"C-1: 'second' slot missing; slots={slot_names}"
+assert len(d['slots']) == 2, \
+    f"expected exactly 2 slots, got {len(d['slots'])}: {slot_names}"
+PY
+  then
+    ok "T16 C-1 string-paren: 'first' and 'second' both extracted"
+  else
+    no "T16 C-1 string-paren: JSON validation failed (string ( inflated depth?)"
+  fi
+else
+  no "T16 C-1 string-paren: expected exit 0, got $_t16_exit"
+fi
+
+# ---------------------------------------------------------------------------
+# T17: C-2 false-positive — // line-comment annotation emits ghost slot
+#      Only "real" must appear; "ghost" (from the // comment) must not.
+#      RED before fix: "ghost" appears in slots.
+#      GREEN after fix: line-comment stripping suppresses commented annotation.
+# ---------------------------------------------------------------------------
+_t17_exit=0
+"$SUT" "$FX/line-comment-tree" --output "$ROOT/t17.json" 2>/dev/null \
+  || _t17_exit=$?
+if [ "$_t17_exit" -eq 0 ]; then
+  if python3 - "$ROOT/t17.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d['status'] == 'complete', f"bad status: {d.get('status')!r}"
+slot_names = {s['slot'] for s in d['slots']}
+assert 'ghost' not in slot_names, \
+    f"C-2: ghost slot must not appear (it is inside // comment); slots={slot_names}"
+assert 'real' in slot_names, \
+    f"C-2: 'real' slot missing; slots={slot_names}"
+assert len(d['slots']) == 1, \
+    f"expected exactly 1 slot (real), got {len(d['slots'])}: {slot_names}"
+PY
+  then
+    ok "T17 C-2 line-comment: 'ghost' absent, 'real' present"
+  else
+    no "T17 C-2 line-comment: JSON validation failed (ghost slot emitted from comment?)"
+  fi
+else
+  no "T17 C-2 line-comment: expected exit 0, got $_t17_exit"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary (non-teeth path)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" != "--prove-teeth" ]; then
@@ -602,7 +703,7 @@ rm -rf "$MUTDIR"
 # captured → setpoint missing from slots → T6 DETECTED.
 MUTDIR="$(mktemp -d)"
 cp -a "$SUT_DIR/." "$MUTDIR/"
-sed -i 's/while depth > 0 and j < len(lines):/while False and j < len(lines):  # MUTANT-M3/' \
+sed -i 's/while depth > 0 and j < len(stripped_lines):/while False and j < len(stripped_lines):  # MUTANT-M3/' \
   "$MUTDIR/module_find.py"
 if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
   mut_no "M3 paren-balance broken: mutant failed py_compile"
@@ -695,6 +796,64 @@ open('${_m5_work}/BCap.java', 'w').write(content)
     mut_ok "M5 byte-cap suppressed: files_byte_capped=0 — DETECTED"
   else
     mut_no "M5 byte-cap suppressed: mutation NOT detected (files_byte_capped=$_m5_cap)"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M6: Break string-literal awareness in _extract_annotation_fragments (C-1 fix) ---
+# Mutation: disable the double-quoted string state so ( inside "make(" inflates depth.
+# Expected: "first" slot lost (unbalanced span) while only "second" is extracted → T16 DETECTED.
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+sed -i 's/lex = 1  # enter double-quoted string/lex = 0  # MUTANT-M6: string state disabled/' \
+  "$MUTDIR/module_find.py"
+if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+  mut_no "M6 string-literal awareness: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
+  mut_no "M6 string-literal awareness: sed had no effect (pattern not found)"
+else
+  _m6_exit=0
+  python3 "$MUTDIR/module_find.py" \
+    "$FX/string-paren-tree" --output "$ROOT/m6.json" 2>/dev/null || _m6_exit=$?
+  _m6_first=""
+  if [ -f "$ROOT/m6.json" ]; then
+    _m6_first="$(python3 -c \
+      "import json; d=json.load(open('$ROOT/m6.json')); names={s['slot'] for s in d.get('slots',[])}; print('found' if 'first' in names else 'missing')" \
+      2>/dev/null || echo "")"
+  fi
+  if [ "$_m6_first" = "missing" ]; then
+    mut_ok "M6 string-literal awareness disabled: 'first' missing — DETECTED"
+  else
+    mut_no "M6 string-literal awareness disabled: mutation NOT detected (first=$_m6_first)"
+  fi
+fi
+rm -rf "$MUTDIR"
+
+# --- M7: Break comment stripping for C-2 fix ---
+# Mutation: skip _strip_comments so // line comments remain in stripped_content.
+# Expected: ghost slot emitted from commented-out annotation → T17 DETECTED.
+MUTDIR="$(mktemp -d)"
+cp -a "$SUT_DIR/." "$MUTDIR/"
+sed -i 's/stripped_content = _strip_comments(content).*$/stripped_content = content  # MUTANT-M7: comment stripping disabled/' \
+  "$MUTDIR/module_find.py"
+if ! python3 -m py_compile "$MUTDIR/module_find.py" 2>/dev/null; then
+  mut_no "M7 comment-stripping disabled: mutant failed py_compile"
+elif cmp -s "$ORIG_PY" "$MUTDIR/module_find.py"; then
+  mut_no "M7 comment-stripping disabled: sed had no effect (pattern not found)"
+else
+  _m7_exit=0
+  python3 "$MUTDIR/module_find.py" \
+    "$FX/line-comment-tree" --output "$ROOT/m7.json" 2>/dev/null || _m7_exit=$?
+  _m7_ghost=""
+  if [ -f "$ROOT/m7.json" ]; then
+    _m7_ghost="$(python3 -c \
+      "import json; d=json.load(open('$ROOT/m7.json')); names={s['slot'] for s in d.get('slots',[])}; print('found' if 'ghost' in names else 'absent')" \
+      2>/dev/null || echo "")"
+  fi
+  if [ "$_m7_ghost" = "found" ]; then
+    mut_ok "M7 comment-stripping disabled: ghost slot emitted — DETECTED"
+  else
+    mut_no "M7 comment-stripping disabled: mutation NOT detected (ghost=$_m7_ghost)"
   fi
 fi
 rm -rf "$MUTDIR"
