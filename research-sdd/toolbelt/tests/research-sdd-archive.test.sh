@@ -1163,6 +1163,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(missing-retro-gate): mutant exit=$mrgmrc (want 0) — gate may not depend on gate_rc=1 # missing-retro-gate-refuse (THEATER)"; fi
   fi
 
+  # AR2 teeth: strip AR2-VSTATE-FOCUS-SCOPE so verify-state is called without --focus;
+  # --focus alpha must then REFUSE because beta's stale state fails the unscoped verify-state gate.
+  echo "-- teeth-ar2: strip verify-state focus scope; --focus alpha must revert to full-corpus verify-state check --"
+  mutant_ar2="$TMP/archive.AR2-MUTANT.sh"
+  # Neuter: replace the array-fill line with a no-op so _vstate_args stays empty.
+  sed 's/\[ -n "\$focus_slug" \] && _vstate_args=.*# AR2-VSTATE-FOCUS-SCOPE/_vstate_args=()  # AR2-VSTATE-FOCUS-SCOPE [MUTANT]/' "$SUT" > "$mutant_ar2"
+  cp "$HERE/../verify-state.sh"  "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh"   "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh"  "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh"  "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"   "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"   "$TMP/lib/block-files.sh"
+  # Build the AR2 teeth corpus here (ar2-vstscope is created after the --prove-teeth block,
+  # so we need our own local copy for the mutant to run against).
+  _ar2t="$TMP/ar2-teeth"; mkmulti "$_ar2t"
+  awk 'index($0,"| Priority | Gap |")==1{print; print "| high | beta-open-gap | web | pending |"; next} {print}' \
+    "$_ar2t/RESEARCH-STATE-beta.md" > "$_ar2t/RS.tmp" && mv "$_ar2t/RS.tmp" "$_ar2t/RESEARCH-STATE-beta.md"
+  bash "$HERE/../research-sdd-status.sh" "$_ar2t" --sync-state --focus beta >/dev/null 2>&1
+  if ! grep -q 'AR2-VSTATE-FOCUS-SCOPE \[MUTANT\]' "$mutant_ar2"; then
+    no "teeth-ar2: could not build mutant (AR2-VSTATE-FOCUS-SCOPE sentinel not found in SUT)"
+  else
+    bash "$mutant_ar2" "$_ar2t" --focus alpha --dry-run >/dev/null 2>&1; rc_ar2m=$?
+    [ "$rc_ar2m" = 3 ] \
+      && ok "teeth-ar2: mutant exit 3 on --focus alpha (verify-state not scoped) — AR2 scope is load-bearing" \
+      || no "teeth-ar2: mutant exit=$rc_ar2m (want 3) — AR2 scope may not be load-bearing (THEATER)"
+  fi
+
   # T-AR1 teeth: neuter AR1-FOCUS-SCOPE; --focus alpha must no longer scope UF gate → beta UF=1 blocks it.
   echo "-- teeth-ar1: neuter AR1-FOCUS-SCOPE; --focus alpha must revert to full-corpus UF scan --"
   mutant_ar1="$TMP/archive.AR1-MUTANT.sh"
@@ -1180,6 +1209,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       || no "teeth-ar1: mutant exit=$rc_ar1m (want 3) — scope may not be load-bearing"
   fi
 fi
+
+# ==================== AR2 — --focus scopes the verify-state gate (#647) ====================
+# Scenario: multi-focus corpus where beta has a STALE summary (Coverage metric claims all closed
+# while the backlog still has a pending gap) → verify-state FAILs for beta.
+# Without --focus: archive REFUSES (exit 3) — because verify-state fails on beta.
+# With --focus alpha: archive passes (exit 0) — verify-state scoped to alpha only.
+# This is the fix for issue #647: archive --dry-run was failing on verify-state FAIL caused by
+# unrelated focuses' stale state, blocking a clean focus from archiving.
+
+d="$TMP/ar2-vstscope"; mkmulti "$d"
+# Make beta stale: add a pending gap to beta's backlog so the Coverage metric ("1 / 1 closed")
+# no longer matches — verify-state CHECK 1 fires for beta.
+awk 'index($0,"| Priority | Gap |")==1{print; print "| high | beta-open-gap | web | pending |"; next} {print}' \
+  "$d/RESEARCH-STATE-beta.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE-beta.md"
+# Re-sync beta's envelope so investigable_open=1 (correct), but the Coverage metric prose
+# still says "1 / 1 closed" — this is the stale desync that verify-state CHECK 1 catches.
+bash "$HERE/../research-sdd-status.sh" "$d" --sync-state --focus beta >/dev/null 2>&1
+
+# Confirm beta's state now FAILS verify-state (required pre-condition for AR2 to be meaningful).
+bash "$HERE/../verify-state.sh" "$d" --focus beta >/dev/null 2>&1; _ar2_vsbeta=$?
+[ "$_ar2_vsbeta" -ne 0 ] \
+  && ok "AR2 precondition: beta verify-state fails (exit $_ar2_vsbeta) — stale summary confirmed" \
+  || no "AR2 precondition: beta verify-state passed (want non-zero) — test fixture may be wrong"
+
+# Without --focus: archive must REFUSE because verify-state fails on the full corpus.
+out_ar2_all="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc_ar2_all=$?
+[ "$rc_ar2_all" = 3 ] \
+  && ok "AR2 baseline: no --focus → REFUSED (exit 3) when sibling focus has stale state" \
+  || no "AR2 baseline: no --focus: exit=$rc_ar2_all (want 3) :: $(grep -iE 'verify-state|fail|refuse' <<<"$out_ar2_all" | head -2)"
+
+# With --focus alpha: archive must PASS because alpha's state is clean.
+out_ar2_foc="$(bash "$SUT" "$d" --focus alpha --dry-run 2>&1)"; rc_ar2_foc=$?
+[ "$rc_ar2_foc" = 0 ] \
+  && ok "AR2: --focus alpha → archive passes despite stale beta state (verify-state scoped to focus)" \
+  || no "AR2: --focus alpha: exit=$rc_ar2_foc (want 0) — verify-state gate not scoped to focus :: $(grep -iE 'verify-state|fail|refuse' <<<"$out_ar2_foc" | head -2)"
+
+# AR2 teeth — inside the --prove-teeth block (appended there separately below).
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

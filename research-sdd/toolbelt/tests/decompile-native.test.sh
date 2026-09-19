@@ -374,4 +374,97 @@ fi
   fi
 fi
 
+# ==================== MX1/MX2 — GHIDRA_MAXMEM + auto-RAM (#588) ====================
+# Dedicated gh stub that records MAXMEM to $RECORD.maxmem so the tests can assert on it.
+mkdir -p "$ROOT/mx1-gh/support" "$ROOT/mx1-toolbelt/lib"
+cat >"$ROOT/mx1-gh/support/analyzeHeadless" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" >"$RECORD"
+printf '%s\n' "${MAXMEM:-}" >"${RECORD}.maxmem"
+mkdir -p "$1/ghidra-proj.rep/00"; touch "$1/ghidra-proj.rep/00/content.prp"
+SH
+chmod +x "$ROOT/mx1-gh/support/analyzeHeadless"
+cp "$ROOT/toolbelt/decompile-native.sh" "$ROOT/mx1-toolbelt/decompile-native.sh"
+cat >"$ROOT/mx1-toolbelt/lib/tool-env.sh" <<'SH'
+rsdd_resolve_java_home(){ printf '%s\n' "${TEST_ROOT}/jdk"; }
+rsdd_resolve_ghidra_home(){ printf '%s\n' "${TEST_ROOT}/mx1-gh"; }
+rsdd_resolve_r2(){ printf '%s\n' "${TEST_ROOT}/bin/r2"; }
+SH
+_mx1_sut="$ROOT/mx1-toolbelt/decompile-native.sh"
+
+# MX1: explicit GHIDRA_MAXMEM is forwarded as MAXMEM to analyzeHeadless
+GHIDRA_MAXMEM=8g TEST_ROOT="$ROOT" RECORD="$ROOT/mx1.args" \
+  bash "$_mx1_sut" ghidra "$INPUT" "$ROOT/out/mx1" >/dev/null 2>&1
+_mx1_maxmem="$(cat "${ROOT}/mx1.args.maxmem" 2>/dev/null)"
+[ "$_mx1_maxmem" = "8g" ] \
+  && ok "MX1: GHIDRA_MAXMEM=8g exported as MAXMEM=8g to analyzeHeadless" \
+  || no "MX1: MAXMEM was '${_mx1_maxmem:-<empty>}' (want 8g — GHIDRA_MAXMEM not passed through)"
+
+# MX2: auto-detect from /proc/meminfo when GHIDRA_MAXMEM unset
+if [ -f /proc/meminfo ]; then
+  unset GHIDRA_MAXMEM
+  RECORD="$ROOT/mx2.args" TEST_ROOT="$ROOT" \
+    bash "$_mx1_sut" ghidra "$INPUT" "$ROOT/out/mx2" >/dev/null 2>&1
+  _mx2_maxmem="$(cat "${ROOT}/mx2.args.maxmem" 2>/dev/null)"
+  [ -n "$_mx2_maxmem" ] \
+    && ok "MX2: auto-RAM: MAXMEM='$_mx2_maxmem' set from /proc/meminfo when GHIDRA_MAXMEM unset" \
+    || no "MX2: MAXMEM empty when GHIDRA_MAXMEM unset on a machine with /proc/meminfo"
+else
+  echo "  SKIP  MX2 (/proc/meminfo absent — auto-RAM not testable on this OS)"
+fi
+
+# ==================== PDB1/PDB2 — --pdb staging (#588) ====================
+# PDB1: --pdb stages the PDB alongside the binary for Ghidra symbol resolution
+_pdb_src="$ROOT/target.pdb"; printf 'PDB-placeholder\n' >"$_pdb_src"
+GHIDRA_MAXMEM="" RECORD="$ROOT/pdb1.args" TEST_ROOT="$ROOT" \
+  bash "$_mx1_sut" ghidra "$INPUT" "$ROOT/out/pdb1" --pdb "$_pdb_src" >/dev/null 2>&1
+_pdb1_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb1.args" 2>/dev/null)"
+printf '%s\n' "$_pdb1_import" | grep -q 'pdb-stage' \
+  && ok "PDB1: --pdb caused binary to be imported from pdb-stage/ subdirectory" \
+  || no "PDB1: import path '${_pdb1_import:-<empty>}' not under pdb-stage (staging not implemented)"
+_pdb1_staged="$ROOT/out/pdb1/pdb-stage/$(basename "$_pdb_src")"
+[ -f "$_pdb1_staged" ] \
+  && ok "PDB1: PDB file staged alongside binary in pdb-stage/" \
+  || no "PDB1: PDB not at expected stage path '${_pdb1_staged}' (staging not implemented)"
+
+# PDB2: without --pdb, binary is imported directly (no pdb-stage subdir)
+GHIDRA_MAXMEM="" RECORD="$ROOT/pdb2.args" TEST_ROOT="$ROOT" \
+  bash "$_mx1_sut" ghidra "$INPUT" "$ROOT/out/pdb2" >/dev/null 2>&1
+_pdb2_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb2.args" 2>/dev/null)"
+printf '%s\n' "$_pdb2_import" | grep -q 'pdb-stage' \
+  && no "PDB2: import path contains 'pdb-stage' even without --pdb" \
+  || ok "PDB2: without --pdb, binary imported directly (no pdb-stage)"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-mx1: neuter MAXMEM export; MX1 must go red --"
+  _mx1_mut="$ROOT/mx1-toolbelt/decompile-native.MX1-MUTANT.sh"
+  sed 's/export MAXMEM="\$GHIDRA_MAXMEM"/: # MX1-MAXMEM-MUTANT/' \
+    "$ROOT/toolbelt/decompile-native.sh" > "$_mx1_mut"
+  if grep -q 'export MAXMEM="\$GHIDRA_MAXMEM"' "$_mx1_mut"; then
+    no "teeth-mx1: mutant still has export MAXMEM — sentinel not matched (did the fix change?)"
+  else
+    GHIDRA_MAXMEM=8g TEST_ROOT="$ROOT" RECORD="$ROOT/mx1-mut.args" \
+      bash "$_mx1_mut" ghidra "$INPUT" "$ROOT/out/mx1-mut" >/dev/null 2>&1
+    _mx1_mut_maxmem="$(cat "${ROOT}/mx1-mut.args.maxmem" 2>/dev/null)"
+    [ "$_mx1_mut_maxmem" != "8g" ] \
+      && ok "teeth-mx1: mutant does not export MAXMEM=8g (got '${_mx1_mut_maxmem:-<empty>}') — MX1 detection confirmed" \
+      || no "teeth-mx1: mutant still exports MAXMEM=8g — MX1 has no teeth (THEATER)"
+  fi
+
+  echo "-- teeth-pdb1: neuter PDB stage path; PDB1 import-path check must go red --"
+  _pdb1_mut="$ROOT/mx1-toolbelt/decompile-native.PDB1-MUTANT.sh"
+  sed 's|.*# PDB1-STAGE-PATH-SENTINEL.*|    _import_bin="$BIN"  # PDB1-STAGE-PATH-SENTINEL [MUTANT]|' \
+    "$ROOT/toolbelt/decompile-native.sh" > "$_pdb1_mut"
+  if ! grep -q 'PDB1-STAGE-PATH-SENTINEL \[MUTANT\]' "$_pdb1_mut"; then
+    no "teeth-pdb1: sentinel not found in mutant — sed pattern not matched (did the fix change?)"
+  else
+    GHIDRA_MAXMEM="" RECORD="$ROOT/pdb1-mut.args" TEST_ROOT="$ROOT" \
+      bash "$_pdb1_mut" ghidra "$INPUT" "$ROOT/out/pdb1-mut" --pdb "$_pdb_src" >/dev/null 2>&1
+    _pdb1_mut_import="$(awk '/^-import$/{getline; print; exit}' "$ROOT/pdb1-mut.args" 2>/dev/null)"
+    printf '%s\n' "$_pdb1_mut_import" | grep -q 'pdb-stage' \
+      && no "teeth-pdb1: mutant still uses pdb-stage path — PDB1 import check has no teeth (THEATER)" \
+      || ok "teeth-pdb1: mutant import path '${_pdb1_mut_import}' not under pdb-stage — PDB1 detection confirmed"
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
