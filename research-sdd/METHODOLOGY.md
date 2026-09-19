@@ -46,7 +46,7 @@ the rule that enforces it:
 | Obsessive rigor | §8 STOP is the exhaustion of read-only-investigable gaps, never "the feature works"; §11 self-verify every block; §14 corrections carry back-pointers; kit CLAUDE.md §4 a test that never goes red is theater |
 | Systems thinking | §14 cross-block consistency; §5 a control-write contract is incomplete without interlock and safety semantics; §8 coverage over the SUBJECT (what the corpus never touched); §12 state the bounded blast radius of a finding |
 
-Three behaviours the profile implies that the rules above did not yet name:
+Behaviours the profile implies that the rules above did not yet name:
 
 - **Mechanism before observation.** A block's `Connections` and evidence sections state the causal path
   ("this bit in the protection latch is read by X, which gates Y, so the process does Z"), not only the
@@ -59,6 +59,21 @@ Three behaviours the profile implies that the rules above did not yet name:
 - **Full-stack coverage.** A physical system has layers — control mathematics, firmware, OS/runtime, software
   pipeline and build, electronics and I/O — and the §13 coverage matrix carries that axis, so a corpus that
   documents only the software layer reports the other layers as uncited, never as absent.
+- **Anti-complacency checkpoint.** After any "done" — a block written, a sweep completed, a question answered
+  — the default next question is "what didn't I explore?", not "deliver". The burden of proving completeness
+  lies with the agent, not the operator: an agent that stops because nothing obvious remains has not proved
+  gaps are closed; one that stops because every scope dimension has a cited answer or an explicit open-gap
+  entry has. Completeness is not assumed; it is demonstrated.
+- **Resolve input ambiguity before committing.** When the target of analysis is ambiguous between multiple
+  candidates — two templates, two config variants, two versions of the same file — confirm which to use
+  before investing in a full build or investigation pass. A single clarifying question avoids a complete
+  rework; proceeding on the wrong artifact is re-work debt, not an iteration.
+- **Prefer the system's own authoritative derived value.** Before re-deriving a computed quantity (aggregate,
+  formula, flag, or metric) from raw signals, ask whether the application or firmware already stores it
+  directly — as a column, a flag, or an encoded field. If so, use that stored value: it is the ground truth
+  the system itself uses, and manual re-derivation introduces scale errors, edge-case contamination, and
+  double-conversion defects that the system's own pipeline already resolved. Re-derivation from raw is
+  correct only when the authoritative source is absent or unreachable.
 
 ## 2. The SDD-R phases (mapping from gentle-ai's SDD)
 
@@ -2220,6 +2235,15 @@ confirm its premise against the real tree (`fd ClassName.java`, read the actual 
 `[ -d ]` the dir): roughly a third of hand-inferred premises do not survive that check, and a gap sealed on
 a wrong premise sends a writer to author a block that cannot be cited. This is the gap-shaping cousin of §7 —
 an instrument proposing work must prove the work's subject exists.
+
+**Behavioral premises derive from code, not from shard text.** The existence check above confirms that a
+component IS THERE. A behavioral premise — what it DOES (protocol, extension point, ORD scheme prefix, data
+contract) — must be derived from the implementation itself (class hierarchy, interface inheritance, method
+signatures), not from module name, shard description, or naming conventions alone. Names encode intent at
+write time; implementations encode the actual behavioral contract, which may differ after refactoring,
+platform overrides, or vendor customization. A gap whose behavioral premise was inferred from shard text
+must be code-verified before entering the backlog; premises inferred from naming conventions have
+consistently needed §14 correction when code-reading revealed the actual contract differed.
 
 **Shape gaps by independence AND certifiable depth — SPLIT and MERGE are one rule, not rival absolutes.**
 Two retros read as contradictory — one said MERGE thin adjacent gaps, one said SPLIT independent gaps into a
