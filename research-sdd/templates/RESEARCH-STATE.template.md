@@ -24,6 +24,10 @@
          written. Nothing in the kit observes memory saves — this is discipline, not automation. Gate behaviour:
          verify-state.sh WARNs when > 3; FAILs when > 6; research-sdd-archive.sh refuses to close when > 0.
          Memory is a MIRROR, not the record. A finding that exists only in memory is undocumented.
+       • ADVISORY — blocks_since_retro: cumulative blocks written since the last retro was run. Increment it
+         manually each time a block is written; reset to 0 when you run a retro. research-sdd-status.sh WARNs
+         (never FAILs) when this exceeds 10, surfacing the §18 cadence reminder. Omitting the field is legal;
+         CHECK P18 is silent when the field is absent. Seed it at 0 for a new research state.
        • OPTIONAL — block_scope: controls how verify-state counts on-disk block files for CHECK A.
          Omit for the common case (§16 per-focus prefix layout — each focus has its own block prefix).
          Set to 'shared-global' when ALL focuses share ONE corpus-wide block-file prefix (e.g. niagara-
@@ -44,6 +48,7 @@ requires_execution_open: 1
 blocked_open: 1
 deferred_open: 1
 undocumented_findings: 0
+blocks_since_retro: 0
 <!-- /research-state.v1 -->
 
 ## Coverage
