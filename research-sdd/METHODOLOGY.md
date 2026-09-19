@@ -1673,9 +1673,24 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   artifact is empty ceremony. `no·inline` is the COMPLIANT record for every downstream slice; the real
   per-block cost is the reschedule/catalog overhead, not a delegation-discipline failure. Preserve the
   capture once under `sources/probes/` (`[CERT-hw]`), then cite that one artifact from every slice.
+- **Multi-source bootstrap block efficiency.** A phase-entry bootstrap block MAY — and SHOULD when
+  sources are all available — fuse multiple marker types (`[CERT-doc]`, `[CERT-web]`, `[CERT]`,
+  `[CERT-live]`) in ONE block rather than issuing a separate block per source. Consolidating
+  identity claims that are established in parallel at phase entry is not overreach; it is efficient
+  evidence management. The requirement is that each claim names its own source and marker;
+  the fusion itself adds no marker inflation. (Evidence: niagara-research jace9000 B657 — SoC/OS
+  identity established from 4 marker types, zero `[INFER]` in the bootstrap block.) (Closes #788)
 - **Read-first, write-supervised.** Start with READ-ONLY probes (safe on a running system — confirm
   read-only in code first). WRITE/modify (load programs, change config) only step-by-step with explicit
   user OK; a bad write can brick the device.
+- **Before calling a state-changing operator, confirm a non-mutating variant exists.** An operator
+  whose contract includes changing the application's own state (not just the target system) is
+  unsafe to call without a safety check. Before invoking it: look for a non-mutating equivalent
+  (`copy=True`, `--dry-run`, an export path, a preview call) and use it instead. If no variant
+  exists, treat the call as a rung (2) reversible write and follow the backup-before-destroy rule.
+  (Evidence: blender-llm B59 — `wm.save_as_mainfile` without `copy=True` returned `FINISHED` and
+  reset the session to the startup file, 15,527 objects gone; `copy=True` on the same path is
+  safe, proven by A/B.) (Closes #592)
 - **The live oBIX / Slot-Sheet is the first-choice oracle to arbitrate between competing hypotheses on a
   running system.** When two explanations compete and the code does not settle them, read the LIVE STATE
   first: a slot null while `mode=interval` is a malfunction; the same slot null while `mode=schedule` is
@@ -1757,6 +1772,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   (hardware-controlled targets per §12; remote services you do not own per §12b); record
   disagreements as `[INFER — cross-source discrepancy: decoded=X raw=Y]` with both values preserved
   (in-bracket form per §3 taxonomy; no new marker is introduced).
+- **Control-group sample design for oracle audits.** When re-auditing a population after a
+  correction (a predicate fix, a bug fix, a calibration change), define TWO samples: (a) a
+  FIXED CONTROL GROUP of IDs drawn from the pre-fix audit — these measure fix impact on already-
+  audited cases; (b) a new independent random sample — this measures final quality without anchoring
+  to the pre-fix distribution. Without the control group, improvement cannot be distinguished from
+  sampling variation. (Evidence: COB-IM2 B31/B38 §38.6 — the same-40 control group revealed that
+  a predicate fix produced no improvement in MAE (0.0021 → 0.0069 m) and worsened four cases;
+  a fresh-sample-only audit would not have detected this.) (Closes #712)
 - **Attribution oracle for every READ on a routed protocol.** On any protocol where requests traverse a
   router, gateway, or bridge (BACnet, BACnet/IP-to-MSTP, Modbus gateways, CAN bridges, any
   store-and-forward relay), a reply arriving is NOT evidence of who replied. Before recording data as
@@ -1781,6 +1804,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   (a heartbeat, a diagnostic field, a state log). Before concluding "silence = failure", confirm the
   independent witness agrees. (Example: BACnet `time-remaining` on a COV subscription — the device reports
   how long it considers the subscription valid, independently of whether notifications are arriving.)
+- **One view is not a visual verification.** When a visual check is the oracle, the checking view
+  must be able to SEE the axis the defect lives in. A single camera angle or perspective view
+  cannot detect an error in the dimension it projects away. Name the view class each check covers,
+  and use an orthographic view aligned to each axis that matters. This applies to any visual oracle:
+  a 3D viewport, an HMI layout, a camera feed, a thermal image. (Evidence: blender-llm B33 §33.3 —
+  B28 §28.5 re-routed 392 branches "horizontal then vertical", verified in perspective, shipped;
+  the top-down view showed the route was horizontal in elevation and still diagonal in plan because
+  the path interpolated x and y together.) (Closes #579)
 - **Synthetic-stimulus deploy-test (validate LOGIC with no live upstream data).** When validating a deployed
   flow/program whose REAL trigger (an external device/event) is not available, do not stop at "it reads
   correct on paper" — inject a SYNTHETIC stimulus (an `inject`/equivalent node feeding a representative
@@ -1805,6 +1836,16 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   the full point set and snapshot EVERY point's current value AND link-status BEFORE the first write —
   not incrementally. A point-by-point snapshot taken while writes proceed mixes pre- and post-write
   state; it is not a pre-write baseline and cannot serve as a reliable rollback target.
+  **Capture-then-mutate idempotency under transport retry.** A script that CAPTURES the current
+  state (for rollback) and THEN mutates it is NOT idempotent under transport retry: if the
+  transport fails mid-execution and the script is retried, the capture step runs again over the
+  ALREADY-MUTATED state, overwriting the original restore data with the post-mutation values.
+  Guard the rollback write with a presence check (`if key not in store` / `if file not exists`):
+  write the rollback record ONCE; treat a pre-existing record as authoritative and skip the
+  re-capture. (Evidence: blender-llm B61 §61.8 — bridge timeout on a 9,636-curve mutation; the
+  restore property held `hide_render: false / depth: 0.03` — post-mutation values — because the
+  code ran twice; state was recovered only because a prior independent probe had the originals.)
+  (Closes #604)
 - **"What silently resets this?" — confirm a remote channel's dependencies before acting.** Before
   relying on any configuration to keep a remote channel alive, enumerate what can silently undo it:
   **suspend** (sleep policy restores defaults on wake), **network reclassification** (a firewall
@@ -1874,6 +1915,13 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   equivalent and it passes, isolate the client-side delta between your probe and the vendor tool;
   (3) only after ruling out client-side differences escalate to device or network diagnosis.
   (Evidence: fluke-177x-datos)
+- **Live empirical sweep can outperform static parser reversal.** When a live system is available,
+  probing candidate field offsets or protocol values EMPIRICALLY can pin the answer faster than
+  reversing the full parser — especially when the format has many optional or variable-length
+  fields. Design a targeted sweep over the plausible candidate range, observe the live response,
+  and narrow from there; reserve full parser reversal for cases where the live surface is
+  inaccessible or the field space is too large for enumeration. (Evidence: fluke-177x-datos —
+  `campaign_id` at offset 0x1e4 found by probe, not by reversing the frame encoder.) (Closes #561)
 - **Module-loaded ≠ path-taken.** Which implementation actually RUNS is a runtime fact, not a static
   one: a component can be LOADED — present in imports, exports, or a registry — without being the ACTIVE
   path for a given operation. Determining which code path executes requires a live stack/provider census
@@ -1977,6 +2025,15 @@ changes for §12b:
 - **Marker.** A claim verified by observing the live remote service's actual RESPONSE earns `[CERT-live]`
   (same rank as `[CERT-hw]`). A claim from the API's published DOCS is `[CERT-web]`. A claim resting only
   on the write's own success code is `[INFER]` until an independent read confirms it.
+- **CERT-live vs CERT-hw for locally-owned GUI tool observations.** When the operator uses a
+  proprietary local GUI tool (Niagara Workbench, a vendor diagnostic app) to OBSERVE behavior at
+  runtime — trend charts, live setpoints, event logs — the evidence is `[CERT-live]`, not `[CERT-hw]`.
+  `[CERT-hw]` is reserved for evidence derived from hardware datasheets, specifications, or
+  hardware-level captures (oscilloscope traces, USB bus capture, serial dumps). A runtime observation
+  through a GUI tool is live operational data, not a hardware-level measurement — even when the GUI
+  is installed locally and the hardware is physically present. (Evidence: niagara-research
+  ColdRoomPan module build: operator observed refrigerant behavior via Workbench trend charts —
+  initially tagged `[CERT-hw]`, corrected to `[CERT-live]`.) (Closes #633)
 
 **Honesty note.** First exercised on computadoras B23–B25 (Cloudflare tunnel API: GET/PUT tunnel
 configurations, connector status reads, Access app + service-token creation). One caveat the run
