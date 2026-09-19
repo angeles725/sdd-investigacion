@@ -84,7 +84,11 @@ Always read first, in this order:
   6. RESOLVE THE NEXT GAP mechanically — do NOT eyeball the backlog: `$KIT/toolbelt/research-sdd-status.sh $TARGET --next`
      returns one line — `NEXT | <priority> | <gap>` (investigate it), `STOP | <reason>` (§8 exhaustion),
      `STALE | <reason>` (envelope/backlog inconsistent — run `$KIT/toolbelt/research-sdd-status.sh $TARGET
-     --sync-state`, reconcile, and retry; do NOT proceed on STALE), or `BOOTSTRAP | <reason>`.
+     --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`, or
+     `RETRO-DUE | <focus>` (the focus has crossed the §18 blocks-since-retro threshold — delegate the §18
+     retro as the CURRENT iteration before resuming normal gaps; the retro is mandatory, not optional — see
+     RETRO CHECKPOINT under step 7's TERMINAL TRIGGER. Until kit issue #627 lands, --next does not emit
+     RETRO-DUE; check the threshold manually when blocks_since_retro nears the §18 limit).
      For a supervisor/human view, `research-sdd-status.sh $TARGET` (no flag) renders the full
      state (coverage · pending backlog by priority · stop-control · verify-state consistency).
 
@@ -816,6 +820,11 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      rather than seeding new grandchild backlog rows. Grandchild rows re-inflate the investigable
      count and prevent the STOP criterion from firing on a focus that is structurally complete. A
      bounded second-pass is a block annotation; a genuinely new open question is a new backlog row.
+     A focus that applies this rule and arrives at `investigable_open=0` is structurally converged;
+     the STOP criterion fires normally, and the §18 RETRO CHECKPOINT applies — do not continue
+     iterating past structural convergence (evidence: module-mechanics focus hit `investigable_open=0`
+     after MM1–MM32 + 29 children; "sigue" re-opened Section-E as a new tier — correct, but only
+     because the operator explicitly declared it; an autonomous run must stop at convergence).
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
