@@ -125,6 +125,19 @@ Always read first, in this order:
       recognized by a checker (doctrine-first: prescribe the declaration, then a future
       verify-state.sh rule can gate on it); a free-form comment cannot. `verify-state.sh` does not
       yet parse this section.
+      OPERATOR-SUPPLIED DATA PACKAGE (add-on to this step): before inferring ANYTHING from the
+      primary artifact, enumerate the operator's full supplied data package. A folder of sources, a
+      spreadsheet, or any operator-supplied container is a surface to exhaust exactly like a binary's
+      listing — enumerate every file, and inside a container format (spreadsheet, archive, database
+      export) enumerate every sheet/table/section by name before reading any. Record the container
+      filename, sheet/table/section count, and the read fraction as blocks accumulate (e.g. "2/15
+      sheets read"). An unopened sheet or section is an unknown, not an absence — inferring from the
+      primary artifact while a directly-supplied source sits unopened inverts the access order and
+      may render entire blocks retroactively wrong. (Evidence: blender-llm B66: COB-IM2_N4_14A_datos.xlsx
+      holds 15 sheets; only 2 had been read in 65 blocks. The unopened sheets carried 238 device
+      records with exact coordinates, airflow, and BOD — while B63–B65 spent themselves inferring
+      device positions from stroke geometry. B67 then found the CFM 'imbalance' resolved in another
+      unopened sheet.)
   b. Determine which system it is, where its real sources/binaries are, and the corpus language. REGISTER
      the target in $KIT/TARGETS.md's master table right here (row: #, target, path, maturity, predominant
      artifact type, toolbelt wrapper, corpus language) — as part of bootstrap, NOT later: the retro sweeper
@@ -144,7 +157,16 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
       bootstrap + a block each time (lesson: niagara went live-station → OEM Java modules → native
       binaries before hitting the axis the user wanted). If the angle isn't obvious from the request,
       SURFACE it for the orchestrator/user to pick rather than guessing. A mature target may legitimately
-      host several parallel angles → see the MULTI-FOCUS CORPUS pattern (METHODOLOGY §16). (Small/
+      host several parallel angles → see the MULTI-FOCUS CORPUS pattern (METHODOLOGY §16).
+      EVIDENCE-GROUNDED DESIGN focus type: a hybrid type that sits between pure EVIDENCE (a gap
+      over local code/binaries) and pure DESIGN/APPLIED (a gap over external specs or tooling with
+      no local artifact). Pattern: (1) pre-declare the layers already covered in prior blocks as
+      REMITTANCES; (2) each new gap reads a seam from the corpus (Evidence half); (3) each block
+      has an EVIDENCE section and a DESIGN MAPPING section. A [INFER]/[CERT] ratio of ~0.3–0.5 is
+      EXPECTED in this focus type — it reflects the gap between local evidence and external design
+      intent and is NOT an exhaustion signal. Declare the focus type as "EVIDENCE-grounded
+      DESIGN/APPLIED" in the focus header so the distinction is visible at sweep time. (Evidence:
+      B611–B619 graphql focus declared this type ad hoc with no kit concept to name it.) (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
      `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
@@ -210,17 +232,59 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      requires re-stating the calibration domain — that is the boundary this rule marks.) (Evidence:
      blender-llm B21-B37 — a relevance filter calibrated on the documentation sub-corpus was applied
      fleet-wide; gaps in native-binary content registered as absent rather than out-of-domain.)
+     FILTER INHERITANCE PROHIBITION — never derive a filter's calibration envelope from a
+     population that an EARLIER filter produced; derive it from the raw universe, or declare the
+     inheritance chain explicitly AND verify the chained result against the raw universe before
+     using it. A filter calibrated on a filtered population silently inherits its predecessor's
+     blind spots by construction and cannot detect what the earlier filter excluded. (Evidence:
+     blender-llm B61 — the 14A route filter's envelope was derived from the prior route's 119
+     runs, which were themselves the output of a workbook-based filter; the new filter inherited
+     its blind spot and could not have found what the old one missed.)
      GAP PREMISES ARE HYPOTHESES, not assertions — the initial research plan is a best guess from
      outside the code. When investigation refutes a premise (e.g. a module assumed to belong to
      subsystem Y has zero imports from it), RENAME the gap in RESEARCH-STATE to reflect the real
      finding and issue a §14 correction if a prior block already asserted the wrong premise. A
      refuted premise is itself a finding — name it honestly (e.g. "exportTags is NOT a tag-subsystem
      component" is more useful than the original "exportTags runtime").
+     PRODUCT/VENDOR IDENTITY SUB-CHECK (extends this rule, NOT a new rule) — when a gap's name
+     carries a PRODUCT or VENDOR ASSUMPTION (e.g. names a known framework, library, or vendor),
+     verify the identity by reading the module.xml description or top package root BEFORE sealing
+     the gap. A jar whose display name resembles a known product may be something entirely
+     different. (Evidence: B495 §495.3 — 'axvelocity' resolved to Apache Velocity (correct);
+     'silk' resolved to a SOAP toolkit, NOT Sylk/S-Bus (wrong vendor premise). Two wrong product
+     premises in one U10 gap sweep, each burning its opening iteration on a §14 correction.)
+     SWEEP HYPOTHESIS HIGH-RISK SUBCLASS — security-bypass claims and surprising existence
+     claims from the audit sweep are higher-risk premises than average: the sweep cannot read
+     deeply enough to certify either. Label every security-bypass or existence surprise from the
+     sweep "(sweep hypothesis — measure first)" in the gap description; never embed the sweep
+     phrasing as a partial assertion or a confirmed claim. A gap description that reads "X bypasses
+     the Niagara session" is an ungrounded security verdict; one that reads "X bypasses session
+     (sweep hypothesis — measure first)" is honest about its source and scope. (Evidence: B622
+     §622.3 — sweep stated SC hub "bypasses the Niagara session"; B622 refuted by code-reading
+     BJettyScWebSocketAcceptor.java:81-91. B624 §624.3 — ":52443 has TWO endpoints" — refuted
+     by full-module grep.)
      GAP NUMBERS ARE ALSO HYPOTHESES — when a gap's description contains a number that will serve
      as a denominator or threshold (e.g. "N classes", "M entries"), re-derive it from the source
      before using it, exactly as you would a structural premise. A wrong count silently scopes the
      investigation to the wrong universe. (Specialisation of GAP PREMISES ARE HYPOTHESES above;
      see also BOOTSTRAP e2's MEASURE rule and the deduplication caveat there.)
+     SWEEP NUMERIC LABELING — the delegated audit-sweep agent must render every numeric quantity
+     (class counts, enum sizes, limits, caps, iteration counts) as an explicit ESTIMATE with a
+     verification note (e.g. "~N, verify inline") and must NEVER present a limit or cap as
+     established fact. The driver's block must re-measure any number it promotes to [CERT]. The
+     prompt to the sweep agent must include this constraint explicitly so the agent cannot silently
+     assert a count. (Evidence: access-control sweep asserted "64-category hard limit" (AC3) and
+     "8 encoders" (AC4); inline verification found 256 and 10 respectively. Three wrong sweep
+     numbers in two consecutive focuses — systematic output convention gap, not a one-off.)
+     BASE-MODULE IDENTIFICATION (extends the audit sweep — add as a sweep sub-task): for each
+     gap the sweep surfaces, require it to also ask: "is this module a specialization of a generic
+     or base module, and if so, is that base module covered in the corpus?" When the base is NOT
+     covered, surface it as a SEPARATE candidate gap in the backlog — do not fold it silently into
+     the specialized gap. A missing base module discovered during block writing costs one full
+     iteration; discovered during the sweep, it costs a one-line backlog addition. (Evidence:
+     provisioning focus — PV1 was a thin specialization of 'batchJob' (generic device-network
+     batch engine), PV7 of 'template' (generic templating); both surfaced only during block
+     writing — too late to bootstrap them efficiently.)
   e2. PRE-FLIGHT SOURCE EXISTENCE (anti-hallucination gate — before launching ANY iteration): for each
      planned gap, CONFIRM readable source material actually exists (the class/jar/binary/doc is present
      and reachable by the wrapper). A gap with NO reachable source must be marked blocked-on-<reason>
@@ -232,6 +296,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      code collapse duplicate decompiler-pipeline trees first — count DISTINCT fully-qualified class names, not
      raw `.java` (a project decompiled by BOTH procyon and vineflower doubles the raw file count; "easyBinding
      119" was 62 distinct classes). See METHODOLOGY §13.
+     ARTIFACT-TYPE COMPATIBILITY (extends this e2 gate, NOT a new gate) — when the pre-flight
+     plan includes a TWO-ARTIFACT DIFF (comparing two instances of what appears to be the same
+     subject), confirm BOTH artifacts are of the SAME TYPE before counting files or constructing
+     a diff plan. Types that look like each other but are structurally incompatible: an installed
+     instance vs an installer package vs a distribution archive. A diff between incompatible types
+     is dominated by type-structural noise and not a meaningful content delta. Confirm type from
+     directory layout or a manifest, not the filename alone. (Evidence: B386 §386.2 — an
+     'unlicensed' install was actually an installer PACKAGE with 908 files, no bin/security/
+     defaults; install-vs-installer diff produced artifact-type noise rather than a license signal.)
      CLASS-EXISTENCE SUB-CHECK (extends this e2 gate, NOT a new gate) — when a gap's NAME carries a specific
      class-name token, also run `fd <ClassName>.java` (exact-class existence) IN ADDITION to the source/jar
      existence check above, BEFORE sealing the gap into the backlog. e2's reachability check can PASS on a
