@@ -185,6 +185,12 @@ taxonomy, so they were decided together:
   is unusable downstream; a record the heuristic could not match is either `[INFER]` or an explicit
   `unmatched` entry, never a silent drop.
   (Source: 2026-09-16-blender-llm-b17-b20-duct-pipeline-retro.md delta #5)
+- **Verify the DATA against the declared contract.** When a protocol or API is documented (OBIX, BACnet,
+  Modbus, etc.), verify that what the system ACTUALLY returns matches the declared schema/contract before
+  accepting values as `[CERT]`. A mismatch between the live response and the documented schema is a FINDING
+  — record it as such, do NOT silently adopt the observed value as if the spec were correct. A contract
+  mismatch that goes unrecorded corrupts every downstream block that cites the erroneous value.
+  (Source: niagara-research/retros/2026-09-03-obix-architecture-consulting-retro.md #3)
 
 **`[INFER]` sub-convention — a "corpus-assigned" value.** A distinct, disciplined use of `[INFER]`: a source
 specifies a value by named ROLE only (not a concrete value), and the researcher ASSIGNS the concrete value. This
@@ -301,7 +307,12 @@ tokens: `standard` (the default — omit the line), `evidence` (alias of `standa
 `absence-centred`, `capture`, `document` (alias of `capture`), `collaborative`, `audit`, `decision` (a block
 whose deliverable is a choice among alternatives — migration pick, tool selection, architecture ruling; a high
 `[INFER]` ratio and zero `file:line` citations are expected and correct for this type, as with `synthesis`;
-`verify-block.sh` grades it as INFO for the ZERO-citations check, like `synthesis`). (Source: 2026-09-16-blender-llm-b11-migration-decision-retro.md delta #1, extended by T-VB2) Why a closed grammar: the
+`verify-block.sh` grades it as INFO for the ZERO-citations check, like `synthesis`),
+`design-applied` (delivery/integration layer documented from partially-observable static files — a high
+`[INFER]`/`[CERT]` ratio is EXPECTED and declared, not a warning; reviewers must not flag the ratio as
+evidence exhaustion; the delivery code it describes is partially observable by design, so `[INFER]`
+accumulates structurally. `verify-block.sh` grades the ZERO-citations WARN as INFO for this type, like
+`synthesis`). (Source: 2026-09-16-blender-llm-b11-migration-decision-retro.md delta #1, extended by T-VB2; api-paneles/retros/2026-09-11-paneles-completion.md row 2) Why a closed grammar: the
 template listed five values while real blocks wrote `evidence (primary modbus spec)`, `synthesis (no new
 decompilation)`, `document / runbook` — 8 of 763 niagara blocks declared any type and none used a template value, so
 no instrument could ever read it (the same free-form-cell failure as the TARGETS.md maturity cell and the FOCUSES.md
@@ -689,6 +700,16 @@ child needing the running device or device-bound key. (Source: 2026-08-30-jace80
 
 **Calibrated discriminators are symmetric and reusable.** A classifier calibrated on a confirmed-positive layer is a symmetric discriminator for any layer of the same geometric kind (e.g. line segments or polylines claimed to belong to a structural category). Run it against the candidate and compare the score to the baseline from the confirmed layer: high score → confirmed as that kind; near-zero → not. The two scores together are the evidence, and the discriminator needs no rewrite or recalibration per candidate — same tool, same threshold, opposite answer on opposite input, the contrast itself the finding. (Evidence: nave-panccadia B36 §36.2–§36.4 — a pairing/thickness test calibrated on a confirmed wall layer scored 91.7 % there vs. 0 % interior pairing on the candidate, classifying it non-wall with no new test.)
 
+**Corroboration doctrine applies to any measured quantity, not only decompiled binaries.** The kit frames corroboration around `corroborate-*.sh` and the twin-binary check — a decompile is NOT evidence until a second, independently-produced channel confirms it. The underlying rule is channel-independence and applies universally: before trusting a derived value, ask what SECOND, independently-produced channel reports the same quantity. Examples: CAD polyline geometry vs. draughtsman's text label (two channels, same claimed dimension); workbook `Largo_m` vs. DXF longest edge (two channels, same measured length — agreeing to 0.03 mm median validates both). Neither is a binary; the requirement is channel independence, not artifact type. Apply the two-channel discipline wherever you would otherwise cite a single derived value without cross-check. (Source: blender-llm/retros/2026-09-16-blender-llm-b17-b20-duct-pipeline-retro.md Δ6)
+
+**Jar / packaged-artifact inspection rules.** Three rules that apply before drawing conclusions about a JAR or other packaged artifact:
+
+- **Real-artifact-first for packaging/layout gaps.** When a gap is about physical packaging, on-disk layout, or artifact shape, inspect the REAL artifact directly — `unzip -l <jar>` for entry taxonomy, `unzip -p <jar> META-INF/MANIFEST.MF` for manifest bytes — alongside any decompiled sweep. Decompiled source cannot show META-INF signing entries, jar entry taxonomy, or manifest bytes; the decompiler output is a secondary view, not the primary artifact record. (Source: niagara-research/retros/2026-08-29-module-anatomy-focus-retro.md module-anatomy-1)
+
+- **Read the package histogram before judging size or emptiness.** Before declaring a jar "empty", "shell", or "heavy", read the PACKAGE HISTOGRAM (`unzip -l <jar> | awk '{print $NF}' | grep '\.class$' | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn`) AND the `rc/` or resource listing to distinguish own-code from bundled-library and web-assets. A jar with `class-count=0` or near-zero may be pure web assets; one with hundreds of classes may be 99 % bundled library. Misreading either produces a §14-correction-generating false finding. (Source: niagara-research/retros/2026-08-29-own-modules-audit-focus-retro.md own-modules-1)
+
+- **Prefer source over jar for INTENT and CONFIG claims when source is available.** When the gap is about INTENT (over-permission, dead code, configuration) and the source repo is accessible, prefer source files over the packaged jar — source shows whether declarations are real implementation or scaffold, whether annotations are populated or empty boilerplate, and whether config is active or vestigial. A jar can carry structure the source abandoned. A finding that reverses when source is consulted is a §14-grade false claim. (Source: niagara-research/retros/2026-08-29-chihuahua-source-focus-retro.md chihuahua-2)
+
 ## 7. State and memory (hybrid)
 
 The gap backlog and progress live in **two mirrored places**:
@@ -790,6 +811,15 @@ not required to partition the corpus — the corpus total is therefore not the s
 **Gate behaviour:** present but empty, or any value other than `per-focus` / `shared-global`, is a
 hard FAIL — `verify-state` cannot proceed without knowing the counting mode. Absent is always legal.
 
+**`shared-global` migration: backfill ALL RESEARCH-STATE files, not only the active focus.** When
+adding `block_scope: shared-global` to a corpus, you must update EVERY `RESEARCH-STATE-*.md` file in
+that corpus — including closed/stopped focuses. A single legacy file that still omits the declaration
+causes the `--next` aggregator to report STALE for the ENTIRE corpus, because the aggregator unions
+all RESEARCH-STATE files and one file without the declaration pulls the whole-corpus result to STALE.
+(Evidence: `--next` returned STALE 7/7 iterations on a corpus where only the active focus declared
+`block_scope: shared-global`; 17 legacy closed-focus files lacked the declaration.)
+(Source: niagara-research/retros/2026-08-05-electronicSignature.md ES-B)
+
 **Cannot-see diagnostic.** Even when `block_scope` is absent/per-focus, if the focus-filtered count
 is 0 while other-prefix blocks exist, `verify-state` emits a distinguishing FAIL message that names
 `block_scope: shared-global` as the declaration to add — rather than a bare "≠ 0 block file(s)"
@@ -850,6 +880,17 @@ and silently vanishes when the loop advances. A typed gap row is recall-findable
 
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
+
+**Apply the stopping criterion to sub-lines too — terminate with a measured bound, not a pause.**
+When several consecutive attempts at the SAME gap or sub-question all fail, do not pause and revisit
+later: run explicit falsification attempts against "the answer is there and I am mis-reading it". If all
+fail, record the LIMIT — what the data cannot answer and why — and re-rank remaining gaps accordingly.
+A bounded "we cannot answer X because the data has property Y" is a real finding that converts an
+open loop into a closed one; a pause deferred to "later" is not. This is the §8 stopping criterion
+applied at sub-line granularity rather than corpus granularity — the same rule, one level down.
+(Source: blender-llm/retros/2026-09-16-blender-llm-b21-b37-cad-reconstruction-retro.md Δ7 — three
+independent refutations established that a plan encodes geometry not topology, converting an unbounded
+search into a bounded one and re-ranking three routes to one.)
 
 **A long analysis is justified by a question only it can answer, not by having already started it.**
 When a cheaper instrument answers the question mid-run, stop the expensive one immediately and close
@@ -956,6 +997,14 @@ counted). **Instrument:** `toolbelt/coverage-map.sh` (kit issue #421) implements
 **A unit counts as CITED only when one of its unambiguous file basenames appears in a block as an extension-bearing token (`<basename>.<ext>`, word-bounded, case-sensitive) or inside a path token; a bare class or file stem in prose is never a citation** (§3 citations are `file:line`). Measured on niagara: bare-stem matching turned `This.java`, `Open.java`, `User.java` from bundled third-party code into false citations and hid ~91 uncovered modules. (Source: kit issue #421 fleet acceptance, 2026-09-05)
 
 **The coverage universe is DECLARED, never inferred.** Units outside the research question (bundled third-party libraries such as commonsIo, hsqldb, qpid) are listed in a `coverage-exclude.txt` at the corpus root, one glob per line; the instrument prints `excluded by declaration: N unit(s)` every run. A hidden default exclusion list would be an inferred universe. The tool never writes `coverage-exclude.txt` (propose-never-apply); the top-N uncited list is what makes an operator see a vendor bundle and declare it out-of-scope. (Source: kit issue #421 fleet acceptance, 2026-09-05)
+
+**Gap counters are NOT mutually exclusive — a single gap can satisfy multiple counters simultaneously.**
+A gap that carries `Priority: deferred` AND `Status: requires-execution` AND appears under `## Blocked gaps`
+is counted in `deferred_open`, `requires_execution_open`, AND `blocked_open` — all three. This is correct:
+one gap satisfies all three conditions. When reading the status envelope, do not add these counters to
+estimate the number of unresolved gaps; instead use `investigable_open` (which excludes deferred,
+blocked, and requires-execution entries) as the relevant forward-work count.
+(Source: niagara-research/retros/2026-08-29-ports-focus-retro.md DELTA-4)
 
 **`known_gaps` DENOMINATOR MUST BE LIVE.** The `known_gaps` count — the denominator of the coverage ratio `gaps_closed / known_gaps` — must equal `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open` at every point in the run; it is NOT frozen at the bootstrap seed count. Whenever a child gap is seeded mid-run, bump `known_gaps` immediately. A stale denominator inflates the coverage ratio: a run that closes 10 gaps against a 10-gap bootstrap reads 100 % even when it seeded 4 new gaps it never addressed. Two caveats: (a) `blocked_open` is disk-derived from the `- … needs:` rows under `## Blocked gaps` / `## Non-investigable gaps` (CHECK C pins it). `derive_blocked` matches the literal `needs:` token — a `~~struck~~` row still counts (measured) — so any row carrying `needs:` is in `blocked_open` by construction. Count each gap in exactly ONE term of the identity: an absence-closed gap exits the `- name — needs:` row form — transformed to a non-bullet prose note (never a `- … needs:` line), or removed — so `derive_blocked` no longer counts it; it is credited to `gaps_closed`, not `blocked_open`. A row still carrying `needs:` is by definition still blocked (open), not closed. (See the `tried:` clause paragraph, search term `tried: clause for blocked`.) (b) `known_gaps` and `gaps_closed` are DECLARED-only (not disk-validated); `verify-state.sh` CHECK 3 WARNs only on two-or-more DISTINCT denominators among the canonical coverage lines OUTSIDE the `## Iteration history` table (which it strips first); it never reads the envelope `known_gaps` field. Only CHECK D's corner (`gaps_closed == known_gaps` while investigable gaps remain) is enforced automatically; general `known_gaps` drift (a stale denominator with open gaps still counted) is now partially enforced: a new WARN-only CHECK H (search `IDENTITY-SUM-CHECK` in `verify-state.sh`) flags declared-identity drift when the sum of the five DECLARED envelope counters `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open ≠ known_gaps` (all declared fields; derived disk counts are CHECK B/C/E/F's job; absent OR non-integer `deferred_open` is treated as 0 (CHECK F's is_int split)), though it remains advisory (WARN, not FAIL). (Source: niagara module-mechanics-closeout)
 
@@ -1168,10 +1217,17 @@ auto-applies. Migration classes to address:
 7. **Register the new gaps** that the research uncovers (the queue feeds itself).
 8. **Re-measure ground-truth live; never inherit it.** In a dynamic/live phase, measure checksums,
    versions, IPs and build ids against the real system — do not cite them from a prior block (§12).
-9. **A name is not a kind.** Never assert a class's KIND (enum / interface / POJO / abstract) from its NAME
-   pattern — a `*Handle` may be a POJO not an enum; a `BI*FE` may be a concrete class, not a `BInterface`.
-   State any name-implied kind as a HYPOTHESIS and confirm it against the actual declaration line before
-   writing it `[CERT]`.
+9. **A name is not a kind — but a socket identifier IS.** Never assert a class's KIND (enum / interface /
+   POJO / abstract) from its NAME pattern — a `*Handle` may be a POJO not an enum; a `BI*FE` may be a
+   concrete class, not a `BInterface`. State any name-implied kind as a HYPOTHESIS and confirm it against
+   the actual declaration line before writing it `[CERT]`.
+   **Extension for node-graph tools (Blender GN/shader, Unreal Blueprint, Houdini, etc.):** A node
+   container's DISPLAY name may be localized or user-renamed (e.g. `Curva a malla` in a Spanish Blender
+   installation); look up the container by its stable TYPE identifier, not its display name. SOCKET
+   identifiers, however, ARE stable across languages and renamings — address ports by their socket
+   identifier (`Fill Caps`, `Geometry`, `Value`), not by position or display label. A block that guesses
+   a socket by position in a localized UI is a false `[CERT]`.
+   (Source: blender-llm/retros/2026-09-16-blender-llm-b7-b9-live-phase-session-retro.md Δ1)
 10. **When disambiguation by geometry or proximity is ambiguous, look for a conserved quantity.** A
     proximity or similarity threshold degrades smoothly into nonsense as it grows; there is no value at which
     it is safely wrong. A conservation law does not degrade: a candidate either satisfies it or does not, at
@@ -2245,6 +2301,24 @@ platform overrides, or vendor customization. A gap whose behavioral premise was 
 must be code-verified before entering the backlog; premises inferred from naming conventions have
 consistently needed §14 correction when code-reading revealed the actual contract differed.
 
+**Do not extrapolate a layout pattern across record types.** When a layout pattern (field order, stride,
+encoding) is confirmed for one RECORD TYPE (e.g. scalar measurement tables), treat it as a HYPOTHESIS
+for any other record type (e.g. waveform tables, event tables) until independently verified. "Scalar
+tables follow column order X" does NOT imply "waveform tables follow column order X" — output pipelines
+may reorder columns differently per type. Derive the layout from each record type's own representative
+sample; do NOT propagate a confirmed layout from one type to another without verification. This is the
+layout corollary of "Behavioral premises derive from code": a premise confirmed for TYPE A is not
+automatically confirmed for TYPE B. (Source: fluke-177x-datos/retros/2026-09-13-camino-b-decode-completo.md
+prose delta 2)
+
+**Reconcile against the subject's own audit/CHANGELOG/ADR documents when available.** When the artifact
+under audit ships its own audit records, CHANGELOG, Architecture Decision Records, or prior-audit results,
+add an explicit reconciliation pass as part of the AUDIT-FIRST bootstrap: compare your findings against
+the subject's own records. This grounds severity (a defect the subject's own audit already flagged is
+known; a new one is a genuine gap), surfaces fix-path splits the code alone hides (the subject's audit
+may record why a known issue was NOT fixed or was partially addressed), and prevents duplicate effort.
+(Source: niagara-research/retros/2026-08-29-chihuahua-source-focus-retro.md chihuahua-3)
+
 **Shape gaps by independence AND certifiable depth — SPLIT and MERGE are one rule, not rival absolutes.**
 Two retros read as contradictory — one said MERGE thin adjacent gaps, one said SPLIT independent gaps into a
 parallel fan-out — but they answer one question with one discriminating test: *could this gap alone produce
@@ -2323,6 +2397,19 @@ B64→B55). Make this a habit, not an accident:
   block is not wrongly read as sloppy. Only call it a refute when the two describe the SAME artifact.
   The same distinction runs in the hardware→code direction — a live `[CERT-hw]` finding can scope-clarify a
   `[CERT]` static claim (the deployment gates a real code-path) without refuting it; that case lives in §12.
+  **Count-discrepancy scope check.** When a newly measured count differs from a prior block's count for the
+  same component, FIRST check whether each count measures the SAME artifact set (e.g. one jar only vs.
+  three jars together, dev tree vs. deployed binary, one focus vs. whole corpus). Document the scope of each
+  count explicitly. Record the resolution as a SCOPE-CLARIFICATION in Connections — NOT as a §14 correction
+  — unless the same artifact set was counted twice with genuinely different results.
+  (Source: niagara-research/retros/2026-08-28-kitcontrol-focus-retro.md D3)
+- **Layer-distinction reconciliation check.** Before invoking §14 correction on two apparently contradictory
+  blocks, test whether they describe DIFFERENT ABSTRACTION LAYERS of the same system (e.g. draw/render layer
+  vs. series/factory layer; API surface vs. internal implementation; wire protocol vs. application semantic).
+  If so, BOTH blocks may be TRUE — they speak about different layers. Reconcile by naming the layers
+  explicitly ("correct at the draw layer; the factory layer is open per BN") and do NOT correct either
+  block. Reserve §14 correction for claims about the SAME layer of the SAME subject.
+  (Source: niagara-research/retros/2026-08-05-webChart.md WC-C)
 - **The threat-model axis clarifies scope too.** A later block that changes WHO the attacker is or WHAT they
   already hold (an insider with the station password vs a network attacker; an attacker holding the SD
   card vs one on the wire) CLARIFIES the prior block's scope rather than refuting it, and must name the
@@ -2357,6 +2444,14 @@ B64→B55). Make this a habit, not an accident:
   data consistent; a contrast makes divergences visible. A divergence that a translator would "correct"
   may be a real site fact — a renumbered trunk, a partial migration, a retired device never updated in
   the job file — that a translator would permanently hide.
+- **Cross-session parameter proposals are hypotheses until measured.** When a block in session A proposes
+  a numeric threshold, radius, cap, or parameter for use by a peer lane or a later session, the consuming
+  lane MUST measure the proposed value independently before adopting it. A parameter proposed in one block
+  is a HYPOTHESIS for the consumer, not a commitment. If measurement refutes it, issue a §14 caveat to
+  the proposing block. Cross-session numeric proposals have concrete failure modes: a proposed "multi-attach
+  radius of 1.5 m" was measured at 0.8 m on the real data — at 1.5 m nearly the entire population was
+  falsely claimed by a shared label.
+  (Source: COB-IM2/retros/2026-09-09-cob-im2-continuity-round.md D3)
 
 ## 15. Corpus versioning (git)
 
