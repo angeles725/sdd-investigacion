@@ -358,7 +358,7 @@ for state in "${states[@]}"; do
   if [ "$_bs_valid" = 1 ] && [ -n "$_bs_present" ] && [ "$e_bs" = "shared-global" ]; then
     _sg_attributed="$(_derive_attributed_sg "$state")"  # SG-DERIVE-ATTRIBUTED
     ondisk="$_ondisk_global"   # corpus total; used in summary only — CHECK A uses attributed count
-    _sg_check_a_done=1
+    _sg_check_a_done=1  # SG-CHECK2-GUARD
   elif [ -n "$_fpfx" ]; then
     ondisk="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
       | block_file_filter "${_fpfx}" | wc -l | tr -d ' ')"
@@ -550,7 +550,10 @@ for state in "${states[@]}"; do
   fi
 
   # CHECK 2 (WARN) — covered-blocks claim drifted from the on-disk block count.
-  if [ -n "${covered_claim:-}" ] && [ "${ondisk:-0}" -gt 0 ] && [ "$covered_claim" != "$ondisk" ]; then
+  # Skipped for shared-global (_sg_check_a_done=1): ondisk = corpus total there, but covered_claim
+  # reflects attributed blocks (a focus-level count), so comparing them always misfires when the
+  # focus has not covered all corpus blocks.
+  if [ -n "${covered_claim:-}" ] && [ "${ondisk:-0}" -gt 0 ] && [ "$_sg_check_a_done" = 0 ] && [ "$covered_claim" != "$ondisk" ]; then  # SG-CHECK2-COND
     echo "   WARN   'Covered blocks: $covered_claim' disagrees with $ondisk block file(s) on disk — refresh the mirror."
   fi
 
