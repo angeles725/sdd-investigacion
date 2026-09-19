@@ -121,6 +121,13 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   (METHODOLOGY §20). §20 was first exercised end-to-end on a real target by the TradingView new-target
   DOCUMENT run (target #23, B1-B3; see the kit repo-root `retros/2026-08-03-document-unregistered-bootstrap-incident.md`, not `$KIT/retros/`).
   Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) predate the mode.
+- **frontier** — genuinely unexplored territory with no prior corpus coverage on the proposed surfaces.
+  Different sweep strategy from the four modes above: BREADTH-FIRST with LIGHTER BLOCK DENSITY — the goal is
+  a COVERAGE MAP across many sub-areas, not deep certification of one. The `[INFER]`/`[CERT]` ratio is
+  EXPECTED HIGH and signals "return with targeted deep-dive passes later", NOT exhaustion. Declare
+  `MODE: frontier` in RESEARCH-STATE at bootstrap. Full definition: METHODOLOGY §8. Distinct from a
+  grade-upgrade reopen (deepens evidence for already-asked questions) and from live-backlog injection
+  (extends an active loop's queue).
 
 **AUTO-ESCALATE light → heavy — announce, do NOT re-ask.** A light/triage pass is allowed to promote
 itself. When it surfaces DEPTH — **≥3 investigable gaps**, OR a **binary/firmware** artifact, OR **multiple
