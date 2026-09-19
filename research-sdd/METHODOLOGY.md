@@ -2434,6 +2434,14 @@ judgment, not the driver's own rationalizations). The retro agent:
 4. **Writes the proposal** to `$TARGET/retros/<date>-<focus>.md` (from `$KIT/templates/retro.template.md`)
    and mirrors it to engram `research/<target>/retro`, and SURFACES it in the return contract.
 
+   **Open each delta's issue at proposal time (backlog-first).** Immediately after writing the retro, run
+   `$KIT/toolbelt/stage-retro-issues.sh <retro>` — dry-run first to preview the planned issues, then `--apply`
+   to open one `status:needs-review` issue per OPEN delta on the kit repo (`sdd-investigacion`), dedup-guarded so
+   a re-run never double-files. The delta thus enters the navigable backlog as it is proposed, not via a later
+   one-off backfill. `$KIT/toolbelt/reconcile-issues.sh <retro>` (or `--all`) audits marker↔issue coverage
+   (tracked / untracked / orphaned). Both instruments are read-only unless `--apply` is passed (propose-never-apply);
+   both emit a typed `degraded` state when `gh` is absent, never a silent zero. See the Backlog-first block below.
+
    **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
    `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).
    The sweeper accepts, and nothing else, these enumerated aliases (`sweep-retros.sh`, kit issue #436): `## Proposed deltas`, `## Delta proposals`,
