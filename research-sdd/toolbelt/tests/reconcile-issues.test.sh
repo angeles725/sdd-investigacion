@@ -317,6 +317,108 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# mk_retro3 <box> <target> <filename> <marker>
+#   Creates a retro with 3 delta rows (ids 1, 2, 3) for partial-shipped tests.
+mk_retro3() {
+  local box="$1" tgt="$2" fname="$3" marker="$4"
+  local f="$box/rh/$tgt/retros/$fname"
+  {
+    printf '%s\n' "$marker"
+    printf '# retro\n\n## Proposed kit deltas\n\n'
+    printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+    printf '|---|---|---|---|---|---|\n'
+    printf '| 1 | delta one   | METHODOLOGY.md | B1 | new | HIGH |\n'
+    printf '| 2 | delta two   | METHODOLOGY.md | B2 | new | HIGH |\n'
+    printf '| 3 | delta three | METHODOLOGY.md | B3 | new | HIGH |\n'
+  } > "$f"
+  printf '%s' "$f"
+}
+
+# ---------------------------------------------------------------------------
+# 11 — HASH-SHIPPED: marker uses #N (desc) format; rows 1,2 shipped, row 3 open
+# Bug: parser fails to strip leading '#', so shipped_ids has '#1','#2' not '1','2';
+# rows 1 and 2 are falsely treated as open and reported as untracked.
+# Fix: only row 3 should be reported as untracked.
+box="$(mkbox case-hash-shipped)"
+mk_gh_stub "$box" nomatch
+_hash_marker='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #1 (§11 consumer-absence), #2 (§5 slot-vs-derived) -->'
+mk_retro3 "$box" target-foo r-hash-shipped.md "$_hash_marker" > /dev/null
+run "$box" "$box/rh/target-foo/retros/r-hash-shipped.md"
+_untracked_11=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+if [ "$RC" = 0 ] && [ "$_untracked_11" = "1" ] \
+   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*row 3'; then
+  ok "11 hash-shipped: #N(desc) → rows 1,2 shipped; only row 3 untracked" \
+     "(exit $RC untracked=$_untracked_11)"
+else
+  no "11 hash-shipped: #N(desc) → rows 1,2 shipped; only row 3 untracked" \
+     "exit=$RC untracked=$_untracked_11 out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 12 — BARE-SHIPPED: bare 'shipped: 1, 2' format still marks rows 1,2 shipped
+box="$(mkbox case-bare-shipped)"
+mk_gh_stub "$box" nomatch
+_bare_marker='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: 1, 2 -->'
+mk_retro3 "$box" target-foo r-bare-shipped.md "$_bare_marker" > /dev/null
+run "$box" "$box/rh/target-foo/retros/r-bare-shipped.md"
+_untracked_12=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+if [ "$RC" = 0 ] && [ "$_untracked_12" = "1" ] \
+   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*row 3'; then
+  ok "12 bare-shipped: '1, 2' format → rows 1,2 shipped; only row 3 untracked" \
+     "(exit $RC untracked=$_untracked_12)"
+else
+  no "12 bare-shipped: '1, 2' format → rows 1,2 shipped; only row 3 untracked" \
+     "exit=$RC untracked=$_untracked_12 out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 13 — PREFIX-SHIPPED: 'shipped: D1, D2' format (prefixed ids) still works
+box="$(mkbox case-prefix-shipped)"
+mk_gh_stub "$box" nomatch
+{
+  printf '%s\n' '<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: D1, D2 -->'
+  printf '# retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| D1 | delta one   | METHODOLOGY.md | B1 | new | HIGH |\n'
+  printf '| D2 | delta two   | METHODOLOGY.md | B2 | new | HIGH |\n'
+  printf '| D3 | delta three | METHODOLOGY.md | B3 | new | HIGH |\n'
+} > "$box/rh/target-foo/retros/r-prefix-shipped.md"
+run "$box" "$box/rh/target-foo/retros/r-prefix-shipped.md"
+_untracked_13=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+if [ "$RC" = 0 ] && [ "$_untracked_13" = "1" ] \
+   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*D3'; then
+  ok "13 prefix-shipped: 'D1, D2' format → D1,D2 shipped; only D3 untracked" \
+     "(exit $RC untracked=$_untracked_13)"
+else
+  no "13 prefix-shipped: 'D1, D2' format → D1,D2 shipped; only D3 untracked" \
+     "exit=$RC untracked=$_untracked_13 out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 14 — SINGLE-HASH: single 'shipped: #5 (some trailing text)' → row 5 shipped
+box="$(mkbox case-single-hash)"
+mk_gh_stub "$box" nomatch
+{
+  printf '%s\n' '<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #5 (some trailing text) -->'
+  printf '# retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| 5 | delta five | METHODOLOGY.md | B5 | new | HIGH |\n'
+  printf '| 6 | delta six  | METHODOLOGY.md | B6 | new | HIGH |\n'
+} > "$box/rh/target-foo/retros/r-single-hash.md"
+run "$box" "$box/rh/target-foo/retros/r-single-hash.md"
+_untracked_14=$(printf '%s\n' "$OUT" | grep -c 'untracked: row' 2>/dev/null || true)
+if [ "$RC" = 0 ] && [ "$_untracked_14" = "1" ] \
+   && printf '%s\n' "$OUT" | grep -qi 'untracked:.*row 6'; then
+  ok "14 single-hash: '#5 (desc)' format → row 5 shipped; only row 6 untracked" \
+     "(exit $RC untracked=$_untracked_14)"
+else
+  no "14 single-hash: '#5 (desc)' format → row 5 shipped; only row 6 untracked" \
+     "exit=$RC untracked=$_untracked_14 out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -456,6 +558,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "T5 teeth: locate degraded return anchor" "anchor '$anchor_t5' not found in SUT"
+  fi
+
+  # TOOTH T6: Neuter the RECONCILE_ISSUES_HASH_STRIP # strip.
+  # Replace `sub(/^#/, "", t)` with a no-op so #N ids are no longer stripped;
+  # case 11's hash marker then produces untracked=3 (all rows open) instead of 1.
+  echo "-- teeth T6: neuter hash-strip sub --"
+  anchor_t6='RECONCILE_ISSUES_HASH_STRIP:'
+  if grep -q "$anchor_t6" "$SUT"; then
+    box_t6="$(mkbox teeth-hash-strip)"
+    mk_gh_stub "$box_t6" nomatch
+    _hash_m_t6='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #1 (§11 desc), #2 (§5 desc) -->'
+    mk_retro3 "$box_t6" target-foo r-t6.md "$_hash_m_t6" > /dev/null
+    mutant_t6="$box_t6/research-sdd/toolbelt/reconcile-issues.sh"
+    # Comment out the sub(/^#/…) line that follows the anchor
+    sed "/${anchor_t6}/{ n; s/.*sub.*#.*/              # teeth-t6-hash-strip-removed/ }" \
+      "$SUT" > "$mutant_t6"
+    out_t6="$(PATH="$box_t6/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t6" "$box_t6/rh/target-foo/retros/r-t6.md" 2>&1)"; rc_t6=$?
+    _ut6=$(printf '%s\n' "$out_t6" | grep -c 'untracked: row' 2>/dev/null || true)
+    # Fix: untracked=1 (only row 3). Mutant: untracked=3 (all rows, # not stripped).
+    if [ "$_ut6" -gt 1 ]; then
+      ok "T6 teeth: hash-strip neutered → untracked>1 (case 11 has teeth)" \
+         "(untracked=$_ut6)"
+    else
+      no "T6 teeth: hash-strip neutered → should see untracked>1" \
+         "case 11 may be THEATER: rc=$rc_t6 untracked=$_ut6 out=[$out_t6]"
+    fi
+  else
+    no "T6 teeth: locate hash-strip anchor" "anchor '$anchor_t6' not found in SUT"
   fi
 
 fi  # --prove-teeth
