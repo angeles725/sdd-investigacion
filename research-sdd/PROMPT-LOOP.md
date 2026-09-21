@@ -95,8 +95,9 @@ Always read first, in this order:
      --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`, or
      `RETRO-DUE | <focus>` (the focus has crossed the §18 blocks-since-retro threshold — delegate the §18
      retro as the CURRENT iteration before resuming normal gaps; the retro is mandatory, not optional — see
-     RETRO CHECKPOINT under step 7's TERMINAL TRIGGER. Until kit issue #627 lands, --next does not emit
-     RETRO-DUE; check the threshold manually when blocks_since_retro nears the §18 limit).
+     RETRO CHECKPOINT under step 7's TERMINAL TRIGGER. `--next` emits RETRO-DUE automatically once
+     `blocks_since_retro` crosses the §18 threshold (kit issue #627 — landed); trust the emitted
+     state, no manual threshold check is needed).
      For a supervisor/human view, `research-sdd-status.sh $TARGET` (no flag) renders the full
      state (coverage · pending backlog by priority · stop-control · verify-state consistency).
 
