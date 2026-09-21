@@ -114,6 +114,41 @@ else
   NOJQ_PATH="$PATH"  # jq already absent; PATH is already jq-free
 fi
 
+# Build NOGH_PATH: PATH without the directory that contains gh.
+# Used by EN3 TOOTH 8 to simulate gh absence when /bin→/usr/bin symlink is absent.
+_GH_BIN="$(command -v gh 2>/dev/null)"
+if [ -n "$_GH_BIN" ]; then
+  _GH_DIR="$(dirname "$_GH_BIN")"
+  # Also exclude the canonical resolved dir in case of /bin→/usr/bin symlink
+  _GH_DIR_CANON="$(readlink -f "$_GH_DIR" 2>/dev/null || printf '%s' "$_GH_DIR")"
+  NOGH_PATH=""
+  _oifs="$IFS"; IFS=':'
+  for _pd in $PATH; do
+    IFS="$_oifs"
+    _pd_canon="$(readlink -f "$_pd" 2>/dev/null || printf '%s' "$_pd")"
+    [ "$_pd" = "$_GH_DIR" ] && continue
+    [ "$_pd_canon" = "$_GH_DIR_CANON" ] && continue
+    NOGH_PATH="${NOGH_PATH:+$NOGH_PATH:}$_pd"
+  done
+  IFS="$_oifs"
+else
+  NOGH_PATH="$PATH"  # gh already absent
+fi
+
+# Build FAIL_AUTH_GH_DIR: a bin dir with a fake gh that fails auth status.
+# This simulates gh present-but-not-authenticated (more portable than truly hiding gh).
+FAIL_AUTH_GH_DIR="$ROOT/failauthbin"
+mkdir -p "$FAIL_AUTH_GH_DIR"
+cat > "$FAIL_AUTH_GH_DIR/gh" << 'FAILGHEOF'
+#!/usr/bin/env bash
+# fake gh: auth status always fails (not authenticated), other ops succeed
+case "${1:-} ${2:-}" in
+  "auth status") exit 1 ;;
+  *) exit 0 ;;
+esac
+FAILGHEOF
+chmod +x "$FAIL_AUTH_GH_DIR/gh"
+
 # run_gate_nojq <target> <json_str> → sets OUT RC ERR; hides jq from PATH
 run_gate_nojq() {
   local tgt="$1" json="$2" errf
@@ -127,6 +162,57 @@ run_mutant_nojq() {
   local m="$1" tgt="$2" json="$3" errf
   errf="$ROOT/merr_nojq.$$"
   OUT="$(printf '%s' "$json" | PATH="$NOJQ_PATH" "$BASH_BIN" "$m" "$tgt" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+
+# ── EN3: fixture-kit helpers (seeding tests) ──────────────────────────────────
+# FKIT mirrors the real toolbelt but uses a stub stage-retro-issues.sh that logs
+# calls to SEED_LOG (env var).  A mock-gh dir is prepended to PATH so gh probes pass.
+FKIT="$ROOT/fkit"
+mkdir -p "$FKIT/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT/toolbelt/"
+# Stub seeder: logs "<retro> <flags>" to SEED_LOG, then exits 0
+cat > "$FKIT/toolbelt/stage-retro-issues.sh" << 'STUBEOF'
+#!/usr/bin/env bash
+# EN3 test stub: log all arguments to SEED_LOG (env var)
+printf '%s\n' "$*" >> "${SEED_LOG:-/dev/null}"
+exit 0
+STUBEOF
+chmod +x "$FKIT/toolbelt/stage-retro-issues.sh"
+# Copy the SUT into FKIT so SELF_DIR-relative KIT path points to stub seeder
+cp "$SUT" "$FKIT/toolbelt/retro-gate.sh"
+# Mock gh: auth status always succeeds, other calls are no-ops
+MOCK_GH_DIR="$ROOT/mockbin"
+mkdir -p "$MOCK_GH_DIR"
+cat > "$MOCK_GH_DIR/gh" << 'GHEOF'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "auth status") exit 0 ;;
+  *) exit 0 ;;
+esac
+GHEOF
+chmod +x "$MOCK_GH_DIR/gh"
+
+SEED_LOG_EN3="$ROOT/en3-seed.log"
+
+# run_fkit_gate <target> <json_str> → sets OUT RC ERR; uses FKIT SUT + stub seeder + mock gh
+run_fkit_gate() {
+  local tgt="$1" json="$2" errf
+  errf="$ROOT/fkit_err.$$"
+  OUT="$(printf '%s' "$json" | SEED_LOG="$SEED_LOG_EN3" \
+    PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$FKIT/toolbelt/retro-gate.sh" "$tgt" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+
+# run_gate_nogh <target> <json_str> → sets OUT RC ERR; uses fake-auth-failing gh (real SUT)
+# simulates gh present but not authenticated → triggers the not-authenticated WARN
+run_gate_nogh() {
+  local tgt="$1" json="$2" errf
+  errf="$ROOT/err_nogh.$$"
+  OUT="$(printf '%s' "$json" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$SUT" "$tgt" 2>"$errf")"; RC=$?
   ERR="$(cat "$errf")"; rm -f "$errf"
 }
 
@@ -255,6 +341,74 @@ if command -v jq >/dev/null 2>&1; then
     || no "EMITTER: block JSON failed jq parse (escaping bug): $OUT"
 fi
 
+# ─── (EN3-a) Conforming retro → seeding invoked with --apply ─────────────────
+TEN3A="$ROOT/en3a"; mkgit "$TEN3A"; SIDEN3A="en3-sess-a"
+mksessionfile "$TEN3A" "$SIDEN3A" "202609050800"
+mkblock "$TEN3A" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TEN3A/niagara-block1.md"
+mkretro "$TEN3A" "2026-09-05-seeding-test.md" 1
+touch -t 202609051200 "$TEN3A/retros/2026-09-05-seeding-test.md"
+_jen3a="$(mkjson "$SIDEN3A" "false")"
+
+rm -f "$SEED_LOG_EN3"
+run_fkit_gate "$TEN3A" "$_jen3a"
+[ "$RC" -eq 0 ] && ok "EN3-a: conforming retro → exit 0 (seeding path still allows)" \
+  || no "EN3-a: conforming retro → want exit 0, got $RC"
+[ -z "$OUT" ] && ok "EN3-a: conforming retro → no block JSON on stdout" \
+  || no "EN3-a: conforming retro → unexpected stdout: $OUT"
+if [ -f "$SEED_LOG_EN3" ] && grep -qF -- '--apply' "$SEED_LOG_EN3"; then
+  ok "EN3-a: stub seeder was called with --apply"
+else
+  no "EN3-a: stub seeder NOT called with --apply (seeding not triggered); log=$(cat "$SEED_LOG_EN3" 2>/dev/null || echo '<absent>')"
+fi
+printf '%s' "$ERR" | grep -q 'issue-seeding' && ok "EN3-a: 'issue-seeding' summary in stderr" \
+  || no "EN3-a: 'issue-seeding' summary missing from stderr: $ERR"
+
+# ─── (EN3-b) No retro → still blocks, seeding NOT called ─────────────────────
+# (Existing T2 already verifies the block; this asserts seeding was not triggered)
+rm -f "$SEED_LOG_EN3"
+TEN3B="$ROOT/en3b"; mkgit "$TEN3B"; SIDEN3B="en3-sess-b"
+mksessionfile "$TEN3B" "$SIDEN3B" "202609050800"
+mkblock "$TEN3B" "niagara-block1.md" "2026-09-05T10:00:00"
+_jen3b="$(mkjson "$SIDEN3B" "false")"
+# Use real SUT (no stub needed; seeding should not be reached on block path)
+run_gate "$TEN3B" "$_jen3b"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "EN3-b: no retro → still produces decision:block" \
+  || no "EN3-b: no retro → missing decision:block: $OUT"
+
+# ─── (EN3-c) Conforming retro + gh absent → WARN + allow (not blocked) ───────
+TEN3C="$ROOT/en3c"; mkgit "$TEN3C"; SIDEN3C="en3-sess-c"
+mksessionfile "$TEN3C" "$SIDEN3C" "202609050800"
+mkblock "$TEN3C" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TEN3C/niagara-block1.md"
+mkretro "$TEN3C" "2026-09-05-good-retro.md" 1
+touch -t 202609051200 "$TEN3C/retros/2026-09-05-good-retro.md"
+_jen3c="$(mkjson "$SIDEN3C" "false")"
+run_gate_nogh "$TEN3C" "$_jen3c"
+[ "$RC" -eq 0 ] && ok "EN3-c: conforming retro + gh absent → exit 0 (still allows)" \
+  || no "EN3-c: conforming retro + gh absent → want exit 0, got $RC"
+[ -z "$OUT" ] && ok "EN3-c: conforming retro + gh absent → no block JSON" \
+  || no "EN3-c: conforming retro + gh absent → unexpected stdout: $OUT"
+printf '%s' "$ERR" | grep -q 'issue-seeding' && ok "EN3-c: gh absent → 'issue-seeding' in stderr (WARN or summary)" \
+  || no "EN3-c: gh absent → 'issue-seeding' missing from stderr: $ERR"
+printf '%s' "$ERR" | grep -q 'WARN' && ok "EN3-c: gh absent → 'WARN' in stderr" \
+  || no "EN3-c: gh absent → 'WARN' missing from stderr: $ERR"
+
+# ─── (EN3-d) Idempotent re-run: seeding called twice without error ────────────
+# Two separate sessions → block-once does not suppress second run
+rm -f "$SEED_LOG_EN3"
+SIDEN3D1="en3-sess-d1"; SIDEN3D2="en3-sess-d2"
+# reuse TEN3A fixtures; only session IDs differ
+_jen3d1="$(mkjson "$SIDEN3D1" "false")"
+_jen3d2="$(mkjson "$SIDEN3D2" "false")"
+run_fkit_gate "$TEN3A" "$_jen3d1"
+run_fkit_gate "$TEN3A" "$_jen3d2"
+_seed_count=0
+[ -f "$SEED_LOG_EN3" ] && _seed_count="$(wc -l < "$SEED_LOG_EN3" | tr -d ' ')"
+[ "${_seed_count:-0}" -ge 2 ] && ok "EN3-d: idempotent — stub called at least twice (no error)" \
+  || no "EN3-d: idempotent — stub called ${_seed_count} time(s), want ≥2; log=$(cat "$SEED_LOG_EN3" 2>/dev/null || echo '<absent>')"
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -271,8 +425,9 @@ echo "-- TEETH: mutation controls --"
 # verify-retro.sh) resolve correctly — the same constraint the real SUT has.
 MUT_KIT="$ROOT/mutkit"
 mkdir -p "$MUT_KIT/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh" "$MUT_KIT/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh" "$MUT_KIT/toolbelt/lib/"
+cp "$HERE/../lib/block-files.sh"   "$MUT_KIT/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"  "$MUT_KIT/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh" "$MUT_KIT/toolbelt/lib/"
 cp "$VR" "$MUT_KIT/toolbelt/verify-retro.sh"
 
 # mkmutant <name> <from-sentinel> <to-sentinel>: remove sentinel block from SUT
@@ -382,6 +537,65 @@ run_mutant_nojq "$M6" "$TM6" "$_jm6"
 printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && no "TOOTH jq-emitter-reverted: mutant should produce no block JSON (no jq) but it did" \
   || ok "TOOTH jq-emitter-reverted: mutant silent block (no jq-cn output) — RED as expected"
+
+# ── EN3 TOOTH 7: seeding-not-called — mutant removes seeding call sentinel ────
+# Mutant: SENTINEL-SEEDING-CALL-START…END removed → _run_issue_seeding never invoked
+# → stub not called → seed log stays empty → RED as expected.
+M7="$(mkmutant 'seeding-not-called' 'SENTINEL-SEEDING-CALL-START' 'SENTINEL-SEEDING-CALL-END')"
+# Add stub seeder and mock gh to MUT_KIT so SELF_DIR-relative KIT path resolves
+cat > "$MUT_KIT/toolbelt/stage-retro-issues.sh" << 'STUBEOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SEED_LOG:-/dev/null}"
+exit 0
+STUBEOF
+chmod +x "$MUT_KIT/toolbelt/stage-retro-issues.sh"
+mkdir -p "$ROOT/mockbin2"
+cat > "$ROOT/mockbin2/gh" << 'GHEOF'
+#!/usr/bin/env bash
+exit 0
+GHEOF
+chmod +x "$ROOT/mockbin2/gh"
+TM7="$ROOT/m7"; mkgit "$TM7"; SM7="m7-sess"
+mksessionfile "$TM7" "$SM7" "202609050800"
+mkblock "$TM7" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TM7/niagara-block1.md"
+mkretro "$TM7" "2026-09-05-good-retro.md" 1
+touch -t 202609051200 "$TM7/retros/2026-09-05-good-retro.md"
+_jm7="$(mkjson "$SM7" "false")"
+_seed_log7="$ROOT/seed7.log"; rm -f "$_seed_log7"
+errf_m7="$ROOT/merr_m7"
+OUT="$(printf '%s' "$_jm7" | SEED_LOG="$_seed_log7" \
+  PATH="$ROOT/mockbin2:$PATH" "$BASH_BIN" "$M7" "$TM7" 2>"$errf_m7")"; RC=$?
+rm -f "$errf_m7"
+# Mutant has no seeding call → stub not called → seed log absent/empty
+if [ -f "$_seed_log7" ] && grep -qF -- '--apply' "$_seed_log7"; then
+  no "TOOTH seeding-not-called: mutant should NOT call stub but --apply found in log"
+else
+  ok "TOOTH seeding-not-called: mutant seed log empty — RED as expected"
+fi
+
+# ── EN3 TOOTH 8: gh-probe-dropped — mutant removes gh probe sentinel ──────────
+# Mutant: SENTINEL-GH-PROBE-START…END removed → no WARN emitted when gh unavailable
+# → EN3-c WARN assertion fails → RED as expected.
+M8="$(mkmutant 'gh-probe-dropped' 'SENTINEL-GH-PROBE-START' 'SENTINEL-GH-PROBE-END')"
+TM8="$ROOT/m8"; mkgit "$TM8"; SM8="m8-sess"
+mksessionfile "$TM8" "$SM8" "202609050800"
+mkblock "$TM8" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TM8/niagara-block1.md"
+mkretro "$TM8" "2026-09-05-good-retro.md" 1
+touch -t 202609051200 "$TM8/retros/2026-09-05-good-retro.md"
+_jm8="$(mkjson "$SM8" "false")"
+# MUT_KIT stub seeder (already added above) exits 0 regardless of gh state
+errf_m8="$ROOT/merr_m8"
+_seed_log8="$ROOT/seed8.log"; rm -f "$_seed_log8"
+# Use fail-auth gh: with probe removed, no WARN from the hook itself
+OUT="$(printf '%s' "$_jm8" | SEED_LOG="$_seed_log8" \
+  PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$M8" "$TM8" 2>"$errf_m8")"; RC=$?
+ERR_M8="$(cat "$errf_m8")"; rm -f "$errf_m8"
+# Mutant: no probe → no 'retro-gate: WARN: gh' on stderr
+printf '%s' "$ERR_M8" | grep -qF 'retro-gate: WARN: gh' \
+  && no "TOOTH gh-probe-dropped: mutant should NOT emit gh WARN but it did: $ERR_M8" \
+  || ok "TOOTH gh-probe-dropped: mutant emits no gh WARN — RED as expected"
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo

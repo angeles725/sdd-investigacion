@@ -36,6 +36,64 @@ done
 declare -F block_file_filter >/dev/null 2>&1 || { printf 'retro-gate: block_file_filter not defined\n' >&2; exit 0; }
 declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_excluded not defined\n' >&2; exit 0; }
 
+# ── §18-EN3: auto issue-seeding on session close ──────────────────────────────
+
+# _retro_is_seedable <path>: returns 0 when the retro has open deltas
+# (review-status is pending/none/absent, or PARTIAL applied with unshipped rows).
+_retro_is_seedable() {
+  local rf="$1" sline
+  sline="$(grep -m1 'review-status' "$rf" 2>/dev/null || true)"
+  case "$sline" in
+    *dismissed*) return 1 ;;
+    *applied*)
+      # PARTIAL applied = some rows still open
+      case "$sline" in *PARTIAL*) return 0 ;; *) return 1 ;; esac ;;
+    *) return 0 ;;  # pending / no marker = seedable
+  esac
+}
+
+# SENTINEL-SEEDING-FUNC-START
+_run_issue_seeding() {
+  local target="$1" kit="$2"
+  local seeder="$kit/toolbelt/stage-retro-issues.sh"
+
+  # SENTINEL-GH-PROBE-START
+  if ! command -v gh >/dev/null 2>&1; then
+    printf 'retro-gate: WARN: gh not found — issue-seeding skipped (run %s <retro> --apply manually)\n' \
+      "$seeder" >&2
+    return 0
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    printf 'retro-gate: WARN: gh not authenticated — issue-seeding skipped (run gh auth login, then %s <retro> --apply manually)\n' \
+      "$seeder" >&2
+    return 0
+  fi
+  # SENTINEL-GH-PROBE-END
+
+  if [ ! -f "$seeder" ]; then
+    printf 'retro-gate: WARN: stage-retro-issues.sh not found at %s — seeding skipped\n' "$seeder" >&2
+    return 0
+  fi
+
+  local created=0 skipped=0
+  local rf seed_out _c _s
+  while IFS= read -r rf; do
+    [ -n "$rf" ] || continue
+    retro_is_excluded "$rf" && continue
+    _retro_is_seedable "$rf" || continue
+    seed_out="$(bash "$seeder" "$rf" --apply 2>&1)" || true
+    _c="$(printf '%s' "$seed_out" | grep -c 'created issue' || true)"
+    _s="$(printf '%s' "$seed_out" | grep -c 'already exists' || true)"
+    created=$((created + _c))
+    skipped=$((skipped + _s))
+  done < <(find "$target" -maxdepth 4 -path '*/retros/*.md' \
+           -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+
+  printf 'retro-gate: issue-seeding: created=%d skipped-dedup=%d target=%s\n' \
+    "$created" "$skipped" "$(basename "$target")" >&2
+}
+# SENTINEL-SEEDING-FUNC-END
+
 # ── Pure-bash JSON string escaper (decision channel must not depend on jq) ────
 _json_escape_reason() {
   local s="$1"
@@ -193,6 +251,9 @@ else
     if [ "$_vr_rc" -eq 0 ]; then
       printf 'retro-gate: state=allow branch=retro-conforming retro=%s target=%s\n' \
         "$(basename "$_newest_retro")" "$(basename "$TARGET")" >&2
+      # SENTINEL-SEEDING-CALL-START
+      _run_issue_seeding "$TARGET" "$KIT"
+      # SENTINEL-SEEDING-CALL-END
       exit 0
     fi
     # Non-conforming: embed verify-retro findings as actionable context
