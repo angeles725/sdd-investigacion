@@ -196,6 +196,13 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 
 3. **Confirm the angle (mature/large or multi-focus targets only).** State the active focus/axis and what
    you will reconstruct. If ambiguous, surface it and ask — do not guess the focus.
+   AMBIGUOUS "CONTINUE <TOPIC>" — ALL-TERMINAL CASE: when an operator's "continue <topic>" instruction
+   matches one or more focuses and ALL matching focuses are in terminal state (STOP fired, retro written,
+   no open investigable gaps), do NOT guess which terminal focus to reopen. Instead, run an AUDIT-FIRST
+   coverage sweep: read the INDEX.md and RESEARCH-STATE for the matching focuses, derive any net-new
+   territory not yet covered, and surface that as candidate new gaps before asking the operator to
+   choose. Reopening a terminal focus is a last resort; a coverage sweep first confirms whether
+   genuine new territory exists. (Evidence: niagara wb-vendor-ux-wave3 retro.)
 
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block, and self-continue per the
    LOOP CONTINUATION + RESCHEDULE CADENCE rules (self-paced: reschedule at the ~60s floor until STOP fires).

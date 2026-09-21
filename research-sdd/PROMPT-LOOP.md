@@ -535,6 +535,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
        - Live target? Before profiling, read the vendor's documented management/API port from the manual /
          API-spec — a default sweep of 22/23/80/443/1700 will MISS a vendor REST API on e.g. :8080.
+         ENTRY-POINT INSTRUMENTATION PRE-CHECK: before spending a counterfactual/probe window on a live
+         target, confirm the STIMULUS ENTRY-POINT is INSTRUMENTED (has the telemetry decorator, hook, or
+         logging path that will capture events). An un-instrumented entry-point captures zero events,
+         which falsely reads as proven absence — not a negative finding. Distinct from the existing
+         "arm and verify sink recording" step in METHODOLOGY §12; this is the entry-point pre-check that
+         precedes it: verify the path is wired for capture BEFORE spending probe time on it.
+         (Evidence: blender B6 — `get_addon_status` had no `@telemetry_tool`; 35s probe window
+         returned zero events, initially read as "no telemetry for this path"; path was uninstrumented.)
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh doc <url> $CORPUS [sub] [name] (lands in $CORPUS/sources/ + registered in SOURCES.md).
        - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
@@ -747,11 +755,25 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          deployed — is structurally unreliable: decompiled code reflects what was SHIPPED, not what
          is RUNNING NOW. Apply FALSIFY BEFORE REPORTING MANDATORILY for any such claim; confirm
          against a live probe (§12) or current operational evidence before authoring.
+         DECOMMISSIONED/BROKEN ENDPOINT SUBCASE: a decompilation sweep that concludes an endpoint
+         is "decommissioned", "deprecated", "removed", or "broken" based on strings or error-path
+         code is HIGH-FALSIFICATION-PRIORITY for the same structural reason — a decompile reads
+         strings, not live operational state. A string `"endpoint decommissioned"` is evidence the
+         developer EXPECTED decommissioning; it is not evidence the endpoint IS currently offline.
+         Apply FALSIFY BEFORE REPORTING before reporting any decommission/shutdown status from a
+         decompiled source. (Evidence: niagara framework-drivers-closure D2.)
        - REACHABLE ≠ REPRESENTATIVE: before using a live endpoint response as evidence, confirm it
          is the PRODUCTION PATH, not a debug/test stub. A reachable URL proves only that the
          transport works. Check documented service paths (vendor manual, API spec, or prior corpus
          blocks) or cross-reference with block-documented operational context before treating the
          response as production evidence.
+       - REACHABLE ≠ REPRESENTATIVE-DEFAULT (node/tool primitives): a node or tool primitive's
+         DEFAULT mode may suppress or hide the socket/field the gap is about. Before wiring a node
+         or citing its output as evidence, introspect the primitive's active mode or variant and
+         confirm it is the one relevant to the gap. Distinct from the live-HTTP REACHABLE≠REPRESENTATIVE
+         rule above (which governs live endpoint transport); this governs static node/tool configuration.
+         (Evidence: blender B9 — `CurvePrimitiveLine` defaults to POINTS mode, where the `Length`
+         input is inactive; a wiring built against the default captured nothing for the gap.)
        - CROSS-FOCUS SECURITY FEED: when a mechanics or coverage sweep incidentally finds a security
          footgun in decompiled code — an exposed credential store, an unguarded admin channel, an
          unsafe default — ADD a gap entry to the security focus's backlog in the same iteration. A
@@ -761,13 +783,15 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - MODEL TIER ALSO governs NESTED sub-sweeps. A general-purpose sweep-agent (one whose toolset INCLUDES the
          Agent tool — NOT Explore/Plan, which lack it) MAY itself spawn a SUB-SWEEP, and each Agent call carries
          its own `model`: pick the sub-sweep's tier by the SAME cognitive-demand heuristic. DO NOT NEST
-         sub-agents: include this as a standing instruction in every delegation prompt (word it explicitly, e.g.
-         "Do NOT spawn sub-agents or use the Agent tool inside this sweep"). A sub-agent that nests silently hides
-         its findings from the driver; recovery requires SendMessage and risks losing partial results (evidence:
-         WB02 B428 — sweep nested, driver recovered via SendMessage). At most ONE level of nesting, only for a
-         punctual well-scoped need; the specialized agents (Explore/Plan) cannot sub-delegate at all. For
-         STRUCTURED fan-out or multiple controlled levels, use the Workflow engine (deterministic control, no
-         per-hop context compression) instead of free-form native nesting.
+         sub-agents: include this as a STANDING INSTRUCTION in every delegation prompt by default (word it
+         explicitly: "Do NOT spawn sub-agents or use the Agent tool inside this sweep"). This is boilerplate, not
+         optional guidance — include it in every prompt regardless of whether nesting seems likely. A sub-agent
+         that nests silently hides its findings from the driver; recovery requires SendMessage and risks losing
+         partial results (evidence: WB02 B428 — sweep nested, driver recovered via SendMessage; niagara
+         workbench-focus retro — nested agent's results invisible until manual recovery). The specialized agents
+         (Explore/Plan) cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use
+         the Workflow engine (deterministic control, no per-hop context compression) instead of free-form native
+         nesting.
          ORCHESTRATED-MODE CAVEAT: when the delegating agent is ITSELF a sub-agent (orchestrated mode, one level
          deep), the nested `model:` tier override may be unavailable in the harness — the inner Agent call may
          fail with "agent type not available" (observed: B415 niagara/network-supervisor). Fallback: use Bash
@@ -1485,7 +1509,14 @@ HARD RULES:
     be the LAST action of the turn, placed AFTER the iteration report text — any text emitted after the
     continuation call, or a final turn with only text and no tool call, ends the loop immediately. The RETURN CONTRACT below is a
     per-iteration CHECKPOINT, not a hand-off; only the STOP declaration is terminal. Never stop after a
-    single block. ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
+    single block.
+    ANTI-PATTERN — MILESTONE/CLUSTER BOUNDARY IS NOT A STOP: completing a named cluster, phase, or
+    milestone within the gap backlog is NOT a stopping criterion in auto/chain mode. The loop continues
+    to the next gap immediately. The only allowed turn-end set is: {STOP criterion met · a
+    requires-execution wall · an operator pause · a tool failure}. Nothing else ends the turn in
+    auto/chain mode — not a milestone boundary, not a "natural pause", not a round-number block count.
+    (Evidence: niagara loop-continuation retro.)
+    ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
     the next is written — do NOT land two block files in one commit just because both sweeps returned
     together (lesson: a three.js commit landed B15+B16 as one, skipping the reschedule/STOP-check between
@@ -1568,6 +1599,11 @@ HARD RULES:
 
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
+  SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed
+  immediately by the next iteration — NOT a milestone recap or a narrative summary of what has been
+  accomplished so far. Expanding the report into a milestone recap is the observed trigger for a
+  premature turn-end: the agent fills its context with summary prose, then stops instead of
+  continuing. Emit the minimum fields below and proceed. (Evidence: niagara loop-continuation retro.)
   Keep the per-iteration report CONCISE — full detail lives in the block, NOT the report
   (a huge report bloats context for no gain). This report closes ONE iteration; unless STOP fired, the
   next iteration starts right after it. Report ONLY:
