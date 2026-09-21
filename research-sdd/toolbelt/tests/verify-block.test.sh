@@ -848,6 +848,48 @@ else
   no "64 T-VB2 P6-TYPE-CLASSIFY: decision not downgraded to INFO :: $(grep -iE 'INFO|WARN.*cert|cert.*zero|unrecogni' <<<"$out" | head -2)"
 fi
 
+# ---- SOURCE_ROOT: resolve [CERT] backtick citations into a decompiled/organized source tree -----
+# Retro 2026-09-20 (wb-vendor-ux wave-3, issue #853): all 12 wave-3 blocks cite into
+# `organized/*/vineflower/...` paths. Without SOURCE_ROOT, every backtick cite resolves `extern`.
+# With $SOURCE_ROOT set, a file found at $SOURCE_ROOT/<path> resolves as `ok` instead.
+
+# 65 — SOURCE_ROOT set; decompiled-tree single-line cite present at $SOURCE_ROOT → ok + exit 0 (not extern).
+mkdir -p "$TMP/sr-root/organized/platBase/vineflower/com/example"
+seq 1 30 > "$TMP/sr-root/organized/platBase/vineflower/com/example/Foo.java"
+d="$TMP/sr-ok.md"
+{ echo "# Block 65 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The method is defined at \`organized/platBase/vineflower/com/example/Foo.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(SOURCE_ROOT="$TMP/sr-root" bash "$SUT" "$d" 2>/dev/null)"
+SOURCE_ROOT="$TMP/sr-root" bash "$SUT" "$d" >/dev/null 2>/dev/null; rc=$?
+if [ "$rc" = "0" ] && grep -qE 'ok.*organized/platBase/vineflower/com/example/Foo\.java:10' <<<"$out"; then
+  ok "65 SOURCE_ROOT: decompiled-tree cite → ok + exit 0 (not extern)"
+else
+  no "65 SOURCE_ROOT: decompiled-tree cite not resolved: rc=[$rc] :: $(grep -iE 'extern|ok.*Foo|Foo' <<<"$out" | head -1)"
+fi
+
+# 66 — SOURCE_ROOT set; range cite in decompiled tree, within bounds → ok + exit 0.
+d="$TMP/sr-range.md"
+{ echo "# Block 66 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The class body \`organized/platBase/vineflower/com/example/Foo.java:10-20\`. \`[CERT]\`"; } > "$d"
+out="$(SOURCE_ROOT="$TMP/sr-root" bash "$SUT" "$d" 2>/dev/null)"
+SOURCE_ROOT="$TMP/sr-root" bash "$SUT" "$d" >/dev/null 2>/dev/null; rc=$?
+if [ "$rc" = "0" ] && grep -qE 'ok.*organized/platBase/vineflower/com/example/Foo\.java:10-20' <<<"$out"; then
+  ok "66 SOURCE_ROOT: range cite in decompiled tree → ok + exit 0"
+else
+  no "66 SOURCE_ROOT: range cite not resolved: rc=[$rc] :: $(grep -iE 'extern|ok.*Foo|Foo' <<<"$out" | head -1)"
+fi
+
+# 67 — REGRESSION: SOURCE_ROOT not set; same path → extern (no accidental resolution without the env var).
+d="$TMP/sr-noenv.md"
+{ echo "# Block 67 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The method \`organized/platBase/vineflower/com/example/Foo.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(bash "$SUT" "$d" 2>/dev/null)"
+if grep -qiE 'extern.*organized/platBase/vineflower/com/example/Foo\.java:10' <<<"$out"; then
+  ok "67 SOURCE_ROOT: env unset → extern (no false resolution, regression guard)"
+else
+  no "67 SOURCE_ROOT: unexpected output without SOURCE_ROOT :: $(grep -iE 'extern|ok.*Foo|Foo\.java' <<<"$out" | head -1)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -1323,6 +1365,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-vb1-synth-ref: orig_has_synth=$orig_has_synth mut_no_synth=$mut_no_synth (want 1 1)"
     fi
+  fi
+
+  # teeth-source-root-fallback: neuter SOURCE_ROOT-FALLBACK; decompiled-tree cite must revert to extern.
+  echo "-- teeth-source-root-fallback: neuter SOURCE_ROOT-FALLBACK; decompiled-tree cite must revert to extern --"
+  mutant_sr="$TMP/verify-block.SR-MUTANT.sh"
+  if grep -q '# SOURCE_ROOT-FALLBACK' "$SUT"; then
+    sed '/# SOURCE_ROOT-FALLBACK/ s/_bt_resolve=.*/: # SOURCE_ROOT-FALLBACK [NEUTERED]/' "$SUT" > "$mutant_sr"
+    bash -n "$mutant_sr" 2>/dev/null; sr_syntax=$?
+    if [ "$sr_syntax" -ne 0 ]; then
+      no "teeth-source-root-fallback: mutant has syntax error (bash -n rc=$sr_syntax) — cannot run"
+    else
+      mkdir -p "$TMP/sr-root/organized/platBase/vineflower/com/example"
+      seq 1 30 > "$TMP/sr-root/organized/platBase/vineflower/com/example/Foo.java"
+      d_sr="$TMP/sr-teeth.md"
+      { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+        echo "The method \`organized/platBase/vineflower/com/example/Foo.java:10\`. \`[CERT]\`"; } > "$d_sr"
+      # Original must resolve ok with SOURCE_ROOT set; mutant must revert to extern.
+      orig_sr_out="$(SOURCE_ROOT="$TMP/sr-root" bash "$SUT" "$d_sr" 2>/dev/null)"
+      mut_sr_out="$(SOURCE_ROOT="$TMP/sr-root" bash "$mutant_sr" "$d_sr" 2>/dev/null)"
+      orig_ok=0; mut_extern=0
+      grep -qE 'ok.*organized/platBase/vineflower/com/example/Foo\.java:10' <<<"$orig_sr_out" && orig_ok=1
+      grep -qiE 'extern.*organized/platBase/vineflower/com/example/Foo\.java:10' <<<"$mut_sr_out" && mut_extern=1
+      if [ "$orig_ok$mut_extern" = "11" ]; then
+        ok "teeth-source-root-fallback: original resolves ok; mutant reverts to extern (test 65 has teeth)"
+      else
+        no "teeth-source-root-fallback: orig_ok=$orig_ok mut_extern=$mut_extern (want 1 1) :: orig=$(grep -iE 'ok|extern' <<<"$orig_sr_out" | head -1) mut=$(grep -iE 'ok|extern' <<<"$mut_sr_out" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-source-root-fallback: SOURCE_ROOT-FALLBACK sentinel not found in SUT (fallback not implemented or marker missing)"
   fi
 fi
 

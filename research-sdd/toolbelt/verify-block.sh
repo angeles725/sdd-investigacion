@@ -268,6 +268,9 @@ if [ -n "$bt_cites" ]; then
     if [ ! -f "$_bt_resolve" ] && [ -n "$git_root" ] && [ "$git_root" != "$target" ] && [ -f "$git_root/$f" ]; then
       _bt_resolve="$git_root/$f"  # N-PROJECT-FALLBACK
     fi
+    if [ ! -f "$_bt_resolve" ] && [ -n "${SOURCE_ROOT:-}" ] && [ -f "$SOURCE_ROOT/$f" ]; then
+      _bt_resolve="$SOURCE_ROOT/$f"  # SOURCE_ROOT-FALLBACK
+    fi
     if [ -f "$_bt_resolve" ]; then
       total=$(wc -l < "$_bt_resolve")
       if [ "$end" -le "$total" ]; then
