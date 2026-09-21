@@ -74,6 +74,11 @@ Behaviours the profile implies that the rules above did not yet name:
   the system itself uses, and manual re-derivation introduces scale errors, edge-case contamination, and
   double-conversion defects that the system's own pipeline already resolved. Re-derivation from raw is
   correct only when the authoritative source is absent or unreachable.
+- **Persist timestamps in UTC from the raw value; convert to local only at the display layer.** Never
+  re-ingest an already-localized string — a local timezone label applied at storage propagates a double
+  offset through every downstream join when a second conversion runs. The UTC value is the authoritative
+  ground truth; display conversion is presentational and reversible, storage conversion is not.
+  (Source: fluke-177x-datos — events.ts stored local-labelled-UTC → double 6-hour offset on re-ingestion.)
 
 ## 2. The SDD-R phases (mapping from gentle-ai's SDD)
 
@@ -1551,6 +1556,15 @@ the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix bat
 
 **DE-ESCALATION IS A VALID ITERATION-HISTORY OUTCOME, NOT A FAILURE.** When a driver re-verifies a claim and downgrades it — a `[CERT]` demoted to `[INFER]`, an overstated finding narrowed, a false positive retracted — record the outcome explicitly in the iteration history as a DE-ESCALATION. Subtracting a false finding has the same research value as adding a true one; an unlabelled retraction looks like a correction and obscures the evidence strength of the remaining corpus. (Source: niagara-research B341 "driver re-verify (downgraded overstated finding)"; B347 "2 de-escalations"; B349 §349.5.)
 
+**NULL-OR-NEGATIVE METRIC: probe the metric against a KNOWN-POSITIVE case before changing the metric.**
+A metric that cannot represent the change under test reports it as a regression — confidently, with no
+visible error. The first response to a null or negative result is NOT to adjust the metric or the candidate;
+it is to feed the metric a KNOWN-POSITIVE case (a change whose outcome is unambiguous) and confirm the metric
+can score it correctly. A metric that fails the known-positive test is broken and must be repaired before any
+candidate verdict is meaningful. A metric whose known-positive passes is then trusted to assess the candidate
+genuinely. (Source: blender-llm B45/B50 — luminance metric scored correct colouring as a regression; the
+broken instrument was confirmed by a known-positive probe, not by adjusting the colouring.)
+
 ## 11b. Verifying the verifier and the kit test-lane contract
 
 SITUATIONAL, not part of the per-block HOT-CORE: read this section IN FULL when a run adds or changes a guard,
@@ -1852,6 +1866,14 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   prior session does not authorize a new write. Go back to the operator directly if the
   authorization chain is ambiguous or indirect. A write under fresh authorization still enters the
   invasiveness ladder at its lowest applicable rung — do not skip (0)–(1). (Evidence: panccadia-3d-viewer)
+- **LIVE-WRITE PROTOCOL (three mandatory gates).** Any §12 validation that WRITES to a live or
+  operational system requires all three in order: (a) direct user authorization naming the specific
+  target, interface, and action — a peer-relayed summary is NOT authorization (see above); (b) change
+  → settle window → independent read-back → byte-identical restore-to-original (see backup-before-destroy
+  and cross-protocol oracle rules); (c) a bare `200 OK` is NOT verification — a malformed response body
+  can return 200 and silently write wrong data; confirm the write via the independent read-back oracle
+  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient.
+  (Evidence: panccadia B22/B23.)
 - **Cross-protocol oracle for every write.** Validate a write through an INDEPENDENT channel, not the one
   you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
   read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
@@ -2248,6 +2270,16 @@ over disjoint surface sets so no single agent holds the whole universe. The ~20 
 partition: at or below it, inline triage; above it, delegated and (when large) parallel audit — a working
 figure, not a hard gate.
 
+**FAILURE-AXIS AUDIT-FIRST bootstrap (hardening/robustness focus variant).** When the focus is hardening or
+robustness on a MATURE corpus — where most functional surfaces are already covered and the standard taxonomy
+sweep would re-propose covered gaps — use a parallel lifecycle-stage failure-axis sweep instead. Fan the
+audit into disjoint axes: **build/sign/load · runtime · persistence · UX/security · reference-grammar**.
+Each axis runs as an independent parallel shard; the intersection of each axis with each subsystem produces a
+pre-prioritized gap set concentrated on uncovered failure modes rather than re-auditing covered surface.
+The standard scale heuristic (inline vs. delegated vs. parallel) still applies inside each axis; the
+failure-axis structure replaces the surface-set partitioning, not the size threshold.
+(Source: niagara module-hardening retro.)
+
 **Mature-corpus broad-enumeration audit: REMITTANCE-dominant, not discovery-dominant.** When the request over a mature multi-focus corpus is "enumerate/audit all surfaces of type X" (a broad enumeration over a taxonomy already substantially covered), expect that MOST candidate surfaces are already answered by existing blocks. The audit's PRIMARY value is the small delta set — surfaces genuinely NOT yet covered. Before delegating the audit sweep: pre-declare all surfaces the existing corpus already answers as REMITTANCE gaps with their `[Block N] §N.x` citations; instruct the sweep to seed ONLY the non-covered surfaces as new gaps. Record the pre-declared REMITTANCE list in RESEARCH-STATE as a named "Remittance declared:" section so coverage accounting stays honest and the delta set is visibly separated from the bulk. Seeding the full taxonomy blindly re-inflates the backlog with already-covered subjects and hides how little genuine new work remains. This is the corpus-level analogue of the per-gap PRIOR COVERAGE CHECK in PROMPT-LOOP §NORMAL CYCLE step 3: that check fires once per gap during investigation; this fires once per focus-open across the whole prior corpus.
 (Source: niagara-research/retros/2026-08-25-apis-closure.md D3)
 
@@ -2270,8 +2302,13 @@ without adding coverage. (Source: fluke-177x-datos 2026-09-13-auto-sharding-recu
 **A multi-stage data pipeline must account for every record it discards.** When a pipeline stage drops
 records silently (waveforms, metadata rows, secondary tables), any coverage claim downstream is overstated
 by exactly the proportion dropped. Audit what each stage keeps versus discards, and log it explicitly; a
-stage that cannot state its discard count has not proved its coverage. (Source: fluke-177x-datos
-2026-09-13-doctrina-detenerse-corto-y-explorar)
+stage that cannot state its discard count has not proved its coverage. This extends to any writer or
+extractor at the sink end: a writer that saves only a subset of its input (selecting certain series,
+filtering row ranges, skipping secondary tables) must declare and log the discarded fraction; a coverage
+claim derived from its output is overstated by that fraction. Measure discard rates explicitly — at every
+stage, including the sink — before accepting pipeline coverage numbers.
+(Source: fluke-177x-datos — fluke_db extractor dropped ~84 % of available records (waveforms + metadata
+tables) until the discard rate was explicitly audited.)
 
 **Backlog SIZING comes from a MEASURED count, never a hand-guess.** Whenever a gap's size feeds
 prioritization (how many classes/commands/files a subsystem holds), take the number from an ACTUAL count over
@@ -2306,6 +2343,14 @@ write time; implementations encode the actual behavioral contract, which may dif
 platform overrides, or vendor customization. A gap whose behavioral premise was inferred from shard text
 must be code-verified before entering the backlog; premises inferred from naming conventions have
 consistently needed §14 correction when code-reading revealed the actual contract differed.
+
+**Scheme-prefix and module-purpose sub-note (applies to shard reads of `module.xml` and field/class names).**
+A shard reading only `module.xml` identity fields and class or field names can misname an ORD scheme prefix
+or over-claim a module's behavioral purpose — both require reading the actual implementation (registered
+factories, class hierarchy, method bodies) to confirm. Re-derive scheme prefixes and module behavioral
+purpose from IMPLEMENTATION CODE before entering the backlog; a gap seeded on a shard-inferred prefix
+carries near-certain §14 correction debt. (Source: niagara B887/B888 — two §14 corrections in 25 blocks,
+both from shard-inferred premises.)
 
 **Do not extrapolate a layout pattern across record types.** When a layout pattern (field order, stride,
 encoding) is confirmed for one RECORD TYPE (e.g. scalar measurement tables), treat it as a HYPOTHESIS
@@ -3277,7 +3322,7 @@ pins its RESOLVED location (or the resolver command that produced it) in the cit
 
 **Pipeline-repo subjects.** When the subject's data directories are REWRITTEN by each pipeline run, the snapshot rule has a specific form: cite only committed blob references (`git show <sha>:<path>`) for any measurement that enters the corpus — never a working-tree path as primary evidence. Three failure modes recur: (1) *stale table* — a prior run's output survives at the current path and reads as fresh data; (2) *phantom regression* — a mid-run snapshot captures an intermediate state and produces a plausible-wrong number; (3) *working-tree drift* — the directory is rewritten while the block is being written, so citations diverge. Enforcement path: per-artifact sha256 execution-provenance stamp in the block header + a `--allow-unpinned` build guard that rejects working-tree paths without an explicit override.
 
-**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate.
+**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate. **Revise in place, not by new block.** As evidence lands, update the SAME block — append to its evidence sections, update the status header, revise provisional claims. Do NOT open a new block for each update; one operation = one block, revised as it resolves. (Source: niagara relayed-cert-live retro.)
 
 **The procedure / how-to genre.** A block's evidence base depends on what it documents. Documenting how
 something in the SUBJECT works is ordinary `[CERT]` file:line. Documenting a PROCEDURE — a how-to (connect an
@@ -3291,7 +3336,7 @@ precisely what `[CERT-hw]`/`[CERT-live]` already mean.
 
 *(1) Runtime-script and narrative-process corpora.* When the source corpus is a set of runtime scripts or a narrative process document with no public API docs, `[CERT]` file:line citations of those files ARE the primary evidence — not a deficiency. The `verify-block.sh` WARN "ZERO file:line citations resolved" fires on `Type: document` blocks that cite document sections by header (`PROCESS.md §n`, no `:line`); this warns that SECTION references were not resolved as evidence citations — it does not mean the block is undercited. Distinguish document-mode section citations (a narrative anchor, no line number required) from evidence citations (a code or probe fact, requiring file:line).
 
-*(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder.
+*(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder. **Attribution and preservation requirements for relayed probes:** (a) attribute who ran the probe in the citation (a name or role — distinguishes relay from direct observation); (b) preserve the relayed artifact — screenshot, log extract, diagnostic output — under `sources/probes/` exactly as a direct probe would be; (c) record unitemized residuals as `[INFER]` — items mentioned in the relay that the preserved artifact does not confirm are not `[CERT-live]`. A relayed claim with no preserved artifact stays `[INFER]` for any value-dependent sub-claim. (Source: niagara relayed-cert-live retro.)
 
 *(3) External-product steps in runbook blocks.* A runbook block often mixes corpus `[CERT]` facts (this device's config, locally verified) with external-product steps (how to configure the DNS provider, how to invoke the hosting API). Keep these visually separate: external steps verified against an official source are `[CERT-web]` (URL + access date, §3); unverified external steps are `[INFER]`. A block where `[CERT]` and `[CERT-web]/[INFER]` rows are interleaved without separation is a reviewer red flag — the reader cannot tell which claims are locally verified. Document mode introduces no new markers for this: `[CERT-web]` and `[INFER]` already cover it.
 
