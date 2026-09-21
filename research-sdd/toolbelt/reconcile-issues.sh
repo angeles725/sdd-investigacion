@@ -140,10 +140,14 @@ audit_retro() {
       | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
     if [ -n "$_shipped_raw" ]; then
       shipped_ids="$(printf '%s' "$_shipped_raw" \
+        | sed -E 's/[[:space:]]*\([^)]*\)//g' \
         | awk '{
             n = split($0, tokens, /[,[:space:]]+/)
             for (i=1; i<=n; i++) {
               t = tokens[i]
+              if (t == "") continue
+              # RECONCILE_ISSUES_HASH_STRIP: strip leading # from token before id parsing
+              sub(/^#/, "", t)
               if (t == "") continue
               if (match(t, /^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$/, m)) {
                 pfx1=m[1]; n1=int(m[2]); pfx2=m[3]; n2=int(m[4])
