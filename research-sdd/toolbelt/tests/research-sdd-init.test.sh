@@ -198,6 +198,80 @@ else
   no "reframe: group order wrong (CONFIRM=$cl item1=$i1 THEN=$tl item3=$i3)"
 fi
 
+# EN2a — auto-wire hooks into $target/.claude/settings.json
+# -------------------------------------------------------
+# (a)(b)(d) require jq; (c) and (e) can run independently.
+echo "-- EN2a: auto-wire settings.json --"
+_en2a_has_jq=0; command -v jq >/dev/null 2>&1 && _en2a_has_jq=1
+
+if [ "$_en2a_has_jq" = 1 ]; then
+  # (a) fresh target — no pre-existing settings.json → both hooks registered
+  d="$TMP/en2a-a"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
+  assert_file "EN2a-(a) wire-fresh: settings.json created"               "$d/.claude/settings.json"
+  if [ -f "$d/.claude/settings.json" ]; then
+    assert_grep "EN2a-(a) wire-fresh: Stop hook present"         "retro-gate-stop.sh"   "$d/.claude/settings.json"
+    assert_grep "EN2a-(a) wire-fresh: SessionStart hook present" "research-protocol.sh" "$d/.claude/settings.json"
+  else
+    no "EN2a-(a) wire-fresh: Stop hook (file absent)"; no "EN2a-(a) wire-fresh: SessionStart hook (file absent)"
+  fi
+
+  # (b) pre-existing settings.json with unrelated hook → merged, unrelated hook preserved
+  d="$TMP/en2a-b"; mkdir -p "$d/.claude"
+  printf '{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"echo pre"}]}]}}\n' \
+    > "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
+  assert_grep "EN2a-(b) wire-merge: PreToolUse preserved"         "PreToolUse"           "$d/.claude/settings.json"
+  assert_grep "EN2a-(b) wire-merge: Stop hook merged"             "retro-gate-stop.sh"   "$d/.claude/settings.json"
+  assert_grep "EN2a-(b) wire-merge: SessionStart hook merged"     "research-protocol.sh" "$d/.claude/settings.json"
+
+  # (d) idempotent — second run (--force) → no duplicate Stop or SessionStart entries
+  d="$TMP/en2a-d"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --force >/dev/null 2>/dev/null
+  _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' \
+    "$d/.claude/settings.json" 2>/dev/null)
+  _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' \
+    "$d/.claude/settings.json" 2>/dev/null)
+  [ "$_sc_n" = 1 ] && ok "EN2a-(d) idempotent: Stop has exactly 1 entry" \
+                    || no "EN2a-(d) idempotent: Stop count=$_sc_n (expected 1)"
+  [ "$_ss_n" = 1 ] && ok "EN2a-(d) idempotent: SessionStart has exactly 1 entry" \
+                    || no "EN2a-(d) idempotent: SessionStart count=$_ss_n (expected 1)"
+else
+  echo "  SKIP  EN2a-(a)(b)(d): jq not on PATH"
+fi
+
+# (c) --no-wire → settings.json NOT written, JSON block in stdout
+d="$TMP/en2a-c"; mkdir -p "$d"
+_nw_out="$TMP/en2a-c.out"
+bash "$SUT" "$d" --corpus flat --no-wire > "$_nw_out" 2>/dev/null; _nw_rc=$?
+[ "$_nw_rc" = 0 ] && ok 'EN2a-(c) --no-wire exits 0' || no "EN2a-(c) --no-wire exits 0 (got $_nw_rc)"
+assert_absent "EN2a-(c) --no-wire: settings.json NOT written" "$d/.claude/settings.json"
+assert_grep   'EN2a-(c) --no-wire: JSON block in stdout'      '"hooks"' "$_nw_out"
+
+# (e) jq-absent → 'degraded' in stderr, settings.json NOT created, block printed in stdout
+_jq_found="$(command -v jq 2>/dev/null)"
+if [ -z "$_jq_found" ]; then
+  echo "  SKIP  EN2a-(e): jq not on PATH (cannot construct PATH-without-jq)"
+else
+  _jq_dir="$(dirname "$_jq_found")"
+  _path_nojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+  if PATH="$_path_nojq" command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  EN2a-(e): jq still reachable after dir exclusion (multiple jq copies on PATH)"
+  else
+    d="$TMP/en2a-e"; mkdir -p "$d"
+    _e_out="$TMP/en2a-e.out"; _e_err="$TMP/en2a-e.err"
+    PATH="$_path_nojq" bash "$SUT" "$d" --corpus flat > "$_e_out" 2>"$_e_err"
+    _e_rc=$?
+    [ "$_e_rc" = 0 ] && ok "EN2a-(e) jq-absent: exits 0 (graceful)" \
+                      || no "EN2a-(e) jq-absent: exits 0 (got $_e_rc)"
+    grep -qF "degraded" "$_e_err" && ok "EN2a-(e) jq-absent: 'degraded' in stderr" \
+                                   || no "EN2a-(e) jq-absent: 'degraded' NOT in stderr"
+    assert_absent "EN2a-(e) jq-absent: settings.json NOT created" "$d/.claude/settings.json"
+    assert_grep   "EN2a-(e) jq-absent: JSON block printed"        '"hooks"' "$_e_out"
+  fi
+fi
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -365,6 +439,76 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       fi
     else
       no "teeth M7: could not verify reorder — CONFIRM not after item-2 (CONFIRM=$m7_cf_line item2=$m7_i2_line)"
+    fi
+  fi
+
+  # MW1: skip the atomic mv (make wire a no-op) → settings.json absent → (a) RED
+  echo "-- teeth proof MW1: skip jq mv → settings.json absent, wire-fresh test has teeth --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW1: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw1/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw1/templates"
+    mw1="$TMP/mw1/toolbelt/init.sh"
+    awk '/mv "\$_tmp_settings" "\$_settings"/ { next } { print }' "$SUT" > "$mw1"
+    if grep -q 'mv "\$_tmp_settings"' "$mw1"; then
+      no "teeth MW1: could not build mutant (mv line still present)"
+    else
+      dmw1="$TMP/mw1t"; mkdir -p "$dmw1"
+      bash "$mw1" "$dmw1" --corpus flat >/dev/null 2>/dev/null
+      if [ ! -f "$dmw1/.claude/settings.json" ]; then
+        ok "teeth MW1: mutant → settings.json absent → wire-fresh test has teeth"
+      else
+        no "teeth MW1: mutant still created settings.json — wire-fresh test is THEATER"
+      fi
+    fi
+  fi
+
+  # MW2: remove --no-wire guard → settings.json written even with --no-wire → (c) absent assertion RED
+  echo "-- teeth proof MW2: remove no-wire guard → settings.json written with --no-wire --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW2: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw2/templates"
+    mw2="$TMP/mw2/toolbelt/init.sh"
+    awk '/if \[ "\$no_wire" = 0 \]/ { print "if true; then  # MUTANT: no-wire guard removed"; next } { print }' "$SUT" > "$mw2"
+    if ! grep -q '# MUTANT: no-wire guard removed' "$mw2"; then
+      no "teeth MW2: could not build mutant (no-wire guard line not found)"
+    else
+      dmw2="$TMP/mw2t"; mkdir -p "$dmw2"
+      bash "$mw2" "$dmw2" --corpus flat --no-wire >/dev/null 2>/dev/null
+      if [ -f "$dmw2/.claude/settings.json" ]; then
+        ok "teeth MW2: mutant writes settings.json with --no-wire → no-wire-absent test has teeth"
+      else
+        no "teeth MW2: mutant did NOT write settings.json — no-wire-absent test is THEATER"
+      fi
+    fi
+  fi
+
+  # MW3: remove the degraded echo → 'degraded' absent from stderr → (e) stderr check RED
+  echo "-- teeth proof MW3: remove degraded echo → 'degraded' absent from stderr --"
+  _mw3_jq_found="$(command -v jq 2>/dev/null)"
+  if [ -z "$_mw3_jq_found" ]; then
+    echo "  SKIP  teeth MW3: jq not on PATH"
+  else
+    _mw3_jq_dir="$(dirname "$_mw3_jq_found")"
+    _mw3_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_mw3_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    if PATH="$_mw3_pnojq" command -v jq >/dev/null 2>&1; then
+      echo "  SKIP  teeth MW3: cannot exclude jq from PATH (multiple copies)"
+    else
+      mkdir -p "$TMP/mw3/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw3/templates"
+      mw3="$TMP/mw3/toolbelt/init.sh"
+      awk '/echo "degraded: jq not found/ { next } { print }' "$SUT" > "$mw3"
+      if grep -qF 'echo "degraded: jq not found' "$mw3"; then
+        no "teeth MW3: could not build mutant (degraded echo still present)"
+      else
+        dmw3="$TMP/mw3t"; mkdir -p "$dmw3"
+        PATH="$_mw3_pnojq" bash "$mw3" "$dmw3" --corpus flat >/dev/null 2>"$TMP/mw3.err"
+        if ! grep -qF "degraded" "$TMP/mw3.err" 2>/dev/null; then
+          ok "teeth MW3: degraded absent in mutant stderr → jq-absent stderr test has teeth"
+        else
+          no "teeth MW3: degraded still present in mutant stderr — THEATER"
+        fi
+      fi
     fi
   fi
 fi

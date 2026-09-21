@@ -18,7 +18,7 @@
 #     left behind, no green report over a broken tree.
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
-# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
+# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--no-wire]
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused).
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
@@ -26,17 +26,18 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 KIT="$(cd "$(dirname "$0")/.." && pwd)"          # .../research-sdd
 TPL="$KIT/templates"
 
-target=""; corpus_mode="auto"; prefix=""; force=0
+target=""; corpus_mode="auto"; prefix=""; force=0; no_wire=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --corpus) corpus_mode="${2:-auto}"; shift 2;;
-    --prefix) prefix="${2:-}"; shift 2;;
-    --force)  force=1; shift;;
-    -*)       echo "unknown flag: $1" >&2; exit 2;;
-    *)        target="$1"; shift;;
+    --corpus)   corpus_mode="${2:-auto}"; shift 2;;
+    --prefix)   prefix="${2:-}"; shift 2;;
+    --force)    force=1; shift;;
+    --no-wire)  no_wire=1; shift;;
+    -*)         echo "unknown flag: $1" >&2; exit 2;;
+    *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--no-wire]" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
@@ -176,16 +177,63 @@ echo
 echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
 echo "  mental model: you now have a VALID-but-EMPTY corpus; the JUDGMENT follow-ups turn it into a real research target."
 echo
-echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself) --"
-echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
-printf '%s\n' '{' \
-  '  "hooks": {' \
-  '    "Stop": [' \
-  '      {"matcher":"","hooks":[{"type":"command","command":"'"$target/.claude/hooks/retro-gate-stop.sh"'"}]}' \
-  '    ],' \
-  '    "SessionStart": [' \
-  '      {"matcher":"","hooks":[{"type":"command","command":"'"$target/.claude/hooks/research-protocol.sh"'"}]}' \
-  '    ]' \
-  '  }' \
-  '}'
+# §479 HOOK WIRING — auto-wire by default; --no-wire falls back to print-only.
+# DOCTRINE: this wires the TARGET'S OWN hooks as part of scaffolding it.
+# It is NOT auto-applying a research finding to a corpus — propose-never-apply
+# for research CONTENT stays intact. This is scaffold setup, not corpus mutation.
+_stop_cmd="$target/.claude/hooks/retro-gate-stop.sh"
+_ss_cmd="$target/.claude/hooks/research-protocol.sh"
+_settings="$target/.claude/settings.json"
+_wire_result="skip"
+
+if [ "$no_wire" = 0 ]; then
+  # §7 anti-silent-zero: probe for jq before any write; never silently fail or half-write
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "degraded: jq not found on PATH — cannot auto-wire settings.json; falling back to print" >&2
+    _wire_result="degraded"
+  else
+    # Read existing settings or start from empty object; never corrupt if file is invalid JSON
+    _wire_base='{}'
+    if [ -f "$_settings" ]; then
+      _wire_base="$(cat "$_settings")"
+    fi
+    _tmp_settings="$(mktemp)"
+    # Idempotent merge: add Stop + SessionStart entries only if the command is not already present
+    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" '
+      ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
+      ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
+      .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
+        else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
+      .hooks.SessionStart = (if $has_ss then (.hooks.SessionStart // [])
+        else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
+    ' > "$_tmp_settings" 2>/dev/null; then
+      mv "$_tmp_settings" "$_settings"
+      echo "  wired  : hooks registered in $_settings"
+      _wire_result="wired"
+    else
+      rm -f "$_tmp_settings"
+      echo "degraded: jq failed to process $_settings — falling back to print" >&2
+      _wire_result="degraded"
+    fi
+  fi
+fi
+
+# Print the wiring block when: --no-wire requested OR degraded fallback (jq absent/failed)
+if [ "$no_wire" = 1 ] || [ "$_wire_result" = "degraded" ]; then
+  echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself) --"
+  echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
+  printf '%s\n' '{' \
+    '  "hooks": {' \
+    '    "Stop": [' \
+    '      {"matcher":"","hooks":[{"type":"command","command":"'"$_stop_cmd"'"}]}' \
+    '    ],' \
+    '    "SessionStart": [' \
+    '      {"matcher":"","hooks":[{"type":"command","command":"'"$_ss_cmd"'"}]}' \
+    '    ]' \
+    '  }' \
+    '}'
+fi
+if [ "$no_wire" = 1 ]; then
+  echo "  (--no-wire: settings.json not written)"
+fi
 echo "== done =="
