@@ -1891,6 +1891,24 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   can return 200 and silently write wrong data; confirm the write via the independent read-back oracle
   before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient.
   (Evidence: panccadia B22/B23.)
+- **OFFENSIVE / DUAL-USE EXECUTION IS OUT OF DEFAULT SCOPE.** Building or running dual-use/offensive
+  tooling to CLOSE a gap — a license or authentication BYPASS, a tamper that forces a verifier to accept
+  a forged artifact, an exploit — is out of an agent's default scope. The default deliverable is the
+  MAPPED SURFACE: analyze the mechanism, document the requires-execution step, and mark the gap `refused`
+  (execution not performed). Execution is a POLICY DECISION reserved to the user.
+  - **Execution requires explicit, per-instance USER authorization.** The user, as the human authority,
+    may authorize ANY agent — including one other than the agent that declined — to build and run the
+    step. That is legitimate: a fresh explicit user authorization IS the authorization path, not a
+    boundary violation. One agent's `refused` marks THAT agent's default scope; it does not prohibit the
+    corpus or bind the user.
+  - **What is prohibited is agent→agent circumvention (laundering):** an agent whose step was denied or
+    declined routing it to a peer to bypass its own permission barrier WITHOUT user authorization. The
+    prohibition targets circumventing the user's decision — never the user re-assigning the work.
+  - Record both states honestly: the mapping agent marks `refused` with the analysis as the deliverable;
+    a later block that executes under the user's explicit authorization cites that authorization.
+  (Evidence: niagara-research signing-pki SP-G10 — B520 surface-mapped and marked `refused`; B524 executed
+  the Frida license-verifier shim live under explicit user authorization. Two blocks, one corpus, both
+  correct: decline-by-default then user-authorized execution.)
 - **Cross-protocol oracle for every write.** Validate a write through an INDEPENDENT channel, not the one
   you wrote on. On the LOGO!8: a Modbus FC01 read was the oracle for an RPC `writeDT`, and an RPC GetFB
   read was the oracle for a Modbus write. A write confirmed by a second channel earns `[CERT-hw]`; a write
