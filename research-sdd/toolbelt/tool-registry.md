@@ -357,7 +357,7 @@ defect (archive-blocking) · `2` = bad args. All are covered by `tests/*.test.sh
 
 | Gate | Checks |
 |---|---|
-| `verify-block.sh <block.md>` | per-block structure / certification-marker integrity |
+| `verify-block.sh <block.md>` | per-block structure / certification-marker integrity; honors `$SOURCE_ROOT` (env, opt-in) — when set, resolves backtick `file:line` citations against `$SOURCE_ROOT/<path>` (decompiled trees) before classifying as `extern` |
 | `verify-sources.sh <target-dir>` | SOURCES.md preservation + registry↔block citation + web-snapshot integrity (METHODOLOGY §5) |
 | `verify-state.sh <target-dir>` | RESEARCH-STATE living-mirror consistency (stale summary → premature STOP) |
 | `verify-corrections.sh <target-dir>` | §14 reciprocal-backlink lint: a block declaring "Corrects [Block N]" must have a matching "corrected in B&lt;this&gt;" note IN block N (a one-directional correction FAILs) |
