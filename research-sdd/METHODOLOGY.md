@@ -703,6 +703,16 @@ child needing the running device or device-bound key. (Source: 2026-08-30-jace80
 
 **Obfuscated `docSource` is a tool wall, not evidence.** When method names in `docSource` are mangled (Vineflower/Procyon emitting `ln`/`n` tokens in place of real names), that tree cannot support `[CERT]` claims about internals. Prefer the vineflower tree for clean names; if the vineflower tree is also mangled, mark the claim `[INFER]` or decline to write a thin block. Never `[CERT]` a claim derived from an `ln`-mangled method body. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #3)
 
+**`organized/docSource/…/extracted` is the PREFERRED source for reference and grammar blocks.** When both a
+decompiled tree and an `organized/docSource/…/extracted/` tree are available for the same class, prefer
+`docSource/…/extracted/` for any claim about API contracts, class-level javadoc, field grammar, and type
+signatures. The `extracted/` sub-tree ships the original javadoc text with real file:line anchors, which
+`verify-block.sh` resolves to `[CERT]`; decompiled trees read `extern` for platform internals and cannot
+supply resolvable file:line citations. Fall back to the decompiled tree only when `extracted/` coverage is
+absent or incomplete for the specific class. (Evidence: REF cluster B1106–B1112 — citations against
+docSource resolved; `verify-block.sh` emitted WARN-extern on the vineflower equivalents.
+Source: niagara-research/retros/2026-09-20-module-hardening-investigable-phase-retro.md · 2)
+
 **Calibrated discriminators are symmetric and reusable.** A classifier calibrated on a confirmed-positive layer is a symmetric discriminator for any layer of the same geometric kind (e.g. line segments or polylines claimed to belong to a structural category). Run it against the candidate and compare the score to the baseline from the confirmed layer: high score → confirmed as that kind; near-zero → not. The two scores together are the evidence, and the discriminator needs no rewrite or recalibration per candidate — same tool, same threshold, opposite answer on opposite input, the contrast itself the finding. (Evidence: nave-panccadia B36 §36.2–§36.4 — a pairing/thickness test calibrated on a confirmed wall layer scored 91.7 % there vs. 0 % interior pairing on the candidate, classifying it non-wall with no new test.)
 
 **Corroboration doctrine applies to any measured quantity, not only decompiled binaries.** The kit frames corroboration around `corroborate-*.sh` and the twin-binary check — a decompile is NOT evidence until a second, independently-produced channel confirms it. The underlying rule is channel-independence and applies universally: before trusting a derived value, ask what SECOND, independently-produced channel reports the same quantity. Examples: CAD polyline geometry vs. draughtsman's text label (two channels, same claimed dimension); workbook `Largo_m` vs. DXF longest edge (two channels, same measured length — agreeing to 0.03 mm median validates both). Neither is a binary; the requirement is channel independence, not artifact type. Apply the two-channel discipline wherever you would otherwise cite a single derived value without cross-check. (Source: blender-llm/retros/2026-09-16-blender-llm-b17-b20-duct-pipeline-retro.md Δ6)
@@ -2638,7 +2648,11 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   the index lacks a row for. `--focus <slug>` (explicit selection) bypasses the skip intentionally. A
   WARN-only FOCUSES↔RESEARCH-STATE drift sweep is still a wave-2 unit; when such a sweep is scheduled as a
   wave-2 follow-up, the closing unit must record **confirmation evidence** — exact gap count before and after
-  reconciliation — so the next retro can verify the sweep's impact. "Confirmed clean" means every FOCUSES.md
+  reconciliation — so the next retro can verify the sweep's impact. (Confirming-evidence run:
+  niagara-research/audits/2026-09-14-module-coverage-audit.md §drift-findings found 4 focuses with status
+  disagreement between FOCUSES.md and RESEARCH-STATE headers — module-best-practices, wb-ux-authoring,
+  interactive-composition, module-ux-testing — confirming the premature-STOP risk described in §8/§13; use
+  this as the evidence baseline when scheduling the wave-2 unit.) "Confirmed clean" means every FOCUSES.md
   row that triggered the WARN now agrees with its RESEARCH-STATE header, and those counts are stated
   explicitly in the closing note. Every checker (this one included)
   MUST read the token only, WARN by row on anything outside the vocabulary, and never guess
@@ -3403,6 +3417,34 @@ mode is EXERCISED. Maintainer caveat: those blocks were driven inline rather tha
 `document` sub-command — the `method: document-cycle` stamp confirms the DOCUMENT CYCLE contract was
 followed; whether the CLI surface was exercised is a separate question.
 
+## 20b. Modo bloque vs. modo diario
+
+Two complementary capture modes exist within the kit; confusing them causes applied work to be either
+forced into an inappropriate corpus block or lost entirely between commits.
+
+**Modo bloque (block mode) — verified reusable knowledge → corpus.**
+Use a corpus block (§4) when the output is a citable, independently-verifiable claim about the subject
+under study: an API fact, a protocol detail, a measured offset, a behavioural proof. A block passes
+`verify-block.sh`, carries certainty markers (§3), and enters the permanent corpus — it is the unit
+that research consumers cite. Block mode is the DEFAULT for the static loop (§1–§11) and the dynamic
+phase (§12).
+
+**Modo diario (daily-log mode) — process and applied-work log → journal.**
+Use an Engram journal entry (§18 journal, topic key `research/<target>/journal/<YYYY-MM-DD>-<HHMMSS>`)
+when the work is procedural — applying kit deltas, recording a session decision, noting an improvised
+technique, documenting a step that will appear in the §18 retro but needs no corpus block. Journal
+entries are explicitly exempt from the `undocumented_findings` counter (§18 type-carve-out), so a
+session spent applying deltas or triaging issues does not falsely inflate that counter. The §18 retro
+consolidation pass promotes worthwhile journal entries to `## Proposed kit deltas` rows; everything
+else evaporates with the session, which is correct — procedural steps are not corpus evidence.
+
+**Decision rule.** Ask: "Does this finding need to be citable, independently-verifiable, and
+permanently anchored in the corpus?" Yes → block mode. "Is this a procedural step, a session
+decision, or an applied-work note?" → daily-log mode (Engram journal entry + §18 retro candidate).
+Forcing procedural steps into corpus blocks inflates block counts with non-evidence and degrades
+`verify-block.sh` signal; discarding them without a journal entry loses the §18 retro thread.
+(Evidence: niagara-research/retros/2026-09-01-research-sdd-journal-mode-retro.md J2)
+
 ## 21. Wall protocol (blocked-artifact handling)
 
 A **wall** is any point where the loop cannot proceed at the required certainty because a *capability*
@@ -3552,3 +3594,41 @@ no-match (§7) and `exit 1` only on OPERATIONAL failure, never on a finding.
 **22.5 What NOT to tag.** Not every `[CERT]` block is a breakthrough. Tag only the DECISIVE turn — the
 technique without which the target stayed closed (the decrypt, the auth path, the gateway, the
 load-code RPC). If EVERYTHING is a breakthrough, nothing is; keep the ledger to the crown jewels.
+
+## 23. Three-session template for kit changes (coordinator / researcher / QA)
+
+When a kit-change campaign is large enough to span more than one session, a three-role split keeps each
+session's context thin and its output reviewable. This section covers the research-sdd side; the
+build-n4-module BUILD-LOOP counterpart (ORCHESTRATION and BUILD-LOOP doctrine for Niagara-side sessions)
+is documented in the build-n4-module kit under its own `BUILD-LOOP.md` — cross-link, do not duplicate.
+
+**The three roles.**
+
+- **Coordinator.** Plans the work, scopes units, routes tasks to research and QA sessions, integrates
+  results, creates PRs, and drives merges. Never runs investigation directly. The coordinator's thread
+  stays thin: it reads retros and blocks only to verify handoff evidence, never to re-derive findings.
+  The coordinator is the single voice on product decisions and scope changes.
+
+- **Researcher.** Runs the active investigation (PROMPT-LOOP, tool calls, probe execution) for one
+  scoped unit at a time. Returns: a retro with `## Proposed kit deltas`, evidence blocks (if applicable),
+  and a short handoff note naming the output files and their status. The researcher does NOT make
+  scope decisions or propose secondary units — those go back to the coordinator as gap items in the
+  retro `## Open questions` section.
+
+- **QA.** Verifies the researcher's output against the unit's acceptance criteria: runs gates
+  (`run-all.sh --prove-teeth`, shellcheck, fleet diff), reads the retro for conformance, and
+  checks evidence citations. Returns a typed verdict: `PASS`, `PASS-with-notes`, or `BLOCKED <reason>`.
+  A QA session is read-only with respect to the corpus — it never edits blocks or retros except to
+  add a reviewer sign-off line.
+
+**Handoff discipline.** Each role-to-role handoff names the FILES delivered and their exact status
+(matching CLAUDE.md §3 cross-session ordering rule: name file sets, not unit names). A handoff that
+says "unit X is done" without listing the output files is non-conforming.
+
+**When to use this template.** Apply it when: (a) the campaign has ≥3 units that cannot run in one
+session, OR (b) any unit requires a tool-execution phase (§19) that the coordinator session cannot
+run directly. For single-session work, this template adds overhead without benefit — the standard
+PROMPT-LOOP with §18 retro suffices.
+
+(Evidence: niagara-research/retros/2026-09-01-build-n4-module-kit-v0.2-retro.md P7 — split delta;
+research-sdd half documented here; build-n4-module half owned by Niagara peer session.)
