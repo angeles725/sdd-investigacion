@@ -1845,6 +1845,13 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   (2) reversible write — read-and-save the current value first, hold an oracle, restore in a `finally` →
   (3) destructive write — backup-first (below) → (4) irreversible — last, and only under scoped
   authorization (below). Announce which rung each step is on.
+  **TLS endpoint corollary:** for a TLS endpoint, a packet capture (`tcpdump`/Wireshark) is
+  STRICTLY WORSE as a rung-(0) instrument — the payload is encrypted and there is no PID
+  attribution from the capture — so a root-gated `tcpdump` is NOT a wall for this question class.
+  The UNPRIVILEGED rungs — local file-backed sink + `strace -e trace=connect` census +
+  `ss -tnp` PID attribution — are the STRONGER instruments, not the degraded ones: they observe
+  the unencrypted data before TLS wraps it and attribute traffic to an exact PID without elevated
+  privilege. (Evidence: blender b6 retro d1)
 - **A live install that CAN mutate is verified without ever mutating production.** When the target accepts
   writes (a station, a controller, a tenant API), credentials come from a mode-600 file OUTSIDE the repo
   and are never echoed, and verification uses a scratch object, a dry-run surface, or rung (1) discovery —
@@ -2361,6 +2368,17 @@ sample; do NOT propagate a confirmed layout from one type to another without ver
 layout corollary of "Behavioral premises derive from code": a premise confirmed for TYPE A is not
 automatically confirmed for TYPE B. (Source: fluke-177x-datos/retros/2026-09-13-camino-b-decode-completo.md
 prose delta 2)
+
+**ANNOTATION-BEFORE-DERIVATION: exhaust the annotation layer before re-deriving a labeled value.**
+Before computing a quantity from a labeled source (CAD drawing, schematic, datasheet, annotated
+image), exhaustively search the annotation layer for a label that already carries that value. An
+annotation on the source is a first-class cited measurement — deriving the same value from raw
+geometry or coordinate data is re-derivation: it introduces scale errors, rounding, and
+double-conversion defects that the source's own annotation pipeline has already resolved. Cite the
+annotation directly; re-derive only after confirming the annotation layer does not carry the value.
+(Evidence: COB-IM2 B13 §13.1 — the annotation layer carried the dimension value that was about to
+be derived from raw coordinates; citing it directly eliminated one re-derivation step and its
+attendant rounding error.)
 
 **Reconcile against the subject's own audit/CHANGELOG/ADR documents when available.** When the artifact
 under audit ships its own audit records, CHANGELOG, Architecture Decision Records, or prior-audit results,
