@@ -51,7 +51,10 @@
 # verdict changes) on their respective fixture retros.
 
 # Idempotent: safe to source more than once.
-if ! declare -F retro_grammar_delta_info >/dev/null 2>&1; then
+# typeset -f is used instead of declare -F: both work in bash (typeset is an alias for declare),
+# while declare -F in zsh means "declare as float" (always exits 0), so sourcing from zsh with
+# the declare -F guard would never define the function (#903).
+if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
 
   retro_grammar_delta_info() {
     local f="${1:-}"

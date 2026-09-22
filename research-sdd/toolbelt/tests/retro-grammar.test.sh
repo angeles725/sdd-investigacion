@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# retro-grammar.test.sh — regression harness for lib/retro-grammar.sh (#483 U18).
+# retro-grammar.test.sh — regression harness for lib/retro-grammar.sh (#483 U18, #903).
 #
-# Tests the retro_grammar_delta_info shared grammar function directly, and
-# proves the both-consumers-flip invariant: changing one deprecated-alias regex
-# in the lib must flip BOTH sweep-retros.sh (delta count) AND verify-retro.sh
-# (conformance verdict).
+# Tests the retro_grammar_delta_info shared grammar function directly, proves the
+# both-consumers-flip invariant, and guards two structural concerns (#903):
+#   ZSH-GUARD: typeset -f idempotency guard must define the function under zsh (not just bash)
+#   RETRO-TRAP: research-sdd/retros/ must not exist (kit retros belong in top-level retros/)
 #
 # Usage: retro-grammar.test.sh [--prove-teeth]
 # Exit: 0 = all held · 1 = regression · 2 = harness error
@@ -150,18 +150,51 @@ _rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
   || no "T8: unrecognised Rule 1 → expected unrec_found=1" "got=[$_out]"
 
 # T9: idempotent sourcing — sourcing the lib a second time must not re-define the function
-# (the if ! declare -F guard prevents it). We check by calling the function after double-source.
+# (the if ! typeset -f guard prevents it). We check by calling the function after double-source.
 # shellcheck source=../lib/retro-grammar.sh
 . "$RG_LIB"
-declare -F retro_grammar_delta_info >/dev/null 2>&1 \
+typeset -f retro_grammar_delta_info >/dev/null 2>&1 \
   && ok "T9: double-source idempotent — function still defined after second source" \
   || no "T9: double-source idempotent — function GONE after second source"
+
+# ── ZSH compatibility: typeset -f guard must work when sourced from zsh (#903) ──
+# Probe for zsh: typed skip if absent (never a silent pass).
+echo "-- ZSH-GUARD: typeset -f guard defines function when sourced from zsh --"
+_zsh_bin="$(type -P zsh 2>/dev/null || true)"
+if [ -z "$_zsh_bin" ]; then
+  ok "ZSH-GUARD: zsh not found — typed skip (would verify function defined under zsh)" "(skip)"
+else
+  _zsh_out="$("$_zsh_bin" -c ". '$RG_LIB'; typeset -f retro_grammar_delta_info >/dev/null 2>&1 && echo DEFINED || echo UNDEFINED" 2>&1)"
+  if [ "$_zsh_out" = "DEFINED" ]; then
+    ok "ZSH-GUARD: retro_grammar_delta_info defined after sourcing from zsh (typeset -f portable guard)" "()"
+  else
+    no "ZSH-GUARD: retro_grammar_delta_info NOT defined after sourcing from zsh" "out=[$_zsh_out]"
+  fi
+fi
+
+# ── RETRO-TRAP: research-sdd/retros/ must not exist (#903) ──────────────────
+# Kit session retros live in top-level retros/ — never in research-sdd/retros/.
+# assert_no_rsd_retros_dir <root>: exits 0 if research-sdd/retros/ absent, 1 if present.
+assert_no_rsd_retros_dir() {
+  local root="$1"
+  if [ -d "$root/research-sdd/retros" ]; then
+    echo "RETRO-TRAP: research-sdd/retros/ exists under $root; kit retros belong in top-level retros/" >&2
+    return 1
+  fi
+  return 0
+}
+_repo_root="$(cd "$HERE/../../.." && pwd)"
+if assert_no_rsd_retros_dir "$_repo_root" 2>/dev/null; then
+  ok "RETRO-TRAP: research-sdd/retros/ absent (kit retros in top-level retros/)" "()"
+else
+  no "RETRO-TRAP: research-sdd/retros/ EXISTS — move retros to top-level retros/" ""
+fi
 
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
 
-# ── TEETH (--prove-teeth): both-consumers-flip mutant ────────────────────────
+# ── TEETH (--prove-teeth): both-consumers-flip + guard mutations ─────────────
 if [ "${1:-}" != "--prove-teeth" ]; then
   if [ "$fail" -gt 0 ]; then exit 1; fi
   exit 0
@@ -244,6 +277,34 @@ else
   [ "$_vr_rc_mut" = 1 ] \
     && ok "FLIP-VR: mutant lib flips verify-retro (exits 1 = FAIL)" "(both-consumers-flip has teeth for verify)" \
     || no "FLIP-VR: mutant lib must flip verify-retro to exit 1" "base-rc=$_vr_rc_base mut-rc=$_vr_rc_mut mut=[$_vr_mut]"
+fi
+
+# ── ZSH-GUARD teeth: declare-F mutant leaves function undefined under zsh ────
+echo "-- ZSH-GUARD teeth: declare-F mutant must fail to define function under zsh --"
+if [ -z "${_zsh_bin:-}" ]; then
+  ok "ZSH-GUARD teeth: zsh not found — typed skip (would verify declare-F mutant leaves function undefined)" "(skip)"
+else
+  _rg_mut="$ROOT/rg-zsh-mut-$$.sh"
+  sed 's/^if ! typeset -f retro_grammar_delta_info/if ! declare -F retro_grammar_delta_info/' "$RG_LIB" > "$_rg_mut"
+  _zsh_mut_out="$("$_zsh_bin" -c ". '$_rg_mut'; typeset -f retro_grammar_delta_info >/dev/null 2>&1 && echo DEFINED || echo UNDEFINED" 2>&1)"
+  if [ "$_zsh_mut_out" = "UNDEFINED" ]; then
+    ok "ZSH-GUARD teeth: declare-F mutant leaves function undefined under zsh (mutation has teeth)" "()"
+  else
+    no "ZSH-GUARD teeth: declare-F mutant should leave function undefined under zsh — tooth broken" "out=[$_zsh_mut_out]"
+  fi
+  rm -f "$_rg_mut"
+fi
+
+# ── RETRO-TRAP teeth: trap dir fixture must fire the guard ───────────────────
+echo "-- RETRO-TRAP teeth: guard must reject research-sdd/retros/ fixture --"
+_trap_root="$ROOT/trap-root"
+mkdir -p "$_trap_root/research-sdd/retros"
+_trap_err="$(assert_no_rsd_retros_dir "$_trap_root" 2>&1)"
+_trap_rc=$?
+if [ "$_trap_rc" != 0 ] && echo "$_trap_err" | grep -q "RETRO-TRAP"; then
+  ok "RETRO-TRAP teeth: present research-sdd/retros/ → guard exits 1 + message (mutation has teeth)" "()"
+else
+  no "RETRO-TRAP teeth: guard should reject trap dir" "rc=$_trap_rc err=[$_trap_err]"
 fi
 
 echo ""
