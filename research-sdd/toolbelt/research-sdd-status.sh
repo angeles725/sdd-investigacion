@@ -723,7 +723,8 @@ _stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)\n'; }
 issues_due_gate() {
   local -a _idg_retros
   local _idg_had_unverified _idg_total _idg_can_probe
-  local _ri _ri_out _ri_rc _n _n_rc _idg_retro _find_rc _sort_rc
+  local _ri _ri_out _ri_rc _n _n_rc _n_rev _ri_rev_out _ri_rev_rc _idg_retro _find_rc _sort_rc
+  local _idg_cache_file _idg_gh_fetch_rc _idg_gh_fetch_out
   local _ri_err_content _find_out_tmp _find_err_tmp _ri_err_tmp _rs_tok
   local _idg_timeout_secs _idg_timeout_bin _idg_aggr_budget _idg_aggr_start
   _idg_had_unverified=0; _idg_can_probe=1; _idg_total=0
@@ -800,11 +801,46 @@ issues_due_gate() {
     fi
 
     # R4-AGGREGATE-BUDGET: bound total wall time for verifying all retros are clean.
+    # Started BEFORE the batch fetch so the batch fetch is within the bounded region.
     # The early-exit path (IDG-EARLY-EXIT) fires on the first untracked retro and returns immediately;
     # this budget gates only the all-clean verification path where every retro must be probed.
     # Override via _IDG_AGGREGATE_BUDGET_SECS (default 60s).
     _idg_aggr_budget="${_IDG_AGGREGATE_BUDGET_SECS:-60}"  # IDG-AGGREGATE-BUDGET
     _idg_aggr_start="$SECONDS"
+
+    # BATCH PREFETCH (fast path): fetch all open issue bodies ONCE per --next terminal.
+    # The batch gh call is timeout-wrapped (same per-call bound as per-retro probes), and the
+    # aggregate budget starts above so the batch fetch is within the bounded region.
+    # Bounded by --limit (default 5000; override via _IDG_BATCH_LIMIT) to cap page size.
+    # On batch failure (any non-zero exit, including timeout exit 124): cache stays empty;
+    # the loop below uses the per-retro FALLBACK path (each retro does its own bounded gh probe).
+    # A stale cache is impossible: _idg_cache_file is a tmpfile created here and deleted after the loop.
+    _idg_cache_file=""
+    if [ -n "$_idg_timeout_bin" ]; then
+      _idg_cache_file="$(mktemp)" || {
+        _idg_had_unverified=1
+        printf 'WARN: mktemp failed for issue-cache — marking coverage unverified\n' >&2
+      }
+      if [ -n "$_idg_cache_file" ]; then
+        # IDG-BATCH-GH-CALL: one gh issue list call covers ALL retros in this --next terminal.
+        # IDG-BATCH-GH-TIMEOUT-WRAP: batch call timeout-wrapped (same per-call bound as per-retro probes).
+        _idg_gh_fetch_out="$("$_idg_timeout_bin" "$_idg_timeout_secs" gh issue list \
+            --repo "angeles725/sdd-investigacion" \
+            --state open \
+            --json body \
+            --limit "${_IDG_BATCH_LIMIT:-5000}" \
+            --jq '.[].body' 2>/dev/null)"  # IDG-BATCH-LIMIT-PRESENT
+        _idg_gh_fetch_rc=$?
+        if [ "$_idg_gh_fetch_rc" -ne 0 ]; then
+          # IDG-BATCH-FAILURE: any non-zero rc (incl. timeout 124) → clear cache; per-retro fallback.
+          rm -f "$_idg_cache_file"; _idg_cache_file=""
+          printf 'WARN: batch issue prefetch failed (exit %s) — falling back to per-retro reconcile\n' \
+            "$_idg_gh_fetch_rc" >&2
+        else
+          printf '%s\n' "$_idg_gh_fetch_out" > "$_idg_cache_file"
+        fi
+      fi
+    fi
 
     # PERF: source retro-status lib for pre-filtering applied/dismissed retros (avoids gh call).
     _rs_lib="$here/lib/retro-status.sh"
@@ -840,7 +876,15 @@ issues_due_gate() {
       # R4-SERIAL: when no timeout binary is available, skip this probe (fail-closed for liveness);
       # _idg_had_unverified was already set in the availability check above.
       [ -z "$_idg_timeout_bin" ] && continue  # IDG-TIMEOUT-ABSENT-SKIP
-      _ri_out="$("$_idg_timeout_bin" "$_idg_timeout_secs" "$_ri" "$_idg_retro" 2>"$_ri_err_tmp")"  # IDG-TIMEOUT-WRAP
+      # IDG-BATCH-FALLBACK: on batch failure (_idg_cache_file empty) → per-retro gh probe (no SPOF).
+      # IDG-BATCH-PASS-CACHE: on batch success (_idg_cache_file set) → use pre-fetched cache.
+      if [ -n "$_idg_cache_file" ]; then
+        # IDG-BATCH-PASS-CACHE: pass pre-fetched issue bodies; reconcile reads cache, no per-retro gh call.
+        _ri_out="$("$_idg_timeout_bin" "$_idg_timeout_secs" "$_ri" --issues-cache "$_idg_cache_file" "$_idg_retro" 2>"$_ri_err_tmp")"  # IDG-TIMEOUT-WRAP
+      else
+        # IDG-BATCH-FALLBACK-PER-RETRO: batch failed; each retro does its own bounded gh probe.
+        _ri_out="$("$_idg_timeout_bin" "$_idg_timeout_secs" "$_ri" "$_idg_retro" 2>"$_ri_err_tmp")"  # IDG-TIMEOUT-WRAP
+      fi
       _ri_rc=$?
       _ri_err_content="$(cat "$_ri_err_tmp")"
       : > "$_ri_err_tmp"  # clear for next iteration
@@ -872,17 +916,51 @@ issues_due_gate() {
           "$(basename "$_idg_retro")" "$_n_rc" >&2
         continue
       fi
+      # IDG-BATCH-UNTRACKED-REVERIFY: when the batch cache was used and this retro came back untracked,
+      # a truncated/empty/rate-limited batch (or a page hitting the --limit cap) can produce a false
+      # negative. Positive evidence (tracked) from the batch is trustworthy; negative evidence is not.
+      # Re-verify with one per-retro narrowed gh query before emitting ISSUES-DUE.
+      if [ "${_n:-0}" -gt 0 ] && [ -n "$_idg_cache_file" ]; then  # IDG-BATCH-UNTRACKED-REVERIFY
+        _ri_rev_out="$("$_idg_timeout_bin" "$_idg_timeout_secs" "$_ri" "$_idg_retro" 2>"$_ri_err_tmp")"  # IDG-REVERIFY-TIMEOUT-WRAP
+        _ri_rev_rc=$?
+        _ri_err_content="$(cat "$_ri_err_tmp")"
+        : > "$_ri_err_tmp"
+        if [ "$_ri_rev_rc" -ne 0 ]; then
+          if [ "$_ri_rev_rc" -eq 124 ]; then
+            _idg_had_unverified=1
+            printf 'WARN: re-verify timed out for %s — treating as unverified\n' \
+              "$(basename "$_idg_retro")" >&2
+          elif printf '%s\n' "$_ri_err_content" | grep -qE '^degraded:'; then
+            _idg_had_unverified=1
+            printf 'WARN: could not re-verify issue coverage (gh degraded) — seed manually\n' >&2
+          else
+            _idg_had_unverified=1
+            printf 'WARN: re-verify failed for %s (exit %s) — %s\n' \
+              "$(basename "$_idg_retro")" "$_ri_rev_rc" "${_ri_err_content:-no stderr}" >&2
+          fi
+          continue
+        fi
+        _n_rev="$(printf '%s\n' "$_ri_rev_out" | awk '/^untracked:/{n++} END{print n+0}')"
+        if [ "${_n_rev:-0}" -eq 0 ]; then
+          # Per-retro re-verify says tracked → batch was a false negative (truncation/lag) → not untracked.
+          continue  # IDG-BATCH-REVERIFY-CLEAN
+        fi
+        # Both batch and re-verify say untracked → genuinely untracked → proceed to ISSUES-DUE.
+        _n="$_n_rev"  # use the re-verified count
+      fi
       if [ "${_n:-0}" -gt 0 ]; then  # ISSUES-DUE-GATE-COND
         # IDG-EARLY-EXIT: first retro with untracked deltas → emit ISSUES-DUE immediately and stop.
         # Do NOT probe remaining retros; do NOT report _idg_total as a denominator (includes
         # unprobed retros). Count and path are scoped to THIS retro only.
         [ -n "$_ri_err_tmp" ] && rm -f "$_ri_err_tmp"
+        [ -n "$_idg_cache_file" ] && rm -f "$_idg_cache_file"
         printf 'ISSUES-DUE | %s untracked delta(s) in %s — seed: stage-retro-issues.sh %s --apply\n' \
           "$_n" "$_idg_retro" "$_idg_retro"
         return  # IDG-EARLY-EXIT
       fi
     done
     [ -n "$_ri_err_tmp" ] && rm -f "$_ri_err_tmp"
+    [ -n "$_idg_cache_file" ] && rm -f "$_idg_cache_file"
   fi
 
   # Unified decision: unverified wins over verified-clean; verified-clean last.
