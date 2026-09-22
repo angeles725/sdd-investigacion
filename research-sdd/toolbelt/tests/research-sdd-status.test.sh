@@ -2343,18 +2343,17 @@ fi
 #
 # Fixture: 1 pending investigable gap (d_inv=1), envelope investigable_open=1 (CHECK A passes),
 # prose says 0 → mismatch → SC-CROSS-CHECK must emit a FAIL line.
+_SC_CROSS_CHECK_FAIL='   FAIL   stop-control prose'  # stable grep anchor for SC-CROSS-CHECK FAIL output
 d_sccc="$TMP/sc-cross-check-mismatch"; mkdir -p "$d_sccc"
 { printf '# SC-CROSS-CHECK Test\n> intro\n'
-  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\n'
-  printf 'gaps_closed: 0\nknown_gaps: 1\ninvestigable_open: 1\nrequires_execution_open: 0\n'
-  printf 'blocked_open: 0\n<!-- /research-state.v1 -->\n\n'
-  printf '## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  env_lines 0 0 1 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | open investigable gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
   printf '%s\n' '- **Open gaps — read-only investigable**: 0'  # SC-CROSS-CHECK-FIRES-SENTINEL: prose=0, derived=1
 } > "$d_sccc/RESEARCH-STATE.md"
 _sccc_out="$(bash "$HERE/../verify-state.sh" "$d_sccc" 2>&1)"
-if echo "$_sccc_out" | grep -q 'stop-control prose'; then
-  ok "T-SC-CROSS-CHECK: verify-state SC-CROSS-CHECK fires when prose (0) contradicts derived count (1)"
+if echo "$_sccc_out" | grep -qF "$_SC_CROSS_CHECK_FAIL"; then
+  ok "T-SC-CROSS-CHECK: verify-state SC-CROSS-CHECK fires (FAIL + stop-control prose) when prose (0) contradicts derived count (1)"
 else
   no "T-SC-CROSS-CHECK: verify-state passed silently — SC-CROSS-CHECK did not fire on prose mismatch (prose absent or check skipped)"
 fi
@@ -3982,12 +3981,8 @@ BLTGHEOF
     no "teeth-IDG-batch-reverify: anchor '$_brev_anchor' not found in SUT"
   fi
 
-  # teeth-SC-CROSS-CHECK: prove T-SC-CROSS-CHECK has teeth by showing verify-state PASSES when the
-  # prose line is absent. The sentinel (SC-CROSS-CHECK-FIRES-SENTINEL) guards the exact fixture line
-  # that writes the mismatch prose. Without it, SC-CROSS-CHECK never fires and T-SC-CROSS-CHECK fails.
-  # This tooth proves the test is not theater: it would have been RED before the printf fix (#883).
-  _sccc_sentinel='SC-CROSS-CHECK-FIRES-SENTINEL'
-  if grep -qF "$_sccc_sentinel" "$0" 2>/dev/null; then
+  # teeth-SC-CROSS-CHECK: verify-state must NOT fire SC-CROSS-CHECK when prose is absent.
+  # Guard deleted: prior sentinel searched $0 for a token defined in $0 — vacuous, cannot fail.
     # Build a matching fixture but intentionally omit the prose line (simulates broken printf '- ').
     d_sccc_tooth="$TMP/sc-cross-check-tooth"; mkdir -p "$d_sccc_tooth"
     { printf '# SC-CROSS-CHECK Tooth\n> intro\n'
@@ -3999,14 +3994,14 @@ BLTGHEOF
       # Intentionally NO prose line — simulates what broken printf '- **Open gaps...\n' produced.
     } > "$d_sccc_tooth/RESEARCH-STATE.md"
     _sccc_tooth_out="$(bash "$HERE/../verify-state.sh" "$d_sccc_tooth" 2>&1)"
-    if echo "$_sccc_tooth_out" | grep -q 'stop-control prose'; then
+    _sccc_tooth_ec=$?
+    if [ "$_sccc_tooth_ec" -eq 127 ]; then
+      no "teeth-SC-CROSS-CHECK: verify-state.sh absent (exit 127) — tooth cannot distinguish SC-CROSS-CHECK silent from helper absent"
+    elif echo "$_sccc_tooth_out" | grep -qF "$_SC_CROSS_CHECK_FAIL"; then
       no "teeth-SC-CROSS-CHECK: verify-state fired SC-CROSS-CHECK even without prose line — tooth invalid (SC-CROSS-CHECK should be silent when prose is absent)"
     else
-      ok "teeth-SC-CROSS-CHECK: without prose line verify-state passes (SC-CROSS-CHECK silent) → T-SC-CROSS-CHECK would be RED if prose not written"
+      ok "teeth-SC-CROSS-CHECK: SC-CROSS-CHECK silent without prose → T-SC-CROSS-CHECK not theater (would be RED if prose absent)"
     fi
-  else
-    no "teeth-SC-CROSS-CHECK: sentinel '$_sccc_sentinel' not found in test file '$0' — tooth invalid"
-  fi
 
 fi
 
