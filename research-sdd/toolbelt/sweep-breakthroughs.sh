@@ -82,10 +82,13 @@ done
 # Column positions (awk -F'|'): $1=empty $2=# $3=target $4=what $5=how $6=memory
 # Skip: header rows (first cell is '#'), separator rows (|---|...|), skeleton rows (first cell is '—').
 # ---------------------------------------------------------------------------
+# Shared expansion root — mirrors target-paths.sh convention (${RESEARCH_HOME:-$HOME}).
+_sb_rh="${RESEARCH_HOME:-$HOME}"
+
 ledger_pointers=$(
   grep -E '^\|' "$BREAKTHROUGHS_MD" 2>/dev/null \
     | grep -vE '^\|[[:space:]]*[-:]+[[:space:]]*\|' \
-    | awk -F'|' '
+    | awk -F'|' -v rh="$_sb_rh" '
       {
         c1 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c1)
         # Skip header (#), placeholder/skeleton (—), separator, or empty first cell
@@ -94,11 +97,16 @@ ledger_pointers=$(
         # Extract backtick-wrapped path:line pointer: `anything:digits`
         if (match(how, /`[^`]+:[0-9]+`/)) {
           ptr = substr(how, RSTART + 1, RLENGTH - 2)
+          # Expand portable $RESEARCH_HOME/... and ${RESEARCH_HOME}/... forms.
+          # Reuses the same convention as target-paths.sh so absolute pointers keep working.
+          sub(/^\$\{RESEARCH_HOME\}\//, rh "/", ptr)
+          sub(/^\$RESEARCH_HOME\//, rh "/", ptr)
           print ptr
         }
       }
     '
 )
+unset _sb_rh
 
 # ---------------------------------------------------------------------------
 # Fleet pass: scan each corpus for tagged blocks

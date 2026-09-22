@@ -16,4 +16,6 @@ stay findable instead of buried in the corpus. Full doctrine: [`METHODOLOGY.md` 
 
 | # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
 |---|--------|----------------|-------------------------|---------------------------|
-| — | _(no entries yet — populated by verified back-fill; see METHODOLOGY §22.4)_ | | | |
+| 1 | COB-IM2 | Parallel-segment-pairs + occlusion test raises imperial-width match from 60 % naive to 72.4 % while recovering 4.1× more duct runs than closed-rectangles (2203 vs 538), confirming the primitive is geometrically correct and the occlusion filter is effective. | block `$RESEARCH_HOME/investigacion/COB-IM2/corpus/cob-block13.md:35` | — |
+| 2 | niagara-research | B456-G1 resolved. A self-signed `niagaramoduledev` module loads with full permissions for all standard groups (including NETWORK_COMMUNICATION) in N4.14's default `low` mode — cert not validated for non-requiresSignature groups. Gate: always-signed groups ACCESS_CLASS / REFLECTION / MBEAN_PERMISSION require Honeywell CA chain regardless of mode. | block `$RESEARCH_HOME/niagara-research/niagara-mental-model-bloque994.md:28` | — |
+| 3 | niagara-research | B854-G4 closed — `GM02ilum` maps to `Iluminacion/GM02` (zero-padded two-digit), NOT `Iluminacion/GM2`. B854 §8 over-generalized the "no leading zero" rule; the rule targets only the anomalous three-digit `GM010`-style names. | block `$RESEARCH_HOME/niagara-research/niagara-mental-model-bloque996.md:25` | — |

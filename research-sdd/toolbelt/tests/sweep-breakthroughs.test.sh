@@ -83,6 +83,9 @@ mkblock_tagged() {
 # run <kit> : invoke the sandbox copy of the SUT, capture stdout+stderr into OUT, exit into RC.
 run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?; }
 
+# run_env <kit> <rh> : like run, but passes RESEARCH_HOME=<rh> so portable-pointer tests work.
+run_env() { OUT="$(RESEARCH_HOME="$2" "$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?; }
+
 # tagged_lineno <dir>/<file> : print the line number of the Breakthrough marker.
 tagged_lineno() { grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$1" | head -1 | cut -d: -f1; }
 
@@ -478,6 +481,90 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Portable $RESEARCH_HOME pointer tests (§7 list edges: first, last, single row)
+# ---------------------------------------------------------------------------
+# In each case the corpus is at an absolute path (used in TARGETS.md for the scan);
+# the BREAKTHROUGHS.md ledger stores the pointer in $RESEARCH_HOME/... form.
+# RESEARCH_HOME is set to the kit root via run_env so the paths resolve correctly.
+# These cases cover the defect: without expansion the SUT reports "unindexed" and
+# "drift" on portable pointers even when the block exists and carries the marker.
+
+# 24 — portable $RESEARCH_HOME pointer in FIRST (and only) ledger row → clean, no WARN.
+# The corpus block is tagged; the ledger holds a $RESEARCH_HOME/... pointer to it.
+# Without the fix the SUT cannot match the expanded bf against the raw pointer → unindexed.
+kit="$(mkkit c24-portable-first)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"
+ln=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln\` | k |"
+run_env "$kit" "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '1 tagged' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT"; then
+  ok "24 portable \$RESEARCH_HOME pointer in first/only row → clean, no WARN" "(exit $RC)"
+else
+  no "24 portable \$RESEARCH_HOME pointer in first/only row → clean, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 25 — portable $RESEARCH_HOME pointer in LAST of two ledger rows → clean, no WARN.
+# Row 1 uses an absolute pointer; row 2 uses $RESEARCH_HOME/... (last-position edge case).
+kit="$(mkkit c25-portable-last)"; tgt="$kit/targetA"; tgtB="$kit/targetB"
+mkblock_tagged "$tgt" "pfx-block1.md"
+mkblock_tagged "$tgtB" "pfx-block2.md"
+ln1=$(tagged_lineno "$tgt/pfx-block1.md")
+ln2=$(tagged_lineno "$tgtB/pfx-block2.md")
+write_targets "$kit" "$tgt" "$tgtB"
+write_breakthroughs "$kit" \
+  "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln1\` | k |" \
+  "| 2 | tgtB | w | \`\$RESEARCH_HOME/targetB/pfx-block2.md:$ln2\` | k |"
+run_env "$kit" "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '2 tagged' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT"; then
+  ok "25 portable pointer in last of two rows → clean, no WARN" "(exit $RC)"
+else
+  no "25 portable pointer in last of two rows → clean, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 26 — single-row ledger using ${RESEARCH_HOME} brace form → clean, no WARN.
+# Tests the ${RESEARCH_HOME}/... variant (CLAUDE.md §11) in a single-row ledger.
+kit="$(mkkit c26-brace-form)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"
+ln=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`\${RESEARCH_HOME}/targetA/pfx-block1.md:$ln\` | k |"
+run_env "$kit" "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT"; then
+  ok "26 \${RESEARCH_HOME} brace form, single row → clean, no WARN" "(exit $RC)"
+else
+  no "26 \${RESEARCH_HOME} brace form, single row → clean, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 27 — portable pointer in drift pass: block HAS marker → no drift WARN.
+# Without the fix the SUT attempts [ ! -f "$RESEARCH_HOME/..." ] with the literal string,
+# which evaluates to true (file not found) and emits a spurious "drift" WARN.
+kit="$(mkkit c27-portable-nodrift)"; tgt="$kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"
+ln=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln\` | k |"
+run_env "$kit" "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qi 'WARN.*drift' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT"; then
+  ok "27 portable pointer, block has marker → no spurious drift WARN" "(exit $RC)"
+else
+  no "27 portable pointer, block has marker → no spurious drift WARN" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -613,6 +700,27 @@ if grep -q 'Ledger consistent' <<<"$OUT"; then
   mut_ok "M6 skipped-guard bypassed → case 23 (partial run) goes RED (sentence present)" "(sentence present on mutant)"
 else
   mut_no "M6 skipped-guard bypassed → mutation not detected by case 23" "out=[$OUT]"
+fi
+
+# M7: Remove the $RESEARCH_HOME expansion from the ledger-pointer awk → portable pointers
+# are no longer expanded, so case 24 reports "unindexed" (should be clean) and case 27
+# reports spurious "drift" (file not found at literal $RESEARCH_HOME/... path).
+# Mutation: delete the two sub() lines that expand $RESEARCH_HOME in ledger pointers.
+mut_kit="$(mkkit m7-no-rh-expansion)"; tgt="$mut_kit/targetA"
+mkblock_tagged "$tgt" "pfx-block1.md"
+lnm=$(tagged_lineno "$tgt/pfx-block1.md")
+write_targets "$mut_kit" "$tgt"
+write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$lnm\` | k |"
+mutant="$(mutate_sut "no-rh-expansion" '/sub.*RESEARCH_HOME.*ptr/d')"
+# Install the mutant into the kit, then run with RESEARCH_HOME set to the kit root.
+cp "$mutant" "$mut_kit/toolbelt/sweep-breakthroughs.sh"
+OUT="$(RESEARCH_HOME="$mut_kit" "$BASH_BIN" "$mut_kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+# Without expansion the ledger pointer stays raw "$RESEARCH_HOME/..." which never matches
+# the expanded bf → "unindexed" WARN must appear (and/or "drift" from file-not-found).
+if grep -qi 'WARN.*unindexed' <<<"$OUT" || grep -qi 'WARN.*drift' <<<"$OUT"; then
+  mut_ok "M7 expansion removed → case 24/27 portable pointer detects WARN on mutant" "(WARN present)"
+else
+  mut_no "M7 expansion removed → no WARN on mutant; mutation not detected" "out=[$OUT]"
 fi
 
 total_fail=$(( fail + mut_fail ))
