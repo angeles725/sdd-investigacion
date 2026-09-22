@@ -142,6 +142,20 @@ _fail_count=$(grep -c 'FAIL \[' "$TMP/multi.out" 2>/dev/null || echo 0)
 [ "$_fail_count" = 2 ] && ok "  MULTI: exactly 2 FAIL lines (two findings)" \
   || no "  MULTI: expected 2 FAIL lines, got $_fail_count"
 
+# ─── HEADER HYPHEN FORM (exit 0 with WARN, not FAIL) ─────────────────────────
+# A retro with an ASCII hyphen ("# Retro - ...") has a title line — the checker
+# must not report header-missing. The correct output is WARN [header-punctuation]
+# and the retro is otherwise conforming (exit 0).
+# Fleet count (2026-09-22): em-dash form ≈66 files (canonical); hyphen form 1 file.
+# Decision: WARN for hyphen (author-typed non-canonical), not FAIL (line is not missing).
+
+bash "$SUT" "$FIX/header-hyphen.md" >"$TMP/hyphen.out" 2>&1
+assert_exit2 0 "HYPHEN: ASCII-hyphen header → exit 0 (warn only, not fail)" "$FIX/header-hyphen.md"
+bash "$SUT" "$FIX/header-hyphen.md" >"$TMP/hyphen.out" 2>&1
+assert_out_contains "  HYPHEN: emits WARN [header-punctuation]" "WARN [header-punctuation]" "$TMP/hyphen.out"
+assert_out_absent   "  HYPHEN: does NOT emit FAIL [header-missing]" "FAIL [header-missing]" "$TMP/hyphen.out"
+assert_out_contains "  HYPHEN: final verdict is OK: conforming" "OK: conforming" "$TMP/hyphen.out"
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
@@ -225,6 +239,15 @@ if [ "$_m5_rc" = 2 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"
 else
   tno "M5: broken retro-grammar.sh guard did not fire — rc=$_m5_rc out=[$_m5_out]"
 fi
+
+# MUTANT M6: delete SENTINEL-HEADER-HYPHEN-CHECK block → hyphen in "# Retro -" is no longer
+# detected → _has_title_hyphen stays 0 → header-hyphen fixture falls into the FAIL [header-missing]
+# branch → SUT exits 1. This proves the hyphen-detection guard bites.
+M6="$TMP/mutant_m6.sh"
+make_mutant_delete_sentinel "SENTINEL-HEADER-HYPHEN-CHECK" "$SUT" "$M6"
+bash "$M6" "$FIX/header-hyphen.md" >/dev/null 2>&1; _rc=$?
+[ "$_rc" -ne 0 ] && tok "M6: hyphen-check mutant rejects header-hyphen fixture (control goes RED → $SUT hyphen-detection bites)" \
+  || tno "M6: hyphen-check mutant still accepted header-hyphen fixture (hyphen-detection guard is THEATER)"
 
 echo ""
 echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="

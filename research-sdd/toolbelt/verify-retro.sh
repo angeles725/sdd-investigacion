@@ -115,13 +115,27 @@ esac
 # SENTINEL-MARKER-CHECK-END
 
 # ── (c) header line check ─────────────────────────────────────────────────────
+# Fleet enumeration (2026-09-22): em-dash form ("# Retro —") ≈ 66 files (canonical);
+# ASCII-hyphen form ("# Retro -") 1 file (non-canonical, author-typed).
+# Decision: accept both forms per §7 ("recognise the forms your input actually uses");
+# emit WARN [header-punctuation] for the hyphen form (line present, wrong punctuation)
+# so the message is accurate — "header-missing" is factually wrong when the line exists.
 # SENTINEL-HEADER-CHECK-START
 _has_title=0
+_has_title_hyphen=0
 if grep -qE '^# Retro —' "$f"; then
   _has_title=1
+# SENTINEL-HEADER-HYPHEN-CHECK-START
+elif grep -qE '^# Retro -' "$f"; then
+  _has_title_hyphen=1
+# SENTINEL-HEADER-HYPHEN-CHECK-END
 fi
 # SENTINEL-HEADER-CHECK-END
-if [ "$_has_title" -eq 0 ]; then
+if [ "$_has_title_hyphen" -eq 1 ]; then
+  printf 'WARN [header-punctuation]: title line found but uses ASCII hyphen "-"; the canonical separator is em-dash "—"\n'
+  printf '  fix: change the separator to an em-dash:\n'
+  printf '       # Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective\n'
+elif [ "$_has_title" -eq 0 ]; then
   printf 'FAIL [header-missing]: no "# Retro —" title line found\n'
   printf '  fix: add as the first heading:\n'
   printf '       # Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective\n'
