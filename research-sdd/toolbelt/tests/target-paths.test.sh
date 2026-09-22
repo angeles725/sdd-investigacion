@@ -74,6 +74,22 @@ if   grep -qP '/table/real/path\t/table/real/path' <<<"$out5" \
   ok "5 pairs: table row as raw\\texpanded; prose excluded"
 else no "5 pairs: table row as raw\\texpanded; prose excluded" "out=[$out5]"; fi
 
+# 6 — target_paths_all with no argument → non-zero exit + stderr 'no argument' (anti-silent-zero).
+# Pre-fix: `[ -n "$f" ] || return 0` — exits 0 silently. That is the defect.
+# Post-fix must exit non-zero with a message containing "no argument".
+err6="$("$BASH_BIN" --norc -c "source '$LIB'; target_paths_all" 2>&1 >/dev/null)"
+rc6=$?
+if [ "$rc6" -ne 0 ] && grep -q 'no argument' <<<"$err6"; then
+  ok "6 target_paths_all no-arg → non-zero exit + stderr 'no argument'"
+else no "6 target_paths_all no-arg → non-zero exit + stderr 'no argument'" "rc=$rc6 err=[$err6]"; fi
+
+# 7 — target_paths_pairs with no argument → same contract.
+err7="$("$BASH_BIN" --norc -c "source '$LIB'; target_paths_pairs" 2>&1 >/dev/null)"
+rc7=$?
+if [ "$rc7" -ne 0 ] && grep -q 'no argument' <<<"$err7"; then
+  ok "7 target_paths_pairs no-arg → non-zero exit + stderr 'no argument'"
+else no "7 target_paths_pairs no-arg → non-zero exit + stderr 'no argument'" "rc=$rc7 err=[$err7]"; fi
+
 # --- summary ---
 echo ""
 total=$((pass+fail))
@@ -114,6 +130,36 @@ MUTANT_SRC
   if grep -qF '/prose/should/not/appear' <<<"$mut"; then
     ok "teeth: wide-scan mutant leaks prose (case 1b has teeth)"
   else no "teeth: wide-scan mutant must leak prose (case 1b is THEATER)" "mut=[$mut]"; fi
+fi
+
+# Teeth for cases 6 and 7: mutant restores the pre-fix silent-zero no-arg behavior.
+# Delete the SENTINEL-TP-ALL-NOARG block (the fix guard) from the lib;
+# with the guard gone the no-arg code falls through to the absent-file check which
+# emits "cannot read" (not "no argument"). Case 6's assertion requires "no argument"
+# in stderr, which the mutant lacks → case 6 goes RED → the guard bites.
+echo "-- teeth 6: no-arg guard for target_paths_all --"
+if ! grep -qF '# SENTINEL-TP-ALL-NOARG-START' "$LIB"; then
+  no "teeth 6: locate SENTINEL-TP-ALL-NOARG-START in LIB" "anchor not found — LIB drifted?"
+else
+  MUTANT_TP6="${ROOT}/tp-noarg-all-mutant.sh"
+  sed '/# SENTINEL-TP-ALL-NOARG-START/,/# SENTINEL-TP-ALL-NOARG-END/d' "$LIB" > "$MUTANT_TP6"
+  err_m6="$("$BASH_BIN" --norc -c "source '$MUTANT_TP6'; target_paths_all" 2>&1 >/dev/null)"
+  # Mutant exits non-zero (absent-file path fires) but says "cannot read", not "no argument".
+  if ! grep -q 'no argument' <<<"$err_m6"; then
+    ok "teeth 6: no-arg mutant lacks 'no argument' in stderr (case 6 has teeth)"
+  else no "teeth 6: mutant unexpectedly has 'no argument' — case 6 is THEATER" "err_m6=[$err_m6]"; fi
+fi
+
+echo "-- teeth 7: no-arg guard for target_paths_pairs --"
+if ! grep -qF '# SENTINEL-TP-PAIRS-NOARG-START' "$LIB"; then
+  no "teeth 7: locate SENTINEL-TP-PAIRS-NOARG-START in LIB" "anchor not found — LIB drifted?"
+else
+  MUTANT_TP7="${ROOT}/tp-noarg-pairs-mutant.sh"
+  sed '/# SENTINEL-TP-PAIRS-NOARG-START/,/# SENTINEL-TP-PAIRS-NOARG-END/d' "$LIB" > "$MUTANT_TP7"
+  err_m7="$("$BASH_BIN" --norc -c "source '$MUTANT_TP7'; target_paths_pairs" 2>&1 >/dev/null)"
+  if ! grep -q 'no argument' <<<"$err_m7"; then
+    ok "teeth 7: no-arg mutant lacks 'no argument' in stderr (case 7 has teeth)"
+  else no "teeth 7: mutant unexpectedly has 'no argument' — case 7 is THEATER" "err_m7=[$err_m7]"; fi
 fi
 
 echo ""
