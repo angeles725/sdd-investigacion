@@ -1862,6 +1862,57 @@ else
   no "T-599d: stop-control mismatch not detected; exit=$(code "$d"); msg=$(grep -iE 'stop.control|investigable|fail' <<<"$out" | head -2 | tr '\n' ' ')"
 fi
 
+# T-SCEX-A (false-positive guard — arrow-annotation form, issue #SC-EXTRACT):
+# Stop-control line: "- **Open gaps - read-only investigable**: 3  <- static loop stops when this hits 0"
+# The buggy extractor grep -oE '[0-9]+' | tail -1 returns 0 (last number in the annotation), not 3.
+# Derived investigable_open=3 (3 pending rows). Pre-fix: FAIL fired since 0≠3 — false positive.
+# Post-fix: extracts 3 (value immediately after the colon), no FAIL.
+d="$TMP/t-scex-arrow"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 0 3 3 0 0; printf '\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | gap-1 | web | pending |\n'
+  printf '| medium | gap-2 | web | pending |\n'
+  printf '| low | gap-3 | web | pending |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n'
+  printf '%s\n' '- **Open gaps - read-only investigable**: 3  <- static loop stops when this hits 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-SCEX-A: stop-control arrow-annotation (3 <- ...hits 0) matches derived=3 → no false FAIL"
+else
+  no "T-SCEX-A: false FAIL on arrow-annotation form; exit=$(code "$d"); msg=$(grep -iE '  FAIL  .*investigable|  FAIL  .*stop.control' <<<"$out" | head -1)"
+fi
+
+# T-SCEX-B (false-positive guard — parenthesized gap-ID list form, issue #SC-EXTRACT):
+# Stop-control line: "- **Open gaps - read-only investigable**: 6 (G74 bridge-timeout, G77 other)"
+# The buggy extractor returns 77 (last number in G77), not 6.
+# Derived investigable_open=6 (6 pending rows). Pre-fix: FAIL fired since 77≠6 — false positive.
+# Post-fix: extracts 6 (value immediately after the colon), no FAIL.
+d="$TMP/t-scex-gaplist"; mkdir -p "$d"
+{ printf '# Research State\n\n'
+  env_lines 0 0 6 6 0 0; printf '\n'
+  printf '## Gap-backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | G74 bridge-timeout | web | pending |\n'
+  printf '| high | G77 round diffusers | web | pending |\n'
+  printf '| high | G78 adjudication | web | pending |\n'
+  printf '| medium | G37 viewer base | web | pending |\n'
+  printf '| medium | G38 repo-triage | web | pending |\n'
+  printf '| low | G73 merge-batch | web | pending |\n\n'
+  printf '## Blocked gaps\n- none\n\n'
+  printf '## Stop control\n'
+  printf '%s\n' '- **Open gaps - read-only investigable**: 6 (G74 bridge-timeout, G77 other)'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-SCEX-B: stop-control gap-list form (6 (G74..G77)) matches derived=6 → no false FAIL"
+else
+  no "T-SCEX-B: false FAIL on gap-list form; exit=$(code "$d"); msg=$(grep -iE '  FAIL  .*investigable|  FAIL  .*stop.control' <<<"$out" | head -1)"
+fi
+
 # T-566a — known_stale_warns: p7-index-placeholder suppresses the P7 INDEX placeholder WARN.
 # Pre-fix: known_stale_warns field is unknown → WARN emitted normally.
 # Post-fix: field recognised → INFO emitted ("suppressed (known_stale_warns)"); no WARN.
@@ -2889,6 +2940,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-599-SC-CROSS: SC-CROSS-CHECK sentinel not found in SUT"
+  fi
+
+  # ---- teeth-SCEX-EXTRACT: revert extraction to buggy grep -oE '[0-9]+' | tail -1; T-SCEX-A must false-FAIL ----
+  # Mutation: replace the anchored SCEX-EXTRACT-ANCHOR line with the old extraction that takes the LAST
+  # number anywhere on the line. T-SCEX-A has value=3 but the annotation contains 0 ("hits 0"); the
+  # buggy extraction returns 0, firing a false FAIL → T-SCEX-A's "no false FAIL" assertion goes RED.
+  # T-SCEX-A expects exit 0 + ok line → assertion goes RED → SCEX-EXTRACT-ANCHOR extraction is load-bearing.
+  echo "-- teeth-SCEX-EXTRACT: revert to buggy tail -1 extraction; T-SCEX-A must emit false FAIL --"
+  mutantSCEX="$TMP/verify-state.SCEX.MUTANT.sh"
+  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  if grep -q '# SCEX-EXTRACT-ANCHOR$' "$SUT"; then
+    sed '/# SCEX-EXTRACT-ANCHOR$/s/.*/    _sc_n="$(printf '"'"'%s'"'"' "$_sc_prose" | grep -oE '"'"'[0-9]+'"'"' | tail -1)"  # MUTANT-SCEX/' "$SUT" > "$mutantSCEX"
+    if ! grep -q '# MUTANT-SCEX' "$mutantSCEX"; then
+      no "teeth-SCEX-EXTRACT: could not build mutant (SCEX-EXTRACT-ANCHOR substitution failed — did SUT change?)"
+    else
+      scex_out="$(bash "$mutantSCEX" "$TMP/t-scex-arrow" 2>/dev/null)"
+      scex_rc=$?
+      if [ "$scex_rc" = 1 ] && grep -qiE '  FAIL  .*investigable|  FAIL  .*stop.control' <<<"$scex_out"; then
+        ok "teeth-SCEX-EXTRACT: reverted extraction returns 0 → false FAIL fires → T-SCEX-A exit-0 assertion goes RED → SCEX-EXTRACT-ANCHOR is load-bearing"
+      else
+        no "teeth-SCEX-EXTRACT: mutant exit $scex_rc, expected 1 with FAIL — T-SCEX-A does NOT depend on SCEX-EXTRACT-ANCHOR (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-SCEX-EXTRACT: SCEX-EXTRACT-ANCHOR sentinel not found in SUT"
   fi
 
   # ---- teeth-566-KSW-P7: replace _ksw_has with false; P7 suppress must be skipped → WARN fires ----
