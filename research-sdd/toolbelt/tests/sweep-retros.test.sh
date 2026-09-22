@@ -1786,25 +1786,30 @@ STRIPPED
 
   # Tooth T-noarg: the T2 stripped stub ($_t2_stub, same file installed above) must have
   # identical no-arg behaviour to the real library.  No second copy; no sync sentinel.
-  # Parity: source $_t2_stub and real lib; call each with no arg; assert both exit non-zero
+  # Parity: source $_t2_stub and real lib; call each with no arg; assert BOTH exit non-zero
   # AND that stub stderr == lib stderr (message change in lib → test goes red automatically).
+  # Asserting lib rc non-zero: a lib that silently returns 0 with a message would otherwise
+  # pass parity (stub copies the wrong behaviour), turning this into theater (#909).
   # Mutation: sed $_t2_stub to restore 'return 0' on the # TP-STUB-NOARG line → parity breaks.
   echo "-- teeth T-noarg: T2 stub no-arg parity with real lib; sed-mutant must break parity --"
   _tna_lib_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_all" 2>&1)"; _tna_lib_rc=$?
   _tna_stub_msg="$("$BASH_BIN" -c ". '$_t2_stub'; target_paths_all" 2>&1)"; _tna_stub_rc=$?
-  if [ "$_tna_stub_rc" != 0 ] && [ "$_tna_stub_msg" = "$_tna_lib_msg" ]; then
+  if [ "$_tna_lib_rc" != 0 ] && [ "$_tna_stub_rc" != 0 ] && [ "$_tna_stub_msg" = "$_tna_lib_msg" ]; then
     ok "teeth T-noarg: T2 stub (exit $_tna_stub_rc) matches lib (exit $_tna_lib_rc) on no-arg (parity)" "()"
   else
     no "teeth T-noarg: T2 stub diverges from lib on no-arg" "stub rc=$_tna_stub_rc msg=[$_tna_stub_msg] lib rc=$_tna_lib_rc msg=[$_tna_lib_msg]"
   fi
   # Mutation: replace the # TP-STUB-NOARG guard with quiet 'return 0' in a temp copy.
+  # The ok path is a positive divergence assertion: mutant must exit 0 OR emit a different
+  # message (not merely "not equal both"), so a mutant that stays rc=1 with any other message
+  # does not sneak past (#909 — tighten mutant check).
   _tna_mut="$ROOT/tna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_t2_stub" > "$_tna_mut"
   _tna_mut_msg="$("$BASH_BIN" -c ". '$_tna_mut'; target_paths_all" 2>&1)"; _tna_mut_rc=$?
-  if [ "$_tna_mut_rc" != 0 ] && [ "$_tna_mut_msg" = "$_tna_lib_msg" ]; then
-    no "teeth T-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_tna_mut_rc msg=[$_tna_mut_msg]"
-  else
+  if [ "$_tna_mut_rc" = 0 ] || [ "$_tna_mut_msg" != "$_tna_lib_msg" ]; then
     ok "teeth T-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_tna_mut_rc msg=[$_tna_mut_msg] (lib: [$_tna_lib_msg])"
+  else
+    no "teeth T-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_tna_mut_rc msg=[$_tna_mut_msg]"
   fi
   rm -f "$_tna_mut"
 
