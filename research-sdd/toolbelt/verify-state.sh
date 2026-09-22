@@ -173,17 +173,46 @@ derive_pending_rows() {
   done < <(_backlog_rows "$sf")
   echo "$n"
 }
-# derived blocked_open = count of "- <name> — needs: ..." entries under ## Blocked gaps OR
-# ## Non-investigable gaps (B3a: both headings are semantically identical; needs:-anchored so a bare
-# "- none" placeholder never inflates the count).
-derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# derived blocked_open = count of gap entries under ## Blocked gaps OR ## Non-investigable gaps
+# that carry a `needs:` token.  Two structural forms appear in the fleet:
+#
+#   Bullet form (sdd-investigacion, sullair, fluke-177x-datos):
+#     - <name> — needs: <resource>
+#   Prose-paragraph form (blender-llm): multi-line paragraph, `needs:` bolded:
+#     G54 — description. **needs:** <resource>
+#
+# The bullet branch is anchored to '^[[:space:]]*-[[:space:]]' so a bare '- none' placeholder never
+# inflates the count.  The prose branch matches **needs:** (bold markdown), which excludes
+# historical/parenthetical backtick mentions such as "G6's original `needs:` was tshark".
+# Both branches may match the same line without double-counting (grep -c counts matching lines).
+derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*'; }  # RSDD-PROSE-BLOCKED-ANCHOR
 # P23: count blocked/absent gap entries that carry `needs:` but NOT `tried:` (a tried: clause is
 # mandatory before a gap can be closed as absent-input; its absence means the operator parked the
 # gap without documenting what they attempted, collapsing absent-input and untried into one signal).
+# Counting unit: one gap entry = one bullet line (bullet form) OR one blank-line-delimited prose
+# paragraph containing **needs:** (prose form).  For prose, tried: may be on a different line
+# within the same paragraph, so we accumulate paragraph state across lines using awk.
 derive_missing_tried() {
   { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } \
-    | grep -iE '^[[:space:]]*-[[:space:]].*needs:' \
-    | grep -civE 'tried:'
+  | awk '
+    BEGIN { need=0; tried=0; miss=0 }
+    /^[[:space:]]*$/ {
+      if (need && !tried) miss++
+      need=0; tried=0; next
+    }
+    /^[[:space:]]*-[[:space:]]/ {
+      if (tolower($0) ~ /needs:/ && tolower($0) !~ /tried:/) miss++
+      need=0; tried=0; next
+    }
+    {
+      if ($0 ~ /\*\*needs:\*\*/) need=1
+      if ($0 ~ /\*\*tried:\*\*/) tried=1
+    }
+    END {
+      if (need && !tried) miss++
+      print miss+0
+    }
+  '
 }
 # B3b: derived deferred_open = count of OPEN backlog rows whose priority column is exactly "deferred"
 # (explicitly-parked gaps — operator decision, not blocked by hardware/keys). Closed rows (~~, ✅) excluded.
