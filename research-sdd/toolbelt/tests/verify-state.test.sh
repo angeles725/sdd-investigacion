@@ -619,6 +619,41 @@ if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*blocked_open=0 != 1' <<<"$out"; the
   ok "B3a-FAIL: blocked_open=0 vs 1 Non-investigable entry → FAIL (heading recognized)"
 else no "B3a-FAIL: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
 
+# B3c — ## Blocked / <qualifier> gaps is treated identically to ## Blocked gaps for blocked_open
+# derivation (e.g. "## Blocked / non-read-only gaps" used in niagara-research spyder focus, confirmed
+# fleet-wide 2026-09-22). Entries still must carry a needs: token — no double-counting with
+# derive_requires_execution() because that function reads the backlog TABLE, not these sections.
+d="$TMP/blocked-slash"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked / non-read-only gaps (tagged with what they need)'
+  echo '- G5b — needs: the tasowizSupport module JAR added to corpus. blocked-on-artifact.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B3c: ## Blocked / non-read-only gaps counted for blocked_open (1 needs: entry → blocked_open=1 → PASS)"
+else no "B3c: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B3c-FAIL — same fixture but envelope declares blocked_open=0 while 1 entry exists → FAIL.
+d="$TMP/blocked-slash-fail"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 0 0; echo   # blocked_open=0 (wrong)
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked / non-read-only gaps (tagged with what they need)'
+  echo '- G5b — needs: the tasowizSupport module JAR added to corpus. blocked-on-artifact.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*blocked_open=0 != 1' <<<"$out"; then
+  ok "B3c-FAIL: blocked_open=0 vs 1 Blocked/ entry → FAIL (slash-heading recognized)"
+else no "B3c-FAIL: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
 # B3b — deferred_open envelope field: a backlog row with priority 'deferred' is counted.
 d="$TMP/deferred-open"; mkdir -p "$d"
 { echo '# T — Research State'; echo
@@ -2316,6 +2351,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$mnigot" = 0 ]; then
       ok "teeth(B3a): mutant ignores Non-investigable → false-passes (mismatch undetected) → dual-section fix is load-bearing"
     else no "teeth(B3a): mutant exit $mnigot (want 0) — Non-investigable detection may not depend on the dual-section fix (THEATER)"; fi
+  fi
+
+  # ---- B3c mutation: restrict blocked section to omit ## Blocked / prefix (remove Blocked-slash branch) ----
+  # Use the B3c-FAIL fixture: 1 Blocked-slash entry, envelope blocked_open=0 (wrong).
+  # Real SUT: derive_blocked finds the entry → d_blocked=1 ≠ e_blocked=0 → FAIL (exit 1).
+  # Mutant (without ## Blocked /): derive_blocked=0, e_blocked=0 → match → exit 0 (FALSE-PASS).
+  echo "-- teeth: B3c — remove Blocked-slash section from derive_blocked; B3c-FAIL fixture must false-pass --"
+  mutantBS="$TMP/verify-state.B3BS.MUTANT.sh"
+  sed "s|; _section \"\\\$1\" '## Blocked /'||g" "$SUT" > "$mutantBS"
+  if grep -q "section.*'## Blocked /'" "$mutantBS"; then
+    no "teeth(B3c): could not build Blocked-slash mutant (pattern still present — did the SUT change?)"
+  else
+    d="$TMP/blocked-slash-fail"   # reuse B3c-FAIL: 1 Blocked-slash entry, envelope blocked_open=0 (wrong)
+    bash "$mutantBS" "$d" >/dev/null 2>&1; mbsgot=$?
+    if [ "$mbsgot" = 0 ]; then
+      ok "teeth(B3c): mutant ignores Blocked-slash → false-passes (mismatch undetected) → triple-section fix is load-bearing"
+    else no "teeth(B3c): mutant exit $mbsgot (want 0) — Blocked-slash detection may not depend on the fix (THEATER)"; fi
   fi
 
   # ---- B3b mutation: neuter derive_deferred → always return 0 → deferred_open mismatch undetected ----
