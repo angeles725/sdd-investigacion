@@ -94,9 +94,10 @@ unset _BFLIB
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
 stopctl()      { section '## Stop control'; }
-# B3a / B5: blocked_body also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
-# used in older/TRANE/EduVolt corpora). Mirrors _blocked_names() in verify-state.sh.
-blocked_body() { section '## Blocked gaps'; section '## Non-investigable gaps'; }
+# B3a / B3c / B5: blocked_body also scans "## Non-investigable gaps" (semantically identical to
+# ## Blocked gaps; used in older/TRANE/EduVolt corpora) and "## Blocked / <qualifier>" (B3c, e.g.
+# niagara-research spyder focus). Mirrors _blocked_names() and derive_blocked() in verify-state.sh.
+blocked_body() { section '## Blocked gaps'; section '## Non-investigable gaps'; section '## Blocked /'; }
 inv_count()    { stopctl | grep -iE 'read-only investigable' | grep -oE '[0-9]+' | head -1; }
 
 
@@ -227,10 +228,24 @@ blocked_names() {
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
 }
 is_blocked() { local g="$1" b; while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done < <(blocked_names); return 1; }
-# disk-DERIVED blocked_open — count of "- <name> — needs: ..." entries under ## Blocked gaps OR
-# ## Non-investigable gaps (B3a: both are semantically identical; needs:-anchored, so a bare "- none"
-# placeholder never inflates it). blocked_body() already combines both sections (see above).
-derive_blocked_open() { blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:'; }
+# disk-DERIVED blocked_open — count of needs:-carrying entries under the standard blocked sections
+# (via blocked_body) PLUS entries in ## Child gaps surfaced at close where `needs:` may appear on a
+# continuation/indent line (multi-line bullet form — mirrors derive_blocked() in verify-state.sh).
+# blocked_body() combines ## Blocked gaps, ## Non-investigable gaps, and ## Blocked /.
+# RSDD-STATUS-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
+derive_blocked_open() {
+  local _d1 _d2
+  _d1="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"
+  _d2="$(section '## Child gaps surfaced at close' | awk '
+    BEGIN { n=0; ib=0; done=0 }
+    /^[[:space:]]*$/ { ib=0; done=0; next }
+    /^[[:space:]]*-[[:space:]]/ { ib=1; done=0
+      if (tolower($0) ~ /needs:/) { n++; done=1 }
+      next }
+    { if (ib && !done && tolower($0) ~ /needs:/) { n++; done=1 } }
+    END { print n+0 }')"
+  echo $(( ${_d1:-0} + ${_d2:-0} ))
+}
 # B3b: count_deferred — count OPEN backlog rows whose priority column is exactly "deferred"
 # (explicitly-parked gaps — operator decision, not blocked by hardware). Mirrors derive_deferred()
 # in verify-state.sh. Reads from $state (the global current state file).

@@ -176,18 +176,38 @@ derive_pending_rows() {
   echo "$n"
 }
 # derived blocked_open = count of gap entries under ## Blocked gaps OR ## Non-investigable gaps
-# that carry a `needs:` token.  Two structural forms appear in the fleet:
+# that carry a `needs:` token.  Three structural forms appear in the fleet:
 #
 #   Bullet form (sdd-investigacion, sullair, fluke-177x-datos):
 #     - <name> — needs: <resource>
 #   Prose-paragraph form (blender-llm): multi-line paragraph, `needs:` bolded:
 #     G54 — description. **needs:** <resource>
+#   Multi-line bullet form (niagara-research database focus only, ## Child gaps surfaced at close):
+#     - <name> — `blocked-on-<reason>`.\n  `tried:` ...\n  `needs:` <resource>
+#     (the `needs:` token appears on a continuation/indent line, NOT on the bullet line itself)
 #
 # The bullet branch is anchored to '^[[:space:]]*-[[:space:]]' so a bare '- none' placeholder never
 # inflates the count.  The prose branch matches **needs:** (bold markdown), which excludes
 # historical/parenthetical backtick mentions such as "G6's original `needs:` was tshark".
 # Both branches may match the same line without double-counting (grep -c counts matching lines).
-derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*'; }  # RSDD-PROSE-BLOCKED-ANCHOR
+# The third form is handled by a separate awk pass scoped to ## Child gaps surfaced at close ONLY;
+# it tracks bullet-entry state across lines so continuation-line `needs:` is attributed to its gap.
+# Scoping this awk to that heading keeps the existing grep's false-positive guard intact for the
+# standard sections (e.g. warp.md's '- none (... then record `needs:` ...)' advisory placeholder).
+derive_blocked() {
+  local _d1 _d2
+  _d1="$({ _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"  # RSDD-PROSE-BLOCKED-ANCHOR
+  # RSDD-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
+  _d2="$(_section "$1" '## Child gaps surfaced at close' | awk '
+    BEGIN { n=0; ib=0; done=0 }
+    /^[[:space:]]*$/ { ib=0; done=0; next }
+    /^[[:space:]]*-[[:space:]]/ { ib=1; done=0
+      if (tolower($0) ~ /needs:/) { n++; done=1 }
+      next }
+    { if (ib && !done && tolower($0) ~ /needs:/) { n++; done=1 } }
+    END { print n+0 }')"
+  echo $(( ${_d1:-0} + ${_d2:-0} ))
+}
 # P23: count blocked/absent gap entries that carry `needs:` but NOT `tried:` (a tried: clause is
 # mandatory before a gap can be closed as absent-input; its absence means the operator parked the
 # gap without documenting what they attempted, collapsing absent-input and untried into one signal).
