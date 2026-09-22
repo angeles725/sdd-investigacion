@@ -136,9 +136,11 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
   [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
-# used in older/TRANE/EduVolt corpora). Both sections follow the same "- <name> — needs: …" convention.
+# used in older/TRANE/EduVolt corpora) and "## Blocked / <qualifier> gaps" (niagara-research fleet
+# form, e.g. "## Blocked / non-read-only gaps", "## Blocked / requires-execution gaps"). All three
+# follow the same "- <name> — needs: …" convention and map to the same blocked_open bucket.
 _blocked_names() {                                  # one exact blocked gap NAME per "- <name> — needs: ..." line
-  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } \
+  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
     | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
     | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
@@ -185,7 +187,7 @@ derive_pending_rows() {
 # inflates the count.  The prose branch matches **needs:** (bold markdown), which excludes
 # historical/parenthetical backtick mentions such as "G6's original `needs:` was tshark".
 # Both branches may match the same line without double-counting (grep -c counts matching lines).
-derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*'; }  # RSDD-PROSE-BLOCKED-ANCHOR
+derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*'; }  # RSDD-PROSE-BLOCKED-ANCHOR
 # P23: count blocked/absent gap entries that carry `needs:` but NOT `tried:` (a tried: clause is
 # mandatory before a gap can be closed as absent-input; its absence means the operator parked the
 # gap without documenting what they attempted, collapsing absent-input and untried into one signal).
@@ -193,7 +195,7 @@ derive_blocked() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-inve
 # paragraph containing **needs:** (prose form).  For prose, tried: may be on a different line
 # within the same paragraph, so we accumulate paragraph state across lines using awk.
 derive_missing_tried() {
-  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; } \
+  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
   | awk '
     BEGIN { need=0; tried=0; miss=0 }
     /^[[:space:]]*$/ {
