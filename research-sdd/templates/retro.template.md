@@ -26,6 +26,14 @@
 > `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
 > triggers a WARN — the reviewer must count by hand. Heading-style declarations **outside** this
 > section are non-conforming. Use the table below to stay machine-countable.
+>
+> **The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
+> name between `Proposed` and `kit deltas` (e.g. `## Proposed research-sdd kit deltas`) or between
+> `Proposed` and `deltas` (e.g. `## Proposed research-sdd deltas`) breaks every recognised pattern
+> and makes this entire section invisible to supervision. The failure symptom visible to the author
+> is `empty-input: no delta section found` in `sweep-retros.sh` output — the delta table is
+> present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
+> or an accepted alias listed in METHODOLOGY §18.
 
 | # | Proposed change | Target (file · §/section) | Evidence (block / commit / § / transcript ref) | Type | Priority |
 |---|---|---|---|---|---|
