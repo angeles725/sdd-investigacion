@@ -922,26 +922,34 @@ else
 fi
 
 # 52 — BLOCKING: block_scope: shared-global must survive --sync-state; covered_blocks must be seeded
-# from the GLOBAL (focus-blind) count, not the focus-filtered 0. Corpus: RESEARCH-STATE-chihuahua.md
-# declares block_scope: shared-global + covered_blocks: 3; 3 niagara-bloque* files on disk.
-# chihuahua- prefix finds 0 blocks → broken sync seeds 0 and destroys block_scope → verify-state fails.
+# as 0 (unverifiable) when the focus has no attributed B<n> ids — NOT the corpus-wide file count.
+# Corpus: RESEARCH-STATE-chihuahua.md declares block_scope: shared-global; 3 niagara-bloque* files
+# on disk; no ## Covered blocks or ## Iteration history with B<n> ids → count_attributed_sg returns 0.
+# Bug (pre-fix): falls back to corpus-wide count (3 files) → seeds cb=3 — wrong; not attributed.
+# Fix (SG-ZERO-UNVERIFIABLE): seed cb=0 + loud stderr WARN; verify-state reports INFO unverifiable.
 d52="$TMP/sync-bs"; mkdir -p "$d52"
 printf 'x\n' > "$d52/niagara-bloque1.md"; printf 'x\n' > "$d52/niagara-bloque2.md"; printf 'x\n' > "$d52/niagara-bloque3.md"
 printf '# C\n> i\n<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 3\ngaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n<!-- /research-state.v1 -->\n\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n' \
   > "$d52/RESEARCH-STATE-chihuahua.md"
-bash "$SUT" "$d52" --sync-state >/dev/null 2>&1
+_sync52_stderr="$(bash "$SUT" "$d52" --sync-state 2>&1 >/dev/null)"
 _bs52="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^block_scope:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
 _cb52="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
-[ "$_bs52" = "shared-global" ] && [ "$_cb52" = "3" ] \
-  && ok "sync-bs: block_scope: shared-global preserved; covered_blocks=3 (global, not 0)" \
-  || no "sync-bs: bs=$_bs52(want shared-global) cb=$_cb52(want 3) — sync destroyed block_scope or used wrong count"
-# 53 — sync-bs-e2e: declare → sync → verify-state must exit 0 AND report covered_blocks=3/3 (global)
-# Checks the OUTPUT, not just the exit code: before the fix, sync seeds cb=0 (0/0 is a false-pass);
-# after the fix, cb=3 (global) so verify-state reports 3/3 — distinguishing correct from silent zero.
+[ "$_bs52" = "shared-global" ] && [ "$_cb52" = "0" ] \
+  && ok "sync-bs: block_scope: shared-global preserved; covered_blocks=0 (unverifiable, no attributed ids)" \
+  || no "sync-bs: bs=$_bs52(want shared-global) cb=$_cb52(want 0) — corpus-wide fallback still running or block_scope lost"
+# 52b — sync-bs must emit a loud stderr WARN when seeding 0 (anti-silent-zero §7)
+echo "$_sync52_stderr" | grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN' \
+  && ok "sync-bs-warn: --sync-state emits WARN on stderr when seeding covered_blocks=0 (no attributed ids)" \
+  || no "sync-bs-warn: no WARN emitted on stderr — silent zero (want: WARN about no attributed block ids)"
+# 53 — sync-bs-e2e: declare → sync → verify-state must exit 0 AND report INFO unverifiable + cb=0
+# covered_blocks=0 is unverifiable (no attributed ids), not a false-pass. verify-state must exit 0
+# with INFO (not FAIL) and the envelope line must show covered_blocks=0/<ondisk>.
 _vs53out="$(bash "$HERE/../verify-state.sh" "$d52" 2>/dev/null)"; _vs53rc=$?
-if [ "$_vs53rc" = "0" ] && grep -qE 'covered_blocks=3/3' <<<"$_vs53out"; then
-  ok "sync-bs-e2e: verify-state exits 0 with covered_blocks=3/3 (global count) after shared-global sync"
-else no "sync-bs-e2e: rc=$_vs53rc :: $(grep 'envelope' <<<"$_vs53out" | head -1) (want rc=0 + cb=3/3)"; fi
+if [ "$_vs53rc" = "0" ] \
+    && grep -qE 'covered_blocks=0/' <<<"$_vs53out" \
+    && grep -qF 'INFO' <<<"$_vs53out"; then
+  ok "sync-bs-e2e: verify-state exits 0 + INFO unverifiable + covered_blocks=0/<ondisk> after sync"
+else no "sync-bs-e2e: rc=$_vs53rc :: $(grep 'envelope' <<<"$_vs53out" | head -1) (want rc=0, cb=0/<N>, INFO)"; fi
 
 # 53b — sync-bs-indented-nospace: issue #126 item 2 — `  block_scope:shared-global` (indented + no space).
 # env_get: $1="block_scope:shared-global" (no trailing colon) → no match → empty.
@@ -956,6 +964,36 @@ _bs53b="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 
 [ "$_bs53b" = "shared-global" ] \
   && ok "sync-bs-indented-nospace: '  block_scope:shared-global' (indented+nospace) → carried through sync (whitespace-tolerant probe)" \
   || no "sync-bs-indented-nospace: bs=$_bs53b (want shared-global) — indented+nospace probe missed (whitespace-intolerant)"
+
+# T-905-SG-ATTR: shared-global focus with attributed ids (B1, B2 in ## Covered blocks) over a corpus
+# with more on-disk files (5). --sync-state must seed cb=2 (attributed), not 5 (corpus-wide).
+# verify-state CHECK A must pass: e_covered=2 == _sg_attributed=2.
+d_905="$TMP/t905-sg-attr"; mkdir -p "$d_905"
+printf 'x\n' > "$d_905/focus-bloque1.md"
+printf 'x\n' > "$d_905/focus-bloque2.md"
+printf 'x\n' > "$d_905/focus-bloque3.md"
+printf 'x\n' > "$d_905/focus-bloque4.md"
+printf 'x\n' > "$d_905/focus-bloque5.md"
+{ printf '# T905\n> intro\n'
+  printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 99\n'
+  printf 'gaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\n'
+  printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n'
+  printf '<!-- /research-state.v1 -->\n'
+  printf '\n## Covered blocks\nB1, B2\n'
+  printf '\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n'
+  printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+} > "$d_905/RESEARCH-STATE-focus.md"
+bash "$SUT" "$d_905" --sync-state >/dev/null 2>&1
+_t905_cb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d_905/RESEARCH-STATE-focus.md")"
+[ "$_t905_cb" = "2" ] \
+  && ok "T-905-SG-ATTR: --sync-state seeds cb=2 (B1,B2 attributed; 5 corpus files)" \
+  || no "T-905-SG-ATTR: cb=$_t905_cb (want 2) — attributed count not used or wrong count"
+_t905_vs_out="$(bash "$HERE/../verify-state.sh" "$d_905" 2>&1)"
+if echo "$_t905_vs_out" | grep -qF 'FAIL'; then
+  no "T-905-SG-ATTR: verify-state FAILs with attributed covered_blocks=2 (want CHECK A pass)"
+else
+  ok "T-905-SG-ATTR: verify-state passes CHECK A (covered_blocks=2 == 2 attributed)"
+fi
 
 # ---- ISSUE #143 — unknown priority concealment chain -----------------------------------------------
 # Unknown priorities (e.g. 'critical', 'urgent', typos) were silently dropped by backlog_rows().
@@ -2621,16 +2659,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-sync-bs-cb: neuter shared-global cb branch → cb drops.
   # teeth-sync-bs: neuter PREAMBLE-CARRY-FORWARD printf → unknown field (foo:bar) lost.
   cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-  echo "-- teeth-sync-bs-cb: neuter shared-global cb branch; must reseed cb=0 while bs remains --"
+  # teeth-sync-bs-cb: neuter shared-global cb branch; attributed corpus must revert to per-focus count.
+  # Use an attributed fixture (B1,B2 → cb=2 on real SUT) so SYNCCB mutant (per-focus = 5 files) differs.
+  # After #905 fix, the 0-attributed d52 fixture is not suitable: both real SUT and mutant give cb=0.
+  d_cbm="$TMP/sync-bs-cb-tooth"; mkdir -p "$d_cbm"
+  for _i in 1 2 3 4 5; do printf 'x\n' > "$d_cbm/cb-bloque${_i}.md"; done
+  { printf '# T\n> intro\n'
+    printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 2\n'
+    printf 'gaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\n'
+    printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n'
+    printf '<!-- /research-state.v1 -->\n'
+    printf '\n## Covered blocks\nB1, B2\n'
+    printf '\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n'
+    printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+  } > "$d_cbm/RESEARCH-STATE-cb.md"
+  echo "-- teeth-sync-bs-cb: neuter shared-global cb branch; attributed corpus (cb=2) must revert to per-focus (cb=5) --"
   mu_cb="$TMP/status.SYNCCB.MUTANT.sh"
   sed 's/if \[ "\$_e_bs" = "shared-global" \]; then$/if false; then  # MUTANT-SYNCCB/' "$SUT" > "$mu_cb"
   if ! grep -q 'MUTANT-SYNCCB' "$mu_cb"; then
     no "teeth-sync-bs-cb: could not build mutant (_e_bs=shared-global branch not found — did SUT change?)"
   else
-    bash "$mu_cb" "$d52" --sync-state >/dev/null 2>&1
-    _cbm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d52/RESEARCH-STATE-chihuahua.md")"
-    [ "$_cbm" = "0" ] && ok "teeth-sync-bs-cb: neutered cb branch → cb=0 (focus-filtered) → test 52 cb is load-bearing" \
-      || no "teeth-sync-bs-cb: mutant cb=$_cbm (want 0) — THEATER"; fi
+    bash "$SUT" "$d_cbm" --sync-state >/dev/null 2>&1
+    _cbm_real="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d_cbm/RESEARCH-STATE-cb.md")"
+    bash "$mu_cb" "$d_cbm" --sync-state >/dev/null 2>&1
+    _cbm="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d_cbm/RESEARCH-STATE-cb.md")"
+    [ "$_cbm_real" = "2" ] && [ "$_cbm" != "2" ] \
+      && ok "teeth-sync-bs-cb: real SUT cb=${_cbm_real}(want 2); SYNCCB mutant cb=${_cbm}(want ≠2) → T-905-SG-ATTR is load-bearing" \
+      || no "teeth-sync-bs-cb: real=${_cbm_real}(want 2) mutant=${_cbm}(want ≠2) — THEATER"; fi
   echo "-- teeth-sync-bs: neuter PREAMBLE-CARRY-FORWARD printf; unknown field foo:bar must vanish after re-sync --"
   mu_sbs="$TMP/status.SYNCBS.MUTANT.sh"
   sed 's/\[ -n "\$_extra_env_lines" \] && printf/: # MUTANT-PCF/' "$SUT" > "$mu_sbs"
@@ -3041,9 +3096,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-#568: KG-BACKLOG-EXCEEDS sentinel not found in SUT"
   fi
 
-  # T-530 teeth: disable SG-ATTR-SYNC by forcing _attr_sg=0 so the corpus-wide fallback always runs.
-  # The T-530 fixture (5 disk files, 3 attributed) must then get covered_blocks=5 (corpus-wide).
-  echo "-- teeth-#530: disable SG-ATTR-SYNC; shared-global corpus must revert to corpus-wide count --"
+  # T-530 teeth: disable SG-ATTR-SYNC by forcing _attr_sg=0.
+  # After #905 fix (SG-ZERO-UNVERIFIABLE), the else branch seeds cb=0 (not corpus-wide).
+  # So the T-530 fixture (5 disk files, 3 attributed) gets cb=0 with the mutant (not 3 attributed).
+  # The assertion `_n530_cb != 3` still holds: forcing _attr_sg=0 proves the attributed count is load-bearing.
+  echo "-- teeth-#530: disable SG-ATTR-SYNC; attributed corpus must not get cb=attributed count --"
   n530_mutant="$TMP/status.N530.MUTANT.sh"
   if grep -q '# SG-ATTR-SYNC' "$SUT"; then
     sed 's/_attr_sg="$(count_attributed_sg)"  # SG-ATTR-SYNC/_attr_sg=0  # MUTANT-530: attributed count disabled/' "$SUT" > "$n530_mutant"
@@ -3072,6 +3129,69 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-#530: SG-ATTR-SYNC sentinel not found in SUT"
+  fi
+
+  # teeth-905-SG-ZERO: restore corpus-wide else-branch in 0-attributed path; must seed cb != 0.
+  # Real SUT (fixed): 0-attributed focus → cb=0 (SG-ZERO-UNVERIFIABLE). Mutation: replace cb=0 with
+  # a non-zero constant (99) — proving the sentinel guards the "seed 0" path, not just assigns
+  # any value. Two separate mutations confirm both the cb value and the WARN are load-bearing.
+  echo "-- teeth-905-SG-ZERO: cb=0 sentinel; 0-attributed focus must NOT silently get corpus count --"
+  mu_905_cb="$TMP/status.905CB.MUTANT.sh"
+  if grep -qF '# SG-ZERO-UNVERIFIABLE' "$SUT"; then
+    sed 's/  cb=0  # SG-ZERO-UNVERIFIABLE/  cb=99  # MUTANT-905-CB: restored non-zero/' "$SUT" > "$mu_905_cb"
+    if ! grep -qF 'MUTANT-905-CB' "$mu_905_cb"; then
+      no "teeth-905-SG-ZERO: sed did not build MUTANT-905-CB (sentinel not found — did SUT change?)"
+    else
+      d_905z="$TMP/t905-sg-zero-tooth"; mkdir -p "$d_905z"
+      printf 'x\n' > "$d_905z/niagara-bloque1.md"
+      printf 'x\n' > "$d_905z/niagara-bloque2.md"
+      printf 'x\n' > "$d_905z/niagara-bloque3.md"
+      { printf '# T905Z\n> intro\n'
+        printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\n'
+        printf 'gaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\n'
+        printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n'
+        printf '<!-- /research-state.v1 -->\n'
+        printf '\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n'
+        printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+      } > "$d_905z/RESEARCH-STATE-nz.md"
+      bash "$mu_905_cb" "$d_905z" --sync-state >/dev/null 2>&1
+      _905z_cb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -->/{b=0} b && /^covered_blocks:/{print $2; exit}' "$d_905z/RESEARCH-STATE-nz.md")"
+      if [ "$_905z_cb" != "0" ]; then
+        ok "teeth-905-SG-ZERO-CB: MUTANT-905-CB writes cb=${_905z_cb} ≠ 0 → test 52 cb=0 assertion is load-bearing"
+      else
+        no "teeth-905-SG-ZERO-CB: mutant still wrote cb=0 — THEATER (sentinel not the only path?)"
+      fi
+    fi
+  else
+    no "teeth-905-SG-ZERO: SG-ZERO-UNVERIFIABLE sentinel not found in SUT"
+  fi
+
+  echo "-- teeth-905-SG-ZERO-WARN: neuter SG-ZERO-WARN printf; test 52b WARN check must go RED --"
+  mu_905_warn="$TMP/status.905WARN.MUTANT.sh"
+  if grep -qF '# SG-ZERO-WARN' "$SUT"; then
+    sed '/# SG-ZERO-WARN$/s/printf .*/: # MUTANT-905-WARN: warn disabled/' "$SUT" > "$mu_905_warn"
+    if ! grep -qF 'MUTANT-905-WARN' "$mu_905_warn"; then
+      no "teeth-905-SG-ZERO-WARN: sed did not build MUTANT-905-WARN (sentinel not found — did SUT change?)"
+    else
+      d_905w="$TMP/t905-sg-warn-tooth"; mkdir -p "$d_905w"
+      printf 'x\n' > "$d_905w/niagara-bloque1.md"
+      { printf '# T905W\n> intro\n'
+        printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\n'
+        printf 'gaps_closed: 0\nknown_gaps: 0\ninvestigable_open: 0\nrequires_execution_open: 0\n'
+        printf 'blocked_open: 0\ndeferred_open: 0\nundocumented_findings: 0\nblock_scope: shared-global\n'
+        printf '<!-- /research-state.v1 -->\n'
+        printf '\n## Gap-backlog (prioritized)\n| P | G | t | S |\n|---|---|---|---|\n'
+        printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
+      } > "$d_905w/RESEARCH-STATE-warn.md"
+      _905w_stderr="$(bash "$mu_905_warn" "$d_905w" --sync-state 2>&1 >/dev/null)"
+      if echo "$_905w_stderr" | grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN'; then
+        no "teeth-905-SG-ZERO-WARN: MUTANT-905-WARN still emits WARN — THEATER (warn is not from this printf)"
+      else
+        ok "teeth-905-SG-ZERO-WARN: MUTANT-905-WARN silences WARN → test 52b WARN assertion is load-bearing"
+      fi
+    fi
+  else
+    no "teeth-905-SG-ZERO-WARN: SG-ZERO-WARN sentinel not found in SUT"
   fi
 
   # ---- teeth-SS-634-BOLD: remove ** stripping from BOTH layers; pending** must NOT count as investigable ----

@@ -381,7 +381,7 @@ count_all_known_gaps() {
 # _derive_attributed_sg() in verify-state.sh so --sync-state and CHECK A always agree.
 # Source 1 (preferred): distinct B<n> ids in '## Covered blocks' body.
 # Source 2 (fallback): distinct B<n> ids in the Block column of '## Iteration history'.
-# Returns 0 when neither source yields any id (unverifiable — caller falls back to corpus-wide count).
+# Returns 0 when neither source yields any id (unverifiable — caller seeds 0 + WARN, not corpus-wide).
 count_attributed_sg() {
   local ids n
   ids="$(section '## Covered blocks' | grep -oE '\bB[0-9]+\b' | sort -u)"
@@ -593,13 +593,17 @@ if [ "$mode" = "--sync-state" ]; then
     if [ "$_e_bs" = "shared-global" ]; then
       # block_scope: shared-global → use attributed B<n> count (mirrors verify-state.sh CHECK A via
       # count_attributed_sg / _derive_attributed_sg respectively, so the two scripts always agree).
-      # Falls back to corpus-wide file count only when no B<n> ids are attributed (SG-UNVERIFIABLE-COND).
+      # When no attributed ids are found: seed covered_blocks=0 (anti-silent-zero §7 — the three
+      # states are: attributed count known → use it; 0 attributed → warn + seed 0; not shared-global
+      # → per-focus or corpus-wide).  The old corpus-wide fallback was WRONG: it silently produced a
+      # confident count that was not the attributed count METHODOLOGY §16 requires. verify-state.sh
+      # correctly reports INFO unverifiable for the 0 case; seeder and verifier now agree.
       _attr_sg="$(count_attributed_sg)"  # SG-ATTR-SYNC
       if [ "${_attr_sg:-0}" -gt 0 ] 2>/dev/null; then
         cb="$_attr_sg"
       else
-        cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
-          | block_file_filter | wc -l | tr -d ' ')"
+        cb=0  # SG-ZERO-UNVERIFIABLE
+        printf 'sync-state: WARN: %s: shared-global focus has no attributed block ids (no B<n> in ## Covered blocks or ## Iteration history) — seeding covered_blocks=0; add B<n> ids to make this verifiable.\n' "$(basename "$state")" >&2  # SG-ZERO-WARN
       fi
     elif [ -n "$_sfpfx" ]; then
       cb="$(find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
