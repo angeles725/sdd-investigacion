@@ -97,24 +97,35 @@ run_mutant() {
   ERR="$(cat "$errf")"; rm -f "$errf"
 }
 
+# build_hermetic_nojq_bin <src_path> <out_dir>
+# Populate <out_dir> with symlinks to every executable reachable from <src_path> except jq.
+# <src_path> is a colon-separated PATH string. First-wins across dirs prevents duplicate-dir
+# entries (e.g. /bin→/usr/bin on Ubuntu) from leaking jq through a second path entry.
+# Used by both the main NOJQ_PATH setup and TOOTH 9, so both exercise the same code path
+# and TOOTH 9 proves the function handles duplicate dirs correctly (#910 refactor).
+build_hermetic_nojq_bin() {
+  local src_path="$1" out_dir="$2" _oifs _pd _exe _n
+  _oifs="$IFS"; IFS=':'
+  for _pd in $src_path; do
+    IFS="$_oifs"
+    [ -d "$_pd" ] || continue
+    while IFS= read -r -d '' _exe; do
+      _n="$(basename "$_exe")"
+      [ "$_n" = "jq" ] && continue
+      [ -e "$out_dir/$_n" ] && continue
+      ln -s "$_exe" "$out_dir/$_n"
+    done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
+  done
+  IFS="$_oifs"
+}
+
 # Build NOJQ_PATH: a hermetic single-dir PATH with symlinks to every executable on
 # the current PATH except jq.  Resolving by name (first-wins across dirs) prevents
 # /bin→/usr/bin duplicates from leaking jq even when jq lives in the canonical target.
 _NOJQ_BIN="$ROOT/nojq_bin"
 mkdir -p "$_NOJQ_BIN"
 if command -v jq >/dev/null 2>&1; then
-  _oifs="$IFS"; IFS=':'
-  for _pd in $PATH; do
-    IFS="$_oifs"
-    [ -d "$_pd" ] || continue
-    while IFS= read -r -d '' _exe; do
-      _n="$(basename "$_exe")"
-      [ "$_n" = "jq" ] && continue
-      [ -e "$_NOJQ_BIN/$_n" ] && continue
-      ln -s "$_exe" "$_NOJQ_BIN/$_n"
-    done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
-  done
-  IFS="$_oifs"
+  build_hermetic_nojq_bin "$PATH" "$_NOJQ_BIN"
   NOJQ_PATH="$_NOJQ_BIN"
 else
   NOJQ_PATH="$PATH"  # jq already absent
@@ -631,21 +642,12 @@ else
   no "TOOTH nojq-path-dirname-leak: old logic should leak jq but did not — tooth broken"
 fi
 
-# NEW hermetic logic: single bin dir with symlinks to all tools except jq
+# NEW hermetic logic: call the shared build_hermetic_nojq_bin function against the duplicate-dir
+# fixture (_T9_PATH).  TOOTH 9 exercises the real function — not its own inline copy — so any
+# regression in the builder is caught here (#910 refactor: one function, two call sites).
 _T9_NEW_BIN="$ROOT/tooth9_new_bin"
 mkdir -p "$_T9_NEW_BIN"
-_oifs="$IFS"; IFS=':'
-for _pd in $_T9_PATH; do
-  IFS="$_oifs"
-  [ -d "$_pd" ] || continue
-  while IFS= read -r -d '' _exe; do
-    _n="$(basename "$_exe")"
-    [ "$_n" = "jq" ] && continue
-    [ -e "$_T9_NEW_BIN/$_n" ] && continue
-    ln -s "$_exe" "$_T9_NEW_BIN/$_n"
-  done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
-done
-IFS="$_oifs"
+build_hermetic_nojq_bin "$_T9_PATH" "$_T9_NEW_BIN"
 
 # New logic must hide jq (GREEN)
 if PATH="$_T9_NEW_BIN" command -v jq >/dev/null 2>&1; then

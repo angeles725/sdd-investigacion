@@ -446,24 +446,28 @@ B_STRIPPED
 
   # Tooth B-noarg: $_b_stub (same file installed above) must match the real lib on no-arg.
   # Parity: call target_paths_all from $_b_stub AND from the real lib with no arg;
-  # assert both exit non-zero AND that stub stderr == lib stderr.
+  # assert BOTH exit non-zero AND that stub stderr == lib stderr.
+  # Asserting lib rc non-zero: a lib that silently returns 0 with a message would pass parity
+  # (stub copies the wrong behaviour), making this check theater (#909).
   # Mutation: sed $_b_stub to restore 'return 0' on the # TP-STUB-NOARG line → parity breaks.
   echo "-- teeth B-noarg: Tooth B stripped stub no-arg parity with real lib; sed-mutant must break parity --"
   _bna_lib_msg="$("$BASH_BIN" -c ". '$LIB'; target_paths_all" 2>&1)"; _bna_lib_rc=$?
   _bna_stub_msg="$("$BASH_BIN" -c ". '$_b_stub'; target_paths_all" 2>&1)"; _bna_stub_rc=$?
-  if [ "$_bna_stub_rc" != 0 ] && [ "$_bna_stub_msg" = "$_bna_lib_msg" ]; then
-    ok "teeth B-noarg: Tooth B stub (exit $_bna_stub_rc) matches lib on no-arg (parity)" "()"
+  if [ "$_bna_lib_rc" != 0 ] && [ "$_bna_stub_rc" != 0 ] && [ "$_bna_stub_msg" = "$_bna_lib_msg" ]; then
+    ok "teeth B-noarg: Tooth B stub (exit $_bna_stub_rc) matches lib (exit $_bna_lib_rc) on no-arg (parity)" "()"
   else
     no "teeth B-noarg: Tooth B stub diverges from lib on no-arg" "stub rc=$_bna_stub_rc msg=[$_bna_stub_msg] lib rc=$_bna_lib_rc msg=[$_bna_lib_msg]"
   fi
   # Mutation: sed # TP-STUB-NOARG guard back to 'return 0' in a temp copy.
+  # The ok path is a positive divergence assertion: mutant must exit 0 OR emit a different
+  # message (not merely "not equal both") — tightens the check per #909.
   _bna_mut="$ROOT/bna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_b_stub" > "$_bna_mut"
   _bna_mut_msg="$("$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" 2>&1)"; _bna_mut_rc=$?
-  if [ "$_bna_mut_rc" != 0 ] && [ "$_bna_mut_msg" = "$_bna_lib_msg" ]; then
-    no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc"
-  else
+  if [ "$_bna_mut_rc" = 0 ] || [ "$_bna_mut_msg" != "$_bna_lib_msg" ]; then
     ok "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_bna_mut_rc msg=[$_bna_mut_msg]"
+  else
+    no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc"
   fi
   rm -f "$_bna_mut"
 

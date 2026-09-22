@@ -817,18 +817,23 @@ VRT2STRIPPED
   # Parity: call each function from $_vrt2_stub AND from the real lib with no arg; assert both
   # exit non-zero AND that stub stderr == lib stderr for each function.
   # Mutation: sed $_vrt2_stub to restore 'return 0' on all # TP-STUB-NOARG lines → parity breaks.
-  echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mutant must break parity --"
+    # Asserting lib rc non-zero for both functions: a lib that silently returns 0 with a message
+  # would pass parity (stub copies the wrong behaviour), making these checks theater (#909).
+  # Mutant ok path is a positive divergence assertion: mutant must exit 0 OR emit a different
+  # message (not merely "not equal both"), so a mutant that stays rc=1 with any message cannot
+  # sneak past (#909 — tighten mutant check).
+echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mutant must break parity --"
   _vrtna_lib_all_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_all" 2>&1)"; _vrtna_lib_all_rc=$?
   _vrtna_lib_pairs_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_pairs" 2>&1)"; _vrtna_lib_pairs_rc=$?
   _vrtna_all_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_all" 2>&1)"; _vrtna_all_rc=$?
-  if [ "$_vrtna_all_rc" != 0 ] && [ "$_vrtna_all_msg" = "$_vrtna_lib_all_msg" ]; then
-    ok "teeth VR-T-noarg: target_paths_all stub (exit $_vrtna_all_rc) matches lib on no-arg (parity)" "()"
+  if [ "$_vrtna_lib_all_rc" != 0 ] && [ "$_vrtna_all_rc" != 0 ] && [ "$_vrtna_all_msg" = "$_vrtna_lib_all_msg" ]; then
+    ok "teeth VR-T-noarg: target_paths_all stub (exit $_vrtna_all_rc) matches lib (exit $_vrtna_lib_all_rc) on no-arg (parity)" "()"
   else
     no "teeth VR-T-noarg: target_paths_all stub diverges from lib on no-arg" "stub rc=$_vrtna_all_rc msg=[$_vrtna_all_msg] lib rc=$_vrtna_lib_all_rc msg=[$_vrtna_lib_all_msg]"
   fi
   _vrtna_pairs_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_pairs" 2>&1)"; _vrtna_pairs_rc=$?
-  if [ "$_vrtna_pairs_rc" != 0 ] && [ "$_vrtna_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
-    ok "teeth VR-T-noarg: target_paths_pairs stub (exit $_vrtna_pairs_rc) matches lib on no-arg (parity)" "()"
+  if [ "$_vrtna_lib_pairs_rc" != 0 ] && [ "$_vrtna_pairs_rc" != 0 ] && [ "$_vrtna_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
+    ok "teeth VR-T-noarg: target_paths_pairs stub (exit $_vrtna_pairs_rc) matches lib (exit $_vrtna_lib_pairs_rc) on no-arg (parity)" "()"
   else
     no "teeth VR-T-noarg: target_paths_pairs stub diverges from lib on no-arg" "stub rc=$_vrtna_pairs_rc msg=[$_vrtna_pairs_msg] lib rc=$_vrtna_lib_pairs_rc msg=[$_vrtna_lib_pairs_msg]"
   fi
@@ -836,16 +841,16 @@ VRT2STRIPPED
   _vrtna_mut="$ROOT/vrtna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_vrt2_stub" > "$_vrtna_mut"
   _vrtna_mut_all_msg="$("$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_all" 2>&1)"; _vrtna_mut_all_rc=$?
-  if [ "$_vrtna_mut_all_rc" != 0 ] && [ "$_vrtna_mut_all_msg" = "$_vrtna_lib_all_msg" ]; then
-    no "teeth VR-T-noarg mutant all: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_all_rc"
-  else
+  if [ "$_vrtna_mut_all_rc" = 0 ] || [ "$_vrtna_mut_all_msg" != "$_vrtna_lib_all_msg" ]; then
     ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_all → mutation has teeth" "stub_rc=$_vrtna_mut_all_rc msg=[$_vrtna_mut_all_msg]"
+  else
+    no "teeth VR-T-noarg mutant all: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_all_rc"
   fi
   _vrtna_mut_pairs_msg="$("$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_pairs" 2>&1)"; _vrtna_mut_pairs_rc=$?
-  if [ "$_vrtna_mut_pairs_rc" != 0 ] && [ "$_vrtna_mut_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
-    no "teeth VR-T-noarg mutant pairs: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_pairs_rc"
-  else
+  if [ "$_vrtna_mut_pairs_rc" = 0 ] || [ "$_vrtna_mut_pairs_msg" != "$_vrtna_lib_pairs_msg" ]; then
     ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_pairs → mutation has teeth" "stub_rc=$_vrtna_mut_pairs_rc msg=[$_vrtna_mut_pairs_msg]"
+  else
+    no "teeth VR-T-noarg mutant pairs: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_pairs_rc"
   fi
   rm -f "$_vrtna_mut"
 
