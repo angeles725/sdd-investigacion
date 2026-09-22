@@ -742,13 +742,13 @@ d="$TMP/mf-false-stop"; mkdir -p "$d"
   env_lines 0 0 0 0 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
   printf '| high | done gap | web | covered |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 0\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE-apple.md"
 { printf '# Mango — Research State\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
   printf '| high | open mango gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d/RESEARCH-STATE-mango.md"
 expect_next "$d" "NEXT | high | open mango gap" "multi-focus: STOPPED apple does not mask NEXT in mango (false-STOP regression)"
 
@@ -872,13 +872,13 @@ d="$TMP/split-layout"; mkdir -p "$d/alpha" "$d/beta"
   env_lines 0 0 0 0 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
   printf '| high | done gap | web | covered |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 0\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 0'
 } > "$d/alpha/RESEARCH-STATE.md"
 { printf '# Beta — Research State\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
   printf '| high | open beta gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d/beta/RESEARCH-STATE.md"
 got49="$(bash "$SUT" "$d" --next 2>/dev/null)"
 case "$got49" in
@@ -904,12 +904,12 @@ d51="$TMP/split-seed"; mkdir -p "$d51/alpha" "$d51/beta"
 { printf '# Alpha — Research State\n> intro\n'
   printf '## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
   printf '| high | done gap | web | covered |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 0\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 0'
 } > "$d51/alpha/RESEARCH-STATE.md"
 { printf '# Beta — Research State\n> intro\n'
   printf '## Gap-backlog (prioritized)\n| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n'
   printf '| high | open beta gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d51/beta/RESEARCH-STATE.md"
 bash "$SUT" "$d51/alpha" --sync-state >/dev/null 2>&1
 bash "$SUT" "$d51/beta"  --sync-state >/dev/null 2>&1
@@ -1344,14 +1344,14 @@ d_ss2="$TMP/ss2-paused"; mkdir -p "$d_ss2"
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | paused-open-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2/RESEARCH-STATE-aaa-paused.md"
 # Focus "zzz-active": d_inv=1 (one pending gap), correct envelope
 { printf '# Active Focus\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | active-pending-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2/RESEARCH-STATE-zzz-active.md"
 # FOCUSES.md: aaa-paused is paused (d_inv>0 — the key test), zzz-active is active
 { printf '# Focus Registry\n\n'
@@ -1370,13 +1370,13 @@ d_ss2b="$TMP/ss2-all-paused"; mkdir -p "$d_ss2b"
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | alpha-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2b/RESEARCH-STATE-alpha.md"
 { printf '# Beta\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | beta-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2b/RESEARCH-STATE-beta.md"
 { printf '# Focus Registry\n\n| Focus | Status | State file | Block prefix |\n|---|---|---|---|\n'
   printf '| alpha | stopped (gaps post-stop) | RESEARCH-STATE-alpha.md | a- |\n'
@@ -1391,7 +1391,7 @@ d_ss2c="$TMP/ss2-no-focuses"; mkdir -p "$d_ss2c"
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | fallback-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2c/RESEARCH-STATE.md"
 # No FOCUSES.md — must NOT skip anything
 expect_next "$d_ss2c" "NEXT | high | fallback-gap" \
@@ -1407,28 +1407,28 @@ d_ss2d="$TMP/ss2-niagara-fmt"; mkdir -p "$d_ss2d"
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | niafoo-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2d/RESEARCH-STATE-aaa-niafoo-paused.md"
 # Focus zzz-hilton-stopped (sorts SECOND): half-bold status, link-wrapped state-file (HotelHilton form)
 { printf '# Focus zzz-hilton-stopped (hilton: half-bold **stopped** (...), link state-file)\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | hilton-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2d/RESEARCH-STATE-zzz-hilton-stopped.md"
 # Focus zzz-niabar-active (sorts THIRD): bare focus, bare status, backtick state-file — the NEXT source
 { printf '# Focus zzz-niabar-active (bare tokens, active)\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | niabar-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2d/RESEARCH-STATE-zzz-niabar-active.md"
 # Base focus: RESEARCH-STATE.md (no slug suffix — stopped, 0 open gaps, sfcol match)
 { printf '# Base focus: sfcol match only\n> intro\n'
   env_lines 0 0 0 0 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 0\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 0'
 } > "$d_ss2d/RESEARCH-STATE.md"
 # FOCUSES.md: niagara-format header (Estado), mixes niagara + HotelHilton cell forms
 { printf '# Corpus Index\n\n'
@@ -1455,7 +1455,7 @@ d_ss2d_sfcol="$TMP/ss2-sfcol-match"; mkdir -p "$d_ss2d_sfcol"
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | base-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2d_sfcol/RESEARCH-STATE.md"
 { printf '| Focus | Estado | RESEARCH-STATE |\n|---|---|---|\n'
   printf '| (base) | stopped | `RESEARCH-STATE.md` |\n'
@@ -1475,14 +1475,14 @@ d_ss2e="$TMP/ss2-stale-bypass"; mkdir -p "$d_ss2e"
   env_lines 0 0 0 0 0 0   # envelope: investigable_open=0 (mismatches backlog → verify-state FAIL)
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | paused-stale-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'  # contradicts envelope
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'  # contradicts envelope
 } > "$d_ss2e/RESEARCH-STATE-ss2e-paused.md"
 # Focus "ss2e-active": valid envelope, 1 pending gap → NEXT source
 { printf '# Active\n> intro\n'
   env_lines 0 0 0 1 0 0
   printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
   printf '| high | active-stale-sibling-gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
-  printf '- **Open gaps — read-only investigable**: 1\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 1'
 } > "$d_ss2e/RESEARCH-STATE-ss2e-active.md"
 { printf '# Focus Registry\n\n| Focus | Status | State file | Block prefix |\n|---|---|---|---|\n'
   printf '| ss2e-paused | paused (stale envelope test) | RESEARCH-STATE-ss2e-paused.md | p- |\n'
@@ -2332,6 +2332,30 @@ if [ "${_bfnc_log_lines:-0}" -ge 2 ] 2>/dev/null; then
   ok "T-IDG-BATCH-FALSE-NEG-CONFIRMED: re-verify invoked — reconcile called ${_bfnc_log_lines} time(s) for 1 retro (batch call + re-verify call)"
 else
   no "T-IDG-BATCH-FALSE-NEG-CONFIRMED: expected ≥2 reconcile calls (batch+re-verify), got ${_bfnc_log_lines} — re-verify not yet implemented"
+fi
+
+# T-SC-CROSS-CHECK: verify-state.sh SC-CROSS-CHECK must FIRE when stop-control prose contradicts the
+# backlog-derived investigable count. This test was RED before the printf '- ' fix (#883) because
+# printf '- **Open gaps ...\n' treats the leading dash as a printf option on bash 5.2+, writes nothing
+# to the fixture, and SC-CROSS-CHECK silently skips the absent prose line — the exact blind spot the
+# fix closes. With the fixed idiom (printf '%s\n' '- ...'), the prose line reaches the fixture and
+# the check fires as designed.
+#
+# Fixture: 1 pending investigable gap (d_inv=1), envelope investigable_open=1 (CHECK A passes),
+# prose says 0 → mismatch → SC-CROSS-CHECK must emit a FAIL line.
+_SC_CROSS_CHECK_FAIL='   FAIL   stop-control prose'  # stable grep anchor for SC-CROSS-CHECK FAIL output
+d_sccc="$TMP/sc-cross-check-mismatch"; mkdir -p "$d_sccc"
+{ printf '# SC-CROSS-CHECK Test\n> intro\n'
+  env_lines 0 0 1 1 0 0
+  printf '\n## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | open investigable gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+  printf '%s\n' '- **Open gaps — read-only investigable**: 0'  # SC-CROSS-CHECK-FIRES-SENTINEL: prose=0, derived=1
+} > "$d_sccc/RESEARCH-STATE.md"
+_sccc_out="$(bash "$HERE/../verify-state.sh" "$d_sccc" 2>&1)"
+if echo "$_sccc_out" | grep -qF "$_SC_CROSS_CHECK_FAIL"; then
+  ok "T-SC-CROSS-CHECK: verify-state SC-CROSS-CHECK fires (FAIL + stop-control prose) when prose (0) contradicts derived count (1)"
+else
+  no "T-SC-CROSS-CHECK: verify-state passed silently — SC-CROSS-CHECK did not fire on prose mismatch (prose absent or check skipped)"
 fi
 
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
@@ -3956,6 +3980,28 @@ BLTGHEOF
   else
     no "teeth-IDG-batch-reverify: anchor '$_brev_anchor' not found in SUT"
   fi
+
+  # teeth-SC-CROSS-CHECK: verify-state must NOT fire SC-CROSS-CHECK when prose is absent.
+  # Guard deleted: prior sentinel searched $0 for a token defined in $0 — vacuous, cannot fail.
+    # Build a matching fixture but intentionally omit the prose line (simulates broken printf '- ').
+    d_sccc_tooth="$TMP/sc-cross-check-tooth"; mkdir -p "$d_sccc_tooth"
+    { printf '# SC-CROSS-CHECK Tooth\n> intro\n'
+      printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: 0\n'
+      printf 'gaps_closed: 0\nknown_gaps: 1\ninvestigable_open: 1\nrequires_execution_open: 0\n'
+      printf 'blocked_open: 0\n<!-- /research-state.v1 -->\n\n'
+      printf '## Gap-backlog (prioritized)\n| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+      printf '| high | open investigable gap | web | pending |\n\n## Blocked gaps\n\n## Stop control\n'
+      # Intentionally NO prose line — simulates what broken printf '- **Open gaps...\n' produced.
+    } > "$d_sccc_tooth/RESEARCH-STATE.md"
+    _sccc_tooth_out="$(bash "$HERE/../verify-state.sh" "$d_sccc_tooth" 2>&1)"
+    _sccc_tooth_ec=$?
+    if [ "$_sccc_tooth_ec" -eq 127 ]; then
+      no "teeth-SC-CROSS-CHECK: verify-state.sh absent (exit 127) — tooth cannot distinguish SC-CROSS-CHECK silent from helper absent"
+    elif echo "$_sccc_tooth_out" | grep -qF "$_SC_CROSS_CHECK_FAIL"; then
+      no "teeth-SC-CROSS-CHECK: verify-state fired SC-CROSS-CHECK even without prose line — tooth invalid (SC-CROSS-CHECK should be silent when prose is absent)"
+    else
+      ok "teeth-SC-CROSS-CHECK: SC-CROSS-CHECK silent without prose → T-SC-CROSS-CHECK not theater (would be RED if prose absent)"
+    fi
 
 fi
 
