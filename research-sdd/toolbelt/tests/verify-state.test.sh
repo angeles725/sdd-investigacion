@@ -848,6 +848,129 @@ if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*tried:' <<<"$out"; then
   ok "P23: blocked gap with tried: present → no WARN, exit 0"
 else no "P23-ok: exit $(code "$d") :: $(grep -iE 'WARN.*tried\|tried' <<<"$out" | head -1)"; fi
 
+# ---- Prose-paragraph form of blocked gaps (§7 false negative — RSDD-PROSE-BLOCKED-ANCHOR) ----
+# Real corpora (e.g. blender-llm) write blocked gaps as multi-line prose paragraphs:
+#   G54 — description. **needs:** something.
+# and NOT as bullet items.  derive_blocked must count them, and derive_missing_tried must recognise
+# them paragraph-wise (tried: and needs: may be on different lines within one paragraph).
+# The "- none" placeholder form must NOT be counted in either derivation.
+
+# T-PROSE-BLOCKED-MATCH: one prose-paragraph gap with **needs:** → blocked_open=1 must match.  # RSDD-PROSE-BLOCKED-ANCHOR
+d="$TMP/prose-blocked-match"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 5 1 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 5 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps (each tagged with what it needs)'
+  echo ''
+  echo 'G54 — the undecoded blob in the file. **needs:** a documented reader for the format;'
+  echo 'the open-source tool converts everything else but leaves this blob opaque. Recorded'
+  echo '`blocked-on-tool`, named and bounded, not dismissed.'
+  echo ''
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-PROSE-BLOCKED-MATCH: prose **needs:** paragraph counted → blocked_open=1 matches → exit 0"
+else no "T-PROSE-BLOCKED-MATCH: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# T-PROSE-BLOCKED-FAIL: same prose paragraph but blocked_open=0 declared → must FAIL.
+d="$TMP/prose-blocked-fail"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 5 1 0 0 0; echo   # blocked_open=0 (wrong — there is 1 prose entry)
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 5 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps (each tagged with what it needs)'
+  echo ''
+  echo 'G54 — the undecoded blob in the file. **needs:** a documented reader for the format.'
+  echo ''
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*blocked_open=0 != 1' <<<"$out"; then
+  ok "T-PROSE-BLOCKED-FAIL: declared blocked_open=0 vs 1 prose entry → FAIL exit 1"
+else no "T-PROSE-BLOCKED-FAIL: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# T-PROSE-BLOCKED-PARENTHETICAL: "(none other at this time ... `needs:` ...)" paragraph must NOT count.
+# This is the blender-llm trailing paragraph that mentions needs: in backtick/historical context.
+d="$TMP/prose-blocked-paren"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 5 1 0 0 0; echo   # blocked_open=0 (correct — the parenthetical must not inflate)
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 5 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps (each tagged with what it needs)'
+  echo ''
+  echo '(none other at this time — G1 is requires-execution but not blocked; they need a live session.'
+  echo 'G2'\''s original `needs:` was a special tool; **tried:** shell probe → blocked by permissions.'
+  echo 'Closed at [CERT-hw], no extra tooling needed.)'
+  echo ''
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-PROSE-BLOCKED-PAREN: parenthetical backtick \`needs:\` not counted → blocked_open=0 matches → exit 0"
+else no "T-PROSE-BLOCKED-PAREN: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# T-PROSE-TRIED-WARN: prose paragraph with **needs:** but no **tried:** → P23 WARN must fire.
+d="$TMP/prose-tried-warn"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 5 1 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 5 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps (each tagged with what it needs)'
+  echo ''
+  echo 'G54 — the undecoded blob in the file. **needs:** a documented reader for the format;'
+  echo 'the open-source tool converts everything else but leaves this blob opaque.'
+  echo ''
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qiE 'WARN.*tried:' <<<"$out"; then
+  ok "T-PROSE-TRIED-WARN: prose **needs:** without **tried:** → P23 WARN fires, exit 0"
+else no "T-PROSE-TRIED-WARN: exit $(code "$d") :: $(grep -iE 'WARN.*tried\|tried' <<<"$out" | head -1)"; fi
+
+# T-PROSE-TRIED-OK: prose paragraph with both **needs:** and **tried:** (on different lines) → P23 must NOT fire.
+d="$TMP/prose-tried-ok"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 5 1 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 5 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps (each tagged with what it needs)'
+  echo ''
+  echo 'G77 — device tags on the sheet frame. **needs:** stroke-level reconstruction, a different'
+  echo 'instrument rather than a looser threshold. **tried:** nearest closed body → returns an edge;'
+  echo 'transitive clustering → one huge cluster; leader-line following → 71 resolved, 85 framed.'
+  echo ''
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && ! grep -qiE 'WARN.*tried:' <<<"$out"; then
+  ok "T-PROSE-TRIED-OK: prose **needs:** + **tried:** on different lines → P23 WARN suppressed, exit 0"
+else no "T-PROSE-TRIED-OK: exit $(code "$d") :: $(grep -iE 'WARN.*tried\|tried' <<<"$out" | head -1)"; fi
+
+# T-PROSE-BULLET-REGRESSION: existing bullet form must still work alongside prose form.
+d="$TMP/prose-bullet-regression"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 6 1 0 2 0; echo   # blocked_open=2: one bullet + one prose entry
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 6 closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '| high | active gap | web | pending |'; echo
+  echo '## Blocked gaps (each tagged with what it needs)'
+  echo '- gpu profiling — needs: hardware; tried: ssh probe (rejected: device offline)'; echo
+  echo 'G54 — the undecoded blob in the file. **needs:** a documented reader for the format.'
+  echo 'The tool converts everything else but leaves this blob opaque.'; echo
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 1'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "T-PROSE-BULLET-REGRESSION: bullet + prose entry both counted → blocked_open=2 matches → exit 0"
+else no "T-PROSE-BULLET-REGRESSION: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
 # ---- P7: INDEX.md template placeholders while covered_blocks > 0 (pi5 P7) --------------------
 # When INDEX.md in the corpus dir contains <UPPER-CASE> template placeholders while at least
 # one block file is on disk (ondisk > 0), a WARN fires to prompt updating the corpus index.
@@ -2255,6 +2378,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-P23: P23-MISSING-TRIED-WARN sentinel not found in SUT (P23 not implemented or marker missing)"
+  fi
+
+  # ---- RSDD-PROSE-BLOCKED: revert derive_blocked to bullet-only; prose fixture must FAIL (not match) ----
+  # Mutation: strip the |\*\*needs:\*\* branch from the grep in derive_blocked so prose paragraphs
+  # are no longer counted. The T-PROSE-BLOCKED-MATCH fixture (blocked_open=1, prose entry) must then
+  # FAIL because derived=0 != declared=1.  Proves the RSDD-PROSE-BLOCKED-ANCHOR branch is load-bearing.
+  # python3 is used for the substitution because the target string contains backslash-asterisks that
+  # are unreliable to escape through multiple layers of shell+sed quoting.
+  echo "-- teeth-RSDD-PROSE: revert derive_blocked to bullet-only; prose fixture must FAIL (d=0 vs e=1) --"
+  mutantPROSE="$TMP/verify-state.PROSE.MUTANT.sh"
+  if grep -q '# RSDD-PROSE-BLOCKED-ANCHOR' "$SUT"; then
+    python3 - "$SUT" "$mutantPROSE" <<'PYEOF'
+import sys
+src = open(sys.argv[1]).read()
+# Remove the prose branch (the ERE alternative) from derive_blocked's grep pattern.
+# The literal text in the source file is: |\*\*needs:\*\*
+mutant = src.replace(r'|\*\*needs:\*\*', '', 1)
+open(sys.argv[2], 'w').write(mutant)
+PYEOF
+    if ! grep -q 'RSDD-PROSE-BLOCKED-ANCHOR' "$mutantPROSE"; then
+      no "teeth-RSDD-PROSE: python3 strip removed sentinel line unexpectedly — mutant broken"
+    elif grep -qF '|\*\*needs:\*\*' "$mutantPROSE"; then
+      no "teeth-RSDD-PROSE: could not build mutant (prose branch still present after substitution)"
+    else
+      cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+      d="$TMP/prose-blocked-match"   # reuse T-PROSE-BLOCKED-MATCH fixture: blocked_open=1, 1 prose entry
+      bash "$mutantPROSE" "$d" >/dev/null 2>&1; mprosegot=$?
+      if [ "$mprosegot" = 1 ]; then
+        ok "teeth-RSDD-PROSE: bullet-only mutant misses prose entry (d=0 vs e=1 → FAIL) → prose branch is load-bearing"
+      else no "teeth-RSDD-PROSE: mutant exit $mprosegot (want 1) — prose detection may not depend on the added branch (THEATER)"; fi
+    fi
+  else
+    no "teeth-RSDD-PROSE: RSDD-PROSE-BLOCKED-ANCHOR sentinel not found in SUT"
   fi
 
   # ---- P7 mutation: neuter the INDEX.md placeholder check; placeholder fixture must stop WARNing ----
