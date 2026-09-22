@@ -420,21 +420,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Tooth B: Form-1-only mutant lib (no $RESEARCH_HOME expansion) → case-2 must fail.
+  # $_b_stub is built once and shared with Tooth B-noarg below — no second copy.
   kit_b="$(mkkit teeth-b)"; tgt_b="$ROOT/rh-base/targetB"
   mktool "$tgt_b" "probe.sh" 2>/dev/null || true
   write_targets "$kit_b" '$RESEARCH_HOME/targetB'
-  printf '%s\n' '#!/usr/bin/env bash' \
-    'if ! declare -F target_paths_all >/dev/null 2>&1; then' \
-    '  target_paths_all() {' \
-    '    local f="${1:-}"; [ -n "$f" ] && [ -f "$f" ] || return 0' \
-    '    grep -oE '"'"'`/[^`]+`'"'"' "$f" 2>/dev/null | tr -d '"'"'`'"'"' | sort -u' \
-    '  }' 'fi' > "$kit_b/toolbelt/lib/target-paths.sh"
+  _b_stub="$ROOT/b-stripped-lib.sh"
+  cat > "$_b_stub" <<'B_STRIPPED'
+#!/usr/bin/env bash
+if ! declare -F target_paths_all >/dev/null 2>&1; then
+  target_paths_all() {
+    local f="${1:-}"
+    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }  # TP-STUB-NOARG
+    [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
+    grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | sort -u
+  }
+fi
+B_STRIPPED
+  cp "$_b_stub" "$kit_b/toolbelt/lib/target-paths.sh"
   out_b="$(RESEARCH_HOME="$ROOT/rh-base" "$BASH_BIN" "$kit_b/toolbelt/sweep-tools.sh" 2>&1)"
   if ! grep -q 'tools: 1 found' <<<"$out_b"; then
     ok "teeth B: Form-2-dropped mutant misses \$RESEARCH_HOME → case 2 goes red" "()"
   else
     no "teeth B: mutant still found tool — case 2 is THEATER" "out=[$out_b]"
   fi
+
+  # Tooth B-noarg: $_b_stub (same file installed above) must match the real lib on no-arg.
+  # Parity: call target_paths_all from $_b_stub AND from the real lib with no arg;
+  # assert both exit non-zero AND that stub stderr == lib stderr.
+  # Mutation: sed $_b_stub to restore 'return 0' on the # TP-STUB-NOARG line → parity breaks.
+  echo "-- teeth B-noarg: Tooth B stripped stub no-arg parity with real lib; sed-mutant must break parity --"
+  _bna_lib_msg="$("$BASH_BIN" -c ". '$LIB'; target_paths_all" 2>&1)"; _bna_lib_rc=$?
+  _bna_stub_msg="$("$BASH_BIN" -c ". '$_b_stub'; target_paths_all" 2>&1)"; _bna_stub_rc=$?
+  if [ "$_bna_stub_rc" != 0 ] && [ "$_bna_stub_msg" = "$_bna_lib_msg" ]; then
+    ok "teeth B-noarg: Tooth B stub (exit $_bna_stub_rc) matches lib on no-arg (parity)" "()"
+  else
+    no "teeth B-noarg: Tooth B stub diverges from lib on no-arg" "stub rc=$_bna_stub_rc msg=[$_bna_stub_msg] lib rc=$_bna_lib_rc msg=[$_bna_lib_msg]"
+  fi
+  # Mutation: sed # TP-STUB-NOARG guard back to 'return 0' in a temp copy.
+  _bna_mut="$ROOT/bna-mut-$$.sh"
+  sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_b_stub" > "$_bna_mut"
+  _bna_mut_msg="$("$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" 2>&1)"; _bna_mut_rc=$?
+  if [ "$_bna_mut_rc" != 0 ] && [ "$_bna_mut_msg" = "$_bna_lib_msg" ]; then
+    no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc"
+  else
+    ok "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_bna_mut_rc msg=[$_bna_mut_msg]"
+  fi
+  rm -f "$_bna_mut"
 
   # Tooth D: strip the dependency-dir exclusions from the find → node_modules deps get counted →
   #          case-15 fixture reports more than 2.

@@ -1761,18 +1761,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
     printf '| 1 | t1 | `$RESEARCH_HOME/rh_target` |\n'
   } > "$kit/TARGETS.md"
-  # Write a stripped target-paths.sh that handles only /abs form (no RESEARCH_HOME expansion).
-  cat > "$kit/toolbelt/lib/target-paths.sh" <<'STRIPPED'
+  # Build the stripped stub once (form-1 only, no RESEARCH_HOME) into a named file.
+  # Tooth T-noarg below sources $_t2_stub directly — same file, no second copy.
+  _t2_stub="$ROOT/t2-stripped-lib.sh"
+  cat > "$_t2_stub" <<'STRIPPED'
 #!/usr/bin/env bash
 if ! declare -F target_paths_all >/dev/null 2>&1; then
   target_paths_all() {
     local f="${1:-}"
-    [ -n "$f" ] || return 0
+    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }  # TP-STUB-NOARG
     [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
     grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | sort -u
   }
 fi
 STRIPPED
+  cp "$_t2_stub" "$kit/toolbelt/lib/target-paths.sh"
   outm2="$(RESEARCH_HOME="$_rh_base_t2" "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"; rcm2=$?
   unset _rh_base_t2
   if ! grep -q 'PENDING' <<<"$outm2" || ! grep -q 'Summary: 1 pending / 1 retros' <<<"$outm2"; then
@@ -1780,6 +1783,30 @@ STRIPPED
   else
     no "teeth T2: stripped mutant still surfaced PENDING — case 48 is THEATER" "rc=$rcm2 out=[$outm2]"
   fi
+
+  # Tooth T-noarg: the T2 stripped stub ($_t2_stub, same file installed above) must have
+  # identical no-arg behaviour to the real library.  No second copy; no sync sentinel.
+  # Parity: source $_t2_stub and real lib; call each with no arg; assert both exit non-zero
+  # AND that stub stderr == lib stderr (message change in lib → test goes red automatically).
+  # Mutation: sed $_t2_stub to restore 'return 0' on the # TP-STUB-NOARG line → parity breaks.
+  echo "-- teeth T-noarg: T2 stub no-arg parity with real lib; sed-mutant must break parity --"
+  _tna_lib_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_all" 2>&1)"; _tna_lib_rc=$?
+  _tna_stub_msg="$("$BASH_BIN" -c ". '$_t2_stub'; target_paths_all" 2>&1)"; _tna_stub_rc=$?
+  if [ "$_tna_stub_rc" != 0 ] && [ "$_tna_stub_msg" = "$_tna_lib_msg" ]; then
+    ok "teeth T-noarg: T2 stub (exit $_tna_stub_rc) matches lib (exit $_tna_lib_rc) on no-arg (parity)" "()"
+  else
+    no "teeth T-noarg: T2 stub diverges from lib on no-arg" "stub rc=$_tna_stub_rc msg=[$_tna_stub_msg] lib rc=$_tna_lib_rc msg=[$_tna_lib_msg]"
+  fi
+  # Mutation: replace the # TP-STUB-NOARG guard with quiet 'return 0' in a temp copy.
+  _tna_mut="$ROOT/tna-mut-$$.sh"
+  sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_t2_stub" > "$_tna_mut"
+  _tna_mut_msg="$("$BASH_BIN" -c ". '$_tna_mut'; target_paths_all" 2>&1)"; _tna_mut_rc=$?
+  if [ "$_tna_mut_rc" != 0 ] && [ "$_tna_mut_msg" = "$_tna_lib_msg" ]; then
+    no "teeth T-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_tna_mut_rc msg=[$_tna_mut_msg]"
+  else
+    ok "teeth T-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_tna_mut_rc msg=[$_tna_mut_msg] (lib: [$_tna_lib_msg])"
+  fi
+  rm -f "$_tna_mut"
 
   # Tooth T3: remove zero-paths guard from SUT → case 49 goes RED (exits 0 with Summary).
   echo "-- teeth T3: remove zero-paths guard; empty-paths run must exit 0 with Summary (case 49 has teeth) --"

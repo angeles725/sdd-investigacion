@@ -779,12 +779,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The stripped helper defines both functions so verify-registry.sh gets past the declare-F
   # guards. Neither function handles $RESEARCH_HOME paths (Form 1 only: absolute `/` paths).
   # With the $RESEARCH_HOME path in TARGETS.md, all_pairs is empty → zero-paths guard fires.
-  cat > "$kit/toolbelt/lib/target-paths.sh" <<'VRT2STRIPPED'
+  # Build stub once into a named file; Tooth VR-T-noarg sources $_vrt2_stub directly.
+  _vrt2_stub="$ROOT/vrt2-stripped-lib.sh"
+  cat > "$_vrt2_stub" <<'VRT2STRIPPED'
 #!/usr/bin/env bash
 if ! declare -F target_paths_all >/dev/null 2>&1; then
   target_paths_all() {
     local f="${1:-}"
-    [ -n "$f" ] || return 0
+    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }  # TP-STUB-NOARG
     [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
     grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | sort -u
   }
@@ -792,12 +794,13 @@ fi
 if ! declare -F target_paths_pairs >/dev/null 2>&1; then
   target_paths_pairs() {
     local f="${1:-}"
-    [ -n "$f" ] || return 0
+    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }  # TP-STUB-NOARG
     [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
     grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | awk '{print $0 "\t" $0}' | sort -u
   }
 fi
 VRT2STRIPPED
+  cp "$_vrt2_stub" "$kit/toolbelt/lib/target-paths.sh"
   mout_t2="$(RESEARCH_HOME="$_rh_base_vt2" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; mrc_t2=$?
   unset _rh_base_vt2
   # Without RESEARCH_HOME expansion, all_pairs yields nothing for the $RESEARCH_HOME/rh_corpus row →
@@ -808,6 +811,43 @@ VRT2STRIPPED
   else
     no "teeth VR-T2: stripped mutant still reconciled 1 target — case 21 is THEATER" "rc=$mrc_t2 out=[$mout_t2]"
   fi
+
+  # Tooth VR-T-noarg: VRT2STRIPPED stub ($_vrt2_stub, same file installed above) must match the
+  # real library on no-arg for BOTH target_paths_all and target_paths_pairs.  One file, no copies.
+  # Parity: call each function from $_vrt2_stub AND from the real lib with no arg; assert both
+  # exit non-zero AND that stub stderr == lib stderr for each function.
+  # Mutation: sed $_vrt2_stub to restore 'return 0' on all # TP-STUB-NOARG lines → parity breaks.
+  echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mutant must break parity --"
+  _vrtna_lib_all_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_all" 2>&1)"; _vrtna_lib_all_rc=$?
+  _vrtna_lib_pairs_msg="$("$BASH_BIN" -c ". '$TP_LIB'; target_paths_pairs" 2>&1)"; _vrtna_lib_pairs_rc=$?
+  _vrtna_all_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_all" 2>&1)"; _vrtna_all_rc=$?
+  if [ "$_vrtna_all_rc" != 0 ] && [ "$_vrtna_all_msg" = "$_vrtna_lib_all_msg" ]; then
+    ok "teeth VR-T-noarg: target_paths_all stub (exit $_vrtna_all_rc) matches lib on no-arg (parity)" "()"
+  else
+    no "teeth VR-T-noarg: target_paths_all stub diverges from lib on no-arg" "stub rc=$_vrtna_all_rc msg=[$_vrtna_all_msg] lib rc=$_vrtna_lib_all_rc msg=[$_vrtna_lib_all_msg]"
+  fi
+  _vrtna_pairs_msg="$("$BASH_BIN" -c ". '$_vrt2_stub'; target_paths_pairs" 2>&1)"; _vrtna_pairs_rc=$?
+  if [ "$_vrtna_pairs_rc" != 0 ] && [ "$_vrtna_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
+    ok "teeth VR-T-noarg: target_paths_pairs stub (exit $_vrtna_pairs_rc) matches lib on no-arg (parity)" "()"
+  else
+    no "teeth VR-T-noarg: target_paths_pairs stub diverges from lib on no-arg" "stub rc=$_vrtna_pairs_rc msg=[$_vrtna_pairs_msg] lib rc=$_vrtna_lib_pairs_rc msg=[$_vrtna_lib_pairs_msg]"
+  fi
+  # Mutation: sed both # TP-STUB-NOARG guards back to 'return 0' in a temp copy.
+  _vrtna_mut="$ROOT/vrtna-mut-$$.sh"
+  sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_vrt2_stub" > "$_vrtna_mut"
+  _vrtna_mut_all_msg="$("$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_all" 2>&1)"; _vrtna_mut_all_rc=$?
+  if [ "$_vrtna_mut_all_rc" != 0 ] && [ "$_vrtna_mut_all_msg" = "$_vrtna_lib_all_msg" ]; then
+    no "teeth VR-T-noarg mutant all: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_all_rc"
+  else
+    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_all → mutation has teeth" "stub_rc=$_vrtna_mut_all_rc msg=[$_vrtna_mut_all_msg]"
+  fi
+  _vrtna_mut_pairs_msg="$("$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_pairs" 2>&1)"; _vrtna_mut_pairs_rc=$?
+  if [ "$_vrtna_mut_pairs_rc" != 0 ] && [ "$_vrtna_mut_pairs_msg" = "$_vrtna_lib_pairs_msg" ]; then
+    no "teeth VR-T-noarg mutant pairs: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_pairs_rc"
+  else
+    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_pairs → mutation has teeth" "stub_rc=$_vrtna_mut_pairs_rc msg=[$_vrtna_mut_pairs_msg]"
+  fi
+  rm -f "$_vrtna_mut"
 
   # teeth-VR-T3: remove the zero-paths guard → case 22 must lose its specific "no usable target
   # paths" message. With the guard removed, the script now hits the ALL-ABSENT-CHECK (dir_reached=0
