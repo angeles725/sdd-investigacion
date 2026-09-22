@@ -36,7 +36,7 @@ The toolbelt is written for **Linux / GNU userland**:
 
 ```
 research-sdd/
-├── METHODOLOGY.md              # the full contract (§1–§22): markers, block anatomy, sources, stopping, document mode, breakthrough ledger…
+├── METHODOLOGY.md              # the full contract (§1–§23): markers, block anatomy, sources, stopping, document mode, breakthrough ledger…
 ├── PROMPT-LOOP.md              # the per-iteration operational prompt (what goes into the loop)
 ├── PROMPT-AUDIT.md             # the audit-mode prompt (re-verify an existing corpus)
 ├── PROMPT-REFRESH.md           # the refresh-mode prompt (rewrite a block whose subject has DRIFTED)

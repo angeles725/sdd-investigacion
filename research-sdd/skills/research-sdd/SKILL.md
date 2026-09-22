@@ -157,7 +157,7 @@ These steps apply to the heavy mode and to continuing a corpus. **quick** and **
 answer directly (quick) or run a scoped Explore and return the map (light) — do not bootstrap or loop.
 
 1. **Read the kit — these ARE the rules, do not summarize from memory:**
-   - `$KIT/METHODOLOGY.md` — the rules. Do NOT ingest all 22 sections every iteration; it is a reference,
+   - `$KIT/METHODOLOGY.md` — the rules. Do NOT ingest all 23 sections every iteration; it is a reference,
      not a monolith to reload each block. Load it in two tiers — lazy-load is NOT skip: every rule still
      applies, you only DEFER loading a section until its phase fires, and reading it is MANDATORY then.
      - HOT-CORE — read IN FULL every iteration (framing + the per-block contract): §1 guiding principle,
@@ -173,7 +173,8 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        focuses; §18 self-retrospective → at STOP / terminal trigger; §19 build/PoC loop → the gap REQUIRES
        EXECUTION; §20 document mode → the `document` sub-command; §21 wall protocol → you hit a WALL; §22
        breakthrough ledger → a decisive/reusable solution cracked the target (tag the block with a
-       `**Breakthrough:**` field + add it to the fleet index).
+       `**Breakthrough:**` field + add it to the fleet index); §23 three-session kit-change template →
+       coordinating a kit change across separate coordinator / researcher / QA sessions.
        If unsure whether a section's phase is active, READ IT — a wrongly-skipped rule costs more than the
        tokens saved.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
