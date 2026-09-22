@@ -16,7 +16,9 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
   #   a confident empty list must never be returned for a file that was never read.
   target_paths_all() {
     local f="${1:-}"
-    [ -n "$f" ] || return 0
+    # SENTINEL-TP-ALL-NOARG-START
+    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }
+    # SENTINEL-TP-ALL-NOARG-END
     if [ ! -f "$f" ]; then
       echo "target-paths: cannot read ${f}" >&2
       return 1
@@ -47,7 +49,9 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
   #   Used by verify-registry.sh to recover the raw token for TARGETS.md row lookup.
   target_paths_pairs() {
     local f="${1:-}"
-    [ -n "$f" ] || return 0
+    # SENTINEL-TP-PAIRS-NOARG-START
+    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }
+    # SENTINEL-TP-PAIRS-NOARG-END
     if [ ! -f "$f" ]; then
       echo "target-paths: cannot read ${f}" >&2
       return 1
