@@ -2911,6 +2911,31 @@ Backlog-first fixes the routing layer without touching the evidence layer. At th
 body linking to the source retro and quoting the proposed change. The target session stays read-only and opens
 NO kit PR — issue only.
 
+**Loop done-gate — the loop's completion is gated on issue coverage (kit issue #876).** A retro written but not
+yet seeded as issues is a routing dead end: the delta is proposed but invisible to the kit backlog. The
+`/research-sdd` loop enforces seeding at the loop terminal through `research-sdd-status.sh --next`: after
+exhausting investigable gaps (when `--next` would otherwise emit `STOP`), it probes each conforming retro for
+untracked deltas via `reconcile-issues.sh`. On finding any, it emits
+`ISSUES-DUE | <N> untracked delta(s) in <retro> — seed: stage-retro-issues.sh <retro> --apply`
+(early-exit on the first retro found; count and path are scoped to that retro only). The `--next` precedence
+order is: `STALE → RETRO-DUE → NEXT → ISSUES-DUE → STOP`. The loop is NOT DONE while `--next` returns
+`ISSUES-DUE`; a terminal `STOP` is required before the investigation can be reported complete.
+
+`--next` is read-only: it detects and gates; it never runs `--apply` itself (propose-never-apply). Seeding
+backlog issues from retro deltas does NOT violate the propose-never-apply doctrine (CLAUDE.md §8): it creates
+trackable issues for the human to act on — it does not auto-apply a research finding to a corpus.
+
+This gate is the PRIMARY enforcement of backlog-first seeding inside the loop. The `retro-gate.sh` Stop-hook
+path (described above under "Enforcement") remains available for target repos that wire it, but is SECONDARY in
+the loop flow — its absence does not disable the `--next` gate.
+
+When coverage cannot be verified (gh offline/degraded, `timeout` binary absent, aggregate probing budget
+exceeded, enumeration or subprocess error), `--next` emits
+`STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]` instead of bare `STOP`; specific
+cause is reported on stderr. This is advisory: surface it and let the operator proceed; it must not trap the
+loop in a hard block. The retro marker and issue remain the source of truth for provenance even when online
+verification is unavailable.
+
 **Source of truth is hybrid.** The issue is authoritative for OPEN / triage / backlog; the retro marker records
 the FINAL `applied · #N` for offline provenance. This keeps the kit offline-first: the marker still resolves with
 no network, and any future `sweep-retros.sh`↔`gh` bridge MUST emit a typed `degraded` state when `gh` or the
