@@ -13,7 +13,12 @@
 #        validates against — run it after editing the backlog so --next never returns STALE on stale ints.
 #   research-sdd-status.sh <target-dir> --next     print ONE machine-readable next-step line:
 #        NEXT | <priority> | <gap>     — investigate this gap next
-#        STOP | <reason>               — read-only-investigable exhausted (METHODOLOGY §8)
+#        STOP | read-only-investigable exhausted (0)                                     — all gaps closed, issue coverage verified (0 untracked)
+#        STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]  — exhausted; coverage unverifiable (specific cause on stderr)
+#        ISSUES-DUE | <count> untracked delta(s) in <retro> — first retro with untracked deltas found (early-exit:
+#              remaining retros NOT probed); seed: stage-retro-issues.sh <retro> --apply
+#        (aggregate probing budget: _IDG_AGGREGATE_BUDGET_SECS env var, default 60s — exceeded before all-clean confirmed → unverified marker)
+#        RETRO-DUE | <count> ...       — §18 cadence: too many blocks without a retro; write one before resuming
 #        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
@@ -687,6 +692,212 @@ if [ "$mode" = "--sync-state" ]; then
   exit 0
 fi
 
+# _stop_exhausted — single source of truth for the exhausted-investigable STOP message.
+# Both issues_due_gate and the --focus arm use this to prevent literal drift.
+_stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)\n'; }
+
+# --- ISSUES-DUE gate (--next terminal) ---------------------------------------------------------
+# When the NEXT-resolution loop yields STOP (no investigable gaps), probe each retro under
+# the target for untracked deltas via reconcile-issues.sh.  If any exist, emit ISSUES-DUE
+# instead of STOP so the caller knows to seed them as GitHub issues.
+# Enumeration: matches sweep-retros.sh idiom (maxdepth 4, */retros/*.md, no .git, no *index*,
+#              -type f) so nested corpus layouts (corpus/retros/, research/retros/) are visible.
+# Anti-silent-zero §7: "couldn't look" (find error) is distinct from "found zero".
+# Early-exit (R4-budget): on first untracked retro, emit ISSUES-DUE immediately and return —
+#                 do NOT probe remaining retros; do NOT report a fleet-wide denominator.
+#                 The count and path in the output are scoped to that one retro only.
+# Aggregate budget: probing all clean retros is bounded by _IDG_AGGREGATE_BUDGET_SECS (default
+#                 60s). If exceeded before all-clean is confirmed, emit the unverified marker.
+# Degraded probe: reconcile-issues.sh ^degraded: on stderr → WARN, set unverified flag, continue;
+#                 never break on one retro's error.
+# Timeout (R4-SERIAL): each reconcile call is wrapped in `timeout` (or `gtimeout` on macOS;
+#                 _IDG_RECONCILE_TIMEOUT_SECS, default 15s); exit 124 → unverified, WARN, continue.
+#                 If neither `timeout` nor `gtimeout` is present, FAIL CLOSED for liveness: mark
+#                 coverage unverified and skip ALL probes (unbounded calls risk --next never returning).
+#                 _IDG_TIMEOUT_BIN (test hook): when set (even to empty), overrides auto-detection.
+# Stdout contract: verified-clean → bare STOP; unverified-coverage (any cause) → STOP
+#                 with the generic suffix `[issue-coverage: unverified]` (R4-DEGRADED); the
+#                 specific cause is reported on stderr by the branch that set _idg_had_unverified.
+# Operational failure: non-degraded reconcile error → DISTINCT WARN naming the real failure.
+# PERF: retros with applied/dismissed marker are skipped (zero gh calls per such retro).
+issues_due_gate() {
+  local -a _idg_retros
+  local _idg_had_unverified _idg_total _idg_can_probe
+  local _ri _ri_out _ri_rc _n _n_rc _idg_retro _find_rc _sort_rc
+  local _ri_err_content _find_out_tmp _find_err_tmp _ri_err_tmp _rs_tok
+  local _idg_timeout_secs _idg_timeout_bin _idg_aggr_budget _idg_aggr_start
+  _idg_had_unverified=0; _idg_can_probe=1; _idg_total=0
+
+  # F3: enumerate retros using sweep-retros.sh idiom — maxdepth 4, */retros/*.md, no .git,
+  # no *index*.md, -type f — so nested layouts (corpus/retros/, research/retros/) are visible.
+  # F4 (§7): completeness is decided by find EXIT STATUS, not stderr-non-empty.
+  # Harden mktemp: if it fails → unverified coverage; skip probing (redirections would fail).
+  _find_out_tmp="$(mktemp)" || { _idg_had_unverified=1; _idg_can_probe=0  # IDG-ENUM-MKTEMP-GUARD
+    printf 'WARN: mktemp failed for retro enumeration — marking coverage unverified\n' >&2; }
+  _find_err_tmp=""
+  if [ "$_idg_can_probe" -eq 1 ]; then
+    _find_err_tmp="$(mktemp)" || { _idg_had_unverified=1; _idg_can_probe=0
+      rm -f "$_find_out_tmp"
+      printf 'WARN: mktemp failed for retro enumeration stderr — marking coverage unverified\n' >&2; }
+  fi
+  if [ "$_idg_can_probe" -eq 1 ]; then
+    # IDG-ENUM-PRED: predicate is INTENTIONALLY IDENTICAL to sweep-retros.sh (same -maxdepth 4,
+    # -path '*/retros/*.md', same exclusions); -type f is an additional safety guard not present
+    # in sweep-retros.sh's loop (which naturally ignores non-files in its read body). "0 retros
+    # found" here means the same as "0 retros" in the fleet enumerator — not a gate-specific
+    # blind spot.
+    find "$target" -maxdepth 4 -path '*/retros/*.md' \
+      -not -path '*/.git/*' -not -iname '*index*.md' -type f \
+      >"$_find_out_tmp" 2>"$_find_err_tmp"
+    _find_rc=$?
+    sort -o "$_find_out_tmp" "$_find_out_tmp"   # IDG-SORT-IN-PLACE
+    _sort_rc=$?
+    mapfile -t _idg_retros < "$_find_out_tmp"
+    rm -f "$_find_out_tmp" "$_find_err_tmp"
+    # F4 (§7): partial visibility (find exited non-zero) → unverified; DO NOT discard listed retros —
+    # those paths ARE visible and must still be probed.  Stderr noise on a clean exit is not an error.
+    if [ "$_find_rc" -ne 0 ]; then
+      _idg_had_unverified=1  # IDG-FIND-EXIT-UNVERIFIED
+      printf 'WARN: retro enumeration incomplete (find exit %s) — treating coverage as unverified\n' \
+        "$_find_rc" >&2
+    fi
+    # R4-sort-silent-zero: sort failure (TMPDIR full, OOM, sort absent) may produce a truncated array;
+    # the find-exit check above does not cover the sort stage.  Treat any non-zero sort exit as unverified.
+    if [ "$_sort_rc" -ne 0 ]; then
+      _idg_had_unverified=1  # IDG-SORT-EXIT-UNVERIFIED
+      printf 'WARN: retro enumeration sort failed (exit %s) — treating coverage as unverified\n' \
+        "$_sort_rc" >&2
+    fi
+    # absent-input or empty-input: no retros found → nothing to probe; fall through to unified decision.
+    if [ "${#_idg_retros[@]}" -eq 0 ]; then
+      _idg_can_probe=0
+    fi
+  fi
+
+  if [ "$_idg_can_probe" -eq 1 ]; then
+    _ri="$here/reconcile-issues.sh"
+    if [ ! -x "$_ri" ]; then
+      _idg_had_unverified=1  # reconcile unavailable → unverified coverage, not bare STOP
+      _idg_can_probe=0
+      printf 'WARN: reconcile-issues.sh not executable at %s — skipping issues gate\n' "$_ri" >&2
+    fi
+  fi
+
+  if [ "$_idg_can_probe" -eq 1 ]; then
+    # R4-SERIAL: probe for timeout binary once; use _IDG_RECONCILE_TIMEOUT_SECS env override (default 15s).
+    _idg_timeout_secs="${_IDG_RECONCILE_TIMEOUT_SECS:-15}"
+    _idg_timeout_bin=""
+    if [ "${_IDG_TIMEOUT_BIN+x}" = "x" ]; then
+      _idg_timeout_bin="$_IDG_TIMEOUT_BIN"  # IDG-TIMEOUT-BIN-OVERRIDE (test hook)
+    elif command -v timeout >/dev/null 2>&1; then
+      _idg_timeout_bin="timeout"  # IDG-TIMEOUT-AVAIL-CHECK
+    elif command -v gtimeout >/dev/null 2>&1; then
+      _idg_timeout_bin="gtimeout"  # IDG-GTIMEOUT-AVAIL-CHECK
+    fi
+    if [ -z "$_idg_timeout_bin" ]; then
+      _idg_had_unverified=1  # IDG-TIMEOUT-ABSENT-FAIL-CLOSED
+      printf 'WARN: timeout(1)/gtimeout not available — cannot bound reconcile calls; marking coverage unverified\n' >&2
+    fi
+
+    # R4-AGGREGATE-BUDGET: bound total wall time for verifying all retros are clean.
+    # The early-exit path (IDG-EARLY-EXIT) fires on the first untracked retro and returns immediately;
+    # this budget gates only the all-clean verification path where every retro must be probed.
+    # Override via _IDG_AGGREGATE_BUDGET_SECS (default 60s).
+    _idg_aggr_budget="${_IDG_AGGREGATE_BUDGET_SECS:-60}"  # IDG-AGGREGATE-BUDGET
+    _idg_aggr_start="$SECONDS"
+
+    # PERF: source retro-status lib for pre-filtering applied/dismissed retros (avoids gh call).
+    _rs_lib="$here/lib/retro-status.sh"
+    if [ -f "$_rs_lib" ]; then
+      # shellcheck source=lib/retro-status.sh
+      . "$_rs_lib"
+    fi
+
+    _idg_total="${#_idg_retros[@]}"
+    # Harden mktemp: if it fails we cannot safely capture stderr per-retro; mark coverage unverified.
+    _ri_err_tmp="$(mktemp)" || { _idg_had_unverified=1; _ri_err_tmp=""; printf 'WARN: mktemp failed — cannot capture reconcile stderr; marking coverage unverified\n' >&2; }
+    for _idg_retro in "${_idg_retros[@]}"; do
+      # PERF: skip retros whose marker is applied/dismissed — no gh call needed.
+      if declare -F retro_review_status >/dev/null 2>&1; then
+        _rs_tok="$(retro_review_status "$_idg_retro")"
+        case "$_rs_tok" in applied|dismissed) continue ;; esac
+      fi
+
+      # Guard: skip reconcile call if mktemp failed (stderr cannot be safely redirected).
+      if [ -z "$_ri_err_tmp" ]; then continue; fi
+
+      # R4-AGGREGATE-BUDGET: stop probing when wall budget is exceeded before confirming all-clean.
+      # On first untracked retro, IDG-EARLY-EXIT returns immediately so this check is only
+      # reached on the clean path where every retro needs to be verified.
+      if (( (SECONDS - _idg_aggr_start) >= _idg_aggr_budget )); then  # IDG-AGGREGATE-EXCEEDED
+        _idg_had_unverified=1
+        printf 'WARN: aggregate reconcile budget (%ss) exceeded — marking coverage unverified\n' \
+          "$_idg_aggr_budget" >&2
+        break
+      fi
+
+      # F4/F5: capture reconcile stderr; do NOT discard into /dev/null.
+      # R4-SERIAL: when no timeout binary is available, skip this probe (fail-closed for liveness);
+      # _idg_had_unverified was already set in the availability check above.
+      [ -z "$_idg_timeout_bin" ] && continue  # IDG-TIMEOUT-ABSENT-SKIP
+      _ri_out="$("$_idg_timeout_bin" "$_idg_timeout_secs" "$_ri" "$_idg_retro" 2>"$_ri_err_tmp")"  # IDG-TIMEOUT-WRAP
+      _ri_rc=$?
+      _ri_err_content="$(cat "$_ri_err_tmp")"
+      : > "$_ri_err_tmp"  # clear for next iteration
+
+      if [ "$_ri_rc" -ne 0 ]; then
+        if [ "$_ri_rc" -eq 124 ]; then
+          # R4-SERIAL: reconcile timed out → unverified coverage; WARN, continue
+          _idg_had_unverified=1
+          printf 'WARN: reconcile-issues.sh timed out for %s — treating as unverified\n' \
+            "$(basename "$_idg_retro")" >&2
+        elif printf '%s\n' "$_ri_err_content" | grep -qE '^degraded:'; then
+          # F5a: gh degraded → WARN + continue (fall through; don't break, don't block offline)
+          _idg_had_unverified=1
+          printf 'WARN: could not verify issue coverage (gh degraded) — seed manually\n' >&2
+        else
+          # F5b: operational failure — any non-zero exit not covered above is also unverified coverage.
+          _idg_had_unverified=1  # IDG-OPFAIL-SENTINEL
+          printf 'WARN: reconcile-issues.sh failed for %s (exit %s) — %s\n' \
+            "$(basename "$_idg_retro")" "$_ri_rc" "${_ri_err_content:-no stderr}" >&2
+        fi
+        continue  # F5c: never break; accumulate from remaining retros
+      fi
+      _n="$(printf '%s\n' "$_ri_out" | awk '/^untracked:/{n++} END{print n+0}')"  # IDG-UNTRACKED-PATTERN
+      _n_rc=$?
+      # Sweep: awk failure (OOM, absent) → count unreliable; treat as unverified, never as clean.
+      if [ "$_n_rc" -ne 0 ]; then
+        _idg_had_unverified=1  # IDG-AWK-COUNT-FAIL
+        printf 'WARN: awk untracked-count failed for %s (exit %s) — treating as unverified\n' \
+          "$(basename "$_idg_retro")" "$_n_rc" >&2
+        continue
+      fi
+      if [ "${_n:-0}" -gt 0 ]; then  # ISSUES-DUE-GATE-COND
+        # IDG-EARLY-EXIT: first retro with untracked deltas → emit ISSUES-DUE immediately and stop.
+        # Do NOT probe remaining retros; do NOT report _idg_total as a denominator (includes
+        # unprobed retros). Count and path are scoped to THIS retro only.
+        [ -n "$_ri_err_tmp" ] && rm -f "$_ri_err_tmp"
+        printf 'ISSUES-DUE | %s untracked delta(s) in %s — seed: stage-retro-issues.sh %s --apply\n' \
+          "$_n" "$_idg_retro" "$_idg_retro"
+        return  # IDG-EARLY-EXIT
+      fi
+    done
+    [ -n "$_ri_err_tmp" ] && rm -f "$_ri_err_tmp"
+  fi
+
+  # Unified decision: unverified wins over verified-clean; verified-clean last.
+  # Note: ISSUES-DUE is emitted early-exit (IDG-EARLY-EXIT) inside the loop above; it never
+  # reaches this point.
+  # R4-DEGRADED: distinguish unverified-coverage (degraded or timeout) from verified-clean.
+  # Untracked wins over unverified (ISSUES-DUE already returned above when >0).
+  if [ "$_idg_had_unverified" -gt 0 ]; then
+    printf 'STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]\n'  # IDG-UNVERIFIED-MARKER
+    return
+  fi
+  # no-match: retros exist, all deltas tracked (or empty retros with clean find) → verified-clean STOP
+  _stop_exhausted
+}
+
 if [ "$mode" = "--next" ]; then
   # Refuse to hand out work on an internally inconsistent state (summary claims done while backlog
   # lists pending — verify-state.sh exits 1 on that). An agent trusting --next alone must reconcile first.
@@ -783,6 +994,7 @@ if [ "$mode" = "--next" ]; then
     # sorted first → corpus=alpha → aggregation never reached beta (active) → false STOP.
     mapfile -t _next_states < <(list_state_files "$target")
     _nxt_skip_gaps=0
+    : # IDG-PREC-SENTINEL (teeth-IDG-precedence: replace with 'issues_due_gate; exit 0' to verify gate fires AFTER resolve_next)
     for state in "${_next_states[@]}"; do
       _nxt_foc_slug="$(basename "$state" .md)"; _nxt_foc_slug="${_nxt_foc_slug#RESEARCH-STATE-}"
       _nxt_foc_file="$(dirname "$state")/FOCUSES.md"
@@ -800,10 +1012,14 @@ if [ "$mode" = "--next" ]; then
     if [ "$_nxt_skip_gaps" -gt 0 ]; then
       echo "STOP | no active focus (${_nxt_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)"
     else
-      echo "STOP | read-only-investigable exhausted (0)"
+      issues_due_gate
     fi
   else
-    resolve_next
+    _rn_out="$(resolve_next)"
+    case "$_rn_out" in
+      "STOP | read-only-investigable exhausted (0)") issues_due_gate ;;  # IDG-FOCUS-GATE
+      *) printf '%s\n' "$_rn_out" ;;
+    esac
   fi
   exit 0
 fi
