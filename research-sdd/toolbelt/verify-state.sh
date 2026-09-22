@@ -587,9 +587,20 @@ for state in "${states[@]}"; do
   # Only fires when the prose line is PRESENT (absent prose = a different structural problem, not this check).
   # SC-CROSS-CHECK: stop-control prose format is "**Open gaps — read-only investigable**: N" (bold markers
   # wrap the label, colon follows the closing **). Accept both `investigable**: N` and `investigable: N`.
-  _sc_prose="$(grep -iE 'read-only investigable\*{0,2}:[[:space:]]*[0-9]+' "$state" 2>/dev/null | head -1)"
+  # Three confirmed real-world forms (enumerated 2026-09-22 against real corpora):
+  #   1. "**: N   ← annotation with trailing number"   (sdd-investigacion/RESEARCH-STATE.md)
+  #   2. "**: N (G74 gap list with gap IDs)"            (blender-llm/RESEARCH-STATE.md)
+  #   3. "**: **N** (gap list...)"  bold-wrapped value  (niagara-research/RESEARCH-STATE.md)
+  # The old grep -oE '[0-9]+' | tail -1 took the LAST number anywhere on the line: form 1 returned
+  # 0 (from "hits 0"), form 2 returned 74 (from G74). Fix: re-match the field prefix up to the value
+  # so only the number that immediately follows the colon is captured.
+  # Unparseable-value verdict: if the first regex matches (line present with a number after colon) but
+  # the anchored extraction finds nothing, that is impossible by construction (same [0-9]+ anchor in
+  # both regexes), so empty _sc_n means the prose line is absent → silently skip (§7: absent-input
+  # vs empty-input; absent prose is a different structural problem, not this check's scope).
+  _sc_prose="$(grep -iE 'read-only investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+' "$state" 2>/dev/null | head -1)"
   if [ -n "$_sc_prose" ]; then
-    _sc_n="$(printf '%s' "$_sc_prose" | grep -oE '[0-9]+' | tail -1)"
+    _sc_n="$(printf '%s' "$_sc_prose" | grep -oiE 'investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+' | grep -oE '[0-9]+$')"  # SCEX-EXTRACT-ANCHOR
     if [ -n "$_sc_n" ] && [ "$_sc_n" != "$d_inv" ]; then  # SC-CROSS-CHECK
       echo "   FAIL   stop-control prose 'read-only-investigable: ${_sc_n}' but backlog derives ${d_inv} investigable gap(s) — refresh the Stop control section and re-seed: --sync-state"
       frc=1; rc=1
