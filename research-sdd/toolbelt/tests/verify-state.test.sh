@@ -654,6 +654,125 @@ if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*blocked_open=0 != 1' <<<"$out"; the
   ok "B3c-FAIL: blocked_open=0 vs 1 Blocked/ entry → FAIL (slash-heading recognized)"
 else no "B3c-FAIL: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
 
+# B911a — ## Child gaps surfaced at close: multi-line bullet with `needs:` on a continuation line.
+# A blocked gap whose `needs:` token is NOT on the bullet line itself (e.g. niagara-research
+# RESEARCH-STATE-database.md DB-G1: bullet carries `blocked-on-source-missing`; `needs:` is on a
+# subsequent indent line) must still be counted. Confirmed fleet-wide 2026-09-22: only
+# RESEARCH-STATE-database.md carries this section heading; the fix scans it with awk rather than
+# extending the existing grep (which is anchored to bullet lines only).
+# SINGLE: one open entry in ## Child gaps surfaced at close, `needs:` on continuation → PASS.
+d="$TMP/child-gaps-single"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Child gaps surfaced at close'
+  echo '- **CG1 missing jar** — `blocked-on-source-missing`.'
+  echo '  `tried:` fd on corpus = 0.'
+  echo '  `needs:` decompilar el jar before reinvestigating.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B911a-SINGLE: ## Child gaps surfaced at close: 1 multi-line entry (needs: on continuation) → blocked_open=1 → PASS"
+else no "B911a-SINGLE: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B911a-FAIL: declared blocked_open=0 while 1 child-gaps entry has needs: on continuation → FAIL.
+d="$TMP/child-gaps-single-fail"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 0 0; echo   # blocked_open=0 (wrong — 1 child-gaps entry exists)
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Child gaps surfaced at close'
+  echo '- **CG1 missing jar** — `blocked-on-source-missing`.'
+  echo '  `tried:` fd on corpus = 0.'
+  echo '  `needs:` decompilar el jar before reinvestigating.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*blocked_open=0 != 1' <<<"$out"; then
+  ok "B911a-FAIL: child-gaps 1 entry, blocked_open=0 (wrong) → FAIL (mismatch detected)"
+else no "B911a-FAIL: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B911a-FIRST: open entry is FIRST in section (2 closed after it); blocked_open=1 → PASS.
+d="$TMP/child-gaps-first"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Child gaps surfaced at close'
+  echo '- **CG1 open** — `blocked-on-source-missing`.'
+  echo '  `tried:` fd = 0. `needs:` retrieve the jar before reinvestigating.'
+  echo '- **CG2 closed** — **CERRADO [CERT-live] (B610, §12)**: evidence in block.'
+  echo '- **CG3 closed** — **CERRADO [CERT-live] (B611)**: analysed in block.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B911a-FIRST: open entry FIRST in ## Child gaps surfaced at close → blocked_open=1 → PASS"
+else no "B911a-FIRST: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B911a-MIDDLE: open entry is in MIDDLE (closed before and after); blocked_open=1 → PASS.
+d="$TMP/child-gaps-middle"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Child gaps surfaced at close'
+  echo '- **CG1 closed** — **CERRADO [CERT-live] (B610, §12)**: analysed in block.'
+  echo '- **CG2 open** — `blocked-on-source-missing`.'
+  echo '  `tried:` fd = 0. `needs:` retrieve the jar before reinvestigating.'
+  echo '- **CG3 closed** — **CERRADO [CERT-live] (B611)**: analysed in block.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B911a-MIDDLE: open entry MIDDLE in ## Child gaps surfaced at close → blocked_open=1 → PASS"
+else no "B911a-MIDDLE: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B911a-LAST: open entry is LAST in section (2 closed before it); blocked_open=1 → PASS.
+d="$TMP/child-gaps-last"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 1 0; echo
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Child gaps surfaced at close'
+  echo '- **CG1 closed** — **CERRADO [CERT-live] (B610, §12)**: analysed in block.'
+  echo '- **CG2 closed** — **CERRADO [CERT-live] (B611)**: analysed in block.'
+  echo '- **CG3 open** — `blocked-on-source-missing`.'
+  echo '  `tried:` fd = 0. `needs:` retrieve the jar before reinvestigating.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B911a-LAST: open entry LAST in ## Child gaps surfaced at close → blocked_open=1 → PASS"
+else no "B911a-LAST: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
+# B911a-FP-GUARD: ## Child gaps surfaced at close with only closed entries — blocked_open=0 → PASS.
+# Also guards against a false positive when closed entries have instructional prose on continuation
+# lines that does NOT carry `needs:` (like DB-G2/G3 in database.md).
+d="$TMP/child-gaps-fp-guard"; mkdir -p "$d"
+{ echo '# T — Research State'; echo
+  env9 0 3 3 0 0 0 0; echo   # blocked_open=0 (correct — all entries are CERRADO)
+  echo '## Coverage'; echo '- **Coverage metric**: 3 / 3 closed'
+  echo '## Gap-backlog (prioritized)'
+  echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Child gaps surfaced at close'
+  echo '- **CG1 closed** — **CERRADO [CERT-live] (B610, GATED-BY-DEPLOYMENT)**: already in block.'
+  echo '  `tried:` remittance to B403/B407 covers static model.'
+  echo '- **CG2 closed** — **CERRADO [CERT-live] (B611, §12)**: thread-safe confirmed in live.'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+} > "$d/RESEARCH-STATE.md"
+out="$(run "$d")"
+if [ "$(code "$d")" = 0 ] && grep -qE 'ok +envelope validated' <<<"$out"; then
+  ok "B911a-FP-GUARD: all child-gap entries closed (CERRADO, no needs:) → blocked_open=0 → PASS (no false positive)"
+else no "B911a-FP-GUARD: exit $(code "$d") :: $(grep -iE 'fail|blocked_open' <<<"$out" | head -1)"; fi
+
 # B3b — deferred_open envelope field: a backlog row with priority 'deferred' is counted.
 d="$TMP/deferred-open"; mkdir -p "$d"
 { echo '# T — Research State'; echo
@@ -2368,6 +2487,45 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$mbsgot" = 0 ]; then
       ok "teeth(B3c): mutant ignores Blocked-slash → false-passes (mismatch undetected) → triple-section fix is load-bearing"
     else no "teeth(B3c): mutant exit $mbsgot (want 0) — Blocked-slash detection may not depend on the fix (THEATER)"; fi
+  fi
+
+  # ---- B911a mutation: remove RSDD-CHILD-GAPS-ANCHOR awk block → multi-line child-gap entry undetected ----
+  # Use the B911a-FAIL fixture: 1 child-gaps entry with `needs:` on continuation, envelope blocked_open=0 (wrong).
+  # Real SUT: derive_blocked finds the entry via awk → d_blocked=1 ≠ e_blocked=0 → FAIL (exit 1).
+  # Mutant (child-gaps awk removed): _d2=0, d_blocked=0 == e_blocked=0 → no mismatch → exit 0 (FALSE-PASS).
+  # Build via python3: the awk heredoc contains single quotes that confuse sed.
+  echo "-- teeth: B911a — remove RSDD-CHILD-GAPS-ANCHOR awk from derive_blocked; B911a-FAIL fixture must false-pass --"
+  mutant911a="$TMP/verify-state.B911A.MUTANT.sh"
+  if grep -q '# RSDD-CHILD-GAPS-ANCHOR' "$SUT"; then
+    python3 - "$SUT" "$mutant911a" <<'PYEOF'
+import sys, re
+src = open(sys.argv[1]).read()
+# Remove the _d2 assignment (the RSDD-CHILD-GAPS-ANCHOR awk block) and change the echo to use only _d1.
+# Strategy: replace the multi-line derive_blocked body with the old one-liner equivalent.
+# Remove _d2 line and the echo $(( ... )) line; replace with a one-liner that only counts _d1.
+mutant = re.sub(
+    r'  # RSDD-CHILD-GAPS-ANCHOR.*?  echo \$\(\( \$\{_d1:-0\} \+ \$\{_d2:-0\} \)\)',
+    '  echo "${_d1:-0}"',
+    src,
+    count=1,
+    flags=re.DOTALL
+)
+open(sys.argv[2], 'w').write(mutant)
+PYEOF
+    if [ ! -f "$mutant911a" ]; then
+      no "teeth(B911a): python3 did not write mutant file"
+    elif grep -q 'RSDD-CHILD-GAPS-ANCHOR' "$mutant911a"; then
+      no "teeth(B911a): could not build mutant (RSDD-CHILD-GAPS-ANCHOR still present after substitution)"
+    else
+      cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+      d="$TMP/child-gaps-single-fail"   # reuse B911a-FAIL: 1 child-gaps entry, blocked_open=0 (wrong)
+      bash "$mutant911a" "$d" >/dev/null 2>&1; m911got=$?
+      if [ "$m911got" = 0 ]; then
+        ok "teeth(B911a): awk-removed mutant misses continuation entry (d=0 vs e=0 → false-pass) → RSDD-CHILD-GAPS-ANCHOR awk is load-bearing"
+      else no "teeth(B911a): mutant exit $m911got (want 0) — child-gaps detection may not depend on the awk block (THEATER)"; fi
+    fi
+  else
+    no "teeth(B911a): RSDD-CHILD-GAPS-ANCHOR sentinel not found in SUT (child-gaps awk block not implemented)"
   fi
 
   # ---- B3b mutation: neuter derive_deferred → always return 0 → deferred_open mismatch undetected ----
