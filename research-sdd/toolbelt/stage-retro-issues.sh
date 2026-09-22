@@ -252,9 +252,13 @@ is_wrong_kit() {
   printf '%s' "$1" | grep -qiE '[-a-zA-Z0-9]+-kit[:/]'
 }
 
-# strip_md_bold: removes leading/trailing ** bold markers
+# strip_md_bold: if the cell opens with a bold lead-in (**phrase**), return just
+# the bolded phrase as the title (the author's own one-line summary).  Otherwise
+# fall back to stripping surrounding ** markers.
+# STAGE_RETRO_ISSUES_BOLD_LEAD: this sed branch is the T4 teeth anchor; replacing
+# it with the old s/^\*\*// expression re-introduces the stray-** bug.
 strip_md_bold() {
-  printf '%s' "$1" | sed -E 's/^\*\*//;s/\*\*$//'
+  printf '%s' "$1" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//'
 }
 
 # ---------------------------------------------------------------------------
