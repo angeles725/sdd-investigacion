@@ -9,6 +9,7 @@
 #   allows-unmarked       mutant skips verify-retro → allows non-conforming retro
 #   ignores-stop_hook_active  mutant removes stop_hook_active check → blocks loop
 #   reason-not-actionable mutant reduces reason to bare "retro pending"
+#   nojq-path-dirname-leak  old dirname logic leaks jq via /bin→/usr/bin duplicate
 #
 # Usage: retro-gate.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
 
@@ -96,43 +97,27 @@ run_mutant() {
   ERR="$(cat "$errf")"; rm -f "$errf"
 }
 
-# Build NOJQ_PATH: PATH without the directory that contains jq.
-# dirname/basename live in /usr/bin (separate from linuxbrew bin where jq lives),
-# so excluding jq's dir leaves all other necessary tools accessible.
-_JQ_BIN="$(command -v jq 2>/dev/null)"
-if [ -n "$_JQ_BIN" ]; then
-  _JQ_DIR="$(dirname "$_JQ_BIN")"
-  NOJQ_PATH=""
+# Build NOJQ_PATH: a hermetic single-dir PATH with symlinks to every executable on
+# the current PATH except jq.  Resolving by name (first-wins across dirs) prevents
+# /bin→/usr/bin duplicates from leaking jq even when jq lives in the canonical target.
+_NOJQ_BIN="$ROOT/nojq_bin"
+mkdir -p "$_NOJQ_BIN"
+if command -v jq >/dev/null 2>&1; then
   _oifs="$IFS"; IFS=':'
   for _pd in $PATH; do
     IFS="$_oifs"
-    [ "$_pd" = "$_JQ_DIR" ] && continue
-    NOJQ_PATH="${NOJQ_PATH:+$NOJQ_PATH:}$_pd"
+    [ -d "$_pd" ] || continue
+    while IFS= read -r -d '' _exe; do
+      _n="$(basename "$_exe")"
+      [ "$_n" = "jq" ] && continue
+      [ -e "$_NOJQ_BIN/$_n" ] && continue
+      ln -s "$_exe" "$_NOJQ_BIN/$_n"
+    done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
   done
   IFS="$_oifs"
+  NOJQ_PATH="$_NOJQ_BIN"
 else
-  NOJQ_PATH="$PATH"  # jq already absent; PATH is already jq-free
-fi
-
-# Build NOGH_PATH: PATH without the directory that contains gh.
-# Used by EN3 TOOTH 8 to simulate gh absence when /bin→/usr/bin symlink is absent.
-_GH_BIN="$(command -v gh 2>/dev/null)"
-if [ -n "$_GH_BIN" ]; then
-  _GH_DIR="$(dirname "$_GH_BIN")"
-  # Also exclude the canonical resolved dir in case of /bin→/usr/bin symlink
-  _GH_DIR_CANON="$(readlink -f "$_GH_DIR" 2>/dev/null || printf '%s' "$_GH_DIR")"
-  NOGH_PATH=""
-  _oifs="$IFS"; IFS=':'
-  for _pd in $PATH; do
-    IFS="$_oifs"
-    _pd_canon="$(readlink -f "$_pd" 2>/dev/null || printf '%s' "$_pd")"
-    [ "$_pd" = "$_GH_DIR" ] && continue
-    [ "$_pd_canon" = "$_GH_DIR_CANON" ] && continue
-    NOGH_PATH="${NOGH_PATH:+$NOGH_PATH:}$_pd"
-  done
-  IFS="$_oifs"
-else
-  NOGH_PATH="$PATH"  # gh already absent
+  NOJQ_PATH="$PATH"  # jq already absent
 fi
 
 # Build FAIL_AUTH_GH_DIR: a bin dir with a fake gh that fails auth status.
@@ -313,15 +298,21 @@ mksessionfile "$T6" "$SID6" "202609050800"
 mkblock "$T6" "niagara-block1.md" "2026-09-05T10:00:00"
 
 _j6="$(mkjson "$SID6" "false")"
-run_gate_nojq "$T6" "$_j6"
-[ "$RC" -eq 0 ] && ok "DEGRADE: jq absent → exit 0 (hook contract)" \
-  || no "DEGRADE: jq absent — want exit 0, got $RC"
-[ -z "$OUT" ] && ok "DEGRADE: jq absent → no block JSON on stdout" \
-  || no "DEGRADE: jq absent — unexpected stdout: $OUT"
-printf '%s' "$ERR" | grep -q 'branch=degraded' && ok "DEGRADE: jq absent → branch=degraded in stderr" \
-  || no "DEGRADE: jq absent — stderr missing 'branch=degraded': $ERR"
-printf '%s' "$ERR" | grep -q 'jq missing' && ok "DEGRADE: jq absent → 'jq missing' in stderr" \
-  || no "DEGRADE: jq absent — stderr missing 'jq missing': $ERR"
+# Precondition: NOJQ_PATH must actually hide jq; if it leaks jq the downstream
+# assertions would pass for the wrong reason (SUT uses jq normally, not degraded).
+if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
+  no "PRECOND(7): NOJQ_PATH still resolves jq — simulation broken, test 7 skipped"
+else
+  run_gate_nojq "$T6" "$_j6"
+  [ "$RC" -eq 0 ] && ok "DEGRADE: jq absent → exit 0 (hook contract)" \
+    || no "DEGRADE: jq absent — want exit 0, got $RC"
+  [ -z "$OUT" ] && ok "DEGRADE: jq absent → no block JSON on stdout" \
+    || no "DEGRADE: jq absent — unexpected stdout: $OUT"
+  printf '%s' "$ERR" | grep -q 'branch=degraded' && ok "DEGRADE: jq absent → branch=degraded in stderr" \
+    || no "DEGRADE: jq absent — stderr missing 'branch=degraded': $ERR"
+  printf '%s' "$ERR" | grep -q 'jq missing' && ok "DEGRADE: jq absent → 'jq missing' in stderr" \
+    || no "DEGRADE: jq absent — stderr missing 'jq missing': $ERR"
+fi
 
 # ─── (8) Pure-bash emitter: block JSON is valid + handles embedded " in reason ─
 # Use target whose basename contains a double-quote — the reason embeds it.
@@ -503,21 +494,28 @@ printf '%s' "$OUT" | grep -qF 'retro.template.md' \
 
 # ── TOOTH 5: degraded-stderr-dropped — mutant removes jq probe (no degraded line) ─
 # Mutant: SENTINEL-JQ-PROBE-START…END removed → no degraded stderr on no-jq path.
-# PATH="" hides jq; the mutant continues silently (no degraded line on stderr).
+# Precondition guard: NOJQ_PATH must hide jq or the mutant runs with jq present and
+# the assertion is vacuous (mutant behaves normally, not silently).
 M5="$(mkmutant 'degraded-stderr-dropped' 'SENTINEL-JQ-PROBE-START' 'SENTINEL-JQ-PROBE-END')"
 TM5="$ROOT/m5"; mkgit "$TM5"; SM5="m5-sess"
 mksessionfile "$TM5" "$SM5" "202609050800"
 mkblock "$TM5" "niagara-block1.md" "2026-09-05T10:00:00"
 _jm5="$(mkjson "$SM5" "false")"
-run_mutant_nojq "$M5" "$TM5" "$_jm5"
-# Mutant has no probe → no 'branch=degraded' in stderr (RED as expected)
-printf '%s' "$ERR" | grep -q 'branch=degraded' \
-  && no "TOOTH degraded-stderr-dropped: mutant should NOT emit degraded line but it did" \
-  || ok "TOOTH degraded-stderr-dropped: mutant silent (no degraded stderr) — RED as expected"
+if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
+  no "PRECOND(TOOTH5): NOJQ_PATH still resolves jq — simulation broken, TOOTH 5 skipped"
+else
+  run_mutant_nojq "$M5" "$TM5" "$_jm5"
+  # Mutant has no probe → no 'branch=degraded' in stderr (RED as expected)
+  printf '%s' "$ERR" | grep -q 'branch=degraded' \
+    && no "TOOTH degraded-stderr-dropped: mutant should NOT emit degraded line but it did" \
+    || ok "TOOTH degraded-stderr-dropped: mutant silent (no degraded stderr) — RED as expected"
+fi
 
 # ── TOOTH 6: jq-emitter-reverted — mutant removes both probe+emitter sentinels ──
 # Mutant: no probe (no early exit on jq-absent) AND reverts to jq-cn emitter.
 # With jq absent, the reverted jq-cn fails silently → no block JSON on stdout.
+# Precondition guard: NOJQ_PATH must hide jq or the mutant runs jq-cn successfully
+# and the assertion is vacuous (block JSON present when it should be absent).
 M6="$MUT_KIT/toolbelt/mutant-jq-emitter.sh"
 sed "/# SENTINEL-JQ-PROBE-START/,/# SENTINEL-JQ-PROBE-END/d" "$SUT" | \
 awk '
@@ -532,11 +530,15 @@ TM6="$ROOT/m6"; mkgit "$TM6"; SM6="m6-sess"
 mksessionfile "$TM6" "$SM6" "202609050800"
 mkblock "$TM6" "niagara-block1.md" "2026-09-05T10:00:00"
 _jm6="$(mkjson "$SM6" "false")"
-run_mutant_nojq "$M6" "$TM6" "$_jm6"
-# Mutant: jq-cn fails silently → no block JSON on stdout (RED = silent allow)
-printf '%s' "$OUT" | grep -qF '"decision":"block"' \
-  && no "TOOTH jq-emitter-reverted: mutant should produce no block JSON (no jq) but it did" \
-  || ok "TOOTH jq-emitter-reverted: mutant silent block (no jq-cn output) — RED as expected"
+if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
+  no "PRECOND(TOOTH6): NOJQ_PATH still resolves jq — simulation broken, TOOTH 6 skipped"
+else
+  run_mutant_nojq "$M6" "$TM6" "$_jm6"
+  # Mutant: jq-cn fails silently → no block JSON on stdout (RED = silent allow)
+  printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+    && no "TOOTH jq-emitter-reverted: mutant should produce no block JSON (no jq) but it did" \
+    || ok "TOOTH jq-emitter-reverted: mutant silent block (no jq-cn output) — RED as expected"
+fi
 
 # ── EN3 TOOTH 7: seeding-not-called — mutant removes seeding call sentinel ────
 # Mutant: SENTINEL-SEEDING-CALL-START…END removed → _run_issue_seeding never invoked
@@ -596,6 +598,69 @@ ERR_M8="$(cat "$errf_m8")"; rm -f "$errf_m8"
 printf '%s' "$ERR_M8" | grep -qF 'retro-gate: WARN: gh' \
   && no "TOOTH gh-probe-dropped: mutant should NOT emit gh WARN but it did: $ERR_M8" \
   || ok "TOOTH gh-probe-dropped: mutant emits no gh WARN — RED as expected"
+
+# ── TOOTH 9: nojq-path-dirname-leak — dirname logic leaks jq via duplicate dirs ──
+# Reproduce the CI condition: jq is reachable through TWO PATH entries that resolve
+# to the same underlying directory (like /bin→/usr/bin on Ubuntu).
+# Shows: old dirname-only logic leaks jq (RED); new hermetic logic hides it (GREEN);
+# and the precondition guard fires against the leaky PATH (mutation evidence).
+_T9_REAL="$ROOT/tooth9_real"   # real dir with jq stub + an unrelated tool
+_T9_LINK="$ROOT/tooth9_link"   # symlink → same dir, simulating /bin→/usr/bin
+mkdir -p "$_T9_REAL"
+ln -s "$_T9_REAL" "$_T9_LINK"
+printf '#!/usr/bin/env bash\necho stub-jq\n' > "$_T9_REAL/jq"; chmod +x "$_T9_REAL/jq"
+printf '#!/usr/bin/env bash\necho stub-grep\n' > "$_T9_REAL/grep"; chmod +x "$_T9_REAL/grep"
+
+# Simulated PATH: jq accessible via both _T9_REAL and _T9_LINK (same underlying dir)
+_T9_PATH="$_T9_REAL:$_T9_LINK"
+
+# OLD logic: dirname removal strips only _T9_REAL; _T9_LINK (same dir) still leaks jq
+_T9_OLD_PATH=""
+_oifs="$IFS"; IFS=':'
+for _pd in $_T9_PATH; do
+  IFS="$_oifs"
+  [ "$_pd" = "$_T9_REAL" ] && continue
+  _T9_OLD_PATH="${_T9_OLD_PATH:+$_T9_OLD_PATH:}$_pd"
+done
+IFS="$_oifs"
+
+# Old logic should leak jq through _T9_LINK (RED = precondition fires = old logic broken)
+if PATH="$_T9_OLD_PATH" command -v jq >/dev/null 2>&1; then
+  ok "TOOTH nojq-path-dirname-leak: old dirname logic leaks jq via duplicate dir (RED as expected)"
+else
+  no "TOOTH nojq-path-dirname-leak: old logic should leak jq but did not — tooth broken"
+fi
+
+# NEW hermetic logic: single bin dir with symlinks to all tools except jq
+_T9_NEW_BIN="$ROOT/tooth9_new_bin"
+mkdir -p "$_T9_NEW_BIN"
+_oifs="$IFS"; IFS=':'
+for _pd in $_T9_PATH; do
+  IFS="$_oifs"
+  [ -d "$_pd" ] || continue
+  while IFS= read -r -d '' _exe; do
+    _n="$(basename "$_exe")"
+    [ "$_n" = "jq" ] && continue
+    [ -e "$_T9_NEW_BIN/$_n" ] && continue
+    ln -s "$_exe" "$_T9_NEW_BIN/$_n"
+  done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
+done
+IFS="$_oifs"
+
+# New logic must hide jq (GREEN)
+if PATH="$_T9_NEW_BIN" command -v jq >/dev/null 2>&1; then
+  no "TOOTH nojq-path-dirname-leak: new hermetic logic should hide jq but leaked"
+else
+  ok "TOOTH nojq-path-dirname-leak: new hermetic logic hides jq — GREEN as expected"
+fi
+
+# Precondition guard fires against old leaky PATH (mutation evidence):
+# if we were to run test 7 with _T9_OLD_PATH instead of NOJQ_PATH, the guard triggers
+if PATH="$_T9_OLD_PATH" command -v jq >/dev/null 2>&1; then
+  ok "TOOTH nojq-path-dirname-leak: precondition guard would fire on old dirname PATH (mutation confirms)"
+else
+  no "TOOTH nojq-path-dirname-leak: old dirname PATH unexpectedly hides jq — mutation check broken"
+fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo
