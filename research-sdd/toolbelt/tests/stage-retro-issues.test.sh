@@ -369,6 +369,49 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 14 — BOLD LEAD-IN TITLE: cell opens with **phrase.** detail → title is phrase only
+# The bug: strip_md_bold stripped the opening ** but left the closing ** in the
+# middle, producing "phrase.** detail..." in the title.  After the fix, the title
+# must be the bolded phrase only, with no stray **.
+box="$(mkbox case-bold-lead)"
+retro="$(mk_retro "$box" target-foo r-bold.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | **Bold summary sentence.** Detail text explaining the change. | CLAUDE.md | B1 | new | HIGH |")"
+run "$box" "$retro"
+title_line14="$(printf '%s\n' "$OUT" | grep '^planned-issue:')"
+bold_title_ok=0
+if printf '%s\n' "$title_line14" | grep -q 'Bold summary sentence\.' \
+   && ! printf '%s\n' "$title_line14" | grep -q '\*\*'; then
+  bold_title_ok=1
+fi
+if [ "$RC" = 0 ] && [ "$bold_title_ok" = 1 ]; then
+  ok "14 bold lead-in title: bolded phrase used as title, no stray **" "(exit $RC)"
+else
+  no "14 bold lead-in title: bolded phrase used as title, no stray **" \
+    "exit=$RC bold_ok=$bold_title_ok title=[$title_line14]"
+fi
+
+# ---------------------------------------------------------------------------
+# 15 — PLAIN CELL REGRESSION: cell with no bold markers → title unchanged
+# Ensures the bold-lead fix does not alter plain (non-bold) delta cells.
+box="$(mkbox case-plain-title)"
+retro="$(mk_retro "$box" target-foo r-plain.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | Plain text delta without bold markers here. | CLAUDE.md | B1 | new | HIGH |")"
+run "$box" "$retro"
+title_line15="$(printf '%s\n' "$OUT" | grep '^planned-issue:')"
+plain_title_ok=0
+if printf '%s\n' "$title_line15" | grep -q 'Plain text delta without bold markers here\.'; then
+  plain_title_ok=1
+fi
+if [ "$RC" = 0 ] && [ "$plain_title_ok" = 1 ]; then
+  ok "15 plain cell regression: plain cell title unchanged by bold-lead fix" "(exit $RC)"
+else
+  no "15 plain cell regression: plain cell title unchanged by bold-lead fix" \
+    "exit=$RC plain_ok=$plain_title_ok title=[$title_line15]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -462,6 +505,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "T3 teeth: locate dedup check anchor" "anchor comment not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 4: Replace the strip_md_bold CALL SITE with a raw _delta assignment.
+  # Anchor: the call-site line that invokes strip_md_bold.  For a bold-lead-in
+  # cell, skipping strip_md_bold leaves ** markers in the raw _delta → stray **.
+  # The STAGE_RETRO_ISSUES_BOLD_LEAD sentinel in the SUT confirms this version.
+  echo "-- teeth T4: skip strip_md_bold call → raw delta used as title --"
+  anchor_t4='  _title="$(strip_md_bold "$_delta")"'
+  if [[ "$sut_content" == *"$anchor_t4"* ]]; then
+    box_t4="$(mkbox teeth-bold)"
+    retro_t4="$(mk_retro "$box_t4" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | **Bold summary sentence.** Detail text explaining the change here. | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t4="$box_t4/research-sdd/toolbelt/stage-retro-issues.sh"
+    # Replace the call site so _title gets the raw _delta (bold markers intact).
+    printf '%s\n' "${sut_content/"$anchor_t4"/  _title=\"\$_delta\"  # T4-teeth: raw delta}" \
+      > "$mutant_t4"
+    out_t4="$(PATH="$box_t4/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t4" "$retro_t4" 2>&1)"; rc_t4=$?
+    title_t4="$(printf '%s\n' "$out_t4" | grep '^planned-issue:')"
+    if printf '%s\n' "$title_t4" | grep -q '\*\*'; then
+      ok "T4 teeth: strip_md_bold skipped → raw ** in title (cases 14+15 have teeth)" "()"
+    else
+      no "T4 teeth: strip_md_bold skipped → raw ** expected in title" \
+        "no ** found — cases 14+15 are THEATER: rc=$rc_t4 title=[$title_t4]"
+    fi
+  else
+    no "T4 teeth: locate strip_md_bold call-site anchor" \
+      "anchor not found in SUT — SUT drifted?"
   fi
 
 fi  # --prove-teeth
