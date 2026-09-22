@@ -34,11 +34,17 @@ set -uo pipefail
 # Arguments
 _mode="single"
 retro=""
-for _a in "$@"; do
-  case "$_a" in
-    --all) _mode="all" ;;
-    --*) echo "reconcile-issues: unknown flag '$_a'" >&2; exit 1 ;;
-    *)   retro="$_a" ;;
+_issues_cache=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --all) _mode="all"; shift ;;
+    --issues-cache)
+      if [ "$#" -lt 2 ]; then
+        echo "reconcile-issues: --issues-cache requires a value" >&2; exit 1
+      fi
+      _issues_cache="$2"; shift 2 ;;
+    --*) echo "reconcile-issues: unknown flag '$1'" >&2; exit 1 ;;
+    *)   retro="$1"; shift ;;
   esac
 done
 
@@ -55,14 +61,17 @@ for _dep in awk grep sed; do
   }
 done
 
-# gh is always required — this instrument only operates against the GitHub API
-if ! command -v gh >/dev/null 2>&1; then
-  echo "degraded: gh not found on PATH — install gh CLI to use reconcile-issues" >&2
-  exit 1
-fi
-if ! gh auth status >/dev/null 2>&1; then
-  echo "degraded: gh is not authenticated — run 'gh auth login'" >&2
-  exit 1
+# gh probe: only required when --issues-cache is not supplied.
+# On the cache path, gh is never called so the probe is skipped.
+if [ -z "$_issues_cache" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "degraded: gh not found on PATH — install gh CLI to use reconcile-issues" >&2
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "degraded: gh is not authenticated — run 'gh auth login'" >&2
+    exit 1
+  fi
 fi
 
 _REPO="angeles725/sdd-investigacion"
@@ -233,40 +242,60 @@ ${_rln}"
     done <<< "$_all_row_ids"
   fi
 
-  # --- Broad GitHub query: all open issues referencing this retro file
+  # --- Broad GitHub query or cache read: issue bodies for this retro
   # Retrieves the body of each matching open issue; bodies carry the
   #   "Source retro: <target>/retros/<file> · <row-id>"  signature.
   # §7 contract: query failure → typed degraded + return 1, never false untracked.
   # gh requires --json when --jq is used; --template also requires --json.
   local _sig_prefix="${target_nm}/retros/${retro_basename}"
   local _all_bodies=""
-  _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
-  # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
-  _all_bodies="$(gh issue list \
-      --repo "$_REPO" \
-      --state open \
-      --search "\"Source retro: ${_sig_prefix} ·\"" \
-      --json body \
-      --jq '.[].body' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
-  if [ "$_gh_rc" -ne 0 ]; then
-    if [ -n "$_gh_stderr_file" ]; then
-      _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
-      rm -f "$_gh_stderr_file"
-    else
-      _gh_err_msg=""
+  # RECONCILE_ISSUES_CACHE_BRANCH: anchor for T-CACHE-NO-GH tooth — read from cache when supplied
+  if [ -n "$_issues_cache" ]; then
+    # RECONCILE_ISSUES_CACHE_READ: read pre-fetched issue bodies from caller-supplied cache file
+    _all_bodies="$(cat "$_issues_cache" 2>/dev/null)" || {
+      printf 'degraded: --issues-cache file not readable: %s\n' "$_issues_cache" >&2
+      return 1
+    }
+  else
+    _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
+    # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
+    _all_bodies="$(gh issue list \
+        --repo "$_REPO" \
+        --state open \
+        --search "\"Source retro: ${_sig_prefix} ·\"" \
+        --json body \
+        --jq '.[].body' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
+    if [ "$_gh_rc" -ne 0 ]; then
+      if [ -n "$_gh_stderr_file" ]; then
+        _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
+        rm -f "$_gh_stderr_file"
+      else
+        _gh_err_msg=""
+      fi
+      echo "degraded: gh issue list failed for $retro_basename (exit $_gh_rc)${_gh_err_msg:+ — }${_gh_err_msg}" >&2
+      # RECONCILE_ISSUES_GH_DEGRADED_RETURN: anchor for T5 tooth — return 1 on query failure
+      return 1
     fi
-    echo "degraded: gh issue list failed for $retro_basename (exit $_gh_rc)${_gh_err_msg:+ — }${_gh_err_msg}" >&2
-    # RECONCILE_ISSUES_GH_DEGRADED_RETURN: anchor for T5 tooth — return 1 on query failure
-    return 1
+    [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
   fi
-  [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
 
-  # Extract row-ids referenced in open issues for this retro
+  # Extract row-ids referenced in open issues for this retro.
+  # Cache path: _all_bodies holds ALL open issues — filter by _sig_prefix to avoid cross-retro collision.
+  # gh path: bodies are already pre-filtered by the --search flag; generic extraction is safe.
   local _issue_row_ids=""
   if [ -n "$_all_bodies" ]; then
-    _issue_row_ids="$(printf '%s\n' "$_all_bodies" \
-      | grep -oE 'Source retro: .+ · [A-Za-z0-9_-]+' \
-      | sed -E 's/.* · //')"
+    if [ -n "$_issues_cache" ]; then
+      # RECONCILE_ISSUES_CACHE_SIGPREFIX_MATCH: fixed-string filter avoids regex metachar issues
+      # (_sig_prefix contains '/', '.', etc. from retro paths — must not be treated as regex).
+      _issue_row_ids="$(printf '%s\n' "$_all_bodies" \
+        | grep -F "Source retro: ${_sig_prefix} · " \
+        | sed -E 's/.* · //' \
+        | grep -oE '^[A-Za-z0-9_-]+')"
+    else
+      _issue_row_ids="$(printf '%s\n' "$_all_bodies" \
+        | grep -oE 'Source retro: .+ · [A-Za-z0-9_-]+' \
+        | sed -E 's/.* · //')"
+    fi
   fi
 
   # --- Classify open deltas: tracked or untracked

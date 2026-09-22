@@ -54,10 +54,27 @@ env_lines(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncove
 # The kit resolves $here to <kit_dir>, so the stub is picked up instead of the real script.
 # lib/retro-status.sh is included so the PERF pre-filter runs in all kit-based tests; retros
 # without an applied/dismissed marker pass through normally, so existing tests are unaffected.
+#
+# Wrapper design: research-sdd-status.sh is a thin wrapper that prepends $kdir/bin to PATH and
+# execs the real SUT (_sut.sh). This injects a hermetic stub gh so the batch prefetch in
+# issues_due_gate() does not hit the real GitHub or fail when gh is absent from the system PATH.
+# Stub gh: auth→exit 0, issue list→exit 0 (empty bodies). All reconcile stubs ignore --issues-cache
+# args and return their fixed output, so existing hermetic kit tests are unaffected.
 mk_kit() {
   local kdir="$1" mode="$2"
-  mkdir -p "$kdir/lib"
-  cp "$SUT" "$kdir/research-sdd-status.sh"
+  mkdir -p "$kdir/lib" "$kdir/bin"
+  # Stub gh for the batch prefetch in issues_due_gate (never hits real GitHub)
+  printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 0 ;; issue) exit 0 ;; *) exit 1 ;; esac\n' \
+    > "$kdir/bin/gh"
+  chmod +x "$kdir/bin/gh"
+  # Wrapper: injects $kdir/bin into PATH, then execs the real SUT as _sut.sh
+  cat > "$kdir/research-sdd-status.sh" <<MKKIT_WRAPPER_EOF
+#!/usr/bin/env bash
+export PATH="$kdir/bin:\$PATH"
+exec bash "$kdir/_sut.sh" "\$@"
+MKKIT_WRAPPER_EOF
+  chmod +x "$kdir/research-sdd-status.sh"
+  cp "$SUT" "$kdir/_sut.sh"
   cp "$HERE/../verify-state.sh" "$kdir/verify-state.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$kdir/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$kdir/lib/state-files.sh"
@@ -87,9 +104,17 @@ mk_kit() {
       printf '#!/usr/bin/env bash\nexit 137\n' \
         > "$kdir/reconcile-issues.sh" ;;
     recording_untracked)
-      # Stub logs each invocation's retro path ($1) to $_IDG_RECORD_LOG; returns one untracked line.
+      # Stub logs the retro path (last positional arg) to $_IDG_RECORD_LOG; returns one untracked line.
       # Used for T-IDG-PAYLOAD: count stub calls to verify early-exit stops probing after first retro.
-      printf '#!/usr/bin/env bash\nprintf '"'"'%%s\n'"'"' "$1" >> "${_IDG_RECORD_LOG:-/dev/null}"\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
+      # Uses ${@: -1} (last arg) because the gate now passes --issues-cache <file> before the retro path.
+      printf '#!/usr/bin/env bash\nprintf '"'"'%%s\n'"'"' "${@: -1}" >> "${_IDG_RECORD_LOG:-/dev/null}"\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
+        > "$kdir/reconcile-issues.sh" ;;
+    cache_untracked_reverify_tracked)
+      # Returns "untracked" when called WITH --issues-cache (simulates batch cache saying untracked),
+      # returns "tracked" when called WITHOUT --issues-cache (per-retro re-verify finds it tracked).
+      # Used for T-IDG-BATCH-FALSE-NEG: batch false-negative (exit-0 truncated/empty body); the
+      # re-verify via narrowed per-retro gh probe finds the issue → gate must NOT emit false ISSUES-DUE.
+      printf '#!/usr/bin/env bash\n_has_cache=0\nfor _a in "$@"; do [ "$_a" = "--issues-cache" ] && _has_cache=1; done\nif [ "$_has_cache" = "1" ]; then\n  printf "untracked: row 1 delta-foo\\n"\nelse\n  printf "tracked: row 1 delta-foo\\n"\nfi\n' \
         > "$kdir/reconcile-issues.sh" ;;
   esac
   chmod +x "$kdir/reconcile-issues.sh"
@@ -1782,17 +1807,33 @@ esac
 
 # T-IDG-PERF: applied-marked retro is skipped (no reconcile/gh call for it)
 # Fixture: two retros — one with applied marker (must be skipped), one open (reconcile called).
+# Recording stub uses ${@: -1} (last arg = retro path) because gate now passes
+# --issues-cache <file> <retro> — $1 would be "--issues-cache", not the retro path.
+# Wrapper design: research-sdd-status.sh is a wrapper that injects $kdir/bin (stub gh) into PATH;
+# real SUT lives as _sut.sh; stub gh handles the batch prefetch (auth→0, issue list→0, empty bodies).
 _perf_log="$TMP/perf-invocations.log"
 _kit_perf="$TMP/kit-idg-perf"
-mkdir -p "$_kit_perf/lib"
-cp "$SUT" "$_kit_perf/research-sdd-status.sh"
+mkdir -p "$_kit_perf/lib" "$_kit_perf/bin"
+# Stub gh: hermetic batch prefetch (never hits real GitHub)
+printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 0 ;; issue) exit 0 ;; *) exit 1 ;; esac\n' \
+  > "$_kit_perf/bin/gh"
+chmod +x "$_kit_perf/bin/gh"
+# Wrapper: injects $kdir/bin into PATH before executing the real SUT as _sut.sh
+cat > "$_kit_perf/research-sdd-status.sh" <<PERF_WRAPPER_EOF
+#!/usr/bin/env bash
+export PATH="$_kit_perf/bin:\$PATH"
+exec bash "$_kit_perf/_sut.sh" "\$@"
+PERF_WRAPPER_EOF
+chmod +x "$_kit_perf/research-sdd-status.sh"
+cp "$SUT" "$_kit_perf/_sut.sh"
 cp "$HERE/../verify-state.sh" "$_kit_perf/verify-state.sh"
 cp "$HERE/../lib/retro-status.sh" "$_kit_perf/lib/retro-status.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$_kit_perf/lib/focus-prefix.sh"
 cp "$HERE/../lib/state-files.sh" "$_kit_perf/lib/state-files.sh"
 cp "$HERE/../lib/block-files.sh" "$_kit_perf/lib/block-files.sh"
-# Recording stub: logs its argument to the invocations file, returns one untracked line.
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >> "%s"\nprintf "untracked: row 1\\n"\nexit 0\n' \
+# Recording stub: logs LAST argument (retro path) to the invocations file, returns one untracked line.
+# Uses ${@: -1} because gate calls reconcile as: reconcile.sh --issues-cache <file> <retro>
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${@: -1}" >> "%s"\nprintf "untracked: row 1\\n"\nexit 0\n' \
   "$_perf_log" > "$_kit_perf/reconcile-issues.sh"
 chmod +x "$_kit_perf/reconcile-issues.sh"
 _ta_perf="$TMP/target-perf"; mkstate "$_ta_perf" 0 "high|done gap|covered"
@@ -2068,10 +2109,10 @@ if printf '%s\n' "$_pl_got" | grep -qF 'retro-alpha.md'; then
 else
   no "T-IDG-PAYLOAD: output missing retro path — got [$_pl_got]"
 fi
-if [ "${_pl_calls}" -le 1 ] 2>/dev/null; then
-  ok "T-IDG-PAYLOAD: early-exit — reconcile called ${_pl_calls} time(s) (retro-beta NOT probed)"
+if [ "${_pl_calls}" -le 2 ] 2>/dev/null; then
+  ok "T-IDG-PAYLOAD: early-exit — reconcile called ${_pl_calls} time(s) (retro-beta NOT probed; ≤2 for alpha: batch call + optional re-verify)"
 else
-  no "T-IDG-PAYLOAD: early-exit failed — reconcile called ${_pl_calls} time(s) (expected ≤1)"
+  no "T-IDG-PAYLOAD: early-exit failed — reconcile called ${_pl_calls} time(s) (expected ≤2; retro-beta must NOT be probed)"
 fi
 
 # T-IDG-EMPTY-CORPUS: find succeeds with 0 retros (no .md files) → bare clean STOP.
@@ -2097,6 +2138,200 @@ if printf '%s\n' "$_ab_got" | grep -qF '[issue-coverage: unverified]'; then
   ok "T-IDG-AGGR-BUDGET: aggregate budget 0 → exceeded → unverified marker"
 else
   no "T-IDG-AGGR-BUDGET: expected unverified marker, got [$_ab_got]"
+fi
+
+# T-IDG-BATCH-A: batch prefetch path — untracked delta found via cache → ISSUES-DUE.
+# Uses mk_kit (stub reconcile returns untracked regardless of --issues-cache), wrapper injects gh stub.
+# This test verifies the end-to-end ISSUES-DUE path is preserved after the batch change.
+_kit_ba="$TMP/kit-idg-batch-a"; mk_kit "$_kit_ba" "untracked"
+_t_ba="$TMP/target-idg-batch-a"; mkstate "$_t_ba" 0 "high|done gap|covered"
+mkdir -p "$_t_ba/retros"
+touch "$_t_ba/retros/batch-a-retro.md"
+_ba_got="$(bash "$_kit_ba/research-sdd-status.sh" "$_t_ba" --next 2>/dev/null)"
+case "$_ba_got" in
+  ISSUES-DUE\ *) ok "T-IDG-BATCH-A: batch path — untracked delta → ISSUES-DUE" ;;
+  *) no "T-IDG-BATCH-A: expected ISSUES-DUE, got [$_ba_got]" ;;
+esac
+
+# T-IDG-BATCH-B: batch prefetch path — all deltas tracked via cache → STOP.
+# Uses mk_kit (stub reconcile returns tracked); wrapper injects gh stub.
+# This test verifies the STOP path is preserved after the batch change.
+_kit_bb="$TMP/kit-idg-batch-b"; mk_kit "$_kit_bb" "tracked"
+_t_bb="$TMP/target-idg-batch-b"; mkstate "$_t_bb" 0 "high|done gap|covered"
+mkdir -p "$_t_bb/retros"
+touch "$_t_bb/retros/batch-b-retro.md"
+_bb_got="$(bash "$_kit_bb/research-sdd-status.sh" "$_t_bb" --next 2>/dev/null)"
+if [ "$_bb_got" = "STOP | read-only-investigable exhausted (0)" ]; then
+  ok "T-IDG-BATCH-B: batch path — all deltas tracked → bare clean STOP"
+else
+  no "T-IDG-BATCH-B: expected bare clean STOP, got [$_bb_got]"
+fi
+
+# T-IDG-BATCH-ONE-GH: batch prefetch results in exactly ONE gh call for N retros (not one per retro).
+# Uses REAL reconcile (mk_kit_real_reconcile) + recording gh stub that logs every issue list call.
+# With batch (after implementation): 1 gh call (batch prefetch) + 0 per-retro (reconcile uses cache).
+# Without batch (current SUT): 0 batch call + 2 per-retro calls = 2 gh calls → RED before implementation.
+# Fixture: 2 retros, each with 1 row; gh stub returns tracked bodies for both → no early-exit → all probed.
+# The gh stub returns a body for each retro so real reconcile classifies them as tracked (no ISSUES-DUE).
+_kit_b1gh="$TMP/kit-idg-batch1gh"
+_gh_b1gh_dir="$TMP/gh-batch1gh-dir"
+mk_kit_real_reconcile "$_kit_b1gh" "$_gh_b1gh_dir"
+_gh_b1gh_log="$TMP/gh-batch1gh.log"; : > "$_gh_b1gh_log"
+# Override: recording gh that logs issue calls and returns tracked bodies for both retros.
+# The target dir is $TMP/target-idg-batch1gh; basename = target-idg-batch1gh.
+cat > "$_gh_b1gh_dir/gh" <<GHBATCH1EOF
+#!/usr/bin/env bash
+case "\$1" in
+  auth) exit 0 ;;
+  issue)
+    printf 'call\n' >> "$_gh_b1gh_log"
+    printf 'Source retro: target-idg-batch1gh/retros/retro-1.md \xc2\xb7 1\n'
+    printf 'Source retro: target-idg-batch1gh/retros/retro-2.md \xc2\xb7 1\n'
+    exit 0
+    ;;
+  *) exit 1 ;;
+esac
+GHBATCH1EOF
+chmod +x "$_gh_b1gh_dir/gh"
+_t_b1gh="$TMP/target-idg-batch1gh"; mkstate "$_t_b1gh" 0 "high|done gap|covered"
+mkdir -p "$_t_b1gh/retros"
+printf '<!-- review-status: pending -->\n# Batch retro 1\n\n## Proposed kit deltas\n\n| # | Proposed change | Target | Evidence | Priority |\n|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | high |\n' \
+  > "$_t_b1gh/retros/retro-1.md"
+printf '<!-- review-status: pending -->\n# Batch retro 2\n\n## Proposed kit deltas\n\n| # | Proposed change | Target | Evidence | Priority |\n|---|---|---|---|---|\n| 1 | delta 2 | file.sh | ev | high |\n' \
+  > "$_t_b1gh/retros/retro-2.md"
+_b1gh_got="$(PATH="$_gh_b1gh_dir:$PATH" bash "$_kit_b1gh/research-sdd-status.sh" "$_t_b1gh" --next 2>/dev/null)"
+_b1gh_calls="$(grep -c '' "$_gh_b1gh_log" 2>/dev/null || echo 999)"
+if [ "$_b1gh_got" = "STOP | read-only-investigable exhausted (0)" ]; then
+  ok "T-IDG-BATCH-ONE-GH: 2 tracked retros → bare clean STOP (gh stub returns tracked bodies)"
+else
+  no "T-IDG-BATCH-ONE-GH: expected bare clean STOP, got [$_b1gh_got]"
+fi
+if [ "${_b1gh_calls}" -eq 1 ] 2>/dev/null; then
+  ok "T-IDG-BATCH-ONE-GH: exactly 1 gh issue list call for 2 retros (batch semantics — not per-retro)"
+else
+  no "T-IDG-BATCH-ONE-GH: expected 1 gh call for 2 retros, got ${_b1gh_calls} — batch prefetch not implemented"
+fi
+
+# T-IDG-BATCH-TIMEOUT-WRAP: batch gh call passes through the timeout wrapper (IDG-BATCH-GH-TIMEOUT-WRAP).
+# Uses a recording fake-timeout that logs its args and execs the real command (skip first arg = duration).
+# The batch call must appear in the fake-timeout log as a "gh issue list" entry.
+_kit_btwrap="$TMP/kit-idg-batch-twrap"; mk_kit "$_kit_btwrap" "tracked"
+_btwrap_log="$TMP/btwrap.log"; : > "$_btwrap_log"
+_btwrap_bin="$TMP/btwrap-bin"; mkdir -p "$_btwrap_bin"
+cat > "$_btwrap_bin/fake-timeout" <<BTWRAPEOF
+#!/usr/bin/env bash
+printf 'timeout-call: %s\n' "\$*" >> "$_btwrap_log"
+shift  # skip duration
+exec "\$@"
+BTWRAPEOF
+chmod +x "$_btwrap_bin/fake-timeout"
+_t_btwrap="$TMP/target-idg-btwrap"; mkstate "$_t_btwrap" 0 "high|done gap|covered"
+mkdir -p "$_t_btwrap/retros"
+touch "$_t_btwrap/retros/btwrap-retro.md"
+_IDG_TIMEOUT_BIN="$_btwrap_bin/fake-timeout" \
+  bash "$_kit_btwrap/research-sdd-status.sh" "$_t_btwrap" --next 2>/dev/null || true
+if grep -q 'gh issue list' "$_btwrap_log" 2>/dev/null; then
+  ok "T-IDG-BATCH-TIMEOUT-WRAP: batch gh call passes through timeout wrapper (log has 'gh issue list')"
+else
+  no "T-IDG-BATCH-TIMEOUT-WRAP: 'gh issue list' not in timeout log — batch not timeout-wrapped"
+fi
+
+# T-IDG-BATCH-LIMIT: batch gh call includes --limit flag to bound the page size.
+# A recording gh stub replaces the kit's own gh (into $kdir/bin, which the wrapper prepends first).
+_kit_blim="$TMP/kit-idg-batch-lim"; mk_kit "$_kit_blim" "tracked"
+_blim_ghlog="$TMP/gh-blim.log"; : > "$_blim_ghlog"
+# Override the kit gh stub with a recording one (kit/bin is prepended by wrapper, so this wins).
+cat > "$_kit_blim/bin/gh" <<BLIMGHEOF
+#!/usr/bin/env bash
+printf 'args: %s\n' "\$*" >> "$_blim_ghlog"
+case "\$1" in
+  auth) exit 0 ;;
+  issue) exit 0 ;;
+  *) exit 1 ;;
+esac
+BLIMGHEOF
+chmod +x "$_kit_blim/bin/gh"
+_t_blim="$TMP/target-idg-batch-lim"; mkstate "$_t_blim" 0 "high|done gap|covered"
+mkdir -p "$_t_blim/retros"
+touch "$_t_blim/retros/blim-retro.md"
+bash "$_kit_blim/research-sdd-status.sh" "$_t_blim" --next 2>/dev/null || true
+if grep -q -- '--limit' "$_blim_ghlog" 2>/dev/null; then
+  ok "T-IDG-BATCH-LIMIT: batch gh call includes --limit flag (page size is bounded)"
+else
+  no "T-IDG-BATCH-LIMIT: '--limit' not found in batch gh invocation — page size unbounded"
+fi
+
+# T-IDG-BATCH-FALLBACK: batch gh failure triggers per-retro reconcile (no blanket-unverified SPOF).
+# gh stub exits 1 (simulates rate-limit / transient failure); reconcile stub is recording_untracked.
+# Expected: per-retro reconcile IS invoked (log non-empty) AND gate returns ISSUES-DUE (untracked found).
+# Tooth: mutant removes the fallback else-branch → reconcile NOT invoked → log empty → RED.
+_kit_bfb="$TMP/kit-idg-batch-fb"; mk_kit "$_kit_bfb" "recording_untracked"
+# Override kit gh stub to exit 1 (batch gh call fails; triggers fallback to per-retro)
+printf '#!/usr/bin/env bash\nexit 1\n' > "$_kit_bfb/bin/gh"
+chmod +x "$_kit_bfb/bin/gh"
+_bfb_log="$TMP/bfb-reconcile.log"; : > "$_bfb_log"
+_t_bfb="$TMP/target-idg-batch-fb"; mkstate "$_t_bfb" 0 "high|done gap|covered"
+mkdir -p "$_t_bfb/retros"
+printf '<!-- review-status: pending -->\n# Fallback retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | new | high |\n' \
+  > "$_t_bfb/retros/fallback-retro.md"
+_bfb_got="$(_IDG_RECORD_LOG="$_bfb_log" \
+  bash "$_kit_bfb/research-sdd-status.sh" "$_t_bfb" --next 2>/dev/null)"
+_bfb_log_lines="$(grep -c '' "$_bfb_log" 2>/dev/null || echo 0)"
+case "$_bfb_got" in
+  ISSUES-DUE\ *)
+    ok "T-IDG-BATCH-FALLBACK: batch fail → per-retro fallback → ISSUES-DUE (untracked found)" ;;
+  *)
+    no "T-IDG-BATCH-FALLBACK: expected ISSUES-DUE, got [$_bfb_got]" ;;
+esac
+if [ "${_bfb_log_lines:-0}" -gt 0 ] 2>/dev/null; then
+  ok "T-IDG-BATCH-FALLBACK: per-retro reconcile WAS invoked (log has ${_bfb_log_lines} entr(ies))"
+else
+  no "T-IDG-BATCH-FALLBACK: reconcile log empty — per-retro fallback not invoked (SPOF regression)"
+fi
+
+# T-IDG-BATCH-FALSE-NEG: batch cache reports UNTRACKED for a retro, but per-retro re-verify returns
+# TRACKED → batch was a false negative (exit-0 truncated/empty/rate-limited gh response).
+# Gate must NOT emit ISSUES-DUE; re-verify trusts the narrowed probe and treats the retro as tracked.
+# Stub: "cache_untracked_reverify_tracked" — returns "untracked" WITH --issues-cache (batch path),
+# "tracked" WITHOUT --issues-cache (re-verify path) → simulates batch false-negative.
+# Expected BEFORE fix (RED): ISSUES-DUE (gate trusts batch untracked without re-verifying).
+# Expected AFTER fix (GREEN): STOP | read-only-investigable exhausted (0).
+_kit_bfn="$TMP/kit-idg-batch-false-neg"; mk_kit "$_kit_bfn" "cache_untracked_reverify_tracked"
+_t_bfn="$TMP/target-idg-batch-false-neg"; mkstate "$_t_bfn" 0 "high|done gap|covered"
+mkdir -p "$_t_bfn/retros"
+printf '<!-- review-status: pending -->\n# False-neg retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | new | high |\n' \
+  > "$_t_bfn/retros/false-neg-retro.md"
+_bfn_got="$(bash "$_kit_bfn/research-sdd-status.sh" "$_t_bfn" --next 2>/dev/null)"
+if [ "$_bfn_got" = "STOP | read-only-investigable exhausted (0)" ]; then
+  ok "T-IDG-BATCH-FALSE-NEG: batch untracked + per-retro tracked → re-verify clears false-neg → clean STOP"
+else
+  no "T-IDG-BATCH-FALSE-NEG: expected clean STOP (false-neg cleared by re-verify), got [$_bfn_got]"
+fi
+
+# T-IDG-BATCH-FALSE-NEG-CONFIRMED: batch cache AND per-retro re-verify both say UNTRACKED →
+# genuinely untracked → ISSUES-DUE. Assert re-verify was actually invoked via recording stub.
+# Stub: "recording_untracked" (returns "untracked" regardless; logs each call to _IDG_RECORD_LOG).
+# For 1 retro with batch mode: batch reconcile call logs 1 entry; re-verify call logs 2nd entry →
+# ≥2 log lines prove the re-verify call happened (not just the initial batch classification).
+# Expected BEFORE fix (RED on confirm assertion): 1 log line (no re-verify called).
+# Expected AFTER fix (GREEN): ≥2 log lines AND ISSUES-DUE.
+_kit_bfnc="$TMP/kit-idg-batch-false-neg-conf"; mk_kit "$_kit_bfnc" "recording_untracked"
+_bfnc_log="$TMP/bfnc-reconcile.log"; : > "$_bfnc_log"
+_t_bfnc="$TMP/target-idg-batch-false-neg-conf"; mkstate "$_t_bfnc" 0 "high|done gap|covered"
+mkdir -p "$_t_bfnc/retros"
+printf '<!-- review-status: pending -->\n# Confirmed-untracked retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | new | high |\n' \
+  > "$_t_bfnc/retros/confirmed-retro.md"
+_bfnc_got="$(_IDG_RECORD_LOG="$_bfnc_log" \
+  bash "$_kit_bfnc/research-sdd-status.sh" "$_t_bfnc" --next 2>/dev/null)"
+_bfnc_log_lines="$(grep -c '' "$_bfnc_log" 2>/dev/null || echo 0)"
+case "$_bfnc_got" in
+  ISSUES-DUE\ *) ok "T-IDG-BATCH-FALSE-NEG-CONFIRMED: batch+re-verify both untracked → ISSUES-DUE" ;;
+  *) no "T-IDG-BATCH-FALSE-NEG-CONFIRMED: expected ISSUES-DUE, got [$_bfnc_got]" ;;
+esac
+if [ "${_bfnc_log_lines:-0}" -ge 2 ] 2>/dev/null; then
+  ok "T-IDG-BATCH-FALSE-NEG-CONFIRMED: re-verify invoked — reconcile called ${_bfnc_log_lines} time(s) for 1 retro (batch call + re-verify call)"
+else
+  no "T-IDG-BATCH-FALSE-NEG-CONFIRMED: expected ≥2 reconcile calls (batch+re-verify), got ${_bfnc_log_lines} — re-verify not yet implemented"
 fi
 
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
@@ -3034,19 +3269,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-IDG-unverified-marker: IDG-UNVERIFIED-MARKER sentinel not found in SUT"
   fi
 
-  # ---- teeth-IDG-timeout: neuter IDG-TIMEOUT-WRAP; T-IDG-TIMEOUT must go RED.
-  # The IDG-TIMEOUT-WRAP sentinel guards the bounded call line.  A mutant that removes
-  # "$_idg_timeout_bin" "$_idg_timeout_secs" from that line runs the stub unbounded.
-  # With _IDG_RECONCILE_TIMEOUT_SECS=1 and a 3s-sleep stub, the original times out (→
-  # unverified marker) while the mutant completes normally (→ ISSUES-DUE), so T-IDG-TIMEOUT
-  # (which expects the unverified marker) goes RED.
+  # ---- teeth-IDG-timeout: neuter IDG-TIMEOUT-WRAP + IDG-REVERIFY-TIMEOUT-WRAP; T-IDG-TIMEOUT must go RED.
+  # IDG-TIMEOUT-WRAP guards the per-retro reconcile call; IDG-REVERIFY-TIMEOUT-WRAP guards the
+  # re-verify call triggered when the batch cache was used and the retro looks untracked.
+  # Both wrappers are neutralized: when the batch call succeeds the reverify path is exercised,
+  # so the re-verify wrapper must also be removed for the stub to complete unbounded.
+  # With _IDG_RECONCILE_TIMEOUT_SECS=1 and a 3s-sleep stub, the original times out on either
+  # wrapper (→ unverified marker) while the mutant completes normally (→ ISSUES-DUE), so
+  # T-IDG-TIMEOUT (which expects the unverified marker) goes RED.
   echo "-- teeth-IDG-timeout: neuter IDG-TIMEOUT-WRAP; T-IDG-TIMEOUT must go RED --"
   idg_tmt_mutant="$TMP/status.IDG-TIMEOUT-WRAP.MUTANT.sh"
   if grep -q '# IDG-TIMEOUT-WRAP' "$SUT"; then
-    sed '/# IDG-TIMEOUT-WRAP/s/"$_idg_timeout_bin" "$_idg_timeout_secs" //' \
+    sed '/# IDG.*TIMEOUT-WRAP/s/"$_idg_timeout_bin" "$_idg_timeout_secs" //' \
       "$SUT" > "$idg_tmt_mutant"
-    if grep -F '# IDG-TIMEOUT-WRAP' "$idg_tmt_mutant" | grep -qF '"$_idg_timeout_bin"'; then
-      no "teeth-IDG-timeout: could not build mutant (sed did not remove _idg_timeout_bin from IDG-TIMEOUT-WRAP line)"
+    if grep -F '# IDG-TIMEOUT-WRAP' "$idg_tmt_mutant" | grep -qF '"$_idg_timeout_bin"' || \
+       grep -F '# IDG-REVERIFY-TIMEOUT-WRAP' "$idg_tmt_mutant" | grep -qF '"$_idg_timeout_bin"'; then
+      no "teeth-IDG-timeout: could not build mutant (sed did not remove _idg_timeout_bin from IDG-TIMEOUT-WRAP or IDG-REVERIFY-TIMEOUT-WRAP)"
     else
       _tmt_mut_kit="$TMP/kit-teeth-tmt"
       mkdir -p "$_tmt_mut_kit/lib"
@@ -3447,6 +3685,276 @@ CTR_TEETH_EOF
     fi
   else
     no "teeth-IDG-aggregate-budget: IDG-AGGREGATE-EXCEEDED sentinel not found in SUT"
+  fi
+
+  # ---- teeth-T-IDG-BATCH-ONE-GH: remove IDG-BATCH-PASS-CACHE; T-IDG-BATCH-ONE-GH must go RED. --------
+  # Mutant: removes `--issues-cache "$_idg_cache_file"` from the reconcile call inside issues_due_gate.
+  # Without cache pass-through, reconcile.sh calls gh issue list per retro → call count > 1.
+  # T-IDG-BATCH-ONE-GH asserts exactly 1 gh call → gets >1 calls → assertion goes RED →
+  # IDG-BATCH-PASS-CACHE is load-bearing.
+  echo "-- teeth-T-IDG-BATCH-ONE-GH: remove IDG-BATCH-PASS-CACHE; per-retro gh calls > 1 must go RED --"
+  _b1t_anchor='IDG-BATCH-PASS-CACHE:'
+  if grep -q "$_b1t_anchor" "$SUT"; then
+    _b1t_mut="$TMP/status.BATCH1-TOOTH.MUTANT.sh"
+    sed "/IDG-BATCH-PASS-CACHE:/{ n; s/ --issues-cache \"\\\$_idg_cache_file\"// }" \
+      "$SUT" > "$_b1t_mut"
+    if grep -q 'IDG-BATCH-PASS-CACHE' "$_b1t_mut" && \
+       ! grep -q -- '--issues-cache "\$_idg_cache_file"' "$_b1t_mut"; then
+      # Tooth kit: real reconcile + all its libs + recording gh stub
+      _b1t_kdir="$TMP/kit-b1tooth"
+      mkdir -p "$_b1t_kdir/lib"
+      cp "$_b1t_mut" "$_b1t_kdir/research-sdd-status.sh"
+      cp "$HERE/../verify-state.sh" "$_b1t_kdir/verify-state.sh"
+      cp "$HERE/../reconcile-issues.sh" "$_b1t_kdir/reconcile-issues.sh"
+      cp "$HERE/../lib/focus-prefix.sh" "$_b1t_kdir/lib/focus-prefix.sh"
+      cp "$HERE/../lib/state-files.sh" "$_b1t_kdir/lib/state-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_b1t_kdir/lib/block-files.sh"
+      cp "$HERE/../lib/retro-status.sh" "$_b1t_kdir/lib/retro-status.sh"
+      cp "$HERE/../lib/retro-grammar.sh" "$_b1t_kdir/lib/retro-grammar.sh"
+      cp "$HERE/../lib/target-paths.sh" "$_b1t_kdir/lib/target-paths.sh"
+      _b1t_ghdir="$TMP/gh-batch1-tooth"
+      mkdir -p "$_b1t_ghdir"
+      _b1t_ghlog="$TMP/gh-batch1-tooth.log"; : > "$_b1t_ghlog"
+      # Recording gh: logs every issue list call; returns tracked bodies for both tooth retros.
+      # Bodies match the tooth fixture's target dir basename: target-idg-b1tooth.
+      cat > "$_b1t_ghdir/gh" <<GHTOOTHEOF
+#!/usr/bin/env bash
+case "\$1" in
+  auth) exit 0 ;;
+  issue)
+    printf 'call\n' >> "$_b1t_ghlog"
+    printf 'Source retro: target-idg-b1tooth/retros/retro-1.md \xc2\xb7 1\n'
+    printf 'Source retro: target-idg-b1tooth/retros/retro-2.md \xc2\xb7 1\n'
+    exit 0
+    ;;
+  *) exit 1 ;;
+esac
+GHTOOTHEOF
+      chmod +x "$_b1t_ghdir/gh"
+      # Tooth fixture: 2 retros, each with 1 tracked delta (gh stub returns matching bodies)
+      _t_b1tooth="$TMP/target-idg-b1tooth"
+      mkstate "$_t_b1tooth" 0 "high|done gap|covered"
+      mkdir -p "$_t_b1tooth/retros"
+      printf '<!-- review-status: pending -->\n# Tooth retro 1\n\n## Proposed kit deltas\n\n| # | Proposed change | Target | Evidence | Priority |\n|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | high |\n' \
+        > "$_t_b1tooth/retros/retro-1.md"
+      printf '<!-- review-status: pending -->\n# Tooth retro 2\n\n## Proposed kit deltas\n\n| # | Proposed change | Target | Evidence | Priority |\n|---|---|---|---|---|\n| 1 | delta 2 | file.sh | ev | high |\n' \
+        > "$_t_b1tooth/retros/retro-2.md"
+      # Run mutant: --issues-cache removed → reconcile calls gh per retro → >1 gh calls logged.
+      PATH="$_b1t_ghdir:$PATH" bash "$_b1t_kdir/research-sdd-status.sh" \
+        "$_t_b1tooth" --next 2>/dev/null || true
+      _b1t_calls="$(grep -c '' "$_b1t_ghlog" 2>/dev/null || echo 0)"
+      if [ "${_b1t_calls}" -gt 1 ] 2>/dev/null; then
+        ok "teeth-T-IDG-BATCH-ONE-GH: mutant (no --issues-cache) → ${_b1t_calls} gh calls > 1 → IDG-BATCH-PASS-CACHE is load-bearing"
+      else
+        no "teeth-T-IDG-BATCH-ONE-GH: mutant produced ${_b1t_calls} gh calls, expected >1 — IDG-BATCH-PASS-CACHE THEATER"
+      fi
+    else
+      no "teeth-T-IDG-BATCH-ONE-GH: sed mutant did not remove --issues-cache from IDG-BATCH-PASS-CACHE line — tooth invalid"
+    fi
+  else
+    no "teeth-T-IDG-BATCH-ONE-GH: anchor '$_b1t_anchor' not found in SUT"
+  fi
+
+  # ---- teeth-T-IDG-BATCH-TIMEOUT-WRAP: remove IDG-BATCH-GH-TIMEOUT-WRAP; batch gh not wrapped. ----
+  # Mutant: replaces "$_idg_timeout_bin" "$_idg_timeout_secs" gh with just gh on the command line.
+  # With the mutant the batch gh call bypasses fake-timeout → no 'gh issue list' in timeout log → RED.
+  echo "-- teeth-T-IDG-BATCH-TIMEOUT-WRAP: remove timeout wrapper from batch gh call --"
+  _btwt_anchor='IDG-BATCH-GH-TIMEOUT-WRAP:'
+  if grep -q "$_btwt_anchor" "$SUT"; then
+    _btwt_mut="$TMP/status.BTWRAP-TOOTH.MUTANT.sh"
+    sed '/IDG-BATCH-GH-TIMEOUT-WRAP:/{ n; s/"\$_idg_timeout_bin" "\$_idg_timeout_secs" gh/gh/ }' \
+      "$SUT" > "$_btwt_mut"
+    if grep -q 'IDG-BATCH-GH-TIMEOUT-WRAP' "$_btwt_mut" && \
+       ! grep -q '"$_idg_timeout_bin" "$_idg_timeout_secs" gh' "$_btwt_mut" 2>/dev/null; then
+      _btwt_kit="$TMP/kit-btwt"
+      mkdir -p "$_btwt_kit/lib" "$_btwt_kit/bin"
+      cp "$_btwt_mut" "$_btwt_kit/research-sdd-status.sh"
+      cp "$HERE/../verify-state.sh" "$_btwt_kit/verify-state.sh"
+      cp "$HERE/../lib/focus-prefix.sh" "$_btwt_kit/lib/focus-prefix.sh"
+      cp "$HERE/../lib/state-files.sh" "$_btwt_kit/lib/state-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_btwt_kit/lib/block-files.sh"
+      cp "$HERE/../lib/retro-status.sh" "$_btwt_kit/lib/retro-status.sh"
+      printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
+        > "$_btwt_kit/reconcile-issues.sh"
+      chmod +x "$_btwt_kit/reconcile-issues.sh"
+      # gh stub in kit bin: exits 0 (so mutant can complete); needed for direct (non-wrapped) batch call.
+      printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 0 ;; issue) exit 0 ;; *) exit 1 ;; esac\n' \
+        > "$_btwt_kit/bin/gh"
+      chmod +x "$_btwt_kit/bin/gh"
+      _btwt_tlog="$TMP/btwrap-tooth.log"; : > "$_btwt_tlog"
+      _btwt_tbin="$TMP/btwt-bin"; mkdir -p "$_btwt_tbin"
+      cat > "$_btwt_tbin/fake-timeout" <<BTWTTEOF
+#!/usr/bin/env bash
+printf 'timeout-call: %s\n' "\$*" >> "$_btwt_tlog"
+shift
+exec "\$@"
+BTWTTEOF
+      chmod +x "$_btwt_tbin/fake-timeout"
+      _t_btwt="$TMP/target-idg-btwt"
+      mkstate "$_t_btwt" 0 "high|done gap|covered"
+      mkdir -p "$_t_btwt/retros"
+      touch "$_t_btwt/retros/btwt-retro.md"
+      # Run mutant with fake-timeout: without wrapper, batch gh is called directly → not in log.
+      PATH="$_btwt_kit/bin:$PATH" \
+        _IDG_TIMEOUT_BIN="$_btwt_tbin/fake-timeout" \
+        bash "$_btwt_kit/research-sdd-status.sh" "$_t_btwt" --next 2>/dev/null || true
+      if grep -q 'gh issue list' "$_btwt_tlog" 2>/dev/null; then
+        no "teeth-T-IDG-BATCH-TIMEOUT-WRAP: mutant still logs 'gh issue list' in timeout — wrapper may not be load-bearing"
+      else
+        ok "teeth-T-IDG-BATCH-TIMEOUT-WRAP: mutant (no wrapper) → 'gh issue list' absent from timeout log → IDG-BATCH-GH-TIMEOUT-WRAP is load-bearing"
+      fi
+    else
+      no "teeth-T-IDG-BATCH-TIMEOUT-WRAP: sed mutant did not remove timeout wrapper from batch gh line — tooth invalid"
+    fi
+  else
+    no "teeth-T-IDG-BATCH-TIMEOUT-WRAP: anchor '$_btwt_anchor' not found in SUT"
+  fi
+
+  # ---- teeth-T-IDG-BATCH-LIMIT: remove --limit from batch call → gh log lacks --limit → RED. ------
+  # Mutant: deletes the --limit flag line from the batch gh issue list call.
+  echo "-- teeth-T-IDG-BATCH-LIMIT: remove --limit flag from batch gh call --"
+  _blt_anchor='IDG-BATCH-LIMIT-PRESENT'
+  if grep -q "$_blt_anchor" "$SUT"; then
+    _blt_mut="$TMP/status.BATCHLIM-TOOTH.MUTANT.sh"
+    sed '/--limit.*IDG_BATCH_LIMIT/d' "$SUT" > "$_blt_mut"
+    if ! grep -qF '"${_IDG_BATCH_LIMIT' "$_blt_mut" 2>/dev/null; then
+      _blt_kit="$TMP/kit-blt"
+      mkdir -p "$_blt_kit/lib" "$_blt_kit/bin"
+      cp "$_blt_mut" "$_blt_kit/research-sdd-status.sh"
+      cp "$HERE/../verify-state.sh" "$_blt_kit/verify-state.sh"
+      cp "$HERE/../lib/focus-prefix.sh" "$_blt_kit/lib/focus-prefix.sh"
+      cp "$HERE/../lib/state-files.sh" "$_blt_kit/lib/state-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_blt_kit/lib/block-files.sh"
+      cp "$HERE/../lib/retro-status.sh" "$_blt_kit/lib/retro-status.sh"
+      printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
+        > "$_blt_kit/reconcile-issues.sh"
+      chmod +x "$_blt_kit/reconcile-issues.sh"
+      _blt_ghdir="$TMP/gh-blt-dir"; mkdir -p "$_blt_ghdir"
+      _blt_ghlog="$TMP/gh-blt.log"; : > "$_blt_ghlog"
+      cat > "$_blt_ghdir/gh" <<BLTGHEOF
+#!/usr/bin/env bash
+printf 'args: %s\n' "\$*" >> "$_blt_ghlog"
+case "\$1" in
+  auth) exit 0 ;;
+  issue) exit 0 ;;
+  *) exit 1 ;;
+esac
+BLTGHEOF
+      chmod +x "$_blt_ghdir/gh"
+      _t_blt="$TMP/target-idg-blt"
+      mkstate "$_t_blt" 0 "high|done gap|covered"
+      mkdir -p "$_t_blt/retros"
+      touch "$_t_blt/retros/blt-retro.md"
+      PATH="$_blt_ghdir:$PATH" \
+        bash "$_blt_kit/research-sdd-status.sh" "$_t_blt" --next 2>/dev/null || true
+      if grep -q -- '--limit' "$_blt_ghlog" 2>/dev/null; then
+        no "teeth-T-IDG-BATCH-LIMIT: mutant still has --limit in gh call — limit not load-bearing"
+      else
+        ok "teeth-T-IDG-BATCH-LIMIT: mutant (no --limit line) → '--limit' absent from gh call → IDG-BATCH-LIMIT-PRESENT is load-bearing"
+      fi
+    else
+      no "teeth-T-IDG-BATCH-LIMIT: sed did not remove --limit from mutant — tooth invalid"
+    fi
+  else
+    no "teeth-T-IDG-BATCH-LIMIT: anchor '$_blt_anchor' not found in SUT"
+  fi
+
+  # ---- teeth-T-IDG-BATCH-FALLBACK: remove fallback else-branch → blanket no-op, log empty → RED. --
+  # Mutant: replaces the IDG-BATCH-FALLBACK-PER-RETRO command with a no-op (: # MUTANT).
+  # Without the fallback, batch failure leaves per-retro uncalled → reconcile log empty → RED.
+  echo "-- teeth-T-IDG-BATCH-FALLBACK: remove IDG-BATCH-FALLBACK-PER-RETRO; reconcile not invoked --"
+  _bfbt_anchor='IDG-BATCH-FALLBACK-PER-RETRO:'
+  if grep -q "$_bfbt_anchor" "$SUT"; then
+    _bfbt_mut="$TMP/status.BATCHFB-TOOTH.MUTANT.sh"
+    sed "/${_bfbt_anchor}/{ n; s/.*/        : # MUTANT-FALLBACK-REMOVED/ }" \
+      "$SUT" > "$_bfbt_mut"
+    if grep -q "$_bfbt_anchor" "$_bfbt_mut" && \
+       grep -q 'MUTANT-FALLBACK-REMOVED' "$_bfbt_mut" 2>/dev/null; then
+      _bfbt_kit="$TMP/kit-bfbt"
+      mkdir -p "$_bfbt_kit/lib" "$_bfbt_kit/bin"
+      cp "$_bfbt_mut" "$_bfbt_kit/research-sdd-status.sh"
+      cp "$HERE/../verify-state.sh" "$_bfbt_kit/verify-state.sh"
+      cp "$HERE/../lib/focus-prefix.sh" "$_bfbt_kit/lib/focus-prefix.sh"
+      cp "$HERE/../lib/state-files.sh" "$_bfbt_kit/lib/state-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_bfbt_kit/lib/block-files.sh"
+      cp "$HERE/../lib/retro-status.sh" "$_bfbt_kit/lib/retro-status.sh"
+      # recording_untracked stub: logs the retro path to _IDG_RECORD_LOG; returns "untracked".
+      printf '#!/usr/bin/env bash\nprintf '"'"'%%s\n'"'"' "${@: -1}" >> "${_IDG_RECORD_LOG:-/dev/null}"\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
+        > "$_bfbt_kit/reconcile-issues.sh"
+      chmod +x "$_bfbt_kit/reconcile-issues.sh"
+      # gh stub: exits 1 → batch fails → should trigger fallback (but mutant has no fallback).
+      printf '#!/usr/bin/env bash\nexit 1\n' > "$_bfbt_kit/bin/gh"
+      chmod +x "$_bfbt_kit/bin/gh"
+      _bfbt_log="$TMP/bfbt-reconcile.log"; : > "$_bfbt_log"
+      _t_bfbt="$TMP/target-idg-batch-fbte"
+      mkstate "$_t_bfbt" 0 "high|done gap|covered"
+      mkdir -p "$_t_bfbt/retros"
+      printf '<!-- review-status: pending -->\n# Fallback tooth retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | new | high |\n' \
+        > "$_t_bfbt/retros/fbte-retro.md"
+      # PATH must include $_bfbt_kit/bin so the gh stub (exit 1) intercepts the batch prefetch.
+      # Without it, the real gh may succeed → pass-cache path calls reconcile → fallback THEATER.
+      _bfbt_got="$(_IDG_RECORD_LOG="$_bfbt_log" \
+        PATH="$_bfbt_kit/bin:$PATH" \
+        bash "$_bfbt_kit/research-sdd-status.sh" "$_t_bfbt" --next 2>/dev/null)"
+      _bfbt_log_lines="$(grep -c '' "$_bfbt_log" 2>/dev/null || echo 0)"
+      # Mutant: no fallback → reconcile not called → log empty → T-IDG-BATCH-FALLBACK assertion goes RED.
+      if [ "${_bfbt_log_lines:-0}" -gt 0 ] 2>/dev/null; then
+        no "teeth-T-IDG-BATCH-FALLBACK: mutant still invoked reconcile (${_bfbt_log_lines} log lines) — fallback THEATER"
+      else
+        ok "teeth-T-IDG-BATCH-FALLBACK: mutant (no fallback) → reconcile not invoked → T-IDG-BATCH-FALLBACK goes RED → IDG-BATCH-FALLBACK-PER-RETRO is load-bearing"
+      fi
+    else
+      no "teeth-T-IDG-BATCH-FALLBACK: sed mutant did not neutralize IDG-BATCH-FALLBACK-PER-RETRO — tooth invalid"
+    fi
+  else
+    no "teeth-T-IDG-BATCH-FALLBACK: anchor '$_bfbt_anchor' not found in SUT"
+  fi
+
+  # teeth-IDG-batch-reverify: mutant skips the IDG-BATCH-UNTRACKED-REVERIFY re-verify block →
+  # batch false-negative is trusted → T-IDG-BATCH-FALSE-NEG gets false ISSUES-DUE → RED.
+  # Anchor: "# IDG-BATCH-UNTRACKED-REVERIFY" on the outer if-condition line.
+  # Mutant: replace the condition with "if false" so the re-verify block body never runs.
+  _brev_anchor='# IDG-BATCH-UNTRACKED-REVERIFY'
+  if grep -qF "$_brev_anchor" "$HERE/../research-sdd-status.sh" 2>/dev/null; then
+    _brev_mut="$TMP/brev-mutant.sh"
+    sed "/$_brev_anchor/s/if .*/if false; then  # IDG-BATCH-UNTRACKED-REVERIFY MUTANT/" \
+      "$HERE/../research-sdd-status.sh" > "$_brev_mut"
+    if ! grep -qF 'if false' "$_brev_mut" 2>/dev/null; then
+      no "teeth-IDG-batch-reverify: sed mutant did not neutralize IDG-BATCH-UNTRACKED-REVERIFY — tooth invalid"
+    else
+      _brev_kit="$TMP/kit-idg-brev-tooth"
+      mkdir -p "$_brev_kit/bin" "$_brev_kit/lib"
+      cp "$_brev_mut" "$_brev_kit/research-sdd-status.sh"
+      cp "$HERE/../verify-state.sh" "$_brev_kit/verify-state.sh"
+      cp "$HERE/../lib/focus-prefix.sh" "$_brev_kit/lib/focus-prefix.sh"
+      cp "$HERE/../lib/state-files.sh" "$_brev_kit/lib/state-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_brev_kit/lib/block-files.sh"
+      cp "$HERE/../lib/retro-status.sh" "$_brev_kit/lib/retro-status.sh"
+      # cache_untracked_reverify_tracked stub: batch says untracked; per-retro says tracked (false-neg).
+      printf '#!/usr/bin/env bash\n_has_cache=0\nfor _a in "$@"; do [ "$_a" = "--issues-cache" ] && _has_cache=1; done\nif [ "$_has_cache" = "1" ]; then\n  printf "untracked: row 1 delta-foo\\n"\nelse\n  printf "tracked: row 1 delta-foo\\n"\nfi\n' \
+        > "$_brev_kit/reconcile-issues.sh"
+      chmod +x "$_brev_kit/reconcile-issues.sh"
+      # gh stub: exits 0 (batch succeeds with empty output → cache file empty → reconcile sees UNTRACKED).
+      printf '#!/usr/bin/env bash\ncase "$1" in\n  auth) exit 0 ;;\n  issue) exit 0 ;;\n  *) exit 1 ;;\nesac\n' \
+        > "$_brev_kit/bin/gh"
+      chmod +x "$_brev_kit/bin/gh"
+      _t_brev="$TMP/target-idg-brev-tooth"
+      mkstate "$_t_brev" 0 "high|done gap|covered"
+      mkdir -p "$_t_brev/retros"
+      printf '<!-- review-status: pending -->\n# Rev tooth retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | delta 1 | file.sh | ev | new | high |\n' \
+        > "$_t_brev/retros/rev-retro.md"
+      _brev_got="$(PATH="$_brev_kit/bin:$PATH" bash "$_brev_kit/research-sdd-status.sh" "$_t_brev" --next 2>/dev/null)"
+      # Mutant: no re-verify → batch untracked trusted → false ISSUES-DUE emitted.
+      # T-IDG-BATCH-FALSE-NEG expects STOP; mutant returns ISSUES-DUE → T-IDG-BATCH-FALSE-NEG goes RED.
+      case "$_brev_got" in
+        ISSUES-DUE\ *)
+          ok "teeth-IDG-batch-reverify: mutant (no re-verify) → false ISSUES-DUE → T-IDG-BATCH-FALSE-NEG goes RED → IDG-BATCH-UNTRACKED-REVERIFY is load-bearing" ;;
+        *)
+          no "teeth-IDG-batch-reverify: mutant did not produce false ISSUES-DUE, got [$_brev_got] — tooth theater" ;;
+      esac
+    fi
+  else
+    no "teeth-IDG-batch-reverify: anchor '$_brev_anchor' not found in SUT"
   fi
 
 fi

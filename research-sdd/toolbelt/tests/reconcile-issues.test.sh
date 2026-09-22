@@ -419,6 +419,97 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 15 — CACHE-UNTRACKED: --issues-cache given; cache has no matching signature → untracked, exit 0
+# Assert: gh is NOT invoked (the fail-if-called stub exits 1 if reached; gh.log stays empty).
+box15="$(mkbox case-cache-untracked)"
+{
+  printf '#!%s\n' "$BASH_BIN"
+  printf 'printf "%%s\\n" "gh $*" >> "%s/bin/gh.log"\n' "$box15"
+  printf 'exit 1\n'
+} > "$box15/bin/gh"
+chmod +x "$box15/bin/gh"
+# Cache file: contains an issue body with a DIFFERENT retro's signature (not this retro)
+_cache15="$ROOT/cache15.txt"
+printf 'Source retro: other-target/retros/other.md · 1\n' > "$_cache15"
+retro15="$(mk_retro "$box15" target-foo r-cache-untracked.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | test delta | CLAUDE.md | B1 | new | HIGH |")"
+run "$box15" --issues-cache "$_cache15" "$retro15"
+_gh_calls_15="$(wc -l < "$box15/bin/gh.log" 2>/dev/null | tr -d ' ')"
+_gh_calls_15="${_gh_calls_15:-0}"  # missing log → 0 calls (gh was never invoked)
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'untracked:' \
+   && [ "$_gh_calls_15" = "0" ]; then
+  ok "15 cache-untracked: cache with no matching sig → untracked, exit 0, no gh call" \
+     "(exit $RC gh_calls=${_gh_calls_15})"
+else
+  no "15 cache-untracked: expected untracked exit 0 no-gh" \
+     "exit=$RC out=[$OUT] gh_calls=${_gh_calls_15}"
+fi
+
+# ---------------------------------------------------------------------------
+# 16 — CACHE-TRACKED: --issues-cache given; cache has exact matching signature → tracked, exit 0
+# Assert: gh is NOT invoked (same fail-if-called stub pattern).
+box16="$(mkbox case-cache-tracked)"
+{
+  printf '#!%s\n' "$BASH_BIN"
+  printf 'printf "%%s\\n" "gh $*" >> "%s/bin/gh.log"\n' "$box16"
+  printf 'exit 1\n'
+} > "$box16/bin/gh"
+chmod +x "$box16/bin/gh"
+# Cache file: issue body WITH the exact signature for this retro and row 1
+# sig_prefix = target-foo/retros/r-cache-tracked.md
+_cache16="$ROOT/cache16.txt"
+printf 'Source retro: target-foo/retros/r-cache-tracked.md · 1\n' > "$_cache16"
+retro16="$(mk_retro "$box16" target-foo r-cache-tracked.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | test delta | CLAUDE.md | B1 | new | HIGH |")"
+run "$box16" --issues-cache "$_cache16" "$retro16"
+_gh_calls_16="$(wc -l < "$box16/bin/gh.log" 2>/dev/null | tr -d ' ')"
+_gh_calls_16="${_gh_calls_16:-0}"  # missing log → 0 calls (gh was never invoked)
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q '^tracked:' \
+   && [ "$_gh_calls_16" = "0" ]; then
+  ok "16 cache-tracked: cache with matching sig → tracked, exit 0, no gh call" \
+     "(exit $RC gh_calls=${_gh_calls_16})"
+else
+  no "16 cache-tracked: expected tracked exit 0 no-gh" \
+     "exit=$RC out=[$OUT] gh_calls=${_gh_calls_16}"
+fi
+
+# ---------------------------------------------------------------------------
+# 17 — T-CACHE-METACHAR: metachar in sig_prefix (dot in target name) must not cause false match.
+# target name "target-v2.foo" has a literal dot; cache contains "target-v2Xfoo/retros/r.md · 1"
+# (X matches '.' in an extended regex but NOT as a fixed string).
+# With fixed-string grep: row 1 is UNTRACKED (no literal match); row 2 IS tracked (exact match).
+# A regex-based grep would false-match row 1 as tracked.
+box17="$(mkbox T-CACHE-METACHAR target-v2.foo)"
+{
+  printf '#!%s\n' "$BASH_BIN"
+  printf 'printf "%%s\\n" "gh $*" >> "%s/bin/gh.log"\n' "$box17"
+  printf 'exit 1\n'
+} > "$box17/bin/gh"
+chmod +x "$box17/bin/gh"
+_cache17="$ROOT/cache17.txt"
+# False-match body: dot replaced by 'X' — regex '.' matches X, fixed string does not.
+printf 'Source retro: target-v2Xfoo/retros/r-meta.md · 1\n' > "$_cache17"
+# True-match body: exact literal dot — fixed string must match this.
+printf 'Source retro: target-v2.foo/retros/r-meta.md · 2\n' >> "$_cache17"
+retro17="$(mk_retro "$box17" "target-v2.foo" "r-meta.md" \
+  "<!-- review-status: pending -->" \
+  "| 1 | delta-a | CLAUDE.md | B1 | new | HIGH |
+| 2 | delta-b | CLAUDE.md | B2 | new | HIGH |")"
+run "$box17" --issues-cache "$_cache17" "$retro17"
+_meta_untracked="$(printf '%s\n' "$OUT" | grep -c '^untracked:' 2>/dev/null || echo 0)"
+_meta_tracked="$(printf '%s\n' "$OUT" | grep -c '^tracked:' 2>/dev/null || echo 0)"
+# row 1 must be untracked (no literal-dot match); row 2 must be tracked (exact match).
+if [ "$RC" = 0 ] && [ "${_meta_untracked:-0}" = "1" ] && [ "${_meta_tracked:-0}" = "1" ]; then
+  ok "17 T-CACHE-METACHAR: metachar prefix → row 1 untracked (no false match), row 2 tracked (exact match)" \
+     "(untracked=${_meta_untracked} tracked=${_meta_tracked})"
+else
+  no "17 T-CACHE-METACHAR: expected 1 untracked + 1 tracked" \
+     "exit=$RC untracked=${_meta_untracked} tracked=${_meta_tracked} out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -587,6 +678,93 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "T6 teeth: locate hash-strip anchor" "anchor '$anchor_t6' not found in SUT"
+  fi
+
+  # TOOTH T-CACHE-NO-GH: neuter the CACHE_BRANCH condition → --issues-cache ignored; gh called instead.
+  # A recording gh that SUCCEEDS (logs calls + exits 0, returns no bodies → untracked) is used so
+  # the mutant can run to completion; then assert the gh log is NON-empty (gh was called).
+  echo "-- teeth T-CACHE-NO-GH: neuter cache branch → gh called despite --issues-cache --"
+  anchor_tcng='RECONCILE_ISSUES_CACHE_BRANCH:'
+  if grep -q "$anchor_tcng" "$SUT"; then
+    box_tcng="$(mkbox teeth-cache-no-gh)"
+    # Recording gh that succeeds: logs every call, returns empty issue list (untracked)
+    {
+      printf '#!%s\n' "$BASH_BIN"
+      printf 'printf "%%s\\n" "gh $*" >> "%s/bin/gh.log"\n' "$box_tcng"
+      printf 'case " $* " in\n'
+      printf '  *" auth status "*) exit 0 ;;\n'
+      printf '  *" issue list "*) exit 0 ;;\n'
+      printf '  *) exit 0 ;;\n'
+      printf 'esac\n'
+    } > "$box_tcng/bin/gh"
+    chmod +x "$box_tcng/bin/gh"
+    _cache_tcng="$ROOT/cache-tcng.txt"
+    printf 'Source retro: target-foo/retros/r-tcng.md · 1\n' > "$_cache_tcng"
+    retro_tcng="$(mk_retro "$box_tcng" target-foo r-tcng.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | test delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_tcng="$box_tcng/research-sdd/toolbelt/reconcile-issues.sh"
+    # Mutant: replace the line AFTER the anchor with `if false; then` (disables cache branch)
+    sed "/${anchor_tcng}/{ n; s/.*/  if false; then  # MUTANT-CACHE-BRANCH-DISABLED/ }" \
+      "$SUT" > "$mutant_tcng"
+    PATH="$box_tcng/bin:$PATH" \
+      "$BASH_BIN" "$mutant_tcng" --issues-cache "$_cache_tcng" "$retro_tcng" >/dev/null 2>&1 || true
+    _gh_calls_tcng="$(grep -c 'issue list' "$box_tcng/bin/gh.log" 2>/dev/null || echo 0)"
+    if [ "${_gh_calls_tcng:-0}" -gt 0 ]; then
+      ok "T-CACHE-NO-GH teeth: cache branch neutered → gh issue list WAS called (cache-path has teeth)" \
+         "(gh_calls=${_gh_calls_tcng})"
+    else
+      no "T-CACHE-NO-GH teeth: cache branch neutered → gh should have been called" \
+         "cases 15/16 may be THEATER: gh_calls=${_gh_calls_tcng}"
+    fi
+  else
+    no "T-CACHE-NO-GH teeth: locate cache branch anchor" "anchor '$anchor_tcng' not found in SUT"
+  fi
+
+  # TOOTH T-CACHE-METACHAR: revert fixed-string grep to extended-regex → dot metachar false match.
+  # Mutant: changes "grep -F" to "grep -E" in the sigprefix filter line.
+  # With -E, '.' in "target-v2.foo" matches 'X' in "target-v2Xfoo" → row 1 false-matched as tracked.
+  # T-CACHE-METACHAR expects row 1 untracked; mutant makes both rows tracked → assertion fails → RED.
+  echo "-- teeth T-CACHE-METACHAR: grep -F → grep -E causes false metachar match → both rows tracked --"
+  anchor_tmc='RECONCILE_ISSUES_CACHE_SIGPREFIX_MATCH:'
+  if grep -q "$anchor_tmc" "$SUT" && grep -q 'grep -F "Source retro:' "$SUT"; then
+    box_tmc="$(mkbox teeth-cache-metachar target-v2.foo)"
+    {
+      printf '#!%s\n' "$BASH_BIN"
+      printf 'printf "%%s\\n" "gh $*" >> "%s/bin/gh.log"\n' "$box_tmc"
+      printf 'exit 1\n'
+    } > "$box_tmc/bin/gh"
+    chmod +x "$box_tmc/bin/gh"
+    _cache_tmc="$ROOT/cache-tmc.txt"
+    printf 'Source retro: target-v2Xfoo/retros/r-tmc.md · 1\n' > "$_cache_tmc"
+    printf 'Source retro: target-v2.foo/retros/r-tmc.md · 2\n' >> "$_cache_tmc"
+    retro_tmc="$(mk_retro "$box_tmc" "target-v2.foo" "r-tmc.md" \
+      "<!-- review-status: pending -->" \
+      "| 1 | delta-a | CLAUDE.md | B1 | new | HIGH |
+| 2 | delta-b | CLAUDE.md | B2 | new | HIGH |")"
+    mutant_tmc="$box_tmc/research-sdd/toolbelt/reconcile-issues.sh"
+    # Mutant: replace 'grep -F "Source retro:' with 'grep -E "Source retro:' directly.
+    # The rest of the pipeline (sed + grep-oE) is unchanged; only the filter step loses fixed-string.
+    sed 's/grep -F "Source retro:/grep -E "Source retro:/' "$SUT" > "$mutant_tmc"
+    if grep -q 'grep -E "Source retro:' "$mutant_tmc" && \
+       ! grep -q 'grep -F "Source retro:' "$mutant_tmc"; then
+      out_tmc="$(PATH="$box_tmc/bin:$PATH" \
+        "$BASH_BIN" "$mutant_tmc" --issues-cache "$_cache_tmc" "$retro_tmc" 2>&1)" || true
+      _tmc_tracked="$(printf '%s\n' "$out_tmc" | grep -c '^tracked:' 2>/dev/null)"
+      _tmc_untracked="$(printf '%s\n' "$out_tmc" | grep -c '^untracked:' 2>/dev/null)"
+      # With -E mutant: row 1 is false-matched as tracked (dot matches X) → tracked≥2, untracked=0.
+      # T-CACHE-METACHAR assertion "row 1 untracked" would fail → RED.
+      if [ "${_tmc_tracked:-0}" -ge 2 ] && [ "${_tmc_untracked:-0}" -eq 0 ]; then
+        ok "T-CACHE-METACHAR teeth: -E mutant false-matches row 1 → both rows tracked → T-CACHE-METACHAR has teeth" \
+           "(tracked=${_tmc_tracked} untracked=${_tmc_untracked})"
+      else
+        no "T-CACHE-METACHAR teeth: -E mutant result unexpected (tracked=${_tmc_tracked} untracked=${_tmc_untracked}) — THEATER or fixture broken"
+      fi
+    else
+      no "T-CACHE-METACHAR teeth: sed mutant did not swap grep -F to grep -E — tooth invalid"
+    fi
+  else
+    no "T-CACHE-METACHAR teeth: anchor or grep -F sentinel not found in SUT"
   fi
 
 fi  # --prove-teeth
