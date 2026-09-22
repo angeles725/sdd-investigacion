@@ -116,7 +116,7 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `$RESEARCH_HOME/niagara-research` | **mature** (722 md @2026-08-31 / 19 focuses / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 1 | niagara-research | `$RESEARCH_HOME/niagara-research` | **mature** (1153 md @2026-09-22 / 19 focuses / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
 | 2 | module-navigator | `$RESEARCH_HOME/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (6 md / nc / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
 | 3 | niagara-help | `$RESEARCH_HOME/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (2 md / nc / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `$RESEARCH_HOME/kidcad-research` | **mature** (79 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
@@ -133,22 +133,22 @@ Sensitivity:
 | 18 | nave-panccadia | `$RESEARCH_HOME/investigacion/nave-panccadia` | **intermediate** (47 blocks @2026-08-21 / 4 runs / git yes / remote yes / hook file yes / unregistered) `[CERT]` — STOP 39-of-39 gaps; B40-B43 post-STOP; §19 v9 DELIVERED; narrative → §18 | Architectural CAD: one AutoCAD 2007 (`AC1021`) DWG of an industrial bakery plant, converted read-only to DXF (9,939 modelspace entities / 28 layers / 531 blocks) `[CERT]` | `dwg2dxf` (LibreDWG) + `ezdxf` + `matplotlib` + own `tools/` (9 probes incl. `cad-view.py`, the visual oracle) | English `[CERT]` |
 | 19 | EduVolt-Designer | `$RESEARCH_HOME/investigacion/EduVolt-Designer` | **intermediate** (8 md / git yes / remote yes / hook yes; static investigable EXHAUSTED) `[CERT]` | Flutter Windows desktop app: Dart AOT native snapshot (`app.so`) + native PE DLLs; no x64 Dart decompiler available `[CERT]` | `decompile-native.sh` (Ghidra; blutter blocked) + `strings`/`readelf` static | Spanish (product) / English (corpus) `[CERT]` |
 | 20 | impresora-samsung-m2070 | `$RESEARCH_HOME/investigacion/impresora-samsung-m2070` | **intermediate** (13 md / git yes / remote yes / hook yes; static STOP MET + dynamic phase done) `[CERT]` · **`live-install`** (USB printer) — naming gap → detail §20 | Samsung M2070 MFP USB protocol: Windows driver (GPD/INF/JS) + Linux ULD ELF (`rastertospl`, `libsane-smfp.so`) + live USB hardware (QPDL print, PJL/SSIP probes) `[CERT]` | `decompile-native.sh` (Ghidra headless) + direct reading; dynamic: `tools/pjl-live-query.py` (pyusb, §12) | English `[CERT]` |
-| 22 | sdd-investigacion | `$RESEARCH_HOME/investigacion/sdd-investigacion` | **intermediate** (27 blocks / 1 run / 4 retros / git yes / remote yes / hook no) `[CERT]` · **SELF-REFERENTIAL** · corpus one MAJOR version stale → detail §22 | gentle-ai (Go ecosystem configurator) + its SDD layer in Claude Code / OpenCode: skill/prompt/contract markdown + `state.json` + CLI surface `[CERT]` | local `tools/gen-catalog.py` (corpus-specialized fork) + direct reading + `gh api` upstream | English `[CERT]` |
+| 22 | sdd-investigacion | `$RESEARCH_HOME/investigacion/sdd-investigacion` | **intermediate** (27 blocks / 1 run / 6 retros / git yes / remote yes / hook no) `[CERT]` · **SELF-REFERENTIAL** · corpus one MAJOR version stale → detail §22 | gentle-ai (Go ecosystem configurator) + its SDD layer in Claude Code / OpenCode: skill/prompt/contract markdown + `state.json` + CLI surface `[CERT]` | local `tools/gen-catalog.py` (corpus-specialized fork) + direct reading + `gh api` upstream | English `[CERT]` |
 | 23 | tradingview-mcp | `$RESEARCH_HOME/TRADINGVIEW` | **intermediate** (52 blocks @2026-08-21 / 1 run / 6 retros / git yes / remote yes / hook yes) `[CERT]` — nested corpus under `corpus/`; narrative → §23 | Node.js MCP/CLI source over TradingView Desktop CDP; nested documentation corpus `[CERT]` | Direct reading + offline Node tests | English `[CERT]` |
 | 24 | web-hmi10cf | `$RESEARCH_HOME/Honeywell/WEB-HMI10-CF` | **intermediate** (9 md @2026-08-12 / 1 run / git yes / remote no / hook file yes) `[CERT]` · **`live-install`** — detail §24 | Honeywell/CentraLine **WEB-HMI10/CF** 10.1" HTML5 web panel (i.MX8M Mini Cortex-A53, Linux, Chromium kiosk) — 4 official PDFs; artifact detail → §24 `[CERT-doc]`/`[CERT-hw]` | `fetch-doc.sh` + `extract-pdf.sh`; live probes (§12) pending reachability | English `[CERT]` |
 | 25 | forense | `$RESEARCH_HOME/investigacion/forense` | **intermediate** (6 md / 1 run / 1 retro / git yes / remote no / hook file yes) `[CERT]` — STOP 6/6; DESIGN/APPLIED; companion to #17 | Defensive data-protection design (own work product only; strict defensive scope) — crypto containers, signatures, timestamping, tamper-evident logs, Cloudflare access alerts `[CERT-web]`/`[CERT-doc]` | `fetch-doc.sh` + WebFetch/WebSearch | English `[CERT]` |
-| 26 | COB-IM2 | `$RESEARCH_HOME/investigacion/COB-IM2` | **intermediate** (37 blocks / 2 runs / 1 retro / git yes / remote yes / hook file yes) `[CERT]` → §26 | HVAC DWG 9-sheet | ezdxf+tools | English |
+| 26 | COB-IM2 | `$RESEARCH_HOME/investigacion/COB-IM2` | **intermediate** (51 blocks @2026-09-22 / 2 runs / 1 retro / git yes / remote yes / hook file yes) `[CERT]` → §26 | HVAC DWG 9-sheet | ezdxf+tools | English |
 | 27 | hotelpalace-tunnel | `$RESEARCH_HOME/tunnel/Cliente/Cancun/HotelPalace` | **incipient** (1 block @2026-08-25 / 1 run / git yes / remote no / hook no) `[CERT]` · **`live-install`** · nested corpus under `corpus/` · document-mode (§20) — companion to #17 — detail §27 | Cloudflare Tunnel install bundle (`palace-pc`, remote-managed) for the hotel PC (`10.2.40.11`): PowerShell/.bat installers, OpenSSH-over-tunnel access; runbook of failure modes | Direct reading of bundle scripts | Spanish (operational runbook for MX site tech) `[CERT]` |
-| 28 | sullair | `$RESEARCH_HOME/investigacion/sullair` | **intermediate** (20 md @2026-08-24 / 11-of-13 gaps / git yes / remote yes / hook file yes) `[CERT]` · nested corpus under `corpus/`; remote `angeles725/investigacion-sullair` PRIVATE — detail §28 | Sullair Supervisor air-compressor controllers comms — RS-485 + Modbus protocol RE; 1 PRIMARY PDF + secondary consultant report + AI-artifact HTML, no binary `[CERT-doc]` — detail §28 | `extract-pdf.sh` + `fetch-doc.sh` + web scout | English (corpus) `[CERT]` |
+| 28 | sullair | `$RESEARCH_HOME/investigacion/sullair` | **intermediate** (23 md @2026-09-22 / 11-of-13 gaps / git yes / remote yes / hook file yes) `[CERT]` · nested corpus under `corpus/`; remote `angeles725/investigacion-sullair` PRIVATE — detail §28 | Sullair Supervisor air-compressor controllers comms — RS-485 + Modbus protocol RE; 1 PRIMARY PDF + secondary consultant report + AI-artifact HTML, no binary `[CERT-doc]` — detail §28 | `extract-pdf.sh` + `fetch-doc.sh` + web scout | English (corpus) `[CERT]` |
 | 29 | cloudflare-tunnels | `$RESEARCH_HOME/investigacion/cloudflare` | **mature** (34 md @2026-08-28 / 24 runs / 4 retros / git yes / remote yes / hook yes) `[CERT]` · **multi-focus** (3, all COMPLETE) · remote `angeles725/research-cloudflare` PRIVATE — detail §29 | Cloudflare Tunnel technology (`cloudflared` v2026.8.2, Go daemon) — local binary + official docs + open-source Go repo; NOT a client install (no site secrets) `[CERT]` | `fetch-doc.sh` + direct Go reading + CodeGraph + local `cloudflared --help` (read-only) | English `[CERT]` |
-| 30 | panccadia-3d-viewer | `$RESEARCH_HOME/panccadia-3d-viewer` | **intermediate** (6 md / 1 retro / nested corpus / git yes / remote no / hook no; **document-cycle** COMPLETE) `[CERT]` | Standalone HTML viewer: Three.js nave 3D (landing) + DashboardPan 2D dashboard portado 1:1 `[CERT]` | none (HTML/JS; Playwright headless verify) | Spanish UI · technical EN docs `[CERT]` |
-| 31 | ford-bms-panel | `$RESEARCH_HOME/tunnel/clientes/ford` | **incipient** (3 blocks @2026-09-10 / 1 run / 1 retro / nested corpus / git yes / remote no / hook no; **document-cycle** COMPLETE) `[CERT]` · companion to #30 — detail §31 | Standalone HTML BMS panel on Cloudflare Pages (`ford-bas` → `bms-ford-inbas.industrial-bms.com`): update-notice mechanism (`__BUILD__` + `version.json` + `_headers` no-cache) and the per-deploy version-bump flow `[CERT]` | none (HTML/JSON reading; Playwright headless verify) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
-| 32 | pancaddia-leon-tunnel | `$RESEARCH_HOME/tunnel/clientes/Leon-Guanajuato/Pancaddia` | **incipient** (6 blocks @2026-09-16 / 2 runs / 1 retro / nested corpus / git yes / hook no; **document-cycle** COMPLETE) `[CERT]` · incidente 2026-09-14 + rediseño reporte 2026-09-16 | Sistema de datos del JACE-9000 Pancaddia León (mini-PC + túnel `nave-panccadia` + station Niagara ATLAS 4.15.3 + Supabase): incidente pipeline caído / oBIX degradado y las soluciones (watchdog + alertas Cloudflare + reporte diario), más el rediseño del reporte a HTML→PDF con Cloudflare Browser Rendering (B6) `[CERT-live]` | SSH/PowerShell a mini-PC + curl edge + Supabase SQL + Cloudflare API (todo read-only en sesión) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
-| 32 | api-paneles | `$RESEARCH_HOME/investigacion/api-paneles` | **active** (10 md · 1 retro @2026-09-11 / 2 runs / nested corpus / git yes / remote no / hook yes; document-cycle COMPLETE 10/10) `[CERT]` — detail §32 | Web-portal API capture: Playwright headful daemon + SolisCloud internal API (v3) + FlexOM CPS; Node.js `.mjs` scripts + captured JSON responses + dashboard Cloudflare Pages `[CERT]` | direct reading | Spanish (runbook operativo) · technical EN markers `[CERT]` |
-| 33 | mini-pc | `$RESEARCH_HOME/investigacion/mini-pc` | **active** (12 md · 1 retro @2026-09-13 / 2 runs / nested corpus / git yes / remote yes `angeles725/investigacion-mini-pc` / hook no; document-cycle COMPLETE 12/12; B12 incidente/operación de campo) `[CERT-live]` — detail §33 | Aprovisionamiento de mini-PC Windows como nodo de tunel: kit USB offline (`instalacion-minipc/`, `INSTALAR.bat`, solo-mouse, auto-deteccion) — parte 1 (doble IP via netsh, OpenSSH solo-llave hardened, resiliencia energia/BIOS Dell `cctk`, registro + INVENTARIO) + parte 2 tunel Cloudflare remote-managed (Access SSO email-OTP + service token + CA short-lived, conector cloudflared); verificado en Windows real (`DESKTOP-N3FMUUB`) `[CERT-live]` | direct reading + interop WSL/Windows + SSH probes (read-only) + Cloudflare API | Spanish (runbook operativo) · technical EN markers `[CERT-live]` |
-| 34 | fluke-177x-datos | `$RESEARCH_HOME/investigacion/fluke-177x-datos` | **incipient** (0 blocks @2026-09-12 / bootstrap / flat corpus / git yes / remote no / hook no; DESIGN/web corpus) `[CERT-live]` | Fluke 1777+1775 PQ analyzers data-extraction research: REST API (protocol 5.0.0, only GET /device open) + VNC 5900 + Energy Analyze Plus + Fluke Connect; scanned NO Modbus/BACnet/OPC-UA `[CERT-live]` | `fetch-doc.sh` + WebSearch/WebFetch | Spanish (recomendacion) · technical EN markers |
-| 35 | hisense | `$RESEARCH_HOME/prototipos/clientes/hisense` | **incipient** (3 blocks @2026-09-15 / 1 run / nested corpus / git yes / remote no / hook no; **document-cycle** COMPLETE) `[CERT-hw]` · companion to #30/#31 — detail §35 | Standalone 3D HVAC dashboard (single 669 KB `index.html`) migrated from Cloudflare Workers to Vercel, custom domain `hisense.angeles-group.org` (DNS stays on Cloudflare): Vercel static CLI deploy + DNS cutover (delete Workers Custom Domain, add A→76.76.21.21 DNS-only) `[CERT-hw]` | Vercel CLI + Cloudflare API (DNS) + `curl` verify | English (corpus) · Spanish UI subject `[CERT-hw]` |
-| 36 | blender-llm | `$RESEARCH_HOME/investigacion/blender-llm` | **incipient** (11 blocks @2026-09-16 / 3 runs / 4 retros / flat corpus / git yes / remote yes / hook yes) `[CERT-hw]` · DESIGN/APPLIED + §12 live — detail §36 | Blender MCP + LLM ecosystem: ahujasid community MCP server (v1.7, Blender 5.2.2 Windows + WSL2 client), alternative MCP servers, security/telemetry, LLM powerups, HVAC workflow — Windows↔WSL2 bridge via mirrored networking localhost:9876 `[CERT-hw]` | direct reading + WebSearch/WebFetch (ecosystem) | English `[CERT-hw]` |
+| 30 | panccadia-3d-viewer | `$RESEARCH_HOME/panccadia-3d-viewer` | **intermediate** (38 md @2026-09-22 / 8 retros / git yes / remote no / hook no) `[CERT]` — detail §30 | Standalone HTML viewer: Three.js nave 3D (landing) + DashboardPan 2D dashboard portado 1:1 `[CERT]` | none (HTML/JS; Playwright headless verify) | Spanish UI · technical EN docs `[CERT]` |
+| 31 | ford-bms-panel | `$RESEARCH_HOME/tunnel/clientes/ford` | **incipient** (3 blocks @2026-09-10 / 1 run / 1 retro / git yes / remote no / hook no) `[CERT]` · companion to #30 — detail §31 | Standalone HTML BMS panel on Cloudflare Pages: update-notice mechanism (`__BUILD__` + `version.json` + `_headers` no-cache); per-deploy version-bump flow `[CERT]` | none (HTML/JSON reading; Playwright headless verify) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
+| 32 | pancaddia-leon-tunnel | `$RESEARCH_HOME/tunnel/clientes/Leon-Guanajuato/Pancaddia` | **incipient** (9 blocks @2026-09-22 / 2 runs / 18 retros / git yes / hook no) `[CERT]` — detail §32b | Sistema JACE-9000 Pancaddia León (mini-PC + tunel `nave-panccadia` + Niagara 4.15.3 + Supabase): incidente pipeline / oBIX degradado + rediseño reporte HTML→PDF CF Rendering (B6) `[CERT-live]` | SSH/PowerShell a mini-PC + curl edge + Supabase SQL + Cloudflare API (todo read-only en sesión) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
+| 32 | api-paneles | `$RESEARCH_HOME/investigacion/api-paneles` | **active** (10 md / 3 retros / 2 runs / git yes / remote no / hook yes) `[CERT]` — detail §32 | Web-portal API capture: Playwright headful daemon + SolisCloud internal API (v3) + FlexOM CPS; Node.js `.mjs` scripts + captured JSON responses + dashboard Cloudflare Pages `[CERT]` | direct reading | Spanish (runbook operativo) · technical EN markers `[CERT]` |
+| 33 | mini-pc | `$RESEARCH_HOME/investigacion/mini-pc` | **active** (15 md @2026-09-22 / 2 retros / 2 runs / git yes / remote yes / hook no) `[CERT-live]` · remote `angeles725/investigacion-mini-pc` PRIVATE — detail §33 | Aprovisionamiento mini-PC Windows: kit USB offline + OpenSSH hardened + BIOS Dell (`cctk`) + tunel CF remote-managed (Access SSO + CA short-lived); verificado en `DESKTOP-N3FMUUB` `[CERT-live]` | direct reading + interop WSL/Windows + SSH probes (read-only) + Cloudflare API | Spanish (runbook operativo) · technical EN markers `[CERT-live]` |
+| 34 | fluke-177x-datos | `$RESEARCH_HOME/investigacion/fluke-177x-datos` | **incipient** (30 blocks @2026-09-22 / git yes / remote no / hook no) `[CERT-live]` — detail §34 | Fluke 1777+1775 PQ analyzers data-extraction research: REST API (protocol 5.0.0, only GET /device open) + VNC 5900 + Energy Analyze Plus + Fluke Connect; scanned NO Modbus/BACnet/OPC-UA `[CERT-live]` | `fetch-doc.sh` + WebSearch/WebFetch | Spanish (recomendacion) · technical EN markers |
+| 35 | hisense | `$RESEARCH_HOME/prototipos/clientes/hisense` | **incipient** (3 blocks @2026-09-15 / 1 run / git yes / remote no / hook no) `[CERT-hw]` · companion to #30/#31 — detail §35 | Standalone 3D HVAC dashboard (669 KB `index.html`) migrated Workers→Vercel, domain `hisense.angeles-group.org`: CLI deploy + DNS cutover (del Workers domain, add A→76.76.21.21) `[CERT-hw]` | Vercel CLI + Cloudflare API (DNS) + `curl` verify | English (corpus) · Spanish UI subject `[CERT-hw]` |
+| 36 | blender-llm | `$RESEARCH_HOME/investigacion/blender-llm` | **incipient** (85 blocks @2026-09-22 / 3 runs / 16 retros / git yes / remote yes / hook yes) `[CERT-hw]` — detail §36 | Blender MCP + LLM ecosystem: ahujasid MCP server + alternatives, security/telemetry, LLM powerups, HVAC workflow; Windows↔WSL2 bridge (mirrored networking localhost:9876) `[CERT-hw]` | direct reading + WebSearch/WebFetch (ecosystem) | English `[CERT-hw]` |
 
 ---
 
@@ -639,6 +639,68 @@ Setup verified 2026-09-15: Blender 5.2.2 (Windows) ↔ WSL2 Claude Code via `net
 Run 2 (2026-09-16, B6 — gap G6): first §12 LIVE phase on this target, and the first authorised write outside the read-only contract (`⚠ CONFIG MUTATION`). Measured that `disable_telemetry` gates telemetry CONTENT, not TRANSMISSION, then removed egress in three layers and confirmed it with two independent oracles. Also corrected the version premise: the **server** is `blender-mcp` 1.9.4 (PyPI/uv), while `[1, 7]` is the Blender **add-on** version — B1-B5's "v1.7" names only the add-on. Retro `retros/2026-09-16-blender-llm-b6-telemetry-egress-remediation-retro.md` proposes 6 kit deltas (3 HIGH: the rung-0 HTTP-sink instrument, citation re-anchoring after mutating a cited subject, and confirming the stimulus is instrumented before a probe window).
 
 **Bootstrap (2026-09-16):** flat corpus, git yes, remote no (consent-gated), hook yes. Document-mode capture of session-handoff.md + memory files + SKILL.md.
+
+**Corpus topology note (moved from master row 2026-09-22):** flat corpus (all block files at target root, no nested `corpus/` subdirectory). DESIGN/APPLIED scope — no binary profiling. §12 live phase active (authorised config mutations).
+
+**Artifact description (full, moved from master row 2026-09-22):** Blender MCP + LLM ecosystem: ahujasid community MCP server (v1.7 add-on, server is `blender-mcp` 1.9.4 PyPI/uv, Blender 5.2.2 Windows + WSL2 client), alternative MCP servers, security/telemetry, LLM powerups, HVAC workflow — Windows↔WSL2 bridge via mirrored networking localhost:9876.
+
+---
+
+### 30 — panccadia-3d-viewer `[CERT]`
+
+Standalone HTML viewer: Three.js nave 3D (landing page) + DashboardPan 2D dashboard portado 1:1. Companion to #31 (ford-bms-panel) and #35 (hisense).
+
+**Corpus topology (moved from master row 2026-09-22):** nested corpus structure (block files under `corpus/` subdirectory). Document-cycle COMPLETE.
+
+---
+
+### 31 — ford-bms-panel `[CERT]`
+
+Standalone HTML BMS panel hosted on Cloudflare Pages. Companion to #30 (panccadia-3d-viewer).
+
+**Corpus topology (moved from master row 2026-09-22):** nested corpus structure. Document-cycle COMPLETE.
+
+**Artifact detail (moved from master row 2026-09-22):** Cloudflare Pages project `ford-bas` deployed at `bms-ford-inbas.industrial-bms.com`; update-notice mechanism (`__BUILD__` + `version.json` + `_headers` no-cache) and the per-deploy version-bump flow.
+
+---
+
+### 32b — pancaddia-leon-tunnel `[CERT-live]`
+
+Sistema de datos del JACE-9000 Pancaddia León. Companion to #32 (api-paneles).
+
+**Corpus topology (moved from master row 2026-09-22):** nested corpus structure. Document-cycle COMPLETE.
+
+**Incident narrative (moved from master row 2026-09-22):** incidente 2026-09-14 + rediseño reporte 2026-09-16.
+
+**Artifact description (full, moved from master row 2026-09-22):** Sistema de datos del JACE-9000 Pancaddia León (mini-PC + túnel `nave-panccadia` + station Niagara ATLAS 4.15.3 + Supabase): incidente pipeline caído / oBIX degradado y las soluciones (watchdog + alertas Cloudflare + reporte diario), más el rediseño del reporte a HTML→PDF con Cloudflare Browser Rendering (B6) `[CERT-live]`.
+
+---
+
+### 33 — mini-pc `[CERT-live]`
+
+Aprovisionamiento de mini-PC Windows como nodo de tunel. Remote: `angeles725/investigacion-mini-pc` (PRIVATE).
+
+**Corpus topology (moved from master row 2026-09-22):** nested corpus structure. Document-cycle COMPLETE 12 of 12. B12 covers incidente and operación de campo.
+
+**Artifact description (full, moved from master row 2026-09-22):** Aprovisionamiento de mini-PC Windows como nodo de tunel: kit USB offline (`instalacion-minipc/`, `INSTALAR.bat`, solo-mouse, auto-deteccion) — parte 1 (doble IP via netsh, OpenSSH solo-llave hardened, resiliencia energia/BIOS Dell `cctk`, registro + INVENTARIO) + parte 2 tunel Cloudflare remote-managed (Access SSO email-OTP + service token + CA short-lived, conector cloudflared); verificado en Windows real (`DESKTOP-N3FMUUB`) `[CERT-live]`.
+
+---
+
+### 34 — fluke-177x-datos `[CERT-live]`
+
+Fluke 1777+1775 PQ analyzers data-extraction research.
+
+**Corpus topology (moved from master row 2026-09-22):** flat corpus (bootstrap phase). Web corpus — primary data sources are web/API/VNC, no local binaries. DESIGN scope: research and recommendation, no implemented tooling yet.
+
+---
+
+### 35 — hisense `[CERT-hw]`
+
+Standalone 3D HVAC dashboard migrated from Cloudflare Workers to Vercel. Companion to #30 (panccadia-3d-viewer) and #31 (ford-bms-panel).
+
+**Corpus topology (moved from master row 2026-09-22):** nested corpus structure. Document-cycle COMPLETE.
+
+**Artifact description (full, moved from master row 2026-09-22):** Standalone 3D HVAC dashboard (single 669 KB `index.html`) migrated from Cloudflare Workers to Vercel, custom domain `hisense.angeles-group.org` (DNS stays on Cloudflare): Vercel static CLI deploy + DNS cutover (delete Workers Custom Domain, add A→76.76.21.21 DNS-only) `[CERT-hw]`.
 
 ---
 
