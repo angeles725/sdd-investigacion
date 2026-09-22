@@ -90,14 +90,28 @@ Always read first, in this order:
       exists → $CORPUS=$TARGET/corpus/; else if $TARGET/INDEX.md exists → $CORPUS=$TARGET; else neither → BOOTSTRAP.
       Check the corpus/ path FIRST — else a nested corpus reads as "missing" and BOOTSTRAP duplicates it.)
   6. RESOLVE THE NEXT GAP mechanically — do NOT eyeball the backlog: `$KIT/toolbelt/research-sdd-status.sh $TARGET --next`
-     returns one line — `NEXT | <priority> | <gap>` (investigate it), `STOP | <reason>` (§8 exhaustion),
+     returns one line — `NEXT | <priority> | <gap>` (investigate it),
+     `STOP | <reason>` (§8 exhaustion; when reason contains `[issue-coverage: unverified]`, issue coverage
+     could NOT be verified — see below; treat as complete with unconfirmed coverage, advisory not a hard block),
      `STALE | <reason>` (envelope/backlog inconsistent — run `$KIT/toolbelt/research-sdd-status.sh $TARGET
-     --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`, or
+     --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`,
      `RETRO-DUE | <focus>` (the focus has crossed the §18 blocks-since-retro threshold — delegate the §18
      retro as the CURRENT iteration before resuming normal gaps; the retro is mandatory, not optional — see
      RETRO CHECKPOINT under step 7's TERMINAL TRIGGER. `--next` emits RETRO-DUE automatically once
      `blocks_since_retro` crosses the §18 threshold (kit issue #627 — landed); trust the emitted
-     state, no manual threshold check is needed).
+     state, no manual threshold check is needed), or
+     `ISSUES-DUE | <N> untracked delta(s) in <retro> — seed: stage-retro-issues.sh <retro> --apply`
+     (issued when exhausted work would otherwise STOP, but the named retro has deltas not yet tracked as open
+     GitHub issues; early-exit on the FIRST such retro found — remaining retros are NOT probed, count and path
+     are scoped to that one retro only; `--next` precedence: STALE → RETRO-DUE → NEXT → ISSUES-DUE → STOP).
+     Response to ISSUES-DUE: run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` to seed issues for the
+     untracked deltas, then re-run `--next` and continue. The loop is NOT DONE while `--next` returns
+     ISSUES-DUE — a terminal `STOP` is required before the investigation can be reported complete (§18
+     backlog-first; kit issue #876).
+     Response to `STOP … [issue-coverage: unverified]`: coverage could not be verified (gh degraded/offline,
+     `timeout` binary absent, aggregate budget exceeded, or enumeration/subprocess error; specific cause on
+     stderr WARN). Treat the investigation as complete with unconfirmed issue coverage; seed/verify by hand if
+     needed. Do NOT hard-block the loop on this state — it is advisory.
      For a supervisor/human view, `research-sdd-status.sh $TARGET` (no flag) renders the full
      state (coverage · pending backlog by priority · stop-control · verify-state consistency).
 
