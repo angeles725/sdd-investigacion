@@ -59,7 +59,7 @@ last_iteration_ts:
 
 - **Covered blocks**: <N> (B1..B<N>)
 - **Coverage metric**: <gaps-closed> / <known-gaps> closed  (a ratio, not a free %)   ← ONE canonical coverage number, OVERWRITE it each iteration. Do NOT accrete contradictory assertions (e.g. an all-closed ratio, then a larger denominator declared later): if the gap universe grows, reconcile the denominator here to a single value. Per-iteration cumulative snapshots belong in "Iteration history" below, not as repeated coverage-metric lines. NOTE: the placeholder above carries no digits ON PURPOSE — keep it that way until you record a real ratio, so the machine envelope seeds gaps_closed/known_gaps=0 (nothing closed yet) instead of mis-parsing an example number. (`verify-state.sh` CHECK 3 WARNs on contradictory denominators outside the history table; it flags distinct DENOMINATORS only, so same-denominator numerator drift is on you to reconcile.)
-- **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below). Human-readable summary of the most recent iteration; the machine-parseable timestamp lives in the `last_iteration_ts` field of the research-state.v1 envelope (and the Stop control `last_iteration_ts` line).
+- **Last iteration**: <YYYY-MM-DD> — <which gap was closed>   ← a SINGLE value, OVERWRITE it each iteration (not an append log; the full log lives in "Iteration history" below). Human-readable summary of the most recent iteration; the machine-parseable timestamp lives in the `last_iteration_ts` field of the research-state.v1 envelope.
 
 ## Gap-backlog
 
@@ -120,7 +120,8 @@ last_iteration_ts:
 - **Open gaps — blocked** (needs live system / hardware / keys → DYNAMIC phase §12 when available): <K>
 - Consecutive iterations with empty backlog (secondary): <0/2>
 - Budget cap (default safety net): <none | max-blocks N | max-tokens>
-- `last_iteration_ts` (ADVISORY — stall-detection signal; updated each block commit by the instrument; do not pre-fill — see the `last_iteration_ts` field in the research-state.v1 envelope above for the authoritative source)
+- campaign_bounds: (optional — absent line = no bounds; grammar: see METHODOLOGY §8c — max-depth, iterations, wall-clock keys; lives in this section from BOOTSTRAP)
+- `last_iteration_ts` (ADVISORY — stall-detection signal; written by the loop on each block commit; lives in the envelope — do not pre-fill; see the `last_iteration_ts` field in the research-state.v1 envelope above)
 
 ## Dismissed file types
 
@@ -136,36 +137,40 @@ last_iteration_ts:
 
 - none
 
+<!--
 ## Campaign queue
 
-<!-- Present only when this focus is part of a multi-focus campaign (METHODOLOGY §8c).
-     Omit the section entirely for a single-focus corpus that will never spawn children.
-     The loop pops the next `pending` entry at each focus STOP; campaign STOP fires when no entry
-     is `pending` or `active` (all rows carry terminal state `done` or `bound-stopped`) AND the most
-     recent `last_audit:` shows enqueued=0.
+BOOTSTRAP: this section does not exist until the first focus-STOP audit enqueues an entry (§8c).
+The loop creates this section on the first focus STOP that finds enqueued > 0; it never exists
+at BOOTSTRAP. Do NOT pre-create it; omit the heading and table entirely for single-focus corpora.
 
-     Scalar fields (one line each, parsed by key name):
-       the last_iteration_ts field lives in the research-state.v1 envelope above (always present; not in this section).
-       the last_audit line: written after each focus-STOP coverage audit (one per audit, one outcome); ISO timestamp followed by enqueued count; ABSENT until the first audit runs (absent ≠ enqueued=0). Grammar: see METHODOLOGY §8c.
-       the campaign_started field: written when first entry goes active; anchors wall-clock bound check. Grammar: see METHODOLOGY §8c.
-       the campaign_iterations field: incremented each block commit (across all entries); anchors iteration-count bound check. Grammar: see METHODOLOGY §8c.
-       the campaign_bounds line (optional): max-depth, iterations, wall-clock keys — absent line = no bounds; iterations is campaign-wide; per-focus block cap uses max-blocks in Stop control. Grammar: see METHODOLOGY §8c.
-       the campaign_stop field: written only when a bound fires; grammar: see METHODOLOGY §8c.
+Before the queue section is created, campaign_bounds: lives in Stop control (see above; optional;
+absent = no bounds). Once the queue section is created, all campaign scalars move into it:
+  the last_audit field: written after each focus-STOP coverage audit; ISO timestamp followed by
+    enqueued count; absent ≠ enqueued=0. Grammar: see METHODOLOGY §8c.
+  the campaign_started field: written at queue creation (first focus-STOP audit that creates the
+    queue); anchors wall-clock bound check. Grammar: see METHODOLOGY §8c.
+  the campaign_iterations field (example value 0): incremented on every block commit across all
+    entries; anchors iteration-count bound check. Root-focus blocks count from BOOTSTRAP.
+    Grammar: see METHODOLOGY §8c.
+  the campaign_stop field: written only when a bound fires; grammar: see METHODOLOGY §8c.
 
-     depth is the length of the parent chain from root (root entry depth 0; a child of root has depth 1); every kind (focus, tier, sub-topic) counts toward max-depth.
+The loop pops the next `pending` entry at each focus STOP; campaign STOP fires when no entry
+is `pending` or `active` (all rows carry terminal state `done` or `bound-stopped`) AND the most
+recent `last_audit:` shows enqueued=0.
 
-     Column grammar (closed — parsers read leading tokens):
-       State: pending | active | done | bound-stopped | rejected
-       Kind:  focus | tier | sub-topic
+depth is the length of the parent chain from root (root entry depth 0; a child of root has
+depth 1); every kind (focus, tier, sub-topic) counts toward max-depth.
 
-     One row per campaign entry. Do not add free-text columns; put notes in the Seed/Convergence cells. -->
+Column grammar (closed — parsers read leading tokens):
+  State: pending | active | done | bound-stopped | rejected
+  Kind:  focus | tier | sub-topic
 
-<!-- last_audit line: absent until first focus-STOP audit runs — do NOT pre-fill; absent ≠ enqueued=0 -->
-<!-- campaign_started: write when first entry goes active (ISO timestamp; grammar in METHODOLOGY §8c) -->
-<!-- example campaign_iterations: 0  (increment on every block commit) -->
-<!-- example campaign_bounds: max-depth=3 iterations=50 wall-clock=8h  (omit line = no bounds) -->
+One row per campaign entry. Do not add free-text columns; put notes in the Seed/Convergence cells.
 
+Example entries (the live section has no rows at creation — the loop fills them in):
 | Name | Parent | Kind | Seed | Convergence | State |
 |---|---|---|---|---|---|
 | <slug> | root | focus | <brief description of what to investigate> | <done condition> | pending |
 | <slug-child> | <parent-slug> | tier | <description> | <done condition> | pending |
+-->

@@ -71,8 +71,8 @@ each delegation carries:
 when running under a fixed-interval `/loop <N>m` — the harness is the re-invoker there; a
 self-reschedule on top of it double-fires iterations. Also never issue ScheduleWakeup when the
 operator asked to review between blocks (orchestrated mode) — the driver re-invokes on `next*`
-RETURN CONTRACT tokens; end the iteration report with the correct token (`next:`, `next-entry:`, or
-`STOP: campaign — …`). Issuing ScheduleWakeup under orchestrated mode spawns a rogue autonomous
+RETURN CONTRACT tokens; end the iteration report with the correct token (`next:`, `next-entry:`,
+`STOP: campaign — …`, or `STOP: campaign-bound-reached: <which>`). Issuing ScheduleWakeup under orchestrated mode spawns a rogue autonomous
 loop alongside the operator, creating two competing drivers.
 
 Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
@@ -224,6 +224,10 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
   e. POPULATE the scaffolded $CORPUS/RESEARCH-STATE.md (step c laid the empty template) with an initial
      research-plan: 5-15 high-priority gaps (the fundamental questions about the system). Mirror the
      gaps in engram research/<target>/gaps.
+     OPTIONAL: you MAY declare `campaign_bounds:` in Stop control at this point if the operator has
+     specified campaign limits (max-depth, iterations, wall-clock). Absent line = no bounds; do not
+     pre-fill if no bounds were requested. (Grammar: see METHODOLOGY §8c. Example:
+     `campaign_bounds: max-depth=3 iterations=50 wall-clock=8h`.)
      FORMAT CONSTRAINT: `research-sdd-status.sh` requires exactly 4 columns (`| Priority | Gap | … |
      Status |`); Priority must be `high`, `medium`, or `low` (or `deferred` for a parked gap; not
      translated); Status must start with `pending` for a gap to be treated as investigable. The awk
@@ -1126,9 +1130,9 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
-       - Focus STOP and campaign STOP not met (evaluated after the FRONTIER-REOPEN audit — this focus
-         done, but §8c queue has pending/active entries):
-         Run the FRONTIER-REOPEN audit (heavy and frontier modes), enqueue new entries in the §8c campaign
+       - Focus STOP and campaign STOP not met (having run the FRONTIER-REOPEN audit once — heavy and
+         frontier modes only — this focus is done but the §8c queue has pending/active entries):
+         Having run the FRONTIER-REOPEN audit, enqueue new entries in the §8c campaign
          queue (never FOCUSES.md — that is a catalog, not a queue), then OPTIONALLY write a focus-closing
          SYNTHESIS block (consolidate this focus, cross-referencing related blocks across focuses — a valid
          terminal artifact at focus level; see METHODOLOGY §8), and pop the next `pending` entry. Under

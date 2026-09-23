@@ -43,6 +43,7 @@
 #   C17 PROMPT-LOOP does NOT say 'A turn ends only on campaign STOP' (absent/stale)
 #   C18 PROMPT-LOOP RETURN CONTRACT carries 'STOP: campaign — ' token (presence)
 #   C19 PROMPT-LOOP does NOT say 'signal "continue"' in orchestrated context (absent/stale)
+#   D1  RESEARCH-STATE template has NO live '| … | pending |' row outside HTML comments (R1)
 #
 # Usage: skill-invariants.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 
@@ -262,6 +263,8 @@ fi
 
 METHODOLOGY="$HERE/../../METHODOLOGY.md"
 [ -f "$METHODOLOGY" ] || { printf 'FATAL: METHODOLOGY.md not found at expected path: %s\n' "$METHODOLOGY" >&2; exit 2; }
+TEMPLATE="$HERE/../../templates/RESEARCH-STATE.template.md"
+[ -f "$TEMPLATE" ] || { printf 'FATAL: RESEARCH-STATE.template.md not found at expected path: %s\n' "$TEMPLATE" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
 # C-assertion function library: each assert_Cn takes one file path and returns
@@ -290,7 +293,31 @@ assert_C17() { ! grep -qF 'A turn ends only on' "$1"; }
 # C18: PROMPT-LOOP RETURN CONTRACT must carry the 'STOP: campaign — ' token.
 assert_C18() { grep -qF 'STOP: campaign — ' "$1"; }
 # C19 (absence): orchestrated context must NOT say 'signal "continue"' — use RETURN CONTRACT.
+# Extended to METHODOLOGY and SKILL too (see also PROMPT-LOOP check).
 assert_C19() { ! grep -qF 'signal "continue"' "$1"; }
+# D1 (absence): RESEARCH-STATE template must NOT have a live '## Campaign queue' section
+#     heading outside HTML comments. If the heading is absent outside comments, no live
+#     campaign table rows can exist in that section — ensuring every new corpus starts
+#     without a pre-seeded campaign that can never STOP (R1).
+#     Note: Gap-backlog rows intentionally carry '| pending |' outside comments (they are
+#     REAL to the parsers per the requires-execution note in the template); D1 targets
+#     only the Campaign queue section heading.
+assert_D1() {
+  local f="$1"
+  # Strip HTML comment blocks, then check for the '## Campaign queue' heading.
+  python3 - "$f" <<'PYEOF'
+import sys, re
+with open(sys.argv[1]) as fh:
+    text = fh.read()
+# Remove everything between <!-- and -->
+stripped = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+# If the Campaign queue section heading exists outside comments, the template is broken.
+for line in stripped.splitlines():
+    if re.search(r'^##\s+Campaign queue', line):
+        sys.exit(1)  # live Campaign queue heading found — assertion fails
+sys.exit(0)
+PYEOF
+}
 
 # ---------------------------------------------------------------------------
 # C1: METHODOLOGY.md must state that a focus stop does not end the campaign.
@@ -458,13 +485,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# C19 (absence): PROMPT-LOOP must NOT say 'signal "continue"' in orchestrated
-#      context — orchestrated mode uses RETURN CONTRACT tokens, not a bare signal.
+# C19 (absence): PROMPT-LOOP, METHODOLOGY, and SKILL must NOT say 'signal "continue"'
+#      — orchestrated mode uses RETURN CONTRACT tokens, not a bare signal.
 # ---------------------------------------------------------------------------
 if assert_C19 "$PROMPTLOOP"; then
-  ok "C19: PROMPT-LOOP does not have stale 'signal \"continue\"' orchestrated wording"
+  ok "C19a: PROMPT-LOOP does not have stale 'signal \"continue\"' orchestrated wording"
 else
-  no "C19: PROMPT-LOOP still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+  no "C19a: PROMPT-LOOP still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+fi
+if assert_C19 "$METHODOLOGY"; then
+  ok "C19b: METHODOLOGY does not have stale 'signal \"continue\"' wording"
+else
+  no "C19b: METHODOLOGY still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+fi
+if assert_C19 "$SKILL"; then
+  ok "C19c: SKILL does not have stale 'signal \"continue\"' wording"
+else
+  no "C19c: SKILL still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+fi
+
+# ---------------------------------------------------------------------------
+# D1 (absence): RESEARCH-STATE template must NOT have a live '## Campaign queue' heading
+#      outside HTML comments (R1: a live heading means every new corpus starts with a
+#      pre-seeded campaign queue that can never STOP).
+# ---------------------------------------------------------------------------
+if assert_D1 "$TEMPLATE"; then
+  ok "D1: RESEARCH-STATE template has no live '## Campaign queue' heading outside HTML comments"
+else
+  no "D1: RESEARCH-STATE template has a live '## Campaign queue' heading outside HTML comments"
 fi
 
 # ---------------------------------------------------------------------------
@@ -776,6 +824,18 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-C19: assert_C19 passed on mutant — no teeth"
   else
     ok "teeth-C19: assert_C19 goes RED on mutant (stale text injected)"
+  fi
+
+  echo "-- teeth: D1 mutant (inject live pending row into template copy) --"
+
+  # Teeth D1: inject a live '## Campaign queue' heading outside HTML comments → assert_D1 must return 1.
+  mutantD1="$TMP/TEMPLATE.mutantD1.md"
+  # Append a live Campaign queue heading outside comments to the copy
+  { cat "$TEMPLATE"; printf '\n## Campaign queue\n\n| Name | Parent | Kind | Seed | Convergence | State |\n|---|---|---|---|---|---|\n| injected | root | focus | seed | done | pending |\n'; } > "$mutantD1"
+  if assert_D1 "$mutantD1"; then
+    no "teeth-D1: assert_D1 passed on mutant — no teeth (live heading not detected)"
+  else
+    ok "teeth-D1: assert_D1 goes RED on mutant (live Campaign queue heading injected)"
   fi
 fi
 
