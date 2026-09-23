@@ -58,6 +58,9 @@ if [ "$committed" = 1 ]; then
   # B3: probe awk before the filter pipeline so absence is caught with a typed message.
   command -v awk >/dev/null 2>&1 || {
     echo "DEGRADED: awk not found — --committed mode requires awk" >&2; exit 3; }
+  # B6: probe tr — required for the unconditional NUL-stripped rescan of every blob.
+  command -v tr >/dev/null 2>&1 || {
+    echo "DEGRADED: tr not found — --committed mode requires tr for NUL-stripped blob rescan" >&2; exit 3; }
   git -C "$target" rev-parse --git-dir >/dev/null 2>&1 || {
     echo "DEGRADED: $target is not a git repository — --committed mode requires a git repo" >&2; exit 3; }
   git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1 || {
@@ -266,7 +269,9 @@ length($0) > 0 {
     # detector that exits 2 on error would silently skip the rescan on a grep without PCRE).
     _nul_tmp="$(mktemp)" || {
       echo "DEGRADED: mktemp failed — cannot create NUL-stripped blob temp file" >&2; exit 3; }
-    tr -d '\000' < "$_blob_tmp" > "$_nul_tmp"
+    tr -d '\000' < "$_blob_tmp" > "$_nul_tmp" || {
+      echo "DEGRADED: tr NUL-strip failed (rc=$?) for blob ${bshort} — scan aborted" >&2
+      rm -f "$_nul_tmp"; exit 3; }
     grep -naE \
       -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
       -e 'A[KS]IA[0-9A-Z]{16}' \

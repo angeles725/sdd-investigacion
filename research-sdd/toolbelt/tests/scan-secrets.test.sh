@@ -1362,6 +1362,27 @@ t69_rc=$(PATH="$_nopcre_dir:$PATH" bash "$SUT" --committed "$d_t66" >/dev/null 2
 [ "$t69_rc" != 0 ] && ok "69: -P-rejecting grep gives rc=$t69_rc (not 0) — B6 never fails open silently" \
   || no "69: -P-rejecting grep gave rc=0 — B6 fails open silently (PCRE detector race)"
 
+# 70 — B6: tr stub exiting 1 → DEGRADED exit 3.
+# Proves the tr rc check fires: a failing tr (ENOSPC, signal, stub) never leaves _nul_tmp
+# empty and silently produces a false-clean scan.
+_tr70_dir="$TMP/stub_tr70"; mkdir -p "$_tr70_dir"
+cat > "$_tr70_dir/tr" << 'TRWRAP70'
+#!/bin/sh
+# Stub: always fail (simulates ENOSPC, killed signal, write error, etc.)
+exit 1
+TRWRAP70
+chmod +x "$_tr70_dir/tr"
+for _b70 in git bash grep sed sort head wc awk rm cat dirname basename printf mktemp; do
+  _bp70="$(type -P "$_b70" 2>/dev/null)"; [ -n "$_bp70" ] && ln -sf "$_bp70" "$_tr70_dir/$_b70" 2>/dev/null || true
+done
+t70_out="$(PATH="$_tr70_dir:$PATH" bash "$SUT" --committed "$d_t66" 2>&1)"
+t70_rc=$?
+if [ "$t70_rc" = 3 ] && printf '%s' "$t70_out" | grep -qi 'degraded'; then
+  ok "70: failing tr stub → DEGRADED exit 3 (tr rc check guards NUL-strip)"
+else
+  no "70: failing tr stub: rc=$t70_rc (want 3) :: $(printf '%s' "$t70_out" | head -2)"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for T53 (leading ':' path): insert an early-skip inside Rule 1 for records starting
   # with ':' — the old bug. ':notes.md' arrives at Rule 1 (expect_path=1), the colon check fires,
@@ -1651,6 +1672,31 @@ PYEOF_B6
   [ "$_m66rc" = 0 ] \
     && ok "teeth-b6: NUL-stripped-grep-replaced-with-true mutant misses UTF-16LE token (rc=0) → test 66 has teeth" \
     || no "teeth-b6: mutant rc=$_m66rc (want 0=false clean) — test 66 is THEATER"
+
+  # Teeth for T70 (tr rc check): remove the || { DEGRADED; exit 3; } guard on tr so a
+  # failing tr leaves _nul_tmp empty → HC grep finds nothing in empty file → rc=0 (false clean).
+  echo "-- teeth-tr-70: remove tr rc guard — failing tr must give rc=0 (false clean) --"
+  mutant_tr70="$TMP/scan-secrets.MUTANT-tr70.sh"
+  python3 - "$SUT" "$mutant_tr70" << 'PYEOF_TR70'
+import sys
+content = open(sys.argv[1]).read()
+# Remove the tr rc guard: replace 'tr ... || { ... exit 3; }' with plain 'tr ...'
+# Use str.replace to avoid re.sub escape/backreference issues with \000 and ${bshort}.
+old_guard = (
+    "    tr -d '\\000' < \"$_blob_tmp\" > \"$_nul_tmp\" || {\n"
+    "      echo \"DEGRADED: tr NUL-strip failed (rc=$?) for blob ${bshort} — scan aborted\" >&2\n"
+    "      rm -f \"$_nul_tmp\"; exit 3; }"
+)
+new_guard = "    tr -d '\\000' < \"$_blob_tmp\" > \"$_nul_tmp\""
+if old_guard not in content:
+    print("WARN: tr guard not found in SUT", file=sys.stderr)
+content = content.replace(old_guard, new_guard)
+open(sys.argv[2], 'w').write(content)
+PYEOF_TR70
+  _m70rc=$(PATH="$_tr70_dir:$PATH" bash "$mutant_tr70" --committed "$d_t66" >/dev/null 2>&1; echo $?)
+  [ "$_m70rc" = 0 ] \
+    && ok "teeth-tr-70: tr-guard-removed mutant gives rc=0 on failing tr (false clean) → test 70 has teeth" \
+    || no "teeth-tr-70: mutant rc=$_m70rc (want 0=false clean) — test 70 is THEATER"
 fi
 
 [ "$skips" -gt 0 ] && echo "== $pass passed · $fail failed · $skips skipped ==" || echo "== $pass passed · $fail failed =="
