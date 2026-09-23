@@ -320,10 +320,10 @@ if [ "$_r7_rc" -eq 0 ]; then
 else
   no "R7: gate must exit 0 with unauthenticated gh, got exit $_r7_rc"
 fi
-if printf '%s' "$_r7_stderr" | grep -q 'WARN'; then
+if printf '%s' "$_r7_stderr" | grep -q 'WARN.*not authenticated'; then
   ok "R7: gate emits WARN when gh not authenticated (degraded is honest)"
 else
-  no "R7: gate missing WARN with unauthenticated gh; stderr=[$_r7_stderr]"
+  no "R7: gate missing gh-auth WARN with unauthenticated gh; stderr=[$_r7_stderr]"
 fi
 if [ -z "$_r7_stdout" ]; then
   ok "R7: no block JSON on stdout — gate allows close with unauthenticated gh"
@@ -429,12 +429,12 @@ _r7t_stdout="$(printf '%s' "$_r7_json" | PATH="$FAIL_AUTH_R7:$PATH" \
   "$BASH_BIN" "$MUT_GATE_R7" "$T_R7" 2>"$_r7t_errf")"
 _r7t_stderr="$(cat "$_r7t_errf")"
 
-_r7t_has_warn=0
-printf '%s' "$_r7t_stderr" | grep -q 'WARN' && _r7t_has_warn=1
-if [ "$_r7t_has_warn" -eq 0 ]; then
-  ok "R7-TOOTH: mutant (gh-probe stripped) → no WARN → R7 check would FAIL (bites)"
+_r7t_has_ghprobe_warn=0
+printf '%s' "$_r7t_stderr" | grep -q 'WARN.*not authenticated' && _r7t_has_ghprobe_warn=1
+if [ "$_r7t_has_ghprobe_warn" -eq 0 ]; then
+  ok "R7-TOOTH: mutant (gh-probe stripped) → no gh-auth WARN → R7 check would FAIL (bites)"
 else
-  no "R7-TOOTH: mutant with gh-probe removed should NOT emit WARN but did; stderr=[$_r7t_stderr]"
+  no "R7-TOOTH: mutant with gh-probe removed should NOT emit gh-auth WARN but did; stderr=[$_r7t_stderr]"
 fi
 
 echo
