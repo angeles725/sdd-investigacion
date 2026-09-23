@@ -22,6 +22,9 @@ state from disk, so running it N times advances the corpus without stepping on i
    not nest a second one.
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
+   **Fixed-interval caveat:** under `/loop <N>m`, the harness cron continues re-firing even after STOP
+   declares — the stopping criterion alone does not cancel the job. When STOP fires, the agent MUST
+   disarm the re-invoker as part of the STOP declaration (see LOOP CONTINUATION hard rule, case 1).
 
 ### Two execution modes (pick by whether a human is present)
 
@@ -1530,6 +1533,12 @@ HARD RULES:
         re-fire would double-fire iterations. End the turn after the iteration report. Ensure each
         iteration is idempotent: if the harness re-fires while nothing is pending (STOP already met,
         state already committed), the iteration must recognize that from real state and stop cleanly.
+        STOP TEARDOWN (MANDATORY): when STOP fires under a fixed-interval `/loop`, the harness cron
+        keeps re-firing every `<N>m` forever — token drain. The agent MUST disarm the re-invoker as
+        part of the STOP declaration: use CronList to find the cron job whose prompt is this loop,
+        then CronDelete to remove it. If the harness offers no such tool, tell the operator explicitly
+        to cancel the loop (e.g. "cancel the `/loop 10m` job from the harness"). A re-fire that finds
+        STOP already met MUST also disarm and end (idempotent).
     (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): you drive the
         loop — nothing re-invokes you. WHAT ENDS A TURN (#620): the runtime ends the turn when the
         agent emits text without a following tool call. So ScheduleWakeup must be the LAST action of

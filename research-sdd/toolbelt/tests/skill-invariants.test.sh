@@ -197,16 +197,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# B2: PROMPT-LOOP.md LOOP CONTINUATION must name the fixed-interval case.
-#     The three-case model (fixed-interval / dynamic self-paced / orchestrated)
-#     reconciles the old "nothing re-invokes you" claim with /loop 10m (#961
-#     follow-up: ScheduleWakeup must not double-fire under a harness re-invoker).
-#     Stable anchor: 'FIXED-INTERVAL' appears in the LOOP CONTINUATION rule.
+# B2: PROMPT-LOOP.md LOOP CONTINUATION fixed-interval case must carry the
+#     behavioral prohibition "Do NOT issue ScheduleWakeup" — stronger than a
+#     bare token check; proves the double-fire rule is stated, not just named.
 # ---------------------------------------------------------------------------
-if grep -qF 'FIXED-INTERVAL' "$PROMPTLOOP"; then
-  ok "B2: PROMPT-LOOP.md LOOP CONTINUATION names the fixed-interval case"
+if grep -qF 'Do NOT issue ScheduleWakeup' "$PROMPTLOOP"; then
+  ok "B2: PROMPT-LOOP.md LOOP CONTINUATION carries ScheduleWakeup prohibition"
 else
-  no "B2: PROMPT-LOOP.md LOOP CONTINUATION missing fixed-interval case"
+  no "B2: PROMPT-LOOP.md LOOP CONTINUATION missing 'Do NOT issue ScheduleWakeup'"
+fi
+
+# ---------------------------------------------------------------------------
+# B3: PROMPT-LOOP.md LOOP CONTINUATION must carry the fixed-interval teardown
+#     rule: when STOP fires the agent must disarm the re-invoker (CronDelete in
+#     Claude Code, or explicit operator instruction). Without this the harness
+#     cron keeps re-firing every <N>m after STOP — a token drain.
+#     Stable anchor: 'CronDelete' (the specific Claude Code disarm tool).
+# ---------------------------------------------------------------------------
+if grep -qF 'CronDelete' "$PROMPTLOOP"; then
+  ok "B3: PROMPT-LOOP.md LOOP CONTINUATION carries fixed-interval teardown rule (CronDelete)"
+else
+  no "B3: PROMPT-LOOP.md LOOP CONTINUATION missing teardown rule (CronDelete absent)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -296,13 +307,22 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-B1: B1 assertion goes RED on mutant"
   fi
 
-  # Teeth B2: replace 'FIXED-INTERVAL' → B2 must go RED.
+  # Teeth B2: replace 'Do NOT issue ScheduleWakeup' → B2 must go RED.
   mutantB2="$TMP/PROMPTLOOP.mutantB2.md"
-  sed 's/FIXED-INTERVAL/FIXEDINTERVAL_REMOVED/g' "$PROMPTLOOP" > "$mutantB2"
-  if grep -qF 'FIXED-INTERVAL' "$mutantB2"; then
-    no "teeth-B2: mutant still has 'FIXED-INTERVAL' — sed did not take (no teeth)"
+  sed 's/Do NOT issue ScheduleWakeup/Do NOT use ScheduleWakeup_REMOVED/g' "$PROMPTLOOP" > "$mutantB2"
+  if grep -qF 'Do NOT issue ScheduleWakeup' "$mutantB2"; then
+    no "teeth-B2: mutant still has 'Do NOT issue ScheduleWakeup' — sed did not take (no teeth)"
   else
     ok "teeth-B2: B2 assertion goes RED on mutant"
+  fi
+
+  # Teeth B3: replace 'CronDelete' → B3 must go RED.
+  mutantB3="$TMP/PROMPTLOOP.mutantB3.md"
+  sed 's/CronDelete/DisarmJob/g' "$PROMPTLOOP" > "$mutantB3"
+  if grep -qF 'CronDelete' "$mutantB3"; then
+    no "teeth-B3: mutant still has 'CronDelete' — sed did not take (no teeth)"
+  else
+    ok "teeth-B3: B3 assertion goes RED on mutant"
   fi
 fi
 

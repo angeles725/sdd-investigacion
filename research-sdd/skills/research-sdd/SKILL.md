@@ -234,25 +234,29 @@ a decompile is NOT evidence until corroborated: cross-check it with the matching
 `$KIT/toolbelt/corroborate-*.sh` wrapper (`tool-registry.md`) — an un-anchored offset can hit a twin
 binary (niagara B424).
 
-**Installing a tool is not the end of provisioning — cataloging it is.** `install-tool.sh` auto-logs
-every install to `INSTALLED-TOOLS.md`; that half needs no action. Adding the path (Tool paths table),
-purpose (Artifact type row), and how-to-use (Wrapper column, or `(direct)` for a manual tool) to
-`toolbelt/tool-registry.md` is PROPOSED, not applied from inside a run: record the row in the §18 retro
-TOOLS section as an `absorb` candidate (§18 propose-never-apply). Record an Engram pointer immediately
-so the tool is recall-findable while the kit row awaits the supervisor. `toolbelt/verify-tool-catalog.sh`
-is the anti-silent-zero backstop that WARNs on a logged-but-uncataloged tool; treat its WARN as
-confirmation the row is still pending, not a missed step to self-apply. The guard matches
-case-insensitively, so a logged lowercase name
-finds a Title-case entry without extra work. When the logged name and the catalog display name differ
-entirely (e.g. `kaitai-struct-compiler` logged, `ksc` displayed), append `(alias: <logged-name>)` to
-the Tool cell of the relevant catalog row so the whole-word match finds it.
+**Installing a tool is not the end of provisioning — proposing the catalog row is.** `install-tool.sh`
+auto-logs every install to `INSTALLED-TOOLS.md`; that half needs no action. Adding the path (Tool paths
+table), purpose (Artifact type row), and how-to-use (Wrapper column, or `(direct)` for a manual tool)
+to `toolbelt/tool-registry.md` is PROPOSED, not applied from inside a run: record the row in the §18
+retro TOOLS section as an `absorb` candidate (§18 propose-never-apply). Provisioning is complete for
+this run when the §18 retro entry is written; the supervisor applies it later. Record an Engram pointer
+immediately so the tool is recall-findable while the kit row awaits the supervisor.
+`toolbelt/verify-tool-catalog.sh` is the anti-silent-zero backstop: a WARN while a §18 retro proposal
+for that tool is already pending is expected — the row awaits the supervisor. A WARN for a tool with
+NO proposed row in any retro is the missed step: write the §18 retro TOOLS entry now. The guard matches
+case-insensitively, so a logged lowercase name finds a Title-case entry without extra work. When the
+logged name and the catalog display name differ entirely (e.g. `kaitai-struct-compiler` logged, `ksc`
+displayed), append `(alias: <logged-name>)` to the Tool cell of the relevant catalog row so the
+whole-word match finds it.
 
 ## Execution mode
 
 Default is **self-paced**. Two self-paced sub-modes: (a) **dynamic** (no interval, plain session or
 `/loop` without an interval) — the loop driver self-reschedules via ScheduleWakeup; best-effort and can
 halt after a single block under conversational guardrails; (b) **fixed-interval** (`/loop 10m`) — the
-harness re-fires each turn; no ScheduleWakeup is issued; end the turn after the iteration report.
+harness re-fires each turn; no ScheduleWakeup is issued; end the turn after the iteration report; when
+STOP fires, disarm the re-invoker (CronList → CronDelete the job; if unavailable, tell the operator to
+cancel the loop) — the harness cron keeps re-firing after STOP without an explicit disarm.
 Fixed-interval is preferred for unattended runs; dynamic is the fallback when no interval is set.
 
 **Heavy / continue:** before launching `/loop 10m`, check whether an external re-invoker is already
