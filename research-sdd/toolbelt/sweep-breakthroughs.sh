@@ -159,7 +159,7 @@ for p in $paths; do
       total_tagged=$((total_tagged + 1))
       # Check if this block is indexed in BREAKTHROUGHS.md.
       # Match by checking if the ledger contains the block's absolute path and line number.
-      if ! printf '%s\n' "$ledger_pointers" | grep -qF "${bf}:${lineno}" 2>/dev/null; then
+      if ! printf '%s\n' "$ledger_pointers" | grep -qxF "${bf}:${lineno}" 2>/dev/null; then
         echo "WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: ${bf}:${lineno}"
         warn_unindexed=$((warn_unindexed + 1))
       fi

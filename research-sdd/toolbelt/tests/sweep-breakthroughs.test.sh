@@ -693,6 +693,107 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 34 — EXACT MATCH :5 vs :57: ledger pointer :57, block marker at line 5.
+# grep -F is a substring match: "file:5" matches inside "file:57", so the
+# pre-fix SUT incorrectly finds the block "indexed" and emits no WARN.
+# After fix (grep -xF full-line match) :5 ≠ :57 → WARN unindexed fires.
+# RED on origin/main (pre-fix): grep -F finds :5 as substring of :57 → no WARN.
+kit="$(mkkit c34-exact-line5)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n' \
+  > "$tgt/pfx-block1.md"
+ln34=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
+write_targets "$kit" "$tgt"
+# Ledger has wrong pointer :57; block marker is at :5
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:57\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
+   && grep -q '1 unindexed' <<<"$OUT"; then
+  ok "34 :5-vs-:57 exact match — ledger :57, block at :$ln34 → WARN unindexed" "(exit $RC)"
+else
+  no "34 :5-vs-:57 exact match — ledger :57, block at :$ln34 → WARN unindexed" "exit=$RC out=[$OUT]"
+fi
+
+# 35 — EXACT MATCH first-line :1 vs :10: block marker at line 1, ledger pointer :10.
+# grep -F substring match: "file:1" is in "file:10", so pre-fix SUT suppresses the WARN.
+# After fix: :1 ≠ :10 (full-line) → WARN unindexed fires.
+# RED on origin/main.
+kit="$(mkkit c35-exact-line1-vs10)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '> **Breakthrough:** first-line marker.\n\n---\n\nContent.\n' > "$tgt/pfx-block1.md"
+ln35=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
+write_targets "$kit" "$tgt"
+# Ledger has wrong pointer :10; block marker is at :1 (first line)
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:10\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
+   && grep -q '1 unindexed' <<<"$OUT"; then
+  ok "35 first-line :1-vs-:10 — ledger :10, block at :$ln35 → WARN unindexed" "(exit $RC)"
+else
+  no "35 first-line :1-vs-:10 — ledger :10, block at :$ln35 → WARN unindexed" "exit=$RC out=[$OUT]"
+fi
+
+# 36 — CLEAN: marker at first line (line 1), ledger exact :1 → no WARN.
+# Proves the fix does NOT break a valid first-line pointer.
+kit="$(mkkit c36-exact-line1-clean)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '> **Breakthrough:** first-line marker.\n\n---\n\nContent.\n' > "$tgt/pfx-block1.md"
+ln36=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln36\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qi 'WARN' <<<"$OUT" \
+   && grep -q '1 tagged' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT"; then
+  ok "36 first-line :$ln36 exact pointer → clean, no WARN" "(exit $RC)"
+else
+  no "36 first-line :$ln36 exact pointer → clean, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 37 — EXACT MATCH last-line :7 vs :70: block marker at last line (line 7), ledger :70.
+# grep -F substring match: "file:7" is in "file:70", so pre-fix SUT suppresses the WARN.
+# After fix: :7 ≠ :70 → WARN unindexed fires.
+# RED on origin/main.
+kit="$(mkkit c37-exact-lastline-vs70)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# Block 1\n\n---\n\nContent.\n\n> **Breakthrough:** last-line marker.\n' \
+  > "$tgt/pfx-block1.md"
+ln37=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
+write_targets "$kit" "$tgt"
+# Ledger has wrong pointer :70; block marker is at :7 (last line)
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:70\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
+   && grep -q '1 unindexed' <<<"$OUT"; then
+  ok "37 last-line :7-vs-:70 — ledger :70, block at :$ln37 → WARN unindexed" "(exit $RC)"
+else
+  no "37 last-line :7-vs-:70 — ledger :70, block at :$ln37 → WARN unindexed" "exit=$RC out=[$OUT]"
+fi
+
+# 38 — CLEAN: marker at last line, ledger exact pointer → no WARN.
+# Proves the fix does NOT break a valid last-line pointer.
+kit="$(mkkit c38-exact-lastline-clean)"; tgt="$kit/targetA"
+mkdir -p "$tgt"
+printf '# Block 1\n\n---\n\nContent.\n\n> **Breakthrough:** last-line marker.\n' \
+  > "$tgt/pfx-block1.md"
+ln38=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
+write_targets "$kit" "$tgt"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln38\` | k |"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -qi 'WARN' <<<"$OUT" \
+   && grep -q '1 tagged' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT"; then
+  ok "38 last-line :$ln38 exact pointer → clean, no WARN" "(exit $RC)"
+else
+  no "38 last-line :$ln38 exact pointer → clean, no WARN" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -994,6 +1095,77 @@ if [ "$_sab11_rc" -ne 0 ]; then
   mut_ok "M11 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
 else
   mut_no "M11 sabotage: old broken awk parsed — sabotage detection ineffective"
+fi
+
+# M12: Remove -x from grep -qxF → substring match reintroduced → :5 matches :57.
+# Case 34 (block at line 5, ledger :57) must go RED (no WARN unindexed on mutant).
+echo "-- M12: remove -x from grep -qxF → substring match, case 34 (:5 vs :57) detects WARN absent --"
+mut_kit_m12="$(mkkit m12-no-xflag)"; tgt_m12="$mut_kit_m12/targetA"
+mkdir -p "$tgt_m12"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n' \
+  > "$tgt_m12/pfx-block1.md"
+ln_m12=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt_m12/pfx-block1.md" | head -1 | cut -d: -f1)
+write_targets "$mut_kit_m12" "$tgt_m12"
+# Ledger wrong :57; block at :5
+write_breakthroughs "$mut_kit_m12" \
+  "| 1 | tgt | w | \`$tgt_m12/pfx-block1.md:57\` | k |"
+# (d) control: original SUT must give WARN unindexed (fixed behavior)
+OUT_M12_CTRL="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC_M12_CTRL=$?
+if [ "$RC_M12_CTRL" -eq 0 ] \
+   && grep -q '^Summary:' <<<"$OUT_M12_CTRL" \
+   && grep -qi 'WARN.*unindexed' <<<"$OUT_M12_CTRL"; then
+  mut_ok "M12 (d) ctrl: SUT gives WARN unindexed for wrong pointer (:$ln_m12 vs :57)"
+else
+  mut_no "M12 (d) ctrl: SUT does not give expected WARN — M12 premise broken" "out=[$OUT_M12_CTRL]"
+fi
+# Create mutant: remove -x from grep -qxF
+mutant_m12="$(mutate_sut "remove-x-flag" 's/grep -qxF/grep -qF/')"
+# (a) mutant differs from SUT
+if ! diff -q "$SUT" "$mutant_m12" >/dev/null 2>&1; then
+  mut_ok "M12 (a): mutant differs from SUT"
+else
+  mut_no "M12 (a): sed did not change SUT — mutant == SUT (theater)"
+fi
+# (b) bash -n must pass on mutant (removing -x is syntactically valid)
+_m12_bn_err=$(bash -n "$mutant_m12" 2>&1); _m12_bn_rc=$?
+if [ "$_m12_bn_rc" -eq 0 ]; then
+  mut_ok "M12 (b): mutant passes bash -n"
+else
+  mut_no "M12 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m12_bn_err]"
+fi
+cp "$mutant_m12" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh"
+OUT="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+# Positive assertion: RC=0 AND Summary present AND WARN unindexed absent.
+# Substring match makes "file:5" find "file:57" → no WARN → bug reproduced.
+# A crash (RC≠0) or empty output must FAIL this assertion (not silently pass).
+if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
+  mut_ok "M12 grep -xF→-F: case 34 (:5 vs :57) goes RED (WARN absent on mutant)" "(no WARN on mutant)"
+else
+  mut_no "M12 grep -xF→-F: mutation not detected by case 34" "rc=$RC out=[$OUT]"
+fi
+# Sabotage: a crash-mutant (exit 99) must FAIL the positive assertion — proves
+# that RC=0 + Summary guards prevent crash-theater.
+echo "-- M12 sabotage: crash-mutant blocked by RC=0 + Summary guards --"
+_sab_m12="${MUTANT_DIR}/m12-crash.sh"
+printf '#!/usr/bin/env bash\nexit 99\n' > "$_sab_m12"
+chmod +x "$_sab_m12"
+sab_kit_m12="$(mkkit m12-sab-crash)"; tgt_sab12="$sab_kit_m12/targetA"
+mkdir -p "$tgt_sab12"
+printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n' \
+  > "$tgt_sab12/pfx-block1.md"
+write_targets "$sab_kit_m12" "$tgt_sab12"
+write_breakthroughs "$sab_kit_m12" \
+  "| 1 | tgt | w | \`$tgt_sab12/pfx-block1.md:57\` | k |"
+cp "$_sab_m12" "$sab_kit_m12/toolbelt/sweep-breakthroughs.sh"
+OUT_SAB12="$("$BASH_BIN" "$sab_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC_SAB12=$?
+# Positive assertion evaluated against crash output:
+# RC_SAB12=99 → first condition fails → mut_no path → theater blocked.
+if [ "$RC_SAB12" -eq 0 ] \
+   && grep -q '^Summary:' <<<"$OUT_SAB12" \
+   && ! grep -qi 'WARN.*unindexed' <<<"$OUT_SAB12"; then
+  mut_no "M12 sabotage: crash passes positive assertion (theater NOT blocked)"
+else
+  mut_ok "M12 sabotage: crash blocked by RC=0 guard (theater blocked)" "(RC=$RC_SAB12)"
 fi
 
 total_fail=$(( fail + mut_fail ))
