@@ -216,40 +216,7 @@ the value comes from a formula (not a named role), and the verification is a cro
 anchor (not a tool certifying fitness, as WCAG contrast does). Example: an airtime table computed via the
 `[INFER — computed via Semtech AN1200.13]` formula, cross-checked against an earlier block's published anchors.
 
-**Sealing `[CERT]` adversarially (OPT-IN selective seal — trialed once on a real claim, 2026-07-07 — see GRADUATION UPDATE below).** Beyond the self-report gate (§11), a LOAD-BEARING `[CERT]` claim
-(one a conclusion rests on) MAY be sealed by the **adversarial-verify** workflow: N=3 skeptics try to REFUTE it,
-and it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded or dropped. Apply it SELECTIVELY
-(cost discipline) to conclusion-bearing claims only — not `[INFER]`, not trivia. LOCAL `file:line` claims are
-cheap (the skeptics read the cited source, no web); web-verifiable claims are expensive. Operational rule + cost
-discipline in PROMPT-LOOP step 5; workflow at [`toolbelt/adversarial-verify.js`](toolbelt/adversarial-verify.js).
-STATUS (GRADUATED 2026-07-07 — see GRADUATION UPDATE below): the workflow is self-validated (3/3 refuted a false
-claim, 3/3 preserved a true one) AND has now sealed its FIRST real load-bearing claim — `threejs-block7`'s
-OrbitControls `autoRotate`/`update(deltaTime)` `[CERT-web]` contract → SURVIVED 3/3. It is no longer PARKED: it is
-a STANDING gate, MANDATORY for conclusion-bearing `[CERT]` claims (see POLICY in the GRADUATION UPDATE), OPT-IN/
-SELECTIVE for other load-bearing `[CERT]`.
-GRADUATION TRIGGER (how EXPERIMENTAL ended): fires the FIRST time a SECURITY-CRITICAL or conclusion-bearing
-claim must escalate to `[CERT]`/`[CERT-doc]` and a wrong seal would mislead a downstream decision — a LOCAL
-`file:line` claim is cheap (the skeptics only read the cited source, no web). Record the outcome (survived
-≥2/3, or downgraded) in that block and flip this STATUS from "never run" to "trialed on B&lt;n&gt;". This
-condition WAS satisfied on 2026-07-07 by the `threejs-block7` trial (see GRADUATION UPDATE below) — it did
-NOT manufacture a synthetic trial to retire the label (that would have been exactly the make-work the §18
-honesty clause forbids); the trial was a real load-bearing claim. This was a defined exit condition, not a
-permanent shelf, and it has now been exited.
-
-**GRADUATION UPDATE (2026-07-07).** Trialed on a real load-bearing claim for the first time:
-`threejs-block7`'s OrbitControls `autoRotate`/`update(deltaTime)` `[CERT-web]` contract → **SURVIVED 3/3**
-(0 refutes; skeptic confidence 0.9-0.97; corroborated against threejs.org docs + GitHub #26471). The trial was
-DELIBERATE (to graduate the tool, not decision-forced) — and it EARNED ITS KEEP: it surfaced + fixed a real
-aggregation bug (the old fixed `refutes < 2` threshold false-sealed a claim on ONE hostile vote when two
-skeptics died). The seal decision is now unit-tested in
-[`toolbelt/adversarial-verdict.mjs`](toolbelt/adversarial-verdict.mjs): KILL on majority-refute of VALID votes
-(`>= ceil(valid/2)`), `INSUFFICIENT` below a quorum of 2. The seal is now **confidence-GRADED**: a claim whose
-refute-count SURVIVES but whose surviving skeptics carry a mean `confidence` below the threshold (default `0.7`)
-is `INSUFFICIENT` — survived weakly, NOT sealed as full `[CERT]` (backward-compatible: confidence-less legacy
-votes keep plain SURVIVES). POLICY: the adversarial seal is **MANDATORY for conclusion-bearing `[CERT]` claims**
-(the ones a conclusion rests on) — not opt-in for those; it stays OPT-IN/SELECTIVE for other load-bearing `[CERT]`
-and is NOT a blanket per-block gate (§11: a per-block re-verify caught nothing; §14 cross-block is the real error
-capture). HONESTY (§18): seal only when a wrong seal would genuinely mislead a downstream decision — never to pad a count.
+**Sealing `[CERT]` adversarially.** The **adversarial-verify** workflow is required for conclusion-bearing `[CERT]` claims (those a conclusion rests on). N=3 skeptics try to REFUTE the claim; it stays sealed only if it SURVIVES ≥2 of 3 — otherwise it is downgraded or dropped. KILL on majority-refute of VALID votes (`>= ceil(valid/2)`); `INSUFFICIENT` below a quorum of 2 or when surviving skeptics carry a mean `confidence` below 0.7 (backward-compatible: confidence-less votes keep plain SURVIVES). LOCAL `file:line` claims are cheap (skeptics read the cited source, no web); web-verifiable claims are expensive. `[INFER]` and trivia are excluded. Verdict logic is unit-tested in [`toolbelt/adversarial-verdict.mjs`](toolbelt/adversarial-verdict.mjs); operational details and cost discipline in PROMPT-LOOP step 5; workflow at [`toolbelt/adversarial-verify.js`](toolbelt/adversarial-verify.js). NOT a blanket per-block gate (§11: a per-block re-verify caught nothing; §14 cross-block is the real error capture). HONESTY (§18): seal only when a wrong seal would genuinely mislead a downstream decision — never to pad a count.
 
 ## 3b. Anatomy of a corpus (directory layout)
 
@@ -789,6 +756,10 @@ enforces the gate; the researcher maintains the number.
 absent in a legacy envelope, `--sync-state` seeds it to 0. The RESEARCH-STATE.template.md
 includes `undocumented_findings: 0` in the envelope for new targets.
 
+## 7b. State-envelope instruments (situational)
+
+Read this section when `verify-state.sh` reports an unexpected CHECK A mismatch, or when setting up a shared-prefix or multi-focus corpus.
+
 **`block_scope` — corpus block-counting mode (optional envelope field).**
 By default (`block_scope` absent, or `block_scope: per-focus`), `verify-state.sh` CHECK A counts
 only the block files whose names carry the focus-specific prefix derived from the state filename
@@ -1295,7 +1266,7 @@ This line is what resume and the instrument read to distinguish three states: (a
     proximity or similarity threshold degrades smoothly into nonsense as it grows; there is no value at which
     it is safely wrong. A conservation law does not degrade: a candidate either satisfies it or does not, at
     any distance. Prefer the physical constraint as the primary FILTER and geometry as the tiebreak.
-    (see CONSERVATION CHECK, §11) (Source: blender-llm B29/B32)
+    (see CONSERVATION CHECK, §11a) (Source: blender-llm B29/B32)
 11. **PROPRIETARY-OPERATOR-DATA discipline.** When the research subject is the operator's own non-secret but
     confidential data (client CAD plans, a BOM, a project inventory), cite the SCHEMA + ONE representative
     record + aggregate statistics — keep the raw full inventory in the operator's own location, never copy it
@@ -1450,8 +1421,8 @@ The per-iteration reporting obligation (announcing the case in the iteration rec
 ## 11. Self-verification contract (in-block gatekeeping)
 
 Gatekeeping lives INSIDE the block-writing iteration, NOT in orchestrator Bash commands (those trigger
-permission prompts and were dropped mid-run on EduVolt). Before closing a block, the sub-agent MUST do
-and MUST REPORT these checks:
+permission prompts and were dropped mid-run on EduVolt). Before closing a block, the agent that wrote it
+runs and reports these checks:
 
 - **Token check** — every load-bearing `[CERT]` token was `grep`-confirmed present in its cited source
   (file / binary / `strings`). Report how many tokens were checked. (Track record this enforces: 12/12
@@ -1507,8 +1478,8 @@ beautified-temp / decompiled / snapshot path shows as `extern` (not target-resol
 confirms those the same way it confirms every load-bearing `[CERT]` token — by reading the cited source.
 The reported tally MUST BE the LITERAL `verify-block.sh` output (or a verbatim excerpt of it), never a
 hand-recalled or rounded estimate: a self-report that gives `~N` counts, or a hand-computed ratio that does
-not match a live run, is a VIOLATION — and a block that reports NO numbers at all (only prose like "expect
-ratio ~0.5" / "high ratio expected") is a RULE VIOLATION, not a lighter-weight compliant report. The whole
+not match a live run, fails this check — and a block that reports NO numbers at all (only prose like "expect
+ratio ~0.5" / "high ratio expected") also fails: prose is not a lighter-weight compliant report. The whole
 point of trusting the self-report (below) is that its numbers are MECHANICALLY computed; a hand-number
 silently erodes that, and the gate stops being a gate. If the script was not run, the block is not done.
 
@@ -1526,9 +1497,9 @@ backstop, not the first line of defense — it re-reads the whole corpus once, w
 **Block-evidence artifacts are gate-enforced (not `extern`).** An evidence dump a `[CERT]` cites BY ARTIFACT
 NAME (`B<N>-*` / `bloque<N>-*`, extension OPTIONAL — `B125-ghidra-njre.txt:421‑488` and `B128-triage:103` both
 count — cited inside a parenthetical span or backticks, single line or a range) MUST be preserved in the corpus.
-`verify-block.sh` now resolves these strictly: an unresolvable artifact cite is a **FAIL**, not `extern` —
-bloque125 sealed load-bearing `[CERT]`s to `B125-*.txt` dumps that were never preserved, and the old parser
-(backticked single-line only) let them pass clean.
+`verify-block.sh` resolves these strictly: an unresolvable artifact cite is a **FAIL**, not `extern` —
+bloque125 sealed load-bearing `[CERT]`s to `B125-*.txt` dumps that were never preserved, and an earlier version
+that matched backticked single-line citations only let them pass clean.
 
 The orchestrator **TRUSTS this self-report** and only spot-checks when a report smells off (status
 mismatch, an uncited claim, a marker tally that doesn't add up). It does **NOT** run Bash gatekeeper
@@ -1540,19 +1511,6 @@ error-capture mechanism is §14, not an orchestrator gatekeeper — per-block Ba
 permission friction and driver bloat for no demonstrated catch.
 
 **For an ENUMERATION or set-membership claim, read the code that DEFINES the set before answering.** "Is X on the dashboard", "which slots does Y expose" — any membership claim about an authoritative enumerable list must be settled by reading the list's definition (the array, the method that populates it, the config that declares members) whole, once. An agent summary or partial read of adjacent code is not a substitute; two operator-caught errors in one session — `freeze*` misclassified, `startDelay` misclassified — were both prevented by a single 55-line read of `DashboardReader.java:80-134`. (Source: 2026-09-03-research-sdd-commissioning-map-consulting-retro.md #1)
-
-**A boolean named `*Protect`, `*Enable` or `*Mode` may be a CONFIG flag, not the active STATE.** Before treating
-such a slot as "happening now", read what SETS it and what READS it: an enable flag says the behaviour is armed, not
-that it is running. Derive the live condition from the OUTPUT state (the actuator, the status enum, the measured
-value) and refine it with the config flag — never the reverse. A viewer read `FreezeProtect` as "protection active"
-and had to be corrected twice. (Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D3)
-
-**A vendor "since" or elapsed anchor may not reset on sub-cycles.** Compute an episode duration from the transition
-YOU track (the timestamp at which the condition you define became true), not from the vendor's own anchor, and state
-which transition the duration counts from. A `coolingSince` anchor that survived defrost sub-cycles produced a false
-"running 22 h"; the fix was a locally tracked elapsed counter. (Source: same retro, D4; B19 §19.3)
-
-**To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #1)
 
 **Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
 BUILD/PoC phase (§12), a per-block orchestrator Bash gate IS justified and expected — there it verifies
@@ -1566,6 +1524,27 @@ it is a NEW change surface, and the fixer's own directed/green tests do NOT subs
 gets its OWN scoped adversarial re-check on the fix delta before any terminal verdict — see §19 (a round of
 fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
 the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
+
+**DECOMPILED-TREE BLOCKS WILL SHOW ZERO RESOLVED CITATIONS — THIS IS EXPECTED.** When a block's `[CERT]` citations all point into decompiled trees (`organized/*/vineflower/`, reverse-engineered bytecode, `strings` output, etc.), `verify-block.sh` classifies all of them as `extern` and reports "ZERO file:line citations resolved". This is the EXPECTED signature — the tool cannot resolve paths outside the target directory. The mechanized citation gate has checked nothing; the burden falls ENTIRELY on inline token-verify for those citations. Self-verify for such a block MUST explicitly record: `verify-block: 0 resolved (all extern — decompiled trees); citation gate = inline token-verify N/M tokens`. A zero-resolved line without this explicit declaration is alarming without context and will be read as a failure. (Source: niagara-research B542–B547.)
+
+**DE-ESCALATION IS A VALID ITERATION-HISTORY OUTCOME, NOT A FAILURE.** When a driver re-verifies a claim and downgrades it — a `[CERT]` demoted to `[INFER]`, an overstated finding narrowed, a false positive retracted — record the outcome explicitly in the iteration history as a DE-ESCALATION. Subtracting a false finding has the same research value as adding a true one; an unlabelled retraction looks like a correction and obscures the evidence strength of the remaining corpus. (Source: niagara-research B341 "driver re-verify (downgraded overstated finding)"; B347 "2 de-escalations"; B349 §349.5.)
+
+## 11a. Measurement and data-pipeline heuristics (situational)
+
+Read these rules when interpreting measured values, building data pipelines, or analysing time-series or sensor data against vendor anchors. They are single-target empirical heuristics applicable when the target is a data-acquisition or processing system, not per-block universals.
+
+**A boolean named `*Protect`, `*Enable` or `*Mode` may be a CONFIG flag, not the active STATE.** Before treating
+such a slot as "happening now", read what SETS it and what READS it: an enable flag says the behaviour is armed, not
+that it is running. Derive the live condition from the OUTPUT state (the actuator, the status enum, the measured
+value) and refine it with the config flag — never the reverse. A viewer read `FreezeProtect` as "protection active"
+and had to be corrected twice. (Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D3)
+
+**A vendor "since" or elapsed anchor may not reset on sub-cycles.** Compute an episode duration from the transition
+YOU track (the timestamp at which the condition you define became true), not from the vendor's own anchor, and state
+which transition the duration counts from. A `coolingSince` anchor that survived defrost sub-cycles produced a false
+"running 22 h"; the fix was a locally tracked elapsed counter. (Source: same retro, D4; B19 §19.3)
+
+**To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #1)
 
 **UNANIMITY IS AN ARTIFACT DETECTOR: a 100 % hit-rate must be re-verified by an independent method.** A result where every item in the corpus matches — every gap closes, every token resolves, every check passes — is itself suspicious. Before trusting a unanimous result, re-verify by an independent method: re-key the join on a different column, group by an orthogonal dimension, or sample a disjoint subset. A 100 % rate on a real corpus almost always signals that the instrument is matching on an artefact of its own structure rather than the target signal. (Source: blender-llm B17-B20)
 
@@ -1599,8 +1578,6 @@ the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix bat
 
 **PREFER THRESHOLD-FREE STRUCTURAL PREDICATES OVER MEASURED CUT-OFFS.** A predicate about relationships (containment, connection, reference) decides without a threshold and therefore cannot be wrong by rounding, inheritance, or scale. Where a structural predicate exists, use it first; a geometric or count threshold is the fallback when no structural relationship is available. (Source: blender-llm B64 §64.4 — "a room contains devices, a machine does not" produced a monotonic gradient after three chosen-threshold failures in B61 §61.3, B62 §62.3, and B63 §63.4.)
 
-**DECOMPILED-TREE BLOCKS WILL SHOW ZERO RESOLVED CITATIONS — THIS IS EXPECTED.** When a block's `[CERT]` citations all point into decompiled trees (`organized/*/vineflower/`, reverse-engineered bytecode, `strings` output, etc.), `verify-block.sh` classifies all of them as `extern` and reports "ZERO file:line citations resolved". This is the EXPECTED signature — the tool cannot resolve paths outside the target directory. The mechanized citation gate has checked nothing; the burden falls ENTIRELY on inline token-verify for those citations. Self-verify for such a block MUST explicitly record: `verify-block: 0 resolved (all extern — decompiled trees); citation gate = inline token-verify N/M tokens`. A zero-resolved line without this explicit declaration is alarming without context and will be read as a failure. (Source: niagara-research B542–B547.)
-
 **CLOSE-BUT-WRONG VALUE → WRONG SOURCE TABLE OR COLUMN.** When a derived value matches the vendor's output closely but not exactly, treat this as the signal that the wrong source table or column is being used — not as acceptable noise or a rounding artefact. "Close" usually means the right formula applied to the wrong input. Investigate which exact table or column the vendor view actually reads and switch to that source; with the correct source, values typically match exactly. (Source: fluke-177x-datos — frequency showed 60.05 Hz from the 10 s smoothed table 89 vs the vendor's 61.38 Hz; correct source was table 119 per-minute capture; all three values matched exactly after the switch.)
 
 **VALIDATE A DERIVED TABLE AGAINST A KNOWN-CORRECT SIBLING FROM THE SAME ORIGIN.** Before trusting a derived data table's timestamp range and record counts, compare them against a sibling table produced from the same source campaign (e.g. a `trend` table vs an `events` table). A range mismatch between siblings from the same origin is a cheap, reliable early signal for an offset or join bug; it requires no external oracle. (Source: fluke-177x-datos — comparing `events.ts` range against `trend.ts` range for the same campaign revealed a 6-hour pipeline offset immediately.)
@@ -1608,8 +1585,6 @@ the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix bat
 **TREAT AN OPERATOR-REPORTED PHYSICALLY-IMPOSSIBLE VALUE AS A DATA PIPELINE BUG.** When the operator flags an anomaly as "physically impossible" — a timestamp inside a known recording gap, a value outside the sensor's physical range — investigate at the data layer first, not the display layer. A physically impossible value almost always points to a pipeline defect (wrong offset, wrong column, double conversion); a display-layer fix treats the symptom and leaves the root cause in place. (Source: fluke-177x-datos — an event cluster at 08:43 during the known nightly recording gap pointed directly to a 6-hour offset in the pipeline, not a formatting issue.)
 
 **VALIDATE EMBEDDED JAVASCRIPT WITH `node --check` BEFORE PUBLISHING AN HTML ARTIFACT.** For a standalone HTML artifact that embeds JavaScript, run `node --check` on each script block (plus a minimal runtime shim mocking `document`, `Chart`, `fetch`, etc.) before publishing. For `<script type="module">` content, pass via stdin with `--input-type=module` — file-mode raises `ERR_INPUT_TYPE_NOT_ALLOWED`. This catches syntax errors and view-rendering failures offline without a browser round-trip. A missing closing parenthesis can pass script-mode `node --check` yet blank a dashboard panel when loaded as a module. (Source: fluke-177x-datos 2026-09-14-entrega-dashboard-supabase-pages.md row 4.)
-
-**DE-ESCALATION IS A VALID ITERATION-HISTORY OUTCOME, NOT A FAILURE.** When a driver re-verifies a claim and downgrades it — a `[CERT]` demoted to `[INFER]`, an overstated finding narrowed, a false positive retracted — record the outcome explicitly in the iteration history as a DE-ESCALATION. Subtracting a false finding has the same research value as adding a true one; an unlabelled retraction looks like a correction and obscures the evidence strength of the remaining corpus. (Source: niagara-research B341 "driver re-verify (downgraded overstated finding)"; B347 "2 de-escalations"; B349 §349.5.)
 
 **NULL-OR-NEGATIVE METRIC: probe the metric against a KNOWN-POSITIVE case before changing the metric.**
 A metric that cannot represent the change under test reports it as a regression — confidently, with no
