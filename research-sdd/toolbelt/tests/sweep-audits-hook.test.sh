@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # sweep-audits-hook.test.sh — red-first harness for sweep-audits-hook.sh.
 # Covers: existence, executable, operational-failure banner, success header,
-#         absent-input collapse (default mode vs. --full), mutation proof.
+#         absent-input collapse (default mode vs. --full),
+#         empty-input collapse (#974: per-target INFO lines → one counted summary),
+#         mutation proof.
 # Exit: 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
@@ -92,6 +94,78 @@ else
   no "6 --full mode: per-target line NOT found in output (exit=$RC out=[$OUT])"
 fi
 
+# ---- Tests 7-8: empty-input collapse (#974) ---------------------------------
+
+# Stub output: 3 empty-input targets, NO absent targets (no aggregate absent line).
+# Exercises the END{} fallback for the empty-input summary.
+STUB_EMPTY='INFO: corpus exists, no audits found (empty-input): /fake/empty1
+INFO: corpus exists, no audits found (empty-input): /fake/empty2
+INFO: corpus exists, no audits found (empty-input): /fake/empty3
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+
+
+# 7. Default mode collapses N empty-input lines to one counted summary; per-target lines absent.
+#    Summary line must be present (anti-silent-zero §7: empty-input ≠ absent-input ≠ no-match).
+#    RED before implementation: current hook passes empty-input lines through unchanged.
+write_stub 0 "$STUB_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -q 'corpus exists, no audits found (empty-input):' \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 3 corpus(es) empty-input — run --full to list them'; then
+  ok "7 default mode: 3 empty-input targets → no per-target lines, exact summary 'INFO: 3 corpus(es) empty-input — run --full to list them'"
+else
+  no "7 default mode: per-target empty-input lines still present OR exact summary missing (exit=$RC out=[$OUT])"
+fi
+
+# 8. --full mode passes per-target empty-input lines through unchanged.
+write_stub 0 "$STUB_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" --full 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && printf '%s\n' "$OUT" | grep -q 'corpus exists, no audits found (empty-input): /fake/empty1'; then
+  ok "8 --full mode: per-target empty-input lines passed through"
+else
+  no "8 --full mode: per-target empty-input line NOT found in output (exit=$RC out=[$OUT])"
+fi
+
+# 9. Single empty-input target (count=1): exact summary text 'INFO: 1 corpus(es) empty-input ...'.
+#    Verifies the counter works for the single-target edge case (count=1).
+_STUB_SINGLE_EMPTY='INFO: corpus exists, no audits found (empty-input): /fake/only-empty
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+write_stub 0 "$_STUB_SINGLE_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no audits found (empty-input):' \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
+  ok "9 single empty-input target → exact summary 'INFO: 1 corpus(es) empty-input — run --full to list them'"
+else
+  no "9 single empty-input: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
+fi
+
+# 10. Ordering robustness: per-target empty-input lines appear both BEFORE and AFTER the absent
+#     aggregate line. The hook must count ALL of them and emit the TOTAL in one summary at END.
+#     RED on current commit: piggyback emits with the partial count (ei=1 at piggyback time)
+#     and the emitted flag suppresses END{}, so ei_late is silently undercounted (§7 violation).
+_STUB_MIXED_EMPTY='INFO: corpus not found (absent-input): /fake/absent1
+INFO: corpus exists, no audits found (empty-input): /fake/ei_early
+
+Summary: 0 pending / 0 audits across targets.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+INFO: corpus exists, no audits found (empty-input): /fake/ei_late
+Nothing to review.'
+write_stub 0 "$_STUB_MIXED_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no audits found (empty-input):' \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
+  ok "10 ordering robustness: 1 early + 1 late empty-input → TOTAL count=2 in one summary (END emission)"
+else
+  no "10 ordering robustness: expected 'INFO: 2 corpus(es) empty-input' but got wrong count or per-target lines present (exit=$RC out=[$OUT])"
+fi
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook must go red when rc-check is neutered --"
@@ -140,6 +214,47 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth C: full-guard inverted → per-target lines absent in --full → test 6 RED"
   else
     no "teeth C: mutant still shows per-target line in --full — sed pattern may not match hook"
+  fi
+
+  echo "-- teeth D (#974): neuter EMPTY-COLLAPSE-COUNT → ei stays 0 → no summary → test 7 RED (anti-silent-zero) --"
+  # Tooth D: mutant drops ei++ from the EMPTY-COLLAPSE-COUNT line (keeps 'next').
+  # Per-target lines are still suppressed; but ei stays 0 so no summary line is emitted.
+  # Silent zero for empty-input targets → test 7 ('counted summary present') → RED.
+  STUB_EMPTY_LOCAL='INFO: corpus exists, no audits found (empty-input): /fake/empty1
+INFO: corpus exists, no audits found (empty-input): /fake/empty2
+INFO: corpus exists, no audits found (empty-input): /fake/empty3
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+  write_stub 0 "$STUB_EMPTY_LOCAL"
+  sed 's/ei++; next  # EMPTY-COLLAPSE-COUNT/next  # EMPTY-COLLAPSE-DISABLED/' \
+    "$SUT" > "$TMP/mutant-hook-D.sh"
+  chmod +x "$TMP/mutant-hook-D.sh"
+  cp "$TMP/mutant-hook-D.sh" "$TMP/sweep-audits-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them'; then
+    ok "teeth D: EMPTY-COLLAPSE-COUNT neutered → ei stays 0 → summary absent → test 7 RED (anti-silent-zero)"
+  else
+    no "teeth D: mutant still emits empty-input summary — sed pattern may not match hook"
+  fi
+
+  echo "-- teeth E (#974): neuter EMPTY-COLLAPSE-EMIT in END → no summary emitted → test 9 RED --"
+  # Tooth E: mutant replaces the EMPTY-COLLAPSE-EMIT printf line in END with a comment.
+  # No empty-input summary is emitted → test 9 (single empty-input) gets no summary → RED.
+  _STUB_TOOTH_E='INFO: corpus exists, no audits found (empty-input): /fake/tooth-e1
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+  write_stub 0 "$_STUB_TOOTH_E"
+  sed '/EMPTY-COLLAPSE-EMIT/s/.*/      # EMPTY-COLLAPSE-DISABLED/' \
+    "$SUT" > "$TMP/mutant-hook-E.sh"
+  chmod +x "$TMP/mutant-hook-E.sh"
+  cp "$TMP/mutant-hook-E.sh" "$TMP/sweep-audits-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qF 'corpus(es) empty-input'; then
+    ok "teeth E: EMPTY-COLLAPSE-EMIT neutered → no summary emitted → test 9 RED"
+  else
+    no "teeth E: mutant still emits empty-input summary — sed pattern may not match hook"
   fi
 fi
 
