@@ -161,15 +161,6 @@ else
   no "9 --full mode: per-target lines NOT found in output (exit=$RC out=[$OUT])"
 fi
 
-# Stub: 1 absent + 1 empty-input + 2 no-match (exercises piggyback path with combined summary).
-STUB_ABSENT_EMPTY_NOMATCH='INFO: corpus not found (absent-input): /fake/absent1
-INFO: corpus exists, no block files (empty-input): /fake/ei1
-INFO: no tagged breakthroughs in corpus (no-match): /fake/nm1
-INFO: no tagged breakthroughs in corpus (no-match): /fake/nm2
-
-Summary: 2 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
-INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
-Ledger consistent — all tagged breakthroughs indexed, no drift.'
 
 # 10. Combined: 2 empty-input + 3 no-match, no absent (END{} path).
 #     Exact combined text: 'INFO: 2 corpus(es) empty-input, 3 no-match — run --full to list them'.
@@ -215,47 +206,28 @@ else
   no "12 single no-match: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
 fi
 
-# 13. Piggyback path: 1 absent + 1 empty-input + 2 no-match (STUB_ABSENT_EMPTY_NOMATCH).
-#     Combined summary must appear BEFORE the absent aggregate line (piggyback grouping).
-#     Exact text: 'INFO: 1 corpus(es) empty-input, 2 no-match — run --full to list them'.
-write_stub 0 "$STUB_ABSENT_EMPTY_NOMATCH"
-OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
-if command -v jq >/dev/null 2>&1; then
-  _CONTENT13="$(printf '%s\n' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
-else
-  _CONTENT13="$OUT"
-fi
-_SUMMARY_LN13="$(printf '%s\n' "$_CONTENT13" | grep -nF 'corpus(es) empty-input, ' | head -1 | cut -d: -f1)"
-_ABSENT_LN13="$(printf '%s\n' "$_CONTENT13" | grep -nF 'target(s) not traversed' | head -1 | cut -d: -f1)"
-if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 1 corpus(es) empty-input, 2 no-match — run --full to list them' \
-   && [ -n "$_SUMMARY_LN13" ] && [ -n "$_ABSENT_LN13" ] && [ "$_SUMMARY_LN13" -lt "$_ABSENT_LN13" ]; then
-  ok "13 piggyback path: 1 absent + 1 ei + 2 nm → combined summary before absent aggregate (ORDER OK)"
-else
-  no "13 piggyback path: exact summary missing or ORDER wrong (summary=$_SUMMARY_LN13 absent=$_ABSENT_LN13 exit=$RC)"
-fi
+# 13. Ordering robustness: per-target empty-input and no-match lines appear both BEFORE and AFTER
+#     the absent aggregate line. The hook must count ALL of them and emit the TOTAL in one summary.
+#     RED on current commit: piggyback emits with partial counts and emitted flag suppresses END{},
+#     so late ei/nm lines are silently undercounted (§7 violation).
+_STUB_MIXED_EI_NM='INFO: corpus not found (absent-input): /fake/absent1
+INFO: corpus exists, no block files (empty-input): /fake/ei_early
+INFO: no tagged breakthroughs in corpus (no-match): /fake/nm_early
 
-# 14. Ordering robustness: empty-input and no-match lines arrive AFTER the absent aggregate line.
-#     The emitted flag must prevent double emission → exactly 1 summary line in output.
-_STUB_LATE_EI_NM='INFO: corpus not found (absent-input): /fake/absent1
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
 INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
 INFO: corpus exists, no block files (empty-input): /fake/ei_late
 INFO: no tagged breakthroughs in corpus (no-match): /fake/nm_late
-
-Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
 Ledger consistent — all tagged breakthroughs indexed, no drift.'
-write_stub 0 "$_STUB_LATE_EI_NM"
+write_stub 0 "$_STUB_MIXED_EI_NM"
 OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
-if command -v jq >/dev/null 2>&1; then
-  _CONTENT14="$(printf '%s\n' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no block files (empty-input):' \
+   && ! printf '%s\n' "$OUT" | grep -qF 'no tagged breakthroughs in corpus (no-match' \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input, 2 no-match — run --full to list them'; then
+  ok "13 ordering robustness: 1 early + 1 late ei/nm → TOTAL count=2 each in one combined summary (END emission)"
 else
-  _CONTENT14="$OUT"
-fi
-_SUMMARY_COUNT14="$(printf '%s\n' "$_CONTENT14" | grep -oF 'corpus(es) empty-input' | wc -l | tr -d ' ')"
-if [ "$RC" = 0 ] && [ "$_SUMMARY_COUNT14" = "1" ]; then
-  ok "14 ordering robustness: late ei + nm lines → exactly 1 summary line (emitted flag works)"
-else
-  no "14 ordering robustness: expected 1 summary line, got '$_SUMMARY_COUNT14' (exit=$RC)"
+  no "13 ordering robustness: expected 'INFO: 2 corpus(es) empty-input, 2 no-match' but got wrong counts or per-target lines present (exit=$RC out=[$OUT])"
 fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
@@ -353,27 +325,21 @@ Ledger consistent — all tagged breakthroughs indexed, no drift.'
     no "teeth E: mutant still emits no-match summary — sed pattern may not match hook"
   fi
 
-  echo "-- teeth F (#974): neuter PIGGYBACK-EMIT-CALL → combined summary after absent line → test 13 ORDER fails --"
-  # Tooth F: mutant replaces emit_summary()  # PIGGYBACK-EMIT-CALL with a no-op shell colon.
-  # With STUB_ABSENT_EMPTY_NOMATCH (1 absent + 1 ei + 2 nm), the summary is NOT emitted before
-  # the absent aggregate line; END{} emits it after. ORDER check (test 13) → summary_ln > absent_ln → RED.
-  write_stub 0 "$STUB_ABSENT_EMPTY_NOMATCH"
-  sed 's/emit_summary()  # PIGGYBACK-EMIT-CALL/# PIGGYBACK-EMIT-DISABLED/' \
+  echo "-- teeth F (#974): neuter COMBINED-COLLAPSE-EMIT in END → combined count suppressed → test 13 RED --"
+  # Tooth F: mutant makes the combined condition never fire (ei > 0 && nm > 0 → 0).
+  # With _STUB_MIXED_EI_NM (1 early ei + 1 early nm + 1 late ei + 1 late nm), the combined
+  # branch is disabled, so only the ei-only branch fires → emits ei-only summary instead of
+  # combined → test 13 asserts the combined exact text → RED.
+  write_stub 0 "$_STUB_MIXED_EI_NM"
+  sed 's/ei > 0 && nm > 0/0/' \
     "$SUT" > "$TMP/mutant-hook-F.sh"
   chmod +x "$TMP/mutant-hook-F.sh"
   cp "$TMP/mutant-hook-F.sh" "$TMP/sweep-breakthroughs-hook.sh"
   MUTANT_OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"
-  if command -v jq >/dev/null 2>&1; then
-    _CONTENT_F="$(printf '%s\n' "$MUTANT_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qF 'INFO: 2 corpus(es) empty-input, 2 no-match — run --full to list them'; then
+    ok "teeth F: COMBINED-COLLAPSE-EMIT neutered → combined summary absent → test 13 RED"
   else
-    _CONTENT_F="$MUTANT_OUT"
-  fi
-  _SUMMARY_LN_F="$(printf '%s\n' "$_CONTENT_F" | grep -nF 'corpus(es) empty-input, ' | head -1 | cut -d: -f1)"
-  _ABSENT_LN_F="$(printf '%s\n' "$_CONTENT_F" | grep -nF 'target(s) not traversed' | head -1 | cut -d: -f1)"
-  if [ -n "$_SUMMARY_LN_F" ] && [ -n "$_ABSENT_LN_F" ] && [ "$_SUMMARY_LN_F" -gt "$_ABSENT_LN_F" ]; then
-    ok "teeth F: PIGGYBACK-EMIT-CALL neutered → combined summary after absent line → test 13 ORDER fails (RED)"
-  else
-    no "teeth F: mutant ORDER not reversed (summary=$_SUMMARY_LN_F absent=$_ABSENT_LN_F) — sed pattern may not match hook"
+    no "teeth F: mutant still emits combined summary — sed pattern may not match hook"
   fi
 fi
 

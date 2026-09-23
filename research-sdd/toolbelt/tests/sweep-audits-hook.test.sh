@@ -105,14 +105,6 @@ INFO: corpus exists, no audits found (empty-input): /fake/empty3
 Summary: 0 pending / 0 audits across targets.
 Nothing to review.'
 
-# Stub output: 1 absent + 2 empty-input (exercises the absent-aggregate-piggyback path).
-STUB_ABSENT_EMPTY='INFO: corpus not found (absent-input): /fake/absent1
-INFO: corpus exists, no audits found (empty-input): /fake/ei1
-INFO: corpus exists, no audits found (empty-input): /fake/ei2
-
-Summary: 0 pending / 0 audits across targets.
-INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
-Nothing to review.'
 
 # 7. Default mode collapses N empty-input lines to one counted summary; per-target lines absent.
 #    Summary line must be present (anti-silent-zero §7: empty-input ≠ absent-input ≠ no-match).
@@ -153,46 +145,25 @@ else
   no "9 single empty-input: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
 fi
 
-# 10. Piggyback path: 1 absent + 2 empty-input (STUB_ABSENT_EMPTY).
-#     Summary must appear BEFORE the absent aggregate line (piggyback grouping).
-#     Exact summary text: 'INFO: 2 corpus(es) empty-input — run --full to list them'.
-write_stub 0 "$STUB_ABSENT_EMPTY"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-if command -v jq >/dev/null 2>&1; then
-  _CONTENT10="$(printf '%s\n' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
-else
-  _CONTENT10="$OUT"
-fi
-_SUMMARY_LN10="$(printf '%s\n' "$_CONTENT10" | grep -nF 'corpus(es) empty-input' | head -1 | cut -d: -f1)"
-_ABSENT_LN10="$(printf '%s\n' "$_CONTENT10" | grep -nF 'target(s) not traversed' | head -1 | cut -d: -f1)"
-if [ "$RC" = 0 ] \
-   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them' \
-   && [ -n "$_SUMMARY_LN10" ] && [ -n "$_ABSENT_LN10" ] && [ "$_SUMMARY_LN10" -lt "$_ABSENT_LN10" ]; then
-  ok "10 piggyback path: 1 absent + 2 empty-input → exact summary before absent aggregate line (ORDER OK)"
-else
-  no "10 piggyback path: exact summary missing or ORDER wrong (summary=$_SUMMARY_LN10 absent=$_ABSENT_LN10 exit=$RC)"
-fi
-
-# 11. Ordering robustness: per-target empty-input line arrives AFTER the absent aggregate line.
-#     The emitted flag must prevent a second summary emission → exactly 1 summary line.
-_STUB_LATE_EMPTY='INFO: corpus not found (absent-input): /fake/absent1
-INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
-INFO: corpus exists, no audits found (empty-input): /fake/ei_late
+# 10. Ordering robustness: per-target empty-input lines appear both BEFORE and AFTER the absent
+#     aggregate line. The hook must count ALL of them and emit the TOTAL in one summary at END.
+#     RED on current commit: piggyback emits with the partial count (ei=1 at piggyback time)
+#     and the emitted flag suppresses END{}, so ei_late is silently undercounted (§7 violation).
+_STUB_MIXED_EMPTY='INFO: corpus not found (absent-input): /fake/absent1
+INFO: corpus exists, no audits found (empty-input): /fake/ei_early
 
 Summary: 0 pending / 0 audits across targets.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+INFO: corpus exists, no audits found (empty-input): /fake/ei_late
 Nothing to review.'
-write_stub 0 "$_STUB_LATE_EMPTY"
+write_stub 0 "$_STUB_MIXED_EMPTY"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-if command -v jq >/dev/null 2>&1; then
-  _CONTENT11="$(printf '%s\n' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no audits found (empty-input):' \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
+  ok "10 ordering robustness: 1 early + 1 late empty-input → TOTAL count=2 in one summary (END emission)"
 else
-  _CONTENT11="$OUT"
-fi
-_SUMMARY_COUNT11="$(printf '%s\n' "$_CONTENT11" | grep -oF 'corpus(es) empty-input' | wc -l | tr -d ' ')"
-if [ "$RC" = 0 ] && [ "$_SUMMARY_COUNT11" = "1" ]; then
-  ok "11 ordering robustness: late empty-input line → exactly 1 summary line (emitted flag works)"
-else
-  no "11 ordering robustness: expected 1 summary line, got '$_SUMMARY_COUNT11' (exit=$RC)"
+  no "10 ordering robustness: expected 'INFO: 2 corpus(es) empty-input' but got wrong count or per-target lines present (exit=$RC out=[$OUT])"
 fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
@@ -267,27 +238,23 @@ Nothing to review.'
     no "teeth D: mutant still emits empty-input summary — sed pattern may not match hook"
   fi
 
-  echo "-- teeth E (#974): neuter PIGGYBACK-EMIT-CALL → summary appears after absent line → test 10 ORDER fails --"
-  # Tooth E: mutant replaces emit_summary()  # PIGGYBACK-EMIT-CALL with a no-op shell colon.
-  # With STUB_ABSENT_EMPTY (1 absent + 2 empty-input), the summary is NOT emitted before the
-  # absent aggregate line; END{} emits it after. ORDER check (test 10) → summary_ln > absent_ln → RED.
-  write_stub 0 "$STUB_ABSENT_EMPTY"
-  sed 's/emit_summary()  # PIGGYBACK-EMIT-CALL/# PIGGYBACK-EMIT-DISABLED/' \
+  echo "-- teeth E (#974): neuter EMPTY-COLLAPSE-EMIT in END → no summary emitted → test 9 RED --"
+  # Tooth E: mutant replaces the EMPTY-COLLAPSE-EMIT printf line in END with a comment.
+  # No empty-input summary is emitted → test 9 (single empty-input) gets no summary → RED.
+  _STUB_TOOTH_E='INFO: corpus exists, no audits found (empty-input): /fake/tooth-e1
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+  write_stub 0 "$_STUB_TOOTH_E"
+  sed '/EMPTY-COLLAPSE-EMIT/s/.*/      # EMPTY-COLLAPSE-DISABLED/' \
     "$SUT" > "$TMP/mutant-hook-E.sh"
   chmod +x "$TMP/mutant-hook-E.sh"
   cp "$TMP/mutant-hook-E.sh" "$TMP/sweep-audits-hook.sh"
   MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
-  if command -v jq >/dev/null 2>&1; then
-    _CONTENT_E="$(printf '%s\n' "$MUTANT_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qF 'corpus(es) empty-input'; then
+    ok "teeth E: EMPTY-COLLAPSE-EMIT neutered → no summary emitted → test 9 RED"
   else
-    _CONTENT_E="$MUTANT_OUT"
-  fi
-  _SUMMARY_LN_E="$(printf '%s\n' "$_CONTENT_E" | grep -nF 'corpus(es) empty-input' | head -1 | cut -d: -f1)"
-  _ABSENT_LN_E="$(printf '%s\n' "$_CONTENT_E" | grep -nF 'target(s) not traversed' | head -1 | cut -d: -f1)"
-  if [ -n "$_SUMMARY_LN_E" ] && [ -n "$_ABSENT_LN_E" ] && [ "$_SUMMARY_LN_E" -gt "$_ABSENT_LN_E" ]; then
-    ok "teeth E: PIGGYBACK-EMIT-CALL neutered → summary after absent line → test 10 ORDER fails (RED)"
-  else
-    no "teeth E: mutant ORDER not reversed (summary=$_SUMMARY_LN_E absent=$_ABSENT_LN_E) — sed pattern may not match hook"
+    no "teeth E: mutant still emits empty-input summary — sed pattern may not match hook"
   fi
 fi
 

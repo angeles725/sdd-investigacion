@@ -27,55 +27,45 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 # SUMMARY MODE (default): collapse per-target absent-input, empty-input, and no-match INFO
-# lines to one counted summary line each.  (#974: keeps aggregate under the 8,000-char budget.)
-# Anti-silent-zero §7: each of the three states is reported distinctly, never merged into one.
+# lines to counted summaries.  (#974: keeps aggregate under the 8,000-char budget.)
+# Anti-silent-zero §7: the three states are reported distinctly, never merged into one.
 # --full passes the full sweep output through unchanged (byte-identical to sweep script output).
 if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
   out="$(printf '%s\n' "$out" | awk '
-    BEGIN { ei=0; nm=0; emitted=0 }
-
-    # emit_summary() — single source of truth for the empty-input / no-match summary line.
-    # Combined when both > 0; separate lines otherwise (anti-silent-zero §7: each state distinct).
-    # The emitted flag prevents a second emission if per-target lines arrive late (after the
-    # absent-input aggregate line), keeping each class to at most one summary line.
-    function emit_summary() {
-      if (emitted || (ei == 0 && nm == 0)) return
-      if (ei > 0 && nm > 0) printf "INFO: %d corpus(es) empty-input, %d no-match — run --full to list them\n", ei, nm  # COMBINED-COLLAPSE-EMIT
-      else if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei  # EMPTY-COLLAPSE-EMIT
-      else printf "INFO: %d corpus(es) no-match — run --full to list them\n", nm  # NOMATCH-COLLAPSE-EMIT
-      emitted=1
-    }
+    BEGIN { ei=0; nm=0 }
 
     # Drop individual per-target absent-input INFO lines — collapsed to aggregate below.
     /^INFO: corpus not found \(absent-input\):/ { next }
 
-    # Count and drop per-target empty-input INFO lines — collapsed to summary line below.
+    # Count and drop per-target empty-input INFO lines — collapsed to summary at END.
     # Anti-silent-zero §7: distinct state from absent-input and no-match.
     /^INFO: corpus exists, no block files \(empty-input\):/ {
       ei++; next  # EMPTY-COLLAPSE-COUNT
     }
 
-    # Count and drop per-target no-match INFO lines — collapsed to summary line below.
+    # Count and drop per-target no-match INFO lines — collapsed to summary at END.
     # Anti-silent-zero §7: distinct state from absent-input and empty-input.
     /^INFO: no tagged breakthroughs in corpus \(no-match[^)]*\):/ {
       nm++; next  # NOMATCH-COLLAPSE-COUNT
     }
 
     # Aggregate absent-input line: swap the "see INFO lines above" pointer for --full hint.
-    # Piggyback: emit the empty-input/no-match summary immediately before this line so all
-    # non-traversal INFO is grouped together rather than appended at the very end.
     /^INFO: [0-9]+ target\(s\) not traversed \(absent-input\)/ {
       sub(/see INFO lines above\.?/, "run --full to list them.")
-      emit_summary()  # PIGGYBACK-EMIT-CALL
       print; next  # ABSENT-COLLAPSE-PRINT
     }
 
     # Everything else passes through unchanged.
     { print }
 
-    # Fallback: emit summaries when there were no absent targets.
-    # Also handles any per-target lines that arrived after the absent aggregate line.
-    END { emit_summary() }
+    # Emit the empty-input/no-match summary with the full counts of all per-target lines seen,
+    # regardless of where they appeared relative to the absent aggregate line.
+    # Combined when both > 0; separate lines otherwise (anti-silent-zero §7: each state distinct).
+    END {
+      if (ei > 0 && nm > 0) printf "INFO: %d corpus(es) empty-input, %d no-match — run --full to list them\n", ei, nm  # COMBINED-COLLAPSE-EMIT
+      else if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei  # EMPTY-COLLAPSE-EMIT
+      else if (nm > 0) printf "INFO: %d corpus(es) no-match — run --full to list them\n", nm  # NOMATCH-COLLAPSE-EMIT
+    }
   ')"
 fi
 
