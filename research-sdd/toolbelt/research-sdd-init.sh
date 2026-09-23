@@ -50,6 +50,63 @@ for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-s
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
 
+# --- corpus_present helper (shared by wire-only and anti-clobber sections) ---
+corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
+
+# --- wire-only path: --wire on an existing corpus does ONLY settings.json merge ----------
+# When --wire is given on a target that already has a corpus (and no --force is set), skip
+# the full scaffold entirely and merge only .claude/settings.json. This is the intended
+# workflow after step 4 (adapt the hook, then re-run with --wire to register it).
+# WIRE-ONLY-EXISTING-CORPUS
+if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
+  _wo_corpus_root=""
+  for _cand in "$target" "$target/corpus"; do
+    if corpus_present "$_cand" 2>/dev/null; then _wo_corpus_root="$_cand"; break; fi
+  done
+  if [ -n "$_wo_corpus_root" ]; then
+    # Wire-only: compute paths and merge settings.json without touching any corpus file.
+    _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
+    _wo_ss="$target/.claude/hooks/research-protocol.sh"
+    _wo_settings="$target/.claude/settings.json"
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "degraded: jq not found on PATH — cannot wire settings.json; paste the snippet below:" >&2
+    else
+      _wo_base='{}'; [ -f "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
+      _wo_tmp="$(mktemp)"
+      if printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" '
+        ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
+        ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
+        .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
+          else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
+        .hooks.SessionStart = (if $has_ss then (.hooks.SessionStart // [])
+          else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
+      ' > "$_wo_tmp" 2>/dev/null; then
+        mv "$_wo_tmp" "$_wo_settings"
+        echo "  wired  : hooks registered (wire-only; corpus untouched) in $_wo_settings"
+        echo "== done =="
+        exit 0
+      else
+        rm -f "$_wo_tmp"
+        echo "degraded: jq failed on $_wo_settings — falling back to print" >&2
+      fi
+    fi
+    # Print snippet on degraded (jq absent or failed):
+    echo "-- §479 HOOK WIRING snippet (paste into $target/.claude/settings.json) --"
+    printf '%s\n' '{' \
+      '  "hooks": {' \
+      '    "Stop": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_stop\"}]}" \
+      '    ],' \
+      '    "SessionStart": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_ss\"}]}" \
+      '    ]' \
+      '  }' \
+      '}'
+    echo "== done =="
+    exit 0
+  fi
+fi  # end wire-only
+
 # --- resolve $CORPUS ---------------------------------------------------------
 # auto: the target is IN-PROJECT (→ nested) if it holds any entry (incl. dotfiles) that
 # is NOT a corpus artifact NOR VCS/orchestrator infra — i.e. the subject's own material.
@@ -78,7 +135,7 @@ esac
 # A corpus is "present" at a root if ANY marker exists there — not just INDEX.md, so a
 # deleted INDEX cannot expose RESEARCH-STATE to a clobber. Check BOTH candidate roots so
 # a mode/heuristic mismatch cannot scaffold a second corpus alongside an existing one.
-corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
+# corpus_present() is defined above (shared with the wire-only path).
 if [ "$force" = 0 ]; then
   for cand in "$target" "$target/corpus"; do
     if corpus_present "$cand"; then

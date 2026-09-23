@@ -236,6 +236,25 @@ if [ "$_en2a_has_jq" = 1 ]; then
   assert_grep "EN2a-(b-wire) --wire merge: Stop hook merged"             "retro-gate-stop.sh"   "$d/.claude/settings.json"
   assert_grep "EN2a-(b-wire) --wire merge: SessionStart hook merged"     "research-protocol.sh" "$d/.claude/settings.json"
 
+  # (f-wire-only) --wire on EXISTING corpus does ONLY settings.json merge — no scaffold changes.
+  # Mimics the adapt→wire flow from step 4: scaffold, adapt hook + seed state, then wire-only.
+  # The adapted hook content and seeded state MUST survive (wire-only is non-destructive).
+  d="$TMP/en2a-f-wire-only"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
+  printf '%s\n' 'SEEDED-RESEARCH-STATE' >> "$d/RESEARCH-STATE.md"
+  printf '%s\n' '# ADAPTED-HOOK-MARKER' >> "$d/.claude/hooks/research-protocol.sh"
+  _fo_out="$TMP/en2a-f.out"; _fo_err="$TMP/en2a-f.err"
+  bash "$SUT" "$d" --corpus flat --wire > "$_fo_out" 2>"$_fo_err"; _fo_rc=$?
+  [ "$_fo_rc" = 0 ] && ok "EN2a-(f-wire-only) wire-only on existing corpus: exits 0" \
+                     || no "EN2a-(f-wire-only) wire-only on existing corpus: expected exit 0 (got $_fo_rc) — re-run refused?"
+  assert_file   "EN2a-(f-wire-only) wire-only: settings.json written"       "$d/.claude/settings.json"
+  if [ -f "$d/.claude/settings.json" ]; then
+    assert_grep "EN2a-(f-wire-only) wire-only: Stop hook in settings"       "retro-gate-stop.sh"   "$d/.claude/settings.json"
+    assert_grep "EN2a-(f-wire-only) wire-only: SessionStart hook in settings" "research-protocol.sh" "$d/.claude/settings.json"
+  fi
+  assert_grep   "EN2a-(f-wire-only) wire-only: SEEDED state survives"       "SEEDED-RESEARCH-STATE" "$d/RESEARCH-STATE.md"
+  assert_grep   "EN2a-(f-wire-only) wire-only: ADAPTED hook survives"       "ADAPTED-HOOK-MARKER"   "$d/.claude/hooks/research-protocol.sh"
+
   # (d-wire) --wire idempotent — second run (--force) → no duplicate Stop or SessionStart entries
   d="$TMP/en2a-d-wire"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
@@ -544,6 +563,30 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         else
           no "teeth MW3: degraded still present in mutant stderr — THEATER"
         fi
+      fi
+    fi
+  fi
+
+  # MW5: remove wire-only early-return path → --wire on existing corpus reverts to exit 3 → (f) RED
+  echo "-- teeth proof MW5: remove wire-only path → --wire on existing corpus exits 3 --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW5: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw5/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw5/templates"
+    mw5="$TMP/mw5/toolbelt/init.sh"
+    # The wire-only path is anchored by a sentinel comment: # WIRE-ONLY-EXISTING-CORPUS
+    awk '/# WIRE-ONLY-EXISTING-CORPUS/,/^fi[[:space:]]*# end wire-only/ { next } { print }' "$SUT" > "$mw5"
+    if grep -q 'WIRE-ONLY-EXISTING-CORPUS' "$mw5"; then
+      no "teeth MW5: could not build mutant (wire-only path still present after strip)"
+    else
+      dmw5="$TMP/mw5t"; mkdir -p "$dmw5"
+      bash "$mw5" "$dmw5" --corpus flat >/dev/null 2>/dev/null
+      printf '%s\n' 'SEEDED' >> "$dmw5/RESEARCH-STATE.md"
+      bash "$mw5" "$dmw5" --corpus flat --wire >/dev/null 2>/dev/null; _mw5_rc=$?
+      if [ "$_mw5_rc" = 3 ]; then
+        ok "teeth MW5: mutant exits 3 on wire-only → (f) wire-only test has teeth"
+      else
+        no "teeth MW5: mutant exit $_mw5_rc (expected 3) — wire-only test is THEATER"
       fi
     fi
   fi
