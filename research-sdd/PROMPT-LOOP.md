@@ -12,12 +12,14 @@ state from disk, so running it N times advances the corpus without stepping on i
 1. Define the target (one from [`TARGETS.md`](TARGETS.md)). Edit the `TARGET=` line below.
 2. Launch the loop:
    ```
-   /loop  <paste the OPERATIONAL PROMPT below, with TARGET already set>
+   /loop 10m  <paste the OPERATIONAL PROMPT below, with TARGET already set>
    ```
-   No interval → the model self-paces (recommended for research). Self-paced means THERE IS NO external
-   re-invoker: the loop agent itself reschedules the next iteration (ScheduleWakeup) until STOP fires —
-   this is the LOOP CONTINUATION hard rule in the operational prompt. If a run halts after one block, that
-   rule was skipped; as a fallback add an interval (`/loop 10m …`) so the harness re-fires deterministically.
+   Including an interval (`10m` recommended) means the harness re-fires each iteration deterministically
+   even if the loop agent fails to self-reschedule. Without an interval the model self-paces: THERE IS NO
+   external re-invoker, and the loop relies entirely on the LOOP CONTINUATION hard rule (ScheduleWakeup).
+   If a run halts after one block without an interval, that rule was skipped. Before launching, check
+   whether an external re-invoker (a `/loop` invocation, wakeup, or cron) is already active — if so, do
+   not nest a second one.
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
 

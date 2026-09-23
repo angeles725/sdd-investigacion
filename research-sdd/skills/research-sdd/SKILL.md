@@ -110,9 +110,11 @@ CHEAP TRIAGE, state a one-line plan, and PROCEED on your own recommendation. Thi
   topics/steps up front, transcribe + cite ONE per block, and STOP when the outline is covered — it NEVER
   runs gap-discovery / AUDIT-FIRST. Write destination is AUTO-ROUTED by knowledge TYPE (the mode decides,
   the user does not specify per call): knowledge ABOUT the subject under study → the TARGET's corpus;
-  REUSABLE toolchain/environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step) → the KIT
-  (`toolbelt/` + register in `toolbelt/tool-registry.md`) plus an Engram pointer. Same `verify-block` gate,
-  plus a MANDATORY Engram mirror so the doc stays recall-findable. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
+  REUSABLE toolchain/environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step) → PROPOSE
+  to the kit: record it in the §18 retro TOOLS section as a `promote` (new toolbelt file) or `absorb`
+  (delta into an existing kit file) candidate, plus an Engram pointer immediately so it is recall-findable.
+  Kit changes are never applied from inside a run (§18 propose-never-apply). Same `verify-block` gate,
+  plus a MANDATORY Engram mirror. Full cycle: PROMPT-LOOP's DOCUMENT CYCLE
   (METHODOLOGY §20). §20 was first exercised end-to-end on a real target by the TradingView new-target
   DOCUMENT run (target #23, B1-B3; see the kit repo-root `retros/2026-08-03-document-unregistered-bootstrap-incident.md`, not `$KIT/retros/`).
   Existing toolchain how-tos (`toolbelt/DYNAMIC-SETUP.md`, `toolbelt/GHIDRA-MCP.md`) predate the mode.
@@ -216,10 +218,11 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    environment: it probes TOOL availability (not the binary) — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD
    RULES. Then analyze with `$KIT/toolbelt/decompile-native.sh <mode> <binary>`; for available modes (ghidra,
    ghidra-evidence, r2, quick) and exact CLI forms, see `$KIT/toolbelt/tool-registry.md`.
-   For a LONG unattended run, wrap the invocation with the `/loop` skill
-   (`/loop /research-sdd <target> a fondo`) — it is the external re-invoker PROMPT-LOOP was designed for.
-   Self-paced reschedule is best-effort and can halt after a single block under conversational guardrails;
-   `/loop` guarantees the cadence.
+   For a LONG unattended run, wrap the invocation with the `/loop` skill with an interval
+   (`/loop 10m /research-sdd <target> a fondo`) — it is the external re-invoker PROMPT-LOOP was designed
+   for. Self-paced reschedule is best-effort and can halt after a single block under conversational
+   guardrails; `/loop 10m` adds a deterministic external re-invoker (without an interval, `/loop`
+   self-paces — no external re-invoker exists).
 
 **Walls & evidence (never a silent skip).** A wall is a MISSING CAPABILITY, not an absent answer:
 record a TYPED state — `blocked-on-tool` (name the exact capability), `unavailable` (the instrument ran
@@ -233,10 +236,12 @@ binary (niagara B424).
 **Installing a tool is not the end of provisioning — cataloging it is.** `install-tool.sh` auto-logs
 every install to `INSTALLED-TOOLS.md`; that half needs no action. Adding the path (Tool paths table),
 purpose (Artifact type row), and how-to-use (Wrapper column, or `(direct)` for a manual tool) to
-`toolbelt/tool-registry.md` is YOUR job, done proactively as part of the install — do it unprompted,
-same as you would save a decision to memory without being asked. `toolbelt/verify-tool-catalog.sh` is
-the anti-silent-zero backstop that WARNs on a logged-but-uncataloged tool; treat its WARN as a missed
-step, not a substitute for doing it. The guard matches case-insensitively, so a logged lowercase name
+`toolbelt/tool-registry.md` is PROPOSED, not applied from inside a run: record the row in the §18 retro
+TOOLS section as an `absorb` candidate (§18 propose-never-apply). Record an Engram pointer immediately
+so the tool is recall-findable while the kit row awaits the supervisor. `toolbelt/verify-tool-catalog.sh`
+is the anti-silent-zero backstop that WARNs on a logged-but-uncataloged tool; treat its WARN as
+confirmation the row is still pending, not a missed step to self-apply. The guard matches
+case-insensitively, so a logged lowercase name
 finds a Title-case entry without extra work. When the logged name and the catalog display name differ
 entirely (e.g. `kaitai-struct-compiler` logged, `ksc` displayed), append `(alias: <logged-name>)` to
 the Tool cell of the relevant catalog row so the whole-word match finds it.
@@ -244,13 +249,17 @@ the Tool cell of the relevant catalog row so the whole-word match finds it.
 ## Execution mode
 
 Default is **self-paced** (this session becomes the loop driver and self-reschedules). Self-paced is
-best-effort and can halt after a single block under conversational guardrails; **`/loop`** guarantees
-the cadence.
+best-effort and can halt after a single block under conversational guardrails; **`/loop 10m`** adds a
+deterministic external re-invoker (without an interval, `/loop` self-paces — no external re-invoker
+exists).
 
-**Heavy / continue:** when the mode resolves to heavy or continue and no external re-invoker is already
-active, launch `/loop /research-sdd <target> [focus]` BEFORE the first iteration — this is a
-BOOTSTRAP-level action, not optional advice. Announce it ("launching `/loop`") and proceed; do not stop
-to ask. If a human wants to review between blocks, run **orchestrated** instead (chain one sub-agent per
+**Heavy / continue:** before launching `/loop 10m`, check whether an external re-invoker is already
+active: the current invocation arrived via `/loop`, or a wakeup/cron is already armed (check with the
+harness's wakeup/cron listing if available). If a re-invoker is already active, skip the nested launch
+and proceed directly. Otherwise, when the mode resolves to heavy or continue, launch
+`/loop 10m /research-sdd <target> [focus]` BEFORE the first iteration — this is a BOOTSTRAP-level
+action, not optional advice. Announce it ("launching `/loop 10m`") and proceed; do not stop to ask.
+If a human wants to review between blocks, run **orchestrated** instead (chain one sub-agent per
 iteration; see PROMPT-LOOP "Two execution modes"). Do not ask which mode.
 
 ## Boundaries

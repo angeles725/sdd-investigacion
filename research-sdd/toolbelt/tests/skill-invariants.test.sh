@@ -24,6 +24,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SKILL="$HERE/../../skills/research-sdd/SKILL.md"
 [ -f "$SKILL" ] || { printf 'FATAL: SKILL.md not found at expected path: %s\n' "$SKILL" >&2; exit 2; }
+PROMPTLOOP="$HERE/../../PROMPT-LOOP.md"
+[ -f "$PROMPTLOOP" ] || { printf 'FATAL: PROMPT-LOOP.md not found at expected path: %s\n' "$PROMPTLOOP" >&2; exit 2; }
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -143,6 +145,58 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A12: SKILL.md must reference 'propose-never-apply' — confirms the REUSABLE
+#      TOOLCHAIN routing and tool-cataloging paragraph both enforce the rule
+#      that kit changes are proposed (not applied) from inside a run (#960).
+# ---------------------------------------------------------------------------
+if grep -qF 'propose-never-apply' "$SKILL"; then
+  ok "A12: propose-never-apply rule referenced in SKILL.md (#960)"
+else
+  no "A12: propose-never-apply rule MISSING from SKILL.md (#960)"
+fi
+
+# ---------------------------------------------------------------------------
+# A13: SKILL.md must launch /loop WITH a 10m interval: '/loop 10m /research-sdd'.
+#      Without an interval there is no external re-invoker (#961).
+# ---------------------------------------------------------------------------
+if grep -qF '/loop 10m /research-sdd' "$SKILL"; then
+  ok "A13: /loop launch includes 10m interval in SKILL.md (#961)"
+else
+  no "A13: /loop launch is missing 10m interval in SKILL.md (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# A14: SKILL.md must NOT contain 'guarantees the cadence' — that claim is
+#      false when /loop is used without an interval (#961).
+# ---------------------------------------------------------------------------
+if grep -qF 'guarantees the cadence' "$SKILL"; then
+  no "A14: SKILL.md still contains false claim 'guarantees the cadence' (#961)"
+else
+  ok "A14: false claim 'guarantees the cadence' absent from SKILL.md (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# A15: SKILL.md must contain 're-invoker is already active' — the detection
+#      rule that prevents nested /loop launches (#961).
+# ---------------------------------------------------------------------------
+if grep -qF 're-invoker is already active' "$SKILL"; then
+  ok "A15: re-invoker detection rule present in SKILL.md (#961)"
+else
+  no "A15: re-invoker detection rule MISSING from SKILL.md (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# B1: PROMPT-LOOP.md launch example must include the 10m interval.
+#     Stable anchor: '/loop 10m  <paste' matches only the launch-example line
+#     (two spaces between '10m' and '<paste' follow the existing formatting, #961).
+# ---------------------------------------------------------------------------
+if grep -qF '/loop 10m  <paste' "$PROMPTLOOP"; then
+  ok "B1: PROMPT-LOOP.md launch example includes 10m interval (#961)"
+else
+  no "B1: PROMPT-LOOP.md launch example missing 10m interval (#961)"
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
 if [ "$PROVE_TEETH" = 1 ]; then
@@ -182,6 +236,51 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-A11: mutant still has 'kaitai-struct-compiler' — sed did not take (no teeth)"
   else
     ok "teeth-A11: A11 assertion goes RED on mutant"
+  fi
+
+  # Teeth A12: remove 'propose-never-apply' → A12 must go RED.
+  mutant12="$TMP/SKILL.mutant12.md"
+  sed 's/propose-never-apply/propose-never-xpply/g' "$SKILL" > "$mutant12"
+  if grep -qF 'propose-never-apply' "$mutant12"; then
+    no "teeth-A12: mutant still has 'propose-never-apply' — sed did not take (no teeth)"
+  else
+    ok "teeth-A12: A12 assertion goes RED on mutant"
+  fi
+
+  # Teeth A13: remove 10m interval from /loop launch → A13 must go RED.
+  mutant13="$TMP/SKILL.mutant13.md"
+  sed 's|/loop 10m /research-sdd|/loop /research-sdd|g' "$SKILL" > "$mutant13"
+  if grep -qF '/loop 10m /research-sdd' "$mutant13"; then
+    no "teeth-A13: mutant still has '/loop 10m /research-sdd' — sed did not take (no teeth)"
+  else
+    ok "teeth-A13: A13 assertion goes RED on mutant"
+  fi
+
+  # Teeth A14: inject 'guarantees the cadence' → A14 negative check must go RED.
+  mutant14="$TMP/SKILL.mutant14.md"
+  sed '1s|^|/loop guarantees the cadence\n|' "$SKILL" > "$mutant14"
+  if grep -qF 'guarantees the cadence' "$mutant14"; then
+    ok "teeth-A14: A14 negative check goes RED on mutant ('guarantees' injected)"
+  else
+    no "teeth-A14: mutant does NOT have 'guarantees the cadence' — sed did not take (no teeth)"
+  fi
+
+  # Teeth A15: replace 're-invoker is already active' → A15 must go RED.
+  mutant15="$TMP/SKILL.mutant15.md"
+  sed 's/re-invoker is already active/re-invoker X already active/g' "$SKILL" > "$mutant15"
+  if grep -qF 're-invoker is already active' "$mutant15"; then
+    no "teeth-A15: mutant still has 're-invoker is already active' — sed did not take (no teeth)"
+  else
+    ok "teeth-A15: A15 assertion goes RED on mutant"
+  fi
+
+  # Teeth B1: remove '10m ' from PROMPT-LOOP.md launch example → B1 must go RED.
+  mutantB1="$TMP/PROMPTLOOP.mutantB1.md"
+  sed 's|/loop 10m  <paste|/loop  <paste|g' "$PROMPTLOOP" > "$mutantB1"
+  if grep -qF '/loop 10m  <paste' "$mutantB1"; then
+    no "teeth-B1: mutant still has '/loop 10m  <paste' — sed did not take (no teeth)"
+  else
+    ok "teeth-B1: B1 assertion goes RED on mutant"
   fi
 fi
 
