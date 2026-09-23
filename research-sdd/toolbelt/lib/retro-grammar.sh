@@ -156,28 +156,37 @@ fi
 #    An empty-table header+separator (no data rows) is also accepted as an empty body.
 #    Exception: the LEADING BLOCKQUOTE BLOCK — contiguous > lines and blank lines
 #    immediately after the canonical heading and before any other content — is exempt
-#    as template scaffold IF none of its lines (after stripping "> ") starts with a
-#    list/table/heading marker (-, *, +, digit., |, #).  Any such marker marks the
-#    entire block as non-scaffold (lead_block_dirty) and all buffered lines fail
-#    purity → ~?.  Residual risk: a delta written as a blockquoted prose sentence
-#    (no list/table/heading marker) would be falsely exempt — the instrument cannot
-#    distinguish template guidance prose from delta prose without a structural marker.
+#    as template scaffold IF none of its lines contains a structural marker after
+#    stripping all leading > levels and normalizing NBSP.  Structural markers are:
+#    list bullets (- * + with space), headings (# × 1-6 with space), tables (|),
+#    ordered lists (N. or N)), letter-paren lists (a)), Unicode bullets (• – —),
+#    and checkboxes ([ ]).  Any such marker marks the entire block as non-scaffold
+#    (lead_block_dirty) and all buffered lines fail purity → ~?.
+#    Residual risk: a delta written as blockquoted prose without a structural marker
+#    would be falsely exempt — the instrument cannot distinguish template guidance
+#    prose from delta prose without a structural marker.
 #    Documented in METHODOLOGY §18 instrument description.
 #
-# B. ## Honest verdict: accepted ONLY when the canonical section is absent or its
-#    body is empty (no non-blank, non-table lines).  Non-honesty canonical content
-#    blocks the HV path.
+# B. ## Honest verdict (also ## N. Honest verdict): accepted ONLY when the canonical
+#    section is absent or its body is empty (no non-blank, non-table lines).
+#    Non-honesty canonical content blocks the HV path.
 #
 # C. Honesty line matching: strip leading whitespace and list/blockquote/emphasis
-#    markers (- * + > ** __ _) before matching /^no new deltas([^a-z0-9]|$)/.
+#    markers (- * + > ** __ _) then match one of the exact §18 accepted variants
+#    (see METHODOLOGY §18 "Accepted honesty-line variants").  Any other trailing
+#    text after "no new deltas" is NOT a conforming honesty line.
 #
 # D. Veto: any of the following indicators anywhere in the file force exit 1.
-#    - Form-3: ## Delta <id> heading with em dash (—), en dash (–), or ASCII " - "
-#      that is not a canonical alias (guarded by is_canonical_heading()).
-#    - WARN-B: #{1,3} letter+digit or bare-digit ID headings, and #{2,3} Proposed/Delta/
-#      Deltas headings, outside the canonical section.  Same patterns as sweep-retros'
-#      inline WARN-B greps — one definition.
-#    Both use the shared is_canonical_heading() from _RG_AWK_CANONICAL_FN.
+#    - WARN-B (##): non-canonical ## Proposed/Delta/Deltas headings.
+#    - H2 delta-ID: ## [A-Za-z][0-9]+ headings outside the canonical section
+#      (e.g. ## D1, ## D11).  Bare ## N. numeric headings are NOT vetoed — 9 fleet
+#      retros use them for structural sections (## 6. Proposed kit deltas etc.).
+#    - WARN-B (#/###): letter+digit or H1 bare-digit ID headings, and ###
+#      Proposed/Delta/Deltas headings.  Note: ### N. bare-digit headings (e.g.
+#      ### 1. Fast loop) are NOT vetoed — fleet retros use them structurally.
+#    All use the shared is_canonical_heading() from _RG_AWK_CANONICAL_FN.
+#    Note: the veto patterns here are a SUPERSET of the sweep-retros WARN-B greps;
+#    the H2 delta-ID rule has no parallel in sweep-retros.
 #
 # Returns:
 #   exit 0 — pure honesty: accepted location, pure section, no conflicting indicators
@@ -201,10 +210,57 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
         }
         return s
       }
+      # is_honesty: exact §18 accepted-variant matching (§912-R MAJOR-4 fix).
+      # Only the tails listed below are conforming; any other trailing text after
+      # "no new deltas" is rejected.  Add new forms here AND in METHODOLOGY §18
+      # "Accepted honesty-line variants" table.
+      # Em-dash U+2014 UTF-8 = \xe2\x80\x94 = octal \342\200\224.
       function is_honesty(raw,    s, l) {
         s = strip_markers(raw)
         l = tolower(s)
-        if (l ~ /^no new deltas([^a-z0-9]|$)/) return 1
+        sub(/[[:space:]]+$/, "", l)          # strip trailing whitespace
+        # strip trailing emphasis markers (e.g. "...run.**" from "**no new deltas…**")
+        sub(/\*\*$/, "", l); sub(/__$/, "", l); sub(/_$/, "", l)
+        sub(/[[:space:]]+$/, "", l)          # re-strip any remaining trailing whitespace
+        if (l == "no new deltas; the kit already covers this run.") return 1
+        if (l == "no new deltas; nothing to add.")                  return 1
+        if (l == "no new deltas \342\200\224 the kit already covers this run.") return 1
+        if (l == "no new deltas \342\200\224 nothing to add.")       return 1
+        return 0
+      }
+
+      # is_dirty_marker: returns 1 when a lead-block line carries a structural
+      # list/table/heading marker, indicating it is a delta row, not guidance prose.
+      # Input: raw line from the file (may start with one or more > levels).
+      # Strips ALL leading > levels (nested blockquotes) and normalizes UTF-8 NBSP
+      # (\xc2\xa0 = octal \302\240) to space before checking.
+      function is_dirty_marker(raw,    _r) {   # RSDD_IS_DIRTY_MARKER_FN
+        _r = raw
+        # Normalize UTF-8 NBSP (\xc2\xa0) to regular space.
+        gsub(/\302\240/, " ", _r)
+        # Strip ALL leading > levels (handles nested blockquotes like "> > - item").
+        while (_r ~ /^>/) sub(/^>[[:space:]]*/, "", _r)
+        # Strip remaining leading whitespace.
+        sub(/^[[:space:]]+/, "", _r)
+        # List bullet: - * + with trailing space (requires space; ** bold is NOT a bullet).
+        if (_r ~ /^[-*+][[:space:]]/) return 1    # RSDD_DIRTY_BULLET
+        # Heading: one to six # with trailing space.
+        if (_r ~ /^#{1,6}[[:space:]]/) return 1   # RSDD_DIRTY_HASH
+        # Table: starts with |.
+        if (_r ~ /^\|/) return 1
+        # Ordered list: digits followed by . or ) and space or end-of-line.
+        if (_r ~ /^[0-9]+[.)]([[:space:]]|$)/) return 1    # RSDD_DIRTY_NUMLIST
+        # Letter-paren list: a) b) etc.
+        if (_r ~ /^[a-zA-Z][)]([[:space:]]|$)/) return 1
+        # Unicode bullet glyphs: only • (U+2022, \342\200\242) is unambiguously a list marker.
+        # Em dash (— U+2014 \342\200\224) and en dash (– U+2013 \342\200\223) are deliberately
+        # excluded: they appear legitimately as sentence-continuation characters at the START of
+        # a lead-block line when long sentences word-wrap (see retro.template.md line starting
+        # with "> — see §18…").  Including them produces false positives on real templates.
+        # Known residual: "> — delta text" (em/en dash used as a list bullet) is not detected.
+        if (_r ~ /^\342\200\242/) return 1   # • (U+2022)
+        # Checkbox: [ ] [x] [X]
+        if (_r ~ /^\[[ xX]\]([[:space:]]|$)/) return 1
         return 0
       }
 
@@ -218,13 +274,13 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
         body_started = 0   # set once the lead block phase ends
         # HV body
         hv_honesty = 0
-        # Veto: form-3 or WARN-B indicator anywhere in file
+        # Veto: WARN-B or H2 delta-ID indicator anywhere in file
         veto = 0
         # Leading blockquote block (lead block): contiguous > lines + blanks immediately
         # after the canonical heading and before any other content.  Exempt if none of
-        # its lines (after stripping "> ") starts with a list/table/heading marker.
-        # Fail-safe: any marker → lead_block_dirty=1 → all buffered lines fail purity.
-        lead_block_dirty = 0   # 1 when any buffered > line has a list/table/heading marker
+        # its lines (after full > stripping and NBSP normalization) carries a structural
+        # marker.  Fail-safe: any marker → lead_block_dirty=1 → all buffered lines fail.
+        lead_block_dirty = 0   # 1 when any buffered > line has a structural marker
         lead_buf_n       = 0   # number of buffered > lines
       }
 
@@ -236,27 +292,30 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
           in_canonical = 1; in_hv = 0; canonical_found = 1; next
         }
         in_canonical = 0; in_hv = 0
-        if (low ~ /^## honest verdict([[:space:]]|$)/) { in_hv = 1 }
-        # Form-3 veto: ## Delta <id> + em/en dash or ASCII " - ", anywhere in file.
-        # is_canonical_heading() guard ensures canonical aliases never self-match.
-        if (!is_canonical_heading(low) && low ~ /^## delta[[:space:]]/) {
-          if ($0 ~ /—/ || $0 ~ /–/ || $0 ~ / - /) veto = 1
-        }
-        # WARN-B: non-canonical ## Proposed/Delta/Deltas heading (sweep-retros WARN-B grep 1).
+        # ## Honest verdict — also accept ## N. Honest verdict (fleet retros use numbered headings).
+        if (low ~ /^## ([0-9]+\. )?honest verdict([[:space:]]|$)/) { in_hv = 1 }
+        # Veto: non-canonical ## Proposed/Delta/Deltas headings (mirrors sweep-retros WARN-B).
         if (!is_canonical_heading(low) && low ~ /^## (proposed|delta|deltas)([[:space:]]|$)/) veto = 1
+        # H2 delta-ID veto: ## D1 / ## D11 headings outside the canonical section.
+        # NOTE: bare ## N. headings (numeric-only, e.g. ## 6. Proposed kit deltas) are NOT
+        # vetoed — 9 fleet retros use them for structural sections.  This pattern requires
+        # at least one ASCII letter before the digit(s).
+        if (!is_canonical_heading(low) && $0 ~ /^## [A-Za-z][0-9]+([^a-zA-Z0-9]|$)/) veto = 1  # RSDD_H2_VETO
         next
       }
 
       # ── WARN-B veto: ID-pattern and Proposed/Delta/Deltas headings outside canonical ──────
-      # Mirrors the sweep-retros inline WARN-B greps (one definition).
+      # Handles # (H1) and ### (H3); ## is handled (with next) in /^##[^#]/ above.
       # Explicit alternatives replace interval expressions for mawk compatibility.
-      # ## headings are handled (with next) in /^##[^#]/ above; only #/###/#### reach here.
       !in_canonical && /^#/ {
-        # ### Proposed/Delta/Deltas (from grep ^#{2,3}...; ## handled above; # not in grep)
+        # ### Proposed/Delta/Deltas
         if (low ~ /^###[[:space:]]+(proposed|delta|deltas)([[:space:]]|$)/) veto = 1
-        # letter+digit or bare-digit ID (from grep ^#{1,3}...; # and ### can reach this rule)
-        if ($0 ~ /^#[[:space:]]+[A-Za-z][0-9]/ || $0 ~ /^###[[:space:]]+[A-Za-z][0-9]/ \
-            || $0 ~ /^#[[:space:]]+[0-9]/ || $0 ~ /^###[[:space:]]+[0-9]/) veto = 1
+        # letter+digit ID headings at H1 and H3 (e.g. # D1, ### D1).
+        # NOTE: ### N. bare-digit headings (e.g. ### 1. Fast loop) are NOT vetoed —
+        # fleet retros use them for structural sub-sections.
+        if ($0 ~ /^#[[:space:]]+[A-Za-z][0-9]/ || $0 ~ /^###[[:space:]]+[A-Za-z][0-9]/) veto = 1
+        # H1 bare-digit (# 1 …) is unusual enough in retro context to veto.
+        if ($0 ~ /^#[[:space:]]+[0-9]/) veto = 1
         next
       }
 
@@ -264,10 +323,9 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
       in_canonical {
         if ($0 ~ /^[[:space:]]*$/) next
         if (!body_started) {
-          # Lead block phase: buffer non-honesty > lines; any marker taints the block.
+          # Lead block phase: buffer non-honesty > lines; structural marker taints block.
           if (/^>/ && !is_honesty($0)) {
-            _r = $0; sub(/^>[[:space:]]*/, "", _r)
-            if (_r ~ /^[-*+|#]/ || _r ~ /^[0-9][0-9]*\./) lead_block_dirty = 1
+            if (is_dirty_marker($0)) lead_block_dirty = 1  # RSDD_LEAD_DIRTY_SET
             lead_buf[++lead_buf_n] = $0; next
           }
           # First non-blank non-> content (or > honesty line): end of lead block.
@@ -299,6 +357,7 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
       END {
         if (veto) { exit 1 }
         # Flush dirty lead block if canonical ended without non-blockquote content.
+        # RSDD_LEAD_BLOCK_END_FLUSH_ANCHOR
         if (canonical_found && !body_started && lead_block_dirty) {
           for (_i = 1; _i <= lead_buf_n; _i++) {
             body_count++
