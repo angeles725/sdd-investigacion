@@ -122,6 +122,26 @@ stub_download() {
   chmod +x "$box/bin/$name"
 }
 
+# stub_checksummer <box> <exit>: sha256sum stub that drains stdin before exiting.
+# sha256sum is invoked as  echo "PIN  FILE" | sha256sum -c --status -
+# Without draining, the stub may exit before echo writes, giving echo SIGPIPE (exit 141).
+# With set -o pipefail in install-tool.sh the pipeline exits 141, making the idempotency
+# check appear to fail even when the file is present (§7 false-negative).  Draining stdin
+# ensures the write side completes cleanly before the reader exits.  — fix #941
+stub_checksummer() {
+  local box="$1" code="$2"
+  {
+    printf '#!%s\n' "$BASH_BIN"
+    printf 'echo "sha256sum $*" >> "%s/calls.log"\n' "$box"
+    # Drain ONLY when the real sha256sum would read stdin (no file operand, or '-'); a file-operand
+    # call with an inherited, never-closed stdin would otherwise block forever.
+    printf '_rd=1; for _a in "$@"; do case "$_a" in -) _rd=1; break ;; -*) ;; *) _rd=0 ;; esac; done\n'
+    printf '[ "$_rd" = 1 ] && while IFS= read -r _sha_drain_l; do :; done\n'  # prevent SIGPIPE — #941
+    printf 'exit %s\n' "$code"
+  } > "$box/bin/sha256sum"
+  chmod +x "$box/bin/sha256sum"
+}
+
 # run <box> <args...> : invoke the SUT copy with a HERMETIC PATH ("$box/bin" ONLY)
 #   and HOME redirected into the box. bash is called by ABSOLUTE path so the empty
 #   host PATH cannot hide the interpreter. Captures combined output in OUT, exit in RC.
@@ -350,7 +370,7 @@ fi
 box="$(mkbox c17-vf-fresh)"
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
 run "$box" vineflower
 if [ "$RC" = 0 ] && grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = installed ] && [ -f "$DEST_VF" ] && [ -s "$DEST_VF" ] && cmp -s "$DEST_VF" "$FIXTURE_JAR"; then
@@ -363,7 +383,7 @@ fi
 box="$(mkbox c18-vf-mismatch)"
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
-stub "$box" sha256sum 1   # always fails = mismatch
+stub_checksummer "$box" 1   # always fails = mismatch
 DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
 run "$box" vineflower
 if [ "$RC" -ne 0 ] && [ ! -f "$DEST_VF" ]; then
@@ -374,7 +394,7 @@ fi
 
 # 19 — vineflower: idempotency → DEST present, hash ok → already, no download.
 box="$(mkbox c19-vf-idem)"
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
 DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
@@ -390,7 +410,7 @@ fi
 box="$(mkbox c20-vf-dl-fail)"
 stub "$box" curl 1
 stub "$box" wget 1
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
 run "$box" vineflower
 if [ "$RC" -ne 0 ] && [ ! -f "$DEST_VF" ]; then
@@ -403,7 +423,7 @@ fi
 box="$(mkbox c21-cfr-fresh)"
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 DEST_CFR="$box/home/.local/share/research-sdd-tools/java/cfr.jar"
 run "$box" cfr
 if [ "$RC" = 0 ] && grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = installed ] && [ -f "$DEST_CFR" ] && [ -s "$DEST_CFR" ] && cmp -s "$DEST_CFR" "$FIXTURE_JAR"; then
@@ -414,7 +434,7 @@ fi
 
 # 22 — cfr: idempotency.
 box="$(mkbox c22-cfr-idem)"
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
 DEST_CFR="$box/home/.local/share/research-sdd-tools/java/cfr.jar"
@@ -430,7 +450,7 @@ fi
 box="$(mkbox c23-procyon-fresh)"
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 DEST_PROCYON="$box/home/.local/share/research-sdd-tools/java/procyon.jar"
 run "$box" procyon
 if [ "$RC" = 0 ] && grep -q "curl" "$box/calls.log" && [ "$(logstatus "$box")" = installed ] && [ -f "$DEST_PROCYON" ] && [ -s "$DEST_PROCYON" ] && cmp -s "$DEST_PROCYON" "$FIXTURE_JAR"; then
@@ -441,7 +461,7 @@ fi
 
 # 24 — procyon: idempotency.
 box="$(mkbox c24-procyon-idem)"
-stub "$box" sha256sum 0
+stub_checksummer "$box" 0
 stub_download "$box" curl 0 "$FIXTURE_JAR"
 stub "$box" wget 1
 DEST_PROCYON="$box/home/.local/share/research-sdd-tools/java/procyon.jar"
@@ -518,7 +538,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${content/"$orig"/"$new"}" > "$box/install-tool.sh"
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
-    stub "$box" sha256sum 1   # fails: correct gate would reject; mutant does not
+    stub_checksummer "$box" 1   # fails: correct gate would reject; mutant does not
     DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
     run "$box" vineflower
     if [ "$RC" = 0 ] && [ -f "$DEST_VF" ]; then
@@ -539,7 +559,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${content/"$orig"/"$new_curl"}" > "$box/install-tool.sh"
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
-    stub "$box" sha256sum 0
+    stub_checksummer "$box" 0
     DEST_VF_T="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
     run "$box" vineflower
     # Mutant exits 0 and moves the EMPTY mktemp file to DEST — DEST exists but is empty.
@@ -563,7 +583,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '%s\n' "${content/"$orig"/"$new"}" > "$box/install-tool.sh"
     stub_download "$box" curl 0 "$FIXTURE_JAR"
     stub "$box" wget 1
-    stub "$box" sha256sum 1   # fails: with mutant, DEST was already moved before the check
+    stub_checksummer "$box" 1   # fails: with mutant, DEST was already moved before the check
     DEST_VF="$box/home/.local/share/research-sdd-tools/java/vineflower.jar"
     run "$box" vineflower
     if [ -f "$DEST_VF" ]; then
@@ -588,6 +608,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: alias-form kaitai drops from --list → case 7b bites" "(kaitai absent)"
     else
       no "teeth: alias-form kaitai still in --list — case 7b is theater" "(still listed)"
+    fi
+  fi
+
+  # teeth for 24: bypass procyon's idempotency guard and confirm case 24 catches the
+  # re-download.  This also proves the stub_checksummer drain is necessary: the mutant
+  # skips the guard unconditionally, so the assertion must go red on a PRESENT jar —
+  # but only if the sha256sum stub drains stdin (otherwise SIGPIPE masks the check
+  # and case 24 would already appear to fail, making the assertion theater).  — #941
+  echo "-- teeth: bypass procyon idempotency guard; case 24 must detect re-download --"
+  box="$(mkbox teeth-procyon-no-idem)"
+  orig='    if [ -f "$DEST" ] && echo "$PROCYON_PIN  $DEST" | sha256sum -c --status -; then'
+  new_guard='    if false; then  # MUTANT: procyon idempotency check bypassed — #941'
+  content="$(cat "$SUT")"
+  if [[ "$content" != *"$orig"* ]]; then
+    no "teeth: build procyon-no-idem mutant" "anchor not found — SUT drifted?"
+  else
+    printf '%s\n' "${content/"$orig"/"$new_guard"}" > "$box/install-tool.sh"
+    stub_checksummer "$box" 0
+    stub_download "$box" curl 0 "$FIXTURE_JAR"
+    stub "$box" wget 1
+    DEST_P="$box/home/.local/share/research-sdd-tools/java/procyon.jar"
+    mkdir -p "$(dirname "$DEST_P")"; cp "$FIXTURE_JAR" "$DEST_P"
+    run "$box" procyon
+    if grep -q "curl" "$box/calls.log"; then
+      ok "teeth: procyon-no-idem mutant re-downloads present jar → case 24 bites" "(curl called on present jar)"
+    else
+      no "teeth: procyon-no-idem mutant did NOT re-download — case 24 is THEATER" "calls=[$(calls "$box")]"
     fi
   fi
 fi
