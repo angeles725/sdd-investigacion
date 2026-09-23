@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# SessionStart hook wrapper — runs sweep-tools.sh and emits a fleet summary ONLY when
-# unrecorded tools exist across the fleet. Silent when every tool is ledgered.
+# SessionStart hook wrapper — runs sweep-tools.sh and surfaces the fleet summary when
+# unrecorded tools are found or when registered targets could not be traversed (absent-input).
+# Silent only when every tool is ledgered AND all targets were reached.
 # Full per-target detail lives behind toolbelt/sweep-tools.sh; session start only
-# needs the headline so 288 unrecorded-tool lines do not flood the context.
+# needs the headline so per-target lines do not flood the context.
 # Wired from .claude/settings.json (SessionStart). Read-only.
 here="$(cd "$(dirname "$0")" && pwd)"
 out="$("$here/sweep-tools.sh" 2>&1)"; rc=$?
@@ -38,20 +39,42 @@ fi
 # Parse unrecorded count from the summary line.
 unrecorded="$(printf '%s\n' "$summary" | grep -oE '[0-9]+ unrecorded' | grep -oE '^[0-9]+')"
 
-# All tools ledgered — stay silent (mirrors verify-kit-clean-hook.sh clean-exit idiom).
-[ "${unrecorded:-0}" = "0" ] && exit 0
+# Extract not-traversed INFO line (absent targets) if present — suppress silence when targets
+# were not traversed so a 0-of-N traversed state is never swallowed. STH-ABSENT-INFO
+info_absent="$(printf '%s\n' "$out" | grep '^INFO:.*not traversed')"
+_sth_absent_rc=$?
+if [ "$_sth_absent_rc" -ge 2 ]; then
+  info_absent="(INFO-line extraction failed: grep exit $_sth_absent_rc)"
+fi
 
-# Unrecorded tools found — emit summary (+ PARTIAL WARN if present) and prompt for detail.
+# All tools ledgered AND all targets traversed — stay silent. STH-ABSENT-CHECK
+[ "${unrecorded:-0}" = "0" ] && [ -z "$info_absent" ] && exit 0  # STH-SILENT-EXIT
+
+# Surface findings: unrecorded tools, unreachable targets, or both.
 # No '|| true': grep exit-1 (no WARN lines present) is benign; exit ≥2 must surface — §7.
 warn_line="$(printf '%s\n' "$out" | grep '^WARN:')"
 _sth_warn_rc=$?
 if [ "$_sth_warn_rc" -ge 2 ]; then
   warn_line="(WARN-line extraction failed: grep exit $_sth_warn_rc)"
 fi
-detail="${summary}${warn_line:+$'\n'$warn_line}"$'\n'"Run toolbelt/sweep-tools.sh for per-target breakdown."
-if command -v jq >/dev/null 2>&1; then
-  jq -n --arg c "$detail" \
-    '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD tool ledger (unrecorded tools found):\n"+$c)}}'
+
+if [ "${unrecorded:-0}" = "0" ]; then
+  # Targets not traversed but no unrecorded tools: surface the not-traversed INFO.
+  detail="${summary}"$'\n'"${info_absent}${warn_line:+$'\n'$warn_line}"$'\n'"Run toolbelt/sweep-tools.sh for per-target breakdown."
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg c "$detail" \
+      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD tool ledger (targets not traversed):\n"+$c)}}'
+  else
+    printf 'Research-SDD tool ledger (targets not traversed):\n%s\n' "$detail"
+  fi
 else
-  printf 'Research-SDD tool ledger (unrecorded tools found):\n%s\n' "$detail"
+  # Unrecorded tools found — emit summary + WARN (if any) + not-traversed INFO (if any) + prompt.
+  _sth_info_absent_out="${info_absent}"  # STH-UNRECORDED-ABSENT-FIELD — isolated for mutation testing
+  detail="${summary}${warn_line:+$'\n'$warn_line}${_sth_info_absent_out:+$'\n'$_sth_info_absent_out}"$'\n'"Run toolbelt/sweep-tools.sh for per-target breakdown."
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg c "$detail" \
+      '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:("Research-SDD tool ledger (unrecorded tools found):\n"+$c)}}'
+  else
+    printf 'Research-SDD tool ledger (unrecorded tools found):\n%s\n' "$detail"
+  fi
 fi

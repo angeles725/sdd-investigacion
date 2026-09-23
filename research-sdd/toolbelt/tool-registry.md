@@ -387,7 +387,7 @@ that surfaces its companion sweep as `additionalContext`; silence = clean.
 | `sweep-audits-hook.sh` | SessionStart wrapper for `sweep-audits.sh` — surfaces pending §13 audit reports as `additionalContext`. Silent on clean; surfaces sweep failures loudly. |
 | `sweep-breakthroughs-hook.sh` | SessionStart wrapper for `sweep-breakthroughs.sh` — surfaces unindexed/drifted breakthroughs as `additionalContext`. |
 | `sweep-retros-hook.sh` | SessionStart wrapper for `sweep-retros.sh` — surfaces pending §18 retros as `additionalContext`. |
-| `sweep-tools-hook.sh` | SessionStart wrapper for `sweep-tools.sh` — emits unrecorded-tool headline ONLY when unrecorded tools exist; silent when every tool is ledgered (avoids flooding context). |
+| `sweep-tools-hook.sh` | SessionStart wrapper for `sweep-tools.sh` — surfaces unrecorded-tool headline when unrecorded tools exist, and not-traversed INFO when registered targets are absent on disk. Silent only when every tool is ledgered and all targets were reached. |
 | `verify-kit-clean-hook.sh` | SessionStart wrapper for `verify-kit-clean.sh` — emits a DIRTY/unpushed banner only when the kit is not clean; silent when clean. |
 | `verify-registry-hook.sh` | SessionStart wrapper for `verify-registry.sh` — surfaces TARGETS.md `N md` vs real block-count drift as `additionalContext`. |
 | `verify-doc-consistency.sh` | Guards kit entry-point docs (SKILL.md, PROMPT-LOOP.md, README.md) against section-count drift vs METHODOLOGY.md and orphan §N references. WARN-only, read-only. Exit 0 on clean or findings; 1 on operational failure (missing required doc). |

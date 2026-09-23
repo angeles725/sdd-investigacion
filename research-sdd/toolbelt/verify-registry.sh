@@ -92,8 +92,13 @@ done
 # backtick path, so a backtick path resolves to exactly one row.)
 bt='`'
 
-checked=0; drift=0; retro_drift=0; unresolved=0; dir_reached=0; attention=0
+checked=0; drift=0; retro_drift=0; unresolved=0; dir_reached=0; attention=0; absent_paths=0
+_vr_absent_row_ids=""   # space-delimited row numbers of already-counted absent rows (dedup)
+absent_paths_names=""   # comma-separated needles for INFO output (capped at 3 for hook budget)
+_vr_absent_names_shown=0  # how many names have been added to absent_paths_names
 
+# Word-split on $paths is intentional: TARGETS.MD paths must not contain spaces.
+# shellcheck disable=SC2043,SC2086
 for p in $paths; do
   [ -n "$p" ] || continue
   # The master-table row is the line carrying the EXACT backtick-wrapped path. Use the raw
@@ -106,11 +111,39 @@ for p in $paths; do
   # Claimed count: the Maturity column's leading "N md" (or "N blocks") token in that row.
   claimed="$(printf '%s' "$row" | grep -oiE '[0-9]+[[:space:]]*(md|blocks)\b' | head -1 | grep -oE '[0-9]+' | head -1)"
 
-  # Non-directory backtick tokens are silently skipped, exactly like the sweeps ([ -d ] || continue):
-  # the TARGETS.md table also carries non-path backtick tokens (e.g. the context7 library id
-  # `/mrdoob/three.js` in the three.js row) that match the `/...` shape but are not corpora. Only the
-  # truncated-'...' PARTIAL WARN reports "couldn't check"; a bare non-dir token is just not a corpus.
-  [ -d "$p" ] || continue
+  # Per-row absence rule (§7 three-state: absent ≠ empty ≠ no-match): a TARGETS.MD row is absent
+  # only when NONE of its backtick /... tokens resolves to a directory. A non-directory token in a
+  # row that also has a present corpus path is a companion non-path token (e.g., `/mrdoob/three.js`
+  # alongside a real corpus directory) — it is NOT counted as absent. If ALL tokens in the row are
+  # absent, the row is counted once (dedup by row number) and added to the absent_paths names list.
+  if [ ! -d "$p" ]; then  # ABSENT-PATHS-CHECK
+    # Check whether any backtick /... token in this row is a real directory.
+    # Word-split on tokens from $row is intentional; paths in TARGETS.MD must not contain spaces.
+    # shellcheck disable=SC2043,SC2086
+    _vr_row_any_dir=0
+    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`/[^`]+`' | tr -d '`'); do
+      _vr_rt_exp="${_vr_rt/\$RESEARCH_HOME/${RESEARCH_HOME:-$HOME}}"
+      _vr_rt_exp="${_vr_rt_exp/\$\{RESEARCH_HOME\}/${RESEARCH_HOME:-$HOME}}"
+      [ -d "$_vr_rt_exp" ] && { _vr_row_any_dir=1; break; }
+    done
+    if [ "$_vr_row_any_dir" -eq 0 ]; then
+      # No directory found in this row — count it as an absent target (dedup by row number).
+      _vr_row_num="$(printf '%s' "$row" | grep -oE '^[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|' | grep -oE '[0-9]+' | head -1)"
+      _vr_dedup_key="${_vr_row_num:-$p}"
+      case " ${_vr_absent_row_ids} " in  # ABSENT-ROW-DEDUP
+        *" ${_vr_dedup_key} "*) : ;;
+        *)
+          absent_paths=$((absent_paths + 1))
+          _vr_absent_row_ids="${_vr_absent_row_ids} ${_vr_dedup_key}"
+          if [ "$_vr_absent_names_shown" -lt 3 ]; then
+            absent_paths_names="${absent_paths_names}${absent_paths_names:+, }${needle}"
+            _vr_absent_names_shown=$((_vr_absent_names_shown + 1))
+          fi
+          ;;
+      esac
+    fi
+    continue
+  fi
   dir_reached=$((dir_reached + 1))
 
   # MATURITY PARENTHETICAL EXTRACTION: find the FIRST '(...)' in the row — always the maturity-field
@@ -471,11 +504,20 @@ if [ "$_kit_found" -eq 0 ]; then
 fi
 
 echo ""
-echo "Summary: reconciled ${checked} target(s) · ${drift} count drift(s) · ${retro_drift} retro drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s) · ${attention} attention."
+echo "Summary: reconciled ${checked} target(s) · ${absent_paths} absent target(s) · ${drift} count drift(s) · ${retro_drift} retro drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s) · ${attention} attention."  # ABSENT-SUMMARY-FIELD
+if [ "$absent_paths" -gt 0 ]; then
+  _vr_extra=$((absent_paths - _vr_absent_names_shown))
+  if [ "$_vr_extra" -gt 0 ]; then
+    _vr_names_suffix="${absent_paths_names} ...and ${_vr_extra} more"
+  else
+    _vr_names_suffix="${absent_paths_names}"
+  fi
+  echo "INFO: ${absent_paths} registered target(s) absent on disk — NOT checked: ${_vr_names_suffix}. Verify RESEARCH_HOME (${RESEARCH_HOME:-$HOME}) and that corpora exist at the registered paths."
+fi
 if [ "$skipped_count" -gt 0 ]; then
   echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: ${skipped_names}"
 fi
-if [ "$drift" -eq 0 ] && [ "$retro_drift" -eq 0 ] && [ "$unresolved" -eq 0 ] && [ "$rowlint" -eq 0 ] && [ "$attention" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
+if [ "$drift" -eq 0 ] && [ "$retro_drift" -eq 0 ] && [ "$unresolved" -eq 0 ] && [ "$rowlint" -eq 0 ] && [ "$attention" -eq 0 ] && [ "$skipped_count" -eq 0 ] && [ "$absent_paths" -eq 0 ]; then
   echo "Registry consistent with reality (within tolerance ${tol})."
 else
   [ "$drift" -gt 0 ] && echo "For each count drift: recount the corpus and refresh that target's 'N md' in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
