@@ -1534,7 +1534,7 @@ HARD RULES:
     before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).
     See METHODOLOGY §17.
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
-    work remains (read-only-investigable > 0, or the campaign queue has pending entries), start the
+    work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
     next gap; the continuation call (per mode below) is the last action of the turn, after the
     iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit, enqueue any
     new entries, and pop the next queue entry in the same run (METHODOLOGY §8c). A turn ends only on

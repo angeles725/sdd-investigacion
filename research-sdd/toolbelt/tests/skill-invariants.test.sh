@@ -250,14 +250,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# C2: METHODOLOGY.md must state the campaign-stop condition: queue empty AND
-#     last coverage audit enqueued nothing.
-#     Stable anchor: 'queue is empty and the last coverage audit enqueued nothing'
+# C2: METHODOLOGY.md must use the precise campaign-STOP wording:
+#     no entry is `pending` or `active` (terminal states done/bound-stopped).
+#     Stable anchor: 'no entry is `pending` or `active`'
 # ---------------------------------------------------------------------------
-if grep -qF 'queue is empty and the last coverage audit enqueued nothing' "$METHODOLOGY"; then
-  ok "C2: METHODOLOGY §8c carries campaign-stop condition (queue empty + audit enqueued nothing)"
+if grep -qF 'no entry is `pending` or `active`' "$METHODOLOGY"; then
+  ok "C2: METHODOLOGY §8c carries precise campaign-STOP wording (no pending/active entries)"
 else
-  no "C2: METHODOLOGY §8c missing campaign-stop condition"
+  no "C2: METHODOLOGY §8c missing precise campaign-STOP wording (no pending/active entries)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -327,6 +327,63 @@ if grep -qF 'last_audit:' "$METHODOLOGY"; then
   ok "C8: METHODOLOGY §8c carries 'last_audit:' field for resume/instrument"
 else
   no "C8: METHODOLOGY §8c missing 'last_audit:' field"
+fi
+
+# ---------------------------------------------------------------------------
+# C9: PROMPT-LOOP RETURN CONTRACT must define the continuation-token format
+#     and the rule that a return without either token is a silently stopped
+#     iteration. SKILL.md must point there. Stable anchor: 'halted-but-silent stop'
+# ---------------------------------------------------------------------------
+if grep -qF 'halted-but-silent stop' "$PROMPTLOOP"; then
+  ok "C9: PROMPT-LOOP RETURN CONTRACT carries continuation-token guard ('halted-but-silent stop')"
+else
+  no "C9: PROMPT-LOOP RETURN CONTRACT missing continuation-token guard"
+fi
+
+# ---------------------------------------------------------------------------
+# C10: METHODOLOGY §8c must state that resume first continues an entry left
+#      `active` (an interrupted focus) before popping the next `pending` entry.
+#      Without this rule, a resumed campaign skips an in-progress focus.
+#      Stable anchor: 'first continue any entry left `active`'
+# ---------------------------------------------------------------------------
+if grep -qF 'first continue any entry left `active`' "$METHODOLOGY"; then
+  ok "C10: METHODOLOGY §8c states resume continues active entry first"
+else
+  no "C10: METHODOLOGY §8c missing resume-active-first rule"
+fi
+
+# ---------------------------------------------------------------------------
+# C11: METHODOLOGY §8c must carry `campaign_started:` and `campaign_iterations:`
+#      persisted counters so iteration-count and wall-clock bounds survive
+#      compaction, resume, and sub-agent handoffs.
+# ---------------------------------------------------------------------------
+if grep -qF 'campaign_started:' "$METHODOLOGY" && grep -qF 'campaign_iterations:' "$METHODOLOGY"; then
+  ok "C11: METHODOLOGY §8c carries persisted bound counters (campaign_started + campaign_iterations)"
+else
+  no "C11: METHODOLOGY §8c missing persisted bound counters (campaign_started / campaign_iterations)"
+fi
+
+# ---------------------------------------------------------------------------
+# C12: METHODOLOGY §8c must state that single-focus corpora (no Campaign queue
+#      section) still carry `last_iteration_ts` as the stall-detection signal.
+#      Stable anchor: 'Single-focus corpora'
+# ---------------------------------------------------------------------------
+if grep -qF 'Single-focus corpora' "$METHODOLOGY"; then
+  ok "C12: METHODOLOGY §8c states last_iteration_ts applies to single-focus corpora"
+else
+  no "C12: METHODOLOGY §8c missing single-focus last_iteration_ts statement"
+fi
+
+# ---------------------------------------------------------------------------
+# C14: SKILL.md mode table must say 'CronList → CronDelete' (not just
+#      'CronDelete then disarm') — the operator-fallback clause is required so
+#      the rule works when no CronList is available.
+#      Stable anchor: 'CronList → CronDelete'
+# ---------------------------------------------------------------------------
+if grep -qF 'CronList → CronDelete' "$SKILL"; then
+  ok "C14: SKILL.md mode table carries 'CronList → CronDelete' disarm wording"
+else
+  no "C14: SKILL.md mode table missing 'CronList → CronDelete' disarm wording"
 fi
 
 # ---------------------------------------------------------------------------
@@ -463,10 +520,10 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-C1: C1 assertion goes RED on mutant"
   fi
 
-  # Teeth C2: replace anchor → C2 must go RED.
+  # Teeth C2: replace 'no entry is `pending` or `active`' anchor → C2 must go RED.
   mutantC2="$TMP/METHODOLOGY.mutantC2.md"
-  sed 's/queue is empty and the last coverage audit enqueued nothing/queue is empty ONLY/g' "$METHODOLOGY" > "$mutantC2"
-  if grep -qF 'queue is empty and the last coverage audit enqueued nothing' "$mutantC2"; then
+  sed 's/no entry is `pending` or `active`/no entry is pending or active/g' "$METHODOLOGY" > "$mutantC2"
+  if grep -qF 'no entry is `pending` or `active`' "$mutantC2"; then
     no "teeth-C2: mutant still has C2 anchor — sed did not take (no teeth)"
   else
     ok "teeth-C2: C2 assertion goes RED on mutant"
@@ -526,6 +583,62 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-C8: mutant still has 'last_audit:' — sed did not take (no teeth)"
   else
     ok "teeth-C8: C8 assertion goes RED on mutant"
+  fi
+
+  echo "-- teeth: PROMPT-LOOP + METHODOLOGY + SKILL mutants for C9-C14 --"
+
+  # Teeth C9: replace 'halted-but-silent stop' → C9 must go RED.
+  mutantC9="$TMP/PROMPTLOOP.mutantC9.md"
+  sed 's/halted-but-silent stop/halted-silently/g' "$PROMPTLOOP" > "$mutantC9"
+  if grep -qF 'halted-but-silent stop' "$mutantC9"; then
+    no "teeth-C9: mutant still has 'halted-but-silent stop' — sed did not take (no teeth)"
+  else
+    ok "teeth-C9: C9 assertion goes RED on mutant"
+  fi
+
+  # Teeth C10: replace resume anchor → C10 must go RED.
+  mutantC10="$TMP/METHODOLOGY.mutantC10.md"
+  sed 's/first continue any entry left `active`/first pop the next `pending` entry/g' "$METHODOLOGY" > "$mutantC10"
+  if grep -qF 'first continue any entry left `active`' "$mutantC10"; then
+    no "teeth-C10: mutant still has C10 anchor — sed did not take (no teeth)"
+  else
+    ok "teeth-C10: C10 assertion goes RED on mutant"
+  fi
+
+  # Teeth C11a: replace 'campaign_started:' → C11 must go RED (first condition fails).
+  mutantC11a="$TMP/METHODOLOGY.mutantC11a.md"
+  sed 's/campaign_started:/campaign_STARTED_X:/g' "$METHODOLOGY" > "$mutantC11a"
+  if grep -qF 'campaign_started:' "$mutantC11a"; then
+    no "teeth-C11a: mutant still has 'campaign_started:' — sed did not take (no teeth)"
+  else
+    ok "teeth-C11a: C11 assertion goes RED on mutant (campaign_started removed)"
+  fi
+
+  # Teeth C11b: replace 'campaign_iterations:' → C11 must go RED (second condition fails).
+  mutantC11b="$TMP/METHODOLOGY.mutantC11b.md"
+  sed 's/campaign_iterations:/campaign_ITERATIONS_X:/g' "$METHODOLOGY" > "$mutantC11b"
+  if grep -qF 'campaign_iterations:' "$mutantC11b"; then
+    no "teeth-C11b: mutant still has 'campaign_iterations:' — sed did not take (no teeth)"
+  else
+    ok "teeth-C11b: C11 assertion goes RED on mutant (campaign_iterations removed)"
+  fi
+
+  # Teeth C12: replace 'Single-focus corpora' → C12 must go RED.
+  mutantC12="$TMP/METHODOLOGY.mutantC12.md"
+  sed 's/Single-focus corpora/Multi-focus corpora/g' "$METHODOLOGY" > "$mutantC12"
+  if grep -qF 'Single-focus corpora' "$mutantC12"; then
+    no "teeth-C12: mutant still has 'Single-focus corpora' — sed did not take (no teeth)"
+  else
+    ok "teeth-C12: C12 assertion goes RED on mutant"
+  fi
+
+  # Teeth C14: replace 'CronList → CronDelete' in SKILL → C14 must go RED.
+  mutantC14="$TMP/SKILL.mutantC14.md"
+  sed 's/CronList → CronDelete/CronDelete directly/g' "$SKILL" > "$mutantC14"
+  if grep -qF 'CronList → CronDelete' "$mutantC14"; then
+    no "teeth-C14: mutant still has 'CronList → CronDelete' — sed did not take (no teeth)"
+  else
+    ok "teeth-C14: C14 assertion goes RED on mutant"
   fi
 fi
 

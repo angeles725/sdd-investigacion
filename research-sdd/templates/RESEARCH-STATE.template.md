@@ -116,6 +116,7 @@ blocks_since_retro: 0
 - **Open gaps — blocked** (needs live system / hardware / keys → DYNAMIC phase §12 when available): <K>
 - Consecutive iterations with empty backlog (secondary): <0/2>
 - Budget cap (default safety net): <none | max-blocks N | max-tokens>
+- `last_iteration_ts: <YYYY-MM-DDTHH:MM:SSZ>` (ADVISORY — stall-detection signal; updated each block commit; applies to every corpus, single-focus or campaign)
 
 ## Dismissed file types
 
@@ -135,14 +136,17 @@ blocks_since_retro: 0
 
 <!-- Present only when this focus is part of a multi-focus campaign (METHODOLOGY §8c).
      Omit the section entirely for a single-focus corpus that will never spawn children.
-     The loop pops the next `pending` entry at each focus STOP; campaign STOP fires when every
-     entry is `done` or `bound-stopped` AND the most recent `last_audit:` shows enqueued=0.
+     The loop pops the next `pending` entry at each focus STOP; campaign STOP fires when no entry
+     is `pending` or `active` (all rows carry terminal state `done` or `bound-stopped`) AND the most
+     recent `last_audit:` shows enqueued=0.
 
      Scalar fields (one line each, parsed by key name):
-       last_iteration_ts: <YYYY-MM-DDTHH:MM:SSZ>      — updated each block commit; stall-detection signal
-       last_audit:        <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>  — written after each focus-STOP audit
-       campaign_bounds:   max-depth=<N> iterations=<N> wall-clock=<Nh>  — optional; absent = no bounds
-       campaign_stop:     campaign-bound-reached: <which>  — written only when a bound fires
+       last_iteration_ts:   <YYYY-MM-DDTHH:MM:SSZ>           — top-level field; updated each block commit; stall signal for every corpus
+       last_audit:          <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>  — written after each focus-STOP audit; ABSENT until first audit runs
+       campaign_started:    <YYYY-MM-DDTHH:MM:SSZ>           — written when first entry goes active; anchors wall-clock bound check
+       campaign_iterations: <N>                               — incremented each block commit; anchors iteration-count bound check
+       campaign_bounds:     max-depth=<N> iterations=<N> wall-clock=<Nh>  — optional; absent = no bounds
+       campaign_stop:       campaign-bound-reached: <which>  — written only when a bound fires
 
      last_audit: absent or never written = no audit has run yet (not yet audited).
      campaign_bounds: keys are optional; omit key = no bound on that axis; absent line = no bounds.
@@ -155,7 +159,9 @@ blocks_since_retro: 0
      One row per campaign entry. Do not add free-text columns; put notes in the Seed/Convergence cells. -->
 
 last_iteration_ts: <YYYY-MM-DDTHH:MM:SSZ>
-last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=0
+<!-- last_audit: (absent until first focus-STOP audit runs — do NOT pre-fill; absent ≠ enqueued=0) -->
+campaign_started: <YYYY-MM-DDTHH:MM:SSZ>
+campaign_iterations: 0
 campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<Nh>
 
 | Name | Parent | Kind | Seed | Convergence | State |
