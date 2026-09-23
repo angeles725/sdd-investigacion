@@ -357,7 +357,7 @@ defect (archive-blocking) · `2` = bad args. All are covered by `tests/*.test.sh
 
 | Gate | Checks |
 |---|---|
-| `verify-block.sh <block.md>` | per-block structure / certification-marker integrity; honors `$SOURCE_ROOT` (env, opt-in) — when set, resolves backtick `file:line` citations against `$SOURCE_ROOT/<path>` (decompiled trees) before classifying as `extern` |
+| `verify-block.sh <block.md>` | per-block structure / certification-marker integrity; prints `resolved N of M` summary after citation resolution and WARNs (WARN-only, exit code unchanged) when N=0 and M>0 (all attempted citations fell back to extern/RANGE!/MISSING! — issue #956); M counts bt-cites and artifact-cites attempted; short-form cites, probe entries, jar archive paths, and `[BNNN]` back-references are excluded from M; WARN is graded by the block's declared `Type:` using P6's taxonomy; hints to set `SOURCE_ROOT`; honors `$SOURCE_ROOT` (env, opt-in) — when set, resolves backtick `file:line` citations against `$SOURCE_ROOT/<path>` (decompiled trees) before classifying as `extern` |
 | `verify-sources.sh <target-dir>` | SOURCES.md preservation + registry↔block citation + web-snapshot integrity (METHODOLOGY §5) |
 | `verify-state.sh <target-dir>` | RESEARCH-STATE living-mirror consistency (stale summary → premature STOP) |
 | `verify-corrections.sh <target-dir>` | §14 reciprocal-backlink lint: a block declaring "Corrects [Block N]" must have a matching "corrected in B&lt;this&gt;" note IN block N (a one-directional correction FAILs) |

@@ -890,6 +890,132 @@ else
   no "67 SOURCE_ROOT: unexpected output without SOURCE_ROOT :: $(grep -iE 'extern|ok.*Foo|Foo\.java' <<<"$out" | head -1)"
 fi
 
+# ---- P9-RESOLVED-SUMMARY: resolved N of M + WARN when N=0 and M>0 (issue #956) -------------------------
+# When a block has bt/art citations that all fall back to extern/unresolved the citation gate exits 0
+# silently having verified nothing. P9 prints "resolved N of M" and WARNs when N=0 and M>0, graded by
+# the declared Type: (same taxonomy as P6). WARN-only: exit code is never changed.
+
+# 68 — P9: [CERT] + single extern bt_cite, no Type → "resolved 0 of 1" shown + WARN fires + exit 0.
+d="$TMP/p9-extern-no-type.md"
+{ echo "# Block 68 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"; rrc "$d"; rc=$?
+if [ "$rc" = "0" ] && grep -q 'resolved 0 of 1' <<<"$out" && grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "68 P9: extern bt_cite + no Type → 'resolved 0 of 1' + WARN + exit 0"
+else
+  no "68 P9: wrong output: rc=[$rc] summary=$(grep -i 'resolved' <<<"$out" | head -1) warn=$(grep -i 'WARN' <<<"$out" | head -1)"
+fi
+
+# 69 — P9: partial resolve (1 ok + 1 extern) → "resolved 1 of 2"; no P9 WARN.
+d="$TMP/p9-partial.md"; seq 1 30 > "$TMP/p9-real.java"
+{ echo "# Block 69 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Real file \`p9-real.java:5\`. Missing \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -q 'resolved 1 of 2' <<<"$out" && ! grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "69 P9: partial resolution (1 ok + 1 extern) → 'resolved 1 of 2'; no P9 WARN"
+else
+  no "69 P9: wrong output: summary=$(grep -i 'resolved' <<<"$out" | head -1) warn=$(grep -i 'WARN.*resolved' <<<"$out" | head -1)"
+fi
+
+# 70 — P9: extern cite + Type: synthesis → INFO (not WARN).
+d="$TMP/p9-synthesis.md"
+{ echo "# Block 70 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** synthesis — cross-block"; echo
+  echo "---"; echo
+  echo "As seen in [B5] \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*resolved 0 of|resolved 0 of.*INFO' <<<"$out" && ! grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "70 P9: extern + Type: synthesis → INFO resolved 0 of N (not WARN)"
+else
+  no "70 P9: synthesis type not downgraded to INFO :: $(grep -iE 'INFO|WARN.*resolved' <<<"$out" | head -2)"
+fi
+
+# 71 — P9: extern cite + Type: standard → WARN fires.
+d="$TMP/p9-standard.md"
+{ echo "# Block 71 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** standard — primary evidence"; echo
+  echo "---"; echo
+  echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*resolved 0 of' <<<"$out" && ! grep -qiE 'INFO.*resolved' <<<"$out"; then
+  ok "71 P9: extern + Type: standard → WARN fires (citation-expected type)"
+else
+  no "71 P9: standard type wrong output :: $(grep -iE 'WARN.*resolved|INFO.*resolved' <<<"$out" | head -2)"
+fi
+
+# 72 — P9: no-Type WARN must mention SOURCE_ROOT (hint for decompiled-tree blocks).
+d="$TMP/p9-sourceroot-hint.md"
+{ echo "# Block 72 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The class \`organized/platBase/vineflower/com/Foo.java:5\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*resolved 0 of' <<<"$out" && grep -qi 'SOURCE_ROOT' <<<"$out"; then
+  ok "72 P9: no-Type WARN mentions SOURCE_ROOT (hint for decompiled-tree blocks)"
+else
+  no "72 P9: SOURCE_ROOT hint absent :: $(grep -iE 'WARN.*resolved|SOURCE_ROOT' <<<"$out" | head -2)"
+fi
+
+# 73 — P9: range bt_cite resolves → "resolved 1 of 1"; no P9 WARN (catches P9-VB-OK-RANGE counter).
+d="$TMP/p9-range-ok.md"; seq 1 30 > "$TMP/p9-range.java"
+{ echo "# Block 73 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The loop \`p9-range.java:5-15\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -q 'resolved 1 of 1' <<<"$out" && ! grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "73 P9: range bt_cite resolves → 'resolved 1 of 1'; no P9 WARN"
+else
+  no "73 P9: wrong output: summary=$(grep -i 'resolved' <<<"$out" | head -1) warn=$(grep -i 'WARN.*resolved' <<<"$out" | head -1)"
+fi
+
+# 74 — P9: artifact cite ok → counted in both N and M; "resolved 1 of 1" (catches P9-VB-OK-ART / P9-VB-M-ART).
+d="$TMP/p9-art-ok.md"; seq 1 30 > "$TMP/B96-art-ok.txt"
+{ echo "# Block 74 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -q 'resolved 1 of 1' <<<"$out" && ! grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "74 P9: art-cite ok → 'resolved 1 of 1'; no P9 WARN"
+else
+  no "74 P9: wrong output: summary=$(grep -i 'resolved' <<<"$out" | head -1) warn=$(grep -i 'WARN.*resolved' <<<"$out" | head -1)"
+fi
+
+# 75 — P9: extern cite + unrecognised Type → WARN names the type token (catches P9-TYPE-UNRECOGNISED).
+d="$TMP/p9-unrec-type.md"
+{ echo "# Block 75 — t"; echo
+  echo "> Method: [CERT] = x."; echo
+  echo "> **Type:** experimental"; echo
+  echo "---"; echo
+  echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'WARN.*resolved 0 of' <<<"$out" && grep -q 'experimental' <<<"$out"; then
+  ok "75 P9: extern + unrecognised Type → WARN names the type token"
+else
+  no "75 P9: unrecognised type not named in P9 WARN :: $(grep -iE 'WARN.*resolved|experimental' <<<"$out" | head -2)"
+fi
+
+# 76 — P9: doc-grade-only ([CERT-doc]) with extern cite → INFO not WARN (catches P9-DOC-GRADE-GUARD).
+d="$TMP/p9-doc-grade.md"
+{ echo "# Block 76 — t"; echo
+  echo "> Method: [CERT-doc] = x."; echo
+  echo "---"; echo
+  echo "The method \`NonExistent.java:10\`. \`[CERT-doc]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'INFO.*resolved 0 of' <<<"$out" && ! grep -qiE 'WARN.*resolved 0 of' <<<"$out"; then
+  ok "76 P9: doc-grade-only + extern cite → INFO (not WARN)"
+else
+  no "76 P9: doc-grade guard wrong: $(grep -iE 'WARN.*resolved|INFO.*resolved' <<<"$out" | head -2)"
+fi
+
+# 77 — P9: no-Type extern cite → HINT line present (catches P9-NO-TYPE-HINT).
+d="$TMP/p9-no-type-hint.md"
+{ echo "# Block 77 — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+  echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d"
+out="$(run "$d")"
+if grep -qiE 'HINT.*Declare.*Type' <<<"$out"; then
+  ok "77 P9: no-Type extern cite → HINT line present"
+else
+  no "77 P9: HINT line absent :: $(grep -iE 'HINT.*Declare|WARN.*resolved' <<<"$out" | head -2)"
+fi
+
 # NEGATIVE CONTROL — neuter the header strip; the legend fixture must then show adj==raw (legend NOT stripped).
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter the fence detection so adjusted == raw; expect the legend fixture to stop distinguishing --"
@@ -1110,7 +1236,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-p6-type-classify: neuter P6-TYPE-CLASSIFY; synthesis block must revert to WARN --"
   mutant_type="$TMP/verify-block.P6TYPECLASSIFY.sh"
   if grep -q '# P6-TYPE-CLASSIFY' "$SUT"; then
-    sed '/# P6-TYPE-CLASSIFY/ s/.*/        if false; then  # P6-TYPE-CLASSIFY [NEUTERED]/' "$SUT" > "$mutant_type"
+    sed '/# P6-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/' "$SUT" > "$mutant_type"
     bash -n "$mutant_type" 2>/dev/null; type_syntax=$?
     if [ "$type_syntax" != "0" ]; then
       no "teeth-p6-type-classify: mutant has syntax error (bash -n rc=$type_syntax) — cannot run"
@@ -1136,7 +1262,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-p6-type-unrecognised: neuter P6-TYPE-UNRECOGNISED; unrecognised token must not appear in output --"
   mutant_unrec="$TMP/verify-block.P6TYPEUNREC.sh"
   if grep -q '# P6-TYPE-UNRECOGNISED' "$SUT"; then
-    sed '/# P6-TYPE-UNRECOGNISED/ s/.*/      elif false; then  # P6-TYPE-UNRECOGNISED [NEUTERED]/' "$SUT" > "$mutant_unrec"
+    sed '/# P6-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P6-TYPE-UNRECOGNISED [NEUTERED]/' "$SUT" > "$mutant_unrec"
     bash -n "$mutant_unrec" 2>/dev/null; unrec_syntax=$?
     if [ "$unrec_syntax" != "0" ]; then
       no "teeth-p6-type-unrecognised: mutant has syntax error (bash -n rc=$unrec_syntax) — cannot run"
@@ -1283,7 +1409,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-p6-type-classify-decision: remove decision from P6-TYPE-CLASSIFY; block must revert to WARN --"
   mutant_tdec="$TMP/verify-block.P6TYPEDEC.sh"
   if grep -q '# P6-TYPE-CLASSIFY' "$SUT"; then
-    sed '/# P6-TYPE-CLASSIFY/ s/ decision//' "$SUT" > "$mutant_tdec"
+    sed '/# P6-TYPE-CLASSIFY/ s/|decision//' "$SUT" > "$mutant_tdec"
     bash -n "$mutant_tdec" 2>/dev/null; tdec_syntax=$?
     if [ "$tdec_syntax" != "0" ]; then
       no "teeth-p6-type-classify-decision: mutant has syntax error (bash -n rc=$tdec_syntax) — cannot run"
@@ -1395,6 +1521,188 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-source-root-fallback: SOURCE_ROOT-FALLBACK sentinel not found in SUT (fallback not implemented or marker missing)"
+  fi
+
+  # teeth-p9: neuter P9-RESOLVED-SUMMARY outer if; all-extern block must stop showing summary and WARN.
+  echo "-- teeth-p9: neuter P9-RESOLVED-SUMMARY; all-extern block must stop emitting resolved/WARN --"
+  mutant_p9="$TMP/verify-block.P9MUTANT.sh"
+  if grep -q '# P9-RESOLVED-SUMMARY' "$SUT"; then
+    sed '/# P9-RESOLVED-SUMMARY/ s/if.*/if false; then  # P9-RESOLVED-SUMMARY [NEUTERED]/' "$SUT" > "$mutant_p9"
+    bash -n "$mutant_p9" 2>/dev/null; p9_syntax=$?
+    if [ "$p9_syntax" -ne 0 ]; then
+      no "teeth-p9: mutant has syntax error (bash -n rc=$p9_syntax) — cannot run"
+    else
+      d_p9="$TMP/p9-teeth.md"
+      { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+        echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9"
+      orig_p9="$(bash "$SUT" "$d_p9" 2>/dev/null)"
+      mut_p9="$(bash "$mutant_p9" "$d_p9" 2>/dev/null)"
+      orig_has_warn=0; mut_no_warn=0
+      grep -qiE 'WARN.*resolved 0 of|resolved 0 of' <<<"$orig_p9" && orig_has_warn=1
+      ! grep -qiE 'WARN.*resolved 0 of|resolved 0 of' <<<"$mut_p9" && mut_no_warn=1
+      if [ "$orig_has_warn$mut_no_warn" = "11" ]; then
+        ok "teeth-p9: original shows P9 summary/WARN, mutant does not → P9-RESOLVED-SUMMARY is load-bearing"
+      else
+        no "teeth-p9: orig_has_warn=$orig_has_warn mut_no_warn=$mut_no_warn (want 1 1) :: orig=$(grep -i 'resolved' <<<"$orig_p9" | head -1) mut=$(grep -i 'resolved' <<<"$mut_p9" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-p9: P9-RESOLVED-SUMMARY sentinel not found in SUT (P9 not implemented or marker missing)"
+  fi
+
+  # teeth-p9-type-classify: neuter P9-TYPE-CLASSIFY; synthesis+extern → WARN instead of INFO.
+  echo "-- teeth-p9-type-classify: neuter P9-TYPE-CLASSIFY; synthesis+extern must revert to WARN --"
+  mutant_p9tc="$TMP/verify-block.P9TYPECLASSIFY.sh"
+  if grep -q '# P9-TYPE-CLASSIFY' "$SUT"; then
+    sed '/# P9-TYPE-CLASSIFY/ s/synthesis|[^)]*/NOTYPE_MATCH/' "$SUT" > "$mutant_p9tc"
+    bash -n "$mutant_p9tc" 2>/dev/null; p9tc_syntax=$?
+    if [ "$p9tc_syntax" -ne 0 ]; then
+      no "teeth-p9-type-classify: mutant has syntax error (bash -n rc=$p9tc_syntax) — cannot run"
+    else
+      d_p9tc="$TMP/p9-type-classify-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "> **Type:** synthesis"; echo
+        echo "---"; echo
+        echo "As seen in \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9tc"
+      orig_p9tc="$(bash "$SUT" "$d_p9tc" 2>/dev/null)"
+      mout_p9tc="$(bash "$mutant_p9tc" "$d_p9tc" 2>/dev/null)"
+      if grep -qiE 'INFO.*resolved' <<<"$orig_p9tc" && grep -qiE 'WARN.*resolved 0 of' <<<"$mout_p9tc"; then
+        ok "teeth-p9-type-classify: neutered classify → synthesis reverts to WARN (test 70 has teeth)"
+      else
+        no "teeth-p9-type-classify: orig_info=$(grep -iE 'INFO.*resolved' <<<"$orig_p9tc" | head -1) mut_warn=$(grep -iE 'WARN.*resolved' <<<"$mout_p9tc" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-p9-type-classify: P9-TYPE-CLASSIFY sentinel not found in SUT"
+  fi
+
+  # teeth-p9-type-unrecognised: neuter P9-TYPE-UNRECOGNISED; unrecognised type must not name itself in WARN.
+  echo "-- teeth-p9-type-unrecognised: neuter P9-TYPE-UNRECOGNISED; type name must vanish from WARN --"
+  mutant_p9tu="$TMP/verify-block.P9TYPEUNREC.sh"
+  if grep -q '# P9-TYPE-UNRECOGNISED' "$SUT"; then
+    sed '/# P9-TYPE-UNRECOGNISED/ s/if .*/if false; then  # P9-TYPE-UNRECOGNISED [NEUTERED]/' "$SUT" > "$mutant_p9tu"
+    bash -n "$mutant_p9tu" 2>/dev/null; p9tu_syntax=$?
+    if [ "$p9tu_syntax" -ne 0 ]; then
+      no "teeth-p9-type-unrecognised: mutant has syntax error (bash -n rc=$p9tu_syntax) — cannot run"
+    else
+      d_p9tu="$TMP/p9-type-unrec-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT] = x."; echo
+        echo "> **Type:** experimental-p9"; echo
+        echo "---"; echo
+        echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9tu"
+      mout_p9tu="$(bash "$mutant_p9tu" "$d_p9tu" 2>/dev/null)"
+      if ! grep -q 'experimental-p9' <<<"$mout_p9tu"; then
+        ok "teeth-p9-type-unrecognised: neutered branch → type name absent (test 75 has teeth)"
+      else
+        no "teeth-p9-type-unrecognised: neutered mutant STILL named the type :: $(grep -iE 'experimental-p9|WARN.*resolved' <<<"$mout_p9tu" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-p9-type-unrecognised: P9-TYPE-UNRECOGNISED sentinel not found in SUT"
+  fi
+
+  # teeth-p9-range-ok: neuter P9-VB-OK-RANGE; range-resolved cite → 'resolved 0 of 1' instead of 1 of 1.
+  echo "-- teeth-p9-range-ok: neuter P9-VB-OK-RANGE; range-resolved cite must count as 0 --"
+  mutant_p9ro="$TMP/verify-block.P9RANGEOK.sh"
+  if grep -q '# P9-VB-OK-RANGE' "$SUT"; then
+    sed '/# P9-VB-OK-RANGE/ s/+1/+0/' "$SUT" > "$mutant_p9ro"
+    d_p9ro="$TMP/p9-range-ok-teeth.md"; seq 1 30 > "$TMP/p9-range-teeth.java"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "The loop \`p9-range-teeth.java:5-15\`. \`[CERT]\`"; } > "$d_p9ro"
+    orig_p9ro="$(bash "$SUT" "$d_p9ro" 2>/dev/null)"
+    mut_p9ro="$(bash "$mutant_p9ro" "$d_p9ro" 2>/dev/null)"
+    if grep -q 'resolved 1 of 1' <<<"$orig_p9ro" && grep -q 'resolved 0 of 1' <<<"$mut_p9ro"; then
+      ok "teeth-p9-range-ok: neutered counter → range cite counts as 0 (test 73 has teeth)"
+    else
+      no "teeth-p9-range-ok: orig=$(grep -i 'resolved' <<<"$orig_p9ro" | head -1) mut=$(grep -i 'resolved' <<<"$mut_p9ro" | head -1)"
+    fi
+  else
+    no "teeth-p9-range-ok: P9-VB-OK-RANGE sentinel not found in SUT"
+  fi
+
+  # teeth-p9-art-ok: neuter P9-VB-OK-ART; art-cite ok → 'resolved 0 of 1' instead of 1 of 1.
+  echo "-- teeth-p9-art-ok: neuter P9-VB-OK-ART; art-cite ok must count as 0 --"
+  mutant_p9ao="$TMP/verify-block.P9ARTOK.sh"
+  if grep -q '# P9-VB-OK-ART' "$SUT"; then
+    sed '/# P9-VB-OK-ART/ s/+1/+0/' "$SUT" > "$mutant_p9ao"
+    d_p9ao="$TMP/p9-art-ok-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"; } > "$d_p9ao"
+    orig_p9ao="$(bash "$SUT" "$d_p9ao" 2>/dev/null)"
+    mut_p9ao="$(bash "$mutant_p9ao" "$d_p9ao" 2>/dev/null)"
+    if grep -q 'resolved 1 of 1' <<<"$orig_p9ao" && grep -q 'resolved 0 of 1' <<<"$mut_p9ao"; then
+      ok "teeth-p9-art-ok: neutered counter → art-ok cite counts as 0 (test 74 has teeth)"
+    else
+      no "teeth-p9-art-ok: orig=$(grep -i 'resolved' <<<"$orig_p9ao" | head -1) mut=$(grep -i 'resolved' <<<"$mut_p9ao" | head -1)"
+    fi
+  else
+    no "teeth-p9-art-ok: P9-VB-OK-ART sentinel not found in SUT"
+  fi
+
+  # teeth-p9-art-m: neuter P9-VB-M-ART; art-cite block → no 'resolved' line (M stays 0).
+  echo "-- teeth-p9-art-m: neuter P9-VB-M-ART; art-cite must not increment M → no resolved line --"
+  mutant_p9am="$TMP/verify-block.P9ARTM.sh"
+  if grep -q '# P9-VB-M-ART' "$SUT"; then
+    sed '/# P9-VB-M-ART/ s/+1/+0/' "$SUT" > "$mutant_p9am"
+    d_p9am="$TMP/p9-art-m-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "Order preserved (B96-art-ok.txt:10-20). \`[CERT]\`"; } > "$d_p9am"
+    orig_p9am="$(bash "$SUT" "$d_p9am" 2>/dev/null)"
+    mut_p9am="$(bash "$mutant_p9am" "$d_p9am" 2>/dev/null)"
+    if grep -q 'resolved' <<<"$orig_p9am" && ! grep -q 'resolved' <<<"$mut_p9am"; then
+      ok "teeth-p9-art-m: neutered M counter → art cite drops 'resolved' line (test 74 has teeth)"
+    else
+      no "teeth-p9-art-m: orig=$(grep -i 'resolved' <<<"$orig_p9am" | head -1) mut_still=$(grep -i 'resolved' <<<"$mut_p9am" | head -1)"
+    fi
+  else
+    no "teeth-p9-art-m: P9-VB-M-ART sentinel not found in SUT"
+  fi
+
+  # teeth-p9-doc-grade-guard: neuter P9-DOC-GRADE-GUARD; doc-grade-only+extern → WARN instead of INFO.
+  echo "-- teeth-p9-doc-grade-guard: neuter P9-DOC-GRADE-GUARD; doc-grade block must revert to WARN --"
+  mutant_p9dg="$TMP/verify-block.P9DOCGRADE.sh"
+  if grep -q '# P9-DOC-GRADE-GUARD' "$SUT"; then
+    sed '/# P9-DOC-GRADE-GUARD/ s/if .*/if false; then  # P9-DOC-GRADE-GUARD [NEUTERED]/' "$SUT" > "$mutant_p9dg"
+    bash -n "$mutant_p9dg" 2>/dev/null; p9dg_syntax=$?
+    if [ "$p9dg_syntax" -ne 0 ]; then
+      no "teeth-p9-doc-grade-guard: mutant has syntax error (bash -n rc=$p9dg_syntax) — cannot run"
+    else
+      d_p9dg="$TMP/p9-doc-grade-teeth.md"
+      { echo "# Block — t"; echo
+        echo "> Method: [CERT-doc] = x."; echo
+        echo "---"; echo
+        echo "The method \`NonExistent.java:10\`. \`[CERT-doc]\`"; } > "$d_p9dg"
+      orig_p9dg="$(bash "$SUT" "$d_p9dg" 2>/dev/null)"
+      mut_p9dg_out="$(bash "$mutant_p9dg" "$d_p9dg" 2>/dev/null)"
+      if grep -qiE 'INFO.*resolved' <<<"$orig_p9dg" && grep -qiE 'WARN.*resolved 0 of' <<<"$mut_p9dg_out"; then
+        ok "teeth-p9-doc-grade-guard: neutered guard → doc-grade block reverts to WARN (test 76 has teeth)"
+      else
+        no "teeth-p9-doc-grade-guard: orig_info=$(grep -iE 'INFO.*resolved' <<<"$orig_p9dg" | head -1) mut_warn=$(grep -iE 'WARN.*resolved' <<<"$mut_p9dg_out" | head -1)"
+      fi
+    fi
+  else
+    no "teeth-p9-doc-grade-guard: P9-DOC-GRADE-GUARD sentinel not found in SUT"
+  fi
+
+  # teeth-p9-no-type-hint: neuter P9-NO-TYPE-HINT; no-Type extern cite → HINT line must disappear.
+  echo "-- teeth-p9-no-type-hint: neuter P9-NO-TYPE-HINT; HINT must not appear in output --"
+  mutant_p9nh="$TMP/verify-block.P9NOTYPEHINT.sh"
+  if grep -q '# P9-NO-TYPE-HINT' "$SUT"; then
+    sed '/# P9-NO-TYPE-HINT/ s/echo.*/: # P9-NO-TYPE-HINT [NEUTERED]/' "$SUT" > "$mutant_p9nh"
+    d_p9nh="$TMP/p9-no-type-hint-teeth.md"
+    { echo "# Block — t"; echo; echo "> Method: [CERT] = x."; echo; echo "---"; echo
+      echo "The method \`NonExistent.java:10\`. \`[CERT]\`"; } > "$d_p9nh"
+    orig_p9nh="$(bash "$SUT" "$d_p9nh" 2>/dev/null)"
+    mut_p9nh_out="$(bash "$mutant_p9nh" "$d_p9nh" 2>/dev/null)"
+    if grep -qiE 'HINT.*Declare' <<<"$orig_p9nh" && ! grep -qiE 'HINT.*Declare' <<<"$mut_p9nh_out"; then
+      ok "teeth-p9-no-type-hint: neutered HINT → HINT absent from output (test 77 has teeth)"
+    else
+      no "teeth-p9-no-type-hint: orig_hint=$(grep -iE 'HINT' <<<"$orig_p9nh" | head -1) mut=$(grep -iE 'HINT' <<<"$mut_p9nh_out" | head -1)"
+    fi
+  else
+    no "teeth-p9-no-type-hint: P9-NO-TYPE-HINT sentinel not found in SUT"
   fi
 fi
 

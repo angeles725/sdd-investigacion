@@ -432,12 +432,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      `docs/<guide>.md` finalized. Declare "DESIGN/SYNTHESIS corpus — high [INFER] ratio EXPECTED" in
      RESEARCH-STATE at bootstrap. Distinct from DOCUMENT MODE (§20) and from a focus-closing synthesis
      block (step 7). (Source: 2026-08-30-module-best-practices-focus-retro.md Δ1)
-       verify-block WARN "ZERO file:line citations resolved" is EXPECTED on any synthesis block whose
-     citations are exclusively [Block N] cross-references — verify-block exits 0; the WARN is
-     informational. verify-block reads the Type token (kit issue #422): the WARN is INFO for a declared synthesis block. Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies
-     to the [Block N] citations: confirm the finding attributed to [Block N] §N.x actually appears in
-     that block's cited section. Record: "verify-block: exit 0, WARN expected (synthesis block;
-     [Block N] token-check: N citations confirmed)." (Source: 2026-08-30-module-best-practices-focus-retro.md Δ2)
+       verify-block `resolved 0 of M` is EXPECTED on any synthesis block whose citations are exclusively
+     [Block N] cross-references — verify-block exits 0; the output is informational. verify-block reads
+     the Type token (kit issue #422, #956): `resolved 0 of M` is INFO for a declared synthesis block.
+     Do NOT add spurious file:line citations to silence it. TOKEN-CHECK instead applies to the [Block N]
+     citations: confirm the finding attributed to [Block N] §N.x actually appears in that block's cited
+     section. Record: "verify-block: exit 0, resolved 0 of N INFO expected (synthesis block; [Block N]
+     token-check: N citations confirmed)." (Source: 2026-08-30-module-best-practices-focus-retro.md Δ2)
        SYNTHESIS-GUIDE FOCUS PAIR. When corpus evidence divides along two orthogonal axes (WHAT: rules
      / HOW: process), two sequential SYNTHESIS-GUIDE focuses may run over the same source blocks, each
      producing a distinct `docs/` deliverable. "Same evidence, different shape" is NOT a remittance.
@@ -840,16 +841,16 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          calculator, not an orchestrator gate.
          VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
          all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
-         etc.), verify-block classifies them as `extern` — it prints "ZERO file:line citations resolved"
-         and exits 0. This WARN is EXPECTED, not an error: the script cannot follow a decompiler output
+         etc.), verify-block classifies them as `extern` — it prints `resolved 0 of M` and a graded WARN
+         (INFO for declared synthesis/capture/document/absence-centred/decision types; WARN otherwise)
+         and exits 0. This output is EXPECTED, not an error: the script cannot follow a decompiler output
          path. The mechanized citation gate has checked nothing for that block; the burden falls ENTIRELY
          on the inline token-verify in this step 5. Self-verify must record this explicitly — e.g.
-         "verify-block: 0 resolved (all extern — decompiled trees); sole citation gate = inline
+         "verify-block: resolved 0 of N (all extern — decompiled trees); sole citation gate = inline
          token-verify N/M rows" — so the omission is visible, not silently assumed covered. Separately:
-         a SOURCE_ROOT mapping (not yet implemented) would let the script resolve decompiled paths; the
-         absence of that config is the root cause. Until it exists, inline token-verify is non-negotiable
-         for any decompile-based block. `extern` citations (beautified/decompiled/snapshot) are not
-         script-verifiable — still token-check those by reading.
+         set `SOURCE_ROOT` to the decompiled-tree root to let the script resolve those paths; without it,
+         inline token-verify is non-negotiable for any decompile-based block. `extern` citations
+         (beautified/decompiled/snapshot) are not script-verifiable — still token-check those by reading.
          BASE-RELATIVE CITATION BLIND SPOT: verify-block resolves `[CERT]` paths against two
          roots in order: (1) `$target` — the second CLI argument, defaulting to the block's own
          directory; (2) the git toplevel of `$target` (N-PROJECT-FALLBACK). The blind spot is a

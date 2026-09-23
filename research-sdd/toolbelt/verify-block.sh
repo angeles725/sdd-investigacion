@@ -162,6 +162,18 @@ if [ -n "$synth_refs" ]; then
   done <<< "$synth_refs"
   synth_found=1
 fi
+# P9-TYPE-PARSE-EARLY: parse Type: token once, shared by P6 (zero-citation WARN) and P9 (resolved-N-of-M WARN).
+# Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision
+# Strip is ORDER-INDEPENDENT: leading spaces, asterisks, backticks removed in any combination — see P6-TYPE-STRIP.
+_type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
+_type_token=""
+_type_stripped=""
+if [ -n "$_type_raw" ]; then
+  _type_no_bq=$(printf '%s' "$_type_raw" | sed 's/^[[:space:]]*>[[:space:]]*//')  # P6-BQ-STRIP
+  _type_after=$(printf '%s' "$_type_no_bq" | sed 's/.*[Tt][Yy][Pp][Ee]://')  # P6-BQ-TYPECASE
+  _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
+  _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
+fi
 if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$probe_found" ]; then
   # P6-NONRESOLVABLE-SUPPRESS: when the only citations present are recognized non-resolvable forms
   # (jar archive entries and/or [BNNN] block back-references), the gate is not blind — it identified
@@ -181,43 +193,39 @@ if [ -z "$art_cites" ] && [ -z "$bt_cites" ] && [ -z "$short_cites" ] && [ -z "$
     if [ "$code_cert_total" -eq 0 ]; then  # P6-DOC-AWARE-SUPPRESS
       echo "   (doc-grade citations only ([CERT-doc]/[CERT-web]/[CERT-a]) — file:line not expected; validate tokens via verify-sources.sh + §5 token-check)"
     else
-      # P6-TYPE-PARSE: extract the leading Type token from the block's header blockquote.
-      # Grammar (closed, §4): standard|evidence|synthesis|mixed|absence-centred|capture|document|collaborative|audit|decision
-      # Strip is ORDER-INDEPENDENT: leading spaces, asterisks (bold close) and backticks removed in any combination,
-      # so **Type:** `capture` → capture and **Type:** synthesis → synthesis both parse correctly.
-      _type_raw=$(grep -iE '^\s*>\s*(\*\*)?\s*[Tt]ype:' "$block" | head -1)
-      _type_token=""
-      _type_stripped=""
-      if [ -n "$_type_raw" ]; then
-        # BQ-STRIP: strip blockquote marker before parsing so > **TYPE: VALUE** names VALUE, not >.
-        _type_no_bq=$(printf '%s' "$_type_raw" | sed 's/^[[:space:]]*>[[:space:]]*//')  # P6-BQ-STRIP
-        _type_after=$(printf '%s' "$_type_no_bq" | sed 's/.*[Tt][Yy][Pp][Ee]://')  # P6-BQ-TYPECASE
-        _type_stripped=$(printf '%s' "$_type_after" | sed 's/^[[:space:]*`]*//')  # P6-TYPE-STRIP
-        _type_token=$(printf '%s' "$_type_stripped" | grep -oE '^[a-z][a-z-]*')
-      fi
+      # Type: already parsed above (P9-TYPE-PARSE-EARLY); _type_raw/_type_token/_type_stripped are set.
       # Classify: INFO for no-citation declared types; WARN-by-name for unrecognised; WARN+hint for absent Type line.
-      if printf '%s\n' synthesis capture document absence-centred decision | grep -qxF "$_type_token"; then  # P6-TYPE-CLASSIFY
-        echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
-      elif [ -n "$_type_raw" ] && ! printf '%s\n' standard evidence mixed collaborative audit synthesis capture document absence-centred decision | grep -qxF "$_type_token"; then  # P6-TYPE-UNRECOGNISED
-        # Name the real value when token is empty (uppercase/non-conformant); strip closing ** and trailing punctuation.
-        _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P6-TYPE-DISPLAY
-        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
-      elif [ -z "$_type_raw" ]; then
-        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
-        echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
-      else
-        echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
-      fi
+      # case replaces printf|grep-qxF to avoid pipefail/SIGPIPE exit 141 on early match — same family as e727cde.
+      case "$_type_token" in
+        synthesis|capture|document|absence-centred|decision)  # P6-TYPE-CLASSIFY
+          echo "   INFO    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — expected for declared type $_type_token."
+          ;;
+        standard|evidence|mixed|collaborative|audit)
+          echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+          ;;
+        *)
+          if [ -n "$_type_raw" ]; then  # P6-TYPE-UNRECOGNISED
+            # Name the real value when token is empty (uppercase/non-conformant); strip closing ** and trailing punctuation.
+            _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P6-TYPE-DISPLAY
+            echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — unrecognised Type: token '$_type_warn_name'; accepted: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
+          else
+            echo "   WARN    [CERT] markers present ($cert_total) but ZERO file:line citations resolved — the citation gate checked nothing and exits 0 silently. Expected for synthesis / REMITTANCE / [CERT-live]-only or [CERT-doc]-only blocks (check your block-type declaration); otherwise add file:line citations or re-check the citation format."
+            echo "   HINT    Declare a Type: token in the header blockquote to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."
+          fi
+          ;;
+      esac
     fi
   else
     echo "   (no file:line citations found)"
   fi
   fi  # close jar_found/synth_found branch
 fi
+_vb_ok=0; _vb_m=0  # P9-RESOLVED-SUMMARY: ok resolutions vs. total attempted (bt + art cites)
 # (a) artifact cites — strict: MISSING (unpreserved evidence) and out-of-range both FAIL.
 if [ -n "$art_cites" ]; then
   while IFS= read -r c; do
     [ -z "$c" ] && continue
+    _vb_m=$((_vb_m+1))  # P9-VB-M-ART
     n=$(printf '%s' "$c" | sed 's/‑/-/g; s/–/-/g')                       # normalise range dash to ASCII
     f="${n%:*}"; rng="${n##*:}"
     case "$rng" in
@@ -237,7 +245,7 @@ if [ -n "$art_cites" ]; then
       total=$(wc -l < "$target/$f")
       # FAIL if either endpoint is past EOF or the range is reversed (start > end).
       if [ "$start" -le "$total" ] && [ "$end" -le "$total" ] && [ "$start" -le "$end" ]; then
-        echo "   ok      $c"
+        echo "   ok      $c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-ART
       else
         echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
       fi
@@ -258,6 +266,7 @@ if [ -n "$bt_cites" ]; then
     esac
     # pipefail-audit: single-arg bash builtin printf — structurally immune regardless of $f size.
     printf '%s' "$f" | grep -qiE "^${art_name}$" && continue
+    _vb_m=$((_vb_m+1))  # P9-VB-M-BT
     if [ "$start" -eq 0 ]; then
       echo "   RANGE!  $c  (start 0 is invalid — lines are 1-indexed)"; rc=1; continue
     fi
@@ -275,9 +284,9 @@ if [ -n "$bt_cites" ]; then
       total=$(wc -l < "$_bt_resolve")
       if [ "$end" -le "$total" ]; then
         if [ "$start" = "$end" ]; then
-          echo "   ok      $c"
+          echo "   ok      $c"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-BT
         else
-          echo "   ok      $c  (range end verified; file has $total lines)"
+          echo "   ok      $c  (range end verified; file has $total lines)"; _vb_ok=$((_vb_ok+1))  # P9-VB-OK-RANGE
         fi
       else
         echo "   RANGE!  $c  (file has $total lines) — cited line out of range"; rc=1
@@ -293,6 +302,37 @@ if [ -n "$short_cites" ]; then
     [ -z "$c" ] && continue
     echo "   short   $c  (short form — file implied by context; not script-verifiable)"
   done <<< "$short_cites"
+fi
+# P9-RESOLVED-SUMMARY: print resolved N of M and WARN when N=0 and M>0 (issue #956, §7 false-negative).
+# Fires when citations were attempted but none resolved — distinct from P6 (no citations at all).
+# WARN is graded by the block's declared Type:, using the same taxonomy as P6 (P9-TYPE-PARSE-EARLY above).
+# WARN-only: exit code is NOT changed (a finding is advisory, CLAUDE.md §8).
+if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
+  echo "   resolved $_vb_ok of $_vb_m"
+  if [ "$_vb_ok" -eq 0 ]; then
+    # case replaces printf|grep-qxF to avoid pipefail/SIGPIPE exit 141 on early match — same family as e727cde.
+    if [ "$cert_total" -gt 0 ] && [ "$code_cert_total" -eq 0 ]; then  # P9-DOC-GRADE-GUARD: mirror P6-CERT-ZERO-CITE-WARN/P6-DOC-AWARE-SUPPRESS
+      echo "   INFO    resolved 0 of $_vb_m — doc-grade markers only; file:line citations not expected."
+    else
+      case "$_type_token" in
+        synthesis|capture|document|absence-centred|decision)  # P9-TYPE-CLASSIFY
+          echo "   INFO    resolved 0 of $_vb_m — expected for declared type $_type_token."
+          ;;
+        standard|evidence|mixed|collaborative|audit)
+          echo "   WARN    resolved 0 of $_vb_m — no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+          ;;
+        *)
+          if [ -n "$_type_raw" ]; then  # P9-TYPE-UNRECOGNISED
+            _type_warn_name="${_type_token:-$(printf '%s' "$_type_stripped" | sed 's/[[:space:]]*\*.*//; s/[[:space:]]*\.[[:space:]]*$//; s/[[:space:]]*$//')}"  # P9-TYPE-DISPLAY
+            echo "   WARN    resolved 0 of $_vb_m — unrecognised Type: '$_type_warn_name'; no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+          else
+            echo "   WARN    resolved 0 of $_vb_m — no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
+            echo "   HINT    Declare a Type: token to grade this WARN: standard | evidence | synthesis | mixed | absence-centred | capture | document | collaborative | audit | decision."  # P9-NO-TYPE-HINT
+          fi
+          ;;
+      esac
+    fi
+  fi
 fi
 
 # 4. OCR-provenance flag — a [CERT-doc] citation sourced from an OCR'd (scanned) PDF is LOSSY
