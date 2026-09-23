@@ -242,7 +242,8 @@ if echo "$out_m9_ctrl" | grep -qF '/rh&amp/path/tgt'; then
   ok "teeth 9 (d) ctrl: SUT preserves & in RESEARCH_HOME path"
 else no "teeth 9 (d) ctrl: SUT does not preserve & (case 9 premise broken)" "out=[$out_m9_ctrl]"; fi
 out_m9="$("$BASH_BIN" --norc -c "source '$MUTANT_TP9'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
-if ! echo "$out_m9" | grep -qF '/rh&amp/path/tgt'; then
+# Positive verdict: the mutant must RUN and emit the specific &-corrupted path (a crash emits nothing).
+if echo "$out_m9" | grep -qF '/rh$RESEARCH_HOME/amp/path/tgt' && ! echo "$out_m9" | grep -qF '/rh&amp/path/tgt'; then
   ok "teeth 9: sub()-mutant corrupts & path (case 9 has teeth)"
 else no "teeth 9: mutant did not corrupt & path; case 9 is THEATER" "out=[$out_m9]"; fi
 # Sabotage: the old injection (no braces → orphan else) causes an awk syntax error → crash.

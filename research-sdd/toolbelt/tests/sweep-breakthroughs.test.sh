@@ -972,7 +972,8 @@ _m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/
 if [ "$_m11_awk_rc" -eq 0 ]; then mut_ok "M11 (c): injected awk parses on empty input"
 else mut_no "M11 (c): injected awk has syntax error (crash-based theater)" "rc=$_m11_awk_rc"; fi
 OUT="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-if ! grep -q '1 tagged' <<<"$OUT"; then
+# Positive verdict: the mutant sweep must RUN to its Summary line (a crash prints none) and lose the tag.
+if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
   mut_ok "M11 sub()-expansion with & in RH → case 33 detects corruption (0 tagged)" "(1-tagged absent on mutant)"
 else
   mut_no "M11 sub()-expansion with & in RH → case 33 not detecting" "out=[$OUT]"
