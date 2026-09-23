@@ -47,8 +47,8 @@ the actual model is always user-configured outside this repo.
 | **reasoning** | Inline on driver; or `model: 'opus'` only if delegation is truly required | `model` + `reasoningEffort: high` |
 
 **Fallback rule (all harnesses)**: when the recommended tier is unavailable, substitute
-one tier down and note it in the report.  This rule is stated in PROMPT-LOOP.md:209–210
-and METHODOLOGY.md:395; it carries over to Codex unchanged.
+one tier down and note it in the report.  This rule is stated in PROMPT-LOOP.md (NORMAL CYCLE
+step 3, MODEL TIER) and METHODOLOGY.md §8; it carries over to Codex unchanged.
 **Exemption — verification/refutation voters**: if `sonnet` is unavailable for a verification or refutation step, run inline on the driver or defer — never substitute `haiku` (METHODOLOGY §11b).
 
 ---
@@ -86,8 +86,26 @@ is the authoritative schema reference for all harnesses.
 
 ## 5. Cross-References
 
-- **PROMPT-LOOP.md:200** — MODEL TIER rule for delegated sweeps (Claude-named;
+- **PROMPT-LOOP.md NORMAL CYCLE step 3, MODEL TIER** — rule for delegated sweeps (Claude-named;
   this document is the harness-neutral canonical definition)
-- **METHODOLOGY.md:388** — same tier rule in loop-longevity section
+- **METHODOLOGY.md §8, "Match the delegated model to the sweep"** — same tier rule in the loop-longevity text
 - **toolbelt/agent-integration-19-21.design.md §2 item-21b** — design rationale
   for this unit
+
+---
+
+## Claude profile — which models run what
+
+The Claude profile uses the audited prompts on `main`.  The pre-audit baseline is
+tagged `prompts-pre-audit-2026-09-23`.  Non-Claude / open models (Gemma 4, Qwen,
+etc.) get a compact `general` profile — tracked in #993, not built yet.
+
+These are the **documented defaults** for the Claude profile.  Model selection
+stays user-owned (§3 above); this section is the canonical reference, not
+runtime enforcement.
+
+| Role | Model | Context | Notes |
+|---|---|---|---|
+| Driver / orchestrator (the session running `/research-sdd`) | Claude Opus 5.5 | 1M | `opus` tier alias → Opus 5.5 for delegated reasoning |
+| `sonnet` alias | Claude Sonnet 5 | 1M | Structural sweeps, review lenses, verification/skeptic voters |
+| `haiku` alias | Claude Haiku 4.5 | 200K | Mechanical sweeps only; never loads the full loop prompt + HOT-CORE; verification/refutation voters never drop to `haiku` (METHODOLOGY §11b exemption) |

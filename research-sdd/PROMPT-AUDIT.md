@@ -45,10 +45,9 @@ SOURCE_ROOT = <path to the real primary sources>   # OFTEN NOT under TARGET — 
    NOTE: REFUTED and DRIFTED demand opposite remedies. REFUTED → correct/delete. DRIFTED →
    version-annotate and refresh. Collapsing them loses version history that downstream readers of
    older artifacts still need.
-3. WRITE the audit report under $TARGET/audits/ (create the dir if absent) — NEVER under the kit /
-   supervisor repo. METHODOLOGY §13 fixes `audits/` as living under the audited TARGET; the old
-   "or under sdd-investigacion" branch was the bug that once landed a coverage audit in the supervisor
-   repo by mistake. Write from $KIT/templates/audit.template.md: a table of audited claims + a METRICS
+3. WRITE the audit report under $TARGET/audits/ (create the dir if absent), never under the kit /
+   supervisor repo: METHODOLOGY §13 fixes `audits/` as living under the audited TARGET, where the
+   corpus's own instruments find it. Write from $KIT/templates/audit.template.md: a table of audited claims + a METRICS
    summary (N audited · #ESCALATED · #CONFIRMED · #DOWNGRADED · #REFUTED · #DRIFTED).
    For each DRIFTED finding, record the subject version the claim held at (from the `Subject version:`
    stamp) and the evidence that it changed in the new version.
