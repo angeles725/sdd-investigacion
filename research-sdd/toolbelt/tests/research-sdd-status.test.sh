@@ -2576,6 +2576,7 @@ else
   no "T-WIDTH-LAST: last data row not counted (known_gaps=${_wl_kg:-0}) — closing ## heading may have consumed last row"
 fi
 
+
 # T-BACKLOG-ROWS-MIRROR: awk body in backlog_rows() (status.sh) and _backlog_rows() (verify-state.sh)
 # must be logically identical — they are kept as copies (not a lib) to preserve sentinel-based teeth.
 # File-specific sentinel prefixes (SS- and VS-) are normalised to BP- before comparison so the test
@@ -4418,6 +4419,7 @@ BLTGHEOF
   else
     no "teeth-U2011-NORM: U+2011-NORM sentinel not found in SUT"
   fi
+
 
 fi
 

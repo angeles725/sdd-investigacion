@@ -96,7 +96,7 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
   # emit a provisional WARN to stderr and are still excluded. Unknown qualifier BASE fails closed.
   # Note: "med" abbreviation is NOT normalized here — that is a separate calibration work unit (#941).
   #   Rows with priority "med" emit INVALID_PRIORITY and are excluded from counts.
-  # U+2011-NORM: non-breaking hyphens (U+2011, UTF-8 octal \342\200\221) in heading lines are normalised
+  # U+2011-NORM: non-breaking hyphens (U+2011, UTF-8 octet \342\200\221) in heading lines are normalised
   #   to ASCII hyphen by an awk gsub so "## Gap‑backlog (prioritized)" matches the heading pattern.
   #   Scoped to heading lines only (not a whole-file rewrite); portable (no GNU sed \xNN syntax).
   # Mirrors backlog_rows() in status.sh exactly (deliberate mirror — no shared lib; see comment above).
@@ -108,7 +108,7 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
   # BR-CACHE-MISS: run awk; WARNs go to stderr exactly once; capture stdout for subsequent calls.
   _BR_CACHED_FILE="$1"
   _BR_CACHED_ROWS="$(LC_ALL=C awk '
-    # U+2011-NORM: normalize non-breaking hyphen (UTF-8 octal \342\200\221) to ASCII hyphen; heading lines only; portable
+    # U+2011-NORM: normalize non-breaking hyphen (UTF-8 octet \342\200\221) to ASCII hyphen; heading lines only; portable
     /^## / { gsub(/\342\200\221/, "-") }
     /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; expected_cols=0; next }
     /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
