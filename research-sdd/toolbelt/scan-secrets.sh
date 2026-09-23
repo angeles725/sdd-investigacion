@@ -18,8 +18,8 @@
 #
 # Usage: scan-secrets.sh [--committed] <target-dir>
 #   --committed  Scan ALL committed content reachable from HEAD: every unique file version across the full
-#                git history (via git log --raw → (blob, path) pairs → unique blob dedup → ONE LOOP: git
-#                cat-file per unique blob into a temp file, then all HC patterns + advisory grep
+#                git history (via rev-list|diff-tree → (blob, path) pairs → unique blob dedup → ONE LOOP:
+#                git cat-file per unique blob into a temp file, then all HC patterns + advisory grep
 #                simultaneously) plus all commit messages. Required by ensure-remote.sh so what is scanned
 #                == what git push will send (including secrets deleted from HEAD but still reachable in
 #                history). Requires git. Target must be the git repo root — refuses with exit 3 if it is a
@@ -90,6 +90,13 @@ if [ "$committed" = 1 ]; then
   if [ -n "$_git_common_dir" ] && [ -s "${_git_common_dir}/info/grafts" ]; then
     echo "DEGRADED: .git/info/grafts is non-empty — scan scope may diverge from what git push will send." >&2
     echo "          Remove or empty .git/info/grafts before scanning." >&2
+    exit 3
+  fi
+  # M5: GIT_GRAFT_FILE env overrides the default grafts file location; if set, the info/grafts check
+  # above is bypassed by git itself, so the scan scope may still diverge. Refuse when set.
+  if [ -n "${GIT_GRAFT_FILE:-}" ]; then
+    echo "DEGRADED: GIT_GRAFT_FILE is set — scan scope may diverge from what git push will send." >&2
+    echo "          Unset GIT_GRAFT_FILE before scanning." >&2
     exit 3
   fi
 
@@ -204,7 +211,7 @@ length($0) > 0 {
   _total_blobs="$(wc -l < "$_blobs_list")"
   # B3: 0 in-scope blobs while the raw log produced output → pipeline likely failed silently.
   if [ "$_total_blobs" -eq 0 ] && [ "${_raw_lines:-0}" -gt 0 ]; then
-    echo "DEGRADED: 0 in-scope blobs found but git log produced output — filter pipeline may have failed silently" >&2
+    echo "DEGRADED: 0 in-scope blobs found but rev-list|diff-tree produced output — filter pipeline may have failed silently" >&2
     exit 3
   fi
 
@@ -393,23 +400,30 @@ rm -f "$_adv_dedup"
 [ "$warns" -eq 0 ] && echo "   (none)"
 
 # --- COMMIT MESSAGES (full history, --committed mode only) -----------------------------------------
-# A secret value typed into a commit message is never removed by a content redaction. Scans all
-# commit subjects + bodies reachable from HEAD for the same high-confidence patterns as the file scan.
-# M1: --no-replace-objects ensures refs/replace cannot hide commit messages from the scan.
+# A secret value typed into a commit message (or author/committer field) is never removed by a content
+# redaction. Scans raw commit objects reachable from HEAD for the same high-confidence patterns.
+# M1: --no-replace-objects ensures refs/replace cannot hide commit objects from the scan.
+# M5: scan raw commit objects via rev-list|cat-file --batch instead of git log:
+#   1. Immune to i18n.logOutputEncoding: git log re-encodes output (e.g. UTF-16), breaking grep on
+#      ASCII patterns. cat-file returns the stored bytes directly, bypassing all output encoding.
+#   2. Immune to i18n.commitEncoding: git log attempts to decode the stored encoding header and
+#      produces garbage for unrecognised/mismatched encodings. cat-file returns the raw stored bytes,
+#      which contain the token as written regardless of the declared encoding. (Closes #987 item 1.)
+#   3. Covers author name, committer name, and all extra commit-object headers — git log --format=%s%n%b
+#      omits these fields entirely, creating a gap for secrets typed into author/committer metadata.
 if [ "$committed" = 1 ]; then
   echo "-- commit messages (full history) --"
   _cmsg_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create commit message temp file" >&2; exit 3; }
-  # M4: -c log.showSignature=false prevents GPG verification text from being injected into the
-  # commit message output (which could cause false positives or inflate the message file).
-  git --no-replace-objects -c log.showSignature=false -C "$target" \
-      log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
-  _cml_rc=$?
-  # B3: any non-zero from git log is a failure — rc=1 is not grep-semantics "no match", it is an error.
-  if [ "$_cml_rc" -ne 0 ]; then
-    echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2
+  git --no-replace-objects -C "$target" rev-list HEAD 2>/dev/null \
+    | git --no-replace-objects -C "$target" cat-file --batch 2>/dev/null \
+    > "$_cmsg_tmp"
+  _cmsg_rev_pstat=("${PIPESTATUS[@]}")
+  # B3: any non-zero from rev-list or cat-file is a failure.
+  if [ "${_cmsg_rev_pstat[0]:-0}" -ne 0 ] || [ "${_cmsg_rev_pstat[1]:-0}" -ne 0 ]; then
+    echo "DEGRADED: rev-list|cat-file commit scan failed (rc=${_cmsg_rev_pstat[*]}) — commit scan incomplete" >&2
     rm -f "$_cmsg_tmp"; exit 3
   fi
-  # M4: run grep to a temp file so its rc can be checked independently.
+  # M4 (retained): run grep to a temp file so its rc can be checked independently.
   # Previously the grep ran inside < <(... | head -20), where its exit code was unchecked —
   # a grep error (rc ≥ 2, e.g. invalid regex or read error) would silently produce no matches,
   # making the scan report "(none)" instead of DEGRADED.
