@@ -157,30 +157,166 @@ else
   no "13 hook diverged → expected '--force-skill' in output; got [$HOOK_OUT2]"
 fi
 
-# ── 10. Hook: absent → emits typed message ───────────────────────────────────
-H_ABS2="$ROOT/home_abs2"
-mkdir -p "$H_ABS2/.claude"
-HOOK_PATCHED3="$ROOT/hook-test3.sh"
-sed "s|\"\$here/verify-skill-drift.sh\"|\"$SUT\" --home \"$H_ABS2\"|" \
-  "$HOOK_SUT" > "$HOOK_PATCHED3"
-chmod +x "$HOOK_PATCHED3"
-HOOK_OUT3="$(bash "$HOOK_PATCHED3" 2>&1)"
-if printf '%s' "$HOOK_OUT3" | grep -qi 'not deployed\|absent\|install'; then
-  ok "14 hook absent → emits advisory with install hint"
+# ── 10. Hook: single claude absent → silent (hook uses --all; absent is normal) ─
+# The hook now checks all harnesses via --all; an absent harness is normal and not surfaced.
+H_ABS2_SINGLE="$ROOT/home_abs2_single"
+mkdir -p "$H_ABS2_SINGLE"  # no harness dirs at all
+HOOK_PATCHED3_SINGLE="$ROOT/hook-test3-single.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_ABS2_SINGLE"'"|' \
+  "$HOOK_SUT" > "$HOOK_PATCHED3_SINGLE"
+chmod +x "$HOOK_PATCHED3_SINGLE"
+HOOK_OUT3_SINGLE="$(bash "$HOOK_PATCHED3_SINGLE" 2>&1)"
+HOOK_RC3_SINGLE=$?
+if [ "$HOOK_RC3_SINGLE" -eq 0 ] && [ -z "$HOOK_OUT3_SINGLE" ]; then
+  ok "14 hook absent → completely silent (absent is normal under --all)"
 else
-  no "14 hook absent → expected advisory; got [$HOOK_OUT3]"
+  no "14 hook absent → expected silent exit 0; got exit=$HOOK_RC3_SINGLE out=[$HOOK_OUT3_SINGLE]"
 fi
 
-# ── Diverged message length ≤ 200 chars ──────────────────────────────────────
-# The hook emits JSON via jq; the actual message is the msg variable in the hook (not the JSON).
-# Extract it by running the SUT directly and checking what the hook puts in 'msg'.
-# The hook sets: msg="WARN: ..."; we measure that literal string, not the JSON envelope.
-diverged_msg="WARN: research-sdd SKILL.md (claude) is stale — run: research-sdd-install.sh --harness claude --force-skill"
-msg_len="${#diverged_msg}"
-if [ "$msg_len" -le 200 ]; then
-  ok "15 diverged message ≤200 chars (len=$msg_len)"
+# ── Hook header message ≤ 200 chars ──────────────────────────────────────────
+# Check the hook's top-level advisory header (the 'msg' variable it sets for the WARN case).
+# The per-harness fix lines emitted by the SUT also appear; check a representative one.
+hook_header_msg="WARN: research-sdd SKILL.md stale for one or more harnesses — run the fix command(s) shown"
+hook_header_len="${#hook_header_msg}"
+if [ "$hook_header_len" -le 200 ]; then
+  ok "15 hook WARN header ≤200 chars (len=$hook_header_len)"
 else
-  no "15 diverged message >200 chars (len=$msg_len): $diverged_msg"
+  no "15 hook WARN header >200 chars (len=$hook_header_len): $hook_header_msg"
+fi
+# Per-harness fix line (longest harness name is 'reasonix')
+fix_line="verify-skill-drift: fix: research-sdd-install.sh --harness reasonix --force-skill"
+fix_line_len="${#fix_line}"
+if [ "$fix_line_len" -le 200 ]; then
+  ok "15b per-harness fix line ≤200 chars (len=$fix_line_len)"
+else
+  no "15b per-harness fix line >200 chars (len=$fix_line_len): $fix_line"
+fi
+
+# ── --all mode: iterate every registered harness ─────────────────────────────
+# Setup for --all tests:
+#   H_ALL: claude in-sync, opencode absent, codex absent, reasonix diverged (LAST)
+#   — tests the list-edge rule: drift in the last harness in RESEARCH_SDD_HARNESSES order
+H_ALL="$ROOT/home_all"
+mkdir -p "$H_ALL/.claude/skills/research-sdd"
+cp "$SRC_SKILL" "$H_ALL/.claude/skills/research-sdd/SKILL.md"      # claude: in-sync
+mkdir -p "$H_ALL/.reasonix/skills/research-sdd"
+printf 'stale content — not matching kit\n' > "$H_ALL/.reasonix/skills/research-sdd/SKILL.md"  # reasonix: diverged
+# opencode (.config/opencode) and codex (.codex) not created → absent
+
+# AN1: --all with last harness diverged → exit 1
+bash "$SUT" --all --home "$H_ALL" 2>/dev/null
+RC_AN1=$?
+if [ "$RC_AN1" -eq 1 ]; then
+  ok "AN1 --all last-harness-diverged → exit 1"
+else
+  no "AN1 --all last-harness-diverged → expected exit 1; got exit=$RC_AN1"
+fi
+
+# AN2: --all diverged → stderr contains fix command for the diverged harness
+ERR_AN2="$(bash "$SUT" --all --home "$H_ALL" 2>&1 >/dev/null)"
+if printf '%s' "$ERR_AN2" | grep -q 'fix:.*--harness reasonix.*--force-skill'; then
+  ok "AN2 --all diverged → fix command for reasonix in stderr"
+else
+  no "AN2 --all diverged → expected fix command; got: $ERR_AN2"
+fi
+
+# AN3: --all diverged → summary shows diverged=1
+if printf '%s' "$ERR_AN2" | grep -q 'diverged=1'; then
+  ok "AN3 --all diverged → summary diverged=1"
+else
+  no "AN3 --all diverged → expected 'diverged=1' in summary; got: $ERR_AN2"
+fi
+
+# AN4: --all diverged → summary shows absent=2 (opencode + codex not installed)
+if printf '%s' "$ERR_AN2" | grep -q 'absent=2'; then
+  ok "AN4 --all diverged → summary absent=2"
+else
+  no "AN4 --all diverged → expected 'absent=2' in summary; got: $ERR_AN2"
+fi
+
+# AN5: --all all-absent → exit 0 (not installing is normal)
+H_ALL_ABSENT="$ROOT/home_all_absent"
+mkdir -p "$H_ALL_ABSENT"
+bash "$SUT" --all --home "$H_ALL_ABSENT" 2>/dev/null
+RC_AN5=$?
+if [ "$RC_AN5" -eq 0 ]; then
+  ok "AN5 --all all-absent → exit 0 (normal)"
+else
+  no "AN5 --all all-absent → expected exit 0; got exit=$RC_AN5"
+fi
+
+# AN6: --all in-sync → exit 0 + stdout silent
+H_ALL_SYNC="$ROOT/home_all_sync"
+mkdir -p "$H_ALL_SYNC/.claude/skills/research-sdd"
+cp "$SRC_SKILL" "$H_ALL_SYNC/.claude/skills/research-sdd/SKILL.md"
+# Only claude is installed; opencode/codex/reasonix absent
+ALL_SYNC_OUT="$(bash "$SUT" --all --home "$H_ALL_SYNC" 2>/dev/null)"
+ALL_SYNC_RC=$?
+if [ "$ALL_SYNC_RC" -eq 0 ] && [ -z "$ALL_SYNC_OUT" ]; then
+  ok "AN6 --all in-sync (one installed) → exit 0 + silent stdout"
+else
+  no "AN6 --all in-sync → expected exit 0 silent; got exit=$ALL_SYNC_RC out=[$ALL_SYNC_OUT]"
+fi
+
+# AN7: --all and --harness are mutually exclusive → exit 2
+bash "$SUT" --all --harness claude --home "$H_ALL" 2>/dev/null
+RC_AN7=$?
+if [ "$RC_AN7" -eq 2 ]; then
+  ok "AN7 --all + --harness → exit 2 (mutually exclusive)"
+else
+  no "AN7 --all + --harness → expected exit 2; got exit=$RC_AN7"
+fi
+
+# ── Hook: updated tests for --all mode ────────────────────────────────────────
+# The hook now calls "$here/verify-skill-drift.sh" --all
+# Tests 12-14 are updated to match the new hook contract.
+
+# Test AN-hook-1: hook --all in-sync → completely silent
+H_SYNC_ALL="$ROOT/home_sync_all"
+mkdir -p "$H_SYNC_ALL/.claude/skills/research-sdd"
+cp "$SRC_SKILL" "$H_SYNC_ALL/.claude/skills/research-sdd/SKILL.md"
+HOOK_PATCHED_ALL="$ROOT/hook-test-all.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_SYNC_ALL"'"|' \
+  "$HOOK_SUT" > "$HOOK_PATCHED_ALL"
+chmod +x "$HOOK_PATCHED_ALL"
+HOOK_OUT_ALL="$(bash "$HOOK_PATCHED_ALL" 2>/dev/null)"
+HOOK_RC_ALL=$?
+if [ "$HOOK_RC_ALL" -eq 0 ] && [ -z "$HOOK_OUT_ALL" ]; then
+  ok "AN-hook-1 hook --all in-sync → completely silent"
+else
+  no "AN-hook-1 hook --all in-sync → expected silent exit 0; got exit=$HOOK_RC_ALL out=[$HOOK_OUT_ALL]"
+fi
+
+# Test AN-hook-2: hook --all diverged (reasonix last) → fix command in output
+H_DIV_ALL="$ROOT/home_div_all"
+mkdir -p "$H_DIV_ALL/.claude/skills/research-sdd"
+cp "$SRC_SKILL" "$H_DIV_ALL/.claude/skills/research-sdd/SKILL.md"     # claude in-sync
+mkdir -p "$H_DIV_ALL/.reasonix/skills/research-sdd"
+printf 'diverged\n' > "$H_DIV_ALL/.reasonix/skills/research-sdd/SKILL.md"  # reasonix diverged
+HOOK_PATCHED2_ALL="$ROOT/hook-test2-all.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_DIV_ALL"'"|' \
+  "$HOOK_SUT" > "$HOOK_PATCHED2_ALL"
+chmod +x "$HOOK_PATCHED2_ALL"
+HOOK_OUT2_ALL="$(bash "$HOOK_PATCHED2_ALL" 2>&1)"
+if printf '%s' "$HOOK_OUT2_ALL" | grep -q 'force-skill'; then
+  ok "AN-hook-2 hook --all diverged → output mentions --force-skill"
+else
+  no "AN-hook-2 hook --all diverged → expected '--force-skill' in output; got [$HOOK_OUT2_ALL]"
+fi
+
+# Test AN-hook-3: hook --all all-absent → completely silent (absent is normal)
+H_ABS_ALL="$ROOT/home_abs_all"
+mkdir -p "$H_ABS_ALL"   # no harness dirs
+HOOK_PATCHED3_ALL="$ROOT/hook-test3-all.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_ABS_ALL"'"|' \
+  "$HOOK_SUT" > "$HOOK_PATCHED3_ALL"
+chmod +x "$HOOK_PATCHED3_ALL"
+HOOK_OUT3_ALL="$(bash "$HOOK_PATCHED3_ALL" 2>&1)"
+HOOK_RC3_ALL=$?
+if [ "$HOOK_RC3_ALL" -eq 0 ] && [ -z "$HOOK_OUT3_ALL" ]; then
+  ok "AN-hook-3 hook --all all-absent → completely silent (absent is normal)"
+else
+  no "AN-hook-3 hook --all all-absent → expected silent exit 0; got exit=$HOOK_RC3_ALL out=[$HOOK_OUT3_ALL]"
 fi
 
 # ── TEETH ─────────────────────────────────────────────────────────────────────
@@ -242,6 +378,53 @@ if [ "$prove_teeth" -eq 1 ]; then
     ok "TOOTH C absent-confused: mutant exits 0 for absent (assertion would fail — RED)"
   else
     no "TOOTH C absent-confused: mutant exits non-zero for absent — tooth has no bite (RC=$RC_TC)"
+  fi
+
+  # TOOTH D: all-last-skipped — mutant replaces the --all loop to skip the last harness.
+  # Real test AN1: reasonix (last in RESEARCH_SDD_HARNESSES) diverged → exit 1.
+  # Mutant: loop iterates all-but-last (${RESEARCH_SDD_HARNESSES% *}) → misses reasonix → exit 0.
+  # The for-loop sentinel is the literal 'for h in $RESEARCH_SDD_HARNESSES' line in the SUT.
+  H_TD="$ROOT/home_td"
+  mkdir -p "$H_TD/.claude/skills/research-sdd"
+  cp "$SRC_SKILL" "$H_TD/.claude/skills/research-sdd/SKILL.md"
+  mkdir -p "$H_TD/.reasonix/skills/research-sdd"
+  printf 'stale content\n' > "$H_TD/.reasonix/skills/research-sdd/SKILL.md"
+  MUT_D="$SUT_DIR/verify-skill-drift-mut-D.sh"
+  # Mutant: change loop to skip the last harness
+  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/' \
+    "$SUT" > "$MUT_D"
+  chmod +x "$MUT_D"
+
+  # Pre-check: confirm the sed actually changed the file (sentinel exists in SUT)
+  if diff -q "$SUT" "$MUT_D" >/dev/null 2>&1; then
+    no "TOOTH D pre-check: mutant = SUT — sed did not match 'for h in \$RESEARCH_SDD_HARNESSES; do'"
+  else
+    ok "TOOTH D pre-check: mutant differs from SUT (sentinel found)"
+  fi
+
+  # Sabotage check: if the sentinel were renamed, the sed would not match and the tooth
+  # would correctly report failure (mutant = SUT → no change detected).
+  SUT_SAB="$ROOT/sut-sabotaged-D.sh"
+  MUT_D_SAB="$ROOT/mut-D-sabotaged.sh"
+  # Rename loop variable from 'h' to 'hh' to break the sentinel pattern
+  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for hh in $RESEARCH_SDD_HARNESSES; do/' \
+    "$SUT" > "$SUT_SAB"
+  sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/' \
+    "$SUT_SAB" > "$MUT_D_SAB"
+  if diff -q "$SUT_SAB" "$MUT_D_SAB" >/dev/null 2>&1; then
+    ok "TOOTH D sabotage: renamed sentinel → sed finds no match → tooth would report failure"
+  else
+    no "TOOTH D sabotage: renamed sentinel → mutant differs — sabotage check inconclusive"
+  fi
+
+  # Actual tooth: mutant misses last harness (reasonix) diverged → exits 0 → RED
+  bash "$MUT_D" --all --home "$H_TD" 2>/dev/null
+  RC_TD=$?
+  rm -f "$MUT_D"
+  if [ "$RC_TD" -eq 0 ]; then
+    ok "TOOTH D all-last-skipped: mutant exits 0 with reasonix (last) diverged — RED as expected"
+  else
+    no "TOOTH D all-last-skipped: mutant exits non-zero — tooth has no bite (RC=$RC_TD)"
   fi
 fi
 # SENTINEL-TEETH-BANNER-END
