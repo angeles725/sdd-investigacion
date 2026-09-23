@@ -191,8 +191,13 @@ if [ "$_cf" -eq 1 ]; then
     printf 'WARN [deprecated-heading]: deprecated delta heading — migrate to "## Proposed kit deltas" per §18\n'
   fi
   if [ "$_cd" -eq 0 ] && [ "$_has_honesty" -eq 0 ]; then
-    # empty-section: recognised heading, zero data rows, no §18 honesty line
-    printf 'FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n'
+    # empty-section: recognised heading, zero data rows, grammar rejected honesty check.
+    # Distinguish impure (honesty phrase present but section failed purity) from absent.
+    if grep -qi 'no new deltas' "$f" 2>/dev/null; then
+      printf 'FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n'
+    else
+      printf 'FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n'
+    fi
     printf '  fix: add at least one data row to the delta table:\n'
     printf '       | 1 | <change> | <target file · §/section> | <evidence> | <type> | <priority> |\n'
     printf '  or state the §18 honesty clause under ## Honest verdict:\n'
