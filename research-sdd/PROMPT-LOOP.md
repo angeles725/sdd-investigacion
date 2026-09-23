@@ -94,11 +94,13 @@ KIT     = /home/cristian/investigacion/sdd-investigacion/research-sdd
 Always read first, in this order:
   1. $KIT/METHODOLOGY.md — the rules, in two tiers (lazy-load != skip; every rule still applies, you only
        defer LOADING a section until its phase fires, and reading it is MANDATORY then):
-         HOT-CORE (read once in full per context): §1 §2 §3 the 7 markers §4 §7 §8 §9 §11 §17 — framing + per-block contract.
+         HOT-CORE (read once per context): §1 §2 §3 the 7 markers §4 §7 §8 §9 §11 §17 — framing + per-block contract.
          (§11b — verifying the verifier + kit test-lane contract — is SITUATIONAL: kit maintenance only, never per block.)
-         SITUATIONAL (read the section in full when its phase fires): §5 source-added · §6 profiling/wrapper ·
-         §10 tool-missing · §12 live-probe · §13 audit (prompt: PROMPT-AUDIT.md) · §14 correction · §15 corpus-git · §16 multi-focus ·
-         §18 STOP · §19 build/PoC · §20 document-mode · §21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.
+         SITUATIONAL (read the section in full when its phase fires): §3b corpus layout · §5 source-added · §6 profiling/wrapper ·
+         §7b state-envelope instruments (CHECK A mismatch or shared-prefix corpus) · §8b backlog cell grammar (editing or diagnosing the backlog) ·
+         §8c campaign queue (campaign STOP or frontier-reopen) · §10 tool-missing · §11a data-pipeline heuristics (data-acquisition target) ·
+         §12 live-probe · §13 audit (prompt: PROMPT-AUDIT.md) · §14 correction · §15 corpus-git · §16 multi-focus ·
+         §18 STOP · §19 build/PoC · §20 document-mode · §20b bloque vs. diario (document mode sub-type) · §21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
   4. $CORPUS/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]
@@ -737,6 +739,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          The DRIVER loop itself (marker discipline, [INFER] deductions, synthesis, self-verify) stays on the
          session's strong model — the kit does not change that; your `/model` does. If a tier is unavailable
          (e.g. no Opus access), substitute one tier down and note it in the report.
+         Exception: verification or refutation voters never drop to `haiku` — run them inline on the driver
+         or defer the seal (METHODOLOGY §8).
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
        - LONG BUILD DELEGATION (§19 iterations): write the full build spec to a scratchpad file
          BEFORE launching the implementation agent, and pass the file path in the delegation
@@ -959,13 +963,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
        - MCP-doc snapshots: every LOAD-BEARING [CERT-web]-via-MCP citation (context7 et al.) snapshotted to
          sources/web-snapshots/ + registered in SOURCES.md (§5). Report Y/N + count — this gate is what stops
          §5's snapshot rule from being paper-only (context7 cites kept landing unsnapshotted across runs).
-       - OPTIONAL [CERT] SEAL (adversarial-verify — OPT-IN selective seal, trialed on a real claim 2026-07-07 — METHODOLOGY §3) — the driver MAY SEAL load-bearing [CERT] claims (the ones a
-         conclusion rests on) by running the `adversarial-verify` workflow ($KIT/toolbelt/adversarial-verify.js),
-         INSTEAD of trusting only this self-report: N=3 skeptics try to REFUTE each claim; a claim stays sealed
-         [CERT] only if it SURVIVES ≥2 of 3, otherwise it is DOWNGRADED or DROPPED. Apply it SELECTIVELY (cost
-         discipline) — only to LOAD-BEARING [CERT], never to [INFER] or trivial claims. Modular N: 3 skeptics for
-         load-bearing, 1 or 0 for the rest. LOCAL-sourced claims (decompiled output / file:line) are CHEAP — the
-         skeptics read the cited source, no web; only web-verifiable claims are expensive (~125k tokens/claim).
+       - [CERT] SEAL (adversarial-verify — required for conclusion-bearing [CERT] claims — METHODOLOGY §3) — run
+         the `adversarial-verify` workflow ($KIT/toolbelt/adversarial-verify.js) for conclusion-bearing [CERT] claims
+         (those a conclusion rests on): N=3 skeptics try to REFUTE each claim; it stays sealed only if it SURVIVES
+         ≥2 of 3, otherwise DOWNGRADED or DROPPED. KILL on majority-refute; INSUFFICIENT below quorum of 2 or mean
+         confidence < 0.7. Cost discipline: [INFER] and trivial claims excluded. LOCAL-sourced claims (file:line)
+         are CHEAP — skeptics read the cited source, no web; web-verifiable claims are expensive (~125k tokens/claim).
          PROHIBITED in dynamic/hardware phases (§12) and in block writing/numbering — it is a read-only SEALING
          step, not orchestration of the loop.
   6. UPDATE STATE (archive phase):
@@ -1194,8 +1197,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          Free-form session notes, "lessons" lists, or a heading of your own are NOT a retro (measured 2026-09-05:
          3 targets advanced with no retro; 7 of 12 new retros were unmarked, wrongly headed, or empty). Before the
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
-         `retro: pending`. Enforcement: `$KIT/toolbelt/retro-gate.sh` runs as the target's Stop hook and blocks the
-         session ONCE with the exact missing element until this holds (enforced by the target's Stop hook `retro-gate.sh` once wired — kit issue #479).
+         `retro: pending`. Enforcement: once wired (kit issue #479), `$KIT/toolbelt/retro-gate.sh` runs as the
+         target's Stop hook and blocks the session ONCE with the exact missing element until this holds.
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
          RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
@@ -1269,16 +1272,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      CHEATSHEET.md, GLOSSARY.md, KEYWORD_INDEX.md, MANUAL_FULL.md alongside 42 chapters.)
   7. STOP when the OUTLINE is fully covered — NOT on gap-exhaustion (there is no gap set, so no
      read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
-     CLOSURE OBLIGATIONS: the outline-completion STOP inherits the following from the NORMAL CYCLE —
-     §20 previously carried none of these, which is why the hilton-bms/dashboard retro never auto-fired
-     and two blocks merged in one commit (commit `cabb6d7`):
+     CLOSURE OBLIGATIONS: the outline-completion STOP inherits the following from the NORMAL CYCLE:
        - ONE-BLOCK-PER-COMMIT and the commit-message convention (`research(<target>/<focus>): B<n>
          <slug>`) apply throughout the document cycle, not only at normal-cycle close (LOOP
          CONTINUATION hard rule).
        - SELF-RETROSPECTIVE (METHODOLOGY §18): delegate a fresh-context retro agent exactly as the
-         NORMAL CYCLE terminal trigger prescribes. §18 fires "at every focus STOP and at campaign STOP"
-         — §20 had no equivalent step, so the retro never auto-fired on a document
-         run until now.
+         NORMAL CYCLE terminal trigger prescribes. §18 fires "at every focus STOP and at campaign STOP",
+         and outline completion is a focus completion.
        - TARGETS.md row refresh: update block count and run facts as part of closing the document run.
        - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
          close-checklist). Use `--dry-run` to preview.

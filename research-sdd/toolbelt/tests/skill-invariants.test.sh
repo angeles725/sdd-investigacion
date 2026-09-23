@@ -516,6 +516,57 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# E1a (presence): METHODOLOGY §3 must state the seal is 'required for
+#      conclusion-bearing' — the single collapsed rule (F03). Absent means the
+#      old multi-paragraph OPT-IN/MANDATORY/OPTIONAL tangle is still present.
+# ---------------------------------------------------------------------------
+if grep -qF 'required for conclusion-bearing' "$METHODOLOGY"; then
+  ok "E1a: METHODOLOGY §3 states seal is 'required for conclusion-bearing' (single rule)"
+else
+  no "E1a: METHODOLOGY §3 missing 'required for conclusion-bearing' (old multi-rule tangle)"
+fi
+
+# ---------------------------------------------------------------------------
+# E1b (absence): METHODOLOGY must NOT say 'OPT-IN selective seal' — that
+#      phrase belongs to the old graduation history, deleted by F03.
+# ---------------------------------------------------------------------------
+if grep -qF 'OPT-IN selective seal' "$METHODOLOGY"; then
+  no "E1b: METHODOLOGY still contains stale 'OPT-IN selective seal' (F03 not applied)"
+else
+  ok "E1b: stale 'OPT-IN selective seal' absent from METHODOLOGY (F03 applied)"
+fi
+
+# ---------------------------------------------------------------------------
+# E1c (absence): PROMPT-LOOP step 5 must NOT say 'OPT-IN selective seal' —
+#      aligned with the single collapsed rule (F03).
+# ---------------------------------------------------------------------------
+if grep -qF 'OPT-IN selective seal' "$PROMPTLOOP"; then
+  no "E1c: PROMPT-LOOP still contains stale 'OPT-IN selective seal' (F03 not applied)"
+else
+  ok "E1c: stale 'OPT-IN selective seal' absent from PROMPT-LOOP (F03 applied)"
+fi
+
+# ---------------------------------------------------------------------------
+# E2a: PROMPT-LOOP SITUATIONAL list must contain '§7b' — the envelope-field
+#      instrument contract section added by F05.
+# ---------------------------------------------------------------------------
+if grep -qF '§7b' "$PROMPTLOOP"; then
+  ok "E2a: PROMPT-LOOP SITUATIONAL list contains '§7b' (F05)"
+else
+  no "E2a: PROMPT-LOOP SITUATIONAL list missing '§7b' (F05 not applied)"
+fi
+
+# ---------------------------------------------------------------------------
+# E2b: PROMPT-LOOP SITUATIONAL list must contain '§11a' — the data-pipeline
+#      heuristics section added by F05.
+# ---------------------------------------------------------------------------
+if grep -qF '§11a' "$PROMPTLOOP"; then
+  ok "E2b: PROMPT-LOOP SITUATIONAL list contains '§11a' (F05)"
+else
+  no "E2b: PROMPT-LOOP SITUATIONAL list missing '§11a' (F05 not applied)"
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
 if [ "$PROVE_TEETH" = 1 ]; then
@@ -836,6 +887,53 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-D1: assert_D1 passed on mutant — no teeth (live heading not detected)"
   else
     ok "teeth-D1: assert_D1 goes RED on mutant (live Campaign queue heading injected)"
+  fi
+
+  echo "-- teeth: E1/E2 mutants (seal anchor, stale phrase, situational sections) --"
+
+  # Teeth E1a: remove 'required for conclusion-bearing' from METHODOLOGY → E1a must go RED.
+  mutantE1a="$TMP/METHODOLOGY.mutantE1a.md"
+  sed 's/required for conclusion-bearing/required for X-bearing/g' "$METHODOLOGY" > "$mutantE1a"
+  if grep -qF 'required for conclusion-bearing' "$mutantE1a"; then
+    no "teeth-E1a: mutant still has 'required for conclusion-bearing' — sed did not take (no teeth)"
+  else
+    ok "teeth-E1a: E1a assertion goes RED on mutant (anchor removed)"
+  fi
+
+  # Teeth E1b: inject 'OPT-IN selective seal' into METHODOLOGY → E1b must go RED.
+  mutantE1b="$TMP/METHODOLOGY.mutantE1b.md"
+  sed '1s|^|OPT-IN selective seal\n|' "$METHODOLOGY" > "$mutantE1b"
+  if grep -qF 'OPT-IN selective seal' "$mutantE1b"; then
+    ok "teeth-E1b: E1b negative check goes RED on mutant ('OPT-IN selective seal' injected)"
+  else
+    no "teeth-E1b: mutant does NOT have 'OPT-IN selective seal' — sed did not take (no teeth)"
+  fi
+
+  # Teeth E1c: inject 'OPT-IN selective seal' into PROMPT-LOOP → E1c must go RED.
+  mutantE1c="$TMP/PROMPTLOOP.mutantE1c.md"
+  sed '1s|^|OPT-IN selective seal\n|' "$PROMPTLOOP" > "$mutantE1c"
+  if grep -qF 'OPT-IN selective seal' "$mutantE1c"; then
+    ok "teeth-E1c: E1c negative check goes RED on mutant ('OPT-IN selective seal' injected)"
+  else
+    no "teeth-E1c: mutant does NOT have 'OPT-IN selective seal' — sed did not take (no teeth)"
+  fi
+
+  # Teeth E2a: replace '§7b' with '§7X' in PROMPT-LOOP → E2a must go RED.
+  mutantE2a="$TMP/PROMPTLOOP.mutantE2a.md"
+  sed 's/§7b/§7X/g' "$PROMPTLOOP" > "$mutantE2a"
+  if grep -qF '§7b' "$mutantE2a"; then
+    no "teeth-E2a: mutant still has '§7b' — sed did not take (no teeth)"
+  else
+    ok "teeth-E2a: E2a assertion goes RED on mutant (§7b removed)"
+  fi
+
+  # Teeth E2b: replace '§11a' with '§11X' in PROMPT-LOOP → E2b must go RED.
+  mutantE2b="$TMP/PROMPTLOOP.mutantE2b.md"
+  sed 's/§11a/§11X/g' "$PROMPTLOOP" > "$mutantE2b"
+  if grep -qF '§11a' "$mutantE2b"; then
+    no "teeth-E2b: mutant still has '§11a' — sed did not take (no teeth)"
+  else
+    ok "teeth-E2b: E2b assertion goes RED on mutant (§11a removed)"
   fi
 fi
 
