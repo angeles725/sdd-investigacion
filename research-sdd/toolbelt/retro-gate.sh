@@ -75,7 +75,7 @@ _run_issue_seeding() {
     return 0
   fi
 
-  local created=0 skipped=0 failed=0 ran=0
+  local created=0 skipped=0 failed=0 empty=0 ran=0
   local rf seed_out seed_rc _c _s _summary _seed_reason
   local failed_list=""
   while IFS= read -r rf; do
@@ -93,10 +93,17 @@ _run_issue_seeding() {
       _s="$(printf '%s' "$_summary" | grep -oE 'skipped-duplicate=[0-9]+' | cut -d= -f2)"
       created=$((created + ${_c:-0}))
       skipped=$((skipped + ${_s:-0}))
+    # SENTINEL-TYPED-OUTCOME-START
     elif [ "$seed_rc" -eq 0 ]; then
-      # Seeder exited 0 but printed no summary: — §7 absent-input signal, not a silent 0
-      printf 'retro-gate: WARN: seeder exited 0 but printed no summary: line for %s\n' \
-        "$(basename "$rf")" >&2
+      # Check for seeder typed outcome (known no-issue exits: empty-input, no-match, absent-input)
+      if printf '%s' "$seed_out" | grep -qE '^(empty-input|no-match|absent-input):'; then
+        empty=$((empty + 1))
+      else
+        # Seeder exited 0 but printed no summary: or typed outcome — §7 absent-input signal
+        printf 'retro-gate: WARN: seeder exited 0 but printed no summary: line for %s\n' \
+          "$(basename "$rf")" >&2
+      fi
+    # SENTINEL-TYPED-OUTCOME-END
     else
       # No summary: and seeder failed — count ^created: progress lines as fallback (§7)
       _c="$(printf '%s' "$seed_out" | grep -c '^created: ')" || _c=0
@@ -127,8 +134,8 @@ _run_issue_seeding() {
     printf 'retro-gate: WARN: seeding failed for %d retro(s): %s\n' "$failed" "$failed_list" >&2
   fi
   # SENTINEL-AGGREGATE-WARN-END
-  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d failed=%d target=%s\n' \
-    "$ran" "$created" "$skipped" "$failed" "$(basename "$target")" >&2
+  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d failed=%d target=%s\n' \
+    "$ran" "$created" "$skipped" "$empty" "$failed" "$(basename "$target")" >&2
 }
 # SENTINEL-SEEDING-FUNC-END
 

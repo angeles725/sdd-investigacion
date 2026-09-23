@@ -505,9 +505,10 @@ printf '%s' "$ERR_P" | grep -q 'failed=1' && ok "EN3-e-partial: partial seeder �
 printf '%s' "$ERR_P" | grep -q 'no summary:.*counted.*partial-progress' && ok "EN3-e-partial: partial seeder → WARN mentions partial-progress count" \
   || no "EN3-e-partial: partial seeder → expected WARN about partial-progress count; got: $ERR_P"
 
-# ─── EN3-f: seeder exit 0 + no summary: → absent-summary WARN (#935) ─────────
-# Validates §7 absent-input signal: seeder claims success (exit 0) but emits no
-# summary: line — gate must WARN rather than silently return created=0.
+# ─── EN3-f: seeder exit 0 + typed outcome (empty-input:) → empty=1, no absent-summary WARN ─
+# RED before fix: SUT has no typed-outcome recognition — treats empty-input: as absent-summary
+# → emits WARN and never increments empty counter.
+# The real seeder exits 0 with empty-input: on ~50% of the fleet (retros with no delta section).
 FKIT_F="$ROOT/fkit_f"
 mkdir -p "$FKIT_F/toolbelt/lib"
 cp "$HERE/../lib/block-files.sh"    "$FKIT_F/toolbelt/lib/"
@@ -516,8 +517,8 @@ cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_F/toolbelt/lib/"
 cp "$HERE/../verify-retro.sh"       "$FKIT_F/toolbelt/"
 cat > "$FKIT_F/toolbelt/stage-retro-issues.sh" << 'FABSEOF'
 #!/usr/bin/env bash
-# Seeder exits 0 but never emits a summary: line (simulates pre-summary-format seeder)
-printf 'planned-issue: row 1 already planned\n'
+# Models real seeder: retro has no delta section (empty-input path, stage-retro-issues.sh ~174)
+printf 'empty-input: no delta section found in retro.md\n' >&2
 exit 0
 FABSEOF
 chmod +x "$FKIT_F/toolbelt/stage-retro-issues.sh"
@@ -533,9 +534,15 @@ errf_tf="$ROOT/err_tf.$$"
 printf '%s' "$_jtf" | PATH="$MOCK_GH_DIR:$PATH" \
   "$BASH_BIN" "$FKIT_F/toolbelt/retro-gate.sh" "$TF" >"$ROOT/out_tf.$$" 2>"$errf_tf"
 ERR_F="$(cat "$errf_tf")"; rm -f "$errf_tf" "$ROOT/out_tf.$$"
+# empty=1 in issue-seeding summary (typed outcome recognised, counter incremented)
+printf '%s' "$ERR_F" | grep -q 'empty=1' \
+  && ok "EN3-f: empty-input: typed outcome → empty=1 in issue-seeding summary" \
+  || no "EN3-f: expected empty=1 in summary; got: $ERR_F"
+# NO absent-summary WARN (typed outcome suppresses the WARN)
 printf '%s' "$ERR_F" | grep -q 'WARN.*no summary' \
-  && ok "EN3-f: seeder exit 0 + no summary: → absent-summary WARN emitted" \
-  || no "EN3-f: expected absent-summary WARN; got: $ERR_F"
+  && no "EN3-f: empty-input: must NOT trigger absent-summary WARN; got: $ERR_F" \
+  || ok "EN3-f: empty-input: did not trigger absent-summary WARN (correct)"
+# ran=1 in summary (seeder was called)
 printf '%s' "$ERR_F" | grep -q 'ran=1' \
   && ok "EN3-f: ran=1 in issue-seeding summary (seeder was called)" \
   || no "EN3-f: expected ran=1 in summary; got: $ERR_F"
@@ -1087,6 +1094,56 @@ SUMEOF3
 else
   printf '  SKIP  TOOTH 12 find-stderr-suppressed (running as root — chmod 000 does not protect)\n'
   printf '  SKIP  TOOTH 12 find-stderr-suppressed: mutant suppresses seeding find stderr\n'
+fi
+
+# ── TOOTH 13: typed-outcome-dropped — mkmutant removes SENTINEL-TYPED-OUTCOME block ─
+# Mutant: typed-outcome recognition removed → empty-input: falls through to else (partial
+# progress branch), empty counter stays 0 → EN3-f 'empty=1' assertion goes RED.
+M13="$(mkmutant 'typed-outcome-dropped' 'SENTINEL-TYPED-OUTCOME-START' 'SENTINEL-TYPED-OUTCOME-END')"
+
+# Pre-check: sentinel found → mutant differs from SUT
+if diff -q "$SUT" "$M13" >/dev/null 2>&1; then
+  no "TOOTH 13 pre-check: mutant identical to SUT — SENTINEL-TYPED-OUTCOME-START not found"
+else
+  ok "TOOTH 13 pre-check: mutant differs from SUT (sentinel found)"
+fi
+
+# Sabotage: rename both sentinels → mkmutant produces no diff
+SUT_SAB13="$ROOT/sut_sab13.sh"
+MUT_SAB13="$ROOT/mut_sab13.sh"
+sed 's/SENTINEL-TYPED-OUTCOME-START/SENTINEL-TYPED-OUTCOME-GONE/;
+     s/SENTINEL-TYPED-OUTCOME-END/SENTINEL-TYPED-OUTCOME-GONE-END/' "$SUT" > "$SUT_SAB13"
+sed "/# SENTINEL-TYPED-OUTCOME-START/,/# SENTINEL-TYPED-OUTCOME-END/d" "$SUT_SAB13" > "$MUT_SAB13"
+if diff -q "$SUT_SAB13" "$MUT_SAB13" >/dev/null 2>&1; then
+  ok "TOOTH 13 sabotage: renamed sentinels → no diff (tooth would fail — as expected)"
+else
+  no "TOOTH 13 sabotage: renamed sentinels → sed still matched — sabotage broken"
+fi
+
+# Behavioral: empty-input: stub → mutant drops typed-outcome check → empty=0 (RED)
+cat > "$MUT_KIT/toolbelt/stage-retro-issues.sh" << 'EMPTYIN13'
+#!/usr/bin/env bash
+printf 'empty-input: no delta section found in retro.md\n' >&2
+exit 0
+EMPTYIN13
+chmod +x "$MUT_KIT/toolbelt/stage-retro-issues.sh"
+cp "$M13" "$MUT_KIT/toolbelt/retro-gate-m13.sh"
+TM13="$ROOT/m13"; mkgit "$TM13"; SM13="m13-sess"
+mksessionfile "$TM13" "$SM13" "202609050800"
+mkblock "$TM13" "niagara-block13.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TM13/niagara-block13.md"
+mkretro "$TM13" "2026-09-05-m13.md" 1
+touch -t 202609051200 "$TM13/retros/2026-09-05-m13.md"
+_jm13="$(mkjson "$SM13" "false")"
+errf_m13="$ROOT/merr_m13"
+OUT="$(printf '%s' "$_jm13" | PATH="$ROOT/mockbin2:$PATH" \
+  "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m13.sh" "$TM13" 2>"$errf_m13")"; RC=$?
+ERR_M13="$(cat "$errf_m13")"; rm -f "$errf_m13"
+# Mutant: typed-outcome block dropped → empty=0 in summary (EN3-f empty=1 assertion → RED)
+if printf '%s' "$ERR_M13" | grep -q 'empty=1'; then
+  no "TOOTH 13 typed-outcome-dropped: mutant reports empty=1 — tooth has no bite"
+else
+  ok "TOOTH 13 typed-outcome-dropped: mutant does not report empty=1 (RED as expected)"
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
