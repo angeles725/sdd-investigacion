@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # sweep-breakthroughs-hook.test.sh — red-first harness for sweep-breakthroughs-hook.sh.
 # Covers: existence, executable, operational-failure banner, success header,
-#         absent-input collapse (default mode vs. --full), mutation proof.
+#         absent-input collapse (default mode vs. --full),
+#         empty-input + no-match collapse (#974: per-target INFO lines → counted summaries),
+#         mutation proof.
 # Exit: 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
@@ -92,6 +94,73 @@ else
   no "6 --full mode: per-target line NOT found in output (exit=$RC out=[$OUT])"
 fi
 
+# ---- Tests 7-9: empty-input and no-match collapse (#974) --------------------
+
+# Stub: ONLY 2 empty-input, NO no-match, NO absent (exercises EMPTY-only END{} path).
+STUB_EMPTY_ONLY='INFO: corpus exists, no block files (empty-input): /fake/empty1
+INFO: corpus exists, no block files (empty-input): /fake/empty2
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
+Ledger consistent — all tagged breakthroughs indexed, no drift.'
+
+# Stub: ONLY 3 no-match, NO empty-input, NO absent (exercises NOMATCH-only END{} path).
+STUB_NOMATCH_ONLY='INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm1
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm2
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm3
+
+Summary: 3 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
+Ledger consistent — all tagged breakthroughs indexed, no drift.'
+
+# Stub: 2 empty-input + 3 no-match, NO absent (exercises combined END{} path; used by test 9 --full).
+STUB_EMPTY_NOMATCH='INFO: corpus exists, no block files (empty-input): /fake/empty1
+INFO: corpus exists, no block files (empty-input): /fake/empty2
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm1
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm2
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm3
+
+Summary: 3 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
+Ledger consistent — all tagged breakthroughs indexed, no drift.'
+
+# 7. Default mode collapses empty-input lines to one counted summary; per-target lines absent.
+#    Summary line must be present (anti-silent-zero §7: empty-input ≠ absent-input ≠ no-match).
+#    Uses STUB_EMPTY_ONLY so only the empty-input branch fires (END{} fallback, no absent).
+#    RED before implementation: current hook passes empty-input lines through unchanged.
+write_stub 0 "$STUB_EMPTY_ONLY"
+OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -q 'corpus exists, no block files (empty-input):' \
+   && printf '%s\n' "$OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them'; then
+  ok "7 default mode: 2 empty-input targets → no per-target lines, counted summary present"
+else
+  no "7 default mode: per-target empty-input lines present OR summary missing (exit=$RC out=[$OUT])"
+fi
+
+# 8. Default mode collapses no-match lines to one counted summary; per-target lines absent.
+#    Summary line must be present (anti-silent-zero §7).
+#    Uses STUB_NOMATCH_ONLY so only the no-match branch fires (END{} fallback, no absent).
+#    RED before implementation: current hook passes no-match lines through unchanged.
+write_stub 0 "$STUB_NOMATCH_ONLY"
+OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -q 'no tagged breakthroughs in corpus (no-match' \
+   && printf '%s\n' "$OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) no-match — run --full to list them'; then
+  ok "8 default mode: 3 no-match targets → no per-target lines, counted summary present"
+else
+  no "8 default mode: per-target no-match lines present OR summary missing (exit=$RC out=[$OUT])"
+fi
+
+# 9. --full mode passes through both empty-input and no-match per-target lines.
+#    Uses STUB_EMPTY_NOMATCH (both classes) to verify full passthrough.
+write_stub 0 "$STUB_EMPTY_NOMATCH"
+OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" --full 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && printf '%s\n' "$OUT" | grep -q 'corpus exists, no block files (empty-input): /fake/empty1' \
+   && printf '%s\n' "$OUT" | grep -q 'no tagged breakthroughs in corpus (no-match'; then
+  ok "9 --full mode: per-target empty-input and no-match lines passed through"
+else
+  no "9 --full mode: per-target lines NOT found in output (exit=$RC out=[$OUT])"
+fi
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook must go red when rc-check is neutered --"
@@ -140,6 +209,51 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth C: full-guard inverted → per-target lines absent in --full → test 6 RED"
   else
     no "teeth C: mutant still shows per-target line in --full — sed pattern may not match hook"
+  fi
+
+  echo "-- teeth D (#974): neuter EMPTY-COLLAPSE-COUNT → ei stays 0 → no summary → test 7 RED --"
+  # Tooth D: mutant drops ei++ from the EMPTY-COLLAPSE-COUNT line (keeps 'next').
+  # Per-target empty-input lines are still suppressed; but ei stays 0 so no summary emitted.
+  # Silent zero for empty-input → test 7 ('counted summary present') → RED.
+  # Uses STUB_EMPTY_ONLY (same as test 7) so the only possible summary is the empty-input one.
+  _stub_empty_only='INFO: corpus exists, no block files (empty-input): /fake/empty1
+INFO: corpus exists, no block files (empty-input): /fake/empty2
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
+Ledger consistent — all tagged breakthroughs indexed, no drift.'
+  write_stub 0 "$_stub_empty_only"
+  sed 's/ei++; next  # EMPTY-COLLAPSE-COUNT/next  # EMPTY-COLLAPSE-DISABLED/' \
+    "$SUT" > "$TMP/mutant-hook-D.sh"
+  chmod +x "$TMP/mutant-hook-D.sh"
+  cp "$TMP/mutant-hook-D.sh" "$TMP/sweep-breakthroughs-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them'; then
+    ok "teeth D: EMPTY-COLLAPSE-COUNT neutered → ei=0 → empty-input summary absent → test 7 RED"
+  else
+    no "teeth D: mutant still emits empty-input summary — sed pattern may not match hook"
+  fi
+
+  echo "-- teeth E (#974): neuter NOMATCH-COLLAPSE-COUNT → nm stays 0 → no summary → test 8 RED --"
+  # Tooth E: mutant drops nm++ from the NOMATCH-COLLAPSE-COUNT line (keeps 'next').
+  # Per-target no-match lines are still suppressed; but nm stays 0 so no summary emitted.
+  # Silent zero for no-match → test 8 ('counted summary present') → RED.
+  # Uses STUB_NOMATCH_ONLY (same as test 8) so the only possible summary is the no-match one.
+  _stub_nomatch_only='INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm1
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm2
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): /fake/nm3
+
+Summary: 3 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted.
+Ledger consistent — all tagged breakthroughs indexed, no drift.'
+  write_stub 0 "$_stub_nomatch_only"
+  sed 's/nm++; next  # NOMATCH-COLLAPSE-COUNT/next  # NOMATCH-COLLAPSE-DISABLED/' \
+    "$SUT" > "$TMP/mutant-hook-E.sh"
+  chmod +x "$TMP/mutant-hook-E.sh"
+  cp "$TMP/mutant-hook-E.sh" "$TMP/sweep-breakthroughs-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/sweep-breakthroughs-hook.sh" 2>&1)"
+  if ! printf '%s\n' "$MUTANT_OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) no-match — run --full to list them'; then
+    ok "teeth E: NOMATCH-COLLAPSE-COUNT neutered → nm=0 → no-match summary absent → test 8 RED"
+  else
+    no "teeth E: mutant still emits no-match summary — sed pattern may not match hook"
   fi
 fi
 

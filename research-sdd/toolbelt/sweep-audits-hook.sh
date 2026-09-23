@@ -26,21 +26,37 @@ if [ "$rc" -ne 0 ]; then
   exit 0
 fi
 
-# SUMMARY MODE (default): collapse per-target absent-input INFO lines to one counted line.
+# SUMMARY MODE (default): collapse per-target absent-input and empty-input INFO lines to
+# one counted summary line each.  (#974: keeps aggregate under the 8,000-char session budget.)
 # --full passes the full sweep output through unchanged (byte-identical to sweep script output).
 if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
   out="$(printf '%s\n' "$out" | awk '
+    BEGIN { ei=0 }
+
     # Drop individual per-target absent-input INFO lines — collapsed to aggregate below.
     /^INFO: corpus not found \(absent-input\):/ { next }
 
+    # Count and drop per-target empty-input INFO lines — collapsed to summary line below.
+    # Anti-silent-zero §7: empty-input is a distinct state from absent-input and no-match.
+    /^INFO: corpus exists, no audits found \(empty-input\):/ {
+      ei++; next  # EMPTY-COLLAPSE-COUNT
+    }
+
     # Aggregate absent-input line: swap the "see INFO lines above" pointer for --full hint.
+    # Emit the empty-input summary immediately before this line (groups all non-traversal INFO).
     /^INFO: [0-9]+ target\(s\) not traversed \(absent-input\)/ {
       sub(/see INFO lines above\.?/, "run --full to list them.")
+      if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei  # EMPTY-COLLAPSE-EMIT
+      ei=0
       print; next  # ABSENT-COLLAPSE-PRINT
     }
 
     # Everything else passes through unchanged.
     { print }
+
+    # Fallback: emit empty-input summary at end when there were no absent targets
+    # (absent-input aggregate line never appeared, so the piggyback path above never fired).
+    END { if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei }
   ')"
 fi
 

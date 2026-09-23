@@ -26,21 +26,50 @@ if [ "$rc" -ne 0 ]; then
   exit 0
 fi
 
-# SUMMARY MODE (default): collapse per-target absent-input INFO lines to one counted line.
+# SUMMARY MODE (default): collapse per-target absent-input, empty-input, and no-match INFO
+# lines to one counted summary line each.  (#974: keeps aggregate under the 8,000-char budget.)
+# Anti-silent-zero §7: each of the three states is reported distinctly, never merged into one.
 # --full passes the full sweep output through unchanged (byte-identical to sweep script output).
 if [ "$_full" = 0 ]; then  # FULL-PASSTHROUGH-GUARD
   out="$(printf '%s\n' "$out" | awk '
+    BEGIN { ei=0; nm=0 }
+
     # Drop individual per-target absent-input INFO lines — collapsed to aggregate below.
     /^INFO: corpus not found \(absent-input\):/ { next }
 
+    # Count and drop per-target empty-input INFO lines — collapsed to summary line below.
+    # Anti-silent-zero §7: distinct state from absent-input and no-match.
+    /^INFO: corpus exists, no block files \(empty-input\):/ {
+      ei++; next  # EMPTY-COLLAPSE-COUNT
+    }
+
+    # Count and drop per-target no-match INFO lines — collapsed to summary line below.
+    # Anti-silent-zero §7: distinct state from absent-input and empty-input.
+    /^INFO: no tagged breakthroughs in corpus \(no-match[^)]*\):/ {
+      nm++; next  # NOMATCH-COLLAPSE-COUNT
+    }
+
     # Aggregate absent-input line: swap the "see INFO lines above" pointer for --full hint.
+    # Emit empty-input and no-match summaries immediately before this line.
     /^INFO: [0-9]+ target\(s\) not traversed \(absent-input\)/ {
       sub(/see INFO lines above\.?/, "run --full to list them.")
+      if (ei > 0 && nm > 0) printf "INFO: %d corpus(es) empty-input, %d no-match — run --full to list them\n", ei, nm  # EMPTY-COLLAPSE-EMIT
+      else if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei  # EMPTY-COLLAPSE-EMIT
+      else if (nm > 0) printf "INFO: %d corpus(es) no-match — run --full to list them\n", nm  # NOMATCH-COLLAPSE-EMIT
+      ei=0; nm=0
       print; next  # ABSENT-COLLAPSE-PRINT
     }
 
     # Everything else passes through unchanged.
     { print }
+
+    # Fallback: emit summaries at end when there were no absent targets
+    # (absent-input aggregate line never appeared, so the piggyback path above never fired).
+    END {
+      if (ei > 0 && nm > 0) printf "INFO: %d corpus(es) empty-input, %d no-match — run --full to list them\n", ei, nm
+      else if (ei > 0) printf "INFO: %d corpus(es) empty-input — run --full to list them\n", ei
+      else if (nm > 0) printf "INFO: %d corpus(es) no-match — run --full to list them\n", nm
+    }
   ')"
 fi
 
