@@ -56,6 +56,11 @@ mkrepo() {
   git -C "$repo" config user.name  tester
   git -C "$repo" add -A
   git -C "$repo" commit -qm init
+  # Set up a local bare remote so git fetch origin succeeds in the fixed SUT.
+  local remote="$ROOT/$1-origin.git"
+  git init -q --bare -b main "$remote"  # explicit: CI has no init.defaultBranch
+  git -C "$repo" remote add origin "$remote"
+  git -C "$repo" push -q origin main 2>/dev/null
   printf '%s' "$repo"
 }
 
@@ -71,6 +76,8 @@ mkretro() {
   } > "$repo/$tgt/retros/$fname"
   git -C "$repo" add -A
   git -C "$repo" commit -qm "add retro $fname"
+  # Keep origin/main in sync so the unpushed-commits guard does not fire on unrelated cases.
+  git -C "$repo" push -q origin main 2>/dev/null
 }
 
 # mkretro_with_tools <repo> <target> <filename> : like mkretro but includes a tools section
@@ -95,6 +102,7 @@ mkretro_with_tools() {
   } > "$repo/$tgt/retros/$fname"
   git -C "$repo" add -A
   git -C "$repo" commit -qm "add retro with tools $fname"
+  git -C "$repo" push -q origin main 2>/dev/null
 }
 
 # mkretro_tools_noclose <repo> <target> <filename> : retro whose tools section is followed by
@@ -123,6 +131,7 @@ mkretro_tools_noclose() {
   } > "$repo/$tgt/retros/$fname"
   git -C "$repo" add -A
   git -C "$repo" commit -qm "add retro tools-noclose $fname"
+  git -C "$repo" push -q origin main 2>/dev/null
 }
 
 # branches <repo> : echo the retro/* local branches (empty when the destructive path never ran).
@@ -283,6 +292,61 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 9 — FETCH FAILURE emits typed degraded state and refuses before any branch mutation.
+#     A failing `git fetch origin` (bad/unreachable remote) must produce a `degraded:` message on
+#     stderr and exit non-zero WITHOUT creating any retro/* branch.  Pre-fix, `|| true` swallowed
+#     the failure silently; the script branched from a stale local main.
+repo="$(mkrepo fetch-fail real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+git -C "$repo" remote set-url origin "/nonexistent/path/does-not-exist.git"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" -ne 0 ] \
+   && grep -q 'degraded:' <<<"$OUT" \
+   && [ -z "$(branches "$repo")" ]; then
+  ok "9 fetch fails → degraded exit, no branch created" "(exit $RC)"
+else
+  no "9 fetch fails → degraded exit, no branch created" "exit=$RC branches=[$(branches "$repo")] out=[$OUT]"
+fi
+
+# 10 — NEW BRANCH IS BASED ON origin/main, NOT stale local main.
+#      When origin/main is ahead of local main (remote has a commit local main lacks), the new
+#      branch must start at origin/main — not at the stale local HEAD.  Pre-fix, branching was
+#      `checkout -b "$branch"` (from local HEAD); the fix uses `checkout -b "$branch" origin/main`.
+repo="$(mkrepo behind-origin real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+# Add a commit to origin via a second clone so remote is ahead of local main.
+remote_path="$(git -C "$repo" remote get-url origin)"
+tmpclone="$ROOT/behind-origin-extra"
+git clone -q "$remote_path" "$tmpclone" 2>/dev/null
+git -C "$tmpclone" config user.email t@example.com
+git -C "$tmpclone" config user.name  tester
+printf 'extra-from-remote\n' > "$tmpclone/extra-from-remote.txt"
+git -C "$tmpclone" add extra-from-remote.txt
+git -C "$tmpclone" commit -qm "extra remote commit"
+git -C "$tmpclone" push -q origin main 2>/dev/null
+local_main_sha="$(git -C "$repo" rev-parse main)"
+run "$repo" "targetA/retros/r1.md"
+origin_main_sha="$(git -C "$repo" rev-parse origin/main 2>/dev/null)"
+branch_sha="$(git -C "$repo" rev-parse "retro/targetA-r1" 2>/dev/null)"
+if [ "$RC" = 0 ] \
+   && [ -n "$branch_sha" ] \
+   && [ "$branch_sha" = "$origin_main_sha" ] \
+   && [ "$local_main_sha" != "$origin_main_sha" ]; then
+  ok "10 local main behind origin → new branch is at origin/main, not stale local main" "(exit $RC)"
+else
+  no "10 local main behind origin → new branch is at origin/main, not stale local main" \
+     "exit=$RC branch=$branch_sha origin=$origin_main_sha local=$local_main_sha out=[$OUT]"
+fi
+# 10b — the new branch must NOT track origin/main: with push.default=upstream a bare
+#       `git push` from the retro branch would otherwise update main on the remote.
+upstream10="$(git -C "$repo" rev-parse --abbrev-ref "retro/targetA-r1@{upstream}" 2>/dev/null)"
+if [ "$RC" = 0 ] && [ -z "$upstream10" ]; then
+  ok "10b new branch has no upstream (does not track origin/main)" "()"
+else
+  no "10b new branch has no upstream (does not track origin/main)" "exit=$RC upstream=[$upstream10]"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its
 # check can never fail (force it always-true), pair it with the broken helper + an APPLIED retro, and
@@ -306,6 +370,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
     # precondition holds and the ONLY thing that can stop staging is the (neutered) guard.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant
+    # Push mutant commit so origin/main stays in sync with local main; the fixed SUT's fetch check
+    # and the unpushed-commits guard must not fire before the guard under test runs.
+    git -C "$repo" push -q origin main 2>/dev/null
     outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"
     if grep -q 'staging retro for supervised review' <<<"$outm" \
        && [ "$(branches "$repo")" = "retro/targetA-r1" ]; then
@@ -332,6 +399,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     neutered='if false; then'
     printf '%s\n' "${content/"$anchor_e"/$neutered}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-excl
+    git -C "$repo" push -q origin main 2>/dev/null
     outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/client.md" 2>&1)"
     if grep -q 'staging retro for supervised review' <<<"$outm" \
        && [ "$(branches "$repo")" = "retro/targetA-client" ]; then
@@ -360,6 +428,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     neutered_t8="echo '## Tools built, adapted, or outgrown'"
     printf '%s\n' "${content/"$anchor_t8"/$neutered_t8}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-tools
+    git -C "$repo" push -q origin main 2>/dev/null
     outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r-tools.md" 2>&1)"
     # The mutant outputs the heading but NOT the table rows. Case 8's row-content assertion
     # ('tools/t.py' must appear) must FAIL — meaning the mutant goes RED on that check.
@@ -368,6 +437,107 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: tools-range mutant prints heading but no rows (case 8 row assertion has teeth)" "()"
     else
       no "teeth: tools-range mutant prints heading but no rows" "row found in mutant output — case 8 row assertion is THEATER: [$outm]"
+    fi
+  fi
+
+  # Teeth for case 9: neuter the fetch-failure guard → script swallows fetch failure and
+  # proceeds (exits 0, no degraded message).  Proves that the guard is what produces the
+  # typed degraded exit; without it, the failure is silent and exit is 0.
+  # The anchor must span the COMPLETE `|| { ... exit 6; }` clause so the bash substitution
+  # replaces the whole compound-command — a short anchor would leave trailing shell syntax.
+  echo "-- teeth: neuter fetch-fail guard, expect script to swallow failure and exit 0 --"
+  anchor_f='fetch -q origin || { echo "degraded: git fetch origin failed — cannot verify remote state; refusing to branch from a possibly stale base." >&2; exit 6; }'
+  if [[ "$content" != *"$anchor_f"* ]]; then
+    no "teeth: locate fetch-fail guard in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-fetch-fail real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    neutered_f='fetch -q origin 2>/dev/null || true'
+    printf '%s\n' "${content/"$anchor_f"/$neutered_f}" > "$mutant"
+    # Commit and PUSH before breaking the remote so origin/main is in sync with local main;
+    # the unpushed-commits guard must not fire — the FETCH guard is the one under test.
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-fetch-fail
+    git -C "$repo" push -q origin main 2>/dev/null
+    # Break the remote AFTER the push so the mutant runs with a failing fetch.
+    git -C "$repo" remote set-url origin "/nonexistent/path/does-not-exist.git"
+    out_tf="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rc_tf=$?
+    # Mutant swallows fetch failure → no degraded msg, exits 0 (last command is echo, not exit 6).
+    if [ "$rc_tf" = 0 ] && ! grep -q 'degraded:' <<<"$out_tf"; then
+      ok "teeth: fetch-fail guard neutered → exits 0, no degraded msg (case 9 has teeth)" "()"
+    else
+      no "teeth: fetch-fail guard neutered" \
+         "expected exit 0 + no degraded; got exit=$rc_tf out=[$out_tf]"
+    fi
+  fi
+
+  # Teeth for case 10: remove origin/main from `checkout -b` → branch lands on local main, not
+  # origin/main.  Proves the `origin/main` argument is load-bearing; removing it causes the
+  # branch to start at local HEAD, which is behind origin/main in the test setup.
+  # Setup order: push mutant FIRST so local/origin are in sync, THEN add an extra remote commit
+  # via a second clone.  Now origin/main is AHEAD of local main, the unpushed guard stays quiet
+  # (local has 0 commits not in origin), and the branch lands at local main != origin/main.
+  echo "-- teeth: remove origin/main from checkout -b, expect branch at local main not origin --"
+  anchor_c='checkout -q --no-track -b "$branch" origin/main'
+  if [[ "$content" != *"$anchor_c"* ]]; then
+    no "teeth: locate origin/main checkout in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-behind-origin real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    neutered_c='checkout -q --no-track -b "$branch"'
+    printf '%s\n' "${content/"$anchor_c"/$neutered_c}" > "$mutant"
+    # Push mutant before adding extra remote commit so origin/main == local main at this point.
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-behind-origin
+    git -C "$repo" push -q origin main 2>/dev/null
+    local_main_sha_t="$(git -C "$repo" rev-parse main)"
+    # Now add a commit to origin only via a second clone, making origin/main ahead of local main.
+    remote_path_t="$(git -C "$repo" remote get-url origin)"
+    tmpclone_t="$ROOT/teeth-behind-origin-extra"
+    git clone -q "$remote_path_t" "$tmpclone_t" 2>/dev/null
+    git -C "$tmpclone_t" config user.email t@example.com
+    git -C "$tmpclone_t" config user.name  tester
+    printf 'extra-teeth\n' > "$tmpclone_t/extra-teeth.txt"
+    git -C "$tmpclone_t" add extra-teeth.txt
+    git -C "$tmpclone_t" commit -qm "extra remote commit for teeth"
+    git -C "$tmpclone_t" push -q origin main 2>/dev/null
+    # local_main stays at mutant commit; origin/main is one ahead; unpushed = 0 (local not ahead).
+    "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
+    origin_main_sha_t="$(git -C "$repo" rev-parse origin/main 2>/dev/null)"
+    branch_sha_t="$(git -C "$repo" rev-parse --verify "refs/heads/retro/targetA-r1" 2>/dev/null)"
+    # Mutant branches from local main (not origin/main); local_main != origin_main in this setup.
+    if [ -n "$branch_sha_t" ] \
+       && [ "$branch_sha_t" = "$local_main_sha_t" ] \
+       && [ "$local_main_sha_t" != "$origin_main_sha_t" ]; then
+      ok "teeth: origin/main removed → branch at local main (case 10 has teeth)" "()"
+    else
+      no "teeth: origin/main removed → branch at local main" \
+         "branch=$branch_sha_t local=$local_main_sha_t origin=$origin_main_sha_t"
+    fi
+  fi
+
+  # Teeth for case 10b: drop --no-track → the branch tracks origin/main → 10b's assertion must fail.
+  echo "-- teeth: remove --no-track, expect the new branch to track origin/main --"
+  anchor_d='checkout -q --no-track -b "$branch" origin/main'
+  if [[ "$content" != *"$anchor_d"* ]]; then
+    no "teeth: locate --no-track checkout in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-no-track real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    printf '%s\n' "${content/"$anchor_d"/checkout -q -b \"\$branch\" origin/main}" > "$mutant"
+    if cmp -s "$mutant" "$SUT"; then
+      no "teeth: --no-track mutant differs from SUT" "mutant identical — substitution did not apply"
+    else
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-no-track
+      git -C "$repo" push -q origin main 2>/dev/null
+      "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
+      up_t="$(git -C "$repo" rev-parse --abbrev-ref "retro/targetA-r1@{upstream}" 2>/dev/null)"
+      if [ "$up_t" = "origin/main" ]; then
+        ok "teeth: --no-track removed → branch tracks origin/main (case 10b has teeth)" "()"
+      else
+        no "teeth: --no-track removed → branch tracks origin/main" "upstream=[$up_t]"
+      fi
     fi
   fi
 fi
