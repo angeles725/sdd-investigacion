@@ -97,6 +97,12 @@ _run_issue_seeding() {
       # Seeder exited 0 but printed no summary: — §7 absent-input signal, not a silent 0
       printf 'retro-gate: WARN: seeder exited 0 but printed no summary: line for %s\n' \
         "$(basename "$rf")" >&2
+    else
+      # No summary: and seeder failed — count ^created: progress lines as fallback (§7)
+      _c="$(printf '%s' "$seed_out" | grep -c '^created: ')" || _c=0
+      created=$((created + ${_c:-0}))
+      printf 'retro-gate: WARN: seeder exited %d for %s: no summary: line — counted %d partial-progress line(s)\n' \
+        "$seed_rc" "$(basename "$rf")" "${_c:-0}" >&2
     fi
     if [ "$seed_rc" -ne 0 ]; then
       failed=$((failed + 1))

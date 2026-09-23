@@ -473,9 +473,8 @@ cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_PARTIAL/toolbelt/lib/"
 cp "$HERE/../verify-retro.sh"       "$FKIT_PARTIAL/toolbelt/"
 cat > "$FKIT_PARTIAL/toolbelt/stage-retro-issues.sh" << 'PARTIALEOF'
 #!/usr/bin/env bash
-# Partial seeder: creates 1 issue, emits summary, then exits 1 (partial failure)
+# Partial seeder: creates 1 issue then exits 1 without summary: (tests fallback counting)
 printf 'created: https://github.com/test/repo/issues/42 (row 1)\n'
-printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0\n'
 printf 'seeder: rate limit exceeded after partial run\n' >&2
 exit 1
 PARTIALEOF
@@ -502,6 +501,9 @@ printf '%s' "$ERR_P" | grep -q 'created=1' && ok "EN3-e-partial: partial seeder 
 # failed=1 in summary
 printf '%s' "$ERR_P" | grep -q 'failed=1' && ok "EN3-e-partial: partial seeder → failed=1 in summary" \
   || no "EN3-e-partial: partial seeder → expected 'failed=1' in summary; got: $ERR_P"
+# WARN must say count came from partial-progress lines (not summary)
+printf '%s' "$ERR_P" | grep -q 'no summary:.*counted.*partial-progress' && ok "EN3-e-partial: partial seeder → WARN mentions partial-progress count" \
+  || no "EN3-e-partial: partial seeder → expected WARN about partial-progress count; got: $ERR_P"
 
 # ─── EN3-f: seeder exit 0 + no summary: → absent-summary WARN (#935) ─────────
 # Validates §7 absent-input signal: seeder claims success (exit 0) but emits no
@@ -572,35 +574,6 @@ printf '%s' "$ERR_SUM" | grep -q 'created=1' && ok "EN3-summary: real summary: f
 # RED before fix: SUT has no ran= counter.
 printf '%s' "$ERR_SUM" | grep -q 'ran=1' && ok "EN3-ran: ran=1 counter in issue-seeding summary" \
   || no "EN3-ran: expected ran=1 in summary; got: $ERR_SUM"
-
-# ─── (EN3-absent-summary) Seeder exit 0 + no summary: → WARN (#935) ─────────
-# RED before fix: SUT emits no WARN when seeder exits 0 without a summary: line.
-FKIT_NOSUM="$ROOT/fkit_nosum"
-mkdir -p "$FKIT_NOSUM/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_NOSUM/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_NOSUM/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_NOSUM/toolbelt/lib/"
-cp "$HERE/../verify-retro.sh"       "$FKIT_NOSUM/toolbelt/"
-cat > "$FKIT_NOSUM/toolbelt/stage-retro-issues.sh" << 'NOSUMEOF'
-#!/usr/bin/env bash
-printf 'planned-issue: row 1 already planned\n'
-exit 0
-NOSUMEOF
-chmod +x "$FKIT_NOSUM/toolbelt/stage-retro-issues.sh"
-cp "$SUT" "$FKIT_NOSUM/toolbelt/retro-gate.sh"
-TEN3NOSUM="$ROOT/en3nosum"; mkgit "$TEN3NOSUM"; SIDEN3NOSUM="en3-sess-nosum"
-mksessionfile "$TEN3NOSUM" "$SIDEN3NOSUM" "202609050800"
-mkblock "$TEN3NOSUM" "niagara-block1.md" "2026-09-05T10:00:00"
-touch -t 202609051000 "$TEN3NOSUM/niagara-block1.md"
-mkretro "$TEN3NOSUM" "2026-09-05-nosum.md" 1
-touch -t 202609051200 "$TEN3NOSUM/retros/2026-09-05-nosum.md"
-_jen3nosum="$(mkjson "$SIDEN3NOSUM" "false")"
-errf_nosum="$ROOT/err_nosum.$$"
-OUT="$(printf '%s' "$_jen3nosum" | PATH="$MOCK_GH_DIR:$PATH" \
-  "$BASH_BIN" "$FKIT_NOSUM/toolbelt/retro-gate.sh" "$TEN3NOSUM" 2>"$errf_nosum")"; RC=$?
-ERR_NOSUM="$(cat "$errf_nosum")"; rm -f "$errf_nosum"
-printf '%s' "$ERR_NOSUM" | grep -q 'WARN.*no summary' && ok "EN3-absent-summary: exit 0 + no summary: → WARN" \
-  || no "EN3-absent-summary: expected WARN about missing summary: line; got: $ERR_NOSUM"
 
 # ─── (EN3-reason) WARN reason = last non-progress line, not first (#935) ──────
 # RED before fix: old head -1 returns the first line (a progress 'created:' line).
@@ -1038,19 +1011,35 @@ fi
 #   Mutant (2>/dev/null added): error suppressed → RED.
 # Skipped when running as root (chmod 000 does not protect root access).
 
-# Mutant: adds 2>/dev/null to the seeding find invocation
+# Mutant: adds 2>/dev/null inside the seeding find process substitution.
+# Targets the -iname line (last line of the find, ends with ')') that has no
+# existing 2>/dev/null — leaves find working while suppressing traversal errors.
 M12="$ROOT/mut_tooth12.sh"
 awk '
-  /done < <\(find / { print $0 " 2>/dev/null"; next }
+  /-iname/ && !/2>\/dev\/null/ { sub(/\)$/, " 2>/dev/null)"); print; next }
   { print }
 ' "$SUT" > "$M12"
 chmod +x "$M12"
 
-# Pre-check: awk matched the find line
+# Pre-check: awk matched the find line → mutant differs from SUT
 if diff -q "$SUT" "$M12" >/dev/null 2>&1; then
-  no "TOOTH 12 pre-check: mutant identical to SUT — awk did not match find line"
+  no "TOOTH 12 pre-check: mutant identical to SUT — awk did not match -iname line"
 else
-  ok "TOOTH 12 pre-check: mutant differs from SUT (find line matched)"
+  ok "TOOTH 12 pre-check: mutant differs from SUT (-iname line matched)"
+fi
+
+# Sabotage: rename -iname → awk produces no diff (proves the awk targets -iname)
+SUT_SAB12="$ROOT/sut_sab12.sh"
+MUT_SAB12="$ROOT/mut_sab12.sh"
+sed 's/-iname/-INAME-GONE/g' "$SUT" > "$SUT_SAB12"
+awk '
+  /-iname/ && !/2>\/dev\/null/ { sub(/\)$/, " 2>/dev/null)"); print; next }
+  { print }
+' "$SUT_SAB12" > "$MUT_SAB12"
+if diff -q "$SUT_SAB12" "$MUT_SAB12" >/dev/null 2>&1; then
+  ok "TOOTH 12 sabotage: -iname renamed → no diff (tooth would fail — as expected)"
+else
+  no "TOOTH 12 sabotage: -iname renamed → awk still matched — sabotage broken"
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -1096,8 +1085,8 @@ SUMEOF3
   chmod 755 "$TM12/retros/inaccessible-tooth12" 2>/dev/null || true
   rmdir "$TM12/retros/inaccessible-tooth12" 2>/dev/null || true
 else
-  ok "TOOTH 12 find-stderr-suppressed: skipped (running as root — chmod 000 does not protect)"
-  ok "TOOTH 12 find-stderr-suppressed: mutant suppresses seeding find stderr (skipped — root)"
+  printf '  SKIP  TOOTH 12 find-stderr-suppressed (running as root — chmod 000 does not protect)\n'
+  printf '  SKIP  TOOTH 12 find-stderr-suppressed: mutant suppresses seeding find stderr\n'
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
