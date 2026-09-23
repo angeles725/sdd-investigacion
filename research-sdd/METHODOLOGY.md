@@ -1040,11 +1040,7 @@ write + self-verify + commit, keeping its own context near-empty across many blo
 context-lean; both set the delegated `model` by cognitive demand and never re-verify a block with
 orchestrator Bash (§11). PROMPT-LOOP "Two execution modes" has the operational detail.
 
-**Continuation is the default; stopping is the exception.** The loop agent DRIVES its own iterations —
-nothing re-invokes it. After each iteration, if none of the criteria above fired, it MUST reschedule and
-begin the next gap; the per-iteration report is a checkpoint, not a hand-off. This matters most under
-`/loop` self-pacing (no orchestrator to relaunch it): the agent self-reschedules until a criterion fires.
-Halting after a single block is a bug (the LOOP CONTINUATION rule was skipped), not a valid stop.
+**Continuation is the default; stopping is the exception.** The loop agent DRIVES its own iterations — under dynamic self-paced mode it reschedules itself; under fixed-interval mode the harness re-fires it; under orchestrated mode the driver re-invokes it. After each iteration, if none of the criteria above fired, it MUST continue the next gap per mode; the per-iteration report is a checkpoint, not a hand-off. Halting after a single block is a bug (the LOOP CONTINUATION rule was skipped), not a valid stop.
 
 **Reschedule cadence.** The next gap is ready work, not an idle poll — reschedule at the ~60s floor, not
 the 1200-1800s idle default. Short delays keep the prompt cache warm (≤300s), so continuous iterations run
@@ -1149,46 +1145,6 @@ backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at 
 **Frontier mode (5th investigation mode — unexplored territory, breadth-first).** Use frontier mode for a genuinely new focus with NO prior corpus coverage on its proposed surfaces — for example, the first pass over an entirely uncharted subsystem or target. The goal is a COVERAGE MAP across many sub-areas, not deep certification of one. Characteristics: sweep strategy is BREADTH-FIRST and LIGHTER BLOCK DENSITY than a normal deep-dive focus; the `[INFER]`/`[CERT]` ratio is EXPECTED HIGH — that is not a defect but a signal that targeted deep-dive passes are needed later. Declare `MODE: frontier` in RESEARCH-STATE at bootstrap. A frontier focus is NOT under depth pressure from the marker ratio: a high `[INFER]` count signals "return with richer tooling", not "the focus is incomplete by §8 standards". Distinct from a grade-upgrade reopen (which deepens evidence for questions already asked on a STOPPED focus) and from live-backlog injection (which extends an active loop's queue). **FRONTIER-REOPEN DECISION SHAPE.** Before honoring STOP on a frontier focus, run a coverage/section audit: if the audit reveals >2 contiguous section entries uncovered OR >1 named sub-topic with no block coverage, that is a new tier, not an in-block residue — declare it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration of the new tier and seed the backlog from the uncovered entries. A single in-child residue stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is not a reproducible corpus action.
 (Source: niagara-research/retros/2026-09-14-frontier-mode-proposal.md)
 
-## 8c. Campaign queue
-
-**What a campaign is.** Heavy and frontier modes continue on their own by default: when a focus stops, the FRONTIER-REOPEN audit enqueues new entries, and the loop pops the next one without operator involvement. That chain of focuses is a campaign. A focus stop does not end the campaign. The campaign runs until no entry is `pending` or `active` (all rows carry a terminal state `done` or `bound-stopped`) and the last coverage audit enqueued nothing.
-
-**Queue entries.** Each entry in the campaign queue carries:
-- `name` — a short slug (e.g. `api-surface`, `comms-tier`)
-- `parent` — the focus that discovered it, or `root` for the initial entry
-- `kind` — one of `focus`, `tier`, `sub-topic`
-- `seed` — a brief description of what to investigate (becomes the bootstrap gap list)
-- `convergence` — the condition under which this entry is done (e.g. "all sections mapped", "load-bearing question answered")
-- `state` — one of `pending`, `active`, `done`, `bound-stopped`
-
-The queue lives in the root RESEARCH-STATE (the `## Campaign queue` table; grammar in the template). A single-focus corpus that never spawns children is a campaign with one entry; no special configuration is needed.
-
-**Campaign STOP condition.** The campaign stops when: (1) no entry is `pending` or `active` (rows carry terminal states `done` or `bound-stopped`) and the latest `last_audit:` shows `enqueued=0`; or (2) a declared bound is reached (max-depth, iteration budget, or wall-clock budget), which emits the typed stop `campaign-bound-reached: <which>` and does not silently exit. Resume after an interruption by reading the queue: first continue any entry left `active` (an interrupted focus — re-enter its loop without rerunning BOOTSTRAP), then pop the next `pending` entry (bootstrap it if new), and continue the loop.
-
-**Declared bounds.** Declared at bootstrap as a single line in RESEARCH-STATE:
-
-```
-campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h
-```
-
-Each key is optional; omitting a key means no bound on that axis. An absent `campaign_bounds:` line means no bounds at all. depth is the length of the parent chain from root (root entry depth 0; a child of root has depth 1). When a bound fires mid-campaign, the loop: (1) marks the current entry's State as `bound-stopped`; (2) writes `campaign_stop: campaign-bound-reached: <which>` (e.g. `campaign_stop: campaign-bound-reached: max-depth=3`) in RESEARCH-STATE immediately below the `last_iteration_ts` line; (3) runs the SELF-RETROSPECTIVE; (4) stops. A bound stop is a typed exit — the `campaign_stop:` line lets the instrument distinguish it from a missing stop and from normal campaign STOP.
-
-**Recording the coverage audit result.** After each focus STOP the FRONTIER-REOPEN audit runs and the result is written to RESEARCH-STATE:
-
-```
-last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>
-```
-
-This line is what resume and the instrument read to distinguish three states: (a) `last_audit:` absent or never written — no audit has run yet (not yet audited); (b) `enqueued=0` — audit ran and found nothing to add; (c) `enqueued=N` (N > 0) — audit ran and added N new entries. Campaign STOP fires only when no entry is `pending` or `active` AND the most recent `last_audit:` shows `enqueued=0`; a missing `last_audit:` line never satisfies the condition, even when no pending entries remain.
-
-**Persisted bound counters.** Two scalar fields in RESEARCH-STATE track the campaign's progress across compaction, resume, and sub-agent handoffs so bound checks are always correct: `campaign_started: <YYYY-MM-DDTHH:MM:SSZ>` — written when the first campaign entry transitions to `active`; anchors the wall-clock bound check. `campaign_iterations: <N>` — incremented each block commit across all entries; anchors the iteration-count bound check. A campaign that resumes from a sub-agent or after compaction reads these two fields to evaluate whether a bound has been reached — never recount from scratch.
-
-**Teardown and the retro.** Teardown (disarming the re-invoker under fixed-interval mode) runs at campaign STOP, not at each focus stop. At focus stop, the loop continues to the next queue entry; the re-invoker stays active. Only when the campaign STOP condition fires does the loop disarm the re-invoker and run the full RETRO CHECKPOINT.
-
-**Stall detection (instrument-facing).** The declarative signal the status instrument reads is `last_iteration_ts` in RESEARCH-STATE (an ISO-8601 UTC timestamp updated each time a block is committed). An instrument that finds `last_iteration_ts` unchanged for longer than the expected iteration cadence can surface a stall warning. Single-focus corpora (those with no Campaign queue section) still carry `last_iteration_ts` as the stall-detection signal for that focus. The instrument is not built here; the field is declared so doctrine precedes the parser (CLAUDE.md §6).
-
-**Operational details** (continuation mechanics, mode cases, cadence) are in PROMPT-LOOP LOOP CONTINUATION. §8 states the policy; PROMPT-LOOP states how to execute it.
-
 ## 8b. Gap-backlog cell grammar (issue #147)
 
 The `## Gap-backlog` table has two grammar-sensitive cells — **Priority** and **Status** — that
@@ -1266,6 +1222,52 @@ auto-applies. Migration classes to address:
 - Heading variants → `## Gap-backlog`.
 - Wrong column order or missing columns → 4-column canonical form (or accepted 5-column variant above).
 - Bare `|` inside cells → `&#124;`.
+
+## 8c. Campaign queue
+
+**What a campaign is.** Heavy and frontier modes continue on their own by default: when a focus stops, the FRONTIER-REOPEN audit enqueues new entries, and the loop pops the next one without operator involvement. That chain of focuses is a campaign. A focus stop does not end the campaign. The campaign runs until no entry is `pending` or `active` (all rows carry a terminal state `done` or `bound-stopped`) and the last coverage audit enqueued nothing.
+
+**Queue entries.** Each entry in the campaign queue carries:
+- `name` — a short slug (e.g. `api-surface`, `comms-tier`)
+- `parent` — the focus that discovered it, or `root` for the initial entry
+- `kind` — one of `focus`, `tier`, `sub-topic`
+- `seed` — a brief description of what to investigate (becomes the bootstrap gap list)
+- `convergence` — the condition under which this entry is done (e.g. "all sections mapped", "load-bearing question answered")
+- `state` — one of `pending`, `active`, `done`, `bound-stopped`, `rejected`
+
+The queue lives in the root RESEARCH-STATE (the `## Campaign queue` table; grammar in the template). A single-focus corpus that never spawns children is a campaign with one entry; no special configuration is needed.
+
+**State machine.** The Campaign queue section is created when the first focus-STOP coverage audit enqueues at least one new entry (enqueued>0); the current focus becomes the `root` row and `campaign_started` is written. Transitions: `pending` → `active` (pop: write `campaign_started` if absent); `active` → `done` (convergence criterion met); `active` → `bound-stopped` (bound fires mid-focus, PAUSED — see bound-stop sequence); `pending` → `rejected` (focus-distinctness check: if the new entry is not meaningfully distinct from an existing entry, mark it `rejected` rather than running a duplicate focus). `rejected` and `done` and `bound-stopped` are terminal states; a rejected entry is never re-activated.
+
+**Kind semantics.** `focus` — a new §16 corpus file plus its own BOOTSTRAP; `tier` — a FRONTIER-REOPEN audit entry that continues investigation inside the same corpus file (no new BOOTSTRAP); `sub-topic` — a gap from the parent focus's backlog, investigated as a child. Every kind counts toward the `max-depth` bound; depth is the length of the parent chain from root.
+
+**Campaign STOP condition.** The campaign stops when: (1) no entry is `pending` or `active` (rows carry terminal states `done` or `bound-stopped`) and the latest `last_audit:` shows `enqueued=0`; or (2) a declared bound is reached (max-depth, iteration budget, or wall-clock budget), which emits the typed stop `campaign-bound-reached: <which>` and does not silently exit. Resume after an interruption by reading the queue: first continue any entry left `active` (an interrupted focus — re-enter its loop without rerunning BOOTSTRAP), then pop the next `pending` entry (bootstrap it if new), and continue the loop.
+
+**Declared bounds.** Declared at bootstrap as a single line in RESEARCH-STATE:
+
+```
+campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h
+```
+
+Each key is optional; omitting a key means no bound on that axis. An absent `campaign_bounds:` line means no bounds at all. depth is the length of the parent chain from root (root entry depth 0; a child of root has depth 1). Note on scope: `iterations=<N>` in `campaign_bounds` is a campaign-wide total (across all entries); per-focus block limits use `max-blocks` in the Stop control section, which governs a single focus only. When a bound fires mid-campaign, the loop: (1) marks the current entry's State as `bound-stopped` (PAUSED — the focus is interrupted, not complete); (2) writes `campaign_stop: campaign-bound-reached: <which>` (e.g. `campaign_stop: campaign-bound-reached: max-depth=3`) in RESEARCH-STATE immediately below the `last_iteration_ts` line; (3) runs the SELF-RETROSPECTIVE; (4) disarms the re-invoker per LOOP CONTINUATION (CronDelete for fixed-interval; skip ScheduleWakeup for dynamic; emit STOP token for orchestrated); (5) stops. A bound stop is a typed exit — the `campaign_stop:` line lets the instrument distinguish it from a missing stop and from normal campaign STOP.
+
+**Resume rule.** On re-fire or restart, if `campaign_stop:` is present in RESEARCH-STATE, the campaign is already stopped; do NOT pop the next pending entry and do not restart investigation — recognise the stopped state and exit cleanly. A re-fire that finds `campaign_stop:` already set is idempotent (disarm and end).
+
+**Recording the coverage audit result.** After each focus STOP the FRONTIER-REOPEN audit runs and the result is written to RESEARCH-STATE:
+
+```
+last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>
+```
+
+This line is what resume and the instrument read to distinguish three states: (a) `last_audit:` absent or never written — no audit has run yet (not yet audited); (b) `enqueued=0` — audit ran and found nothing to add; (c) `enqueued=N` (N > 0) — audit ran and added N new entries. Campaign STOP fires only when no entry is `pending` or `active` AND the most recent `last_audit:` shows `enqueued=0`; a missing `last_audit:` line never satisfies the condition, even when no pending entries remain.
+
+**Persisted bound counters.** Two scalar fields in RESEARCH-STATE track the campaign's progress across compaction, resume, and sub-agent handoffs so bound checks are always correct: `campaign_started: <YYYY-MM-DDTHH:MM:SSZ>` — written when the first campaign entry transitions to `active`; anchors the wall-clock bound check. `campaign_iterations: <N>` — incremented each block commit across all entries; anchors the iteration-count bound check. A campaign that resumes from a sub-agent or after compaction reads these two fields to evaluate whether a bound has been reached — never recount from scratch.
+
+**Teardown and the retro.** Teardown (disarming the re-invoker under fixed-interval mode) runs at campaign STOP, not at each focus stop. At focus stop, the loop continues to the next queue entry; the re-invoker stays active. Only when the campaign STOP condition fires does the loop disarm the re-invoker and run the full RETRO CHECKPOINT.
+
+**Stall detection (instrument-facing).** The declarative signal the status instrument reads is `last_iteration_ts` in RESEARCH-STATE (an ISO-8601 UTC timestamp updated each time a block is committed). An instrument that finds `last_iteration_ts` unchanged for longer than the expected iteration cadence can surface a stall warning. Single-focus corpora (those with no Campaign queue section) still carry `last_iteration_ts` as the stall-detection signal for that focus. The instrument is not built here; the field is declared so doctrine precedes the parser (CLAUDE.md §6).
+
+**Operational details** (continuation mechanics, mode cases, cadence) are in PROMPT-LOOP LOOP CONTINUATION. §8 states the policy; PROMPT-LOOP states how to execute it.
 
 ## 9. Golden rules
 

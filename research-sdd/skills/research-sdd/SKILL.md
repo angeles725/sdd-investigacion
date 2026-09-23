@@ -251,9 +251,9 @@ Pick the mode based on whether an operator is present:
 
 | Situation | Mode | Launch | Continuation |
 |---|---|---|---|
-| Unattended (no operator) | Self-paced dynamic (recommended) | Launch `/loop /research-sdd <target>` before the first iteration | ScheduleWakeup at ~60s floor; campaign STOP disarms |
-| Unattended, dynamic halted after 1 block | Self-paced fixed-interval (fallback) | `/loop 5m /research-sdd <target>` | Harness re-fires; campaign STOP: disarm the re-invoker (CronList → CronDelete; else tell the operator) |
-| Operator present (reviewing between blocks) | Orchestrated | Proceed directly — do not launch `/loop` | Signal "continue" in the report; operator or driver re-invokes |
+| Unattended (default at BOOTSTRAP) | Self-paced dynamic (recommended) | Launch `/loop /research-sdd <target> [focus]` before the first iteration | ScheduleWakeup at ~60s floor; at campaign STOP, do not reschedule |
+| Unattended, dynamic halted after 1 block | Self-paced fixed-interval (fallback) | `/loop 5m /research-sdd <target> [focus]` | Harness re-fires; campaign STOP: disarm the re-invoker (CronList → CronDelete; else tell the operator) |
+| Attended (operator in session, reviewing between blocks) | Orchestrated | Proceed directly — do not launch `/loop` | Signal "continue" in the report; operator or driver re-invokes |
 
 Before launching in unattended mode, check whether a re-invoker is already active (arrived via `/loop`, or a wakeup/cron is armed). If one is active, proceed directly without a nested launch. Do not issue ScheduleWakeup when an operator is present — that spawns a rogue autonomous loop alongside the operator.
 

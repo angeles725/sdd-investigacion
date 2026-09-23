@@ -17,6 +17,30 @@
 #   A8  Walls & evidence block (blocked-on-tool typed state)
 #   A10 Two-tier METHODOLOGY reading: HOT-CORE label present
 #   A11 Tool-catalog alias guidance: 'alias:' + 'kaitai-struct-compiler' (#364 drift class)
+#   A12 propose-never-apply appears in both toolchain routing and tool cataloging
+#   A13 Dynamic is recommended for unattended runs (not fixed-interval)
+#   A14 /loop does NOT claim to guarantee cadence (absent)
+#   A15 Re-invoker check before launch ('re-invoker is already active')
+#   B1  LOOP CONTINUATION names both 'dynamic self-paced, no interval' and '/loop 5m' fallback
+#   B2  Fixed-interval mode does not issue ScheduleWakeup ('Do NOT issue ScheduleWakeup')
+#   B3  Fixed-interval teardown references CronDelete
+#   C1  METHODOLOGY §8c states focus stop ≠ campaign stop
+#   C2  METHODOLOGY §8c carries precise campaign-STOP wording (no pending/active entries)
+#   C3  METHODOLOGY §8c carries typed bound-stop token 'campaign-bound-reached:'
+#   C4  PROMPT-LOOP LOOP CONTINUATION states teardown runs at campaign STOP
+#   C5  METHODOLOGY §8c carries grammar code block for campaign_bounds (full line shape)
+#   C6  METHODOLOGY §8c defines depth as parent-chain length from root
+#   C7  METHODOLOGY §8c names recording location for bound stop (campaign_stop: line)
+#   C8  METHODOLOGY §8c carries last_audit: field with full grammar shape
+#   C9  PROMPT-LOOP RETURN CONTRACT carries 'next-entry: <queue-name>' campaign token
+#   C10 METHODOLOGY §8c states resume continues active entry first
+#   C11 METHODOLOGY §8c carries persisted bound counters (campaign_started + campaign_iterations)
+#   C12 METHODOLOGY §8c states last_iteration_ts applies to single-focus corpora
+#   C13 METHODOLOGY §8c carries 'rejected' terminal state (focus-distinctness failures)
+#   C14 SKILL.md mode table carries 'CronList → CronDelete' disarm wording
+#   C15 PROMPT-LOOP says 'A RUN ends only on campaign STOP' (RUN vs TURN distinction)
+#   C16 PROMPT-LOOP does NOT say 'an autonomous run must stop at convergence' (absent/stale)
+#   C17 PROMPT-LOOP does NOT say 'A turn ends only on campaign STOP' (absent/stale)
 #
 # Usage: skill-invariants.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 
@@ -282,14 +306,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# C5: METHODOLOGY.md §8c must carry the closed `campaign_bounds:` declaration
-#     syntax so the instrument can parse declared bounds without prose parsing.
-#     Stable anchor: 'campaign_bounds:'
+# C5: METHODOLOGY.md §8c must carry the full grammar line for campaign_bounds:
+#     including all three keys and the correct wall-clock spelling (<N>h not <Nh>).
+#     This pins the exact grammar shape the instrument parses.
+#     Stable anchor: full grammar code-block line
 # ---------------------------------------------------------------------------
-if grep -qF 'campaign_bounds:' "$METHODOLOGY"; then
-  ok "C5: METHODOLOGY §8c carries 'campaign_bounds:' declaration syntax"
+if grep -qF 'campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h' "$METHODOLOGY"; then
+  ok "C5: METHODOLOGY §8c carries full campaign_bounds grammar line (wall-clock=<N>h)"
 else
-  no "C5: METHODOLOGY §8c missing 'campaign_bounds:' declaration syntax"
+  no "C5: METHODOLOGY §8c missing full campaign_bounds grammar line"
 fi
 
 # ---------------------------------------------------------------------------
@@ -318,26 +343,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# C8: METHODOLOGY.md §8c must carry the 'last_audit:' field so resume and
-#     the instrument can distinguish campaign STOP (audit ran, enqueued=0)
-#     from "not yet audited" (field absent or never written).
-#     Stable anchor: 'last_audit:'
+# C8: METHODOLOGY.md §8c must carry the full grammar shape of the last_audit: field
+#     so resume and the instrument know the exact parse format.
+#     Stable anchor: full grammar line
 # ---------------------------------------------------------------------------
-if grep -qF 'last_audit:' "$METHODOLOGY"; then
-  ok "C8: METHODOLOGY §8c carries 'last_audit:' field for resume/instrument"
+if grep -qF 'last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>' "$METHODOLOGY"; then
+  ok "C8: METHODOLOGY §8c carries full last_audit: grammar line (with enqueued=<N>)"
 else
-  no "C8: METHODOLOGY §8c missing 'last_audit:' field"
+  no "C8: METHODOLOGY §8c missing full last_audit: grammar line"
 fi
 
 # ---------------------------------------------------------------------------
-# C9: PROMPT-LOOP RETURN CONTRACT must define the continuation-token format
-#     and the rule that a return without either token is a silently stopped
-#     iteration. SKILL.md must point there. Stable anchor: 'halted-but-silent stop'
+# C9: PROMPT-LOOP RETURN CONTRACT must carry the campaign-aware 'next-entry:' token
+#     so the agent can signal "campaign continues to this named queue entry" without
+#     mixing it up with a within-focus next-gap token.
+#     Stable anchor: 'next-entry: <queue-name>' (added in #989 round 4)
 # ---------------------------------------------------------------------------
-if grep -qF 'halted-but-silent stop' "$PROMPTLOOP"; then
-  ok "C9: PROMPT-LOOP RETURN CONTRACT carries continuation-token guard ('halted-but-silent stop')"
+if grep -qF 'next-entry: <queue-name>' "$PROMPTLOOP"; then
+  ok "C9: PROMPT-LOOP RETURN CONTRACT carries 'next-entry: <queue-name>' campaign token"
 else
-  no "C9: PROMPT-LOOP RETURN CONTRACT missing continuation-token guard"
+  no "C9: PROMPT-LOOP RETURN CONTRACT missing 'next-entry: <queue-name>' campaign token"
 fi
 
 # ---------------------------------------------------------------------------
@@ -375,6 +400,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# C13: METHODOLOGY §8c must carry the `rejected` terminal state so the instrument
+#      can classify a focus-distinctness failure separately from done/bound-stopped.
+#      Stable anchor: '`rejected`' as a named state value
+# ---------------------------------------------------------------------------
+if grep -qF '`rejected`' "$METHODOLOGY"; then
+  ok "C13: METHODOLOGY §8c carries 'rejected' terminal state"
+else
+  no "C13: METHODOLOGY §8c missing 'rejected' terminal state"
+fi
+
+# ---------------------------------------------------------------------------
 # C14: SKILL.md mode table must say 'CronList → CronDelete' (not just
 #      'CronDelete then disarm') — the operator-fallback clause is required so
 #      the rule works when no CronList is available.
@@ -384,6 +420,38 @@ if grep -qF 'CronList → CronDelete' "$SKILL"; then
   ok "C14: SKILL.md mode table carries 'CronList → CronDelete' disarm wording"
 else
   no "C14: SKILL.md mode table missing 'CronList → CronDelete' disarm wording"
+fi
+
+# ---------------------------------------------------------------------------
+# C15: PROMPT-LOOP LOOP CONTINUATION must say 'A RUN ends only on campaign STOP'
+#      (not 'A turn ends only on campaign STOP'). A RUN ends on campaign STOP;
+#      a TURN ends after the mode continuation call.
+#      Stable anchor: 'A RUN ends only on campaign STOP'
+# ---------------------------------------------------------------------------
+if grep -qF 'A RUN ends only on campaign STOP' "$PROMPTLOOP"; then
+  ok "C15: PROMPT-LOOP correctly says 'A RUN ends only on campaign STOP'"
+else
+  no "C15: PROMPT-LOOP missing 'A RUN ends only on campaign STOP'"
+fi
+
+# ---------------------------------------------------------------------------
+# C16 (absence): PROMPT-LOOP must NOT say 'an autonomous run must stop at convergence'
+#      — stale; the campaign model replaces convergence-stop with queue-enqueue per §8c.
+# ---------------------------------------------------------------------------
+if grep -qF 'an autonomous run must stop at convergence' "$PROMPTLOOP"; then
+  no "C16: PROMPT-LOOP still has stale 'an autonomous run must stop at convergence'"
+else
+  ok "C16: PROMPT-LOOP does not have stale convergence-stop wording"
+fi
+
+# ---------------------------------------------------------------------------
+# C17 (absence): PROMPT-LOOP must NOT say 'A turn ends only on'
+#      — stale phrasing; replaced by 'A RUN ends only on campaign STOP'.
+# ---------------------------------------------------------------------------
+if grep -qF 'A turn ends only on' "$PROMPTLOOP"; then
+  no "C17: PROMPT-LOOP still has stale 'A turn ends only on'"
+else
+  ok "C17: PROMPT-LOOP does not have stale 'A turn ends only on'"
 fi
 
 # ---------------------------------------------------------------------------
@@ -587,11 +655,11 @@ if [ "$PROVE_TEETH" = 1 ]; then
 
   echo "-- teeth: PROMPT-LOOP + METHODOLOGY + SKILL mutants for C9-C14 --"
 
-  # Teeth C9: replace 'halted-but-silent stop' → C9 must go RED.
+  # Teeth C9: replace 'next-entry: <queue-name>' in PROMPTLOOP → C9 must go RED.
   mutantC9="$TMP/PROMPTLOOP.mutantC9.md"
-  sed 's/halted-but-silent stop/halted-silently/g' "$PROMPTLOOP" > "$mutantC9"
-  if grep -qF 'halted-but-silent stop' "$mutantC9"; then
-    no "teeth-C9: mutant still has 'halted-but-silent stop' — sed did not take (no teeth)"
+  sed 's/next-entry: <queue-name>/next-entry: <X>/g' "$PROMPTLOOP" > "$mutantC9"
+  if grep -qF 'next-entry: <queue-name>' "$mutantC9"; then
+    no "teeth-C9: mutant still has 'next-entry: <queue-name>' — sed did not take (no teeth)"
   else
     ok "teeth-C9: C9 assertion goes RED on mutant"
   fi
@@ -605,22 +673,22 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-C10: C10 assertion goes RED on mutant"
   fi
 
-  # Teeth C11a: replace 'campaign_started:' → C11 must go RED (first condition fails).
+  # Teeth C11a: replace 'campaign_started:' → full C11 compound assertion must go RED.
   mutantC11a="$TMP/METHODOLOGY.mutantC11a.md"
   sed 's/campaign_started:/campaign_STARTED_X:/g' "$METHODOLOGY" > "$mutantC11a"
-  if grep -qF 'campaign_started:' "$mutantC11a"; then
-    no "teeth-C11a: mutant still has 'campaign_started:' — sed did not take (no teeth)"
+  if grep -qF 'campaign_started:' "$mutantC11a" && grep -qF 'campaign_iterations:' "$mutantC11a"; then
+    no "teeth-C11a: full C11 compound assertion passed on mutant — teeth missing"
   else
-    ok "teeth-C11a: C11 assertion goes RED on mutant (campaign_started removed)"
+    ok "teeth-C11a: full C11 compound assertion goes RED on mutant (campaign_started removed)"
   fi
 
-  # Teeth C11b: replace 'campaign_iterations:' → C11 must go RED (second condition fails).
+  # Teeth C11b: replace 'campaign_iterations:' → full C11 compound assertion must go RED.
   mutantC11b="$TMP/METHODOLOGY.mutantC11b.md"
   sed 's/campaign_iterations:/campaign_ITERATIONS_X:/g' "$METHODOLOGY" > "$mutantC11b"
-  if grep -qF 'campaign_iterations:' "$mutantC11b"; then
-    no "teeth-C11b: mutant still has 'campaign_iterations:' — sed did not take (no teeth)"
+  if grep -qF 'campaign_started:' "$mutantC11b" && grep -qF 'campaign_iterations:' "$mutantC11b"; then
+    no "teeth-C11b: full C11 compound assertion passed on mutant — teeth missing"
   else
-    ok "teeth-C11b: C11 assertion goes RED on mutant (campaign_iterations removed)"
+    ok "teeth-C11b: full C11 compound assertion goes RED on mutant (campaign_iterations removed)"
   fi
 
   # Teeth C12: replace 'Single-focus corpora' → C12 must go RED.
@@ -639,6 +707,42 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-C14: mutant still has 'CronList → CronDelete' — sed did not take (no teeth)"
   else
     ok "teeth-C14: C14 assertion goes RED on mutant"
+  fi
+
+  # Teeth C13: replace '`rejected`' in METHODOLOGY → C13 must go RED.
+  mutantC13="$TMP/METHODOLOGY.mutantC13.md"
+  sed 's/`rejected`/`REJECTED_X`/g' "$METHODOLOGY" > "$mutantC13"
+  if grep -qF '`rejected`' "$mutantC13"; then
+    no "teeth-C13: mutant still has '`rejected`' — sed did not take (no teeth)"
+  else
+    ok "teeth-C13: C13 assertion goes RED on mutant"
+  fi
+
+  # Teeth C15: replace 'A RUN ends only on campaign STOP' → C15 must go RED.
+  mutantC15="$TMP/PROMPTLOOP.mutantC15.md"
+  sed 's/A RUN ends only on campaign STOP/A turn ends only on campaign STOP/g' "$PROMPTLOOP" > "$mutantC15"
+  if grep -qF 'A RUN ends only on campaign STOP' "$mutantC15"; then
+    no "teeth-C15: mutant still has 'A RUN ends only...' — sed did not take (no teeth)"
+  else
+    ok "teeth-C15: C15 assertion goes RED on mutant"
+  fi
+
+  # Teeth C16 (absence): inject stale text → absence assertion must go RED (text found).
+  mutantC16="$TMP/PROMPTLOOP.mutantC16.md"
+  sed '1s|^|an autonomous run must stop at convergence\n|' "$PROMPTLOOP" > "$mutantC16"
+  if grep -qF 'an autonomous run must stop at convergence' "$mutantC16"; then
+    ok "teeth-C16: absence assertion goes RED on mutant (stale text injected)"
+  else
+    no "teeth-C16: stale text not found in mutant — injection failed (no teeth)"
+  fi
+
+  # Teeth C17 (absence): inject stale text → absence assertion must go RED (text found).
+  mutantC17="$TMP/PROMPTLOOP.mutantC17.md"
+  sed '1s|^|A turn ends only on\n|' "$PROMPTLOOP" > "$mutantC17"
+  if grep -qF 'A turn ends only on' "$mutantC17"; then
+    ok "teeth-C17: absence assertion goes RED on mutant (stale text injected)"
+  else
+    no "teeth-C17: stale text not found in mutant — injection failed (no teeth)"
   fi
 fi
 
