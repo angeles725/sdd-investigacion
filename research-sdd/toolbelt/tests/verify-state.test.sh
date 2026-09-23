@@ -2377,9 +2377,9 @@ if [ "$(code "$d")" = 0 ]; then
   ok "VS-OOB-WARN: OOB row counted with matching envelope → exit 0 (OOB does not brick verify-state)"
 else no "VS-OOB-WARN: exit 1 — OOB row with matching envelope still fails verify-state"; fi
 
-# VS-U2011-HEADING: a Gap-backlog heading with U+2011 non-breaking hyphen must be matched without
-# triggering NM-WARN. Pre-fix: NM-WARN fires for the unrecognised heading. Post-fix: heading matched.
-# verify-state sees counted known_gaps=1 matching declared known_gaps=1 → exit 0, no NM-WARN.
+# VS-U2011-HEADING: a Gap-backlog heading with U+2011 non-breaking hyphen. U+2011-NORM was dropped
+# (M2 — corpus no longer uses U+2011 after niagara 571652bec). Without normalisation the heading
+# does not match the canonical ASCII pattern → NM-WARN fires (near-miss warning).
 d="$TMP/vs-u2011"; mkdir -p "$d"
 { echo '# T'; echo
   env9 0 1 1 0 0 0 0; echo
@@ -2390,9 +2390,9 @@ d="$TMP/vs-u2011"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
 _vs_u2011_warn="$(bash "$SUT" "$d" 2>&1)"
-if [ "$(code "$d")" = 0 ] && ! echo "$_vs_u2011_warn" | grep -qi 'near-miss'; then
-  ok "VS-U2011-HEADING: U+2011 heading matched → exit 0, no NM-WARN (heading recognised in verify-state mirror)"
-else no "VS-U2011-HEADING: exit $(code "$d") or NM-WARN — U+2011-NORM pre-pass may be missing in verify-state mirror :: $(echo "$_vs_u2011_warn" | grep -i 'near-miss' | head -1)"; fi
+if echo "$_vs_u2011_warn" | grep -qi 'near-miss'; then
+  ok "VS-U2011-HEADING: U+2011 heading → NM-WARN fires (U+2011-NORM dropped; heading not recognised as valid)"
+else no "VS-U2011-HEADING: NM-WARN should fire for U+2011 heading after U+2011-NORM removal — got: [$(echo "$_vs_u2011_warn" | head -3)]"; fi
 
 # VS-WIDTH-3: a 3-column Gap-backlog table must emit BP-WIDTH-WARN; verify-state skips the rows
 # (all rows skipped → derived open=0 = declared 0 → exit 0, but WARN fires on stderr).
@@ -2479,6 +2479,86 @@ if ! echo "$_vsdp_out" | grep -qi 'contradictory.*denominators\|denominators.*30
   ok "VS-DENOM-PORT: port numbers 3011/5011 in Coverage prose do not trigger contradictory-denominators WARN"
 else
   no "VS-DENOM-PORT: port numbers 3011/5011 incorrectly parsed as coverage fraction → false WARN: $(echo "$_vsdp_out" | grep -i denominat | head -1)"
+fi
+
+# VS-M1-DENOM-UNSPACED: CHECK 3 must detect contradictory denominators for unspaced fractions
+# (e.g. "7/8" vs "7/7") after the grep-to-awk migration (M1 fix).
+d_vsm1="$TMP/vs-m1-unspaced"; mkdir -p "$d_vsm1"
+{ echo '# T'; echo
+  env9 0 7 8 0 0 0 0; echo
+  echo '## Coverage'
+  echo 'Coverage metric: 7/8'; echo "Declared gaps closed: 7/7"; echo
+  echo '## Gap-backlog'; echo
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | g | t | covered |\n\n'
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsm1/RESEARCH-STATE.md"
+_vsm1_out="$(bash "$SUT" "$d_vsm1" 2>&1)"
+if echo "$_vsm1_out" | grep -qi 'contradictory'; then
+  ok "VS-M1-DENOM-UNSPACED: unspaced fractions 7/8 vs 7/7 detected as contradictory denominators (M1 awk fix)"
+else
+  no "VS-M1-DENOM-UNSPACED: expected contradictory-denominators WARN for 7/8 vs 7/7 — got: [$(echo "$_vsm1_out" | grep -i denom | head -1)]"
+fi
+
+# VS-N1-OOB-PER-SECTION: OOB-WARN fires once per section with count, not per row.
+d_vsn1="$TMP/vs-n1-oob"; mkdir -p "$d_vsn1"
+{ echo '# T'; echo
+  env9 0 0 0 0 0 0 0; echo
+  echo '## Other section'; echo
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | oob1 | t | pending |\n'
+  printf '| medium | oob2 | t | pending |\n'
+  echo
+  echo '## Gap-backlog'; echo
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsn1/RESEARCH-STATE.md"
+_vsn1_warn="$(bash "$SUT" "$d_vsn1" 2>&1)"
+_vsn1_count="$(echo "$_vsn1_warn" | grep -ic 'outside.*gap-backlog')"
+_vsn1_has2="$(echo "$_vsn1_warn" | grep -i 'outside.*gap-backlog' | grep -c '2')"
+if [ "$_vsn1_count" -eq 1 ] && [ "$_vsn1_has2" -ge 1 ]; then
+  ok "VS-N1-OOB-PER-SECTION: 2 OOB rows → 1 WARN with count '2'"
+elif [ "$_vsn1_count" -eq 0 ]; then
+  no "VS-N1-OOB-PER-SECTION: no OOB-WARN — expected 1 per-section WARN"
+elif [ "$_vsn1_count" -gt 1 ]; then
+  no "VS-N1-OOB-PER-SECTION: $_vsn1_count WARNs — expected exactly 1 (got per-row)"
+else
+  no "VS-N1-OOB-PER-SECTION: WARN fired but no count '2' — got: [$(echo "$_vsn1_warn" | grep -i outside | head -1)]"
+fi
+
+# VS-N3-COVERED-PIPE-WARN: 5-col COVERED row with extra cell → WARN in verify-state mirror.
+d_vsn3="$TMP/vs-n3-cov-pipe"; mkdir -p "$d_vsn3"
+{ echo '# T'; echo
+  env9 0 1 1 0 0 0 0; echo
+  echo '## Gap-backlog'; echo
+  printf '| Priority | Gap | Scope | Where | Status |\n|---|---|---|---|---|\n'
+  printf '| high | g | web | src | covered | extra |\n\n'
+  echo '## Coverage'; echo 'Coverage metric: 1/1'
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsn3/RESEARCH-STATE.md"
+_vsn3_warn="$(bash "$SUT" "$d_vsn3" 2>&1)"
+if echo "$_vsn3_warn" | grep -qi 'COVERED row'; then
+  ok "VS-N3-COVERED-PIPE-WARN: 5-col COVERED row with extra cell → VS-COVERED-PIPE-WARN emitted"
+else
+  no "VS-N3-COVERED-PIPE-WARN: expected COVERED-pipe WARN — got: [$(echo "$_vsn3_warn" | head -2)]"
+fi
+
+# VS-N3-MALFORMED-SCOPE: malformed WARN scoped to in_backlog && in_data in the mirror too.
+d_vsn3m="$TMP/vs-n3-malf-scope"; mkdir -p "$d_vsn3m"
+{ echo '# T'; echo
+  env9 0 0 0 0 0 0 0; echo
+  echo '## Other section'; echo
+  printf '| P | G | t | S |\n|---|---|---|---|\n'
+  printf '| high | g | t | pending | extra |\n\n'
+  echo '## Gap-backlog'; echo
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsn3m/RESEARCH-STATE.md"
+_vsn3m_warn="$(bash "$SUT" "$d_vsn3m" 2>&1)"
+if ! echo "$_vsn3m_warn" | grep -qi 'malformed'; then
+  ok "VS-N3-MALFORMED-SCOPE: malformed row outside Gap-backlog → no malformed WARN in verify-state"
+else
+  no "VS-N3-MALFORMED-SCOPE: malformed WARN fired outside Gap-backlog — scope fix missing: [$(echo "$_vsn3m_warn" | grep -i malformed | head -1)]"
 fi
 
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
@@ -3085,13 +3165,14 @@ PYEOF
   else
     no "teeth-BP-qualifier-warn: mutant still emitted WARN — THEATER"
   fi
-  # teeth-n4-warn: silence the n!=4 WARN → n!=4-warn must go red (no WARN emitted).
-  echo "-- teeth-n4-warn: silence VS-N4-WARN line; n4 fixture must emit no WARN --"
+  # teeth-n4-warn: silence the malformed-row WARN (VS-MALFORMED-WARN) → n!=4-warn fixture must
+  # go red (no malformed-row WARN emitted by the silenced mutant).
+  echo "-- teeth-n4-warn: silence VS-MALFORMED-WARN line; n4 fixture must emit no WARN --"
   n4w_mutant="$TMP/verify-state.n4w.MUTANT.sh"
-  sed '/# VS-N4-WARN/s/.*/      if (n!=4) { next }  # MUTANT-N4/' "$SUT" > "$n4w_mutant"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
+  sed '/# VS-MALFORMED-WARN/s/.*/      if (in_backlog \&\& in_data) { next }  # MUTANT-N4-WARN/' "$SUT" > "$n4w_mutant"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
   warn_n4m="$(bash "$n4w_mutant" "$TMP/n4-warn" 2>&1 >/dev/null)"
   if ! grep -qiE 'WARN.*malformed backlog row' <<<"$warn_n4m"; then
-    ok "teeth-n4-warn: n!=4-WARN-silenced mutant emits no WARN — n4 WARN assertion has teeth"
+    ok "teeth-n4-warn: VS-MALFORMED-WARN-silenced mutant emits no WARN — malformed-WARN assertion has teeth"
   else
     no "teeth-n4-warn: mutant still emitted WARN — THEATER"
   fi
@@ -3388,28 +3469,25 @@ PYEOF
     no "teeth-634-BOLD: VS-634-BOLD-STRIP sentinel not found in SUT"
   fi
 
-  # ---- teeth-567-COVERED-PIPE: remove COVERED-row skip; COVERED pipe row must emit malformed WARN ----
-  # Mutation: delete the VS-567-COVERED-PIPE-SKIP tagged line entirely.
-  # T-567 fixture (t567-covered-pipe) has 'COVERED devType|address|...'; without the skip,
-  # n≠4 fires the VS-N4-WARN → malformed WARN appears in stderr.
-  # T-567 expects no WARN → assertion goes RED → VS-567-COVERED-PIPE-SKIP is load-bearing.
-  echo "-- teeth-567-COVERED-PIPE: delete COVERED skip line (VS-567-COVERED-PIPE-SKIP); pipe row must emit WARN --"
+  # ---- teeth-567-COVERED-PIPE-WARN: delete VS-567-COVERED-PIPE-WARN handler; 4-col COVERED pipe
+  # row falls through to malformed WARN → T-567 (checks no 'malformed backlog row') goes RED.
+  echo "-- teeth-567-COVERED-PIPE: delete COVERED-pipe handler (VS-567-COVERED-PIPE-WARN); row must emit malformed WARN --"
   mutant567="$TMP/verify-state.567-COVERED.MUTANT.sh"
   cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-  if grep -q '# VS-567-COVERED-PIPE-SKIP' "$SUT"; then
-    sed '/# VS-567-COVERED-PIPE-SKIP/d' "$SUT" > "$mutant567"
-    if grep -q '# VS-567-COVERED-PIPE-SKIP' "$mutant567"; then
+  if grep -q '# VS-567-COVERED-PIPE-WARN' "$SUT"; then
+    sed '/# VS-567-COVERED-PIPE-WARN/d' "$SUT" > "$mutant567"
+    if grep -q '# VS-567-COVERED-PIPE-WARN' "$mutant567"; then
       no "teeth-567-COVERED-PIPE: could not build mutant (deletion failed — sentinel still present)"
     else
       t567m_err="$(bash "$mutant567" "$TMP/t567-covered-pipe" 2>&1 >/dev/null)"
       if grep -q 'malformed backlog row' <<<"$t567m_err"; then
-        ok "teeth-567-COVERED-PIPE: removed COVERED skip → COVERED pipe row emits malformed WARN → T-567 goes RED → VS-567-COVERED-PIPE-SKIP is load-bearing"
+        ok "teeth-567-COVERED-PIPE: removed COVERED-pipe handler → COVERED pipe row emits malformed WARN → T-567 goes RED → VS-567-COVERED-PIPE-WARN is load-bearing"
       else
         no "teeth-567-COVERED-PIPE: mutant did NOT emit malformed-row WARN for COVERED pipe row — THEATER"
       fi
     fi
   else
-    no "teeth-567-COVERED-PIPE: VS-567-COVERED-PIPE-SKIP sentinel not found in SUT"
+    no "teeth-567-COVERED-PIPE: VS-567-COVERED-PIPE-WARN sentinel not found in SUT"
   fi
 
   # ---- teeth-599-GB-PRESENT: negate GB-PRESENT-CHECK condition; absent backlog must pass silently ----
@@ -3579,32 +3657,6 @@ PYEOF
     no "teeth-VS-5COL: BP-EXPECTED-COLS sentinel not found in verify-state.sh"
   fi
 
-  # ---- teeth-VS-U2011: remove U+2011-NORM gsub from awk → U+2011 heading not normalised →
-  # NM-WARN fires → VS-U2011-HEADING exits non-zero → guard is load-bearing.
-  echo "-- teeth-VS-U2011: remove U+2011-NORM gsub; U+2011 heading must trigger NM-WARN → VS-U2011-HEADING goes RED --"
-  if grep -q '# U+2011-NORM.*heading lines' "$HERE/../verify-state.sh"; then
-    mutantU2011="$TMP/verify-state.U2011.MUTANT.sh"
-    cp "$HERE/../verify-state.sh" "$mutantU2011"
-    sed -i '/# U+2011-NORM.*heading lines/d; /gsub.*342.*200.*221.*"-"/d' "$mutantU2011"
-    if cmp -s "$mutantU2011" "$HERE/../verify-state.sh"; then
-      no "teeth-VS-U2011: mutant identical to SUT — sed did not apply mutation"
-    elif ! bash -n "$mutantU2011" 2>/dev/null; then
-      no "teeth-VS-U2011: mutant has syntax error (bash -n) — mutation broke shell syntax"
-    elif grep -q '# U+2011-NORM.*heading lines' "$mutantU2011"; then
-      no "teeth-VS-U2011: sabotage check failed — U+2011-NORM still in mutant"
-    else
-      u2011_mut_warn="$(bash "$mutantU2011" "$TMP/vs-u2011" 2>&1 >/dev/null)"
-      u2011_mut_exit="$(bash "$mutantU2011" "$TMP/vs-u2011" >/dev/null 2>&1; echo $?)"
-      if [ "$u2011_mut_exit" != 0 ] || echo "$u2011_mut_warn" | grep -qi 'near-miss'; then
-        ok "teeth-VS-U2011: without U+2011-NORM gsub → exit $u2011_mut_exit or NM-WARN → VS-U2011-HEADING goes RED → guard is load-bearing"
-      else
-        no "teeth-VS-U2011: mutant still exits 0 with no NM-WARN — U+2011 may match without gsub (THEATER or wrong mutant)"
-      fi
-    fi
-  else
-    no "teeth-VS-U2011: U+2011-NORM sentinel not found in verify-state.sh"
-  fi
-
   # ---- teeth-VS-BP-LIST-ITEM-GUARD: delete the BP-LIST-ITEM-GUARD line from verify-state.sh;
   # the prose list item with | in d_vsli must then produce unknown-priority WARN → VS-LIST-ITEM goes RED.
   echo "-- teeth-VS-BP-LIST-ITEM-GUARD: delete guard → list item fires INVALID_PRIORITY → VS-LIST-ITEM RED --"
@@ -3656,26 +3708,34 @@ PYEOF
 
   # ---- teeth-VS-DENOM-PORT: change the denominator grep to the old form (no spaces required)
   # so 3011/5011 is parsed as a coverage fraction → contradictory-denominators WARN fires →
-  # VS-DENOM-PORT goes RED.
-  echo "-- teeth-VS-DENOM-PORT: revert denom grep to no-spaces → 3011/5011 parsed as fraction → VS-DENOM-PORT RED --"
-  if grep -q "\[0-9\]+\[*.\[:space:\].*\]+/" "$HERE/../verify-state.sh" || grep -qF '[0-9]+[[:space:]]+/[[:space:]]+[0-9]+' "$HERE/../verify-state.sh"; then
+  # VS-DENOM-PORT goes RED. The port-number fix works by only extracting the FIRST fraction per
+  # line (awk match, not global). Mutation: replace 'print substr ... RLENGTH' with a global
+  # extractor (grep) to extract ALL fractions per line → 3011/5011 extracted too → false WARN.
+  echo "-- teeth-VS-DENOM-PORT: extract all fractions (not just first) → 3011/5011 parsed as fraction → VS-DENOM-PORT RED --"
+  if grep -q 'RSTART.*RLENGTH\|match.*RSTART' "$HERE/../verify-state.sh"; then
     mutantDP="$TMP/verify-state.DP.MUTANT.sh"
-    cp "$HERE/../verify-state.sh" "$mutantDP"
-    sed -i "s/\[0-9\]+\[\[:space:\]\]+\/\[\[:space:\]\]+\[0-9\]+/[0-9]+[[:space:]]\\*\\/[[:space:]]\\*[0-9]+/" "$mutantDP"
-    if cmp -s "$mutantDP" "$HERE/../verify-state.sh"; then
-      no "teeth-VS-DENOM-PORT: mutant identical to SUT — sed did not change the grep pattern"
+    # Replace the single-match awk with a global grep (extracts every fraction per line)
+    python3 -c "
+import sys
+txt = open(sys.argv[1]).read()
+old = \"    | LC_ALL=C awk 'match(\$0, /[0-9]+[[:space:]]*\\/[[:space:]]*[0-9]+/) { print substr(\$0, RSTART, RLENGTH) }' \\\\\"
+new = \"    | grep -oE '[0-9]+[[:space:]]*\\/[[:space:]]*[0-9]+' \\\\\"
+open(sys.argv[2], 'w').write(txt.replace(old, new))
+" "$HERE/../verify-state.sh" "$mutantDP" 2>/dev/null
+    if cmp -s "$mutantDP" "$HERE/../verify-state.sh" 2>/dev/null; then
+      no "teeth-VS-DENOM-PORT: mutant identical to SUT — python3 replacement did not apply"
     elif ! bash -n "$mutantDP" 2>/dev/null; then
       no "teeth-VS-DENOM-PORT: mutant has syntax error (bash -n) — mutation broke shell syntax"
     else
       _vsdp_mut_out="$(bash "$mutantDP" "$d_vsdp" 2>&1)"
       if echo "$_vsdp_mut_out" | grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011'; then
-        ok "teeth-VS-DENOM-PORT: mutant (no-spaces grep) → 3011/5011 parsed as fraction → contradictory-denominators WARN → VS-DENOM-PORT goes RED → spaces-required grep is load-bearing"
+        ok "teeth-VS-DENOM-PORT: mutant (all-fractions grep) → 3011/5011 extracted → contradictory-denominators WARN → VS-DENOM-PORT goes RED → first-fraction-only awk is load-bearing"
       else
         no "teeth-VS-DENOM-PORT: mutant did not produce contradictory-denominators WARN — port-number fix not load-bearing (THEATER)"
       fi
     fi
   else
-    no "teeth-VS-DENOM-PORT: denominator grep pattern (spaces-required) not found in verify-state.sh"
+    no "teeth-VS-DENOM-PORT: awk-match sentinel (RSTART/RLENGTH) not found in verify-state.sh"
   fi
 
 fi

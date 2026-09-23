@@ -1170,9 +1170,8 @@ d="$TMP/nm-noparens"; mkdir -p "$d"
 nm_warn_np="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
 grep -qi 'near-miss' <<<"$nm_warn_np" && ok "64c: near-miss '## Gap-backlog prioritized' → WARN on stderr" || no "64c: near-miss '## Gap-backlog prioritized' — no WARN"
 
-# 64d — U+2011 non-breaking hyphen 'Gap‑backlog' (no qualifier) is a valid heading after
-# U+2011-NORM: normalised to ## Gap-backlog which satisfies the regex → no NM-WARN, in_backlog=1.
-# Before U+2011-NORM: ASCII regex missed it → NM-WARN fired and in_backlog stayed 0.
+# 64d — U+2011 non-breaking hyphen 'Gap‑backlog' (no qualifier): U+2011-NORM was dropped (M2).
+# Without normalisation the heading does not match the canonical pattern → NM-WARN fires.
 d="$TMP/nm-nbhyphen"; mkdir -p "$d"
 { echo "# T"; echo; env_lines 0 0 0 1 0 0; echo; printf '## Gap\xe2\x80\x91backlog\n'; echo
   echo "| P | G | t | S |"; echo "|-|-|-|-|"
@@ -1180,7 +1179,7 @@ d="$TMP/nm-nbhyphen"; mkdir -p "$d"
   echo "## Blocked gaps"; echo "- none"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d/RESEARCH-STATE.md"
 nm_warn_nb="$(bash "$SUT" "$d" --next 2>&1 >/dev/null)"
-! grep -qi 'near-miss' <<<"$nm_warn_nb" && ok "64d: U+2011 'Gap‑backlog' → no NM-WARN after U+2011-NORM (heading recognised as valid)" || no "64d: U+2011 'Gap‑backlog' still emits NM-WARN — U+2011-NORM may not cover bare Gap-backlog heading: [$nm_warn_nb]"
+grep -qi 'near-miss' <<<"$nm_warn_nb" && ok "64d: U+2011 'Gap‑backlog' → NM-WARN fires (U+2011-NORM dropped; heading not recognised as valid)" || no "64d: U+2011 'Gap‑backlog' should emit NM-WARN after U+2011-NORM removal — got: [$nm_warn_nb]"
 
 # 64e — canonical '## Gap-backlog (prioritized)' must NOT warn (happy-path regression guard)
 d="$TMP/nm-canonical"; mkdir -p "$d"
@@ -2506,10 +2505,9 @@ else
   no "T-SEP-OUTSIDE: BP-WIDTH-WARN fired for 6-col separator outside Gap-backlog — false positive: $(echo "$_seo_warn" | head -1)"
 fi
 
-# T-U2011-HEADING: a Gap-backlog heading with U+2011 non-breaking hyphen must be matched without
-# emitting a NM-WARN (near-miss warning). Platform-native.md uses "## Gap‑backlog (prioritized)".
-# Before the fix: ASCII regex does not match → NM-WARN fires ("near-miss gap-backlog heading").
-# After U+2011-NORM sed pre-pass: heading properly recognised → no NM-WARN → in_backlog=1.
+# T-U2011-HEADING: a Gap-backlog heading with U+2011 non-breaking hyphen. U+2011-NORM was dropped
+# (M2 — the corpus no longer uses U+2011 after niagara 571652bec). Without normalisation the heading
+# does not match the canonical ASCII pattern → NM-WARN fires ("near-miss gap-backlog heading").
 d_u2011="$TMP/u2011-heading"; mkdir -p "$d_u2011"
 { printf '# T\n\n'; env_lines 0 0 0 0 0 0; printf '\n'
   # U+2011 non-breaking hyphen in heading (UTF-8 bytes: E2 80 91)
@@ -2518,10 +2516,10 @@ d_u2011="$TMP/u2011-heading"; mkdir -p "$d_u2011"
   printf '| high | u2011 gap | web | covered |\n\n'
   printf '## Stop control\n- **Open gaps -- read-only investigable**: 0\n'; } > "$d_u2011/RESEARCH-STATE.md"
 _u2011_warn="$(bash "$SUT" "$d_u2011" --sync-state 2>&1 >/dev/null)"
-if ! echo "$_u2011_warn" | grep -qi 'near-miss'; then
-  ok "T-U2011-HEADING: U+2011 Gap-backlog heading matched → no NM-WARN (heading recognised, not spurious near-miss)"
+if echo "$_u2011_warn" | grep -qi 'near-miss'; then
+  ok "T-U2011-HEADING: U+2011 Gap-backlog heading → NM-WARN fires (U+2011-NORM dropped; heading not recognised as valid)"
 else
-  no "T-U2011-HEADING: NM-WARN still fires for U+2011 heading — U+2011-NORM pre-pass not working"
+  no "T-U2011-HEADING: NM-WARN should fire for U+2011 heading after U+2011-NORM removal — got: [$_u2011_warn]"
 fi
 
 # T-WIDTH-3: a 3-column Gap-backlog table must emit BP-WIDTH-WARN and rows must NOT be counted.
@@ -2618,28 +2616,213 @@ fi
 # must be logically identical — they are kept as copies (not a lib) to preserve sentinel-based teeth.
 # File-specific sentinel prefixes (SS- and VS-) are normalised to BP- before comparison so the test
 # catches logic drift while allowing the file-scoped sentinel names the teeth require.
-# Extract the awk interior (from U+2011-NORM line through final print line) from both files and diff.
+# Extract the awk interior (from BACKLOG-ROWS-AWK-START through OOB-WARN-EOF) from both files and diff.
 # Normalize the extracted awk body for comparison:
 # 1. Unify file-specific sentinel prefixes (SS- → BP-, VS- → BP-)
-# 2. Strip the awk-close shell suffix that appears on the final line in verify-state.sh
-#    (status.sh: closing ' "$state" is on its own separate line and is excluded by extraction;
-#     verify-state.sh: }' "$1")" is appended to the last awk rule line inside the $() block)
-# 3. Strip trailing "  # BP-N4-WARN" comment (verify-state.sh only; not in status.sh)
 _normalize_awk_body() {
-  sed 's/# SS-/# BP-/g; s/# VS-/# BP-/g' |
-  sed "s/  # BP-N4-WARN$//" |
-  sed "s/}' \"\$1\")\"$/}/"
+  sed 's/# SS-/# BP-/g; s/# VS-/# BP-/g'
 }
-_mirror_status="$(awk '/# U[+]2011-NORM: normalize/{p=1} p{print} /print p.*a\[2\].*st \}/{p=0}' "$SUT" | _normalize_awk_body)"
-_mirror_vs="$(awk '/# U[+]2011-NORM: normalize/{p=1} p{print} /print p.*a\[2\].*st \}/{p=0}' "$HERE/../verify-state.sh" | _normalize_awk_body)"
+_mirror_status="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$SUT" | _normalize_awk_body)"
+_mirror_vs="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$HERE/../verify-state.sh" | _normalize_awk_body)"
 if [ -z "$_mirror_status" ]; then
-  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from $SUT (U+2011-NORM marker missing)"
+  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from $SUT (BACKLOG-ROWS-AWK-START marker missing)"
 elif [ -z "$_mirror_vs" ]; then
-  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from verify-state.sh (U+2011-NORM marker missing)"
+  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from verify-state.sh (BACKLOG-ROWS-AWK-START marker missing)"
 elif [ "$_mirror_status" = "$_mirror_vs" ]; then
   ok "T-BACKLOG-ROWS-MIRROR: awk logic identical in backlog_rows (status.sh) and _backlog_rows (verify-state.sh) after sentinel-prefix normalisation"
 else
   no "T-BACKLOG-ROWS-MIRROR: awk body differs (logic drift, not just sentinel prefix); diff: $(diff <(echo "$_mirror_status") <(echo "$_mirror_vs") | head -10)"
+fi
+
+# T-B1-GC-FROM-BACKLOG: when KG-BACKLOG-EXCEEDS fires (backlog rows > coverage prose denominator),
+# gc must be derived from backlog rows (kg − open − blocked − def − req), NOT from coverage prose
+# numerator. Coverage prose WARN must also fire. Fixture: 5-col, all 3 rows closed (covered),
+# coverage prose says 2/2 (stale) → kg=3, gc should become 3, not 2.
+d_b1="$TMP/b1-gc"; mkdir -p "$d_b1"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | Scope | Where | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | g1 | web | src | covered |"
+  echo "| medium | g2 | api | src | covered |"
+  echo "| low | g3 | ui | src | covered |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 2/2"
+  echo
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_b1/RESEARCH-STATE.md"
+_b1_warn="$(bash "$SUT" "$d_b1" --sync-state 2>&1 >/dev/null)"
+_b1_gc="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*gaps_closed:/{print $2;exit}' "$d_b1/RESEARCH-STATE.md")"
+_b1_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_b1/RESEARCH-STATE.md")"
+if [ "$_b1_kg" = "3" ] && [ "$_b1_gc" = "3" ] && echo "$_b1_warn" | grep -qi 'stale'; then
+  ok "T-B1-GC-FROM-BACKLOG: KG-BACKLOG-EXCEEDS → kg=3, gc=3 (from backlog), coverage stale WARN fired"
+elif [ "$_b1_kg" != "3" ]; then
+  no "T-B1-GC-FROM-BACKLOG: expected kg=3, got kg=$_b1_kg"
+elif [ "$_b1_gc" != "3" ]; then
+  no "T-B1-GC-FROM-BACKLOG: expected gc=3 from backlog, got gc=$_b1_gc (prose numerator 2 leaked)"
+else
+  no "T-B1-GC-FROM-BACKLOG: kg=$_b1_kg gc=$_b1_gc but no stale WARN; stderr: $(echo "$_b1_warn" | head -3)"
+fi
+
+# T-M1-DENOM-UNSPACED: CHECK 3 must detect contradictory denominators even when fractions are
+# unspaced (e.g. "7/8" vs "7/7"). The new awk match allows [[:space:]]* around the slash.
+d_m1="$TMP/m1-unspaced"; mkdir -p "$d_m1"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g | t | covered |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 7/8"
+  echo "Declared gaps closed: 7/7"
+  echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_m1/RESEARCH-STATE.md"
+_m1_out="$(bash "$HERE/../verify-state.sh" "$d_m1" 2>&1)"
+if echo "$_m1_out" | grep -qi 'contradictory'; then
+  ok "T-M1-DENOM-UNSPACED: unspaced fractions (7/8 vs 7/7) detected as contradictory denominators"
+else
+  no "T-M1-DENOM-UNSPACED: expected contradictory-denominators WARN for 7/8 vs 7/7 — got: [$(echo "$_m1_out" | grep -i denom | head -1)]"
+fi
+
+# T-N1-OOB-PER-SECTION: OOB-WARN is emitted once per section with a row count, not once per row.
+# Three OOB rows in a plain table section → one WARN mentioning "3" rows (not 3 WARNs).
+d_n1="$TMP/n1-oob-section"; mkdir -p "$d_n1"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Some other section"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | oob1 | t | pending |"
+  echo "| medium | oob2 | t | pending |"
+  echo "| low | oob3 | t | pending |"
+  echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | real | t | covered |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 1/1"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n1/RESEARCH-STATE.md"
+_n1_warn="$(bash "$SUT" "$d_n1" --sync-state 2>&1 >/dev/null)"
+_n1_count="$(echo "$_n1_warn" | grep -ic 'outside.*gap-backlog')"
+_n1_has3="$(echo "$_n1_warn" | grep -i 'outside.*gap-backlog' | grep -c '3')"
+if [ "$_n1_count" -eq 1 ] && [ "$_n1_has3" -ge 1 ]; then
+  ok "T-N1-OOB-PER-SECTION: 3 OOB rows → 1 WARN with count '3'"
+elif [ "$_n1_count" -eq 0 ]; then
+  no "T-N1-OOB-PER-SECTION: no OOB-WARN fired — expected 1 WARN for 3 OOB rows"
+elif [ "$_n1_count" -gt 1 ]; then
+  no "T-N1-OOB-PER-SECTION: $_n1_count WARNs fired — expected exactly 1 per-section WARN (got per-row)"
+else
+  no "T-N1-OOB-PER-SECTION: WARN fired but no count '3' — got: [$(echo "$_n1_warn" | grep -i outside | head -1)]"
+fi
+
+# T-N2-MALFORMED-OUTSIDE-BACKLOG: malformed row outside Gap-backlog → no malformed WARN (OOB-ACCUM only).
+# A 6-cell row in a plain section should NOT fire the malformed WARN (in_backlog is false).
+d_n2="$TMP/n2-malformed-outside"; mkdir -p "$d_n2"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Other"; echo
+  echo "| P | G | t | S |"; echo "|---|---|---|---|"
+  echo "| high | g | t | pending | extra | cell |"
+  echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g | t | covered |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 1/1"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n2/RESEARCH-STATE.md"
+_n2_warn="$(bash "$SUT" "$d_n2" --sync-state 2>&1 >/dev/null)"
+if ! echo "$_n2_warn" | grep -qi 'malformed'; then
+  ok "T-N2-MALFORMED-OUTSIDE-BACKLOG: malformed row outside Gap-backlog → no malformed WARN (outside-backlog scope excluded)"
+else
+  no "T-N2-MALFORMED-OUTSIDE-BACKLOG: malformed WARN fired for a row outside Gap-backlog — expected no malformed WARN; got: [$(echo "$_n2_warn" | grep -i malformed | head -1)]"
+fi
+
+# T-N2-SC-FALLBACK: BP-SC-FALLBACK — when a separator has been seen for a 4-col section,
+# sc=4. A 6-cell non-covered row produces malformed WARN saying "expected 4" (not "expected 4 or 5").
+# The sc_msg fallback ("4 or 5") is only used when expected_cols=0, which requires in_data=0 →
+# malformed WARN scope (in_backlog && in_data) cannot fire in that case; no false WARN.
+d_n2f="$TMP/n2-sc-fallback"; mkdir -p "$d_n2f"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g | t | pending | extra | cell |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 0/1"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n2f/RESEARCH-STATE.md"
+_n2f_warn="$(bash "$SUT" "$d_n2f" --sync-state 2>&1 >/dev/null)"
+if echo "$_n2f_warn" | grep -qi 'malformed'; then
+  ok "T-N2-SC-FALLBACK: 4-col separator → sc=4 from BP-SC-FALLBACK; 6-cell row → malformed WARN fires"
+else
+  no "T-N2-SC-FALLBACK: expected malformed WARN for 6-cell row in 4-col section — got: [$(echo "$_n2f_warn" | head -2)]"
+fi
+
+# T-N3-COVERED-PIPE-WARN-5COL: 5-col COVERED row with extra cell → WARN (not silent drop).
+d_n3a="$TMP/n3-cov-pipe-5"; mkdir -p "$d_n3a"
+{ echo "# T"; echo; env_lines 0 1 1 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | Scope | Where | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | g | web | src | covered | extra |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 1/1"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3a/RESEARCH-STATE.md"
+_n3a_warn="$(bash "$SUT" "$d_n3a" --sync-state 2>&1 >/dev/null)"
+if echo "$_n3a_warn" | grep -qi 'COVERED row'; then
+  ok "T-N3-COVERED-PIPE-WARN-5COL: 5-col COVERED row with extra cell → COVERED-pipe WARN emitted (not silent)"
+else
+  no "T-N3-COVERED-PIPE-WARN-5COL: expected COVERED-pipe WARN — got: [$(echo "$_n3a_warn" | head -2)]"
+fi
+
+# T-N3-COVERED-PIPE-WARN-4COL: 4-col COVERED row with extra cell → WARN (not silent drop).
+d_n3b="$TMP/n3-cov-pipe-4"; mkdir -p "$d_n3b"
+{ echo "# T"; echo; env_lines 0 1 1 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g | t | covered | extra |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 1/1"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3b/RESEARCH-STATE.md"
+_n3b_warn="$(bash "$SUT" "$d_n3b" --sync-state 2>&1 >/dev/null)"
+if echo "$_n3b_warn" | grep -qi 'COVERED row'; then
+  ok "T-N3-COVERED-PIPE-WARN-4COL: 4-col COVERED row with extra cell → COVERED-pipe WARN emitted (not silent)"
+else
+  no "T-N3-COVERED-PIPE-WARN-4COL: expected COVERED-pipe WARN — got: [$(echo "$_n3b_warn" | head -2)]"
+fi
+
+# T-N3-DEAD-PR-REMOVED: a row with priority "pr." must NOT be silently skipped as a header; it
+# is unknown and should emit INVALID_PRIORITY (dead "pr." header skip was removed).
+d_n3pr="$TMP/n3-pr-header"; mkdir -p "$d_n3pr"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| pr. | g | t | pending |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 0/0"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3pr/RESEARCH-STATE.md"
+_n3pr_out="$(bash "$SUT" "$d_n3pr" --sync-state 2>&1)"
+if echo "$_n3pr_out" | grep -qi 'unknown priority\|INVALID_PRIORITY'; then
+  ok "T-N3-DEAD-PR-REMOVED: 'pr.' priority row → unknown priority WARN (dead header skip removed)"
+else
+  no "T-N3-DEAD-PR-REMOVED: expected INVALID_PRIORITY or unknown-priority WARN for 'pr.' row — got: [$(echo "$_n3pr_out" | head -3)]"
+fi
+
+# T-N3-MALFORMED-SCOPE: malformed WARN is scoped to in_backlog. A 6-cell row with in_backlog=0
+# must NOT produce a malformed WARN (already tested by T-N2-MALFORMED-OUTSIDE-BACKLOG).
+# Here we verify the positive: 6-cell row INSIDE Gap-backlog DOES produce malformed WARN.
+d_n3m="$TMP/n3-malformed-in-backlog"; mkdir -p "$d_n3m"
+{ echo "# T"; echo; env_lines 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | g | t | pending | extra | cell |"
+  echo
+  echo "## Coverage"; echo "Coverage metric: 0/1"
+  echo "## Blocked gaps"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3m/RESEARCH-STATE.md"
+_n3m_warn="$(bash "$SUT" "$d_n3m" --sync-state 2>&1 >/dev/null)"
+if echo "$_n3m_warn" | grep -qi 'malformed'; then
+  ok "T-N3-MALFORMED-SCOPE: 6-cell row inside Gap-backlog → malformed WARN fired"
+else
+  no "T-N3-MALFORMED-SCOPE: expected malformed WARN inside Gap-backlog — got: [$(echo "$_n3m_warn" | head -2)]"
 fi
 
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
@@ -3469,28 +3652,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-SS-634-BOLD: SS-634-BOLD-STRIP sentinel not found in SUT"
   fi
 
-  # ---- teeth-SS-567-COVERED-PIPE: remove COVERED skip; COVERED pipe row must emit malformed WARN ----
-  # Mutation: delete the SS-567-COVERED-PIPE-SKIP tagged line entirely.
-  # T-567-SS fixture (t567-status-covered-pipe) has 'COVERED devType|address|...';
-  # without the skip, n≠4 fires the malformed-row WARN → appears in stderr.
-  # T-567-SS expects no WARN → assertion goes RED → SS-567-COVERED-PIPE-SKIP is load-bearing.
-  echo "-- teeth-SS-567-COVERED-PIPE: delete COVERED skip (SS-567-COVERED-PIPE-SKIP); pipe row must emit WARN --"
+  # ---- teeth-SS-567-COVERED-PIPE-WARN: remove SS-567-COVERED-PIPE-WARN handler entirely →
+  # 4-col COVERED pipe row falls through to malformed WARN → T-567-SS (checks no 'malformed backlog row')
+  # goes RED → SS-567-COVERED-PIPE-WARN is load-bearing.
+  echo "-- teeth-SS-567-COVERED-PIPE: delete COVERED-pipe handler (SS-567-COVERED-PIPE-WARN); row must emit malformed WARN --"
   ss567_mutant="$TMP/status.SS567.MUTANT.sh"
-  if grep -q '# SS-567-COVERED-PIPE-SKIP' "$SUT"; then
-    sed '/# SS-567-COVERED-PIPE-SKIP/d' "$SUT" > "$ss567_mutant"
-    if grep -q '# SS-567-COVERED-PIPE-SKIP' "$ss567_mutant"; then
+  if grep -q '# SS-567-COVERED-PIPE-WARN' "$SUT"; then
+    sed '/# SS-567-COVERED-PIPE-WARN/d' "$SUT" > "$ss567_mutant"
+    if grep -q '# SS-567-COVERED-PIPE-WARN' "$ss567_mutant"; then
       no "teeth-SS-567-COVERED-PIPE: could not build mutant (deletion failed — sentinel still present)"
     else
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       _ss567_mut_err="$(bash "$ss567_mutant" "$d_567" 2>&1 >/dev/null)"
       if grep -q 'malformed backlog row' <<<"$_ss567_mut_err"; then
-        ok "teeth-SS-567-COVERED-PIPE: removed COVERED skip → COVERED pipe row emits malformed WARN → T-567-SS goes RED → SS-567-COVERED-PIPE-SKIP is load-bearing"
+        ok "teeth-SS-567-COVERED-PIPE: removed COVERED-pipe handler → COVERED pipe row emits malformed WARN → T-567-SS goes RED → SS-567-COVERED-PIPE-WARN is load-bearing"
       else
         no "teeth-SS-567-COVERED-PIPE: mutant did NOT emit malformed-row WARN for COVERED pipe row — THEATER"
       fi
     fi
   else
-    no "teeth-SS-567-COVERED-PIPE: SS-567-COVERED-PIPE-SKIP sentinel not found in SUT"
+    no "teeth-SS-567-COVERED-PIPE: SS-567-COVERED-PIPE-WARN sentinel not found in SUT"
   fi
 
   # ---- teeth-627: neuter RD-BLOCKS-SINCE-RETRO-CHECK; T-627a (bsr=11 RETRO-DUE) must return NEXT.
@@ -4405,18 +4586,20 @@ BLTGHEOF
     no "teeth-BP-EXPECTED-COLS: BP-EXPECTED-COLS sentinel not found in SUT"
   fi
 
-  # teeth-OOB-WARN: delete OOB-WARN line; T-OOB-WARN must go RED (no WARN mentioning Gap-backlog).
-  echo "-- teeth-OOB-WARN: delete OOB-WARN line → no warning for out-of-section row --"
+  # teeth-OOB-WARN: delete OOB-WARN-EOF end-flush; T-OOB-WARN must go RED (no WARN when OOB rows
+  # are in the LAST section before EOF, which is the T-OOB-WARN fixture layout).
+  echo "-- teeth-OOB-WARN: delete OOB-WARN-EOF flush → no warning for last-section OOB rows --"
   _oobw_mutant="$TMP/status.OOBWARN.MUTANT.sh"
-  if grep -q '# OOB-WARN' "$SUT"; then
+  if grep -q '# OOB-WARN-EOF' "$SUT"; then
     cp "$SUT" "$_oobw_mutant"
-    sed -i '/# OOB-WARN/d' "$_oobw_mutant"
+    # Delete the END block and OOB-WARN-FLUSH lines so no accumulated OOB count is emitted
+    sed -i '/# OOB-WARN-EOF/d; /# OOB-WARN-FLUSH/d; /# OOB-ACCUM/d' "$_oobw_mutant"
     if cmp -s "$_oobw_mutant" "$SUT"; then
       no "teeth-OOB-WARN: mutant identical to SUT — sed did not apply mutation"
     elif ! bash -n "$_oobw_mutant" 2>/dev/null; then
       no "teeth-OOB-WARN: mutant has syntax error (bash -n) — mutation broke shell syntax"
-    elif grep -q '# OOB-WARN' "$_oobw_mutant"; then
-      no "teeth-OOB-WARN: sabotage check failed — OOB-WARN sentinel still in mutant"
+    elif grep -q '# OOB-WARN-EOF' "$_oobw_mutant"; then
+      no "teeth-OOB-WARN: sabotage check failed — OOB-WARN-EOF sentinel still in mutant"
     else
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       _oobw_warn="$(bash "$_oobw_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
@@ -4427,34 +4610,7 @@ BLTGHEOF
       fi
     fi
   else
-    no "teeth-OOB-WARN: OOB-WARN sentinel not found in SUT"
-  fi
-
-  # teeth-U2011-NORM: remove U+2011-NORM gsub from awk → U+2011 heading not normalised →
-  # NM-WARN fires → T-U2011-HEADING checks for ABSENCE of NM-WARN → it goes RED.
-  # Mutant: copy SUT, delete the U+2011-NORM comment and the gsub rule (heading-scoped normalization).
-  echo "-- teeth-U2011-NORM: remove U+2011-NORM gsub → NM-WARN fires → T-U2011-HEADING goes RED --"
-  _u2011_mutant="$TMP/status.U2011.MUTANT.sh"
-  if grep -q '# U+2011-NORM.*heading lines' "$SUT"; then
-    cp "$SUT" "$_u2011_mutant"
-    sed -i '/# U+2011-NORM.*heading lines/d; /gsub.*342.*200.*221.*"-"/d' "$_u2011_mutant"
-    if cmp -s "$_u2011_mutant" "$SUT"; then
-      no "teeth-U2011-NORM: mutant identical to SUT — sed did not apply mutation"
-    elif ! bash -n "$_u2011_mutant" 2>/dev/null; then
-      no "teeth-U2011-NORM: mutant has syntax error (bash -n) — mutation broke shell syntax"
-    elif grep -q '# U+2011-NORM.*heading lines' "$_u2011_mutant"; then
-      no "teeth-U2011-NORM: sabotage check failed — U+2011-NORM still in mutant"
-    else
-      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-      _u2011_mut_warn="$(bash "$_u2011_mutant" "$d_u2011" --sync-state 2>&1 >/dev/null)"
-      if echo "$_u2011_mut_warn" | grep -qi 'near-miss'; then
-        ok "teeth-U2011-NORM: mutant (no gsub) → NM-WARN fires → T-U2011-HEADING goes RED → U+2011-NORM is load-bearing"
-      else
-        no "teeth-U2011-NORM: mutant did NOT emit NM-WARN — U+2011 may match without gsub (THEATER or wrong mutant)"
-      fi
-    fi
-  else
-    no "teeth-U2011-NORM: U+2011-NORM sentinel not found in SUT"
+    no "teeth-OOB-WARN: OOB-WARN-EOF sentinel not found in SUT"
   fi
 
   # teeth-BP-LIST-ITEM-GUARD: delete the BP-LIST-ITEM-GUARD line from a mutant SUT;
@@ -4551,6 +4707,88 @@ open(sys.argv[2], 'w').write(out)
     no "teeth-T-TWO-TABLE-SYNC: python3 replacement failed or anchor string not found in SUT"
   fi
 
+  # teeth-T-B1-GC-FROM-BACKLOG: in the KG-BACKLOG-EXCEEDS branch, restore gc from coverage prose
+  # numerator (by adding gc assignment before the if) → gc stays at 2 (prose) → T-B1-GC-FROM-BACKLOG
+  # checks gc=3, sees gc=2 → goes RED → KG-BACKLOG-GC is load-bearing.
+  echo "-- teeth-T-B1-GC-FROM-BACKLOG: restore prose gc before backlog-exceeds branch → gc stays 2 --"
+  _b1_mutant="$TMP/status.B1.MUTANT.sh"
+  if grep -q 'KG-BACKLOG-GC' "$SUT"; then
+    cp "$SUT" "$_b1_mutant"
+    # Insert a prose-gc assignment just before the if block so gc=2 (prose) when KG-BACKLOG-EXCEEDS fires
+    # and the KG-BACKLOG-GC assignment inside the branch is overridden.
+    # Mutant: add `gc="$(pick "${cov%%/*}" "")"` after the _cm_kg line (before the if) and delete KG-BACKLOG-GC lines
+    sed -i '/KG-BACKLOG-GC/d; /gc_backlog/d; /coverage prose denominator is stale/d' "$_b1_mutant"
+    # Add prose gc assignment right before the if line (after _cm_kg=...)
+    sed -i 's|_cm_kg="\${cov##\*/}"|_cm_kg="${cov##*/}"\n    gc="$(pick "${cov%%/*}" "")" # PROSE-GC-RESTORED|' "$_b1_mutant"
+    if cmp -s "$_b1_mutant" "$SUT"; then
+      no "teeth-T-B1-GC-FROM-BACKLOG: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$_b1_mutant" 2>/dev/null; then
+      no "teeth-T-B1-GC-FROM-BACKLOG: mutant has syntax error (bash -n)"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      # Use a fresh copy of d_b1 fixture to avoid stale envelope from prior run
+      d_b1m="$TMP/b1-gc-mutant"; mkdir -p "$d_b1m"
+      cp "$d_b1/RESEARCH-STATE.md" "$d_b1m/RESEARCH-STATE.md"
+      bash "$_b1_mutant" "$d_b1m" --sync-state >/dev/null 2>&1
+      _b1_mut_gc="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*gaps_closed:/{print $2;exit}' "$d_b1m/RESEARCH-STATE.md")"
+      if [ "${_b1_mut_gc}" != "3" ]; then
+        ok "teeth-T-B1-GC-FROM-BACKLOG: mutant (prose gc) → gc=${_b1_mut_gc} ≠ 3 → T-B1-GC-FROM-BACKLOG goes RED → KG-BACKLOG-GC is load-bearing"
+      else
+        no "teeth-T-B1-GC-FROM-BACKLOG: mutant gc=${_b1_mut_gc} still 3 — KG-BACKLOG-GC mutation had no effect (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-T-B1-GC-FROM-BACKLOG: KG-BACKLOG-GC sentinel not found in SUT"
+  fi
+
+  # teeth-T-N3-COVERED-PIPE-WARN-5COL: delete SS-COVERED-PIPE-WARN line entirely → 5-col COVERED
+  # pipe row falls through to malformed WARN or silently passes → T-N3-COVERED-PIPE-WARN-5COL goes RED.
+  echo "-- teeth-T-N3-COVERED-PIPE-WARN-5COL: delete SS-COVERED-PIPE-WARN → no COVERED-pipe WARN --"
+  _cpw5_mutant="$TMP/status.CPW5.MUTANT.sh"
+  if grep -q '# SS-COVERED-PIPE-WARN' "$SUT"; then
+    cp "$SUT" "$_cpw5_mutant"
+    sed -i '/# SS-COVERED-PIPE-WARN/d' "$_cpw5_mutant"
+    if cmp -s "$_cpw5_mutant" "$SUT"; then
+      no "teeth-T-N3-COVERED-PIPE-WARN-5COL: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$_cpw5_mutant" 2>/dev/null; then
+      no "teeth-T-N3-COVERED-PIPE-WARN-5COL: mutant has syntax error (bash -n)"
+    elif grep -q '# SS-COVERED-PIPE-WARN' "$_cpw5_mutant"; then
+      no "teeth-T-N3-COVERED-PIPE-WARN-5COL: sabotage check — sentinel still in mutant"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _cpw5_warn="$(bash "$_cpw5_mutant" "$d_n3a" --sync-state 2>&1 >/dev/null)"
+      if ! echo "$_cpw5_warn" | grep -qi 'COVERED row'; then
+        ok "teeth-T-N3-COVERED-PIPE-WARN-5COL: mutant (no COVERED-pipe handler) → no COVERED-pipe WARN → T-N3-COVERED-PIPE-WARN-5COL goes RED"
+      else
+        no "teeth-T-N3-COVERED-PIPE-WARN-5COL: mutant still emits COVERED-pipe WARN — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-N3-COVERED-PIPE-WARN-5COL: SS-COVERED-PIPE-WARN sentinel not found in SUT"
+  fi
+
+  # teeth-T-M1-DENOM-UNSPACED: restore spaces-required grep → unspaced fractions not detected →
+  # T-M1-DENOM-UNSPACED goes RED (no contradictory-denominators WARN for 7/8 vs 7/7).
+  echo "-- teeth-T-M1-DENOM-UNSPACED: revert to spaces-required grep → unspaced fractions missed --"
+  _m1_mutant_vs="$TMP/verify-state.M1.MUTANT.sh"
+  if grep -q 'space.*\*.*\/.*space\|match.*space.*\*.*\/' "$HERE/../verify-state.sh" 2>/dev/null || grep -q 'awk.*match.*RSTART.*RLENGTH' "$HERE/../verify-state.sh"; then
+    cp "$HERE/../verify-state.sh" "$_m1_mutant_vs"
+    sed -i "s|LC_ALL=C awk 'match.*RSTART.*RLENGTH[^']*'|grep -oE '[0-9]+[[:space:]]+/[[:space:]]+[0-9]+'|" "$_m1_mutant_vs"
+    if cmp -s "$_m1_mutant_vs" "$HERE/../verify-state.sh"; then
+      no "teeth-T-M1-DENOM-UNSPACED: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$_m1_mutant_vs" 2>/dev/null; then
+      no "teeth-T-M1-DENOM-UNSPACED: mutant has syntax error (bash -n)"
+    else
+      _m1_mut_out="$(bash "$_m1_mutant_vs" "$d_m1" 2>&1)"
+      if ! echo "$_m1_mut_out" | grep -qi 'contradictory'; then
+        ok "teeth-T-M1-DENOM-UNSPACED: mutant (spaces-required grep) → unspaced 7/8 vs 7/7 not detected → T-M1-DENOM-UNSPACED goes RED"
+      else
+        no "teeth-T-M1-DENOM-UNSPACED: mutant still detects contradictory denominators — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-M1-DENOM-UNSPACED: awk-match sentinel not found in verify-state.sh"
+  fi
 
 fi
 

@@ -108,11 +108,10 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
   # BR-CACHE-MISS: run awk; WARNs go to stderr exactly once; capture stdout for subsequent calls.
   _BR_CACHED_FILE="$1"
   _BR_CACHED_ROWS="$(LC_ALL=C awk '
-    # U+2011-NORM: normalize non-breaking hyphen (UTF-8 octet \342\200\221) to ASCII hyphen; heading lines only; portable
-    /^## / { gsub(/\342\200\221/, "-") }
-    /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; expected_cols=0; next }
-    /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
-    /^## / { in_backlog=0; in_data=0; expected_cols=0; next }
+    # BACKLOG-ROWS-AWK-START
+    /^## Gap-backlog( \([^)]+\))?$/ { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _nm_was_last=0; in_backlog=1; in_data=0; expected_cols=0; next }  # OOB-WARN-FLUSH
+    /^## / && tolower($0) ~ /backlog/ { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _this_line_nm=1; print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
+    /^## / { if (!_this_line_nm) { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _nm_was_last=0 }; _nm_was_last=_this_line_nm; _this_line_nm=0; in_backlog=0; in_data=0; expected_cols=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
       sub(/^\|/,"",line); sub(/\|$/,"",line)
@@ -120,7 +119,7 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
       p=tolower(a[1])
       if (p~/^-+$/) { in_data=1; if (!in_backlog) next; expected_cols=(n==4||n==5)?n:-1; if (expected_cols<0) print "WARN: backlog table has " n " columns (separator: " $0 ") — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped" > "/dev/stderr"; next }  # BP-EXPECTED-COLS: accept only 4- or 5-col backlog tables; BP-WIDTH-WARN on unsupported width; BP-SEP-IN-BACKLOG: separator outside a Gap-backlog section sets in_data but does not WARN
       if (p~/^-/) { next }    # BP-LIST-ITEM-GUARD: prose list items (markdown dash marker with pipes in text) are not table rows; safe after all-dashes check above
-      if (p=="" || p=="priority" || p=="p" || p=="pr." || p=="deferred") { next }
+      if (p=="" || p=="priority" || p=="p" || p=="deferred") { next }
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
       base=p; sub(/ *\([^)]*\)$/, "", base)
@@ -139,16 +138,19 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
         }
         next
       }
-      if (!in_backlog && in_data) { print "WARN: backlog-format row outside ## Gap-backlog section [" $0 "] — move to ## Gap-backlog per METHODOLOGY §8b" > "/dev/stderr" }  # OOB-WARN
+      if (!in_backlog && in_data) { _oob_count++ }  # OOB-ACCUM: accumulate per-section; flushed at ## heading or EOF
       if (expected_cols < 0) { next }  # BP-WIDTH-SKIP: unsupported table width; WARN already emitted on separator
-      sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen
+      sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen yet
+      sc_msg = (expected_cols > 0) ? sc : "4 or 5"  # BP-SC-MSG: "4 or 5" when no separator seen (fallback context)
       if (n!=sc) {
-        if (sc==5 && n>sc && tolower(a[5]) ~ /^covered/) { next }  # 5C-COVERED-PIPE-SKIP: 5-col COVERED rows with pipe(s) in status cell; skip silently
-        if (sc==4 && n>sc && tolower(a[4]) ~ /^covered/) { next }  # VS-567-COVERED-PIPE-SKIP: 4-col COVERED rows with pipe(s) in status cell; skip silently
-        if (in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc " — a cell may contain a pipe): " $0 > "/dev/stderr" }  # VS-N4-WARN
+        if (sc==5 && n>sc && tolower(a[5]) ~ /^covered/) { print "WARN: COVERED row has " n " cells in 5-col table (pipe in status cell) — review: " $0 > "/dev/stderr"; next }  # VS-COVERED-PIPE-WARN: COVERED rows with extra cells emit WARN, not silent drop
+        if (sc==4 && n>sc && tolower(a[4]) ~ /^covered/) { print "WARN: COVERED row has " n " cells in 4-col table (pipe in status cell) — review: " $0 > "/dev/stderr"; next }  # VS-567-COVERED-PIPE-WARN: COVERED rows with extra cells emit WARN, not silent drop
+        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc_msg " — a cell may contain a pipe): " $0 > "/dev/stderr" }  # VS-MALFORMED-WARN: scoped to in_backlog only (N3)
         next }
       { st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # VS-634-BOLD-STRIP: strip leading/trailing ** from status field (a[4] for 4-col, a[5] for 5-col)
-      print p "\t" a[2] "\t" st }' "$1")"
+      print p "\t" a[2] "\t" st }
+    END { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr" }  # OOB-WARN-EOF
+  ' "$1")"
   [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
@@ -711,7 +713,7 @@ for state in "${states[@]}"; do
   ' "$state" 2>/dev/null)"
   mapfile -t denoms < <(printf '%s\n' "$noniter" \
     | grep -iE 'coverage metric|declared gaps closed|gaps? closed|coverage \(after' \
-    | grep -oE '[0-9]+[[:space:]]+/[[:space:]]+[0-9]+' \
+    | LC_ALL=C awk 'match($0, /[0-9]+[[:space:]]*\/[[:space:]]*[0-9]+/) { print substr($0, RSTART, RLENGTH) }' \
     | sed -E 's#.*/[[:space:]]*##' \
     | sort -un)
   if [ "${#denoms[@]}" -ge 2 ]; then
