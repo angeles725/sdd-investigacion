@@ -17,6 +17,13 @@
 #
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
+#
+# Exit codes:
+#   0   dry-run success, or --apply with 0 create failures
+#   1   absent-input, degraded (missing gh / unauthenticated), or missing dependencies
+#   2   --apply completed but one or more `gh issue create` calls failed (failed > 0)
+#       Callers must treat exit 2 as a partial failure: the summary line carries
+#       'failed=N' at the END of the summary so existing parsers remain unaffected.
 
 set -uo pipefail
 
@@ -69,8 +76,8 @@ if [ ! -f "$_RS_LIB" ]; then
 fi
 # shellcheck source=lib/retro-status.sh
 . "$_RS_LIB"
-declare -F retro_review_status >/dev/null 2>&1 \
-  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_review_status" >&2; exit 1; }
+declare -F retro_marker_line >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_line" >&2; exit 1; }
 
 _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 if [ ! -f "$_RG_LIB" ]; then
@@ -113,22 +120,34 @@ if [ -z "$target_name" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Parse review-status and detect PARTIAL applied markers
-status="$(retro_review_status "$retro")"
-
-# Read the full leading HTML-comment block to detect PARTIAL and shipped IDs.
+# Parse review-status and detect PARTIAL applied markers.
+# retro_marker_line (lib/retro-status.sh) is the SINGLE source of truth for marker detection in
+# stage-retro-issues.sh: it does a WHOLE-FILE scan anchored on '<!--', so markers placed after
+# the H1 heading are found (real-corpus layout: H1 line 1, blank line 2, marker line 3 in
+# *-closure.md retros).  Both the status word and the PARTIAL/shipped inspection are derived
+# from this one call.
 # Format: <!-- review-status: applied · sha · PARTIAL — shipped: 1, 2; deferred: 3 -->
-_marker_line="$(awk '
-  /^[[:space:]]*<!--/ { print; next }
-  /^[[:space:]]*$/     { next }
-  { exit }
-' "$retro" 2>/dev/null \
-  | grep -iE '<!--[[:space:]]*review-status:' \
-  | head -1)"
+#
+# NOTE: retro_review_status (also in lib/retro-status.sh) is intentionally NOT called here —
+# it does a leading-block-only scan and is kept for sweep-retros.sh which expects body-position
+# markers to be invisible.  stage-retro-issues.sh must use retro_marker_line instead.
+_marker_line="$(retro_marker_line "$retro")"
+
+# Extract the status word from the raw marker line (case-insensitive, lowercased).
+# If no marker was found, status is empty (treated as pending/open below).
+# STAGE_RETRO_ISSUES_STATUS_EXTRACT: this sed/tr pipeline is the single extraction point.
+status="$(printf '%s' "$_marker_line" \
+  | grep -oiE '<!--[[:space:]]*review-status:[[:space:]]*[a-z]+' \
+  | head -1 \
+  | sed -E 's/.*:[[:space:]]*//' \
+  | tr 'A-Z' 'a-z')"
 
 is_partial=0
 shipped_ids=""
-if printf '%s' "$_marker_line" | grep -qiE 'PARTIAL|shipped:'; then
+# STAGE_RETRO_ISSUES_PARTIAL_CHECK: case-SENSITIVE 'PARTIAL' (canonical token is uppercase) so that
+# lowercase prose like "(P1 partial)" inside a dismissed marker does NOT flip is_partial.
+# Also check 'shipped:' case-sensitively (canonical form uses lowercase 'shipped:').
+if printf '%s' "$_marker_line" | grep -qE 'PARTIAL|shipped:'; then
   is_partial=1
   _shipped_raw="$(printf '%s' "$_marker_line" \
     | grep -oiE 'shipped:[^;>]*' \
@@ -264,7 +283,7 @@ strip_md_bold() {
 # ---------------------------------------------------------------------------
 # Main loop
 open_count=0; skipped_shipped=0; skipped_wrong_kit=0
-skipped_dedup=0; created=0
+skipped_dedup=0; created=0; failed=0
 
 while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priority_cell; do
   _rid="$(printf '%s' "$_rid" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -333,7 +352,8 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       --title "$_title" \
       $_label_flags \
       --body "$_body" 2>&1)" || {
-        echo "ERROR: gh issue create failed for row $_rid: $_url" >&2; continue
+        echo "ERROR: gh issue create failed for row $_rid: $_url" >&2
+        failed=$((failed+1)); continue
       }
     echo "created: $_url (row $_rid)"
     created=$((created+1))
@@ -346,8 +366,13 @@ if [ "$open_count" -eq 0 ] && [ "$skipped_shipped" -gt 0 ] && [ "$skipped_wrong_
 fi
 
 if [ $apply -eq 1 ]; then
-  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d\n' \
-    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit"
+  # 'failed=' is appended LAST so existing parsers that read the earlier fields are unaffected.
+  # STAGE_RETRO_ISSUES_SUMMARY: anchor for T5 teeth proof — the failed= field at the end.
+  printf 'summary: created=%d skipped-duplicate=%d skipped-shipped=%d skipped-wrong-kit=%d failed=%d\n' \
+    "$created" "$skipped_dedup" "$skipped_shipped" "$skipped_wrong_kit" "$failed"
 fi
 
+# Exit 2 when any create failed (§7 anti-silent-zero: partial failure must not look like success).
+# Exit 0 on dry-run or a clean --apply run.
+[ "$failed" -gt 0 ] && exit 2
 exit 0

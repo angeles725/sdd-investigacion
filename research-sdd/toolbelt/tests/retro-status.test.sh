@@ -112,8 +112,12 @@ got="$(retro_review_status "$f")"
 [ -z "$got" ] && ok "5 no blank/no heading, deep marker → none (R3-001)" "(got '$got')" \
              || no "5 no blank/no heading, deep marker → none (R3-001)" "got '$got'"
 
-# 6 — BODY MARKER below heading + blank. A real status comment sitting AFTER the heading and the
-#     first blank line is in the body, not the leading comment block, so it must NOT gate the retro.
+# 6 — BODY MARKER (after heading + blank) → NONE for retro_review_status. A status comment that
+#     sits BELOW the H1 heading is outside the leading HTML-comment block. retro_review_status uses
+#     a leading-block-only scan (stops at the first non-comment, non-blank line) so it does NOT see
+#     this marker — it returns nothing.  sweep-retros.sh relies on this: body-position markers are
+#     intentionally invisible to it.  (stage-retro-issues.sh uses retro_marker_line instead, which
+#     DOES find this marker — tested via cases 19-21 below.)
 f="$(mkretro body-marker <<'EOF'
 # retro
 
@@ -121,8 +125,8 @@ f="$(mkretro body-marker <<'EOF'
 EOF
 )"
 got="$(retro_review_status "$f")"
-[ -z "$got" ] && ok "6 body marker below heading+blank → none" "(got '$got')" \
-             || no "6 body marker below heading+blank → none" "got '$got'"
+[ -z "$got" ] && ok "6 body marker below heading+blank → none (leading-block-only)" "(got '$got')" \
+             || no "6 body marker below heading+blank → none (leading-block-only)" "got '$got'"
 
 # 7 — DISMISSED marker → dismissed (the other resolution word, proves it is not hard-coded to
 #     'applied').
@@ -258,6 +262,48 @@ EOF
     no "teeth M5: { exit }-dropped mutant should false-exclude body-position marker" "exit was '$m5_rc' (expected 0) — case 12 is THEATER"
   fi
 
+  # Tooth M7: replace the whole-file grep in retro_marker_line with a leading-block-only scan.
+  # retro_marker_line uses: grep -iE '<!--[[:space:]]*review-status:' "$f" 2>/dev/null | head -1
+  # Replacing it with awk-then-grep (leading-block-only) restores the old bug: a marker placed
+  # after H1 (cases 19-21 fixtures) must return empty, proving the whole-file grep is load-bearing.
+  echo "-- teeth M7: restore leading-block-only scan in retro_marker_line; after-H1 marker must false-return empty (cases 19+20 have teeth) --"
+  if grep -qF "grep -iE '<!--[[:space:]]*review-status:' \"\$f\" 2>/dev/null | head -1" "$HELPER" 2>/dev/null; then
+    m7_mutant="$ROOT/retro-status.m7.sh"
+    # Replace the whole-file grep with an awk leading-block-only pipeline:
+    sed "s|grep -iE '<!--\[*\[:space:\]*\]*review-status:' \"\\\$f\" 2>\/dev\/null | head -1|awk '/^[[:space:]]*<!--/ { print; next } /^[[:space:]]*$/ { next } { exit }' \"\$f\" 2>\/dev\/null \| grep -iE '<!--[[:space:]]*review-status:'|" \
+      "$HELPER" > "$m7_mutant" 2>/dev/null || cp "$HELPER" "$m7_mutant"
+    # Use awk for the replacement (sed's regex isn't portable with nested brackets):
+    awk '
+      /grep -iE .<!--\[/ && /review-status/ && /\$f/ && /head -1/ {
+        print "    awk '"'"'"
+        print "      /^[[:space:]]*<!--/ { print; next }"
+        print "      /^[[:space:]]*$/     { next }"
+        print "      { exit }"
+        print "    '"'"' \"$f\" 2>/dev/null \\"
+        print "      | grep -iE '"'"'<!--[[:space:]]*review-status:'"'"' | head -1"
+        next
+      }
+      { print }
+    ' "$HELPER" > "$m7_mutant"
+    fix20="$(mkretro m7-after-h1 <<'EOF'
+# §18 Retro — some focus
+
+<!-- review-status: applied 2026-09-20 · kit ad87c33 -->
+
+body text
+EOF
+)"
+    outm7="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$m7_mutant" "$fix20" 2>&1)"
+    if [ -z "$outm7" ]; then
+      ok "teeth M7: leading-block-only mutant returns empty for after-H1 marker (cases 19+20 have teeth)" "()"
+    else
+      no "teeth M7: leading-block-only mutant should return empty for after-H1 marker" \
+        "got '$outm7' — cases 19+20 are THEATER"
+    fi
+  else
+    no "teeth M7: locate whole-file-grep line in retro_marker_line" "line not found — helper drifted?"
+  fi
+
   # Tooth M6: drop the bare '{ exit }' from retro_is_waived's awk, enabling a whole-file scan.
   # A body-position waiver marker (case 15 fixture) must then FALSELY return 0 (waived).
   # Uses awk to skip ONLY the SECOND bare '{ exit }' occurrence (the one in retro_is_waived);
@@ -266,7 +312,10 @@ EOF
   # and case 15 is theater.
   echo "-- teeth M6: drop { exit } from retro_is_waived awk; body-position waiver must false-fire (case 15 has teeth) --"
   m6_mutant="$ROOT/retro-status.m6.sh"
-  awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==2) next } { print }' "$HELPER" > "$m6_mutant"
+  # retro_review_status (added in #938) also uses awk with '{ exit }', so there are now 3
+  # occurrences: retro_review_status (n=1), retro_is_excluded (n=2), retro_is_waived (n=3).
+  # Skip the THIRD occurrence to mutate only retro_is_waived's guard.
+  awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==3) next } { print }' "$HELPER" > "$m6_mutant"
   fix15="$(mkretro m6-body-waiver <<'EOF'
 # retro — body-position waiver below
 
@@ -369,6 +418,56 @@ EOF
 retro_is_waived "$f" \
   && ok "18 retro_is_waived: no space after colon (retro-waived:date) → waived (space optional)" "()" \
   || no "18 retro_is_waived: no space after colon (retro-waived:date) → waived (space optional)" "(returned 1)"
+
+# ---------------------------------------------------------------------------
+# 19-21 — retro_marker_line WHOLE-FILE SCAN tests.
+#   retro_marker_line finds '<!-- review-status: ...' anywhere in the file (not just the leading
+#   block), so after-H1 markers are detected.  These cases directly test retro_marker_line to pin
+#   its contract; they complement case 6 which confirms retro_review_status still ignores these.
+#   stage-retro-issues.sh uses retro_marker_line for status extraction; sweep-retros.sh uses
+#   retro_review_status (leading-block-only) — the two functions have intentionally different scopes.
+#
+# 19 — MARKER DIRECTLY AFTER H1 (no blank). retro_marker_line must return the raw marker line.
+f19="$(mkretro ml-after-h1-no-blank <<'EOF'
+# §18 Retro — some focus
+<!-- review-status: applied 2026-09-20 · kit abc1234 -->
+
+body text
+EOF
+)"
+ml19="$(retro_marker_line "$f19")"
+[ -n "$ml19" ] && ok "19 retro_marker_line: marker directly after H1 (no blank) → found" "(got '$ml19')" \
+              || no "19 retro_marker_line: marker directly after H1 (no blank) → found" "got empty"
+
+# 20 — MARKER AFTER H1 AND BLANK (real-corpus layout: H1 line 1, blank line 2, marker line 3).
+#      This is the layout of the niagara-research retros that were missed by the leading-block scan.
+f20="$(mkretro ml-after-h1-blank <<'EOF'
+# §18 Retro — focus: signing-pki
+
+<!-- review-status: applied 2026-09-20 · kit ad87c33 -->
+
+body text
+EOF
+)"
+ml20="$(retro_marker_line "$f20")"
+printf '%s' "$ml20" | grep -qiE '<!--[[:space:]]*review-status:' \
+  && ok "20 retro_marker_line: marker after H1+blank → found (real corpus layout)" "(got '$ml20')" \
+  || no "20 retro_marker_line: marker after H1+blank → found (real corpus layout)" "got '$ml20'"
+
+# 21 — PARTIAL MARKER AFTER H1: retro_marker_line returns the raw line including 'PARTIAL' token,
+#      which stage-retro-issues.sh uses for is_partial detection (case-sensitive grep).
+f21="$(mkretro ml-after-h1-partial <<'EOF'
+# §18 Retro — partial applied
+
+<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->
+
+body
+EOF
+)"
+ml21="$(retro_marker_line "$f21")"
+printf '%s' "$ml21" | grep -qF 'PARTIAL' \
+  && ok "21 retro_marker_line: partial applied marker after H1 → raw line has PARTIAL" "(got '$ml21')" \
+  || no "21 retro_marker_line: partial applied marker after H1 → raw line has PARTIAL" "got '$ml21'"
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
