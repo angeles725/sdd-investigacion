@@ -591,14 +591,17 @@ PYCMSG37
   echo "-- teeth: change -naE to -nIE + neuter B6 rescan — test 38 NUL-byte file must go red --"
   mutant_noflag="$TMP/scan-secrets.MUTANT-noflag.sh"
   python3 - "$SUT" "$mutant_noflag" << 'PYNOFLAG38'
-import sys
+import sys, re
 content = open(sys.argv[1]).read()
-# 1. Change main/NUL-stripped HC grep flag from -naE to -nIE (skips binary files)
+# 1. Change main HC grep flag from -naE to -nIE (skips binary files)
 content = content.replace('-naE', '-nIE')
-# 2. Neuter B6 NUL-stripped rescan so the NUL-stripped path also skips the token
-content = content.replace(
-    "    if grep -qaP '\\x00' \"$_blob_tmp\" 2>/dev/null; then",
-    "    if false; then  # MUTANT: B6 NUL-stripped rescan neutered (noflag38)"
+# 2. Neuter B6 unconditional NUL-stripped rescan: replace the NUL-stripped grep with 'true'
+#    (after -naE→-nIE the NUL-stripped copy has no NULs, so -nIE treats it as text and still
+#    finds the token; must replace the grep itself to prove the main-scan path drives T38).
+content = re.sub(
+    r'    grep -nIE \\\n(      -e [^\n]+\n)+      "\$_nul_tmp" 2>/dev/null \\',
+    r'    true 2>/dev/null \\',
+    content
 )
 open(sys.argv[2], 'w').write(content)
 PYNOFLAG38
@@ -1102,9 +1105,10 @@ else
   no "58 cat-file --batch rc=1: rc=$cm_rc58 (want 3) :: $(printf '%s' "$cm_out58" | head -2)"
 fi
 
-# 59 — B: _cmsg_tmp mktemp fails on the 7th mktemp call → DEGRADED exit 3.
+# 59 — B: _cmsg_tmp mktemp fails on the 8th mktemp call → DEGRADED exit 3.
 #      In --committed mode: mktemp calls are _rev_obj_tmp(1), _blobs_list(2), _hc_hits_tmp(3),
-#      _adv_raw(4), _blob_tmp(5), _adv_dedup(6), _cmsg_tmp(7). The 7th is unchecked pre-fix.
+#      _adv_raw(4), _blob_tmp(5), _nul_tmp(6, B6 unconditional per blob), _adv_dedup(7),
+#      _cmsg_tmp(8). The 8th is unchecked pre-fix (with 1 blob in the fixture).
 #      Pre-fix: _cmsg_tmp="" → "> """ redirect fails with rc=1 → -ge 2 check misses it →
 #      commit message scan silently empty → false clean exit 0 (secret in commit msg passes).
 _count59="$TMP/r4-mktemp-count59"
@@ -1114,7 +1118,7 @@ cat > "$_stub59/mktemp" << MKTEMP59
 #!/bin/bash
 n=\$(cat "$_count59" 2>/dev/null); n=\$((n+1))
 printf '%s\n' "\$n" > "$_count59"
-[ "\$n" -ge 7 ] && exit 1
+[ "\$n" -ge 8 ] && exit 1
 exec /usr/bin/mktemp "\$@"
 MKTEMP59
 chmod +x "$_stub59/mktemp"
@@ -1131,7 +1135,7 @@ printf '0\n' > "$_count59"   # reset counter before actual scan
 cm_out59="$(PATH="$_stub59:$PATH" bash "$SUT" --committed "$d_t59" 2>&1)"
 cm_rc59=$?
 if [ "$cm_rc59" = 3 ] && printf '%s' "$cm_out59" | grep -qi 'degraded'; then
-  ok "59 B: _cmsg_tmp mktemp fail (7th call) → DEGRADED exit 3 (unchecked mktemp fix)"
+  ok "59 B: _cmsg_tmp mktemp fail (8th call) → DEGRADED exit 3 (unchecked mktemp fix)"
 else
   no "59 _cmsg_tmp mktemp fail: rc=$cm_rc59 (want 3) :: $(printf '%s' "$cm_out59" | head -3)"
 fi
@@ -1339,6 +1343,25 @@ t68_rc=$(bash "$SUT" --committed "$d_t68" >/dev/null 2>&1; echo $?)
 [ "$t68_rc" = 1 ] && ok "68: UTF-32LE .env blob NUL-stripped rescan catches GitHub token (B6)" \
   || no "68: UTF-32LE .env: rc=$t68_rc (want 1)"
 
+# 69 — B6 unconditional: a grep wrapper that rejects -P (exits 2) must never cause rc=0.
+# Confirms the NUL-stripped rescan does not rely on a -P detector that could silently fail open.
+# With unconditional B6 (no -P gate), the advisory grep (-naiP) hits the wrapper → DEGRADED (rc=3).
+# Expected: rc=1 (token caught before advisory) OR rc=3 (DEGRADED) — never rc=0 (silent miss).
+_nopcre_dir="$TMP/nopcre_bin"
+mkdir -p "$_nopcre_dir"
+cat > "$_nopcre_dir/grep" << 'GREPWRAP'
+#!/bin/sh
+# Wrapper: reject -P (PCRE) with exit 2 to simulate a non-PCRE grep
+for _a in "$@"; do
+  case "$_a" in *P*) exit 2 ;; esac
+done
+exec /usr/bin/grep "$@"
+GREPWRAP
+chmod +x "$_nopcre_dir/grep"
+t69_rc=$(PATH="$_nopcre_dir:$PATH" bash "$SUT" --committed "$d_t66" >/dev/null 2>&1; echo $?)
+[ "$t69_rc" != 0 ] && ok "69: -P-rejecting grep gives rc=$t69_rc (not 0) — B6 never fails open silently" \
+  || no "69: -P-rejecting grep gave rc=0 — B6 fails open silently (PCRE detector race)"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for T53 (leading ':' path): insert an early-skip inside Rule 1 for records starting
   # with ':' — the old bug. ':notes.md' arrives at Rule 1 (expect_path=1), the colon check fires,
@@ -1431,7 +1454,7 @@ PYEOF58
 
   # Teeth for T59 (unchecked _cmsg_tmp mktemp): remove the mktemp check for _cmsg_tmp AND
   # restore the old -ge 2 check AND remove the _cmsg_hits_tmp mktemp check.
-  # With stub failing on call ≥ 7: call 7 (_cmsg_tmp) and call 8 (_cmsg_hits_tmp) both fail.
+  # With stub failing on call ≥ 8: call 8 (_cmsg_tmp) and call 9 (_cmsg_hits_tmp) both fail.
   # Without both guards removed, one of them still catches the failure → DEGRADED.
   echo "-- teeth-r4-59: remove _cmsg_tmp + _cmsg_hits_tmp checks + restore -ge 2 — test 59 must go red --"
   mutant_t59="$TMP/scan-secrets.MUTANT-r4-59.sh"
@@ -1444,7 +1467,7 @@ content = re.sub(
     r'\1',
     content
 )
-# Remove the _cmsg_hits_tmp mktemp check (M4 addition; also fails on call 8 with the stub)
+# Remove the _cmsg_hits_tmp mktemp check (M4 addition; also fails on call 9 with the stub)
 content = re.sub(
     r'(_cmsg_hits_tmp="\$\(mktemp\)") \|\| \{[^}]+rm[^}]+exit 3;\s*\}',
     r'\1',
@@ -1605,26 +1628,29 @@ PYEOF65
     no "teeth-r4-65: mutant still DEGRADED (rc=$_m65rc) — test 65 is THEATER"
   fi
 
-  # Teeth for T66-T68 (B6 NUL-stripped rescan): neuter the NUL check so UTF-16/UTF-32 blobs
-  # bypass the rescan → token missed → rc=0 (false clean, the real danger).
-  echo "-- teeth-b6: remove NUL-stripped rescan — test 66 UTF-16LE must go red (rc=0) --"
+  # Teeth for T66-T68 (B6 NUL-stripped rescan): replace the NUL-stripped grep with 'true'
+  # so it produces no output → token missed → rc=0 (false clean, the real danger).
+  # The scan is now unconditional so the mutant targets the grep, not a gate.
+  echo "-- teeth-b6: replace NUL-stripped grep with true — test 66 UTF-16LE must go red (rc=0) --"
   mutant_b6="$TMP/scan-secrets.MUTANT-b6.sh"
   python3 - "$SUT" "$mutant_b6" << 'PYEOF_B6'
-import sys
+import sys, re
 content = open(sys.argv[1]).read()
-# Neuter the B6 NUL-stripped rescan: replace the NUL-check guard with 'if false'
-content = content.replace(
-    "    if grep -qaP '\\x00' \"$_blob_tmp\" 2>/dev/null; then",
-    "    if false; then  # MUTANT: B6 NUL-stripped rescan neutered"
+# Replace the multi-line NUL-stripped HC grep (grep -naE ... "$_nul_tmp" 2>/dev/null \) with
+# 'true 2>/dev/null \' so it produces no output — awk still runs on empty stdin, appending nothing.
+content = re.sub(
+    r'    grep -naE \\\n(      -e [^\n]+\n)+      "\$_nul_tmp" 2>/dev/null \\',
+    r'    true 2>/dev/null \\',
+    content
 )
-if '# MUTANT: B6' not in content:
-    import sys as _sys; print("WARN: B6 NUL check not found in SUT", file=_sys.stderr)
+if '    true 2>/dev/null \\' not in content:
+    print("WARN: B6 NUL-stripped grep not found in SUT", file=sys.stderr)
 open(sys.argv[2], 'w').write(content)
 PYEOF_B6
   _m66rc=$(bash "$mutant_b6" --committed "$d_t66" >/dev/null 2>&1; echo $?)
   [ "$_m66rc" = 0 ] \
-    && ok "teeth-b6: NUL-stripped-rescan-removed mutant misses UTF-16LE token (rc=0) → test 66 has teeth" \
-    || no "teeth-b6: mutant caught UTF-16LE token (rc=$_m66rc, want 0) — test 66 is THEATER"
+    && ok "teeth-b6: NUL-stripped-grep-replaced-with-true mutant misses UTF-16LE token (rc=0) → test 66 has teeth" \
+    || no "teeth-b6: mutant rc=$_m66rc (want 0=false clean) — test 66 is THEATER"
 fi
 
 [ "$skips" -gt 0 ] && echo "== $pass passed · $fail failed · $skips skipped ==" || echo "== $pass passed · $fail failed =="

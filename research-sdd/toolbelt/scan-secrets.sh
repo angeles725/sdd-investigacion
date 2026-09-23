@@ -261,30 +261,29 @@ length($0) > 0 {
     fi
     # B6: UTF-16/UTF-32 blobs (Windows: PowerShell >, Notepad "Unicode", .reg/.ini exports) have
     # NUL bytes between ASCII characters; grep -a reads the bytes but tokens are non-consecutive
-    # — the pattern misses them. When NULs are present, strip them and re-scan so UTF-16LE/BE
-    # and UTF-32LE/BE encoded tokens are still caught.
-    if grep -qaP '\x00' "$_blob_tmp" 2>/dev/null; then
-      _nul_tmp="$(mktemp)" || {
-        echo "DEGRADED: mktemp failed — cannot create NUL-stripped blob temp file" >&2; exit 3; }
-      tr -d '\000' < "$_blob_tmp" > "$_nul_tmp"
-      grep -naE \
-        -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
-        -e 'A[KS]IA[0-9A-Z]{16}' \
-        -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
-        -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
-        -e 'AIza[0-9A-Za-z_-]{35}' \
-        -e 'sk-[A-Za-z0-9]{20,}' \
-        -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
-        "$_nul_tmp" 2>/dev/null \
-        | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
-        >> "$_hc_hits_tmp"
-      _nul_pstat=("${PIPESTATUS[@]}")
-      if [ "${_nul_pstat[0]:-0}" -ge 2 ] || [ "${_nul_pstat[1]:-0}" -ne 0 ]; then
-        echo "DEGRADED: NUL-stripped HC grep/awk pipeline failed (rc=${_nul_pstat[*]}) for blob ${bshort} — scan aborted" >&2
-        rm -f "$_nul_tmp"; exit 3
-      fi
-      rm -f "$_nul_tmp"; _nul_tmp=""
+    # — the pattern misses them. Always strip NULs and re-scan: stripping NULs from text
+    # without NULs is a no-op, so the scan is unconditional (no PCRE detector needed — a
+    # detector that exits 2 on error would silently skip the rescan on a grep without PCRE).
+    _nul_tmp="$(mktemp)" || {
+      echo "DEGRADED: mktemp failed — cannot create NUL-stripped blob temp file" >&2; exit 3; }
+    tr -d '\000' < "$_blob_tmp" > "$_nul_tmp"
+    grep -naE \
+      -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
+      -e 'A[KS]IA[0-9A-Z]{16}' \
+      -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
+      -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
+      -e 'AIza[0-9A-Za-z_-]{35}' \
+      -e 'sk-[A-Za-z0-9]{20,}' \
+      -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
+      "$_nul_tmp" 2>/dev/null \
+      | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
+      >> "$_hc_hits_tmp"
+    _nul_pstat=("${PIPESTATUS[@]}")
+    if [ "${_nul_pstat[0]:-0}" -ge 2 ] || [ "${_nul_pstat[1]:-0}" -ne 0 ]; then
+      echo "DEGRADED: NUL-stripped HC grep/awk pipeline failed (rc=${_nul_pstat[*]}) for blob ${bshort} — scan aborted" >&2
+      rm -f "$_nul_tmp"; exit 3
     fi
+    rm -f "$_nul_tmp"; _nul_tmp=""
     grep -naiP -e "${KWID}\s*[=:]" "$_blob_tmp" 2>/dev/null \
       | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
       >> "$_adv_raw"
@@ -451,7 +450,7 @@ if [ "$committed" = 1 ]; then
   fi
   # B3: any "<sha> missing" line from cat-file --batch means a reachable commit object was not
   # found — the commit scan scope is incomplete. Treat as DEGRADED.
-  if grep -qE '^[0-9a-f]{40} missing$' "$_cmsg_tmp" 2>/dev/null; then
+  if grep -qE '^[0-9a-f]{40}([0-9a-f]{24})? missing$' "$_cmsg_tmp" 2>/dev/null; then
     echo "DEGRADED: cat-file --batch reported missing commit object(s) — commit scan incomplete" >&2
     rm -f "$_cmsg_tmp"; exit 3
   fi
@@ -488,11 +487,11 @@ if [ "$committed" = 1 ]; then
 fi
 
 # --- BINARY-SKIP report: a stray NUL byte makes grep -I skip a whole file silently. Surface it. ----
-# In --committed mode, blobs are read by cat-file; NUL-byte blobs are also re-scanned with NULs stripped (B6) to catch UTF-16/UTF-32 encoded tokens.
+# In --committed mode, blobs are read by cat-file; every blob is unconditionally re-scanned with NULs stripped (B6) to catch UTF-16/UTF-32 encoded tokens — no PCRE detector needed.
 # In default mode, detect NUL-bearing files that grep would silently skip.
 nulls=0
 if [ "$committed" = 1 ]; then
-  echo "-- binary files: cat-file blob scan; NUL-byte blobs NUL-stripped and re-scanned (B6) — UTF-16/UTF-32 tokens caught --"
+  echo "-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --"
 else
   # `\x00` here is the literal 4-char PCRE escape (a bash $'\x00' arg would collapse to an empty pattern that
   # matches every file). `-a` is REQUIRED: without it GNU grep refuses to match inside a file it deems binary,
