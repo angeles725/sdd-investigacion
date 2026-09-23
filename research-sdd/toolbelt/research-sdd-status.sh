@@ -273,9 +273,12 @@ count_deferred() {
 # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—), COVERED rows whose status
 # cell contains a pipe (5C-COVERED-PIPE-SKIP / SS-567-COVERED-PIPE-SKIP). Qualifier forms (e.g.
 # "high (context)") emit a WARN to stderr and are excluded. Unknown qualifier BASE fails closed.
-# "med" abbreviation is normalized to "medium" with MED-ABBREV-NORM WARN (non-conforming per §8b).
+# Note: "med" abbreviation is NOT normalized here — that is a separate calibration work unit (#941).
+#   Rows with priority "med" emit INVALID_PRIORITY and are excluded from counts.
+# U+2011-NORM: non-breaking hyphens (U+2011, UTF-8 E2 80 91) in headings are normalised to ASCII
+#   hyphen by a sed pre-pass so "## Gap‑backlog (prioritized)" matches the awk heading pattern.
 backlog_rows() {
-  awk '
+  LC_ALL=C sed 's/\xe2\x80\x91/-/g' "$state" | awk '
     /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; expected_cols=0; next }
     /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
     /^## / { in_backlog=0; in_data=0; expected_cols=0; next }
@@ -288,7 +291,6 @@ backlog_rows() {
       if (p=="" || p=="priority" || p=="p" || p=="pr." || p=="deferred") { next }
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
-      if (p == "med") { print "WARN: non-conforming tier abbreviation [med] in row: " $0 " — migrate to \"medium\" per METHODOLOGY §8b; row counted until migrated" > "/dev/stderr"; p="medium" }  # MED-ABBREV-NORM
       base=p; sub(/ *\([^)]*\)$/, "", base)
       if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base emits WARN to stderr, still excluded; else fail closed
         if (base=="high" || base=="medium" || base=="low" || base=="deferred") { if (in_backlog && in_data) print "WARN: non-conforming qualifier priority [" p "] — strip the qualifier to \"" base "\" per METHODOLOGY §8b; row excluded from investigable_open until migrated" > "/dev/stderr"; next }  # BP-QUALIFIER-WARN
@@ -314,7 +316,7 @@ backlog_rows() {
         next }
       { st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # SS-634-BOLD-STRIP: strip leading/trailing ** from status field
       print p "\t" a[2] "\t" st }
-  ' "$state"
+  '
 }
 
 resolve_next() {

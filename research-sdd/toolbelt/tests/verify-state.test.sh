@@ -2329,6 +2329,71 @@ if [ "$(code "$d")" = 0 ] && grep -qiE 'WARN.*blocks_since_retro.*20' <<<"$out";
   ok "T-P18f: blocks_since_retro=20 → WARN (cadence enforcement)"
 else no "T-P18f: expected WARN for bsr=20, got rc=$(code "$d") :: $(grep -iE 'blocks_since_retro' <<<"$out" | head -1)"; fi
 
+# ---- #911 A2 mirror coverage: 5-col tables and U+2011 headings -----------------------------------
+# VS-5COL-PASS: verify-state must exit 0 when a 5-col backlog table declares matching counts.
+d="$TMP/vs-5col-pass"; mkdir -p "$d"
+{ echo '# T'; echo
+  env9 0 2 2 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Pr. | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n'
+  echo '| high | G1 | five-col gap 1 | bin.dll | covered |'
+  echo '| low  | G2 | five-col gap 2 | bin2.dll | covered |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+if [ "$(code "$d")" = 0 ]; then
+  ok "VS-5COL-PASS: 5-col Gap-backlog with matching known_gaps=2 → exit 0"
+else no "VS-5COL-PASS: exit $(code "$d") — 5-col rows may not be read (BP-EXPECTED-COLS missing in verify-state mirror)"; fi
+
+# VS-5COL-FAIL: a pending 5-col row must cause verify-state to exit 1 when the envelope declares
+# investigable_open=0. Pre-fix: 5-col rows rejected (n=5 ≠ sc=4) → derived investigable=0 →
+# false match with declared=0 → exit 0 (false pass). Post-fix: 5-col row counted → derived=1 ≠ 0.
+d="$TMP/vs-5col-fail"; mkdir -p "$d"
+{ echo '# T'; echo
+  env9 0 0 1 0 0 0 0; echo   # known_gaps=1, investigable_open=0 — stale (open gap not counted)
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Pr. | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n'
+  echo '| high | G1 | five-col pending gap | bin.dll | pending |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+if [ "$(code "$d")" != 0 ]; then
+  ok "VS-5COL-FAIL: 5-col pending row → derived investigable_open=1 ≠ declared=0 → FAIL exit 1 (5-col rows counted)"
+else no "VS-5COL-FAIL: exit 0 — 5-col pending row not counted (BP-EXPECTED-COLS may be broken in verify-state mirror)"; fi
+
+# VS-OOB-WARN: _backlog_rows() counts OOB rows (emitting OOB-WARN to stderr) so verify-state must
+# not brick when a row appears outside ## Gap-backlog. The fixture has:
+#   - an empty (but present) ## Gap-backlog section — satisfies the presence check
+#   - one covered OOB row under ## Non-canonical heading
+# The envelope declares known_gaps=1, gaps_closed=1 to match the single OOB counted row → exit 0.
+d="$TMP/vs-oob-warn"; mkdir -p "$d"
+{ echo '# T'; echo
+  env9 0 1 1 0 0 0 0; echo   # gaps_closed=1, known_gaps=1 — matches the one OOB row
+  echo '## Gap-backlog (prioritized)'; echo   # present-but-empty satisfies §T-599a presence check
+  echo '## Non-canonical heading'; echo
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  echo '| high | NG1 | web | covered |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+if [ "$(code "$d")" = 0 ]; then
+  ok "VS-OOB-WARN: OOB row counted with matching envelope → exit 0 (OOB does not brick verify-state)"
+else no "VS-OOB-WARN: exit 1 — OOB row with matching envelope still fails verify-state"; fi
+
+# VS-U2011-HEADING: a Gap-backlog heading with U+2011 non-breaking hyphen must be matched without
+# triggering NM-WARN. Pre-fix: NM-WARN fires for the unrecognised heading. Post-fix: heading matched.
+# verify-state sees counted known_gaps=1 matching declared known_gaps=1 → exit 0, no NM-WARN.
+d="$TMP/vs-u2011"; mkdir -p "$d"
+{ echo '# T'; echo
+  env9 0 1 1 0 0 0 0; echo
+  # U+2011 non-breaking hyphen in heading (UTF-8: E2 80 91)
+  printf '## Gap\xe2\x80\x91backlog (prioritized)\n\n'
+  printf '| Priority | Gap | type | Status |\n|---|---|---|---|\n'
+  printf '| high | u2011 gap | web | covered |\n\n'
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+_vs_u2011_warn="$(bash "$SUT" "$d" 2>&1)"
+if [ "$(code "$d")" = 0 ] && ! echo "$_vs_u2011_warn" | grep -qi 'near-miss'; then
+  ok "VS-U2011-HEADING: U+2011 heading matched → exit 0, no NM-WARN (heading recognised in verify-state mirror)"
+else no "VS-U2011-HEADING: exit $(code "$d") or NM-WARN — U+2011-NORM pre-pass may be missing in verify-state mirror :: $(echo "$_vs_u2011_warn" | grep -i 'near-miss' | head -1)"; fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -3399,6 +3464,54 @@ PYEOF
     fi
   else
     no "teeth-P18: P18-THRESHOLD-WARN-CASE sentinel not found in SUT"
+  fi
+
+  # ---- teeth-VS-5COL: neuter BP-EXPECTED-COLS in verify-state.sh → 5-col pending row not counted
+  # → VS-5COL-FAIL's fixture sees derived investigable_open=0 = declared=0 → exits 0 (false pass).
+  echo "-- teeth-VS-5COL: neuter BP-EXPECTED-COLS; 5-col pending row must be MISSED → VS-5COL-FAIL goes RED --"
+  if grep -q '# BP-EXPECTED-COLS' "$HERE/../verify-state.sh"; then
+    mutantBP="$TMP/verify-state.BP.MUTANT.sh"
+    # Remove the BP-EXPECTED-COLS line entirely so n_cols check never fires and 5-col rows are rejected.
+    sed '/# BP-EXPECTED-COLS/d' "$HERE/../verify-state.sh" > "$mutantBP"
+    if grep -q '# BP-EXPECTED-COLS' "$mutantBP"; then
+      no "teeth-VS-5COL: could not build mutant (sed did not remove BP-EXPECTED-COLS line)"
+    else
+      bp_mut_exit="$(bash "$mutantBP" "$TMP/vs-5col-fail" >/dev/null 2>&1; echo $?)"
+      if [ "$bp_mut_exit" = 0 ]; then
+        ok "teeth-VS-5COL: neutered BP-EXPECTED-COLS → 5-col pending row missed → VS-5COL-FAIL exits 0 (false pass) → guard is load-bearing"
+      else
+        no "teeth-VS-5COL: mutant exit $bp_mut_exit (want 0) — VS-5COL-FAIL does not depend on BP-EXPECTED-COLS (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-VS-5COL: BP-EXPECTED-COLS sentinel not found in verify-state.sh"
+  fi
+
+  # ---- teeth-VS-U2011: remove U+2011-NORM sed pre-pass in verify-state.sh → U+2011 heading not
+  # normalised → awk does not match it → NM-WARN fires → VS-U2011-HEADING exits non-zero.
+  echo "-- teeth-VS-U2011: remove xe2\\x80\\x91 sed substitution; U+2011 heading must trigger NM-WARN --"
+  if grep -q 'xe2.x80.x91' "$HERE/../verify-state.sh"; then
+    mutantU2011="$TMP/verify-state.U2011.MUTANT.sh"
+    # Remove the LC_ALL=C sed pre-pass line; _backlog_rows reads "$1" directly.
+    sed '/LC_ALL=C sed.*xe2.x80.x91/d' "$HERE/../verify-state.sh" > "$mutantU2011"
+    # Also fix the awk pipe: replace `| awk '` continuation with `awk ' "$1" |` in the mutant file.
+    # Simpler: check if the mutant produces NM-WARN on the u2011 fixture.
+    if grep -q 'xe2.x80.x91' "$mutantU2011"; then
+      no "teeth-VS-U2011: could not build mutant (sed did not remove xe2\\x80\\x91 line)"
+    else
+      u2011_mut_warn="$(bash "$mutantU2011" "$TMP/vs-u2011" 2>&1 >/dev/null)"
+      # Without the pre-pass the awk sees "## Gap‑backlog (prioritized)" with U+2011 → awk /^## Gap-backlog/ won't match
+      # → the next /^## / check fires → NM-WARN. Or the Gap-backlog section is simply absent → absent-section FAIL.
+      # Either way VS-U2011-HEADING's assertion (exit 0 AND no NM-WARN) goes RED.
+      u2011_mut_exit="$(bash "$mutantU2011" "$TMP/vs-u2011" >/dev/null 2>&1; echo $?)"
+      if [ "$u2011_mut_exit" != 0 ] || echo "$u2011_mut_warn" | grep -qi 'near-miss'; then
+        ok "teeth-VS-U2011: without U+2011-NORM → exit $u2011_mut_exit or NM-WARN → VS-U2011-HEADING goes RED → guard is load-bearing"
+      else
+        no "teeth-VS-U2011: mutant still exits 0 with no NM-WARN — U+2011 may already match ASCII regex (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-VS-U2011: xe2\\x80\\x91 sed substitution not found in verify-state.sh"
   fi
 
 fi
