@@ -189,8 +189,8 @@ gh api repos/angeles725/sdd-investigacion/issues/<pr-number>/labels \
 ## Commands
 
 ```bash
-# Create branch
-git checkout -b feat/my-feature main
+# Create branch from the remote tip (the shared checkout's local main is stale — CLAUDE.md §12.4)
+git fetch origin && git switch -c feat/my-feature origin/main
 
 # Conventional commit (no Co-Authored-By)
 git commit -m "feat(toolbelt): add mutation summary to run-all.sh"

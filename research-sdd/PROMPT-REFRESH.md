@@ -33,13 +33,15 @@ SUBJECT_VERSION_NEW   = <vA.B.C | commit | date — the version you are refreshi
 
 0. CONFIRM the block is a DRIFT candidate, not a REFUTED-only block. Read the block. Read its
    SUBJECT VERSION stamp (block header line `Subject version:`). Confirm SUBJECT_VERSION_OLD matches.
-   If the header is absent, treat every claim as unconfirmed for version scope and proceed.
+   If the header is absent, proceed only when a prior audit identified the DRIFTED claims (see RULES);
+   otherwise stop and report that the block needs a `Subject version:` stamp and an audit first.
 
 1. RE-VERIFY each claim against SOURCE_ROOT (the NEW version sources). For each claim assign one of:
    - PRESERVED  — holds unchanged in the new version (cite the new file:line).
    - DRIFTED    — was correct at OLD, now changed; the new behaviour is X (cite new file:line).
    - REFUTED    — was wrong even at OLD (evidence shows the claim was never true — not just moved).
    - ESCALATED  — can now confirm a previously hedged [CERT-a] claim at the new version.
+   - DOWNGRADED — cannot be verified from the NEW version's sources; mark it [INFER] (see RULES).
 
 2. PROVENANCE RULES (non-negotiable):
    a. PRESERVED claims — update the `file:line` citation to the new version's location; no text change
