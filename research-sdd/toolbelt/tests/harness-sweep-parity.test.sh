@@ -103,6 +103,13 @@ count_lines() {
 
 echo "== harness-sweep-parity.test.sh =="
 
+# Canonical member names — single declaration; CANONICAL_COUNT is derived so assertions 4-6
+# and the member-presence loop (assertions 10-17) stay in sync automatically when the set grows.
+# Add new sweep scripts here and nowhere else in this test.
+CANONICAL_MEMBERS="sweep-retros sweep-audits sweep-breakthroughs verify-registry verify-kit-clean sweep-tools verify-tool-catalog verify-skill-drift"
+CANONICAL_COUNT=0
+for _m in $CANONICAL_MEMBERS; do CANONICAL_COUNT=$((CANONICAL_COUNT + 1)); done
+
 CLAUDE_SET="$(extract_claude)"
 OPENCODE_SET="$(extract_opencode)"
 CODEX_SET="$(extract_codex)"
@@ -125,17 +132,17 @@ claude_c=$(count_lines "$CLAUDE_SET")
 opencode_c=$(count_lines "$OPENCODE_SET")
 codex_c=$(count_lines "$CODEX_SET")
 
-[ "$claude_c" = 7 ] \
-  && ok "claude: exactly 7 scripts referenced" \
-  || no "claude: expected 7 scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
+[ "$claude_c" = "$CANONICAL_COUNT" ] \
+  && ok "claude: exactly $CANONICAL_COUNT scripts referenced" \
+  || no "claude: expected $CANONICAL_COUNT scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 
-[ "$opencode_c" = 7 ] \
-  && ok "opencode: exactly 7 scripts referenced" \
-  || no "opencode: expected 7 scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
+[ "$opencode_c" = "$CANONICAL_COUNT" ] \
+  && ok "opencode: exactly $CANONICAL_COUNT scripts referenced" \
+  || no "opencode: expected $CANONICAL_COUNT scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
 
-[ "$codex_c" = 7 ] \
-  && ok "codex: exactly 7 scripts referenced" \
-  || no "codex: expected 7 scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
+[ "$codex_c" = "$CANONICAL_COUNT" ] \
+  && ok "codex: exactly $CANONICAL_COUNT scripts referenced" \
+  || no "codex: expected $CANONICAL_COUNT scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
 
 # ---- 7–9: Cross-surface equality -------------------------------------------
 if [ "$CLAUDE_SET" = "$OPENCODE_SET" ]; then
@@ -163,7 +170,7 @@ else
 fi
 
 # ---- 10–14: Canonical member presence (by exact name) ----------------------
-for script in sweep-retros sweep-audits sweep-breakthroughs verify-registry verify-kit-clean sweep-tools verify-tool-catalog; do
+for script in $CANONICAL_MEMBERS; do
   grep -qx "$script" <<<"$CLAUDE_SET" \
     && ok "canonical member present: $script" \
     || no "canonical member MISSING: $script  (claude set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"

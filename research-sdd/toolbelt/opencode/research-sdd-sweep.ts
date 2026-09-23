@@ -10,6 +10,7 @@
  *   5. `verify-kit-clean.sh`      — a banner ONLY when the kit is dirty / unpushed (silent when clean).
  *   6. `sweep-tools.sh`           — unrecorded tools across all targets.
  *   7. `verify-tool-catalog.sh`   — installed tools missing a capability-catalog entry.
+ *   8. `verify-skill-drift.sh`    — deployed SKILL.md(s) diverged from kit source (checks all harnesses).
  *
  * OpenCode does not fire `.claude` hooks, so those banners never appeared there — the kit
  * maintainer could open the supervisor in OpenCode and miss pending retros or a dirty tree. This
@@ -60,6 +61,7 @@ const REGISTRY = path.join(TOOLBELT, "verify-registry.sh")
 const KIT_CLEAN = path.join(TOOLBELT, "verify-kit-clean.sh")
 const SWEEP_TOOLS = path.join(TOOLBELT, "sweep-tools.sh")
 const TOOL_CATALOG = path.join(TOOLBELT, "verify-tool-catalog.sh")
+const SKILL_DRIFT = path.join(TOOLBELT, "verify-skill-drift.sh")
 
 async function underKitRepo(dir: string): Promise<boolean> {
   // The supervisor repo root = parent of the research-sdd kit dir. Surface only when the session's
@@ -73,9 +75,9 @@ async function underKitRepo(dir: string): Promise<boolean> {
   }
 }
 
-async function run(cmd: string): Promise<{ out: string; code: number }> {
+async function run(cmd: string, args: string[] = []): Promise<{ out: string; code: number }> {
   try {
-    const { stdout } = await execFileAsync(cmd, [], { timeout: 20_000, maxBuffer: 1024 * 1024 })
+    const { stdout } = await execFileAsync(cmd, args, { timeout: 20_000, maxBuffer: 1024 * 1024 })
     return { out: stdout.trimEnd(), code: 0 }
   } catch (err: any) {
     // Non-zero exit still carries stdout on `err.stdout` (execFile convention). A genuine numeric
@@ -164,6 +166,19 @@ export const ResearchSddSweepPlugin: Plugin = async (input) => {
           parts.push("Research-SDD tool catalog drift (installed but not cataloged):\n" + detail)
         }
       }
+    }
+
+    // 8. Skill drift — mirror verify-skill-drift-hook.sh: silent when all installed harnesses are
+    // in-sync or all absent (exit 0); surface WARN/ERROR otherwise.
+    // Runs --all so it checks every harness registered in adapters.sh, same as the Claude hook.
+    const skillDrift = await run(SKILL_DRIFT, ["--all"])
+    if (skillDrift.code !== 0) {
+      const hdr =
+        skillDrift.code === 1
+          ? "Research-SDD SKILL.md stale for one or more harnesses — run the fix command(s) shown:"
+          : `Research-SDD skill-drift check could not run (exit ${skillDrift.code} — check kit install/adapters.sh):`
+      if (skillDrift.out) parts.push(hdr + "\n" + skillDrift.out)
+      else parts.push(hdr)
     }
 
     return parts.length ? parts.join("\n\n") : null
