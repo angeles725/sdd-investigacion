@@ -2862,7 +2862,19 @@ judgment, not the driver's own rationalizations). The retro agent:
    are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
    pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
    canonical delta section is unreviewable until its author fixes the heading — the honesty clause below covers
-   "no new deltas", not a missing section. **Instrument (as of kit issue #436):** `sweep-retros.sh` prints `no delta section found (empty-input)` for a PENDING retro with no canonical delta section — never a confident `~0` — warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
+   "no new deltas", not a missing section. **Instrument (as of kit issue #436, updated #912):** `sweep-retros.sh`
+   prints `no delta section found (empty-input)` for a PENDING retro with no canonical delta section AND no §18 honesty line anywhere
+   — a retro with `## Honest verdict` containing a §18 honesty phrase (see honesty clause below) prints `~0` instead.
+   Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns
+   `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
+   The `retro_grammar_has_honesty` predicate (updated kit issue #912) exempts the LEADING BLOCKQUOTE BLOCK
+   — the contiguous `>` lines immediately after the canonical heading before any other content — when
+   none of those lines (after stripping `"> "`) starts with a list/table/heading marker (`-`, `*`, `+`,
+   `|`, `#`, or `N.`); any such marker marks the entire block as non-scaffold and fails purity (`~?`).
+   **Residual risk (documented):** a delta written as a plain blockquoted prose sentence (no
+   list/table/heading marker) would be falsely exempt — the instrument cannot distinguish template
+   guidance prose from delta prose without a structural marker.  Any delta intended for kit review must
+   use the canonical table row form or a `### D<n> —` entry to be reliably detected.
 
 **At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #7)
 

@@ -43,6 +43,8 @@ fi
 # Fail closed: existence is not enough — the source must have DEFINED the function.
 declare -F retro_grammar_delta_info >/dev/null 2>&1 || \
   { printf 'verify-retro: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info\n' >&2; exit 2; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 || \
+  { printf 'verify-retro: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty\n' >&2; exit 2; }
 unset _vr_rg_lib
 
 # ── Argument validation ───────────────────────────────────────────────────────
@@ -173,11 +175,11 @@ case "$_vr_form" in
 esac
 unset _vr_first _vr_rest_first _vr_form _vr_count _vr_rest _vr_depr_h
 
-# Check for §18 honesty line (anywhere in the file).
-# File is already verified readable above, so grep exit 2 should not occur.
+# Check for §18 honesty line (canonical delta section OR ## Honest verdict).
+# Uses the shared lib predicate so location scoping is identical to sweep-retros.sh.
 # SENTINEL-HONESTY-CHECK-START
 _has_honesty=0
-if grep -qi "no new deltas.*the kit already covers this run" "$f"; then
+if retro_grammar_has_honesty "$f"; then
   _has_honesty=1
 fi
 # SENTINEL-HONESTY-CHECK-END

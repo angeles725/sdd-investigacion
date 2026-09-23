@@ -50,6 +50,30 @@
 # must flip BOTH sweep-retros.sh (delta count changes) AND verify-retro.sh (conformance
 # verdict changes) on their respective fixture retros.
 
+# ─── Single canonical heading awk function (R2-001: one definition shared by all) ─
+# _RG_AWK_CANONICAL_FN is prepended to every awk invocation in this lib so both
+# retro_grammar_delta_info and retro_grammar_has_honesty use the same heading aliases.
+# Deprecated aliases are included because they also enter the canonical section.
+# RSDD_RETRO_GRAMMAR_CANONICAL_AWK_FN_ANCHOR
+_RG_AWK_CANONICAL_FN='
+function is_canonical_heading(low) {
+  if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/) return 1
+  if (low ~ /^## proposed delta/)             return 1
+  if (low ~ /^## delta proposals/)            return 1
+  if (low ~ /^## deltas nuevos/)              return 1
+  if (low ~ /^## summary of proposed delta/)  return 1
+  if (low ~ /^## summary of new deltas/)      return 1
+  if (low ~ /^## delta details([[:space:]]|$)/) return 1
+  return 0
+}
+function is_depr_heading(low) {
+  if (low ~ /^## summary of proposed delta/)    return 1
+  if (low ~ /^## summary of new deltas/)        return 1
+  if (low ~ /^## delta details([[:space:]]|$)/) return 1
+  return 0
+}
+'
+
 # Idempotent: safe to source more than once.
 # typeset -f is used instead of declare -F: both work in bash (typeset is an alias for declare),
 # while declare -F in zsh means "declare as float" (always exits 0), so sourcing from zsh with
@@ -59,24 +83,18 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
   retro_grammar_delta_info() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || { printf '0:n:0\001\0010\0010\001\n'; return 0; }
-    awk '
+    awk "$_RG_AWK_CANONICAL_FN"'
       BEGIN { in_sec=0; found=0; rows=0; h3d=0; d3=0; depr_h=""
               in_unrec=0; unrec_found=0; unrec_rows=0; unrec_heading="" }
       { low=tolower($0) }
 
-      # ── Canonical section headings ────────────────────────────────────────────
-      # Recognised without a WARN. Numbered form widened to allow trailing text
-      # (e.g. "for the next version …"). RSDD_RETRO_GRAMMAR_CANONICAL_ANCHOR
-      low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
-      low ~ /^## proposed delta/                                      ||
-      low ~ /^## delta proposals/                                     ||
-      low ~ /^## deltas nuevos/                                       { in_sec=1; in_unrec=0; found=1; next }
-
-      # ── Deprecated alias headings (#436) ──────────────────────────────────────
-      # Accepted + WARN-migrate unconditionally. RSDD_RETRO_GRAMMAR_DEPR_ANCHOR
-      low ~ /^## summary of proposed delta/                           ||
-      low ~ /^## summary of new deltas/                               ||
-      low ~ /^## delta details([[:space:]]|$)/                        { in_sec=1; in_unrec=0; found=1; if (!depr_h) depr_h=$0; next }
+      # ── Canonical section headings (via shared function) ──────────────────────
+      # RSDD_RETRO_GRAMMAR_CANONICAL_ANCHOR
+      is_canonical_heading(low) {
+        in_sec=1; in_unrec=0; found=1
+        if (is_depr_heading(low) && !depr_h) depr_h=$0
+        next
+      }
 
       # ── Other level-2 headings (### sub-sections stay in active scope) ────────
       /^##[^#]/ {
@@ -84,7 +102,8 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
         if (!found) {
           # Form-3 counting: ## Delta <id> — headings outside canonical section.
           # Used by sweep-retros.sh as a machine-countable alternative form.
-          if (low ~ /^## delta / && $0 ~ /—/) { d3++ }
+          # R4: guard with is_canonical_heading so ## Delta details alias never self-matches.
+          if (!is_canonical_heading(low) && low ~ /^## delta / && $0 ~ /—/) { d3++ }
           # Unrecognised delta-intent heading detection (verify-retro Rules 1–3).
           # Fires independently of d3 — the two consumers interpret the same heading
           # differently (sweep-retros counts form-3; verify-retro flags unrecognised).
@@ -124,4 +143,185 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
     ' "$f"
   }
 
+fi
+
+# ─── retro_grammar_has_honesty ────────────────────────────────────────────────
+# Predicate: does file $1 carry a §18 honesty line in a PURE accepted location?
+#
+# Fail-safe design (§912):
+#
+# A. PURE canonical section: every non-blank, non-table body line in the canonical
+#    section must satisfy is_honesty() after marker stripping.  Fenced blocks, HTML
+#    comments, and other non-honesty content all fail this check by construction.
+#    An empty-table header+separator (no data rows) is also accepted as an empty body.
+#    Exception: the LEADING BLOCKQUOTE BLOCK — contiguous > lines and blank lines
+#    immediately after the canonical heading and before any other content — is exempt
+#    as template scaffold IF none of its lines (after stripping "> ") starts with a
+#    list/table/heading marker (-, *, +, digit., |, #).  Any such marker marks the
+#    entire block as non-scaffold (lead_block_dirty) and all buffered lines fail
+#    purity → ~?.  Residual risk: a delta written as a blockquoted prose sentence
+#    (no list/table/heading marker) would be falsely exempt — the instrument cannot
+#    distinguish template guidance prose from delta prose without a structural marker.
+#    Documented in METHODOLOGY §18 instrument description.
+#
+# B. ## Honest verdict: accepted ONLY when the canonical section is absent or its
+#    body is empty (no non-blank, non-table lines).  Non-honesty canonical content
+#    blocks the HV path.
+#
+# C. Honesty line matching: strip leading whitespace and list/blockquote/emphasis
+#    markers (- * + > ** __ _) before matching /^no new deltas([^a-z0-9]|$)/.
+#
+# D. Veto: any of the following indicators anywhere in the file force exit 1.
+#    - Form-3: ## Delta <id> heading with em dash (—), en dash (–), or ASCII " - "
+#      that is not a canonical alias (guarded by is_canonical_heading()).
+#    - WARN-B: #{1,3} letter+digit or bare-digit ID headings, and #{2,3} Proposed/Delta/
+#      Deltas headings, outside the canonical section.  Same patterns as sweep-retros'
+#      inline WARN-B greps — one definition.
+#    Both use the shared is_canonical_heading() from _RG_AWK_CANONICAL_FN.
+#
+# Returns:
+#   exit 0 — pure honesty: accepted location, pure section, no conflicting indicators
+#   exit 1 — not found, impure, wrong location, or conflicting indicators
+#
+# RSDD_RETRO_GRAMMAR_HONESTY_ANCHOR
+if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
+  retro_grammar_has_honesty() {
+    [ -f "$1" ] || return 1
+    awk "$_RG_AWK_CANONICAL_FN"'
+      # ── Honesty marker stripping (C) ────────────────────────────────────────
+      function strip_markers(s,    prev) {
+        gsub(/^[[:space:]]+/, "", s)
+        prev = ""
+        while (s != prev && length(s) > 0) {
+          prev = s
+          sub(/^[-*+>][[:space:]]*/,  "", s); gsub(/^[[:space:]]+/, "", s)
+          sub(/^\*\*/, "", s);                gsub(/^[[:space:]]+/, "", s)
+          sub(/^__/, "", s);                  gsub(/^[[:space:]]+/, "", s)
+          if (s ~ /^_[^_]/) { sub(/^_/, "", s); gsub(/^[[:space:]]+/, "", s) }
+        }
+        return s
+      }
+      function is_honesty(raw,    s, l) {
+        s = strip_markers(raw)
+        l = tolower(s)
+        if (l ~ /^no new deltas([^a-z0-9]|$)/) return 1
+        return 0
+      }
+
+      BEGIN {
+        in_canonical  = 0; in_hv = 0
+        canonical_found = 0
+        # Canonical body purity tracking
+        body_count   = 0   # non-blank, non-table body lines (after lead block)
+        body_ok      = 1   # 1 while all body_count lines satisfy is_honesty()
+        body_pipe    = 0   # non-separator | rows
+        body_started = 0   # set once the lead block phase ends
+        # HV body
+        hv_honesty = 0
+        # Veto: form-3 or WARN-B indicator anywhere in file
+        veto = 0
+        # Leading blockquote block (lead block): contiguous > lines + blanks immediately
+        # after the canonical heading and before any other content.  Exempt if none of
+        # its lines (after stripping "> ") starts with a list/table/heading marker.
+        # Fail-safe: any marker → lead_block_dirty=1 → all buffered lines fail purity.
+        lead_block_dirty = 0   # 1 when any buffered > line has a list/table/heading marker
+        lead_buf_n       = 0   # number of buffered > lines
+      }
+
+      { low = tolower($0) }
+
+      # ── Section transitions and veto detection (D) ──────────────────────────
+      /^##[^#]/ {
+        if (is_canonical_heading(low)) {
+          in_canonical = 1; in_hv = 0; canonical_found = 1; next
+        }
+        in_canonical = 0; in_hv = 0
+        if (low ~ /^## honest verdict([[:space:]]|$)/) { in_hv = 1 }
+        # Form-3 veto: ## Delta <id> + em/en dash or ASCII " - ", anywhere in file.
+        # is_canonical_heading() guard ensures canonical aliases never self-match.
+        if (!is_canonical_heading(low) && low ~ /^## delta[[:space:]]/) {
+          if ($0 ~ /—/ || $0 ~ /–/ || $0 ~ / - /) veto = 1
+        }
+        # WARN-B: non-canonical ## Proposed/Delta/Deltas heading (sweep-retros WARN-B grep 1).
+        if (!is_canonical_heading(low) && low ~ /^## (proposed|delta|deltas)([[:space:]]|$)/) veto = 1
+        next
+      }
+
+      # ── WARN-B veto: ID-pattern and Proposed/Delta/Deltas headings outside canonical ──────
+      # Mirrors the sweep-retros inline WARN-B greps (one definition).
+      # Explicit alternatives replace interval expressions for mawk compatibility.
+      # ## headings are handled (with next) in /^##[^#]/ above; only #/###/#### reach here.
+      !in_canonical && /^#/ {
+        # ### Proposed/Delta/Deltas (from grep ^#{2,3}...; ## handled above; # not in grep)
+        if (low ~ /^###[[:space:]]+(proposed|delta|deltas)([[:space:]]|$)/) veto = 1
+        # letter+digit or bare-digit ID (from grep ^#{1,3}...; # and ### can reach this rule)
+        if ($0 ~ /^#[[:space:]]+[A-Za-z][0-9]/ || $0 ~ /^###[[:space:]]+[A-Za-z][0-9]/ \
+            || $0 ~ /^#[[:space:]]+[0-9]/ || $0 ~ /^###[[:space:]]+[0-9]/) veto = 1
+        next
+      }
+
+      # ── Canonical body purity check (A) ──────────────────────────────────────
+      in_canonical {
+        if ($0 ~ /^[[:space:]]*$/) next
+        if (!body_started) {
+          # Lead block phase: buffer non-honesty > lines; any marker taints the block.
+          if (/^>/ && !is_honesty($0)) {
+            _r = $0; sub(/^>[[:space:]]*/, "", _r)
+            if (_r ~ /^[-*+|#]/ || _r ~ /^[0-9][0-9]*\./) lead_block_dirty = 1
+            lead_buf[++lead_buf_n] = $0; next
+          }
+          # First non-blank non-> content (or > honesty line): end of lead block.
+          body_started = 1
+          if (lead_block_dirty) {
+            for (_i = 1; _i <= lead_buf_n; _i++) {
+              body_count++
+              if (!is_honesty(lead_buf[_i])) body_ok = 0
+            }
+          }
+          # Fall through to process current line.
+        }
+        if (/^\|/) {
+          if ($0 !~ /^\|[-: |]+\|?[[:space:]]*$/) body_pipe++
+          next
+        }
+        body_count++
+        if (!is_honesty($0)) body_ok = 0
+        next
+      }
+
+      # ── HV body analysis (B) ─────────────────────────────────────────────────
+      in_hv {
+        if ($0 ~ /^[[:space:]]*$/) next
+        if (is_honesty($0)) hv_honesty = 1
+        next
+      }
+
+      END {
+        if (veto) { exit 1 }
+        # Flush dirty lead block if canonical ended without non-blockquote content.
+        if (canonical_found && !body_started && lead_block_dirty) {
+          for (_i = 1; _i <= lead_buf_n; _i++) {
+            body_count++
+            if (!is_honesty(lead_buf[_i])) body_ok = 0
+          }
+        }
+        # Data rows = max(0, non-separator pipe rows - 1)
+        body_data = (body_pipe > 1) ? body_pipe - 1 : 0
+
+        if (canonical_found) {
+          if (body_data > 0) { exit 1 }
+          # All non-table body lines are honesty (at least one present)
+          if (body_count > 0 && body_ok) { exit 0 }
+          # Empty canonical body → HV path (B)
+          if (body_count == 0) {
+            if (hv_honesty) { exit 0 }
+          }
+          exit 1
+        } else {
+          if (hv_honesty) { exit 0 }
+          exit 1
+        }
+      }
+    ' "$1"
+  }
 fi
