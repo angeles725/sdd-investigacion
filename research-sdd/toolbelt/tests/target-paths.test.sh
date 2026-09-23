@@ -90,6 +90,34 @@ if [ "$rc7" -ne 0 ] && grep -q 'no argument' <<<"$err7"; then
   ok "7 target_paths_pairs no-arg → non-zero exit + stderr 'no argument'"
 else no "7 target_paths_pairs no-arg → non-zero exit + stderr 'no argument'" "rc=$rc7 err=[$err7]"; fi
 
+# 8 — RESEARCH_HOME with trailing slash: target_paths_all must strip it so the expanded
+# path has no // (trailing slash in rh + "/" separator = double slash without %/ fix).
+FX8="${ROOT}/f8.md"
+cat > "$FX8" << 'EOF'
+# Targets
+| # | name | path |
+|---|------|------|
+| 1 | rh | `$RESEARCH_HOME/sub-target` |
+EOF
+out8="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8")"
+if echo "$out8" | grep -qF '/rh-slash/sub-target' && ! echo "$out8" | grep -qF '//'; then
+  ok "8 RESEARCH_HOME trailing slash → expanded path has no double slash"
+else no "8 RESEARCH_HOME trailing slash → expected /rh-slash/sub-target without //" "out=[$out8]"; fi
+
+# 9 — RESEARCH_HOME containing '&': target_paths_all must return literal path without
+# awk sub() & expansion (ENVIRON-based awk so & is never treated as matched-text).
+FX9="${ROOT}/f9.md"
+cat > "$FX9" << 'EOF'
+# Targets
+| # | name | path |
+|---|------|------|
+| 1 | rh | `$RESEARCH_HOME/tgt` |
+EOF
+out9="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9")"
+if echo "$out9" | grep -qF '/rh&amp/path/tgt'; then
+  ok "9 RESEARCH_HOME with '&' → literal path returned (ENVIRON-based awk, no & expansion)"
+else no "9 RESEARCH_HOME with '&' → expected literal /rh&amp/path/tgt" "out=[$out9]"; fi
+
 # --- summary ---
 echo ""
 total=$((pass+fail))
@@ -161,6 +189,26 @@ else
     ok "teeth 7: no-arg mutant lacks 'no argument' in stderr (case 7 has teeth)"
   else no "teeth 7: mutant unexpectedly has 'no argument' — case 7 is THEATER" "err_m7=[$err_m7]"; fi
 fi
+
+# Teeth for case 8: removing the rh%/ normalization must make // appear in the expanded path.
+echo "-- teeth 8: trailing-slash normalization for target_paths_all --"
+MUTANT_TP8="${ROOT}/tp-slash-mutant.sh"
+sed '/rh="\${rh%\/}"/d' "$LIB" > "$MUTANT_TP8"
+out_m8="$("$BASH_BIN" --norc -c "source '$MUTANT_TP8'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
+if echo "$out_m8" | grep -qF '//'; then
+  ok "teeth 8: no-norm mutant produces // in path (case 8 has teeth)"
+else no "teeth 8: mutant did not produce //; case 8 is THEATER" "out=[$out_m8]"; fi
+
+# Teeth for case 9: replacing ENVIRON lookup with sub()-based expansion must corrupt '&' path.
+echo "-- teeth 9: ENVIRON-based awk (no sub() & expansion) for target_paths_all --"
+MUTANT_TP9="${ROOT}/tp-amp-mutant.sh"
+# Mutant: replace the substr/length pfx2 output with sub() (reintroduces & corruption).
+sed 's|print rh "/" substr($0, length(pfx2) + 1)|sub(/^\\$RESEARCH_HOME\\//,rh "/"); print|' \
+  "$LIB" > "$MUTANT_TP9"
+out_m9="$("$BASH_BIN" --norc -c "source '$MUTANT_TP9'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
+if ! echo "$out_m9" | grep -qF '/rh&amp/path/tgt'; then
+  ok "teeth 9: sub()-mutant corrupts & path (case 9 has teeth)"
+else no "teeth 9: mutant did not corrupt & path; case 9 is THEATER" "out=[$out_m9]"; fi
 
 echo ""
 if [ "$fail" -gt 0 ]; then

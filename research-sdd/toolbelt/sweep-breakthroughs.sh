@@ -89,7 +89,8 @@ _sb_rh="${_sb_rh%/}"   # normalize trailing slash: avoid // if RESEARCH_HOME end
 ledger_pointers=$(
   grep -E '^\|' "$BREAKTHROUGHS_MD" 2>/dev/null \
     | grep -vE '^\|[[:space:]]*[-:]+[[:space:]]*\|' \
-    | awk -F'|' -v rh="$_sb_rh" '
+    | _SB_RH="$_sb_rh" awk -F'|' '
+      BEGIN { rh = ENVIRON["_SB_RH"] }
       {
         c1 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c1)
         # Skip header (#), placeholder/skeleton (—), separator, or empty first cell
@@ -100,8 +101,8 @@ ledger_pointers=$(
           ptr = substr(how, RSTART + 1, RLENGTH - 2)
           # Expand portable $RESEARCH_HOME/... and ${RESEARCH_HOME}/... forms.
           # Reuses the same convention as target-paths.sh so absolute pointers keep working.
-          # Use substr()/length() instead of sub(): sub() expands & and \ in the replacement
-          # string, corrupting rh values that contain those characters (#923-B).
+          # Use ENVIRON["_SB_RH"] instead of -v: awk -v interprets & and backslash in values,
+          # corrupting rh values that contain those characters (#923-B).
           pfx1 = "${RESEARCH_HOME}/"
           pfx2 = "$RESEARCH_HOME/"
           if (substr(ptr, 1, length(pfx1)) == pfx1) {

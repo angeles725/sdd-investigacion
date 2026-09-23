@@ -300,9 +300,17 @@ fi
 # Phase 1: assert the real file itself outputs '  SKIP  ' under hermetic no-zsh PATH
 #          (proves skip() is correct before we test its mutation).  A broken skip()
 #          that already prints PASS would fail this check immediately.
-# Phase 2: copy the real file, mutate skip() to print PASS, and assert SKIP disappears.
+# Phase 2: copy the real file into a mirror tree so HERE/../lib/ resolves to the real lib
+#          (Blocker 2: a copy at $ROOT would try $ROOT/../lib/ → FATAL exit 2 before output).
+#          Mutate skip() to print PASS, assert the mutant exits 0 with a summary line
+#          (proves it ran, not just crashed), then assert SKIP is gone.
 # Precondition for both phases: zsh must be unreachable under the hermetic PATH.
 echo "-- SKIP-FORMAT teeth: real skip() must output SKIP; mutant must not --"
+# Build hermetic no-zsh PATH by removing the directory that contains zsh.
+# This is reliable when bash and zsh are in different directories.
+# When they share a directory (e.g. /usr/bin on some systems), bash would also
+# disappear from PATH and the child prints "FATAL: bash not on PATH" — in that case
+# we issue a typed-SKIP rather than a false FAIL (Blocker 3 fix).
 _sf_zsh="$(type -P zsh 2>/dev/null || true)"
 if [ -n "$_sf_zsh" ]; then
   _sf_zsh_dir="$(dirname "$_sf_zsh")"
@@ -312,26 +320,50 @@ else
 fi
 # Verify precondition: zsh must be unreachable under the hermetic PATH
 _sf_zsh_check="$("$BASH_BIN" -c "PATH='$_sf_nozsh' type -P zsh 2>/dev/null || true")"
+# Also verify bash and core tools remain accessible (guard against shared-dir systems)
+_sf_bash_check="$("$BASH_BIN" -c "PATH='$_sf_nozsh' type -P bash 2>/dev/null || true")"
 # Recursion guard: the children below re-run this file WITHOUT --prove-teeth (so they exit
 # before this block), and RG_SKIPFMT_CHILD makes that bound explicit if that ever changes.
 if [ -n "${RG_SKIPFMT_CHILD:-}" ]; then
   skip "SKIP-FORMAT teeth: nested invocation — not re-entered"
 elif [ -n "$_sf_zsh_check" ]; then
   skip "SKIP-FORMAT teeth: zsh still reachable under hermetic PATH ($_sf_zsh_check) — typed skip"
+elif [ -z "$_sf_bash_check" ]; then
+  skip "SKIP-FORMAT teeth: bash not in hermetic PATH (bash and zsh share a directory) — typed skip"
 else
   # Phase 1: real file must produce a SKIP line (proves skip() outputs SKIP)
   _sf_real_out="$(RG_SKIPFMT_CHILD=1 PATH="$_sf_nozsh" "$BASH_BIN" "$0" 2>&1)"
   if ! grep -q '  SKIP  ' <<<"$_sf_real_out"; then
     no "SKIP-FORMAT teeth: real skip() must output '  SKIP  ' under no-zsh — format is wrong" "out=[$_sf_real_out]"
   else
-    # Phase 2: mutate the copy (SKIP→PASS in skip() body) and assert SKIP disappears
-    _sf_copy="$ROOT/skip-format-tooth.sh"
-    sed '/^skip() /s/  SKIP  /  PASS  /' "$0" > "$_sf_copy"
-    _sf_out="$(RG_SKIPFMT_CHILD=1 PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_copy" 2>&1)"
-    if ! grep -q '  SKIP  ' <<<"$_sf_out"; then
-      ok "SKIP-FORMAT teeth: real skip()→PASS mutant has no SKIP line — format mutation detected" "(SKIP absent)"
+    # Build mirror tree so copies resolve HERE/../lib/ → real lib — Blocker 2 fix.
+    _sf_mirror="$ROOT/sf-mirror"
+    mkdir -p "$_sf_mirror/tests"
+    ln -s "$HERE/../lib"             "$_sf_mirror/lib"
+    ln -s "$HERE/../sweep-retros.sh" "$_sf_mirror/sweep-retros.sh"
+    ln -s "$HERE/../verify-retro.sh" "$_sf_mirror/verify-retro.sh"
+    # Sabotage check: unmutated copy in mirror tree must still show SKIP.
+    # Proves the mirror tree setup is sound — only the mutation changes behavior.
+    _sf_sab="$_sf_mirror/tests/retro-grammar-sab.sh"
+    cp "$0" "$_sf_sab"
+    _sf_sab_out="$(RG_SKIPFMT_CHILD=1 PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_sab" 2>&1)"
+    if ! grep -q '  SKIP  ' <<<"$_sf_sab_out"; then
+      no "SKIP-FORMAT teeth: sabotage — unmutated mirror copy must output SKIP" "out=[$_sf_sab_out]"
     else
-      no "SKIP-FORMAT teeth: mutant still outputs SKIP — skip() tooth not working" "out=[$_sf_out]"
+      ok "SKIP-FORMAT teeth: sabotage — unmutated mirror copy shows SKIP (mirror tree sound)" "(SKIP present)"
+      # Phase 2: mutate the copy (SKIP→PASS in skip() body) and assert SKIP disappears
+      _sf_copy="$_sf_mirror/tests/retro-grammar-tooth.sh"
+      sed '/^skip() /s/  SKIP  /  PASS  /' "$0" > "$_sf_copy"
+      _sf_out="$(RG_SKIPFMT_CHILD=1 PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_copy" 2>&1)"
+      _sf_rc=$?
+      # Assert mutant ran (exits 0 with passed summary) — if it exits 2 the tooth is theater
+      if [ "$_sf_rc" -ne 0 ] || ! grep -qE '== [0-9]+ passed' <<<"$_sf_out"; then
+        no "SKIP-FORMAT teeth: mutant must exit 0 with passed summary — harness error" "rc=$_sf_rc out=[$_sf_out]"
+      elif ! grep -q '  SKIP  ' <<<"$_sf_out"; then
+        ok "SKIP-FORMAT teeth: real skip()→PASS mutant has no SKIP line — format mutation detected" "(SKIP absent)"
+      else
+        no "SKIP-FORMAT teeth: mutant still outputs SKIP — skip() tooth not working" "out=[$_sf_out]"
+      fi
     fi
   fi
 fi

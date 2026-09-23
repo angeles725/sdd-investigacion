@@ -24,18 +24,27 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
       return 1
     fi
     local rh="${RESEARCH_HOME:-$HOME}"
+    rh="${rh%/}"   # normalize trailing slash (#923-B): avoid // in expanded paths
     {
       # Form 1: `/abs/path` — table rows only
       grep -E '^\s*\|' "$f" 2>/dev/null | grep -oE '`/[^`]+`' 2>/dev/null | tr -d '`'
       # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — table rows only; expand via awk.
+      # Pass rh via ENVIRON["_TP_RH"] (not -v): awk -v interprets & and backslash in values,
+      # corrupting rh values that contain those characters (#923-B).
       grep -E '^\s*\|' "$f" 2>/dev/null \
         | grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' 2>/dev/null \
         | tr -d '`' \
-        | awk -v rh="$rh" '{
-            sub(/^\$\{RESEARCH_HOME\}\//, rh "/")
-            sub(/^\$RESEARCH_HOME\//, rh "/")
-            print
-          }'
+        | _TP_RH="$rh" awk 'BEGIN { rh = ENVIRON["_TP_RH"] }
+            {
+              pfx1 = "${RESEARCH_HOME}/"
+              pfx2 = "$RESEARCH_HOME/"
+              if (substr($0, 1, length(pfx1)) == pfx1)
+                print rh "/" substr($0, length(pfx1) + 1)
+              else if (substr($0, 1, length(pfx2)) == pfx2)
+                print rh "/" substr($0, length(pfx2) + 1)
+              else
+                print
+            }'
     } | sort -u
   }
 
@@ -57,21 +66,30 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
       return 1
     fi
     local rh="${RESEARCH_HOME:-$HOME}"
+    rh="${rh%/}"   # normalize trailing slash (#923-B): avoid // in expanded paths
     {
       # Form 1: `/abs/path` — table rows only; raw == expanded; emit as "<path>\t<path>".
       grep -E '^\s*\|' "$f" 2>/dev/null | grep -oE '`/[^`]+`' 2>/dev/null | tr -d '`' | awk '{print $0 "\t" $0}'
       # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — table rows only; raw is kept
       # as-is; expanded substitutes $RESEARCH_HOME. Emit as "<raw>\t<expanded>".
+      # Pass rh via ENVIRON["_TP_RH"] (not -v): awk -v interprets & and backslash in values,
+      # corrupting rh values that contain those characters (#923-B).
       grep -E '^\s*\|' "$f" 2>/dev/null \
         | grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' 2>/dev/null \
         | tr -d '`' \
-        | awk -v rh="$rh" '{
-            raw=$0
-            xp=$0
-            sub(/^\$\{RESEARCH_HOME\}\//, rh "/", xp)
-            sub(/^\$RESEARCH_HOME\//, rh "/", xp)
-            print raw "\t" xp
-          }'
+        | _TP_RH="$rh" awk 'BEGIN { rh = ENVIRON["_TP_RH"] }
+            {
+              raw = $0
+              pfx1 = "${RESEARCH_HOME}/"
+              pfx2 = "$RESEARCH_HOME/"
+              if (substr(raw, 1, length(pfx1)) == pfx1)
+                xp = rh "/" substr(raw, length(pfx1) + 1)
+              else if (substr(raw, 1, length(pfx2)) == pfx2)
+                xp = rh "/" substr(raw, length(pfx2) + 1)
+              else
+                xp = raw
+              print raw "\t" xp
+            }'
     } | sort -u
   }
 
