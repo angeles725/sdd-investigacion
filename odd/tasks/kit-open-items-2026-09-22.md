@@ -72,13 +72,58 @@ Lane C — corpora/registry data:
 - Merged this session (all on green CI): #913, #916, #918, #921, #922. Peer repos: blender-llm
   `a03f5df`; retro conformance in 7 repos (see C5).
 
+## Session 2026-09-22/23 (resume) — results
+Maintainer: "ODD + RDD (todo granted)", commit/push/PR/issues/merge; audit the /research-sdd skill + kit.
+Routes: every unit delegated to a sonnet writer in a harness worktree (writer trigger: 2+ non-trivial
+files); native RDD 4R per PR (consent granted); PR-level adversarial review before merge (FABLE for
+the first 6, then Opus per maintainer instruction 2026-09-23).
+
+Audit (D1) findings:
+- The DEPLOYED skill `~/.claude/skills/research-sdd/SKILL.md` (and reasonix's copy) was a stale
+  2026-08-23 copy of the kit source (missing §11b, §22, frontier mode). Redeployed with
+  `research-sdd-install.sh --force-skill` (backups `SKILL.md.local-backup`); drift is now surfaced at
+  SessionStart by `verify-skill-drift` (#928).
+- retro-gate swallowed seeder failures (#930) and its `created=` count was always 0 because it grepped
+  a string the seeder never prints (#935/#937).
+- Recurring root class: mutation "teeth" that pass because the mutant crashes, never applies, or is
+  hand-written — caught 7+ times this session → #943 (shared helper + lint).
+
+Merged (all RDD-approved + PR-level reviewed + CI green):
+- #928 c043c1a — verify-skill-drift SessionStart check, all harnesses, OpenCode/Codex parity (closes #927)
+- #930 a3fbb48 — retro-gate captures seeder rc, failed=N (closes #929)
+- #937 6eb5820 — retro-gate parses the seeder's summary line; ran=/empty=/failed= (closes #935)
+- #932 0943c9a — ENVIRON-based awk in lib/target-paths.sh + sweep-breakthroughs; trailing-slash
+  normalization; noarg parity teeth; typed SKIP (closes #931)
+- #946 a678461 — install-tool.test.sh flake: sha256sum stub SIGPIPE under load (closes #941)
+- #944 08ee2fb — seeder: failed=N + exit 2, anchored fence-aware marker read, case-sensitive PARTIAL (closes #938)
+- #947 314e0a0 — sweep-breakthroughs ledger lookup is a whole-line match (closes #939)
+
+Closed unfinished (branches kept, handoff in the PR comment):
+- #926 (#912 zero-delta honesty line) — branch fix/912-zero-delta-retro + wip/912-leading-blockquote-rule.
+  Blocker: template-scaffold blockquote exemption must survive template-text drift (ford).
+- #934 (#911 A2 multi-table backlog) — branch fix/911b-multi-table-backlog + wip/911b-hierarchy-provisioning-regression.
+  Blocker: REGRESSION hierarchy 7→6 / provisioning 10→7 (`## Gap-backlog (…) — free text` headings).
+WIP pushed (unverified): wip/936-skill-drift-followups (#936), wip/940-retro-gate-followups (#940).
+
+Issues filed: #935 #936 #938 #939 #940 #941 #942 (decision: accept `med`?) #943 (teeth root class) #945
+(two marker scopes — now live split-brain after #944) #948 (ledger drift ignores line numbers) #949 (seeder
+shipped-ID `#`, dedup vs closed issues, fence edges).
+
+Lessons (also in Engram): rebase every PR branch onto origin/main before RDD (a stale base made RDD
+review a reverted #928); never accept a writer's "pre-existing failure" or fleet classification without
+re-running it (three false claims caught: teeth-#641 "pre-existing", "0 U+2011 headings", hierarchy/
+provisioning "expected"); template text drifts, so rules that match it verbatim fail real retros.
+RDD in Claude Code: run capture-result with `--agent claude-code` in-process (the tool-free review-*
+subagents cannot relay); correction flow = capture-correction-plan → fix commit → capture-validation.
+
 ## Next step (next session, in order)
-1. A2 #911b multi-table backlog reader (platform-native) — then A3 #911c (`--sync-state` reports
-   non-covered counter changes; stop seeding `undocumented_findings`).
-2. C7 #912 zero-delta honesty line countable as 0, then remove the two fake rows.
-3. A4 #906 root targeting → C2 niagara root covered_blocks (attributed derivation gives 11).
-4. C1 niagara divergent counters (#911 table) after A2/A3, each checked against prose.
-5. C5b seed genuinely-open deltas of the 74 pending retros as issues (backlog-first).
-6. Advisory follow-ups (#923): A1 (closed child gap needs:, seeder parity test, duplicated awk),
-   #907 (A5), #921 mutant ok-path, #922 zsh skip-as-pass, #918 RESEARCH_HOME escaping.
-7. C5c tool ledger (181) needs authored descriptions — decide scope with the maintainer.
+1. #926/#912: resume from wip/912-leading-blockquote-rule (see PR #926 closing comment), then remove
+   the fake row in ford (`corpus/retros/2026-09-10-update-notice.md`) and replace niagara's
+   (`retros/2026-09-17-tools-search-innovation.md`) with the honesty line.
+2. #934/#933: resume from wip/911b-hierarchy-provisioning-regression; per-file acceptance table.
+   Then A3 #911c, A4 #906, #913 advisories (lane A, serial), then C1/C2 niagara counters.
+3. #942 needs the maintainer's doctrine decision on `med` (9 fleet rows) before platform-native can be re-seeded.
+4. wip/936 and wip/940 → finish, verify, PR.
+5. #945 (single marker scope), #943 (teeth helper + lint), #923 remaining (#907/#913 items).
+6. C5b: seed the genuinely open deltas of pending retros as issues — only after #945 and #949 (dry-run first; never --apply before dedup is fixed).
+7. C5c tool ledger (181) — scope decision with the maintainer.
