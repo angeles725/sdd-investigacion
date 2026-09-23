@@ -29,7 +29,8 @@
 #   default repo name: research-<basename-of-target-dir>, slugified to [a-z0-9-].
 # Exit: 0 = remote present (created+pushed, or already existed) · 2 = bad args / not a git repo ·
 #       3 = no consent · 4 = owner is an organization · 5 = secret leak (refused to push) ·
-#       6 = visibility verification failed (HARD ABORT, no push) · 7 = tooling missing / git-or-gh op failed.
+#       6 = visibility verification failed (HARD ABORT, no push) · 7 = tooling missing / git-or-gh op failed ·
+#       8 = dirty working tree (committed-content scan cannot equal what would be pushed).
 
 set -uo pipefail
 
@@ -105,16 +106,41 @@ if ! git -C "$target" diff --quiet -- .gitignore 2>/dev/null || [ -n "$(git -C "
   git -C "$target" add .gitignore && git -C "$target" commit -q -m "chore: ignore secret-bearing paths (ensure-remote)" -- .gitignore || true
 fi
 
-# --- LAYER 4b: pre-push secret sweep (fail closed — no scanner means we cannot verify, so we refuse) --
-# Covers CONTENT secrets in *.md/config text files. The content scan covers the working tree only; for a
-# high-sensitivity target, audit or squash history before the first push (scan-secrets does not walk
-# deleted history).
-[ -f "$SCAN" ] || { echo "REFUSED: scan-secrets.sh not found at $SCAN — cannot verify the corpus before push." >&2; exit 7; }
-if ! bash "$SCAN" "$target" >/dev/null 2>&1; then
-  echo "REFUSED: scan-secrets.sh reported a high-confidence secret VALUE in the corpus — NOT pushing." >&2
-  echo "         Redact it (cite structure, never value — SECRETS DISCIPLINE) and re-run." >&2
-  exit 5
+# --- LAYER 4b-pre: refuse on a dirty working tree (committed scan must equal what is pushed) -----
+# scan-secrets --committed scans what HEAD contains; a dirty working tree means the working-tree
+# content diverges from the committed HEAD, so a redaction only in the working tree (without
+# committing) would pass the committed-content scan while the pushed HEAD still carries the secret
+# (#955 Repro 2). Fail closed: if `git status` itself fails we cannot verify, so refuse.
+if ! _wt_status="$(git -C "$target" status --porcelain 2>/dev/null)"; then
+  echo "REFUSED: could not check working tree status (git status --porcelain failed) — cannot" >&2
+  echo "         guarantee the committed-content scan matches what would be pushed." >&2
+  exit 7
 fi
+if [ -n "$_wt_status" ]; then
+  echo "REFUSED: the working tree is dirty — a redaction applied to the working tree without" >&2
+  echo "         committing would pass the committed-content scan while the pushed HEAD still" >&2
+  echo "         carries the original secret. Commit or stash all changes, then re-run." >&2
+  exit 8
+fi
+
+# --- LAYER 4b: pre-push secret sweep (fail closed — no scanner means we cannot verify, so we refuse) --
+# Covers CONTENT secrets in *.md/config text files in COMMITTED content at HEAD (scan-secrets
+# --committed). Previously scanned only the corpus working-tree subdir (#955).
+[ -f "$SCAN" ] || { echo "REFUSED: scan-secrets.sh not found at $SCAN — cannot verify committed content before push." >&2; exit 7; }
+_scan_rc=0
+bash "$SCAN" --committed "$target" >/dev/null 2>&1 || _scan_rc=$?
+case "$_scan_rc" in
+  0) ;;  # clean committed content
+  1) echo "REFUSED: scan-secrets.sh --committed found a high-confidence secret VALUE in committed" >&2
+     echo "         content — NOT pushing. Commit a redaction (cite structure, not value —" >&2
+     echo "         SECRETS DISCIPLINE) and re-run." >&2
+     exit 5 ;;
+  3) echo "REFUSED: scan-secrets.sh --committed is degraded (git unavailable or no commits) —" >&2
+     echo "         cannot verify committed content before push." >&2
+     exit 7 ;;
+  *) echo "REFUSED: scan-secrets.sh --committed failed (exit $_scan_rc) — cannot verify committed content before push." >&2
+     exit 7 ;;
+esac
 
 # --- LAYER 4c: refuse any git-TRACKED secret-type FILE (belt for the binary types scan-secrets.sh cannot --
 # open/see: *.pem/*.der/*.key/*.p12/*.pfx/id_rsa*/*.jks/*.keystore and the security/licenses/certificates/

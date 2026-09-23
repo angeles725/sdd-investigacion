@@ -45,7 +45,7 @@ no() { printf '  FAIL  %-52s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 reset_ctl() {
   GIT_HAS_ORIGIN=0 GIT_PUSH_EXIT=0 GH_OWNER=tester GH_OWNER_TYPE=User \
   GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 GIT_TRACKED_SECRETS="" \
-  GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0
+  GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 GIT_STATUS_DIRTY=0
 }
 
 # --- stub factories ---------------------------------------------------------
@@ -53,9 +53,10 @@ reset_ctl() {
 #   succeeds (target IS a repo); `remote get-url origin` prints a url only when
 #   GIT_HAS_ORIGIN=1 (else exit 1 = no origin); `ls-files -z ...` (the LAYER-4c
 #   tracked-secret query) prints GIT_TRACKED_SECRETS (NUL-terminated) when set,
-#   else nothing (no tracked secret); push honours GIT_PUSH_EXIT; every other
-#   git call (incl. `remote remove origin`, plain `ls-files --others`, `diff
-#   --quiet`, `add`, `commit`) is logged and exits 0.
+#   else nothing (no tracked secret); `status --porcelain` emits "M file.md" when
+#   GIT_STATUS_DIRTY=1; push honours GIT_PUSH_EXIT; every other git call (incl.
+#   `remote remove origin`, plain `ls-files --others`, `diff --quiet`, `add`,
+#   `commit`) is logged and exits 0.
 mk_git_stub() {
   local box="$1"
   {
@@ -74,6 +75,7 @@ case " $* " in
     if [ -n "${GIT_TRACKED_SECRETS:-}" ]; then printf '%s\0' "${GIT_TRACKED_SECRETS}"; fi
     exit 0 ;;
   *" diff --quiet "*) exit "${GIT_GITIGNORE_DIRTY:-0}" ;;
+  *" status "*) [ "${GIT_STATUS_DIRTY:-0}" = 1 ] && printf 'M file.md\n'; exit 0 ;;
   *" push "*) exit "${GIT_PUSH_EXIT:-0}" ;;
   *) exit 0 ;;
 esac
@@ -112,7 +114,9 @@ mkbox() {
   mkdir -p "$box/bin" "$box/home" "$box/target"
   cp "$SUT" "$box/ensure-remote.sh"
   : > "$box/calls.log"
-  { printf '#!%s\n' "$BASH_BIN"; printf 'exit "${SCAN_EXIT:-0}"\n'; } > "$box/scan-secrets.sh"
+  { printf '#!%s\n' "$BASH_BIN"
+    printf 'echo "scan-secrets $*" >> "%s/calls.log"\n' "$box"
+    printf 'exit "${SCAN_EXIT:-0}"\n'; } > "$box/scan-secrets.sh"
   chmod +x "$box/scan-secrets.sh"
   for i in "${!CORE_UTILS[@]}"; do ln -s "${CORE_PATHS[$i]}" "$box/bin/${CORE_UTILS[$i]}"; done
   ln -s "$BASH_BIN" "$box/bin/bash"
@@ -132,6 +136,7 @@ run() {
         GH_CREATE_EXIT="$GH_CREATE_EXIT" GH_VIS="$GH_VIS" SCAN_EXIT="$SCAN_EXIT" \
         GIT_TRACKED_SECRETS="$GIT_TRACKED_SECRETS" \
         GIT_GITIGNORE_DIRTY="$GIT_GITIGNORE_DIRTY" GH_USERS_EXIT="$GH_USERS_EXIT" \
+        GIT_STATUS_DIRTY="$GIT_STATUS_DIRTY" \
         "$BASH_BIN" "$box/ensure-remote.sh" "$@" 2>&1)"; RC=$?
 }
 
@@ -305,6 +310,57 @@ else
      "mode=$(stat -c '%a' "$SUT" 2>/dev/null || echo unknown) — not executable; need chmod+git update-index"
 fi
 
+# 14 — DIRTY WORKING TREE (LAYER 4b-pre). git status --porcelain reports uncommitted changes →
+#      the SUT refuses exit 8 BEFORE any scan, create, or push. The guard ensures the
+#      committed-content scan (#955 fix) actually covers what will be pushed: if the WT is
+#      dirty, a redaction only in the WT would pass the scan while HEAD still has the secret.
+reset_ctl; GIT_STATUS_DIRTY=1
+box="$(mkbox c14-dirty-tree)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 8 ] && ! has_call "$box" 'repo create' && ! has_call "$box" 'git .* push'; then
+  ok "14 dirty working tree -> refuse 8, NO create or push" "(exit $RC)"
+else
+  no "14 dirty working tree -> refuse 8, NO create or push" \
+     "exit=$RC(want 8) calls=[$(calls "$box")]"
+fi
+
+# 15 — SCAN --COMMITTED FLAG. On the happy path, scan-secrets.sh is invoked with the
+#      --committed flag so it scans committed HEAD content of the full repo, not the
+#      corpus working-tree subdir only (#955).
+reset_ctl
+box="$(mkbox c15-scan-committed)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 0 ] && has_call "$box" 'scan-secrets --committed'; then
+  ok "15 scan-secrets called with --committed flag on happy path" "(exit $RC)"
+else
+  no "15 scan-secrets called with --committed flag on happy path" \
+     "exit=$RC calls=[$(calls "$box")]"
+fi
+
+# 16 — SCAN DEGRADED (LAYER 4b). scan-secrets.sh exits 3 (DEGRADED: git unavailable or
+#      no commits) → the SUT REFUSES with exit 7 and NEVER reaches `gh repo create` or push.
+reset_ctl; SCAN_EXIT=3
+box="$(mkbox c16-scan-degraded)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 7 ] && ! has_call "$box" 'repo create' && ! has_call "$box" 'git .* push'; then
+  ok "16 scan DEGRADED (exit 3) -> refuse 7, NO create or push" "(exit $RC)"
+else
+  no "16 scan DEGRADED (exit 3) -> refuse 7, NO create or push" \
+     "exit=$RC(want 7) calls=[$(calls "$box")]"
+fi
+
+# 17 — SCAN UNKNOWN ERROR (LAYER 4b). scan-secrets.sh exits 2 (any unexpected non-0/non-1
+#      exit) → the SUT REFUSES with exit 7 (fail-closed) and NEVER reaches create or push.
+reset_ctl; SCAN_EXIT=2
+box="$(mkbox c17-scan-unknown)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 7 ] && ! has_call "$box" 'repo create' && ! has_call "$box" 'git .* push'; then
+  ok "17 scan unknown error (exit 2) -> refuse 7, NO create or push" "(exit $RC)"
+else
+  no "17 scan unknown error (exit 2) -> refuse 7, NO create or push" \
+     "exit=$RC(want 7) calls=[$(calls "$box")]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate the guard two ways and prove each assertion
 # above would FLIP to failure — otherwise those assertions are theater.
@@ -392,6 +448,73 @@ fi
     no "teeth4: non-exec mutant still executable — case 13 is THEATER"
   fi
   rm -f "$tmp_sut"
+
+  # T5 — drop the dirty-tree exit-8 guard so the SUT falls through and proceeds
+  #      (scan → create → push) despite a dirty working tree. Case 14's "refuse 8"
+  #      must now be VIOLATED — proves the dirty-tree guard has teeth.
+  echo "-- teeth 5: drop dirty-tree exit-8 guard, expect proceed (not exit 8) despite dirty WT --"
+  orig5='  exit 8
+fi
+
+# --- LAYER 4b: pre-push secret sweep'
+  new5='  : # MUTANT: dirty-tree exit-8 removed
+fi
+
+# --- LAYER 4b: pre-push secret sweep'
+  if [[ "$content" != *"$orig5"* ]]; then
+    no "teeth5: build dirty-tree mutant" "exit-8 anchor not found — SUT drifted?"
+  else
+    reset_ctl; GIT_STATUS_DIRTY=1
+    box="$(mkbox teeth5-dirty-proceeds)"
+    printf '%s\n' "${content//"$orig5"/"$new5"}" > "$box/ensure-remote.sh"
+    run "$box" "$box/target" --yes
+    if [ "$RC" != 8 ]; then
+      ok "teeth5: dirty-tree mutant proceeds (exit $RC, not 8) — case 14 has teeth"
+    else
+      no "teeth5: dirty-tree mutant still exits 8 — case 14 is THEATER; calls=[$(calls "$box")]"
+    fi
+  fi
+
+  # M1 — neuter the case-3 (DEGRADED) branch so SCAN_EXIT=3 falls through as clean.
+  #      Case 16's "refuse 7" must now FLIP to failure — proves the branch has teeth.
+  echo "-- teeth M1: neuter case-3 DEGRADED branch, SCAN_EXIT=3 must NOT refuse --"
+  origM1='  3) echo "REFUSED: scan-secrets.sh --committed is degraded (git unavailable or no commits) —" >&2
+     echo "         cannot verify committed content before push." >&2
+     exit 7 ;;'
+  newM1='  3) ;; # MUTANT: degraded branch neutered'
+  if [[ "$content" != *"$origM1"* ]]; then
+    no "teeth-M1: build degraded-neuter mutant" "case-3 anchor not found — SUT drifted?"
+  else
+    reset_ctl; SCAN_EXIT=3
+    box="$(mkbox teethM1-scan-deg)"
+    printf '%s\n' "${content//"$origM1"/"$newM1"}" > "$box/ensure-remote.sh"
+    run "$box" "$box/target" --yes
+    if [ "$RC" != 7 ]; then
+      ok "teeth-M1: degraded mutant proceeds (exit $RC) — case 16 has teeth"
+    else
+      no "teeth-M1: degraded mutant still exits 7 — case 16 is THEATER; calls=[$(calls "$box")]"
+    fi
+  fi
+
+  # M2 — neuter the wildcard (*) branch so unknown scan exit codes fall through as clean.
+  #      Case 17's "refuse 7" must now FLIP to failure — proves the catch-all has teeth.
+  echo "-- teeth M2: neuter wildcard scan-error branch, SCAN_EXIT=2 must NOT refuse --"
+  origM2='  *) echo "REFUSED: scan-secrets.sh --committed failed (exit $_scan_rc) — cannot verify committed content before push." >&2
+     exit 7 ;;'
+  newM2='  *) ;; # MUTANT: wildcard scan-error branch neutered'
+  if [[ "$content" != *"$origM2"* ]]; then
+    no "teeth-M2: build wildcard-neuter mutant" "wildcard anchor not found — SUT drifted?"
+  else
+    reset_ctl; SCAN_EXIT=2
+    box="$(mkbox teethM2-scan-unk)"
+    printf '%s\n' "${content//"$origM2"/"$newM2"}" > "$box/ensure-remote.sh"
+    run "$box" "$box/target" --yes
+    if [ "$RC" != 7 ]; then
+      ok "teeth-M2: wildcard mutant proceeds (exit $RC) — case 17 has teeth"
+    else
+      no "teeth-M2: wildcard mutant still exits 7 — case 17 is THEATER; calls=[$(calls "$box")]"
+    fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
