@@ -202,8 +202,32 @@ for p in $paths; do
     if [ "$_sec_found" = 1 ]; then
       case "$_sec_form" in
         1|2) deltas="$_sec_cnt" ;;                          # form 1 (table) or form 2 (### entries)
-        *)   delta_warn="delta section present but not in countable form — count by hand"
-             deltas="?" ;;                                  # WARN-A: canonical section, pure prose
+        *)   # WARN-A: canonical section found, no table rows, no ###-entry sub-headings.
+             # §18 honesty line inside the section is an explicit countable ZERO — distinct
+             # from absent (~?) and from no-match. Scope: only inside the canonical section.
+             # RSDD_HONESTY_LINE_ANCHOR
+             _honesty=$(awk '
+               BEGIN { in_sec=0; found=0 }
+               { low=tolower($0) }
+               low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
+               low ~ /^## proposed delta/ ||
+               low ~ /^## delta proposals/ ||
+               low ~ /^## deltas nuevos/ ||
+               low ~ /^## summary of proposed delta/ ||
+               low ~ /^## summary of new deltas/ ||
+               low ~ /^## delta details([[:space:]]|$)/ { in_sec=1; next }
+               /^##[^#]/ { in_sec=0 }
+               in_sec && low ~ /^no new deltas[;,]/ { found=1; exit }
+               END { print found }
+             ' "$f")
+             if [ "$_honesty" = "1" ]; then  # RSDD_HONESTY_LINE_CHECK
+               deltas=0
+             else
+               delta_warn="delta section present but not in countable form — count by hand"
+               deltas="?"                                  # WARN-A: canonical section, pure prose
+             fi
+             unset _honesty
+             ;;
       esac
     else
       case "$_sec_form" in

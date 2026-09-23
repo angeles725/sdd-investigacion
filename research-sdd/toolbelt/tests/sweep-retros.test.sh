@@ -1800,16 +1800,16 @@ STRIPPED
     no "teeth T-noarg: T2 stub diverges from lib on no-arg" "stub rc=$_tna_stub_rc msg=[$_tna_stub_msg] lib rc=$_tna_lib_rc msg=[$_tna_lib_msg]"
   fi
   # Mutation: replace the # TP-STUB-NOARG guard with quiet 'return 0' in a temp copy.
-  # The ok path is a positive divergence assertion: mutant must exit 0 OR emit a different
-  # message (not merely "not equal both"), so a mutant that stays rc=1 with any other message
-  # does not sneak past (#909 — tighten mutant check).
+  # The mutation changes 'return 1' to 'return 0' — the tooth bites only on exit-code change.
+  # A mutant that stays rc=1 (even with a different message) is NOT a parity break (#921:
+  # tighten to rc-only; the previous || msg-differs condition was too broad).
   _tna_mut="$ROOT/tna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_t2_stub" > "$_tna_mut"
   _tna_mut_msg="$("$BASH_BIN" -c ". '$_tna_mut'; target_paths_all" 2>&1)"; _tna_mut_rc=$?
-  if [ "$_tna_mut_rc" = 0 ] || [ "$_tna_mut_msg" != "$_tna_lib_msg" ]; then
-    ok "teeth T-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_tna_mut_rc msg=[$_tna_mut_msg] (lib: [$_tna_lib_msg])"
+  if [ "$_tna_mut_rc" = 0 ]; then
+    ok "teeth T-noarg mutant: 'return 0' stub exits 0 (breaks parity) → mutation has teeth" "stub_rc=$_tna_mut_rc msg=[$_tna_mut_msg] (lib: rc=$_tna_lib_rc)"
   else
-    no "teeth T-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_tna_mut_rc msg=[$_tna_mut_msg]"
+    no "teeth T-noarg mutant: 'return 0' stub must exit 0 to break parity — mutation is THEATER" "rc=$_tna_mut_rc msg=[$_tna_mut_msg]"
   fi
   rm -f "$_tna_mut"
 
@@ -2326,6 +2326,109 @@ else
   fi
 fi
 
+# 81 — HONESTY-LINE-ONLY RETRO (§912): a pending retro whose canonical delta section holds
+#      ONLY the §18 honesty line ("no new deltas; the kit already covers this run.") reports
+#      explicit ~0 — distinct from WARN-A (~?, hand-count) and from no-section (empty-input).
+#      Before fix: WARN-A (~?) because form=w triggered the uncountable branch.
+kit="$(mkkit c81-honesty)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target |\n'
+  printf '|---|---|---|\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "81 honesty-line-only retro → ~0 proposed deltas, no WARN-A" "(exit $RC)"
+else
+  no "81 honesty-line-only retro → ~0 proposed deltas, no WARN-A" "exit=$RC out=[$OUT]"
+fi
+
+# 82 — FAKE-ROW REGRESSION (§912): a table row whose TEXT is the honesty phrase is still a
+#      real non-separator row → counts as ~1, not ~0. The honesty-line zero path is only
+#      triggered when form=w (no countable rows); a data row with honesty phrasing stays ~1.
+kit="$(mkkit c82-fakerow)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target |\n'
+  printf '|---|---|---|\n'
+  printf '| — | no new deltas; the kit already covers this run | — |\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~1 proposed deltas' <<<"$OUT" \
+   && ! grep -qF '~0 proposed deltas' <<<"$OUT"; then
+  ok "82 fake-row regression: table row with honesty phrase → ~1, not ~0" "(exit $RC)"
+else
+  no "82 fake-row regression: table row with honesty phrase → ~1, not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 83 — HONESTY LINE OUTSIDE THE DELTA SECTION (§912): the honesty phrase appears in a
+#      different section — NOT inside the canonical delta section. The canonical section is
+#      empty → WARN-A (~?). Scope restriction: only a honesty line INSIDE the section counts.
+kit="$(mkkit c83-honesty-outside)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Already covered\n\n'
+  printf 'no new deltas; the kit already covers this run.\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '## Next steps\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "83 honesty line outside delta section → WARN-A (~?), not ~0" "(exit $RC)"
+else
+  no "83 honesty line outside delta section → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 84 — MIXED: real delta rows PLUS honesty prose line in the same canonical section.
+#      Grammar returns form-1 (table rows found) before the honesty check is reached → real
+#      rows win (~1), no WARN-A. The honesty line is ignored when countable rows exist.
+kit="$(mkkit c84-mixed)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target |\n'
+  printf '|---|---|---|\n'
+  printf '| 1 | fix foo | METHODOLOGY |\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~1 proposed deltas' <<<"$OUT" \
+   && ! grep -qF '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "84 mixed (real rows + honesty prose) → ~1 rows counted, no WARN-A" "(exit $RC)"
+else
+  no "84 mixed (real rows + honesty prose) → ~1 rows counted, no WARN-A" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -2350,6 +2453,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth ND: sentinel-removed mutant must show ~0 — case 55 is THEATER" "out=[$outm]"
     fi
+  fi
+
+  # Tooth HL: replace the honesty-line condition with an always-false check → the honesty
+  # branch never fires → honesty-line retro reverts to WARN-A (~? + "not in countable form").
+  # Anchor: RSDD_HONESTY_LINE_CHECK sentinel on the if condition line. Proves case 81 has teeth.
+  echo "-- teeth HL: neuter honesty-line condition; honesty retro must revert to WARN-A (case 81 has teeth) --"
+  anchor_hl='if [ "$_honesty" = "1" ]; then  # RSDD_HONESTY_LINE_CHECK'
+  if [[ "$content_nd" != *"$anchor_hl"* ]]; then
+    no "teeth HL: locate RSDD_HONESTY_LINE_CHECK condition in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-hl)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n'
+      printf '# Retro\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf 'no new deltas; the kit already covers this run.\n'
+    } > "$tgt/retros/r1.md"
+    wire_target "$tgt"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    # Replace "1" with "999" — always-false condition, honesty check never fires.
+    neutered_hl='if [ "$_honesty" = "999" ]; then  # RSDD_HONESTY_LINE_CHECK (mutated)'
+    printf '%s\n' "${content_nd/"$anchor_hl"/$neutered_hl}" > "$mutant"
+    outm_hl="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -qF '~? proposed deltas' <<<"$outm_hl" \
+       && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm_hl"; then
+      ok "teeth HL: honesty-condition-neutered mutant reverts to WARN-A — case 81 has teeth" "()"
+    else
+      no "teeth HL: honesty-condition-neutered mutant must revert to WARN-A — case 81 is THEATER" "out=[$outm_hl]"
+    fi
+    unset anchor_hl neutered_hl mutant outm_hl
   fi
 
   # Tooth DA: remove the 'summary of proposed delta' alias from awk → its retro drops to
