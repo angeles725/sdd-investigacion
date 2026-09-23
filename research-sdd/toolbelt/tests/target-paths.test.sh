@@ -194,6 +194,20 @@ fi
 echo "-- teeth 8: trailing-slash normalization for target_paths_all --"
 MUTANT_TP8="${ROOT}/tp-slash-mutant.sh"
 sed '/rh="\${rh%\/}"/d' "$LIB" > "$MUTANT_TP8"
+# (a) mutant must differ from SUT
+if ! diff -q "$LIB" "$MUTANT_TP8" >/dev/null 2>&1; then
+  ok "teeth 8 (a): mutant differs from SUT"
+else no "teeth 8 (a): sed did not change the file — mutant == SUT (theater)"; fi
+# (b) bash -n must pass on mutant
+_m8_bn_err=$(bash -n "$MUTANT_TP8" 2>&1); _m8_bn_rc=$?
+if [ "$_m8_bn_rc" -eq 0 ]; then
+  ok "teeth 8 (b): mutant passes bash -n"
+else no "teeth 8 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m8_bn_err]"; fi
+# (d) control: SUT gives correct path (no //); mutant introduces //
+out_m8_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
+if echo "$out_m8_ctrl" | grep -qF '/rh-slash/sub-target' && ! echo "$out_m8_ctrl" | grep -qF '//'; then
+  ok "teeth 8 (d) ctrl: SUT strips trailing slash (no // in expanded path)"
+else no "teeth 8 (d) ctrl: SUT output unexpected (case 8 premise broken)" "out=[$out_m8_ctrl]"; fi
 out_m8="$("$BASH_BIN" --norc -c "source '$MUTANT_TP8'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
 if echo "$out_m8" | grep -qF '//'; then
   ok "teeth 8: no-norm mutant produces // in path (case 8 has teeth)"
@@ -202,13 +216,50 @@ else no "teeth 8: mutant did not produce //; case 8 is THEATER" "out=[$out_m8]";
 # Teeth for case 9: replacing ENVIRON lookup with sub()-based expansion must corrupt '&' path.
 echo "-- teeth 9: ENVIRON-based awk (no sub() & expansion) for target_paths_all --"
 MUTANT_TP9="${ROOT}/tp-amp-mutant.sh"
-# Mutant: replace the substr/length pfx2 output with sub() (reintroduces & corruption).
-sed 's|print rh "/" substr($0, length(pfx2) + 1)|sub(/^\\$RESEARCH_HOME\\//,rh "/"); print|' \
+# Mutant: replace substr()/length() pfx2 path with sub() using a char-class regex
+# ([$]RESEARCH_HOME[/] avoids \$ ambiguity); braces make it one compound statement
+# so the existing else branch stays syntactically valid.
+sed 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|' \
   "$LIB" > "$MUTANT_TP9"
+# (a) mutant must differ from SUT
+if ! diff -q "$LIB" "$MUTANT_TP9" >/dev/null 2>&1; then
+  ok "teeth 9 (a): mutant differs from SUT"
+else no "teeth 9 (a): sed did not change the file — mutant == SUT (theater)"; fi
+# (b) bash -n must pass on mutant
+_m9_bn_err=$(bash -n "$MUTANT_TP9" 2>&1); _m9_bn_rc=$?
+if [ "$_m9_bn_rc" -eq 0 ]; then
+  ok "teeth 9 (b): mutant passes bash -n"
+else no "teeth 9 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m9_bn_err]"; fi
+# (c) injected awk must parse on empty input (rc 0); isolated from the full bash context
+_m9_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
+  || _m9_awk_rc=$?
+if [ "$_m9_awk_rc" -eq 0 ]; then
+  ok "teeth 9 (c): injected awk parses on empty input"
+else no "teeth 9 (c): injected awk has syntax error (crash-based theater)" "rc=$_m9_awk_rc"; fi
+# (d) control: SUT preserves & literally; mutant corrupts it via sub() & expansion
+out_m9_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
+if echo "$out_m9_ctrl" | grep -qF '/rh&amp/path/tgt'; then
+  ok "teeth 9 (d) ctrl: SUT preserves & in RESEARCH_HOME path"
+else no "teeth 9 (d) ctrl: SUT does not preserve & (case 9 premise broken)" "out=[$out_m9_ctrl]"; fi
 out_m9="$("$BASH_BIN" --norc -c "source '$MUTANT_TP9'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
 if ! echo "$out_m9" | grep -qF '/rh&amp/path/tgt'; then
   ok "teeth 9: sub()-mutant corrupts & path (case 9 has teeth)"
 else no "teeth 9: mutant did not corrupt & path; case 9 is THEATER" "out=[$out_m9]"; fi
+# Sabotage: the old injection (no braces → orphan else) causes an awk syntax error → crash.
+# Assert assertion (c) catches it: the broken program must return non-zero on parse.
+echo "-- teeth 9 sabotage: old broken-awk injection caught by assertion (c) --"
+_sab9_rc=0
+echo '' | awk 'BEGIN { rh="" }
+  {
+    pfx2 = "$RESEARCH_HOME/"
+    if (substr($0, 1, length(pfx2)) == pfx2)
+      sub(/^\$RESEARCH_HOME\//,rh "/"); print
+    else
+      print
+  }' >/dev/null 2>&1 || _sab9_rc=$?
+if [ "$_sab9_rc" -ne 0 ]; then
+  ok "teeth 9 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
+else no "teeth 9 sabotage: old broken awk parsed — sabotage detection ineffective"; fi
 
 echo ""
 if [ "$fail" -gt 0 ]; then

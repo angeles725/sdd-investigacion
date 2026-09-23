@@ -29,8 +29,7 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
       # Form 1: `/abs/path` — table rows only
       grep -E '^\s*\|' "$f" 2>/dev/null | grep -oE '`/[^`]+`' 2>/dev/null | tr -d '`'
       # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — table rows only; expand via awk.
-      # Pass rh via ENVIRON["_TP_RH"] (not -v): awk -v interprets & and backslash in values,
-      # corrupting rh values that contain those characters (#923-B).
+      # Use ENVIRON (not -v): awk -v interprets & and \ in values; ENVIRON does not (#923-B).
       grep -E '^\s*\|' "$f" 2>/dev/null \
         | grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' 2>/dev/null \
         | tr -d '`' \
@@ -72,8 +71,7 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
       grep -E '^\s*\|' "$f" 2>/dev/null | grep -oE '`/[^`]+`' 2>/dev/null | tr -d '`' | awk '{print $0 "\t" $0}'
       # Form 2: `$RESEARCH_HOME/rest` or `${RESEARCH_HOME}/rest` — table rows only; raw is kept
       # as-is; expanded substitutes $RESEARCH_HOME. Emit as "<raw>\t<expanded>".
-      # Pass rh via ENVIRON["_TP_RH"] (not -v): awk -v interprets & and backslash in values,
-      # corrupting rh values that contain those characters (#923-B).
+      # Use ENVIRON (not -v): awk -v interprets & and \ in values; ENVIRON does not (#923-B).
       grep -E '^\s*\|' "$f" 2>/dev/null \
         | grep -oE '`\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/[^`]+`' 2>/dev/null \
         | tr -d '`' \

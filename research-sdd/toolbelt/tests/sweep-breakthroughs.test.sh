@@ -916,8 +916,21 @@ _m10_ln="$(tagged_lineno "${_m10_rh}/targetA/pfx-block1.md")"
 kit_m10="$(mkkit m10-tp-norm)"
 write_targets_portable "$kit_m10" "targetA"
 write_breakthroughs "$kit_m10" "| 1 | tgt | w | \`${_m10_rh}/targetA/pfx-block1.md:${_m10_ln}\` | k |"
+# (d) control: kit has original target-paths.sh; trailing-slash RH must give '1 tagged' (no WARN).
+OUT_M10_CTRL="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"
+if grep -q '1 tagged' <<<"$OUT_M10_CTRL" && ! grep -q 'WARN' <<<"$OUT_M10_CTRL"; then
+  mut_ok "M10 (d) ctrl: SUT strips trailing slash (1 tagged, no WARN)"
+else mut_no "M10 (d) ctrl: SUT does not give expected result (M10 premise broken)" "out=[$OUT_M10_CTRL]"; fi
 # Mutant target-paths.sh: remove the rh%/ normalization lines (both functions).
 sed '/rh%\//d' "$TP_LIB" > "$kit_m10/toolbelt/lib/target-paths.sh"
+# (a) mutant must differ from SUT
+if ! diff -q "$TP_LIB" "$kit_m10/toolbelt/lib/target-paths.sh" >/dev/null 2>&1; then
+  mut_ok "M10 (a): mutant target-paths.sh differs from SUT"
+else mut_no "M10 (a): sed did not change target-paths.sh — mutant == SUT (theater)"; fi
+# (b) bash -n must pass on mutant
+_m10_bn_err=$(bash -n "$kit_m10/toolbelt/lib/target-paths.sh" 2>&1); _m10_bn_rc=$?
+if [ "$_m10_bn_rc" -eq 0 ]; then mut_ok "M10 (b): mutant target-paths.sh passes bash -n"
+else mut_no "M10 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m10_bn_err]"; fi
 OUT="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
 if grep -q 'WARN' <<<"$OUT" || ! grep -q '1 tagged' <<<"$OUT"; then
   mut_ok "M10 no-tp-norm → case 31 (portable row + trailing-slash RH) detects WARN or 0 tagged" "(mutation detected)"
@@ -936,14 +949,50 @@ _m11_ln="$(tagged_lineno "${_m11_rh}/targetA/pfx-block1.md")"
 kit_m11="$(mkkit m11-tp-subamp)"
 write_targets_portable "$kit_m11" "targetA"
 write_breakthroughs "$kit_m11" "| 1 | tgt | w | \`${_m11_rh}/targetA/pfx-block1.md:${_m11_ln}\` | k |"
+# (d) control: kit has original target-paths.sh; & in RESEARCH_HOME must give '1 tagged'.
+OUT_M11_CTRL="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"
+if grep -q '1 tagged' <<<"$OUT_M11_CTRL"; then
+  mut_ok "M11 (d) ctrl: SUT with & in RESEARCH_HOME gives 1 tagged (no & corruption)"
+else mut_no "M11 (d) ctrl: SUT does not give 1 tagged (M11 premise broken)" "out=[$OUT_M11_CTRL]"; fi
 # Mutant: replace substr()/length() pfx2 case with sub()-based expansion (reintroduces & bug).
-sed 's|print rh "/" substr($0, length(pfx2) + 1)|sub(/^\\$RESEARCH_HOME\\//,rh "/"); print|' \
+# char-class regex [$]RESEARCH_HOME[/] avoids \$ ambiguity; braces keep else branch valid.
+sed 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|' \
   "$TP_LIB" > "$kit_m11/toolbelt/lib/target-paths.sh"
+# (a) mutant must differ from SUT
+if ! diff -q "$TP_LIB" "$kit_m11/toolbelt/lib/target-paths.sh" >/dev/null 2>&1; then
+  mut_ok "M11 (a): mutant target-paths.sh differs from SUT"
+else mut_no "M11 (a): sed did not change target-paths.sh — mutant == SUT (theater)"; fi
+# (b) bash -n must pass on mutant
+_m11_bn_err=$(bash -n "$kit_m11/toolbelt/lib/target-paths.sh" 2>&1); _m11_bn_rc=$?
+if [ "$_m11_bn_rc" -eq 0 ]; then mut_ok "M11 (b): mutant target-paths.sh passes bash -n"
+else mut_no "M11 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m11_bn_err]"; fi
+# (c) injected awk must parse on empty input (rc 0)
+_m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
+  || _m11_awk_rc=$?
+if [ "$_m11_awk_rc" -eq 0 ]; then mut_ok "M11 (c): injected awk parses on empty input"
+else mut_no "M11 (c): injected awk has syntax error (crash-based theater)" "rc=$_m11_awk_rc"; fi
 OUT="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
 if ! grep -q '1 tagged' <<<"$OUT"; then
   mut_ok "M11 sub()-expansion with & in RH → case 33 detects corruption (0 tagged)" "(1-tagged absent on mutant)"
 else
   mut_no "M11 sub()-expansion with & in RH → case 33 not detecting" "out=[$OUT]"
+fi
+# Sabotage: old injection (no braces → orphan else) causes awk syntax error → crash.
+# Assert assertion (c) catches it: the broken program must return non-zero on parse.
+echo "-- M11 sabotage: old broken-awk injection caught by assertion (c) --"
+_sab11_rc=0
+echo '' | awk 'BEGIN { rh="" }
+  {
+    pfx2 = "$RESEARCH_HOME/"
+    if (substr($0, 1, length(pfx2)) == pfx2)
+      sub(/^\$RESEARCH_HOME\//,rh "/"); print
+    else
+      print
+  }' >/dev/null 2>&1 || _sab11_rc=$?
+if [ "$_sab11_rc" -ne 0 ]; then
+  mut_ok "M11 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
+else
+  mut_no "M11 sabotage: old broken awk parsed — sabotage detection ineffective"
 fi
 
 total_fail=$(( fail + mut_fail ))
