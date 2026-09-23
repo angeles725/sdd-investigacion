@@ -1085,7 +1085,7 @@ the step exists to provide.
 **Closed loop while working, open loop when done (terminal trigger).** The loop is a closed control system
 while read-only-investigable > 0: it self-corrects and self-continues. When that set hits 0, it does NOT
 just declare and die — it OPENS to the environment and fires the next action. At FOCUS-level exhaustion it
-hands off to the next queued focus (re-entering with the next axis, bootstrapping if new) — optionally
+hands off to the next §8c queue entry (re-entering with the next axis, bootstrapping if new) — optionally
 writing a **focus-closing synthesis block** FIRST: a terminal block that consolidates the just-finished
 focus, cross-referencing related blocks across other focuses (e.g. a security thread tying this focus to
 findings in sibling focuses). A synthesis block is a valid terminal artifact at FOCUS level, not only at
@@ -1093,7 +1093,7 @@ corpus level — it is the right call whenever a focus produced a thread worth c
 exhaustion (all focuses done) it emits a NEXT-ACTION — a cross-focus synthesis, or a handoff to a non-static
 phase (requires-execution build/PoC §19, or the DYNAMIC/hardware phase §12) — launching it if autonomous and
 safe, or handing off to the user when a human decision or hardware is required. Silent end only when there
-is no queued focus and no safe next phase.
+is no pending §8c queue entry and no safe next phase.
 
 **A gap closes by remittance too.** Four closure categories now exist, not three: closed by NEW
 investigation, closed by PROVEN ABSENCE (above), closed by REMITTANCE, and closed by RE-SCOPE.
@@ -1235,9 +1235,9 @@ auto-applies. Migration classes to address:
 - `convergence` — the condition under which this entry is done (e.g. "all sections mapped", "load-bearing question answered")
 - `state` — one of `pending`, `active`, `done`, `bound-stopped`, `rejected`
 
-The queue lives in the root RESEARCH-STATE (the `## Campaign queue` table; grammar in the template). A single-focus corpus that never spawns children is a campaign with one entry; no special configuration is needed.
+The queue lives in `RESEARCH-STATE.md` for a single-focus corpus; in a §16 multi-focus corpus it lives in `RESEARCH-STATE-<root-focus>.md` (the root focus's own state file). It is the `## Campaign queue` table; grammar in the template. A single-focus corpus that never spawns children is a campaign with one entry; no special configuration is needed.
 
-**State machine.** The Campaign queue section is created when the first focus-STOP coverage audit enqueues at least one new entry (enqueued>0); the current focus becomes the `root` row and `campaign_started` is written. Transitions: `pending` → `active` (pop: write `campaign_started` if absent); `active` → `done` (convergence criterion met); `active` → `bound-stopped` (bound fires mid-focus, PAUSED — see bound-stop sequence); `pending` → `rejected` (focus-distinctness check: if the new entry is not meaningfully distinct from an existing entry, mark it `rejected` rather than running a duplicate focus). `rejected` and `done` and `bound-stopped` are terminal states; a rejected entry is never re-activated.
+**State machine.** The Campaign queue section is created when the first focus-STOP coverage audit enqueues at least one new entry (enqueued>0); the current (just-stopped) focus becomes the `root` row with state `done`, new entries are `pending`, and `campaign_started` is written. Transitions: `pending` → `active` (pop: write `campaign_started` if absent); `active` → `done` (convergence criterion met); `active` → `bound-stopped` (bound fires mid-focus, PAUSED — see bound-stop sequence); `pending` → `rejected` (focus-distinctness check: if the new entry is not meaningfully distinct from an existing entry, mark it `rejected` rather than running a duplicate focus). `rejected` and `done` and `bound-stopped` are terminal states; a rejected entry is never re-activated.
 
 **Kind semantics.** `focus` — a new §16 corpus file plus its own BOOTSTRAP; `tier` — a FRONTIER-REOPEN audit entry that continues investigation inside the same corpus file (no new BOOTSTRAP); `sub-topic` — a gap from the parent focus's backlog, investigated as a child. Every kind counts toward the `max-depth` bound; depth is the length of the parent chain from root.
 
@@ -1249,9 +1249,9 @@ The queue lives in the root RESEARCH-STATE (the `## Campaign queue` table; gramm
 campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h
 ```
 
-Each key is optional; omitting a key means no bound on that axis. An absent `campaign_bounds:` line means no bounds at all. depth is the length of the parent chain from root (root entry depth 0; a child of root has depth 1). Note on scope: `iterations=<N>` in `campaign_bounds` is a campaign-wide total (across all entries); per-focus block limits use `max-blocks` in the Stop control section, which governs a single focus only. When a bound fires mid-campaign, the loop: (1) marks the current entry's State as `bound-stopped` (PAUSED — the focus is interrupted, not complete); (2) writes `campaign_stop: campaign-bound-reached: <which>` (e.g. `campaign_stop: campaign-bound-reached: max-depth=3`) in RESEARCH-STATE immediately below the `last_iteration_ts` line; (3) runs the SELF-RETROSPECTIVE; (4) disarms the re-invoker per LOOP CONTINUATION (CronDelete for fixed-interval; skip ScheduleWakeup for dynamic; emit STOP token for orchestrated); (5) stops. A bound stop is a typed exit — the `campaign_stop:` line lets the instrument distinguish it from a missing stop and from normal campaign STOP.
+Each key is optional; omitting a key means no bound on that axis. An absent `campaign_bounds:` line means no bounds at all. depth is the length of the parent chain from root (root entry depth 0; a child of root has depth 1). Note on scope: `iterations=<N>` in `campaign_bounds` is a campaign-wide total (across all entries); per-focus block limits use `max-blocks` in the Stop control section, which governs a single focus only. When a bound fires mid-campaign, the loop: (1) marks the current entry's State as `bound-stopped` (PAUSED — the focus is interrupted, not complete); (2) writes `campaign_stop: campaign-bound-reached: <which>` (e.g. `campaign_stop: campaign-bound-reached: max-depth=3`) in the `## Campaign queue` section of RESEARCH-STATE (see B3 file naming above); (3) runs the SELF-RETROSPECTIVE; (4) disarms the re-invoker per LOOP CONTINUATION (CronDelete for fixed-interval; skip ScheduleWakeup for dynamic; emit STOP token for orchestrated); (5) stops. A bound stop is a typed exit — the `campaign_stop:` line lets the instrument distinguish it from a missing stop and from normal campaign STOP.
 
-**Resume rule.** On re-fire or restart, if `campaign_stop:` is present in RESEARCH-STATE, the campaign is already stopped; do NOT pop the next pending entry and do not restart investigation — recognise the stopped state and exit cleanly. A re-fire that finds `campaign_stop:` already set is idempotent (disarm and end).
+**Resume rule.** On re-fire or restart, if `campaign_stop:` is present in RESEARCH-STATE, the campaign is already stopped; do NOT pop the next pending entry and do not restart investigation — recognise the stopped state and exit cleanly. A re-fire that finds `campaign_stop:` already set is idempotent (disarm and end). **To resume a bound-stopped campaign:** the operator raises the relevant `campaign_bounds` value (or removes the bound entirely) and removes the `campaign_stop:` line from the `## Campaign queue` section; the next run sees no `campaign_stop:` and continues from the current queue state (re-activating any `active` entry first, then popping the next `pending` one).
 
 **Recording the coverage audit result.** After each focus STOP the FRONTIER-REOPEN audit runs and the result is written to RESEARCH-STATE:
 
@@ -2725,9 +2725,9 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   cell no instrument can read cannot be checked for that drift (TARGETS.md maturity cell, retro delta
   declaration and the block `Type` field all failed the same way — doctrine before checker).
 - **Focus status in a remittance note is a verifiable claim.** Before writing "closed by remittance to focus X
-  (stopped)" or handing off to "the next queued focus", confirm the status from `FOCUSES.md` AND the focus's
-  own `RESEARCH-STATE-<focus>.md` header; when they disagree, the state file wins and the index row is a drift
-  finding to surface.
+  (stopped)" or handing off to "the next §8c queue entry", confirm the entry's state in the `## Campaign queue`
+  table of RESEARCH-STATE (see §8c for file naming) AND the focus's own `RESEARCH-STATE-<focus>.md` header;
+  when they disagree, the state file wins and the queue row is a drift finding to surface.
 - **Naming convention.** Blocks carry a focus-aware prefix (e.g. `spyder-blockN.md`,
   `platform-native-blockN.md`) so a flat `ls` stays readable; state mirrors them as
   `RESEARCH-STATE-<focus>.md`.

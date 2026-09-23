@@ -247,15 +247,15 @@ supervisor adds it to the Tool cell when applying the catalog row.
 
 ## Execution mode
 
-Pick the mode based on whether an operator is present:
+This table applies to heavy and continue modes only — quick and light modes never launch `/loop`. Announce the mode and proceed; do not ask which mode.
 
 | Situation | Mode | Launch | Continuation |
 |---|---|---|---|
 | Unattended (default at BOOTSTRAP) | Self-paced dynamic (recommended) | Launch `/loop /research-sdd <target> [focus]` before the first iteration | ScheduleWakeup at ~60s floor; at campaign STOP, do not reschedule |
 | Unattended, dynamic halted after 1 block | Self-paced fixed-interval (fallback) | `/loop 5m /research-sdd <target> [focus]` | Harness re-fires; campaign STOP: disarm the re-invoker (CronList → CronDelete; else tell the operator) |
-| Attended (operator in session, reviewing between blocks) | Orchestrated | Proceed directly — do not launch `/loop` | Signal "continue" in the report; operator or driver re-invokes |
+| Attended — operator asked to review between blocks | Orchestrated | Proceed directly — do not launch `/loop` | End report with RETURN CONTRACT token; driver re-invokes on `next*`, ends on `STOP:` |
 
-Before launching in unattended mode, check whether a re-invoker is already active (arrived via `/loop`, or a wakeup/cron is armed). If one is active, proceed directly without a nested launch. Do not issue ScheduleWakeup when an operator is present — that spawns a rogue autonomous loop alongside the operator.
+Before launching in unattended mode, check whether a re-invoker is already active (arrived via `/loop`, or a wakeup/cron is armed). If one is active, proceed directly without a nested launch. Do not issue ScheduleWakeup when the operator asked to review between blocks (orchestrated mode) — that spawns a rogue autonomous loop alongside the operator.
 
 Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback. For stall detection, the instrument reads `last_iteration_ts` in RESEARCH-STATE (METHODOLOGY §8c) — an operator who sees no new block commit for > 15 min can relaunch with the `/loop 5m` fallback while that instrument is pending.
 

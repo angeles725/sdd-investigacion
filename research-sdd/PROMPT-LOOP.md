@@ -69,11 +69,11 @@ each delegation carries:
 
 **ScheduleWakeup is for dynamic self-paced mode (no interval) only.** Never issue ScheduleWakeup
 when running under a fixed-interval `/loop <N>m` — the harness is the re-invoker there; a
-self-reschedule on top of it double-fires iterations. Also never issue ScheduleWakeup when an
-operator is present — in orchestrated mode the operator or the driver re-invokes; chain the next
-iteration in the same turn instead (signal "continue" at the end of the iteration report). Issuing
-ScheduleWakeup under orchestrated mode spawns a rogue autonomous loop alongside the operator,
-creating two competing drivers.
+self-reschedule on top of it double-fires iterations. Also never issue ScheduleWakeup when the
+operator asked to review between blocks (orchestrated mode) — the driver re-invokes on `next*`
+RETURN CONTRACT tokens; end the iteration report with the correct token (`next:`, `next-entry:`, or
+`STOP: campaign — …`). Issuing ScheduleWakeup under orchestrated mode spawns a rogue autonomous
+loop alongside the operator, creating two competing drivers.
 
 Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
 `model` by cognitive demand (MODEL TIER rule) and never re-verify a block with orchestrator Bash (§11).
@@ -1115,25 +1115,27 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      starts with no prior evidence on its proposed surfaces.
      FRONTIER-REOPEN DECISION SHAPE: at STOP-CANDIDATE in heavy or frontier modes, run a coverage/section audit before
      honoring STOP. If the audit reveals >2 contiguous section entries uncovered OR >1 named
-     sub-topic with no block coverage, that is a new tier, not an in-block residue — declare
-     it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration
-     of the new tier and seed the backlog from the uncovered entries. A single in-child residue
-     stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared
-     this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is a
-     silent operator-only call an autonomous run cannot replicate. (Evidence: module-mechanics
-     focus — operator's silent "sigue" reopened Section-E; #564.)
+     sub-topic with no block coverage, that is a new tier, not an in-block residue — enqueue
+     each new tier as a §8c campaign queue row with `kind=tier` (name, seed list, convergence
+     criterion), seed the backlog from the uncovered entries, and write `last_audit:` once for
+     this audit (one audit, one outcome). A single in-child residue stays in-block (annotated
+     sub-section); it does not constitute a new tier. A tier declared this way is a legitimate
+     reopen; a tier opened without a §8c queue row is a silent operator-only call an autonomous
+     run cannot replicate. (Evidence: module-mechanics focus — operator's silent "sigue" reopened
+     Section-E; #564.)
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
-       - FOCUS-level exhaustion (this focus done, but the §8c campaign queue has other entries):
+       - Focus STOP and campaign STOP not met (evaluated after the FRONTIER-REOPEN audit — this focus
+         done, but §8c queue has pending/active entries):
          Run the FRONTIER-REOPEN audit (heavy and frontier modes), enqueue new entries in the §8c campaign
          queue (never FOCUSES.md — that is a catalog, not a queue), then OPTIONALLY write a focus-closing
          SYNTHESIS block (consolidate this focus, cross-referencing related blocks across focuses — a valid
          terminal artifact at focus level; see METHODOLOGY §8), and pop the next `pending` entry. Under
-         `/loop` self-pacing, reschedule ONE more time re-entering with FOCUS set to the next queue entry
+         `/loop` self-pacing, reschedule ONE more time re-entering with FOCUS set to the next §8c queue entry
          (BOOTSTRAP it if `kind=focus`; re-enter the existing corpus if `kind=tier`). Emit a
          per-focus SELF-RETROSPECTIVE at each focus STOP. The loop does not die; it advances to the next entry.
-       - CORPUS-level exhaustion (every focus done, nothing read-only-investigable anywhere): emit a final
+       - Campaign STOP (§8c) — no entry is pending or active, last audit enqueued=0: emit a final
          NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
          (requires-execution build/PoC §19 — §19 CLOSE RULE: when a build/PoC phase produces
          block-quality findings, write them as cited blocks using `sources/probes/` for tool evidence
@@ -1151,14 +1153,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          numeric gate. Record: "visual oracle: rendering compared vs. source, N discrepancies noted."
          —, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
-         off to the user/orchestrator. Only a corpus with NO queued focus AND no safe next phase ends silent.
+         off to the user/orchestrator. Only a corpus with NO pending §8c queue entry AND no safe next phase ends silent.
        - OUT-OF-TREE APPLIED DELIVERABLE (a requires-execution close whose deliverable lands OUTSIDE $TARGET —
          a skill, plugin, or installed tool): reference it by PATH + SHA-IDENTITY (a manifest hash of the file
          set), NEVER copy it into the corpus; when there is no "original bytes" to diff against, an EXTERNAL
          adversarial QA protocol (e.g. Judgment Day) is the §19 oracle; preserve the full protocol evidence
          (ledger, fix log, consumer run, artifacts) under $CORPUS/sources/probes/<name>/ and cite it `[CERT-hw]`
          from the closing block. Full treatment: METHODOLOGY §19.
-       - SELF-RETROSPECTIVE (at every focus completion, and always at corpus-level STOP — METHODOLOGY §18):
+       - SELF-RETROSPECTIVE (per-focus SELF-RETROSPECTIVE at every focus STOP; campaign RETRO CHECKPOINT at campaign STOP — METHODOLOGY §18):
          before handing off, DELEGATE a fresh-context retro agent to review THIS run and PROPOSE kit deltas.
          The journal (METHODOLOGY §18 journal mode) is a SUPPLEMENTAL SOURCE — the full run review still
          runs. The retro agent: (1) reads $KIT/PROMPT-LOOP.md + METHODOLOGY.md FIRST and dedupes; (2) reviews
@@ -1270,8 +1272,8 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          <slug>`) apply throughout the document cycle, not only at normal-cycle close (LOOP
          CONTINUATION hard rule).
        - SELF-RETROSPECTIVE (METHODOLOGY §18): delegate a fresh-context retro agent exactly as the
-         NORMAL CYCLE terminal trigger prescribes. §18 fires "at every FOCUS completion and always at
-         corpus-level STOP" — §20 had no equivalent step, so the retro never auto-fired on a document
+         NORMAL CYCLE terminal trigger prescribes. §18 fires "at every focus STOP and at campaign STOP"
+         — §20 had no equivalent step, so the retro never auto-fired on a document
          run until now.
        - TARGETS.md row refresh: update block count and run facts as part of closing the document run.
        - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
@@ -1541,7 +1543,7 @@ HARD RULES:
     iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit, enqueue any
     new entries, and pop the next queue entry in the same run (METHODOLOGY §8c).
     A RUN ends only on campaign STOP, a requires-execution wall, an operator pause, or a tool failure;
-    a TURN ends after the mode continuation call (ScheduleWakeup / harness re-fire / "continue" signal).
+    a TURN ends after the mode continuation call (ScheduleWakeup / harness re-fire / RETURN CONTRACT token).
     Finishing a cluster or milestone is not a RUN end. Before ending a turn, check your last paragraph: if it is a plan
     ("next I'll …"), execute that work now with tool calls.
 
@@ -1561,8 +1563,9 @@ HARD RULES:
         depends on the agent calling ScheduleWakeup. The runtime ends the turn when the agent emits
         text without a following tool call (#620), so ScheduleWakeup is the last action of the turn,
         placed after the iteration report text. At campaign STOP, do not reschedule.
-    (3) ORCHESTRATED: signal "continue" at the end of the iteration report; the driver re-invokes.
-        At campaign STOP, emit the STOP token per the RETURN CONTRACT (same tokens as other modes).
+    (3) ORCHESTRATED: end the iteration report with the RETURN CONTRACT token (`next: <gap-id>`,
+        `next-entry: <queue-name>`, or `STOP: campaign — …`); the driver re-invokes on `next*`
+        tokens and ends on `STOP:` tokens. No ScheduleWakeup is issued in orchestrated mode.
     (Evidence: niagara loop-continuation retro.)
     ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
@@ -1573,7 +1576,7 @@ HARD RULES:
     Commit DIRECT to the default branch — a solo corpus needs no PR (METHODOLOGY §15). One commit ⇄ one block
     is what makes §17 resume answerable from `git log --oneline`. (Under fixed-interval this means
     ending the turn after the report; under dynamic self-pacing this means calling ScheduleWakeup with
-    the same prompt; under an orchestrator this means signalling "continue". Either way, one report ≠
+    the same prompt; under an orchestrator this means emitting the RETURN CONTRACT token. Either way, one report ≠
     done — see METHODOLOGY §8.)
   - RESCHEDULE CADENCE — applies to DYNAMIC self-paced mode (no interval) only; fixed-interval mode has
     no ScheduleWakeup to tune (the harness interval governs re-fire timing). The next gap is READY WORK,
