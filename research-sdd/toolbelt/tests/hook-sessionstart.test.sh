@@ -70,19 +70,37 @@ fi
 # ── NO-JQ BEHAVIOURAL CHECK ───────────────────────────────────────────────────────────────────
 
 echo "-- no-jq: hook exits 0 and emits hookSpecificOutput JSON when jq is absent --"
-_jq_real="$(command -v jq 2>/dev/null || true)"
-_nojq_path=""
-if [ -z "$_jq_real" ]; then
-  ok "no-jq: jq already absent on this host — probe fires on normal PATH"
-  _nojq_path="$PATH"
+# Hermetic approach: build a temp bin with symlinks to exactly the external tools the hook
+# needs before the probe fires, and NOTHING else — so jq is provably absent.
+#
+# External tools used between shebang and probe (lines 13–40 of the template):
+#   cat      — line 13: _hook_stdin=$(cat)
+#   dirname  — line 20: _hook_target="$(cd "$(dirname "$0")/../.." && pwd)"
+#   jq       — line 14: pipeline with || fallback; intentionally excluded here
+# All other calls (git, find, mkdir) are inside 'if [ -n "$_session_id" ]' which is
+# skipped when jq is absent (|| _session_id="" leaves _session_id empty).
+_bash_exe="$(command -v bash)"
+_hermetic_bin="$TMP/hermetic-nojq"
+mkdir -p "$_hermetic_bin"
+for _htool in cat dirname; do
+  _htool_real="$(command -v "$_htool" 2>/dev/null || true)"
+  if [ -n "$_htool_real" ]; then
+    ln -sf "$_htool_real" "$_hermetic_bin/$_htool"
+  fi
+done
+unset _htool _htool_real
+_nojq_tested=0
+
+# Sanity assert: jq must NOT be reachable under the hermetic PATH before running the hook.
+# Use the resolved absolute bash path so `PATH=... bash` does not fail looking up 'bash'.
+if PATH="$_hermetic_bin" "$_bash_exe" -c 'command -v jq >/dev/null 2>&1'; then
+  printf '  SKIP  no-jq: jq still reachable under hermetic PATH — unexpected install (e.g. /usr/local/bin or snap); test skipped [typed: hermetic-skip-jq-reachable]\n'
 else
-  _jq_dir="$(dirname "$_jq_real")"
-  # Build PATH that excludes jq's directory so command -v jq fails inside the hook
-  _nojq_path="$(printf '%s\n' "$PATH" | tr ':' '\n' | grep -v "^${_jq_dir}\$" | tr '\n' ':' | sed 's/:$//')"
   _nojq_out="$TMP/nojq-out.txt"
   _nojq_err="$TMP/nojq-err.txt"
-  PATH="$_nojq_path" bash "$SUT" </dev/null >"$_nojq_out" 2>"$_nojq_err"
+  PATH="$_hermetic_bin" "$_bash_exe" "$SUT" </dev/null >"$_nojq_out" 2>"$_nojq_err"
   _nojq_ec=$?
+  _nojq_tested=1
   if [ "$_nojq_ec" -eq 0 ]; then
     ok "no-jq: hook exits 0 when jq absent"
   else
@@ -140,13 +158,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   echo "-- teeth M2: no-jq exit-0 check has teeth --"
-  if [ -n "$_jq_real" ] && [ -n "$_nojq_path" ]; then
+  if [ "$_nojq_tested" -eq 1 ]; then
     _m2="$TMP/mutant-m2.sh"
     cp "$SUT" "$_m2"
     # Mutant: disable the jq probe so it never fires
     sed -i 's/if ! command -v jq/if false  # MUTANT: probe disabled; was: if ! command -v jq/' "$_m2"
     if grep -qF 'MUTANT: probe disabled' "$_m2"; then
-      PATH="$_nojq_path" bash "$_m2" </dev/null >"$TMP/m2-out.txt" 2>/dev/null
+      PATH="$_hermetic_bin" "$_bash_exe" "$_m2" </dev/null >"$TMP/m2-out.txt" 2>/dev/null
       _m2_ec=$?
       # Without probe, jq-n fails → hook exits non-zero
       if [ "$_m2_ec" -ne 0 ]; then
@@ -158,7 +176,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth M2: could not build probe-disabled mutant"
     fi
   else
-    ok "teeth M2: skipped (jq already absent on this host — no-jq path is the normal path)"
+    printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
   fi
 
   echo "-- teeth M3: P8 <KIT> check has teeth --"
