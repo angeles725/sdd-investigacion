@@ -156,6 +156,58 @@ assert_out_contains "  HYPHEN: emits WARN [header-punctuation]" "WARN [header-pu
 assert_out_absent   "  HYPHEN: does NOT emit FAIL [header-missing]" "FAIL [header-missing]" "$TMP/hyphen.out"
 assert_out_contains "  HYPHEN: final verdict is OK: conforming" "OK: conforming" "$TMP/hyphen.out"
 
+# ─── HONESTY EM-DASH VARIANT (exit 0) ────────────────────────────────────────
+# "No new deltas — the kit already covers this run." uses an em-dash instead of
+# a semicolon. The honesty predicate must accept any non-alphanumeric char after
+# "no new deltas".
+
+bash "$SUT" "$FIX/honesty-emdash.md" >"$TMP/emdash.out" 2>&1
+assert_exit2 0 "EMDASH: em-dash honesty variant → exit 0" "$FIX/honesty-emdash.md"
+bash "$SUT" "$FIX/honesty-emdash.md" >"$TMP/emdash.out" 2>&1
+assert_out_contains "  EMDASH: output says OK" "OK: conforming" "$TMP/emdash.out"
+
+# ─── HONESTY "NOTHING TO ADD" VARIANT (exit 0) ────────────────────────────────
+# "No new deltas; nothing to add." — the tail after the semicolon differs from
+# the canonical phrasing. The predicate must accept any tail; only the
+# "no new deltas" prefix plus a non-alphanumeric separator is required.
+
+bash "$SUT" "$FIX/honesty-nothing-add.md" >"$TMP/nothadd.out" 2>&1
+assert_exit2 0 "NOTHADD: nothing-to-add honesty variant → exit 0" "$FIX/honesty-nothing-add.md"
+bash "$SUT" "$FIX/honesty-nothing-add.md" >"$TMP/nothadd.out" 2>&1
+assert_out_contains "  NOTHADD: output says OK" "OK: conforming" "$TMP/nothadd.out"
+
+# ─── HONESTY IN ## Notes (exit 1) ─────────────────────────────────────────────
+# A honesty phrase that appears under ## Notes (not the canonical delta section
+# and not ## Honest verdict) must NOT suppress the empty-section FAIL. The
+# predicate is location-scoped; a file-wide grep would produce a false pass.
+
+bash "$SUT" "$FIX/honesty-in-notes.md" >"$TMP/honnotes.out" 2>&1
+assert_exit2 1 "HONNOTES: honesty under ## Notes → exit 1 (still fails empty-section)" "$FIX/honesty-in-notes.md"
+bash "$SUT" "$FIX/honesty-in-notes.md" >"$TMP/honnotes.out" 2>&1
+assert_out_contains "  HONNOTES: names class empty-section" "FAIL [empty-section]" "$TMP/honnotes.out"
+assert_out_absent   "  HONNOTES: NOT a honesty-triggered pass" "OK: conforming" "$TMP/honnotes.out"
+
+# FORD: byte-copy of ford/2026-09-10-update-notice.md with fake delta row removed.
+# The canonical section has plain-prose blockquote guidance using the older "§" variant
+# ("the target file/§") plus empty table + prose honesty line → conforming.
+# RED confirmed (pre-WIP f6d33f9): exact-match scaffold check failed because ford uses
+# "§" while the current template text has "/section" → WARN-A → exit 1.
+# GREEN (HEAD): structural-marker rule checks for list/table/heading markers; plain prose
+# has none → lead_block_dirty=0 → block exempt → body_ok=1 → exit 0.
+bash "$SUT" "$FIX/ford-update-notice-honesty.md" >"$TMP/ford.out" 2>&1
+assert_exit2 0 "FORD: byte-copy (§-variant blockquote guidance + prose honesty) → exit 0" "$FIX/ford-update-notice-honesty.md"
+bash "$SUT" "$FIX/ford-update-notice-honesty.md" >"$TMP/ford.out" 2>&1
+assert_out_contains "  FORD: output says OK: conforming" "OK: conforming" "$TMP/ford.out"
+
+# NIAGARA: byte-copy of niagara/2026-09-17-tools-search-innovation.md with fake delta
+# row replaced by the §18 honesty prose line.  No blockquote guidance in delta section →
+# plain table header + separator + prose honesty → conforming.
+# (niagara was already conforming pre-WIP since it has no blockquote guidance lines)
+bash "$SUT" "$FIX/niagara-tools-search-honesty.md" >"$TMP/niagara.out" 2>&1
+assert_exit2 0 "NIAGARA: byte-copy (no blockquote guidance, prose honesty) → exit 0" "$FIX/niagara-tools-search-honesty.md"
+bash "$SUT" "$FIX/niagara-tools-search-honesty.md" >"$TMP/niagara.out" 2>&1
+assert_out_contains "  NIAGARA: output says OK: conforming" "OK: conforming" "$TMP/niagara.out"
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
@@ -248,6 +300,22 @@ make_mutant_delete_sentinel "SENTINEL-HEADER-HYPHEN-CHECK" "$SUT" "$M6"
 bash "$M6" "$FIX/header-hyphen.md" >/dev/null 2>&1; _rc=$?
 [ "$_rc" -ne 0 ] && tok "M6: hyphen-check mutant rejects header-hyphen fixture (control goes RED → $SUT hyphen-detection bites)" \
   || tno "M6: hyphen-check mutant still accepted header-hyphen fixture (hyphen-detection guard is THEATER)"
+
+# MUTANT M7 (new — #912 has_honesty guard): retro_grammar_has_honesty fail-closed guard.
+# The broken lib defines retro_grammar_delta_info (so the M5 guard passes) but does NOT
+# define retro_grammar_has_honesty, so the second declare-F guard fires: verify-retro must
+# exit 2 with "failed to define retro_grammar_has_honesty".
+_m7_dir="$TMP/m7-sandbox"
+mkdir -p "$_m7_dir/lib"
+cp "$SUT" "$_m7_dir/verify-retro.sh"; chmod +x "$_m7_dir/verify-retro.sh"
+printf '#!/usr/bin/env bash\n# partial lib: delta_info defined, has_honesty missing\nretro_grammar_delta_info() { :; }\n' \
+  > "$_m7_dir/lib/retro-grammar.sh"
+_m7_out="$(bash "$_m7_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m7_rc=$?
+if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<"$_m7_out"; then
+  tok "M7: partial retro-grammar.sh → verify-retro exits 2 with 'failed to define retro_grammar_has_honesty' (guard bites)"
+else
+  tno "M7: partial retro-grammar.sh has_honesty guard did not fire — rc=$_m7_rc out=[$_m7_out]"
+fi
 
 echo ""
 echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="
