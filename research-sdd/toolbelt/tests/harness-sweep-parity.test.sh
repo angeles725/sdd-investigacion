@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
-# harness-sweep-parity.test.sh — locks the canonical sweep-script set across all three agent
-# harnesses (Claude, OpenCode, Codex) so a future edit to one harness that forgets the others
-# is caught immediately.
+# harness-sweep-parity.test.sh — locks the canonical sweep-script set across the two active agent
+# harnesses (Claude, Codex) so a future edit to one harness that forgets the other is caught
+# immediately.
+#
+# OpenCode support was dropped on 2026-09-23 (#954); its surface (toolbelt/opencode/
+# research-sdd-sweep.ts) has been removed.  Codex remains a manual harness whose golden plan
+# lists the canonical sweep scripts explicitly.
 #
 # WHY THIS TEST EXISTS (anti-theater):
 #   Parity drifted silently once (README said 2 scripts; .claude/settings.json had grown to 4;
-#   Codex golden listed all 4 manually; nothing bound all three surfaces to one canonical list).
+#   Codex golden listed all 4 manually; nothing bound both surfaces to one canonical list).
 #   This test does that binding: it parses each authoritative source file directly (no hardcoded
 #   list that would rot) and fails if any harness adds, drops, or renames a sweep script relative
 #   to the canonical set.
 #
-# Surfaces parsed (all three must agree on the same 7 canonical names):
-#   Claude   : .claude/settings.json                  — SessionStart hook command paths
-#   OpenCode : toolbelt/opencode/research-sdd-sweep.ts — path.join(TOOLBELT, "*.sh") constants
-#   Codex    : install/tests/golden/plan-codex.txt     — backtick-quoted toolbelt/ entries
+# Surfaces parsed (both must agree on the same canonical names):
+#   Claude : .claude/settings.json              — SessionStart hook command paths
+#   Codex  : install/tests/golden/plan-codex.txt — backtick-quoted toolbelt/ entries
 #
 # Canonical name normalisation:
 #   Claude wires -hook.sh wrapper scripts; strip "-hook" suffix to recover the base name that
-#   the other two harnesses reference directly. Result: sweep-retros, sweep-audits,
+#   the Codex harness references directly. Result: sweep-retros, sweep-audits,
 #   sweep-breakthroughs, verify-registry, verify-kit-clean, sweep-tools, verify-tool-catalog.
 #
 # Usage: harness-sweep-parity.test.sh [--prove-teeth]
@@ -34,7 +37,6 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # ---- Source file paths -----------------------------------------------------
 SETTINGS="$REPO/.claude/settings.json"
-SWEEP_TS="$TOOLBELT/opencode/research-sdd-sweep.ts"
 CODEX_GOLDEN="$REPO/research-sdd/install/tests/golden/plan-codex.txt"
 
 # --list-inputs: print harness input files as repo-relative paths, one per line.
@@ -42,12 +44,11 @@ CODEX_GOLDEN="$REPO/research-sdd/install/tests/golden/plan-codex.txt"
 # rather than maintaining a hardcoded duplicate list that can drift.
 if [ "${1:-}" = "--list-inputs" ]; then
   printf '%s\n' "${SETTINGS#"$REPO/"}"
-  printf '%s\n' "${SWEEP_TS#"$REPO/"}"
   printf '%s\n' "${CODEX_GOLDEN#"$REPO/"}"
   exit 0
 fi
 
-for f in "$SETTINGS" "$SWEEP_TS" "$CODEX_GOLDEN"; do
+for f in "$SETTINGS" "$CODEX_GOLDEN"; do
   [ -f "$f" ] || { printf 'FATAL: source not found: %s\n' "$f" >&2; exit 2; }
 done
 command -v jq >/dev/null 2>&1 \
@@ -56,9 +57,8 @@ command -v jq >/dev/null 2>&1 \
 # ---- Extraction helpers ----------------------------------------------------
 # Each helper emits sorted canonical names (one per line) from its authoritative source.
 #
-# Claude:   .hooks.SessionStart[0].hooks[].command → basename → strip "-hook.sh" suffix
-# OpenCode: path.join(TOOLBELT, "*.sh") const calls → quoted arg → strip ".sh"
-# Codex:    `toolbelt/*.sh` backtick entries        → strip prefix + ".sh"
+# Claude: .hooks.SessionStart[0].hooks[].command → basename → strip "-hook.sh" suffix
+# Codex:  `toolbelt/*.sh` backtick entries        → strip prefix + ".sh"
 
 extract_claude() {
   local f="${1:-$SETTINGS}"
@@ -71,15 +71,6 @@ extract_claude() {
   # sed strips surrounding literal double-quotes that wrap the command for
   # space-safe expansion (e.g. "\"$CLAUDE_PROJECT_DIR/.../foo-hook.sh\"").
   # Unquoted paths pass through unchanged — both forms must parse correctly.
-}
-
-extract_opencode() {
-  local f="${1:-$SWEEP_TS}"
-  grep -F 'path.join(TOOLBELT' "$f" \
-    | grep -oE '"[^"]+\.sh"' \
-    | tr -d '"' \
-    | sed 's/\.sh$//' \
-    | sort
 }
 
 extract_codex() {
@@ -103,56 +94,38 @@ count_lines() {
 
 echo "== harness-sweep-parity.test.sh =="
 
-# Canonical member names — single declaration; CANONICAL_COUNT is derived so assertions 4-6
-# and the member-presence loop (assertions 10-17) stay in sync automatically when the set grows.
+# Canonical member names — single declaration; CANONICAL_COUNT is derived so cardinality
+# assertions and the member-presence loop stay in sync automatically when the set grows.
 # Add new sweep scripts here and nowhere else in this test.
 CANONICAL_MEMBERS="sweep-retros sweep-audits sweep-breakthroughs verify-registry verify-kit-clean sweep-tools verify-tool-catalog verify-skill-drift"
 CANONICAL_COUNT=0
 for _m in $CANONICAL_MEMBERS; do CANONICAL_COUNT=$((CANONICAL_COUNT + 1)); done
 
 CLAUDE_SET="$(extract_claude)"
-OPENCODE_SET="$(extract_opencode)"
 CODEX_SET="$(extract_codex)"
 
-# ---- 1–3: Non-empty parse sanity -------------------------------------------
+# ---- 1–2: Non-empty parse sanity -------------------------------------------
 [ -n "$CLAUDE_SET" ] \
   && ok "claude: parsed non-empty script set from settings.json" \
   || no "claude: empty parse (jq path or settings.json format changed?)"
-
-[ -n "$OPENCODE_SET" ] \
-  && ok "opencode: parsed non-empty script set from research-sdd-sweep.ts" \
-  || no "opencode: empty parse (TOOLBELT path.join pattern changed?)"
 
 [ -n "$CODEX_SET" ] \
   && ok "codex: parsed non-empty script set from plan-codex.txt" \
   || no "codex: empty parse (backtick format in golden changed?)"
 
-# ---- 4–6: Cardinality (exactly 7 per surface) ------------------------------
+# ---- 3–4: Cardinality (exactly CANONICAL_COUNT per surface) ----------------
 claude_c=$(count_lines "$CLAUDE_SET")
-opencode_c=$(count_lines "$OPENCODE_SET")
 codex_c=$(count_lines "$CODEX_SET")
 
 [ "$claude_c" = "$CANONICAL_COUNT" ] \
   && ok "claude: exactly $CANONICAL_COUNT scripts referenced" \
   || no "claude: expected $CANONICAL_COUNT scripts, got $claude_c (set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 
-[ "$opencode_c" = "$CANONICAL_COUNT" ] \
-  && ok "opencode: exactly $CANONICAL_COUNT scripts referenced" \
-  || no "opencode: expected $CANONICAL_COUNT scripts, got $opencode_c (set: $(echo "$OPENCODE_SET" | tr '\n' ' '))"
-
 [ "$codex_c" = "$CANONICAL_COUNT" ] \
   && ok "codex: exactly $CANONICAL_COUNT scripts referenced" \
   || no "codex: expected $CANONICAL_COUNT scripts, got $codex_c (set: $(echo "$CODEX_SET" | tr '\n' ' '))"
 
-# ---- 7–9: Cross-surface equality -------------------------------------------
-if [ "$CLAUDE_SET" = "$OPENCODE_SET" ]; then
-  ok "claude == opencode (identical canonical set)"
-else
-  no "claude != opencode  PARITY DRIFT"
-  printf '    claude  : %s\n' "$(echo "$CLAUDE_SET"   | tr '\n' ' ')"
-  printf '    opencode: %s\n' "$(echo "$OPENCODE_SET" | tr '\n' ' ')"
-fi
-
+# ---- 5: Cross-surface equality ---------------------------------------------
 if [ "$CLAUDE_SET" = "$CODEX_SET" ]; then
   ok "claude == codex (identical canonical set)"
 else
@@ -161,22 +134,14 @@ else
   printf '    codex : %s\n' "$(echo "$CODEX_SET"  | tr '\n' ' ')"
 fi
 
-if [ "$OPENCODE_SET" = "$CODEX_SET" ]; then
-  ok "opencode == codex (identical canonical set)"
-else
-  no "opencode != codex  PARITY DRIFT"
-  printf '    opencode: %s\n' "$(echo "$OPENCODE_SET" | tr '\n' ' ')"
-  printf '    codex   : %s\n' "$(echo "$CODEX_SET"    | tr '\n' ' ')"
-fi
-
-# ---- 10–14: Canonical member presence (by exact name) ----------------------
+# ---- 6–N: Canonical member presence (by exact name) ------------------------
 for script in $CANONICAL_MEMBERS; do
   grep -qx "$script" <<<"$CLAUDE_SET" \
     && ok "canonical member present: $script" \
     || no "canonical member MISSING: $script  (claude set: $(echo "$CLAUDE_SET" | tr '\n' ' '))"
 done
 
-# ---- 14: Codex golden references the sweep-all.sh aggregator ---------------
+# ---- Codex golden references the sweep-all.sh aggregator -------------------
 # sweep-all.sh is NOT a canonical sweep member (excluded from extract_codex above); it is
 # the U-A20 aggregator shim that runs the four canonical scripts in one command. The codex
 # section should reference it as the single recommended manual command.
@@ -184,7 +149,7 @@ grep -q '`toolbelt/sweep-all.sh`' "$CODEX_GOLDEN" \
   && ok "codex: sweep-all.sh aggregator referenced in plan-codex.txt (single recommended command)" \
   || no "codex: sweep-all.sh NOT referenced in plan-codex.txt (expected as single recommended command)"
 
-# ---- 15: Quoted-command form (regression guard for PR #108) ----------------
+# ---- Quoted-command form (regression guard for PR #108) --------------------
 # extract_claude must tolerate commands wrapped in literal double-quotes, i.e.
 #   "command": "\"$CLAUDE_PROJECT_DIR/.../sweep-retros-hook.sh\""
 # The inner quotes are intentional (space-safe expansion); the parser must strip
@@ -200,8 +165,8 @@ else
   no "quoted-commands: fixture file missing — cannot test quote stripping: $FIXTURE_QUOTED"
 fi
 
-# ---- 16-17: --list-inputs contract -----------------------------------------
-# The mode must emit exactly the three harness input files as repo-relative paths,
+# ---- --list-inputs contract ------------------------------------------------
+# The mode must emit exactly the two harness input files as repo-relative paths,
 # one per line. ci-path-filter-coverage.test.sh consumes this at runtime so the
 # coverage check never drifts from the actual sources this test reads.
 LIST_OUT="$(bash "$HERE/harness-sweep-parity.test.sh" --list-inputs)"
@@ -209,9 +174,9 @@ list_count=0
 while IFS= read -r _line; do
   if [ -n "$_line" ]; then list_count=$((list_count + 1)); fi
 done <<< "$LIST_OUT"
-[ "$list_count" -eq 3 ] \
-  && ok "--list-inputs: emits exactly 3 repo-relative paths" \
-  || no "--list-inputs: expected 3 paths, got $list_count (output: $(printf '%s' "$LIST_OUT" | tr '\n' '|' | cut -c1-120))"
+[ "$list_count" -eq 2 ] \
+  && ok "--list-inputs: emits exactly 2 repo-relative paths" \
+  || no "--list-inputs: expected 2 paths, got $list_count (output: $(printf '%s' "$LIST_OUT" | tr '\n' '|' | cut -c1-120))"
 
 list_bad=0
 while IFS= read -r _path; do
@@ -228,48 +193,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: inject drift into each surface; parity checks must catch it --"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-  # Teeth A: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of research-sdd-sweep.ts
-  sed 's/"sweep-retros\.sh"/"sweep-MUTANT.sh"/' "$SWEEP_TS" > "$TMP/sweep-mutant.ts"
-  mutant_oc="$(extract_opencode "$TMP/sweep-mutant.ts")"
-  if [ "$CLAUDE_SET" != "$mutant_oc" ]; then
-    ok "teeth A: renaming sweep-retros in OpenCode detected as drift vs Claude"
-  else
-    no "teeth A: mutant OpenCode NOT caught — cross-surface comparison is theater"
-  fi
-
-  # Teeth B: drop sweep-audits-hook from a temp copy of settings.json
+  # Teeth A: drop sweep-audits-hook from a temp copy of settings.json
   jq 'del(.hooks.SessionStart[0].hooks[] | select(.command | test("sweep-audits")))' \
       "$SETTINGS" > "$TMP/settings-drop.json"
   mutant_cl="$(extract_claude "$TMP/settings-drop.json")"
   if [ "$mutant_cl" != "$CODEX_SET" ]; then
-    ok "teeth B: dropping sweep-audits from Claude settings caught as drift vs Codex"
+    ok "teeth A: dropping sweep-audits from Claude settings caught as drift vs Codex"
   else
-    no "teeth B: dropped hook NOT caught — cross-surface comparison is theater"
+    no "teeth A: dropped hook NOT caught — cross-surface comparison is theater"
   fi
 
-  # Teeth C: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the codex golden
+  # Teeth B: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the codex golden
   sed 's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|' "$CODEX_GOLDEN" > "$TMP/plan-codex-mutant.txt"
   mutant_cx="$(extract_codex "$TMP/plan-codex-mutant.txt")"
   if [ "$CLAUDE_SET" != "$mutant_cx" ]; then
-    ok "teeth C: renaming sweep-retros in Codex golden detected as drift vs Claude"
+    ok "teeth B: renaming sweep-retros in Codex golden detected as drift vs Claude"
   else
-    no "teeth C: mutant Codex NOT caught — cross-surface comparison is theater"
+    no "teeth B: mutant Codex NOT caught — cross-surface comparison is theater"
   fi
 
-  # Teeth D: prove the quote-stripping test has teeth.
+  # Teeth C: prove the quote-stripping test has teeth.
   # Simulate the pre-fix parser (no sed quote strip) against the quoted fixture;
   # it must produce output DIFFERENT from the correct canonical set.
   # If it produces the correct set, the fixture is not catching the bug and
-  # the assertion 15 would pass vacuously even with a broken parser.
+  # the assertion would pass vacuously even with a broken parser.
   mutant_cl_quoted="$(jq -r '.hooks.SessionStart[0].hooks[].command' "$FIXTURE_QUOTED" \
       | while IFS= read -r cmd; do
           base="$(basename "$cmd")"
           echo "${base%-hook.sh}"   # intentionally no quote stripping — simulates the old bug
         done | sort)"
   if [ "$mutant_cl_quoted" != "$EXPECTED_QUOTED" ]; then
-    ok "teeth D: un-stripped parser yields wrong names from quoted fixture (quote-strip fix has teeth)"
+    ok "teeth C: un-stripped parser yields wrong names from quoted fixture (quote-strip fix has teeth)"
   else
-    no "teeth D: un-stripped parser passed — the fixture does not catch the bug (assertion 15 is theater)"
+    no "teeth C: un-stripped parser passed — the fixture does not catch the bug (quoted-commands assertion is theater)"
   fi
 fi
 

@@ -93,7 +93,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`verify-state.sh`](toolbelt/verify-state.sh) | `<target-dir>` | Living-mirror lint — catches a stale summary that would emit a premature STOP. |
 | [`verify-sources.sh`](toolbelt/verify-sources.sh) | `<target-dir>` | `SOURCES.md` preservation linter — every cited source is downloaded, present, and registered. |
 | [`scan-secrets.sh`](toolbelt/scan-secrets.sh) | `<target-dir>` | Fails closed if a high-confidence secret **value** leaked into authored content. |
-| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude/OpenCode. |
+| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude. (OpenCode support was dropped on 2026-09-23 #954.) |
 
 ### Close
 
@@ -163,6 +163,27 @@ KIT=/home/cristian/investigacion/sdd-investigacion/research-sdd
 
 To drive the loop end-to-end (agent-directed), use the [`research-sdd` skill](skills/research-sdd/SKILL.md),
 which classifies depth (quick answer · light exploration · exhaustive block loop) before launching.
+
+---
+
+## Removing an old OpenCode install
+
+OpenCode support was dropped on 2026-09-23 (#954). If you previously installed the kit into
+OpenCode, clean it up manually:
+
+```bash
+# 1. Remove the plugin symlink the installer created
+rm -f ~/.config/opencode/plugins/research-sdd-sweep.ts
+
+# 2. Remove the deployed skill copy
+rm -rf ~/.config/opencode/skills/research-sdd/
+
+# 3. Remove the marked launcher block from the OpenCode AGENTS.md
+#    Open ~/.config/opencode/AGENTS.md and delete the section between (and including):
+#      <!-- research-sdd:start -->
+#      ...
+#      <!-- research-sdd:end -->
+```
 
 ---
 

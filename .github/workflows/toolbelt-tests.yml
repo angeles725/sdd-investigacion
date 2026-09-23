@@ -10,8 +10,8 @@ on:
       - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
-      # .claude/settings.json is a harness input for harness-sweep-parity.test.sh (SessionStart
-      # hook command paths).  Missing this entry caused PR #108 to merge without running the suite.
+      # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
+      # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
       - ".claude/settings.json"
   pull_request:
     paths:

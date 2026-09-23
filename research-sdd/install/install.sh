@@ -3,7 +3,7 @@
 # Targets WSL2 Ubuntu/Debian. BASELINE always runs; heavy tiers are opt-in.
 #
 # Usage:
-#   install.sh [--harness claude|opencode|codex|reasonix|all]
+#   install.sh [--harness claude|codex|reasonix|all]
 #              [--with-binary] [--with-pcap] [--with-firmware] [--with-vm]
 #              [--with-pdf] [--with-net] [--with-dotnet] [--with-latex]
 #              [--all-heavy] [--home <dir>] [--dry-run]

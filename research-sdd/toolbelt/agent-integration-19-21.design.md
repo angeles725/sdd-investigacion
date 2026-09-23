@@ -1,5 +1,9 @@
 # Design: Agent-Integration Track (Backlog Items 19, 20, 21)
 
+> **Note:** OpenCode support was dropped on 2026-09-23 (#954). `toolbelt/opencode/` and all
+> OpenCode-specific surfaces (plugin, SKILL.md twin, adapters entry) have been removed.
+> This design document is preserved as historical record; do not act on OpenCode rows.
+
 Scoping design for U-A19/U-A20/U-A21 of the Research-SDD toolbelt. Plan artifact only — no
 implementation here. Supersedes the stale item-19 claim in `vm-spine-and-backlog.replan.md` §4.
 

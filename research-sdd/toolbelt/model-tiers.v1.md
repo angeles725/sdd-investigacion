@@ -8,7 +8,7 @@
 PROMPT-LOOP.md and METHODOLOGY.md describe model tier selection using Claude-specific
 model names (`haiku`, `sonnet`, `opus`).  This document defines the same tiers as
 harness-neutral abstract concepts so they apply consistently across all three supported
-harnesses (Claude Code, OpenCode, Codex).
+harnesses (Claude Code, Codex, Reasonix).
 
 This is a documentation contract, not runtime configuration.  The toolbelt cannot
 select, enforce, or verify which model a harness uses; that authority belongs entirely
@@ -36,18 +36,19 @@ or modify the session model.
 ## 2. Per-Harness Mapping Table
 
 These are **recommendations / defaults**.  They reflect what PROMPT-LOOP.md and
-METHODOLOGY.md currently assign for Claude Code.  For OpenCode and Codex the mapping
-is indicative: the actual model is always user-configured outside this repo.
+METHODOLOGY.md currently assign for Claude Code.  For Codex the mapping is indicative:
+the actual model is always user-configured outside this repo.
+(OpenCode support was dropped on 2026-09-23 #954.)
 
-| Abstract tier | Claude Code (`model:` on Agent/Task) | OpenCode | Codex |
-|---|---|---|---|
-| **mechanical** | `model: 'haiku'` | Lowest-cost configured model (user-set in `model-variants.ts`) | `model` + `reasoningEffort: low` (user-set in `config.toml`) |
-| **structural** | `model: 'sonnet'` (default for most sweeps) | Default configured model | `model` + `reasoningEffort: medium` |
-| **reasoning** | Inline on driver; or `model: 'opus'` only if delegation is truly required | Strong configured model | `model` + `reasoningEffort: high` |
+| Abstract tier | Claude Code (`model:` on Agent/Task) | Codex |
+|---|---|---|
+| **mechanical** | `model: 'haiku'` | `model` + `reasoningEffort: low` (user-set in `config.toml`) |
+| **structural** | `model: 'sonnet'` (default for most sweeps) | `model` + `reasoningEffort: medium` |
+| **reasoning** | Inline on driver; or `model: 'opus'` only if delegation is truly required | `model` + `reasoningEffort: high` |
 
 **Fallback rule (all harnesses)**: when the recommended tier is unavailable, substitute
 one tier down and note it in the report.  This rule is stated in PROMPT-LOOP.md:209–210
-and METHODOLOGY.md:395; it carries over to OpenCode and Codex unchanged.
+and METHODOLOGY.md:395; it carries over to Codex unchanged.
 **Exemption — verification/refutation voters**: if `sonnet` is unavailable for a verification or refutation step, run inline on the driver or defer — never substitute `haiku` (METHODOLOGY §11b).
 
 ---
@@ -59,11 +60,7 @@ Concrete model selection, provider choice, profile, and reasoning-level are
 
 - **Claude Code** — the `model:` parameter on an Agent/Task call is set by the
   session user (e.g. via `/model`).  The toolbelt only names the abstract tier.
-- **OpenCode** — the active model is controlled by the user's
-  `~/.config/opencode/plugins/model-variants.ts` plugin.  This file lives outside
-  the repo; the kit documents it (see `toolbelt/opencode/README.md`) but never
-  installs or overwrites it.  Adopting a canonical copy under `toolbelt/opencode/`
-  is a deliberate deferral and is not in scope.
+- **OpenCode** — support dropped 2026-09-23 (#954); `toolbelt/opencode/` removed.
 - **Codex** — model and `reasoningEffort` are set in the user's
   `~/.codex/config.toml`.  The installer's managed block covers MCP server
   registration only; model config is never written by the toolbelt.
@@ -81,7 +78,7 @@ repeated in future planning.
 The research-sdd evidence and manifest formats (`analysis-manifest.v1`,
 `emit_evidence` output, all `*.v1.md` JSON contracts) are already fully
 harness-independent.  The same format is emitted regardless of whether the
-adapter runs under Claude Code, OpenCode, or Codex.  No homogenization is needed;
+adapter runs under Claude Code or Codex.  No homogenization is needed;
 no agent-specific format variants exist.  The `analysis-manifest.v1.md` contract
 is the authoritative schema reference for all harnesses.
 
@@ -92,7 +89,5 @@ is the authoritative schema reference for all harnesses.
 - **PROMPT-LOOP.md:200** — MODEL TIER rule for delegated sweeps (Claude-named;
   this document is the harness-neutral canonical definition)
 - **METHODOLOGY.md:388** — same tier rule in loop-longevity section
-- **toolbelt/opencode/README.md** — OpenCode plugin and `model-variants.ts`
-  location
 - **toolbelt/agent-integration-19-21.design.md §2 item-21b** — design rationale
   for this unit

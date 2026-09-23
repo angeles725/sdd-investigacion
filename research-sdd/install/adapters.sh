@@ -4,7 +4,7 @@
 # Mirrors gentle-ai's decoupling: one neutral asset (skills/research-sdd/SKILL.md) is surfaced into
 # every AI harness by consulting a per-harness adapter that answers three ORTHOGONAL questions:
 #
-#   WHERE — path methods : config_root · skills_dir · skill_path · prompt_file · plugin_dir
+#   WHERE — path methods : config_root · skills_dir · skill_path · prompt_file
 #   HOW   — strategy enum : prompt_strategy  (markdown-sections — splice a marked block, preserving
 #                            surrounding user content; dispatch stays open for future strategies)
 #   WHAT  — capability bools : supports_slash_commands · needs_manual_sweep_doc
@@ -20,27 +20,24 @@
 # Registration order = install order for --harness all. Consumed by the installer after it sources
 # this file; shellcheck can't see that cross-file use, so silence the false "unused" here.
 # shellcheck disable=SC2034
-RESEARCH_SDD_HARNESSES="claude opencode codex reasonix"
+RESEARCH_SDD_HARNESSES="claude codex reasonix"
 
 # --- THE TABLE (only home-independent facts live here; paths are derived from these + $home) --------
 # config root, relative to $home
 declare -A _RSDD_CONFIG_ROOT_REL=(
   [claude]=".claude"
-  [opencode]=".config/opencode"
   [codex]=".codex"
   [reasonix]=".reasonix"
 )
 # system-prompt file name inside the config root
 declare -A _RSDD_PROMPT_FILE_NAME=(
   [claude]="CLAUDE.md"
-  [opencode]="AGENTS.md"
   [codex]="AGENTS.md"
   [reasonix]="AGENTS.md"
 )
 # HOW the launcher is surfaced into that prompt file
 declare -A _RSDD_PROMPT_STRATEGY=(
   [claude]="markdown-sections"
-  [opencode]="markdown-sections"
   [codex]="markdown-sections"
   [reasonix]="markdown-sections"
 )
@@ -49,33 +46,22 @@ declare -A _RSDD_PROMPT_STRATEGY=(
 # fed by commands/ — so the SKILL.md launcher is NOT a slash command.
 declare -A _RSDD_SUPPORTS_SLASH=(
   [claude]="false"
-  [opencode]="true"
   [codex]="false"
   [reasonix]="false"
 )
-# plugin directory name inside the config root (empty = harness has none).
-# reasonix: [[plugins]] entries are MCP servers declared in config.toml, not a skill-plugin dir.
-declare -A _RSDD_PLUGIN_DIR_NAME=(
-  [claude]=""
-  [opencode]="plugins"
-  [codex]=""
-  [reasonix]=""
-)
-# WHAT: does the harness lack an automated session-start sweep (no hook AND no plugin), so the
+# WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
-# (claude=hook, opencode=plugin, codex=none, reasonix=hook via ~/.reasonix/settings.json)
+# (claude=hook, codex=none, reasonix=hook via ~/.reasonix/settings.json; OpenCode dropped #954)
 declare -A _RSDD_NEEDS_SWEEP=(
   [claude]="false"
-  [opencode]="false"
   [codex]="true"
   [reasonix]="false"
 )
 # WHAT: does the harness surface a short note (in its prompt file) that the installer registers the
 # skill's MCP servers automatically into its TOML config?
-# (codex + reasonix; claude/opencode manage MCP elsewhere)
+# (codex + reasonix; claude manages MCP elsewhere; OpenCode dropped #954)
 declare -A _RSDD_NEEDS_MCP_CONFIG_DOC=(
   [claude]="false"
-  [opencode]="false"
   [codex]="true"
   [reasonix]="true"
 )
@@ -84,7 +70,6 @@ declare -A _RSDD_NEEDS_MCP_CONFIG_DOC=(
 # config). Empty = the harness manages MCP elsewhere and needs no config-file registration.
 declare -A _RSDD_MCP_CONFIG_NAME=(
   [claude]=""
-  [opencode]=""
   [codex]="config.toml"
   [reasonix]="config.toml"
 )
@@ -95,17 +80,14 @@ declare -A _RSDD_MCP_CONFIG_NAME=(
 #   ""                — harness has no MCP config file; rsdd_render_mcp_toml is never called
 declare -A _RSDD_MCP_TOML_SHAPE=(
   [claude]=""
-  [opencode]=""
   [codex]="mcp-servers-table"
   [reasonix]="plugins-array"
 )
-# WHERE: the skill source file, as a path RELATIVE TO the kit root. Harnesses that require a
-# runtime-adapter section (opencode) have their own source under toolbelt/opencode/ so the adapter
-# content stays versioned alongside the other OpenCode-specific runtime artifacts. Generic harnesses
+# WHERE: the skill source file, as a path RELATIVE TO the kit root. All remaining harnesses
 # (claude, codex, reasonix) use the neutral shared source under skills/research-sdd/.
+# Note: OpenCode support was dropped on 2026-09-23 (#954).
 declare -A _RSDD_SKILL_SRC_RELKIT=(
   [claude]="skills/research-sdd/SKILL.md"
-  [opencode]="toolbelt/opencode/SKILL.md"
   [codex]="skills/research-sdd/SKILL.md"
   [reasonix]="skills/research-sdd/SKILL.md"
 )
@@ -126,9 +108,6 @@ rsdd_field() {
     supports_slash_commands) printf '%s\n' "${_RSDD_SUPPORTS_SLASH[$harness]}" ;;
     needs_manual_sweep_doc)  printf '%s\n' "${_RSDD_NEEDS_SWEEP[$harness]}" ;;
     needs_mcp_config_doc)    printf '%s\n' "${_RSDD_NEEDS_MCP_CONFIG_DOC[$harness]}" ;;
-    plugin_dir)
-      plug="${_RSDD_PLUGIN_DIR_NAME[$harness]}"
-      if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
     mcp_config_file)
       plug="${_RSDD_MCP_CONFIG_NAME[$harness]}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;

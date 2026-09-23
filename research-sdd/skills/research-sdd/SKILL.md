@@ -15,11 +15,6 @@ restate the loop rules — the single source of truth is the kit. Read the kit, 
 from real state, and run the loop. Never bake mutable state (block numbers, "next gap") into what you run —
 derive it live each iteration (that is why RESUME exists).
 
-> **Twin:** `research-sdd/toolbelt/opencode/SKILL.md` is the OpenCode-specific counterpart. It serves the
-> same skill on the OpenCode harness with adapter substitutions for model tiers, the external loop, and
-> orchestration mode. Any change to shared behavior (triage logic, mode definitions, boundaries) must be
-> applied in BOTH files. The split is registered in `research-sdd/install/adapters.sh`.
-
 ## Who drives the loop
 
 You drive it as the **technical excavator** (METHODOLOGY §1): first principles — cite the code, the bytes or the

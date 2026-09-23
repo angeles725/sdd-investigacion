@@ -6,7 +6,7 @@
 # per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so a 4th harness is one table row.
 #
 # Usage:
-#   research-sdd-install.sh [--harness claude|opencode|codex|all] [--home <dir>] [--dry-run] [--force-skill]
+#   research-sdd-install.sh [--harness claude|codex|reasonix|all] [--home <dir>] [--dry-run] [--force-skill]
 #
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
@@ -15,7 +15,7 @@
 #
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
-# own global system prompt, e.g. opencode's ~/.config/opencode/AGENTS.md).
+# own global system prompt, e.g. codex's ~/.codex/AGENTS.md).
 set -uo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)"
@@ -57,25 +57,6 @@ _rsdd_append_section() {
   fi
 }
 
-# Symlink the kit's OpenCode session-start plugin into the harness plugin dir. Idempotent: an existing
-# symlink is refreshed (clean relink, never duplicated); a NON-symlink already at the target is the
-# user's own file and is preserved (warn + skip, never clobbered). No-op under --dry-run, but the plan
-# still prints the intended link. $src is resolved from the kit root, independent of the CWD.
-_rsdd_link_plugin() {
-  local plugin_dir="$1" dry="$2" src="$3" dest
-  dest="$plugin_dir/$(basename "$src")"
-  printf '  SYMLINK %s -> %s\n' "$dest" "$src"
-  [ "$dry" = 1 ] && return 0
-  [ -e "$src" ] || { echo "research-sdd-install: plugin source not found: $src" >&2; return 1; }
-  mkdir -p "$plugin_dir" || { echo "research-sdd-install: mkdir failed for $plugin_dir" >&2; return 1; }
-  if [ -L "$dest" ]; then
-    ln -sfn "$src" "$dest" || { echo "research-sdd-install: relink failed for $dest" >&2; return 1; }
-  elif [ -e "$dest" ]; then
-    printf 'research-sdd-install: WARNING %s exists and is not our symlink — preserved (skipped plugin link)\n' "$dest" >&2
-  else
-    ln -s "$src" "$dest" || { echo "research-sdd-install: symlink failed for $dest" >&2; return 1; }
-  fi
-}
 
 # _rsdd_splice_file — the ONE marked-section splice, shared by every leg that writes into a SHARED
 # user-owned file. Marker STRINGS are parameters, so it serves both the markdown prompt files
@@ -241,11 +222,10 @@ _rsdd_register_mcp() {
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
   local h="$1" home="$2" dry="$3" force="$4" rc=0
-  local skill_path prompt_file strategy plugin_dir mcp_config slash dispatch src_relkit src_skill bak
+  local skill_path prompt_file strategy mcp_config slash dispatch src_relkit src_skill bak
   skill_path="$(rsdd_field "$h" skill_path "$home")"
   prompt_file="$(rsdd_field "$h" prompt_file "$home")"
   strategy="$(rsdd_field "$h" prompt_strategy "$home")"
-  plugin_dir="$(rsdd_field "$h" plugin_dir "$home")"
   mcp_config="$(rsdd_field "$h" mcp_config_file "$home")"
   slash="$(rsdd_field "$h" supports_slash_commands "$home")"
   src_relkit="$(rsdd_field "$h" skill_src_relkit)"
@@ -332,15 +312,7 @@ install_one() {
     echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
   fi
 
-  # 3. plugin symlink — only when the table gives this harness a plugin dir (opencode). The source is
-  #    resolved from the KIT root (not the CWD); idempotent relink, never clobbers a user's own file.
-  if [ -n "$plugin_dir" ]; then
-    if ! _rsdd_link_plugin "$plugin_dir" "$dry" "$KIT/toolbelt/opencode/research-sdd-sweep.ts"; then
-      echo "research-sdd-install: [$h] plugin symlink failed ($plugin_dir)" >&2; rc=1
-    fi
-  fi
-
-  # 4. MCP registration — only when the table names a config file (codex/reasonix config.toml).
+  # 3. MCP registration — only when the table names a config file (codex/reasonix config.toml).
   #    Idempotent marked-block splice; preserves surrounding user config; warns+skips on a
   #    user-authored entry. Shape comes from the adapter table (never branched on harness name).
   if [ -n "$mcp_config" ]; then

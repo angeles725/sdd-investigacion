@@ -2,7 +2,7 @@
 # research-sdd-install.test.sh — RED-FIRST harness for the multi-harness kit installer.
 #
 # The discriminating behaviour: ONE table-driven install loop surfaces the neutral SKILL.md +
-# a launcher into every harness's own paths (claude / opencode / codex), WITHOUT any per-harness
+# a launcher into every harness's own paths (claude / codex / reasonix), WITHOUT any per-harness
 # branching in the loop. --dry-run must print a deterministic plan (locked by committed goldens);
 # apply must be idempotent (re-running never duplicates the marked prompt section).
 #
@@ -12,7 +12,6 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
-PLUGSRC="$KITROOT/toolbelt/opencode/research-sdd-sweep.ts" # canonical OpenCode plugin source
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""
 trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"' EXIT
@@ -27,8 +26,9 @@ normkit(){ sed "s|$KITROOT|{KIT}|g"; }
 
 echo "== research-sdd-install.test.sh =="
 
-# 1..4 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
-for h in claude opencode codex reasonix; do
+# 1..3 — dry-run plan per harness matches its committed golden (locks WHERE + WHAT is written).
+# (opencode dropped 2026-09-23 #954 — plan-opencode.txt deleted)
+for h in claude codex reasonix; do
   home="$TMP/dry-$h"
   out="$(bash "$SUT" --dry-run --home "$home" --harness "$h" 2>&1 | norm "$home" | normkit)"
   g="$GOLD/plan-$h.txt"
@@ -47,13 +47,7 @@ skill="$home/.claude/skills/research-sdd/SKILL.md"
 if [ -f "$skill" ] && grep -q 'Research-SDD launcher' "$skill"; then ok "apply installs neutral SKILL.md (claude)"
 else no "SKILL.md not installed for claude at $skill"; fi
 [ -f "$home/.codex/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (codex leg)" || no "codex SKILL.md missing"
-sf_oc5="$home/.config/opencode/skills/research-sdd/SKILL.md"
-if [ -f "$sf_oc5" ] && grep -q 'OpenCode runtime adapter' "$sf_oc5"; then
-  ok "apply installs OpenCode SKILL.md with adapter section (--harness all)"
-else
-  no "OpenCode SKILL.md missing or lacks adapter section at $sf_oc5"
-fi
-
+[ -f "$home/.reasonix/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (reasonix leg)" || no "reasonix SKILL.md missing"
 # 6 — apply is idempotent: run twice, exactly ONE marked section in the prompt file.
 home="$TMP/idem"
 bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
@@ -74,26 +68,11 @@ if grep -q 'sweep-retros.sh' "$cx" && grep -q 'verify-registry.sh' "$cx"; then o
 else no "codex sweep-fallback doc missing in $cx"; fi
 grep -q 'sweep-retros.sh' "$cl" && no "claude section wrongly carries sweep fallback (has a hook)" || ok "claude section omits sweep fallback (hook fires instead)"
 
-# 9 — opencode surfaces via markdown-sections into a fresh AGENTS.md: the launcher marker is present.
-home="$TMP/fr"; bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1
-grep -q '<!-- research-sdd:start -->' "$home/.config/opencode/AGENTS.md" 2>/dev/null \
-  && ok "opencode markdown-sections writes the launcher into AGENTS.md" || no "opencode AGENTS.md missing the launcher marker"
-
 # 10 — the install loop carries ZERO per-harness case arms (all divergence lives in the adapter table).
 #      A case arm is a harness name at a statement boundary followed by `|` or `)` (e.g. `claude)`);
 #      prose mentions like "(opencode)" in a comment are ignored.
-if grep -Eq '^[[:space:]]*(claude|opencode|codex|reasonix)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
+if grep -Eq '^[[:space:]]*(claude|codex|reasonix)[|)]' "$SUT"; then no "installer has a per-harness case arm (should be table-driven)"
 else ok "install loop has no per-harness branching"; fi
-
-# 11 — CRITICAL 1: opencode's AGENTS.md is the user's GLOBAL system prompt. Installing MUST splice a
-#      marked section, preserving pre-existing user content, NOT truncate the whole file.
-home="$TMP/oc-preserve"; mkdir -p "$home/.config/opencode"
-printf '# user global prompt\nmy custom rule line\n' > "$home/.config/opencode/AGENTS.md"
-bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1
-pf="$home/.config/opencode/AGENTS.md"
-n="$(grep -c '<!-- research-sdd:start -->' "$pf" 2>/dev/null || echo 0)"
-if grep -q 'my custom rule line' "$pf" && [ "$n" = 1 ]; then ok "opencode preserves user AGENTS.md content (splice, exactly one section)"
-else no "opencode clobbered user AGENTS.md (present? $(grep -qc 'my custom rule line' "$pf"; echo $?), sections=$n)"; fi
 
 # 12 — CRITICAL 2: an orphaned start marker (no matching end, hand-edited file) in a MARKDOWN prompt file
 #      must NOT drop every trailing user line to EOF. Unlike the TOML path (test 25, which SKIPS to avoid a
@@ -109,16 +88,17 @@ if grep -q 'IMPORTANT user tail line' "$pf" && [ "$ends" = 1 ] && grep -q '## Re
   ok "orphaned start marker (markdown): trailing user content preserved AND fresh section appended (append, not skip)"
 else no "orphaned markdown marker mishandled (tail preserved? end markers=$ends — expected preserve+append)"; fi
 
-# 13 — CRITICAL 3: on a partial failure (one harness's config-root parent non-writable), overall exit
+# 13 — CRITICAL 3: on a partial failure (one harness's config-root non-writable), overall exit
 #      MUST be nonzero AND the still-writable harnesses must still be installed.
+#      (OpenCode dropped #954; now blocks .codex and checks claude + reasonix still install.)
 if [ "$(id -u)" -eq 0 ]; then ok "exit-code aggregation test skipped (running as root, chmod is a no-op)"
 else
-  home="$TMP/aggr"; mkdir -p "$home/.config"; chmod 000 "$home/.config"
+  home="$TMP/aggr"; mkdir -p "$home/.codex"; chmod 000 "$home/.codex"
   bash "$SUT" --home "$home" --harness all >/dev/null 2>&1; rc=$?
-  chmod 755 "$home/.config"
+  chmod 755 "$home/.codex"
   [ "$rc" -ne 0 ] && ok "partial failure yields nonzero overall exit" || no "partial failure silently exited 0 (rc=$rc)"
-  if [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.codex/skills/research-sdd/SKILL.md" ]; then
-    ok "partial failure still installs the writable harnesses (claude + codex)"
+  if [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.reasonix/skills/research-sdd/SKILL.md" ]; then
+    ok "partial failure still installs the writable harnesses (claude + reasonix)"
   else no "writable harnesses not installed after a mid-loop failure"; fi
 fi
 
@@ -158,37 +138,8 @@ bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
 diff -q "$TMP/blank-run2" "$pf" >/dev/null 2>&1 && ok "re-splice is byte-idempotent across re-runs" \
   || no "re-splice not idempotent (file grew/changed on a later run)"
 
-# 16 — ITEM 2: --dry-run must PLAN the opencode plugin symlink (source resolved from the kit root)
-#      without touching the filesystem.
-home="$TMP/plug-dry"
-out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
-printf '%s\n' "$out" | grep -q "SYMLINK $home/.config/opencode/plugins/research-sdd-sweep.ts -> $PLUGSRC" \
-  && ok "dry-run plans the opencode plugin symlink" || no "dry-run did not plan the plugin symlink"
-[ ! -e "$home/.config/opencode/plugins/research-sdd-sweep.ts" ] \
-  && ok "dry-run creates no plugin symlink" || no "dry-run created a plugin symlink"
-
-# 17 — ITEM 2: a real opencode install creates the symlink pointing at the kit source; re-running is
-#      a clean relink (idempotent, exit 0, still exactly our symlink — never a duplicate/error).
-home="$TMP/plug-real"; bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1
-dest="$home/.config/opencode/plugins/research-sdd-sweep.ts"
-if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$PLUGSRC" ]; then ok "real run creates the plugin symlink → kit source"
-else no "plugin symlink missing or wrong target ($(readlink "$dest" 2>/dev/null))"; fi
-bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1; rc=$?
-if [ "$rc" -eq 0 ] && [ -L "$dest" ] && [ "$(readlink "$dest")" = "$PLUGSRC" ]; then ok "second opencode run relinks cleanly (idempotent, exit 0)"
-else no "second opencode run not clean (rc=$rc, target=$(readlink "$dest" 2>/dev/null))"; fi
-
-# 18 — ITEM 2: a pre-existing NON-symlink user file at the plugin target MUST be preserved (never
-#      clobbered) and the user MUST be warned.
-home="$TMP/plug-userfile"; mkdir -p "$home/.config/opencode/plugins"
-printf 'user own plugin\n' > "$home/.config/opencode/plugins/research-sdd-sweep.ts"
-err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
-dest="$home/.config/opencode/plugins/research-sdd-sweep.ts"
-if [ ! -L "$dest" ] && grep -q 'user own plugin' "$dest" && printf '%s' "$err" | grep -qi 'WARNING.*research-sdd-sweep.ts'; then
-  ok "pre-existing user plugin file preserved + warned (not clobbered)"
-else no "user plugin file clobbered or no warning emitted"; fi
-
 # 19 — ITEM 3: the codex AGENTS.md notes MCP servers are REGISTERED AUTOMATICALLY into config.toml
-#      (no contradictory "add it yourself / no-auto-merge" guidance); claude/opencode do NOT carry it.
+#      (no contradictory "add it yourself / no-auto-merge" guidance); claude does NOT carry it.
 home="$TMP/mcpdoc"; bash "$SUT" --home "$home" --harness all >/dev/null 2>&1
 cx="$home/.codex/AGENTS.md"; cl="$home/.claude/CLAUDE.md"
 if grep -qi 'registered automatically' "$cx" && grep -q 'config.toml' "$cx" && ! grep -qi 'does NOT auto-merge' "$cx"; then
@@ -383,21 +334,21 @@ diff -q "$TMP/rx-orphan-orig" "$cfg" >/dev/null 2>&1 \
 # 31 — dry-run on an IDENTICAL deployed skill prints [up-to-date], not a plain INSTALL.
 #      The §7 three-state rule applied to the plan: identical state must be distinguishable from absent.
 home="$TMP/dryrun-identical"
-bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1              # seed: real install
-out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"      # second run: identical
+bash "$SUT" --home "$home" --harness codex >/dev/null 2>&1              # seed: real install
+out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"      # second run: identical
 if printf '%s\n' "$out" | grep -q 'INSTALL.*\[up-to-date\]'; then
   ok "dry-run identical: shows [up-to-date] (absent vs identical distinguishable)"
 else no "dry-run identical: missing [up-to-date] (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
 
 # 32 — dry-run on a DIVERGED deployed skill prints SKIP and names --force-skill as the remedy.
 #      The plan must not promise an install it will then refuse to perform.
-home="$TMP/dryrun-diverged"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-printf '# custom deployed content — not kit source\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
+home="$TMP/dryrun-diverged"; mkdir -p "$home/.codex/skills/research-sdd"
+printf '# custom deployed content — not kit source\n' > "$home/.codex/skills/research-sdd/SKILL.md"
+out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"
 if printf '%s\n' "$out" | grep -q 'INSTALL.*SKIP.*--force-skill'; then
   ok "dry-run diverged: shows SKIP and names --force-skill remedy"
 else no "dry-run diverged: plan wrong (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
-[ ! -f "$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup" ] \
+[ ! -f "$home/.codex/skills/research-sdd/SKILL.md.local-backup" ] \
   && ok "dry-run diverged: no backup created" \
   || no "dry-run diverged: backup created unexpectedly"
 
@@ -406,11 +357,11 @@ else no "dry-run diverged: plan wrong (got: $(printf '%s\n' "$out" | grep INSTAL
 if [ "$(id -u)" -eq 0 ]; then
   ok "dry-run unreadable SKILL.md check skipped (running as root — chmod 000 is a no-op)"
 else
-  home="$TMP/dryrun-unreadable"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-  printf '# some content\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-  chmod 000 "$home/.config/opencode/skills/research-sdd/SKILL.md"
-  out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
-  chmod 644 "$home/.config/opencode/skills/research-sdd/SKILL.md"
+  home="$TMP/dryrun-unreadable"; mkdir -p "$home/.codex/skills/research-sdd"
+  printf '# some content\n' > "$home/.codex/skills/research-sdd/SKILL.md"
+  chmod 000 "$home/.codex/skills/research-sdd/SKILL.md"
+  out="$(bash "$SUT" --dry-run --home "$home" --harness codex 2>&1)"
+  chmod 644 "$home/.codex/skills/research-sdd/SKILL.md"
   if printf '%s\n' "$out" | grep -q 'INSTALL.*SKIP.*not readable'; then
     ok "dry-run unreadable: shows SKIP for permissions issue (not a plain INSTALL)"
   else no "dry-run unreadable: wrong plan (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
@@ -418,13 +369,13 @@ fi
 
 # 34 — --force-skill overwrites a diverged SKILL.md after backing it up to <path>.local-backup.
 #      The backup must contain the original content so the operator can recover any deltas.
-home="$TMP/force-overwrite"; mkdir -p "$home/.config/opencode/skills/research-sdd"
+home="$TMP/force-overwrite"; mkdir -p "$home/.claude/skills/research-sdd"
 printf '# custom local content — NOT kit source\nmy local delta\n' \
-  > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-bash "$SUT" --force-skill --home "$home" --harness opencode >/dev/null 2>&1
-sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
-bak_fo="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
-if grep -q 'OpenCode runtime adapter' "$sf"; then
+  > "$home/.claude/skills/research-sdd/SKILL.md"
+bash "$SUT" --force-skill --home "$home" --harness claude >/dev/null 2>&1
+sf="$home/.claude/skills/research-sdd/SKILL.md"
+bak_fo="$home/.claude/skills/research-sdd/SKILL.md.local-backup"
+if grep -q 'Research-SDD launcher' "$sf"; then
   ok "--force-skill installs kit source over diverged SKILL.md"
 else no "--force-skill did not install kit source (still diverged or missing)"; fi
 if [ -f "$bak_fo" ] && grep -q 'my local delta' "$bak_fo"; then
@@ -433,11 +384,11 @@ else no "--force-skill backup missing or does not contain original content"; fi
 
 # 35 — --force-skill + --dry-run plans the overwrite (with backup path) but writes nothing.
 #      Exercises the compose requirement: force and dry-run must compose cleanly.
-home="$TMP/force-dry"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-printf '# custom\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-out="$(bash "$SUT" --force-skill --dry-run --home "$home" --harness opencode 2>&1)"
-sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
-bak_fd="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
+home="$TMP/force-dry"; mkdir -p "$home/.claude/skills/research-sdd"
+printf '# custom\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+out="$(bash "$SUT" --force-skill --dry-run --home "$home" --harness claude 2>&1)"
+sf="$home/.claude/skills/research-sdd/SKILL.md"
+bak_fd="$home/.claude/skills/research-sdd/SKILL.md.local-backup"
 if printf '%s\n' "$out" | grep -q 'INSTALL.*will overwrite.*backup'; then
   ok "--force-skill + dry-run: plans overwrite and names backup path"
 else no "--force-skill + dry-run: plan wrong (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
@@ -447,7 +398,7 @@ else no "--force-skill + dry-run: mutated the filesystem"; fi
 
 # 36 — --help range integrity: correct first and last lines, --force-skill present, set -uo absent.
 #      Catches all four ±1 drift directions on the hardcoded sed range in usage():
-#        3,17p → last rendered line is NOT the Idempotent tail (fails "opencode's" check)
+#        3,17p → last rendered line is NOT the Idempotent tail (fails "codex's" check)
 #        3,19p → "set -uo pipefail" appears in output (fails pipefail-absent check)
 #        4,18p → first rendered line is NOT empty (fails empty-first-line check)
 #        2,18p → first rendered line is NOT empty (fails empty-first-line check)
@@ -458,7 +409,7 @@ help_ok=1
 printf '%s\n' "$help_out" | grep -q -- '--force-skill'     || help_ok=0  # line 14 in range
 printf '%s\n' "$help_out" | grep -q 'set -uo pipefail' && help_ok=0      # must stay outside range
 [ -z "$help_first" ]                                       || help_ok=0  # line 3 is bare '#'
-printf '%s\n' "$help_last" | grep -q "opencode's"          || help_ok=0  # last content line = 18
+printf '%s\n' "$help_last" | grep -q "codex's"             || help_ok=0  # last content line = 18
 [ "$help_ok" = 1 ] \
   && ok "--help: range correct (--force-skill present, no pipefail, first/last lines match)" \
   || no "--help: range wrong (force-skill=$(printf '%s\n' "$help_out"|grep -c -- '--force-skill'), pipefail=$(printf '%s\n' "$help_out"|grep -c 'pipefail'), first='$help_first', last='$help_last')"
@@ -475,12 +426,12 @@ bash "$SUT" --unknown-arg-xyz 2>/dev/null; rc_unk=$?
 #      The operator resolves it by hand; the installer must not silently destroy it.
 #      Also: the deployed file must remain unchanged, the backup must be preserved intact,
 #      and the error message must name the backup so the operator knows what to act on.
-home="$TMP/force-bak-exists"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-printf '# diverged content\nDELTA-1\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-printf '# stale backup — contains deltas\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
-err_b1="$(bash "$SUT" --force-skill --home "$home" --harness opencode 2>&1 >/dev/null)"; rc_b1=$?
-sf_b1="$home/.config/opencode/skills/research-sdd/SKILL.md"
-bak_b1="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
+home="$TMP/force-bak-exists"; mkdir -p "$home/.claude/skills/research-sdd"
+printf '# diverged content\nDELTA-1\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+printf '# stale backup — contains deltas\n' > "$home/.claude/skills/research-sdd/SKILL.md.local-backup"
+err_b1="$(bash "$SUT" --force-skill --home "$home" --harness claude 2>&1 >/dev/null)"; rc_b1=$?
+sf_b1="$home/.claude/skills/research-sdd/SKILL.md"
+bak_b1="$home/.claude/skills/research-sdd/SKILL.md.local-backup"
 [ "$rc_b1" -ne 0 ] && ok "B1: --force-skill refuses (rc≠0) when backup already exists" \
   || no "B1: --force-skill exited 0 when backup exists — data loss possible"
 grep -q 'DELTA-1' "$sf_b1" && ok "B1: deployed file untouched when backup guard fires" \
@@ -493,10 +444,10 @@ printf '%s' "$err_b1" | grep -qi 'ERROR\|already exists' \
 
 # 39 — B1: dry-run + --force-skill with existing backup shows SKIP (not 'will overwrite').
 #      The plan must match what the real run will do — it would refuse, so the plan must say so.
-home="$TMP/force-dry-bak"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-printf '# diverged content\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-printf '# stale backup\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
-out="$(bash "$SUT" --force-skill --dry-run --home "$home" --harness opencode 2>&1)"
+home="$TMP/force-dry-bak"; mkdir -p "$home/.claude/skills/research-sdd"
+printf '# diverged content\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+printf '# stale backup\n' > "$home/.claude/skills/research-sdd/SKILL.md.local-backup"
+out="$(bash "$SUT" --force-skill --dry-run --home "$home" --harness claude 2>&1)"
 if printf '%s\n' "$out" | grep -q 'INSTALL.*SKIP.*already exists'; then
   ok "B1: dry-run + --force-skill + existing backup: shows SKIP with backup name"
 else no "B1: dry-run + --force-skill + existing backup: wrong plan (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
@@ -547,13 +498,13 @@ fi
 #      then cp would copy INTO the directory as SKILL.md/SKILL.md — the harness silently never
 #      loads the skill. Guard this in both branches.
 home="$TMP/dir-at-dest"
-mkdir -p "$home/.config/opencode/skills/research-sdd/SKILL.md"  # SKILL.md is a directory
-out="$(bash "$SUT" --dry-run --home "$home" --harness opencode 2>&1)"
-sf_dir="$home/.config/opencode/skills/research-sdd/SKILL.md"
+mkdir -p "$home/.claude/skills/research-sdd/SKILL.md"  # SKILL.md is a directory
+out="$(bash "$SUT" --dry-run --home "$home" --harness claude 2>&1)"
+sf_dir="$home/.claude/skills/research-sdd/SKILL.md"
 if printf '%s\n' "$out" | grep -q 'INSTALL.*SKIP.*not a regular file'; then
   ok "dir-at-dest dry-run: shows SKIP when skill_path is a directory"
 else no "dir-at-dest dry-run: wrong plan (got: $(printf '%s\n' "$out" | grep INSTALL || true))"; fi
-err_dir="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
+err_dir="$(bash "$SUT" --home "$home" --harness claude 2>&1 >/dev/null)"
 if [ -d "$sf_dir" ] && ! [ -f "$sf_dir/SKILL.md" ] \
    && printf '%s' "$err_dir" | grep -qi 'WARNING.*not a regular file'; then
   ok "dir-at-dest real run: directory preserved, warned, no file created inside"
@@ -685,9 +636,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash -n "$MUTANT4" 2>/dev/null \
     && ok "teeth: MUTANT4 parses (bash -n)" \
     || no "teeth: MUTANT4 is a syntax error — mutation is theater"
-  home="$TMP/teeth-dryrun-diverged"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-  printf '# custom deployed content\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-  out_m4="$(bash "$MUTANT4" --dry-run --home "$home" --harness opencode 2>&1)"
+  home="$TMP/teeth-dryrun-diverged"; mkdir -p "$home/.codex/skills/research-sdd"
+  printf '# custom deployed content\n' > "$home/.codex/skills/research-sdd/SKILL.md"
+  out_m4="$(bash "$MUTANT4" --dry-run --home "$home" --harness codex 2>&1)"
   if printf '%s\n' "$out_m4" | grep -q 'INSTALL.*SKIP.*--force-skill'; then
     no "teeth: mutant still matched [SKIP+--force-skill] — dry-run diverged check is THEATER"
   else
@@ -703,10 +654,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash -n "$MUTANT5" 2>/dev/null \
     && ok "teeth: MUTANT5 parses (bash -n)" \
     || no "teeth: MUTANT5 is a syntax error — mutation is theater"
-  home="$TMP/teeth-force-backup"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-  printf '# custom local content\nmy local delta\n' > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-  bash "$MUTANT5" --force-skill --home "$home" --harness opencode >/dev/null 2>&1
-  bak_t5="$home/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
+  home="$TMP/teeth-force-backup"; mkdir -p "$home/.claude/skills/research-sdd"
+  printf '# custom local content\nmy local delta\n' > "$home/.claude/skills/research-sdd/SKILL.md"
+  bash "$MUTANT5" --force-skill --home "$home" --harness claude >/dev/null 2>&1
+  bak_t5="$home/.claude/skills/research-sdd/SKILL.md.local-backup"
   if [ -f "$bak_t5" ] && grep -q 'my local delta' "$bak_t5"; then
     no "teeth: backup-less mutant still produced a backup — force-skill backup check is THEATER"
   else
@@ -721,10 +672,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash -n "$MUTANT6" 2>/dev/null \
     && ok "teeth: MUTANT6 parses (bash -n)" \
     || no "teeth: MUTANT6 is a syntax error — mutation is theater"
-  home_m6="$TMP/teeth-b1-exists"; mkdir -p "$home_m6/.config/opencode/skills/research-sdd"
-  printf '# diverged\nDELTA-1\n' > "$home_m6/.config/opencode/skills/research-sdd/SKILL.md"
-  printf '# stale backup — DELTA-1 only copy\n' > "$home_m6/.config/opencode/skills/research-sdd/SKILL.md.local-backup"
-  bash "$MUTANT6" --force-skill --home "$home_m6" --harness opencode >/dev/null 2>&1; rc_m6=$?
+  home_m6="$TMP/teeth-b1-exists"; mkdir -p "$home_m6/.claude/skills/research-sdd"
+  printf '# diverged\nDELTA-1\n' > "$home_m6/.claude/skills/research-sdd/SKILL.md"
+  printf '# stale backup — DELTA-1 only copy\n' > "$home_m6/.claude/skills/research-sdd/SKILL.md.local-backup"
+  bash "$MUTANT6" --force-skill --home "$home_m6" --harness claude >/dev/null 2>&1; rc_m6=$?
   [ "$rc_m6" -eq 0 ] \
     && ok "teeth: MUTANT6 (no backup-guard) exits 0 → B1 refuse check has teeth" \
     || no "teeth: MUTANT6 still refused — B1 refuse check is THEATER"
@@ -857,34 +808,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT12 omits 'Kit path:' → test-52 Kit path check has teeth"
   fi
 
-  echo "-- teeth: fake-kit opencode SKILL without adapter text; expect test-5 adapter assertion to go RED --"
-  # Prove that if the installed opencode SKILL.md lacks 'OpenCode runtime adapter', the new
-  # assertion in test 5 would catch it.  Build a fake kit whose toolbelt/opencode/SKILL.md has
-  # the adapter section header stripped — the installed file then also lacks it, so the grep fails.
-  t5kit="$TMP/teeth-t5-fake-kit"
-  mkdir -p "$t5kit/install" "$t5kit/skills/research-sdd" "$t5kit/toolbelt/opencode"
-  cp "$HERE/../research-sdd-install.sh" "$t5kit/install/research-sdd-install.sh"
-  cp "$HERE/../adapters.sh" "$t5kit/install/adapters.sh"
-  printf '# kit neutral skill placeholder\n' > "$t5kit/skills/research-sdd/SKILL.md"
-  sed '/OpenCode runtime adapter/d' "$KITROOT/toolbelt/opencode/SKILL.md" > "$t5kit/toolbelt/opencode/SKILL.md"
-  home_t5="$TMP/teeth-t5-oc-home"
-  bash "$t5kit/install/research-sdd-install.sh" --home "$home_t5" --harness opencode >/dev/null 2>&1
-  sf_t5="$home_t5/.config/opencode/skills/research-sdd/SKILL.md"
-  if [ -f "$sf_t5" ] && ! grep -q 'OpenCode runtime adapter' "$sf_t5"; then
-    ok "teeth-t5: opencode SKILL without adapter → test-5 adapter assertion goes RED (teeth confirmed)"
-  else
-    no "teeth-t5: adapter text still present in mutant install — test-5 adapter assertion is THEATER"
-  fi
 fi
 
 # 27 — DATA-LOSS REGRESSION: installing over a DIVERGED deployed SKILL.md must NOT clobber it.
 #      The installer must preserve the deployed file and emit a WARNING naming the file.
 #      (Regression guard for the unconditional `cp` bug that destroyed retro-applied deltas.)
-home="$TMP/skill-diverge"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-printf '# custom deployed content — not kit source\nOpenCode runtime adapter\n' \
-  > "$home/.config/opencode/skills/research-sdd/SKILL.md"
-err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
-sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+home="$TMP/skill-diverge"; mkdir -p "$home/.claude/skills/research-sdd"
+printf '# custom deployed content — not kit source\n' \
+  > "$home/.claude/skills/research-sdd/SKILL.md"
+err="$(bash "$SUT" --home "$home" --harness claude 2>&1 >/dev/null)"
+sf="$home/.claude/skills/research-sdd/SKILL.md"
 if grep -q 'custom deployed content' "$sf" && printf '%s' "$err" | grep -qi 'WARNING.*SKILL\.md'; then
   ok "SKILL.md diverged: deployed file preserved and warned (data-loss regression fixed)"
 else
@@ -893,24 +826,15 @@ fi
 
 # 28 — SKILL.md identical to kit source: no spurious warning (clean silent no-op).
 home="$TMP/skill-identical"
-bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1         # first install
-err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)" # second run on identical
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1         # first install
+err="$(bash "$SUT" --home "$home" --harness claude 2>&1 >/dev/null)" # second run on identical
 if printf '%s' "$err" | grep -qi 'WARNING.*SKILL\.md'; then
   no "SKILL.md identical: spurious WARNING emitted (no-op should be silent)"
 else
   ok "SKILL.md identical: no warning on identical file (clean silent no-op)"
 fi
 
-# 29 — opencode SKILL.md fresh install uses the harness-specific source (toolbelt/opencode/SKILL.md),
-#      which carries the OpenCode runtime adapter section absent from the generic skills/ source.
-home="$TMP/skill-fresh-oc"
-bash "$SUT" --home "$home" --harness opencode >/dev/null 2>&1
-sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
-if [ -f "$sf" ] && grep -q 'OpenCode runtime adapter' "$sf"; then
-  ok "opencode SKILL.md fresh install: harness-specific source (with OpenCode adapter) used"
-else
-  no "opencode SKILL.md fresh install: missing OpenCode adapter content (wrong source used)"
-fi
+# 29 — OpenCode support was dropped on 2026-09-23 (#954); harness-specific source test removed.
 
 # 30 — SKILL.md not readable (chmod 000): warns about permissions, not diverged content.
 #      A mode-000 destination must produce a "not readable" WARNING, not the "diverged content"
@@ -918,11 +842,11 @@ fi
 if [ "$(id -u)" -eq 0 ]; then
   ok "SKILL.md unreadable check skipped (running as root — chmod 000 is a no-op)"
 else
-  home="$TMP/skill-unreadable"; mkdir -p "$home/.config/opencode/skills/research-sdd"
-  sf="$home/.config/opencode/skills/research-sdd/SKILL.md"
+  home="$TMP/skill-unreadable"; mkdir -p "$home/.claude/skills/research-sdd"
+  sf="$home/.claude/skills/research-sdd/SKILL.md"
   printf '# content distinct from kit source\n' > "$sf"
   chmod 000 "$sf"
-  err="$(bash "$SUT" --home "$home" --harness opencode 2>&1 >/dev/null)"
+  err="$(bash "$SUT" --home "$home" --harness claude 2>&1 >/dev/null)"
   chmod 644 "$sf"
   if printf '%s' "$err" | grep -qi 'WARNING.*not readable' && ! printf '%s' "$err" | grep -qi 'diverged'; then
     ok "SKILL.md unreadable (chmod 000): warns about permissions, not diverged content"

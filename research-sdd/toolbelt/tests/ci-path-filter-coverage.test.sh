@@ -149,13 +149,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 #!/usr/bin/env bash
 if [ "${1:-}" = "--list-inputs" ]; then
   printf '.claude/settings.json\n'
-  printf 'research-sdd/toolbelt/opencode/research-sdd-sweep.ts\n'
-  printf '.opencode/config.json\n'
+  printf 'research-sdd/install/tests/golden/plan-codex.txt\n'
+  printf 'research-sdd/install/adapters.sh\n'
   exit 0
 fi
 STUB_EOF
   stub_inputs="$(bash "$TMP/stub-parity.sh" --list-inputs)"
-  if printf '%s\n' "$stub_inputs" | grep -qx '.opencode/config.json'; then
+  if printf '%s\n' "$stub_inputs" | grep -qx 'research-sdd/install/adapters.sh'; then
     ok "teeth A: extra input from stub parity test appears in derived set (derivation reads live file)"
   else
     no "teeth A: extra stub input NOT found — derivation is not reading parity test at runtime"
