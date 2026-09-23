@@ -18,16 +18,18 @@
 #
 # Usage: scan-secrets.sh [--committed] <target-dir>
 #   --committed  Scan ALL committed content reachable from HEAD: every unique file version across the full
-#                git history (via git rev-list --objects → unique blob dedup → ONE LOOP: git cat-file per
-#                unique blob into a temp file, then all HC patterns + advisory grep simultaneously) plus all
-#                commit messages. Required by ensure-remote.sh so what is scanned == what git push will send
-#                (including secrets deleted from HEAD but still reachable in history). Requires git. Target
-#                must be the git repo root — refuses with exit 3 if it is a subdirectory (pathspecs would
-#                silently miss files outside the subdir). Uses -a/--text so all files are scanned, including
-#                those with NUL bytes.
+#                git history (via git log --raw → (blob, path) pairs → unique blob dedup → ONE LOOP: git
+#                cat-file per unique blob into a temp file, then all HC patterns + advisory grep
+#                simultaneously) plus all commit messages. Required by ensure-remote.sh so what is scanned
+#                == what git push will send (including secrets deleted from HEAD but still reachable in
+#                history). Requires git. Target must be the git repo root — refuses with exit 3 if it is a
+#                subdirectory (pathspecs would silently miss files outside the subdir). Uses -a/--text so
+#                all files are scanned, including those with NUL bytes. Uses --no-replace-objects so
+#                refs/replace cannot hide secret commits from the scan (M1).
 # Exit: 0 = clean-in-scope (or only advisory WARN) · 1 = a high-confidence secret VALUE leaked ·
-#       2 = bad args · 3 = degraded (--committed: git unavailable, not a git repo with commits,
-#           target is not the repo root, or rev-list/grep failure).
+#       2 = bad args · 3 = degraded (--committed: git/awk unavailable, not a git repo with commits,
+#           target is not the repo root, mktemp failed, rev-list/log/cat-file failure, or 0 in-scope
+#           blobs despite objects being listed).
 set -uo pipefail
 committed=0
 if [ "${1:-}" = "--committed" ]; then
@@ -48,10 +50,13 @@ KWID='(?<![A-Za-z0-9])(?:password|passwd|secret|api[_-]?key|apikey|token)(?![A-Z
 _rev_obj_tmp=""; _blobs_list=""; _hc_hits_tmp=""; _adv_raw=""; _blob_tmp=""
 trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp"' EXIT
 
-# --committed mode: probe git, verify the repo has at least one commit.
+# --committed mode: probe git and awk, verify the repo has at least one commit.
 if [ "$committed" = 1 ]; then
   command -v git >/dev/null 2>&1 || {
     echo "DEGRADED: git not found — --committed mode requires git" >&2; exit 3; }
+  # B3: probe awk before the filter pipeline so absence is caught with a typed message.
+  command -v awk >/dev/null 2>&1 || {
+    echo "DEGRADED: awk not found — --committed mode requires awk" >&2; exit 3; }
   git -C "$target" rev-parse --git-dir >/dev/null 2>&1 || {
     echo "DEGRADED: $target is not a git repository — --committed mode requires a git repo" >&2; exit 3; }
   git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1 || {
@@ -67,55 +72,121 @@ if [ "$committed" = 1 ]; then
     echo "          from a subdirectory silently miss all files outside $_target_real." >&2
     exit 3
   fi
-  # Enumerate all reachable objects; filter unique blobs matching in-scope paths.
-  # git rev-list --objects HEAD outputs "<sha40>" (bare commit SHAs) and "<sha40> <path>" (blobs/trees).
-  # awk keeps NF>=2 lines (path-bearing blobs/trees) that match our include/exclude rules, then
-  # sort|awk deduplicates by blob SHA — same file content (same SHA) scanned exactly once.
-  _rev_obj_tmp="$(mktemp)"
-  git -C "$target" rev-list --objects HEAD > "$_rev_obj_tmp" 2>/dev/null
+
+  # B1+M1: Enumerate ALL (blob, path) pairs across the full history using git log --raw.
+  # git log --format= --raw --no-abbrev --no-renames -m --root -z outputs, for each file change:
+  #   ":<old-mode> <new-mode> <old-sha> <new-sha> <status>\0<path>\0"
+  # RS="\0" in awk reads these NUL-terminated records directly (B5/NUL-safe: no tr '\0' '\n' needed).
+  # This surfaces in-scope copies of blobs first seen at excluded/out-of-scope paths (B1 fix):
+  # unlike rev-list --objects which lists each blob once under the FIRST path encountered,
+  # log --raw emits every (blob, path) pair, so an in-scope path is never missed.
+  # --no-replace-objects: refs/replace cannot hide secret commits from the scan (M1 fix).
+  # B3: mktemp checked; any non-zero from git log → DEGRADED.
+  _rev_obj_tmp="$(mktemp)" || {
+    echo "DEGRADED: mktemp failed — cannot create temp file for object list" >&2; exit 3; }
+  git --no-replace-objects -C "$target" log \
+    --format= --raw --no-abbrev --no-renames -m --root -z HEAD 2>/dev/null \
+    > "$_rev_obj_tmp"
   _rev_obj_rc=$?
-  if [ "$_rev_obj_rc" -ge 2 ]; then
-    echo "DEGRADED: git rev-list --objects failed (rc=$_rev_obj_rc) — cannot enumerate committed blobs" >&2
+  # B3: any non-zero from git log is a failure — rc=1 is not grep-semantics "no match", it is an error.
+  if [ "${_rev_obj_rc:-0}" -ne 0 ]; then
+    echo "DEGRADED: git log --raw failed (rc=$_rev_obj_rc) — cannot enumerate committed blobs" >&2
     exit 3
   fi
-  _blobs_list="$(mktemp)"
-  awk 'NF>=2 {
-    sha=$1; path=substr($0,42)
-    inc=0
-    if (path ~ /\.md$/) inc=1
-    if (path ~ /\.env$/) inc=1
-    if (path ~ /(^|\/)(\.env[^\/]+)$/) inc=1
-    if (path ~ /\.conf$/) inc=1
-    if (path ~ /\.ini$/) inc=1
-    if (path ~ /\.properties$/) inc=1
-    if (path ~ /\.cfg$/) inc=1
-    if (path ~ /(^|\/)config\./) inc=1
-    if (path ~ /(^|\/)credentials$/) inc=1
-    if (!inc) next
-    if (path ~ /\/(node_modules|\.venv|venv|decompiled|vineflower|procyon|cfr|jadx)\//) next
-    print sha " " path
-  }' "$_rev_obj_tmp" | sort -k1,1 | awk '!seen[$1]++' > "$_blobs_list"
+  # B5/NUL-safe: count NUL-terminated records (RS="\0") — avoids wc -l which splits on newlines,
+  # breaking for paths with embedded newlines.
+  _raw_lines="$(awk 'BEGIN{RS="\0"} END{print NR}' "$_rev_obj_tmp")"
+
+  # Filter (blob, path) pairs by in-scope rules and dedup by blob sha (keep first in-scope path).
+  # RS="\0": reads NUL-terminated records from git log -z output directly (B5: NUL-safe enumeration).
+  #   ':'-prefixed records are diff headers — field 4 is the new-side blob sha.
+  #   Non-':' records are paths (may contain embedded newlines — gsub escapes them for safe output).
+  #   All-zero sha = deletion; skip it (blob no longer exists).
+  _blobs_list="$(mktemp)" || {
+    echo "DEGRADED: mktemp failed — cannot create blobs list temp file" >&2; exit 3; }
+  awk '
+BEGIN{RS="\0"; sha=""}
+/^:/ {
+  sha = $4; next
+}
+length($0) > 0 && sha != "" {
+  path = $0; sha_cur = sha; sha = ""
+  if (sha_cur ~ /^0+$/) next
+  inc = 0
+  if (path ~ /\.md$/) inc = 1
+  if (path ~ /\.env$/) inc = 1
+  if (path ~ /(^|\/)(\.env[^\/]+)$/) inc = 1
+  if (path ~ /\.conf$/) inc = 1
+  if (path ~ /\.ini$/) inc = 1
+  if (path ~ /\.properties$/) inc = 1
+  if (path ~ /\.cfg$/) inc = 1
+  if (path ~ /(^|\/)config\./) inc = 1
+  if (path ~ /(^|\/)credentials$/) inc = 1
+  if (!inc) next
+  # Exclude vendored/decompiled trees — nested OR top-level (minor m1 fix).
+  if (path ~ /(^|\/)(node_modules|\.venv|venv|decompiled|vineflower|procyon|cfr|jadx)\//) next
+  # B5/NUL-safe: escape embedded newlines in path before printing so the output is a single line
+  # per entry — prevents the sort/dedup pipeline from splitting the path across two lines.
+  gsub(/\n/, "\\n", path)
+  print sha_cur " " path
+}
+' "$_rev_obj_tmp" | sort -k1,1 | awk '!seen[$1]++' > "$_blobs_list"
+  # B3: check the filter pipeline's exit codes (awk/sort/dedup).
+  _frc=("${PIPESTATUS[@]}")
+  if [ "${_frc[0]:-0}" -ne 0 ] || [ "${_frc[1]:-0}" -ne 0 ] || [ "${_frc[2]:-0}" -ne 0 ]; then
+    echo "DEGRADED: blob filter pipeline failed (rc=${_frc[*]}) — blob enumeration unreliable" >&2
+    exit 3
+  fi
   rm -f "$_rev_obj_tmp"; _rev_obj_tmp=""
+
+  _total_blobs="$(wc -l < "$_blobs_list")"
+  # B3: 0 in-scope blobs while the raw log produced output → pipeline likely failed silently.
+  if [ "$_total_blobs" -eq 0 ] && [ "${_raw_lines:-0}" -gt 0 ]; then
+    echo "DEGRADED: 0 in-scope blobs found but git log produced output — filter pipeline may have failed silently" >&2
+    exit 3
+  fi
+
   # ONE LOOP: read each unique blob once and run all HC patterns (combined 7-pattern grep) plus the
   # advisory grep simultaneously via a per-blob temp file. 1 git cat-file per blob instead of 8
   # (7 HC passes + 1 advisory), reducing subprocess spawns ~8-fold vs per-pattern loops.
   # Sequential greps on a local temp file — no async/ordering issues.
-  # -naE: -n line numbers, -a text mode (catches NUL-byte .md files), -E extended regex.
+  # -naE: -n line numbers, -a text mode (catches NUL-byte .md files, and invalid-UTF-8 lines — B4),
+  #       -E extended regex.
   # -e for each pattern: required so patterns starting with '-' (e.g. '-----BEGIN') are not parsed
   # as options. -naiP for advisory: case-insensitive PCRE.
-  _hc_hits_tmp="$(mktemp)"; _adv_raw="$(mktemp)"; _blob_tmp="$(mktemp)"
+  # B5: use awk via ENVIRON for path prefixing instead of sed "s|^|${bpath}…|" — sed is vulnerable
+  # to paths containing the delimiter '|' or backreferences '\1'.  ENVIRON is safe for all chars.
+  # B2: check git cat-file exit code; any failure → DEGRADED (empty content reads as clean otherwise).
+  _hc_hits_tmp="$(mktemp)" || {
+    echo "DEGRADED: mktemp failed — cannot create HC hits temp file" >&2; exit 3; }
+  _adv_raw="$(mktemp)" || {
+    echo "DEGRADED: mktemp failed — cannot create advisory raw temp file" >&2; exit 3; }
+  _blob_tmp="$(mktemp)" || {
+    echo "DEGRADED: mktemp failed — cannot create blob temp file" >&2; exit 3; }
   while IFS=' ' read -r bsha bpath; do
     bshort="${bsha:0:7}"
-    git -C "$target" cat-file blob "$bsha" 2>/dev/null > "$_blob_tmp"
-    grep -naE -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
+    # B2: check cat-file exit — a corrupt/missing blob must not silently read as empty (clean).
+    if ! git --no-replace-objects -C "$target" cat-file blob "$bsha" > "$_blob_tmp" 2>/dev/null; then
+      echo "DEGRADED: git cat-file blob ${bshort} failed — committed blob scan aborted" >&2
+      exit 3
+    fi
+    # B4: -naE already includes -a (text mode), which treats the file as text and scans lines with
+    # invalid UTF-8 bytes (Latin-1 \xf1, CRLF+\xe9) that grep -E without -a would silently drop.
+    # B5: prefix via ENVIRON — safe for paths with '|', '\1', or other sed-special chars.
+    grep -naE \
+              -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
               -e 'A[KS]IA[0-9A-Z]{16}' \
               -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
               -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
               -e 'AIza[0-9A-Za-z_-]{35}' \
               -e 'sk-[A-Za-z0-9]{20,}' \
               -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
-              "$_blob_tmp" 2>/dev/null | sed "s|^|${bpath}@${bshort}:|" >> "$_hc_hits_tmp" || :
-    grep -naiP -e "${KWID}\s*[=:]" "$_blob_tmp" 2>/dev/null | sed "s|^|${bpath}@${bshort}:|" >> "$_adv_raw" || :
+              "$_blob_tmp" 2>/dev/null \
+      | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
+      >> "$_hc_hits_tmp"
+    grep -naiP -e "${KWID}\s*[=:]" "$_blob_tmp" 2>/dev/null \
+      | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
+      >> "$_adv_raw"
   done < "$_blobs_list"
   rm -f "$_blob_tmp"; _blob_tmp=""
 fi
@@ -166,13 +237,16 @@ scan() {  # <label> <extended-regex>
   local label="$1" re="$2" m
   if [ "$committed" = 1 ]; then
     # Filter pre-computed HC hits file (all 7 HC patterns scanned in the probe block ONE LOOP).
-    # -E -e: explicit pattern flag required so PEM pattern (-----BEGIN…) is not parsed as an option.
+    # -aE: -a required so lines with invalid UTF-8 bytes (B4) are not dropped by grep under a
+    # UTF-8 locale. The _hc_hits_tmp file was written with -naE (already UTF-8 safe), but the
+    # re-filter here also needs -a for the same reason.
+    # -e: explicit pattern flag required so PEM pattern (-----BEGIN…) is not parsed as an option.
     # Dedup + cap at 50; /dev/null fallback when probe block was skipped (e.g. teeth-deg path).
     while IFS= read -r m; do
       [ -z "$m" ] && continue
       echo "   LEAK!   $label — ${m}"
       rc=1; hits=$((hits+1))
-    done < <(grep -E -e "$re" "${_hc_hits_tmp:-/dev/null}" 2>/dev/null | sort -u | head -50)
+    done < <(grep -aE -e "$re" "${_hc_hits_tmp:-/dev/null}" 2>/dev/null | sort -u | head -50)
   else
     while IFS= read -r m; do
       [ -z "$m" ] && continue
@@ -247,10 +321,11 @@ rm -f "$_adv_dedup"
 # --- COMMIT MESSAGES (full history, --committed mode only) -----------------------------------------
 # A secret value typed into a commit message is never removed by a content redaction. Scans all
 # commit subjects + bodies reachable from HEAD for the same high-confidence patterns as the file scan.
+# M1: --no-replace-objects ensures refs/replace cannot hide commit messages from the scan.
 if [ "$committed" = 1 ]; then
   echo "-- commit messages (full history) --"
   _cmsg_tmp="$(mktemp)"
-  git -C "$target" log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
+  git --no-replace-objects -C "$target" log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
   _cml_rc=$?
   if [ "$_cml_rc" -ge 2 ]; then
     echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2

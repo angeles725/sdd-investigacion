@@ -190,6 +190,8 @@ fi
 
 # Push is textually AFTER and GUARDED BY the confirmed-private check above.
 echo ">> confirmed PRIVATE — pushing corpus"
-git -C "$target" push -u origin HEAD || { echo "REFUSED: push failed." >&2; exit 7; }
+# m4: --no-follow-tags prevents annotated tag messages (which may contain secrets) from being
+# pushed when push.followTags=true is set in the repo or global config.
+git -C "$target" push -u origin HEAD --no-follow-tags || { echo "REFUSED: push failed." >&2; exit 7; }
 echo "== ensure-remote: private remote ready at https://github.com/$owner/$repo =="
 exit 0

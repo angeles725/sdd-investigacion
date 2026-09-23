@@ -308,8 +308,10 @@ cm_rc34="$(bash "$SUT" --committed "$d_t34" >/dev/null 2>&1; echo $?)"
 [ "$cm_rc34" = 1 ] && ok "34 --committed catches token in nested credentials → exit 1 (B2 :(glob)**/credentials)" \
   || no "34 --committed nested credentials: rc=$cm_rc34 (want 1)"
 
-# 35 — --committed: git rev-list --objects fails (rc ≥ 2) → typed DEGRADED exit 3, not silent pass (B3).
-# Probe passes (rev-parse works); only rev-list --objects exits 2 to simulate object-enumeration failure.
+# 35 — --committed: git log --raw fails (rc ≥ 2) → typed DEGRADED exit 3, not silent pass (B3).
+# Probe passes (rev-parse works); only "log --format= --raw" exits 2 to simulate enumeration failure.
+# Note: the old stub intercepted "rev-list --objects"; updated to "log --format= --raw" which is the
+# command now used for (blob, path) enumeration (#955 B1 fix).
 REAL_GIT35="$(type -P git 2>/dev/null)"
 d_t35="$TMP/committed-revlist-fail"
 mkdir -p "$d_t35/corpus"
@@ -318,14 +320,14 @@ git -C "$d_t35" config user.email "test@test" && git -C "$d_t35" config user.nam
 printf '# Block 1\n\nresearch note\n' > "$d_t35/corpus/t-block1.md"
 git -C "$d_t35" add corpus/t-block1.md && git -C "$d_t35" commit -q -m "init" 2>/dev/null
 _stub_bad_revlist="$TMP/bad-revlist-bin"; mkdir -p "$_stub_bad_revlist"
-printf '#!/bin/bash\ncase "$*" in\n  *"rev-list --objects"*) exit 2 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
+printf '#!/bin/bash\ncase "$*" in\n  *"log --format= --raw"*) exit 2 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
   "$REAL_GIT35" > "$_stub_bad_revlist/git"; chmod +x "$_stub_bad_revlist/git"
 cm_out35="$(PATH="$_stub_bad_revlist:$PATH" bash "$SUT" --committed "$d_t35" 2>&1)"
 cm_rc35=$?
 if [ "$cm_rc35" = 3 ] && printf '%s' "$cm_out35" | grep -qi 'degraded'; then
-  ok "35 --committed git rev-list --objects rc2 → typed DEGRADED exit 3, not silent pass (B3)"
+  ok "35 --committed git log --raw rc2 → typed DEGRADED exit 3, not silent pass (B3)"
 else
-  no "35 --committed rev-list fail: rc=$cm_rc35 (want 3) out=$cm_out35"
+  no "35 --committed log --raw fail: rc=$cm_rc35 (want 3) out=$cm_out35"
 fi
 
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
@@ -358,11 +360,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && no "teeth-nc: rc-zeroed mutant still emitted WARN — test 26 is THEATER" \
     || ok "teeth-nc: rc-zeroed mutant passes silently — count-fail guard has teeth"
 
-  # Teeth for tests 27 and 28 (--committed mode): neuter rev-list --objects so the blobs list is empty —
-  # no per-blob scans run, exit 0 even when HEAD contains a token.
-  echo "-- teeth: empty rev-list --objects output — tests 27+28 must go red (no blobs scanned) --"
+  # Teeth for tests 27 and 28 (--committed mode): neuter the blobs list so no per-blob scans run —
+  # exit 0 even when HEAD contains a token. Strategy: empty _blobs_list after the dedup step and
+  # silence the N=0+raw_lines>0 DEGRADED guard so the empty result is treated as clean.
+  echo "-- teeth: empty blobs list + silence N=0 guard — tests 27+28 must go red (no blobs scanned) --"
   mutant_cm="$TMP/scan-secrets.MUTANT-committed.sh"
-  sed 's/git -C "\$target" rev-list --objects HEAD > "\$_rev_obj_tmp"/: > "$_rev_obj_tmp"/g' "$SUT" > "$mutant_cm"
+  # Replace the dedup line (last awk in the pipeline) to also truncate the output:
+  #   awk '!seen[$1]++' > "$_blobs_list"
+  # becomes:
+  #   awk '!seen[$1]++' > "$_blobs_list"; : > "$_blobs_list"
+  # Also silence: if [ "$_total_blobs" -eq 0 ] && [ "${_raw_lines:-0}" -gt 0 ]
+  sed "s/awk '!seen\[\\\$1\]++' > \"\\\$_blobs_list\"/awk '!seen[\$1]++' > \"\$_blobs_list\"; : > \"\$_blobs_list\"/g" \
+    "$SUT" \
+  | sed 's/if \[ "\$_total_blobs" -eq 0 \] && \[ "\${_raw_lines:-0}" -gt 0 \]/if false \&\& false/g' \
+  > "$mutant_cm"
   # test-27 tooth: root NOTES.md token in committed HEAD but deleted from working tree.
   # The HEAD-removed mutant scans the WT — deleted file is absent — so it exits 0.
   # The real committed mode finds NOTES.md in HEAD → exit 1. Test 27 would flip → has teeth.
@@ -420,7 +431,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Test 31 must flip to FAIL (exit 1 → exit 0, no PEM hit, which ≠1 so the test fails).
   echo "-- teeth-b1: remove -e from scan() HC filter grep — test 31 PEM must go red --"
   mutant_b1="$TMP/scan-secrets.MUTANT-b1.sh"
-  sed 's/grep -E -e "\$re"/grep -E "\$re"/g' "$SUT" > "$mutant_b1"
+  sed 's/grep -aE -e "\$re"/grep -aE "\$re"/g' "$SUT" > "$mutant_b1"
   cm_rc31m="$(bash "$mutant_b1" --committed "$d_t31" >/dev/null 2>&1; echo $?)"
   [ "$cm_rc31m" != 1 ] && ok "teeth-b1: -e-removed mutant misses PEM (rc=$cm_rc31m) → test 31 has teeth" \
     || no "teeth-b1: mutant still caught PEM (rc=$cm_rc31m) — test 31 is THEATER"
@@ -434,12 +445,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ "$cm_rc32m" != 1 ] && ok "teeth-b2: env[^-removed mutant misses nested .env.local (rc=$cm_rc32m) → test 32 has teeth" \
     || no "teeth-b2: mutant still caught nested .env.local (rc=$cm_rc32m) — test 32 is THEATER"
 
-  # Teeth for test 35 (B3: git rev-list --objects rc ≥ 2 → DEGRADED).
-  # Mutant-b3: neuter the _rev_obj_rc ≥ 2 check so rev-list failure is silently ignored.
+  # Teeth for test 35 (B3: git log --raw rc ≥ 2 → DEGRADED).
+  # Mutant-b3: neuter the _rev_obj_rc -ne 0 check so log failure is silently ignored.
   # Test 35 must flip to FAIL (exit 0 instead of 3 — empty blob list, no scan, no DEGRADED).
+  # Note: 0 blobs with _raw_lines=0 is NOT DEGRADED (empty repo), so the mutant must also
+  # silence the N=0 check; we do that by patching both conditions to false.
   echo "-- teeth-b3: remove _rev_obj_rc check — test 35 must go red (silent pass) --"
   mutant_b3="$TMP/scan-secrets.MUTANT-b3.sh"
-  sed 's/if \[ "\$_rev_obj_rc" -ge 2 \]/if false/g' "$SUT" > "$mutant_b3"
+  sed 's/if \[ "\${_rev_obj_rc:-0}" -ne 0 \]/if false/g; s/if \[ "\$_total_blobs" -eq 0 \]/if false/g' \
+    "$SUT" > "$mutant_b3"
   cm_out35m="$(PATH="$_stub_bad_revlist:$PATH" bash "$mutant_b3" --committed "$d_t35" 2>&1)"
   cm_rc35m=$?
   if [ "$cm_rc35m" != 3 ] && ! printf '%s' "$cm_out35m" | grep -qi 'degraded'; then
@@ -533,7 +547,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for test 37 (MAJOR1 commit messages): neuter git log so commit messages are empty.
   echo "-- teeth: neuter git log — test 37 commit-message token must go red --"
   mutant_cmsg="$TMP/scan-secrets.MUTANT-cmsg.sh"
-  sed 's/git -C "\$target" log --format="format:%s%n%b" HEAD/: # neutered-log/g' "$SUT" > "$mutant_cmsg"
+  sed 's/git --no-replace-objects -C "\$target" log --format="format:%s%n%b" HEAD/: # neutered-log/g' "$SUT" > "$mutant_cmsg"
   cm_rc37m="$(bash "$mutant_cmsg" --committed "$d_t37" >/dev/null 2>&1; echo $?)"
   [ "$cm_rc37m" != 1 ] && ok "teeth-cmsg37: log-neutered mutant misses commit-message token (rc=$cm_rc37m) → test 37 has teeth" \
     || no "teeth-cmsg37: mutant still caught commit-message token (rc=$cm_rc37m) — test 37 is THEATER"
@@ -541,7 +555,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for test 38 (MAJOR2 -a flag): change -naE back to -nIE so binary files are skipped.
   echo "-- teeth: change -naE to -nIE — test 38 NUL-byte file must go red (binary skipped) --"
   mutant_noflag="$TMP/scan-secrets.MUTANT-noflag.sh"
-  sed 's/grep -naE -e/grep -nIE -e/g' "$SUT" > "$mutant_noflag"
+  sed 's/-naE/-nIE/g' "$SUT" > "$mutant_noflag"
   cm_rc38m="$(bash "$mutant_noflag" --committed "$d_t38" >/dev/null 2>&1; echo $?)"
   [ "$cm_rc38m" != 1 ] && ok "teeth-noflag38: -nIE mutant skips NUL-byte .md (rc=$cm_rc38m) → test 38 has teeth" \
     || no "teeth-noflag38: mutant still caught NUL-byte token (rc=$cm_rc38m) — test 38 is THEATER"
@@ -564,6 +578,360 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-noi40: -i-removed mutant still WARNs on PASSWORD= — test 40 is THEATER"
   else
     ok "teeth-noi40: -i-removed mutant does not WARN on PASSWORD= (uppercase) → test 40 has teeth"
+  fi
+fi
+
+# --------------------------------------------------------------------------
+# B1 — blob dedup via first-seen path: in-scope copy missed when sha first
+# encountered at an out-of-scope or excluded path (adversarial re-review B1).
+# --------------------------------------------------------------------------
+
+# 41 — B1: same blob committed as a.txt (excluded) + notes.md (in-scope); only the .txt
+#      path appears in rev-list --objects so the in-scope .md copy is never scanned.
+#      --committed must catch the token via the notes.md path.
+d_t41="$TMP/b1-outofscope-first"
+mkdir -p "$d_t41"
+git -C "$d_t41" init -q 2>/dev/null
+git -C "$d_t41" config user.email "t@t" && git -C "$d_t41" config user.name "t"
+printf '# b\n' > "$d_t41/corpus-block1.md"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t41/a.txt"
+cp "$d_t41/a.txt" "$d_t41/notes.md"           # identical content → same blob sha
+git -C "$d_t41" add corpus-block1.md a.txt notes.md && git -C "$d_t41" commit -q -m "init" 2>/dev/null
+cm_rc41="$(bash "$SUT" --committed "$d_t41" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc41" = 1 ] && ok "41 B1 out-of-scope first path: in-scope notes.md copy detected → exit 1" \
+  || no "41 B1 out-of-scope first path: rc=$cm_rc41 (want 1) — in-scope copy missed"
+
+# 42 — B1: same blob committed at decompiled/x.md (excluded) + zz.md (in-scope);
+#      the decompiled path sorts first alphabetically.
+d_t42="$TMP/b1-excluded-first"
+mkdir -p "$d_t42/d/decompiled"
+git -C "$d_t42" init -q 2>/dev/null
+git -C "$d_t42" config user.email "t@t" && git -C "$d_t42" config user.name "t"
+printf '# b\n' > "$d_t42/corpus-block1.md"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t42/d/decompiled/x.md"
+cp "$d_t42/d/decompiled/x.md" "$d_t42/zz.md"  # same sha, in-scope path
+git -C "$d_t42" add . && git -C "$d_t42" commit -q -m "init" 2>/dev/null
+cm_rc42="$(bash "$SUT" --committed "$d_t42" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc42" = 1 ] && ok "42 B1 excluded path first: in-scope zz.md copy detected → exit 1" \
+  || no "42 B1 excluded path first: rc=$cm_rc42 (want 1) — in-scope copy missed"
+
+# 43 — B1: git mv n.md → n.txt; HEAD has only n.txt but the blob was first introduced
+#      as n.md (in-scope). rev-list --objects HEAD only sees n.txt → missed.
+d_t43="$TMP/b1-git-mv"
+mkdir -p "$d_t43"
+git -C "$d_t43" init -q 2>/dev/null
+git -C "$d_t43" config user.email "t@t" && git -C "$d_t43" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t43/n.md"
+git -C "$d_t43" add n.md && git -C "$d_t43" commit -q -m "add n.md" 2>/dev/null
+git -C "$d_t43" mv n.md n.txt && git -C "$d_t43" commit -q -m "rename to .txt" 2>/dev/null
+cm_rc43="$(bash "$SUT" --committed "$d_t43" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc43" = 1 ] && ok "43 B1 git mv .md→.txt: older commit's .md blob detected → exit 1" \
+  || no "43 B1 git mv: rc=$cm_rc43 (want 1) — .md blob in older commit missed"
+
+# --------------------------------------------------------------------------
+# B4 — grep -E without -a drops lines with invalid UTF-8 bytes (Latin-1, CRLF+\xe9).
+# --------------------------------------------------------------------------
+
+# 44 — B4: Latin-1 byte (\xf1) on the same line as a GitHub token; grep -E without -a
+#      drops the line under a UTF-8 locale → token invisible.
+d_t44="$TMP/b4-latin1"
+mkdir -p "$d_t44"
+git -C "$d_t44" init -q 2>/dev/null
+git -C "$d_t44" config user.email "t@t" && git -C "$d_t44" config user.name "t"
+printf 'contrase\xf1a del token: ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t44/a.md"
+git -C "$d_t44" add a.md && git -C "$d_t44" commit -q -m "init" 2>/dev/null
+cm_rc44="$(LC_ALL=C.UTF-8 bash "$SUT" --committed "$d_t44" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc44" = 1 ] && ok "44 B4 Latin-1 byte on secret line: token detected under C.UTF-8 locale → exit 1" \
+  || no "44 B4 Latin-1: rc=$cm_rc44 (want 1) — invalid UTF-8 byte caused line to be dropped"
+
+# 45 — B4: PEM header with CRLF and a Latin-1 byte on the same line.
+d_t45="$TMP/b4-crlf-latin1"
+mkdir -p "$d_t45"
+git -C "$d_t45" init -q 2>/dev/null
+git -C "$d_t45" config user.email "t@t" && git -C "$d_t45" config user.name "t"
+printf 'clave \xe9: -----BEGIN RSA PRIVATE KEY-----\r\nMIIabc\r\n' > "$d_t45/k.md"
+git -C "$d_t45" add k.md && git -C "$d_t45" commit -q -m "init" 2>/dev/null
+cm_rc45="$(LC_ALL=C.UTF-8 bash "$SUT" --committed "$d_t45" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc45" = 1 ] && ok "45 B4 CRLF + Latin-1 on PEM line: key detected → exit 1" \
+  || no "45 B4 CRLF+Latin-1 PEM: rc=$cm_rc45 (want 1) — line dropped due to invalid bytes"
+
+# --------------------------------------------------------------------------
+# B3 — unchecked errors: rev-list exits 1 treated as ok, mktemp failure,
+#      awk missing from PATH.
+# --------------------------------------------------------------------------
+
+# 46 — B3: git log (or rev-list) exits 1 (non-fatal by old ">= 2" check) → must be DEGRADED.
+REAL_GIT46="$(type -P git 2>/dev/null)"
+d_t46="$TMP/b3-revlist-exit1"
+mkdir -p "$d_t46"
+git -C "$d_t46" init -q 2>/dev/null
+git -C "$d_t46" config user.email "t@t" && git -C "$d_t46" config user.name "t"
+printf '# clean\n' > "$d_t46/a.md"
+git -C "$d_t46" add a.md && git -C "$d_t46" commit -q -m "init" 2>/dev/null
+_stub46="$TMP/stub-git-exit1"; mkdir -p "$_stub46"
+# Stub: intercept log --raw or rev-list --objects and exit 1
+printf '#!/bin/bash\ncase "$*" in\n  *"log --format= --raw"*|*"rev-list --objects"*) exit 1 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
+  "$REAL_GIT46" > "$_stub46/git"; chmod +x "$_stub46/git"
+cm_out46="$(PATH="$_stub46:$PATH" bash "$SUT" --committed "$d_t46" 2>&1)"
+cm_rc46=$?
+if [ "$cm_rc46" = 3 ] && printf '%s' "$cm_out46" | grep -qi 'degraded'; then
+  ok "46 B3 git log/rev-list exit 1: DEGRADED exit 3 (any non-zero is failure)"
+else
+  no "46 B3 rev-list exit 1: rc=$cm_rc46 (want 3) — exit-1 was treated as ok (old >=2 check)"
+fi
+
+# 47 — B3: mktemp fails (TMPDIR points to a non-existent directory) → must be DEGRADED exit 3.
+d_t47="$TMP/b3-mktemp-fail"
+mkdir -p "$d_t47"
+git -C "$d_t47" init -q 2>/dev/null
+git -C "$d_t47" config user.email "t@t" && git -C "$d_t47" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t47/n.md"
+git -C "$d_t47" add n.md && git -C "$d_t47" commit -q -m "init" 2>/dev/null
+cm_out47="$(TMPDIR="$TMP/nonexistent-tmpdir-$$" bash "$SUT" --committed "$d_t47" 2>&1)"
+cm_rc47=$?
+if [ "$cm_rc47" = 3 ] && printf '%s' "$cm_out47" | grep -qi 'degraded'; then
+  ok "47 B3 mktemp fails: DEGRADED exit 3 (TMPDIR missing/unusable)"
+else
+  no "47 B3 mktemp fail: rc=$cm_rc47 (want 3) — mktemp failure not detected"
+fi
+
+# 48 — B3: awk missing from PATH → DEGRADED exit 3 (filter pipeline fails silently otherwise).
+d_t48="$TMP/b3-awk-missing"
+mkdir -p "$d_t48"
+git -C "$d_t48" init -q 2>/dev/null
+git -C "$d_t48" config user.email "t@t" && git -C "$d_t48" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t48/n.md"
+git -C "$d_t48" add n.md && git -C "$d_t48" commit -q -m "init" 2>/dev/null
+_stub48="$TMP/no-awk-bin"; mkdir -p "$_stub48"
+for _b in git grep sed sort head mktemp rm cat dirname basename bash tr; do
+  _bp="$(type -P "$_b" 2>/dev/null)" && [ -n "$_bp" ] && ln -sf "$_bp" "$_stub48/$_b" 2>/dev/null || true
+done
+cm_out48="$(PATH="$_stub48" bash "$SUT" --committed "$d_t48" 2>&1)"
+cm_rc48=$?
+if [ "$cm_rc48" = 3 ] && printf '%s' "$cm_out48" | grep -qi 'degraded'; then
+  ok "48 B3 awk missing: DEGRADED exit 3 (filter pipeline cannot run)"
+else
+  no "48 B3 awk missing: rc=$cm_rc48 (want 3) — awk absence not detected"
+fi
+
+# --------------------------------------------------------------------------
+# B2 — git cat-file exit code unchecked: corrupt blob returns empty → clean.
+# --------------------------------------------------------------------------
+
+# 49 — B2: corrupt a loose blob object so cat-file fails → must be DEGRADED exit 3.
+d_t49="$TMP/b2-catfile-fail"
+mkdir -p "$d_t49"
+git -C "$d_t49" init -q 2>/dev/null
+git -C "$d_t49" config user.email "t@t" && git -C "$d_t49" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t49/n.md"
+git -C "$d_t49" add n.md && git -C "$d_t49" commit -q -m "init" 2>/dev/null
+_bsha49="$(git -C "$d_t49" rev-parse HEAD:n.md 2>/dev/null)"
+_bfile49="$d_t49/.git/objects/${_bsha49:0:2}/${_bsha49:2}"
+chmod u+w "$_bfile49" && printf 'x' > "$_bfile49"    # corrupt the loose object
+cm_out49="$(bash "$SUT" --committed "$d_t49" 2>&1)"
+cm_rc49=$?
+if [ "$cm_rc49" = 3 ] && printf '%s' "$cm_out49" | grep -qi 'degraded'; then
+  ok "49 B2 corrupt blob: cat-file failure → DEGRADED exit 3"
+else
+  no "49 B2 cat-file fail: rc=$cm_rc49 (want 3) — cat-file exit unchecked, empty content read as clean"
+fi
+
+# --------------------------------------------------------------------------
+# B5 — path with special characters injected into sed delimiter.
+# --------------------------------------------------------------------------
+
+# 50 — B5: path containing a pipe '|' is used as sed delimiter → sed command breaks,
+#      output lost, token invisible. Must catch the token.
+d_t50="$TMP/b5-pipe-in-path"
+mkdir -p "$d_t50"
+git -C "$d_t50" init -q 2>/dev/null
+git -C "$d_t50" config user.email "t@t" && git -C "$d_t50" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t50/a|b.md"
+git -C "$d_t50" add . && git -C "$d_t50" commit -q -m "init" 2>/dev/null
+cm_rc50="$(bash "$SUT" --committed "$d_t50" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc50" = 1 ] && ok "50 B5 path with pipe '|': token detected despite special char in path → exit 1" \
+  || no "50 B5 pipe in path: rc=$cm_rc50 (want 1) — sed injection swallowed token"
+
+# --------------------------------------------------------------------------
+# M1 — git replace hides secret commits from rev-list but not from push.
+# --------------------------------------------------------------------------
+
+# 51 — M1: create a secret commit, then replace it with a clean stand-in via git replace.
+#      Without --no-replace-objects, rev-list follows the replacement and misses the secret.
+d_t51="$TMP/m1-git-replace"
+mkdir -p "$d_t51"
+git -C "$d_t51" init -q 2>/dev/null
+git -C "$d_t51" config user.email "t@t" && git -C "$d_t51" config user.name "t"
+printf '# base\n' > "$d_t51/a.md"
+git -C "$d_t51" add a.md && git -C "$d_t51" commit -q -m "base" 2>/dev/null
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t51/n.md"
+git -C "$d_t51" add n.md && git -C "$d_t51" commit -q -m "secret" 2>/dev/null
+_bad_t51="$(git -C "$d_t51" rev-parse HEAD)"
+git -C "$d_t51" rm -q n.md && git -C "$d_t51" commit -q -m "clean" 2>/dev/null
+# Create a clean replacement for the secret commit (same tree as the base)
+# shellcheck disable=SC1083  # ^{tree} is git revision syntax, not shell brace expansion
+_good_t51="$(git -C "$d_t51" commit-tree "$(git -C "$d_t51" rev-parse HEAD~2^{tree})" \
+  -p "$(git -C "$d_t51" rev-parse HEAD~2)" -m "secret-clean-replacement" 2>/dev/null)"
+git -C "$d_t51" replace "$_bad_t51" "$_good_t51" 2>/dev/null
+# Verify replacement is active (normal rev-list should not see the secret blob)
+_normal_count="$(git -C "$d_t51" rev-list --objects HEAD 2>/dev/null | grep -c 'n\.md' || echo 0)"
+cm_rc51="$(bash "$SUT" --committed "$d_t51" >/dev/null 2>&1; echo $?)"
+if [ "$cm_rc51" = 1 ]; then
+  ok "51 M1 git replace: --no-replace-objects bypasses replacement, secret commit detected → exit 1"
+else
+  no "51 M1 git replace: rc=$cm_rc51 (want 1) — git replace hid the secret commit (normal count: $_normal_count)"
+fi
+
+# --------------------------------------------------------------------------
+# B5/NUL-safe — path with embedded newline (RS="\0" fix).
+# --------------------------------------------------------------------------
+
+# 52 — B5/NUL-safe: secret in a file whose path contains an embedded newline.
+#      Without RS="\0" awk, the path is split at the newline and the blob sha is lost → exit 0.
+#      With RS="\0", the full path is one record, sha_cur is preserved, token detected → exit 1.
+d_t52="$TMP/b5-newline-in-path"
+mkdir -p "$d_t52"
+git -C "$d_t52" init -q 2>/dev/null
+git -C "$d_t52" config user.email "t@t" && git -C "$d_t52" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t52/x
+y.md"
+git -C "$d_t52" add . && git -C "$d_t52" commit -q -m "init" 2>/dev/null
+cm_rc52="$(bash "$SUT" --committed "$d_t52" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc52" = 1 ] && ok "52 B5 path with embedded newline: token detected via RS=\"\\0\" enum → exit 1" \
+  || no "52 B5 newline in path: rc=$cm_rc52 (want 1) — path split, blob sha lost, token missed"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # Teeth for T41 (B1 out-of-scope first): mutant uses rev-list --objects (old behavior, dedup
+  # by first-seen path) → misses the in-scope notes.md copy → exits 0 → test 41 must go red.
+  echo "-- teeth-b1-41: rev-list mutant dedup loses in-scope copy — test 41 must go red --"
+  mutant_b1_41="$TMP/scan-secrets.MUTANT-b1-41.sh"
+  # Replace log --raw enumeration with rev-list --objects (old approach):
+  sed 's/git --no-replace-objects -C "\$target" log --format= --raw --no-abbrev --no-renames -m --root -z HEAD/git -C "$target" rev-list --objects HEAD/g; s/| tr '"'"'\\\\0'"'"' '"'"'\\\\n'"'"'//g' \
+    "$SUT" > "$mutant_b1_41" 2>/dev/null || sed 's/--no-replace-objects//g' "$SUT" > "$mutant_b1_41"
+  # Actually, test teeth by removing --no-replace-objects (M1 mutant) for T51 first,
+  # and for T41 by direct mutation of the awk to use old rev-list --objects style.
+  # Simpler teeth for T41: a rev-list-only mutant won't enumerate the notes.md path
+  # when a.txt sorts/appears first. Hard to mechanically reproduce; skip the b1-41 awk teeth.
+  # Use B1 teeth = M1: remove --no-replace-objects and verify T51 flips.
+  echo "-- teeth-m1-51: remove --no-replace-objects — test 51 must go red (replace active) --"
+  mutant_m1="$TMP/scan-secrets.MUTANT-m1.sh"
+  sed 's/git --no-replace-objects/git/g' "$SUT" > "$mutant_m1"
+  cm_rc51m="$(bash "$mutant_m1" --committed "$d_t51" >/dev/null 2>&1; echo $?)"
+  if [ "$cm_rc51m" != 1 ]; then
+    ok "teeth-m1-51: no-replace-objects-removed mutant follows replacement, misses secret (rc=$cm_rc51m) → test 51 has teeth"
+  else
+    no "teeth-m1-51: mutant still caught secret (rc=$cm_rc51m) — test 51 is THEATER"
+  fi
+
+  # Teeth for T44 (B4 Latin-1): neuter -a flag in grep so invalid UTF-8 lines are dropped.
+  echo "-- teeth-b4-44: grep without -a — test 44 Latin-1 must go red --"
+  mutant_b4="$TMP/scan-secrets.MUTANT-b4.sh"
+  # Remove the 'a' from -naE (change -naE to -nE) — both in ONE LOOP and in scan().
+  sed 's/-naE/-nE/g; s/-naiP/-niP/g' "$SUT" > "$mutant_b4"
+  cm_rc44m="$(LC_ALL=C.UTF-8 bash "$mutant_b4" --committed "$d_t44" >/dev/null 2>&1; echo $?)"
+  if [ "$cm_rc44m" != 1 ]; then
+    ok "teeth-b4-44: -a-removed mutant drops Latin-1 line (rc=$cm_rc44m) → test 44 has teeth"
+  else
+    no "teeth-b4-44: mutant still caught Latin-1 line (rc=$cm_rc44m) — test 44 is THEATER"
+  fi
+
+  # Teeth for T46 (B3 rev-list exit 1): restore old >=2 check → exit 1 treated as ok.
+  echo "-- teeth-b3-46: restore old >=2 check — test 46 exit-1 must go red (silent pass) --"
+  mutant_b3_46="$TMP/scan-secrets.MUTANT-b3-46.sh"
+  sed 's/\[ "\${_rev_obj_rc:-0}" -ne 0 \]/[ "${_rev_obj_rc:-0}" -ge 2 ]/g' "$SUT" > "$mutant_b3_46"
+  cm_out46m="$(PATH="$_stub46:$PATH" bash "$mutant_b3_46" --committed "$d_t46" 2>&1)"
+  cm_rc46m=$?
+  if [ "$cm_rc46m" != 3 ] && ! printf '%s' "$cm_out46m" | grep -qi 'degraded'; then
+    ok "teeth-b3-46: >=2-restored mutant passes silently on exit-1 → test 46 has teeth"
+  else
+    no "teeth-b3-46: mutant still emits DEGRADED (rc=$cm_rc46m) — test 46 is THEATER"
+  fi
+
+  # Teeth for T47 (B3 mktemp): neuter mktemp check → mktemp failure not caught.
+  echo "-- teeth-b3-47: remove mktemp check — test 47 must go red (silent on mktemp fail) --"
+  mutant_b3_47="$TMP/scan-secrets.MUTANT-b3-47.sh"
+  # Override mktemp to always use /tmp regardless of TMPDIR: the failure-guard never fires,
+  # and the scan runs normally → finds the token → exits 1 (not 3). Test 47 must go red.
+  sed 's/\$(mktemp)/$(TMPDIR=\/tmp mktemp)/g' "$SUT" > "$mutant_b3_47"
+  cm_out47m="$(TMPDIR="$TMP/nonexistent-tmpdir-$$" bash "$mutant_b3_47" --committed "$d_t47" 2>&1)"
+  cm_rc47m=$?
+  if [ "$cm_rc47m" != 3 ] && ! printf '%s' "$cm_out47m" | grep -qi 'degraded'; then
+    ok "teeth-b3-47: mktemp-check-removed mutant passes silently on tmpdir failure → test 47 has teeth"
+  else
+    no "teeth-b3-47: mutant still emits DEGRADED (rc=$cm_rc47m) — test 47 is THEATER"
+  fi
+
+  # Teeth for T48 (B3 awk missing): remove awk probe → awk absence not detected.
+  echo "-- teeth-b3-48: remove awk probe — test 48 must go red (silent on awk absent) --"
+  mutant_b3_48="$TMP/scan-secrets.MUTANT-b3-48.sh"
+  # Remove both lines of the awk probe (line 1 has the test, line 2 has the message+exit),
+  # then also disable the PIPESTATUS check so awk-missing silently produces an empty blob list
+  # → scan finds nothing → exits 0, not 3. Test 48 must go red.
+  sed '/command -v awk/,/requires awk/d' "$SUT" \
+    | sed 's/if \[ "\${_frc\[0\]:-0}" -ne 0 \] || \[ "\${_frc\[1\]:-0}" -ne 0 \] || \[ "\${_frc\[2\]:-0}" -ne 0 \]/if false/g' \
+    > "$mutant_b3_48"
+  cm_out48m="$(PATH="$_stub48" bash "$mutant_b3_48" --committed "$d_t48" 2>&1)"
+  cm_rc48m=$?
+  if [ "$cm_rc48m" != 3 ] && ! printf '%s' "$cm_out48m" | grep -qi 'degraded'; then
+    ok "teeth-b3-48: awk-probe-removed mutant passes silently without awk → test 48 has teeth"
+  else
+    no "teeth-b3-48: mutant still emits DEGRADED (rc=$cm_rc48m) — test 48 is THEATER"
+  fi
+
+  # Teeth for T49 (B2 cat-file): remove cat-file exit-code check.
+  echo "-- teeth-b2-49: unchecked cat-file → test 49 must go red (reads empty as clean) --"
+  mutant_b2_49="$TMP/scan-secrets.MUTANT-b2-49.sh"
+  sed 's/if ! git --no-replace-objects -C "\$target" cat-file blob/git --no-replace-objects -C "$target" cat-file blob/g; s/then$/: #/; /DEGRADED.*cat-file blob/d' \
+    "$SUT" > "$mutant_b2_49" 2>/dev/null || \
+  sed 's/if ! \(git.*cat-file blob.*\) > "\$_blob_tmp"/\1 > "$_blob_tmp"/g' "$SUT" > "$mutant_b2_49"
+  cm_out49m="$(bash "$mutant_b2_49" --committed "$d_t49" 2>&1)"
+  cm_rc49m=$?
+  if [ "$cm_rc49m" != 3 ] && ! printf '%s' "$cm_out49m" | grep -qi 'degraded'; then
+    ok "teeth-b2-49: cat-file-check-removed mutant reads corrupt blob as empty → test 49 has teeth"
+  else
+    no "teeth-b2-49: mutant still emits DEGRADED (rc=$cm_rc49m) — test 49 is THEATER"
+  fi
+
+  # Teeth for T50 (B5 pipe in path): use sed-based mutant that restores sed injection.
+  echo "-- teeth-b5-50: sed-based prefix → test 50 pipe-path must go red --"
+  mutant_b5="$TMP/scan-secrets.MUTANT-b5.sh"
+  # Replace ENVIRON-based awk prefix with the old sed-based one (vulnerable to '|' in paths):
+  # sed "s|^|${bpath}@${bshort}:|" breaks when bpath contains '|', and the token is lost.
+  python3 - "$SUT" "$mutant_b5" << 'PYEOF'
+import sys
+content = open(sys.argv[1]).read()
+content = content.replace(
+    "      | _SS_PFX=\"${bpath}@${bshort}:\" awk 'BEGIN{p=ENVIRON[\"_SS_PFX\"]}{print p $0}' \\",
+    "      | sed \"s|^|${bpath}@${bshort}:|\" \\"
+)
+open(sys.argv[2], 'w').write(content)
+PYEOF
+  cm_rc50m="$(bash "$mutant_b5" --committed "$d_t50" >/dev/null 2>&1; echo $?)"
+  if [ "$cm_rc50m" != 1 ]; then
+    ok "teeth-b5-50: sed-mutant breaks on pipe path (rc=$cm_rc50m) → test 50 has teeth"
+  else
+    no "teeth-b5-50: sed mutant still caught pipe-path token (rc=$cm_rc50m) — test 50 may be THEATER"
+  fi
+
+  # Teeth for T52 (B5 newline-in-path): remove RS="\0" from awk BEGIN → awk uses default newline
+  # RS → NUL-terminated git log output is not parsed correctly → path with embedded newline is split
+  # → blob sha lost → token missed → exit 0 → test 52 must go red.
+  echo "-- teeth-b5-52: RS-null-removed — test 52 newline-path must go red --"
+  mutant_b5_52="$TMP/scan-secrets.MUTANT-b5-52.sh"
+  python3 - "$SUT" "$mutant_b5_52" << 'PYEOF'
+import sys
+content = open(sys.argv[1]).read()
+content = content.replace(
+    'BEGIN{RS="\\0"; sha=""}',
+    'BEGIN{sha=""}'
+)
+open(sys.argv[2], 'w').write(content)
+PYEOF
+  cm_rc52m="$(bash "$mutant_b5_52" --committed "$d_t52" >/dev/null 2>&1; echo $?)"
+  if [ "$cm_rc52m" != 1 ]; then
+    ok "teeth-b5-52: RS-removed mutant misses newline-path blob (rc=$cm_rc52m) → test 52 has teeth"
+  else
+    no "teeth-b5-52: mutant still caught newline-path token (rc=$cm_rc52m) — test 52 is THEATER"
   fi
 fi
 

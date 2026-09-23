@@ -375,6 +375,70 @@ else
      "exit=$RC(want 7) calls=[$(calls "$box")]"
 fi
 
+# 19 — m4: push carries --no-follow-tags to prevent annotated tag messages from being
+#      pushed when push.followTags=true is set.  The calls.log must contain the flag.
+reset_ctl
+box="$(mkbox m4-no-follow-tags)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 0 ] && has_call "$box" 'push .* --no-follow-tags'; then
+  ok "19 m4 push carries --no-follow-tags (followTags guard)" "(exit $RC)"
+else
+  no "19 m4 push --no-follow-tags" "exit=$RC(want 0) calls=[$(calls "$box")]"
+fi
+
+# 20 — E1 end-to-end: ensure-remote calls the REAL scan-secrets; git-replace hides a
+#      secret commit from normal rev-list (M1 scenario). With --no-replace-objects the
+#      real scan detects it → ensure-remote must REFUSE (exit 5, no push logged).
+SCAN_SUT="$HERE/../scan-secrets.sh"
+REAL_GIT20="$(type -P git 2>/dev/null)"
+if [ -z "$REAL_GIT20" ] || [ ! -f "$SCAN_SUT" ]; then
+  no "20 E1 end-to-end: real git or scan-secrets unavailable — skip" ""
+else
+  # Build real repo with M1 scenario (secret commit hidden by git replace)
+  d_E1="$ROOT/e1-repo"
+  mkdir -p "$d_E1"
+  git -C "$d_E1" init -q 2>/dev/null
+  git -C "$d_E1" config user.email "t@t" && git -C "$d_E1" config user.name "t"
+  printf '# base\n' > "$d_E1/a.md"
+  git -C "$d_E1" add a.md && git -C "$d_E1" commit -q -m "base" 2>/dev/null
+  printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_E1/n.md"
+  git -C "$d_E1" add n.md && git -C "$d_E1" commit -q -m "secret" 2>/dev/null
+  _bad_E1="$(git -C "$d_E1" rev-parse HEAD)"
+  git -C "$d_E1" rm -q n.md && git -C "$d_E1" commit -q -m "clean" 2>/dev/null
+  # shellcheck disable=SC1083  # ^{tree} is git revision syntax, not shell brace expansion
+  _good_E1="$(git -C "$d_E1" commit-tree \
+    "$(git -C "$d_E1" rev-parse HEAD~2^{tree})" \
+    -p "$(git -C "$d_E1" rev-parse HEAD~2)" -m "secret-clean-replacement" 2>/dev/null)"
+  git -C "$d_E1" replace "$_bad_E1" "$_good_E1" 2>/dev/null
+  # Build hermetic box: real git + real scan-secrets + stub gh + all utils scan needs
+  box_E1="$ROOT/e1-box"
+  mkdir -p "$box_E1/bin" "$box_E1/home"
+  cp "$SUT" "$box_E1/ensure-remote.sh"
+  cp "$SCAN_SUT" "$box_E1/scan-secrets.sh"
+  : > "$box_E1/calls.log"
+  for i in "${!CORE_UTILS[@]}"; do ln -s "${CORE_PATHS[$i]}" "$box_E1/bin/${CORE_UTILS[$i]}"; done
+  ln -s "$BASH_BIN" "$box_E1/bin/bash"
+  ln -s "$REAL_GIT20" "$box_E1/bin/git"
+  for _b in awk wc sort head mktemp rm; do
+    _bp="$(type -P "$_b" 2>/dev/null)"
+    [ -n "$_bp" ] && ln -sf "$_bp" "$box_E1/bin/$_b" 2>/dev/null || true
+  done
+  mk_gh_stub "$box_E1"
+  # shellcheck disable=SC2034  # OUT_E1 captured for debugging parity; cases assert on RC + calls.log
+  OUT_E1="$(PATH="$box_E1/bin" HOME="$box_E1/home" \
+    GIT_HAS_ORIGIN=0 GH_OWNER=tester GH_OWNER_TYPE=User \
+    GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 \
+    GIT_TRACKED_SECRETS="" GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 \
+    GIT_STATUS_DIRTY=0 GIT_STATUS_FAIL=0 \
+    "$BASH_BIN" "$box_E1/ensure-remote.sh" "$d_E1" --yes 2>&1)"
+  RC_E1=$?
+  if [ "$RC_E1" = 5 ] && ! grep -q 'push' "$box_E1/calls.log" 2>/dev/null; then
+    ok "20 E1 end-to-end: real scan + git replace → ensure-remote refuses (exit 5, no push)" "(exit $RC_E1)"
+  else
+    no "20 E1 end-to-end: git replace M1" "exit=$RC_E1(want 5) calls=[$(cat "$box_E1/calls.log" 2>/dev/null | tr '\n' '|')]"
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate the guard two ways and prove each assertion
 # above would FLIP to failure — otherwise those assertions are theater.
@@ -553,6 +617,24 @@ fi'
       ok "teeth-M3: git-status-fail mutant proceeds (exit $RC) — case 18 has teeth"
     else
       no "teeth-M3: git-status-fail mutant still exits 7 — case 18 is THEATER; calls=[$(calls "$box")]"
+    fi
+  fi
+
+  # m4 — remove --no-follow-tags from push: case 19's calls.log must NO LONGER carry the flag.
+  echo "-- teeth m4: remove --no-follow-tags from push — case 19 must go red --"
+  origm4='git -C "$target" push -u origin HEAD --no-follow-tags || { echo "REFUSED: push failed." >&2; exit 7; }'
+  newm4='git -C "$target" push -u origin HEAD || { echo "REFUSED: push failed." >&2; exit 7; }'
+  if [[ "$content" != *"$origm4"* ]]; then
+    no "teeth-m4: build no-follow-tags mutant" "--no-follow-tags anchor not found — SUT drifted?"
+  else
+    reset_ctl
+    box="$(mkbox teeth-m4-no-follow-tags)"
+    printf '%s\n' "${content//"$origm4"/"$newm4"}" > "$box/ensure-remote.sh"
+    run "$box" "$box/target" --yes
+    if [ "$RC" = 0 ] && ! has_call "$box" 'push .* --no-follow-tags'; then
+      ok "teeth-m4: --no-follow-tags-removed mutant push lacks flag → case 19 has teeth"
+    else
+      no "teeth-m4: mutant still carries --no-follow-tags (rc=$RC) — case 19 is THEATER; calls=[$(calls "$box")]"
     fi
   fi
 fi
