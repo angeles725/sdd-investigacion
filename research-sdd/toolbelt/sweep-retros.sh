@@ -210,21 +210,13 @@ for p in $paths; do
              # anywhere in the file is incompatible with a zero-delta honesty claim;
              # those must be counted by hand even when the honesty line is present.
              # RSDD_HONESTY_LINE_CHECK
+             # retro_grammar_has_honesty enforces purity (A), HV-location (B), marker
+             # stripping (C), and the form-3/WARN-B invariant (D) — see lib comments.
              if retro_grammar_has_honesty "$f"; then
-               # Supplemental invariant: reject ~0 if form-3 or WARN-B indicators coexist.
-               _has_form3=0; _has_warnb=0
-               grep -qiE '^## delta[[:space:]].+[—–-]' "$f" 2>/dev/null && _has_form3=1
-               grep -qiE '^###[[:space:]]+([[:alpha:]][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null && _has_warnb=1
-               if [ "$_has_form3" = 1 ] || [ "$_has_warnb" = 1 ]; then
-                 delta_warn="delta section present but not in countable form — count by hand"
-                 deltas="?"                                # WARN-A: conflicting indicators
-               else
-                 deltas=0
-               fi
-               unset _has_form3 _has_warnb
+               deltas=0
              else
                delta_warn="delta section present but not in countable form — count by hand"
-               deltas="?"                                  # WARN-A: canonical section, pure prose
+               deltas="?"                                  # WARN-A: canonical section, not pure honesty
              fi
              ;;
       esac
