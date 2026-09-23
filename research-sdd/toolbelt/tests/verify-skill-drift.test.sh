@@ -230,14 +230,14 @@ fi
 
 # ── --all mode: iterate every registered harness ─────────────────────────────
 # Setup for --all tests:
-#   H_ALL: claude in-sync, opencode absent, codex absent, reasonix diverged (LAST)
+#   H_ALL: claude in-sync, codex absent, reasonix diverged (LAST)
 #   — tests the list-edge rule: drift in the last harness in RESEARCH_SDD_HARNESSES order
 H_ALL="$ROOT/home_all"
 mkdir -p "$H_ALL/.claude/skills/research-sdd"
 cp "$SRC_SKILL" "$H_ALL/.claude/skills/research-sdd/SKILL.md"      # claude: in-sync
 mkdir -p "$H_ALL/.reasonix/skills/research-sdd"
 printf 'stale content — not matching kit\n' > "$H_ALL/.reasonix/skills/research-sdd/SKILL.md"  # reasonix: diverged
-# opencode (.config/opencode) and codex (.codex) not created → absent
+# codex (.codex) not created → absent
 
 # AN1: --all with last harness diverged → exit 1
 bash "$SUT" --all --home "$H_ALL" 2>/dev/null
@@ -263,11 +263,11 @@ else
   no "AN3 --all diverged → expected 'diverged=1' in summary; got: $ERR_AN2"
 fi
 
-# AN4: --all diverged → summary shows absent=2 (opencode + codex not installed)
-if printf '%s' "$ERR_AN2" | grep -q 'absent=2'; then
-  ok "AN4 --all diverged → summary absent=2"
+# AN4: --all diverged → summary shows absent=1 (codex not installed)
+if printf '%s' "$ERR_AN2" | grep -q 'absent=1'; then
+  ok "AN4 --all diverged → summary absent=1"
 else
-  no "AN4 --all diverged → expected 'absent=2' in summary; got: $ERR_AN2"
+  no "AN4 --all diverged → expected 'absent=1' in summary; got: $ERR_AN2"
 fi
 
 # AN5: --all all-absent → exit 0 (not installing is normal)
@@ -285,7 +285,7 @@ fi
 H_ALL_SYNC="$ROOT/home_all_sync"
 mkdir -p "$H_ALL_SYNC/.claude/skills/research-sdd"
 cp "$SRC_SKILL" "$H_ALL_SYNC/.claude/skills/research-sdd/SKILL.md"
-# Only claude is installed; opencode/codex/reasonix absent
+# Only claude is installed; codex/reasonix absent
 ALL_SYNC_OUT="$(bash "$SUT" --all --home "$H_ALL_SYNC" 2>/dev/null)"
 ALL_SYNC_RC=$?
 if [ "$ALL_SYNC_RC" -eq 0 ] && [ -z "$ALL_SYNC_OUT" ]; then
@@ -562,13 +562,11 @@ else
   no "BDG2 hook 1-diverged → ${BDG2_LEN} chars output (≥ 542 — aggregate budget exceeded)"
 fi
 
-# BDG3: all 4 harnesses diverged → hook output < 542 chars (worst-case budget test)
+# BDG3: all 3 harnesses diverged → hook output < 542 chars (worst-case budget test)
 # cap in SUT (max_fix_lines=1) limits output even when all harnesses diverge.
 H_BDG3="$ROOT/home_bdg3"
 mkdir -p "$H_BDG3/.claude/skills/research-sdd"
 printf '# stale claude\n' > "$H_BDG3/.claude/skills/research-sdd/SKILL.md"
-mkdir -p "$H_BDG3/.config/opencode/skills/research-sdd"
-printf '# stale opencode\n' > "$H_BDG3/.config/opencode/skills/research-sdd/SKILL.md"
 mkdir -p "$H_BDG3/.codex/skills/research-sdd"
 printf '# stale codex\n' > "$H_BDG3/.codex/skills/research-sdd/SKILL.md"
 mkdir -p "$H_BDG3/.reasonix/skills/research-sdd"
@@ -587,17 +585,16 @@ else
   no "BDG3 hook all-diverged → ${BDG3_LEN} chars output (≥ 542 — aggregate budget exceeded)"
 fi
 
-# REM1: ≥3 harnesses diverged → every diverged harness name appears in stderr
-# H_BDG3 (set up above) has all 4 harnesses diverged; max_fix_lines=1 → claude gets
-# the detailed fix line, opencode/codex/reasonix must appear in "also diverged" line.
+# REM1: ≥2 harnesses diverged → every diverged harness name appears in stderr
+# H_BDG3 (set up above) has all 3 harnesses diverged; max_fix_lines=1 → claude gets
+# the detailed fix line, codex/reasonix must appear in "also diverged" line.
 REM1_OUT="$(bash "$SUT" --all --home "$H_BDG3" 2>&1)"
 if printf '%s\n' "$REM1_OUT" | grep -qF 'claude' && \
-   printf '%s\n' "$REM1_OUT" | grep -qF 'opencode' && \
    printf '%s\n' "$REM1_OUT" | grep -qF 'codex' && \
    printf '%s\n' "$REM1_OUT" | grep -qF 'reasonix'; then
-  ok "REM1 4-diverged → all harness names appear in output"
+  ok "REM1 3-diverged → all harness names appear in output"
 else
-  no "REM1 4-diverged → some harness names missing from output: $REM1_OUT"
+  no "REM1 3-diverged → some harness names missing from output: $REM1_OUT"
 fi
 
 # ── TEETH ─────────────────────────────────────────────────────────────────────
@@ -610,14 +607,11 @@ if [ "$prove_teeth" -eq 1 ]; then
 
   # Mutant sandbox: mirrors the kit directory structure so SELF_DIR-based path resolution
   # (adapters.sh, kit root) works without writing into the live tree.
-  # Layout: $ROOT/toolbelt/ (mutants) + $ROOT/install/ + $ROOT/skills/ + $ROOT/toolbelt/opencode/
-  # opencode/SKILL.md is required because adapters.sh still maps opencode → toolbelt/opencode/SKILL.md;
-  # without it the sandbox's --all runs emit err_count>0 and exit 2 instead of testing the real mutation.
+  # Layout: $ROOT/toolbelt/ (mutants) + $ROOT/install/ + $ROOT/skills/
   # The EXIT trap (set at test start) cleans up $ROOT including all mutants.
-  mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt/opencode"
+  mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt"
   cp "$HERE/../../install/adapters.sh"       "$ROOT/install/adapters.sh"
   cp "$SRC_SKILL"                            "$ROOT/skills/research-sdd/SKILL.md"
-  cp "$HERE/../opencode/SKILL.md"            "$ROOT/toolbelt/opencode/SKILL.md"
   MUT_DIR="$ROOT/toolbelt"
 
   # git-status snapshot before any mutant creation (proves no live-tree leakage after)
@@ -879,7 +873,7 @@ if [ "$prove_teeth" -eq 1 ]; then
   fi
 
   # TOOTH K: also-diverged-names — remove SENTINEL-ALSO-DIVERGED block.
-  # Real test REM1: all 4 diverged → opencode/codex/reasonix must appear in also-diverged line.
+  # Real test REM1: all 3 diverged → codex/reasonix must appear in also-diverged line.
   # Mutant: accumulator deleted → also_names stays empty → guard blocks print → names absent → RED.
   MUT_K="$MUT_DIR/verify-skill-drift-mut-K.sh"
   # Delete: # SENTINEL-ALSO-DIVERGED + next line (also_names=...)
@@ -893,12 +887,12 @@ if [ "$prove_teeth" -eq 1 ]; then
     ok "TOOTH K pre-check: mutant differs (SENTINEL-ALSO-DIVERGED removed)"
   fi
 
-  # Actual tooth: all 4 diverged, but also_names missing → opencode absent from output → RED
+  # Actual tooth: all 3 diverged, but also_names missing → codex absent from output → RED
   MUT_K_OUT="$(bash "$MUT_K" --all --home "$H_BDG3" 2>&1)"
-  if ! printf '%s\n' "$MUT_K_OUT" | grep -qF 'opencode'; then
-    ok "TOOTH K also-diverged-names: mutant hides opencode — RED as expected"
+  if ! printf '%s\n' "$MUT_K_OUT" | grep -qF 'codex'; then
+    ok "TOOTH K also-diverged-names: mutant hides codex — RED as expected"
   else
-    no "TOOTH K also-diverged-names: mutant still shows opencode — tooth has no bite"
+    no "TOOTH K also-diverged-names: mutant still shows codex — tooth has no bite"
   fi
 
   # git-status after all teeth: confirm no files leaked into the live tree
