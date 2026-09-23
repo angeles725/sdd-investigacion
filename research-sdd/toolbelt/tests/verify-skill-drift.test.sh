@@ -2,13 +2,20 @@
 # verify-skill-drift.test.sh — RED-FIRST harness for verify-skill-drift.sh.
 #
 # Exercises: in-sync → exit 0 silent; diverged → exit 1 + message; absent → exit 3;
-# could-not-run (missing adapters) → exit 2; unknown harness → exit 2.
+# could-not-run (missing adapters, dangling symlink, HOME unset) → exit 2; unknown harness → exit 2.
 #
 # TEETH (--prove-teeth):
 #   A  in-sync-not-silent    mutant disables cmp-s guard → in-sync exits 1 (RED)
 #   B  diverged-silent       mutant replaces exit 1 → diverged exits 0 (RED)
 #   C  absent-confused       mutant exits 0 for absent → absent indistinguishable from in-sync (RED)
 #   D  all-last-skipped      mutant skips last harness in loop → diverged at last is missed (RED)
+#   E  fixture-src           mutant hardcodes src_relkit=source_a for all → harness_b in-sync falsely diverged (RED)
+#   F  dangling-symlink-single  mutant removes SENTINEL-DANGLING-SINGLE block → AX1 regresses exit 2→3 (RED)
+#   G  dangling-symlink-all    mutant removes SENTINEL-DANGLING-ALL block → AX2 regresses exit 2→0 (RED)
+#   H  HOME-check-deleted    mutant removes SENTINEL-HOME-CHECK block → AX6 regresses exit 2→3 (RED)
+#   I  unconditional-summary mutant removes SENTINEL-SUMMARY-GUARD condition → AX5 regresses empty stderr (RED)
+#   J  drop-all-err-exit2    mutant removes SENTINEL-ERR-EXIT2 block → AX2 regresses exit 2→0 (RED)
+#   K  also-diverged-names   mutant removes SENTINEL-ALSO-DIVERGED → REM1 loses harness names (RED)
 # Mutants live in $ROOT/toolbelt/ (never the live tree); verified by git-status before/after.
 #
 # Usage: verify-skill-drift.test.sh [--prove-teeth]
@@ -18,14 +25,16 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-skill-drift.sh"
 HOOK_SUT="$HERE/../verify-skill-drift-hook.sh"
+FIXTURES_DIR="$HERE/fixtures"
 
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
-ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
-no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+ok()   { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+skip() { printf '  SKIP  %s\n' "$1"; }
 
 # The real kit path from this test's location
 KIT="$(cd "$HERE/../.." && pwd)"
@@ -344,6 +353,253 @@ else
   no "AN-hook-3 hook --all all-absent → expected silent exit 0; got exit=$HOOK_RC3_ALL out=[$HOOK_OUT3_ALL]"
 fi
 
+# ── SRC: per-harness source lookup — verified with two-source fixture ──────────
+# No real harness after OpenCode removal has a source distinct from
+# skills/research-sdd/SKILL.md, so we prove the per-harness lookup with a
+# synthetic two-source fixture (adapters-two-sources.sh): harness_a uses
+# skills/source_a/SKILL.md and harness_b uses skills/source_b/SKILL.md.
+TWO_KIT="$ROOT/two-src-kit"
+mkdir -p "$TWO_KIT/install" "$TWO_KIT/toolbelt" "$TWO_KIT/skills/source_a" "$TWO_KIT/skills/source_b"
+# Install the two-source fixture as adapters.sh for this mini-kit
+cp "$FIXTURES_DIR/adapters-two-sources.sh" "$TWO_KIT/install/adapters.sh"
+# SUT copy inside mini-kit toolbelt (SELF_DIR-based path resolution finds $TWO_KIT)
+SUT_SRC="$TWO_KIT/toolbelt/verify-skill-drift.sh"
+cp "$SUT" "$SUT_SRC"
+chmod +x "$SUT_SRC"
+# source_a = real kit SKILL.md
+cp "$SRC_SKILL" "$TWO_KIT/skills/source_a/SKILL.md"
+# source_b = SKILL.md with an extra comment line (distinct bytes; same logical content)
+{ cat "$SRC_SKILL"; printf '# source-b-marker\n'; } > "$TWO_KIT/skills/source_b/SKILL.md"
+
+if [ -f "$SRC_SKILL" ]; then
+  # SRC1: harness_a deployed=source_a, harness_b deployed=source_b → both in-sync → exit 0
+  H_SRC1="$ROOT/home_src1"
+  mkdir -p "$H_SRC1/.harness_a/skills/research-sdd" "$H_SRC1/.harness_b/skills/research-sdd"
+  cp "$TWO_KIT/skills/source_a/SKILL.md" "$H_SRC1/.harness_a/skills/research-sdd/SKILL.md"
+  cp "$TWO_KIT/skills/source_b/SKILL.md" "$H_SRC1/.harness_b/skills/research-sdd/SKILL.md"
+  bash "$SUT_SRC" --all --home "$H_SRC1" 2>/dev/null
+  RC_SRC1=$?
+  if [ "$RC_SRC1" -eq 0 ]; then
+    ok "SRC1 two-source fixture --all both-in-sync → exit 0"
+  else
+    no "SRC1 two-source fixture --all both-in-sync → expected exit 0; got exit=$RC_SRC1"
+  fi
+
+  # SRC2: harness_b deployed=source_a (wrong source) → harness_b diverged → exit 1
+  H_SRC2="$ROOT/home_src2"
+  mkdir -p "$H_SRC2/.harness_a/skills/research-sdd" "$H_SRC2/.harness_b/skills/research-sdd"
+  cp "$TWO_KIT/skills/source_a/SKILL.md" "$H_SRC2/.harness_a/skills/research-sdd/SKILL.md"
+  cp "$TWO_KIT/skills/source_a/SKILL.md" "$H_SRC2/.harness_b/skills/research-sdd/SKILL.md"  # wrong source
+  bash "$SUT_SRC" --all --home "$H_SRC2" 2>/dev/null
+  RC_SRC2=$?
+  if [ "$RC_SRC2" -eq 1 ]; then
+    ok "SRC2 two-source fixture --all harness_b wrong-source → exit 1"
+  else
+    no "SRC2 two-source fixture --all harness_b wrong-source → expected exit 1; got exit=$RC_SRC2"
+  fi
+else
+  no "SRC1 SRC2 — kit SKILL.md source not found; skipping two-source fixture tests"
+  no "SRC2 — see above"
+fi
+
+# ── AX: Additional checks — dangling symlink, unreadable, HOME unset, --all exit 2 ──
+
+# AX1: dangling symlink at deployed path in single mode → exit 2 (not exit 3 for absent)
+H_AX1="$ROOT/home_ax1"
+mkdir -p "$H_AX1/.claude/skills/research-sdd"
+DANGLE_AX1="$H_AX1/.claude/skills/research-sdd/SKILL.md"
+ln -s "$ROOT/nonexistent-target-for-ax1" "$DANGLE_AX1"
+bash "$SUT" --harness claude --home "$H_AX1" 2>/dev/null
+RC_AX1=$?
+if [ "$RC_AX1" -eq 2 ]; then
+  ok "AX1 dangling symlink single → exit 2 (not exit 3 for absent)"
+else
+  no "AX1 dangling symlink single → expected exit 2; got exit=$RC_AX1"
+fi
+
+# AX2: dangling symlink at deployed path in --all mode → exit 2 (not exit 0)
+H_AX2="$ROOT/home_ax2"
+mkdir -p "$H_AX2/.claude/skills/research-sdd"
+DANGLE_AX2="$H_AX2/.claude/skills/research-sdd/SKILL.md"
+ln -s "$ROOT/nonexistent-target-for-ax2" "$DANGLE_AX2"
+bash "$SUT" --all --home "$H_AX2" 2>/dev/null
+RC_AX2=$?
+if [ "$RC_AX2" -eq 2 ]; then
+  ok "AX2 dangling symlink --all → exit 2 (not exit 0)"
+else
+  no "AX2 dangling symlink --all → expected exit 2; got exit=$RC_AX2"
+fi
+
+# AX3: --all unreadable-deployed → exit 2 (skip if running as root; chmod has no effect)
+if [ "$(id -u)" -ne 0 ]; then
+  H_AX3="$ROOT/home_ax3"
+  mkdir -p "$H_AX3/.claude/skills/research-sdd"
+  printf 'deployed\n' > "$H_AX3/.claude/skills/research-sdd/SKILL.md"
+  chmod 000 "$H_AX3/.claude/skills/research-sdd/SKILL.md"
+  bash "$SUT" --all --home "$H_AX3" 2>/dev/null
+  RC_AX3=$?
+  chmod 644 "$H_AX3/.claude/skills/research-sdd/SKILL.md"  # restore so EXIT trap can delete
+  if [ "$RC_AX3" -eq 2 ]; then
+    ok "AX3 --all unreadable-deployed → exit 2"
+  else
+    no "AX3 --all unreadable-deployed → expected exit 2; got exit=$RC_AX3"
+  fi
+else
+  skip "AX3 --all unreadable-deployed → SKIP (running as root; chmod 000 has no effect)"
+fi
+
+# AX4: --all src-missing → exit 2 (kit source file not present for a harness)
+# Uses a mini-kit under $ROOT/ax4-kit/ that has adapters.sh but no SKILL.md source.
+AX4_KIT="$ROOT/ax4-kit"
+AX4_INSTALL="$AX4_KIT/install"
+mkdir -p "$AX4_INSTALL" "$AX4_KIT/toolbelt"
+cp "$KIT/install/adapters.sh" "$AX4_INSTALL/adapters.sh"
+# Deliberately omit $AX4_KIT/skills/research-sdd/SKILL.md → src missing for claude
+SUT_AX4="$AX4_KIT/toolbelt/verify-skill-drift.sh"
+cp "$SUT" "$SUT_AX4"
+chmod +x "$SUT_AX4"
+H_AX4="$ROOT/home_ax4"
+mkdir -p "$H_AX4/.claude/skills/research-sdd"
+cp "$SRC_SKILL" "$H_AX4/.claude/skills/research-sdd/SKILL.md"  # claude deployed
+bash "$SUT_AX4" --all --home "$H_AX4" 2>/dev/null
+RC_AX4=$?
+if [ "$RC_AX4" -eq 2 ]; then
+  ok "AX4 --all src-missing → exit 2 (could-not-run)"
+else
+  no "AX4 --all src-missing → expected exit 2; got exit=$RC_AX4"
+fi
+
+# AX5: --all in-sync → stderr is empty (not just stdout silent)
+# Uses the AN6 home (claude only, in-sync). AN6 already checks exit 0 + stdout silent.
+ALL_SYNC_STDERR="$(bash "$SUT" --all --home "$H_ALL_SYNC" 2>&1 1>/dev/null)"
+if [ -z "$ALL_SYNC_STDERR" ]; then
+  ok "AX5 --all in-sync → stderr empty (summary suppressed on clean run)"
+else
+  no "AX5 --all in-sync → expected empty stderr; got: $ALL_SYNC_STDERR"
+fi
+
+# AX6: HOME unset → exit 2 with typed could-not-run message (not stale / abort)
+AX6_ERR="$(env -u HOME bash "$SUT" 2>&1)"
+RC_AX6=$?
+if [ "$RC_AX6" -eq 2 ] && printf '%s' "$AX6_ERR" | grep -q 'could-not-run.*HOME'; then
+  ok "AX6 HOME unset → exit 2 + typed 'could-not-run: HOME is unset'"
+else
+  no "AX6 HOME unset → expected exit 2 + could-not-run; got exit=$RC_AX6 err=[$AX6_ERR]"
+fi
+
+# AX7: hook HOME unset → output contains ERROR (not WARN for stale)
+# The hook captures SUT's output including stderr; a could-not-run (exit 2) maps to ERROR.
+HOOK_AX7="$ROOT/hook-ax7.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|env -u HOME "'"$SUT"'" --all|' \
+  "$HOOK_SUT" > "$HOOK_AX7"
+chmod +x "$HOOK_AX7"
+AX7_OUT="$(bash "$HOOK_AX7" 2>&1)"
+if printf '%s' "$AX7_OUT" | grep -qi 'ERROR'; then
+  ok "AX7 hook HOME unset → output contains ERROR (not WARN)"
+else
+  no "AX7 hook HOME unset → expected ERROR in output; got: $AX7_OUT"
+fi
+
+# AX8: --home given without $HOME in env → exit 0 (--home overrides missing $HOME)
+# Reuses H_SYNC (claude in-sync). Redirect stdout; check only exit code.
+env -u HOME bash "$SUT" --harness claude --home "$H_SYNC" >/dev/null 2>/dev/null
+RC_AX8=$?
+if [ "$RC_AX8" -eq 0 ]; then
+  ok "AX8 HOME unset + --home given → exit 0 (--home overrides)"
+else
+  no "AX8 HOME unset + --home given → expected exit 0; got exit=$RC_AX8"
+fi
+
+# AX9: --help without $HOME in env → exit 0 (--help does not need HOME)
+# --help writes to stdout; redirect it so we capture only the exit code.
+env -u HOME bash "$SUT" --help >/dev/null 2>/dev/null
+RC_AX9=$?
+if [ "$RC_AX9" -eq 0 ]; then
+  ok "AX9 HOME unset + --help → exit 0 (--help works without HOME)"
+else
+  no "AX9 HOME unset + --help → expected exit 0; got exit=$RC_AX9"
+fi
+
+# ── BDG: SessionStart budget tests ────────────────────────────────────────────
+# The hook's output chars count toward the 8,000-char total aggregate budget.
+# Other 7 hooks measured at 7,458 chars → headroom = 542 chars for this hook.
+# in-sync: hook must be completely silent (0 chars).
+# 1 diverged: hook output must be compact (< 542 chars, within aggregate headroom).
+# all diverged: even worst-case (all 4 harnesses diverged) must stay < 542 chars.
+
+# BDG1: in-sync → hook output is exactly 0 chars (reuse HOOK_OUT_ALL which was empty)
+# (AN-hook-1 already checks this but we want a named budget assertion)
+H_BDG1="$ROOT/home_bdg1"
+mkdir -p "$H_BDG1/.claude/skills/research-sdd"
+cp "$SRC_SKILL" "$H_BDG1/.claude/skills/research-sdd/SKILL.md"
+HOOK_BDG1="$ROOT/hook-bdg1.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_BDG1"'"|' \
+  "$HOOK_SUT" > "$HOOK_BDG1"
+chmod +x "$HOOK_BDG1"
+BDG1_OUT="$(bash "$HOOK_BDG1" 2>&1)"
+BDG1_LEN="${#BDG1_OUT}"
+if [ "$BDG1_LEN" -eq 0 ]; then
+  ok "BDG1 hook in-sync → 0 chars output (budget: 0)"
+else
+  no "BDG1 hook in-sync → expected 0 chars; got $BDG1_LEN chars: $BDG1_OUT"
+fi
+
+# BDG2: 1 diverged → hook output < 542 chars (aggregate budget headroom = 8000 - 7458)
+# Uses home with one diverged harness (claude).
+H_BDG2="$ROOT/home_bdg2"
+make_home_stale "$H_BDG2" "# diverged content for budget test"
+HOOK_BDG2="$ROOT/hook-bdg2.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_BDG2"'"|' \
+  "$HOOK_SUT" > "$HOOK_BDG2"
+chmod +x "$HOOK_BDG2"
+BDG2_OUT="$(bash "$HOOK_BDG2" 2>&1)"
+BDG2_LEN="${#BDG2_OUT}"
+if [ "$BDG2_LEN" -gt 0 ] && [ "$BDG2_LEN" -lt 542 ]; then
+  ok "BDG2 hook 1-diverged → ${BDG2_LEN} chars output (budget: < 542)"
+elif [ "$BDG2_LEN" -eq 0 ]; then
+  no "BDG2 hook 1-diverged → 0 chars (expected non-zero; diverged should emit)"
+else
+  no "BDG2 hook 1-diverged → ${BDG2_LEN} chars output (≥ 542 — aggregate budget exceeded)"
+fi
+
+# BDG3: all 4 harnesses diverged → hook output < 542 chars (worst-case budget test)
+# cap in SUT (max_fix_lines=1) limits output even when all harnesses diverge.
+H_BDG3="$ROOT/home_bdg3"
+mkdir -p "$H_BDG3/.claude/skills/research-sdd"
+printf '# stale claude\n' > "$H_BDG3/.claude/skills/research-sdd/SKILL.md"
+mkdir -p "$H_BDG3/.config/opencode/skills/research-sdd"
+printf '# stale opencode\n' > "$H_BDG3/.config/opencode/skills/research-sdd/SKILL.md"
+mkdir -p "$H_BDG3/.codex/skills/research-sdd"
+printf '# stale codex\n' > "$H_BDG3/.codex/skills/research-sdd/SKILL.md"
+mkdir -p "$H_BDG3/.reasonix/skills/research-sdd"
+printf '# stale reasonix\n' > "$H_BDG3/.reasonix/skills/research-sdd/SKILL.md"
+HOOK_BDG3="$ROOT/hook-bdg3.sh"
+sed 's|"$here/verify-skill-drift.sh" --all|"'"$SUT"'" --all --home "'"$H_BDG3"'"|' \
+  "$HOOK_SUT" > "$HOOK_BDG3"
+chmod +x "$HOOK_BDG3"
+BDG3_OUT="$(bash "$HOOK_BDG3" 2>&1)"
+BDG3_LEN="${#BDG3_OUT}"
+if [ "$BDG3_LEN" -gt 0 ] && [ "$BDG3_LEN" -lt 542 ]; then
+  ok "BDG3 hook all-diverged → ${BDG3_LEN} chars output (budget: < 542)"
+elif [ "$BDG3_LEN" -eq 0 ]; then
+  no "BDG3 hook all-diverged → 0 chars (expected non-zero; diverged should emit)"
+else
+  no "BDG3 hook all-diverged → ${BDG3_LEN} chars output (≥ 542 — aggregate budget exceeded)"
+fi
+
+# REM1: ≥3 harnesses diverged → every diverged harness name appears in stderr
+# H_BDG3 (set up above) has all 4 harnesses diverged; max_fix_lines=1 → claude gets
+# the detailed fix line, opencode/codex/reasonix must appear in "also diverged" line.
+REM1_OUT="$(bash "$SUT" --all --home "$H_BDG3" 2>&1)"
+if printf '%s\n' "$REM1_OUT" | grep -qF 'claude' && \
+   printf '%s\n' "$REM1_OUT" | grep -qF 'opencode' && \
+   printf '%s\n' "$REM1_OUT" | grep -qF 'codex' && \
+   printf '%s\n' "$REM1_OUT" | grep -qF 'reasonix'; then
+  ok "REM1 4-diverged → all harness names appear in output"
+else
+  no "REM1 4-diverged → some harness names missing from output: $REM1_OUT"
+fi
+
 # ── TEETH ─────────────────────────────────────────────────────────────────────
 prove_teeth=0
 for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
@@ -353,8 +609,10 @@ if [ "$prove_teeth" -eq 1 ]; then
   echo "-- mutation teeth --"
 
   # Mutant sandbox: mirrors the kit directory structure so SELF_DIR-based path resolution
-  # (adapters.sh, kit root, opencode/SKILL.md) works without writing into the live tree.
+  # (adapters.sh, kit root) works without writing into the live tree.
   # Layout: $ROOT/toolbelt/ (mutants) + $ROOT/install/ + $ROOT/skills/ + $ROOT/toolbelt/opencode/
+  # opencode/SKILL.md is required because adapters.sh still maps opencode → toolbelt/opencode/SKILL.md;
+  # without it the sandbox's --all runs emit err_count>0 and exit 2 instead of testing the real mutation.
   # The EXIT trap (set at test start) cleans up $ROOT including all mutants.
   mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt/opencode"
   cp "$HERE/../../install/adapters.sh"       "$ROOT/install/adapters.sh"
@@ -457,6 +715,192 @@ if [ "$prove_teeth" -eq 1 ]; then
   else
     no "TOOTH D all-last-skipped: mutant exits non-zero — tooth has no bite (RC=$RC_TD)"
   fi
+
+  # TOOTH E: fixture-src — hardcoded src_relkit=source_a for all → harness_b in-sync falsely diverged.
+  # Proves SENTINEL-SRC-RELKIT-LOOKUP is actually used (not hardcoded).
+  # Uses the two-src-kit (already built above): harness_a→source_a, harness_b→source_b.
+  # Mutant MUST live in $TWO_KIT/toolbelt/ so its SELF_DIR resolves to the two-src adapters
+  # (not the real kit adapters, which would fail to find skills/source_{a,b}/SKILL.md).
+  # Mutant: replace the skill_src_relkit lookup with hardcoded "skills/source_a/SKILL.md".
+  MUT_E="$TWO_KIT/toolbelt/verify-skill-drift-mut-E.sh"
+  # Sentinel: the --all loop line that reads skill_src_relkit dynamically (with $home as 3rd arg)
+  sed 's/src_relkit="\$(rsdd_field "\$h" skill_src_relkit "\$home")"/src_relkit="skills\/source_a\/SKILL.md"/' \
+    "$SUT_SRC" > "$MUT_E"
+  chmod +x "$MUT_E"
+
+  # Pre-check: confirm sed matched (mutant differs from SUT_SRC)
+  if diff -q "$SUT_SRC" "$MUT_E" >/dev/null 2>&1; then
+    no "TOOTH E pre-check: mutant = SUT — sed did not match skill_src_relkit lookup line"
+  else
+    ok "TOOTH E pre-check: mutant differs from SUT (sentinel found)"
+  fi
+
+  # bash -n: mutant must parse cleanly
+  if bash -n "$MUT_E" 2>/dev/null; then
+    ok "TOOTH E pre-check: mutant parses (bash -n)"
+  else
+    no "TOOTH E pre-check: mutant has syntax error (bash -n failed)"
+  fi
+
+  # Control: harness_a in-sync only (harness_b absent); mutant hardcodes source_a → harness_a still in-sync
+  H_TE_CTRL="$ROOT/home_te_ctrl"
+  mkdir -p "$H_TE_CTRL/.harness_a/skills/research-sdd"
+  cp "$TWO_KIT/skills/source_a/SKILL.md" "$H_TE_CTRL/.harness_a/skills/research-sdd/SKILL.md"
+  bash "$MUT_E" --all --home "$H_TE_CTRL" 2>/dev/null
+  RC_TE_CTRL=$?
+  if [ "$RC_TE_CTRL" -eq 0 ]; then
+    ok "TOOTH E control: harness_a in-sync (source_a) → exit 0 (mutant does not break harness_a)"
+  else
+    no "TOOTH E control: harness_a in-sync → expected exit 0; got exit=$RC_TE_CTRL (bad mutant)"
+  fi
+
+  # Actual tooth: SRC1 home (harness_b deployed=source_b) → mutant hardcodes source_a → mismatch → exit 1
+  bash "$MUT_E" --all --home "$H_SRC1" 2>/dev/null
+  RC_TE=$?
+  if [ "$RC_TE" -eq 1 ]; then
+    ok "TOOTH E fixture-src: mutant exits 1 for harness_b in-sync (wrong src) — RED as expected"
+  else
+    no "TOOTH E fixture-src: mutant exits $RC_TE for harness_b in-sync — tooth has no bite"
+  fi
+
+  # TOOTH F: dangling-symlink-single — remove SENTINEL-DANGLING-SINGLE block.
+  # Real test AX1: dangling symlink single → exit 2. Mutant: → exit 3 (absent path) → RED.
+  MUT_F="$MUT_DIR/verify-skill-drift-mut-F.sh"
+  # Delete: # SENTINEL-DANGLING-SINGLE + next 4 lines (if/printf/exit 2/fi)
+  sed '/# SENTINEL-DANGLING-SINGLE/{N;N;N;N;d}' "$SUT" > "$MUT_F"
+  chmod +x "$MUT_F"
+
+  # Pre-check
+  if diff -q "$SUT" "$MUT_F" >/dev/null 2>&1; then
+    no "TOOTH F pre-check: mutant = SUT — SENTINEL-DANGLING-SINGLE not found"
+  else
+    ok "TOOTH F pre-check: mutant differs (SENTINEL-DANGLING-SINGLE removed)"
+  fi
+
+  # Actual tooth: dangling symlink in single mode → without guard exits 3 (absent) not 2 → RED
+  bash "$MUT_F" --harness claude --home "$H_AX1" 2>/dev/null
+  RC_TF=$?
+  if [ "$RC_TF" -ne 2 ]; then
+    ok "TOOTH F dangling-symlink-single: mutant exits $RC_TF (not 2) — RED as expected"
+  else
+    no "TOOTH F dangling-symlink-single: mutant still exits 2 — tooth has no bite"
+  fi
+
+  # TOOTH G: dangling-symlink-all — remove SENTINEL-DANGLING-ALL block.
+  # Real test AX2: dangling symlink --all → exit 2. Mutant: → exit 0 (counted as absent) → RED.
+  MUT_G="$MUT_DIR/verify-skill-drift-mut-G.sh"
+  # Delete: # SENTINEL-DANGLING-ALL + next 5 lines (if/err_count++/printf/continue/fi)
+  sed '/# SENTINEL-DANGLING-ALL/{N;N;N;N;N;d}' "$SUT" > "$MUT_G"
+  chmod +x "$MUT_G"
+
+  # Pre-check
+  if diff -q "$SUT" "$MUT_G" >/dev/null 2>&1; then
+    no "TOOTH G pre-check: mutant = SUT — SENTINEL-DANGLING-ALL not found"
+  else
+    ok "TOOTH G pre-check: mutant differs (SENTINEL-DANGLING-ALL removed)"
+  fi
+
+  # Actual tooth: dangling symlink in --all → without guard counts as absent → exit 0 → RED
+  bash "$MUT_G" --all --home "$H_AX2" 2>/dev/null
+  RC_TG=$?
+  if [ "$RC_TG" -ne 2 ]; then
+    ok "TOOTH G dangling-symlink-all: mutant exits $RC_TG (not 2) — RED as expected"
+  else
+    no "TOOTH G dangling-symlink-all: mutant still exits 2 — tooth has no bite"
+  fi
+
+  # TOOTH H: HOME-check-deleted — remove SENTINEL-HOME-CHECK block.
+  # Real test AX6: HOME unset → exit 2 + typed message. Mutant: → exit 3 (absent) → RED.
+  MUT_H="$MUT_DIR/verify-skill-drift-mut-H.sh"
+  # Delete: # SENTINEL-HOME-CHECK + next 4 lines (if/printf/exit 2/fi)
+  sed '/# SENTINEL-HOME-CHECK/{N;N;N;N;d}' "$SUT" > "$MUT_H"
+  chmod +x "$MUT_H"
+
+  # Pre-check
+  if diff -q "$SUT" "$MUT_H" >/dev/null 2>&1; then
+    no "TOOTH H pre-check: mutant = SUT — SENTINEL-HOME-CHECK not found"
+  else
+    ok "TOOTH H pre-check: mutant differs (SENTINEL-HOME-CHECK removed)"
+  fi
+
+  # Actual tooth: HOME unset → without check, home="" → rsdd_field resolves under "" → absent → exit 3 → RED
+  env -u HOME bash "$MUT_H" 2>/dev/null
+  RC_TH=$?
+  if [ "$RC_TH" -ne 2 ]; then
+    ok "TOOTH H HOME-check-deleted: mutant exits $RC_TH (not 2) — RED as expected"
+  else
+    no "TOOTH H HOME-check-deleted: mutant still exits 2 — tooth has no bite"
+  fi
+
+  # TOOTH I: unconditional-summary — make SENTINEL-SUMMARY-GUARD condition always true.
+  # Real test AX5: --all in-sync → stderr empty. Mutant: summary always prints → stderr non-empty → RED.
+  MUT_I="$MUT_DIR/verify-skill-drift-mut-I.sh"
+  # Replace the guarded condition with 'if true; then' (summary always runs)
+  sed '/# SENTINEL-SUMMARY-GUARD/{n; s/if \[ .* -gt 0 .*/if true; then/}' "$SUT" > "$MUT_I"
+  chmod +x "$MUT_I"
+
+  # Pre-check
+  if diff -q "$SUT" "$MUT_I" >/dev/null 2>&1; then
+    no "TOOTH I pre-check: mutant = SUT — SENTINEL-SUMMARY-GUARD not found or sed did not match"
+  else
+    ok "TOOTH I pre-check: mutant differs (SENTINEL-SUMMARY-GUARD condition removed)"
+  fi
+
+  # Actual tooth: in-sync home → without guard, summary always prints → stderr non-empty → RED
+  TOOTH_I_STDERR="$(bash "$MUT_I" --all --home "$H_ALL_SYNC" 2>&1 1>/dev/null)"
+  if [ -n "$TOOTH_I_STDERR" ]; then
+    ok "TOOTH I unconditional-summary: in-sync run emits stderr (summary unconditional) — RED as expected"
+  else
+    no "TOOTH I unconditional-summary: in-sync run still silent — tooth has no bite"
+  fi
+
+  # TOOTH J: drop-all-err-exit2 — remove SENTINEL-ERR-EXIT2 block.
+  # Real test AX2: dangling symlink --all → exit 2 (err_count=1, no diverged → exit via err guard).
+  # Mutant: err guard deleted → exits 0 (no diverged_count) → RED.
+  MUT_J="$MUT_DIR/verify-skill-drift-mut-J.sh"
+  # Delete: # SENTINEL-ERR-EXIT2 + next line (if [ "$err_count" ... ]; then exit 2; fi)
+  sed '/# SENTINEL-ERR-EXIT2/{N;d}' "$SUT" > "$MUT_J"
+  chmod +x "$MUT_J"
+
+  # Pre-check
+  if diff -q "$SUT" "$MUT_J" >/dev/null 2>&1; then
+    no "TOOTH J pre-check: mutant = SUT — SENTINEL-ERR-EXIT2 not found"
+  else
+    ok "TOOTH J pre-check: mutant differs (SENTINEL-ERR-EXIT2 removed)"
+  fi
+
+  # Actual tooth: dangling symlink --all → err_count=1, diverged_count=0 → without err guard → exit 0 → RED
+  bash "$MUT_J" --all --home "$H_AX2" 2>/dev/null
+  RC_TJ=$?
+  if [ "$RC_TJ" -ne 2 ]; then
+    ok "TOOTH J drop-all-err-exit2: mutant exits $RC_TJ (not 2) — RED as expected"
+  else
+    no "TOOTH J drop-all-err-exit2: mutant still exits 2 — tooth has no bite"
+  fi
+
+  # TOOTH K: also-diverged-names — remove SENTINEL-ALSO-DIVERGED block.
+  # Real test REM1: all 4 diverged → opencode/codex/reasonix must appear in also-diverged line.
+  # Mutant: accumulator deleted → also_names stays empty → guard blocks print → names absent → RED.
+  MUT_K="$MUT_DIR/verify-skill-drift-mut-K.sh"
+  # Delete: # SENTINEL-ALSO-DIVERGED + next line (also_names=...)
+  sed '/# SENTINEL-ALSO-DIVERGED/{N;d}' "$SUT" > "$MUT_K"
+  chmod +x "$MUT_K"
+
+  # Pre-check
+  if diff -q "$SUT" "$MUT_K" >/dev/null 2>&1; then
+    no "TOOTH K pre-check: mutant = SUT — SENTINEL-ALSO-DIVERGED not found"
+  else
+    ok "TOOTH K pre-check: mutant differs (SENTINEL-ALSO-DIVERGED removed)"
+  fi
+
+  # Actual tooth: all 4 diverged, but also_names missing → opencode absent from output → RED
+  MUT_K_OUT="$(bash "$MUT_K" --all --home "$H_BDG3" 2>&1)"
+  if ! printf '%s\n' "$MUT_K_OUT" | grep -qF 'opencode'; then
+    ok "TOOTH K also-diverged-names: mutant hides opencode — RED as expected"
+  else
+    no "TOOTH K also-diverged-names: mutant still shows opencode — tooth has no bite"
+  fi
+
   # git-status after all teeth: confirm no files leaked into the live tree
   _GIT_AFTER="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"
   if [ "$_GIT_BEFORE" = "$_GIT_AFTER" ]; then
