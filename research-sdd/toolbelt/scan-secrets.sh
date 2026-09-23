@@ -48,8 +48,8 @@ KWID='(?<![A-Za-z0-9])(?:password|passwd|secret|api[_-]?key|apikey|token)(?![A-Z
 
 # Temp files — cleaned on any exit.
 _rev_obj_tmp=""; _blobs_list=""; _hc_hits_tmp=""; _adv_raw=""; _blob_tmp=""
-_adv_dedup=""; _cmsg_tmp=""; _nul_tmp=""
-trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp" "$_adv_dedup" "$_cmsg_tmp" "$_nul_tmp"' EXIT
+_adv_dedup=""; _cmsg_tmp=""; _cmsg_hits_tmp=""; _nul_tmp=""
+trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp" "$_adv_dedup" "$_cmsg_tmp" "$_cmsg_hits_tmp" "$_nul_tmp"' EXIT
 
 # --committed mode: probe git and awk, verify the repo has at least one commit.
 if [ "$committed" = 1 ]; then
@@ -77,30 +77,50 @@ if [ "$committed" = 1 ]; then
   # Graft file check: M2: .git/info/grafts rewrites commit parentage, so the history visible to
   # this scan diverges from what git push will send (grafted commits may be hidden or reachable
   # commits excluded). Refuse rather than silently scan a subset.
-  if [ -s "${_toplevel_real}/.git/info/grafts" ]; then
+  # M4: use --git-common-dir so the grafts file is found correctly in worktrees (where .git is a
+  # file, not a directory) and repos with a custom GIT_DIR; the common dir is shared across worktrees.
+  _git_common_dir="$(git -C "$target" rev-parse --git-common-dir 2>/dev/null)" || _git_common_dir=""
+  # Absolutize: --git-common-dir returns an absolute path on git ≥ 2.7.0, but may be relative on
+  # older versions. Prefix with the real target path when not already absolute.
+  case "$_git_common_dir" in
+    /*) ;;
+    "") ;;
+    *)  _git_common_dir="${_toplevel_real}/${_git_common_dir}" ;;
+  esac
+  if [ -n "$_git_common_dir" ] && [ -s "${_git_common_dir}/info/grafts" ]; then
     echo "DEGRADED: .git/info/grafts is non-empty — scan scope may diverge from what git push will send." >&2
     echo "          Remove or empty .git/info/grafts before scanning." >&2
     exit 3
   fi
 
-  # B1+M1: Enumerate ALL (blob, path) pairs across the full history using git log --raw.
-  # git log --format= --raw --no-abbrev --no-renames -m --root -z outputs, for each file change:
-  #   ":<old-mode> <new-mode> <old-sha> <new-sha> <status>\0<path>\0"
+  # B1+M1+M4: Enumerate ALL (blob, path) pairs across the full history using plumbing:
+  #   git rev-list HEAD | git diff-tree --stdin -r -m --root --no-renames --no-abbrev -z --no-commit-id
+  # This outputs, for each file change: ":<old-mode> <new-mode> <old-sha> <new-sha> <status>\0<path>\0"
   # RS="\0" in awk reads these NUL-terminated records directly (B5/NUL-safe: no tr '\0' '\n' needed).
-  # This surfaces in-scope copies of blobs first seen at excluded/out-of-scope paths (B1 fix):
-  # unlike rev-list --objects which lists each blob once under the FIRST path encountered,
-  # log --raw emits every (blob, path) pair, so an in-scope path is never missed.
+  # M4 (plumbing enumeration): rev-list and diff-tree are plumbing commands — they ignore all log.*
+  # user config (log.showSignature, log.diffMerges, etc.) that can inject noise into porcelain
+  # git log output. This closes two fail-open leaks:
+  #   log.showSignature=true: injects GPG verification text into git log output, which the awk
+  #     state machine misreads as a path, causing the following real path to be dropped.
+  #   log.diffMerges=off|combined|dense-combined: suppresses or changes merge-commit diff format
+  #     in git log, hiding secrets added only in merge commits (evil-merge pattern).
+  # -m on diff-tree: generates one diff per parent for merge commits, so evil-merge content (changes
+  #   present in the merge commit but not in any parent) is covered via the parent-by-parent diffs.
+  # --no-commit-id: suppresses the per-commit SHA header; output is only the diff entry pairs.
   # --no-replace-objects: refs/replace cannot hide secret commits from the scan (M1 fix).
-  # B3: mktemp checked; any non-zero from git log → DEGRADED.
+  # B1 fix: unlike rev-list --objects, this emits every (blob, path) pair so an in-scope path
+  #   alias for a blob first seen under an excluded path is never missed.
+  # B3: mktemp checked; non-zero from either rev-list or diff-tree → DEGRADED.
   _rev_obj_tmp="$(mktemp)" || {
     echo "DEGRADED: mktemp failed — cannot create temp file for object list" >&2; exit 3; }
-  git --no-replace-objects -C "$target" log \
-    --format= --raw --no-abbrev --no-renames -m --root -z HEAD 2>/dev/null \
+  git --no-replace-objects -C "$target" rev-list HEAD 2>/dev/null \
+    | git --no-replace-objects -C "$target" \
+        diff-tree --stdin -r -m --root --no-renames --no-abbrev -z --no-commit-id 2>/dev/null \
     > "$_rev_obj_tmp"
-  _rev_obj_rc=$?
-  # B3: any non-zero from git log is a failure — rc=1 is not grep-semantics "no match", it is an error.
-  if [ "${_rev_obj_rc:-0}" -ne 0 ]; then
-    echo "DEGRADED: git log --raw failed (rc=$_rev_obj_rc) — cannot enumerate committed blobs" >&2
+  _rev_obj_pstat=("${PIPESTATUS[@]}")
+  # B3: any non-zero from rev-list or diff-tree is a failure.
+  if [ "${_rev_obj_pstat[0]:-0}" -ne 0 ] || [ "${_rev_obj_pstat[1]:-0}" -ne 0 ]; then
+    echo "DEGRADED: rev-list|diff-tree enumeration failed (rc=${_rev_obj_pstat[*]}) — cannot enumerate committed blobs" >&2
     exit 3
   fi
   # B5/NUL-safe: count NUL-terminated records (RS="\0") — avoids wc -l which splits on newlines,
@@ -108,13 +128,17 @@ if [ "$committed" = 1 ]; then
   _raw_lines="$(awk 'BEGIN{RS="\0"} END{print NR}' "$_rev_obj_tmp")"
 
   # Filter (blob, path) pairs by in-scope rules and dedup by blob sha (keep first in-scope path).
-  # RS="\0": reads NUL-terminated records from git log -z output directly (B5: NUL-safe enumeration).
+  # RS="\0": reads NUL-terminated records from diff-tree -z output directly (B5: NUL-safe).
   # State machine (A: leading-':' path fix + gitlink 160000 skip):
   #   Headers ("/^:/" with expect_path=0) carry the new-mode and new-side blob sha.
   #   Gitlink headers (new-mode 160000) are submodule commit SHAs — skip them (sha="").
   #   expect_path=1 after every header: the next non-empty record is ALWAYS the path, even if it
   #   starts with ':' (e.g. a file named ':notes.md' or ':dir/x.md').
   #   All-zero sha = deletion; skip it (blob no longer exists).
+  # M4 (fail-closed awk): Rule 2 validates the header format; Rule 3 rejects any non-empty record
+  #   that is neither a path (Rule 1) nor a valid header (Rule 2) — exits non-zero so the PIPESTATUS
+  #   check below converts it to DEGRADED. With plumbing enumeration this should never fire in normal
+  #   operation; it provides defense-in-depth if any config-injected noise were to slip through.
   _blobs_list="$(mktemp)" || {
     echo "DEGRADED: mktemp failed — cannot create blobs list temp file" >&2; exit 3; }
   awk '
@@ -149,11 +173,24 @@ expect_path && length($0) > 0 {
 # Rule 2: diff header record — only reached when expect_path=0 (not waiting for a path).
 # Format: ":old-mode new-mode old-sha new-sha status" — field 2=new-mode, field 4=new-side sha.
 # Gitlink entries (new-mode 160000) are submodule commit SHAs, NOT blob SHAs — skip them (A).
+# M4 fail-closed: validate the header format; a /^:/ record that does not match the expected
+# 6-digit modes + 40-64 hex sha + status format is unexpected — exit non-zero for PIPESTATUS.
 /^:/ {
+  if (!/^:[0-7]{6} [0-7]{6} [0-9a-f]{40,64} [0-9a-f]{40,64} [A-Z][0-9]*$/) {
+    print "DEGRADED: malformed diff-tree header: " substr($0, 1, 80) > "/dev/stderr"
+    exit 1
+  }
   if ($2 == "160000") { sha = ""; expect_path = 1; next }   # gitlink: clear sha, skip path
   sha = $4
   expect_path = 1
   next
+}
+# Rule 3: fail-closed — any non-empty record that reached here was neither consumed as a path
+# (Rule 1 did not fire: expect_path was 0) nor as a valid header (Rule 2 did not fire: not /^:/).
+# With rev-list|diff-tree plumbing this must never happen; if it does, exit non-zero for PIPESTATUS.
+length($0) > 0 {
+  print "DEGRADED: unexpected non-header record in diff-tree output: " substr($0, 1, 80) > "/dev/stderr"
+  exit 1
 }
 ' "$_rev_obj_tmp" | sort -k1,1 | awk '!seen[$1]++' > "$_blobs_list"
   # B3: check the filter pipeline's exit codes (awk/sort/dedup).
@@ -362,31 +399,46 @@ rm -f "$_adv_dedup"
 if [ "$committed" = 1 ]; then
   echo "-- commit messages (full history) --"
   _cmsg_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create commit message temp file" >&2; exit 3; }
-  git --no-replace-objects -C "$target" log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
+  # M4: -c log.showSignature=false prevents GPG verification text from being injected into the
+  # commit message output (which could cause false positives or inflate the message file).
+  git --no-replace-objects -c log.showSignature=false -C "$target" \
+      log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
   _cml_rc=$?
   # B3: any non-zero from git log is a failure — rc=1 is not grep-semantics "no match", it is an error.
   if [ "$_cml_rc" -ne 0 ]; then
     echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2
     rm -f "$_cmsg_tmp"; exit 3
   fi
+  # M4: run grep to a temp file so its rc can be checked independently.
+  # Previously the grep ran inside < <(... | head -20), where its exit code was unchecked —
+  # a grep error (rc ≥ 2, e.g. invalid regex or read error) would silently produce no matches,
+  # making the scan report "(none)" instead of DEGRADED.
+  _cmsg_hits_tmp="$(mktemp)" || {
+    echo "DEGRADED: mktemp failed — cannot create commit message hits temp file" >&2
+    rm -f "$_cmsg_tmp"; exit 3; }
+  grep -naE \
+    -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
+    -e 'A[KS]IA[0-9A-Z]{16}' \
+    -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
+    -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
+    -e 'AIza[0-9A-Za-z_-]{35}' \
+    -e 'sk-[A-Za-z0-9]{20,}' \
+    -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
+    "$_cmsg_tmp" > "$_cmsg_hits_tmp" 2>/dev/null
+  _cmsg_grep_rc=$?
+  if [ "$_cmsg_grep_rc" -ge 2 ]; then
+    echo "DEGRADED: commit message grep failed (rc=$_cmsg_grep_rc) — commit message scan incomplete" >&2
+    rm -f "$_cmsg_tmp" "$_cmsg_hits_tmp"; exit 3
+  fi
   _cmsg_hits=0
   while IFS= read -r m; do
     [ -z "$m" ] && continue
     echo "   LEAK!   [commit msg] $m"
     rc=1; hits=$((hits+1)); _cmsg_hits=$((_cmsg_hits+1))
-  done < <(
-    grep -naE \
-      -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
-      -e 'A[KS]IA[0-9A-Z]{16}' \
-      -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
-      -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
-      -e 'AIza[0-9A-Za-z_-]{35}' \
-      -e 'sk-[A-Za-z0-9]{20,}' \
-      -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
-      "$_cmsg_tmp" 2>/dev/null | head -20
-  )
+  done < <(head -20 "$_cmsg_hits_tmp")
   [ "$_cmsg_hits" -eq 0 ] && echo "   (none)"
-  rm -f "$_cmsg_tmp"
+  rm -f "$_cmsg_tmp"; _cmsg_tmp=""
+  rm -f "$_cmsg_hits_tmp"; _cmsg_hits_tmp=""
 fi
 
 # --- BINARY-SKIP report: a stray NUL byte makes grep -I skip a whole file silently. Surface it. ----

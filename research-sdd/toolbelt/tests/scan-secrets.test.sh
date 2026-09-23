@@ -308,10 +308,9 @@ cm_rc34="$(bash "$SUT" --committed "$d_t34" >/dev/null 2>&1; echo $?)"
 [ "$cm_rc34" = 1 ] && ok "34 --committed catches token in nested credentials → exit 1 (B2 :(glob)**/credentials)" \
   || no "34 --committed nested credentials: rc=$cm_rc34 (want 1)"
 
-# 35 — --committed: git log --raw fails (rc ≥ 2) → typed DEGRADED exit 3, not silent pass (B3).
-# Probe passes (rev-parse works); only "log --format= --raw" exits 2 to simulate enumeration failure.
-# Note: the old stub intercepted "rev-list --objects"; updated to "log --format= --raw" which is the
-# command now used for (blob, path) enumeration (#955 B1 fix).
+# 35 — --committed: rev-list enumeration fails (rc ≥ 2) → typed DEGRADED exit 3, not silent pass (B3).
+# Probe passes (rev-parse works); only "rev-list HEAD" exits 2 to simulate enumeration failure.
+# M4: updated from "log --format= --raw" to "rev-list HEAD" (plumbing enumeration, #969 Round 5).
 REAL_GIT35="$(type -P git 2>/dev/null)"
 d_t35="$TMP/committed-revlist-fail"
 mkdir -p "$d_t35/corpus"
@@ -320,7 +319,7 @@ git -C "$d_t35" config user.email "test@test" && git -C "$d_t35" config user.nam
 printf '# Block 1\n\nresearch note\n' > "$d_t35/corpus/t-block1.md"
 git -C "$d_t35" add corpus/t-block1.md && git -C "$d_t35" commit -q -m "init" 2>/dev/null
 _stub_bad_revlist="$TMP/bad-revlist-bin"; mkdir -p "$_stub_bad_revlist"
-printf '#!/bin/bash\ncase "$*" in\n  *"log --format= --raw"*) exit 2 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
+printf '#!/bin/bash\ncase "$*" in\n  *"rev-list HEAD"*) exit 2 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
   "$REAL_GIT35" > "$_stub_bad_revlist/git"; chmod +x "$_stub_bad_revlist/git"
 cm_out35="$(PATH="$_stub_bad_revlist:$PATH" bash "$SUT" --committed "$d_t35" 2>&1)"
 cm_rc35=$?
@@ -414,10 +413,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # bash error messages include the script path, which would cause a false match.
   sed '0,/if \[ "\$committed" = 1 \]; then/{s/if \[ "\$committed" = 1 \]; then/if false; then/}' \
     "$SUT" \
-  | sed 's/if \[ "\${_rev_obj_rc:-0}" -ne 0 \]/if false/g' \
-  | sed 's/if \[ "\$_rev_obj_rc" -ge 2 \]/if false/g' \
+  | sed 's/if \[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g' \
   | sed 's/if \[ "\$_cml_rc" -ne 0 \]/if false/g' \
-  | sed 's/if \[ "\$_cml_rc" -ge 2 \]/if false/g' \
     > "$mutant_deg"
   cm_out29m="$(PATH="$_stub_no_git" bash "$mutant_deg" --committed "$d_deg" 2>&1)"
   cm_rc29m=$?
@@ -447,14 +444,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ "$cm_rc32m" != 1 ] && ok "teeth-b2: env[^-removed mutant misses nested .env.local (rc=$cm_rc32m) → test 32 has teeth" \
     || no "teeth-b2: mutant still caught nested .env.local (rc=$cm_rc32m) — test 32 is THEATER"
 
-  # Teeth for test 35 (B3: git log --raw rc ≥ 2 → DEGRADED).
-  # Mutant-b3: neuter the _rev_obj_rc -ne 0 check so log failure is silently ignored.
+  # Teeth for test 35 (B3: rev-list enumeration rc ≥ 2 → DEGRADED).
+  # Mutant-b3: neuter the PIPESTATUS check so rev-list failure is silently ignored.
+  # M4: the check now uses _rev_obj_pstat[0] and [1] instead of _rev_obj_rc.
   # Test 35 must flip to FAIL (exit 0 instead of 3 — empty blob list, no scan, no DEGRADED).
   # Note: 0 blobs with _raw_lines=0 is NOT DEGRADED (empty repo), so the mutant must also
   # silence the N=0 check; we do that by patching both conditions to false.
-  echo "-- teeth-b3: remove _rev_obj_rc check — test 35 must go red (silent pass) --"
+  echo "-- teeth-b3: remove _rev_obj_pstat check — test 35 must go red (silent pass) --"
   mutant_b3="$TMP/scan-secrets.MUTANT-b3.sh"
-  sed 's/if \[ "\${_rev_obj_rc:-0}" -ne 0 \]/if false/g; s/if \[ "\$_total_blobs" -eq 0 \]/if false/g' \
+  sed 's/if \[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \] || \[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]; then/if false; then/g;
+       s/if \[ "\$_total_blobs" -eq 0 \]/if false/g' \
     "$SUT" > "$mutant_b3"
   cm_out35m="$(PATH="$_stub_bad_revlist:$PATH" bash "$mutant_b3" --committed "$d_t35" 2>&1)"
   cm_rc35m=$?
@@ -547,9 +546,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     || no "teeth-hist36: mutant still caught past-commit token (rc=$cm_rc36m) — test 36 is THEATER"
 
   # Teeth for test 37 (MAJOR1 commit messages): neuter git log so commit messages are empty.
+  # M4 changed the command to span two lines with -c log.showSignature=false; use Python to match
+  # the multi-line form reliably.
   echo "-- teeth: neuter git log — test 37 commit-message token must go red --"
   mutant_cmsg="$TMP/scan-secrets.MUTANT-cmsg.sh"
-  sed 's/git --no-replace-objects -C "\$target" log --format="format:%s%n%b" HEAD/: # neutered-log/g' "$SUT" > "$mutant_cmsg"
+  python3 - "$SUT" "$mutant_cmsg" << 'PYCMSG37'
+import sys
+content = open(sys.argv[1]).read()
+# Replace the two-line commit-message git log call with a no-op (colon builtin).
+# The backslash continuation + 6-space indent on the second line must match exactly.
+old = '  git --no-replace-objects -c log.showSignature=false -C "$target" \\\n      log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null'
+new = '  : # neutered-log > "$_cmsg_tmp" 2>/dev/null'
+if old not in content:
+    import sys as _sys; print("WARN: cmsg37 pattern not found in SUT", file=_sys.stderr)
+content = content.replace(old, new)
+open(sys.argv[2], 'w').write(content)
+PYCMSG37
   cm_rc37m="$(bash "$mutant_cmsg" --committed "$d_t37" >/dev/null 2>&1; echo $?)"
   [ "$cm_rc37m" != 1 ] && ok "teeth-cmsg37: log-neutered mutant misses commit-message token (rc=$cm_rc37m) → test 37 has teeth" \
     || no "teeth-cmsg37: mutant still caught commit-message token (rc=$cm_rc37m) — test 37 is THEATER"
@@ -671,8 +683,10 @@ git -C "$d_t46" config user.email "t@t" && git -C "$d_t46" config user.name "t"
 printf '# clean\n' > "$d_t46/a.md"
 git -C "$d_t46" add a.md && git -C "$d_t46" commit -q -m "init" 2>/dev/null
 _stub46="$TMP/stub-git-exit1"; mkdir -p "$_stub46"
-# Stub: intercept log --raw or rev-list --objects and exit 1
-printf '#!/bin/bash\ncase "$*" in\n  *"log --format= --raw"*|*"rev-list --objects"*) exit 1 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
+# Stub: intercept rev-list HEAD (the enumeration plumbing) and exit 1.
+# With M4 the enumeration is: git rev-list HEAD | git diff-tree --stdin ...
+# Making rev-list exit 1 sets PIPESTATUS[0]=1 → DEGRADED check fires.
+printf '#!/bin/bash\ncase "$*" in\n  *"rev-list HEAD"*) exit 1 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
   "$REAL_GIT46" > "$_stub46/git"; chmod +x "$_stub46/git"
 cm_out46="$(PATH="$_stub46:$PATH" bash "$SUT" --committed "$d_t46" 2>&1)"
 cm_rc46=$?
@@ -837,10 +851,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-b4-44: mutant still caught Latin-1 line (rc=$cm_rc44m) — test 44 is THEATER"
   fi
 
-  # Teeth for T46 (B3 rev-list exit 1): restore old >=2 check → exit 1 treated as ok.
-  echo "-- teeth-b3-46: restore old >=2 check — test 46 exit-1 must go red (silent pass) --"
+  # Teeth for T46 (B3 rev-list exit 1): restore old >=2 check on the PIPESTATUS checks so
+  # rev-list exit-1 is treated as ok → scan proceeds silently → test 46 must go red.
+  # M4: PIPESTATUS checks use _rev_obj_pstat[0] and [1]; neutering both to -ge 2 restores the
+  # old fail-open behaviour where rc=1 from rev-list is silently ignored.
+  echo "-- teeth-b3-46: restore >=2 on pstat[0] and pstat[1] — test 46 exit-1 must go red (silent pass) --"
   mutant_b3_46="$TMP/scan-secrets.MUTANT-b3-46.sh"
-  sed 's/\[ "\${_rev_obj_rc:-0}" -ne 0 \]/[ "${_rev_obj_rc:-0}" -ge 2 ]/g' "$SUT" > "$mutant_b3_46"
+  sed 's/\[ "\${_rev_obj_pstat\[0\]:-0}" -ne 0 \]/[ "${_rev_obj_pstat[0]:-0}" -ge 2 ]/g;
+       s/\[ "\${_rev_obj_pstat\[1\]:-0}" -ne 0 \]/[ "${_rev_obj_pstat[1]:-0}" -ge 2 ]/g' \
+    "$SUT" > "$mutant_b3_46"
   cm_out46m="$(PATH="$_stub46:$PATH" bash "$mutant_b3_46" --committed "$d_t46" 2>&1)"
   cm_rc46m=$?
   if [ "$cm_rc46m" != 3 ] && ! printf '%s' "$cm_out46m" | grep -qi 'degraded'; then
@@ -1082,39 +1101,125 @@ else
   no "59 _cmsg_tmp mktemp fail: rc=$cm_rc59 (want 3) :: $(printf '%s' "$cm_out59" | head -3)"
 fi
 
+# 60 — M4: log.showSignature=true causes porcelain git log to inject GPG verification text into
+#      the NUL-separated diff stream; the awk state machine may misread the GPG record as a path,
+#      dropping the real path → blob not scanned → token missed (false clean).
+#      Fix: rev-list|diff-tree plumbing is immune to log.* config.
+d_t60="$TMP/repo_t60"
+_gcfg60="$TMP/gitconfig_t60"
+_fgpg60="$TMP/fake-gpg-t60.sh"
+git init -q "$d_t60"
+git -C "$d_t60" config user.email "t@t.com"
+git -C "$d_t60" config user.name "Test"
+# Fake gpg: signs (dummy PGP block) and verifies (GOODSIG status + friendly text to stderr).
+# git commit -S writes signature to store; git log --show-signature calls verify.
+cat > "$_fgpg60" << 'GPGEOF'
+#!/bin/bash
+if printf ' %s ' "$@" | grep -q -- '--verify'; then
+  printf '[GNUPG:] GOODSIG FAKEKEYID Test\n'
+  printf '[GNUPG:] VALIDSIG FAKEKEYID 2026-01-01 0 0 0 0 0 00 FAKEKEYID\n'
+  printf 'gpg: Good signature from "Test <t@t.com>"\n' >&2
+  exit 0
+fi
+printf '-----BEGIN PGP SIGNATURE-----\n\nFAKESIG=\n-----END PGP SIGNATURE-----\n'
+exit 0
+GPGEOF
+chmod +x "$_fgpg60"
+# GIT_CONFIG_GLOBAL file: showSignature=true + fake gpg
+cat > "$_gcfg60" << GCFGEOF
+[log]
+  showSignature = true
+[gpg]
+  program = $_fgpg60
+GCFGEOF
+# Commit 1: clean unsigned a.md
+printf 'clean\n' > "$d_t60/a.md"
+git -C "$d_t60" add a.md
+git -C "$d_t60" commit -q -m "add a.md"
+# Commit 2: s.md with ghp token, signed with fake gpg (-c flags avoid touching real user config)
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t60/s.md"
+git -C "$d_t60" add s.md
+GIT_CONFIG_GLOBAL="$_gcfg60" \
+  git -C "$d_t60" -c user.signingkey=FAKEKEYID -c gpg.program="$_fgpg60" \
+  commit -q -S -m "signed commit with token" 2>/dev/null \
+  || git -C "$d_t60" commit -q -m "signed commit with token (no gpg)"
+t60_out="$(GIT_CONFIG_GLOBAL="$_gcfg60" bash "$SUT" --committed "$d_t60" 2>&1)"
+t60_rc=$?
+if [ "$t60_rc" = 1 ] && printf '%s' "$t60_out" | grep -q 'LEAK'; then
+  ok "60: log.showSignature=true does not cause plumbing enumeration to miss signed-commit blob (exit 1)"
+else
+  no "60: log.showSignature=true scan: rc=$t60_rc (want 1) :: $(printf '%s' "$t60_out" | head -3)"
+fi
+
+# 61 — M4: log.diffMerges=off suppresses merge-commit diffs in porcelain git log; a secret added
+#      only in a merge commit (evil merge, not present in any parent) is never enumerated → exit 0.
+#      Fix: rev-list|diff-tree -m generates one diff per parent regardless of log.diffMerges config.
+d_t61="$TMP/repo_t61"
+_gcfg61="$TMP/gitconfig_t61"
+git init -q "$d_t61"
+git -C "$d_t61" config user.email "t@t.com"
+git -C "$d_t61" config user.name "Test"
+# main: a.md
+printf 'content a\n' > "$d_t61/a.md"
+git -C "$d_t61" add a.md
+git -C "$d_t61" commit -q -m "add a.md"
+_t61_main="$(git -C "$d_t61" symbolic-ref --short HEAD 2>/dev/null || echo main)"
+# branch-b: b.md
+git -C "$d_t61" checkout -q -b branch-b
+printf 'content b\n' > "$d_t61/b.md"
+git -C "$d_t61" add b.md
+git -C "$d_t61" commit -q -m "add b.md"
+# back to main, merge without auto-commit so we can add evil-merge file
+git -C "$d_t61" checkout -q "$_t61_main"
+# --no-ff forces a real merge commit (two parents) even for a fast-forward-eligible branch.
+# Without --no-ff git would fast-forward and the "merge commit" would have only one parent,
+# making log.diffMerges=off irrelevant (it only suppresses multi-parent commit diffs).
+git -C "$d_t61" merge -q --no-commit --no-ff branch-b 2>/dev/null || true
+# Evil merge: s.md added only in the merge commit (not in any parent)
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t61/s.md"
+git -C "$d_t61" add s.md
+git -C "$d_t61" commit -q -m "merge branch-b (evil: added s.md in merge commit only)"
+# Delete s.md in next commit so it lives only in the merge commit in history
+git -C "$d_t61" rm -q s.md
+git -C "$d_t61" commit -q -m "remove s.md"
+# GIT_CONFIG_GLOBAL with log.diffMerges=off (suppresses merge-commit diffs in git log)
+printf '[log]\n  diffMerges = off\n' > "$_gcfg61"
+t61_out="$(GIT_CONFIG_GLOBAL="$_gcfg61" bash "$SUT" --committed "$d_t61" 2>&1)"
+t61_rc=$?
+if [ "$t61_rc" = 1 ] && printf '%s' "$t61_out" | grep -q 'LEAK'; then
+  ok "61: log.diffMerges=off does not hide evil-merge secret via plumbing enumeration (exit 1)"
+else
+  no "61: log.diffMerges=off scan: rc=$t61_rc (want 1) :: $(printf '%s' "$t61_out" | head -3)"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # Teeth for T53 (leading ':' path): restore old awk that treats /^:/ as header, so :notes.md
-  # blob sha is lost → token missed → exit 0.
-  echo "-- teeth-r4-53: restore old /^:/ awk rule — test 53 :notes.md must go red --"
+  # Teeth for T53 (leading ':' path): insert an early-skip inside Rule 1 for records starting
+  # with ':' — the old bug. ':notes.md' arrives at Rule 1 (expect_path=1), the colon check fires,
+  # sha is cleared and expect_path reset to 0 → blob is never emitted → exit 0 (the real danger).
+  # The mutant must give rc=0, not just rc≠1 — rc=3 (DEGRADED) would not prove the secret is missed.
+  # Note: adding !/^:/ to Rule 1's condition would push ':notes.md' into Rule 2's fail-closed
+  # validation, giving DEGRADED exit 3; instead we insert a skip INSIDE Rule 1 so it is consumed
+  # there (silently) and never reaches the fail-closed path.
+  echo "-- teeth-r4-53: colon-path early-skip in Rule 1 — :notes.md sha cleared → rc=0 --"
   mutant_t53="$TMP/scan-secrets.MUTANT-r4-53.sh"
-  # Replace the state-machine awk with the old one: drop expect_path lines, restore old /^:/ rule
   python3 - "$SUT" "$mutant_t53" << 'PYEOF53'
-import sys, re
+import sys
 content = open(sys.argv[1]).read()
-# Replace the new state-machine awk BEGIN with the old one (no expect_path)
+# Insert a colon-path early-exit INSIDE Rule 1 (before the path is processed).
+# When ':notes.md' arrives with expect_path=1, the /^:/ check fires: sha is cleared, state reset,
+# and `next` is called. The real blob sha is lost → blob not scanned → exit 0 (false clean).
+# This does NOT add !/^:/ to Rule 1's condition — that would push ':notes.md' to Rule 2's
+# fail-closed validator, giving DEGRADED (rc=3) instead of the intended silent pass (rc=0).
 content = content.replace(
-    'BEGIN{RS="\\0"; sha=""; expect_path=0}',
-    'BEGIN{RS="\\0"; sha=""}'
+    'expect_path && length($0) > 0 {\n  expect_path = 0\n  if (sha == "") next',
+    'expect_path && length($0) > 0 {\n  if ($0 ~ /^:/) { expect_path = 0; sha = ""; next }  # MUTANT: old colon-path skip bug\n  expect_path = 0\n  if (sha == "") next'
 )
-# Remove expect_path lines
-lines = content.split('\n')
-out = []
-for line in lines:
-    if 'expect_path' in line:
-        continue
-    out.append(line)
-content = '\n'.join(out)
 open(sys.argv[2], 'w').write(content)
 PYEOF53
-  if [ -f "$mutant_t53" ] && bash "$mutant_t53" --committed "$d_t53" >/dev/null 2>&1; then
-    _m53rc=$?
-    [ "$_m53rc" != 1 ] && ok "teeth-r4-53: old-awk mutant misses :notes.md token → test 53 has teeth" \
-      || no "teeth-r4-53: mutant still caught :notes.md token — test 53 is THEATER"
-  else
-    _m53rc=$(bash "$mutant_t53" --committed "$d_t53" >/dev/null 2>&1; echo $?)
-    [ "$_m53rc" != 1 ] && ok "teeth-r4-53: old-awk mutant misses :notes.md token (rc=$_m53rc) → test 53 has teeth" \
-      || no "teeth-r4-53: mutant still caught :notes.md token (rc=$_m53rc) — test 53 is THEATER"
-  fi
+  _m53rc=$(bash "$mutant_t53" --committed "$d_t53" >/dev/null 2>&1; echo $?)
+  [ "$_m53rc" = 0 ] \
+    && ok "teeth-r4-53: colon-skip mutant silently misses :notes.md (rc=0 = false clean) → test 53 has teeth" \
+    || no "teeth-r4-53: mutant did not pass silently (rc=$_m53rc, want 0) — check mutation"
 
   # Teeth for T56 (gitlink): restore old awk without 160000 skip → cat-file fails on submod sha → DEGRADED.
   echo "-- teeth-r4-56: remove gitlink skip — test 56 must go red (DEGRADED on cat-file) --"
@@ -1167,10 +1272,10 @@ PYEOF57
   fi
 
   # Teeth for T59 (unchecked _cmsg_tmp mktemp): remove the mktemp check for _cmsg_tmp AND
-  # restore the old -ge 2 check. Both must be removed because the -ne 0 check (T58's fix) also
-  # catches the > "" redirect failure from an empty _cmsg_tmp. With just the mktemp check removed,
-  # the -ne 0 guard still catches rc=1 → DEGRADED. Only removing both makes the fail-open visible.
-  echo "-- teeth-r4-59: remove _cmsg_tmp mktemp check + restore -ge 2 — test 59 must go red --"
+  # restore the old -ge 2 check AND remove the _cmsg_hits_tmp mktemp check.
+  # With stub failing on call ≥ 7: call 7 (_cmsg_tmp) and call 8 (_cmsg_hits_tmp) both fail.
+  # Without both guards removed, one of them still catches the failure → DEGRADED.
+  echo "-- teeth-r4-59: remove _cmsg_tmp + _cmsg_hits_tmp checks + restore -ge 2 — test 59 must go red --"
   mutant_t59="$TMP/scan-secrets.MUTANT-r4-59.sh"
   python3 - "$SUT" "$mutant_t59" << 'PYEOF59'
 import sys, re
@@ -1181,10 +1286,21 @@ content = re.sub(
     r'\1',
     content
 )
-# Also restore the old -ge 2 check so rc=1 from "> """ is not caught either
+# Remove the _cmsg_hits_tmp mktemp check (M4 addition; also fails on call 8 with the stub)
+content = re.sub(
+    r'(_cmsg_hits_tmp="\$\(mktemp\)") \|\| \{[^}]+rm[^}]+exit 3;\s*\}',
+    r'\1',
+    content
+)
+# Restore the old -ge 2 check so rc=1 from "> ''" is not caught
 content = content.replace(
     'if [ "$_cml_rc" -ne 0 ]',
     'if [ "$_cml_rc" -ge 2 ]'
+)
+# Also restore -ge 2 for the cmsg grep rc check (M4 addition; also needs neutering)
+content = content.replace(
+    'if [ "$_cmsg_grep_rc" -ge 2 ]',
+    'if false'
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF59
@@ -1196,6 +1312,66 @@ PYEOF59
   else
     no "teeth-r4-59: mutant still DEGRADED (rc=$_m59rc) — test 59 is THEATER"
   fi
+
+  # Teeth for T60 (log.showSignature): restore porcelain git log enumeration AND use a git stub
+  # that injects a GPG-like noise record into the git log output stream — simulating what
+  # log.showSignature=true would do on a successfully signed commit.  The fail-closed awk (Rule 3)
+  # must reject the unexpected noise record → DEGRADED (rc≠1 proves the scan breaks).
+  # The signed commit in the T60 fixture may fall back to unsigned when gpg signing fails in the
+  # test environment, so the stub-injected noise is the reliable teeth mechanism.
+  echo "-- teeth-r4-60: porcelain-log + GPG-noise stub — fail-closed awk must reject noise --"
+  _stub60="$TMP/r4-stub-git60"; mkdir -p "$_stub60"
+  printf '#!/bin/bash\n# Inject GPG noise after git log output to simulate log.showSignature=true\nfor _a in "$@"; do [ "$_a" = "log" ] && { "%s" "$@"; rc=$?; printf '"'"'[GNUPG:] GOODSIG FAKEKEYID Test\0'"'"'; exit $rc; }; done\nexec "%s" "$@"\n' \
+    "${REAL_GIT58}" "${REAL_GIT58}" > "$_stub60/git"; chmod +x "$_stub60/git"
+  for _b in bash grep sed sort head wc tr awk rm cat dirname basename printf mktemp; do
+    _bp="$(type -P "$_b" 2>/dev/null)"; [ -n "$_bp" ] && ln -sf "$_bp" "$_stub60/$_b" 2>/dev/null || true
+  done
+  mutant_t60="$TMP/scan-secrets.MUTANT-r4-60.sh"
+  python3 - "$SUT" "$mutant_t60" << 'PYEOF60'
+import sys, re
+content = open(sys.argv[1]).read()
+# Restore porcelain git log --raw enumeration (plumbing → porcelain regression mutant).
+content = re.sub(
+    r'  git --no-replace-objects -C "\$target" rev-list HEAD.*?_rev_obj_pstat=\(".*?"\)',
+    '  git --no-replace-objects -C "$target" log \\\n'
+    '    --format= --raw --no-abbrev --no-renames -m --root -z HEAD 2>/dev/null \\\n'
+    '    > "$_rev_obj_tmp"\n'
+    '  _rev_obj_pstat=($? 0)',
+    content,
+    flags=re.DOTALL
+)
+open(sys.argv[2], 'w').write(content)
+PYEOF60
+  _m60rc=$(PATH="$_stub60:$PATH" GIT_CONFIG_GLOBAL="$_gcfg60" bash "$mutant_t60" --committed "$d_t60" >/dev/null 2>&1; echo $?)
+  [ "$_m60rc" != 1 ] \
+    && ok "teeth-r4-60: porcelain-log+GPG-noise mutant breaks (rc=$_m60rc≠1) → test 60 has teeth" \
+    || no "teeth-r4-60: porcelain-log+GPG-noise mutant still found token (rc=1) — test 60 is THEATER"
+
+  # Teeth for T61 (log.diffMerges=off): restore porcelain git log WITHOUT -m so the
+  # diffMerges=off config takes effect → merge commit diffs suppressed → evil-merge secret
+  # not enumerated → exit 0 (false clean, rc≠1 proves plumbing -m immunity is needed).
+  # A separate mutant is used (without -m) because -m would override diffMerges=off.
+  echo "-- teeth-r4-61: porcelain-log (no -m) — diffMerges=off must suppress evil-merge diff --"
+  mutant_t61="$TMP/scan-secrets.MUTANT-r4-61.sh"
+  python3 - "$SUT" "$mutant_t61" << 'PYEOF61'
+import sys, re
+content = open(sys.argv[1]).read()
+# Restore porcelain git log without -m so log.diffMerges=off suppresses merge commit diffs.
+content = re.sub(
+    r'  git --no-replace-objects -C "\$target" rev-list HEAD.*?_rev_obj_pstat=\(".*?"\)',
+    '  git --no-replace-objects -C "$target" log \\\n'
+    '    --format= --raw --no-abbrev --no-renames --root -z HEAD 2>/dev/null \\\n'
+    '    > "$_rev_obj_tmp"\n'
+    '  _rev_obj_pstat=($? 0)',
+    content,
+    flags=re.DOTALL
+)
+open(sys.argv[2], 'w').write(content)
+PYEOF61
+  _m61rc=$(GIT_CONFIG_GLOBAL="$_gcfg61" bash "$mutant_t61" --committed "$d_t61" >/dev/null 2>&1; echo $?)
+  [ "$_m61rc" != 1 ] \
+    && ok "teeth-r4-61: porcelain-log-no-m mutant misses evil-merge secret (rc=$_m61rc≠1) → test 61 has teeth" \
+    || no "teeth-r4-61: porcelain-log-no-m mutant still found evil-merge secret (rc=1) — test 61 is THEATER"
 fi
 
 echo "== $pass passed · $fail failed =="
