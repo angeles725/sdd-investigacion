@@ -133,7 +133,10 @@ stub_checksummer() {
   {
     printf '#!%s\n' "$BASH_BIN"
     printf 'echo "sha256sum $*" >> "%s/calls.log"\n' "$box"
-    printf 'while IFS= read -r _sha_drain_l; do :; done\n'  # drain stdin; prevent SIGPIPE — #941
+    # Drain ONLY when the real sha256sum would read stdin (no file operand, or '-'); a file-operand
+    # call with an inherited, never-closed stdin would otherwise block forever.
+    printf '_rd=1; for _a in "$@"; do case "$_a" in -) _rd=1; break ;; -*) ;; *) _rd=0 ;; esac; done\n'
+    printf '[ "$_rd" = 1 ] && while IFS= read -r _sha_drain_l; do :; done\n'  # prevent SIGPIPE — #941
     printf 'exit %s\n' "$code"
   } > "$box/bin/sha256sum"
   chmod +x "$box/bin/sha256sum"
