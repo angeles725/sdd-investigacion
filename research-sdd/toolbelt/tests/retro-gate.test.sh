@@ -517,7 +517,8 @@ cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_F/toolbelt/lib/"
 cp "$HERE/../verify-retro.sh"       "$FKIT_F/toolbelt/"
 cat > "$FKIT_F/toolbelt/stage-retro-issues.sh" << 'FABSEOF'
 #!/usr/bin/env bash
-# Models real seeder: retro has no delta section (empty-input path, stage-retro-issues.sh ~174)
+# Models real seeder: retro has no delta section (empty-input path)
+# Real seeder emits to stderr; gate captures 2>&1 — stream-agnostic.
 printf 'empty-input: no delta section found in retro.md\n' >&2
 exit 0
 FABSEOF
@@ -546,6 +547,139 @@ printf '%s' "$ERR_F" | grep -q 'WARN.*no summary' \
 printf '%s' "$ERR_F" | grep -q 'ran=1' \
   && ok "EN3-f: ran=1 in issue-seeding summary (seeder was called)" \
   || no "EN3-f: expected ran=1 in summary; got: $ERR_F"
+
+# ─── (EN3-absent) absent-input: typed outcome → absent=1, WARN naming retro ───
+# Distinct from empty-input/no-match: retro file not found is a §7 absent-input signal.
+# RED before fix: absent-input: is folded into empty=N with no WARN (issue #940).
+FKIT_ABS="$ROOT/fkit_abs"
+mkdir -p "$FKIT_ABS/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT_ABS/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT_ABS/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_ABS/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT_ABS/toolbelt/"
+# Stub: real seeder absent-input path (search: absent-input: retro not found)
+# Real seeder emits to stderr; gate captures 2>&1 — stream-agnostic.
+cat > "$FKIT_ABS/toolbelt/stage-retro-issues.sh" << 'ABSEOF'
+#!/usr/bin/env bash
+# Models real seeder: retro file not found (absent-input path)
+printf 'absent-input: retro not found: retro.md\n' >&2
+exit 1
+ABSEOF
+chmod +x "$FKIT_ABS/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_ABS/toolbelt/retro-gate.sh"
+TABS="$ROOT/tabs"; mkgit "$TABS"; STABS="tabs-sess"
+mksessionfile "$TABS" "$STABS" "202609050800"
+mkblock "$TABS" "tabs-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TABS/tabs-block1.md"
+mkretro "$TABS" "2026-09-05-tabs.md" 1
+touch -t 202609051200 "$TABS/retros/2026-09-05-tabs.md"
+_jtabs="$(mkjson "$STABS" "false")"
+errf_abs="$ROOT/err_abs.$$"
+printf '%s' "$_jtabs" | PATH="$MOCK_GH_DIR:$PATH" \
+  "$BASH_BIN" "$FKIT_ABS/toolbelt/retro-gate.sh" "$TABS" >"$ROOT/out_abs.$$" 2>"$errf_abs"
+ERR_ABS="$(cat "$errf_abs")"; rm -f "$errf_abs" "$ROOT/out_abs.$$"
+# absent=1 in issue-seeding summary (distinct from empty)
+printf '%s' "$ERR_ABS" | grep -q 'absent=1' \
+  && ok "EN3-absent: absent-input: typed outcome → absent=1 in issue-seeding summary" \
+  || no "EN3-absent: expected absent=1 in summary; got: $ERR_ABS"
+# empty=0 — must not be folded into empty counter
+printf '%s' "$ERR_ABS" | grep -q 'empty=0' \
+  && ok "EN3-absent: absent-input: does not increment empty counter (empty=0)" \
+  || no "EN3-absent: expected empty=0 (not folded into empty); got: $ERR_ABS"
+# failed=0 — absent-input seeder must NOT contribute to failed counter
+printf '%s' "$ERR_ABS" | grep -q 'failed=0 ' \
+  && ok "EN3-absent: absent-input: does not increment failed counter (failed=0)" \
+  || no "EN3-absent: expected failed=0 (absent not counted as failed); got: $ERR_ABS"
+# No per-retro seeder-failed WARN (only the absent-input WARN fires)
+printf '%s' "$ERR_ABS" | grep -q 'WARN: seeder failed' \
+  && no "EN3-absent: absent-input must NOT emit seeder-failed WARN; got: $ERR_ABS" \
+  || ok "EN3-absent: absent-input: no seeder-failed WARN (correct)"
+# Anchored WARN: must match the specific absent-input WARN line, not a reason line
+printf '%s' "$ERR_ABS" | grep -qF 'WARN: seeder: absent-input for 2026-09-05-tabs.md' \
+  && ok "EN3-absent: absent-input: typed outcome → WARN naming retro emitted" \
+  || no "EN3-absent: expected 'WARN: seeder: absent-input for 2026-09-05-tabs.md'; got: $ERR_ABS"
+
+# ─── (EN3-no-match) no-match: typed outcome → empty=1, no absent-input WARN ──
+# Real seeder (search: STAGE_RETRO_ISSUES_NOMATCH_GUARD): emits no-match: to stderr
+# AND summary: created=0 ... to stdout, rc 0 (all rows shipped).
+# The summary branch must still detect no-match: and count it as empty.
+FKIT_NM="$ROOT/fkit_nm"
+mkdir -p "$FKIT_NM/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT_NM/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT_NM/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_NM/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT_NM/toolbelt/"
+# Stub: real seeder no-match path (search: STAGE_RETRO_ISSUES_NOMATCH_GUARD)
+# Real seeder emits no-match: to stderr AND summary: to stdout; gate captures 2>&1.
+cat > "$FKIT_NM/toolbelt/stage-retro-issues.sh" << 'NMEOF'
+#!/usr/bin/env bash
+# Models real seeder: all rows shipped (no-match path)
+printf 'no-match: delta section found but all rows are shipped\n' >&2
+printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=1 skipped-wrong-kit=0 failed=0\n'
+exit 0
+NMEOF
+chmod +x "$FKIT_NM/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_NM/toolbelt/retro-gate.sh"
+TNM="$ROOT/tnm"; mkgit "$TNM"; STNM="tnm-sess"
+mksessionfile "$TNM" "$STNM" "202609050800"
+mkblock "$TNM" "tnm-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TNM/tnm-block1.md"
+mkretro "$TNM" "2026-09-05-tnm.md" 1
+touch -t 202609051200 "$TNM/retros/2026-09-05-tnm.md"
+_jtnm="$(mkjson "$STNM" "false")"
+errf_nm="$ROOT/err_nm.$$"
+printf '%s' "$_jtnm" | PATH="$MOCK_GH_DIR:$PATH" \
+  "$BASH_BIN" "$FKIT_NM/toolbelt/retro-gate.sh" "$TNM" >"$ROOT/out_nm.$$" 2>"$errf_nm"
+ERR_NM="$(cat "$errf_nm")"; rm -f "$errf_nm" "$ROOT/out_nm.$$"
+# empty=1 in summary (no-match with summary: → empty counter via summary branch)
+printf '%s' "$ERR_NM" | grep -q 'empty=1' \
+  && ok "EN3-no-match: no-match: typed outcome → empty=1 in issue-seeding summary" \
+  || no "EN3-no-match: expected empty=1 in summary; got: $ERR_NM"
+# absent=0 — must not be counted as absent
+printf '%s' "$ERR_NM" | grep -q 'absent=0' \
+  && ok "EN3-no-match: no-match: does not increment absent counter (absent=0)" \
+  || no "EN3-no-match: expected absent=0; got: $ERR_NM"
+# no absent-input WARN
+printf '%s' "$ERR_NM" | grep -q 'WARN.*absent-input' \
+  && no "EN3-no-match: no-match must NOT trigger absent-input WARN; got: $ERR_NM" \
+  || ok "EN3-no-match: no-match: did not trigger absent-input WARN (correct)"
+
+# ─── (EN3-absent-summary-WARN) exit 0, no typed outcome, no summary → WARN ───
+# Seeder exits 0 but prints nothing recognizable — §7 absent-summary WARN must fire.
+# This is the fallback path distinct from the typed-outcome paths above.
+FKIT_ASW="$ROOT/fkit_asw"
+mkdir -p "$FKIT_ASW/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT_ASW/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT_ASW/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_ASW/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT_ASW/toolbelt/"
+cat > "$FKIT_ASW/toolbelt/stage-retro-issues.sh" << 'ASWEOF'
+#!/usr/bin/env bash
+# Seeder exits 0 but emits no typed outcome and no summary: line
+printf 'some-unrecognised-output: doing things\n'
+exit 0
+ASWEOF
+chmod +x "$FKIT_ASW/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_ASW/toolbelt/retro-gate.sh"
+TASW="$ROOT/tasw"; mkgit "$TASW"; STASW="tasw-sess"
+mksessionfile "$TASW" "$STASW" "202609050800"
+mkblock "$TASW" "tasw-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TASW/tasw-block1.md"
+mkretro "$TASW" "2026-09-05-tasw.md" 1
+touch -t 202609051200 "$TASW/retros/2026-09-05-tasw.md"
+_jtasw="$(mkjson "$STASW" "false")"
+errf_asw="$ROOT/err_asw.$$"
+printf '%s' "$_jtasw" | PATH="$MOCK_GH_DIR:$PATH" \
+  "$BASH_BIN" "$FKIT_ASW/toolbelt/retro-gate.sh" "$TASW" >"$ROOT/out_asw.$$" 2>"$errf_asw"
+ERR_ASW="$(cat "$errf_asw")"; rm -f "$errf_asw" "$ROOT/out_asw.$$"
+# WARN fires (exit 0 + no typed outcome + no summary = absent-summary WARN)
+printf '%s' "$ERR_ASW" | grep -q 'WARN.*no summary' \
+  && ok "EN3-absent-summary-WARN: exit 0, no typed outcome → absent-summary WARN fires" \
+  || no "EN3-absent-summary-WARN: expected WARN 'no summary'; got: $ERR_ASW"
+# Gate still allows (seeder exit 0)
+printf '%s' "$ERR_ASW" | grep -q 'ran=1' \
+  && ok "EN3-absent-summary-WARN: ran=1 in summary (seeder was called)" \
+  || no "EN3-absent-summary-WARN: expected ran=1 in summary; got: $ERR_ASW"
 
 # ─── (EN3-summary) Real seeder summary: format → created=1 parsed (#935) ─────
 # RED before fix: SUT greps 'created issue' (never matches real 'created: <url>').
@@ -615,6 +749,62 @@ printf '%s' "$ERR_RSN" | grep -qE 'WARN.*API quota' && ok "EN3-reason: WARN reas
   || no "EN3-reason: expected 'API quota' as reason; got: $ERR_RSN"
 printf '%s' "$ERR_RSN" | grep -qE 'WARN.*created:' && no "EN3-reason: WARN must NOT show progress line as reason" \
   || ok "EN3-reason: WARN does not show 'created:' as reason (correct)"
+
+# ─── (EN3-944) PR #944 compat: summary with failed=N + exit 2 ────────────────
+# Seeder exits 2 (partial failure) AND prints summary: with failed=N appended.
+# retro-gate must parse failed= from summary and use the exact count (not +1).
+# RED before fix: failed count from +1 fallback, not from summary parsing.
+FKIT_944="$ROOT/fkit_944"
+mkdir -p "$FKIT_944/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT_944/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT_944/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_944/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT_944/toolbelt/"
+cat > "$FKIT_944/toolbelt/stage-retro-issues.sh" << 'PR944EOF'
+#!/usr/bin/env bash
+# PR #944 format: summary includes failed=N; exit 2 on create failures
+printf 'created: https://github.com/test/repo/issues/10 (row 1)\n'
+printf 'summary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 failed=3\n'
+exit 2
+PR944EOF
+chmod +x "$FKIT_944/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_944/toolbelt/retro-gate.sh"
+T944="$ROOT/t944"; mkgit "$T944"; ST944="t944-sess"
+mksessionfile "$T944" "$ST944" "202609050800"
+mkblock "$T944" "t944-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T944/t944-block1.md"
+mkretro "$T944" "2026-09-05-t944.md" 1
+touch -t 202609051200 "$T944/retros/2026-09-05-t944.md"
+_j944="$(mkjson "$ST944" "false")"
+errf_944="$ROOT/err_944.$$"
+printf '%s' "$_j944" | PATH="$MOCK_GH_DIR:$PATH" \
+  "$BASH_BIN" "$FKIT_944/toolbelt/retro-gate.sh" "$T944" >"$ROOT/out_944.$$" 2>"$errf_944"
+ERR_944="$(cat "$errf_944")"; rm -f "$errf_944" "$ROOT/out_944.$$"
+# created=1 parsed from summary (not from progress lines)
+printf '%s' "$ERR_944" | grep -q 'created=1' \
+  && ok "EN3-944: PR #944 summary with failed=N → created=1 parsed correctly" \
+  || no "EN3-944: expected created=1 from PR #944 summary; got: $ERR_944"
+# failed=1 (retro count, not per-issue count) — one retro failed
+printf '%s' "$ERR_944" | grep -qE 'failed=1( |$)' \
+  && ok "EN3-944: PR #944 exit 2 → failed=1 (retro count, not per-issue 3)" \
+  || no "EN3-944: expected failed=1 (retro count) in summary; got: $ERR_944"
+# failed-issues=3 (per-issue count from summary)
+printf '%s' "$ERR_944" | grep -q 'failed-issues=3' \
+  && ok "EN3-944: PR #944 summary failed=3 → failed-issues=3 (per-issue count)" \
+  || no "EN3-944: expected failed-issues=3 from summary parsing; got: $ERR_944"
+# per-retro WARN still fires (exit 2 is a failure)
+printf '%s' "$ERR_944" | grep -q 'WARN.*seeder failed' \
+  && ok "EN3-944: exit 2 with summary → seeder-failed WARN still emitted" \
+  || no "EN3-944: expected WARN for seeder exit 2; got: $ERR_944"
+# aggregate WARN uses new format: 'N issue create(s) failed across M retro(s)'
+printf '%s' "$ERR_944" | grep -q '3 issue create(s) failed across 1 retro(s)' \
+  && ok "EN3-944: aggregate WARN uses new format (issue count across retro count)" \
+  || no "EN3-944: expected '3 issue create(s) failed across 1 retro(s)' in WARN; got: $ERR_944"
+# Gate still allows (block/allow decision unaffected by seeder failure)
+[ -z "$(printf '%s' "$_j944" | PATH="$MOCK_GH_DIR:$PATH" \
+  "$BASH_BIN" "$FKIT_944/toolbelt/retro-gate.sh" "$T944" 2>/dev/null)" ] \
+  && ok "EN3-944: exit 2 with summary → gate still allows (no block JSON)" \
+  || no "EN3-944: exit 2 with summary → unexpected block JSON"
 
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
@@ -953,7 +1143,7 @@ fi
 
 # ── TOOTH 11: aggregate-warn-dropped — mkmutant removes SENTINEL-AGGREGATE-WARN block ─
 # Mutant: aggregate WARN block is removed → when multiple seeders fail, gate emits
-# no aggregate WARN → EN3-e 'WARN.*seeding failed for N retro(s)' assertion would go RED.
+# no aggregate WARN → EN3-944 'issue create(s) failed across N retro(s)' assertion would go RED.
 M11="$(mkmutant 'aggregate-warn-dropped' 'SENTINEL-AGGREGATE-WARN-START' 'SENTINEL-AGGREGATE-WARN-END')"
 
 # Pre-check: sentinel found → mutant differs from SUT
@@ -997,8 +1187,8 @@ errf_m11="$ROOT/merr_m11"
 OUT="$(printf '%s' "$_jm11" | PATH="$ROOT/mockbin2:$PATH" \
   "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m11.sh" "$TM11" 2>"$errf_m11")"; RC=$?
 ERR_M11="$(cat "$errf_m11")"; rm -f "$errf_m11"
-# Mutant: no aggregate WARN → gate emits no 'seeding failed for N retro(s)' line
-if printf '%s' "$ERR_M11" | grep -q 'seeding failed for'; then
+# Mutant: no aggregate WARN → gate emits no 'issue create(s) failed across' line
+if printf '%s' "$ERR_M11" | grep -q 'issue create(s) failed across'; then
   no "TOOTH 11 aggregate-warn-dropped: mutant emitted aggregate WARN — tooth has no bite"
 else
   ok "TOOTH 11 aggregate-warn-dropped: mutant did NOT emit aggregate WARN (RED as expected)"
@@ -1097,8 +1287,9 @@ else
 fi
 
 # ── TOOTH 13: typed-outcome-dropped — mkmutant removes SENTINEL-TYPED-OUTCOME block ─
-# Mutant: typed-outcome recognition removed → empty-input: falls through to else (partial
-# progress branch), empty counter stays 0 → EN3-f 'empty=1' assertion goes RED.
+# Mutant: typed-outcome recognition removed → absent-input: falls through to else
+# (absent-summary WARN branch), absent counter stays 0 → EN3-absent assertions go RED.
+# Stub emits absent-input: to stderr (real seeder: search absent-input: retro not found).
 M13="$(mkmutant 'typed-outcome-dropped' 'SENTINEL-TYPED-OUTCOME-START' 'SENTINEL-TYPED-OUTCOME-END')"
 
 # Pre-check: sentinel found → mutant differs from SUT
@@ -1106,6 +1297,13 @@ if diff -q "$SUT" "$M13" >/dev/null 2>&1; then
   no "TOOTH 13 pre-check: mutant identical to SUT — SENTINEL-TYPED-OUTCOME-START not found"
 else
   ok "TOOTH 13 pre-check: mutant differs from SUT (sentinel found)"
+fi
+
+# Bash-n syntax check: mutant must be valid shell (mkmutant sed delete)
+if ! bash -n "$M13" 2>/dev/null; then
+  no "TOOTH 13 pre-check: mutant fails bash -n — sentinel removal broke shell syntax"
+else
+  ok "TOOTH 13 pre-check: mutant passes bash -n (valid shell)"
 fi
 
 # Sabotage: rename both sentinels → mkmutant produces no diff
@@ -1120,12 +1318,15 @@ else
   no "TOOTH 13 sabotage: renamed sentinels → sed still matched — sabotage broken"
 fi
 
-# Behavioral: empty-input: stub → mutant drops typed-outcome check → empty=0 (RED)
-cat > "$MUT_KIT/toolbelt/stage-retro-issues.sh" << 'EMPTYIN13'
+# Behavioral: absent-input: stub (stderr, cite: absent-input: retro not found) →
+# mutant drops typed-outcome check → absent counter stays 0, wrong WARN fires →
+# EN3-absent assertions go RED.
+cat > "$MUT_KIT/toolbelt/stage-retro-issues.sh" << 'ABSENTIN13'
 #!/usr/bin/env bash
-printf 'empty-input: no delta section found in retro.md\n' >&2
-exit 0
-EMPTYIN13
+# absent-input path — real seeder: search absent-input: retro not found
+printf 'absent-input: retro not found: retro.md\n' >&2
+exit 1
+ABSENTIN13
 chmod +x "$MUT_KIT/toolbelt/stage-retro-issues.sh"
 cp "$M13" "$MUT_KIT/toolbelt/retro-gate-m13.sh"
 TM13="$ROOT/m13"; mkgit "$TM13"; SM13="m13-sess"
@@ -1139,11 +1340,101 @@ errf_m13="$ROOT/merr_m13"
 OUT="$(printf '%s' "$_jm13" | PATH="$ROOT/mockbin2:$PATH" \
   "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m13.sh" "$TM13" 2>"$errf_m13")"; RC=$?
 ERR_M13="$(cat "$errf_m13")"; rm -f "$errf_m13"
-# Mutant: typed-outcome block dropped → empty=0 in summary (EN3-f empty=1 assertion → RED)
-if printf '%s' "$ERR_M13" | grep -q 'empty=1'; then
-  no "TOOTH 13 typed-outcome-dropped: mutant reports empty=1 — tooth has no bite"
+# Positive: loop ran and emitted issue-seeding: summary (crash → no output → this FAILS tooth)
+if printf '%s' "$ERR_M13" | grep -q 'issue-seeding:'; then
+  ok "TOOTH 13 typed-outcome-dropped: loop ran and emitted issue-seeding: summary (loop-reached proof)"
 else
-  ok "TOOTH 13 typed-outcome-dropped: mutant does not report empty=1 (RED as expected)"
+  no "TOOTH 13 typed-outcome-dropped: issue-seeding: absent — mutant may have crashed (tooth invalid)"
+fi
+# Positive: mutant emits wrong WARN ('no summary:' or 'seeder failed') not absent-input WARN
+if printf '%s' "$ERR_M13" | grep -q 'WARN.*absent-input'; then
+  no "TOOTH 13 typed-outcome-dropped: mutant emits absent-input WARN — tooth has no bite"
+else
+  ok "TOOTH 13 typed-outcome-dropped: mutant does NOT emit absent-input WARN (wrong path — RED as expected)"
+fi
+# Negative: absent=1 must NOT appear in mutant output (absent counter not incremented)
+if printf '%s' "$ERR_M13" | grep -q 'absent=1'; then
+  no "TOOTH 13 typed-outcome-dropped: mutant reports absent=1 — tooth has no bite"
+else
+  ok "TOOTH 13 typed-outcome-dropped: mutant does not report absent=1 (EN3-absent assertion would fail — RED)"
+fi
+
+# ── TOOTH 14: absent-not-failed-guard-removed — sed removes '&& [ "$_absent_typed" -eq 0 ]' ──
+# Mutant: absent guard stripped from the if-condition → absent-input (exits 1, _absent_typed=1)
+# counted in failed and emits seeder-failed WARN; in SUT absent is skipped (failed stays 0).
+# Fine-grained sed mutant: cannot use mkmutant (which removes the entire block body too).
+# Guard text: '&& [ "$_absent_typed" -eq 0 ]' (cite: SENTINEL-ABSENT-NOT-FAILED-START)
+M14="$ROOT/m14_guard.sh"
+# Remove only the guard clause, leave the if-body intact
+sed 's/ && \[ "\$_absent_typed" -eq 0 \]//' "$SUT" > "$M14"
+
+# Pre-check: sed matched → mutant differs from SUT
+if diff -q "$SUT" "$M14" >/dev/null 2>&1; then
+  no "TOOTH 14 pre-check: mutant identical to SUT — guard pattern not found in SUT"
+else
+  ok "TOOTH 14 pre-check: mutant differs from SUT (guard removed)"
+fi
+
+# Bash-n syntax check: mutant must be valid shell
+if ! bash -n "$M14" 2>/dev/null; then
+  no "TOOTH 14 pre-check: mutant fails bash -n — guard removal broke shell syntax"
+else
+  ok "TOOTH 14 pre-check: mutant passes bash -n (valid shell)"
+fi
+
+# Sabotage: rename guard variable in SUT copy so the production mutant sed no longer matches → no diff
+SUT_SAB14="$ROOT/sut_sab14.sh"
+MUT_SAB14="$ROOT/mut_sab14.sh"
+# Rename _absent_typed → _absent_typed_gone in the SUT copy
+sed 's/_absent_typed/_absent_typed_gone/g' "$SUT" > "$SUT_SAB14"
+# Run the ORIGINAL mutant pattern (targets _absent_typed, not _gone) against the renamed copy
+sed 's/ && \[ "\$_absent_typed" -eq 0 \]//' "$SUT_SAB14" > "$MUT_SAB14"
+# Pattern can't match → MUT_SAB14 identical to SUT_SAB14 → no diff → tooth would fail
+if diff -q "$SUT_SAB14" "$MUT_SAB14" >/dev/null 2>&1; then
+  ok "TOOTH 14 sabotage: renamed guard variable → no diff (tooth would fail — as expected)"
+else
+  no "TOOTH 14 sabotage: renamed guard variable → sed still matched — sabotage broken"
+fi
+
+# Deploy mutant with absent-input stub (exits 1, absent-input: to stderr)
+cat > "$MUT_KIT/toolbelt/stage-retro-issues.sh" << 'ABSENTIN14'
+#!/usr/bin/env bash
+# absent-input path — real seeder: search absent-input: retro not found
+printf 'absent-input: retro not found: retro.md\n' >&2
+exit 1
+ABSENTIN14
+chmod +x "$MUT_KIT/toolbelt/stage-retro-issues.sh"
+cp "$M14" "$MUT_KIT/toolbelt/retro-gate-m14.sh"
+
+TM14="$ROOT/m14"; mkgit "$TM14"; SM14="m14-sess"
+mksessionfile "$TM14" "$SM14" "202609050800"
+mkblock "$TM14" "niagara-block14.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TM14/niagara-block14.md"
+mkretro "$TM14" "2026-09-05-m14.md" 1
+touch -t 202609051200 "$TM14/retros/2026-09-05-m14.md"
+_jm14="$(mkjson "$SM14" "false")"
+errf_m14="$ROOT/merr_m14"
+OUT="$(printf '%s' "$_jm14" | PATH="$ROOT/mockbin2:$PATH" \
+  "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m14.sh" "$TM14" 2>"$errf_m14")"; RC=$?
+ERR_M14="$(cat "$errf_m14")"; rm -f "$errf_m14"
+
+# Positive: loop ran (loop-reached proof)
+if printf '%s' "$ERR_M14" | grep -q 'issue-seeding:'; then
+  ok "TOOTH 14 absent-not-failed-dropped: loop ran and emitted issue-seeding: summary"
+else
+  no "TOOTH 14 absent-not-failed-dropped: issue-seeding: absent — mutant may have crashed (tooth invalid)"
+fi
+# On mutant: absent-input counted as failed=1 (guard removed → skip-failed branch never fires)
+if printf '%s' "$ERR_M14" | grep -qE 'failed=1( |$)'; then
+  ok "TOOTH 14 absent-not-failed-dropped: mutant reports failed=1 (guard removed — RED as expected)"
+else
+  no "TOOTH 14 absent-not-failed-dropped: mutant does NOT report failed=1 — tooth has no bite"
+fi
+# On mutant: seeder-failed WARN fires (absent counted in failed branch)
+if printf '%s' "$ERR_M14" | grep -q 'WARN.*seeder failed'; then
+  ok "TOOTH 14 absent-not-failed-dropped: mutant emits seeder-failed WARN (guard removed — RED as expected)"
+else
+  no "TOOTH 14 absent-not-failed-dropped: mutant does NOT emit seeder-failed WARN — tooth has no bite"
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
