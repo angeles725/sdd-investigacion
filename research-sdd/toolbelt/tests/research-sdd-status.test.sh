@@ -4800,7 +4800,7 @@ CQ_FIX="$HERE/fixtures/campaign-queue"
 # status_out <dir> — capture default status output (stdout only)
 cq_status()  { bash "$SUT" "$1" 2>/dev/null; }
 # status_err <dir> — capture stderr only from status output
-cq_err()     { bash "$SUT" "$1" 2>&1 >/dev/null; }
+cq_err()     { { bash "$SUT" "$1" >/dev/null; } 2>&1; }
 # status_all <dir> — capture stdout+stderr merged (for WARNs embedded in stdout flow)
 cq_all()     { bash "$SUT" "$1" 2>&1; }
 
