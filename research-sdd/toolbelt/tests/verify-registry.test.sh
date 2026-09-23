@@ -1988,6 +1988,112 @@ else
   no "63 fully-agreeing (cat_total=17==cat_rows==disc) → no stale-header WARN, no drift, clean line" "exit=$RC out=[$OUT]"
 fi
 
+# 64 — ABSENT-PATHS gate: a registered target whose path does not exist on disk is counted and
+#      reported as "N registered target(s) absent" (INFO line). The clean line must be ABSENT.
+#      The Summary must carry the "· N absent target(s) ·" field. Exit stays 0 (advisory).
+#      RED before fix: pre-fix SUT says "path(s)" not "target(s)" and has no Summary absent field.
+#      Target REAL exists on disk; target ABSENT does not — write_targets registers both.
+kit="$(mkkit c64-absent-path)"; tgt_real="$ROOT/c64-real-tgt"; tgt_absent="$ROOT/c64-absent-tgt"
+mkcorpus "$tgt_real" 3 "a"
+# tgt_absent is NOT created — registered but absent on disk.
+write_targets "$kit" "$tgt_real::3 md" "$tgt_absent::5 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· [0-9]+ absent target' <<<"$OUT" \
+   && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "64 absent registered target → INFO, · N absent target in Summary, no clean line, exit 0" "(exit $RC)"
+else
+  no "64 absent registered target → expected INFO + Summary field + no clean line" "exit=$RC out=[$OUT]"
+fi
+
+# 65 — SLUG in present row does NOT count as absent: a row with a present corpus path PLUS a
+#      backtick artifact token like /mrdoob/three.js (which fails [ -d ]) must not be flagged as
+#      absent. The per-row rule: a row is absent only when NONE of its backtick paths is a directory.
+kit="$(mkkit c65-slug-present-row)"; tgt_real2="$ROOT/c65-real-tgt"
+mkcorpus "$tgt_real2" 2 "b"
+# Row has BOTH a present corpus path AND a /slug/form token that is not a directory.
+{ printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
+  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `%s` | `/slug/form-token` |\n' "$tgt_real2"
+} > "$kit/TARGETS.md"
+run "$kit"
+# /slug/form-token fails [ -d ] but the row has a present corpus path → row is NOT absent.
+if [ "$RC" = 0 ] \
+   && ! grep -qE 'INFO.*registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· 0 absent target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "65 slug in present row → row NOT absent, 0 absent targets, clean line present" "(exit $RC)"
+else
+  no "65 slug in present row → expected 0 absent targets, clean line" "exit=$RC out=[$OUT]"
+fi
+
+# 66 — SINGLE absent target (list-edge: single): only one user target and it is absent.
+#      Kit self-registration row is present; user target is absent. absent_paths=1, exit 0.
+kit="$(mkkit c66-single-absent)"; absent_single="$ROOT/c66-single-absent-tgt"
+# absent_single NOT created
+write_targets "$kit" "$absent_single::5 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· 1 absent target' <<<"$OUT" \
+   && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "66 single absent target → absent_paths=1, INFO, Summary field, exit 0" "(exit $RC)"
+else
+  no "66 single absent target → expected absent_paths=1" "exit=$RC out=[$OUT]"
+fi
+
+# 67 — PER-ROW DEDUP: a row with TWO absent backtick-path tokens is counted ONCE per row,
+#      not once per token. Documents that dedup prevents double-counting multi-token rows.
+#      Test 65 covers a row with a present path + a slug; this covers a row with TWO absent paths.
+kit="$(mkkit c67-dedup-two-absent)"; tgt_real3="$ROOT/c67-real-tgt"
+mkcorpus "$tgt_real3" 2 "c"
+{ printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
+  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `%s` | - |\n' "$tgt_real3"
+  # Row with TWO absent backtick /... paths (path column + artifact column).
+  printf '| 2 | multi | mature (5 md / git yes) | `/absent/multi-path-A` | `/absent/multi-path-B` |\n'
+} > "$kit/TARGETS.md"
+run "$kit"
+# Must count the "multi" row exactly ONCE as absent (not twice), so absent_paths=1.
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· 1 absent target' <<<"$OUT"; then
+  ok "67 two absent tokens same row → counted ONCE (dedup prevents double-count)" "(exit $RC)"
+else
+  no "67 two absent tokens same row → expected exactly 1 absent" "exit=$RC out=[$OUT]"
+fi
+
+# 68 — ABSENT FIRST (list-edge: first): absent target sorts first alphabetically among targets.
+#      Verifies the dedup string is correctly seeded on the first entry.
+kit="$(mkkit c68-absent-first)"; real_z="$ROOT/c68z-real"; absent_a="$ROOT/c68a-absent"
+mkcorpus "$real_z" 2 "z"
+# absent_a sorts before real_z alphabetically ('a' < 'z'); NOT created.
+write_targets "$kit" "$absent_a::5 md" "$real_z::2 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "68 absent target sorts FIRST → counted correctly (first dedup entry)" "(exit $RC)"
+else
+  no "68 absent target FIRST → expected 1 absent" "exit=$RC out=[$OUT]"
+fi
+
+# 69 — ABSENT MIDDLE (list-edge: middle): absent target sorts between two present targets.
+kit="$(mkkit c69-absent-middle)"; real_a="$ROOT/c69a-real"; absent_m="$ROOT/c69m-absent"; real_z="$ROOT/c69z-real2"
+mkcorpus "$real_a" 2 "a"
+mkcorpus "$real_z" 3 "z"
+# absent_m ('m') sorts between 'a' and 'z'; NOT created.
+write_targets "$kit" "$real_a::2 md" "$absent_m::4 md" "$real_z::3 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "69 absent target MIDDLE → counted correctly" "(exit $RC)"
+else
+  no "69 absent target MIDDLE → expected 1 absent" "exit=$RC out=[$OUT]"
+fi
+
 # ---- TEETH for attention-gate tests 52-60 ------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-attn-disc-zero: remove the attention++ after CATALOG-DISC-ZERO. Fixture isolation:
@@ -2290,6 +2396,72 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-catalog-selfconsistency: CATALOG-SELFCONSISTENCY-CHECK sentinel not found in SUT"
+  fi
+
+  # teeth-absent-paths: remove the && absent_paths==0 conjunct from the clean-line condition;
+  # the absent-path fixture (test 64: one real + one absent target) must regain the clean line →
+  # proves test 64's "no clean line" assertion is not vacuously green.
+  echo "-- teeth-absent-paths: remove &&absent_paths==0; absent-path fixture must regain clean line --"
+  kit="$(mkkit teeth-absent-paths)"; tgt_ap="$ROOT/teeth-absent-paths-real"
+  mkcorpus "$tgt_ap" 3 "a"
+  absent_ap="$ROOT/teeth-absent-paths-missing"  # NOT created
+  write_targets "$kit" "$tgt_ap::3 md" "$absent_ap::5 md"
+  mut="$kit/toolbelt/verify-registry.sh"
+  if grep -q '\[ "\$absent_paths" -eq 0 \]' "$mut"; then
+    sed -i 's/ && \[ "\$absent_paths" -eq 0 \]//' "$mut"
+    mout="$("$BASH_BIN" "$mut" 2>&1)"; mrc=$?
+    if [ "$mrc" = 0 ] && grep -q 'Registry consistent with reality' <<<"$mout"; then
+      ok "teeth-absent-paths: conjunct removed → absent fixture regains clean line (test 64 has teeth)" "(exit $mrc)"
+    else
+      no "teeth-absent-paths: gate removed but clean line still absent — test 64 has no teeth" "mrc=$mrc mout=[$mout]"
+    fi
+  else
+    no "teeth-absent-paths: absent_paths==0 conjunct not found in SUT (gate not implemented or marker drifted)"
+  fi
+
+  # teeth-absent-summary: replace "absent target" in Summary with "absent MUTATED" →
+  # test 64's Summary field assertion grep -qE '\· [0-9]+ absent target' must FAIL.
+  echo "-- teeth-absent-summary: mangle Summary absent-target label; test 64 Summary field assertion must go RED --"
+  kit_as="$(mkkit teeth-absent-summary)"; tgt_as="$ROOT/teeth-absent-summary-real"
+  mkcorpus "$tgt_as" 2 "a"
+  absent_as="$ROOT/teeth-absent-summary-missing"  # NOT created
+  write_targets "$kit_as" "$tgt_as::2 md" "$absent_as::3 md"
+  mut_as="$kit_as/toolbelt/verify-registry.sh"
+  if grep -q '# ABSENT-SUMMARY-FIELD' "$mut_as"; then
+    sed -i '/# ABSENT-SUMMARY-FIELD/ s/absent target/absent MUTATED/g' "$mut_as"
+    mout_as="$("$BASH_BIN" "$mut_as" 2>&1)"; mrc_as=$?
+    if [ "$mrc_as" = 0 ] && ! grep -qE '\· [0-9]+ absent target' <<<"$mout_as"; then
+      ok "teeth-absent-summary: label mangled → Summary field assertion fails (test 64 Summary has teeth)" "(exit $mrc_as)"
+    else
+      no "teeth-absent-summary: label mangled but test 64 Summary assertion still passes — it has no teeth" "mrc=$mrc_as mout=[$mout_as]"
+    fi
+  else
+    no "teeth-absent-summary: ABSENT-SUMMARY-FIELD sentinel not found in SUT (summary field not implemented or marker drifted)"
+  fi
+
+  # teeth-absent-dedup: remove the "already counted" arm of the ABSENT-ROW-DEDUP case block;
+  # the two-absent-token-same-row fixture (test 67) must show absent_paths=2 instead of 1 →
+  # proves test 67's assertion grep -qE 'INFO.*1 registered target.*absent' has teeth.
+  echo "-- teeth-absent-dedup: remove ABSENT-ROW-DEDUP guard; test 67 must see absent_paths=2 (not 1) --"
+  kit_dd="$(mkkit teeth-absent-dedup)"; tgt_dd="$ROOT/teeth-absent-dedup-real"
+  mkcorpus "$tgt_dd" 2 "c"
+  mut_dd="$kit_dd/toolbelt/verify-registry.sh"
+  { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_dd"
+    printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `%s` | - |\n' "$tgt_dd"
+    printf '| 2 | multi | mature (5 md / git yes) | `/absent/dd-path-A` | `/absent/dd-path-B` |\n'
+  } > "$kit_dd/TARGETS.md"
+  if grep -q '# ABSENT-ROW-DEDUP' "$mut_dd"; then
+    # Delete the "already counted" arm (the line AFTER the sentinel) so every absent token counts.
+    sed -i '/# ABSENT-ROW-DEDUP/{n;d}' "$mut_dd"
+    mout_dd="$("$BASH_BIN" "$mut_dd" 2>&1)"; mrc_dd=$?
+    if [ "$mrc_dd" = 0 ] && ! grep -qE 'INFO.*1 registered target.*absent' <<<"$mout_dd"; then
+      ok "teeth-absent-dedup: guard removed → absent_paths≠1 (double-count; test 67 has teeth)" "(exit $mrc_dd)"
+    else
+      no "teeth-absent-dedup: guard removed but test 67 still passes — dedup assertion has no teeth" "mrc=$mrc_dd mout=[$mout_dd]"
+    fi
+  else
+    no "teeth-absent-dedup: ABSENT-ROW-DEDUP sentinel not found in SUT (dedup not implemented or marker drifted)"
   fi
 fi
 
