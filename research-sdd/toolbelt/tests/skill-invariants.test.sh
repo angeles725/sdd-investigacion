@@ -24,6 +24,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SKILL="$HERE/../../skills/research-sdd/SKILL.md"
 [ -f "$SKILL" ] || { printf 'FATAL: SKILL.md not found at expected path: %s\n' "$SKILL" >&2; exit 2; }
+PROMPTLOOP="$HERE/../../PROMPT-LOOP.md"
+[ -f "$PROMPTLOOP" ] || { printf 'FATAL: PROMPT-LOOP.md not found at expected path: %s\n' "$PROMPTLOOP" >&2; exit 2; }
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -143,6 +145,96 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# A12a: SKILL.md REUSABLE TOOLCHAIN routing text must carry propose-never-apply.
+#       Anchor: 'never applied from inside a run (§18 propose-never-apply)'
+#       — unique to the toolchain routing paragraph (#960).
+# ---------------------------------------------------------------------------
+if grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$SKILL"; then
+  ok "A12a: SKILL.md toolchain routing carries propose-never-apply (#960)"
+else
+  no "A12a: SKILL.md toolchain routing missing propose-never-apply (#960)"
+fi
+
+# ---------------------------------------------------------------------------
+# A12b: SKILL.md tool-cataloging paragraph must carry propose-never-apply.
+#       Anchor: 'propose-never-apply). Provisioning is complete'
+#       — unique to the tool-cataloging paragraph (#960).
+# ---------------------------------------------------------------------------
+if grep -qF 'propose-never-apply). Provisioning is complete' "$SKILL"; then
+  ok "A12b: SKILL.md tool-cataloging carries propose-never-apply (#960)"
+else
+  no "A12b: SKILL.md tool-cataloging missing propose-never-apply (#960)"
+fi
+
+# ---------------------------------------------------------------------------
+# A13: SKILL.md must recommend dynamic (no interval) as the default unattended
+#      launch, with fixed-interval as fallback (cadence decision, #961).
+#      Anchor: 'Dynamic is recommended for unattended runs' in Execution mode.
+# ---------------------------------------------------------------------------
+if grep -qF 'Dynamic is recommended for unattended runs' "$SKILL"; then
+  ok "A13: SKILL.md recommends dynamic (no interval) as default launch mode (#961)"
+else
+  no "A13: SKILL.md missing dynamic-recommended statement in Execution mode (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# A14: SKILL.md must NOT contain 'guarantees the cadence' — that claim is
+#      false when /loop is used without an interval (#961).
+# ---------------------------------------------------------------------------
+if grep -qF 'guarantees the cadence' "$SKILL"; then
+  no "A14: SKILL.md still contains false claim 'guarantees the cadence' (#961)"
+else
+  ok "A14: false claim 'guarantees the cadence' absent from SKILL.md (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# A15: SKILL.md must contain 're-invoker is already active' — the detection
+#      rule that prevents nested /loop launches (#961).
+# ---------------------------------------------------------------------------
+if grep -qF 're-invoker is already active' "$SKILL"; then
+  ok "A15: re-invoker detection rule present in SKILL.md (#961)"
+else
+  no "A15: re-invoker detection rule MISSING from SKILL.md (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# B1: PROMPT-LOOP.md launch section must label the no-interval form as
+#     recommended ("dynamic self-paced, no interval") AND show "/loop 5m" as
+#     the concrete fallback example. Both must be present. RED against
+#     origin/main (which has "self-paces" + "/loop 10m", not "dynamic" + "5m").
+# ---------------------------------------------------------------------------
+if grep -qF 'dynamic self-paced, no interval' "$PROMPTLOOP" && \
+   grep -qF '/loop 5m  <paste' "$PROMPTLOOP"; then
+  ok "B1: PROMPT-LOOP.md launch section labels no-interval as recommended and /loop 5m as fallback (#961)"
+else
+  no "B1: PROMPT-LOOP.md launch section missing dynamic-recommended label or /loop 5m fallback (#961)"
+fi
+
+# ---------------------------------------------------------------------------
+# B2: PROMPT-LOOP.md LOOP CONTINUATION fixed-interval case must carry the
+#     behavioral prohibition "Do NOT issue ScheduleWakeup" — stronger than a
+#     bare token check; proves the double-fire rule is stated, not just named.
+# ---------------------------------------------------------------------------
+if grep -qF 'Do NOT issue ScheduleWakeup' "$PROMPTLOOP"; then
+  ok "B2: PROMPT-LOOP.md LOOP CONTINUATION carries ScheduleWakeup prohibition"
+else
+  no "B2: PROMPT-LOOP.md LOOP CONTINUATION missing 'Do NOT issue ScheduleWakeup'"
+fi
+
+# ---------------------------------------------------------------------------
+# B3: PROMPT-LOOP.md LOOP CONTINUATION must carry the fixed-interval teardown
+#     rule: when STOP fires the agent must disarm the re-invoker (CronDelete in
+#     Claude Code, or explicit operator instruction). Without this the harness
+#     cron keeps re-firing every <N>m after STOP — a token drain.
+#     Stable anchor: 'CronDelete' (the specific Claude Code disarm tool).
+# ---------------------------------------------------------------------------
+if grep -qF 'CronDelete' "$PROMPTLOOP"; then
+  ok "B3: PROMPT-LOOP.md LOOP CONTINUATION carries fixed-interval teardown rule (CronDelete)"
+else
+  no "B3: PROMPT-LOOP.md LOOP CONTINUATION missing teardown rule (CronDelete absent)"
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
 if [ "$PROVE_TEETH" = 1 ]; then
@@ -182,6 +274,87 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-A11: mutant still has 'kaitai-struct-compiler' — sed did not take (no teeth)"
   else
     ok "teeth-A11: A11 assertion goes RED on mutant"
+  fi
+
+  # Teeth A12a: remove propose-never-apply from toolchain routing only → A12a RED, A12b stays GREEN.
+  mutant12a="$TMP/SKILL.mutant12a.md"
+  sed 's/never applied from inside a run (§18 propose-never-apply)/never applied from inside a run/g' "$SKILL" > "$mutant12a"
+  if grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$mutant12a"; then
+    no "teeth-A12a: mutant still has toolchain-routing propose-never-apply — sed did not take (no teeth)"
+  else
+    ok "teeth-A12a: A12a assertion goes RED on mutant (toolchain routing mutation)"
+  fi
+
+  # Teeth A12b: remove propose-never-apply from tool-cataloging only → A12b RED, A12a stays GREEN.
+  mutant12b="$TMP/SKILL.mutant12b.md"
+  sed 's/propose-never-apply). Provisioning is complete/propose-never-XPPLY). Provisioning is complete/g' "$SKILL" > "$mutant12b"
+  if grep -qF 'propose-never-apply). Provisioning is complete' "$mutant12b"; then
+    no "teeth-A12b: mutant still has tool-cataloging propose-never-apply — sed did not take (no teeth)"
+  else
+    ok "teeth-A12b: A12b assertion goes RED on mutant (tool-cataloging mutation)"
+  fi
+
+  # Teeth A13: replace 'Dynamic is recommended' → A13 must go RED.
+  mutant13="$TMP/SKILL.mutant13.md"
+  sed 's/Dynamic is recommended for unattended runs/Fixed-interval is recommended for unattended runs/g' "$SKILL" > "$mutant13"
+  if grep -qF 'Dynamic is recommended for unattended runs' "$mutant13"; then
+    no "teeth-A13: mutant still has 'Dynamic is recommended for unattended runs' — sed did not take (no teeth)"
+  else
+    ok "teeth-A13: A13 assertion goes RED on mutant"
+  fi
+
+  # Teeth A14: inject 'guarantees the cadence' → A14 negative check must go RED.
+  mutant14="$TMP/SKILL.mutant14.md"
+  sed '1s|^|/loop guarantees the cadence\n|' "$SKILL" > "$mutant14"
+  if grep -qF 'guarantees the cadence' "$mutant14"; then
+    ok "teeth-A14: A14 negative check goes RED on mutant ('guarantees' injected)"
+  else
+    no "teeth-A14: mutant does NOT have 'guarantees the cadence' — sed did not take (no teeth)"
+  fi
+
+  # Teeth A15: replace 're-invoker is already active' → A15 must go RED.
+  mutant15="$TMP/SKILL.mutant15.md"
+  sed 's/re-invoker is already active/re-invoker X already active/g' "$SKILL" > "$mutant15"
+  if grep -qF 're-invoker is already active' "$mutant15"; then
+    no "teeth-A15: mutant still has 're-invoker is already active' — sed did not take (no teeth)"
+  else
+    ok "teeth-A15: A15 assertion goes RED on mutant"
+  fi
+
+  # Teeth B1a: remove 'dynamic self-paced, no interval' → B1 must go RED (first condition fails).
+  mutantB1a="$TMP/PROMPTLOOP.mutantB1a.md"
+  sed 's/dynamic self-paced, no interval/dynamic, no interval/g' "$PROMPTLOOP" > "$mutantB1a"
+  if grep -qF 'dynamic self-paced, no interval' "$mutantB1a"; then
+    no "teeth-B1a: mutant still has 'dynamic self-paced, no interval' — sed did not take (no teeth)"
+  else
+    ok "teeth-B1a: B1 assertion goes RED on mutant (dynamic-label removed)"
+  fi
+
+  # Teeth B1b: remove '/loop 5m  <paste' → B1 must go RED (second condition fails).
+  mutantB1b="$TMP/PROMPTLOOP.mutantB1b.md"
+  sed 's|/loop 5m  <paste|/loop-5m <paste|g' "$PROMPTLOOP" > "$mutantB1b"
+  if grep -qF '/loop 5m  <paste' "$mutantB1b"; then
+    no "teeth-B1b: mutant still has '/loop 5m  <paste' — sed did not take (no teeth)"
+  else
+    ok "teeth-B1b: B1 assertion goes RED on mutant (5m fallback removed)"
+  fi
+
+  # Teeth B2: replace 'Do NOT issue ScheduleWakeup' → B2 must go RED.
+  mutantB2="$TMP/PROMPTLOOP.mutantB2.md"
+  sed 's/Do NOT issue ScheduleWakeup/Do NOT use ScheduleWakeup_REMOVED/g' "$PROMPTLOOP" > "$mutantB2"
+  if grep -qF 'Do NOT issue ScheduleWakeup' "$mutantB2"; then
+    no "teeth-B2: mutant still has 'Do NOT issue ScheduleWakeup' — sed did not take (no teeth)"
+  else
+    ok "teeth-B2: B2 assertion goes RED on mutant"
+  fi
+
+  # Teeth B3: replace 'CronDelete' → B3 must go RED.
+  mutantB3="$TMP/PROMPTLOOP.mutantB3.md"
+  sed 's/CronDelete/DisarmJob/g' "$PROMPTLOOP" > "$mutantB3"
+  if grep -qF 'CronDelete' "$mutantB3"; then
+    no "teeth-B3: mutant still has 'CronDelete' — sed did not take (no teeth)"
+  else
+    ok "teeth-B3: B3 assertion goes RED on mutant"
   fi
 fi
 

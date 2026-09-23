@@ -10,25 +10,39 @@ state from disk, so running it N times advances the corpus without stepping on i
 ## How to use it
 
 1. Define the target (one from [`TARGETS.md`](TARGETS.md)). Edit the `TARGET=` line below.
-2. Launch the loop:
+2. Launch the loop (recommended — dynamic self-paced, no interval):
    ```
    /loop  <paste the OPERATIONAL PROMPT below, with TARGET already set>
    ```
-   No interval → the model self-paces (recommended for research). Self-paced means THERE IS NO external
-   re-invoker: the loop agent itself reschedules the next iteration (ScheduleWakeup) until STOP fires —
-   this is the LOOP CONTINUATION hard rule in the operational prompt. If a run halts after one block, that
-   rule was skipped; as a fallback add an interval (`/loop 10m …`) so the harness re-fires deterministically.
+   Without an interval the loop uses DYNAMIC self-paced mode: the `/loop` runtime re-fires each
+   iteration on the agent's ScheduleWakeup (~60s floor), keeping latency low and the prompt cache warm.
+   The re-fire depends on the agent calling ScheduleWakeup (LOOP CONTINUATION, case 2). FALLBACK —
+   fixed-interval: if a dynamic run halts after a single block or the harness has no ScheduleWakeup,
+   use an explicit interval (e.g. `5m`):
+   ```
+   /loop 5m  <paste the OPERATIONAL PROMPT below, with TARGET already set>
+   ```
+   Under fixed-interval the harness cron re-fires each turn; no ScheduleWakeup is issued; the STOP
+   TEARDOWN rule applies (LOOP CONTINUATION, case 1). NESTED-LAUNCH RULE: never launch `/loop` from
+   inside an already-running `/loop` invocation of either mode — in dynamic mode the `/loop` runtime
+   + ScheduleWakeup IS the re-invoker. Do not launch when a cron/wakeup is already armed; check and
+   proceed directly if one is active.
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
+   **Fixed-interval caveat:** under `/loop <N>m`, the harness cron continues re-firing even after STOP
+   declares — the stopping criterion alone does not cancel the job. When STOP fires, the agent MUST
+   disarm the re-invoker as part of the STOP declaration (see LOOP CONTINUATION hard rule, case 1).
 
 ### Two execution modes (pick by whether a human is present)
 
 The same NORMAL CYCLE runs under either mode — they differ only in WHO drives iterations and HOW much
 each delegation carries:
 
-- **Self-paced** (`/loop`, no human in the room): the loop agent IS the driver. It reschedules itself
-  (ScheduleWakeup) and, per iteration, delegates only the HEAVY SWEEP of a gap (>3-4 files) to a
-  sub-agent that returns cited findings, then writes the block itself. Autonomous; runs unattended.
+- **Self-paced** (`/loop`, no human in the room): the loop agent IS the driver. Under dynamic
+  self-paced (no interval), it reschedules itself (ScheduleWakeup); under fixed-interval (`/loop <N>m`),
+  the harness re-fires and no ScheduleWakeup is issued. Either way, per iteration, it delegates only the
+  HEAVY SWEEP of a gap (>3-4 files) to a sub-agent that returns cited findings, then writes the block
+  itself. Autonomous; runs unattended.
 - **Orchestrated** (a human present, driving): the driver chains ONE sub-agent PER ITERATION and
   delegates the WHOLE iteration — decompile + write the block + self-verify + commit — keeping the
   driver's context near-empty across many blocks (proven: 7 blocks, no compaction). The driver only
@@ -53,10 +67,13 @@ each delegation carries:
     me to continue after each block" or "I am in auto mode — I will chain until STOP." Without the
     declaration the human cannot distinguish a supervised pause from a loop stall.
 
-**ScheduleWakeup is for the autonomous/self-paced mode only.** Never issue a ScheduleWakeup when an
+**ScheduleWakeup is for dynamic self-paced mode (no interval) only.** Never issue ScheduleWakeup
+when running under a fixed-interval `/loop <N>m` — the harness is the re-invoker there; a
+self-reschedule on top of it double-fires iterations. Also never issue ScheduleWakeup when an
 operator is present — in orchestrated mode the operator or the driver re-invokes; chain the next
-iteration in the same turn instead (signal "continue" at the end of the iteration report). Issuing ScheduleWakeup under orchestrated mode
-spawns a rogue autonomous loop alongside the operator, creating two competing drivers.
+iteration in the same turn instead (signal "continue" at the end of the iteration report). Issuing
+ScheduleWakeup under orchestrated mode spawns a rogue autonomous loop alongside the operator,
+creating two competing drivers.
 
 Both keep the driver context-lean — that is the point. In BOTH modes, set the delegated sub-agent's
 `model` by cognitive demand (MODEL TIER rule) and never re-verify a block with orchestrator Bash (§11).
@@ -1516,20 +1533,34 @@ HARD RULES:
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).
     See METHODOLOGY §17.
-  - LOOP CONTINUATION — you drive the loop; nothing re-invokes you. After EVERY iteration, evaluate the
-    STOPPING criterion (step 7). If it is NOT met (read-only-investigable > 0), you MUST reschedule and
-    START the next iteration on the next gap — do NOT end your turn. WHAT ENDS A TURN (#620): the
-    runtime ends the turn when the agent emits text without a following tool call. So the continuation
-    call (ScheduleWakeup under self-paced mode, or the "continue" signal under orchestrated mode) must
-    be the LAST action of the turn, placed AFTER the iteration report text — any text emitted after the
-    continuation call, or a final turn with only text and no tool call, ends the loop immediately. The RETURN CONTRACT below is a
-    per-iteration CHECKPOINT, not a hand-off; only the STOP declaration is terminal. Never stop after a
-    single block.
+  - LOOP CONTINUATION — after EVERY iteration, evaluate the STOPPING criterion (step 7). If it is NOT
+    met (read-only-investigable > 0), continue as follows — THREE CASES based on launch mode:
+    (1) FIXED-INTERVAL (`/loop <N>m`, e.g. `/loop 5m`): the harness IS the re-invoker; it fires the
+        next turn automatically. Do NOT issue ScheduleWakeup — a self-reschedule on top of the harness
+        re-fire would double-fire iterations. End the turn after the iteration report. Ensure each
+        iteration is idempotent: if the harness re-fires while nothing is pending (STOP already met,
+        state already committed), the iteration must recognize that from real state and stop cleanly.
+        STOP TEARDOWN (MANDATORY): when STOP fires under a fixed-interval `/loop`, the harness cron
+        keeps re-firing every `<N>m` forever — token drain. The agent MUST disarm the re-invoker as
+        part of the STOP declaration: use CronList to find the cron job whose prompt is this loop,
+        then CronDelete to remove it. If the harness offers no such tool, tell the operator explicitly
+        to cancel the loop (e.g. "cancel the `/loop <N>m` job you launched"). A re-fire that finds
+        STOP already met MUST also disarm and end (idempotent).
+    (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): the re-fire
+        depends on the agent calling ScheduleWakeup. WHAT ENDS A TURN (#620): the runtime ends the
+        turn when the agent emits text without a following tool call. So ScheduleWakeup must be the
+        LAST action of the turn, placed AFTER the iteration report text — any text emitted after the
+        wakeup call, or a final turn with only text and no tool call, ends the loop immediately.
+    (3) ORCHESTRATED: signal "continue" at the end of the iteration report; the driver re-invokes.
+    In all cases the RETURN CONTRACT below is a per-iteration CHECKPOINT, not a hand-off. "Never stop
+    after a single block" means: never declare STOP unless the stopping criterion is truly met, and
+    never skip the continuation mechanism of the active mode.
     ANTI-PATTERN — MILESTONE/CLUSTER BOUNDARY IS NOT A STOP: completing a named cluster, phase, or
     milestone within the gap backlog is NOT a stopping criterion in auto/chain mode. The loop continues
     to the next gap immediately. The only allowed turn-end set is: {STOP criterion met · a
-    requires-execution wall · an operator pause · a tool failure}. Nothing else ends the turn in
-    auto/chain mode — not a milestone boundary, not a "natural pause", not a round-number block count.
+    requires-execution wall · an operator pause · a tool failure · fixed-interval: end of iteration
+    report (the harness re-fires)}. Nothing else ends the turn in auto/chain or dynamic mode — not a
+    milestone boundary, not a "natural pause", not a round-number block count.
     (Evidence: niagara loop-continuation retro.)
     ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
@@ -1538,14 +1569,17 @@ HARD RULES:
     them). COMMIT MESSAGE: `research(<target>): B<n> <short-gap-slug>` (multi-focus §16 disambiguates in the
     scope: `research(<target>/<focus>): B<n> <slug>`); OPTIONAL body line = coverage ratio + marker tally.
     Commit DIRECT to the default branch — a solo corpus needs no PR (METHODOLOGY §15). One commit ⇄ one block
-    is what makes §17 resume answerable from `git log --oneline`. (Under `/loop` self-pacing this means calling
-    ScheduleWakeup with the same prompt; under an orchestrator it means signalling "continue". Either way, one
-    report ≠ done — see METHODOLOGY §8.)
-  - RESCHEDULE CADENCE — the next gap is READY WORK, not an idle poll. When you reschedule under `/loop`
-    self-pacing, use the SHORTEST delay (~60s, the floor), NOT the 1200-1800s idle-tick default. A short
-    delay also keeps the prompt cache warm (≤300s), so back-to-back iterations are cheaper AND faster.
-    Only stretch the delay when you are genuinely BLOCKED waiting on something external (an install
-    building, a live server coming up) — never just to space out ready decompilation work.
+    is what makes §17 resume answerable from `git log --oneline`. (Under fixed-interval this means
+    ending the turn after the report; under dynamic self-pacing this means calling ScheduleWakeup with
+    the same prompt; under an orchestrator this means signalling "continue". Either way, one report ≠
+    done — see METHODOLOGY §8.)
+  - RESCHEDULE CADENCE — applies to DYNAMIC self-paced mode (no interval) only; fixed-interval mode has
+    no ScheduleWakeup to tune (the harness interval governs re-fire timing). The next gap is READY WORK,
+    not an idle poll. When you reschedule under dynamic self-pacing, use the SHORTEST delay (~60s, the
+    floor), NOT the 1200-1800s idle-tick default. A short delay also keeps the prompt cache warm
+    (≤300s), so back-to-back iterations are cheaper AND faster. Only stretch the delay when you are
+    genuinely BLOCKED waiting on something external (an install building, a live server coming up) —
+    never just to space out ready decompilation work.
   - BASH-TOOL PATH NOT PERSISTENT: the shell state (including PATH) is reset between Bash tool
     calls on every platform — the harness initializes each call from the user's shell profile, so
     PATH changes made in one call are gone in the next. When a native tool (decompiler, scan
