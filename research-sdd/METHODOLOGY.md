@@ -1209,9 +1209,12 @@ line — `## Gap-backlog (<descriptor>)`. Grammar: `^## Gap-backlog( \([^)]+\))?
 `## Gap-backlog`, `## Gap-backlog (prioritized)`, `## Gap-backlog (investigable)`. Non-conforming:
 free text outside the parenthetical (`## Gap-backlog prioritized`, `## Gap-backlog extra (prioritized)`),
 `## Gap backlog` (space), a U+2011 non-breaking hyphen form, and `## Backlog de gaps`; tooling
-emits a provisional WARN naming the canonical forms. The table MUST be 4 columns:
-`| Priority | Gap | <type/source> | Status |`, Priority first. A literal `|` inside a cell MUST be
-written `&#124;` — the Markdown parser does not honour `\|`. One physical line per row.
+emits a provisional WARN naming the canonical forms. The table must be 4 or 5 columns, Priority
+(or `Pr.`) first. Accepted shapes: 4-column `| Priority | Gap | <type/source> | Status |`;
+5-column `| Priority | Gap | Scope | Where | Status |` (7 files in the fleet) and
+`| Pr. | ID | Gap | Artifact | Status |` (2 files in the fleet). A literal `|` inside a cell MUST be
+written `&#124;` — the Markdown parser does not honour `\|`. One physical line per row. A file may
+contain multiple `## Gap-backlog (…)` tables; all are counted together.
 
 **Migration (propose-never-apply).** Corpus edits are always the human's; tooling WARNs and never
 auto-applies. Migration classes to address:
@@ -1221,7 +1224,7 @@ auto-applies. Migration classes to address:
 - `open` / `queued` → `pending`.
 - Open em-dash rows (Priority `—`, non-closed Status) → assign a real tier + appropriate Status.
 - Heading variants → `## Gap-backlog`.
-- Wrong column order or missing columns → 4-column canonical form.
+- Wrong column order or missing columns → 4-column canonical form (or accepted 5-column variant above).
 - Bare `|` inside cells → `&#124;`.
 
 ## 9. Golden rules

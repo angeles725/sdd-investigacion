@@ -263,26 +263,36 @@ count_deferred() {
     END { print n+0 }' "$state"
 }
 
-# Backlog rows: STRICT 4-column table (`| p | gap | type | status |` → 6 pipe-fields). A gap cell
-# containing a pipe yields NF!=6 → WARN (never a silent drop / mis-field). Emits "priority<TAB>gap<TAB>status".
+# Backlog rows: reads ALL priority-tagged rows from ALL ## Gap-backlog sections AND any table whose
+# separator reveals a 4- or 5-column layout and sits outside a Gap-backlog heading (non-canonical
+# placement is counted but emits OOB-WARN per METHODOLOGY §8b).
+# Emits "priority<TAB>gap-key<TAB>status" (gap-key = gap text for 4-col; ID for 5-col since a[2] = id).
+# Column layout: 4-col (`| p | gap | type | status |`) OR 5-col (`| p | id | gap | artifact | status |`);
+# expected_cols is set from the separator row and governs column-width acceptance (4 or 5 only; any
+# other width emits BP-WIDTH-WARN and rows in that table are skipped) and status extraction (a[4] vs a[5]).
+# An unknown priority emits a diagnostic to stderr AND INVALID_PRIORITY<TAB><val> to stdout.
+# Callers that care check for the sentinel; callers that don't safely ignore the 2-field line.
+# Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—), COVERED rows whose status
+# cell contains a pipe (5C-COVERED-PIPE-SKIP / SS-567-COVERED-PIPE-SKIP). Qualifier forms (e.g.
+# "high (context)") emit a WARN to stderr and are excluded. Unknown qualifier BASE fails closed.
+# Note: "med" abbreviation is NOT normalized here — that is a separate calibration work unit (#941).
+#   Rows with priority "med" emit INVALID_PRIORITY and are excluded from counts.
+# U+2011-NORM: non-breaking hyphens (U+2011, UTF-8 octet \342\200\221) in heading lines are normalised
+#   to ASCII hyphen by an awk gsub so "## Gap‑backlog (prioritized)" matches the heading pattern.
+#   Scoped to heading lines only (not a whole-file rewrite); portable (no GNU sed \xNN syntax).
 backlog_rows() {
-  # Normalize the row so both bounded (`| p | g | t | s |`) and outer-pipe-less GFM (`p | g | t | s`)
-  # rows parse to exactly 4 cells; a pipe INSIDE a cell yields n!=4 → WARN (never a silent drop).
-  # An unknown priority value emits a diagnostic to stderr AND a INVALID_PRIORITY<TAB><value> sentinel
-  # to stdout. Callers that care check for the sentinel; callers that don't (derive_investigable etc.)
-  # safely ignore the 2-field sentinel line. Silently skips: deferred (parked), strikethrough (~~p~~),
-  # em-dash (—). Qualifier forms (e.g. "high (context)") emit a provisional WARN to stderr naming the
-  # canonical stripped base and are still excluded. An unknown qualifier BASE fails closed.
-  awk '
-    /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; next }
-    /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
-    /^## / { in_backlog=0; in_data=0; next }
+  LC_ALL=C awk '
+    # BACKLOG-ROWS-AWK-START
+    /^## Gap-backlog( \([^)]+\))?$/ { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _nm_was_last=0; in_backlog=1; in_data=0; expected_cols=0; next }  # OOB-WARN-FLUSH
+    /^## / && tolower($0) ~ /backlog/ { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _this_line_nm=1; print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
+    /^## / { if (!_this_line_nm) { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr"; _oob_count=0; _nm_was_last=0 }; _nm_was_last=_this_line_nm; _this_line_nm=0; in_backlog=0; in_data=0; expected_cols=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       p=tolower(a[1])
-      if (p~/^-/) { in_data=1; next }
+      if (p~/^-+$/) { in_data=1; if (!in_backlog) next; expected_cols=(n==4||n==5)?n:-1; if (expected_cols<0) print "WARN: backlog table has " n " columns (separator: " $0 ") — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped" > "/dev/stderr"; next }  # BP-EXPECTED-COLS: accept only 4- or 5-col backlog tables; BP-WIDTH-WARN on unsupported width; BP-SEP-IN-BACKLOG: separator outside a Gap-backlog section sets in_data but does not WARN
+      if (p~/^-/) { next }    # BP-LIST-ITEM-GUARD: prose list items (markdown dash marker with pipes in text) are not table rows; safe after all-dashes check above
       if (p=="" || p=="priority" || p=="p" || p=="deferred") { next }
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
@@ -302,12 +312,18 @@ backlog_rows() {
         }
         next
       }
-      if (n!=4) {
-        if (in_backlog && in_data && tolower(a[4]) ~ /^covered/) { next }  # SS-567-COVERED-PIPE-SKIP: COVERED rows may carry pipe notation in status summary; skip silently
-        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr" }
+      if (!in_backlog && in_data) { _oob_count++ }  # OOB-ACCUM: accumulate per-section; flushed at ## heading or EOF
+      if (expected_cols < 0) { next }  # BP-WIDTH-SKIP: unsupported table width; WARN already emitted on separator
+      sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen yet
+      sc_msg = (expected_cols > 0) ? sc : "4 or 5"  # BP-SC-MSG: "4 or 5" when no separator seen (fallback context)
+      if (n!=sc) {
+        if (sc==5 && n>sc && tolower(a[5]) ~ /^covered/) { print "WARN: COVERED row has " n " cells in 5-col table (pipe in status cell) — review: " $0 > "/dev/stderr"; next }  # SS-COVERED-PIPE-WARN: COVERED rows with extra cells emit WARN, not silent drop
+        if (sc==4 && n>sc && tolower(a[4]) ~ /^covered/) { print "WARN: COVERED row has " n " cells in 4-col table (pipe in status cell) — review: " $0 > "/dev/stderr"; next }  # SS-567-COVERED-PIPE-WARN: COVERED rows with extra cells emit WARN, not silent drop
+        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc_msg " — a cell may contain a pipe): " $0 > "/dev/stderr" }  # SS-MALFORMED-WARN: scoped to in_backlog only (N3)
         next }
-      { st=tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # SS-634-BOLD-STRIP: strip leading/trailing ** (markdown bold artifacts) from status field
+      { st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # SS-634-BOLD-STRIP: strip leading/trailing ** from status field (a[4] for 4-col, a[5] for 5-col)
       print p "\t" a[2] "\t" st }
+    END { if (_oob_count>0 && !_nm_was_last) printf "WARN: %d backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",_oob_count > "/dev/stderr" }  # OOB-WARN-EOF
   ' "$state"
 }
 
@@ -630,10 +646,20 @@ if [ "$mode" = "--sync-state" ]; then
     io="$(count_investigable)"
     bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
     def="$(count_deferred)"
+    # requires_execution_open: compute BEFORE cov/kg so KG-BACKLOG-GC can use dreq.
+    # PREFERS the backlog-derived count (rows whose Status carries the `requires-execution` marker →
+    # disk-anchored, in lockstep with verify-state.sh's CHECK E) and only falls back to the prose
+    # stop-control number / previous envelope when NO row is marked — a marked backlog is
+    # authoritative, a prose-only corpus (logosoft) keeps its declared counter.
+    dreq="$(count_requires_execution)"
+    if [ "$dreq" -gt 0 ]; then
+      req="$dreq"
+    else
+      req="$(pick "$(req_prose)" "$(env_get requires_execution_open)")"
+    fi
     # declared-only figures from THIS file's prose (coverage metric X/Y), carrying the previous envelope
     # value when a figure is absent/unparseable (never invent — see pick()).
     cov="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
-    gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
     # known_gaps: take the larger of the backlog-derived total and the coverage metric Y (issue #568).
     # Backlog-derived: captures newly-added gaps even when the coverage metric prose is stale.
     # Coverage metric Y: preserved when closed gaps are tracked only in the prose and not as backlog rows.
@@ -644,18 +670,15 @@ if [ "$mode" = "--sync-state" ]; then
        && printf '%s' "${_cm_kg:-0}" | grep -qE '^[0-9]+$' \
        && [ "${_dkg_total}" -gt "${_cm_kg:-0}" ] 2>/dev/null; then
       kg="${_dkg_total}"  # KG-BACKLOG-EXCEEDS
+      # KG-BACKLOG-GC: when kg comes from backlog, gc = closed rows = kg − (io + req + bo + def).
+      # Coverage prose numerator is stale in this path; compute gc from the backlog rows directly.
+      _gc_backlog=$(( _dkg_total - ${io:-0} - ${req:-0} - ${bo:-0} - ${def:-0} ))
+      gc="${_gc_backlog}"  # KG-BACKLOG-GC
+      printf 'WARN: Coverage prose denominator is stale (coverage metric %s/%s, backlog has %d known gaps) — update Coverage metric to %d/%d\n' \
+        "${cov%%/*}" "${_cm_kg:-?}" "${_dkg_total}" "${gc}" "${kg}" >&2
     else
       kg="$(pick "${_cm_kg}" "$(env_get known_gaps)")"
-    fi
-    # requires_execution_open PREFERS the backlog-derived count (rows whose Status carries the
-    # `requires-execution` marker → disk-anchored, in lockstep with verify-state.sh's CHECK E) and only
-    # falls back to the prose stop-control number / previous envelope when NO row is marked — a marked
-    # backlog is authoritative, a prose-only corpus (logosoft) keeps its declared counter.
-    dreq="$(count_requires_execution)"
-    if [ "$dreq" -gt 0 ]; then
-      req="$dreq"
-    else
-      req="$(pick "$(req_prose)" "$(env_get requires_execution_open)")"
+      gc="$(pick "${cov%%/*}" "$(env_get gaps_closed)")"
     fi
     # undocumented_findings: distinguish the three cases that pick("","...") collapses into one silent 0.
     # ABSENT       → seed 0 (METHODOLOGY §7 seeding contract; no warning — documented legacy path).
