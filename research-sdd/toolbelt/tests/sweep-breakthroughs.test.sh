@@ -601,23 +601,26 @@ else
 fi
 
 # 30 — RESEARCH_HOME unset: SUT must fall back to $HOME for ledger-pointer expansion.
-# Creates a temp dir under $HOME, builds a $RESEARCH_HOME/... pointer, runs with -u.
+# Uses HOME=$ROOT/fake-home (under the EXIT-trap dir) so cleanup is automatic and
+# the real $HOME is never touched.  mktemp under real $HOME is avoided entirely.
 kit="$(mkkit c30-home-fallback)"
-_rh30="$(mktemp -d "${HOME}/sdd-test-30-XXXXXX")"
-_rh30_rel="${_rh30#"${HOME}/"}"
-tgt30="${_rh30}/targetA"
-mkblock_tagged "$tgt30" "pfx-block1.md"
-ln30=$(tagged_lineno "$tgt30/pfx-block1.md")
-write_targets "$kit" "$tgt30"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/${_rh30_rel}/targetA/pfx-block1.md:$ln30\` | k |"
-OUT="$(env -u RESEARCH_HOME "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-rm -rf "$_rh30"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "30 RESEARCH_HOME unset → \$HOME fallback, pointer expands via \$HOME, clean run" "(exit $RC)"
+_rh30="$ROOT/fake-home"
+if ! mkdir -p "$_rh30"; then
+  no "30 RESEARCH_HOME unset → setup: mkdir fake-home failed" "rc=$?"
 else
-  no "30 RESEARCH_HOME unset → expected clean run via \$HOME fallback" "exit=$RC out=[$OUT]"
+  tgt30="$_rh30/targetA"
+  mkblock_tagged "$tgt30" "pfx-block1.md"
+  ln30=$(tagged_lineno "$tgt30/pfx-block1.md")
+  write_targets "$kit" "$tgt30"
+  write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln30\` | k |"
+  OUT="$(HOME="$_rh30" env -u RESEARCH_HOME "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  if [ "$RC" = 0 ] \
+     && ! grep -q 'WARN' <<<"$OUT" \
+     && grep -q '0 unindexed' <<<"$OUT"; then
+    ok "30 RESEARCH_HOME unset → \$HOME fallback, pointer expands via \$HOME, clean run" "(exit $RC)"
+  else
+    no "30 RESEARCH_HOME unset → expected clean run via \$HOME fallback" "exit=$RC out=[$OUT]"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

@@ -296,40 +296,40 @@ else
   rm -f "$_rg_mut"
 fi
 
-# ── SKIP-FORMAT teeth: skip()→ok() mutant must produce PASS not SKIP ────────
-# Verifies that skip() outputs '  SKIP  ', not '  PASS  '.
-# Mutation: replace skip() body with ok()-equivalent. Running the ZSH-GUARD skip path
-# under a hermetic no-zsh PATH must show '  PASS  ' instead of '  SKIP  '.
-echo "-- SKIP-FORMAT teeth: mutant skip()→ok() must output PASS not SKIP under no-zsh --"
-# Build hermetic PATH with zsh absent
+# ── SKIP-FORMAT teeth: skip() in the real suite must output SKIP, not PASS ──────
+# Phase 1: assert the real file itself outputs '  SKIP  ' under hermetic no-zsh PATH
+#          (proves skip() is correct before we test its mutation).  A broken skip()
+#          that already prints PASS would fail this check immediately.
+# Phase 2: copy the real file, mutate skip() to print PASS, and assert SKIP disappears.
+# Precondition for both phases: zsh must be unreachable under the hermetic PATH.
+echo "-- SKIP-FORMAT teeth: real skip() must output SKIP; mutant must not --"
 _sf_zsh="$(type -P zsh 2>/dev/null || true)"
 if [ -n "$_sf_zsh" ]; then
   _sf_zsh_dir="$(dirname "$_sf_zsh")"
-  _sf_nozsh="$(echo "$PATH" | tr ':' '\n' | grep -Fxv "$_sf_zsh_dir" | tr '\n' ':' | sed 's/:$//')"
+  _sf_nozsh="$(printf '%s\n' "$PATH" | tr ':' '\n' | grep -Fxv "$_sf_zsh_dir" | tr '\n' ':' | sed 's/:$//')"
 else
   _sf_nozsh="$PATH"
 fi
-# Minimal mutant: ZSH-GUARD logic with skip() printing PASS instead of SKIP
-_sf_mut="$ROOT/skip-format-mut.sh"
-cat > "$_sf_mut" << 'RGSF_END'
-#!/usr/bin/env bash
-set -uo pipefail
-pass=0; fail=0
-ok()   { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
-skip() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }  # MUTATION: skip→ok
-_zsh_bin="$(type -P zsh 2>/dev/null || true)"
-if [ -z "$_zsh_bin" ]; then
-  skip "ZSH-GUARD: zsh not found — typed skip (would verify function defined under zsh)"
-fi
-[ "$fail" -eq 0 ] && exit 0 || exit 1
-RGSF_END
-chmod +x "$_sf_mut"
-_sf_out="$(PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_mut" 2>&1)"
-if ! grep -q '  SKIP  ' <<<"$_sf_out"; then
-  ok "SKIP-FORMAT teeth: skip()→ok() mutant outputs PASS not SKIP — format mutation detected" "(SKIP absent on mutant)"
+# Verify precondition: zsh must be unreachable under the hermetic PATH
+_sf_zsh_check="$("$BASH_BIN" -c "PATH='$_sf_nozsh' type -P zsh 2>/dev/null || true")"
+if [ -n "$_sf_zsh_check" ]; then
+  skip "SKIP-FORMAT teeth: zsh still reachable under hermetic PATH ($_sf_zsh_check) — typed skip"
 else
-  no "SKIP-FORMAT teeth: mutant still outputs SKIP — skip() tooth not working" "out=[$_sf_out]"
+  # Phase 1: real file must produce a SKIP line (proves skip() outputs SKIP)
+  _sf_real_out="$(PATH="$_sf_nozsh" "$BASH_BIN" "$0" 2>&1)"
+  if ! grep -q '  SKIP  ' <<<"$_sf_real_out"; then
+    no "SKIP-FORMAT teeth: real skip() must output '  SKIP  ' under no-zsh — format is wrong" "out=[$_sf_real_out]"
+  else
+    # Phase 2: mutate the copy (SKIP→PASS in skip() body) and assert SKIP disappears
+    _sf_copy="$ROOT/skip-format-tooth.sh"
+    sed '/^skip() /s/  SKIP  /  PASS  /' "$0" > "$_sf_copy"
+    _sf_out="$(PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_copy" 2>&1)"
+    if ! grep -q '  SKIP  ' <<<"$_sf_out"; then
+      ok "SKIP-FORMAT teeth: real skip()→PASS mutant has no SKIP line — format mutation detected" "(SKIP absent)"
+    else
+      no "SKIP-FORMAT teeth: mutant still outputs SKIP — skip() tooth not working" "out=[$_sf_out]"
+    fi
+  fi
 fi
 
 # ── RETRO-TRAP teeth: trap dir fixture must fire the guard ───────────────────

@@ -464,11 +464,11 @@ B_STRIPPED
   # any non-zero rc that also changes the message (e.g. return 2) would fire it.
   _bna_mut="$ROOT/bna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_b_stub" > "$_bna_mut"
-  "$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" >/dev/null 2>&1; _bna_mut_rc=$?
+  _bna_mut_out="$("$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" 2>&1)"; _bna_mut_rc=$?
   if [ "$_bna_mut_rc" = 0 ]; then
     ok "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_bna_mut_rc"
   else
-    no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc"
+    no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc out=[$_bna_mut_out]"
   fi
   rm -f "$_bna_mut"
 
