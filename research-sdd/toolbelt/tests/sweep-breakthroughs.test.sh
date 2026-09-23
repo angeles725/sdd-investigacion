@@ -45,6 +45,15 @@ write_targets() {
   } > "$kit/TARGETS.md"
 }
 
+# write_targets_portable <kit> <rel-tail>: TARGETS.md with $RESEARCH_HOME/<rel-tail> form.
+# Used by cases 31-33 to test portable-row expansion in target-paths.sh.
+write_targets_portable() {
+  local kit="$1" rel="$2"
+  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
+    printf '| 1 | t1 | `$RESEARCH_HOME/%s` |\n' "$rel"
+  } > "$kit/TARGETS.md"
+}
+
 # write_breakthroughs <kit> [<row>...]: build BREAKTHROUGHS.md with the standard header
 # and any given rows; each row is a string '| N | target | what | how | memory |'.
 write_breakthroughs() {
@@ -564,6 +573,125 @@ else
   no "27 portable pointer, block has marker → no spurious drift WARN" "exit=$RC out=[$OUT]"
 fi
 
+# 28 — & in RESEARCH_HOME: awk's sub() treats & in the replacement as "matched text",
+# corrupting the expanded pointer.  The fix uses substr()/length() for literal insertion.
+kit="$(mkkit c28-amp-in-rh)"
+rh28="${ROOT}/rh28-amp&test"; tgt28="${rh28}/targetA"
+mkblock_tagged "$tgt28" "pfx-block1.md"
+ln28=$(tagged_lineno "$tgt28/pfx-block1.md")
+write_targets "$kit" "$tgt28"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln28\` | k |"
+run_env "$kit" "$rh28"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT" \
+   && grep -q '0 drifted' <<<"$OUT"; then
+  ok "28 RESEARCH_HOME with & → pointer expanded literally, clean run" "(exit $RC)"
+else
+  no "28 RESEARCH_HOME with & → expected clean run" "exit=$RC out=[$OUT]"
+fi
+
+# 29 — trailing slash in RESEARCH_HOME: without %/ stripping, rh "/" concatenation in
+# awk yields // which does NOT match the corpus block path (grep -F is exact-string).
+kit="$(mkkit c29-trailing-slash)"
+rh29="${ROOT}/rh29-trailing/"
+tgt29="${ROOT}/rh29-trailing/targetA"
+mkblock_tagged "$tgt29" "pfx-block1.md"
+ln29=$(tagged_lineno "$tgt29/pfx-block1.md")
+write_targets "$kit" "$tgt29"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln29\` | k |"
+run_env "$kit" "$rh29"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT"; then
+  ok "29 RESEARCH_HOME trailing slash → normalized, no double slash, clean run" "(exit $RC)"
+else
+  no "29 RESEARCH_HOME trailing slash → expected clean run" "exit=$RC out=[$OUT]"
+fi
+
+# 30 — RESEARCH_HOME unset: SUT must fall back to $HOME for ledger-pointer expansion.
+# Uses HOME=$ROOT/fake-home (under the EXIT-trap dir) so cleanup is automatic and
+# the real $HOME is never touched.  mktemp under real $HOME is avoided entirely.
+kit="$(mkkit c30-home-fallback)"
+_rh30="$ROOT/fake-home"
+if ! mkdir -p "$_rh30"; then
+  no "30 RESEARCH_HOME unset → setup: mkdir fake-home failed" "rc=$?"
+else
+  tgt30="$_rh30/targetA"
+  mkblock_tagged "$tgt30" "pfx-block1.md"
+  ln30=$(tagged_lineno "$tgt30/pfx-block1.md")
+  write_targets "$kit" "$tgt30"
+  write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln30\` | k |"
+  OUT="$(HOME="$_rh30" env -u RESEARCH_HOME "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+  if [ "$RC" = 0 ] \
+     && ! grep -q 'WARN' <<<"$OUT" \
+     && grep -q '0 unindexed' <<<"$OUT"; then
+    ok "30 RESEARCH_HOME unset → \$HOME fallback, pointer expands via \$HOME, clean run" "(exit $RC)"
+  else
+    no "30 RESEARCH_HOME unset → expected clean run via \$HOME fallback" "exit=$RC out=[$OUT]"
+  fi
+fi
+
+# 31 — portable TARGETS.md row + RESEARCH_HOME with trailing '/': target-paths.sh rh%/ fix
+# strips the trailing slash so the expanded path has no // (// mismatch breaks pointer lookup).
+# RED (pre-fix): target_paths_all returns rh//targetA; find returns path with // preserved;
+# grep -F for the absolute pointer (single /) finds no match → WARN: unindexed.
+_rh31="${ROOT}/rh31"
+mkdir -p "${_rh31}/targetA"
+mkblock_tagged "${_rh31}/targetA" "pfx-block1.md"
+_ln31="$(tagged_lineno "${_rh31}/targetA/pfx-block1.md")"
+kit="$(mkkit c31-tp-portable-slash)"
+write_targets_portable "$kit" "targetA"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`${_rh31}/targetA/pfx-block1.md:${_ln31}\` | k |"
+run_env "$kit" "${_rh31}/"   # trailing slash in RESEARCH_HOME
+if [ "$RC" = 0 ] \
+   && grep -q '1 tagged' <<<"$OUT" \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT"; then
+  ok "31 portable row + RESEARCH_HOME trailing slash → normalized, 1 tagged, 0 unindexed" "(exit $RC)"
+else
+  no "31 portable row + trailing-slash RH → expected 1 tagged 0 unindexed 0 WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 32 — portable TARGETS.md row + HOME with trailing '/' (RESEARCH_HOME unset):
+# same rh%/ normalization must fire when falling back to $HOME.
+_rh32="${ROOT}/rh32"
+mkdir -p "${_rh32}/targetA"
+mkblock_tagged "${_rh32}/targetA" "pfx-block1.md"
+_ln32="$(tagged_lineno "${_rh32}/targetA/pfx-block1.md")"
+kit="$(mkkit c32-tp-portable-home-slash)"
+write_targets_portable "$kit" "targetA"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`${_rh32}/targetA/pfx-block1.md:${_ln32}\` | k |"
+OUT="$(HOME="${_rh32}/" env -u RESEARCH_HOME "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && grep -q '1 tagged' <<<"$OUT" \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT"; then
+  ok "32 portable row + HOME trailing slash (RH unset) → normalized via HOME, 1 tagged, 0 unindexed" "(exit $RC)"
+else
+  no "32 portable row + HOME trailing slash → expected 1 tagged 0 unindexed 0 WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 33 — portable TARGETS.md row + '&' in RESEARCH_HOME: target-paths.sh must expand via
+# ENVIRON (not -v) so awk sub() never sees rh; substr()/length() replacement uses rh directly
+# without treatment of & as matched-text. RED (pre-fix sub() mutant): & corrupts the path.
+_rh33="${ROOT}/rh33&test"
+mkdir -p "${_rh33}/targetA"
+mkblock_tagged "${_rh33}/targetA" "pfx-block1.md"
+_ln33="$(tagged_lineno "${_rh33}/targetA/pfx-block1.md")"
+kit="$(mkkit c33-tp-portable-amp)"
+write_targets_portable "$kit" "targetA"
+write_breakthroughs "$kit" "| 1 | tgt | w | \`${_rh33}/targetA/pfx-block1.md:${_ln33}\` | k |"
+run_env "$kit" "${_rh33}"
+if [ "$RC" = 0 ] \
+   && grep -q '1 tagged' <<<"$OUT" \
+   && ! grep -q 'WARN' <<<"$OUT" \
+   && grep -q '0 unindexed' <<<"$OUT"; then
+  ok "33 portable row + '&' in RESEARCH_HOME → ENVIRON expansion, 1 tagged, 0 unindexed" "(exit $RC)"
+else
+  no "33 portable row + '&' in RH → expected 1 tagged 0 unindexed 0 WARN" "exit=$RC out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
@@ -705,13 +833,14 @@ fi
 # M7: Remove the $RESEARCH_HOME expansion from the ledger-pointer awk → portable pointers
 # are no longer expanded, so case 24 reports "unindexed" (should be clean) and case 27
 # reports spurious "drift" (file not found at literal $RESEARCH_HOME/... path).
-# Mutation: delete the two sub() lines that expand $RESEARCH_HOME in ledger pointers.
+# Mutation: delete the pfx1/pfx2/if expansion block (substr/length approach) so pointers
+# are printed raw — the $RESEARCH_HOME/... string is never substituted.
 mut_kit="$(mkkit m7-no-rh-expansion)"; tgt="$mut_kit/targetA"
 mkblock_tagged "$tgt" "pfx-block1.md"
 lnm=$(tagged_lineno "$tgt/pfx-block1.md")
 write_targets "$mut_kit" "$tgt"
 write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$lnm\` | k |"
-mutant="$(mutate_sut "no-rh-expansion" '/sub.*RESEARCH_HOME.*ptr/d')"
+mutant="$(mutate_sut "no-rh-expansion" '/^          pfx1 = /,/^          }$/d')"
 # Install the mutant into the kit, then run with RESEARCH_HOME set to the kit root.
 cp "$mutant" "$mut_kit/toolbelt/sweep-breakthroughs.sh"
 OUT="$(RESEARCH_HOME="$mut_kit" "$BASH_BIN" "$mut_kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
@@ -721,6 +850,150 @@ if grep -qi 'WARN.*unindexed' <<<"$OUT" || grep -qi 'WARN.*drift' <<<"$OUT"; the
   mut_ok "M7 expansion removed → case 24/27 portable pointer detects WARN on mutant" "(WARN present)"
 else
   mut_no "M7 expansion removed → no WARN on mutant; mutation not detected" "out=[$OUT]"
+fi
+
+# M8: Re-introduce sub()-based expansion → & in RESEARCH_HOME corrupts the replacement
+# (awk treats & as "matched text"). The pfx/if fix must catch this; case 28 detects WARN.
+# Mutation: replace the correct pfx1/pfx2/if block with old sub() calls via awk transform.
+mut_kit_m8="$(mkkit m8-sub-amp)"
+rh_m8="${ROOT}/rh-m8-amp&test"; tgt_m8="${rh_m8}/targetA"
+mkblock_tagged "$tgt_m8" "pfx-block1.md"
+ln_m8=$(tagged_lineno "$tgt_m8/pfx-block1.md")
+write_targets "$mut_kit_m8" "$tgt_m8"
+write_breakthroughs "$mut_kit_m8" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln_m8\` | k |"
+mutant_m8="${MUTANT_DIR}/m8-sub-amp.sh"
+awk '
+  /^          pfx1 = / {
+    print "          sub(/^\\$\\{RESEARCH_HOME\\}\\//, rh \"/\", ptr)"
+    print "          sub(/^\\$RESEARCH_HOME\\//, rh \"/\", ptr)"
+    skip_until_close=1; next
+  }
+  skip_until_close {
+    if (/^          }$/) skip_until_close=0
+    next
+  }
+  { print }
+' "$SUT" > "$mutant_m8"
+chmod +x "$mutant_m8"
+cp "$mutant_m8" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh"
+OUT="$(RESEARCH_HOME="$rh_m8" "$BASH_BIN" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+# sub() corrupts & in rh → pointer resolves to wrong path → unindexed+drift WARNs expected.
+if grep -qi 'WARN' <<<"$OUT"; then
+  mut_ok "M8 sub()-expansion with & in RESEARCH_HOME → case 28 detects WARN" "(WARN present on mutant)"
+else
+  mut_no "M8 sub()-expansion with & in RESEARCH_HOME → no WARN; mutation not detected" "out=[$OUT]"
+fi
+
+# M9: Remove the trailing-slash normalization → RESEARCH_HOME ending with / produces //
+# in the expanded pointer; grep -F exact-match fails → unindexed WARN fires. Case 29 detects.
+# Mutation: delete the _sb_rh="${_sb_rh%/}" normalization line.
+mut_kit_m9="$(mkkit m9-no-slash-norm)"
+rh_m9="${ROOT}/rh-m9-trailing/"; tgt_m9="${ROOT}/rh-m9-trailing/targetA"
+mkblock_tagged "$tgt_m9" "pfx-block1.md"
+ln_m9=$(tagged_lineno "$tgt_m9/pfx-block1.md")
+write_targets "$mut_kit_m9" "$tgt_m9"
+write_breakthroughs "$mut_kit_m9" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln_m9\` | k |"
+mutant_m9="$(mutate_sut "no-slash-norm" '/_sb_rh%\//d')"
+cp "$mutant_m9" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh"
+OUT="$(RESEARCH_HOME="$rh_m9" "$BASH_BIN" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+# Without normalization pointer = /path//targetA/... which does not match /path/targetA/...
+# (string comparison) → unindexed WARN fires.
+if grep -qi 'WARN.*unindexed' <<<"$OUT"; then
+  mut_ok "M9 trailing-slash not stripped → case 29 detects unindexed WARN on mutant" "(WARN present)"
+else
+  mut_no "M9 trailing-slash not stripped → no WARN; mutation not detected" "out=[$OUT]"
+fi
+
+# M10: Remove rh%/ normalization from target-paths.sh → portable TARGETS.md row +
+# RESEARCH_HOME with trailing slash → // in expanded path → find returns path with //
+# → pointer mismatch (absolute BREAKTHROUGHS.md pointer has single /) → WARN: unindexed.
+# Case 31 detects this: checks for '1 tagged' + no WARN + '0 unindexed'.
+echo "-- M10: remove rh%/ norm from target-paths.sh → case 31 (portable+trailing-slash) detects WARN --"
+_m10_rh="${ROOT}/rh-m10"
+mkdir -p "${_m10_rh}/targetA"
+mkblock_tagged "${_m10_rh}/targetA" "pfx-block1.md"
+_m10_ln="$(tagged_lineno "${_m10_rh}/targetA/pfx-block1.md")"
+kit_m10="$(mkkit m10-tp-norm)"
+write_targets_portable "$kit_m10" "targetA"
+write_breakthroughs "$kit_m10" "| 1 | tgt | w | \`${_m10_rh}/targetA/pfx-block1.md:${_m10_ln}\` | k |"
+# (d) control: kit has original target-paths.sh; trailing-slash RH must give '1 tagged' (no WARN).
+OUT_M10_CTRL="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"
+if grep -q '1 tagged' <<<"$OUT_M10_CTRL" && ! grep -q 'WARN' <<<"$OUT_M10_CTRL"; then
+  mut_ok "M10 (d) ctrl: SUT strips trailing slash (1 tagged, no WARN)"
+else mut_no "M10 (d) ctrl: SUT does not give expected result (M10 premise broken)" "out=[$OUT_M10_CTRL]"; fi
+# Mutant target-paths.sh: remove the rh%/ normalization lines (both functions).
+sed '/rh%\//d' "$TP_LIB" > "$kit_m10/toolbelt/lib/target-paths.sh"
+# (a) mutant must differ from SUT
+if ! diff -q "$TP_LIB" "$kit_m10/toolbelt/lib/target-paths.sh" >/dev/null 2>&1; then
+  mut_ok "M10 (a): mutant target-paths.sh differs from SUT"
+else mut_no "M10 (a): sed did not change target-paths.sh — mutant == SUT (theater)"; fi
+# (b) bash -n must pass on mutant
+_m10_bn_err=$(bash -n "$kit_m10/toolbelt/lib/target-paths.sh" 2>&1); _m10_bn_rc=$?
+if [ "$_m10_bn_rc" -eq 0 ]; then mut_ok "M10 (b): mutant target-paths.sh passes bash -n"
+else mut_no "M10 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m10_bn_err]"; fi
+OUT="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+if grep -q 'WARN' <<<"$OUT" || ! grep -q '1 tagged' <<<"$OUT"; then
+  mut_ok "M10 no-tp-norm → case 31 (portable row + trailing-slash RH) detects WARN or 0 tagged" "(mutation detected)"
+else
+  mut_no "M10 no-tp-norm → case 31 not detecting norm removal" "out=[$OUT]"
+fi
+
+# M11: Restore sub()-based awk expansion for pfx2 in target-paths.sh →
+# & in RESEARCH_HOME becomes matched-text in sub() replacement → corrupted path →
+# corpus directory not found (absent-input) → 0 tagged. Case 33 checks '1 tagged', detects.
+echo "-- M11: sub()-based expansion in target-paths.sh → case 33 (& in RH) detects corruption --"
+_m11_rh="${ROOT}/rh-m11&amp"
+mkdir -p "${_m11_rh}/targetA"
+mkblock_tagged "${_m11_rh}/targetA" "pfx-block1.md"
+_m11_ln="$(tagged_lineno "${_m11_rh}/targetA/pfx-block1.md")"
+kit_m11="$(mkkit m11-tp-subamp)"
+write_targets_portable "$kit_m11" "targetA"
+write_breakthroughs "$kit_m11" "| 1 | tgt | w | \`${_m11_rh}/targetA/pfx-block1.md:${_m11_ln}\` | k |"
+# (d) control: kit has original target-paths.sh; & in RESEARCH_HOME must give '1 tagged'.
+OUT_M11_CTRL="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"
+if grep -q '1 tagged' <<<"$OUT_M11_CTRL"; then
+  mut_ok "M11 (d) ctrl: SUT with & in RESEARCH_HOME gives 1 tagged (no & corruption)"
+else mut_no "M11 (d) ctrl: SUT does not give 1 tagged (M11 premise broken)" "out=[$OUT_M11_CTRL]"; fi
+# Mutant: replace substr()/length() pfx2 case with sub()-based expansion (reintroduces & bug).
+# char-class regex [$]RESEARCH_HOME[/] avoids \$ ambiguity; braces keep else branch valid.
+sed 's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|' \
+  "$TP_LIB" > "$kit_m11/toolbelt/lib/target-paths.sh"
+# (a) mutant must differ from SUT
+if ! diff -q "$TP_LIB" "$kit_m11/toolbelt/lib/target-paths.sh" >/dev/null 2>&1; then
+  mut_ok "M11 (a): mutant target-paths.sh differs from SUT"
+else mut_no "M11 (a): sed did not change target-paths.sh — mutant == SUT (theater)"; fi
+# (b) bash -n must pass on mutant
+_m11_bn_err=$(bash -n "$kit_m11/toolbelt/lib/target-paths.sh" 2>&1); _m11_bn_rc=$?
+if [ "$_m11_bn_rc" -eq 0 ]; then mut_ok "M11 (b): mutant target-paths.sh passes bash -n"
+else mut_no "M11 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m11_bn_err]"; fi
+# (c) injected awk must parse on empty input (rc 0)
+_m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
+  || _m11_awk_rc=$?
+if [ "$_m11_awk_rc" -eq 0 ]; then mut_ok "M11 (c): injected awk parses on empty input"
+else mut_no "M11 (c): injected awk has syntax error (crash-based theater)" "rc=$_m11_awk_rc"; fi
+OUT="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
+# Positive verdict: the mutant sweep must RUN to its Summary line (a crash prints none) and lose the tag.
+if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
+  mut_ok "M11 sub()-expansion with & in RH → case 33 detects corruption (0 tagged)" "(1-tagged absent on mutant)"
+else
+  mut_no "M11 sub()-expansion with & in RH → case 33 not detecting" "out=[$OUT]"
+fi
+# Sabotage: old injection (no braces → orphan else) causes awk syntax error → crash.
+# Assert assertion (c) catches it: the broken program must return non-zero on parse.
+echo "-- M11 sabotage: old broken-awk injection caught by assertion (c) --"
+_sab11_rc=0
+echo '' | awk 'BEGIN { rh="" }
+  {
+    pfx2 = "$RESEARCH_HOME/"
+    if (substr($0, 1, length(pfx2)) == pfx2)
+      sub(/^\$RESEARCH_HOME\//,rh "/"); print
+    else
+      print
+  }' >/dev/null 2>&1 || _sab11_rc=$?
+if [ "$_sab11_rc" -ne 0 ]; then
+  mut_ok "M11 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
+else
+  mut_no "M11 sabotage: old broken awk parsed — sabotage detection ineffective"
 fi
 
 total_fail=$(( fail + mut_fail ))
