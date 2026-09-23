@@ -414,7 +414,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # bash error messages include the script path, which would cause a false match.
   sed '0,/if \[ "\$committed" = 1 \]; then/{s/if \[ "\$committed" = 1 \]; then/if false; then/}' \
     "$SUT" \
+  | sed 's/if \[ "\${_rev_obj_rc:-0}" -ne 0 \]/if false/g' \
   | sed 's/if \[ "\$_rev_obj_rc" -ge 2 \]/if false/g' \
+  | sed 's/if \[ "\$_cml_rc" -ne 0 \]/if false/g' \
   | sed 's/if \[ "\$_cml_rc" -ge 2 \]/if false/g' \
     > "$mutant_deg"
   cm_out29m="$(PATH="$_stub_no_git" bash "$mutant_deg" --committed "$d_deg" 2>&1)"
@@ -921,9 +923,10 @@ PYEOF
   python3 - "$SUT" "$mutant_b5_52" << 'PYEOF'
 import sys
 content = open(sys.argv[1]).read()
+# Match the state-machine awk BEGIN (includes expect_path=0 since the A-fix).
 content = content.replace(
-    'BEGIN{RS="\\0"; sha=""}',
-    'BEGIN{sha=""}'
+    'BEGIN{RS="\\0"; sha=""; expect_path=0}',
+    'BEGIN{sha=""; expect_path=0}'
 )
 open(sys.argv[2], 'w').write(content)
 PYEOF
@@ -932,6 +935,266 @@ PYEOF
     ok "teeth-b5-52: RS-removed mutant misses newline-path blob (rc=$cm_rc52m) → test 52 has teeth"
   else
     no "teeth-b5-52: mutant still caught newline-path token (rc=$cm_rc52m) — test 52 is THEATER"
+  fi
+fi
+
+# --------------------------------------------------------------------------
+# R4-969 — leading ':' path, gitlink mode 160000, grafts, unchecked mktemps,
+#           git log rc=1 for commit messages.
+# --------------------------------------------------------------------------
+
+# 53 — A: file named ':notes.md' containing a GitHub token is skipped by the old awk
+#      parser (the ':' prefix matches /^:/ and is treated as a diff header, losing its blob sha).
+#      --committed must catch the token → exit 1.
+d_t53="$TMP/r4-colon-sibling"
+mkdir -p "$d_t53"
+git -C "$d_t53" init -q 2>/dev/null
+git -C "$d_t53" config user.email "t@t" && git -C "$d_t53" config user.name "t"
+printf '# clean\n' > "$d_t53/README.md"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t53/:notes.md"
+git -C "$d_t53" add . && git -C "$d_t53" commit -q -m "init" 2>/dev/null
+cm_rc53="$(bash "$SUT" --committed "$d_t53" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc53" = 1 ] && ok "53 leading ':' path :notes.md: token detected → exit 1 (A: state-machine fix)" \
+  || no "53 leading ':' path: rc=$cm_rc53 (want 1) — :notes.md blob skipped by old /^:/ header rule"
+
+# 54 — A: nested ':dir/x.md' path — same issue but under a subdirectory.
+d_t54="$TMP/r4-colon-nested"
+mkdir -p "$d_t54/:dir"
+git -C "$d_t54" init -q 2>/dev/null
+git -C "$d_t54" config user.email "t@t" && git -C "$d_t54" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t54/:dir/x.md"
+git -C "$d_t54" add . && git -C "$d_t54" commit -q -m "init" 2>/dev/null
+cm_rc54="$(bash "$SUT" --committed "$d_t54" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc54" = 1 ] && ok "54 nested ':dir/x.md': token detected → exit 1 (A: state-machine fix)" \
+  || no "54 nested ':dir/x.md': rc=$cm_rc54 (want 1)"
+
+# 55 — A: ':notes.md' as the ONLY committed .md file (no clean sibling to confuse the parser).
+d_t55="$TMP/r4-colon-only"
+mkdir -p "$d_t55"
+git -C "$d_t55" init -q 2>/dev/null
+git -C "$d_t55" config user.email "t@t" && git -C "$d_t55" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t55/:notes.md"
+git -C "$d_t55" add . && git -C "$d_t55" commit -q -m "init" 2>/dev/null
+cm_rc55="$(bash "$SUT" --committed "$d_t55" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc55" = 1 ] && ok "55 ':notes.md' only file: token detected → exit 1 (A: state-machine fix)" \
+  || no "55 ':notes.md' only file: rc=$cm_rc55 (want 1)"
+
+# 56 — A: gitlink entry (submodule, mode 160000) at path 'notes.md' (matches .md include) must
+#      be SKIPPED, not cat-file'd into DEGRADED. Without the fix the submodule's commit SHA is
+#      treated as a blob SHA, 'notes.md' matches .md include, git cat-file blob <commit-sha>
+#      fails → DEGRADED exit 3. After fix: gitlink is detected by mode 160000 in the header
+#      and skipped; secret.md is still scanned → exit 1.
+#      Uses git plumbing (update-index --cacheinfo) to ensure a genuine mode-160000 entry
+#      regardless of whether `git submodule add` works on this platform.
+_sub_t56="$TMP/r4-sub-repo56"
+mkdir -p "$_sub_t56"
+git -C "$_sub_t56" init -q 2>/dev/null
+git -C "$_sub_t56" config user.email "t@t" && git -C "$_sub_t56" config user.name "t"
+printf '# sub\n' > "$_sub_t56/r.md"
+git -C "$_sub_t56" add r.md && git -C "$_sub_t56" commit -q -m "sub init" 2>/dev/null
+_sub_sha56="$(git -C "$_sub_t56" rev-parse HEAD 2>/dev/null)"
+d_t56="$TMP/r4-gitlink56"
+mkdir -p "$d_t56"
+git -C "$d_t56" init -q 2>/dev/null
+git -C "$d_t56" config user.email "t@t" && git -C "$d_t56" config user.name "t"
+printf 'token=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t56/secret.md"
+# Manually stage a mode-160000 gitlink at path 'notes.md' using git update-index --cacheinfo
+# so this works even when `git submodule add` is unavailable or restricted.
+git -C "$d_t56" update-index --add --cacheinfo "160000,$_sub_sha56,notes.md" 2>/dev/null
+# .gitmodules required for a valid submodule tree (does not affect the scan)
+printf '[submodule "notes.md"]\n\tpath = notes.md\n\turl = file://%s\n' "$_sub_t56" > "$d_t56/.gitmodules"
+git -C "$d_t56" add secret.md .gitmodules && git -C "$d_t56" commit -q -m "add secret + gitlink notes.md" 2>/dev/null
+cm_rc56="$(bash "$SUT" --committed "$d_t56" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc56" = 1 ] && ok "56 gitlink 'notes.md' (mode 160000, matches .md) skipped: secret.md scanned → exit 1 (not DEGRADED)" \
+  || no "56 gitlink 'notes.md': rc=$cm_rc56 (want 1 — DEGRADED 3 means gitlink commit-sha was cat-file'd as blob)"
+
+# 57 — A: .git/info/grafts non-empty → DEGRADED exit 3 (grafts alter visible history so
+#      scan scope may diverge from what git push would send).
+d_t57="$TMP/r4-grafts"
+mkdir -p "$d_t57"
+git -C "$d_t57" init -q 2>/dev/null
+git -C "$d_t57" config user.email "t@t" && git -C "$d_t57" config user.name "t"
+printf '# clean\n' > "$d_t57/a.md"
+git -C "$d_t57" add a.md && git -C "$d_t57" commit -q -m "init" 2>/dev/null
+_head_t57="$(git -C "$d_t57" rev-parse HEAD 2>/dev/null)"
+mkdir -p "$d_t57/.git/info"
+printf '%s %s\n' "$_head_t57" "$_head_t57" > "$d_t57/.git/info/grafts"
+cm_out57="$(bash "$SUT" --committed "$d_t57" 2>&1)"
+cm_rc57=$?
+if [ "$cm_rc57" = 3 ] && printf '%s' "$cm_out57" | grep -qi 'degraded'; then
+  ok "57 .git/info/grafts non-empty → DEGRADED exit 3 (grafts may hide commits from scan)"
+else
+  no "57 grafts: rc=$cm_rc57 (want 3) — grafts not detected :: $(printf '%s' "$cm_out57" | head -2)"
+fi
+
+# 58 — B: git log for commit messages returns rc=1 → must be DEGRADED exit 3.
+#      Old check `_cml_rc -ge 2` treats rc=1 as ok → commit message scan silently empty → false clean.
+REAL_GIT58="$(type -P git 2>/dev/null)"
+d_t58="$TMP/r4-cmsg-rc1"
+mkdir -p "$d_t58"
+git -C "$d_t58" init -q 2>/dev/null
+git -C "$d_t58" config user.email "t@t" && git -C "$d_t58" config user.name "t"
+printf '# clean\n' > "$d_t58/a.md"
+git -C "$d_t58" add a.md && git -C "$d_t58" commit -q -m "debug: ghp_0123456789abcdefghijklmnopqrstuvwxyz" 2>/dev/null
+_stub_t58="$TMP/r4-stub-cmsg"; mkdir -p "$_stub_t58"
+# stub: intercept log --format=format:%s%n%b and exit 1 to simulate partial git log failure
+printf '#!/bin/bash\ncase "$*" in\n  *"format:%%s%%n%%b"*) exit 1 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
+  "$REAL_GIT58" > "$_stub_t58/git"; chmod +x "$_stub_t58/git"
+cm_out58="$(PATH="$_stub_t58:$PATH" bash "$SUT" --committed "$d_t58" 2>&1)"
+cm_rc58=$?
+if [ "$cm_rc58" = 3 ] && printf '%s' "$cm_out58" | grep -qi 'degraded'; then
+  ok "58 B: git log rc=1 for commit messages → DEGRADED exit 3 (any non-zero is failure)"
+else
+  no "58 git log cmsg rc=1: rc=$cm_rc58 (want 3) — old -ge 2 check treated rc=1 as ok"
+fi
+
+# 59 — B: _cmsg_tmp mktemp fails on the 7th mktemp call → DEGRADED exit 3.
+#      In --committed mode: mktemp calls are _rev_obj_tmp(1), _blobs_list(2), _hc_hits_tmp(3),
+#      _adv_raw(4), _blob_tmp(5), _adv_dedup(6), _cmsg_tmp(7). The 7th is unchecked pre-fix.
+#      Pre-fix: _cmsg_tmp="" → "> """ redirect fails with rc=1 → -ge 2 check misses it →
+#      commit message scan silently empty → false clean exit 0 (secret in commit msg passes).
+_count59="$TMP/r4-mktemp-count59"
+printf '0\n' > "$_count59"
+_stub59="$TMP/r4-stub-mk59"; mkdir -p "$_stub59"
+cat > "$_stub59/mktemp" << MKTEMP59
+#!/bin/bash
+n=\$(cat "$_count59" 2>/dev/null); n=\$((n+1))
+printf '%s\n' "\$n" > "$_count59"
+[ "\$n" -ge 7 ] && exit 1
+exec /usr/bin/mktemp "\$@"
+MKTEMP59
+chmod +x "$_stub59/mktemp"
+for _b in git bash grep sed sort head wc tr awk rm cat dirname basename printf; do
+  _bp="$(type -P "$_b" 2>/dev/null)"; [ -n "$_bp" ] && ln -sf "$_bp" "$_stub59/$_b" 2>/dev/null || true
+done
+d_t59="$TMP/r4-cmsg-mktemp"
+mkdir -p "$d_t59"
+git -C "$d_t59" init -q 2>/dev/null
+git -C "$d_t59" config user.email "t@t" && git -C "$d_t59" config user.name "t"
+printf '# clean\n' > "$d_t59/a.md"
+git -C "$d_t59" add a.md && git -C "$d_t59" commit -q -m "debug: ghp_0123456789abcdefghijklmnopqrstuvwxyz" 2>/dev/null
+printf '0\n' > "$_count59"   # reset counter before actual scan
+cm_out59="$(PATH="$_stub59:$PATH" bash "$SUT" --committed "$d_t59" 2>&1)"
+cm_rc59=$?
+if [ "$cm_rc59" = 3 ] && printf '%s' "$cm_out59" | grep -qi 'degraded'; then
+  ok "59 B: _cmsg_tmp mktemp fail (7th call) → DEGRADED exit 3 (unchecked mktemp fix)"
+else
+  no "59 _cmsg_tmp mktemp fail: rc=$cm_rc59 (want 3) :: $(printf '%s' "$cm_out59" | head -3)"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # Teeth for T53 (leading ':' path): restore old awk that treats /^:/ as header, so :notes.md
+  # blob sha is lost → token missed → exit 0.
+  echo "-- teeth-r4-53: restore old /^:/ awk rule — test 53 :notes.md must go red --"
+  mutant_t53="$TMP/scan-secrets.MUTANT-r4-53.sh"
+  # Replace the state-machine awk with the old one: drop expect_path lines, restore old /^:/ rule
+  python3 - "$SUT" "$mutant_t53" << 'PYEOF53'
+import sys, re
+content = open(sys.argv[1]).read()
+# Replace the new state-machine awk BEGIN with the old one (no expect_path)
+content = content.replace(
+    'BEGIN{RS="\\0"; sha=""; expect_path=0}',
+    'BEGIN{RS="\\0"; sha=""}'
+)
+# Remove expect_path lines
+lines = content.split('\n')
+out = []
+for line in lines:
+    if 'expect_path' in line:
+        continue
+    out.append(line)
+content = '\n'.join(out)
+open(sys.argv[2], 'w').write(content)
+PYEOF53
+  if [ -f "$mutant_t53" ] && bash "$mutant_t53" --committed "$d_t53" >/dev/null 2>&1; then
+    _m53rc=$?
+    [ "$_m53rc" != 1 ] && ok "teeth-r4-53: old-awk mutant misses :notes.md token → test 53 has teeth" \
+      || no "teeth-r4-53: mutant still caught :notes.md token — test 53 is THEATER"
+  else
+    _m53rc=$(bash "$mutant_t53" --committed "$d_t53" >/dev/null 2>&1; echo $?)
+    [ "$_m53rc" != 1 ] && ok "teeth-r4-53: old-awk mutant misses :notes.md token (rc=$_m53rc) → test 53 has teeth" \
+      || no "teeth-r4-53: mutant still caught :notes.md token (rc=$_m53rc) — test 53 is THEATER"
+  fi
+
+  # Teeth for T56 (gitlink): restore old awk without 160000 skip → cat-file fails on submod sha → DEGRADED.
+  echo "-- teeth-r4-56: remove gitlink skip — test 56 must go red (DEGRADED on cat-file) --"
+  mutant_t56="$TMP/scan-secrets.MUTANT-r4-56.sh"
+  python3 - "$SUT" "$mutant_t56" << 'PYEOF56'
+import sys
+content = open(sys.argv[1]).read()
+# Remove the gitlink skip line: if ($2 == "160000") { sha = ""; expect_path = 1; next }
+import re
+content = re.sub(r'  if \(\$2 == "160000"\).*?next\s*\}.*?\n', '', content)
+open(sys.argv[2], 'w').write(content)
+PYEOF56
+  _m56rc=$(bash "$mutant_t56" --committed "$d_t56" >/dev/null 2>&1; echo $?)
+  [ "$_m56rc" != 1 ] && ok "teeth-r4-56: gitlink-skip-removed mutant DEGRADED on submod sha (rc=$_m56rc) → test 56 has teeth" \
+    || no "teeth-r4-56: mutant still exited 1 on gitlink (rc=$_m56rc) — test 56 is THEATER"
+
+  # Teeth for T57 (grafts): remove grafts check → DEGRADED no longer emitted → test 57 must go red.
+  echo "-- teeth-r4-57: remove grafts check — test 57 must go red (no longer DEGRADED) --"
+  mutant_t57="$TMP/scan-secrets.MUTANT-r4-57.sh"
+  python3 - "$SUT" "$mutant_t57" << 'PYEOF57'
+import sys, re
+content = open(sys.argv[1]).read()
+# Remove the grafts detection block
+content = re.sub(
+    r'  # Graft file check.*?fi\n',
+    '',
+    content,
+    flags=re.DOTALL
+)
+open(sys.argv[2], 'w').write(content)
+PYEOF57
+  _m57out=$(bash "$mutant_t57" --committed "$d_t57" 2>&1)
+  _m57rc=$?
+  if [ "$_m57rc" != 3 ] && ! printf '%s' "$_m57out" | grep -qi 'degraded'; then
+    ok "teeth-r4-57: grafts-check-removed mutant proceeds (rc=$_m57rc) → test 57 has teeth"
+  else
+    no "teeth-r4-57: mutant still DEGRADED (rc=$_m57rc) — test 57 is THEATER"
+  fi
+
+  # Teeth for T58 (git log rc=1): restore old -ge 2 check → rc=1 treated as ok → exit 0.
+  echo "-- teeth-r4-58: restore -ge 2 check — test 58 git-log rc=1 must go red --"
+  mutant_t58="$TMP/scan-secrets.MUTANT-r4-58.sh"
+  sed 's/if \[ "\$_cml_rc" -ne 0 \]/if [ "$_cml_rc" -ge 2 ]/g' "$SUT" > "$mutant_t58"
+  _m58out=$(PATH="$_stub_t58:$PATH" bash "$mutant_t58" --committed "$d_t58" 2>&1)
+  _m58rc=$?
+  if [ "$_m58rc" != 3 ] && ! printf '%s' "$_m58out" | grep -qi 'degraded'; then
+    ok "teeth-r4-58: -ge-2-restored mutant ignores rc=1 (rc=$_m58rc) → test 58 has teeth"
+  else
+    no "teeth-r4-58: mutant still DEGRADED (rc=$_m58rc) — test 58 is THEATER"
+  fi
+
+  # Teeth for T59 (unchecked _cmsg_tmp mktemp): remove the mktemp check for _cmsg_tmp AND
+  # restore the old -ge 2 check. Both must be removed because the -ne 0 check (T58's fix) also
+  # catches the > "" redirect failure from an empty _cmsg_tmp. With just the mktemp check removed,
+  # the -ne 0 guard still catches rc=1 → DEGRADED. Only removing both makes the fail-open visible.
+  echo "-- teeth-r4-59: remove _cmsg_tmp mktemp check + restore -ge 2 — test 59 must go red --"
+  mutant_t59="$TMP/scan-secrets.MUTANT-r4-59.sh"
+  python3 - "$SUT" "$mutant_t59" << 'PYEOF59'
+import sys, re
+content = open(sys.argv[1]).read()
+# Remove the _cmsg_tmp mktemp check
+content = re.sub(
+    r'(_cmsg_tmp="\$\(mktemp\)") \|\| \{[^}]+\}',
+    r'\1',
+    content
+)
+# Also restore the old -ge 2 check so rc=1 from "> """ is not caught either
+content = content.replace(
+    'if [ "$_cml_rc" -ne 0 ]',
+    'if [ "$_cml_rc" -ge 2 ]'
+)
+open(sys.argv[2], 'w').write(content)
+PYEOF59
+  printf '0\n' > "$_count59"
+  _m59out=$(PATH="$_stub59:$PATH" bash "$mutant_t59" --committed "$d_t59" 2>&1)
+  _m59rc=$?
+  if [ "$_m59rc" != 3 ] && ! printf '%s' "$_m59out" | grep -qi 'degraded'; then
+    ok "teeth-r4-59: _cmsg_tmp-check-removed mutant passes silently (rc=$_m59rc) → test 59 has teeth"
+  else
+    no "teeth-r4-59: mutant still DEGRADED (rc=$_m59rc) — test 59 is THEATER"
   fi
 fi
 

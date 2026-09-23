@@ -48,7 +48,8 @@ KWID='(?<![A-Za-z0-9])(?:password|passwd|secret|api[_-]?key|apikey|token)(?![A-Z
 
 # Temp files — cleaned on any exit.
 _rev_obj_tmp=""; _blobs_list=""; _hc_hits_tmp=""; _adv_raw=""; _blob_tmp=""
-trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp"' EXIT
+_adv_dedup=""; _cmsg_tmp=""; _nul_tmp=""
+trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp" "$_adv_dedup" "$_cmsg_tmp" "$_nul_tmp"' EXIT
 
 # --committed mode: probe git and awk, verify the repo has at least one commit.
 if [ "$committed" = 1 ]; then
@@ -70,6 +71,15 @@ if [ "$committed" = 1 ]; then
     echo "DEGRADED: $target is a subdirectory of its git repo (repo root: $_toplevel_real)." >&2
     echo "          Pass the repo root to scan the full committed history — pathspecs evaluated" >&2
     echo "          from a subdirectory silently miss all files outside $_target_real." >&2
+    exit 3
+  fi
+
+  # Graft file check: M2: .git/info/grafts rewrites commit parentage, so the history visible to
+  # this scan diverges from what git push will send (grafted commits may be hidden or reachable
+  # commits excluded). Refuse rather than silently scan a subset.
+  if [ -s "${_toplevel_real}/.git/info/grafts" ]; then
+    echo "DEGRADED: .git/info/grafts is non-empty — scan scope may diverge from what git push will send." >&2
+    echo "          Remove or empty .git/info/grafts before scanning." >&2
     exit 3
   fi
 
@@ -99,17 +109,22 @@ if [ "$committed" = 1 ]; then
 
   # Filter (blob, path) pairs by in-scope rules and dedup by blob sha (keep first in-scope path).
   # RS="\0": reads NUL-terminated records from git log -z output directly (B5: NUL-safe enumeration).
-  #   ':'-prefixed records are diff headers — field 4 is the new-side blob sha.
-  #   Non-':' records are paths (may contain embedded newlines — gsub escapes them for safe output).
+  # State machine (A: leading-':' path fix + gitlink 160000 skip):
+  #   Headers ("/^:/" with expect_path=0) carry the new-mode and new-side blob sha.
+  #   Gitlink headers (new-mode 160000) are submodule commit SHAs — skip them (sha="").
+  #   expect_path=1 after every header: the next non-empty record is ALWAYS the path, even if it
+  #   starts with ':' (e.g. a file named ':notes.md' or ':dir/x.md').
   #   All-zero sha = deletion; skip it (blob no longer exists).
   _blobs_list="$(mktemp)" || {
     echo "DEGRADED: mktemp failed — cannot create blobs list temp file" >&2; exit 3; }
   awk '
-BEGIN{RS="\0"; sha=""}
-/^:/ {
-  sha = $4; next
-}
-length($0) > 0 && sha != "" {
+BEGIN{RS="\0"; sha=""; expect_path=0}
+# Rule 1: path record — when expect_path=1, the NEXT non-empty record is ALWAYS a path,
+# even if it starts with ":" (e.g., a file named ":notes.md" or ":dir/x.md").
+# This is the state-machine fix (A): rely on position not first character.
+expect_path && length($0) > 0 {
+  expect_path = 0
+  if (sha == "") next   # gitlink (mode 160000) — sha cleared in Rule 2; skip path too
   path = $0; sha_cur = sha; sha = ""
   if (sha_cur ~ /^0+$/) next
   inc = 0
@@ -129,6 +144,16 @@ length($0) > 0 && sha != "" {
   # per entry — prevents the sort/dedup pipeline from splitting the path across two lines.
   gsub(/\n/, "\\n", path)
   print sha_cur " " path
+  next
+}
+# Rule 2: diff header record — only reached when expect_path=0 (not waiting for a path).
+# Format: ":old-mode new-mode old-sha new-sha status" — field 2=new-mode, field 4=new-side sha.
+# Gitlink entries (new-mode 160000) are submodule commit SHAs, NOT blob SHAs — skip them (A).
+/^:/ {
+  if ($2 == "160000") { sha = ""; expect_path = 1; next }   # gitlink: clear sha, skip path
+  sha = $4
+  expect_path = 1
+  next
 }
 ' "$_rev_obj_tmp" | sort -k1,1 | awk '!seen[$1]++' > "$_blobs_list"
   # B3: check the filter pipeline's exit codes (awk/sort/dedup).
@@ -184,9 +209,21 @@ length($0) > 0 && sha != "" {
               "$_blob_tmp" 2>/dev/null \
       | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
       >> "$_hc_hits_tmp"
+    # B3: PIPESTATUS[0]=grep (0=hit, 1=no-match are fine; ≥2=error); PIPESTATUS[1]=awk (nonzero=write/awk-error).
+    _hc_pstat=("${PIPESTATUS[@]}")
+    if [ "${_hc_pstat[0]:-0}" -ge 2 ] || [ "${_hc_pstat[1]:-0}" -ne 0 ]; then
+      echo "DEGRADED: HC grep/awk pipeline failed (rc=${_hc_pstat[*]}) for blob ${bshort} — scan aborted" >&2
+      exit 3
+    fi
     grep -naiP -e "${KWID}\s*[=:]" "$_blob_tmp" 2>/dev/null \
       | _SS_PFX="${bpath}@${bshort}:" awk 'BEGIN{p=ENVIRON["_SS_PFX"]}{print p $0}' \
       >> "$_adv_raw"
+    # B3: PIPESTATUS check for advisory grep/awk pipeline.
+    _adv_pstat=("${PIPESTATUS[@]}")
+    if [ "${_adv_pstat[0]:-0}" -ge 2 ] || [ "${_adv_pstat[1]:-0}" -ne 0 ]; then
+      echo "DEGRADED: advisory grep/awk pipeline failed (rc=${_adv_pstat[*]}) for blob ${bshort} — scan aborted" >&2
+      exit 3
+    fi
   done < "$_blobs_list"
   rm -f "$_blob_tmp"; _blob_tmp=""
 fi
@@ -285,11 +322,11 @@ if [ "$committed" = 1 ]; then
   # Advisory hits pre-computed in the probe block ONE LOOP (_adv_raw). Dedup here: strip @bshort so
   # same path:lineno:content across multiple blob versions deduplicates to one entry; cap at 200.
   # /dev/null fallback when probe block was skipped (e.g. teeth-deg path).
-  _adv_dedup="$(mktemp)"
+  _adv_dedup="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create advisory dedup temp file" >&2; exit 3; }
   sed 's/@[0-9a-f][0-9a-f]*:/:/1' "${_adv_raw:-/dev/null}" | sort -u | head -200 > "$_adv_dedup"
   rm -f "$_adv_raw"; _adv_raw=""
 else
-  _adv_dedup="$(mktemp)"
+  _adv_dedup="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create advisory dedup temp file" >&2; exit 3; }
   grep -rniIP "${INCL[@]}" "${EXCL[@]}" -e "${KWID}\s*[=:]" "$corpus" 2>/dev/null | head -200 > "$_adv_dedup"
 fi
 while IFS= read -r line; do
@@ -324,10 +361,11 @@ rm -f "$_adv_dedup"
 # M1: --no-replace-objects ensures refs/replace cannot hide commit messages from the scan.
 if [ "$committed" = 1 ]; then
   echo "-- commit messages (full history) --"
-  _cmsg_tmp="$(mktemp)"
+  _cmsg_tmp="$(mktemp)" || { echo "DEGRADED: mktemp failed — cannot create commit message temp file" >&2; exit 3; }
   git --no-replace-objects -C "$target" log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
   _cml_rc=$?
-  if [ "$_cml_rc" -ge 2 ]; then
+  # B3: any non-zero from git log is a failure — rc=1 is not grep-semantics "no match", it is an error.
+  if [ "$_cml_rc" -ne 0 ]; then
     echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2
     rm -f "$_cmsg_tmp"; exit 3
   fi
@@ -361,23 +399,27 @@ else
   # `\x00` here is the literal 4-char PCRE escape (a bash $'\x00' arg would collapse to an empty pattern that
   # matches every file). `-a` is REQUIRED: without it GNU grep refuses to match inside a file it deems binary,
   # so the NUL never gets found and the count is a false 0. `-a` forces the text match so the NUL is detected.
-  _nul_tmp="$(mktemp)"
-  grep -ralP "${INCL[@]}" "${EXCL[@]}" '\x00' "$corpus" 2>/dev/null > "$_nul_tmp"
-  _nul_rc=$?
-  if [ "$_nul_rc" -ge 2 ]; then
-    echo "   WARN: NUL-byte scan FAILED (grep exit $_nul_rc) — binary-skip detection incomplete; inspect corpus manually."
+  if ! _nul_tmp="$(mktemp)"; then
+    echo "   WARN: NUL-byte scan SKIPPED — mktemp failed; binary-skip detection incomplete."
     nulls=0
   else
-    # No '|| true': grep -c exits 1 on empty file (benign, count=0); exit ≥2 (ENOMEM/SIGPIPE)
-    # must surface as WARN, not collapse to a silent confident 0 — §7.
-    nulls=$(grep -c . < "$_nul_tmp")
-    _vsec_nulls_rc=$?
-    if [ "$_vsec_nulls_rc" -ge 2 ]; then
-      printf '   WARN: NUL-byte count FAILED (grep exit %d) — count unavailable\n' "$_vsec_nulls_rc"
+    grep -ralP "${INCL[@]}" "${EXCL[@]}" '\x00' "$corpus" 2>/dev/null > "$_nul_tmp"
+    _nul_rc=$?
+    if [ "$_nul_rc" -ge 2 ]; then
+      echo "   WARN: NUL-byte scan FAILED (grep exit $_nul_rc) — binary-skip detection incomplete; inspect corpus manually."
       nulls=0
+    else
+      # No '|| true': grep -c exits 1 on empty file (benign, count=0); exit ≥2 (ENOMEM/SIGPIPE)
+      # must surface as WARN, not collapse to a silent confident 0 — §7.
+      nulls=$(grep -c . < "$_nul_tmp")
+      _vsec_nulls_rc=$?
+      if [ "$_vsec_nulls_rc" -ge 2 ]; then
+        printf '   WARN: NUL-byte count FAILED (grep exit %d) — count unavailable\n' "$_vsec_nulls_rc"
+        nulls=0
+      fi
     fi
+    rm -f "$_nul_tmp"; _nul_tmp=""
   fi
-  rm -f "$_nul_tmp"
 fi
 [ "${nulls:-0}" -gt 0 ] && echo "-- ⚠ $nulls in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually."
 
