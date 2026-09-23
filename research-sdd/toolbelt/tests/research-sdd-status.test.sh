@@ -2432,13 +2432,14 @@ else
   no "T-5COL-SYNC: --sync-state derived known_gaps=${_5cs_kg:-0}, want ≥2 (5-col rows not counted)"
 fi
 
-# T-TWO-TABLE-SYNC: --sync-state must derive known_gaps that reflects BOTH tables — NG* rows in
-# a non-Gap-backlog section AND N* rows in the canonical ## Gap-backlog section.
-# Before the fix: NG* rows silently skipped (in_backlog=0 + n=5); N* rows WARNed and dropped
-# (in_backlog=1 + n=5 ≠ 4) → total=0 → known_gaps falls back to coverage metric (0 here).
+# T-TWO-TABLE-SYNC: --sync-state must derive known_gaps that reflects BOTH tables in a file
+# that carries multiple ## Gap-backlog (...) sections (multi-table backlog; issue #911/#933).
+# NG* rows live in ## Gap-backlog (sub-pass) and N* rows in ## Gap-backlog (prioritized); both
+# must be counted. Before the fix: reader re-entered in_backlog=1 only for the first matching
+# heading; the second table was silently skipped → total=1, not 2.
 d_tt="$TMP/two-table"; mkdir -p "$d_tt"
 { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
-  echo "## Sub-pass (non-Gap-backlog heading)"; echo
+  echo "## Gap-backlog (sub-pass)"; echo
   echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
   echo "| high | NG1 | first-table covered gap | bin.dll | covered -> B1 |"; echo
   echo "## Gap-backlog (prioritized)"; echo
@@ -2467,6 +2468,42 @@ if echo "$_oob_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
   ok "T-OOB-WARN: OOB-WARN emitted for backlog-format row outside ## Gap-backlog section"
 else
   no "T-OOB-WARN: no WARN mentioning Gap-backlog for row outside ## Gap-backlog section"
+fi
+
+# T-LIST-ITEM: a markdown prose list item with embedded | in a Gap-backlog section must NOT be
+# treated as a backlog table row — no INVALID_PRIORITY output and no unknown-priority WARN.
+# Real-world case: harbor-greenmax-lighting.md line "- **B843-G1/G2/G3 — CLOSED by B855**: ...READONLY|TRANSIENT..."
+# Before fix: p~/^-/ matched as a separator → "backlog table has 2 columns (separator: ...)" WARN.
+# After fix: p~/^-+$/ is all-dashes check; list items caught by BP-LIST-ITEM-GUARD.
+d_li="$TMP/list-item"; mkdir -p "$d_li"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | G1 | real gap | art.dll | pending |"; echo
+  echo "- **B843-G1/G2/G3 — CLOSED by B855**: slot facets (Flags.OPERATOR/READONLY|TRANSIENT, extra|pipe)"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d_li/RESEARCH-STATE.md"
+_li_warn="$(bash "$SUT" "$d_li" --sync-state 2>&1 >/dev/null)"
+if ! echo "$_li_warn" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+  ok "T-LIST-ITEM: prose list item with | in Gap-backlog silently ignored (no WARN, no INVALID_PRIORITY)"
+else
+  no "T-LIST-ITEM: list item with | produced unexpected output: $(echo "$_li_warn" | head -1)"
+fi
+
+# T-SEP-OUTSIDE: a separator row (even 6-col) outside a Gap-backlog section must NOT produce
+# BP-WIDTH-WARN. The ## Iteration history table is always 6-col and must be silent.
+# Before fix: separator detection used p~/^-/ which matched list items too, and would produce
+# WARN for any separator outside backlog. After fix: BP-SEP-IN-BACKLOG guard silences it.
+d_seo="$TMP/sep-outside"; mkdir -p "$d_seo"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Iteration history"; echo
+  echo "| # | Date | Scope | New gaps | Status | Notes |"; echo "|---|---|---|---|---|---|"
+  echo "| 1 | 2026-01-01 | full | 3 | active | n/a |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_seo/RESEARCH-STATE.md"
+_seo_warn="$(bash "$SUT" "$d_seo" --sync-state 2>&1 >/dev/null)"
+if ! echo "$_seo_warn" | grep -qi 'only 4- or 5-column\|backlog table has'; then
+  ok "T-SEP-OUTSIDE: 6-col separator outside Gap-backlog silently ignored (no BP-WIDTH-WARN)"
+else
+  no "T-SEP-OUTSIDE: BP-WIDTH-WARN fired for 6-col separator outside Gap-backlog — false positive: $(echo "$_seo_warn" | head -1)"
 fi
 
 # T-U2011-HEADING: a Gap-backlog heading with U+2011 non-breaking hyphen must be matched without
@@ -4418,6 +4455,100 @@ BLTGHEOF
     fi
   else
     no "teeth-U2011-NORM: U+2011-NORM sentinel not found in SUT"
+  fi
+
+  # teeth-BP-LIST-ITEM-GUARD: delete the BP-LIST-ITEM-GUARD line from a mutant SUT;
+  # a prose list item with | chars in a Gap-backlog section must then produce unknown-priority
+  # WARN or INVALID_PRIORITY output → T-LIST-ITEM goes RED.
+  echo "-- teeth-BP-LIST-ITEM-GUARD: delete guard → list item fires INVALID_PRIORITY in Gap-backlog --"
+  _bplig_mutant="$TMP/status.BPLIG.MUTANT.sh"
+  if grep -q '# BP-LIST-ITEM-GUARD' "$SUT"; then
+    cp "$SUT" "$_bplig_mutant"
+    sed -i '/# BP-LIST-ITEM-GUARD/d' "$_bplig_mutant"
+    if cmp -s "$_bplig_mutant" "$SUT"; then
+      no "teeth-BP-LIST-ITEM-GUARD: mutant identical to SUT — sed did not delete the guard line"
+    elif ! bash -n "$_bplig_mutant" 2>/dev/null; then
+      no "teeth-BP-LIST-ITEM-GUARD: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q '# BP-LIST-ITEM-GUARD' "$_bplig_mutant"; then
+      no "teeth-BP-LIST-ITEM-GUARD: sabotage check failed — BP-LIST-ITEM-GUARD sentinel still in mutant"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _bplig_warn="$(bash "$_bplig_mutant" "$d_li" --sync-state 2>&1 >/dev/null)"
+      if echo "$_bplig_warn" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+        ok "teeth-BP-LIST-ITEM-GUARD: mutant (no guard) → list item fires WARN/INVALID_PRIORITY → T-LIST-ITEM goes RED → BP-LIST-ITEM-GUARD is load-bearing"
+      else
+        no "teeth-BP-LIST-ITEM-GUARD: mutant did not produce WARN — list item silently ignored without guard (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-BP-LIST-ITEM-GUARD: BP-LIST-ITEM-GUARD sentinel not found in SUT"
+  fi
+
+  # teeth-BP-SEP-IN-BACKLOG: swap in_data=1 and if(!in_backlog)next so in_data is never set
+  # for separators outside Gap-backlog sections → OOB-WARN cannot fire (in_data stays 0 for
+  # non-backlog rows) → T-OOB-WARN goes RED.
+  echo "-- teeth-BP-SEP-IN-BACKLOG: swap in_data/in_backlog order → OOB-WARN never fires → T-OOB-WARN RED --"
+  _bpsib_mutant="$TMP/status.BPSIB.MUTANT.sh"
+  if grep -q 'BP-SEP-IN-BACKLOG' "$SUT"; then
+    cp "$SUT" "$_bpsib_mutant"
+    sed -i 's/in_data=1; if (!in_backlog) next; expected_cols/if (!in_backlog) next; in_data=1; expected_cols/' "$_bpsib_mutant"
+    if cmp -s "$_bpsib_mutant" "$SUT"; then
+      no "teeth-BP-SEP-IN-BACKLOG: mutant identical to SUT — sed did not swap order"
+    elif ! bash -n "$_bpsib_mutant" 2>/dev/null; then
+      no "teeth-BP-SEP-IN-BACKLOG: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _bpsib_warn="$(bash "$_bpsib_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
+      if ! echo "$_bpsib_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+        ok "teeth-BP-SEP-IN-BACKLOG: mutant (wrong order) → OOB-WARN silenced → T-OOB-WARN goes RED → BP-SEP-IN-BACKLOG is load-bearing"
+      else
+        no "teeth-BP-SEP-IN-BACKLOG: mutant still emitted OOB-WARN — ordering not load-bearing (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-BP-SEP-IN-BACKLOG: BP-SEP-IN-BACKLOG sentinel not found in SUT"
+  fi
+
+  # teeth-T-TWO-TABLE-SYNC: remove the optional-label group from the Gap-backlog AWK regex so
+  # only bare "## Gap-backlog" (no label) sets in_backlog=1; labeled headings fire NM-WARN instead.
+  # With this mutant: "## Gap-backlog (sub-pass)" no longer sets in_backlog → NG1 row not counted
+  # → known_gaps=1 < 2 → T-TWO-TABLE-SYNC goes RED.
+  echo "-- teeth-T-TWO-TABLE-SYNC: strip label group from Gap-backlog regex → second table not counted --"
+  _tt_mutant="$TMP/status.TT.MUTANT.sh"
+  if python3 -c "
+import sys
+txt = open(sys.argv[1]).read()
+if r'Gap-backlog( \([^)]+\))?' not in txt:
+  sys.exit(2)
+out = txt.replace(r'Gap-backlog( \([^)]+\))?', 'Gap-backlog')
+open(sys.argv[2], 'w').write(out)
+" "$SUT" "$_tt_mutant" 2>/dev/null; then
+    if cmp -s "$_tt_mutant" "$SUT"; then
+      no "teeth-T-TWO-TABLE-SYNC: mutant identical to SUT — replacement did not apply"
+    elif ! bash -n "$_tt_mutant" 2>/dev/null; then
+      no "teeth-T-TWO-TABLE-SYNC: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    else
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      # Fresh fixture dir to avoid declared-kg contamination from the T-TWO-TABLE-SYNC test run above.
+      d_tt_m="$TMP/two-table-mutant"; mkdir -p "$d_tt_m"
+      { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+        echo "## Gap-backlog (sub-pass)"; echo
+        echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+        echo "| high | NG1 | first-table covered gap | bin.dll | covered -> B1 |"; echo
+        echo "## Gap-backlog (prioritized)"; echo
+        echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+        echo "| low | N1 | second-table covered gap | bin2.dll | covered -> B2 |"; echo
+        echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_tt_m/RESEARCH-STATE.md"
+      bash "$_tt_mutant" "$d_tt_m" --sync-state >/dev/null 2>&1
+      _tt_mut_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_tt_m/RESEARCH-STATE.md")"
+      if [ "${_tt_mut_kg:-0}" -lt 2 ]; then
+        ok "teeth-T-TWO-TABLE-SYNC: mutant (no label group) → labeled section not backlog → known_gaps=${_tt_mut_kg} < 2 → T-TWO-TABLE-SYNC goes RED → labeled-Gap-backlog support is load-bearing"
+      else
+        no "teeth-T-TWO-TABLE-SYNC: mutant still derived known_gaps=${_tt_mut_kg} ≥ 2 — labeled-heading support not exercised (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-T-TWO-TABLE-SYNC: python3 replacement failed or anchor string not found in SUT"
   fi
 
 

@@ -2427,6 +2427,60 @@ else
   no "VS-WIDTH-6: no BP-WIDTH-WARN for 6-col separator — unsupported width accepted silently in verify-state mirror"
 fi
 
+# VS-LIST-ITEM: a markdown prose list item with embedded | in a Gap-backlog section must NOT be
+# treated as a backlog row in _backlog_rows() (verify-state.sh mirror of backlog_rows).
+d_vsli="$TMP/vs-list-item"; mkdir -p "$d_vsli"
+{ echo '# T'; echo
+  env9 0 0 1 1 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Pr. | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n'
+  echo '| high | G1 | real gap | art.dll | pending |'; echo
+  echo '- **B843-G1/G2/G3 — CLOSED by B855**: slot facets (Flags.OPERATOR/READONLY|TRANSIENT, extra|pipe)'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 1'; } > "$d_vsli/RESEARCH-STATE.md"
+_vsli_out="$(bash "$SUT" "$d_vsli" 2>&1)"
+if ! echo "$_vsli_out" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+  ok "VS-LIST-ITEM: prose list item with | in Gap-backlog silently ignored in verify-state mirror"
+else
+  no "VS-LIST-ITEM: list item with | produced unexpected output in verify-state: $(echo "$_vsli_out" | grep -i 'unknown\|invalid\|columns' | head -1)"
+fi
+
+# VS-SEP-OUTSIDE: a 6-col separator outside a Gap-backlog section must NOT produce BP-WIDTH-WARN
+# in _backlog_rows() (verify-state.sh mirror).
+d_vsso="$TMP/vs-sep-outside"; mkdir -p "$d_vsso"
+{ echo '# T'; echo
+  env9 0 0 0 0 0 0 0; echo
+  echo '## Iteration history'; echo
+  echo '| # | Date | Scope | New gaps | Status | Notes |'; printf '|---|---|---|---|---|---|\n'
+  echo '| 1 | 2026-01-01 | full | 3 | active | n/a |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsso/RESEARCH-STATE.md"
+_vsso_out="$(bash "$SUT" "$d_vsso" 2>&1)"
+if ! echo "$_vsso_out" | grep -qi 'only 4- or 5-column\|backlog table has'; then
+  ok "VS-SEP-OUTSIDE: 6-col separator outside Gap-backlog silently ignored in verify-state mirror"
+else
+  no "VS-SEP-OUTSIDE: BP-WIDTH-WARN fired for 6-col separator outside Gap-backlog in verify-state mirror"
+fi
+
+# VS-DENOM-PORT: port numbers in prose (e.g. 3011/5011 framing note) must NOT trigger the
+# contradictory-denominators WARN. The denominator grep now requires spaces on both sides of /.
+d_vsdp="$TMP/vs-denom-port"; mkdir -p "$d_vsdp"
+{ echo '# T'; echo
+  env9 0 7 7 0 0 0 0; echo
+  echo '## Coverage'
+  echo 'Coverage metric: 7 / 7 at 2026-01-01 (3011/5011 framing applies — port numbers not fractions)'; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Pr. | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n'
+  echo '| high | G1 | gap covered | art.dll | covered -> B1 |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsdp/RESEARCH-STATE.md"
+_vsdp_out="$(bash "$SUT" "$d_vsdp" 2>&1)"
+if ! echo "$_vsdp_out" | grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011'; then
+  ok "VS-DENOM-PORT: port numbers 3011/5011 in Coverage prose do not trigger contradictory-denominators WARN"
+else
+  no "VS-DENOM-PORT: port numbers 3011/5011 incorrectly parsed as coverage fraction → false WARN: $(echo "$_vsdp_out" | grep -i denominat | head -1)"
+fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -3549,6 +3603,79 @@ PYEOF
     fi
   else
     no "teeth-VS-U2011: U+2011-NORM sentinel not found in verify-state.sh"
+  fi
+
+  # ---- teeth-VS-BP-LIST-ITEM-GUARD: delete the BP-LIST-ITEM-GUARD line from verify-state.sh;
+  # the prose list item with | in d_vsli must then produce unknown-priority WARN → VS-LIST-ITEM goes RED.
+  echo "-- teeth-VS-BP-LIST-ITEM-GUARD: delete guard → list item fires INVALID_PRIORITY → VS-LIST-ITEM RED --"
+  if grep -q '# BP-LIST-ITEM-GUARD' "$HERE/../verify-state.sh"; then
+    mutantLIG="$TMP/verify-state.LIG.MUTANT.sh"
+    cp "$HERE/../verify-state.sh" "$mutantLIG"
+    sed -i '/# BP-LIST-ITEM-GUARD/d' "$mutantLIG"
+    if cmp -s "$mutantLIG" "$HERE/../verify-state.sh"; then
+      no "teeth-VS-BP-LIST-ITEM-GUARD: mutant identical to SUT — sed did not delete the guard line"
+    elif ! bash -n "$mutantLIG" 2>/dev/null; then
+      no "teeth-VS-BP-LIST-ITEM-GUARD: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q '# BP-LIST-ITEM-GUARD' "$mutantLIG"; then
+      no "teeth-VS-BP-LIST-ITEM-GUARD: sabotage check failed — BP-LIST-ITEM-GUARD sentinel still in mutant"
+    else
+      _vslig_out="$(bash "$mutantLIG" "$d_vsli" 2>&1)"
+      if echo "$_vslig_out" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+        ok "teeth-VS-BP-LIST-ITEM-GUARD: mutant (no guard) → list item fires WARN → VS-LIST-ITEM goes RED → BP-LIST-ITEM-GUARD is load-bearing"
+      else
+        no "teeth-VS-BP-LIST-ITEM-GUARD: mutant did not produce WARN for list item — guard not load-bearing (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-VS-BP-LIST-ITEM-GUARD: BP-LIST-ITEM-GUARD sentinel not found in verify-state.sh"
+  fi
+
+  # ---- teeth-VS-BP-SEP-IN-BACKLOG: remove the "if (!in_backlog) next" guard from the separator
+  # branch in verify-state.sh; all separators (including 6-col outside Gap-backlog) then go through
+  # the expected_cols check → 6-col → expected_cols=-1 → BP-WIDTH-WARN fires → VS-SEP-OUTSIDE RED.
+  echo "-- teeth-VS-BP-SEP-IN-BACKLOG: remove in_backlog guard → iteration-history separator fires BP-WIDTH-WARN → VS-SEP-OUTSIDE RED --"
+  if grep -q 'BP-SEP-IN-BACKLOG' "$HERE/../verify-state.sh"; then
+    mutantSIB="$TMP/verify-state.SIB.MUTANT.sh"
+    cp "$HERE/../verify-state.sh" "$mutantSIB"
+    sed -i 's/in_data=1; if (!in_backlog) next; expected_cols/in_data=1; expected_cols/' "$mutantSIB"
+    if cmp -s "$mutantSIB" "$HERE/../verify-state.sh"; then
+      no "teeth-VS-BP-SEP-IN-BACKLOG: mutant identical to SUT — sed did not remove the guard"
+    elif ! bash -n "$mutantSIB" 2>/dev/null; then
+      no "teeth-VS-BP-SEP-IN-BACKLOG: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    else
+      _vssib_out="$(bash "$mutantSIB" "$d_vsso" 2>&1)"
+      if echo "$_vssib_out" | grep -qi 'only 4- or 5-column\|backlog table has'; then
+        ok "teeth-VS-BP-SEP-IN-BACKLOG: mutant (no guard) → iteration-history 6-col separator fires BP-WIDTH-WARN → VS-SEP-OUTSIDE goes RED → BP-SEP-IN-BACKLOG is load-bearing"
+      else
+        no "teeth-VS-BP-SEP-IN-BACKLOG: mutant did not fire BP-WIDTH-WARN for iteration-history separator — guard not load-bearing (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-VS-BP-SEP-IN-BACKLOG: BP-SEP-IN-BACKLOG sentinel not found in verify-state.sh"
+  fi
+
+  # ---- teeth-VS-DENOM-PORT: change the denominator grep to the old form (no spaces required)
+  # so 3011/5011 is parsed as a coverage fraction → contradictory-denominators WARN fires →
+  # VS-DENOM-PORT goes RED.
+  echo "-- teeth-VS-DENOM-PORT: revert denom grep to no-spaces → 3011/5011 parsed as fraction → VS-DENOM-PORT RED --"
+  if grep -q "\[0-9\]+\[*.\[:space:\].*\]+/" "$HERE/../verify-state.sh" || grep -qF '[0-9]+[[:space:]]+/[[:space:]]+[0-9]+' "$HERE/../verify-state.sh"; then
+    mutantDP="$TMP/verify-state.DP.MUTANT.sh"
+    cp "$HERE/../verify-state.sh" "$mutantDP"
+    sed -i "s/\[0-9\]+\[\[:space:\]\]+\/\[\[:space:\]\]+\[0-9\]+/[0-9]+[[:space:]]\\*\\/[[:space:]]\\*[0-9]+/" "$mutantDP"
+    if cmp -s "$mutantDP" "$HERE/../verify-state.sh"; then
+      no "teeth-VS-DENOM-PORT: mutant identical to SUT — sed did not change the grep pattern"
+    elif ! bash -n "$mutantDP" 2>/dev/null; then
+      no "teeth-VS-DENOM-PORT: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    else
+      _vsdp_mut_out="$(bash "$mutantDP" "$d_vsdp" 2>&1)"
+      if echo "$_vsdp_mut_out" | grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011'; then
+        ok "teeth-VS-DENOM-PORT: mutant (no-spaces grep) → 3011/5011 parsed as fraction → contradictory-denominators WARN → VS-DENOM-PORT goes RED → spaces-required grep is load-bearing"
+      else
+        no "teeth-VS-DENOM-PORT: mutant did not produce contradictory-denominators WARN — port-number fix not load-bearing (THEATER)"
+      fi
+    fi
+  else
+    no "teeth-VS-DENOM-PORT: denominator grep pattern (spaces-required) not found in verify-state.sh"
   fi
 
 fi

@@ -118,7 +118,8 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       p=tolower(a[1])
-      if (p~/^-/) { in_data=1; expected_cols=(n==4||n==5)?n:-1; if (expected_cols<0) print "WARN: backlog table has " n " columns (separator: " $0 ") — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped" > "/dev/stderr"; next }  # BP-EXPECTED-COLS: accept only 4- or 5-col backlog tables; BP-WIDTH-WARN on unsupported width
+      if (p~/^-+$/) { in_data=1; if (!in_backlog) next; expected_cols=(n==4||n==5)?n:-1; if (expected_cols<0) print "WARN: backlog table has " n " columns (separator: " $0 ") — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped" > "/dev/stderr"; next }  # BP-EXPECTED-COLS: accept only 4- or 5-col backlog tables; BP-WIDTH-WARN on unsupported width; BP-SEP-IN-BACKLOG: separator outside a Gap-backlog section sets in_data but does not WARN
+      if (p~/^-/) { next }    # BP-LIST-ITEM-GUARD: prose list items (markdown dash marker with pipes in text) are not table rows; safe after all-dashes check above
       if (p=="" || p=="priority" || p=="p" || p=="pr." || p=="deferred") { next }
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
@@ -710,7 +711,7 @@ for state in "${states[@]}"; do
   ' "$state" 2>/dev/null)"
   mapfile -t denoms < <(printf '%s\n' "$noniter" \
     | grep -iE 'coverage metric|declared gaps closed|gaps? closed|coverage \(after' \
-    | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' \
+    | grep -oE '[0-9]+[[:space:]]+/[[:space:]]+[0-9]+' \
     | sed -E 's#.*/[[:space:]]*##' \
     | sort -un)
   if [ "${#denoms[@]}" -ge 2 ]; then
