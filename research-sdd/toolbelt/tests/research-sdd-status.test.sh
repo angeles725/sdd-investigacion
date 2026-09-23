@@ -2487,6 +2487,123 @@ else
   no "T-U2011-HEADING: NM-WARN still fires for U+2011 heading — U+2011-NORM pre-pass not working"
 fi
 
+# T-WIDTH-3: a 3-column Gap-backlog table must emit BP-WIDTH-WARN and rows must NOT be counted.
+d_w3="$TMP/width-3"; mkdir -p "$d_w3"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | Status |"; echo "|---|---|---|"
+  echo "| high | three-col row | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w3/RESEARCH-STATE.md"
+_w3_warn="$(bash "$SUT" "$d_w3" --sync-state 2>&1 >/dev/null)"
+_w3_kg="$(bash "$SUT" "$d_w3" --sync-state >/dev/null 2>&1; awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_w3/RESEARCH-STATE.md")"
+if echo "$_w3_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*3 columns'; then
+  ok "T-WIDTH-3: 3-col separator → BP-WIDTH-WARN emitted (only 4- or 5-column tables accepted)"
+else
+  no "T-WIDTH-3: no BP-WIDTH-WARN for 3-col separator — unsupported width accepted silently"
+fi
+
+# T-WIDTH-6: a 6-column Gap-backlog table must emit BP-WIDTH-WARN and rows must NOT be counted.
+d_w6="$TMP/width-6"; mkdir -p "$d_w6"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | ID | Gap | Artifact | Extra | Status |"; echo "|---|---|---|---|---|---|"
+  echo "| high | G1 | six-col row | art.dll | extra | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w6/RESEARCH-STATE.md"
+_w6_warn="$(bash "$SUT" "$d_w6" --sync-state 2>&1 >/dev/null)"
+if echo "$_w6_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*6 columns'; then
+  ok "T-WIDTH-6: 6-col separator → BP-WIDTH-WARN emitted (only 4- or 5-column tables accepted)"
+else
+  no "T-WIDTH-6: no BP-WIDTH-WARN for 6-col separator — unsupported width accepted silently"
+fi
+
+# T-WIDTH-4: a 4-column Gap-backlog table must NOT emit BP-WIDTH-WARN (happy path).
+d_w4="$TMP/width-4"; mkdir -p "$d_w4"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | four-col row | web | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w4/RESEARCH-STATE.md"
+_w4_warn="$(bash "$SUT" "$d_w4" --sync-state 2>&1 >/dev/null)"
+if ! echo "$_w4_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*columns'; then
+  ok "T-WIDTH-4: 4-col separator → no BP-WIDTH-WARN (happy path, 4-col accepted)"
+else
+  no "T-WIDTH-4: BP-WIDTH-WARN fired for 4-col table — false positive"
+fi
+
+# T-WIDTH-5: a 5-column Gap-backlog table must NOT emit BP-WIDTH-WARN (happy path).
+d_w5="$TMP/width-5"; mkdir -p "$d_w5"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | G1 | five-col row | art.dll | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w5/RESEARCH-STATE.md"
+_w5_warn="$(bash "$SUT" "$d_w5" --sync-state 2>&1 >/dev/null)"
+if ! echo "$_w5_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*columns'; then
+  ok "T-WIDTH-5: 5-col separator → no BP-WIDTH-WARN (happy path, 5-col accepted)"
+else
+  no "T-WIDTH-5: BP-WIDTH-WARN fired for 5-col table — false positive"
+fi
+
+# T-WIDTH-FIRST: first data row (immediately after separator) in 4-col table must be counted.
+d_wf="$TMP/width-first"; mkdir -p "$d_wf"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | first-row gap | web | pending |"
+  echo "| low  | second-row gap | web | covered |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_wf/RESEARCH-STATE.md"
+bash "$SUT" "$d_wf" --sync-state >/dev/null 2>&1
+_wf_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_wf/RESEARCH-STATE.md")"
+if [ "${_wf_kg:-0}" -ge 1 ]; then
+  ok "T-WIDTH-FIRST: first data row after separator counted → known_gaps=${_wf_kg} ≥ 1"
+else
+  no "T-WIDTH-FIRST: first data row not counted (known_gaps=${_wf_kg:-0}) — separator detection may be broken"
+fi
+
+# T-WIDTH-LAST: last data row (immediately before next ## heading) in 4-col table must be counted.
+d_wl="$TMP/width-last"; mkdir -p "$d_wl"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| high | first-row gap | web | covered |"
+  echo "| low  | last-row gap | web | pending |"
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_wl/RESEARCH-STATE.md"
+bash "$SUT" "$d_wl" --sync-state >/dev/null 2>&1
+_wl_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_wl/RESEARCH-STATE.md")"
+if [ "${_wl_kg:-0}" -ge 1 ]; then
+  ok "T-WIDTH-LAST: last data row before ## heading counted → known_gaps=${_wl_kg} ≥ 1"
+else
+  no "T-WIDTH-LAST: last data row not counted (known_gaps=${_wl_kg:-0}) — closing ## heading may have consumed last row"
+fi
+
+# T-BACKLOG-ROWS-MIRROR: awk body in backlog_rows() (status.sh) and _backlog_rows() (verify-state.sh)
+# must be logically identical — they are kept as copies (not a lib) to preserve sentinel-based teeth.
+# File-specific sentinel prefixes (SS- and VS-) are normalised to BP- before comparison so the test
+# catches logic drift while allowing the file-scoped sentinel names the teeth require.
+# Extract the awk interior (from U+2011-NORM line through final print line) from both files and diff.
+# Normalize the extracted awk body for comparison:
+# 1. Unify file-specific sentinel prefixes (SS- → BP-, VS- → BP-)
+# 2. Strip the awk-close shell suffix that appears on the final line in verify-state.sh
+#    (status.sh: closing ' "$state" is on its own separate line and is excluded by extraction;
+#     verify-state.sh: }' "$1")" is appended to the last awk rule line inside the $() block)
+# 3. Strip trailing "  # BP-N4-WARN" comment (verify-state.sh only; not in status.sh)
+_normalize_awk_body() {
+  sed 's/# SS-/# BP-/g; s/# VS-/# BP-/g' |
+  sed "s/  # BP-N4-WARN$//" |
+  sed "s/}' \"\$1\")\"$/}/"
+}
+_mirror_status="$(awk '/# U[+]2011-NORM: normalize/{p=1} p{print} /print p.*a\[2\].*st \}/{p=0}' "$SUT" | _normalize_awk_body)"
+_mirror_vs="$(awk '/# U[+]2011-NORM: normalize/{p=1} p{print} /print p.*a\[2\].*st \}/{p=0}' "$HERE/../verify-state.sh" | _normalize_awk_body)"
+if [ -z "$_mirror_status" ]; then
+  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from $SUT (U+2011-NORM marker missing)"
+elif [ -z "$_mirror_vs" ]; then
+  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from verify-state.sh (U+2011-NORM marker missing)"
+elif [ "$_mirror_status" = "$_mirror_vs" ]; then
+  ok "T-BACKLOG-ROWS-MIRROR: awk logic identical in backlog_rows (status.sh) and _backlog_rows (verify-state.sh) after sentinel-prefix normalisation"
+else
+  no "T-BACKLOG-ROWS-MIRROR: awk body differs (logic drift, not just sentinel prefix); diff: $(diff <(echo "$_mirror_status") <(echo "$_mirror_vs") | head -10)"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -4215,10 +4332,10 @@ BLTGHEOF
     fi
 
   # ── #911 A2 teeth ────────────────────────────────────────────────────────────────────────────────
-  # teeth-BP-EXPECTED-COLS: revert expected_cols=n to expected_cols=0; T-5COL-SYNC must go RED
-  # (5-col rows not counted → known_gaps falls back to env 0 → T-5COL-SYNC fails ≥2 assertion).
-  # Uses a fresh fixture (known_gaps: 0) so pick() doesn't salvage the previous envelope value.
-  echo "-- teeth-BP-EXPECTED-COLS: replace expected_cols=n with expected_cols=0 → 5-col rows not counted --"
+  # teeth-BP-EXPECTED-COLS: change (n==4||n==5)?n: to (n==4||n==5)?0: in BP-EXPECTED-COLS ternary
+  # → 5-col tables get expected_cols=0 → sc falls back to 4 → 5-col rows fail n!=sc → T-5COL-SYNC
+  # goes RED (known_gaps < 2). Uses a fresh fixture so the env doesn't salvage the count.
+  echo "-- teeth-BP-EXPECTED-COLS: change ?n: to ?0: in BP-EXPECTED-COLS → 5-col rows not counted --"
   _bpec_mutant="$TMP/status.BPEC.MUTANT.sh"
   _bpec_d="$TMP/bpec-tooth"; mkdir -p "$_bpec_d"
   { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
@@ -4228,14 +4345,23 @@ BLTGHEOF
     echo "| low  | G2 | five-col covered gap | bin2.dll | covered |"; echo
     echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$_bpec_d/RESEARCH-STATE.md"
   if grep -q '# BP-EXPECTED-COLS' "$SUT"; then
-    sed 's/expected_cols=n; next/expected_cols=0; next/' "$SUT" > "$_bpec_mutant"
-    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-    bash "$_bpec_mutant" "$_bpec_d" --sync-state >/dev/null 2>&1
-    _bpec_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$_bpec_d/RESEARCH-STATE.md")"
-    if [ "${_bpec_kg:-0}" -lt 2 ]; then
-      ok "teeth-BP-EXPECTED-COLS: mutant (expected_cols=0) → known_gaps=${_bpec_kg} < 2 → T-5COL-SYNC goes RED → BP-EXPECTED-COLS is load-bearing"
+    cp "$SUT" "$_bpec_mutant"
+    sed -i 's/n==4||n==5)?n:-1/n==4||n==5)?0:-1/' "$_bpec_mutant"
+    if cmp -s "$_bpec_mutant" "$SUT"; then
+      no "teeth-BP-EXPECTED-COLS: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$_bpec_mutant" 2>/dev/null; then
+      no "teeth-BP-EXPECTED-COLS: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q 'n==4||n==5)?n:-1' "$_bpec_mutant"; then
+      no "teeth-BP-EXPECTED-COLS: sabotage check failed — ?n: still present in mutant"
     else
-      no "teeth-BP-EXPECTED-COLS: mutant still derived known_gaps=${_bpec_kg} ≥ 2 — THEATER"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      bash "$_bpec_mutant" "$_bpec_d" --sync-state >/dev/null 2>&1
+      _bpec_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$_bpec_d/RESEARCH-STATE.md")"
+      if [ "${_bpec_kg:-0}" -lt 2 ]; then
+        ok "teeth-BP-EXPECTED-COLS: mutant (?0: for 5-col) → known_gaps=${_bpec_kg} < 2 → T-5COL-SYNC goes RED → BP-EXPECTED-COLS is load-bearing"
+      else
+        no "teeth-BP-EXPECTED-COLS: mutant still derived known_gaps=${_bpec_kg} ≥ 2 — THEATER"
+      fi
     fi
   else
     no "teeth-BP-EXPECTED-COLS: BP-EXPECTED-COLS sentinel not found in SUT"
@@ -4245,37 +4371,52 @@ BLTGHEOF
   echo "-- teeth-OOB-WARN: delete OOB-WARN line → no warning for out-of-section row --"
   _oobw_mutant="$TMP/status.OOBWARN.MUTANT.sh"
   if grep -q '# OOB-WARN' "$SUT"; then
-    sed '/# OOB-WARN/d' "$SUT" > "$_oobw_mutant"
-    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-    _oobw_warn="$(bash "$_oobw_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
-    if ! echo "$_oobw_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
-      ok "teeth-OOB-WARN: mutant suppresses OOB-WARN → T-OOB-WARN goes RED → OOB-WARN is load-bearing"
+    cp "$SUT" "$_oobw_mutant"
+    sed -i '/# OOB-WARN/d' "$_oobw_mutant"
+    if cmp -s "$_oobw_mutant" "$SUT"; then
+      no "teeth-OOB-WARN: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$_oobw_mutant" 2>/dev/null; then
+      no "teeth-OOB-WARN: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q '# OOB-WARN' "$_oobw_mutant"; then
+      no "teeth-OOB-WARN: sabotage check failed — OOB-WARN sentinel still in mutant"
     else
-      no "teeth-OOB-WARN: mutant still emitted Gap-backlog WARN — THEATER"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _oobw_warn="$(bash "$_oobw_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
+      if ! echo "$_oobw_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+        ok "teeth-OOB-WARN: mutant suppresses OOB-WARN → T-OOB-WARN goes RED → OOB-WARN is load-bearing"
+      else
+        no "teeth-OOB-WARN: mutant still emitted Gap-backlog WARN — THEATER"
+      fi
     fi
   else
     no "teeth-OOB-WARN: OOB-WARN sentinel not found in SUT"
   fi
 
-  # teeth-U2011-NORM: without the sed pre-pass the ASCII awk heading regex does NOT match U+2011;
-  # instead the NM-WARN fires. When the awk sees the U+2011 heading without pre-processing, the
-  # ASCII /^## Gap-backlog/ pattern fails → NM-WARN (near-miss) emits. T-U2011-HEADING checks for
-  # ABSENCE of NM-WARN, so the mutant's NM-WARN makes it go RED → pre-pass is load-bearing.
-  echo "-- teeth-U2011-NORM: awk without sed pre-pass → U+2011 heading triggers NM-WARN → T-U2011-HEADING goes RED --"
-  if grep -q 'xe2.x80.x91' "$SUT"; then
-    # Direct awk test: does U+2011 heading trigger near-miss without pre-pass?
-    _u2011_raw_warn="$(awk '
-      /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; next }
-      /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss" > "/dev/stderr" }
-      /^## / { in_backlog=0; next }
-    ' "$d_u2011/RESEARCH-STATE.md" 2>&1 >/dev/null)"
-    if echo "$_u2011_raw_warn" | grep -qi 'near-miss'; then
-      ok "teeth-U2011-NORM: awk without pre-pass emits near-miss for U+2011 heading → T-U2011-HEADING goes RED → pre-pass is load-bearing"
+  # teeth-U2011-NORM: remove U+2011-NORM gsub from awk → U+2011 heading not normalised →
+  # NM-WARN fires → T-U2011-HEADING checks for ABSENCE of NM-WARN → it goes RED.
+  # Mutant: copy SUT, delete the U+2011-NORM comment and the gsub rule (heading-scoped normalization).
+  echo "-- teeth-U2011-NORM: remove U+2011-NORM gsub → NM-WARN fires → T-U2011-HEADING goes RED --"
+  _u2011_mutant="$TMP/status.U2011.MUTANT.sh"
+  if grep -q '# U+2011-NORM.*heading lines' "$SUT"; then
+    cp "$SUT" "$_u2011_mutant"
+    sed -i '/# U+2011-NORM.*heading lines/d; /gsub.*342.*200.*221.*"-"/d' "$_u2011_mutant"
+    if cmp -s "$_u2011_mutant" "$SUT"; then
+      no "teeth-U2011-NORM: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$_u2011_mutant" 2>/dev/null; then
+      no "teeth-U2011-NORM: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q '# U+2011-NORM.*heading lines' "$_u2011_mutant"; then
+      no "teeth-U2011-NORM: sabotage check failed — U+2011-NORM still in mutant"
     else
-      no "teeth-U2011-NORM: awk without pre-pass did NOT emit near-miss — U+2011 may already match ASCII regex (THEATER)"
+      cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+      _u2011_mut_warn="$(bash "$_u2011_mutant" "$d_u2011" --sync-state 2>&1 >/dev/null)"
+      if echo "$_u2011_mut_warn" | grep -qi 'near-miss'; then
+        ok "teeth-U2011-NORM: mutant (no gsub) → NM-WARN fires → T-U2011-HEADING goes RED → U+2011-NORM is load-bearing"
+      else
+        no "teeth-U2011-NORM: mutant did NOT emit NM-WARN — U+2011 may match without gsub (THEATER or wrong mutant)"
+      fi
     fi
   else
-    no "teeth-U2011-NORM: xe2\\x80\\x91 sed substitution not found in SUT — U+2011-NORM may not be implemented"
+    no "teeth-U2011-NORM: U+2011-NORM sentinel not found in SUT"
   fi
 
 fi
