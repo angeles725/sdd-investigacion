@@ -172,7 +172,12 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        EXECUTION; §20 document mode → the `document` sub-command; §21 wall protocol → you hit a WALL; §22
        breakthrough ledger → a decisive/reusable solution cracked the target (tag the block with a
        `**Breakthrough:**` field + add it to the fleet index); §23 three-session kit-change template →
-       coordinating a kit change across separate coordinator / researcher / QA sessions.
+       coordinating a kit change across separate coordinator / researcher / QA sessions; §3b corpus layout →
+       creating or moving corpus files; §7b state-envelope instruments → a CHECK A mismatch or a
+       shared-prefix corpus; §8b backlog cell grammar → writing or editing a Gap-backlog row; §8c campaign
+       queue → a focus STOP, a FRONTIER-REOPEN audit, or campaign STOP; §11a measurement and data-pipeline
+       heuristics → a data-acquisition target; §20b block mode vs. journal mode → deciding whether applied work
+       becomes a corpus block or a journal entry.
        Read a situational section when its trigger is your next action.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
      (honor an APPROVED language override; otherwise English).
