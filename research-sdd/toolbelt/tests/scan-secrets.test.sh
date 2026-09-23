@@ -13,9 +13,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../scan-secrets.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0
+pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+skip(){ printf '  SKIP  %s\n' "$1"; skips=$((skips+1)); }
 # a minimal corpus dir with one block file
 newcorpus(){ local d="$1"; mkdir -p "$d"; printf '# Block 1 — t\n\n> legend\n\n---\n\n' > "$d/t-block1.md"; }
 runrc(){ bash "$SUT" "$1" >/dev/null 2>&1; echo $?; }
@@ -585,12 +586,25 @@ PYCMSG37
     || no "teeth-cmsg37: mutant still caught commit-message token (rc=$cm_rc37m) — test 37 is THEATER"
 
   # Teeth for test 38 (MAJOR2 -a flag): change -naE back to -nIE so binary files are skipped.
-  echo "-- teeth: change -naE to -nIE — test 38 NUL-byte file must go red (binary skipped) --"
+  # B6 rescan is also neutered — otherwise the NUL-stripped copy catches the token despite -nIE.
+  # Together these prove the main scan path (not B6) is what T38 exercises.
+  echo "-- teeth: change -naE to -nIE + neuter B6 rescan — test 38 NUL-byte file must go red --"
   mutant_noflag="$TMP/scan-secrets.MUTANT-noflag.sh"
-  sed 's/-naE/-nIE/g' "$SUT" > "$mutant_noflag"
+  python3 - "$SUT" "$mutant_noflag" << 'PYNOFLAG38'
+import sys
+content = open(sys.argv[1]).read()
+# 1. Change main/NUL-stripped HC grep flag from -naE to -nIE (skips binary files)
+content = content.replace('-naE', '-nIE')
+# 2. Neuter B6 NUL-stripped rescan so the NUL-stripped path also skips the token
+content = content.replace(
+    "    if grep -qaP '\\x00' \"$_blob_tmp\" 2>/dev/null; then",
+    "    if false; then  # MUTANT: B6 NUL-stripped rescan neutered (noflag38)"
+)
+open(sys.argv[2], 'w').write(content)
+PYNOFLAG38
   cm_rc38m="$(bash "$mutant_noflag" --committed "$d_t38" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc38m" != 1 ] && ok "teeth-noflag38: -nIE mutant skips NUL-byte .md (rc=$cm_rc38m) → test 38 has teeth" \
-    || no "teeth-noflag38: mutant still caught NUL-byte token (rc=$cm_rc38m) — test 38 is THEATER"
+  [ "$cm_rc38m" = 0 ] && ok "teeth-noflag38: -nIE+no-B6 mutant misses NUL-byte .md token (rc=0 = false clean) → test 38 has teeth" \
+    || no "teeth-noflag38: mutant rc=$cm_rc38m (want 0=false clean) — test 38 is THEATER"
 
   # Teeth for test 39 (MAJOR3 subdir refuse): remove the show-toplevel check.
   echo "-- teeth: remove subdir check — test 39 must go red (no longer refuses subdirectory) --"
@@ -1163,7 +1177,7 @@ GIT_CONFIG_GLOBAL="$_gcfg60" git -C "$d_t60" commit -S -q -m "signed commit with
 if ! git -C "$d_t60" cat-file commit HEAD | grep -q '^gpgsig'; then
   # Not a pass: emit a typed skip so the suite still surfaces the gap
   echo "  SKIP:60: SSH signing unavailable in this environment — commit has no gpgsig, showSignature path untested" >&2
-  ok "60: SKIP — SSH signing unavailable; counted pass to keep suite runnable (see SKIP:60 above)"
+  skip "60: SSH signing unavailable — showSignature path untested (see SKIP:60 above)"
 else
   t60_out="$(GIT_CONFIG_GLOBAL="$_gcfg60" bash "$SUT" --committed "$d_t60" 2>&1)"
   t60_rc=$?
@@ -1289,6 +1303,41 @@ if [ "$t65_rc" = 3 ] && printf '%s' "$t65_out" | grep -qi 'degraded'; then
 else
   no "65: GIT_GRAFT_FILE: rc=$t65_rc (want 3) :: $(printf '%s' "$t65_out" | head -2)"
 fi
+
+# 66 — B6: UTF-16LE .env blob with BOM; NUL bytes hide ASCII token from grep -a.
+# Fix: NUL-stripped rescan catches it.
+d_t66="$TMP/repo_t66"
+mkdir -p "$d_t66/corpus"
+git -C "$d_t66" init -q 2>/dev/null
+git -C "$d_t66" config user.email "test@test" && git -C "$d_t66" config user.name "test"
+printf '\xff\xfe' > "$d_t66/corpus/secret.env"
+printf 'GITHUB_TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyz\r\n' | iconv -t UTF-16LE >> "$d_t66/corpus/secret.env"
+git -C "$d_t66" add corpus/secret.env && git -C "$d_t66" commit -q -m "init" 2>/dev/null
+t66_rc=$(bash "$SUT" --committed "$d_t66" >/dev/null 2>&1; echo $?)
+[ "$t66_rc" = 1 ] && ok "66: UTF-16LE .env blob NUL-stripped rescan catches GitHub token (B6)" \
+  || no "66: UTF-16LE .env: rc=$t66_rc (want 1)"
+
+# 67 — B6: UTF-16BE .env blob (no BOM)
+d_t67="$TMP/repo_t67"
+mkdir -p "$d_t67/corpus"
+git -C "$d_t67" init -q 2>/dev/null
+git -C "$d_t67" config user.email "test@test" && git -C "$d_t67" config user.name "test"
+printf 'GITHUB_TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' | iconv -t UTF-16BE > "$d_t67/corpus/secret.env"
+git -C "$d_t67" add corpus/secret.env && git -C "$d_t67" commit -q -m "init" 2>/dev/null
+t67_rc=$(bash "$SUT" --committed "$d_t67" >/dev/null 2>&1; echo $?)
+[ "$t67_rc" = 1 ] && ok "67: UTF-16BE .env blob NUL-stripped rescan catches GitHub token (B6)" \
+  || no "67: UTF-16BE .env: rc=$t67_rc (want 1)"
+
+# 68 — B6: UTF-32LE .env blob (no BOM)
+d_t68="$TMP/repo_t68"
+mkdir -p "$d_t68/corpus"
+git -C "$d_t68" init -q 2>/dev/null
+git -C "$d_t68" config user.email "test@test" && git -C "$d_t68" config user.name "test"
+printf 'GITHUB_TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' | iconv -t UTF-32LE > "$d_t68/corpus/secret.env"
+git -C "$d_t68" add corpus/secret.env && git -C "$d_t68" commit -q -m "init" 2>/dev/null
+t68_rc=$(bash "$SUT" --committed "$d_t68" >/dev/null 2>&1; echo $?)
+[ "$t68_rc" = 1 ] && ok "68: UTF-32LE .env blob NUL-stripped rescan catches GitHub token (B6)" \
+  || no "68: UTF-32LE .env: rc=$t68_rc (want 1)"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for T53 (leading ':' path): insert an early-skip inside Rule 1 for records starting
@@ -1520,17 +1569,17 @@ else:
 open(sys.argv[2], 'w').write(content)
 PYEOF_M5
   _m62rc=$(GIT_CONFIG_GLOBAL="$_gcfg62" bash "$mutant_m5" --committed "$d_t62" >/dev/null 2>&1; echo $?)
-  [ "$_m62rc" != 1 ] \
-    && ok "teeth-m5-62: old git-log mutant misses logOutputEncoding=UTF-16 token (rc=$_m62rc≠1) → test 62 has teeth" \
-    || no "teeth-m5-62: old git-log mutant still found token (rc=1) — test 62 is THEATER"
+  [ "$_m62rc" = 0 ] \
+    && ok "teeth-m5-62: old git-log mutant misses logOutputEncoding=UTF-16 token (rc=0 = false clean) → test 62 has teeth" \
+    || no "teeth-m5-62: old git-log mutant rc=$_m62rc (want 0=false clean) — test 62 is THEATER"
   _m63rc=$(GIT_CONFIG_GLOBAL="$_gcfg63" bash "$mutant_m5" --committed "$d_t63" >/dev/null 2>&1; echo $?)
-  [ "$_m63rc" != 1 ] \
-    && ok "teeth-m5-63: old git-log mutant misses commitEncoding=UTF-16 token (rc=$_m63rc≠1) → test 63 has teeth" \
-    || no "teeth-m5-63: old git-log mutant still found token (rc=1) — test 63 is THEATER"
+  [ "$_m63rc" = 0 ] \
+    && ok "teeth-m5-63: old git-log mutant misses commitEncoding=UTF-16 token (rc=0 = false clean) → test 63 has teeth" \
+    || no "teeth-m5-63: old git-log mutant rc=$_m63rc (want 0=false clean) — test 63 is THEATER"
   _m64rc=$(bash "$mutant_m5" --committed "$d_t64" >/dev/null 2>&1; echo $?)
-  [ "$_m64rc" != 1 ] \
-    && ok "teeth-m5-64: old git-log mutant misses secret in author name (rc=$_m64rc≠1) → test 64 has teeth" \
-    || no "teeth-m5-64: old git-log mutant still found author-name token (rc=1) — test 64 is THEATER"
+  [ "$_m64rc" = 0 ] \
+    && ok "teeth-m5-64: old git-log mutant misses secret in author name (rc=0 = false clean) → test 64 has teeth" \
+    || no "teeth-m5-64: old git-log mutant rc=$_m64rc (want 0=false clean) — test 64 is THEATER"
 
   # Teeth for T65 (GIT_GRAFT_FILE): remove the GIT_GRAFT_FILE env check.
   # Without the check, the scan proceeds despite the env override → no DEGRADED.
@@ -1555,7 +1604,28 @@ PYEOF65
   else
     no "teeth-r4-65: mutant still DEGRADED (rc=$_m65rc) — test 65 is THEATER"
   fi
+
+  # Teeth for T66-T68 (B6 NUL-stripped rescan): neuter the NUL check so UTF-16/UTF-32 blobs
+  # bypass the rescan → token missed → rc=0 (false clean, the real danger).
+  echo "-- teeth-b6: remove NUL-stripped rescan — test 66 UTF-16LE must go red (rc=0) --"
+  mutant_b6="$TMP/scan-secrets.MUTANT-b6.sh"
+  python3 - "$SUT" "$mutant_b6" << 'PYEOF_B6'
+import sys
+content = open(sys.argv[1]).read()
+# Neuter the B6 NUL-stripped rescan: replace the NUL-check guard with 'if false'
+content = content.replace(
+    "    if grep -qaP '\\x00' \"$_blob_tmp\" 2>/dev/null; then",
+    "    if false; then  # MUTANT: B6 NUL-stripped rescan neutered"
+)
+if '# MUTANT: B6' not in content:
+    import sys as _sys; print("WARN: B6 NUL check not found in SUT", file=_sys.stderr)
+open(sys.argv[2], 'w').write(content)
+PYEOF_B6
+  _m66rc=$(bash "$mutant_b6" --committed "$d_t66" >/dev/null 2>&1; echo $?)
+  [ "$_m66rc" = 0 ] \
+    && ok "teeth-b6: NUL-stripped-rescan-removed mutant misses UTF-16LE token (rc=0) → test 66 has teeth" \
+    || no "teeth-b6: mutant caught UTF-16LE token (rc=$_m66rc, want 0) — test 66 is THEATER"
 fi
 
-echo "== $pass passed · $fail failed =="
+[ "$skips" -gt 0 ] && echo "== $pass passed · $fail failed · $skips skipped ==" || echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
