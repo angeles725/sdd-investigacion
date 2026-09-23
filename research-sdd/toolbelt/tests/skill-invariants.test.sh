@@ -156,13 +156,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# A13: SKILL.md must launch /loop WITH a 10m interval: '/loop 10m /research-sdd'.
-#      Without an interval there is no external re-invoker (#961).
+# A13: SKILL.md must recommend dynamic (no interval) as the default unattended
+#      launch, with fixed-interval as fallback (cadence decision, #961).
+#      Anchor: 'Dynamic is recommended for unattended runs' in Execution mode.
 # ---------------------------------------------------------------------------
-if grep -qF '/loop 10m /research-sdd' "$SKILL"; then
-  ok "A13: /loop launch includes 10m interval in SKILL.md (#961)"
+if grep -qF 'Dynamic is recommended for unattended runs' "$SKILL"; then
+  ok "A13: SKILL.md recommends dynamic (no interval) as default launch mode (#961)"
 else
-  no "A13: /loop launch is missing 10m interval in SKILL.md (#961)"
+  no "A13: SKILL.md missing dynamic-recommended statement in Execution mode (#961)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -186,14 +187,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# B1: PROMPT-LOOP.md launch example must include the 10m interval.
-#     Stable anchor: '/loop 10m  <paste' matches only the launch-example line
-#     (two spaces between '10m' and '<paste' follow the existing formatting, #961).
+# B1: PROMPT-LOOP.md launch section must show dynamic (no interval) as the
+#     recommended form. Anchor: '/loop  <paste' — two spaces between '/loop'
+#     and '<paste', no '10m' in between (cadence decision, #961).
 # ---------------------------------------------------------------------------
-if grep -qF '/loop 10m  <paste' "$PROMPTLOOP"; then
-  ok "B1: PROMPT-LOOP.md launch example includes 10m interval (#961)"
+if grep -qF '/loop  <paste' "$PROMPTLOOP"; then
+  ok "B1: PROMPT-LOOP.md launch section shows dynamic (no interval) as recommended (#961)"
 else
-  no "B1: PROMPT-LOOP.md launch example missing 10m interval (#961)"
+  no "B1: PROMPT-LOOP.md launch section missing dynamic (no interval) example (#961)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -271,11 +272,11 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-A12: A12 assertion goes RED on mutant"
   fi
 
-  # Teeth A13: remove 10m interval from /loop launch → A13 must go RED.
+  # Teeth A13: replace 'Dynamic is recommended' → A13 must go RED.
   mutant13="$TMP/SKILL.mutant13.md"
-  sed 's|/loop 10m /research-sdd|/loop /research-sdd|g' "$SKILL" > "$mutant13"
-  if grep -qF '/loop 10m /research-sdd' "$mutant13"; then
-    no "teeth-A13: mutant still has '/loop 10m /research-sdd' — sed did not take (no teeth)"
+  sed 's/Dynamic is recommended for unattended runs/Fixed-interval is recommended for unattended runs/g' "$SKILL" > "$mutant13"
+  if grep -qF 'Dynamic is recommended for unattended runs' "$mutant13"; then
+    no "teeth-A13: mutant still has 'Dynamic is recommended for unattended runs' — sed did not take (no teeth)"
   else
     ok "teeth-A13: A13 assertion goes RED on mutant"
   fi
@@ -298,11 +299,13 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-A15: A15 assertion goes RED on mutant"
   fi
 
-  # Teeth B1: remove '10m ' from PROMPT-LOOP.md launch example → B1 must go RED.
+  # Teeth B1: remove the dynamic launch form → B1 must go RED.
+  #            Replace '/loop  <paste' (two spaces) with '/loopNOINT <paste' so
+  #            the anchor string is absent from the mutant.
   mutantB1="$TMP/PROMPTLOOP.mutantB1.md"
-  sed 's|/loop 10m  <paste|/loop  <paste|g' "$PROMPTLOOP" > "$mutantB1"
-  if grep -qF '/loop 10m  <paste' "$mutantB1"; then
-    no "teeth-B1: mutant still has '/loop 10m  <paste' — sed did not take (no teeth)"
+  sed 's|/loop  <paste|/loopNOINT <paste|g' "$PROMPTLOOP" > "$mutantB1"
+  if grep -qF '/loop  <paste' "$mutantB1"; then
+    no "teeth-B1: mutant still has '/loop  <paste' — sed did not take (no teeth)"
   else
     ok "teeth-B1: B1 assertion goes RED on mutant"
   fi

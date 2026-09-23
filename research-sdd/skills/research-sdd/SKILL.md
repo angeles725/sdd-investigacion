@@ -219,11 +219,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    environment: it probes TOOL availability (not the binary) — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD
    RULES. Then analyze with `$KIT/toolbelt/decompile-native.sh <mode> <binary>`; for available modes (ghidra,
    ghidra-evidence, r2, quick) and exact CLI forms, see `$KIT/toolbelt/tool-registry.md`.
-   For a LONG unattended run, wrap the invocation with the `/loop` skill with an interval
-   (`/loop 10m /research-sdd <target> a fondo`) — it is the external re-invoker PROMPT-LOOP was designed
-   for. Self-paced reschedule is best-effort and can halt after a single block under conversational
-   guardrails; `/loop 10m` adds a deterministic external re-invoker (without an interval, `/loop`
-   self-paces — no external re-invoker exists).
+   For a LONG unattended run, wrap with the `/loop` skill — recommended as DYNAMIC (no interval):
+   `/loop /research-sdd <target> a fondo`; the re-fire depends on the agent calling ScheduleWakeup
+   at the ~60s floor. FALLBACK: if the dynamic run halts after a single block or the harness has no
+   ScheduleWakeup, use fixed-interval: `/loop 5m /research-sdd <target> a fondo`.
 
 **Walls & evidence (never a silent skip).** A wall is a MISSING CAPABILITY, not an absent answer:
 record a TYPED state — `blocked-on-tool` (name the exact capability), `unavailable` (the instrument ran
@@ -246,25 +245,29 @@ for that tool is already pending is expected — the row awaits the supervisor. 
 NO proposed row in any retro is the missed step: write the §18 retro TOOLS entry now. The guard matches
 case-insensitively, so a logged lowercase name finds a Title-case entry without extra work. When the
 logged name and the catalog display name differ entirely (e.g. `kaitai-struct-compiler` logged, `ksc`
-displayed), append `(alias: <logged-name>)` to the Tool cell of the relevant catalog row so the
-whole-word match finds it.
+displayed), include `(alias: <logged-name>)` in the §18 retro TOOLS entry for that row — so the
+supervisor adds it to the Tool cell when applying the catalog row.
 
 ## Execution mode
 
 Default is **self-paced**. Two self-paced sub-modes: (a) **dynamic** (no interval, plain session or
-`/loop` without an interval) — the loop driver self-reschedules via ScheduleWakeup; best-effort and can
-halt after a single block under conversational guardrails; (b) **fixed-interval** (`/loop 10m`) — the
-harness re-fires each turn; no ScheduleWakeup is issued; end the turn after the iteration report; when
-STOP fires, disarm the re-invoker (CronList → CronDelete the job; if unavailable, tell the operator to
-cancel the loop) — the harness cron keeps re-firing after STOP without an explicit disarm.
-Fixed-interval is preferred for unattended runs; dynamic is the fallback when no interval is set.
+`/loop` without an interval) — RECOMMENDED for unattended runs; the loop re-fires on the agent's
+ScheduleWakeup at the ~60s floor, keeping the prompt cache warm; the re-fire depends on the agent
+calling ScheduleWakeup; (b) **fixed-interval** (`/loop 5m`) — FALLBACK when a dynamic run halted
+after a single block or the harness has no ScheduleWakeup; the harness re-fires each turn; no
+ScheduleWakeup is issued; end the turn after the iteration report; when STOP fires, disarm the
+re-invoker (CronList → CronDelete the job; if unavailable, tell the operator to cancel the loop) —
+the harness cron keeps re-firing after STOP without an explicit disarm.
+Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback.
 
-**Heavy / continue:** before launching `/loop 10m`, check whether an external re-invoker is already
-active: the current invocation arrived via `/loop`, or a wakeup/cron is already armed (check with the
-harness's wakeup/cron listing if available). If a re-invoker is already active, skip the nested launch
-and proceed directly. Otherwise, when the mode resolves to heavy or continue, launch
-`/loop 10m /research-sdd <target> [focus]` BEFORE the first iteration — this is a BOOTSTRAP-level
-action, not optional advice. Announce it ("launching `/loop 10m`") and proceed; do not stop to ask.
+**Heavy / continue:** the recommended unattended launch is DYNAMIC (no interval). Before launching,
+check whether a re-invoker is already active: the current invocation arrived via `/loop`, or a
+wakeup/cron is already armed (check with the harness's wakeup/cron listing if available). If a
+re-invoker is already active, skip the nested launch and proceed directly. Otherwise, when the mode
+resolves to heavy or continue, launch `/loop /research-sdd <target> [focus]` BEFORE the first
+iteration — this is a BOOTSTRAP-level action, not optional advice. Announce it ("launching `/loop`")
+and proceed; do not stop to ask. If the dynamic run halts after a single block or the harness has no
+ScheduleWakeup, fall back to fixed-interval: `/loop 5m /research-sdd <target> [focus]`.
 If a human wants to review between blocks, run **orchestrated** instead (chain one sub-agent per
 iteration; see PROMPT-LOOP "Two execution modes"). Do not ask which mode.
 

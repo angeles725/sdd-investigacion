@@ -10,16 +10,23 @@ state from disk, so running it N times advances the corpus without stepping on i
 ## How to use it
 
 1. Define the target (one from [`TARGETS.md`](TARGETS.md)). Edit the `TARGET=` line below.
-2. Launch the loop:
+2. Launch the loop (recommended — dynamic self-paced, no interval):
    ```
-   /loop 10m  <paste the OPERATIONAL PROMPT below, with TARGET already set>
+   /loop  <paste the OPERATIONAL PROMPT below, with TARGET already set>
    ```
-   Including an interval (`10m` recommended) means the harness re-fires each iteration deterministically
-   even if the loop agent fails to self-reschedule. Without an interval the model self-paces: THERE IS NO
-   external re-invoker, and the loop relies entirely on the LOOP CONTINUATION hard rule (ScheduleWakeup).
-   If a run halts after one block without an interval, that rule was skipped. Before launching, check
-   whether an external re-invoker (a `/loop` invocation, wakeup, or cron) is already active — if so, do
-   not nest a second one.
+   Without an interval the loop uses DYNAMIC self-paced mode: the `/loop` runtime re-fires each
+   iteration on the agent's ScheduleWakeup (~60s floor), keeping latency low and the prompt cache warm.
+   The re-fire depends on the agent calling ScheduleWakeup (LOOP CONTINUATION, case 2). FALLBACK —
+   fixed-interval: if a dynamic run halts after a single block or the harness has no ScheduleWakeup,
+   use an explicit interval (e.g. `5m`):
+   ```
+   /loop 5m  <paste the OPERATIONAL PROMPT below, with TARGET already set>
+   ```
+   Under fixed-interval the harness cron re-fires each turn; no ScheduleWakeup is issued; the STOP
+   TEARDOWN rule applies (LOOP CONTINUATION, case 1). NESTED-LAUNCH RULE: never launch `/loop` from
+   inside an already-running `/loop` invocation of either mode — in dynamic mode the `/loop` runtime
+   + ScheduleWakeup IS the re-invoker. Do not launch when a cron/wakeup is already armed; check and
+   proceed directly if one is active.
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
    **Fixed-interval caveat:** under `/loop <N>m`, the harness cron continues re-firing even after STOP
@@ -1539,19 +1546,21 @@ HARD RULES:
         then CronDelete to remove it. If the harness offers no such tool, tell the operator explicitly
         to cancel the loop (e.g. "cancel the `/loop 10m` job from the harness"). A re-fire that finds
         STOP already met MUST also disarm and end (idempotent).
-    (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): you drive the
-        loop — nothing re-invokes you. WHAT ENDS A TURN (#620): the runtime ends the turn when the
-        agent emits text without a following tool call. So ScheduleWakeup must be the LAST action of
-        the turn, placed AFTER the iteration report text — any text emitted after the wakeup call, or
-        a final turn with only text and no tool call, ends the loop immediately.
+    (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): the re-fire
+        depends on the agent calling ScheduleWakeup. WHAT ENDS A TURN (#620): the runtime ends the
+        turn when the agent emits text without a following tool call. So ScheduleWakeup must be the
+        LAST action of the turn, placed AFTER the iteration report text — any text emitted after the
+        wakeup call, or a final turn with only text and no tool call, ends the loop immediately.
     (3) ORCHESTRATED: signal "continue" at the end of the iteration report; the driver re-invokes.
-    In all cases the RETURN CONTRACT below is a per-iteration CHECKPOINT, not a hand-off; only the STOP
-    declaration is terminal. Never stop after a single block.
+    In all cases the RETURN CONTRACT below is a per-iteration CHECKPOINT, not a hand-off. "Never stop
+    after a single block" means: never declare STOP unless the stopping criterion is truly met, and
+    never skip the continuation mechanism of the active mode.
     ANTI-PATTERN — MILESTONE/CLUSTER BOUNDARY IS NOT A STOP: completing a named cluster, phase, or
     milestone within the gap backlog is NOT a stopping criterion in auto/chain mode. The loop continues
     to the next gap immediately. The only allowed turn-end set is: {STOP criterion met · a
-    requires-execution wall · an operator pause · a tool failure}. Nothing else ends the turn in
-    auto/chain mode — not a milestone boundary, not a "natural pause", not a round-number block count.
+    requires-execution wall · an operator pause · a tool failure · fixed-interval: end of iteration
+    report (the harness re-fires)}. Nothing else ends the turn in auto/chain or dynamic mode — not a
+    milestone boundary, not a "natural pause", not a round-number block count.
     (Evidence: niagara loop-continuation retro.)
     ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
