@@ -4792,5 +4792,327 @@ open(sys.argv[2], 'w').write(out)
 
 fi
 
+# =============================================================================
+# Campaign queue status tests (issue #1002)
+# Fixtures: research-sdd/toolbelt/tests/fixtures/campaign-queue/
+# =============================================================================
+CQ_FIX="$HERE/fixtures/campaign-queue"
+# status_out <dir> — capture default status output (stdout only)
+cq_status()  { bash "$SUT" "$1" 2>/dev/null; }
+# status_err <dir> — capture stderr only from status output
+cq_err()     { bash "$SUT" "$1" 2>&1 >/dev/null; }
+# status_all <dir> — capture stdout+stderr merged (for WARNs embedded in stdout flow)
+cq_all()     { bash "$SUT" "$1" 2>&1; }
+
+echo "-- campaign queue: no-campaign fixture (no ## Campaign queue section) --"
+d_cq_none="$CQ_FIX/no-campaign"
+_cq_none_out="$(cq_status "$d_cq_none")"
+if echo "$_cq_none_out" | grep -qE '^\s*campaign\s*:\s*none'; then
+  ok "T-CQ-NONE: status prints 'campaign: none' when no Campaign queue section"
+else
+  no "T-CQ-NONE: expected 'campaign: none', got [$(echo "$_cq_none_out" | grep -i 'campaign' | head -3)]"
+fi
+if echo "$_cq_none_out" | grep -qE '^\s*last_iteration_ts\s*:'; then
+  ok "T-CQ-NONE-TS: status includes last_iteration_ts line for no-campaign corpus"
+else
+  no "T-CQ-NONE-TS: expected last_iteration_ts line, not found in [$(echo "$_cq_none_out" | head -15)]"
+fi
+
+echo "-- campaign queue: single-entry fixture (pending=1 active=0 done=1) --"
+d_cq_single="$CQ_FIX/single-entry"
+_cq_single_out="$(cq_status "$d_cq_single")"
+if echo "$_cq_single_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-SINGLE: correct state counts for single-entry queue"
+else
+  no "T-CQ-SINGLE: wrong state counts — got [$(echo "$_cq_single_out" | grep -i 'campaign\s*:' | head -3)]"
+fi
+
+echo "-- campaign queue: multi-entry fixture (done=3 rejected=1) --"
+d_cq_multi="$CQ_FIX/multi-entry"
+_cq_multi_out="$(cq_status "$d_cq_multi")"
+if echo "$_cq_multi_out" | grep -qE '^\s*campaign\s*:\s*pending=0\s+active=0\s+done=3\s+bound-stopped=0\s+rejected=1'; then
+  ok "T-CQ-MULTI: correct state counts for multi-entry queue"
+else
+  no "T-CQ-MULTI: wrong counts — got [$(echo "$_cq_multi_out" | grep -i 'campaign\s*:' | head -3)]"
+fi
+
+echo "-- campaign queue: multi-entry campaign STOP condition (all terminal + enqueued=0) --"
+d_cq_stopreach="$CQ_FIX/campaign-stop-reached"
+_cq_stopreach_out="$(cq_status "$d_cq_stopreach")"
+# Must find a SPECIFIC status line flagging STOP reached (not the fixture dir name in the header)
+if echo "$_cq_stopreach_out" | grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached'; then
+  ok "T-CQ-STOP-REACHED: campaign STOP reached flagged when all terminal and enqueued=0"
+else
+  no "T-CQ-STOP-REACHED: expected campaign_stop STOP-reached line, got [$(echo "$_cq_stopreach_out" | grep -iE '^\s*campaign' | head -5)]"
+fi
+
+echo "-- campaign queue: bound-stopped fixture (campaign_stop: set, pending entry) --"
+d_cq_bound="$CQ_FIX/bound-stopped"
+_cq_bound_out="$(cq_status "$d_cq_bound")"
+if echo "$_cq_bound_out" | grep -qE '^\s*campaign_stop\s*:.*campaign-bound-reached'; then
+  ok "T-CQ-BOUND-STOP: campaign_stop field printed when bound fires"
+else
+  no "T-CQ-BOUND-STOP: expected campaign_stop with bound-reached, got [$(echo "$_cq_bound_out" | grep -i 'campaign_stop' | head -3)]"
+fi
+if echo "$_cq_bound_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0\s+bound-stopped=1\s+rejected=0'; then
+  ok "T-CQ-BOUND-COUNTS: bound-stopped fixture has correct state counts"
+else
+  no "T-CQ-BOUND-COUNTS: wrong counts in bound-stopped fixture — got [$(echo "$_cq_bound_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- campaign queue: malformed Kind (unknown-kind) emits WARN --"
+d_cq_mkind="$CQ_FIX/malformed-kind"
+_cq_mkind_err="$(cq_err "$d_cq_mkind")"
+_cq_mkind_all="$(cq_all "$d_cq_mkind")"
+if echo "$_cq_mkind_err" | grep -qi 'WARN.*invalid-kind\|WARN.*unknown.*kind\|WARN.*kind.*invalid\|kind.*malform' \
+   || echo "$_cq_mkind_all" | grep -qi 'WARN.*invalid-kind\|WARN.*unknown.*kind\|campaign.*WARN.*kind'; then
+  ok "T-CQ-MKIND: WARN emitted for unrecognised Kind token"
+else
+  no "T-CQ-MKIND: expected Kind WARN, got stderr=[$(echo "$_cq_mkind_err" | head -5)]"
+fi
+
+echo "-- campaign queue: malformed State (in-progress) emits WARN --"
+d_cq_mstate="$CQ_FIX/malformed-state"
+_cq_mstate_err="$(cq_err "$d_cq_mstate")"
+_cq_mstate_all="$(cq_all "$d_cq_mstate")"
+if echo "$_cq_mstate_err" | grep -qi 'WARN.*in-progress\|WARN.*unknown.*state\|WARN.*state.*in-progress\|state.*malform' \
+   || echo "$_cq_mstate_all" | grep -qi 'WARN.*in-progress\|WARN.*state'; then
+  ok "T-CQ-MSTATE: WARN emitted for unrecognised State token"
+else
+  no "T-CQ-MSTATE: expected State WARN, got stderr=[$(echo "$_cq_mstate_err" | head -5)]"
+fi
+
+echo "-- campaign queue: empty table (header present, zero data rows) emits WARN --"
+d_cq_empty="$CQ_FIX/empty-table"
+_cq_empty_out="$(cq_all "$d_cq_empty")"
+if echo "$_cq_empty_out" | grep -qi 'table present but empty\|campaign.*empty'; then
+  ok "T-CQ-EMPTY-TABLE: WARN for table-present-but-empty"
+else
+  no "T-CQ-EMPTY-TABLE: expected empty-table WARN, got [$(echo "$_cq_empty_out" | grep -i 'campaign' | head -5)]"
+fi
+
+echo "-- campaign queue: absent last_audit prints 'not yet audited' --"
+d_cq_noaudit="$CQ_FIX/absent-last-audit"
+_cq_noaudit_out="$(cq_status "$d_cq_noaudit")"
+if echo "$_cq_noaudit_out" | grep -qiE '^\s*last_audit\s*:.*not yet audited'; then
+  ok "T-CQ-NO-AUDIT: last_audit: not yet audited when field absent"
+else
+  no "T-CQ-NO-AUDIT: expected 'not yet audited', got [$(echo "$_cq_noaudit_out" | grep -i 'last_audit' | head -3)]"
+fi
+# Absent last_audit + all-done-but-no-enqueued0 → STOP NOT reached
+if echo "$_cq_noaudit_out" | grep -qi 'campaign.*STOP.*reached'; then
+  no "T-CQ-NO-AUDIT-STOP: absent last_audit must NOT trigger campaign STOP"
+else
+  ok "T-CQ-NO-AUDIT-STOP: absent last_audit does not trigger campaign STOP (correct)"
+fi
+
+echo "-- campaign queue: absent last_iteration_ts --"
+d_cq_absts="$CQ_FIX/absent-ts"
+_cq_absts_out="$(cq_status "$d_cq_absts")"
+if echo "$_cq_absts_out" | grep -qE '^\s*last_iteration_ts\s*:\s*absent'; then
+  ok "T-CQ-ABS-TS: last_iteration_ts: absent when field missing from envelope"
+else
+  no "T-CQ-ABS-TS: expected 'last_iteration_ts: absent', got [$(echo "$_cq_absts_out" | grep -i 'last_iteration' | head -3)]"
+fi
+
+echo "-- campaign queue: stale last_iteration_ts (16 min, threshold 15) triggers WARN --"
+d_cq_stale="$CQ_FIX/stale-ts"
+# Inject deterministic "now" — 16 min after the fixture ts (2026-09-22T10:00:00Z)
+_cq_stale_ts_epoch=$(date -d "2026-09-22T10:00:00Z" +%s 2>/dev/null \
+  || date -j -f "%Y-%m-%dT%H:%M:%SZ" "2026-09-22T10:00:00Z" +%s 2>/dev/null || echo "")
+if [ -n "$_cq_stale_ts_epoch" ]; then
+  _cq_stale_now=$(( _cq_stale_ts_epoch + 960 ))  # 16 min later
+  _cq_stale_all="$(_RSDD_NOW_EPOCH="$_cq_stale_now" bash "$SUT" "$d_cq_stale" 2>&1)"
+  if echo "$_cq_stale_all" | grep -qi 'WARN.*stall\|stall.*WARN'; then
+    ok "T-CQ-STALE: WARN emitted when last_iteration_ts is stale (>15min) in active campaign"
+  else
+    no "T-CQ-STALE: expected stall WARN for stale ts, got [$(echo "$_cq_stale_all" | grep -i 'stall\|last_iteration' | head -5)]"
+  fi
+else
+  no "T-CQ-STALE: cannot compute epoch for stale-ts test (date parse failed)"
+fi
+
+echo "-- campaign queue: fresh last_iteration_ts (5 min, threshold 15) no WARN --"
+d_cq_fresh="$CQ_FIX/fresh-ts"
+if [ -n "$_cq_stale_ts_epoch" ]; then
+  _cq_fresh_now=$(( _cq_stale_ts_epoch + 300 ))  # 5 min later
+  _cq_fresh_all="$(_RSDD_NOW_EPOCH="$_cq_fresh_now" bash "$SUT" "$d_cq_fresh" 2>&1)"
+  if echo "$_cq_fresh_all" | grep -qi 'WARN.*stall'; then
+    no "T-CQ-FRESH: unexpected stall WARN for fresh ts (5min, threshold 15)"
+  else
+    ok "T-CQ-FRESH: no stall WARN when last_iteration_ts is fresh (5min < 15min threshold)"
+  fi
+else
+  no "T-CQ-FRESH: cannot compute epoch for fresh-ts test (date parse failed)"
+fi
+
+echo "-- campaign queue: --stall-minutes override (3 min, ts is 5 min old, expect WARN) --"
+if [ -n "$_cq_stale_ts_epoch" ]; then
+  _cq_sm_now=$(( _cq_stale_ts_epoch + 300 ))  # 5 min later
+  _cq_sm_all="$(_RSDD_NOW_EPOCH="$_cq_sm_now" bash "$SUT" "$d_cq_fresh" --stall-minutes 3 2>&1)"
+  if echo "$_cq_sm_all" | grep -qi 'WARN.*stall'; then
+    ok "T-CQ-STALL-MINUTES: --stall-minutes 3 triggers WARN for 5-min-old ts"
+  else
+    no "T-CQ-STALL-MINUTES: expected stall WARN with --stall-minutes 3, got [$(echo "$_cq_sm_all" | grep -i 'stall\|last_iter' | head -5)]"
+  fi
+else
+  no "T-CQ-STALL-MINUTES: cannot compute epoch (date parse failed)"
+fi
+
+echo "-- campaign queue: malformed campaign_bounds (unknown-key, bad wall-clock) WARNs --"
+d_cq_mbounds="$CQ_FIX/malformed-bounds"
+_cq_mbounds_err="$(cq_err "$d_cq_mbounds")"
+_cq_mbounds_all="$(cq_all "$d_cq_mbounds")"
+if echo "$_cq_mbounds_err" | grep -qi 'WARN.*unknown-key\|WARN.*campaign_bounds\|WARN.*malform' \
+   || echo "$_cq_mbounds_all" | grep -qi 'WARN.*unknown-key\|WARN.*bounds'; then
+  ok "T-CQ-MBOUNDS-UNKNOWN: WARN for unknown key in campaign_bounds"
+else
+  no "T-CQ-MBOUNDS-UNKNOWN: expected WARN for unknown-key in bounds, stderr=[$(echo "$_cq_mbounds_err" | head -5)]"
+fi
+if echo "$_cq_mbounds_err" | grep -qi 'WARN.*badvalue\|WARN.*wall-clock\|WARN.*wall_clock\|malformed.*wall' \
+   || echo "$_cq_mbounds_all" | grep -qi 'WARN.*badvalue\|WARN.*wall-clock'; then
+  ok "T-CQ-MBOUNDS-WALLCLOCK: WARN for bad wall-clock value in campaign_bounds"
+else
+  no "T-CQ-MBOUNDS-WALLCLOCK: expected WARN for bad wall-clock value, stderr=[$(echo "$_cq_mbounds_err" | head -5)]"
+fi
+
+echo "-- campaign queue: list-edges (first=active, middle=done, last=pending) --"
+d_cq_edges="$CQ_FIX/list-edges"
+_cq_edges_out="$(cq_status "$d_cq_edges")"
+if echo "$_cq_edges_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-EDGES: first/middle/last row positions all counted correctly"
+else
+  no "T-CQ-EDGES: wrong counts — got [$(echo "$_cq_edges_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- campaign queue: single-row (one active entry) --"
+d_cq_srow="$CQ_FIX/single-row"
+_cq_srow_out="$(cq_status "$d_cq_srow")"
+if echo "$_cq_srow_out" | grep -qE '^\s*campaign\s*:\s*pending=0\s+active=1\s+done=0\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-SINGLE-ROW: single active-row queue counted correctly"
+else
+  no "T-CQ-SINGLE-ROW: wrong counts — got [$(echo "$_cq_srow_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- campaign queue: last_iteration_ts printed with age (age line present) --"
+d_cq_ts_present="$CQ_FIX/single-entry"
+if [ -n "$_cq_stale_ts_epoch" ]; then
+  # last_iteration_ts in single-entry fixture is 2026-09-23T09:00:00Z; use same epoch trick
+  _cq_ts_e=$(date -d "2026-09-23T09:00:00Z" +%s 2>/dev/null \
+    || date -j -f "%Y-%m-%dT%H:%M:%SZ" "2026-09-23T09:00:00Z" +%s 2>/dev/null || echo "")
+  if [ -n "$_cq_ts_e" ]; then
+    _cq_ts_now=$(( _cq_ts_e + 300 ))
+    _cq_ts_out="$(_RSDD_NOW_EPOCH="$_cq_ts_now" bash "$SUT" "$d_cq_ts_present" 2>/dev/null)"
+    if echo "$_cq_ts_out" | grep -qE '^\s*last_iteration_ts\s*:.*age'; then
+      ok "T-CQ-TS-AGE: last_iteration_ts includes age when ts is present"
+    else
+      no "T-CQ-TS-AGE: expected age in last_iteration_ts line, got [$(echo "$_cq_ts_out" | grep -i 'last_iter' | head -3)]"
+    fi
+  else
+    no "T-CQ-TS-AGE: cannot compute epoch for ts-age test (date parse failed)"
+  fi
+else
+  no "T-CQ-TS-AGE: cannot compute epoch (date parse failed)"
+fi
+
+echo "-- campaign queue: last_audit line printed in output --"
+_cq_audit_out="$(cq_status "$d_cq_single")"
+if echo "$_cq_audit_out" | grep -qE '^\s*last_audit\s*:'; then
+  ok "T-CQ-LAST-AUDIT: last_audit line present in output when field exists"
+else
+  no "T-CQ-LAST-AUDIT: expected last_audit line, got [$(echo "$_cq_audit_out" | grep -i 'last_audit' | head -3)]"
+fi
+
+echo "-- campaign queue: campaign_bounds line printed when present --"
+_cq_bnd_out="$(cq_status "$d_cq_bound")"
+if echo "$_cq_bnd_out" | grep -qE '^\s*campaign_bounds\s*:'; then
+  ok "T-CQ-BOUNDS-LINE: campaign_bounds line printed when field exists"
+else
+  no "T-CQ-BOUNDS-LINE: expected campaign_bounds line, got [$(echo "$_cq_bnd_out" | grep -i 'campaign_bounds' | head -3)]"
+fi
+
+# ----- teeth for campaign queue (--prove-teeth section) -----
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "== TEETH BANNER: campaign-queue mutation controls =="
+
+  # teeth-T-CQ-NONE: replace 'campaign: none' with empty string in a mutant;
+  # T-CQ-NONE must go RED when the none-line is absent.
+  echo "-- teeth-T-CQ-NONE: remove campaign: none output → T-CQ-NONE goes RED --"
+  _cq_none_mutant="$TMP/status.CQ-NONE.MUTANT.sh"
+  # Anchor: CQ-NONE-ANCHOR (the printf/echo that emits 'campaign : none' — added in #1002)
+  if grep -q 'CQ-NONE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_none_mutant"
+    # Delete the line emitting campaign: none
+    sed -i '/CQ-NONE-ANCHOR/d' "$_cq_none_mutant"
+    if cmp -s "$_cq_none_mutant" "$SUT"; then
+      no "teeth-T-CQ-NONE: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_none_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-NONE: mutant has syntax error"
+    else
+      _cq_none_mut_out="$(bash "$_cq_none_mutant" "$d_cq_none" 2>/dev/null)"
+      if ! echo "$_cq_none_mut_out" | grep -qE '^\s*campaign\s*:\s*none'; then
+        ok "teeth-T-CQ-NONE: mutant suppresses 'campaign: none' → T-CQ-NONE goes RED → output is load-bearing"
+      else
+        no "teeth-T-CQ-NONE: mutant still emits 'campaign: none' — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-NONE: CQ-NONE-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-CQ-COUNTS: reverse pending/done counts by swapping their accumulators;
+  # T-CQ-SINGLE must go RED when pending=1 done=1 is misreported as pending=0 done=2 etc.
+  echo "-- teeth-T-CQ-COUNTS: swap pending↔done count variables → count fixture goes RED --"
+  _cq_cnt_mutant="$TMP/status.CQ-COUNTS.MUTANT.sh"
+  # Anchor: CQ-COUNT-PENDING-ANCHOR (the n_pending++ increment — added in #1002)
+  if grep -q 'CQ-COUNT-PENDING-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_cnt_mutant"
+    # Swap: change n_pending++ to n_done++ and n_done++ to n_pending++
+    sed -i 's/n_cq_pending=/n_cq_done_SWAP=/g; s/n_cq_done=/n_cq_pending=/g; s/n_cq_done_SWAP=/n_cq_done=/g' "$_cq_cnt_mutant"
+    if cmp -s "$_cq_cnt_mutant" "$SUT"; then
+      no "teeth-T-CQ-COUNTS: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_cnt_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-COUNTS: mutant has syntax error"
+    else
+      _cq_cnt_mut_out="$(bash "$_cq_cnt_mutant" "$d_cq_single" 2>/dev/null)"
+      if ! echo "$_cq_cnt_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=1'; then
+        ok "teeth-T-CQ-COUNTS: swapped counts mutant breaks single-entry → T-CQ-SINGLE goes RED → counts are load-bearing"
+      else
+        no "teeth-T-CQ-COUNTS: swapped counts mutant still passes — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-COUNTS: CQ-COUNT-PENDING-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-CQ-STALL: remove the stall threshold check; T-CQ-STALE must go RED.
+  echo "-- teeth-T-CQ-STALL: remove stall WARN → T-CQ-STALE goes RED --"
+  _cq_stall_mutant="$TMP/status.CQ-STALL.MUTANT.sh"
+  # Anchor: CQ-STALL-WARN-ANCHOR (the stderr WARN for stall — added in #1002)
+  if grep -q 'CQ-STALL-WARN-ANCHOR' "$SUT" && [ -n "$_cq_stale_ts_epoch" ]; then
+    cp "$SUT" "$_cq_stall_mutant"
+    sed -i '/CQ-STALL-WARN-ANCHOR/d' "$_cq_stall_mutant"
+    if cmp -s "$_cq_stall_mutant" "$SUT"; then
+      no "teeth-T-CQ-STALL: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_stall_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-STALL: mutant has syntax error"
+    else
+      _cq_stall_now=$(( _cq_stale_ts_epoch + 960 ))
+      _cq_stall_mut="$(_RSDD_NOW_EPOCH="$_cq_stall_now" bash "$_cq_stall_mutant" "$d_cq_stale" 2>&1)"
+      if ! echo "$_cq_stall_mut" | grep -qi 'WARN.*stall'; then
+        ok "teeth-T-CQ-STALL: mutant suppresses stall WARN → T-CQ-STALE goes RED → stall check is load-bearing"
+      else
+        no "teeth-T-CQ-STALL: mutant still emits stall WARN — THEATER"
+      fi
+    fi
+  else
+    if ! grep -q 'CQ-STALL-WARN-ANCHOR' "$SUT"; then
+      no "teeth-T-CQ-STALL: CQ-STALL-WARN-ANCHOR sentinel not found in SUT"
+    else
+      no "teeth-T-CQ-STALL: cannot compute epoch for stall mutant test"
+    fi
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

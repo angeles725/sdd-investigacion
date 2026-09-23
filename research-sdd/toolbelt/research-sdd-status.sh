@@ -30,6 +30,7 @@ target="${1:-}"
 shift
 mode="status"
 focus_slug=""
+stall_minutes=15   # default stall threshold in minutes (§8c)
 while [ $# -gt 0 ]; do
   case "$1" in
     --next|--sync-state) mode="$1"; shift ;;
@@ -37,7 +38,12 @@ while [ $# -gt 0 ]; do
       focus_slug="${2:-}"
       [ -z "$focus_slug" ] && { echo "usage: --focus requires a focus slug" >&2; exit 2; }
       shift 2 ;;
-    *) echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]" >&2; exit 2 ;;
+    --stall-minutes)
+      stall_minutes="${2:-}"
+      printf '%s' "$stall_minutes" | grep -qE '^[0-9]+$' \
+        || { echo "usage: --stall-minutes requires a positive integer" >&2; exit 2; }
+      shift 2 ;;
+    *) echo "usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>] [--stall-minutes N]" >&2; exit 2 ;;
   esac
 done
 
@@ -1144,6 +1150,159 @@ if [ "$mode" = "--next" ]; then
   exit 0
 fi
 
+# --- §8c campaign queue helpers ----------------------------------------------------------------
+
+# campaign_section: body of "## Campaign queue", skipping HTML comment blocks.
+# The template wraps the section in <!-- ... --> as a "do-not-pre-create" note;
+# real RESEARCH-STATE files do NOT have HTML comments, so we must skip them when
+# they appear (e.g. if someone copies from the template literally).
+campaign_section() {
+  awk '
+    /<!--[^>]*-->/ { next }
+    /<!--/ { in_c=1; next }
+    /-->/ { in_c=0; next }
+    in_c { next }
+    index($0, "## Campaign queue") == 1 { f=1; next }
+    /^## / { f=0 }
+    f' "$state"
+}
+
+# campaign_queue_present: exits 0 when ## Campaign queue exists outside HTML comments.
+campaign_queue_present() {
+  awk '
+    /<!--[^>]*-->/ { next }
+    /<!--/ { in_c=1; next }
+    /-->/ { in_c=0; next }
+    in_c { next }
+    index($0, "## Campaign queue") == 1 { found=1; exit }
+    END { exit !found }' "$state"
+}
+
+# _campaign_age_min <ISO8601-ts>: prints age in minutes as integer, or "unknown" on parse fail.
+# Respects _RSDD_NOW_EPOCH test-hook (injected by tests for deterministic stall computation).
+_campaign_age_min() {
+  local ts="$1" ts_epoch now_epoch
+  ts_epoch=$(date -d "$ts" +%s 2>/dev/null) \
+    || ts_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$ts" +%s 2>/dev/null) || true
+  [ -z "$ts_epoch" ] && { printf 'unknown'; return; }
+  now_epoch="${_RSDD_NOW_EPOCH:-$(date +%s)}"
+  printf '%s' $(( (now_epoch - ts_epoch) / 60 ))
+}
+
+# campaign_status_block: emit §8c campaign queue lines in the default status report.
+campaign_status_block() {
+  local _ts _ts_age_min
+  _ts="$(env_get last_iteration_ts)"
+
+  if ! campaign_queue_present; then
+    printf '  campaign        : none\n'  # CQ-NONE-ANCHOR
+    if [ -z "$_ts" ]; then
+      printf '  last_iteration_ts: absent\n'
+    else
+      _ts_age_min="$(_campaign_age_min "$_ts")"
+      printf '  last_iteration_ts: %s  (age: %s min)\n' "$_ts" "$_ts_age_min"
+    fi
+    return
+  fi
+
+  # --- count states from table rows ---
+  local n_cq_pending=0 n_cq_active=0 n_cq_done=0 n_cq_bstopped=0 n_cq_rejected=0
+  local _cq_row_count=0
+  local _row_name _row_kind _row_state
+  while IFS='|' read -r _ _row_name _ _row_kind _ _ _row_state _; do
+    _row_name="${_row_name#"${_row_name%%[! ]*}"}" ; _row_name="${_row_name%"${_row_name##*[! ]}"}"
+    _row_kind="${_row_kind#"${_row_kind%%[! ]*}"}" ; _row_kind="${_row_kind%"${_row_kind##*[! ]}"}"
+    _row_state="${_row_state#"${_row_state%%[! ]*}"}" ; _row_state="${_row_state%"${_row_state##*[! ]}"}"
+    [ "$_row_kind" = "Kind" ] && continue                              # header row
+    printf '%s' "$_row_kind" | grep -qE '^-+$' && continue            # separator row
+    [ -z "$_row_name" ] && continue                                    # truly empty line
+    _cq_row_count=$(( _cq_row_count + 1 ))
+    # Validate Kind vocabulary: focus | tier | sub-topic
+    case "$_row_kind" in
+      focus|tier|sub-topic) ;;
+      *) printf 'WARN: campaign queue: unrecognised Kind '\''%s'\'' in row %s\n' \
+           "$_row_kind" "$_row_name" >&2 ;;
+    esac
+    # Count and validate State vocabulary  # CQ-COUNT-PENDING-ANCHOR
+    case "$_row_state" in
+      pending)       n_cq_pending=$(( n_cq_pending + 1 )) ;;  # CQ-COUNT-PENDING-ANCHOR
+      active)        n_cq_active=$(( n_cq_active + 1 )) ;;
+      done)          n_cq_done=$(( n_cq_done + 1 )) ;;
+      bound-stopped) n_cq_bstopped=$(( n_cq_bstopped + 1 )) ;;
+      rejected)      n_cq_rejected=$(( n_cq_rejected + 1 )) ;;
+      *) printf 'WARN: campaign queue: unrecognised State '\''%s'\'' in row %s\n' \
+           "$_row_state" "$_row_name" >&2 ;;
+    esac
+  done < <(campaign_section | grep '^|')
+
+  if [ "$_cq_row_count" -eq 0 ]; then
+    printf 'WARN: campaign queue table present but empty\n' >&2
+  fi
+
+  printf '  campaign        : pending=%d active=%d done=%d bound-stopped=%d rejected=%d\n' \
+    "$n_cq_pending" "$n_cq_active" "$n_cq_done" "$n_cq_bstopped" "$n_cq_rejected"
+
+  # --- last_audit ---
+  local _cq_last_audit
+  _cq_last_audit="$(campaign_section | grep -m1 '^last_audit:' | sed 's/^last_audit:[[:space:]]*//')"
+  if [ -n "$_cq_last_audit" ]; then
+    printf '  last_audit      : %s\n' "$_cq_last_audit"
+  else
+    printf '  last_audit      : not yet audited\n'
+  fi
+
+  # --- campaign_stop field or computed STOP condition ---
+  local _cq_stop_field
+  _cq_stop_field="$(campaign_section | grep -m1 '^campaign_stop:' | sed 's/^campaign_stop:[[:space:]]*//')"
+  if [ -n "$_cq_stop_field" ]; then
+    printf '  campaign_stop   : %s\n' "$_cq_stop_field"
+  elif [ "$n_cq_pending" -eq 0 ] && [ "$n_cq_active" -eq 0 ] && [ -n "$_cq_last_audit" ]; then
+    # STOP condition: all entries terminal AND last_audit enqueued=0 (absent last_audit never satisfies)
+    local _cq_enqueued
+    _cq_enqueued="$(printf '%s' "$_cq_last_audit" | grep -oE 'enqueued=[0-9]+' | grep -oE '[0-9]+')"
+    if [ "${_cq_enqueued:-}" = "0" ]; then
+      printf '  campaign_stop   : STOP reached — all entries terminal, last_audit enqueued=0\n'
+    fi
+  fi
+
+  # --- campaign_bounds ---
+  local _cq_bounds_field _bd_token _bd_key _bd_val
+  _cq_bounds_field="$(campaign_section | grep -m1 '^campaign_bounds:' | sed 's/^campaign_bounds:[[:space:]]*//')"
+  if [ -n "$_cq_bounds_field" ]; then
+    printf '  campaign_bounds : %s\n' "$_cq_bounds_field"
+    # Validate each key=value token
+    while IFS= read -r _bd_token; do
+      [ -z "$_bd_token" ] && continue
+      _bd_key="$(printf '%s' "$_bd_token" | cut -d= -f1)"
+      _bd_val="$(printf '%s' "$_bd_token" | cut -d= -f2-)"
+      case "$_bd_key" in
+        max-depth|iterations)
+          printf '%s' "$_bd_val" | grep -qE '^[0-9]+$' \
+            || printf 'WARN: campaign_bounds: bad %s value '\''%s'\''\n' "$_bd_key" "$_bd_val" >&2 ;;
+        wall-clock)
+          printf '%s' "$_bd_val" | grep -qE '^[0-9]+(\.[0-9]+)?h$' \
+            || printf 'WARN: campaign_bounds: bad wall-clock value '\''%s'\''\n' "$_bd_val" >&2 ;;
+        *)
+          printf 'WARN: campaign_bounds: unknown key '\''%s'\''\n' "$_bd_key" >&2 ;;
+      esac
+    done < <(printf '%s\n' "$_cq_bounds_field" | tr ' ' '\n')
+  fi
+
+  # --- last_iteration_ts with age; stall WARN when campaign is active/pending ---
+  if [ -z "$_ts" ]; then
+    printf '  last_iteration_ts: absent\n'
+  else
+    _ts_age_min="$(_campaign_age_min "$_ts")"
+    printf '  last_iteration_ts: %s  (age: %s min)\n' "$_ts" "$_ts_age_min"
+    if [ "$n_cq_pending" -gt 0 ] || [ "$n_cq_active" -gt 0 ]; then
+      if printf '%s' "$_ts_age_min" | grep -qE '^[0-9]+$' && [ "$_ts_age_min" -gt "$stall_minutes" ]; then
+        printf 'WARN: campaign stall — last_iteration_ts age %s min exceeds threshold %s min\n' "$_ts_age_min" "$stall_minutes" >&2  # CQ-STALL-WARN-ANCHOR
+        :  # noop — keeps then-block non-empty after stall-anchor mutation
+      fi
+    fi
+  fi
+}
+
 # --- default: structured status report ---------------------------------------------------------
 rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(flat)"
 metric="$(section '## Coverage' | grep -iE 'coverage metric' | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+' | head -1 | tr -d ' ')"
@@ -1176,6 +1335,7 @@ else
   [ "$nopen" -gt 0 ] && echo "  contradictions  : ${nopen} open" || echo "  contradictions  : (none)"
 fi
 saturation_line
+campaign_status_block
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
 # WARNING 3: the default report was binding resolve_next to $state=head-1, so a stopped alpha printed
 # "STOP" while beta had open gaps — the supervisor saw misinformation with a green consistency footer.
