@@ -6,7 +6,7 @@
 # per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so a 4th harness is one table row.
 #
 # Usage:
-#   research-sdd-install.sh [--harness claude|opencode|codex|all] [--home <dir>] [--dry-run] [--force-skill]
+#   research-sdd-install.sh [--harness claude|codex|reasonix|all] [--home <dir>] [--dry-run] [--force-skill]
 #
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
@@ -15,7 +15,7 @@
 #
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
-# own global system prompt, e.g. opencode's ~/.config/opencode/AGENTS.md).
+# own global system prompt, e.g. codex's ~/.codex/AGENTS.md).
 set -uo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)"
@@ -57,10 +57,11 @@ _rsdd_append_section() {
   fi
 }
 
-# Symlink the kit's OpenCode session-start plugin into the harness plugin dir. Idempotent: an existing
+# Symlink a session-start plugin into the harness plugin dir. Idempotent: an existing
 # symlink is refreshed (clean relink, never duplicated); a NON-symlink already at the target is the
 # user's own file and is preserved (warn + skip, never clobbered). No-op under --dry-run, but the plan
 # still prints the intended link. $src is resolved from the kit root, independent of the CWD.
+# Note: no harness currently has a plugin_dir (OpenCode support was dropped on 2026-09-23 (#954)).
 _rsdd_link_plugin() {
   local plugin_dir="$1" dry="$2" src="$3" dest
   dest="$plugin_dir/$(basename "$src")"
@@ -332,10 +333,13 @@ install_one() {
     echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
   fi
 
-  # 3. plugin symlink — only when the table gives this harness a plugin dir (opencode). The source is
+  # 3. plugin symlink — only when the table gives this harness a plugin dir. The source is
   #    resolved from the KIT root (not the CWD); idempotent relink, never clobbers a user's own file.
+  #    No harness currently declares a plugin_dir (OpenCode support was dropped on 2026-09-23 (#954)).
   if [ -n "$plugin_dir" ]; then
-    if ! _rsdd_link_plugin "$plugin_dir" "$dry" "$KIT/toolbelt/opencode/research-sdd-sweep.ts"; then
+    # If a future harness declares a plugin_dir, add its sweep plugin source to toolbelt/ and
+    # update this path accordingly.
+    if ! _rsdd_link_plugin "$plugin_dir" "$dry" "$KIT/toolbelt/${h}-sweep.ts"; then
       echo "research-sdd-install: [$h] plugin symlink failed ($plugin_dir)" >&2; rc=1
     fi
   fi
