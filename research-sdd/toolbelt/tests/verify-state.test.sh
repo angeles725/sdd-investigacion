@@ -3982,6 +3982,23 @@ else
   no "P8-L: nested corpus — expected WARN for hook at target root; got: $(echo "$_p8l" | grep -i hook | head -2)"
 fi
 
+# P8-M: hook adapted from fixed template — uses $RESEARCH_SDD_KIT (no <KIT>) → no false WARN
+# (Regression guard: blender-llm line 50 was the fixed template's kit-info line, not an unadapted hook.)
+d="$TMP/p8-template-clean"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+cat > "$d/.claude/hooks/research-protocol.sh" <<'HOOKEOF'
+#!/bin/bash
+read -r -d '' CTX <<'EOF' || true
+Toolbelt: $RESEARCH_SDD_KIT/toolbelt/ — set RESEARCH_SDD_KIT to your Research-SDD kit root.
+EOF
+printf '%s\n' "$CTX"
+HOOKEOF
+_p8m="$(run "$d" 2>/dev/null)"
+if ! echo "$_p8m" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-M: adapted hook with fixed template kit-line (\$RESEARCH_SDD_KIT) → no false P8 WARN"
+else
+  no "P8-M: adapted hook with fixed template kit-line → unexpected WARN: $(echo "$_p8m" | grep -i hook | head -1)"
+fi
+
 # P8 teeth: neuter the placeholder grep → no WARN on <SUBJECT> hook → P8-D goes RED
 # B3: syntax-valid mutant + lib/ included + assert startup succeeded.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -4016,6 +4033,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "P8 teeth: mutant still WARNs on <SUBJECT> → P8-D assertion is THEATER"
     fi
+  fi
+  # P8-M teeth: if the same position has <KIT> (old form) instead of $RESEARCH_SDD_KIT, WARN fires.
+  # This proves P8-M's 'no WARN' result is because the text has no angle-bracket placeholder,
+  # not because the checker is trivially passing.
+  echo "-- P8-M teeth: <KIT> in same position still WARNs (old-form detection active) --"
+  d_kit="$TMP/p8-kit-teeth"; mk_state_p8 "$d_kit"; mkdir -p "$d_kit/.claude/hooks"
+  cat > "$d_kit/.claude/hooks/research-protocol.sh" <<'HOOKEOF'
+#!/bin/bash
+read -r -d '' CTX <<'EOF' || true
+Toolbelt: <KIT>/toolbelt/ — resolve <KIT> to your local Research-SDD kit root.
+EOF
+printf '%s\n' "$CTX"
+HOOKEOF
+  _p8mt="$(run "$d_kit" 2>/dev/null)"
+  if echo "$_p8mt" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    ok "P8-M teeth: <KIT> in same here-doc position still WARNs → P8-M no-WARN is falsifiable"
+  else
+    no "P8-M teeth: <KIT> hook should WARN but did not — old-form detection broken"
   fi
 fi
 
