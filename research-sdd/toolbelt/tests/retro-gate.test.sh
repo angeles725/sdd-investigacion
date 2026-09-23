@@ -926,6 +926,118 @@ grep -q 'degraded\|no session' <<< "$ERR" \
   && ok "#957 T-non-git: degraded warning in stderr" \
   || no "#957 T-non-git: degraded warning missing from stderr: $ERR"
 
+# T-staged-957: staged (not yet committed) retro → ALLOW.
+# Ensures --cached flag admits retros that are in the index but not HEAD.
+# RED on pre-fix SUT (which used sha..HEAD, not --cached): staged retro not found → blocks.
+T_stg="$ROOT/t-stg957"; mkgit "$T_stg"; SID_stg="stg957-sess"
+mksessionfile "$T_stg" "$SID_stg"   # records HEAD before block
+mkblock "$T_stg" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_stg/niagara-block1.md"
+mkretro "$T_stg" "2026-09-05-staged.md" 1
+git -C "$T_stg" add "retros/2026-09-05-staged.md"   # staged but NOT committed
+_j_stg="$(mkjson "$SID_stg" "false")"
+run_gate "$T_stg" "$_j_stg"
+[ -z "$OUT" ] \
+  && ok "#957 T-staged: staged retro → allows (no block JSON)" \
+  || no "#957 T-staged: staged retro → should allow but blocked: $OUT"
+
+# T-badsha-957: session file contains an unresolvable sha → degraded check → mtime fallback.
+# On pre-fix SUT: degraded=0 (bad sha silently skips Part A only); git diff for retros fails
+# (bad sha) → no qualifying retro → BLOCK.
+# On new SUT: rev-parse -q --verify ${sha}^{commit} fails → degraded=1 + WARN → mtime fallback
+# → retro newer than block → ALLOW.
+T_bs="$ROOT/t-bs957"; mkgit "$T_bs"; SID_bs="bs957-sess"
+mkdir -p "$T_bs/.claude"
+printf '0123456789abcdef0123456789abcdef01234567\n' > "$T_bs/.claude/.rsdd-session-$SID_bs"
+touch -t 202609050800 "$T_bs/.claude/.rsdd-session-$SID_bs"
+mkblock "$T_bs" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_bs/niagara-block1.md"
+mkretro "$T_bs" "2026-09-05-badsha.md" 1
+git -C "$T_bs" add "retros/2026-09-05-badsha.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_bs" commit -q -m "add retro"
+touch -t 202609051200 "$T_bs/retros/2026-09-05-badsha.md"   # retro mtime 12:00 > block 10:00
+_j_bs="$(mkjson "$SID_bs" "false")"
+run_gate "$T_bs" "$_j_bs"
+[ -z "$OUT" ] \
+  && ok "#957 T-badsha: unresolvable sha → degraded mtime fallback → allows" \
+  || no "#957 T-badsha: unresolvable sha → should allow (mtime) but blocked: $OUT"
+grep -q 'unresolvable\|degraded' <<< "$ERR" \
+  && ok "#957 T-badsha: WARN about unresolvable sha in stderr" \
+  || no "#957 T-badsha: WARN about unresolvable sha missing from stderr: $ERR"
+
+# T-nest-957: retro committed under corpus/retros/ → ALLOW.
+# Ensures the pathspec-free approach catches retros in nested directories.
+# RED on pre-fix SUT (-- 'retros/' pathspec misses corpus/retros/): no qualifying retro → blocks.
+T_nest="$ROOT/t-nest957"; mkgit "$T_nest"; SID_nest="nest957-sess"
+mksessionfile "$T_nest" "$SID_nest"
+mkdir -p "$T_nest/corpus"
+printf '# Block — test\n\nContent.\n' > "$T_nest/corpus/niagara-block1.md"
+git -C "$T_nest" add "corpus/niagara-block1.md"
+GIT_AUTHOR_DATE="2026-09-05T10:00:00" GIT_COMMITTER_DATE="2026-09-05T10:00:00" \
+  git -C "$T_nest" commit -q -m "add corpus block"
+mkdir -p "$T_nest/corpus/retros"
+printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta | file.sh | evidence | fix | low |\n' \
+  > "$T_nest/corpus/retros/2026-09-05-nested.md"
+git -C "$T_nest" add "corpus/retros/2026-09-05-nested.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_nest" commit -q -m "add nested retro"
+_j_nest="$(mkjson "$SID_nest" "false")"
+run_gate "$T_nest" "$_j_nest"
+[ -z "$OUT" ] \
+  && ok "#957 T-nest: retro in corpus/retros/ → allows (no block JSON)" \
+  || no "#957 T-nest: retro in corpus/retros/ → should allow but blocked: $OUT"
+
+# T-untracked-old-957: untracked retro OLDER than the session file → BLOCK.
+# Accepted tradeoff: an untracked retro predating the session file does not qualify.
+# The researcher must re-touch or commit it to qualify. Both pre- and post-fix block.
+T_uto="$ROOT/t-uto957"; mkgit "$T_uto"; SID_uto="uto957-sess"
+mkblock "$T_uto" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_uto/niagara-block1.md"
+# Create retro file with old mtime (2026-01-01) BEFORE writing session file
+mkretro "$T_uto" "2026-01-01-old-untracked.md" 1
+touch -t 202601010800 "$T_uto/retros/2026-01-01-old-untracked.md"
+# Session file mtime 2026-09-05 08:00 > retro mtime 2026-01-01 08:00
+mksessionfile "$T_uto" "$SID_uto" "202609050800"
+_j_uto="$(mkjson "$SID_uto" "false")"
+run_gate "$T_uto" "$_j_uto"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-untracked-old: untracked retro older than session → blocks (accepted tradeoff)" \
+  || no "#957 T-untracked-old: untracked retro older than session → should block: OUT=$OUT"
+
+# T-idx-only-957: only an INDEX.md added this session → BLOCK (not a qualifying retro).
+# Index files are excluded by the case-insensitive basename guard.
+T_idx="$ROOT/t-idx957"; mkgit "$T_idx"; SID_idx="idx957-sess"
+mksessionfile "$T_idx" "$SID_idx"
+mkblock "$T_idx" "niagara-block1.md" "2026-09-05T10:00:00"
+mkdir -p "$T_idx/retros"
+printf '# Index\n' > "$T_idx/retros/INDEX.md"
+git -C "$T_idx" add "retros/INDEX.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_idx" commit -q -m "add retros index"
+_j_idx="$(mkjson "$SID_idx" "false")"
+run_gate "$T_idx" "$_j_idx"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-idx-only: INDEX.md excluded from qualifying retros → blocks" \
+  || no "#957 T-idx-only: INDEX.md should be excluded → expected block: OUT=$OUT"
+
+# T-excluded-957: excluded retro (kit-retro: exclude marker) added this session → BLOCK.
+# A retro with the opt-out marker is skipped by retro_is_excluded; gate must still block.
+T_exc="$ROOT/t-exc957"; mkgit "$T_exc"; SID_exc="exc957-sess"
+mksessionfile "$T_exc" "$SID_exc"
+mkblock "$T_exc" "niagara-block1.md" "2026-09-05T10:00:00"
+mkdir -p "$T_exc/retros"
+printf '<!-- kit-retro: exclude -->\n# Client feedback — not a kit retro\n' \
+  > "$T_exc/retros/2026-09-05-excluded.md"
+git -C "$T_exc" add "retros/2026-09-05-excluded.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_exc" commit -q -m "add excluded retro"
+_j_exc="$(mkjson "$SID_exc" "false")"
+run_gate "$T_exc" "$_j_exc"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-excluded: excluded retro (kit-retro: exclude) → still blocks" \
+  || no "#957 T-excluded: excluded retro should not qualify → expected block: OUT=$OUT"
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -1581,8 +1693,8 @@ _M15_sab="$MUT_KIT/toolbelt/mutant-retro-diff-filter-sab.sh"
 awk '{ gsub(/SENTINEL-RETRO-SESSION-START/,"SENTINEL-RETRO-SESSION-XSTART"); print }' "$SUT" \
   > "$_M15_sab"; chmod +x "$_M15_sab"
 awk '
-  /# SENTINEL-RETRO-XSTART/ { in_s=1 }
-  /# SENTINEL-RETRO-SESSION-END/ { in_s=0 }
+  /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
+  /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
   in_s && /--diff-filter=A/ { gsub(/--diff-filter=A[[:space:]]*/,""); print; next }
   { print }
 ' "$_M15_sab" > "$MUT_KIT/toolbelt/mutant-retro-diff-filter-sab2.sh"
