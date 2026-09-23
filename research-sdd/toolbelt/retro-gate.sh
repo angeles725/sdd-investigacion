@@ -53,6 +53,19 @@ _retro_is_seedable() {
 }
 
 # SENTINEL-SEEDING-FUNC-START
+# _safe_grep_count <pattern> <text>: grep -c with rc-2 guard (ENOMEM/SIGPIPE → WARN + 0).
+# grep exits 0 (match found), 1 (no match), or 2 (error); only rc≥2 is an error.
+_safe_grep_count() {
+  local pattern="$1" text="$2" cnt grc
+  cnt="$(printf '%s' "$text" | grep -c "$pattern")"
+  grc=$?
+  if [ "$grc" -ge 2 ]; then
+    printf 'retro-gate: WARN: grep error (rc=%d) counting "%s" in seeder output\n' "$grc" "$pattern" >&2
+    cnt=0
+  fi
+  printf '%d' "$cnt"
+}
+
 _run_issue_seeding() {
   local target="$1" kit="$2"
   local seeder="$kit/toolbelt/stage-retro-issues.sh"
@@ -75,22 +88,39 @@ _run_issue_seeding() {
     return 0
   fi
 
-  local created=0 skipped=0
-  local rf seed_out _c _s
+  local created=0 skipped=0 failed=0
+  local rf seed_out seed_rc _c _s _seed_reason
+  local failed_list=""
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     retro_is_excluded "$rf" && continue
     _retro_is_seedable "$rf" || continue
-    seed_out="$(bash "$seeder" "$rf" --apply 2>&1)" || true
-    _c="$(printf '%s' "$seed_out" | grep -c 'created issue' || true)"
-    _s="$(printf '%s' "$seed_out" | grep -c 'already exists' || true)"
+    # SENTINEL-SEEDER-RC-START
+    seed_out="$(bash "$seeder" "$rf" --apply 2>&1)"
+    seed_rc=$?
+    # Count created/skipped from seed_out regardless of rc (partial progress is real)
+    _c="$(_safe_grep_count 'created issue' "$seed_out")"
+    _s="$(_safe_grep_count 'already exists' "$seed_out")"
     created=$((created + _c))
     skipped=$((skipped + _s))
+    if [ "$seed_rc" -ne 0 ]; then
+      failed=$((failed + 1))
+      failed_list="${failed_list:+$failed_list, }$(basename "$rf")"
+      # Include first line of seeder output as the failure reason (bounded to 80 chars)
+      _seed_reason="$(printf '%s' "$seed_out" | head -1 | cut -c1-80)"
+      printf 'retro-gate: WARN: seeder failed (exit %d) for %s: %s\n' \
+        "$seed_rc" "$(basename "$rf")" "$_seed_reason" >&2
+    fi
+    # SENTINEL-SEEDER-RC-END
+  # stderr not suppressed — traversal errors (permission denied, missing dir) are §7 signals
   done < <(find "$target" -maxdepth 4 -path '*/retros/*.md' \
-           -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+           -not -path '*/.git/*' -not -iname '*index*.md')
 
-  printf 'retro-gate: issue-seeding: created=%d skipped-dedup=%d target=%s\n' \
-    "$created" "$skipped" "$(basename "$target")" >&2
+  if [ "$failed" -gt 0 ]; then
+    printf 'retro-gate: WARN: seeding failed for %d retro(s): %s\n' "$failed" "$failed_list" >&2
+  fi
+  printf 'retro-gate: issue-seeding: created=%d skipped-dedup=%d failed=%d target=%s\n' \
+    "$created" "$skipped" "$failed" "$(basename "$target")" >&2
 }
 # SENTINEL-SEEDING-FUNC-END
 
