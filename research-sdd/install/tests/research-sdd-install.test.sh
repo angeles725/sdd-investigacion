@@ -87,16 +87,17 @@ if grep -q 'IMPORTANT user tail line' "$pf" && [ "$ends" = 1 ] && grep -q '## Re
   ok "orphaned start marker (markdown): trailing user content preserved AND fresh section appended (append, not skip)"
 else no "orphaned markdown marker mishandled (tail preserved? end markers=$ends — expected preserve+append)"; fi
 
-# 13 — CRITICAL 3: on a partial failure (one harness's config-root parent non-writable), overall exit
+# 13 — CRITICAL 3: on a partial failure (one harness's config-root non-writable), overall exit
 #      MUST be nonzero AND the still-writable harnesses must still be installed.
+#      (OpenCode dropped #954; now blocks .codex and checks claude + reasonix still install.)
 if [ "$(id -u)" -eq 0 ]; then ok "exit-code aggregation test skipped (running as root, chmod is a no-op)"
 else
-  home="$TMP/aggr"; mkdir -p "$home/.config"; chmod 000 "$home/.config"
+  home="$TMP/aggr"; mkdir -p "$home/.codex"; chmod 000 "$home/.codex"
   bash "$SUT" --home "$home" --harness all >/dev/null 2>&1; rc=$?
-  chmod 755 "$home/.config"
+  chmod 755 "$home/.codex"
   [ "$rc" -ne 0 ] && ok "partial failure yields nonzero overall exit" || no "partial failure silently exited 0 (rc=$rc)"
-  if [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.codex/skills/research-sdd/SKILL.md" ]; then
-    ok "partial failure still installs the writable harnesses (claude + codex)"
+  if [ -f "$home/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$home/.reasonix/skills/research-sdd/SKILL.md" ]; then
+    ok "partial failure still installs the writable harnesses (claude + reasonix)"
   else no "writable harnesses not installed after a mid-loop failure"; fi
 fi
 
