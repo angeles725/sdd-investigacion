@@ -81,8 +81,9 @@ echo "   branch: $branch"
 echo ""
 
 git -C "$KIT_REPO" checkout -q main || { echo "cannot checkout main" >&2; exit 4; }
-git -C "$KIT_REPO" fetch -q origin 2>/dev/null || true
-git -C "$KIT_REPO" pull -q --ff-only 2>/dev/null || true
+git -C "$KIT_REPO" fetch -q origin || { echo "degraded: git fetch origin failed — cannot verify remote state; refusing to branch from a possibly stale base." >&2; exit 6; }
+# Do NOT pull into the shared checkout's main (CLAUDE.md §3 / §12.4) — the new branch is
+# created from origin/main directly below, so local main does not need to advance.
 
 # Guard: main must be in sync with origin/main. Un-pushed local commits on main become
 # part of this branch's diff, so the PR's squash-merge folds them into the retro commit —
@@ -100,7 +101,7 @@ fi
 if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
   echo "branch $branch already exists — checking it out." ; git -C "$KIT_REPO" checkout -q "$branch"
 else
-  git -C "$KIT_REPO" checkout -q -b "$branch"
+  git -C "$KIT_REPO" checkout -q -b "$branch" origin/main
 fi
 
 echo ">> on branch $branch (from main). Proposed deltas to review/apply:"
