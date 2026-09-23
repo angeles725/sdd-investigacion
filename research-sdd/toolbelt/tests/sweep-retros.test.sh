@@ -2815,6 +2815,64 @@ else
   no "100 empty table header + HV honesty → ~0 (empty canonical body)" "exit=$RC out=[$OUT]"
 fi
 
+# 101 — INLINE COMMENT ON DELTA BULLET (fail-safe purity): a line that contains
+#       an inline HTML comment after a real delta bullet ("- Fix foo <!-- see doc -->")
+#       is non-honesty content in the canonical section → purity check fails → WARN-A.
+#       Before fix (49c0dd6): the /<!--/ rule skipped the entire line, leaving only
+#       the honesty line → false ~0.
+#       After fix (fail-safe): no line is skipped; the bullet is counted, is_honesty
+#       returns false for it, body_ok = 0 → WARN-A.
+kit="$(mkkit c101-inline-comment-bullet)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '%s\n' '- Fix foo <!-- see doc -->'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "101 inline comment after delta bullet → non-honesty body → WARN-A (~?)" "(exit $RC)"
+else
+  no "101 inline comment after delta bullet → non-honesty body → WARN-A (~?)" "exit=$RC out=[$OUT]"
+fi
+
+# 102 — FORM-3 ASCII HYPHEN AFTER CANONICAL SECTION (veto restored): a ## Delta X - ...
+#       heading with ASCII hyphen separator that appears AFTER the canonical section must
+#       still trigger the form-3 veto → WARN-A.
+#       Before fix (49c0dd6): veto only fired BEFORE canonical (before_canonical flag),
+#       and ASCII hyphen was not checked at all → false ~0.
+#       After fix: veto is file-wide; ASCII " - " is included → WARN-A.
+kit="$(mkkit c102-form3-ascii-after-canon)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+  printf '\n'
+  printf '## Notes\n\n'
+  printf '## Delta D1 - something that might be a delta\n\n'
+  printf '%s\n' '- evidence item'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "102 form-3 with ASCII hyphen after canonical section → file-wide veto → WARN-A (~?)" "(exit $RC)"
+else
+  no "102 form-3 with ASCII hyphen after canonical section → file-wide veto → WARN-A (~?)" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -3216,11 +3274,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   unset _lib_sm
 
   # Tooth PU: sabotage the "empty canonical body" gate so it always fires instead of only
-  # when body_real == 0. When this guard is widened (always true), the HV path accepts
+  # when body_count == 0. When this guard is widened (always true), the HV path accepts
   # ANY canonical body including non-honesty bullets, giving ~0 instead of WARN-A.
-  # Proves R3-001: the body_real == 0 gate is what blocks bullets+HV from reaching ~0.
+  # Proves the body_count == 0 gate is what blocks bullets+HV from reaching ~0.
   echo "-- teeth PU: widen empty-canonical gate; bullets+HV must revert to ~0 (case 93 has teeth) --"
-  _anchor_pu='if (body_real == 0) {'
+  _anchor_pu='if (body_count == 0) {'
   _lib_pu="$(cat "$RG_LIB")"
   if [[ "$_lib_pu" != *"$_anchor_pu"* ]]; then
     no "teeth PU: locate empty-canonical gate in lib" "anchor not found in lib — retro-grammar.sh drifted?"

@@ -210,8 +210,10 @@ for p in $paths; do
              # anywhere in the file is incompatible with a zero-delta honesty claim;
              # those must be counted by hand even when the honesty line is present.
              # RSDD_HONESTY_LINE_CHECK
-             # retro_grammar_has_honesty enforces purity (A), HV-location (B), marker
-             # stripping (C), and the form-3/WARN-B invariant (D) — see lib comments.
+             # retro_grammar_has_honesty: fail-safe purity check (every non-blank
+             # non-table canonical body line must be a honesty line after marker
+             # stripping); HV accepted only when canonical body is empty; form-3 and
+             # WARN-B indicators anywhere in the file veto the zero-delta claim.
              if retro_grammar_has_honesty "$f"; then
                deltas=0
              else

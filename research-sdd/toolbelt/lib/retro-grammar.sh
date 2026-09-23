@@ -148,26 +148,26 @@ fi
 # ─── retro_grammar_has_honesty ────────────────────────────────────────────────
 # Predicate: does file $1 carry a §18 honesty line in a PURE accepted location?
 #
-# Design (§912 stricter fail-safe, R2/R3/R4):
+# Fail-safe design (§912):
 #
-# A. PURE canonical section: after removing blank lines, multi-line HTML comments
-#    (<!-- … -->), fenced blocks (``` or ~~~ with any leading whitespace), and
-#    empty-table header+separator rows (only valid when no data rows follow), the
-#    section body must be exactly one or more honesty lines.
+# A. PURE canonical section: every non-blank, non-table body line in the canonical
+#    section must satisfy is_honesty() after marker stripping.  Fenced blocks, HTML
+#    comments, and other non-honesty content all fail this check by construction.
+#    An empty-table header+separator (no data rows) is also accepted as an empty body.
 #
-# B. ## Honest verdict: accepted ONLY when the canonical delta section is absent or
-#    its body is empty by rule A (no real lines after stripping).  A canonical
-#    section with non-honesty content blocks the HV path.
+# B. ## Honest verdict: accepted ONLY when the canonical section is absent or its
+#    body is empty (no non-blank, non-table lines).  Non-honesty canonical content
+#    blocks the HV path.
 #
 # C. Honesty line matching: strip leading whitespace and list/blockquote/emphasis
 #    markers (- * + > ** __ _) before matching /^no new deltas([^a-z0-9]|$)/.
 #
-# D. Invariant: delta indicators OUTSIDE the canonical section still veto ~0.
-#    - Form-3 (## Delta X — ...): counted only BEFORE canonical heading (same
-#      classifier as retro_grammar_delta_info); canonical alias self-match guarded
-#      by is_canonical_heading() (R4 fix).
-#    - WARN-B (### D1.-style): counted outside the canonical section.
-#    Both use the shared is_canonical_heading() from _RG_AWK_CANONICAL_FN (R2-001).
+# D. Veto: any of the following indicators anywhere in the file force exit 1.
+#    - Form-3: ## Delta <id> heading with em dash (—), en dash (–), or ASCII " - "
+#      that is not a canonical alias (guarded by is_canonical_heading()).
+#    - WARN-B: ### D1.-style heading (letter+digit or bare digit ID) outside the
+#      canonical section.
+#    Both use the shared is_canonical_heading() from _RG_AWK_CANONICAL_FN.
 #
 # Returns:
 #   exit 0 — pure honesty: accepted location, pure section, no conflicting indicators
@@ -200,88 +200,53 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
 
       BEGIN {
         in_canonical  = 0; in_hv = 0
-        in_fence      = 0; fence_ch = ""
-        in_mlc        = 0   # multi-line HTML comment
-        canonical_found  = 0
-        before_canonical = 1
-        # Canonical body counters
-        body_real    = 0   # non-blank, non-table, non-comment, non-fence lines
-        body_honesty = 0   # of those, lines that satisfy is_honesty()
-        body_pipe    = 0   # non-separator | rows (header+data mixed; data = max(0,pipe-1))
+        canonical_found = 0
+        # Canonical body purity tracking
+        body_count = 0   # non-blank, non-table body lines
+        body_ok    = 1   # 1 while all body_count lines satisfy is_honesty()
+        body_pipe  = 0   # non-separator | rows
         # HV body
-        hv_honesty   = 0
-        # Invariant indicators outside canonical section
-        ext_form3    = 0   # form-3 heading before canonical
-        ext_warnb    = 0   # WARN-B ### D1. heading outside canonical
+        hv_honesty = 0
+        # Veto: form-3 or WARN-B indicator anywhere in file
+        veto = 0
       }
 
-      # ── Multi-line HTML comment (global, before section routing) ─────────────
-      in_mlc {
-        if (index($0, "-->") > 0) in_mlc = 0
-        next
-      }
-      /<!--/ {
-        if (index($0, "-->") == 0) in_mlc = 1
-        next
-      }
+      { low = tolower($0) }
 
-      # ── Fence tracking (``` or ~~~ with any leading whitespace) ─────────────
-      !in_fence && /^[[:space:]]*(`{3,}|~{3,})/ {
-        in_fence = 1
-        fence_ch = ($0 ~ /^[[:space:]]*`/) ? "`" : "~"
-        next
-      }
-      in_fence {
-        if ((fence_ch == "`" && /^[[:space:]]*```/) ||
-            (fence_ch == "~" && /^[[:space:]]*~~~/)) {
-          in_fence = 0
-        }
-        next
-      }
-
-      # ── Section transitions and indicator detection ─────────────────────────
+      # ── Section transitions and veto detection (D) ──────────────────────────
       /^##[^#]/ {
-        low = tolower($0)
         if (is_canonical_heading(low)) {
-          in_canonical = 1; in_hv = 0
-          canonical_found = 1; before_canonical = 0
-          next
+          in_canonical = 1; in_hv = 0; canonical_found = 1; next
         }
         in_canonical = 0; in_hv = 0
-        if (low ~ /^## honest verdict([[:space:]]|$)/) {
-          in_hv = 1
-        } else {
-          # Form-3 indicator: ## Delta X — headings only before canonical (D, R4).
-          # is_canonical_heading() guard ensures ## Delta details alias never self-matches.
-          if (before_canonical && low ~ /^## delta[[:space:]]/ && $0 ~ /[—–]/) {
-            ext_form3 = 1
-          }
+        if (low ~ /^## honest verdict([[:space:]]|$)/) { in_hv = 1 }
+        # Form-3 veto: ## Delta <id> + em/en dash or ASCII " - ", anywhere in file.
+        # is_canonical_heading() guard ensures canonical aliases never self-match.
+        if (!is_canonical_heading(low) && low ~ /^## delta[[:space:]]/) {
+          if ($0 ~ /—/ || $0 ~ /–/ || $0 ~ / - /) veto = 1
         }
         next
       }
 
-      # ── WARN-B indicator (### D1.-style, outside canonical section) ──────────
-      !in_canonical && /^###[^#]/ {
-        if ($0 ~ /###[[:space:]]+([[:alpha:]][0-9]+|[0-9]+)([[:space:].—–-]|$)/) {
-          ext_warnb = 1
-        }
+      # ── WARN-B veto: ### D1.-style headings outside canonical section ────────
+      !in_canonical && /^###/ {
+        if ($0 ~ /^###[[:space:]]+[A-Za-z][0-9]/ || $0 ~ /^###[[:space:]]+[0-9]/) veto = 1
         next
       }
 
-      # ── Canonical body analysis ───────────────────────────────────────────────
+      # ── Canonical body purity check (A) ──────────────────────────────────────
       in_canonical {
-        if ($0 ~ /^[[:space:]]*$/) next                                   # blank
-        if (/^\|/) {                                                       # table row
-          if ($0 !~ /^\|[-: |]+\|?[[:space:]]*$/) body_pipe++            # non-separator
+        if ($0 ~ /^[[:space:]]*$/) next
+        if (/^\|/) {
+          if ($0 !~ /^\|[-: |]+\|?[[:space:]]*$/) body_pipe++
           next
         }
-        # Real non-table line
-        body_real++
-        if (is_honesty($0)) body_honesty++
+        body_count++
+        if (!is_honesty($0)) body_ok = 0
         next
       }
 
-      # ── HV body analysis ─────────────────────────────────────────────────────
+      # ── HV body analysis (B) ─────────────────────────────────────────────────
       in_hv {
         if ($0 ~ /^[[:space:]]*$/) next
         if (is_honesty($0)) hv_honesty = 1
@@ -289,25 +254,21 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
       }
 
       END {
-        # Invariant veto: conflicting indicators outside canonical section
-        if (ext_form3 || ext_warnb) { exit 1 }
+        if (veto) { exit 1 }
 
         # Data rows = max(0, non-separator pipe rows - 1)
         body_data = (body_pipe > 1) ? body_pipe - 1 : 0
 
         if (canonical_found) {
-          # Canonical section has data rows → not honesty path
           if (body_data > 0) { exit 1 }
-          # Pure honesty: all real (non-table) lines are honesty lines, at least one
-          if (body_real > 0 && body_honesty == body_real) { exit 0 }
-          # Empty canonical (no real non-table content after stripping) → check HV (B)
-          if (body_real == 0) {
+          # All non-table body lines are honesty (at least one present)
+          if (body_count > 0 && body_ok) { exit 0 }
+          # Empty canonical body → HV path (B)
+          if (body_count == 0) {
             if (hv_honesty) { exit 0 }
           }
-          # Canonical has non-honesty content → HV blocked (B, R3-001)
           exit 1
         } else {
-          # No canonical section: check HV
           if (hv_honesty) { exit 0 }
           exit 1
         }
