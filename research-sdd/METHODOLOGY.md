@@ -2862,7 +2862,19 @@ judgment, not the driver's own rationalizations). The retro agent:
    are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
    pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
    canonical delta section is unreviewable until its author fixes the heading — the honesty clause below covers
-   "no new deltas", not a missing section. **Instrument (as of kit issue #436):** `sweep-retros.sh` prints `no delta section found (empty-input)` for a PENDING retro with no canonical delta section — never a confident `~0` — warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
+   "no new deltas", not a missing section. **Instrument (as of kit issue #436, updated #912):** `sweep-retros.sh`
+   prints `no delta section found (empty-input)` for a PENDING retro with no canonical delta section AND no §18 honesty line anywhere
+   — a retro with `## Honest verdict` containing a §18 honesty phrase (see honesty clause below) prints `~0` instead.
+   Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns
+   `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
+   The `retro_grammar_has_honesty` predicate (updated kit issue #912) exempts the LEADING BLOCKQUOTE BLOCK
+   — the contiguous `>` lines immediately after the canonical heading before any other content — when
+   none of those lines (after stripping `"> "`) starts with a list/table/heading marker (`-`, `*`, `+`,
+   `|`, `#`, or `N.`); any such marker marks the entire block as non-scaffold and fails purity (`~?`).
+   **Residual risk (documented):** a delta written as a plain blockquoted prose sentence (no
+   list/table/heading marker) would be falsely exempt — the instrument cannot distinguish template
+   guidance prose from delta prose without a structural marker.  Any delta intended for kit review must
+   use the canonical table row form or a `### D<n> —` entry to be reliably detected.
 
 **At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #7)
 
@@ -2878,9 +2890,16 @@ two method stacks and makes both harder to audit.
 committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
 This preserves both the audit trail and the rule that the operator — not an autonomous agent — owns the method.
 
-**Honesty clause.** A run that surfaces nothing new must SAY so ("no new deltas; the kit already covers this
-run") rather than inventing improvements to look productive. A retro that always finds something is not a retro,
-it is noise.
+**Honesty clause.** A run that surfaces nothing new must SAY so rather than inventing improvements to look productive. A retro that always finds something is not a retro, it is noise. The `retro_grammar_has_honesty` predicate (kit issue #912) accepts exactly four forms (case-insensitive, trailing bold/italic markup stripped):
+
+| Accepted form | Separator |
+|---|---|
+| `no new deltas; the kit already covers this run.` | semicolon |
+| `no new deltas; nothing to add.` | semicolon |
+| `no new deltas — the kit already covers this run.` | em-dash (U+2014) |
+| `no new deltas — nothing to add.` | em-dash (U+2014) |
+
+The line must appear either directly in the canonical `## Proposed kit deltas` section (after a scaffold-only lead block) or under `## Honest verdict`. A purity failure (dirty structural marker in the lead block, or a `## D<n>` / `## Proposed…` heading outside the canonical section) voids the honesty check for that section even if the phrase is present — `verify-retro.sh` reports `FAIL [empty-section]` with the message "section impure" to distinguish it from the case where the phrase is absent entirely.
 
 **Enforcement — the retro gate (a run is not over until the retro exists).** The trigger above fired on paper and
 not in practice: measured on 2026-09-05, three targets advanced with no retro for their latest run, and of twelve

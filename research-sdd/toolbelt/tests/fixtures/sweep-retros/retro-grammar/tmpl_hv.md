@@ -37,18 +37,6 @@
 > present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
 > or an accepted alias listed in METHODOLOGY §18.
 
-| # | Proposed change | Target (file · §/section) | Evidence (block / commit / § / transcript ref) | Type | Priority |
-|---|---|---|---|---|---|
-| 1 | <codify improvised technique Y> | `METHODOLOGY.md §<n>` | `<B### / commit / §>` | new | HIGH |
-| 2 | <add a rule that prevents anti-pattern X> | `PROMPT-LOOP.md <HARD RULE / step>` | `<evidence>` | new | MEDIUM |
-| 3 | <refine existing rule Z — scope/condition> | `METHODOLOGY.md §<n>` | `<evidence>` | refinement | LOW |
-
-For each delta above, one line of rationale (WHY it matters, what it costs, expected impact):
-
-- **#1** — <why · impact>
-- **#2** — <why · impact>
-- **#3** — <why · impact>
-
 ## Already covered (dedupe — proof the retro read the kit first)
 
 > Lessons this run surfaced that the kit ALREADY encodes. Listing them proves the dedupe ran and prevents
@@ -93,6 +81,9 @@ For each delta above, one line of rationale (WHY it matters, what it costs, expe
 - **Deltas proposed (new)**: <x>  ·  **Already-covered lessons**: <x>
 
 ## Honest verdict
+
+no new deltas; the kit already covers this run.
+
 
 <Did this run genuinely surface anything new for the kit, or does the kit already cover it? Be specific.
 If NOTHING new: say exactly that — "no new deltas; the kit already covers this run." A retro that always

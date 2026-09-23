@@ -43,6 +43,8 @@ fi
 # Fail closed: existence is not enough — the source must have DEFINED the function.
 declare -F retro_grammar_delta_info >/dev/null 2>&1 || \
   { printf 'verify-retro: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info\n' >&2; exit 2; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 || \
+  { printf 'verify-retro: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty\n' >&2; exit 2; }
 unset _vr_rg_lib
 
 # ── Argument validation ───────────────────────────────────────────────────────
@@ -173,11 +175,11 @@ case "$_vr_form" in
 esac
 unset _vr_first _vr_rest_first _vr_form _vr_count _vr_rest _vr_depr_h
 
-# Check for §18 honesty line (anywhere in the file).
-# File is already verified readable above, so grep exit 2 should not occur.
+# Check for §18 honesty line (canonical delta section OR ## Honest verdict).
+# Uses the shared lib predicate so location scoping is identical to sweep-retros.sh.
 # SENTINEL-HONESTY-CHECK-START
 _has_honesty=0
-if grep -qi "no new deltas.*the kit already covers this run" "$f"; then
+if retro_grammar_has_honesty "$f"; then
   _has_honesty=1
 fi
 # SENTINEL-HONESTY-CHECK-END
@@ -189,8 +191,13 @@ if [ "$_cf" -eq 1 ]; then
     printf 'WARN [deprecated-heading]: deprecated delta heading — migrate to "## Proposed kit deltas" per §18\n'
   fi
   if [ "$_cd" -eq 0 ] && [ "$_has_honesty" -eq 0 ]; then
-    # empty-section: recognised heading, zero data rows, no §18 honesty line
-    printf 'FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n'
+    # empty-section: recognised heading, zero data rows, grammar rejected honesty check.
+    # Distinguish impure (honesty phrase present but section failed purity) from absent.
+    if grep -qi 'no new deltas' "$f" 2>/dev/null; then
+      printf 'FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n'
+    else
+      printf 'FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n'
+    fi
     printf '  fix: add at least one data row to the delta table:\n'
     printf '       | 1 | <change> | <target file · §/section> | <evidence> | <type> | <priority> |\n'
     printf '  or state the §18 honesty clause under ## Honest verdict:\n'

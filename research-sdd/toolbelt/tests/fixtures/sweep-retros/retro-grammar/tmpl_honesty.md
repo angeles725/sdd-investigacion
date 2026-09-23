@@ -37,17 +37,7 @@
 > present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
 > or an accepted alias listed in METHODOLOGY §18.
 
-| # | Proposed change | Target (file · §/section) | Evidence (block / commit / § / transcript ref) | Type | Priority |
-|---|---|---|---|---|---|
-| 1 | <codify improvised technique Y> | `METHODOLOGY.md §<n>` | `<B### / commit / §>` | new | HIGH |
-| 2 | <add a rule that prevents anti-pattern X> | `PROMPT-LOOP.md <HARD RULE / step>` | `<evidence>` | new | MEDIUM |
-| 3 | <refine existing rule Z — scope/condition> | `METHODOLOGY.md §<n>` | `<evidence>` | refinement | LOW |
-
-For each delta above, one line of rationale (WHY it matters, what it costs, expected impact):
-
-- **#1** — <why · impact>
-- **#2** — <why · impact>
-- **#3** — <why · impact>
+no new deltas; the kit already covers this run.
 
 ## Already covered (dedupe — proof the retro read the kit first)
 

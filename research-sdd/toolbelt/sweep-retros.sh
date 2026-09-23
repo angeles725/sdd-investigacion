@@ -53,6 +53,7 @@ if [ ! -f "$_sr_rg_lib" ]; then echo "sweep-retros: cannot find helper $_sr_rg_l
 # shellcheck source=lib/retro-grammar.sh
 . "$_sr_rg_lib"
 declare -F retro_grammar_delta_info >/dev/null 2>&1 || { echo "sweep-retros: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 || { echo "sweep-retros: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 unset _sr_rg_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
@@ -202,17 +203,36 @@ for p in $paths; do
     if [ "$_sec_found" = 1 ]; then
       case "$_sec_form" in
         1|2) deltas="$_sec_cnt" ;;                          # form 1 (table) or form 2 (### entries)
-        *)   delta_warn="delta section present but not in countable form — count by hand"
-             deltas="?" ;;                                  # WARN-A: canonical section, pure prose
+        *)   # WARN-A: canonical section found, no table rows, no ###-entry sub-headings.
+             # §18 honesty line (canonical section OR ## Honest verdict) is an explicit
+             # countable ZERO — distinct from absent (~?) and from no-match.
+             # Invariant: a form-3 (## Delta X — ...) or WARN-B (### D1. ...) indicator
+             # anywhere in the file is incompatible with a zero-delta honesty claim;
+             # those must be counted by hand even when the honesty line is present.
+             # RSDD_HONESTY_LINE_CHECK
+             # retro_grammar_has_honesty: fail-safe purity check (every non-blank
+             # non-table canonical body line must be a honesty line after marker
+             # stripping); HV accepted only when canonical body is empty; form-3 and
+             # WARN-B indicators anywhere in the file veto the zero-delta claim.
+             if retro_grammar_has_honesty "$f"; then
+               deltas=0
+             else
+               delta_warn="delta section present but not in countable form — count by hand"
+               deltas="?"                                  # WARN-A: canonical section, not pure honesty
+             fi
+             ;;
       esac
     else
       case "$_sec_form" in
         3)   deltas="$_sec_cnt" ;;                          # form 3 (## Delta-prefixed headings)
-        *)   # WARN-B or no-delta-section — check for non-canonical indicators
+        *)   # WARN-B or no-delta-section — check for non-canonical indicators, then honesty.
+             # A § Honest verdict honesty line (no canonical section) → explicit ~0.
              if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
                 || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
                delta_warn="non-conforming delta declaration — count by hand"
                deltas="?"                                   # WARN-B
+             elif retro_grammar_has_honesty "$f"; then
+               deltas=0                                     # § Honest verdict, no canonical section
              else
                deltas="no delta section found (empty-input)"  # distinct state: no section, no indicators
              fi

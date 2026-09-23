@@ -20,7 +20,7 @@
 > Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
 > Each delta: the concrete change · the target file/section · evidence · priority.
 >
-> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
 > delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
 > equally; any non-separator table row is one delta. The counter skips the header row and every
 > `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
@@ -29,7 +29,7 @@
 > — see §18 for accepted variants and location rules. Heading-style declarations **outside** this
 > section are non-conforming. Use the table below to stay machine-countable.
 >
-> **The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
+> The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
 > name between `Proposed` and `kit deltas` (e.g. `## Proposed research-sdd kit deltas`) or between
 > `Proposed` and `deltas` (e.g. `## Proposed research-sdd deltas`) breaks every recognised pattern
 > and makes this entire section invisible to supervision. The failure symptom visible to the author
@@ -37,17 +37,7 @@
 > present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
 > or an accepted alias listed in METHODOLOGY §18.
 
-| # | Proposed change | Target (file · §/section) | Evidence (block / commit / § / transcript ref) | Type | Priority |
-|---|---|---|---|---|---|
-| 1 | <codify improvised technique Y> | `METHODOLOGY.md §<n>` | `<B### / commit / §>` | new | HIGH |
-| 2 | <add a rule that prevents anti-pattern X> | `PROMPT-LOOP.md <HARD RULE / step>` | `<evidence>` | new | MEDIUM |
-| 3 | <refine existing rule Z — scope/condition> | `METHODOLOGY.md §<n>` | `<evidence>` | refinement | LOW |
-
-For each delta above, one line of rationale (WHY it matters, what it costs, expected impact):
-
-- **#1** — <why · impact>
-- **#2** — <why · impact>
-- **#3** — <why · impact>
+no new deltas; the kit already covers this run.
 
 ## Already covered (dedupe — proof the retro read the kit first)
 
@@ -67,15 +57,15 @@ For each delta above, one line of rationale (WHY it matters, what it costs, expe
 > tool here — "we wrote a throwaway script" IS a CREATED entry, not nothing; under-reporting is the
 > failure mode. Each column is answerable from the corpus and the run's commits alone.
 >
-> **ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
-> **recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
+> ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
+> recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
 > instead of repeating the same arithmetic path that produced the result. Example: a tool that renders
 > a 3D model exactly as the viewer will draw it can detect a mirror-flip that passes all 21
 > length/area/angle checks — because reflection preserves magnitudes, no symmetric check can see it.
 > Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
 > candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
 >
-> **Why T-prefix in the first column:** the tools table lives under a different heading from
+> Why T-prefix in the first column:** the tools table lives under a different heading from
 > `## Proposed kit deltas`, so the delta counter does not see it regardless of column ID. The T-prefix
 > is a human-readability convention — it makes tool rows visually distinct from delta rows when both
 > tables are visible side by side.
