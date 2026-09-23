@@ -75,22 +75,47 @@ _run_issue_seeding() {
     return 0
   fi
 
-  local created=0 skipped=0
-  local rf seed_out _c _s
+  local created=0 skipped=0 failed=0
+  local rf seed_out seed_rc _c _cgrc _s _sgrc
+  local failed_list=""
   while IFS= read -r rf; do
     [ -n "$rf" ] || continue
     retro_is_excluded "$rf" && continue
     _retro_is_seedable "$rf" || continue
-    seed_out="$(bash "$seeder" "$rf" --apply 2>&1)" || true
-    _c="$(printf '%s' "$seed_out" | grep -c 'created issue' || true)"
-    _s="$(printf '%s' "$seed_out" | grep -c 'already exists' || true)"
+    # SENTINEL-SEEDER-RC-START
+    seed_out="$(bash "$seeder" "$rf" --apply 2>&1)"
+    seed_rc=$?
+    if [ "$seed_rc" -ne 0 ]; then
+      failed=$((failed + 1))
+      failed_list="${failed_list:+$failed_list, }$(basename "$rf")"
+      printf 'retro-gate: WARN: seeder failed (exit %d) for %s\n' "$seed_rc" "$(basename "$rf")" >&2
+      continue
+    fi
+    # SENTINEL-SEEDER-RC-END
+    # SENTINEL-GREP-RC-START
+    _c="$(printf '%s' "$seed_out" | grep -c 'created issue')"
+    _cgrc=$?
+    if [ "$_cgrc" -ge 2 ]; then
+      printf 'retro-gate: WARN: grep error (rc=%d) counting created issues in seeder output\n' "$_cgrc" >&2
+      _c=0
+    fi
+    _s="$(printf '%s' "$seed_out" | grep -c 'already exists')"
+    _sgrc=$?
+    if [ "$_sgrc" -ge 2 ]; then
+      printf 'retro-gate: WARN: grep error (rc=%d) counting skipped issues in seeder output\n' "$_sgrc" >&2
+      _s=0
+    fi
+    # SENTINEL-GREP-RC-END
     created=$((created + _c))
     skipped=$((skipped + _s))
   done < <(find "$target" -maxdepth 4 -path '*/retros/*.md' \
-           -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+           -not -path '*/.git/*' -not -iname '*index*.md')
 
-  printf 'retro-gate: issue-seeding: created=%d skipped-dedup=%d target=%s\n' \
-    "$created" "$skipped" "$(basename "$target")" >&2
+  if [ "$failed" -gt 0 ]; then
+    printf 'retro-gate: WARN: seeding failed for %d retro(s): %s\n' "$failed" "$failed_list" >&2
+  fi
+  printf 'retro-gate: issue-seeding: created=%d skipped-dedup=%d failed=%d target=%s\n' \
+    "$created" "$skipped" "$failed" "$(basename "$target")" >&2
 }
 # SENTINEL-SEEDING-FUNC-END
 

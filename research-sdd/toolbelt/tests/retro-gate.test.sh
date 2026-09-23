@@ -411,6 +411,51 @@ _seed_count=0
 [ "${_seed_count:-0}" -ge 2 ] && ok "EN3-d: idempotent — stub called at least twice (no error)" \
   || no "EN3-d: idempotent — stub called ${_seed_count} time(s), want ≥2; log=$(cat "$SEED_LOG_EN3" 2>/dev/null || echo '<absent>')"
 
+# ─── (EN3-e) Failing seeder → WARN emitted, failed=N in summary, gate still allows ──
+# Validates the seeder-rc fix: a non-zero seeder exit must NOT be swallowed silently.
+FKIT_FAIL="$ROOT/fkit_fail"
+mkdir -p "$FKIT_FAIL/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT_FAIL/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT_FAIL/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_FAIL/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT_FAIL/toolbelt/"
+# Failing seeder: exits 1 (simulates a seeder failure, e.g. API rate limit)
+cat > "$FKIT_FAIL/toolbelt/stage-retro-issues.sh" << 'FAILEOF'
+#!/usr/bin/env bash
+printf 'seeder: error: API rate limit exceeded\n' >&2
+exit 1
+FAILEOF
+chmod +x "$FKIT_FAIL/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_FAIL/toolbelt/retro-gate.sh"
+
+run_fkit_fail_gate() {
+  local tgt="$1" json="$2" errf
+  errf="$ROOT/fkit_fail_err.$$"
+  OUT="$(printf '%s' "$json" | SEED_LOG="$SEED_LOG_EN3" \
+    PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$FKIT_FAIL/toolbelt/retro-gate.sh" "$tgt" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+
+TEN3E="$ROOT/en3e"; mkgit "$TEN3E"; SIDEN3E="en3-sess-e"
+mksessionfile "$TEN3E" "$SIDEN3E" "202609050800"
+mkblock "$TEN3E" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TEN3E/niagara-block1.md"
+mkretro "$TEN3E" "2026-09-05-fail-seeder.md" 1
+touch -t 202609051200 "$TEN3E/retros/2026-09-05-fail-seeder.md"
+_jen3e="$(mkjson "$SIDEN3E" "false")"
+run_fkit_fail_gate "$TEN3E" "$_jen3e"
+# Gate block/allow decision must be unaffected by seeder failure
+[ "$RC" -eq 0 ] && ok "EN3-e: failing seeder → gate still allows (exit 0)" \
+  || no "EN3-e: failing seeder → expected exit 0, got $RC"
+[ -z "$OUT" ] && ok "EN3-e: failing seeder → no block JSON on stdout" \
+  || no "EN3-e: failing seeder → unexpected stdout: $OUT"
+printf '%s' "$ERR" | grep -q 'WARN.*seeder failed' && ok "EN3-e: failing seeder → WARN in stderr" \
+  || no "EN3-e: failing seeder → expected 'WARN.*seeder failed' in stderr; got: $ERR"
+printf '%s' "$ERR" | grep -q 'failed=1' && ok "EN3-e: failing seeder → failed=1 in summary line" \
+  || no "EN3-e: failing seeder → expected 'failed=1' in summary; got: $ERR"
+printf '%s' "$ERR" | grep -q 'WARN.*fail-seeder' && ok "EN3-e: failing seeder → retro filename in WARN line" \
+  || no "EN3-e: failing seeder → expected 'WARN.*fail-seeder' in WARN line; got: $ERR"
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -662,6 +707,63 @@ if PATH="$_T9_OLD_PATH" command -v jq >/dev/null 2>&1; then
   ok "TOOTH nojq-path-dirname-leak: precondition guard would fire on old dirname PATH (mutation confirms)"
 else
   no "TOOTH nojq-path-dirname-leak: old dirname PATH unexpectedly hides jq — mutation check broken"
+fi
+
+# ── TOOTH 10: seeder-rc-swallowed — mutant restores '|| true' on seeder call ─
+# Mutant: SENTINEL-SEEDER-RC-START…END replaced with original '|| true' logic
+# → seeder rc is swallowed → no WARN emitted → no 'failed=N' in summary (RED as expected).
+M10="$(mkmutant 'seeder-rc-swallowed' 'SENTINEL-SEEDER-RC-START' 'SENTINEL-SEEDER-RC-END')"
+# Inject the original (broken) seeder call into the mutant after removing the sentinel block
+cat >> "$M10" << 'INJECT'
+# This line never executes — the append is for documentation only.
+# The mkmutant sentinel removal drops the rc-check block; seeder is called with || true
+INJECT
+# Patch in original || true logic to the void left by sentinel removal:
+# Insert the three original lines (seed_out / _c / _s without rc check) after the comment
+# Actually: the sentinel removal already leaves a gap — we need to fill it with the broken version.
+# Build the replacement manually:
+M10_FIXED="$ROOT/mut_tooth10.sh"
+# Extract the SUT excluding the sentinel block and replace with original broken code
+awk '
+  /# SENTINEL-SEEDER-RC-START/ { skip=1; print "    seed_out=\"$(bash \"$seeder\" \"$rf\" --apply 2>&1)\" || true"; next }
+  /# SENTINEL-SEEDER-RC-END/   { skip=0; next }
+  skip { next }
+  { print }
+' "$SUT" > "$M10_FIXED"
+chmod +x "$M10_FIXED"
+# Copy into MUT_KIT so SELF_DIR path resolution works
+cp "$M10_FIXED" "$MUT_KIT/toolbelt/retro-gate-m10.sh"
+
+# Add failing seeder to MUT_KIT
+cat > "$MUT_KIT/toolbelt/stage-retro-issues.sh" << 'FAILEOF2'
+#!/usr/bin/env bash
+printf 'seeder: error: API rate limit exceeded\n' >&2
+exit 1
+FAILEOF2
+chmod +x "$MUT_KIT/toolbelt/stage-retro-issues.sh"
+
+TM10="$ROOT/m10"; mkgit "$TM10"; SM10="m10-sess"
+mksessionfile "$TM10" "$SM10" "202609050800"
+mkblock "$TM10" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TM10/niagara-block1.md"
+mkretro "$TM10" "2026-09-05-m10.md" 1
+touch -t 202609051200 "$TM10/retros/2026-09-05-m10.md"
+_jm10="$(mkjson "$SM10" "false")"
+errf_m10="$ROOT/merr_m10"
+OUT="$(printf '%s' "$_jm10" | PATH="$ROOT/mockbin2:$PATH" \
+  "$BASH_BIN" "$MUT_KIT/toolbelt/retro-gate-m10.sh" "$TM10" 2>"$errf_m10")"; RC=$?
+ERR_M10="$(cat "$errf_m10")"; rm -f "$errf_m10"
+# Mutant swallows seeder rc → no 'WARN.*seeder failed' → EN3-e assertion would fail (RED)
+if printf '%s' "$ERR_M10" | grep -q 'WARN.*seeder failed'; then
+  no "TOOTH seeder-rc-swallowed: mutant emitted WARN — tooth has no bite"
+else
+  ok "TOOTH seeder-rc-swallowed: mutant did NOT emit WARN (assertion would fail — RED)"
+fi
+# Also confirm: mutant shows failed=0 (not failed=1)
+if printf '%s' "$ERR_M10" | grep -q 'failed=1'; then
+  no "TOOTH seeder-rc-swallowed: mutant shows failed=1 — tooth has no bite"
+else
+  ok "TOOTH seeder-rc-swallowed: mutant shows failed=0 (not failed=1) — RED as expected"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
