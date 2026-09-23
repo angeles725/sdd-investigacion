@@ -437,7 +437,7 @@ main() {
   if [ "$dry" -eq 1 ]; then
     emit_plan "research-sdd-install.sh --harness $harness --home $home_dir --dry-run"
   else
-    "$SELF/research-sdd-install.sh" --harness "$harness" --home "$home_dir" || true
+    "$SELF/research-sdd-install.sh" --harness "$harness" --home "$home_dir" || _baseline_ok=0  # SENTINEL-SKILL-DEPLOY
   fi
 
   # SDD-agents notice — informational only; never blocks or fails.

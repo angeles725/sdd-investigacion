@@ -13,6 +13,8 @@
 #   8. Non-dry SUMMARY counts are row-anchored: fixture with 3 AVAILABLE + 1 MISSING
 #      + 1 UNUSABLE + 1 PROBE_FAILED + 2 legend lines → AVAILABLE: 3 | MISSING/UNUSABLE: 3.
 #      Empty cache (nonexistent RESEARCH_TOOLS_CACHE) → DEGRADED line.
+#   9. Skill-deploy failure clears _baseline_ok: stub research-sdd-install.sh exits 1 →
+#      SUMMARY BASELINE DEGRADED + non-zero exit (not BASELINE OK + exit 0).
 #
 # Teeth (--prove-teeth):
 #   Tooth A — SENTINEL-IDEMPOTENT: disabling the "strip existing block" guard causes
@@ -29,6 +31,8 @@
 #             user content between orphan-start and the appended end marker.
 #   Tooth G — SENTINEL-GREP-AV-ANCHOR: un-anchoring the AVAILABLE regex causes the
 #             legend line to be counted → fixture reports 4|4 instead of 3|3.
+#   Tooth H — SENTINEL-SKILL-DEPLOY: restoring || true on the skill-deploy call causes
+#             a failing installer to be silently ignored → BASELINE OK + exit 0.
 #
 # Usage: install.test.sh [--prove-teeth]
 # Exit: 0 all held · 1 regression · 2 harness error.
@@ -333,6 +337,43 @@ if printf '%s' "$empty_out8" | grep -q 'DEGRADED'; then
   ok "summary: empty-cache (nonexistent RESEARCH_TOOLS_CACHE) → DEGRADED line"
 else
   no "summary: expected DEGRADED on empty cache" "out=$(printf '%s' "$empty_out8" | grep 'SUMMARY\|DEGRADED' || true)"
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Skill-deploy failure clears _baseline_ok: stub installer exits 1 →
+#    SUMMARY BASELINE DEGRADED + non-zero exit (issue #963).
+#    Reuses $stub_kit8 and $fixture_cache8 from case 8 setup above.
+# ---------------------------------------------------------------------------
+stub_install9="$TMP/stub-install9"
+mkdir -p "$stub_install9"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$stub_install9/research-sdd-install.sh"
+chmod +x "$stub_install9/research-sdd-install.sh"
+
+summary_home9="$TMP/summary-home9"
+mkdir -p "$summary_home9"
+
+summary_script9="$TMP/test-summary9.sh"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -uo pipefail' \
+  "source \"$SUT\"" \
+  "SELF=\"$stub_install9\"" \
+  "KIT=\"$stub_kit8\"" \
+  'apt_have() { return 0; }' \
+  'have()     { return 0; }' \
+  'node_ok()  { return 0; }' \
+  'sudo_n()   { return 100; }' \
+  "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
+  "main --home \"$summary_home9\" --harness claude" \
+  > "$summary_script9"
+
+summary_out9="$(bash "$summary_script9" 2>&1)"; summary_rc9=$?
+if [ "$summary_rc9" -ne 0 ] && printf '%s' "$summary_out9" | grep -q 'BASELINE DEGRADED'; then
+  ok "skill-deploy failure: BASELINE DEGRADED + non-zero exit when installer exits 1"
+else
+  summary_line9="$(printf '%s' "$summary_out9" | grep 'SUMMARY' || true)"
+  no "skill-deploy failure: expected non-zero exit + BASELINE DEGRADED" \
+     "rc=$summary_rc9 summary=$summary_line9"
 fi
 
 # ==========================================================================
@@ -668,6 +709,51 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-g: SENTINEL-GREP-AV-ANCHOR not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- Tooth H: SENTINEL-SKILL-DEPLOY — restoring || true swallows deploy failure ----
+  # Mutant: change `|| _baseline_ok=0  # SENTINEL-SKILL-DEPLOY` back to `|| true`.
+  # With || true, a failing installer leaves _baseline_ok=1 → BASELINE OK + exit 0.
+  printf '%s\n' '-- teeth-h: SENTINEL-SKILL-DEPLOY mutant (|| true restored) must report BASELINE OK exit 0 --'
+  MUTANT_H="$TMP/install.MUT-H.sh"
+  if grep -q 'SENTINEL-SKILL-DEPLOY' "$SUT"; then
+    sed 's/|| _baseline_ok=0  # SENTINEL-SKILL-DEPLOY/|| true  # MUTATED-H/' \
+      "$SUT" > "$MUTANT_H"
+
+    mut_h_script="$TMP/test-summary-mut-h.sh"
+    mut_h_home="$TMP/summary-home-mut-h"
+    mkdir -p "$mut_h_home"
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -uo pipefail' \
+      "source \"$MUTANT_H\"" \
+      "SELF=\"$stub_install9\"" \
+      "KIT=\"$stub_kit8\"" \
+      'apt_have() { return 0; }' \
+      'have()     { return 0; }' \
+      'node_ok()  { return 0; }' \
+      'sudo_n()   { return 100; }' \
+      "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
+      "main --home \"$mut_h_home\" --harness claude" \
+      > "$mut_h_script"
+    mut_h_out="$(bash "$mut_h_script" 2>&1)"; mut_h_rc=$?
+    if [ "$mut_h_rc" -eq 0 ] && printf '%s' "$mut_h_out" | grep -q 'BASELINE OK'; then
+      ok "teeth-h: SENTINEL-SKILL-DEPLOY mutant reports BASELINE OK exit 0 (deploy-failure guard bites)"
+    else
+      mut_h_line="$(printf '%s' "$mut_h_out" | grep 'SUMMARY' || true)"
+      no "teeth-h: mutant did not report BASELINE OK exit 0 — deploy-failure guard may not be load-bearing" \
+         "rc=$mut_h_rc summary=$mut_h_line"
+    fi
+
+    # Confirm original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control).
+    if [ "$summary_rc9" -ne 0 ] && printf '%s' "$summary_out9" | grep -q 'BASELINE DEGRADED'; then
+      ok "teeth-h: original (fixed SUT) reports BASELINE DEGRADED + non-zero exit (control confirmed)"
+    else
+      no "teeth-h: original SUT control failed — fix not in place?" \
+         "rc=$summary_rc9 summary=$(printf '%s' "$summary_out9" | grep 'SUMMARY' || true)"
+    fi
+  else
+    no "teeth-h: SENTINEL-SKILL-DEPLOY not found in SUT (cannot anchor mutation)"
   fi
 fi
 
