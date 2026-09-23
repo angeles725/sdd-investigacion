@@ -2396,6 +2396,109 @@ else
   no "T-SC-CROSS-CHECK: verify-state passed silently — SC-CROSS-CHECK did not fire on prose mismatch (prose absent or check skipped)"
 fi
 
+# ── #911 A2: multi-table backlog reader ─────────────────────────────────────────────────────────
+# T-5COL-NOMALFORMED: a 5-column Gap-backlog table must NOT emit "malformed backlog row" WARN;
+# before the fix the n!=4 check fires on every row → WARN logged and rows dropped.
+d_5c="$TMP/fivecol-warn"; mkdir -p "$d_5c"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | G1 | five-col gap | bin.dll | pending |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_5c/RESEARCH-STATE.md"
+_5c_warn="$(bash "$SUT" "$d_5c" --next 2>&1 >/dev/null)"
+if echo "$_5c_warn" | grep -qi 'malformed backlog row'; then
+  no "T-5COL-NOMALFORMED: 5-col Gap-backlog row emits malformed-WARN (should parse correctly after fix)"
+else
+  ok "T-5COL-NOMALFORMED: 5-col Gap-backlog row parsed without malformed-WARN"
+fi
+
+# T-5COL-SYNC: --sync-state must derive known_gaps≥1 from a 5-col Gap-backlog table;
+# before the fix n!=4 drops all rows → count_all_known_gaps=0 → known_gaps falls back to
+# the coverage metric (0 here) → the envelope is left with known_gaps: 0.
+d_5cs="$TMP/fivecol-sync"; mkdir -p "$d_5cs"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | G1 | five-col pending gap | bin.dll | pending |"
+  echo "| low  | G2 | five-col covered gap | bin.dll | covered |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_5cs/RESEARCH-STATE.md"
+bash "$SUT" "$d_5cs" --sync-state >/dev/null 2>&1
+_5cs_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_5cs/RESEARCH-STATE.md")"
+if [ "${_5cs_kg:-0}" -ge 2 ]; then
+  ok "T-5COL-SYNC: --sync-state derived known_gaps=${_5cs_kg} ≥ 2 from 5-col Gap-backlog"
+else
+  no "T-5COL-SYNC: --sync-state derived known_gaps=${_5cs_kg:-0}, want ≥2 (5-col rows not counted)"
+fi
+
+# T-TWO-TABLE-SYNC: --sync-state must derive known_gaps that reflects BOTH tables — NG* rows in
+# a non-Gap-backlog section AND N* rows in the canonical ## Gap-backlog section.
+# Before the fix: NG* rows silently skipped (in_backlog=0 + n=5); N* rows WARNed and dropped
+# (in_backlog=1 + n=5 ≠ 4) → total=0 → known_gaps falls back to coverage metric (0 here).
+d_tt="$TMP/two-table"; mkdir -p "$d_tt"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Sub-pass (non-Gap-backlog heading)"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | NG1 | first-table covered gap | bin.dll | covered -> B1 |"; echo
+  echo "## Gap-backlog (prioritized)"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| low | N1 | second-table covered gap | bin2.dll | covered -> B2 |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_tt/RESEARCH-STATE.md"
+bash "$SUT" "$d_tt" --sync-state >/dev/null 2>&1
+_tt_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_tt/RESEARCH-STATE.md")"
+if [ "${_tt_kg:-0}" -ge 2 ]; then
+  ok "T-TWO-TABLE-SYNC: --sync-state derived known_gaps=${_tt_kg} ≥ 2 (both tables counted)"
+else
+  no "T-TWO-TABLE-SYNC: --sync-state derived known_gaps=${_tt_kg:-0}, want ≥2 (second table not counted)"
+fi
+
+# T-OOB-WARN: a backlog-format row outside ## Gap-backlog must emit OOB-WARN to stderr so the
+# author knows to migrate it per METHODOLOGY §8b. Use --sync-state so backlog_rows runs directly
+# (--next silences verify-state stderr via its stale gate, swallowing the WARN).
+d_oob="$TMP/oob-warn"; mkdir -p "$d_oob"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Non-canonical heading"; echo
+  echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+  echo "| high | NG1 | oob covered gap | bin.dll | covered -> B1 |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_oob/RESEARCH-STATE.md"
+_oob_warn="$(bash "$SUT" "$d_oob" --sync-state 2>&1 >/dev/null)"
+if echo "$_oob_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+  ok "T-OOB-WARN: OOB-WARN emitted for backlog-format row outside ## Gap-backlog section"
+else
+  no "T-OOB-WARN: no WARN mentioning Gap-backlog for row outside ## Gap-backlog section"
+fi
+
+# T-MED-ABBREV-WARN: 'med' priority must emit a normalization WARN, not INVALID_PRIORITY.
+# Before the fix: 'med' hits the unknown-priority branch → INVALID_PRIORITY sentinel on stdout
+# and a generic "unknown priority" message on stderr; --sync-state refuses with error exit 1.
+d_med="$TMP/med-abbrev"; mkdir -p "$d_med"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| med | medium-tier gap | web | covered |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_med/RESEARCH-STATE.md"
+_med_warn="$(bash "$SUT" "$d_med" --next 2>&1 >/dev/null)"
+if echo "$_med_warn" | grep -qi 'tier.abbrev\|non-conforming.*tier\|med.*medium\|MED-ABBREV'; then
+  ok "T-MED-ABBREV-WARN: 'med' priority emits a tier-normalization WARN"
+else
+  no "T-MED-ABBREV-WARN: 'med' priority did not emit a tier-normalization WARN"
+fi
+
+# T-MED-ABBREV-SYNC: 'med' row must be counted by --sync-state (not INVALID_PRIORITY-rejected).
+# Before the fix: INVALID_PRIORITY sentinel → BP-SYNC-INVALID-REFUSE → exit 1.
+d_meds="$TMP/med-sync"; mkdir -p "$d_meds"
+{ echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+  echo "## Gap-backlog"; echo
+  echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+  echo "| med | med-abbrev gap | web | covered |"; echo
+  echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_meds/RESEARCH-STATE.md"
+bash "$SUT" "$d_meds" --sync-state >/dev/null 2>&1; _med_sync_rc=$?
+_meds_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_meds/RESEARCH-STATE.md")"
+if [ "$_med_sync_rc" -eq 0 ] && [ "${_meds_kg:-0}" -ge 1 ]; then
+  ok "T-MED-ABBREV-SYNC: 'med' row counted (known_gaps=${_meds_kg}) and --sync-state exits 0"
+else
+  no "T-MED-ABBREV-SYNC: 'med' row not counted (known_gaps=${_meds_kg:-0}, rc=$_med_sync_rc) — INVALID_PRIORITY not normalized"
+fi
+
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
@@ -4122,6 +4225,73 @@ BLTGHEOF
     else
       ok "teeth-SC-CROSS-CHECK: SC-CROSS-CHECK silent without prose → T-SC-CROSS-CHECK not theater (would be RED if prose absent)"
     fi
+
+  # ── #911 A2 teeth ────────────────────────────────────────────────────────────────────────────────
+  # teeth-BP-EXPECTED-COLS: revert expected_cols=n to expected_cols=0; T-5COL-SYNC must go RED
+  # (5-col rows not counted → known_gaps falls back to env 0 → T-5COL-SYNC fails ≥2 assertion).
+  # Uses a fresh fixture (known_gaps: 0) so pick() doesn't salvage the previous envelope value.
+  echo "-- teeth-BP-EXPECTED-COLS: replace expected_cols=n with expected_cols=0 → 5-col rows not counted --"
+  _bpec_mutant="$TMP/status.BPEC.MUTANT.sh"
+  _bpec_d="$TMP/bpec-tooth"; mkdir -p "$_bpec_d"
+  { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+    echo "## Gap-backlog (prioritized)"; echo
+    echo "| Pr. | ID | Gap | Artifact | Status |"; echo "|---|---|---|---|---|"
+    echo "| high | G1 | five-col covered gap | bin.dll | covered |"
+    echo "| low  | G2 | five-col covered gap | bin2.dll | covered |"; echo
+    echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$_bpec_d/RESEARCH-STATE.md"
+  if grep -q '# BP-EXPECTED-COLS' "$SUT"; then
+    sed 's/expected_cols=n; next/expected_cols=0; next/' "$SUT" > "$_bpec_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    bash "$_bpec_mutant" "$_bpec_d" --sync-state >/dev/null 2>&1
+    _bpec_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$_bpec_d/RESEARCH-STATE.md")"
+    if [ "${_bpec_kg:-0}" -lt 2 ]; then
+      ok "teeth-BP-EXPECTED-COLS: mutant (expected_cols=0) → known_gaps=${_bpec_kg} < 2 → T-5COL-SYNC goes RED → BP-EXPECTED-COLS is load-bearing"
+    else
+      no "teeth-BP-EXPECTED-COLS: mutant still derived known_gaps=${_bpec_kg} ≥ 2 — THEATER"
+    fi
+  else
+    no "teeth-BP-EXPECTED-COLS: BP-EXPECTED-COLS sentinel not found in SUT"
+  fi
+
+  # teeth-MED-ABBREV-NORM: delete MED-ABBREV-NORM line; T-MED-ABBREV-SYNC must go RED
+  # (med rows → INVALID_PRIORITY → sync-state refuses with exit 1).
+  # Uses a fresh fixture (known_gaps: 0) to avoid env fallback masking the refusal.
+  echo "-- teeth-MED-ABBREV-NORM: delete MED-ABBREV-NORM; med row must fall to INVALID_PRIORITY --"
+  _medabn_mutant="$TMP/status.MEDABN.MUTANT.sh"
+  _medabn_d="$TMP/medabn-tooth"; mkdir -p "$_medabn_d"
+  { echo "# T"; echo; env_lines 0 0 0 0 0 0; echo
+    echo "## Gap-backlog"; echo
+    echo "| Priority | Gap | type | Status |"; echo "|---|---|---|---|"
+    echo "| med | med-abbrev gap | web | covered |"; echo
+    echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$_medabn_d/RESEARCH-STATE.md"
+  if grep -q '# MED-ABBREV-NORM' "$SUT"; then
+    sed '/# MED-ABBREV-NORM/d' "$SUT" > "$_medabn_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    bash "$_medabn_mutant" "$_medabn_d" --sync-state >/dev/null 2>&1; _medabn_rc=$?
+    if [ "$_medabn_rc" -ne 0 ]; then
+      ok "teeth-MED-ABBREV-NORM: mutant → med row INVALID_PRIORITY (rc=$_medabn_rc) → T-MED-ABBREV-SYNC goes RED → MED-ABBREV-NORM is load-bearing"
+    else
+      no "teeth-MED-ABBREV-NORM: mutant sync-state exited 0 — THEATER (expected exit 1 from INVALID_PRIORITY refusal)"
+    fi
+  else
+    no "teeth-MED-ABBREV-NORM: MED-ABBREV-NORM sentinel not found in SUT"
+  fi
+
+  # teeth-OOB-WARN: delete OOB-WARN line; T-OOB-WARN must go RED (no WARN mentioning Gap-backlog).
+  echo "-- teeth-OOB-WARN: delete OOB-WARN line → no warning for out-of-section row --"
+  _oobw_mutant="$TMP/status.OOBWARN.MUTANT.sh"
+  if grep -q '# OOB-WARN' "$SUT"; then
+    sed '/# OOB-WARN/d' "$SUT" > "$_oobw_mutant"
+    cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+    _oobw_warn="$(bash "$_oobw_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
+    if ! echo "$_oobw_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+      ok "teeth-OOB-WARN: mutant suppresses OOB-WARN → T-OOB-WARN goes RED → OOB-WARN is load-bearing"
+    else
+      no "teeth-OOB-WARN: mutant still emitted Gap-backlog WARN — THEATER"
+    fi
+  else
+    no "teeth-OOB-WARN: OOB-WARN sentinel not found in SUT"
+  fi
 
 fi
 

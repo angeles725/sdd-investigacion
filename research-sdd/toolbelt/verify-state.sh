@@ -85,11 +85,12 @@ _section()      { awk -v h="$2" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$1"; }
 _BR_CACHED_FILE=""
 _BR_CACHED_ROWS=""
 
-_backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col rows; INVALID_PRIORITY<TAB><val>
+_backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4- or 5-col rows; INVALID_PRIORITY<TAB><val>
   # for unknown priority values. Callers that derive counts safely ignore the 2-field sentinel (field 3
   # absent so no count fires); the per-state backlog parse check below treats INVALID_PRIORITY as FAIL.
   # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—). Qualifier forms ("high (ctx)")
   # emit a provisional WARN to stderr and are still excluded. Unknown qualifier BASE fails closed.
+  # "med" abbreviation is normalized to "medium" with MED-ABBREV-NORM WARN (non-conforming per §8b).
   # Mirrors backlog_rows() in status.sh exactly.
   # Same file as last call → return cached rows; structural WARNs already emitted once.
   if [ "$_BR_CACHED_FILE" = "$1" ]; then  # BR-CACHE-HIT
@@ -99,18 +100,19 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
   # BR-CACHE-MISS: run awk; WARNs go to stderr exactly once; capture stdout for subsequent calls.
   _BR_CACHED_FILE="$1"
   _BR_CACHED_ROWS="$(awk '
-    /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; next }
+    /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; expected_cols=0; next }
     /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
-    /^## / { in_backlog=0; in_data=0; next }
+    /^## / { in_backlog=0; in_data=0; expected_cols=0; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); for(k=1;k<=n;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       p=tolower(a[1])
-      if (p~/^-/) { in_data=1; next }
-      if (p=="" || p=="priority" || p=="p" || p=="deferred") { next }
+      if (p~/^-/) { in_data=1; expected_cols=n; next }  # BP-EXPECTED-COLS: track column count from separator
+      if (p=="" || p=="priority" || p=="p" || p=="pr." || p=="deferred") { next }
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
+      if (p == "med") { print "WARN: non-conforming tier abbreviation [med] in row: " $0 " — migrate to \"medium\" per METHODOLOGY §8b; row counted until migrated" > "/dev/stderr"; p="medium" }  # MED-ABBREV-NORM
       base=p; sub(/ *\([^)]*\)$/, "", base)
       if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base emits WARN to stderr, still excluded; else fail closed
         if (base=="high" || base=="medium" || base=="low" || base=="deferred") { if (in_backlog && in_data) print "WARN: non-conforming qualifier priority [" p "] — strip the qualifier to \"" base "\" per METHODOLOGY §8b; row excluded from investigable_open until migrated" > "/dev/stderr"; next }  # BP-QUALIFIER-WARN
@@ -127,11 +129,14 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4-col ro
         }
         next
       }
-      if (n!=4) {
-        if (in_backlog && in_data && tolower(a[4]) ~ /^covered/) { next }  # VS-567-COVERED-PIPE-SKIP: COVERED rows may carry pipe notation in status summary; skip silently
-        if (in_backlog && in_data) { print "WARN: malformed backlog row (" n " cells, expected 4 — a cell may contain a pipe): " $0 > "/dev/stderr" }  # VS-N4-WARN
+      if (!in_backlog && in_data) { print "WARN: backlog-format row outside ## Gap-backlog section [" $0 "] — move to ## Gap-backlog per METHODOLOGY §8b" > "/dev/stderr" }  # OOB-WARN
+      sc = (expected_cols > 0) ? expected_cols : 4  # BP-SC-FALLBACK: default 4 if no separator seen
+      if (n!=sc) {
+        if (sc==5 && n>sc && tolower(a[5]) ~ /^covered/) { next }  # 5C-COVERED-PIPE-SKIP: 5-col COVERED rows with pipe(s) in status cell; skip silently
+        if (sc==4 && n>sc && tolower(a[4]) ~ /^covered/) { next }  # VS-567-COVERED-PIPE-SKIP: 4-col COVERED rows with pipe(s) in status cell; skip silently
+        if (in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc " — a cell may contain a pipe): " $0 > "/dev/stderr" }  # VS-N4-WARN
         next }
-      { st=tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # VS-634-BOLD-STRIP: strip leading/trailing ** (markdown bold artifacts) from status field
+      { st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # VS-634-BOLD-STRIP: strip leading/trailing ** from status field
       print p "\t" a[2] "\t" st }' "$1")"
   [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
 }

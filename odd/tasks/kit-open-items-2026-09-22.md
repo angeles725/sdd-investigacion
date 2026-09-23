@@ -26,7 +26,18 @@ Lane A — seeder/verifier (`research-sdd-status.sh`, `verify-state.sh`, their t
   PR #913 merged `7adff02`; sub-issue #914 closed (PR policy needs Closes/Fixes/Resolves).
   Advisory follow-ups: closed child gap with needs: would count; seeder parity untested;
   awk block duplicated across the two scripts.
-- [ ] A2 — #911b backlog reader reads only one of two backlog tables (platform-native).
+- [x] A2 — #911b backlog reader reads only one of two backlog tables (platform-native).
+  Route: delegated writer, worktree fix/911b-multi-table-backlog. Root cause: (1) awk hardcoded
+  n==4 rejected all 5-col tables; (2) "med" priority → INVALID_PRIORITY → filtered out; (3)
+  non-Gap-backlog tables silently skipped. Fix: BP-EXPECTED-COLS (track col count from separator),
+  MED-ABBREV-NORM (normalize "med" → "medium" with WARN), OOB-WARN (warn on rows outside proper
+  heading but still count them). Identical mirror applied to verify-state.sh _backlog_rows().
+  Tests: 6 new tests (T-5COL-NOMALFORMED, T-5COL-SYNC, T-TWO-TABLE-SYNC, T-OOB-WARN,
+  T-MED-ABBREV-WARN, T-MED-ABBREV-SYNC) + 3 teeth (teeth-BP-EXPECTED-COLS, teeth-MED-ABBREV-NORM,
+  teeth-OOB-WARN). RED phase executed against pre-fix SUT; all confirmed failing for right reason.
+  Fleet diff: 12 files fixed (0→nonzero), platform-native 0→15; 0 regressions.
+  Gates: regular 123/123 suites, 0 failed, 2579 cases; prove-teeth 122/123, 1 pre-existing
+  (teeth-#641). Commit: TBD; sub-issue: TBD; PR: TBD.
 - [ ] A3 — #911c `--sync-state` writes counter changes silently; seeds manual `undocumented_findings`.
 - [ ] A4 — #906 root `RESEARCH-STATE.md` not targetable by `--sync-state` in multi-focus corpus.
 - [ ] A5 — #907 advisories (T53 INFO grep scoping, T-905 negative-only check).
