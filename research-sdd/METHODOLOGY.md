@@ -2890,9 +2890,16 @@ two method stacks and makes both harder to audit.
 committed by a human (the kit is a separate repo, `sdd-investigacion`; the human leads, the engine proposes).
 This preserves both the audit trail and the rule that the operator — not an autonomous agent — owns the method.
 
-**Honesty clause.** A run that surfaces nothing new must SAY so ("no new deltas; the kit already covers this
-run") rather than inventing improvements to look productive. A retro that always finds something is not a retro,
-it is noise.
+**Honesty clause.** A run that surfaces nothing new must SAY so rather than inventing improvements to look productive. A retro that always finds something is not a retro, it is noise. The `retro_grammar_has_honesty` predicate (kit issue #912) accepts exactly four forms (case-insensitive, trailing bold/italic markup stripped):
+
+| Accepted form | Separator |
+|---|---|
+| `no new deltas; the kit already covers this run.` | semicolon |
+| `no new deltas; nothing to add.` | semicolon |
+| `no new deltas — the kit already covers this run.` | em-dash (U+2014) |
+| `no new deltas — nothing to add.` | em-dash (U+2014) |
+
+The line must appear either directly in the canonical `## Proposed kit deltas` section (after a scaffold-only lead block) or under `## Honest verdict`. A purity failure (dirty structural marker in the lead block, or a `## D<n>` / `## Proposed…` heading outside the canonical section) voids the honesty check for that section even if the phrase is present — `verify-retro.sh` reports `FAIL [empty-section]` with the message "section impure" to distinguish it from the case where the phrase is absent entirely.
 
 **Enforcement — the retro gate (a run is not over until the retro exists).** The trigger above fired on paper and
 not in practice: measured on 2026-09-05, three targets advanced with no retro for their latest run, and of twelve
