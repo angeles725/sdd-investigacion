@@ -280,6 +280,22 @@ bash "$M6" "$FIX/header-hyphen.md" >/dev/null 2>&1; _rc=$?
 [ "$_rc" -ne 0 ] && tok "M6: hyphen-check mutant rejects header-hyphen fixture (control goes RED → $SUT hyphen-detection bites)" \
   || tno "M6: hyphen-check mutant still accepted header-hyphen fixture (hyphen-detection guard is THEATER)"
 
+# MUTANT M7 (new — #912 has_honesty guard): retro_grammar_has_honesty fail-closed guard.
+# The broken lib defines retro_grammar_delta_info (so the M5 guard passes) but does NOT
+# define retro_grammar_has_honesty, so the second declare-F guard fires: verify-retro must
+# exit 2 with "failed to define retro_grammar_has_honesty".
+_m7_dir="$TMP/m7-sandbox"
+mkdir -p "$_m7_dir/lib"
+cp "$SUT" "$_m7_dir/verify-retro.sh"; chmod +x "$_m7_dir/verify-retro.sh"
+printf '#!/usr/bin/env bash\n# partial lib: delta_info defined, has_honesty missing\nretro_grammar_delta_info() { :; }\n' \
+  > "$_m7_dir/lib/retro-grammar.sh"
+_m7_out="$(bash "$_m7_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m7_rc=$?
+if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<"$_m7_out"; then
+  tok "M7: partial retro-grammar.sh → verify-retro exits 2 with 'failed to define retro_grammar_has_honesty' (guard bites)"
+else
+  tno "M7: partial retro-grammar.sh has_honesty guard did not fire — rc=$_m7_rc out=[$_m7_out]"
+fi
+
 echo ""
 echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="
 if [ "$fail" -gt 0 ] || [ "$teeth_fail" -gt 0 ]; then exit 1; fi

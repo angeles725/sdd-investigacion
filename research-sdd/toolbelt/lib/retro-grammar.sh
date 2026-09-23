@@ -154,6 +154,9 @@ fi
 #    section must satisfy is_honesty() after marker stripping.  Fenced blocks, HTML
 #    comments, and other non-honesty content all fail this check by construction.
 #    An empty-table header+separator (no data rows) is also accepted as an empty body.
+#    Exception: leading > blockquote lines that are NOT honesty lines are exempted as
+#    template scaffold, but only BEFORE the first non-blank non-blockquote line
+#    (body_started flag).  Once body_started=1, all content is subject to purity.
 #
 # B. ## Honest verdict: accepted ONLY when the canonical section is absent or its
 #    body is empty (no non-blank, non-table lines).  Non-honesty canonical content
@@ -165,8 +168,9 @@ fi
 # D. Veto: any of the following indicators anywhere in the file force exit 1.
 #    - Form-3: ## Delta <id> heading with em dash (—), en dash (–), or ASCII " - "
 #      that is not a canonical alias (guarded by is_canonical_heading()).
-#    - WARN-B: ### D1.-style heading (letter+digit or bare digit ID) outside the
-#      canonical section.
+#    - WARN-B: #{1,3} letter+digit or bare-digit ID headings, and #{2,3} Proposed/Delta/
+#      Deltas headings, outside the canonical section.  Same patterns as sweep-retros'
+#      inline WARN-B greps — one definition.
 #    Both use the shared is_canonical_heading() from _RG_AWK_CANONICAL_FN.
 #
 # Returns:
@@ -202,9 +206,11 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
         in_canonical  = 0; in_hv = 0
         canonical_found = 0
         # Canonical body purity tracking
-        body_count = 0   # non-blank, non-table body lines
-        body_ok    = 1   # 1 while all body_count lines satisfy is_honesty()
-        body_pipe  = 0   # non-separator | rows
+        body_count   = 0   # non-blank, non-table, non-scaffold body lines
+        body_ok      = 1   # 1 while all body_count lines satisfy is_honesty()
+        body_pipe    = 0   # non-separator | rows
+        body_started = 0   # set once the first non-blank non-blockquote line is seen;
+                           # before that, leading > guidance blockquotes are template scaffold
         # HV body
         hv_honesty = 0
         # Veto: form-3 or WARN-B indicator anywhere in file
@@ -225,12 +231,21 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
         if (!is_canonical_heading(low) && low ~ /^## delta[[:space:]]/) {
           if ($0 ~ /—/ || $0 ~ /–/ || $0 ~ / - /) veto = 1
         }
+        # WARN-B: non-canonical ## Proposed/Delta/Deltas heading (sweep-retros WARN-B grep 1).
+        if (!is_canonical_heading(low) && low ~ /^## (proposed|delta|deltas)([[:space:]]|$)/) veto = 1
         next
       }
 
-      # ── WARN-B veto: ### D1.-style headings outside canonical section ────────
-      !in_canonical && /^###/ {
-        if ($0 ~ /^###[[:space:]]+[A-Za-z][0-9]/ || $0 ~ /^###[[:space:]]+[0-9]/) veto = 1
+      # ── WARN-B veto: ID-pattern and Proposed/Delta/Deltas headings outside canonical ──────
+      # Mirrors the sweep-retros inline WARN-B greps (one definition).
+      # Explicit alternatives replace interval expressions for mawk compatibility.
+      # ## headings are handled (with next) in /^##[^#]/ above; only #/###/#### reach here.
+      !in_canonical && /^#/ {
+        # ### Proposed/Delta/Deltas (from grep ^#{2,3}...; ## handled above; # not in grep)
+        if (low ~ /^###[[:space:]]+(proposed|delta|deltas)([[:space:]]|$)/) veto = 1
+        # letter+digit or bare-digit ID (from grep ^#{1,3}...; # and ### can reach this rule)
+        if ($0 ~ /^#[[:space:]]+[A-Za-z][0-9]/ || $0 ~ /^###[[:space:]]+[A-Za-z][0-9]/ \
+            || $0 ~ /^#[[:space:]]+[0-9]/ || $0 ~ /^###[[:space:]]+[0-9]/) veto = 1
         next
       }
 
@@ -241,6 +256,12 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
           if ($0 !~ /^\|[-: |]+\|?[[:space:]]*$/) body_pipe++
           next
         }
+        # Leading > guidance blockquotes are template scaffold: exempt them before the
+        # first non-blank non-blockquote content line.  Fail-safe: once body_started=1,
+        # all lines are subject to purity — a real delta bullet after the blockquotes
+        # sets body_started and is never silently skipped.
+        if (!body_started && /^>/ && !is_honesty($0)) { next }
+        body_started = 1
         body_count++
         if (!is_honesty($0)) body_ok = 0
         next
