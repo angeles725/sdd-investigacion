@@ -203,7 +203,8 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    genuine new territory exists. (Evidence: niagara wb-vendor-ux-wave3 retro.)
 
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block, and self-continue per the
-   LOOP CONTINUATION + RESCHEDULE CADENCE rules (self-paced: reschedule at the ~60s floor until STOP fires).
+   LOOP CONTINUATION + RESCHEDULE CADENCE rules (dynamic self-paced: ScheduleWakeup at the ~60s floor
+   until STOP fires; fixed-interval `/loop <N>m`: end turn after report, let the harness re-fire).
    Delegate heavy sweeps with the right MODEL TIER. Emit the per-iteration RETURN CONTRACT (including the
    tier used); every non-STOP return MUST end with a **continuation token** —
    `next: <gap-id> · rescheduled via <mechanism>` (e.g. `next: G12 · rescheduled via /loop(1200s)` or
@@ -248,10 +249,11 @@ the Tool cell of the relevant catalog row so the whole-word match finds it.
 
 ## Execution mode
 
-Default is **self-paced** (this session becomes the loop driver and self-reschedules). Self-paced is
-best-effort and can halt after a single block under conversational guardrails; **`/loop 10m`** adds a
-deterministic external re-invoker (without an interval, `/loop` self-paces — no external re-invoker
-exists).
+Default is **self-paced**. Two self-paced sub-modes: (a) **dynamic** (no interval, plain session or
+`/loop` without an interval) — the loop driver self-reschedules via ScheduleWakeup; best-effort and can
+halt after a single block under conversational guardrails; (b) **fixed-interval** (`/loop 10m`) — the
+harness re-fires each turn; no ScheduleWakeup is issued; end the turn after the iteration report.
+Fixed-interval is preferred for unattended runs; dynamic is the fallback when no interval is set.
 
 **Heavy / continue:** before launching `/loop 10m`, check whether an external re-invoker is already
 active: the current invocation arrived via `/loop`, or a wakeup/cron is already armed (check with the

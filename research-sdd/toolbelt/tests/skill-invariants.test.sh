@@ -197,6 +197,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# B2: PROMPT-LOOP.md LOOP CONTINUATION must name the fixed-interval case.
+#     The three-case model (fixed-interval / dynamic self-paced / orchestrated)
+#     reconciles the old "nothing re-invokes you" claim with /loop 10m (#961
+#     follow-up: ScheduleWakeup must not double-fire under a harness re-invoker).
+#     Stable anchor: 'FIXED-INTERVAL' appears in the LOOP CONTINUATION rule.
+# ---------------------------------------------------------------------------
+if grep -qF 'FIXED-INTERVAL' "$PROMPTLOOP"; then
+  ok "B2: PROMPT-LOOP.md LOOP CONTINUATION names the fixed-interval case"
+else
+  no "B2: PROMPT-LOOP.md LOOP CONTINUATION missing fixed-interval case"
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
 if [ "$PROVE_TEETH" = 1 ]; then
@@ -281,6 +294,15 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-B1: mutant still has '/loop 10m  <paste' — sed did not take (no teeth)"
   else
     ok "teeth-B1: B1 assertion goes RED on mutant"
+  fi
+
+  # Teeth B2: replace 'FIXED-INTERVAL' → B2 must go RED.
+  mutantB2="$TMP/PROMPTLOOP.mutantB2.md"
+  sed 's/FIXED-INTERVAL/FIXEDINTERVAL_REMOVED/g' "$PROMPTLOOP" > "$mutantB2"
+  if grep -qF 'FIXED-INTERVAL' "$mutantB2"; then
+    no "teeth-B2: mutant still has 'FIXED-INTERVAL' — sed did not take (no teeth)"
+  else
+    ok "teeth-B2: B2 assertion goes RED on mutant"
   fi
 fi
 
