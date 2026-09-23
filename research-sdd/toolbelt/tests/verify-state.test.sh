@@ -2394,6 +2394,39 @@ if [ "$(code "$d")" = 0 ] && ! echo "$_vs_u2011_warn" | grep -qi 'near-miss'; th
   ok "VS-U2011-HEADING: U+2011 heading matched → exit 0, no NM-WARN (heading recognised in verify-state mirror)"
 else no "VS-U2011-HEADING: exit $(code "$d") or NM-WARN — U+2011-NORM pre-pass may be missing in verify-state mirror :: $(echo "$_vs_u2011_warn" | grep -i 'near-miss' | head -1)"; fi
 
+# VS-WIDTH-3: a 3-column Gap-backlog table must emit BP-WIDTH-WARN; verify-state skips the rows
+# (all rows skipped → derived open=0 = declared 0 → exit 0, but WARN fires on stderr).
+d="$TMP/vs-width-3"; mkdir -p "$d"
+{ echo '# T'; echo
+  env9 0 0 0 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Priority | Gap | Status |\n|---|---|---|\n'
+  echo '| high | three-col row | pending |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+_vs_w3_warn="$(bash "$SUT" "$d" 2>&1)"
+if echo "$_vs_w3_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*3 columns'; then
+  ok "VS-WIDTH-3: 3-col separator → BP-WIDTH-WARN emitted by _backlog_rows mirror"
+else
+  no "VS-WIDTH-3: no BP-WIDTH-WARN for 3-col separator — unsupported width accepted silently in verify-state mirror"
+fi
+
+# VS-WIDTH-6: a 6-column Gap-backlog table must emit BP-WIDTH-WARN.
+d="$TMP/vs-width-6"; mkdir -p "$d"
+{ echo '# T'; echo
+  env9 0 0 0 0 0 0 0; echo
+  echo '## Gap-backlog (prioritized)'; echo
+  printf '| Priority | ID | Gap | Artifact | Extra | Status |\n|---|---|---|---|---|---|\n'
+  echo '| high | G1 | six-col row | art.dll | extra | pending |'; echo
+  echo '## Blocked gaps'; echo '## Stop control'
+  echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+_vs_w6_warn="$(bash "$SUT" "$d" 2>&1)"
+if echo "$_vs_w6_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*6 columns'; then
+  ok "VS-WIDTH-6: 6-col separator → BP-WIDTH-WARN emitted by _backlog_rows mirror"
+else
+  no "VS-WIDTH-6: no BP-WIDTH-WARN for 6-col separator — unsupported width accepted silently in verify-state mirror"
+fi
+
 # NEGATIVE CONTROL — prove CHECK 1 (the STALE detection) has TEETH via mutation.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Seed the shared lib into $TMP/lib/ so every mutant SUT placed in $TMP can source it.
@@ -3466,19 +3499,24 @@ PYEOF
     no "teeth-P18: P18-THRESHOLD-WARN-CASE sentinel not found in SUT"
   fi
 
-  # ---- teeth-VS-5COL: neuter BP-EXPECTED-COLS in verify-state.sh → 5-col pending row not counted
-  # → VS-5COL-FAIL's fixture sees derived investigable_open=0 = declared=0 → exits 0 (false pass).
-  echo "-- teeth-VS-5COL: neuter BP-EXPECTED-COLS; 5-col pending row must be MISSED → VS-5COL-FAIL goes RED --"
+  # ---- teeth-VS-5COL: change (n==4||n==5)?n: to (n==4||n==5)?0: in BP-EXPECTED-COLS ternary
+  # → 5-col tables get expected_cols=0 → sc falls back to 4 → 5-col rows fail n!=sc → VS-5COL-FAIL
+  # sees derived investigable_open=0 = declared=0 → exits 0 (false pass) → guard is load-bearing.
+  echo "-- teeth-VS-5COL: change ?n: to ?0: in BP-EXPECTED-COLS; 5-col pending row must be MISSED → VS-5COL-FAIL goes RED --"
   if grep -q '# BP-EXPECTED-COLS' "$HERE/../verify-state.sh"; then
     mutantBP="$TMP/verify-state.BP.MUTANT.sh"
-    # Remove the BP-EXPECTED-COLS line entirely so n_cols check never fires and 5-col rows are rejected.
-    sed '/# BP-EXPECTED-COLS/d' "$HERE/../verify-state.sh" > "$mutantBP"
-    if grep -q '# BP-EXPECTED-COLS' "$mutantBP"; then
-      no "teeth-VS-5COL: could not build mutant (sed did not remove BP-EXPECTED-COLS line)"
+    cp "$HERE/../verify-state.sh" "$mutantBP"
+    sed -i 's/n==4||n==5)?n:-1/n==4||n==5)?0:-1/' "$mutantBP"
+    if cmp -s "$mutantBP" "$HERE/../verify-state.sh"; then
+      no "teeth-VS-5COL: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$mutantBP" 2>/dev/null; then
+      no "teeth-VS-5COL: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q 'n==4||n==5)?n:-1' "$mutantBP"; then
+      no "teeth-VS-5COL: sabotage check failed — ?n: still present in mutant"
     else
       bp_mut_exit="$(bash "$mutantBP" "$TMP/vs-5col-fail" >/dev/null 2>&1; echo $?)"
       if [ "$bp_mut_exit" = 0 ]; then
-        ok "teeth-VS-5COL: neutered BP-EXPECTED-COLS → 5-col pending row missed → VS-5COL-FAIL exits 0 (false pass) → guard is load-bearing"
+        ok "teeth-VS-5COL: mutant (?0: for 5-col) → 5-col pending row missed → VS-5COL-FAIL exits 0 (false pass) → BP-EXPECTED-COLS is load-bearing"
       else
         no "teeth-VS-5COL: mutant exit $bp_mut_exit (want 0) — VS-5COL-FAIL does not depend on BP-EXPECTED-COLS (THEATER)"
       fi
@@ -3487,31 +3525,30 @@ PYEOF
     no "teeth-VS-5COL: BP-EXPECTED-COLS sentinel not found in verify-state.sh"
   fi
 
-  # ---- teeth-VS-U2011: remove U+2011-NORM sed pre-pass in verify-state.sh → U+2011 heading not
-  # normalised → awk does not match it → NM-WARN fires → VS-U2011-HEADING exits non-zero.
-  echo "-- teeth-VS-U2011: remove xe2\\x80\\x91 sed substitution; U+2011 heading must trigger NM-WARN --"
-  if grep -q 'xe2.x80.x91' "$HERE/../verify-state.sh"; then
+  # ---- teeth-VS-U2011: remove U+2011-NORM gsub from awk → U+2011 heading not normalised →
+  # NM-WARN fires → VS-U2011-HEADING exits non-zero → guard is load-bearing.
+  echo "-- teeth-VS-U2011: remove U+2011-NORM gsub; U+2011 heading must trigger NM-WARN → VS-U2011-HEADING goes RED --"
+  if grep -q '# U+2011-NORM.*heading lines' "$HERE/../verify-state.sh"; then
     mutantU2011="$TMP/verify-state.U2011.MUTANT.sh"
-    # Remove the LC_ALL=C sed pre-pass line; _backlog_rows reads "$1" directly.
-    sed '/LC_ALL=C sed.*xe2.x80.x91/d' "$HERE/../verify-state.sh" > "$mutantU2011"
-    # Also fix the awk pipe: replace `| awk '` continuation with `awk ' "$1" |` in the mutant file.
-    # Simpler: check if the mutant produces NM-WARN on the u2011 fixture.
-    if grep -q 'xe2.x80.x91' "$mutantU2011"; then
-      no "teeth-VS-U2011: could not build mutant (sed did not remove xe2\\x80\\x91 line)"
+    cp "$HERE/../verify-state.sh" "$mutantU2011"
+    sed -i '/# U+2011-NORM.*heading lines/d; /gsub.*342.*200.*221.*"-"/d' "$mutantU2011"
+    if cmp -s "$mutantU2011" "$HERE/../verify-state.sh"; then
+      no "teeth-VS-U2011: mutant identical to SUT — sed did not apply mutation"
+    elif ! bash -n "$mutantU2011" 2>/dev/null; then
+      no "teeth-VS-U2011: mutant has syntax error (bash -n) — mutation broke shell syntax"
+    elif grep -q '# U+2011-NORM.*heading lines' "$mutantU2011"; then
+      no "teeth-VS-U2011: sabotage check failed — U+2011-NORM still in mutant"
     else
       u2011_mut_warn="$(bash "$mutantU2011" "$TMP/vs-u2011" 2>&1 >/dev/null)"
-      # Without the pre-pass the awk sees "## Gap‑backlog (prioritized)" with U+2011 → awk /^## Gap-backlog/ won't match
-      # → the next /^## / check fires → NM-WARN. Or the Gap-backlog section is simply absent → absent-section FAIL.
-      # Either way VS-U2011-HEADING's assertion (exit 0 AND no NM-WARN) goes RED.
       u2011_mut_exit="$(bash "$mutantU2011" "$TMP/vs-u2011" >/dev/null 2>&1; echo $?)"
       if [ "$u2011_mut_exit" != 0 ] || echo "$u2011_mut_warn" | grep -qi 'near-miss'; then
-        ok "teeth-VS-U2011: without U+2011-NORM → exit $u2011_mut_exit or NM-WARN → VS-U2011-HEADING goes RED → guard is load-bearing"
+        ok "teeth-VS-U2011: without U+2011-NORM gsub → exit $u2011_mut_exit or NM-WARN → VS-U2011-HEADING goes RED → guard is load-bearing"
       else
-        no "teeth-VS-U2011: mutant still exits 0 with no NM-WARN — U+2011 may already match ASCII regex (THEATER)"
+        no "teeth-VS-U2011: mutant still exits 0 with no NM-WARN — U+2011 may match without gsub (THEATER or wrong mutant)"
       fi
     fi
   else
-    no "teeth-VS-U2011: xe2\\x80\\x91 sed substitution not found in verify-state.sh"
+    no "teeth-VS-U2011: U+2011-NORM sentinel not found in verify-state.sh"
   fi
 
 fi
