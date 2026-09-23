@@ -78,6 +78,8 @@ fi
 . "$_RS_LIB"
 declare -F retro_marker_line >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_line" >&2; exit 1; }
+declare -F retro_status_from_marker_line >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_status_from_marker_line" >&2; exit 1; }
 
 _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 if [ ! -f "$_RG_LIB" ]; then
@@ -133,14 +135,10 @@ fi
 # markers to be invisible.  stage-retro-issues.sh must use retro_marker_line instead.
 _marker_line="$(retro_marker_line "$retro")"
 
-# Extract the status word from the raw marker line (case-insensitive, lowercased).
+# Extract the status word via retro_status_from_marker_line (lib/retro-status.sh).
+# R2-001: this is the SINGLE extraction point — the pipeline lives only in that lib function.
 # If no marker was found, status is empty (treated as pending/open below).
-# STAGE_RETRO_ISSUES_STATUS_EXTRACT: this sed/tr pipeline is the single extraction point.
-status="$(printf '%s' "$_marker_line" \
-  | grep -oiE '<!--[[:space:]]*review-status:[[:space:]]*[a-z]+' \
-  | head -1 \
-  | sed -E 's/.*:[[:space:]]*//' \
-  | tr 'A-Z' 'a-z')"
+status="$(retro_status_from_marker_line "$_marker_line")"
 
 is_partial=0
 shipped_ids=""

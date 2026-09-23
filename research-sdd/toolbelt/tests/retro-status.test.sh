@@ -209,33 +209,31 @@ retro_is_excluded "$f" \
   || ok "12 retro_is_excluded: body-position marker → NOT excluded (M5 invariant)" "()"
 
 # ---------------------------------------------------------------------------
-# TEETH (negative control). Case 8 claims the '<!--' anchor in the marker regex is what stops a
-# review-status substring buried in a comment's PROSE from being misread as a real status. Mutate a
-# throwaway COPY of the helper: DROP the '<!--' anchor from the grep so any 'review-status: <word>'
-# anywhere in a scanned line matches. Re-run the comment-prose fixture (case 8) through the mutant in
-# a FRESH bash (so the mutant's function definition wins, unshadowed by the one already sourced here).
-# Against the mutant the buried prose MUST wrongly resolve to 'applied'. If it stayed empty, the
-# anchor was never load-bearing and case 8 is theater.
+# TEETH (negative control). The '<!--' anchor in retro_status_from_marker_line is what stops a
+# 'review-status:' substring from a prose line (no '<!--' prefix) from being misread as a real
+# status.  Mutate a throwaway COPY of the helper: DROP the '<!--' anchor from the grep so any
+# 'review-status: <word>' anywhere in the input matches.  Call retro_status_from_marker_line
+# DIRECTLY with a prose string (no '<!--') in a FRESH bash.  Against the mutant the prose MUST
+# wrongly resolve to 'applied'.  If it stayed empty the anchor was never load-bearing and the
+# function has no teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: drop the '<!--' anchor, expect comment-prose to false-resolve to applied --"
+  echo "-- teeth: drop the '<!--' anchor in retro_status_from_marker_line; prose line must false-resolve --"
   anchor="grep -oiE '<!--[[:space:]]*review-status:[[:space:]]*[a-z]+'"
   content="$(cat "$HELPER")"
   if [[ "$content" != *"$anchor"* ]]; then
-    no "teeth: locate '<!--'-anchored marker regex" "anchor not found — helper drifted?"
+    no "teeth: locate '<!--'-anchored marker regex in retro_status_from_marker_line" "anchor not found — helper drifted?"
   else
     mutant="$ROOT/retro-status.mutant.sh"
     broken="grep -oiE 'review-status:[[:space:]]*[a-z]+'"
     printf '%s\n' "${content/"$anchor"/$broken}" > "$mutant"
-    fix="$(mkretro teeth-comment-prose <<'EOF'
-<!-- RECONSTRUCTED from a backup that had review-status: applied -->
-# retro
-EOF
-)"
-    outm="$("$BASH_BIN" -c '. "$1"; retro_review_status "$2"' _ "$mutant" "$fix" 2>&1)"
+    # Call the extraction helper directly with a prose line that has NO '<!--' prefix.
+    # Without the anchor the anchorless grep matches 'review-status: applied' in the prose.
+    prose="RECONSTRUCTED from a backup that had review-status: applied"
+    outm="$("$BASH_BIN" -c '. "$1"; retro_status_from_marker_line "$2"' _ "$mutant" "$prose" 2>&1)"
     if [ "$outm" = "applied" ]; then
-      ok "teeth: anchor-dropped mutant false-resolves comment prose" "(case 8 has teeth)"
+      ok "teeth: anchor-dropped mutant false-resolves prose line (retro_status_from_marker_line has teeth)" "()"
     else
-      no "teeth: anchor-dropped mutant false-resolves comment prose" "mutant returned '$outm' — case 8 is THEATER"
+      no "teeth: anchor-dropped mutant false-resolves prose line" "mutant returned '$outm' — anchor is THEATER"
     fi
   fi
 
@@ -262,30 +260,28 @@ EOF
     no "teeth M5: { exit }-dropped mutant should false-exclude body-position marker" "exit was '$m5_rc' (expected 0) — case 12 is THEATER"
   fi
 
-  # Tooth M7: replace the whole-file grep in retro_marker_line with a leading-block-only scan.
-  # retro_marker_line uses: grep -iE '<!--[[:space:]]*review-status:' "$f" 2>/dev/null | head -1
-  # Replacing it with awk-then-grep (leading-block-only) restores the old bug: a marker placed
-  # after H1 (cases 19-21 fixtures) must return empty, proving the whole-file grep is load-bearing.
-  echo "-- teeth M7: restore leading-block-only scan in retro_marker_line; after-H1 marker must false-return empty (cases 19+20 have teeth) --"
-  if grep -qF "grep -iE '<!--[[:space:]]*review-status:' \"\$f\" 2>/dev/null | head -1" "$HELPER" 2>/dev/null; then
-    m7_mutant="$ROOT/retro-status.m7.sh"
-    # Replace the whole-file grep with an awk leading-block-only pipeline:
-    sed "s|grep -iE '<!--\[*\[:space:\]*\]*review-status:' \"\\\$f\" 2>\/dev\/null | head -1|awk '/^[[:space:]]*<!--/ { print; next } /^[[:space:]]*$/ { next } { exit }' \"\$f\" 2>\/dev\/null \| grep -iE '<!--[[:space:]]*review-status:'|" \
-      "$HELPER" > "$m7_mutant" 2>/dev/null || cp "$HELPER" "$m7_mutant"
-    # Use awk for the replacement (sed's regex isn't portable with nested brackets):
-    awk '
-      /grep -iE .<!--\[/ && /review-status/ && /\$f/ && /head -1/ {
-        print "    awk '"'"'"
-        print "      /^[[:space:]]*<!--/ { print; next }"
-        print "      /^[[:space:]]*$/     { next }"
-        print "      { exit }"
-        print "    '"'"' \"$f\" 2>/dev/null \\"
-        print "      | grep -iE '"'"'<!--[[:space:]]*review-status:'"'"' | head -1"
-        next
-      }
-      { print }
-    ' "$HELPER" > "$m7_mutant"
-    fix20="$(mkretro m7-after-h1 <<'EOF'
+  # Tooth M7: convert retro_marker_line's awk from a whole-file conditional-exit scan to an
+  # unconditional leading-block-only exit.  Replaces the conditional `if (tolower($0) ~ …) { print;
+  # exit }` rule with a bare `{ exit }` so the awk exits at the first non-comment, non-blank line.
+  # An after-H1 marker (cases 19-20 fixtures) must return empty, proving the conditional exit is
+  # load-bearing.  Uses the RETRO_MARKER_LINE_AWK anchor tag to locate the tolower line precisely.
+  echo "-- teeth M7: make retro_marker_line leading-block-only; after-H1 marker must return empty (cases 19-20 have teeth) --"
+  if ! grep -qF "RETRO_MARKER_LINE_AWK" "$HELPER"; then
+    no "teeth M7: locate RETRO_MARKER_LINE_AWK anchor" "anchor not found — helper drifted?"
+  else
+    m7_linenum="$(awk '/RETRO_MARKER_LINE_AWK/{found=1} found && /tolower/{print NR; exit}' "$HELPER")"
+    if [ -z "$m7_linenum" ]; then
+      no "teeth M7: find tolower line after RETRO_MARKER_LINE_AWK" "not found — helper drifted?"
+    else
+      m7_mutant="$ROOT/retro-status.m7.sh"
+      # Replace the entire conditional-match line with a bare '{ exit }' on the specific line number.
+      sed "${m7_linenum}s/.*/      { exit }/" "$HELPER" > "$m7_mutant"
+      if diff -q "$HELPER" "$m7_mutant" >/dev/null 2>&1; then
+        no "teeth M7: build leading-block-only mutant" "mutant identical — sed substitution failed"
+      elif ! "$BASH_BIN" -n "$m7_mutant" 2>/dev/null; then
+        no "teeth M7: build leading-block-only mutant" "mutant syntax error"
+      else
+        fix_m7="$(mkretro m7-after-h1 <<'EOF'
 # §18 Retro — some focus
 
 <!-- review-status: applied 2026-09-20 · kit ad87c33 -->
@@ -293,28 +289,67 @@ EOF
 body text
 EOF
 )"
-    outm7="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$m7_mutant" "$fix20" 2>&1)"
-    if [ -z "$outm7" ]; then
-      ok "teeth M7: leading-block-only mutant returns empty for after-H1 marker (cases 19+20 have teeth)" "()"
-    else
-      no "teeth M7: leading-block-only mutant should return empty for after-H1 marker" \
-        "got '$outm7' — cases 19+20 are THEATER"
+        outm7="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$m7_mutant" "$fix_m7" 2>&1)"
+        if [ -z "$outm7" ]; then
+          ok "teeth M7: leading-block-only mutant returns empty for after-H1 marker (cases 19-20 have teeth)" "()"
+        else
+          no "teeth M7: leading-block-only mutant should return empty for after-H1 marker" \
+            "got '$outm7' — cases 19-20 are THEATER"
+        fi
+      fi
     fi
+  fi
+
+  # Tooth M8: remove the '^[[:space:]]*' line-start anchor from retro_marker_line's awk match.
+  # Without the anchor a marker pattern appearing mid-line (e.g. backtick-quoted in a table cell)
+  # falsely matches.  The anchor forces '<!--' to appear at line start (optional whitespace only).
+  # Uses RETRO_MARKER_LINE_AWK + the same tolower line to build the mutant.
+  echo "-- teeth M8: remove line-start anchor from retro_marker_line; mid-line quoted marker must false-match (cases 22-23 have teeth) --"
+  if ! grep -qF "RETRO_MARKER_LINE_AWK" "$HELPER"; then
+    no "teeth M8: locate RETRO_MARKER_LINE_AWK anchor" "anchor not found — helper drifted?"
   else
-    no "teeth M7: locate whole-file-grep line in retro_marker_line" "line not found — helper drifted?"
+    m8_linenum="$(awk '/RETRO_MARKER_LINE_AWK/{found=1} found && /tolower/{print NR; exit}' "$HELPER")"
+    if [ -z "$m8_linenum" ]; then
+      no "teeth M8: find tolower line after RETRO_MARKER_LINE_AWK" "not found — helper drifted?"
+    else
+      m8_mutant="$ROOT/retro-status.m8.sh"
+      # Remove '^[[:space:]]*' before '<!--' in the awk match regex so it becomes a substring search.
+      sed "${m8_linenum}s|\^\[\[:space:\]\]\*<!--|<!--|" "$HELPER" > "$m8_mutant"
+      if diff -q "$HELPER" "$m8_mutant" >/dev/null 2>&1; then
+        no "teeth M8: build anchor-removed mutant" "mutant identical — sed substitution failed"
+      elif ! "$BASH_BIN" -n "$m8_mutant" 2>/dev/null; then
+        no "teeth M8: build anchor-removed mutant" "mutant syntax error"
+      else
+        # A table-cell backtick-quoted marker must falsely match when the anchor is absent.
+        fix_m8="$(mkretro m8-table-quoted <<'EOF'
+# §18 Retro — table example
+
+| col A | col B |
+|-------|-------|
+| info  | `<!-- review-status: applied -->` |
+EOF
+)"
+        outm8="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$m8_mutant" "$fix_m8" 2>&1)"
+        if [ -n "$outm8" ]; then
+          ok "teeth M8: anchor-removed mutant false-matches mid-line quoted marker (cases 22-23 have teeth)" "(got '$outm8')"
+        else
+          no "teeth M8: anchor-removed mutant should false-match mid-line quoted marker" \
+            "got empty — line-start anchor is THEATER"
+        fi
+      fi
+    fi
   fi
 
   # Tooth M6: drop the bare '{ exit }' from retro_is_waived's awk, enabling a whole-file scan.
   # A body-position waiver marker (case 15 fixture) must then FALSELY return 0 (waived).
-  # Uses awk to skip ONLY the SECOND bare '{ exit }' occurrence (the one in retro_is_waived);
-  # the first (in retro_is_excluded) is kept so retro_is_excluded remains intact.
+  # Uses awk to skip the THIRD bare '{ exit }' occurrence (the one in retro_is_waived); the
+  # first (in retro_review_status) and second (in retro_is_excluded) are kept intact.
   # If the mutant returns 1 (not waived), the '{ exit }' guard was not the deciding factor
   # and case 15 is theater.
   echo "-- teeth M6: drop { exit } from retro_is_waived awk; body-position waiver must false-fire (case 15 has teeth) --"
   m6_mutant="$ROOT/retro-status.m6.sh"
-  # retro_review_status (added in #938) also uses awk with '{ exit }', so there are now 3
-  # occurrences: retro_review_status (n=1), retro_is_excluded (n=2), retro_is_waived (n=3).
-  # Skip the THIRD occurrence to mutate only retro_is_waived's guard.
+  # Three '{ exit }' occurrences: retro_review_status (n=1), retro_is_excluded (n=2),
+  # retro_is_waived (n=3). Skip the THIRD to mutate only retro_is_waived's guard.
   awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==3) next } { print }' "$HELPER" > "$m6_mutant"
   fix15="$(mkretro m6-body-waiver <<'EOF'
 # retro — body-position waiver below
@@ -468,6 +503,72 @@ ml21="$(retro_marker_line "$f21")"
 printf '%s' "$ml21" | grep -qF 'PARTIAL' \
   && ok "21 retro_marker_line: partial applied marker after H1 → raw line has PARTIAL" "(got '$ml21')" \
   || no "21 retro_marker_line: partial applied marker after H1 → raw line has PARTIAL" "got '$ml21'"
+
+# ---------------------------------------------------------------------------
+# 22-25 — retro_marker_line edge cases: anchoring, fence tracking, and list edges.
+
+# 22 — QUOTED IN TABLE CELL → no match. The only marker-like text is backtick-quoted inside a
+#      table row cell (not at line start). The line-start anchor must prevent it from matching.
+f="$(mkretro ml-table-quoted <<'EOF'
+# §18 Retro — table example
+
+| col A | col B |
+|-------|-------|
+| info  | `<!-- review-status: applied -->` |
+EOF
+)"
+ml22="$(retro_marker_line "$f")"
+[ -z "$ml22" ] \
+  && ok "22 retro_marker_line: marker quoted in table cell → no match (line-start anchor)" "()" \
+  || no "22 retro_marker_line: marker quoted in table cell → no match (line-start anchor)" "got '$ml22'"
+
+# 23 — FENCED CODE BLOCK → no match. A marker-like line inside a ``` fenced block must be skipped
+#      by the fence-tracking logic; only a real marker outside the fence matches.
+f="$(mkretro ml-fenced <<'EOF'
+# §18 Retro — fenced example
+
+```
+<!-- review-status: pending -->
+```
+
+body text
+EOF
+)"
+ml23="$(retro_marker_line "$f")"
+[ -z "$ml23" ] \
+  && ok "23 retro_marker_line: marker inside fenced block → no match (fence tracking)" "()" \
+  || no "23 retro_marker_line: marker inside fenced block → no match (fence tracking)" "got '$ml23'"
+
+# 24 — REAL MARKER AFTER H1 + QUOTED IN TABLE LATER → finds real one first. A genuine marker on
+#      line 3 (after H1 + blank) must be returned; a backtick-quoted one later in a table cell
+#      must be ignored (because retro_marker_line exits after the first real match).
+f="$(mkretro ml-real-plus-quoted <<'EOF'
+# §18 Retro — real marker first
+
+<!-- review-status: applied 2026-09-20 · kit abc1234 -->
+
+| note | `<!-- review-status: pending -->` |
+|------|-----------------------------------|
+EOF
+)"
+ml24="$(retro_marker_line "$f")"
+printf '%s' "$ml24" | grep -qF 'applied' \
+  && ok "24 retro_marker_line: real after-H1 marker returned; quoted-in-table ignored" "(got '$ml24')" \
+  || no "24 retro_marker_line: real after-H1 marker should be returned first" "got '$ml24'"
+
+# 25 — MARKER AS LAST LINE (list edge). A marker on the very last line of the file (no trailing
+#      blank after it) must still be returned.
+f="$(mkretro ml-last-line <<'EOF'
+# §18 Retro — marker at end
+
+body text
+<!-- review-status: applied 2026-09-20 · kit deadbeef -->
+EOF
+)"
+ml25="$(retro_marker_line "$f")"
+[ -n "$ml25" ] \
+  && ok "25 retro_marker_line: marker as last line → found" "(got '$ml25')" \
+  || no "25 retro_marker_line: marker as last line → found" "got empty"
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
