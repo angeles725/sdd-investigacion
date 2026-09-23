@@ -37,7 +37,7 @@ Lane A — seeder/verifier (`research-sdd-status.sh`, `verify-state.sh`, their t
   teeth-OOB-WARN). RED phase executed against pre-fix SUT; all confirmed failing for right reason.
   Fleet diff: 12 files fixed (0→nonzero), platform-native 0→15; 0 regressions.
   Gates: regular 123/123 suites, 0 failed, 2579 cases; prove-teeth 122/123, 1 pre-existing
-  (teeth-#641). Commit: TBD; sub-issue: TBD; PR: TBD.
+  (teeth-#641). Commit: a0afa93; sub-issue: #933; PR: #934.
 - [ ] A3 — #911c `--sync-state` writes counter changes silently; seeds manual `undocumented_findings`.
 - [ ] A4 — #906 root `RESEARCH-STATE.md` not targetable by `--sync-state` in multi-focus corpus.
 - [ ] A5 — #907 advisories (T53 INFO grep scoping, T-905 negative-only check).
