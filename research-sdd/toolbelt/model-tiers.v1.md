@@ -8,7 +8,7 @@
 PROMPT-LOOP.md and METHODOLOGY.md describe model tier selection using Claude-specific
 model names (`haiku`, `sonnet`, `opus`).  This document defines the same tiers as
 harness-neutral abstract concepts so they apply consistently across all three supported
-harnesses (Claude Code, Codex). (OpenCode support was dropped on 2026-09-23 #954.)
+harnesses (Claude Code, Codex, Reasonix).
 
 This is a documentation contract, not runtime configuration.  The toolbelt cannot
 select, enforce, or verify which model a harness uses; that authority belongs entirely
@@ -89,7 +89,5 @@ is the authoritative schema reference for all harnesses.
 - **PROMPT-LOOP.md:200** — MODEL TIER rule for delegated sweeps (Claude-named;
   this document is the harness-neutral canonical definition)
 - **METHODOLOGY.md:388** — same tier rule in loop-longevity section
-- **toolbelt/opencode/README.md** — OpenCode plugin and `model-variants.ts`
-  location (OpenCode support was dropped on 2026-09-23 #954; directory removed)
 - **toolbelt/agent-integration-19-21.design.md §2 item-21b** — design rationale
   for this unit

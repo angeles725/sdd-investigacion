@@ -15,9 +15,6 @@ restate the loop rules — the single source of truth is the kit. Read the kit, 
 from real state, and run the loop. Never bake mutable state (block numbers, "next gap") into what you run —
 derive it live each iteration (that is why RESUME exists).
 
-> **Note:** OpenCode support was dropped on 2026-09-23 (#954). The `toolbelt/opencode/` directory and its
-> OpenCode-specific SKILL.md twin have been removed. This file now serves all remaining harnesses.
-
 ## Who drives the loop
 
 You drive it as the **technical excavator** (METHODOLOGY §1): first principles — cite the code, the bytes or the

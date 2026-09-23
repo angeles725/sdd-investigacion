@@ -47,6 +47,7 @@ skill="$home/.claude/skills/research-sdd/SKILL.md"
 if [ -f "$skill" ] && grep -q 'Research-SDD launcher' "$skill"; then ok "apply installs neutral SKILL.md (claude)"
 else no "SKILL.md not installed for claude at $skill"; fi
 [ -f "$home/.codex/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (codex leg)" || no "codex SKILL.md missing"
+[ -f "$home/.reasonix/skills/research-sdd/SKILL.md" ] && ok "apply installs SKILL.md (reasonix leg)" || no "reasonix SKILL.md missing"
 # 6 — apply is idempotent: run twice, exactly ONE marked section in the prompt file.
 home="$TMP/idem"
 bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1

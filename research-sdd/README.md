@@ -166,6 +166,27 @@ which classifies depth (quick answer · light exploration · exhaustive block lo
 
 ---
 
+## Removing an old OpenCode install
+
+OpenCode support was dropped on 2026-09-23 (#954). If you previously installed the kit into
+OpenCode, clean it up manually:
+
+```bash
+# 1. Remove the plugin symlink the installer created
+rm -f ~/.config/opencode/plugins/research-sdd-sweep.ts
+
+# 2. Remove the deployed skill copy
+rm -rf ~/.config/opencode/skills/research-sdd/
+
+# 3. Remove the marked launcher block from the OpenCode AGENTS.md
+#    Open ~/.config/opencode/AGENTS.md and delete the section between (and including):
+#      <!-- research-sdd:start -->
+#      ...
+#      <!-- research-sdd:end -->
+```
+
+---
+
 ## Testing / CI
 
 Run the full toolbelt suite locally:

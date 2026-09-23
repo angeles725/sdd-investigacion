@@ -4,7 +4,7 @@
 # Mirrors gentle-ai's decoupling: one neutral asset (skills/research-sdd/SKILL.md) is surfaced into
 # every AI harness by consulting a per-harness adapter that answers three ORTHOGONAL questions:
 #
-#   WHERE — path methods : config_root · skills_dir · skill_path · prompt_file · plugin_dir
+#   WHERE — path methods : config_root · skills_dir · skill_path · prompt_file
 #   HOW   — strategy enum : prompt_strategy  (markdown-sections — splice a marked block, preserving
 #                            surrounding user content; dispatch stays open for future strategies)
 #   WHAT  — capability bools : supports_slash_commands · needs_manual_sweep_doc
@@ -49,14 +49,7 @@ declare -A _RSDD_SUPPORTS_SLASH=(
   [codex]="false"
   [reasonix]="false"
 )
-# plugin directory name inside the config root (empty = harness has none).
-# reasonix: [[plugins]] entries are MCP servers declared in config.toml, not a skill-plugin dir.
-declare -A _RSDD_PLUGIN_DIR_NAME=(
-  [claude]=""
-  [codex]=""
-  [reasonix]=""
-)
-# WHAT: does the harness lack an automated session-start sweep (no hook AND no plugin), so the
+# WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
 # (claude=hook, codex=none, reasonix=hook via ~/.reasonix/settings.json; OpenCode dropped #954)
 declare -A _RSDD_NEEDS_SWEEP=(
@@ -115,9 +108,6 @@ rsdd_field() {
     supports_slash_commands) printf '%s\n' "${_RSDD_SUPPORTS_SLASH[$harness]}" ;;
     needs_manual_sweep_doc)  printf '%s\n' "${_RSDD_NEEDS_SWEEP[$harness]}" ;;
     needs_mcp_config_doc)    printf '%s\n' "${_RSDD_NEEDS_MCP_CONFIG_DOC[$harness]}" ;;
-    plugin_dir)
-      plug="${_RSDD_PLUGIN_DIR_NAME[$harness]}"
-      if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
     mcp_config_file)
       plug="${_RSDD_MCP_CONFIG_NAME[$harness]}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
