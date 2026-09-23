@@ -17,6 +17,33 @@
 #   A8  Walls & evidence block (blocked-on-tool typed state)
 #   A10 Two-tier METHODOLOGY reading: HOT-CORE label present
 #   A11 Tool-catalog alias guidance: 'alias:' + 'kaitai-struct-compiler' (#364 drift class)
+#   A12 propose-never-apply appears in both toolchain routing and tool cataloging
+#   A13 Dynamic is recommended for unattended runs (not fixed-interval)
+#   A14 /loop does NOT claim to guarantee cadence (absent)
+#   A15 Re-invoker check before launch ('re-invoker is already active')
+#   B1  LOOP CONTINUATION names both 'dynamic self-paced, no interval' and '/loop 5m' fallback
+#   B2  Fixed-interval mode does not issue ScheduleWakeup ('Do NOT issue ScheduleWakeup')
+#   B3  Fixed-interval teardown references CronDelete
+#   C1  METHODOLOGY §8c states focus stop ≠ campaign stop
+#   C2  METHODOLOGY §8c carries precise campaign-STOP wording (no pending/active entries)
+#   C3  METHODOLOGY §8c carries typed bound-stop token 'campaign-bound-reached:'
+#   C4  PROMPT-LOOP LOOP CONTINUATION states teardown runs at campaign STOP
+#   C5  METHODOLOGY §8c carries grammar code block for campaign_bounds (full line shape)
+#   C6  METHODOLOGY §8c defines depth as parent-chain length from root
+#   C7  METHODOLOGY §8c names recording location for bound stop (campaign_stop: line)
+#   C8  METHODOLOGY §8c carries last_audit: field with full grammar shape
+#   C9  PROMPT-LOOP RETURN CONTRACT carries 'next-entry: <queue-name>' campaign token
+#   C10 METHODOLOGY §8c states resume continues active entry first
+#   C11 METHODOLOGY §8c carries persisted bound counters (campaign_started + campaign_iterations)
+#   C12 METHODOLOGY §8c states last_iteration_ts applies to single-focus corpora
+#   C13 METHODOLOGY §8c carries 'rejected' terminal state (focus-distinctness failures)
+#   C14 SKILL.md mode table carries 'do not ask which mode' (B5: mode announce rule)
+#   C15 PROMPT-LOOP says 'A RUN ends only on campaign STOP' (RUN vs TURN distinction)
+#   C16 PROMPT-LOOP does NOT say 'an autonomous run must stop at convergence' (absent/stale)
+#   C17 PROMPT-LOOP does NOT say 'A turn ends only on campaign STOP' (absent/stale)
+#   C18 PROMPT-LOOP RETURN CONTRACT carries 'STOP: campaign — ' token (presence)
+#   C19 PROMPT-LOOP does NOT say 'signal "continue"' in orchestrated context (absent/stale)
+#   D1  RESEARCH-STATE template has NO live '| … | pending |' row outside HTML comments (R1)
 #
 # Usage: skill-invariants.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 
@@ -234,6 +261,260 @@ else
   no "B3: PROMPT-LOOP.md LOOP CONTINUATION missing teardown rule (CronDelete absent)"
 fi
 
+METHODOLOGY="$HERE/../../METHODOLOGY.md"
+[ -f "$METHODOLOGY" ] || { printf 'FATAL: METHODOLOGY.md not found at expected path: %s\n' "$METHODOLOGY" >&2; exit 2; }
+TEMPLATE="$HERE/../../templates/RESEARCH-STATE.template.md"
+[ -f "$TEMPLATE" ] || { printf 'FATAL: RESEARCH-STATE.template.md not found at expected path: %s\n' "$TEMPLATE" >&2; exit 2; }
+
+# ---------------------------------------------------------------------------
+# C-assertion function library: each assert_Cn takes one file path and returns
+# 0 (pass) when the invariant holds, 1 (fail) otherwise. Teeth call the
+# function on a mutant copy — the mutation must make the function return 1.
+# ---------------------------------------------------------------------------
+assert_C1()  { grep -qF 'A focus stop does not end the campaign' "$1"; }
+assert_C2()  { grep -qF 'no entry is `pending` or `active`' "$1"; }
+assert_C3()  { grep -qF 'campaign-bound-reached:' "$1"; }
+assert_C4()  { grep -qF 'Teardown runs at campaign STOP' "$1"; }
+assert_C5()  { grep -qF 'campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h' "$1"; }
+assert_C6()  { grep -qF 'depth is the length of the parent chain from root' "$1"; }
+assert_C7()  { grep -qF 'campaign_stop: campaign-bound-reached:' "$1"; }
+assert_C8()  { grep -qF 'last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>' "$1"; }
+assert_C9()  { grep -qF 'next-entry: <queue-name>' "$1"; }
+assert_C10() { grep -qF 'first continue any entry left `active`' "$1"; }
+assert_C11() { grep -qF 'campaign_started:' "$1" && grep -qF 'campaign_iterations:' "$1"; }
+assert_C12() { grep -qF 'Single-focus corpora' "$1"; }
+assert_C13() { grep -qF '`rejected`' "$1"; }
+# C14: SKILL must carry 'do not ask which mode' (B5 mode-announce rule, added in #989 round 5)
+assert_C14() { grep -qF 'do not ask which mode' "$1"; }
+assert_C15() { grep -qF 'A RUN ends only on campaign STOP' "$1"; }
+# Absence assertions: return 0 when text is ABSENT (the good state).
+assert_C16() { ! grep -qF 'an autonomous run must stop at convergence' "$1"; }
+assert_C17() { ! grep -qF 'A turn ends only on' "$1"; }
+# C18: PROMPT-LOOP RETURN CONTRACT must carry the 'STOP: campaign — ' token.
+assert_C18() { grep -qF 'STOP: campaign — ' "$1"; }
+# C19 (absence): orchestrated context must NOT say 'signal "continue"' — use RETURN CONTRACT.
+# Extended to METHODOLOGY and SKILL too (see also PROMPT-LOOP check).
+assert_C19() { ! grep -qF 'signal "continue"' "$1"; }
+# D1 (absence): RESEARCH-STATE template must NOT have a live '## Campaign queue' section
+#     heading outside HTML comments. If the heading is absent outside comments, no live
+#     campaign table rows can exist in that section — ensuring every new corpus starts
+#     without a pre-seeded campaign that can never STOP (R1).
+#     Note: Gap-backlog rows intentionally carry '| pending |' outside comments (they are
+#     REAL to the parsers per the requires-execution note in the template); D1 targets
+#     only the Campaign queue section heading.
+assert_D1() {
+  local f="$1"
+  # Strip HTML comment blocks, then check for the '## Campaign queue' heading.
+  python3 - "$f" <<'PYEOF'
+import sys, re
+with open(sys.argv[1]) as fh:
+    text = fh.read()
+# Remove everything between <!-- and -->
+stripped = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+# If the Campaign queue section heading exists outside comments, the template is broken.
+for line in stripped.splitlines():
+    if re.search(r'^##\s+Campaign queue', line):
+        sys.exit(1)  # live Campaign queue heading found — assertion fails
+sys.exit(0)
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# C1: METHODOLOGY.md must state that a focus stop does not end the campaign.
+# ---------------------------------------------------------------------------
+if assert_C1 "$METHODOLOGY"; then
+  ok "C1: METHODOLOGY §8c states focus stop ≠ campaign stop"
+else
+  no "C1: METHODOLOGY §8c missing focus-stop ≠ campaign-stop distinction"
+fi
+
+# ---------------------------------------------------------------------------
+# C2: METHODOLOGY.md must use the precise campaign-STOP wording.
+# ---------------------------------------------------------------------------
+if assert_C2 "$METHODOLOGY"; then
+  ok "C2: METHODOLOGY §8c carries precise campaign-STOP wording (no pending/active entries)"
+else
+  no "C2: METHODOLOGY §8c missing precise campaign-STOP wording (no pending/active entries)"
+fi
+
+# ---------------------------------------------------------------------------
+# C3: METHODOLOGY.md must carry the typed bound-stop token 'campaign-bound-reached:'.
+# ---------------------------------------------------------------------------
+if assert_C3 "$METHODOLOGY"; then
+  ok "C3: METHODOLOGY §8c carries typed bound-stop token 'campaign-bound-reached:'"
+else
+  no "C3: METHODOLOGY §8c missing typed bound-stop token 'campaign-bound-reached:'"
+fi
+
+# ---------------------------------------------------------------------------
+# C4: PROMPT-LOOP.md must state teardown runs at campaign STOP, not focus stop.
+# ---------------------------------------------------------------------------
+if assert_C4 "$PROMPTLOOP"; then
+  ok "C4: PROMPT-LOOP.md states teardown at campaign STOP (not focus stop)"
+else
+  no "C4: PROMPT-LOOP.md missing 'Teardown runs at campaign STOP'"
+fi
+
+# ---------------------------------------------------------------------------
+# C5: METHODOLOGY.md §8c must carry the full grammar line for campaign_bounds:
+#     including all three keys and the correct wall-clock spelling (<N>h not <Nh>).
+# ---------------------------------------------------------------------------
+if assert_C5 "$METHODOLOGY"; then
+  ok "C5: METHODOLOGY §8c carries full campaign_bounds grammar line (wall-clock=<N>h)"
+else
+  no "C5: METHODOLOGY §8c missing full campaign_bounds grammar line"
+fi
+
+# ---------------------------------------------------------------------------
+# C6: METHODOLOGY.md §8c must define depth as the length of the parent chain from root.
+# ---------------------------------------------------------------------------
+if assert_C6 "$METHODOLOGY"; then
+  ok "C6: METHODOLOGY §8c defines depth (parent-chain length from root)"
+else
+  no "C6: METHODOLOGY §8c missing depth definition"
+fi
+
+# ---------------------------------------------------------------------------
+# C7: METHODOLOGY.md §8c must state where the bound stop is recorded.
+# ---------------------------------------------------------------------------
+if assert_C7 "$METHODOLOGY"; then
+  ok "C7: METHODOLOGY §8c carries recording location for bound stop (campaign_stop: line)"
+else
+  no "C7: METHODOLOGY §8c missing recording location for bound stop"
+fi
+
+# ---------------------------------------------------------------------------
+# C8: METHODOLOGY.md §8c must carry the full grammar shape of the last_audit: field.
+# ---------------------------------------------------------------------------
+if assert_C8 "$METHODOLOGY"; then
+  ok "C8: METHODOLOGY §8c carries full last_audit: grammar line (with enqueued=<N>)"
+else
+  no "C8: METHODOLOGY §8c missing full last_audit: grammar line"
+fi
+
+# ---------------------------------------------------------------------------
+# C9: PROMPT-LOOP RETURN CONTRACT must carry the 'next-entry: <queue-name>' token.
+# ---------------------------------------------------------------------------
+if assert_C9 "$PROMPTLOOP"; then
+  ok "C9: PROMPT-LOOP RETURN CONTRACT carries 'next-entry: <queue-name>' campaign token"
+else
+  no "C9: PROMPT-LOOP RETURN CONTRACT missing 'next-entry: <queue-name>' campaign token"
+fi
+
+# ---------------------------------------------------------------------------
+# C10: METHODOLOGY §8c must state that resume continues active entry first.
+# ---------------------------------------------------------------------------
+if assert_C10 "$METHODOLOGY"; then
+  ok "C10: METHODOLOGY §8c states resume continues active entry first"
+else
+  no "C10: METHODOLOGY §8c missing resume-active-first rule"
+fi
+
+# ---------------------------------------------------------------------------
+# C11: METHODOLOGY §8c must carry persisted bound counters.
+# ---------------------------------------------------------------------------
+if assert_C11 "$METHODOLOGY"; then
+  ok "C11: METHODOLOGY §8c carries persisted bound counters (campaign_started + campaign_iterations)"
+else
+  no "C11: METHODOLOGY §8c missing persisted bound counters (campaign_started / campaign_iterations)"
+fi
+
+# ---------------------------------------------------------------------------
+# C12: METHODOLOGY §8c must state last_iteration_ts applies to single-focus corpora.
+# ---------------------------------------------------------------------------
+if assert_C12 "$METHODOLOGY"; then
+  ok "C12: METHODOLOGY §8c states last_iteration_ts applies to single-focus corpora"
+else
+  no "C12: METHODOLOGY §8c missing single-focus last_iteration_ts statement"
+fi
+
+# ---------------------------------------------------------------------------
+# C13: METHODOLOGY §8c must carry the `rejected` terminal state.
+# ---------------------------------------------------------------------------
+if assert_C13 "$METHODOLOGY"; then
+  ok "C13: METHODOLOGY §8c carries 'rejected' terminal state"
+else
+  no "C13: METHODOLOGY §8c missing 'rejected' terminal state"
+fi
+
+# ---------------------------------------------------------------------------
+# C14: SKILL.md must carry 'do not ask which mode' (B5: announce mode, do not ask).
+#      Added in #989 round 5; re-anchored from 'CronList → CronDelete' (still present,
+#      no longer the C14 pin since it pins nothing new from this round).
+# ---------------------------------------------------------------------------
+if assert_C14 "$SKILL"; then
+  ok "C14: SKILL.md carries 'do not ask which mode' (mode-announce rule)"
+else
+  no "C14: SKILL.md missing 'do not ask which mode' (mode-announce rule absent)"
+fi
+
+# ---------------------------------------------------------------------------
+# C15: PROMPT-LOOP LOOP CONTINUATION must say 'A RUN ends only on campaign STOP'.
+# ---------------------------------------------------------------------------
+if assert_C15 "$PROMPTLOOP"; then
+  ok "C15: PROMPT-LOOP correctly says 'A RUN ends only on campaign STOP'"
+else
+  no "C15: PROMPT-LOOP missing 'A RUN ends only on campaign STOP'"
+fi
+
+# ---------------------------------------------------------------------------
+# C16 (absence): PROMPT-LOOP must NOT say 'an autonomous run must stop at convergence'.
+# ---------------------------------------------------------------------------
+if assert_C16 "$PROMPTLOOP"; then
+  ok "C16: PROMPT-LOOP does not have stale convergence-stop wording"
+else
+  no "C16: PROMPT-LOOP still has stale 'an autonomous run must stop at convergence'"
+fi
+
+# ---------------------------------------------------------------------------
+# C17 (absence): PROMPT-LOOP must NOT say 'A turn ends only on'.
+# ---------------------------------------------------------------------------
+if assert_C17 "$PROMPTLOOP"; then
+  ok "C17: PROMPT-LOOP does not have stale 'A turn ends only on'"
+else
+  no "C17: PROMPT-LOOP still has stale 'A turn ends only on'"
+fi
+
+# ---------------------------------------------------------------------------
+# C18: PROMPT-LOOP RETURN CONTRACT must carry 'STOP: campaign — ' token.
+# ---------------------------------------------------------------------------
+if assert_C18 "$PROMPTLOOP"; then
+  ok "C18: PROMPT-LOOP RETURN CONTRACT carries 'STOP: campaign — ' token"
+else
+  no "C18: PROMPT-LOOP RETURN CONTRACT missing 'STOP: campaign — ' token"
+fi
+
+# ---------------------------------------------------------------------------
+# C19 (absence): PROMPT-LOOP, METHODOLOGY, and SKILL must NOT say 'signal "continue"'
+#      — orchestrated mode uses RETURN CONTRACT tokens, not a bare signal.
+# ---------------------------------------------------------------------------
+if assert_C19 "$PROMPTLOOP"; then
+  ok "C19a: PROMPT-LOOP does not have stale 'signal \"continue\"' orchestrated wording"
+else
+  no "C19a: PROMPT-LOOP still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+fi
+if assert_C19 "$METHODOLOGY"; then
+  ok "C19b: METHODOLOGY does not have stale 'signal \"continue\"' wording"
+else
+  no "C19b: METHODOLOGY still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+fi
+if assert_C19 "$SKILL"; then
+  ok "C19c: SKILL does not have stale 'signal \"continue\"' wording"
+else
+  no "C19c: SKILL still has stale 'signal \"continue\"' (use RETURN CONTRACT tokens)"
+fi
+
+# ---------------------------------------------------------------------------
+# D1 (absence): RESEARCH-STATE template must NOT have a live '## Campaign queue' heading
+#      outside HTML comments (R1: a live heading means every new corpus starts with a
+#      pre-seeded campaign queue that can never STOP).
+# ---------------------------------------------------------------------------
+if assert_D1 "$TEMPLATE"; then
+  ok "D1: RESEARCH-STATE template has no live '## Campaign queue' heading outside HTML comments"
+else
+  no "D1: RESEARCH-STATE template has a live '## Campaign queue' heading outside HTML comments"
+fi
+
 # ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
@@ -355,6 +636,206 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-B3: mutant still has 'CronDelete' — sed did not take (no teeth)"
   else
     ok "teeth-B3: B3 assertion goes RED on mutant"
+  fi
+
+  echo "-- teeth: METHODOLOGY.md mutants for campaign assertions C1-C3 --"
+
+  # Teeth C1: replace anchor → assert_C1 must go RED.
+  mutantC1="$TMP/METHODOLOGY.mutantC1.md"
+  sed 's/A focus stop does not end the campaign/A focus stop DOES end the campaign/g' "$METHODOLOGY" > "$mutantC1"
+  if assert_C1 "$mutantC1"; then
+    no "teeth-C1: assert_C1 passed on mutant — no teeth"
+  else
+    ok "teeth-C1: assert_C1 goes RED on mutant"
+  fi
+
+  # Teeth C2: replace 'no entry is `pending` or `active`' anchor → assert_C2 must go RED.
+  mutantC2="$TMP/METHODOLOGY.mutantC2.md"
+  sed 's/no entry is `pending` or `active`/no entry is pending or active/g' "$METHODOLOGY" > "$mutantC2"
+  if assert_C2 "$mutantC2"; then
+    no "teeth-C2: assert_C2 passed on mutant — no teeth"
+  else
+    ok "teeth-C2: assert_C2 goes RED on mutant"
+  fi
+
+  # Teeth C3: replace 'campaign-bound-reached:' → assert_C3 must go RED.
+  mutantC3="$TMP/METHODOLOGY.mutantC3.md"
+  sed 's/campaign-bound-reached:/campaign-bound-X:/g' "$METHODOLOGY" > "$mutantC3"
+  if assert_C3 "$mutantC3"; then
+    no "teeth-C3: assert_C3 passed on mutant — no teeth"
+  else
+    ok "teeth-C3: assert_C3 goes RED on mutant"
+  fi
+
+  # Teeth C4: replace 'Teardown runs at campaign STOP' → assert_C4 must go RED.
+  mutantC4="$TMP/PROMPTLOOP.mutantC4.md"
+  sed 's/Teardown runs at campaign STOP/Teardown runs at focus STOP/g' "$PROMPTLOOP" > "$mutantC4"
+  if assert_C4 "$mutantC4"; then
+    no "teeth-C4: assert_C4 passed on mutant — no teeth"
+  else
+    ok "teeth-C4: assert_C4 goes RED on mutant"
+  fi
+
+  echo "-- teeth: METHODOLOGY.md mutants for bounds assertions C5-C8 --"
+
+  # Teeth C5: mutate '<N>h' → '<Nh>' (drop closing bracket) — breaks wall-clock grammar.
+  mutantC5="$TMP/METHODOLOGY.mutantC5.md"
+  sed 's/wall-clock=<N>h/wall-clock=<Nh>/g' "$METHODOLOGY" > "$mutantC5"
+  if assert_C5 "$mutantC5"; then
+    no "teeth-C5: assert_C5 passed on mutant — no teeth"
+  else
+    ok "teeth-C5: assert_C5 goes RED on mutant (wall-clock bracket removed)"
+  fi
+
+  # Teeth C6: replace depth anchor → C6 must go RED.
+  mutantC6="$TMP/METHODOLOGY.mutantC6.md"
+  sed 's/depth is the length of the parent chain from root/depth is unspecified/g' "$METHODOLOGY" > "$mutantC6"
+  if assert_C6 "$mutantC6"; then
+    no "teeth-C6: assert_C6 passed on mutant — no teeth"
+  else
+    ok "teeth-C6: assert_C6 goes RED on mutant"
+  fi
+
+  # Teeth C7: replace 'campaign_stop: campaign-bound-reached:' → C7 must go RED.
+  mutantC7="$TMP/METHODOLOGY.mutantC7.md"
+  sed 's/campaign_stop: campaign-bound-reached:/campaign_stop: bound-reached:/g' "$METHODOLOGY" > "$mutantC7"
+  if assert_C7 "$mutantC7"; then
+    no "teeth-C7: assert_C7 passed on mutant — no teeth"
+  else
+    ok "teeth-C7: assert_C7 goes RED on mutant"
+  fi
+
+  # Teeth C8: mutate 'enqueued=<N>' → 'enqueued=N' (remove angle brackets) — breaks grammar.
+  mutantC8="$TMP/METHODOLOGY.mutantC8.md"
+  sed 's/enqueued=<N>/enqueued=N/g' "$METHODOLOGY" > "$mutantC8"
+  if assert_C8 "$mutantC8"; then
+    no "teeth-C8: assert_C8 passed on mutant — no teeth"
+  else
+    ok "teeth-C8: assert_C8 goes RED on mutant (enqueued angle brackets removed)"
+  fi
+
+  echo "-- teeth: PROMPT-LOOP + METHODOLOGY + SKILL mutants for C9-C14 --"
+
+  # Teeth C9: replace 'next-entry: <queue-name>' in PROMPTLOOP → C9 must go RED.
+  mutantC9="$TMP/PROMPTLOOP.mutantC9.md"
+  sed 's/next-entry: <queue-name>/next-entry: <X>/g' "$PROMPTLOOP" > "$mutantC9"
+  if assert_C9 "$mutantC9"; then
+    no "teeth-C9: assert_C9 passed on mutant — no teeth"
+  else
+    ok "teeth-C9: assert_C9 goes RED on mutant"
+  fi
+
+  # Teeth C10: replace resume anchor → C10 must go RED.
+  mutantC10="$TMP/METHODOLOGY.mutantC10.md"
+  sed 's/first continue any entry left `active`/first pop the next `pending` entry/g' "$METHODOLOGY" > "$mutantC10"
+  if assert_C10 "$mutantC10"; then
+    no "teeth-C10: assert_C10 passed on mutant — no teeth"
+  else
+    ok "teeth-C10: assert_C10 goes RED on mutant"
+  fi
+
+  # Teeth C11a: replace 'campaign_started:' → C11 compound assertion must go RED.
+  mutantC11a="$TMP/METHODOLOGY.mutantC11a.md"
+  sed 's/campaign_started:/campaign_STARTED_X:/g' "$METHODOLOGY" > "$mutantC11a"
+  if assert_C11 "$mutantC11a"; then
+    no "teeth-C11a: assert_C11 passed on mutant — no teeth"
+  else
+    ok "teeth-C11a: assert_C11 goes RED on mutant (campaign_started removed)"
+  fi
+
+  # Teeth C11b: replace 'campaign_iterations:' → C11 compound assertion must go RED.
+  mutantC11b="$TMP/METHODOLOGY.mutantC11b.md"
+  sed 's/campaign_iterations:/campaign_ITERATIONS_X:/g' "$METHODOLOGY" > "$mutantC11b"
+  if assert_C11 "$mutantC11b"; then
+    no "teeth-C11b: assert_C11 passed on mutant — no teeth"
+  else
+    ok "teeth-C11b: assert_C11 goes RED on mutant (campaign_iterations removed)"
+  fi
+
+  # Teeth C12: replace 'Single-focus corpora' → C12 must go RED.
+  mutantC12="$TMP/METHODOLOGY.mutantC12.md"
+  sed 's/Single-focus corpora/Multi-focus corpora/g' "$METHODOLOGY" > "$mutantC12"
+  if assert_C12 "$mutantC12"; then
+    no "teeth-C12: assert_C12 passed on mutant — no teeth"
+  else
+    ok "teeth-C12: assert_C12 goes RED on mutant"
+  fi
+
+  # Teeth C13: replace '`rejected`' in METHODOLOGY → C13 must go RED.
+  mutantC13="$TMP/METHODOLOGY.mutantC13.md"
+  sed 's/`rejected`/`REJECTED_X`/g' "$METHODOLOGY" > "$mutantC13"
+  if assert_C13 "$mutantC13"; then
+    no "teeth-C13: assert_C13 passed on mutant — no teeth"
+  else
+    ok "teeth-C13: assert_C13 goes RED on mutant"
+  fi
+
+  # Teeth C14: replace 'do not ask which mode' in SKILL → C14 must go RED.
+  mutantC14="$TMP/SKILL.mutantC14.md"
+  sed 's/do not ask which mode/do not DETERMINE which mode/g' "$SKILL" > "$mutantC14"
+  if assert_C14 "$mutantC14"; then
+    no "teeth-C14: assert_C14 passed on mutant — no teeth"
+  else
+    ok "teeth-C14: assert_C14 goes RED on mutant"
+  fi
+
+  # Teeth C15: replace 'A RUN ends only on campaign STOP' → C15 must go RED.
+  mutantC15="$TMP/PROMPTLOOP.mutantC15.md"
+  sed 's/A RUN ends only on campaign STOP/A turn ends only on campaign STOP/g' "$PROMPTLOOP" > "$mutantC15"
+  if assert_C15 "$mutantC15"; then
+    no "teeth-C15: assert_C15 passed on mutant — no teeth"
+  else
+    ok "teeth-C15: assert_C15 goes RED on mutant"
+  fi
+
+  # Teeth C16 (absence): inject stale text → assert_C16 must return 1 (text found = fail).
+  mutantC16="$TMP/PROMPTLOOP.mutantC16.md"
+  sed '1s|^|an autonomous run must stop at convergence\n|' "$PROMPTLOOP" > "$mutantC16"
+  if assert_C16 "$mutantC16"; then
+    no "teeth-C16: assert_C16 passed on mutant — no teeth"
+  else
+    ok "teeth-C16: assert_C16 goes RED on mutant (stale text injected)"
+  fi
+
+  # Teeth C17 (absence): inject stale text → assert_C17 must return 1 (text found = fail).
+  mutantC17="$TMP/PROMPTLOOP.mutantC17.md"
+  sed '1s|^|A turn ends only on\n|' "$PROMPTLOOP" > "$mutantC17"
+  if assert_C17 "$mutantC17"; then
+    no "teeth-C17: assert_C17 passed on mutant — no teeth"
+  else
+    ok "teeth-C17: assert_C17 goes RED on mutant (stale text injected)"
+  fi
+
+  echo "-- teeth: C18/C19 mutants --"
+
+  # Teeth C18: replace 'STOP: campaign — ' → C18 must go RED.
+  mutantC18="$TMP/PROMPTLOOP.mutantC18.md"
+  sed 's/STOP: campaign — /STOP: campaign X/g' "$PROMPTLOOP" > "$mutantC18"
+  if assert_C18 "$mutantC18"; then
+    no "teeth-C18: assert_C18 passed on mutant — no teeth"
+  else
+    ok "teeth-C18: assert_C18 goes RED on mutant"
+  fi
+
+  # Teeth C19 (absence): inject 'signal "continue"' → assert_C19 must return 1.
+  mutantC19="$TMP/PROMPTLOOP.mutantC19.md"
+  sed '1s|^|signal "continue"\n|' "$PROMPTLOOP" > "$mutantC19"
+  if assert_C19 "$mutantC19"; then
+    no "teeth-C19: assert_C19 passed on mutant — no teeth"
+  else
+    ok "teeth-C19: assert_C19 goes RED on mutant (stale text injected)"
+  fi
+
+  echo "-- teeth: D1 mutant (inject live pending row into template copy) --"
+
+  # Teeth D1: inject a live '## Campaign queue' heading outside HTML comments → assert_D1 must return 1.
+  mutantD1="$TMP/TEMPLATE.mutantD1.md"
+  # Append a live Campaign queue heading outside comments to the copy
+  { cat "$TEMPLATE"; printf '\n## Campaign queue\n\n| Name | Parent | Kind | Seed | Convergence | State |\n|---|---|---|---|---|---|\n| injected | root | focus | seed | done | pending |\n'; } > "$mutantD1"
+  if assert_D1 "$mutantD1"; then
+    no "teeth-D1: assert_D1 passed on mutant — no teeth (live heading not detected)"
+  else
+    ok "teeth-D1: assert_D1 goes RED on mutant (live Campaign queue heading injected)"
   fi
 fi
 

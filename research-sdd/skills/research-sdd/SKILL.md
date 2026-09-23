@@ -157,9 +157,10 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    - `$KIT/METHODOLOGY.md` — the rules. Do NOT ingest all 23 sections every iteration; it is a reference,
      not a monolith to reload each block. Load it in two tiers — lazy-load is NOT skip: every rule still
      applies, you only DEFER loading a section until its phase fires, and reading it is MANDATORY then.
-     - HOT-CORE — read IN FULL every iteration (framing + the per-block contract): §1 guiding principle,
-       §2 phases, §3 the 7 markers, §4 block anatomy, §7 state/memory, §8 stopping + terminal trigger,
-       §9 golden rules, §11 self-verify, §17 resume.
+     - HOT-CORE — read once per context (session start, after a compaction, or in each fresh sub-agent):
+       §1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state/memory,
+       §8 stopping + terminal trigger, §9 golden rules, §11 self-verify, §17 resume.
+       Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.
      - SITUATIONAL — read the named section IN FULL the moment its phase triggers, by number: §5 sources →
        adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
        wrapper per artifact type; §11b verifying the verifier / kit test-lane contract → adding or changing a guard, check, oracle,
@@ -172,8 +173,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        breakthrough ledger → a decisive/reusable solution cracked the target (tag the block with a
        `**Breakthrough:**` field + add it to the fleet index); §23 three-session kit-change template →
        coordinating a kit change across separate coordinator / researcher / QA sessions.
-       If unsure whether a section's phase is active, READ IT — a wrongly-skipped rule costs more than the
-       tokens saved.
+       Read a situational section when its trigger is your next action.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
      (honor an APPROVED language override; otherwise English).
    - `$KIT/toolbelt/tool-registry.md` — which wrapper per artifact type.
@@ -203,14 +203,11 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    genuine new territory exists. (Evidence: niagara wb-vendor-ux-wave3 retro.)
 
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block, and self-continue per the
-   LOOP CONTINUATION + RESCHEDULE CADENCE rules (dynamic self-paced: ScheduleWakeup at the ~60s floor
-   until STOP fires; fixed-interval `/loop <N>m`: end turn after report, let the harness re-fire).
-   Delegate heavy sweeps with the right MODEL TIER. Emit the per-iteration RETURN CONTRACT (including the
-   tier used); every non-STOP return MUST end with a **continuation token** —
-   `next: <gap-id> · rescheduled via <mechanism>` (e.g. `next: G12 · rescheduled via /loop(1200s)` or
-   `next: G12 · self-scheduled in 60s`). A return without one is a silently stopped iteration. Ending with
-   "shall I continue?" or any equivalent question is a contract violation — the no-question rule from the
-   triage section is a HARD rule inside the loop. At STOP, run the TERMINAL TRIGGER and the §18 SELF-RETROSPECTIVE.
+   LOOP CONTINUATION + RESCHEDULE CADENCE rules in PROMPT-LOOP. Delegate heavy sweeps with the right
+   MODEL TIER. Emit the per-iteration RETURN CONTRACT (PROMPT-LOOP RETURN CONTRACT section — that is
+   the single definition of the token format and required fields); ending with "shall I continue?" or
+   any equivalent question is a contract violation. At campaign STOP, run the TERMINAL TRIGGER and
+   the §18 SELF-RETROSPECTIVE.
    The run is NOT OVER until the retro exists (from `$KIT/templates/retro.template.md`, `<!-- review-status: pending -->`,
    `## Proposed kit deltas` table or the honesty line) — this applies to quick, document and applied runs too, not only
    to STOP. State `retro: written <path>` or `retro: not-due` in the final return. A target wired with the kit's Stop hook
@@ -250,28 +247,17 @@ supervisor adds it to the Tool cell when applying the catalog row.
 
 ## Execution mode
 
-Default is **self-paced**. Two self-paced sub-modes: (a) **dynamic** (no interval, plain session or
-`/loop` without an interval) — RECOMMENDED for unattended runs; the loop re-fires on the agent's
-ScheduleWakeup at the ~60s floor, keeping the prompt cache warm; the re-fire depends on the agent
-calling ScheduleWakeup; (b) **fixed-interval** (`/loop 5m`) — FALLBACK when a dynamic run halted
-after a single block or the harness has no ScheduleWakeup; the harness re-fires each turn; no
-ScheduleWakeup is issued; end the turn after the iteration report; when STOP fires, disarm the
-re-invoker (CronList → CronDelete the job; if unavailable, tell the operator to cancel the loop) —
-the harness cron keeps re-firing after STOP without an explicit disarm.
-Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback.
-Stall detection for dynamic runs is tracked in #989 (campaign queue status); until then, an operator
-who sees no new block commit for > 15 min relaunches with the `/loop 5m` fallback.
+This table applies to heavy and continue modes only — quick and light modes never launch `/loop`. Announce the mode and proceed; do not ask which mode.
 
-**Heavy / continue:** the recommended unattended launch is DYNAMIC (no interval). Before launching,
-check whether a re-invoker is already active: the current invocation arrived via `/loop`, or a
-wakeup/cron is already armed (check with the harness's wakeup/cron listing if available). If a
-re-invoker is already active, skip the nested launch and proceed directly. Otherwise, when the mode
-resolves to heavy or continue, launch `/loop /research-sdd <target> [focus]` BEFORE the first
-iteration — this is a BOOTSTRAP-level action, not optional advice. Announce it ("launching `/loop`")
-and proceed; do not stop to ask. If the dynamic run halts after a single block or the harness has no
-ScheduleWakeup, fall back to fixed-interval: `/loop 5m /research-sdd <target> [focus]`.
-If a human wants to review between blocks, run **orchestrated** instead (chain one sub-agent per
-iteration; see PROMPT-LOOP "Two execution modes"). Do not ask which mode.
+| Situation | Mode | Launch | Continuation |
+|---|---|---|---|
+| Unattended (default at BOOTSTRAP) | Self-paced dynamic (recommended) | Launch `/loop /research-sdd <target> [focus]` before the first iteration | ScheduleWakeup at ~60s floor; at campaign STOP, do not reschedule |
+| Unattended, dynamic halted after 1 block | Self-paced fixed-interval (fallback) | `/loop 5m /research-sdd <target> [focus]` | Harness re-fires; campaign STOP: disarm the re-invoker (CronList → CronDelete; else tell the operator) |
+| Attended — operator asked to review between blocks | Orchestrated | Proceed directly — do not launch `/loop` | End report with RETURN CONTRACT token; driver re-invokes on `next*`, ends on `STOP:` |
+
+Before launching in unattended mode, check whether a re-invoker is already active (arrived via `/loop`, or a wakeup/cron is armed). If one is active, proceed directly without a nested launch. Do not issue ScheduleWakeup when the operator asked to review between blocks (orchestrated mode) — that spawns a rogue autonomous loop alongside the operator.
+
+Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback. For stall detection, the instrument reads `last_iteration_ts` in RESEARCH-STATE (METHODOLOGY §8c) — an operator who sees no new block commit for > 15 min can relaunch with the `/loop 5m` fallback while that instrument is pending.
 
 ## Boundaries
 
