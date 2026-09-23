@@ -90,8 +90,11 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4- or 5-
   # absent so no count fires); the per-state backlog parse check below treats INVALID_PRIORITY as FAIL.
   # Silently skips: deferred (parked), strikethrough (~~p~~), em-dash (—). Qualifier forms ("high (ctx)")
   # emit a provisional WARN to stderr and are still excluded. Unknown qualifier BASE fails closed.
-  # "med" abbreviation is normalized to "medium" with MED-ABBREV-NORM WARN (non-conforming per §8b).
-  # Mirrors backlog_rows() in status.sh exactly.
+  # Note: "med" abbreviation is NOT normalized here — that is a separate calibration work unit (#941).
+  #   Rows with priority "med" emit INVALID_PRIORITY and are excluded from counts.
+  # U+2011-NORM: non-breaking hyphens (U+2011, UTF-8 E2 80 91) in headings are normalised to ASCII
+  #   hyphen by a sed pre-pass so "## Gap‑backlog (prioritized)" matches the awk heading pattern.
+  # Mirrors backlog_rows() in status.sh exactly (deliberate mirror — no shared lib; see comment above).
   # Same file as last call → return cached rows; structural WARNs already emitted once.
   if [ "$_BR_CACHED_FILE" = "$1" ]; then  # BR-CACHE-HIT
     [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
@@ -99,7 +102,7 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4- or 5-
   fi
   # BR-CACHE-MISS: run awk; WARNs go to stderr exactly once; capture stdout for subsequent calls.
   _BR_CACHED_FILE="$1"
-  _BR_CACHED_ROWS="$(awk '
+  _BR_CACHED_ROWS="$(LC_ALL=C sed 's/\xe2\x80\x91/-/g' "$1" | awk '
     /^## Gap-backlog( \([^)]+\))?$/ { in_backlog=1; in_data=0; expected_cols=0; next }
     /^## / && tolower($0) ~ /backlog/ { print "WARN: near-miss gap-backlog heading [" $0 "] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY" > "/dev/stderr" }  # NM-WARN
     /^## / { in_backlog=0; in_data=0; expected_cols=0; next }
@@ -112,7 +115,6 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4- or 5-
       if (p=="" || p=="priority" || p=="p" || p=="pr." || p=="deferred") { next }
       if (p~/^~~.*~~$/) { next }  # BPSKIP-STRIKETHROUGH: resolved (struck-through) rows
       if (p~/^—/) { next }        # BPSKIP-EMDASH: em-dash placeholder rows
-      if (p == "med") { print "WARN: non-conforming tier abbreviation [med] in row: " $0 " — migrate to \"medium\" per METHODOLOGY §8b; row counted until migrated" > "/dev/stderr"; p="medium" }  # MED-ABBREV-NORM
       base=p; sub(/ *\([^)]*\)$/, "", base)
       if (base != p) {  # BPSKIP-QUALIFIER: "base (qualifier)" — valid base emits WARN to stderr, still excluded; else fail closed
         if (base=="high" || base=="medium" || base=="low" || base=="deferred") { if (in_backlog && in_data) print "WARN: non-conforming qualifier priority [" p "] — strip the qualifier to \"" base "\" per METHODOLOGY §8b; row excluded from investigable_open until migrated" > "/dev/stderr"; next }  # BP-QUALIFIER-WARN
@@ -137,7 +139,7 @@ _backlog_rows() {       # emits "priority<TAB>gap<TAB>status" for valid 4- or 5-
         if (in_data) { print "WARN: malformed backlog row (" n " cells, expected " sc " — a cell may contain a pipe): " $0 > "/dev/stderr" }  # VS-N4-WARN
         next }
       { st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st) }  # VS-634-BOLD-STRIP: strip leading/trailing ** from status field
-      print p "\t" a[2] "\t" st }' "$1")"
+      print p "\t" a[2] "\t" st }')"
   [ -n "$_BR_CACHED_ROWS" ] && printf '%s\n' "$_BR_CACHED_ROWS"
 }
 # B3a: _blocked_names also scans "## Non-investigable gaps" (semantically identical to ## Blocked gaps;
