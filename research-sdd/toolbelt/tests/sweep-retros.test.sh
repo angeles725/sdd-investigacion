@@ -46,6 +46,12 @@ mkkit() {
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"   # SUT sources this at $(dirname $0)/lib/
   cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh"     # SUT sources this for block_file_filter
   cp "$RG_LIB" "$kit/toolbelt/lib/retro-grammar.sh"  # SUT sources this for retro_grammar_delta_info
+  # Copy template so retro_grammar_has_honesty can load scaffold at $kit/templates/
+  local _tpl_src="$HERE/../../templates/retro.template.md"
+  if [ -f "$_tpl_src" ]; then
+    mkdir -p "$kit/templates"
+    cp "$_tpl_src" "$kit/templates/retro.template.md"
+  fi
   printf '%s' "$kit"
 }
 
@@ -2912,10 +2918,8 @@ mkdir -p "$tgt/retros"
   printf '# Retro — TARGET · FOCUS · DATE · Research-SDD self-retrospective\n\n'
   printf '## Proposed kit deltas\n\n'
   printf '> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.\n'
-  printf '> Each delta: the concrete change · the target file/section · evidence · priority.\n'
-  printf '>\n'
-  printf '> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading,\n'
-  printf '> one row per delta. A honesty line placed here is counted as a deliberate ~0.\n\n'
+  printf '> Each delta: the concrete change \xc2\xb7 the target file/section \xc2\xb7 evidence \xc2\xb7 priority.\n'
+  printf '>\n\n'
   printf '| # | Proposed change | Target | Evidence | Type | Priority |\n'
   printf '|---|---|---|---|---|---|\n\n'
   printf '## Honest verdict\n\n'
@@ -2927,9 +2931,9 @@ run "$kit"
 if [ "$RC" = 0 ] \
    && grep -qF '~0 proposed deltas' <<<"$OUT" \
    && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
-  ok "103 template scaffold: guidance blockquotes + empty table + HV honesty → ~0" "(exit $RC)"
+  ok "103 template scaffold: exact template > lines + empty table + HV honesty → ~0" "(exit $RC)"
 else
-  no "103 template scaffold: guidance blockquotes + empty table + HV honesty → ~0" "exit=$RC out=[$OUT]"
+  no "103 template scaffold: exact template > lines + empty table + HV honesty → ~0" "exit=$RC out=[$OUT]"
 fi
 
 # 104 — FORD RETRO SCAFFOLD (guidance blockquotes before prose honesty in canonical): canonical
@@ -2946,7 +2950,7 @@ mkdir -p "$tgt/retros"
   printf '# Retro — ford · update-notice · 2026-09-10 · Research-SDD self-retrospective\n\n'
   printf '## Proposed kit deltas\n\n'
   printf '> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.\n'
-  printf '> Each delta: the concrete change · evidence · priority.\n\n'
+  printf '> Each delta: the concrete change \xc2\xb7 the target file/section \xc2\xb7 evidence \xc2\xb7 priority.\n\n'
   printf '| # | Proposed change | Target | Evidence | Type | Priority |\n'
   printf '|---|---|---|---|---|---|\n\n'
   printf 'no new deltas; the kit already covers this run.\n'
@@ -2957,9 +2961,9 @@ run "$kit"
 if [ "$RC" = 0 ] \
    && grep -qF '~0 proposed deltas' <<<"$OUT" \
    && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
-  ok "104 ford scaffold: guidance blockquotes + empty table + prose honesty → ~0" "(exit $RC)"
+  ok "104 ford scaffold: exact template > lines + empty table + prose honesty → ~0" "(exit $RC)"
 else
-  no "104 ford scaffold: guidance blockquotes + empty table + prose honesty → ~0" "exit=$RC out=[$OUT]"
+  no "104 ford scaffold: exact template > lines + empty table + prose honesty → ~0" "exit=$RC out=[$OUT]"
 fi
 
 # 105 — NIAGARA RETRO (no guidance blockquotes, prose honesty only): canonical section has an
@@ -2985,6 +2989,111 @@ if [ "$RC" = 0 ] \
   ok "105 niagara: empty table + prose honesty (no scaffold blockquotes) → ~0" "(exit $RC)"
 else
   no "105 niagara: empty table + prose honesty (no scaffold blockquotes) → ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 106 — NON-TEMPLATE BLOCKQUOTE + HV HONESTY (§912-strict FAIL-OPEN guard): canonical section
+#        has a > line whose text is NOT from the template scaffold (> - add X to lib §3) followed
+#        by an empty table and a HV honesty line.  The strict check must NOT exempt the
+#        non-template > line → it fails purity → body_ok=0 → WARN-A (~?).
+#        Before fix: body_started flag exempts any pre-content > → false ~0.
+#        After fix: only template-derived lines are exempt; non-template > fails purity → ~?.
+kit="$(mkkit c106-nontpl-blockquote)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '> - add X to lib \xc2\xa73\n\n'
+  printf '| # | Proposed change | Target | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n\n'
+  printf '## Honest verdict\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "106 non-template > + HV honesty → WARN-A (~?) not ~0 (strict scaffold guard)" "(exit $RC)"
+else
+  no "106 non-template > + HV honesty → WARN-A (~?) not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 107 — TEMPLATE UNREADABLE (§912-strict fail-safe): kit has no templates/ directory so
+#        scaffold_loaded=0 → no > lines are exempt → even an exact-template-text > line
+#        fails purity → WARN-A (~?).
+#        Proves the fail-safe path: unreadable template → impure section → ~?.
+kit="$(mkkit c107-no-template)"; tgt="$kit/targetA"
+rm -f "$kit/templates/retro.template.md"   # Force unreadable template (scaffold_loaded=0)
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '> Only genuinely NEW items \xe2\x80\x94 anything the kit already encodes is listed under "Already covered", not here.\n\n'
+  printf '## Honest verdict\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "107 template unreadable → scaffold_loaded=0: template-text > → WARN-A (~?)" "(exit $RC)"
+else
+  no "107 template unreadable → scaffold_loaded=0: template-text > → WARN-A (~?)" "exit=$RC out=[$OUT]"
+fi
+
+# 108 — WARN-B ## PROPOSED HEADING (newly mirrored in has_honesty §912): retro has a non-canonical
+#        ## Proposed changes heading (not ## Proposed kit deltas) plus honesty → veto fires → ~?.
+#        R3-warnb-broadening-untested: test for the newly accepted ## proposed WARN-B form.
+kit="$(mkkit c108-warnb-h2-proposed)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf 'no new deltas; the kit already covers this run.\n\n'
+  printf '## Notes\n\n'
+  printf '## Proposed changes\n\n'
+  printf '%s\n' '- some change'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "108 WARN-B ## Proposed (non-canonical) + honesty in canonical → WARN-A (~?)" "(exit $RC)"
+else
+  no "108 WARN-B ## Proposed (non-canonical) + honesty in canonical → WARN-A (~?)" "exit=$RC out=[$OUT]"
+fi
+
+# 109 — WARN-B ### DELTA HEADING (newly mirrored in has_honesty §912): retro has a ### Delta
+#        heading outside canonical plus honesty in canonical → veto fires → ~?.
+#        R3-warnb-broadening-untested: test for the newly accepted ### delta/proposed WARN-B form.
+kit="$(mkkit c109-warnb-h3-delta)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf 'no new deltas; the kit already covers this run.\n\n'
+  printf '## Notes\n\n'
+  printf '### Delta summary\n\n'
+  printf '%s\n' '- detail'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "109 WARN-B ### Delta (non-canonical) + honesty in canonical → WARN-A (~?)" "(exit $RC)"
+else
+  no "109 WARN-B ### Delta (non-canonical) + honesty in canonical → WARN-A (~?)" "exit=$RC out=[$OUT]"
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -3387,14 +3496,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   unset _lib_sm
 
-  # Tooth BS: remove the body_started guidance-blockquote exemption from the lib →
-  # leading > guidance blockquotes are counted as non-honesty body lines → body_ok=0 →
-  # template scaffold retros revert to WARN-A. Proves case 103/104 have teeth.
-  echo "-- teeth BS: remove body_started exemption; guidance blockquotes must revert to WARN-A (case 103 has teeth) --"
-  _anchor_bs='if (!body_started && /^>/ && !is_honesty($0)) { next }'
+  # Tooth BS: neuter the scaffold exemption check in the lib → template-derived > lines are
+  # no longer exempt → they fail purity → body_ok=0 → template scaffold retros revert to
+  # WARN-A.  Proves cases 103/104 have teeth.
+  echo "-- teeth BS: neuter scaffold exemption; template > lines must revert to WARN-A (cases 103/104 have teeth) --"
+  _anchor_bs='if (scaffold_loaded && (_rest in scaffold)) { next }'
   _lib_bs="$(cat "$RG_LIB")"
   if [[ "$_lib_bs" != *"$_anchor_bs"* ]]; then
-    no "teeth BS: locate body_started exemption in lib" "anchor not found in lib — retro-grammar.sh drifted?"
+    no "teeth BS: locate scaffold exemption anchor in lib" "anchor not found — retro-grammar.sh drifted?"
   else
     kit="$(mkkit teeth-bs)"; tgt="$kit/targetA"
     mkdir -p "$tgt/retros"
@@ -3402,7 +3511,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '<!-- review-status: pending -->\n'
       printf '# Retro\n\n'
       printf '## Proposed kit deltas\n\n'
-      printf '> Only genuinely NEW items — nothing the kit encodes.\n\n'
+      printf '> Only genuinely NEW items \xe2\x80\x94 anything the kit already encodes is listed under "Already covered", not here.\n'
+      printf '> Each delta: the concrete change \xc2\xb7 the target file/section \xc2\xb7 evidence \xc2\xb7 priority.\n\n'
       printf '| # | Proposed change | Target | Evidence | Type | Priority |\n'
       printf '|---|---|---|---|---|---|\n\n'
       printf '## Honest verdict\n\n'
@@ -3410,24 +3520,81 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     } > "$tgt/retros/r1.md"
     wire_target "$tgt"
     write_targets "$kit" "$tgt"
-    _mutant_bs="$kit/toolbelt/lib/retro-grammar.sh"
-    # Remove only the exemption line; body_started = 1 assignment remains so the
-    # sabotage is targeted: guidance blockquotes flow through to purity check.
-    printf '%s\n' "${_lib_bs/"$_anchor_bs"/# __BS_NEUTERED__}" > "$_mutant_bs"
-    if ! grep -q 'body_started = 1' "$_mutant_bs"; then
-      no "teeth BS: sabotage check failed — body_started assignment was also removed" ""
+    # Control run (good lib with template) must give ~0
+    _ctrl_bs="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+    if ! grep -qF '~0 proposed deltas' <<<"$_ctrl_bs"; then
+      no "teeth BS: precondition check — control must give ~0 first" "out=[$_ctrl_bs]"
     else
-      _outm_bs="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
-      if grep -qF '~? proposed deltas' <<<"$_outm_bs" \
-         && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$_outm_bs"; then
-        ok "teeth BS: exemption-removed mutant → blockquotes fail purity, WARN-A — case 103 has teeth" "()"
+      _lib_bs_content="$(cat "$RG_LIB")"
+      _mutant_bs="$kit/toolbelt/lib/retro-grammar.sh"
+      # Neuter: replace the scaffold guard with a comment → no line is ever exempt
+      printf '%s\n' "${_lib_bs_content/"$_anchor_bs"/# __BS_NEUTERED__}" > "$_mutant_bs"
+      if ! grep -q 'body_started = 1' "$_mutant_bs"; then
+        no "teeth BS: sabotage check failed — body_started assignment also removed" ""
       else
-        no "teeth BS: exemption-removed mutant must give WARN-A — case 103 is THEATER" "out=[$_outm_bs]"
+        _outm_bs="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+        if grep -qF '~? proposed deltas' <<<"$_outm_bs" \
+           && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$_outm_bs"; then
+          ok "teeth BS: scaffold-neutered mutant → template > fails purity, WARN-A — cases 103/104 have teeth" "()"
+        else
+          no "teeth BS: scaffold-neutered mutant must give WARN-A — cases 103/104 are THEATER" "out=[$_outm_bs]"
+        fi
       fi
+      unset _ctrl_bs _lib_bs_content _mutant_bs _outm_bs
     fi
-    unset _anchor_bs _mutant_bs _outm_bs
   fi
-  unset _lib_bs
+  unset _lib_bs _anchor_bs
+
+  # Tooth SC: replace the scaffold guard condition with unconditional { next } → any
+  # pre-content > line is exempt regardless of template → non-template > + HV honesty
+  # falsely gives ~0 instead of WARN-A.  Proves case 106 has teeth.
+  echo "-- teeth SC: exempt-all mutant; non-template > + HV must give ~0 (case 106 has teeth) --"
+  _anchor_sc='if (scaffold_loaded && (_rest in scaffold)) { next }'
+  _lib_sc="$(cat "$RG_LIB")"
+  if [[ "$_lib_sc" != *"$_anchor_sc"* ]]; then
+    no "teeth SC: locate scaffold guard in lib" "anchor not found — retro-grammar.sh drifted?"
+  else
+    kit="$(mkkit teeth-sc)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '<!-- review-status: pending -->\n'
+      printf '# Retro\n\n'
+      printf '## Proposed kit deltas\n\n'
+      printf '> - add X to lib \xc2\xa73\n\n'
+      printf '| # | Proposed change | Target | Evidence | Type | Priority |\n'
+      printf '|---|---|---|---|---|---|\n\n'
+      printf '## Honest verdict\n\n'
+      printf 'no new deltas; the kit already covers this run.\n'
+    } > "$tgt/retros/r1.md"
+    wire_target "$tgt"
+    write_targets "$kit" "$tgt"
+    # Precondition: control (good lib) → WARN-A (~?)
+    _ctrl_sc="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+    if ! grep -qF '~? proposed deltas' <<<"$_ctrl_sc"; then
+      no "teeth SC: precondition check — control must give WARN-A first" "out=[$_ctrl_sc]"
+    else
+      _mutant_sc="$kit/toolbelt/lib/retro-grammar.sh"
+      _new_sc='if (1) { next } # __SC_EXEMPT_ALL__'
+      printf '%s\n' "${_lib_sc/"$_anchor_sc"/$_new_sc}" > "$_mutant_sc"
+      # Precondition: bash -n passes
+      if ! bash -n "$_mutant_sc" 2>/dev/null; then
+        no "teeth SC: bash -n check on mutant failed" ""
+      # Sabotage check: replacement was applied
+      elif ! grep -q 'SC_EXEMPT_ALL' "$_mutant_sc"; then
+        no "teeth SC: sabotage check — anchor replacement did not apply" ""
+      else
+        _outm_sc="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
+        if grep -qF '~0 proposed deltas' <<<"$_outm_sc"; then
+          ok "teeth SC: exempt-all mutant → non-template > gives ~0 — case 106 has teeth" "()"
+        else
+          no "teeth SC: exempt-all mutant must give ~0 — case 106 is THEATER" "out=[$_outm_sc]"
+        fi
+        unset _ctrl_sc _outm_sc
+      fi
+      unset _mutant_sc _new_sc
+    fi
+  fi
+  unset _lib_sc _anchor_sc
 
   # Tooth PU: sabotage the "empty canonical body" gate so it always fires instead of only
   # when body_count == 0. When this guard is widened (always true), the HV path accepts

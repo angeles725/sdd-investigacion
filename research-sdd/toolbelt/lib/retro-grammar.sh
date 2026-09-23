@@ -154,9 +154,11 @@ fi
 #    section must satisfy is_honesty() after marker stripping.  Fenced blocks, HTML
 #    comments, and other non-honesty content all fail this check by construction.
 #    An empty-table header+separator (no data rows) is also accepted as an empty body.
-#    Exception: leading > blockquote lines that are NOT honesty lines are exempted as
-#    template scaffold, but only BEFORE the first non-blank non-blockquote line
-#    (body_started flag).  Once body_started=1, all content is subject to purity.
+#    Exception: a pre-content > line is exempt ONLY when its text (after stripping
+#    "> ") exactly matches one of the guidance lines from the canonical delta section
+#    of retro.template.md (scaffold set, loaded at runtime from tpl).  Fail-safe: if
+#    the template is unreadable (scaffold_loaded==0), no > lines are exempt — all
+#    such lines are subject to purity and the section is impure → ~?.
 #
 # B. ## Honest verdict: accepted ONLY when the canonical section is absent or its
 #    body is empty (no non-blank, non-table lines).  Non-honesty canonical content
@@ -181,7 +183,17 @@ fi
 if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
   retro_grammar_has_honesty() {
     [ -f "$1" ] || return 1
-    awk "$_RG_AWK_CANONICAL_FN"'
+    # Resolve the template path for scaffold-derived blockquote exemption (§912-strict).
+    # The lib's own location anchors the path; the template is two levels up at templates/.
+    # If BASH_SOURCE is unset or the directory cannot be resolved, _tpl is empty → awk
+    # receives tpl="" → scaffold_loaded=0 → no exemptions (fail-safe: all > lines are
+    # subject to purity).
+    local _rg_lib_dir="" _tpl=""
+    if [ -n "${BASH_SOURCE[0]:-}" ]; then
+      _rg_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || _rg_lib_dir=""
+    fi
+    [ -n "$_rg_lib_dir" ] && _tpl="$_rg_lib_dir/../../templates/retro.template.md"
+    awk -v tpl="${_tpl}" "$_RG_AWK_CANONICAL_FN"'
       # ── Honesty marker stripping (C) ────────────────────────────────────────
       function strip_markers(s,    prev) {
         gsub(/^[[:space:]]+/, "", s)
@@ -209,12 +221,29 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
         body_count   = 0   # non-blank, non-table, non-scaffold body lines
         body_ok      = 1   # 1 while all body_count lines satisfy is_honesty()
         body_pipe    = 0   # non-separator | rows
-        body_started = 0   # set once the first non-blank non-blockquote line is seen;
-                           # before that, leading > guidance blockquotes are template scaffold
+        body_started = 0   # set once the first real content line is seen
         # HV body
         hv_honesty = 0
         # Veto: form-3 or WARN-B indicator anywhere in file
         veto = 0
+        # Scaffold: guidance blockquote texts from the canonical delta section of the
+        # template.  Loaded at runtime so the exemption set never drifts from the
+        # actual template.  Fail-safe: scaffold_loaded==0 → no exemptions.
+        scaffold_loaded = 0
+        if (tpl != "") {
+          _in_tpl_canon = 0
+          while ((getline _tline < tpl) > 0) {
+            _tlow = tolower(_tline)
+            if (is_canonical_heading(_tlow)) { _in_tpl_canon = 1; continue }
+            if (_tline ~ /^##[^#]/) { _in_tpl_canon = 0; continue }
+            if (_in_tpl_canon && _tline ~ /^>/) {
+              _rest = _tline; sub(/^>[[:space:]]*/, "", _rest)
+              scaffold[_rest] = 1
+              scaffold_loaded = 1
+            }
+          }
+          close(tpl)
+        }
       }
 
       { low = tolower($0) }
@@ -256,11 +285,14 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
           if ($0 !~ /^\|[-: |]+\|?[[:space:]]*$/) body_pipe++
           next
         }
-        # Leading > guidance blockquotes are template scaffold: exempt them before the
-        # first non-blank non-blockquote content line.  Fail-safe: once body_started=1,
-        # all lines are subject to purity — a real delta bullet after the blockquotes
-        # sets body_started and is never silently skipped.
-        if (!body_started && /^>/ && !is_honesty($0)) { next }
+        # Template-scaffold exemption (§912-strict): a pre-content > line is exempt
+        # ONLY when its text (after stripping "> ") exactly matches a guidance line
+        # from the canonical delta section of retro.template.md (scaffold set).
+        # Fail-safe: scaffold_loaded==0 (template unreadable) → no exemptions.
+        if (!body_started && /^>/ && !is_honesty($0)) {
+          _rest = $0; sub(/^>[[:space:]]*/, "", _rest)
+          if (scaffold_loaded && (_rest in scaffold)) { next }
+        }
         body_started = 1
         body_count++
         if (!is_honesty($0)) body_ok = 0
