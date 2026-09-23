@@ -58,7 +58,7 @@ mkrepo() {
   git -C "$repo" commit -qm init
   # Set up a local bare remote so git fetch origin succeeds in the fixed SUT.
   local remote="$ROOT/$1-origin.git"
-  git init -q --bare "$remote"
+  git init -q --bare -b main "$remote"  # explicit: CI has no init.defaultBranch
   git -C "$repo" remote add origin "$remote"
   git -C "$repo" push -q origin main 2>/dev/null
   printf '%s' "$repo"
