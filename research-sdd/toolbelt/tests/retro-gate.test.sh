@@ -797,7 +797,8 @@ printf '%s' "$ERR_944" | grep -q 'WARN.*seeder failed' \
   && ok "EN3-944: exit 2 with summary → seeder-failed WARN still emitted" \
   || no "EN3-944: expected WARN for seeder exit 2; got: $ERR_944"
 # aggregate WARN uses new format: 'N issue create(s) failed across M retro(s)'
-printf '%s' "$ERR_944" | grep -q '3 issue create(s) failed across 1 retro(s)' \
+# Use here-string to avoid printf|grep-q pipefail race (family #941/e727cde)
+grep -q '3 issue create(s) failed across 1 retro(s)' <<< "$ERR_944" \
   && ok "EN3-944: aggregate WARN uses new format (issue count across retro count)" \
   || no "EN3-944: expected '3 issue create(s) failed across 1 retro(s)' in WARN; got: $ERR_944"
 # Gate still allows (block/allow decision unaffected by seeder failure)
@@ -805,6 +806,237 @@ printf '%s' "$ERR_944" | grep -q '3 issue create(s) failed across 1 retro(s)' \
   "$BASH_BIN" "$FKIT_944/toolbelt/retro-gate.sh" "$T944" 2>/dev/null)" ] \
   && ok "EN3-944: exit 2 with summary → gate still allows (no block JSON)" \
   || no "EN3-944: exit 2 with summary → unexpected block JSON"
+
+# ─── #957: retro-gate uses session-start sha scope, not file mtime ───────────
+# mkretro_committed <target> <fname> <gdate>: create+commit a conforming retro
+mkretro_committed() {
+  local tgt="$1" fname="$2" gdate="$3"
+  mkdir -p "$tgt/retros"
+  printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta | file.sh | evidence | fix | low |\n' \
+    > "$tgt/retros/$fname"
+  git -C "$tgt" add "retros/$fname"
+  GIT_AUTHOR_DATE="$gdate" GIT_COMMITTER_DATE="$gdate" \
+    git -C "$tgt" commit -q -m "add $fname"
+}
+
+# T-flip-957: old retro committed BEFORE session start; marker flipped (mtime bumped) after block.
+# Pre-fix (mtime) allows because bumped-mtime > block-mtime.
+# Post-fix (session-sha scope): git diff --diff-filter=A <session_sha>..HEAD finds no new retro;
+# git ls-files --others finds nothing (retro is committed/tracked); blocks.
+T_flip="$ROOT/t-flip957"; mkgit "$T_flip"; SID_flip="flip957-sess"
+# Step 1: commit old retro with old git date
+mkretro_committed "$T_flip" "2026-01-10-old-retro.md" "2026-01-10T00:00:00"
+# Step 2: record session sha AFTER old retro commit (session diff range starts here)
+mksessionfile "$T_flip" "$SID_flip" "202609050800"
+# Step 3: commit block
+mkblock "$T_flip" "niagara-block1.md" "2026-09-05T10:00:00"
+# Step 4: set block mtime to 10:00
+touch -t 202609051000 "$T_flip/niagara-block1.md"
+# Step 5: bump old retro mtime to 12:00 — simulates marker flip; mtime > block mtime
+touch -t 202609051200 "$T_flip/retros/2026-01-10-old-retro.md"
+_j_flip="$(mkjson "$SID_flip" "false")"
+run_gate "$T_flip" "$_j_flip"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-flip: old retro with bumped mtime → still blocks (session-sha scope, not mtime)" \
+  || no "#957 T-flip: old retro with bumped mtime → should block but allowed — session-scope bypass"
+
+# T-git-mv-957: old retro renamed (git mv) after session start → BLOCK.
+# Pre-fix (mtime): renamed file's mtime is now > block mtime → allows (bypass).
+# Post-fix (session-sha scope): rename has filter R not A; not in diff; ls-files --others
+# returns nothing (tracked); no qualifying retro → blocks.  RED on pre-fix SUT.
+T_gmv="$ROOT/t-gmv957"; mkgit "$T_gmv"; SID_gmv="gmv957-sess"
+# Step 1: commit old retro before session start
+mkretro_committed "$T_gmv" "2026-01-10-old-retro.md" "2026-01-10T00:00:00"
+# Step 2: record session sha AFTER old retro commit
+mksessionfile "$T_gmv" "$SID_gmv" "202609050800"
+# Step 3: commit block
+mkblock "$T_gmv" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_gmv/niagara-block1.md"
+# Step 4: rename old retro, commit rename — new name has recent mtime (now)
+git -C "$T_gmv" mv retros/2026-01-10-old-retro.md retros/2026-09-23-renamed.md
+GIT_AUTHOR_DATE="2026-09-23T12:00:00" GIT_COMMITTER_DATE="2026-09-23T12:00:00" \
+  git -C "$T_gmv" commit -q -m "rename retro"
+_j_gmv="$(mkjson "$SID_gmv" "false")"
+run_gate "$T_gmv" "$_j_gmv"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-git-mv: renamed retro (git mv) → still blocks (rename=R not A in diff)" \
+  || no "#957 T-git-mv: renamed retro → should block but allowed — rename bypass (pre-fix RED)"
+
+# T-new-committed-957: genuinely new retro committed AFTER the block →
+# git diff --diff-filter=A <session_sha>..HEAD shows it; gate must allow.
+T_new957="$ROOT/t-newc957"; mkgit "$T_new957"; SID_new957="newc957-sess"
+mksessionfile "$T_new957" "$SID_new957" "202609050800"
+mkblock "$T_new957" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_new957/niagara-block1.md"
+mkretro_committed "$T_new957" "2026-09-05-new-retro.md" "2026-09-05T12:00:00"
+touch -t 202609051200 "$T_new957/retros/2026-09-05-new-retro.md"
+_j_new957="$(mkjson "$SID_new957" "false")"
+run_gate "$T_new957" "$_j_new957"
+[ -z "$OUT" ] \
+  && ok "#957 T-new-committed: new retro committed after block → allows (no block JSON)" \
+  || no "#957 T-new-committed: new retro after block → should allow but blocked: $OUT"
+grep -q 'retro-conforming' <<< "$ERR" \
+  && ok "#957 T-new-committed: stderr shows retro-conforming branch" \
+  || no "#957 T-new-committed: stderr missing 'retro-conforming': $ERR"
+
+# T-untracked-new-957: new untracked retro newer than session file → ALLOW.
+# Ensures ls-files --others + -nt check admits genuinely new untracked retros.
+T_utr="$ROOT/t-utr957"; mkgit "$T_utr"; SID_utr="utr957-sess"
+mksessionfile "$T_utr" "$SID_utr" "202609050800"
+mkblock "$T_utr" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_utr/niagara-block1.md"
+mkretro "$T_utr" "2026-09-05-untracked.md" 1        # untracked (never committed)
+touch -t 202609051200 "$T_utr/retros/2026-09-05-untracked.md"  # 12:00 > session 08:00
+_j_utr="$(mkjson "$SID_utr" "false")"
+run_gate "$T_utr" "$_j_utr"
+[ -z "$OUT" ] \
+  && ok "#957 T-untracked-new: untracked retro newer than session → allows (no block JSON)" \
+  || no "#957 T-untracked-new: untracked retro → should allow but blocked: $OUT"
+
+# T-same-commit-957: block and retro committed in same commit → ALLOW.
+# git diff --diff-filter=A <session_sha>..HEAD -- retros/ shows retro as added.
+T_sc="$ROOT/t-sc957"; mkgit "$T_sc"; SID_sc="sc957-sess"
+mksessionfile "$T_sc" "$SID_sc"   # records init SHA (before block+retro)
+printf '# Block\n\nContent.\n' > "$T_sc/niagara-block1.md"
+mkretro "$T_sc" "2026-09-05-same-commit.md" 1
+git -C "$T_sc" add -A
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_sc" commit -q -m "add block and retro together"
+_j_sc="$(mkjson "$SID_sc" "false")"
+run_gate "$T_sc" "$_j_sc"
+[ -z "$OUT" ] \
+  && ok "#957 T-same-commit: block+retro in same commit → allows (no block JSON)" \
+  || no "#957 T-same-commit: block+retro same commit → should allow but blocked: $OUT"
+
+# T-non-git-957: non-git target → degraded mtime fallback (origin/main behaviour).
+# Block older than retro → allow; degraded WARN in stderr.
+T_ng="$ROOT/t-ng957"
+mkdir -p "$T_ng/retros"
+printf '# Block\n\nContent.\n' > "$T_ng/niagara-block1.md"
+touch -d '-2 hours' "$T_ng/niagara-block1.md"
+mkretro "$T_ng" "2026-09-05-nongit.md" 1
+touch -d '-1 hour' "$T_ng/retros/2026-09-05-nongit.md"   # retro newer than block
+# No session file exists (non-git, session-start did not write sha)
+_j_ng="$(mkjson "nongit-sess" "false")"
+run_gate "$T_ng" "$_j_ng"
+[ -z "$OUT" ] \
+  && ok "#957 T-non-git: non-git target, retro newer than block → allows (mtime fallback)" \
+  || no "#957 T-non-git: non-git target → should allow (mtime) but blocked: $OUT"
+grep -q 'degraded\|no session' <<< "$ERR" \
+  && ok "#957 T-non-git: degraded warning in stderr" \
+  || no "#957 T-non-git: degraded warning missing from stderr: $ERR"
+
+# T-staged-957: staged (not yet committed) retro → ALLOW.
+# Ensures --cached flag admits retros that are in the index but not HEAD.
+# RED on pre-fix SUT (which used sha..HEAD, not --cached): staged retro not found → blocks.
+T_stg="$ROOT/t-stg957"; mkgit "$T_stg"; SID_stg="stg957-sess"
+mksessionfile "$T_stg" "$SID_stg"   # records HEAD before block
+mkblock "$T_stg" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_stg/niagara-block1.md"
+mkretro "$T_stg" "2026-09-05-staged.md" 1
+git -C "$T_stg" add "retros/2026-09-05-staged.md"   # staged but NOT committed
+_j_stg="$(mkjson "$SID_stg" "false")"
+run_gate "$T_stg" "$_j_stg"
+[ -z "$OUT" ] \
+  && ok "#957 T-staged: staged retro → allows (no block JSON)" \
+  || no "#957 T-staged: staged retro → should allow but blocked: $OUT"
+
+# T-badsha-957: session file contains an unresolvable sha → degraded check → mtime fallback.
+# On pre-fix SUT: degraded=0 (bad sha silently skips Part A only); git diff for retros fails
+# (bad sha) → no qualifying retro → BLOCK.
+# On new SUT: rev-parse -q --verify ${sha}^{commit} fails → degraded=1 + WARN → mtime fallback
+# → retro newer than block → ALLOW.
+T_bs="$ROOT/t-bs957"; mkgit "$T_bs"; SID_bs="bs957-sess"
+mkdir -p "$T_bs/.claude"
+printf '0123456789abcdef0123456789abcdef01234567\n' > "$T_bs/.claude/.rsdd-session-$SID_bs"
+touch -t 202609050800 "$T_bs/.claude/.rsdd-session-$SID_bs"
+mkblock "$T_bs" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_bs/niagara-block1.md"
+mkretro "$T_bs" "2026-09-05-badsha.md" 1
+git -C "$T_bs" add "retros/2026-09-05-badsha.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_bs" commit -q -m "add retro"
+touch -t 202609051200 "$T_bs/retros/2026-09-05-badsha.md"   # retro mtime 12:00 > block 10:00
+_j_bs="$(mkjson "$SID_bs" "false")"
+run_gate "$T_bs" "$_j_bs"
+[ -z "$OUT" ] \
+  && ok "#957 T-badsha: unresolvable sha → degraded mtime fallback → allows" \
+  || no "#957 T-badsha: unresolvable sha → should allow (mtime) but blocked: $OUT"
+grep -q 'unresolvable\|degraded' <<< "$ERR" \
+  && ok "#957 T-badsha: WARN about unresolvable sha in stderr" \
+  || no "#957 T-badsha: WARN about unresolvable sha missing from stderr: $ERR"
+
+# T-nest-957: retro committed under corpus/retros/ → ALLOW.
+# Ensures the pathspec-free approach catches retros in nested directories.
+# RED on pre-fix SUT (-- 'retros/' pathspec misses corpus/retros/): no qualifying retro → blocks.
+T_nest="$ROOT/t-nest957"; mkgit "$T_nest"; SID_nest="nest957-sess"
+mksessionfile "$T_nest" "$SID_nest"
+mkdir -p "$T_nest/corpus"
+printf '# Block — test\n\nContent.\n' > "$T_nest/corpus/niagara-block1.md"
+git -C "$T_nest" add "corpus/niagara-block1.md"
+GIT_AUTHOR_DATE="2026-09-05T10:00:00" GIT_COMMITTER_DATE="2026-09-05T10:00:00" \
+  git -C "$T_nest" commit -q -m "add corpus block"
+mkdir -p "$T_nest/corpus/retros"
+printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta | file.sh | evidence | fix | low |\n' \
+  > "$T_nest/corpus/retros/2026-09-05-nested.md"
+git -C "$T_nest" add "corpus/retros/2026-09-05-nested.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_nest" commit -q -m "add nested retro"
+_j_nest="$(mkjson "$SID_nest" "false")"
+run_gate "$T_nest" "$_j_nest"
+[ -z "$OUT" ] \
+  && ok "#957 T-nest: retro in corpus/retros/ → allows (no block JSON)" \
+  || no "#957 T-nest: retro in corpus/retros/ → should allow but blocked: $OUT"
+
+# T-untracked-old-957: untracked retro OLDER than the session file → BLOCK.
+# Accepted tradeoff: an untracked retro predating the session file does not qualify.
+# The researcher must re-touch or commit it to qualify. Both pre- and post-fix block.
+T_uto="$ROOT/t-uto957"; mkgit "$T_uto"; SID_uto="uto957-sess"
+mkblock "$T_uto" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_uto/niagara-block1.md"
+# Create retro file with old mtime (2026-01-01) BEFORE writing session file
+mkretro "$T_uto" "2026-01-01-old-untracked.md" 1
+touch -t 202601010800 "$T_uto/retros/2026-01-01-old-untracked.md"
+# Session file mtime 2026-09-05 08:00 > retro mtime 2026-01-01 08:00
+mksessionfile "$T_uto" "$SID_uto" "202609050800"
+_j_uto="$(mkjson "$SID_uto" "false")"
+run_gate "$T_uto" "$_j_uto"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-untracked-old: untracked retro older than session → blocks (accepted tradeoff)" \
+  || no "#957 T-untracked-old: untracked retro older than session → should block: OUT=$OUT"
+
+# T-idx-only-957: only an INDEX.md added this session → BLOCK (not a qualifying retro).
+# Index files are excluded by the case-insensitive basename guard.
+T_idx="$ROOT/t-idx957"; mkgit "$T_idx"; SID_idx="idx957-sess"
+mksessionfile "$T_idx" "$SID_idx"
+mkblock "$T_idx" "niagara-block1.md" "2026-09-05T10:00:00"
+mkdir -p "$T_idx/retros"
+printf '# Index\n' > "$T_idx/retros/INDEX.md"
+git -C "$T_idx" add "retros/INDEX.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_idx" commit -q -m "add retros index"
+_j_idx="$(mkjson "$SID_idx" "false")"
+run_gate "$T_idx" "$_j_idx"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-idx-only: INDEX.md excluded from qualifying retros → blocks" \
+  || no "#957 T-idx-only: INDEX.md should be excluded → expected block: OUT=$OUT"
+
+# T-excluded-957: excluded retro (kit-retro: exclude marker) added this session → BLOCK.
+# A retro with the opt-out marker is skipped by retro_is_excluded; gate must still block.
+T_exc="$ROOT/t-exc957"; mkgit "$T_exc"; SID_exc="exc957-sess"
+mksessionfile "$T_exc" "$SID_exc"
+mkblock "$T_exc" "niagara-block1.md" "2026-09-05T10:00:00"
+mkdir -p "$T_exc/retros"
+printf '<!-- kit-retro: exclude -->\n# Client feedback — not a kit retro\n' \
+  > "$T_exc/retros/2026-09-05-excluded.md"
+git -C "$T_exc" add "retros/2026-09-05-excluded.md"
+GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" \
+  git -C "$T_exc" commit -q -m "add excluded retro"
+_j_exc="$(mkjson "$SID_exc" "false")"
+run_gate "$T_exc" "$_j_exc"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#957 T-excluded: excluded retro (kit-retro: exclude) → still blocks" \
+  || no "#957 T-excluded: excluded retro should not qualify → expected block: OUT=$OUT"
 
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
@@ -1436,6 +1668,50 @@ if printf '%s' "$ERR_M14" | grep -q 'WARN.*seeder failed'; then
 else
   no "TOOTH 14 absent-not-failed-dropped: mutant does NOT emit seeder-failed WARN — tooth has no bite"
 fi
+
+# ── TOOTH 15: diff-filter-A-drop — mutant drops --diff-filter=A so renames appear as qualifying ─
+# Proves the --diff-filter=A guard bites: without it, a git mv'd old retro bypasses the gate.
+# Fixture: T-git-mv (old retro renamed after session start; only added (A) files qualify).
+# Normal SUT: rename has diff-filter R not A → excluded → no qualifying retro → BLOCK.
+# Mutant (--diff-filter=A removed): git diff returns renamed file → treated as added → ALLOW (RED).
+# cite: SENTINEL-RETRO-SESSION-START/END (anchors the mutation target; never use line numbers)
+M15_path="$MUT_KIT/toolbelt/mutant-retro-diff-filter.sh"
+awk '
+  /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
+  /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
+  in_s && /--diff-filter=A/ { gsub(/--diff-filter=A[[:space:]]*/,""); print; next }
+  { print }
+' "$SUT" > "$M15_path"; chmod +x "$M15_path"
+# Pre-check: sentinel exists in SUT
+if ! grep -q 'SENTINEL-RETRO-SESSION-START' "$SUT"; then
+  no "TOOTH 15 pre-check: SENTINEL-RETRO-SESSION-START not found in SUT — tooth fixture invalid"
+else
+  ok "TOOTH 15 pre-check: SENTINEL-RETRO-SESSION-START found in SUT"
+fi
+# Sabotage check: renamed sentinel → awk produces no diff
+_M15_sab="$MUT_KIT/toolbelt/mutant-retro-diff-filter-sab.sh"
+awk '{ gsub(/SENTINEL-RETRO-SESSION-START/,"SENTINEL-RETRO-SESSION-XSTART"); print }' "$SUT" \
+  > "$_M15_sab"; chmod +x "$_M15_sab"
+awk '
+  /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
+  /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
+  in_s && /--diff-filter=A/ { gsub(/--diff-filter=A[[:space:]]*/,""); print; next }
+  { print }
+' "$_M15_sab" > "$MUT_KIT/toolbelt/mutant-retro-diff-filter-sab2.sh"
+if diff -q "$_M15_sab" "$MUT_KIT/toolbelt/mutant-retro-diff-filter-sab2.sh" > /dev/null 2>&1; then
+  ok "TOOTH 15 sabotage: renamed sentinel → no diff (tooth would fail — as expected)"
+else
+  no "TOOTH 15 sabotage: sabotage check produced unexpected diff — sentinel may be wrong"
+fi
+# Use T-git-mv fixture; clear any block-once state from the previous T-git-mv run
+TM15="$T_gmv"
+_jm15="$(mkjson "$SID_gmv" "false")"
+rm -f "$TM15/.claude/.rsdd-retro-blocked-${SID_gmv}" 2>/dev/null || true
+run_mutant "$M15_path" "$TM15" "$_jm15"
+# Mutant drops --diff-filter=A: rename appears in diff output → treated as qualifying → ALLOW (RED)
+[ -z "$OUT" ] \
+  && ok "TOOTH 15 diff-filter-A-drop: mutant allows git-mv'd retro (--diff-filter=A removed — RED as expected)" \
+  || no "TOOTH 15 diff-filter-A-drop: mutant should have allowed (renamed retro admitted) but blocked — tooth ineffective"
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 if [ -n "$_GIT_ROOT_FOR_TEETH" ]; then

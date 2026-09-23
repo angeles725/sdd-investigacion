@@ -229,14 +229,22 @@ if [ -z "$_session_sha" ]; then
   printf 'retro-gate: WARN: no session-start sha (session file absent/empty); degraded check\n' >&2
   _degraded=1
 fi
+# Validate the sha is reachable in this repository (handles cloned / amended / bad sha)
+if [ "$_degraded" -eq 0 ]; then
+  if ! git -C "$TARGET" rev-parse -q --verify "${_session_sha}^{commit}" >/dev/null 2>&1; then
+    printf 'retro-gate: WARN: session-start sha %s unresolvable; degraded check\n' \
+      "${_session_sha:0:12}" >&2
+    _degraded=1
+  fi
+fi
 
 # ── Detect changed research files ────────────────────────────────────────────
 _has_changed=0
 _nb_mtime=0   # newest changed block mtime
 
-# Part A: committed changes since session-start sha
-if [ "$_degraded" -eq 0 ] && \
-   git -C "$TARGET" rev-parse --verify "$_session_sha" >/dev/null 2>&1; then
+# Part A: committed/staged changes relative to session-start sha (--cached covers both)
+# --relative gives paths relative to $TARGET so they work for subdirectory targets.
+if [ "$_degraded" -eq 0 ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     full="$TARGET/$f"
@@ -245,7 +253,7 @@ if [ "$_degraded" -eq 0 ] && \
       m="$(stat -c %Y "$full" 2>/dev/null || echo 0)"
       [ "${m:-0}" -gt "$_nb_mtime" ] && _nb_mtime="$m"
     fi
-  done < <(git -C "$TARGET" diff --name-only "${_session_sha}..HEAD" 2>/dev/null)
+  done < <(git -C "$TARGET" diff --cached --relative --name-only "$_session_sha" 2>/dev/null)
 fi
 
 # Part B: uncommitted research files newer than the session-start state file
@@ -279,16 +287,78 @@ if [ "$_degraded" -eq 1 ]; then
   done < <(find "$TARGET" -type f -name '*.md' -not -path '*/.git/*' 2>/dev/null)
 fi
 
-# ── Find newest non-excluded retro ───────────────────────────────────────────
+# ── Find newest qualifying retro (session-sha scope or mtime fallback) ────────
+# SENTINEL-RETRO-SESSION-START
+# Non-degraded (has session sha): a retro qualifies iff it was ADDED since
+# the session-start sha (committed or staged, via --cached) or is a file
+# in a retros/ directory (at any depth ≤ 4) that is newer than the session
+# file (covers untracked, gitignored, and staged retros uniformly).
+# Renames (diff-filter R) do NOT qualify.
+# No pathspec — matches corpus/retros/, examinacion-*/retros/, etc.
+# --relative gives TARGET-relative paths so subdirectory targets work.
+#
+# Accepted tradeoffs (documented, not bugs):
+#  A-fixup: a block edited AFTER a conforming retro (post-retro fix-up) re-opens
+#    the gate on the NEXT session because the block mtime exceeds the retro's.
+#    Degraded mtime path has the same behaviour; non-degraded allows.
+#  BR-switch: switching to a branch that carries an old retro may false-allow
+#    because --cached sees the retro as "added relative to session sha on main".
+#    This matches the intended semantics (retro IS there for this branch) and
+#    is acceptable.
+#  untracked-old-retro: an untracked retro whose mtime predates the session file
+#    is NOT found by path (b) (older than the session file → not -newer).
+#    To qualify it must be committed or re-touched after session start.
 _newest_retro=""
 _nr_mtime=0
-while IFS= read -r rf; do
-  [ -n "$rf" ] || continue
-  retro_is_excluded "$rf" && continue
-  m="$(stat -c %Y "$rf" 2>/dev/null || echo 0)"
-  if [ "${m:-0}" -gt "$_nr_mtime" ]; then _nr_mtime="$m"; _newest_retro="$rf"; fi
-done < <(find "$TARGET" -maxdepth 4 -path '*/retros/*.md' \
-         -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+if [ "$_degraded" -eq 0 ]; then
+  # (a) Committed/staged retros added since session start — ONE git call.
+  # --cached compares index (HEAD + staged) against session sha.
+  # --relative: paths relative to $TARGET (works when $TARGET is a git subdir).
+  # --diff-filter=A: only Added entries; renames (R) excluded.
+  # No pathspec: matches retros/ at any location under $TARGET.
+  while IFS= read -r _rpath; do
+    [ -n "$_rpath" ] || continue
+    # Accept only paths under a retros/ directory (any depth)
+    printf '%s\n' "$_rpath" | grep -qE '(^|/)retros/[^/].*\.md$' || continue
+    # Case-insensitive index-file guard matching main's -iname '*index*.md'
+    case "$(basename "$_rpath")" in *[Ii][Nn][Dd][Ee][Xx]*) continue ;; esac
+    _rfull="$TARGET/$_rpath"
+    [ -f "$_rfull" ] || continue
+    retro_is_excluded "$_rfull" && continue
+    m="$(stat -c %Y "$_rfull" 2>/dev/null || echo 0)"
+    [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$_rfull"; }
+  done < <(git -C "$TARGET" diff --cached --relative --name-only --diff-filter=A \
+           "$_session_sha" 2>/dev/null)
+  # (b) Untracked/gitignored retros newer than session file.
+  # git ls-files --others (no --exclude-standard) returns all untracked files
+  # INCLUDING gitignored ones, but NOT tracked (committed/staged) files.
+  # This avoids false ALLOW on git-mv'd retros (tracked → excluded from --others).
+  # Paths are relative to $TARGET since we use git -C "$TARGET".
+  if [ -f "$_session_file" ]; then
+    while IFS= read -r _rpath; do
+      [ -n "$_rpath" ] || continue
+      printf '%s\n' "$_rpath" | grep -qE '(^|/)retros/[^/].*\.md$' || continue
+      case "$(basename "$_rpath")" in *[Ii][Nn][Dd][Ee][Xx]*) continue ;; esac
+      _rfull="$TARGET/$_rpath"
+      [ -f "$_rfull" ] || continue
+      [ "$_rfull" -nt "$_session_file" ] || continue
+      retro_is_excluded "$_rfull" && continue
+      m="$(stat -c %Y "$_rfull" 2>/dev/null || echo 0)"
+      [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$_rfull"; }
+    done < <(git -C "$TARGET" ls-files --others 2>/dev/null)
+  fi
+else
+  # DEGRADED: no session sha — fall back to mtime comparison (origin/main behaviour).
+  # Degraded WARN already emitted above.
+  while IFS= read -r rf; do
+    [ -n "$rf" ] || continue
+    retro_is_excluded "$rf" && continue
+    m="$(stat -c %Y "$rf" 2>/dev/null || echo 0)"
+    [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$rf"; }
+  done < <(find "$TARGET" -maxdepth 4 -path '*/retros/*.md' \
+           -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+fi
+# SENTINEL-RETRO-SESSION-END
 
 _retro_label="${_newest_retro:-(none)}"
 _n_changed="$([ "$_degraded" -eq 0 ] && printf '%s changed' "$_has_changed" || printf 'unknown (degraded)')"
@@ -299,18 +369,23 @@ _block_reason=""
 _suggest_path="$TARGET/retros/$(date +%Y-%m-%d)-<focus>.md"
 
 # SENTINEL-BLOCK-START
-if [ "$_nr_mtime" -eq 0 ]; then
-  # No retro at all
+if [ "$_degraded" -eq 0 ] && [ -z "$_newest_retro" ]; then
+  # Session-sha mode: no retro added since session start
+  # SENTINEL-ACTIONABLE-REASON-START
+  _block_reason="§18 retro pending for $(basename "$TARGET"): run the SELF-RETROSPECTIVE (fresh-context retro agent) from $KIT/templates/retro.template.md → $_suggest_path, then stop. Checked: research file(s) changed, newest retro: none added this session. Template: $KIT/templates/retro.template.md"
+  # SENTINEL-ACTIONABLE-REASON-END
+elif [ "$_degraded" -eq 1 ] && [ "$_nr_mtime" -eq 0 ]; then
+  # Degraded (mtime): no retro at all
   # SENTINEL-ACTIONABLE-REASON-START
   _block_reason="§18 retro pending for $(basename "$TARGET"): run the SELF-RETROSPECTIVE (fresh-context retro agent) from $KIT/templates/retro.template.md → $_suggest_path, then stop. Checked: research file(s) changed, newest retro: none. Template: $KIT/templates/retro.template.md"
   # SENTINEL-ACTIONABLE-REASON-END
-elif [ "$_nb_mtime" -gt "$_nr_mtime" ]; then
-  # Newest block is newer than newest retro → retro is stale
+elif [ "$_degraded" -eq 1 ] && [ "$_nb_mtime" -gt "$_nr_mtime" ]; then
+  # Degraded (mtime): newest block is newer than newest retro → retro is stale
   # SENTINEL-ACTIONABLE-REASON-START
   _block_reason="§18 retro pending for $(basename "$TARGET"): newest retro $(basename "$_newest_retro") is OLDER than newest changed block. Run the SELF-RETROSPECTIVE from $KIT/templates/retro.template.md → $_suggest_path, then stop. Template: $KIT/templates/retro.template.md"
   # SENTINEL-ACTIONABLE-REASON-END
 else
-  # Retro is newer than block — verify conformance
+  # Qualifying retro found (session-sha: ADDED since session; or degraded: newer than block)
   # SENTINEL-VERIFY-RETRO-START
   if [ -f "$VERIFY_RETRO" ]; then
     _vr_out="$(bash "$VERIFY_RETRO" "$_newest_retro" 2>/dev/null)"
