@@ -41,8 +41,16 @@ home="$HOME"
 while [ $# -gt 0 ]; do
   case "$1" in
     --all)     all_mode=1; shift ;;
-    --harness) harness="${2:-}"; harness_set=1; shift 2 ;;
-    --home)    home="${2:-}"; shift 2 ;;
+    --harness)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        printf 'verify-skill-drift: --harness requires a non-empty value\n' >&2; exit 2
+      fi
+      harness="$2"; harness_set=1; shift 2 ;;
+    --home)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        printf 'verify-skill-drift: --home requires a non-empty value\n' >&2; exit 2
+      fi
+      home="$2"; shift 2 ;;
     -h|--help)
       sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;

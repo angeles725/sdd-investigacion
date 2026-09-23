@@ -5,9 +5,11 @@
 # could-not-run (missing adapters) → exit 2; unknown harness → exit 2.
 #
 # TEETH (--prove-teeth):
-#   in-sync-not-silent   mutant removes exit 0, always exits 1 → in-sync emits output (RED)
-#   diverged-silent      mutant replaces exit 1 with exit 0 → diverged is silent (RED)
-#   absent-confused      mutant exits 0 when deployed missing → absent indistinguishable from in-sync (RED)
+#   A  in-sync-not-silent    mutant disables cmp-s guard → in-sync exits 1 (RED)
+#   B  diverged-silent       mutant replaces exit 1 → diverged exits 0 (RED)
+#   C  absent-confused       mutant exits 0 for absent → absent indistinguishable from in-sync (RED)
+#   D  all-last-skipped      mutant skips last harness in loop → diverged at last is missed (RED)
+# Mutants live in $ROOT/toolbelt/ (never the live tree); verified by git-status before/after.
 #
 # Usage: verify-skill-drift.test.sh [--prove-teeth]
 # Exit: 0 = all held · 1 = regression
@@ -126,6 +128,22 @@ else
   no "11 unknown harness → expected exit 2; got exit=$RC3"
 fi
 
+# ── 11b/c. Missing value for --harness / --home → exit 2 immediately (no hang) ─
+# Both flags require a non-empty value; a missing value previously caused an
+# infinite loop (shift 2 with $#=1 returns 1 without advancing → while $#>0 hangs).
+timeout 5 bash "$SUT" --harness 2>/dev/null; RC_5B=$?
+if [ "$RC_5B" -eq 2 ]; then
+  ok "11b --harness without value → exit 2 (no hang)"
+else
+  no "11b --harness without value → expected exit 2; got $RC_5B (124=timeout=hang)"
+fi
+timeout 5 bash "$SUT" --home 2>/dev/null; RC_5C=$?
+if [ "$RC_5C" -eq 2 ]; then
+  ok "11c --home without value → exit 2 (no hang)"
+else
+  no "11c --home without value → expected exit 2; got $RC_5C (124=timeout=hang)"
+fi
+
 # ── 8. Hook: in-sync → completely silent (stdout empty, exit 0) ──────────────
 # Build a patched hook that calls the REAL SUT (absolute path) with --home set
 H_SYNC2="$ROOT/home_sync2"
@@ -173,23 +191,32 @@ else
   no "14 hook absent → expected silent exit 0; got exit=$HOOK_RC3_SINGLE out=[$HOOK_OUT3_SINGLE]"
 fi
 
-# ── Hook header message ≤ 200 chars ──────────────────────────────────────────
-# Check the hook's top-level advisory header (the 'msg' variable it sets for the WARN case).
-# The per-harness fix lines emitted by the SUT also appear; check a representative one.
-hook_header_msg="WARN: research-sdd SKILL.md stale for one or more harnesses — run the fix command(s) shown"
-hook_header_len="${#hook_header_msg}"
-if [ "$hook_header_len" -le 200 ]; then
-  ok "15 hook WARN header ≤200 chars (len=$hook_header_len)"
+# ── 15/15b. Hook output line lengths ≤ 200 chars (measured from real hook run) ──
+# Uses HOOK_OUT2 (diverged home → hook emits real WARN header + per-harness fix line).
+# When jq is present the hook emits JSON; extract additionalContext to get the plain lines.
+# Checking real output catches a regression in the message text; a hardcoded literal never changes.
+if command -v jq >/dev/null 2>&1; then
+  _hook_text="$(printf '%s' "$HOOK_OUT2" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 else
-  no "15 hook WARN header >200 chars (len=$hook_header_len): $hook_header_msg"
+  _hook_text="$HOOK_OUT2"
 fi
-# Per-harness fix line (longest harness name is 'reasonix')
-fix_line="verify-skill-drift: fix: research-sdd-install.sh --harness reasonix --force-skill"
-fix_line_len="${#fix_line}"
-if [ "$fix_line_len" -le 200 ]; then
-  ok "15b per-harness fix line ≤200 chars (len=$fix_line_len)"
+_actual_header="$(printf '%s' "$_hook_text" | head -1)"
+_actual_header_len="${#_actual_header}"
+if [ "$_actual_header_len" -gt 0 ] && [ "$_actual_header_len" -le 200 ]; then
+  ok "15 hook WARN header ≤200 chars in real output (len=$_actual_header_len)"
+elif [ "$_actual_header_len" -eq 0 ]; then
+  no "15 hook WARN header — header line empty (hook did not emit on diverged?)"
 else
-  no "15b per-harness fix line >200 chars (len=$fix_line_len): $fix_line"
+  no "15 hook WARN header >200 chars (len=$_actual_header_len): $_actual_header"
+fi
+_actual_fix="$(printf '%s' "$_hook_text" | grep 'force-skill' | head -1)"
+_actual_fix_len="${#_actual_fix}"
+if [ "$_actual_fix_len" -gt 0 ] && [ "$_actual_fix_len" -le 200 ]; then
+  ok "15b per-harness fix line ≤200 chars in real output (len=$_actual_fix_len)"
+elif [ "$_actual_fix_len" -eq 0 ]; then
+  no "15b per-harness fix line — no force-skill line in hook output (unexpected)"
+else
+  no "15b per-harness fix line >200 chars (len=$_actual_fix_len): $_actual_fix"
 fi
 
 # ── --all mode: iterate every registered harness ─────────────────────────────
@@ -267,9 +294,7 @@ else
   no "AN7 --all + --harness → expected exit 2; got exit=$RC_AN7"
 fi
 
-# ── Hook: updated tests for --all mode ────────────────────────────────────────
-# The hook now calls "$here/verify-skill-drift.sh" --all
-# Tests 12-14 are updated to match the new hook contract.
+# ── Hook: --all mode (hook calls verify-skill-drift.sh --all) ─────────────────
 
 # Test AN-hook-1: hook --all in-sync → completely silent
 H_SYNC_ALL="$ROOT/home_sync_all"
@@ -327,20 +352,29 @@ for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
 if [ "$prove_teeth" -eq 1 ]; then
   echo "-- mutation teeth --"
 
-  # Mutants are placed NEXT TO the real SUT (same dir) so SELF_DIR-based path resolution
-  # (adapters.sh, kit root) continues to work. Cleaned up via trap at test end.
-  SUT_DIR="$(dirname "$SUT")"
+  # Mutant sandbox: mirrors the kit directory structure so SELF_DIR-based path resolution
+  # (adapters.sh, kit root, opencode/SKILL.md) works without writing into the live tree.
+  # Layout: $ROOT/toolbelt/ (mutants) + $ROOT/install/ + $ROOT/skills/ + $ROOT/toolbelt/opencode/
+  # The EXIT trap (set at test start) cleans up $ROOT including all mutants.
+  mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt/opencode"
+  cp "$HERE/../../install/adapters.sh"       "$ROOT/install/adapters.sh"
+  cp "$SRC_SKILL"                            "$ROOT/skills/research-sdd/SKILL.md"
+  cp "$HERE/../opencode/SKILL.md"            "$ROOT/toolbelt/opencode/SKILL.md"
+  MUT_DIR="$ROOT/toolbelt"
+
+  # git-status snapshot before any mutant creation (proves no live-tree leakage after)
+  _GIT_ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
+  _GIT_BEFORE="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"
 
   # TOOTH A: in-sync-not-silent — mutant disables the cmp-s in-sync guard.
   # Real test 6: in-sync → exit 0. Mutant: in-sync → exit 1 (assertion fails → RED).
   H_TA="$ROOT/home_ta"
   make_home_copy "$H_TA" "$SRC_SKILL"
-  MUT_A="$SUT_DIR/verify-skill-drift-mut-A.sh"
+  MUT_A="$MUT_DIR/verify-skill-drift-mut-A.sh"
   sed 's/if cmp -s "\$src" "\$deployed"; then/if false; then/' "$SUT" > "$MUT_A"
   chmod +x "$MUT_A"
   bash "$MUT_A" --harness claude --home "$H_TA" 2>/dev/null
   RC_TA=$?
-  rm -f "$MUT_A"
   if [ "$RC_TA" -ne 0 ]; then
     ok "TOOTH A in-sync-not-silent: mutant exits non-zero on in-sync (assertion would fail — RED)"
   else
@@ -351,13 +385,12 @@ if [ "$prove_teeth" -eq 1 ]; then
   # Real test 7: diverged → exit 1. Mutant: diverged → exit 0 (assertion fails → RED).
   H_TB="$ROOT/home_tb"
   make_home_stale "$H_TB" "# diverged content"
-  MUT_B="$SUT_DIR/verify-skill-drift-mut-B.sh"
+  MUT_B="$MUT_DIR/verify-skill-drift-mut-B.sh"
   # Replace only the final bare 'exit 1' line (the diverged-path exit at end of file)
   sed 's/^exit 1$/exit 0/' "$SUT" > "$MUT_B"
   chmod +x "$MUT_B"
   bash "$MUT_B" --harness claude --home "$H_TB" 2>/dev/null
   RC_TB=$?
-  rm -f "$MUT_B"
   if [ "$RC_TB" -eq 0 ]; then
     ok "TOOTH B diverged-silent: mutant exits 0 on diverged (assertion would fail — RED)"
   else
@@ -368,12 +401,11 @@ if [ "$prove_teeth" -eq 1 ]; then
   # Real test 8: absent → exit 3. Mutant: absent → exit 0 (assertion fails → RED).
   H_TC="$ROOT/home_tc"
   mkdir -p "$H_TC/.claude"
-  MUT_C="$SUT_DIR/verify-skill-drift-mut-C.sh"
+  MUT_C="$MUT_DIR/verify-skill-drift-mut-C.sh"
   sed 's/^  exit 3$/  exit 0/' "$SUT" > "$MUT_C"
   chmod +x "$MUT_C"
   bash "$MUT_C" --harness claude --home "$H_TC" 2>/dev/null
   RC_TC=$?
-  rm -f "$MUT_C"
   if [ "$RC_TC" -eq 0 ]; then
     ok "TOOTH C absent-confused: mutant exits 0 for absent (assertion would fail — RED)"
   else
@@ -389,7 +421,7 @@ if [ "$prove_teeth" -eq 1 ]; then
   cp "$SRC_SKILL" "$H_TD/.claude/skills/research-sdd/SKILL.md"
   mkdir -p "$H_TD/.reasonix/skills/research-sdd"
   printf 'stale content\n' > "$H_TD/.reasonix/skills/research-sdd/SKILL.md"
-  MUT_D="$SUT_DIR/verify-skill-drift-mut-D.sh"
+  MUT_D="$MUT_DIR/verify-skill-drift-mut-D.sh"
   # Mutant: change loop to skip the last harness
   sed 's/for h in \$RESEARCH_SDD_HARNESSES; do/for h in ${RESEARCH_SDD_HARNESSES% *}; do/' \
     "$SUT" > "$MUT_D"
@@ -420,11 +452,17 @@ if [ "$prove_teeth" -eq 1 ]; then
   # Actual tooth: mutant misses last harness (reasonix) diverged → exits 0 → RED
   bash "$MUT_D" --all --home "$H_TD" 2>/dev/null
   RC_TD=$?
-  rm -f "$MUT_D"
   if [ "$RC_TD" -eq 0 ]; then
     ok "TOOTH D all-last-skipped: mutant exits 0 with reasonix (last) diverged — RED as expected"
   else
     no "TOOTH D all-last-skipped: mutant exits non-zero — tooth has no bite (RC=$RC_TD)"
+  fi
+  # git-status after all teeth: confirm no files leaked into the live tree
+  _GIT_AFTER="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"
+  if [ "$_GIT_BEFORE" = "$_GIT_AFTER" ]; then
+    ok "TEETH git-clean: no files leaked into live tree"
+  else
+    no "TEETH git-clean: live tree changed! Before: [$_GIT_BEFORE] After: [$_GIT_AFTER]"
   fi
 fi
 # SENTINEL-TEETH-BANNER-END
