@@ -24,7 +24,9 @@
 > delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
 > equally; any non-separator table row is one delta. The counter skips the header row and every
 > `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
-> triggers a WARN — the reviewer must count by hand. Heading-style declarations **outside** this
+> triggers a WARN — the reviewer must count by hand. **Exception:** a §18 honesty line
+> (`no new deltas; …`) placed here, or under `## Honest verdict`, is counted as a deliberate `~0`
+> — see §18 for accepted variants and location rules. Heading-style declarations **outside** this
 > section are non-conforming. Use the table below to stay machine-countable.
 >
 > **The heading text is matched literally — do not insert qualifier words.** Writing the kit's own

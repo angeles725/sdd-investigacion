@@ -156,6 +156,37 @@ assert_out_contains "  HYPHEN: emits WARN [header-punctuation]" "WARN [header-pu
 assert_out_absent   "  HYPHEN: does NOT emit FAIL [header-missing]" "FAIL [header-missing]" "$TMP/hyphen.out"
 assert_out_contains "  HYPHEN: final verdict is OK: conforming" "OK: conforming" "$TMP/hyphen.out"
 
+# ─── HONESTY EM-DASH VARIANT (exit 0) ────────────────────────────────────────
+# "No new deltas — the kit already covers this run." uses an em-dash instead of
+# a semicolon. The honesty predicate must accept any non-alphanumeric char after
+# "no new deltas".
+
+bash "$SUT" "$FIX/honesty-emdash.md" >"$TMP/emdash.out" 2>&1
+assert_exit2 0 "EMDASH: em-dash honesty variant → exit 0" "$FIX/honesty-emdash.md"
+bash "$SUT" "$FIX/honesty-emdash.md" >"$TMP/emdash.out" 2>&1
+assert_out_contains "  EMDASH: output says OK" "OK: conforming" "$TMP/emdash.out"
+
+# ─── HONESTY "NOTHING TO ADD" VARIANT (exit 0) ────────────────────────────────
+# "No new deltas; nothing to add." — the tail after the semicolon differs from
+# the canonical phrasing. The predicate must accept any tail; only the
+# "no new deltas" prefix plus a non-alphanumeric separator is required.
+
+bash "$SUT" "$FIX/honesty-nothing-add.md" >"$TMP/nothadd.out" 2>&1
+assert_exit2 0 "NOTHADD: nothing-to-add honesty variant → exit 0" "$FIX/honesty-nothing-add.md"
+bash "$SUT" "$FIX/honesty-nothing-add.md" >"$TMP/nothadd.out" 2>&1
+assert_out_contains "  NOTHADD: output says OK" "OK: conforming" "$TMP/nothadd.out"
+
+# ─── HONESTY IN ## Notes (exit 1) ─────────────────────────────────────────────
+# A honesty phrase that appears under ## Notes (not the canonical delta section
+# and not ## Honest verdict) must NOT suppress the empty-section FAIL. The
+# predicate is location-scoped; a file-wide grep would produce a false pass.
+
+bash "$SUT" "$FIX/honesty-in-notes.md" >"$TMP/honnotes.out" 2>&1
+assert_exit2 1 "HONNOTES: honesty under ## Notes → exit 1 (still fails empty-section)" "$FIX/honesty-in-notes.md"
+bash "$SUT" "$FIX/honesty-in-notes.md" >"$TMP/honnotes.out" 2>&1
+assert_out_contains "  HONNOTES: names class empty-section" "FAIL [empty-section]" "$TMP/honnotes.out"
+assert_out_absent   "  HONNOTES: NOT a honesty-triggered pass" "OK: conforming" "$TMP/honnotes.out"
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""

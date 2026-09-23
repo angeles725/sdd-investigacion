@@ -1193,7 +1193,7 @@ mkdir -p "$tgt/retros"
 {
   printf '<!-- review-status: pending -->\n# Retro — target · focus · 2026-08-01\n\n'
   printf '## Already covered\n\n- lesson A → already in kit\n\n'
-  printf '## Honest verdict\n\nNo new deltas.\n'
+  printf '## Notes\n\nNothing notable this session.\n'
 } > "$tgt/retros/r1.md"
 wire_target "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
 if [ "$RC" = 0 ] \
@@ -2377,29 +2377,31 @@ else
   no "82 fake-row regression: table row with honesty phrase → ~1, not ~0" "exit=$RC out=[$OUT]"
 fi
 
-# 83 — HONESTY LINE OUTSIDE THE DELTA SECTION (§912): the honesty phrase appears in a
-#      different section — NOT inside the canonical delta section. The canonical section is
-#      empty → WARN-A (~?). Scope restriction: only a honesty line INSIDE the section counts.
-kit="$(mkkit c83-honesty-outside)"; tgt="$kit/targetA"
+# 83 — HONESTY UNDER ## Honest verdict (§912): empty canonical section + honesty line under
+#      ## Honest verdict → ~0. The template prescribes ## Honest verdict as the honesty location;
+#      the predicate must recognise it alongside the canonical delta section.
+#      Before fix: WARN-A (~?) because old awk scoped only to the canonical delta section.
+kit="$(mkkit c83-honesty-hv)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 {
   printf '<!-- review-status: pending -->\n'
   printf '# Retro\n\n'
-  printf '## Already covered\n\n'
-  printf 'no new deltas; the kit already covers this run.\n\n'
   printf '## Proposed kit deltas\n\n'
-  printf '## Next steps\n'
+  printf '## Already covered\n\n'
+  printf '- lesson A → already in kit\n\n'
+  printf '## Honest verdict\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
 } > "$tgt/retros/r1.md"
 wire_target "$tgt"
 write_targets "$kit" "$tgt"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q 'PENDING' <<<"$OUT" \
-   && grep -qF '~? proposed deltas' <<<"$OUT" \
-   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
-  ok "83 honesty line outside delta section → WARN-A (~?), not ~0" "(exit $RC)"
+   && grep -qF '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "83 honesty under ## Honest verdict + empty canonical → ~0, no WARN-A" "(exit $RC)"
 else
-  no "83 honesty line outside delta section → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+  no "83 honesty under ## Honest verdict + empty canonical → ~0, no WARN-A" "exit=$RC out=[$OUT]"
 fi
 
 # 84 — MIXED: real delta rows PLUS honesty prose line in the same canonical section.
@@ -2429,6 +2431,209 @@ else
   no "84 mixed (real rows + honesty prose) → ~1 rows counted, no WARN-A" "exit=$RC out=[$OUT]"
 fi
 
+# 85 — NO CANONICAL SECTION + HONESTY UNDER ## Honest verdict (§912 case a): a retro with
+#      no canonical delta section but a § Honest verdict honesty line → ~0. The predicate
+#      must accept honesty even when there is no ## Proposed kit deltas heading at all.
+#      Before fix: "no delta section found (empty-input)" because no canonical heading found.
+kit="$(mkkit c85-no-section-hv)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Already covered\n\n'
+  printf '- lesson A → already in kit\n\n'
+  printf '## Honest verdict\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -q 'empty-input' <<<"$OUT" \
+   && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "85 no canonical section + honesty under ## Honest verdict → ~0" "(exit $RC)"
+else
+  no "85 no canonical section + honesty under ## Honest verdict → ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 86 — EM-DASH HONESTY VARIANT (§912 case c): "No new deltas — the kit already covers this run."
+#      uses an em-dash instead of a semicolon. The honesty predicate accepts any non-alphanumeric
+#      char after "no new deltas" so both variants are caught.
+kit="$(mkkit c86-emdash)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '## Honest verdict\n\n'
+  printf 'No new deltas \xe2\x80\x94 the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "86 em-dash honesty variant → ~0, no WARN-A" "(exit $RC)"
+else
+  no "86 em-dash honesty variant → ~0, no WARN-A" "exit=$RC out=[$OUT]"
+fi
+
+# 87 — "NOTHING TO ADD" HONESTY VARIANT (§912 case d): "No new deltas; nothing to add."
+#      The predicate accepts any line beginning "no new deltas" followed by punctuation,
+#      regardless of the tail.
+kit="$(mkkit c87-nothing-to-add)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '## Honest verdict\n\n'
+  printf 'No new deltas; nothing to add.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~0 proposed deltas' <<<"$OUT" \
+   && ! grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "87 nothing-to-add honesty variant → ~0, no WARN-A" "(exit $RC)"
+else
+  no "87 nothing-to-add honesty variant → ~0, no WARN-A" "exit=$RC out=[$OUT]"
+fi
+
+# 88 — HONESTY IN CANONICAL + FORM-3 INDICATOR (§912 invariant): canonical section contains
+#      both a honesty line AND the file has a form-3 heading (## Delta W1 — ...) elsewhere.
+#      The invariant check must block deltas=0 when a form-3 indicator coexists.
+#      Before fix: current inline awk finds honesty inside canonical → deltas=0 (~0).
+#      After fix: supplemental form-3 check → WARN-A (~?).
+kit="$(mkkit c88-form3-honesty)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Delta W1 \xe2\x80\x94 something might have changed\n\n'
+  printf '%s\n' '- evidence'
+  printf '\n'
+  printf '## Proposed kit deltas\n\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "88 form-3 + honesty in canonical → WARN-A (~?), not ~0" "(exit $RC)"
+else
+  no "88 form-3 + honesty in canonical → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 89 — HONESTY IN CANONICAL + WARN-B INDICATOR (§912 invariant): canonical section contains
+#      a honesty line AND there is a ### D1. shaped heading outside canonical. The invariant
+#      check must block deltas=0 when WARN-B indicators coexist.
+#      Before fix: current inline awk finds honesty inside canonical → deltas=0 (~0).
+#      After fix: supplemental WARN-B check → WARN-A (~?).
+kit="$(mkkit c89-warnb-honesty)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf 'no new deltas; the kit already covers this run.\n\n'
+  printf '## Notes\n\n'
+  printf '### D1. some delta-shaped heading\n\n'
+  printf '%s\n' '- detail'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "89 WARN-B heading + honesty → WARN-A (~?), not ~0" "(exit $RC)"
+else
+  no "89 WARN-B heading + honesty → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 90 — HONESTY LINE UNDER ## Notes (§912 section-exit guard): the honesty phrase appears
+#      under ## Notes — not in the canonical section or ## Honest verdict. Form=w → WARN-A.
+#      Proves the section-exit guard in retro_grammar_has_honesty correctly scopes the search.
+kit="$(mkkit c90-honesty-notes)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '## Notes\n\n'
+  printf 'no new deltas; the kit already covers this run.\n\n'
+  printf '## Already covered\n\n'
+  printf '%s\n' '- lesson A: already in kit'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "90 honesty under ## Notes → WARN-A (~?), not ~0" "(exit $RC)"
+else
+  no "90 honesty under ## Notes → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 91 — HONESTY IN FENCED BLOCK (§912 fenced-block guard): the honesty phrase is inside a
+#      fenced code block in the canonical section → must NOT count (WARN-A).
+kit="$(mkkit c91-honesty-fenced)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '```\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+  printf '```\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "91 honesty inside fenced block → WARN-A (~?), not ~0" "(exit $RC)"
+else
+  no "91 honesty inside fenced block → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+fi
+
+# 92 — HONESTY IN HTML COMMENT (§912 comment guard): the honesty phrase is inside an HTML
+#      comment (line starting with <!--) in the canonical section → must NOT count (WARN-A).
+kit="$(mkkit c92-honesty-comment)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# Retro\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '<!-- no new deltas; the kit already covers this run. -->\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -qF '~? proposed deltas' <<<"$OUT" \
+   && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$OUT"; then
+  ok "92 honesty inside HTML comment → WARN-A (~?), not ~0" "(exit $RC)"
+else
+  no "92 honesty inside HTML comment → WARN-A (~?), not ~0" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -2455,13 +2660,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Tooth HL: replace the honesty-line condition with an always-false check → the honesty
-  # branch never fires → honesty-line retro reverts to WARN-A (~? + "not in countable form").
-  # Anchor: RSDD_HONESTY_LINE_CHECK sentinel on the if condition line. Proves case 81 has teeth.
-  echo "-- teeth HL: neuter honesty-line condition; honesty retro must revert to WARN-A (case 81 has teeth) --"
-  anchor_hl='if [ "$_honesty" = "1" ]; then  # RSDD_HONESTY_LINE_CHECK'
+  # Tooth HL: replace `retro_grammar_has_honesty "$f"` with `false` in the WARN-A (form=w)
+  # branch → the honesty lib call never returns found → honesty retro reverts to WARN-A.
+  # Anchor: the `if retro_grammar_has_honesty "$f"; then` line in WARN-A (marked by
+  # RSDD_HONESTY_LINE_CHECK comment on the preceding line). Proves cases 81/83 have teeth.
+  echo "-- teeth HL: neuter retro_grammar_has_honesty in WARN-A; honesty retro must revert to WARN-A (case 81 has teeth) --"
+  anchor_hl='if retro_grammar_has_honesty "$f"; then'
   if [[ "$content_nd" != *"$anchor_hl"* ]]; then
-    no "teeth HL: locate RSDD_HONESTY_LINE_CHECK condition in SUT" "anchor not found — SUT drifted?"
+    no "teeth HL: locate retro_grammar_has_honesty call in SUT WARN-A branch" "anchor not found — SUT drifted?"
   else
     kit="$(mkkit teeth-hl)"; tgt="$kit/targetA"
     mkdir -p "$tgt/retros"
@@ -2474,15 +2680,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     wire_target "$tgt"
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"
-    # Replace "1" with "999" — always-false condition, honesty check never fires.
-    neutered_hl='if [ "$_honesty" = "999" ]; then  # RSDD_HONESTY_LINE_CHECK (mutated)'
+    # Replace the lib call with `false` — always-not-found, honesty check never fires.
+    neutered_hl='if false; then'
     printf '%s\n' "${content_nd/"$anchor_hl"/$neutered_hl}" > "$mutant"
     outm_hl="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm_hl" \
        && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm_hl"; then
-      ok "teeth HL: honesty-condition-neutered mutant reverts to WARN-A — case 81 has teeth" "()"
+      ok "teeth HL: honesty-neutered mutant reverts to WARN-A — case 81 has teeth" "()"
     else
-      no "teeth HL: honesty-condition-neutered mutant must revert to WARN-A — case 81 is THEATER" "out=[$outm_hl]"
+      no "teeth HL: honesty-neutered mutant must revert to WARN-A — case 81 is THEATER" "out=[$outm_hl]"
     fi
     unset anchor_hl neutered_hl mutant outm_hl
   fi

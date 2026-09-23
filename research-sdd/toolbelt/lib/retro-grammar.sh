@@ -125,3 +125,79 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
   }
 
 fi
+
+# ─── retro_grammar_has_honesty ────────────────────────────────────────────────
+# Predicate: does file $1 carry a §18 honesty line in an accepted location?
+#
+# Accepted locations (§912 decision):
+#   1. Inside the canonical delta section (any recognised heading alias).
+#   2. Inside the ## Honest verdict section.
+#
+# Honesty pattern: any line whose lowercased form matches
+#   /^no new deltas([^a-z0-9]|$)/
+# This accepts all four attested variants:
+#   "no new deltas; the kit already covers this run."  (semicolon)
+#   "no new deltas, the kit already covers this run."  (comma)
+#   "No new deltas — the kit already covers this run." (em-dash)
+#   "No new deltas; nothing to add."                   (different tail)
+#
+# Excluded lines:
+#   • Lines inside a fenced code block (``` delimiter tracking).
+#   • Lines starting with <!-- (HTML comment lines).
+#
+# Returns:
+#   exit 0  — honesty line found in an accepted location
+#   exit 1  — not found (or file absent)
+#
+# RSDD_RETRO_GRAMMAR_HONESTY_ANCHOR
+if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
+  retro_grammar_has_honesty() {
+    [ -f "$1" ] || return 1
+    awk '
+      BEGIN {
+        in_sec  = 0   # inside canonical delta section
+        in_hv   = 0   # inside ## Honest verdict section
+        in_fence= 0   # inside fenced code block
+        found   = 0
+      }
+      {
+        low = tolower($0)
+      }
+
+      # Fence tracking (``` at column 0)
+      /^```/ { in_fence = !in_fence; next }
+      in_fence { next }
+
+      # Skip HTML comment lines
+      /^<!--/ { next }
+
+      # Section transitions (## level, not ###)
+      /^##[^#]/ {
+        in_sec = 0
+        in_hv  = 0
+        # Canonical delta section heading aliases (mirrors retro_grammar_delta_info)
+        if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
+            low ~ /^## proposed delta/                                      ||
+            low ~ /^## delta proposals/                                     ||
+            low ~ /^## deltas nuevos/                                       ||
+            low ~ /^## summary of proposed delta/                           ||
+            low ~ /^## summary of new deltas/                               ||
+            low ~ /^## delta details([[:space:]]|$)/) {
+          in_sec = 1; next
+        }
+        # Accepted alternate location
+        if (low ~ /^## honest verdict([[:space:]]|$)/) {
+          in_hv = 1; next
+        }
+        next
+      }
+
+      # Honesty line match (inside accepted location only)
+      (in_sec || in_hv) && low ~ /^no new deltas([^a-z0-9]|$)/ {
+        found = 1; exit
+      }
+
+      END { exit (found ? 0 : 1) }
+    ' "$1"
+  }
+fi
