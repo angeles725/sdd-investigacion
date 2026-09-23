@@ -1,37 +1,102 @@
 #!/usr/bin/env bash
-# retro-status.sh — shared helper: read a §18 retro's review-status marker from its LEADING
-# HTML-comment block (METHODOLOGY §18). Sourced by sweep-retros.sh and stage-retro.sh so both gate
-# on IDENTICAL logic — the two scripts used to carry hand-copied awk pipelines that drifted
-# (R1-003 / R3-004); this file is the single source of truth.
+# retro-status.sh — shared helper: read a §18 retro's review-status marker (METHODOLOGY §18).
+# Sourced by sweep-retros.sh and stage-retro-issues.sh so both gate on IDENTICAL logic — the two
+# scripts used to carry hand-copied awk pipelines that drifted (R1-003 / R3-004); this file is the
+# single source of truth for the marker grammar.
 #
 #   retro_review_status <file>
-#     Echoes the lowercased status word (applied/dismissed/pending/…) found in the retro's leading
-#     comment block, or nothing when there is no marker there. Always returns 0 (a non-matching
-#     grep must yield empty output, never abort a caller running under `set -o pipefail`).
+#     Echoes the lowercased status word (applied/dismissed/pending/…) found in the retro's LEADING
+#     HTML-comment block (the run of '<!--…' lines and blank lines before the first heading or prose
+#     line).  Returns nothing when no such marker is present in the leading block.  Always returns 0.
+#     Used by sweep-retros.sh; it intentionally skips markers placed after the H1 heading so that
+#     only a properly-positioned leading-block marker gates the sweep.
 #
-# Algorithm — scan ONLY the leading HTML-comment block:
-#   * print consecutive lines that (after optional leading spaces) OPEN an HTML comment ('<!--'),
-#   * SKIP blank lines (a leading blank is not the block terminator — R1-002),
-#   * STOP at the first line that is neither a comment nor blank (so a body marker never gates,
-#     and a plain-prose or '# heading' first line ends the scan immediately — R3-001).
-# Then pull the FIRST '<!--'-ANCHORED 'review-status: <word>' marker out of that region and
-# lowercase it. Anchoring on '<!--' means a bare 'review-status:' substring living in a heading's
-# or a comment's PROSE (not directly after the comment opener) is ignored (R1-001).
+#   retro_marker_line <file>
+#     Echoes the raw first '<!-- review-status: ... -->' line from ANYWHERE in the file (unmodified).
+#     Callers that need to inspect the full marker text (e.g. to extract PARTIAL / shipped IDs, or
+#     to handle retros whose marker was placed after the H1 heading) use this function.
+#     Returns nothing when no canonical marker is present. Always returns 0.
+#     Used by stage-retro-issues.sh for both status detection and PARTIAL extraction.
+#
+# Scanning algorithms:
+#   retro_review_status — LEADING-BLOCK-ONLY: awk stops at the first non-comment, non-blank line.
+#     Anchors on '<!--' so a bare 'review-status:' in heading prose is ignored (R1-001).
+#     sweep-retros.sh uses this function and expects body-position markers to be invisible.
+#
+#   retro_marker_line — WHOLE-FILE: grep the entire file for '<!--[space]*review-status:'.
+#     The '<!--' anchor prevents false matches from heading prose (R1-001 preserved).
+#     stage-retro-issues.sh uses this to detect markers placed after the H1 heading (real-corpus
+#     layout: H1 on line 1, blank on line 2, marker on line 3 in *-closure.md retros).
+#
+# retro_is_excluded, retro_is_waived, retro_has_bare_marker keep LEADING-BLOCK-ONLY algorithms
+# because their semantics require a definite leading-block position (opt-out scope, waiver, format
+# lint).
 
 # Idempotent: safe to source more than once (both SUTs may pull it in the same shell in tests).
 if ! declare -F retro_review_status >/dev/null 2>&1; then
-  retro_review_status() {
-    local f="${1:-}"
-    [ -n "$f" ] && [ -f "$f" ] || return 0
-    awk '
-      /^[[:space:]]*<!--/ { print; next }   # a comment line: keep scanning the block
-      /^[[:space:]]*$/     { next }          # blank line: skip, do not terminate (R1-002)
-      { exit }                               # first non-comment, non-blank line: stop (R3-001)
-    ' "$f" 2>/dev/null \
+  # retro_status_from_marker_line <line>
+  #   R2-001 — SINGLE extraction point: extracts the lowercased status word from a raw
+  #   '<!-- review-status: <word> …' marker line.  Returns nothing when no marker pattern
+  #   is found.  Always returns 0.
+  #
+  #   Used by retro_review_status (below) and by stage-retro-issues.sh to avoid duplicating
+  #   the grep/sed/tr pipeline.  Never hand-copy this pipeline; call this function instead.
+  retro_status_from_marker_line() {
+    local line="${1:-}"
+    [ -n "$line" ] || return 0
+    printf '%s' "$line" \
       | grep -oiE '<!--[[:space:]]*review-status:[[:space:]]*[a-z]+' \
       | head -1 \
       | sed -E 's/.*:[[:space:]]*//' \
       | tr 'A-Z' 'a-z'
+    return 0
+  }
+
+  retro_review_status() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 0
+    # Leading-block-only awk scan: stops at first non-comment, non-blank line.
+    # Anchored on '<!--' so a bare 'review-status:' in heading prose is not matched (R1-001).
+    # sweep-retros.sh relies on this leading-block contract; do not change to whole-file here.
+    # pipefail-audit: external `awk` over the leading block of a single retro file. SAFE.
+    local _leading_marker
+    _leading_marker="$(awk '
+      /^[[:space:]]*<!--/ { print; next }
+      /^[[:space:]]*$/     { next }
+      { exit }
+    ' "$f" 2>/dev/null \
+      | grep -iE '<!--[[:space:]]*review-status:' \
+      | head -1)"
+    retro_status_from_marker_line "$_leading_marker"
+    return 0
+  }
+
+  # retro_marker_line <file>
+  #   WHOLE-FILE scan (fenced-block-aware): returns the raw first '<!-- review-status: … -->'
+  #   line from anywhere in the file, provided it appears at line start (optional leading
+  #   whitespace before '<!--').  Markers quoted mid-line (e.g. inside a table cell or inline
+  #   code) are NOT matched.  Lines inside fenced code blocks (``` or ~~~) are skipped so that
+  #   documented examples of marker syntax are not mistaken for real markers.
+  #
+  #   Unlike retro_review_status (leading-block-only), this function finds markers placed after
+  #   the H1 heading — the real-corpus layout in *-closure.md retros.
+  #   Returns nothing when no canonical marker is present. Always returns 0.
+  #
+  # STAGE_RETRO_ISSUES_MARKER_LINE: stage-retro-issues.sh uses retro_marker_line as the single
+  # definition of "what the marker line looks like and where to find it". Both the status word
+  # (applied/dismissed/pending) and the PARTIAL/shipped inspection are derived from this one call.
+  # pipefail-audit: external `awk` over a single retro file (fleet max ~50 KB). SAFE.
+  retro_marker_line() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 0
+    # awk state: fence=1 inside a fenced code block (``` or ~~~); tolower for case-insensitive
+    # match; anchored to line start so mid-line quoted markers are skipped (R2-002).
+    # RETRO_MARKER_LINE_AWK: anchor tag for Tooth M7 and M8.
+    awk '
+      /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+      fence { next }
+      { if (tolower($0) ~ /^[[:space:]]*<!--[[:space:]]*review-status:/) { print; exit } }
+    ' "$f" 2>/dev/null
     return 0
   }
 
