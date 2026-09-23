@@ -312,18 +312,22 @@ else
 fi
 # Verify precondition: zsh must be unreachable under the hermetic PATH
 _sf_zsh_check="$("$BASH_BIN" -c "PATH='$_sf_nozsh' type -P zsh 2>/dev/null || true")"
-if [ -n "$_sf_zsh_check" ]; then
+# Recursion guard: the children below re-run this file WITHOUT --prove-teeth (so they exit
+# before this block), and RG_SKIPFMT_CHILD makes that bound explicit if that ever changes.
+if [ -n "${RG_SKIPFMT_CHILD:-}" ]; then
+  skip "SKIP-FORMAT teeth: nested invocation — not re-entered"
+elif [ -n "$_sf_zsh_check" ]; then
   skip "SKIP-FORMAT teeth: zsh still reachable under hermetic PATH ($_sf_zsh_check) — typed skip"
 else
   # Phase 1: real file must produce a SKIP line (proves skip() outputs SKIP)
-  _sf_real_out="$(PATH="$_sf_nozsh" "$BASH_BIN" "$0" 2>&1)"
+  _sf_real_out="$(RG_SKIPFMT_CHILD=1 PATH="$_sf_nozsh" "$BASH_BIN" "$0" 2>&1)"
   if ! grep -q '  SKIP  ' <<<"$_sf_real_out"; then
     no "SKIP-FORMAT teeth: real skip() must output '  SKIP  ' under no-zsh — format is wrong" "out=[$_sf_real_out]"
   else
     # Phase 2: mutate the copy (SKIP→PASS in skip() body) and assert SKIP disappears
     _sf_copy="$ROOT/skip-format-tooth.sh"
     sed '/^skip() /s/  SKIP  /  PASS  /' "$0" > "$_sf_copy"
-    _sf_out="$(PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_copy" 2>&1)"
+    _sf_out="$(RG_SKIPFMT_CHILD=1 PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_copy" 2>&1)"
     if ! grep -q '  SKIP  ' <<<"$_sf_out"; then
       ok "SKIP-FORMAT teeth: real skip()→PASS mutant has no SKIP line — format mutation detected" "(SKIP absent)"
     else
