@@ -17,11 +17,17 @@
 # Bearer/Basic` header shapes, and — in the ADVISORY tier only — all-alpha or all-digit literal passwords.
 #
 # Usage: scan-secrets.sh [--committed] <target-dir>
-#   --committed  Scan the COMMITTED content of the full repo at HEAD (via git grep HEAD) rather than
-#                the corpus working-tree subdir. Required by ensure-remote.sh so what is scanned ==
-#                what git push will send. Requires git. Exit 3 = degraded (git unavailable or no HEAD).
+#   --committed  Scan ALL committed content reachable from HEAD: every unique file version across the full
+#                git history (via git rev-list --objects → unique blob dedup → ONE LOOP: git cat-file per
+#                unique blob into a temp file, then all HC patterns + advisory grep simultaneously) plus all
+#                commit messages. Required by ensure-remote.sh so what is scanned == what git push will send
+#                (including secrets deleted from HEAD but still reachable in history). Requires git. Target
+#                must be the git repo root — refuses with exit 3 if it is a subdirectory (pathspecs would
+#                silently miss files outside the subdir). Uses -a/--text so all files are scanned, including
+#                those with NUL bytes.
 # Exit: 0 = clean-in-scope (or only advisory WARN) · 1 = a high-confidence secret VALUE leaked ·
-#       2 = bad args · 3 = degraded (--committed: git unavailable or not a git repo with commits).
+#       2 = bad args · 3 = degraded (--committed: git unavailable, not a git repo with commits,
+#           target is not the repo root, or rev-list/grep failure).
 set -uo pipefail
 committed=0
 if [ "${1:-}" = "--committed" ]; then
@@ -32,6 +38,16 @@ target="${1:-}"
 [ -n "$target" ] && [ -d "$target" ] || { echo "usage: scan-secrets.sh [--committed] <target-dir>" >&2; exit 2; }
 here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)"
 
+# Advisory keyword boundary pattern (PCRE). Defined here so the committed-mode probe block's
+# ONE LOOP can use it; also used in the advisory section and default-mode grep.
+# Boundaries: lookbehind excludes alnum (allows _), lookahead forbids a letter immediately after —
+# snake_case names (aws_secret_access_key) are caught; camelCase substrings (saltedPassword) are not.
+KWID='(?<![A-Za-z0-9])(?:password|passwd|secret|api[_-]?key|apikey|token)(?![A-Za-z])[A-Za-z0-9_]*'
+
+# Temp files — cleaned on any exit.
+_rev_obj_tmp=""; _blobs_list=""; _hc_hits_tmp=""; _adv_raw=""; _blob_tmp=""
+trap 'rm -f "$_rev_obj_tmp" "$_blobs_list" "$_hc_hits_tmp" "$_adv_raw" "$_blob_tmp"' EXIT
+
 # --committed mode: probe git, verify the repo has at least one commit.
 if [ "$committed" = 1 ]; then
   command -v git >/dev/null 2>&1 || {
@@ -40,6 +56,68 @@ if [ "$committed" = 1 ]; then
     echo "DEGRADED: $target is not a git repository — --committed mode requires a git repo" >&2; exit 3; }
   git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1 || {
     echo "DEGRADED: $target has no commits — --committed mode requires at least one commit" >&2; exit 3; }
+  # MAJOR3: refuse when target is a subdirectory of its git repo. git pathspecs are resolved relative
+  # to the working dir set by -C; a subdir target silently misses all committed files outside it.
+  _toplevel="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"
+  _target_real="$(cd "$target" && pwd -P)"
+  _toplevel_real="$(cd "$_toplevel" && pwd -P)"
+  if [ "$_target_real" != "$_toplevel_real" ]; then
+    echo "DEGRADED: $target is a subdirectory of its git repo (repo root: $_toplevel_real)." >&2
+    echo "          Pass the repo root to scan the full committed history — pathspecs evaluated" >&2
+    echo "          from a subdirectory silently miss all files outside $_target_real." >&2
+    exit 3
+  fi
+  # Enumerate all reachable objects; filter unique blobs matching in-scope paths.
+  # git rev-list --objects HEAD outputs "<sha40>" (bare commit SHAs) and "<sha40> <path>" (blobs/trees).
+  # awk keeps NF>=2 lines (path-bearing blobs/trees) that match our include/exclude rules, then
+  # sort|awk deduplicates by blob SHA — same file content (same SHA) scanned exactly once.
+  _rev_obj_tmp="$(mktemp)"
+  git -C "$target" rev-list --objects HEAD > "$_rev_obj_tmp" 2>/dev/null
+  _rev_obj_rc=$?
+  if [ "$_rev_obj_rc" -ge 2 ]; then
+    echo "DEGRADED: git rev-list --objects failed (rc=$_rev_obj_rc) — cannot enumerate committed blobs" >&2
+    exit 3
+  fi
+  _blobs_list="$(mktemp)"
+  awk 'NF>=2 {
+    sha=$1; path=substr($0,42)
+    inc=0
+    if (path ~ /\.md$/) inc=1
+    if (path ~ /\.env$/) inc=1
+    if (path ~ /(^|\/)(\.env[^\/]+)$/) inc=1
+    if (path ~ /\.conf$/) inc=1
+    if (path ~ /\.ini$/) inc=1
+    if (path ~ /\.properties$/) inc=1
+    if (path ~ /\.cfg$/) inc=1
+    if (path ~ /(^|\/)config\./) inc=1
+    if (path ~ /(^|\/)credentials$/) inc=1
+    if (!inc) next
+    if (path ~ /\/(node_modules|\.venv|venv|decompiled|vineflower|procyon|cfr|jadx)\//) next
+    print sha " " path
+  }' "$_rev_obj_tmp" | sort -k1,1 | awk '!seen[$1]++' > "$_blobs_list"
+  rm -f "$_rev_obj_tmp"; _rev_obj_tmp=""
+  # ONE LOOP: read each unique blob once and run all HC patterns (combined 7-pattern grep) plus the
+  # advisory grep simultaneously via a per-blob temp file. 1 git cat-file per blob instead of 8
+  # (7 HC passes + 1 advisory), reducing subprocess spawns ~8-fold vs per-pattern loops.
+  # Sequential greps on a local temp file — no async/ordering issues.
+  # -naE: -n line numbers, -a text mode (catches NUL-byte .md files), -E extended regex.
+  # -e for each pattern: required so patterns starting with '-' (e.g. '-----BEGIN') are not parsed
+  # as options. -naiP for advisory: case-insensitive PCRE.
+  _hc_hits_tmp="$(mktemp)"; _adv_raw="$(mktemp)"; _blob_tmp="$(mktemp)"
+  while IFS=' ' read -r bsha bpath; do
+    bshort="${bsha:0:7}"
+    git -C "$target" cat-file blob "$bsha" 2>/dev/null > "$_blob_tmp"
+    grep -naE -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
+              -e 'A[KS]IA[0-9A-Z]{16}' \
+              -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
+              -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
+              -e 'AIza[0-9A-Za-z_-]{35}' \
+              -e 'sk-[A-Za-z0-9]{20,}' \
+              -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
+              "$_blob_tmp" 2>/dev/null | sed "s|^|${bpath}@${bshort}:|" >> "$_hc_hits_tmp" || :
+    grep -naiP -e "${KWID}\s*[=:]" "$_blob_tmp" 2>/dev/null | sed "s|^|${bpath}@${bshort}:|" >> "$_adv_raw" || :
+  done < "$_blobs_list"
+  rm -f "$_blob_tmp"; _blob_tmp=""
 fi
 
 # Corpus root (mirror verify-sources.sh): prefer the target root when it directly holds blocks, else the
@@ -58,24 +136,15 @@ if [ "$committed" = 0 ]; then
   fi
 fi
 
-# File scope (shared by both tiers — grep variant for default mode; git pathspecs for --committed).
+# File scope — grep flags for default mode. --committed mode uses the awk filter in the probe block.
 INCL=(--include='*.md' --include='*.env' --include='.env*' --include='*.conf' --include='*.ini'
       --include='*.properties' --include='*.cfg' --include='config.*' --include='credentials')
 EXCL=(--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv
       --exclude-dir=decompiled --exclude-dir=vineflower --exclude-dir=procyon --exclude-dir=cfr --exclude-dir=jadx)
-# Git pathspec equivalents for --committed mode (git grep HEAD -- <pathspecs>).
-# Plain globs (*.md, *.conf etc.) already match at any depth in git pathspecs.
-# Patterns with a leading dot (.env*) or an exact name (credentials) need :(glob)**/ to
-# match files inside subdirs — without it git treats them as root-anchored full paths.
-GIT_INCL=('*.md' '*.env' ':(glob)**/.env*' '*.conf' '*.ini' '*.properties' '*.cfg'
-           ':(glob)**/config.*' ':(glob)**/credentials')
-GIT_EXCL=(':(exclude)node_modules' ':(exclude).venv' ':(exclude)venv'
-           ':(exclude)decompiled' ':(exclude)vineflower' ':(exclude)procyon'
-           ':(exclude)cfr' ':(exclude)jadx')
 
 if [ "$committed" = 1 ]; then
   echo "== scan-secrets --committed: $(basename "$target") =="
-  echo "-- mode: committed — scanning all tracked files at HEAD (full repo, not corpus subdir only)"
+  echo "-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)"
 else
   echo "== scan-secrets: $(basename "$target") =="
   [ "$corpus" != "$target" ] && echo "-- corpus root: ${corpus#"$target"/}/"
@@ -94,24 +163,16 @@ rc=0; hits=0
 # citation / byte dump, the load-bearing anti-FP.
 echo "-- high-confidence secret values --"
 scan() {  # <label> <extended-regex>
-  local label="$1" re="$2" m _scan_tmp _scan_rc
+  local label="$1" re="$2" m
   if [ "$committed" = 1 ]; then
-    # B1: use -e so patterns starting with '--' (e.g. PEM header) are not parsed as options.
-    # B3: capture rc via temp file so a git error (rc ≥ 2) surfaces as DEGRADED, not a silent 0.
-    _scan_tmp="$(mktemp)"
-    git -C "$target" grep -nIE -e "$re" HEAD -- "${GIT_INCL[@]}" "${GIT_EXCL[@]}" \
-      >"$_scan_tmp" 2>/dev/null
-    _scan_rc=$?
-    if [ "$_scan_rc" -ge 2 ]; then
-      echo "DEGRADED: git grep failed (rc=$_scan_rc) while scanning for '$label' — scan is incomplete" >&2
-      rm -f "$_scan_tmp"; exit 3
-    fi
+    # Filter pre-computed HC hits file (all 7 HC patterns scanned in the probe block ONE LOOP).
+    # -E -e: explicit pattern flag required so PEM pattern (-----BEGIN…) is not parsed as an option.
+    # Dedup + cap at 50; /dev/null fallback when probe block was skipped (e.g. teeth-deg path).
     while IFS= read -r m; do
       [ -z "$m" ] && continue
       echo "   LEAK!   $label — ${m}"
       rc=1; hits=$((hits+1))
-    done < <(head -50 < "$_scan_tmp")
-    rm -f "$_scan_tmp"
+    done < <(grep -E -e "$re" "${_hc_hits_tmp:-/dev/null}" 2>/dev/null | sort -u | head -50)
   else
     while IFS= read -r m; do
       [ -z "$m" ] && continue
@@ -141,16 +202,24 @@ echo "-- possible credential assignments (advisory) --"
 # (aws_SECRET_access_key, DB_PASSWORD_value) is caught up to its `=`, while a camelCase substring
 # (saltedPassword — `d` before it) OR an ordinary superstring word (tokenizer, secretariat, passwordless —
 # a letter right after) is NOT. The trailing `[A-Za-z0-9_]*` then consumes the rest of the identifier.
-KWID='(?<![A-Za-z0-9])(?:password|passwd|secret|api[_-]?key|apikey|token)(?![A-Za-z])[A-Za-z0-9_]*'
+# KWID is defined at the top of this script (before the probe block) so the ONE LOOP can use it.
 warns=0
-# In --committed mode git grep HEAD output is "HEAD:path:lineno:content"; strip three fields.
-# In default mode grep output is "path:lineno:content"; strip two fields.
+# In --committed mode output is deduplicated path:lineno:content (bshort stripped during dedup).
+# In default mode grep output is path:lineno:content.
+# Both: strip two colon-delimited fields (path:lineno:) to extract content.
+if [ "$committed" = 1 ]; then
+  # Advisory hits pre-computed in the probe block ONE LOOP (_adv_raw). Dedup here: strip @bshort so
+  # same path:lineno:content across multiple blob versions deduplicates to one entry; cap at 200.
+  # /dev/null fallback when probe block was skipped (e.g. teeth-deg path).
+  _adv_dedup="$(mktemp)"
+  sed 's/@[0-9a-f][0-9a-f]*:/:/1' "${_adv_raw:-/dev/null}" | sort -u | head -200 > "$_adv_dedup"
+  rm -f "$_adv_raw"; _adv_raw=""
+else
+  _adv_dedup="$(mktemp)"
+  grep -rniIP "${INCL[@]}" "${EXCL[@]}" -e "${KWID}\s*[=:]" "$corpus" 2>/dev/null | head -200 > "$_adv_dedup"
+fi
 while IFS= read -r line; do
-  if [ "$committed" = 1 ]; then
-    content="${line#*:*:*:}"
-  else
-    content="${line#*:*:}"
-  fi
+  content="${line#*:*:}"
   val="$(printf '%s' "$content" | grep -oiP "${KWID}\s*[=:]\s*[\"']?\K[^\"';,\s]+" | head -1)"
   [ -z "$val" ] && continue
   case "$val" in '<'*|'$'*|'{'*|'*'*|'%'*) continue;; esac                       # placeholder / var / format
@@ -171,31 +240,48 @@ while IFS= read -r line; do
   fi
   echo "   WARN    $line"
   warns=$((warns+1))
-done < <(
-  if [ "$committed" = 1 ]; then
-    # B1: -e prevents KWID (which starts with '(?') being parsed as an option.
-    # B3: advisory git grep failure is also DEGRADED — an incomplete advisory scan could hide a warning.
-    _adv_tmp="$(mktemp)"
-    git -C "$target" grep -nIP -e "${KWID}\s*[=:]" HEAD -- "${GIT_INCL[@]}" "${GIT_EXCL[@]}" \
-      >"$_adv_tmp" 2>/dev/null
-    _adv_rc=$?
-    if [ "$_adv_rc" -ge 2 ]; then
-      echo "DEGRADED: git grep failed (rc=$_adv_rc) in advisory scan — scan is incomplete" >&2
-      rm -f "$_adv_tmp"; exit 3
-    fi
-    head -200 < "$_adv_tmp"; rm -f "$_adv_tmp"
-  else
-    grep -rniIP "${INCL[@]}" "${EXCL[@]}" -e "${KWID}\s*[=:]" "$corpus" 2>/dev/null | head -200
-  fi
-)
+done < "$_adv_dedup"
+rm -f "$_adv_dedup"
 [ "$warns" -eq 0 ] && echo "   (none)"
 
+# --- COMMIT MESSAGES (full history, --committed mode only) -----------------------------------------
+# A secret value typed into a commit message is never removed by a content redaction. Scans all
+# commit subjects + bodies reachable from HEAD for the same high-confidence patterns as the file scan.
+if [ "$committed" = 1 ]; then
+  echo "-- commit messages (full history) --"
+  _cmsg_tmp="$(mktemp)"
+  git -C "$target" log --format="format:%s%n%b" HEAD > "$_cmsg_tmp" 2>/dev/null
+  _cml_rc=$?
+  if [ "$_cml_rc" -ge 2 ]; then
+    echo "DEGRADED: git log failed (rc=$_cml_rc) — commit message scan incomplete" >&2
+    rm -f "$_cmsg_tmp"; exit 3
+  fi
+  _cmsg_hits=0
+  while IFS= read -r m; do
+    [ -z "$m" ] && continue
+    echo "   LEAK!   [commit msg] $m"
+    rc=1; hits=$((hits+1)); _cmsg_hits=$((_cmsg_hits+1))
+  done < <(
+    grep -naE \
+      -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
+      -e 'A[KS]IA[0-9A-Z]{16}' \
+      -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
+      -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
+      -e 'AIza[0-9A-Za-z_-]{35}' \
+      -e 'sk-[A-Za-z0-9]{20,}' \
+      -e 'eyJ[A-Za-z0-9_=-]{6,}\.eyJ[A-Za-z0-9_=-]{6,}\.[A-Za-z0-9_=-]{6,}' \
+      "$_cmsg_tmp" 2>/dev/null | head -20
+  )
+  [ "$_cmsg_hits" -eq 0 ] && echo "   (none)"
+  rm -f "$_cmsg_tmp"
+fi
+
 # --- BINARY-SKIP report: a stray NUL byte makes grep -I skip a whole file silently. Surface it. ----
-# In --committed mode git grep -I auto-excludes binary files; NUL-byte detection is not applicable.
+# In --committed mode -a/--text is used; all files are scanned regardless of NUL bytes — no blind spot.
 # In default mode, detect NUL-bearing files that grep would silently skip.
 nulls=0
 if [ "$committed" = 1 ]; then
-  echo "-- binary files: git grep -I auto-excludes binary committed files (NUL-byte scan not applicable in --committed mode) --"
+  echo "-- binary files: -a/--text flag used — all committed files scanned regardless of NUL bytes --"
 else
   # `\x00` here is the literal 4-char PCRE escape (a bash $'\x00' arg would collapse to an empty pattern that
   # matches every file). `-a` is REQUIRED: without it GNU grep refuses to match inside a file it deems binary,

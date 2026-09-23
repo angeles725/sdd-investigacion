@@ -45,7 +45,7 @@ no() { printf '  FAIL  %-52s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 reset_ctl() {
   GIT_HAS_ORIGIN=0 GIT_PUSH_EXIT=0 GH_OWNER=tester GH_OWNER_TYPE=User \
   GH_CREATE_EXIT=0 GH_VIS=PRIVATE SCAN_EXIT=0 GIT_TRACKED_SECRETS="" \
-  GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 GIT_STATUS_DIRTY=0
+  GIT_GITIGNORE_DIRTY=0 GH_USERS_EXIT=0 GIT_STATUS_DIRTY=0 GIT_STATUS_FAIL=0
 }
 
 # --- stub factories ---------------------------------------------------------
@@ -75,7 +75,7 @@ case " $* " in
     if [ -n "${GIT_TRACKED_SECRETS:-}" ]; then printf '%s\0' "${GIT_TRACKED_SECRETS}"; fi
     exit 0 ;;
   *" diff --quiet "*) exit "${GIT_GITIGNORE_DIRTY:-0}" ;;
-  *" status "*) [ "${GIT_STATUS_DIRTY:-0}" = 1 ] && printf 'M file.md\n'; exit 0 ;;
+  *" status "*) [ "${GIT_STATUS_FAIL:-0}" = 1 ] && exit 1; [ "${GIT_STATUS_DIRTY:-0}" = 1 ] && printf 'M file.md\n'; exit 0 ;;
   *" push "*) exit "${GIT_PUSH_EXIT:-0}" ;;
   *) exit 0 ;;
 esac
@@ -136,7 +136,7 @@ run() {
         GH_CREATE_EXIT="$GH_CREATE_EXIT" GH_VIS="$GH_VIS" SCAN_EXIT="$SCAN_EXIT" \
         GIT_TRACKED_SECRETS="$GIT_TRACKED_SECRETS" \
         GIT_GITIGNORE_DIRTY="$GIT_GITIGNORE_DIRTY" GH_USERS_EXIT="$GH_USERS_EXIT" \
-        GIT_STATUS_DIRTY="$GIT_STATUS_DIRTY" \
+        GIT_STATUS_DIRTY="$GIT_STATUS_DIRTY" GIT_STATUS_FAIL="$GIT_STATUS_FAIL" \
         "$BASH_BIN" "$box/ensure-remote.sh" "$@" 2>&1)"; RC=$?
 }
 
@@ -361,6 +361,20 @@ else
      "exit=$RC(want 7) calls=[$(calls "$box")]"
 fi
 
+# 18 — GIT STATUS FAILURE (LAYER 4b-pre). git status --porcelain itself fails
+#      (e.g. not a repo, permission error) → the SUT refuses exit 7 BEFORE any
+#      scan, create, or push. Fail-closed: cannot verify WT matches HEAD if
+#      git-status is broken (#955 Repro 2).
+reset_ctl; GIT_STATUS_FAIL=1
+box="$(mkbox c18-git-status-fail)"
+run "$box" "$box/target" --yes
+if [ "$RC" = 7 ] && ! has_call "$box" 'repo create' && ! has_call "$box" 'git .* push'; then
+  ok "18 git status failure -> refuse 7, NO create or push" "(exit $RC)"
+else
+  no "18 git status failure -> refuse 7, NO create or push" \
+     "exit=$RC(want 7) calls=[$(calls "$box")]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Mutate the guard two ways and prove each assertion
 # above would FLIP to failure — otherwise those assertions are theater.
@@ -513,6 +527,32 @@ fi
       ok "teeth-M2: wildcard mutant proceeds (exit $RC) — case 17 has teeth"
     else
       no "teeth-M2: wildcard mutant still exits 7 — case 17 is THEATER; calls=[$(calls "$box")]"
+    fi
+  fi
+
+  # M3 — remove the git-status failure guard so a `git status` error falls through
+  #      as clean. Case 18's "refuse 7" must now FLIP — proves the fail-closed
+  #      git-status check has teeth.
+  echo "-- teeth M3: remove git-status failure guard, GIT_STATUS_FAIL=1 must NOT refuse 7 --"
+  origM3='if ! _wt_status="$(git -C "$target" status --porcelain 2>/dev/null)"; then
+  echo "REFUSED: could not check working tree status (git status --porcelain failed) — cannot" >&2
+  echo "         guarantee the committed-content scan matches what would be pushed." >&2
+  exit 7
+fi'
+  newM3='if ! _wt_status="$(git -C "$target" status --porcelain 2>/dev/null)"; then
+  : # MUTANT: git-status failure guard removed
+fi'
+  if [[ "$content" != *"$origM3"* ]]; then
+    no "teeth-M3: build git-status-fail mutant" "git-status failure guard not found — SUT drifted?"
+  else
+    reset_ctl; GIT_STATUS_FAIL=1
+    box="$(mkbox teethM3-git-status-fail)"
+    printf '%s\n' "${content//"$origM3"/"$newM3"}" > "$box/ensure-remote.sh"
+    run "$box" "$box/target" --yes
+    if [ "$RC" != 7 ]; then
+      ok "teeth-M3: git-status-fail mutant proceeds (exit $RC) — case 18 has teeth"
+    else
+      no "teeth-M3: git-status-fail mutant still exits 7 — case 18 is THEATER; calls=[$(calls "$box")]"
     fi
   fi
 fi

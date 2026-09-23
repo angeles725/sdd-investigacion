@@ -308,24 +308,24 @@ cm_rc34="$(bash "$SUT" --committed "$d_t34" >/dev/null 2>&1; echo $?)"
 [ "$cm_rc34" = 1 ] && ok "34 --committed catches token in nested credentials → exit 1 (B2 :(glob)**/credentials)" \
   || no "34 --committed nested credentials: rc=$cm_rc34 (want 1)"
 
-# 35 — --committed: git grep fails (rc ≥ 2) → typed DEGRADED exit 3, not silent pass (B3 rc capture).
-# Probe passes (rev-parse works); only grep exits 2 to simulate a git error during scan.
+# 35 — --committed: git rev-list --objects fails (rc ≥ 2) → typed DEGRADED exit 3, not silent pass (B3).
+# Probe passes (rev-parse works); only rev-list --objects exits 2 to simulate object-enumeration failure.
 REAL_GIT35="$(type -P git 2>/dev/null)"
-d_t35="$TMP/committed-grep-fail"
+d_t35="$TMP/committed-revlist-fail"
 mkdir -p "$d_t35/corpus"
 git -C "$d_t35" init -q 2>/dev/null
 git -C "$d_t35" config user.email "test@test" && git -C "$d_t35" config user.name "test"
 printf '# Block 1\n\nresearch note\n' > "$d_t35/corpus/t-block1.md"
 git -C "$d_t35" add corpus/t-block1.md && git -C "$d_t35" commit -q -m "init" 2>/dev/null
-_stub_bad_grep="$TMP/bad-grep-bin"; mkdir -p "$_stub_bad_grep"
-printf '#!/bin/bash\ncase "$*" in\n  *" grep "*) exit 2 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
-  "$REAL_GIT35" > "$_stub_bad_grep/git"; chmod +x "$_stub_bad_grep/git"
-cm_out35="$(PATH="$_stub_bad_grep:$PATH" bash "$SUT" --committed "$d_t35" 2>&1)"
+_stub_bad_revlist="$TMP/bad-revlist-bin"; mkdir -p "$_stub_bad_revlist"
+printf '#!/bin/bash\ncase "$*" in\n  *"rev-list --objects"*) exit 2 ;;\n  *) exec "%s" "$@" ;;\nesac\n' \
+  "$REAL_GIT35" > "$_stub_bad_revlist/git"; chmod +x "$_stub_bad_revlist/git"
+cm_out35="$(PATH="$_stub_bad_revlist:$PATH" bash "$SUT" --committed "$d_t35" 2>&1)"
 cm_rc35=$?
 if [ "$cm_rc35" = 3 ] && printf '%s' "$cm_out35" | grep -qi 'degraded'; then
-  ok "35 --committed git grep rc2 → typed DEGRADED exit 3, not silent pass (B3)"
+  ok "35 --committed git rev-list --objects rc2 → typed DEGRADED exit 3, not silent pass (B3)"
 else
-  no "35 --committed git grep fail: rc=$cm_rc35 (want 3) out=$cm_out35"
+  no "35 --committed rev-list fail: rc=$cm_rc35 (want 3) out=$cm_out35"
 fi
 
 # NEGATIVE CONTROL — neuter the PEM detector; the private-key fixture must then NOT be flagged.
@@ -358,11 +358,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && no "teeth-nc: rc-zeroed mutant still emitted WARN — test 26 is THEATER" \
     || ok "teeth-nc: rc-zeroed mutant passes silently — count-fail guard has teeth"
 
-  # Teeth for tests 27 and 28 (--committed mode): remove HEAD from the git grep so it falls back to
-  # the working tree — tests 27 and 28 must then FAIL (committed-mode token not caught in the WT).
-  echo "-- teeth: remove HEAD from 'git grep … HEAD' — tests 27+28 must go red (WT scan, not committed) --"
+  # Teeth for tests 27 and 28 (--committed mode): neuter rev-list --objects so the blobs list is empty —
+  # no per-blob scans run, exit 0 even when HEAD contains a token.
+  echo "-- teeth: empty rev-list --objects output — tests 27+28 must go red (no blobs scanned) --"
   mutant_cm="$TMP/scan-secrets.MUTANT-committed.sh"
-  sed 's/git -C "\$target" grep -nIE -e "\$re" HEAD/git -C "$target" grep -nIE "$re"/g' "$SUT" > "$mutant_cm"
+  sed 's/git -C "\$target" rev-list --objects HEAD > "\$_rev_obj_tmp"/: > "$_rev_obj_tmp"/g' "$SUT" > "$mutant_cm"
   # test-27 tooth: root NOTES.md token in committed HEAD but deleted from working tree.
   # The HEAD-removed mutant scans the WT — deleted file is absent — so it exits 0.
   # The real committed mode finds NOTES.md in HEAD → exit 1. Test 27 would flip → has teeth.
@@ -398,12 +398,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Test 29 expects non-zero + DEGRADED → must flip to FAIL → has teeth.
   echo "-- teeth: replace first committed-probe block with 'if false' — test 29 must go red --"
   mutant_deg="$TMP/scan-secrets.MUTANT-probe.sh"
-  # GNU sed: neuter the probe (first committed=1 guard) and both B3 rc-checks.
+  # GNU sed: neuter the probe (first committed=1 guard) and all DEGRADED-emitting rc-checks.
   # NOTE: file must NOT be named '*degraded*' — the grep pattern below checks for that string and
   # bash error messages include the script path, which would cause a false match.
   sed '0,/if \[ "\$committed" = 1 \]; then/{s/if \[ "\$committed" = 1 \]; then/if false; then/}' \
     "$SUT" \
-  | sed 's/if \[ "\$_scan_rc" -ge 2 \]/if false/g; s/if \[ "\$_adv_rc" -ge 2 \]/if false/g' \
+  | sed 's/if \[ "\$_rev_obj_rc" -ge 2 \]/if false/g' \
+  | sed 's/if \[ "\$_cml_rc" -ge 2 \]/if false/g' \
     > "$mutant_deg"
   cm_out29m="$(PATH="$_stub_no_git" bash "$mutant_deg" --committed "$d_deg" 2>&1)"
   cm_rc29m=$?
@@ -414,39 +415,155 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Teeth for tests 31 (B1: -e required) and 32-34 (B2: :(glob) pathspecs).
-  # Mutant-b1: remove '-e' from the committed git grep in scan() → PEM pattern parsed as option → rc 129 → 0 hits.
-  # Test 31 must flip to FAIL (exit 0 instead of 1).
-  echo "-- teeth-b1: remove -e from committed git grep — test 31 PEM must go red --"
+  # Mutant-b1: remove '-e' from scan()'s filter grep so PEM pattern (-----BEGIN…) is parsed as an option.
+  # Without -e, grep -E '-----BEGIN…' treats the pattern as a filename (starts with ---), fails.
+  # Test 31 must flip to FAIL (exit 1 → exit 0, no PEM hit, which ≠1 so the test fails).
+  echo "-- teeth-b1: remove -e from scan() HC filter grep — test 31 PEM must go red --"
   mutant_b1="$TMP/scan-secrets.MUTANT-b1.sh"
-  sed 's/grep -nIE -e "\$re" HEAD/grep -nIE "\$re" HEAD/g' "$SUT" > "$mutant_b1"
+  sed 's/grep -E -e "\$re"/grep -E "\$re"/g' "$SUT" > "$mutant_b1"
   cm_rc31m="$(bash "$mutant_b1" --committed "$d_t31" >/dev/null 2>&1; echo $?)"
   [ "$cm_rc31m" != 1 ] && ok "teeth-b1: -e-removed mutant misses PEM (rc=$cm_rc31m) → test 31 has teeth" \
     || no "teeth-b1: mutant still caught PEM (rc=$cm_rc31m) — test 31 is THEATER"
 
-  # Mutant-b2: replace :(glob)**/.env* with .env* (root-anchored) → nested .env.local missed.
-  # Test 32 must flip to FAIL (exit 0 instead of 1).
-  echo "-- teeth-b2: root-anchor .env* pathspec — test 32 nested .env must go red --"
+  # Mutant-b2: remove the awk include line that matches nested .env* files (path ~ /...env[^.../).
+  # Without it corpus/.env.local (nested .env.local) is no longer matched → test 32 must flip.
+  echo "-- teeth-b2: drop nested .env* awk filter line — test 32 nested .env must go red --"
   mutant_b2="$TMP/scan-secrets.MUTANT-b2.sh"
-  sed "s|':(glob)\*\*/.env\*'|'.env*'|g" "$SUT" > "$mutant_b2"
+  grep -vF 'env[^' "$SUT" > "$mutant_b2"
   cm_rc32m="$(bash "$mutant_b2" --committed "$d_t32" >/dev/null 2>&1; echo $?)"
-  [ "$cm_rc32m" != 1 ] && ok "teeth-b2: root-anchored .env* mutant misses nested .env.local (rc=$cm_rc32m) → test 32 has teeth" \
+  [ "$cm_rc32m" != 1 ] && ok "teeth-b2: env[^-removed mutant misses nested .env.local (rc=$cm_rc32m) → test 32 has teeth" \
     || no "teeth-b2: mutant still caught nested .env.local (rc=$cm_rc32m) — test 32 is THEATER"
 
-  # Teeth for test 35 (B3: git grep rc ≥ 2 → DEGRADED).
-  # Mutant-b3: remove the rc ≥ 2 check so git grep errors are silently passed.
-  # Test 35 must flip to FAIL (exit 0 instead of 3).
-  echo "-- teeth-b3: remove git grep rc check — test 35 must go red (silent pass) --"
+  # Teeth for test 35 (B3: git rev-list --objects rc ≥ 2 → DEGRADED).
+  # Mutant-b3: neuter the _rev_obj_rc ≥ 2 check so rev-list failure is silently ignored.
+  # Test 35 must flip to FAIL (exit 0 instead of 3 — empty blob list, no scan, no DEGRADED).
+  echo "-- teeth-b3: remove _rev_obj_rc check — test 35 must go red (silent pass) --"
   mutant_b3="$TMP/scan-secrets.MUTANT-b3.sh"
-  # Neuter the _scan_rc ≥ 2 check in scan() and the _adv_rc ≥ 2 check in advisory.
-  sed 's/if \[ "\$_scan_rc" -ge 2 \]/if false/g; s/if \[ "\$_adv_rc" -ge 2 \]/if false/g' \
-    "$SUT" > "$mutant_b3"
-  REAL_GIT35="$(type -P git 2>/dev/null)"
-  cm_out35m="$(PATH="$_stub_bad_grep:$PATH" bash "$mutant_b3" --committed "$d_t35" 2>&1)"
+  sed 's/if \[ "\$_rev_obj_rc" -ge 2 \]/if false/g' "$SUT" > "$mutant_b3"
+  cm_out35m="$(PATH="$_stub_bad_revlist:$PATH" bash "$mutant_b3" --committed "$d_t35" 2>&1)"
   cm_rc35m=$?
   if [ "$cm_rc35m" != 3 ] && ! printf '%s' "$cm_out35m" | grep -qi 'degraded'; then
     ok "teeth-b3: rc-check-removed mutant silently passes (rc=$cm_rc35m) → test 35 has teeth"
   else
     no "teeth-b3: mutant still emits DEGRADED (rc=$cm_rc35m) — test 35 is THEATER"
+  fi
+fi
+
+# 36 — --committed catches a token that was in a past commit but deleted from HEAD (MAJOR1 history scan).
+d_t36="$TMP/history-past-commit"
+mkdir -p "$d_t36/corpus"
+git -C "$d_t36" init -q 2>/dev/null
+git -C "$d_t36" config user.email "test@test" && git -C "$d_t36" config user.name "test"
+printf 'token: ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t36/corpus/t-block1.md"
+git -C "$d_t36" add corpus/t-block1.md && git -C "$d_t36" commit -q -m "init with token" 2>/dev/null
+printf '# redacted — token removed\n' > "$d_t36/corpus/t-block1.md"
+git -C "$d_t36" add corpus/t-block1.md && git -C "$d_t36" commit -q -m "redact token from HEAD" 2>/dev/null
+wt_rc36="$(runrc "$d_t36")"
+cm_rc36="$(bash "$SUT" --committed "$d_t36" >/dev/null 2>&1; echo $?)"
+if [ "$wt_rc36" = 0 ] && [ "$cm_rc36" = 1 ]; then
+  ok "36 --committed catches past-commit token deleted from HEAD (MAJOR1 all-history)"
+else
+  no "36 history-scan: wt_rc=$wt_rc36 (want 0) cm_rc=$cm_rc36 (want 1)"
+fi
+
+# 37 — --committed catches a token VALUE embedded in a commit message (MAJOR1 commit messages).
+d_t37="$TMP/commit-msg-secret"
+mkdir -p "$d_t37/corpus"
+git -C "$d_t37" init -q 2>/dev/null
+git -C "$d_t37" config user.email "test@test" && git -C "$d_t37" config user.name "test"
+printf '# clean\n' > "$d_t37/corpus/t-block1.md"
+git -C "$d_t37" add corpus/t-block1.md
+git -C "$d_t37" commit -q -m "debug: leaked ghp_0123456789abcdefghijklmnopqrstuvwxyz in session" 2>/dev/null
+cm_rc37="$(bash "$SUT" --committed "$d_t37" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc37" = 1 ] && ok "37 --committed catches GitHub token embedded in commit message (MAJOR1)" \
+  || no "37 commit-msg token: rc=$cm_rc37 (want 1)"
+
+# 38 — --committed catches a secret in a NUL-byte .md file via -a/--text flag (MAJOR2).
+# git grep -I skips files with NUL bytes (treats them as binary); -a treats all files as text.
+d_t38="$TMP/binary-nul-secret"
+mkdir -p "$d_t38/corpus"
+git -C "$d_t38" init -q 2>/dev/null
+git -C "$d_t38" config user.email "test@test" && git -C "$d_t38" config user.name "test"
+printf '# header\x00\nGH_TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyz\n' > "$d_t38/corpus/t-block1.md"
+git -C "$d_t38" add corpus/t-block1.md && git -C "$d_t38" commit -q -m "init" 2>/dev/null
+cm_rc38="$(bash "$SUT" --committed "$d_t38" >/dev/null 2>&1; echo $?)"
+[ "$cm_rc38" = 1 ] && ok "38 --committed catches token in NUL-byte .md file (-a/--text flag, MAJOR2)" \
+  || no "38 binary -a: rc=$cm_rc38 (want 1)"
+
+# 39 — --committed refuses when target is a subdirectory of its git repo (MAJOR3).
+# Pathspecs evaluated from a subdir silently miss files outside it.
+d_t39root="$TMP/toplevel-mismatch-root"
+d_t39sub="$d_t39root/subproject"
+mkdir -p "$d_t39sub/corpus"
+git -C "$d_t39root" init -q 2>/dev/null
+git -C "$d_t39root" config user.email "test@test" && git -C "$d_t39root" config user.name "test"
+printf '# root note\n' > "$d_t39root/NOTES.md"
+printf '# clean\n' > "$d_t39sub/corpus/t-block1.md"
+git -C "$d_t39root" add NOTES.md subproject && git -C "$d_t39root" commit -q -m "init" 2>/dev/null
+cm_out39="$(bash "$SUT" --committed "$d_t39sub" 2>&1)"
+cm_rc39="$(bash "$SUT" --committed "$d_t39sub" 2>/dev/null; echo $?)"
+if [ "$cm_rc39" = 3 ] && printf '%s' "$cm_out39" | grep -qiE 'subdir|subdirectory|toplevel|repo root'; then
+  ok "39 --committed refuses when target is a subdirectory of its git repo → exit 3 (MAJOR3)"
+else
+  no "39 MAJOR3 subdir: rc=$cm_rc39 (want 3) out=$(printf '%s' "$cm_out39" | head -2)"
+fi
+
+# 40 — --committed advisory is case-insensitive: PASSWORD= (uppercase) must WARN (MINOR: -i restored).
+d_t40="$TMP/advisory-uppercase"
+mkdir -p "$d_t40/corpus"
+git -C "$d_t40" init -q 2>/dev/null
+git -C "$d_t40" config user.email "test@test" && git -C "$d_t40" config user.name "test"
+printf 'PASSWORD=Secretvalue123xyz\n' > "$d_t40/corpus/config.yaml"
+git -C "$d_t40" add corpus && git -C "$d_t40" commit -q -m "init" 2>/dev/null
+out40="$(bash "$SUT" --committed "$d_t40" 2>&1)"
+if grep -qE '^[[:space:]]+WARN ' <<<"$out40"; then
+  ok "40 --committed advisory case-insensitive: PASSWORD= uppercase WARN (-i restored, MINOR)"
+else
+  no "40 advisory -i: no WARN for PASSWORD= :: $(grep -E '^\s*WARN' <<<"$out40" || echo '(none)')"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # Teeth for tests 36+28 (MAJOR1 all-history): same rev-list-empty mutant as teeth-cm27/28.
+  # Test 36 must go red (exits 0 — no history scan, past commit token missed).
+  echo "-- teeth: empty rev-list — test 36 past-commit token must go red --"
+  cm_rc36m="$(bash "$mutant_cm" --committed "$d_t36" >/dev/null 2>&1; echo $?)"
+  [ "$cm_rc36m" != 1 ] && ok "teeth-hist36: empty-rev-list mutant misses past-commit token (rc=$cm_rc36m) → test 36 has teeth" \
+    || no "teeth-hist36: mutant still caught past-commit token (rc=$cm_rc36m) — test 36 is THEATER"
+
+  # Teeth for test 37 (MAJOR1 commit messages): neuter git log so commit messages are empty.
+  echo "-- teeth: neuter git log — test 37 commit-message token must go red --"
+  mutant_cmsg="$TMP/scan-secrets.MUTANT-cmsg.sh"
+  sed 's/git -C "\$target" log --format="format:%s%n%b" HEAD/: # neutered-log/g' "$SUT" > "$mutant_cmsg"
+  cm_rc37m="$(bash "$mutant_cmsg" --committed "$d_t37" >/dev/null 2>&1; echo $?)"
+  [ "$cm_rc37m" != 1 ] && ok "teeth-cmsg37: log-neutered mutant misses commit-message token (rc=$cm_rc37m) → test 37 has teeth" \
+    || no "teeth-cmsg37: mutant still caught commit-message token (rc=$cm_rc37m) — test 37 is THEATER"
+
+  # Teeth for test 38 (MAJOR2 -a flag): change -naE back to -nIE so binary files are skipped.
+  echo "-- teeth: change -naE to -nIE — test 38 NUL-byte file must go red (binary skipped) --"
+  mutant_noflag="$TMP/scan-secrets.MUTANT-noflag.sh"
+  sed 's/grep -naE -e/grep -nIE -e/g' "$SUT" > "$mutant_noflag"
+  cm_rc38m="$(bash "$mutant_noflag" --committed "$d_t38" >/dev/null 2>&1; echo $?)"
+  [ "$cm_rc38m" != 1 ] && ok "teeth-noflag38: -nIE mutant skips NUL-byte .md (rc=$cm_rc38m) → test 38 has teeth" \
+    || no "teeth-noflag38: mutant still caught NUL-byte token (rc=$cm_rc38m) — test 38 is THEATER"
+
+  # Teeth for test 39 (MAJOR3 subdir refuse): remove the show-toplevel check.
+  echo "-- teeth: remove subdir check — test 39 must go red (no longer refuses subdirectory) --"
+  mutant_m3="$TMP/scan-secrets.MUTANT-m3.sh"
+  sed 's/if \[ "\$_target_real" != "\$_toplevel_real" \]/if false/g' "$SUT" > "$mutant_m3"
+  cm_rc39m="$(bash "$mutant_m3" --committed "$d_t39sub" 2>/dev/null; echo $?)"
+  [ "$cm_rc39m" != 3 ] && ok "teeth-m3-39: toplevel-check-removed mutant does not refuse subdir (rc=$cm_rc39m) → test 39 has teeth" \
+    || no "teeth-m3-39: mutant still refuses subdir (rc=$cm_rc39m) — test 39 is THEATER"
+
+  # Teeth for test 40 (MINOR -i advisory): remove -i from advisory git grep so case-insensitive
+  # matching is lost — PASSWORD= (uppercase) must no longer WARN.
+  echo "-- teeth: remove -i from advisory git grep — test 40 PASSWORD= must go red (no WARN) --"
+  mutant_noi="$TMP/scan-secrets.MUTANT-noi.sh"
+  sed 's/grep -naiP/grep -naP/g' "$SUT" > "$mutant_noi"
+  out40m="$(bash "$mutant_noi" --committed "$d_t40" 2>&1)"
+  if grep -qE '^[[:space:]]+WARN ' <<<"$out40m"; then
+    no "teeth-noi40: -i-removed mutant still WARNs on PASSWORD= — test 40 is THEATER"
+  else
+    ok "teeth-noi40: -i-removed mutant does not WARN on PASSWORD= (uppercase) → test 40 has teeth"
   fi
 fi
 

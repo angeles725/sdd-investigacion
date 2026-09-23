@@ -16,9 +16,8 @@
 #      corpus and REFUSES on a high-confidence CONTENT hit in text files, and (4c) separately REFUSES if any
 #      git-TRACKED file matches a secret-type pattern (*.pem/*.der/*.key/*.p12/*.pfx/id_rsa*/*.jks/*.keystore,
 #      security/licenses/certificates/keystore/keyring dirs) — the binary/opaque types scan-secrets.sh can
-#      never see because it only opens *.md/config text files. The content scan (4b) covers the working tree
-#      only; for a high-sensitivity target, audit or squash history before the first push (scan-secrets does
-#      not walk deleted history).
+#      never see because it only opens *.md/config text files. The content scan (4b) covers ALL committed
+#      history reachable from HEAD (files across all commits + commit messages) via scan-secrets --committed.
 #   5. CREATE THEN VERIFY visibility BEFORE ANY PUSH — after create, read back `visibility`; if it is not
 #      PRIVATE, attempt one forced `--visibility private` and re-read; if STILL not private, HARD ABORT:
 #      warn loudly, remove the origin remote, and exit non-zero WITHOUT pushing. The push step is textually
@@ -119,7 +118,8 @@ fi
 if [ -n "$_wt_status" ]; then
   echo "REFUSED: the working tree is dirty — a redaction applied to the working tree without" >&2
   echo "         committing would pass the committed-content scan while the pushed HEAD still" >&2
-  echo "         carries the original secret. Commit or stash all changes, then re-run." >&2
+  echo "         carries the original secret. Commit, add to .gitignore, or stash with" >&2
+  echo "         'git stash -u', then re-run." >&2
   exit 8
 fi
 
@@ -131,9 +131,10 @@ _scan_rc=0
 bash "$SCAN" --committed "$target" >/dev/null 2>&1 || _scan_rc=$?
 case "$_scan_rc" in
   0) ;;  # clean committed content
-  1) echo "REFUSED: scan-secrets.sh --committed found a high-confidence secret VALUE in committed" >&2
-     echo "         content — NOT pushing. Commit a redaction (cite structure, not value —" >&2
-     echo "         SECRETS DISCIPLINE) and re-run." >&2
+  1) echo "REFUSED: scan-secrets.sh --committed found a high-confidence secret VALUE in the" >&2
+     echo "         committed history — NOT pushing. The git history must be rewritten to remove" >&2
+     echo "         the secret value (e.g. git filter-repo / BFG). Cite structure, not value —" >&2
+     echo "         SECRETS DISCIPLINE applies." >&2
      exit 5 ;;
   3) echo "REFUSED: scan-secrets.sh --committed is degraded (git unavailable or no commits) —" >&2
      echo "         cannot verify committed content before push." >&2
