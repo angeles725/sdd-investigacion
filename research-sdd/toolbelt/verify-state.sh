@@ -650,6 +650,35 @@ for state in "${states[@]}"; do
     fi
   fi
 
+  # P8: Installed hook scripts in $target/.claude/hooks/ still contain unreplaced template placeholders
+  # (<ALLCAPS> tokens such as <SUBJECT>, <KIT>, <TARGET>). §7 anti-silent-zero: three states are
+  # distinguishable — absent-input (.claude/hooks/ dir not found), empty-input (dir exists but no .sh
+  # files), no-match (hooks exist and are clean). WARN-only when placeholders found; never fails the run.
+  _hooks_dir="$target/.claude/hooks"
+  if [ ! -d "$_hooks_dir" ]; then
+    echo "   INFO   hook-placeholder: .claude/hooks/ not found — no installed hooks to inspect"
+  else
+    # find: list .sh files up to one level deep; pipe to grep P8-HOOK-PLACEHOLDER-GREP
+    _hook_hits=""
+    while IFS= read -r _hf; do
+      if grep -qE '<[A-Z][A-Z0-9_-]*>' "$_hf" 2>/dev/null; then  # P8-HOOK-PLACEHOLDER-GREP
+        _found_phs="$(grep -oE '<[A-Z][A-Z0-9_-]*>' "$_hf" 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ $//')"
+        echo "   WARN   hook-placeholder: $(basename "$_hf") still has unreplaced placeholder(s): $_found_phs — adapt this hook for the target before use"
+        _hook_hits="${_hook_hits}1"
+      fi
+    done < <(find "$_hooks_dir" -maxdepth 1 -name '*.sh' 2>/dev/null | sort)
+    if [ -z "$_hook_hits" ]; then
+      # Distinguish no .sh files (empty-input) from files-but-no-match (no-match)
+      _hook_count="$(find "$_hooks_dir" -maxdepth 1 -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')"
+      if [ "${_hook_count:-0}" = "0" ]; then
+        echo "   INFO   hook-placeholder: .claude/hooks/ has no .sh files — no installed hooks to inspect"
+      fi
+      # no-match (scripts exist, none have placeholders): silent — covered by overall ok line
+    fi
+    unset _hf _hook_hits _found_phs _hook_count
+  fi
+  unset _hooks_dir
+
   # SC-CROSS-CHECK (FAIL) — stop-control prose "Open gaps — read-only investigable: N" must match the
   # backlog-derived d_inv. The stop-control section is the human-readable STOP decision surface; a stale
   # number there points to a different N than the envelope and misleads the operator into a premature STOP.

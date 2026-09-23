@@ -198,50 +198,61 @@ else
   no "reframe: group order wrong (CONFIRM=$cl item1=$i1 THEN=$tl item3=$i3)"
 fi
 
-# EN2a — auto-wire hooks into $target/.claude/settings.json
+# EN2a — propose-never-apply wiring: default prints snippet, --wire opts in to write
 # -------------------------------------------------------
-# (a)(b)(d) require jq; (c) and (e) can run independently.
-echo "-- EN2a: auto-wire settings.json --"
+# Default (no --wire): print the JSON snippet, do NOT write settings.json.
+# --wire: write settings.json (requires jq); still idempotent.
+# --no-wire: backward-compat alias for the new default (no write, print snippet).
+echo "-- EN2a: propose-never-apply wiring --"
 _en2a_has_jq=0; command -v jq >/dev/null 2>&1 && _en2a_has_jq=1
 
+# (a-default) no flag → settings.json NOT written, JSON block printed in stdout
+d="$TMP/en2a-a-default"; mkdir -p "$d"
+_ad_out="$TMP/en2a-a-default.out"
+bash "$SUT" "$d" --corpus flat > "$_ad_out" 2>/dev/null; _ad_rc=$?
+[ "$_ad_rc" = 0 ] && ok "EN2a-(a-default) no-wire flag: exits 0" \
+                  || no "EN2a-(a-default) no-wire flag: exits 0 (got $_ad_rc)"
+assert_absent "EN2a-(a-default) no-wire flag: settings.json NOT written" "$d/.claude/settings.json"
+assert_grep   "EN2a-(a-default) no-wire flag: JSON block in stdout"      '"hooks"' "$_ad_out"
+
 if [ "$_en2a_has_jq" = 1 ]; then
-  # (a) fresh target — no pre-existing settings.json → both hooks registered
-  d="$TMP/en2a-a"; mkdir -p "$d"
-  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
-  assert_file "EN2a-(a) wire-fresh: settings.json created"               "$d/.claude/settings.json"
+  # (a-wire) --wire flag → settings.json created with both hooks
+  d="$TMP/en2a-a-wire"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
+  assert_file "EN2a-(a-wire) --wire: settings.json created"               "$d/.claude/settings.json"
   if [ -f "$d/.claude/settings.json" ]; then
-    assert_grep "EN2a-(a) wire-fresh: Stop hook present"         "retro-gate-stop.sh"   "$d/.claude/settings.json"
-    assert_grep "EN2a-(a) wire-fresh: SessionStart hook present" "research-protocol.sh" "$d/.claude/settings.json"
+    assert_grep "EN2a-(a-wire) --wire: Stop hook present"         "retro-gate-stop.sh"   "$d/.claude/settings.json"
+    assert_grep "EN2a-(a-wire) --wire: SessionStart hook present" "research-protocol.sh" "$d/.claude/settings.json"
   else
-    no "EN2a-(a) wire-fresh: Stop hook (file absent)"; no "EN2a-(a) wire-fresh: SessionStart hook (file absent)"
+    no "EN2a-(a-wire) --wire: Stop hook (file absent)"; no "EN2a-(a-wire) --wire: SessionStart hook (file absent)"
   fi
 
-  # (b) pre-existing settings.json with unrelated hook → merged, unrelated hook preserved
-  d="$TMP/en2a-b"; mkdir -p "$d/.claude"
+  # (b-wire) --wire + pre-existing settings.json with unrelated hook → merged, unrelated preserved
+  d="$TMP/en2a-b-wire"; mkdir -p "$d/.claude"
   printf '{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"echo pre"}]}]}}\n' \
     > "$d/.claude/settings.json"
-  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
-  assert_grep "EN2a-(b) wire-merge: PreToolUse preserved"         "PreToolUse"           "$d/.claude/settings.json"
-  assert_grep "EN2a-(b) wire-merge: Stop hook merged"             "retro-gate-stop.sh"   "$d/.claude/settings.json"
-  assert_grep "EN2a-(b) wire-merge: SessionStart hook merged"     "research-protocol.sh" "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
+  assert_grep "EN2a-(b-wire) --wire merge: PreToolUse preserved"         "PreToolUse"           "$d/.claude/settings.json"
+  assert_grep "EN2a-(b-wire) --wire merge: Stop hook merged"             "retro-gate-stop.sh"   "$d/.claude/settings.json"
+  assert_grep "EN2a-(b-wire) --wire merge: SessionStart hook merged"     "research-protocol.sh" "$d/.claude/settings.json"
 
-  # (d) idempotent — second run (--force) → no duplicate Stop or SessionStart entries
-  d="$TMP/en2a-d"; mkdir -p "$d"
-  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
-  bash "$SUT" "$d" --corpus flat --force >/dev/null 2>/dev/null
+  # (d-wire) --wire idempotent — second run (--force) → no duplicate Stop or SessionStart entries
+  d="$TMP/en2a-d-wire"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire --force >/dev/null 2>/dev/null
   _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
   _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
-  [ "$_sc_n" = 1 ] && ok "EN2a-(d) idempotent: Stop has exactly 1 entry" \
-                    || no "EN2a-(d) idempotent: Stop count=$_sc_n (expected 1)"
-  [ "$_ss_n" = 1 ] && ok "EN2a-(d) idempotent: SessionStart has exactly 1 entry" \
-                    || no "EN2a-(d) idempotent: SessionStart count=$_ss_n (expected 1)"
+  [ "$_sc_n" = 1 ] && ok "EN2a-(d-wire) idempotent: Stop has exactly 1 entry" \
+                    || no "EN2a-(d-wire) idempotent: Stop count=$_sc_n (expected 1)"
+  [ "$_ss_n" = 1 ] && ok "EN2a-(d-wire) idempotent: SessionStart has exactly 1 entry" \
+                    || no "EN2a-(d-wire) idempotent: SessionStart count=$_ss_n (expected 1)"
 else
-  echo "  SKIP  EN2a-(a)(b)(d): jq not on PATH"
+  echo "  SKIP  EN2a-(a-wire)(b-wire)(d-wire): jq not on PATH"
 fi
 
-# (c) --no-wire → settings.json NOT written, JSON block in stdout
+# (c) --no-wire → backward compat: settings.json NOT written, JSON block in stdout
 d="$TMP/en2a-c"; mkdir -p "$d"
 _nw_out="$TMP/en2a-c.out"
 bash "$SUT" "$d" --corpus flat --no-wire > "$_nw_out" 2>/dev/null; _nw_rc=$?
@@ -249,7 +260,7 @@ bash "$SUT" "$d" --corpus flat --no-wire > "$_nw_out" 2>/dev/null; _nw_rc=$?
 assert_absent "EN2a-(c) --no-wire: settings.json NOT written" "$d/.claude/settings.json"
 assert_grep   'EN2a-(c) --no-wire: JSON block in stdout'      '"hooks"' "$_nw_out"
 
-# (e) jq-absent → 'degraded' in stderr, settings.json NOT created, block printed in stdout
+# (e) jq-absent + --wire → 'degraded' in stderr, settings.json NOT created, block printed
 _jq_found="$(command -v jq 2>/dev/null)"
 if [ -z "$_jq_found" ]; then
   echo "  SKIP  EN2a-(e): jq not on PATH (cannot construct PATH-without-jq)"
@@ -261,15 +272,40 @@ else
   else
     d="$TMP/en2a-e"; mkdir -p "$d"
     _e_out="$TMP/en2a-e.out"; _e_err="$TMP/en2a-e.err"
-    PATH="$_path_nojq" bash "$SUT" "$d" --corpus flat > "$_e_out" 2>"$_e_err"
+    PATH="$_path_nojq" bash "$SUT" "$d" --corpus flat --wire > "$_e_out" 2>"$_e_err"
     _e_rc=$?
-    [ "$_e_rc" = 0 ] && ok "EN2a-(e) jq-absent: exits 0 (graceful)" \
-                      || no "EN2a-(e) jq-absent: exits 0 (got $_e_rc)"
-    grep -qF "degraded" "$_e_err" && ok "EN2a-(e) jq-absent: 'degraded' in stderr" \
-                                   || no "EN2a-(e) jq-absent: 'degraded' NOT in stderr"
-    assert_absent "EN2a-(e) jq-absent: settings.json NOT created" "$d/.claude/settings.json"
-    assert_grep   "EN2a-(e) jq-absent: JSON block printed"        '"hooks"' "$_e_out"
+    [ "$_e_rc" = 0 ] && ok "EN2a-(e) jq-absent + --wire: exits 0 (graceful)" \
+                      || no "EN2a-(e) jq-absent + --wire: exits 0 (got $_e_rc)"
+    grep -qF "degraded" "$_e_err" && ok "EN2a-(e) jq-absent + --wire: 'degraded' in stderr" \
+                                   || no "EN2a-(e) jq-absent + --wire: 'degraded' NOT in stderr"
+    assert_absent "EN2a-(e) jq-absent + --wire: settings.json NOT created" "$d/.claude/settings.json"
+    assert_grep   "EN2a-(e) jq-absent + --wire: JSON block printed"        '"hooks"' "$_e_out"
   fi
+fi
+
+# TPL — template wording: installed hook must NOT ask user which tool; must say to pick yourself
+echo "-- TPL: SessionStart hook template wording --"
+d="$TMP/tpl-wording"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
+_tpl_hook="$d/.claude/hooks/research-protocol.sh"
+if [ -f "$_tpl_hook" ]; then
+  if grep -qF "ask which toolbelt tool" "$_tpl_hook" 2>/dev/null; then
+    no "TPL: installed hook does NOT contain 'ask which toolbelt tool' (old wording still present)"
+  else
+    ok "TPL: installed hook does not contain 'ask which toolbelt tool' (old wording removed)"
+  fi
+  if grep -qF "PROCEED" "$_tpl_hook" 2>/dev/null; then
+    ok "TPL: installed hook contains 'PROCEED'"
+  else
+    no "TPL: installed hook missing 'PROCEED'"
+  fi
+  if grep -qE "Pick|pick" "$_tpl_hook" 2>/dev/null; then
+    ok "TPL: installed hook contains 'Pick' (pick tool yourself)"
+  else
+    no "TPL: installed hook missing 'Pick' (pick tool yourself)"
+  fi
+else
+  no "TPL: research-protocol.sh not found at $_tpl_hook (file absent)"
 fi
 
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
@@ -442,8 +478,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # MW1: skip the atomic mv (make wire a no-op) → settings.json absent → (a) RED
-  echo "-- teeth proof MW1: skip jq mv → settings.json absent, wire-fresh test has teeth --"
+  # MW1: skip the atomic mv in --wire path → settings.json absent → (a-wire) RED
+  echo "-- teeth proof MW1: skip jq mv in --wire path → settings.json absent, wire test has teeth --"
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW1: jq not on PATH"
   else
@@ -454,32 +490,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MW1: could not build mutant (mv line still present)"
     else
       dmw1="$TMP/mw1t"; mkdir -p "$dmw1"
-      bash "$mw1" "$dmw1" --corpus flat >/dev/null 2>/dev/null
+      bash "$mw1" "$dmw1" --corpus flat --wire >/dev/null 2>/dev/null
       if [ ! -f "$dmw1/.claude/settings.json" ]; then
-        ok "teeth MW1: mutant → settings.json absent → wire-fresh test has teeth"
+        ok "teeth MW1: mutant → settings.json absent → wire test has teeth"
       else
-        no "teeth MW1: mutant still created settings.json — wire-fresh test is THEATER"
+        no "teeth MW1: mutant still created settings.json — wire test is THEATER"
       fi
     fi
   fi
 
-  # MW2: remove --no-wire guard → settings.json written even with --no-wire → (c) absent assertion RED
-  echo "-- teeth proof MW2: remove no-wire guard → settings.json written with --no-wire --"
+  # MW2: always-wire guard removed → settings.json written without --wire → (a-default) absent assertion RED
+  echo "-- teeth proof MW2: remove --wire guard → settings.json written without --wire --"
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW2: jq not on PATH"
   else
     mkdir -p "$TMP/mw2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw2/templates"
     mw2="$TMP/mw2/toolbelt/init.sh"
-    awk '/if \[ "\$no_wire" = 0 \]/ { print "if true; then  # MUTANT: no-wire guard removed"; next } { print }' "$SUT" > "$mw2"
-    if ! grep -q '# MUTANT: no-wire guard removed' "$mw2"; then
-      no "teeth MW2: could not build mutant (no-wire guard line not found)"
+    awk '/if \[ "\$wire" = 1 \]/ { print "if true; then  # MUTANT: wire guard removed"; next } { print }' "$SUT" > "$mw2"
+    if ! grep -q '# MUTANT: wire guard removed' "$mw2"; then
+      no "teeth MW2: could not build mutant (wire guard line not found)"
     else
       dmw2="$TMP/mw2t"; mkdir -p "$dmw2"
-      bash "$mw2" "$dmw2" --corpus flat --no-wire >/dev/null 2>/dev/null
+      bash "$mw2" "$dmw2" --corpus flat >/dev/null 2>/dev/null
       if [ -f "$dmw2/.claude/settings.json" ]; then
-        ok "teeth MW2: mutant writes settings.json with --no-wire → no-wire-absent test has teeth"
+        ok "teeth MW2: mutant writes settings.json without --wire → default-no-write test has teeth"
       else
-        no "teeth MW2: mutant did NOT write settings.json — no-wire-absent test is THEATER"
+        no "teeth MW2: mutant did NOT write settings.json — default-no-write test is THEATER"
       fi
     fi
   fi
@@ -502,13 +538,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth MW3: could not build mutant (degraded echo still present)"
       else
         dmw3="$TMP/mw3t"; mkdir -p "$dmw3"
-        PATH="$_mw3_pnojq" bash "$mw3" "$dmw3" --corpus flat >/dev/null 2>"$TMP/mw3.err"
+        PATH="$_mw3_pnojq" bash "$mw3" "$dmw3" --corpus flat --wire >/dev/null 2>"$TMP/mw3.err"
         if ! grep -qF "degraded" "$TMP/mw3.err" 2>/dev/null; then
           ok "teeth MW3: degraded absent in mutant stderr → jq-absent stderr test has teeth"
         else
           no "teeth MW3: degraded still present in mutant stderr — THEATER"
         fi
       fi
+    fi
+  fi
+
+  # MW4: replace PROCEED with old wording in template → TPL PROCEED assertion RED
+  echo "-- teeth proof MW4: replace PROCEED with old 'ask' wording → TPL test has teeth --"
+  mkdir -p "$TMP/mw4/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw4/templates"
+  mw4="$TMP/mw4/toolbelt/init.sh"
+  cp "$SUT" "$mw4"
+  # Also make a mutant templates dir with the old wording in the hook template
+  cp -r "$HERE/../../templates" "$TMP/mw4-tpl"
+  sed -i 's/PROCEED/ask which toolbelt tool(s) to use for this research before choosing/' \
+    "$TMP/mw4-tpl/hook-sessionstart.sh" 2>/dev/null || true
+  # Repoint the templates symlink to our mutant templates
+  rm -f "$TMP/mw4/templates" 2>/dev/null || true
+  ln -sfn "$TMP/mw4-tpl" "$TMP/mw4/templates"
+  if grep -qF "PROCEED" "$TMP/mw4-tpl/hook-sessionstart.sh" 2>/dev/null; then
+    no "teeth MW4: could not build mutant (PROCEED still present in template after sed)"
+  else
+    dmw4="$TMP/mw4t"; mkdir -p "$dmw4"
+    bash "$mw4" "$dmw4" --corpus flat >/dev/null 2>/dev/null
+    _mw4_hook="$dmw4/.claude/hooks/research-protocol.sh"
+    if [ -f "$_mw4_hook" ] && ! grep -qF "PROCEED" "$_mw4_hook" 2>/dev/null; then
+      ok "teeth MW4: PROCEED absent in mutant hook → TPL PROCEED assertion has teeth"
+    else
+      no "teeth MW4: PROCEED still present in mutant hook — TPL PROCEED assertion is THEATER"
     fi
   fi
 fi
