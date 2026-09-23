@@ -1165,7 +1165,21 @@ The queue lives in the root RESEARCH-STATE (the `## Campaign queue` table; gramm
 
 **Campaign STOP condition.** The campaign stops when: (1) the queue is empty and the last coverage audit enqueued nothing; or (2) a declared bound is reached (max-depth, iteration budget, or wall-clock budget), which emits the typed stop `campaign-bound-reached: <which>` and does not silently exit. Resume after an interruption by reading the queue: pop the next `pending` entry, bootstrap it if new, and continue the loop.
 
-**Declared bounds.** Set at bootstrap. When a bound fires mid-campaign: emit `campaign-bound-reached: <which>` (e.g. `campaign-bound-reached: max-depth-3`), record it in RESEARCH-STATE, run the SELF-RETROSPECTIVE, then stop. A bound stop is a typed exit, not a missing STOP signal.
+**Declared bounds.** Declared at bootstrap as a single line in RESEARCH-STATE:
+
+```
+campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h
+```
+
+Each key is optional; omitting a key means no bound on that axis. An absent `campaign_bounds:` line means no bounds at all. depth is the length of the parent chain from root (root entry depth 0; a child of root has depth 1). When a bound fires mid-campaign, the loop: (1) marks the current entry's State as `bound-stopped`; (2) writes `campaign_stop: campaign-bound-reached: <which>` (e.g. `campaign_stop: campaign-bound-reached: max-depth=3`) in RESEARCH-STATE immediately below the `last_iteration_ts` line; (3) runs the SELF-RETROSPECTIVE; (4) stops. A bound stop is a typed exit — the `campaign_stop:` line lets the instrument distinguish it from a missing stop and from normal campaign STOP.
+
+**Recording the coverage audit result.** After each focus STOP the FRONTIER-REOPEN audit runs and the result is written to RESEARCH-STATE:
+
+```
+last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>
+```
+
+This line is what resume and the instrument read to distinguish three states: (a) `last_audit:` absent or never written — no audit has run yet (not yet audited); (b) `enqueued=0` — audit ran and found nothing to add; (c) `enqueued=N` (N > 0) — audit ran and added N new entries. Campaign STOP fires only when the queue is empty AND the most recent `last_audit:` shows `enqueued=0`; a missing `last_audit:` line never satisfies the condition, even when the queue appears empty.
 
 **Teardown and the retro.** Teardown (disarming the re-invoker under fixed-interval mode) runs at campaign STOP, not at each focus stop. At focus stop, the loop continues to the next queue entry; the re-invoker stays active. Only when the campaign STOP condition fires does the loop disarm the re-invoker and run the full RETRO CHECKPOINT.
 

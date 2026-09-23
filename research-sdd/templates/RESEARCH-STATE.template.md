@@ -136,16 +136,27 @@ blocks_since_retro: 0
 <!-- Present only when this focus is part of a multi-focus campaign (METHODOLOGY §8c).
      Omit the section entirely for a single-focus corpus that will never spawn children.
      The loop pops the next `pending` entry at each focus STOP; campaign STOP fires when every
-     entry is `done` or `bound-stopped` AND the last coverage audit enqueued nothing.
+     entry is `done` or `bound-stopped` AND the most recent `last_audit:` shows enqueued=0.
+
+     Scalar fields (one line each, parsed by key name):
+       last_iteration_ts: <YYYY-MM-DDTHH:MM:SSZ>      — updated each block commit; stall-detection signal
+       last_audit:        <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>  — written after each focus-STOP audit
+       campaign_bounds:   max-depth=<N> iterations=<N> wall-clock=<Nh>  — optional; absent = no bounds
+       campaign_stop:     campaign-bound-reached: <which>  — written only when a bound fires
+
+     last_audit: absent or never written = no audit has run yet (not yet audited).
+     campaign_bounds: keys are optional; omit key = no bound on that axis; absent line = no bounds.
+     depth is the length of the parent chain from root (root entry depth 0).
 
      Column grammar (closed — parsers read leading tokens):
        State: pending | active | done | bound-stopped
        Kind:  focus | tier | sub-topic
 
-     One row per campaign entry. Do not add free-text columns; put notes in the Seed/Convergence cells.
-     `last_iteration_ts` (ISO-8601 UTC, updated each block commit) is the stall-detection signal. -->
+     One row per campaign entry. Do not add free-text columns; put notes in the Seed/Convergence cells. -->
 
 last_iteration_ts: <YYYY-MM-DDTHH:MM:SSZ>
+last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=0
+campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<Nh>
 
 | Name | Parent | Kind | Seed | Convergence | State |
 |---|---|---|---|---|---|

@@ -282,6 +282,54 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# C5: METHODOLOGY.md §8c must carry the closed `campaign_bounds:` declaration
+#     syntax so the instrument can parse declared bounds without prose parsing.
+#     Stable anchor: 'campaign_bounds:'
+# ---------------------------------------------------------------------------
+if grep -qF 'campaign_bounds:' "$METHODOLOGY"; then
+  ok "C5: METHODOLOGY §8c carries 'campaign_bounds:' declaration syntax"
+else
+  no "C5: METHODOLOGY §8c missing 'campaign_bounds:' declaration syntax"
+fi
+
+# ---------------------------------------------------------------------------
+# C6: METHODOLOGY.md §8c must define depth as the length of the parent chain
+#     from root (root entry = depth 0) so the instrument can evaluate
+#     max-depth bounds without ambiguity.
+#     Stable anchor: 'depth is the length of the parent chain from root'
+# ---------------------------------------------------------------------------
+if grep -qF 'depth is the length of the parent chain from root' "$METHODOLOGY"; then
+  ok "C6: METHODOLOGY §8c defines depth (parent-chain length from root)"
+else
+  no "C6: METHODOLOGY §8c missing depth definition"
+fi
+
+# ---------------------------------------------------------------------------
+# C7: METHODOLOGY.md §8c must state where the bound stop is recorded:
+#     the entry's State becomes 'bound-stopped' AND a 'campaign_stop:' line
+#     is written in RESEARCH-STATE so the instrument can distinguish a bound
+#     stop from a missing stop.
+#     Stable anchor: 'campaign_stop: campaign-bound-reached:'
+# ---------------------------------------------------------------------------
+if grep -qF 'campaign_stop: campaign-bound-reached:' "$METHODOLOGY"; then
+  ok "C7: METHODOLOGY §8c carries recording location for bound stop (campaign_stop: line)"
+else
+  no "C7: METHODOLOGY §8c missing recording location for bound stop"
+fi
+
+# ---------------------------------------------------------------------------
+# C8: METHODOLOGY.md §8c must carry the 'last_audit:' field so resume and
+#     the instrument can distinguish campaign STOP (audit ran, enqueued=0)
+#     from "not yet audited" (field absent or never written).
+#     Stable anchor: 'last_audit:'
+# ---------------------------------------------------------------------------
+if grep -qF 'last_audit:' "$METHODOLOGY"; then
+  ok "C8: METHODOLOGY §8c carries 'last_audit:' field for resume/instrument"
+else
+  no "C8: METHODOLOGY §8c missing 'last_audit:' field"
+fi
+
+# ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
 if [ "$PROVE_TEETH" = 1 ]; then
@@ -440,6 +488,44 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-C4: mutant still has 'Teardown runs at campaign STOP' — sed did not take (no teeth)"
   else
     ok "teeth-C4: C4 assertion goes RED on mutant"
+  fi
+
+  echo "-- teeth: METHODOLOGY.md mutants for bounds assertions C5-C8 --"
+
+  # Teeth C5: replace 'campaign_bounds:' → C5 must go RED.
+  mutantC5="$TMP/METHODOLOGY.mutantC5.md"
+  sed 's/campaign_bounds:/campaign_BOUNDS_X:/g' "$METHODOLOGY" > "$mutantC5"
+  if grep -qF 'campaign_bounds:' "$mutantC5"; then
+    no "teeth-C5: mutant still has 'campaign_bounds:' — sed did not take (no teeth)"
+  else
+    ok "teeth-C5: C5 assertion goes RED on mutant"
+  fi
+
+  # Teeth C6: replace depth anchor → C6 must go RED.
+  mutantC6="$TMP/METHODOLOGY.mutantC6.md"
+  sed 's/depth is the length of the parent chain from root/depth is unspecified/g' "$METHODOLOGY" > "$mutantC6"
+  if grep -qF 'depth is the length of the parent chain from root' "$mutantC6"; then
+    no "teeth-C6: mutant still has C6 anchor — sed did not take (no teeth)"
+  else
+    ok "teeth-C6: C6 assertion goes RED on mutant"
+  fi
+
+  # Teeth C7: replace 'campaign_stop: campaign-bound-reached:' → C7 must go RED.
+  mutantC7="$TMP/METHODOLOGY.mutantC7.md"
+  sed 's/campaign_stop: campaign-bound-reached:/campaign_stop: bound-reached:/g' "$METHODOLOGY" > "$mutantC7"
+  if grep -qF 'campaign_stop: campaign-bound-reached:' "$mutantC7"; then
+    no "teeth-C7: mutant still has C7 anchor — sed did not take (no teeth)"
+  else
+    ok "teeth-C7: C7 assertion goes RED on mutant"
+  fi
+
+  # Teeth C8: replace 'last_audit:' → C8 must go RED.
+  mutantC8="$TMP/METHODOLOGY.mutantC8.md"
+  sed 's/last_audit:/last_AUDIT_X:/g' "$METHODOLOGY" > "$mutantC8"
+  if grep -qF 'last_audit:' "$mutantC8"; then
+    no "teeth-C8: mutant still has 'last_audit:' — sed did not take (no teeth)"
+  else
+    ok "teeth-C8: C8 assertion goes RED on mutant"
   fi
 fi
 
