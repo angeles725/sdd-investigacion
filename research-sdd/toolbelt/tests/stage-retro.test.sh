@@ -337,6 +337,14 @@ else
   no "10 local main behind origin → new branch is at origin/main, not stale local main" \
      "exit=$RC branch=$branch_sha origin=$origin_main_sha local=$local_main_sha out=[$OUT]"
 fi
+# 10b — the new branch must NOT track origin/main: with push.default=upstream a bare
+#       `git push` from the retro branch would otherwise update main on the remote.
+upstream10="$(git -C "$repo" rev-parse --abbrev-ref "retro/targetA-r1@{upstream}" 2>/dev/null)"
+if [ "$RC" = 0 ] && [ -z "$upstream10" ]; then
+  ok "10b new branch has no upstream (does not track origin/main)" "()"
+else
+  no "10b new branch has no upstream (does not track origin/main)" "exit=$RC upstream=[$upstream10]"
+fi
 
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
@@ -470,14 +478,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # via a second clone.  Now origin/main is AHEAD of local main, the unpushed guard stays quiet
   # (local has 0 commits not in origin), and the branch lands at local main != origin/main.
   echo "-- teeth: remove origin/main from checkout -b, expect branch at local main not origin --"
-  anchor_c='checkout -q -b "$branch" origin/main'
+  anchor_c='checkout -q --no-track -b "$branch" origin/main'
   if [[ "$content" != *"$anchor_c"* ]]; then
     no "teeth: locate origin/main checkout in SUT" "anchor not found — SUT drifted?"
   else
     repo="$(mkrepo teeth-behind-origin real)"
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
-    neutered_c='checkout -q -b "$branch"'
+    neutered_c='checkout -q --no-track -b "$branch"'
     printf '%s\n' "${content/"$anchor_c"/$neutered_c}" > "$mutant"
     # Push mutant before adding extra remote commit so origin/main == local main at this point.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-behind-origin
@@ -505,6 +513,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: origin/main removed → branch at local main" \
          "branch=$branch_sha_t local=$local_main_sha_t origin=$origin_main_sha_t"
+    fi
+  fi
+
+  # Teeth for case 10b: drop --no-track → the branch tracks origin/main → 10b's assertion must fail.
+  echo "-- teeth: remove --no-track, expect the new branch to track origin/main --"
+  anchor_d='checkout -q --no-track -b "$branch" origin/main'
+  if [[ "$content" != *"$anchor_d"* ]]; then
+    no "teeth: locate --no-track checkout in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-no-track real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    printf '%s\n' "${content/"$anchor_d"/checkout -q -b \"\$branch\" origin/main}" > "$mutant"
+    if cmp -s "$mutant" "$SUT"; then
+      no "teeth: --no-track mutant differs from SUT" "mutant identical — substitution did not apply"
+    else
+      git -C "$repo" add -A; git -C "$repo" commit -qm mutant-no-track
+      git -C "$repo" push -q origin main 2>/dev/null
+      "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
+      up_t="$(git -C "$repo" rev-parse --abbrev-ref "retro/targetA-r1@{upstream}" 2>/dev/null)"
+      if [ "$up_t" = "origin/main" ]; then
+        ok "teeth: --no-track removed → branch tracks origin/main (case 10b has teeth)" "()"
+      else
+        no "teeth: --no-track removed → branch tracks origin/main" "upstream=[$up_t]"
+      fi
     fi
   fi
 fi

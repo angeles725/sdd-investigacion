@@ -101,10 +101,11 @@ fi
 if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
   echo "branch $branch already exists — checking it out." ; git -C "$KIT_REPO" checkout -q "$branch"
 else
-  git -C "$KIT_REPO" checkout -q -b "$branch" origin/main
+  # --no-track: never set origin/main as upstream (a bare `git push` could otherwise target main).
+  git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main
 fi
 
-echo ">> on branch $branch (from main). Proposed deltas to review/apply:"
+echo ">> on branch $branch (from origin/main). Proposed deltas to review/apply:"
 echo ""
 # Both sed ranges use '^## ' (any level-2 heading) as the end address rather than a specific
 # section title. This bounds the output even when a section is renamed or reordered — if the
