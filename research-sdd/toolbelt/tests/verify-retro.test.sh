@@ -208,6 +208,32 @@ assert_exit2 0 "NIAGARA: byte-copy (no blockquote guidance, prose honesty) → e
 bash "$SUT" "$FIX/niagara-tools-search-honesty.md" >"$TMP/niagara.out" 2>&1
 assert_out_contains "  NIAGARA: output says OK: conforming" "OK: conforming" "$TMP/niagara.out"
 
+# ─── DIRTY LEAD BLOCK → impure (exit 1) ──────────────────────────────────────
+# Lead block in the delta section contains a structural bullet (> - add X).
+# is_dirty_marker() fires → lead_block_dirty=1 → body purity fails → retro_grammar_has_honesty
+# exits 1 → _has_honesty=0 → FAIL [empty-section] with "impure" message.
+# The honesty phrase IS present in the file (under ## Honest verdict), so the MINOR-7 fix
+# prints the "impure" variant rather than the generic "no §18 honesty line" text.
+
+bash "$SUT" "$FIX/dirty-lead-hv.md" >"$TMP/dirty.out" 2>&1
+assert_exit2 1 "DIRTY-LEAD: dirty structural marker in lead block → exit 1" "$FIX/dirty-lead-hv.md"
+bash "$SUT" "$FIX/dirty-lead-hv.md" >"$TMP/dirty.out" 2>&1
+assert_out_contains "  DIRTY-LEAD: names class empty-section" "FAIL [empty-section]" "$TMP/dirty.out"
+assert_out_contains "  DIRTY-LEAD: impure message (not absent)" "section impure" "$TMP/dirty.out"
+assert_out_absent   "  DIRTY-LEAD: not absent message" "no §18 honesty line" "$TMP/dirty.out"
+
+# ─── H2 DELTA-ID VETO → impure (exit 1) ──────────────────────────────────────
+# A "## D1 — ..." heading outside the canonical section triggers the H2 delta-ID
+# veto (RSDD_H2_VETO) → retro_grammar_has_honesty exits 1 → _has_honesty=0 → FAIL
+# [empty-section].  File contains honesty phrase → impure message.
+
+bash "$SUT" "$FIX/h2-delta-id-veto.md" >"$TMP/veto.out" 2>&1
+assert_exit2 1 "VETO: H2 delta-ID outside canonical → exit 1" "$FIX/h2-delta-id-veto.md"
+bash "$SUT" "$FIX/h2-delta-id-veto.md" >"$TMP/veto.out" 2>&1
+assert_out_contains "  VETO: names class empty-section" "FAIL [empty-section]" "$TMP/veto.out"
+assert_out_contains "  VETO: impure message (not absent)" "section impure" "$TMP/veto.out"
+assert_out_absent   "  VETO: not absent message" "no §18 honesty line" "$TMP/veto.out"
+
 echo ""
 echo "== $pass passed · $fail failed =="
 echo ""
@@ -316,6 +342,30 @@ if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<
 else
   tno "M7: partial retro-grammar.sh has_honesty guard did not fire — rc=$_m7_rc out=[$_m7_out]"
 fi
+
+# MUTANT M8 (purity guard): neuter RSDD_LEAD_DIRTY_SET in the lib so lead_block_dirty is
+# never set.  dirty-lead-hv fixture should fail on SUT but mutant lib accepts it → exit 0.
+# This proves the is_dirty_marker() call that sets lead_block_dirty actually bites.
+_m8_dir="$TMP/m8-sandbox"
+mkdir -p "$_m8_dir/lib"
+cp "$SUT" "$_m8_dir/verify-retro.sh"; chmod +x "$_m8_dir/verify-retro.sh"
+grep -v 'RSDD_LEAD_DIRTY_SET' "$RG_LIB" > "$_m8_dir/lib/retro-grammar.sh"
+_m8_out="$(bash "$_m8_dir/verify-retro.sh" "$FIX/dirty-lead-hv.md" 2>&1)"; _m8_rc=$?
+[ "$_m8_rc" = 0 ] && \
+  tok "M8: dirty-lead mutant accepts dirty-lead-hv (control goes RED → RSDD_LEAD_DIRTY_SET guard bites)" \
+  || tno "M8: dirty-lead mutant did NOT accept dirty-lead-hv — rc=$_m8_rc out=[$_m8_out]"
+
+# MUTANT M9 (H2-veto guard): neuter RSDD_H2_VETO in the lib so the H2 delta-ID veto
+# assignment is removed.  h2-delta-id-veto fixture should fail on SUT but mutant accepts it.
+# This proves the H2 delta-ID veto check in retro_grammar_has_honesty bites.
+_m9_dir="$TMP/m9-sandbox"
+mkdir -p "$_m9_dir/lib"
+cp "$SUT" "$_m9_dir/verify-retro.sh"; chmod +x "$_m9_dir/verify-retro.sh"
+grep -v 'RSDD_H2_VETO' "$RG_LIB" > "$_m9_dir/lib/retro-grammar.sh"
+_m9_out="$(bash "$_m9_dir/verify-retro.sh" "$FIX/h2-delta-id-veto.md" 2>&1)"; _m9_rc=$?
+[ "$_m9_rc" = 0 ] && \
+  tok "M9: H2-veto mutant accepts h2-delta-id-veto (control goes RED → RSDD_H2_VETO guard bites)" \
+  || tno "M9: H2-veto mutant did NOT accept h2-delta-id-veto — rc=$_m9_rc out=[$_m9_out]"
 
 echo ""
 echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="
