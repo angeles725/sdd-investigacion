@@ -145,14 +145,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# A12: SKILL.md must reference 'propose-never-apply' — confirms the REUSABLE
-#      TOOLCHAIN routing and tool-cataloging paragraph both enforce the rule
-#      that kit changes are proposed (not applied) from inside a run (#960).
+# A12a: SKILL.md REUSABLE TOOLCHAIN routing text must carry propose-never-apply.
+#       Anchor: 'never applied from inside a run (§18 propose-never-apply)'
+#       — unique to the toolchain routing paragraph (#960).
 # ---------------------------------------------------------------------------
-if grep -qF 'propose-never-apply' "$SKILL"; then
-  ok "A12: propose-never-apply rule referenced in SKILL.md (#960)"
+if grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$SKILL"; then
+  ok "A12a: SKILL.md toolchain routing carries propose-never-apply (#960)"
 else
-  no "A12: propose-never-apply rule MISSING from SKILL.md (#960)"
+  no "A12a: SKILL.md toolchain routing missing propose-never-apply (#960)"
+fi
+
+# ---------------------------------------------------------------------------
+# A12b: SKILL.md tool-cataloging paragraph must carry propose-never-apply.
+#       Anchor: 'propose-never-apply). Provisioning is complete'
+#       — unique to the tool-cataloging paragraph (#960).
+# ---------------------------------------------------------------------------
+if grep -qF 'propose-never-apply). Provisioning is complete' "$SKILL"; then
+  ok "A12b: SKILL.md tool-cataloging carries propose-never-apply (#960)"
+else
+  no "A12b: SKILL.md tool-cataloging missing propose-never-apply (#960)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -187,14 +198,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# B1: PROMPT-LOOP.md launch section must show dynamic (no interval) as the
-#     recommended form. Anchor: '/loop  <paste' — two spaces between '/loop'
-#     and '<paste', no '10m' in between (cadence decision, #961).
+# B1: PROMPT-LOOP.md launch section must label the no-interval form as
+#     recommended ("dynamic self-paced, no interval") AND show "/loop 5m" as
+#     the concrete fallback example. Both must be present. RED against
+#     origin/main (which has "self-paces" + "/loop 10m", not "dynamic" + "5m").
 # ---------------------------------------------------------------------------
-if grep -qF '/loop  <paste' "$PROMPTLOOP"; then
-  ok "B1: PROMPT-LOOP.md launch section shows dynamic (no interval) as recommended (#961)"
+if grep -qF 'dynamic self-paced, no interval' "$PROMPTLOOP" && \
+   grep -qF '/loop 5m  <paste' "$PROMPTLOOP"; then
+  ok "B1: PROMPT-LOOP.md launch section labels no-interval as recommended and /loop 5m as fallback (#961)"
 else
-  no "B1: PROMPT-LOOP.md launch section missing dynamic (no interval) example (#961)"
+  no "B1: PROMPT-LOOP.md launch section missing dynamic-recommended label or /loop 5m fallback (#961)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -263,13 +276,22 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-A11: A11 assertion goes RED on mutant"
   fi
 
-  # Teeth A12: remove 'propose-never-apply' → A12 must go RED.
-  mutant12="$TMP/SKILL.mutant12.md"
-  sed 's/propose-never-apply/propose-never-xpply/g' "$SKILL" > "$mutant12"
-  if grep -qF 'propose-never-apply' "$mutant12"; then
-    no "teeth-A12: mutant still has 'propose-never-apply' — sed did not take (no teeth)"
+  # Teeth A12a: remove propose-never-apply from toolchain routing only → A12a RED, A12b stays GREEN.
+  mutant12a="$TMP/SKILL.mutant12a.md"
+  sed 's/never applied from inside a run (§18 propose-never-apply)/never applied from inside a run/g' "$SKILL" > "$mutant12a"
+  if grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$mutant12a"; then
+    no "teeth-A12a: mutant still has toolchain-routing propose-never-apply — sed did not take (no teeth)"
   else
-    ok "teeth-A12: A12 assertion goes RED on mutant"
+    ok "teeth-A12a: A12a assertion goes RED on mutant (toolchain routing mutation)"
+  fi
+
+  # Teeth A12b: remove propose-never-apply from tool-cataloging only → A12b RED, A12a stays GREEN.
+  mutant12b="$TMP/SKILL.mutant12b.md"
+  sed 's/propose-never-apply). Provisioning is complete/propose-never-XPPLY). Provisioning is complete/g' "$SKILL" > "$mutant12b"
+  if grep -qF 'propose-never-apply). Provisioning is complete' "$mutant12b"; then
+    no "teeth-A12b: mutant still has tool-cataloging propose-never-apply — sed did not take (no teeth)"
+  else
+    ok "teeth-A12b: A12b assertion goes RED on mutant (tool-cataloging mutation)"
   fi
 
   # Teeth A13: replace 'Dynamic is recommended' → A13 must go RED.
@@ -299,15 +321,22 @@ if [ "$PROVE_TEETH" = 1 ]; then
     ok "teeth-A15: A15 assertion goes RED on mutant"
   fi
 
-  # Teeth B1: remove the dynamic launch form → B1 must go RED.
-  #            Replace '/loop  <paste' (two spaces) with '/loopNOINT <paste' so
-  #            the anchor string is absent from the mutant.
-  mutantB1="$TMP/PROMPTLOOP.mutantB1.md"
-  sed 's|/loop  <paste|/loopNOINT <paste|g' "$PROMPTLOOP" > "$mutantB1"
-  if grep -qF '/loop  <paste' "$mutantB1"; then
-    no "teeth-B1: mutant still has '/loop  <paste' — sed did not take (no teeth)"
+  # Teeth B1a: remove 'dynamic self-paced, no interval' → B1 must go RED (first condition fails).
+  mutantB1a="$TMP/PROMPTLOOP.mutantB1a.md"
+  sed 's/dynamic self-paced, no interval/dynamic, no interval/g' "$PROMPTLOOP" > "$mutantB1a"
+  if grep -qF 'dynamic self-paced, no interval' "$mutantB1a"; then
+    no "teeth-B1a: mutant still has 'dynamic self-paced, no interval' — sed did not take (no teeth)"
   else
-    ok "teeth-B1: B1 assertion goes RED on mutant"
+    ok "teeth-B1a: B1 assertion goes RED on mutant (dynamic-label removed)"
+  fi
+
+  # Teeth B1b: remove '/loop 5m  <paste' → B1 must go RED (second condition fails).
+  mutantB1b="$TMP/PROMPTLOOP.mutantB1b.md"
+  sed 's|/loop 5m  <paste|/loop-5m <paste|g' "$PROMPTLOOP" > "$mutantB1b"
+  if grep -qF '/loop 5m  <paste' "$mutantB1b"; then
+    no "teeth-B1b: mutant still has '/loop 5m  <paste' — sed did not take (no teeth)"
+  else
+    ok "teeth-B1b: B1 assertion goes RED on mutant (5m fallback removed)"
   fi
 
   # Teeth B2: replace 'Do NOT issue ScheduleWakeup' → B2 must go RED.

@@ -1535,7 +1535,7 @@ HARD RULES:
     See METHODOLOGY §17.
   - LOOP CONTINUATION — after EVERY iteration, evaluate the STOPPING criterion (step 7). If it is NOT
     met (read-only-investigable > 0), continue as follows — THREE CASES based on launch mode:
-    (1) FIXED-INTERVAL (`/loop <N>m`, e.g. `/loop 10m`): the harness IS the re-invoker; it fires the
+    (1) FIXED-INTERVAL (`/loop <N>m`, e.g. `/loop 5m`): the harness IS the re-invoker; it fires the
         next turn automatically. Do NOT issue ScheduleWakeup — a self-reschedule on top of the harness
         re-fire would double-fire iterations. End the turn after the iteration report. Ensure each
         iteration is idempotent: if the harness re-fires while nothing is pending (STOP already met,
@@ -1544,7 +1544,7 @@ HARD RULES:
         keeps re-firing every `<N>m` forever — token drain. The agent MUST disarm the re-invoker as
         part of the STOP declaration: use CronList to find the cron job whose prompt is this loop,
         then CronDelete to remove it. If the harness offers no such tool, tell the operator explicitly
-        to cancel the loop (e.g. "cancel the `/loop 10m` job from the harness"). A re-fire that finds
+        to cancel the loop (e.g. "cancel the `/loop <N>m` job you launched"). A re-fire that finds
         STOP already met MUST also disarm and end (idempotent).
     (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): the re-fire
         depends on the agent calling ScheduleWakeup. WHAT ENDS A TURN (#620): the runtime ends the

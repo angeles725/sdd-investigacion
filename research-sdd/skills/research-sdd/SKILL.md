@@ -259,6 +259,8 @@ ScheduleWakeup is issued; end the turn after the iteration report; when STOP fir
 re-invoker (CronList → CronDelete the job; if unavailable, tell the operator to cancel the loop) —
 the harness cron keeps re-firing after STOP without an explicit disarm.
 Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback.
+Stall detection for dynamic runs is tracked in #989 (campaign queue status); until then, an operator
+who sees no new block commit for > 15 min relaunches with the `/loop 5m` fallback.
 
 **Heavy / continue:** the recommended unattended launch is DYNAMIC (no interval). Before launching,
 check whether a re-invoker is already active: the current invocation arrived via `/loop`, or a
