@@ -108,4 +108,4 @@ runtime enforcement.
 |---|---|---|---|
 | Driver / orchestrator (the session running `/research-sdd`) | Claude Opus 5.5 | 1M | `opus` tier alias → Opus 5.5 for delegated reasoning |
 | `sonnet` alias | Claude Sonnet 5 | 1M | Structural sweeps, review lenses, verification/skeptic voters |
-| `haiku` alias | Claude Haiku 4.5 | 200K | Mechanical sweeps only; never loads the full loop prompt + HOT-CORE; verification/refutation voters never drop to `haiku` (METHODOLOGY §11b exemption) |
+| `haiku` alias | Claude Haiku 4.5 | 200K | Mechanical sweeps only; never loads the full loop prompt + HOT-CORE; verification/refutation voters never drop to `haiku` (METHODOLOGY §8, "Match the delegated model to the sweep") |
