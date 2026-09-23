@@ -347,6 +347,50 @@ _derive_attributed_sg() {
   echo "${n:-0}"
 }
 
+# P8: Installed hook scripts in .claude/hooks/ still contain unreplaced template placeholders.
+# §7 anti-silent-zero: absent-input / empty-input / no-match produce distinct output lines.
+# Runs ONCE per target (before per-state loop) — not once per RESEARCH-STATE file.
+# F1: exact allowlist of forms found in research-sdd/templates/ hook files (not a generic UPPER regex).
+# F2: when called with a nested corpus dir ($target/corpus), .claude/hooks lives at the target root;
+#     walk up one level bounded to the dir holding .claude/ and report which dir was inspected.
+# F4: skip lines that are pure #-comments; print line numbers in WARN output.
+_p8_hroot="$target"
+if [ ! -d "$_p8_hroot/.claude" ] && [ -d "$(dirname "$_p8_hroot")/.claude" ]; then
+  _p8_hroot="$(dirname "$_p8_hroot")"
+fi
+_p8_hdir="$_p8_hroot/.claude/hooks"
+if [ ! -d "$_p8_hdir" ]; then
+  echo "   INFO   hook-placeholder: .claude/hooks/ not found (inspected: $_p8_hroot) — no installed hooks to inspect"
+elif [ ! -r "$_p8_hdir" ]; then
+  echo "   unreadable   hook-placeholder: .claude/hooks/ at $_p8_hroot is not readable — cannot inspect"
+else
+  _p8_hits=""
+  while IFS= read -r _p8f; do
+    if [ ! -r "$_p8f" ]; then
+      echo "   unreadable   hook-placeholder: $(basename "$_p8f") is not readable — cannot inspect for placeholders"
+      _p8_hits="${_p8_hits}1"
+    else
+      # F4: skip #-comment lines; F1: exact placeholder allowlist from templates/
+      _p8_lines="$(grep -nE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' "$_p8f" | grep -vE '^[0-9]+:[[:space:]]*#')"  # P8-HOOK-PLACEHOLDER-GREP
+      if [ -n "$_p8_lines" ]; then
+        _p8_phs="$(printf '%s\n' "$_p8_lines" | grep -oE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+        _p8_lns="$(printf '%s\n' "$_p8_lines" | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')"
+        echo "   WARN   hook-placeholder: $(basename "$_p8f") line(s) $_p8_lns still has unreplaced placeholder(s): $_p8_phs — adapt this hook for the target before use (inspected: $_p8_hroot)"
+        _p8_hits="${_p8_hits}1"
+      fi
+    fi
+  done < <(find "$_p8_hdir" -maxdepth 1 -name '*.sh' 2>/dev/null | sort)
+  if [ -z "$_p8_hits" ]; then
+    _p8_count="$(find "$_p8_hdir" -maxdepth 1 -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "${_p8_count:-0}" = "0" ]; then
+      echo "   INFO   hook-placeholder: .claude/hooks/ has no .sh files (inspected: $_p8_hroot) — no installed hooks to inspect"
+    fi
+    # no-match: hooks exist and all clean — silent, covered by per-state ok line
+  fi
+  unset _p8f _p8_hits _p8_phs _p8_lns _p8_count _p8_lines
+fi
+unset _p8_hdir _p8_hroot
+
 rc=0
 for state in "${states[@]}"; do
   echo "== verify-state: $(basename "$state") (target: $target) =="
@@ -649,6 +693,8 @@ for state in "${states[@]}"; do
       fi
     fi
   fi
+
+  # P8 runs once per target above the per-state loop (not per state file).
 
   # SC-CROSS-CHECK (FAIL) — stop-control prose "Open gaps — read-only investigable: N" must match the
   # backlog-derived d_inv. The stop-control section is the human-readable STOP decision surface; a stale

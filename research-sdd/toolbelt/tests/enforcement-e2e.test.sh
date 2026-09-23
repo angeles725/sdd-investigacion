@@ -178,13 +178,13 @@ fkit() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# R2 — research-sdd-init auto-wires Stop + SessionStart hooks
+# R2 — research-sdd-init --wire writes Stop + SessionStart hooks (opt-in)
 # ─────────────────────────────────────────────────────────────────────────────
 T_R2="$ROOT/r2-target"; mkdir -p "$T_R2"
 git -C "$T_R2" init -q -b main 2>/dev/null || git -C "$T_R2" init -q
 git -C "$T_R2" config user.email t@example.com
 git -C "$T_R2" config user.name tester
-"$BASH_BIN" "$INIT_SUT" "$T_R2" >/dev/null 2>&1
+"$BASH_BIN" "$INIT_SUT" "$T_R2" --wire >/dev/null 2>&1
 
 _r2_settings="$T_R2/.claude/settings.json"
 _r2_stop_cmd="" ; _r2_ss_cmd=""
@@ -195,22 +195,22 @@ fi
 
 if printf '%s' "$_r2_stop_cmd" | grep -q 'retro-gate-stop.sh' && \
    printf '%s' "$_r2_ss_cmd"   | grep -q 'research-protocol.sh'; then
-  ok "R2: init auto-wired Stop (retro-gate-stop.sh) + SessionStart (research-protocol.sh)"
+  ok "R2: init --wire wrote Stop (retro-gate-stop.sh) + SessionStart (research-protocol.sh)"
 else
-  no "R2: init did NOT wire both hooks — stop=[$_r2_stop_cmd] ss=[$_r2_ss_cmd]"
+  no "R2: init --wire did NOT write both hooks — stop=[$_r2_stop_cmd] ss=[$_r2_ss_cmd]"
 fi
 
-# R2-ctrl: --no-wire must NOT write settings.json  (control: proves wiring is opt-in)
-T_R2N="$ROOT/r2-no-wire"; mkdir -p "$T_R2N"
+# R2-ctrl: default (no --wire flag) must NOT write settings.json (prove-never-apply is the default)
+T_R2N="$ROOT/r2-default"; mkdir -p "$T_R2N"
 git -C "$T_R2N" init -q -b main 2>/dev/null || git -C "$T_R2N" init -q
 git -C "$T_R2N" config user.email t@example.com
 git -C "$T_R2N" config user.name tester
-"$BASH_BIN" "$INIT_SUT" "$T_R2N" --no-wire >/dev/null 2>&1
+"$BASH_BIN" "$INIT_SUT" "$T_R2N" >/dev/null 2>&1
 
 if [ ! -f "$T_R2N/.claude/settings.json" ]; then
-  ok "R2-ctrl: --no-wire skips settings.json write (control verified)"
+  ok "R2-ctrl: default (no flag) skips settings.json write — propose-never-apply is the default"
 else
-  no "R2-ctrl: --no-wire should NOT write settings.json but found one"
+  no "R2-ctrl: default (no flag) should NOT write settings.json but found one"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

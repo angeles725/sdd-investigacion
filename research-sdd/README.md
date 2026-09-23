@@ -82,7 +82,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 
 | Script | Usage | Purpose |
 |---|---|---|
-| [`research-sdd-init.sh`](toolbelt/research-sdd-init.sh) | `<target-dir> [--corpus auto\|nested\|flat] [--prefix <slug>] [--force]` | Mechanical bootstrap scaffolder; refuses over an existing corpus. (`nested` = corpus in a `corpus/` subdir, `flat` = at target root, `auto` = decide.) |
+| [`research-sdd-init.sh`](toolbelt/research-sdd-init.sh) | `<target-dir> [--corpus auto\|nested\|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]` | Mechanical bootstrap scaffolder; refuses over an existing corpus. (`nested` = corpus in a `corpus/` subdir, `flat` = at target root, `auto` = decide.) By default (PROPOSE-NEVER-APPLY), prints the `.claude/settings.json` hook-wiring snippet for the operator to paste. Pass `--wire` to have the script write it automatically (requires `jq`); on an existing corpus `--wire` does ONLY the settings.json merge — it skips the scaffold entirely. `--no-wire` is a backward-compat alias for the default (print-only, no write). |
 | [`research-sdd-status.sh`](toolbelt/research-sdd-status.sh) | `<target-dir> [--next]` | Structured status report; `--next` prints the deterministic next-gap line. |
 
 ### Gates

@@ -3740,5 +3740,319 @@ open(sys.argv[2], 'w').write(txt.replace(old, new))
 
 fi
 
+# P8 — hook-placeholder check: WARN when installed hook scripts contain unreplaced <TOKEN> placeholders.
+# §7 anti-silent-zero: absent-input / empty-input / no-match all produce distinct output.
+echo "-- P8: hook-placeholder check --"
+# Helper: build a minimal valid state file so verify-state reaches the P8 check
+mk_state_p8() {
+  local d="$1"; mkdir -p "$d"
+  # Need a valid RESEARCH-STATE.md with envelope for verify-state to proceed past early exits
+  { echo '# Research State'; echo
+    env_lines 0 0 0 0 0 0; echo
+    echo 'coverage metric: 0 / 0 declared gaps closed'; echo
+    echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'; echo
+    echo '## Blocked gaps'; echo '- none'; echo
+    echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
+  } > "$d/RESEARCH-STATE.md"
+}
+
+# P8-A: no .claude/hooks/ directory → INFO line for absent-input
+d="$TMP/p8-absent"; mk_state_p8 "$d"
+# ensure no .claude dir exists
+rm -rf "$d/.claude" 2>/dev/null || true
+_p8a="$(run "$d" 2>/dev/null)"
+if echo "$_p8a" | grep -qiF "hook-placeholder" && echo "$_p8a" | grep -qiE "absent|not found|skip"; then
+  ok "P8-A: no .claude/hooks/ → INFO absent-input line"
+else
+  no "P8-A: no .claude/hooks/ → expected INFO absent-input; got: $(echo "$_p8a" | grep -i hook | head -1)"
+fi
+
+# P8-B: .claude/hooks/ exists but empty (no .sh files) → INFO empty-input line
+d="$TMP/p8-empty"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+_p8b="$(run "$d" 2>/dev/null)"
+if echo "$_p8b" | grep -qiF "hook-placeholder" && echo "$_p8b" | grep -qiE "empty|no .sh|skip"; then
+  ok "P8-B: empty .claude/hooks/ → INFO empty-input line"
+else
+  no "P8-B: empty .claude/hooks/ → expected INFO empty-input; got: $(echo "$_p8b" | grep -i hook | head -1)"
+fi
+
+# P8-C: hook with no placeholders → no WARN (silent, no-match)
+d="$TMP/p8-clean"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\n# research-protocol.sh — adapted for myproject\necho "myproject"\n' \
+  > "$d/.claude/hooks/research-protocol.sh"
+_p8c="$(run "$d" 2>/dev/null)"
+if echo "$_p8c" | grep -qE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  no "P8-C: clean hook → no WARN expected; got WARN"
+else
+  ok "P8-C: clean hook → no hook-placeholder WARN (no-match)"
+fi
+
+# P8-D: hook with <SUBJECT> placeholder on code line → WARN (FIRST file, single)
+# Placeholder on non-comment code line (comment lines are skipped — F4 rule).
+d="$TMP/p8-subject"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\n# adapted hook header\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' \
+  > "$d/.claude/hooks/research-protocol.sh"
+_p8d="$(run "$d" 2>/dev/null)"
+if echo "$_p8d" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-D: hook with <SUBJECT> on code line → hook-placeholder WARN emitted"
+else
+  no "P8-D: hook with <SUBJECT> on code line → expected hook-placeholder WARN; got: $(echo "$_p8d" | grep -i hook | head -1)"
+fi
+# The WARN line itself must name the placeholder
+if echo "$_p8d" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qiF "SUBJECT"; then
+  ok "P8-D: WARN line names the placeholder <SUBJECT>"
+else
+  no "P8-D: WARN line does not name <SUBJECT>"
+fi
+# WARN must name the exact hook file (exact-file assertion)
+if echo "$_p8d" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "research-protocol.sh"; then
+  ok "P8-D: WARN line names the hook file (research-protocol.sh)"
+else
+  no "P8-D: WARN line does not name the hook file"
+fi
+# WARN must include a line number (F4 requirement)
+if echo "$_p8d" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qE 'line\(s\) [0-9]'; then
+  ok "P8-D: WARN line includes line number"
+else
+  no "P8-D: WARN line missing line number"
+fi
+
+# P8-D2: comment-only lines with <SUBJECT> must NOT trigger WARN (F4: skip # lines)
+d="$TMP/p8-comment-skip"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\n# Research-SDD — <SUBJECT>\n# Kit: <KIT>/toolbelt/\necho "adapted"\n' \
+  > "$d/.claude/hooks/research-protocol.sh"
+_p8d2="$(run "$d" 2>/dev/null)"
+if echo "$_p8d2" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  no "P8-D2: comment-only <SUBJECT>/<KIT> → should NOT WARN (F4 skip rule); got WARN"
+else
+  ok "P8-D2: comment-only <SUBJECT>/<KIT> → no WARN (F4 skip rule)"
+fi
+
+# P8-E: hook with <KIT> placeholder on code line → WARN
+d="$TMP/p8-kit"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\nKIT_PATH="<KIT>/toolbelt/"\necho "$KIT_PATH"\n' \
+  > "$d/.claude/hooks/retro-gate-stop.sh"
+_p8e="$(run "$d" 2>/dev/null)"
+if echo "$_p8e" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-E: hook with <KIT> on code line → hook-placeholder WARN"
+else
+  no "P8-E: hook with <KIT> on code line → expected WARN; got: $(echo "$_p8e" | grep -i hook | head -1)"
+fi
+
+# P8-E2: lowercase <prefix> placeholder → WARN (F1: allowlist includes lowercase forms)
+d="$TMP/p8-prefix"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\n# Research protocol\nBLOCK_GLOB="<prefix>-block*.md"\necho "$BLOCK_GLOB"\n' \
+  > "$d/.claude/hooks/research-protocol.sh"
+_p8e2="$(run "$d" 2>/dev/null)"
+if echo "$_p8e2" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-E2: hook with lowercase <prefix> on code line → WARN (F1 allowlist)"
+else
+  no "P8-E2: hook with <prefix> on code line → expected WARN; got: $(echo "$_p8e2" | grep -i hook | head -1)"
+fi
+if echo "$_p8e2" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "prefix"; then
+  ok "P8-E2: WARN line names <prefix>"
+else
+  no "P8-E2: WARN line does not name <prefix>"
+fi
+
+# P8-E3: long lowercase <path to ...> placeholder → WARN (F1: allowlist includes this form)
+d="$TMP/p8-path"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\n# primary source\nSOURCE="<path to binaries/decompiled output/source code of the system under study>"\necho "$SOURCE"\n' \
+  > "$d/.claude/hooks/research-protocol.sh"
+_p8e3="$(run "$d" 2>/dev/null)"
+if echo "$_p8e3" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-E3: hook with <path to binaries...> on code line → WARN (F1 allowlist)"
+else
+  no "P8-E3: hook with <path to binaries...> → expected WARN; got: $(echo "$_p8e3" | grep -i hook | head -1)"
+fi
+
+# P8-F: multiple hooks — FIRST (alphabetically) has placeholder, LAST is clean → WARN for first
+d="$TMP/p8-multi"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho first\n' > "$d/.claude/hooks/a-first.sh"
+printf '#!/bin/bash\necho "clean"\n'                     > "$d/.claude/hooks/b-middle.sh"
+printf '#!/bin/bash\necho "clean"\n'                     > "$d/.claude/hooks/c-last.sh"
+_p8f="$(run "$d" 2>/dev/null)"
+_p8f_warns=$(echo "$_p8f" | grep -cE 'WARN.*hook-placeholder|hook-placeholder.*WARN' 2>/dev/null || true)
+[ "${_p8f_warns:-0}" -ge 1 ] && ok "P8-F: multi-hook first-placeholder → at least 1 WARN" \
+                             || no "P8-F: multi-hook first-placeholder → expected WARN, got $_p8f_warns"
+# Exact-file: the WARN must name the file that has the placeholder
+if echo "$_p8f" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "a-first.sh"; then
+  ok "P8-F: WARN names the specific file (a-first.sh)"
+else
+  no "P8-F: WARN does not name the specific placeholder file (a-first.sh)"
+fi
+
+# P8-G: LAST hook has placeholder, middle and first are clean → WARN (edge: last position)
+d="$TMP/p8-last"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\necho "clean"\n'                       > "$d/.claude/hooks/a-clean.sh"
+printf '#!/bin/bash\necho "mid"\n'                         > "$d/.claude/hooks/m-mid.sh"
+printf '#!/bin/bash\nKIT_PATH="<KIT>/toolbelt/"\necho z\n' > "$d/.claude/hooks/z-last.sh"
+_p8g="$(run "$d" 2>/dev/null)"
+if echo "$_p8g" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-G: last hook with placeholder → WARN (last-position edge)"
+else
+  no "P8-G: last hook with placeholder → expected WARN (last-position edge)"
+fi
+# Exact-file: WARN must name z-last.sh
+if echo "$_p8g" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "z-last.sh"; then
+  ok "P8-G: WARN names the last hook file (z-last.sh)"
+else
+  no "P8-G: WARN does not name z-last.sh"
+fi
+
+# P8-H: single-element: one hook with <TARGET> → WARN (single-element edge)
+d="$TMP/p8-single"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\nTARGET="<TARGET>"\necho "$TARGET"\n' \
+  > "$d/.claude/hooks/retro-gate-stop.sh"
+_p8h="$(run "$d" 2>/dev/null)"
+if echo "$_p8h" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-H: single hook with <TARGET> → hook-placeholder WARN (single-element edge)"
+else
+  no "P8-H: single hook with <TARGET> → expected WARN (single-element edge)"
+fi
+
+# P8-I: unreadable hook file → typed 'unreadable' signal (B4 requirement)
+# Only run when we have permission to chmod (may not work as root)
+d="$TMP/p8-unreadable-file"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/.claude/hooks/research-protocol.sh"
+chmod 000 "$d/.claude/hooks/research-protocol.sh" 2>/dev/null
+_p8i="$(run "$d" 2>/dev/null)"
+if echo "$_p8i" | grep -qiE 'unreadable.*hook-placeholder|hook-placeholder.*unreadable'; then
+  ok "P8-I: unreadable hook file → typed 'unreadable' signal"
+else
+  # Tolerate if running as root (chmod 000 has no effect)
+  _uid="$(id -u 2>/dev/null || echo 1)"
+  if [ "$_uid" = "0" ]; then
+    echo "  SKIP  P8-I: unreadable hook file (running as root, chmod 000 ignored)"
+  else
+    no "P8-I: unreadable hook file → expected 'unreadable' signal; got: $(echo "$_p8i" | grep -i hook | head -1)"
+  fi
+fi
+chmod 644 "$d/.claude/hooks/research-protocol.sh" 2>/dev/null || true
+
+# P8-J: unreadable hooks dir → typed 'unreadable' signal (B4 requirement)
+d="$TMP/p8-unreadable-dir"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\necho "hook"\n' > "$d/.claude/hooks/research-protocol.sh"
+chmod 000 "$d/.claude/hooks" 2>/dev/null
+_p8j="$(run "$d" 2>/dev/null)"
+if echo "$_p8j" | grep -qiE 'unreadable.*hook-placeholder|hook-placeholder.*unreadable'; then
+  ok "P8-J: unreadable hooks dir → typed 'unreadable' signal"
+else
+  _uid="$(id -u 2>/dev/null || echo 1)"
+  if [ "$_uid" = "0" ]; then
+    echo "  SKIP  P8-J: unreadable hooks dir (running as root, chmod 000 ignored)"
+  else
+    no "P8-J: unreadable hooks dir → expected 'unreadable' signal; got: $(echo "$_p8j" | grep -i hook | head -1)"
+  fi
+fi
+chmod 755 "$d/.claude/hooks" 2>/dev/null || true
+
+# P8-K: multi-state no-duplication — when a target has 3 RESEARCH-STATE*.md files,
+# P8 must appear exactly ONCE in the output (runs once per target, not per state).
+d="$TMP/p8-multi-state"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/.claude/hooks/research-protocol.sh"
+# Create 3 state files so the per-state loop iterates 3×
+{ echo '# Research State'; env_lines 0 0 0 0 0 0
+  echo 'coverage metric: 0 / 0 declared gaps closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
+cp "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-focus-a.md"
+cp "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-focus-b.md"
+_p8k="$(run "$d" 2>/dev/null)"
+_p8k_warns=$(echo "$_p8k" | grep -cE 'WARN.*hook-placeholder|hook-placeholder.*WARN' 2>/dev/null || true)
+[ "${_p8k_warns:-0}" -eq 1 ] && ok "P8-K: 3-state target → exactly 1 hook-placeholder WARN (no duplication)" \
+                              || no "P8-K: 3-state target → expected 1 WARN, got $_p8k_warns (duplication?)"
+
+# P8-L: nested corpus — verify-state called with $target/corpus, hooks at $target/.claude/hooks
+d_root="$TMP/p8-nested-root"
+d_corpus="$d_root/corpus"
+mkdir -p "$d_corpus" "$d_root/.claude/hooks"
+# State file lives in the corpus dir (nested); hooks live at target root
+{ echo '# Research State'; env_lines 0 0 0 0 0 0
+  echo 'coverage metric: 0 / 0 declared gaps closed'
+  echo '## Gap-backlog (prioritized)'; echo '| Priority | Gap | type | Status |'; echo '|---|---|---|---|'
+  echo '## Blocked gaps'; echo '- none'
+  echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d_corpus/RESEARCH-STATE.md"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d_root/.claude/hooks/research-protocol.sh"
+_p8l="$(run "$d_corpus" 2>/dev/null)"
+if echo "$_p8l" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-L: nested corpus — hooks found at target root, WARN emitted"
+else
+  no "P8-L: nested corpus — expected WARN for hook at target root; got: $(echo "$_p8l" | grep -i hook | head -2)"
+fi
+
+# P8-M: hook adapted from fixed template — uses $RESEARCH_SDD_KIT (no <KIT>) → no false WARN
+# (Regression guard: blender-llm line 50 was the fixed template's kit-info line, not an unadapted hook.)
+d="$TMP/p8-template-clean"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+cat > "$d/.claude/hooks/research-protocol.sh" <<'HOOKEOF'
+#!/bin/bash
+read -r -d '' CTX <<'EOF' || true
+Toolbelt: $RESEARCH_SDD_KIT/toolbelt/ — set RESEARCH_SDD_KIT to your Research-SDD kit root.
+EOF
+printf '%s\n' "$CTX"
+HOOKEOF
+_p8m="$(run "$d" 2>/dev/null)"
+if ! echo "$_p8m" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8-M: adapted hook with fixed template kit-line (\$RESEARCH_SDD_KIT) → no false P8 WARN"
+else
+  no "P8-M: adapted hook with fixed template kit-line → unexpected WARN: $(echo "$_p8m" | grep -i hook | head -1)"
+fi
+
+# P8 teeth: neuter the placeholder grep → no WARN on <SUBJECT> hook → P8-D goes RED
+# B3: syntax-valid mutant + lib/ included + assert startup succeeded.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- P8 teeth proof: neuter placeholder grep → no WARN on <SUBJECT> hook --"
+  p8m_dir="$TMP/p8m-teeth"; mkdir -p "$p8m_dir"
+  p8m_sut="$p8m_dir/verify-state.sh"
+  # Neuter: replace the grep assignment (P8-HOOK-PLACEHOLDER-GREP line) with an empty assignment.
+  # This keeps bash syntax valid (no dangling fi); the sentinel comment identifies the target line.
+  awk '/P8-HOOK-PLACEHOLDER-GREP/ {
+    print "      _p8_lines=\"\"  # MUTANT: placeholder grep neutered  # P8-HOOK-PLACEHOLDER-GREP"
+    next
+  } { print }' "$SUT" > "$p8m_sut"
+  # Verify mutant is syntax-valid before running it
+  if ! bash -n "$p8m_sut" 2>/dev/null; then
+    no "P8 teeth: mutant has a syntax error — mutation failed to produce valid bash"
+  else
+    # Include lib/ so the mutant SUT can source its helpers and proceed past startup
+    cp -r "$HERE/../lib" "$p8m_dir/"
+    dp8m="$TMP/p8mt-teeth"; mk_state_p8 "$dp8m"; mkdir -p "$dp8m/.claude/hooks"
+    printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' \
+      > "$dp8m/.claude/hooks/research-protocol.sh"
+    _p8m_out="$(bash "$p8m_sut" "$dp8m" 2>/dev/null)"
+    # Assert startup succeeded: output must contain check lines (INFO, ok, etc.)
+    if echo "$_p8m_out" | grep -qiE '^\s*(INFO|ok |WARN|FAIL)'; then
+      ok "P8 teeth: mutant SUT produced check output — startup succeeded (lib/ included)"
+    else
+      no "P8 teeth: mutant SUT produced no check output — startup likely failed (lib/ missing?)"
+    fi
+    # Assert no WARN on <SUBJECT> hook (grep was neutered)
+    if ! echo "$_p8m_out" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+      ok "P8 teeth: neutered grep → no WARN on <SUBJECT> hook → P8-D has teeth"
+    else
+      no "P8 teeth: mutant still WARNs on <SUBJECT> → P8-D assertion is THEATER"
+    fi
+  fi
+  # P8-M teeth: if the same position has <KIT> (old form) instead of $RESEARCH_SDD_KIT, WARN fires.
+  # This proves P8-M's 'no WARN' result is because the text has no angle-bracket placeholder,
+  # not because the checker is trivially passing.
+  echo "-- P8-M teeth: <KIT> in same position still WARNs (old-form detection active) --"
+  d_kit="$TMP/p8-kit-teeth"; mk_state_p8 "$d_kit"; mkdir -p "$d_kit/.claude/hooks"
+  cat > "$d_kit/.claude/hooks/research-protocol.sh" <<'HOOKEOF'
+#!/bin/bash
+read -r -d '' CTX <<'EOF' || true
+Toolbelt: <KIT>/toolbelt/ — resolve <KIT> to your local Research-SDD kit root.
+EOF
+printf '%s\n' "$CTX"
+HOOKEOF
+  _p8mt="$(run "$d_kit" 2>/dev/null)"
+  if echo "$_p8mt" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    ok "P8-M teeth: <KIT> in same here-doc position still WARNs → P8-M no-WARN is falsifiable"
+  else
+    no "P8-M teeth: <KIT> hook should WARN but did not — old-form detection broken"
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

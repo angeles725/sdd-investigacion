@@ -18,32 +18,94 @@
 #     left behind, no green report over a broken tree.
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
-# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--no-wire]
+# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused).
+#
+# PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
+# for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
+# --no-wire is a backward-compat alias for the default (print-only, no write).
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
 KIT="$(cd "$(dirname "$0")/.." && pwd)"          # .../research-sdd
 TPL="$KIT/templates"
 
-target=""; corpus_mode="auto"; prefix=""; force=0; no_wire=0
+target=""; corpus_mode="auto"; prefix=""; force=0; wire=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
     --prefix)   prefix="${2:-}"; shift 2;;
     --force)    force=1; shift;;
-    --no-wire)  no_wire=1; shift;;
+    --wire)     wire=1; shift;;
+    --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
     -*)         echo "unknown flag: $1" >&2; exit 2;;
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--no-wire]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
 for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
+
+# --- corpus_present helper (shared by wire-only and anti-clobber sections) ---
+corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
+
+# --- wire-only path: --wire on an existing corpus does ONLY settings.json merge ----------
+# When --wire is given on a target that already has a corpus (and no --force is set), skip
+# the full scaffold entirely and merge only .claude/settings.json. This is the intended
+# workflow after step 4 (adapt the hook, then re-run with --wire to register it).
+# WIRE-ONLY-EXISTING-CORPUS
+if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
+  _wo_corpus_root=""
+  for _cand in "$target" "$target/corpus"; do
+    if corpus_present "$_cand" 2>/dev/null; then _wo_corpus_root="$_cand"; break; fi
+  done
+  if [ -n "$_wo_corpus_root" ]; then
+    # Wire-only: compute paths and merge settings.json without touching any corpus file.
+    _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
+    _wo_ss="$target/.claude/hooks/research-protocol.sh"
+    _wo_settings="$target/.claude/settings.json"
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "degraded: jq not found on PATH — cannot wire settings.json; paste the snippet below:" >&2
+    else
+      _wo_base='{}'; [ -f "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
+      _wo_tmp="$(mktemp)"
+      if printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" '
+        ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
+        ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
+        .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
+          else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
+        .hooks.SessionStart = (if $has_ss then (.hooks.SessionStart // [])
+          else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
+      ' > "$_wo_tmp" 2>/dev/null; then
+        mv "$_wo_tmp" "$_wo_settings"
+        echo "  wired  : hooks registered (wire-only; corpus untouched) in $_wo_settings"
+        echo "== done =="
+        exit 0
+      else
+        rm -f "$_wo_tmp"
+        echo "degraded: jq failed on $_wo_settings — falling back to print" >&2
+      fi
+    fi
+    # Print snippet on degraded (jq absent or failed):
+    echo "-- §479 HOOK WIRING snippet (paste into $target/.claude/settings.json) --"
+    printf '%s\n' '{' \
+      '  "hooks": {' \
+      '    "Stop": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_stop\"}]}" \
+      '    ],' \
+      '    "SessionStart": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_ss\"}]}" \
+      '    ]' \
+      '  }' \
+      '}'
+    echo "== done =="
+    exit 0
+  fi
+fi  # end wire-only
 
 # --- resolve $CORPUS ---------------------------------------------------------
 # auto: the target is IN-PROJECT (→ nested) if it holds any entry (incl. dotfiles) that
@@ -73,7 +135,7 @@ esac
 # A corpus is "present" at a root if ANY marker exists there — not just INDEX.md, so a
 # deleted INDEX cannot expose RESEARCH-STATE to a clobber. Check BOTH candidate roots so
 # a mode/heuristic mismatch cannot scaffold a second corpus alongside an existing one.
-corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
+# corpus_present() is defined above (shared with the wire-only path).
 if [ "$force" = 0 ]; then
   for cand in "$target" "$target/corpus"; do
     if corpus_present "$cand"; then
@@ -165,8 +227,9 @@ echo "     — else sweep-retros.sh cannot see its retros/ (§18)."
 echo "  2. CLASSIFY the artifact + declare the ANGLE (PROMPT-LOOP §b/§b2); run profile-target.sh + detect-tools.sh."
 echo "-- THEN do next (post-scaffold) --"
 echo "  3. SEED 5-15 real gaps into $corpus/RESEARCH-STATE.md (audit-first for a mature corpus) (§e)."
-echo "  4. REGISTER + ADAPT the hook (§c follow-up): put research-protocol.sh in $target/.claude/settings.json"
-echo "     (matcher startup|resume|clear); replace <SUBJECT> + real source paths."
+echo "  4. ADAPT + REGISTER the hook (§c follow-up): replace <SUBJECT> + real source paths in"
+echo "     $target/.claude/hooks/research-protocol.sh (matcher startup|resume|clear)."
+echo "     Then wire it: re-run with --wire, or paste the wiring snippet below into $target/.claude/settings.json."
 [ "$rel" != "(target root, flat)" ] && echo "     For this NESTED corpus, PREFIX the hook's block/INDEX/CATALOG paths with corpus/."
 if [ -n "$prefix" ]; then
   echo "  5. Block files use the prefix: ${prefix}-blockN.md"
@@ -177,19 +240,18 @@ echo
 echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
 echo "  mental model: you now have a VALID-but-EMPTY corpus; the JUDGMENT follow-ups turn it into a real research target."
 echo
-# §479 HOOK WIRING — auto-wire by default; --no-wire falls back to print-only.
-# DOCTRINE: this wires the TARGET'S OWN hooks as part of scaffolding it.
-# It is NOT auto-applying a research finding to a corpus — propose-never-apply
-# for research CONTENT stays intact. This is scaffold setup, not corpus mutation.
+# §479 HOOK WIRING — PROPOSE-NEVER-APPLY by default (print snippet); --wire opts in to write.
+# Default: always print the JSON block for the operator to paste. --wire writes settings.json.
+# --no-wire is a backward-compat alias for the default (print-only, no write).
 _stop_cmd="$target/.claude/hooks/retro-gate-stop.sh"
 _ss_cmd="$target/.claude/hooks/research-protocol.sh"
 _settings="$target/.claude/settings.json"
 _wire_result="skip"
 
-if [ "$no_wire" = 0 ]; then
+if [ "$wire" = 1 ]; then
   # §7 anti-silent-zero: probe for jq before any write; never silently fail or half-write
   if ! command -v jq >/dev/null 2>&1; then
-    echo "degraded: jq not found on PATH — cannot auto-wire settings.json; falling back to print" >&2
+    echo "degraded: jq not found on PATH — cannot wire settings.json; falling back to print" >&2
     _wire_result="degraded"
   else
     # Read existing settings or start from empty object; never corrupt if file is invalid JSON
@@ -218,9 +280,9 @@ if [ "$no_wire" = 0 ]; then
   fi
 fi
 
-# Print the wiring block when: --no-wire requested OR degraded fallback (jq absent/failed)
-if [ "$no_wire" = 1 ] || [ "$_wire_result" = "degraded" ]; then
-  echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself) --"
+# Print the wiring snippet when: default (wire=0) OR --wire degraded fallback (jq absent/failed)
+if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
+  echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself, or re-run with --wire) --"
   echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
   printf '%s\n' '{' \
     '  "hooks": {' \
@@ -232,8 +294,5 @@ if [ "$no_wire" = 1 ] || [ "$_wire_result" = "degraded" ]; then
     '    ]' \
     '  }' \
     '}'
-fi
-if [ "$no_wire" = 1 ]; then
-  echo "  (--no-wire: settings.json not written)"
 fi
 echo "== done =="
