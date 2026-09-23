@@ -121,10 +121,10 @@ write_stub 0 "$STUB_EMPTY"
 OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] \
    && ! printf '%s\n' "$OUT" | grep -q 'corpus exists, no audits found (empty-input):' \
-   && printf '%s\n' "$OUT" | grep -qE 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them'; then
-  ok "7 default mode: 3 empty-input targets → no per-target lines, counted summary present"
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 3 corpus(es) empty-input — run --full to list them'; then
+  ok "7 default mode: 3 empty-input targets → no per-target lines, exact summary 'INFO: 3 corpus(es) empty-input — run --full to list them'"
 else
-  no "7 default mode: per-target empty-input lines still present OR summary missing (exit=$RC out=[$OUT])"
+  no "7 default mode: per-target empty-input lines still present OR exact summary missing (exit=$RC out=[$OUT])"
 fi
 
 # 8. --full mode passes per-target empty-input lines through unchanged.
@@ -135,6 +135,64 @@ if [ "$RC" = 0 ] \
   ok "8 --full mode: per-target empty-input lines passed through"
 else
   no "8 --full mode: per-target empty-input line NOT found in output (exit=$RC out=[$OUT])"
+fi
+
+# 9. Single empty-input target (count=1): exact summary text 'INFO: 1 corpus(es) empty-input ...'.
+#    Verifies the counter works for the single-target edge case (count=1).
+_STUB_SINGLE_EMPTY='INFO: corpus exists, no audits found (empty-input): /fake/only-empty
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+write_stub 0 "$_STUB_SINGLE_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] \
+   && ! printf '%s\n' "$OUT" | grep -qF 'corpus exists, no audits found (empty-input):' \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
+  ok "9 single empty-input target → exact summary 'INFO: 1 corpus(es) empty-input — run --full to list them'"
+else
+  no "9 single empty-input: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
+fi
+
+# 10. Piggyback path: 1 absent + 2 empty-input (STUB_ABSENT_EMPTY).
+#     Summary must appear BEFORE the absent aggregate line (piggyback grouping).
+#     Exact summary text: 'INFO: 2 corpus(es) empty-input — run --full to list them'.
+write_stub 0 "$STUB_ABSENT_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if command -v jq >/dev/null 2>&1; then
+  _CONTENT10="$(printf '%s\n' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+else
+  _CONTENT10="$OUT"
+fi
+_SUMMARY_LN10="$(printf '%s\n' "$_CONTENT10" | grep -nF 'corpus(es) empty-input' | head -1 | cut -d: -f1)"
+_ABSENT_LN10="$(printf '%s\n' "$_CONTENT10" | grep -nF 'target(s) not traversed' | head -1 | cut -d: -f1)"
+if [ "$RC" = 0 ] \
+   && printf '%s\n' "$OUT" | grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them' \
+   && [ -n "$_SUMMARY_LN10" ] && [ -n "$_ABSENT_LN10" ] && [ "$_SUMMARY_LN10" -lt "$_ABSENT_LN10" ]; then
+  ok "10 piggyback path: 1 absent + 2 empty-input → exact summary before absent aggregate line (ORDER OK)"
+else
+  no "10 piggyback path: exact summary missing or ORDER wrong (summary=$_SUMMARY_LN10 absent=$_ABSENT_LN10 exit=$RC)"
+fi
+
+# 11. Ordering robustness: per-target empty-input line arrives AFTER the absent aggregate line.
+#     The emitted flag must prevent a second summary emission → exactly 1 summary line.
+_STUB_LATE_EMPTY='INFO: corpus not found (absent-input): /fake/absent1
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+INFO: corpus exists, no audits found (empty-input): /fake/ei_late
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.'
+write_stub 0 "$_STUB_LATE_EMPTY"
+OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if command -v jq >/dev/null 2>&1; then
+  _CONTENT11="$(printf '%s\n' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+else
+  _CONTENT11="$OUT"
+fi
+_SUMMARY_COUNT11="$(printf '%s\n' "$_CONTENT11" | grep -oF 'corpus(es) empty-input' | wc -l | tr -d ' ')"
+if [ "$RC" = 0 ] && [ "$_SUMMARY_COUNT11" = "1" ]; then
+  ok "11 ordering robustness: late empty-input line → exactly 1 summary line (emitted flag works)"
+else
+  no "11 ordering robustness: expected 1 summary line, got '$_SUMMARY_COUNT11' (exit=$RC)"
 fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
@@ -207,6 +265,29 @@ Nothing to review.'
     ok "teeth D: EMPTY-COLLAPSE-COUNT neutered → ei stays 0 → summary absent → test 7 RED (anti-silent-zero)"
   else
     no "teeth D: mutant still emits empty-input summary — sed pattern may not match hook"
+  fi
+
+  echo "-- teeth E (#974): neuter PIGGYBACK-EMIT-CALL → summary appears after absent line → test 10 ORDER fails --"
+  # Tooth E: mutant replaces emit_summary()  # PIGGYBACK-EMIT-CALL with a no-op shell colon.
+  # With STUB_ABSENT_EMPTY (1 absent + 2 empty-input), the summary is NOT emitted before the
+  # absent aggregate line; END{} emits it after. ORDER check (test 10) → summary_ln > absent_ln → RED.
+  write_stub 0 "$STUB_ABSENT_EMPTY"
+  sed 's/emit_summary()  # PIGGYBACK-EMIT-CALL/# PIGGYBACK-EMIT-DISABLED/' \
+    "$SUT" > "$TMP/mutant-hook-E.sh"
+  chmod +x "$TMP/mutant-hook-E.sh"
+  cp "$TMP/mutant-hook-E.sh" "$TMP/sweep-audits-hook.sh"
+  MUTANT_OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"
+  if command -v jq >/dev/null 2>&1; then
+    _CONTENT_E="$(printf '%s\n' "$MUTANT_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+  else
+    _CONTENT_E="$MUTANT_OUT"
+  fi
+  _SUMMARY_LN_E="$(printf '%s\n' "$_CONTENT_E" | grep -nF 'corpus(es) empty-input' | head -1 | cut -d: -f1)"
+  _ABSENT_LN_E="$(printf '%s\n' "$_CONTENT_E" | grep -nF 'target(s) not traversed' | head -1 | cut -d: -f1)"
+  if [ -n "$_SUMMARY_LN_E" ] && [ -n "$_ABSENT_LN_E" ] && [ "$_SUMMARY_LN_E" -gt "$_ABSENT_LN_E" ]; then
+    ok "teeth E: PIGGYBACK-EMIT-CALL neutered → summary after absent line → test 10 ORDER fails (RED)"
+  else
+    no "teeth E: mutant ORDER not reversed (summary=$_SUMMARY_LN_E absent=$_ABSENT_LN_E) — sed pattern may not match hook"
   fi
 fi
 
