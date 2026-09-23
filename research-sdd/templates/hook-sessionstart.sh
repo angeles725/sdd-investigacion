@@ -9,7 +9,7 @@
 # which research files changed during this session.
 set -euo pipefail
 
-# Read session_id from Stop-hook JSON stdin (§479 session-sha recording)
+# Read session_id from SessionStart hook JSON stdin (§479 session-sha recording)
 _hook_stdin=$(cat)
 _session_id=$(printf '%s' "$_hook_stdin" | jq -r '.session_id // empty' 2>/dev/null) || _session_id=""
 
@@ -35,11 +35,20 @@ if [ -n "$_session_id" ]; then
 fi
 unset _hook_stdin _session_id _hook_target
 
+# Probe for jq (§7 — could the instrument run at all?).
+# Without jq the final JSON emission silently fails; emit a typed degraded line and a
+# minimal valid hook JSON so the session is not broken.
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'degraded: jq missing — install jq for full research-sdd context injection\n' >&2
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[degraded: jq missing — install jq for full research-sdd context]"}}'
+  exit 0
+fi
+
 read -r -d '' CTX <<'EOF' || true
 RESEARCH PROTOCOL — <SUBJECT> (Research-SDD)
 
 Every session in this project is READ-ONLY research of <SUBJECT>. Before
-answering any research question, ALWAYS follow this order:
+answering a research question, work in this order:
 
 1. FIRST search the project's own .md blocks (truth already distilled):
    - <prefix>-block*.md
@@ -47,15 +56,9 @@ answering any research question, ALWAYS follow this order:
    - CATALOG.md
    Review them before opening any tool.
 
-2. Toolbelt tools (Research-SDD) — pick based on the artifact type:
-   - profile-target.sh   -> classifies binaries and suggests the wrapper
-   - decompile-java.sh   -> .jar/.class (Vineflower/CFR/Procyon, javap)
-   - decompile-net.sh    -> .dll/.exe .NET (ilspycmd)
-   - decompile-native.sh -> native ELF/PE (Ghidra headless / r2)  | ghidra-mcp for directed analysis
-   - scan-firmware.sh    -> firmware/packaged (binwalk + yara)
-   - fetch-doc.sh        -> download and PRESERVE datasheets/manuals/forums in sources/
-   (Kit: $RESEARCH_SDD_KIT/toolbelt/ — set RESEARCH_SDD_KIT to your Research-SDD kit root;
-    defaults to $HOME/investigacion/sdd-investigacion/research-sdd if unset.)
+2. Toolbelt tools (Research-SDD) — pick the wrapper for the artifact type from
+   $RESEARCH_SDD_KIT/toolbelt/tool-registry.md (profile-target.sh classifies
+   binaries and suggests one).
 
 3. PRIMARY SOURCES of the subject (real paths — fill in per target):
    - <path to binaries/decompiled output/source code of the system under study>
@@ -68,8 +71,9 @@ answering any research question, ALWAYS follow this order:
 5. EXTERNAL EVIDENCE: if you find a relevant datasheet/manual/forum/link, DOWNLOAD it with
    fetch-doc.sh (lands in sources/ + registered in SOURCES.md) and cite the local file.
 
-ACTION AT START: review the project's .md blocks first (step 1 above), then PROCEED with research.
-Pick the appropriate toolbelt tool yourself; state which tool you chose and why.
+ACTION AT START: review the project's .md blocks first, then choose the toolbelt
+tool(s) yourself from the artifact type and say in one line which you chose.
+Inside a /research-sdd loop, continue the loop; do not stop to ask.
 EOF
 
 jq -n --arg ctx "$CTX" \

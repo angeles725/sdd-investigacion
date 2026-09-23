@@ -313,15 +313,15 @@ if [ -f "$_tpl_hook" ]; then
   else
     ok "TPL: installed hook does not contain 'ask which toolbelt tool' (old wording removed)"
   fi
-  if grep -qF "PROCEED" "$_tpl_hook" 2>/dev/null; then
-    ok "TPL: installed hook contains 'PROCEED'"
+  if grep -qF "tool-registry.md" "$_tpl_hook" 2>/dev/null; then
+    ok "TPL: installed hook contains 'tool-registry.md' pointer"
   else
-    no "TPL: installed hook missing 'PROCEED'"
+    no "TPL: installed hook missing 'tool-registry.md' pointer"
   fi
-  if grep -qE "Pick|pick" "$_tpl_hook" 2>/dev/null; then
-    ok "TPL: installed hook contains 'Pick' (pick tool yourself)"
+  if grep -qF "yourself" "$_tpl_hook" 2>/dev/null; then
+    ok "TPL: installed hook contains 'yourself' (choose tool yourself)"
   else
-    no "TPL: installed hook missing 'Pick' (pick tool yourself)"
+    no "TPL: installed hook missing 'yourself' (choose tool yourself)"
   fi
 else
   no "TPL: research-protocol.sh not found at $_tpl_hook (file absent)"
@@ -591,28 +591,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # MW4: replace PROCEED with old wording in template → TPL PROCEED assertion RED
-  echo "-- teeth proof MW4: replace PROCEED with old 'ask' wording → TPL test has teeth --"
+  # MW4: replace tool-registry.md with old stale text in template → TPL tool-registry.md assertion RED
+  echo "-- teeth proof MW4: remove tool-registry.md from template → TPL pointer assertion has teeth --"
   mkdir -p "$TMP/mw4/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw4/templates"
   mw4="$TMP/mw4/toolbelt/init.sh"
   cp "$SUT" "$mw4"
-  # Also make a mutant templates dir with the old wording in the hook template
+  # Make a mutant templates dir with tool-registry.md replaced in the hook template
   cp -r "$HERE/../../templates" "$TMP/mw4-tpl"
-  sed -i 's/PROCEED/ask which toolbelt tool(s) to use for this research before choosing/' \
+  sed -i 's/tool-registry\.md/decompile-java.sh/' \
     "$TMP/mw4-tpl/hook-sessionstart.sh" 2>/dev/null || true
   # Repoint the templates symlink to our mutant templates
   rm -f "$TMP/mw4/templates" 2>/dev/null || true
   ln -sfn "$TMP/mw4-tpl" "$TMP/mw4/templates"
-  if grep -qF "PROCEED" "$TMP/mw4-tpl/hook-sessionstart.sh" 2>/dev/null; then
-    no "teeth MW4: could not build mutant (PROCEED still present in template after sed)"
+  if grep -qF "tool-registry.md" "$TMP/mw4-tpl/hook-sessionstart.sh" 2>/dev/null; then
+    no "teeth MW4: could not build mutant (tool-registry.md still present in template after sed)"
   else
     dmw4="$TMP/mw4t"; mkdir -p "$dmw4"
     bash "$mw4" "$dmw4" --corpus flat >/dev/null 2>/dev/null
     _mw4_hook="$dmw4/.claude/hooks/research-protocol.sh"
-    if [ -f "$_mw4_hook" ] && ! grep -qF "PROCEED" "$_mw4_hook" 2>/dev/null; then
-      ok "teeth MW4: PROCEED absent in mutant hook → TPL PROCEED assertion has teeth"
+    if [ -f "$_mw4_hook" ] && ! grep -qF "tool-registry.md" "$_mw4_hook" 2>/dev/null; then
+      ok "teeth MW4: tool-registry.md absent in mutant hook → TPL pointer assertion has teeth"
     else
-      no "teeth MW4: PROCEED still present in mutant hook — TPL PROCEED assertion is THEATER"
+      no "teeth MW4: tool-registry.md still present in mutant hook — TPL pointer assertion is THEATER"
     fi
   fi
 fi

@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# hook-sessionstart.test.sh — RED-FIRST harness for the SessionStart hook template.
+#
+# Covers: bash -n syntax; tool-registry.md pointer (F11 — stale list replaced);
+#         calm wording — no ALWAYS (F11); jq probe present and behaviorally correct
+#         (L7); P8 placeholder cleanliness (no unexpected <KIT>).
+# Each mutation control proves the matching green assertion bites.
+#
+# Usage: hook-sessionstart.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SUT="$HERE/../../templates/hook-sessionstart.sh"
+VS="$HERE/../verify-state.sh"
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+[ -f "$VS"  ] || { echo "FATAL: verify-state not found: $VS" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+pass=0; fail=0
+ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+
+echo "== hook-sessionstart.test.sh (SUT: $(basename "$SUT")) =="
+
+# ── STATIC CHECKS ────────────────────────────────────────────────────────────────────────────
+
+echo "-- static: bash -n syntax --"
+if bash -n "$SUT" 2>/dev/null; then
+  ok "static: template passes bash -n syntax check"
+else
+  no "static: template has bash -n syntax error"
+fi
+
+echo "-- static: tool list is a tool-registry.md pointer, not a stale per-tool list --"
+if grep -qF "tool-registry.md" "$SUT"; then
+  ok "static: template contains tool-registry.md pointer"
+else
+  no "static: template missing tool-registry.md pointer"
+fi
+for _stale in "decompile-java.sh" "decompile-net.sh" "decompile-native.sh" \
+              "scan-firmware.sh"; do
+  if grep -qF "$_stale" "$SUT"; then
+    no "static: stale tool '$_stale' still present in template"
+  else
+    ok "static: stale tool '$_stale' absent from template"
+  fi
+done
+unset _stale
+
+echo "-- static: calm wording — ALWAYS follow this order removed --"
+if grep -qF "ALWAYS follow this order" "$SUT"; then
+  no "static: 'ALWAYS follow this order' still present in template"
+else
+  ok "static: 'ALWAYS follow this order' removed from template"
+fi
+
+echo "-- static: jq probe present (command -v jq) --"
+if grep -q 'command -v jq' "$SUT"; then
+  ok "static: jq probe (command -v jq) present in template"
+else
+  no "static: jq probe (command -v jq) missing from template"
+fi
+
+echo "-- static: header comment says SessionStart, not Stop-hook --"
+if grep -q 'Stop-hook JSON stdin' "$SUT"; then
+  no "static: header comment still says 'Stop-hook JSON stdin'"
+else
+  ok "static: header comment does not say 'Stop-hook JSON stdin'"
+fi
+
+# ── NO-JQ BEHAVIOURAL CHECK ───────────────────────────────────────────────────────────────────
+
+echo "-- no-jq: hook exits 0 and emits hookSpecificOutput JSON when jq is absent --"
+_jq_real="$(command -v jq 2>/dev/null || true)"
+_nojq_path=""
+if [ -z "$_jq_real" ]; then
+  ok "no-jq: jq already absent on this host — probe fires on normal PATH"
+  _nojq_path="$PATH"
+else
+  _jq_dir="$(dirname "$_jq_real")"
+  # Build PATH that excludes jq's directory so command -v jq fails inside the hook
+  _nojq_path="$(printf '%s\n' "$PATH" | tr ':' '\n' | grep -v "^${_jq_dir}\$" | tr '\n' ':' | sed 's/:$//')"
+  _nojq_out="$TMP/nojq-out.txt"
+  _nojq_err="$TMP/nojq-err.txt"
+  PATH="$_nojq_path" bash "$SUT" </dev/null >"$_nojq_out" 2>"$_nojq_err"
+  _nojq_ec=$?
+  if [ "$_nojq_ec" -eq 0 ]; then
+    ok "no-jq: hook exits 0 when jq absent"
+  else
+    no "no-jq: hook exits $_nojq_ec when jq absent (expected 0)"
+  fi
+  if grep -qF '"hookSpecificOutput"' "$_nojq_out" 2>/dev/null; then
+    ok "no-jq: stdout contains hookSpecificOutput JSON"
+  else
+    no "no-jq: stdout missing hookSpecificOutput JSON when jq absent"
+  fi
+  if grep -q 'degraded' "$_nojq_err" 2>/dev/null; then
+    ok "no-jq: stderr contains degraded notice"
+  else
+    no "no-jq: stderr missing degraded notice when jq absent"
+  fi
+fi
+
+# ── P8 PLACEHOLDER CLEANLINESS ───────────────────────────────────────────────────────────────
+
+echo "-- p8: hook installed from template triggers only per-target placeholders --"
+_p8d="$TMP/p8-target"
+mkdir -p "$_p8d/.claude/hooks"
+cp "$SUT" "$_p8d/.claude/hooks/research-protocol.sh"
+# Minimal RESEARCH-STATE.md so verify-state does not exit 2 before P8 runs
+{ printf '<!-- research-state.v1 -->\n'
+  printf 'schema: research-state.v1\n'
+  printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n'
+  printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+  printf '<!-- /research-state.v1 -->\n'; } > "$_p8d/RESEARCH-STATE.md"
+_p8_out="$(bash "$VS" "$_p8d" 2>/dev/null)"
+if printf '%s\n' "$_p8_out" | grep -q 'WARN.*hook-placeholder.*<KIT>'; then
+  no "p8: unexpected <KIT> placeholder WARN — template still contains <KIT>"
+else
+  ok "p8: no <KIT> placeholder WARN (\$RESEARCH_SDD_KIT correctly used)"
+fi
+
+# ── MUTATION CONTROLS (--prove-teeth) ────────────────────────────────────────────────────────
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+
+  echo "-- teeth M1: tool-registry.md pointer check has teeth --"
+  _m1="$TMP/mutant-m1.sh"
+  cp "$SUT" "$_m1"
+  sed -i 's/tool-registry\.md/decompile-java.sh/g' "$_m1"
+  if grep -qF "tool-registry.md" "$_m1"; then
+    no "teeth M1: could not build mutant (tool-registry.md still present after sed)"
+  else
+    # The green assertion: grep -qF "tool-registry.md" SUT
+    # On the mutant it should return 1 (RED)
+    if ! grep -qF "tool-registry.md" "$_m1"; then
+      ok "teeth M1: tool-registry.md assertion RED on mutant (has teeth)"
+    else
+      no "teeth M1: tool-registry.md assertion PASSES on mutant — no teeth"
+    fi
+  fi
+
+  echo "-- teeth M2: no-jq exit-0 check has teeth --"
+  if [ -n "$_jq_real" ] && [ -n "$_nojq_path" ]; then
+    _m2="$TMP/mutant-m2.sh"
+    cp "$SUT" "$_m2"
+    # Mutant: disable the jq probe so it never fires
+    sed -i 's/if ! command -v jq/if false  # MUTANT: probe disabled; was: if ! command -v jq/' "$_m2"
+    if grep -qF 'MUTANT: probe disabled' "$_m2"; then
+      PATH="$_nojq_path" bash "$_m2" </dev/null >"$TMP/m2-out.txt" 2>/dev/null
+      _m2_ec=$?
+      # Without probe, jq-n fails → hook exits non-zero
+      if [ "$_m2_ec" -ne 0 ]; then
+        ok "teeth M2: no-jq exit-0 check RED on probe-disabled mutant (has teeth)"
+      else
+        no "teeth M2: probe-disabled mutant still exits 0 — no-jq exit-0 check has no teeth"
+      fi
+    else
+      no "teeth M2: could not build probe-disabled mutant"
+    fi
+  else
+    ok "teeth M2: skipped (jq already absent on this host — no-jq path is the normal path)"
+  fi
+
+  echo "-- teeth M3: P8 <KIT> check has teeth --"
+  _m3d="$TMP/p8-mutant"
+  mkdir -p "$_m3d/.claude/hooks"
+  # Inject <KIT> into the hook so P8 fires a WARN about it
+  sed 's/\$RESEARCH_SDD_KIT/<KIT>/g' "$SUT" > "$_m3d/.claude/hooks/research-protocol.sh"
+  { printf '<!-- research-state.v1 -->\n'; printf 'schema: research-state.v1\n'
+    printf 'covered_blocks: 0\ngaps_closed: 0\nknown_gaps: 0\n'
+    printf 'investigable_open: 0\nrequires_execution_open: 0\nblocked_open: 0\n'
+    printf '<!-- /research-state.v1 -->\n'; } > "$_m3d/RESEARCH-STATE.md"
+  _m3_out="$(bash "$VS" "$_m3d" 2>/dev/null)"
+  if printf '%s\n' "$_m3_out" | grep -q 'WARN.*hook-placeholder.*<KIT>'; then
+    ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
+  else
+    no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"
+  fi
+
+fi
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ] || exit 1
