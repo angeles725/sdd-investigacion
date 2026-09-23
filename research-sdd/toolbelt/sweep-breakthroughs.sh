@@ -84,6 +84,7 @@ done
 # ---------------------------------------------------------------------------
 # Shared expansion root — mirrors target-paths.sh convention (${RESEARCH_HOME:-$HOME}).
 _sb_rh="${RESEARCH_HOME:-$HOME}"
+_sb_rh="${_sb_rh%/}"   # normalize trailing slash: avoid // if RESEARCH_HOME ends with /
 
 ledger_pointers=$(
   grep -E '^\|' "$BREAKTHROUGHS_MD" 2>/dev/null \
@@ -99,8 +100,15 @@ ledger_pointers=$(
           ptr = substr(how, RSTART + 1, RLENGTH - 2)
           # Expand portable $RESEARCH_HOME/... and ${RESEARCH_HOME}/... forms.
           # Reuses the same convention as target-paths.sh so absolute pointers keep working.
-          sub(/^\$\{RESEARCH_HOME\}\//, rh "/", ptr)
-          sub(/^\$RESEARCH_HOME\//, rh "/", ptr)
+          # Use substr()/length() instead of sub(): sub() expands & and \ in the replacement
+          # string, corrupting rh values that contain those characters (#923-B).
+          pfx1 = "${RESEARCH_HOME}/"
+          pfx2 = "$RESEARCH_HOME/"
+          if (substr(ptr, 1, length(pfx1)) == pfx1) {
+            ptr = rh "/" substr(ptr, length(pfx1) + 1)
+          } else if (substr(ptr, 1, length(pfx2)) == pfx2) {
+            ptr = rh "/" substr(ptr, length(pfx2) + 1)
+          }
           print ptr
         }
       }

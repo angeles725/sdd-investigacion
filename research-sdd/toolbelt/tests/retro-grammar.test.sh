@@ -28,8 +28,9 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
-ok()  { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no()  { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+ok()   { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
+no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+skip() { printf '  SKIP  %-60s %s\n' "$1" "${2:-}"; }
 
 echo "== retro-grammar.test.sh (lib: $(basename "$RG_LIB")) =="
 
@@ -162,7 +163,7 @@ typeset -f retro_grammar_delta_info >/dev/null 2>&1 \
 echo "-- ZSH-GUARD: typeset -f guard defines function when sourced from zsh --"
 _zsh_bin="$(type -P zsh 2>/dev/null || true)"
 if [ -z "$_zsh_bin" ]; then
-  ok "ZSH-GUARD: zsh not found — typed skip (would verify function defined under zsh)" "(skip)"
+  skip "ZSH-GUARD: zsh not found — typed skip (would verify function defined under zsh)"
 else
   _zsh_out="$("$_zsh_bin" -c ". '$RG_LIB'; typeset -f retro_grammar_delta_info >/dev/null 2>&1 && echo DEFINED || echo UNDEFINED" 2>&1)"
   if [ "$_zsh_out" = "DEFINED" ]; then
@@ -282,7 +283,7 @@ fi
 # ── ZSH-GUARD teeth: declare-F mutant leaves function undefined under zsh ────
 echo "-- ZSH-GUARD teeth: declare-F mutant must fail to define function under zsh --"
 if [ -z "${_zsh_bin:-}" ]; then
-  ok "ZSH-GUARD teeth: zsh not found — typed skip (would verify declare-F mutant leaves function undefined)" "(skip)"
+  skip "ZSH-GUARD teeth: zsh not found — typed skip (would verify declare-F mutant leaves function undefined)"
 else
   _rg_mut="$ROOT/rg-zsh-mut-$$.sh"
   sed 's/^if ! typeset -f retro_grammar_delta_info/if ! declare -F retro_grammar_delta_info/' "$RG_LIB" > "$_rg_mut"
@@ -293,6 +294,42 @@ else
     no "ZSH-GUARD teeth: declare-F mutant should leave function undefined under zsh — tooth broken" "out=[$_zsh_mut_out]"
   fi
   rm -f "$_rg_mut"
+fi
+
+# ── SKIP-FORMAT teeth: skip()→ok() mutant must produce PASS not SKIP ────────
+# Verifies that skip() outputs '  SKIP  ', not '  PASS  '.
+# Mutation: replace skip() body with ok()-equivalent. Running the ZSH-GUARD skip path
+# under a hermetic no-zsh PATH must show '  PASS  ' instead of '  SKIP  '.
+echo "-- SKIP-FORMAT teeth: mutant skip()→ok() must output PASS not SKIP under no-zsh --"
+# Build hermetic PATH with zsh absent
+_sf_zsh="$(type -P zsh 2>/dev/null || true)"
+if [ -n "$_sf_zsh" ]; then
+  _sf_zsh_dir="$(dirname "$_sf_zsh")"
+  _sf_nozsh="$(echo "$PATH" | tr ':' '\n' | grep -Fxv "$_sf_zsh_dir" | tr '\n' ':' | sed 's/:$//')"
+else
+  _sf_nozsh="$PATH"
+fi
+# Minimal mutant: ZSH-GUARD logic with skip() printing PASS instead of SKIP
+_sf_mut="$ROOT/skip-format-mut.sh"
+cat > "$_sf_mut" << 'RGSF_END'
+#!/usr/bin/env bash
+set -uo pipefail
+pass=0; fail=0
+ok()   { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
+no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+skip() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }  # MUTATION: skip→ok
+_zsh_bin="$(type -P zsh 2>/dev/null || true)"
+if [ -z "$_zsh_bin" ]; then
+  skip "ZSH-GUARD: zsh not found — typed skip (would verify function defined under zsh)"
+fi
+[ "$fail" -eq 0 ] && exit 0 || exit 1
+RGSF_END
+chmod +x "$_sf_mut"
+_sf_out="$(PATH="$_sf_nozsh" "$BASH_BIN" "$_sf_mut" 2>&1)"
+if ! grep -q '  SKIP  ' <<<"$_sf_out"; then
+  ok "SKIP-FORMAT teeth: skip()→ok() mutant outputs PASS not SKIP — format mutation detected" "(SKIP absent on mutant)"
+else
+  no "SKIP-FORMAT teeth: mutant still outputs SKIP — skip() tooth not working" "out=[$_sf_out]"
 fi
 
 # ── RETRO-TRAP teeth: trap dir fixture must fire the guard ───────────────────

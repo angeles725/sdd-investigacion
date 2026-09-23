@@ -838,17 +838,20 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
     no "teeth VR-T-noarg: target_paths_pairs stub diverges from lib on no-arg" "stub rc=$_vrtna_pairs_rc msg=[$_vrtna_pairs_msg] lib rc=$_vrtna_lib_pairs_rc msg=[$_vrtna_lib_pairs_msg]"
   fi
   # Mutation: sed both # TP-STUB-NOARG guards back to 'return 0' in a temp copy.
+  # Tight check: rc=0 only. The mutation changes 'return 1' to 'return 0', so the only
+  # valid evidence is rc=0. The || msg-differs escape hatch was a false positive (#923-B):
+  # any non-zero rc that also changes the message (e.g. return 2) would fire it.
   _vrtna_mut="$ROOT/vrtna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_vrt2_stub" > "$_vrtna_mut"
-  _vrtna_mut_all_msg="$("$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_all" 2>&1)"; _vrtna_mut_all_rc=$?
-  if [ "$_vrtna_mut_all_rc" = 0 ] || [ "$_vrtna_mut_all_msg" != "$_vrtna_lib_all_msg" ]; then
-    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_all → mutation has teeth" "stub_rc=$_vrtna_mut_all_rc msg=[$_vrtna_mut_all_msg]"
+  "$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_all" >/dev/null 2>&1; _vrtna_mut_all_rc=$?
+  if [ "$_vrtna_mut_all_rc" = 0 ]; then
+    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_all → mutation has teeth" "stub_rc=$_vrtna_mut_all_rc"
   else
     no "teeth VR-T-noarg mutant all: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_all_rc"
   fi
-  _vrtna_mut_pairs_msg="$("$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_pairs" 2>&1)"; _vrtna_mut_pairs_rc=$?
-  if [ "$_vrtna_mut_pairs_rc" = 0 ] || [ "$_vrtna_mut_pairs_msg" != "$_vrtna_lib_pairs_msg" ]; then
-    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_pairs → mutation has teeth" "stub_rc=$_vrtna_mut_pairs_rc msg=[$_vrtna_mut_pairs_msg]"
+  "$BASH_BIN" -c ". '$_vrtna_mut'; target_paths_pairs" >/dev/null 2>&1; _vrtna_mut_pairs_rc=$?
+  if [ "$_vrtna_mut_pairs_rc" = 0 ]; then
+    ok "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for target_paths_pairs → mutation has teeth" "stub_rc=$_vrtna_mut_pairs_rc"
   else
     no "teeth VR-T-noarg mutant pairs: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_vrtna_mut_pairs_rc"
   fi

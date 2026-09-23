@@ -459,13 +459,14 @@ B_STRIPPED
     no "teeth B-noarg: Tooth B stub diverges from lib on no-arg" "stub rc=$_bna_stub_rc msg=[$_bna_stub_msg] lib rc=$_bna_lib_rc msg=[$_bna_lib_msg]"
   fi
   # Mutation: sed # TP-STUB-NOARG guard back to 'return 0' in a temp copy.
-  # The ok path is a positive divergence assertion: mutant must exit 0 OR emit a different
-  # message (not merely "not equal both") — tightens the check per #909.
+  # Tight check: rc=0 only. The mutation changes 'return 1' to 'return 0', so the only
+  # valid evidence is rc=0. The || msg-differs escape hatch was a false positive (#923-B):
+  # any non-zero rc that also changes the message (e.g. return 2) would fire it.
   _bna_mut="$ROOT/bna-mut-$$.sh"
   sed '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' "$_b_stub" > "$_bna_mut"
-  _bna_mut_msg="$("$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" 2>&1)"; _bna_mut_rc=$?
-  if [ "$_bna_mut_rc" = 0 ] || [ "$_bna_mut_msg" != "$_bna_lib_msg" ]; then
-    ok "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_bna_mut_rc msg=[$_bna_mut_msg]"
+  "$BASH_BIN" -c ". '$_bna_mut'; target_paths_all" >/dev/null 2>&1; _bna_mut_rc=$?
+  if [ "$_bna_mut_rc" = 0 ]; then
+    ok "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" "stub_rc=$_bna_mut_rc"
   else
     no "teeth B-noarg mutant: 'return 0' stub STILL matches lib — mutation is THEATER" "rc=$_bna_mut_rc"
   fi
