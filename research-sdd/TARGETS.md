@@ -213,10 +213,9 @@ under `corpus/sources/web-snapshots/`. Bootstrap 2026-07-05: created corpus/ sub
 (`INDEX.md` / `RESEARCH-STATE.md` / `sources/SOURCES.md` / `tools/gen-catalog.py` — the
 `tools/gen-catalog.py` copy is now LEGACY/vestigial: eje #2 stopped seeding it, and
 research-sdd-archive.sh regenerates CATALOG.md via the kit generator), git
-initialized, target row registered in `$KIT/TARGETS.md`. **Hook deferred** — OpenCode runtime
-does not honor `.claude/settings.json` hooks, so the SessionStart retro-sweep / kit-clean surfacing never fires
-there — run `toolbelt/sweep-retros.sh` and `toolbelt/verify-kit-clean.sh` MANUALLY at loop-close on OpenCode;
-re-evaluate if the target migrates to Claude Code.
+initialized, target row registered in `$KIT/TARGETS.md`. **Hook note** — OpenCode support was
+dropped on 2026-09-23 (#954); if running this target under Claude Code the SessionStart hook fires
+automatically; for Codex run `toolbelt/sweep-retros.sh` and `toolbelt/verify-kit-clean.sh` MANUALLY.
 User pre-clarification (2026-07-05): **do NOT read or annotate the user's own dashboards** — the
 user explicitly described them as "AI-generic looking" and asked for a *research corpus* of
 alternatives, not a review of existing work. The deliverable is a cited knowledge base the user

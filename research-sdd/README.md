@@ -93,7 +93,7 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`verify-state.sh`](toolbelt/verify-state.sh) | `<target-dir>` | Living-mirror lint — catches a stale summary that would emit a premature STOP. |
 | [`verify-sources.sh`](toolbelt/verify-sources.sh) | `<target-dir>` | `SOURCES.md` preservation linter — every cited source is downloaded, present, and registered. |
 | [`scan-secrets.sh`](toolbelt/scan-secrets.sh) | `<target-dir>` | Fails closed if a high-confidence secret **value** leaked into authored content. |
-| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude/OpenCode. |
+| [`sweep-all.sh`](toolbelt/sweep-all.sh) | _(no args)_ | Session-start aggregator — runs all seven session-start scripts in sequence: `sweep-retros.sh`, `sweep-audits.sh`, `sweep-breakthroughs.sh`, `verify-registry.sh`, `verify-kit-clean.sh`, `sweep-tools.sh`, `verify-tool-catalog.sh`; each always runs. Intended for Codex and manual-run contexts; redundant but harmless in Claude. (OpenCode support was dropped on 2026-09-23 #954.) |
 
 ### Close
 

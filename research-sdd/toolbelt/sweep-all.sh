@@ -5,14 +5,15 @@
 #
 # WHY THIS EXISTS (U-A20): Codex has no session-start hook, so the sweep scripts must be
 # run manually. This shim collapses seven commands into one, raising compliance probability.
-# Claude and OpenCode run the same seven scripts automatically via their own hooks/plugins —
-# this aggregator is intended for manual or Codex use; it is harmless (but redundant) elsewhere.
+# Claude runs the same seven scripts automatically via its session-start hook —
+# this aggregator is intended for manual or Codex use; it is harmless (but redundant) in Claude.
+# (OpenCode support was dropped on 2026-09-23 #954.)
 #
 # Each script runs INDEPENDENTLY: a failure or timeout is captured and reported, but NEVER
 # aborts the remaining scripts. All seven always run. Exit is non-zero if ANY failed.
 #
 # Timeout: each script is run under `timeout $RSDD_SWEEP_TIMEOUT` (default 30 s, mirroring
-# the Claude SessionStart hook timeouts of 15–30 s and the OpenCode plugin 20 s timeout).
+# the Claude SessionStart hook timeouts of 15–30 s).
 # A killed script is reported as FAIL (timed out) and the remaining scripts still run.
 #
 # Read-only / degrade-to-silence invariants:
