@@ -234,6 +234,53 @@ else
   no "B3: PROMPT-LOOP.md LOOP CONTINUATION missing teardown rule (CronDelete absent)"
 fi
 
+METHODOLOGY="$HERE/../../METHODOLOGY.md"
+[ -f "$METHODOLOGY" ] || { printf 'FATAL: METHODOLOGY.md not found at expected path: %s\n' "$METHODOLOGY" >&2; exit 2; }
+
+# ---------------------------------------------------------------------------
+# C1: METHODOLOGY.md must state that a focus stop does not end the campaign.
+#     The campaign model (§8c) adds the distinction: a focus STOP fires the
+#     FRONTIER-REOPEN audit and pops the next queue entry; campaign STOP is
+#     a separate condition. Stable anchor: 'A focus stop does not end the campaign'
+# ---------------------------------------------------------------------------
+if grep -qF 'A focus stop does not end the campaign' "$METHODOLOGY"; then
+  ok "C1: METHODOLOGY §8c states focus stop ≠ campaign stop"
+else
+  no "C1: METHODOLOGY §8c missing focus-stop ≠ campaign-stop distinction"
+fi
+
+# ---------------------------------------------------------------------------
+# C2: METHODOLOGY.md must state the campaign-stop condition: queue empty AND
+#     last coverage audit enqueued nothing.
+#     Stable anchor: 'queue is empty and the last coverage audit enqueued nothing'
+# ---------------------------------------------------------------------------
+if grep -qF 'queue is empty and the last coverage audit enqueued nothing' "$METHODOLOGY"; then
+  ok "C2: METHODOLOGY §8c carries campaign-stop condition (queue empty + audit enqueued nothing)"
+else
+  no "C2: METHODOLOGY §8c missing campaign-stop condition"
+fi
+
+# ---------------------------------------------------------------------------
+# C3: METHODOLOGY.md must carry the typed bound-stop token 'campaign-bound-reached:'
+#     so declared bounds (max depth, budget) emit a recognisable typed stop
+#     rather than a silent exit.
+# ---------------------------------------------------------------------------
+if grep -qF 'campaign-bound-reached:' "$METHODOLOGY"; then
+  ok "C3: METHODOLOGY §8c carries typed bound-stop token 'campaign-bound-reached:'"
+else
+  no "C3: METHODOLOGY §8c missing typed bound-stop token 'campaign-bound-reached:'"
+fi
+
+# ---------------------------------------------------------------------------
+# C4: PROMPT-LOOP.md must state that teardown runs at campaign STOP, not at
+#     each focus stop. Stable anchor: 'Teardown runs at campaign STOP'
+# ---------------------------------------------------------------------------
+if grep -qF 'Teardown runs at campaign STOP' "$PROMPTLOOP"; then
+  ok "C4: PROMPT-LOOP.md states teardown at campaign STOP (not focus stop)"
+else
+  no "C4: PROMPT-LOOP.md missing 'Teardown runs at campaign STOP'"
+fi
+
 # ---------------------------------------------------------------------------
 # NEGATIVE CONTROL: prove each assertion has teeth
 # ---------------------------------------------------------------------------
@@ -355,6 +402,44 @@ if [ "$PROVE_TEETH" = 1 ]; then
     no "teeth-B3: mutant still has 'CronDelete' — sed did not take (no teeth)"
   else
     ok "teeth-B3: B3 assertion goes RED on mutant"
+  fi
+
+  echo "-- teeth: METHODOLOGY.md mutants for campaign assertions C1-C3 --"
+
+  # Teeth C1: replace anchor → C1 must go RED.
+  mutantC1="$TMP/METHODOLOGY.mutantC1.md"
+  sed 's/A focus stop does not end the campaign/A focus stop DOES end the campaign/g' "$METHODOLOGY" > "$mutantC1"
+  if grep -qF 'A focus stop does not end the campaign' "$mutantC1"; then
+    no "teeth-C1: mutant still has C1 anchor — sed did not take (no teeth)"
+  else
+    ok "teeth-C1: C1 assertion goes RED on mutant"
+  fi
+
+  # Teeth C2: replace anchor → C2 must go RED.
+  mutantC2="$TMP/METHODOLOGY.mutantC2.md"
+  sed 's/queue is empty and the last coverage audit enqueued nothing/queue is empty ONLY/g' "$METHODOLOGY" > "$mutantC2"
+  if grep -qF 'queue is empty and the last coverage audit enqueued nothing' "$mutantC2"; then
+    no "teeth-C2: mutant still has C2 anchor — sed did not take (no teeth)"
+  else
+    ok "teeth-C2: C2 assertion goes RED on mutant"
+  fi
+
+  # Teeth C3: replace 'campaign-bound-reached:' → C3 must go RED.
+  mutantC3="$TMP/METHODOLOGY.mutantC3.md"
+  sed 's/campaign-bound-reached:/campaign-bound-X:/g' "$METHODOLOGY" > "$mutantC3"
+  if grep -qF 'campaign-bound-reached:' "$mutantC3"; then
+    no "teeth-C3: mutant still has 'campaign-bound-reached:' — sed did not take (no teeth)"
+  else
+    ok "teeth-C3: C3 assertion goes RED on mutant"
+  fi
+
+  # Teeth C4: replace 'Teardown runs at campaign STOP' → C4 must go RED.
+  mutantC4="$TMP/PROMPTLOOP.mutantC4.md"
+  sed 's/Teardown runs at campaign STOP/Teardown runs at focus STOP/g' "$PROMPTLOOP" > "$mutantC4"
+  if grep -qF 'Teardown runs at campaign STOP' "$mutantC4"; then
+    no "teeth-C4: mutant still has 'Teardown runs at campaign STOP' — sed did not take (no teeth)"
+  else
+    ok "teeth-C4: C4 assertion goes RED on mutant"
   fi
 fi
 

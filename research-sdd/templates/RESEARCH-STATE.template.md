@@ -130,3 +130,24 @@ blocks_since_retro: 0
      If no types are dismissed (all starred types are covered by gaps), write: none -->
 
 - none
+
+## Campaign queue
+
+<!-- Present only when this focus is part of a multi-focus campaign (METHODOLOGY §8c).
+     Omit the section entirely for a single-focus corpus that will never spawn children.
+     The loop pops the next `pending` entry at each focus STOP; campaign STOP fires when every
+     entry is `done` or `bound-stopped` AND the last coverage audit enqueued nothing.
+
+     Column grammar (closed — parsers read leading tokens):
+       State: pending | active | done | bound-stopped
+       Kind:  focus | tier | sub-topic
+
+     One row per campaign entry. Do not add free-text columns; put notes in the Seed/Convergence cells.
+     `last_iteration_ts` (ISO-8601 UTC, updated each block commit) is the stall-detection signal. -->
+
+last_iteration_ts: <YYYY-MM-DDTHH:MM:SSZ>
+
+| Name | Parent | Kind | Seed | Convergence | State |
+|---|---|---|---|---|---|
+| <slug> | root | focus | <brief description of what to investigate> | <done condition> | pending |
+| <slug-child> | <parent-slug> | tier | <description> | <done condition> | pending |

@@ -1533,34 +1533,33 @@ HARD RULES:
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).
     See METHODOLOGY §17.
-  - LOOP CONTINUATION — after EVERY iteration, evaluate the STOPPING criterion (step 7). If it is NOT
-    met (read-only-investigable > 0), continue as follows — THREE CASES based on launch mode:
-    (1) FIXED-INTERVAL (`/loop <N>m`, e.g. `/loop 5m`): the harness IS the re-invoker; it fires the
+  - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
+    work remains (read-only-investigable > 0, or the campaign queue has pending entries), start the
+    next gap; the continuation call (per mode below) is the last action of the turn, after the
+    iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit, enqueue any
+    new entries, and pop the next queue entry in the same run (METHODOLOGY §8c). A turn ends only on
+    campaign STOP, a requires-execution wall, an operator pause, or a tool failure; finishing a cluster
+    or milestone is not one of these. Before ending a turn, check your last paragraph: if it is a plan
+    ("next I'll …"), execute that work now with tool calls.
+
+    Three cases based on launch mode:
+    (1) FIXED-INTERVAL (`/loop <N>m`, e.g. `/loop 5m`): the harness is the re-invoker; it fires the
         next turn automatically. Do NOT issue ScheduleWakeup — a self-reschedule on top of the harness
         re-fire would double-fire iterations. End the turn after the iteration report. Ensure each
-        iteration is idempotent: if the harness re-fires while nothing is pending (STOP already met,
-        state already committed), the iteration must recognize that from real state and stop cleanly.
-        STOP TEARDOWN (MANDATORY): when STOP fires under a fixed-interval `/loop`, the harness cron
-        keeps re-firing every `<N>m` forever — token drain. The agent MUST disarm the re-invoker as
-        part of the STOP declaration: use CronList to find the cron job whose prompt is this loop,
-        then CronDelete to remove it. If the harness offers no such tool, tell the operator explicitly
-        to cancel the loop (e.g. "cancel the `/loop <N>m` job you launched"). A re-fire that finds
-        STOP already met MUST also disarm and end (idempotent).
+        iteration is idempotent: if the harness re-fires while nothing is pending (campaign STOP
+        already met, state already committed), the iteration recognises that from real state and stops
+        cleanly. Teardown runs at campaign STOP (not at each focus stop): when campaign STOP fires
+        under a fixed-interval `/loop`, the harness cron keeps re-firing — token drain. Disarm the
+        re-invoker as part of the campaign STOP declaration: use CronList to find the cron job whose
+        prompt is this loop, then CronDelete to remove it. If the harness offers no such tool, tell
+        the operator explicitly to cancel the loop. A re-fire that finds campaign STOP already met
+        disarms and ends (idempotent).
     (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): the re-fire
-        depends on the agent calling ScheduleWakeup. WHAT ENDS A TURN (#620): the runtime ends the
-        turn when the agent emits text without a following tool call. So ScheduleWakeup must be the
-        LAST action of the turn, placed AFTER the iteration report text — any text emitted after the
-        wakeup call, or a final turn with only text and no tool call, ends the loop immediately.
+        depends on the agent calling ScheduleWakeup. The runtime ends the turn when the agent emits
+        text without a following tool call (#620), so ScheduleWakeup is the last action of the turn,
+        placed after the iteration report text. At campaign STOP, do not reschedule.
     (3) ORCHESTRATED: signal "continue" at the end of the iteration report; the driver re-invokes.
-    In all cases the RETURN CONTRACT below is a per-iteration CHECKPOINT, not a hand-off. "Never stop
-    after a single block" means: never declare STOP unless the stopping criterion is truly met, and
-    never skip the continuation mechanism of the active mode.
-    ANTI-PATTERN — MILESTONE/CLUSTER BOUNDARY IS NOT A STOP: completing a named cluster, phase, or
-    milestone within the gap backlog is NOT a stopping criterion in auto/chain mode. The loop continues
-    to the next gap immediately. The only allowed turn-end set is: {STOP criterion met · a
-    requires-execution wall · an operator pause · a tool failure · fixed-interval: end of iteration
-    report (the harness re-fires)}. Nothing else ends the turn in auto/chain or dynamic mode — not a
-    milestone boundary, not a "natural pause", not a round-number block count.
+        At campaign STOP, signal "campaign-stop" instead.
     (Evidence: niagara loop-continuation retro.)
     ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
@@ -1643,9 +1642,6 @@ HARD RULES:
     processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
     before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
     PID is the driver-owned process before killing.
-  - At the end of the iteration, summarize in 3 lines: which gap you closed, which block
-    you wrote/updated, and how many new gaps remain queued.
-
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
   SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed

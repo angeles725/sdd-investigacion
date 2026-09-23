@@ -1149,6 +1149,30 @@ backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at 
 **Frontier mode (5th investigation mode — unexplored territory, breadth-first).** Use frontier mode for a genuinely new focus with NO prior corpus coverage on its proposed surfaces — for example, the first pass over an entirely uncharted subsystem or target. The goal is a COVERAGE MAP across many sub-areas, not deep certification of one. Characteristics: sweep strategy is BREADTH-FIRST and LIGHTER BLOCK DENSITY than a normal deep-dive focus; the `[INFER]`/`[CERT]` ratio is EXPECTED HIGH — that is not a defect but a signal that targeted deep-dive passes are needed later. Declare `MODE: frontier` in RESEARCH-STATE at bootstrap. A frontier focus is NOT under depth pressure from the marker ratio: a high `[INFER]` count signals "return with richer tooling", not "the focus is incomplete by §8 standards". Distinct from a grade-upgrade reopen (which deepens evidence for questions already asked on a STOPPED focus) and from live-backlog injection (which extends an active loop's queue). **FRONTIER-REOPEN DECISION SHAPE.** Before honoring STOP on a frontier focus, run a coverage/section audit: if the audit reveals >2 contiguous section entries uncovered OR >1 named sub-topic with no block coverage, that is a new tier, not an in-block residue — declare it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration of the new tier and seed the backlog from the uncovered entries. A single in-child residue stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is not a reproducible corpus action.
 (Source: niagara-research/retros/2026-09-14-frontier-mode-proposal.md)
 
+## 8c. Campaign queue
+
+**What a campaign is.** Heavy and frontier modes continue on their own by default: when a focus stops, the FRONTIER-REOPEN audit enqueues new entries, and the loop pops the next one without operator involvement. That chain of focuses is a campaign. A focus stop does not end the campaign. The campaign runs until its queue is empty and the last coverage audit enqueued nothing.
+
+**Queue entries.** Each entry in the campaign queue carries:
+- `name` — a short slug (e.g. `api-surface`, `comms-tier`)
+- `parent` — the focus that discovered it, or `root` for the initial entry
+- `kind` — one of `focus`, `tier`, `sub-topic`
+- `seed` — a brief description of what to investigate (becomes the bootstrap gap list)
+- `convergence` — the condition under which this entry is done (e.g. "all sections mapped", "load-bearing question answered")
+- `state` — one of `pending`, `active`, `done`, `bound-stopped`
+
+The queue lives in the root RESEARCH-STATE (the `## Campaign queue` table; grammar in the template). A single-focus corpus that never spawns children is a campaign with one entry; no special configuration is needed.
+
+**Campaign STOP condition.** The campaign stops when: (1) the queue is empty and the last coverage audit enqueued nothing; or (2) a declared bound is reached (max-depth, iteration budget, or wall-clock budget), which emits the typed stop `campaign-bound-reached: <which>` and does not silently exit. Resume after an interruption by reading the queue: pop the next `pending` entry, bootstrap it if new, and continue the loop.
+
+**Declared bounds.** Set at bootstrap. When a bound fires mid-campaign: emit `campaign-bound-reached: <which>` (e.g. `campaign-bound-reached: max-depth-3`), record it in RESEARCH-STATE, run the SELF-RETROSPECTIVE, then stop. A bound stop is a typed exit, not a missing STOP signal.
+
+**Teardown and the retro.** Teardown (disarming the re-invoker under fixed-interval mode) runs at campaign STOP, not at each focus stop. At focus stop, the loop continues to the next queue entry; the re-invoker stays active. Only when the campaign STOP condition fires does the loop disarm the re-invoker and run the full RETRO CHECKPOINT.
+
+**Stall detection (instrument-facing).** The declarative signal the status instrument reads is `last_iteration_ts` in RESEARCH-STATE (an ISO-8601 UTC timestamp updated each time a block is committed). An instrument that finds `last_iteration_ts` unchanged for longer than the expected iteration cadence can surface a stall warning. The instrument is not built here; the field is declared so doctrine precedes the parser (CLAUDE.md §6).
+
+**Operational details** (continuation mechanics, mode cases, cadence) are in PROMPT-LOOP LOOP CONTINUATION. §8 states the policy; PROMPT-LOOP states how to execute it.
+
 ## 8b. Gap-backlog cell grammar (issue #147)
 
 The `## Gap-backlog` table has two grammar-sensitive cells — **Priority** and **Status** — that
