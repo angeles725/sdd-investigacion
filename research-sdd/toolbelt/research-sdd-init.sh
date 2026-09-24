@@ -10,19 +10,27 @@
 #
 # SAFETY (each backed by a red-first test):
 #   - REFUSES if a corpus already exists at EITHER candidate root ($TARGET or
-#     $TARGET/corpus/), keyed on ANY corpus marker (INDEX/RESEARCH-STATE/CATALOG) —
-#     so it never clobbers hand-curated state and never duplicates a corpus.
+#     $TARGET/corpus/), keyed on ANY corpus marker (INDEX/RESEARCH-STATE/RESEARCH-STATE-<focus>
+#     §16 multi-focus form/CATALOG) — so it never clobbers hand-curated state and never
+#     duplicates a corpus.
 #   - PRE-FLIGHT writability probe: fails BEFORE any mutation if $TARGET is read-only.
 #   - `set -euo pipefail` + a ROLLBACK trap: any mid-run failure removes exactly what
 #     THIS run created (never a pre-existing file) and exits non-zero — no half-scaffold
 #     left behind, no green report over a broken tree.
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
-# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]
+# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
+#        [--wire] [--no-wire] [--scaffold]
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused) ·
 #       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
 #           valid .hooks shape, OR the settings.json merge itself failed (refused/aborted,
-#           nothing written — never reported as success).
+#           nothing written — never reported as success) ·
+#       5 = --wire refused: no corpus marker (INDEX.md/RESEARCH-STATE.md/RESEARCH-STATE-<focus>.md/
+#           CATALOG.md) was found at $target or $target/corpus, and --scaffold was not also given —
+#           nothing written at all, REGARDLESS of --force (kit issue #1047: an operator asking to
+#           WIRE never intends to SCAFFOLD; --force only bypasses the anti-clobber guard on an
+#           EXISTING corpus, never implicit scaffolding of a marker-less target) · --scaffold given
+#           without --wire is a usage error (exit 2): it has no effect on its own.
 #
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
@@ -46,6 +54,22 @@
 # skipped, while Stop is still merged. jq absent ⇒ no writes at all (no hook files, no
 # settings.json) — print-only, and the printed snippet also honors the #959 SessionStart guard
 # (including when the hook file does not exist yet).
+#
+# --wire REFUSES TO IMPLICITLY SCAFFOLD (kit issue #1047): when NO corpus marker is found at
+# either candidate root ($target or $target/corpus), --wire alone REFUSES (typed message, exit 5,
+# nothing written — no dirs, no .gitignore edit, no git init) instead of silently falling through
+# to a full scaffold. An operator asking to WIRE never intends to SCAFFOLD. This refusal applies
+# EVEN WITH --force (round 2 hardening: --force previously bypassed it entirely, silently
+# scaffolding a marker-less target) — --force only ever means "bypass the anti-clobber guard on an
+# EXISTING corpus", never "scaffold something that does not exist yet". Pass --scaffold together
+# with --wire to opt in to scaffolding AND wiring in one call (--scaffold without --wire is a
+# usage error, exit 2 — it has no effect on its own); that combined path applies the SAME
+# <SUBJECT> SessionStart guard as the wire-only repair path above — a freshly-copied
+# hook-sessionstart.sh always carries a LIVE (non-comment) <SUBJECT> placeholder, so SessionStart
+# wiring is skipped (WARN) until the operator adapts it, exactly like the repair path. The
+# recognized corpus-marker forms (both here and in the anti-clobber guard) are INDEX.md,
+# RESEARCH-STATE.md, the §16 multi-focus RESEARCH-STATE-<focus>.md, and CATALOG.md — a
+# multi-focus-only corpus (no plain RESEARCH-STATE.md) is still a real, present corpus.
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
@@ -59,7 +83,7 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
 
-target=""; corpus_mode="auto"; prefix=""; force=0; wire=0
+target=""; corpus_mode="auto"; prefix=""; force=0; wire=0; scaffold=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
@@ -67,11 +91,16 @@ while [ $# -gt 0 ]; do
     --force)    force=1; shift;;
     --wire)     wire=1; shift;;
     --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
+    --scaffold) scaffold=1; shift;;   # kit issue #1047: explicit opt-in to scaffold+wire in one call
     -*)         echo "unknown flag: $1" >&2; exit 2;;
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire] [--scaffold]" >&2; exit 2; }
+# kit issue #1047: --scaffold has no effect on its own — it only opts a marker-less target INTO
+# scaffolding when paired with --wire. Reject rather than silently ignore, so a typo (or a
+# --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
+[ "$scaffold" = 1 ] && [ "$wire" = 0 ] && { echo "usage: --scaffold requires --wire (it only opts a marker-less target into scaffold+wire; pass --scaffold --wire, or drop --scaffold for the ordinary print-only scaffold)" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
@@ -79,8 +108,22 @@ for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-s
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
 
-# --- corpus_present helper (shared by wire-only and anti-clobber sections) ---
-corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
+# --- corpus_present helper (shared by wire-only, anti-clobber, and #1047 refusal sections) ---
+# RESEARCH-STATE*.md covers BOTH the single-focus RESEARCH-STATE.md AND the §16 multi-focus
+# naming convention RESEARCH-STATE-<focus>.md (same glob lib/state-files.sh's list_state_files
+# uses for corpus-wide state-file enumeration) — a multi-focus-only corpus (no plain
+# RESEARCH-STATE.md, only RESEARCH-STATE-<focus>.md files) is still a real, present corpus.
+# *.template.md is excluded so a stray copied template never counts as a marker.
+corpus_present() {
+  local r="$1" m f
+  for m in INDEX.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done
+  for f in "$r"/RESEARCH-STATE*.md; do
+    [ -e "$f" ] || continue
+    case "$f" in *.template.md) continue;; esac
+    return 0
+  done
+  return 1
+}
 
 # kit issue #1040 finding 3 (round 2 of #1038): detect <SUBJECT> only in NON-COMMENT lines. The
 # shipped template's own header comments legitimately contain the literal token, and a real
@@ -154,12 +197,30 @@ _rsdd_print_wire_snippet() {
 # rather than re-claiming credit for it (finding 4). This is both the intended workflow after
 # step 4 (adapt the hook, then re-run with --wire to register it) and the repair path for a
 # corpus that never had hooks scaffolded.
-# WIRE-ONLY-EXISTING-CORPUS
-if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
-  _wo_corpus_root=""
+# --- kit issue #1047 round 2 (R3-force-bypasses-refusal): --wire on a target with NO corpus
+# marker at EITHER candidate root REFUSES regardless of --force. The refusal used to live only
+# inside the force=0 branch below, so `--force --wire` on a marker-less target silently fell
+# through to a full scaffold — --force means "bypass the anti-clobber guard on an EXISTING
+# corpus", never "scaffold something that does not exist yet". Corpus presence is computed HERE,
+# unconditionally on force, and reused by the wire-only REPAIR path below (which stays
+# force=0-gated and unchanged: --force on an EXISTING corpus still intentionally bypasses repair
+# and falls through to a full re-scaffold, exactly as before this round).
+_wo_corpus_root=""
+if [ "$wire" = 1 ]; then
   for _cand in "$target" "$target/corpus"; do
     if corpus_present "$_cand" 2>/dev/null; then _wo_corpus_root="$_cand"; break; fi
   done
+  if [ -z "$_wo_corpus_root" ] && [ "$scaffold" = 0 ]; then
+    echo "REFUSED: --wire was given but no corpus marker (INDEX.md / RESEARCH-STATE.md / RESEARCH-STATE-<focus>.md / CATALOG.md) was found at $target or $target/corpus — refusing to scaffold implicitly (nothing written: no dirs created, no .gitignore edit, no git init)." >&2
+    echo "         An operator asking to WIRE never intends to SCAFFOLD (kit issue #1047). This refusal applies EVEN WITH --force — force only bypasses the anti-clobber guard on an EXISTING corpus, never implicit scaffolding of a marker-less target. Two ways forward:" >&2
+    echo "           1. Scaffold first, then wire: run $KIT/toolbelt/research-sdd-init.sh $target (without --wire) to scaffold, then re-run with --wire." >&2
+    echo "           2. Scaffold AND wire in one call: re-run with --scaffold --wire." >&2
+    exit 5
+  fi
+fi
+
+# WIRE-ONLY-EXISTING-CORPUS
+if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
   if [ -n "$_wo_corpus_root" ]; then
     # Wire-only: compute paths; NEVER touch any corpus file.
     _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
@@ -445,6 +506,16 @@ if [ "$wire" = 1 ]; then
     echo "degraded: jq not found on PATH — cannot wire settings.json; falling back to print" >&2
     _wire_result="degraded"
   else
+    # kit issue #1047: never wire an unadapted SessionStart hook on the scaffold+wire path either
+    # — a freshly-copied hook-sessionstart.sh always carries a LIVE (non-comment) <SUBJECT>
+    # placeholder (see the template body), so scaffold+wire in one call (--scaffold --wire) must
+    # skip SessionStart exactly like the wire-only repair path does (kit issue #959/#1038/#1040).
+    _wire_skip_ss="false"
+    if _rsdd_has_live_subject_placeholder "$_ss_cmd"; then
+      _wire_skip_ss="true"
+      echo "WARN: $_ss_cmd still contains the <SUBJECT> placeholder — skipping SessionStart wiring until you adapt it (replace <SUBJECT> and the source paths, PROMPT-LOOP §c follow-up). Re-run with --wire once adapted." >&2
+    fi
+
     # Read existing settings or start from empty object; never corrupt if file is invalid JSON
     _wire_base='{}'
     if [ -f "$_settings" ]; then
@@ -452,16 +523,20 @@ if [ "$wire" = 1 ]; then
     fi
     _tmp_settings="$(mktemp)"
     # Idempotent merge: add Stop + SessionStart entries only if the command is not already present
-    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" '
+    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" --argjson skip_ss "$_wire_skip_ss" '
       ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
       ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
       .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
         else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
-      .hooks.SessionStart = (if $has_ss then (.hooks.SessionStart // [])
+      .hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
         else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
     ' > "$_tmp_settings" 2>/dev/null; then
       mv "$_tmp_settings" "$_settings"
-      echo "  wired  : hooks registered in $_settings"
+      if [ "$_wire_skip_ss" = "true" ]; then
+        echo "  wired  : Stop hook registered in $_settings (SessionStart skipped — see WARN above)"
+      else
+        echo "  wired  : hooks registered in $_settings"
+      fi
       _wire_result="wired"
     else
       rm -f "$_tmp_settings"
