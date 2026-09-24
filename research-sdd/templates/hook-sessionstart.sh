@@ -33,7 +33,6 @@ _session_id=$(printf '%s' "$_hook_stdin" | jq -r '.session_id // empty' 2>/dev/n
 _hook_target="$(cd "$(dirname "$0")/../.." && pwd)"
 if [ -n "$_session_id" ]; then
   _rsdd_file="$_hook_target/.claude/.rsdd-session-${_session_id}"
-  _rsdd_blocked_file="$_hook_target/.claude/.rsdd-retro-blocked-${_session_id}"
   if [ ! -s "$_rsdd_file" ]; then
     _sha=$(git -C "$_hook_target" rev-parse HEAD 2>/dev/null) || _sha=""
     if [ -n "$_sha" ]; then
@@ -41,34 +40,19 @@ if [ -n "$_session_id" ]; then
       printf '%s\n' "$_sha" > "$_rsdd_file"
     fi
   fi
-  # Refresh (never rewrite) this session's own state-file mtimes on EVERY SessionStart trigger
-  # for this session id — startup/resume/clear/compact all fire SessionStart, so an active
-  # session keeps "touching" its own files as long as at least one of those triggers fires
-  # within the 7-day rotation window (#984 F3). This is what makes rotation-by-mtime, below,
-  # protect an active session generally — from ANY hook run, not just its own — rather than
-  # relying solely on the by-name self-exclusion, which only protects a session from its OWN
-  # rotation pass. `[ -e ]` before touching the blocked-file: `touch` CREATES a missing file,
-  # and a phantom .rsdd-retro-blocked-* would make retro-gate.sh believe this session already
-  # blocked once, silently skipping a legitimate block — never touch it into existence.
-  touch "$_rsdd_file" 2>/dev/null || true
-  if [ -e "$_rsdd_blocked_file" ]; then touch "$_rsdd_blocked_file" 2>/dev/null || true; fi
   # Rotate stale session state files (older than 7 days) to prevent accumulation. Exclude THIS
-  # session's own files by name too (defense in depth if the touch above ever fails): a session
-  # that has been running longer than 7 days must keep its own session-start sha and block-once
-  # marker, or retro-gate.sh would silently fall back to degraded (mtime) mode mid-session.
-  # $_session_id is a UUID (hex digits and hyphens only), so embedding it unescaped in a
-  # `find -name` glob pattern is safe — it carries no `*`, `?`, or `[` glob metacharacters that
-  # could widen or narrow the match.
-  # Residual (documented, not fixed — #984 F3): a session that runs CONTINUOUSLY for more than
-  # 7 days with NO SessionStart-triggering event anywhere in that window (no resume/clear/
-  # compact) never refreshes its own mtime and is not protected against another session's
-  # rotation pass during that gap; only this session's OWN rotation pass would still protect it
-  # (via the by-name exclusion below), and only once THAT session next fires SessionStart.
+  # session's own files by name: a session that has been running longer than 7 days must keep
+  # its own session-start sha and block-once marker, or retro-gate.sh would silently fall back
+  # to degraded (mtime) mode mid-session. $_session_id is a UUID (hex digits and hyphens only),
+  # so embedding it unescaped in this `find -name` glob pattern is safe.
+  # Residual (documented, not fixed): this by-name exclusion protects a session only from ITS
+  # OWN rotation pass. A CONCURRENT session's rotation pass does not know this session's id and
+  # can still delete this session's files once they age past the 7-day window.
   find "$_hook_target/.claude" -maxdepth 1 \
     \( -name '.rsdd-session-*' -o -name '.rsdd-retro-blocked-*' \) \
     ! -name ".rsdd-session-${_session_id}" ! -name ".rsdd-retro-blocked-${_session_id}" \
     -mtime +7 -delete 2>/dev/null || true
-  unset _rsdd_file _rsdd_blocked_file _sha
+  unset _rsdd_file _sha
 fi
 unset _hook_stdin _session_id _hook_target
 
