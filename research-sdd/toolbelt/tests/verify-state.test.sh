@@ -4012,7 +4012,7 @@ fi
 # textual prefix match cannot see either kind of escape. §7 keeps FOUR final states distinct: a
 # source that does not exist at all (absent), one that exists and is genuinely empty, one whose
 # files are all clean (no-match, silent), and one whose declared candidates were all refused
-# (declared-but-none-inspectable) — the last of these must never read the same as plain emptiness.
+# (found-but-none-inspectable) — the last of these must never read the same as plain emptiness.
 # ============================================================================
 echo "-- P8-S: settings.json ∪ settings.local.json ∪ .claude/hooks/* --"
 
@@ -4033,43 +4033,33 @@ mk_settings_cmds() { local d="$1"; shift; mk_settings_file "$d" "settings.json" 
 # mk_local_cmds <dir> <cmd...> — convenience wrapper: settings.local.json.
 mk_local_cmds() { local d="$1"; shift; mk_settings_file "$d" "settings.local.json" "$@"; }
 
-# build_hermetic_nojq_bin <src_path> <out_dir> — populate <out_dir> with symlinks to every
-# executable reachable from <src_path> except jq (ported from retro-gate.test.sh's helper of the
-# same name, same hermetic-PATH technique — first-wins across dirs keeps a duplicate-dir jq, e.g.
-# /bin -> /usr/bin, from leaking back in through a second PATH entry).
-build_hermetic_nojq_bin() {
-  local src_path="$1" out_dir="$2" _oifs _pd _exe _n
+# build_hermetic_bin_excluding <src_path> <out_dir> <excluded_name> — populate <out_dir> with
+# symlinks to every executable reachable from <src_path> except <excluded_name> (ported from
+# retro-gate.test.sh's build_hermetic_nojq_bin, generalized to take the excluded name as a
+# parameter instead of duplicating the whole function per excluded tool). First-wins across dirs
+# keeps a duplicate-dir copy, e.g. /bin -> /usr/bin, from leaking the excluded tool back in through
+# a second PATH entry.
+build_hermetic_bin_excluding() {
+  local src_path="$1" out_dir="$2" excluded="$3" _oifs _pd _exe _n
   _oifs="$IFS"; IFS=':'
   for _pd in $src_path; do
     IFS="$_oifs"
     [ -d "$_pd" ] || continue
     while IFS= read -r -d '' _exe; do
       _n="$(basename "$_exe")"
-      [ "$_n" = "jq" ] && continue
+      [ "$_n" = "$excluded" ] && continue
       [ -e "$out_dir/$_n" ] && continue
       ln -s "$_exe" "$out_dir/$_n"
     done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
   done
   IFS="$_oifs"
 }
-# build_hermetic_norealpath_bin <src_path> <out_dir> — same technique, excluding "realpath" instead
-# of "jq". jq stays reachable: the degraded-mode fixtures below still need it to parse settings.json;
-# only realpath's absence is under test.
-build_hermetic_norealpath_bin() {
-  local src_path="$1" out_dir="$2" _oifs _pd _exe _n
-  _oifs="$IFS"; IFS=':'
-  for _pd in $src_path; do
-    IFS="$_oifs"
-    [ -d "$_pd" ] || continue
-    while IFS= read -r -d '' _exe; do
-      _n="$(basename "$_exe")"
-      [ "$_n" = "realpath" ] && continue
-      [ -e "$out_dir/$_n" ] && continue
-      ln -s "$_exe" "$out_dir/$_n"
-    done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
-  done
-  IFS="$_oifs"
-}
+# build_hermetic_nojq_bin <src_path> <out_dir> — convenience wrapper: excludes "jq".
+build_hermetic_nojq_bin() { build_hermetic_bin_excluding "$1" "$2" "jq"; }
+# build_hermetic_norealpath_bin <src_path> <out_dir> — convenience wrapper: excludes "realpath".
+# jq stays reachable in this one: the degraded-mode fixtures below still need it to parse
+# settings.json; only realpath's absence is under test.
+build_hermetic_norealpath_bin() { build_hermetic_bin_excluding "$1" "$2" "realpath"; }
 
 # P8S-REPRO: settings.json wires tools/hooks/a.py (clean); settings.local.json wires
 # .claude/hooks/orphan.sh (contains <TARGET>), which ALSO sits directly under .claude/hooks/ — named
@@ -4236,20 +4226,20 @@ fi
 _p8sf_rc="$(code "$d")"
 [ "$_p8sf_rc" -ne 2 ] && ok "P8S-F: unresolved settings command does not abort the whole run (rc=$_p8sf_rc)" \
                        || no "P8S-F: unresolved settings command aborted the run (rc=2)"
-if echo "$_p8sf" | grep -qiE 'hook-placeholder.*declared-but-none-inspectable'; then
-  ok "P8S-F: summary reports declared-but-none-inspectable, not plain empty"
+if echo "$_p8sf" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  ok "P8S-F: summary reports found-but-none-inspectable, not plain empty"
 else
-  no "P8S-F: expected declared-but-none-inspectable in the summary; got: $(echo "$_p8sf" | grep -i hook | head -3)"
+  no "P8S-F: expected found-but-none-inspectable in the summary; got: $(echo "$_p8sf" | grep -i hook | head -3)"
 fi
 
 # P8S-G: settings.json present but declares NO hooks ({}), and no .claude/hooks/ dir either.
 # settings.json EXISTS on disk, so this is empty-input (a source was found and looked empty), not
 # absent-input (nothing existed), and — since nothing was ever DECLARED — not
-# declared-but-none-inspectable either (nothing to reject).
+# found-but-none-inspectable either (nothing to reject).
 d="$TMP/p8s-empty-settings"; mk_state_p8 "$d"
 mkdir -p "$d/.claude"; printf '{}\n' > "$d/.claude/settings.json"
 _p8sg="$(run "$d" 2>/dev/null)"
-if echo "$_p8sg" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8sg" | grep -qi 'declared-but-none-inspectable'; then
+if echo "$_p8sg" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8sg" | grep -qi 'found-but-none-inspectable'; then
   ok "P8S-G: settings.json declares no hooks, no .claude/hooks/ → empty-input INFO"
 else
   no "P8S-G: expected empty-input INFO; got: $(echo "$_p8sg" | grep -i hook | head -3)"
@@ -4361,10 +4351,10 @@ if echo "$_p8oor" | grep -qiE 'hook-placeholder.*secret\.sh'; then
 else
   ok "P8S-OUTOFROOT: secret.sh's placeholder content was never read (§8 respected)"
 fi
-if echo "$_p8oor" | grep -qiE 'hook-placeholder.*declared-but-none-inspectable'; then
-  ok "P8S-OUTOFROOT: summary reports declared-but-none-inspectable, not plain empty"
+if echo "$_p8oor" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  ok "P8S-OUTOFROOT: summary reports found-but-none-inspectable, not plain empty"
 else
-  no "P8S-OUTOFROOT: expected declared-but-none-inspectable in the summary; got: $(echo "$_p8oor" | grep -i hook | head -3)"
+  no "P8S-OUTOFROOT: expected found-but-none-inspectable in the summary; got: $(echo "$_p8oor" | grep -i hook | head -3)"
 fi
 
 # ----------------------------------------------------------------------------
@@ -4403,6 +4393,46 @@ if echo "$_p8symout" | grep -qiE 'hook-placeholder.*secret\.sh'; then
   no "P8S-SYM-OUTROOT: secret.sh was READ for placeholders — privacy violation (§8)"
 else
   ok "P8S-SYM-OUTROOT: the outside symlink target's placeholder content was never read (§8 respected)"
+fi
+
+# P8S-DANGLING: a dangling symlink in .claude/hooks/ (points at a file that does not exist) is
+# in-root by construction but not ultimately a regular file. It must be reported loudly — silently
+# dropping it (as a plain subdirectory always was) hid a hook the old *.sh glob used to WARN on.
+d="$TMP/p8s-dangling"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+ln -s nonexist.sh "$d/.claude/hooks/d.sh"
+_p8dang="$(run "$d" 2>/dev/null)"
+if echo "$_p8dang" | grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh'; then
+  ok "P8S-DANGLING: a dangling symlink alone is reported loudly, not silently dropped"
+else
+  no "P8S-DANGLING: expected a dangling-symlink report; got: $(echo "$_p8dang" | grep -i 'hook-set' | head -3)"
+fi
+if echo "$_p8dang" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  ok "P8S-DANGLING: summary reports found-but-none-inspectable, not plain empty"
+else
+  no "P8S-DANGLING: expected found-but-none-inspectable in the summary; got: $(echo "$_p8dang" | grep -i hook | head -3)"
+fi
+
+# P8S-DANGLING-ALONGSIDE: the SAME dangling symlink sitting next to a genuinely valid hook — the
+# dangling entry must still be reported, and the valid one must still be inspected normally (the
+# union count reflects only the one real file).
+d="$TMP/p8s-dangling-alongside"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+ln -s nonexist.sh "$d/.claude/hooks/d.sh"
+printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/.claude/hooks/valid.sh"
+_p8danga="$(run "$d" 2>/dev/null)"
+if echo "$_p8danga" | grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh'; then
+  ok "P8S-DANGLING-ALONGSIDE: the dangling symlink is still reported alongside a valid hook"
+else
+  no "P8S-DANGLING-ALONGSIDE: expected a dangling-symlink report; got: $(echo "$_p8danga" | grep -i 'hook-set' | head -3)"
+fi
+if echo "$_p8danga" | grep -qiE 'WARN.*hook-placeholder.*valid\.sh|hook-placeholder.*valid\.sh.*WARN'; then
+  ok "P8S-DANGLING-ALONGSIDE: the valid hook is still inspected and WARNs normally"
+else
+  no "P8S-DANGLING-ALONGSIDE: expected valid.sh to WARN; got: $(echo "$_p8danga" | grep -i hook | head -3)"
+fi
+if echo "$_p8danga" | grep -qiE 'hook-set:.*inspected 1 hook file'; then
+  ok "P8S-DANGLING-ALONGSIDE: union count is 1 (the dangling entry is excluded, not counted)"
+else
+  no "P8S-DANGLING-ALONGSIDE: expected a union count of 1; got: $(echo "$_p8danga" | grep -i 'hook-set:' | head -2)"
 fi
 
 # ----------------------------------------------------------------------------
@@ -4496,24 +4526,150 @@ if command -v realpath >/dev/null 2>&1; then
     no "P8S-NOREALPATH-HOOKSDIR-SYM: expected a degraded refusal; got: $(echo "$_p8nhd" | grep -i 'hook-set' | head -3)"
   fi
 
-  # P8S-NOREALPATH-CONTROL: a plain, safe relative command — no "..", no symlink anywhere in its
-  # path — must still WARN normally even in degraded mode. The degraded checker refuses genuinely
-  # suspicious paths, not every path.
+  # P8S-NOREALPATH-CONTROL: a safe command using the $CLAUDE_PROJECT_DIR prefix form (no "..", no
+  # symlink anywhere in its path) must still WARN normally even in degraded mode. The degraded
+  # checker refuses genuinely suspicious paths, not every path.
   d="$TMP/p8s-noreal-control"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/safe.sh"
   mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/safe.sh'
   _p8nc="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
   if echo "$_p8nc" | grep -qiE 'WARN.*hook-placeholder.*safe\.sh|hook-placeholder.*safe\.sh.*WARN'; then
-    ok "P8S-NOREALPATH-CONTROL: a safe relative path still WARNs normally in degraded mode"
+    ok "P8S-NOREALPATH-CONTROL: a \$CLAUDE_PROJECT_DIR-prefixed safe path still WARNs normally in degraded mode"
   else
     no "P8S-NOREALPATH-CONTROL: expected safe.sh to WARN even without realpath; got: $(echo "$_p8nc" | grep -i hook | head -3)"
+  fi
+
+  # P8S-NOREALPATH-CONTROL-BARE: the same safety proof, but with a genuinely BARE relative token
+  # (no $CLAUDE_PROJECT_DIR prefix at all — the niagara-research/api-paneles real-fleet shapes both
+  # use one form or the other) — confirms the degraded checker's "safe path" branch is not an
+  # artifact of the prefix-substitution path specifically.
+  d="$TMP/p8s-noreal-control-bare"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
+  printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/bare.sh"
+  mk_settings_cmds "$d" 'tools/hooks/bare.sh'
+  _p8ncb="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8ncb" | grep -qiE 'WARN.*hook-placeholder.*bare\.sh|hook-placeholder.*bare\.sh.*WARN'; then
+    ok "P8S-NOREALPATH-CONTROL-BARE: a genuinely bare-relative safe path still WARNs normally in degraded mode"
+  else
+    no "P8S-NOREALPATH-CONTROL-BARE: expected bare.sh to WARN even without realpath; got: $(echo "$_p8ncb" | grep -i hook | head -3)"
+  fi
+
+  # P8S-DANGLING-NOREALPATH: a dangling symlink under degraded mode is refused by the EXISTING
+  # "crosses a symlink" conservative rule (every symlink is refused without realpath, dangling or
+  # not) — still loud, never silent, just via the degraded wording rather than the dangling one.
+  d="$TMP/p8s-dangling-noreal"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+  ln -s nonexist.sh "$d/.claude/hooks/d.sh"
+  _p8dangn="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8dangn" | grep -qiE 'hook-set:.*degraded.*d\.sh'; then
+    ok "P8S-DANGLING-NOREALPATH: a dangling symlink alone is refused (degraded) without realpath"
+  else
+    no "P8S-DANGLING-NOREALPATH: expected a degraded refusal; got: $(echo "$_p8dangn" | grep -i 'hook-set' | head -3)"
+  fi
+  if echo "$_p8dangn" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+    ok "P8S-DANGLING-NOREALPATH: summary reports found-but-none-inspectable, not plain empty"
+  else
+    no "P8S-DANGLING-NOREALPATH: expected found-but-none-inspectable; got: $(echo "$_p8dangn" | grep -i hook | head -3)"
+  fi
+
+  # P8S-DANGLING-NOREALPATH-ALONGSIDE: the dangling symlink refused as above, alongside a valid
+  # PLAIN FILE hook (not a symlink) — degraded mode only refuses symlinks/"..", so the plain file
+  # is still inspected normally.
+  d="$TMP/p8s-dangling-noreal-alongside"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+  ln -s nonexist.sh "$d/.claude/hooks/d.sh"
+  printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/.claude/hooks/valid.sh"
+  _p8dangna="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8dangna" | grep -qiE 'hook-set:.*degraded.*d\.sh'; then
+    ok "P8S-DANGLING-NOREALPATH-ALONGSIDE: the dangling symlink is still refused alongside a valid hook"
+  else
+    no "P8S-DANGLING-NOREALPATH-ALONGSIDE: expected a degraded refusal; got: $(echo "$_p8dangna" | grep -i 'hook-set' | head -3)"
+  fi
+  if echo "$_p8dangna" | grep -qiE 'WARN.*hook-placeholder.*valid\.sh|hook-placeholder.*valid\.sh.*WARN'; then
+    ok "P8S-DANGLING-NOREALPATH-ALONGSIDE: the valid plain-file hook is still inspected normally"
+  else
+    no "P8S-DANGLING-NOREALPATH-ALONGSIDE: expected valid.sh to WARN; got: $(echo "$_p8dangna" | grep -i hook | head -3)"
+  fi
+
+  # P8S-GLOBCOMP: a settings-derived relative command whose path has a GLOB-SHAPED component
+  # ("[l]") that is also a symlink escaping the target root. Run with the process cwd switched to a
+  # directory containing a decoy entry literally named "l" — an unquoted, glob-active split of the
+  # component (the pre-fix `for x in $rel` with IFS='/' but pathname expansion still on) would
+  # wrongly expand "[l]" against that decoy and test the WRONG path instead of the real one.
+  d="$TMP/p8s-globcomp"; mk_state_p8 "$d"; mkdir -p "$d/tools"
+  glob_decoy_dir="$TMP/p8s-globcomp-decoy-cwd"; mkdir -p "$glob_decoy_dir"
+  touch "$glob_decoy_dir/l"
+  outside_gc="$TMP/p8s-globcomp-outside"; mkdir -p "$outside_gc"
+  printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_gc/secret.sh"
+  ln -s "$outside_gc" "$d/tools/[l]"
+  mk_settings_cmds "$d" 'tools/[l]/secret.sh'
+  _p8gc="$(cd "$glob_decoy_dir" && PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8gc" | grep -qiE 'hook-set:.*degraded.*secret\.sh'; then
+    ok "P8S-GLOBCOMP: a glob-shaped symlinked component is refused, not diverted through the process cwd"
+  else
+    no "P8S-GLOBCOMP: expected a degraded refusal; got: $(echo "$_p8gc" | grep -i 'hook-set' | head -3)"
+  fi
+  if echo "$_p8gc" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+    no "P8S-GLOBCOMP: secret.sh was READ — the glob diverted the containment check to the decoy path"
+  else
+    ok "P8S-GLOBCOMP: secret.sh's placeholder content was never read"
   fi
 else
   echo "  SKIP  P8-S no-realpath cases: realpath already absent from PATH — cannot build a hermetic no-realpath PATH to isolate the degraded probe"
 fi
 
 # ----------------------------------------------------------------------------
-# P8-S: distinct final states (§7 extended) — "declared-but-none-inspectable" must fire whenever
+# P8-S: root canonicalization — the target root itself needs canonicalizing (via the `cd + pwd -P`
+# builtin combo, no external `realpath` required), not only the candidate hook paths checked
+# against it.
+# ----------------------------------------------------------------------------
+
+# P8S-ROOT-DOT: invoking with "." while cwd == the target, in degraded mode. An ABSOLUTE
+# settings-declared command naturally resolves to the target's real absolute location; without
+# canonicalizing "." to that same absolute form first, the two never textually matched and a real,
+# in-root file was reported out-of-root — a false positive, not a privacy leak.
+d="$TMP/p8s-root-dot"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/.claude/hooks/x.sh"
+mk_settings_cmds "$d" "$d/.claude/hooks/x.sh"   # the REAL absolute path, not $CLAUDE_PROJECT_DIR
+if command -v realpath >/dev/null 2>&1; then
+  _NOREAL_BIN2="$TMP/norealpath_bin2"; mkdir -p "$_NOREAL_BIN2"
+  build_hermetic_norealpath_bin "$PATH" "$_NOREAL_BIN2"
+  _p8rd="$(cd "$d" && PATH="$_NOREAL_BIN2" bash "$SUT" . 2>/dev/null)"
+  if echo "$_p8rd" | grep -qiE 'hook-set:.*out-of-root'; then
+    no "P8S-ROOT-DOT: an absolute in-root command was falsely reported out-of-root when target='.' (degraded)"
+  else
+    ok "P8S-ROOT-DOT: an absolute in-root command is NOT falsely out-of-root when target='.' (degraded)"
+  fi
+  if echo "$_p8rd" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+    ok "P8S-ROOT-DOT: the hook is still inspected and WARNs (target='.', degraded)"
+  else
+    no "P8S-ROOT-DOT: expected x.sh to WARN; got: $(echo "$_p8rd" | grep -i hook | head -3)"
+  fi
+else
+  echo "  SKIP  P8S-ROOT-DOT: realpath already absent from PATH — cannot isolate the degraded probe"
+fi
+# Sanity: the same fixture, normal mode (realpath present) — must already have worked, and must
+# still work after the canonicalization change (regression guard).
+_p8rd_normal="$(cd "$d" && bash "$SUT" . 2>/dev/null)"
+if echo "$_p8rd_normal" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' && ! echo "$_p8rd_normal" | grep -qiE 'hook-set:.*out-of-root'; then
+  ok "P8S-ROOT-DOT: target='.' still WARNs correctly in normal mode (regression guard)"
+else
+  no "P8S-ROOT-DOT: target='.' regressed in normal mode; got: $(echo "$_p8rd_normal" | grep -i hook | head -3)"
+fi
+
+# P8S-ROOT-ANCESTOR-SYMLINK: the target argument's PATH is reached through a symlinked ANCESTOR
+# directory (not the target directory itself) — `cd + pwd -P` must resolve the whole chain, not
+# just a directly-symlinked final component.
+d_real="$TMP/p8s-root-ancestor-real"; mkdir -p "$d_real/t"; mk_state_p8 "$d_real/t"
+mkdir -p "$d_real/t/.claude/hooks"
+printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_real/t/.claude/hooks/x.sh"
+ln -s "$d_real" "$TMP/p8s-root-ancestor-link"
+_p8ras="$(run "$TMP/p8s-root-ancestor-link/t" 2>/dev/null)"
+if echo "$_p8ras" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+  ok "P8S-ROOT-ANCESTOR-SYMLINK: a target reached through a symlinked ancestor still resolves and WARNs"
+else
+  no "P8S-ROOT-ANCESTOR-SYMLINK: expected x.sh to WARN; got: $(echo "$_p8ras" | grep -i hook | head -3)"
+fi
+
+# ----------------------------------------------------------------------------
+# P8-S: distinct final states (§7 extended) — "found-but-none-inspectable" must fire whenever
 # something was FOUND but every candidate was refused, and must never read the same as "empty"
 # (nothing was ever declared) or "absent" (nothing exists at all). Each fixture below is minimal and
 # isolated — no .claude/hooks/ at all — so the .claude/hooks/ source can never quietly supply a file
@@ -4528,10 +4684,10 @@ if [ "$(id -u)" = "0" ]; then
   echo "  SKIP  P8S-STATE-UNREADABLE: chmod 000 ignored when running as root"
 else
   _p8str="$(run "$d" 2>/dev/null)"
-  if echo "$_p8str" | grep -qiE 'hook-placeholder.*declared-but-none-inspectable'; then
-    ok "P8S-STATE-UNREADABLE: unreadable settings.json alone → declared-but-none-inspectable, not 'empty'"
+  if echo "$_p8str" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+    ok "P8S-STATE-UNREADABLE: unreadable settings.json alone → found-but-none-inspectable, not 'empty'"
   else
-    no "P8S-STATE-UNREADABLE: expected declared-but-none-inspectable; got: $(echo "$_p8str" | grep -i hook | head -3)"
+    no "P8S-STATE-UNREADABLE: expected found-but-none-inspectable; got: $(echo "$_p8str" | grep -i hook | head -3)"
   fi
 fi
 chmod 644 "$d/.claude/settings.json" 2>/dev/null || true
@@ -4540,10 +4696,10 @@ chmod 644 "$d/.claude/settings.json" 2>/dev/null || true
 d="$TMP/p8s-state-malformed"; mk_state_p8 "$d"; mkdir -p "$d/.claude"
 printf 'not valid json {{{\n' > "$d/.claude/settings.json"
 _p8stm="$(run "$d" 2>/dev/null)"
-if echo "$_p8stm" | grep -qiE 'hook-placeholder.*declared-but-none-inspectable'; then
-  ok "P8S-STATE-MALFORMED: malformed settings.json alone → declared-but-none-inspectable, not 'empty'"
+if echo "$_p8stm" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  ok "P8S-STATE-MALFORMED: malformed settings.json alone → found-but-none-inspectable, not 'empty'"
 else
-  no "P8S-STATE-MALFORMED: expected declared-but-none-inspectable; got: $(echo "$_p8stm" | grep -i hook | head -3)"
+  no "P8S-STATE-MALFORMED: expected found-but-none-inspectable; got: $(echo "$_p8stm" | grep -i hook | head -3)"
 fi
 
 # jq-degraded, isolated
@@ -4553,10 +4709,10 @@ if command -v jq >/dev/null 2>&1; then
   _NOJQ_BIN3="$TMP/nojq_bin3"; mkdir -p "$_NOJQ_BIN3"
   build_hermetic_nojq_bin "$PATH" "$_NOJQ_BIN3"
   _p8stj="$(PATH="$_NOJQ_BIN3" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8stj" | grep -qiE 'hook-placeholder.*declared-but-none-inspectable'; then
-    ok "P8S-STATE-NOJQ: jq-degraded settings.json alone → declared-but-none-inspectable, not 'empty'"
+  if echo "$_p8stj" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+    ok "P8S-STATE-NOJQ: jq-degraded settings.json alone → found-but-none-inspectable, not 'empty'"
   else
-    no "P8S-STATE-NOJQ: expected declared-but-none-inspectable; got: $(echo "$_p8stj" | grep -i hook | head -3)"
+    no "P8S-STATE-NOJQ: expected found-but-none-inspectable; got: $(echo "$_p8stj" | grep -i hook | head -3)"
   fi
 else
   echo "  SKIP  P8S-STATE-NOJQ: jq already absent from PATH"
@@ -4570,10 +4726,10 @@ if [ "$(id -u)" = "0" ]; then
   echo "  SKIP  P8S-STATE-UNREADABLE-HOOKSDIR: chmod 000 ignored when running as root"
 else
   _p8sthd="$(run "$d" 2>/dev/null)"
-  if echo "$_p8sthd" | grep -qiE 'hook-placeholder.*declared-but-none-inspectable'; then
-    ok "P8S-STATE-UNREADABLE-HOOKSDIR: unreadable .claude/hooks/ alone → declared-but-none-inspectable, not 'empty'"
+  if echo "$_p8sthd" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+    ok "P8S-STATE-UNREADABLE-HOOKSDIR: unreadable .claude/hooks/ alone → found-but-none-inspectable, not 'empty'"
   else
-    no "P8S-STATE-UNREADABLE-HOOKSDIR: expected declared-but-none-inspectable; got: $(echo "$_p8sthd" | grep -i hook | head -3)"
+    no "P8S-STATE-UNREADABLE-HOOKSDIR: expected found-but-none-inspectable; got: $(echo "$_p8sthd" | grep -i hook | head -3)"
   fi
 fi
 chmod 755 "$d/.claude/hooks" 2>/dev/null || true
@@ -4583,8 +4739,8 @@ chmod 755 "$d/.claude/hooks" 2>/dev/null || true
 d="$TMP/p8s-state-empty-control"; mk_state_p8 "$d"
 mkdir -p "$d/.claude"; printf '{}\n' > "$d/.claude/settings.json"
 _p8ste="$(run "$d" 2>/dev/null)"
-if echo "$_p8ste" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8ste" | grep -qi 'declared-but-none-inspectable'; then
-  ok "P8S-STATE-EMPTY-CONTROL: nothing declared, nothing to reject → 'empty', never 'declared-but-none-inspectable'"
+if echo "$_p8ste" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8ste" | grep -qi 'found-but-none-inspectable'; then
+  ok "P8S-STATE-EMPTY-CONTROL: nothing declared, nothing to reject → 'empty', never 'found-but-none-inspectable'"
 else
   no "P8S-STATE-EMPTY-CONTROL: regression; got: $(echo "$_p8ste" | grep -i hook | head -3)"
 fi
@@ -4694,15 +4850,63 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   elif ! grep -q 'MUTANT: out-of-root case bypassed' "$p8s_rootmutant"; then
     no "P8-S teeth (out-of-root): mutation anchor (P8-ROOT-CHECK-INROOT-CASE) not found — did the SUT change?"
   else
-    p8s_oor_dir="$TMP/p8s-teeth-oor"; mk_state_p8 "$p8s_oor_dir"
-    p8s_oor_outside="$TMP/p8s-teeth-oor-outside"; mkdir -p "$p8s_oor_outside"
-    printf '#!/bin/bash\nT="<TARGET>"\n' > "$p8s_oor_outside/secret.sh"
-    mk_settings_cmds "$p8s_oor_dir" "cat $p8s_oor_outside/secret.sh"
-    _p8st_root="$(bash "$p8s_rootmutant" "$p8s_oor_dir" 2>/dev/null)"
-    if echo "$_p8st_root" | grep -qiE 'hook-placeholder.*secret\.sh'; then
-      ok "P8-S teeth (out-of-root): bypassing the containment case makes the escape fixture get READ → the check has teeth"
+    # The mutated case-arm only lives on the has_realpath=1 branch, so this run must be able to
+    # find `realpath` regardless of the ambient PATH the test SUITE itself happens to run under —
+    # otherwise the SUT would silently take the (unmutated) degraded branch instead, and the
+    # assertion below would depend on this host's PATH rather than on the mutation.
+    p8s_realpath_bin="$(command -v realpath 2>/dev/null || true)"
+    if [ -z "$p8s_realpath_bin" ]; then
+      echo "  SKIP  P8-S teeth (out-of-root): realpath not found anywhere on this host — cannot deterministically exercise the realpath-present containment case"
     else
-      no "P8-S teeth (out-of-root): mutant still refused the escape fixture — THEATER or the mutation missed: $(echo "$_p8st_root" | grep -i hook | head -3)"
+      p8s_realpath_dir="$p8s_mut_dir/realpath-guaranteed-bin"; mkdir -p "$p8s_realpath_dir"
+      ln -sf "$p8s_realpath_bin" "$p8s_realpath_dir/realpath"
+      p8s_oor_dir="$TMP/p8s-teeth-oor"; mk_state_p8 "$p8s_oor_dir"
+      p8s_oor_outside="$TMP/p8s-teeth-oor-outside"; mkdir -p "$p8s_oor_outside"
+      printf '#!/bin/bash\nT="<TARGET>"\n' > "$p8s_oor_outside/secret.sh"
+      mk_settings_cmds "$p8s_oor_dir" "cat $p8s_oor_outside/secret.sh"
+      _p8st_root="$(PATH="$p8s_realpath_dir:$PATH" bash "$p8s_rootmutant" "$p8s_oor_dir" 2>/dev/null)"
+      if echo "$_p8st_root" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+        ok "P8-S teeth (out-of-root): bypassing the containment case makes the escape fixture get READ → the check has teeth"
+      else
+        no "P8-S teeth (out-of-root): mutant still refused the escape fixture — THEATER or the mutation missed: $(echo "$_p8st_root" | grep -i hook | head -3)"
+      fi
+    fi
+  fi
+
+  # Mutant 5: restore the glob-unsafe split (P8-DEGRADED-WALK-SPLIT) — an unquoted
+  # `for comp in $rel` with IFS='/' but pathname expansion still active, instead of `read -ra` on
+  # a quoted here-string. On the P8S-GLOBCOMP fixture (a glob-shaped symlinked component "[l]",
+  # run with cwd switched to a directory containing a decoy file "l"), the mutant must divert the
+  # component-walk's `-L` test onto the decoy path and let the escape fixture's outside file get
+  # READ — proving the no-glob split is load-bearing, not cosmetic.
+  p8s_globmutant="$p8s_mut_dir/verify-state-globmutant.sh"
+  awk '
+    /# P8-DEGRADED-WALK-SPLIT/ {
+      print "  local IFS=\x27/\x27  # MUTANT: glob-unsafe split restored  # P8-DEGRADED-WALK-SPLIT"
+      print "  for comp in $rel; do"
+      getline
+      next
+    }
+    { print }
+  ' "$SUT" > "$p8s_globmutant"
+  if ! bash -n "$p8s_globmutant" 2>/dev/null; then
+    no "P8-S teeth (glob-split): mutant has a syntax error — mutation failed to produce valid bash"
+  elif ! grep -q 'MUTANT: glob-unsafe split restored' "$p8s_globmutant"; then
+    no "P8-S teeth (glob-split): mutation anchor (P8-DEGRADED-WALK-SPLIT) not found — did the SUT change?"
+  else
+    p8s_glob_dir="$TMP/p8s-teeth-globcomp"; mk_state_p8 "$p8s_glob_dir"; mkdir -p "$p8s_glob_dir/tools"
+    p8s_glob_decoy="$TMP/p8s-teeth-globcomp-decoy"; mkdir -p "$p8s_glob_decoy"; touch "$p8s_glob_decoy/l"
+    p8s_glob_outside="$TMP/p8s-teeth-globcomp-outside"; mkdir -p "$p8s_glob_outside"
+    printf '#!/bin/bash\nT="<TARGET>"\n' > "$p8s_glob_outside/secret.sh"
+    ln -s "$p8s_glob_outside" "$p8s_glob_dir/tools/[l]"
+    mk_settings_cmds "$p8s_glob_dir" 'tools/[l]/secret.sh'
+    p8s_norealpath_bin_for_glob="$p8s_mut_dir/norealpath-bin-for-glob"; mkdir -p "$p8s_norealpath_bin_for_glob"
+    build_hermetic_norealpath_bin "$PATH" "$p8s_norealpath_bin_for_glob"
+    _p8st_glob="$(cd "$p8s_glob_decoy" && PATH="$p8s_norealpath_bin_for_glob" bash "$p8s_globmutant" "$p8s_glob_dir" 2>/dev/null)"
+    if echo "$_p8st_glob" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+      ok "P8-S teeth (glob-split): restoring the glob-unsafe split makes the escape fixture get READ → the no-glob split has teeth"
+    else
+      no "P8-S teeth (glob-split): mutant still refused the escape fixture — THEATER or the mutation missed: $(echo "$_p8st_glob" | grep -i hook | head -3)"
     fi
   fi
 fi
