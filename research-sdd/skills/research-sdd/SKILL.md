@@ -159,7 +159,8 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
      applies, you only DEFER loading a section until its phase fires, and reading it is MANDATORY then.
      - HOT-CORE — read once per context (session start, after a compaction, or in each fresh sub-agent):
        §1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state/memory,
-       §8 stopping + terminal trigger, §9 golden rules, §11 self-verify, §17 resume.
+       §8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration), §9 golden rules,
+       §11 self-verify, §17 resume.
        Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.
      - SITUATIONAL — read the named section IN FULL the moment its phase triggers, by number: §5 sources →
        adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
@@ -174,9 +175,9 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        `**Breakthrough:**` field + add it to the fleet index); §23 three-session kit-change template →
        coordinating a kit change across separate coordinator / researcher / QA sessions; §3b corpus layout →
        creating or moving corpus files; §7b state-envelope instruments → a CHECK A mismatch or a
-       shared-prefix corpus; §8b backlog cell grammar → writing or editing a Gap-backlog row; §8c campaign
-       queue → a focus STOP, a FRONTIER-REOPEN audit, or campaign STOP; §11a measurement and data-pipeline
-       heuristics → a data-acquisition target; §20b block mode vs. journal mode → deciding whether applied work
+       shared-prefix corpus; §8c campaign queue → a focus STOP, a FRONTIER-REOPEN audit, or campaign STOP;
+       §11a measurement and data-pipeline heuristics → a data-acquisition target; §20b block mode vs.
+       journal mode → deciding whether applied work
        becomes a corpus block or a journal entry.
        Read a situational section when its trigger is your next action.
    - `$KIT/TARGETS.md` — resolve the target: its real path, artifact type, toolbelt wrapper, language
