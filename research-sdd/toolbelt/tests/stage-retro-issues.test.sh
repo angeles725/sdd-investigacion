@@ -1260,6 +1260,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 17b — SCOPE NARROWING (kit issue #945): a marker positioned deep in the body — after a SECOND
+# heading, unrelated to the leading-block-plus-one-H1 shape — must no longer gate the seeder.
+# Before #945 this script used retro_marker_line's WHOLE-FILE scan, which found a marker
+# ANYWHERE; the shared retro_marker_scope_line scope only tolerates ONE H1 at the very top, so
+# this retro is (correctly) read as carrying NO marker at all and its row is emitted as planned.
+# RED against origin/main: the deep marker WAS found (whole-file scan), so the row was
+# incorrectly treated as no-match instead of being planned.
+box="$(mkbox case-two-headings-marker)"
+retro_two_headings="$box/rh/target-foo/retros/r-two-headings.md"
+cat > "$retro_two_headings" <<'RETROEOF'
+# §18 Retro — focus: apis
+
+## Notes
+
+<!-- review-status: applied 2026-09-20 · kit ad87c33 -->
+
+## Proposed kit deltas
+
+| # | Proposed change | Target (file) | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |
+RETROEOF
+run "$box" "$retro_two_headings"
+two_headings_planned=0
+printf '%s\n' "$OUT" | grep -q 'planned-issue:' && two_headings_planned=1
+if [ "$RC" = 0 ] && [ "$two_headings_planned" = 1 ]; then
+  ok "17b marker after a SECOND heading → out of scope, row planned (not no-match) (#945)" "(exit $RC)"
+else
+  no "17b marker after a SECOND heading → out of scope, row planned (not no-match) (#945)" \
+    "exit=$RC planned=$two_headings_planned out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # 18 — DISMISSED MARKER WITH PROSE "partial": dismissed retro with lowercase "partial" in marker prose
 # should NOT trigger is_partial. Real example: 2026-09-01-build-n4-module-kit-v0.2-retro.md has
 # "dismissed ... (P1 partial)" in the marker text. The case-insensitive grep currently flips is_partial.

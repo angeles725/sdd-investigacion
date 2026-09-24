@@ -16,17 +16,38 @@
 #     Callers that need to inspect the full marker text (e.g. to extract PARTIAL / shipped IDs, or
 #     to handle retros whose marker was placed after the H1 heading) use this function.
 #     Returns nothing when no canonical marker is present. Always returns 0.
-#     Used by stage-retro-issues.sh for both status detection and PARTIAL extraction.
+#     Retained for callers outside the kit issue #945 unification (none in this kit as of #945);
+#     stage-retro-issues.sh now uses retro_marker_scope_line instead (see below).
+#
+#   retro_marker_scope_line <file>
+#     Kit issue #945 — the ONE marker scope shared by reconcile-issues.sh, stage-retro-issues.sh
+#     (the seeder), retro-gate.sh's _retro_is_seedable, and sweep-retros.sh. Echoes the raw first
+#     '<!-- review-status: ... -->' line found in the retro's LEADING BLOCK, where the leading
+#     block may optionally start with ONE H1 heading line ('# ...', never '##' or deeper) before
+#     the run of comment/blank lines — the real-corpus layout in *-closure.md retros (H1 line 1,
+#     blank line 2, marker line 3). A marker positioned deeper in the body — after a second
+#     heading, inside a fenced code block, or quoted in prose — is out of scope and this function
+#     returns nothing for it. Returns nothing (exit 0) when no marker is found within scope.
 #
 # Scanning algorithms:
-#   retro_review_status — LEADING-BLOCK-ONLY: awk stops at the first non-comment, non-blank line.
-#     Anchors on '<!--' so a bare 'review-status:' in heading prose is ignored (R1-001).
-#     sweep-retros.sh uses this function and expects body-position markers to be invisible.
+#   retro_review_status — LEADING-BLOCK-ONLY, NO H1 tolerance: awk stops at the first
+#     non-comment, non-blank line (an '# heading' line included). Anchors on '<!--' so a bare
+#     'review-status:' in heading prose is ignored (R1-001). Pre-#945 callers only; kept for any
+#     consumer outside the four instruments #945 unified (verify-retro.sh's own inline copy,
+#     research-sdd-archive.sh's format lint, stage-retro.sh, sweep-audits.sh).
 #
 #   retro_marker_line — WHOLE-FILE: grep the entire file for '<!--[space]*review-status:'.
-#     The '<!--' anchor prevents false matches from heading prose (R1-001 preserved).
-#     stage-retro-issues.sh uses this to detect markers placed after the H1 heading (real-corpus
-#     layout: H1 on line 1, blank on line 2, marker on line 3 in *-closure.md retros).
+#     The '<!--' anchor prevents false matches from heading prose (R1-001 preserved). This is
+#     MORE permissive than the #945 shared scope (any position, not just the leading block) —
+#     no longer used by any of the four #945-unified instruments.
+#
+#   retro_marker_scope_line — LEADING-BLOCK-WITH-OPTIONAL-H1 (kit issue #945): like
+#     retro_review_status, but the very first line is allowed to be a single '#' H1 heading
+#     (skipped, not counted as the block terminator) before the leading comment/blank run is
+#     scanned. A second heading, or any non-blank/non-comment prose, still terminates the scan.
+#     This is the ONE scope reconcile-issues.sh, stage-retro-issues.sh, retro-gate.sh, and
+#     sweep-retros.sh now share — narrower than retro_marker_line's whole-file scan, wider than
+#     retro_review_status's no-H1-tolerance scan.
 #
 # retro_is_excluded, retro_is_waived, retro_has_bare_marker keep LEADING-BLOCK-ONLY algorithms
 # because their semantics require a definite leading-block position (opt-out scope, waiver, format
@@ -97,6 +118,38 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       fence { next }
       { if (tolower($0) ~ /^[[:space:]]*<!--[[:space:]]*review-status:/) { print; exit } }
     ' "$f" 2>/dev/null
+    return 0
+  }
+
+  # retro_marker_scope_line <file>
+  #   Kit issue #945 — the ONE marker scope shared by reconcile-issues.sh, stage-retro-issues.sh
+  #   (the seeder), retro-gate.sh's _retro_is_seedable, and sweep-retros.sh. See the file header
+  #   for the full rationale of why this scope replaces the two that used to disagree.
+  #
+  #   Algorithm: an awk state machine over the LEADING BLOCK, tolerating exactly one H1 line at
+  #   the very start (NR==1 only — a heading on any later line is NOT skipped, so 'H1, blank, H2,
+  #   blank, marker' correctly falls OUT of scope: the H2 on line 3 is ordinary non-blank,
+  #   non-comment content and terminates the scan). After the optional H1, blank lines and
+  #   '<!--...' comment lines are collected exactly like retro_review_status; the first genuinely
+  #   non-blank, non-comment line (prose, a second heading, a fenced-block opener, …) ends the
+  #   scan. Because the scan always stops there, content further down the file — a quoted example
+  #   marker in prose, or one sitting inside a ``` fenced block — is structurally unreachable and
+  #   needs no separate fence-awareness pass (unlike retro_marker_line's whole-file scan).
+  #
+  #   RETRO_MARKER_SCOPE_H1_SKIP: anchor for the kit issue #945 teeth proof.
+  #   pipefail-audit: external `awk` over the leading few lines of a single retro file. SAFE.
+  retro_marker_scope_line() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 0
+    awk '
+      NR==1 && /^[[:space:]]*#[^#]/ { next }
+      NR==1 && /^[[:space:]]*#[[:space:]]*$/ { next }
+      /^[[:space:]]*<!--/ { print; next }
+      /^[[:space:]]*$/     { next }
+      { exit }
+    ' "$f" 2>/dev/null \
+      | grep -iE '^[[:space:]]*<!--[[:space:]]*review-status:' \
+      | head -1
     return 0
   }
 

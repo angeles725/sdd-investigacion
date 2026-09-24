@@ -365,21 +365,46 @@ else
   no "16 body marker at column 0 → still pending (leading-block-only, not prefix)" "exit=$RC out=[$OUT]"
 fi
 
+# 16b — kit issue #945 real-corpus shape: H1 line 1, blank line 2, marker line 3 (the exact
+# niagara-research *-closure.md layout). Before #945, sweep-retros.sh's retro_review_status had
+# NO H1 tolerance — the H1 heading itself terminated the leading-block scan before ever reaching
+# the marker on line 3, so a fully APPLIED retro written in this shape stayed reported as PENDING
+# forever. RED against origin/main: 'Summary: 1 pending / 1 retros' (wrongly pending).
+kit="$(mkkit c16b-h1-scope)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '# §18 Retro — focus: apis — 2026-08-25\n\n'
+  printf '<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->\n\n'
+  printf '## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n'
+  printf '| 1 | delta 1 | because |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'Summary: 0 pending / 1 retros' <<<"$OUT"; then
+  ok "16b H1 + blank + applied marker → excluded (#945 real-corpus shape)" "(exit $RC)"
+else
+  no "16b H1 + blank + applied marker → excluded (#945 real-corpus shape)" "exit=$RC out=[$OUT]"
+fi
+
 # 17 — FAIL-CLOSED on a broken helper. The SUT sources lib/retro-status.sh, but existence of the
-#      file is not enough: the source must have DEFINED retro_review_status. Neither script runs under
-#      `set -e`, so a helper that EXISTS and sources cleanly but defines NO function would leave the
-#      reader as a 'command not found' — every retro would read as 'none' and silently surface as
-#      PENDING (fail-OPEN). The post-source `declare -F` guard must instead ABORT non-zero with a
-#      helper-error message BEFORE the summary. Fixture: replace the sandbox helper with a comment-only
-#      file (exists, exit 0, no function) and feed an APPLIED retro that MUST NOT false-surface.
+#      file is not enough: the source must have DEFINED retro_marker_scope_line (kit issue #945 —
+#      the shared scope function replacing retro_review_status as sweep-retros.sh's primary
+#      reader). Neither script runs under `set -e`, so a helper that EXISTS and sources cleanly
+#      but defines NO function would leave the reader as a 'command not found' — every retro
+#      would read as 'none' and silently surface as PENDING (fail-OPEN). The post-source
+#      `declare -F` guard must instead ABORT non-zero with a helper-error message BEFORE the
+#      summary. Fixture: replace the sandbox helper with a comment-only file (exists, exit 0, no
+#      function) and feed an APPLIED retro that MUST NOT false-surface.
 kit="$(mkkit c17-broken-helper)"; tgt="$kit/targetA"
 mkretro "$tgt" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 3
 write_targets "$kit" "$tgt"
-printf '#!/usr/bin/env bash\n# broken helper: sources cleanly but defines no retro_review_status\n' \
+printf '#!/usr/bin/env bash\n# broken helper: sources cleanly but defines no retro_marker_scope_line\n' \
   > "$kit/toolbelt/lib/retro-status.sh"
 run "$kit"
 if [ "$RC" != 0 ] \
-   && grep -q 'failed to define retro_review_status' <<<"$OUT" \
+   && grep -q 'failed to define retro_marker_scope_line' <<<"$OUT" \
    && ! grep -q 'PENDING' <<<"$OUT" \
    && ! grep -q 'Summary:' <<<"$OUT"; then
   ok "17 broken helper (no function) → fail-closed abort, no summary" "(exit $RC)"
@@ -1533,7 +1558,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (comment-only) helper + an APPLIED retro, and re-run: with both guards dead the SUT falls back to
   # the OLD fail-OPEN — the applied retro false-surfaces as PENDING and the run exits 0.
   echo "-- teeth: neuter the fail-closed guards, expect the broken helper to fail-OPEN again --"
-  anchor3='declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_review_status" >&2; exit 1; }'
+  anchor3='declare -F retro_marker_scope_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_marker_scope_line" >&2; exit 1; }'
+  anchor3_stat='declare -F retro_status_from_marker_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_status_from_marker_line" >&2; exit 1; }'
   anchor3_wv='declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }'
   if [[ "$content" != *"$anchor3"* ]]; then
     no "teeth: locate fail-closed guard" "anchor not found — SUT drifted?"
@@ -1541,13 +1567,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     kit="$(mkkit teeth-guard)"; tgt="$kit/targetA"
     mkretro "$tgt" "r1.md" "<!-- review-status: applied 2026-01-01 -->" 3
     write_targets "$kit" "$tgt"
-    printf '#!/usr/bin/env bash\n# broken helper: no retro_review_status\n' \
+    printf '#!/usr/bin/env bash\n# broken helper: no retro_marker_scope_line\n' \
       > "$kit/toolbelt/lib/retro-status.sh"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    # Neuter BOTH guards to no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands an
-    # unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
+    # Neuter ALL THREE guards to no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands
+    # an unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
     neutered=':'
     _tmp_neu="${content/"$anchor3"/$neutered}"
+    _tmp_neu="${_tmp_neu/"$anchor3_stat"/$neutered}"
     printf '%s\n' "${_tmp_neu/"$anchor3_wv"/$neutered}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"; rcm=$?
     if [ "$rcm" = 0 ] && grep -q 'PENDING' <<<"$outm" && ! grep -q 'failed to define' <<<"$outm"; then
@@ -1624,15 +1651,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Tooth E2: blanket exclusion (always-true) → an UNMARKED file also disappears (opt-out default broken).
-  # Replace the sandbox lib so retro_is_excluded always returns 0 (true). With retro_review_status
-  # also stubbed to return empty (no echo), every file is 'not applied/dismissed' but immediately
-  # 'excluded' → 0 pending / 0 retros. Case 24 asserts 1 pending / 1 retros, which now fails → teeth proved.
+  # Replace the sandbox lib so retro_is_excluded always returns 0 (true). With retro_marker_scope_line
+  # and retro_status_from_marker_line also stubbed to return empty (no echo), every file is
+  # 'not applied/dismissed' but immediately 'excluded' → 0 pending / 0 retros. Case 24 asserts
+  # 1 pending / 1 retros, which now fails → teeth proved.
   echo "-- teeth: blanket exclusion (always-exclude), expect unmarked file to disappear (opt-out default) --"
   kit="$(mkkit teeth-excl-2)"; tgt="$kit/targetA"
   mkretro "$tgt" "client.md" "<!-- kit-retro: exclude -->" 2
   mkretro "$tgt" "normal.md" "-" 1
   write_targets "$kit" "$tgt"
-  printf '#!/usr/bin/env bash\nif ! declare -F retro_review_status >/dev/null 2>&1; then\n  retro_review_status() { return 0; }\nfi\nif ! declare -F retro_is_excluded >/dev/null 2>&1; then\n  retro_is_excluded() { return 0; }  # always-exclude blanket\nfi\n' \
+  printf '#!/usr/bin/env bash\nif ! declare -F retro_marker_scope_line >/dev/null 2>&1; then\n  retro_marker_scope_line() { return 0; }\nfi\nif ! declare -F retro_status_from_marker_line >/dev/null 2>&1; then\n  retro_status_from_marker_line() { return 0; }\nfi\nif ! declare -F retro_is_excluded >/dev/null 2>&1; then\n  retro_is_excluded() { return 0; }  # always-exclude blanket\nfi\n' \
     > "$kit/toolbelt/lib/retro-status.sh"
   outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
   if ! grep -q 'Summary: 1 pending' <<<"$outm"; then

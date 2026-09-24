@@ -98,8 +98,10 @@ _RS_LIB="$_SCRIPT_DIR/lib/retro-status.sh"
 [ -f "$_RS_LIB" ] || { echo "reconcile-issues: cannot find helper $_RS_LIB" >&2; exit 1; }
 # shellcheck source=lib/retro-status.sh
 . "$_RS_LIB"
-declare -F retro_review_status >/dev/null 2>&1 \
-  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_review_status" >&2; exit 1; }
+declare -F retro_marker_scope_line >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_scope_line" >&2; exit 1; }
+declare -F retro_status_from_marker_line >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_status_from_marker_line" >&2; exit 1; }
 declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
@@ -141,17 +143,18 @@ audit_retro() {
   local _gh_rc _gh_stderr_file _gh_err_msg
 
   # --- Parse review-status and PARTIAL marker (mirrors stage-retro-issues.sh logic)
-  local _status
-  _status="$(retro_review_status "$retro_path")"
-
+  # RECONCILE_ISSUES_SCOPE_SHARED (kit issue #945): both the raw marker line and the derived
+  # status word come from retro_marker_scope_line — the ONE scope reconcile-issues.sh,
+  # stage-retro-issues.sh, retro-gate.sh, and sweep-retros.sh now share (leading block, tolerating
+  # exactly one H1 line at the top — the real-corpus layout in *-closure.md retros). Before #945
+  # this used retro_review_status's NO-H1-tolerance leading-block scan plus its own hand-copied
+  # copy of the same awk pipeline, so a marker on line 3 (H1 line 1, blank line 2) was invisible
+  # here even though the seeder already found it — the exact split-brain #945 closes.
   local _marker_line
-  _marker_line="$(awk '
-    /^[[:space:]]*<!--/ { print; next }
-    /^[[:space:]]*$/     { next }
-    { exit }
-  ' "$retro_path" 2>/dev/null \
-    | grep -iE '<!--[[:space:]]*review-status:' \
-    | head -1)"
+  _marker_line="$(retro_marker_scope_line "$retro_path")"
+
+  local _status
+  _status="$(retro_status_from_marker_line "$_marker_line")"
 
   local is_partial=0 shipped_ids=""
   # RECONCILE_ISSUES_PARTIAL_CHECK (kit issue #1090): PARTIAL is a STATUS TOKEN, detected only

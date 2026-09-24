@@ -342,15 +342,16 @@ EOF
 
   # Tooth M6: drop the bare '{ exit }' from retro_is_waived's awk, enabling a whole-file scan.
   # A body-position waiver marker (case 15 fixture) must then FALSELY return 0 (waived).
-  # Uses awk to skip the THIRD bare '{ exit }' occurrence (the one in retro_is_waived); the
-  # first (in retro_review_status) and second (in retro_is_excluded) are kept intact.
-  # If the mutant returns 1 (not waived), the '{ exit }' guard was not the deciding factor
-  # and case 15 is theater.
+  # Uses awk to skip the FOURTH bare '{ exit }' occurrence (the one in retro_is_waived); the
+  # first (retro_review_status), second (retro_marker_scope_line, kit issue #945), and third
+  # (retro_is_excluded) are kept intact. If the mutant returns 1 (not waived), the '{ exit }'
+  # guard was not the deciding factor and case 15 is theater.
   echo "-- teeth M6: drop { exit } from retro_is_waived awk; body-position waiver must false-fire (case 15 has teeth) --"
   m6_mutant="$ROOT/retro-status.m6.sh"
-  # Three '{ exit }' occurrences: retro_review_status (n=1), retro_is_excluded (n=2),
-  # retro_is_waived (n=3). Skip the THIRD to mutate only retro_is_waived's guard.
-  awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==3) next } { print }' "$HELPER" > "$m6_mutant"
+  # Four '{ exit }' occurrences: retro_review_status (n=1), retro_marker_scope_line (n=2),
+  # retro_is_excluded (n=3), retro_is_waived (n=4). Skip the FOURTH to mutate only
+  # retro_is_waived's guard.
+  awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==4) next } { print }' "$HELPER" > "$m6_mutant"
   fix15="$(mkretro m6-body-waiver <<'EOF'
 # retro — body-position waiver below
 
@@ -652,6 +653,112 @@ ids36="$(retro_marker_shipped_ids '')"
   || no "36 retro_marker_shipped_ids: empty input → empty output" "got [$ids36]"
 
 # ---------------------------------------------------------------------------
+# retro_marker_scope_line <file> — kit issue #945: the ONE marker scope shared by
+# reconcile-issues.sh, stage-retro-issues.sh, retro-gate.sh, and sweep-retros.sh. Leading block,
+# tolerating exactly one H1 line at the very top.
+
+# 37 — REAL-CORPUS LAYOUT: H1 line 1, blank line 2, marker line 3 → found. This is the exact
+# niagara-research *-closure.md shape kit issue #945 was filed over.
+f="$(mkretro scope-h1-blank <<'EOF'
+# §18 Retro — focus: apis — 2026-08-25
+
+<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->
+
+body
+EOF
+)"
+f37path="$f"
+sl37="$(retro_marker_scope_line "$f")"
+[ "$sl37" = "<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->" ] \
+  && ok "37 retro_marker_scope_line: H1 + blank + marker → found (#945 real-corpus shape)" "()" \
+  || no "37 retro_marker_scope_line: H1 + blank + marker → found (#945 real-corpus shape)" "got [$sl37]"
+
+# 38 — H1 directly followed by marker, NO blank line → still found (blanks after H1 are optional,
+# not required).
+f="$(mkretro scope-h1-noblank <<'EOF'
+# retro
+<!-- review-status: dismissed 2026-01-01 -->
+body
+EOF
+)"
+sl38="$(retro_marker_scope_line "$f")"
+[ "$sl38" = "<!-- review-status: dismissed 2026-01-01 -->" ] \
+  && ok "38 retro_marker_scope_line: H1 immediately followed by marker (no blank) → found" "()" \
+  || no "38 retro_marker_scope_line: H1 immediately followed by marker (no blank) → found" "got [$sl38]"
+
+# 39 — NO H1 at all, marker on line 1 → still found (pre-#945 behavior preserved — this scope is a
+# superset of retro_review_status's, not a replacement with different no-H1 semantics).
+f="$(mkretro scope-no-h1 <<'EOF'
+<!-- review-status: applied 2026-01-01 -->
+# retro
+
+body
+EOF
+)"
+sl39="$(retro_marker_scope_line "$f")"
+[ "$sl39" = "<!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "39 retro_marker_scope_line: no H1, marker on line 1 → found (pre-#945 case preserved)" "()" \
+  || no "39 retro_marker_scope_line: no H1, marker on line 1 → found (pre-#945 case preserved)" "got [$sl39]"
+
+# 40 — TWO HEADINGS: H1, blank, H2, blank, marker → NOT found. Only ONE H1 is skippable; a second
+# heading is ordinary non-blank/non-comment content and terminates the leading-block scan.
+f="$(mkretro scope-two-headings <<'EOF'
+# H1
+
+## H2
+
+<!-- review-status: applied 2026-01-01 -->
+EOF
+)"
+sl40="$(retro_marker_scope_line "$f")"
+[ -z "$sl40" ] \
+  && ok "40 retro_marker_scope_line: H1 + H2 + marker → NOT found (only one heading skippable)" "()" \
+  || no "40 retro_marker_scope_line: H1 + H2 + marker → NOT found (only one heading skippable)" "got [$sl40]"
+
+# 41 — FENCED CODE BLOCK after H1: a documented example marker inside a ``` fence must not count.
+# The leading-block scan exits at the fence-opener line (non-blank, non-comment) before ever
+# reaching the marker-shaped text inside the fence.
+f="$(mkretro scope-fenced <<'EOF'
+# retro
+
+```
+<!-- review-status: applied 2026-01-01 -->
+```
+EOF
+)"
+sl41="$(retro_marker_scope_line "$f")"
+[ -z "$sl41" ] \
+  && ok "41 retro_marker_scope_line: marker inside fenced block after H1 → NOT found" "()" \
+  || no "41 retro_marker_scope_line: marker inside fenced block after H1 → NOT found" "got [$sl41]"
+
+# 42 — QUOTED IN PROSE after H1: a paragraph explaining the convention, that happens to mention
+# the marker text on its own following line, must not count — the prose line itself (not blank,
+# not a comment) terminates the scan before the quoted line is ever reached.
+f="$(mkretro scope-quoted-prose <<'EOF'
+# retro
+
+Example marker:
+<!-- review-status: applied 2026-01-01 -->
+EOF
+)"
+sl42="$(retro_marker_scope_line "$f")"
+[ -z "$sl42" ] \
+  && ok "42 retro_marker_scope_line: marker quoted in prose after H1 → NOT found" "()" \
+  || no "42 retro_marker_scope_line: marker quoted in prose after H1 → NOT found" "got [$sl42]"
+
+# 43 — NO MARKER AT ALL → empty output, no error (absent-input inside the function itself).
+f="$(mkretro scope-none <<'EOF'
+# retro
+
+body, no marker here
+EOF
+)"
+sl43="$(retro_marker_scope_line "$f")"
+[ -z "$sl43" ] \
+  && ok "43 retro_marker_scope_line: no marker present → empty, no error" "()" \
+  || no "43 retro_marker_scope_line: no marker present → empty, no error" "got [$sl43]"
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth P1: drop the free-text CUT (the sed that trims at '—'/'shipped:'/'(') from
@@ -749,6 +856,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         ok "teeth S2: paren-strip-removed mutant leaks the annotation (case 34 has teeth)" "(got [$outs2])"
       else
         no "teeth S2: paren-strip-removed mutant should leak the annotation" "got [$outs2] — case 34 is THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth SC1 (kit issue #945): drop the two NR==1 H1-skip rules from retro_marker_scope_line.
+  # Case 37's H1+blank+marker fixture must then find NOTHING — the H1 line becomes the block
+  # terminator again, exactly the pre-#945 bug.
+  echo "-- teeth SC1: drop the H1-skip rules in retro_marker_scope_line; case 37 must go blind --"
+  if ! grep -qF 'RETRO_MARKER_SCOPE_H1_SKIP' "$HELPER"; then
+    no "teeth SC1: locate the RETRO_MARKER_SCOPE_H1_SKIP anchor" "anchor not found — helper drifted?"
+  else
+    sc1_mutant="$ROOT/retro-status.sc1.sh"
+    sed '/NR==1 && \/\^\[\[:space:\]\]\*#/d' "$HELPER" > "$sc1_mutant"
+    if diff -q "$HELPER" "$sc1_mutant" >/dev/null 2>&1; then
+      no "teeth SC1: build H1-skip-removed mutant" "mutant identical — sed substitution failed"
+    elif ! "$BASH_BIN" -n "$sc1_mutant" 2>/dev/null; then
+      no "teeth SC1: build H1-skip-removed mutant" "mutant syntax error"
+    else
+      outsc1="$("$BASH_BIN" -c '. "$1"; retro_marker_scope_line "$2"' _ "$sc1_mutant" "$f37path" 2>&1)"
+      if [ -z "$outsc1" ]; then
+        ok "teeth SC1: H1-skip-removed mutant goes blind on case 37's fixture (has teeth)" "()"
+      else
+        no "teeth SC1: H1-skip-removed mutant should go blind on case 37's fixture" "got [$outsc1] — case 37 is THEATER"
       fi
     fi
   fi
