@@ -121,11 +121,16 @@ for p in $paths; do
   # alongside a real corpus directory) — it is NOT counted as absent. If ALL tokens in the row are
   # absent, the row is counted once (dedup by row number) and added to the absent_paths names list.
   if [ ! -d "$p" ]; then  # ABSENT-PATHS-CHECK
-    # Check whether any backtick /... token in this row is a real directory.
+    # Check whether any backtick token in this row — `/abs`, `$RESEARCH_HOME/rest` or
+    # `${RESEARCH_HOME}/rest` (mirrors lib/target-paths.sh's accepted forms) — is a real directory.
+    # Issue #1039: the old `/[^`]+` -only extraction never matched a $RESEARCH_HOME row token, so a
+    # row whose ONLY present corpus path used that portable form (every TARGETS.md row does) was
+    # false-counted absent whenever it also carried a companion non-path token (e.g. a GitHub slug
+    # like `/mrdoob/three.js`) — the slug's own iteration of this loop never found the real directory.
     # Word-split on tokens from $row is intentional; paths in TARGETS.MD must not contain spaces.
     # shellcheck disable=SC2043,SC2086
     _vr_row_any_dir=0
-    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`/[^`]+`' | tr -d '`'); do
+    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`(/|\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/)[^`]+`' | tr -d '`'); do  # RH-ROW-TOKEN-MATCH
       _vr_rt_exp="${_vr_rt/\$RESEARCH_HOME/${RESEARCH_HOME:-$HOME}}"
       _vr_rt_exp="${_vr_rt_exp/\$\{RESEARCH_HOME\}/${RESEARCH_HOME:-$HOME}}"
       [ -d "$_vr_rt_exp" ] && { _vr_row_any_dir=1; break; }
