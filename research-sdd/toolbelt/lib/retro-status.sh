@@ -177,4 +177,85 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
     # Race onset for external producers: ~64 KB. Fleet max << onset; SAFE.
   }
+
+  # retro_marker_is_partial <marker_line>
+  #   Returns 0 (true) when EITHER:
+  #     (a) the marker's STRUCTURED metadata segment — the portion BEFORE the first free-text
+  #         separator (a spaced em dash '—', the 'shipped:' keyword, or an opening parenthesis)
+  #         — carries the case-SENSITIVE whole-word token PARTIAL, or
+  #     (b) the literal, case-sensitive keyword 'shipped:' (canonical lowercase form) appears
+  #         anywhere in the line.
+  #   Returns 1 (false) given an empty line, or when neither condition holds.
+  #
+  #   Kit issue #1090: PARTIAL is a STATUS TOKEN, never free text. The previous check
+  #   (`grep -qiE 'PARTIAL|shipped:'`, case-INSENSITIVE, over the WHOLE line) let lowercase
+  #   prose like "(P1 partial)" inside a dismissed marker's free-text segment falsely trip
+  #   PARTIAL handling — a dismissed retro whose explanation happens to mention "partial" then
+  #   reopened every row. Cutting the line at the first free-text separator BEFORE the
+  #   case-sensitive PARTIAL check (condition a) means prose after that point (any case,
+  #   anywhere) can never be mistaken for the status token — even without the caller's own
+  #   'dismissed always wins' guard (both stage-retro-issues.sh and reconcile-issues.sh add that
+  #   guard independently; this function is the shared first line of defense).
+  #
+  #   Condition (b) is intentionally UNSCOPED (whole line, not just the structured segment): the
+  #   real corpus carries applied markers that write "shipped: 1, 2" WITHOUT the literal PARTIAL
+  #   token at all (e.g. "applied · sha · shipped: #1, #2") — 'shipped:' is itself already a
+  #   specific, lowercase, structurally-meaningful keyword (never a word that shows up by
+  #   accident in free-text prose the way "partial" can), so it was never the source of the
+  #   #1090 false-positive and narrowing it would silently stop treating those retros as
+  #   PARTIAL, wrongly leaving every one of their shipped rows open forever.
+  #
+  #   RETRO_MARKER_PARTIAL_STRUCTURED_CUT: anchor for the kit issue #1090 teeth proof.
+  retro_marker_is_partial() {
+    local line="${1:-}"
+    [ -n "$line" ] || return 1
+    if printf '%s' "$line" | grep -q 'shipped:'; then
+      return 0
+    fi
+    local body="$line"
+    body="${body#*review-status:}"
+    body="${body%%-->*}"
+    local structured
+    structured="$(printf '%s' "$body" | sed -E 's/(—|shipped:|\().*$//')"
+    printf '%s' "$structured" | grep -qE '(^|[^A-Za-z])PARTIAL($|[^A-Za-z])'
+  }
+
+  # retro_marker_shipped_ids <shipped_raw>
+  #   Given the raw text captured after a marker's 'shipped:' keyword (e.g. "#1, #2" or
+  #   "Δ1 (#549), D1 (§20)" or "P1-P5"), echoes the normalized, expanded set of shipped
+  #   row-ids, one per line:
+  #     - a trailing parenthetical annotation (" (#549)", " (§20)") is dropped first — it is
+  #       descriptive text, never part of the id (kit issue #949 item 1)
+  #     - a leading '#' is stripped from each remaining token (kit issue #949 item 1 — markers
+  #       write "shipped: #1, #2" the way reconcile-issues.sh's row markers do elsewhere)
+  #     - an "<prefix><n>-<prefix><n>" range (e.g. "P1-P5") is expanded to one id per line
+  #   Returns nothing (exit 0) when given an empty string. Single source of truth for both
+  #   stage-retro-issues.sh and reconcile-issues.sh — the two used to carry hand-copied awk
+  #   pipelines that drifted (stage-retro-issues.sh never got the '#'-strip fix reconcile-issues.sh
+  #   already had).
+  #
+  #   RETRO_MARKER_SHIPPED_IDS_HASH_STRIP / RETRO_MARKER_SHIPPED_IDS_PAREN_STRIP: anchors for the
+  #   kit issue #949 teeth proofs.
+  retro_marker_shipped_ids() {
+    local raw="${1:-}"
+    [ -n "$raw" ] || return 0
+    printf '%s' "$raw" \
+      | sed -E 's/[[:space:]]*\([^)]*\)//g' \
+      | awk '{
+          n = split($0, tokens, /[,[:space:]]+/)
+          for (i=1; i<=n; i++) {
+            t = tokens[i]
+            if (t == "") continue
+            sub(/^#/, "", t)
+            if (t == "") continue
+            if (match(t, /^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$/, m)) {
+              pfx1=m[1]; n1=int(m[2]); pfx2=m[3]; n2=int(m[4])
+              if (pfx1 == pfx2) {
+                for (j=n1; j<=n2; j++) printf "%s%d\n", pfx1, j
+              } else { printf "%s\n", t }
+            } else { printf "%s\n", t }
+          }
+        }'
+    return 0
+  }
 fi

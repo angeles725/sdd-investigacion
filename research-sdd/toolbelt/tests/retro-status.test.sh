@@ -570,5 +570,189 @@ ml25="$(retro_marker_line "$f")"
   && ok "25 retro_marker_line: marker as last line → found" "(got '$ml25')" \
   || no "25 retro_marker_line: marker as last line → found" "got empty"
 
+# ---------------------------------------------------------------------------
+# retro_marker_is_partial <marker_line> — kit issue #1090.
+
+# 26 — STRUCTURED PARTIAL TOKEN → true. The canonical format: PARTIAL sits before the em dash.
+m26='<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->'
+retro_marker_is_partial "$m26" \
+  && ok "26 retro_marker_is_partial: structured PARTIAL token → true" "()" \
+  || no "26 retro_marker_is_partial: structured PARTIAL token → true" "returned false"
+
+# 27 — REAL #1090 REPRO: dismissed marker, lowercase 'partial' in free-text prose → false.
+m27='<!-- review-status: dismissed 2026-09-20 · scoped to build-n4-module kit — deltas owned + implemented there (D1-D5 orient-guard, P3/P4/P5; P1 partial) -->'
+retro_marker_is_partial "$m27" \
+  && no "27 retro_marker_is_partial: #1090 repro (dismissed + prose 'partial') → false" "returned true" \
+  || ok "27 retro_marker_is_partial: #1090 repro (dismissed + prose 'partial') → false" "()"
+
+# 28 — PROSE POSITION: 'partial' at the very START of the free-text segment → false.
+m28='<!-- review-status: dismissed 2026-09-20 · kit deadbeef — partial rollback only, see ticket -->'
+retro_marker_is_partial "$m28" \
+  && no "28 retro_marker_is_partial: 'partial' at prose START → false" "returned true" \
+  || ok "28 retro_marker_is_partial: 'partial' at prose START → false" "()"
+
+# 29 — PROSE POSITION: 'partial' at the very END of the free-text segment → false.
+m29='<!-- review-status: dismissed 2026-09-20 · kit deadbeef — deltas owned elsewhere (partial) -->'
+retro_marker_is_partial "$m29" \
+  && no "29 retro_marker_is_partial: 'partial' at prose END → false" "returned true" \
+  || ok "29 retro_marker_is_partial: 'partial' at prose END → false" "()"
+
+# 30 — FREE-TEXT UPPERCASE 'PARTIAL' (no shipped:, after the dash) → false. Proves the cut
+# point, not just case, is what protects an applied marker whose free text happens to use the
+# exact uppercase word.
+m30='<!-- review-status: applied 2026-01-01 · kit abc1234 — historical note: this used to be PARTIAL but is now fully resolved -->'
+retro_marker_is_partial "$m30" \
+  && no "30 retro_marker_is_partial: free-text uppercase PARTIAL (no shipped:) → false" "returned true" \
+  || ok "30 retro_marker_is_partial: free-text uppercase PARTIAL (no shipped:) → false" "()"
+
+# 31 — 'shipped:' WITHOUT a literal PARTIAL token → still true (real-corpus format; kit
+# issue #949 fixtures use exactly this shape).
+m31='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #1, #2 -->'
+retro_marker_is_partial "$m31" \
+  && ok "31 retro_marker_is_partial: bare 'shipped:' (no PARTIAL token) → true" "()" \
+  || no "31 retro_marker_is_partial: bare 'shipped:' (no PARTIAL token) → true" "returned false"
+
+# 32 — EMPTY LINE → false.
+retro_marker_is_partial "" \
+  && no "32 retro_marker_is_partial: empty line → false" "returned true" \
+  || ok "32 retro_marker_is_partial: empty line → false" "()"
+
+# ---------------------------------------------------------------------------
+# retro_marker_shipped_ids <shipped_raw> — kit issue #949 item 1.
+
+# 33 — HASH STRIP: '#1, #2' → '1' and '2' (leading '#' stripped from each token).
+ids33="$(retro_marker_shipped_ids '#1, #2')"
+if [ "$ids33" = "$(printf '1\n2')" ]; then
+  ok "33 retro_marker_shipped_ids: '#1, #2' → '1','2' (hash stripped)" "()"
+else
+  no "33 retro_marker_shipped_ids: '#1, #2' → '1','2' (hash stripped)" "got [$ids33]"
+fi
+
+# 34 — TRAILING ANNOTATION: 'Δ1 (#549), D1 (§20)' → 'Δ1' and 'D1' (parenthetical dropped).
+ids34="$(retro_marker_shipped_ids 'Δ1 (#549), D1 (§20)')"
+if [ "$ids34" = "$(printf 'Δ1\nD1')" ]; then
+  ok "34 retro_marker_shipped_ids: 'Δ1 (#549), D1 (§20)' → 'Δ1','D1'" "()"
+else
+  no "34 retro_marker_shipped_ids: 'Δ1 (#549), D1 (§20)' → 'Δ1','D1'" "got [$ids34]"
+fi
+
+# 35 — RANGE EXPANSION (list edges: FIRST, MIDDLE, LAST of a 3-element range) still works
+# alongside the hash strip — '#P1-P3' expands to P1, P2, P3.
+ids35="$(retro_marker_shipped_ids '#P1-P3')"
+if [ "$ids35" = "$(printf 'P1\nP2\nP3')" ]; then
+  ok "35 retro_marker_shipped_ids: '#P1-P3' range expands with hash stripped" "()"
+else
+  no "35 retro_marker_shipped_ids: '#P1-P3' range expands with hash stripped" "got [$ids35]"
+fi
+
+# 36 — EMPTY INPUT → empty output, no error.
+ids36="$(retro_marker_shipped_ids '')"
+[ -z "$ids36" ] \
+  && ok "36 retro_marker_shipped_ids: empty input → empty output" "()" \
+  || no "36 retro_marker_shipped_ids: empty input → empty output" "got [$ids36]"
+
+# ---------------------------------------------------------------------------
+# TEETH (negative controls) for the two shared marker-parsing helpers.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # Tooth P1: drop the free-text CUT (the sed that trims at '—'/'shipped:'/'(') from
+  # retro_marker_is_partial, so the whole-line PARTIAL check runs unscoped. The #1090 repro
+  # marker (case 27) has no literal uppercase PARTIAL anywhere, so this tooth alone would not
+  # flip it — instead prove the cut is load-bearing with a marker that DOES carry an uppercase
+  # PARTIAL only in its free text (case 30's fixture): without the cut, the whole-line
+  # case-sensitive check finds it and false-positives.
+  echo "-- teeth P1: drop the structured-segment cut in retro_marker_is_partial; free-text PARTIAL (case 30) must false-positive --"
+  if ! grep -qF "RETRO_MARKER_PARTIAL_STRUCTURED_CUT" "$HELPER"; then
+    no "teeth P1: locate RETRO_MARKER_PARTIAL_STRUCTURED_CUT anchor" "anchor not found — helper drifted?"
+  else
+    p1_mutant="$ROOT/retro-status.p1.sh"
+    sed "s/structured=\"\$(printf '%s' \"\$body\" | sed -E 's\/(—|shipped:|\\\\().*\$\/\/')\"/structured=\"\$body\"/" "$HELPER" > "$p1_mutant"
+    if diff -q "$HELPER" "$p1_mutant" >/dev/null 2>&1; then
+      no "teeth P1: build cut-removed mutant" "mutant identical — sed substitution failed"
+    elif ! "$BASH_BIN" -n "$p1_mutant" 2>/dev/null; then
+      no "teeth P1: build cut-removed mutant" "mutant syntax error"
+    else
+      outp1="$("$BASH_BIN" -c '. "$1"; retro_marker_is_partial "$2"; echo $?' _ "$p1_mutant" "$m30" 2>&1)"
+      if [ "$outp1" = "0" ]; then
+        ok "teeth P1: cut-removed mutant false-positives on free-text PARTIAL (case 30 has teeth)" "()"
+      else
+        no "teeth P1: cut-removed mutant should false-positive on free-text PARTIAL" \
+          "returned '$outp1' (expected 0) — case 30 is THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth P2: relax the case-sensitive PARTIAL grep to case-insensitive. The #1090 repro
+  # marker's structured segment has no 'PARTIAL' at all (only free-text lowercase 'partial'
+  # AFTER the cut), so this tooth alone does not flip case 27 — use a fixture with lowercase
+  # 'partial' INSIDE the structured segment instead, to isolate case-sensitivity from the cut.
+  echo "-- teeth P2: relax PARTIAL grep to case-insensitive; lowercase token in structured segment must false-positive --"
+  p2_linenum="$(grep -n "grep -qE '(\^|\[\^A-Za-z\])PARTIAL" "$HELPER" | head -1 | cut -d: -f1)"
+  if [ -z "$p2_linenum" ]; then
+    no "teeth P2: locate the case-sensitive PARTIAL grep" "anchor not found — helper drifted?"
+  else
+    p2_mutant="$ROOT/retro-status.p2.sh"
+    # Replace ONLY the '-qE' flag with '-qiE' on that exact line (line-number targeted, no
+    # pattern-escaping fragility): the rest of the line is left untouched.
+    awk -v ln="$p2_linenum" '{ if (NR==ln) { sub(/grep -qE/, "grep -qiE") } print }' "$HELPER" > "$p2_mutant"
+    if diff -q "$HELPER" "$p2_mutant" >/dev/null 2>&1; then
+      no "teeth P2: build case-insensitive mutant" "mutant identical — substitution failed"
+    else
+      m_p2='<!-- review-status: applied 2026-01-01 · kit abc1234 · partial -->'
+      outp2="$("$BASH_BIN" -c '. "$1"; retro_marker_is_partial "$2"; echo $?' _ "$p2_mutant" "$m_p2" 2>&1)"
+      if [ "$outp2" = "0" ]; then
+        ok "teeth P2: case-insensitive mutant false-positives on lowercase structured token (case 26/30 have teeth)" "()"
+      else
+        no "teeth P2: case-insensitive mutant should false-positive" "returned '$outp2' (expected 0) — THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth S1: drop the '^#' strip from retro_marker_shipped_ids's awk. '#1, #2' must then be
+  # returned WITH the hash still attached ('#1'/'#2'), proving case 33 has teeth.
+  echo "-- teeth S1: drop the leading '#' strip in retro_marker_shipped_ids; hash must survive (case 33 has teeth) --"
+  if ! grep -qF "sub(/^#/, \"\", t)" "$HELPER"; then
+    no "teeth S1: locate the '^#' strip" "anchor not found — helper drifted?"
+  else
+    s1_mutant="$ROOT/retro-status.s1.sh"
+    sed '/sub(\/\^#\/, "", t)/d' "$HELPER" > "$s1_mutant"
+    if diff -q "$HELPER" "$s1_mutant" >/dev/null 2>&1; then
+      no "teeth S1: build hash-strip-removed mutant" "mutant identical — sed substitution failed"
+    else
+      outs1="$("$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$s1_mutant" '#1, #2' 2>&1)"
+      if printf '%s' "$outs1" | grep -q '^#1$'; then
+        ok "teeth S1: hash-strip-removed mutant leaves '#1' attached (case 33 has teeth)" "(got [$outs1])"
+      else
+        no "teeth S1: hash-strip-removed mutant should leave '#1' attached" "got [$outs1] — case 33 is THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth S2: drop the parenthetical-strip sed from retro_marker_shipped_ids. 'Δ1 (#549)' must
+  # then leak the annotation as a spurious extra token, proving case 34 has teeth.
+  echo "-- teeth S2: drop the parenthetical-annotation strip in retro_marker_shipped_ids; annotation must leak (case 34 has teeth) --"
+  s2_linenum="$(grep -nF '[^)]*' "$HELPER" | head -1 | cut -d: -f1)"
+  if [ -z "$s2_linenum" ]; then
+    no "teeth S2: locate the parenthetical-strip sed" "anchor not found — helper drifted?"
+  else
+    s2_mutant="$ROOT/retro-status.s2.sh"
+    # Delete the ONE line carrying the paren-strip pipeline stage (line-number targeted, no
+    # pattern-escaping fragility) — the awk pipeline it fed into still runs on the untouched raw
+    # text, so the mutant stays syntactically valid.
+    awk -v ln="$s2_linenum" 'NR!=ln' "$HELPER" > "$s2_mutant"
+    if diff -q "$HELPER" "$s2_mutant" >/dev/null 2>&1; then
+      no "teeth S2: build paren-strip-removed mutant" "mutant identical — deletion failed"
+    elif ! "$BASH_BIN" -n "$s2_mutant" 2>/dev/null; then
+      no "teeth S2: build paren-strip-removed mutant" "mutant syntax error"
+    else
+      outs2="$("$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$s2_mutant" 'Δ1 (#549)' 2>&1)"
+      if printf '%s' "$outs2" | grep -qF '(#549)'; then
+        ok "teeth S2: paren-strip-removed mutant leaks the annotation (case 34 has teeth)" "(got [$outs2])"
+      else
+        no "teeth S2: paren-strip-removed mutant should leak the annotation" "got [$outs2] — case 34 is THEATER"
+      fi
+    fi
+  fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

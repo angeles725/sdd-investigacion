@@ -510,6 +510,62 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# kit issue #1090 — PARTIAL is a status TOKEN, never free text; dismissed always wins.
+# ---------------------------------------------------------------------------
+
+# 18 — REAL #1090 REPRO MARKER (verbatim): a dismissed marker whose free-text explanation
+# mentions 'partial' in lowercase prose must yield ZERO open (untracked) rows, never all 7.
+box18="$(mkbox case-1090-repro)"
+mk_gh_stub "$box18" nomatch
+retro18="$(mk_retro "$box18" target-foo r-1090-repro.md \
+  "<!-- review-status: dismissed 2026-09-20 · scoped to build-n4-module kit — deltas owned + implemented there (D1-D5 orient-guard, P3/P4/P5; P1 partial) -->" \
+  "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |')")"
+run "$box18" "$retro18"
+if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q '^untracked:'; then
+  ok "18 #1090 real repro marker: dismissed + prose 'partial' → zero untracked rows" "(exit $RC)"
+else
+  no "18 #1090 real repro marker: dismissed + prose 'partial' → zero untracked rows" "exit=$RC out=[$OUT]"
+fi
+
+# 19 — PROSE 'partial' POSITION (first/middle/last) on a DISMISSED marker never trips
+# PARTIAL handling.
+_pos19=0
+for pos in first middle last; do
+  _pos19=$((_pos19+1))
+  case "$pos" in
+    first)  _prose19="partial rollback only — see the linked ticket for the rest" ;;
+    middle) _prose19="deltas partial in scope, the remainder tracked elsewhere" ;;
+    last)   _prose19="deltas owned and implemented elsewhere (partial)" ;;
+  esac
+  box19="$(mkbox "case-1090-prose-$pos")"
+  mk_gh_stub "$box19" nomatch
+  retro19="$(mk_retro "$box19" target-foo r-1090-prose.md \
+    "<!-- review-status: dismissed 2026-09-20 · kit deadbeef — ${_prose19} -->" \
+    "| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |")"
+  run "$box19" "$retro19"
+  if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q '^untracked:'; then
+    ok "19.$_pos19 #1090 dismissed + prose 'partial' at $pos → zero untracked rows" "(exit $RC)"
+  else
+    no "19.$_pos19 #1090 dismissed + prose 'partial' at $pos → zero untracked rows" "exit=$RC out=[$OUT]"
+  fi
+done
+
+# 20 — STRUCTURED PARTIAL TOKEN (case-sensitivity regression): the canonical applied+PARTIAL
+# format must still classify tracked/untracked correctly after switching to the shared helper.
+box20="$(mkbox case-structured-partial)"
+mk_gh_stub "$box20" nomatch
+retro20="$(mk_retro "$box20" target-foo r-structured-partial.md \
+  "<!-- review-status: applied 2026-06-01 · kit deadbeef · PARTIAL — shipped: 1; deferred: 2 -->" \
+  "$(printf '| 1 | shipped delta | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | deferred delta | CLAUDE.md | B2 | new | MEDIUM |')")"
+run "$box20" "$retro20"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'untracked: row 2' \
+   && ! printf '%s' "$OUT" | grep -q 'untracked: row 1'; then
+  ok "20 structured PARTIAL token: only deferred row 2 untracked, shipped row 1 skipped" "(exit $RC)"
+else
+  no "20 structured PARTIAL token: only deferred row 2 untracked, shipped row 1 skipped" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # kit issue #1024 round 3, MEDIUM: symlinked toolbelt (render dir)
 # ---------------------------------------------------------------------------
 # KIT_ROOT used to be derived via `cd "$_SCRIPT_DIR/../.."` WITHOUT -P. bash's default (-L,
@@ -680,30 +736,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TOOTH T6: Neuter the RECONCILE_ISSUES_HASH_STRIP # strip.
   # Replace `sub(/^#/, "", t)` with a no-op so #N ids are no longer stripped;
   # case 11's hash marker then produces untracked=3 (all rows open) instead of 1.
-  echo "-- teeth T6: neuter hash-strip sub --"
-  anchor_t6='RECONCILE_ISSUES_HASH_STRIP:'
-  if grep -q "$anchor_t6" "$SUT"; then
+  # kit issue #949: the hash-strip now lives in the SHARED lib/retro-status.sh helper
+  # (retro_marker_shipped_ids), sourced by both reconcile-issues.sh and stage-retro-issues.sh —
+  # mutate the box's COPY of the LIB (not reconcile-issues.sh itself) to prove the integration:
+  # reconcile-issues.sh really does flow through the shared helper for real shipped-id behavior.
+  echo "-- teeth T6: neuter hash-strip sub in the shared lib (integration through reconcile-issues.sh) --"
+  anchor_t6='sub(/^#/, "", t)'
+  if grep -qF "$anchor_t6" "$RETRO_STATUS_LIB"; then
     box_t6="$(mkbox teeth-hash-strip)"
     mk_gh_stub "$box_t6" nomatch
     _hash_m_t6='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #1 (§11 desc), #2 (§5 desc) -->'
     mk_retro3 "$box_t6" target-foo r-t6.md "$_hash_m_t6" > /dev/null
-    mutant_t6="$box_t6/research-sdd/toolbelt/reconcile-issues.sh"
-    # Comment out the sub(/^#/…) line that follows the anchor
-    sed "/${anchor_t6}/{ n; s/.*sub.*#.*/              # teeth-t6-hash-strip-removed/ }" \
-      "$SUT" > "$mutant_t6"
+    mutant_lib_t6="$box_t6/research-sdd/toolbelt/lib/retro-status.sh"
+    # Delete the ONE line carrying the hash-strip (line-based deletion avoids sed delimiter
+    # collisions with the literal '/' characters inside the awk regex itself).
+    sed '/sub(\/\^#\/, "", t)/d' "$RETRO_STATUS_LIB" > "$mutant_lib_t6"
+    bash -n "$mutant_lib_t6" 2>/dev/null || { no "T6 teeth: mutant lib failed bash -n" ""; }
     out_t6="$(PATH="$box_t6/bin:$PATH" \
-      "$BASH_BIN" "$mutant_t6" "$box_t6/rh/target-foo/retros/r-t6.md" 2>&1)"; rc_t6=$?
+      "$BASH_BIN" "$box_t6/research-sdd/toolbelt/reconcile-issues.sh" \
+      "$box_t6/rh/target-foo/retros/r-t6.md" 2>&1)"; rc_t6=$?
     _ut6=$(printf '%s\n' "$out_t6" | grep -c 'untracked: row' 2>/dev/null || true)
     # Fix: untracked=1 (only row 3). Mutant: untracked=3 (all rows, # not stripped).
     if [ "$_ut6" -gt 1 ]; then
-      ok "T6 teeth: hash-strip neutered → untracked>1 (case 11 has teeth)" \
+      ok "T6 teeth: hash-strip neutered (shared lib) → untracked>1 (case 11 has teeth)" \
          "(untracked=$_ut6)"
     else
-      no "T6 teeth: hash-strip neutered → should see untracked>1" \
+      no "T6 teeth: hash-strip neutered (shared lib) → should see untracked>1" \
          "case 11 may be THEATER: rc=$rc_t6 untracked=$_ut6 out=[$out_t6]"
     fi
   else
-    no "T6 teeth: locate hash-strip anchor" "anchor '$anchor_t6' not found in SUT"
+    no "T6 teeth: locate hash-strip anchor in shared lib" "anchor '$anchor_t6' not found in $RETRO_STATUS_LIB"
   fi
 
   # TOOTH T-CACHE-NO-GH: neuter the CACHE_BRANCH condition → --issues-cache ignored; gh called instead.
@@ -818,6 +880,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
        "(rc=$rc_tsym out=[$out_tsym])"
+  fi
+
+  # TOOTH T7 (kit issue #1090): neuter the 'dismissed always wins' guard so a dismissed
+  # marker falls through to the is_partial check like 'applied' does — a dismissed marker
+  # whose structured segment DOES carry PARTIAL must then wrongly report untracked rows.
+  echo "-- teeth T7: neuter 'dismissed always wins' guard; dismissed+PARTIAL must reopen rows (case 18/19 have teeth) --"
+  anchor_t7='    dismissed)
+      _has_open_rows=0 ;;'
+  if [[ "$(cat "$SUT")" == *"$anchor_t7"* ]]; then
+    box_t7="$(mkbox teeth-dismissed-wins)"
+    mk_gh_stub "$box_t7" nomatch
+    mk_retro "$box_t7" target-foo r-t7.md \
+      "<!-- review-status: dismissed 2026-09-20 · kit deadbeef · PARTIAL — shipped: 99 -->" \
+      "| 1 | should stay closed unless guard removed | CLAUDE.md | B1 | new | HIGH |" > /dev/null
+    mutant_t7="$box_t7/research-sdd/toolbelt/reconcile-issues.sh"
+    reverted_t7='    dismissed)
+      [ "$is_partial" -eq 0 ] && _has_open_rows=0 ;;'
+    sut_content_ri="$(cat "$SUT")"
+    printf '%s\n' "${sut_content_ri/"$anchor_t7"/"$reverted_t7"}" > "$mutant_t7"
+    bash -n "$mutant_t7" 2>/dev/null || { no "T7 teeth: mutant_t7 failed bash -n" ""; }
+    out_t7="$(PATH="$box_t7/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t7" "$box_t7/rh/target-foo/retros/r-t7.md" 2>&1)"; rc_t7=$?
+    if printf '%s\n' "$out_t7" | grep -q '^untracked:'; then
+      ok "T7 teeth: dismissed-wins guard neutered → dismissed+PARTIAL reports untracked (case 18/19 have teeth)" "()"
+    else
+      no "T7 teeth: dismissed-wins guard neutered → should report untracked" \
+        "no untracked — case 18/19 is THEATER: rc=$rc_t7 out=[$out_t7]"
+    fi
+  else
+    no "T7 teeth: locate 'dismissed always wins' guard anchor" "anchor not found — SUT drifted?"
   fi
 
 fi  # --prove-teeth

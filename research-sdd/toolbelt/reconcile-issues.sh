@@ -100,6 +100,10 @@ _RS_LIB="$_SCRIPT_DIR/lib/retro-status.sh"
 . "$_RS_LIB"
 declare -F retro_review_status >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_review_status" >&2; exit 1; }
+declare -F retro_marker_is_partial >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
+declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
 
 _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 [ -f "$_RG_LIB" ] || { echo "reconcile-issues: cannot find helper $_RG_LIB" >&2; exit 1; }
@@ -150,7 +154,11 @@ audit_retro() {
     | head -1)"
 
   local is_partial=0 shipped_ids=""
-  if printf '%s' "$_marker_line" | grep -qiE 'PARTIAL|shipped:'; then
+  # RECONCILE_ISSUES_PARTIAL_CHECK (kit issue #1090): PARTIAL is a STATUS TOKEN, detected only
+  # in the marker's STRUCTURED segment via the shared retro_marker_is_partial helper — never a
+  # case-insensitive whole-line grep, which let a DISMISSED marker's free-text explanation
+  # (e.g. "P1 partial" in prose) falsely trip PARTIAL handling and reopen every row.
+  if retro_marker_is_partial "$_marker_line"; then
     is_partial=1
     local _shipped_raw
     _shipped_raw="$(printf '%s' "$_marker_line" \
@@ -158,24 +166,7 @@ audit_retro() {
       | head -1 \
       | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
     if [ -n "$_shipped_raw" ]; then
-      shipped_ids="$(printf '%s' "$_shipped_raw" \
-        | sed -E 's/[[:space:]]*\([^)]*\)//g' \
-        | awk '{
-            n = split($0, tokens, /[,[:space:]]+/)
-            for (i=1; i<=n; i++) {
-              t = tokens[i]
-              if (t == "") continue
-              # RECONCILE_ISSUES_HASH_STRIP: strip leading # from token before id parsing
-              sub(/^#/, "", t)
-              if (t == "") continue
-              if (match(t, /^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$/, m)) {
-                pfx1=m[1]; n1=int(m[2]); pfx2=m[3]; n2=int(m[4])
-                if (pfx1 == pfx2) {
-                  for (j=n1; j<=n2; j++) printf "%s%d\n", pfx1, j
-                } else { printf "%s\n", t }
-              } else { printf "%s\n", t }
-            }
-          }')"
+      shipped_ids="$(retro_marker_shipped_ids "$_shipped_raw")"
     fi
   fi
 
@@ -190,8 +181,13 @@ audit_retro() {
 
   # --- Determine whether any rows can be open
   local _has_open_rows=1
+  # RECONCILE_ISSUES_DISMISSED_WINS (kit issue #1090): 'dismissed' ALWAYS means zero open rows
+  # — it never falls through to the is_partial check the way 'applied' does. See the matching
+  # guard and comment in stage-retro-issues.sh for the full rationale (both tools must agree).
   case "$_status" in
-    applied|dismissed)
+    dismissed)
+      _has_open_rows=0 ;;
+    applied)
       [ "$is_partial" -eq 0 ] && _has_open_rows=0 ;;
     pending|none|"") ;;
     *)
