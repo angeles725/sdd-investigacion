@@ -16,6 +16,25 @@ TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# skip() counts toward NEITHER pass nor fail — a skip is not a pass. The "  SKIP  " prefix (two
+# spaces, SKIP, two spaces) matches run-all.sh's per-test skip convention (see decompile-native.test.sh,
+# extract-pdf.test.sh), so the aggregate's total_skipped counter picks it up instead of silently
+# folding it into either count.
+skip(){ printf '  SKIP  %s\n' "$1"; }
+
+# _dubious_ownership_reproduces <fixture-dir> — probes whether GIT_TEST_ASSUME_DIFFERENT_OWNER=1
+# actually makes `git -C <dir> rev-parse --show-toplevel` fail with a "dubious ownership" message on
+# THIS host, before any test or mutant relies on it. CI evidence (run 35969674928): on a GitHub-hosted
+# runner (git 2.55.0, actions/checkout adding safe.directory for the checkout path only — not a
+# wildcard, and not this fixture's path) the env var did not reproduce the failure — exit 0, no error
+# at all. The cause was not pinned down further (older/newer git build quirk, some other
+# safe.directory interaction, or a runner identity where the ownership check never fires); rather than
+# guess, this probes the ACTUAL fixture, live, every run.
+_dubious_ownership_reproduces() {
+  local d="$1" err rc
+  err="$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 git -C "$d" rev-parse --show-toplevel 2>&1 1>/dev/null)"; rc=$?
+  [ "$rc" -ne 0 ] && printf '%s\n' "$err" | grep -qi 'dubious ownership'
+}
 
 # A consistent, gate-passing corpus: coverage ratio matches (no all-closed-but-pending desync), no
 # preserved-source markers (so verify-sources is a clean no-op), one block on disk. eje #2: NO per-target
@@ -567,11 +586,20 @@ else no "17g F3a gitstub: exit=$rc :: $(grep -iE 'scan-secrets|error' <<<"$out" 
 # 17h — GATE (F3b): "dubious ownership" — a REAL repo git refuses to operate on (CVE-2022-24765 guard).
 #       GIT_TEST_ASSUME_DIFFERENT_OWNER=1 is git's own test-suite hook for reproducing this without
 #       actually needing a second uid. Must NOT be silently treated as non-git. Loud ERROR, refuse.
+#       PROBED first (not assumed): on a GitHub-hosted CI runner this env var did NOT reproduce the
+#       failure (confirmed via run 35969674928 — git 2.55.0, same version as here, yet exit 0/no error).
+#       A skip here is not a pass — case 17g (git-stub) and its teeth exercise the SAME sentinel
+#       (scan-secrets-gate-git-probe-error) unconditionally, so F3 coverage does not depend on this host
+#       supporting the env var.
 d="$TMP/dubious"; mkgood_git_clean "$d"
-out="$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*ERROR.*could not determine' <<<"$out" && ! grep -qi 'not a git repository' <<<"$out"; then
-  ok "17h F3b: dubious ownership (GIT_TEST_ASSUME_DIFFERENT_OWNER=1) → loud ERROR, refuse (exit 3) — never silently treated as non-git"
-else no "17h F3b dubious: exit=$rc :: $(grep -iE 'scan-secrets|error' <<<"$out" | head -3)"; fi
+if ! _dubious_ownership_reproduces "$d"; then
+  skip "17h F3b: GIT_TEST_ASSUME_DIFFERENT_OWNER=1 did not reproduce 'dubious ownership' on this host ($(git --version 2>/dev/null)) — cannot exercise this path here; see 17g for unconditional F3 coverage"
+else
+  out="$(GIT_TEST_ASSUME_DIFFERENT_OWNER=1 bash "$SUT" "$d" 2>&1)"; rc=$?
+  if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*ERROR.*could not determine' <<<"$out" && ! grep -qi 'not a git repository' <<<"$out"; then
+    ok "17h F3b: dubious ownership (GIT_TEST_ASSUME_DIFFERENT_OWNER=1) → loud ERROR, refuse (exit 3) — never silently treated as non-git"
+  else no "17h F3b dubious: exit=$rc :: $(grep -iE 'scan-secrets|error' <<<"$out" | head -3)"; fi
+fi
 
 # 17i — GATE (F3c): a malformed GLOBAL git config makes every git invocation fail before it can even
 #       determine repo-ness. GIT_CONFIG_GLOBAL (git ≥2.32) redirects the "global" config file location
@@ -1619,21 +1647,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(secrets-plain-scan): mutant exit=$psmrc (want 0) — the gitignored-env case may not depend on (a) (THEATER)"; fi
   fi
 
-  # #970 round-3 teeth 3/3 — the F3 loud-refuse branch (scan-secrets-gate-git-probe-error): neuter ONLY that
-  # sentinel; the dubious-ownership fixture (17h) must then archive despite the ambiguous git failure,
-  # proving the refuse (not merely the printed message) is what blocks a silent non-git downgrade.
-  echo "-- teeth(secrets-f3-refuse): neuter the F3 ambiguous-git-failure refuse; dubious-ownership corpus must then archive --"
+  # #970 round-3 teeth 3/3 — the F3 loud-refuse branch (scan-secrets-gate-git-probe-error). Two
+  # fixtures reach the SAME sentinel (17g's stubbed-git-exit-127 and 17h's dubious-ownership both fall
+  # into the `elif [ "$_ss_top_rc" -ne 0 ]` ambiguous-failure branch), so ONE mutant is run against
+  # BOTH — but 17g's fixture needs no host support (a shell script that unconditionally exits 127 is
+  # the same on every machine), so it is the UNCONDITIONAL primary tooth; the 17h run is the same
+  # probe-and-skip guard as case 17h itself, kept as bonus coverage on hosts that DO support the env
+  # var. This is the fix for CI run 35969674928: GIT_TEST_ASSUME_DIFFERENT_OWNER=1 alone is not a
+  # reliable CI fixture, so the F3-refuse branch must not depend on it exclusively.
+  echo "-- teeth(secrets-f3-refuse): neuter the F3 ambiguous-git-failure refuse; the stubbed-git fixture must then archive --"
   mutantF3="$TMP/archive.F3-MUTANT.sh"
   sed 's/gate_rc=1  # scan-secrets-gate-git-probe-error/gate_rc=0  # MUTANT-git-probe-error/' "$SUT" > "$mutantF3"
   _ss_copy_siblings
   if ! grep -q 'MUTANT-git-probe-error' "$mutantF3"; then
     no "teeth(secrets-f3-refuse): could not build mutant (scan-secrets-gate-git-probe-error marker not found — did the SUT change?)"
   else
+    # Primary, UNCONDITIONAL tooth: 17g's stub (always exits 127, no host dependency at all).
     f3mrc=0
-    GIT_TEST_ASSUME_DIFFERENT_OWNER=1 bash "$mutantF3" "$TMP/dubious" >/dev/null 2>&1 || f3mrc=$?
+    PATH="$TMP/stubbin:$PATH" bash "$mutantF3" "$TMP/gitstub" >/dev/null 2>&1 || f3mrc=$?
     if [ "$f3mrc" = 0 ]; then
-      ok "teeth(secrets-f3-refuse): F3 refuse neutered → dubious-ownership corpus archives (exit 0) — the gate_rc assignment is load-bearing"
-    else no "teeth(secrets-f3-refuse): mutant exit=$f3mrc (want 0) — case 17h may not depend on that gate_rc assignment (THEATER)"; fi
+      ok "teeth(secrets-f3-refuse): F3 refuse neutered → stubbed-git corpus archives (exit 0) — the gate_rc assignment is load-bearing (unconditional, host-independent)"
+    else no "teeth(secrets-f3-refuse): mutant exit=$f3mrc (want 0) — case 17g may not depend on that gate_rc assignment (THEATER)"; fi
+    # Bonus tooth, same sentinel, only when the host actually reproduces dubious ownership.
+    if _dubious_ownership_reproduces "$TMP/dubious"; then
+      f3mrc2=0
+      GIT_TEST_ASSUME_DIFFERENT_OWNER=1 bash "$mutantF3" "$TMP/dubious" >/dev/null 2>&1 || f3mrc2=$?
+      if [ "$f3mrc2" = 0 ]; then
+        ok "teeth(secrets-f3-refuse) bonus: same mutant on dubious-ownership fixture also archives (exit 0) — confirms the sentinel is shared"
+      else no "teeth(secrets-f3-refuse) bonus: mutant exit=$f3mrc2 (want 0) on dubious-ownership fixture (THEATER, host supports the env var)"; fi
+    else
+      skip "teeth(secrets-f3-refuse) bonus: GIT_TEST_ASSUME_DIFFERENT_OWNER=1 does not reproduce on this host — unconditional tooth above already covers this sentinel"
+    fi
   fi
 
   # #970 round-3 teeth (b): neuter (b) — the scan-secrets invocation from `--committed $target` back to
