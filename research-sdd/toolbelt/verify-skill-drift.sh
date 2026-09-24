@@ -70,22 +70,39 @@ _vsd_cleanup_renders() {
 }
 trap _vsd_cleanup_renders EXIT
 
-# _vsd_resolve_src <harness> <home> <src_relkit> <profile_flag> — prints the path to compare the
-# DEPLOYED skill against. profile "claude" (or no profile support at all): the kit source
-# directly, unchanged. Any other profile: a fresh render-profile.sh render in a temp dir.
-# Return codes: 0 ok (path printed) · 2 could-not-run (mktemp/render failure) · 3 unknown profile.
+# _vsd_resolve_src <harness> <home> <src_relkit> <profile_flag> <out_src> <out_tmp> <out_profile>
+# — resolves the path to compare the DEPLOYED skill against and writes it into the CALLER's
+# <out_src> variable by name (printf -v); <out_tmp> receives the render's OWN throwaway tmp dir
+# (empty string when there is none to track — profile "claude" or no profile support); <out_profile>
+# receives the resolved profile name. profile "claude" (or no profile support at all): the kit
+# source directly, unchanged. Any other profile: a fresh render-profile.sh render in a temp dir.
+# Return codes: 0 ok · 2 could-not-run (mktemp/render failure) · 3 unknown profile.
+#
+# MUST be called DIRECTLY — never wrapped in `$(...)`. A command substitution runs the whole
+# function in a SUBSHELL; a `printf -v` write there is invisible to the caller once the subshell
+# exits, exactly like a plain variable assignment would be. That exact bug — the ORIGINAL version
+# of this function returned its path over stdout for `$(...)` capture, and ALSO appended the tmp
+# dir to $_VSD_RENDER_TMPDIRS directly — leaked one tmp dir per --all run (kit issue #1024 review
+# F3): the array append happened in the subshell's own copy, never reaching the parent shell's
+# array the EXIT trap actually sweeps. Named-output parameters sidestep the subshell entirely by
+# requiring a direct call.
 _vsd_resolve_src() {
-  local h="$1" home="$2" src_relkit="$3" flag="$4" profile pair tmp render_err
+  local h="$1" home="$2" src_relkit="$3" flag="$4" out_src="$5" out_tmp="$6" out_profile="$7"
+  local profile pair tmp render_err
   if [ "$_VSD_HAS_PROFILE_SUPPORT" != 1 ]; then
-    printf '%s\n' "$KIT/$src_relkit"
+    printf -v "$out_src" '%s' "$KIT/$src_relkit"
+    printf -v "$out_tmp" ''
+    printf -v "$out_profile" 'claude'
     return 0
   fi
   pair="$(rsdd_resolve_profile "$h" "$flag")"; profile="${pair%%:*}"
   if ! rsdd_valid_profile "$profile" "$KIT"; then
     return 3
   fi
+  printf -v "$out_profile" '%s' "$profile"
   if [ "$profile" = "claude" ]; then
-    printf '%s\n' "$KIT/$src_relkit"
+    printf -v "$out_src" '%s' "$KIT/$src_relkit"
+    printf -v "$out_tmp" ''
     return 0
   fi
   tmp="$(mktemp -d)" || return 2
@@ -94,9 +111,43 @@ _vsd_resolve_src() {
     rm -rf "$tmp"
     return 2
   fi
-  _VSD_RENDER_TMPDIRS+=("$tmp")
-  printf '%s\n' "$tmp/$src_relkit"
+  printf -v "$out_src" '%s' "$tmp/$src_relkit"
+  printf -v "$out_tmp" '%s' "$tmp"
   return 0
+}
+
+# _vsd_check_render_completeness <config_root> <profile> <kit> — for a NON-claude profile, verify
+# the PERSISTED render dir (<config_root>/research-sdd/profile/<profile>/, kit issue #993 WU2)
+# still exists and is intact: its 3 rendered files still match a fresh re-render, and a handful of
+# representative F1-completion symlinks (kit issue #1024 review F1) still resolve. Prints one
+# status word and returns 0 only for "ok"; every other outcome (missing/diverged/incomplete/error)
+# is a drift or could-not-run state the caller must NEVER fold into "in sync" — before this fix, a
+# missing/gutted render dir was invisible: only the deployed skill_path was ever compared, so
+# "Kit path:" could point at nothing while the check still exited 0 (kit issue #1024 review F3).
+_vsd_check_render_completeness() {
+  local config_root="$1" profile="$2" kit="$3" render_dir tmp render_err rel f
+  render_dir="$config_root/research-sdd/profile/$profile"
+  if [ ! -d "$render_dir" ]; then
+    printf 'missing\n'; return 1
+  fi
+  tmp="$(mktemp -d)" || { printf 'error\n'; return 2; }
+  if ! render_err="$("$kit/toolbelt/render-profile.sh" "$profile" "$tmp" 2>&1)"; then
+    rm -rf "$tmp"
+    printf 'error\n'; return 2
+  fi
+  for rel in skills/research-sdd/SKILL.md PROMPT-LOOP.md METHODOLOGY.md; do
+    if ! cmp -s "$tmp/$rel" "$render_dir/$rel" 2>/dev/null; then
+      rm -rf "$tmp"
+      printf 'diverged\n'; return 1
+    fi
+  done
+  rm -rf "$tmp"
+  for f in toolbelt TARGETS.md skills/README.md; do
+    if [ ! -e "$render_dir/$f" ]; then
+      printf 'incomplete\n'; return 1
+    fi
+  done
+  printf 'ok\n'; return 0
 }
 
 all_mode=0
@@ -148,6 +199,11 @@ fi
 
 KIT="$(cd "$KIT_INSTALL/.." && pwd)"
 
+# Named-output receivers for _vsd_resolve_src (printf -v targets — see its own comment for why
+# this must be a direct call, never $(...)). Pre-declared so shellcheck (SC2154) and `set -u`
+# both see them as defined before _vsd_resolve_src's printf -v ever writes to them.
+_vsd_src="" _vsd_tmp="" _vsd_profile=""
+
 # ── --all mode: iterate every registered harness ──────────────────────────────
 if [ "$all_mode" -eq 1 ]; then
   checked=0 in_sync=0 diverged_count=0 absent_count=0 err_count=0
@@ -183,10 +239,10 @@ if [ "$all_mode" -eq 1 ]; then
 
     # Resolve $src (kit source, or a fresh profile render) only once deployed is known to exist
     # and be comparable — an absent/dangling/unreadable harness above must never pay for a
-    # render it has no use for (kit issue #993 WU2).
-    # NOTE: capture $? from the assignment DIRECTLY, never from `if ! src=$(...); then` — the `!`
-    # negation makes $? reflect ITS OWN (always-0-inside-then) status, not the command's real one.
-    src="$(_vsd_resolve_src "$h" "$home" "$src_relkit" "$profile_flag")"
+    # render it has no use for (kit issue #993 WU2). Called DIRECTLY (never via $(...)) so the
+    # tmp-dir tracking append below happens in THIS shell, where the EXIT trap can see it —
+    # kit issue #1024 review F3 (a command-substitution-wrapped call leaked one tmp dir here).
+    _vsd_resolve_src "$h" "$home" "$src_relkit" "$profile_flag" _vsd_src _vsd_tmp _vsd_profile
     src_rc=$?
     if [ "$src_rc" -ne 0 ]; then
       err_count=$((err_count + 1))
@@ -197,12 +253,28 @@ if [ "$all_mode" -eq 1 ]; then
       fi
       continue
     fi
+    src="$_vsd_src"
+    [ -n "$_vsd_tmp" ] && _VSD_RENDER_TMPDIRS+=("$_vsd_tmp")
 
     # Source checks (could-not-run)
     if [ ! -f "$src" ] || [ ! -r "$src" ]; then
       err_count=$((err_count + 1))
       printf 'verify-skill-drift: could-not-run harness=%s (src missing: %s)\n' "$h" "$src" >&2
       continue
+    fi
+
+    # For a non-claude profile, the deployed skill_path matching $src is NOT sufficient — the
+    # PERSISTED render dir it depends on at runtime (for "Kit path:" resolution) could be
+    # missing, hand-edited, or incompletely linked (kit issue #1024 review F3). Never let that
+    # collapse into "in sync".
+    if [ "$_vsd_profile" != "claude" ]; then
+      render_state="$(_vsd_check_render_completeness "$(rsdd_field "$h" config_root "$home")" "$_vsd_profile" "$KIT")"
+      if [ "$render_state" != "ok" ] && cmp -s "$src" "$deployed"; then
+        err_count=$((err_count + 1))
+        printf 'verify-skill-drift: could-not-run harness=%s (render dir %s: %s)\n' "$h" "$render_state" \
+          "$(rsdd_field "$h" config_root "$home")/research-sdd/profile/$_vsd_profile" >&2
+        continue
+      fi
     fi
 
     if cmp -s "$src" "$deployed"; then
@@ -251,9 +323,10 @@ fi
 src_relkit="$(rsdd_field "$harness" skill_src_relkit "$home")"
 deployed="$(rsdd_field "$harness" skill_path "$home")"
 
-# NOTE: capture $? from the assignment DIRECTLY, never from `if ! src=$(...); then` — the `!`
-# negation makes $? reflect ITS OWN (always-0-inside-then) status, not the command's real one.
-src="$(_vsd_resolve_src "$harness" "$home" "$src_relkit" "$profile_flag")"
+# Called DIRECTLY (never via $(...)) — see _vsd_resolve_src's own comment: a command-substitution
+# wrapper would run it in a subshell where the tmp-dir append is invisible to this shell's EXIT
+# trap (kit issue #1024 review F3).
+_vsd_resolve_src "$harness" "$home" "$src_relkit" "$profile_flag" _vsd_src _vsd_tmp _vsd_profile
 src_rc=$?
 if [ "$src_rc" -ne 0 ]; then
   if [ "$src_rc" = 3 ]; then
@@ -263,6 +336,8 @@ if [ "$src_rc" -ne 0 ]; then
   fi
   exit 2
 fi
+src="$_vsd_src"
+[ -n "$_vsd_tmp" ] && _VSD_RENDER_TMPDIRS+=("$_vsd_tmp")
 
 # Source file checks (could-not-run)
 if [ ! -f "$src" ]; then
@@ -296,6 +371,17 @@ fi
 
 # Byte-for-byte comparison
 if cmp -s "$src" "$deployed"; then
+  # For a non-claude profile, matching $src alone is not sufficient — the PERSISTED render dir
+  # it depends on at runtime (for "Kit path:" resolution) could be missing, hand-edited, or
+  # incompletely linked (kit issue #1024 review F3). Never let that collapse into "in sync".
+  if [ "$_vsd_profile" != "claude" ]; then
+    render_state="$(_vsd_check_render_completeness "$(rsdd_field "$harness" config_root "$home")" "$_vsd_profile" "$KIT")"
+    if [ "$render_state" != "ok" ]; then
+      printf 'verify-skill-drift: could-not-run harness=%s (render dir %s: %s)\n' "$harness" "$render_state" \
+        "$(rsdd_field "$harness" config_root "$home")/research-sdd/profile/$_vsd_profile" >&2
+      exit 2
+    fi
+  fi
   exit 0  # in-sync — silent
 fi
 

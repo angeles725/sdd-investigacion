@@ -13,8 +13,8 @@ SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; DRIVER58=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; DRIVER58=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -23,6 +23,63 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 norm(){ sed "s|$1|{HOME}|g"; }
 # Normalise the (machine-specific) kit root so the planned plugin symlink source is portable too.
 normkit(){ sed "s|$KITROOT|{KIT}|g"; }
+
+# _direct_clean_profile_dir <dir> <config_root> — invokes _rsdd_clean_profile_dir DIRECTLY (never
+# through the full install flow, so this exercises the guard in isolation regardless of what any
+# earlier validation layer would have caught). Sources the real, UNMUTATED SUT's functions via a
+# throwaway driver placed BESIDE it — SELF-based adapters.sh lookup inside research-sdd-install.sh
+# needs $0 to resolve to that directory (same technique test 58 already established). Prints
+# "RC=<n>" plus any stderr from the call; the caller greps the result.
+_direct_clean_profile_dir() {
+  local dir="$1" config_root="$2" driver
+  driver="$HERE/../research-sdd-install-direct-clean.$$.sh"
+  printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "$1" "$2"\necho "RC=$?"\n' > "$driver"
+  bash "$driver" "$dir" "$config_root" 2>&1
+  rm -f "$driver"
+}
+
+# _extract_kit_refs <file> — every literal `$KIT/<path>` reference in <file>, one per line,
+# normalized (a single trailing "." is end-of-sentence punctuation in this kit's prose — no real
+# kit path ends in a bare ".", so it is always safe to strip). Two token shapes are EXCLUDED BY
+# NAME, never silently dropped (anti-silent-zero, CLAUDE.md §7):
+#   "..."     — a prose ellipsis ("every $KIT/... reference below"), not a path at all.
+#   "retros/" — an explicit NEGATIVE example in SKILL.md ("...not `$KIT/retros/`"): kit doctrine
+#               is that retros/ lives at the REPO ROOT, not under $KIT; asserting it exists under
+#               the kit would assert the opposite of what that sentence says.
+_extract_kit_refs() {
+  local f="$1" tok
+  grep -ohE '\$KIT/[A-Za-z0-9_./*-]+' "$f" | sed 's/^\$KIT\///' | sort -u | while IFS= read -r tok; do
+    while [ "${tok%.}" != "$tok" ]; do tok="${tok%.}"; done
+    case "$tok" in
+      "...") continue ;;
+      "retros/") continue ;;
+    esac
+    printf '%s\n' "$tok"
+  done
+}
+
+# _assert_kit_refs_resolve <root> <file> — for every $KIT/<path> extracted from <file>, assert it
+# resolves under <root>: a real file/dir for a literal token, or AT LEAST ONE glob match for a
+# token containing "*" (e.g. toolbelt/corroborate-*.sh). Prints one "MISSING..." line per miss to
+# stdout and exits nonzero if anything is missing; silent + exit 0 when everything resolves.
+_assert_kit_refs_resolve() {
+  local root="$1" file="$2" tok all_ok=0
+  while IFS= read -r tok; do
+    [ -z "$tok" ] && continue
+    case "$tok" in
+      *'*'*)
+        # Deliberate glob expansion against the render root (checks for ANY match).
+        # shellcheck disable=SC2086
+        set -- "$root"/$tok
+        if [ ! -e "$1" ]; then echo "MISSING(glob): $tok"; all_ok=1; fi
+        ;;
+      *)
+        if [ ! -e "$root/$tok" ]; then echo "MISSING: $tok"; all_ok=1; fi
+        ;;
+    esac
+  done < <(_extract_kit_refs "$file")
+  return "$all_ok"
+}
 
 echo "== research-sdd-install.test.sh =="
 
@@ -650,7 +707,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # the elif chain is syntactically intact. The SUT still parses; the overwrite runs but no backup
   # is created. Test 34's "backup contains original content" check then fails — proving it bites.
   MUTANT5="$HERE/../research-sdd-install.MUTANT5.$$.sh"
-  sed 's/elif ! cp "\$skill_path" "\$bak"; then/elif false; then/' "$SUT" > "$MUTANT5"
+  sed 's/elif ! cp "\$dest" "\$bak"; then/elif false; then/' "$SUT" > "$MUTANT5"
   bash -n "$MUTANT5" 2>/dev/null \
     && ok "teeth: MUTANT5 parses (bash -n)" \
     || no "teeth: MUTANT5 is a syntax error — mutation is theater"
@@ -688,7 +745,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT7 B3 check skipped (root)"
   else
     MUTANT7="$HERE/../research-sdd-install.MUTANT7.$$.sh"
-    sed 's/elif \[ ! -r "\$src_skill" \]; then/elif false; then/g' "$SUT" > "$MUTANT7"
+    sed 's/elif \[ ! -r "\$src" \]; then/elif false; then/g' "$SUT" > "$MUTANT7"
     bash -n "$MUTANT7" 2>/dev/null \
       && ok "teeth: MUTANT7 parses (bash -n)" \
       || no "teeth: MUTANT7 is a syntax error — mutation is theater"
@@ -925,7 +982,10 @@ bash "$SUT" --home "$home_55" --harness claude --profile claude >/dev/null 2>&1
 if cmp -s "$KITROOT/skills/research-sdd/SKILL.md" "$home_55/.claude/skills/research-sdd/SKILL.md"; then
   ok "55: profile=claude installs a byte-identical copy of the kit source SKILL.md"
 else no "55: profile=claude SKILL.md diverged from kit source"; fi
-[ ! -d "$home_55/.claude/research-sdd" ] \
+# Note: research-sdd/ ITSELF now legitimately exists even for profile=claude — it holds the F4
+# profile-switch marker (kit issue #1024 review F4), a SIBLING of profile/, not a render. The
+# regression guard this test protects is specifically "no render directory", i.e. no profile/.
+[ ! -d "$home_55/.claude/research-sdd/profile" ] \
   && ok "55: profile=claude creates no research-sdd/profile render directory" \
   || no "55: profile=claude unexpectedly created a render directory"
 
@@ -976,6 +1036,65 @@ rm -f "$DRIVER58"; DRIVER58=""
 if printf '%s' "$out_58" | grep -q 'RC=2' && [ -f "$TMP/outside-guard58/keepme.txt" ]; then
   ok "58: render-dir cleaner refuses (rc=2) a dir outside <config_root>/research-sdd/profile/, target preserved"
 else no "58: render-dir cleaner did not refuse an out-of-convention dir (got: $out_58)"; fi
+
+# ── kit issue #1024 review correction (R3-silent-overwrite-rendered-profile): the rendered-profile
+#    SKILL.md deploy must honor the SAME divergence rule as the kit-source (claude) leg. Before this
+#    fix it copied over the deployed SKILL.md unconditionally: no cmp -s check, no backup,
+#    --force-skill ignored, and the dry-run plan always printed a bare INSTALL even when diverged.
+# 59 — dry-run on a DIVERGED deployed skill (rendered profile) prints SKIP and names
+#      --force-skill as the remedy — mirrors test 32 for the render leg.
+home_59="$TMP/dryrun-diverged-render"; mkdir -p "$home_59/.reasonix/skills/research-sdd"
+printf '# custom deployed content — not the rendered profile\n' > "$home_59/.reasonix/skills/research-sdd/SKILL.md"
+out_59="$(bash "$SUT" --dry-run --home "$home_59" --harness reasonix 2>&1)"
+if printf '%s\n' "$out_59" | grep -q 'INSTALL.*SKIP.*--force-skill'; then
+  ok "59: dry-run diverged (rendered profile): shows SKIP and names --force-skill remedy"
+else no "59: dry-run diverged (rendered profile): plan wrong (got: $(printf '%s\n' "$out_59" | grep INSTALL || true))"; fi
+[ ! -f "$home_59/.reasonix/skills/research-sdd/SKILL.md.local-backup" ] \
+  && ok "59: dry-run diverged (rendered profile): no backup created" \
+  || no "59: dry-run diverged (rendered profile): backup created unexpectedly"
+
+# 60 — a plain re-install (no flags) of a rendered profile with a hand-edited deployed skill must
+#      NOT clobber it (this used to silently overwrite unconditionally — the finding's core claim).
+home_60="$TMP/render-noclobber"
+bash "$SUT" --home "$home_60" --harness reasonix >/dev/null 2>&1
+sf_60="$home_60/.reasonix/skills/research-sdd/SKILL.md"
+printf '# my hand-edited deployed skill — local delta\n' > "$sf_60"
+err_60="$(bash "$SUT" --home "$home_60" --harness reasonix 2>&1 >/dev/null)"
+if grep -q 'my hand-edited deployed skill' "$sf_60"; then
+  ok "60: rendered-profile re-install preserves a hand-edited deployed SKILL.md (data-loss regression fixed)"
+else no "60: rendered-profile re-install CLOBBERED a hand-edited deployed SKILL.md (DATA LOSS)"; fi
+printf '%s\n' "$err_60" | grep -qi 'diverged' \
+  && ok "60: rendered-profile re-install warns about the diverged deployed skill" \
+  || no "60: rendered-profile re-install: no diverged warning printed (got: $err_60)"
+
+# 61 — --force-skill overwrites a diverged deployed skill on the rendered-profile leg, backing it
+#      up first — same contract as test 34 for the claude/kit-source leg.
+home_61="$TMP/render-force-overwrite"
+bash "$SUT" --home "$home_61" --harness reasonix >/dev/null 2>&1
+sf_61="$home_61/.reasonix/skills/research-sdd/SKILL.md"
+printf '# custom local content — NOT the rendered profile\nmy local delta\n' > "$sf_61"
+bash "$SUT" --force-skill --home "$home_61" --harness reasonix >/dev/null 2>&1
+bak_61="$sf_61.local-backup"
+render_61="$home_61/.reasonix/research-sdd/profile/general/skills/research-sdd/SKILL.md"
+if [ -f "$render_61" ] && cmp -s "$sf_61" "$render_61"; then
+  ok "61: --force-skill installs the rendered profile over a diverged deployed skill"
+else no "61: --force-skill did not install the rendered profile (still diverged or missing)"; fi
+if [ -f "$bak_61" ] && grep -q 'my local delta' "$bak_61"; then
+  ok "61: --force-skill backs up diverged content before overwriting (rendered-profile leg)"
+else no "61: --force-skill backup missing or does not contain original content (rendered-profile leg)"; fi
+
+# 62 — dry-run on an IDENTICAL deployed skill (rendered profile) prints [up-to-date], not a bare
+#      INSTALL — mirrors test 31 for the render leg; also proves the dry-run classification diffs
+#      against the ACTUAL rendered bytes, not a stale or placeholder comparison.
+home_62="$TMP/dryrun-identical-render"
+bash "$SUT" --home "$home_62" --harness reasonix >/dev/null 2>&1
+out_62="$(bash "$SUT" --dry-run --home "$home_62" --harness reasonix 2>&1)"
+if printf '%s\n' "$out_62" | grep -q 'INSTALL.*\[up-to-date\]'; then
+  ok "62: dry-run identical (rendered profile): shows [up-to-date]"
+else no "62: dry-run identical (rendered profile): missing [up-to-date] (got: $(printf '%s\n' "$out_62" | grep INSTALL || true))"; fi
+[ ! -f "$home_62/.reasonix/skills/research-sdd/SKILL.md.local-backup" ] \
+  && ok "62: dry-run identical (rendered profile): no backup created" \
+  || no "62: dry-run identical (rendered profile): backup created unexpectedly"
 
 # ── TEETH for the profile feature (kit issue #993 WU2) ────────────────────────────────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1028,7 +1147,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: skip the render-dir clean call; expect test 57 (stale-render cleanup) to fail --"
   MUTANT16="$HERE/../research-sdd-install.MUTANT16.$$.sh"
-  sed 's/! _rsdd_clean_profile_dir "\$render_dir" "\$(rsdd_field "\$h" config_root "\$home")"/! true/' "$SUT" > "$MUTANT16"
+  sed 's/! _rsdd_clean_profile_dir "\$render_dir" "\$config_root"/! true/' "$SUT" > "$MUTANT16"
   bash -n "$MUTANT16" 2>/dev/null \
     && ok "teeth: MUTANT16 parses (bash -n)" \
     || no "teeth: MUTANT16 is a syntax error — mutation is theater"
@@ -1043,12 +1162,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth: MUTANT16 still cleaned the stale marker — stale-render cleanup check is THEATER"
   fi
 
-  echo "-- teeth: neuter the render-dir containment guard; expect test 58 to fail --"
+  echo "-- teeth: neuter BOTH containment checks (textual + realpath); expect test 58 to fail --"
+  # Since kit issue #1024 review F2, containment is TWO independent checks (textual prefix +
+  # realpath-resolved prefix) — removing only one no longer breaks the guard (the other still
+  # catches it, proven by MUTANT18/19 below), so this combined mutant proves what removing BOTH
+  # layers together does: the scenario this test always used (two textually-and-really unrelated
+  # tmp dirs) needs both neutered to bypass, matching the pre-F2-fix single-layer behaviour.
   MUTANT17="$HERE/../research-sdd-install.MUTANT17.$$.sh"
-  sed 's|"\$config_root"/research-sdd/profile/?\*) ;;|*) ;;|' "$SUT" > "$MUTANT17"
+  sed -e 's|"\$config_root"/research-sdd/profile/?\*) ;;|*) ;;|' \
+      -e 's|"\$prefix_real"/?\*) ;;|*) ;;|' \
+      "$SUT" > "$MUTANT17"
   bash -n "$MUTANT17" 2>/dev/null \
     && ok "teeth: MUTANT17 parses (bash -n)" \
     || no "teeth: MUTANT17 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT17" >/dev/null 2>&1; then
+    no "teeth: MUTANT17 pre-check: mutant = SUT — neither containment pattern matched"
+  else
+    ok "teeth: MUTANT17 pre-check: mutant differs (both containment patterns neutered)"
+  fi
   mkdir -p "$TMP/teeth-m17-outside"; echo "keepme" > "$TMP/teeth-m17-outside/keepme.txt"
   # MUTANT17 IS a full SUT copy living beside adapters.sh, so it can source itself the same way
   # DRIVER58 does above — no separate driver file needed for a mutant that already lives there.
@@ -1057,7 +1188,329 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ -f "$TMP/teeth-m17-outside/keepme.txt" ]; then
     no "teeth: MUTANT17 still refused/preserved the outside dir — containment guard check is THEATER"
   else
-    ok "teeth: MUTANT17 (guard neutered) removes an out-of-convention dir → containment guard check has teeth"
+    ok "teeth: MUTANT17 (both containment layers neutered) removes an out-of-convention dir → containment guard check has teeth"
+  fi
+
+  echo "-- teeth: neuter ONLY the realpath containment check (F2 review); expect F2d to fail --"
+  # F2d's own scenario is TEXTUALLY prefixed (config_root/research-sdd/profile/../OTHER) so check
+  # #1 alone never blocks it in the real (unmutated) code either — only the realpath-resolved
+  # check (#3) does. Neutering ONLY that check therefore surgically isolates its contribution,
+  # independent of MUTANT17 above.
+  MUTANT18="$HERE/../research-sdd-install.MUTANT18.$$.sh"
+  sed 's|"\$prefix_real"/?\*) ;;|*) ;;|' "$SUT" > "$MUTANT18"
+  bash -n "$MUTANT18" 2>/dev/null \
+    && ok "teeth: MUTANT18 parses (bash -n)" \
+    || no "teeth: MUTANT18 is a syntax error — mutation is theater"
+  cfg_root_m18="$TMP/teeth-m18-cfgroot"
+  mkdir -p "$cfg_root_m18/research-sdd/profile" "$cfg_root_m18/research-sdd/OTHER"
+  echo "sentinel" > "$cfg_root_m18/research-sdd/OTHER/keepme.txt"
+  printf '. "%s" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "%s" "%s"\necho RC=$?\n' \
+    "$MUTANT18" "$cfg_root_m18/research-sdd/profile/../OTHER" "$cfg_root_m18" | bash >/dev/null 2>&1
+  if [ -f "$cfg_root_m18/research-sdd/OTHER/keepme.txt" ]; then
+    no "teeth: MUTANT18 still refused/preserved the resolved-outside dir — realpath check is THEATER"
+  else
+    ok "teeth: MUTANT18 (realpath check neutered) removes a textually-prefixed-but-resolved-outside dir → realpath check has teeth"
+  fi
+
+  echo "-- teeth: neuter ONLY the symlink-chain check (F2 review); expect F2e to fail --"
+  MUTANT19="$HERE/../research-sdd-install.MUTANT19.$$.sh"
+  sed 's@\[ -L "\$config_root/research-sdd" \] || \[ -L "\$config_root/research-sdd/profile" \]@false@' "$SUT" > "$MUTANT19"
+  bash -n "$MUTANT19" 2>/dev/null \
+    && ok "teeth: MUTANT19 parses (bash -n)" \
+    || no "teeth: MUTANT19 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT19" >/dev/null 2>&1; then
+    no "teeth: MUTANT19 pre-check: mutant = SUT — symlink-check line not found"
+  else
+    ok "teeth: MUTANT19 pre-check: mutant differs (symlink-chain check neutered)"
+  fi
+  # Sentinel nested at elsewhere/profile/general/keepme.txt — the EXACT resolved path "dir"
+  # points at through the symlink (see F2e's identical fix: a flat elsewhere/keepme.txt is never
+  # inside what gets rm -rf'd, so it would "survive" regardless of whether the guard bites —
+  # asserting only file-survival on that placement is theater, not a tooth).
+  mkdir -p "$TMP/teeth-m19-elsewhere/profile/general"; echo "should-not-be-touched" > "$TMP/teeth-m19-elsewhere/profile/general/keepme.txt"
+  home_m19="$TMP/teeth-m19-home"; mkdir -p "$home_m19"
+  ln -s "$TMP/teeth-m19-elsewhere" "$home_m19/research-sdd"
+  out_m19="$(printf '. "%s" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "%s" "%s"\necho RC=$?\n' \
+    "$MUTANT19" "$home_m19/research-sdd/profile/general" "$home_m19" | bash 2>&1)"
+  if printf '%s' "$out_m19" | grep -q 'RC=2' || [ -f "$TMP/teeth-m19-elsewhere/profile/general/keepme.txt" ]; then
+    no "teeth: MUTANT19 still refused/preserved the symlink target — symlink-chain check is THEATER (got: $out_m19)"
+  else
+    ok "teeth: MUTANT19 (symlink-chain check neutered) removes through a symlinked research-sdd/ → symlink-chain check has teeth"
+  fi
+fi
+
+# ── kit issue #1024 review round 2, F2 (HIGH, anti-destructive) ───────────────
+# The profile name used to reach _rsdd_clean_profile_dir's rm -rf before any charset check:
+# rsdd_valid_profile only checked that a *.slots.md FILE existed, and "../profiles/general"
+# resolves (via the kit/profiles/ prefix cancelling the leading "../") to the real general.slots.md
+# — so it passed validation. The clean guard's case-pattern is a TEXTUAL prefix match, which does
+# not resolve "..", so "<config_root>/research-sdd/profile/../profiles/general" textually matches
+# "<config_root>/research-sdd/profile/?*" even though it resolves OUTSIDE profile/ entirely.
+
+# F2a: --profile with a ".." traversal is rejected UP FRONT (exit 2), before any harness is even
+# processed (main()'s per-harness loop never starts — proven by the absence of "harness=" in the
+# output), and nothing is written to the filesystem.
+home_f2a="$TMP/f2-traversal-flag"
+out_f2a="$(bash "$SUT" --dry-run --home "$home_f2a" --harness claude --profile "../profiles/general" 2>&1)"; rc_f2a=$?
+if [ "$rc_f2a" -eq 2 ] && ! printf '%s' "$out_f2a" | grep -q 'harness='; then
+  ok "F2a: '--profile ../profiles/general' rejected up front (exit 2, before any harness processing)"
+else
+  no "F2a: traversal profile not rejected up front (rc=$rc_f2a, out=$out_f2a)"
+fi
+[ ! -e "$home_f2a" ] && ok "F2a: nothing written to the filesystem" || no "F2a: filesystem touched despite rejection"
+
+# F2b: the same traversal through $RESEARCH_SDD_PROFILE (the other entry point) is rejected too.
+home_f2b="$TMP/f2-traversal-env"
+out_f2b="$(RESEARCH_SDD_PROFILE="../profiles/general" bash "$SUT" --dry-run --home "$home_f2b" --harness claude 2>&1)"; rc_f2b=$?
+if [ "$rc_f2b" -eq 2 ] && ! printf '%s' "$out_f2b" | grep -q 'harness='; then
+  ok "F2b: \$RESEARCH_SDD_PROFILE=../profiles/general rejected up front (exit 2)"
+else
+  no "F2b: env traversal profile not rejected (rc=$rc_f2b, out=$out_f2b)"
+fi
+
+# F2c: end-to-end, real (non-dry) run — a sentinel living OUTSIDE research-sdd/profile/ (but
+# still under the SAME --home, so this never touches a real user's config) survives an attempted
+# traversal install. This is the exact shape that was reproduced against 6a0ff24 before the fix:
+# the sentinel was deleted (rm -rf resolved "profile/../profiles/general" to "profiles/general").
+home_f2c="$TMP/f2-deep-real"
+mkdir -p "$home_f2c/.claude/research-sdd/profile" "$home_f2c/.claude/research-sdd/profiles/general"
+echo "sentinel" > "$home_f2c/.claude/research-sdd/profiles/general/keepme.txt"
+bash "$SUT" --home "$home_f2c" --harness claude --profile "../profiles/general" >/dev/null 2>&1
+if [ -f "$home_f2c/.claude/research-sdd/profiles/general/keepme.txt" ]; then
+  ok "F2c: sibling sentinel outside profile/ survives a traversal --profile attempt"
+else
+  no "F2c: sibling sentinel was deleted by a traversal --profile attempt (DATA LOSS)"
+fi
+
+# F2d: _rsdd_clean_profile_dir's guard compares REALPATH-resolved results, not just text —
+# direct unit test (bypasses the upfront rsdd_valid_profile check entirely) so this specifically
+# proves the second, independent layer. A dir that textually matches the profile/ prefix but
+# resolves (via "..") to a sibling directory must be refused, and that sibling must survive.
+cfg_root_f2d="$TMP/f2d-cfgroot"
+mkdir -p "$cfg_root_f2d/research-sdd/profile" "$cfg_root_f2d/research-sdd/OTHER"
+echo "sentinel" > "$cfg_root_f2d/research-sdd/OTHER/keepme.txt"
+out_f2d="$(_direct_clean_profile_dir "$cfg_root_f2d/research-sdd/profile/../OTHER" "$cfg_root_f2d")"
+if printf '%s' "$out_f2d" | grep -q 'RC=2' && [ -f "$cfg_root_f2d/research-sdd/OTHER/keepme.txt" ]; then
+  ok "F2d: _rsdd_clean_profile_dir refuses a textually-prefixed but resolved-outside path (realpath guard)"
+else
+  no "F2d: _rsdd_clean_profile_dir did not refuse a resolved-outside path (got: $out_f2d)"
+fi
+
+# F2e: refuses when research-sdd/ itself (anywhere in the chain) is a symlink — a pre-planted
+# symlink could otherwise redirect an even textually-and-realpath-safe-looking path elsewhere.
+# The sentinel is nested at .../elsewhere/profile/general/keepme.txt — the EXACT path "dir"
+# resolves to through the symlink — so it is actually inside what would be rm -rf'd if the
+# symlink check were absent; a sentinel placed directly under elsewhere/ would never be reached
+# by this dir argument regardless of whether the guard works, proving nothing either way.
+mkdir -p "$TMP/f2e-elsewhere/profile/general"
+echo "should-not-be-touched" > "$TMP/f2e-elsewhere/profile/general/keepme.txt"
+home_f2e="$TMP/f2e-symlink-home"
+mkdir -p "$home_f2e"
+ln -s "$TMP/f2e-elsewhere" "$home_f2e/research-sdd"
+out_f2e="$(_direct_clean_profile_dir "$home_f2e/research-sdd/profile/general" "$home_f2e")"
+if printf '%s' "$out_f2e" | grep -q 'RC=2' && [ -f "$TMP/f2e-elsewhere/profile/general/keepme.txt" ]; then
+  ok "F2e: _rsdd_clean_profile_dir refuses when research-sdd/ in the chain is a symlink"
+else
+  no "F2e: symlinked research-sdd/ was not refused (got: $out_f2e)"
+fi
+
+# F2pos: regression guard — a LEGITIMATE profile dir (no traversal, no symlink) still cleans
+# normally; the new realpath/symlink checks must not over-refuse the happy path test 57 exercises.
+cfg_root_f2pos="$TMP/f2pos-cfgroot"
+mkdir -p "$cfg_root_f2pos/research-sdd/profile/general"
+echo "stale" > "$cfg_root_f2pos/research-sdd/profile/general/stale.txt"
+out_f2pos="$(_direct_clean_profile_dir "$cfg_root_f2pos/research-sdd/profile/general" "$cfg_root_f2pos")"
+if printf '%s' "$out_f2pos" | grep -q 'RC=0' && [ ! -e "$cfg_root_f2pos/research-sdd/profile/general/stale.txt" ]; then
+  ok "F2pos: legitimate profile dir still cleans normally (realpath guard doesn't over-refuse)"
+else
+  no "F2pos: legitimate profile dir clean broke (got: $out_f2pos)"
+fi
+
+# ── kit issue #1024 review round 2, F1 (HIGH): incomplete render tree ─────────
+# render-profile.sh copies ONLY SKILL.md/PROMPT-LOOP.md/METHODOLOGY.md (by design — that stays
+# ITS contract). SKILL.md's own "Resolving the kit path" step 0 trusts a render dir as $KIT once
+# METHODOLOGY.md is present there — so, before this fix, every OTHER `$KIT/...` reference inside
+# the rendered SKILL.md (12) and PROMPT-LOOP.md (27) broke: toolbelt/*.sh, TARGETS.md, templates/,
+# tool-registry.md, other skills/*, all resolved to nothing. Fixed in the INSTALLER (never
+# render-profile.sh): after a successful render, every OTHER top-level kit entry, and every other
+# entry under the rendered skills/ subtree, is symlinked into the render dir — only the 3 rendered
+# files (and the skills/research-sdd/ directory that holds one of them) stay real.
+home_f1="$TMP/f1-kitrefs"
+bash "$SUT" --home "$home_f1" --harness reasonix >/dev/null 2>&1
+render_root_f1="$home_f1/.reasonix/research-sdd/profile/general"
+skill_f1="$render_root_f1/skills/research-sdd/SKILL.md"
+loop_f1="$render_root_f1/PROMPT-LOOP.md"
+
+# F1a: every $KIT/<path> reference in the render's OWN SKILL.md/PROMPT-LOOP.md resolves under the
+# completed render dir (files stay real; wildcards need at least one glob match).
+if [ -f "$skill_f1" ] && [ -f "$loop_f1" ]; then
+  miss_skill_f1="$(_assert_kit_refs_resolve "$render_root_f1" "$skill_f1")"; rc_skill_f1=$?
+  miss_loop_f1="$(_assert_kit_refs_resolve "$render_root_f1" "$loop_f1")"; rc_loop_f1=$?
+  if [ "$rc_skill_f1" -eq 0 ] && [ "$rc_loop_f1" -eq 0 ]; then
+    ok "F1a: every \$KIT/<path> reference in the installed rendered SKILL.md + PROMPT-LOOP.md resolves under the render dir"
+  else
+    no "F1a: unresolved \$KIT/<path> reference(s) — SKILL.md: [$miss_skill_f1] · PROMPT-LOOP.md: [$miss_loop_f1]"
+  fi
+else
+  no "F1a setup: rendered SKILL.md or PROMPT-LOOP.md not found at $render_root_f1"
+fi
+
+# F1b: spot-check the SPECIFIC entries the review named explicitly — belt-and-suspenders beyond
+# F1a's generic extraction, directly against the review's own wording.
+if [ -x "$render_root_f1/toolbelt/detect-tools.sh" ] \
+   && [ -f "$render_root_f1/TARGETS.md" ] \
+   && [ -d "$render_root_f1/templates" ] \
+   && [ -f "$render_root_f1/toolbelt/tool-registry.md" ]; then
+  ok "F1b: toolbelt/*.sh, TARGETS.md, templates/, tool-registry.md all resolve under the render dir"
+else
+  no "F1b: one or more of toolbelt/*.sh, TARGETS.md, templates/, tool-registry.md missing under the render dir"
+fi
+
+# F1c: the rendered files (and the dir holding one of them) stay REAL — completion must never
+# symlink OVER already-rendered output.
+if [ ! -L "$skill_f1" ] && [ ! -L "$loop_f1" ] && [ ! -L "$render_root_f1/METHODOLOGY.md" ] \
+   && [ ! -L "$render_root_f1/skills/research-sdd" ]; then
+  ok "F1c: the rendered files (and skills/research-sdd/) stay REAL after completion"
+else
+  no "F1c: a rendered file or its directory was symlinked over — completion touched rendered output"
+fi
+
+# F1d: everything else IS a symlink (not a copy) into the source kit — proves completion links
+# rather than duplicates the kit tree.
+if [ -L "$render_root_f1/toolbelt" ] && [ -L "$render_root_f1/TARGETS.md" ] \
+   && [ -L "$render_root_f1/skills/README.md" ]; then
+  ok "F1d: completed entries are symlinks (not copies) to the source kit"
+else
+  no "F1d: completed entries are not symlinks as expected"
+fi
+
+# ── kit issue #1024 review round 2, F4 (MEDIUM): profile switch leaves a mixed state ──────────
+# Reproduced against the pre-F4 code: install general, then claude — the launcher correctly
+# reverts (Kit path: back to the real kit), but SKILL.md stays the GENERAL render, reported as
+# "diverged — local content kept" (a plain cmp sees any profile switch as a foreign edit), and the
+# stale profile/general/ render directory is left behind. Fixed via a small marker file under
+# <config_root>/research-sdd/.installed-skill-state recording the profile + sha256 of what the
+# installer itself last deployed: on a switch, a deployed file matching THAT hash (whatever
+# profile it came from) is a MANAGED overwrite, not a user edit — no warning, no --force-skill
+# needed — and the previous profile's now-orphaned render dir is removed via the same guarded
+# clean _rsdd_clean_profile_dir already uses. A file that does NOT match the recorded hash is a
+# genuine hand-edit and keeps the existing warn+keep-unless---force-skill behaviour untouched.
+
+# F4a/b: general → claude — clean switch: SKILL.md becomes byte-identical to the kit source (no
+# "diverged" warning), and the orphaned general/ render dir is removed.
+home_f4="$TMP/f4-switch"
+bash "$SUT" --home "$home_f4" --harness reasonix --profile general >/dev/null 2>&1
+err_f4a="$(bash "$SUT" --home "$home_f4" --harness reasonix --profile claude 2>&1 >/dev/null)"
+sf_f4="$home_f4/.reasonix/skills/research-sdd/SKILL.md"
+if cmp -s "$sf_f4" "$KITROOT/skills/research-sdd/SKILL.md"; then
+  ok "F4a: general → claude switch installs the claude kit source byte-identically"
+else
+  no "F4a: general → claude switch did NOT install the claude kit source (still the general render)"
+fi
+if printf '%s' "$err_f4a" | grep -qi 'diverged'; then
+  no "F4a: general → claude switch was wrongly reported as diverged (a profile switch is not a hand-edit)"
+else
+  ok "F4a: general → claude switch produced no spurious 'diverged' warning"
+fi
+if [ ! -e "$home_f4/.reasonix/research-sdd/profile/general" ]; then
+  ok "F4b: the orphaned general/ render dir is removed after switching to claude"
+else
+  no "F4b: the orphaned general/ render dir survived the switch to claude"
+fi
+
+# F4c: general → claude → general → claude round trip ends in a clean claude state (matches the
+# review's own round-trip scenario). Each hop must stay clean — no accumulated divergence.
+home_f4c="$TMP/f4-roundtrip"
+bash "$SUT" --home "$home_f4c" --harness reasonix --profile general >/dev/null 2>&1
+bash "$SUT" --home "$home_f4c" --harness reasonix --profile claude  >/dev/null 2>&1
+bash "$SUT" --home "$home_f4c" --harness reasonix --profile general >/dev/null 2>&1
+err_f4c="$(bash "$SUT" --home "$home_f4c" --harness reasonix --profile claude 2>&1 >/dev/null)"
+sf_f4c="$home_f4c/.reasonix/skills/research-sdd/SKILL.md"
+if cmp -s "$sf_f4c" "$KITROOT/skills/research-sdd/SKILL.md" \
+   && ! printf '%s' "$err_f4c" | grep -qi 'diverged' \
+   && [ ! -e "$home_f4c/.reasonix/research-sdd/profile/general" ]; then
+  ok "F4c: general→claude→general→claude round trip ends in a clean claude state"
+else
+  no "F4c: round trip did not end clean (identical=$(cmp -s "$sf_f4c" "$KITROOT/skills/research-sdd/SKILL.md" && echo yes || echo no), diverged-warned=$(printf '%s' "$err_f4c" | grep -qi diverged && echo yes || echo no), stale-dir=$([ -e "$home_f4c/.reasonix/research-sdd/profile/general" ] && echo yes || echo no))"
+fi
+
+# F4d: regression guard — a GENUINE hand-edit made AFTER a clean switch is still detected and
+# preserved (warn+keep), never silently treated as "managed" just because a marker exists.
+home_f4d="$TMP/f4-handedit-after-switch"
+bash "$SUT" --home "$home_f4d" --harness reasonix --profile general >/dev/null 2>&1
+bash "$SUT" --home "$home_f4d" --harness reasonix --profile claude  >/dev/null 2>&1
+sf_f4d="$home_f4d/.reasonix/skills/research-sdd/SKILL.md"
+printf '# hand-edited after the switch — a real local delta\n' >> "$sf_f4d"
+err_f4d="$(bash "$SUT" --home "$home_f4d" --harness reasonix --profile claude 2>&1 >/dev/null)"
+if grep -q 'hand-edited after the switch' "$sf_f4d" && printf '%s' "$err_f4d" | grep -qi 'diverged'; then
+  ok "F4d: a genuine hand-edit made after a clean switch is still detected and preserved"
+else
+  no "F4d: hand-edit after a switch was not detected/preserved (content-kept=$(grep -q 'hand-edited after the switch' "$sf_f4d" && echo yes || echo no), warned=$(printf '%s' "$err_f4d" | grep -qi diverged && echo yes || echo no))"
+fi
+
+# ── kit issue #1024 review round 2, F1 teeth: skip the linking step ──────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: skip _rsdd_complete_profile_render's linking step; expect F1a/F1b to fail --"
+  MUTANT20="$HERE/../research-sdd-install.MUTANT20.$$.sh"
+  sed 's/elif ! _rsdd_complete_profile_render "\$render_dir" "\$KIT"; then/elif false; then/' "$SUT" > "$MUTANT20"
+  bash -n "$MUTANT20" 2>/dev/null \
+    && ok "teeth: MUTANT20 parses (bash -n)" \
+    || no "teeth: MUTANT20 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT20" >/dev/null 2>&1; then
+    no "teeth: MUTANT20 pre-check: mutant = SUT — linking-step call site not found"
+  else
+    ok "teeth: MUTANT20 pre-check: mutant differs (linking step skipped)"
+  fi
+  home_m20="$TMP/teeth-m20-kitrefs"
+  bash "$MUTANT20" --home "$home_m20" --harness reasonix >/dev/null 2>&1
+  render_root_m20="$home_m20/.reasonix/research-sdd/profile/general"
+  # Reproduces the pre-fix bug directly: with linking skipped, toolbelt/ (and everything else
+  # outside the 3 rendered files) never appears under the render dir at all.
+  if [ -e "$render_root_m20/toolbelt" ] || [ -e "$render_root_m20/TARGETS.md" ]; then
+    no "teeth: MUTANT20 (linking skipped) still completed the render — F1 linking-step check is THEATER"
+  else
+    ok "teeth: MUTANT20 (linking skipped) leaves toolbelt/ and TARGETS.md missing → F1 linking-step check has teeth"
+  fi
+
+  echo "-- teeth: neuter _rsdd_marker_matches_deployed; expect F4a to fail --"
+  MUTANT21="$HERE/../research-sdd-install.MUTANT21.$$.sh"
+  sed 's/_rsdd_marker_matches_deployed "\$marker" "\$dest"/false/' "$SUT" > "$MUTANT21"
+  bash -n "$MUTANT21" 2>/dev/null \
+    && ok "teeth: MUTANT21 parses (bash -n)" \
+    || no "teeth: MUTANT21 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT21" >/dev/null 2>&1; then
+    no "teeth: MUTANT21 pre-check: mutant = SUT — marker-match call site not found"
+  else
+    ok "teeth: MUTANT21 pre-check: mutant differs (marker-match check disabled)"
+  fi
+  home_m21="$TMP/teeth-m21-switch"
+  bash "$MUTANT21" --home "$home_m21" --harness reasonix --profile general >/dev/null 2>&1
+  err_m21="$(bash "$MUTANT21" --home "$home_m21" --harness reasonix --profile claude 2>&1 >/dev/null)"
+  sf_m21="$home_m21/.reasonix/skills/research-sdd/SKILL.md"
+  if cmp -s "$sf_m21" "$KITROOT/skills/research-sdd/SKILL.md" && ! printf '%s' "$err_m21" | grep -qi 'diverged'; then
+    no "teeth: MUTANT21 still switched cleanly — marker-match check is THEATER"
+  else
+    ok "teeth: MUTANT21 (marker-match disabled) mis-reports a profile switch as diverged → marker-match check has teeth"
+  fi
+
+  echo "-- teeth: neuter the orphaned-render cleanup; expect F4b to fail --"
+  MUTANT22="$HERE/../research-sdd-install.MUTANT22.$$.sh"
+  sed 's/! _rsdd_clean_profile_dir "\$config_root\/research-sdd\/profile\/\$old_profile" "\$config_root"/false/' "$SUT" > "$MUTANT22"
+  bash -n "$MUTANT22" 2>/dev/null \
+    && ok "teeth: MUTANT22 parses (bash -n)" \
+    || no "teeth: MUTANT22 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT22" >/dev/null 2>&1; then
+    no "teeth: MUTANT22 pre-check: mutant = SUT — orphan-cleanup call site not found"
+  else
+    ok "teeth: MUTANT22 pre-check: mutant differs (orphan-cleanup disabled)"
+  fi
+  home_m22="$TMP/teeth-m22-switch"
+  bash "$MUTANT22" --home "$home_m22" --harness reasonix --profile general >/dev/null 2>&1
+  bash "$MUTANT22" --home "$home_m22" --harness reasonix --profile claude >/dev/null 2>&1
+  if [ -e "$home_m22/.reasonix/research-sdd/profile/general" ]; then
+    ok "teeth: MUTANT22 (orphan-cleanup disabled) leaves the stale general/ render dir → F4b cleanup check has teeth"
+  else
+    no "teeth: MUTANT22 still cleaned the orphaned render dir — F4b cleanup check is THEATER"
   fi
 fi
 

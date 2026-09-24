@@ -161,13 +161,34 @@ _surface__markdown_sections() {
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
 }
 
+# _rsdd_realpath_m <path> — realpath -m semantics (resolve "..", normalize, tolerate a missing
+# final component) via python3, mirroring render-profile.sh's identical convention/comment: GNU
+# realpath's -m flag is not available on macOS/BSD, so python3 (already a kit-wide dependency) is
+# the portable choice. Fails closed (rc=2) if python3 itself is unavailable — a caller that cannot
+# resolve a path can never prove containment, so it must refuse, not assume safety.
+_rsdd_realpath_m() {
+  command -v python3 >/dev/null 2>&1 || return 2
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
 # _rsdd_clean_profile_dir <dir> <config_root> — removes a stale prior render before a fresh one.
-# Anti-destructive guard (CLAUDE.md §8, propose-never-apply extended to renders): refuses (rc=2,
-# no rm -rf attempted) unless <dir> is strictly INSIDE <config_root>/research-sdd/profile/ — the
-# one directory tree render installs are allowed to own. A caller can never make this touch
-# anything else, even if a future bug hands it the wrong directory.
+# Anti-destructive guard (CLAUDE.md §8, propose-never-apply extended to renders). THREE
+# independent checks, ALL must pass, hardened by kit issue #1024 review F2 after a textual-only
+# check let "<config_root>/research-sdd/profile/../profiles/general" pass — the case-pattern glob
+# never resolves ".." — and rm -rf then deleted a SIBLING directory outside profile/ entirely
+# (reproduced against 6a0ff24 before this fix):
+#   1. textual prefix match — cheap, catches the common no-".." case, needs no external tool.
+#   2. neither <config_root>/research-sdd nor .../research-sdd/profile may be a SYMLINK — a
+#      pre-planted symlink could redirect an otherwise textually- and realpath-safe-looking path.
+#   3. realpath -m of <dir> must resolve strictly INSIDE realpath -m of
+#      <config_root>/research-sdd/profile — the AUTHORITATIVE check: catches any ".." (or other
+#      non-canonical form) check 1 cannot see. A realpath failure (including python3 missing)
+#      refuses rather than skips — this check can never be bypassed by starving it of a tool.
+# The rm -rf runs against the RESOLVED path, never the original (possibly-".."-bearing) string —
+# no window where a later re-interpretation of the unresolved string could diverge from what was
+# actually checked.
 _rsdd_clean_profile_dir() {
-  local dir="$1" config_root="$2"
+  local dir="$1" config_root="$2" dir_real prefix_real
   case "$dir" in
     "$config_root"/research-sdd/profile/?*) ;;
     *)
@@ -175,7 +196,74 @@ _rsdd_clean_profile_dir() {
       return 2
       ;;
   esac
-  rm -rf "$dir" || { echo "research-sdd-install: rm -rf failed for $dir" >&2; return 1; }
+  if [ -L "$config_root/research-sdd" ] || [ -L "$config_root/research-sdd/profile" ]; then
+    echo "research-sdd-install: refusing to clean $dir — research-sdd/ or research-sdd/profile/ in the chain is a symlink" >&2
+    return 2
+  fi
+  dir_real="$(_rsdd_realpath_m "$dir")" || {
+    echo "research-sdd-install: refusing to clean $dir — could not resolve realpath (python3 required)" >&2
+    return 2
+  }
+  prefix_real="$(_rsdd_realpath_m "$config_root/research-sdd/profile")" || {
+    echo "research-sdd-install: refusing to clean $dir — could not resolve realpath (python3 required)" >&2
+    return 2
+  }
+  case "$dir_real" in
+    "$prefix_real"/?*) ;;
+    *)
+      echo "research-sdd-install: refusing to clean $dir — resolves to $dir_real, outside $prefix_real" >&2
+      return 2
+      ;;
+  esac
+  rm -rf "$dir_real" || { echo "research-sdd-install: rm -rf failed for $dir_real" >&2; return 1; }
+}
+
+# _rsdd_link_missing_entries <dest_dir> <src_dir> [skip_name] — for every entry directly inside
+# <src_dir>, symlink it into <dest_dir> UNLESS something already exists there (a file rendered by
+# render-profile.sh, or <skip_name> — a subtree this function's OWN caller handles separately via
+# its own recursive call, so it must never be shadowed by a symlink to the WHOLE source subtree
+# here). Absolute paths in <src_dir> flow straight through find into the symlink target, so every
+# link is absolute and independent of where <dest_dir> ends up.
+_rsdd_link_missing_entries() {
+  local dest_dir="$1" src_dir="$2" skip_name="${3:-}" name base
+  while IFS= read -r -d '' name; do
+    base="$(basename "$name")"
+    [ -n "$skip_name" ] && [ "$base" = "$skip_name" ] && continue
+    if [ -e "$dest_dir/$base" ] || [ -L "$dest_dir/$base" ]; then continue; fi
+    ln -s "$name" "$dest_dir/$base" || {
+      echo "research-sdd-install: symlink failed: $dest_dir/$base -> $name" >&2
+      return 1
+    }
+  done < <(find "$src_dir" -mindepth 1 -maxdepth 1 -print0)
+}
+
+# _rsdd_complete_profile_render <render_dir> <kit> — after render-profile.sh has written a
+# profile's substituted files into <render_dir> (SKILL.md, PROMPT-LOOP.md, METHODOLOGY.md today —
+# NEVER hardcoded here, see below), complete it into a FULL kit view: every kit entry
+# render-profile.sh did NOT materialize is symlinked in at the same relative path, so every
+# $KIT/... reference inside the rendered SKILL.md/PROMPT-LOOP.md (toolbelt/*.sh, TARGETS.md,
+# templates/, tool-registry.md, other skills/*, ...) still resolves once the installed launcher's
+# "Kit path:" fast-path points HERE instead of at the kit (kit issue #1024 review F1 — reasonix
+# now defaults to "general", so a plain re-install was breaking every such reference for reasonix
+# users). Walks <kit>'s TOP LEVEL plus skills/* plus skills/research-sdd/* — the two directory
+# levels a renderer could plausibly touch — rather than hardcoding render-profile.sh's 3 file
+# names, so a future renderer output is completed automatically without editing this function.
+# render-profile.sh's OWN contract is untouched: this lives here, in the installer, on purpose.
+_rsdd_complete_profile_render() {
+  local render_dir="$1" kit="$2"
+  _rsdd_link_missing_entries "$render_dir" "$kit" "skills" || return 1
+  if [ -d "$kit/skills" ]; then
+    mkdir -p "$render_dir/skills" || {
+      echo "research-sdd-install: mkdir failed for $render_dir/skills" >&2; return 1
+    }
+    _rsdd_link_missing_entries "$render_dir/skills" "$kit/skills" "research-sdd" || return 1
+    if [ -d "$kit/skills/research-sdd" ]; then
+      mkdir -p "$render_dir/skills/research-sdd" || {
+        echo "research-sdd-install: mkdir failed for $render_dir/skills/research-sdd" >&2; return 1
+      }
+      _rsdd_link_missing_entries "$render_dir/skills/research-sdd" "$kit/skills/research-sdd" || return 1
+    fi
+  fi
 }
 
 # _rsdd_mcp_conflict_ere <shape> — emit the ERE that detects a user-authored (unmarked) MCP entry
@@ -241,10 +329,171 @@ _rsdd_register_mcp() {
     "$orphan_reason"
 }
 
+# _rsdd_sha256_file <path> — portable sha256 (sha256sum, then shasum -a 256, then python3
+# hashlib — python3 is already a kit-wide dependency via render-profile.sh/_rsdd_realpath_m, so
+# this never adds a NEW one). Prints the hex digest and returns 0, or returns 1 with nothing
+# printed on any failure (missing tool, unreadable file) — callers must check the exit status,
+# never trust empty output as "no hash".
+_rsdd_sha256_file() {
+  local f="$1" out
+  if command -v sha256sum >/dev/null 2>&1; then
+    out="$(sha256sum "$f" 2>/dev/null | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 "$f" 2>/dev/null | awk '{print $1}')"
+  elif command -v python3 >/dev/null 2>&1; then
+    out="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$f" 2>/dev/null)"
+  else
+    return 1
+  fi
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
+}
+
+# _rsdd_marker_field <marker_file> <field> — read one "field=value" line from the marker; empty
+# stdout and rc=1 if the file is missing, unreadable, or the field is absent.
+_rsdd_marker_field() {
+  local marker="$1" field="$2"
+  [ -f "$marker" ] && [ -r "$marker" ] || return 1
+  awk -F= -v k="$field" '$1==k{print substr($0, index($0,"=")+1); found=1} END{exit !found}' "$marker"
+}
+
+# _rsdd_write_marker <marker_file> <profile> <deployed_path> — record what the installer itself
+# just deployed: the profile name and the sha256 of <deployed_path> AS IT NOW STANDS. Written
+# atomically (tmp + mv). Lives at <config_root>/research-sdd/.installed-skill-state — a SIBLING
+# of profile/, never inside it, so it survives _rsdd_clean_profile_dir cleaning any specific
+# profile/<name>/ subtree (kit issue #1024 review F4).
+_rsdd_write_marker() {
+  local marker="$1" profile="$2" deployed="$3" sha tmp
+  sha="$(_rsdd_sha256_file "$deployed")" || return 1
+  mkdir -p "$(dirname "$marker")" || return 1
+  tmp="$(mktemp)" || return 1
+  printf 'profile=%s\nsha256=%s\n' "$profile" "$sha" > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$marker"
+}
+
+# _rsdd_marker_matches_deployed <marker_file> <deployed_path> — true iff the marker exists, has a
+# recorded sha256, AND that hash equals <deployed_path>'s CURRENT sha256. This is the switch:
+# "deployed differs from the NEW source" alone (a plain cmp) cannot tell a genuine hand-edit apart
+# from "this is just what a DIFFERENT profile legitimately rendered" — both look identically
+# diverged to cmp. A hash match here means the deployed bytes are EXACTLY what the installer
+# itself last wrote (whatever profile that was), so a difference from the new source is a
+# profile switch to manage, not a user's local delta to protect (kit issue #1024 review F4).
+_rsdd_marker_matches_deployed() {
+  local marker="$1" deployed="$2" recorded actual
+  recorded="$(_rsdd_marker_field "$marker" sha256)" || return 1
+  [ -n "$recorded" ] || return 1
+  actual="$(_rsdd_sha256_file "$deployed")" || return 1
+  [ "$recorded" = "$actual" ]
+}
+
+# _rsdd_dry_skill_plan <src> <dest> <force> <label> <marker> — print the exact INSTALL line
+# dry-run takes for copying <src> onto <dest>, applying the SAME divergence rule (CLAUDE.md §7)
+# no matter WHAT is being deployed: the kit source directly, or a freshly rendered profile.
+# <label> is the human-readable provenance phrase embedded in the printed line (e.g. "from kit
+# <relkit>" or "from rendered profile '<name>'"). Shared by every leg that deploys a skill file so
+# a divergence fix made once (kit issue #1024, R3-silent-overwrite-rendered-profile; extended by
+# F4's marker-matches managed-overwrite state) covers all of them.
+_rsdd_dry_skill_plan() {
+  local src="$1" dest="$2" force="$3" label="$4" marker="${5:-}"
+  if [ ! -f "$src" ]; then
+    printf '  INSTALL %s (%s) [SKIP — source SKILL not found]\n' "$dest" "$label"
+  elif [ ! -r "$src" ]; then
+    printf '  INSTALL %s (%s) [SKIP — source SKILL not readable; check permissions]\n' "$dest" "$label"
+  elif [ -e "$dest" ] && [ ! -f "$dest" ]; then
+    printf '  INSTALL %s (%s) [SKIP — destination is not a regular file; remove it and re-run]\n' "$dest" "$label"
+  elif [ -f "$dest" ] && [ ! -r "$dest" ]; then
+    printf '  INSTALL %s (%s) [SKIP — not readable; check permissions]\n' "$dest" "$label"
+  elif [ -f "$dest" ] && cmp -s "$src" "$dest"; then
+    printf '  INSTALL %s (%s) [up-to-date]\n' "$dest" "$label"
+  elif [ -f "$dest" ] && _rsdd_marker_matches_deployed "$marker" "$dest"; then
+    printf '  INSTALL %s (%s) [will update — managed content from a profile switch]\n' "$dest" "$label"
+  elif [ -f "$dest" ] && [ "$force" = 1 ]; then
+    if [ -e "$dest.local-backup" ]; then
+      printf '  INSTALL %s (%s) [SKIP — backup %s already exists; rename or remove it first]\n' "$dest" "$label" "$dest.local-backup"
+    else
+      printf '  INSTALL %s (%s) [will overwrite; backup → %s]\n' "$dest" "$label" "$dest.local-backup"
+    fi
+  elif [ -f "$dest" ]; then
+    printf '  INSTALL %s (%s) [SKIP — diverged; use --force-skill to overwrite]\n' "$dest" "$label"
+  else
+    printf '  INSTALL %s (%s)\n' "$dest" "$label"
+  fi
+}
+
+# _rsdd_deploy_skill <src> <dest> <force> <label> <harness> <marker> <profile> <config_root> —
+# perform the copy the plan above previews, applying the identical divergence rule PLUS the
+# marker-matches managed-overwrite state (kit issue #1024 review F4). Returns nonzero on any
+# failure. WHY preserve a genuine hand-edit by default: the deployed SKILL.md can carry
+# retro-applied deltas written directly into it; an unconditional overwrite would silently
+# destroy that knowledge, no matter whether <src> is the kit source or a rendered profile. WHY
+# NOT treat a profile switch the same way: cmp alone cannot distinguish "the user edited this"
+# from "this is what the PREVIOUS profile legitimately rendered" — both differ from the new
+# source identically. On any successful deploy (fresh install, managed switch-overwrite, or a
+# --force-skill overwrite) the marker is updated to record the NEW profile + hash, and — only
+# then — the PREVIOUS profile's now-orphaned render dir (if it had one) is removed through the
+# same guarded _rsdd_clean_profile_dir. A warn+keep for a genuine hand-edit leaves the marker (and
+# any old render dir) untouched: the switch has not actually completed.
+_rsdd_deploy_skill() {
+  local src="$1" dest="$2" force="$3" label="$4" h="$5" marker="$6" profile="$7" config_root="$8"
+  local bak deployed_now=0 old_profile
+  printf '  INSTALL %s (%s)\n' "$dest" "$label"
+  if [ ! -f "$src" ]; then
+    echo "research-sdd-install: [$h] source SKILL not found: $src" >&2; return 1
+  elif [ ! -r "$src" ]; then
+    echo "research-sdd-install: [$h] source SKILL not readable: $src" >&2; return 1
+  elif ! mkdir -p "$(dirname "$dest")"; then
+    echo "research-sdd-install: [$h] mkdir failed for $(dirname "$dest")" >&2; return 1
+  elif [ -e "$dest" ] && [ ! -f "$dest" ]; then
+    printf 'research-sdd-install: WARNING %s exists but is not a regular file — skipped (remove it and re-run)\n' "$dest" >&2
+  elif [ -f "$dest" ] && [ ! -r "$dest" ]; then
+    printf 'research-sdd-install: WARNING %s exists but is not readable (check permissions) — local content kept\n' "$dest" >&2
+  elif [ -f "$dest" ] && cmp -s "$src" "$dest"; then
+    deployed_now=1 # byte-identical — silent no-op, but still (re)confirm the marker below
+  elif [ -f "$dest" ] && _rsdd_marker_matches_deployed "$marker" "$dest"; then
+    if ! cp "$src" "$dest"; then
+      echo "research-sdd-install: [$h] cp failed → $dest" >&2; return 1
+    fi
+    deployed_now=1
+  elif [ -f "$dest" ] && [ "$force" = 1 ]; then
+    bak="$dest.local-backup"
+    if [ -e "$bak" ]; then
+      # Refuse: the backup may be the ONLY copy of deltas from a prior --force-skill run.
+      # The operator resolves this by hand (rename or remove), keeping the decision explicit.
+      printf 'research-sdd-install: ERROR %s already exists — rename or remove it before re-running --force-skill (it may contain deltas you have not merged)\n' "$bak" >&2
+      return 1
+    elif ! cp "$dest" "$bak"; then
+      echo "research-sdd-install: [$h] backup failed → $bak" >&2; return 1
+    elif ! cp "$src" "$dest"; then
+      echo "research-sdd-install: [$h] cp failed → $dest" >&2; return 1
+    else
+      printf '  BACKUP  %s → %s\n' "$dest" "$bak"
+      deployed_now=1
+    fi
+  elif [ -f "$dest" ]; then
+    printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)\n' "$dest" >&2
+  elif ! cp "$src" "$dest"; then
+    echo "research-sdd-install: [$h] cp failed → $dest" >&2; return 1
+  else
+    deployed_now=1
+  fi
+  if [ "$deployed_now" = 1 ]; then
+    old_profile="$(_rsdd_marker_field "$marker" profile 2>/dev/null)" || old_profile=""
+    _rsdd_write_marker "$marker" "$profile" "$dest" || {
+      echo "research-sdd-install: [$h] warning: could not write profile-state marker $marker" >&2
+    }
+    if [ -n "$old_profile" ] && [ "$old_profile" != "$profile" ] && [ "$old_profile" != "claude" ]; then
+      if ! _rsdd_clean_profile_dir "$config_root/research-sdd/profile/$old_profile" "$config_root"; then
+        echo "research-sdd-install: [$h] warning: could not clean the orphaned '$old_profile' render dir" >&2
+      fi
+    fi
+  fi
+}
+
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
   local h="$1" home="$2" dry="$3" force="$4" profile="$5" profile_source="$6" rc=0
-  local skill_path prompt_file strategy mcp_config slash dispatch src_relkit src_skill bak
+  local skill_path prompt_file strategy mcp_config slash dispatch src_relkit src_skill
+  local config_root marker
   skill_path="$(rsdd_field "$h" skill_path "$home")"
   prompt_file="$(rsdd_field "$h" prompt_file "$home")"
   strategy="$(rsdd_field "$h" prompt_strategy "$home")"
@@ -252,119 +501,71 @@ install_one() {
   slash="$(rsdd_field "$h" supports_slash_commands "$home")"
   src_relkit="$(rsdd_field "$h" skill_src_relkit)"
   src_skill="$KIT/$src_relkit"
+  config_root="$(rsdd_field "$h" config_root "$home")"
+  # <config_root>/research-sdd/.installed-skill-state — a SIBLING of profile/, so cleaning any
+  # specific profile/<name>/ subtree never touches it (kit issue #1024 review F4).
+  marker="$config_root/research-sdd/.installed-skill-state"
 
   printf 'harness=%s\n' "$h"
   printf '  profile=%s (source=%s)\n' "$profile" "$profile_source"
 
-  # 0. non-default profile (kit issue #993 WU2): render the profile's substituted sources into
-  #    this harness's OWN config root — never the kit tree — and install FROM THAT RENDER instead
-  #    of the kit source directly. $kit_for_section (passed to the launcher strategy below) then
-  #    points the prompt file's "Kit path:" fast-path at the render, so SKILL.md's own kit-path
-  #    resolution (step 0, "Resolving the kit path") reaches the rendered PROMPT-LOOP.md/
-  #    METHODOLOGY.md, not the kit's. profile "claude" is the byte-identical-to-today path: no
-  #    render, $src_skill stays the kit source, $kit_for_section stays $KIT — untouched from before
-  #    this feature existed. A render is always freshly regenerated (clean, then render, then
-  #    install) rather than diverge-checked like the claude/kit-source leg below: the render IS the
-  #    source of truth for that profile, so there is nothing meaningful to "preserve" over it —
-  #    verify-skill-drift.sh is what surfaces a hand-edit made directly to the deployed copy.
-  local kit_for_section="$KIT" render_dir="" render_err
+  # 0/1. deploy the neutral SKILL.md into this harness's skills dir. profile "claude" is the
+  #    byte-identical-to-today path: $src_skill stays the kit source, $kit_for_section stays $KIT.
+  #    A non-default profile (kit issue #993 WU2) first renders the profile's substituted sources
+  #    into this harness's OWN config root — never the kit tree — and deploys FROM THAT RENDER
+  #    instead; $kit_for_section (passed to the launcher strategy below) then points the prompt
+  #    file's "Kit path:" fast-path at the render, so SKILL.md's own kit-path resolution (step 0,
+  #    "Resolving the kit path") reaches the rendered PROMPT-LOOP.md/METHODOLOGY.md, not the kit's.
+  #    A render is always freshly regenerated (clean, then render) — the render dir itself has
+  #    nothing to preserve, it IS the source of truth for that profile. The DEPLOYED skill_path is
+  #    a different matter: it can carry retro-applied deltas written directly into it by an
+  #    operator, on EITHER leg, so both legs deploy through the SAME divergence-checked helpers
+  #    (_rsdd_dry_skill_plan / _rsdd_deploy_skill, CLAUDE.md §7 three-state rule) — kit issue #1024
+  #    review correction (R3-silent-overwrite-rendered-profile): the render leg used to `cp`
+  #    unconditionally, with no cmp -s check, no backup, and --force-skill silently ignored.
+  local kit_for_section="$KIT" render_dir="" render_err label
   if [ "$profile" != "claude" ]; then
-    render_dir="$(rsdd_field "$h" config_root "$home")/research-sdd/profile/$profile"
+    render_dir="$config_root/research-sdd/profile/$profile"
     kit_for_section="$render_dir"
     src_skill="$render_dir/$src_relkit"
+    label="from rendered profile '$profile'"
     printf '  RENDER  %s (profile=%s)\n' "$render_dir" "$profile"
     if [ "$dry" = 1 ]; then
-      printf '  INSTALL %s (from rendered profile '"'"'%s'"'"')\n' "$skill_path" "$profile"
+      # Render into a throwaway scratch dir so the plan previews the ACTUAL bytes the real run
+      # would deploy, without touching the harness's own (persistent) render dir — dry-run stays
+      # a pure preview (CLAUDE.md §8: propose-never-apply extended to renders).
+      local dry_render_dir dry_render_err
+      dry_render_dir="$(mktemp -d)" || { echo "research-sdd-install: [$h] mktemp failed" >&2; rc=1; }
+      if [ -n "${dry_render_dir:-}" ]; then
+        if ! dry_render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$dry_render_dir" 2>&1)"; then
+          echo "research-sdd-install: [$h] render-profile.sh failed: $dry_render_err" >&2
+          rc=1
+        else
+          _rsdd_dry_skill_plan "$dry_render_dir/$src_relkit" "$skill_path" "$force" "$label" "$marker"
+        fi
+        rm -rf "$dry_render_dir"
+      fi
     else
-      if ! _rsdd_clean_profile_dir "$render_dir" "$(rsdd_field "$h" config_root "$home")"; then
+      if ! _rsdd_clean_profile_dir "$render_dir" "$config_root"; then
         rc=1
       elif ! render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$render_dir" 2>&1)"; then
         echo "research-sdd-install: [$h] render-profile.sh failed: $render_err" >&2
         rc=1
-      elif ! mkdir -p "$(dirname "$skill_path")"; then
-        echo "research-sdd-install: [$h] mkdir failed for $(dirname "$skill_path")" >&2
-        rc=1
-      elif ! cp "$src_skill" "$skill_path"; then
-        echo "research-sdd-install: [$h] cp failed → $skill_path" >&2
+      elif ! _rsdd_complete_profile_render "$render_dir" "$KIT"; then
+        echo "research-sdd-install: [$h] could not complete the render into a full kit view" >&2
         rc=1
       else
-        printf '  INSTALL %s (from rendered profile '"'"'%s'"'"')\n' "$skill_path" "$profile"
+        _rsdd_deploy_skill "$src_skill" "$skill_path" "$force" "$label" "$h" "$marker" "$profile" "$config_root" || rc=1
       fi
     fi
-    # Skip the profile="claude" install block entirely — this profile's SKILL.md is fully handled
-    # above (rendered + copied). Fall through to step 2 (launcher) / step 3 (MCP registration).
   else
-
-  # 1. harness-specific asset → this harness's skills dir (source resolved from the adapter table,
-  #    never branched on harness name). Dry-run classifies the deployed skill state (§7 three-state
-  #    rule) and prints what WILL happen. Real run: identical → silent no-op; diverged → warn+skip
-  #    unless --force-skill, which backs up the existing file and overwrites with the kit source.
-  #    WHY preserve by default: the deployed SKILL.md can carry retro-applied deltas written directly
-  #    into it; an unconditional overwrite would silently destroy that knowledge.
-  #    States handled (both branches keep them distinguishable — CLAUDE.md §7):
-  #      source not found / not readable → [SKIP]; source-unreadable must be caught BEFORE cmp -s
-  #        (cmp -s exits 2 = "trouble" on an unreadable file, which reads as "differs" — wrong diagnosis)
-  #      dest is not a regular file (e.g. a directory) → [SKIP]; caught BEFORE cp would descend into it
-  #      dest not readable → [SKIP]; dest identical → no-op; dest diverged → warn+skip or force
-  #      --force-skill + existing backup → refuse (rc=1); backup may be the only copy of past deltas
-  if [ "$dry" = 1 ]; then
-    # Print what the real run will ACTUALLY do — distinguishable states (CLAUDE.md §7).
-    if [ ! -f "$src_skill" ]; then
-      printf '  INSTALL %s (from kit %s) [SKIP — source SKILL not found]\n' "$skill_path" "$src_relkit"
-    elif [ ! -r "$src_skill" ]; then
-      printf '  INSTALL %s (from kit %s) [SKIP — source SKILL not readable; check permissions]\n' "$skill_path" "$src_relkit"
-    elif [ -e "$skill_path" ] && [ ! -f "$skill_path" ]; then
-      printf '  INSTALL %s (from kit %s) [SKIP — destination is not a regular file; remove it and re-run]\n' "$skill_path" "$src_relkit"
-    elif [ -f "$skill_path" ] && [ ! -r "$skill_path" ]; then
-      printf '  INSTALL %s (from kit %s) [SKIP — not readable; check permissions]\n' "$skill_path" "$src_relkit"
-    elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
-      printf '  INSTALL %s (from kit %s) [up-to-date]\n' "$skill_path" "$src_relkit"
-    elif [ -f "$skill_path" ] && [ "$force" = 1 ]; then
-      if [ -e "$skill_path.local-backup" ]; then
-        printf '  INSTALL %s (from kit %s) [SKIP — backup %s already exists; rename or remove it first]\n' "$skill_path" "$src_relkit" "$skill_path.local-backup"
-      else
-        printf '  INSTALL %s (from kit %s) [will overwrite; backup → %s]\n' "$skill_path" "$src_relkit" "$skill_path.local-backup"
-      fi
-    elif [ -f "$skill_path" ]; then
-      printf '  INSTALL %s (from kit %s) [SKIP — diverged; use --force-skill to overwrite]\n' "$skill_path" "$src_relkit"
+    label="from kit $src_relkit"
+    if [ "$dry" = 1 ]; then
+      _rsdd_dry_skill_plan "$src_skill" "$skill_path" "$force" "$label" "$marker"
     else
-      printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
-    fi
-  else
-    printf '  INSTALL %s (from kit %s)\n' "$skill_path" "$src_relkit"
-    if [ ! -f "$src_skill" ]; then
-      echo "research-sdd-install: [$h] source SKILL not found: $src_skill" >&2; rc=1
-    elif [ ! -r "$src_skill" ]; then
-      echo "research-sdd-install: [$h] source SKILL not readable: $src_skill" >&2; rc=1
-    elif ! mkdir -p "$(dirname "$skill_path")"; then
-      echo "research-sdd-install: [$h] mkdir failed for $(dirname "$skill_path")" >&2; rc=1
-    elif [ -e "$skill_path" ] && [ ! -f "$skill_path" ]; then
-      printf 'research-sdd-install: WARNING %s exists but is not a regular file — skipped (remove it and re-run)\n' "$skill_path" >&2
-    elif [ -f "$skill_path" ] && [ ! -r "$skill_path" ]; then
-      printf 'research-sdd-install: WARNING %s exists but is not readable (check permissions) — local content kept\n' "$skill_path" >&2
-    elif [ -f "$skill_path" ] && cmp -s "$src_skill" "$skill_path"; then
-      : # byte-identical — silent no-op (idempotent re-run)
-    elif [ -f "$skill_path" ] && [ "$force" = 1 ]; then
-      bak="$skill_path.local-backup"
-      if [ -e "$bak" ]; then
-        # Refuse: the backup may be the ONLY copy of deltas from a prior --force-skill run.
-        # The operator resolves this by hand (rename or remove), keeping the decision explicit.
-        printf 'research-sdd-install: ERROR %s already exists — rename or remove it before re-running --force-skill (it may contain deltas you have not merged)\n' "$bak" >&2
-        rc=1
-      elif ! cp "$skill_path" "$bak"; then
-        echo "research-sdd-install: [$h] backup failed → $bak" >&2; rc=1
-      elif ! cp "$src_skill" "$skill_path"; then
-        echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
-      else
-        printf '  BACKUP  %s → %s\n' "$skill_path" "$bak"
-      fi
-    elif [ -f "$skill_path" ]; then
-      printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)\n' "$skill_path" >&2
-    elif ! cp "$src_skill" "$skill_path"; then
-      echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
+      _rsdd_deploy_skill "$src_skill" "$skill_path" "$force" "$label" "$h" "$marker" "$profile" "$config_root" || rc=1
     fi
   fi
-  fi   # end: profile == "claude" (step 0/1 branch opened above)
 
   # 2. launcher → this harness's prompt file, via the strategy the TABLE named (data, not a branch)
   dispatch="_surface__${strategy//-/_}"

@@ -30,7 +30,8 @@ FIXTURES_DIR="$HERE/fixtures"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+ROOT="$(mktemp -d)"; MUT_F3LEAK=""; MUT_F3COMP=""
+trap 'rm -rf "$ROOT"; [ -n "$MUT_F3LEAK" ] && rm -f "$MUT_F3LEAK"; [ -n "$MUT_F3COMP" ] && rm -f "$MUT_F3COMP"' EXIT
 pass=0; fail=0
 ok()   { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -651,6 +652,66 @@ else
   no "PD3: unknown --profile: wrong exit/message (rc=$RC_PD3, out=$ERR_PD3)"
 fi
 
+# ── kit issue #1024 review round 2, F3 (MEDIUM) ───────────────────────────────
+# _vsd_resolve_src used to be called as `src="$(_vsd_resolve_src ...)"`, running the WHOLE
+# function in a subshell; its `_VSD_RENDER_TMPDIRS+=()` append only ever mutated that subshell's
+# own copy of the array, so the EXIT trap in the PARENT shell never saw the entry and leaked one
+# tmp dir per --all run (per SessionStart). Fixed via named-output parameters (printf -v) and a
+# DIRECT call. Separately, a missing or hand-edited PERSISTED render dir used to be invisible —
+# only the deployed skill_path was ever compared — so "in sync" could be reported while
+# "Kit path:" pointed at nothing; fixed by _vsd_check_render_completeness.
+
+# F3-leak: no tmp dir survives under a DEDICATED TMPDIR, for both single-harness and --all modes.
+if [ -f "$INSTALLER_PD" ]; then
+  H_F3LEAK="$ROOT/home_f3leak"
+  bash "$INSTALLER_PD" --home "$H_F3LEAK" --harness reasonix >/dev/null 2>&1
+  F3_TMPDIR="$ROOT/f3-dedicated-tmpdir"; mkdir -p "$F3_TMPDIR"
+  TMPDIR="$F3_TMPDIR" bash "$SUT" --harness reasonix --home "$H_F3LEAK" >/dev/null 2>&1
+  TMPDIR="$F3_TMPDIR" bash "$SUT" --all --home "$H_F3LEAK" >/dev/null 2>&1
+  F3_LEFTOVER="$(find "$F3_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
+  if [ -z "$F3_LEFTOVER" ]; then
+    ok "F3-leak: no tmp dir survives under a dedicated TMPDIR (single-harness + --all)"
+  else
+    no "F3-leak: tmp dir(s) leaked under a dedicated TMPDIR: $F3_LEFTOVER"
+  fi
+else
+  no "F3-leak: installer not found — cannot exercise this test"
+fi
+
+# F3-missing: a MISSING persisted render dir is reported LOUDLY (could-not-run, exit 2) — never
+# silently folded into "in sync" just because the deployed skill_path happens to match a fresh
+# render's bytes.
+if [ -f "$INSTALLER_PD" ]; then
+  H_F3MISS="$ROOT/home_f3miss"
+  bash "$INSTALLER_PD" --home "$H_F3MISS" --harness reasonix >/dev/null 2>&1
+  rm -rf "$H_F3MISS/.reasonix/research-sdd/profile/general"
+  ERR_F3MISS="$(bash "$SUT" --harness reasonix --home "$H_F3MISS" 2>&1)"; RC_F3MISS=$?
+  if [ "$RC_F3MISS" -eq 2 ] && printf '%s' "$ERR_F3MISS" | grep -qi 'render dir missing'; then
+    ok "F3-missing: a missing persisted render dir is could-not-run (exit 2), never in-sync"
+  else
+    no "F3-missing: missing render dir not detected (rc=$RC_F3MISS, out=$ERR_F3MISS)"
+  fi
+else
+  no "F3-missing: installer not found — cannot exercise this test"
+fi
+
+# F3-handedit: a hand-edited PERSISTED render file (PROMPT-LOOP.md, not the deployed SKILL.md) is
+# detected — the deployed skill_path can still byte-match a fresh render while the render dir
+# it depends on at runtime has been tampered with.
+if [ -f "$INSTALLER_PD" ]; then
+  H_F3HE="$ROOT/home_f3he"
+  bash "$INSTALLER_PD" --home "$H_F3HE" --harness reasonix >/dev/null 2>&1
+  echo "tampered" >> "$H_F3HE/.reasonix/research-sdd/profile/general/PROMPT-LOOP.md"
+  ERR_F3HE="$(bash "$SUT" --harness reasonix --home "$H_F3HE" 2>&1)"; RC_F3HE=$?
+  if [ "$RC_F3HE" -eq 2 ] && printf '%s' "$ERR_F3HE" | grep -qi 'render dir diverged'; then
+    ok "F3-handedit: a hand-edited persisted PROMPT-LOOP.md is detected (could-not-run, not in-sync)"
+  else
+    no "F3-handedit: hand-edited render dir not detected (rc=$RC_F3HE, out=$ERR_F3HE)"
+  fi
+else
+  no "F3-handedit: installer not found — cannot exercise this test"
+fi
+
 # ── TEETH ─────────────────────────────────────────────────────────────────────
 prove_teeth=0
 for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
@@ -978,6 +1039,60 @@ if [ "$prove_teeth" -eq 1 ]; then
   else
     no "TOOTH PD: installer not found — cannot exercise this tooth"
   fi
+
+  # F3-leak/F3-completeness mutants live BESIDE the REAL SUT (never in $MUT_DIR's mini-kit
+  # sandbox, which has no render-profile.sh/profiles/): both need an ACTUAL successful render
+  # against the REAL kit to reach the code under test, unlike TOOTH PD's mutation above, which
+  # takes a fast path that skips rendering entirely.
+  echo "-- teeth: disable tmp-dir tracking append; expect F3-leak to fail --"
+  MUT_F3LEAK="$HERE/../verify-skill-drift-mut-f3leak.$$.sh"
+  sed 's/\[ -n "\$_vsd_tmp" \] && _VSD_RENDER_TMPDIRS+=("\$_vsd_tmp")/false/' "$SUT" > "$MUT_F3LEAK"
+  chmod +x "$MUT_F3LEAK"
+  if diff -q "$SUT" "$MUT_F3LEAK" >/dev/null 2>&1; then
+    no "TOOTH F3-leak pre-check: mutant = SUT — tracking-append line not found"
+  else
+    ok "TOOTH F3-leak pre-check: mutant differs (tmp-dir tracking disabled)"
+  fi
+  if [ -f "$INSTALLER_PD" ]; then
+    H_TF3L="$ROOT/home_tf3leak"
+    bash "$INSTALLER_PD" --home "$H_TF3L" --harness reasonix >/dev/null 2>&1
+    MUT_F3LEAK_TMPDIR="$ROOT/mut-f3leak-tmpdir"; mkdir -p "$MUT_F3LEAK_TMPDIR"
+    TMPDIR="$MUT_F3LEAK_TMPDIR" bash "$MUT_F3LEAK" --harness reasonix --home "$H_TF3L" >/dev/null 2>&1
+    LEFTOVER_TF3L="$(find "$MUT_F3LEAK_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
+    if [ -n "$LEFTOVER_TF3L" ]; then
+      ok "TOOTH F3-leak: mutant (tracking disabled) leaks a tmp dir → F3-leak check has teeth"
+    else
+      no "TOOTH F3-leak: mutant still cleaned up — F3-leak check is THEATER"
+    fi
+  else
+    no "TOOTH F3-leak: installer not found — cannot exercise this tooth"
+  fi
+  rm -f "$MUT_F3LEAK"
+
+  echo "-- teeth: force render-completeness to always be accepted (single-harness); expect F3-missing to fail --"
+  MUT_F3COMP="$HERE/../verify-skill-drift-mut-f3comp.$$.sh"
+  sed 's/if \[ "\$render_state" != "ok" \]; then/if false; then/' "$SUT" > "$MUT_F3COMP"
+  chmod +x "$MUT_F3COMP"
+  if diff -q "$SUT" "$MUT_F3COMP" >/dev/null 2>&1; then
+    no "TOOTH F3-completeness pre-check: mutant = SUT — render_state check line not found"
+  else
+    ok "TOOTH F3-completeness pre-check: mutant differs (single-harness completeness check disabled)"
+  fi
+  if [ -f "$INSTALLER_PD" ]; then
+    H_TF3C="$ROOT/home_tf3comp"
+    bash "$INSTALLER_PD" --home "$H_TF3C" --harness reasonix >/dev/null 2>&1
+    rm -rf "$H_TF3C/.reasonix/research-sdd/profile/general"
+    RC_TF3C=0
+    bash "$MUT_F3COMP" --harness reasonix --home "$H_TF3C" >/dev/null 2>&1 || RC_TF3C=$?
+    if [ "$RC_TF3C" -eq 0 ]; then
+      ok "TOOTH F3-completeness: mutant (check disabled) reports a missing render dir as in-sync → completeness check has teeth"
+    else
+      no "TOOTH F3-completeness: mutant still refused (rc=$RC_TF3C) — completeness check is THEATER"
+    fi
+  else
+    no "TOOTH F3-completeness: installer not found — cannot exercise this tooth"
+  fi
+  rm -f "$MUT_F3COMP"
 
   # git-status after all teeth: confirm no files leaked into the live tree
   _GIT_AFTER="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"

@@ -142,7 +142,16 @@ rsdd_field() {
 rsdd_valid_profile() {
   local profile="$1" kit="$2"
   [ "$profile" = "claude" ] && return 0
-  [ -n "$profile" ] && [ -f "$kit/profiles/${profile}.slots.md" ]
+  # Enforce the safe-name charset BEFORE any path is built or the filesystem is touched — a
+  # profile name is a KEY, never a path fragment. Without this, "../profiles/general" resolved
+  # (via kit/profiles/ + ../ cancelling out) to the real general.slots.md and passed as "valid",
+  # then flowed into a render/clean directory path where the SAME ".." escaped the intended
+  # <config_root>/research-sdd/profile/ tree (kit issue #1024 review F2 — reproduced against
+  # 6a0ff24: this exact string deleted a sibling directory via _rsdd_clean_profile_dir's rm -rf).
+  # This mirrors render-profile.sh's own PROFILE argument check (kept independent — this function
+  # is the installer/verify-skill-drift choke point; render-profile.sh's is a second, later one).
+  [[ "$profile" =~ ^[a-z0-9_-]+$ ]] || return 1
+  [ -f "$kit/profiles/${profile}.slots.md" ]
 }
 
 # rsdd_list_profiles <kit> — space-separated list of every known profile name: "claude" first,
