@@ -428,16 +428,18 @@ if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
   ok "17b committed-mode: secret removed from HEAD via a clean commit, still reachable in history → REFUSED (exit 3)"
 else no "17b committed-mode deleted-secret: exit=$rc (want 3) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
 
-# 17c — GATE (working-tree delta scan, #970 round 2 F1): a secret that exists ONLY in an UNCOMMITTED
-#       file is invisible to --committed (it reads committed git OBJECTS via `git cat-file`, never the
+# 17c — GATE (working-tree scan, #970 round 3 (a)): a secret that exists ONLY in an UNCOMMITTED file
+#       is invisible to --committed (it reads committed git OBJECTS via `git cat-file`, never the
 #       working tree) — so without SOME working-tree coverage this corpus would archive clean (exit 0)
-#       even though the very next `git add && commit && push` would ship the secret. Must REFUSE
-#       (exit 3), and the FAIL message must name the working tree specifically (not a generic
-#       'scan-secrets FAIL' that could equally mean a committed-history leak — F5: don't overclaim).
+#       even though the very next `git add && commit && push` would ship the secret. Caught here by the
+#       PLAIN `scan-secrets.sh $corpus` call (a) — it reads the filesystem directly, so it needs no git
+#       awareness at all to see an untracked file. Must REFUSE (exit 3), FAIL names the working tree
+#       specifically (not a generic 'scan-secrets FAIL' that could equally mean a committed-history
+#       leak — F5: don't overclaim).
 d="$TMP/committed-uncommitted-secret"; mkgood_git_clean "$d"
 printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/uncommitted-notes.md"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL.*uncommitted working tree' <<<"$out"; then
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL.*the working tree' <<<"$out"; then
   ok "17c committed-mode: secret only in an UNCOMMITTED file → REFUSED (exit 3), FAIL names the working tree"
 else no "17c committed-mode uncommitted-secret: exit=$rc (want 3, FAIL naming the working tree) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
 
@@ -477,21 +479,74 @@ if [ "$rc2" = 0 ] && grep -qE 'scan-secrets .*: ok' <<<"$out2"; then
   ok "17e real-flow step 2: archive AGAIN with CATALOG.md untracked → still passes (exit 0)"
 else no "17e real-flow step 2: exit=$rc2 (want 0) :: $(grep -iE 'scan-secrets|refuse' <<<"$out2" | head -3)"; fi
 
-# 17f — GATE (F2, untracked-files config): an untracked file holding a secret is HIDDEN from plain
-#       `git status` entirely under a local `status.showUntrackedFiles=no` config — reproduced directly
-#       (see the F6 teeth mutant below for the regression pin). The gate must still catch it because it
-#       forces `--untracked-files=all`, overriding that config. Must REFUSE (exit 3).
+# 17f — GATE (F2, untracked-files config — STILL relevant after round 3's mirror removal): an untracked
+#       file holding a secret is HIDDEN from `git status --porcelain` entirely under a local
+#       `status.showUntrackedFiles=no` config — kept as a regression pin even though the gate no longer
+#       reads `git status` at all for this call: (a) is the PLAIN `scan-secrets.sh $corpus` filesystem
+#       scan, which was never git-aware and so was never susceptible to this config in the first place.
+#       Must REFUSE (exit 3) — this also proves the config can't be used to hide a secret from the gate.
 d="$TMP/showuntracked-no"; mkgood_git_clean "$d"
 git -C "$d" config status.showUntrackedFiles no
 printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/hidden-by-config.md"
 _f2_status_plain="$(git -C "$d" status --porcelain)"
 [ -z "$_f2_status_plain" ] \
-  && ok "17f precondition: plain 'git status --porcelain' hides the untracked secret under this config" \
+  && ok "17f precondition: plain 'git status --porcelain' hides the untracked secret under this config (irrelevant to the gate, but confirms the config is doing what it claims)" \
   || no "17f precondition: plain status unexpectedly shows the untracked file — fixture does not exercise F2"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL.*uncommitted working tree' <<<"$out"; then
-  ok "17f F2: untracked secret hidden by status.showUntrackedFiles=no → still REFUSED (--untracked-files=all overrides it)"
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL.*the working tree' <<<"$out"; then
+  ok "17f F2: untracked secret under status.showUntrackedFiles=no → still REFUSED (the plain filesystem scan never reads git status)"
 else no "17f F2 showUntrackedFiles=no: exit=$rc (want 3) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
+
+# 17f-opus1 — REGRESSION PIN (Opus round-2 re-review finding #1): round 2's mirror re-implemented
+#       scan-secrets.sh's non-committed-mode corpus-root NARROWING inside a PARTIAL snapshot (just the
+#       dirty/untracked paths) — since the mirror often lacked the corpus's own top-level committed
+#       block file, scanning it triggered narrowing down to whichever subdirectory HAD a block file
+#       (here, focusA/), and an untracked notes.md sitting OUTSIDE that narrowed root passed silently.
+#       Removed with the mirror (round 3): (a) is a PLAIN `scan-secrets.sh $corpus` call on the REAL
+#       corpus directory (which — via mkgood_git_clean — already has its own top-level t-block1.md, so
+#       scan-secrets.sh's narrowing never triggers), matching origin/main byte-for-byte. Must REFUSE.
+d="$TMP/opus-f1-repro"; mkgood_git_clean "$d"
+mkdir -p "$d/focusA"
+printf '# fake nested block\nBody.\n' > "$d/focusA/a-block3.md"
+printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/notes.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
+  ok "17f-opus1: untracked notes.md secret alongside untracked focusA/a-block3.md → REFUSED (exit 3), matches origin/main"
+else no "17f-opus1 regression: exit=$rc (want 3) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
+
+# 17f-opus2 — REGRESSION PIN (Opus finding #2): round 2's mirror staged ONLY the paths `git status`
+#       reported, so a GITIGNORED file was never staged and never scanned — an undocumented regression
+#       vs. origin/main, which scans the filesystem directly and has never cared about .gitignore.
+#       Removed with the mirror: (a) reads $corpus off disk with plain `grep -r`, which does not
+#       consult .gitignore at all. Must REFUSE.
+d="$TMP/gitignored-env"; mkgood_git_clean "$d"
+printf '*.env\n' > "$d/.gitignore"
+git -C "$d" add .gitignore
+git -C "$d" commit -q -m "add gitignore for *.env"
+printf 'AWS_KEY=AKIAIOSFODNN7EXAMPLE\n' > "$d/secret.env"
+_gi_status="$(git -C "$d" status --porcelain)"
+[ -z "$_gi_status" ] \
+  && ok "17f-opus2 precondition: secret.env is correctly gitignored (git status shows nothing)" \
+  || no "17f-opus2 precondition: git status unexpectedly shows secret.env — fixture does not exercise the gitignore case :: $_gi_status"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
+  ok "17f-opus2: gitignored .env with a secret → still REFUSED (the plain filesystem scan does not consult .gitignore)"
+else no "17f-opus2 regression: exit=$rc (want 3) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
+
+# 17f-opus4 — PARITY PIN (Opus finding #4, mirror removed): round 2's mirror followed symlinks via
+#       `cp -p` — an untracked symlink pointing OUTSIDE the repo (e.g. into ~/.ssh) would have copied
+#       real key material into a throwaway /tmp mirror. With the mirror gone, this pins that behaviour
+#       now matches origin/main EXACTLY: `grep -r` (used by scan-secrets.sh, not `-R`) does not follow
+#       symlinks, so a symlink to an out-of-repo secret is NOT scanned — same as it always was. This is
+#       parity with origin/main, not a new guarantee; a link INTO a scanned tree still isn't dereferenced.
+d="$TMP/symlink-outside"; mkgood_git_clean "$d"
+mkdir -p "$TMP/outside-secret"
+printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$TMP/outside-secret/real.md"
+ln -s "$TMP/outside-secret/real.md" "$d/link-to-outside.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qE 'scan-secrets .*: ok' <<<"$out"; then
+  ok "17f-opus4: untracked symlink to an out-of-repo secret → NOT scanned (grep -r never follows symlinks), matches origin/main"
+else no "17f-opus4 symlink: exit=$rc (want 0, matching origin/main's grep -r non-dereferencing behaviour) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
 
 # 17g — GATE (F3a): git present on PATH but STUBBED (always exits 127, no output) must NOT be silently
 #       treated as "not a git repository" — the stub's `rev-parse --show-toplevel` failure carries no
@@ -602,22 +657,12 @@ if [ "$rc" = 3 ] && grep -qi 'WARN: history not scanned' <<<"$out" && grep -qiE 
   ok "17k F4 negative: nested target WITH a secret → still REFUSED (exit 3), WARN still printed, never the misleading generic error"
 else no "17k F4 nested-secret: exit=$rc :: $(grep -iE 'WARN|scan-secrets|git/awk/tr' <<<"$out" | head -3)"; fi
 
-# 17l — GATE (git-status-error): `git status` itself can fail on a REAL repo even when `rev-parse
-#       --show-toplevel` succeeds — reproduced with a corrupted `.git/index` (smaller-than-expected /
-#       unreadable index blob; `rev-parse --show-toplevel` doesn't need to read the index at all, but
-#       `status` does). Must REFUSE loudly rather than silently treat an unreadable working tree as
-#       clean (§7 — a downgrade that can't prove it looked is a bug).
-d="$TMP/corruptindex"; mkgood_git_clean "$d"
-printf 'garbage-not-a-valid-index\n' > "$d/.git/index"
-_l_status_rc=0
-git -C "$d" status --porcelain >/dev/null 2>&1 || _l_status_rc=$?
-[ "$_l_status_rc" -ne 0 ] \
-  && ok "17l precondition: corrupted .git/index makes 'git status' fail (rc=$_l_status_rc) — fixture is meaningful" \
-  || no "17l precondition: 'git status' unexpectedly succeeded on the corrupted index — fixture does not exercise the failure"
-out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*ERROR.*could not enumerate the working tree' <<<"$out"; then
-  ok "17l git-status-error: corrupted index → REFUSED (exit 3), names 'could not enumerate the working tree'"
-else no "17l git-status-error: exit=$rc :: $(grep -iE 'scan-secrets|error' <<<"$out" | head -3)"; fi
+# 17l (REMOVED, round 3): tested a corrupted `.git/index` making a dedicated `git status -z`
+# enumeration fail. That enumeration no longer exists — round 3 removed the mirror it fed, and neither
+# (a) `scan-secrets.sh $corpus` (a plain filesystem walk, no git) nor (b) `scan-secrets.sh --committed`
+# (object-database reads: rev-list/diff-tree/cat-file, never the index) touch `git status` at all.
+# Confirmed dead code, not merely unlikely: with the index corrupted this fixture archives cleanly
+# (verified against this suite's own SUT, not asserted) because nothing in either scan needs the index.
 
 # 18 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders +
 #      the CHECK-3 doc example, pending backlog) must be treated as NO state to archive → exit 2, and must
@@ -1538,9 +1583,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
   }
 
-  # F6 teeth 1/4 — non-git fallback branch: neuter the `gate "scan-secrets " ...` call that fires when
-  # $target is confirmed NOT a git repo (case 16's fixture, "secret", is a plain non-git mkgood corpus
-  # with a leaked AWS key). Must then archive clean, proving the fallback call itself is load-bearing.
+  # #970 round-3 teeth 1/3 — non-git fallback branch: neuter the `gate "scan-secrets " ...` call that
+  # fires when $target is confirmed NOT a git repo (case 16's fixture, "secret", is a plain non-git
+  # mkgood corpus with a leaked AWS key). Must then archive clean, proving the fallback call is load-bearing.
   echo "-- teeth(secrets-nongit): neuter the non-git fallback call; a non-git corpus with a leaked secret must then archive --"
   mutantNongit="$TMP/archive.NONGIT-MUTANT.sh"
   sed 's/gate "scan-secrets " scan-secrets\.sh.*/:  # MUTANT-non-git-fallback/' "$SUT" > "$mutantNongit"
@@ -1554,44 +1599,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(secrets-nongit): mutant exit=$ngmrc (want 0) — case 16 may not depend on the non-git fallback call (THEATER)"; fi
   fi
 
-  # F6 teeth 2/4 — git-status-error branch (scan-secrets-gate-git-status-error): neuter ONLY that
-  # sentinel's gate_rc assignment inside _ss_report_status_error; the corrupted-index fixture (17l)
-  # must then archive despite `git status` failing, because the ERROR message alone (still printed,
-  # unmutated) never blocked the close — only the gate_rc=1 assignment did.
-  echo "-- teeth(secrets-git-status-error): neuter the git-status-error refuse; corrupted-index corpus must then archive --"
-  mutantGse="$TMP/archive.GSE-MUTANT.sh"
-  sed 's/gate_rc=1  # scan-secrets-gate-git-status-error/gate_rc=0  # MUTANT-git-status-error/' "$SUT" > "$mutantGse"
+  # #970 round-3 teeth 2/3 — neuter (a), the plain `scan-secrets.sh $corpus` filesystem scan (both its
+  # occurrences: the repo-root branch and the nested branch share the identical call). The
+  # gitignored-.env fixture (17f-opus2) can ONLY be caught by (a) — (b) `--committed` never saw an
+  # uncommitted file, and it was never committed — so with (a) neutered, the mutant must archive a
+  # corpus that objectively has a leaked secret sitting on disk. This is the literal Opus-findings-#1/#2
+  # regression this round exists to prevent: dead git-status/mirror machinery caught these findings in
+  # round 2's design; only the two REAL scan-secrets.sh calls can catch them in round 3's.
+  echo "-- teeth(secrets-plain-scan): neuter (a), the plain scan-secrets.sh \$corpus call; a gitignored secret must then archive --"
+  mutantPlain="$TMP/archive.PLAINSCAN-MUTANT.sh"
+  sed 's/"\$here\/scan-secrets\.sh" "\$corpus" >\/dev\/null 2>&1; _ss_wt_rc=\$?/_ss_wt_rc=0  # MUTANT-plain-scan-skipped/' "$SUT" > "$mutantPlain"
   _ss_copy_siblings
-  if ! grep -q 'MUTANT-git-status-error' "$mutantGse"; then
-    no "teeth(secrets-git-status-error): could not build mutant (scan-secrets-gate-git-status-error marker not found — did the SUT change?)"
+  if ! grep -q 'MUTANT-plain-scan-skipped' "$mutantPlain"; then
+    no "teeth(secrets-plain-scan): could not build mutant ((a) call not found — did the SUT change?)"
   else
-    bash "$mutantGse" "$TMP/corruptindex" >/dev/null 2>&1; gsemrc=$?
-    if [ "$gsemrc" = 0 ]; then
-      ok "teeth(secrets-git-status-error): git-status-error refuse neutered → corrupted-index corpus archives (exit 0) — the gate_rc assignment is load-bearing"
-    else no "teeth(secrets-git-status-error): mutant exit=$gsemrc (want 0) — case 17l may not depend on that gate_rc assignment (THEATER)"; fi
+    bash "$mutantPlain" "$TMP/gitignored-env" >/dev/null 2>&1; psmrc=$?
+    if [ "$psmrc" = 0 ]; then
+      ok "teeth(secrets-plain-scan): (a) neutered → gitignored-secret fixture archives (exit 0) — the plain filesystem scan is load-bearing"
+    else no "teeth(secrets-plain-scan): mutant exit=$psmrc (want 0) — the gitignored-env case may not depend on (a) (THEATER)"; fi
   fi
 
-  # F6 teeth 3/4 — the untracked-files flag (F2): drop `--untracked-files=all` from the git-status
-  # invocation; the showUntrackedFiles=no fixture (17f) must then archive clean, because plain `git
-  # status` (without the override) hides the untracked secret from that config exactly as it did
-  # before the fix — this is the literal reproduction of issue #970 F2 as a regression pin.
-  echo "-- teeth(secrets-untracked-flag): drop --untracked-files=all; the showUntrackedFiles=no fixture must then archive --"
-  mutantUtf="$TMP/archive.UTF-MUTANT.sh"
-  # Anchor on the FUNCTIONAL invocation line only (status --porcelain -z --untracked-files=all
-  # --ignore-submodules=none) — a bare whole-file grep for the flag string would also match the doc
-  # comments above _ss_scan_worktree_delta that legitimately mention it in prose.
-  sed 's/status --porcelain -z --untracked-files=all --ignore-submodules=none/status --porcelain -z --ignore-submodules=none/' "$SUT" > "$mutantUtf"
-  _ss_copy_siblings
-  if ! grep -qF 'status --porcelain -z --ignore-submodules=none' "$mutantUtf"; then
-    no "teeth(secrets-untracked-flag): could not build mutant (git-status invocation line not found — did the SUT change?)"
-  else
-    bash "$mutantUtf" "$TMP/showuntracked-no" >/dev/null 2>&1; utfmrc=$?
-    if [ "$utfmrc" = 0 ]; then
-      ok "teeth(secrets-untracked-flag): --untracked-files=all dropped → showUntrackedFiles=no fixture archives (exit 0) — the flag is load-bearing (F2 regression pin)"
-    else no "teeth(secrets-untracked-flag): mutant exit=$utfmrc (want 0) — case 17f may not depend on --untracked-files=all (THEATER)"; fi
-  fi
-
-  # F6 teeth 4/4 — the F3 loud-refuse branch (scan-secrets-gate-git-probe-error): neuter ONLY that
+  # #970 round-3 teeth 3/3 — the F3 loud-refuse branch (scan-secrets-gate-git-probe-error): neuter ONLY that
   # sentinel; the dubious-ownership fixture (17h) must then archive despite the ambiguous git failure,
   # proving the refuse (not merely the printed message) is what blocks a silent non-git downgrade.
   echo "-- teeth(secrets-f3-refuse): neuter the F3 ambiguous-git-failure refuse; dubious-ownership corpus must then archive --"
@@ -1608,11 +1636,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(secrets-f3-refuse): mutant exit=$f3mrc (want 0) — case 17h may not depend on that gate_rc assignment (THEATER)"; fi
   fi
 
-  # #970 teeth (--committed usage): revert the scan-secrets invocation from `--committed $target`
-  # back to a plain `$corpus` scan (the pre-#970 call shape); the history-only secret (case 17b's
-  # fixture — committed once, then removed via a later clean commit, nothing left on disk) must then
-  # archive clean, because a working-tree scan of $corpus never walks git history — proving the
-  # --committed $target call (not just SOME scan-secrets call) is what catches that scenario.
+  # #970 round-3 teeth (b): neuter (b) — the scan-secrets invocation from `--committed $target` back to
+  # a plain `$corpus` scan; the history-only secret (case 17b's fixture — committed once, then removed
+  # via a later clean commit, nothing left on disk) must then archive clean, because a working-tree
+  # scan of $corpus never walks git history — proving the --committed $target call (not just SOME
+  # scan-secrets call) is what catches that scenario.
   echo "-- teeth(secrets-committed): revert --committed \$target to a plain \$corpus scan; history-only secret must then archive --"
   mutantCommitted="$TMP/archive.COMMITTED-MUTANT.sh"
   sed 's/scan-secrets\.sh" --committed "\$target"/scan-secrets.sh" "$corpus"/' "$SUT" > "$mutantCommitted"

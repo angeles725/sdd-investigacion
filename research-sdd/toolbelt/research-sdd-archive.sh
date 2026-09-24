@@ -107,82 +107,13 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
   printf '%s' "$e"
 }
 
-# _ss_scan_worktree_delta <git-dir> — sets $_ss_wt_status to one of: clean|leak|status-error|run-error.
-# Used by the SECRETS GATE below (issue #970 F1) to catch a secret that exists ONLY in an uncommitted
-# change — `scan-secrets.sh --committed` reads committed git OBJECTS directly and never looks at the
-# working tree, so it cannot see one.
-#
-# Enumerates every dirty/untracked path under <git-dir> via `git status --porcelain -z
-# --untracked-files=all --ignore-submodules=none -- .` and stages the ones still present on disk (a
-# pure deletion has nothing left to scan) into a throwaway mirror directory, then hands that mirror to
-# scan-secrets.sh's existing default (non-committed) file-scope/pattern scan — reusing its patterns and
-# includes verbatim rather than re-implementing them here.
-#
-# `--untracked-files=all` is required, not cosmetic: a locally configured `status.showUntrackedFiles=no`
-# otherwise hides an untracked file from plain `git status` entirely — reproduced: an untracked file
-# holding a literal AWS-shaped key was invisible under that config without this override (issue #970 F2).
-#
-# `-z` / NUL-delimited parsing (never newline-delimited): a path may itself contain a literal newline,
-# and porcelain v1's newline-delimited form would mis-split or mis-quote one. A rename/copy record
-# (status code starting with R or C) is TWO NUL-terminated fields — "XY NEWPATH\0ORIGPATH\0" — so a
-# rename must consume and discard the second field, or the next loop iteration would misread ORIGPATH
-# as if it were its own XY-prefixed record.
-#
-# git status's output is captured to a TEMP FILE, never through `var="$(git status -z ...)"`: bash
-# command substitution cannot hold an embedded NUL byte — it silently drops it (bash ≥5 even warns
-# "command substitution: ignored null byte in input") — which would merge every record into one
-# unparseable blob. A real file has no such limit; `read -r -d ''` against it splits correctly.
-_ss_scan_worktree_delta() {
-  local gitdir="$1" mirror rec code path orig src dst statusfile rc
-  statusfile="$(mktemp)" || { _ss_wt_status="run-error"; return; }
-  git -C "$gitdir" status --porcelain -z --untracked-files=all --ignore-submodules=none -- . \
-    >"$statusfile" 2>/dev/null
-  rc=$?
-  if [ "$rc" -ne 0 ]; then rm -f "$statusfile"; _ss_wt_status="status-error"; return; fi
-  if [ ! -s "$statusfile" ]; then rm -f "$statusfile"; _ss_wt_status="clean"; return; fi
-  mirror="$(mktemp -d)" || { rm -f "$statusfile"; _ss_wt_status="run-error"; return; }
-  while IFS= read -r -d '' rec; do
-    [ -n "$rec" ] || continue
-    code="${rec:0:2}"; path="${rec:3}"
-    # shellcheck disable=SC2034  # orig is read only to consume/discard the paired NUL record
-    case "$code" in
-      R*|C*) IFS= read -r -d '' orig || true ;;
-    esac
-    case "$code" in *D*) continue;; esac           # deleted — nothing on disk to scan
-    src="$gitdir/$path"
-    [ -f "$src" ] || continue                       # gone / not a regular file — skip
-    dst="$mirror/$path"
-    mkdir -p "$(dirname "$dst")" 2>/dev/null || continue
-    cp -p "$src" "$dst" 2>/dev/null
-  done < "$statusfile"
-  rm -f "$statusfile"
-  "$here/scan-secrets.sh" "$mirror" >/dev/null 2>&1; rc=$?
-  rm -rf "$mirror"
-  case "$rc" in
-    0) _ss_wt_status="clean";;
-    1) _ss_wt_status="leak";;
-    *) _ss_wt_status="run-error";;
-  esac
-}
-
-# _ss_report_status_error — shared by both scan-secrets-gate branches below (normal + nested): prints
-# the ERROR line and sets gate_rc when _ss_scan_worktree_delta couldn't even enumerate the working tree
-# (git status itself failed). Returns 0 when it fired (caller should skip its remaining checks), 1
-# otherwise, so a caller writes `_ss_report_status_error || { ...rest of the branch... }`.
-_ss_report_status_error() {
-  [ "$_ss_wt_status" = "status-error" ] || return 1
-  echo "    scan-secrets  : ERROR — could not enumerate the working tree (git status --porcelain -z failed) — refusing rather than assuming it is clean"
-  gate_rc=1  # scan-secrets-gate-git-status-error
-  return 0
-}
-
 # --- GATE: never archive an inconsistent corpus (this is the load-bearing part) --------------------
 # Delegate to the sibling linters via gate(). verify-state catches the stale-mirror / premature-STOP
 # desync; verify-sources catches a broken source registry. Either non-zero blocks the close
 # (fail-closed). A linter that exits >1 (missing / not executable / bad args) is reported DISTINCTLY
 # from a real content FAIL so a broken toolchain is not mistaken for a stale mirror. The scan-secrets
-# gate (below, after verify-sources) does NOT go through gate(): for a git-backed target it runs TWO
-# scans (committed history + the uncommitted working-tree delta, issue #970) with git-state branching
+# gate (below, after verify-sources) does NOT go through gate(): for a git-backed repo-root target it
+# runs scan-secrets.sh TWICE (working tree + committed history, issue #970) with git-state branching
 # gate()'s single-target-arg shape does not cover — so it is special-cased inline instead.
 gate_rc=0
 gate() {  # <label> <sibling-script> <content-fail-message> [extra-args...]
@@ -201,44 +132,52 @@ _vstate_args=()
 [ -n "$focus_slug" ] && _vstate_args=("--focus" "$focus_slug")  # AR2-VSTATE-FOCUS-SCOPE
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)" "${_vstate_args[@]}"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
-# --- SECRETS GATE: committed history + the uncommitted working tree (issue #970, follow-up to #955/#999) --
-# scan-secrets.sh --committed scans committed *.md and high-risk config files — its documented file
-# scope (see its own header; #987 item 2), NOT arbitrary source files — across the full history
-# reachable from HEAD, by reading git OBJECTS directly (`git cat-file`). It never looks at the working
-# tree, so it cannot see an uncommitted secret or an uncommitted redaction.
+# --- SECRETS GATE: the working tree + committed history, for a git-backed repo root (issue #970) ----
+# Round 2 of this gate built a mirror that re-implemented `git status -z` parsing to give
+# scan-secrets.sh a delta of just the dirty/untracked paths. REMOVED (round 3, Opus re-review):
+#   1. The mirror inherited scan-secrets.sh's corpus-root NARROWING (its non-committed mode anchors on
+#      the shallowest block dir) — an untracked secret OUTSIDE that narrowed root passed silently.
+#   2. A gitignored file with a leaked secret was invisible: `git status` never lists it, so it was
+#      never staged into the mirror. Undocumented regression vs. origin/main, which scans the
+#      filesystem directly and does not care about .gitignore.
+#   3. For a NESTED target, `git status` paths are relative to the ENCLOSING repo's root, not $target —
+#      every path the mirror tried to stage under "$target/$path" was wrong, so the delta scan
+#      silently did nothing.
+#   4. `cp -p` follows symlinks; an untracked symlink pointing outside the repo (e.g. into ~/.ssh)
+#      copied real key material into a /tmp mirror.
+#   5/6. Per-file copy failures were swallowed, and there was no cleanup trap.
+# All six disappear with the mirror. The gate now runs scan-secrets.sh's OWN two modes directly,
+# unmodified, in place of a hand-rolled reimplementation:
+#   (a) `scan-secrets.sh "$corpus"` — the SAME plain working-tree scan origin/main always ran. It
+#       reads the filesystem, so it covers dirty, untracked AND gitignored files exactly as it always
+#       did — findings #1 and #2 were regressions introduced BY the mirror, not gaps in this call.
+#   (b) `scan-secrets.sh --committed "$target"` — everything ever committed, reachable from HEAD.
+# A leak in either REFUSES; dirtiness alone never does (round-1 lesson, kept): the PROMPT-LOOP close
+# flow always leaves the tree dirty here (`--sync-state` rewrites RESEARCH-STATE.md; archive's own
+# CONSOLIDATE step below writes CATALOG.md; the corpus commit is a checklist step AFTER archive, not a
+# precondition), so a refuse-on-dirty gate made every ordinary close refuse.
 #
-# Round 1 of this gate (#970) refused outright on ANY dirty working tree, on the theory that a dirty
-# tree could be hiding exactly that. Reverted (F1): the PROMPT-LOOP close flow ALWAYS leaves the tree
-# dirty at this point — `--sync-state` rewrites RESEARCH-STATE.md, and archive's own CONSOLIDATE step
-# below writes CATALOG.md — and the checklist puts the corpus commit AFTER archive runs, as one of the
-# JUDGMENT follow-ups it prints, not a precondition. A REFUSE-if-dirty gate made every ordinary close
-# refuse. Instead this gate runs TWO scans and REFUSES only if either actually finds a leak:
-#   (a) `scan-secrets.sh --committed <repo root>` — everything ever committed, reachable from HEAD.
-#   (b) `_ss_scan_worktree_delta` (defined above) — every path `git status` reports as dirty or
-#       untracked, scanned via scan-secrets.sh's own (non-committed) pattern/file-scope logic.
-# A leak in either REFUSES; dirtiness alone never does.
-#
-# --committed REFUSES (exit 3) when given a SUBDIRECTORY of its git repo (MAJOR3 in scan-secrets.sh),
-# and $corpus can be a subdirectory of $target in a nested/SPLIT layout (research-sdd-init.sh runs
-# `git init` ONCE, at $target, never at $corpus) — so (a) always targets $target (the repo root).
+# (a) and (b) share scan-secrets.sh's own file scope — *.md and high-risk config files (see its own
+# header; #987 item 2), not arbitrary source files. (b) additionally REFUSES (exit 3) when given a
+# SUBDIRECTORY of its git repo (MAJOR3 in scan-secrets.sh), and $corpus can be a subdirectory of
+# $target in a nested/SPLIT layout (research-sdd-init.sh runs `git init` ONCE, at $target, never at
+# $corpus) — so (b) always targets $target (the repo root), never $corpus.
 #
 # THREE git states this gate must tell apart (§7 — a downgrade that can't prove it looked is a bug):
 #   - $target genuinely has no git repo of its own — git POSITIVELY reports "not a git repository", and
-#     there is no `.git` entry — falls back to the pre-#970 working-tree-only scan of $corpus,
-#     unchanged (most fixtures for the OTHER gates in this suite don't bother to `git init`; a corpus
-#     mid-BOOTSTRAP may not be versioned yet either).
+#     there is no `.git` entry — runs (a) only, unchanged pre-#970 behaviour (most fixtures for the
+#     OTHER gates in this suite don't bother to `git init`; a corpus mid-BOOTSTRAP may not be
+#     versioned yet either). History scanning needs a repo; there is none to scan.
 #   - $target is a SUBDIRECTORY of some LARGER enclosing repo (F4/R3-R4: `git rev-parse
-#     --show-toplevel` resolves above $target) — scanning the enclosing repo's full history would read
-#     content this corpus never authored (and --committed would refuse it as a subdirectory anyway), so
-#     history scanning is skipped; a loud WARN names the enclosing root, and the gate falls back to (b)
-#     plus a plain scan of $corpus as it sits on disk — never the "check git/awk/tr" message a blind
-#     --committed call would print here.
+#     --show-toplevel` resolves above $target) — (b) would refuse it as a subdirectory anyway, and
+#     scanning the enclosing repo's full history would read content this corpus never authored — so
+#     history scanning is skipped; a loud WARN names the enclosing root, and only (a) runs.
 #   - ANY OTHER git failure — missing/stubbed git, "dubious ownership" (a real repo git refuses to
 #     operate on), a malformed global config, or anything else unrecognized — is NOT "no repo": treating
-#     it as non-git would silently downgrade coverage to a working-tree-only scan without saying so.
-#     This gate refuses loudly (F3) instead of guessing.
+#     it as non-git would silently downgrade coverage without saying so. This gate refuses loudly (F3)
+#     instead of guessing.
 if ! command -v git >/dev/null 2>&1; then
-  echo "    scan-secrets  : ERROR — git not found on PATH — cannot tell whether \$target is a git repository (needed to choose a committed-history + working-tree scan) — refusing rather than silently scanning the working tree only"
+  echo "    scan-secrets  : ERROR — git not found on PATH — cannot tell whether \$target is a git repository (needed to also scan committed history) — refusing rather than silently scanning the working tree only"
   gate_rc=1  # scan-secrets-gate-no-git
 else
   _ss_top_out="$(git -C "$target" rev-parse --show-toplevel 2>&1)"; _ss_top_rc=$?
@@ -252,40 +191,33 @@ else
     # NESTED TARGET (F4): $target has no repo of its own — it lives inside the enclosing repo at
     # $_ss_top_out. Working-tree-only coverage, loudly disclosed; never the misleading generic error.
     echo "WARN: history not scanned — target is inside enclosing repo $_ss_top_out" >&2
-    "$here/scan-secrets.sh" "$corpus" >/dev/null 2>&1; _ss_corpus_rc=$?
-    _ss_scan_worktree_delta "$target"
-    if _ss_report_status_error; then
-      :
-    elif [ "$_ss_corpus_rc" = 1 ] || [ "$_ss_wt_status" = "leak" ]; then
-      echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into corpus content (working tree only — target nested inside $_ss_top_out, see WARN above — SECRETS DISCIPLINE)"
+    "$here/scan-secrets.sh" "$corpus" >/dev/null 2>&1; _ss_wt_rc=$?
+    case "$_ss_wt_rc" in
+      0) echo "    scan-secrets  : ok (working tree only — target nested inside $_ss_top_out, see WARN above)";;
+      1) echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into the working tree (target nested inside $_ss_top_out, see WARN above — SECRETS DISCIPLINE)"
+         gate_rc=1  # scan-secrets-gate-fail
+         ;;
+      *) echo "    scan-secrets  : ERROR — scan-secrets.sh did not run cleanly (exit $_ss_wt_rc) — working tree only, target nested inside $_ss_top_out"
+         gate_rc=1  # scan-secrets-gate-run-error
+         ;;
+    esac
+  else
+    "$here/scan-secrets.sh" "$corpus" >/dev/null 2>&1; _ss_wt_rc=$?
+    "$here/scan-secrets.sh" --committed "$target" >/dev/null 2>&1; _ss_hist_rc=$?
+    _ss_where=""
+    [ "$_ss_wt_rc" = 1 ] && _ss_where="the working tree"
+    if [ "$_ss_hist_rc" = 1 ]; then
+      if [ -n "$_ss_where" ]; then _ss_where="$_ss_where and committed history"
+      else _ss_where="committed history"; fi
+    fi
+    if [ -n "$_ss_where" ]; then
+      echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into $_ss_where (SECRETS DISCIPLINE)"
       gate_rc=1  # scan-secrets-gate-fail
-    elif [ "$_ss_corpus_rc" != 0 ] || [ "$_ss_wt_status" != "clean" ]; then
-      echo "    scan-secrets  : ERROR — did not run cleanly (corpus-scan rc=$_ss_corpus_rc, working-tree status=$_ss_wt_status)"
+    elif [ "$_ss_wt_rc" != 0 ] || [ "$_ss_hist_rc" != 0 ]; then
+      echo "    scan-secrets  : ERROR — did not run cleanly (working-tree rc=$_ss_wt_rc, committed-history rc=$_ss_hist_rc) — check git/awk/tr are available and \$target has at least one commit"
       gate_rc=1  # scan-secrets-gate-run-error
     else
-      echo "    scan-secrets  : ok (working tree only — target nested inside $_ss_top_out, see WARN above)"
-    fi
-  else
-    "$here/scan-secrets.sh" --committed "$target" >/dev/null 2>&1; _ss_hist_rc=$?
-    _ss_scan_worktree_delta "$target"
-    if _ss_report_status_error; then
-      :
-    else
-      _ss_where=""
-      [ "$_ss_hist_rc" = 1 ] && _ss_where="committed history"
-      if [ "$_ss_wt_status" = "leak" ]; then
-        if [ -n "$_ss_where" ]; then _ss_where="$_ss_where and the uncommitted working tree"
-        else _ss_where="the uncommitted working tree"; fi
-      fi
-      if [ -n "$_ss_where" ]; then
-        echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into $_ss_where (SECRETS DISCIPLINE)"
-        gate_rc=1  # scan-secrets-gate-fail
-      elif [ "$_ss_hist_rc" != 0 ] || [ "$_ss_wt_status" != "clean" ]; then
-        echo "    scan-secrets  : ERROR — did not run cleanly (committed-history rc=$_ss_hist_rc, working-tree status=$_ss_wt_status) — check git/awk/tr are available and \$target has at least one commit"
-        gate_rc=1  # scan-secrets-gate-run-error
-      else
-        echo "    scan-secrets  : ok"
-      fi
+      echo "    scan-secrets  : ok"
     fi
   fi
 fi
@@ -379,20 +311,23 @@ if [ "$gate_rc" != 0 ]; then
   echo "  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:"
   echo "    $here/verify-state.sh $corpus"
   echo "    $here/verify-sources.sh $corpus"
-  # Mirror the SAME three-way git-state classification the gate above used (never a shallower re-check
-  # that could suggest a different command than what actually ran).
+  # Mirror the SAME git-state classification the gate above used, INCLUDING the ambiguous-failure case
+  # (#970 round 3 fix #7): a shallower re-check here previously fell through to suggesting a
+  # scan-secrets command in the F3 ambiguous-git-failure case too, even though the gate refused BEFORE
+  # ever running scan-secrets there — printing a command the gate never ran. Say so instead.
   if ! command -v git >/dev/null 2>&1; then
-    echo "    (git not found — the scan-secrets gate could not run at all)"
+    echo "    git probe failed — fix git first (git not found on PATH)"
   else
-    _hint_top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"
-    if [ -n "$_hint_top" ] && [ "$_hint_top" = "$target" ]; then
-      echo "    $here/scan-secrets.sh --committed $target   # committed history (file scope: *.md + config)"
-      echo "    git -C $target status --porcelain -z --untracked-files=all --ignore-submodules=none -- .   # + uncommitted working tree"
-    elif [ -n "$_hint_top" ]; then
-      echo "    $here/scan-secrets.sh $corpus   # working tree only — target is nested inside $_hint_top"
-      echo "    git -C $target status --porcelain -z --untracked-files=all --ignore-submodules=none -- ."
-    else
+    _hint_top_out="$(git -C "$target" rev-parse --show-toplevel 2>&1)"; _hint_top_rc=$?
+    if [ "$_hint_top_rc" -eq 0 ] && [ "$_hint_top_out" = "$target" ]; then
+      echo "    $here/scan-secrets.sh $corpus   # working tree (dirty/untracked/ignored — file scope: *.md + config)"
+      echo "    $here/scan-secrets.sh --committed $target   # + committed history"
+    elif [ "$_hint_top_rc" -eq 0 ]; then
+      echo "    $here/scan-secrets.sh $corpus   # working tree only — target is nested inside $_hint_top_out"
+    elif printf '%s\n' "$_hint_top_out" | grep -qi 'not a git repository' && [ ! -e "$target/.git" ]; then
       echo "    $here/scan-secrets.sh $corpus"
+    else
+      echo "    git probe failed — fix git first"
     fi
   fi
   exit 3
