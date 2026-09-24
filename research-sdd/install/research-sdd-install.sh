@@ -6,12 +6,14 @@
 # per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so a 4th harness is one table row.
 #
 # Usage:
-#   research-sdd-install.sh [--harness claude|codex|reasonix|all] [--home <dir>] [--dry-run] [--force-skill]
+#   research-sdd-install.sh [--harness claude|codex|reasonix|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
 #
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
 #   --dry-run     print the exact plan (files + rendered section) WITHOUT touching the filesystem
 #   --force-skill when the deployed SKILL.md has diverged, back it up and overwrite with the kit source
+#   --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
+#                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
 #
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
@@ -23,7 +25,7 @@ KIT="$(cd "$SELF/.." && pwd)"
 # shellcheck source=adapters.sh
 . "$SELF/adapters.sh"
 
-usage() { sed -n '3,18p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,20p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
 
 # --- prompt-surfacing strategies: dispatched by the STRATEGY VALUE, never by harness name ----------
 # Each prints its plan line(s) + the rendered section, then (unless dry) performs the write.
@@ -148,12 +150,32 @@ _rsdd_splice_file() {
 
 # markdown-sections: the prompt file is SHARED — splice our marked block (HTML-comment markers),
 # preserving everything else. Thin wrapper over the generic splice; no duplicate-table guard needed.
+# $5 (kit) lets a non-default-profile install point the launcher's "Kit path:" fast-path at the
+# rendered profile tree instead of the kit source (kit issue #993 WU2); defaults to $KIT so every
+# other caller/strategy keeps today's behaviour untouched.
 _surface__markdown_sections() {
-  local harness="$1" home="$2" file="$3" dry="$4" section
-  section="$(rsdd_render_section "$harness" "$home" "$KIT")" || return 2
+  local harness="$1" home="$2" file="$3" dry="$4" kit="${5:-$KIT}" section
+  section="$(rsdd_render_section "$harness" "$home" "$kit")" || return 2
   _rsdd_splice_file "$file" "$dry" \
     '<!-- research-sdd:start -->' '<!-- research-sdd:end -->' \
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
+}
+
+# _rsdd_clean_profile_dir <dir> <config_root> — removes a stale prior render before a fresh one.
+# Anti-destructive guard (CLAUDE.md §8, propose-never-apply extended to renders): refuses (rc=2,
+# no rm -rf attempted) unless <dir> is strictly INSIDE <config_root>/research-sdd/profile/ — the
+# one directory tree render installs are allowed to own. A caller can never make this touch
+# anything else, even if a future bug hands it the wrong directory.
+_rsdd_clean_profile_dir() {
+  local dir="$1" config_root="$2"
+  case "$dir" in
+    "$config_root"/research-sdd/profile/?*) ;;
+    *)
+      echo "research-sdd-install: refusing to clean non-profile-owned dir: $dir" >&2
+      return 2
+      ;;
+  esac
+  rm -rf "$dir" || { echo "research-sdd-install: rm -rf failed for $dir" >&2; return 1; }
 }
 
 # _rsdd_mcp_conflict_ere <shape> — emit the ERE that detects a user-authored (unmarked) MCP entry
@@ -221,7 +243,7 @@ _rsdd_register_mcp() {
 
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
-  local h="$1" home="$2" dry="$3" force="$4" rc=0
+  local h="$1" home="$2" dry="$3" force="$4" profile="$5" profile_source="$6" rc=0
   local skill_path prompt_file strategy mcp_config slash dispatch src_relkit src_skill bak
   skill_path="$(rsdd_field "$h" skill_path "$home")"
   prompt_file="$(rsdd_field "$h" prompt_file "$home")"
@@ -232,6 +254,46 @@ install_one() {
   src_skill="$KIT/$src_relkit"
 
   printf 'harness=%s\n' "$h"
+  printf '  profile=%s (source=%s)\n' "$profile" "$profile_source"
+
+  # 0. non-default profile (kit issue #993 WU2): render the profile's substituted sources into
+  #    this harness's OWN config root — never the kit tree — and install FROM THAT RENDER instead
+  #    of the kit source directly. $kit_for_section (passed to the launcher strategy below) then
+  #    points the prompt file's "Kit path:" fast-path at the render, so SKILL.md's own kit-path
+  #    resolution (step 0, "Resolving the kit path") reaches the rendered PROMPT-LOOP.md/
+  #    METHODOLOGY.md, not the kit's. profile "claude" is the byte-identical-to-today path: no
+  #    render, $src_skill stays the kit source, $kit_for_section stays $KIT — untouched from before
+  #    this feature existed. A render is always freshly regenerated (clean, then render, then
+  #    install) rather than diverge-checked like the claude/kit-source leg below: the render IS the
+  #    source of truth for that profile, so there is nothing meaningful to "preserve" over it —
+  #    verify-skill-drift.sh is what surfaces a hand-edit made directly to the deployed copy.
+  local kit_for_section="$KIT" render_dir="" render_err
+  if [ "$profile" != "claude" ]; then
+    render_dir="$(rsdd_field "$h" config_root "$home")/research-sdd/profile/$profile"
+    kit_for_section="$render_dir"
+    src_skill="$render_dir/$src_relkit"
+    printf '  RENDER  %s (profile=%s)\n' "$render_dir" "$profile"
+    if [ "$dry" = 1 ]; then
+      printf '  INSTALL %s (from rendered profile '"'"'%s'"'"')\n' "$skill_path" "$profile"
+    else
+      if ! _rsdd_clean_profile_dir "$render_dir" "$(rsdd_field "$h" config_root "$home")"; then
+        rc=1
+      elif ! render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$render_dir" 2>&1)"; then
+        echo "research-sdd-install: [$h] render-profile.sh failed: $render_err" >&2
+        rc=1
+      elif ! mkdir -p "$(dirname "$skill_path")"; then
+        echo "research-sdd-install: [$h] mkdir failed for $(dirname "$skill_path")" >&2
+        rc=1
+      elif ! cp "$src_skill" "$skill_path"; then
+        echo "research-sdd-install: [$h] cp failed → $skill_path" >&2
+        rc=1
+      else
+        printf '  INSTALL %s (from rendered profile '"'"'%s'"'"')\n' "$skill_path" "$profile"
+      fi
+    fi
+    # Skip the profile="claude" install block entirely — this profile's SKILL.md is fully handled
+    # above (rendered + copied). Fall through to step 2 (launcher) / step 3 (MCP registration).
+  else
 
   # 1. harness-specific asset → this harness's skills dir (source resolved from the adapter table,
   #    never branched on harness name). Dry-run classifies the deployed skill state (§7 three-state
@@ -302,13 +364,14 @@ install_one() {
       echo "research-sdd-install: [$h] cp failed → $skill_path" >&2; rc=1
     fi
   fi
+  fi   # end: profile == "claude" (step 0/1 branch opened above)
 
   # 2. launcher → this harness's prompt file, via the strategy the TABLE named (data, not a branch)
   dispatch="_surface__${strategy//-/_}"
   if ! declare -F "$dispatch" >/dev/null; then
     echo "research-sdd-install: [$h] no surfacing strategy '$strategy'" >&2; return 2
   fi
-  if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry"; then
+  if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section"; then
     echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
   fi
 
@@ -327,13 +390,18 @@ install_one() {
 }
 
 main() {
-  local harness="all" home="$HOME" dry=0 force=0
+  local harness="all" home="$HOME" dry=0 force=0 profile_flag=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --harness)     harness="${2:-}"; shift 2 ;;
       --home)        home="${2:-}"; shift 2 ;;
       --dry-run)     dry=1; shift ;;
       --force-skill) force=1; shift ;;
+      --profile)
+        if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+          echo "research-sdd-install: --profile requires a non-empty value" >&2; usage >&2; return 2
+        fi
+        profile_flag="$2"; shift 2 ;;
       -h|--help)     usage; return 0 ;;
       *) echo "research-sdd-install: unknown argument '$1'" >&2; usage >&2; return 2 ;;
     esac
@@ -348,11 +416,31 @@ main() {
       return 2
     fi
   done
+
+  # Resolve + validate the EFFECTIVE prompt profile for every harness up front (kit issue #993
+  # WU2) — fail fast with one clear message before touching the filesystem, dry-run or not.
+  # Precedence (rsdd_resolve_profile): --profile flag > $RESEARCH_SDD_PROFILE env > this
+  # harness's per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE). A flag/env value applies
+  # uniformly to every harness in $list; the default table can differ per harness (e.g. reasonix
+  # defaults to "general" while claude/codex default to "claude").
+  declare -A _profile_for=() _profile_source_for=()
+  local resolved_pair resolved source
+  for h in $list; do
+    resolved_pair="$(rsdd_resolve_profile "$h" "$profile_flag")"
+    resolved="${resolved_pair%%:*}"; source="${resolved_pair##*:}"
+    if ! rsdd_valid_profile "$resolved" "$KIT"; then
+      echo "research-sdd-install: unknown profile '$resolved' for harness '$h' (valid: $(rsdd_list_profiles "$KIT"))" >&2
+      return 2
+    fi
+    _profile_for[$h]="$resolved"
+    _profile_source_for[$h]="$source"
+  done
+
   # Aggregate: a mid-loop harness failure must NOT abort the run (still install the writable ones),
   # but the overall exit code must be nonzero if ANY harness failed. Dry-run mutates nothing → 0.
   local rc=0
   for h in $list; do
-    install_one "$h" "$home" "$dry" "$force" || rc=1
+    install_one "$h" "$home" "$dry" "$force" "${_profile_for[$h]}" "${_profile_source_for[$h]}" || rc=1
   done
   return "$rc"
 }

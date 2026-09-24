@@ -13,8 +13,8 @@ SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; DRIVER58=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -874,6 +874,191 @@ if grep -q 'Kit path:' "$pf_52" 2>/dev/null; then
   ok "52: applied CLAUDE.md contains 'Kit path:' in the launcher section"
 else
   no "52: applied CLAUDE.md is MISSING 'Kit path:' (fast-path not injected)"
+fi
+
+# ── kit issue #993 WU2: install-time prompt-profile selection ────────────────────────────────
+# 53 — profile precedence: --profile flag > $RESEARCH_SDD_PROFILE env > per-harness default
+#      (adapters.sh _RSDD_DEFAULT_PROFILE: claude=claude, codex=claude, reasonix=general).
+out_53a="$(bash "$SUT" --dry-run --home "$TMP/prec-a" --harness claude --profile general 2>&1)"
+printf '%s' "$out_53a" | grep -q 'profile=general (source=flag)' \
+  && ok "53a: --profile flag selects the profile and reports source=flag" \
+  || no "53a: --profile flag not honored (got: $(printf '%s' "$out_53a" | grep profile=)))"
+
+out_53b="$(RESEARCH_SDD_PROFILE=general bash "$SUT" --dry-run --home "$TMP/prec-b" --harness claude 2>&1)"
+printf '%s' "$out_53b" | grep -q 'profile=general (source=env)' \
+  && ok "53b: \$RESEARCH_SDD_PROFILE env selects the profile and reports source=env" \
+  || no "53b: env var not honored (got: $(printf '%s' "$out_53b" | grep profile=)))"
+
+out_53c="$(RESEARCH_SDD_PROFILE=general bash "$SUT" --dry-run --home "$TMP/prec-c" --harness claude --profile claude 2>&1)"
+printf '%s' "$out_53c" | grep -q 'profile=claude (source=flag)' \
+  && ok "53c: --profile flag wins over \$RESEARCH_SDD_PROFILE env (precedence)" \
+  || no "53c: flag did not win over env (got: $(printf '%s' "$out_53c" | grep profile=)))"
+
+out_53d="$(bash "$SUT" --dry-run --home "$TMP/prec-d" --harness reasonix 2>&1)"
+printf '%s' "$out_53d" | grep -q 'profile=general (source=default)' \
+  && ok "53d: reasonix falls back to its per-harness default (general)" \
+  || no "53d: reasonix default wrong (got: $(printf '%s' "$out_53d" | grep profile=)))"
+
+out_53e="$(bash "$SUT" --dry-run --home "$TMP/prec-e" --harness codex 2>&1)"
+printf '%s' "$out_53e" | grep -q 'profile=claude (source=default)' \
+  && ok "53e: codex falls back to its per-harness default (claude)" \
+  || no "53e: codex default wrong (got: $(printf '%s' "$out_53e" | grep profile=)))"
+
+# 54 — unknown profile → exit 2 with a clear message; nothing written to the filesystem.
+#      Both entry points (--profile flag and $RESEARCH_SDD_PROFILE env) are validated.
+out_54a="$(bash "$SUT" --dry-run --home "$TMP/unk-flag" --harness claude --profile bogus-profile-xyz 2>&1)"; rc_54a=$?
+if [ "$rc_54a" -eq 2 ] && printf '%s' "$out_54a" | grep -qi "unknown profile 'bogus-profile-xyz'"; then
+  ok "54a: unknown --profile exits 2 with a clear message naming the bad value"
+else no "54a: unknown --profile: wrong exit/message (rc=$rc_54a, out=$out_54a)"; fi
+[ ! -e "$TMP/unk-flag" ] && ok "54a: unknown --profile writes nothing to the filesystem" \
+  || no "54a: unknown --profile mutated the filesystem before validating"
+
+out_54b="$(RESEARCH_SDD_PROFILE=bogus-env-xyz bash "$SUT" --dry-run --home "$TMP/unk-env" --harness claude 2>&1)"; rc_54b=$?
+if [ "$rc_54b" -eq 2 ] && printf '%s' "$out_54b" | grep -qi "unknown profile 'bogus-env-xyz'"; then
+  ok "54b: unknown \$RESEARCH_SDD_PROFILE exits 2 with a clear message"
+else no "54b: unknown env profile: wrong exit/message (rc=$rc_54b, out=$out_54b)"; fi
+
+# 55 — profile "claude" (flag, env, and default) stays byte-identical to today: the installed
+#      SKILL.md is the kit source, untouched by any profile plumbing (regression guard).
+home_55="$TMP/claude-byte-identical"
+bash "$SUT" --home "$home_55" --harness claude --profile claude >/dev/null 2>&1
+if cmp -s "$KITROOT/skills/research-sdd/SKILL.md" "$home_55/.claude/skills/research-sdd/SKILL.md"; then
+  ok "55: profile=claude installs a byte-identical copy of the kit source SKILL.md"
+else no "55: profile=claude SKILL.md diverged from kit source"; fi
+[ ! -d "$home_55/.claude/research-sdd" ] \
+  && ok "55: profile=claude creates no research-sdd/profile render directory" \
+  || no "55: profile=claude unexpectedly created a render directory"
+
+# 56 — a non-default profile (general) real install: renders into
+#      <config_root>/research-sdd/profile/<name>/, installs the RENDERED SKILL.md, and the
+#      installed prompt file's "Kit path:" fast-path resolves (per SKILL.md's own "Resolving the
+#      kit path" step 0: expand a leading ~ to $HOME) to the RENDERED PROMPT-LOOP.md — the one
+#      containing "(read in full now)" (kit issue #993 WU1 review correction: WU2's job).
+home_56="$TMP/general-real"
+bash "$SUT" --home "$home_56" --harness reasonix >/dev/null 2>&1
+pf_56="$home_56/.reasonix/AGENTS.md"
+kitpath_56="$(grep '^Kit path:' "$pf_56" 2>/dev/null | sed 's/^Kit path: //')"
+kitpath_56_expanded="${kitpath_56/#\~/$home_56}"
+if [ -n "$kitpath_56" ] && [ -f "$kitpath_56_expanded/PROMPT-LOOP.md" ] \
+   && grep -q '(read in full now)' "$kitpath_56_expanded/PROMPT-LOOP.md"; then
+  ok "56: installed skill's Kit-path resolution reaches the RENDERED PROMPT-LOOP.md"
+else no "56: Kit-path resolution did not reach a rendered PROMPT-LOOP.md (kitpath='$kitpath_56')"; fi
+if grep -q '(read in full now)' "$KITROOT/PROMPT-LOOP.md"; then
+  no "56 sanity: kit source PROMPT-LOOP.md already contains the rendered text — test cannot discriminate"
+else ok "56 sanity: kit source PROMPT-LOOP.md does not contain the rendered text (test discriminates)"; fi
+sf_56="$home_56/.reasonix/skills/research-sdd/SKILL.md"
+render_56="$home_56/.reasonix/research-sdd/profile/general/skills/research-sdd/SKILL.md"
+if [ -f "$sf_56" ] && [ -f "$render_56" ] && cmp -s "$sf_56" "$render_56"; then
+  ok "56: installed SKILL.md matches the rendered profile output"
+else no "56: installed SKILL.md does not match the rendered profile output"; fi
+
+# 57 — re-running install for a rendered profile must not leave STALE renders: a leftover file
+#      from a prior render (e.g. a slot id later removed from the profile) does not survive.
+home_57="$TMP/stale-render"
+bash "$SUT" --home "$home_57" --harness reasonix >/dev/null 2>&1
+render_dir_57="$home_57/.reasonix/research-sdd/profile/general"
+echo "stale leftover from a prior render" > "$render_dir_57/STALE-MARKER.txt"
+bash "$SUT" --home "$home_57" --harness reasonix >/dev/null 2>&1
+[ ! -e "$render_dir_57/STALE-MARKER.txt" ] \
+  && ok "57: stale file from a prior render is cleaned on re-install" \
+  || no "57: stale render file survived a re-install"
+
+# 58 — anti-destructive: the render-dir cleaner refuses to touch anything outside
+#      <config_root>/research-sdd/profile/ (rc=2, target left byte-preserved). Sources the real
+#      SUT's functions directly (never a mutant) via a throwaway driver placed BESIDE the real
+#      SUT — SELF-based adapters.sh lookup inside research-sdd-install.sh needs $0 to resolve to
+#      that directory (same technique the MUTANT12 kit-path test above already relies on).
+DRIVER58="$HERE/../research-sdd-install-driver58.$$.sh"
+printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "$1" "$2"\necho "RC=$?"\n' > "$DRIVER58"
+mkdir -p "$TMP/outside-guard58"; echo "keepme" > "$TMP/outside-guard58/keepme.txt"
+out_58="$(bash "$DRIVER58" "$TMP/outside-guard58" "$TMP/some-other-config-root" 2>&1)"
+rm -f "$DRIVER58"; DRIVER58=""
+if printf '%s' "$out_58" | grep -q 'RC=2' && [ -f "$TMP/outside-guard58/keepme.txt" ]; then
+  ok "58: render-dir cleaner refuses (rc=2) a dir outside <config_root>/research-sdd/profile/, target preserved"
+else no "58: render-dir cleaner did not refuse an out-of-convention dir (got: $out_58)"; fi
+
+# ── TEETH for the profile feature (kit issue #993 WU2) ────────────────────────────────────────
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: neuter the unknown-profile guard in main(); expect test 54 to fail --"
+  MUTANT13="$HERE/../research-sdd-install.MUTANT13.$$.sh"
+  sed 's/if ! rsdd_valid_profile "\$resolved" "\$KIT"; then/if false; then/' "$SUT" > "$MUTANT13"
+  bash -n "$MUTANT13" 2>/dev/null \
+    && ok "teeth: MUTANT13 parses (bash -n)" \
+    || no "teeth: MUTANT13 is a syntax error — mutation is theater"
+  bash "$MUTANT13" --dry-run --home "$TMP/teeth-unk-profile" --harness claude --profile bogus-xyz-teeth >/dev/null 2>&1; rc_m13=$?
+  if [ "$rc_m13" -eq 2 ]; then
+    no "teeth: MUTANT13 still refused a bogus profile — unknown-profile guard check is THEATER"
+  else
+    ok "teeth: MUTANT13 (validation removed) accepts a bogus profile → unknown-profile guard check has teeth"
+  fi
+
+  echo "-- teeth: neuter --profile flag precedence in rsdd_resolve_profile; expect test 53a to fail --"
+  MUTANT14="$HERE/../adapters.MUTANT14.$$.sh"
+  sed 's/if \[ -n "\$flag" \]; then/if false; then/' "$HERE/../adapters.sh" > "$MUTANT14"
+  bash -n "$MUTANT14" 2>/dev/null \
+    && ok "teeth: MUTANT14 parses (bash -n)" \
+    || no "teeth: MUTANT14 is a syntax error — mutation is theater"
+  m14kit="$TMP/teeth-m14-kit"
+  mkdir -p "$m14kit/install" "$m14kit/skills/research-sdd" "$m14kit/profiles"
+  cp "$SUT" "$m14kit/install/research-sdd-install.sh"
+  cp "$MUTANT14" "$m14kit/install/adapters.sh"
+  printf '# placeholder skill\n' > "$m14kit/skills/research-sdd/SKILL.md"
+  cp "$HERE/../../profiles/general.slots.md" "$m14kit/profiles/general.slots.md"
+  out_m14="$("$m14kit/install/research-sdd-install.sh" --dry-run --home "$TMP/teeth-m14-home" --harness claude --profile general 2>&1)"
+  if printf '%s' "$out_m14" | grep -q 'profile=general (source=flag)'; then
+    no "teeth: MUTANT14 still honored the --profile flag — flag-precedence check is THEATER"
+  else
+    ok "teeth: MUTANT14 (flag ignored) falls through to default → flag-precedence check has teeth"
+  fi
+
+  echo "-- teeth: force the launcher to always use \$KIT (ignore kit_for_section); expect test 56 to fail --"
+  MUTANT15="$HERE/../research-sdd-install.MUTANT15.$$.sh"
+  sed 's/"\$dispatch" "\$h" "\$home" "\$prompt_file" "\$dry" "\$kit_for_section"/"$dispatch" "$h" "$home" "$prompt_file" "$dry" "$KIT"/' "$SUT" > "$MUTANT15"
+  bash -n "$MUTANT15" 2>/dev/null \
+    && ok "teeth: MUTANT15 parses (bash -n)" \
+    || no "teeth: MUTANT15 is a syntax error — mutation is theater"
+  home_m15="$TMP/teeth-m15-kitpath"
+  bash "$MUTANT15" --home "$home_m15" --harness reasonix >/dev/null 2>&1
+  kp_m15="$(grep '^Kit path:' "$home_m15/.reasonix/AGENTS.md" 2>/dev/null | sed 's/^Kit path: //')"
+  if printf '%s' "$kp_m15" | grep -q 'research-sdd/profile/general'; then
+    no "teeth: MUTANT15 still pointed Kit path at the render dir — kit_for_section wiring check is THEATER"
+  else
+    ok "teeth: MUTANT15 (kit_for_section ignored) breaks Kit-path→render pointing → wiring check has teeth"
+  fi
+
+  echo "-- teeth: skip the render-dir clean call; expect test 57 (stale-render cleanup) to fail --"
+  MUTANT16="$HERE/../research-sdd-install.MUTANT16.$$.sh"
+  sed 's/! _rsdd_clean_profile_dir "\$render_dir" "\$(rsdd_field "\$h" config_root "\$home")"/! true/' "$SUT" > "$MUTANT16"
+  bash -n "$MUTANT16" 2>/dev/null \
+    && ok "teeth: MUTANT16 parses (bash -n)" \
+    || no "teeth: MUTANT16 is a syntax error — mutation is theater"
+  home_m16="$TMP/teeth-m16-stale"
+  bash "$MUTANT16" --home "$home_m16" --harness reasonix >/dev/null 2>&1
+  render_dir_m16="$home_m16/.reasonix/research-sdd/profile/general"
+  echo "stale" > "$render_dir_m16/STALE-MARKER.txt"
+  bash "$MUTANT16" --home "$home_m16" --harness reasonix >/dev/null 2>&1
+  if [ -e "$render_dir_m16/STALE-MARKER.txt" ]; then
+    ok "teeth: MUTANT16 (clean skipped) leaves the stale marker → stale-render cleanup check has teeth"
+  else
+    no "teeth: MUTANT16 still cleaned the stale marker — stale-render cleanup check is THEATER"
+  fi
+
+  echo "-- teeth: neuter the render-dir containment guard; expect test 58 to fail --"
+  MUTANT17="$HERE/../research-sdd-install.MUTANT17.$$.sh"
+  sed 's|"\$config_root"/research-sdd/profile/?\*) ;;|*) ;;|' "$SUT" > "$MUTANT17"
+  bash -n "$MUTANT17" 2>/dev/null \
+    && ok "teeth: MUTANT17 parses (bash -n)" \
+    || no "teeth: MUTANT17 is a syntax error — mutation is theater"
+  mkdir -p "$TMP/teeth-m17-outside"; echo "keepme" > "$TMP/teeth-m17-outside/keepme.txt"
+  # MUTANT17 IS a full SUT copy living beside adapters.sh, so it can source itself the same way
+  # DRIVER58 does above — no separate driver file needed for a mutant that already lives there.
+  printf '. "%s" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "%s" "%s"\necho RC=$?\n' \
+    "$MUTANT17" "$TMP/teeth-m17-outside" "$TMP/teeth-m17-cfgroot" | bash >/dev/null 2>&1
+  if [ -f "$TMP/teeth-m17-outside/keepme.txt" ]; then
+    no "teeth: MUTANT17 still refused/preserved the outside dir — containment guard check is THEATER"
+  else
+    ok "teeth: MUTANT17 (guard neutered) removes an out-of-convention dir → containment guard check has teeth"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

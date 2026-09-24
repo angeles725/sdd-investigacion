@@ -91,11 +91,27 @@ declare -A _RSDD_SKILL_SRC_RELKIT=(
   [codex]="skills/research-sdd/SKILL.md"
   [reasonix]="skills/research-sdd/SKILL.md"
 )
+# WHAT: the per-harness DEFAULT prompt profile (kit issue #993 WU2) — used only when the
+# installer receives neither an explicit --profile flag nor a non-empty $RESEARCH_SDD_PROFILE
+# env var (see rsdd_resolve_profile below). "claude" is the byte-identical-to-today profile;
+# any other value names a research-sdd/profiles/<name>.slots.md render-profile.sh renders at
+# install time. reasonix defaults to "general" because its target models are not Claude-family;
+# claude and codex both default to "claude" (codex agents have historically been run with the
+# Claude-tuned prompt text and nothing has asked to change that default).
+declare -A _RSDD_DEFAULT_PROFILE=(
+  [claude]="claude"
+  [codex]="claude"
+  [reasonix]="general"
+)
 
 # rsdd_field <harness> <field> [home] — the UNIFORM accessor. The case is on FIELD NAME (generic),
 # never on harness: all per-harness divergence is looked up from the arrays above.
 rsdd_field() {
-  local harness="$1" field="$2" home="${3:-$HOME}"
+  # ${HOME:-} (not bare $HOME) so a caller that omits <home> for a field that never reads it
+  # (prompt_profile, skill_src_relkit, ...) never dies under `set -u` with $HOME itself unset —
+  # surfaced by rsdd_resolve_profile calling this without a home for the home-independent
+  # prompt_profile field (kit issue #993 WU2, AX8 regression test).
+  local harness="$1" field="$2" home="${3:-${HOME:-}}"
   local rel="${_RSDD_CONFIG_ROOT_REL[$harness]:-}"
   if [ -z "$rel" ]; then echo "rsdd_field: unknown harness '$harness'" >&2; return 2; fi
   local root="$home/$rel" plug
@@ -113,8 +129,52 @@ rsdd_field() {
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
     mcp_toml_shape) printf '%s\n' "${_RSDD_MCP_TOML_SHAPE[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
+    prompt_profile) printf '%s\n' "${_RSDD_DEFAULT_PROFILE[$harness]:-}" ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
   esac
+}
+
+# rsdd_valid_profile <profile> <kit> — true (0) iff <profile> is a KNOWN profile name: the
+# literal "claude" (always valid, needs no profile file), or any name for which
+# <kit>/profiles/<profile>.slots.md exists. Used by both the installer (validate --profile /
+# $RESEARCH_SDD_PROFILE / a per-harness default before touching the filesystem) and
+# verify-skill-drift.sh (validate before re-rendering a profile to diff against).
+rsdd_valid_profile() {
+  local profile="$1" kit="$2"
+  [ "$profile" = "claude" ] && return 0
+  [ -n "$profile" ] && [ -f "$kit/profiles/${profile}.slots.md" ]
+}
+
+# rsdd_list_profiles <kit> — space-separated list of every known profile name: "claude" first,
+# then every research-sdd/profiles/*.slots.md basename found under <kit>, for error messages.
+rsdd_list_profiles() {
+  local kit="$1" f base out="claude"
+  if [ -d "$kit/profiles" ]; then
+    for f in "$kit"/profiles/*.slots.md; do
+      [ -e "$f" ] || continue
+      base="$(basename "$f" .slots.md)"
+      out="$out $base"
+    done
+  fi
+  printf '%s\n' "$out"
+}
+
+# rsdd_resolve_profile <harness> [profile_flag] — resolves the EFFECTIVE prompt profile for
+# <harness> and prints "<profile>:<source>" (source is one of flag|env|default). Precedence:
+#   1. profile_flag, when non-empty (an explicit --profile CLI argument)
+#   2. $RESEARCH_SDD_PROFILE, when set and non-empty
+#   3. this harness's per-harness default (_RSDD_DEFAULT_PROFILE via the prompt_profile field)
+# Does NOT validate the result — callers run rsdd_valid_profile before acting on it, so an
+# unknown profile is reported once with full context (harness + source) rather than here.
+rsdd_resolve_profile() {
+  local harness="$1" flag="${2:-}"
+  if [ -n "$flag" ]; then
+    printf '%s:flag\n' "$flag"
+  elif [ -n "${RESEARCH_SDD_PROFILE:-}" ]; then
+    printf '%s:env\n' "$RESEARCH_SDD_PROFILE"
+  else
+    printf '%s:default\n' "$(rsdd_field "$harness" prompt_profile)"
+  fi
 }
 
 # rsdd_render_section <harness> [home] [kit] — the single launcher body, wrapped in idempotency markers.

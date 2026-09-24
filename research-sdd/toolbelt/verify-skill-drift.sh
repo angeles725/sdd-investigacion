@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # verify-skill-drift.sh — detect deployed skill(s) diverged from the kit source.
 #
-# Usage: verify-skill-drift.sh [--all | --harness <h>] [--home <dir>]
+# Usage: verify-skill-drift.sh [--all | --harness <h>] [--home <dir>] [--profile <name>]
 #   --all      check every harness registered in adapters.sh (RESEARCH_SDD_HARNESSES)
 #              mutually exclusive with --harness; used by the SessionStart hook
 #   --harness  single harness to check (default: claude)
 #   --home     home dir used to resolve deployed skill paths (default: $HOME)
+#   --profile  prompt profile to compare the deployed skill against (kit issue #993 WU2):
+#              flag > $RESEARCH_SDD_PROFILE env > this harness's per-harness default
+#              (adapters.sh _RSDD_DEFAULT_PROFILE). profile "claude" compares against the kit
+#              source directly, byte-exact, exactly as before this flag existed. Any other
+#              profile is re-rendered into a throwaway temp dir (never the kit, never $home) via
+#              render-profile.sh and compared against THAT — propose-never-apply extended to
+#              renders. Ignored (profile "claude" behaviour only) when adapters.sh predates this
+#              feature (no rsdd_resolve_profile/rsdd_valid_profile) — e.g. a test fixture that
+#              defines its own minimal adapters.sh.
 #
 # Exit codes for --all:
 #   0  all installed harnesses in-sync or all absent (absent is normal — SILENT)
@@ -37,10 +46,64 @@ fi
 # shellcheck source=../install/adapters.sh
 . "$ADAPTERS"
 
+# Profile support (kit issue #993 WU2) is feature-detected, not assumed: a fixture adapters.sh
+# (e.g. tests/fixtures/adapters-two-sources.sh) defines only the minimal rsdd_field subset this
+# script needs and has no reason to also carry rsdd_resolve_profile/rsdd_valid_profile. When
+# either is missing, every harness behaves exactly as profile "claude" always has — the kit
+# source, byte-exact — so pre-existing tests built against that older adapters.sh keep working
+# unmodified.
+_VSD_HAS_PROFILE_SUPPORT=0
+if declare -F rsdd_resolve_profile >/dev/null 2>&1 && declare -F rsdd_valid_profile >/dev/null 2>&1; then
+  _VSD_HAS_PROFILE_SUPPORT=1
+fi
+
+# Every non-"claude" profile comparison re-renders into a throwaway temp dir (never the kit,
+# never $home — propose-never-apply extended to renders). Collected here and swept once at exit
+# regardless of which exit path is taken (could-not-run / absent / in-sync / diverged), so an
+# --all run that renders several profiles never leaks more than the process lifetime.
+_VSD_RENDER_TMPDIRS=()
+_vsd_cleanup_renders() {
+  local d
+  for d in "${_VSD_RENDER_TMPDIRS[@]:-}"; do
+    [ -n "$d" ] && rm -rf "$d"
+  done
+}
+trap _vsd_cleanup_renders EXIT
+
+# _vsd_resolve_src <harness> <home> <src_relkit> <profile_flag> — prints the path to compare the
+# DEPLOYED skill against. profile "claude" (or no profile support at all): the kit source
+# directly, unchanged. Any other profile: a fresh render-profile.sh render in a temp dir.
+# Return codes: 0 ok (path printed) · 2 could-not-run (mktemp/render failure) · 3 unknown profile.
+_vsd_resolve_src() {
+  local h="$1" home="$2" src_relkit="$3" flag="$4" profile pair tmp render_err
+  if [ "$_VSD_HAS_PROFILE_SUPPORT" != 1 ]; then
+    printf '%s\n' "$KIT/$src_relkit"
+    return 0
+  fi
+  pair="$(rsdd_resolve_profile "$h" "$flag")"; profile="${pair%%:*}"
+  if ! rsdd_valid_profile "$profile" "$KIT"; then
+    return 3
+  fi
+  if [ "$profile" = "claude" ]; then
+    printf '%s\n' "$KIT/$src_relkit"
+    return 0
+  fi
+  tmp="$(mktemp -d)" || return 2
+  if ! render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$tmp" 2>&1)"; then
+    printf 'verify-skill-drift: render-profile.sh failed for profile "%s": %s\n' "$profile" "$render_err" >&2
+    rm -rf "$tmp"
+    return 2
+  fi
+  _VSD_RENDER_TMPDIRS+=("$tmp")
+  printf '%s\n' "$tmp/$src_relkit"
+  return 0
+}
+
 all_mode=0
 harness="claude"
 harness_set=0
 home=""   # resolved after arg parsing; --home wins over $HOME
+profile_flag=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,8 +118,13 @@ while [ $# -gt 0 ]; do
         printf 'verify-skill-drift: --home requires a non-empty value\n' >&2; exit 2
       fi
       home="$2"; shift 2 ;;
+    --profile)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        printf 'verify-skill-drift: --profile requires a non-empty value\n' >&2; exit 2
+      fi
+      profile_flag="$2"; shift 2 ;;
     -h|--help)
-      sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,32p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) printf 'verify-skill-drift: unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
@@ -92,15 +160,7 @@ if [ "$all_mode" -eq 1 ]; then
     checked=$((checked + 1))
 
     src_relkit="$(rsdd_field "$h" skill_src_relkit "$home")"  # SENTINEL-SRC-RELKIT-LOOKUP
-    src="$KIT/$src_relkit"
     deployed="$(rsdd_field "$h" skill_path "$home")"
-
-    # Source checks (could-not-run)
-    if [ ! -f "$src" ] || [ ! -r "$src" ]; then
-      err_count=$((err_count + 1))
-      printf 'verify-skill-drift: could-not-run harness=%s (src missing: %s)\n' "$h" "$src" >&2
-      continue
-    fi
 
     # Deployed checks: dangling symlink → could-not-run (must precede the absent ! -e check)
     # SENTINEL-DANGLING-ALL
@@ -118,6 +178,30 @@ if [ "$all_mode" -eq 1 ]; then
       err_count=$((err_count + 1))
       printf 'verify-skill-drift: could-not-run harness=%s (deployed not a readable file: %s)\n' \
         "$h" "$deployed" >&2
+      continue
+    fi
+
+    # Resolve $src (kit source, or a fresh profile render) only once deployed is known to exist
+    # and be comparable — an absent/dangling/unreadable harness above must never pay for a
+    # render it has no use for (kit issue #993 WU2).
+    # NOTE: capture $? from the assignment DIRECTLY, never from `if ! src=$(...); then` — the `!`
+    # negation makes $? reflect ITS OWN (always-0-inside-then) status, not the command's real one.
+    src="$(_vsd_resolve_src "$h" "$home" "$src_relkit" "$profile_flag")"
+    src_rc=$?
+    if [ "$src_rc" -ne 0 ]; then
+      err_count=$((err_count + 1))
+      if [ "$src_rc" = 3 ]; then
+        printf 'verify-skill-drift: could-not-run harness=%s (unknown profile)\n' "$h" >&2
+      else
+        printf 'verify-skill-drift: could-not-run harness=%s (profile render failed)\n' "$h" >&2
+      fi
+      continue
+    fi
+
+    # Source checks (could-not-run)
+    if [ ! -f "$src" ] || [ ! -r "$src" ]; then
+      err_count=$((err_count + 1))
+      printf 'verify-skill-drift: could-not-run harness=%s (src missing: %s)\n' "$h" "$src" >&2
       continue
     fi
 
@@ -165,8 +249,20 @@ if ! rsdd_field "$harness" config_root "$home" >/dev/null 2>&1; then
 fi
 
 src_relkit="$(rsdd_field "$harness" skill_src_relkit "$home")"
-src="$KIT/$src_relkit"
 deployed="$(rsdd_field "$harness" skill_path "$home")"
+
+# NOTE: capture $? from the assignment DIRECTLY, never from `if ! src=$(...); then` — the `!`
+# negation makes $? reflect ITS OWN (always-0-inside-then) status, not the command's real one.
+src="$(_vsd_resolve_src "$harness" "$home" "$src_relkit" "$profile_flag")"
+src_rc=$?
+if [ "$src_rc" -ne 0 ]; then
+  if [ "$src_rc" = 3 ]; then
+    printf 'verify-skill-drift: ERROR: unknown profile for harness "%s"\n' "$harness" >&2
+  else
+    printf 'verify-skill-drift: ERROR: could not render profile for harness "%s"\n' "$harness" >&2
+  fi
+  exit 2
+fi
 
 # Source file checks (could-not-run)
 if [ ! -f "$src" ]; then

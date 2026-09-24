@@ -1,5 +1,7 @@
 harness=reasonix
-  INSTALL {HOME}/.reasonix/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  profile=general (source=default)
+  RENDER  {HOME}/.reasonix/research-sdd/profile/general (profile=general)
+  INSTALL {HOME}/.reasonix/skills/research-sdd/SKILL.md (from rendered profile 'general')
   SPLICE  {HOME}/.reasonix/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
   | <!-- research-sdd:start -->
   | ## Research-SDD
@@ -7,7 +9,7 @@ harness=reasonix
   | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
   | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
   | Skill file: {HOME}/.reasonix/skills/research-sdd/SKILL.md
-  | Kit path: {KIT}
+  | Kit path: ~/.reasonix/research-sdd/profile/general
   | 
   | MCP servers this skill relies on (engram `mem_*`, codegraph) are registered automatically
   | into `~/.reasonix/config.toml` by the installer — an idempotent marked block

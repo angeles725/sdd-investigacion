@@ -597,6 +597,60 @@ else
   no "REM1 3-diverged → some harness names missing from output: $REM1_OUT"
 fi
 
+# ── PD: profile-aware drift detection (kit issue #993 WU2) ────────────────────
+# PD1: install "general" for reasonix (its per-harness default — adapters.sh _RSDD_DEFAULT_PROFILE)
+#      with the REAL installer, then verify-skill-drift re-renders that SAME profile into a
+#      throwaway temp dir and compares against it: in-sync on the untouched install, diverged
+#      after a hand-edit. Exercises the real render-profile.sh end-to-end, never a mutant.
+INSTALLER_PD="$KIT/install/research-sdd-install.sh"
+if [ ! -f "$INSTALLER_PD" ]; then
+  no "PD1 setup: installer not found: $INSTALLER_PD"
+else
+  H_PD1="$ROOT/home_pd1"
+  bash "$INSTALLER_PD" --home "$H_PD1" --harness reasonix >/dev/null 2>&1
+  DEPLOYED_PD1="$H_PD1/.reasonix/skills/research-sdd/SKILL.md"
+  if [ ! -f "$DEPLOYED_PD1" ]; then
+    no "PD1 setup: install did not produce a deployed skill at $DEPLOYED_PD1"
+  else
+    bash "$SUT" --harness reasonix --home "$H_PD1" >/dev/null 2>&1
+    RC_PD1_SYNC=$?
+    if [ "$RC_PD1_SYNC" -eq 0 ]; then
+      ok "PD1a: fresh general-profile install is in-sync (exit 0)"
+    else
+      no "PD1a: fresh general-profile install reported drift (exit $RC_PD1_SYNC) — expected in-sync"
+    fi
+
+    printf '\n<!-- hand-edited by an operator -->\n' >> "$DEPLOYED_PD1"
+    ERR_PD1_DIV="$(bash "$SUT" --harness reasonix --home "$H_PD1" 2>&1)"
+    RC_PD1_DIV=$?
+    if [ "$RC_PD1_DIV" -eq 1 ] && printf '%s' "$ERR_PD1_DIV" | grep -q 'diverged'; then
+      ok "PD1b: hand-edited general-profile skill is detected as diverged (exit 1)"
+    else
+      no "PD1b: hand-edit not detected (rc=$RC_PD1_DIV, out=$ERR_PD1_DIV)"
+    fi
+  fi
+fi
+
+# PD2: --profile claude stays byte-exact against the kit source (regression guard — the profile
+#      flag must not perturb the default comparison path at all).
+H_PD2="$ROOT/home_pd2"
+make_home_copy "$H_PD2" "$SRC_SKILL"
+bash "$SUT" --harness claude --home "$H_PD2" --profile claude >/dev/null 2>&1
+RC_PD2=$?
+[ "$RC_PD2" -eq 0 ] && ok "PD2: --profile claude stays byte-exact (in-sync on an untouched copy)" \
+  || no "PD2: --profile claude regressed (exit $RC_PD2)"
+
+# PD3: an unknown --profile is could-not-run (exit 2) — never a false in-sync/diverged verdict.
+H_PD3="$ROOT/home_pd3"
+make_home_copy "$H_PD3" "$SRC_SKILL"
+ERR_PD3="$(bash "$SUT" --harness claude --home "$H_PD3" --profile bogus-profile-xyz 2>&1)"
+RC_PD3=$?
+if [ "$RC_PD3" -eq 2 ] && printf '%s' "$ERR_PD3" | grep -qi 'unknown profile'; then
+  ok "PD3: unknown --profile is could-not-run (exit 2), not a false verdict"
+else
+  no "PD3: unknown --profile: wrong exit/message (rc=$RC_PD3, out=$ERR_PD3)"
+fi
+
 # ── TEETH ─────────────────────────────────────────────────────────────────────
 prove_teeth=0
 for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
@@ -893,6 +947,36 @@ if [ "$prove_teeth" -eq 1 ]; then
     ok "TOOTH K also-diverged-names: mutant hides codex — RED as expected"
   else
     no "TOOTH K also-diverged-names: mutant still shows codex — tooth has no bite"
+  fi
+
+  echo "-- teeth: force _vsd_resolve_src to always use the kit source (ignore profile); expect PD1a to fail --"
+  # Neuters the profile branch so a NON-claude profile is silently compared against the kit
+  # source instead of a fresh render — a general-profile install (which legitimately differs
+  # from the kit source) would then be misreported as diverged even when untouched.
+  MUT_PD="$MUT_DIR/verify-skill-drift-mut-PD.sh"
+  sed 's/if \[ "\$profile" = "claude" \]; then/if true; then/' "$SUT" > "$MUT_PD"
+  chmod +x "$MUT_PD"
+  # The mini-kit sandbox above never needed a profiles/ dir before (TOOTH A-K don't touch
+  # profiles); rsdd_valid_profile needs $ROOT/profiles/general.slots.md to accept "general".
+  mkdir -p "$ROOT/profiles"
+  cp "$HERE/../../profiles/general.slots.md" "$ROOT/profiles/general.slots.md" 2>/dev/null
+  if diff -q "$SUT" "$MUT_PD" >/dev/null 2>&1; then
+    no "TOOTH PD pre-check: mutant = SUT — profile branch line not found"
+  else
+    ok "TOOTH PD pre-check: mutant differs (profile branch forced true)"
+  fi
+  if [ -f "$INSTALLER_PD" ]; then
+    H_PD_TEETH="$ROOT/home_pd_teeth"
+    bash "$INSTALLER_PD" --home "$H_PD_TEETH" --harness reasonix >/dev/null 2>&1
+    bash "$MUT_PD" --harness reasonix --home "$H_PD_TEETH" >/dev/null 2>&1
+    RC_MUT_PD=$?
+    if [ "$RC_MUT_PD" -eq 1 ]; then
+      ok "TOOTH PD: mutant (profile ignored) reports a fresh general install as diverged — RED as expected"
+    else
+      no "TOOTH PD: mutant still reports exit $RC_MUT_PD (expected 1) — profile-aware comparison check has no bite"
+    fi
+  else
+    no "TOOTH PD: installer not found — cannot exercise this tooth"
   fi
 
   # git-status after all teeth: confirm no files leaked into the live tree

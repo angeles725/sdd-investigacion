@@ -1,4 +1,5 @@
 harness=claude
+  profile=claude (source=default)
   INSTALL {HOME}/.claude/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
   SPLICE  {HOME}/.claude/CLAUDE.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
   | <!-- research-sdd:start -->
