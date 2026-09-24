@@ -216,25 +216,39 @@ assert_absent "EN2a-(a-default) no-wire flag: settings.json NOT written" "$d/.cl
 assert_grep   "EN2a-(a-default) no-wire flag: JSON block in stdout"      '"hooks"' "$_ad_out"
 
 if [ "$_en2a_has_jq" = 1 ]; then
-  # (a-wire) --wire flag → settings.json created with both hooks
+  # (a-wire) --wire on a FRESH target requires the explicit --scaffold opt-in (kit issue #1047).
+  # settings.json is created with the Stop hook; SessionStart is SKIPPED — a freshly-copied
+  # hook-sessionstart.sh always carries a LIVE <SUBJECT> placeholder, so scaffold+wire in one call
+  # must not wire an unadapted SessionStart card, exactly like the wire-only repair path.
   d="$TMP/en2a-a-wire"; mkdir -p "$d"
-  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
-  assert_file "EN2a-(a-wire) --wire: settings.json created"               "$d/.claude/settings.json"
+  _aw_out="$TMP/en2a-a-wire.out"; _aw_err="$TMP/en2a-a-wire.err"
+  bash "$SUT" "$d" --corpus flat --wire --scaffold > "$_aw_out" 2>"$_aw_err"
+  assert_file "EN2a-(a-wire) --scaffold --wire: settings.json created"               "$d/.claude/settings.json"
   if [ -f "$d/.claude/settings.json" ]; then
-    assert_grep "EN2a-(a-wire) --wire: Stop hook present"         "retro-gate-stop.sh"   "$d/.claude/settings.json"
-    assert_grep "EN2a-(a-wire) --wire: SessionStart hook present" "research-protocol.sh" "$d/.claude/settings.json"
+    assert_grep "EN2a-(a-wire) --scaffold --wire: Stop hook present"         "retro-gate-stop.sh"   "$d/.claude/settings.json"
+    if grep -qF "research-protocol.sh" "$d/.claude/settings.json"; then
+      no "EN2a-(a-wire) --scaffold --wire: SessionStart should NOT be wired (unadapted <SUBJECT>) but is present"
+    else
+      ok "EN2a-(a-wire) --scaffold --wire: SessionStart NOT wired (unadapted <SUBJECT>)"
+    fi
   else
-    no "EN2a-(a-wire) --wire: Stop hook (file absent)"; no "EN2a-(a-wire) --wire: SessionStart hook (file absent)"
+    no "EN2a-(a-wire) --scaffold --wire: Stop hook (file absent)"; no "EN2a-(a-wire) --scaffold --wire: SessionStart hook (file absent)"
   fi
+  assert_grep "EN2a-(a-wire) --scaffold --wire: WARN names the unadapted file" "$d/.claude/hooks/research-protocol.sh" "$_aw_err"
 
-  # (b-wire) --wire + pre-existing settings.json with unrelated hook → merged, unrelated preserved
+  # (b-wire) --scaffold --wire + pre-existing settings.json with unrelated hook → merged, unrelated
+  # preserved; SessionStart stays skipped for the same reason as (a-wire).
   d="$TMP/en2a-b-wire"; mkdir -p "$d/.claude"
   printf '{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"echo pre"}]}]}}\n' \
     > "$d/.claude/settings.json"
-  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
-  assert_grep "EN2a-(b-wire) --wire merge: PreToolUse preserved"         "PreToolUse"           "$d/.claude/settings.json"
-  assert_grep "EN2a-(b-wire) --wire merge: Stop hook merged"             "retro-gate-stop.sh"   "$d/.claude/settings.json"
-  assert_grep "EN2a-(b-wire) --wire merge: SessionStart hook merged"     "research-protocol.sh" "$d/.claude/settings.json"
+  bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
+  assert_grep "EN2a-(b-wire) --scaffold --wire merge: PreToolUse preserved" "PreToolUse"         "$d/.claude/settings.json"
+  assert_grep "EN2a-(b-wire) --scaffold --wire merge: Stop hook merged"     "retro-gate-stop.sh" "$d/.claude/settings.json"
+  if grep -qF "research-protocol.sh" "$d/.claude/settings.json"; then
+    no "EN2a-(b-wire) --scaffold --wire merge: SessionStart should NOT be merged (unadapted <SUBJECT>) but is present"
+  else
+    ok "EN2a-(b-wire) --scaffold --wire merge: SessionStart NOT merged (unadapted <SUBJECT>)"
+  fi
 
   # (f-wire-only) --wire on EXISTING corpus does ONLY settings.json merge — no scaffold changes.
   # Mimics the adapt→wire flow from step 4: scaffold, adapt hook + seed state, then wire-only.
@@ -659,18 +673,20 @@ if [ "$_en2a_has_jq" = 1 ]; then
                      || no "1040-(s) skip-but-present: SessionStart count=$_s_n (expected 1)"
   fi
 
-  # (d-wire) --wire idempotent — second run (--force) → no duplicate Stop or SessionStart entries
+  # (d-wire) --wire idempotent — first run scaffolds+wires (--scaffold, kit issue #1047), second
+  # run is a plain --wire (the corpus now exists, so it takes the wire-only repair path) → no
+  # duplicate Stop entry. SessionStart stays skipped both times: the hook is still unadapted.
   d="$TMP/en2a-d-wire"; mkdir -p "$d"
+  bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
-  bash "$SUT" "$d" --corpus flat --wire --force >/dev/null 2>/dev/null
   _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
   _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
   [ "$_sc_n" = 1 ] && ok "EN2a-(d-wire) idempotent: Stop has exactly 1 entry" \
                     || no "EN2a-(d-wire) idempotent: Stop count=$_sc_n (expected 1)"
-  [ "$_ss_n" = 1 ] && ok "EN2a-(d-wire) idempotent: SessionStart has exactly 1 entry" \
-                    || no "EN2a-(d-wire) idempotent: SessionStart count=$_ss_n (expected 1)"
+  [ "$_ss_n" = 0 ] && ok "EN2a-(d-wire) idempotent: SessionStart stays skipped (live <SUBJECT>, kit issue #1047)" \
+                    || no "EN2a-(d-wire) idempotent: SessionStart count=$_ss_n (expected 0 — placeholder still live)"
 else
   echo "  SKIP  EN2a-(a-wire)(b-wire)(d-wire): jq not on PATH"
 fi
@@ -683,7 +699,9 @@ bash "$SUT" "$d" --corpus flat --no-wire > "$_nw_out" 2>/dev/null; _nw_rc=$?
 assert_absent "EN2a-(c) --no-wire: settings.json NOT written" "$d/.claude/settings.json"
 assert_grep   'EN2a-(c) --no-wire: JSON block in stdout'      '"hooks"' "$_nw_out"
 
-# (e) jq-absent + --wire → 'degraded' in stderr, settings.json NOT created, block printed
+# (e) jq-absent + --scaffold --wire on a FRESH target → 'degraded' in stderr, settings.json NOT
+# created, block printed. --scaffold is required here (kit issue #1047): plain --wire on a target
+# with no corpus marker refuses BEFORE the jq probe even runs — see the (a-jq-absent-refuse) test.
 _jq_found="$(command -v jq 2>/dev/null)"
 if [ -z "$_jq_found" ]; then
   echo "  SKIP  EN2a-(e): jq not on PATH (cannot construct PATH-without-jq)"
@@ -695,7 +713,7 @@ else
   else
     d="$TMP/en2a-e"; mkdir -p "$d"
     _e_out="$TMP/en2a-e.out"; _e_err="$TMP/en2a-e.err"
-    PATH="$_path_nojq" bash "$SUT" "$d" --corpus flat --wire > "$_e_out" 2>"$_e_err"
+    PATH="$_path_nojq" bash "$SUT" "$d" --corpus flat --wire --scaffold > "$_e_out" 2>"$_e_err"
     _e_rc=$?
     [ "$_e_rc" = 0 ] && ok "EN2a-(e) jq-absent + --wire: exits 0 (graceful)" \
                       || no "EN2a-(e) jq-absent + --wire: exits 0 (got $_e_rc)"
@@ -704,6 +722,101 @@ else
     assert_absent "EN2a-(e) jq-absent + --wire: settings.json NOT created" "$d/.claude/settings.json"
     assert_grep   "EN2a-(e) jq-absent + --wire: JSON block printed"        '"hooks"' "$_e_out"
   fi
+fi
+
+# --- kit issue #1047: --wire refuses to implicitly scaffold a target with no corpus marker -----
+# Found 2026-09-24 during T7 fleet wiring: --wire on a target with NO corpus marker silently ran
+# the full scaffold (created corpus/, retros/, tools/, .claude/hooks/*, appended to .gitignore,
+# wired an unadapted SessionStart card) — rc=0, indistinguishable from a repair. An operator
+# asking to WIRE never intends to SCAFFOLD.
+echo "-- #1047: --wire refuses to scaffold a target with no corpus marker --"
+
+# snapshot helper: sha256 of every file under a dir, sorted — a stronger "nothing written" check
+# than presence/absence alone (it also catches an EXISTING file being silently modified).
+_1047_snapshot() { find "$1" -type f -exec sha256sum {} \; 2>/dev/null | sort; }
+
+# (a) in-project dir with its OWN files (no corpus marker) + --wire → refuses, typed message, the
+# NEW exit code 5, and a byte-for-byte snapshot proves NOTHING was created or modified — including
+# .gitignore (this proves the refusal fires before ANY mutation, not just before the corpus files).
+d="$TMP/1047-a-inproject"; mkdir -p "$d"
+printf 'own project file\n' > "$d/app.py"
+printf 'node_modules/\n' > "$d/.gitignore"
+_1047a_before="$(_1047_snapshot "$d")"
+_1047a_out="$TMP/1047-a.out"; _1047a_err="$TMP/1047-a.err"
+bash "$SUT" "$d" --wire > "$_1047a_out" 2>"$_1047a_err"; _1047a_rc=$?
+[ "$_1047a_rc" = 5 ] && ok "1047-(a) in-project, no marker, --wire: exits 5 (got $_1047a_rc)" \
+                       || no "1047-(a) in-project, no marker, --wire: expected exit 5 (got $_1047a_rc)"
+grep -qF "REFUSED" "$_1047a_err" && ok "1047-(a) in-project, no marker: typed REFUSED message in stderr" \
+                                  || no "1047-(a) in-project, no marker: no typed REFUSED message in stderr"
+grep -qF "kit issue #1047" "$_1047a_err" && ok "1047-(a) in-project, no marker: message names kit issue #1047" \
+                                          || no "1047-(a) in-project, no marker: message does not name kit issue #1047"
+grep -qF -- "--scaffold" "$_1047a_err" && ok "1047-(a) in-project, no marker: message names the --scaffold opt-in" \
+                                        || no "1047-(a) in-project, no marker: message does not name --scaffold"
+_1047a_after="$(_1047_snapshot "$d")"
+[ "$_1047a_before" = "$_1047a_after" ] && ok "1047-(a) in-project, no marker: tree byte-for-byte unchanged (nothing created or modified)" \
+                                        || no "1047-(a) in-project, no marker: tree CHANGED (before/after snapshots differ)"
+assert_absent "1047-(a) in-project, no marker: NO corpus/ created"     "$d/corpus"
+assert_absent "1047-(a) in-project, no marker: NO retros/ created"     "$d/retros"
+assert_absent "1047-(a) in-project, no marker: NO tools/ created"      "$d/tools"
+assert_absent "1047-(a) in-project, no marker: NO .claude/ created"    "$d/.claude"
+assert_absent "1047-(a) in-project, no marker: NO git repo initialized" "$d/.git"
+grep -qxF 'node_modules/' "$d/.gitignore" 2>/dev/null && ok "1047-(a) in-project, no marker: .gitignore left untouched" \
+                                                        || no "1047-(a) in-project, no marker: .gitignore was modified"
+
+# (b) EMPTY dir + --wire → same refusal (no "own files" to preserve, but still zero-mutation).
+d="$TMP/1047-b-empty"; mkdir -p "$d"
+_1047b_out="$TMP/1047-b.out"; _1047b_err="$TMP/1047-b.err"
+bash "$SUT" "$d" --wire > "$_1047b_out" 2>"$_1047b_err"; _1047b_rc=$?
+[ "$_1047b_rc" = 5 ] && ok "1047-(b) empty dir, --wire: exits 5 (got $_1047b_rc)" \
+                       || no "1047-(b) empty dir, --wire: expected exit 5 (got $_1047b_rc)"
+_1047b_leftover="$(find "$d" -mindepth 1 2>/dev/null)"
+[ -z "$_1047b_leftover" ] && ok "1047-(b) empty dir, --wire: dir still empty (nothing written)" \
+                            || no "1047-(b) empty dir, --wire: unexpected entries: $_1047b_leftover"
+
+_1047_has_jq=0; command -v jq >/dev/null 2>&1 && _1047_has_jq=1
+
+# (c) NESTED corpus/INDEX.md present + --wire → the wire-only repair path still works (the
+# refusal must only fire when NEITHER candidate root has a marker — a nested corpus is a valid
+# marker location the script itself checks).
+if [ "$_1047_has_jq" != 1 ]; then
+  echo "  SKIP  1047-(c): jq not on PATH"
+else
+  d="$TMP/1047-c-nested"; mkdir -p "$d/corpus"
+  printf 'INDEX\n' > "$d/corpus/INDEX.md"
+  _1047c_out="$TMP/1047-c.out"
+  bash "$SUT" "$d" --wire > "$_1047c_out" 2>/dev/null; _1047c_rc=$?
+  [ "$_1047c_rc" = 0 ] && ok "1047-(c) nested corpus/INDEX.md, --wire: exits 0 (wire-only repair, not refused)" \
+                         || no "1047-(c) nested corpus/INDEX.md, --wire: expected exit 0 (got $_1047c_rc)"
+  assert_file "1047-(c) nested corpus/INDEX.md, --wire: settings.json written" "$d/.claude/settings.json"
+  if [ -f "$d/.claude/settings.json" ]; then
+    assert_grep "1047-(c) nested corpus/INDEX.md, --wire: Stop hook wired" "retro-gate-stop.sh" "$d/.claude/settings.json"
+  fi
+  assert_grep "1047-(c) nested corpus/INDEX.md, --wire: nested corpus untouched (INDEX sentinel intact)" "INDEX" "$d/corpus/INDEX.md"
+fi
+
+# (d) --scaffold --wire on a FRESH target (the explicit opt-in) → scaffolds AND wires; Stop is
+# wired, SessionStart is SKIPPED + WARN because the freshly-copied hook still carries the LIVE
+# <SUBJECT> placeholder (kit issue #1047 requirement 2 — same guard as the wire-only repair path).
+if [ "$_1047_has_jq" != 1 ]; then
+  echo "  SKIP  1047-(d): jq not on PATH"
+else
+  d="$TMP/1047-d-scaffold-wire"; mkdir -p "$d"
+  _1047d_out="$TMP/1047-d.out"; _1047d_err="$TMP/1047-d.err"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire > "$_1047d_out" 2>"$_1047d_err"; _1047d_rc=$?
+  [ "$_1047d_rc" = 0 ] && ok "1047-(d) --scaffold --wire fresh target: exits 0" \
+                         || no "1047-(d) --scaffold --wire fresh target: expected exit 0 (got $_1047d_rc)"
+  assert_file "1047-(d) --scaffold --wire fresh target: corpus scaffolded (INDEX.md)" "$d/INDEX.md"
+  assert_file "1047-(d) --scaffold --wire fresh target: settings.json written" "$d/.claude/settings.json"
+  if [ -f "$d/.claude/settings.json" ]; then
+    assert_grep "1047-(d) --scaffold --wire fresh target: Stop hook wired" "retro-gate-stop.sh" "$d/.claude/settings.json"
+    if grep -qF "research-protocol.sh" "$d/.claude/settings.json"; then
+      no "1047-(d) --scaffold --wire fresh target: SessionStart should NOT be wired (unadapted <SUBJECT>) but is present"
+    else
+      ok "1047-(d) --scaffold --wire fresh target: SessionStart NOT wired (unadapted <SUBJECT>)"
+    fi
+  fi
+  grep -qF "<SUBJECT>" "$_1047d_err" && ok "1047-(d) --scaffold --wire fresh target: WARN mentions <SUBJECT>" \
+                                      || no "1047-(d) --scaffold --wire fresh target: WARN does not mention <SUBJECT>"
 fi
 
 # TPL — template wording: installed hook must NOT ask user which tool; must say to pick yourself
@@ -943,7 +1056,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MW1: could not build mutant (mv line still present)"
     else
       dmw1="$TMP/mw1t"; mkdir -p "$dmw1"
-      bash "$mw1" "$dmw1" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw1" "$dmw1" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
       if [ ! -f "$dmw1/.claude/settings.json" ]; then
         ok "teeth MW1: mutant → settings.json absent → wire test has teeth"
       else
@@ -959,7 +1072,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw2/templates"
     mw2="$TMP/mw2/toolbelt/init.sh"
-    awk '/if \[ "\$wire" = 1 \]/ { print "if true; then  # MUTANT: wire guard removed"; next } { print }' "$SUT" > "$mw2"
+    # Anchored to the FULL line (^...$): the bottom "if [ "$wire" = 1 ]; then" propose-never-apply
+    # guard, never the WIRE-ONLY-EXISTING-CORPUS guard above it (kit issue #1047 added a second,
+    # longer "if [ "$wire" = 1 ] && [ "$force" = 0 ]; then" line that a substring match would also
+    # catch, mutating the wrong guard and making the refusal path fire instead of this one).
+    awk '/^if \[ "\$wire" = 1 \]; then$/ { print "if true; then  # MUTANT: wire guard removed"; next } { print }' "$SUT" > "$mw2"
     if ! grep -q '# MUTANT: wire guard removed' "$mw2"; then
       no "teeth MW2: could not build mutant (wire guard line not found)"
     else
@@ -1437,6 +1554,68 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         ok "teeth MW18: mutant wrongly says 'NOT registered' for an already-present entry → 1040-(s) has teeth"
       else
         no "teeth MW18: mutant still says 'already wired' — 1040-(s) assertion is THEATER"
+      fi
+    fi
+  fi
+
+  # MW19 (kit issue #1047): drop the refusal — neuter the "no corpus marker + --wire" refusal
+  # condition so it never fires → --wire alone on a fresh, marker-less target silently scaffolds
+  # again → 1047-(a)/(b) exit-5 assertions RED.
+  echo "-- teeth proof MW19 (#1047): drop the no-marker --wire refusal → 1047-(a)/(b) has teeth --"
+  mkdir -p "$TMP/mw19/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw19/templates"
+  mw19="$TMP/mw19/toolbelt/init.sh"
+  awk '/if \[ "\$scaffold" = 0 \]; then/ { print "    if false; then  # MUTANT: refusal neutered (kit issue #1047)"; next } { print }' "$SUT" > "$mw19"
+  if ! grep -qF 'MUTANT: refusal neutered' "$mw19"; then
+    no "teeth MW19: could not build mutant (refusal if-condition not found)"
+  else
+    dmw19="$TMP/mw19t"; mkdir -p "$dmw19"
+    bash "$mw19" "$dmw19" --corpus flat --wire >/dev/null 2>/dev/null; _mw19_rc=$?
+    if [ "$_mw19_rc" = 0 ] && [ -f "$dmw19/INDEX.md" ]; then
+      ok "teeth MW19: mutant silently scaffolds on --wire alone (exit $_mw19_rc, INDEX.md created) → 1047-(a)/(b) has teeth"
+    else
+      no "teeth MW19: mutant still refused (exit $_mw19_rc) — 1047-(a)/(b) assertion is THEATER"
+    fi
+  fi
+
+  # MW20 (kit issue #1047): refusal that writes BEFORE refusing — insert a write ahead of the
+  # `exit 5` so the refusal still fires (same exit code) but the target is mutated first → the
+  # 1047-(a) byte-for-byte snapshot / "NO retros/ created" assertions RED.
+  echo "-- teeth proof MW20 (#1047): write before refusing → 1047-(a) snapshot assertion has teeth --"
+  mkdir -p "$TMP/mw20/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw20/templates"
+  mw20="$TMP/mw20/toolbelt/init.sh"
+  awk '/^      exit 5$/ { print "      mkdir -p \"$target/retros\"  # MUTANT: writes before refusing (kit issue #1047)"; print; next } { print }' "$SUT" > "$mw20"
+  if ! grep -qF 'MUTANT: writes before refusing' "$mw20"; then
+    no "teeth MW20: could not build mutant (exit 5 line not found)"
+  else
+    dmw20="$TMP/mw20t"; mkdir -p "$dmw20"
+    printf 'own project file\n' > "$dmw20/app.py"
+    bash "$mw20" "$dmw20" --wire >/dev/null 2>/dev/null; _mw20_rc=$?
+    if [ "$_mw20_rc" = 5 ] && [ -d "$dmw20/retros" ]; then
+      ok "teeth MW20: mutant still refuses (exit 5) but wrote retros/ first → 1047-(a) snapshot assertion has teeth"
+    else
+      no "teeth MW20: mutant did not write before refusing (exit $_mw20_rc, retros/ present=$([ -d "$dmw20/retros" ] && echo yes || echo no)) — THEATER"
+    fi
+  fi
+
+  # MW21 (kit issue #1047): scaffold path without the SUBJECT guard — neuter the placeholder
+  # check on the --scaffold --wire path (bottom of the script) so it always wires SessionStart,
+  # even from a freshly-copied, unadapted hook → 1047-(d) "SessionStart NOT wired" assertion RED.
+  echo "-- teeth proof MW21 (#1047): drop the SUBJECT guard on scaffold+wire → 1047-(d) has teeth --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW21: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw21/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw21/templates"
+    mw21="$TMP/mw21/toolbelt/init.sh"
+    awk '/if _rsdd_has_live_subject_placeholder "\$_ss_cmd"; then/ { print "    if false; then  # MUTANT: scaffold+wire SUBJECT guard neutered (kit issue #1047)"; next } { print }' "$SUT" > "$mw21"
+    if ! grep -qF 'MUTANT: scaffold+wire SUBJECT guard neutered' "$mw21"; then
+      no "teeth MW21: could not build mutant (scaffold+wire placeholder guard line not found)"
+    else
+      dmw21="$TMP/mw21t"; mkdir -p "$dmw21"
+      bash "$mw21" "$dmw21" --corpus flat --scaffold --wire >/dev/null 2>/dev/null
+      if [ -f "$dmw21/.claude/settings.json" ] && grep -qF "research-protocol.sh" "$dmw21/.claude/settings.json"; then
+        ok "teeth MW21: mutant wires SessionStart despite <SUBJECT> on scaffold+wire → 1047-(d) has teeth"
+      else
+        no "teeth MW21: mutant did NOT wire SessionStart — 1047-(d) placeholder guard assertion is THEATER"
       fi
     fi
   fi

@@ -18,11 +18,15 @@
 #     left behind, no green report over a broken tree.
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
-# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]
+# Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
+#        [--wire] [--no-wire] [--scaffold]
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused) ·
 #       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
 #           valid .hooks shape, OR the settings.json merge itself failed (refused/aborted,
-#           nothing written — never reported as success).
+#           nothing written — never reported as success) ·
+#       5 = --wire refused: no corpus marker (INDEX.md/RESEARCH-STATE.md/CATALOG.md) was found at
+#           $target or $target/corpus, and --scaffold was not also given — nothing written at all
+#           (kit issue #1047: an operator asking to WIRE never intends to SCAFFOLD).
 #
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
@@ -46,6 +50,15 @@
 # skipped, while Stop is still merged. jq absent ⇒ no writes at all (no hook files, no
 # settings.json) — print-only, and the printed snippet also honors the #959 SessionStart guard
 # (including when the hook file does not exist yet).
+#
+# --wire REFUSES TO IMPLICITLY SCAFFOLD (kit issue #1047): when NO corpus marker is found at
+# either candidate root ($target or $target/corpus), --wire alone REFUSES (typed message, exit 5,
+# nothing written — no dirs, no .gitignore edit, no git init) instead of silently falling through
+# to a full scaffold. An operator asking to WIRE never intends to SCAFFOLD. Pass --scaffold
+# together with --wire to opt in to scaffolding AND wiring in one call; that combined path applies
+# the SAME <SUBJECT> SessionStart guard as the wire-only repair path above — a freshly-copied
+# hook-sessionstart.sh always carries a LIVE (non-comment) <SUBJECT> placeholder, so SessionStart
+# wiring is skipped (WARN) until the operator adapts it, exactly like the repair path.
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
@@ -59,7 +72,7 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
 
-target=""; corpus_mode="auto"; prefix=""; force=0; wire=0
+target=""; corpus_mode="auto"; prefix=""; force=0; wire=0; scaffold=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
@@ -67,11 +80,12 @@ while [ $# -gt 0 ]; do
     --force)    force=1; shift;;
     --wire)     wire=1; shift;;
     --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
+    --scaffold) scaffold=1; shift;;   # kit issue #1047: explicit opt-in to scaffold+wire in one call
     -*)         echo "unknown flag: $1" >&2; exit 2;;
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire] [--scaffold]" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
@@ -295,6 +309,19 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_skip_ss" "$target"
     echo "== done =="
     exit 4
+  else
+    # kit issue #1047: no corpus marker at EITHER candidate root — --wire alone must never fall
+    # through to an implicit scaffold. Refuse loudly BEFORE any mutation (no dirs, no .gitignore
+    # edit, no git init) unless the operator explicitly opted in with --scaffold.
+    if [ "$scaffold" = 0 ]; then
+      echo "REFUSED: --wire was given but no corpus marker (INDEX.md / RESEARCH-STATE.md / CATALOG.md) was found at $target or $target/corpus — refusing to scaffold implicitly (nothing written: no dirs created, no .gitignore edit, no git init)." >&2
+      echo "         An operator asking to WIRE never intends to SCAFFOLD (kit issue #1047). Two ways forward:" >&2
+      echo "           1. Scaffold first, then wire: run $KIT/toolbelt/research-sdd-init.sh $target (without --wire) to scaffold, then re-run with --wire." >&2
+      echo "           2. Scaffold AND wire in one call: re-run with --scaffold --wire." >&2
+      exit 5
+    fi
+    # scaffold=1: fall through to the normal scaffold path below, which will also perform the
+    # --wire step — guarded against an unadapted SessionStart hook (see the bottom of this script).
   fi
 fi  # end wire-only
 
@@ -445,6 +472,16 @@ if [ "$wire" = 1 ]; then
     echo "degraded: jq not found on PATH — cannot wire settings.json; falling back to print" >&2
     _wire_result="degraded"
   else
+    # kit issue #1047: never wire an unadapted SessionStart hook on the scaffold+wire path either
+    # — a freshly-copied hook-sessionstart.sh always carries a LIVE (non-comment) <SUBJECT>
+    # placeholder (see the template body), so scaffold+wire in one call (--scaffold --wire) must
+    # skip SessionStart exactly like the wire-only repair path does (kit issue #959/#1038/#1040).
+    _wire_skip_ss="false"
+    if _rsdd_has_live_subject_placeholder "$_ss_cmd"; then
+      _wire_skip_ss="true"
+      echo "WARN: $_ss_cmd still contains the <SUBJECT> placeholder — skipping SessionStart wiring until you adapt it (replace <SUBJECT> and the source paths, PROMPT-LOOP §c follow-up). Re-run with --wire once adapted." >&2
+    fi
+
     # Read existing settings or start from empty object; never corrupt if file is invalid JSON
     _wire_base='{}'
     if [ -f "$_settings" ]; then
@@ -452,16 +489,20 @@ if [ "$wire" = 1 ]; then
     fi
     _tmp_settings="$(mktemp)"
     # Idempotent merge: add Stop + SessionStart entries only if the command is not already present
-    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" '
+    if printf '%s' "$_wire_base" | jq --arg sc "$_stop_cmd" --arg ac "$_ss_cmd" --argjson skip_ss "$_wire_skip_ss" '
       ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
       ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
       .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
         else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
-      .hooks.SessionStart = (if $has_ss then (.hooks.SessionStart // [])
+      .hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
         else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
     ' > "$_tmp_settings" 2>/dev/null; then
       mv "$_tmp_settings" "$_settings"
-      echo "  wired  : hooks registered in $_settings"
+      if [ "$_wire_skip_ss" = "true" ]; then
+        echo "  wired  : Stop hook registered in $_settings (SessionStart skipped — see WARN above)"
+      else
+        echo "  wired  : hooks registered in $_settings"
+      fi
       _wire_result="wired"
     else
       rm -f "$_tmp_settings"
