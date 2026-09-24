@@ -93,7 +93,11 @@ SKILL_HC_START="HOT-CORE — <!-- slot:hotcore-cadence -->"
 SKILL_HC_END="Each iteration re-reads only RESEARCH-STATE"
 SKILL_SIT_START="SITUATIONAL — read the named section"
 SKILL_SIT_END="Read a situational section when its trigger is your next action."
-LOOP_HC_START="HOT-CORE (read once per context):"
+# LOOP_HC_START anchors on "HOT-CORE <!-- slot:hotcore-loop-cadence -->" for the
+# same #993-WU1-round-2 reason as SKILL_HC_START above: the cadence
+# parenthetical is now a slot marker, so the old literal
+# "HOT-CORE (read once per context):" is no longer contiguous.
+LOOP_HC_START="HOT-CORE <!-- slot:hotcore-loop-cadence -->"
 LOOP_HC_END="per-block contract."
 # The §11b-is-situational clarifier sits between the HOT-CORE line and the
 # "SITUATIONAL (read..." marker; start there so §11b is not dropped from the
