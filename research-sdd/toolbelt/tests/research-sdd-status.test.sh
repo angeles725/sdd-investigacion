@@ -12,9 +12,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-status.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0
+pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# skip: a SKIP is not a pass — name it and count it separately (kit issue #1005 round 2, W4). Used
+# when a check's precondition (e.g. GNU date) is unmet on this host, not when the check itself fails.
+skip(){ printf '  SKIP  %s\n' "$1"; skips=$((skips+1)); }
 
 # state <dir> <investigable> <backlog-rows...> ; blocked/stop appended. Rows: "priority|gap|status"
 # NOTE: mkstate now SEEDS a derived-consistent research-state.v1 envelope (near the top, after the H1) so
@@ -5031,6 +5034,322 @@ else
   no "T-CQ-BOUNDS-LINE: expected campaign_bounds line, got [$(echo "$_cq_bnd_out" | grep -i 'campaign_bounds' | head -3)]"
 fi
 
+# =============================================================================
+# kit issue #1005 — campaign block follow-ups after #1002
+# =============================================================================
+
+echo "-- R2-001: --stall-minutes 0 is rejected (message says 'positive integer', 0 is not one) --"
+_sm0_err="$(bash "$SUT" "$d_cq_single" --stall-minutes 0 2>&1 >/dev/null)"
+_sm0_rc=0; bash "$SUT" "$d_cq_single" --stall-minutes 0 >/dev/null 2>&1 || _sm0_rc=$?
+if [ "$_sm0_rc" -eq 2 ] && echo "$_sm0_err" | grep -qi 'positive integer'; then
+  ok "T-SM-ZERO: --stall-minutes 0 refused (exit 2, 'positive integer' message)"
+else
+  no "T-SM-ZERO: expected exit 2 + 'positive integer' message, got rc=$_sm0_rc stderr=[$_sm0_err]"
+fi
+_sm1_rc=0; bash "$SUT" "$d_cq_single" --stall-minutes 1 >/dev/null 2>&1 || _sm1_rc=$?
+[ "$_sm1_rc" -eq 0 ] && ok "T-SM-ONE: --stall-minutes 1 (smallest positive integer) still accepted" \
+  || no "T-SM-ONE: --stall-minutes 1 unexpectedly refused, rc=$_sm1_rc"
+
+echo "-- R3-comment-skip-overreach: a literal --> inside a table cell must not drop rows --"
+d_cq_arrow="$CQ_FIX/comment-cell-arrow"
+_cq_arrow_out="$(cq_status "$d_cq_arrow")"
+if echo "$_cq_arrow_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-COMMENT-ARROW: all 3 rows counted despite a literal --> inside a Convergence cell"
+else
+  no "T-CQ-COMMENT-ARROW: expected pending=1 active=1 done=1 (all 3 rows), got [$(echo "$_cq_arrow_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- R3-comment-skip-overreach: an unclosed <!-- inside a cell must not hide later rows --"
+d_cq_unclosed="$CQ_FIX/comment-cell-unclosed"
+_cq_unclosed_out="$(cq_status "$d_cq_unclosed")"
+if echo "$_cq_unclosed_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-COMMENT-UNCLOSED: all 3 rows counted despite an unclosed <!-- inside a Seed cell"
+else
+  no "T-CQ-COMMENT-UNCLOSED: expected pending=1 active=1 done=1 (all 3 rows, last-row not hidden), got [$(echo "$_cq_unclosed_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+# W4 (kit issue #1005 round 2): the BSD-fallback and negative-age tests below hardcode
+# /usr/bin/date -u -d ... to compute a reference epoch — that -d flag is GNU-specific. On a host
+# without GNU date, those calls would silently return empty and every dependent check would either
+# false-fail (misreported as "no") or, worse, silently no-op. Probe once, up front, and SKIP (never
+# silently pass, never falsely fail) every test that depends on it, loudly naming the reason.
+_gnu_date_ok=0
+if /usr/bin/date --version 2>/dev/null | grep -qi 'GNU coreutils'; then
+  _gnu_date_ok=1
+fi
+
+echo "-- R3/R4 bsd-date-tz: BSD 'date -j -f' fallback must parse the trailing Z as UTC, not local time --"
+# This host only ships GNU date, so the SUT's own 'date -d' call always succeeds and the '-j -f'
+# fallback branch never runs natively here. fixtures/fake-bin/date stands in for a BSD date: it makes
+# 'date -d' fail (forcing the SUT down the fallback branch) and reproduces the real BSD bug for
+# 'date -j -f "%Y-%m-%dT%H:%M:%SZ" ...' (Z consumed as a literal char, timestamp parsed in local $TZ).
+#
+# The reference ("true") epoch is computed with the REAL system date binary, in UTC, OUTSIDE the
+# PATH override — never through the same fallback parser the SUT/shim uses, per the #1005 finding
+# that a same-parser reference silently cancels the skew instead of exposing it.
+_bsd_fixture="$CQ_FIX/single-entry"                       # last_iteration_ts: 2026-09-23T09:00:00Z
+_bsd_fake_bin="$HERE/fixtures/fake-bin"
+_bsd_true_epoch=""
+if [ "$_gnu_date_ok" -eq 1 ]; then
+  _bsd_true_epoch="$(/usr/bin/date -u -d "2026-09-23T09:00:00Z" +%s 2>/dev/null)"
+fi
+if [ "$_gnu_date_ok" -ne 1 ]; then
+  skip "T-CQ-BSD-TZ: GNU date not found on this host (/usr/bin/date --version does not report GNU coreutils) — cannot compute the reference epoch this test needs"
+elif [ -n "$_bsd_true_epoch" ] && [ -x "$_bsd_fake_bin/date" ]; then
+  _bsd_now_epoch=$(( _bsd_true_epoch + 300 ))             # true age: 5 real minutes later
+  _bsd_out="$(PATH="$_bsd_fake_bin:$PATH" TZ="America/Los_Angeles" _RSDD_NOW_EPOCH="$_bsd_now_epoch" \
+    bash "$SUT" "$_bsd_fixture" 2>&1)"
+  if echo "$_bsd_out" | grep -qE '^\s*last_iteration_ts\s*:.*\(age:\s*5\s*min\)'; then
+    ok "T-CQ-BSD-TZ: BSD fallback age is 5 min (UTC-correct) under non-UTC TZ (America/Los_Angeles)"
+  else
+    no "T-CQ-BSD-TZ: expected age 5 min under BSD fallback + non-UTC TZ, got [$(echo "$_bsd_out" | grep -i 'last_iteration' | head -3)] (a Z-as-local-time bug would report ~420 min off)"
+  fi
+else
+  no "T-CQ-BSD-TZ: cannot set up BSD-fallback test (true epoch or fake date shim unavailable)"
+fi
+
+echo "-- R4-bsd-date-utc-skew: a negative/unparseable age is reported as 'unknown', never silently --"
+# now < ts (clock skew / bad envelope) must not print a raw negative number — that value fails every
+# downstream '^[0-9]+$' guard silently per the #1005 finding. It must surface as 'unknown' AND warn.
+if [ "$_gnu_date_ok" -ne 1 ]; then
+  skip "T-CQ-NEG-AGE: GNU date not found on this host — cannot compute the reference epoch this test needs"
+elif [ -n "$_bsd_true_epoch" ]; then
+  _neg_now=$(( _bsd_true_epoch - 600 ))                   # "now" is 10 min BEFORE the ts
+  _neg_out="$(_RSDD_NOW_EPOCH="$_neg_now" bash "$SUT" "$_bsd_fixture" 2>&1)"
+  if echo "$_neg_out" | grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min' \
+     && echo "$_neg_out" | grep -qi 'WARN.*future\|WARN.*unknown\|WARN.*negative'; then
+    ok "T-CQ-NEG-AGE: negative age reported as 'unknown' with a loud WARN, not a wrong number"
+  else
+    no "T-CQ-NEG-AGE: expected 'age: unknown min' + WARN, got [$(echo "$_neg_out" | grep -iE 'last_iteration|WARN' | head -5)]"
+  fi
+else
+  no "T-CQ-NEG-AGE: cannot compute reference epoch"
+fi
+
+echo "-- R4-campaign-block-first-focus-only: a terminal first focus must not mask an active sibling --"
+d_cq_mf="$CQ_FIX/multi-focus-mixed"                       # alpha: done/terminal, sorts first. beta: pending, sorts second.
+_cq_mf_out="$(cq_status "$d_cq_mf")"
+# A per-focus "campaign_stop[alpha]: STOP reached" line is correct (alpha really is terminal) — only
+# the AGGREGATE, unlabeled "campaign_stop   :" line must never claim the whole campaign stopped while
+# beta (sorts second) still has pending work.
+if echo "$_cq_mf_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+  no "T-CQ-MF-NO-FALSE-STOP: aggregate 'campaign_stop: STOP reached' printed while beta is still pending — false STOP"
+else
+  ok "T-CQ-MF-NO-FALSE-STOP: no aggregate 'STOP reached' while an active sibling focus (beta) has pending work"
+fi
+# RDD round 2: a bare 'alpha'/'beta' substring grep matches anywhere (e.g. inside the fixture's own
+# directory path echoed in the header line), so it could pass even if only one focus were actually
+# reported. Assert the labelled campaign[<slug>] lines specifically.
+if echo "$_cq_mf_out" | grep -qE '^\s*campaign\[alpha\]\s*:' && echo "$_cq_mf_out" | grep -qE '^\s*campaign\[beta\]\s*:'; then
+  ok "T-CQ-MF-PER-FOCUS: both campaign[alpha] and campaign[beta] labelled lines appear (not first-only)"
+else
+  no "T-CQ-MF-PER-FOCUS: expected both campaign[alpha] and campaign[beta] lines, got [$(echo "$_cq_mf_out" | grep -E '^\s*campaign(\[|\s)' | head -10)]"
+fi
+
+echo "-- R4-campaign-block-first-focus-only: a stalled second focus must still WARN even though the first is terminal --"
+if [ "$_gnu_date_ok" -ne 1 ]; then
+  skip "T-CQ-MF-STALL: GNU date not found on this host — cannot compute beta's reference epoch"
+elif [ -n "$_bsd_true_epoch" ]; then
+  # beta's last_iteration_ts is 2026-09-24T00:00:00Z; "now" is 16 real minutes later (>15min threshold).
+  _mf_beta_epoch="$(/usr/bin/date -u -d "2026-09-24T00:00:00Z" +%s 2>/dev/null)"
+  if [ -n "$_mf_beta_epoch" ]; then
+    _mf_now=$(( _mf_beta_epoch + 960 ))
+    _cq_mf_stall_out="$(_RSDD_NOW_EPOCH="$_mf_now" bash "$SUT" "$d_cq_mf" 2>&1)"
+    if echo "$_cq_mf_stall_out" | grep -qi 'WARN.*stall'; then
+      ok "T-CQ-MF-STALL: stall WARN fires for beta even though alpha (sorts first) is fully terminal"
+    else
+      no "T-CQ-MF-STALL: expected a stall WARN for beta, got [$(echo "$_cq_mf_stall_out" | grep -i 'stall\|last_iteration' | head -5)]"
+    fi
+  else
+    no "T-CQ-MF-STALL: cannot compute beta's reference epoch"
+  fi
+else
+  no "T-CQ-MF-STALL: cannot compute reference epoch"
+fi
+
+# =============================================================================
+# kit issue #1005 round 2 — Opus BLOCKED / native RDD advisories
+# =============================================================================
+
+echo "-- W2: a FOCUSES.md nonconforming-status WARN fires once per default report, not once per loop --"
+d_w2="$CQ_FIX/dedup-focuses-warn"
+_w2_out="$(cq_all "$d_w2")"
+_w2_warn_count="$(echo "$_w2_out" | grep -c 'unreadable/nonconforming status token')"
+if [ "$_w2_warn_count" -eq 1 ]; then
+  ok "T-W2-DEDUP: the alpha nonconforming-status WARN fires exactly once (campaign block + next-step block share one scan)"
+else
+  no "T-W2-DEDUP: expected exactly 1 occurrence of the WARN, got $_w2_warn_count: [$(echo "$_w2_out" | grep 'unreadable/nonconforming status token')]"
+fi
+
+echo "-- W2 round 4 (security, no teeth without this shape): a READ-ONLY TMPDIR must cause no write-attempt error --"
+# Round 3's version of this test only checked "TMPDIR is empty afterward" — Opus reproduced (and
+# native RDD R2/R3 independently flagged) that this has NO discriminating power: round 2's vulnerable
+# file cache ALSO leaves TMPDIR empty on a normal run, because its own `trap ... EXIT` deletes the
+# cache file on completion — the file only ever existed transiently DURING the run, which an
+# after-the-fact directory listing can never see. That version also discarded stdout/stderr entirely
+# and never checked the exit code, so it could not have caught a crash either.
+#
+# What actually distinguishes them: round 2's guarded write was `: > "$file" 2>/dev/null`, but bash
+# sets up a simple command's redirections LEFT TO RIGHT — the `> "$file"` part opens (and fails to
+# open) BEFORE `2>/dev/null` takes effect, so bash reports that failure to the shell's REAL stderr,
+# not to /dev/null. Measured directly against the round-2 SUT (f155f6e) with TMPDIR chmod'd to 500
+# (read-only): exit 0, but stderr contains "Permission denied" — round 2's own suppression doesn't
+# suppress. The current design never attempts a write at all, so there is nothing to fail: exit 0,
+# and stderr is clean. Assert exactly that — not "no leftover file", but "no write was ever attempted
+# in the first place", which a read-only TMPDIR turns into an observable, checked signal.
+_w2_ro_tmpdir="$(mktemp -d)"
+chmod 500 "$_w2_ro_tmpdir"
+_w2_ro_out="$TMP/w2-readonly-stdout.txt"
+_w2_ro_err="$TMP/w2-readonly-stderr.txt"
+TMPDIR="$_w2_ro_tmpdir" bash "$SUT" "$d_w2" >"$_w2_ro_out" 2>"$_w2_ro_err"
+_w2_ro_rc=$?
+chmod 700 "$_w2_ro_tmpdir"
+rm -rf "$_w2_ro_tmpdir"
+if [ "$_w2_ro_rc" -eq 0 ] && ! grep -qiE 'permission denied|no such file' "$_w2_ro_err"; then
+  ok "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: exit 0 and no 'Permission denied'/'No such file' on stderr under a read-only TMPDIR — the FOCUSES-token cache never attempts a filesystem write"
+else
+  no "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: expected exit 0 and clean stderr under a read-only TMPDIR, got rc=$_w2_ro_rc stderr=[$(cat "$_w2_ro_err")]"
+fi
+
+echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable named like one of its OLD locals --"
+# Before this fix, the function's own locals were _rft_var/ffile/sbase/_cache_key/_tok. printf -v
+# resolves the target name against the NEAREST scope, so a caller whose own variable happened to be
+# named e.g. "_tok" would have `printf -v "$_rft_var"` (with _rft_var="_tok") silently write into the
+# FUNCTION's own local _tok instead of the caller's — the caller's real variable would stay whatever
+# it was before, unset or stale, with no error. Every local is now __rft_-prefixed specifically to
+# close this. Exercise it directly: source just the two functions this needs (declare -A line +
+# _read_focuses_tok_into + _read_focuses_tok_uncached) into an isolated harness — sourcing the whole
+# SUT would run its own argv-dependent top-level logic and `exit` the harness — then call it with a
+# caller-side variable named "_tok" and confirm THAT variable receives the real token.
+_shadow_harness="$TMP/shadow-harness.sh"
+sed -n '493p;501,584p' "$SUT" > "$_shadow_harness"
+_shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
+{
+  printf '# Focus Registry\n\n'
+  printf '| Focus | Status | State file |\n'
+  printf '|---|---|---|\n'
+  printf '| alpha | active | RESEARCH-STATE-alpha.md |\n'
+} > "$_shadow_dir/FOCUSES.md"
+_shadow_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"
+  _tok="UNCHANGED"
+  _read_focuses_tok_into _tok "$2" "RESEARCH-STATE-alpha.md"
+  printf "%s" "$_tok"
+' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>/dev/null)"
+if [ "$_shadow_out" = "active" ]; then
+  ok "T-RFT-NO-SHADOW: a caller variable named '_tok' (collides with an old internal local name) still receives the correct token, not left unchanged"
+else
+  no "T-RFT-NO-SHADOW: expected the caller's _tok to become 'active', got [$_shadow_out] — printf -v wrote into the function's own local instead of the caller's variable"
+fi
+
+echo "-- B1: --focus <slug> scopes the campaign block to exactly that focus --"
+d_b1_mf="$CQ_FIX/multi-focus-mixed"
+_b1_beta_out="$(bash "$SUT" "$d_b1_mf" --focus beta 2>/dev/null)"
+if echo "$_b1_beta_out" | grep -q 'alpha'; then
+  no "T-B1-FOCUS-EXCLUDES-SIBLING: --focus beta must not mention alpha, got [$(echo "$_b1_beta_out" | grep -i campaign)]"
+else
+  if echo "$_b1_beta_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+    ok "T-B1-FOCUS-EXCLUDES-SIBLING: --focus beta reports only beta's queue (alpha absent)"
+  else
+    no "T-B1-FOCUS-EXCLUDES-SIBLING: expected beta's counts unlabelled, got [$(echo "$_b1_beta_out" | grep -i campaign)]"
+  fi
+fi
+
+d_b1_stopped="$CQ_FIX/focus-scoped-stopped"
+_b1_stopped_out="$(bash "$SUT" "$d_b1_stopped" --focus alpha 2>/dev/null)"
+if echo "$_b1_stopped_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+  ok "T-B1-FOCUS-REPORTS-STOPPED: --focus alpha reports alpha even though FOCUSES.md declares it stopped"
+else
+  no "T-B1-FOCUS-REPORTS-STOPPED: expected alpha's pending=1 entry, got [$(echo "$_b1_stopped_out" | grep -i campaign)]"
+fi
+_b1_stopped_beta_out="$(bash "$SUT" "$d_b1_stopped" --focus beta 2>/dev/null)"
+if echo "$_b1_stopped_beta_out" | grep -qE '^\s*campaign\s*:\s*pending=0\s+active=1\s+done=0'; then
+  ok "T-B1-FOCUS-SIBLING-SCOPED: --focus beta reports only beta's (different) queue counts"
+else
+  no "T-B1-FOCUS-SIBLING-SCOPED: expected beta's active=1 entry, got [$(echo "$_b1_stopped_beta_out" | grep -i campaign)]"
+fi
+
+echo "-- B2 round 2: self-contained comment with trailing prose after --> must not drop rows --"
+d_cq_trail_sc="$CQ_FIX/comment-trailing-selfcontained"
+_cq_trail_sc_out="$(cq_status "$d_cq_trail_sc")"
+if echo "$_cq_trail_sc_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+  ok "T-CQ-COMMENT-TRAILING-SELFCONTAINED: pending=1 row counted despite '<!-- ... --> trailing prose'"
+else
+  no "T-CQ-COMMENT-TRAILING-SELFCONTAINED: expected pending=1, got [$(echo "$_cq_trail_sc_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- B2 round 2: a multi-line comment's CLOSING line with trailing prose must still close --"
+d_cq_trail_close="$CQ_FIX/comment-trailing-close"
+_cq_trail_close_out="$(cq_status "$d_cq_trail_close")"
+if echo "$_cq_trail_close_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+  ok "T-CQ-COMMENT-TRAILING-CLOSE: pending=1 row counted after a closing line with trailing '(end)' text"
+else
+  no "T-CQ-COMMENT-TRAILING-CLOSE: expected pending=1, got [$(echo "$_cq_trail_close_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- B2 round 2: <!-- a -> b --> (embedded '>', broken even before this PR) must not drop rows --"
+d_cq_embed_gt="$CQ_FIX/comment-embedded-gt"
+_cq_embed_gt_out="$(cq_status "$d_cq_embed_gt")"
+if echo "$_cq_embed_gt_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+  ok "T-CQ-COMMENT-EMBEDDED-GT: pending=1 row counted despite an embedded '>' inside a one-line comment"
+else
+  no "T-CQ-COMMENT-EMBEDDED-GT: expected pending=1, got [$(echo "$_cq_embed_gt_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- B2 round 2: a file that ends while still inside a comment WARNs loudly (anti-silent-zero) --"
+d_cq_eof="$CQ_FIX/comment-unclosed-eof"
+_cq_eof_out="$(cq_all "$d_cq_eof")"
+if echo "$_cq_eof_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' \
+   && echo "$_cq_eof_out" | grep -qi 'WARN.*still inside an HTML comment'; then
+  ok "T-CQ-COMMENT-EOF-WARN: real rows before the unclosed comment are counted AND the EOF-in-comment WARN fires"
+else
+  no "T-CQ-COMMENT-EOF-WARN: expected pending=1 + EOF-in-comment WARN, got [$(echo "$_cq_eof_out" | grep -iE 'campaign|WARN' | head -5)]"
+fi
+
+echo "-- W1: a target where no active focus has a queue collapses to one summary line --"
+d_w1="$CQ_FIX/no-campaign"
+_w1_out="$(cq_status "$d_w1")"
+_w1_campaign_lines="$(echo "$_w1_out" | grep -cE '^\s*campaign(\s|\[)')"
+if [ "$_w1_campaign_lines" -eq 1 ] && echo "$_w1_out" | grep -qE '^\s*campaign\s*:\s*none \(1 active focus, 0 with a queue\)'; then
+  ok "T-W1-COLLAPSE-SINGLE: single no-queue focus collapses to exactly one labelled-count summary line, singular grammar ('1 active focus')"
+else
+  no "T-W1-COLLAPSE-SINGLE: expected exactly 1 campaign line with '(1 active focus, 0 with a queue)' (singular), got $_w1_campaign_lines line(s): [$(echo "$_w1_out" | grep -E '^\s*campaign' )]"
+fi
+
+echo "-- W1: a MULTI-focus target where NO focus has a queue collapses to one line, not one per focus --"
+d_w1_mf="$CQ_FIX/multi-focus-no-queue-anywhere"
+_w1_mf_out="$(cq_status "$d_w1_mf")"
+_w1_mf_campaign_lines="$(echo "$_w1_mf_out" | grep -cE '^\s*campaign(\s|\[)')"
+if [ "$_w1_mf_campaign_lines" -eq 1 ] && echo "$_w1_mf_out" | grep -qE '^\s*campaign\s*:\s*none \(2 active focuses, 0 with a queue\)'; then
+  ok "T-W1-COLLAPSE-MULTI: 2 no-queue focuses collapse to exactly 1 line (not 2, not the pre-fix 62-line-on-30-focus shape)"
+else
+  no "T-W1-COLLAPSE-MULTI: expected exactly 1 campaign line with '(2 active focuses, 0 with a queue)', got $_w1_mf_campaign_lines line(s): [$(echo "$_w1_mf_out" | grep -E '^\s*campaign')]"
+fi
+if echo "$_w1_mf_out" | grep -qE '^\s*last_iteration_ts\s*:'; then
+  no "T-W1-COLLAPSE-MULTI-NO-TS: no per-focus last_iteration_ts line expected once N>1 focuses are all queue-less (ambiguous 'which one'), got [$(echo "$_w1_mf_out" | grep -i last_iteration)]"
+else
+  ok "T-W1-COLLAPSE-MULTI-NO-TS: no ambiguous last_iteration_ts line printed for the N>1 collapsed case"
+fi
+
+echo "-- W1/W3: a mix of terminal queue-bearing focuses and a no-queue sibling — idle sibling invisible, STOP wording uses the queue-bearing count --"
+d_w3="$CQ_FIX/multi-focus-stop-with-idle-sibling"
+_w3_out="$(cq_status "$d_w3")"
+# Scope the check to campaign-block lines only — "next step : NEXT | high | gap-gamma" legitimately
+# names gamma (it's the next open gap to investigate); that is a DIFFERENT block and must not fail
+# this assertion.
+_w3_campaign_block="$(echo "$_w3_out" | grep -E '^\s*campaign|^\s*last_audit|^\s*last_iteration_ts')"
+if echo "$_w3_campaign_block" | grep -q 'gamma'; then
+  no "T-W1-NO-QUEUE-SIBLING-INVISIBLE: gamma (no queue) must not appear in the campaign block, got [$_w3_campaign_block]"
+else
+  ok "T-W1-NO-QUEUE-SIBLING-INVISIBLE: gamma (active, no queue) produces no campaign output at all"
+fi
+if echo "$_w3_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached — all 2 queue-bearing focuses terminal'; then
+  ok "T-W3-STOP-POSITIVE: aggregate STOP fires with the correct queue-bearing count (2, not the 3 total active focuses)"
+else
+  no "T-W3-STOP-POSITIVE: expected 'STOP reached — all 2 queue-bearing focuses terminal', got [$(echo "$_w3_out" | grep -E '^\s*campaign_stop\s*:' | head -3)]"
+fi
+
 # ----- teeth for campaign queue (--prove-teeth section) -----
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "== TEETH BANNER: campaign-queue mutation controls =="
@@ -5112,7 +5431,380 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-T-CQ-STALL: cannot compute epoch for stall mutant test"
     fi
   fi
+
+  # ---- kit issue #1005 mutation controls ----
+
+  # teeth-T-SM-ZERO: defang the "-ne 0" rejection (make it always-true) → --stall-minutes 0 is
+  # accepted again → T-SM-ZERO must go RED.
+  echo "-- teeth-T-SM-ZERO: defang -ne 0 check → T-SM-ZERO goes RED --"
+  _sm0_mutant="$TMP/status.SM-ZERO.MUTANT.sh"
+  if grep -q 'SM-ZERO-REJECT-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_sm0_mutant"
+    sed -i '/SM-ZERO-REJECT-ANCHOR/{n;s/-ne 0/-ge 0/}' "$_sm0_mutant"
+    if cmp -s "$_sm0_mutant" "$SUT"; then
+      no "teeth-T-SM-ZERO: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_sm0_mutant" 2>/dev/null; then
+      no "teeth-T-SM-ZERO: mutant has syntax error"
+    else
+      _sm0_mut_rc=0; bash "$_sm0_mutant" "$d_cq_single" --stall-minutes 0 >/dev/null 2>&1 || _sm0_mut_rc=$?
+      if [ "$_sm0_mut_rc" -eq 0 ]; then
+        ok "teeth-T-SM-ZERO: mutant accepts --stall-minutes 0 → T-SM-ZERO goes RED → 0-rejection is load-bearing"
+      else
+        no "teeth-T-SM-ZERO: mutant still rejects --stall-minutes 0 — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-SM-ZERO: SM-ZERO-REJECT-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-CQ-COMMENT-STARTANCHOR (round 1 concern): revert the OPEN check to match "<!--" ANYWHERE
+  # on a line, not just at line-start → a table cell containing a literal "-->" or an unclosed "<!--"
+  # drops/hides rows again → T-CQ-COMMENT-ARROW and T-CQ-COMMENT-UNCLOSED must both go RED.
+  echo "-- teeth-T-CQ-COMMENT-STARTANCHOR: un-anchor the OPEN check → comment-cell fixtures go RED --"
+  _cq_cmt1_mutant="$TMP/status.CQ-COMMENT-STARTANCHOR.MUTANT.sh"
+  if grep -q 'CQ-COMMENT-OPEN-STARTANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_cmt1_mutant"
+    sed -i '/CQ-COMMENT-OPEN-STARTANCHOR/s/\^\[\[:space:\]\]\*<!--/<!--/' "$_cq_cmt1_mutant"
+    if cmp -s "$_cq_cmt1_mutant" "$SUT"; then
+      no "teeth-T-CQ-COMMENT-STARTANCHOR: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_cmt1_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-COMMENT-STARTANCHOR: mutant has syntax error"
+    else
+      # mutant_regressed=1 means the mutant STILL reports the pre-fix (broken) counts — i.e. the
+      # mutation successfully reproduced the bug and the fix is proven load-bearing. Named for what
+      # the mutant's OUTPUT shows (regressed to broken), not for the mutation's intent — the earlier
+      # "_bit_broke" naming inverted this and was flagged as confusing (R2-003).
+      _cq_cmt1_mutant_regressed=0
+      _cq_arrow_mut_out="$(bash "$_cq_cmt1_mutant" "$d_cq_arrow" 2>/dev/null)"
+      echo "$_cq_arrow_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1' \
+        || _cq_cmt1_mutant_regressed=1
+      _cq_unclosed_mut_out="$(bash "$_cq_cmt1_mutant" "$d_cq_unclosed" 2>/dev/null)"
+      echo "$_cq_unclosed_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1' \
+        || _cq_cmt1_mutant_regressed=1
+      if [ "$_cq_cmt1_mutant_regressed" -eq 1 ]; then
+        ok "teeth-T-CQ-COMMENT-STARTANCHOR: un-anchored mutant drops/hides rows on a comment-cell fixture → T-CQ-COMMENT-ARROW/UNCLOSED go RED → line-start anchoring is load-bearing"
+      else
+        no "teeth-T-CQ-COMMENT-STARTANCHOR: mutant still reports correct counts on both comment-cell fixtures — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-COMMENT-STARTANCHOR: CQ-COMMENT-OPEN-STARTANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-CQ-COMMENT-TRAILING (round 2 concern): revert the CLOSE check to require "-->" at end-of-
+  # line only, and revert the OPEN check to always enter multi-line mode (ignoring a same-line close)
+  # → a comment whose closing line (or whole self-contained line) has trailing prose after "-->"
+  # silently swallows every row after it again → the three B2 round-2 fixtures must all go RED.
+  echo "-- teeth-T-CQ-COMMENT-TRAILING: require --> at EOL again → trailing-prose comment fixtures go RED --"
+  _cq_cmt2_mutant="$TMP/status.CQ-COMMENT-TRAILING.MUTANT.sh"
+  if grep -q 'CQ-COMMENT-CLOSE-ANCHOR' "$SUT" && grep -q 'CQ-COMMENT-OPEN-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_cmt2_mutant"
+    sed -i \
+      -e '/CQ-COMMENT-CLOSE-ANCHOR/c\        if ($0 ~ /-->[[:space:]]*$/) { in_c = 0 }  # CQ-COMMENT-CLOSE-ANCHOR' \
+      -e '/CQ-COMMENT-OPEN-ANCHOR/c\        in_c = 1  # CQ-COMMENT-OPEN-ANCHOR' \
+      "$_cq_cmt2_mutant"
+    if cmp -s "$_cq_cmt2_mutant" "$SUT"; then
+      no "teeth-T-CQ-COMMENT-TRAILING: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_cmt2_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-COMMENT-TRAILING: mutant has syntax error"
+    else
+      _cq_cmt2_mutant_regressed=0
+      for _cq_trail_fix in "$d_cq_trail_sc" "$d_cq_trail_close" "$d_cq_embed_gt"; do
+        _cq_trail_mut_out="$(bash "$_cq_cmt2_mutant" "$_cq_trail_fix" 2>/dev/null)"
+        echo "$_cq_trail_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' \
+          || _cq_cmt2_mutant_regressed=1
+      done
+      if [ "$_cq_cmt2_mutant_regressed" -eq 1 ]; then
+        ok "teeth-T-CQ-COMMENT-TRAILING: EOL-anchored mutant drops/hides rows on a trailing-prose fixture → T-CQ-COMMENT-TRAILING-*/EMBEDDED-GT go RED → trailing-text handling is load-bearing"
+      else
+        no "teeth-T-CQ-COMMENT-TRAILING: mutant still reports pending=1 on all three trailing-prose fixtures — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-COMMENT-TRAILING: CQ-COMMENT-CLOSE-ANCHOR/OPEN-ANCHOR sentinels not found in SUT"
+  fi
+
+  # teeth-T-CQ-COMMENT-EOF-WARN: delete the unclosed-comment-at-EOF WARN → T-CQ-COMMENT-EOF-WARN must
+  # go RED (rows are still counted correctly — this proves the WARN itself, not the counting, is
+  # load-bearing; anti-silent-zero, kit §7).
+  echo "-- teeth-T-CQ-COMMENT-EOF-WARN: remove the unclosed-comment EOF WARN → T-CQ-COMMENT-EOF-WARN goes RED --"
+  _cq_eof_mutant="$TMP/status.CQ-COMMENT-EOF.MUTANT.sh"
+  if grep -q 'CQ-COMMENT-EOF-WARN-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_eof_mutant"
+    sed -i '/CQ-COMMENT-EOF-WARN-ANCHOR/d' "$_cq_eof_mutant"
+    if cmp -s "$_cq_eof_mutant" "$SUT"; then
+      no "teeth-T-CQ-COMMENT-EOF-WARN: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_eof_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-COMMENT-EOF-WARN: mutant has syntax error"
+    else
+      _cq_eof_mut_out="$(bash "$_cq_eof_mutant" "$d_cq_eof" 2>&1)"
+      if ! echo "$_cq_eof_mut_out" | grep -qi 'WARN.*still inside an HTML comment'; then
+        ok "teeth-T-CQ-COMMENT-EOF-WARN: mutant suppresses the EOF-in-comment WARN → T-CQ-COMMENT-EOF-WARN goes RED → the WARN is load-bearing"
+      else
+        no "teeth-T-CQ-COMMENT-EOF-WARN: mutant still emits the WARN — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-COMMENT-EOF-WARN: CQ-COMMENT-EOF-WARN-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-CQ-BSD-TZ: drop the "TZ=UTC" prefix from the BSD date fallback → the fallback parses the
+  # timestamp in the ambient TZ again. RDD round 2: asserting only "age: 5 min is absent" would also
+  # count a CRASH (empty/malformed mutant output) as a successful mutation — that proves nothing about
+  # TZ=UTC specifically. Assert a POSITIVE, well-formed signal instead: either a well-formed but
+  # different numeric age, or the literal "unknown" token — never an empty/malformed line.
+  echo "-- teeth-T-CQ-BSD-TZ: drop TZ=UTC from BSD date fallback → T-CQ-BSD-TZ goes RED --"
+  if [ "$_gnu_date_ok" -ne 1 ]; then
+    skip "teeth-T-CQ-BSD-TZ: GNU date not found on this host — cannot set up the BSD-fallback mutant test"
+  else
+    _bsd_mutant="$TMP/status.BSD-TZ.MUTANT.sh"
+    if grep -q 'TZ=UTC date -j -f' "$SUT"; then
+      cp "$SUT" "$_bsd_mutant"
+      sed -i 's/TZ=UTC date -j -f/date -j -f/' "$_bsd_mutant"
+      if cmp -s "$_bsd_mutant" "$SUT"; then
+        no "teeth-T-CQ-BSD-TZ: mutant identical to SUT — sed did not apply"
+      elif ! bash -n "$_bsd_mutant" 2>/dev/null; then
+        no "teeth-T-CQ-BSD-TZ: mutant has syntax error"
+      elif [ -n "$_bsd_true_epoch" ] && [ -x "$_bsd_fake_bin/date" ]; then
+        _bsd_mut_out="$(PATH="$_bsd_fake_bin:$PATH" TZ="America/Los_Angeles" _RSDD_NOW_EPOCH="$_bsd_now_epoch" \
+          bash "$_bsd_mutant" "$_bsd_fixture" 2>&1)"
+        _bsd_mut_line="$(echo "$_bsd_mut_out" | grep -E '^\s*last_iteration_ts\s*:')"
+        if echo "$_bsd_mut_line" | grep -qE '\(age: (unknown|-?[0-9]+) min\)' \
+           && ! echo "$_bsd_mut_line" | grep -qE '\(age: 5 min\)'; then
+          ok "teeth-T-CQ-BSD-TZ: mutant reports a well-formed but WRONG age ([$_bsd_mut_line]) under non-UTC TZ → T-CQ-BSD-TZ goes RED → TZ=UTC is load-bearing (not just a crash)"
+        else
+          no "teeth-T-CQ-BSD-TZ: mutant still reports age 5 min, or produced no well-formed age line at all [$_bsd_mut_line] — THEATER or crash-passed"
+        fi
+      else
+        no "teeth-T-CQ-BSD-TZ: cannot set up BSD-fallback mutant test"
+      fi
+    else
+      no "teeth-T-CQ-BSD-TZ: 'TZ=UTC date -j -f' anchor text not found in SUT"
+    fi
+  fi
+
+  # teeth-T-CQ-NEG-AGE: defang the negative-age guard (age -lt 0 → age -lt -999999, effectively never
+  # true) → a negative age prints as a raw wrong number again instead of "unknown" + WARN →
+  # T-CQ-NEG-AGE must go RED.
+  echo "-- teeth-T-CQ-NEG-AGE: defang the negative-age guard → T-CQ-NEG-AGE goes RED --"
+  if [ "$_gnu_date_ok" -ne 1 ]; then
+    skip "teeth-T-CQ-NEG-AGE: GNU date not found on this host — cannot compute the reference epoch this mutant test needs"
+  else
+    _neg_mutant="$TMP/status.NEG-AGE.MUTANT.sh"
+    if grep -q 'CQ-NEG-AGE-ANCHOR' "$SUT"; then
+      cp "$SUT" "$_neg_mutant"
+      sed -i '/CQ-NEG-AGE-ANCHOR/s/-lt 0/-lt -999999/' "$_neg_mutant"
+      if cmp -s "$_neg_mutant" "$SUT"; then
+        no "teeth-T-CQ-NEG-AGE: mutant identical to SUT — sed did not apply"
+      elif ! bash -n "$_neg_mutant" 2>/dev/null; then
+        no "teeth-T-CQ-NEG-AGE: mutant has syntax error"
+      elif [ -n "$_bsd_true_epoch" ]; then
+        _neg_mut_now=$(( _bsd_true_epoch - 600 ))
+        _neg_mut_out="$(_RSDD_NOW_EPOCH="$_neg_mut_now" bash "$_neg_mutant" "$_bsd_fixture" 2>&1)"
+        if ! echo "$_neg_mut_out" | grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min'; then
+          ok "teeth-T-CQ-NEG-AGE: mutant prints a raw age again instead of 'unknown' → T-CQ-NEG-AGE goes RED → the negative-age guard is load-bearing"
+        else
+          no "teeth-T-CQ-NEG-AGE: mutant still reports 'unknown' — THEATER"
+        fi
+      else
+        no "teeth-T-CQ-NEG-AGE: cannot compute reference epoch for mutant test"
+      fi
+    else
+      no "teeth-T-CQ-NEG-AGE: CQ-NEG-AGE-ANCHOR sentinel not found in SUT"
+    fi
+  fi
+
+  # teeth-T-CQ-MF-STOP / teeth-T-CQ-MF-STALL (R3-teeth-mf-or-logic, round 3): truncate the
+  # active-focus list back down to just the first one (reproducing the original "only $state" bug).
+  # Round 2 OR'd the false-STOP and stall-WARN-drop signals into one combined verdict, so EITHER half
+  # of the multi-focus fix alone could carry the whole mutant to "ok" while the other half had gone
+  # untested that run — split into two independent teeth, each with its own bite and its own verdict.
+  echo "-- teeth-T-CQ-MF-STOP / teeth-T-CQ-MF-STALL: truncate active focuses to first-only → each half goes RED independently --"
+  _cq_mf_mutant="$TMP/status.CQ-MF.MUTANT.sh"
+  if grep -q 'CQB-MULTIFOCUS-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_mf_mutant"
+    sed -i '/CQB-MULTIFOCUS-ANCHOR/a\  _cqb_active=("${_cqb_active[0]}")' "$_cq_mf_mutant"
+    if cmp -s "$_cq_mf_mutant" "$SUT"; then
+      no "teeth-T-CQ-MF-STOP: mutant identical to SUT — sed did not apply"
+      no "teeth-T-CQ-MF-STALL: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_mf_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-MF-STOP: mutant has syntax error"
+      no "teeth-T-CQ-MF-STALL: mutant has syntax error"
+    else
+      # Half 1: false-STOP regression (T-CQ-MF-NO-FALSE-STOP) — independent of GNU date.
+      _cq_mf_mut_out="$(bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
+      if echo "$_cq_mf_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+        ok "teeth-T-CQ-MF-STOP: mutant false-STOPs on first-focus-only again → T-CQ-MF-NO-FALSE-STOP goes RED → the multi-focus scan (STOP half) is load-bearing"
+      else
+        no "teeth-T-CQ-MF-STOP: mutant did not reproduce the false-STOP — THEATER"
+      fi
+
+      # Half 2: dropped stall-WARN regression (T-CQ-MF-STALL) — needs GNU date for the reference
+      # epoch; SKIP loudly (never silently) when unavailable, exactly like the functional test does.
+      if [ "$_gnu_date_ok" -ne 1 ]; then
+        skip "teeth-T-CQ-MF-STALL: GNU date not found on this host — cannot compute beta's reference epoch for this mutant test"
+      elif [ -z "$_bsd_true_epoch" ]; then
+        no "teeth-T-CQ-MF-STALL: cannot compute reference epoch"
+      else
+        _cq_mf_beta_epoch2="$(/usr/bin/date -u -d "2026-09-24T00:00:00Z" +%s 2>/dev/null)"
+        if [ -z "$_cq_mf_beta_epoch2" ]; then
+          no "teeth-T-CQ-MF-STALL: cannot compute beta's reference epoch"
+        else
+          _cq_mf_stall_mut_out="$(_RSDD_NOW_EPOCH=$(( _cq_mf_beta_epoch2 + 960 )) bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
+          if ! echo "$_cq_mf_stall_mut_out" | grep -qi 'WARN.*stall'; then
+            ok "teeth-T-CQ-MF-STALL: mutant drops beta's stall WARN on first-focus-only again → T-CQ-MF-STALL goes RED → the multi-focus scan (stall half) is load-bearing"
+          else
+            no "teeth-T-CQ-MF-STALL: mutant still emits beta's stall WARN — THEATER"
+          fi
+        fi
+      fi
+    fi
+  else
+    no "teeth-T-CQ-MF-STOP: CQB-MULTIFOCUS-ANCHOR sentinel not found in SUT"
+    no "teeth-T-CQ-MF-STALL: CQB-MULTIFOCUS-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-W2-DEDUP: defang the cache-hit check in _read_focuses_tok_into (never matches, so every
+  # call recomputes from FOCUSES.md) → the nonconforming-status WARN fires twice again on the dedup
+  # fixture → T-W2-DEDUP must go RED. Round 3: rewritten for the parent-shell array cache — the round
+  # 2 version of this mutant targeted a cache FILE that no longer exists.
+  echo "-- teeth-T-W2-DEDUP: defang the array cache-hit check → dedup fixture goes RED --"
+  _w2_mutant="$TMP/status.W2-DEDUP.MUTANT.sh"
+  if grep -q 'W2-DEDUP-CACHE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_w2_mutant"
+    sed -i '/W2-DEDUP-CACHE-ANCHOR/s/= "_set" \]/= "_never" ]/' "$_w2_mutant"
+    if cmp -s "$_w2_mutant" "$SUT"; then
+      no "teeth-T-W2-DEDUP: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_w2_mutant" 2>/dev/null; then
+      no "teeth-T-W2-DEDUP: mutant has syntax error"
+    else
+      _w2_mut_out="$(bash "$_w2_mutant" "$d_w2" 2>&1)"
+      _w2_mut_count="$(echo "$_w2_mut_out" | grep -c 'unreadable/nonconforming status token')"
+      if [ "$_w2_mut_count" -gt 1 ]; then
+        ok "teeth-T-W2-DEDUP: mutant re-warns $_w2_mut_count times with the cache-hit check defanged → T-W2-DEDUP goes RED → the cache is load-bearing"
+      else
+        no "teeth-T-W2-DEDUP: mutant still warns only once ($_w2_mut_count) with caching disabled — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-W2-DEDUP: W2-DEDUP-CACHE-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: re-insert an UNGUARDED probe write
+  # (`: > "${TMPDIR:-/tmp}/.rsdd-probe.$$"`) right where the array cache is declared — reproducing the
+  # shape of the round-2 vulnerability class (a filesystem write attempt on every run) — and confirm
+  # the read-only-TMPDIR test catches it (exit still 0, since the write failure itself isn't checked
+  # by the mutant, but stderr now carries "Permission denied").
+  echo "-- teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: re-insert an unguarded probe write → read-only-TMPDIR test goes RED --"
+  _w2_ro_mutant="$TMP/status.W2-RO-PROBE.MUTANT.sh"
+  if grep -q 'W2-NO-PROBE-WRITE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_w2_ro_mutant"
+    sed -i '/W2-NO-PROBE-WRITE-ANCHOR/a\: > "${TMPDIR:-/tmp}/.rsdd-probe.$$"' "$_w2_ro_mutant"
+    if cmp -s "$_w2_ro_mutant" "$SUT"; then
+      no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_w2_ro_mutant" 2>/dev/null; then
+      no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant has syntax error"
+    else
+      _w2_ro_mut_tmpdir="$(mktemp -d)"
+      chmod 500 "$_w2_ro_mut_tmpdir"
+      _w2_ro_mut_err="$TMP/w2-ro-mutant-stderr.txt"
+      TMPDIR="$_w2_ro_mut_tmpdir" bash "$_w2_ro_mutant" "$d_w2" >/dev/null 2>"$_w2_ro_mut_err"
+      chmod 700 "$_w2_ro_mut_tmpdir"
+      rm -rf "$_w2_ro_mut_tmpdir"
+      if grep -qiE 'permission denied|no such file' "$_w2_ro_mut_err"; then
+        ok "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant leaks a write-attempt error under a read-only TMPDIR again → T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT goes RED → the no-filesystem-write design is load-bearing"
+      else
+        no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant still produced no write-attempt error — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: W2-NO-PROBE-WRITE-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-B1-FOCUS: neuter both focus_slug checks in campaign_status_block (force the "false"
+  # branch always) → --focus stops scoping the campaign block → T-B1-FOCUS-EXCLUDES-SIBLING and
+  # T-B1-FOCUS-REPORTS-STOPPED must both go RED.
+  echo "-- teeth-T-B1-FOCUS: neuter the --focus scoping checks → B1 fixtures go RED --"
+  _b1_mutant="$TMP/status.B1-FOCUS.MUTANT.sh"
+  if grep -q 'B1-FOCUS-STATES-ANCHOR' "$SUT" && grep -q 'B1-FOCUS-ACTIVE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_b1_mutant"
+    sed -i \
+      -e '/B1-FOCUS-STATES-ANCHOR/s/\[ -n "\$focus_slug" \]/false/' \
+      -e '/B1-FOCUS-ACTIVE-ANCHOR/s/\[ -n "\$focus_slug" \]/false/' \
+      "$_b1_mutant"
+    if cmp -s "$_b1_mutant" "$SUT"; then
+      no "teeth-T-B1-FOCUS: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_b1_mutant" 2>/dev/null; then
+      no "teeth-T-B1-FOCUS: mutant has syntax error"
+    else
+      _b1_mutant_regressed=0
+      _b1_mut_beta_out="$(bash "$_b1_mutant" "$d_b1_mf" --focus beta 2>/dev/null)"
+      echo "$_b1_mut_beta_out" | grep -q 'alpha' && _b1_mutant_regressed=1
+      _b1_mut_stopped_out="$(bash "$_b1_mutant" "$d_b1_stopped" --focus alpha 2>/dev/null)"
+      echo "$_b1_mut_stopped_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' \
+        || _b1_mutant_regressed=1
+      if [ "$_b1_mutant_regressed" -eq 1 ]; then
+        ok "teeth-T-B1-FOCUS: mutant lets siblings leak into --focus output again → T-B1-FOCUS-* go RED → --focus scoping is load-bearing"
+      else
+        no "teeth-T-B1-FOCUS: mutant still scopes correctly to the requested focus — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-B1-FOCUS: B1-FOCUS-*-ANCHOR sentinels not found in SUT"
+  fi
+
+  # teeth-T-W1-COLLAPSE: defang the Q==0 collapse branch's guard (never true) → the campaign block
+  # falls through to the per-focus loop with an EMPTY queue-states list and prints NOTHING at all
+  # (not even "none") → T-W1-COLLAPSE-SINGLE/MULTI and T-CQ-NONE/T-CQ-NONE-TS must go RED.
+  echo "-- teeth-T-W1-COLLAPSE: defang the no-queue collapse branch → 'none' output disappears entirely → goes RED --"
+  _w1_mutant="$TMP/status.W1-COLLAPSE.MUTANT.sh"
+  if grep -q 'W1-COLLAPSE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_w1_mutant"
+    sed -i '/W1-COLLAPSE-ANCHOR/s/-eq 0/-eq -1/' "$_w1_mutant"
+    if cmp -s "$_w1_mutant" "$SUT"; then
+      no "teeth-T-W1-COLLAPSE: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_w1_mutant" 2>/dev/null; then
+      no "teeth-T-W1-COLLAPSE: mutant has syntax error"
+    else
+      _w1_mut_out="$(bash "$_w1_mutant" "$d_w1" 2>/dev/null)"
+      if ! echo "$_w1_mut_out" | grep -qE '^\s*campaign\s*:\s*none'; then
+        ok "teeth-T-W1-COLLAPSE: mutant prints no campaign line at all for a no-queue focus → T-W1-COLLAPSE-SINGLE/T-CQ-NONE go RED → the collapse branch is load-bearing"
+      else
+        no "teeth-T-W1-COLLAPSE: mutant still prints 'campaign: none' — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-W1-COLLAPSE: W1-COLLAPSE-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-W3-WORDING: revert the aggregate STOP count from the queue-bearing count back to the
+  # total active-focus count → the wording overclaims again on a mixed fixture (idle no-queue sibling
+  # counted as "terminal") → T-W3-STOP-POSITIVE must go RED.
+  echo "-- teeth-T-W3-WORDING: revert aggregate STOP count to total-active (overclaim) → T-W3-STOP-POSITIVE goes RED --"
+  _w3_mutant="$TMP/status.W3-WORDING.MUTANT.sh"
+  if grep -q 'W3-WORDING-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_w3_mutant"
+    sed -i '/W3-WORDING-ANCHOR/s/"\$_cqb_n_queue"/"${#_cqb_active[@]}"/' "$_w3_mutant"
+    if cmp -s "$_w3_mutant" "$SUT"; then
+      no "teeth-T-W3-WORDING: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_w3_mutant" 2>/dev/null; then
+      no "teeth-T-W3-WORDING: mutant has syntax error"
+    else
+      _w3_mut_out="$(bash "$_w3_mutant" "$d_w3" 2>/dev/null)"
+      if echo "$_w3_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached — all 3 queue-bearing focuses terminal'; then
+        ok "teeth-T-W3-WORDING: mutant overclaims 'all 3 ... terminal' (gamma has no queue) → T-W3-STOP-POSITIVE goes RED → the queue-bearing count is load-bearing"
+      else
+        no "teeth-T-W3-WORDING: mutant did not reproduce the overclaimed count [$(echo "$_w3_mut_out" | grep -E '^\s*campaign_stop\s*:')] — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-W3-WORDING: W3-WORDING-ANCHOR sentinel not found in SUT"
+  fi
 fi
 
-echo "== $pass passed · $fail failed =="
+if [ "$skips" -gt 0 ]; then
+  echo "== $pass passed · $fail failed · $skips skipped =="
+else
+  echo "== $pass passed · $fail failed =="
+fi
 [ "$fail" -eq 0 ] || exit 1
