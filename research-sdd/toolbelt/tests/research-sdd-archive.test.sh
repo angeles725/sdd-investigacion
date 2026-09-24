@@ -60,6 +60,20 @@ EOF
   add_close_retro "$corpus"
 }
 
+# _commit_if_dirty <corpus> [message] — commit any pending change (e.g. from --sync-state seeding the
+# research-state.v1 envelope into an already-committed RESEARCH-STATE.md) so the fixture's working tree
+# is CLEAN when the helper returns. Required since #970: archive.sh's new dirty-tree gate (scan-secrets
+# --committed reads committed git OBJECTS, never the working tree, so a dirty tree is refused outright)
+# would otherwise trip on every git fixture below — none of them previously cared whether --sync-state's
+# in-place envelope seed left an uncommitted diff, because nothing downstream checked git status before.
+_commit_if_dirty() {
+  local corpus="$1" msg="${2:-sync-state}"
+  git -C "$corpus" diff --quiet -- . 2>/dev/null && \
+    [ -z "$(git -C "$corpus" ls-files --others --exclude-standard 2>/dev/null)" ] && return 0
+  git -C "$corpus" add -A
+  git -C "$corpus" commit -q -m "$msg"
+}
+
 # mkgood_git <corpus> <retro-git-date> <block-git-date> <retro-mtime> <block-mtime> : a hermetic git
 # corpus like mkgood (same RESEARCH-STATE/INDEX/one-block shape), but the retro and block files' git
 # FIRST-COMMIT dates and file mtimes are INDEPENDENTLY controlled: GIT_AUTHOR_DATE/GIT_COMMITTER_DATE make
@@ -114,6 +128,7 @@ EOF
   GIT_AUTHOR_DATE="$bdate" GIT_COMMITTER_DATE="$bdate" git -C "$corpus" commit -q -m "add block1"
   touch -d "$bmtime" "$corpus/t-block1.md"
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+  _commit_if_dirty "$corpus" "sync-state envelope"
 }
 
 # add_close_retro <corpus> — seed a fresh close-retro with a far-future mtime into <corpus>/retros/
@@ -306,6 +321,104 @@ if [ "$rc" = 0 ] && grep -qE 'scan-secrets .*: ok' <<<"$out"; then
   ok "secret-free corpus passes the scan-secrets gate (exit 0)"
 else no "clean corpus exit=$rc (want 0) / scan-secrets ok=$(grep -cE 'scan-secrets .*: ok' <<<"$out") :: $out"; fi
 
+# mkgood_git_clean <corpus> — a hermetic, GIT-BACKED, gate-passing corpus (mirrors mkgood, but versioned).
+# --sync-state runs BEFORE the single commit (unlike mkgood_git, which needs independent git-added dates
+# per file for the MISSING-RETRO date math), so `git status --porcelain` is EMPTY once this returns — a
+# dirty tree here would trip #970's new dirty-tree gate for reasons unrelated to the case under test.
+mkgood_git_clean() {
+  local corpus="$1"; mkdir -p "$corpus"
+  git -C "$corpus" init -q -b main
+  git -C "$corpus" config user.email t@example.com
+  git -C "$corpus" config user.name tester
+  cat > "$corpus/RESEARCH-STATE.md" <<'EOF'
+# T — Research State
+
+## Coverage
+
+- **Covered blocks**: 1 (B1)
+- **Coverage metric**: 2 / 3 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | still-open gap | web | pending |
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-07 | first gap | B1 | no · inline | 1 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+EOF
+  cat > "$corpus/t-block1.md" <<'EOF'
+# Block 1 — the first thing
+Body.
+EOF
+  : > "$corpus/INDEX.md"
+  mkdir -p "$corpus/retros"
+  printf '<!-- review-status: pending -->\n# Close retro — test fixture\n' > "$corpus/retros/2099-01-01-close.md"
+  bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+  git -C "$corpus" add -A
+  git -C "$corpus" commit -q -m "seed corpus"
+}
+
+# 17a — GATE (scan-secrets, COMMITTED mode, #970 — follow-up to #955/#999): a GIT-backed corpus with
+#       no secrets anywhere in its committed history, and a CLEAN working tree, must archive normally
+#       (exit 0) via the --committed path (not the old working-tree-only scan).
+d="$TMP/committed-clean"; mkgood_git_clean "$d"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qE 'scan-secrets .*: ok' <<<"$out"; then
+  ok "17a committed-mode: clean git corpus (no secrets, clean tree) archives (exit 0, scan-secrets ok)"
+else no "17a committed-mode clean: exit=$rc (want 0) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
+
+# 17b — GATE (scan-secrets, COMMITTED mode, #970): a secret committed in an EARLIER commit, then
+#       REMOVED from HEAD via a later, clean commit (working tree matches HEAD — no secret on disk,
+#       tree clean) is INVISIBLE to a working-tree scan of the corpus dir, but is STILL reachable via
+#       `git push` (any clone gets the full history: scan-secrets.sh's own header names this exact
+#       gap — "including secrets deleted from HEAD but still reachable in history"). Must REFUSE
+#       (exit 3). RED before the fix: the OLD archive.sh scanned $corpus (working tree only, no git
+#       history walk) and saw a clean directory with nothing on disk → archived clean (exit 0).
+d="$TMP/committed-deleted-secret"; mkgood_git_clean "$d"
+printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/leaked-notes.md"
+git -C "$d" add leaked-notes.md
+git -C "$d" commit -q -m "add leaked-notes.md (secret)"
+git -C "$d" rm -q leaked-notes.md
+git -C "$d" commit -q -m "remove leaked-notes.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
+  ok "17b committed-mode: secret removed from HEAD via a clean commit, still reachable in history → REFUSED (exit 3)"
+else no "17b committed-mode deleted-secret: exit=$rc (want 3) :: $(grep -iE 'scan-secrets|refuse' <<<"$out" | head -3)"; fi
+
+# 17c — GATE (dirty tree, #970): a secret that exists ONLY in an UNCOMMITTED file is invisible to
+#       --committed (it reads committed git OBJECTS via `git cat-file`, never the working tree) — so
+#       WITHOUT a dirty-tree pre-check, this corpus would archive clean (exit 0) even though the very
+#       next `git add && commit && push` would ship the secret. The dirty-tree gate (mirrors
+#       ensure-remote.sh's Layer 4b-pre, #955 Repro 2) must refuse FIRST — before scan-secrets even
+#       runs — and say so explicitly (distinct from a 'scan-secrets FAIL' content refusal).
+# NOTE: the fixture dir name deliberately avoids the substring 'dirty' — it would otherwise leak into
+# the archive banner line ("== research-sdd-archive: $(basename $target) ...") and make a loose
+# `grep -qi 'dirty'` pass on the PATH alone, independent of whether the gate actually fired.
+d="$TMP/committed-uncommitted-secret"; mkgood_git_clean "$d"
+printf 'Leaked on deploy: AKIAIOSFODNN7EXAMPLE\n' > "$d/uncommitted-notes.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qi 'working tree is dirty' <<<"$out" && ! grep -qiE 'scan-secrets .*FAIL' <<<"$out"; then
+  ok "17c committed-mode: secret only in an UNCOMMITTED file → REFUSED as dirty (exit 3), distinct from scan-secrets FAIL"
+else no "17c committed-mode uncommitted-secret: exit=$rc (want 3, 'working tree is dirty', no scan-secrets FAIL) :: $(grep -iE 'scan-secrets|refuse|dirty' <<<"$out" | head -3)"; fi
+
+# 17d — CONTROL for 17c: a dirty tree with NO secret at all (an unrelated untracked file) must still
+#       REFUSE — proving the dirty-tree gate fires on dirtiness itself, not merely as a side-effect of
+#       a coincidental content match.
+d="$TMP/committed-uncommitted-nosecret"; mkgood_git_clean "$d"
+printf 'just a scratch note, nothing sensitive\n' > "$d/scratch.md"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 3 ] && grep -qi 'working tree is dirty' <<<"$out"; then
+  ok "17d committed-mode: dirty tree with no secret content → still REFUSED (dirty-tree gate is content-independent)"
+else no "17d committed-mode uncommitted-nosecret: exit=$rc (want 3, 'working tree is dirty') :: $(grep -iE 'scan-secrets|refuse|dirty' <<<"$out" | head -3)"; fi
+
 # 18 — TEMPLATE is not real state: a dir holding ONLY the kit `RESEARCH-STATE.template.md` (placeholders +
 #      the CHECK-3 doc example, pending backlog) must be treated as NO state to archive → exit 2, and must
 #      NOT run the gate against the template. The state-resolving find must exclude `*.template.md`. RED
@@ -474,6 +587,7 @@ EOF
   git -C "$corpus" add retros/2026-close-retro.md
   GIT_AUTHOR_DATE="2026-04-01T00:00:00" GIT_COMMITTER_DATE="2026-04-01T00:00:00" git -C "$corpus" commit -q -m "close retro"
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+  _commit_if_dirty "$corpus" "sync-state envelope"
 }
 
 # 22 — ONE-BLOCK-PER-COMMIT detector (retro delta): a commit that lands 2+ block files in THIS run (newer
@@ -544,6 +658,7 @@ EOF
   git -C "$corpus" add retros/2026-close-retro.md
   GIT_AUTHOR_DATE="2026-04-01T00:00:00" GIT_COMMITTER_DATE="2026-04-01T00:00:00" git -C "$corpus" commit -q -m "close retro"
   bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+  _commit_if_dirty "$corpus" "sync-state envelope"
 }
 
 # 23a — ONE-BLOCK-PER-COMMIT × §14 reconciliation (retro delta): a single iteration that ADDS one new block
@@ -961,6 +1076,7 @@ git -C "$d" mv retros/orig-retro.md retros/retro-focus.md
 GIT_AUTHOR_DATE="2026-02-01T00:00:00" GIT_COMMITTER_DATE="2026-02-01T00:00:00" \
   git -C "$d" commit -q -m "rename orig-retro.md to retro-focus.md"
 bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+_commit_if_dirty "$d" "sync-state envelope"
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && ! grep -qi 'MISSING-RETRO' <<<"$out"; then
   ok "36 renamed-after-creation retro dated from rename commit (after block) → no MISSING-RETRO WARN (accepted --follow tradeoff)"
@@ -1207,6 +1323,54 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$rc_ar1m" = 3 ] \
       && ok "teeth-ar1: mutant exit 3 on --focus alpha (beta UF=1 not scoped) — AR1 scope is load-bearing" \
       || no "teeth-ar1: mutant exit=$rc_ar1m (want 3) — scope may not be load-bearing"
+  fi
+
+  # #970 teeth (dirty-tree refuse): neuter ONLY the dirty-tree gate_rc; a secret sitting in an
+  # UNCOMMITTED file (case 17c's fixture) must then archive clean, because --committed never looks
+  # at the working tree — proving the dirty-tree pre-check is what actually catches that scenario.
+  echo "-- teeth(secrets-dirty): neuter the dirty-tree refuse; secret-in-uncommitted-file corpus must then archive --"
+  mutantDirty="$TMP/archive.DIRTY-MUTANT.sh"
+  sed 's/gate_rc=1  # scan-secrets-gate-dirty-refuse/gate_rc=0  # MUTANT-dirty-refuse/' "$SUT" > "$mutantDirty"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
+  if ! grep -q 'MUTANT-dirty-refuse' "$mutantDirty"; then
+    no "teeth(secrets-dirty): could not build mutant (scan-secrets-gate-dirty-refuse marker not found — did the SUT change?)"
+  else
+    bash "$mutantDirty" "$TMP/committed-uncommitted-secret" >/dev/null 2>&1; dmrc=$?
+    if [ "$dmrc" = 0 ]; then
+      ok "teeth(secrets-dirty): dirty-tree refuse neutered → uncommitted-file secret archives (exit 0) — dirty-tree gate is load-bearing"
+    else no "teeth(secrets-dirty): mutant exit=$dmrc (want 0) — case 17c may not depend on the dirty-tree refuse (THEATER)"; fi
+  fi
+
+  # #970 teeth (--committed usage): revert the scan-secrets invocation from `--committed $target`
+  # back to a plain `$corpus` scan (the pre-#970 call shape); the history-only secret (case 17b's
+  # fixture — committed once, then removed via a later clean commit, nothing left on disk) must then
+  # archive clean, because a working-tree scan of $corpus never walks git history — proving the
+  # --committed $target call (not just SOME scan-secrets call) is what catches that scenario.
+  echo "-- teeth(secrets-committed): revert --committed \$target to a plain \$corpus scan; history-only secret must then archive --"
+  mutantCommitted="$TMP/archive.COMMITTED-MUTANT.sh"
+  sed 's/scan-secrets\.sh" --committed "\$target"/scan-secrets.sh" "$corpus"/' "$SUT" > "$mutantCommitted"
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  cp "$HERE/../verify-sources.sh" "$TMP/verify-sources.sh"
+  cp "$HERE/../scan-secrets.sh" "$TMP/scan-secrets.sh"
+  mkdir -p "$TMP/lib"
+  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
+  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
+  cp "$HERE/../lib/state-files.sh"  "$TMP/lib/state-files.sh"
+  cp "$HERE/../lib/block-files.sh"  "$TMP/lib/block-files.sh"
+  if ! grep -qF 'scan-secrets.sh" "$corpus"' "$mutantCommitted"; then
+    no "teeth(secrets-committed): could not build mutant (--committed \$target call not found — did the SUT change?)"
+  else
+    bash "$mutantCommitted" "$TMP/committed-deleted-secret" >/dev/null 2>&1; cmrc=$?
+    if [ "$cmrc" = 0 ]; then
+      ok "teeth(secrets-committed): --committed reverted to a plain \$corpus scan → history-only secret archives (exit 0) — --committed \$target is load-bearing"
+    else no "teeth(secrets-committed): mutant exit=$cmrc (want 0) — case 17b may not depend on --committed \$target (THEATER)"; fi
   fi
 fi
 

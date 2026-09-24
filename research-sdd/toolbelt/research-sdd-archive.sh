@@ -108,10 +108,13 @@ rsdd_added_epoch() {  # <repo-dir> <file> → git first-commit(added, under CURR
 }
 
 # --- GATE: never archive an inconsistent corpus (this is the load-bearing part) --------------------
-# Delegate to the two sibling linters. verify-state catches the stale-mirror / premature-STOP desync;
-# verify-sources catches a broken source registry. Either non-zero blocks the close (fail-closed). A linter
-# that exits >1 (missing / not executable / bad args) is reported DISTINCTLY from a real content FAIL so a
-# broken toolchain is not mistaken for a stale mirror.
+# Delegate to the sibling linters via gate(). verify-state catches the stale-mirror / premature-STOP
+# desync; verify-sources catches a broken source registry. Either non-zero blocks the close
+# (fail-closed). A linter that exits >1 (missing / not executable / bad args) is reported DISTINCTLY
+# from a real content FAIL so a broken toolchain is not mistaken for a stale mirror. The scan-secrets
+# gate (below, after verify-sources) does NOT go through gate(): for a git-backed target it needs
+# --committed plus a dirty-tree pre-check (issue #970) — different args and an extra failure mode
+# gate()'s single-target-arg shape does not cover — so it is special-cased inline instead.
 gate_rc=0
 gate() {  # <label> <sibling-script> <content-fail-message> [extra-args...]
   local rc _label="$1" _script="$2" _msg="$3"; shift 3
@@ -129,7 +132,53 @@ _vstate_args=()
 [ -n "$focus_slug" ] && _vstate_args=("--focus" "$focus_slug")  # AR2-VSTATE-FOCUS-SCOPE
 gate "verify-state  " verify-state.sh   "living mirror inconsistent (stale summary / premature STOP)" "${_vstate_args[@]}"
 gate "verify-sources" verify-sources.sh "source registry incomplete (preserved-source markers without a registry, a cited file missing, a fabricated registry citation, or an unregistered web-snapshot)"
-gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
+# --- SECRETS GATE: committed content, not the working tree (issue #970, follow-up to #955/#999) -----
+# Archive PUBLISHES committed content (the checklist's own COMMIT step below, and any downstream
+# `ensure-remote.sh` push), so this gate must scan what HEAD actually contains, not the corpus
+# working-tree subdir the OLD call scanned. A secret added in an earlier commit and later removed via
+# a CLEAN commit is invisible to a working-tree scan (the file is simply gone from disk) but is still
+# reachable via `git push` (any clone gets the full history) — scan-secrets.sh --committed (#955/#999)
+# walks every unique blob across the full history to catch exactly that.
+#
+# --committed REFUSES (exit 3) when given a SUBDIRECTORY of its git repo (MAJOR3 in scan-secrets.sh),
+# and $corpus can be a subdirectory of $target in a nested/SPLIT layout (research-sdd-init.sh runs
+# `git init` ONCE, at $target, never at $corpus) — so this gate always scans $target (the repo root),
+# never $corpus.
+#
+# --committed reads committed git OBJECTS directly (`git cat-file`), never the working tree, so it
+# cannot see an uncommitted secret or an uncommitted redaction. A DIRTY working tree therefore REFUSES
+# here FIRST (mirrors ensure-remote.sh's Layer 4b-pre, #955 Repro 2): without this, a secret that
+# exists ONLY in an uncommitted file would pass a --committed-only scan silently (the scan simply
+# never looks at it) and the corpus could still archive/push it unflagged.
+#
+# A target that is NOT (yet) a git repository has no "committed" content to speak of — a corpus
+# mid-BOOTSTRAP may not be versioned yet, and most fixtures for the OTHER gates in this test suite
+# don't bother to `git init` (irrelevant to them) — so this gate falls back to the ORIGINAL
+# working-tree scan of $corpus (scan-secrets.sh, no --committed) for a non-git target, preserving the
+# pre-#970 behaviour there.
+if git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then
+  if ! _ss_wt_status="$(git -C "$target" status --porcelain 2>/dev/null)"; then
+    echo "    scan-secrets  : ERROR — could not check working tree status (git status --porcelain failed)"
+    gate_rc=1  # scan-secrets-gate-git-status-error
+  elif [ -n "$_ss_wt_status" ]; then
+    echo "    scan-secrets  : REFUSE — the working tree is dirty — a secret or redaction that exists only"
+    echo "                    in an uncommitted change is invisible to the committed-content scan below."
+    echo "                    Commit, add to .gitignore, or stash ('git stash -u'), then re-run."
+    gate_rc=1  # scan-secrets-gate-dirty-refuse
+  else
+    "$here/scan-secrets.sh" --committed "$target" >/dev/null 2>&1; _ss_rc=$?
+    case "$_ss_rc" in
+      0) echo "    scan-secrets  : ok";;
+      1) echo "    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into committed corpus content (SECRETS DISCIPLINE)"
+         gate_rc=1;;
+      *) echo "    scan-secrets  : ERROR — scan-secrets.sh --committed did not run cleanly (exit $_ss_rc) — check git/awk/tr are available and \$target is a git repo with at least one commit"
+         gate_rc=1;;
+    esac
+  fi
+  unset _ss_wt_status
+else
+  gate "scan-secrets " scan-secrets.sh   "a high-confidence secret VALUE leaked into authored corpus content (SECRETS DISCIPLINE)"
+fi
 # undocumented_findings gate — default scope is $target, NOT $corpus. INVARIANT: inspect EVERY
 # focus under the target, not only those under the first-discovered corpus directory. WHY: in a
 # SPLIT layout (focuses in sibling subdirectories rather than flat in one dir), $corpus is only the
@@ -220,7 +269,12 @@ if [ "$gate_rc" != 0 ]; then
   echo "  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:"
   echo "    $here/verify-state.sh $corpus"
   echo "    $here/verify-sources.sh $corpus"
-  echo "    $here/scan-secrets.sh $corpus"
+  if git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "    git -C $target status --porcelain   # a non-empty result refuses (dirty tree)"
+    echo "    $here/scan-secrets.sh --committed $target"
+  else
+    echo "    $here/scan-secrets.sh $corpus"
+  fi
   exit 3
 fi
 
