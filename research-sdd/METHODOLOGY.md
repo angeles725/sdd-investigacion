@@ -78,7 +78,7 @@ Behaviours the profile implies that the rules above did not yet name:
   re-ingest an already-localized string — a local timezone label applied at storage propagates a double
   offset through every downstream join when a second conversion runs. The UTC value is the authoritative
   ground truth; display conversion is presentational and reversible, storage conversion is not.
-  (Source: fluke-177x-datos — events.ts stored local-labelled-UTC → double 6-hour offset on re-ingestion.)
+  (Source: fluke-177x-datos.)
 
 ## 2. The SDD-R phases (mapping from gentle-ai's SDD)
 
@@ -862,7 +862,7 @@ instruction, it must be re-typed into the `## Gap-backlog` table as a `blocked (
 `tried:` and `needs:` clauses — exactly like a tool wall. A prose deferral note in a block is not a
 backlog entry: it cannot be found by `verify-state.sh` derivation, does not appear in `investigable_open`,
 and silently vanishes when the loop advances. A typed gap row is recall-findable; a prose note is not.
-(Source: niagara D4 — SP-G11 was queued as a blocked row only after the operator explicitly asked)
+(Source: niagara D4.)
 
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
@@ -874,16 +874,13 @@ fail, record the LIMIT — what the data cannot answer and why — and re-rank r
 A bounded "we cannot answer X because the data has property Y" is a real finding that converts an
 open loop into a closed one; a pause deferred to "later" is not. This is the §8 stopping criterion
 applied at sub-line granularity rather than corpus granularity — the same rule, one level down.
-(Source: blender-llm/retros/2026-09-16-blender-llm-b21-b37-cad-reconstruction-retro.md Δ7 — three
-independent refutations established that a plan encodes geometry not topology, converting an unbounded
-search into a bounded one and re-ranking three routes to one.)
+(Source: blender-llm/retros/2026-09-16-blender-llm-b21-b37-cad-reconstruction-retro.md Δ7.)
 
 **A long analysis is justified by a question only it can answer, not by having already started it.**
 When a cheaper instrument answers the question mid-run, stop the expensive one immediately and close
 the gap with the cheaper tool's answer. A running Ghidra decompile does not earn priority over a
 `llvm-pdbutil` census that already produced the same answer in minutes — the question is answered,
-and continuing is waste, not rigor. (Source: blender-llm Δ6, B54 §54.5 — Ghidra stopped at
-24:28/12.5 GB once `llvm-pdbutil` produced the census)
+and continuing is waste, not rigor. (Source: blender-llm Δ6, B54 §54.5.)
 
 **Saturation is a soft REVIEW prompt, not a fourth STOP criterion.** The backlog rarely empties (each
 block uncovers 1-4 new gaps), so a subject can be substantively SATURATED long before the criteria above
@@ -921,8 +918,7 @@ synthesis (which fires at FOCUS-level exhaustion): the intermediate synthesis ch
 accumulate secondary evidence without obscuring that the primary question is already settled. A gap
 labeled "secondary detail — does not change composition answer" at this checkpoint is honest about its
 weight; a focus that skips this checkpoint forces the reader to re-derive primacy from the block sequence.
-(Source: niagara RP-C — B362 written at 6/9; R3/R7/R8 labeled "secondary detail — does not change
-composition answer"; B363–B365 confirmed without altering the primary answer)
+(Source: niagara RP-C, B362–B365.)
 
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
@@ -968,8 +964,7 @@ for decompiler dump files not cited in any corpus block. An uncited dump is body
 was acquired but never captured — a false-negative exhaustion signal. If any uncited dump covers a gap
 with no block-level body evidence, the STOP MUST NOT be honored: produce the missing block, then
 recheck. This check is mandatory even when the dump was produced by a prior session or agent run; the
-file's age does not make it cited. (Source: niagara D1 — `decomp-hostid.txt`/`decomp-dsfspi.txt`
-found nine days after a false `investigable=0` declaration; 2026-08-07 STOP was false)
+file's age does not make it cited. (Source: niagara D1.)
 
 **Coverage over the SUBJECT is a second, different metric — declare it when the subject has structure.** `gaps closed /
 known gaps` is a ratio over the gaps you KNOW; it cannot see the units of the subject no gap ever named. When the

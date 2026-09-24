@@ -101,7 +101,7 @@ Always read first, in this order:
          §8c campaign queue (campaign STOP or frontier-reopen) · §10 tool-missing · §11a data-pipeline heuristics (data-acquisition target) ·
          §12 live-probe · §13 audit (prompt: PROMPT-AUDIT.md) · §14 correction · §15 corpus-git · §16 multi-focus ·
          §18 STOP · §19 build/PoC · §20 document-mode · §20b bloque vs. diario (document mode sub-type) · §21 wall · §22 breakthrough-ledger ·
-         §23 kit-change template (coordinating a kit change across sessions). Unsure a phase is active -> read it.
+         §23 kit-change template (coordinating a kit change across sessions). Read a situational section when its trigger is your next action.
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
   4. $CORPUS/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]
@@ -146,8 +146,7 @@ Always read first, in this order:
      Also run $KIT/toolbelt/detect-tools.sh (cache the report): learn which decompilers are ACTUALLY
      available before deciding what you can do. Do NOT infer availability from `which` alone — Ghidra,
      r2, jadx etc. may live under linuxbrew Cellar / a dotnet dir / a jar path and still be off PATH
-     (lesson: niagara assumed "Ghidra not available" when decompile-native.sh ghidra worked, losing
-     the first native block's decompiler depth).
+     (lesson: niagara — wrongly assumed Ghidra unavailable).
      DESIGN/APPLIED corpus exception: if the corpus subject is external tooling or specifications
      (no local binary or source tree to profile), `profile-target.sh` has no artifacts to classify
      and no decompiler is needed — run `$KIT/toolbelt/detect-tools.sh` (exit 0, report only) for the cache record
@@ -176,17 +175,12 @@ Always read first, in this order:
       filename, sheet/table/section count, and the read fraction as blocks accumulate (e.g. "2/15
       sheets read"). An unopened sheet or section is an unknown, not an absence — inferring from the
       primary artifact while a directly-supplied source sits unopened inverts the access order and
-      may render entire blocks retroactively wrong. (Evidence: blender-llm B66: COB-IM2_N4_14A_datos.xlsx
-      holds 15 sheets; only 2 had been read in 65 blocks. The unopened sheets carried 238 device
-      records with exact coordinates, airflow, and BOD — while B63–B65 spent themselves inferring
-      device positions from stroke geometry. B67 then found the CFM 'imbalance' resolved in another
-      unopened sheet.)
+      may render entire blocks retroactively wrong. (Evidence: blender-llm B66–B67.)
   b. Determine which system it is, where its real sources/binaries are, and the corpus language. REGISTER
      the target in $KIT/TARGETS.md's master table right here (row: #, target, path, maturity, predominant
      artifact type, toolbelt wrapper, corpus language) — as part of bootstrap, NOT later: the retro sweeper
      `toolbelt/sweep-retros.sh` derives its ENTIRE scan list from TARGETS.md, so an unregistered target's
-     `retros/` dir is invisible to the §18 supervision sweep (lesson: three.js ran its first focus — 12 blocks,
-B1-B12 — unregistered, so its retro was invisible to the sweeper until registered by hand). Keep that row a
+     `retros/` dir is invisible to the §18 supervision sweep (lesson: three.js — unregistered focus). Keep that row a
      LIVING MIRROR, not a one-time write: when a run-STOP or a §14 correction changes a fact mirrored there
      (block / run / retro / file counts), REFRESH the row as part of closing that run or correction —
      three.js's row went stale at "21 md / 3 runs" while the corpus grew to 32 blocks / 5 runs.
@@ -197,8 +191,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
   b2. ANGLE (mature OR large target): a target name alone is ambiguous. DECLARE AN EXPLICIT
       INVESTIGATION ANGLE/AXIS (e.g. decompiled-Java vs native-binaries vs install/config vs
       docs/protocol) and CONFIRM it BEFORE closing the first gap — picking the wrong focus burns a
-      bootstrap + a block each time (lesson: niagara went live-station → OEM Java modules → native
-      binaries before hitting the axis the user wanted). If the angle isn't obvious from the request,
+      bootstrap + a block each time (lesson: niagara — angle churn). If the angle isn't obvious from the request,
       SURFACE it for the orchestrator/user to pick rather than guessing. A mature target may legitimately
       host several parallel angles → see the MULTI-FOCUS CORPUS pattern (METHODOLOGY §16).
       EVIDENCE-GROUNDED DESIGN focus type: a hybrid type that sits between pure EVIDENCE (a gap
@@ -208,8 +201,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
       has an EVIDENCE section and a DESIGN MAPPING section. A [INFER]/[CERT] ratio of ~0.3–0.5 is
       EXPECTED in this focus type — it reflects the gap between local evidence and external design
       intent and is NOT an exhaustion signal. Declare the focus type as "EVIDENCE-grounded
-      DESIGN/APPLIED" in the focus header so the distinction is visible at sweep time. (Evidence:
-      B611–B619 graphql focus declared this type ad hoc with no kit concept to name it.) (Small/
+      DESIGN/APPLIED" in the focus header so the distinction is visible at sweep time. (Evidence: B611–B619.) (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
      `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>]`. It resolves
@@ -277,8 +269,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      focus over a well-studied system), expect MOST surfaces to already be covered — the audit's
      PRIMARY value is the small delta set of genuinely new gaps. Seed ONLY non-covered gaps. Record
      the REMITTANCE list in RESEARCH-STATE (e.g. "~30 confirmed REMITTANCE, 8 new gaps seeded") so
-     the relative size is auditable. (Evidence: apis focus — 2 parallel sonnet agents split ~40
-     surfaces; ~30 REMITTANCE confirmed, 8 genuinely new.)
+     the relative size is auditable. (Evidence: apis focus.)
      AUDIT BOOTSTRAP PRODUCTION SCOPE. When opening an AUDIT focus — a focus whose purpose is to
      assess the security, correctness, or compliance of a set of artifacts — establish FIRST which
      of those artifacts are actually deployed in production. Severity ratings for findings in
@@ -287,9 +278,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      installed-package check BEFORE deriving priorities from the audit matrix findings. (See also
      the GATED-BY-DEPLOYMENT corollary under HARD RULES DISK-FIRST / METHODOLOGY §12, which applies
      the same deployment-instantiation check at individual-block verdict time rather than at
-     bootstrap.) (Evidence: niagara own-modules-audit — findings were severity-rated before the
-     production subset was established; several high-severity findings targeted modules never loaded
-     in the production station.)
+     bootstrap.) (Evidence: niagara own-modules-audit.)
      FILTER-CALIBRATION DOMAIN. Any classification filter, threshold, or scoring function calibrated
      against ONE corpus subset implicitly defines that subset as its universe — a gap that falls
      outside the calibration population may register as absent without a WARN. Before applying a
@@ -297,17 +286,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      in the sweep prompt or the gap description. A filter whose coverage domain is undeclared is an
      instrument whose false-negative floor is unknown. (METHODOLOGY §6 licenses calibrated
      discriminators as symmetric and reusable within the same artifact kind; cross-kind reuse
-     requires re-stating the calibration domain — that is the boundary this rule marks.) (Evidence:
-     blender-llm B21-B37 — a relevance filter calibrated on the documentation sub-corpus was applied
-     fleet-wide; gaps in native-binary content registered as absent rather than out-of-domain.)
+     requires re-stating the calibration domain — that is the boundary this rule marks.) (Evidence: blender-llm B21–B37.)
      FILTER INHERITANCE PROHIBITION — never derive a filter's calibration envelope from a
      population that an EARLIER filter produced; derive it from the raw universe, or declare the
      inheritance chain explicitly AND verify the chained result against the raw universe before
      using it. A filter calibrated on a filtered population silently inherits its predecessor's
-     blind spots by construction and cannot detect what the earlier filter excluded. (Evidence:
-     blender-llm B61 — the 14A route filter's envelope was derived from the prior route's 119
-     runs, which were themselves the output of a workbook-based filter; the new filter inherited
-     its blind spot and could not have found what the old one missed.)
+     blind spots by construction and cannot detect what the earlier filter excluded. (Evidence: blender-llm B61.)
      GAP PREMISES ARE HYPOTHESES, not assertions — the initial research plan is a best guess from
      outside the code. When investigation refutes a premise (e.g. a module assumed to belong to
      subsystem Y has zero imports from it), RENAME the gap in RESEARCH-STATE to reflect the real
@@ -318,19 +302,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      carries a PRODUCT or VENDOR ASSUMPTION (e.g. names a known framework, library, or vendor),
      verify the identity by reading the module.xml description or top package root BEFORE sealing
      the gap. A jar whose display name resembles a known product may be something entirely
-     different. (Evidence: B495 §495.3 — 'axvelocity' resolved to Apache Velocity (correct);
-     'silk' resolved to a SOAP toolkit, NOT Sylk/S-Bus (wrong vendor premise). Two wrong product
-     premises in one U10 gap sweep, each burning its opening iteration on a §14 correction.)
+     different. (Evidence: B495 §495.3.)
      SWEEP HYPOTHESIS HIGH-RISK SUBCLASS — security-bypass claims and surprising existence
      claims from the audit sweep are higher-risk premises than average: the sweep cannot read
      deeply enough to certify either. Label every security-bypass or existence surprise from the
      sweep "(sweep hypothesis — measure first)" in the gap description; never embed the sweep
      phrasing as a partial assertion or a confirmed claim. A gap description that reads "X bypasses
      the Niagara session" is an ungrounded security verdict; one that reads "X bypasses session
-     (sweep hypothesis — measure first)" is honest about its source and scope. (Evidence: B622
-     §622.3 — sweep stated SC hub "bypasses the Niagara session"; B622 refuted by code-reading
-     BJettyScWebSocketAcceptor.java:81-91. B624 §624.3 — ":52443 has TWO endpoints" — refuted
-     by full-module grep.)
+     (sweep hypothesis — measure first)" is honest about its source and scope. (Evidence: B622 §622.3, B624 §624.3.)
      GAP NUMBERS ARE ALSO HYPOTHESES — when a gap's description contains a number that will serve
      as a denominator or threshold (e.g. "N classes", "M entries"), re-derive it from the source
      before using it, exactly as you would a structural premise. A wrong count silently scopes the
@@ -341,18 +320,13 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      verification note (e.g. "~N, verify inline") and must NEVER present a limit or cap as
      established fact. The driver's block must re-measure any number it promotes to [CERT]. The
      prompt to the sweep agent must include this constraint explicitly so the agent cannot silently
-     assert a count. (Evidence: access-control sweep asserted "64-category hard limit" (AC3) and
-     "8 encoders" (AC4); inline verification found 256 and 10 respectively. Three wrong sweep
-     numbers in two consecutive focuses — systematic output convention gap, not a one-off.)
+     assert a count. (Evidence: access-control sweep AC3/AC4.)
      BASE-MODULE IDENTIFICATION (extends the audit sweep — add as a sweep sub-task): for each
      gap the sweep surfaces, require it to also ask: "is this module a specialization of a generic
      or base module, and if so, is that base module covered in the corpus?" When the base is NOT
      covered, surface it as a SEPARATE candidate gap in the backlog — do not fold it silently into
      the specialized gap. A missing base module discovered during block writing costs one full
-     iteration; discovered during the sweep, it costs a one-line backlog addition. (Evidence:
-     provisioning focus — PV1 was a thin specialization of 'batchJob' (generic device-network
-     batch engine), PV7 of 'template' (generic templating); both surfaced only during block
-     writing — too late to bootstrap them efficiently.)
+     iteration; discovered during the sweep, it costs a one-line backlog addition. (Evidence: provisioning focus — PV1/PV7.)
   e2. PRE-FLIGHT SOURCE EXISTENCE (anti-hallucination gate — before launching ANY iteration): for each
      planned gap, CONFIRM readable source material actually exists (the class/jar/binary/doc is present
      and reachable by the wrapper). A gap with NO reachable source must be marked blocked-on-<reason>
@@ -370,9 +344,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      a diff plan. Types that look like each other but are structurally incompatible: an installed
      instance vs an installer package vs a distribution archive. A diff between incompatible types
      is dominated by type-structural noise and not a meaningful content delta. Confirm type from
-     directory layout or a manifest, not the filename alone. (Evidence: B386 §386.2 — an
-     'unlicensed' install was actually an installer PACKAGE with 908 files, no bin/security/
-     defaults; install-vs-installer diff produced artifact-type noise rather than a license signal.)
+     directory layout or a manifest, not the filename alone. (Evidence: B386 §386.2.)
      CLASS-EXISTENCE SUB-CHECK (extends this e2 gate, NOT a new gate) — when a gap's NAME carries a specific
      class-name token, also run `fd <ClassName>.java` (exact-class existence) IN ADDITION to the source/jar
      existence check above, BEFORE sealing the gap into the backlog. e2's reachability check can PASS on a
@@ -399,8 +371,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      page-anchored `.md` exists in `sources/extracted/` from the start (a documentation corpus IS the
      pages; range-limit per NORMAL CYCLE step 3 once gaps narrow). Without this step no page-anchored
      `.md` exists and blocks fall back to unstable `L<n>` line citations (or an ad-hoc flat
-     `pdftotext` dump) instead of citable `sources/...pdf :p.N` anchors (lesson: WEB-HMI10-CF — 16
-     non-page-anchored citations across 9 blocks). Not applicable to targets with no PDFs; a mixed
+     `pdftotext` dump) instead of citable `sources/...pdf :p.N` anchors (lesson: WEB-HMI10-CF). Not applicable to targets with no PDFs; a mixed
      corpus still extracts its PDFs at NORMAL CYCLE step 3, which also holds the extraction rules,
      range guidance, and citation format.
      PDF CORPUS FAMILY-BLOCK. When a documentation corpus contains ≥10 near-identical terse spec
@@ -412,17 +383,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      the choice is explicit, not automatic. Use `Type: evidence` in the block header (the rows are
      [CERT-doc] page-cited; `family-survey` is outside the METHODOLOGY §4 closed grammar); name the FAMILY-BLOCK pattern in the block's gap-description prose or
      opening blockquote so reviewers understand the table structure. Cite every individual sheet's
-     relevant page in the table. (Evidence: niagara optimizer-docs — a 12-sheet hardware-spec family
-     produced 12 near-duplicate thin blocks before the pattern was named; a single dense evidence
-     block would have covered the same ground in one iteration.)
+     relevant page in the table. (Evidence: niagara optimizer-docs — family block.)
      RELEVANCE-TRIAGE CHECKPOINT (PDF CORPUS). When a documentation corpus mixes a small set of
      high-relevance goal documents (product manuals, design specs, protocol references) with a large
      bulk of low-relevance material (marketing datasheets, compliance certificates, unrelated
      application notes), run a TRIAGE PASS before auto-processing the bulk: rank the full set by
      relevance to the declared investigation angle, identify the high-relevance documents and the
      bulk, and present the operator a go/no-go decision before spending extraction time on low-value
-     PDFs. (Evidence: niagara optimizer-docs — bulk extraction of low-relevance datasheets consumed
-     multiple blocks before a triage pass would have redirected effort to the goal manuals.)
+     PDFs. (Evidence: niagara optimizer-docs — triage.)
   f. Only then continue with the normal cycle over the first (investigable, source-confirmed) gap.
 
 == NORMAL CYCLE (one iteration) ==
@@ -501,16 +469,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      that number from source — a stale count silently scopes the investigation to the wrong universe.
      See GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP step e) for the full rule; this is the step-1
      trigger point for that check, applied at the moment of selection, not only at bootstrap time.
-     (Evidence: B57 §57.1 — G28 "4.3 doc corpus" was actually 5.1; sat at medium priority for 39
-     blocks on an unverified number.)
+     (Evidence: blender-llm B57 §57.1.)
      PER-ITERATION VALUE GATE: before starting investigation, classify the gap as MECHANISM (behavior,
      code path, protocol) or REFERENCE-CATALOG (a table of SKUs, address maps, register layouts, data
      sheets with no behavioral question). Reference-catalog gaps get a `catalog-batch` qualifier in
      RESEARCH-STATE and are deferred to a dedicated reference-batch iteration that may author multiple
      blocks in one pass; the one-per-commit main loop runs mechanism gaps only. Do not spend full
      mechanism-loop overhead on a gap whose answer is a structured table with no behavior to reason
-     about. (Evidence: niagara B899–B928 — investigable children degraded from mechanism-rich sessions
-     to pure reference catalogs; absence of this gate drove full per-commit cost with no mechanism yield.)
+     about. (Evidence: niagara B899–B928.)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
@@ -525,8 +491,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
          sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
          the driver closes without authoring a block. This prevents wasted investigation if the gap is
-         remittance at fine grain even when the audit cleared it at coarse grain. (Evidence: apis focus
-         API5/API6/API8, 2026-08-25: 3/8 gaps REMITTANCE-risk; all 3 turned out genuine.)
+         remittance at fine grain even when the audit cleared it at coarse grain. (Evidence: apis focus API5/API6/API8.)
          REMITTANCE-TO-EVIDENCE UPGRADE: when the PRIOR COVERAGE CHECK finds a gap already answered
          but only at [CERT-web]/[CERT-a]/[INFER] (asserted from docs or memory), reading the PRIMARY
          SOURCE to lift the same claim to [CERT] is genuine new substance — NOT a remittance. The
@@ -534,17 +499,12 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
          the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
          case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
-         not a wasted iteration. (Evidence: B10 — G14 fully covered by B4 §4.2/§4.5 at [CERT-web];
-         B10 read the actual bridge code and upgraded the main-thread claim to [CERT]; verify-block:
-         5/5 resolved, ratio 0.11.)
+         not a wasted iteration. (Evidence: blender-llm B10, B4 §4.2/§4.5.)
          OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
          operator's data package, check whether the package already carries a pre-existing human
          classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
          label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity. (Evidence:
-         `Dep_Ductos_crudos` classified 845 four-vertex duct bodies across four categories; scoring
-         B61's extractor against it yielded 231/231 CANDIDATO_RECTO and 44/44 CAJA_REVISAR —
-         100 % precision on everything the workbook calls duct, a claim no self-built filter could make.)
+         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B61 vs Dep_Ductos_crudos.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -566,9 +526,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
          RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
-         (Evidence: COB-IM2 B6 asserted "zero NxM labels; width is geometric" from one regex pass; B8
-         found 563 `W"xH"` size labels and 886 BOD tags in the same drawing — derivation was unnecessary.
-         Corrected via §14, commit d7fd595.)
+         (Evidence: COB-IM2 B6/B8, commit `d7fd595`.)
        - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -580,8 +538,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          which falsely reads as proven absence — not a negative finding. Distinct from the existing
          "arm and verify sink recording" step in METHODOLOGY §12; this is the entry-point pre-check that
          precedes it: verify the path is wired for capture BEFORE spending probe time on it.
-         (Evidence: blender B6 — `get_addon_status` had no `@telemetry_tool`; 35s probe window
-         returned zero events, initially read as "no telemetry for this path"; path was uninstrumented.)
+         (Evidence: blender B6.)
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh doc <url> $CORPUS [sub] [name] (lands in $CORPUS/sources/ + registered in SOURCES.md).
        - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
@@ -645,8 +602,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          investigating a small (≤2-file) sibling gap inline is a valid momentum tactic — add the
          sibling to the backlog first, then read it inline concurrently with the sweep. The driver
          serializes block writing as usual; both sweep result and inline result are written before
-         any state update. (Evidence: GQL-G3 investigated inline while GQL-G2's 4-file sweep ran;
-         two independent source trees, sequential block writes.)
+         any state update. (Evidence: GQL-G3/GQL-G2.)
          RECURSIVE FAN-OUT CITATION BOUNDARY: in a recursive fan-out (e.g. multi-level sharding), raw
          reading stays at the LEAVES — only cited snippets (file:line + load-bearing text) propagate up
          to the coordinator. The coordinator does not re-read leaf material; the citations are the unit
@@ -661,9 +617,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          CWD-PATH BUG FIRST: before concluding a cited file does not exist (and thus concluding the
          sub-agent fabricated sources), rule out a cwd/relative-path bug — verify with
          `find <repo-root> -name <basename>` from the repo root. A file that returns "No such file"
-         from inside a subdirectory may exist relative to the project root. (Evidence: spyder
-         commissioning — `ls niagara-help/docs-text/<file>` from inside docs-text/ returned "No
-         such file" for every file; briefly concluded hallucination; files existed, cwd was wrong.)
+         from inside a subdirectory may exist relative to the project root. (Evidence: spyder commissioning.)
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
@@ -674,8 +628,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          necessary but not sufficient here: verify-before-relay, not only verify-before-block. The
          driver must have read the cited line; trusting the sub-agent's accuracy for a fact that may
          cause hardware damage or a safety incident is not acceptable. Record: "physical-action verify:
-         N citations checked against real source, all confirmed." (Evidence: commissioning sweeps for
-         24 Vac wiring and terminal maps — driver verified before relaying, all accurate.)
+         N citations checked against real source, all confirmed." (Evidence: commissioning sweeps.)
        - SYSTEMATIC-OFFSET CAVEAT (extends item (a)) — when the sweep SOURCE is a CONCATENATED dump
          or a DECOMPILED-context file, a systematic line-number offset makes EVERY reported citation
          untrustworthy, so re-grep ALL load-bearing citations, not just the "key claim" ones (10/10
@@ -693,8 +646,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          repository, do not merely widen the file list — clone the repo and grep the whole tree,
          enumerating every relevant literal (`.connect()` calls, URL constants, config keys). A
          narrow-set negative is inconclusive; a tree-wide grep is the minimum re-test before
-         accepting absence as [CERT]. (Evidence: B8 §8.7 — scout 3-file negative upgraded to
-         tree-wide [CERT] zero-match after full clone grep; #572.)
+         accepting absence as [CERT]. (Evidence: blender-llm B8 §8.7; #572.)
          SWEEP CONTRADICTS DRIVER'S PRIOR INLINE STATEMENT. When a delegated sweep returns evidence
          that contradicts an assertion the driver made INLINE to the operator (not a block), acknowledge
          the refinement BEFORE or WHILE writing the block: (1) name what the inline answer said and where
@@ -764,28 +716,21 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
          against the intended count before proceeding. A filter that silently declines entries produces
          no error and no warning — the discrepancy is only visible by comparing intent vs. result.
-         (Evidence: B60 §60.4 — `select_set(True)` called on 4,041 objects, raised for none;
-         `select_get()` returned 3,187; 854 objects vanished silently, exporter reported success.)
+         (Evidence: blender-llm B60 §60.4.)
          NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
          package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
          (X %)` as a headline on every census. A complement gate or coverage claim applied after a
          narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
-         that must be named. (Evidence: B62 §62.1–§62.3 — LWPOLYLINE on one layer = 9,563 of 45,572
-         entities (21.0 %); the B61 complement gate passed because its denominator was the
-         already-narrowed 2,629; the unread 79 % held round diffusers, VAVs, and 287 m² of geometry.)
+         that must be named. (Evidence: blender-llm B62 §62.1–§62.3.)
          SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
          SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
          any value the researcher picks — a subject-declared threshold produces a partition with no
-         researcher-chosen numbers anywhere. (Evidence: B63 §63.2 — every tag declared
-         `char_height = 0.1525 m`; using it partitioned 7,901 closed shapes into exactly accounted
-         groups summing to the full population.)
+         researcher-chosen numbers anywhere. (Evidence: blender-llm B63 §63.2.)
          IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
          DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
          proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
          instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
-         identifier is per-type or per-instance before using it as a grouping key. (Evidence: B65
-         §65.2 — 212 tag occurrences carried 44 distinct strings; `SD-1` appeared ×78; indexing by
-         tag string collapsed 78 occurrences into 1 and was wrong for 6 of 7 families.)
+         identifier is per-type or per-instance before using it as a grouping key. (Evidence: blender-llm B65 §65.2.)
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -813,8 +758,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          or citing its output as evidence, introspect the primitive's active mode or variant and
          confirm it is the one relevant to the gap. Distinct from the live-HTTP REACHABLE≠REPRESENTATIVE
          rule above (which governs live endpoint transport); this governs static node/tool configuration.
-         (Evidence: blender B9 — `CurvePrimitiveLine` defaults to POINTS mode, where the `Length`
-         input is inactive; a wiring built against the default captured nothing for the gap.)
+         (Evidence: blender B9.)
        - CROSS-FOCUS SECURITY FEED: when a mechanics or coverage sweep incidentally finds a security
          footgun in decompiled code — an exposed credential store, an unguarded admin channel, an
          unsafe default — ADD a gap entry to the security focus's backlog in the same iteration. A
@@ -828,8 +772,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          explicitly: "Do NOT spawn sub-agents or use the Agent tool inside this sweep"). This is boilerplate, not
          optional guidance — include it in every prompt regardless of whether nesting seems likely. A sub-agent
          that nests silently hides its findings from the driver; recovery requires SendMessage and risks losing
-         partial results (evidence: WB02 B428 — sweep nested, driver recovered via SendMessage; niagara
-         workbench-focus retro — nested agent's results invisible until manual recovery). The specialized agents
+         partial results (evidence: WB02 B428; niagara workbench-focus retro). The specialized agents
          (Explore/Plan) cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use
          the Workflow engine (deterministic control, no per-hop context compression) instead of free-form native
          nesting.
@@ -849,8 +792,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      HTML basename exactly as registered in the SOURCES.md row — NOT a doc-title shorthand or a
      truncated form. METHODOLOGY §5 encodes this at the registry level; this surfaces it as a prompted
      gate at the per-block cite-point so a sub-agent does not have to remember the §5 policy
-     independently. (Evidence: B336 `e975837` — early draft used a shorthand, caught and fixed inline
-     before commit; a shorthand breaks `verify-sources.sh`'s FABRICATED-citation cross-check.)
+     independently. (Evidence: B336 `e975837`.)
      Include the Connections section linking related [Block K].
      For doc-synthesis blocks (where `[CERT-doc]` is the primary source), OPTIONALLY add a closing
      section — e.g. "§N.x — What this doc does not resolve" — listing findings the official document
@@ -919,9 +861,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          or runtime environment. Verify by DIRECT MEASUREMENT before accepting — e.g.
          `od -An -j6 -N2 -tu2 --endian=big X.class` reads the class file's major-version byte and
          is the authoritative JVM target check; do NOT rely on a sweep's prose claim. A wrong
-         version cascades to wrong feasibility verdicts. (Evidence: B616/B617 — sweep returned
-         "runs on Java 11"; direct class-file measurement gave major=52 (Java 8); §14 correction
-         required.)
+         version cascades to wrong feasibility verdicts. (Evidence: B616/B617.)
          Cross-verify the INTERPRETATION against corpus-documented framework semantics BEFORE
          incorporating it. Treat such claims as hypotheses pending semantic validation.
          Three named outcomes — record each in the iteration-history row:
@@ -988,17 +928,14 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          entry only in iteration-history is invisible to `verify-state.sh` and the
          `requires_execution_open` counter — the gap will never reach the investigable/scheduler
          count. The "closing feel" of a synthesis block is precisely the blind spot where
-         registration gets skipped (evidence: niagara/email B334 uncovered email-G1
-         requires-execution; it appeared in iteration-history but the backlog had no row and
-         `requires_execution_open` stayed 0 — commit `11142b9`).
+         registration gets skipped (evidence: niagara/email B334; commit `11142b9`).
          SAME-COMMIT CHILD-GAP RULE (extends SYNTHESIS-BLOCK REGISTRATION RULE): register all child
          gaps surfaced by a synthesis block in RESEARCH-STATE in the SAME commit as the synthesis
          block itself. A gap named in the synthesis report but absent from RESEARCH-STATE at commit
          time is invisible to `verify-state.sh` and may be permanently lost if the session ends
          before a planned follow-up registration. This also applies to any iteration, not only
          synthesis: whenever "New gaps uncovered" is non-empty, the backlog rows must exist in the
-         same commit. (Evidence: B413 synthesis named 3 child gaps only in the block body; a separate
-         driver commit `a852383` was needed to register them in RESEARCH-STATE.)
+         same commit. (Evidence: B413; commit `a852383`.)
        - REVERSE BACKLOG SWEEP: after closing a gap OR retiring a §14 premise, re-read the open
          backlog and re-scope or rename any gap whose PREMISE this block just answered or invalidated.
          A gap that was opened as "is X true?" becomes stale if this block proved X false — it must
@@ -1022,9 +959,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
          routinely surfaces link drift (a repo rename, an issue state change, a moved page) that
          demands §14 corrections on prior blocks. Budget for those corrections when scoping a
          preservation gap — do not treat them as scope creep; they are the expected second-order
-         output of a careful preservation pass. (Evidence: B15 — closing G17 preservation debt
-         surfaced a repo rename (§15.2) and upstream-closed issue states (§15.3), both §14
-         corrections to B2/B3.)
+         output of a careful preservation pass. (Evidence: blender-llm B15, B2/B3.)
        - RECORD the iteration in RESEARCH-STATE's Iteration history table INCLUDING the delegated? · model
          tier column (no·inline / yes·haiku|sonnet|opus) — persist the tier on disk, not only in the report,
          so tier-compliance stays auditable after the session ends. For an EXTERNAL-source iteration, record the
@@ -1101,8 +1036,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      A dump that covers an OPEN gap and is cited by no block is false-negative exhaustion — the STOP is
      NOT honored until that dump's content is either captured as a block or explicitly dismissed.
      `verify-sources.sh` and `verify-state.sh` do NOT perform this sweep; it is an operator/agent
-     obligation at every STOP gate. (Evidence: platform-native reopen — uncited decompiler output
-     covered an open gap the corpus called exhausted; detected 9 days late.)
+     obligation at every STOP gate. (Evidence: platform-native reopen.)
      TERMINAL-TIER CONVERGENCE: when a focus runs a second investigation tier over first-tier child
      gaps (revisiting sub-gaps surfaced by a prior block), record residues as in-block sub-sections
      rather than seeding new grandchild backlog rows. Grandchild rows re-inflate the investigable
@@ -1129,8 +1063,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      this audit (one audit, one outcome). A single in-child residue stays in-block (annotated
      sub-section); it does not constitute a new tier. A tier declared this way is a legitimate
      reopen; a tier opened without a §8c queue row is a silent operator-only call an autonomous
-     run cannot replicate. (Evidence: module-mechanics focus — operator's silent "sigue" reopened
-     Section-E; #564.)
+     run cannot replicate. (Evidence: #564.)
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
@@ -1234,7 +1167,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      step 3 MODEL TIER rule). Record in the iteration history as `method: per-section-agent · N sections`.
      This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
      changes is that N agents run in one dispatch round rather than N sequential iterations.
-     (Evidence: api-openness — 42 chapters, one dispatch round via `_extract/author_workflow.js`.)
+     (Evidence: api-openness.)
   2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
      depends on GENRE:
        - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
@@ -1269,8 +1202,7 @@ B1-B12 — unregistered, so its retro was invisible to the sweeper until registe
      document a large API/SDK/protocol), also produce COMPANION REFERENCE ARTIFACTS: a cheat sheet
      (most-used paths on one page), a glossary, a symbol-to-chapter keyword index, and optionally a
      single-file full-manual build. These are not blocks and carry no evidence markers — they are
-     navigator aids, not procedural deliverables. Place at $CORPUS root. (Evidence: api-openness —
-     CHEATSHEET.md, GLOSSARY.md, KEYWORD_INDEX.md, MANUAL_FULL.md alongside 42 chapters.)
+     navigator aids, not procedural deliverables. Place at $CORPUS root. (Evidence: api-openness.)
   7. STOP when the OUTLINE is fully covered — NOT on gap-exhaustion (there is no gap set, so no
      read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
      CLOSURE OBLIGATIONS: the outline-completion STOP inherits the following from the NORMAL CYCLE:
@@ -1328,8 +1260,7 @@ HARD RULES:
     `-@<option>` for Java VM pass-through, `--verbose`, `--debug`, `-Xjavaagent:` equivalents).
     Many targets expose native instrumentation that avoids new installs entirely. Check `<launcher>
     --help` or the vendor docs for a pass-through flag before requesting a new tool. This is the
-    first rung of the fallback chain for live-launcher targets. (Evidence: `nre -@verbose:class` +
-    `-@javaagent:…` solved both "see Java" and "instrument Java" with zero new installs.)
+    first rung of the fallback chain for live-launcher targets. (Evidence: `nre` pass-through flags.)
   - PROBE THE PREMISE BEFORE ACCEPTING `blocked-on-<tool>`. Before sealing a gap as blocked on a missing
     tool, first test the gap's PREMISE against artifacts ALREADY on disk — a block can DISSOLVE on premise
     failure rather than needing new tooling (G39 "blocked on leaf-cut-into-wall": 0/9 leaves had the
@@ -1359,8 +1290,7 @@ HARD RULES:
     evidence about its contents — the name confirms only that the container exists on disk.
     Decompile or extract the artifact before claiming anything about what it implements, licenses,
     or registers; "the jar is present" is a pre-condition, not a finding. A jar cited for licensing
-    evidence with no decompilation is [INFER], not [CERT]. (Evidence: niagara licensing — a jar was
-    cited as confirming a licensing mechanism; decompilation revealed a different mechanism.)
+    evidence with no decompilation is [INFER], not [CERT]. (Evidence: niagara licensing.)
   - MULTI-MARKER BOOTSTRAP FUSION. A bootstrap gap (or any gap) that draws simultaneously from
     multiple independent evidence channels — e.g. [CERT-doc]+[CERT-web]+[CERT]+[CERT-live] all
     supporting the same claim — is a valid FUSION. Name it as fusion explicitly in the self-verify
@@ -1368,8 +1298,7 @@ HARD RULES:
     CORROBORATION-FROM-INDEPENDENT-STORE pattern (NORMAL CYCLE step 5 self-verify tally), which
     prescribes the same declaration for evidence blocks. Each marker still requires the evidence its
     tier demands; this rule names the multi-source convergence as a corroboration pattern, not as a
-    waiver of per-marker standards. (Evidence: niagara jace9000 bootstrap — four-channel convergence
-    was flagged as a mixing anomaly; it was corroboration from independent sources.)
+    waiver of per-marker standards. (Evidence: niagara jace9000 bootstrap.)
   - RE-MEASURE A DRAMATIC NEGATIVE. When an enumeration or join yields a striking negative result
     (zero matches, near-total absence, a system that appears dead or empty), do NOT report it from
     a single measurement. Re-derive it by an independent method — a different key, a different
@@ -1382,8 +1311,7 @@ HARD RULES:
     as the re-derive method. A count comparison can agree by coincidence while masking membership
     differences; an intersection proves set equivalence and names any residue explicitly — which
     members are present, which are missing, and whether the discrepancy is a subset or a symmetric
-    difference. (Evidence: B61 §61.2 — a 22× count gap between two extractors; the handle
-    intersection settled it in one query: 119 present, 0 missing, plus a named 7-member residue.)
+    difference. (Evidence: blender-llm B61 §61.2.)
   - RE-MEASURE A DRAMATIC POSITIVE. The same re-derive obligation applies when a live probe yields a
     striking positive (an apparent security weakness, an unexpectedly open or downgraded service). Do
     NOT escalate or capture it as a block from a single measurement. The banner-vs-protocol trap: a
@@ -1391,9 +1319,7 @@ HARD RULES:
     that the TCP connection was established, before the TLS handshake even runs, NOT that the server
     accepted the specific protocol version under test. "The client cannot offer version X" is not the same claim as "the
     server refused version X". Re-derive by an independent method or a targeted counter-probe before
-    treating the finding as confirmed. (Evidence: jace8000 — a transport banner misread as
-    TLS-version protocol acceptance, which nearly produced a false client-escalation; METHODOLOGY
-    §12 live-probe frames.)
+    treating the finding as confirmed. (Evidence: jace8000; METHODOLOGY §12.)
   - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE. When a derived or aggregated view of the
     data is inconsistent (conflicting counts, missing rows, version mismatch between two summaries),
     go to the SOURCE ARTIFACT rather than cross-referencing other derived views — each derived view
@@ -1425,24 +1351,20 @@ HARD RULES:
     the class it was validated on and confirm the new class shares the same topological properties.
     A rule derived from compact bodies does not apply to thin crossing geometry without re-validation:
     transitive bbox-contact over crossing slivers can grow without bound, collapsing the entire dataset
-    into one cluster. (Evidence: B61 clustering rule for compact duct bodies collapsed 1,487 crossing
-    stroke slivers into one 90×60 m cluster in B63 — not a wrong threshold, an inapplicable domain.)
+    into one cluster. (Evidence: blender-llm B61/B63.)
   - NEGATIVE-ABSENCE CLAIM DISCIPLINE (#732). A negative existence claim ("no X found", "Y is
     absent") is [CERT] ONLY when the EXACT artifact that would contain X was opened and searched.
     Asserting absence about an artifact NOT opened is [INFER], not [CERT]. Before recording a
     negative finding: confirm the container (jar, module, config file) was actually inspected; do NOT
     propagate a sub-agent's "not found" without verifying the scope covered the right artifact. A §14
     correction that retracts a prior finding based on absence must re-verify the absence in the exact
-    named artifact before accepting the retraction. (Evidence: B478 §478.5 — wrong "no license class"
-    claim originated from an agent that opened only nre.jar, not niagarad.jar; the claim propagated to
-    4 artifacts before revert.)
+    named artifact before accepting the retraction. (Evidence: B478 §478.5.)
   - VENDOR-DOCUMENTED PORTS FIRST (#670). Before making any connection attempt against a live
     target, read the vendor's documented management/API port from the manual or API spec. Never rely
     on a default port sweep (e.g., 22/80/443/8080) to discover the active service port: a
     vendor-specific port outside the sweep range will produce a false "no data path" conclusion.
     This check belongs BEFORE the first connection attempt, not as a recovery step after sweeps
-    fail. (Evidence: Fluke 177x — manufacturer-documented port 18571 missed entirely by sweeps up
-    to 9100/47808; false "no data path" conclusion cost several turns.)
+    fail. (Evidence: Fluke 177x.)
   - CONCURRENT-SWEEP DISJOINT FILE SETS (#644). When parallelizing agent sweeps, only parallelize
     agents whose target file sets (blocks to write, shared state to update — INDEX, RESEARCH-STATE,
     SOURCES.md) are FULLY DISJOINT. The driver serializes writes to all shared corpus files; most
@@ -1460,8 +1382,7 @@ HARD RULES:
     — e.g. `tried: descoped — dual-use, <one-line reason>` — so the entry satisfies both rules.
     A silently-deleted gap is indistinguishable from a gap that was never discovered;
     `blocked-on-dual-use` preserves the evaluation record without propagating the harmful content.
-    (Evidence: niagara signing-pki-live — a descoped gap was removed from the backlog; later
-    sessions could not determine whether it had been evaluated or simply forgotten.)
+    (Evidence: niagara signing-pki-live.)
     CROSS-SESSION BOUNDARY (#741): a peer or subsequent session cannot override a boundary
     (refused/descoped step) that a prior agent recorded without an explicit operator decision
     captured in the block. A `blocked-on-dual-use` or `refused` verdict carries session-level
@@ -1507,7 +1428,7 @@ HARD RULES:
     **The conversation is an exfil surface.** A credential pasted into chat lands in the session
     transcript/logs and is compromised immediately — treat it the same as a commit to a public
     repository and rotate it without delay. Out-of-band delivery is not optional.
-    (Evidence: computadoras `cfut_` API token pasted into chat 3× across B23–B25.)
+    (Evidence: computadoras B23–B25.)
     LIVE-WRITE recipe that keeps this invariant on an AUTHENTICATED write: (a) authenticate out-of-band —
     a curl `-K` config file in scratchpad, NEVER the credential in argv / probe cmdline / sources /
     engram / the conversation itself;
@@ -1542,12 +1463,11 @@ HARD RULES:
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
-    LIVE from the real system. Never cite them from a prior note/block (lesson: B66-B69 inherited a
-    stale bench checksum and had to be corrected in B70). The worked example with the actual hex values
+    LIVE from the real system. Never cite them from a prior note/block (lesson: B66-B70). The worked example with the actual hex values
     lives in METHODOLOGY §12 — single source; don't restate the values here.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
-    before re-launching it — resume from real state (lesson: killed B76/B122 had actually committed).
+    before re-launching it — resume from real state (lesson: niagara B76/B122).
     See METHODOLOGY §17.
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
@@ -1582,8 +1502,7 @@ HARD RULES:
     ONE BLOCK PER COMMIT, too: even if a delegated sweep returns material for more than one
     queued gap in the same turn, each block gets its OWN commit and its OWN STOP-criterion re-check before
     the next is written — do NOT land two block files in one commit just because both sweeps returned
-    together (lesson: a three.js commit landed B15+B16 as one, skipping the reschedule/STOP-check between
-    them). COMMIT MESSAGE: `research(<target>): B<n> <short-gap-slug>` (multi-focus §16 disambiguates in the
+    together (lesson: three.js B15+B16). COMMIT MESSAGE: `research(<target>): B<n> <short-gap-slug>` (multi-focus §16 disambiguates in the
     scope: `research(<target>/<focus>): B<n> <slug>`); OPTIONAL body line = coverage ratio + marker tally.
     Commit DIRECT to the default branch — a solo corpus needs no PR (METHODOLOGY §15). One commit ⇄ one block
     is what makes §17 resume answerable from `git log --oneline`. (Under fixed-interval this means
@@ -1648,8 +1567,7 @@ HARD RULES:
     longer than 15 chars will silently not match; (c) the bracket idiom
     `pkill -f '[p]attern'` — the bracketed first character matches the target process line, but
     the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
-    wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv. (Evidence: blender-llm B6 — a cleanup invocation matched the wrapper shell and
-    terminated the wrong process.)
+    wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv. (Evidence: blender-llm B6.)
     VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
     actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
     reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)

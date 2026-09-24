@@ -92,7 +92,26 @@ echo "== hotcore-budget.test.sh =="
 SKILL_HC_START="HOT-CORE — <!-- slot:hotcore-cadence -->"
 SKILL_HC_END="Each iteration re-reads only RESEARCH-STATE"
 SKILL_SIT_START="SITUATIONAL — read the named section"
-SKILL_SIT_END="Read a situational section when its trigger is your next action."
+# SKILL_SIT_END / LOOP_SIT_END anchor on the NEXT STRUCTURAL LINE after the
+# SITUATIONAL prose — the "Always read first" list's own next numbered/
+# bulleted item, `$KIT/TARGETS.md` — rather than on the SITUATIONAL block's
+# closing SENTENCE. A prose sentence is exactly the kind of text a doctrine
+# pass rewords for tone or brevity; #1027 renamed PROMPT-LOOP's closing
+# sentence from "Unsure a phase is active -> read it." to the F07-compliant
+# "Read a situational section when its trigger is your next action.", which
+# broke this same anchor because it was pinned to that literal sentence.
+# `$KIT/TARGETS.md` is the file's own fixed procedural reference (item 2 of
+# "Always read first" in both files) — far less likely to be reworded than
+# the sentence that precedes it. It is NOT unique across the whole file
+# (both files cite `$KIT/TARGETS.md` elsewhere, earlier, in unrelated
+# prose) — what matters is that it is the FIRST hit strictly after the
+# SITUATIONAL start marker, which is what extract_block_inclusive's
+# first-match scan actually anchors on. The captured block now includes
+# that one extra line; it carries no `§`-token, so T1/T2's token sets are
+# unaffected. Re-verify the "first hit after start" property by hand if
+# this anchor ever needs to move again — do not trust a stale hit count
+# here, it drifts with every unrelated edit to either file.
+SKILL_SIT_END='$KIT/TARGETS.md'
 # LOOP_HC_START anchors on "HOT-CORE <!-- slot:hotcore-loop-cadence -->" for the
 # same #993-WU1-round-2 reason as SKILL_HC_START above: the cadence
 # parenthetical is now a slot marker, so the old literal
@@ -104,7 +123,20 @@ LOOP_HC_END="per-block contract."
 # SITUATIONAL token set (it is documented as situational, just not inside the
 # enumerated §-list on the next line).
 LOOP_SIT_START="(§11b"
-LOOP_SIT_END="Unsure a phase is active -> read it."
+# See SKILL_SIT_END's comment above for why this anchors on the next
+# structural line ($KIT/TARGETS.md, "Always read first" item 2) instead of
+# the SITUATIONAL block's closing sentence, and why it must be the FIRST hit
+# strictly after the SITUATIONAL start marker, not a claim of file-wide
+# uniqueness. PROMPT-LOOP.md is a case where that distinction actually bites:
+# it has a SECOND, unrelated bare "$KIT/TARGETS.md" occurrence further down
+# (BOOTSTRAP step b), so the bare substring alone would let a future rename
+# of the intended (first) occurrence silently fall through to that second
+# one instead of failing — the same silent-widening failure mode this round
+# is closing. Anchoring on the fuller "2. $KIT/TARGETS.md" (the numbered-
+# list-item form, which the later occurrence does not share) keeps this
+# pinned to the first/intended hit. Re-check by hand which occurrence is
+# first if this anchor ever needs to move — do not trust a stale count here.
+LOOP_SIT_END='2. $KIT/TARGETS.md'
 
 # HOT-CORE size budget (T7). Measured 862 lines / 85929 bytes on 2026-09-24 at
 # 356fa15 (research-sdd repo, origin/main) for HOT-CORE (§1 §2 §3 §4 §7 §8 §8b
@@ -138,24 +170,51 @@ HOTCORE_BUDGET_BYTES=100000
 # Prints every line from the first line containing START through the first
 # subsequent line containing END (both inclusive). Fixed-substring match
 # (index()), not a regex, so callers never need to escape prose punctuation.
+#
+# Exit codes (kit CLAUDE.md §7 — an instrument that reports 0/empty must be
+# able to prove it actually looked):
+#   0  START was never found at all — legitimately empty (no block exists);
+#      caller distinguishes this from a real block via its own `-z` check.
+#   0  START and END were both found — full bounded block printed.
+#   3  START was found but END never appeared before EOF. This is the
+#      vanished/reworded-anchor case (#1027 round 2): a naive version kept
+#      capturing straight to EOF and printed that as if it were the real
+#      bounded block, so a stale END anchor read as a huge SITUATIONAL block
+#      stuffed with unrelated §-tokens from the rest of the file (phantom
+#      tokens in T2/T8) instead of failing loudly. Output is buffered and
+#      ONLY printed on a genuine END match (exit 0) — never on exit 3 — so a
+#      caller can never mistake a to-EOF run for a real bounded block just
+#      because its capture happened to be non-empty.
 extract_block_inclusive() {
   local file="$1" start="$2" endin="$3"
   awk -v start="$start" -v endin="$endin" '
     index($0, start) > 0 { capture=1 }
-    capture { print }
-    capture && index($0, endin) > 0 { exit }
+    capture { buf = buf $0 ORS }
+    capture && index($0, endin) > 0 { found=1; exit }
+    END {
+      if (found) { printf "%s", buf; exit 0 }
+      else if (capture) { exit 3 }
+      else { exit 0 }
+    }
   ' "$file"
 }
 
 # tokens_of FILE START END
 # Sorted, deduplicated §N / §Na tokens found in the bounded block. Returns 2
-# (never a silent empty result) if the marker pair is not found, or if it is
-# found but contains zero §-tokens: both are "the instrument could not have
-# looked", never a legitimate empty tier.
+# (never a silent empty result) if the marker pair is not found, if START was
+# found but END never appeared before EOF (extract_block_inclusive rc=3 — the
+# vanished/reworded-end-anchor case), or if the block is found but contains
+# zero §-tokens: all three are "the instrument could not have looked", never
+# a legitimate empty tier.
 tokens_of() {
   local file="$1" start="$2" endin="$3"
-  local block
+  local block rc
   block="$(extract_block_inclusive "$file" "$start" "$endin")"
+  rc=$?
+  if [ "$rc" -eq 3 ]; then
+    printf 'FATAL: tokens_of — START marker found but END marker %q never appeared before EOF in %s (start=%q) — anchor vanished or was reworded, refusing to silently extract to EOF\n' "$endin" "$file" "$start" >&2
+    return 2
+  fi
   if [ -z "$block" ]; then
     printf 'FATAL: tokens_of — marker pair not found in %s (start=%q)\n' "$file" "$start" >&2
     return 2
@@ -469,9 +528,13 @@ check_T4() {
 
 check_T4b() {
   local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
-  local sit1 sit2
-  sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"
-  sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"
+  local sit1 sit2 rc1 rc2
+  sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"; rc1=$?
+  sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"; rc2=$?
+  if [ "$rc1" -eq 3 ] || [ "$rc2" -eq 3 ]; then
+    printf 'FATAL: check_T4b — START marker found but END marker never appeared before EOF (anchor vanished or reworded)\n' >&2
+    return 2
+  fi
   if [ -z "$sit1" ] || [ -z "$sit2" ]; then
     printf 'FATAL: check_T4b — SITUATIONAL marker pair not found\n' >&2
     return 2
@@ -508,9 +571,13 @@ check_T5() {
 # single-line phrasing does not need but tolerates harmlessly.
 check_T5b() {
   local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
-  local sit1 sit2 norm1 norm2
-  sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"
-  sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"
+  local sit1 sit2 norm1 norm2 rc1 rc2
+  sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"; rc1=$?
+  sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"; rc2=$?
+  if [ "$rc1" -eq 3 ] || [ "$rc2" -eq 3 ]; then
+    printf 'FATAL: check_T5b — START marker found but END marker never appeared before EOF (anchor vanished or reworded)\n' >&2
+    return 2
+  fi
   if [ -z "$sit1" ] || [ -z "$sit2" ]; then
     printf 'FATAL: check_T5b — SITUATIONAL marker pair not found\n' >&2
     return 2
@@ -707,8 +774,8 @@ sys.stdout.write(s.replace(old, new))
 
   echo "-- teeth: T2 (drop §23 from PROMPT-LOOP.md SITUATIONAL) --"
   m="$TMP/T2.PROMPTLOOP.md"
-  old=$'§21 wall · §22 breakthrough-ledger ·\n         §23 kit-change template (coordinating a kit change across sessions). Unsure a phase is active -> read it.'
-  new='§21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.'
+  old=$'§21 wall · §22 breakthrough-ledger ·\n         §23 kit-change template (coordinating a kit change across sessions). Read a situational section when its trigger is your next action.'
+  new='§21 wall · §22 breakthrough-ledger. Read a situational section when its trigger is your next action.'
   replace_literal_multiline "$PROMPTLOOP" "$old" "$new" > "$m"
   bite_tooth T2 check_T2 RSDD_LOOP "$m"
 
@@ -966,6 +1033,39 @@ sys.stdout.write(s.replace(old, new))
     ok "teeth-anti-silent-zero: zero-token mutant makes tokens_of return 2 (not a silent empty pass)"
   else
     no "teeth-anti-silent-zero: zero-token mutant did NOT trigger the guard (rc=$rc) — silent zero would slip through"
+  fi
+
+  echo "-- teeth: vanished-end-anchor (#1027 round 2 — rename PROMPT-LOOP.md's SITUATIONAL end anchor; extraction must FAIL loudly, never silently run to EOF) --"
+  # Reproduction of the actual #1027 defect: F07 reworded PROMPT-LOOP.md's
+  # SITUATIONAL closing SENTENCE while LOOP_SIT_END still pinned the OLD
+  # sentence literally. The naive extract_block_inclusive kept capturing past
+  # the real boundary straight to EOF and printed that as the "block", so
+  # tokens_of returned a huge, WRONG token set (phantom §-tokens from block
+  # citations later in the file) instead of failing — check_T2/check_T8 only
+  # caught it INDIRECTLY, as a token-set mismatch / phantom-token report, not
+  # as a loud "the anchor is gone" failure. This tooth mutates the CURRENT
+  # anchor ($KIT/TARGETS.md) instead, to prove the fix generalizes to ANY
+  # future end-anchor rename, not just this one sentence.
+  m="$TMP/VanishedEndAnchor.PROMPTLOOP.md"
+  if ! grep -qF '2. $KIT/TARGETS.md' "$PROMPTLOOP"; then
+    no "teeth-vanished-end-anchor: mutation anchor '2. \$KIT/TARGETS.md' not found in the real PROMPT-LOOP.md — tooth cannot construct its mutant (report this, do not skip silently)"
+  else
+    sed 's/2\. \$KIT\/TARGETS\.md/2. \$KIT\/RENAMED-TARGETS.md/' "$PROMPTLOOP" > "$m"
+    out="$(tokens_of "$m" "$LOOP_SIT_START" "$LOOP_SIT_END" 2>&1 >/dev/null)"; rc=$?
+    if [ "$rc" -eq 2 ] && grep -q 'never appeared before EOF' <<<"$out"; then
+      ok "teeth-vanished-end-anchor: tokens_of on the renamed-anchor mutant returns 2 with the vanished-anchor diagnostic (rc=$rc) — $out"
+    else
+      no "teeth-vanished-end-anchor: tokens_of did NOT fail loudly on the renamed-anchor mutant (rc=$rc, out=[$out]) — a stale/changed anchor would silently extract to EOF again"
+    fi
+    # Control: the SAME mutant, through check_T2 end-to-end (not just the raw
+    # tokens_of unit), must also refuse rather than report a token-set diff or
+    # phantom tokens — this is the exact failure shape #1027 actually hit.
+    out2="$(RSDD_LOOP="$m" check_T2 2>&1)"; rc2=$?
+    if [ "$rc2" -eq 2 ]; then
+      ok "teeth-vanished-end-anchor-T2: check_T2 on the renamed-anchor mutant returns 2 (FATAL), not a silent token-set diff"
+    else
+      no "teeth-vanished-end-anchor-T2: check_T2 did NOT return 2 on the renamed-anchor mutant (rc=$rc2, out=[$out2]) — would resurface as a confusing token-set diff instead of a clear anchor failure"
+    fi
   fi
 fi
 
