@@ -1,0 +1,2 @@
+{"type":"user","origin":{"kind":"human"},"timestamp":"2026-06-01T00:00:00Z","message":{"role":"user","content":"start please"}}
+{"type":"assistant","timestamp":"2026-06-01T00:25:00Z","message":{"role":"assistant","content":[{"type":"text","text":"literal\\nmarker here, a literal backslash-n, not a real break\nsecond line has a literal backslash \\ right here\nSTOP: campaign — done"}]}}

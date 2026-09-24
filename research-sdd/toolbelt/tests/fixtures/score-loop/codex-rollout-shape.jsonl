@@ -1,0 +1,6 @@
+{"timestamp":"2026-06-01T00:00:00Z","ordinal":1,"type":"session_meta","payload":{"id":"synthetic-session"}}
+{"timestamp":"2026-06-01T00:00:01Z","ordinal":2,"type":"response_item","payload":{"type":"message","id":"msg_synthetic_1","role":"user","content":[{"type":"input_text","text":"synthetic operator prompt, not real transcript content"}]}}
+{"timestamp":"2026-06-01T00:05:00Z","ordinal":3,"type":"response_item","payload":{"type":"message","id":"msg_synthetic_2","role":"assistant","content":[{"type":"output_text","text":"synthetic block1 done, next gap-2"}]}}
+{"timestamp":"2026-06-01T00:15:00Z","ordinal":4,"type":"response_item","payload":{"type":"message","id":"msg_synthetic_3","role":"assistant","content":[{"type":"output_text","text":"synthetic block2 done, next gap-3"}]}}
+{"timestamp":"2026-06-01T00:25:00Z","ordinal":5,"type":"response_item","payload":{"type":"message","id":"msg_synthetic_4","role":"assistant","content":[{"type":"output_text","text":"synthetic all clear, STOP: campaign — done"}]}}
+{"timestamp":"2026-06-01T00:30:00Z","ordinal":6,"type":"token_usage_record","payload":{"input_tokens":100,"output_tokens":50}}

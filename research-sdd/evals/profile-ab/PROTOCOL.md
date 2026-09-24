@@ -24,12 +24,29 @@ that scores a run is `research-sdd/toolbelt/score-loop-transcript.sh` (kit issue
 - **Orchestrated `/loop` mode is REQUIRED, not optional.** The RETURN CONTRACT tokens C4 looks
   for (`next:`, `next-entry:`, `STOP: …`) are defined by PROMPT-LOOP.md's orchestrated mode
   ONLY — an interactive chat session has no reason to ever emit a literal `STOP:` line.
-  Measured (round 2, read-only) across three real Claude Code session transcripts: 0 of 7,678
-  assistant last-lines started with `STOP:`, and none of those sessions ran orchestrated
-  `/loop`. A cell run in interactive/chat mode makes C4 vacuous for that run (it will read
-  `fail` or `n/a`, not because the model failed to honor STOP, but because the run was never
-  asked to emit the token in the first place) — do not compare C4 pass-counts across cells
-  unless every cell's runs were driven the same way, in orchestrated mode.
+  Measured (round 3, read-only) across three real Claude Code session transcripts: 0 of 1,650
+  TEXT-BEARING assistant records' last-lines started with `STOP:`. TWO of those three sessions
+  WERE self-paced `/loop` runs (the third was an interactive `/build-n4-module` campaign), so
+  "orchestrated mode" alone does not explain the zero — see the driver requirement immediately
+  below for the actual reason. A cell run in interactive/chat mode still makes C4 vacuous for
+  that run (`fail`/`n/a`, not a real STOP-honoring failure) — do not compare C4 pass-counts
+  across cells unless every cell's runs were driven the same way, in orchestrated mode, AND
+  every driver honored the requirement below.
+- **The driver's OWN final line must repeat the RETURN CONTRACT token — never rely on a
+  delegated sub-agent's report alone (round 3).** In orchestrated mode with a delegated
+  sub-agent (PROMPT-LOOP.md's SubagentHandback pattern), the token typically lands in the
+  SUB-AGENT's report, which arrives in the driver's own transcript as a `tool_result` block —
+  not as the driver's own assistant text. `score-loop-transcript.sh` deliberately does NOT scan
+  `tool_result` blocks for the token (correlating a `tool_result` back to a `Task`-shaped tool
+  call to confirm it is really a sub-agent report, not a Bash/Read result, is not a cheap check
+  on a transcript the scorer has not seen — see the script header's "C4 and delegated
+  sub-agents"). This is the actual, measured reason C4 read 0/1,650 above even on self-paced
+  `/loop` sessions: the driver relayed/summarized the sub-agent's report instead of ending its
+  OWN turn with the literal token. REQUIREMENT for every eval run: the orchestrating driver's
+  final assistant message, not a sub-agent's, must end with the exact `next:`/`next-entry:`/
+  `STOP: …` token, even when a sub-agent already reported one. Note this compliance in the run
+  log's `Transcript ref` column when it is NOT met, so a C4 `fail` can be told apart from a
+  driver that genuinely did not honor STOP.
 - **Each run gets its own isolated corpus copy.** Never point two concurrent runs (even
   different cells) at the same target directory — a real corpus was polluted this way in an
   earlier session (round 2 finding). Before each run: `git clone` (or `cp -r` + `git init`) the
@@ -110,16 +127,25 @@ and risking drift):
 
 ## Known limitations
 
-- **Qwen transcript shape is unverified; Claude Code's own shape now IS (round 2).**
+- **Qwen transcript shape is unverified; Claude Code's own shape now IS (round 2), and a real
+  Codex/`reasonix` rollout shape is now CONFIRMED unusable as-is (round 3).**
   `score-loop-transcript.sh`'s JSONL-record assumptions — `origin.kind=="human"` for a genuine
   operator turn, `compact_boundary`/`isCompactSummary` for compaction — were checked read-only
-  against three real Claude Code session transcripts and are accurate for that harness. A
-  Qwen-family harness (reasonix/codex) has NOT been checked and may emit differently-named
-  fields, or no transcript at all. Before running cells C/D for the first time, confirm the
-  harness can produce a transcript and repeat the same read-only inspection this kit did for
-  Claude Code (`jq` over a handful of real records, grep for the fields the defaults key on)
-  before trusting `RSDD_OPERATOR_INPUT_JQ`/`RSDD_COMPACT_JQ` defaults there — override them if
-  the shapes differ, the same way this round's fix was derived, not by guessing.
+  against three real Claude Code session transcripts and are accurate for that harness. A real
+  Codex rollout (`~/.codex/sessions/.../rollout-*.jsonl`) was ALSO inspected read-only this
+  round: its top-level `.type` is always `event_msg`/`response_item`/`token_usage_record`/etc —
+  never `"user"`/`"assistant"` — and the human/assistant role lives NESTED at `.payload.role`,
+  with no top-level `.origin` field at all. `score-loop-transcript.sh`'s round-3
+  "unrecognized transcript shape" guard correctly refuses to score a transcript in this shape
+  (every criterion reads `degraded unrecognized transcript shape` instead of a false pass) — so
+  a Qwen/reasonix cell run through score-loop-transcript.sh unmodified will DEGRADE cleanly, not
+  silently misscore, which is the safe default but not a usable eval result. Before running
+  cells C/D for the first time: confirm the harness's actual transcript shape (repeat the same
+  read-only `jq`-over-real-records inspection this kit did for Claude Code and Codex), then
+  either point `RSDD_OPERATOR_INPUT_JQ`/`RSDD_COMPACT_JQ` at the CORRECT (possibly nested) field
+  path for that shape, or accept that cells C/D will read `degraded` for every criterion and
+  are not comparable to A/B until that override is written and verified against real data — not
+  guessed.
 - **Without a transcript, C1 is `n/a`, not a usable fallback signal.** A prior draft of this
   protocol suggested relying on "C1's transcript-independent count" for cells C/D if Qwen's
   transcript shape turns out to be unusable. That undersells what happens: with no transcript
