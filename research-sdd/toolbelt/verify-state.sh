@@ -393,9 +393,10 @@ _p8_first_path_token() {
 # forms #991 names: a $CLAUDE_PROJECT_DIR / ${CLAUDE_PROJECT_DIR} prefix (→ <hroot>), an already-
 # absolute path (used as-is), or a bare path resolved relative to <hroot>. Existence is NOT checked
 # here — the caller does, so a dangling path is reported unresolved rather than silently dropped.
-# The caller also checks the result stays UNDER <hroot> (§8/privacy: an absolute command like
-# `cat /etc/hostname` resolves to a real, readable, existing file that is nonetheless not part of
-# this target's corpus, and must never be opened).
+# The caller also runs this through _p8_root_check (§8/privacy: an absolute command like
+# `cat /etc/hostname`, or a relative one that escapes via ".." or a symlink, resolves to a real,
+# readable, existing file that is nonetheless not part of this target's corpus, and must never be
+# opened).
 _p8_resolve_hook_path() {
   local tok="$1" hroot="$2" rest
   case "$tok" in
@@ -410,17 +411,65 @@ _p8_resolve_hook_path() {
   esac
 }
 
+# _p8_root_check <path> <hroot> <hroot_real> <has_realpath>: the single gate every candidate hook
+# path passes through — settings-derived AND .claude/hooks/* listing entries alike — before it is
+# ever added to the inspected set or opened. On success sets $_p8_rc_result to the safe path to use
+# and returns 0. On failure sets $_p8_rc_reason ("out-of-root" or "degraded") and $_p8_rc_detail
+# (the path to name in the caller's WARN) and returns 1; the caller never reads the file.
+#   - has_realpath=1: canonicalize with `realpath` (resolves both ".." and every symlink in the
+#     chain) and require the result to sit under <hroot_real>. This is the precise check.
+#   - has_realpath=0 (degraded — #991 review: a purely textual prefix match is not enough; `../`
+#     lexically cancels back under <hroot_real> without ever leaving it on paper, and a symlink
+#     leaf or a symlinked DIRECTORY COMPONENT partway down both point the read somewhere the text
+#     never mentions): a path that does not even textually start under <hroot_real> is unambiguous
+#     ("out-of-root", no realpath needed to see that). One that does is walked component by
+#     component from <hroot_real> down with `-L`, and rejected ("degraded") if any component is a
+#     symlink or the remainder contains a ".." segment anywhere — conservative by design: this
+#     cannot prove a symlink stays in-root without realpath, so it never tries.
+_p8_root_check() {
+  local path="$1" hroot="$2" hroot_real="$3" has_rp="$4" real rel comp walked
+  _p8_rc_result=""; _p8_rc_reason=""; _p8_rc_detail=""
+  if [ "$has_rp" -eq 1 ]; then
+    real="$(realpath -- "$path" 2>/dev/null || printf '%s' "$path")"
+    case "$real" in
+      "$hroot_real"/*) _p8_rc_result="$real"; return 0 ;;  # P8-ROOT-CHECK-INROOT-CASE
+      *) _p8_rc_reason="out-of-root"; _p8_rc_detail="$real"; return 1 ;;
+    esac
+  fi
+  case "$path" in
+    "$hroot_real"/*) ;;
+    *) _p8_rc_reason="out-of-root"; _p8_rc_detail="$path"; return 1 ;;
+  esac
+  rel="${path#"$hroot_real"/}"
+  case "/$rel/" in
+    *'/../'*) _p8_rc_reason="degraded"; _p8_rc_detail="$path"; return 1 ;;
+  esac
+  walked="$hroot_real"
+  local IFS='/'
+  for comp in $rel; do
+    [ -z "$comp" ] && continue
+    walked="$walked/$comp"
+    if [ -L "$walked" ]; then _p8_rc_reason="degraded"; _p8_rc_detail="$path"; return 1; fi
+  done
+  _p8_rc_result="$path"
+  return 0
+}
+
 # P8: hook scripts still containing unreplaced template placeholders. The INSPECTED SET is the UNION
 # of (a) settings.json's hook commands, (b) settings.local.json's hook commands, and (c) every file
-# directly under .claude/hooks/ (not only *.sh) — deduplicated by realpath, so the same physical
+# or symlink directly under .claude/hooks/ (not only *.sh) — deduplicated, so the same physical
 # script named from more than one place is inspected once. Each source is read independently: a
-# settings.json hook no longer hides settings.local.json or .claude/hooks/ (#991 review regression —
-# origin/main WARNed on a .claude/hooks/ hook that a settings.json-only reading made invisible).
-# §7 anti-silent-zero: absent-input / empty-input / no-match produce distinct output lines; jq
-# absence is a typed 'degraded' state; invalid JSON is a typed 'malformed' state, distinct from
-# 'unreadable' (a permission failure); every settings-declared command that fails to resolve to a
-# file is reported loudly, never skipped; a resolved path OUTSIDE the target root is reported
-# 'out-of-root' and never opened (§8 read-only corpora — this instrument reads only the target).
+# settings.json hook never hides settings.local.json or .claude/hooks/, and vice versa.
+# §7 anti-silent-zero, FOUR distinct final states: absent-input (nothing exists) / empty-input (a
+# source exists and is genuinely empty) / no-match (files exist, all clean — silent) /
+# declared-but-none-inspectable (something was found but every candidate was refused — never
+# conflated with empty-input). jq absence is a typed 'degraded' state; invalid JSON is a typed
+# 'malformed' state, distinct from 'unreadable' (a permission failure); every settings-declared
+# command that fails to resolve to a file is reported loudly, never skipped; a path OUTSIDE the
+# target root — via an absolute command, a ".." segment, or a symlink (leaf or a directory
+# component partway down) — is reported 'out-of-root' (or, without `realpath` available to prove
+# it, conservatively 'degraded') and never opened (§8 read-only corpora — this instrument reads
+# only the target). See _p8_root_check below for the containment check itself.
 # Runs ONCE per target (before per-state loop) — not once per RESEARCH-STATE file.
 # F1: exact allowlist of forms found in research-sdd/templates/ hook files (not a generic UPPER regex).
 # F2: when called with a nested corpus dir ($target/corpus), .claude/ lives at the target root; walk
@@ -433,9 +482,16 @@ fi
 _p8_hroot_real="$(realpath -- "$_p8_hroot" 2>/dev/null || printf '%s' "$_p8_hroot")"
 _p8_hdir="$_p8_hroot/.claude/hooks"
 
-_p8_combined=""       # newline list of realpaths — one per resolved, in-root, existing file (pre-dedup)
+_p8_realpath_ok=1
+command -v realpath >/dev/null 2>&1 || _p8_realpath_ok=0
+if [ "$_p8_realpath_ok" -eq 0 ]; then
+  echo "   degraded   hook-set: realpath not found on PATH — cannot canonicalize hook paths; any settings-declared or .claude/hooks/ path containing '..' or crossing a symlink is refused rather than trusted (§8)"
+fi
+
+_p8_combined=""       # newline list of safe, in-root, existing file paths (pre-dedup)
 _p8_src_report=""     # newline list of "<label>: N file(s)" — one per source that contributed >=1
 _p8_any_seen=0        # did ANY of settings.json / settings.local.json / .claude/hooks/ exist at all
+_p8_any_rejected=0    # did any FOUND candidate get refused (unresolved/out-of-root/degraded/unreadable/malformed)?
 
 # (a) + (b): settings.json and settings.local.json — identical extraction/resolution, looped so the
 # second source is never silently skipped just because the first one already had hooks.
@@ -447,14 +503,17 @@ for _p8_pair in "$_p8_hroot/.claude/settings.json:settings.json" \
   _p8_any_seen=1
   if [ ! -r "$_p8_spath" ]; then
     echo "   unreadable   hook-set: $_p8_slabel at $_p8_hroot is not readable — cannot derive its hook commands"
+    _p8_any_rejected=1
     continue
   fi
   if ! command -v jq >/dev/null 2>&1; then
     echo "   degraded   hook-set: jq not found on PATH — cannot parse $_p8_slabel hook commands (hooks declared outside .claude/hooks/, e.g. tools/hooks/, are invisible in this mode)"
+    _p8_any_rejected=1
     continue
   fi
   if ! _p8_cmds="$(jq -r '(.hooks // {}) | [.. | objects | .command? // empty] | .[]' "$_p8_spath" 2>/dev/null)"; then  # P8-SETTINGS-JQ-EXTRACT
     echo "   malformed   hook-set: $_p8_slabel at $_p8_hroot is not valid JSON — cannot derive its hook commands"
+    _p8_any_rejected=1
     continue
   fi
   [ -z "$_p8_cmds" ] && continue
@@ -466,53 +525,81 @@ for _p8_pair in "$_p8_hroot/.claude/settings.json:settings.json" \
     [ -n "$_p8_tok" ] && _p8_resolved_path="$(_p8_resolve_hook_path "$_p8_tok" "$_p8_hroot")"
     if [ -z "$_p8_resolved_path" ] || [ ! -f "$_p8_resolved_path" ]; then
       echo "   WARN   hook-set: $_p8_slabel hook command could not be resolved to a script file (inspected: $_p8_hroot): $_p8_cmd"
+      _p8_any_rejected=1
       continue
     fi
-    _p8_real="$(realpath -- "$_p8_resolved_path" 2>/dev/null || printf '%s' "$_p8_resolved_path")"
-    case "$_p8_real" in
-      "$_p8_hroot_real"/*) ;;
-      *)
-        echo "   WARN   hook-set: $_p8_slabel hook command resolves outside the target root (inspected: $_p8_hroot) — refusing to read it (out-of-root): $_p8_real"
-        continue
-        ;;
-    esac
-    _p8_combined="${_p8_combined}${_p8_real}"$'\n'
-    _p8_src_n=$((_p8_src_n + 1))
+    if _p8_root_check "$_p8_resolved_path" "$_p8_hroot" "$_p8_hroot_real" "$_p8_realpath_ok"; then
+      _p8_combined="${_p8_combined}${_p8_rc_result}"$'\n'
+      _p8_src_n=$((_p8_src_n + 1))
+    else
+      _p8_any_rejected=1
+      if [ "$_p8_rc_reason" = "out-of-root" ]; then
+        echo "   WARN   hook-set: $_p8_slabel hook command resolves outside the target root (inspected: $_p8_hroot) — refusing to read it (out-of-root): $_p8_rc_detail"
+      else
+        echo "   WARN   hook-set: $_p8_slabel hook command's path could not be safely verified without realpath (contains '..' or crosses a symlink) — refusing to read it (degraded): $_p8_rc_detail"
+      fi
+    fi
   done <<< "$_p8_cmds"
   [ "$_p8_src_n" -gt 0 ] && _p8_src_report="${_p8_src_report}${_p8_slabel}: ${_p8_src_n} file(s)"$'\n'
 done
 
-# (c): every file directly under .claude/hooks/ (ALL files, not only *.sh — a hook can be any type).
-# -type f excludes symlinks (find's default lstat-based type test, no -L/-follow given), so this
-# listing cannot itself escape the target root — no separate out-of-root check needed here.
+# (c): every file OR symlink directly under .claude/hooks/ (ALL types, not only *.sh — a hook can be
+# any script type, and a hook can be a symlink, e.g. into a shared tools/ dir). Each entry passes
+# through the SAME _p8_root_check as a settings-derived command before being trusted — a symlink can
+# escape the target root exactly as an absolute command path can (§8/§991 review: the previous
+# "-type f excludes symlinks, so no check is needed here" claim was true only because symlinks were
+# unconditionally dropped, which silently hid an IN-ROOT symlink hook the old *.sh glob used to WARN
+# on; now that symlinks are included, they need the same containment check settings-derived paths
+# get). `[ -f ]` after the check drops anything that isn't ultimately a regular file (a symlink to a
+# directory, or a dangling symlink) — silently, exactly as a plain subdirectory always was.
 if [ -d "$_p8_hdir" ]; then
   _p8_any_seen=1
   if [ ! -r "$_p8_hdir" ]; then
     echo "   unreadable   hook-placeholder: .claude/hooks/ at $_p8_hroot is not readable — cannot inspect"
+    _p8_any_rejected=1
   else
     _p8_hooks_n=0
     while IFS= read -r _p8_hf; do
       [ -z "$_p8_hf" ] && continue
-      _p8_real="$(realpath -- "$_p8_hf" 2>/dev/null || printf '%s' "$_p8_hf")"
-      _p8_combined="${_p8_combined}${_p8_real}"$'\n'
-      _p8_hooks_n=$((_p8_hooks_n + 1))
-    done < <(find "$_p8_hdir" -maxdepth 1 -type f 2>/dev/null | sort)
+      if _p8_root_check "$_p8_hf" "$_p8_hroot" "$_p8_hroot_real" "$_p8_realpath_ok"; then
+        if [ -f "$_p8_rc_result" ]; then
+          _p8_combined="${_p8_combined}${_p8_rc_result}"$'\n'
+          _p8_hooks_n=$((_p8_hooks_n + 1))
+        fi
+      else
+        _p8_any_rejected=1
+        if [ "$_p8_rc_reason" = "out-of-root" ]; then
+          echo "   WARN   hook-set: .claude/hooks/ entry resolves outside the target root (inspected: $_p8_hroot) — refusing to read it (out-of-root): $_p8_rc_detail"
+        else
+          echo "   WARN   hook-set: .claude/hooks/ entry's path could not be safely verified without realpath (contains '..' or crosses a symlink) — refusing to read it (degraded): $_p8_rc_detail"
+        fi
+      fi
+    done < <(find "$_p8_hdir" -maxdepth 1 \( -type f -o -type l \) 2>/dev/null | sort)
     [ "$_p8_hooks_n" -gt 0 ] && _p8_src_report="${_p8_src_report}.claude/hooks/*: ${_p8_hooks_n} file(s)"$'\n'
   fi
 fi
 
-# Dedup by realpath (the same physical script named from settings.json, settings.local.json, and/or
-# sitting in .claude/hooks/ is inspected once) and report the union — which sources were read and how
-# many files came from each, per the summary line below.
+# Dedup (the same physical script named from settings.json, settings.local.json, and/or sitting in
+# .claude/hooks/ is inspected once) and report the union — which sources were read and how many
+# files came from each, per the summary line below.
 mapfile -t _p8_files < <(printf '%s\n' "$_p8_combined" | grep -v '^$' | sort -u)  # P8-UNION-DEDUP
 _p8_pre_dedup_n=$(printf '%s\n' "$_p8_combined" | grep -vc '^$' || true)
 _p8_dupes=$(( _p8_pre_dedup_n - ${#_p8_files[@]} ))
 
+# §7 three-state (extended): absent-input (nothing existed) / empty-input (a source existed and was
+# genuinely empty) / declared-but-none-inspectable (something was FOUND — a command, an entry — but
+# every one of them was refused above: unresolved, out-of-root, degraded, unreadable, or malformed)
+# are three DIFFERENT zeros. Conflating the last two under one "empty" message was itself a silent-
+# zero bug (#991 review): a target whose only hook was refused as out-of-root read as indistinguishable
+# from a target with no hooks declared at all, even though the WARN lines above already proved
+# otherwise for a careful reader — the summary line must not contradict them.
 if [ "${#_p8_files[@]}" -gt 0 ]; then
   _p8_src_summary="$(printf '%s' "$_p8_src_report" | grep -v '^$' | tr '\n' ';' | sed 's/;/; /g; s/; $//')"
   echo "   INFO   hook-set: inspected ${#_p8_files[@]} hook file(s) — ${_p8_src_summary} (${_p8_dupes} duplicate(s) removed; root: $_p8_hroot)"
 elif [ "$_p8_any_seen" -eq 0 ]; then
   echo "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: $_p8_hroot) — no installed hooks to inspect"
+elif [ "$_p8_any_rejected" -eq 1 ]; then
+  echo "   INFO   hook-placeholder: declared-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, or malformed (see the report above); none could be inspected (inspected: $_p8_hroot)"
 else
   echo "   INFO   hook-placeholder: no hooks found (empty) across .claude/settings.json, settings.local.json, and .claude/hooks/ (inspected: $_p8_hroot) — no installed hooks to inspect"
 fi
@@ -533,8 +620,9 @@ for _p8f in "${_p8_files[@]}"; do
 done
 # no-match: hooks exist and all clean — silent, covered by per-state ok line
 unset _p8f _p8_phs _p8_lns _p8_lines _p8_cmd _p8_cmds _p8_tok _p8_resolved_path _p8_pair _p8_spath
-unset _p8_slabel _p8_src_n _p8_real _p8_hf _p8_hooks_n _p8_src_report _p8_src_summary _p8_pre_dedup_n
-unset _p8_dupes _p8_any_seen _p8_hdir _p8_hroot _p8_hroot_real _p8_combined _p8_files
+unset _p8_slabel _p8_src_n _p8_hf _p8_hooks_n _p8_src_report _p8_src_summary _p8_pre_dedup_n
+unset _p8_dupes _p8_any_seen _p8_any_rejected _p8_hdir _p8_hroot _p8_hroot_real _p8_combined _p8_files
+unset _p8_realpath_ok _p8_rc_result _p8_rc_reason _p8_rc_detail
 
 rc=0
 for state in "${states[@]}"; do
