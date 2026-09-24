@@ -18,6 +18,20 @@
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
 # own global system prompt, e.g. codex's ~/.codex/AGENTS.md).
+#
+# Managed overwrite (kit issue #1024 F4 + round 3 item 2): a deployed skill that still matches the
+# sha256 the installer itself last recorded is a MANAGED overwrite, not a hand-edit — it is
+# silently updated to the new source, no --force-skill needed. This covers TWO cases identically,
+# since the marker-hash check cannot (and need not) distinguish them: a profile SWITCH (deployed
+# is the previous profile's unedited render) and a SAME-profile kit update (deployed is unedited,
+# but the kit's own content has since moved forward — e.g. a newer kit checkout). Either way the
+# dry-run plan says "[will update — managed content (matches last install)]". A deployed file that
+# does NOT match the recorded hash is a genuine hand-edit and keeps the existing protected
+# behaviour (warn + keep, or --force-skill backup + overwrite) unchanged — EXCEPT: if this was an
+# attempted profile SWITCH (the marker names a different profile than the one just requested) and
+# the hand-edit blocks it, the overall run exits non-zero (round 3 item 3) instead of the usual
+# exit 0 — the launcher's "Kit path:" would otherwise be rewritten to the NEW profile while the
+# kept SKILL.md stays the OLD profile's content, a mixed state that must never report success.
 set -uo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)"
@@ -25,7 +39,7 @@ KIT="$(cd "$SELF/.." && pwd)"
 # shellcheck source=adapters.sh
 . "$SELF/adapters.sh"
 
-usage() { sed -n '3,20p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,34p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
 
 # --- prompt-surfacing strategies: dispatched by the STRATEGY VALUE, never by harness name ----------
 # Each prints its plan line(s) + the rendered section, then (unless dry) performs the write.
@@ -406,7 +420,7 @@ _rsdd_dry_skill_plan() {
   elif [ -f "$dest" ] && cmp -s "$src" "$dest"; then
     printf '  INSTALL %s (%s) [up-to-date]\n' "$dest" "$label"
   elif [ -f "$dest" ] && _rsdd_marker_matches_deployed "$marker" "$dest"; then
-    printf '  INSTALL %s (%s) [will update — managed content from a profile switch]\n' "$dest" "$label"
+    printf '  INSTALL %s (%s) [will update — managed content (matches last install)]\n' "$dest" "$label"
   elif [ -f "$dest" ] && [ "$force" = 1 ]; then
     if [ -e "$dest.local-backup" ]; then
       printf '  INSTALL %s (%s) [SKIP — backup %s already exists; rename or remove it first]\n' "$dest" "$label" "$dest.local-backup"
@@ -471,6 +485,18 @@ _rsdd_deploy_skill() {
     fi
   elif [ -f "$dest" ]; then
     printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)\n' "$dest" >&2
+    # kit issue #1024 round 3 item 3: if this WAS an attempted profile switch (the marker names a
+    # DIFFERENT profile than the one just requested) and the hand-edit blocked it, the launcher's
+    # "Kit path:" is about to be rewritten to the NEW profile anyway (step 2 always runs) while
+    # SKILL.md stays the OLD profile's content — a mixed state. Fail loudly rather than report
+    # exit 0 as if the switch had cleanly completed. An ordinary re-install with a pre-existing
+    # hand-edit on the SAME profile (old_profile == profile, or no marker yet) is unaffected.
+    _old_profile_it3="$(_rsdd_marker_field "$marker" profile 2>/dev/null)" || _old_profile_it3=""
+    if [ -n "$_old_profile_it3" ] && [ "$_old_profile_it3" != "$profile" ]; then
+      printf 'research-sdd-install: ERROR %s: switching profile "%s" → "%s" was requested, but a hand-edit at %s blocked it — the launcher will still point at "%s" while the deployed skill stays "%s" (mixed state). Resolve with --force-skill (overwrites, backs up first) or by hand, then re-run.\n' \
+        "$h" "$_old_profile_it3" "$profile" "$dest" "$profile" "$_old_profile_it3" >&2
+      return 1
+    fi
   elif ! cp "$src" "$dest"; then
     echo "research-sdd-install: [$h] cp failed → $dest" >&2; return 1
   else
@@ -482,7 +508,13 @@ _rsdd_deploy_skill() {
       echo "research-sdd-install: [$h] warning: could not write profile-state marker $marker" >&2
     }
     if [ -n "$old_profile" ] && [ "$old_profile" != "$profile" ] && [ "$old_profile" != "claude" ]; then
-      if ! _rsdd_clean_profile_dir "$config_root/research-sdd/profile/$old_profile" "$config_root"; then
+      # kit issue #1024 round 3 "also": the marker is small operator-editable state — validate
+      # its profile= value against the SAME known-profile check the installer uses everywhere
+      # else, BEFORE it ever reaches a path construction, rather than relying solely on
+      # _rsdd_clean_profile_dir's own (already-sufficient-for-traversal) F2 guards downstream.
+      if ! rsdd_valid_profile "$old_profile" "$KIT"; then
+        echo "research-sdd-install: [$h] warning: marker names an invalid profile '$old_profile' — refusing to clean, leaving it for manual inspection" >&2
+      elif ! _rsdd_clean_profile_dir "$config_root/research-sdd/profile/$old_profile" "$config_root"; then
         echo "research-sdd-install: [$h] warning: could not clean the orphaned '$old_profile' render dir" >&2
       fi
     fi

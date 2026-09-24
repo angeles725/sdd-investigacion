@@ -510,6 +510,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# kit issue #1024 round 3, MEDIUM: symlinked toolbelt (render dir)
+# ---------------------------------------------------------------------------
+# KIT_ROOT used to be derived via `cd "$_SCRIPT_DIR/../.."` WITHOUT -P. bash's default (-L,
+# logical) $PWD tracking resolves ".." against the STRING it cd'd into, not the physical
+# filesystem — so when the FIRST cd lands on a symlinked toolbelt/ (as installed for a non-claude
+# profile's render dir, kit issue #993 WU2 + #1024 F1), the symlink component is never "spent":
+# the SECOND ".." cancels it out lexically and lands one level short of the real kit root, inside
+# .../research-sdd/profile/ instead of .../research-sdd/. Reproduced against the pre-fix SUT:
+# `TARGETS_MD` then pointed at .../profile/research-sdd/TARGETS.md, which does not exist.
+box_sym="$(mkbox symlink-toolbelt)"
+mkdir -p "$box_sym/research-sdd/profile/general"
+ln -s "$box_sym/research-sdd/toolbelt" "$box_sym/research-sdd/profile/general/toolbelt"
+OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
+  "$box_sym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"; RC_SYM=$?
+if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'absent-input.*TARGETS\.md'; then
+  ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, still resolves the real TARGETS.md" \
+     "(rc=$RC_SYM)"
+else
+  no "SYMLINK-TOOLBELT: TARGETS.md not found through a symlinked toolbelt/" "(rc=$RC_SYM out=[$OUT_SYM])"
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls for --prove-teeth)
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -765,6 +787,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "T-CACHE-METACHAR teeth: anchor or grep -F sentinel not found in SUT"
+  fi
+
+  # TOOTH SYMLINK-TOOLBELT: revert -P/pwd -P to plain cd/pwd (kit issue #1024 round 3, MEDIUM).
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
+  box_tsym="$(mkbox teeth-symlink-toolbelt)"
+  mutant_tsym="$box_tsym/research-sdd/toolbelt/reconcile-issues.sh"
+  sed -e 's/cd -P "\$(dirname "\$0")" \&\& pwd -P/cd "$(dirname "$0")" \&\& pwd/' \
+      -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
+      "$SUT" > "$mutant_tsym"
+  if diff -q "$SUT" "$mutant_tsym" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
+  fi
+  mkdir -p "$box_tsym/research-sdd/profile/general"
+  ln -s "$box_tsym/research-sdd/toolbelt" "$box_tsym/research-sdd/profile/general/toolbelt"
+  out_tsym="$(PATH="$box_tsym/bin:$PATH" "$BASH_BIN" \
+    "$box_tsym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"; rc_tsym=$?
+  if [ "$rc_tsym" -ne 0 ] && printf '%s' "$out_tsym" | grep -qi 'absent-input.*TARGETS\.md'; then
+    ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ → -P fix has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
+       "(rc=$rc_tsym out=[$out_tsym])"
   fi
 
 fi  # --prove-teeth

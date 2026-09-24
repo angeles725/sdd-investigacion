@@ -13,8 +13,8 @@ SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; DRIVER58=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; MUTANT23=""; MUTANT24=""; MUTANT25=""; DRIVER58=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$MUTANT23" ] && rm -f "$MUTANT23"; [ -n "$MUTANT24" ] && rm -f "$MUTANT24"; [ -n "$MUTANT25" ] && rm -f "$MUTANT25"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -35,6 +35,17 @@ _direct_clean_profile_dir() {
   driver="$HERE/../research-sdd-install-direct-clean.$$.sh"
   printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_clean_profile_dir "$1" "$2"\necho "RC=$?"\n' > "$driver"
   bash "$driver" "$dir" "$config_root" 2>&1
+  rm -f "$driver"
+}
+
+# _direct_dry_skill_plan <src> <dest> <force> <label> <marker> — invokes _rsdd_dry_skill_plan
+# DIRECTLY on caller-supplied synthetic files (never real kit content), via the same throwaway
+# driver technique — sources the real, UNMUTATED SUT's functions.
+_direct_dry_skill_plan() {
+  local src="$1" dest="$2" force="$3" label="$4" marker="$5" driver
+  driver="$HERE/../research-sdd-install-direct-plan.$$.sh"
+  printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5"\n' > "$driver"
+  bash "$driver" "$src" "$dest" "$force" "$label" "$marker" 2>&1
   rm -f "$driver"
 }
 
@@ -454,19 +465,17 @@ if grep -q '# custom' "$sf" && [ ! -f "$bak_fd" ]; then
 else no "--force-skill + dry-run: mutated the filesystem"; fi
 
 # 36 — --help range integrity: correct first and last lines, --force-skill present, set -uo absent.
-#      Catches all four ±1 drift directions on the hardcoded sed range in usage():
-#        3,17p → last rendered line is NOT the Idempotent tail (fails "codex's" check)
-#        3,19p → "set -uo pipefail" appears in output (fails pipefail-absent check)
-#        4,18p → first rendered line is NOT empty (fails empty-first-line check)
-#        2,18p → first rendered line is NOT empty (fails empty-first-line check)
+#      Catches ±1 drift directions on the hardcoded sed range in usage(): the range must end
+#      exactly at the managed-overwrite paragraph's last line (added kit issue #1024 round 3 item
+#      2) and never leak "set -uo pipefail"; the first rendered line must stay the bare '#' blank.
 help_out="$(bash "$SUT" --help 2>&1)"
 help_first="$(printf '%s\n' "$help_out" | head -1)"
 help_last="$(printf '%s\n' "$help_out" | grep . | tail -1)"
 help_ok=1
-printf '%s\n' "$help_out" | grep -q -- '--force-skill'     || help_ok=0  # line 14 in range
+printf '%s\n' "$help_out" | grep -q -- '--force-skill'     || help_ok=0  # in range
 printf '%s\n' "$help_out" | grep -q 'set -uo pipefail' && help_ok=0      # must stay outside range
 [ -z "$help_first" ]                                       || help_ok=0  # line 3 is bare '#'
-printf '%s\n' "$help_last" | grep -q "codex's"             || help_ok=0  # last content line = 18
+printf '%s\n' "$help_last" | grep -q "must never report success" || help_ok=0  # last content line
 [ "$help_ok" = 1 ] \
   && ok "--help: range correct (--force-skill present, no pipefail, first/last lines match)" \
   || no "--help: range wrong (force-skill=$(printf '%s\n' "$help_out"|grep -c -- '--force-skill'), pipefail=$(printf '%s\n' "$help_out"|grep -c 'pipefail'), first='$help_first', last='$help_last')"
@@ -1384,6 +1393,124 @@ else
   no "F1d: completed entries are not symlinks as expected"
 fi
 
+# F1e (kit issue #1024 round 3, item 1): checking that every $KIT/<path> reference RESOLVES (F1a)
+# is not the same as checking that a script which DERIVES the kit/repo root from its own location
+# (rather than trusting "Kit path:") still lands on the REAL kit when invoked through the render's
+# symlinked toolbelt/. EXECUTE the toolbelt scripts identified by grepping the whole toolbelt for
+# `dirname "$0"`/`BASH_SOURCE` derivations that climb past their own directory (see the PR body
+# for the full inventory): reconcile-issues.sh and stage-retro-issues.sh (this PR), and
+# verify-doc-consistency.sh (fixed here too, no other owner) — each in a harmless mode (report-
+# only / no --apply / read-only by design) — and assert each resolves the real kit, not the
+# render dir's own subtree.
+harmless_retro_f1e="$TMP/f1e-retro.md"
+printf '# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | x | y | z | fix | P2 |\n' > "$harmless_retro_f1e"
+
+# reconcile-issues.sh --all against a FULLY SYNTHETIC scratch mini-kit, never the real fleet: an
+# earlier version of this test invoked --all through the REAL render (against the real machine's
+# TARGETS.md-registered targets), which is slow/non-hermetic and would behave differently on a CI
+# runner with no target corpora at all (or none registered), or touch real state on a real
+# developer machine. This mirrors the identical hermetic fixture reconcile-issues.test.sh's own
+# SYMLINK-TOOLBELT test already uses — never the real toolbelt/, never a real --home.
+scratch_recon_f1e="$(mktemp -d)"
+mkdir -p "$scratch_recon_f1e/research-sdd/toolbelt/lib" "$scratch_recon_f1e/render/profile/general" \
+  "$scratch_recon_f1e/rh/target-foo/retros"
+cp "$KITROOT/toolbelt/reconcile-issues.sh"  "$scratch_recon_f1e/research-sdd/toolbelt/reconcile-issues.sh"
+cp "$KITROOT/toolbelt/lib/retro-status.sh"  "$scratch_recon_f1e/research-sdd/toolbelt/lib/retro-status.sh"
+cp "$KITROOT/toolbelt/lib/retro-grammar.sh" "$scratch_recon_f1e/research-sdd/toolbelt/lib/retro-grammar.sh"
+cp "$KITROOT/toolbelt/lib/target-paths.sh"  "$scratch_recon_f1e/research-sdd/toolbelt/lib/target-paths.sh"
+printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' \
+  "$scratch_recon_f1e/rh/target-foo" > "$scratch_recon_f1e/research-sdd/TARGETS.md"
+ln -s "$scratch_recon_f1e/research-sdd/toolbelt" "$scratch_recon_f1e/render/profile/general/toolbelt"
+out_recon_f1e="$(bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"
+rm -rf "$scratch_recon_f1e"
+if ! printf '%s' "$out_recon_f1e" | grep -qi 'absent-input.*TARGETS'; then
+  ok "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ resolves the real kit root (hermetic scratch fixture)"
+else
+  no "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ failed (out=$out_recon_f1e)"
+fi
+
+# $harmless_retro_f1e lives under $TMP, which is NOT a registered target — the "target directory
+# ... not found" WARN legitimately fires either way (unrelated to the -P fix). What the fix
+# controls is WHICH TARGETS.md the WARN names: broken (unfixed) resolves through
+# .../profile/research-sdd/TARGETS.md; fixed always names the real kit's TARGETS.md.
+out_stage_f1e="$(bash "$render_root_f1/toolbelt/stage-retro-issues.sh" "$harmless_retro_f1e" 2>&1)"
+if ! printf '%s' "$out_stage_f1e" | grep -q 'profile/research-sdd/TARGETS\.md'; then
+  ok "F1e: stage-retro-issues.sh through the render names the real TARGETS.md (not a broken profile-nested path)"
+else
+  no "F1e: stage-retro-issues.sh through the render named a broken TARGETS.md path (out=$out_stage_f1e)"
+fi
+
+out_kit_vdc_f1e="$(bash "$KITROOT/toolbelt/verify-doc-consistency.sh" 2>&1)"
+out_render_vdc_f1e="$(bash "$render_root_f1/toolbelt/verify-doc-consistency.sh" 2>&1)"
+broken_kit_f1e="$(printf '%s' "$out_kit_vdc_f1e" | grep -oE '[0-9]+ broken citation' | grep -oE '^[0-9]+')"
+broken_render_f1e="$(printf '%s' "$out_render_vdc_f1e" | grep -oE '[0-9]+ broken citation' | grep -oE '^[0-9]+')"
+if [ -n "$broken_kit_f1e" ] && [ "$broken_kit_f1e" = "$broken_render_f1e" ]; then
+  ok "F1e: verify-doc-consistency.sh through the render matches the direct kit run ($broken_kit_f1e broken citations)"
+else
+  no "F1e: verify-doc-consistency.sh through the render diverged (kit=$broken_kit_f1e render=$broken_render_f1e)"
+fi
+
+# ── kit issue #1024 review round 3, item 2 (LOW): same-profile kit update mislabeled ─────────
+# The managed-overwrite path (F4) also legitimately covers a SAME-profile kit update with no
+# hand-edit: deployed matches the recorded marker hash, but the kit's own content has since moved
+# forward — an unedited deployed skill correctly follows the kit. That is INTENDED new behaviour,
+# not a bug. But the dry-run plan line said "[will update — managed content from a profile
+# switch]", which is misleading when the profile never switched at all. Relabeled to
+# "managed content (matches last install)" — accurate for BOTH a profile switch and a same-
+# profile kit update, since the marker-hash check cannot (and need not) distinguish the two.
+_pm2_dir="$TMP/plan-managed-relabel"; mkdir -p "$_pm2_dir"
+_pm2_dest="$_pm2_dir/dest.md"; _pm2_src="$_pm2_dir/src.md"; _pm2_marker="$_pm2_dir/marker"
+printf 'installed content — unedited\n' > "$_pm2_dest"
+printf 'newer kit content — the kit moved forward, same profile\n' > "$_pm2_src"
+_pm2_sha="$(sha256sum "$_pm2_dest" | awk '{print $1}')"
+printf 'profile=general\nsha256=%s\n' "$_pm2_sha" > "$_pm2_marker"
+out_pm2="$(_direct_dry_skill_plan "$_pm2_src" "$_pm2_dest" 0 "from rendered profile 'general'" "$_pm2_marker")"
+if printf '%s' "$out_pm2" | grep -q 'managed content (matches last install)' \
+   && ! printf '%s' "$out_pm2" | grep -qi 'profile switch'; then
+  ok "item2: same-profile kit update labeled 'managed content (matches last install)', not 'profile switch'"
+else
+  no "item2: dry-run label wrong for a same-profile kit update (out=$out_pm2)"
+fi
+
+# ── kit issue #1024 review round 3, item 3 (LOW): switch keeps a hand-edit → mixed state ─────
+# Reproduced: install general, hand-edit the deployed SKILL.md, then switch to claude. SKILL.md
+# is correctly preserved (warn+keep — a genuine hand-edit), but the launcher's "Kit path:" line
+# was STILL rewritten to the new (claude) profile — a mixed state (skill body from general,
+# Kit path from claude) reported with exit 0, as if the switch had cleanly completed. Chosen fix
+# (of the two the review offered): exit non-zero whenever a hand-edit is kept AND the recorded
+# marker names a DIFFERENT profile than the one just requested — an ordinary re-install with a
+# pre-existing hand-edit on the SAME profile (R3's own behaviour, tests 60/F4d) is unaffected,
+# since old_profile == new profile there.
+home_it3="$TMP/item3-mixed-state"
+bash "$SUT" --home "$home_it3" --harness reasonix --profile general >/dev/null 2>&1
+sf_it3="$home_it3/.reasonix/skills/research-sdd/SKILL.md"
+printf '# hand-edited — a real local delta\n' >> "$sf_it3"
+bash "$SUT" --home "$home_it3" --harness reasonix --profile claude >/dev/null 2>&1; rc_it3=$?
+if [ "$rc_it3" -ne 0 ] && grep -q 'hand-edited — a real local delta' "$sf_it3"; then
+  ok "item3: switch keeping a hand-edit exits non-zero (mixed-state signal), content still preserved"
+else
+  no "item3: switch keeping a hand-edit did not exit non-zero (rc=$rc_it3)"
+fi
+
+# ── kit issue #1024 review round 3, "also" item: validate the marker's profile= before the clean
+# The marker file is small operator-editable state (kit issue #1024 review F4); a corrupted or
+# hand-edited profile= value used to reach _rsdd_clean_profile_dir's path construction with no
+# validation of its own — _rsdd_clean_profile_dir's F2 guards (textual + symlink + realpath) still
+# caught a TRAVERSAL value safely, but an unknown/non-existent profile NAME (no traversal) simply
+# no-op'd silently (rm -rf on a directory that never existed). rsdd_valid_profile is now run on the
+# marker's profile= value BEFORE any path is built, so an invalid value is reported explicitly.
+home_mval="$TMP/marker-validate"
+bash "$SUT" --home "$home_mval" --harness reasonix --profile general >/dev/null 2>&1
+marker_mval="$home_mval/.reasonix/research-sdd/.installed-skill-state"
+sha_mval="$(sha256sum "$home_mval/.reasonix/skills/research-sdd/SKILL.md" | awk '{print $1}')"
+printf 'profile=not-a-real-profile\nsha256=%s\n' "$sha_mval" > "$marker_mval"
+err_mval="$(bash "$SUT" --home "$home_mval" --harness reasonix --profile claude 2>&1 >/dev/null)"
+if printf '%s' "$err_mval" | grep -qi "invalid profile 'not-a-real-profile'"; then
+  ok "marker-validate: an invalid marker profile= value is explicitly refused before the clean"
+else
+  no "marker-validate: invalid marker profile= value not validated (out=$err_mval)"
+fi
+
 # ── kit issue #1024 review round 2, F4 (MEDIUM): profile switch leaves a mixed state ──────────
 # Reproduced against the pre-F4 code: install general, then claude — the launcher correctly
 # reverts (Kit path: back to the real kit), but SKILL.md stays the GENERAL render, reported as
@@ -1472,6 +1599,41 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT20 (linking skipped) leaves toolbelt/ and TARGETS.md missing → F1 linking-step check has teeth"
   fi
 
+  # F1e teeth (kit issue #1024 round 3, item 1): a REPRESENTATIVE tooth for reconcile-issues.sh's
+  # -P fix (stage-retro-issues.sh and verify-doc-consistency.sh have their OWN dedicated teeth in
+  # their respective *.test.sh suites, following the identical -P pattern). CRITICAL: this builds
+  # a fully SYNTHETIC scratch kit (mktemp -d) — never a real render, whose toolbelt/ is a
+  # SYMLINK to the real toolbelt/ — to avoid overwriting the live tracked script (that exact
+  # mistake happened once while building this fix and was caught by F1e's own cross-check).
+  echo "-- teeth: revert reconcile-issues.sh's -P to plain cd/pwd; expect F1e to fail --"
+  recon_sut="$KITROOT/toolbelt/reconcile-issues.sh"
+  mutant_recon_f1e="$(mktemp)"
+  sed -e 's/cd -P "\$(dirname "\$0")" \&\& pwd -P/cd "$(dirname "$0")" \&\& pwd/' \
+      -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
+      "$recon_sut" > "$mutant_recon_f1e"
+  if diff -q "$recon_sut" "$mutant_recon_f1e" >/dev/null 2>&1; then
+    no "teeth F1e pre-check: mutant = reconcile-issues.sh — -P pattern not found"
+  else
+    ok "teeth F1e pre-check: mutant differs (-P reverted to plain cd/pwd)"
+  fi
+  scratch_f1e="$(mktemp -d)"
+  mkdir -p "$scratch_f1e/toolbelt/lib" "$scratch_f1e/profile/general" "$scratch_f1e/rh/target-foo/retros"
+  cp "$mutant_recon_f1e" "$scratch_f1e/toolbelt/reconcile-issues.sh"
+  cp "$KITROOT/toolbelt/lib/retro-status.sh"  "$scratch_f1e/toolbelt/lib/retro-status.sh"
+  cp "$KITROOT/toolbelt/lib/retro-grammar.sh" "$scratch_f1e/toolbelt/lib/retro-grammar.sh"
+  cp "$KITROOT/toolbelt/lib/target-paths.sh"  "$scratch_f1e/toolbelt/lib/target-paths.sh"
+  printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' \
+    "$scratch_f1e/rh/target-foo" > "$scratch_f1e/TARGETS.md"
+  ln -s "$scratch_f1e/toolbelt" "$scratch_f1e/profile/general/toolbelt"
+  out_recon_f1e_teeth="$(bash "$scratch_f1e/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"
+  if printf '%s' "$out_recon_f1e_teeth" | grep -qi 'absent-input.*TARGETS\.md'; then
+    ok "teeth: reverted mutant re-breaks reconcile-issues.sh through a symlinked toolbelt/ → F1e has teeth"
+  else
+    no "teeth: reverted mutant still resolved TARGETS.md — F1e check is THEATER (out=$out_recon_f1e_teeth)"
+  fi
+  rm -rf "$scratch_f1e"
+  rm -f "$mutant_recon_f1e"
+
   echo "-- teeth: neuter _rsdd_marker_matches_deployed; expect F4a to fail --"
   MUTANT21="$HERE/../research-sdd-install.MUTANT21.$$.sh"
   sed 's/_rsdd_marker_matches_deployed "\$marker" "\$dest"/false/' "$SUT" > "$MUTANT21"
@@ -1511,6 +1673,73 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT22 (orphan-cleanup disabled) leaves the stale general/ render dir → F4b cleanup check has teeth"
   else
     no "teeth: MUTANT22 still cleaned the orphaned render dir — F4b cleanup check is THEATER"
+  fi
+
+  echo "-- teeth: revert the item2 relabel; expect item2 to fail --"
+  MUTANT23="$HERE/../research-sdd-install.MUTANT23.$$.sh"
+  sed "s/managed content (matches last install)/managed content from a profile switch/" "$SUT" > "$MUTANT23"
+  bash -n "$MUTANT23" 2>/dev/null \
+    && ok "teeth: MUTANT23 parses (bash -n)" \
+    || no "teeth: MUTANT23 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT23" >/dev/null 2>&1; then
+    no "teeth: MUTANT23 pre-check: mutant = SUT — relabel text not found"
+  else
+    ok "teeth: MUTANT23 pre-check: mutant differs (relabel reverted)"
+  fi
+  driver_m23="$HERE/../research-sdd-install-driver-m23.$$.sh"
+  printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.MUTANT23.'"$$"'.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5"\n' > "$driver_m23"
+  _pm2_sha_m23="$(sha256sum "$_pm2_dest" | awk '{print $1}')"
+  out_m23="$(bash "$driver_m23" "$_pm2_src" "$_pm2_dest" 0 "from rendered profile 'general'" "$_pm2_marker" 2>&1)"
+  rm -f "$driver_m23"
+  if printf '%s' "$out_m23" | grep -qi 'profile switch'; then
+    ok "teeth: MUTANT23 (relabel reverted) re-shows the misleading 'profile switch' text → item2 check has teeth"
+  else
+    no "teeth: MUTANT23 still avoided 'profile switch' text — item2 check is THEATER (out=$out_m23)"
+  fi
+
+  echo "-- teeth: neuter the item3 mixed-state guard; expect item3 to fail --"
+  MUTANT24="$HERE/../research-sdd-install.MUTANT24.$$.sh"
+  sed 's/if \[ -n "\$_old_profile_it3" \] \&\& \[ "\$_old_profile_it3" != "\$profile" \]; then/if false; then/' "$SUT" > "$MUTANT24"
+  bash -n "$MUTANT24" 2>/dev/null \
+    && ok "teeth: MUTANT24 parses (bash -n)" \
+    || no "teeth: MUTANT24 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT24" >/dev/null 2>&1; then
+    no "teeth: MUTANT24 pre-check: mutant = SUT — mixed-state guard not found"
+  else
+    ok "teeth: MUTANT24 pre-check: mutant differs (mixed-state guard disabled)"
+  fi
+  home_m24="$TMP/teeth-m24-mixed"
+  bash "$MUTANT24" --home "$home_m24" --harness reasonix --profile general >/dev/null 2>&1
+  sf_m24="$home_m24/.reasonix/skills/research-sdd/SKILL.md"
+  printf '# hand-edited — a real local delta\n' >> "$sf_m24"
+  bash "$MUTANT24" --home "$home_m24" --harness reasonix --profile claude >/dev/null 2>&1; rc_m24=$?
+  if [ "$rc_m24" -eq 0 ]; then
+    ok "teeth: MUTANT24 (guard disabled) silently exits 0 on a mixed state → item3 check has teeth"
+  else
+    no "teeth: MUTANT24 still exited non-zero (rc=$rc_m24) — item3 check is THEATER"
+  fi
+
+  echo "-- teeth: neuter the marker-profile validation; expect marker-validate to fail --"
+  MUTANT25="$HERE/../research-sdd-install.MUTANT25.$$.sh"
+  sed 's/if ! rsdd_valid_profile "\$old_profile" "\$KIT"; then/if false; then/' "$SUT" > "$MUTANT25"
+  bash -n "$MUTANT25" 2>/dev/null \
+    && ok "teeth: MUTANT25 parses (bash -n)" \
+    || no "teeth: MUTANT25 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT25" >/dev/null 2>&1; then
+    no "teeth: MUTANT25 pre-check: mutant = SUT — marker-profile validation not found"
+  else
+    ok "teeth: MUTANT25 pre-check: mutant differs (marker-profile validation disabled)"
+  fi
+  home_m25="$TMP/teeth-m25-marker"
+  bash "$MUTANT25" --home "$home_m25" --harness reasonix --profile general >/dev/null 2>&1
+  marker_m25="$home_m25/.reasonix/research-sdd/.installed-skill-state"
+  sha_m25="$(sha256sum "$home_m25/.reasonix/skills/research-sdd/SKILL.md" | awk '{print $1}')"
+  printf 'profile=not-a-real-profile\nsha256=%s\n' "$sha_m25" > "$marker_m25"
+  err_m25="$(bash "$MUTANT25" --home "$home_m25" --harness reasonix --profile claude 2>&1 >/dev/null)"
+  if ! printf '%s' "$err_m25" | grep -qi "invalid profile 'not-a-real-profile'"; then
+    ok "teeth: MUTANT25 (validation disabled) no longer reports the invalid marker profile → marker-validate has teeth"
+  else
+    no "teeth: MUTANT25 still reported the invalid profile — marker-validate check is THEATER"
   fi
 fi
 

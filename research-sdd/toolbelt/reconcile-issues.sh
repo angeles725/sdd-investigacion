@@ -77,9 +77,19 @@ fi
 _REPO="angeles725/sdd-investigacion"
 
 # ---------------------------------------------------------------------------
-# Kit layout — KIT_ROOT is two dirs up from toolbelt/ (the script's own dir)
-_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KIT_ROOT="$(cd "$_SCRIPT_DIR/../.." && pwd)"
+# Kit layout — KIT_ROOT is two dirs up from toolbelt/ (the script's own dir).
+# -P/pwd -P (PHYSICAL resolution) is required here, not the default -L logical mode: this script
+# is invoked as $KIT/toolbelt/reconcile-issues.sh where $KIT can be a per-profile RENDER dir whose
+# toolbelt/ is a SYMLINK to the real kit's toolbelt/ (kit issue #993 WU2 install-time profile
+# rendering + #1024 F1 render-dir completion). Bash's default (-L) $PWD tracking resolves ".."
+# against the STRING it cd'd into, never spending the symlink component — so the second ".." here
+# cancelled it out lexically and landed one level short of the real kit root, inside
+# .../research-sdd/profile/ instead of .../research-sdd/ (kit issue #1024 round 3, MEDIUM;
+# reproduced: TARGETS_MD pointed at a nonexistent .../profile/research-sdd/TARGETS.md). -P forces
+# the kernel's physical path at each step, so both cd's walk the REAL directory tree regardless of
+# how many symlinks were traversed to invoke this script.
+_SCRIPT_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
+KIT_ROOT="$(cd -P "$_SCRIPT_DIR/../.." && pwd -P)"
 TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
 
 # ---------------------------------------------------------------------------
