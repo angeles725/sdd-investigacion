@@ -4061,6 +4061,35 @@ build_hermetic_nojq_bin() { build_hermetic_bin_excluding "$1" "$2" "jq"; }
 # settings.json; only realpath's absence is under test.
 build_hermetic_norealpath_bin() { build_hermetic_bin_excluding "$1" "$2" "realpath"; }
 
+# _P8_REALPATH_GUARANTEED_DIR / run_rp <dir> — every test below that specifically exercises NORMAL
+# (realpath-present) mode must not silently depend on the ambient host's PATH actually having
+# realpath: running this whole suite under a PATH that lacks it (e.g. r3bin) would otherwise make
+# these tests exercise DEGRADED mode instead and fail on their normal-mode wording. Locate the real
+# `realpath` via `command -v` first; if the ambient PATH itself excludes it (exactly r3bin's shape
+# — a PATH deliberately missing realpath while the binary still exists on disk), fall back to the
+# well-known coreutils install locations directly, since those do not depend on PATH at all. Then
+# symlink whichever was found into a dedicated dir and prepend that dir to PATH for every such run
+# — the same technique the out-of-root bypass teeth mutant already uses.
+_p8_rp_bin="$(command -v realpath 2>/dev/null || true)"
+if [ -z "$_p8_rp_bin" ]; then
+  for _p8_rp_candidate in /usr/bin/realpath /bin/realpath /usr/local/bin/realpath; do
+    [ -x "$_p8_rp_candidate" ] && { _p8_rp_bin="$_p8_rp_candidate"; break; }
+  done
+fi
+if [ -n "$_p8_rp_bin" ]; then
+  _P8_REALPATH_GUARANTEED_DIR="$TMP/realpath-guaranteed-bin"; mkdir -p "$_P8_REALPATH_GUARANTEED_DIR"
+  ln -sf "$_p8_rp_bin" "$_P8_REALPATH_GUARANTEED_DIR/realpath"
+else
+  _P8_REALPATH_GUARANTEED_DIR=""
+fi
+run_rp() {
+  if [ -n "$_P8_REALPATH_GUARANTEED_DIR" ]; then
+    PATH="$_P8_REALPATH_GUARANTEED_DIR:$PATH" bash "$SUT" "$1" 2>/dev/null
+  else
+    bash "$SUT" "$1" 2>/dev/null
+  fi
+}
+
 # P8S-REPRO: settings.json wires tools/hooks/a.py (clean); settings.local.json wires
 # .claude/hooks/orphan.sh (contains <TARGET>), which ALSO sits directly under .claude/hooks/ — named
 # by two sources at once. It must be deduplicated to ONE inspected file and WARN exactly once, not
@@ -4369,7 +4398,7 @@ d="$TMP/p8s-sym-inroot"; mk_state_p8 "$d"
 mkdir -p "$d/tools/hooks" "$d/.claude/hooks"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/real.sh"
 ln -s "../../tools/hooks/real.sh" "$d/.claude/hooks/real.sh"
-_p8symin="$(run "$d" 2>/dev/null)"
+_p8symin="$(run_rp "$d")"
 if echo "$_p8symin" | grep -qiE 'WARN.*hook-placeholder.*real\.sh|hook-placeholder.*real\.sh.*WARN'; then
   ok "P8S-SYM-INROOT: an in-root symlink under .claude/hooks/ is followed and inspected"
 else
@@ -4383,7 +4412,7 @@ d="$TMP/p8s-sym-outroot"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 outside_sym="$TMP/p8s-sym-outroot-secret"; mkdir -p "$outside_sym"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_sym/secret.sh"
 ln -s "$outside_sym/secret.sh" "$d/.claude/hooks/l.sh"
-_p8symout="$(run "$d" 2>/dev/null)"
+_p8symout="$(run_rp "$d")"
 if echo "$_p8symout" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
   ok "P8S-SYM-OUTROOT: a .claude/hooks/ symlink pointing outside the target root is reported out-of-root"
 else
@@ -4400,7 +4429,7 @@ fi
 # dropping it (as a plain subdirectory always was) hid a hook the old *.sh glob used to WARN on.
 d="$TMP/p8s-dangling"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 ln -s nonexist.sh "$d/.claude/hooks/d.sh"
-_p8dang="$(run "$d" 2>/dev/null)"
+_p8dang="$(run_rp "$d")"
 if echo "$_p8dang" | grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh'; then
   ok "P8S-DANGLING: a dangling symlink alone is reported loudly, not silently dropped"
 else
@@ -4418,7 +4447,7 @@ fi
 d="$TMP/p8s-dangling-alongside"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 ln -s nonexist.sh "$d/.claude/hooks/d.sh"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/.claude/hooks/valid.sh"
-_p8danga="$(run "$d" 2>/dev/null)"
+_p8danga="$(run_rp "$d")"
 if echo "$_p8danga" | grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh'; then
   ok "P8S-DANGLING-ALONGSIDE: the dangling symlink is still reported alongside a valid hook"
 else
@@ -4453,22 +4482,45 @@ if command -v realpath >/dev/null 2>&1; then
   fi
 
   # P8S-NOREALPATH-DOTDOT: a relative command with a ".." segment stays under the target root's own
-  # TEXTUAL prefix while actually escaping it. Without realpath to canonicalize, this must be
-  # refused on sight, not trusted on the strength of the raw string.
+  # TEXTUAL prefix while actually escaping it. The candidate's DIRECTORY is canonicalized (cd -P +
+  # pwd -P, builtins — the OS resolves ".." transparently) before the comparison, so this resolves
+  # precisely to 'out-of-root' — proven outside, not merely suspected.
   d="$TMP/p8s-noreal-dotdot"; mk_state_p8 "$d"
   outside_dd="$TMP/p8s-noreal-dotdot-outside"; mkdir -p "$outside_dd"
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_dd/secret.sh"
   mk_settings_cmds "$d" '../p8s-noreal-dotdot-outside/secret.sh'
   _p8ndd="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8ndd" | grep -qiE 'hook-set:.*degraded.*secret\.sh'; then
-    ok "P8S-NOREALPATH-DOTDOT: a '..'-escaping relative command is refused without realpath"
+  if echo "$_p8ndd" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+    ok "P8S-NOREALPATH-DOTDOT: a '..'-escaping relative command is proven out-of-root without realpath"
   else
-    no "P8S-NOREALPATH-DOTDOT: expected a degraded refusal; got: $(echo "$_p8ndd" | grep -i 'hook-set' | head -3)"
+    no "P8S-NOREALPATH-DOTDOT: expected an out-of-root refusal; got: $(echo "$_p8ndd" | grep -i 'hook-set' | head -3)"
   fi
   if echo "$_p8ndd" | grep -qiE 'hook-placeholder.*secret\.sh'; then
     no "P8S-NOREALPATH-DOTDOT: secret.sh was READ — privacy violation under degraded mode"
   else
     ok "P8S-NOREALPATH-DOTDOT: secret.sh's placeholder content was never read"
+  fi
+
+  # P8S-NOREALPATH-ANCESTOR-ABS: an ABSOLUTE settings-declared command reached through a
+  # symlinked ANCESTOR (e.g. the real-world /var -> /private/var shape) that is NOT the target
+  # root itself — a purely textual comparison against the canonical root never matches, since the
+  # command's own text never mentions the target's real name. The candidate's DIRECTORY is
+  # canonicalized (cd -P + pwd -P, builtins) before the comparison, so this must resolve correctly
+  # and WARN, not be falsely reported out-of-root.
+  d="$TMP/p8s-noreal-ancestor-abs"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
+  printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/x.sh"
+  symroot="$TMP/p8s-noreal-ancestor-abs-altname"; ln -s "$d" "$symroot"
+  mk_settings_cmds "$d" "$symroot/tools/hooks/x.sh"
+  _p8naa="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8naa" | grep -qiE 'hook-set:.*out-of-root'; then
+    no "P8S-NOREALPATH-ANCESTOR-ABS: falsely reported out-of-root; got: $(echo "$_p8naa" | grep -i 'hook-set' | head -3)"
+  else
+    ok "P8S-NOREALPATH-ANCESTOR-ABS: not falsely reported out-of-root"
+  fi
+  if echo "$_p8naa" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+    ok "P8S-NOREALPATH-ANCESTOR-ABS: the hook is inspected and WARNs through the symlinked ancestor"
+  else
+    no "P8S-NOREALPATH-ANCESTOR-ABS: expected x.sh to WARN; got: $(echo "$_p8naa" | grep -i hook | head -3)"
   fi
 
   # P8S-NOREALPATH-SYMLEAF: a clean relative command (no "..") whose final component is a symlink
@@ -4493,17 +4545,19 @@ if command -v realpath >/dev/null 2>&1; then
 
   # P8S-NOREALPATH-SYMDIR: a clean relative command whose PATH escapes through a symlinked
   # DIRECTORY COMPONENT partway down (not the final component) — the same escape family, one level
-  # up. A component-walk must catch this exactly like the leaf case above.
+  # up. The candidate's DIRECTORY is canonicalized (cd -P + pwd -P, builtins) before the textual
+  # prefix check, so this now resolves precisely to 'out-of-root' rather than falling back to the
+  # conservative 'degraded' — the builtin canonicalization proves it is outside, no guess needed.
   d="$TMP/p8s-noreal-symdir"; mk_state_p8 "$d"
   outside_sd="$TMP/p8s-noreal-symdir-outside"; mkdir -p "$outside_sd"
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_sd/secret.sh"
   ln -s "$outside_sd" "$d/tools"
   mk_settings_cmds "$d" 'tools/secret.sh'
   _p8nsd="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8nsd" | grep -qiE 'hook-set:.*degraded.*secret\.sh'; then
-    ok "P8S-NOREALPATH-SYMDIR: a symlinked directory component escaping the target root is refused without realpath"
+  if echo "$_p8nsd" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+    ok "P8S-NOREALPATH-SYMDIR: a symlinked directory component escaping the target root is proven out-of-root without realpath (dirname canonicalization)"
   else
-    no "P8S-NOREALPATH-SYMDIR: expected a degraded refusal; got: $(echo "$_p8nsd" | grep -i 'hook-set' | head -3)"
+    no "P8S-NOREALPATH-SYMDIR: expected an out-of-root refusal; got: $(echo "$_p8nsd" | grep -i 'hook-set' | head -3)"
   fi
   if echo "$_p8nsd" | grep -qiE 'hook-placeholder.*secret\.sh'; then
     no "P8S-NOREALPATH-SYMDIR: secret.sh was READ — privacy violation under degraded mode"
@@ -4588,11 +4642,14 @@ if command -v realpath >/dev/null 2>&1; then
     no "P8S-DANGLING-NOREALPATH-ALONGSIDE: expected valid.sh to WARN; got: $(echo "$_p8dangna" | grep -i hook | head -3)"
   fi
 
-  # P8S-GLOBCOMP: a settings-derived relative command whose path has a GLOB-SHAPED component
-  # ("[l]") that is also a symlink escaping the target root. Run with the process cwd switched to a
-  # directory containing a decoy entry literally named "l" — an unquoted, glob-active split of the
-  # component (the pre-fix `for x in $rel` with IFS='/' but pathname expansion still on) would
-  # wrongly expand "[l]" against that decoy and test the WRONG path instead of the real one.
+  # P8S-GLOBCOMP: a settings-derived relative command whose path has a GLOB-SHAPED DIRECTORY
+  # component ("[l]") that is also a symlink escaping the target root. Run with the process cwd
+  # switched to a directory containing a decoy entry literally named "l". Since "[l]" here is a
+  # directory (not the final component), the dirname-canonicalization added for symlinked-ancestor
+  # absolute paths already resolves it via the `cd -P` builtin (which does not glob a quoted
+  # argument) before any manual splitting happens — so this now correctly resolves as
+  # 'out-of-root', not 'degraded'. See P8S-GLOBCOMP-LEAF below for the case that still exercises
+  # the manual component-split's own glob-safety directly (the glob-shaped component AS the leaf).
   d="$TMP/p8s-globcomp"; mk_state_p8 "$d"; mkdir -p "$d/tools"
   glob_decoy_dir="$TMP/p8s-globcomp-decoy-cwd"; mkdir -p "$glob_decoy_dir"
   touch "$glob_decoy_dir/l"
@@ -4601,15 +4658,40 @@ if command -v realpath >/dev/null 2>&1; then
   ln -s "$outside_gc" "$d/tools/[l]"
   mk_settings_cmds "$d" 'tools/[l]/secret.sh'
   _p8gc="$(cd "$glob_decoy_dir" && PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8gc" | grep -qiE 'hook-set:.*degraded.*secret\.sh'; then
-    ok "P8S-GLOBCOMP: a glob-shaped symlinked component is refused, not diverted through the process cwd"
+  if echo "$_p8gc" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+    ok "P8S-GLOBCOMP: a glob-shaped symlinked directory component is proven out-of-root, not diverted through the process cwd"
   else
-    no "P8S-GLOBCOMP: expected a degraded refusal; got: $(echo "$_p8gc" | grep -i 'hook-set' | head -3)"
+    no "P8S-GLOBCOMP: expected an out-of-root refusal; got: $(echo "$_p8gc" | grep -i 'hook-set' | head -3)"
   fi
   if echo "$_p8gc" | grep -qiE 'hook-placeholder.*secret\.sh'; then
     no "P8S-GLOBCOMP: secret.sh was READ — the glob diverted the containment check to the decoy path"
   else
     ok "P8S-GLOBCOMP: secret.sh's placeholder content was never read"
+  fi
+
+  # P8S-GLOBCOMP-LEAF: the glob-shaped symlink ("[l]") is the FINAL (leaf) path component this
+  # time, not a directory — dirname canonicalization only touches the directory portion, so this
+  # one still reaches the manual `read -ra` component-split directly, proving ITS OWN glob-safety
+  # (not superseded by the dirname fix above). Same decoy-cwd technique.
+  d="$TMP/p8s-globcomp-leaf"; mk_state_p8 "$d"; mkdir -p "$d/tools"
+  glob_decoy_dir2="$TMP/p8s-globcomp-leaf-decoy-cwd"; mkdir -p "$glob_decoy_dir2"
+  touch "$glob_decoy_dir2/l"
+  outside_gcl="$TMP/p8s-globcomp-leaf-outside"; mkdir -p "$outside_gcl"
+  printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_gcl/secret.sh"
+  ln -s "$outside_gcl/secret.sh" "$d/tools/[l]"
+  mk_settings_cmds "$d" 'tools/[l]'
+  _p8gcl="$(cd "$glob_decoy_dir2" && PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8gcl" | grep -qiE 'hook-set:.*degraded.*\[l\]'; then
+    ok "P8S-GLOBCOMP-LEAF: a glob-shaped symlinked LEAF is refused, not diverted through the process cwd"
+  else
+    no "P8S-GLOBCOMP-LEAF: expected a degraded refusal; got: $(echo "$_p8gcl" | grep -i 'hook-set' | head -3)"
+  fi
+  # NOTE: if this ever leaks, the WARN reports the SYMLINK's own basename ("[l]"), not the target
+  # it points to ("secret.sh") — the placeholder-scan loop names whatever _p8f/basename it opened.
+  if echo "$_p8gcl" | grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN'; then
+    no "P8S-GLOBCOMP-LEAF: [l] (-> secret.sh) was READ — the glob diverted the containment check to the decoy path"
+  else
+    ok "P8S-GLOBCOMP-LEAF: the symlinked leaf's placeholder content was never read"
   fi
 else
   echo "  SKIP  P8-S no-realpath cases: realpath already absent from PATH — cannot build a hermetic no-realpath PATH to isolate the degraded probe"
@@ -4666,6 +4748,67 @@ if echo "$_p8ras" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x
   ok "P8S-ROOT-ANCESTOR-SYMLINK: a target reached through a symlinked ancestor still resolves and WARNs"
 else
   no "P8S-ROOT-ANCESTOR-SYMLINK: expected x.sh to WARN; got: $(echo "$_p8ras" | grep -i hook | head -3)"
+fi
+
+# P8S-CDPATH: an exported CDPATH pointing at a directory that itself contains a SAME-NAMED
+# subdirectory (a decoy target) must never divert the root canonicalization there, and must never
+# corrupt the canonicalized value into two lines — `cd`, when it resolves a bare relative argument
+# via CDPATH, ALSO auto-prints the directory it found to stdout, which would otherwise land inside
+# the captured value alongside pwd -P's own line. Invoked with a BARE relative target name (no
+# leading "./") — that is what makes bash consult CDPATH for a `cd` in the first place.
+d_cdp_base="$TMP/p8s-cdpath-base"
+mkdir -p "$d_cdp_base/real/mytarget/.claude/hooks" "$d_cdp_base/decoy/mytarget/.claude/hooks"
+mk_state_p8 "$d_cdp_base/real/mytarget"
+printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_cdp_base/real/mytarget/.claude/hooks/x.sh"
+printf '#!/bin/bash\necho decoy\n' > "$d_cdp_base/decoy/mytarget/.claude/hooks/y.sh"
+_p8cdp="$(cd "$d_cdp_base/real" && CDPATH="$d_cdp_base/decoy" bash "$SUT" mytarget 2>/dev/null)"
+if echo "$_p8cdp" | grep -qiF "root: $d_cdp_base/real/mytarget)"; then
+  ok "P8S-CDPATH: an exported CDPATH with a same-named decoy does not divert the canonicalized root"
+else
+  no "P8S-CDPATH: expected the real root in the summary line; got: $(echo "$_p8cdp" | grep -i 'hook-set:' | head -3)"
+fi
+if echo "$_p8cdp" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+  ok "P8S-CDPATH: the REAL target's hook (x.sh) is inspected, not the decoy's (y.sh)"
+else
+  no "P8S-CDPATH: expected x.sh to WARN (not the decoy); got: $(echo "$_p8cdp" | grep -i hook | head -3)"
+fi
+if echo "$_p8cdp" | grep -qi 'y\.sh'; then
+  no "P8S-CDPATH: the decoy target's y.sh leaked into the output — CDPATH diverted the root"
+else
+  ok "P8S-CDPATH: the decoy target's y.sh never appears — CDPATH did not divert the root"
+fi
+
+# P8S-CANON-FAIL: a forced root-canonicalization failure (test-only seam: an exported `cd` shell
+# function — bash's command lookup checks functions before builtins, so an exported function named
+# `cd` shadows the `cd` builtin in the child SUT process) must fail CLOSED — every candidate hook
+# refused and reported, none read — never silently pass through with an empty/corrupted root.
+d_cfail="$TMP/p8s-canonfail"; mk_state_p8 "$d_cfail"; mkdir -p "$d_cfail/.claude/hooks"
+printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_cfail/.claude/hooks/x.sh"
+cd() {
+  if [ "$1" = "--" ] && [ "$2" = "$P8_CANONFAIL_TARGET" ]; then return 1; fi
+  # shellcheck disable=SC2164  # this wrapper's own exit code IS the propagated cd result; no
+  # separate "|| exit" is needed since nothing here runs after it.
+  command cd "$@"
+}
+export -f cd
+export P8_CANONFAIL_TARGET="$d_cfail"
+_p8cfail="$(bash "$SUT" "$d_cfail" 2>/dev/null)"
+unset -f cd
+unset P8_CANONFAIL_TARGET
+if echo "$_p8cfail" | grep -qiE 'degraded.*hook-set.*cannot canonicalize target root|hook-set.*cannot canonicalize target root'; then
+  ok "P8S-CANON-FAIL: a forced canonicalization failure is reported as a typed degraded state"
+else
+  no "P8S-CANON-FAIL: expected a typed 'cannot canonicalize target root' report; got: $(echo "$_p8cfail" | grep -i 'hook-set' | head -3)"
+fi
+if echo "$_p8cfail" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+  no "P8S-CANON-FAIL: x.sh was READ despite the canonicalization failure — fails OPEN, not closed"
+else
+  ok "P8S-CANON-FAIL: x.sh was never read — the failure fails CLOSED"
+fi
+if echo "$_p8cfail" | grep -qiE 'hook-set:.*refused.*could not be canonicalized'; then
+  ok "P8S-CANON-FAIL: the refused candidate is reported by name, not silently dropped"
+else
+  no "P8S-CANON-FAIL: expected a per-candidate refusal report; got: $(echo "$_p8cfail" | grep -i hook | head -3)"
 fi
 
 # ----------------------------------------------------------------------------
@@ -4743,6 +4886,36 @@ if echo "$_p8ste" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8ste" 
   ok "P8S-STATE-EMPTY-CONTROL: nothing declared, nothing to reject → 'empty', never 'found-but-none-inspectable'"
 else
   no "P8S-STATE-EMPTY-CONTROL: regression; got: $(echo "$_p8ste" | grep -i hook | head -3)"
+fi
+
+# P8S-NEWLINE: a path containing an embedded newline must be refused loudly, never silently
+# truncated by the degraded-mode `read -ra` component split — `read` only ever consumes ONE line,
+# so a newline mid-path would otherwise let the (unchecked) remainder ride along as part of a
+# result the caller trusts as safe. Exercises _p8_root_check directly, extracted via sed from the
+# real SUT (a test-only seam — constructing this end-to-end would also hit an unrelated,
+# pre-existing newline-splitting limitation in the surrounding read loops that parse settings.json
+# commands and find(1) output, out of this check's scope).
+_p8nl_extract="$TMP/p8nl-extract.sh"
+sed -n '/^_p8_root_check() {/,/^}/p' "$SUT" > "$_p8nl_extract"
+if [ ! -s "$_p8nl_extract" ]; then
+  no "P8S-NEWLINE: could not extract _p8_root_check from the SUT for direct testing — did it move?"
+else
+  _p8nl_out="$(
+    # shellcheck source=/dev/null  # dynamically extracted from $SUT above, not a fixed file.
+    . "$_p8nl_extract"
+    _p8nl_path="/tmp/p8nl-target/tools/hooks/evil"$'\n'"escape.sh"
+    # shellcheck disable=SC2154  # _p8_rc_result/_p8_rc_reason are set by the sourced function above.
+    if _p8_root_check "$_p8nl_path" "/tmp/p8nl-target" 0; then
+      echo "UNSAFE-ACCEPTED:$_p8_rc_result"
+    else
+      echo "REFUSED:reason=$_p8_rc_reason"
+    fi
+  )"
+  if echo "$_p8nl_out" | grep -q '^REFUSED:'; then
+    ok "P8S-NEWLINE: a path containing an embedded newline is refused loudly, not silently truncated"
+  else
+    no "P8S-NEWLINE: expected a loud refusal; got: $_p8nl_out"
+  fi
 fi
 
 # P8-S teeth: mutate the union/dedup, containment, and extraction/detection primitives and confirm
@@ -4853,18 +5026,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # The mutated case-arm only lives on the has_realpath=1 branch, so this run must be able to
     # find `realpath` regardless of the ambient PATH the test SUITE itself happens to run under —
     # otherwise the SUT would silently take the (unmutated) degraded branch instead, and the
-    # assertion below would depend on this host's PATH rather than on the mutation.
-    p8s_realpath_bin="$(command -v realpath 2>/dev/null || true)"
-    if [ -z "$p8s_realpath_bin" ]; then
+    # assertion below would depend on this host's PATH rather than on the mutation. Reuses the
+    # shared _P8_REALPATH_GUARANTEED_DIR locator (command -v, falling back to the well-known
+    # coreutils install paths when the ambient PATH itself excludes realpath).
+    if [ -z "$_P8_REALPATH_GUARANTEED_DIR" ]; then
       echo "  SKIP  P8-S teeth (out-of-root): realpath not found anywhere on this host — cannot deterministically exercise the realpath-present containment case"
     else
-      p8s_realpath_dir="$p8s_mut_dir/realpath-guaranteed-bin"; mkdir -p "$p8s_realpath_dir"
-      ln -sf "$p8s_realpath_bin" "$p8s_realpath_dir/realpath"
       p8s_oor_dir="$TMP/p8s-teeth-oor"; mk_state_p8 "$p8s_oor_dir"
       p8s_oor_outside="$TMP/p8s-teeth-oor-outside"; mkdir -p "$p8s_oor_outside"
       printf '#!/bin/bash\nT="<TARGET>"\n' > "$p8s_oor_outside/secret.sh"
       mk_settings_cmds "$p8s_oor_dir" "cat $p8s_oor_outside/secret.sh"
-      _p8st_root="$(PATH="$p8s_realpath_dir:$PATH" bash "$p8s_rootmutant" "$p8s_oor_dir" 2>/dev/null)"
+      _p8st_root="$(PATH="$_P8_REALPATH_GUARANTEED_DIR:$PATH" bash "$p8s_rootmutant" "$p8s_oor_dir" 2>/dev/null)"
       if echo "$_p8st_root" | grep -qiE 'hook-placeholder.*secret\.sh'; then
         ok "P8-S teeth (out-of-root): bypassing the containment case makes the escape fixture get READ → the check has teeth"
       else
@@ -4875,10 +5047,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutant 5: restore the glob-unsafe split (P8-DEGRADED-WALK-SPLIT) — an unquoted
   # `for comp in $rel` with IFS='/' but pathname expansion still active, instead of `read -ra` on
-  # a quoted here-string. On the P8S-GLOBCOMP fixture (a glob-shaped symlinked component "[l]",
-  # run with cwd switched to a directory containing a decoy file "l"), the mutant must divert the
-  # component-walk's `-L` test onto the decoy path and let the escape fixture's outside file get
-  # READ — proving the no-glob split is load-bearing, not cosmetic.
+  # a quoted here-string. Uses the LEAF-shape fixture (P8S-GLOBCOMP-LEAF's shape: the glob-shaped
+  # symlink "[l]" IS the final path component) — the dir-shape fixture now resolves earlier via
+  # dirname canonicalization and would never reach the mutated code, so it cannot distinguish the
+  # mutant from the real SUT. With cwd switched to a directory containing a decoy file "l", the
+  # mutant must divert the component-walk's `-L` test onto the decoy path and let the escape
+  # fixture's outside file get READ — proving the no-glob split is load-bearing, not cosmetic.
   p8s_globmutant="$p8s_mut_dir/verify-state-globmutant.sh"
   awk '
     /# P8-DEGRADED-WALK-SPLIT/ {
@@ -4898,12 +5072,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     p8s_glob_decoy="$TMP/p8s-teeth-globcomp-decoy"; mkdir -p "$p8s_glob_decoy"; touch "$p8s_glob_decoy/l"
     p8s_glob_outside="$TMP/p8s-teeth-globcomp-outside"; mkdir -p "$p8s_glob_outside"
     printf '#!/bin/bash\nT="<TARGET>"\n' > "$p8s_glob_outside/secret.sh"
-    ln -s "$p8s_glob_outside" "$p8s_glob_dir/tools/[l]"
-    mk_settings_cmds "$p8s_glob_dir" 'tools/[l]/secret.sh'
+    ln -s "$p8s_glob_outside/secret.sh" "$p8s_glob_dir/tools/[l]"
+    mk_settings_cmds "$p8s_glob_dir" 'tools/[l]'
     p8s_norealpath_bin_for_glob="$p8s_mut_dir/norealpath-bin-for-glob"; mkdir -p "$p8s_norealpath_bin_for_glob"
     build_hermetic_norealpath_bin "$PATH" "$p8s_norealpath_bin_for_glob"
+    # NOTE: a leak reports the SYMLINK's own basename ("[l]"), not the file it points to
+    # ("secret.sh") — the placeholder-scan loop names whatever file it actually opened.
+    _p8st_glob_base="$(cd "$p8s_glob_decoy" && PATH="$p8s_norealpath_bin_for_glob" bash "$SUT" "$p8s_glob_dir" 2>/dev/null)"
+    if echo "$_p8st_glob_base" | grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN'; then
+      no "P8-S teeth (glob-split): baseline real SUT already leaked [l] (-> secret.sh) — fixture itself is broken, mutant result below is meaningless"
+    else
+      ok "P8-S teeth (glob-split): baseline real SUT refuses the leaf-shape escape fixture (pre-mutation sanity)"
+    fi
     _p8st_glob="$(cd "$p8s_glob_decoy" && PATH="$p8s_norealpath_bin_for_glob" bash "$p8s_globmutant" "$p8s_glob_dir" 2>/dev/null)"
-    if echo "$_p8st_glob" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+    if echo "$_p8st_glob" | grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN'; then
       ok "P8-S teeth (glob-split): restoring the glob-unsafe split makes the escape fixture get READ → the no-glob split has teeth"
     else
       no "P8-S teeth (glob-split): mutant still refused the escape fixture — THEATER or the mutation missed: $(echo "$_p8st_glob" | grep -i hook | head -3)"
@@ -4921,6 +5103,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- P8-S teeth proof: errexit hardening — 'echo hi' must not abort even under an injected -e --"
   d_ee="$TMP/p8s-errexit-fixture"; mk_state_p8 "$d_ee"
   mk_settings_cmds "$d_ee" 'echo hi'
+  # Pin realpath through the same guaranteed bin used elsewhere — none of these three runs should
+  # silently depend on the ambient host's PATH actually having realpath.
+  _p8_ee_path="$PATH"
+  [ -n "$_P8_REALPATH_GUARANTEED_DIR" ] && _p8_ee_path="$_P8_REALPATH_GUARANTEED_DIR:$PATH"
 
   # Mutant: -e injected AND the guard stripped. This is the danger the guard exists to prevent.
   p8s_errexit_mutant="$p8s_mut_dir/verify-state-errexit.sh"
@@ -4932,7 +5118,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   elif ! grep -q '^set -euo pipefail$' "$p8s_errexit_mutant"; then
     no "P8-S teeth (errexit): -e injection anchor ('set -uo pipefail') not found — did the SUT change?"
   else
-    _p8ee_mut_out="$(bash "$p8s_errexit_mutant" "$d_ee" 2>&1)"; _p8ee_mut_rc=$?
+    _p8ee_mut_out="$(PATH="$_p8_ee_path" bash "$p8s_errexit_mutant" "$d_ee" 2>&1)"; _p8ee_mut_rc=$?
     if [ "$_p8ee_mut_rc" -eq 1 ] && [ -z "$_p8ee_mut_out" ]; then
       ok "P8-S teeth (errexit): -e injected + guard stripped aborts silently (rc=1, no output) — the danger is real"
     else
@@ -4950,7 +5136,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   elif ! grep -q '^set -euo pipefail$' "$p8s_errexit_control"; then
     no "P8-S teeth (errexit control): -e injection anchor not found — did the SUT change?"
   else
-    _p8ee_ctl_out="$(bash "$p8s_errexit_control" "$d_ee" 2>/dev/null)"; _p8ee_ctl_rc=$?
+    _p8ee_ctl_out="$(PATH="$_p8_ee_path" bash "$p8s_errexit_control" "$d_ee" 2>/dev/null)"; _p8ee_ctl_rc=$?
     if echo "$_p8ee_ctl_out" | grep -qiE "hook-set:.*could not be resolved.*: echo hi" && [ "$_p8ee_ctl_rc" -le 1 ]; then
       ok "P8-S teeth (errexit control): -e injected, guard INTACT → reaches the unresolved WARN normally (rc=$_p8ee_ctl_rc) — isolates the guard as what matters"
     else
@@ -4959,7 +5145,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Real SUT, no -e at all (today's actual shell options): confirmed already by P8S-ECHOHI above.
-  _p8ee_real_out="$(bash "$SUT" "$d_ee" 2>/dev/null)"; _p8ee_real_rc=$?
+  _p8ee_real_out="$(PATH="$_p8_ee_path" bash "$SUT" "$d_ee" 2>/dev/null)"; _p8ee_real_rc=$?
   if echo "$_p8ee_real_out" | grep -qiE "hook-set:.*could not be resolved.*: echo hi" && [ "$_p8ee_real_rc" -le 1 ]; then
     ok "P8-S teeth (errexit): the real, GUARDED SUT reaches the unresolved WARN normally (rc=$_p8ee_real_rc)"
   else
