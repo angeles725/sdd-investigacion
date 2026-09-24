@@ -54,6 +54,15 @@ SKILL="$HERE/../../skills/research-sdd/SKILL.md"
 PROMPTLOOP="$HERE/../../PROMPT-LOOP.md"
 [ -f "$PROMPTLOOP" ] || { printf 'FATAL: PROMPT-LOOP.md not found at expected path: %s\n' "$PROMPTLOOP" >&2; exit 2; }
 
+# assert_* invariant functions (A1-A15, B1-B3, C1-C19, D1, E1a/E1_no_optin,
+# E2a/E2b) live in lib/prompt-invariants.sh — shared with profile-invariants
+# .test.sh (kit issue #993 WU3, #1021) so the same doctrine checks run
+# against both the checked-in sources and a rendered per-profile copy.
+LIB="$HERE/lib/prompt-invariants.sh"
+[ -f "$LIB" ] || { printf 'FATAL: shared invariant library not found: %s\n' "$LIB" >&2; exit 2; }
+# shellcheck source=lib/prompt-invariants.sh
+source "$LIB"
+
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -68,23 +77,23 @@ echo "== skill-invariants.test.sh =="
 # A1: SKILL.md must say "the 7 markers" (CERT-hw, CERT-live, CERT, CERT-doc,
 #     CERT-web, CERT-a, INFER) and must NOT say "the 5 markers" (stale).
 # ---------------------------------------------------------------------------
-if grep -qF 'the 7 markers' "$SKILL"; then
+if assert_A1 "$SKILL"; then
   ok "A1: SKILL.md says 'the 7 markers'"
 else
   no "A1: SKILL.md does NOT say 'the 7 markers'"
 fi
 
-if grep -qF 'the 5 markers' "$SKILL"; then
-  no "A1-neg: SKILL.md still contains false claim 'the 5 markers'"
-else
+if assert_A1_neg "$SKILL"; then
   ok "A1-neg: 'the 5 markers' absent (false claim removed)"
+else
+  no "A1-neg: SKILL.md still contains false claim 'the 5 markers'"
 fi
 
 # ---------------------------------------------------------------------------
 # A2: Key terms glossary table must be present.
 #     Stable anchor: the '| **corpus**' header row.
 # ---------------------------------------------------------------------------
-if grep -qF '| **corpus**' "$SKILL"; then
+if assert_A2 "$SKILL"; then
   ok "A2: Key terms glossary table present ('| **corpus**' row found)"
 else
   no "A2: Key terms glossary table missing (no '| **corpus**' row)"
@@ -94,7 +103,7 @@ fi
 # A3: Quick-mode carve-out in the TRIAGE bullet — registered target resolves
 #     to HEAVY *unless* request is a scoped factual question (intent wins).
 # ---------------------------------------------------------------------------
-if grep -qF 'CARVE-OUT (intent wins)' "$SKILL"; then
+if assert_A3 "$SKILL"; then
   ok "A3: quick-mode carve-out (CARVE-OUT intent wins) present in triage"
 else
   no "A3: quick-mode carve-out missing from triage bullet"
@@ -103,7 +112,7 @@ fi
 # ---------------------------------------------------------------------------
 # A4: UNLESS clause in 'Target vs ad-hoc / live-install' paragraph.
 # ---------------------------------------------------------------------------
-if grep -qF 'UNLESS the request is a scoped factual question' "$SKILL"; then
+if assert_A4 "$SKILL"; then
   ok "A4: UNLESS clause present in 'Target vs ad-hoc' paragraph"
 else
   no "A4: UNLESS clause missing from 'Target vs ad-hoc' paragraph"
@@ -112,7 +121,7 @@ fi
 # ---------------------------------------------------------------------------
 # A5: REMOTE follow-up / ensure-remote.sh consent-gated block.
 # ---------------------------------------------------------------------------
-if grep -qF 'ensure-remote.sh' "$SKILL"; then
+if assert_A5 "$SKILL"; then
   ok "A5: REMOTE follow-up / ensure-remote.sh block present"
 else
   no "A5: REMOTE follow-up / ensure-remote.sh block missing"
@@ -122,7 +131,7 @@ fi
 # A6: document-mode §20 example (TradingView new-target DOCUMENT run).
 #     Stable anchor: the retro filename 'document-unregistered-bootstrap-incident'.
 # ---------------------------------------------------------------------------
-if grep -qF 'document-unregistered-bootstrap-incident' "$SKILL"; then
+if assert_A6 "$SKILL"; then
   ok "A6: document-mode §20 example (TradingView retro reference) present"
 else
   no "A6: document-mode §20 example missing (§20 text truncated)"
@@ -132,7 +141,7 @@ fi
 # A7: TOOL-BEFORE-AGENT binary line — detect-tools.sh as first move for
 #     binary artifacts.
 # ---------------------------------------------------------------------------
-if grep -qF 'detect-tools.sh' "$SKILL"; then
+if assert_A7 "$SKILL"; then
   ok "A7: TOOL-BEFORE-AGENT binary reference (detect-tools.sh) present"
 else
   no "A7: TOOL-BEFORE-AGENT binary reference missing (detect-tools.sh absent)"
@@ -142,7 +151,7 @@ fi
 # A8: Walls & evidence block — SKILL.md must carry the typed wall-state
 #     doctrine (blocked-on-tool) so the launcher surfaces METHODOLOGY §21.
 # ---------------------------------------------------------------------------
-if grep -qF 'blocked-on-tool' "$SKILL"; then
+if assert_A8 "$SKILL"; then
   ok "A8: Walls & evidence block (blocked-on-tool typed state) present"
 else
   no "A8: Walls & evidence block missing (blocked-on-tool absent)"
@@ -152,7 +161,7 @@ fi
 # A10: Two-tier METHODOLOGY reading — SKILL.md must carry the HOT-CORE
 #      label so the lazy-load instruction is auditable without full-file read.
 # ---------------------------------------------------------------------------
-if grep -qF 'HOT-CORE' "$SKILL"; then
+if assert_A10 "$SKILL"; then
   ok "A10: HOT-CORE two-tier reading instruction present in SKILL.md"
 else
   no "A10: HOT-CORE two-tier reading instruction MISSING from SKILL.md"
@@ -165,7 +174,7 @@ fi
 #      Stable anchors: 'alias:' and 'kaitai-struct-compiler'.
 #      Guards the #364 drift class.
 # ---------------------------------------------------------------------------
-if grep -qF 'alias:' "$SKILL" && grep -qF 'kaitai-struct-compiler' "$SKILL"; then
+if assert_A11 "$SKILL"; then
   ok "A11: alias guidance (alias: + kaitai-struct-compiler) present in SKILL.md"
 else
   no "A11: alias guidance missing from SKILL.md (ksc/kaitai-struct-compiler drift)"
@@ -176,7 +185,7 @@ fi
 #       Anchor: 'never applied from inside a run (§18 propose-never-apply)'
 #       — unique to the toolchain routing paragraph (#960).
 # ---------------------------------------------------------------------------
-if grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$SKILL"; then
+if assert_A12a "$SKILL"; then
   ok "A12a: SKILL.md toolchain routing carries propose-never-apply (#960)"
 else
   no "A12a: SKILL.md toolchain routing missing propose-never-apply (#960)"
@@ -187,7 +196,7 @@ fi
 #       Anchor: 'propose-never-apply). Provisioning is complete'
 #       — unique to the tool-cataloging paragraph (#960).
 # ---------------------------------------------------------------------------
-if grep -qF 'propose-never-apply). Provisioning is complete' "$SKILL"; then
+if assert_A12b "$SKILL"; then
   ok "A12b: SKILL.md tool-cataloging carries propose-never-apply (#960)"
 else
   no "A12b: SKILL.md tool-cataloging missing propose-never-apply (#960)"
@@ -198,7 +207,7 @@ fi
 #      launch, with fixed-interval as fallback (cadence decision, #961).
 #      Anchor: 'Dynamic is recommended for unattended runs' in Execution mode.
 # ---------------------------------------------------------------------------
-if grep -qF 'Dynamic is recommended for unattended runs' "$SKILL"; then
+if assert_A13 "$SKILL"; then
   ok "A13: SKILL.md recommends dynamic (no interval) as default launch mode (#961)"
 else
   no "A13: SKILL.md missing dynamic-recommended statement in Execution mode (#961)"
@@ -208,17 +217,17 @@ fi
 # A14: SKILL.md must NOT contain 'guarantees the cadence' — that claim is
 #      false when /loop is used without an interval (#961).
 # ---------------------------------------------------------------------------
-if grep -qF 'guarantees the cadence' "$SKILL"; then
-  no "A14: SKILL.md still contains false claim 'guarantees the cadence' (#961)"
-else
+if assert_A14_neg "$SKILL"; then
   ok "A14: false claim 'guarantees the cadence' absent from SKILL.md (#961)"
+else
+  no "A14: SKILL.md still contains false claim 'guarantees the cadence' (#961)"
 fi
 
 # ---------------------------------------------------------------------------
 # A15: SKILL.md must contain 're-invoker is already active' — the detection
 #      rule that prevents nested /loop launches (#961).
 # ---------------------------------------------------------------------------
-if grep -qF 're-invoker is already active' "$SKILL"; then
+if assert_A15 "$SKILL"; then
   ok "A15: re-invoker detection rule present in SKILL.md (#961)"
 else
   no "A15: re-invoker detection rule MISSING from SKILL.md (#961)"
@@ -230,8 +239,7 @@ fi
 #     the concrete fallback example. Both must be present. RED against
 #     origin/main (which has "self-paces" + "/loop 10m", not "dynamic" + "5m").
 # ---------------------------------------------------------------------------
-if grep -qF 'dynamic self-paced, no interval' "$PROMPTLOOP" && \
-   grep -qF '/loop 5m  <paste' "$PROMPTLOOP"; then
+if assert_B1 "$PROMPTLOOP"; then
   ok "B1: PROMPT-LOOP.md launch section labels no-interval as recommended and /loop 5m as fallback (#961)"
 else
   no "B1: PROMPT-LOOP.md launch section missing dynamic-recommended label or /loop 5m fallback (#961)"
@@ -242,7 +250,7 @@ fi
 #     behavioral prohibition "Do NOT issue ScheduleWakeup" — stronger than a
 #     bare token check; proves the double-fire rule is stated, not just named.
 # ---------------------------------------------------------------------------
-if grep -qF 'Do NOT issue ScheduleWakeup' "$PROMPTLOOP"; then
+if assert_B2 "$PROMPTLOOP"; then
   ok "B2: PROMPT-LOOP.md LOOP CONTINUATION carries ScheduleWakeup prohibition"
 else
   no "B2: PROMPT-LOOP.md LOOP CONTINUATION missing 'Do NOT issue ScheduleWakeup'"
@@ -255,7 +263,7 @@ fi
 #     cron keeps re-firing every <N>m after STOP — a token drain.
 #     Stable anchor: 'CronDelete' (the specific Claude Code disarm tool).
 # ---------------------------------------------------------------------------
-if grep -qF 'CronDelete' "$PROMPTLOOP"; then
+if assert_B3 "$PROMPTLOOP"; then
   ok "B3: PROMPT-LOOP.md LOOP CONTINUATION carries fixed-interval teardown rule (CronDelete)"
 else
   no "B3: PROMPT-LOOP.md LOOP CONTINUATION missing teardown rule (CronDelete absent)"
@@ -267,58 +275,10 @@ TEMPLATE="$HERE/../../templates/RESEARCH-STATE.template.md"
 [ -f "$TEMPLATE" ] || { printf 'FATAL: RESEARCH-STATE.template.md not found at expected path: %s\n' "$TEMPLATE" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
-# C-assertion function library: each assert_Cn takes one file path and returns
-# 0 (pass) when the invariant holds, 1 (fail) otherwise. Teeth call the
-# function on a mutant copy — the mutation must make the function return 1.
-# ---------------------------------------------------------------------------
-assert_C1()  { grep -qF 'A focus stop does not end the campaign' "$1"; }
-assert_C2()  { grep -qF 'no entry is `pending` or `active`' "$1"; }
-assert_C3()  { grep -qF 'campaign-bound-reached:' "$1"; }
-assert_C4()  { grep -qF 'Teardown runs at campaign STOP' "$1"; }
-assert_C5()  { grep -qF 'campaign_bounds: max-depth=<N> iterations=<N> wall-clock=<N>h' "$1"; }
-assert_C6()  { grep -qF 'depth is the length of the parent chain from root' "$1"; }
-assert_C7()  { grep -qF 'campaign_stop: campaign-bound-reached:' "$1"; }
-assert_C8()  { grep -qF 'last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N>' "$1"; }
-assert_C9()  { grep -qF 'next-entry: <queue-name>' "$1"; }
-assert_C10() { grep -qF 'first continue any entry left `active`' "$1"; }
-assert_C11() { grep -qF 'campaign_started:' "$1" && grep -qF 'campaign_iterations:' "$1"; }
-assert_C12() { grep -qF 'Single-focus corpora' "$1"; }
-assert_C13() { grep -qF '`rejected`' "$1"; }
-# C14: SKILL must carry 'do not ask which mode' (B5 mode-announce rule, added in #989 round 5)
-assert_C14() { grep -qF 'do not ask which mode' "$1"; }
-assert_C15() { grep -qF 'A RUN ends only on campaign STOP' "$1"; }
-# Absence assertions: return 0 when text is ABSENT (the good state).
-assert_C16() { ! grep -qF 'an autonomous run must stop at convergence' "$1"; }
-assert_C17() { ! grep -qF 'A turn ends only on' "$1"; }
-# C18: PROMPT-LOOP RETURN CONTRACT must carry the 'STOP: campaign — ' token.
-assert_C18() { grep -qF 'STOP: campaign — ' "$1"; }
-# C19 (absence): orchestrated context must NOT say 'signal "continue"' — use RETURN CONTRACT.
-# Extended to METHODOLOGY and SKILL too (see also PROMPT-LOOP check).
-assert_C19() { ! grep -qF 'signal "continue"' "$1"; }
-# D1 (absence): RESEARCH-STATE template must NOT have a live '## Campaign queue' section
-#     heading outside HTML comments. If the heading is absent outside comments, no live
-#     campaign table rows can exist in that section — ensuring every new corpus starts
-#     without a pre-seeded campaign that can never STOP (R1).
-#     Note: Gap-backlog rows intentionally carry '| pending |' outside comments (they are
-#     REAL to the parsers per the requires-execution note in the template); D1 targets
-#     only the Campaign queue section heading.
-assert_D1() {
-  local f="$1"
-  # Strip HTML comment blocks, then check for the '## Campaign queue' heading.
-  python3 - "$f" <<'PYEOF'
-import sys, re
-with open(sys.argv[1]) as fh:
-    text = fh.read()
-# Remove everything between <!-- and -->
-stripped = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
-# If the Campaign queue section heading exists outside comments, the template is broken.
-for line in stripped.splitlines():
-    if re.search(r'^##\s+Campaign queue', line):
-        sys.exit(1)  # live Campaign queue heading found — assertion fails
-sys.exit(0)
-PYEOF
-}
-
+# assert_C1..assert_C19 and assert_D1 are defined in lib/prompt-invariants.sh
+# (sourced above) — each takes one file path and returns 0 (pass) when the
+# invariant holds, 1 (fail) otherwise. Teeth below call the function on a
+# mutant copy — the mutation must make the function return 1.
 # ---------------------------------------------------------------------------
 # C1: METHODOLOGY.md must state that a focus stop does not end the campaign.
 # ---------------------------------------------------------------------------
@@ -520,7 +480,7 @@ fi
 #      conclusion-bearing' — the single collapsed rule (F03). Absent means the
 #      old multi-paragraph OPT-IN/MANDATORY/OPTIONAL tangle is still present.
 # ---------------------------------------------------------------------------
-if grep -qF 'required for conclusion-bearing' "$METHODOLOGY"; then
+if assert_E1a "$METHODOLOGY"; then
   ok "E1a: METHODOLOGY §3 states seal is 'required for conclusion-bearing' (single rule)"
 else
   no "E1a: METHODOLOGY §3 missing 'required for conclusion-bearing' (old multi-rule tangle)"
@@ -530,27 +490,27 @@ fi
 # E1b (absence): METHODOLOGY must NOT say 'OPT-IN selective seal' — that
 #      phrase belongs to the old graduation history, deleted by F03.
 # ---------------------------------------------------------------------------
-if grep -qF 'OPT-IN selective seal' "$METHODOLOGY"; then
-  no "E1b: METHODOLOGY still contains stale 'OPT-IN selective seal' (F03 not applied)"
-else
+if assert_E1_no_optin "$METHODOLOGY"; then
   ok "E1b: stale 'OPT-IN selective seal' absent from METHODOLOGY (F03 applied)"
+else
+  no "E1b: METHODOLOGY still contains stale 'OPT-IN selective seal' (F03 not applied)"
 fi
 
 # ---------------------------------------------------------------------------
 # E1c (absence): PROMPT-LOOP step 5 must NOT say 'OPT-IN selective seal' —
 #      aligned with the single collapsed rule (F03).
 # ---------------------------------------------------------------------------
-if grep -qF 'OPT-IN selective seal' "$PROMPTLOOP"; then
-  no "E1c: PROMPT-LOOP still contains stale 'OPT-IN selective seal' (F03 not applied)"
-else
+if assert_E1_no_optin "$PROMPTLOOP"; then
   ok "E1c: stale 'OPT-IN selective seal' absent from PROMPT-LOOP (F03 applied)"
+else
+  no "E1c: PROMPT-LOOP still contains stale 'OPT-IN selective seal' (F03 not applied)"
 fi
 
 # ---------------------------------------------------------------------------
 # E2a: PROMPT-LOOP SITUATIONAL list must contain '§7b' — the envelope-field
 #      instrument contract section added by F05.
 # ---------------------------------------------------------------------------
-if grep -qF '§7b' "$PROMPTLOOP"; then
+if assert_E2a "$PROMPTLOOP"; then
   ok "E2a: PROMPT-LOOP SITUATIONAL list contains '§7b' (F05)"
 else
   no "E2a: PROMPT-LOOP SITUATIONAL list missing '§7b' (F05 not applied)"
@@ -560,7 +520,7 @@ fi
 # E2b: PROMPT-LOOP SITUATIONAL list must contain '§11a' — the data-pipeline
 #      heuristics section added by F05.
 # ---------------------------------------------------------------------------
-if grep -qF '§11a' "$PROMPTLOOP"; then
+if assert_E2b "$PROMPTLOOP"; then
   ok "E2b: PROMPT-LOOP SITUATIONAL list contains '§11a' (F05)"
 else
   no "E2b: PROMPT-LOOP SITUATIONAL list missing '§11a' (F05 not applied)"
