@@ -38,7 +38,7 @@ no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 skip() { printf '  SKIP  %s\n' "$1"; }
 
 # The real kit path from this test's location
-KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
+KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 SRC_SKILL="$KIT/skills/research-sdd/SKILL.md"
 
 echo "== verify-skill-drift.test.sh =="

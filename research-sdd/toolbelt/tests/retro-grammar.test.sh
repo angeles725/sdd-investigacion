@@ -184,7 +184,7 @@ assert_no_rsd_retros_dir() {
   fi
   return 0
 }
-_repo_root="$(cd "$HERE/../../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
+_repo_root="$(cd "$HERE/../../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 if assert_no_rsd_retros_dir "$_repo_root" 2>/dev/null; then
   ok "RETRO-TRAP: research-sdd/retros/ absent (kit retros in top-level retros/)" "()"
 else

@@ -522,8 +522,12 @@ fi
 box_sym="$(mkbox symlink-toolbelt)"
 mkdir -p "$box_sym/research-sdd/profile/general"
 ln -s "$box_sym/research-sdd/toolbelt" "$box_sym/research-sdd/profile/general/toolbelt"
+# --issues-cache makes this hermetic w.r.t. gh (kit issue #1024 round 5, CI fix): CI has no `gh`
+# login, so an unauthenticated `gh auth status` would exit "degraded" here regardless of the -P
+# fix under test — an empty cache file means zero open issues, never touching gh at all.
+cache_sym="$box_sym/empty-issues-cache"; : > "$cache_sym"
 OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
-  "$box_sym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"; RC_SYM=$?
+  "$box_sym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_sym" 2>&1)"; RC_SYM=$?
 if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'absent-input.*TARGETS\.md'; then
   ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, still resolves the real TARGETS.md" \
      "(rc=$RC_SYM)"
@@ -803,8 +807,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   mkdir -p "$box_tsym/research-sdd/profile/general"
   ln -s "$box_tsym/research-sdd/toolbelt" "$box_tsym/research-sdd/profile/general/toolbelt"
+  # --issues-cache: same hermeticity requirement as the SYMLINK-TOOLBELT base check above (kit
+  # issue #1024 round 5, CI fix) — an unauthenticated gh on CI must never turn this tooth's
+  # expected "absent-input" symptom into an unrelated "degraded: gh is not authenticated" one.
+  cache_tsym="$box_tsym/empty-issues-cache"; : > "$cache_tsym"
   out_tsym="$(PATH="$box_tsym/bin:$PATH" "$BASH_BIN" \
-    "$box_tsym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"; rc_tsym=$?
+    "$box_tsym/research-sdd/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_tsym" 2>&1)"; rc_tsym=$?
   if [ "$rc_tsym" -ne 0 ] && printf '%s' "$out_tsym" | grep -qi 'absent-input.*TARGETS\.md'; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ → -P fix has teeth"
   else

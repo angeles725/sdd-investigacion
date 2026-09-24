@@ -27,11 +27,13 @@
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
-# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
-# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
-# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
-# wrong component and lands one level off from the real physical parent. -P makes this always
-# resolve physically regardless of how this script was invoked.
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
+# #1024). CONSEQUENCE (round 5, Opus finding 4): $KIT — and therefore every path this script
+# PERSISTS into a newly-scaffolded target (the retro-gate hook's <KIT> substitution) or PRINTS as
+# user-facing guidance (the "REGISTER ... in $KIT/TARGETS.md" / "$KIT/toolbelt/..." lines) — is
+# now the PHYSICALLY resolved kit path, following any symlink in this script's own invocation
+# path. If the kit checkout is reached through a symlink, these name the symlink's REAL target,
+# not the symlink path — intentional, not a regression to work around.
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
 

@@ -14,18 +14,23 @@
 # This checker exists to stop it recurring "one script at a time".
 #
 # WHAT IT RECOGNISES: a variable assignment shaped
-#   VAR="$(cd [-P] "<expr>" [2>/dev/null] && pwd [-P])"
-# is tracked as a "script-location-derived directory" (TAINTED) once <expr> contains the literal
-# `dirname "$0"` or `BASH_SOURCE`, OR references an already-tainted variable by name (so a chain
-# of two or more `cd`s — e.g. SELF_DIR from $0, then KIT_INSTALL from $SELF_DIR/../install, then
-# KIT from $KIT_INSTALL/.. — stays tracked at every hop). A tainted assignment whose <expr> ALSO
-# contains `..` (a CLIMB — in the same cd, or via a tainted var that itself required a climb) is
-# flagged unless it uses `cd -P`: verified empirically (not merely asserted) that `cd -P` ALONE
-# already makes bash track $PWD physically for the `pwd` call that follows in the same subshell
-# — a following `pwd -P` is redundant and NOT required. Most fixed instances in this kit pair
-# both anyway (one consistent, greppable idiom), but a bare `cd -P ... && pwd` (no `-P` on pwd)
-# is equally correct and not flagged — e.g. kit issue #976/#984 (PR #1029)'s own fix to
-# stage-retro.sh's KIT_REPO line, whose comment reaches the identical conclusion independently.
+#   [local|export|declare|readonly] VAR="$(cd [-P] "<expr>" [2>/dev/null] && pwd [-P])"
+# is tracked as a "script-location-derived directory" (TAINTED) once <expr> contains a literal
+# `dirname "$0"` / `dirname -- "$0"` / `dirname "${0}"` reference (or `BASH_SOURCE`), OR
+# references an already-tainted variable BY NAME AT A WORD BOUNDARY (so a chain of two or more
+# `cd`s — e.g. SELF_DIR from $0, then KIT_INSTALL from $SELF_DIR/../install, then KIT from
+# $KIT_INSTALL/.. — stays tracked at every hop, and `$KIT` does NOT falsely match a tainted `K`
+# — kit issue #1024 round 5, Opus finding 2, §7 precision). A tainted assignment whose <expr>
+# ALSO contains `..` in THE SAME `cd` INVOCATION (a CLIMB — checked per `&&`-separated segment,
+# not "does `-P` appear anywhere on the line": `cd .. && cd -P .` is a HIT because the FIRST,
+# climbing `cd` has no `-P` of its own, even though a second, non-climbing `cd -P` sits later on
+# the same line — round 5, Opus finding 2) is flagged unless THAT climbing `cd` itself carries
+# `-P`: verified empirically (not merely asserted) that `cd -P` ALONE already makes bash track
+# $PWD physically for the `pwd` call that follows in the same subshell — a following `pwd -P` is
+# redundant and NOT required. Most fixed instances in this kit pair both anyway (one consistent,
+# greppable idiom), but a bare `cd -P ... && pwd` (no `-P` on pwd) is equally correct and not
+# flagged — e.g. kit issue #976/#984 (PR #1029)'s own fix to stage-retro.sh's KIT_REPO line,
+# whose comment reaches the identical conclusion independently.
 #
 # WHAT IT EXCLUDES (declared per CLAUDE.md §7 "an audit instrument must prove the coverage of its
 # own enumerator" — false negatives destroy trust the same way false positives do):
@@ -46,11 +51,28 @@
 #   - Text after a `#` on a logical statement is stripped before pattern matching (so a comment
 #     mentioning "dirname" or ".." never triggers a false positive) — but is READ SEPARATELY for
 #     the allow-marker below.
+#   - NOT RECOGNISED at all (real gaps, not silently miscounted — a future rewrite, not this
+#     lint's job to close blindly): an UNQUOTED `$0` (e.g. `dirname $0`); a `$(...)` command
+#     substitution split across MULTIPLE physical lines (this is a line-by-line scanner); the
+#     legacy backtick form `` `cd ...` `` instead of `$(...)`; `HERE=$(dirname "$0")` assigned
+#     WITHOUT an accompanying `cd`/`pwd` on that same statement, then climbed from on a LATER
+#     line (HERE is never added to the tainted set, since tainting requires a `cd ... && pwd`
+#     shape on the assignment itself); and `pushd`/`popd`-based directory tracking. A file using
+#     any of these forms to derive a climbing kit-root path gets a silent pass from this checker
+#     — grep the file by hand if one of these forms is suspected.
 #
 # ALLOW-MARKER: a flagged line, or the line immediately before it, carrying a comment
 #   # LINT-CD-PHYSICAL-OK: <reason>
 # is reported as an explicit, named exception (ALLOWED) rather than a failure (HIT) — an empty or
 # missing reason after the marker does not count and the line still fails as a HIT.
+#
+# DEFAULT SCOPE excludes tests/ (kit issue #1024 round 5, Opus finding 1): a *.test.sh suite's own
+# mutation-tooth fixtures routinely hold the UNMARKED bad pattern as literal text inside a heredoc
+# or a quoted string (proving detection, or reconstructing a "neutered" mutant) — this checker has
+# no string/heredoc-aware parser, so that literal text reads as source code to it. Excluding
+# tests/ from the default (no-argument) scan keeps a bare `verify-cd-physical.sh` run clean on
+# this kit's real, shipped scripts; passing an explicit tests/ directory (or any path) as an
+# argument still scans it in full — this is a DEFAULT-SCOPE decision, not a capability limit.
 #
 # Anti-silent-zero (CLAUDE.md §7): absent-input (no scan directory found), empty-input (directory
 # found, no *.sh files under it), no-match (files scanned, pattern never seen at all) are printed
@@ -58,7 +80,8 @@
 #
 # Usage: verify-cd-physical.sh [<dir> ...]
 #   No args: scans this kit's own toolbelt/ and install/ (resolved from THIS script's own
-#            physically-resolved location — see the -P this checker requires of everyone else).
+#            physically-resolved location — see the -P this checker requires of everyone else),
+#            EXCLUDING any tests/ subdirectory (see DEFAULT SCOPE above).
 # Exit: 0 clean (zero HITs; ALLOWED entries do not fail the run)
 #       1 one or more un-allow-marked HITs
 #       2 operational failure (no scan directory found, or no *.sh files under any given directory)
@@ -69,9 +92,11 @@ set -uo pipefail
 
 _SELF_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
 
+_default_scope=0
 if [ "$#" -gt 0 ]; then
   dirs=("$@")
 else
+  _default_scope=1
   _kit_root="$(cd -P "$_SELF_DIR/.." && pwd -P)"
   dirs=("$_kit_root/toolbelt" "$_kit_root/install")
 fi
@@ -91,7 +116,13 @@ while IFS= read -r f; do
 done < <(
   for d in "${dirs[@]}"; do
     [ -d "$d" ] || continue
-    find "$d" -type f -name '*.sh' 2>/dev/null
+    if [ "$_default_scope" -eq 1 ]; then
+      # DEFAULT SCOPE excludes tests/ — see the header comment. -path/-prune keeps this a single
+      # find invocation rather than a separate filter pass.
+      find "$d" -type d -name tests -prune -o -type f -name '*.sh' -print 2>/dev/null
+    else
+      find "$d" -type f -name '*.sh' 2>/dev/null
+    fi
   done | sort -u
 )
 
@@ -106,7 +137,7 @@ fi
 _lint_scan_file() {
   local f="$1"
   local -A tainted=()
-  local lineno=0 line stmt code var is_rooted is_climb cd_p tv
+  local lineno=0 line stmt code var is_rooted tv seg boundary_re
 
   while IFS= read -r line; do
     lineno=$((lineno + 1))
@@ -117,34 +148,43 @@ _lint_scan_file() {
 
     # Each ';'-separated segment of the physical line is its own logical statement; taint from an
     # earlier segment on the SAME line is visible to a later one (scan-secrets.sh-style chaining).
-    # Split with a bash parameter/array expansion (no subshell) rather than piping through
-    # tr/process-substitution for every line — this function runs once per line of every file.
+    # `read -ra` word-splits on IFS WITHOUT pathname (glob) expansion — unlike an unquoted array
+    # assignment (`_stmts=($line)`), which DOES glob-expand a literal `*`/`?`/`[...]` inside the
+    # line — kit issue #1024 round 5, Opus finding 2 (RDD R4-unquoted-split-globs). A here-string
+    # is used instead of a subshell/pipe to avoid a subprocess spawn per line.
     local -a _stmts=()
-    if [[ "$line" == *';'* ]]; then
-      local _oldIFS="$IFS"
-      IFS=';'
-      # shellcheck disable=SC2206  # intentional word-splitting: ';'-separated statements
-      _stmts=($line)
-      IFS="$_oldIFS"
-    else
-      _stmts=("$line")
-    fi
+    local _oldIFS="$IFS"
+    IFS=';'
+    read -ra _stmts <<< "$line"
+    IFS="$_oldIFS"
 
     for stmt in "${_stmts[@]}"; do
       code="${stmt%%#*}"  # strip a trailing comment before any pattern matching
       [[ "$code" == *cd* && "$code" == *pwd* ]] || continue
-      [[ "$code" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
-      var="${BASH_REMATCH[1]}"
+      # Recognises an optional local/export/declare/readonly prefix before the variable name
+      # (kit issue #1024 round 5, Opus finding 2 "cheap shapes") — e.g.
+      # `local KIT="$(cd "$(dirname "$0")/.." && pwd)"` was previously invisible to this regex.
+      [[ "$code" =~ ^[[:space:]]*(local|export|declare|readonly)?[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
+      var="${BASH_REMATCH[2]}"
       # Confirm this really is a `cd ... && pwd` capture (not e.g. an unrelated `cd`/`pwd` pair
       # elsewhere in a longer statement) — a `cd` must appear before the assignment's `pwd`.
       [[ "$code" == *"cd "* || "$code" == *'cd"'* || "$code" == *'cd-P'* ]] || continue
 
       is_rooted=0
-      if [[ "$code" == *'dirname "$0"'* || "$code" == *'BASH_SOURCE'* ]]; then
+      # dirname "$0" / dirname -- "$0" / dirname "${0}" (kit issue #1024 round 5, Opus finding 2
+      # "cheap shapes" — `dirname -- "$0"` and the braced `"${0}"` form were previously invisible).
+      if [[ "$code" == *'dirname "$0"'* || "$code" == *'dirname -- "$0"'* \
+            || "$code" == *'dirname "${0}"'* || "$code" == *'dirname -- "${0}"'* \
+            || "$code" == *'BASH_SOURCE'* ]]; then
         is_rooted=1
       else
         for tv in "${!tainted[@]}"; do
-          if [[ "$code" == *'$'"$tv"* || "$code" == *'${'"$tv"* ]]; then
+          # Word-boundary match (kit issue #1024 round 5, Opus finding 2, §7 precision): a plain
+          # substring check would let `$KX` count as a reference to a tainted `K`. Require the
+          # character immediately after the variable name to be absent or not a valid identifier
+          # character (so `$KIT_INSTALL` never falsely matches a tainted `KIT`).
+          boundary_re='\$\{?'"$tv"'([^A-Za-z0-9_]|$)'
+          if [[ "$code" =~ $boundary_re ]]; then
             is_rooted=1
             break
           fi
@@ -152,21 +192,26 @@ _lint_scan_file() {
       fi
       [ "$is_rooted" -eq 1 ] || continue
 
-      is_climb=0
-      [[ "$code" == *".."* ]] && is_climb=1
-
-      if [ "$is_climb" -eq 1 ]; then
-        # Only `cd -P` is load-bearing: it alone makes bash track $PWD physically for the
-        # `pwd` call that immediately follows in the same subshell (verified empirically, not
-        # asserted — see the header comment). A bare `cd -P ... && pwd` (no `-P` on pwd) is
-        # therefore NOT flagged; kit issue #976/#984 (PR #1029)'s own fix to stage-retro.sh uses
-        # exactly this shape, with a comment reaching the identical conclusion independently.
-        cd_p=0
-        [[ "$code" =~ cd[[:space:]]+-P([[:space:]]|\") ]] && cd_p=1
-        if [ "$cd_p" -eq 0 ]; then
+      # Per-`&&`-segment climb + -P check (kit issue #1024 round 5, Opus finding 2, §7 precision):
+      # "does `-P` appear ANYWHERE on the line" let `cd .. && cd -P .` slip through as a false
+      # negative — the SECOND, non-climbing `cd` supplied the `-P` that "covered" the FIRST,
+      # climbing `cd`, which has none of its own. Split on the fixed `&&` delimiter via pattern
+      # substitution (no word-splitting, no glob risk) and require `-P` on the SAME segment that
+      # contains the climbing `cd`. A COMPLIANT climb (has its own `-P`) still emits a line, tagged
+      # "ok" — the caller needs to know a rooted, climbing derivation was SEEN at all (even when
+      # every instance is correctly fixed), never only "seen when it was a violation": the latter
+      # is exactly the `pattern_seen`/no-match confusion this checker corrected in round 5 (a fully
+      # -P'd codebase must never be reported as "no climbing construct found").
+      while IFS= read -r seg; do
+        [[ "$seg" == *".."* ]] || continue
+        [[ "$seg" =~ cd[[:space:]] || "$seg" == *'cd"'* || "$seg" == *'cd-P'* ]] || continue
+        if [[ "$seg" =~ cd[[:space:]]+-P([[:space:]]|\") ]]; then
+          printf '%d\tok\n' "$lineno"
+        else
           printf '%d\tclimbing derivation lacks cd -P\n' "$lineno"
         fi
-      fi
+        break
+      done <<< "${code//&&/$'\n'}"
 
       tainted["$var"]=1
     done
@@ -176,13 +221,20 @@ _lint_scan_file() {
 hit_count=0
 allowed_count=0
 scanned=0
-pattern_seen=0
+# climb_seen (kit issue #1024 round 5, general cleanup — was misleadingly named `pattern_seen`
+# while only ever being set on a VIOLATION or an ALLOWED exception, never on a compliant `-P`'d
+# climb): true once ANY rooted, climbing derivation is observed, whether it passes or fails. A
+# codebase where every such derivation is correctly fixed must still report climb_seen=1 — the
+# no-match state below means "this pattern genuinely never occurs here", not "every occurrence
+# happened to be fixed".
+climb_seen=0
 
 for f in "${files[@]}"; do
   scanned=$((scanned + 1))
   while IFS=$'\t' read -r lineno reason; do
     [ -z "${lineno:-}" ] && continue
-    pattern_seen=1
+    climb_seen=1
+    [ "$reason" = "ok" ] && continue  # compliant climb — counted above, not a HIT/ALLOWED
     line_text="$(sed -n "${lineno}p" "$f")"
     prev_text=""
     [ "$lineno" -gt 1 ] && prev_text="$(sed -n "$((lineno - 1))p" "$f")"
@@ -200,7 +252,10 @@ for f in "${files[@]}"; do
 done
 
 printf 'verify-cd-physical: scanned=%d files hit=%d allowed=%d\n' "$scanned" "$hit_count" "$allowed_count"
-if [ "$pattern_seen" -eq 0 ]; then
+if [ "$climb_seen" -eq 0 ]; then
+  # no-match (CLAUDE.md §7): files were genuinely scanned (files=() above proved that — see the
+  # empty-input check) but the pattern this checker looks for was never seen in any of them —
+  # not even as a correctly-fixed, compliant instance (see climb_seen's own comment above).
   printf 'verify-cd-physical: no-match: no climbing dirname($0)/BASH_SOURCE-derived cd/pwd construct found under: %s\n' "${dirs[*]}" >&2
 fi
 

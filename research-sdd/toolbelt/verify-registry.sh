@@ -21,13 +21,10 @@
 # Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
 set -uo pipefail
 
-# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, MEDIUM): bash's default logical
-# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
-# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
-# wrong component and lands one level off from the real physical parent — through a render dir,
-# KIT landed one level short of the real kit root, so TARGETS_MD pointed at a path that does not
-# exist and this tool falsely WARNed "kit repo is NOT in its own TARGETS.md". -P makes this always
-# resolve physically regardless of how this script was invoked.
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
+# #1024). Reproduced here specifically: without -P, KIT landed one level short of the real kit
+# root through a render dir's symlinked toolbelt/, so TARGETS_MD pointed at a path that does not
+# exist and this tool falsely WARNed "kit repo is NOT in its own TARGETS.md".
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 

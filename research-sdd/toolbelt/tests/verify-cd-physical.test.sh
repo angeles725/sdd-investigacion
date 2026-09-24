@@ -1,30 +1,46 @@
 #!/usr/bin/env bash
 # verify-cd-physical.test.sh — behavior + mutation-control suite for verify-cd-physical.sh
 # (kit issue #1024 round 4, item 3: the systemic lint guard against the logical-cd-through-a-
-# symlinked-toolbelt bug class).
+# symlinked-toolbelt bug class; round 5 adds the §7 precision fixes and the default-scope change).
 #
-# Checks (functional, always run):
-#   1  script exists and is executable
-#   2  a non-climbing dirname($0) derivation (no "..") is NOT flagged (harmless, over 70 real
-#      toolbelt scripts use exactly this idiom)
-#   3  a climbing derivation lacking -P IS flagged (HIT), exit 1
-#   4  the identical climbing derivation WITH cd -P/pwd -P is NOT flagged, exit 0
-#   5  a chained two-hop derivation (var A non-climbing, var B climbs via A) is flagged on the
-#      SECOND line, proving taint propagates across lines/variables
-#   6  a `cd`/`pwd` unrelated to $0/BASH_SOURCE (dirname of an arbitrary variable) is excluded
-#   7  a `VAR1=...; VAR2=...` two-statement physical line (';'-separated) is split and taint
-#      still propagates from VAR1 to VAR2 on the same line
-#   8  the allow-marker `# LINT-CD-PHYSICAL-OK: <reason>` on the flagged line suppresses the HIT
-#      (reported as ALLOWED) and the run still exits 0
-#   9  the allow-marker on the line BEFORE the flagged line also works
-#   10 an allow-marker with NO reason text still counts as a HIT (reason is required)
-#   11 absent-input: no scan directory found → exit 2, typed message
-#   12 empty-input: scan directory exists, no *.sh files → exit 2, typed message
-#   13 no-match: files scanned, pattern never seen → exit 0, typed "no-match" message (not a bare
-#      silent 0 — CLAUDE.md §7 anti-silent-zero)
-#   14 real-corpus smoke test: running against this kit's OWN toolbelt/+install/ trees exits 0
-#      (every real hit found by the initial sweep is either fixed or allow-marked — see the PR body
-#      for the pre-fix hit list) and does not crash
+# Checks (functional, always run — kit issue #1024 round 5, general cleanup: this list is kept in
+# sync with the test numbers actually used below; a numbering drift here once meant this comment
+# no longer described the tests it claimed to):
+#   1    script exists
+#   2    script executable
+#   3    a non-climbing dirname($0) derivation (no "..") is NOT flagged (harmless, over 70 real
+#        toolbelt scripts use exactly this idiom)
+#   4    a climbing derivation lacking -P IS flagged (HIT), exit 1
+#   5    the identical climbing derivation WITH cd -P/pwd -P is NOT flagged, exit 0
+#   5b   `cd -P` alone (bare `pwd`, no `-P` on it) is NOT flagged — `cd -P` alone is load-bearing
+#   5c   word-boundary precision: `$KX` does not falsely match a tainted `K` (round 5, Opus #2)
+#   5d   per-cd-invocation precision: `cd .. && cd -P .` IS flagged — the climbing `cd` has no
+#        `-P` of its own, even though a later, non-climbing `cd -P` sits on the same line
+#   5e   cheap shape: `dirname -- "$0"` is recognised as rooted (round 5, Opus #2)
+#   5f   cheap shape: `dirname "${0}"` (braced form) is recognised as rooted
+#   5g   cheap shape: a `local`/`export` prefix before the variable name is recognised
+#   5h   the `;`-split cannot glob-expand a line holding a literal glob metacharacter (RDD
+#        R4-unquoted-split-globs)
+#   5i   climb_seen (formerly the misleadingly-named pattern_seen): an all-compliant file is NOT
+#        reported as no-match — the construct was seen, it just happened to pass
+#   6    a chained two-hop derivation (var A non-climbing, var B climbs via A) is flagged on the
+#        SECOND line, proving taint propagates across lines/variables
+#   7    a `cd`/`pwd` unrelated to $0/BASH_SOURCE (dirname of an arbitrary variable) is excluded
+#   8    a `VAR1=...; VAR2=...` two-statement physical line (';'-separated) is split and taint
+#        still propagates from VAR1 to VAR2 on the same line
+#   9    the allow-marker `# LINT-CD-PHYSICAL-OK: <reason>` on the flagged line suppresses the HIT
+#        (reported as ALLOWED) and the run still exits 0
+#   10   the allow-marker on the line BEFORE the flagged line also works
+#   11   an allow-marker with NO reason text still counts as a HIT (reason is required)
+#   12   absent-input: no scan directory found → exit 2, typed message
+#   13   empty-input: scan directory exists, no *.sh files → exit 2, typed message
+#   14   no-match: files scanned, pattern never seen → exit 0, typed "no-match" message (not a
+#        bare silent 0 — CLAUDE.md §7 anti-silent-zero)
+#   15   real-corpus smoke test: a bare, no-argument `verify-cd-physical.sh` on the real kit
+#        exits 0 (round 5, Opus finding 1 — no whole-file `grep -v` filter; the default scope now
+#        excludes tests/ entirely, so there is nothing left for a filter to hide)
+#   15b  an EXPLICIT tests/ directory argument is still scanned in full — default-scope exclusion
+#        is a default, not a capability limit (round 5, Opus finding 1)
 #
 # --prove-teeth: a fixture script with a logical (non -P) climbing cd must make the lint FAIL;
 # the identical fixture given -P must make it PASS — proving the checker's core distinction has
@@ -107,6 +123,114 @@ if [ "$RC5B" -eq 0 ] && ! printf '%s' "$OUT5B" | grep -q 'HIT'; then
   ok "5b climbing derivation with cd -P alone (bare pwd) is NOT flagged (exit 0)"
 else
   no "5b cd-P-only climbing derivation was wrongly flagged (rc=$RC5B out=[$OUT5B])"
+fi
+
+# ── 5c. Word-boundary precision (kit issue #1024 round 5, Opus finding 2, §7): a plain substring
+#        check would let `$KX` count as a reference to a tainted `K` — `$KX` is a genuinely
+#        unrelated path here and must not be flagged.
+box5c="$(mkbox case-word-boundary)"
+cat > "$box5c/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+K="$(cd "$(dirname "$0")" && pwd)"
+KX="/unrelated/path"
+OTHER="$(cd "$KX/.." && pwd)"
+EOF
+OUT5C="$(bash "$SUT" "$box5c" 2>&1)"; RC5C=$?
+if [ "$RC5C" -eq 0 ] && ! printf '%s' "$OUT5C" | grep -q 'HIT'; then
+  ok "5c word-boundary: \$KX does not falsely match a tainted K"
+else
+  no "5c word-boundary: \$KX was wrongly treated as a reference to tainted K (rc=$RC5C out=[$OUT5C])"
+fi
+
+# ── 5d. Per-cd-invocation -P precision (kit issue #1024 round 5, Opus finding 2, §7): "does -P
+#        appear ANYWHERE on the line" let `cd .. && cd -P .` slip through — the second,
+#        non-climbing `cd -P` "covered" the first, climbing `cd ..`, which has none of its own.
+box5d="$(mkbox case-climb-precision)"
+cat > "$box5d/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")" && cd .. && cd -P . && pwd)"
+EOF
+OUT5D="$(bash "$SUT" "$box5d" 2>&1)"; RC5D=$?
+if [ "$RC5D" -eq 1 ] && printf '%s' "$OUT5D" | grep -q 'HIT.*fixed\.sh:2'; then
+  ok "5d per-cd precision: 'cd .. && cd -P .' IS flagged — the climbing cd has no -P of its own"
+else
+  no "5d per-cd precision: 'cd .. && cd -P .' was wrongly left unflagged (rc=$RC5D out=[$OUT5D])"
+fi
+
+# ── 5e. Cheap shape: `dirname -- "$0"` is recognised as rooted (kit issue #1024 round 5, Opus
+#        finding 2) — the literal `--` token used to make this invisible to the rooted check.
+box5e="$(mkbox case-dirname-dashdash)"
+cat > "$box5e/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname -- "$0")/.." && pwd)"
+EOF
+OUT5E="$(bash "$SUT" "$box5e" 2>&1)"; RC5E=$?
+if [ "$RC5E" -eq 1 ] && printf '%s' "$OUT5E" | grep -q 'HIT.*fixed\.sh:2'; then
+  ok "5e cheap shape: 'dirname -- \"\$0\"' is recognised as a rooted, climbing derivation"
+else
+  no "5e cheap shape: 'dirname -- \"\$0\"' was not recognised (rc=$RC5E out=[$OUT5E])"
+fi
+
+# ── 5f. Cheap shape: `dirname "${0}"` (braced form) is recognised as rooted.
+box5f="$(mkbox case-dirname-braced)"
+cat > "$box5f/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "${0}")/.." && pwd)"
+EOF
+OUT5F="$(bash "$SUT" "$box5f" 2>&1)"; RC5F=$?
+if [ "$RC5F" -eq 1 ] && printf '%s' "$OUT5F" | grep -q 'HIT.*fixed\.sh:2'; then
+  ok "5f cheap shape: 'dirname \"\${0}\"' (braced) is recognised as a rooted, climbing derivation"
+else
+  no "5f cheap shape: 'dirname \"\${0}\"' was not recognised (rc=$RC5F out=[$OUT5F])"
+fi
+
+# ── 5g. Cheap shape: a `local`/`export` prefix before the variable name is recognised.
+box5g="$(mkbox case-local-export)"
+cat > "$box5g/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+local KIT="$(cd "$(dirname "$0")/.." && pwd)"
+export KIT2="$(cd "$KIT/.." && pwd)"
+EOF
+OUT5G="$(bash "$SUT" "$box5g" 2>&1)"; RC5G=$?
+if [ "$RC5G" -eq 1 ] && printf '%s' "$OUT5G" | grep -q 'HIT.*fixed\.sh:2'; then
+  ok "5g cheap shape: a 'local' prefix before the variable name is recognised"
+else
+  no "5g cheap shape: 'local KIT=...' was not recognised (rc=$RC5G out=[$OUT5G])"
+fi
+
+# ── 5h. Unquoted split cannot glob (kit issue #1024 round 5, Opus finding 2, RDD
+#        R4-unquoted-split-globs): a line containing a literal glob metacharacter must not make
+#        the checker crash, hang, or silently expand against real filesystem entries. Build the
+#        fixture directory FIRST so a glob-vulnerable split would have something to expand into.
+box5h="$(mkbox case-unquoted-split-globs)"
+touch "$box5h/somefile.txt" "$box5h/anotherfile.txt"
+cat > "$box5h/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+# a semicolon-separated line whose second statement's comment-adjacent text holds glob chars
+here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)" # matches *.txt or [ab]*
+EOF
+OUT5H="$(bash "$SUT" "$box5h" 2>&1)"; RC5H=$?
+if [ "$RC5H" -eq 1 ] && printf '%s' "$OUT5H" | grep -q 'HIT.*fixed\.sh:3' \
+   && ! printf '%s' "$OUT5H" | grep -qi 'somefile\|anotherfile'; then
+  ok "5h unquoted-split-globs: a glob-metachar-bearing line is handled correctly, no glob expansion leaked"
+else
+  no "5h unquoted-split-globs: glob metacharacters affected the result (rc=$RC5H out=[$OUT5H])"
+fi
+
+# ── 5i. climb_seen (formerly the misleadingly-named pattern_seen, kit issue #1024 round 5,
+#        general cleanup): a file where EVERY climbing derivation is correctly -P'd must NOT be
+#        reported as "no-match" — the construct WAS seen, it just happened to be compliant.
+box5i="$(mkbox case-climb-seen-compliant)"
+cat > "$box5i/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
+echo "$KIT"
+EOF
+OUT5I="$(bash "$SUT" "$box5i" 2>&1)"; RC5I=$?
+if [ "$RC5I" -eq 0 ] && ! printf '%s' "$OUT5I" | grep -qi 'no-match'; then
+  ok "5i climb_seen: an all-compliant file is NOT reported as no-match (the pattern was seen)"
+else
+  no "5i climb_seen: an all-compliant file was wrongly reported as no-match (rc=$RC5I out=[$OUT5I])"
 fi
 
 # ── 6. Chained two-hop derivation: taint propagates across lines ────────────
@@ -230,29 +354,36 @@ else
   no "14 no-match state not reported (rc=$RC14 out=[$OUT14])"
 fi
 
-# ── 15. Real-corpus smoke test: this kit's own toolbelt/+install/ trees ─────
-# Every real hit the initial sweep found is by now either fixed (-P applied) or allow-marked
-# (stage-retro.sh: routed to its own PR; several test-driver SUT-locating derivations: never
-# reached through a real render, allow-marked with that reason) — see the PR body for the
-# pre-fix hit list this suite's own sweep produced.
-#
-# EXCLUDED, deliberately: THIS test file's own HIT/no-marker heredoc fixtures (tests 4, 11, and
-# the teeth block above) are literal unmarked bad-pattern text BY DESIGN — marking them would
-# break the very sub-tests that prove the checker detects an unmarked HIT at all. Their lines are
-# filtered out of THIS assertion's view of the corpus; every other file, including every other
-# *.test.sh, is held to the real, unfiltered standard.
-#
-# ALSO EXCLUDED: stage-retro.test.sh (kit issue #976/#984, PR #1029 — merged, not this PR's file
-# to edit or allow-mark). It carries the IDENTICAL self-referential pattern: its own teeth build
-# a mutant by string-substituting a "neutered" (deliberately -P-less) copy of an anchor line
-# inside a quoted bash string literal, not executable code — the same false-positive class as
-# this suite's own fixtures above, just in a file this PR does not own.
-OUT15="$(bash "$SUT" 2>&1 | grep -v -e 'verify-cd-physical\.test\.sh' -e 'stage-retro\.test\.sh')"
-RC15=0; printf '%s' "$OUT15" | grep -q '^HIT' && RC15=1
+# ── 15. Real-corpus smoke test: bare `verify-cd-physical.sh` on the real kit ────
+# kit issue #1024 round 5, Opus finding 1: no whole-file `grep -v` filter here any more — that
+# filter hid real hits behind a name match, which is exactly the failure mode this suite exists
+# to prevent elsewhere. The DEFAULT SCOPE now excludes tests/ entirely (see the SUT's own header
+# comment), so this direct no-argument invocation never reaches this test file's own literal
+# heredoc fixtures, or stage-retro.test.sh's (kit issue #976/#984, PR #1029 — not this PR's file),
+# or any other *.test.sh's SUT-locating boilerplate — there is nothing left to filter. Assert the
+# CHECKER'S OWN EXIT CODE directly (round 5, RDD R4/R3), not a derived "no HIT line" proxy.
+OUT15="$(bash "$SUT" 2>&1)"; RC15=$?
 if [ "$RC15" -eq 0 ]; then
-  ok "15 real-corpus smoke test: this kit's own toolbelt/+install/ trees are clean (excluding this suite's own fixture text)"
+  ok "15 real-corpus smoke test: bare 'verify-cd-physical.sh' on the real kit exits 0 (no filter, no args)"
 else
-  no "15 real-corpus smoke test found un-allow-marked hits (rc=$RC15) — out=[$OUT15]"
+  no "15 real-corpus smoke test: bare run found un-allow-marked hits (rc=$RC15) — out=[$OUT15]"
+fi
+
+# ── 15b. Default-scope exclusion is a DEFAULT, not a capability limit (kit issue #1024 round 5,
+#         Opus finding 1): an EXPLICIT tests/ directory argument must still be scanned in full —
+#         a real climbing violation placed directly under an explicitly-named tests/ dir must
+#         still be caught.
+box15b="$(mkbox case-explicit-tests-dir)"
+mkdir -p "$box15b/tests"
+cat > "$box15b/tests/some.test.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd "$(dirname "$0")/.." && pwd)"
+EOF
+OUT15B="$(bash "$SUT" "$box15b/tests" 2>&1)"; RC15B=$?
+if [ "$RC15B" -eq 1 ] && printf '%s' "$OUT15B" | grep -q 'HIT.*some\.test\.sh:2'; then
+  ok "15b explicit tests/ directory argument is still scanned in full (default-scope exclusion is a default, not a limit)"
+else
+  no "15b explicit tests/ directory argument was not scanned (rc=$RC15B out=[$OUT15B])"
 fi
 
 # ── TEETH ─────────────────────────────────────────────────────────────────────

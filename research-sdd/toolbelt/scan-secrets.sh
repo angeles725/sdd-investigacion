@@ -38,11 +38,7 @@ if [ "${1:-}" = "--committed" ]; then
 fi
 target="${1:-}"
 [ -n "$target" ] && [ -d "$target" ] || { echo "usage: scan-secrets.sh [--committed] <target-dir>" >&2; exit 2; }
-# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
-# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
-# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
-# wrong component and lands one level off from the real physical parent. -P makes both hops always
-# resolve physically regardless of how this script was invoked.
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
 here="$(cd -P "$(dirname "$0")" && pwd -P)"; KIT="$(cd -P "$here/.." && pwd -P)"
 
 # Advisory keyword boundary pattern (PCRE). Defined here so the committed-mode probe block's

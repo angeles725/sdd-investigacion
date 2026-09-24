@@ -26,7 +26,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$HERE/../../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
+REPO_ROOT="$(cd "$HERE/../../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 REGISTRY_PATH="${INVARIANTS_REGISTRY:-$REPO_ROOT/openspec/invariants.md}"
 
 python3 - "$REGISTRY_PATH" "$REPO_ROOT" <<'PYEOF'

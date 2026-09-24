@@ -11,12 +11,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
-# Test driver's own SUT-locating derivation; test files run directly from their tracked tests/
-# location, never reached through a rendered/symlinked toolbelt — no exploitable defect.
-KITROOT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
+KITROOT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; MUTANT23=""; MUTANT24=""; MUTANT25=""; MUTANT26=""; DRIVER58=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$MUTANT23" ] && rm -f "$MUTANT23"; [ -n "$MUTANT24" ] && rm -f "$MUTANT24"; [ -n "$MUTANT25" ] && rm -f "$MUTANT25"; [ -n "$MUTANT26" ] && rm -f "$MUTANT26"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; MUTANT23=""; MUTANT24=""; MUTANT25=""; MUTANT26=""; MUTANT27=""; DRIVER58=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$MUTANT23" ] && rm -f "$MUTANT23"; [ -n "$MUTANT24" ] && rm -f "$MUTANT24"; [ -n "$MUTANT25" ] && rm -f "$MUTANT25"; [ -n "$MUTANT26" ] && rm -f "$MUTANT26"; [ -n "$MUTANT27" ] && rm -f "$MUTANT27"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -1432,7 +1430,11 @@ printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo
   "$scratch_recon_f1e/rh/target-foo" > "$scratch_recon_f1e/research-sdd/TARGETS.md"
 ln -s "$scratch_recon_f1e/research-sdd/toolbelt" "$scratch_recon_f1e/render/profile/general/toolbelt"
 real_retros_f1e="$scratch_recon_f1e/rh/target-foo/retros"  # captured BEFORE rm -rf, for positive evidence below
-out_recon_f1e="$(bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"; rc_recon_f1e=$?
+# --issues-cache makes this hermetic w.r.t. gh (kit issue #1024 round 5, CI fix): CI has no `gh`
+# login, so an unauthenticated `gh auth status` would exit "degraded" here regardless of the -P
+# fix under test — an empty cache file means zero open issues, never touching gh at all.
+cache_recon_f1e="$scratch_recon_f1e/empty-issues-cache"; : > "$cache_recon_f1e"
+out_recon_f1e="$(bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_recon_f1e" 2>&1)"; rc_recon_f1e=$?
 rm -rf "$scratch_recon_f1e"
 # kit issue #1024 round 4, item 5: assert the exit code AND positive evidence the REAL TARGETS.md
 # (and the real target it names) was actually used — not just the absence of the negative
@@ -1525,6 +1527,26 @@ if [ "$launcher_before_it3" = "$launcher_after_it3" ] && grep -q 'profile/genera
   ok "item4: launcher 'Kit path:' left UNCHANGED (still profile/general) when the switch is blocked"
 else
   no "item4: launcher was rewritten despite the blocked switch (mixed state written to disk)"
+fi
+
+# ── kit issue #1024 round 5, Opus finding 3 (RDD R3-dry-run-switch-warn-untested) ─────────────
+# The round-4 dry-run WARN (RDD R4-001) only PRINTED a warning; it did not change the dry-run's
+# own exit code or skip the launcher SPLICE preview — a `--dry-run` that prints "a real run would
+# ALSO refuse this" while itself exiting 0 and still previewing the launcher SPLICE is a direct
+# contradiction (the preview promises something the real run would refuse). Reproduced the exact
+# same way as item3/item4, with --dry-run added on the second call.
+home_r3dr="$TMP/r3-dry-run-switch-warn"
+bash "$SUT" --home "$home_r3dr" --harness reasonix --profile general >/dev/null 2>&1
+sf_r3dr="$home_r3dr/.reasonix/skills/research-sdd/SKILL.md"
+printf '# hand-edited — a real local delta\n' >> "$sf_r3dr"
+out_r3dr="$(bash "$SUT" --home "$home_r3dr" --harness reasonix --profile claude --dry-run 2>&1)"; rc_r3dr=$?
+if [ "$rc_r3dr" -ne 0 ] \
+   && printf '%s' "$out_r3dr" | grep -q 'RDD R4-001' \
+   && printf '%s' "$out_r3dr" | grep -q 'SKIP.*launcher rewrite skipped' \
+   && ! printf '%s' "$out_r3dr" | grep -q 'SPLICE.*AGENTS\.md'; then
+  ok "R3-dry-run-switch-warn: dry-run exits non-zero AND skips the launcher SPLICE preview when the switch is blocked"
+else
+  no "R3-dry-run-switch-warn: dry-run contradicted the real run (rc=$rc_r3dr out=$out_r3dr)"
 fi
 
 # ── kit issue #1024 review round 3, "also" item: validate the marker's profile= before the clean
@@ -1660,7 +1682,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' \
     "$scratch_f1e/rh/target-foo" > "$scratch_f1e/TARGETS.md"
   ln -s "$scratch_f1e/toolbelt" "$scratch_f1e/profile/general/toolbelt"
-  out_recon_f1e_teeth="$(bash "$scratch_f1e/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"
+  # --issues-cache: same hermeticity requirement as the F1e base check above (kit issue #1024
+  # round 5, CI fix) — an unauthenticated gh on CI must never turn this tooth's expected
+  # "absent-input" symptom into an unrelated "degraded: gh is not authenticated" one.
+  cache_f1e_teeth="$scratch_f1e/empty-issues-cache"; : > "$cache_f1e_teeth"
+  out_recon_f1e_teeth="$(bash "$scratch_f1e/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_f1e_teeth" 2>&1)"
   if printf '%s' "$out_recon_f1e_teeth" | grep -qi 'absent-input.*TARGETS\.md'; then
     ok "teeth: reverted mutant re-breaks reconcile-issues.sh through a symlinked toolbelt/ → F1e has teeth"
   else
@@ -1799,6 +1825,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT26 (launcher-skip disabled) rewrites the launcher despite the blocked switch → item4 check has teeth"
   else
     no "teeth: MUTANT26 launcher still unchanged — item4 check is THEATER"
+  fi
+
+  echo "-- teeth: neuter the RDD R4-001 dry-run return; expect R3-dry-run-switch-warn to fail --"
+  MUTANT27="$HERE/../research-sdd-install.MUTANT27.$$.sh"
+  # A single, well-defined mutation: the dry-run WARN branch stops signalling BLOCKED_MIXED and
+  # stops returning failure (both lines immediately after the WARN printf are dropped).
+  awk '
+    /printf .*a real run would ALSO refuse this profile switch/ { print; getline; print; getline; in_warn=1; next }
+    in_warn && /_RSDD_SKILL_BLOCKED_MIXED=1/ { next }
+    in_warn && /return 1/ { in_warn=0; next }
+    { print }
+  ' "$SUT" > "$MUTANT27"
+  bash -n "$MUTANT27" 2>/dev/null \
+    && ok "teeth: MUTANT27 parses (bash -n)" \
+    || no "teeth: MUTANT27 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT27" >/dev/null 2>&1; then
+    no "teeth: MUTANT27 pre-check: mutant = SUT — RDD R4-001 return not found"
+  else
+    ok "teeth: MUTANT27 pre-check: mutant differs (dry-run WARN no longer signals/returns failure)"
+  fi
+  home_m27="$TMP/teeth-m27-dryrun-warn"
+  bash "$MUTANT27" --home "$home_m27" --harness reasonix --profile general >/dev/null 2>&1
+  sf_m27="$home_m27/.reasonix/skills/research-sdd/SKILL.md"
+  printf '# hand-edited — a real local delta\n' >> "$sf_m27"
+  out_m27="$(bash "$MUTANT27" --home "$home_m27" --harness reasonix --profile claude --dry-run 2>&1)"; rc_m27=$?
+  if [ "$rc_m27" -eq 0 ] || printf '%s' "$out_m27" | grep -q 'SPLICE.*AGENTS\.md'; then
+    ok "teeth: MUTANT27 (return neutered) dry-run exits 0 and/or previews the launcher SPLICE again → R3-dry-run-switch-warn check has teeth"
+  else
+    no "teeth: MUTANT27 still refused correctly — R3-dry-run-switch-warn check is THEATER (rc=$rc_m27 out=$out_m27)"
   fi
 fi
 

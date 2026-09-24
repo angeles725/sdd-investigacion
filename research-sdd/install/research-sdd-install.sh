@@ -41,11 +41,14 @@
 # HELP-END
 set -uo pipefail
 
-# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
-# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
-# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
-# wrong component and lands one level off from the real physical parent. -P makes both hops always
-# resolve physically regardless of how this script was invoked.
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
+# #1024). CONSEQUENCE (round 5, Opus finding 4): $KIT — and therefore every PERSISTED "Kit path:"
+# line this installer writes into a harness's launcher/prompt file — is now the PHYSICALLY
+# resolved path, following any symlink in this script's own invocation path or in $KIT's own
+# location. If the kit checkout (or a directory above it) is reached through a symlink, the
+# persisted "Kit path:" names the symlink's REAL target, not the symlink path a user may be more
+# accustomed to seeing — this is intentional (a physical path is unambiguous and stable across
+# however the installer itself happened to be invoked), not a regression to work around.
 SELF="$(cd -P "$(dirname "$0")" && pwd -P)"
 KIT="$(cd -P "$SELF/.." && pwd -P)"
 # shellcheck source=adapters.sh
@@ -423,9 +426,15 @@ _rsdd_marker_matches_deployed() {
 # F4's marker-matches managed-overwrite state) covers all of them. [profile], when given, is the
 # profile just requested — used only for the RDD R4-001 WARN (round 4 item 4): the diverged
 # branch additionally previews whether a REAL run would refuse this as a blocked profile switch.
+# Sets _RSDD_SKILL_BLOCKED_MIXED=1 and returns 1 when that WARN fires (kit issue #1024 round 5,
+# Opus finding 3, RDD R3-dry-run-switch-warn-untested) — a dry-run preview that promises a clean
+# switch a real run would then refuse is a contradiction: install_one must ALSO skip previewing
+# the launcher SPLICE for this harness, and the overall dry-run exit code must go non-zero, the
+# same way the real run's blocked-mixed-state path already does.
 _rsdd_dry_skill_plan() {
   local src="$1" dest="$2" force="$3" label="$4" marker="${5:-}" profile="${6:-}"
   local _dry_old_profile
+  _RSDD_SKILL_BLOCKED_MIXED=0
   if [ ! -f "$src" ]; then
     printf '  INSTALL %s (%s) [SKIP — source SKILL not found]\n' "$dest" "$label"
   elif [ ! -r "$src" ]; then
@@ -454,6 +463,8 @@ _rsdd_dry_skill_plan() {
     if [ -n "$profile" ] && [ -n "$_dry_old_profile" ] && [ "$_dry_old_profile" != "$profile" ]; then
       printf '  WARN    %s: a real run would ALSO refuse this profile switch "%s" → "%s" (mixed-state guard, RDD R4-001) — the launcher rewrite would be skipped too\n' \
         "$dest" "$_dry_old_profile" "$profile"
+      _RSDD_SKILL_BLOCKED_MIXED=1
+      return 1
     fi
   else
     printf '  INSTALL %s (%s)\n' "$dest" "$label"
@@ -614,7 +625,7 @@ install_one() {
           echo "research-sdd-install: [$h] render-profile.sh failed: $dry_render_err" >&2
           rc=1
         else
-          _rsdd_dry_skill_plan "$dry_render_dir/$src_relkit" "$skill_path" "$force" "$label" "$marker" "$profile"
+          _rsdd_dry_skill_plan "$dry_render_dir/$src_relkit" "$skill_path" "$force" "$label" "$marker" "$profile" || rc=1
         fi
         rm -rf "$dry_render_dir"
       fi
@@ -634,7 +645,7 @@ install_one() {
   else
     label="from kit $src_relkit"
     if [ "$dry" = 1 ]; then
-      _rsdd_dry_skill_plan "$src_skill" "$skill_path" "$force" "$label" "$marker" "$profile"
+      _rsdd_dry_skill_plan "$src_skill" "$skill_path" "$force" "$label" "$marker" "$profile" || rc=1
     else
       _rsdd_deploy_skill "$src_skill" "$skill_path" "$force" "$label" "$h" "$marker" "$profile" "$config_root" || rc=1
     fi

@@ -28,7 +28,7 @@
 # Usage: gen-catalog.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error (no SUT/python3).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
+KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 SUT="$KIT/templates/gen-catalog.py"                   # the seed + discriminator mirror
 TOOLS_COPY="$KIT/../tools/gen-catalog.py"             # repo-specialized copy (parity target)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
