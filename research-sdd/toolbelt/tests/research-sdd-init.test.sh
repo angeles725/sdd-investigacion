@@ -731,9 +731,19 @@ fi
 # asking to WIRE never intends to SCAFFOLD.
 echo "-- #1047: --wire refuses to scaffold a target with no corpus marker --"
 
-# snapshot helper: sha256 of every file under a dir, sorted — a stronger "nothing written" check
-# than presence/absence alone (it also catches an EXISTING file being silently modified).
-_1047_snapshot() { find "$1" -type f -exec sha256sum {} \; 2>/dev/null | sort; }
+# snapshot helper: hashes every file under a dir, sorted — a stronger "nothing written" check
+# than presence/absence alone (it also catches an EXISTING file being silently modified). Uses
+# sha256sum when present, falls back to the POSIX-standard cksum otherwise; returns 1 (prints
+# nothing) when NEITHER is on PATH — the caller MUST treat that as a hard failure, never compare
+# two empty snapshots and pass vacuously (kit CLAUDE.md §7 anti-silent-zero).
+_1047_snapshot() {
+  local d="$1" hasher
+  if command -v sha256sum >/dev/null 2>&1; then hasher='sha256sum'
+  elif command -v cksum >/dev/null 2>&1; then hasher='cksum'
+  else return 1
+  fi
+  find "$d" -type f -exec "$hasher" {} \; 2>/dev/null | sort
+}
 
 # (a) in-project dir with its OWN files (no corpus marker) + --wire → refuses, typed message, the
 # NEW exit code 5, and a byte-for-byte snapshot proves NOTHING was created or modified — including
@@ -741,7 +751,12 @@ _1047_snapshot() { find "$1" -type f -exec sha256sum {} \; 2>/dev/null | sort; }
 d="$TMP/1047-a-inproject"; mkdir -p "$d"
 printf 'own project file\n' > "$d/app.py"
 printf 'node_modules/\n' > "$d/.gitignore"
-_1047a_before="$(_1047_snapshot "$d")"
+if _1047a_before="$(_1047_snapshot "$d")"; then
+  _1047a_snap_ok=1
+else
+  _1047a_snap_ok=0
+  no "1047-(a) in-project, no marker: cannot snapshot the tree — neither sha256sum nor cksum on PATH (test environment degraded; refusing to pass vacuously)"
+fi
 _1047a_out="$TMP/1047-a.out"; _1047a_err="$TMP/1047-a.err"
 bash "$SUT" "$d" --wire > "$_1047a_out" 2>"$_1047a_err"; _1047a_rc=$?
 [ "$_1047a_rc" = 5 ] && ok "1047-(a) in-project, no marker, --wire: exits 5 (got $_1047a_rc)" \
@@ -752,9 +767,13 @@ grep -qF "kit issue #1047" "$_1047a_err" && ok "1047-(a) in-project, no marker: 
                                           || no "1047-(a) in-project, no marker: message does not name kit issue #1047"
 grep -qF -- "--scaffold" "$_1047a_err" && ok "1047-(a) in-project, no marker: message names the --scaffold opt-in" \
                                         || no "1047-(a) in-project, no marker: message does not name --scaffold"
-_1047a_after="$(_1047_snapshot "$d")"
-[ "$_1047a_before" = "$_1047a_after" ] && ok "1047-(a) in-project, no marker: tree byte-for-byte unchanged (nothing created or modified)" \
-                                        || no "1047-(a) in-project, no marker: tree CHANGED (before/after snapshots differ)"
+if [ "$_1047a_snap_ok" = 1 ]; then
+  _1047a_after="$(_1047_snapshot "$d")"
+  [ "$_1047a_before" = "$_1047a_after" ] && ok "1047-(a) in-project, no marker: tree byte-for-byte unchanged (nothing created or modified)" \
+                                          || no "1047-(a) in-project, no marker: tree CHANGED (before/after snapshots differ)"
+else
+  echo "  SKIP  1047-(a) byte-for-byte snapshot: hashing tool unavailable (see FAIL above)"
+fi
 assert_absent "1047-(a) in-project, no marker: NO corpus/ created"     "$d/corpus"
 assert_absent "1047-(a) in-project, no marker: NO retros/ created"     "$d/retros"
 assert_absent "1047-(a) in-project, no marker: NO tools/ created"      "$d/tools"
@@ -819,6 +838,115 @@ else
                                       || no "1047-(d) --scaffold --wire fresh target: WARN does not mention <SUBJECT>"
 fi
 
+# --- kit issue #1047 round 2: --force must not bypass the no-marker --wire refusal -------------
+# RDD finding R3-force-bypasses-refusal: the refusal lived only inside the force=0 branch, so
+# `--force --wire` on a marker-less target (dir with only src.c) silently scaffolded — rc=0,
+# created .claude .git .gitignore corpus retros tools. --force means "bypass the anti-clobber
+# guard on an EXISTING corpus", never "scaffold something that does not exist yet".
+echo "-- #1047 round 2: --force does not bypass the no-marker --wire refusal --"
+
+# (e) in-project dir with its OWN files, no corpus marker, --force --wire → still refuses (exit
+# 5), tree byte-for-byte unchanged. Mirrors 1047-(a) but with --force added.
+d="$TMP/1047e-force-inproject"; mkdir -p "$d"
+printf 'int main(){}\n' > "$d/src.c"
+if _1047e_before="$(_1047_snapshot "$d")"; then
+  _1047e_snap_ok=1
+else
+  _1047e_snap_ok=0
+  no "1047-(e) --force --wire, no marker: cannot snapshot the tree — neither sha256sum nor cksum on PATH"
+fi
+_1047e_out="$TMP/1047e.out"; _1047e_err="$TMP/1047e.err"
+bash "$SUT" "$d" --force --wire > "$_1047e_out" 2>"$_1047e_err"; _1047e_rc=$?
+[ "$_1047e_rc" = 5 ] && ok "1047-(e) --force --wire, no marker: exits 5 (got $_1047e_rc)" \
+                       || no "1047-(e) --force --wire, no marker: expected exit 5 (got $_1047e_rc)"
+grep -qF "REFUSED" "$_1047e_err" && ok "1047-(e) --force --wire, no marker: typed REFUSED message in stderr" \
+                                  || no "1047-(e) --force --wire, no marker: no typed REFUSED message in stderr"
+if [ "$_1047e_snap_ok" = 1 ]; then
+  _1047e_after="$(_1047_snapshot "$d")"
+  [ "$_1047e_before" = "$_1047e_after" ] && ok "1047-(e) --force --wire, no marker: tree byte-for-byte unchanged" \
+                                          || no "1047-(e) --force --wire, no marker: tree CHANGED (before/after snapshots differ)"
+fi
+assert_absent "1047-(e) --force --wire, no marker: NO corpus/ created"     "$d/corpus"
+assert_absent "1047-(e) --force --wire, no marker: NO retros/ created"     "$d/retros"
+assert_absent "1047-(e) --force --wire, no marker: NO tools/ created"      "$d/tools"
+assert_absent "1047-(e) --force --wire, no marker: NO .claude/ created"    "$d/.claude"
+assert_absent "1047-(e) --force --wire, no marker: NO git repo initialized" "$d/.git"
+
+# (f) regression safety net: --force --wire on an EXISTING corpus is UNCHANGED — it still
+# bypasses wire-only repair and falls through to a full re-scaffold (this round only closes the
+# no-marker gap; it must not touch the existing-corpus + --force contract).
+if [ "$_1047_has_jq" != 1 ]; then
+  echo "  SKIP  1047-(f): jq not on PATH"
+else
+  d="$TMP/1047f-force-existing"; mkdir -p "$d"
+  printf 'SENTINEL\n' > "$d/INDEX.md"
+  _1047f_out="$TMP/1047f.out"
+  bash "$SUT" "$d" --corpus flat --force --wire > "$_1047f_out" 2>/dev/null; _1047f_rc=$?
+  [ "$_1047f_rc" = 0 ] && ok "1047-(f) --force --wire, EXISTING corpus: exits 0 (unchanged contract)" \
+                         || no "1047-(f) --force --wire, EXISTING corpus: expected exit 0 (got $_1047f_rc)"
+  assert_file "1047-(f) --force --wire, EXISTING corpus: RESEARCH-STATE.md re-scaffolded" "$d/RESEARCH-STATE.md"
+fi
+
+# --- kit issue #1047 round 2: multi-focus corpora (RESEARCH-STATE-<focus>.md) are a marker ------
+# RDD finding: a multi-focus-only corpus (no plain RESEARCH-STATE.md, only RESEARCH-STATE-
+# <focus>.md — §16 naming convention, same glob lib/state-files.sh uses) must be recognised as a
+# present corpus by BOTH the --wire refusal check and the anti-clobber guard.
+echo "-- #1047 round 2: RESEARCH-STATE-<focus>.md counts as a corpus marker --"
+
+if [ "$_1047_has_jq" != 1 ]; then
+  echo "  SKIP  1047-(g)(h): jq not on PATH"
+else
+  # (g) multi-focus-only corpus (RESEARCH-STATE-frontend.md, no plain RESEARCH-STATE.md) + --wire
+  # → takes the wire-only REPAIR path (exit 0), never the no-marker refusal (exit 5).
+  d="$TMP/1047g-multifocus"; mkdir -p "$d"
+  printf 'state\n' > "$d/RESEARCH-STATE-frontend.md"
+  _1047g_out="$TMP/1047g.out"
+  bash "$SUT" "$d" --wire > "$_1047g_out" 2>/dev/null; _1047g_rc=$?
+  [ "$_1047g_rc" = 0 ] && ok "1047-(g) multi-focus-only corpus, --wire: exits 0 (wire-only repair, not refused)" \
+                         || no "1047-(g) multi-focus-only corpus, --wire: expected exit 0 (got $_1047g_rc)"
+  assert_file "1047-(g) multi-focus-only corpus, --wire: settings.json written" "$d/.claude/settings.json"
+  assert_grep "1047-(g) multi-focus-only corpus, --wire: multi-focus state file untouched" "state" "$d/RESEARCH-STATE-frontend.md"
+
+  # (h) anti-clobber: --scaffold --wire on the SAME multi-focus-only corpus must NOT scaffold a
+  # second corpus next to it — the wire-only repair path takes precedence over --scaffold once a
+  # corpus is present.
+  d="$TMP/1047h-multifocus-scaffold"; mkdir -p "$d"
+  printf 'state\n' > "$d/RESEARCH-STATE-backend.md"
+  _1047h_out="$TMP/1047h.out"
+  bash "$SUT" "$d" --scaffold --wire > "$_1047h_out" 2>/dev/null; _1047h_rc=$?
+  [ "$_1047h_rc" = 0 ] && ok "1047-(h) multi-focus-only corpus, --scaffold --wire: exits 0 (wire-only repair)" \
+                         || no "1047-(h) multi-focus-only corpus, --scaffold --wire: expected exit 0 (got $_1047h_rc)"
+  assert_absent "1047-(h) multi-focus-only corpus, --scaffold --wire: NO plain RESEARCH-STATE.md scaffolded" "$d/RESEARCH-STATE.md"
+  assert_absent "1047-(h) multi-focus-only corpus, --scaffold --wire: NO INDEX.md scaffolded" "$d/INDEX.md"
+  assert_absent "1047-(h) multi-focus-only corpus, --scaffold --wire: NO second sources/ scaffolded" "$d/sources"
+fi
+
+# (i) the refusal message lists EVERY recognized marker form, including RESEARCH-STATE-<focus>.md
+d="$TMP/1047i-message"; mkdir -p "$d"
+_1047i_err="$TMP/1047i.err"
+bash "$SUT" "$d" --wire >/dev/null 2>"$_1047i_err"
+assert_grep "1047-(i) refusal message names INDEX.md"              "INDEX.md"               "$_1047i_err"
+assert_grep "1047-(i) refusal message names RESEARCH-STATE.md"     "RESEARCH-STATE.md"      "$_1047i_err"
+assert_grep "1047-(i) refusal message names RESEARCH-STATE-<focus>.md (multi-focus §16)" "RESEARCH-STATE-<focus>.md" "$_1047i_err"
+assert_grep "1047-(i) refusal message names CATALOG.md"            "CATALOG.md"             "$_1047i_err"
+
+# --- kit issue #1047 round 2: --scaffold without --wire is a typed usage error -------------------
+echo "-- #1047 round 2: --scaffold without --wire is rejected --"
+d="$TMP/1047j-scaffold-only"; mkdir -p "$d"
+_1047j_out="$TMP/1047j.out"; _1047j_err="$TMP/1047j.err"
+bash "$SUT" "$d" --scaffold > "$_1047j_out" 2>"$_1047j_err"; _1047j_rc=$?
+[ "$_1047j_rc" = 2 ] && ok "1047-(j) --scaffold without --wire: exits 2 (usage error)" \
+                       || no "1047-(j) --scaffold without --wire: expected exit 2 (got $_1047j_rc)"
+grep -qF -- "--scaffold requires --wire" "$_1047j_err" && ok "1047-(j) --scaffold without --wire: typed usage message in stderr" \
+                                                         || no "1047-(j) --scaffold without --wire: no typed usage message in stderr"
+assert_absent "1047-(j) --scaffold without --wire: NO INDEX.md scaffolded (refused before any write)" "$d/INDEX.md"
+# --scaffold + --wire together remains valid (regression check against the new usage guard)
+d="$TMP/1047j-scaffold-wire-ok"; mkdir -p "$d"
+_1047jok_rc=""
+bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>/dev/null; _1047jok_rc=$?
+[ "$_1047jok_rc" = 0 ] && ok "1047-(j) --scaffold --wire together: still exits 0 (usage guard does not over-reject)" \
+                        || no "1047-(j) --scaffold --wire together: expected exit 0 (got $_1047jok_rc)"
+
 # TPL — template wording: installed hook must NOT ask user which tool; must say to pick yourself
 echo "-- TPL: SessionStart hook template wording --"
 d="$TMP/tpl-wording"; mkdir -p "$d"
@@ -879,7 +1007,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
   mkdir -p "$TMP/mk/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mk/templates"
   mutant="$TMP/mk/toolbelt/init.sh"
-  awk '/^corpus_present\(\) \{/ { print "corpus_present() { return 1; }  # MUTANT: guard neutered"; next } { print }' "$SUT" > "$mutant"
+  # corpus_present() is now multi-line (kit issue #1047 round 2: RESEARCH-STATE*.md glob for the
+  # §16 multi-focus form) — replacing only its OPENING line and relying on `next` to skip it would
+  # leave the ORIGINAL body dangling as orphaned top-level code (a bare `return` outside any
+  # function), which crashes the mutant under `set -Eeuo pipefail` instead of neutering the guard.
+  # Skip the WHOLE function body through its closing brace, like the MW23 mutant below.
+  awk '
+    /^corpus_present\(\) \{$/ {
+      print "corpus_present() { return 1; }  # MUTANT: guard neutered"
+      skip=1
+      next
+    }
+    skip==1 && /^}$/ { skip=0; next }
+    skip==1 { next }
+    { print }
+  ' "$SUT" > "$mutant"
   if ! grep -q 'MUTANT: guard neutered' "$mutant"; then
     no "teeth: could not build mutant (guard line not found)"
   else
@@ -1072,11 +1214,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw2/templates"
     mw2="$TMP/mw2/toolbelt/init.sh"
-    # Anchored to the FULL line (^...$): the bottom "if [ "$wire" = 1 ]; then" propose-never-apply
-    # guard, never the WIRE-ONLY-EXISTING-CORPUS guard above it (kit issue #1047 added a second,
-    # longer "if [ "$wire" = 1 ] && [ "$force" = 0 ]; then" line that a substring match would also
-    # catch, mutating the wrong guard and making the refusal path fire instead of this one).
-    awk '/^if \[ "\$wire" = 1 \]; then$/ { print "if true; then  # MUTANT: wire guard removed"; next } { print }' "$SUT" > "$mw2"
+    # The bottom "if [ "$wire" = 1 ]; then" propose-never-apply guard now shares its FULL line
+    # text with TWO other guards: the WIRE-ONLY-EXISTING-CORPUS repair guard (longer, "&& force"
+    # — round 1) AND the kit issue #1047 round 2 no-marker refusal-computation guard (identical
+    # full line text). A bare full-line anchor would mutate ALL matching occurrences, including
+    # the round-2 guard — which then unconditionally refuses (exit 5) before the scaffold ever
+    # reaches the bottom block, so settings.json never gets created and the mutant looks like it
+    # DIDN'T regress (false theater verdict). Disambiguate on the NEXT line instead: only the
+    # bottom guard is immediately followed by the §7 anti-silent-zero jq-probe comment.
+    awk '
+      /^if \[ "\$wire" = 1 \]; then$/ { pending=$0; next }
+      pending != "" {
+        if ($0 ~ /anti-silent-zero: probe for jq before any write/) {
+          print "if true; then  # MUTANT: wire guard removed"
+        } else {
+          print pending
+        }
+        print
+        pending=""
+        next
+      }
+      { print }
+    ' "$SUT" > "$mw2"
     if ! grep -q '# MUTANT: wire guard removed' "$mw2"; then
       no "teeth MW2: could not build mutant (wire guard line not found)"
     else
@@ -1564,7 +1723,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof MW19 (#1047): drop the no-marker --wire refusal → 1047-(a)/(b) has teeth --"
   mkdir -p "$TMP/mw19/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw19/templates"
   mw19="$TMP/mw19/toolbelt/init.sh"
-  awk '/if \[ "\$scaffold" = 0 \]; then/ { print "    if false; then  # MUTANT: refusal neutered (kit issue #1047)"; next } { print }' "$SUT" > "$mw19"
+  # kit issue #1047 round 2 merged the corpus-presence check and the --scaffold check into one
+  # combined condition — anchor on that combined line, not the old standalone "$scaffold" = 0 one.
+  awk '/if \[ -z "\$_wo_corpus_root" \] && \[ "\$scaffold" = 0 \]; then/ { print "  if false; then  # MUTANT: refusal neutered (kit issue #1047)"; next } { print }' "$SUT" > "$mw19"
   if ! grep -qF 'MUTANT: refusal neutered' "$mw19"; then
     no "teeth MW19: could not build mutant (refusal if-condition not found)"
   else
@@ -1583,7 +1744,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof MW20 (#1047): write before refusing → 1047-(a) snapshot assertion has teeth --"
   mkdir -p "$TMP/mw20/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw20/templates"
   mw20="$TMP/mw20/toolbelt/init.sh"
-  awk '/^      exit 5$/ { print "      mkdir -p \"$target/retros\"  # MUTANT: writes before refusing (kit issue #1047)"; print; next } { print }' "$SUT" > "$mw20"
+  # kit issue #1047 round 2 reduced the refusal's nesting by one level (merged condition) — the
+  # "exit 5" line is now 4-space indented, not 6.
+  awk '/^    exit 5$/ { print "    mkdir -p \"$target/retros\"  # MUTANT: writes before refusing (kit issue #1047)"; print; next } { print }' "$SUT" > "$mw20"
   if ! grep -qF 'MUTANT: writes before refusing' "$mw20"; then
     no "teeth MW20: could not build mutant (exit 5 line not found)"
   else
@@ -1617,6 +1780,83 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth MW21: mutant did NOT wire SessionStart — 1047-(d) placeholder guard assertion is THEATER"
       fi
+    fi
+  fi
+
+  # MW22 (kit issue #1047 round 2, RDD R3-force-bypasses-refusal): re-gate the no-marker --wire
+  # refusal on force=0 again (the exact pre-round-2 shape) → --force --wire on a marker-less
+  # target silently scaffolds again → 1047-(e)/(f) exit-5 assertions RED.
+  echo "-- teeth proof MW22 (#1047 round 2): re-gate the no-marker refusal on force=0 → 1047-(e) has teeth --"
+  mkdir -p "$TMP/mw22/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw22/templates"
+  mw22="$TMP/mw22/toolbelt/init.sh"
+  awk '
+    /^_wo_corpus_root=""$/ { print; anchor=1; next }
+    anchor==1 && /^if \[ "\$wire" = 1 \]; then$/ {
+      print "if [ \"$wire\" = 1 ] && [ \"$force\" = 0 ]; then  # MUTANT: force bypasses no-marker refusal (kit issue #1047 round 2)"
+      anchor=0
+      next
+    }
+    { print }
+  ' "$SUT" > "$mw22"
+  if ! grep -qF 'MUTANT: force bypasses no-marker refusal' "$mw22"; then
+    no "teeth MW22: could not build mutant (refusal-computation guard line not found)"
+  else
+    dmw22="$TMP/mw22t"; mkdir -p "$dmw22"
+    printf 'int main(){}\n' > "$dmw22/src.c"
+    bash "$mw22" "$dmw22" --force --wire >/dev/null 2>/dev/null; _mw22_rc=$?
+    if [ "$_mw22_rc" != 5 ]; then
+      ok "teeth MW22: mutant does NOT refuse --force --wire on a marker-less target (exit $_mw22_rc) → 1047-(e)/(f) has teeth"
+    else
+      no "teeth MW22: mutant still refuses (exit 5) — 1047-(e)/(f) assertion is THEATER"
+    fi
+  fi
+
+  # MW23 (kit issue #1047 round 2): revert corpus_present() to exact-match-only (drop the
+  # RESEARCH-STATE*.md glob for the §16 multi-focus naming convention) → a multi-focus-only
+  # corpus (RESEARCH-STATE-<focus>.md, no plain RESEARCH-STATE.md) is no longer recognised as
+  # present → --wire wrongly refuses it instead of taking the wire-only repair path → 1047-(g)
+  # assertion RED.
+  echo "-- teeth proof MW23 (#1047 round 2): drop the multi-focus marker glob → 1047-(g) has teeth --"
+  mkdir -p "$TMP/mw23/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw23/templates"
+  mw23="$TMP/mw23/toolbelt/init.sh"
+  awk '
+    /^corpus_present\(\) \{$/ {
+      print "corpus_present() { local r=\"$1\" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e \"$r/$m\" ] && return 0; done; return 1; }  # MUTANT: multi-focus marker dropped (kit issue #1047 round 2)"
+      skip=1
+      next
+    }
+    skip==1 && /^}$/ { skip=0; next }
+    skip==1 { next }
+    { print }
+  ' "$SUT" > "$mw23"
+  if ! grep -qF 'MUTANT: multi-focus marker dropped' "$mw23"; then
+    no "teeth MW23: could not build mutant (corpus_present() definition not found)"
+  else
+    dmw23="$TMP/mw23t"; mkdir -p "$dmw23"
+    printf 'state\n' > "$dmw23/RESEARCH-STATE-frontend.md"
+    bash "$mw23" "$dmw23" --wire >/dev/null 2>/dev/null; _mw23_rc=$?
+    if [ "$_mw23_rc" = 5 ]; then
+      ok "teeth MW23: mutant wrongly refuses a multi-focus-only corpus (exit 5) → 1047-(g) has teeth"
+    else
+      no "teeth MW23: mutant did not refuse (exit $_mw23_rc) — 1047-(g) assertion is THEATER"
+    fi
+  fi
+
+  # MW24 (kit issue #1047 round 2): drop the "--scaffold requires --wire" usage guard →
+  # --scaffold alone no longer rejects → 1047-(j) exit-2 assertion RED.
+  echo "-- teeth proof MW24 (#1047 round 2): drop the --scaffold-without-wire usage guard → 1047-(j) has teeth --"
+  mkdir -p "$TMP/mw24/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw24/templates"
+  mw24="$TMP/mw24/toolbelt/init.sh"
+  awk '/scaffold requires --wire/ { next } { print }' "$SUT" > "$mw24"
+  if grep -qF 'scaffold requires --wire' "$mw24"; then
+    no "teeth MW24: could not build mutant (usage-guard line not removed)"
+  else
+    dmw24="$TMP/mw24t"; mkdir -p "$dmw24"
+    bash "$mw24" "$dmw24" --scaffold >/dev/null 2>/dev/null; _mw24_rc=$?
+    if [ "$_mw24_rc" != 2 ]; then
+      ok "teeth MW24: mutant no longer rejects --scaffold without --wire (exit $_mw24_rc) → 1047-(j) has teeth"
+    else
+      no "teeth MW24: mutant still exits 2 — 1047-(j) assertion is THEATER"
     fi
   fi
 

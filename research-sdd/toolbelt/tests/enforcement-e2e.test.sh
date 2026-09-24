@@ -17,7 +17,8 @@
 #
 # TEETH (--prove-teeth): sentinel-based and assertion-self-test mutants confirm each
 # R-check actually bites:
-#   R2-TOOTH-A: SessionStart wrongly present in phase-1 settings → "not wired yet" fails.
+#   R2-TOOTH-A: mutant research-sdd-init.sh (SUBJECT guard neutered) wires SessionStart on a
+#               real fresh target → the real phase-1 "not wired yet" check fails.
 #   R2-TOOTH-B: Stop-only settings post-adapt (no SessionStart) → "both wired" fails.
 #   R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check would FAIL.
 #   R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not invoked → R5 fails.
@@ -222,7 +223,10 @@ fi
 
 # Adapt the hook (strip the live <SUBJECT> placeholder) and re-run --wire — the corpus now
 # exists, so this takes the wire-only repair path and should wire SessionStart too.
-sed -i 's/<SUBJECT>/the-real-subject/g' "$_r2_ss_hook"
+# Portable in-place edit (RDD R3-gnu-sed-inplace): GNU `sed -i 's/.../'` has no direct BSD/macOS
+# equivalent (BSD sed requires a mandatory -i suffix argument, even an empty one, with different
+# quoting rules) — write to a temp file and mv instead of relying on `sed -i` at all.
+sed 's/<SUBJECT>/the-real-subject/g' "$_r2_ss_hook" > "$_r2_ss_hook.tmp" && mv "$_r2_ss_hook.tmp" "$_r2_ss_hook"
 "$BASH_BIN" "$INIT_SUT" "$T_R2" --corpus flat --wire >/dev/null 2>&1
 
 _r2_stop_cmd2="" ; _r2_ss_cmd2=""
@@ -398,23 +402,41 @@ for _l in focus-prefix.sh state-files.sh block-files.sh; do
   cp "$KIT_TOOLBELT/lib/$_l" "$MUT_STAT_KIT/lib/"
 done
 
-# ── R2-TOOTH-A: SessionStart wrongly present in phase-1 (fresh-scaffold) settings ─────
-# Phase 1 requires SessionStart to be ABSENT (the freshly-copied hook still carries the
-# live <SUBJECT> placeholder — kit issue #1047). Proves that check catches a regression
-# where SessionStart gets wired anyway (e.g. the SUBJECT guard dropped — the same class
-# research-sdd-init.test.sh's own MW21 mutation control exercises on the real SUT).
-_r2ta_dir="$ROOT/r2-tooth-a"; mkdir -p "$_r2ta_dir/.claude"
-jq -n '{
-  "hooks": {
-    "Stop": [{"matcher":"","hooks":[{"type":"command","command":"/x/retro-gate-stop.sh"}]}],
-    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"/x/research-protocol.sh"}]}]
-  }
-}' > "$_r2ta_dir/.claude/settings.json"
-_r2ta_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2ta_dir/.claude/settings.json" 2>/dev/null)"
-if [ -n "$_r2ta_ss" ]; then
-  ok "R2-TOOTH-A: SessionStart wrongly present in phase-1 settings → 'not wired yet' assertion correctly fails (bites)"
+# ── R2-TOOTH-A: mutant research-sdd-init.sh with the scaffold+wire SUBJECT guard neutered ─────
+# RDD finding (R2/R3-tooth-a-tautology): a hand-built settings.json fixture only proves a
+# hand-COPIED condition discriminates — it never runs the SUT, so a real regression in the SUT's
+# own phase-1 logic could drift undetected while this "tooth" keeps reporting green. Fixed by
+# mutating research-sdd-init.sh itself (same technique as research-sdd-init.test.sh's own MW21:
+# neuter the scaffold+wire <SUBJECT> guard) and running the REAL mutant on a REAL fresh target,
+# then applying the exact phase-1 assertion shape to its REAL settings.json output.
+MUT_INIT_KIT="$ROOT/mutinitkit"
+mkdir -p "$MUT_INIT_KIT/toolbelt"
+ln -sfn "$KIT_TOOLBELT/../templates" "$MUT_INIT_KIT/templates"
+MUT_INIT_SUT="$MUT_INIT_KIT/toolbelt/research-sdd-init.sh"
+awk '/if _rsdd_has_live_subject_placeholder "\$_ss_cmd"; then/ { print "    if false; then  # MUTANT: scaffold+wire SUBJECT guard neutered (R2-TOOTH-A)"; next } { print }' \
+  "$INIT_SUT" > "$MUT_INIT_SUT"
+chmod +x "$MUT_INIT_SUT"
+
+if ! grep -qF 'MUTANT: scaffold+wire SUBJECT guard neutered' "$MUT_INIT_SUT"; then
+  no "R2-TOOTH-A: could not build mutant (scaffold+wire placeholder guard line not found)"
 else
-  no "R2-TOOTH-A: SessionStart absent in tooth fixture — could not exercise the phase-1 assertion"
+  T_R2TA="$ROOT/r2-tooth-a"; mkdir -p "$T_R2TA"
+  git -C "$T_R2TA" init -q -b main 2>/dev/null || git -C "$T_R2TA" init -q
+  git -C "$T_R2TA" config user.email t@example.com
+  git -C "$T_R2TA" config user.name tester
+  "$BASH_BIN" "$MUT_INIT_SUT" "$T_R2TA" --corpus flat --scaffold --wire >/dev/null 2>/dev/null
+
+  _r2ta_ss=""
+  [ -f "$T_R2TA/.claude/settings.json" ] && \
+    _r2ta_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$T_R2TA/.claude/settings.json" 2>/dev/null)"
+
+  # Replicate the REAL phase-1 assertion verbatim (see the R2 block above): it must now report
+  # the wrong-state FAIL for a settings.json the mutant actually produced.
+  if [ -n "$_r2ta_ss" ]; then
+    ok "R2-TOOTH-A: mutant (SUBJECT guard neutered) wires SessionStart despite <SUBJECT> → the real phase-1 'not wired yet' check correctly fails (bites)"
+  else
+    no "R2-TOOTH-A: mutant (SUBJECT guard neutered) should have wired SessionStart but the phase-1 check still passes — assertion is THEATER"
+  fi
 fi
 
 # ── R2-TOOTH-B: Stop-only settings AFTER adapting the hook (no SessionStart) ──────────
