@@ -645,6 +645,17 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
       echo "ERROR: gh issue list (dedup) failed for row $_rid: $_existing" >&2
       failed=$((failed+1)); continue
     fi
+    # STAGE_RETRO_ISSUES_DEDUP_EMPTY_REPLY_GUARD (kit issue #1093 item 1): `gh issue list` can
+    # exit 0 with EMPTY stdout instead of the '[]' a genuinely empty JSON array reply would carry
+    # (observed: a transient gh/API hiccup that still exits 0). The OPEN/CLOSED greps below both
+    # silently fail to match on an empty string, so without this guard an empty reply fell through
+    # as "no match" and proceeded straight to gh issue create — exactly the duplicate this dedup
+    # check exists to prevent. Require the reply to actually start with '[' (a JSON array, empty
+    # or not) before trusting a "no match" reading; anything else is a failure, not a no-match.
+    if ! printf '%s' "$_existing" | grep -q '^[[:space:]]*\['; then
+      echo "ERROR: gh issue list (dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_existing" >&2
+      failed=$((failed+1)); continue
+    fi
     if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then
       echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
