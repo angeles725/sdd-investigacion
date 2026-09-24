@@ -12,10 +12,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../../templates/hook-sessionstart.sh"
 VS="$HERE/../verify-state.sh"
-RG="$HERE/../retro-gate.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -f "$VS"  ] || { echo "FATAL: verify-state not found: $VS" >&2; exit 2; }
-[ -f "$RG"  ] || { echo "FATAL: retro-gate not found: $RG" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -164,56 +162,29 @@ else
   no "rotation: pre-existing sha under this session id was NOT preserved"
 fi
 
-# ── R3-001 CORRECTION: no mtime refresh — a second SessionStart must not move retro-gate's
-#    reference point, and a target with no resolvable sha must not get a phantom session file ──
+# ── R3-001: no mtime refresh — a resume/compact must not move retro-gate's reference point ──
 
-echo "-- R3-001(a): a second SessionStart (resume/compact) leaves mtime+content unchanged; retro-gate still sees a between-SessionStarts edit as changed --"
-_r3d="$TMP/r3-reference-point-target"
-mkdir -p "$_r3d/.claude/hooks"
+echo "-- R3-001(a): a second SessionStart leaves mtime+content unchanged; retro-gate still sees a between-calls edit as changed --"
+_r3d="$TMP/r3-target"; mkdir -p "$_r3d/.claude/hooks"
 git -C "$_r3d" init -q -b main
-git -C "$_r3d" config user.email t@example.com; git -C "$_r3d" config user.name tester
-: > "$_r3d/.gitkeep"; git -C "$_r3d" add -A
-GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" \
-  git -C "$_r3d" commit -q -m init
-cp "$SUT" "$_r3d/.claude/hooks/research-protocol.sh"
-_r3_sid="r3-session"
-_r3_file="$_r3d/.claude/.rsdd-session-${_r3_sid}"
-# First SessionStart (true session start): writes the sha, then backdate its mtime so a
-# same-second "now" write on the second call would be trivially distinguishable.
-printf '{"session_id":"%s"}' "$_r3_sid" \
-  | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+git -C "$_r3d" -c user.email=t@example.com -c user.name=tester commit -q --allow-empty -m init
+cp "$SUT" "$_r3d/.claude/hooks/research-protocol.sh"; _r3_sid="r3-session"; _r3_file="$_r3d/.claude/.rsdd-session-${_r3_sid}"
+printf '{"session_id":"%s"}' "$_r3_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
 touch -d '-1 hour' "$_r3_file"
-_r3_content1="$(cat "$_r3_file")"
-_r3_mtime1="$(stat -c %Y "$_r3_file")"
-# An edit made BETWEEN the two SessionStarts (uncommitted — the class of change #984's
-# "newer than session file" scan exists to catch).
-printf '# Block 1\nBody.\n' > "$_r3d/t-block1.md"
-# Second SessionStart for the SAME session id (resume/compact) — must not rewrite content or
-# refresh mtime.
-printf '{"session_id":"%s"}' "$_r3_sid" \
-  | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
-_r3_content2="$(cat "$_r3_file")"
-_r3_mtime2="$(stat -c %Y "$_r3_file")"
-if [ "$_r3_content1" = "$_r3_content2" ] && [ "$_r3_mtime1" = "$_r3_mtime2" ]; then
-  ok "R3-001(a): second SessionStart leaves the session file's content and mtime unchanged"
+_r3_c1="$(cat "$_r3_file")"; _r3_m1="$(stat -c %Y "$_r3_file")"
+printf '# Block 1\nBody.\n' > "$_r3d/t-block1.md"   # edit made BETWEEN the two SessionStarts
+printf '{"session_id":"%s"}' "$_r3_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+_r3_c2="$(cat "$_r3_file")"; _r3_m2="$(stat -c %Y "$_r3_file")"
+_r3_gate="$(printf '{"session_id":"%s","stop_hook_active":false}' "$_r3_sid" | bash "$HERE/../retro-gate.sh" "$_r3d" 2>/dev/null)"
+if [ "$_r3_c1" = "$_r3_c2" ] && [ "$_r3_m1" = "$_r3_m2" ] && grep -qF '"decision":"block"' <<<"$_r3_gate"; then
+  ok "R3-001(a): second SessionStart leaves mtime/content unchanged; retro-gate still sees the edit as changed"
 else
-  no "R3-001(a): second SessionStart changed content or mtime (content1=$_r3_content1 content2=$_r3_content2 mtime1=$_r3_mtime1 mtime2=$_r3_mtime2)"
-fi
-_r3_gate_out="$(printf '{"session_id":"%s","stop_hook_active":false}' "$_r3_sid" \
-  | bash "$RG" "$_r3d" 2>/dev/null)"
-if grep -qF '"decision":"block"' <<<"$_r3_gate_out"; then
-  ok "R3-001(a): retro-gate still sees the between-SessionStarts edit as changed (blocks for a missing retro)"
-else
-  no "R3-001(a): retro-gate did NOT see the between-SessionStarts edit as changed (reference point moved): $_r3_gate_out"
+  no "R3-001(a): reference-point regression (c1=$_r3_c1 c2=$_r3_c2 m1=$_r3_m1 m2=$_r3_m2 gate=$_r3_gate)"
 fi
 
 echo "-- R3-001(b): no sha resolvable (non-git target) → no phantom session file is created --"
-_r3bd="$TMP/r3-nogit-target"
-mkdir -p "$_r3bd/.claude/hooks"
-cp "$SUT" "$_r3bd/.claude/hooks/research-protocol.sh"
-_r3b_sid="r3b-session"
-printf '{"session_id":"%s"}' "$_r3b_sid" \
-  | bash "$_r3bd/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+_r3bd="$TMP/r3-nogit"; mkdir -p "$_r3bd/.claude/hooks"; cp "$SUT" "$_r3bd/.claude/hooks/research-protocol.sh"; _r3b_sid="r3b-session"
+printf '{"session_id":"%s"}' "$_r3b_sid" | bash "$_r3bd/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
 if [ ! -e "$_r3bd/.claude/.rsdd-session-${_r3b_sid}" ]; then
   ok "R3-001(b): non-git target with no resolvable sha → no phantom session file created"
 else
@@ -281,19 +252,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
   fi
 
-  echo "-- teeth M4: rotation self-exclusion check has teeth (#984) --"
+  echo "-- teeth M4: rotation protections (self-exclusion + touch-refresh) have teeth (#984) --"
   _m4d="$TMP/rotation-mutant"
   mkdir -p "$_m4d/.claude/hooks"
   _m4="$_m4d/.claude/hooks/research-protocol.sh"
   cp "$SUT" "$_m4"
-  # Mutant: drop the ENTIRE `! -name ... ! -name ...` self-exclusion line, reverting to the
-  # pre-#984 behaviour that purges a session's own state files too. Must delete the whole line
-  # (not just its text) — a blank line in the `\`-continued find command would snap it in two,
-  # breaking `-delete` into an invalid standalone "command", degrading the find to its default
-  # -print action instead of actually reverting to the pre-fix delete.
-  sed -i '/! -name "\.rsdd-session-\${_session_id}"/d' "$_m4"
-  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4"; then
-    no "teeth M4: could not build mutant (self-exclusion clause still present after sed)"
+  # Mutant: drop the self-exclusion `! -name ... ! -name ...` line AND the F3 touch-refresh
+  # lines, reverting to the pre-#984 behaviour that purges a session's own state files too.
+  # Both must go together here: with touch-refresh alone still present, it would refresh this
+  # session's own mtime to "now" moments before the (self-exclusion-stripped) find runs, and
+  # the file would survive anyway — masking a self-exclusion regression. Must delete whole
+  # lines (not just text) — a blank line in the `\`-continued find command would snap it in
+  # two, breaking `-delete` into an invalid standalone "command", degrading the find to its
+  # default -print action instead of actually reverting to the pre-fix delete (caught
+  # empirically: see PR body). The dedicated touch-refresh teeth below isolates F3 on its own.
+  sed -i \
+    -e '/! -name "\.rsdd-session-\${_session_id}"/d' \
+    -e '/touch "\$_rsdd_file" 2>\/dev\/null/d' \
+    -e '/touch "\$_rsdd_blocked_file" 2>\/dev\/null/d' \
+    "$_m4"
+  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4" || grep -qF 'touch "$_rsdd_file"' "$_m4"; then
+    no "teeth M4: could not build mutant (self-exclusion or touch-refresh still present after sed)"
   else
     _m4_sid="m4-current-session"
     _m4_own="$_m4d/.claude/.rsdd-session-${_m4_sid}"
@@ -303,49 +282,41 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ ! -e "$_m4_own" ]; then
       ok "teeth M4: mutant deletes its own session file past 7 days (RED as expected)"
     else
-      no "teeth M4: mutant did NOT delete the session file — self-exclusion check has no teeth"
+      no "teeth M4: mutant did NOT delete the session file — rotation protections have no teeth"
     fi
   fi
 
-  echo "-- teeth R3-001(a): the write-once guard has teeth (mutant rewrites on every SessionStart) --"
+  echo "-- teeth R3-001(a): write-once guard has teeth --"
   _m5="$TMP/r3a-mutant.sh"
   sed 's/if \[ ! -s "\$_rsdd_file" \]; then/if true; then/' "$SUT" > "$_m5"
   if ! grep -q 'if true; then' "$_m5"; then
-    no "teeth R3-001(a): could not build write-every-time mutant (anchor not found — SUT drifted?)"
+    no "teeth R3-001(a): anchor not found — SUT drifted?"
   else
-    _m5d="$TMP/r3a-mutant-target"; mkdir -p "$_m5d/.claude/hooks"
-    git -C "$_m5d" init -q -b main
-    git -C "$_m5d" config user.email t@example.com; git -C "$_m5d" config user.name tester
-    : > "$_m5d/.gitkeep"; git -C "$_m5d" add -A; git -C "$_m5d" commit -q -m init
-    cp "$_m5" "$_m5d/.claude/hooks/research-protocol.sh"
-    _m5_sid="r3a-mutant-session"
-    _m5_file="$_m5d/.claude/.rsdd-session-${_m5_sid}"
-    printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_m5d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    cp "$_m5" "$_r3d/.claude/hooks/research-protocol.sh"; _m5_sid="r3a-mutant"; _m5_file="$_r3d/.claude/.rsdd-session-${_m5_sid}"
+    printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
     touch -d '-1 hour' "$_m5_file"
-    _m5_mtime1="$(stat -c %Y "$_m5_file")"
-    printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_m5d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
-    _m5_mtime2="$(stat -c %Y "$_m5_file")"
-    if [ "$_m5_mtime1" != "$_m5_mtime2" ]; then
-      ok "teeth R3-001(a): mutant rewrites (moves mtime) on the second SessionStart (RED as expected)"
+    _m5_m1="$(stat -c %Y "$_m5_file")"
+    printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    _m5_m2="$(stat -c %Y "$_m5_file")"
+    if [ "$_m5_m1" != "$_m5_m2" ]; then
+      ok "teeth R3-001(a): mutant moves mtime on the second SessionStart (RED as expected)"
     else
-      no "teeth R3-001(a): mutant did not move the mtime — write-once assertion has no teeth"
+      no "teeth R3-001(a): mutant did not move mtime — assertion has no teeth"
     fi
   fi
 
-  echo "-- teeth R3-001(b): the empty-sha guard has teeth (mutant writes a phantom file) --"
+  echo "-- teeth R3-001(b): empty-sha guard has teeth --"
   _m6="$TMP/r3b-mutant.sh"
   sed 's/if \[ -n "\$_sha" \]; then/if true; then/' "$SUT" > "$_m6"
   if ! grep -q 'if true; then' "$_m6"; then
-    no "teeth R3-001(b): could not build phantom-file mutant (anchor not found — SUT drifted?)"
+    no "teeth R3-001(b): anchor not found — SUT drifted?"
   else
-    _m6d="$TMP/r3b-mutant-target"; mkdir -p "$_m6d/.claude/hooks"
-    cp "$_m6" "$_m6d/.claude/hooks/research-protocol.sh"
-    _m6_sid="r3b-mutant-session"
-    printf '{"session_id":"%s"}' "$_m6_sid" | bash "$_m6d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
-    if [ -e "$_m6d/.claude/.rsdd-session-${_m6_sid}" ]; then
+    cp "$_m6" "$_r3bd/.claude/hooks/research-protocol.sh"; _m6_sid="r3b-mutant"   # reuse test (b)'s target
+    printf '{"session_id":"%s"}' "$_m6_sid" | bash "$_r3bd/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    if [ -e "$_r3bd/.claude/.rsdd-session-${_m6_sid}" ]; then
       ok "teeth R3-001(b): mutant creates a phantom session file on a non-git target (RED as expected)"
     else
-      no "teeth R3-001(b): mutant did NOT create a phantom file — empty-sha guard assertion has no teeth"
+      no "teeth R3-001(b): mutant did NOT create a phantom file — assertion has no teeth"
     fi
   fi
 
