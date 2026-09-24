@@ -426,8 +426,8 @@ _p8_resolve_hook_path() {
 #     mentions): a path that does not even textually start under <hroot_real> is unambiguous
 #     ("out-of-root", no realpath needed to see that). One that does is walked component by
 #     component from <hroot_real> down with `-L`, and rejected ("degraded") if any component still
-#     is a symlink or the remainder still contains a ".." segment. The caller has already
-#     canonicalized the candidate's DIRECTORY with the `cd -P`/`pwd -P` builtins where it exists,
+#     is a symlink or the remainder still contains a ".." segment. This function first
+#     canonicalizes the candidate's DIRECTORY with the `cd -P`/`pwd -P` builtins where it exists,
 #     so in practice what remains to refuse is a symlinked LEAF or a ".." in a path whose directory
 #     does not exist — conservative by design: without realpath this never tries to prove where a
 #     symlinked leaf points. The split uses
