@@ -425,9 +425,12 @@ _p8_resolve_hook_path() {
 #     symlinked DIRECTORY COMPONENT partway down both point the read somewhere the text never
 #     mentions): a path that does not even textually start under <hroot_real> is unambiguous
 #     ("out-of-root", no realpath needed to see that). One that does is walked component by
-#     component from <hroot_real> down with `-L`, and rejected ("degraded") if any component is a
-#     symlink or the remainder contains a ".." segment anywhere — conservative by design: this
-#     cannot prove a symlink stays in-root without realpath, so it never tries. The split uses
+#     component from <hroot_real> down with `-L`, and rejected ("degraded") if any component still
+#     is a symlink or the remainder still contains a ".." segment. The caller has already
+#     canonicalized the candidate's DIRECTORY with the `cd -P`/`pwd -P` builtins where it exists,
+#     so in practice what remains to refuse is a symlinked LEAF or a ".." in a path whose directory
+#     does not exist — conservative by design: without realpath this never tries to prove where a
+#     symlinked leaf points. The split uses
 #     `read -ra` on a quoted here-string, NOT an unquoted `for x in $rel` — the latter runs each
 #     split component back through pathname expansion, so a component that happens to be
 #     glob-shaped (e.g. a directory literally named `[l]`) would expand against the process's OWN
@@ -535,7 +538,7 @@ _p8_hdir="$_p8_hroot/.claude/hooks"
 _p8_realpath_ok=1
 command -v realpath >/dev/null 2>&1 || _p8_realpath_ok=0
 if [ "$_p8_realpath_ok" -eq 0 ]; then
-  echo "   degraded   hook-set: realpath not found on PATH — cannot canonicalize hook paths; any settings-declared or .claude/hooks/ path containing '..' or crossing a symlink is refused rather than trusted (§8)"
+  echo "   degraded   hook-set: realpath not found on PATH — directory components are canonicalized with the cd -P/pwd -P builtins; a symlinked leaf, or a '..' still present after that, is refused rather than trusted (§8)"
 fi
 
 _p8_combined=""       # newline list of safe, in-root, existing file paths (pre-dedup)
