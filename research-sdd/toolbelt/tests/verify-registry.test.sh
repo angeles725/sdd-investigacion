@@ -2146,6 +2146,138 @@ else
   no "69 absent target MIDDLE → expected 1 absent" "exit=$RC out=[$OUT]"
 fi
 
+# 70 — RH-COMPANION (issue #1039): a row whose ONLY present corpus path is written in
+#      `$RESEARCH_HOME/...` form, plus a companion non-path backtick token (e.g. a GitHub slug like
+#      `/mrdoob/three.js`), must NOT be counted absent. The per-row any-dir check (ABSENT-PATHS-CHECK)
+#      only recognised literal `/abs` tokens, so it never saw the $RESEARCH_HOME token at all and
+#      false-counted the row absent even though target_paths_pairs already resolved a real directory.
+#      RED before fix: absent_paths=1, INFO "1 registered target ... absent", no clean line.
+kit="$(mkkit c70-rh-slug-companion)"
+_rh_base_70="$ROOT/rh_base_70_$$"
+mkdir -p "$_rh_base_70"
+tgt="$_rh_base_70/rh_corpus"
+mkcorpus "$tgt" 3 "t"
+{ printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
+  printf '| 1 | tgt | mature (3 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_70" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_70
+if [ "$RC" = 0 ] \
+   && ! grep -qE 'INFO.*registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· 0 absent target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "70 \$RESEARCH_HOME real dir + /slug companion → row NOT absent (issue #1039)" "(exit $RC)"
+else
+  no "70 \$RESEARCH_HOME real dir + /slug companion → row NOT absent (issue #1039)" "exit=$RC out=[$OUT]"
+fi
+
+# 71 — LIST-EDGE (FIRST): the real `$RESEARCH_HOME/...` token is the FIRST of three backtick
+#      tokens in the row (real, slug, slug). The any-dir loop must still find it (it breaks on the
+#      first hit, so a first-position real token is the easiest case — pinned as the list-edge start).
+kit="$(mkkit c71-rh-first)"
+_rh_base_71="$ROOT/rh_base_71_$$"
+mkdir -p "$_rh_base_71"
+tgt="$_rh_base_71/rh_corpus71"
+mkcorpus "$tgt" 2 "f"
+{ printf '# targets\n\n| # | name | maturity | path | artifact | extra |\n|---|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - | - |\n' "$kit"
+  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus71` | `/slug/x1` | `/slug/y1` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_71" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_71
+if [ "$RC" = 0 ] \
+   && grep -qE '\· 0 absent target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "71 real \$RESEARCH_HOME token FIRST among 3 row tokens → row NOT absent" "(exit $RC)"
+else
+  no "71 real \$RESEARCH_HOME token FIRST among 3 row tokens → row NOT absent" "exit=$RC out=[$OUT]"
+fi
+
+# 72 — LIST-EDGE (MIDDLE): the real token sits between two absent slug tokens.
+kit="$(mkkit c72-rh-middle)"
+_rh_base_72="$ROOT/rh_base_72_$$"
+mkdir -p "$_rh_base_72"
+tgt="$_rh_base_72/rh_corpus72"
+mkcorpus "$tgt" 4 "m"
+{ printf '# targets\n\n| # | name | maturity | path | artifact | extra |\n|---|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - | - |\n' "$kit"
+  printf '| 1 | tgt | mature (4 md / git yes / hook yes) | `/slug/x2` | `$RESEARCH_HOME/rh_corpus72` | `/slug/y2` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_72" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_72
+if [ "$RC" = 0 ] \
+   && grep -qE '\· 0 absent target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "72 real \$RESEARCH_HOME token MIDDLE among 3 row tokens → row NOT absent" "(exit $RC)"
+else
+  no "72 real \$RESEARCH_HOME token MIDDLE among 3 row tokens → row NOT absent" "exit=$RC out=[$OUT]"
+fi
+
+# 73 — LIST-EDGE (LAST): the real token is the LAST of three backtick tokens — the shape the
+#      any-dir loop must walk furthest to reach (list-edge companion to test 71's FIRST case).
+kit="$(mkkit c73-rh-last)"
+_rh_base_73="$ROOT/rh_base_73_$$"
+mkdir -p "$_rh_base_73"
+tgt="$_rh_base_73/rh_corpus73"
+mkcorpus "$tgt" 1 "l"
+{ printf '# targets\n\n| # | name | maturity | path | artifact | extra |\n|---|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - | - |\n' "$kit"
+  printf '| 1 | tgt | mature (1 md / git yes / hook yes) | `/slug/x3` | `/slug/y3` | `$RESEARCH_HOME/rh_corpus73` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_73" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_73
+if [ "$RC" = 0 ] \
+   && grep -qE '\· 0 absent target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "73 real \$RESEARCH_HOME token LAST among 3 row tokens → row NOT absent" "(exit $RC)"
+else
+  no "73 real \$RESEARCH_HOME token LAST among 3 row tokens → row NOT absent" "exit=$RC out=[$OUT]"
+fi
+
+# 74 — BRACED FORM: the real corpus token is written `${RESEARCH_HOME}/...` (braced) alongside a
+#      slug companion. Both the unbraced and braced forms must be recognised by the any-dir check.
+kit="$(mkkit c74-rh-braced)"
+_rh_base_74="$ROOT/rh_base_74_$$"
+mkdir -p "$_rh_base_74"
+tgt="$_rh_base_74/rh_corpus74"
+mkcorpus "$tgt" 2 "b"
+{ printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
+  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_74" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_74
+if [ "$RC" = 0 ] \
+   && grep -qE '\· 0 absent target' <<<"$OUT" \
+   && grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "74 braced \${RESEARCH_HOME} real token + /slug companion → row NOT absent" "(exit $RC)"
+else
+  no "74 braced \${RESEARCH_HOME} real token + /slug companion → row NOT absent" "exit=$RC out=[$OUT]"
+fi
+
+# 75 — ALL-ABSENT SURVIVES with a $RESEARCH_HOME token in the mix (§7 guard must not regress): a
+#      row whose tokens are a NONEXISTENT `$RESEARCH_HOME/...` path plus a nonexistent `/abs` path —
+#      neither resolves — must still be counted absent exactly ONCE (row-level dedup), not silently
+#      cleared by the wider token recognition and not double-counted per token.
+kit="$(mkkit c75-rh-all-absent)"
+_rh_base_75="$ROOT/rh_base_75_$$"
+mkdir -p "$_rh_base_75"
+{ printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
+  printf '| 1 | tgt | mature (5 md / git yes) | `$RESEARCH_HOME/nope-75` | `/absent/nope-75b` |\n'
+} > "$kit/TARGETS.md"
+OUT="$(RESEARCH_HOME="$_rh_base_75" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+unset _rh_base_75
+if [ "$RC" = 0 ] \
+   && grep -qE 'INFO.*1 registered target.*absent' <<<"$OUT" \
+   && grep -qE '\· 1 absent target' <<<"$OUT" \
+   && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "75 \$RESEARCH_HOME token + absent slug, both absent → counted ONCE (§7 guard survives)" "(exit $RC)"
+else
+  no "75 \$RESEARCH_HOME token + absent slug, both absent → expected exactly 1 absent" "exit=$RC out=[$OUT]"
+fi
+
 # ---- TEETH for attention-gate tests 52-60 ------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-attn-disc-zero: remove the attention++ after CATALOG-DISC-ZERO. Fixture isolation:
@@ -2515,6 +2647,76 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-absent-dedup: ABSENT-ROW-DEDUP sentinel not found in SUT (dedup not implemented or marker drifted)"
   fi
+
+  # teeth-rh-row-token-revert (issue #1039): revert the RH-ROW-TOKEN-MATCH extraction back to the
+  # old `/[^`]+` -only form. Test 70's fixture (a row whose only real path is written in
+  # `$RESEARCH_HOME/...` form, plus a `/slug` companion token) must regain the false "absent"
+  # verdict — proving test 70 (and its FIRST/MIDDLE/LAST siblings 71-73) has teeth.
+  # Uses the sed r+d idiom (append replacement file contents, then delete the matched line) instead
+  # of embedding backticks/`$` inside a sed -e script string, which would collide with the outer
+  # bash double-quoting; the replacement text is written to a file via a quoted heredoc so nothing
+  # in it is expanded by this test script's own shell.
+  echo "-- teeth-rh-row-token-revert: revert RH-ROW-TOKEN-MATCH to /-only; test 70 fixture must regress to absent --"
+  kit_rh1="$(mkkit teeth-rh-revert)"
+  _rh_base_t1="$ROOT/rh_base_teeth1_$$"
+  mkdir -p "$_rh_base_t1"
+  tgt_rh1="$_rh_base_t1/rh_corpus"
+  mkcorpus "$tgt_rh1" 3 "t"
+  { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh1"
+    printf '| 1 | tgt | mature (3 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
+  } > "$kit_rh1/TARGETS.md"
+  mut_rh1="$kit_rh1/toolbelt/verify-registry.sh"
+  if grep -q '# RH-ROW-TOKEN-MATCH' "$mut_rh1"; then
+    repl_rh1="$ROOT/teeth-rh-revert-repl.txt"
+    cat <<'REPL' > "$repl_rh1"
+    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`/[^`]+`' | tr -d '`'); do
+REPL
+    sed -i "/# RH-ROW-TOKEN-MATCH/r $repl_rh1" "$mut_rh1"
+    sed -i '/# RH-ROW-TOKEN-MATCH/d' "$mut_rh1"
+    mout_rh1="$(RESEARCH_HOME="$_rh_base_t1" "$BASH_BIN" "$mut_rh1" 2>&1)"; mrc_rh1=$?
+    if [ "$mrc_rh1" = 0 ] && grep -qE 'INFO.*1 registered target.*absent' <<<"$mout_rh1"; then
+      ok "teeth-rh-row-token-revert: reverted regex → test 70 fixture regains false 'absent' (test 70 has teeth)" "(exit $mrc_rh1)"
+    else
+      no "teeth-rh-row-token-revert: reverted regex but fixture still NOT absent — test 70 has no teeth" "mrc=$mrc_rh1 mout=[$mout_rh1]"
+    fi
+  else
+    no "teeth-rh-row-token-revert: RH-ROW-TOKEN-MATCH sentinel not found in SUT (fix not implemented or marker drifted)"
+  fi
+  unset _rh_base_t1
+
+  # teeth-rh-row-token-drop-braced (issue #1039): drop only the `${RESEARCH_HOME}` (braced)
+  # alternative, keeping the unbraced `$RESEARCH_HOME` form. Test 74's braced-form fixture must
+  # regain the false "absent" verdict — proving test 74 is distinguishable from tests 70-73 and
+  # actually exercises the braced alternative, not just the unbraced one.
+  echo "-- teeth-rh-row-token-drop-braced: drop braced alt from RH-ROW-TOKEN-MATCH; test 74 fixture must regress to absent --"
+  kit_rh2="$(mkkit teeth-rh-drop-braced)"
+  _rh_base_t2="$ROOT/rh_base_teeth2_$$"
+  mkdir -p "$_rh_base_t2"
+  tgt_rh2="$_rh_base_t2/rh_corpus74"
+  mkcorpus "$tgt_rh2" 2 "b"
+  { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh2"
+    printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
+  } > "$kit_rh2/TARGETS.md"
+  mut_rh2="$kit_rh2/toolbelt/verify-registry.sh"
+  if grep -q '# RH-ROW-TOKEN-MATCH' "$mut_rh2"; then
+    repl_rh2="$ROOT/teeth-rh-drop-braced-repl.txt"
+    cat <<'REPL' > "$repl_rh2"
+    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`(/|\$RESEARCH_HOME/)[^`]+`' | tr -d '`'); do
+REPL
+    sed -i "/# RH-ROW-TOKEN-MATCH/r $repl_rh2" "$mut_rh2"
+    sed -i '/# RH-ROW-TOKEN-MATCH/d' "$mut_rh2"
+    mout_rh2="$(RESEARCH_HOME="$_rh_base_t2" "$BASH_BIN" "$mut_rh2" 2>&1)"; mrc_rh2=$?
+    if [ "$mrc_rh2" = 0 ] && grep -qE 'INFO.*1 registered target.*absent' <<<"$mout_rh2"; then
+      ok "teeth-rh-row-token-drop-braced: braced alt dropped → test 74 fixture regains false 'absent' (test 74 has teeth)" "(exit $mrc_rh2)"
+    else
+      no "teeth-rh-row-token-drop-braced: braced alt dropped but fixture still NOT absent — test 74 has no teeth" "mrc=$mrc_rh2 mout=[$mout_rh2]"
+    fi
+  else
+    no "teeth-rh-row-token-drop-braced: RH-ROW-TOKEN-MATCH sentinel not found in SUT (fix not implemented or marker drifted)"
+  fi
+  unset _rh_base_t2
 fi
 
 echo "== $pass passed · $fail failed =="
