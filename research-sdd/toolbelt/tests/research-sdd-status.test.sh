@@ -5031,6 +5031,117 @@ else
   no "T-CQ-BOUNDS-LINE: expected campaign_bounds line, got [$(echo "$_cq_bnd_out" | grep -i 'campaign_bounds' | head -3)]"
 fi
 
+# =============================================================================
+# kit issue #1005 — campaign block follow-ups after #1002
+# =============================================================================
+
+echo "-- R2-001: --stall-minutes 0 is rejected (message says 'positive integer', 0 is not one) --"
+_sm0_err="$(bash "$SUT" "$d_cq_single" --stall-minutes 0 2>&1 >/dev/null)"
+_sm0_rc=0; bash "$SUT" "$d_cq_single" --stall-minutes 0 >/dev/null 2>&1 || _sm0_rc=$?
+if [ "$_sm0_rc" -eq 2 ] && echo "$_sm0_err" | grep -qi 'positive integer'; then
+  ok "T-SM-ZERO: --stall-minutes 0 refused (exit 2, 'positive integer' message)"
+else
+  no "T-SM-ZERO: expected exit 2 + 'positive integer' message, got rc=$_sm0_rc stderr=[$_sm0_err]"
+fi
+_sm1_rc=0; bash "$SUT" "$d_cq_single" --stall-minutes 1 >/dev/null 2>&1 || _sm1_rc=$?
+[ "$_sm1_rc" -eq 0 ] && ok "T-SM-ONE: --stall-minutes 1 (smallest positive integer) still accepted" \
+  || no "T-SM-ONE: --stall-minutes 1 unexpectedly refused, rc=$_sm1_rc"
+
+echo "-- R3-comment-skip-overreach: a literal --> inside a table cell must not drop rows --"
+d_cq_arrow="$CQ_FIX/comment-cell-arrow"
+_cq_arrow_out="$(cq_status "$d_cq_arrow")"
+if echo "$_cq_arrow_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-COMMENT-ARROW: all 3 rows counted despite a literal --> inside a Convergence cell"
+else
+  no "T-CQ-COMMENT-ARROW: expected pending=1 active=1 done=1 (all 3 rows), got [$(echo "$_cq_arrow_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- R3-comment-skip-overreach: an unclosed <!-- inside a cell must not hide later rows --"
+d_cq_unclosed="$CQ_FIX/comment-cell-unclosed"
+_cq_unclosed_out="$(cq_status "$d_cq_unclosed")"
+if echo "$_cq_unclosed_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+  ok "T-CQ-COMMENT-UNCLOSED: all 3 rows counted despite an unclosed <!-- inside a Seed cell"
+else
+  no "T-CQ-COMMENT-UNCLOSED: expected pending=1 active=1 done=1 (all 3 rows, last-row not hidden), got [$(echo "$_cq_unclosed_out" | grep -E '^\s*campaign\s*:' | head -3)]"
+fi
+
+echo "-- R3/R4 bsd-date-tz: BSD 'date -j -f' fallback must parse the trailing Z as UTC, not local time --"
+# This host only ships GNU date, so the SUT's own 'date -d' call always succeeds and the '-j -f'
+# fallback branch never runs natively here. fixtures/fake-bin/date stands in for a BSD date: it makes
+# 'date -d' fail (forcing the SUT down the fallback branch) and reproduces the real BSD bug for
+# 'date -j -f "%Y-%m-%dT%H:%M:%SZ" ...' (Z consumed as a literal char, timestamp parsed in local $TZ).
+#
+# The reference ("true") epoch is computed with the REAL system date binary, in UTC, OUTSIDE the
+# PATH override — never through the same fallback parser the SUT/shim uses, per the #1005 finding
+# that a same-parser reference silently cancels the skew instead of exposing it.
+_bsd_fixture="$CQ_FIX/single-entry"                       # last_iteration_ts: 2026-09-23T09:00:00Z
+_bsd_true_epoch="$(/usr/bin/date -u -d "2026-09-23T09:00:00Z" +%s 2>/dev/null)"
+_bsd_fake_bin="$HERE/fixtures/fake-bin"
+if [ -n "$_bsd_true_epoch" ] && [ -x "$_bsd_fake_bin/date" ]; then
+  _bsd_now_epoch=$(( _bsd_true_epoch + 300 ))             # true age: 5 real minutes later
+  _bsd_out="$(PATH="$_bsd_fake_bin:$PATH" TZ="America/Los_Angeles" _RSDD_NOW_EPOCH="$_bsd_now_epoch" \
+    bash "$SUT" "$_bsd_fixture" 2>&1)"
+  if echo "$_bsd_out" | grep -qE '^\s*last_iteration_ts\s*:.*\(age:\s*5\s*min\)'; then
+    ok "T-CQ-BSD-TZ: BSD fallback age is 5 min (UTC-correct) under non-UTC TZ (America/Los_Angeles)"
+  else
+    no "T-CQ-BSD-TZ: expected age 5 min under BSD fallback + non-UTC TZ, got [$(echo "$_bsd_out" | grep -i 'last_iteration' | head -3)] (a Z-as-local-time bug would report ~420 min off)"
+  fi
+else
+  no "T-CQ-BSD-TZ: cannot set up BSD-fallback test (true epoch or fake date shim unavailable)"
+fi
+
+echo "-- R4-bsd-date-utc-skew: a negative/unparseable age is reported as 'unknown', never silently --"
+# now < ts (clock skew / bad envelope) must not print a raw negative number — that value fails every
+# downstream '^[0-9]+$' guard silently per the #1005 finding. It must surface as 'unknown' AND warn.
+if [ -n "$_bsd_true_epoch" ]; then
+  _neg_now=$(( _bsd_true_epoch - 600 ))                   # "now" is 10 min BEFORE the ts
+  _neg_out="$(_RSDD_NOW_EPOCH="$_neg_now" bash "$SUT" "$_bsd_fixture" 2>&1)"
+  if echo "$_neg_out" | grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min' \
+     && echo "$_neg_out" | grep -qi 'WARN.*future\|WARN.*unknown\|WARN.*negative'; then
+    ok "T-CQ-NEG-AGE: negative age reported as 'unknown' with a loud WARN, not a wrong number"
+  else
+    no "T-CQ-NEG-AGE: expected 'age: unknown min' + WARN, got [$(echo "$_neg_out" | grep -iE 'last_iteration|WARN' | head -5)]"
+  fi
+else
+  no "T-CQ-NEG-AGE: cannot compute reference epoch"
+fi
+
+echo "-- R4-campaign-block-first-focus-only: a terminal first focus must not mask an active sibling --"
+d_cq_mf="$CQ_FIX/multi-focus-mixed"                       # alpha: done/terminal, sorts first. beta: pending, sorts second.
+_cq_mf_out="$(cq_status "$d_cq_mf")"
+# A per-focus "campaign_stop[alpha]: STOP reached" line is correct (alpha really is terminal) — only
+# the AGGREGATE, unlabeled "campaign_stop   :" line must never claim the whole campaign stopped while
+# beta (sorts second) still has pending work.
+if echo "$_cq_mf_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+  no "T-CQ-MF-NO-FALSE-STOP: aggregate 'campaign_stop: STOP reached' printed while beta is still pending — false STOP"
+else
+  ok "T-CQ-MF-NO-FALSE-STOP: no aggregate 'STOP reached' while an active sibling focus (beta) has pending work"
+fi
+if echo "$_cq_mf_out" | grep -q 'alpha' && echo "$_cq_mf_out" | grep -q 'beta'; then
+  ok "T-CQ-MF-PER-FOCUS: both alpha and beta queue state appear in the campaign block (not first-only)"
+else
+  no "T-CQ-MF-PER-FOCUS: expected both alpha and beta represented, got [$(echo "$_cq_mf_out" | grep -iE 'campaign|alpha|beta' | head -10)]"
+fi
+
+echo "-- R4-campaign-block-first-focus-only: a stalled second focus must still WARN even though the first is terminal --"
+if [ -n "$_bsd_true_epoch" ]; then
+  # beta's last_iteration_ts is 2026-09-24T00:00:00Z; "now" is 16 real minutes later (>15min threshold).
+  _mf_beta_epoch="$(/usr/bin/date -u -d "2026-09-24T00:00:00Z" +%s 2>/dev/null)"
+  if [ -n "$_mf_beta_epoch" ]; then
+    _mf_now=$(( _mf_beta_epoch + 960 ))
+    _cq_mf_stall_out="$(_RSDD_NOW_EPOCH="$_mf_now" bash "$SUT" "$d_cq_mf" 2>&1)"
+    if echo "$_cq_mf_stall_out" | grep -qi 'WARN.*stall'; then
+      ok "T-CQ-MF-STALL: stall WARN fires for beta even though alpha (sorts first) is fully terminal"
+    else
+      no "T-CQ-MF-STALL: expected a stall WARN for beta, got [$(echo "$_cq_mf_stall_out" | grep -i 'stall\|last_iteration' | head -5)]"
+    fi
+  else
+    no "T-CQ-MF-STALL: cannot compute beta's reference epoch"
+  fi
+else
+  no "T-CQ-MF-STALL: cannot compute reference epoch"
+fi
+
 # ----- teeth for campaign queue (--prove-teeth section) -----
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "== TEETH BANNER: campaign-queue mutation controls =="
@@ -5111,6 +5222,117 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-T-CQ-STALL: cannot compute epoch for stall mutant test"
     fi
+  fi
+
+  # ---- kit issue #1005 mutation controls ----
+
+  # teeth-T-SM-ZERO: defang the "-ne 0" rejection (make it always-true) → --stall-minutes 0 is
+  # accepted again → T-SM-ZERO must go RED.
+  echo "-- teeth-T-SM-ZERO: defang -ne 0 check → T-SM-ZERO goes RED --"
+  _sm0_mutant="$TMP/status.SM-ZERO.MUTANT.sh"
+  if grep -q 'SM-ZERO-REJECT-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_sm0_mutant"
+    sed -i '/SM-ZERO-REJECT-ANCHOR/{n;s/-ne 0/-ge 0/}' "$_sm0_mutant"
+    if cmp -s "$_sm0_mutant" "$SUT"; then
+      no "teeth-T-SM-ZERO: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_sm0_mutant" 2>/dev/null; then
+      no "teeth-T-SM-ZERO: mutant has syntax error"
+    else
+      _sm0_mut_rc=0; bash "$_sm0_mutant" "$d_cq_single" --stall-minutes 0 >/dev/null 2>&1 || _sm0_mut_rc=$?
+      if [ "$_sm0_mut_rc" -eq 0 ]; then
+        ok "teeth-T-SM-ZERO: mutant accepts --stall-minutes 0 → T-SM-ZERO goes RED → 0-rejection is load-bearing"
+      else
+        no "teeth-T-SM-ZERO: mutant still rejects --stall-minutes 0 — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-SM-ZERO: SM-ZERO-REJECT-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-CQ-COMMENT: revert the anchored (start-of-line) comment markers back to the original
+  # substring-anywhere match → a literal "-->" inside a table cell drops/hides rows again →
+  # T-CQ-COMMENT-ARROW and T-CQ-COMMENT-UNCLOSED must both go RED.
+  echo "-- teeth-T-CQ-COMMENT: revert anchored comment markers to substring-anywhere → comment-cell fixtures go RED --"
+  _cq_cmt_mutant="$TMP/status.CQ-COMMENT.MUTANT.sh"
+  if grep -q 'CQ-COMMENT-SELFCONTAINED-ANCHOR' "$SUT" && grep -q 'CQ-COMMENT-OPEN-ANCHOR' "$SUT" \
+     && grep -q 'CQ-COMMENT-CLOSE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_cmt_mutant"
+    sed -i \
+      -e '/CQ-COMMENT-SELFCONTAINED-ANCHOR/c\    /<!--[^>]*-->/ { next }  # CQ-COMMENT-SELFCONTAINED-ANCHOR' \
+      -e '/CQ-COMMENT-OPEN-ANCHOR/c\    /<!--/ { in_c=1; next }  # CQ-COMMENT-OPEN-ANCHOR' \
+      -e '/CQ-COMMENT-CLOSE-ANCHOR/c\    /-->/ { in_c=0; next }  # CQ-COMMENT-CLOSE-ANCHOR' \
+      "$_cq_cmt_mutant"
+    if cmp -s "$_cq_cmt_mutant" "$SUT"; then
+      no "teeth-T-CQ-COMMENT: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_cmt_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-COMMENT: mutant has syntax error"
+    else
+      _cq_arrow_mut_out="$(bash "$_cq_cmt_mutant" "$d_cq_arrow" 2>/dev/null)"
+      _cq_unclosed_mut_out="$(bash "$_cq_cmt_mutant" "$d_cq_unclosed" 2>/dev/null)"
+      _cq_cmt_bit_broke=0
+      if echo "$_cq_arrow_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1'; then
+        _cq_cmt_bit_broke=1
+      fi
+      if echo "$_cq_unclosed_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1'; then
+        _cq_cmt_bit_broke=1
+      fi
+      if [ "$_cq_cmt_bit_broke" -eq 0 ]; then
+        ok "teeth-T-CQ-COMMENT: mutant drops/hides rows on both comment-cell fixtures → T-CQ-COMMENT-* go RED → anchoring is load-bearing"
+      else
+        no "teeth-T-CQ-COMMENT: mutant still reports pending=1 active=1 done=1 on a comment-cell fixture — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-COMMENT: CQ-COMMENT-*-ANCHOR sentinels not found in SUT"
+  fi
+
+  # teeth-T-CQ-BSD-TZ: drop the "TZ=UTC" prefix from the BSD date fallback → the fallback parses the
+  # timestamp in the ambient TZ again → T-CQ-BSD-TZ must go RED (age != 5 min under non-UTC TZ).
+  echo "-- teeth-T-CQ-BSD-TZ: drop TZ=UTC from BSD date fallback → T-CQ-BSD-TZ goes RED --"
+  _bsd_mutant="$TMP/status.BSD-TZ.MUTANT.sh"
+  if grep -q 'TZ=UTC date -j -f' "$SUT"; then
+    cp "$SUT" "$_bsd_mutant"
+    sed -i 's/TZ=UTC date -j -f/date -j -f/' "$_bsd_mutant"
+    if cmp -s "$_bsd_mutant" "$SUT"; then
+      no "teeth-T-CQ-BSD-TZ: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_bsd_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-BSD-TZ: mutant has syntax error"
+    elif [ -n "$_bsd_true_epoch" ] && [ -x "$_bsd_fake_bin/date" ]; then
+      _bsd_mut_out="$(PATH="$_bsd_fake_bin:$PATH" TZ="America/Los_Angeles" _RSDD_NOW_EPOCH="$_bsd_now_epoch" \
+        bash "$_bsd_mutant" "$_bsd_fixture" 2>&1)"
+      if ! echo "$_bsd_mut_out" | grep -qE '^\s*last_iteration_ts\s*:.*\(age:\s*5\s*min\)'; then
+        ok "teeth-T-CQ-BSD-TZ: mutant reports the wrong age under non-UTC TZ → T-CQ-BSD-TZ goes RED → TZ=UTC is load-bearing"
+      else
+        no "teeth-T-CQ-BSD-TZ: mutant still reports age 5 min — THEATER"
+      fi
+    else
+      no "teeth-T-CQ-BSD-TZ: cannot set up BSD-fallback mutant test"
+    fi
+  else
+    no "teeth-T-CQ-BSD-TZ: 'TZ=UTC date -j -f' anchor text not found in SUT"
+  fi
+
+  # teeth-T-CQ-MF: truncate the active-focus list back down to just the first one (reproducing the
+  # original "only $state" bug) → T-CQ-MF-NO-FALSE-STOP and T-CQ-MF-STALL must both go RED.
+  echo "-- teeth-T-CQ-MF: truncate active focuses to first-only → multi-focus fixtures go RED --"
+  _cq_mf_mutant="$TMP/status.CQ-MF.MUTANT.sh"
+  if grep -q 'CQB-MULTIFOCUS-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_cq_mf_mutant"
+    sed -i '/CQB-MULTIFOCUS-ANCHOR/a\  _cqb_active=("${_cqb_active[0]}")' "$_cq_mf_mutant"
+    if cmp -s "$_cq_mf_mutant" "$SUT"; then
+      no "teeth-T-CQ-MF: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_cq_mf_mutant" 2>/dev/null; then
+      no "teeth-T-CQ-MF: mutant has syntax error"
+    else
+      _cq_mf_mut_out="$(bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
+      if echo "$_cq_mf_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+        ok "teeth-T-CQ-MF: mutant false-STOPs on first-focus-only again → T-CQ-MF-NO-FALSE-STOP goes RED → multi-focus scan is load-bearing"
+      else
+        no "teeth-T-CQ-MF: mutant does not reproduce the false-STOP — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-CQ-MF: CQB-MULTIFOCUS-ANCHOR sentinel not found in SUT"
   fi
 fi
 

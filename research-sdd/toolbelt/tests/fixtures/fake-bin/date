@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# fake-bin/date — R3/R4 bsd-date-tz test isolation.
+#
+# This host only has GNU `date`, so `research-sdd-status.sh`'s `date -d ...` call always succeeds and
+# its BSD/macOS `date -j -f ...` fallback branch never runs. To make the fallback's UTC-vs-local-time
+# bug observable here, this shim is prepended to PATH so it stands in for a BSD `date`:
+#
+#   date -d ...                        → always FAILS (forces the SUT into its `-j -f` fallback,
+#                                         exactly as it would run on a host with no GNU date).
+#   date -j -f "%Y-%m-%dT%H:%M:%SZ" TS  → reproduces the REAL BSD bug faithfully: BSD's strptime
+#                                         consumes the trailing 'Z' as a literal character (not a UTC
+#                                         marker), so the timestamp is parsed as LOCAL wall-clock time
+#                                         in whatever $TZ is active. We reproduce that exact behaviour
+#                                         with the real GNU date by stripping the Z and NOT passing -u,
+#                                         so the current $TZ governs the parse — same skew a real BSD
+#                                         host would produce.
+#   anything else                      → delegates to the real system date so unrelated calls
+#                                         (e.g. a bare `date +%s` for "now") keep working normally.
+#
+# This file is test-only isolation, never installed or referenced outside the test harness.
+set -uo pipefail
+
+case " $* " in
+  *' -d '*)
+    exit 1
+    ;;
+esac
+
+if [ "${1:-}" = "-j" ] && [ "${2:-}" = "-f" ]; then
+  ts="${4:-}"
+  shift 4
+  ts_local="${ts%Z}"
+  exec /usr/bin/date -d "$ts_local" "$@"
+fi
+
+exec /usr/bin/date "$@"
