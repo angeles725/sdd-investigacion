@@ -94,7 +94,7 @@ KIT     = /home/cristian/investigacion/sdd-investigacion/research-sdd
 Always read first, in this order:
   1. $KIT/METHODOLOGY.md — the rules, in two tiers (lazy-load != skip; every rule still applies, you only
        defer LOADING a section until its phase fires, and reading it is MANDATORY then):
-         HOT-CORE (read once per context): §1 §2 §3 the 7 markers §4 §7 §8 §8b backlog-cell-grammar (written every iteration) §9 §11 §17 — framing + per-block contract.
+         HOT-CORE <!-- slot:hotcore-loop-cadence -->(read once per context)<!-- /slot -->: §1 §2 §3 the 7 markers §4 §7 §8 §8b backlog-cell-grammar (written every iteration) §9 §11 §17 — framing + per-block contract.
          (§11b — verifying the verifier + kit test-lane contract — is SITUATIONAL: kit maintenance only, never per block.)
          SITUATIONAL (read the section in full when its phase fires): §3b corpus layout · §5 source-added · §6 profiling/wrapper ·
          §7b state-envelope instruments (CHECK A mismatch or shared-prefix corpus) ·
