@@ -146,7 +146,7 @@ Always read first, in this order:
      Also run $KIT/toolbelt/detect-tools.sh (cache the report): learn which decompilers are ACTUALLY
      available before deciding what you can do. Do NOT infer availability from `which` alone — Ghidra,
      r2, jadx etc. may live under linuxbrew Cellar / a dotnet dir / a jar path and still be off PATH
-     (lesson: niagara — Ghidra off-PATH).
+     (lesson: niagara — wrongly assumed Ghidra unavailable).
      DESIGN/APPLIED corpus exception: if the corpus subject is external tooling or specifications
      (no local binary or source tree to profile), `profile-target.sh` has no artifacts to classify
      and no decompiler is needed — run `$KIT/toolbelt/detect-tools.sh` (exit 0, report only) for the cache record
@@ -469,7 +469,7 @@ Always read first, in this order:
      that number from source — a stale count silently scopes the investigation to the wrong universe.
      See GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP step e) for the full rule; this is the step-1
      trigger point for that check, applied at the moment of selection, not only at bootstrap time.
-     (Evidence: B57 §57.1.)
+     (Evidence: blender-llm B57 §57.1.)
      PER-ITERATION VALUE GATE: before starting investigation, classify the gap as MECHANISM (behavior,
      code path, protocol) or REFERENCE-CATALOG (a table of SKUs, address maps, register layouts, data
      sheets with no behavioral question). Reference-catalog gaps get a `catalog-batch` qualifier in
@@ -499,12 +499,12 @@ Always read first, in this order:
          settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
          the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
          case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
-         not a wasted iteration. (Evidence: B10, B4 §4.2/§4.5.)
+         not a wasted iteration. (Evidence: blender-llm B10, B4 §4.2/§4.5.)
          OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
          operator's data package, check whether the package already carries a pre-existing human
          classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
          label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity. (Evidence: B61 vs Dep_Ductos_crudos.)
+         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B61 vs Dep_Ductos_crudos.)
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -526,7 +526,7 @@ Always read first, in this order:
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
          RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
-         (Evidence: COB-IM2 B6/B8.)
+         (Evidence: COB-IM2 B6/B8, commit `d7fd595`.)
        - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -646,7 +646,7 @@ Always read first, in this order:
          repository, do not merely widen the file list — clone the repo and grep the whole tree,
          enumerating every relevant literal (`.connect()` calls, URL constants, config keys). A
          narrow-set negative is inconclusive; a tree-wide grep is the minimum re-test before
-         accepting absence as [CERT]. (Evidence: B8 §8.7; #572.)
+         accepting absence as [CERT]. (Evidence: blender-llm B8 §8.7; #572.)
          SWEEP CONTRADICTS DRIVER'S PRIOR INLINE STATEMENT. When a delegated sweep returns evidence
          that contradicts an assertion the driver made INLINE to the operator (not a block), acknowledge
          the refinement BEFORE or WHILE writing the block: (1) name what the inline answer said and where
@@ -716,21 +716,21 @@ Always read first, in this order:
          reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
          against the intended count before proceeding. A filter that silently declines entries produces
          no error and no warning — the discrepancy is only visible by comparing intent vs. result.
-         (Evidence: B60 §60.4.)
+         (Evidence: blender-llm B60 §60.4.)
          NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
          package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
          (X %)` as a headline on every census. A complement gate or coverage claim applied after a
          narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
-         that must be named. (Evidence: B62 §62.1–§62.3.)
+         that must be named. (Evidence: blender-llm B62 §62.1–§62.3.)
          SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
          SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
          any value the researcher picks — a subject-declared threshold produces a partition with no
-         researcher-chosen numbers anywhere. (Evidence: B63 §63.2.)
+         researcher-chosen numbers anywhere. (Evidence: blender-llm B63 §63.2.)
          IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
          DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
          proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
          instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
-         identifier is per-type or per-instance before using it as a grouping key. (Evidence: B65 §65.2.)
+         identifier is per-type or per-instance before using it as a grouping key. (Evidence: blender-llm B65 §65.2.)
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -772,7 +772,7 @@ Always read first, in this order:
          explicitly: "Do NOT spawn sub-agents or use the Agent tool inside this sweep"). This is boilerplate, not
          optional guidance — include it in every prompt regardless of whether nesting seems likely. A sub-agent
          that nests silently hides its findings from the driver; recovery requires SendMessage and risks losing
-         partial results (evidence: WB02 B428). The specialized agents
+         partial results (evidence: WB02 B428; niagara workbench-focus retro). The specialized agents
          (Explore/Plan) cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use
          the Workflow engine (deterministic control, no per-hop context compression) instead of free-form native
          nesting.
@@ -959,7 +959,7 @@ Always read first, in this order:
          routinely surfaces link drift (a repo rename, an issue state change, a moved page) that
          demands §14 corrections on prior blocks. Budget for those corrections when scoping a
          preservation gap — do not treat them as scope creep; they are the expected second-order
-         output of a careful preservation pass. (Evidence: B15, B2/B3.)
+         output of a careful preservation pass. (Evidence: blender-llm B15, B2/B3.)
        - RECORD the iteration in RESEARCH-STATE's Iteration history table INCLUDING the delegated? · model
          tier column (no·inline / yes·haiku|sonnet|opus) — persist the tier on disk, not only in the report,
          so tier-compliance stays auditable after the session ends. For an EXTERNAL-source iteration, record the
@@ -1311,7 +1311,7 @@ HARD RULES:
     as the re-derive method. A count comparison can agree by coincidence while masking membership
     differences; an intersection proves set equivalence and names any residue explicitly — which
     members are present, which are missing, and whether the discrepancy is a subset or a symmetric
-    difference. (Evidence: B61 §61.2.)
+    difference. (Evidence: blender-llm B61 §61.2.)
   - RE-MEASURE A DRAMATIC POSITIVE. The same re-derive obligation applies when a live probe yields a
     striking positive (an apparent security weakness, an unexpectedly open or downgraded service). Do
     NOT escalate or capture it as a block from a single measurement. The banner-vs-protocol trap: a
@@ -1319,7 +1319,7 @@ HARD RULES:
     that the TCP connection was established, before the TLS handshake even runs, NOT that the server
     accepted the specific protocol version under test. "The client cannot offer version X" is not the same claim as "the
     server refused version X". Re-derive by an independent method or a targeted counter-probe before
-    treating the finding as confirmed. (Evidence: jace8000.)
+    treating the finding as confirmed. (Evidence: jace8000; METHODOLOGY §12.)
   - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE. When a derived or aggregated view of the
     data is inconsistent (conflicting counts, missing rows, version mismatch between two summaries),
     go to the SOURCE ARTIFACT rather than cross-referencing other derived views — each derived view
@@ -1351,7 +1351,7 @@ HARD RULES:
     the class it was validated on and confirm the new class shares the same topological properties.
     A rule derived from compact bodies does not apply to thin crossing geometry without re-validation:
     transitive bbox-contact over crossing slivers can grow without bound, collapsing the entire dataset
-    into one cluster. (Evidence: B61/B63.)
+    into one cluster. (Evidence: blender-llm B61/B63.)
   - NEGATIVE-ABSENCE CLAIM DISCIPLINE (#732). A negative existence claim ("no X found", "Y is
     absent") is [CERT] ONLY when the EXACT artifact that would contain X was opened and searched.
     Asserting absence about an artifact NOT opened is [INFER], not [CERT]. Before recording a
@@ -1467,7 +1467,7 @@ HARD RULES:
     lives in METHODOLOGY §12 — single source; don't restate the values here.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
-    before re-launching it — resume from real state (lesson: B76/B122).
+    before re-launching it — resume from real state (lesson: niagara B76/B122).
     See METHODOLOGY §17.
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the

@@ -102,14 +102,15 @@ SKILL_SIT_START="SITUATIONAL — read the named section"
 # broke this same anchor because it was pinned to that literal sentence.
 # `$KIT/TARGETS.md` is the file's own fixed procedural reference (item 2 of
 # "Always read first" in both files) — far less likely to be reworded than
-# the sentence that precedes it, and it still bounds the SAME block: neither
-# file repeats `$KIT/TARGETS.md` between its SITUATIONAL start marker and
-# this line. The captured block now includes that one extra line; it
-# carries no `§`-token, so T1/T2's token sets are unaffected.
-#
-# `$KIT/TARGETS.md` (bare) is UNIQUE in SKILL.md — one hit total after the
-# SITUATIONAL start marker (verified: `grep -n '\$KIT/TARGETS\.md'
-# skills/research-sdd/SKILL.md`), so the bare substring is sufficient here.
+# the sentence that precedes it. It is NOT unique across the whole file
+# (both files cite `$KIT/TARGETS.md` elsewhere, earlier, in unrelated
+# prose) — what matters is that it is the FIRST hit strictly after the
+# SITUATIONAL start marker, which is what extract_block_inclusive's
+# first-match scan actually anchors on. The captured block now includes
+# that one extra line; it carries no `§`-token, so T1/T2's token sets are
+# unaffected. Re-verify the "first hit after start" property by hand if
+# this anchor ever needs to move again — do not trust a stale hit count
+# here, it drifts with every unrelated edit to either file.
 SKILL_SIT_END='$KIT/TARGETS.md'
 # LOOP_HC_START anchors on "HOT-CORE <!-- slot:hotcore-loop-cadence -->" for the
 # same #993-WU1-round-2 reason as SKILL_HC_START above: the cadence
@@ -124,13 +125,17 @@ LOOP_HC_END="per-block contract."
 LOOP_SIT_START="(§11b"
 # See SKILL_SIT_END's comment above for why this anchors on the next
 # structural line ($KIT/TARGETS.md, "Always read first" item 2) instead of
-# the SITUATIONAL block's closing sentence. PROMPT-LOOP.md has a SECOND, bare
-# "$KIT/TARGETS.md" occurrence later (BOOTSTRAP step b, unrelated) — the bare
-# substring alone is NOT unique here, so this anchors on the fuller
-# "2. $KIT/TARGETS.md" (the numbered-list-item form) to stay pinned to the
-# FIRST/intended occurrence instead of silently falling through to the
-# second one on a future rename (verified: `grep -c '\$KIT/TARGETS\.md'
-# PROMPT-LOOP.md` = 2; `grep -n '2\. \$KIT/TARGETS\.md' PROMPT-LOOP.md` = 1).
+# the SITUATIONAL block's closing sentence, and why it must be the FIRST hit
+# strictly after the SITUATIONAL start marker, not a claim of file-wide
+# uniqueness. PROMPT-LOOP.md is a case where that distinction actually bites:
+# it has a SECOND, unrelated bare "$KIT/TARGETS.md" occurrence further down
+# (BOOTSTRAP step b), so the bare substring alone would let a future rename
+# of the intended (first) occurrence silently fall through to that second
+# one instead of failing — the same silent-widening failure mode this round
+# is closing. Anchoring on the fuller "2. $KIT/TARGETS.md" (the numbered-
+# list-item form, which the later occurrence does not share) keeps this
+# pinned to the first/intended hit. Re-check by hand which occurrence is
+# first if this anchor ever needs to move — do not trust a stale count here.
 LOOP_SIT_END='2. $KIT/TARGETS.md'
 
 # HOT-CORE size budget (T7). Measured 862 lines / 85929 bytes on 2026-09-24 at
