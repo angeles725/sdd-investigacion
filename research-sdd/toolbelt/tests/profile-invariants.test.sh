@@ -29,20 +29,34 @@
 #   S*  every shared invariant assertion from lib/prompt-invariants.sh (the
 #       SAME functions skill-invariants.test.sh runs on the checked-in
 #       sources) run against each profile's RENDERED SKILL.md, PROMPT-LOOP.md
-#       and METHODOLOGY.md.
+#       and METHODOLOGY.md. PRESENCE checks (the invariant names a piece of
+#       text that MUST exist) stay scoped to the one rendered file whose
+#       structure they describe — A2's corpus-glossary table, for instance,
+#       has no reason to exist in PROMPT-LOOP.md. ABSENCE checks (A1_neg,
+#       A14_neg, C16, C17, C19, E1_no_optin — the invariant names text that
+#       must NEVER exist anywhere) run against ALL THREE rendered files for
+#       every profile: a slot body from research-sdd/profiles/<name>.slots.md
+#       can land in SKILL.md OR PROMPT-LOOP.md, so an absence invariant
+#       scoped to only one of them would miss a forbidden phrase smuggled in
+#       through the other (round-2 review finding F1, #1022).
 #   T1  forbidden doctrine tokens (next-entry:, campaign-bound-reached:,
 #       [CERT], and any §<digit> section token) are absent from every slot
 #       BODY declared in a profile file (research-sdd/profiles/*.slots.md) —
 #       a slot may reword cadence, never reference or redefine a doctrine
-#       section.
+#       section. A grep failure (rc>=2: bad pattern, I/O error, ENOMEM,
+#       SIGPIPE, ...) is a loud FAIL here, never folded into "no match found"
+#       (kit CLAUDE.md §7; round-2 review finding, minor).
 #   T2  the same forbidden tokens are absent from every slot SPAN in the
 #       checked-in sources (the "claude" body between <!-- slot:id --> and
 #       <!-- /slot -->) — guards the source side of the same invariant, so a
 #       future claude-body edit cannot introduce what T1 already forbids on
-#       the profile side.
+#       the profile side. Same explicit rc 0/1/>=2 handling as T1.
 #   Z1  size budget: a non-claude profile's rendered SKILL.md + PROMPT-LOOP.md
 #       total bytes must not exceed the claude render's total by more than
-#       10%.
+#       10%. The arithmetic lives in ONE function (z1_check), called by both
+#       the real check below and its --prove-teeth tooth, so a tooth can
+#       never drift from — or silently fail to notice a regression in — the
+#       logic it is supposed to be proving (round-2 review finding F2).
 #   H1  hotcore-budget.test.sh's full tier-list/budget suite (unmodified,
 #       via its RSDD_SKILL/RSDD_LOOP/RSDD_METH env overrides) passes against
 #       the CLAUDE-rendered tree. Not run against a non-claude render: its
@@ -150,11 +164,14 @@ fi
 
 # =============================================================================
 # S* — shared invariants (lib/prompt-invariants.sh) against every rendered
-# SKILL.md / PROMPT-LOOP.md / METHODOLOGY.md.
+# SKILL.md / PROMPT-LOOP.md / METHODOLOGY.md. Presence checks stay scoped to
+# the file whose structure they describe; every absence check runs against
+# ALL THREE rendered files per profile (see header comment, F1).
 # =============================================================================
-SKILL_CHECKS=(A1 A1_neg A2 A3 A4 A5 A6 A7 A8 A10 A11 A12a A12b A13 A14_neg A15 C14 C19)
-LOOP_CHECKS=(B1 B2 B3 C4 C9 C15 C16 C17 C18 C19 E2a E2b)
-METH_CHECKS=(C1 C2 C3 C5 C6 C7 C8 C10 C11 C12 C13 C19 E1a E1_no_optin)
+SKILL_CHECKS=(A1 A2 A3 A4 A5 A6 A7 A8 A10 A11 A12a A12b A13 A15 C14)
+LOOP_CHECKS=(B1 B2 B3 C4 C9 C15 C18 E2a E2b)
+METH_CHECKS=(C1 C2 C3 C5 C6 C7 C8 C10 C11 C12 C13 E1a)
+ABSENCE_CHECKS=(A1_neg A14_neg C16 C17 C19 E1_no_optin)
 
 run_shared_checks() {
   local label="$1" file="$2"; shift 2
@@ -171,27 +188,70 @@ run_shared_checks() {
 
 for name in "${PROFILE_NAMES[@]}"; do
   outdir="${OUTDIR[$name]}"
-  run_shared_checks "$name/SKILL"      "$outdir/skills/research-sdd/SKILL.md" "${SKILL_CHECKS[@]}"
-  run_shared_checks "$name/LOOP"       "$outdir/PROMPT-LOOP.md"               "${LOOP_CHECKS[@]}"
-  run_shared_checks "$name/METHODOLOGY" "$outdir/METHODOLOGY.md"              "${METH_CHECKS[@]}"
+  skill_file="$outdir/skills/research-sdd/SKILL.md"
+  loop_file="$outdir/PROMPT-LOOP.md"
+  meth_file="$outdir/METHODOLOGY.md"
+  run_shared_checks "$name/SKILL"       "$skill_file" "${SKILL_CHECKS[@]}"
+  run_shared_checks "$name/LOOP"        "$loop_file"  "${LOOP_CHECKS[@]}"
+  run_shared_checks "$name/METHODOLOGY" "$meth_file"  "${METH_CHECKS[@]}"
+  # Every absence check runs against every rendered file: an absence
+  # invariant means "this text must never appear ANYWHERE", and a slot body
+  # can land in SKILL.md or PROMPT-LOOP.md depending on which slot id it
+  # fills (round-2 review finding F1, #1022).
+  run_shared_checks "$name/SKILL"       "$skill_file" "${ABSENCE_CHECKS[@]}"
+  run_shared_checks "$name/LOOP"        "$loop_file"  "${ABSENCE_CHECKS[@]}"
+  run_shared_checks "$name/METHODOLOGY" "$meth_file"  "${ABSENCE_CHECKS[@]}"
 done
 
 # =============================================================================
 # T1/T2 — forbidden doctrine tokens must never appear inside a slot body: a
 # slot may reword cadence, never reference/redefine a doctrine section.
-# The generic §<digit> rule subsumes the explicit 'campaign-bound-reached:'
-# and '§8c' examples named in the work-unit brief; they are kept as their
-# own literal checks for a more specific failure message.
+# '§8c' is a concrete instance already covered by the generic '§[0-9]' rule
+# (kept as its own literal for a more specific failure message);
+# 'campaign-bound-reached:' and '[CERT]' are NOT covered by '§[0-9]' — they
+# contain no '§' character at all — so they are independent literals, not
+# subsumed by the generic rule (round-2 review correction, R2-001).
 # =============================================================================
 FORBIDDEN_PATTERN='next-entry:|campaign-bound-reached:|\[CERT\]|§[0-9]'
 
-# scan_profile_file FILE — prints every non-header line matching
-# FORBIDDEN_PATTERN. A profile file, once past render-profile.sh's own
-# free-text guard, consists ONLY of '## slot:<id>' headers, slot bodies, and
-# blank lines — so filtering out header lines leaves exactly the slot
-# bodies, with no separate parser needed.
+# grep exit codes: 0 = match found, 1 = no match (healthy), >=2 = grep
+# itself could not look (bad pattern, I/O error, ENOMEM, SIGPIPE, ...). The
+# >=2 case is NEVER folded into "no match" anywhere below — a grep that
+# could not look must FAIL loudly, not report a silent pass (kit CLAUDE.md
+# §7; round-2 review, minor + R2-002).
+
+# scan_profile_file FILE — prints every non-header line of FILE matching
+# FORBIDDEN_PATTERN (the violations) and RETURNS 0 (violation found), 1
+# (clean), or 2 (a grep stage errored). The classification is the function's
+# own return code, never a side-channel global variable: every call site
+# below invokes this via `x="$(scan_profile_file ...)"`, which runs the
+# function's body in a subshell — a variable it sets internally would be
+# lost when that subshell exits, but its exit status (this function's
+# `return`) propagates to the caller's `$?` exactly as designed. A profile
+# file, once past render-profile.sh's own free-text guard, consists ONLY of
+# '## slot:<id>' headers, slot bodies, and blank lines — so filtering out
+# header lines leaves exactly the slot bodies, with no separate parser
+# needed.
 scan_profile_file() {
-  grep -vE '^## slot:' "$1" | grep -E "$FORBIDDEN_PATTERN"
+  local file="$1" filtered rc
+  filtered="$(grep -vE '^## slot:' "$file")"; rc=$?
+  if [ "$rc" -ge 2 ]; then
+    printf 'FATAL: scan_profile_file — grep -v errored (rc=%d) on %s\n' "$rc" "$file" >&2
+    return 2
+  fi
+  # rc is 0 (found non-header lines) or 1 (zero non-header lines, e.g. an
+  # all-header/empty file) — both are legitimate inputs to the pattern
+  # match below, never an error on their own.
+  if [ -z "$filtered" ]; then
+    return 1
+  fi
+  local hits
+  hits="$(grep -E "$FORBIDDEN_PATTERN" <<<"$filtered")"; rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$hits"; return 0 ;;
+    1) return 1 ;;
+    *) printf 'FATAL: scan_profile_file — pattern grep errored (rc=%d) on %s\n' "$rc" "$file" >&2; return 2 ;;
+  esac
 }
 
 # scan_source_slot_spans FILE — prints the text of every
@@ -214,58 +274,93 @@ for m in TOKEN_RE.finditer(text):
 PYEOF
 }
 
+# scan_source_file FILE — runs scan_source_slot_spans and applies
+# FORBIDDEN_PATTERN to the result via a here-string (never a pipe: a pipe
+# component runs in its own subshell, and this function needs the pattern
+# grep's OWN exit code). RETURNS 0/1/2 the same way scan_profile_file does
+# (see its comment — return code, not a side-channel global).
+scan_source_file() {
+  local file="$1" spans hits rc
+  spans="$(scan_source_slot_spans "$file")"
+  hits="$(grep -E "$FORBIDDEN_PATTERN" <<<"$spans")"; rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$hits"; return 0 ;;
+    1) return 1 ;;
+    *) printf 'FATAL: scan_source_file — pattern grep errored (rc=%d) on %s\n' "$rc" "$file" >&2; return 2 ;;
+  esac
+}
+
 for f in "${profile_files[@]}"; do
   name="$(basename "$f" .slots.md)"
-  if hits="$(scan_profile_file "$f")" && [ -z "$hits" ]; then
-    ok "T1/$name: no forbidden doctrine token in any slot body of $(basename "$f")"
-  elif [ -n "$hits" ]; then
-    no "T1/$name: forbidden doctrine token found in a slot body of $(basename "$f") — $hits"
-  else
-    ok "T1/$name: no forbidden doctrine token in any slot body of $(basename "$f")"
-  fi
+  hits="$(scan_profile_file "$f")"; scan_rc=$?
+  case "$scan_rc" in
+    1) ok "T1/$name: no forbidden doctrine token in any slot body of $(basename "$f")" ;;
+    0) no "T1/$name: forbidden doctrine token found in a slot body of $(basename "$f") — $hits" ;;
+    *) no "T1/$name: grep ERRORED (rc>=2) while scanning $(basename "$f") — treated as FAIL, never a silent pass" ;;
+  esac
 done
 
 for f in "$SKILL" "$PROMPTLOOP"; do
   label="$(basename "$f")"
-  hits="$(scan_source_slot_spans "$f" | grep -E "$FORBIDDEN_PATTERN" || true)"
-  if [ -z "$hits" ]; then
-    ok "T2/$label: no forbidden doctrine token in any source slot span"
-  else
-    no "T2/$label: forbidden doctrine token found in a source slot span — $hits"
-  fi
+  hits="$(scan_source_file "$f")"; scan_rc=$?
+  case "$scan_rc" in
+    1) ok "T2/$label: no forbidden doctrine token in any source slot span" ;;
+    0) no "T2/$label: forbidden doctrine token found in a source slot span — $hits" ;;
+    *) no "T2/$label: grep ERRORED (rc>=2) while scanning $label's slot spans — treated as FAIL, never a silent pass" ;;
+  esac
 done
 
 # =============================================================================
 # Z1 — size budget: non-claude rendered SKILL.md+PROMPT-LOOP.md must not
-# exceed the claude render's total bytes by more than 10%.
+# exceed the claude render's total bytes by more than 10%. z1_check is the
+# ONLY place this arithmetic lives; the --prove-teeth tooth below calls it
+# too, so mutating the arithmetic here is guaranteed to be visible to the
+# tooth (round-2 review finding F2 — the original tooth re-implemented this
+# formula independently and could not detect a real regression here).
 # =============================================================================
-claude_skill_bytes="$(wc -c < "${OUTDIR[claude]}/skills/research-sdd/SKILL.md")"
-claude_loop_bytes="$(wc -c < "${OUTDIR[claude]}/PROMPT-LOOP.md")"
-claude_total=$(( claude_skill_bytes + claude_loop_bytes ))
-budget=$(( claude_total * 110 / 100 ))
+
+# z1_check CLAUDE_DIR OTHER_DIR — prints "<other_total> <budget> <claude_total>"
+# and returns 0 (within budget) or 1 (exceeds budget).
+z1_check() {
+  local claude_dir="$1" other_dir="$2"
+  local claude_total budget other_total
+  claude_total=$(( $(wc -c < "$claude_dir/skills/research-sdd/SKILL.md") + $(wc -c < "$claude_dir/PROMPT-LOOP.md") ))
+  budget=$(( claude_total * 110 / 100 ))
+  other_total=$(( $(wc -c < "$other_dir/skills/research-sdd/SKILL.md") + $(wc -c < "$other_dir/PROMPT-LOOP.md") ))
+  printf '%s %s %s\n' "$other_total" "$budget" "$claude_total"
+  [ "$other_total" -le "$budget" ]
+}
+
 for name in "${PROFILE_NAMES[@]}"; do
   [ "$name" = "claude" ] && continue
-  s_bytes="$(wc -c < "${OUTDIR[$name]}/skills/research-sdd/SKILL.md")"
-  l_bytes="$(wc -c < "${OUTDIR[$name]}/PROMPT-LOOP.md")"
-  total=$(( s_bytes + l_bytes ))
-  if [ "$total" -le "$budget" ]; then
-    ok "Z1/$name: rendered size $total bytes within budget (claude=$claude_total, budget=$budget, +10%)"
+  z1_out="$(z1_check "${OUTDIR[claude]}" "${OUTDIR[$name]}")"; z1_rc=$?
+  read -r z1_total z1_budget z1_claude_total <<<"$z1_out"
+  if [ "$z1_rc" -eq 0 ]; then
+    ok "Z1/$name: rendered size $z1_total bytes within budget (claude=$z1_claude_total, budget=$z1_budget, +10%)"
   else
-    no "Z1/$name: rendered size $total bytes EXCEEDS budget (claude=$claude_total, budget=$budget, +10%)"
+    no "Z1/$name: rendered size $z1_total bytes EXCEEDS budget (claude=$z1_claude_total, budget=$z1_budget, +10%)"
   fi
 done
 
 # =============================================================================
 # H1 — hotcore-budget.test.sh's full suite (unmodified) against the
 # CLAUDE-rendered tree only (see header comment for why not every profile).
+# Captures the nested suite's own output so a regression shows its actual
+# FAIL lines here, instead of a bare "REGRESSED" with everything discarded
+# to /dev/null (round-2 review, R4-H1-no-diagnostics).
 # =============================================================================
-if RSDD_SKILL="${OUTDIR[claude]}/skills/research-sdd/SKILL.md" \
+if h1_out="$(RSDD_SKILL="${OUTDIR[claude]}/skills/research-sdd/SKILL.md" \
    RSDD_LOOP="${OUTDIR[claude]}/PROMPT-LOOP.md" \
    RSDD_METH="${OUTDIR[claude]}/METHODOLOGY.md" \
-   bash "$HOTCORE_SUITE" >/dev/null 2>&1; then
+   bash "$HOTCORE_SUITE" 2>&1)"; then
   ok "H1: hotcore-budget.test.sh's full tier-list/budget suite passes against the claude-rendered tree"
 else
-  no "H1: hotcore-budget.test.sh REGRESSED against the claude-rendered tree"
+  h1_fails="$(grep -F '  FAIL  ' <<<"$h1_out")"
+  if [ -n "$h1_fails" ]; then
+    no "H1: hotcore-budget.test.sh REGRESSED against the claude-rendered tree — $h1_fails"
+  else
+    no "H1: hotcore-budget.test.sh REGRESSED against the claude-rendered tree (no FAIL lines — suite may have crashed) — tail: $(tail -n 5 <<<"$h1_out")"
+  fi
 fi
 
 # =============================================================================
@@ -343,18 +438,57 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     no "teeth-drop-invariant-phrase: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
+  echo "-- teeth: T-absence-phrase-in-skill-slot (inject a C16 absence phrase into the general SKILL slot body, render general, assert_C16 on the rendered SKILL.md must go RED — reproduces round-2 review finding F1) --"
+  kitAbsSkill="$TMP/kitAbsSkill"
+  make_kit "$kitAbsSkill"
+  profileAbsSkill="$kitAbsSkill/profiles/general.slots.md"
+  if [ -f "$profileAbsSkill" ] && require_anchor "$profileAbsSkill" 'read IN FULL every iteration'; then
+    sed -i 's/read IN FULL every iteration/read IN FULL every iteration. an autonomous run must stop at convergence/' "$profileAbsSkill"
+    outAbsSkill="$TMP/outAbsSkill"
+    if RSDD_KIT_DIR="$kitAbsSkill" "$RENDERER" general "$outAbsSkill" >/dev/null 2>&1; then
+      if assert_C16 "$outAbsSkill/skills/research-sdd/SKILL.md"; then
+        no "teeth-absence-phrase-in-skill-slot: assert_C16 still PASSES on the mutant general SKILL.md render — no teeth (F1 not fixed)"
+      else
+        ok "teeth-absence-phrase-in-skill-slot: assert_C16 goes RED on the mutant general SKILL.md render — the S* SKILL-scoped absence check is proven to actually run on a general render"
+      fi
+    else
+      no "teeth-absence-phrase-in-skill-slot: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-absence-phrase-in-skill-slot: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-absence-phrase-in-loop-slot (inject an A14 absence phrase into the general LOOP slot body, render general, assert_A14_neg on the rendered PROMPT-LOOP.md must go RED — reproduces round-2 review finding F1) --"
+  kitAbsLoop="$TMP/kitAbsLoop"
+  make_kit "$kitAbsLoop"
+  profileAbsLoop="$kitAbsLoop/profiles/general.slots.md"
+  if [ -f "$profileAbsLoop" ] && require_anchor "$profileAbsLoop" '(read in full now)'; then
+    sed -i 's/(read in full now)/(read in full now — guarantees the cadence)/' "$profileAbsLoop"
+    outAbsLoop="$TMP/outAbsLoop"
+    if RSDD_KIT_DIR="$kitAbsLoop" "$RENDERER" general "$outAbsLoop" >/dev/null 2>&1; then
+      if assert_A14_neg "$outAbsLoop/PROMPT-LOOP.md"; then
+        no "teeth-absence-phrase-in-loop-slot: assert_A14_neg still PASSES on the mutant general PROMPT-LOOP.md render — no teeth (F1 not fixed)"
+      else
+        ok "teeth-absence-phrase-in-loop-slot: assert_A14_neg goes RED on the mutant general PROMPT-LOOP.md render — the S* LOOP-scoped absence check is proven to actually run on a general render"
+      fi
+    else
+      no "teeth-absence-phrase-in-loop-slot: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-absence-phrase-in-loop-slot: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
+  fi
+
   echo "-- teeth: T-doctrine-token-in-profile-body (inject a §-token into general.slots.md's slot body, T1 must go RED) --"
   kitToken="$TMP/kitToken"
   make_kit "$kitToken"
   profileCopy="$kitToken/profiles/general.slots.md"
   if [ -f "$profileCopy" ] && require_anchor "$profileCopy" 'read IN FULL every iteration'; then
     sed -i 's/read IN FULL every iteration/read IN FULL every iteration (see §8c)/' "$profileCopy"
-    if hits="$(scan_profile_file "$profileCopy")" && [ -z "$hits" ]; then
-      no "teeth-doctrine-token-in-profile-body: T1's scan found nothing on the mutant — no teeth"
-    elif [ -n "$hits" ]; then
+    hits="$(scan_profile_file "$profileCopy")"; scan_rc=$?
+    if [ "$scan_rc" -eq 0 ]; then
       ok "teeth-doctrine-token-in-profile-body: T1's scan catches the injected §8c token on the mutant — $hits"
     else
-      no "teeth-doctrine-token-in-profile-body: T1's scan found nothing on the mutant — no teeth"
+      no "teeth-doctrine-token-in-profile-body: T1's scan found nothing on the mutant (rc=$scan_rc) — no teeth"
     fi
   else
     no "teeth-doctrine-token-in-profile-body: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
@@ -366,17 +500,17 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   skillCopy="$kitSourceToken/skills/research-sdd/SKILL.md"
   if require_anchor "$skillCopy" '<!-- slot:hotcore-cadence -->read once per context'; then
     sed -i 's/<!-- slot:hotcore-cadence -->read once per context/<!-- slot:hotcore-cadence -->read once per context (see §8c)/' "$skillCopy"
-    hits="$(scan_source_slot_spans "$skillCopy" | grep -E "$FORBIDDEN_PATTERN" || true)"
-    if [ -n "$hits" ]; then
+    hits="$(scan_source_file "$skillCopy")"; scan_rc=$?
+    if [ "$scan_rc" -eq 0 ]; then
       ok "teeth-doctrine-token-in-source-span: T2's scan catches the injected §8c token on the mutant source — $hits"
     else
-      no "teeth-doctrine-token-in-source-span: T2's scan found nothing on the mutant source — no teeth"
+      no "teeth-doctrine-token-in-source-span: T2's scan found nothing on the mutant source (rc=$scan_rc) — no teeth"
     fi
   else
     no "teeth-doctrine-token-in-source-span: mutation anchor not found — cannot prove teeth"
   fi
 
-  echo "-- teeth: T-inflate-slot-past-budget (pad a slot body in the copied kit's general.slots.md, render claude+general, Z1 must go RED) --"
+  echo "-- teeth: T-inflate-slot-past-budget (pad a slot body in the copied kit's general.slots.md, render claude+general, z1_check — the REAL Z1 logic — must go RED) --"
   kitInflate="$TMP/kitInflate"
   make_kit "$kitInflate"
   profileInflate="$kitInflate/profiles/general.slots.md"
@@ -386,17 +520,11 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     outInflateClaude="$TMP/outInflateClaude"; outInflateGeneral="$TMP/outInflateGeneral"
     if RSDD_KIT_DIR="$kitInflate" "$RENDERER" claude "$outInflateClaude" >/dev/null 2>&1 \
        && RSDD_KIT_DIR="$kitInflate" "$RENDERER" general "$outInflateGeneral" >/dev/null 2>&1; then
-      cb="$(wc -c < "$outInflateClaude/skills/research-sdd/SKILL.md")"
-      cl="$(wc -c < "$outInflateClaude/PROMPT-LOOP.md")"
-      ctotal=$(( cb + cl ))
-      cbudget=$(( ctotal * 110 / 100 ))
-      gb="$(wc -c < "$outInflateGeneral/skills/research-sdd/SKILL.md")"
-      gl="$(wc -c < "$outInflateGeneral/PROMPT-LOOP.md")"
-      gtotal=$(( gb + gl ))
-      if [ "$gtotal" -gt "$cbudget" ]; then
-        ok "teeth-inflate-slot-past-budget: Z1's real budget check goes RED on the mutant (general=$gtotal > budget=$cbudget)"
+      z1_teeth_out="$(z1_check "$outInflateClaude" "$outInflateGeneral")"; z1_teeth_rc=$?
+      if [ "$z1_teeth_rc" -ne 0 ]; then
+        ok "teeth-inflate-slot-past-budget: z1_check (the REAL Z1 logic, not a re-implementation) goes RED on the mutant — $z1_teeth_out"
       else
-        no "teeth-inflate-slot-past-budget: general=$gtotal still within budget=$cbudget on the mutant — no teeth"
+        no "teeth-inflate-slot-past-budget: z1_check still PASSES on the mutant — $z1_teeth_out — no teeth"
       fi
     else
       no "teeth-inflate-slot-past-budget: mutant kit failed to render — cannot prove teeth"
@@ -405,7 +533,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     no "teeth-inflate-slot-past-budget: mutation anchor not found — cannot prove teeth"
   fi
 
-  echo "-- teeth: T-remove-slot-body (delete a '## slot:' section from the copied kit's general.slots.md, R1 must go RED) --"
+  echo "-- teeth: T-remove-slot-body (delete a '## slot:' section from the copied kit's general.slots.md, R1 must go RED with EXACTLY render-profile.sh's GUARD-MISSING: exit 2 and a 'missing' message on stderr — round-2 review finding R3-remove-slot-teeth-any-failure) --"
   kitRemove="$TMP/kitRemove"
   make_kit "$kitRemove"
   profileRemove="$kitRemove/profiles/general.slots.md"
@@ -418,10 +546,11 @@ s = re.sub(r'## slot:hotcore-loop-cadence\n.*?(?=\n## slot:|\Z)', '', s, flags=r
 open(p, 'w', encoding='utf-8').write(s)
 PYEOF
     outRemove="$TMP/outRemove"
-    if RSDD_KIT_DIR="$kitRemove" "$RENDERER" general "$outRemove" >/dev/null 2>&1; then
-      no "teeth-remove-slot-body: mutant kit STILL rendered (exit 0) with a missing slot body — no teeth"
+    remove_out="$(RSDD_KIT_DIR="$kitRemove" "$RENDERER" general "$outRemove" 2>&1)"; remove_rc=$?
+    if [ "$remove_rc" -eq 2 ] && grep -qi 'missing' <<<"$remove_out"; then
+      ok "teeth-remove-slot-body: R1's real render-exit-code check goes RED on the mutant — render-profile.sh's own GUARD-MISSING fires with exit 2 and a 'missing' message: $remove_out"
     else
-      ok "teeth-remove-slot-body: R1's real render-exit-code check goes RED on the mutant (render-profile.sh's own GUARD-MISSING fires)"
+      no "teeth-remove-slot-body: mutant did NOT fail with the expected GUARD-MISSING signature (rc=$remove_rc, expected 2; out=[$remove_out]) — either it rendered (no teeth) or failed for the wrong reason"
     fi
   else
     no "teeth-remove-slot-body: mutation anchor not found — cannot prove teeth"

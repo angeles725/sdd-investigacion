@@ -25,11 +25,34 @@
 # effect. Both test suites that source this file already set their own
 # `set -uo pipefail`.
 
+# absence_holds PATTERN FILE — returns 0 when the fixed string PATTERN is
+# ABSENT from FILE (grep -qF exit code 1), 1 when PATTERN IS present (exit
+# 0) OR when grep itself could not look at FILE at all (exit >=2: missing
+# file, unreadable file, I/O error, ENOMEM, SIGPIPE, ...). Every negated
+# ("_neg" / "_no_optin") assert_* function below is built on this helper
+# instead of a bare `! grep -qF ...`: a bare negated grep returns a FALSE
+# PASS the instant grep cannot even read the file (exit 2, negated by `!`,
+# becomes exit 0 = "absent" = "holds") — exactly the vacuous-pass shape kit
+# CLAUDE.md §7 forbids: an instrument that could not look must never report
+# a silent pass. This matters more once profile-invariants.test.sh runs
+# every absence check against three separate rendered files per profile
+# (round-2 review, R3-absence-asserts-vacuous-on-missing-file).
+absence_holds() {
+  local pattern="$1" file="$2" rc
+  grep -qF "$pattern" "$file"
+  rc=$?
+  case "$rc" in
+    1) return 0 ;;  # pattern absent — invariant holds
+    0) return 1 ;;  # pattern present — invariant violated
+    *) printf 'FATAL: absence_holds — grep could not read %s (rc=%d)\n' "$file" "$rc" >&2; return 1 ;;
+  esac
+}
+
 # =============================================================================
 # A1-A15 — SKILL.md-scoped invariants (kit issue #961/#960/#364 drift classes)
 # =============================================================================
 assert_A1()      { grep -qF 'the 7 markers' "$1"; }
-assert_A1_neg()  { ! grep -qF 'the 5 markers' "$1"; }
+assert_A1_neg()  { absence_holds 'the 5 markers' "$1"; }
 assert_A2()      { grep -qF '| **corpus**' "$1"; }
 assert_A3()      { grep -qF 'CARVE-OUT (intent wins)' "$1"; }
 assert_A4()      { grep -qF 'UNLESS the request is a scoped factual question' "$1"; }
@@ -42,7 +65,7 @@ assert_A11()     { grep -qF 'alias:' "$1" && grep -qF 'kaitai-struct-compiler' "
 assert_A12a()    { grep -qF 'never applied from inside a run (§18 propose-never-apply)' "$1"; }
 assert_A12b()    { grep -qF 'propose-never-apply). Provisioning is complete' "$1"; }
 assert_A13()     { grep -qF 'Dynamic is recommended for unattended runs' "$1"; }
-assert_A14_neg() { ! grep -qF 'guarantees the cadence' "$1"; }
+assert_A14_neg() { absence_holds 'guarantees the cadence' "$1"; }
 assert_A15()     { grep -qF 're-invoker is already active' "$1"; }
 
 # =============================================================================
@@ -55,7 +78,9 @@ assert_B3() { grep -qF 'CronDelete' "$1"; }
 # =============================================================================
 # C1-C19 — campaign-queue / STOP-vocabulary invariants (METHODOLOGY.md §8c,
 # PROMPT-LOOP.md RETURN CONTRACT / LOOP CONTINUATION, SKILL.md mode table).
-# Unchanged from the original skill-invariants.test.sh definitions.
+# Presence checks unchanged from the original skill-invariants.test.sh
+# definitions; C16/C17/C19 (absence) now route through absence_holds (see
+# its comment above) instead of a bare negated grep.
 # =============================================================================
 assert_C1()  { grep -qF 'A focus stop does not end the campaign' "$1"; }
 assert_C2()  { grep -qF 'no entry is `pending` or `active`' "$1"; }
@@ -70,16 +95,30 @@ assert_C10() { grep -qF 'first continue any entry left `active`' "$1"; }
 assert_C11() { grep -qF 'campaign_started:' "$1" && grep -qF 'campaign_iterations:' "$1"; }
 assert_C12() { grep -qF 'Single-focus corpora' "$1"; }
 assert_C13() { grep -qF '`rejected`' "$1"; }
+# C14: SKILL must carry 'do not ask which mode' (B5 mode-announce rule, added in #989 round 5)
 assert_C14() { grep -qF 'do not ask which mode' "$1"; }
 assert_C15() { grep -qF 'A RUN ends only on campaign STOP' "$1"; }
 # Absence assertions: return 0 when text is ABSENT (the good state).
-assert_C16() { ! grep -qF 'an autonomous run must stop at convergence' "$1"; }
-assert_C17() { ! grep -qF 'A turn ends only on' "$1"; }
+assert_C16() { absence_holds 'an autonomous run must stop at convergence' "$1"; }
+assert_C17() { absence_holds 'A turn ends only on' "$1"; }
+# C18: PROMPT-LOOP RETURN CONTRACT must carry the 'STOP: campaign — ' token.
 assert_C18() { grep -qF 'STOP: campaign — ' "$1"; }
-assert_C19() { ! grep -qF 'signal "continue"' "$1"; }
+# C19 (absence): orchestrated context must NOT say 'signal "continue"' — use RETURN CONTRACT.
+# Extended to METHODOLOGY and SKILL too (see also PROMPT-LOOP check).
+assert_C19() { absence_holds 'signal "continue"' "$1"; }
 
 # D1 (absence): RESEARCH-STATE template must NOT have a live '## Campaign
-# queue' section heading outside HTML comments (R1).
+# queue' section heading outside HTML comments. If the heading is absent
+# outside comments, no live campaign table rows can exist in that section —
+# ensuring every new corpus starts without a pre-seeded campaign that can
+# never STOP (R1).
+# Note: Gap-backlog rows intentionally carry '| pending |' outside comments
+# (they are REAL to the parsers per the requires-execution note in the
+# template); D1 targets only the Campaign queue section heading. A missing
+# or unreadable file raises inside the python block and exits non-zero
+# (never a silent 0/pass) — this check is not built on absence_holds because
+# it needs a full-file structural scan (comment-stripping), not a single
+# fixed-string grep.
 assert_D1() {
   local f="$1"
   python3 - "$f" <<'PYEOF'
@@ -102,7 +141,7 @@ PYEOF
 # (PROMPT-LOOP) pair with ONE function called on each file, the same pattern
 # assert_C19 already uses for its a/b/c call sites.
 # =============================================================================
-assert_E1a()       { grep -qF 'required for conclusion-bearing' "$1"; }
-assert_E1_no_optin() { ! grep -qF 'OPT-IN selective seal' "$1"; }
-assert_E2a()       { grep -qF '§7b' "$1"; }
-assert_E2b()       { grep -qF '§11a' "$1"; }
+assert_E1a()          { grep -qF 'required for conclusion-bearing' "$1"; }
+assert_E1_no_optin()  { absence_holds 'OPT-IN selective seal' "$1"; }
+assert_E2a()           { grep -qF '§7b' "$1"; }
+assert_E2b()           { grep -qF '§11a' "$1"; }
