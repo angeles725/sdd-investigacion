@@ -1,23 +1,89 @@
 #!/usr/bin/env bash
 # score-loop-transcript.sh — eval scorer for a research-sdd loop run (kit issue #993, WU5).
+# Round 2 (native RDD approved-with-advisories, Opus BLOCKED round 1 against real transcripts):
+# the operator-input filter, transcript-span handling, C3/C4 semantics, and the block-commit
+# regex below were all recalibrated against three real Claude Code transcripts + corpora
+# (niagara-research, blender-llm) inspected read-only — see the PR for the measurements.
 #
 # Scores a loop run against a target corpus (a git repo) and, optionally, a Claude Code
 # session transcript (JSONL), on four multi-model-prompt-profile criteria:
 #
-#   C1  continued past block 1 — >=2 "block commits" in the window, with no operator input
-#       between consecutive ones (operator input = a genuine human turn in the transcript).
-#       Without --transcript: the "no operator input between them" sub-check is n/a, but the
-#       block-commit count is still reported (git alone is sufficient for the count).
+#   C1  continued past block 1 — >=2 "block commits" (weighted: a commit whose subject cites a
+#       B<n>-B<m> range counts as (m-n+1) blocks) in the window, with no operator input between
+#       consecutive block COMMITS (operator input = a genuine human turn in the transcript, see
+#       "Operator input" below). Without --transcript: the "no operator input between them"
+#       sub-check is n/a, but the block-commit count is still reported (git alone answers it).
+#       degraded when any in-window block commit falls outside the transcript's own time span
+#       (see "Transcript span" below) — the transcript cannot vouch for a commit it never saw.
 #   C2  questions asked — count of assistant FINAL messages (the last assistant record before
-#       the next operator turn, or before end-of-transcript) whose last non-empty line matches
-#       `\?$|shall I|should I|do you want` (case-insensitive). n/a without --transcript.
-#   C3  compaction — block commits before/after the first compaction event found in the
-#       transcript. n/a without --transcript, or when the transcript has no compaction event
-#       (harness has no log of one — a distinct, honestly-reported state, not a silent pass).
-#   C4  STOP honored — the RETURN CONTRACT `STOP:` token (PROMPT-LOOP.md) is present as the
-#       last line of the run's final return, research-sdd-status.sh reports 0 open (--next
-#       returns STOP) and an empty campaign queue, AND no block commit lands after that STOP
-#       moment. n/a without --transcript (the final return / STOP moment cannot be located).
+#       the next operator turn, or before end-of-transcript) whose FINAL PARAGRAPH (the last
+#       contiguous run of non-empty lines) contains a question: any line matching
+#       `\?[*_\x60]*$|shall I|should I|do you want` (case-insensitive, tolerating a markdown
+#       emphasis/code-span closer right after the `?`), or a `¿...?` pair anywhere in that
+#       paragraph. n/a without --transcript. KNOWN LIMIT: a rhetorical question ("Is that
+#       surprising?") reads identically to a genuine ask — this criterion cannot tell intent
+#       apart from phrasing, only phrasing.
+#   C3  compaction — block commits before/after the first STRUCTURAL compaction event found in
+#       the transcript (a `type:"system"`/`subtype:"compact_boundary"` record, or any record
+#       with `isCompactSummary:true` — see "Compaction detection" below; free-text scanning for
+#       the human-readable continuation banner was tried and dropped: the structural fields are
+#       what real transcripts actually carry and free text is a second, redundant path to the
+#       same signal). NO compaction found is the BEST outcome (nothing to survive) and reports
+#       `pass (no compaction, N block(s))`, not n/a. n/a without --transcript. degraded when any
+#       in-window block commit falls outside the transcript's own time span.
+#   C4  STOP honored — the RETURN CONTRACT `STOP:` token (PROMPT-LOOP.md) is present as the last
+#       line of the run's final return (tolerating a leading backtick/`*`/`_`/`>` markdown
+#       wrapper), research-sdd-status.sh reports 0 open (--next returns `STOP | ...`) and an
+#       empty campaign queue, AND no block commit lands after that STOP moment. n/a without
+#       --transcript (the final return / STOP moment cannot be located). degraded when
+#       research-sdd-status.sh is missing, fails, or reports `STALE` (its own state is not
+#       trustworthy enough to answer "0 open"). KNOWN LIMIT: the RETURN CONTRACT this token
+#       belongs to is defined by PROMPT-LOOP.md's orchestrated `/loop` mode ONLY — an
+#       interactive chat session has no reason to ever emit a literal `STOP:` line, so C4 is
+#       meaningful only for a run driven in orchestrated mode. Measured on real transcripts:
+#       0 of 7,678 assistant records' last-lines across three real sessions started with `STOP:` — none
+#       of those sessions ran orchestrated `/loop`. See `research-sdd/evals/profile-ab/PROTOCOL.md`.
+#
+# Operator input: a genuine human turn is `.type=="user"` with `.origin.kind=="human"` — the
+# real, structural field Claude Code stamps on it. Everything else that is ALSO `type:"user"` in
+# the Claude API message shape is explicitly NOT operator input: a tool-result feedback turn
+# (`origin` absent/null — the overwhelming majority of `type:"user"` records in a real
+# transcript), a background `task-notification`, a `peer` relay from another session, a `/loop`
+# re-fire (`<command-message>loop</command-message>`), and other hook/harness feedback such as
+# `<local-command-stdout>`/`<bash-stdout>` wrapper tags — all of these have `origin.kind` unequal
+# to `"human"` in real data, so the single `origin.kind=="human"` condition excludes all of them
+# by construction; no per-category special-casing is needed or present. Round-1 measured this at
+# ~60-70% of a real run's C1 "gaps" being false positives from exactly this confusion (the prior
+# heuristic keyed on message-content shape, which tool-result/notification/hook turns share with
+# genuine human turns).
+#
+# Transcript span: the transcript's own [first_ts, last_ts] is the earliest and latest
+# `.timestamp` across EVERY record it contains (any type — assistant, user, system boundary
+# markers, attachments, ...), not just the operator/assistant subset. A block commit outside
+# that span was not witnessed by this transcript at all — the transcript cannot answer "was
+# there operator input near it" or "was it before/after compaction" for a commit it never saw,
+# so C1/C3 report `degraded`, not a false pass or fail, whenever that happens, with the
+# out-of-span count as evidence.
+#
+# Compaction detection: STRUCTURAL fields only (see C3 above) — RSDD_COMPACT_JQ, overridable.
+#
+# Block-commit regex: subjects use METHODOLOGY.md §17's `research(<target>): ...` convention,
+# but the block reference does not always sit immediately after the colon (`research(niagara-
+# research/wb-vendor-ux): bootstrap focus + B1054 ...` is a real subject) and a commit
+# occasionally cites more than one block, either as an explicit range (`B1161-B1163`, weight 3)
+# or as a bare mention elsewhere in the subject. This script accepts a `research(<scope>): `
+# prefix (RSDD_BLOCK_COMMIT_REGEX) and then looks for the block reference (RSDD_BLOCK_ID_REGEX,
+# default `B([0-9]+)(-B([0-9]+))?`) only in the region of the subject BEFORE its first `(`, `—`
+# (em dash), or `→` (arrow) — whichever comes first. That delimiter reliably separates "what was
+# committed" from "the descriptive title/citations", which is what keeps a `§18 retro ... closes
+# B867-B891` summary commit (a citation of blocks committed elsewhere, not a new 25-block commit)
+# from being miscounted: its block range sits inside a trailing parenthetical, past the cut.
+# Measured on real data (read-only, this PR): niagara-research 794/960 (82.7%) -> 811/960
+# (84.5%) `research(...)` subjects matched; blender-llm 93/102 (91.2%) -> 97/102 (95.1%).
+# KNOWN LIMIT: a citation-only commit that mentions an EXISTING block before any delimiter (e.g.
+# "align B505 CERT-web source citation with SOURCES.md") is indistinguishable from a real block
+# commit by this heuristic and will be counted; this is a precision/recall tradeoff, not a bug,
+# and is reported honestly here rather than claimed away.
 #
 # Usage:
 #   score-loop-transcript.sh --corpus <dir> [--transcript <jsonl-file>]
@@ -31,33 +97,40 @@
 #
 # Exit: 0 = scored (individual criteria may be fail/n-a/degraded — this is an information
 #           instrument, like census-target.sh / research-sdd-status.sh);
-#       1 = operational failure (corpus missing / not a git repo / lib helper failure);
+#       1 = operational failure (corpus missing / not a git repo / `git log` itself failed,
+#           e.g. a bad --base-ref — the failure is reported, never silently swallowed);
 #       2 = bad args;
-#       3 = degraded — git itself is unavailable, so no criterion can be measured at all.
+#       3 = degraded — a dependency this whole instrument needs (git, or a `date` that supports
+#           `date -d <ISO-8601>`) is unavailable, so no criterion can be measured at all.
 #
 # Anti-silent-zero (CLAUDE.md §7): every criterion distinguishes absent-input (no transcript
-# given) from empty-input/no-match (transcript present, nothing found) from degraded (a
-# required dependency is missing or the transcript could not be parsed) — never a bare silent
-# zero. git is probed unconditionally; jq is probed only when --transcript is given (git alone
-# answers C1's commit count).
+# given) from empty-input/no-match (transcript present, nothing found) from degraded (a required
+# dependency is missing, the transcript could not be parsed, a block commit falls outside the
+# transcript's span, or research-sdd-status.sh itself is unusable) — never a bare silent zero.
+# git and `date -d` are probed unconditionally; jq is probed only when --transcript is given
+# (git alone answers C1's raw commit count). The number of candidate commits `git log` actually
+# returned for the window is always reported (never a hardcoded literal), so "0 block commits"
+# distinguishes an empty window from a populated one whose subjects simply did not match.
 #
-# Overridable heuristics — DOCUMENTED, NOT authoritatively confirmed. The exact on-disk shape
-# of a Claude Code session JSONL's "operator input" and "compaction boundary" records was not
-# verified against a real harness build; both are exposed as env-var overrides so an operator
-# can correct the heuristic without editing this script:
-#   RSDD_BLOCK_COMMIT_REGEX   bash ERE for a block-commit subject line.
-#                             Default: METHODOLOGY.md §17 convention `research(<target>): B<n> ...`
+# Overridable heuristics — DOCUMENTED, NOT authoritatively confirmed for every harness. The
+# Claude Code JSONL shapes below WERE verified read-only against three real session transcripts
+# (see the PR); a different harness (e.g. a non-Claude-Code driver) may use different field
+# names, hence these remain overridable rather than hardcoded:
+#   RSDD_BLOCK_COMMIT_REGEX   bash ERE, ONE capture group = everything after the `research(...): `
+#                             prefix. Default: `^research\([^)]+\): (.*)$`
+#   RSDD_BLOCK_ID_REGEX       bash ERE applied to the cut region (see "Block-commit regex"
+#                             above); capture group 1 = start block number, group 3 = end block
+#                             number for a range. Default: `B([0-9]+)(-B([0-9]+))?`
 #   RSDD_OPERATOR_INPUT_JQ    jq boolean filter (applied to one parsed JSONL record) identifying
-#                             a genuine human turn, as opposed to a harness-fed tool-result
-#                             turn (which is also `type: "user"` in the Claude API message
-#                             shape). Default: `type=="user"`, not `isMeta`, and the message
-#                             content is a string or contains at least one `text` content block.
+#                             a genuine human turn. Default: `.type=="user" and
+#                             ((.origin.kind // "")=="human")` — see "Operator input" above.
 #   RSDD_COMPACT_JQ           jq boolean filter identifying a compaction-boundary record.
-#                             Default: a `type:"system"` record with `subtype:"compact_boundary"`,
-#                             OR any record with `isCompactSummary:true`, OR a message whose text
-#                             matches "This session is being continued from a previous
-#                             conversation" (case-insensitive) — the wording Claude Code is known
-#                             to prepend to a post-compaction continuation turn.
+#                             Default: `(.type=="system" and (.subtype // "")=="compact_boundary")
+#                             or (.isCompactSummary // false)` — see "Compaction detection" above.
+#   RSDD_QUESTION_REGEX       bash ERE (case-insensitive) tested against each line of the final
+#                             paragraph. Default: `\?[*_\x60]*$|shall I|should I|do you want`
+#   RSDD_STOP_TOKEN_REGEX     bash ERE tested against the STOP line after stripping a leading
+#                             markdown wrapper. Default: `^STOP:`
 #   RSDD_STATUS_SCRIPT        path to research-sdd-status.sh (default: the sibling script in
 #                             this same toolbelt directory). Overridable so C4 can be tested
 #                             against a stub without needing a fully-scaffolded corpus.
@@ -117,11 +190,12 @@ if [[ -n "$TRANSCRIPT" && ! -f "$TRANSCRIPT" ]]; then
 fi
 
 # --- Overridable defaults (see header) --------------------------------------------------------
-BLOCK_COMMIT_REGEX="${RSDD_BLOCK_COMMIT_REGEX:-^research\([^)]+\): B[0-9]+}"  # RSDD-SLT-BLOCK-REGEX
-QUESTION_REGEX="${RSDD_QUESTION_REGEX:-\?\$|shall I|should I|do you want}"    # RSDD-SLT-QUESTION-REGEX
-STOP_TOKEN_REGEX="${RSDD_STOP_TOKEN_REGEX:-^STOP:}"                          # RSDD-SLT-STOP-REGEX
-OPERATOR_INPUT_JQ="${RSDD_OPERATOR_INPUT_JQ:-(.type==\"user\") and ((.isMeta // false) | not) and (((.message.content|type)==\"string\") or (((.message.content|type)==\"array\") and ([.message.content[]? | select(.type==\"text\")] | length > 0)))}"
-COMPACT_JQ="${RSDD_COMPACT_JQ:-(.type==\"system\" and (((.subtype // \"\")==\"compact_boundary\") or ((.isCompactSummary // false)))) or ((.isCompactSummary // false)) or (((.message.content // \"\") | tostring) | test(\"This session is being continued from a previous conversation\"; \"i\"))}"  # RSDD-SLT-COMPACT-JQ
+BLOCK_COMMIT_REGEX="${RSDD_BLOCK_COMMIT_REGEX:-^research\([^)]+\): (.*)$}"      # RSDD-SLT-BLOCK-REGEX
+BLOCK_ID_REGEX="${RSDD_BLOCK_ID_REGEX:-B([0-9]+)(-B([0-9]+))?}"                # RSDD-SLT-BLOCKID-REGEX
+QUESTION_REGEX="${RSDD_QUESTION_REGEX:-\?[*_\`]*\$|shall I|should I|do you want}"  # RSDD-SLT-QUESTION-REGEX
+STOP_TOKEN_REGEX="${RSDD_STOP_TOKEN_REGEX:-^STOP:}"                            # RSDD-SLT-STOP-REGEX
+OPERATOR_INPUT_JQ="${RSDD_OPERATOR_INPUT_JQ:-(.type==\"user\") and ((.origin.kind // \"\")==\"human\")}"  # RSDD-SLT-OPERATOR-JQ
+COMPACT_JQ="${RSDD_COMPACT_JQ:-(.type==\"system\" and (.subtype // \"\")==\"compact_boundary\") or (.isCompactSummary // false)}"  # RSDD-SLT-COMPACT-JQ
 STATUS_SCRIPT="${RSDD_STATUS_SCRIPT:-$SCRIPT_DIR/research-sdd-status.sh}"
 
 # --- Dependency probes (§7: typed degraded, never a silent pass) ---------------------------
@@ -129,6 +203,14 @@ if ! command -v git >/dev/null 2>&1; then
   echo "score-loop-transcript.sh: degraded: git not found in PATH" >&2
   for c in C1 C2 C3 C4; do
     printf '%s degraded git-not-found\n' "$c"
+  done
+  printf 'SUMMARY pass=0 fail=0 n/a=0 degraded=4\n'
+  exit 3
+fi
+if [[ "$(date -d "1970-01-01T00:00:00Z" +%s 2>/dev/null)" != "0" ]]; then
+  echo "score-loop-transcript.sh: degraded: 'date -d <ISO-8601>' is not supported by the date on PATH" >&2
+  for c in C1 C2 C3 C4; do
+    printf '%s degraded date-not-supported\n' "$c"
   done
   printf 'SUMMARY pass=0 fail=0 n/a=0 degraded=4\n'
   exit 3
@@ -153,36 +235,73 @@ iso_epoch() {
   date -d "$1" +%s 2>/dev/null
 }
 
+# --- block_id_region <rest-of-subject> ---------------------------------------------------------
+# Prints the portion of <rest-of-subject> BEFORE its first '(', em dash '—', or arrow '→',
+# whichever comes first (or the whole string, if none appear). See "Block-commit regex" above.
+block_id_region() {
+  local rest="$1" cut="${#1}" i
+  i="${rest%%(*}";  [[ "$i" != "$rest" && ${#i} -lt "$cut" ]] && cut=${#i}
+  i="${rest%%—*}";  [[ "$i" != "$rest" && ${#i} -lt "$cut" ]] && cut=${#i}
+  i="${rest%%→*}";  [[ "$i" != "$rest" && ${#i} -lt "$cut" ]] && cut=${#i}
+  printf '%s' "${rest:0:cut}"
+}
+
 # --- Block commits in the window ------------------------------------------------------------
-# Prints "epoch<TAB>iso<TAB>sha" lines, chronologically ascending.
+# Populates BLOCK_EPOCH (one entry per BLOCK — a B<n>-B<m> range contributes (m-n+1) copies of
+# its commit's epoch, chronologically ascending after the final sort), CANDIDATE_COMMITS_EXAMINED
+# (every commit git log returned for the window, matched or not — proves the instrument looked,
+# CLAUDE.md §7), and BLOCK_TS_PARSE_ERRORS. Exits 1 (with git's own stderr) if `git log` itself
+# fails, e.g. a bad --base-ref — never silently swallowed.
+CANDIDATE_COMMITS_EXAMINED=0
 BLOCK_TS_PARSE_ERRORS=0
-get_block_commits() {
+declare -a BLOCK_EPOCH=()
+
+load_block_commits() {
   local range="HEAD"
   [[ -n "$BASE_REF" ]] && range="${BASE_REF}..HEAD"
   local extra=()
   [[ -n "$SINCE" ]] && extra+=(--since="$SINCE")
   [[ -n "$UNTIL" ]] && extra+=(--until="$UNTIL")
-  local sha ciso subj epoch
+
+  local git_out git_err rc
+  git_out="$(mktemp)"; git_err="$(mktemp)"
+  git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' "${extra[@]}" "$range" -- . >"$git_out" 2>"$git_err"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    echo "score-loop-transcript.sh: git log failed (exit $rc) for window '$range': $(tr '\n' ' ' < "$git_err")" >&2
+    rm -f "$git_out" "$git_err"
+    exit 1
+  fi
+  rm -f "$git_err"
+
+  local sha ciso subj rest region start end weight epoch w
   while IFS=$'\t' read -r sha ciso subj; do
     [[ -z "$sha" ]] && continue
-    if [[ "$subj" =~ $BLOCK_COMMIT_REGEX ]]; then
-      epoch="$(iso_epoch "$ciso")"
-      if [[ -z "$epoch" ]]; then
-        BLOCK_TS_PARSE_ERRORS=$((BLOCK_TS_PARSE_ERRORS + 1))
-        continue
-      fi
-      printf '%s\t%s\t%s\n' "$epoch" "$ciso" "$sha"
+    CANDIDATE_COMMITS_EXAMINED=$((CANDIDATE_COMMITS_EXAMINED + 1))
+    [[ "$subj" =~ $BLOCK_COMMIT_REGEX ]] || continue
+    rest="${BASH_REMATCH[1]}"
+    region="$(block_id_region "$rest")"
+    [[ "$region" =~ $BLOCK_ID_REGEX ]] || continue
+    start="${BASH_REMATCH[1]}"
+    end="${BASH_REMATCH[3]:-$start}"
+    weight=$(( 10#$end - 10#$start + 1 ))
+    [[ "$weight" -lt 1 ]] && weight=1
+    epoch="$(iso_epoch "$ciso")"
+    if [[ -z "$epoch" ]]; then
+      BLOCK_TS_PARSE_ERRORS=$((BLOCK_TS_PARSE_ERRORS + 1))
+      continue
     fi
-  done < <(git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' "${extra[@]}" "$range" -- . 2>/dev/null)
-}
+    for ((w = 0; w < weight; w++)); do
+      BLOCK_EPOCH+=("$epoch")
+    done
+  done < "$git_out"
+  rm -f "$git_out"
 
-mapfile -t BLOCK_LINES < <(get_block_commits | sort -n -k1,1)
-N_BLOCKS=${#BLOCK_LINES[@]}
-declare -a BLOCK_EPOCH=()
-for line in "${BLOCK_LINES[@]:-}"; do
-  [[ -z "$line" ]] && continue
-  BLOCK_EPOCH+=("${line%%$'\t'*}")
-done
+  if [[ ${#BLOCK_EPOCH[@]} -gt 0 ]]; then
+    mapfile -t BLOCK_EPOCH < <(printf '%s\n' "${BLOCK_EPOCH[@]}" | sort -n)
+  fi
+}
+load_block_commits
 N_BLOCKS=${#BLOCK_EPOCH[@]}
 
 # --- Transcript normalization (only when a transcript was given and jq is usable) -----------
@@ -190,29 +309,45 @@ TRANSCRIPT_TSV=""
 TRANSCRIPT_PARSE_WARN=0
 declare -a OPERATOR_EPOCH=()
 declare -a FINAL_EPOCH=()
-declare -a FINAL_LASTLINE=()
+declare -a FINAL_PARA=()
 FIRST_COMPACTION_EPOCH=""
+TRANSCRIPT_FIRST_EPOCH=""
+TRANSCRIPT_LAST_EPOCH=""
+TRANSCRIPT_FIRST_ISO=""
+TRANSCRIPT_LAST_ISO=""
 
 if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
   TRANSCRIPT_TSV="$(mktemp)"
   trap 'rm -f "$TRANSCRIPT_TSV"' EXIT
   NORM_JQ='
+    def last_paragraph:
+      split("\n") as $lines
+      | ($lines | length) as $n
+      | if $n == 0 then ""
+        else
+          (reduce range($n - 1; -1; -1) as $i
+            ({done: false, acc: []};
+              if .done then .
+              elif ($lines[$i] | length) == 0 then
+                (if (.acc | length) > 0 then .done = true else . end)
+              else .acc = [$lines[$i]] + .acc
+              end)
+          ).acc | join("\n")
+        end;
     map({
       ts: (.timestamp // empty),
       type: (.type // empty),
       is_operator: ('"$OPERATOR_INPUT_JQ"'),
       is_compaction: ('"$COMPACT_JQ"'),
-      last_line: ((if (.message.content|type)=="string" then .message.content
+      last_para: ((if (.message.content|type)=="string" then .message.content
                     elif (.message.content|type)=="array"
                       then ([.message.content[]? | select(.type=="text") | .text] | join("\n"))
-                    else "" end)
-                   | split("\n") | map(select(length>0))
-                   | (if length>0 then .[-1] else "" end))
+                    else "" end) | last_paragraph)
     })
     | map(select(.ts != null and .ts != ""))
     | sort_by(.ts)
     | .[]
-    | [.ts, .type, (.is_operator|tostring), (.is_compaction|tostring), .last_line]
+    | [.ts, .type, (.is_operator|tostring), (.is_compaction|tostring), .last_para]
     | @tsv
   '
   if ! jq -r -s "$NORM_JQ" "$TRANSCRIPT" >"$TRANSCRIPT_TSV" 2>/dev/null; then
@@ -220,12 +355,22 @@ if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
   fi
 
   pending_epoch=""
-  pending_lastline=""
+  pending_para=""
   have_pending=0
-  while IFS=$'\t' read -r ts typ is_op is_cx last_line; do
+  while IFS=$'\t' read -r ts typ is_op is_cx last_para; do
     [[ -z "$ts" ]] && continue
     epoch="$(iso_epoch "$ts")"
     [[ -z "$epoch" ]] && continue
+    # @tsv escapes an embedded real newline/tab as the literal two-character sequence
+    # "\n"/"\t" (jq @tsv docs) — restore them so paragraph line-splitting works on real
+    # newlines. Order matters: unescape \t and \n before \\, so a literal "\\n" in the
+    # original text (already rare) is not mistaken for an escaped newline twice over.
+    last_para="${last_para//\\t/$'\t'}"
+    last_para="${last_para//\\n/$'\n'}"
+
+    [[ -z "$TRANSCRIPT_FIRST_EPOCH" ]] && { TRANSCRIPT_FIRST_EPOCH="$epoch"; TRANSCRIPT_FIRST_ISO="$ts"; }
+    TRANSCRIPT_LAST_EPOCH="$epoch"
+    TRANSCRIPT_LAST_ISO="$ts"
 
     if [[ -z "$FIRST_COMPACTION_EPOCH" && "$is_cx" == "true" ]]; then
       FIRST_COMPACTION_EPOCH="$epoch"
@@ -235,7 +380,7 @@ if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
       OPERATOR_EPOCH+=("$epoch")
       if [[ "$have_pending" -eq 1 ]]; then
         FINAL_EPOCH+=("$pending_epoch")
-        FINAL_LASTLINE+=("$pending_lastline")
+        FINAL_PARA+=("$pending_para")
         have_pending=0
       fi
       continue
@@ -243,15 +388,28 @@ if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
 
     if [[ "$typ" == "assistant" ]]; then
       pending_epoch="$epoch"
-      pending_lastline="$last_line"
+      pending_para="$last_para"
       have_pending=1
     fi
   done < "$TRANSCRIPT_TSV"
   if [[ "$have_pending" -eq 1 ]]; then
     FINAL_EPOCH+=("$pending_epoch")
-    FINAL_LASTLINE+=("$pending_lastline")
+    FINAL_PARA+=("$pending_para")
   fi
 fi
+
+# --- out_of_span_count — block commits the transcript never witnessed -----------------------
+out_of_span_count() {
+  [[ -z "$TRANSCRIPT_FIRST_EPOCH" ]] && { printf '0'; return; }
+  local n=0 e
+  for e in "${BLOCK_EPOCH[@]:-}"; do
+    [[ -z "$e" ]] && continue
+    if [[ "$e" -lt "$TRANSCRIPT_FIRST_EPOCH" || "$e" -gt "$TRANSCRIPT_LAST_EPOCH" ]]; then
+      n=$((n + 1))
+    fi
+  done
+  printf '%s' "$n"
+}
 
 # --- Result accumulators ---------------------------------------------------------------------
 N_PASS=0
@@ -282,10 +440,17 @@ transcript_unusable_reason() {
   fi
 }
 
+# --- strip_md_wrap <line> — strip a leading markdown emphasis/quote/code-span wrapper --------
+strip_md_wrap() {
+  local s="$1"
+  [[ "$s" =~ ^[\`\*_\>[:space:]]*(.*)$ ]] && s="${BASH_REMATCH[1]}"
+  printf '%s' "$s"
+}
+
 # --- C1: continued past block 1 --------------------------------------------------------------
 c1() {
   if [[ "$N_BLOCKS" -eq 0 ]]; then
-    emit C1 fail "0 block commits in window (0 candidate commits examined; ts-parse-errors=$BLOCK_TS_PARSE_ERRORS)"
+    emit C1 fail "0 block commits in window ($CANDIDATE_COMMITS_EXAMINED candidate commit(s) examined; ts-parse-errors=$BLOCK_TS_PARSE_ERRORS)"
     return
   fi
   if [[ -z "$TRANSCRIPT" ]]; then
@@ -298,6 +463,12 @@ c1() {
   fi
   if [[ "$JQ_AVAILABLE" -eq 0 || "$TRANSCRIPT_PARSE_WARN" -eq 1 ]]; then
     emit C1 degraded "$N_BLOCKS block commits in window; $(transcript_unusable_reason)"
+    return
+  fi
+  local oos
+  oos="$(out_of_span_count)"
+  if [[ "$oos" -gt 0 ]]; then
+    emit C1 degraded "$oos of $N_BLOCKS block commit(s) outside transcript span [$TRANSCRIPT_FIRST_ISO,$TRANSCRIPT_LAST_ISO]; cannot assess operator-input gaps for them"
     return
   fi
   if [[ "$N_BLOCKS" -lt 2 ]]; then
@@ -333,15 +504,26 @@ c2() {
     emit C2 degraded "$(transcript_unusable_reason)"
     return
   fi
-  local total=${#FINAL_LASTLINE[@]}
+  local total=${#FINAL_PARA[@]}
   if [[ "$total" -eq 0 ]]; then
     emit C2 n/a "transcript has no assistant final messages (empty-input)"
     return
   fi
-  local matches=0 first_match_idx=-1 idx=0 line
+  local matches=0 first_match_idx=-1 idx=0 para line is_q
   shopt -s nocasematch
-  for line in "${FINAL_LASTLINE[@]}"; do
-    if [[ "$line" =~ $QUESTION_REGEX ]]; then
+  for para in "${FINAL_PARA[@]}"; do
+    is_q=0
+    if [[ "$para" =~ ¿[^¿]*\? ]]; then
+      is_q=1
+    else
+      while IFS= read -r line; do
+        if [[ "$line" =~ $QUESTION_REGEX ]]; then
+          is_q=1
+          break
+        fi
+      done <<<"$para"
+    fi
+    if [[ "$is_q" -eq 1 ]]; then
       matches=$((matches + 1))
       [[ "$first_match_idx" -eq -1 ]] && first_match_idx="$idx"
     fi
@@ -365,8 +547,14 @@ c3() {
     emit C3 degraded "$(transcript_unusable_reason)"
     return
   fi
+  local oos
+  oos="$(out_of_span_count)"
+  if [[ "$oos" -gt 0 ]]; then
+    emit C3 degraded "$oos of $N_BLOCKS block commit(s) outside transcript span [$TRANSCRIPT_FIRST_ISO,$TRANSCRIPT_LAST_ISO]; cannot assess compaction timing for them"
+    return
+  fi
   if [[ -z "$FIRST_COMPACTION_EPOCH" ]]; then
-    emit C3 n/a "no compaction event found in transcript"
+    emit C3 pass "no compaction, $N_BLOCKS block(s)"
     return
   fi
   local before=0 after=0 e
@@ -395,21 +583,36 @@ c4() {
     emit C4 degraded "$(transcript_unusable_reason)"
     return
   fi
-  local total=${#FINAL_LASTLINE[@]}
+  local total=${#FINAL_PARA[@]}
   if [[ "$total" -eq 0 ]]; then
     emit C4 n/a "transcript has no assistant final messages (empty-input)"
     return
   fi
+  if [[ ! -r "$STATUS_SCRIPT" ]]; then
+    emit C4 degraded "research-sdd-status.sh not found or not readable at $STATUS_SCRIPT"
+    return
+  fi
+
   local last_idx=$((total - 1))
   local stop_epoch="${FINAL_EPOCH[$last_idx]}"
-  local stop_line="${FINAL_LASTLINE[$last_idx]}"
+  local stop_line
+  stop_line="$(printf '%s\n' "${FINAL_PARA[$last_idx]}" | tail -n1)"
+  stop_line="$(strip_md_wrap "$stop_line")"
 
   local stop_present=0
   [[ "$stop_line" =~ $STOP_TOKEN_REGEX ]] && stop_present=1
 
-  local status_default status_next
-  status_default="$(bash "$STATUS_SCRIPT" "$CORPUS" 2>/dev/null)"
-  status_next="$(bash "$STATUS_SCRIPT" "$CORPUS" --next 2>/dev/null)"
+  local status_default status_next rc_default rc_next
+  status_default="$(bash "$STATUS_SCRIPT" "$CORPUS" 2>&1)"; rc_default=$?
+  status_next="$(bash "$STATUS_SCRIPT" "$CORPUS" --next 2>&1)"; rc_next=$?
+  if [[ "$rc_default" -ne 0 || "$rc_next" -ne 0 ]]; then
+    emit C4 degraded "research-sdd-status.sh failed (default exit=$rc_default, --next exit=$rc_next)"
+    return
+  fi
+  if [[ "$status_next" =~ ^STALE ]]; then
+    emit C4 degraded "research-sdd-status.sh --next reports STALE: $status_next"
+    return
+  fi
 
   local zero_open=0
   [[ "$status_next" =~ ^STOP\  ]] && zero_open=1

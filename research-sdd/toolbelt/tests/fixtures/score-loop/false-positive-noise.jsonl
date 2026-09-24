@@ -1,0 +1,12 @@
+{"type":"user","origin":{"kind":"human"},"timestamp":"2026-06-01T00:00:00Z","message":{"role":"user","content":"start please"}}
+{"type":"user","origin":null,"timestamp":"2026-06-01T00:01:00Z","message":{"role":"user","content":[{"tool_use_id":"toolu_01ABCDEF","type":"tool_result","content":"synthetic tool output, not operator input"}]}}
+{"type":"user","origin":{"kind":"task-notification"},"timestamp":"2026-06-01T00:02:00Z","message":{"role":"user","content":"Background command finished (synthetic notification)"}}
+{"type":"user","origin":{"kind":"peer","from":"uds:/tmp/synthetic.sock","verifiedPeerPid":1,"msg_id":"00000000-0000-0000-0000-000000000000","name":"viewer","fromMode":"prompting"},"timestamp":"2026-06-01T00:03:00Z","message":{"role":"user","content":"synthetic peer relay text, not this session's operator"}}
+{"type":"user","origin":null,"timestamp":"2026-06-01T00:04:00Z","message":{"role":"user","content":"<command-name>/loop</command-name>\n            <command-message>loop</command-message>\n            <command-args></command-args>"}}
+{"type":"user","origin":null,"timestamp":"2026-06-01T00:05:00Z","message":{"role":"user","content":"<local-command-stdout>synthetic hook feedback, not operator input</local-command-stdout>"}}
+{"type":"assistant","timestamp":"2026-06-01T00:06:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block1 done\nnext: gap-2"}]}}
+{"type":"user","origin":null,"timestamp":"2026-06-01T00:11:00Z","message":{"role":"user","content":[{"tool_use_id":"toolu_02ABCDEF","type":"tool_result","content":"synthetic tool output again, not operator input"}]}}
+{"type":"user","origin":{"kind":"task-notification"},"timestamp":"2026-06-01T00:12:00Z","message":{"role":"user","content":"Another synthetic background notification"}}
+{"type":"user","origin":null,"timestamp":"2026-06-01T00:13:00Z","message":{"role":"user","content":"<local-command-stdout>synthetic bash-stdout style feedback</local-command-stdout>"}}
+{"type":"assistant","timestamp":"2026-06-01T00:15:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block2 done\nnext: gap-3"}]}}
+{"type":"assistant","timestamp":"2026-06-01T00:25:00Z","message":{"role":"assistant","content":[{"type":"text","text":"all clear\nSTOP: campaign — done"}]}}

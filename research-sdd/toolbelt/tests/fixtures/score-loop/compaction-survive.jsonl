@@ -1,2 +1,3 @@
-{"type":"system","timestamp":"2026-06-01T00:00:00Z","subtype":"compact_boundary"}
-{"type":"assistant","timestamp":"2026-06-01T00:05:00Z","message":{"role":"assistant","content":[{"type":"text","text":"resumed\nnext: gap-4"}]}}
+{"type":"user","origin":{"kind":"human"},"timestamp":"2026-05-31T23:45:00Z","message":{"role":"user","content":"start please"}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-06-01T00:00:00Z","content":"Conversation compacted","level":"info","compactMetadata":{"trigger":"auto"}}
+{"type":"assistant","timestamp":"2026-06-01T00:15:00Z","message":{"role":"assistant","content":[{"type":"text","text":"resumed\nnext: gap-4"}]}}
