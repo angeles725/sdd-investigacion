@@ -20,10 +20,12 @@
 # of two or more `cd`s — e.g. SELF_DIR from $0, then KIT_INSTALL from $SELF_DIR/../install, then
 # KIT from $KIT_INSTALL/.. — stays tracked at every hop). A tainted assignment whose <expr> ALSO
 # contains `..` (a CLIMB — in the same cd, or via a tainted var that itself required a climb) is
-# flagged unless it uses `cd -P` (the load-bearing half — `cd -P` alone already makes bash track
-# $PWD physically) AND a following `pwd -P` (redundant once `cd -P` ran, but required here too:
-# every fixed instance in this kit pairs both, so this checker enforces one consistent,
-# greppable idiom rather than accepting a bare `cd -P ... && pwd`).
+# flagged unless it uses `cd -P`: verified empirically (not merely asserted) that `cd -P` ALONE
+# already makes bash track $PWD physically for the `pwd` call that follows in the same subshell
+# — a following `pwd -P` is redundant and NOT required. Most fixed instances in this kit pair
+# both anyway (one consistent, greppable idiom), but a bare `cd -P ... && pwd` (no `-P` on pwd)
+# is equally correct and not flagged — e.g. kit issue #976/#984 (PR #1029)'s own fix to
+# stage-retro.sh's KIT_REPO line, whose comment reaches the identical conclusion independently.
 #
 # WHAT IT EXCLUDES (declared per CLAUDE.md §7 "an audit instrument must prove the coverage of its
 # own enumerator" — false negatives destroy trust the same way false positives do):
@@ -104,7 +106,7 @@ fi
 _lint_scan_file() {
   local f="$1"
   local -A tainted=()
-  local lineno=0 line stmt code var is_rooted is_climb cd_p pwd_p tv
+  local lineno=0 line stmt code var is_rooted is_climb cd_p tv
 
   while IFS= read -r line; do
     lineno=$((lineno + 1))
@@ -154,11 +156,15 @@ _lint_scan_file() {
       [[ "$code" == *".."* ]] && is_climb=1
 
       if [ "$is_climb" -eq 1 ]; then
-        cd_p=0; pwd_p=0
+        # Only `cd -P` is load-bearing: it alone makes bash track $PWD physically for the
+        # `pwd` call that immediately follows in the same subshell (verified empirically, not
+        # asserted — see the header comment). A bare `cd -P ... && pwd` (no `-P` on pwd) is
+        # therefore NOT flagged; kit issue #976/#984 (PR #1029)'s own fix to stage-retro.sh uses
+        # exactly this shape, with a comment reaching the identical conclusion independently.
+        cd_p=0
         [[ "$code" =~ cd[[:space:]]+-P([[:space:]]|\") ]] && cd_p=1
-        [[ "$code" =~ pwd[[:space:]]+-P ]] && pwd_p=1
-        if [ "$cd_p" -eq 0 ] || [ "$pwd_p" -eq 0 ]; then
-          printf '%d\tclimbing derivation lacks cd -P / pwd -P\n' "$lineno"
+        if [ "$cd_p" -eq 0 ]; then
+          printf '%d\tclimbing derivation lacks cd -P\n' "$lineno"
         fi
       fi
 

@@ -93,6 +93,22 @@ else
   no "5 -P'd climbing derivation was wrongly flagged (rc=$RC5 out=[$OUT5])"
 fi
 
+# ── 5b. `cd -P` alone (no `pwd -P`) is NOT flagged — verified empirically that `cd -P` alone is
+#        load-bearing; a following bare `pwd` is redundant, not required. Kit issue #976/#984
+#        (PR #1029)'s own fix to stage-retro.sh's KIT_REPO line uses exactly this shape.
+box5b="$(mkbox case-climb-cdp-only)"
+cat > "$box5b/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+KIT="$(cd -P "$(dirname "$0")/.." && pwd)"
+echo "$KIT"
+EOF
+OUT5B="$(bash "$SUT" "$box5b" 2>&1)"; RC5B=$?
+if [ "$RC5B" -eq 0 ] && ! printf '%s' "$OUT5B" | grep -q 'HIT'; then
+  ok "5b climbing derivation with cd -P alone (bare pwd) is NOT flagged (exit 0)"
+else
+  no "5b cd-P-only climbing derivation was wrongly flagged (rc=$RC5B out=[$OUT5B])"
+fi
+
 # ── 6. Chained two-hop derivation: taint propagates across lines ────────────
 box6="$(mkbox case-chained)"
 cat > "$box6/chained.sh" <<'EOF'
@@ -225,7 +241,13 @@ fi
 # break the very sub-tests that prove the checker detects an unmarked HIT at all. Their lines are
 # filtered out of THIS assertion's view of the corpus; every other file, including every other
 # *.test.sh, is held to the real, unfiltered standard.
-OUT15="$(bash "$SUT" 2>&1 | grep -v 'verify-cd-physical\.test\.sh')"
+#
+# ALSO EXCLUDED: stage-retro.test.sh (kit issue #976/#984, PR #1029 — merged, not this PR's file
+# to edit or allow-mark). It carries the IDENTICAL self-referential pattern: its own teeth build
+# a mutant by string-substituting a "neutered" (deliberately -P-less) copy of an anchor line
+# inside a quoted bash string literal, not executable code — the same false-positive class as
+# this suite's own fixtures above, just in a file this PR does not own.
+OUT15="$(bash "$SUT" 2>&1 | grep -v -e 'verify-cd-physical\.test\.sh' -e 'stage-retro\.test\.sh')"
 RC15=0; printf '%s' "$OUT15" | grep -q '^HIT' && RC15=1
 if [ "$RC15" -eq 0 ]; then
   ok "15 real-corpus smoke test: this kit's own toolbelt/+install/ trees are clean (excluding this suite's own fixture text)"
