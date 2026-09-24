@@ -371,8 +371,8 @@ if [ ! -f "$_RS_LIB" ]; then
 fi
 # shellcheck source=lib/retro-status.sh
 . "$_RS_LIB"
-declare -F retro_marker_line >/dev/null 2>&1 \
-  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_line" >&2; exit 1; }
+declare -F retro_marker_scope_line >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_scope_line" >&2; exit 1; }
 declare -F retro_status_from_marker_line >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_status_from_marker_line" >&2; exit 1; }
 declare -F retro_marker_is_partial >/dev/null 2>&1 \
@@ -422,17 +422,19 @@ fi
 
 # ---------------------------------------------------------------------------
 # Parse review-status and detect PARTIAL applied markers.
-# retro_marker_line (lib/retro-status.sh) is the SINGLE source of truth for marker detection in
-# stage-retro-issues.sh: it does a WHOLE-FILE scan anchored on '<!--', so markers placed after
-# the H1 heading are found (real-corpus layout: H1 line 1, blank line 2, marker line 3 in
-# *-closure.md retros).  Both the status word and the PARTIAL/shipped inspection are derived
-# from this one call.
+# STAGE_RETRO_ISSUES_SCOPE_SHARED (kit issue #945): retro_marker_scope_line (lib/retro-status.sh)
+# is the ONE marker scope reconcile-issues.sh, stage-retro-issues.sh (this script), retro-gate.sh,
+# and sweep-retros.sh now share — the leading block, tolerating exactly one H1 line at the top
+# (real-corpus layout: H1 line 1, blank line 2, marker line 3 in *-closure.md retros). Both the
+# status word and the PARTIAL/shipped inspection are derived from this one call.
 # Format: <!-- review-status: applied · sha · PARTIAL — shipped: 1, 2; deferred: 3 -->
 #
-# NOTE: retro_review_status (also in lib/retro-status.sh) is intentionally NOT called here —
-# it does a leading-block-only scan and is kept for sweep-retros.sh which expects body-position
-# markers to be invisible.  stage-retro-issues.sh must use retro_marker_line instead.
-_marker_line="$(retro_marker_line "$retro")"
+# Before #945 this script used retro_marker_line's WHOLE-FILE scan, which is MORE permissive
+# than the shared scope: a marker anywhere in the retro body — after a second heading, or even
+# quoted inside a fenced example — would gate the seeder. That over-permissiveness disagreed
+# with reconcile-issues.sh and sweep-retros.sh, which only ever honored the leading block; #945
+# unifies all four on retro_marker_scope_line instead.
+_marker_line="$(retro_marker_scope_line "$retro")"
 
 # Extract the status word via retro_status_from_marker_line (lib/retro-status.sh).
 # R2-001: this is the SINGLE extraction point — the pipeline lives only in that lib function.
@@ -641,6 +643,17 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     # for this row instead, exactly like a failed `gh issue create` below.
     if [ "$_dedup_rc" -ne 0 ]; then
       echo "ERROR: gh issue list (dedup) failed for row $_rid: $_existing" >&2
+      failed=$((failed+1)); continue
+    fi
+    # STAGE_RETRO_ISSUES_DEDUP_EMPTY_REPLY_GUARD (kit issue #1093 item 1): `gh issue list` can
+    # exit 0 with EMPTY stdout instead of the '[]' a genuinely empty JSON array reply would carry
+    # (observed: a transient gh/API hiccup that still exits 0). The OPEN/CLOSED greps below both
+    # silently fail to match on an empty string, so without this guard an empty reply fell through
+    # as "no match" and proceeded straight to gh issue create — exactly the duplicate this dedup
+    # check exists to prevent. Require the reply to actually start with '[' (a JSON array, empty
+    # or not) before trusting a "no match" reading; anything else is a failure, not a no-match.
+    if ! printf '%s' "$_existing" | grep -q '^[[:space:]]*\['; then
+      echo "ERROR: gh issue list (dedup) returned an unexpected reply for row $_rid (expected a JSON array): $_existing" >&2
       failed=$((failed+1)); continue
     fi
     if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then

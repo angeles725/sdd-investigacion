@@ -566,6 +566,33 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# kit issue #945: H1-scoped marker — the real-corpus niagara-research *-closure.md shape (H1 line
+# 1, blank line 2, marker line 3). Before #945, reconcile-issues.sh's own leading-block-only scan
+# (no H1 tolerance) never saw this marker, so a fully DISMISSED retro written in this shape was
+# reported as if it carried no marker at all — every delta row wrongly surfaced as 'untracked'.
+# ---------------------------------------------------------------------------
+box21="$(mkbox case-h1-scope)"
+mk_gh_stub "$box21" nomatch
+retro21="$box21/rh/target-foo/retros/r-h1-scope.md"
+mkdir -p "$(dirname "$retro21")"
+{
+  printf '# §18 Retro — focus: apis — 2026-08-25\n\n'
+  printf '<!-- review-status: dismissed 2026-09-24 · kit c10f9d9 -->\n\n'
+  printf '## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| 1 | already handled elsewhere | METHODOLOGY.md | B1 | new | LOW |\n'
+} > "$retro21"
+run "$box21" "$retro21"
+if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q '^untracked:' \
+   && printf '%s' "$OUT" | grep -qi 'no-match'; then
+  ok "21 H1 + blank + marker (dismissed): row NOT reported untracked (#945 real-corpus shape)" "(exit $RC)"
+else
+  no "21 H1 + blank + marker (dismissed): row NOT reported untracked (#945 real-corpus shape)" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # kit issue #1024 round 3, MEDIUM: symlinked toolbelt (render dir)
 # ---------------------------------------------------------------------------
 # KIT_ROOT used to be derived via `cd "$_SCRIPT_DIR/../.."` WITHOUT -P. bash's default (-L,
@@ -741,7 +768,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mutate the box's COPY of the LIB (not reconcile-issues.sh itself) to prove the integration:
   # reconcile-issues.sh really does flow through the shared helper for real shipped-id behavior.
   echo "-- teeth T6: neuter hash-strip sub in the shared lib (integration through reconcile-issues.sh) --"
-  anchor_t6='sub(/^#/, "", t)'
+  # Kit issue #1093 item 5 rewrote retro_marker_shipped_ids in pure bash (no awk 3-arg match());
+  # the hash-strip is now the line 't="${t#\#}"', anchored by RETRO_MARKER_SHIPPED_IDS_HASH_STRIP.
+  anchor_t6='RETRO_MARKER_SHIPPED_IDS_HASH_STRIP'
   if grep -qF "$anchor_t6" "$RETRO_STATUS_LIB"; then
     box_t6="$(mkbox teeth-hash-strip)"
     mk_gh_stub "$box_t6" nomatch
@@ -749,8 +778,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mk_retro3 "$box_t6" target-foo r-t6.md "$_hash_m_t6" > /dev/null
     mutant_lib_t6="$box_t6/research-sdd/toolbelt/lib/retro-status.sh"
     # Delete the ONE line carrying the hash-strip (line-based deletion avoids sed delimiter
-    # collisions with the literal '/' characters inside the awk regex itself).
-    sed '/sub(\/\^#\/, "", t)/d' "$RETRO_STATUS_LIB" > "$mutant_lib_t6"
+    # collisions with the literal '#' character inside the bash parameter expansion itself).
+    sed '/t="\${t#\\#}"/d' "$RETRO_STATUS_LIB" > "$mutant_lib_t6"
     bash -n "$mutant_lib_t6" 2>/dev/null || { no "T6 teeth: mutant lib failed bash -n" ""; }
     out_t6="$(PATH="$box_t6/bin:$PATH" \
       "$BASH_BIN" "$box_t6/research-sdd/toolbelt/reconcile-issues.sh" \

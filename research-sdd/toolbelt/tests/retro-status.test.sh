@@ -342,15 +342,16 @@ EOF
 
   # Tooth M6: drop the bare '{ exit }' from retro_is_waived's awk, enabling a whole-file scan.
   # A body-position waiver marker (case 15 fixture) must then FALSELY return 0 (waived).
-  # Uses awk to skip the THIRD bare '{ exit }' occurrence (the one in retro_is_waived); the
-  # first (in retro_review_status) and second (in retro_is_excluded) are kept intact.
-  # If the mutant returns 1 (not waived), the '{ exit }' guard was not the deciding factor
-  # and case 15 is theater.
+  # Uses awk to skip the FOURTH bare '{ exit }' occurrence (the one in retro_is_waived); the
+  # first (retro_review_status), second (retro_marker_scope_line, kit issue #945), and third
+  # (retro_is_excluded) are kept intact. If the mutant returns 1 (not waived), the '{ exit }'
+  # guard was not the deciding factor and case 15 is theater.
   echo "-- teeth M6: drop { exit } from retro_is_waived awk; body-position waiver must false-fire (case 15 has teeth) --"
   m6_mutant="$ROOT/retro-status.m6.sh"
-  # Three '{ exit }' occurrences: retro_review_status (n=1), retro_is_excluded (n=2),
-  # retro_is_waived (n=3). Skip the THIRD to mutate only retro_is_waived's guard.
-  awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==3) next } { print }' "$HELPER" > "$m6_mutant"
+  # Four '{ exit }' occurrences: retro_review_status (n=1), retro_marker_scope_line (n=2),
+  # retro_is_excluded (n=3), retro_is_waived (n=4). Skip the FOURTH to mutate only
+  # retro_is_waived's guard.
+  awk 'BEGIN{n=0} /^      \{ exit \}$/ { n++; if(n==4) next } { print }' "$HELPER" > "$m6_mutant"
   fix15="$(mkretro m6-body-waiver <<'EOF'
 # retro — body-position waiver below
 
@@ -652,6 +653,191 @@ ids36="$(retro_marker_shipped_ids '')"
   || no "36 retro_marker_shipped_ids: empty input → empty output" "got [$ids36]"
 
 # ---------------------------------------------------------------------------
+# retro_marker_scope_line <file> — kit issue #945: the ONE marker scope shared by
+# reconcile-issues.sh, stage-retro-issues.sh, retro-gate.sh, and sweep-retros.sh. Leading block,
+# tolerating exactly one H1 line at the very top.
+
+# 37 — REAL-CORPUS LAYOUT: H1 line 1, blank line 2, marker line 3 → found. This is the exact
+# niagara-research *-closure.md shape kit issue #945 was filed over.
+f="$(mkretro scope-h1-blank <<'EOF'
+# §18 Retro — focus: apis — 2026-08-25
+
+<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->
+
+body
+EOF
+)"
+f37path="$f"
+sl37="$(retro_marker_scope_line "$f")"
+[ "$sl37" = "<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->" ] \
+  && ok "37 retro_marker_scope_line: H1 + blank + marker → found (#945 real-corpus shape)" "()" \
+  || no "37 retro_marker_scope_line: H1 + blank + marker → found (#945 real-corpus shape)" "got [$sl37]"
+
+# 38 — H1 directly followed by marker, NO blank line → still found (blanks after H1 are optional,
+# not required).
+f="$(mkretro scope-h1-noblank <<'EOF'
+# retro
+<!-- review-status: dismissed 2026-01-01 -->
+body
+EOF
+)"
+sl38="$(retro_marker_scope_line "$f")"
+[ "$sl38" = "<!-- review-status: dismissed 2026-01-01 -->" ] \
+  && ok "38 retro_marker_scope_line: H1 immediately followed by marker (no blank) → found" "()" \
+  || no "38 retro_marker_scope_line: H1 immediately followed by marker (no blank) → found" "got [$sl38]"
+
+# 39 — NO H1 at all, marker on line 1 → still found (pre-#945 behavior preserved — this scope is a
+# superset of retro_review_status's, not a replacement with different no-H1 semantics).
+f="$(mkretro scope-no-h1 <<'EOF'
+<!-- review-status: applied 2026-01-01 -->
+# retro
+
+body
+EOF
+)"
+sl39="$(retro_marker_scope_line "$f")"
+[ "$sl39" = "<!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "39 retro_marker_scope_line: no H1, marker on line 1 → found (pre-#945 case preserved)" "()" \
+  || no "39 retro_marker_scope_line: no H1, marker on line 1 → found (pre-#945 case preserved)" "got [$sl39]"
+
+# 40 — TWO HEADINGS: H1, blank, H2, blank, marker → NOT found. Only ONE H1 is skippable; a second
+# heading is ordinary non-blank/non-comment content and terminates the leading-block scan.
+f="$(mkretro scope-two-headings <<'EOF'
+# H1
+
+## H2
+
+<!-- review-status: applied 2026-01-01 -->
+EOF
+)"
+sl40="$(retro_marker_scope_line "$f")"
+[ -z "$sl40" ] \
+  && ok "40 retro_marker_scope_line: H1 + H2 + marker → NOT found (only one heading skippable)" "()" \
+  || no "40 retro_marker_scope_line: H1 + H2 + marker → NOT found (only one heading skippable)" "got [$sl40]"
+
+# 41 — FENCED CODE BLOCK after H1: a documented example marker inside a ``` fence must not count.
+# The leading-block scan exits at the fence-opener line (non-blank, non-comment) before ever
+# reaching the marker-shaped text inside the fence.
+f="$(mkretro scope-fenced <<'EOF'
+# retro
+
+```
+<!-- review-status: applied 2026-01-01 -->
+```
+EOF
+)"
+sl41="$(retro_marker_scope_line "$f")"
+[ -z "$sl41" ] \
+  && ok "41 retro_marker_scope_line: marker inside fenced block after H1 → NOT found" "()" \
+  || no "41 retro_marker_scope_line: marker inside fenced block after H1 → NOT found" "got [$sl41]"
+
+# 42 — QUOTED IN PROSE after H1: a paragraph explaining the convention, that happens to mention
+# the marker text on its own following line, must not count — the prose line itself (not blank,
+# not a comment) terminates the scan before the quoted line is ever reached.
+f="$(mkretro scope-quoted-prose <<'EOF'
+# retro
+
+Example marker:
+<!-- review-status: applied 2026-01-01 -->
+EOF
+)"
+sl42="$(retro_marker_scope_line "$f")"
+[ -z "$sl42" ] \
+  && ok "42 retro_marker_scope_line: marker quoted in prose after H1 → NOT found" "()" \
+  || no "42 retro_marker_scope_line: marker quoted in prose after H1 → NOT found" "got [$sl42]"
+
+# 43 — NO MARKER AT ALL → empty output, no error (absent-input inside the function itself).
+f="$(mkretro scope-none <<'EOF'
+# retro
+
+body, no marker here
+EOF
+)"
+sl43="$(retro_marker_scope_line "$f")"
+[ -z "$sl43" ] \
+  && ok "43 retro_marker_scope_line: no marker present → empty, no error" "()" \
+  || no "43 retro_marker_scope_line: no marker present → empty, no error" "got [$sl43]"
+
+# ---------------------------------------------------------------------------
+# retro_marker_is_partial 'shipped:' scoping — kit issue #1093 item 2.
+
+# 44 — PROSE 'shipped:' AFTER THE FREE-TEXT DASH → false. Real #1093 repro: an applied marker
+# whose free-text explanation (after the em dash) happens to use the word 'shipped:' must not
+# retroactively mark the retro PARTIAL.
+m44='<!-- review-status: applied 2026-01-01 · kit abc1234 — all done; nothing shipped: later than #600 -->'
+retro_marker_is_partial "$m44" \
+  && no "44 retro_marker_is_partial: prose 'shipped:' after free-text dash → false (#1093 item 2)" "returned true" \
+  || ok "44 retro_marker_is_partial: prose 'shipped:' after free-text dash → false (#1093 item 2)" "()"
+
+# 45 — REAL-CORPUS 'shipped:' AFTER AN OPENING PAREN (no PARTIAL token) → false. The opening
+# paren is a free-text boundary exactly like the em dash; 'shipped:' appearing only after it is
+# descriptive prose, not the structured field.
+m45='<!-- review-status: applied 2026-01-01 · kit abc1234 (see rationale) shipped: 1, 2 -->'
+retro_marker_is_partial "$m45" \
+  && no "45 retro_marker_is_partial: 'shipped:' only after an opening paren → false" "returned true" \
+  || ok "45 retro_marker_is_partial: 'shipped:' only after an opening paren → false" "()"
+
+# 46 — REGRESSION GUARD: real-corpus 'shipped: #1, #2' with no em dash/paren before it (kit issue
+# #949 shape) still returns true after the #1093 item 2 scoping fix.
+m46='<!-- review-status: applied 2026-09-05 · kit e0b701a · shipped: #1, #2 -->'
+retro_marker_is_partial "$m46" \
+  && ok "46 retro_marker_is_partial: real-corpus bare 'shipped:' still true (#949 regression guard)" "()" \
+  || no "46 retro_marker_is_partial: real-corpus bare 'shipped:' still true (#949 regression guard)" "returned false"
+
+# 47 — REGRESSION GUARD: canonical 'PARTIAL — shipped: …' form (em dash BEFORE shipped:, but
+# PARTIAL sits before the dash too) still returns true — condition (a) catches it regardless of
+# condition (b)'s narrower scope.
+m47='<!-- review-status: applied 2026-07-29 · kit cc5e13a · PARTIAL — shipped: D2,D3,D4,D5; DEFERRED: D1 -->'
+retro_marker_is_partial "$m47" \
+  && ok "47 retro_marker_is_partial: canonical 'PARTIAL — shipped:' form still true" "()" \
+  || no "47 retro_marker_is_partial: canonical 'PARTIAL — shipped:' form still true" "returned false"
+
+# 48 — MIXED-CASE 'Partial' (kit issue #1093 item 4, documented behavior): the structured segment
+# carries 'Partial' (not the exact uppercase token) and no 'shipped:' field — condition (a) is
+# case-SENSITIVE by design (#1090) and does not match, condition (b) has nothing to find, so the
+# marker is read as NOT partial. This is intentional, documented behavior (see the function's doc
+# comment), not a silent gap.
+m48='<!-- review-status: applied 2026-01-01 · kit abc1234 · Partial -->'
+retro_marker_is_partial "$m48" \
+  && no "48 retro_marker_is_partial: mixed-case 'Partial', no shipped: → false (documented #1093 item 4)" "returned true" \
+  || ok "48 retro_marker_is_partial: mixed-case 'Partial', no shipped: → false (documented #1093 item 4)" "()"
+
+# ---------------------------------------------------------------------------
+# retro_marker_shipped_ids portability — kit issue #1093 item 5: no gawk-only 3-arg match().
+
+# 49 — FORCED NON-GAWK PATH: with a stub 'awk' on PATH that errors on any invocation, range
+# expansion must still work — proving retro_marker_shipped_ids no longer depends on awk at all
+# (gawk or otherwise) for the range-parsing path that used to require gawk's 3-arg match().
+_p49dir="$(mktemp -d)"
+cat > "$_p49dir/awk" <<'FAKEAWK'
+#!/bin/sh
+echo "FAKE AWK INVOKED" >&2
+exit 97
+FAKEAWK
+chmod +x "$_p49dir/awk"
+ids49="$(PATH="$_p49dir:$PATH" "$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$HELPER" '#P1-P3' 2>"$_p49dir/stderr")"
+if [ "$ids49" = "$(printf 'P1\nP2\nP3')" ] && [ ! -s "$_p49dir/stderr" ]; then
+  ok "49 retro_marker_shipped_ids: range expansion works with a broken/non-gawk 'awk' on PATH (#1093 item 5)" "()"
+else
+  no "49 retro_marker_shipped_ids: range expansion works with a broken/non-gawk 'awk' on PATH (#1093 item 5)" \
+    "got ids=[$ids49] stderr=[$(cat "$_p49dir/stderr" 2>/dev/null)]"
+fi
+rm -rf "$_p49dir"
+
+MAWK_BIN="$(command -v mawk || true)"
+if [ -n "$MAWK_BIN" ]; then
+  _p49bdir="$(mktemp -d)"
+  ln -s "$MAWK_BIN" "$_p49bdir/awk"
+  ids49b="$(PATH="$_p49bdir:$PATH" "$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$HELPER" '#P1-P3' 2>"$_p49bdir/stderr")"
+  rm -rf "$_p49bdir"
+  [ "$ids49b" = "$(printf 'P1\nP2\nP3')" ] \
+    && ok "49b retro_marker_shipped_ids: range expansion works with real mawk aliased as awk" "()" \
+    || no "49b retro_marker_shipped_ids: range expansion works with real mawk aliased as awk" "got [$ids49b]"
+else
+  printf '  SKIP  49b retro_marker_shipped_ids: mawk not installed — skipping real-mawk path\n'
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth P1: drop the free-text CUT (the sed that trims at '—'/'shipped:'/'(') from
@@ -707,16 +893,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Tooth S1: drop the '^#' strip from retro_marker_shipped_ids's awk. '#1, #2' must then be
-  # returned WITH the hash still attached ('#1'/'#2'), proving case 33 has teeth.
+  # Tooth S1: drop the '#' strip from retro_marker_shipped_ids's bash loop (kit issue #1093 item 5
+  # rewrite — pure bash now, no awk). '#1, #2' must then be returned WITH the hash still attached
+  # ('#1'/'#2'), proving case 33 has teeth.
   echo "-- teeth S1: drop the leading '#' strip in retro_marker_shipped_ids; hash must survive (case 33 has teeth) --"
-  if ! grep -qF "sub(/^#/, \"\", t)" "$HELPER"; then
-    no "teeth S1: locate the '^#' strip" "anchor not found — helper drifted?"
+  if ! grep -qF 'RETRO_MARKER_SHIPPED_IDS_HASH_STRIP' "$HELPER"; then
+    no "teeth S1: locate the RETRO_MARKER_SHIPPED_IDS_HASH_STRIP anchor" "anchor not found — helper drifted?"
   else
     s1_mutant="$ROOT/retro-status.s1.sh"
-    sed '/sub(\/\^#\/, "", t)/d' "$HELPER" > "$s1_mutant"
+    sed '/t="\${t#\\#}"/d' "$HELPER" > "$s1_mutant"
     if diff -q "$HELPER" "$s1_mutant" >/dev/null 2>&1; then
       no "teeth S1: build hash-strip-removed mutant" "mutant identical — sed substitution failed"
+    elif ! "$BASH_BIN" -n "$s1_mutant" 2>/dev/null; then
+      no "teeth S1: build hash-strip-removed mutant" "mutant syntax error"
     else
       outs1="$("$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$s1_mutant" '#1, #2' 2>&1)"
       if printf '%s' "$outs1" | grep -q '^#1$'; then
@@ -727,28 +916,73 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Tooth S2: drop the parenthetical-strip sed from retro_marker_shipped_ids. 'Δ1 (#549)' must
-  # then leak the annotation as a spurious extra token, proving case 34 has teeth.
+  # Tooth S2: drop the parenthetical-strip sed stage from retro_marker_shipped_ids's `stripped=`
+  # pipeline (kit issue #1093 item 5 rewrite). 'Δ1 (#549)' must then leak the annotation as
+  # spurious extra tokens, proving case 34 has teeth.
   echo "-- teeth S2: drop the parenthetical-annotation strip in retro_marker_shipped_ids; annotation must leak (case 34 has teeth) --"
-  s2_linenum="$(grep -nF '[^)]*' "$HELPER" | head -1 | cut -d: -f1)"
-  if [ -z "$s2_linenum" ]; then
-    no "teeth S2: locate the parenthetical-strip sed" "anchor not found — helper drifted?"
+  if ! grep -qF 'RETRO_MARKER_SHIPPED_IDS_PAREN_STRIP' "$HELPER"; then
+    no "teeth S2: locate the RETRO_MARKER_SHIPPED_IDS_PAREN_STRIP anchor" "anchor not found — helper drifted?"
   else
     s2_mutant="$ROOT/retro-status.s2.sh"
-    # Delete the ONE line carrying the paren-strip pipeline stage (line-number targeted, no
-    # pattern-escaping fragility) — the awk pipeline it fed into still runs on the untouched raw
-    # text, so the mutant stays syntactically valid.
-    awk -v ln="$s2_linenum" 'NR!=ln' "$HELPER" > "$s2_mutant"
+    # Replace the paren-strip sed stage with a no-op passthrough (cat) — the pipeline shape stays
+    # intact (still syntactically valid), only the strip itself is removed.
+    sed "s/sed -E 's\/\[\[:space:\]\]\*\\\\(\[^)\]\*\\\\)\/\/g'/cat/" "$HELPER" > "$s2_mutant"
     if diff -q "$HELPER" "$s2_mutant" >/dev/null 2>&1; then
-      no "teeth S2: build paren-strip-removed mutant" "mutant identical — deletion failed"
+      no "teeth S2: build paren-strip-removed mutant" "mutant identical — substitution failed"
     elif ! "$BASH_BIN" -n "$s2_mutant" 2>/dev/null; then
       no "teeth S2: build paren-strip-removed mutant" "mutant syntax error"
     else
       outs2="$("$BASH_BIN" -c '. "$1"; retro_marker_shipped_ids "$2"' _ "$s2_mutant" 'Δ1 (#549)' 2>&1)"
-      if printf '%s' "$outs2" | grep -qF '(#549)'; then
+      if printf '%s' "$outs2" | grep -qF '#549'; then
         ok "teeth S2: paren-strip-removed mutant leaks the annotation (case 34 has teeth)" "(got [$outs2])"
       else
         no "teeth S2: paren-strip-removed mutant should leak the annotation" "got [$outs2] — case 34 is THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth SC1 (kit issue #945): drop the two NR==1 H1-skip rules from retro_marker_scope_line.
+  # Case 37's H1+blank+marker fixture must then find NOTHING — the H1 line becomes the block
+  # terminator again, exactly the pre-#945 bug.
+  echo "-- teeth SC1: drop the H1-skip rules in retro_marker_scope_line; case 37 must go blind --"
+  if ! grep -qF 'RETRO_MARKER_SCOPE_H1_SKIP' "$HELPER"; then
+    no "teeth SC1: locate the RETRO_MARKER_SCOPE_H1_SKIP anchor" "anchor not found — helper drifted?"
+  else
+    sc1_mutant="$ROOT/retro-status.sc1.sh"
+    sed '/NR==1 && \/\^\[\[:space:\]\]\*#/d' "$HELPER" > "$sc1_mutant"
+    if diff -q "$HELPER" "$sc1_mutant" >/dev/null 2>&1; then
+      no "teeth SC1: build H1-skip-removed mutant" "mutant identical — sed substitution failed"
+    elif ! "$BASH_BIN" -n "$sc1_mutant" 2>/dev/null; then
+      no "teeth SC1: build H1-skip-removed mutant" "mutant syntax error"
+    else
+      outsc1="$("$BASH_BIN" -c '. "$1"; retro_marker_scope_line "$2"' _ "$sc1_mutant" "$f37path" 2>&1)"
+      if [ -z "$outsc1" ]; then
+        ok "teeth SC1: H1-skip-removed mutant goes blind on case 37's fixture (has teeth)" "()"
+      else
+        no "teeth SC1: H1-skip-removed mutant should go blind on case 37's fixture" "got [$outsc1] — case 37 is THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth SH1 (kit issue #1093 item 2): revert the 'shipped:' scoping to the pre-fix UNSCOPED
+  # whole-body check. Case 44's prose-'shipped:'-after-dash fixture must then false-positive.
+  echo "-- teeth SH1: revert 'shipped:' scoping to unscoped whole-body check; case 44 must false-positive --"
+  if ! grep -qF 'RETRO_MARKER_SHIPPED_STRUCTURED_CUT' "$HELPER"; then
+    no "teeth SH1: locate the RETRO_MARKER_SHIPPED_STRUCTURED_CUT anchor" "anchor not found — helper drifted?"
+  else
+    sh1_mutant="$ROOT/retro-status.sh1.sh"
+    sed "s/structured_for_shipped=\"\$(printf '%s' \"\$body\" | sed -E 's\/(—|\\\\().\*\$\/\/')\"/structured_for_shipped=\"\$body\"/" \
+      "$HELPER" > "$sh1_mutant"
+    if diff -q "$HELPER" "$sh1_mutant" >/dev/null 2>&1; then
+      no "teeth SH1: build unscoped-shipped mutant" "mutant identical — sed substitution failed"
+    elif ! "$BASH_BIN" -n "$sh1_mutant" 2>/dev/null; then
+      no "teeth SH1: build unscoped-shipped mutant" "mutant syntax error"
+    else
+      outsh1="$("$BASH_BIN" -c '. "$1"; retro_marker_is_partial "$2"; echo $?' _ "$sh1_mutant" "$m44" 2>&1)"
+      if [ "$outsh1" = "0" ]; then
+        ok "teeth SH1: unscoped-shipped mutant false-positives on case 44's prose 'shipped:' (has teeth)" "()"
+      else
+        no "teeth SH1: unscoped-shipped mutant should false-positive on case 44" "returned '$outsh1' (expected 0) — THEATER"
       fi
     fi
   fi

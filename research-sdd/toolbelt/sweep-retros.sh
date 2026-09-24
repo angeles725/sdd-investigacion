@@ -25,7 +25,8 @@ fi
 # Fail closed: existence of $LIB is not enough — the source must have DEFINED the reader.
 # Neither script uses `set -e`, so a failed/partial/syntax-broken source would otherwise be
 # swallowed and every retro would silently read as 'none' (fail-open). Abort before any work.
-declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_review_status" >&2; exit 1; }
+declare -F retro_marker_scope_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_marker_scope_line" >&2; exit 1; }
+declare -F retro_status_from_marker_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_status_from_marker_line" >&2; exit 1; }
 # retro_is_waived is needed for the MISSING-RETRO waiver check in the fleet pass.
 declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }
 
@@ -155,9 +156,17 @@ for p in $paths; do
     # corpus/retros/. Opt-out marker fails noisily (missing → file surfaces), not silently.
     retro_is_excluded "$f" && continue
     total=$((total + 1))
-    # Honor the marker only in the retro's LEADING HTML-comment block (see lib/retro-status.sh):
-    # a marker-shaped string in the body or in heading/comment prose must not exclude an un-reviewed retro.
-    status=$(retro_review_status "$f")
+    # SWEEP_RETROS_SCOPE_SHARED (kit issue #945): honor the marker only within the ONE scope
+    # reconcile-issues.sh, stage-retro-issues.sh, retro-gate.sh, and this script now share — the
+    # leading block, tolerating exactly one H1 line at the top (see lib/retro-status.sh:
+    # retro_marker_scope_line). Before #945 this used retro_review_status's NO-H1-tolerance scan,
+    # which missed real-corpus *-closure.md retros whose marker sits on line 3 (H1 line 1, blank
+    # line 2) — those retros stayed reported as pending here even after stage-retro-issues.sh
+    # (which used a different, more permissive scope) already recognized them as applied. A
+    # marker deeper in the body — after a second heading, or in heading/comment prose — is still
+    # ignored; only the position changed, not the "leading block only" principle.
+    _marker_line=$(retro_marker_scope_line "$f")
+    status=$(retro_status_from_marker_line "$_marker_line")
     case "$status" in
       applied|dismissed) continue ;;
     esac

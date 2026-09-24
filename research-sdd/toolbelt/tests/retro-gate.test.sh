@@ -1064,6 +1064,69 @@ printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#957 T-excluded: excluded retro (kit-retro: exclude) → still blocks" \
   || no "#957 T-excluded: excluded retro should not qualify → expected block: OUT=$OUT"
 
+# ─── _retro_is_seedable — direct unit tests (kit issues #945, #1093 item 3) ──────────────────
+# retro-gate.sh is a Stop-hook script, not meant to be sourced (it reads stdin and acts on argv
+# at top level), so _retro_is_seedable is extracted with sed and evaluated in a subshell that
+# also sources the real lib/retro-status.sh it now depends on — the same shared scope + PARTIAL
+# logic reconcile-issues.sh, stage-retro-issues.sh, and sweep-retros.sh use.
+RS_LIB="$HERE/../lib/retro-status.sh"
+[ -f "$RS_LIB" ] || { echo "FATAL: lib/retro-status.sh not found: $RS_LIB" >&2; exit 2; }
+
+# _seedable_check <retro-file> → prints 'seedable' or 'not-seedable'
+_seedable_check() {
+  "$BASH_BIN" -c '
+    . "$1"
+    _rs_func="$(sed -n "/^_retro_is_seedable() {/,/^}/p" "$2")"
+    eval "$_rs_func"
+    if _retro_is_seedable "$3"; then echo seedable; else echo not-seedable; fi
+  ' _ "$RS_LIB" "$SUT" "$1"
+}
+
+# T-SEEDABLE-1 (kit issue #1093 item 3 — real disagreement example): 'applied · sha ·
+# shipped: row 1' with NO literal PARTIAL token. The seeder (stage-retro-issues.sh, via
+# retro_marker_is_partial) already treats this as PARTIAL (some rows still open); the old
+# _retro_is_seedable only matched a literal '*PARTIAL*' substring, so the two tools disagreed —
+# unshipped rows in this shape were never auto-seeded by the Stop hook. RED against origin/main:
+# not-seedable.
+f1="$ROOT/seedable-shipped-no-partial.md"
+printf '<!-- review-status: applied 2026-09-16 · kit 9ac10e4 · shipped: row 1 -->\n# retro\n' > "$f1"
+[ "$(_seedable_check "$f1")" = "seedable" ] \
+  && ok "T-SEEDABLE-1 'shipped:' without PARTIAL token → seedable (#1093 item 3)" "()" \
+  || no "T-SEEDABLE-1 'shipped:' without PARTIAL token → seedable (#1093 item 3)" "(got not-seedable)"
+
+# T-SEEDABLE-2: dismissed always wins → not seedable.
+f2="$ROOT/seedable-dismissed.md"
+printf '<!-- review-status: dismissed 2026-09-16 · kit 9ac10e4 -->\n# retro\n' > "$f2"
+[ "$(_seedable_check "$f2")" = "not-seedable" ] \
+  && ok "T-SEEDABLE-2 dismissed → not seedable" "()" \
+  || no "T-SEEDABLE-2 dismissed → not seedable" "(got seedable)"
+
+# T-SEEDABLE-3 (kit issue #945): H1 + blank + marker (real niagara-research *-closure.md shape),
+# applied with no PARTIAL/shipped → not seedable, matching the seeder's reading of the same shape.
+f3="$ROOT/seedable-h1-applied.md"
+printf '# §18 Retro — focus: apis\n\n<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->\n' > "$f3"
+[ "$(_seedable_check "$f3")" = "not-seedable" ] \
+  && ok "T-SEEDABLE-3 H1 + blank + applied marker → not seedable (#945 real-corpus shape)" "()" \
+  || no "T-SEEDABLE-3 H1 + blank + applied marker → not seedable (#945 real-corpus shape)" "(got seedable)"
+
+# T-SEEDABLE-4 (kit issue #945 scope narrowing): a properly-anchored 'dismissed' marker sitting
+# after a SECOND heading — unrelated to the leading-block-plus-one-H1 shape — must NOT suppress
+# seeding. Before #945 this script's own unanchored, unscoped 'grep -m1 review-status' over the
+# WHOLE file found a marker in this position; the shared scope only reads the leading block.
+# RED against origin/main: not-seedable (wrongly suppressed).
+f4="$ROOT/seedable-deep-dismissed.md"
+printf '# retro\n\n## Notes\n\n<!-- review-status: dismissed -->\n' > "$f4"
+[ "$(_seedable_check "$f4")" = "seedable" ] \
+  && ok "T-SEEDABLE-4 dismissed marker after a SECOND heading → still seedable (#945 scope)" "()" \
+  || no "T-SEEDABLE-4 dismissed marker after a SECOND heading → still seedable (#945 scope)" "(got not-seedable)"
+
+# T-SEEDABLE-5: no marker at all → seedable.
+f5="$ROOT/seedable-none.md"
+printf '# retro\n\nno marker\n' > "$f5"
+[ "$(_seedable_check "$f5")" = "seedable" ] \
+  && ok "T-SEEDABLE-5 no marker at all → seedable" "()" \
+  || no "T-SEEDABLE-5 no marker at all → seedable" "(got not-seedable)"
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -1779,6 +1842,59 @@ run_mutant "$M16_path" "$TM16" "$_jm16"
 [ -z "$OUT" ] \
   && ok "TOOTH 16 find-renames-drop: mutant allows git-mv'd retro under diff.renames=false (-M removed — RED as expected)" \
   || no "TOOTH 16 find-renames-drop: mutant should have allowed (renamed retro admitted) but blocked — tooth ineffective"
+
+# ── TOOTH 17-SEEDABLE (kit issue #1093 item 3): neuter the retro_marker_is_partial call in
+#    _retro_is_seedable — 'applied' must then always resolve to not-seedable regardless of
+#    PARTIAL/shipped content, proving T-SEEDABLE-1 has teeth.
+echo "-- teeth T17-seedable: neuter retro_marker_is_partial call in _retro_is_seedable --"
+anchor_t17s='      retro_marker_is_partial "$sline" && return 0 || return 1 ;;'
+sut_content_gate="$(cat "$SUT")"
+if [[ "$sut_content_gate" == *"$anchor_t17s"* ]]; then
+  mutant_t17s="$MUT_KIT/toolbelt/mutant-retro-seedable-t17.sh"
+  printf '%s\n' "${sut_content_gate/"$anchor_t17s"/      return 1 ;;  # teeth-t17-seedable-partial-check-removed}" \
+    > "$mutant_t17s"
+  bash -n "$mutant_t17s" 2>/dev/null || { no "T17-seedable teeth: mutant failed bash -n" ""; }
+  out_t17s="$("$BASH_BIN" -c '
+    . "$1"
+    _rs_func="$(sed -n "/^_retro_is_seedable() {/,/^}/p" "$2")"
+    eval "$_rs_func"
+    if _retro_is_seedable "$3"; then echo seedable; else echo not-seedable; fi
+  ' _ "$RS_LIB" "$mutant_t17s" "$f1" 2>&1)"
+  if [ "$out_t17s" = "not-seedable" ]; then
+    ok "T17-seedable teeth: is_partial call neutered → T-SEEDABLE-1 flips to not-seedable (has teeth)" "()"
+  else
+    no "T17-seedable teeth: is_partial call neutered → should flip to not-seedable" "got [$out_t17s] — THEATER"
+  fi
+else
+  no "T17-seedable teeth: locate retro_marker_is_partial call anchor" "anchor not found — SUT drifted?"
+fi
+
+# ── TOOTH 18-SEEDABLE (kit issue #945): revert _retro_is_seedable to reading the raw marker
+#    line via retro_marker_scope_line's H1-tolerant scan disabled — reuse the SAME H1-skip-removed
+#    mutant technique as lib/retro-status.sh's own teeth SC1, but exercised THROUGH retro-gate.sh,
+#    proving T-SEEDABLE-3 has teeth end to end (not just at the lib layer).
+echo "-- teeth T18-seedable: drop H1-skip rules in the shared lib; T-SEEDABLE-3 must go blind --"
+if grep -qF 'RETRO_MARKER_SCOPE_H1_SKIP' "$RS_LIB"; then
+  mutant_lib_t18s="$MUT_KIT/toolbelt/lib/retro-status-t18.sh"
+  sed '/NR==1 && \/\^\[\[:space:\]\]\*#/d' "$RS_LIB" > "$mutant_lib_t18s"
+  bash -n "$mutant_lib_t18s" 2>/dev/null || { no "T18-seedable teeth: mutant lib failed bash -n" ""; }
+  out_t18s="$("$BASH_BIN" -c '
+    . "$1"
+    _rs_func="$(sed -n "/^_retro_is_seedable() {/,/^}/p" "$2")"
+    eval "$_rs_func"
+    if _retro_is_seedable "$3"; then echo seedable; else echo not-seedable; fi
+  ' _ "$mutant_lib_t18s" "$SUT" "$f3" 2>&1)"
+  # With the H1-skip removed, the H1 line becomes the leading-block terminator again → no marker
+  # found → status resolves to none/absent → the *(default) branch returns 0 → seedable (flips
+  # from T-SEEDABLE-3's not-seedable).
+  if [ "$out_t18s" = "seedable" ]; then
+    ok "T18-seedable teeth: H1-skip removed → T-SEEDABLE-3 flips to seedable (has teeth)" "()"
+  else
+    no "T18-seedable teeth: H1-skip removed → should flip to seedable" "got [$out_t18s] — THEATER"
+  fi
+else
+  no "T18-seedable teeth: locate RETRO_MARKER_SCOPE_H1_SKIP anchor" "anchor not found — lib drifted?"
+fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 if [ -n "$_GIT_ROOT_FOR_TEETH" ]; then

@@ -36,19 +36,35 @@ done
 . "$_rs_lib"
 declare -F block_file_filter >/dev/null 2>&1 || { printf 'retro-gate: block_file_filter not defined\n' >&2; exit 0; }
 declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_excluded not defined\n' >&2; exit 0; }
+declare -F retro_marker_scope_line >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_scope_line not defined\n' >&2; exit 0; }
+declare -F retro_status_from_marker_line >/dev/null 2>&1 || { printf 'retro-gate: retro_status_from_marker_line not defined\n' >&2; exit 0; }
+declare -F retro_marker_is_partial >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_is_partial not defined\n' >&2; exit 0; }
 
 # ── §18-EN3: auto issue-seeding on session close ──────────────────────────────
 
 # _retro_is_seedable <path>: returns 0 when the retro has open deltas
 # (review-status is pending/none/absent, or PARTIAL applied with unshipped rows).
+#
+# RETRO_GATE_SEEDABLE_SHARED_LIB (kit issues #945, #1093 item 3): this used to be its own
+# unanchored 'grep -m1 review-status' over the WHOLE file — over-permissive in the same way
+# stage-retro-issues.sh's pre-#945 whole-file scan was (a marker anywhere in the body, including
+# a quoted example, would gate seeding) — and its own bare 'case ... *PARTIAL*)' glob check never
+# recognised the 'shipped:'-without-PARTIAL marker shape lib/retro-status.sh's
+# retro_marker_is_partial already handles (kit issue #949): a marker like
+# "applied · sha · shipped: row 1" (no literal PARTIAL token) made the seeder treat the retro as
+# PARTIAL (some rows still open) while retro-gate's old glob check said "applied, not seedable" —
+# unshipped rows in that shape were never auto-seeded by the Stop hook. Routing through the same
+# retro_marker_scope_line + retro_status_from_marker_line + retro_marker_is_partial calls the
+# other three instruments use closes both gaps: one scope, one PARTIAL definition, shared here.
 _retro_is_seedable() {
-  local rf="$1" sline
-  sline="$(grep -m1 'review-status' "$rf" 2>/dev/null || true)"
-  case "$sline" in
-    *dismissed*) return 1 ;;
-    *applied*)
-      # PARTIAL applied = some rows still open
-      case "$sline" in *PARTIAL*) return 0 ;; *) return 1 ;; esac ;;
+  local rf="$1" sline status
+  sline="$(retro_marker_scope_line "$rf")"
+  status="$(retro_status_from_marker_line "$sline")"
+  case "$status" in
+    dismissed) return 1 ;;  # dismissed always wins — never reopened by a stray PARTIAL token
+    applied)
+      # PARTIAL applied (word token, or a structured 'shipped:' field) = some rows still open
+      retro_marker_is_partial "$sline" && return 0 || return 1 ;;
     *) return 0 ;;  # pending / no marker = seedable
   esac
 }

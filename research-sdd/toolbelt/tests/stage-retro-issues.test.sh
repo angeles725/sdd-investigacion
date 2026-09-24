@@ -127,6 +127,10 @@ mkbox() {
 #   mode=nomatch     : `gh issue list` returns an empty JSON array (no existing issue) [default]
 #   mode=listfail    : `gh issue list` exits non-zero (simulates a real gh/API failure) — must
 #                      count as failed, never fall through to create
+#   mode=listempty   : `gh issue list` exits 0 with EMPTY stdout (no '[' at all) — kit issue
+#                      #1093 item 1: a transient gh/API hiccup that still exits 0 must NOT be
+#                      read as "no match" and fall through to create; it must count as failed,
+#                      exactly like listfail
 #   mode=createfail  : `gh issue list` returns empty; `gh issue create` exits 1 (API error)
 #   In all non-noauth, non-listfail modes: `gh issue create` logs its args and echoes a fake URL
 #   (except createfail).
@@ -161,6 +165,12 @@ mk_gh_stub() {
           ;;
         listfail)
           printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
+          ;;
+        listempty)
+          # Exit 0, EMPTY stdout — no '[' at all. Distinguishes "the call succeeded and truly
+          # found nothing" (a real '[]' reply) from "the call succeeded but the reply itself is
+          # garbage/empty" (kit issue #1093 item 1).
+          printf '  *" issue list "*) exit 0 ;;\n'
           ;;
         *)
           # nomatch / createfail: empty JSON array
@@ -424,6 +434,29 @@ if [ "$RC" = 2 ] && [ "$create_called" = 0 ] \
   ok "9c --apply listfail: dedup list failure counts as failed, never creates, exit 2" "(exit $RC)"
 else
   no "9c --apply listfail: dedup list failure counts as failed, never creates, exit 2" \
+    "exit=$RC create_called=$create_called out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 9d — APPLY MODE DEDUP EMPTY REPLY (kit issue #1093 item 1): `gh issue list` exits 0 but its
+# stdout is completely EMPTY (not the '[]' a genuinely empty JSON array reply would carry — e.g.
+# a transient gh/API hiccup that still exits 0). This must NOT be read as "no match" and fall
+# through to create a possible duplicate — it must count as failed, exactly like an explicit
+# non-zero exit (case 9c).
+box="$(mkbox case-apply-dedup-listempty)"
+mk_gh_stub "$box" listempty
+retro="$(mk_retro "$box" target-foo r-dedup-listempty.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | list call returns empty reply | CLAUDE.md §7 | B1 | new | HIGH |")"
+run "$box" "$retro" --apply
+create_called=0
+[ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
+if [ "$RC" = 2 ] && [ "$create_called" = 0 ] \
+   && printf '%s' "$OUT" | grep -qi 'ERROR.*issue list' \
+   && printf '%s' "$OUT" | grep -q 'summary:.*failed=1'; then
+  ok "9d --apply listempty: empty gh reply counts as failed, never creates, exit 2 (#1093 item 1)" "(exit $RC)"
+else
+  no "9d --apply listempty: empty gh reply counts as failed, never creates, exit 2 (#1093 item 1)" \
     "exit=$RC create_called=$create_called out=[$OUT]"
 fi
 
@@ -1098,31 +1131,68 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "T22 teeth: locate dedup --state all anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
-  # TOOTH 23 (kit issue #949 item 2): neuter the dedup list-failure guard so a failed
-  # 'gh issue list' call falls through to create instead of counting as failed.
-  echo "-- teeth T23: neuter dedup list-failure guard; failed list call must fall through to create (case 9c has teeth) --"
+  # TOOTH 23 (kit issue #949 item 2, updated for #1093 item 1's added layer): neuter BOTH dedup
+  # failure guards — the original rc!=0 check AND the newer empty/malformed-reply check added by
+  # kit issue #1093 item 1 — so a failed 'gh issue list' call falls through to create instead of
+  # counting as failed. Since #1093 item 1 the two guards are defense-in-depth for the SAME
+  # failure mode (a failed dedup lookup): neutering only one no longer reproduces the fall-through
+  # bug on its own, because the other still catches it. Both anchors must be present and removed
+  # together for case 9c's fall-through scenario to reproduce.
+  echo "-- teeth T23: neuter both dedup failure guards; failed list call must fall through to create (case 9c has teeth) --"
   anchor_t23='    if [ "$_dedup_rc" -ne 0 ]; then'
-  if [[ "$sut_content" == *"$anchor_t23"* ]]; then
+  anchor_t23b='    if ! printf '\''%s'\'' "$_existing" | grep -q '\''^[[:space:]]*\['\''; then'
+  if [[ "$sut_content" == *"$anchor_t23"* ]] && [[ "$sut_content" == *"$anchor_t23b"* ]]; then
     box_t23="$(mkbox teeth-t23-listfail-guard)"
     mk_gh_stub "$box_t23" listfail
     retro_t23="$(mk_retro "$box_t23" target-foo r.md \
       "<!-- review-status: pending -->" \
       "| 1 | t23 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t23="$box_t23/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_t23"/    if false; then  # teeth-t23-listfail-guard-removed}" > "$mutant_t23"
+    mutant_content_t23="${sut_content/"$anchor_t23"/    if false; then  # teeth-t23-listfail-guard-removed}"
+    mutant_content_t23="${mutant_content_t23/"$anchor_t23b"/    if false; then  # teeth-t23-emptyreply-guard-removed}"
+    printf '%s\n' "$mutant_content_t23" > "$mutant_t23"
     bash -n "$mutant_t23" 2>/dev/null || { no "T23 teeth: mutant_t23 failed bash -n syntax check" ""; }
     out_t23="$(PATH="$box_t23/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
       "$BASH_BIN" "$mutant_t23" "$retro_t23" --apply 2>&1)"; rc_t23=$?
     create_called_t23=0
     [ -f "$box_t23/bin/gh.log" ] && grep -q 'issue create' "$box_t23/bin/gh.log" && create_called_t23=1
     if [ "$create_called_t23" = 1 ]; then
-      ok "T23 teeth: list-failure guard neutered → falls through to create (case 9c has teeth)" "()"
+      ok "T23 teeth: both failure guards neutered → falls through to create (case 9c has teeth)" "()"
     else
-      no "T23 teeth: list-failure guard neutered → should fall through to create" \
+      no "T23 teeth: both failure guards neutered → should fall through to create" \
         "create not called — case 9c is THEATER: rc=$rc_t23 out=[$out_t23]"
     fi
   else
-    no "T23 teeth: locate dedup list-failure guard anchor" "anchor not found in SUT — SUT drifted?"
+    no "T23 teeth: locate both dedup failure guard anchors" "anchor(s) not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 23b (kit issue #1093 item 1): neuter ONLY the new empty/malformed-reply guard, in
+  # isolation, leaving the original rc!=0 check intact. Case 9d's fixture (gh exits 0 with
+  # completely EMPTY stdout) passes the rc!=0 check fine (rc IS 0) — with the new guard gone,
+  # nothing else stops the empty reply from being read as "no match", so it falls through to
+  # create, proving case 9d's teeth.
+  echo "-- teeth T23b: neuter ONLY the empty/malformed-reply guard; empty gh reply must fall through to create (case 9d has teeth) --"
+  if [[ "$sut_content" == *"$anchor_t23b"* ]]; then
+    box_t23b="$(mkbox teeth-t23b-emptyreply-guard)"
+    mk_gh_stub "$box_t23b" listempty
+    retro_t23b="$(mk_retro "$box_t23b" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t23b delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t23b="$box_t23b/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t23b"/    if false; then  # teeth-t23b-emptyreply-guard-removed}" > "$mutant_t23b"
+    bash -n "$mutant_t23b" 2>/dev/null || { no "T23b teeth: mutant_t23b failed bash -n syntax check" ""; }
+    out_t23b="$(PATH="$box_t23b/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
+      "$BASH_BIN" "$mutant_t23b" "$retro_t23b" --apply 2>&1)"; rc_t23b=$?
+    create_called_t23b=0
+    [ -f "$box_t23b/bin/gh.log" ] && grep -q 'issue create' "$box_t23b/bin/gh.log" && create_called_t23b=1
+    if [ "$create_called_t23b" = 1 ]; then
+      ok "T23b teeth: empty-reply guard neutered → falls through to create (case 9d has teeth)" "()"
+    else
+      no "T23b teeth: empty-reply guard neutered → should fall through to create" \
+        "create not called — case 9d is THEATER: rc=$rc_t23b out=[$out_t23b]"
+    fi
+  else
+    no "T23b teeth: locate empty-reply guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
   # TOOTH 17 (kit issue #1046 round 2 item 4): revert the tightened shape
@@ -1257,6 +1327,39 @@ if [ "$RC" = 0 ] && [ "$after_h1_nomatch" = 1 ] && [ "$after_h1_planned" = 0 ]; 
 else
   no "17 marker after H1: applied retro not seeded → no-match" \
     "exit=$RC nomatch=$after_h1_nomatch planned=$after_h1_planned out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 17b — SCOPE NARROWING (kit issue #945): a marker positioned deep in the body — after a SECOND
+# heading, unrelated to the leading-block-plus-one-H1 shape — must no longer gate the seeder.
+# Before #945 this script used retro_marker_line's WHOLE-FILE scan, which found a marker
+# ANYWHERE; the shared retro_marker_scope_line scope only tolerates ONE H1 at the very top, so
+# this retro is (correctly) read as carrying NO marker at all and its row is emitted as planned.
+# RED against origin/main: the deep marker WAS found (whole-file scan), so the row was
+# incorrectly treated as no-match instead of being planned.
+box="$(mkbox case-two-headings-marker)"
+retro_two_headings="$box/rh/target-foo/retros/r-two-headings.md"
+cat > "$retro_two_headings" <<'RETROEOF'
+# §18 Retro — focus: apis
+
+## Notes
+
+<!-- review-status: applied 2026-09-20 · kit ad87c33 -->
+
+## Proposed kit deltas
+
+| # | Proposed change | Target (file) | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |
+RETROEOF
+run "$box" "$retro_two_headings"
+two_headings_planned=0
+printf '%s\n' "$OUT" | grep -q 'planned-issue:' && two_headings_planned=1
+if [ "$RC" = 0 ] && [ "$two_headings_planned" = 1 ]; then
+  ok "17b marker after a SECOND heading → out of scope, row planned (not no-match) (#945)" "(exit $RC)"
+else
+  no "17b marker after a SECOND heading → out of scope, row planned (not no-match) (#945)" \
+    "exit=$RC planned=$two_headings_planned out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------

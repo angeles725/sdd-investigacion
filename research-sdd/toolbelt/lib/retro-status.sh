@@ -16,17 +16,38 @@
 #     Callers that need to inspect the full marker text (e.g. to extract PARTIAL / shipped IDs, or
 #     to handle retros whose marker was placed after the H1 heading) use this function.
 #     Returns nothing when no canonical marker is present. Always returns 0.
-#     Used by stage-retro-issues.sh for both status detection and PARTIAL extraction.
+#     Retained for callers outside the kit issue #945 unification (none in this kit as of #945);
+#     stage-retro-issues.sh now uses retro_marker_scope_line instead (see below).
+#
+#   retro_marker_scope_line <file>
+#     Kit issue #945 — the ONE marker scope shared by reconcile-issues.sh, stage-retro-issues.sh
+#     (the seeder), retro-gate.sh's _retro_is_seedable, and sweep-retros.sh. Echoes the raw first
+#     '<!-- review-status: ... -->' line found in the retro's LEADING BLOCK, where the leading
+#     block may optionally start with ONE H1 heading line ('# ...', never '##' or deeper) before
+#     the run of comment/blank lines — the real-corpus layout in *-closure.md retros (H1 line 1,
+#     blank line 2, marker line 3). A marker positioned deeper in the body — after a second
+#     heading, inside a fenced code block, or quoted in prose — is out of scope and this function
+#     returns nothing for it. Returns nothing (exit 0) when no marker is found within scope.
 #
 # Scanning algorithms:
-#   retro_review_status — LEADING-BLOCK-ONLY: awk stops at the first non-comment, non-blank line.
-#     Anchors on '<!--' so a bare 'review-status:' in heading prose is ignored (R1-001).
-#     sweep-retros.sh uses this function and expects body-position markers to be invisible.
+#   retro_review_status — LEADING-BLOCK-ONLY, NO H1 tolerance: awk stops at the first
+#     non-comment, non-blank line (an '# heading' line included). Anchors on '<!--' so a bare
+#     'review-status:' in heading prose is ignored (R1-001). Pre-#945 callers only; kept for any
+#     consumer outside the four instruments #945 unified (verify-retro.sh's own inline copy,
+#     research-sdd-archive.sh's format lint, stage-retro.sh, sweep-audits.sh).
 #
 #   retro_marker_line — WHOLE-FILE: grep the entire file for '<!--[space]*review-status:'.
-#     The '<!--' anchor prevents false matches from heading prose (R1-001 preserved).
-#     stage-retro-issues.sh uses this to detect markers placed after the H1 heading (real-corpus
-#     layout: H1 on line 1, blank on line 2, marker on line 3 in *-closure.md retros).
+#     The '<!--' anchor prevents false matches from heading prose (R1-001 preserved). This is
+#     MORE permissive than the #945 shared scope (any position, not just the leading block) —
+#     no longer used by any of the four #945-unified instruments.
+#
+#   retro_marker_scope_line — LEADING-BLOCK-WITH-OPTIONAL-H1 (kit issue #945): like
+#     retro_review_status, but the very first line is allowed to be a single '#' H1 heading
+#     (skipped, not counted as the block terminator) before the leading comment/blank run is
+#     scanned. A second heading, or any non-blank/non-comment prose, still terminates the scan.
+#     This is the ONE scope reconcile-issues.sh, stage-retro-issues.sh, retro-gate.sh, and
+#     sweep-retros.sh now share — narrower than retro_marker_line's whole-file scan, wider than
+#     retro_review_status's no-H1-tolerance scan.
 #
 # retro_is_excluded, retro_is_waived, retro_has_bare_marker keep LEADING-BLOCK-ONLY algorithms
 # because their semantics require a definite leading-block position (opt-out scope, waiver, format
@@ -97,6 +118,38 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
       fence { next }
       { if (tolower($0) ~ /^[[:space:]]*<!--[[:space:]]*review-status:/) { print; exit } }
     ' "$f" 2>/dev/null
+    return 0
+  }
+
+  # retro_marker_scope_line <file>
+  #   Kit issue #945 — the ONE marker scope shared by reconcile-issues.sh, stage-retro-issues.sh
+  #   (the seeder), retro-gate.sh's _retro_is_seedable, and sweep-retros.sh. See the file header
+  #   for the full rationale of why this scope replaces the two that used to disagree.
+  #
+  #   Algorithm: an awk state machine over the LEADING BLOCK, tolerating exactly one H1 line at
+  #   the very start (NR==1 only — a heading on any later line is NOT skipped, so 'H1, blank, H2,
+  #   blank, marker' correctly falls OUT of scope: the H2 on line 3 is ordinary non-blank,
+  #   non-comment content and terminates the scan). After the optional H1, blank lines and
+  #   '<!--...' comment lines are collected exactly like retro_review_status; the first genuinely
+  #   non-blank, non-comment line (prose, a second heading, a fenced-block opener, …) ends the
+  #   scan. Because the scan always stops there, content further down the file — a quoted example
+  #   marker in prose, or one sitting inside a ``` fenced block — is structurally unreachable and
+  #   needs no separate fence-awareness pass (unlike retro_marker_line's whole-file scan).
+  #
+  #   RETRO_MARKER_SCOPE_H1_SKIP: anchor for the kit issue #945 teeth proof.
+  #   pipefail-audit: external `awk` over the leading few lines of a single retro file. SAFE.
+  retro_marker_scope_line() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 0
+    awk '
+      NR==1 && /^[[:space:]]*#[^#]/ { next }
+      NR==1 && /^[[:space:]]*#[[:space:]]*$/ { next }
+      /^[[:space:]]*<!--/ { print; next }
+      /^[[:space:]]*$/     { next }
+      { exit }
+    ' "$f" 2>/dev/null \
+      | grep -iE '^[[:space:]]*<!--[[:space:]]*review-status:' \
+      | head -1
     return 0
   }
 
@@ -184,7 +237,10 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #         separator (a spaced em dash '—', the 'shipped:' keyword, or an opening parenthesis)
   #         — carries the case-SENSITIVE whole-word token PARTIAL, or
   #     (b) the literal, case-sensitive keyword 'shipped:' (canonical lowercase form) appears
-  #         anywhere in the line.
+  #         before the first free-text separator (an opening parenthesis, or an em dash '—') —
+  #         i.e. in the same STRUCTURED region condition (a) reads, minus the 'shipped:' cut
+  #         itself (kit issue #1093 item 2 — see below for why 'shipped:' cannot also be a cut
+  #         point here).
   #   Returns 1 (false) given an empty line, or when neither condition holds.
   #
   #   Kit issue #1090: PARTIAL is a STATUS TOKEN, never free text. The previous check
@@ -197,27 +253,50 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #   'dismissed always wins' guard (both stage-retro-issues.sh and reconcile-issues.sh add that
   #   guard independently; this function is the shared first line of defense).
   #
-  #   Condition (b) is intentionally UNSCOPED (whole line, not just the structured segment): the
-  #   real corpus carries applied markers that write "shipped: 1, 2" WITHOUT the literal PARTIAL
-  #   token at all (e.g. "applied · sha · shipped: #1, #2") — 'shipped:' is itself already a
-  #   specific, lowercase, structurally-meaningful keyword (never a word that shows up by
-  #   accident in free-text prose the way "partial" can), so it was never the source of the
-  #   #1090 false-positive and narrowing it would silently stop treating those retros as
-  #   PARTIAL, wrongly leaving every one of their shipped rows open forever.
+  #   Kit issue #1093 item 2: condition (b) used to be UNSCOPED (whole line) — a marker like
+  #   "applied · kit abc — all done; nothing shipped: later than #600" has 'shipped:' sitting in
+  #   its FREE-TEXT segment (after the em dash), yet the unscoped check still tripped PARTIAL.
+  #   Condition (b) is now cut at the same em-dash-or-paren boundary as condition (a) — EXCEPT
+  #   it must NOT also cut at 'shipped:' itself (that cut exists only for the PARTIAL word search
+  #   in condition (a); cutting there too would make condition (b) unable to ever see the very
+  #   keyword it looks for). Real-corpus form "applied · sha · shipped: #1, #2" (kit issue #949)
+  #   has NO em dash before 'shipped:' at all, so it stays in scope and still returns true — the
+  #   #1093 fix narrows the scope from "anywhere" to "before the free-text boundary", it does not
+  #   narrow it to "before shipped: itself". Verified against every real-fleet marker carrying
+  #   'shipped:' (2026-09-24 sweep): every one either has no em dash/paren before 'shipped:', or
+  #   has PARTIAL before that em dash (already caught by condition a) — zero forms rely on
+  #   'shipped:' appearing structurally AFTER a free-text separator with no PARTIAL token.
   #
   #   RETRO_MARKER_PARTIAL_STRUCTURED_CUT: anchor for the kit issue #1090 teeth proof.
+  #   RETRO_MARKER_SHIPPED_STRUCTURED_CUT: anchor for the kit issue #1093 item 2 teeth proof.
+  #
+  #   Mixed-case 'Partial' (kit issue #1093 item 4): condition (a)'s PARTIAL grep is
+  #   case-SENSITIVE by design (#1090) — a marker that writes 'Partial' or 'partial' in its
+  #   structured segment does NOT match condition (a) and is silently treated as non-partial
+  #   UNLESS condition (b)'s 'shipped:' keyword is also present in scope. This is documented,
+  #   intentional behavior, not a gap to silently paper over: the canonical marker format is
+  #   '<!-- review-status: applied · sha · PARTIAL — shipped: … -->', written in a script or by
+  #   a maintainer who is expected to use the exact uppercase token. Zero real-fleet markers
+  #   carry a mixed-case 'Partial' as of the #1093 sweep.
   retro_marker_is_partial() {
     local line="${1:-}"
     [ -n "$line" ] || return 1
-    if printf '%s' "$line" | grep -q 'shipped:'; then
-      return 0
-    fi
     local body="$line"
     body="${body#*review-status:}"
     body="${body%%-->*}"
+    # Structured region for the PARTIAL word search (condition a): cut at the first em dash,
+    # 'shipped:' keyword, or opening paren — unchanged from #1090.
     local structured
     structured="$(printf '%s' "$body" | sed -E 's/(—|shipped:|\().*$//')"
-    printf '%s' "$structured" | grep -qE '(^|[^A-Za-z])PARTIAL($|[^A-Za-z])'
+    if printf '%s' "$structured" | grep -qE '(^|[^A-Za-z])PARTIAL($|[^A-Za-z])'; then
+      return 0
+    fi
+    # Structured region for the 'shipped:' keyword search (condition b, kit issue #1093 item 2):
+    # cut at the first em dash or opening paren ONLY — deliberately NOT at 'shipped:', or the
+    # keyword this condition searches for could never appear in its own scoped region.
+    local structured_for_shipped
+    structured_for_shipped="$(printf '%s' "$body" | sed -E 's/(—|\().*$//')"
+    printf '%s' "$structured_for_shipped" | grep -q 'shipped:'
   }
 
   # retro_marker_shipped_ids <shipped_raw>
@@ -234,28 +313,54 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #   pipelines that drifted (stage-retro-issues.sh never got the '#'-strip fix reconcile-issues.sh
   #   already had).
   #
+  #   Kit issue #1093 item 5: the previous implementation parsed the range form ("P1-P5") with
+  #   awk's 3-arg match(t, regex, m) to capture the prefix/number groups — a GAWK EXTENSION, not
+  #   POSIX awk. Under mawk (or any non-gawk awk on PATH) that call either errors or silently
+  #   fails to populate the capture array, so range expansion breaks with no typed signal (§7).
+  #   Rewritten in pure bash: token splitting uses `read -ra` (no awk at all for this function),
+  #   and range-prefix capture uses bash's own `[[ =~ ]]` / BASH_REMATCH, which every bash this
+  #   script already requires (its own shebang is #!/usr/bin/env bash) supports natively. This
+  #   removes the gawk dependency for this function entirely rather than probing for gawk and
+  #   degrading — there is no longer a code path that needs gawk here.
+  #
   #   RETRO_MARKER_SHIPPED_IDS_HASH_STRIP / RETRO_MARKER_SHIPPED_IDS_PAREN_STRIP: anchors for the
   #   kit issue #949 teeth proofs.
+  #   RETRO_MARKER_SHIPPED_IDS_BASH_RANGE: anchor for the kit issue #1093 item 5 teeth/portability
+  #   proof.
   retro_marker_shipped_ids() {
     local raw="${1:-}"
     [ -n "$raw" ] || return 0
-    printf '%s' "$raw" \
-      | sed -E 's/[[:space:]]*\([^)]*\)//g' \
-      | awk '{
-          n = split($0, tokens, /[,[:space:]]+/)
-          for (i=1; i<=n; i++) {
-            t = tokens[i]
-            if (t == "") continue
-            sub(/^#/, "", t)
-            if (t == "") continue
-            if (match(t, /^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$/, m)) {
-              pfx1=m[1]; n1=int(m[2]); pfx2=m[3]; n2=int(m[4])
-              if (pfx1 == pfx2) {
-                for (j=n1; j<=n2; j++) printf "%s%d\n", pfx1, j
-              } else { printf "%s\n", t }
-            } else { printf "%s\n", t }
-          }
-        }'
+    local stripped
+    # RETRO_MARKER_SHIPPED_IDS_PAREN_STRIP — drop trailing parenthetical annotations first (kit
+    # issue #949 item 1), then turn commas into whitespace so plain `read -ra` word-splitting
+    # (IFS default: space/tab/newline) does the token split — this collapses runs of separators
+    # exactly like the former awk regex split did, with no empty-token corner case to guard
+    # against.
+    stripped="$(printf '%s' "$raw" | sed -E 's/[[:space:]]*\([^)]*\)//g' | tr ',' ' ')"
+    local -a tokens
+    read -ra tokens <<< "$stripped"
+    local t
+    for t in "${tokens[@]}"; do
+      [ -n "$t" ] || continue
+      # RETRO_MARKER_SHIPPED_IDS_HASH_STRIP
+      t="${t#\#}"
+      [ -n "$t" ] || continue
+      if [[ "$t" =~ ^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$ ]]; then
+        local pfx1="${BASH_REMATCH[1]}" n1="${BASH_REMATCH[2]}"
+        local pfx2="${BASH_REMATCH[3]}" n2="${BASH_REMATCH[4]}" j
+        if [ "$pfx1" = "$pfx2" ]; then
+          # RETRO_MARKER_SHIPPED_IDS_BASH_RANGE — 10# forces base-10 so a zero-padded number
+          # (e.g. "08") is never misread as an invalid octal literal by bash arithmetic.
+          for ((j = 10#"$n1"; j <= 10#"$n2"; j++)); do
+            printf '%s%d\n' "$pfx1" "$j"
+          done
+        else
+          printf '%s\n' "$t"
+        fi
+      else
+        printf '%s\n' "$t"
+      fi
+    done
     return 0
   }
 fi
