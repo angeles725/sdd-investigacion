@@ -1,33 +1,55 @@
 #!/usr/bin/env bash
 # hotcore-budget.test.sh — HOT-CORE/SITUATIONAL tier-list parity, membership audit,
-# and a HOT-CORE size-budget guard for METHODOLOGY.md (kit issue #962).
+# and a HOT-CORE size-budget guard for METHODOLOGY.md (kit issue #962, round 2).
 #
-# Background: METHODOLOGY.md's ~23 top-level sections are loaded in two tiers —
-# HOT-CORE (read every context) and SITUATIONAL (read only when its phase fires).
-# The tier lists are duplicated by hand in two places: SKILL.md's "HOT-CORE —"
-# bullet and PROMPT-LOOP.md's "Always read first" block. #962 found that §3b, §8b
-# and §20b had fallen out of BOTH lists entirely — an orphan section is read by
-# neither tier, so its rules silently stop applying. No instrument caught it
-# because nothing measured tier-list membership or HOT-CORE's growing size.
+# Background: METHODOLOGY.md's numbered sections are loaded in two tiers — HOT-CORE
+# (read every context) and SITUATIONAL (read only when its phase fires). The tier
+# lists are duplicated by hand in SKILL.md's "HOT-CORE —" bullet and PROMPT-LOOP.md's
+# "Always read first" block. #962 found that §3b, §8b and §20b had fallen out of BOTH
+# lists entirely — an orphan section is read by neither tier, so its rules silently
+# stop applying. No instrument caught it because nothing measured tier-list membership
+# or HOT-CORE's growing size.
 #
-# Guards:
+# Round-2 review (Opus adversarial, blocked) found the round-1 suite's mutation
+# controls recomputed their own pass/fail condition instead of running the real
+# check, so a broken check could still show 15/15 teeth. Every check below is now a
+# standalone `check_T*` function; both the real assertion AND its tooth call the
+# SAME function (the tooth only overrides which files it reads, via RSDD_SKILL /
+# RSDD_LOOP / RSDD_METH env vars) — they cannot drift apart.
+#
+# Checks:
 #   T1  SKILL.md HOT-CORE §-token set == PROMPT-LOOP.md HOT-CORE §-token set
 #   T2  SKILL.md SITUATIONAL §-token set == PROMPT-LOOP.md SITUATIONAL §-token set
-#   T3  §8b is in HOT-CORE in both files (backlog rows are written every
-#       iteration — issue #962 prefers HOT-CORE over a situational trigger)
-#   T3b §8b is NOT also left behind in SITUATIONAL in either file (moved, not duplicated)
-#   T4  §3b is in SITUATIONAL in both files, with a named trigger
-#   T5  §20b is in SITUATIONAL in both files, with a named trigger
-#   T6  Every numbered `## N.` / `### N.` top-level section of METHODOLOGY.md is in
-#       exactly one of {HOT-CORE, SITUATIONAL, EXEMPT} — catches the orphan-section
-#       class directly, independent of which specific sections #962 named
-#   T7  HOT-CORE's total size (section list derived from SKILL.md's own HOT-CORE
-#       bullet — never a hardcoded copy) stays within a budget constant
+#   T3  §8b is in HOT-CORE in both files
+#   T3b §8b is NOT also left in SITUATIONAL in either file (moved, not duplicated)
+#   T4  §3b token is in SITUATIONAL in both files
+#   T4b §3b's named trigger text is inside the SITUATIONAL block specifically (bounded)
+#   T5  §20b token is in SITUATIONAL in both files
+#   T5b §20b's named trigger text is inside the SITUATIONAL block specifically (bounded)
+#   T6  Every numbered METHODOLOGY.md section is in exactly one of {HOT-CORE,
+#       SITUATIONAL, EXEMPT}. EXEMPT is computed dynamically: a `###` subsection is
+#       exempt only while it is actually nested under a `##` parent that IS tiered —
+#       never a hardcoded id list (round-2 m3).
+#   T7  HOT-CORE's total size (id list read live from SKILL.md's own HOT-CORE bullet)
+#       stays within a budget constant
+#   T8  (round-2 m1) Reverse check: every §-token named by either tier, in either
+#       file, names a REAL METHODOLOGY.md section — catches a phantom/typo token.
+#   T9  (round-2 m2) No numbered-looking METHODOLOGY.md heading uses a form the
+#       strict parser rejects (`## 24 — X`, `## §24. X`, `## 24) X`, ...) — the
+#       false-negative direction of anti-silent-zero (kit CLAUDE.md §7): a heading
+#       that LOOKS numbered but is silently invisible to every other check here.
 #
-# Anti-silent-zero: the §-token parser, the METHODOLOGY.md heading parser, and the
-# per-section byte-count lookup all FAIL LOUDLY (FATAL, exit 2) on zero matches or
-# a listed-but-absent heading — never a silent 0 that a caller could read as "tier
-# is empty" or "section is free".
+# Code fences (round-2 m4): every heading-detecting function below reads through
+# mask_code_fences first, so a `## 8b. ...`-shaped line used as prose inside a
+# ```-fenced example (METHODOLOGY.md §6 has one — the RESEARCH-STATE.md template
+# snippet, "## Dismissed file types") is never mistaken for a real section boundary
+# or a real numbered section.
+#
+# Anti-silent-zero: tokens_of and methodology_sections FAIL LOUDLY (return 2) on
+# zero matches — never a silent 0 read as "tier is empty" or "file has no sections".
+# Every check_T* function returns 0 (holds) / 1 (violated, with a non-empty stdout
+# diagnostic) / 2 (a parser call inside it could not look at all — never treated as
+# a tooth bite; see bite_tooth's R3-teeth-vacuous-on-parser-failure guard below).
 #
 # Usage: hotcore-budget.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 
@@ -51,15 +73,15 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 echo "== hotcore-budget.test.sh =="
 
 # ---------------------------------------------------------------------------
-# Marker pairs bounding each tier's prose in each file. Fixed substrings, not
-# regexes — the surrounding prose uses parentheses/periods that would otherwise
-# need escaping for no benefit.
+# Marker pairs bounding each tier's prose in SKILL.md / PROMPT-LOOP.md. Fixed
+# substrings, not regexes — the surrounding prose uses parentheses/periods that
+# would otherwise need escaping for no benefit. These two files' tier-list prose
+# is never inside a code fence, so no fence-masking is needed for them.
 # ---------------------------------------------------------------------------
 SKILL_HC_START="HOT-CORE — read once per context"
 SKILL_HC_END="Each iteration re-reads only RESEARCH-STATE"
 SKILL_SIT_START="SITUATIONAL — read the named section"
 SKILL_SIT_END="Read a situational section when its trigger is your next action."
-# PROMPT-LOOP's HOT-CORE list lives entirely on one line.
 LOOP_HC_START="HOT-CORE (read once per context):"
 LOOP_HC_END="per-block contract."
 # The §11b-is-situational clarifier sits between the HOT-CORE line and the
@@ -68,6 +90,21 @@ LOOP_HC_END="per-block contract."
 # enumerated §-list on the next line).
 LOOP_SIT_START="(§11b"
 LOOP_SIT_END="Unsure a phase is active -> read it."
+
+# HOT-CORE size budget (T7). Measured 862 lines / 85929 bytes on 2026-09-24 at
+# 356fa15 (research-sdd repo, origin/main) for HOT-CORE (§1 §2 §3 §4 §7 §8 §8b
+# §9 §11 §17). HOTCORE_BUDGET_LINES is 920 — headroom over the 862-line
+# measurement, but still below the ~934 lines the 2026-09-23 audit measured
+# for HOT-CORE before wave B of #992 trimmed it (kit issue #962). The intent
+# is that renewed, unchecked HOT-CORE growth fails this guard before it
+# reaches that historical size again, not that the budget merely tracks
+# whatever HOT-CORE happens to measure on the day this comment was written.
+HOTCORE_BUDGET_LINES=920
+HOTCORE_BUDGET_BYTES=100000
+
+# =============================================================================
+# Parsers (shared by both the real checks and their teeth)
+# =============================================================================
 
 # extract_block_inclusive FILE START END
 # Prints every line from the first line containing START through the first
@@ -83,185 +120,151 @@ extract_block_inclusive() {
 }
 
 # tokens_of FILE START END
-# Sorted, deduplicated §N / §Na tokens found in the bounded block. FATAL
-# (exit 2 — this is a subshell-local exit via command substitution, see
-# callers) if the marker pair is not found, or if it is found but contains
-# zero §-tokens: both are "the instrument could not have looked", never a
-# legitimate empty tier — SITUATIONAL and HOT-CORE both always list sections.
+# Sorted, deduplicated §N / §Na tokens found in the bounded block. Returns 2
+# (never a silent empty result) if the marker pair is not found, or if it is
+# found but contains zero §-tokens: both are "the instrument could not have
+# looked", never a legitimate empty tier.
 tokens_of() {
   local file="$1" start="$2" endin="$3"
   local block
   block="$(extract_block_inclusive "$file" "$start" "$endin")"
   if [ -z "$block" ]; then
     printf 'FATAL: tokens_of — marker pair not found in %s (start=%q)\n' "$file" "$start" >&2
-    exit 2
+    return 2
   fi
   local toks
   toks="$(printf '%s\n' "$block" | grep -oE '§[0-9]+[a-z]?' | sort -u)"
   if [ -z "$toks" ]; then
-    printf 'FATAL: tokens_of — zero section tokens in matched block of %s (start=%q) — broken parser, not an empty tier\n' "$file" "$start" >&2
-    exit 2
+    printf 'FATAL: tokens_of — zero section tokens in matched block of %s (start=%q)\n' "$file" "$start" >&2
+    return 2
   fi
   printf '%s\n' "$toks"
 }
 
-# Each call below runs in a command-substitution subshell, so a tokens_of
-# FATAL exits only that subshell; $? is checked immediately after.
-skill_hotcore="$(tokens_of "$SKILL" "$SKILL_HC_START" "$SKILL_HC_END")" \
-  || { echo "FATAL: could not derive SKILL.md HOT-CORE token set" >&2; exit 2; }
-skill_situational="$(tokens_of "$SKILL" "$SKILL_SIT_START" "$SKILL_SIT_END")" \
-  || { echo "FATAL: could not derive SKILL.md SITUATIONAL token set" >&2; exit 2; }
-loop_hotcore="$(tokens_of "$PROMPTLOOP" "$LOOP_HC_START" "$LOOP_HC_END")" \
-  || { echo "FATAL: could not derive PROMPT-LOOP.md HOT-CORE token set" >&2; exit 2; }
-loop_situational="$(tokens_of "$PROMPTLOOP" "$LOOP_SIT_START" "$LOOP_SIT_END")" \
-  || { echo "FATAL: could not derive PROMPT-LOOP.md SITUATIONAL token set" >&2; exit 2; }
-
-# ---------------------------------------------------------------------------
-# T1 / T2: the two files must name the SAME sections per tier.
-# ---------------------------------------------------------------------------
-d="$(diff <(printf '%s\n' "$skill_hotcore") <(printf '%s\n' "$loop_hotcore") 2>&1)"
-if [ -z "$d" ]; then
-  ok "T1: HOT-CORE token set agrees between SKILL.md and PROMPT-LOOP.md"
-else
-  no "T1: HOT-CORE token sets differ between SKILL.md and PROMPT-LOOP.md — $d"
-fi
-
-d="$(diff <(printf '%s\n' "$skill_situational") <(printf '%s\n' "$loop_situational") 2>&1)"
-if [ -z "$d" ]; then
-  ok "T2: SITUATIONAL token set agrees between SKILL.md and PROMPT-LOOP.md"
-else
-  no "T2: SITUATIONAL token sets differ between SKILL.md and PROMPT-LOOP.md — $d"
-fi
-
-# ---------------------------------------------------------------------------
-# T3 / T3b: §8b lives in HOT-CORE (backlog rows are written every iteration —
-# issue #962 prefers HOT-CORE over a situational trigger), in both files, and
-# only there (moved, not duplicated into SITUATIONAL as well).
-# ---------------------------------------------------------------------------
-if grep -qxF '§8b' <<<"$skill_hotcore" && grep -qxF '§8b' <<<"$loop_hotcore"; then
-  ok "T3: §8b is in HOT-CORE in both SKILL.md and PROMPT-LOOP.md"
-else
-  no "T3: §8b missing from HOT-CORE in SKILL.md and/or PROMPT-LOOP.md (#962)"
-fi
-
-if grep -qxF '§8b' <<<"$skill_situational" || grep -qxF '§8b' <<<"$loop_situational"; then
-  no "T3b: §8b still left in SITUATIONAL somewhere (should be moved, not duplicated)"
-else
-  ok "T3b: §8b is not duplicated into SITUATIONAL in either file"
-fi
-
-# ---------------------------------------------------------------------------
-# T4 / T5: §3b and §20b live in SITUATIONAL, with a named trigger, in both files.
-# ---------------------------------------------------------------------------
-if grep -qxF '§3b' <<<"$skill_situational" && grep -qxF '§3b' <<<"$loop_situational"; then
-  ok "T4: §3b is in SITUATIONAL in both SKILL.md and PROMPT-LOOP.md"
-else
-  no "T4: §3b missing from SITUATIONAL in SKILL.md and/or PROMPT-LOOP.md (#962)"
-fi
-if grep -qF '§3b corpus layout' "$SKILL" && grep -qF '§3b corpus layout' "$PROMPTLOOP"; then
-  ok "T4b: §3b carries a named trigger ('corpus layout') in both files"
-else
-  no "T4b: §3b is missing its named trigger text in SKILL.md and/or PROMPT-LOOP.md"
-fi
-
-if grep -qxF '§20b' <<<"$skill_situational" && grep -qxF '§20b' <<<"$loop_situational"; then
-  ok "T5: §20b is in SITUATIONAL in both SKILL.md and PROMPT-LOOP.md"
-else
-  no "T5: §20b missing from SITUATIONAL in SKILL.md and/or PROMPT-LOOP.md (#962)"
-fi
-if grep -qF '§20b' "$SKILL" && grep -qF 'journal mode' "$SKILL" \
-   && grep -qF '§20b' "$PROMPTLOOP" && grep -qF 'diario' "$PROMPTLOOP"; then
-  ok "T5b: §20b carries a named trigger (block-vs-journal mode) in both files"
-else
-  no "T5b: §20b is missing its named trigger text in SKILL.md and/or PROMPT-LOOP.md"
-fi
-
-# ---------------------------------------------------------------------------
-# methodology_sections FILE
-# Sorted, deduplicated bare section ids ("8b", "12b", ...) for every top-level
-# `## N.` / `### N.` heading in METHODOLOGY.md. FATAL on zero matches: the
-# regex or the file itself is broken, this is never a legitimately section-less
-# doctrine file.
-# ---------------------------------------------------------------------------
-methodology_sections() {
-  local file="$1"
-  local ids
-  ids="$(grep -oE '^##[#]? [0-9]+[a-z]?\.' "$file" | grep -oE '[0-9]+[a-z]?' | sort -u)"
-  if [ -z "$ids" ]; then
-    printf 'FATAL: methodology_sections — zero numbered section headings found in %s\n' "$file" >&2
-    exit 2
-  fi
-  printf '%s\n' "$ids"
+# mask_code_fences FILE
+# Same line count/order as FILE; every line strictly between a pair of ```
+# fence markers is replaced with a sentinel that can never match a heading
+# regex. The fence-marker lines themselves pass through unchanged (they never
+# match a heading regex either). Downstream line-number-based lookups stay
+# valid because the line count never changes.
+mask_code_fences() {
+  awk '
+    /^```/ { infence = !infence; print; next }
+    infence { print "\x02FENCED-LINE\x02"; next }
+    { print }
+  ' "$1"
 }
 
-# ---------------------------------------------------------------------------
-# T6: every numbered METHODOLOGY.md section is in exactly one of
-# {HOT-CORE, SITUATIONAL, EXEMPT}. This is the general orphan-section guard:
-# it would have caught #962 (§3b/§8b/§20b) without naming them, and it keeps
-# catching the same class for any future section.
-#
-# EXEMPT — sections deliberately NOT named in either tier list because they are
-# `###` subsections physically nested inside a section that IS tiered, and are
-# therefore read whenever their parent is read "in full":
-#   12b, 12c — nested inside "## 12. Dynamic phase" (SITUATIONAL); neither is
-#              ever listed on its own in SKILL.md or PROMPT-LOOP.md.
-# ---------------------------------------------------------------------------
-EXEMPT_IDS="12b
-12c"
+# heading_index FILE
+# One line per numbered `## N.` / `### N.` heading, in file order, outside
+# code fences: "<line-number> <level> <bare-id>". The single enumerator behind
+# methodology_sections, measure_hotcore's boundary lookup, and
+# compute_exempt_ids's nesting walk — one heading-detection regex, reused
+# everywhere a heading needs detecting, so the three can never disagree about
+# what counts as a heading (kit CLAUDE.md §7: "an audit instrument must prove
+# the coverage of its own enumerator").
+heading_index() {
+  local file="$1"
+  mask_code_fences "$file" | awk '
+    /^## [0-9]+[a-z]?\. / {
+      rest = $0; sub(/^## /, "", rest); sub(/\..*/, "", rest); print NR, 2, rest; next
+    }
+    /^### [0-9]+[a-z]?\. / {
+      rest = $0; sub(/^### /, "", rest); sub(/\..*/, "", rest); print NR, 3, rest; next
+    }
+  '
+}
 
-all_sections="$(methodology_sections "$METHODOLOGY")" \
-  || { echo "FATAL: could not derive METHODOLOGY.md section list" >&2; exit 2; }
-
-hc_ids="$(sed 's/§//' <<<"$skill_hotcore" | sort -u)"
-sit_ids="$(sed 's/§//' <<<"$skill_situational" | sort -u)"
-
-t6_orphans=""
-t6_multi=""
-t6_checked=0
-while IFS= read -r id; do
-  [ -z "$id" ] && continue
-  t6_checked=$((t6_checked+1))
-  in_hc=0; in_sit=0; in_ex=0
-  grep -qxF "$id" <<<"$hc_ids" && in_hc=1
-  grep -qxF "$id" <<<"$sit_ids" && in_sit=1
-  grep -qxF "$id" <<<"$EXEMPT_IDS" && in_ex=1
-  count=$((in_hc + in_sit + in_ex))
-  if [ "$count" -eq 0 ]; then
-    t6_orphans="$t6_orphans §$id"
-  elif [ "$count" -gt 1 ]; then
-    t6_multi="$t6_multi §$id(hc=$in_hc,sit=$in_sit,exempt=$in_ex)"
+# methodology_sections FILE
+# Sorted, deduplicated bare section ids ("8b", "12b", ...) for every numbered
+# heading (any level) in FILE. Returns 2 on zero matches — never a silent 0 a
+# caller could read as "this doctrine file has no sections".
+methodology_sections() {
+  local file="$1"
+  local idx
+  idx="$(heading_index "$file")"
+  if [ -z "$idx" ]; then
+    printf 'FATAL: methodology_sections — zero numbered section headings found in %s\n' "$file" >&2
+    return 2
   fi
-done <<<"$all_sections"
+  awk '{print $3}' <<<"$idx" | sort -u
+}
 
-if [ -z "$t6_orphans" ] && [ -z "$t6_multi" ]; then
-  ok "T6: every numbered METHODOLOGY.md section ($t6_checked checked) is in exactly one tier or EXEMPT"
-else
-  no "T6: orphan sections:[$t6_orphans ] multi-tier sections:[$t6_multi ]"
-fi
+# compute_exempt_ids FILE HC_IDS SIT_IDS
+# A `###` (level-3) heading is exempt from needing its own tier-list entry
+# ONLY while it is nested under a `##` (level-2) parent heading that is
+# itself tiered (present in HC_IDS or SIT_IDS) — walked live from FILE's
+# actual heading order, never a hardcoded list (round-2 m3: promoting a
+# nested `### 12b.` to a top-level `## 12b.` must make it stop being exempt).
+# An empty result is a legitimate "no exemptions apply" state, not a parser
+# failure — only a completely empty heading_index (the file has no headings
+# at all) returns 2.
+compute_exempt_ids() {
+  local file="$1" hc_ids="$2" sit_ids="$3"
+  local idx
+  idx="$(heading_index "$file")"
+  if [ -z "$idx" ]; then
+    printf 'FATAL: compute_exempt_ids — zero headings indexed in %s\n' "$file" >&2
+    return 2
+  fi
+  local parent="" exempt="" lvl id
+  while IFS=' ' read -r _ lvl id; do
+    [ -z "${id:-}" ] && continue
+    if [ "$lvl" = "2" ]; then
+      parent="$id"
+    elif [ "$lvl" = "3" ]; then
+      if [ -n "$parent" ] && { grep -qxF "$parent" <<<"$hc_ids" || grep -qxF "$parent" <<<"$sit_ids"; }; then
+        exempt="$exempt
+$id"
+      fi
+    fi
+  done <<<"$idx"
+  printf '%s\n' "$exempt" | grep -v '^$'
+  return 0
+}
 
-# ---------------------------------------------------------------------------
-# measure_hotcore METHODOLOGY_FILE HC_IDS_STR
-# Sums lines and bytes for every section id in HC_IDS_STR (bare ids, one per
-# line) by locating its "## N. " heading and the next "## " heading (or EOF)
-# in METHODOLOGY_FILE. Prints "<lines> <bytes>". FATAL if a listed id has no
-# matching heading (a HOT-CORE bullet naming a section that does not exist is
-# a broken doctrine file, not zero-size section) or if HC_IDS_STR is empty.
-# ---------------------------------------------------------------------------
+# measure_hotcore FILE IDS
+# Sums lines and bytes for every bare section id in IDS (one per line) that
+# has a level-2 heading in FILE (HOT-CORE never currently lists a level-3 id;
+# see the "Level-2-only" note below). Boundaries come from heading_index's
+# level==2 rows, so a fenced or non-numbered "## ..." line can never be
+# mistaken for a section boundary. Byte/line counts are read from the ORIGINAL
+# (unmasked) file — masking only decides where boundaries are, never what a
+# section's real content is. Returns 2 if IDS is empty or a listed id has no
+# level-2 heading (a HOT-CORE bullet naming a section that does not exist is a
+# broken doctrine file, not a zero-size section).
+#
+# Level-2-only, by design, not oversight: methodology_sections/heading_index
+# report BOTH `##` and `###` ids (T6/T8 need to see `###` ids like 12b/12c to
+# validate their dynamic nesting-exemption). measure_hotcore only sizes `##`
+# ids because no HOT-CORE-listed id is ever a `###` id today, and correctly
+# sizing a `###` section needs different "next heading" boundary rules (stop
+# at the next heading of level <=3, not just the next `##`) that nothing here
+# exercises yet. If a `###` id is ever added to HOT-CORE, this function must
+# grow that case rather than silently mis-measuring it.
 measure_hotcore() {
   local file="$1" ids="$2"
   if [ -z "$ids" ]; then
     printf 'FATAL: measure_hotcore — empty HOT-CORE id list (derive from SKILL.md, never hardcode)\n' >&2
-    exit 2
+    return 2
   fi
-  local total_lines=0 total_bytes=0 n s e b l
+  local lvl2
+  lvl2="$(heading_index "$file" | awk '$2==2')"
+  if [ -z "$lvl2" ]; then
+    printf 'FATAL: measure_hotcore — zero level-2 headings found in %s\n' "$file" >&2
+    return 2
+  fi
+  local file_lines; file_lines="$(wc -l < "$file")"
+  local total_lines=0 total_bytes=0 n s e b l row
   while IFS= read -r n; do
     [ -z "$n" ] && continue
-    s="$(grep -n "^## ${n}\. " "$file" | head -1 | cut -d: -f1)"
-    if [ -z "$s" ]; then
-      printf 'FATAL: measure_hotcore — HOT-CORE section §%s has no "## %s. " heading in %s\n' "$n" "$n" "$file" >&2
-      exit 2
+    row="$(awk -v id="$n" '$3==id{print; exit}' <<<"$lvl2")"
+    if [ -z "$row" ]; then
+      printf 'FATAL: measure_hotcore — HOT-CORE section §%s has no level-2 heading in %s\n' "$n" "$file" >&2
+      return 2
     fi
-    e="$(awk -v s="$s" 'NR>s && /^## / { print NR-1; f=1; exit } END { if (!f) print NR }' "$file")"
+    s="${row%% *}"
+    e="$(awk -v s="$s" -v last="$file_lines" '$1>s{print $1-1; f=1; exit} END{if(!f) print last}' <<<"$lvl2")"
     b="$(sed -n "${s},${e}p" "$file" | wc -c)"
     l=$(( e - s + 1 ))
     total_lines=$(( total_lines + l ))
@@ -270,110 +273,433 @@ measure_hotcore() {
   printf '%s %s\n' "$total_lines" "$total_bytes"
 }
 
-# ---------------------------------------------------------------------------
-# T7: HOT-CORE size budget. The section list is `hc_ids`, derived above from
-# SKILL.md's own HOT-CORE bullet — never a hardcoded copy — so a future tier
-# edit only needs to update SKILL.md (and, per T1, PROMPT-LOOP.md to match)
-# for this budget to track the real HOT-CORE.
-#
-# Budget constants: measured $hc_lines lines / $hc_bytes bytes for HOT-CORE
-# (§1 §2 §3 §4 §7 §8 §8b §9 §11 §17) on 2026-09-24 at sha 356fa15a1087238c
-# (research-sdd repo, origin/main). Set with headroom, but deliberately BELOW
-# the ~934-line / ~101 KB regrowth the 2026-09-23 audit measured for the
-# pre-#992-wave-B HOT-CORE (kit issue #962) — the intent is that renewed
-# unchecked growth toward that historical bad state fails this guard before
-# reaching it again, not that the budget tracks whatever HOT-CORE happens to
-# measure today.
-# ---------------------------------------------------------------------------
-HOTCORE_BUDGET_LINES=1000
-HOTCORE_BUDGET_BYTES=100000
+# check_unrecognized_headings FILE
+# Prints one "<line>: <text>" per line (outside code fences) that LOOKS like a
+# numbered heading (`##`/`###`, optional `§`, then a digit) but does NOT match
+# the strict recognized form (`## N.` / `### N.`) — e.g. `## 24 — X`,
+# `## §24. X`, `## 24) X`. Empty output = none found. This is deliberately a
+# SEPARATE, looser scan from heading_index: its whole purpose is to catch the
+# false-negative direction (kit CLAUDE.md §7) — headings the strict parser
+# would silently miss — so it must not reuse the strict regex.
+check_unrecognized_headings() {
+  local file="$1"
+  mask_code_fences "$file" | awk '
+    /^(##|###) §?[0-9]/ && !/^##[#]? [0-9]+[a-z]?\. / { print NR": "$0 }
+  '
+}
 
-read -r hc_lines hc_bytes < <(measure_hotcore "$METHODOLOGY" "$hc_ids") \
-  || { echo "FATAL: could not measure HOT-CORE size" >&2; exit 2; }
+# =============================================================================
+# check_T* — one function per invariant. Each reads its file paths from
+# RSDD_SKILL / RSDD_LOOP / RSDD_METH (falling back to the real SKILL /
+# PROMPTLOOP / METHODOLOGY), so a tooth can point it at a mutant copy WITHOUT
+# re-implementing any of the logic above. Return 0 = holds, 1 = violated (with
+# a non-empty stdout diagnostic), 2 = a parser call inside could not look.
+# =============================================================================
 
-if [ "$hc_lines" -le "$HOTCORE_BUDGET_LINES" ] && [ "$hc_bytes" -le "$HOTCORE_BUDGET_BYTES" ]; then
-  ok "T7: HOT-CORE size within budget ($hc_lines lines / $hc_bytes bytes <= $HOTCORE_BUDGET_LINES / $HOTCORE_BUDGET_BYTES)"
-else
-  no "T7: HOT-CORE size EXCEEDS budget ($hc_lines lines / $hc_bytes bytes > $HOTCORE_BUDGET_LINES / $HOTCORE_BUDGET_BYTES)"
-fi
+check_T1() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local a b
+  a="$(tokens_of "$skill" "$SKILL_HC_START" "$SKILL_HC_END")" || return 2
+  b="$(tokens_of "$loop" "$LOOP_HC_START" "$LOOP_HC_END")" || return 2
+  diff <(printf '%s\n' "$a") <(printf '%s\n' "$b")
+}
+
+check_T2() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local a b
+  a="$(tokens_of "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")" || return 2
+  b="$(tokens_of "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")" || return 2
+  diff <(printf '%s\n' "$a") <(printf '%s\n' "$b")
+}
+
+check_T3() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local hc1 hc2
+  hc1="$(tokens_of "$skill" "$SKILL_HC_START" "$SKILL_HC_END")" || return 2
+  hc2="$(tokens_of "$loop" "$LOOP_HC_START" "$LOOP_HC_END")" || return 2
+  if grep -qxF '§8b' <<<"$hc1" && grep -qxF '§8b' <<<"$hc2"; then
+    return 0
+  fi
+  printf 'skill HOT-CORE=[%s] loop HOT-CORE=[%s]\n' "$(tr '\n' ' ' <<<"$hc1")" "$(tr '\n' ' ' <<<"$hc2")"
+  return 1
+}
+
+check_T3b() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local sit1 sit2
+  sit1="$(tokens_of "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")" || return 2
+  sit2="$(tokens_of "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")" || return 2
+  if grep -qxF '§8b' <<<"$sit1" || grep -qxF '§8b' <<<"$sit2"; then
+    printf 'skill SITUATIONAL=[%s] loop SITUATIONAL=[%s]\n' "$(tr '\n' ' ' <<<"$sit1")" "$(tr '\n' ' ' <<<"$sit2")"
+    return 1
+  fi
+  return 0
+}
+
+check_T4() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local sit1 sit2
+  sit1="$(tokens_of "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")" || return 2
+  sit2="$(tokens_of "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")" || return 2
+  if grep -qxF '§3b' <<<"$sit1" && grep -qxF '§3b' <<<"$sit2"; then
+    return 0
+  fi
+  printf 'skill SITUATIONAL=[%s] loop SITUATIONAL=[%s]\n' "$(tr '\n' ' ' <<<"$sit1")" "$(tr '\n' ' ' <<<"$sit2")"
+  return 1
+}
+
+check_T4b() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local sit1 sit2
+  sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"
+  sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"
+  if [ -z "$sit1" ] || [ -z "$sit2" ]; then
+    printf 'FATAL: check_T4b — SITUATIONAL marker pair not found\n' >&2
+    return 2
+  fi
+  if grep -qF '§3b corpus layout' <<<"$sit1" && grep -qF '§3b corpus layout' <<<"$sit2"; then
+    return 0
+  fi
+  printf 'trigger phrase "§3b corpus layout" not found inside the bounded SITUATIONAL block of skill and/or loop\n'
+  return 1
+}
+
+check_T5() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local sit1 sit2
+  sit1="$(tokens_of "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")" || return 2
+  sit2="$(tokens_of "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")" || return 2
+  if grep -qxF '§20b' <<<"$sit1" && grep -qxF '§20b' <<<"$sit2"; then
+    return 0
+  fi
+  printf 'skill SITUATIONAL=[%s] loop SITUATIONAL=[%s]\n' "$(tr '\n' ' ' <<<"$sit1")" "$(tr '\n' ' ' <<<"$sit2")"
+  return 1
+}
+
+check_T5b() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
+  local sit1 sit2
+  sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"
+  sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"
+  if [ -z "$sit1" ] || [ -z "$sit2" ]; then
+    printf 'FATAL: check_T5b — SITUATIONAL marker pair not found\n' >&2
+    return 2
+  fi
+  if grep -qF '§20b' <<<"$sit1" && grep -qF 'journal mode' <<<"$sit1" \
+     && grep -qF '§20b' <<<"$sit2" && grep -qF 'diario' <<<"$sit2"; then
+    return 0
+  fi
+  printf 'trigger wording for §20b (journal mode / diario) not found inside the bounded SITUATIONAL block of skill and/or loop\n'
+  return 1
+}
+
+check_T6() {
+  local skill="${RSDD_SKILL:-$SKILL}" meth="${RSDD_METH:-$METHODOLOGY}"
+  local hc sit
+  hc="$(tokens_of "$skill" "$SKILL_HC_START" "$SKILL_HC_END")" || return 2
+  sit="$(tokens_of "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")" || return 2
+  local hc_ids sit_ids
+  hc_ids="$(sed 's/§//' <<<"$hc" | sort -u)"
+  sit_ids="$(sed 's/§//' <<<"$sit" | sort -u)"
+  local all_sections
+  all_sections="$(methodology_sections "$meth")" || return 2
+  local exempt_ids
+  exempt_ids="$(compute_exempt_ids "$meth" "$hc_ids" "$sit_ids")" || return 2
+  local orphans="" multi="" checked=0 id in_hc in_sit in_ex count
+  while IFS= read -r id; do
+    [ -z "$id" ] && continue
+    checked=$((checked+1))
+    in_hc=0; in_sit=0; in_ex=0
+    grep -qxF "$id" <<<"$hc_ids" && in_hc=1
+    grep -qxF "$id" <<<"$sit_ids" && in_sit=1
+    grep -qxF "$id" <<<"$exempt_ids" && in_ex=1
+    count=$((in_hc + in_sit + in_ex))
+    if [ "$count" -eq 0 ]; then
+      orphans="$orphans §$id"
+    elif [ "$count" -gt 1 ]; then
+      multi="$multi §$id(hc=$in_hc,sit=$in_sit,exempt=$in_ex)"
+    fi
+  done <<<"$all_sections"
+  if [ -n "$orphans" ] || [ -n "$multi" ]; then
+    printf 'checked=%d orphans:[%s ] multi-tier:[%s ]\n' "$checked" "$orphans" "$multi"
+    return 1
+  fi
+  printf 'checked=%d\n' "$checked"
+  return 0
+}
+
+check_T7() {
+  local skill="${RSDD_SKILL:-$SKILL}" meth="${RSDD_METH:-$METHODOLOGY}"
+  local hc hc_ids out lines bytes
+  hc="$(tokens_of "$skill" "$SKILL_HC_START" "$SKILL_HC_END")" || return 2
+  hc_ids="$(sed 's/§//' <<<"$hc" | sort -u)"
+  out="$(measure_hotcore "$meth" "$hc_ids")" || return 2
+  lines="$(awk '{print $1}' <<<"$out")"
+  bytes="$(awk '{print $2}' <<<"$out")"
+  printf '%s lines / %s bytes (budget %s / %s)\n' "$lines" "$bytes" "$HOTCORE_BUDGET_LINES" "$HOTCORE_BUDGET_BYTES"
+  if [ "$lines" -le "$HOTCORE_BUDGET_LINES" ] && [ "$bytes" -le "$HOTCORE_BUDGET_BYTES" ]; then
+    return 0
+  fi
+  return 1
+}
+
+# T8 (round-2 m1): reverse check — every §-token named by either tier, in
+# either file, must name a section that actually exists in METHODOLOGY.md.
+check_T8() {
+  local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}" meth="${RSDD_METH:-$METHODOLOGY}"
+  local all_ids
+  all_ids="$(methodology_sections "$meth")" || return 2
+  local hc1 sit1 hc2 sit2
+  hc1="$(tokens_of "$skill" "$SKILL_HC_START" "$SKILL_HC_END")" || return 2
+  sit1="$(tokens_of "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")" || return 2
+  hc2="$(tokens_of "$loop" "$LOOP_HC_START" "$LOOP_HC_END")" || return 2
+  sit2="$(tokens_of "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")" || return 2
+  local bad="" toks tok id
+  for toks in "$hc1" "$sit1" "$hc2" "$sit2"; do
+    while IFS= read -r tok; do
+      [ -z "$tok" ] && continue
+      id="${tok#§}"
+      grep -qxF "$id" <<<"$all_ids" || bad="$bad $tok"
+    done <<<"$toks"
+  done
+  if [ -n "$bad" ]; then
+    printf 'phantom token(s) (no matching METHODOLOGY.md section):%s\n' "$bad"
+    return 1
+  fi
+  return 0
+}
+
+# T9 (round-2 m2): no numbered-looking heading uses an unrecognized form.
+check_T9() {
+  local meth="${RSDD_METH:-$METHODOLOGY}"
+  local bad
+  bad="$(check_unrecognized_headings "$meth")"
+  if [ -n "$bad" ]; then
+    printf '%s\n' "$bad"
+    return 1
+  fi
+  return 0
+}
+
+# =============================================================================
+# run_check NAME OK_DESC FAIL_DESC — runs a check_T* function once, reports it.
+# =============================================================================
+run_check() {
+  local name="$1" desc_ok="$2" desc_fail="$3"
+  local out rc
+  out="$("$name")"
+  rc=$?
+  case "$rc" in
+    0) ok "$name: $desc_ok${out:+ ($out)}" ;;
+    1) no "$name: $desc_fail${out:+ — $out}" ;;
+    *) no "$name: PARSER FAILURE (rc=$rc)${out:+ — $out}" ;;
+  esac
+}
+
+run_check check_T1  "HOT-CORE token set agrees between SKILL.md and PROMPT-LOOP.md" "HOT-CORE token sets differ"
+run_check check_T2  "SITUATIONAL token set agrees between SKILL.md and PROMPT-LOOP.md" "SITUATIONAL token sets differ"
+run_check check_T3  "§8b is in HOT-CORE in both files" "§8b missing from HOT-CORE in SKILL.md and/or PROMPT-LOOP.md (#962)"
+run_check check_T3b "§8b is not duplicated into SITUATIONAL in either file" "§8b still left in SITUATIONAL somewhere"
+run_check check_T4  "§3b token is in SITUATIONAL in both files" "§3b token missing from SITUATIONAL (#962)"
+run_check check_T4b "§3b's trigger text is inside the bounded SITUATIONAL block in both files" "§3b trigger text missing/out of the SITUATIONAL bounds"
+run_check check_T5  "§20b token is in SITUATIONAL in both files" "§20b token missing from SITUATIONAL (#962)"
+run_check check_T5b "§20b's trigger text is inside the bounded SITUATIONAL block in both files" "§20b trigger text missing/out of the SITUATIONAL bounds"
+run_check check_T6  "every numbered METHODOLOGY.md section is in exactly one tier or dynamically-nested EXEMPT" "orphan or multi-tier section(s) found"
+run_check check_T7  "HOT-CORE size within budget" "HOT-CORE size EXCEEDS budget"
+run_check check_T8  "every tiered §-token names a real METHODOLOGY.md section" "phantom token(s) found"
+run_check check_T9  "no unrecognized numbered-heading form(s) in METHODOLOGY.md" "unrecognized numbered-heading form(s) found"
 
 # ===========================================================================
 # --prove-teeth: mutation controls. Each mutant is a modified COPY in $TMP;
-# the live tree is never touched.
+# the live tree is never touched. bite_tooth calls the REAL check_T* function
+# against the mutant (via an RSDD_* override), never a re-implementation of
+# the check's logic — this is what M1 (round-2 review) required.
 # ===========================================================================
 if [ "$PROVE_TEETH" -eq 1 ]; then
-  echo "-- teeth: T1 mutant (drop a HOT-CORE token from PROMPT-LOOP.md) --"
-  mutantLoop1="$TMP/PROMPTLOOP.mutantT1.md"
-  sed 's/§8 §8b backlog-cell-grammar (written every iteration) §9/§8 §9/' "$PROMPTLOOP" > "$mutantLoop1"
-  mut_hc="$(tokens_of "$mutantLoop1" "$LOOP_HC_START" "$LOOP_HC_END" 2>/dev/null)"
-  if [ -z "$(diff <(printf '%s\n' "$skill_hotcore") <(printf '%s\n' "$mut_hc") 2>&1)" ]; then
-    no "teeth-T1: mutant HOT-CORE token set still matches SKILL.md — no teeth"
-  else
-    ok "teeth-T1: mutant HOT-CORE token set diverges from SKILL.md (T1 would go RED)"
-  fi
 
-  echo "-- teeth: T3 mutant (remove §8b from SKILL.md HOT-CORE) --"
-  mutantSkillT3="$TMP/SKILL.mutantT3.md"
-  sed 's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration),/§8 stopping + terminal trigger,/' "$SKILL" > "$mutantSkillT3"
-  mut_hc="$(tokens_of "$mutantSkillT3" "$SKILL_HC_START" "$SKILL_HC_END" 2>/dev/null)"
-  if grep -qxF '§8b' <<<"$mut_hc"; then
-    no "teeth-T3: mutant SKILL.md still has §8b in HOT-CORE — no teeth"
-  else
-    ok "teeth-T3: mutant SKILL.md loses §8b from HOT-CORE (T3 would go RED)"
-  fi
+  # replace_literal_multiline FILE OLD NEW
+  # Literal (non-regex) substring replacement across the whole file, including
+  # a span that wraps a newline. awk gsub()/sed treat OLD as an ERE, and some
+  # of the doctrine prose this needs to match contains regex metacharacters
+  # (parentheses in particular) that would silently fail to match as a
+  # "literal" pattern — Python's str.replace() has no such ambiguity. Fails
+  # loudly (rc=3) if OLD is not found, so a later prose edit that moves the
+  # anchor text breaks this mutant construction instead of silently producing
+  # a no-op mutant (which would show up as a false "no teeth").
+  replace_literal_multiline() {
+    local file="$1" old="$2" new="$3"
+    python3 -c '
+import sys
+file, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(file, encoding="utf-8").read()
+if old not in s:
+    sys.stderr.write("REPLACE-ANCHOR-NOT-FOUND\n")
+    sys.exit(3)
+sys.stdout.write(s.replace(old, new))
+' "$file" "$old" "$new"
+  }
 
-  echo "-- teeth: T6 mutant (orphan a section by deleting its situational mention) --"
-  mutantSkillT6="$TMP/SKILL.mutantT6.md"
-  # The §3b trigger phrase wraps across two lines in SKILL.md prose; RS="\x01"
-  # makes awk read the whole file as one record so gsub can match across the
-  # line wrap without needing a sentinel-byte round trip through sed.
-  t6_old=$'coordinating a kit change across separate coordinator / researcher / QA sessions; §3b corpus layout →\n       creating or moving corpus files; '
-  t6_new='coordinating a kit change across separate coordinator / researcher / QA sessions; '
-  awk -v old="$t6_old" -v new="$t6_new" 'BEGIN{RS="\x01"} { gsub(old, new); printf "%s", $0 }' "$SKILL" > "$mutantSkillT6"
-  mut_sit="$(tokens_of "$mutantSkillT6" "$SKILL_SIT_START" "$SKILL_SIT_END" 2>/dev/null)"
-  mut_hc_ids="$(sed 's/§//' <<<"$hc_ids" | sort -u)"
-  mut_sit_ids="$(sed 's/§//' <<<"$mut_sit" | sort -u)"
-  if grep -qxF '3b' <<<"$mut_sit_ids"; then
-    no "teeth-T6: mutant still has §3b in SITUATIONAL — mutation did not take, no teeth"
-  else
-    orphaned=0
-    grep -qxF '3b' <<<"$mut_hc_ids" || orphaned=1
-    if [ "$orphaned" -eq 1 ]; then
-      ok "teeth-T6: §3b becomes an orphan on the mutant (in neither tier) — T6 would go RED"
-    else
-      no "teeth-T6: §3b unexpectedly still covered on the mutant — no teeth"
-    fi
-  fi
+  # bite_tooth NAME CHECK_FN VAR_NAME VAR_VAL
+  # Temporarily points VAR_NAME (RSDD_SKILL / RSDD_LOOP / RSDD_METH) at a
+  # mutant file, calls CHECK_FN, restores VAR_NAME, then classifies:
+  #   rc=2            -> not a valid bite (parser crashed; R3-teeth-vacuous-on-parser-failure)
+  #   rc=1, out empty -> not a valid bite (failed, but printed nothing — cannot
+  #                      confirm the parser actually looked at the mutant)
+  #   rc=1, out set   -> BITTEN
+  #   rc=0             -> no teeth (mutation did not change the outcome)
+  bite_tooth() {
+    local tooth_name="$1" check_fn="$2" var_name="$3" var_val="$4"
+    local had_prev=0 prev=""
+    if [ -n "${!var_name+x}" ]; then had_prev=1; prev="${!var_name}"; fi
+    printf -v "$var_name" '%s' "$var_val"
+    local out rc
+    out="$("$check_fn")"
+    rc=$?
+    if [ "$had_prev" -eq 1 ]; then printf -v "$var_name" '%s' "$prev"; else unset "$var_name"; fi
+    case "$rc" in
+      2) no "teeth-$tooth_name: $check_fn crashed on the mutant (rc=2) — not a valid bite (R3-teeth-vacuous-on-parser-failure)" ;;
+      1) if [ -n "$out" ]; then
+           ok "teeth-$tooth_name: $check_fn goes RED (rc=1) on the mutant — $out"
+         else
+           no "teeth-$tooth_name: $check_fn failed (rc=1) but printed no detail — cannot confirm it looked (R3-teeth-vacuous-on-parser-failure)"
+         fi ;;
+      0) no "teeth-$tooth_name: $check_fn still returns 0 (passing) on the mutant — no teeth" ;;
+      *) no "teeth-$tooth_name: $check_fn returned unexpected rc=$rc on the mutant" ;;
+    esac
+  }
 
-  echo "-- teeth: T7 mutant (inflate a HOT-CORE section past budget) --"
-  mutantMethT7="$TMP/METHODOLOGY.mutantT7.md"
-  cp "$METHODOLOGY" "$mutantMethT7"
-  # Inflate section §1 with 2500 padding lines, well past the byte/line budget.
-  s1="$(grep -n '^## 1\. ' "$mutantMethT7" | head -1 | cut -d: -f1)"
+  echo "-- teeth: T1 (drop a HOT-CORE token from PROMPT-LOOP.md) --"
+  m="$TMP/T1.PROMPTLOOP.md"
+  sed 's/§8 §8b backlog-cell-grammar (written every iteration) §9/§8 §9/' "$PROMPTLOOP" > "$m"
+  bite_tooth T1 check_T1 RSDD_LOOP "$m"
+
+  echo "-- teeth: T2 (drop §23 from PROMPT-LOOP.md SITUATIONAL) --"
+  m="$TMP/T2.PROMPTLOOP.md"
+  old=$'§21 wall · §22 breakthrough-ledger ·\n         §23 kit-change template (coordinating a kit change across sessions). Unsure a phase is active -> read it.'
+  new='§21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.'
+  replace_literal_multiline "$PROMPTLOOP" "$old" "$new" > "$m"
+  bite_tooth T2 check_T2 RSDD_LOOP "$m"
+
+  echo "-- teeth: T3 (remove §8b from SKILL.md HOT-CORE) --"
+  m="$TMP/T3.SKILL.md"
+  sed 's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration),/§8 stopping + terminal trigger,/' "$SKILL" > "$m"
+  bite_tooth T3 check_T3 RSDD_SKILL "$m"
+
+  echo "-- teeth: T3b (re-add §8b into SKILL.md SITUATIONAL, simulating 'duplicated, not moved') --"
+  m="$TMP/T3b.SKILL.md"
+  sed 's/shared-prefix corpus; §8c campaign queue/shared-prefix corpus; §8b backlog cell grammar → writing or editing a Gap-backlog row; §8c campaign queue/' "$SKILL" > "$m"
+  bite_tooth T3b check_T3b RSDD_SKILL "$m"
+
+  echo "-- teeth: T4 (strip the §3b token itself from SKILL.md SITUATIONAL, keep the prose) --"
+  m="$TMP/T4.SKILL.md"
+  sed 's/§3b corpus layout →/corpus layout →/' "$SKILL" > "$m"
+  bite_tooth T4 check_T4 RSDD_SKILL "$m"
+
+  echo "-- teeth: T4b (keep the §3b token, strip its 'corpus layout' trigger wording) --"
+  m="$TMP/T4b.SKILL.md"
+  sed 's/§3b corpus layout →/§3b →/' "$SKILL" > "$m"
+  bite_tooth T4b check_T4b RSDD_SKILL "$m"
+
+  echo "-- teeth: T5 (strip the §20b token itself from SKILL.md SITUATIONAL, keep the prose) --"
+  m="$TMP/T5.SKILL.md"
+  sed 's/; §20b block mode vs\./; block mode vs./' "$SKILL" > "$m"
+  bite_tooth T5 check_T5 RSDD_SKILL "$m"
+
+  echo "-- teeth: T5b (keep the §20b token, strip its 'journal mode' trigger wording) --"
+  m="$TMP/T5b.SKILL.md"
+  sed 's/journal mode → deciding whether applied work/mode → deciding whether applied work/' "$SKILL" > "$m"
+  bite_tooth T5b check_T5b RSDD_SKILL "$m"
+
+  echo "-- teeth: T6-orphan (delete §3b's SITUATIONAL mention entirely) --"
+  m="$TMP/T6orphan.SKILL.md"
+  old=$'coordinating a kit change across separate coordinator / researcher / QA sessions; §3b corpus layout →\n       creating or moving corpus files; '
+  new='coordinating a kit change across separate coordinator / researcher / QA sessions; '
+  replace_literal_multiline "$SKILL" "$old" "$new" > "$m"
+  bite_tooth T6-orphan check_T6 RSDD_SKILL "$m"
+
+  echo "-- teeth: T6-multi (also list §3b in SKILL.md HOT-CORE, so it is tiered twice) --"
+  m="$TMP/T6multi.SKILL.md"
+  sed 's/§8b backlog cell grammar (written every iteration), §9 golden rules,/§8b backlog cell grammar (written every iteration), §3b duplicate-test, §9 golden rules,/' "$SKILL" > "$m"
+  bite_tooth T6-multi check_T6 RSDD_SKILL "$m"
+
+  echo "-- teeth: T7 (inflate §1 with 2500 padding lines) --"
+  m="$TMP/T7.METHODOLOGY.md"
+  s1="$(grep -n '^## 1\. ' "$METHODOLOGY" | head -1 | cut -d: -f1)"
   {
-    sed -n "1,${s1}p" "$mutantMethT7"
+    sed -n "1,${s1}p" "$METHODOLOGY"
     for _ in $(seq 1 2500); do echo "padding line to blow the HOT-CORE budget"; done
-    sed -n "$((s1+1)),\$p" "$mutantMethT7"
-  } > "$TMP/METHODOLOGY.mutantT7.inflated.md"
-  read -r mut_lines mut_bytes < <(measure_hotcore "$TMP/METHODOLOGY.mutantT7.inflated.md" "$hc_ids" 2>/dev/null)
-  if [ -n "${mut_lines:-}" ] && { [ "$mut_lines" -gt "$HOTCORE_BUDGET_LINES" ] || [ "$mut_bytes" -gt "$HOTCORE_BUDGET_BYTES" ]; }; then
-    ok "teeth-T7: inflated mutant ($mut_lines lines / $mut_bytes bytes) exceeds budget (T7 would go RED)"
+    sed -n "$((s1+1)),\$p" "$METHODOLOGY"
+  } > "$m"
+  bite_tooth T7 check_T7 RSDD_METH "$m"
+
+  echo "-- teeth: m1/T8 (inject a phantom §99 token into SKILL.md HOT-CORE) --"
+  m="$TMP/T8.SKILL.md"
+  sed 's/§17 resume\./§17 resume. §99 phantom-token./' "$SKILL" > "$m"
+  bite_tooth m1-phantom-token check_T8 RSDD_SKILL "$m"
+
+  echo "-- teeth: m2/T9 (append near-miss numbered-heading forms to METHODOLOGY.md) --"
+  m="$TMP/T9.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  {
+    echo ""
+    echo "## 24 — Fake Section"
+    echo "## §24. Fake Section"
+    echo "## 24) Fake Section"
+  } >> "$m"
+  bite_tooth m2-unrecognized-heading check_T9 RSDD_METH "$m"
+
+  echo "-- teeth: m3 (promote nested '### 12b.' to top-level '## 12b.' — dynamic exempt must revoke it) --"
+  m="$TMP/m3.METHODOLOGY.md"
+  sed 's/^### 12b\. /## 12b. /' "$METHODOLOGY" > "$m"
+  if ! grep -qE '^## 12b\. ' "$m"; then
+    no "teeth-m3: mutation of '### 12b.' -> '## 12b.' did not take — no teeth"
   else
-    no "teeth-T7: inflated mutant did NOT exceed budget ($mut_lines lines / $mut_bytes bytes) — no teeth"
+    bite_tooth m3-dynamic-exempt check_T6 RSDD_METH "$m"
   fi
 
-  echo "-- teeth: anti-silent-zero mutant (blank out HOT-CORE token list) --"
-  mutantSkillZero="$TMP/SKILL.mutantZero.md"
+  echo "-- teeth: m4a (numbered heading INSIDE a fence must stay invisible to check_T6) --"
+  mFenced="$TMP/m4.fenced.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$mFenced"
+  {
+    echo ""
+    echo '```'
+    echo "## 99. Fake Phantom Section"
+    echo '```'
+  } >> "$mFenced"
+  out_fenced="$(RSDD_METH="$mFenced" check_T6)"; rc_fenced=$?
+  out_baseline="$(check_T6)"
+  if [ "$rc_fenced" -eq 0 ] && [ "$out_fenced" = "$out_baseline" ] && ! grep -q '§99' <<<"$out_fenced"; then
+    ok "teeth-m4a: fenced '## 99.' heading stays invisible — check_T6 unchanged (checked count and outcome match baseline)"
+  else
+    no "teeth-m4a: fenced '## 99.' heading leaked into check_T6 (rc=$rc_fenced, out=[$out_fenced], baseline=[$out_baseline]) — fence-masking broken"
+  fi
+
+  echo "-- teeth: m4b (control: the SAME heading OUTSIDE a fence must be caught as a new orphan) --"
+  m="$TMP/m4.unfenced.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  {
+    echo ""
+    echo "## 99. Fake Phantom Section"
+  } >> "$m"
+  out="$(RSDD_METH="$m" check_T6)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q '§99' <<<"$out"; then
+    ok "teeth-m4b: the same heading OUTSIDE a fence IS caught as a new orphan (rc=1) — $out"
+  else
+    no "teeth-m4b: heading outside a fence was NOT caught (rc=$rc, out=[$out]) — control failed, m4a's PASS would be meaningless"
+  fi
+
+  echo "-- teeth: anti-silent-zero (blank out every HOT-CORE token in SKILL.md) --"
+  m="$TMP/zero.SKILL.md"
   sed 's/§1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state\/memory,/no tokens here at all,/' "$SKILL" \
     | sed 's/§8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration), §9 golden rules,/still no tokens,/' \
     | sed 's/§11 self-verify, §17 resume\./no tokens at all./' \
-    > "$mutantSkillZero"
-  ( tokens_of "$mutantSkillZero" "$SKILL_HC_START" "$SKILL_HC_END" >/dev/null 2>&1 )
+    > "$m"
+  ( tokens_of "$m" "$SKILL_HC_START" "$SKILL_HC_END" >/dev/null 2>&1 )
   rc=$?
   if [ "$rc" -eq 2 ]; then
-    ok "teeth-anti-silent-zero: zero-token mutant makes tokens_of FATAL (exit 2), not a silent empty pass"
+    ok "teeth-anti-silent-zero: zero-token mutant makes tokens_of return 2 (not a silent empty pass)"
   else
-    no "teeth-anti-silent-zero: zero-token mutant did NOT trigger FATAL (rc=$rc) — silent zero would slip through"
+    no "teeth-anti-silent-zero: zero-token mutant did NOT trigger the guard (rc=$rc) — silent zero would slip through"
   fi
 fi
 
