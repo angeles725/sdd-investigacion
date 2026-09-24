@@ -1531,7 +1531,10 @@ HARD RULES:
     record before/after state (and that a byte-identical revert was offered) — so an audit can tell a supervised
     write apart from a pure read at a glance.
     MECHANIZED at the close: `research-sdd-archive.sh` runs `toolbelt/scan-secrets.sh` as a fail-closed
-    GATE — a high-confidence secret VALUE that leaked into authored corpus content REFUSES the close (exit 3).
+    GATE. For a git-backed corpus it scans BOTH the full committed history reachable from HEAD
+    (`--committed`, scoped to `*.md`/config files — not arbitrary source files, kit issue #987 item 2)
+    AND the uncommitted working tree; a high-confidence secret VALUE in either REFUSES the close (exit
+    3). Dirtiness alone never refuses — the close flow always leaves the tree dirty at this point.
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
