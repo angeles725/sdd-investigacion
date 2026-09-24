@@ -24,6 +24,13 @@
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
+#
+# WIRE-ONLY REPAIR (kit issue #1038): --wire on a target whose corpus already exists (and no
+# --force) skips the scaffold and instead REPAIRS whatever hooks are missing — it creates any
+# absent hook file (never overwrites an existing one; a hand-adapted hook is untouched) and
+# merges .claude/settings.json. SessionStart is wired only when research-protocol.sh no longer
+# carries the <SUBJECT> placeholder; an unadapted hook prints a WARN and is skipped, while Stop
+# is still merged. jq absent ⇒ no writes at all (no hook files, no settings.json) — print-only.
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
@@ -60,10 +67,17 @@ done
 # --- corpus_present helper (shared by wire-only and anti-clobber sections) ---
 corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
 
-# --- wire-only path: --wire on an existing corpus does ONLY settings.json merge ----------
-# When --wire is given on a target that already has a corpus (and no --force is set), skip
-# the full scaffold entirely and merge only .claude/settings.json. This is the intended
-# workflow after step 4 (adapt the hook, then re-run with --wire to register it).
+# --- wire-only path: --wire on an existing corpus REPAIRS absent hooks + merges settings -----
+# When --wire is given on a target that already has a corpus (and no --force is set), skip the
+# full scaffold and instead: (1) create any hook file that is ABSENT — create-only, NEVER
+# overwrite an existing one, so a hand-adapted hook survives byte-for-byte (kit issue #1038: real
+# targets have a corpus but predate the hook scaffold, and `--force` is not an option because it
+# clobbers hand-adapted hooks); (2) merge .claude/settings.json, wiring SessionStart ONLY when
+# research-protocol.sh (existing or just created) no longer carries the <SUBJECT> placeholder —
+# an unadapted hook must never be injected as a live SessionStart card (kit issue #959). Stop is
+# always safe to wire (it takes no per-target params). This is both the intended workflow after
+# step 4 (adapt the hook, then re-run with --wire to register it) and the repair path for a
+# corpus that never had hooks scaffolded.
 # WIRE-ONLY-EXISTING-CORPUS
 if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
   _wo_corpus_root=""
@@ -71,33 +85,80 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     if corpus_present "$_cand" 2>/dev/null; then _wo_corpus_root="$_cand"; break; fi
   done
   if [ -n "$_wo_corpus_root" ]; then
-    # Wire-only: compute paths and merge settings.json without touching any corpus file.
+    # Wire-only: compute paths; NEVER touch any corpus file.
     _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
     _wo_ss="$target/.claude/hooks/research-protocol.sh"
     _wo_settings="$target/.claude/settings.json"
+
+    # §7 anti-silent-zero: probe for jq FIRST — jq-absent means NO writes at all, including no
+    # hook-file creation, so the target is never left half-wired (some hooks created but
+    # settings.json not merged, or vice versa).
     if ! command -v jq >/dev/null 2>&1; then
-      echo "degraded: jq not found on PATH — cannot wire settings.json; paste the snippet below:" >&2
-    else
-      _wo_base='{}'; [ -f "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
-      _wo_tmp="$(mktemp)"
-      if printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" '
-        ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
-        ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
-        .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
-          else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
-        .hooks.SessionStart = (if $has_ss then (.hooks.SessionStart // [])
-          else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
-      ' > "$_wo_tmp" 2>/dev/null; then
-        mv "$_wo_tmp" "$_wo_settings"
-        echo "  wired  : hooks registered (wire-only; corpus untouched) in $_wo_settings"
-        echo "== done =="
-        exit 0
-      else
-        rm -f "$_wo_tmp"
-        echo "degraded: jq failed on $_wo_settings — falling back to print" >&2
-      fi
+      echo "degraded: jq not found on PATH — cannot wire settings.json or create hook files; paste the snippet below and create the hooks yourself:" >&2
+      echo "-- §479 HOOK WIRING snippet (paste into $target/.claude/settings.json) --"
+      printf '%s\n' '{' \
+        '  "hooks": {' \
+        '    "Stop": [' \
+        "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_stop\"}]}" \
+        '    ],' \
+        '    "SessionStart": [' \
+        "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_ss\"}]}" \
+        '    ]' \
+        '  }' \
+        '}'
+      echo "== done =="
+      exit 0
     fi
-    # Print snippet on degraded (jq absent or failed):
+
+    # jq is present: repair absent hook files (create-only — never overwrite an existing one).
+    mkdir -p "$target/.claude/hooks"
+    if [ -e "$_wo_stop" ]; then
+      echo "kept: $_wo_stop"
+    else
+      cp "$TPL/hook-stop-retro-gate.sh" "$_wo_stop"
+      sed -i "s|<KIT>|$KIT|g; s|<TARGET>|$target|g" "$_wo_stop"
+      chmod +x "$_wo_stop"
+      echo "created: $_wo_stop"
+    fi
+    if [ -e "$_wo_ss" ]; then
+      echo "kept: $_wo_ss"
+    else
+      cp "$TPL/hook-sessionstart.sh" "$_wo_ss"
+      echo "created: $_wo_ss"
+    fi
+
+    # kit issue #959/#1038: never wire an unadapted SessionStart hook — it would inject a raw
+    # <SUBJECT> placeholder card into every session. Stop is always safe to wire.
+    _wo_skip_ss="false"
+    if grep -qF '<SUBJECT>' "$_wo_ss" 2>/dev/null; then
+      _wo_skip_ss="true"
+      echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — skipping SessionStart wiring until you adapt it (replace <SUBJECT> and the source paths, PROMPT-LOOP §c follow-up). Re-run with --wire once adapted." >&2
+    fi
+
+    _wo_base='{}'; [ -f "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
+    _wo_tmp="$(mktemp)"
+    if printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" --argjson skip_ss "$_wo_skip_ss" '
+      ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
+      ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
+      .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
+        else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
+      .hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
+        else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
+    ' > "$_wo_tmp" 2>/dev/null; then
+      mv "$_wo_tmp" "$_wo_settings"
+      echo "  wired  : Stop hook registered (wire-only; corpus untouched) in $_wo_settings"
+      if [ "$_wo_skip_ss" = "true" ]; then
+        echo "  skipped: SessionStart hook NOT registered (unadapted <SUBJECT> placeholder — see WARN above)"
+      else
+        echo "  wired  : SessionStart hook registered in $_wo_settings"
+      fi
+      echo "== done =="
+      exit 0
+    else
+      rm -f "$_wo_tmp"
+      echo "degraded: jq failed on $_wo_settings — falling back to print" >&2
+    fi
+    # Print snippet on jq-processing failure (jq present but errored on existing settings.json):
     echo "-- §479 HOOK WIRING snippet (paste into $target/.claude/settings.json) --"
     printf '%s\n' '{' \
       '  "hooks": {' \
