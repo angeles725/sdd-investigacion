@@ -210,9 +210,9 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block, and self-continue per the
    LOOP CONTINUATION + RESCHEDULE CADENCE rules in PROMPT-LOOP. Delegate heavy sweeps with the right
-   MODEL TIER. Emit the per-iteration RETURN CONTRACT (PROMPT-LOOP RETURN CONTRACT section — that is
+   MODEL TIER. <!-- slot:loop-return-contract-explicit -->Emit the per-iteration RETURN CONTRACT (PROMPT-LOOP RETURN CONTRACT section — that is
    the single definition of the token format and required fields); ending with "shall I continue?" or
-   any equivalent question is a contract violation. At campaign STOP, run the TERMINAL TRIGGER and
+   any equivalent question is a contract violation.<!-- /slot --> At campaign STOP, run the TERMINAL TRIGGER and
    the §18 SELF-RETROSPECTIVE.
    The run is NOT OVER until the retro exists (from `$KIT/templates/retro.template.md`, `<!-- review-status: pending -->`,
    `## Proposed kit deltas` table or the honesty line) — this applies to quick, document and applied runs too, not only

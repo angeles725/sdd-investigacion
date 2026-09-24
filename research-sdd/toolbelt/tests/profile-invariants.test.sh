@@ -462,8 +462,8 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   kitAbsLoop="$TMP/kitAbsLoop"
   make_kit "$kitAbsLoop"
   profileAbsLoop="$kitAbsLoop/profiles/general.slots.md"
-  if [ -f "$profileAbsLoop" ] && require_anchor "$profileAbsLoop" '(read in full now)'; then
-    sed -i 's/(read in full now)/(read in full now — guarantees the cadence)/' "$profileAbsLoop"
+  if [ -f "$profileAbsLoop" ] && require_anchor "$profileAbsLoop" '(read IN FULL every iteration)'; then
+    sed -i 's/(read IN FULL every iteration)/(read IN FULL every iteration — guarantees the cadence)/' "$profileAbsLoop"
     outAbsLoop="$TMP/outAbsLoop"
     if RSDD_KIT_DIR="$kitAbsLoop" "$RENDERER" general "$outAbsLoop" >/dev/null 2>&1; then
       if assert_A14_neg "$outAbsLoop/PROMPT-LOOP.md"; then
@@ -476,6 +476,26 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     fi
   else
     no "teeth-absence-phrase-in-loop-slot: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-absence-phrase-c19-in-slot (kit issue #993 WU4: inject a C19 absence phrase — signal \"continue\" — into the general loop-return-contract-explicit slot body, render general, assert_C19 on the rendered SKILL.md must go RED) --"
+  kitAbsC19="$TMP/kitAbsC19"
+  make_kit "$kitAbsC19"
+  profileAbsC19="$kitAbsC19/profiles/general.slots.md"
+  if [ -f "$profileAbsC19" ] && require_anchor "$profileAbsC19" 'A return without a token is a silently stopped iteration.'; then
+    sed -i 's/A return without a token is a silently stopped iteration\./A return without a token is a silently stopped iteration. Do not simply signal "continue"./' "$profileAbsC19"
+    outAbsC19="$TMP/outAbsC19"
+    if RSDD_KIT_DIR="$kitAbsC19" "$RENDERER" general "$outAbsC19" >/dev/null 2>&1; then
+      if assert_C19 "$outAbsC19/skills/research-sdd/SKILL.md"; then
+        no "teeth-absence-phrase-c19-in-slot: assert_C19 still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-absence-phrase-c19-in-slot: assert_C19 goes RED on the mutant general SKILL.md render — the S* SKILL-scoped C19 absence check is proven to actually run on a general render"
+      fi
+    else
+      no "teeth-absence-phrase-c19-in-slot: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-absence-phrase-c19-in-slot: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
   fi
 
   echo "-- teeth: T-doctrine-token-in-profile-body (inject a §-token into general.slots.md's slot body, T1 must go RED) --"
@@ -554,6 +574,29 @@ PYEOF
     fi
   else
     no "teeth-remove-slot-body: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-remove-new-slot-body (kit issue #993 WU4: delete the loop-return-contract-explicit section from the copied kit's general.slots.md — one of the two slots this work unit added — R1 must go RED with GUARD-MISSING) --"
+  kitRemoveNew="$TMP/kitRemoveNew"
+  make_kit "$kitRemoveNew"
+  profileRemoveNew="$kitRemoveNew/profiles/general.slots.md"
+  if [ -f "$profileRemoveNew" ] && require_anchor "$profileRemoveNew" '## slot:loop-return-contract-explicit'; then
+    python3 - "$profileRemoveNew" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+s = re.sub(r'## slot:loop-return-contract-explicit\n.*?(?=\n## slot:|\Z)', '', s, flags=re.DOTALL)
+open(p, 'w', encoding='utf-8').write(s)
+PYEOF
+    outRemoveNew="$TMP/outRemoveNew"
+    removeNew_out="$(RSDD_KIT_DIR="$kitRemoveNew" "$RENDERER" general "$outRemoveNew" 2>&1)"; removeNew_rc=$?
+    if [ "$removeNew_rc" -eq 2 ] && grep -qi 'missing' <<<"$removeNew_out"; then
+      ok "teeth-remove-new-slot-body: R1's real render-exit-code check goes RED on the mutant — GUARD-MISSING fires with exit 2 and a 'missing' message: $removeNew_out"
+    else
+      no "teeth-remove-new-slot-body: mutant did NOT fail with the expected GUARD-MISSING signature (rc=$removeNew_rc, expected 2; out=[$removeNew_out])"
+    fi
+  else
+    no "teeth-remove-new-slot-body: mutation anchor not found — cannot prove teeth"
   fi
 
   echo "-- teeth: T-vanished-anchor (a mutation anchor that does not exist must FAIL, not be silently skipped) --"
