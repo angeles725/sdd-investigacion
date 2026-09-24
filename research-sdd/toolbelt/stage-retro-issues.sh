@@ -18,12 +18,13 @@
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
 #
-# Kit issue repo (kit issue #1037; hardened by #1045): delta issues MUST land in
-# the KIT repo, never whatever repo the process cwd happens to resolve to. Under
-# the retro-gate.sh Stop hook, cwd is the TARGET directory (a foreign repo, or no
-# repo at all) — an unqualified `gh issue list`/`gh issue create` would silently
-# resolve the WRONG repo, or fail outright. Every gh call below carries an
-# explicit --repo, resolved ONCE, in this order:
+# Kit issue repo (kit issue #1037; hardened by #1045, then #1046 round 2):
+# delta issues MUST land in the KIT repo, never whatever repo the process cwd
+# happens to resolve to. Under the retro-gate.sh Stop hook, cwd is the TARGET
+# directory (a foreign repo, or no repo at all) — an unqualified `gh issue
+# list`/`gh issue create` would silently resolve the WRONG repo, or fail
+# outright. Every gh call below carries an explicit --repo, resolved ONCE, in
+# this order:
 #   1. RESEARCH_SDD_ISSUE_REPO env override (owner/name) — wins unconditionally,
 #      but is STILL shape-validated (F2) before use.
 #   2. `git -C "$KIT_ROOT" remote get-url origin`, but ONLY when KIT_ROOT is
@@ -32,12 +33,19 @@
 #      upward search happens to find when KIT_ROOT is not a checkout at all.
 #      The URL is normalized (https, ssh://, scp-like git@host:owner/name AND
 #      bare host:owner/name forms; trailing `/` stripped BEFORE the trailing
-#      `.git` suffix — F3) and, for a non-github.com host, the host is KEPT as
-#      `HOST/owner/repo` (gh accepts that form) rather than dropped.
-# The final value (override or derived) is validated against
-# `^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$` (F2) — anything else
-# (a bare word, a value with spaces, `owner/repo/extra/junk`, a `file://` URL
-# that leaked through unnormalized, …) is unresolved, never passed to gh.
+#      `.git` suffix — F3). A URL-scheme host (https://, ssh://) is KEPT as
+#      `HOST/owner/repo` (gh accepts that form) UNLESS it is a `:port` suffix
+#      or a github.com alias/prefix (`ssh.`/`www.`/`github.com-<anything>`,
+#      kit issue #1046 round 2 items 1-2), in which case it is dropped like
+#      plain github.com. An scp-like host ([user@]host:owner/repo) is ALWAYS
+#      dropped: an SSH config Host alias is indistinguishable from a real
+#      hostname without `ssh -G`, which this script never calls.
+# The final value (override or derived) is validated against a tightened
+# `[HOST/]OWNER/REPO` shape (F2, F4: each segment must START with an
+# alphanumeric — this alone rejects `.`/`..` segments, a leading `-`, and any
+# extra path component) — anything else (a bare word, a value with spaces,
+# `owner/repo/extra/junk`, a `file://` URL that leaked through unnormalized,
+# `../o/n`, `-o/n`, `o/..`, …) is unresolved, never passed to gh.
 # Dry-run prints the resolved value as `kit-issue-repo: <owner>/<name>` or
 # `kit-issue-repo: unresolved (<reason>)` — dry-run works either way, and the
 # reason names what actually blocked resolution (missing git, an enclosing
@@ -112,12 +120,16 @@ TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
 # comment for the resolution order and the reason every gh call below must
 # carry --repo.
 
-# _KIT_ISSUE_REPO_SHAPE_RE (F2): the only shape ever handed to `gh --repo`.
-# The optional leading group is a non-github.com HOST (kept for GHE, F3); gh
-# itself accepts `HOST/OWNER/REPO`. Anything else — a bare word, embedded
+# _KIT_ISSUE_REPO_SHAPE_RE (F2; tightened by kit issue #1046 round 2 item 4):
+# the only shape ever handed to `gh --repo`. Every segment (the optional
+# leading HOST, OWNER, REPO) must START with an alphanumeric — that single
+# rule also rejects a bare `.`/`..` segment (both start with `.`) and a
+# leading `-` (e.g. `-o/n`), with no separate check needed. The optional
+# leading group is a non-github.com HOST (kept for GHE, F3); gh itself
+# accepts `HOST/OWNER/REPO`. Anything else — a bare word, embedded
 # whitespace, more than one extra path segment, a leaked URL scheme/colon —
 # fails this and is unresolved, never passed to gh.
-_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
 
 # _validate_repo_shape <value>: returns 0 when <value> matches the
 # "[HOST/]owner/repo" shape above, 1 otherwise. No output, no side effects.
@@ -125,13 +137,33 @@ _validate_repo_shape() {
   [[ "$1" =~ $_KIT_ISSUE_REPO_SHAPE_RE ]]
 }
 
-# _normalize_git_remote_url <url> (F3): prints the normalized "[HOST/]owner/repo"
-# candidate for a git remote URL. Handles:
+# _KIT_GITHUB_HOST_ALIAS_RE (kit issue #1046 round 2 item 1): a host that IS
+# github.com under a "www."/"ssh." prefix, or under an SSH config Host alias
+# suffix (e.g. "github.com-work", "github.com-personal"). These must still
+# drop the host: gh needs the REAL "github.com", and an alias hostname does
+# not resolve on its own ("Error connecting to github.com-alias").
+_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\.|www\.)?github\.com(-[^/]*)?$'
+
+# _normalize_git_remote_url <url> (F3; hardened by kit issue #1046 round 2):
+# prints the normalized "[HOST/]owner/repo" candidate for a git remote URL.
+# Handles:
 #   https://github.com/o/n(.git)?(/)?     -> o/n            (github.com host dropped)
-#   https://ghe.example.com/o/n.git       -> ghe.example.com/o/n  (non-github host KEPT)
+#   https://www.github.com/o/n.git        -> o/n            (alias prefix dropped)
+#   https://github.com-work/o/n.git       -> o/n            (SSH-config alias host dropped)
+#   https://github.com:443/o/n.git        -> o/n            (:port stripped, then alias-matched)
+#   https://ghe.example.com/o/n.git       -> ghe.example.com/o/n  (real non-github HOST KEPT)
 #   ssh://git@github.com/o/n.git          -> o/n
+#   ssh://git@github.com:22/o/n.git       -> o/n            (:port stripped)
 #   git@github.com:o/n(.git)?             -> o/n            (scp form, user@)
 #   github.com:o/n                        -> o/n            (scp form, NO user@)
+#   git@github.com-alias:o/n.git          -> o/n            (scp form — host ALWAYS dropped)
+# The host is kept ONLY for a URL-SCHEME remote (https://, ssh://) whose host
+# (after stripping a trailing :port) does not match _KIT_GITHUB_HOST_ALIAS_RE.
+# An scp-like remote ([user@]host:owner/repo) ALWAYS drops its host: an SSH
+# config Host alias is indistinguishable from a real hostname without
+# resolving it via `ssh -G`, which this script never calls — so a scp-form
+# host is untrustworthy either way, and dropping it is the only choice that
+# cannot construct a --repo value `gh` is unable to connect to.
 # Trailing slash is stripped BEFORE the trailing .git suffix, so a URL like
 # "o/n.git/" normalizes to "o/n", not the stray "o/n.git" a naive single-pass
 # strip would leave behind. No shape validation here — callers run
@@ -139,10 +171,11 @@ _validate_repo_shape() {
 # returned unchanged and reliably fails that validation instead of being
 # guessed at.
 _normalize_git_remote_url() {
-  local url="$1" host rest
+  local url="$1" host rest is_url_scheme
   if [[ "$url" =~ ^(https?|ssh)://([^/@[:space:]]+@)?([^/]+)/(.+)$ ]]; then
     host="${BASH_REMATCH[3]}"
     rest="${BASH_REMATCH[4]}"
+    is_url_scheme=1
   elif [[ "$url" =~ ^([^/@:[:space:]]+@)?([^/@:[:space:]]+):([^/].*)$ ]]; then
     # The "next char after ':' is not '/'" guard is what git itself uses to
     # disambiguate scp-like syntax from a URL scheme: without it, an
@@ -151,17 +184,32 @@ _normalize_git_remote_url() {
     # instead leaves it unchanged, which then reliably fails shape validation.
     host="${BASH_REMATCH[2]}"
     rest="${BASH_REMATCH[3]}"
+    is_url_scheme=0
   else
     printf '%s' "$url"
     return 0
   fi
+  # STAGE_RETRO_ISSUES_HOST_PORT_STRIP (kit issue #1046 round 2 item 2): a
+  # URL-scheme host may carry ":port" (e.g. "github.com:22"); strip it before
+  # the alias check below, or a ported github.com host would be wrongly KEPT
+  # (and then fail shape validation, since ':' is not a legal host character).
+  host="${host%%:*}"
   rest="${rest%/}"
   rest="${rest%.git}"
   rest="${rest%/}"
-  if [ "$(printf '%s' "$host" | tr 'A-Z' 'a-z')" = "github.com" ]; then
-    printf '%s' "$rest"
+  if [ "$is_url_scheme" -eq 1 ]; then
+    # STAGE_RETRO_ISSUES_HOST_ALIAS_CHECK (kit issue #1046 round 2 item 1): a
+    # github.com alias/prefix host is dropped exactly like plain github.com;
+    # any other URL-scheme host (a real GHE hostname) is kept.
+    if [[ "$(printf '%s' "$host" | tr 'A-Z' 'a-z')" =~ $_KIT_GITHUB_HOST_ALIAS_RE ]]; then
+      printf '%s' "$rest"
+    else
+      printf '%s/%s' "$host" "$rest"
+    fi
   else
-    printf '%s/%s' "$host" "$rest"
+    # STAGE_RETRO_ISSUES_SCP_HOST_DROP (kit issue #1046 round 2 item 1): scp
+    # form always drops its host — see the docstring above for why.
+    printf '%s' "$rest"
   fi
 }
 
@@ -169,22 +217,39 @@ _normalize_git_remote_url() {
 # callers can name the exact offending value in their degraded/unresolved
 # message without re-deriving it.
 _KIT_ISSUE_REPO_BAD_VALUE=""
+# Set by resolve_kit_issue_repo() only on an F1 toplevel mismatch (return 3),
+# so callers can name the ENCLOSING checkout's real root (kit issue #1046
+# round 2 item 5 — the reason text must say what was actually found).
+_KIT_ISSUE_REPO_TOPLEVEL=""
+# The resolved value (kit issue #1046 round 2 item 3): resolve_kit_issue_repo()
+# is called DIRECTLY below, never through `$(...)`. A command-substitution
+# subshell would silently discard every global assignment made inside the
+# function — which is exactly how _KIT_ISSUE_REPO_BAD_VALUE went missing
+# before (the degraded/unresolved message always read "invalid repo shape
+# ''", because the assignment lived only in the subshell that printed the
+# function's stdout and vanished the instant that subshell exited).
+_KIT_ISSUE_REPO_RESULT=""
 
-# resolve_kit_issue_repo: prints "[HOST/]owner/name" on stdout and returns 0 on
-# success. On failure prints nothing and returns a TYPED code so callers can
-# report WHY, not just that it failed (anti-silent-zero, §7):
+# resolve_kit_issue_repo: sets _KIT_ISSUE_REPO_RESULT to "[HOST/]owner/name"
+# and returns 0 on success. On failure _KIT_ISSUE_REPO_RESULT is empty and the
+# return code is a TYPED reason so callers can report WHY, not just that it
+# failed (anti-silent-zero, §7):
 #   1  no override and no resolvable git remote (or empty remote URL)
 #   2  git is not on PATH
-#   3  F1: KIT_ROOT is not itself a git checkout — a git remote walk landed in
-#      an ENCLOSING repo instead; never used
+#   3  F1: KIT_ROOT is not the git checkout's toplevel — git found an
+#      ENCLOSING checkout instead (_KIT_ISSUE_REPO_TOPLEVEL names its root);
+#      never used
 #   4  F2: the override or derived value does not match the required shape
 #      (_KIT_ISSUE_REPO_BAD_VALUE names the offending value)
-# Never exits the process — callers decide the degraded/unresolved behaviour.
+# MUST be called directly — never as `KIT_ISSUE_REPO="$(resolve_kit_issue_repo)"`
+# — see the _KIT_ISSUE_REPO_RESULT comment above. Never exits the process.
 resolve_kit_issue_repo() {
+  _KIT_ISSUE_REPO_RESULT=""
   _KIT_ISSUE_REPO_BAD_VALUE=""
+  _KIT_ISSUE_REPO_TOPLEVEL=""
   if [ -n "${RESEARCH_SDD_ISSUE_REPO:-}" ]; then
     if _validate_repo_shape "$RESEARCH_SDD_ISSUE_REPO"; then
-      printf '%s' "$RESEARCH_SDD_ISSUE_REPO"
+      _KIT_ISSUE_REPO_RESULT="$RESEARCH_SDD_ISSUE_REPO"
       return 0
     fi
     _KIT_ISSUE_REPO_BAD_VALUE="$RESEARCH_SDD_ISSUE_REPO"
@@ -199,7 +264,10 @@ resolve_kit_issue_repo() {
   # upward remote search happens to find when KIT_ROOT holds no .git of its own.
   _top_phys="$(cd -P "$_top" 2>/dev/null && pwd -P)" || return 1
   _kit_phys="$(cd -P "$KIT_ROOT" 2>/dev/null && pwd -P)" || return 1
-  [ "$_top_phys" = "$_kit_phys" ] || return 3
+  if [ "$_top_phys" != "$_kit_phys" ]; then
+    _KIT_ISSUE_REPO_TOPLEVEL="$_top_phys"
+    return 3
+  fi
   _url="$(git -C "$KIT_ROOT" remote get-url origin 2>/dev/null)" || return 1
   [ -n "$_url" ] || return 1
   _repo="$(_normalize_git_remote_url "$_url")"
@@ -210,19 +278,19 @@ resolve_kit_issue_repo() {
     _KIT_ISSUE_REPO_BAD_VALUE="$_repo"
     return 4
   fi
-  printf '%s' "$_repo"
+  _KIT_ISSUE_REPO_RESULT="$_repo"
   return 0
 }
 
-KIT_ISSUE_REPO=""
-_kit_issue_repo_rc=0
-KIT_ISSUE_REPO="$(resolve_kit_issue_repo)" || _kit_issue_repo_rc=$?
+resolve_kit_issue_repo
+_kit_issue_repo_rc=$?
+KIT_ISSUE_REPO="$_KIT_ISSUE_REPO_RESULT"
 
 _kit_issue_repo_reason=""
 if [ -z "$KIT_ISSUE_REPO" ]; then
   case "$_kit_issue_repo_rc" in
     2) _kit_issue_repo_reason="git not found on PATH — install git before resolving the kit issue repo" ;;
-    3) _kit_issue_repo_reason="kit root is not its own git checkout — found an enclosing repo instead at $KIT_ROOT" ;;
+    3) _kit_issue_repo_reason="kit root ($KIT_ROOT) is not the git checkout's toplevel — git found an enclosing checkout rooted at ${_KIT_ISSUE_REPO_TOPLEVEL} instead" ;;
     4) _kit_issue_repo_reason="invalid repo shape '${_KIT_ISSUE_REPO_BAD_VALUE}' — expected [HOST/]OWNER/REPO" ;;
     *) _kit_issue_repo_reason="no RESEARCH_SDD_ISSUE_REPO override and no resolvable git remote 'origin' at $KIT_ROOT" ;;
   esac

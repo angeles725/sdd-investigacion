@@ -777,7 +777,7 @@ RETROEOF
   # TOOTH 10 (kit issue #1045 F1): drop the physical toplevel check so an
   # enclosing repo's remote (KIT_ROOT is NOT its own checkout) is accepted.
   echo "-- teeth T10: drop F1 physical-toplevel check --"
-  anchor_t10='  [ "$_top_phys" = "$_kit_phys" ] || return 3'
+  anchor_t10='  if [ "$_top_phys" != "$_kit_phys" ]; then'
   if [[ "$sut_content" == *"$anchor_t10"* ]]; then
     parent_t10="$ROOT/teeth-t10-enclosing-parent"
     mkdir -p "$parent_t10"
@@ -789,7 +789,7 @@ RETROEOF
       "<!-- review-status: pending -->" \
       "| 1 | t10 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t10="$box_t10/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_t10"/  : # teeth-t10-f1-check-removed}" > "$mutant_t10"
+    printf '%s\n' "${sut_content/"$anchor_t10"/  if false; then  # teeth-t10-f1-check-removed}" > "$mutant_t10"
     bash -n "$mutant_t10" 2>/dev/null || { no "T10 teeth: mutant_t10 failed bash -n syntax check" ""; }
     out_t10="$(PATH="$box_t10/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
       "$BASH_BIN" "$mutant_t10" "$retro_t10" 2>&1)"; rc_t10=$?
@@ -853,10 +853,11 @@ RETROEOF
     no "T12 teeth: locate F3 slash/.git strip-order anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
-  # TOOTH 13 (kit issue #1045 F3): drop non-github.com host retention so a GHE
-  # origin silently loses its host again.
-  echo "-- teeth T13: drop F3 non-github.com host retention --"
-  anchor_t13="$(printf '  if [ "$(printf '"'"'%%s'"'"' "$host" | tr '"'"'A-Z'"'"' '"'"'a-z'"'"')" = "github.com" ]; then\n    printf '"'"'%%s'"'"' "$rest"\n  else\n    printf '"'"'%%s/%%s'"'"' "$host" "$rest"\n  fi')"
+  # TOOTH 13 (kit issue #1045 F3, re-anchored for #1046 round 2): the
+  # URL-scheme "keep a real non-github host" branch is neutered to always
+  # drop instead, so a GHE origin silently loses its host again.
+  echo "-- teeth T13: drop F3 non-github.com host retention (URL-scheme keep branch) --"
+  anchor_t13='      printf '"'"'%s/%s'"'"' "$host" "$rest"'
   if [[ "$sut_content" == *"$anchor_t13"* ]]; then
     box_t13="$(mkbox teeth-t13-host-drop)"
     mk_git_remote "$box_t13" "https://ghe.corp.example.com/ghe-owner/ghe-kit.git"
@@ -864,18 +865,182 @@ RETROEOF
       "<!-- review-status: pending -->" \
       "| 1 | t13 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t13="$box_t13/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_t13"/  printf '%s' "\$rest"  # teeth-t13-host-drop}" > "$mutant_t13"
+    printf '%s\n' "${sut_content/"$anchor_t13"/      printf '%s' \"\$rest\"  # teeth-t13-host-drop}" > "$mutant_t13"
     bash -n "$mutant_t13" 2>/dev/null || { no "T13 teeth: mutant_t13 failed bash -n syntax check" ""; }
     out_t13="$(PATH="$box_t13/bin:$PATH" \
       "$BASH_BIN" "$mutant_t13" "$retro_t13" 2>&1)"; rc_t13=$?
     if printf '%s\n' "$out_t13" | grep -q '^kit-issue-repo: ghe-owner/ghe-kit$'; then
-      ok "T13 teeth: GHE host retention dropped → host lost again (case 30 has teeth)" "()"
+      ok "T13 teeth: GHE host retention dropped → host lost again (case 30/39/42 have teeth)" "()"
     else
       no "T13 teeth: GHE host retention dropped → host should be lost" \
-        "host was not dropped — case 30 is THEATER: rc=$rc_t13 out=[$out_t13]"
+        "host was not dropped — case 30/39/42 is THEATER: rc=$rc_t13 out=[$out_t13]"
     fi
   else
     no "T13 teeth: locate F3 host-retention anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 14 (kit issue #1046 round 2 item 1): neuter the github-alias-host
+  # check so an alias/prefix host (e.g. "github.com-alias", "www.github.com")
+  # is treated like a real GHE host and KEPT instead of dropped.
+  echo "-- teeth T14: neuter github-alias host check (URL-scheme) --"
+  anchor_t14='    if [[ "$(printf '"'"'%s'"'"' "$host" | tr '"'"'A-Z'"'"' '"'"'a-z'"'"')" =~ $_KIT_GITHUB_HOST_ALIAS_RE ]]; then'
+  if [[ "$sut_content" == *"$anchor_t14"* ]]; then
+    box_t14="$(mkbox teeth-t14-alias-check)"
+    mk_git_remote "$box_t14" "https://github.com-alias/o/n.git"
+    retro_t14="$(mk_retro "$box_t14" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t14 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t14="$box_t14/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t14"/    if false; then  # teeth-t14-alias-check-removed}" > "$mutant_t14"
+    bash -n "$mutant_t14" 2>/dev/null || { no "T14 teeth: mutant_t14 failed bash -n syntax check" ""; }
+    out_t14="$(PATH="$box_t14/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t14" "$retro_t14" 2>&1)"; rc_t14=$?
+    if printf '%s\n' "$out_t14" | grep -q '^kit-issue-repo: github.com-alias/o/n$'; then
+      ok "T14 teeth: alias check neutered → alias host leaks through (case 34/35/38 have teeth)" "()"
+    else
+      no "T14 teeth: alias check neutered → alias host should leak through" \
+        "alias did not leak — case 34/35/38 is THEATER: rc=$rc_t14 out=[$out_t14]"
+    fi
+  else
+    no "T14 teeth: locate github-alias host-check anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 15 (kit issue #1046 round 2 item 2): drop the :port strip so a
+  # ported host is never recognized as github.com and fails shape validation.
+  echo "-- teeth T15: drop :port strip from host --"
+  anchor_t15='  host="${host%%:*}"'
+  if [[ "$sut_content" == *"$anchor_t15"* ]]; then
+    box_t15="$(mkbox teeth-t15-port-strip)"
+    mk_git_remote "$box_t15" "https://github.com:443/o/n.git"
+    retro_t15="$(mk_retro "$box_t15" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t15 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t15="$box_t15/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t15"/  : # teeth-t15-port-strip-removed}" > "$mutant_t15"
+    bash -n "$mutant_t15" 2>/dev/null || { no "T15 teeth: mutant_t15 failed bash -n syntax check" ""; }
+    out_t15="$(PATH="$box_t15/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t15" "$retro_t15" 2>&1)"; rc_t15=$?
+    if ! printf '%s\n' "$out_t15" | grep -q '^kit-issue-repo: o/n$'; then
+      ok "T15 teeth: port strip removed → 'o/n' no longer resolved (case 36/37/38/39 have teeth)" "(rc=$rc_t15)"
+    else
+      no "T15 teeth: port strip removed → 'o/n' should NOT resolve cleanly" \
+        "still resolved cleanly — case 36/37/38/39 is THEATER: rc=$rc_t15 out=[$out_t15]"
+    fi
+  else
+    no "T15 teeth: locate :port strip anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 16 (kit issue #1046 round 2 item 1): neuter scp-form host dropping
+  # so an scp remote (alias or real) KEEPS its host, which breaks both the
+  # alias case and the plain "keep real origin" regression.
+  echo "-- teeth T16: neuter scp-form host drop --"
+  # A bare "    printf '%s' \"\$rest\"" (4-space) is NOT unique as a plain
+  # substring: it is also a substring of the 6-space-indented alias-match
+  # line above it (the last 4 of those 6 spaces + the rest). Anchor on the
+  # preceding comment line too, which is unique.
+  anchor_t16=$'    # form always drops its host — see the docstring above for why.\n    printf \'%s\' "$rest"'
+  if [[ "$sut_content" == *"$anchor_t16"* ]]; then
+    box_t16="$(mkbox teeth-t16-scp-drop)"
+    mk_git_remote "$box_t16" "git@github.com-alias:o/n.git"
+    retro_t16="$(mk_retro "$box_t16" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t16 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t16="$box_t16/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t16=$'    # form always drops its host — see the docstring above for why.\n    printf \'%s/%s\' "$host" "$rest"  # teeth-t16-scp-host-kept'
+    printf '%s\n' "${sut_content/"$anchor_t16"/$reverted_t16}" > "$mutant_t16"
+    bash -n "$mutant_t16" 2>/dev/null || { no "T16 teeth: mutant_t16 failed bash -n syntax check" ""; }
+    out_t16="$(PATH="$box_t16/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t16" "$retro_t16" 2>&1)"; rc_t16=$?
+    if printf '%s\n' "$out_t16" | grep -q '^kit-issue-repo: github.com-alias/o/n$'; then
+      ok "T16 teeth: scp host-drop neutered → alias host leaks through (case 33/40 have teeth)" "()"
+    else
+      no "T16 teeth: scp host-drop neutered → alias host should leak through" \
+        "alias did not leak — case 33/40 is THEATER: rc=$rc_t16 out=[$out_t16]"
+    fi
+  else
+    no "T16 teeth: locate scp-form host-drop anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 17 (kit issue #1046 round 2 item 4): revert the tightened shape
+  # regex to the old permissive one, so '-o/n' (a leading '-') is wrongly
+  # accepted instead of rejected.
+  echo "-- teeth T17: revert shape-tightening regex (item 4) --"
+  anchor_t17="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
+  if [[ "$sut_content" == *"$anchor_t17"* ]]; then
+    box_t17="$(mkbox teeth-t17-shape-tighten)"
+    retro_t17="$(mk_retro "$box_t17" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t17 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t17="$box_t17/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t17="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\$'"
+    printf '%s\n' "${sut_content/"$anchor_t17"/$reverted_t17}" > "$mutant_t17"
+    bash -n "$mutant_t17" 2>/dev/null || { no "T17 teeth: mutant_t17 failed bash -n syntax check" ""; }
+    out_t17="$(PATH="$box_t17/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="-o/n" \
+      "$BASH_BIN" "$mutant_t17" "$retro_t17" 2>&1)"; rc_t17=$?
+    if printf '%s\n' "$out_t17" | grep -q '^kit-issue-repo: -o/n$'; then
+      ok "T17 teeth: shape regex reverted → '-o/n' wrongly accepted (case 43.2 has teeth)" "()"
+    else
+      no "T17 teeth: shape regex reverted → '-o/n' should be wrongly accepted" \
+        "'-o/n' still rejected — case 43.2 is THEATER: rc=$rc_t17 out=[$out_t17]"
+    fi
+  else
+    no "T17 teeth: locate shape-tightening regex anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 18 (kit issue #1046 round 2 item 3): re-wrap the resolve call in a
+  # subshell — the exact bug class that lost _KIT_ISSUE_REPO_BAD_VALUE before
+  # — and confirm the degraded message goes back to naming an empty ''.
+  echo "-- teeth T18: re-wrap resolve_kit_issue_repo call in a subshell --"
+  anchor_t18="$(printf 'resolve_kit_issue_repo\n_kit_issue_repo_rc=$?')"
+  if [[ "$sut_content" == *"$anchor_t18"* ]]; then
+    box_t18="$(mkbox teeth-t18-subshell-bug)"
+    retro_t18="$(mk_retro "$box_t18" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t18 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t18="$box_t18/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t18="$(printf '( resolve_kit_issue_repo )\n_kit_issue_repo_rc=$?')"
+    printf '%s\n' "${sut_content/"$anchor_t18"/$reverted_t18}" > "$mutant_t18"
+    bash -n "$mutant_t18" 2>/dev/null || { no "T18 teeth: mutant_t18 failed bash -n syntax check" ""; }
+    out_t18="$(PATH="$box_t18/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
+      "$BASH_BIN" "$mutant_t18" "$retro_t18" 2>&1)"; rc_t18=$?
+    if printf '%s\n' "$out_t18" | grep -q "invalid repo shape ''"; then
+      ok "T18 teeth: resolve call re-subshelled → bad value lost again (case 45 has teeth)" "()"
+    else
+      no "T18 teeth: resolve call re-subshelled → bad value should be lost ('')" \
+        "bad value still survived — case 45 is THEATER: rc=$rc_t18 out=[$out_t18]"
+    fi
+  else
+    no "T18 teeth: locate resolve_kit_issue_repo call-site anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 19 (kit issue #1046 round 2 item 5): revert the F1 reason wording
+  # to the old inaccurate text, so it no longer names "toplevel".
+  echo "-- teeth T19: revert F1 reason wording (item 5) --"
+  anchor_t19='    3) _kit_issue_repo_reason="kit root ($KIT_ROOT) is not the git checkout'"'"'s toplevel — git found an enclosing checkout rooted at ${_KIT_ISSUE_REPO_TOPLEVEL} instead" ;;'
+  if [[ "$sut_content" == *"$anchor_t19"* ]]; then
+    enclosing_parent_t19="$ROOT/teeth-t19-enclosing-parent"
+    mkdir -p "$enclosing_parent_t19"
+    git init -q "$enclosing_parent_t19" >/dev/null 2>&1
+    git -C "$enclosing_parent_t19" remote add origin \
+      "https://github.com/t19-owner/t19-repo.git" >/dev/null 2>&1
+    box_t19="$(mkbox_at "$enclosing_parent_t19" nested-kit)"
+    retro_t19="$(mk_retro "$box_t19" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t19 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t19="$box_t19/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t19='    3) _kit_issue_repo_reason="kit root is not its own git checkout — found an enclosing repo instead at $KIT_ROOT" ;;'
+    printf '%s\n' "${sut_content/"$anchor_t19"/$reverted_t19}" > "$mutant_t19"
+    bash -n "$mutant_t19" 2>/dev/null || { no "T19 teeth: mutant_t19 failed bash -n syntax check" ""; }
+    out_t19="$(PATH="$box_t19/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+      "$BASH_BIN" "$mutant_t19" "$retro_t19" 2>&1)"; rc_t19=$?
+    if ! printf '%s\n' "$out_t19" | grep -qi 'toplevel'; then
+      ok "T19 teeth: F1 reason wording reverted → 'toplevel' no longer present (case 46 has teeth)" "()"
+    else
+      no "T19 teeth: F1 reason wording reverted → 'toplevel' should be gone" \
+        "'toplevel' still present — case 46 is THEATER: rc=$rc_t19 out=[$out_t19]"
+    fi
+  else
+    no "T19 teeth: locate F1 reason-wording anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
 fi  # --prove-teeth
@@ -1294,6 +1459,203 @@ if [ "$RC32" != 0 ] && printf '%s' "$OUT32" | grep -qi 'degraded' \
 else
   no "32 git missing (--apply): degraded names git, exit 1, zero gh calls" \
     "exit=$RC32 gh_called=$gh_called_32 out=[$OUT32]"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #1046 round 2: SSH host aliases, ports, shape tightening, the
+# lost-bad-value subshell bug, and the F1 reason wording.
+# ---------------------------------------------------------------------------
+
+# derive_dry <box> <url>: git-init <box> with origin <url>, run a plain
+# dry-run (no override), and set OUT/RC. Small helper to keep cases 33-42
+# terse — they all share this exact shape.
+derive_dry() {
+  local box="$1" url="$2" tgt="${3:-target-foo}"
+  mk_git_remote "$box" "$url"
+  local retro
+  retro="$(mk_retro "$box" "$tgt" r.md \
+    "<!-- review-status: pending -->" \
+    "| 1 | delta | CLAUDE.md | B1 | new | HIGH |")"
+  OUT="$(PATH="$box/bin:$PATH" "$BASH_BIN" \
+    "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" 2>&1)"; RC=$?
+}
+
+# 33 — ITEM 1: scp form, SSH config Host alias (no user@) → host ALWAYS
+# dropped for scp form, regardless of whether it looks like a github alias.
+box33="$(mkbox case-scp-alias)"
+derive_dry "$box33" "git@github.com-alias:o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "33 ITEM1 scp alias host dropped: 'git@github.com-alias:o/n.git' -> 'o/n'" "(exit $RC)"
+else
+  no "33 ITEM1 scp alias host dropped: 'git@github.com-alias:o/n.git' -> 'o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# 34 — ITEM 1: URL-scheme, "www." alias prefix → dropped.
+box34="$(mkbox case-https-www-alias)"
+derive_dry "$box34" "https://www.github.com/o/n"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "34 ITEM1 https www. alias dropped: 'https://www.github.com/o/n' -> 'o/n'" "(exit $RC)"
+else
+  no "34 ITEM1 https www. alias dropped: 'https://www.github.com/o/n' -> 'o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# 35 — ITEM 1: URL-scheme, SSH config Host alias suffix → dropped.
+box35="$(mkbox case-https-alias-suffix)"
+derive_dry "$box35" "https://github.com-alias/o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "35 ITEM1 https alias-suffix host dropped: 'github.com-alias' -> 'o/n'" "(exit $RC)"
+else
+  no "35 ITEM1 https alias-suffix host dropped: 'github.com-alias' -> 'o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# 36 — ITEM 2: ssh:// scp-style with :port → port stripped, github.com dropped.
+box36="$(mkbox case-ssh-port)"
+derive_dry "$box36" "ssh://git@github.com:22/o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "36 ITEM2 ssh:// with :port: 'ssh://git@github.com:22/o/n.git' -> 'o/n'" "(exit $RC)"
+else
+  no "36 ITEM2 ssh:// with :port: 'ssh://git@github.com:22/o/n.git' -> 'o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# 37 — ITEM 2: https:// with :port → port stripped, github.com dropped.
+box37="$(mkbox case-https-port)"
+derive_dry "$box37" "https://github.com:443/o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "37 ITEM2 https:// with :port: 'https://github.com:443/o/n.git' -> 'o/n'" "(exit $RC)"
+else
+  no "37 ITEM2 https:// with :port: 'https://github.com:443/o/n.git' -> 'o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# 38 — ITEM 2: ssh:// alias host ("ssh.github.com") WITH :port → both the
+# port-strip and the alias check must fire together.
+box38="$(mkbox case-ssh-alias-port)"
+derive_dry "$box38" "ssh://git@ssh.github.com:443/o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "38 ITEM2 ssh alias host with :port: 'ssh.github.com:443' -> 'o/n'" "(exit $RC)"
+else
+  no "38 ITEM2 ssh alias host with :port: 'ssh.github.com:443' -> 'o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# 39 — ITEM 2 (non-github host): a real GHE host with :port keeps the HOST
+# (port stripped, hostname retained) — proves port-stripping isn't
+# github-specific.
+box39="$(mkbox case-ghe-port)"
+derive_dry "$box39" "https://ghe.corp.com:8443/o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: ghe.corp.com/o/n$'; then
+  ok "39 ITEM2 GHE host with :port: 'ghe.corp.com:8443' -> 'ghe.corp.com/o/n'" "(exit $RC)"
+else
+  no "39 ITEM2 GHE host with :port: 'ghe.corp.com:8443' -> 'ghe.corp.com/o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# KEEP regressions (explicit): these three forms must NOT change behaviour.
+# 40 — real origin, scp form, user@.
+box40="$(mkbox case-keep-real-origin)"
+derive_dry "$box40" "git@github.com:angeles725/sdd-investigacion.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: angeles725/sdd-investigacion$'; then
+  ok "40 KEEP real origin scp: 'git@github.com:angeles725/sdd-investigacion.git' unchanged" "(exit $RC)"
+else
+  no "40 KEEP real origin scp: 'git@github.com:angeles725/sdd-investigacion.git' unchanged" "exit=$RC out=[$OUT]"
+fi
+
+# 41 — mixed-case host, underscore/dot in owner/repo.
+box41="$(mkbox case-keep-mixedcase)"
+derive_dry "$box41" "https://GitHub.com/My_Org/Repo.Name.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: My_Org/Repo.Name$'; then
+  ok "41 KEEP mixed-case host + owner/repo: 'GitHub.com/My_Org/Repo.Name.git' -> 'My_Org/Repo.Name'" "(exit $RC)"
+else
+  no "41 KEEP mixed-case host + owner/repo: 'GitHub.com/My_Org/Repo.Name.git' -> 'My_Org/Repo.Name'" "exit=$RC out=[$OUT]"
+fi
+
+# 42 — GHE https, no port, host kept verbatim.
+box42="$(mkbox case-keep-ghe)"
+derive_dry "$box42" "https://ghe.corp.com/o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: ghe.corp.com/o/n$'; then
+  ok "42 KEEP GHE https: 'https://ghe.corp.com/o/n.git' -> 'ghe.corp.com/o/n'" "(exit $RC)"
+else
+  no "42 KEEP GHE https: 'https://ghe.corp.com/o/n.git' -> 'ghe.corp.com/o/n'" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# ITEM 4 — tightened shape: owner/repo/host segments must START with
+# [A-Za-z0-9]; this alone rejects a bare '.'/'..' segment and a leading '-'.
+box_shape="$(mkbox case-item4-shape)"
+mk_gh_stub "$box_shape" nomatch
+retro_shape="$(mk_retro "$box_shape" target-foo r-shape.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | shape delta | CLAUDE.md | B1 | new | HIGH |")"
+shape_bad_values=(
+  "../o/n"
+  "-o/n"
+  "o/.."
+)
+shape_idx=0
+for shape_bad in "${shape_bad_values[@]}"; do
+  shape_idx=$((shape_idx+1))
+  shape_out_dry="$(PATH="$box_shape/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="$shape_bad" \
+    "$BASH_BIN" "$box_shape/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_shape" 2>&1)"; shape_rc_dry=$?
+  : > "$box_shape/bin/gh.log"
+  shape_out_apply="$(PATH="$box_shape/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="$shape_bad" \
+    "$BASH_BIN" "$box_shape/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_shape" --apply 2>&1)"; shape_rc_apply=$?
+  shape_gh_called=0
+  [ -f "$box_shape/bin/gh.log" ] && grep -q 'issue' "$box_shape/bin/gh.log" && shape_gh_called=1
+  if [ "$shape_rc_dry" = 0 ] && printf '%s\n' "$shape_out_dry" | grep -q "^kit-issue-repo: unresolved (invalid repo shape '${shape_bad}'" \
+     && [ "$shape_rc_apply" != 0 ] && printf '%s' "$shape_out_apply" | grep -qi 'degraded' \
+     && [ "$shape_gh_called" = 0 ]; then
+    ok "43.$shape_idx ITEM4 shape-tightening rejects '$shape_bad'" "(dry=$shape_rc_dry apply=$shape_rc_apply)"
+  else
+    no "43.$shape_idx ITEM4 shape-tightening rejects '$shape_bad'" \
+      "dry_rc=$shape_rc_dry dry_out=[$shape_out_dry] apply_rc=$shape_rc_apply apply_out=[$shape_out_apply] gh_called=$shape_gh_called"
+  fi
+done
+
+# 44 — ITEM4 positive control: dots/underscores mid-segment stay ACCEPTED —
+# the tightened regex must reject only a BAD leading character, not dots or
+# underscores in general.
+OUT44="$(PATH="$box_shape/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="My_Org/Repo.Name" \
+  "$BASH_BIN" "$box_shape/research-sdd/toolbelt/stage-retro-issues.sh" "$retro_shape" 2>&1)"; RC44=$?
+if [ "$RC44" = 0 ] && printf '%s\n' "$OUT44" | grep -q '^kit-issue-repo: My_Org/Repo.Name$'; then
+  ok "44 ITEM4 positive control: 'My_Org/Repo.Name' still accepted" "(exit $RC44)"
+else
+  no "44 ITEM4 positive control: 'My_Org/Repo.Name' still accepted" "exit=$RC44 out=[$OUT44]"
+fi
+
+# ---------------------------------------------------------------------------
+# 45 — ITEM 3: the degraded/unresolved message must NAME the bad value, not
+# print an empty 'invalid repo shape '' — proves resolve_kit_issue_repo() is
+# no longer called through a `$(...)` subshell that discards its globals.
+box45="$(mkbox case-item3-bad-value-survives)"
+retro45="$(mk_retro "$box45" target-foo r-item3.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | item3 delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT45="$(PATH="$box45/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
+  "$BASH_BIN" "$box45/research-sdd/toolbelt/stage-retro-issues.sh" "$retro45" 2>&1)"; RC45=$?
+if [ "$RC45" = 0 ] && printf '%s\n' "$OUT45" | grep -q "^kit-issue-repo: unresolved (invalid repo shape 'foo' — expected \[HOST/\]OWNER/REPO)$"; then
+  ok "45 ITEM3 bad value survives the call: message names 'foo', not ''" "(exit $RC45)"
+else
+  no "45 ITEM3 bad value survives the call: message names 'foo', not ''" "exit=$RC45 out=[$OUT45]"
+fi
+
+# ---------------------------------------------------------------------------
+# 46 — ITEM 5: the F1 enclosing-repo reason must say the kit root is not the
+# git TOPLEVEL (not the vaguer/inaccurate "not its own git checkout"), and
+# must name the enclosing checkout's actual root.
+enclosing_parent_46="$ROOT/case-item5-enclosing-parent"
+mkdir -p "$enclosing_parent_46"
+git init -q "$enclosing_parent_46" >/dev/null 2>&1
+git -C "$enclosing_parent_46" remote add origin \
+  "https://github.com/item5-owner/item5-repo.git" >/dev/null 2>&1
+box46="$(mkbox_at "$enclosing_parent_46" nested-kit)"
+retro46="$(mk_retro "$box46" target-foo r-item5.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | item5 delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT46="$(PATH="$box46/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box46/research-sdd/toolbelt/stage-retro-issues.sh" "$retro46" 2>&1)"; RC46=$?
+if [ "$RC46" = 0 ] && printf '%s\n' "$OUT46" | grep -qi 'toplevel' \
+   && printf '%s\n' "$OUT46" | grep -q "$enclosing_parent_46"; then
+  ok "46 ITEM5 F1 reason names 'toplevel' and the enclosing root path" "(exit $RC46)"
+else
+  no "46 ITEM5 F1 reason names 'toplevel' and the enclosing root path" "exit=$RC46 out=[$OUT46]"
 fi
 
 echo "== $pass passed · $fail failed =="
