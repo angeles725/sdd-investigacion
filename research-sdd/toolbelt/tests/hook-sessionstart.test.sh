@@ -118,6 +118,50 @@ else
   fi
 fi
 
+# ── ROTATION: THIS SESSION'S OWN STATE FILES SURVIVE A LONG SESSION (#984) ───────────────────
+
+echo "-- rotation: a >7-day-old session must keep its OWN state files, but an unrelated old one is still purged --"
+_rotd="$TMP/rotation-target"
+mkdir -p "$_rotd/.claude/hooks"
+# Install the hook at its real two-levels-below-target layout ($0-relative _hook_target
+# resolution depends on this — same layout the P8 block below uses).
+cp "$SUT" "$_rotd/.claude/hooks/research-protocol.sh"
+_rot_sid="rot984-current-session"
+_rot_other_sid="rot984-unrelated-old-session"
+_rot_own_session_file="$_rotd/.claude/.rsdd-session-${_rot_sid}"
+_rot_own_blocked_file="$_rotd/.claude/.rsdd-retro-blocked-${_rot_sid}"
+_rot_other_file="$_rotd/.claude/.rsdd-session-${_rot_other_sid}"
+printf 'deadbeef\n' > "$_rot_own_session_file"
+printf '2026-01-01T00:00:00Z\n' > "$_rot_own_blocked_file"
+printf 'deadbeef\n' > "$_rot_other_file"
+# Age all three past the 7-day rotation window — simulates a session that has been running
+# for over a week, alongside an unrelated session's leftover state.
+touch -d '-10 days' "$_rot_own_session_file" "$_rot_own_blocked_file" "$_rot_other_file"
+_rot_json="{\"session_id\":\"${_rot_sid}\"}"
+printf '%s' "$_rot_json" | bash "$_rotd/.claude/hooks/research-protocol.sh" >"$TMP/rot-out.txt" 2>"$TMP/rot-err.txt"
+if [ -s "$_rot_own_session_file" ]; then
+  ok "rotation: current session's own .rsdd-session file survives past the 7-day window"
+else
+  no "rotation: current session's own .rsdd-session file was deleted despite being the active session"
+fi
+if [ -f "$_rot_own_blocked_file" ]; then
+  ok "rotation: current session's own .rsdd-retro-blocked file survives past the 7-day window"
+else
+  no "rotation: current session's own .rsdd-retro-blocked file was deleted despite being the active session"
+fi
+if [ ! -e "$_rot_other_file" ]; then
+  ok "rotation: an unrelated old session's state file is still purged (rotation not disabled entirely)"
+else
+  no "rotation: unrelated old session's state file was NOT purged — rotation broken, not just narrowed"
+fi
+# The recorded sha under this session id must be preserved verbatim (write-once): the hook must
+# not have overwritten it just because the file was old.
+if grep -qF 'deadbeef' "$_rot_own_session_file"; then
+  ok "rotation: pre-existing sha under this session id is preserved (write-once still holds)"
+else
+  no "rotation: pre-existing sha under this session id was NOT preserved"
+fi
+
 # ── P8 PLACEHOLDER CLEANLINESS ───────────────────────────────────────────────────────────────
 
 echo "-- p8: hook installed from template triggers only per-target placeholders --"
@@ -177,6 +221,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
+  fi
+
+  echo "-- teeth M4: rotation self-exclusion check has teeth (#984) --"
+  _m4d="$TMP/rotation-mutant"
+  mkdir -p "$_m4d/.claude/hooks"
+  _m4="$_m4d/.claude/hooks/research-protocol.sh"
+  cp "$SUT" "$_m4"
+  # Mutant: drop the ENTIRE `! -name ... ! -name ...` self-exclusion line from the rotation
+  # find, reverting to the pre-fix behaviour that purges a session's own state files too. Must
+  # delete the whole line (not just its text) — leaving a blank line in its place would snap the
+  # `\`-continued find command in two, breaking `-delete` off into an invalid standalone
+  # "command", so the find would silently degrade to its default -print action instead of
+  # actually reverting to the pre-fix delete behaviour (caught empirically: see PR body).
+  sed -i '/! -name "\.rsdd-session-\${_session_id}"/d' "$_m4"
+  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4"; then
+    no "teeth M4: could not build mutant (self-exclusion clause still present after sed)"
+  else
+    _m4_sid="m4-current-session"
+    _m4_own="$_m4d/.claude/.rsdd-session-${_m4_sid}"
+    printf 'deadbeef\n' > "$_m4_own"
+    touch -d '-10 days' "$_m4_own"
+    printf '{"session_id":"%s"}' "$_m4_sid" | bash "$_m4" >/dev/null 2>&1
+    if [ ! -e "$_m4_own" ]; then
+      ok "teeth M4: mutant deletes its own session file past 7 days (RED as expected)"
+    else
+      no "teeth M4: mutant did NOT delete the session file — self-exclusion check has no teeth"
+    fi
   fi
 
   echo "-- teeth M3: P8 <KIT> check has teeth --"

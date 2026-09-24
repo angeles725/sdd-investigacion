@@ -15,12 +15,20 @@ if [ -z "$retro" ] || [ ! -f "$retro" ]; then
   exit 1
 fi
 
-# Kit repo root = two dirs up from toolbelt/.
-KIT_REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+# Kit repo root = two dirs up from toolbelt/. `cd -P` resolves PHYSICALLY, following any
+# symlink in the path — plain `cd` (no -P) tracks the LOGICAL path instead, so when toolbelt/
+# itself is a symlink (e.g. the profile installer's
+# <config_root>/research-sdd/profile/<name>/toolbelt -> <real kit>/research-sdd/toolbelt),
+# the trailing `..` components walk back up through the SYMLINK'S location on the logical
+# path, not through the real kit tree the symlink points at — landing on the profile
+# directory instead of the kit repo root. `pwd` needs no -P here: once `cd -P` has landed in
+# the physical directory, $PWD is already the real path.
+KIT_REPO="$(cd -P "$(dirname "$0")/../.." && pwd)"
 
 # Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and
 # stage-retro.sh both source it, so the leading-comment-block scan can never drift between them).
-LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+# Same symlink hazard as KIT_REPO above — resolve physically.
+LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/retro-status.sh"
 if [ ! -f "$LIB" ]; then
   echo "stage-retro: cannot find helper $LIB" >&2
   exit 1
@@ -83,26 +91,17 @@ echo ""
 git -C "$KIT_REPO" checkout -q main || { echo "cannot checkout main" >&2; exit 4; }
 git -C "$KIT_REPO" fetch -q origin || { echo "degraded: git fetch origin failed — cannot verify remote state; refusing to branch from a possibly stale base." >&2; exit 6; }
 # Do NOT pull into the shared checkout's main (CLAUDE.md §3 / §12.4) — the new branch is
-# created from origin/main directly below, so local main does not need to advance.
-
-# Guard: main must be in sync with origin/main. Un-pushed local commits on main become
-# part of this branch's diff, so the PR's squash-merge folds them into the retro commit —
-# mixing unrelated history (lesson: PR #1 folded the adversarial-verify commits into the
-# niagara retro squash). Push them to main first, or override with ALLOW_UNPUSHED_BASE=1.
-unpushed=$(git -C "$KIT_REPO" rev-list --count origin/main..main 2>/dev/null || echo 0)
-if [ "${unpushed:-0}" -gt 0 ] && [ "${ALLOW_UNPUSHED_BASE:-}" != "1" ]; then
-  echo "main has $unpushed local commit(s) not on origin/main — they would be folded into" >&2
-  echo "this retro's PR squash (mixed history). Push them first:" >&2
-  echo "    git -C \"$KIT_REPO\" push origin main" >&2
-  echo "...or re-run with ALLOW_UNPUSHED_BASE=1 if that base is intentional." >&2
-  exit 5
-fi
+# created from origin/main directly below, so local main does not need to advance. This is
+# also why there is no "local main must be in sync with origin/main" guard here any more: the
+# retro branch never starts from local main (it always branches from origin/main, below), so
+# unpushed commits sitting on local main cannot bleed into it.
 
 if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
   echo "branch $branch already exists — checking it out." ; git -C "$KIT_REPO" checkout -q "$branch"
 else
   # --no-track: never set origin/main as upstream (a bare `git push` could otherwise target main).
-  git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main
+  git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main \
+    || { echo "cannot create branch $branch from origin/main" >&2; exit 5; }
 fi
 
 echo ">> on branch $branch (from origin/main). Proposed deltas to review/apply:"

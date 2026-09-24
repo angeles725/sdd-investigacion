@@ -17,6 +17,19 @@ _session_id=$(printf '%s' "$_hook_stdin" | jq -r '.session_id // empty' 2>/dev/n
 # Write only when missing/empty so that compact/clear/resume (all trigger SessionStart
 # with matcher "") cannot overwrite the sha recorded at the true session start.
 # Installed copies must be re-initialized from this template to pick up this fix.
+#
+# Very long sessions / reused session ids (documented, not silently assumed — see rotation
+# below and #984):
+#   - A single session running longer than the 7-day rotation window must not have ITS OWN
+#     state files deleted out from under it mid-session — that would silently flip retro-gate
+#     into degraded mode. The rotation below excludes this session's own files by name.
+#   - If a session id were ever reused across two genuinely different sessions (this hook has
+#     no way to detect that — it cannot distinguish "resuming the same session" from "a new
+#     session that happens to reuse an old id"), write-once semantics keep the FIRST sha
+#     recorded under that id, which would then be stale for the second, unrelated session.
+#     This is an accepted tradeoff: fixing it would require extra state (e.g. a session-start
+#     timestamp or a monotonically-increasing counter) to tell "resume" apart from "reuse",
+#     which is out of scope here. Not currently known to happen in practice.
 _hook_target="$(cd "$(dirname "$0")/../.." && pwd)"
 if [ -n "$_session_id" ]; then
   _rsdd_file="$_hook_target/.claude/.rsdd-session-${_session_id}"
@@ -27,9 +40,13 @@ if [ -n "$_session_id" ]; then
       printf '%s\n' "$_sha" > "$_rsdd_file"
     fi
   fi
-  # Rotate stale session state files (older than 7 days) to prevent accumulation
+  # Rotate stale session state files (older than 7 days) to prevent accumulation. Exclude THIS
+  # session's own files by name: a session that has been running longer than 7 days must keep
+  # its own session-start sha and block-once marker, or retro-gate.sh would silently fall back
+  # to degraded (mtime) mode mid-session.
   find "$_hook_target/.claude" -maxdepth 1 \
     \( -name '.rsdd-session-*' -o -name '.rsdd-retro-blocked-*' \) \
+    ! -name ".rsdd-session-${_session_id}" ! -name ".rsdd-retro-blocked-${_session_id}" \
     -mtime +7 -delete 2>/dev/null || true
   unset _rsdd_file _sha
 fi

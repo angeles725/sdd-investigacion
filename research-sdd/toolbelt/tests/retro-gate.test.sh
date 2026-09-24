@@ -862,6 +862,32 @@ printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#957 T-git-mv: renamed retro (git mv) → still blocks (rename=R not A in diff)" \
   || no "#957 T-git-mv: renamed retro → should block but allowed — rename bypass (pre-fix RED)"
 
+# T-git-mv-diff-renames-false-984: same rename as T-git-mv above, but the TARGET repo has
+# `diff.renames=false` configured. Without rename detection forced on, `git diff
+# --diff-filter=A` (no -M) does NOT see the rename as R — with detection off, git reports the
+# move as a plain D+A pair, and the Added half of that pair is indistinguishable from a
+# genuinely new retro, so pre-fix the gate wrongly ALLOWS. Post-fix, -M forces rename
+# detection regardless of diff.renames, so this repo's config must not change the outcome from
+# T-git-mv above: still BLOCK. RED on pre-fix SUT (no -M): allows.
+T_gmvdr="$ROOT/t-gmvdr984"; mkgit "$T_gmvdr"; SID_gmvdr="gmvdr984-sess"
+git -C "$T_gmvdr" config diff.renames false
+# Step 1: commit old retro before session start
+mkretro_committed "$T_gmvdr" "2026-01-10-old-retro.md" "2026-01-10T00:00:00"
+# Step 2: record session sha AFTER old retro commit
+mksessionfile "$T_gmvdr" "$SID_gmvdr" "202609050800"
+# Step 3: commit block
+mkblock "$T_gmvdr" "niagara-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$T_gmvdr/niagara-block1.md"
+# Step 4: rename old retro, commit rename — new name has recent mtime (now)
+git -C "$T_gmvdr" mv retros/2026-01-10-old-retro.md retros/2026-09-23-renamed.md
+GIT_AUTHOR_DATE="2026-09-23T12:00:00" GIT_COMMITTER_DATE="2026-09-23T12:00:00" \
+  git -C "$T_gmvdr" commit -q -m "rename retro"
+_j_gmvdr="$(mkjson "$SID_gmvdr" "false")"
+run_gate "$T_gmvdr" "$_j_gmvdr"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#984 T-git-mv-diff-renames-false: renamed retro under diff.renames=false → still blocks (-M forces rename detection)" \
+  || no "#984 T-git-mv-diff-renames-false: renamed retro under diff.renames=false → should block but allowed — config-dependent rename bypass (pre-fix RED)"
+
 # T-new-committed-957: genuinely new retro committed AFTER the block →
 # git diff --diff-filter=A <session_sha>..HEAD shows it; gate must allow.
 T_new957="$ROOT/t-newc957"; mkgit "$T_new957"; SID_new957="newc957-sess"
@@ -1712,6 +1738,48 @@ run_mutant "$M15_path" "$TM15" "$_jm15"
 [ -z "$OUT" ] \
   && ok "TOOTH 15 diff-filter-A-drop: mutant allows git-mv'd retro (--diff-filter=A removed — RED as expected)" \
   || no "TOOTH 15 diff-filter-A-drop: mutant should have allowed (renamed retro admitted) but blocked — tooth ineffective"
+
+# ── TOOTH 16: find-renames-drop — mutant drops the explicit -M so rename detection depends on
+#    the target repo's ambient diff.renames config again (#984) ────────────────────────────────
+# Proves -M is load-bearing on a repo that explicitly sets diff.renames=false: with -M removed,
+# git no longer forces rename detection, so the T-git-mv-diff-renames-false fixture's `git mv`
+# reports as a plain D+A pair instead of R — the Added half qualifies as a "new" retro — and the
+# gate wrongly ALLOWS. Normal SUT: -M forces R regardless of config → BLOCK (case #984 above).
+# Mutant (-M removed): falls back to the repo's diff.renames=false → D+A → ALLOW (RED).
+# cite: SENTINEL-RETRO-SESSION-START/END (anchors the mutation target; never use line numbers)
+M16_path="$MUT_KIT/toolbelt/mutant-retro-find-renames.sh"
+awk '
+  /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
+  /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
+  in_s && /--diff-filter=A -M/ { gsub(/--diff-filter=A -M/,"--diff-filter=A"); print; next }
+  { print }
+' "$SUT" > "$M16_path"; chmod +x "$M16_path"
+# Sabotage check: renamed sentinel → awk produces no diff (same technique as TOOTH 15)
+_M16_sab="$MUT_KIT/toolbelt/mutant-retro-find-renames-sab.sh"
+awk '{ gsub(/SENTINEL-RETRO-SESSION-START/,"SENTINEL-RETRO-SESSION-XSTART"); print }' "$SUT" \
+  > "$_M16_sab"; chmod +x "$_M16_sab"
+awk '
+  /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
+  /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
+  in_s && /--diff-filter=A -M/ { gsub(/--diff-filter=A -M/,"--diff-filter=A"); print; next }
+  { print }
+' "$_M16_sab" > "$MUT_KIT/toolbelt/mutant-retro-find-renames-sab2.sh"
+if diff -q "$_M16_sab" "$MUT_KIT/toolbelt/mutant-retro-find-renames-sab2.sh" > /dev/null 2>&1; then
+  ok "TOOTH 16 sabotage: renamed sentinel → no diff (tooth would fail — as expected)"
+else
+  no "TOOTH 16 sabotage: sabotage check produced unexpected diff — sentinel may be wrong"
+fi
+# Use the T-git-mv-diff-renames-false fixture (diff.renames=false pinned); clear any block-once
+# state left over from the earlier (blocking) run of this fixture.
+TM16="$T_gmvdr"
+_jm16="$(mkjson "$SID_gmvdr" "false")"
+rm -f "$TM16/.claude/.rsdd-retro-blocked-${SID_gmvdr}" 2>/dev/null || true
+run_mutant "$M16_path" "$TM16" "$_jm16"
+# Mutant drops -M: on a diff.renames=false repo the rename reports as D+A → treated as
+# qualifying → ALLOW (RED)
+[ -z "$OUT" ] \
+  && ok "TOOTH 16 find-renames-drop: mutant allows git-mv'd retro under diff.renames=false (-M removed — RED as expected)" \
+  || no "TOOTH 16 find-renames-drop: mutant should have allowed (renamed retro admitted) but blocked — tooth ineffective"
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
 if [ -n "$_GIT_ROOT_FOR_TEETH" ]; then

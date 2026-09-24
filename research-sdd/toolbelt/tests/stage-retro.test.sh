@@ -54,6 +54,13 @@ mkrepo() {
   git -C "$repo" init -q -b main
   git -C "$repo" config user.email t@example.com
   git -C "$repo" config user.name  tester
+  # Pin branch.autoSetupMerge so case 10b (and its teeth mutant) do not depend on the host's
+  # ambient git config: case 10b asserts the new branch has NO upstream because --no-track was
+  # passed; that assertion is only meaningful when a checkout WITHOUT --no-track would otherwise
+  # set an upstream. autoSetupMerge's git-wide default is "true" (upstream set on a tracking
+  # start-point like origin/main), but a host or CI image can override it globally. Pinning it
+  # here makes both case 10b and its teeth mutant deterministic regardless of that ambient value.
+  git -C "$repo" config branch.autoSetupMerge true
   git -C "$repo" add -A
   git -C "$repo" commit -qm init
   # Set up a local bare remote so git fetch origin succeeds in the fixed SUT.
@@ -346,6 +353,51 @@ else
   no "10b new branch has no upstream (does not track origin/main)" "exit=$RC upstream=[$upstream10]"
 fi
 
+# 11 — CHECKOUT -b FAILURE IS CHECKED (#976): if `git checkout -q --no-track -b "$branch" origin/main`
+#      itself fails (e.g. a ref-path collision under refs/heads/), the script must abort non-zero with
+#      an actionable message and must NOT print the "on branch ... proposed deltas" banner — that banner
+#      would falsely claim the branch was created when it was not. Pre-fix, the unchecked checkout's
+#      failure was swallowed (the script has no `set -e`) and execution fell through to print the
+#      banner and the full "next steps" regardless of whether the branch actually exists.
+repo="$(mkrepo checkoutb-fail real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+# Force `git checkout -b retro/targetA-r1` to fail: pre-create a branch UNDER that exact ref path
+# (refs/heads/retro/targetA-r1/blocker) so git's loose-ref directory/file collision fires — git
+# cannot create a ref at a path that is already a directory prefix of another ref.
+git -C "$repo" branch -q "retro/targetA-r1/blocker"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" != 0 ] \
+   && ! grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$OUT" \
+   && [ -z "$(git -C "$repo" rev-parse --verify refs/heads/retro/targetA-r1 2>/dev/null)" ]; then
+  ok "11 checkout -b failure is checked → non-zero exit, no false 'on branch' banner" "(exit $RC)"
+else
+  no "11 checkout -b failure is checked → non-zero exit, no false 'on branch' banner" "exit=$RC out=[$OUT]"
+fi
+
+# 12 — SYMLINKED TOOLBELT DIR STILL RESOLVES THE REAL KIT REPO. The #1024 profile installer
+#      creates <config_root>/research-sdd/profile/<name>/toolbelt as a SYMLINK to the real
+#      kit's research-sdd/toolbelt/. KIT_REPO and LIB are derived from `dirname "$0")/../..`
+#      (or `/..`): plain `cd` (no -P) tracks bash's LOGICAL $PWD, so the trailing `..` walks
+#      back up through the SYMLINK's own location (.../profile) rather than through the real
+#      kit tree the symlink points at — landing on the profile dir, which is not a git repo at
+#      all. `cd -P` resolves physically, following the symlink, and must land back on the real
+#      kit repo regardless of which path the script was invoked through.
+repo="$(mkrepo symlink-real real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+_symroot="$ROOT/symlink-profile-root"
+mkdir -p "$_symroot/research-sdd/profile/myprofile"
+ln -s "$repo/research-sdd/toolbelt" "$_symroot/research-sdd/profile/myprofile/toolbelt"
+symOUT="$("$BASH_BIN" "$_symroot/research-sdd/profile/myprofile/toolbelt/stage-retro.sh" \
+  "$repo/targetA/retros/r1.md" 2>&1)"; symRC=$?
+if [ "$symRC" = 0 ] \
+   && grep -q 'staging retro for supervised review' <<<"$symOUT" \
+   && [ "$(branches "$repo")" = "retro/targetA-r1" ]; then
+  ok "12 invoked through a symlinked toolbelt dir (#1024 profile) still resolves the real kit repo" "(exit $symRC)"
+else
+  no "12 invoked through a symlinked toolbelt dir (#1024 profile) still resolves the real kit repo" \
+     "exit=$symRC branches=[$(branches "$repo")] out=[$symOUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its
@@ -538,6 +590,68 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         no "teeth: --no-track removed → branch tracks origin/main" "upstream=[$up_t]"
       fi
+    fi
+  fi
+
+  # Teeth for case 11: drop the `|| { echo …; exit 5; }` clause on the checkout -b call →
+  # the same ref-path collision that made case 11's checkout fail must now be swallowed: the
+  # script falls through, prints the "on branch ... proposed deltas" banner, and exits 0 —
+  # even though no retro/<slug> branch was actually created (checkout -b itself still failed;
+  # only the SCRIPT's reaction to that failure changed).
+  echo "-- teeth: drop checkout -b error check, expect ref-collision failure to be swallowed --"
+  anchor_cb='git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main \
+    || { echo "cannot create branch $branch from origin/main" >&2; exit 5; }'
+  if [[ "$content" != *"$anchor_cb"* ]]; then
+    no "teeth: locate checkout -b error check in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-checkoutb-fail real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    git -C "$repo" branch -q "retro/targetA-r1/blocker"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    neutered_cb='git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main'
+    printf '%s\n' "${content/"$anchor_cb"/$neutered_cb}" > "$mutant"
+    # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
+    # precondition holds (same pattern as the other mutants above).
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-checkoutb
+    git -C "$repo" push -q origin main 2>/dev/null
+    out_cb="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rc_cb=$?
+    if [ "$rc_cb" = 0 ] && grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$out_cb"; then
+      ok "teeth: checkout -b error check removed → failure swallowed, false banner printed (case 11 has teeth)" "()"
+    else
+      no "teeth: checkout -b error check removed → failure swallowed, false banner printed" \
+         "expected exit 0 + banner; got exit=$rc_cb out=[$out_cb]"
+    fi
+  fi
+
+  # Teeth for case 12: drop `-P` from BOTH `cd -P` resolutions → invoked through a symlinked
+  # toolbelt dir (the #1024 profile-installer layout), KIT_REPO/LIB resolve to the LOGICAL path
+  # (the profile dir) instead of the real kit repo, so the script can no longer find a git repo
+  # there at all and must fail — proving `-P` is what makes case 12 work.
+  echo "-- teeth: drop -P from both cd resolutions, expect symlinked invocation to fail --"
+  anchor_p1='KIT_REPO="$(cd -P "$(dirname "$0")/../.." && pwd)"'
+  anchor_p2='LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/retro-status.sh"'
+  if [[ "$content" != *"$anchor_p1"* ]] || [[ "$content" != *"$anchor_p2"* ]]; then
+    no "teeth: locate -P resolutions in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-symlink real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    neutered_p1='KIT_REPO="$(cd "$(dirname "$0")/../.." && pwd)"'
+    neutered_p2='LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"'
+    mutated="${content/"$anchor_p1"/$neutered_p1}"
+    mutated="${mutated/"$anchor_p2"/$neutered_p2}"
+    printf '%s\n' "$mutated" > "$repo/research-sdd/toolbelt/stage-retro.sh"
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-nophysical
+    git -C "$repo" push -q origin main 2>/dev/null
+    _symroot_t="$ROOT/teeth-symlink-profile-root"
+    mkdir -p "$_symroot_t/research-sdd/profile/myprofile"
+    ln -s "$repo/research-sdd/toolbelt" "$_symroot_t/research-sdd/profile/myprofile/toolbelt"
+    outm_sym="$("$BASH_BIN" "$_symroot_t/research-sdd/profile/myprofile/toolbelt/stage-retro.sh" \
+      "$repo/targetA/retros/r1.md" 2>&1)"; rcm_sym=$?
+    if [ "$rcm_sym" != 0 ] && [ -z "$(branches "$repo")" ]; then
+      ok "teeth: -P dropped → symlinked invocation fails to find the real kit repo (case 12 has teeth)" "()"
+    else
+      no "teeth: -P dropped → symlinked invocation should fail but did not" \
+         "exit=$rcm_sym branches=[$(branches "$repo")] out=[$outm_sym]"
     fi
   fi
 fi
