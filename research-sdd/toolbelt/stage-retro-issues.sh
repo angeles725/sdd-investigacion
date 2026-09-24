@@ -18,19 +18,32 @@
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
 #
-# Kit issue repo (kit issue #1037): delta issues MUST land in the KIT repo, never
-# whatever repo the process cwd happens to resolve to. Under the retro-gate.sh Stop
-# hook, cwd is the TARGET directory (a foreign repo, or no repo at all) — an
-# unqualified `gh issue list`/`gh issue create` would silently resolve the WRONG
-# repo, or fail outright. Every gh call below carries an explicit --repo, resolved
-# ONCE, in this order:
-#   1. RESEARCH_SDD_ISSUE_REPO env override (owner/name) — wins unconditionally.
-#   2. `git -C "$KIT_ROOT" remote get-url origin`, normalized (https, ssh://, and
-#      scp-like git@host:owner/name forms all supported), trailing `.git` stripped.
-# Dry-run prints the resolved value as `kit-issue-repo: <owner>/<name>` (or
-# `kit-issue-repo: unresolved`) — dry-run works either way. --apply refuses (typed
-# `degraded:` line, exit 1) BEFORE any gh call when the repo cannot be resolved —
-# it never falls back to the cwd/target repo.
+# Kit issue repo (kit issue #1037; hardened by #1045): delta issues MUST land in
+# the KIT repo, never whatever repo the process cwd happens to resolve to. Under
+# the retro-gate.sh Stop hook, cwd is the TARGET directory (a foreign repo, or no
+# repo at all) — an unqualified `gh issue list`/`gh issue create` would silently
+# resolve the WRONG repo, or fail outright. Every gh call below carries an
+# explicit --repo, resolved ONCE, in this order:
+#   1. RESEARCH_SDD_ISSUE_REPO env override (owner/name) — wins unconditionally,
+#      but is STILL shape-validated (F2) before use.
+#   2. `git -C "$KIT_ROOT" remote get-url origin`, but ONLY when KIT_ROOT is
+#      ITSELF the git checkout root (F1: physical `rev-parse --show-toplevel`
+#      compared against KIT_ROOT) — never an enclosing repo that git's own
+#      upward search happens to find when KIT_ROOT is not a checkout at all.
+#      The URL is normalized (https, ssh://, scp-like git@host:owner/name AND
+#      bare host:owner/name forms; trailing `/` stripped BEFORE the trailing
+#      `.git` suffix — F3) and, for a non-github.com host, the host is KEPT as
+#      `HOST/owner/repo` (gh accepts that form) rather than dropped.
+# The final value (override or derived) is validated against
+# `^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$` (F2) — anything else
+# (a bare word, a value with spaces, `owner/repo/extra/junk`, a `file://` URL
+# that leaked through unnormalized, …) is unresolved, never passed to gh.
+# Dry-run prints the resolved value as `kit-issue-repo: <owner>/<name>` or
+# `kit-issue-repo: unresolved (<reason>)` — dry-run works either way, and the
+# reason names what actually blocked resolution (missing git, an enclosing
+# repo, an invalid shape, no override and no remote). --apply refuses (typed
+# `degraded:` line naming the same reason, exit 1) BEFORE any gh call when the
+# repo cannot be resolved — it never falls back to the cwd/target repo.
 #
 # Exit codes:
 #   0   dry-run success, or --apply with 0 create failures
@@ -95,42 +108,138 @@ KIT_ROOT="$(cd -P "$_SCRIPT_DIR/../.." && pwd -P)"
 TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
 
 # ---------------------------------------------------------------------------
-# Kit issue repo resolution (kit issue #1037) — see header comment for the
-# resolution order and the reason every gh call below must carry --repo.
-#
-# Prints "owner/name" on stdout, returns 0, on success. Returns 1 (nothing on
-# stdout) when neither source yields a usable value; never exits the process —
-# callers decide the degraded/unresolved behaviour.
-resolve_kit_issue_repo() {
-  if [ -n "${RESEARCH_SDD_ISSUE_REPO:-}" ]; then
-    printf '%s' "$RESEARCH_SDD_ISSUE_REPO"
+# Kit issue repo resolution (kit issue #1037; hardened by #1045) — see header
+# comment for the resolution order and the reason every gh call below must
+# carry --repo.
+
+# _KIT_ISSUE_REPO_SHAPE_RE (F2): the only shape ever handed to `gh --repo`.
+# The optional leading group is a non-github.com HOST (kept for GHE, F3); gh
+# itself accepts `HOST/OWNER/REPO`. Anything else — a bare word, embedded
+# whitespace, more than one extra path segment, a leaked URL scheme/colon —
+# fails this and is unresolved, never passed to gh.
+_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+
+# _validate_repo_shape <value>: returns 0 when <value> matches the
+# "[HOST/]owner/repo" shape above, 1 otherwise. No output, no side effects.
+_validate_repo_shape() {
+  [[ "$1" =~ $_KIT_ISSUE_REPO_SHAPE_RE ]]
+}
+
+# _normalize_git_remote_url <url> (F3): prints the normalized "[HOST/]owner/repo"
+# candidate for a git remote URL. Handles:
+#   https://github.com/o/n(.git)?(/)?     -> o/n            (github.com host dropped)
+#   https://ghe.example.com/o/n.git       -> ghe.example.com/o/n  (non-github host KEPT)
+#   ssh://git@github.com/o/n.git          -> o/n
+#   git@github.com:o/n(.git)?             -> o/n            (scp form, user@)
+#   github.com:o/n                        -> o/n            (scp form, NO user@)
+# Trailing slash is stripped BEFORE the trailing .git suffix, so a URL like
+# "o/n.git/" normalizes to "o/n", not the stray "o/n.git" a naive single-pass
+# strip would leave behind. No shape validation here — callers run
+# _validate_repo_shape on the result; an unrecognized scheme (e.g. file://) is
+# returned unchanged and reliably fails that validation instead of being
+# guessed at.
+_normalize_git_remote_url() {
+  local url="$1" host rest
+  if [[ "$url" =~ ^(https?|ssh)://([^/@[:space:]]+@)?([^/]+)/(.+)$ ]]; then
+    host="${BASH_REMATCH[3]}"
+    rest="${BASH_REMATCH[4]}"
+  elif [[ "$url" =~ ^([^/@:[:space:]]+@)?([^/@:[:space:]]+):([^/].*)$ ]]; then
+    # The "next char after ':' is not '/'" guard is what git itself uses to
+    # disambiguate scp-like syntax from a URL scheme: without it, an
+    # unrecognized scheme like "file:///srv/git/n.git" would mis-parse its
+    # own scheme name ("file") as an scp host. Falling through to `else`
+    # instead leaves it unchanged, which then reliably fails shape validation.
+    host="${BASH_REMATCH[2]}"
+    rest="${BASH_REMATCH[3]}"
+  else
+    printf '%s' "$url"
     return 0
   fi
-  local _url _repo
+  rest="${rest%/}"
+  rest="${rest%.git}"
+  rest="${rest%/}"
+  if [ "$(printf '%s' "$host" | tr 'A-Z' 'a-z')" = "github.com" ]; then
+    printf '%s' "$rest"
+  else
+    printf '%s/%s' "$host" "$rest"
+  fi
+}
+
+# Set by resolve_kit_issue_repo() only on a shape-validation failure (F2), so
+# callers can name the exact offending value in their degraded/unresolved
+# message without re-deriving it.
+_KIT_ISSUE_REPO_BAD_VALUE=""
+
+# resolve_kit_issue_repo: prints "[HOST/]owner/name" on stdout and returns 0 on
+# success. On failure prints nothing and returns a TYPED code so callers can
+# report WHY, not just that it failed (anti-silent-zero, §7):
+#   1  no override and no resolvable git remote (or empty remote URL)
+#   2  git is not on PATH
+#   3  F1: KIT_ROOT is not itself a git checkout — a git remote walk landed in
+#      an ENCLOSING repo instead; never used
+#   4  F2: the override or derived value does not match the required shape
+#      (_KIT_ISSUE_REPO_BAD_VALUE names the offending value)
+# Never exits the process — callers decide the degraded/unresolved behaviour.
+resolve_kit_issue_repo() {
+  _KIT_ISSUE_REPO_BAD_VALUE=""
+  if [ -n "${RESEARCH_SDD_ISSUE_REPO:-}" ]; then
+    if _validate_repo_shape "$RESEARCH_SDD_ISSUE_REPO"; then
+      printf '%s' "$RESEARCH_SDD_ISSUE_REPO"
+      return 0
+    fi
+    _KIT_ISSUE_REPO_BAD_VALUE="$RESEARCH_SDD_ISSUE_REPO"
+    return 4
+  fi
+  command -v git >/dev/null 2>&1 || return 2
+  local _top _top_phys _kit_phys _url _repo
+  _top="$(git -C "$KIT_ROOT" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  [ -n "$_top" ] || return 1
+  # STAGE_RETRO_ISSUES_F1_TOPLEVEL_CHECK (kit issue #1045 F1): KIT_ROOT must BE
+  # the checkout root, physically — never an enclosing repo that git's own
+  # upward remote search happens to find when KIT_ROOT holds no .git of its own.
+  _top_phys="$(cd -P "$_top" 2>/dev/null && pwd -P)" || return 1
+  _kit_phys="$(cd -P "$KIT_ROOT" 2>/dev/null && pwd -P)" || return 1
+  [ "$_top_phys" = "$_kit_phys" ] || return 3
   _url="$(git -C "$KIT_ROOT" remote get-url origin 2>/dev/null)" || return 1
   [ -n "$_url" ] || return 1
-  _repo="$(printf '%s' "$_url" | sed -E \
-    -e 's#^(https?|ssh)://([^/@]+@)?[^/]+/##' \
-    -e 's#^[^@]+@[^:]+:##' \
-    -e 's#\.git$##' \
-    -e 's#/+$##')"
-  case "$_repo" in
-    */*) : ;;
-    *) return 1 ;;
-  esac
+  _repo="$(_normalize_git_remote_url "$_url")"
+  # STAGE_RETRO_ISSUES_F2_SHAPE_CHECK (kit issue #1045 F2): the derived value
+  # must also match the required shape — a URL scheme/host our normalizer
+  # doesn't recognize (e.g. file://) must not pass through to gh unchecked.
+  if ! _validate_repo_shape "$_repo"; then
+    _KIT_ISSUE_REPO_BAD_VALUE="$_repo"
+    return 4
+  fi
   printf '%s' "$_repo"
   return 0
 }
 
-KIT_ISSUE_REPO="$(resolve_kit_issue_repo)" || KIT_ISSUE_REPO=""
+KIT_ISSUE_REPO=""
+_kit_issue_repo_rc=0
+KIT_ISSUE_REPO="$(resolve_kit_issue_repo)" || _kit_issue_repo_rc=$?
+
+_kit_issue_repo_reason=""
+if [ -z "$KIT_ISSUE_REPO" ]; then
+  case "$_kit_issue_repo_rc" in
+    2) _kit_issue_repo_reason="git not found on PATH — install git before resolving the kit issue repo" ;;
+    3) _kit_issue_repo_reason="kit root is not its own git checkout — found an enclosing repo instead at $KIT_ROOT" ;;
+    4) _kit_issue_repo_reason="invalid repo shape '${_KIT_ISSUE_REPO_BAD_VALUE}' — expected [HOST/]OWNER/REPO" ;;
+    *) _kit_issue_repo_reason="no RESEARCH_SDD_ISSUE_REPO override and no resolvable git remote 'origin' at $KIT_ROOT" ;;
+  esac
+fi
+
 # STAGE_RETRO_ISSUES_REPO_GUARD: anchor for T9 teeth proof — refuses to create
 # against an unresolved kit issue repo rather than falling back to the cwd's repo.
 if [ $apply -eq 1 ] && [ -z "$KIT_ISSUE_REPO" ]; then
-  echo "degraded: cannot resolve kit issue repo — set RESEARCH_SDD_ISSUE_REPO=<owner>/<name>, or configure a git remote 'origin' at $KIT_ROOT — refusing to create issues against an unresolved/foreign repo" >&2
+  echo "degraded: cannot resolve kit issue repo ($_kit_issue_repo_reason) — set RESEARCH_SDD_ISSUE_REPO=<owner>/<name>, or configure a git remote 'origin' at $KIT_ROOT — refusing to create issues against an unresolved/foreign repo" >&2
   exit 1
 fi
 if [ $apply -eq 0 ]; then
-  printf 'kit-issue-repo: %s\n' "${KIT_ISSUE_REPO:-unresolved}"
+  if [ -n "$KIT_ISSUE_REPO" ]; then
+    printf 'kit-issue-repo: %s\n' "$KIT_ISSUE_REPO"
+  else
+    printf 'kit-issue-repo: unresolved (%s)\n' "$_kit_issue_repo_reason"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

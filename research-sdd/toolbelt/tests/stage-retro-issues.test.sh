@@ -50,6 +50,29 @@ mk_hermetic_bin() {
   # No gh symlink — that is the point of this helper
 }
 
+# mk_no_git_bin <box>: populate $box/nogit-bin with symlinks to essential
+# coreutils AND $box/bin/gh (if it exists) but WITHOUT git — used for the
+# "git missing" degraded-message tests (kit issue #1045). Unlike
+# mk_hermetic_bin, gh IS included here so the --apply gh-probe passes and the
+# test actually exercises the git-missing branch of kit-issue-repo resolution,
+# not the earlier gh-missing probe.
+mk_no_git_bin() {
+  local box="$1"
+  mkdir -p "$box/nogit-bin"
+  ln -sf "$BASH_BIN"      "$box/nogit-bin/bash"
+  ln -sf "$_AWK_BIN"      "$box/nogit-bin/awk"
+  ln -sf "$_GREP_BIN"     "$box/nogit-bin/grep"
+  ln -sf "$_SED_BIN"      "$box/nogit-bin/sed"
+  ln -sf "$_TR_BIN"       "$box/nogit-bin/tr"
+  ln -sf "$_DIRNAME_BIN"  "$box/nogit-bin/dirname"
+  ln -sf "$_BASENAME_BIN" "$box/nogit-bin/basename"
+  ln -sf "$_HEAD_BIN"     "$box/nogit-bin/head"
+  ln -sf "$_SORT_BIN"     "$box/nogit-bin/sort"
+  ln -sf "$_CUT_BIN"      "$box/nogit-bin/cut"
+  [ -x "$box/bin/gh" ] && ln -sf "$box/bin/gh" "$box/nogit-bin/gh"
+  # No git symlink — that is the point of this helper
+}
+
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
@@ -68,9 +91,17 @@ no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 #       rh/<target>/retros/    (where test retros land)
 #       bin/                   (gh stub, if mk_gh_stub is called after)
 #   Returns the box path (no trailing newline; echoes to stdout).
-mkbox() {
-  local name="$1" tgt="${2:-target-foo}"
-  local box="$ROOT/$name"
+# mkbox_at <base-dir> <name> [target-name]
+#   Same as mkbox (below) but the box is created under <base-dir> instead of
+#   $ROOT. Used by the F1 (kit issue #1045) enclosing-repo-walk fixture, which
+#   needs the box's PARENT to be a git repo while the box itself stays a plain
+#   directory (never git-inited) — mkbox's own boxes are never repos, so this
+#   is the only fixture that deliberately relies on git's upward remote walk;
+#   every other fixture stays either its own repo (mk_git_remote/mk_foreign_repo)
+#   or explicitly not a repo at all.
+mkbox_at() {
+  local base="$1" name="$2" tgt="${3:-target-foo}"
+  local box="$base/$name"
   mkdir -p "$box/research-sdd/toolbelt/lib" "$box/rh/$tgt/retros" "$box/bin"
   cp "$SUT"              "$box/research-sdd/toolbelt/stage-retro-issues.sh"
   cp "$RETRO_STATUS_LIB" "$box/research-sdd/toolbelt/lib/retro-status.sh"
@@ -82,6 +113,10 @@ mkbox() {
     printf '| 1 | %s | `%s` |\n' "$tgt" "$box/rh/$tgt"
   } > "$box/research-sdd/TARGETS.md"
   printf '%s' "$box"
+}
+
+mkbox() {
+  mkbox_at "$ROOT" "$@"
 }
 
 # mk_gh_stub <box> [mode]
@@ -739,6 +774,110 @@ RETROEOF
     no "T9 teeth: locate unresolved-repo guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
+  # TOOTH 10 (kit issue #1045 F1): drop the physical toplevel check so an
+  # enclosing repo's remote (KIT_ROOT is NOT its own checkout) is accepted.
+  echo "-- teeth T10: drop F1 physical-toplevel check --"
+  anchor_t10='  [ "$_top_phys" = "$_kit_phys" ] || return 3'
+  if [[ "$sut_content" == *"$anchor_t10"* ]]; then
+    parent_t10="$ROOT/teeth-t10-enclosing-parent"
+    mkdir -p "$parent_t10"
+    git init -q "$parent_t10" >/dev/null 2>&1
+    git -C "$parent_t10" remote add origin \
+      "https://github.com/t10-enclosing-owner/t10-enclosing-repo.git" >/dev/null 2>&1
+    box_t10="$(mkbox_at "$parent_t10" nested-kit)"
+    retro_t10="$(mk_retro "$box_t10" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t10 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t10="$box_t10/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t10"/  : # teeth-t10-f1-check-removed}" > "$mutant_t10"
+    bash -n "$mutant_t10" 2>/dev/null || { no "T10 teeth: mutant_t10 failed bash -n syntax check" ""; }
+    out_t10="$(PATH="$box_t10/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+      "$BASH_BIN" "$mutant_t10" "$retro_t10" 2>&1)"; rc_t10=$?
+    if printf '%s\n' "$out_t10" | grep -q '^kit-issue-repo: t10-enclosing-owner/t10-enclosing-repo$'; then
+      ok "T10 teeth: F1 toplevel check dropped → enclosing repo leaks through (case 24/25 have teeth)" "()"
+    else
+      no "T10 teeth: F1 toplevel check dropped → enclosing repo should leak through" \
+        "enclosing origin did not leak — case 24/25 is THEATER: rc=$rc_t10 out=[$out_t10]"
+    fi
+  else
+    no "T10 teeth: locate F1 toplevel-check anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 11 (kit issue #1045 F2): neuter shape validation so an invalid
+  # override/derived value passes straight through to gh unchecked.
+  echo "-- teeth T11: neuter _validate_repo_shape (F2) --"
+  anchor_t11='  [[ "$1" =~ $_KIT_ISSUE_REPO_SHAPE_RE ]]'
+  if [[ "$sut_content" == *"$anchor_t11"* ]]; then
+    box_t11="$(mkbox teeth-t11-shape)"
+    retro_t11="$(mk_retro "$box_t11" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t11 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t11="$box_t11/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t11"/  return 0  # teeth-t11-shape-check-removed}" > "$mutant_t11"
+    bash -n "$mutant_t11" 2>/dev/null || { no "T11 teeth: mutant_t11 failed bash -n syntax check" ""; }
+    out_t11="$(PATH="$box_t11/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
+      "$BASH_BIN" "$mutant_t11" "$retro_t11" 2>&1)"; rc_t11=$?
+    if printf '%s\n' "$out_t11" | grep -q '^kit-issue-repo: foo$'; then
+      ok "T11 teeth: shape validation neutered → invalid override 'foo' leaks through (case 26/27 have teeth)" "()"
+    else
+      no "T11 teeth: shape validation neutered → invalid override should leak through" \
+        "invalid value did not leak — case 26/27 is THEATER: rc=$rc_t11 out=[$out_t11]"
+    fi
+  else
+    no "T11 teeth: locate _validate_repo_shape body anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 12 (kit issue #1045 F3): revert the slash-before-.git strip order so
+  # a URL like "o/n.git/" leaves the stray "o/n.git" behind again.
+  echo "-- teeth T12: revert F3 slash-before-.git strip order --"
+  anchor_t12="$(printf '  rest="${rest%%/}"\n  rest="${rest%%.git}"\n  rest="${rest%%/}"')"
+  if [[ "$sut_content" == *"$anchor_t12"* ]]; then
+    box_t12="$(mkbox teeth-t12-slash-order)"
+    mk_git_remote "$box_t12" "https://github.com/o/n.git/"
+    retro_t12="$(mk_retro "$box_t12" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t12 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t12="$box_t12/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t12="$(printf '  rest="${rest%%.git}"\n  rest="${rest%%/}"')"
+    printf '%s\n' "${sut_content/"$anchor_t12"/$reverted_t12}" > "$mutant_t12"
+    bash -n "$mutant_t12" 2>/dev/null || { no "T12 teeth: mutant_t12 failed bash -n syntax check" ""; }
+    out_t12="$(PATH="$box_t12/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t12" "$retro_t12" 2>&1)"; rc_t12=$?
+    if printf '%s\n' "$out_t12" | grep -q '^kit-issue-repo: o/n\.git$'; then
+      ok "T12 teeth: slash-before-.git order reverted → stray 'o/n.git' reappears (case 28 has teeth)" "()"
+    else
+      no "T12 teeth: slash-before-.git order reverted → stray '.git' should reappear" \
+        "stray suffix did not reappear — case 28 is THEATER: rc=$rc_t12 out=[$out_t12]"
+    fi
+  else
+    no "T12 teeth: locate F3 slash/.git strip-order anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 13 (kit issue #1045 F3): drop non-github.com host retention so a GHE
+  # origin silently loses its host again.
+  echo "-- teeth T13: drop F3 non-github.com host retention --"
+  anchor_t13="$(printf '  if [ "$(printf '"'"'%%s'"'"' "$host" | tr '"'"'A-Z'"'"' '"'"'a-z'"'"')" = "github.com" ]; then\n    printf '"'"'%%s'"'"' "$rest"\n  else\n    printf '"'"'%%s/%%s'"'"' "$host" "$rest"\n  fi')"
+  if [[ "$sut_content" == *"$anchor_t13"* ]]; then
+    box_t13="$(mkbox teeth-t13-host-drop)"
+    mk_git_remote "$box_t13" "https://ghe.corp.example.com/ghe-owner/ghe-kit.git"
+    retro_t13="$(mk_retro "$box_t13" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t13 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t13="$box_t13/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t13"/  printf '%s' "\$rest"  # teeth-t13-host-drop}" > "$mutant_t13"
+    bash -n "$mutant_t13" 2>/dev/null || { no "T13 teeth: mutant_t13 failed bash -n syntax check" ""; }
+    out_t13="$(PATH="$box_t13/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t13" "$retro_t13" 2>&1)"; rc_t13=$?
+    if printf '%s\n' "$out_t13" | grep -q '^kit-issue-repo: ghe-owner/ghe-kit$'; then
+      ok "T13 teeth: GHE host retention dropped → host lost again (case 30 has teeth)" "()"
+    else
+      no "T13 teeth: GHE host retention dropped → host should be lost" \
+        "host was not dropped — case 30 is THEATER: rc=$rc_t13 out=[$out_t13]"
+    fi
+  else
+    no "T13 teeth: locate F3 host-retention anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -953,6 +1092,208 @@ if [ "$RC23" != 0 ] && printf '%s' "$OUT23" | grep -qi 'degraded' \
 else
   no "23 unresolvable repo under --apply: degraded, non-zero exit, zero gh issue calls" \
     "exit=$RC23 gh_called=$gh_called out=[$OUT23]"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #1045: harden resolve_kit_issue_repo() past #1037/#1042.
+# ---------------------------------------------------------------------------
+
+# 24 — F1 ENCLOSING-REPO WALK (dry-run): KIT_ROOT itself is NOT a git checkout
+# (no .git of its own), but its PARENT directory is a repo with its own
+# origin. A logical `git remote get-url origin` walks up and would return the
+# enclosing repo's origin — resolve_kit_issue_repo() must refuse (unresolved),
+# never the enclosing repo's value.
+enclosing_parent_24="$ROOT/case-f1-enclosing-parent"
+mkdir -p "$enclosing_parent_24"
+git init -q "$enclosing_parent_24" >/dev/null 2>&1
+git -C "$enclosing_parent_24" remote add origin \
+  "https://github.com/enclosing-owner/enclosing-repo.git" >/dev/null 2>&1
+box24="$(mkbox_at "$enclosing_parent_24" nested-kit)"
+retro24="$(mk_retro "$box24" target-foo r-f1.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f1 delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT24="$(PATH="$box24/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box24/research-sdd/toolbelt/stage-retro-issues.sh" "$retro24" 2>&1)"; RC24=$?
+# The reason text is allowed to explain that an enclosing repo was found; what
+# must never leak is the enclosing repo's OWNER/NAME being used as the value.
+if [ "$RC24" = 0 ] && printf '%s\n' "$OUT24" | grep -q '^kit-issue-repo: unresolved' \
+   && ! printf '%s\n' "$OUT24" | grep -q '^kit-issue-repo: enclosing-owner/enclosing-repo$'; then
+  ok "24 F1 enclosing-repo walk (dry-run): unresolved, enclosing origin never surfaces" "(exit $RC24)"
+else
+  no "24 F1 enclosing-repo walk (dry-run): unresolved, enclosing origin never surfaces" \
+    "exit=$RC24 out=[$OUT24]"
+fi
+
+# 25 — F1 ENCLOSING-REPO WALK (--apply): same fixture, --apply must refuse
+# BEFORE any gh call, and the enclosing repo's owner/name must never leak into
+# stdout/stderr (never used as the target repo).
+box25="$(mkbox_at "$enclosing_parent_24" nested-kit-apply)"
+mk_gh_stub "$box25" nomatch
+retro25="$(mk_retro "$box25" target-foo r-f1-apply.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f1 apply delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT25="$(PATH="$box25/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box25/research-sdd/toolbelt/stage-retro-issues.sh" "$retro25" --apply 2>&1)"; RC25=$?
+gh_called_25=0
+[ -f "$box25/bin/gh.log" ] && grep -q 'issue' "$box25/bin/gh.log" && gh_called_25=1
+# The reason text is allowed to explain that an enclosing repo was found; what
+# must never leak is the enclosing repo's OWNER/NAME being used as the value.
+if [ "$RC25" != 0 ] && printf '%s' "$OUT25" | grep -qi 'degraded' \
+   && ! printf '%s' "$OUT25" | grep -q 'enclosing-owner/enclosing-repo' \
+   && [ "$gh_called_25" = 0 ]; then
+  ok "25 F1 enclosing-repo walk (--apply): degraded before any gh call, no leak" "(exit $RC25)"
+else
+  no "25 F1 enclosing-repo walk (--apply): degraded before any gh call, no leak" \
+    "exit=$RC25 gh_called=$gh_called_25 out=[$OUT25]"
+fi
+
+# ---------------------------------------------------------------------------
+# 26 — F2 SHAPE VALIDATION (override): a RESEARCH_SDD_ISSUE_REPO override that
+# does not match `[host/]owner/repo` must resolve to unresolved (dry-run) /
+# typed degraded + exit 1 BEFORE any gh call (--apply), never pass through.
+box26="$(mkbox case-f2-shape-override)"
+mk_gh_stub "$box26" nomatch
+retro26="$(mk_retro "$box26" target-foo r-f2.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f2 delta | CLAUDE.md | B1 | new | HIGH |")"
+f2_bad_values=(
+  "foo"
+  "a b/c"
+  "o/n/x/y"
+  "file:///srv/git/n.git"
+)
+f2_idx=0
+for f2_bad in "${f2_bad_values[@]}"; do
+  f2_idx=$((f2_idx+1))
+  f2_out_dry="$(PATH="$box26/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="$f2_bad" \
+    "$BASH_BIN" "$box26/research-sdd/toolbelt/stage-retro-issues.sh" "$retro26" 2>&1)"; f2_rc_dry=$?
+  : > "$box26/bin/gh.log"
+  f2_out_apply="$(PATH="$box26/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="$f2_bad" \
+    "$BASH_BIN" "$box26/research-sdd/toolbelt/stage-retro-issues.sh" "$retro26" --apply 2>&1)"; f2_rc_apply=$?
+  f2_gh_called=0
+  [ -f "$box26/bin/gh.log" ] && grep -q 'issue' "$box26/bin/gh.log" && f2_gh_called=1
+  if [ "$f2_rc_dry" = 0 ] && printf '%s\n' "$f2_out_dry" | grep -q '^kit-issue-repo: unresolved' \
+     && [ "$f2_rc_apply" != 0 ] && printf '%s' "$f2_out_apply" | grep -qi 'degraded' \
+     && [ "$f2_gh_called" = 0 ]; then
+    ok "26.$f2_idx F2 shape-invalid override '$f2_bad' → unresolved/degraded, zero gh calls" \
+      "(dry=$f2_rc_dry apply=$f2_rc_apply)"
+  else
+    no "26.$f2_idx F2 shape-invalid override '$f2_bad' → unresolved/degraded, zero gh calls" \
+      "dry_rc=$f2_rc_dry dry_out=[$f2_out_dry] apply_rc=$f2_rc_apply apply_out=[$f2_out_apply] gh_called=$f2_gh_called"
+  fi
+done
+
+# 27 — F2 SHAPE VALIDATION (derived): a git remote whose normalized value does
+# not match `[host/]owner/repo` (e.g. a file:// origin) must also resolve to
+# unresolved/degraded, never reach gh with a bogus --repo value.
+box27="$(mkbox case-f2-shape-derived)"
+git init -q "$box27" >/dev/null 2>&1
+git -C "$box27" remote add origin "file:///srv/git/n.git" >/dev/null 2>&1
+mk_gh_stub "$box27" nomatch
+retro27="$(mk_retro "$box27" target-foo r-f2-derived.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f2 derived delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT27="$(PATH="$box27/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box27/research-sdd/toolbelt/stage-retro-issues.sh" "$retro27" 2>&1)"; RC27=$?
+: > "$box27/bin/gh.log"
+OUT27B="$(PATH="$box27/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box27/research-sdd/toolbelt/stage-retro-issues.sh" "$retro27" --apply 2>&1)"; RC27B=$?
+gh_called_27=0
+[ -f "$box27/bin/gh.log" ] && grep -q 'issue' "$box27/bin/gh.log" && gh_called_27=1
+if [ "$RC27" = 0 ] && printf '%s\n' "$OUT27" | grep -q '^kit-issue-repo: unresolved' \
+   && [ "$RC27B" != 0 ] && printf '%s' "$OUT27B" | grep -qi 'degraded' \
+   && [ "$gh_called_27" = 0 ]; then
+  ok "27 F2 shape-invalid derived (file:// origin) → unresolved/degraded, zero gh calls" \
+    "(dry=$RC27 apply=$RC27B)"
+else
+  no "27 F2 shape-invalid derived (file:// origin) → unresolved/degraded, zero gh calls" \
+    "dry_rc=$RC27 dry_out=[$OUT27] apply_rc=$RC27B apply_out=[$OUT27B] gh_called=$gh_called_27"
+fi
+
+# ---------------------------------------------------------------------------
+# 28 — F3 NORMALIZATION: trailing slash stripped BEFORE the .git suffix.
+# "https://github.com/o/n.git/" must resolve to "o/n", not "o/n.git" or
+# unresolved.
+box28="$(mkbox case-f3-slash-before-git)"
+mk_git_remote "$box28" "https://github.com/o/n.git/"
+retro28="$(mk_retro "$box28" target-foo r-f3-slash.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f3 slash delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT28="$(PATH="$box28/bin:$PATH" \
+  "$BASH_BIN" "$box28/research-sdd/toolbelt/stage-retro-issues.sh" "$retro28" 2>&1)"; RC28=$?
+if [ "$RC28" = 0 ] && printf '%s\n' "$OUT28" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "28 F3 trailing slash before .git: 'o/n.git/' -> 'o/n'" "(exit $RC28)"
+else
+  no "28 F3 trailing slash before .git: 'o/n.git/' -> 'o/n'" "exit=$RC28 out=[$OUT28]"
+fi
+
+# 29 — F3 NORMALIZATION: scp form WITHOUT user@ (e.g. "github.com:o/n").
+box29="$(mkbox case-f3-scp-no-user)"
+mk_git_remote "$box29" "github.com:scp-owner/scp-kit"
+retro29="$(mk_retro "$box29" target-foo r-f3-scp.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f3 scp delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT29="$(PATH="$box29/bin:$PATH" \
+  "$BASH_BIN" "$box29/research-sdd/toolbelt/stage-retro-issues.sh" "$retro29" 2>&1)"; RC29=$?
+if [ "$RC29" = 0 ] && printf '%s\n' "$OUT29" | grep -q '^kit-issue-repo: scp-owner/scp-kit$'; then
+  ok "29 F3 scp form without user@: 'github.com:o/n' -> 'o/n'" "(exit $RC29)"
+else
+  no "29 F3 scp form without user@: 'github.com:o/n' -> 'o/n'" "exit=$RC29 out=[$OUT29]"
+fi
+
+# 30 — F3 NORMALIZATION: non-github.com host (GHE) is KEPT as "HOST/o/n" (gh
+# accepts HOST/OWNER/REPO).
+box30="$(mkbox case-f3-ghe-host)"
+mk_git_remote "$box30" "https://ghe.corp.example.com/ghe-owner/ghe-kit.git"
+retro30="$(mk_retro "$box30" target-foo r-f3-ghe.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | f3 ghe delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT30="$(PATH="$box30/bin:$PATH" \
+  "$BASH_BIN" "$box30/research-sdd/toolbelt/stage-retro-issues.sh" "$retro30" 2>&1)"; RC30=$?
+if [ "$RC30" = 0 ] && printf '%s\n' "$OUT30" | grep -q '^kit-issue-repo: ghe.corp.example.com/ghe-owner/ghe-kit$'; then
+  ok "30 F3 non-github.com host kept: 'HOST/o/n' preserved for GHE" "(exit $RC30)"
+else
+  no "30 F3 non-github.com host kept: 'HOST/o/n' preserved for GHE" "exit=$RC30 out=[$OUT30]"
+fi
+
+# ---------------------------------------------------------------------------
+# 31 — GIT MISSING (dry-run): no override, git absent from PATH → typed
+# degraded reason naming git, printed inline in the dry-run unresolved line.
+box31="$(mkbox case-vcs-missing-dry)"
+mk_hermetic_bin "$box31"
+retro31="$(mk_retro "$box31" target-foo r-vcs-missing.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | vcs missing delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT31="$(PATH="$box31/bin" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box31/research-sdd/toolbelt/stage-retro-issues.sh" "$retro31" 2>&1)"; RC31=$?
+# Isolate the kit-issue-repo LINE specifically — the row body/title text is
+# attacker-controlled fixture prose and must not be able to false-positive
+# this assertion by coincidentally containing the word "git".
+kir_line31="$(printf '%s\n' "$OUT31" | grep '^kit-issue-repo: unresolved')"
+if [ "$RC31" = 0 ] && [ -n "$kir_line31" ] && printf '%s' "$kir_line31" | grep -qi 'git not found'; then
+  ok "31 git missing (dry-run): unresolved reason names git" "(exit $RC31)"
+else
+  no "31 git missing (dry-run): unresolved reason names git" "exit=$RC31 line=[$kir_line31] out=[$OUT31]"
+fi
+
+# 32 — GIT MISSING (--apply): gh IS present (probe passes) but git is absent
+# → typed degraded message naming git, exit 1, zero gh issue calls.
+box32="$(mkbox case-vcs-absent-apply)"
+mk_gh_stub "$box32" nomatch
+mk_no_git_bin "$box32"
+retro32="$(mk_retro "$box32" target-foo r-vcs-absent-apply.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | vcs absent apply delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT32="$(PATH="$box32/nogit-bin" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box32/research-sdd/toolbelt/stage-retro-issues.sh" "$retro32" --apply 2>&1)"; RC32=$?
+gh_called_32=0
+[ -f "$box32/bin/gh.log" ] && grep -q 'issue' "$box32/bin/gh.log" && gh_called_32=1
+if [ "$RC32" != 0 ] && printf '%s' "$OUT32" | grep -qi 'degraded' \
+   && printf '%s' "$OUT32" | grep -qi 'git not found' && [ "$gh_called_32" = 0 ]; then
+  ok "32 git missing (--apply): degraded names git, exit 1, zero gh calls" "(exit $RC32)"
+else
+  no "32 git missing (--apply): degraded names git, exit 1, zero gh calls" \
+    "exit=$RC32 gh_called=$gh_called_32 out=[$OUT32]"
 fi
 
 echo "== $pass passed · $fail failed =="
