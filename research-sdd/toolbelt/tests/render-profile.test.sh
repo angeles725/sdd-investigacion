@@ -507,7 +507,9 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
       printf '%s\n' "$m"
       return 0
     fi
-    no "teeth-$name: mutant_renderer could not construct the mutant (mutation anchor not found) — cannot prove teeth"
+    # Runs inside $(...): a no() here would be lost in the subshell. Report on
+    # stderr and let the caller record the failure in the parent shell.
+    printf 'teeth-%s: mutant_renderer could not construct the mutant (mutation anchor not found)\n' "$name" >&2
     return 1
   }
 
@@ -516,8 +518,9 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # the real script refuses. A crash (uncaught Python traceback) is detected
   # explicitly and never counts as a bite — kit issue #943.
   bite_tooth() {
+    # Optional $7 overrides the render target (T-containment must render INTO the kit itself).
     local tname="$1" mutant="$2" kitdir="$3" profile="$4" suffix="$5" expect="$6"
-    local outdir="$TMP/teeth-out-$suffix"
+    local outdir="${7:-$TMP/teeth-out-$suffix}"
     local out rc
     out="$(RSDD_KIT_DIR="$kitdir" "$mutant" "$profile" "$outdir" 2>&1)"; rc=$?
     if [ "$rc" -eq 0 ]; then
@@ -536,21 +539,29 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   sed -i -e 's/<!-- slot:hotcore-loop-cadence -->//' -e 's/<!-- \/slot -->//' "$kitTUnknown/PROMPT-LOOP.md"
   if m="$(require_mutant unknown-profile -e 's/if \[ ! -f "\$PROFILE_FILE" \]; then/if false; then/')"; then
     bite_tooth unknown-profile "$m" "$kitTUnknown" no-such-profile-xyz unknown-profile "unknown profile"
+  else
+    no "teeth-unknown-profile: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-orphan (disable the orphan check) --"
   if m="$(require_mutant orphan -e 's/if orphans:/if False and orphans:/')"; then
     bite_tooth orphan "$m" "$kitF3" general orphan "orphan"
+  else
+    no "teeth-orphan: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-missing (disable the per-marker missing check; the .get(sid, '') fallback substitutes an empty string instead of crashing) --"
   if m="$(require_mutant missing -e 's/if sid not in profile_slots:  # GUARD-MISSING/if False:  # GUARD-MISSING/')"; then
     bite_tooth missing "$m" "$kitF4" general missing "missing"
+  else
+    no "teeth-missing: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-nested (disable GUARD-NESTED; F5's same-id-reuse fixture means the surviving span still substitutes normally, so the mutant completes cleanly with a dangling raw marker in the output)  --"
   if m="$(require_mutant nested -e 's/if open_tok is not None:  # GUARD-NESTED/if False:  # GUARD-NESTED/')"; then
     bite_tooth nested "$m" "$kitF5" general nested "nested"
+  else
+    no "teeth-nested: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-unclosed (disable GUARD-UNCLOSED; a DEDICATED fixture with an undeclared, non-interfering dangling marker so no other guard backstops it) --"
@@ -564,31 +575,43 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   sed -i 's/from the live backlog\.<!-- \/slot -->/from the live backlog.<!-- \/slot --> <!-- slot:leftover-fragment -->this text is permanently unclosed/' "$kitTUnclosed/skills/research-sdd/SKILL.md"
   if m="$(require_mutant unclosed -e 's/if open_tok is not None:  # GUARD-UNCLOSED/if False:  # GUARD-UNCLOSED/')"; then
     bite_tooth unclosed "$m" "$kitTUnclosed" general unclosed "unclosed"
+  else
+    no "teeth-unclosed: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-zero-and-orphan (GUARD-ZERO is a documented strict SUBSET of GUARD-ORPHAN — see render-profile.sh — so it can only be proven by disabling BOTH together as one unit; disabling GUARD-ZERO alone still refuses via the outer orphan branch) --"
   if m="$(require_mutant zero-and-orphan -e 's/if orphans:  # GUARD-ORPHAN/if False:  # GUARD-ORPHAN/' -e "s/if not encountered:  # GUARD-ZERO (documented subset of GUARD-ORPHAN, see above)/if False:  # GUARD-ZERO/")"; then
     bite_tooth zero-and-orphan "$m" "$kitF10" general zero "zero slot markers / orphan"
+  else
+    no "teeth-zero-and-orphan: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-freetext (disable the free-text guard) --"
   if m="$(require_mutant freetext -e "s/if line.strip() != '':  # GUARD-FREETEXT/if False:  # GUARD-FREETEXT/")"; then
     bite_tooth freetext "$m" "$kitF8" general freetext "free text"
+  else
+    no "teeth-freetext: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-emptybody (disable GUARD-EMPTYBODY) --"
   if m="$(require_mutant emptybody -e 's/if not body.strip():  # GUARD-EMPTYBODY/if False:  # GUARD-EMPTYBODY/')"; then
     bite_tooth emptybody "$m" "$kitF18" general emptybody "empty body"
+  else
+    no "teeth-emptybody: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-markercase (disable GUARD-MARKERCASE) --"
   if m="$(require_mutant markercase -e 's/if not TOKEN_RE.fullmatch(span_text):  # GUARD-MARKERCASE/if False:  # GUARD-MARKERCASE/')"; then
     bite_tooth markercase "$m" "$kitF17" general markercase "non-canonical marker"
+  else
+    no "teeth-markercase: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-containment (disable ONLY the outdir==KIT_DIR guard; the mutant then reproduces the ORIGINAL reported bug — rendering into, and stripping the markers of, the kit's own directory) --"
   if m="$(require_mutant containment -e 's/if \[ "\$OUTDIR_REAL" = "\$KIT_REAL" \]; then/if false; then/')"; then
-    bite_tooth containment "$m" "$kitF15" general "$kitF15" containment "outdir equals the kit directory"
+    bite_tooth containment "$m" "$kitF15" general containment "outdir equals the kit directory" "$kitF15"
+  else
+    no "teeth-containment: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-profilename (disable the profile-name regex guard; '../profiles/general' then resolves, via plain path concatenation, to the SAME real general.slots.md the honest 'general' name would) --"
@@ -596,6 +619,8 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   make_kit "$kitTProfileName"
   if m="$(require_mutant profilename -e "s/if ! \[\[ \"\\\$PROFILE\" =~ \^\[a-z0-9_-\]+\\\$ \]\]; then/if false; then/")"; then
     bite_tooth profilename "$m" "$kitTProfileName" "../profiles/general" profilename "invalid profile name"
+  else
+    no "teeth-profilename: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-methodology-invariant (disable the METHODOLOGY.md-never-carries-slots bash guard; the marker then gets substituted like any other source) --"
@@ -604,6 +629,8 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   printf '\n<!-- slot:hotcore-cadence -->stray<!-- /slot -->\n' >> "$kitTMeth/METHODOLOGY.md"
   if m="$(require_mutant methodology -e 's|^if grep -qiE .*METH_SRC.*; then$|if false; then|')"; then
     bite_tooth methodology "$m" "$kitTMeth" general methodology "METHODOLOGY.md must never carry"
+  else
+    no "teeth-methodology: mutation anchor not found — cannot prove teeth (a vanished anchor must fail, never skip)"
   fi
 
   echo "-- teeth: T-subst (positive control: break the substitution itself) --"
