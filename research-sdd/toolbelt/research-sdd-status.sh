@@ -487,19 +487,29 @@ pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$
 # benefits: it inherits a COPY of this array at fork time, so every entry the campaign block already
 # populated earlier in the same run is a cache hit there too (a subshell just can't add new entries
 # back to the parent, which this call pattern never needs it to).
-declare -A _RSDD_FOC_TOK_CACHE=()
+#
+# Requires bash >= 4 (`declare -A`, associative arrays) — already true for this kit: 10 other
+# toolbelt scripts on main use `declare -A`.
+declare -A _RSDD_FOC_TOK_CACHE=()  # W2-NO-PROBE-WRITE-ANCHOR
+# Round 4 (latent, nit): every local here is prefixed `__rft_` on purpose. `printf -v "$__rft_target"`
+# assigns to a variable NAME the caller supplies — if a caller ever named its own variable the same as
+# one of this function's OWN locals (e.g. a caller literally using `_tok` or `ffile`), `printf -v`
+# would resolve to THIS function's local instead of the caller's variable (locals shadow), silently
+# leaving the caller's real variable unset/stale. Call sites today don't collide, but the prefix makes
+# a future collision need a call site to deliberately choose a `__rft_`-prefixed name, not stumble
+# into one of five short, plausible-sounding identifiers.
 _read_focuses_tok_into() {
-  local _rft_var="$1" ffile="$2" sbase="$3"
-  local _cache_key
-  _cache_key="${ffile}$(printf '\x1e')${sbase}"
-  if [ "${_RSDD_FOC_TOK_CACHE[$_cache_key]+_set}" = "_set" ]; then  # W2-DEDUP-CACHE-ANCHOR
-    printf -v "$_rft_var" '%s' "${_RSDD_FOC_TOK_CACHE[$_cache_key]}"
+  local __rft_target="$1" __rft_ffile="$2" __rft_sbase="$3"
+  local __rft_cache_key
+  __rft_cache_key="${__rft_ffile}$(printf '\x1e')${__rft_sbase}"
+  if [ "${_RSDD_FOC_TOK_CACHE[$__rft_cache_key]+_set}" = "_set" ]; then  # W2-DEDUP-CACHE-ANCHOR
+    printf -v "$__rft_target" '%s' "${_RSDD_FOC_TOK_CACHE[$__rft_cache_key]}"
     return
   fi
-  local _tok
-  _tok="$(_read_focuses_tok_uncached "$ffile" "$sbase")"
-  _RSDD_FOC_TOK_CACHE[$_cache_key]="$_tok"
-  printf -v "$_rft_var" '%s' "$_tok"
+  local __rft_tok
+  __rft_tok="$(_read_focuses_tok_uncached "$__rft_ffile" "$__rft_sbase")"
+  _RSDD_FOC_TOK_CACHE[$__rft_cache_key]="$__rft_tok"
+  printf -v "$__rft_target" '%s' "$__rft_tok"
 }
 
 _read_focuses_tok_uncached() {

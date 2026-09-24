@@ -5181,21 +5181,67 @@ else
   no "T-W2-DEDUP: expected exactly 1 occurrence of the WARN, got $_w2_warn_count: [$(echo "$_w2_out" | grep 'unreadable/nonconforming status token')]"
 fi
 
-echo "-- W2 round 3 (security): the FOCUSES-token cache must never touch the filesystem — no file under TMPDIR --"
-# Round 2's cache was a predictable, world-readable, symlink-followable file whose contents were then
-# trusted as data (reproduced: symlink clobber of a victim file; a poisoned cache line silently
-# forcing a false STOP). The round-3 fix moved the cache into a parent-shell associative array with
-# no filesystem footprint at all. Prove it: point TMPDIR at a directory we control, run a normal
-# multi-focus report, and assert that directory is still completely empty afterward.
-_w2_empty_tmpdir="$(mktemp -d)"
-TMPDIR="$_w2_empty_tmpdir" bash "$SUT" "$d_w2" >/dev/null 2>&1
-_w2_tmpdir_entries="$(find "$_w2_empty_tmpdir" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$_w2_tmpdir_entries" -eq 0 ]; then
-  ok "T-W2-NO-TMPFILE: TMPDIR is still empty after a full report run — the FOCUSES-token cache touches no filesystem"
+echo "-- W2 round 4 (security, no teeth without this shape): a READ-ONLY TMPDIR must cause no write-attempt error --"
+# Round 3's version of this test only checked "TMPDIR is empty afterward" — Opus reproduced (and
+# native RDD R2/R3 independently flagged) that this has NO discriminating power: round 2's vulnerable
+# file cache ALSO leaves TMPDIR empty on a normal run, because its own `trap ... EXIT` deletes the
+# cache file on completion — the file only ever existed transiently DURING the run, which an
+# after-the-fact directory listing can never see. That version also discarded stdout/stderr entirely
+# and never checked the exit code, so it could not have caught a crash either.
+#
+# What actually distinguishes them: round 2's guarded write was `: > "$file" 2>/dev/null`, but bash
+# sets up a simple command's redirections LEFT TO RIGHT — the `> "$file"` part opens (and fails to
+# open) BEFORE `2>/dev/null` takes effect, so bash reports that failure to the shell's REAL stderr,
+# not to /dev/null. Measured directly against the round-2 SUT (f155f6e) with TMPDIR chmod'd to 500
+# (read-only): exit 0, but stderr contains "Permission denied" — round 2's own suppression doesn't
+# suppress. The current design never attempts a write at all, so there is nothing to fail: exit 0,
+# and stderr is clean. Assert exactly that — not "no leftover file", but "no write was ever attempted
+# in the first place", which a read-only TMPDIR turns into an observable, checked signal.
+_w2_ro_tmpdir="$(mktemp -d)"
+chmod 500 "$_w2_ro_tmpdir"
+_w2_ro_out="$TMP/w2-readonly-stdout.txt"
+_w2_ro_err="$TMP/w2-readonly-stderr.txt"
+TMPDIR="$_w2_ro_tmpdir" bash "$SUT" "$d_w2" >"$_w2_ro_out" 2>"$_w2_ro_err"
+_w2_ro_rc=$?
+chmod 700 "$_w2_ro_tmpdir"
+rm -rf "$_w2_ro_tmpdir"
+if [ "$_w2_ro_rc" -eq 0 ] && ! grep -qiE 'permission denied|no such file' "$_w2_ro_err"; then
+  ok "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: exit 0 and no 'Permission denied'/'No such file' on stderr under a read-only TMPDIR — the FOCUSES-token cache never attempts a filesystem write"
 else
-  no "T-W2-NO-TMPFILE: expected TMPDIR to stay empty, found $_w2_tmpdir_entries entr(y/ies): [$(find "$_w2_empty_tmpdir" -mindepth 1 2>/dev/null)]"
+  no "T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: expected exit 0 and clean stderr under a read-only TMPDIR, got rc=$_w2_ro_rc stderr=[$(cat "$_w2_ro_err")]"
 fi
-rm -rf "$_w2_empty_tmpdir"
+
+echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable named like one of its OLD locals --"
+# Before this fix, the function's own locals were _rft_var/ffile/sbase/_cache_key/_tok. printf -v
+# resolves the target name against the NEAREST scope, so a caller whose own variable happened to be
+# named e.g. "_tok" would have `printf -v "$_rft_var"` (with _rft_var="_tok") silently write into the
+# FUNCTION's own local _tok instead of the caller's — the caller's real variable would stay whatever
+# it was before, unset or stale, with no error. Every local is now __rft_-prefixed specifically to
+# close this. Exercise it directly: source just the two functions this needs (declare -A line +
+# _read_focuses_tok_into + _read_focuses_tok_uncached) into an isolated harness — sourcing the whole
+# SUT would run its own argv-dependent top-level logic and `exit` the harness — then call it with a
+# caller-side variable named "_tok" and confirm THAT variable receives the real token.
+_shadow_harness="$TMP/shadow-harness.sh"
+sed -n '493p;501,584p' "$SUT" > "$_shadow_harness"
+_shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
+{
+  printf '# Focus Registry\n\n'
+  printf '| Focus | Status | State file |\n'
+  printf '|---|---|---|\n'
+  printf '| alpha | active | RESEARCH-STATE-alpha.md |\n'
+} > "$_shadow_dir/FOCUSES.md"
+_shadow_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"
+  _tok="UNCHANGED"
+  _read_focuses_tok_into _tok "$2" "RESEARCH-STATE-alpha.md"
+  printf "%s" "$_tok"
+' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>/dev/null)"
+if [ "$_shadow_out" = "active" ]; then
+  ok "T-RFT-NO-SHADOW: a caller variable named '_tok' (collides with an old internal local name) still receives the correct token, not left unchanged"
+else
+  no "T-RFT-NO-SHADOW: expected the caller's _tok to become 'active', got [$_shadow_out] — printf -v wrote into the function's own local instead of the caller's variable"
+fi
 
 echo "-- B1: --focus <slug> scopes the campaign block to exactly that focus --"
 d_b1_mf="$CQ_FIX/multi-focus-mixed"
@@ -5642,6 +5688,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-T-W2-DEDUP: W2-DEDUP-CACHE-ANCHOR sentinel not found in SUT"
+  fi
+
+  # teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: re-insert an UNGUARDED probe write
+  # (`: > "${TMPDIR:-/tmp}/.rsdd-probe.$$"`) right where the array cache is declared — reproducing the
+  # shape of the round-2 vulnerability class (a filesystem write attempt on every run) — and confirm
+  # the read-only-TMPDIR test catches it (exit still 0, since the write failure itself isn't checked
+  # by the mutant, but stderr now carries "Permission denied").
+  echo "-- teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: re-insert an unguarded probe write → read-only-TMPDIR test goes RED --"
+  _w2_ro_mutant="$TMP/status.W2-RO-PROBE.MUTANT.sh"
+  if grep -q 'W2-NO-PROBE-WRITE-ANCHOR' "$SUT"; then
+    cp "$SUT" "$_w2_ro_mutant"
+    sed -i '/W2-NO-PROBE-WRITE-ANCHOR/a\: > "${TMPDIR:-/tmp}/.rsdd-probe.$$"' "$_w2_ro_mutant"
+    if cmp -s "$_w2_ro_mutant" "$SUT"; then
+      no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant identical to SUT — sed did not apply"
+    elif ! bash -n "$_w2_ro_mutant" 2>/dev/null; then
+      no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant has syntax error"
+    else
+      _w2_ro_mut_tmpdir="$(mktemp -d)"
+      chmod 500 "$_w2_ro_mut_tmpdir"
+      _w2_ro_mut_err="$TMP/w2-ro-mutant-stderr.txt"
+      TMPDIR="$_w2_ro_mut_tmpdir" bash "$_w2_ro_mutant" "$d_w2" >/dev/null 2>"$_w2_ro_mut_err"
+      chmod 700 "$_w2_ro_mut_tmpdir"
+      rm -rf "$_w2_ro_mut_tmpdir"
+      if grep -qiE 'permission denied|no such file' "$_w2_ro_mut_err"; then
+        ok "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant leaks a write-attempt error under a read-only TMPDIR again → T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT goes RED → the no-filesystem-write design is load-bearing"
+      else
+        no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: mutant still produced no write-attempt error — THEATER"
+      fi
+    fi
+  else
+    no "teeth-T-W2-READONLY-TMPDIR-NO-WRITE-ATTEMPT: W2-NO-PROBE-WRITE-ANCHOR sentinel not found in SUT"
   fi
 
   # teeth-T-B1-FOCUS: neuter both focus_slug checks in campaign_status_block (force the "false"
