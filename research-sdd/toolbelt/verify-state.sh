@@ -347,49 +347,345 @@ _derive_attributed_sg() {
   echo "${n:-0}"
 }
 
-# P8: Installed hook scripts in .claude/hooks/ still contain unreplaced template placeholders.
-# §7 anti-silent-zero: absent-input / empty-input / no-match produce distinct output lines.
+# P8 helpers: derive the settings.json-declared hook COMMAND SET (kit issue #991). A target's real
+# hooks are whatever .claude/settings.json (and its untracked settings.local.json override) actually
+# run — niagara-research runs them from tools/hooks/, entirely outside .claude/hooks/, and a hook may
+# be .py (or any other type), not only .sh. Scanning only .claude/hooks/*.sh made both invisible.
+# These helpers turn a raw settings.json `command` string into a resolved file path WITHOUT ever
+# executing it — command strings are read-only corpus data (§8); no eval, no variable expansion.
+# Scope: only the project-level $target/.claude/{settings.json,settings.local.json} are read; the
+# user-level ~/.claude/settings.json is a machine-wide file, not part of the target corpus, and is
+# deliberately out of scope.
+
+# _p8_looks_like_path <token>: true if <token> is a candidate script path (contains "/", or ends in
+# a recognized script extension) rather than a bare interpreter name or a flag.
+_p8_looks_like_path() {
+  case "$1" in
+    */*|*.sh|*.py|*.rb|*.js|*.pl|*.ps1) return 0 ;;  # P8-LOOKS-LIKE-PATH-CASE
+    *) return 1 ;;
+  esac
+}
+
+# _p8_first_path_token <command>: safely tokenizes <command> (xargs quote-parsing — no eval, no
+# variable expansion) and prints the FIRST token that looks like a script path, skipping a leading
+# interpreter/env wrapper (`python3 tools/hooks/x.py --flag`, `env bash tools/hooks/x.sh`) and any
+# flag token. Prints nothing (exit 1) when no such token exists — the caller reports the raw command
+# as unresolved (§7: loud, never silently skipped). Callers MUST guard the assignment with `|| true`
+# (`tok="$(_p8_first_path_token "$cmd" || true)"`) — a command substitution feeding a plain assignment
+# is NOT exempt from `errexit` the way an `if`/`while` condition is, so a bare-word command like
+# `echo hi` (no path token at all; this function's ordinary, expected `return 1`) would abort the
+# whole run under `set -e` instead of reaching the loud "could not be resolved" branch below. This
+# script does not itself set `-e`, but the guard costs nothing and removes that latent fragility.
+_p8_first_path_token() {
+  local tok
+  while IFS= read -r tok; do
+    [ -z "$tok" ] && continue
+    case "$tok" in
+      -*) continue ;;
+      bash|sh|dash|zsh|ksh|env|python|python2|python3|node|nodejs|ruby|perl|pwsh) continue ;;
+    esac
+    if _p8_looks_like_path "$tok"; then printf '%s\n' "$tok"; return 0; fi
+  done < <(printf '%s' "$1" | xargs -n1 printf '%s\n' 2>/dev/null)
+  return 1
+}
+
+# _p8_resolve_hook_path <token> <hroot>: resolves a script token to an absolute path — the three
+# forms #991 names: a $CLAUDE_PROJECT_DIR / ${CLAUDE_PROJECT_DIR} prefix (→ <hroot>), an already-
+# absolute path (used as-is), or a bare path resolved relative to <hroot>. Existence is NOT checked
+# here — the caller does, so a dangling path is reported unresolved rather than silently dropped.
+# The caller also runs this through _p8_root_check (§8/privacy: an absolute command like
+# `cat /etc/hostname`, or a relative one that escapes via ".." or a symlink, resolves to a real,
+# readable, existing file that is nonetheless not part of this target's corpus, and must never be
+# opened).
+_p8_resolve_hook_path() {
+  local tok="$1" hroot="$2" rest
+  case "$tok" in
+    \$CLAUDE_PROJECT_DIR/*)
+      rest="${tok#\$CLAUDE_PROJECT_DIR}"
+      printf '%s%s\n' "$hroot" "$rest" ;;
+    \$\{CLAUDE_PROJECT_DIR\}/*)
+      rest="${tok#\$\{CLAUDE_PROJECT_DIR\}}"
+      printf '%s%s\n' "$hroot" "$rest" ;;
+    /*) printf '%s\n' "$tok" ;;
+    *) printf '%s/%s\n' "$hroot" "$tok" ;;
+  esac
+}
+
+# _p8_root_check <path> <hroot_real> <has_realpath>: the single gate every candidate hook path
+# passes through — settings-derived AND .claude/hooks/* listing entries alike — before it is ever
+# added to the inspected set or opened. <hroot_real> is already canonical (see the `cd + pwd -P`
+# derivation below), so this needs no separate raw-<hroot> parameter. On success sets
+# $_p8_rc_result to the safe path to use and returns 0. On failure sets $_p8_rc_reason
+# ("out-of-root" or "degraded") and $_p8_rc_detail (the path to name in the caller's WARN) and
+# returns 1; the caller never reads the file.
+#   - has_realpath=1: canonicalize with `realpath` (resolves both ".." and every symlink in the
+#     chain) and require the result to sit under <hroot_real>. This is the precise check.
+#   - has_realpath=0 (degraded — a purely textual prefix match is not enough: `../` lexically
+#     cancels back under <hroot_real> without ever leaving it on paper, and a symlink leaf or a
+#     symlinked DIRECTORY COMPONENT partway down both point the read somewhere the text never
+#     mentions): a path that does not even textually start under <hroot_real> is unambiguous
+#     ("out-of-root", no realpath needed to see that). One that does is walked component by
+#     component from <hroot_real> down with `-L`, and rejected ("degraded") if any component still
+#     is a symlink or the remainder still contains a ".." segment. This function first
+#     canonicalizes the candidate's DIRECTORY with the `cd -P`/`pwd -P` builtins where it exists,
+#     so in practice what remains to refuse is a symlinked LEAF or a ".." in a path whose directory
+#     does not exist — conservative by design: without realpath this never tries to prove where a
+#     symlinked leaf points. The split uses
+#     `read -ra` on a quoted here-string, NOT an unquoted `for x in $rel` — the latter runs each
+#     split component back through pathname expansion, so a component that happens to be
+#     glob-shaped (e.g. a directory literally named `[l]`) would expand against the process's OWN
+#     cwd instead of staying the literal string, making `-L` test an unrelated, attacker-chosen path.
+#     `read` also reads only ONE LINE — a path containing an embedded newline would silently
+#     truncate the split there, component-walking only the prefix and reporting the WHOLE
+#     (unchecked) remainder as safe, so any path containing a newline is refused outright before
+#     any splitting happens, rather than trusted on a partial check. Before comparing textually,
+#     an ABSOLUTE degraded-mode candidate's DIRECTORY is canonicalized too (when it exists) with
+#     the same builtin `cd -P` + `pwd -P` combo the root itself uses — otherwise a candidate
+#     reached through a symlinked ancestor (e.g. a settings-declared absolute command under
+#     `/var` where `/var -> /private/var`) never textually matches a canonical <hroot_real>.
+_p8_root_check() {
+  local path="$1" hroot_real="$2" has_rp="$3" real rel comp walked parts path_dir path_base canon_dir
+  _p8_rc_result=""; _p8_rc_reason=""; _p8_rc_detail=""
+  case "$path" in
+    *$'\n'*) _p8_rc_reason="degraded"; _p8_rc_detail="$path"; return 1 ;;
+  esac
+  if [ "$has_rp" -eq 1 ]; then
+    real="$(realpath -- "$path" 2>/dev/null || printf '%s' "$path")"
+    case "$real" in
+      "$hroot_real"/*) _p8_rc_result="$real"; return 0 ;;  # P8-ROOT-CHECK-INROOT-CASE
+      *) _p8_rc_reason="out-of-root"; _p8_rc_detail="$real"; return 1 ;;
+    esac
+  fi
+  case "$path" in
+    /*)
+      path_dir="$(dirname "$path")"
+      if [ -d "$path_dir" ]; then
+        # shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
+        canon_dir="$(CDPATH= cd -P -- "$path_dir" 2>/dev/null && pwd -P)"
+        case "$canon_dir" in
+          ''|*$'\n'*) ;;  # canonicalization failed/corrupted — keep path as-is
+          *) path_base="$(basename "$path")"; path="$canon_dir/$path_base" ;;
+        esac
+      fi
+      ;;
+  esac
+  case "$path" in
+    "$hroot_real"/*) ;;
+    *) _p8_rc_reason="out-of-root"; _p8_rc_detail="$path"; return 1 ;;
+  esac
+  rel="${path#"$hroot_real"/}"
+  case "/$rel/" in
+    *'/../'*) _p8_rc_reason="degraded"; _p8_rc_detail="$path"; return 1 ;;
+  esac
+  walked="$hroot_real"
+  IFS='/' read -ra parts <<< "$rel"  # P8-DEGRADED-WALK-SPLIT: no-glob split (read never expands)
+  for comp in "${parts[@]}"; do
+    [ -z "$comp" ] && continue
+    walked="$walked/$comp"
+    if [ -L "$walked" ]; then _p8_rc_reason="degraded"; _p8_rc_detail="$path"; return 1; fi
+  done
+  _p8_rc_result="$path"
+  return 0
+}
+
+# P8: hook scripts still containing unreplaced template placeholders. The INSPECTED SET is the UNION
+# of (a) settings.json's hook commands, (b) settings.local.json's hook commands, and (c) every file
+# or symlink directly under .claude/hooks/ (not only *.sh) — deduplicated, so the same physical
+# script named from more than one place is inspected once. Each source is read independently: a
+# settings.json hook never hides settings.local.json or .claude/hooks/, and vice versa.
+# §7 anti-silent-zero, FOUR distinct final states: absent-input (nothing exists) / empty-input (a
+# source exists and is genuinely empty) / no-match (files exist, all clean — silent) /
+# found-but-none-inspectable (something was found but every candidate was refused — never
+# conflated with empty-input). jq absence is a typed 'degraded' state; invalid JSON is a typed
+# 'malformed' state, distinct from 'unreadable' (a permission failure); every settings-declared
+# command that fails to resolve to a file is reported loudly, never skipped; a path OUTSIDE the
+# target root — via an absolute command, a ".." segment, or a symlink (leaf or a directory
+# component partway down) — is reported 'out-of-root' (or, without `realpath` available to prove
+# it, conservatively 'degraded') and never opened (§8 read-only corpora — this instrument reads
+# only the target). See _p8_root_check below for the containment check itself.
 # Runs ONCE per target (before per-state loop) — not once per RESEARCH-STATE file.
 # F1: exact allowlist of forms found in research-sdd/templates/ hook files (not a generic UPPER regex).
-# F2: when called with a nested corpus dir ($target/corpus), .claude/hooks lives at the target root;
-#     walk up one level bounded to the dir holding .claude/ and report which dir was inspected.
+# F2: when called with a nested corpus dir ($target/corpus), .claude/ lives at the target root; walk
+#     up one level bounded to the dir holding .claude/ and report which dir was inspected.
 # F4: skip lines that are pure #-comments; print line numbers in WARN output.
 _p8_hroot="$target"
 if [ ! -d "$_p8_hroot/.claude" ] && [ -d "$(dirname "$_p8_hroot")/.claude" ]; then
   _p8_hroot="$(dirname "$_p8_hroot")"
 fi
-_p8_hdir="$_p8_hroot/.claude/hooks"
-if [ ! -d "$_p8_hdir" ]; then
-  echo "   INFO   hook-placeholder: .claude/hooks/ not found (inspected: $_p8_hroot) — no installed hooks to inspect"
-elif [ ! -r "$_p8_hdir" ]; then
-  echo "   unreadable   hook-placeholder: .claude/hooks/ at $_p8_hroot is not readable — cannot inspect"
+# Canonicalize the root itself with the `cd + pwd -P` builtin combo — no external `realpath`
+# needed, so this works identically whether or not that binary is on PATH. Without it, a target
+# given as "." (or reached through a symlink at any point in its path) left $_p8_hroot uncanonical
+# while an ABSOLUTE settings-derived command naturally resolves to the canonical form, so the two
+# never textually matched: a real, in-root file was reported out-of-root. `CDPATH=` neutralizes an
+# exported CDPATH — otherwise `cd` can resolve the WRONG directory (a same-named one on CDPATH) and
+# additionally auto-print the path it found, corrupting the captured value into two lines. `cd` CAN
+# still fail for other environmental reasons (removed between the top-of-script check and here, a
+# permission change, etc.) — verified below, never assumed.
+# shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
+_p8_canon="$(CDPATH= cd -- "$_p8_hroot" 2>/dev/null && pwd -P)"
+_p8_root_ok=1
+case "$_p8_canon" in
+  ''|*$'\n'*) _p8_root_ok=0 ;;
+esac
+if [ "$_p8_root_ok" -eq 1 ]; then
+  _p8_hroot="$_p8_canon"
 else
-  _p8_hits=""
-  while IFS= read -r _p8f; do
-    if [ ! -r "$_p8f" ]; then
-      echo "   unreadable   hook-placeholder: $(basename "$_p8f") is not readable — cannot inspect for placeholders"
-      _p8_hits="${_p8_hits}1"
+  echo "   degraded   hook-set: cannot canonicalize target root ($_p8_hroot) — every candidate hook is refused, never read"
+fi
+unset _p8_canon
+_p8_hdir="$_p8_hroot/.claude/hooks"
+
+_p8_realpath_ok=1
+command -v realpath >/dev/null 2>&1 || _p8_realpath_ok=0
+if [ "$_p8_realpath_ok" -eq 0 ]; then
+  echo "   degraded   hook-set: realpath not found on PATH — directory components are canonicalized with the cd -P/pwd -P builtins; a symlinked leaf, or a '..' still present after that, is refused rather than trusted (§8)"
+fi
+
+_p8_combined=""       # newline list of safe, in-root, existing file paths (pre-dedup)
+_p8_src_report=""     # newline list of "<label>: N file(s)" — one per source that contributed >=1
+_p8_any_seen=0        # did ANY of settings.json / settings.local.json / .claude/hooks/ exist at all
+_p8_any_rejected=0    # did any FOUND candidate get refused (unresolved/out-of-root/degraded/unreadable/malformed/dangling-or-non-file-symlink)?
+
+# (a) + (b): settings.json and settings.local.json — identical extraction/resolution, looped so the
+# second source is never silently skipped just because the first one already had hooks.
+for _p8_pair in "$_p8_hroot/.claude/settings.json:settings.json" \
+                "$_p8_hroot/.claude/settings.local.json:settings.local.json"; do
+  _p8_spath="${_p8_pair%:*}"
+  _p8_slabel="${_p8_pair##*:}"
+  [ -f "$_p8_spath" ] || continue
+  _p8_any_seen=1
+  if [ ! -r "$_p8_spath" ]; then
+    echo "   unreadable   hook-set: $_p8_slabel at $_p8_hroot is not readable — cannot derive its hook commands"
+    _p8_any_rejected=1
+    continue
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "   degraded   hook-set: jq not found on PATH — cannot parse $_p8_slabel hook commands (hooks declared outside .claude/hooks/, e.g. tools/hooks/, are invisible in this mode)"
+    _p8_any_rejected=1
+    continue
+  fi
+  if ! _p8_cmds="$(jq -r '(.hooks // {}) | [.. | objects | .command? // empty] | .[]' "$_p8_spath" 2>/dev/null)"; then  # P8-SETTINGS-JQ-EXTRACT
+    echo "   malformed   hook-set: $_p8_slabel at $_p8_hroot is not valid JSON — cannot derive its hook commands"
+    _p8_any_rejected=1
+    continue
+  fi
+  [ -z "$_p8_cmds" ] && continue
+  _p8_src_n=0
+  while IFS= read -r _p8_cmd; do
+    [ -z "$_p8_cmd" ] && continue
+    _p8_tok="$(_p8_first_path_token "$_p8_cmd" || true)"
+    _p8_resolved_path=""
+    [ -n "$_p8_tok" ] && _p8_resolved_path="$(_p8_resolve_hook_path "$_p8_tok" "$_p8_hroot")"
+    if [ -z "$_p8_resolved_path" ] || [ ! -f "$_p8_resolved_path" ]; then
+      echo "   WARN   hook-set: $_p8_slabel hook command could not be resolved to a script file (inspected: $_p8_hroot): $_p8_cmd"
+      _p8_any_rejected=1
+      continue
+    fi
+    if [ "$_p8_root_ok" -eq 0 ]; then
+      echo "   WARN   hook-set: $_p8_slabel hook command refused — target root could not be canonicalized (inspected: $_p8_hroot): $_p8_resolved_path"
+      _p8_any_rejected=1
+    elif _p8_root_check "$_p8_resolved_path" "$_p8_hroot" "$_p8_realpath_ok"; then
+      _p8_combined="${_p8_combined}${_p8_rc_result}"$'\n'
+      _p8_src_n=$((_p8_src_n + 1))
     else
-      # F4: skip #-comment lines; F1: exact placeholder allowlist from templates/
-      _p8_lines="$(grep -nE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' "$_p8f" | grep -vE '^[0-9]+:[[:space:]]*#')"  # P8-HOOK-PLACEHOLDER-GREP
-      if [ -n "$_p8_lines" ]; then
-        _p8_phs="$(printf '%s\n' "$_p8_lines" | grep -oE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' | sort -u | tr '\n' ' ' | sed 's/ $//')"
-        _p8_lns="$(printf '%s\n' "$_p8_lines" | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')"
-        echo "   WARN   hook-placeholder: $(basename "$_p8f") line(s) $_p8_lns still has unreplaced placeholder(s): $_p8_phs — adapt this hook for the target before use (inspected: $_p8_hroot)"
-        _p8_hits="${_p8_hits}1"
+      _p8_any_rejected=1
+      if [ "$_p8_rc_reason" = "out-of-root" ]; then
+        echo "   WARN   hook-set: $_p8_slabel hook command resolves outside the target root (inspected: $_p8_hroot) — refusing to read it (out-of-root): $_p8_rc_detail"
+      else
+        echo "   WARN   hook-set: $_p8_slabel hook command's path could not be safely verified without realpath (contains '..' or crosses a symlink) — refusing to read it (degraded): $_p8_rc_detail"
       fi
     fi
-  done < <(find "$_p8_hdir" -maxdepth 1 -name '*.sh' 2>/dev/null | sort)
-  if [ -z "$_p8_hits" ]; then
-    _p8_count="$(find "$_p8_hdir" -maxdepth 1 -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')"
-    if [ "${_p8_count:-0}" = "0" ]; then
-      echo "   INFO   hook-placeholder: .claude/hooks/ has no .sh files (inspected: $_p8_hroot) — no installed hooks to inspect"
-    fi
-    # no-match: hooks exist and all clean — silent, covered by per-state ok line
+  done <<< "$_p8_cmds"
+  [ "$_p8_src_n" -gt 0 ] && _p8_src_report="${_p8_src_report}${_p8_slabel}: ${_p8_src_n} file(s)"$'\n'
+done
+
+# (c): every file OR symlink directly under .claude/hooks/ (ALL types, not only *.sh — a hook can be
+# any script type, and a hook can be a symlink, e.g. into a shared tools/ dir). Each entry passes
+# through the SAME _p8_root_check as a settings-derived command before being trusted — a symlink can
+# escape the target root exactly as an absolute command path can. `[ -f ]` after the check drops a
+# genuine subdirectory silently (never a candidate hook in the first place), but a SYMLINK that is
+# in-root (or unverifiable-safe) yet not ultimately a regular file — dangling, or pointing at a
+# directory — is reported loudly below, never dropped: it is still a hook entry, just a broken one.
+if [ -d "$_p8_hdir" ]; then
+  _p8_any_seen=1
+  if [ ! -r "$_p8_hdir" ]; then
+    echo "   unreadable   hook-placeholder: .claude/hooks/ at $_p8_hroot is not readable — cannot inspect"
+    _p8_any_rejected=1
+  else
+    _p8_hooks_n=0
+    while IFS= read -r _p8_hf; do
+      [ -z "$_p8_hf" ] && continue
+      if [ "$_p8_root_ok" -eq 0 ]; then
+        echo "   WARN   hook-set: .claude/hooks/ entry refused — target root could not be canonicalized (inspected: $_p8_hroot): $_p8_hf"
+        _p8_any_rejected=1
+      elif _p8_root_check "$_p8_hf" "$_p8_hroot" "$_p8_realpath_ok"; then
+        if [ -f "$_p8_rc_result" ]; then
+          _p8_combined="${_p8_combined}${_p8_rc_result}"$'\n'
+          _p8_hooks_n=$((_p8_hooks_n + 1))
+        elif [ -L "$_p8_hf" ]; then
+          # In-root (or unverifiable-safe) per _p8_root_check, but not ultimately a regular file:
+          # a dangling symlink, or one pointing at a directory. Silently dropping this — as a
+          # subdirectory always was — hid a hook the old *.sh glob used to WARN on; report it.
+          echo "   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: $_p8_hf"
+          _p8_any_rejected=1
+        fi
+      else
+        _p8_any_rejected=1
+        if [ "$_p8_rc_reason" = "out-of-root" ]; then
+          echo "   WARN   hook-set: .claude/hooks/ entry resolves outside the target root (inspected: $_p8_hroot) — refusing to read it (out-of-root): $_p8_rc_detail"
+        else
+          echo "   WARN   hook-set: .claude/hooks/ entry's path could not be safely verified without realpath (contains '..' or crosses a symlink) — refusing to read it (degraded): $_p8_rc_detail"
+        fi
+      fi
+    done < <(find "$_p8_hdir" -maxdepth 1 \( -type f -o -type l \) 2>/dev/null | sort)
+    [ "$_p8_hooks_n" -gt 0 ] && _p8_src_report="${_p8_src_report}.claude/hooks/*: ${_p8_hooks_n} file(s)"$'\n'
   fi
-  unset _p8f _p8_hits _p8_phs _p8_lns _p8_count _p8_lines
 fi
-unset _p8_hdir _p8_hroot
+
+# Dedup (the same physical script named from settings.json, settings.local.json, and/or sitting in
+# .claude/hooks/ is inspected once) and report the union — which sources were read and how many
+# files came from each, per the summary line below.
+mapfile -t _p8_files < <(printf '%s\n' "$_p8_combined" | grep -v '^$' | sort -u)  # P8-UNION-DEDUP
+_p8_pre_dedup_n=$(printf '%s\n' "$_p8_combined" | grep -vc '^$' || true)
+_p8_dupes=$(( _p8_pre_dedup_n - ${#_p8_files[@]} ))
+
+# §7 three-state (extended): absent-input (nothing existed) / empty-input (a source existed and was
+# genuinely empty) / found-but-none-inspectable (something was FOUND — a command, an entry — but
+# every one of them was refused above: unresolved, out-of-root, degraded, unreadable, malformed, or
+# a dangling/non-file symlink) are three DIFFERENT zeros. Conflating the last two under one "empty"
+# message was itself a silent-zero bug: a target whose only hook was refused as out-of-root read as
+# indistinguishable from a target with no hooks declared at all, even though the WARN lines above
+# already proved otherwise for a careful reader — the summary line must not contradict them.
+if [ "${#_p8_files[@]}" -gt 0 ]; then
+  _p8_src_summary="$(printf '%s' "$_p8_src_report" | grep -v '^$' | tr '\n' ';' | sed 's/;/; /g; s/; $//')"
+  echo "   INFO   hook-set: inspected ${#_p8_files[@]} hook file(s) — ${_p8_src_summary} (${_p8_dupes} duplicate(s) removed; root: $_p8_hroot)"
+elif [ "$_p8_any_seen" -eq 0 ]; then
+  echo "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: $_p8_hroot) — no installed hooks to inspect"
+elif [ "$_p8_any_rejected" -eq 1 ]; then
+  echo "   INFO   hook-placeholder: found-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, malformed, or a dangling/non-file symlink (see the report above); none could be inspected (inspected: $_p8_hroot)"
+else
+  echo "   INFO   hook-placeholder: no hooks found (empty) across .claude/settings.json, settings.local.json, and .claude/hooks/ (inspected: $_p8_hroot) — no installed hooks to inspect"
+fi
+
+for _p8f in "${_p8_files[@]}"; do
+  [ -z "$_p8f" ] && continue
+  if [ ! -r "$_p8f" ]; then
+    echo "   unreadable   hook-placeholder: $(basename "$_p8f") is not readable — cannot inspect for placeholders"
+  else
+    # F4: skip #-comment lines; F1: exact placeholder allowlist from templates/
+    _p8_lines="$(grep -nE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' "$_p8f" | grep -vE '^[0-9]+:[[:space:]]*#')"  # P8-HOOK-PLACEHOLDER-GREP
+    if [ -n "$_p8_lines" ]; then
+      _p8_phs="$(printf '%s\n' "$_p8_lines" | grep -oE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+      _p8_lns="$(printf '%s\n' "$_p8_lines" | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')"
+      echo "   WARN   hook-placeholder: $(basename "$_p8f") line(s) $_p8_lns still has unreplaced placeholder(s): $_p8_phs — adapt this hook for the target before use (inspected: $_p8_hroot)"
+    fi
+  fi
+done
+# no-match: hooks exist and all clean — silent, covered by per-state ok line
+unset _p8f _p8_phs _p8_lns _p8_lines _p8_cmd _p8_cmds _p8_tok _p8_resolved_path _p8_pair _p8_spath
+unset _p8_slabel _p8_src_n _p8_hf _p8_hooks_n _p8_src_report _p8_src_summary _p8_pre_dedup_n
+unset _p8_dupes _p8_any_seen _p8_any_rejected _p8_hdir _p8_hroot _p8_combined _p8_files _p8_root_ok
+unset _p8_realpath_ok _p8_rc_result _p8_rc_reason _p8_rc_detail
 
 rc=0
 for state in "${states[@]}"; do
