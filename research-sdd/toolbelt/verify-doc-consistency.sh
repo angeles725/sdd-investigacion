@@ -25,7 +25,19 @@
 #   RSDD_REPO         repo root for resolving retros/ citations (default: parent of $KIT)
 set -uo pipefail
 
-KIT="$(cd "$(dirname "$0")/.." && pwd)"
+# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 3, MEDIUM): this script checks the
+# CANONICAL kit docs (SKILL.md/PROMPT-LOOP.md/METHODOLOGY.md/README.md) for internal consistency
+# — section counts, orphan §N references, retros/ citations — a check that is only meaningful
+# against the real kit source, never a per-profile RENDER (WU3's profile-invariants.test.sh
+# already covers rendered-content checks separately, with different, profile-appropriate rules).
+# Without -P, invoking this script as $KIT/toolbelt/verify-doc-consistency.sh where $KIT is a
+# render dir (toolbelt/ a SYMLINK to the real kit's toolbelt/, kit issue #993 WU2) resolved KIT
+# itself "harmlessly" to the render dir (a single ".." lands there either way), but the SECOND
+# climb for _cit_repo ("parent of KIT") then landed on .../research-sdd/profile/ instead of the
+# real repo root — reproduced: this made a genuinely-repo-root-resolvable retros/ citation report
+# as broken (1 broken citation through the render vs. 0 through the kit directly). -P makes BOTH
+# derivations always resolve the REAL kit/repo root regardless of how this script was invoked.
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 
 # Resolve defaults relative to the script's own KIT directory so cwd never matters.
 RSDD_METHODOLOGY="${RSDD_METHODOLOGY:-$KIT/METHODOLOGY.md}"
@@ -38,7 +50,7 @@ RSDD_README="${RSDD_README:-$KIT/README.md}"
 # either location is valid. WARN only when the path is absent in both roots.
 # Override in tests via RSDD_KIT / RSDD_REPO to point at fixture directories.
 _cit_kit="${RSDD_KIT:-$KIT}"
-_cit_repo="${RSDD_REPO:-$(cd "$KIT/.." && pwd)}"
+_cit_repo="${RSDD_REPO:-$(cd -P "$KIT/.." && pwd -P)}"
 
 # --- Operational guards -------------------------------------------------------
 # Missing OR UNREADABLE METHODOLOGY/SKILL is an operational failure (cannot proceed).

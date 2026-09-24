@@ -12,8 +12,9 @@
 
 set -uo pipefail
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-KIT="$(cd "$SELF_DIR/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+SELF_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
+KIT="$(cd -P "$SELF_DIR/.." && pwd -P)"
 
 _usage() { printf 'Usage: %s <target>\n' "$(basename "$0")" >&2; }
 if [ $# -ne 1 ]; then

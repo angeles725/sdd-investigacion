@@ -1,4 +1,5 @@
 harness=codex
+  profile=claude (source=default)
   INSTALL {HOME}/.codex/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
   SPLICE  {HOME}/.codex/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
   | <!-- research-sdd:start -->

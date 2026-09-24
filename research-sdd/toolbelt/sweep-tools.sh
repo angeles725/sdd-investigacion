@@ -4,7 +4,8 @@
 # any retro, and how many are UNRECORDED. Read-only: never edits anything.
 # Usage: research-sdd/toolbelt/sweep-tools.sh
 
-KIT="$(cd "$(dirname "$0")/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).

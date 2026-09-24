@@ -10,7 +10,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TB="$(cd "$HERE/.." && pwd)"
+TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 REGISTRY="$TB/tool-registry.md"
 
 [ -f "$REGISTRY" ] || { echo "FATAL: tool-registry.md not found: $REGISTRY" >&2; exit 2; }

@@ -10,7 +10,8 @@
 #
 # Usage: research-sdd/toolbelt/sweep-audits.sh
 
-KIT="$(cd "$(dirname "$0")/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Reuse the retro marker reader — its leading-comment-block scan is generic (retro-status.sh:23-36),

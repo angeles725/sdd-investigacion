@@ -244,6 +244,37 @@ re=$'\n''WARN.*(count mismatch|declares no section)'
   || ok "18 anchor: hardened anchor picks 'all 3 sections' from decoy-SKILL → no stale-count WARN"
 
 # =============================================================================
+# 19 — kit issue #1024 round 3, MEDIUM: symlinked toolbelt (render dir)
+# =============================================================================
+# KIT="$(cd "$(dirname "$0")/.." && pwd)" resolved "harmlessly" through a render dir's symlinked
+# toolbelt/ (single ".." lands on the render dir either way), but _cit_repo's SECOND climb
+# ("parent of KIT") then landed on .../research-sdd/profile/ instead of the real repo root —
+# reproduced: a citation that resolves via the repo-root fallback when run directly against the
+# kit was reported BROKEN when run through a real install's render dir (1 broken citation vs 0).
+INSTALLER_19="$HERE/../../install/research-sdd-install.sh"
+if [ -f "$INSTALLER_19" ]; then
+  HOME_19="$(mktemp -d)"
+  bash "$INSTALLER_19" --home "$HOME_19" --harness reasonix >/dev/null 2>&1
+  RENDER_19="$HOME_19/.reasonix/research-sdd/profile/general"
+  if [ -x "$RENDER_19/toolbelt/verify-doc-consistency.sh" ]; then
+    OUT_KIT_19="$(bash "$SUT" 2>&1)"
+    OUT_RENDER_19="$(bash "$RENDER_19/toolbelt/verify-doc-consistency.sh" 2>&1)"
+    BROKEN_KIT_19="$(printf '%s' "$OUT_KIT_19" | grep -oE '[0-9]+ broken citation' | grep -oE '^[0-9]+')"
+    BROKEN_RENDER_19="$(printf '%s' "$OUT_RENDER_19" | grep -oE '[0-9]+ broken citation' | grep -oE '^[0-9]+')"
+    if [ -n "$BROKEN_KIT_19" ] && [ "$BROKEN_KIT_19" = "$BROKEN_RENDER_19" ]; then
+      ok "19 SYMLINK-TOOLBELT: broken-citation count through the render matches the direct kit run ($BROKEN_KIT_19)"
+    else
+      no "19 SYMLINK-TOOLBELT: broken-citation count differs through the render (kit=$BROKEN_KIT_19 render=$BROKEN_RENDER_19)"
+    fi
+  else
+    no "19 SYMLINK-TOOLBELT setup: rendered toolbelt/verify-doc-consistency.sh not found at $RENDER_19"
+  fi
+  rm -rf "$HOME_19"
+else
+  no "19 SYMLINK-TOOLBELT setup: installer not found at $INSTALLER_19"
+fi
+
+# =============================================================================
 # Teeth — mutation proof (one mutant per check + the readability guard)
 # =============================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -407,6 +438,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth ANCHOR: mutant did not produce stale-count WARN on decoy-SKILL — no effect (THEATER)"
     fi
   fi
+
+  # TOOTH SYMLINK-TOOLBELT: revert -P/pwd -P to plain cd/pwd (kit issue #1024 round 3, MEDIUM).
+  # CRITICAL: never write a mutant "into a render dir's toolbelt/" — a real render's toolbelt/ IS
+  # the real toolbelt (F1 completion symlinks it as a whole unit), so a cp through that path
+  # would overwrite the LIVE tracked script (this happened once while writing this tooth; caught
+  # by test 19 diverging unexpectedly, restored via git diff before commit). This tooth instead
+  # builds a fully SYNTHETIC scratch kit (mktemp -d) that never touches the real toolbelt/.
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
+  mutant_tsym="$(mktemp)"
+  sed -e 's/cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P/cd "$(dirname "$0")\/.." \&\& pwd/' \
+      -e 's/cd -P "\$KIT\/\.\." \&\& pwd -P/cd "$KIT\/.." \&\& pwd/' \
+      "$SUT" > "$mutant_tsym"
+  if diff -q "$SUT" "$mutant_tsym" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
+  fi
+  scratch_tsym="$(mktemp -d)"
+  mkdir -p "$scratch_tsym/toolbelt" "$scratch_tsym/skills/research-sdd" "$scratch_tsym/profile/general"
+  cp "$mutant_tsym" "$scratch_tsym/toolbelt/verify-doc-consistency.sh"
+  chmod +x "$scratch_tsym/toolbelt/verify-doc-consistency.sh"
+  printf '# retro\n\n## 1. Section\n' > "$scratch_tsym/METHODOLOGY.md"
+  printf '# skill\n' > "$scratch_tsym/skills/research-sdd/SKILL.md"
+  printf '# loop\n' > "$scratch_tsym/PROMPT-LOOP.md"
+  ln -s "$scratch_tsym/toolbelt" "$scratch_tsym/profile/general/toolbelt"
+  bash "$scratch_tsym/toolbelt/verify-doc-consistency.sh" >/dev/null 2>&1; RC_DIRECT_TSYM=$?
+  bash "$scratch_tsym/profile/general/toolbelt/verify-doc-consistency.sh" >/dev/null 2>&1; RC_RENDER_TSYM=$?
+  if [ "$RC_DIRECT_TSYM" -eq 0 ] && [ "$RC_RENDER_TSYM" -ne 0 ]; then
+    ok "teeth SYMLINK-TOOLBELT: reverted mutant diverges through a symlinked toolbelt/ (direct=0 render=$RC_RENDER_TSYM) → -P fix has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: reverted mutant did not diverge — -P fix check is THEATER (direct=$RC_DIRECT_TSYM render=$RC_RENDER_TSYM)"
+  fi
+  rm -rf "$scratch_tsym"
+  rm -f "$mutant_tsym"
 fi
 
 echo "== $pass passed · $fail failed =="

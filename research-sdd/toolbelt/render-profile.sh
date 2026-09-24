@@ -61,8 +61,13 @@
 
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE/.." && pwd)}"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
+# #1024). Reproduced here specifically: without -P, KIT_DIR landed ON a per-profile render dir
+# reached via its symlinked toolbelt/, so SKILL_SRC/LOOP_SRC/METH_SRC below pointed at the
+# render's OWN already-rendered (marker-free) files, and rendering them again failed with "zero
+# slot markers found in sources".
+HERE="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+KIT_DIR="${RSDD_KIT_DIR:-$(cd -P "$HERE/.." && pwd -P)}"
 
 usage() {
   echo "usage: render-profile.sh <profile> <outdir>" >&2

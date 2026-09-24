@@ -9,7 +9,8 @@
 #
 # Usage: research-sdd/toolbelt/sweep-retros.sh
 
-KIT="$(cd "$(dirname "$0")/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and

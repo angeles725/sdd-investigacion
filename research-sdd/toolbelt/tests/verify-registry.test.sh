@@ -617,6 +617,30 @@ else
   no "26 kit registered as REPO ROOT → self-reg WARN fired (false positive)" "exit=$RC out=[$OUT]"
 fi
 
+# ---- kit issue #1024 round 4, MEDIUM: symlinked toolbelt (render dir) ------------------------------
+# KIT used to be derived via `cd "$(dirname "$0")/.." && pwd` WITHOUT -P. Invoked through a render
+# dir's symlinked toolbelt/ (kit issue #993 WU2 + #1024 F1's completion symlinks), KIT collapsed
+# onto the render dir instead of the real kit root, so TARGETS_MD pointed at a path that does not
+# exist there — a false "kit repo is NOT in its own TARGETS.md" WARN (kit-sup #6 gate misfiring on
+# a correctly self-registered kit). Mirrors reconcile-issues.test.sh's own SYMLINK-TOOLBELT test
+# (kit issue #1024 round 3) — a hand-made symlink over a synthetic mini-kit, never the real
+# toolbelt/.
+kit27="$(mkkit c27-symlink-toolbelt)"
+mkdir -p "$kit27/profile/general"
+ln -s "$kit27/toolbelt" "$kit27/profile/general/toolbelt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit27"
+} > "$kit27/TARGETS.md"
+# F1 completion (kit issue #993 WU2 + #1024 F1) symlinks TARGETS.md into the render dir too, same
+# as toolbelt/ — matches the true render shape.
+ln -s "$kit27/TARGETS.md" "$kit27/profile/general/TARGETS.md"
+OUT27="$("$BASH_BIN" "$kit27/profile/general/toolbelt/verify-registry.sh" 2>&1)"; RC27=$?
+if [ "$RC27" = 0 ] && ! grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$OUT27"; then
+  ok "27 SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, self-reg WARN does not false-fire" "(exit $RC27)"
+else
+  no "27 SYMLINK-TOOLBELT: self-reg WARN false-fired through a symlinked toolbelt/" "exit=$RC27 out=[$OUT27]"
+fi
+
 # --- TEETH (--prove-teeth): neuter the drift guard `[ "$d" -gt "$tol" ]` → the drift fixture (diff 35)
 #     must STOP emitting its WARN. If it still WARNs, the case-2/case-5 drift assertions are THEATER (they
 #     don't actually depend on the guard). Mirrors verify-state.test.sh's mutation self-test.
@@ -636,6 +660,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth: could not build mutant (drift guard line not found — did the SUT change?)"
+  fi
+
+  # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, MEDIUM): revert -P/pwd -P to plain cd/pwd on
+  # the KIT= line — the ONLY difference from the fixed SUT — and confirm the self-reg WARN
+  # false-fires again when reached through a symlinked toolbelt/.
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
+  kit_tsym="$(mkkit teeth-symlink-toolbelt)"
+  mut_tsym="$kit_tsym/toolbelt/verify-registry.sh"
+  sed -i 's/KIT="\$(cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P)"/KIT="$(cd "$(dirname "$0")\/.." \&\& pwd)"/' "$mut_tsym"
+  if grep -q 'cd -P "\$(dirname "\$0")/\.\."' "$mut_tsym"; then
+    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
+  fi
+  mkdir -p "$kit_tsym/profile/general"
+  ln -s "$kit_tsym/toolbelt" "$kit_tsym/profile/general/toolbelt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit_tsym"
+  } > "$kit_tsym/TARGETS.md"
+  # F1 completion (kit issue #993 WU2 + #1024 F1) symlinks TARGETS.md into the render dir too, same
+  # as toolbelt/ — without it here, the broken KIT_DIR fails earlier with "cannot find TARGETS.md",
+  # a real but different symptom of the identical bug; this mirrors the true render shape instead.
+  ln -s "$kit_tsym/TARGETS.md" "$kit_tsym/profile/general/TARGETS.md"
+  out_tsym="$("$BASH_BIN" "$kit_tsym/profile/general/toolbelt/verify-registry.sh" 2>&1)"; rc_tsym=$?
+  if [ "$rc_tsym" = 0 ] && grep -qiE 'kit repo is NOT in its own TARGETS' <<<"$out_tsym"; then
+    ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ (false self-reg WARN) → -P fix has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: reverted mutant did not re-break — -P fix check is THEATER (rc=$rc_tsym out=[$out_tsym])"
   fi
 
   # teeth-nc: neuter the nc-marker exemption check (replace the condition with `false`) → an

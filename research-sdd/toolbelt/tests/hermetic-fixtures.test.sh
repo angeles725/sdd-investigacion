@@ -81,7 +81,7 @@ mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 # committed-tree files that the mutant run may have created.
 # Place MUTDIR inside the toolbelt directory (sibling of tests/) so that
 # $HERE/../niagara-security-audit.sh in the mutant resolves to the real SUT.
-MUTDIR="$(mktemp -d -p "$(cd "$HERE/.." && pwd)")"
+MUTDIR="$(mktemp -d -p "$(cd "$HERE/.." && pwd)")"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 _m1_cleanup() {
   rm -rf "$MUTDIR"
   # Remove any untracked files the mutant wrote (all niagara-security-audit fixtures

@@ -17,8 +17,9 @@
 #       non-zero only when BASELINE itself failed.
 set -uo pipefail
 
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KIT="$(cd "$SELF/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+SELF="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+KIT="$(cd -P "$SELF/.." && pwd -P)"
 
 # Marker strings — match research-sdd-install.sh splice conventions.
 START_MARKER='# research-sdd:start'

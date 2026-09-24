@@ -21,7 +21,11 @@
 # Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
 set -uo pipefail
 
-KIT="$(cd "$(dirname "$0")/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
+# #1024). Reproduced here specifically: without -P, KIT landed one level short of the real kit
+# root through a render dir's symlinked toolbelt/, so TARGETS_MD pointed at a path that does not
+# exist and this tool falsely WARNed "kit repo is NOT in its own TARGETS.md".
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Source the shared retro helper for retro_is_excluded so the §18 reachability check can

@@ -38,7 +38,8 @@ if [ "${1:-}" = "--committed" ]; then
 fi
 target="${1:-}"
 [ -n "$target" ] && [ -d "$target" ] || { echo "usage: scan-secrets.sh [--committed] <target-dir>" >&2; exit 2; }
-here="$(cd "$(dirname "$0")" && pwd)"; KIT="$(cd "$here/.." && pwd)"
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+here="$(cd -P "$(dirname "$0")" && pwd -P)"; KIT="$(cd -P "$here/.." && pwd -P)"
 
 # Advisory keyword boundary pattern (PCRE). Defined here so the committed-mode probe block's
 # ONE LOOP can use it; also used in the advisory section and default-mode grep.

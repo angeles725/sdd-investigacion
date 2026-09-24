@@ -74,8 +74,8 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TOOLBELT="$(cd "$HERE/.." && pwd)"
-KIT="$(cd "$TOOLBELT/.." && pwd)"
+TOOLBELT="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
+KIT="$(cd "$TOOLBELT/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 RENDERER="$TOOLBELT/render-profile.sh"
 SKILL="$KIT/skills/research-sdd/SKILL.md"
 PROMPTLOOP="$KIT/PROMPT-LOOP.md"
@@ -657,6 +657,59 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # never-a-bite case this suite is designed to reject (#943). F7 above
   # already proves the real script refuses a stray close; that is the
   # complete coverage this guard gets.
+
+  # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, SYSTEMIC — found via the new
+  # verify-cd-physical.sh lint, same bug class as verify-skill-drift.sh/verify-registry.sh/
+  # research-sdd-init.sh above it in this round). HERE/KIT_DIR used to be derived via plain
+  # (logical) cd/pwd; invoked through a render dir's symlinked toolbelt/ (kit issue #993 WU2 +
+  # #1024 F1's completion symlinks), KIT_DIR collapsed onto the render dir itself instead of the
+  # real kit root. A fully SYNTHETIC mini-kit (mktemp -d) — never the real toolbelt/ — with a
+  # single whole-directory symlink render/profile/general/toolbelt -> mini/toolbelt (the real F1
+  # shape). GREEN (fixed SUT, invoked through the symlink): renders cleanly into the render dir.
+  # RED (mutant, -P reverted on both hops): KIT_DIR collapses onto the render dir; since the
+  # render dir IS ALSO the render outdir argument here, render-profile.sh's OWN F15 containment
+  # guard is the first thing to catch the wrong KIT_DIR — "outdir equals the kit directory" — a
+  # different message than verify-skill-drift.sh's "zero slot markers", but the SAME root cause,
+  # and the one this exact isolated invocation shape genuinely produces (measured, not assumed).
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P on HERE/KIT_DIR, invoke directly through a symlinked toolbelt/ --"
+  MINI_SYM="$TMP/mini-symlink-toolbelt"
+  mkdir -p "$MINI_SYM/mini/toolbelt" "$MINI_SYM/mini/profiles" "$MINI_SYM/mini/skills/research-sdd" \
+    "$MINI_SYM/render/profile/general"
+  cp "$RENDERER" "$MINI_SYM/mini/toolbelt/render-profile.sh"
+  chmod +x "$MINI_SYM/mini/toolbelt/render-profile.sh"
+  cp "$GENERAL_PROFILE" "$MINI_SYM/mini/profiles/general.slots.md"
+  cp "$SKILL" "$MINI_SYM/mini/skills/research-sdd/SKILL.md"
+  cp "$PROMPTLOOP" "$MINI_SYM/mini/PROMPT-LOOP.md"
+  cp "$METHODOLOGY" "$MINI_SYM/mini/METHODOLOGY.md"
+  ln -s "$MINI_SYM/mini/toolbelt" "$MINI_SYM/render/profile/general/toolbelt"
+
+  GREEN_SYM_OUT="$(bash "$MINI_SYM/render/profile/general/toolbelt/render-profile.sh" general \
+    "$MINI_SYM/render/profile/general" 2>&1)"; GREEN_SYM_RC=$?
+  if [ "$GREEN_SYM_RC" -eq 0 ]; then
+    ok "SYMLINK-TOOLBELT: fixed render-profile.sh, invoked through a symlinked toolbelt/, renders cleanly"
+  else
+    no "SYMLINK-TOOLBELT: fixed render-profile.sh failed through a symlinked toolbelt/ (rc=$GREEN_SYM_RC out=[$GREEN_SYM_OUT])"
+  fi
+
+  MUT_SYM_RPS="$TMP/render-profile-mut-sym.sh"
+  sed -e 's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
+      -e 's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/' \
+      "$RENDERER" > "$MUT_SYM_RPS"
+  chmod +x "$MUT_SYM_RPS"
+  if diff -q "$RENDERER" "$MUT_SYM_RPS" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted on both hops)"
+  fi
+  cp "$MUT_SYM_RPS" "$MINI_SYM/mini/toolbelt/render-profile.sh"
+  chmod +x "$MINI_SYM/mini/toolbelt/render-profile.sh"
+  MUT_SYM_OUT="$(bash "$MINI_SYM/render/profile/general/toolbelt/render-profile.sh" general \
+    "$MINI_SYM/render/profile/general" 2>&1)"; MUT_SYM_RC=$?
+  if [ "$MUT_SYM_RC" -eq 2 ] && printf '%s' "$MUT_SYM_OUT" | grep -qi 'outdir equals the kit directory'; then
+    ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ (outdir-equals-kit refusal, rc=2) → -P fix has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: reverted mutant did not re-break — -P fix check is THEATER (rc=$MUT_SYM_RC out=[$MUT_SYM_OUT])"
+  fi
 
 fi
 

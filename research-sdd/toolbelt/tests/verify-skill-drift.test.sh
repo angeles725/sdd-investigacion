@@ -30,14 +30,15 @@ FIXTURES_DIR="$HERE/fixtures"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+ROOT="$(mktemp -d)"; MUT_F3LEAK=""; MUT_F3COMP=""
+trap 'rm -rf "$ROOT"; [ -n "$MUT_F3LEAK" ] && rm -f "$MUT_F3LEAK"; [ -n "$MUT_F3COMP" ] && rm -f "$MUT_F3COMP"' EXIT
 pass=0; fail=0
 ok()   { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 skip() { printf '  SKIP  %s\n' "$1"; }
 
 # The real kit path from this test's location
-KIT="$(cd "$HERE/../.." && pwd)"
+KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 SRC_SKILL="$KIT/skills/research-sdd/SKILL.md"
 
 echo "== verify-skill-drift.test.sh =="
@@ -597,6 +598,154 @@ else
   no "REM1 3-diverged → some harness names missing from output: $REM1_OUT"
 fi
 
+# ── PD: profile-aware drift detection (kit issue #993 WU2) ────────────────────
+# PD1: install "general" for reasonix (its per-harness default — adapters.sh _RSDD_DEFAULT_PROFILE)
+#      with the REAL installer, then verify-skill-drift re-renders that SAME profile into a
+#      throwaway temp dir and compares against it: in-sync on the untouched install, diverged
+#      after a hand-edit. Exercises the real render-profile.sh end-to-end, never a mutant.
+INSTALLER_PD="$KIT/install/research-sdd-install.sh"
+if [ ! -f "$INSTALLER_PD" ]; then
+  no "PD1 setup: installer not found: $INSTALLER_PD"
+else
+  H_PD1="$ROOT/home_pd1"
+  bash "$INSTALLER_PD" --home "$H_PD1" --harness reasonix >/dev/null 2>&1
+  DEPLOYED_PD1="$H_PD1/.reasonix/skills/research-sdd/SKILL.md"
+  if [ ! -f "$DEPLOYED_PD1" ]; then
+    no "PD1 setup: install did not produce a deployed skill at $DEPLOYED_PD1"
+  else
+    bash "$SUT" --harness reasonix --home "$H_PD1" >/dev/null 2>&1
+    RC_PD1_SYNC=$?
+    if [ "$RC_PD1_SYNC" -eq 0 ]; then
+      ok "PD1a: fresh general-profile install is in-sync (exit 0)"
+    else
+      no "PD1a: fresh general-profile install reported drift (exit $RC_PD1_SYNC) — expected in-sync"
+    fi
+
+    printf '\n<!-- hand-edited by an operator -->\n' >> "$DEPLOYED_PD1"
+    ERR_PD1_DIV="$(bash "$SUT" --harness reasonix --home "$H_PD1" 2>&1)"
+    RC_PD1_DIV=$?
+    if [ "$RC_PD1_DIV" -eq 1 ] && printf '%s' "$ERR_PD1_DIV" | grep -q 'diverged'; then
+      ok "PD1b: hand-edited general-profile skill is detected as diverged (exit 1)"
+    else
+      no "PD1b: hand-edit not detected (rc=$RC_PD1_DIV, out=$ERR_PD1_DIV)"
+    fi
+  fi
+fi
+
+# PD2: --profile claude stays byte-exact against the kit source (regression guard — the profile
+#      flag must not perturb the default comparison path at all).
+H_PD2="$ROOT/home_pd2"
+make_home_copy "$H_PD2" "$SRC_SKILL"
+bash "$SUT" --harness claude --home "$H_PD2" --profile claude >/dev/null 2>&1
+RC_PD2=$?
+[ "$RC_PD2" -eq 0 ] && ok "PD2: --profile claude stays byte-exact (in-sync on an untouched copy)" \
+  || no "PD2: --profile claude regressed (exit $RC_PD2)"
+
+# PD3: an unknown --profile is could-not-run (exit 2) — never a false in-sync/diverged verdict.
+H_PD3="$ROOT/home_pd3"
+make_home_copy "$H_PD3" "$SRC_SKILL"
+ERR_PD3="$(bash "$SUT" --harness claude --home "$H_PD3" --profile bogus-profile-xyz 2>&1)"
+RC_PD3=$?
+if [ "$RC_PD3" -eq 2 ] && printf '%s' "$ERR_PD3" | grep -qi 'unknown profile'; then
+  ok "PD3: unknown --profile is could-not-run (exit 2), not a false verdict"
+else
+  no "PD3: unknown --profile: wrong exit/message (rc=$RC_PD3, out=$ERR_PD3)"
+fi
+
+# ── kit issue #1024 round 4, MEDIUM: symlinked toolbelt (render dir) ──────────
+# SELF_DIR/KIT_INSTALL/KIT used to be derived via plain (logical) `cd`/`pwd`. Invoked directly,
+# that is harmless — but this script's OWN F1-completed render dir (kit issue #993 WU2 + #1024
+# F1) symlinks toolbelt/ (and install/, profiles/, etc.) straight into the real kit, so a
+# non-claude harness's deployed skill_path check ends up running THIS script through that
+# symlink. Reproduced against the pre-fix SUT: KIT collapsed onto the render dir itself, so
+# _vsd_resolve_src's re-render call ("$KIT/toolbelt/render-profile.sh") tried to re-render the
+# render's OWN already-rendered (marker-free) files and failed loudly with "zero slot markers
+# found in sources" — exit 2 (could-not-run) for every reasonix/general check, every time, single-
+# harness AND --all. This uses the REAL installer against a REAL kit (the established TOOTH-PD
+# pattern above — this script's own resolution chain needs a REAL render-profile.sh, REAL
+# profiles/*.slots.md and REAL slot-marker-bearing sources to reach the exact failure mode; a
+# synthetic mini-kit would have to reimplement render-profile.sh's own behaviour to reproduce it),
+# with only a THROWAWAY --home — never the real fleet, never real ~/.claude/~/.codex config.
+if [ -f "$INSTALLER_PD" ]; then
+  H_SYM="$ROOT/home_symlink_toolbelt"
+  bash "$INSTALLER_PD" --home "$H_SYM" --harness reasonix >/dev/null 2>&1
+  RENDER_TB_SYM="$H_SYM/.reasonix/research-sdd/profile/general/toolbelt/verify-skill-drift.sh"
+  if [ -x "$RENDER_TB_SYM" ]; then
+    OUT_SYM_SINGLE="$(bash "$RENDER_TB_SYM" --harness reasonix --home "$H_SYM" 2>&1)"; RC_SYM_SINGLE=$?
+    OUT_SYM_ALL="$(bash "$RENDER_TB_SYM" --all --home "$H_SYM" 2>&1)"; RC_SYM_ALL=$?
+    if [ "$RC_SYM_SINGLE" -eq 0 ] && [ "$RC_SYM_ALL" -eq 0 ] \
+       && ! printf '%s%s' "$OUT_SYM_SINGLE" "$OUT_SYM_ALL" | grep -qi 'zero slot markers'; then
+      ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, resolves the real kit root (single: rc=$RC_SYM_SINGLE, --all: rc=$RC_SYM_ALL)"
+    else
+      no "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/ failed (single rc=$RC_SYM_SINGLE out=[$OUT_SYM_SINGLE]; --all rc=$RC_SYM_ALL out=[$OUT_SYM_ALL])"
+    fi
+  else
+    no "SYMLINK-TOOLBELT setup: rendered toolbelt/verify-skill-drift.sh not found or not executable at $RENDER_TB_SYM"
+  fi
+else
+  no "SYMLINK-TOOLBELT setup: installer not found — cannot exercise this test"
+fi
+
+# ── kit issue #1024 review round 2, F3 (MEDIUM) ───────────────────────────────
+# _vsd_resolve_src used to be called as `src="$(_vsd_resolve_src ...)"`, running the WHOLE
+# function in a subshell; its `_VSD_RENDER_TMPDIRS+=()` append only ever mutated that subshell's
+# own copy of the array, so the EXIT trap in the PARENT shell never saw the entry and leaked one
+# tmp dir per --all run (per SessionStart). Fixed via named-output parameters (printf -v) and a
+# DIRECT call. Separately, a missing or hand-edited PERSISTED render dir used to be invisible —
+# only the deployed skill_path was ever compared — so "in sync" could be reported while
+# "Kit path:" pointed at nothing; fixed by _vsd_check_render_completeness.
+
+# F3-leak: no tmp dir survives under a DEDICATED TMPDIR, for both single-harness and --all modes.
+if [ -f "$INSTALLER_PD" ]; then
+  H_F3LEAK="$ROOT/home_f3leak"
+  bash "$INSTALLER_PD" --home "$H_F3LEAK" --harness reasonix >/dev/null 2>&1
+  F3_TMPDIR="$ROOT/f3-dedicated-tmpdir"; mkdir -p "$F3_TMPDIR"
+  TMPDIR="$F3_TMPDIR" bash "$SUT" --harness reasonix --home "$H_F3LEAK" >/dev/null 2>&1
+  TMPDIR="$F3_TMPDIR" bash "$SUT" --all --home "$H_F3LEAK" >/dev/null 2>&1
+  F3_LEFTOVER="$(find "$F3_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
+  if [ -z "$F3_LEFTOVER" ]; then
+    ok "F3-leak: no tmp dir survives under a dedicated TMPDIR (single-harness + --all)"
+  else
+    no "F3-leak: tmp dir(s) leaked under a dedicated TMPDIR: $F3_LEFTOVER"
+  fi
+else
+  no "F3-leak: installer not found — cannot exercise this test"
+fi
+
+# F3-missing: a MISSING persisted render dir is reported LOUDLY (could-not-run, exit 2) — never
+# silently folded into "in sync" just because the deployed skill_path happens to match a fresh
+# render's bytes.
+if [ -f "$INSTALLER_PD" ]; then
+  H_F3MISS="$ROOT/home_f3miss"
+  bash "$INSTALLER_PD" --home "$H_F3MISS" --harness reasonix >/dev/null 2>&1
+  rm -rf "$H_F3MISS/.reasonix/research-sdd/profile/general"
+  ERR_F3MISS="$(bash "$SUT" --harness reasonix --home "$H_F3MISS" 2>&1)"; RC_F3MISS=$?
+  if [ "$RC_F3MISS" -eq 2 ] && printf '%s' "$ERR_F3MISS" | grep -qi 'render dir missing'; then
+    ok "F3-missing: a missing persisted render dir is could-not-run (exit 2), never in-sync"
+  else
+    no "F3-missing: missing render dir not detected (rc=$RC_F3MISS, out=$ERR_F3MISS)"
+  fi
+else
+  no "F3-missing: installer not found — cannot exercise this test"
+fi
+
+# F3-handedit: a hand-edited PERSISTED render file (PROMPT-LOOP.md, not the deployed SKILL.md) is
+# detected — the deployed skill_path can still byte-match a fresh render while the render dir
+# it depends on at runtime has been tampered with.
+if [ -f "$INSTALLER_PD" ]; then
+  H_F3HE="$ROOT/home_f3he"
+  bash "$INSTALLER_PD" --home "$H_F3HE" --harness reasonix >/dev/null 2>&1
+  echo "tampered" >> "$H_F3HE/.reasonix/research-sdd/profile/general/PROMPT-LOOP.md"
+  ERR_F3HE="$(bash "$SUT" --harness reasonix --home "$H_F3HE" 2>&1)"; RC_F3HE=$?
+  if [ "$RC_F3HE" -eq 2 ] && printf '%s' "$ERR_F3HE" | grep -qi 'render dir diverged'; then
+    ok "F3-handedit: a hand-edited persisted PROMPT-LOOP.md is detected (could-not-run, not in-sync)"
+  else
+    no "F3-handedit: hand-edited render dir not detected (rc=$RC_F3HE, out=$ERR_F3HE)"
+  fi
+else
+  no "F3-handedit: installer not found — cannot exercise this test"
+fi
+
 # ── TEETH ─────────────────────────────────────────────────────────────────────
 prove_teeth=0
 for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
@@ -894,6 +1043,180 @@ if [ "$prove_teeth" -eq 1 ]; then
   else
     no "TOOTH K also-diverged-names: mutant still shows codex — tooth has no bite"
   fi
+
+  echo "-- teeth: force _vsd_resolve_src to always use the kit source (ignore profile); expect PD1a to fail --"
+  # Neuters the profile branch so a NON-claude profile is silently compared against the kit
+  # source instead of a fresh render — a general-profile install (which legitimately differs
+  # from the kit source) would then be misreported as diverged even when untouched.
+  MUT_PD="$MUT_DIR/verify-skill-drift-mut-PD.sh"
+  sed 's/if \[ "\$profile" = "claude" \]; then/if true; then/' "$SUT" > "$MUT_PD"
+  chmod +x "$MUT_PD"
+  # The mini-kit sandbox above never needed a profiles/ dir before (TOOTH A-K don't touch
+  # profiles); rsdd_valid_profile needs $ROOT/profiles/general.slots.md to accept "general".
+  mkdir -p "$ROOT/profiles"
+  cp "$HERE/../../profiles/general.slots.md" "$ROOT/profiles/general.slots.md" 2>/dev/null
+  if diff -q "$SUT" "$MUT_PD" >/dev/null 2>&1; then
+    no "TOOTH PD pre-check: mutant = SUT — profile branch line not found"
+  else
+    ok "TOOTH PD pre-check: mutant differs (profile branch forced true)"
+  fi
+  if [ -f "$INSTALLER_PD" ]; then
+    H_PD_TEETH="$ROOT/home_pd_teeth"
+    bash "$INSTALLER_PD" --home "$H_PD_TEETH" --harness reasonix >/dev/null 2>&1
+    bash "$MUT_PD" --harness reasonix --home "$H_PD_TEETH" >/dev/null 2>&1
+    RC_MUT_PD=$?
+    if [ "$RC_MUT_PD" -eq 1 ]; then
+      ok "TOOTH PD: mutant (profile ignored) reports a fresh general install as diverged — RED as expected"
+    else
+      no "TOOTH PD: mutant still reports exit $RC_MUT_PD (expected 1) — profile-aware comparison check has no bite"
+    fi
+  else
+    no "TOOTH PD: installer not found — cannot exercise this tooth"
+  fi
+
+  # F3-leak/F3-completeness mutants live BESIDE the REAL SUT (never in $MUT_DIR's mini-kit
+  # sandbox, which has no render-profile.sh/profiles/): both need an ACTUAL successful render
+  # against the REAL kit to reach the code under test, unlike TOOTH PD's mutation above, which
+  # takes a fast path that skips rendering entirely.
+  echo "-- teeth: disable tmp-dir tracking append; expect F3-leak to fail --"
+  MUT_F3LEAK="$HERE/../verify-skill-drift-mut-f3leak.$$.sh"
+  sed 's/\[ -n "\$_vsd_tmp" \] && _VSD_RENDER_TMPDIRS+=("\$_vsd_tmp")/false/' "$SUT" > "$MUT_F3LEAK"
+  chmod +x "$MUT_F3LEAK"
+  if diff -q "$SUT" "$MUT_F3LEAK" >/dev/null 2>&1; then
+    no "TOOTH F3-leak pre-check: mutant = SUT — tracking-append line not found"
+  else
+    ok "TOOTH F3-leak pre-check: mutant differs (tmp-dir tracking disabled)"
+  fi
+  if [ -f "$INSTALLER_PD" ]; then
+    H_TF3L="$ROOT/home_tf3leak"
+    bash "$INSTALLER_PD" --home "$H_TF3L" --harness reasonix >/dev/null 2>&1
+    MUT_F3LEAK_TMPDIR="$ROOT/mut-f3leak-tmpdir"; mkdir -p "$MUT_F3LEAK_TMPDIR"
+    TMPDIR="$MUT_F3LEAK_TMPDIR" bash "$MUT_F3LEAK" --harness reasonix --home "$H_TF3L" >/dev/null 2>&1
+    LEFTOVER_TF3L="$(find "$MUT_F3LEAK_TMPDIR" -mindepth 1 -maxdepth 1 2>/dev/null)"
+    if [ -n "$LEFTOVER_TF3L" ]; then
+      ok "TOOTH F3-leak: mutant (tracking disabled) leaks a tmp dir → F3-leak check has teeth"
+    else
+      no "TOOTH F3-leak: mutant still cleaned up — F3-leak check is THEATER"
+    fi
+  else
+    no "TOOTH F3-leak: installer not found — cannot exercise this tooth"
+  fi
+  rm -f "$MUT_F3LEAK"
+
+  echo "-- teeth: force render-completeness to always be accepted (single-harness); expect F3-missing to fail --"
+  MUT_F3COMP="$HERE/../verify-skill-drift-mut-f3comp.$$.sh"
+  sed 's/if \[ "\$render_state" != "ok" \]; then/if false; then/' "$SUT" > "$MUT_F3COMP"
+  chmod +x "$MUT_F3COMP"
+  if diff -q "$SUT" "$MUT_F3COMP" >/dev/null 2>&1; then
+    no "TOOTH F3-completeness pre-check: mutant = SUT — render_state check line not found"
+  else
+    ok "TOOTH F3-completeness pre-check: mutant differs (single-harness completeness check disabled)"
+  fi
+  if [ -f "$INSTALLER_PD" ]; then
+    H_TF3C="$ROOT/home_tf3comp"
+    bash "$INSTALLER_PD" --home "$H_TF3C" --harness reasonix >/dev/null 2>&1
+    rm -rf "$H_TF3C/.reasonix/research-sdd/profile/general"
+    RC_TF3C=0
+    bash "$MUT_F3COMP" --harness reasonix --home "$H_TF3C" >/dev/null 2>&1 || RC_TF3C=$?
+    if [ "$RC_TF3C" -eq 0 ]; then
+      ok "TOOTH F3-completeness: mutant (check disabled) reports a missing render dir as in-sync → completeness check has teeth"
+    else
+      no "TOOTH F3-completeness: mutant still refused (rc=$RC_TF3C) — completeness check is THEATER"
+    fi
+  else
+    no "TOOTH F3-completeness: installer not found — cannot exercise this tooth"
+  fi
+  rm -f "$MUT_F3COMP"
+
+  # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, MEDIUM). Measured directly (not asserted):
+  # reverting ONLY verify-skill-drift.sh's own -P, with render-profile.sh's INDEPENDENT -P fix
+  # left in place, no longer manifests an externally observable failure — render-profile.sh's own
+  # physical resolution SELF-HEALS through the very symlink verify-skill-drift.sh's broken $KIT
+  # constructs (its "$KIT/toolbelt/render-profile.sh" call still reaches the real toolbelt/ via
+  # F1's whole-directory completion symlink, and -P there alone is enough to resolve back to the
+  # true kit root). That symlink-preserving shape was verified empirically before writing this
+  # tooth; a shape that instead replaces the toolbelt/ symlink with a real copied directory
+  # reproduces a FAILURE but the WRONG one (loses the self-healing property a real render never
+  # loses) — confirmed and discarded rather than kept as an easy but dishonest pass.
+  # render-profile.sh has the identical bug class independently (kit issue #1024 round 4,
+  # SYSTEMIC — found via the new verify-cd-physical.sh lint) and its OWN isolated tooth lives in
+  # render-profile.test.sh (a clean single-mutant case: invoked directly, it never goes through
+  # verify-skill-drift.sh's $KIT at all). THIS tooth instead reverts BOTH scripts together — the
+  # exact pair that jointly produced kit issue #1024's originally reported symptom — because that
+  # combination is what a "SELF_DIR/KIT_INSTALL/KIT -P" reversion of verify-skill-drift.sh ALONE
+  # can no longer be shown to break on its own once render-profile.sh's sibling fix stands.
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P on verify-skill-drift.sh AND render-profile.sh together --"
+  MUT_SYM="$HERE/../verify-skill-drift-mut-sym.$$.sh"
+  sed -e 's/SELF_DIR="\$(cd -P "\$(dirname "\$0")" \&\& pwd -P)"/SELF_DIR="$(cd "$(dirname "$0")" \&\& pwd)"/' \
+      -e 's/KIT_INSTALL="\$(cd -P "\$SELF_DIR\/\.\.\/install" 2>\/dev\/null \&\& pwd -P)"/KIT_INSTALL="$(cd "$SELF_DIR\/..\/install" 2>\/dev\/null \&\& pwd)"/' \
+      -e 's/KIT="\$(cd -P "\$KIT_INSTALL\/\.\." \&\& pwd -P)"/KIT="$(cd "$KIT_INSTALL\/.." \&\& pwd)"/' \
+      "$SUT" > "$MUT_SYM"
+  chmod +x "$MUT_SYM"
+  MUT_RPS="$HERE/../render-profile-mut-sym.$$.sh"
+  sed -e 's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
+      -e 's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/' \
+      "$KIT/toolbelt/render-profile.sh" > "$MUT_RPS"
+  chmod +x "$MUT_RPS"
+  if diff -q "$SUT" "$MUT_SYM" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant differs (-P reverted on all 3 hops)"
+  fi
+  if diff -q "$KIT/toolbelt/render-profile.sh" "$MUT_RPS" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant differs (-P reverted on both hops)"
+  fi
+
+  # Build a fully SYNTHETIC mini-kit (mktemp -d) — never a real render, whose toolbelt/ IS the
+  # real tracked toolbelt/ via F1's completion symlink; writing a mutant through that path would
+  # corrupt the live scripts (the exact mistake already made once in round 3, caught via an
+  # unexpected diff before commit). toolbelt/install/profiles stay genuine SYMLINKS from the
+  # render dir to this mini-kit's own copies — matching the real F1 shape exactly (a real,
+  # non-symlinked toolbelt/ directly under the render dir would ALSO "fail", but for the wrong
+  # reason: it discards the self-healing property a real render never loses, not the class of bug
+  # kit issue #1024 is about).
+  SCRATCH_TSYM="$ROOT/scratch_teeth_symlink"
+  mkdir -p "$SCRATCH_TSYM/research-sdd/toolbelt" "$SCRATCH_TSYM/research-sdd/install" \
+    "$SCRATCH_TSYM/research-sdd/profiles" "$SCRATCH_TSYM/research-sdd/skills/research-sdd"
+  cp "$KIT/toolbelt/verify-skill-drift.sh" "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh"
+  cp "$KIT/toolbelt/render-profile.sh"     "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+  chmod +x "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh" \
+           "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+  cp "$KIT/install/adapters.sh" "$SCRATCH_TSYM/research-sdd/install/adapters.sh"
+  cp "$KIT/profiles/general.slots.md" "$SCRATCH_TSYM/research-sdd/profiles/general.slots.md"
+  cp "$KIT/skills/research-sdd/SKILL.md" "$SCRATCH_TSYM/research-sdd/skills/research-sdd/SKILL.md"
+  cp "$KIT/PROMPT-LOOP.md" "$SCRATCH_TSYM/research-sdd/PROMPT-LOOP.md"
+  cp "$KIT/METHODOLOGY.md" "$SCRATCH_TSYM/research-sdd/METHODOLOGY.md"
+  mkdir -p "$SCRATCH_TSYM/render/profile/general"
+  ln -s "$SCRATCH_TSYM/research-sdd/toolbelt"  "$SCRATCH_TSYM/render/profile/general/toolbelt"
+  ln -s "$SCRATCH_TSYM/research-sdd/install"   "$SCRATCH_TSYM/render/profile/general/install"
+  ln -s "$SCRATCH_TSYM/research-sdd/profiles"  "$SCRATCH_TSYM/render/profile/general/profiles"
+
+  # Bootstrap a GENUINE render at the render dir's root using the real (fixed) render-profile.sh —
+  # exactly what a real install's render step produces — BEFORE swapping the mutants in. Without
+  # this, "zero slot markers" cannot reproduce: there would be no already-rendered file for the
+  # broken KIT_DIR to find, and the mutant would instead fail with an unrelated "source not found".
+  bash "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh" general "$SCRATCH_TSYM/render/profile/general" >/dev/null 2>&1
+
+  H_TSYM="$ROOT/home_teeth_symlink"
+  mkdir -p "$H_TSYM"
+
+  # Now swap BOTH mutants in, in place of the mini-kit's own (fixed) copies — the render dir's
+  # toolbelt/ symlink keeps pointing at this same directory, so it picks up the mutants too.
+  cp "$MUT_SYM" "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh"
+  cp "$MUT_RPS" "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+  chmod +x "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh" \
+           "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+
+  OUT_TSYM="$(bash "$SCRATCH_TSYM/render/profile/general/toolbelt/verify-skill-drift.sh" \
+    --harness reasonix --home "$H_TSYM" --profile general 2>&1)"; RC_TSYM=$?
+  if [ "$RC_TSYM" -eq 2 ] && printf '%s' "$OUT_TSYM" | grep -qi 'zero slot markers'; then
+    ok "teeth SYMLINK-TOOLBELT: both mutants together re-break through a symlinked toolbelt/ (zero slot markers, rc=2) → the -P fix pair has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: mutants did not re-break — -P fix check is THEATER (rc=$RC_TSYM out=[$OUT_TSYM])"
+  fi
+  rm -f "$MUT_SYM" "$MUT_RPS"
 
   # git-status after all teeth: confirm no files leaked into the live tree
   _GIT_AFTER="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"

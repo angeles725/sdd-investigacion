@@ -607,6 +607,30 @@ RETROEOF
     no "T6 teeth: locate case-sensitive PARTIAL grep line in SUT" "line not found — SUT drifted?"
   fi
 
+  # TOOTH SYMLINK-TOOLBELT: revert -P/pwd -P to plain cd/pwd (kit issue #1024 round 3, MEDIUM).
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
+  box_tsym="$(mkbox teeth-symlink-toolbelt)"
+  retro_tsym="$(mk_retro "$box_tsym" target-foo r-tsym.md - "| 1 | do a thing | some/file | cite | fix | P2 |")"
+  mutant_tsym="$box_tsym/research-sdd/toolbelt/stage-retro-issues.sh"
+  sed -e 's/cd -P "\$(dirname "\$0")" \&\& pwd -P/cd "$(dirname "$0")" \&\& pwd/' \
+      -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
+      "$SUT" > "$mutant_tsym"
+  if diff -q "$SUT" "$mutant_tsym" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
+  fi
+  mkdir -p "$box_tsym/research-sdd/profile/general"
+  ln -s "$box_tsym/research-sdd/toolbelt" "$box_tsym/research-sdd/profile/general/toolbelt"
+  out_tsym="$(PATH="$box_tsym/bin:$PATH" "$BASH_BIN" \
+    "$box_tsym/research-sdd/profile/general/toolbelt/stage-retro-issues.sh" "$retro_tsym" 2>&1)"
+  if printf '%s' "$out_tsym" | grep -qi 'target directory.*not found'; then
+    ok "teeth SYMLINK-TOOLBELT: reverted mutant re-breaks through a symlinked toolbelt/ → -P fix has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
+       "(out=[$out_tsym])"
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -687,6 +711,29 @@ if [ "$RC" = 0 ] && [ "$dpp_nomatch" = 1 ] && [ "$dpp_planned" = 0 ]; then
 else
   no "18 dismissed with prose 'partial': not seeded → no-match" \
     "exit=$RC nomatch=$dpp_nomatch planned=$dpp_planned out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #1024 round 3, MEDIUM: symlinked toolbelt (render dir)
+# ---------------------------------------------------------------------------
+# Same class of bug as reconcile-issues.sh (both climb "../.." via cd without -P). Here the
+# symptom is subtler: TARGETS_MD points at a nonexistent path, so the per-retro target lookup
+# silently falls back to basename and WARNs "target directory ... not found" — reproduced against
+# the pre-fix SUT with this exact fixture.
+box_sym="$(mkbox symlink-toolbelt)"
+retro_sym="$(mk_retro "$box_sym" target-foo r-sym.md - "| 1 | do a thing | some/file | cite | fix | P2 |")"
+mkdir -p "$box_sym/research-sdd/profile/general"
+ln -s "$box_sym/research-sdd/toolbelt" "$box_sym/research-sdd/profile/general/toolbelt"
+OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
+  "$box_sym/research-sdd/profile/general/toolbelt/stage-retro-issues.sh" "$retro_sym" 2>&1)"; RC_SYM=$?
+# kit issue #1024 round 4, item 5: assert the exit code explicitly, not just the absence of the
+# negative-signal text — a wrong-reason nonzero exit would otherwise slip through this check.
+if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'target directory.*not found'; then
+  ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, TARGETS.md target lookup still resolves (exit 0)" \
+     "(rc=$RC_SYM)"
+else
+  no "SYMLINK-TOOLBELT: TARGETS.md target lookup failed through a symlinked toolbelt/ (or wrong exit code)" \
+     "(rc=$RC_SYM out=[$OUT_SYM])"
 fi
 
 echo "== $pass passed · $fail failed =="
