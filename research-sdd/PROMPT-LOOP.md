@@ -94,13 +94,14 @@ KIT     = /home/cristian/investigacion/sdd-investigacion/research-sdd
 Always read first, in this order:
   1. $KIT/METHODOLOGY.md — the rules, in two tiers (lazy-load != skip; every rule still applies, you only
        defer LOADING a section until its phase fires, and reading it is MANDATORY then):
-         HOT-CORE (read once per context): §1 §2 §3 the 7 markers §4 §7 §8 §9 §11 §17 — framing + per-block contract.
+         HOT-CORE (read once per context): §1 §2 §3 the 7 markers §4 §7 §8 §8b backlog-cell-grammar (written every iteration) §9 §11 §17 — framing + per-block contract.
          (§11b — verifying the verifier + kit test-lane contract — is SITUATIONAL: kit maintenance only, never per block.)
          SITUATIONAL (read the section in full when its phase fires): §3b corpus layout · §5 source-added · §6 profiling/wrapper ·
-         §7b state-envelope instruments (CHECK A mismatch or shared-prefix corpus) · §8b backlog cell grammar (editing or diagnosing the backlog) ·
+         §7b state-envelope instruments (CHECK A mismatch or shared-prefix corpus) ·
          §8c campaign queue (campaign STOP or frontier-reopen) · §10 tool-missing · §11a data-pipeline heuristics (data-acquisition target) ·
          §12 live-probe · §13 audit (prompt: PROMPT-AUDIT.md) · §14 correction · §15 corpus-git · §16 multi-focus ·
-         §18 STOP · §19 build/PoC · §20 document-mode · §20b bloque vs. diario (document mode sub-type) · §21 wall · §22 breakthrough-ledger. Unsure a phase is active -> read it.
+         §18 STOP · §19 build/PoC · §20 document-mode · §20b bloque vs. diario (document mode sub-type) · §21 wall · §22 breakthrough-ledger ·
+         §23 kit-change template (coordinating a kit change across sessions). Unsure a phase is active -> read it.
   2. $KIT/TARGETS.md            (target profile: artifact type, tools, language)
   3. $KIT/toolbelt/tool-registry.md   (which wrapper to use per artifact type)
   4. $CORPUS/RESEARCH-STATE.md  (state: coverage + prioritized gap-backlog)  [if missing → BOOTSTRAP]
