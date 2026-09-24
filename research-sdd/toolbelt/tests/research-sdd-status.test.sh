@@ -5181,6 +5181,22 @@ else
   no "T-W2-DEDUP: expected exactly 1 occurrence of the WARN, got $_w2_warn_count: [$(echo "$_w2_out" | grep 'unreadable/nonconforming status token')]"
 fi
 
+echo "-- W2 round 3 (security): the FOCUSES-token cache must never touch the filesystem — no file under TMPDIR --"
+# Round 2's cache was a predictable, world-readable, symlink-followable file whose contents were then
+# trusted as data (reproduced: symlink clobber of a victim file; a poisoned cache line silently
+# forcing a false STOP). The round-3 fix moved the cache into a parent-shell associative array with
+# no filesystem footprint at all. Prove it: point TMPDIR at a directory we control, run a normal
+# multi-focus report, and assert that directory is still completely empty afterward.
+_w2_empty_tmpdir="$(mktemp -d)"
+TMPDIR="$_w2_empty_tmpdir" bash "$SUT" "$d_w2" >/dev/null 2>&1
+_w2_tmpdir_entries="$(find "$_w2_empty_tmpdir" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$_w2_tmpdir_entries" -eq 0 ]; then
+  ok "T-W2-NO-TMPFILE: TMPDIR is still empty after a full report run — the FOCUSES-token cache touches no filesystem"
+else
+  no "T-W2-NO-TMPFILE: expected TMPDIR to stay empty, found $_w2_tmpdir_entries entr(y/ies): [$(find "$_w2_empty_tmpdir" -mindepth 1 2>/dev/null)]"
+fi
+rm -rf "$_w2_empty_tmpdir"
+
 echo "-- B1: --focus <slug> scopes the campaign block to exactly that focus --"
 d_b1_mf="$CQ_FIX/multi-focus-mixed"
 _b1_beta_out="$(bash "$SUT" "$d_b1_mf" --focus beta 2>/dev/null)"
@@ -5249,10 +5265,10 @@ echo "-- W1: a target where no active focus has a queue collapses to one summary
 d_w1="$CQ_FIX/no-campaign"
 _w1_out="$(cq_status "$d_w1")"
 _w1_campaign_lines="$(echo "$_w1_out" | grep -cE '^\s*campaign(\s|\[)')"
-if [ "$_w1_campaign_lines" -eq 1 ] && echo "$_w1_out" | grep -qE '^\s*campaign\s*:\s*none \(1 active focuses, 0 with a queue\)'; then
-  ok "T-W1-COLLAPSE-SINGLE: single no-queue focus collapses to exactly one labelled-count summary line"
+if [ "$_w1_campaign_lines" -eq 1 ] && echo "$_w1_out" | grep -qE '^\s*campaign\s*:\s*none \(1 active focus, 0 with a queue\)'; then
+  ok "T-W1-COLLAPSE-SINGLE: single no-queue focus collapses to exactly one labelled-count summary line, singular grammar ('1 active focus')"
 else
-  no "T-W1-COLLAPSE-SINGLE: expected exactly 1 campaign line with the (N active, 0 with a queue) summary, got $_w1_campaign_lines line(s): [$(echo "$_w1_out" | grep -E '^\s*campaign' )]"
+  no "T-W1-COLLAPSE-SINGLE: expected exactly 1 campaign line with '(1 active focus, 0 with a queue)' (singular), got $_w1_campaign_lines line(s): [$(echo "$_w1_out" | grep -E '^\s*campaign' )]"
 fi
 
 echo "-- W1: a MULTI-focus target where NO focus has a queue collapses to one line, not one per focus --"
@@ -5552,46 +5568,65 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # teeth-T-CQ-MF: truncate the active-focus list back down to just the first one (reproducing the
-  # original "only $state" bug) → T-CQ-MF-NO-FALSE-STOP AND T-CQ-MF-STALL must both go RED (RDD round
-  # 2: the original version of this mutant only checked the false-STOP assertion, not the stall WARN).
-  echo "-- teeth-T-CQ-MF: truncate active focuses to first-only → multi-focus fixtures go RED --"
+  # teeth-T-CQ-MF-STOP / teeth-T-CQ-MF-STALL (R3-teeth-mf-or-logic, round 3): truncate the
+  # active-focus list back down to just the first one (reproducing the original "only $state" bug).
+  # Round 2 OR'd the false-STOP and stall-WARN-drop signals into one combined verdict, so EITHER half
+  # of the multi-focus fix alone could carry the whole mutant to "ok" while the other half had gone
+  # untested that run — split into two independent teeth, each with its own bite and its own verdict.
+  echo "-- teeth-T-CQ-MF-STOP / teeth-T-CQ-MF-STALL: truncate active focuses to first-only → each half goes RED independently --"
   _cq_mf_mutant="$TMP/status.CQ-MF.MUTANT.sh"
   if grep -q 'CQB-MULTIFOCUS-ANCHOR' "$SUT"; then
     cp "$SUT" "$_cq_mf_mutant"
     sed -i '/CQB-MULTIFOCUS-ANCHOR/a\  _cqb_active=("${_cqb_active[0]}")' "$_cq_mf_mutant"
     if cmp -s "$_cq_mf_mutant" "$SUT"; then
-      no "teeth-T-CQ-MF: mutant identical to SUT — sed did not apply"
+      no "teeth-T-CQ-MF-STOP: mutant identical to SUT — sed did not apply"
+      no "teeth-T-CQ-MF-STALL: mutant identical to SUT — sed did not apply"
     elif ! bash -n "$_cq_mf_mutant" 2>/dev/null; then
-      no "teeth-T-CQ-MF: mutant has syntax error"
+      no "teeth-T-CQ-MF-STOP: mutant has syntax error"
+      no "teeth-T-CQ-MF-STALL: mutant has syntax error"
     else
-      _cq_mf_mutant_regressed=0
+      # Half 1: false-STOP regression (T-CQ-MF-NO-FALSE-STOP) — independent of GNU date.
       _cq_mf_mut_out="$(bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
-      echo "$_cq_mf_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached' && _cq_mf_mutant_regressed=1
-      if [ "$_gnu_date_ok" -eq 1 ] && [ -n "$_bsd_true_epoch" ]; then
-        _cq_mf_beta_epoch2="$(/usr/bin/date -u -d "2026-09-24T00:00:00Z" +%s 2>/dev/null)"
-        if [ -n "$_cq_mf_beta_epoch2" ]; then
-          _cq_mf_stall_mut_out="$(_RSDD_NOW_EPOCH=$(( _cq_mf_beta_epoch2 + 960 )) bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
-          echo "$_cq_mf_stall_mut_out" | grep -qi 'WARN.*stall' || _cq_mf_mutant_regressed=1
-        fi
-      fi
-      if [ "$_cq_mf_mutant_regressed" -eq 1 ]; then
-        ok "teeth-T-CQ-MF: mutant false-STOPs and/or drops beta's stall WARN on first-focus-only again → T-CQ-MF-NO-FALSE-STOP/T-CQ-MF-STALL go RED → multi-focus scan is load-bearing"
+      if echo "$_cq_mf_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+        ok "teeth-T-CQ-MF-STOP: mutant false-STOPs on first-focus-only again → T-CQ-MF-NO-FALSE-STOP goes RED → the multi-focus scan (STOP half) is load-bearing"
       else
-        no "teeth-T-CQ-MF: mutant reproduced neither the false-STOP nor the dropped stall WARN — THEATER"
+        no "teeth-T-CQ-MF-STOP: mutant did not reproduce the false-STOP — THEATER"
+      fi
+
+      # Half 2: dropped stall-WARN regression (T-CQ-MF-STALL) — needs GNU date for the reference
+      # epoch; SKIP loudly (never silently) when unavailable, exactly like the functional test does.
+      if [ "$_gnu_date_ok" -ne 1 ]; then
+        skip "teeth-T-CQ-MF-STALL: GNU date not found on this host — cannot compute beta's reference epoch for this mutant test"
+      elif [ -z "$_bsd_true_epoch" ]; then
+        no "teeth-T-CQ-MF-STALL: cannot compute reference epoch"
+      else
+        _cq_mf_beta_epoch2="$(/usr/bin/date -u -d "2026-09-24T00:00:00Z" +%s 2>/dev/null)"
+        if [ -z "$_cq_mf_beta_epoch2" ]; then
+          no "teeth-T-CQ-MF-STALL: cannot compute beta's reference epoch"
+        else
+          _cq_mf_stall_mut_out="$(_RSDD_NOW_EPOCH=$(( _cq_mf_beta_epoch2 + 960 )) bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
+          if ! echo "$_cq_mf_stall_mut_out" | grep -qi 'WARN.*stall'; then
+            ok "teeth-T-CQ-MF-STALL: mutant drops beta's stall WARN on first-focus-only again → T-CQ-MF-STALL goes RED → the multi-focus scan (stall half) is load-bearing"
+          else
+            no "teeth-T-CQ-MF-STALL: mutant still emits beta's stall WARN — THEATER"
+          fi
+        fi
       fi
     fi
   else
-    no "teeth-T-CQ-MF: CQB-MULTIFOCUS-ANCHOR sentinel not found in SUT"
+    no "teeth-T-CQ-MF-STOP: CQB-MULTIFOCUS-ANCHOR sentinel not found in SUT"
+    no "teeth-T-CQ-MF-STALL: CQB-MULTIFOCUS-ANCHOR sentinel not found in SUT"
   fi
 
-  # teeth-T-W2-DEDUP: disable the FOCUSES-token cache (force the cache file to empty, degrading to
-  # always-recompute) → the nonconforming-status WARN fires twice again → T-W2-DEDUP must go RED.
-  echo "-- teeth-T-W2-DEDUP: disable the FOCUSES-token cache → dedup fixture goes RED --"
+  # teeth-T-W2-DEDUP: defang the cache-hit check in _read_focuses_tok_into (never matches, so every
+  # call recomputes from FOCUSES.md) → the nonconforming-status WARN fires twice again on the dedup
+  # fixture → T-W2-DEDUP must go RED. Round 3: rewritten for the parent-shell array cache — the round
+  # 2 version of this mutant targeted a cache FILE that no longer exists.
+  echo "-- teeth-T-W2-DEDUP: defang the array cache-hit check → dedup fixture goes RED --"
   _w2_mutant="$TMP/status.W2-DEDUP.MUTANT.sh"
   if grep -q 'W2-DEDUP-CACHE-ANCHOR' "$SUT"; then
     cp "$SUT" "$_w2_mutant"
-    sed -i '/W2-DEDUP-CACHE-ANCHOR/c\_RSDD_FOC_TOK_CACHE_FILE=""  # W2-DEDUP-CACHE-ANCHOR' "$_w2_mutant"
+    sed -i '/W2-DEDUP-CACHE-ANCHOR/s/= "_set" \]/= "_never" ]/' "$_w2_mutant"
     if cmp -s "$_w2_mutant" "$SUT"; then
       no "teeth-T-W2-DEDUP: mutant identical to SUT — sed did not apply"
     elif ! bash -n "$_w2_mutant" 2>/dev/null; then
@@ -5600,7 +5635,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       _w2_mut_out="$(bash "$_w2_mutant" "$d_w2" 2>&1)"
       _w2_mut_count="$(echo "$_w2_mut_out" | grep -c 'unreadable/nonconforming status token')"
       if [ "$_w2_mut_count" -gt 1 ]; then
-        ok "teeth-T-W2-DEDUP: mutant re-warns $_w2_mut_count times with caching disabled → T-W2-DEDUP goes RED → the cache is load-bearing"
+        ok "teeth-T-W2-DEDUP: mutant re-warns $_w2_mut_count times with the cache-hit check defanged → T-W2-DEDUP goes RED → the cache is load-bearing"
       else
         no "teeth-T-W2-DEDUP: mutant still warns only once ($_w2_mut_count) with caching disabled — THEATER"
       fi

@@ -471,39 +471,35 @@ pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$
 # cached token silently. Distinct from a wrong-answer cache: the token is still recomputed once, from
 # the same file, by the same logic; only the SECOND-and-later read within one run is served from cache.
 #
-# An in-memory associative array does NOT work here: every call site captures this function's stdout
-# via `x="$(_read_focuses_tok ...)"`, and command substitution always forks a subshell — an array
-# write inside that subshell never propagates back to the parent, so an in-process cache silently
-# stays empty forever (measured: still warned twice on the real niagara-research fleet target after
-# an in-memory-array first attempt). A cache FILE survives the fork because it is a real filesystem
-# side effect, not a shell variable.
+# Round 2 first tried a cache FILE (a plain in-memory array does not survive the subshell every
+# `x="$(_read_focuses_tok ...)"` capture forks). Round 3 (native RDD + Opus re-review): that file was
+# a real security bug, not just an implementation detail — a predictable, world-readable path under a
+# shared tmp dir, created with `: >` (follows symlinks), whose CONTENTS were then trusted as data.
+# Reproduced: a symlink at that path clobbering an unrelated victim file, and a planted
+# "<key>\tstopped" line silently forcing a real focus into a false STOP — the same function backs
+# `--next`, so a poisoned cache file could produce a false STOP there too (kit §7 anti-silent-zero:
+# an attacker-controlled "0 gaps left" is exactly the silent-zero this doctrine exists to prevent).
 #
-# Deliberately NOT `mktemp`: this runs unconditionally, at the top of every invocation, before the
-# --next path's own enumeration mktemp calls — a test harness that stubs mktemp to fail its FIRST
-# call (to test THAT code's degrade-to-unverified path) would have this cache setup silently consume
-# that first failure instead, leaving the enumeration's own mktemp call to wrongly succeed (found via
-# T-IDG-ENUM-MKTEMP going red while wiring this up). A PID-suffixed path needs no external command,
-# so it cannot be the thing a mktemp stub is testing. An unwritable tmp dir degrades to no caching —
-# every call recomputes, exactly like before this fix — never a wrong or stale answer.
-_RSDD_FOC_TOK_CACHE_FILE="${TMPDIR:-/tmp}/.rsdd-foc-tok-cache.$$"  # W2-DEDUP-CACHE-ANCHOR
-: > "$_RSDD_FOC_TOK_CACHE_FILE" 2>/dev/null || _RSDD_FOC_TOK_CACHE_FILE=""
-[ -n "$_RSDD_FOC_TOK_CACHE_FILE" ] && trap 'rm -f "$_RSDD_FOC_TOK_CACHE_FILE"' EXIT
-_read_focuses_tok() {
-  local ffile="$1" sbase="$2"
-  local _cache_key _cache_line _tok
-  if [ -n "$_RSDD_FOC_TOK_CACHE_FILE" ]; then
-    _cache_key="${ffile}$(printf '\x1e')${sbase}"
-    _cache_line="$(grep -F -- "${_cache_key}$(printf '\t')" "$_RSDD_FOC_TOK_CACHE_FILE" 2>/dev/null | head -1)"
-    if [ -n "$_cache_line" ]; then
-      printf '%s' "${_cache_line#*$(printf '\t')}"
-      return
-    fi
+# The actual fix: never leave the parent shell at all. `_read_focuses_tok_into <var> <ffile> <sbase>`
+# is called as a PLAIN statement (never wrapped in `$(...)`), so it runs in the caller's own process —
+# no subshell, no file, nothing written to a shared or world-readable location. The cache only ever
+# holds values this exact process computed for itself. The `( … )` next-step subshell below still
+# benefits: it inherits a COPY of this array at fork time, so every entry the campaign block already
+# populated earlier in the same run is a cache hit there too (a subshell just can't add new entries
+# back to the parent, which this call pattern never needs it to).
+declare -A _RSDD_FOC_TOK_CACHE=()
+_read_focuses_tok_into() {
+  local _rft_var="$1" ffile="$2" sbase="$3"
+  local _cache_key
+  _cache_key="${ffile}$(printf '\x1e')${sbase}"
+  if [ "${_RSDD_FOC_TOK_CACHE[$_cache_key]+_set}" = "_set" ]; then  # W2-DEDUP-CACHE-ANCHOR
+    printf -v "$_rft_var" '%s' "${_RSDD_FOC_TOK_CACHE[$_cache_key]}"
+    return
   fi
+  local _tok
   _tok="$(_read_focuses_tok_uncached "$ffile" "$sbase")"
-  if [ -n "$_RSDD_FOC_TOK_CACHE_FILE" ]; then
-    printf '%s\t%s\n' "${ffile}$(printf '\x1e')${sbase}" "$_tok" >> "$_RSDD_FOC_TOK_CACHE_FILE"
-  fi
-  printf '%s' "$_tok"
+  _RSDD_FOC_TOK_CACHE[$_cache_key]="$_tok"
+  printf -v "$_rft_var" '%s' "$_tok"
 }
 
 _read_focuses_tok_uncached() {
@@ -1100,7 +1096,8 @@ if [ "$mode" = "--next" ]; then
         # Extends N194-STOPPED-BYPASS to also cover stopped focuses whose priority column is unknown.
         # The INVALID_PRIORITY guard below is therefore only reached for ACTIVE focuses.  # N194-FOCUSES-SKIP  # N641-FOCUSES-BEFORE-INVALID-PRIORITY
         _sfoc_file="$(dirname "$state")/FOCUSES.md"
-        _sfoc_tok="$(_read_focuses_tok "$_sfoc_file" "$(basename "$state")")"
+        _read_focuses_tok_into _sfoc_tok "$_sfoc_file" "$(basename "$state")"
+        # shellcheck disable=SC2154 # _sfoc_tok is assigned indirectly by _read_focuses_tok_into via printf -v
         if [ "$_sfoc_tok" = "stopped" ] || [ "$_sfoc_tok" = "paused" ]; then
           continue
         fi
@@ -1150,7 +1147,8 @@ if [ "$mode" = "--next" ]; then
   fi
   for state in "${_rd_states[@]}"; do
     _rd_foc_file="$(dirname "$state")/FOCUSES.md"
-    _rd_foc_tok="$(_read_focuses_tok "$_rd_foc_file" "$(basename "$state")")"
+    _read_focuses_tok_into _rd_foc_tok "$_rd_foc_file" "$(basename "$state")"
+    # shellcheck disable=SC2154 # _rd_foc_tok is assigned indirectly by _read_focuses_tok_into via printf -v
     if [ "$_rd_foc_tok" = "stopped" ] || [ "$_rd_foc_tok" = "paused" ]; then continue; fi
     _rd_bsr="$(env_get blocks_since_retro)"
     if printf '%s' "$_rd_bsr" | grep -qE '^[0-9]+$' && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then  # RD-THRESHOLD-CHECK
@@ -1170,7 +1168,8 @@ if [ "$mode" = "--next" ]; then
     for state in "${_next_states[@]}"; do
       _nxt_foc_slug="$(basename "$state" .md)"; _nxt_foc_slug="${_nxt_foc_slug#RESEARCH-STATE-}"
       _nxt_foc_file="$(dirname "$state")/FOCUSES.md"
-      _nxt_foc_tok="$(_read_focuses_tok "$_nxt_foc_file" "$(basename "$state")")"  # N194-FOCUSES-SKIP
+      _read_focuses_tok_into _nxt_foc_tok "$_nxt_foc_file" "$(basename "$state")"  # N194-FOCUSES-SKIP
+      # shellcheck disable=SC2154 # _nxt_foc_tok is assigned indirectly by _read_focuses_tok_into via printf -v
       if [ "$_nxt_foc_tok" = "stopped" ] || [ "$_nxt_foc_tok" = "paused" ]; then
         printf 'INFO: skipped %s (focus-status: %s in FOCUSES.md)\n' "$_nxt_foc_slug" "$_nxt_foc_tok" >&2
         [ -r "$state" ] || printf 'WARN: cannot read state file %s\n' "$state" >&2
@@ -1198,10 +1197,16 @@ fi
 
 # --- §8c campaign queue helpers ----------------------------------------------------------------
 
-# campaign_section: body of "## Campaign queue", skipping HTML comment blocks.
-# The template wraps the section in <!-- ... --> as a "do-not-pre-create" note;
-# real RESEARCH-STATE files do NOT have HTML comments, so we must skip them when
-# they appear (e.g. if someone copies from the template literally).
+# _CQ_COMMENT_SKIP_AWK: shared HTML-comment-skip state machine body, textually shared by
+# campaign_section() and campaign_queue_present() (R2 round 3: this used to be hand-duplicated in
+# each function — a fix to one could silently drift from the other, and a mutation anchor only ever
+# covered whichever copy it happened to sit in). Defined ONCE as a bash string and interpolated into
+# both awk programs below, so there is exactly one physical copy of this logic in the source file,
+# and a single sed-targeted mutation against it exercises both callers.
+#
+# The template wraps its own "## Campaign queue" section in <!-- ... --> as a "do-not-pre-create"
+# note; real RESEARCH-STATE files do NOT have HTML comments, so we must skip them when they appear
+# (e.g. if someone copies from the template literally).
 #
 # R3-comment-skip-overreach (round 1): comment markers only count at the START of a line (optionally
 # after whitespace) — matching how the template actually writes them. A table row's Seed/Convergence
@@ -1216,11 +1221,8 @@ fi
 # machine below closes on "-->" ANYWHERE once inside a comment, and only ENTERS multi-line comment
 # mode when the opening line does NOT also contain a closing "-->" (so a genuine one-line comment like
 # `<!-- a -> b -->` — broken before this PR too, since `[^>]*` could not cross the embedded ">" in
-# "->" — is consumed whole without ever setting in_c). A file that ends while still inside a comment
-# WARNs loudly instead of silently discarding the rest of the section (anti-silent-zero, kit §7).
-campaign_section() {
-  awk '
-    {
+# "->" — is consumed whole without ever setting in_c).
+_CQ_COMMENT_SKIP_AWK='
       if (in_c) {
         if ($0 ~ /-->/) { in_c = 0 }  # CQ-COMMENT-CLOSE-ANCHOR — closes on --> ANYWHERE, not just at EOL
         next
@@ -1229,6 +1231,15 @@ campaign_section() {
         if ($0 !~ /-->/) { in_c = 1 }  # CQ-COMMENT-OPEN-ANCHOR — only multi-line when not also closed here
         next
       }
+'
+
+# campaign_section: body of "## Campaign queue", skipping HTML comment blocks (shared state machine
+# above). A file that ends while still inside a comment WARNs loudly instead of silently discarding
+# the rest of the section (anti-silent-zero, kit §7).
+campaign_section() {
+  awk '
+    {
+'"$_CQ_COMMENT_SKIP_AWK"'
       if (index($0, "## Campaign queue") == 1) { f = 1; next }
       if ($0 ~ /^## /) { f = 0 }
       if (f) print
@@ -1239,19 +1250,13 @@ campaign_section() {
   ' "$state"
 }
 
-# campaign_queue_present: exits 0 when ## Campaign queue exists outside HTML comments.
-# Same comment-detection state machine as campaign_section() — see the comments above it.
+# campaign_queue_present: exits 0 when ## Campaign queue exists outside HTML comments. Same
+# comment-detection state machine as campaign_section() — literally the same shared string, not a
+# hand-copied twin (R2 round 3).
 campaign_queue_present() {
   awk '
     {
-      if (in_c) {
-        if ($0 ~ /-->/) { in_c = 0 }
-        next
-      }
-      if ($0 ~ /^[[:space:]]*<!--/) {
-        if ($0 !~ /-->/) { in_c = 1 }
-        next
-      }
+'"$_CQ_COMMENT_SKIP_AWK"'
       if (index($0, "## Campaign queue") == 1) { found = 1; exit }
     }
     END { exit !found }
@@ -1391,7 +1396,7 @@ campaign_status_block() {
   else
     for _cqb_st in "${_cqb_states[@]}"; do
       _cqb_foc_file="$(dirname "$_cqb_st")/FOCUSES.md"
-      _cqb_foc_tok="$(_read_focuses_tok "$_cqb_foc_file" "$(basename "$_cqb_st")")"
+      _read_focuses_tok_into _cqb_foc_tok "$_cqb_foc_file" "$(basename "$_cqb_st")"
       if [ "$_cqb_foc_tok" = "stopped" ] || [ "$_cqb_foc_tok" = "paused" ]; then
         _cqb_skip=$(( _cqb_skip + 1 ))
         continue
@@ -1415,10 +1420,18 @@ campaign_status_block() {
   local _cqb_n_active="${#_cqb_active[@]}" _cqb_n_queue="${#_cqb_queue_states[@]}"
 
   if [ "$_cqb_n_queue" -eq 0 ]; then  # W1-COLLAPSE-ANCHOR
-    printf '  %-16s: none (%d active focuses, 0 with a queue)\n' "campaign" "$_cqb_n_active"  # CQ-NONE-ANCHOR
+    # R2-misleading-preserve-contract-comment (round 3): "focus" is singular when there is exactly
+    # one active focus — nave-panccadia (a genuine single-focus corpus) was printing the grammatically
+    # wrong "1 active focuses, 0 with a queue" before this.
+    local _cqb_focus_word="focuses"
+    [ "$_cqb_n_active" -eq 1 ] && _cqb_focus_word="focus"
+    printf '  %-16s: none (%d active %s, 0 with a queue)\n' "campaign" "$_cqb_n_active" "$_cqb_focus_word"  # CQ-NONE-ANCHOR
     if [ "$_cqb_n_active" -eq 1 ]; then
-      # Single-focus corpus, no campaign started: preserve the original two-line contract
-      # (campaign: none + last_iteration_ts) rather than dropping the ts line entirely.
+      # Single-focus corpus, no campaign started: still prints the original two-line SHAPE (a
+      # campaign-status line followed by a last_iteration_ts line) rather than dropping the ts line
+      # entirely — it does NOT preserve the original line's exact TEXT, which is the point of this
+      # branch (round 3: the previous wording here claimed to "preserve the original two-line
+      # contract", which overclaimed byte-for-byte sameness the collapsed line never had).
       local _cqb_ts
       state="${_cqb_active[0]}"
       _cqb_ts="$(env_get last_iteration_ts)"
@@ -1564,7 +1577,8 @@ printf '  next step       : '
   for state in "${_ns_states[@]}"; do
     _ns_foc_slug="$(basename "$state" .md)"; _ns_foc_slug="${_ns_foc_slug#RESEARCH-STATE-}"
     _ns_foc_file="$(dirname "$state")/FOCUSES.md"
-    _ns_foc_tok="$(_read_focuses_tok "$_ns_foc_file" "$(basename "$state")")"
+    _read_focuses_tok_into _ns_foc_tok "$_ns_foc_file" "$(basename "$state")"
+    # shellcheck disable=SC2154 # _ns_foc_tok is assigned indirectly by _read_focuses_tok_into via printf -v
     if [ "$_ns_foc_tok" = "stopped" ] || [ "$_ns_foc_tok" = "paused" ]; then
       printf 'INFO: skipped %s (focus-status: %s in FOCUSES.md)\n' "$_ns_foc_slug" "$_ns_foc_tok" >&2
       [ -r "$state" ] || printf 'WARN: cannot read state file %s\n' "$state" >&2
