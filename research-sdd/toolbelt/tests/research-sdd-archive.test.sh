@@ -945,6 +945,76 @@ if [ "$rc" = 0 ] && ! grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "add 1 NEW block + modify 1 existing (§14 backlink) → no ONE-BLOCK-PER-COMMIT WARN (counts ADDED only)"
 else no "one-block-backlink: rc=$rc :: $(grep -iE 'one-block|block' <<<"$out" | head -1)"; fi
 
+# mkrun_git_rename <corpus> — a hermetic git corpus for the ONE-BLOCK-PER-COMMIT × rename-detection
+# reconciliation (RDD round 2, F4): baseline + retro (OLD dates), B1 in its OWN commit, then ONE
+# iteration commit that RENAMES B1 (git mv, no content change) AND adds a genuinely NEW block B2.
+# diff.renames=false is configured on the corpus — same config-dependence as retro-gate.sh's F1/#984
+# rename bug: without forced rename detection, the mv shows as a plain D+A pair, and the renamed
+# file's Added half is indistinguishable from a genuinely new block.
+mkrun_git_rename() {
+  local corpus="$1"
+  mkdir -p "$corpus"
+  git -C "$corpus" init -q -b main
+  git -C "$corpus" config user.email t@example.com; git -C "$corpus" config user.name tester
+  git -C "$corpus" config diff.renames false
+  cat > "$corpus/RESEARCH-STATE.md" <<'EOF'
+# T — Research State
+
+## Coverage
+
+- **Covered blocks**: 2 (B1, B2)
+- **Coverage metric**: 2 / 3 closed
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | still-open gap | web | pending |
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-07-07 | first gap | B1 | no · inline | 1 |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+EOF
+  : > "$corpus/INDEX.md"
+  git -C "$corpus" add -A
+  GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" git -C "$corpus" commit -q -m baseline
+  mkdir -p "$corpus/retros"; printf '# retro\n' > "$corpus/retros/2026-retro-focus.md"
+  git -C "$corpus" add -A
+  GIT_AUTHOR_DATE="2026-02-01T00:00:00" GIT_COMMITTER_DATE="2026-02-01T00:00:00" git -C "$corpus" commit -q -m "add retro"
+  printf '# Block 1\nOriginal claim, long enough that a naive similarity heuristic still calls it a rename.\n' > "$corpus/t-block1.md"
+  git -C "$corpus" add t-block1.md
+  GIT_AUTHOR_DATE="2026-02-15T00:00:00" GIT_COMMITTER_DATE="2026-02-15T00:00:00" git -C "$corpus" commit -q -m "B1"
+  # Iteration N+1: RENAME B1 (no content change) AND add a genuinely new B2 — one commit.
+  git -C "$corpus" mv t-block1.md t-block1-renamed.md
+  printf '# Block 2\nGenuinely new block.\n' > "$corpus/t-block2.md"
+  git -C "$corpus" add -A
+  GIT_AUTHOR_DATE="2026-03-01T00:00:00" GIT_COMMITTER_DATE="2026-03-01T00:00:00" git -C "$corpus" commit -q -m "rename B1 + add B2"
+  # Close retro (git commit AFTER blocks): satisfies MISSING-RETRO gate (D6).
+  printf '<!-- review-status: pending -->\n# Close retro — git fixture\n' > "$corpus/retros/2026-close-retro.md"
+  git -C "$corpus" add retros/2026-close-retro.md
+  GIT_AUTHOR_DATE="2026-04-01T00:00:00" GIT_COMMITTER_DATE="2026-04-01T00:00:00" git -C "$corpus" commit -q -m "close retro"
+  # deliberately dirty on return — see the comment in mkgood_git above (#970 F1 real-flow contract).
+  bash "$HERE/../research-sdd-status.sh" "$corpus" --sync-state >/dev/null 2>&1
+}
+
+# 23b — ONE-BLOCK-PER-COMMIT × rename detection (RDD round 2, F4): a commit that RENAMES an
+#       existing block (no content change) and adds one genuinely new block must NOT trip the
+#       detector, even on a corpus with diff.renames=false. Without -M forced on the detector's
+#       `git show --diff-filter=A`, the renamed file's Added half (D+A, since diff.renames=false
+#       disables rename detection) is indistinguishable from B2 — a false 2-block WARN. RED
+#       before the fix: exactly this — see PR body for the RED run.
+d="$TMP/one-block-rename"; mkrun_git_rename "$d"
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "rename 1 block (diff.renames=false) + add 1 NEW block → no false ONE-BLOCK-PER-COMMIT WARN"
+else no "one-block-rename: rc=$rc :: $(grep -iE 'one-block|block' <<<"$out" | head -1)"; fi
+
 # 24 — Retro FORMAT LINT — bare-text review-status marker → advisory WARN (exit stays 0).
 #      A retro whose first line is a heading (not an HTML comment) and which carries 'review-status:'
 #      as BARE TEXT is invisible to the sweep (retro_review_status returns empty) but NOT caught at
@@ -1422,8 +1492,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: revert the ADDED-only filter (drop --diff-filter=A) so a backlink-edit counts; expect a WARN --"
   amutant="$TMP/archive.ADDMUTANT.sh"
-  sed 's/show --diff-filter=A --name-only/show --name-only/' "$SUT" > "$amutant"
-  if ! grep -q 'show --diff-filter=A --name-only' "$SUT"; then
+  sed 's/show --diff-filter=A -M --name-only/show --name-only/' "$SUT" > "$amutant"
+  if ! grep -q 'show --diff-filter=A -M --name-only' "$SUT"; then
     no "teeth: ADDED-only filter line not found in SUT (did the fix change shape?)"
   else
     d="$TMP/teeth-backlink"; mkrun_git_backlink "$d"
@@ -1431,6 +1501,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$arc" = 0 ] && grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
       ok "teeth: name-only mutant WARNs on the add-1+modify-1 iteration → case 23a has teeth"
     else no "teeth: add-mutant rc=$arc / no WARN — case 23a does NOT depend on --diff-filter=A (THEATER)"; fi
+  fi
+
+  echo "-- teeth: drop -M from the block detector (RDD round 2, F4) — expect a false WARN on the rename fixture --"
+  mmutant="$TMP/archive.NOMUTANT.sh"
+  sed 's/show --diff-filter=A -M --name-only/show --diff-filter=A --name-only/' "$SUT" > "$mmutant"
+  if ! grep -q 'show --diff-filter=A -M --name-only' "$SUT"; then
+    no "teeth: -M rename-detection flag not found in SUT (did the fix change shape?)"
+  else
+    d="$TMP/teeth-rename"; mkrun_git_rename "$d"
+    out="$(bash "$mmutant" "$d" 2>&1)"; mrc2=$?
+    if [ "$mrc2" = 0 ] && grep -qi 'ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+      ok "teeth: -M dropped → false WARN on rename+add under diff.renames=false → case 23b has teeth"
+    else no "teeth: -M-dropped mutant rc=$mrc2 / no WARN — case 23b does NOT depend on -M (THEATER)"; fi
   fi
 
   echo "-- teeth: uf-gate — neuter ONLY the undocumented_findings refuse; uf=1 corpus must then archive --"

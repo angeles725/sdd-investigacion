@@ -15,12 +15,20 @@ if [ -z "$retro" ] || [ ! -f "$retro" ]; then
   exit 1
 fi
 
-# Kit repo root = two dirs up from toolbelt/.
-KIT_REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+# Kit repo root = two dirs up from toolbelt/. `cd -P` resolves PHYSICALLY, following any
+# symlink in the path — plain `cd` (no -P) tracks the LOGICAL path instead, so when toolbelt/
+# itself is a symlink (e.g. the profile installer's
+# <config_root>/research-sdd/profile/<name>/toolbelt -> <real kit>/research-sdd/toolbelt),
+# the trailing `..` components walk back up through the SYMLINK'S location on the logical
+# path, not through the real kit tree the symlink points at — landing on the profile
+# directory instead of the kit repo root. `pwd` needs no -P here: once `cd -P` has landed in
+# the physical directory, $PWD is already the real path.
+KIT_REPO="$(cd -P "$(dirname "$0")/../.." && pwd)"
 
 # Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and
 # stage-retro.sh both source it, so the leading-comment-block scan can never drift between them).
-LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+# Same symlink hazard as KIT_REPO above — resolve physically.
+LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/retro-status.sh"
 if [ ! -f "$LIB" ]; then
   echo "stage-retro: cannot find helper $LIB" >&2
   exit 1
@@ -64,7 +72,10 @@ retro_ref="${target}/retros/$(basename "$retro")"
 # Absolutize the retro path before the git log pathspec: `-C "$target_root"` is already absolute, but a
 # RELATIVE $retro pathspec is then resolved AGAINST that rebased cwd (not the original cwd), so it can miss
 # a genuinely tracked retro and silently drop the '@<sha>' suffix (misreporting it as untracked).
-retro_abs="$(cd "$(dirname "$retro")" 2>/dev/null && pwd)/$(basename "$retro")"
+# `cd -P`/`pwd -P` (not plain `pwd`): $KIT_REPO above is resolved PHYSICALLY, so a retro path that
+# reaches the kit repo through a symlink must resolve physically too, or the self-referential-target
+# guard's `case "$retro_abs" in "$KIT_REPO"/*)` below would never match and the guard would be skipped.
+retro_abs="$(cd -P "$(dirname "$retro")" 2>/dev/null && pwd)/$(basename "$retro")"
 retro_sha="$(git -C "$target_root" log -1 --format=%h -- "$retro_abs" 2>/dev/null)"
 [ -n "$retro_sha" ] && retro_ref="${retro_ref}@${retro_sha}"
 
@@ -83,26 +94,65 @@ echo ""
 git -C "$KIT_REPO" checkout -q main || { echo "cannot checkout main" >&2; exit 4; }
 git -C "$KIT_REPO" fetch -q origin || { echo "degraded: git fetch origin failed — cannot verify remote state; refusing to branch from a possibly stale base." >&2; exit 6; }
 # Do NOT pull into the shared checkout's main (CLAUDE.md §3 / §12.4) — the new branch is
-# created from origin/main directly below, so local main does not need to advance.
+# created from origin/main directly below, so local main does not need to advance. This is
+# also why there is no "local main must be in sync with origin/main" guard here any more: the
+# retro branch never starts from local main (it always branches from origin/main, below), so
+# unpushed commits sitting on local main cannot bleed into it.
 
-# Guard: main must be in sync with origin/main. Un-pushed local commits on main become
-# part of this branch's diff, so the PR's squash-merge folds them into the retro commit —
-# mixing unrelated history (lesson: PR #1 folded the adversarial-verify commits into the
-# niagara retro squash). Push them to main first, or override with ALLOW_UNPUSHED_BASE=1.
-unpushed=$(git -C "$KIT_REPO" rev-list --count origin/main..main 2>/dev/null || echo 0)
-if [ "${unpushed:-0}" -gt 0 ] && [ "${ALLOW_UNPUSHED_BASE:-}" != "1" ]; then
-  echo "main has $unpushed local commit(s) not on origin/main — they would be folded into" >&2
-  echo "this retro's PR squash (mixed history). Push them first:" >&2
-  echo "    git -C \"$KIT_REPO\" push origin main" >&2
-  echo "...or re-run with ALLOW_UNPUSHED_BASE=1 if that base is intentional." >&2
-  exit 5
-fi
+# Self-referential-target guard: TARGETS.md can list the kit repo itself as a research target
+# (its own retros/ dir then lives INSIDE $KIT_REPO). Checking out origin/main below replaces
+# the ENTIRE working tree with that ref's content — if this retro was committed only to local
+# main (not yet pushed), it is absent from origin/main and vanishes from the worktree the
+# instant we check out $branch, before the sed below ever reads it. Catch that BEFORE any
+# checkout, not after: refuse and tell the supervisor to push it first.
+# EXISTENCE alone is not enough (RDD R4-selfref-guard-existence-only): origin/main can already
+# have a blob at this path from an EARLIER push, while local HEAD has since moved the same
+# path on to different content (edited the retro, or amended it) without pushing. Comparing
+# blob shas — not just presence — catches that: the clean-tree guard above already ran, so
+# HEAD's blob is exactly what is on disk right now.
+case "$retro_abs" in
+  "$KIT_REPO"/*)
+    _retro_rel_to_kit="${retro_abs#"$KIT_REPO"/}"
+    _retro_origin_blob="$(git -C "$KIT_REPO" rev-parse -q --verify "origin/main:${_retro_rel_to_kit}" 2>/dev/null)"
+    _retro_head_blob="$(git -C "$KIT_REPO" rev-parse -q --verify "HEAD:${_retro_rel_to_kit}" 2>/dev/null)"
+    if [ -z "$_retro_origin_blob" ] || [ "$_retro_origin_blob" != "$_retro_head_blob" ]; then
+      echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and origin/main does" >&2
+      echo "not have the SAME content as the local commit — staging would branch from origin/main" >&2
+      echo "and silently stage a stale (or entirely missing) version of this file. Push it first:" >&2
+      echo "    git -C \"$KIT_REPO\" push origin main" >&2
+      echo "...then re-run stage-retro.sh." >&2
+      exit 7
+    fi
+    ;;
+esac
 
 if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
-  echo "branch $branch already exists — checking it out." ; git -C "$KIT_REPO" checkout -q "$branch"
+  echo "branch $branch already exists — checking it out."
+  git -C "$KIT_REPO" checkout -q "$branch" \
+    || { echo "cannot check out existing branch $branch" >&2; exit 5; }
 else
   # --no-track: never set origin/main as upstream (a bare `git push` could otherwise target main).
-  git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main
+  git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main \
+    || { echo "cannot create branch $branch from origin/main" >&2; exit 5; }
+fi
+
+# Defensive re-check: the reachability guard above only protects the NEW-branch-from-
+# origin/main path. A pre-existing $branch (the show-ref case above) can predate the retro —
+# e.g. a stale branch left over from an earlier, abandoned staging attempt — so checking it
+# out can still make $retro vanish from the worktree even though it IS reachable from the
+# current origin/main. Catch that here, for either checkout path, rather than printing an
+# empty deltas section and a --body-file pointing at a file that no longer exists.
+if [ ! -r "$retro" ]; then
+  echo "retro file $retro is not readable on branch $branch after checkout — refusing to" >&2
+  echo "print stale/empty deltas." >&2
+  # Switch back to main before exiting: `git branch -D $branch` refuses to delete the branch
+  # that is currently checked out (RDD R4-exit8-remediation-fails), so leaving the repo on
+  # $branch would make the remediation advice below fail the moment it is run. Best-effort —
+  # print the checkout as part of the advice too, in case this one somehow does not take.
+  git -C "$KIT_REPO" checkout -q main 2>/dev/null
+  echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  echo "delete it: git -C \"$KIT_REPO\" checkout main && git -C \"$KIT_REPO\" branch -D $branch" >&2
+  exit 8
 fi
 
 echo ">> on branch $branch (from origin/main). Proposed deltas to review/apply:"

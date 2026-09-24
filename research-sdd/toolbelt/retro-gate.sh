@@ -240,31 +240,26 @@ fi
 
 # ── Detect changed research files ────────────────────────────────────────────
 _has_changed=0
-_nb_mtime=0   # newest changed block mtime
 
 # Part A: committed/staged changes relative to session-start sha (--cached covers both)
 # --relative gives paths relative to $TARGET so they work for subdirectory targets.
+# This loop tracks _has_changed only — the "newest changed block mtime" (_nb_mtime) is defined
+# and read exclusively by the degraded staleness check further below, so there is nothing for
+# the non-degraded path to track here.
 if [ "$_degraded" -eq 0 ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     full="$TARGET/$f"
-    if _is_research_file "$full"; then
-      _has_changed=1
-      m="$(stat -c %Y "$full" 2>/dev/null || echo 0)"
-      [ "${m:-0}" -gt "$_nb_mtime" ] && _nb_mtime="$m"
-    fi
+    _is_research_file "$full" && _has_changed=1
   done < <(git -C "$TARGET" diff --cached --relative --name-only "$_session_sha" 2>/dev/null)
 fi
 
-# Part B: uncommitted research files newer than the session-start state file
+# Part B: uncommitted research files newer than the session-start state file. Same scope as
+# Part A above — _has_changed only.
 if [ -f "$_session_file" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    if _is_research_file "$f"; then
-      _has_changed=1
-      m="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
-      [ "${m:-0}" -gt "$_nb_mtime" ] && _nb_mtime="$m"
-    fi
+    _is_research_file "$f" && _has_changed=1
   done < <(find "$TARGET" -newer "$_session_file" -type f -name '*.md' \
            -not -path '*/.git/*' 2>/dev/null)
 fi
@@ -277,7 +272,10 @@ if [ "$_degraded" -eq 0 ] && [ "$_has_changed" -eq 0 ]; then
 fi
 # SENTINEL-ALLOW-NO-CHANGE-END
 
-# In degraded mode: scan all research files for the block mtime reference
+# In degraded mode: scan all research files for the block mtime reference. _nb_mtime is defined
+# ONLY here — it is read exactly once, by the degraded staleness check at the `elif` below,
+# which only runs when $_degraded is 1.
+_nb_mtime=0   # newest changed block mtime; degraded-mode only, see elif below
 if [ "$_degraded" -eq 1 ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -291,9 +289,15 @@ fi
 # SENTINEL-RETRO-SESSION-START
 # Non-degraded (has session sha): a retro qualifies iff it was ADDED since
 # the session-start sha (committed or staged, via --cached) or is a file
-# in a retros/ directory (at any depth ≤ 4) that is newer than the session
-# file (covers untracked, gitignored, and staged retros uniformly).
-# Renames (diff-filter R) do NOT qualify.
+# in a retros/ directory that is newer than the session file (covers
+# untracked, gitignored, and staged retros uniformly).
+# Depth here is UNBOUNDED: paths (a) and (b) below use `git diff`/`git ls-files` with NO
+# pathspec and no maxdepth at all, so a retros/ directory nested arbitrarily deep still
+# qualifies. Only the DEGRADED mtime fallback (the `else` branch below) and the separate
+# issue-seeder scan (_run_issue_seeding above) are `find -maxdepth 4`; that bound does not
+# apply here.
+# Renames (diff-filter R) do NOT qualify. Rename detection is forced via -M/--find-renames so
+# this holds regardless of the repo's diff.renames config — see the (a) path below for why.
 # No pathspec — matches corpus/retros/, examinacion-*/retros/, etc.
 # --relative gives TARGET-relative paths so subdirectory targets work.
 #
@@ -315,6 +319,10 @@ if [ "$_degraded" -eq 0 ]; then
   # --cached compares index (HEAD + staged) against session sha.
   # --relative: paths relative to $TARGET (works when $TARGET is a git subdir).
   # --diff-filter=A: only Added entries; renames (R) excluded.
+  # -M/--find-renames: forces rename detection ON regardless of the repo's diff.renames config,
+  # so the outcome is the same whether or not that config is set. Without -M, a `git mv`-ed old
+  # retro under diff.renames=false shows as a plain D+A pair (no R — rename detection never
+  # ran), and the Added half then qualifies here as a false "new retro".
   # No pathspec: matches retros/ at any location under $TARGET.
   while IFS= read -r _rpath; do
     [ -n "$_rpath" ] || continue
@@ -327,13 +335,19 @@ if [ "$_degraded" -eq 0 ]; then
     retro_is_excluded "$_rfull" && continue
     m="$(stat -c %Y "$_rfull" 2>/dev/null || echo 0)"
     [ "${m:-0}" -gt "$_nr_mtime" ] && { _nr_mtime="$m"; _newest_retro="$_rfull"; }
-  done < <(git -C "$TARGET" diff --cached --relative --name-only --diff-filter=A \
+  done < <(git -C "$TARGET" diff --cached --relative --name-only --diff-filter=A -M \
            "$_session_sha" 2>/dev/null)
   # (b) Untracked/gitignored retros newer than session file.
   # git ls-files --others (no --exclude-standard) returns all untracked files
   # INCLUDING gitignored ones, but NOT tracked (committed/staged) files.
   # This avoids false ALLOW on git-mv'd retros (tracked → excluded from --others).
   # Paths are relative to $TARGET since we use git -C "$TARGET".
+  # Deliberately un-pathspec'd and unbounded: git must walk the tree to know what is untracked
+  # regardless of any pathspec, so restricting this call to e.g. `*/retros/*.md` buys no
+  # speedup. `git ls-files --others` scales roughly linearly with the untracked-file count and
+  # stays well within Stop-hook-tolerable latency even against a large gitignored dependency-
+  # style tree (hundreds of thousands of untracked files) — see PR body for the measured
+  # baseline (kit convention: live-instrument timings are not persisted as doctrine here).
   if [ -f "$_session_file" ]; then
     while IFS= read -r _rpath; do
       [ -n "$_rpath" ] || continue

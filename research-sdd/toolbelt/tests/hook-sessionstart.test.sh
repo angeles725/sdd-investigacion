@@ -118,6 +118,93 @@ else
   fi
 fi
 
+# ── ROTATION: THIS SESSION'S OWN STATE FILES SURVIVE A LONG SESSION (#984) ───────────────────
+
+echo "-- rotation: a >7-day-old session must keep its OWN state files, but an unrelated old one is still purged --"
+_rotd="$TMP/rotation-target"
+mkdir -p "$_rotd/.claude/hooks"
+# Install the hook at its real two-levels-below-target layout ($0-relative _hook_target
+# resolution depends on this — same layout the P8 block below uses).
+cp "$SUT" "$_rotd/.claude/hooks/research-protocol.sh"
+_rot_sid="rot984-current-session"
+_rot_other_sid="rot984-unrelated-old-session"
+_rot_own_session_file="$_rotd/.claude/.rsdd-session-${_rot_sid}"
+_rot_own_blocked_file="$_rotd/.claude/.rsdd-retro-blocked-${_rot_sid}"
+_rot_other_file="$_rotd/.claude/.rsdd-session-${_rot_other_sid}"
+printf 'deadbeef\n' > "$_rot_own_session_file"
+printf '2026-01-01T00:00:00Z\n' > "$_rot_own_blocked_file"
+printf 'deadbeef\n' > "$_rot_other_file"
+# Age all three past the 7-day rotation window — simulates a session that has been running
+# for over a week, alongside an unrelated session's leftover state.
+touch -d '-10 days' "$_rot_own_session_file" "$_rot_own_blocked_file" "$_rot_other_file"
+_rot_json="{\"session_id\":\"${_rot_sid}\"}"
+printf '%s' "$_rot_json" | bash "$_rotd/.claude/hooks/research-protocol.sh" >"$TMP/rot-out.txt" 2>"$TMP/rot-err.txt"
+if [ -s "$_rot_own_session_file" ]; then
+  ok "rotation: current session's own .rsdd-session file survives past the 7-day window"
+else
+  no "rotation: current session's own .rsdd-session file was deleted despite being the active session"
+fi
+if [ -f "$_rot_own_blocked_file" ]; then
+  ok "rotation: current session's own .rsdd-retro-blocked file survives past the 7-day window"
+else
+  no "rotation: current session's own .rsdd-retro-blocked file was deleted despite being the active session"
+fi
+if [ ! -e "$_rot_other_file" ]; then
+  ok "rotation: an unrelated old session's state file is still purged (rotation not disabled entirely)"
+else
+  no "rotation: unrelated old session's state file was NOT purged — rotation broken, not just narrowed"
+fi
+# The recorded sha under this session id must be preserved verbatim (write-once): the hook must
+# not have overwritten it just because the file was old.
+if grep -qF 'deadbeef' "$_rot_own_session_file"; then
+  ok "rotation: pre-existing sha under this session id is preserved (write-once still holds)"
+else
+  no "rotation: pre-existing sha under this session id was NOT preserved"
+fi
+
+# ── R3-001: no mtime refresh — a resume/compact must not move retro-gate's reference point ──
+
+echo "-- R3-001(a): a second SessionStart leaves mtime+content unchanged; retro-gate still sees a between-calls edit as changed --"
+_r3d="$TMP/r3-target"; mkdir -p "$_r3d/.claude/hooks"
+git -C "$_r3d" init -q -b main
+git -C "$_r3d" -c user.email=t@example.com -c user.name=tester commit -q --allow-empty -m init
+cp "$SUT" "$_r3d/.claude/hooks/research-protocol.sh"; _r3_sid="r3-session"; _r3_file="$_r3d/.claude/.rsdd-session-${_r3_sid}"
+printf '{"session_id":"%s"}' "$_r3_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+touch -d '-1 hour' "$_r3_file"
+_r3_c1="$(cat "$_r3_file")"; _r3_m1="$(stat -c %Y "$_r3_file")"
+printf '# Block 1\nBody.\n' > "$_r3d/t-block1.md"   # edit made BETWEEN the two SessionStarts
+printf '{"session_id":"%s"}' "$_r3_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+_r3_c2="$(cat "$_r3_file")"; _r3_m2="$(stat -c %Y "$_r3_file")"
+_r3_gate="$(printf '{"session_id":"%s","stop_hook_active":false}' "$_r3_sid" | bash "$HERE/../retro-gate.sh" "$_r3d" 2>/dev/null)"
+if [ "$_r3_c1" = "$_r3_c2" ] && [ "$_r3_m1" = "$_r3_m2" ] && grep -qF '"decision":"block"' <<<"$_r3_gate"; then
+  ok "R3-001(a): second SessionStart leaves mtime/content unchanged; retro-gate still sees the edit as changed"
+else
+  no "R3-001(a): reference-point regression (c1=$_r3_c1 c2=$_r3_c2 m1=$_r3_m1 m2=$_r3_m2 gate=$_r3_gate)"
+fi
+
+echo "-- R3-001(b): no sha resolvable (non-git target) → no phantom session file is created --"
+_r3bd="$TMP/r3-nogit"; mkdir -p "$_r3bd/.claude/hooks"; cp "$SUT" "$_r3bd/.claude/hooks/research-protocol.sh"; _r3b_sid="r3b-session"
+printf '{"session_id":"%s"}' "$_r3b_sid" | bash "$_r3bd/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+if [ ! -e "$_r3bd/.claude/.rsdd-session-${_r3b_sid}" ]; then
+  ok "R3-001(b): non-git target with no resolvable sha → no phantom session file created"
+else
+  no "R3-001(b): a phantom (empty) session file was created despite no resolvable sha"
+fi
+
+echo "-- glob-metachar guard: a session_id containing a glob metacharacter skips rotation loudly --"
+_gmd="$TMP/glob-metachar-target"; mkdir -p "$_gmd/.claude/hooks"; cp "$SUT" "$_gmd/.claude/hooks/research-protocol.sh"
+_gm_sid='evil*id'
+_gm_unrelated="$_gmd/.claude/.rsdd-session-unrelated-old"
+printf 'deadbeef\n' > "$_gm_unrelated"; touch -d '-10 days' "$_gm_unrelated"
+_gm_err="$TMP/glob-metachar-err.txt"
+printf '{"session_id":"%s"}' "$_gm_sid" | bash "$_gmd/.claude/hooks/research-protocol.sh" >/dev/null 2>"$_gm_err"
+if grep -q 'glob metacharacter' "$_gm_err" && [ -e "$_gm_unrelated" ]; then
+  ok "glob-metachar guard: WARNs loudly and skips rotation (unrelated old file survives)"
+else
+  no "glob-metachar guard: WARNs loudly and skips rotation" \
+     "err=[$(cat "$_gm_err")] unrelated-survived=$([ -e "$_gm_unrelated" ] && echo yes || echo no)"
+fi
+
 # ── P8 PLACEHOLDER CLEANLINESS ───────────────────────────────────────────────────────────────
 
 echo "-- p8: hook installed from template triggers only per-target placeholders --"
@@ -177,6 +264,88 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
+  fi
+
+  echo "-- teeth M4: rotation self-exclusion check has teeth (#984) --"
+  _m4d="$TMP/rotation-mutant"
+  mkdir -p "$_m4d/.claude/hooks"
+  _m4="$_m4d/.claude/hooks/research-protocol.sh"
+  cp "$SUT" "$_m4"
+  # Mutant: drop the ENTIRE `! -name ... ! -name ...` self-exclusion clause, reverting to the
+  # pre-#984 behaviour that purges a session's own state files too. Must delete the whole line
+  # (not just its text) — a blank line in the `\`-continued find command would snap it in two,
+  # breaking `-delete` into an invalid standalone "command", degrading the find to its default
+  # -print action instead of actually reverting to the pre-fix delete.
+  sed -i '/! -name "\.rsdd-session-\${_session_id}"/d' "$_m4"
+  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4"; then
+    no "teeth M4: could not build mutant (self-exclusion clause still present after sed)"
+  else
+    _m4_sid="m4-current-session"
+    _m4_own="$_m4d/.claude/.rsdd-session-${_m4_sid}"
+    printf 'deadbeef\n' > "$_m4_own"
+    touch -d '-10 days' "$_m4_own"
+    printf '{"session_id":"%s"}' "$_m4_sid" | bash "$_m4" >/dev/null 2>&1
+    if [ ! -e "$_m4_own" ]; then
+      ok "teeth M4: mutant deletes its own session file past 7 days (RED as expected)"
+    else
+      no "teeth M4: mutant did NOT delete the session file — self-exclusion check has no teeth"
+    fi
+  fi
+
+  echo "-- teeth R3-001(a): write-once guard has teeth --"
+  _m5="$TMP/r3a-mutant.sh"
+  sed 's/if \[ ! -s "\$_rsdd_file" \]; then/if true; then/' "$SUT" > "$_m5"
+  if ! grep -q 'if true; then' "$_m5"; then
+    no "teeth R3-001(a): anchor not found — SUT drifted?"
+  else
+    cp "$_m5" "$_r3d/.claude/hooks/research-protocol.sh"; _m5_sid="r3a-mutant"; _m5_file="$_r3d/.claude/.rsdd-session-${_m5_sid}"
+    printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    touch -d '-1 hour' "$_m5_file"
+    _m5_m1="$(stat -c %Y "$_m5_file")"
+    printf '{"session_id":"%s"}' "$_m5_sid" | bash "$_r3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    _m5_m2="$(stat -c %Y "$_m5_file")"
+    if [ "$_m5_m1" != "$_m5_m2" ]; then
+      ok "teeth R3-001(a): mutant moves mtime on the second SessionStart (RED as expected)"
+    else
+      no "teeth R3-001(a): mutant did not move mtime — assertion has no teeth"
+    fi
+  fi
+
+  echo "-- teeth R3-001(b): empty-sha guard has teeth --"
+  _m6="$TMP/r3b-mutant.sh"
+  sed 's/if \[ -n "\$_sha" \]; then/if true; then/' "$SUT" > "$_m6"
+  if ! grep -q 'if true; then' "$_m6"; then
+    no "teeth R3-001(b): anchor not found — SUT drifted?"
+  else
+    cp "$_m6" "$_r3bd/.claude/hooks/research-protocol.sh"; _m6_sid="r3b-mutant"   # reuse test (b)'s target
+    printf '{"session_id":"%s"}' "$_m6_sid" | bash "$_r3bd/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    if [ -e "$_r3bd/.claude/.rsdd-session-${_m6_sid}" ]; then
+      ok "teeth R3-001(b): mutant creates a phantom session file on a non-git target (RED as expected)"
+    else
+      no "teeth R3-001(b): mutant did NOT create a phantom file — assertion has no teeth"
+    fi
+  fi
+
+  echo "-- teeth: glob-metachar validation has teeth --"
+  _content_hookss="$(cat "$SUT")"
+  anchor_glob='  case "$_session_id" in
+    *[\*\?\[]*)'
+  neutered_glob='  case "$_session_id" in
+    _never_matches_this_)'
+  if [[ "$_content_hookss" != *"$anchor_glob"* ]]; then
+    no "teeth: locate glob-metachar validation in SUT" "anchor not found — SUT drifted?"
+  else
+    _m7d="$TMP/glob-metachar-mutant"; mkdir -p "$_m7d/.claude/hooks"
+    _m7="$_m7d/.claude/hooks/research-protocol.sh"
+    printf '%s\n' "${_content_hookss/"$anchor_glob"/$neutered_glob}" > "$_m7"
+    _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
+    printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
+    printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
+    if [ ! -e "$_m7_unrelated" ]; then
+      ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
+    else
+      no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
+    fi
   fi
 
   echo "-- teeth M3: P8 <KIT> check has teeth --"

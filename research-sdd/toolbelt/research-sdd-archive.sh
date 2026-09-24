@@ -408,7 +408,12 @@ if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
     # Count only ADDED block files (--diff-filter=A), so the rule is "one NEW block per commit": an iteration
     # that adds one block AND MODIFIES an existing block to add the §14 reciprocal 'corrected in BN' backlink
     # (which the sibling verify-corrections feature now mandates in the SAME iteration) is NOT a violation.
-    nbf="$(git -C "$corpus" show --diff-filter=A --name-only --format= "$sha" 2>/dev/null \
+    # -M/--find-renames (RDD round 2, F4 — same class as retro-gate.sh's #984 fix): force rename
+    # detection regardless of the corpus's diff.renames config. Without it, renaming an existing
+    # block file (e.g. a filename cleanup) in the same commit as a genuinely new block shows as a
+    # plain D+A pair under diff.renames=false — the renamed file's Added half is indistinguishable
+    # from the new block, so this would count 2 ADDED block files and false-WARN a violation.
+    nbf="$(git -C "$corpus" show --diff-filter=A -M --name-only --format= "$sha" 2>/dev/null \
       | block_file_filter | sort -u | wc -l | tr -d ' ')"
     [ "${nbf:-0}" -ge 2 ] && multi_block_commits="${multi_block_commits}${multi_block_commits:+ }${sha:0:9}(${nbf} blocks)"
   done < <(git -C "$corpus" log --format=%H --since="@${prior_retro_epoch:-0}" 2>/dev/null)
