@@ -83,7 +83,13 @@ echo "== hotcore-budget.test.sh =="
 # would otherwise need escaping for no benefit. These two files' tier-list prose
 # is never inside a code fence, so no fence-masking is needed for them.
 # ---------------------------------------------------------------------------
-SKILL_HC_START="HOT-CORE — read once per context"
+# SKILL_HC_START anchors on "HOT-CORE — <!-- slot:hotcore-cadence -->" rather
+# than the old "HOT-CORE — read once per context", because kit issue #993
+# (WU1: render-profile.sh) wraps that cadence wording in an install-time slot
+# marker (an HTML comment, invisible to a reader, stripped only for a
+# non-"claude" profile render — the checked-in source stays byte-identical
+# for the "claude" profile). The marker text is a stable, unique anchor.
+SKILL_HC_START="HOT-CORE — <!-- slot:hotcore-cadence -->"
 SKILL_HC_END="Each iteration re-reads only RESEARCH-STATE"
 SKILL_SIT_START="SITUATIONAL — read the named section"
 SKILL_SIT_END="Read a situational section when its trigger is your next action."
