@@ -1,0 +1,4 @@
+{"type":"user","origin":{"kind":"human"},"timestamp":"2026-06-01T00:00:00Z","message":{"role":"user","content":"start please"}}
+{"type":"assistant","timestamp":"2026-06-01T00:05:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block1 done\nnext: gap-2"}]}}
+{"type":"user","origin":{"kind":"human"},"timestamp":"2026-06-01T00:12:00Z","message":{"role":"user","content":"please continue now"}}
+{"type":"assistant","timestamp":"2026-06-01T00:25:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block2 done\nnext: gap-3"}]}}
