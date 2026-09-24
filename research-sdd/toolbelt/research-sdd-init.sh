@@ -20,24 +20,32 @@
 #
 # Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused) ·
-#       4 = wire-only: existing .claude/settings.json is not valid JSON (refused, nothing written).
+#       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
+#           valid .hooks shape, OR the settings.json merge itself failed (refused/aborted,
+#           nothing written — never reported as success).
 #
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
 #
-# WIRE-ONLY REPAIR (kit issue #1038, hardened by #1040): --wire on a target whose corpus already
-# exists (and no --force) skips the scaffold and instead REPAIRS whatever hooks are missing — it
-# creates any absent hook file (never overwrites an existing one; a hand-adapted hook is
-# untouched) and merges .claude/settings.json. An existing settings.json is validated as JSON
-# BEFORE any hook file is created (exit 4 on invalid JSON — nothing written). Dedup recognises a
-# hook already registered via $CLAUDE_PROJECT_DIR (unquoted/quoted/braced) as the SAME hook as
-# the absolute path this script writes, on both Stop and SessionStart, and reports "already
-# wired" rather than re-claiming credit for an entry that was already there. SessionStart is
-# wired only when research-protocol.sh no longer carries a LIVE (non-comment-line) <SUBJECT>
-# placeholder; an unadapted hook prints a WARN and is skipped, while Stop is still merged. jq
-# absent ⇒ no writes at all (no hook files, no settings.json) — print-only, and the printed
-# snippet also honors the #959 SessionStart guard.
+# WIRE-ONLY REPAIR (kit issue #1038, hardened by #1040 rounds 2 and 3): --wire on a target whose
+# corpus already exists (and no --force) skips the scaffold and instead REPAIRS whatever hooks
+# are missing — it creates any absent hook file (never overwrites an existing one; a hand-adapted
+# hook is untouched) and merges .claude/settings.json (pretty-printed, so a hand-maintained file
+# keeps its indentation). An existing NON-EMPTY settings.json is validated as a JSON object with
+# a valid .hooks shape BEFORE any hook file is created (exit 4, nothing written, otherwise — this
+# catches an unparseable file, a top-level array, and an object whose .hooks is not itself an
+# object; a ZERO-BYTE file is treated as {}, not refused); a merge failure downstream ALSO exits
+# 4, never 0. Dedup recognises a hook already registered via $CLAUDE_PROJECT_DIR — unquoted,
+# variable-quoted, brace-expanded, or the WHOLE command string quoted — as the SAME hook as the
+# absolute path this script writes, on both Stop and SessionStart, and reports "already wired"
+# rather than re-claiming credit for an entry that was already there (including when SessionStart
+# wiring is itself skipped for a live placeholder but an earlier entry is already present).
+# SessionStart is wired only when research-protocol.sh EXISTS and no longer carries a LIVE
+# (non-comment-line) <SUBJECT> placeholder; an absent or unadapted hook prints a WARN and is
+# skipped, while Stop is still merged. jq absent ⇒ no writes at all (no hook files, no
+# settings.json) — print-only, and the printed snippet also honors the #959 SessionStart guard
+# (including when the hook file does not exist yet).
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
@@ -84,19 +92,21 @@ _rsdd_has_live_subject_placeholder() {
   grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -qF '<SUBJECT>'
 }
 
-# kit issue #1040 finding 1 (round 2 of #1038): a hook may already be registered via
-# $CLAUDE_PROJECT_DIR — unquoted, double-quoted, or brace-expanded — instead of the absolute
-# path this script writes. Build all four equivalent command forms for a given hook so dedup
-# recognises them as the SAME hook; missing this made a real target's SessionStart hook run
-# twice (cloudflare repro: $CLAUDE_PROJECT_DIR/.claude/hooks/research-protocol.sh was already
-# registered, and the literal-string dedup appended the absolute-path form alongside it).
+# kit issue #1040 finding 1 (round 2 of #1038), extended round 3: a hook may already be
+# registered via $CLAUDE_PROJECT_DIR in any of FIVE equivalent forms instead of the absolute
+# path this script writes — unquoted, the variable alone double-quoted, brace-expanded, or the
+# WHOLE command string double-quoted (the form Claude Code's own docs use and the kit's own
+# settings.json templates carry, kit issue #1040 round 3 finding 2). Missing any of these made a
+# real target's SessionStart hook run twice (cloudflare repro: $CLAUDE_PROJECT_DIR/<rel> was
+# already registered, and the literal-string dedup appended the absolute-path form alongside it).
 _rsdd_cmd_variants_json() {
   local abs="$1" rel="$2"
   jq -cn --arg a "$abs" --arg r "$rel" '[
     $a,
     ("$CLAUDE_PROJECT_DIR/" + $r),
     ("\"$CLAUDE_PROJECT_DIR\"/" + $r),
-    ("${CLAUDE_PROJECT_DIR}/" + $r)
+    ("${CLAUDE_PROJECT_DIR}/" + $r),
+    ("\"$CLAUDE_PROJECT_DIR/" + $r + "\"")
   ]'
 }
 
@@ -163,8 +173,14 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # settings.json not merged, or vice versa).
     if ! command -v jq >/dev/null 2>&1; then
       echo "degraded: jq not found on PATH — cannot wire settings.json or create hook files; paste the snippet below and create the hooks yourself:" >&2
+      # kit issue #1040 round 3 finding 4: omit SessionStart from the snippet not only when the
+      # hook file has a LIVE <SUBJECT> placeholder, but also when it does not exist yet — there is
+      # nothing to safely offer for a hook the operator has not created (let alone adapted).
       _wo_pre_skip_ss="false"
-      if _rsdd_has_live_subject_placeholder "$_wo_ss"; then
+      if [ ! -e "$_wo_ss" ]; then
+        _wo_pre_skip_ss="true"
+        echo "WARN: $_wo_ss does not exist yet — the snippet below omits SessionStart until you create and adapt it (PROMPT-LOOP §c follow-up)." >&2
+      elif _rsdd_has_live_subject_placeholder "$_wo_ss"; then
         _wo_pre_skip_ss="true"
         echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — the snippet below omits SessionStart until you adapt it (PROMPT-LOOP §c follow-up)." >&2
       fi
@@ -173,11 +189,20 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       exit 0
     fi
 
-    # kit issue #1040 finding 2: validate an EXISTING settings.json BEFORE creating any hook
-    # file. A merge failure must never leave hook files behind while reporting success — nothing
-    # is written (no hook file, no settings.json) when the existing file is not valid JSON.
-    if [ -f "$_wo_settings" ] && ! jq empty "$_wo_settings" >/dev/null 2>&1; then
-      echo "FATAL: $_wo_settings is not valid JSON — refusing to wire (nothing written: no hook file created, settings.json untouched). Fix or remove it, then re-run --wire." >&2
+    # kit issue #1040 round 3 finding 1: validate an EXISTING, NON-EMPTY settings.json BEFORE
+    # creating any hook file — both that it parses AND that its top-level shape is usable. A
+    # single `jq empty` check (round 2) let three real shapes through uncaught (parseable but
+    # unusable): an empty file, a top-level array (`[]`), and an object whose `.hooks` key is not
+    # itself an object (`{"hooks":"x"}`) — each one then let both hook files get created before
+    # the merge failed downstream, reporting `degraded:` + exit 0 (a false success). A ZERO-BYTE
+    # file is treated as equivalent to `{}` (no hooks registered yet) and is NOT refused — an
+    # empty stub is not corrupt, and this keeps `: > settings.json` a harmless no-op starting
+    # point. Any NON-EMPTY file that fails to parse, or parses to something other than an object
+    # with an object-or-absent `.hooks`, is refused: exit 4, nothing written (no hook file
+    # created, settings.json untouched).
+    if [ -s "$_wo_settings" ] && ! jq -e 'type=="object" and ((.hooks // {}) | type=="object")' \
+        "$_wo_settings" >/dev/null 2>&1; then
+      echo "FATAL: $_wo_settings is not a JSON object with a valid .hooks shape — refusing to wire (nothing written: no hook file created, settings.json untouched). Fix or remove it, then re-run --wire." >&2
       exit 4
     fi
 
@@ -213,7 +238,10 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     _wo_stop_variants="$(_rsdd_cmd_variants_json "$_wo_stop" "$_wo_stop_rel")"
     _wo_ss_variants="$(_rsdd_cmd_variants_json "$_wo_ss" "$_wo_ss_rel")"
 
-    _wo_base='{}'; [ -f "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
+    # -s (non-empty), not -f: a ZERO-BYTE existing file is treated as {} (see the pre-validation
+    # comment above) — reading it with `cat` would otherwise feed jq an empty stdin, which is a
+    # jq error (no input value), not an empty object.
+    _wo_base='{}'; [ -s "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
     _wo_tmp="$(mktemp)"
     if _wo_merge_out="$(printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" \
         --argjson stop_variants "$_wo_stop_variants" --argjson ss_variants "$_wo_ss_variants" \
@@ -228,7 +256,9 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
           else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
         {settings: ., has_stop: $has_stop, has_ss: $has_ss}
       ' 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
-      jq -c '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
+      # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
+      # settings.json keeps its indentation instead of collapsing to one line.
+      jq '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
       mv "$_wo_tmp" "$_wo_settings"
       _wo_has_stop="$(jq -r '.has_stop' <<<"$_wo_merge_out")"
       _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
@@ -237,8 +267,16 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       else
         echo "  wired  : Stop hook registered (wire-only; corpus untouched) in $_wo_settings"
       fi
+      # kit issue #1040 round 3 finding 5: when SessionStart is skipped (live <SUBJECT>) but an
+      # entry was ALREADY there from an earlier run (left untouched by the merge above — $skip_ss
+      # never removes an existing entry), say so — "NOT registered" would misleadingly imply
+      # settings.json carries none, when it still carries the one from before.
       if [ "$_wo_skip_ss" = "true" ]; then
-        echo "  skipped: SessionStart hook NOT registered (unadapted <SUBJECT> placeholder — see WARN above)"
+        if [ "$_wo_has_ss" = "true" ]; then
+          echo "  wired  : SessionStart hook already wired in $_wo_settings (left as-is — <SUBJECT> placeholder is live, so the existing entry was not touched or re-added)"
+        else
+          echo "  skipped: SessionStart hook NOT registered (unadapted <SUBJECT> placeholder — see WARN above)"
+        fi
       elif [ "$_wo_has_ss" = "true" ]; then
         echo "  wired  : SessionStart hook already wired in $_wo_settings"
       else
@@ -248,14 +286,15 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       exit 0
     else
       rm -f "$_wo_tmp"
-      echo "degraded: jq failed on $_wo_settings — falling back to print" >&2
+      echo "degraded: jq failed on $_wo_settings — refusing to report success" >&2
     fi
-    # Print snippet on jq-processing failure (jq present but errored; settings.json validity was
-    # already pre-checked above, so this branch is defensive/rare). Hook files created above (if
-    # any) already exist on disk — only the settings.json merge failed.
+    # kit issue #1040 round 3 finding 1: a merge failure here must NEVER report success. Print
+    # snippet on jq-processing failure (jq present but errored; settings.json shape was already
+    # pre-checked above, so this branch is defensive/rare) and exit 4 — hook files created above
+    # (if any) already exist on disk, but settings.json was NOT written.
     _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_skip_ss" "$target"
     echo "== done =="
-    exit 0
+    exit 4
   fi
 fi  # end wire-only
 
