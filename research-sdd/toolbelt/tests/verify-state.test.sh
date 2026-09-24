@@ -3999,6 +3999,277 @@ else
   no "P8-M: adapted hook with fixed template kit-line → unexpected WARN: $(echo "$_p8m" | grep -i hook | head -1)"
 fi
 
+# ============================================================================
+# P8-S: hook SET DERIVATION from .claude/settings.json (kit issue #991).
+# A target's real hooks are whatever settings.json actually runs — niagara-research runs them from
+# tools/hooks/, outside .claude/hooks/, and a hook can be .py (or anything else), not only .sh. These
+# cases prove the settings-derived set is actually inspected (not just .claude/hooks/*.sh), that
+# every settings-declared command resolves or is reported unresolved loudly (§7: never skipped), and
+# that the fallback to .claude/hooks/* still behaves exactly like P8-A..M above when settings.json is
+# absent/empty/unreadable/invalid, or jq is unavailable (typed degraded — never a silent pass).
+# ============================================================================
+echo "-- P8-S: settings.json-derived hook set --"
+
+# mk_settings_cmds <dir> <cmd...> — .claude/settings.json with one SessionStart hook object per
+# <cmd> (real Claude Code hooks shape). Built with jq (a fixture-construction tool, independent of
+# whether the SUT run under test has jq on PATH — see P8S-J).
+mk_settings_cmds() {
+  local d="$1"; shift
+  mkdir -p "$d/.claude"
+  local hooks_json='[]' c
+  for c in "$@"; do
+    hooks_json="$(jq -n --argjson acc "$hooks_json" --arg cmd "$c" '$acc + [{"type":"command","command":$cmd}]')"
+  done
+  jq -n --argjson hooks "$hooks_json" '{hooks:{SessionStart:[{matcher:"",hooks:$hooks}]}}' > "$d/.claude/settings.json"
+}
+
+# build_hermetic_nojq_bin <src_path> <out_dir> — populate <out_dir> with symlinks to every
+# executable reachable from <src_path> except jq (ported from retro-gate.test.sh's helper of the
+# same name, same hermetic-PATH technique — first-wins across dirs keeps a duplicate-dir jq, e.g.
+# /bin -> /usr/bin, from leaking back in through a second PATH entry).
+build_hermetic_nojq_bin() {
+  local src_path="$1" out_dir="$2" _oifs _pd _exe _n
+  _oifs="$IFS"; IFS=':'
+  for _pd in $src_path; do
+    IFS="$_oifs"
+    [ -d "$_pd" ] || continue
+    while IFS= read -r -d '' _exe; do
+      _n="$(basename "$_exe")"
+      [ "$_n" = "jq" ] && continue
+      [ -e "$out_dir/$_n" ] && continue
+      ln -s "$_exe" "$out_dir/$_n"
+    done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
+  done
+  IFS="$_oifs"
+}
+
+# P8S-A: single hook declared via settings.json, OUTSIDE .claude/hooks (niagara-research shape:
+# $CLAUDE_PROJECT_DIR/tools/hooks/x.sh) — no .claude/hooks dir at all. A placeholder in that file
+# must WARN (old P8 scanned only .claude/hooks/*.sh and would have silently reported "not found").
+d="$TMP/p8s-outside"; mk_state_p8 "$d"
+mkdir -p "$d/tools/hooks"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/tools/hooks/protocol.sh"
+mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/protocol.sh'
+_p8sa="$(run "$d" 2>/dev/null)"
+if echo "$_p8sa" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8S-A: settings-declared hook outside .claude/hooks/ (tools/hooks/) → placeholder WARN fires"
+else
+  no "P8S-A: settings-declared hook outside .claude/hooks/ → expected WARN; got: $(echo "$_p8sa" | grep -i hook | head -3)"
+fi
+if echo "$_p8sa" | grep -qiE 'hook-set.*settings-derived hook script'; then
+  ok "P8S-A: hook-set summary line reports the settings-derived set"
+else
+  no "P8S-A: hook-set summary line missing/wrong: $(echo "$_p8sa" | grep -i 'hook-set' | head -3)"
+fi
+
+# P8S-B: THREE settings-declared hooks (first/middle/last) — FIRST has the placeholder, middle and
+# last are clean → WARN for the first only (edge: first position within the settings-derived set).
+d="$TMP/p8s-first"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho first\n' > "$d/tools/hooks/a-first.sh"
+printf '#!/bin/bash\necho middle\n'                     > "$d/tools/hooks/b-middle.sh"
+printf '#!/bin/bash\necho last\n'                       > "$d/tools/hooks/c-last.sh"
+mk_settings_cmds "$d" \
+  '$CLAUDE_PROJECT_DIR/tools/hooks/a-first.sh' \
+  '$CLAUDE_PROJECT_DIR/tools/hooks/b-middle.sh' \
+  '$CLAUDE_PROJECT_DIR/tools/hooks/c-last.sh'
+_p8sb="$(run "$d" 2>/dev/null)"
+_p8sb_warns=$(echo "$_p8sb" | grep -cE 'WARN.*hook-placeholder|hook-placeholder.*WARN' 2>/dev/null || true)
+[ "${_p8sb_warns:-0}" -eq 1 ] && ok "P8S-B: 3 settings hooks, FIRST placeholder → exactly 1 WARN" \
+                              || no "P8S-B: expected exactly 1 WARN, got $_p8sb_warns"
+if echo "$_p8sb" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "a-first.sh"; then
+  ok "P8S-B: WARN names the first settings-declared file (a-first.sh)"
+else
+  no "P8S-B: WARN does not name a-first.sh"
+fi
+
+# P8S-C: same 3-hook set, LAST has the placeholder, first/middle clean → WARN for the last only
+# (edge: last position).
+d="$TMP/p8s-last"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
+printf '#!/bin/bash\necho first\n'                        > "$d/tools/hooks/a-first.sh"
+printf '#!/bin/bash\necho middle\n'                       > "$d/tools/hooks/b-middle.sh"
+printf '#!/bin/bash\nKIT_PATH="<KIT>/toolbelt/"\necho z\n' > "$d/tools/hooks/c-last.sh"
+mk_settings_cmds "$d" \
+  '$CLAUDE_PROJECT_DIR/tools/hooks/a-first.sh' \
+  '$CLAUDE_PROJECT_DIR/tools/hooks/b-middle.sh' \
+  '$CLAUDE_PROJECT_DIR/tools/hooks/c-last.sh'
+_p8sc="$(run "$d" 2>/dev/null)"
+if echo "$_p8sc" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "c-last.sh"; then
+  ok "P8S-C: 3 settings hooks, LAST placeholder → WARN names c-last.sh (last-position edge)"
+else
+  no "P8S-C: expected WARN naming c-last.sh; got: $(echo "$_p8sc" | grep -i hook | head -3)"
+fi
+
+# P8S-D: single-element settings-derived set (single-element edge), ABSOLUTE path form (no
+# $CLAUDE_PROJECT_DIR prefix — the real api-paneles/blender-llm shape), clean → no WARN (sanity:
+# absolute-path resolution works and does not false-positive).
+d="$TMP/p8s-absolute"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf '#!/bin/bash\necho "clean"\n' > "$d/.claude/hooks/research-protocol.sh"
+mk_settings_cmds "$d" "$d/.claude/hooks/research-protocol.sh"
+_p8sd="$(run "$d" 2>/dev/null)"
+if echo "$_p8sd" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  no "P8S-D: absolute-path single settings hook, clean → unexpected WARN"
+else
+  ok "P8S-D: absolute-path single settings hook (single-element edge), clean → no WARN"
+fi
+
+# P8S-E: settings-declared hook command WITH ARGS resolving to a NON-.sh (.py) script that has a
+# placeholder → WARN fires (proves interpreter/arg stripping AND non-.sh extensions both work).
+d="$TMP/p8s-py-args"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
+printf '#!/usr/bin/env python3\nSUBJECT = "<SUBJECT>"\nprint(SUBJECT)\n' > "$d/tools/hooks/lint.py"
+mk_settings_cmds "$d" 'python3 $CLAUDE_PROJECT_DIR/tools/hooks/lint.py --strict --fix'
+_p8se="$(run "$d" 2>/dev/null)"
+if echo "$_p8se" | grep -iE 'WARN.*hook-placeholder|hook-placeholder.*WARN' | grep -qF "lint.py"; then
+  ok "P8S-E: python3 ... lint.py --strict --fix (args + .py) → placeholder WARN names lint.py"
+else
+  no "P8S-E: expected WARN naming lint.py; got: $(echo "$_p8se" | grep -i hook | head -3)"
+fi
+
+# P8S-F: settings-declared command whose script does not exist on disk → reported loudly as
+# unresolved (§7: unclassifiable, never silently skipped), no crash.
+d="$TMP/p8s-unresolvable"; mk_state_p8 "$d"
+mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/does-not-exist.sh'
+_p8sf="$(run "$d" 2>/dev/null)"
+if echo "$_p8sf" | grep -qiE 'hook-set.*could not be resolved.*does-not-exist\.sh'; then
+  ok "P8S-F: unresolvable settings-declared command → loud 'could not be resolved' report"
+else
+  no "P8S-F: expected loud unresolved report; got: $(echo "$_p8sf" | grep -i 'hook-set' | head -3)"
+fi
+_p8sf_rc="$(code "$d")"
+[ "$_p8sf_rc" -ne 2 ] && ok "P8S-F: unresolved settings command does not abort the whole run (rc=$_p8sf_rc)" \
+                       || no "P8S-F: unresolved settings command aborted the run (rc=2)"
+
+# P8S-G: settings.json present but declares NO hooks ({}), and no .claude/hooks/ dir either → falls
+# back and reports absent-input exactly like P8-A (regression: empty-hooks settings.json must not be
+# mistaken for a settings-derived set of zero, nor crash).
+d="$TMP/p8s-empty-settings"; mk_state_p8 "$d"
+mkdir -p "$d/.claude"; printf '{}\n' > "$d/.claude/settings.json"
+_p8sg="$(run "$d" 2>/dev/null)"
+if echo "$_p8sg" | grep -qiF "hook-placeholder" && echo "$_p8sg" | grep -qiE "absent|not found|skip"; then
+  ok "P8S-G: settings.json declares no hooks, no .claude/hooks/ → falls back to absent-input INFO"
+else
+  no "P8S-G: expected fallback absent-input INFO; got: $(echo "$_p8sg" | grep -i hook | head -3)"
+fi
+if echo "$_p8sg" | grep -qiE 'hook-set.*fallback'; then
+  ok "P8S-G: hook-set summary names the fallback set"
+else
+  no "P8S-G: hook-set summary missing/wrong: $(echo "$_p8sg" | grep -i 'hook-set' | head -3)"
+fi
+
+# P8S-H: settings.json is present but NOT valid JSON → typed loud report, falls back to
+# .claude/hooks/* (which still gets scanned — a placeholder there still WARNs).
+d="$TMP/p8s-invalid-json"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+printf 'not valid json {{{\n' > "$d/.claude/settings.json"
+printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/.claude/hooks/research-protocol.sh"
+_p8sh="$(run "$d" 2>/dev/null)"
+if echo "$_p8sh" | grep -qiE 'unreadable.*hook-set.*not valid JSON|hook-set.*not valid JSON'; then
+  ok "P8S-H: invalid settings.json → typed loud 'not valid JSON' report"
+else
+  no "P8S-H: expected typed invalid-JSON report; got: $(echo "$_p8sh" | grep -i 'hook-set' | head -3)"
+fi
+if echo "$_p8sh" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  ok "P8S-H: fallback to .claude/hooks/ still functions after invalid settings.json (WARN fires)"
+else
+  no "P8S-H: fallback did not run after invalid settings.json; got: $(echo "$_p8sh" | grep -i hook | head -3)"
+fi
+
+# P8S-I: settings.json is present but NOT readable (chmod 000) → typed loud report, falls back.
+d="$TMP/p8s-unreadable-settings"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/x.sh'
+chmod 000 "$d/.claude/settings.json" 2>/dev/null
+_p8si="$(run "$d" 2>/dev/null)"
+if [ "$(id -u)" = "0" ]; then
+  echo "  SKIP  P8S-I: unreadable settings.json (running as root, chmod 000 ignored)"
+elif echo "$_p8si" | grep -qiE 'unreadable.*hook-set.*not readable|hook-set.*not readable'; then
+  ok "P8S-I: unreadable settings.json → typed loud 'not readable' report"
+else
+  no "P8S-I: expected typed unreadable report; got: $(echo "$_p8si" | grep -i 'hook-set' | head -3)"
+fi
+chmod 644 "$d/.claude/settings.json" 2>/dev/null || true
+
+# P8S-J (degraded): jq unavailable on PATH → typed 'degraded' report (never a silent pass), AND the
+# fallback to .claude/hooks/* still functions (a placeholder there still WARNs).
+if command -v jq >/dev/null 2>&1; then
+  d="$TMP/p8s-nojq"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
+  mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/x.sh'   # settings.json declares a hook ...
+  printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/.claude/hooks/research-protocol.sh"  # ... fallback dir also has one
+  _NOJQ_BIN2="$TMP/nojq_bin2"; mkdir -p "$_NOJQ_BIN2"
+  build_hermetic_nojq_bin "$PATH" "$_NOJQ_BIN2"
+  _p8sj="$(PATH="$_NOJQ_BIN2" bash "$SUT" "$d" 2>/dev/null)"
+  if echo "$_p8sj" | grep -qiE 'degraded.*hook-set.*jq not found|hook-set.*jq not found'; then
+    ok "P8S-J: jq absent → typed 'degraded' report naming jq"
+  else
+    no "P8S-J: expected typed degraded report; got: $(echo "$_p8sj" | grep -i 'hook-set' | head -3)"
+  fi
+  if echo "$_p8sj" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    ok "P8S-J: degraded mode still falls back to .claude/hooks/* (WARN fires there)"
+  else
+    no "P8S-J: fallback did not run in degraded mode; got: $(echo "$_p8sj" | grep -i hook | head -3)"
+  fi
+else
+  echo "  SKIP  P8S-J: jq already absent from PATH — cannot build a hermetic no-jq PATH to test the degraded probe"
+fi
+
+# P8-S teeth: mutate the two new extraction/detection primitives and confirm the P8S-A fixture
+# (settings-declared hook OUTSIDE .claude/hooks/) genuinely depends on each of them.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- P8-S teeth proof: neuter jq extraction / path detection → settings-derived resolution goes RED --"
+  p8s_teeth_dir="$TMP/p8s-teeth"; mk_state_p8 "$p8s_teeth_dir"; mkdir -p "$p8s_teeth_dir/tools/hooks"
+  printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$p8s_teeth_dir/tools/hooks/protocol.sh"
+  mk_settings_cmds "$p8s_teeth_dir" '$CLAUDE_PROJECT_DIR/tools/hooks/protocol.sh'
+
+  # Sanity: the un-mutated SUT resolves and WARNs on this fixture (baseline for both mutants below).
+  _p8st_base="$(run "$p8s_teeth_dir" 2>/dev/null)"
+  if echo "$_p8st_base" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    ok "P8-S teeth: baseline SUT WARNs on the settings-derived fixture (pre-mutation sanity)"
+  else
+    no "P8-S teeth: baseline SUT did not WARN — fixture itself is broken, mutants below are meaningless"
+  fi
+
+  # Mutant 1: neuter the jq extraction filter (P8-SETTINGS-JQ-EXTRACT) so it always returns no
+  # commands. If load-bearing, settings.json is treated as declaring no hooks and the run falls back
+  # to .claude/hooks/* (absent here) — the placeholder WARN must DISAPPEAR.
+  p8s_jqmutant="$TMP/p8s-jqmutant.sh"
+  _p8s_jq_repl='elif _p8_cmds="$(jq -r '\''empty'\'' "$_p8_settings" 2>/dev/null)"; then  # MUTANT: jq filter neutered  # P8-SETTINGS-JQ-EXTRACT'
+  awk -v rl="$_p8s_jq_repl" '/P8-SETTINGS-JQ-EXTRACT/ { print rl; next } { print }' "$SUT" > "$p8s_jqmutant"
+  if ! bash -n "$p8s_jqmutant" 2>/dev/null; then
+    no "P8-S teeth (jq-extract): mutant has a syntax error — mutation failed to produce valid bash"
+  else
+    _p8st_jq="$(bash "$p8s_jqmutant" "$p8s_teeth_dir" 2>/dev/null)"
+    if echo "$_p8st_jq" | grep -qiE '^\s*(INFO|ok |WARN|FAIL)'; then
+      ok "P8-S teeth (jq-extract): mutant SUT produced check output — startup succeeded"
+    else
+      no "P8-S teeth (jq-extract): mutant SUT produced no check output — startup likely failed"
+    fi
+    if ! echo "$_p8st_jq" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+      ok "P8-S teeth (jq-extract): neutered jq filter → no WARN on settings-derived hook → P8S-A has teeth"
+    else
+      no "P8-S teeth (jq-extract): mutant still WARNs → jq-extraction assertion is THEATER"
+    fi
+  fi
+
+  # Mutant 2: neuter path-token detection (P8-LOOKS-LIKE-PATH-CASE) so no token is ever recognized as
+  # a script path. If load-bearing, the declared command must become UNRESOLVED (loud), not silently
+  # matched — proving the placeholder WARN genuinely depends on path detection, not on luck.
+  p8s_pathmutant="$TMP/p8s-pathmutant.sh"
+  _p8s_path_repl='    *) return 1 ;;  # MUTANT: path-detection neutered  # P8-LOOKS-LIKE-PATH-CASE'
+  awk -v rl="$_p8s_path_repl" '/P8-LOOKS-LIKE-PATH-CASE/ { print rl; next } { print }' "$SUT" > "$p8s_pathmutant"
+  if ! bash -n "$p8s_pathmutant" 2>/dev/null; then
+    no "P8-S teeth (path-detect): mutant has a syntax error — mutation failed to produce valid bash"
+  else
+    _p8st_path="$(bash "$p8s_pathmutant" "$p8s_teeth_dir" 2>/dev/null)"
+    if ! echo "$_p8st_path" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+      ok "P8-S teeth (path-detect): neutered path detection → no placeholder WARN → P8S-A has teeth"
+    else
+      no "P8-S teeth (path-detect): mutant still WARNs on the placeholder → path-detection assertion is THEATER"
+    fi
+    if echo "$_p8st_path" | grep -qiE 'hook-set.*could not be resolved'; then
+      ok "P8-S teeth (path-detect): mutant reports the command as unresolved instead of silently dropping it"
+    else
+      no "P8-S teeth (path-detect): mutant neither WARNed nor reported unresolved — got: $(echo "$_p8st_path" | grep -i 'hook-set' | head -2)"
+    fi
+  fi
+fi
+
 # P8 teeth: neuter the placeholder grep → no WARN on <SUBJECT> hook → P8-D goes RED
 # B3: syntax-valid mutant + lib/ included + assert startup succeeded.
 if [ "${1:-}" = "--prove-teeth" ]; then

@@ -347,49 +347,150 @@ _derive_attributed_sg() {
   echo "${n:-0}"
 }
 
-# P8: Installed hook scripts in .claude/hooks/ still contain unreplaced template placeholders.
-# §7 anti-silent-zero: absent-input / empty-input / no-match produce distinct output lines.
+# P8 helpers: derive the settings.json-declared hook COMMAND SET (kit issue #991). A target's real
+# hooks are whatever .claude/settings.json actually runs — niagara-research runs them from
+# tools/hooks/, entirely outside .claude/hooks/, and a hook may be .py (or any other type), not only
+# .sh. Scanning only .claude/hooks/*.sh made both invisible (silent "no installed hooks to inspect").
+# These two helpers turn a raw settings.json `command` string into a resolved file path WITHOUT ever
+# executing it — command strings are read-only corpus data (§8); no eval, no variable expansion.
+
+# _p8_looks_like_path <token>: true if <token> is a candidate script path (contains "/", or ends in
+# a recognized script extension) rather than a bare interpreter name or a flag.
+_p8_looks_like_path() {
+  case "$1" in
+    */*|*.sh|*.py|*.rb|*.js|*.pl|*.ps1) return 0 ;;  # P8-LOOKS-LIKE-PATH-CASE
+    *) return 1 ;;
+  esac
+}
+
+# _p8_first_path_token <command>: safely tokenizes <command> (xargs quote-parsing — no eval, no
+# variable expansion) and prints the FIRST token that looks like a script path, skipping a leading
+# interpreter/env wrapper (`python3 tools/hooks/x.py --flag`, `env bash tools/hooks/x.sh`) and any
+# flag token. Prints nothing (exit 1) when no such token exists — the caller reports the raw command
+# as unresolved (§7: loud, never silently skipped).
+_p8_first_path_token() {
+  local tok
+  while IFS= read -r tok; do
+    [ -z "$tok" ] && continue
+    case "$tok" in
+      -*) continue ;;
+      bash|sh|dash|zsh|ksh|env|python|python2|python3|node|nodejs|ruby|perl|pwsh) continue ;;
+    esac
+    if _p8_looks_like_path "$tok"; then printf '%s\n' "$tok"; return 0; fi
+  done < <(printf '%s' "$1" | xargs -n1 printf '%s\n' 2>/dev/null)
+  return 1
+}
+
+# _p8_resolve_hook_path <token> <hroot>: resolves a script token to an absolute path — the three
+# forms #991 names: a $CLAUDE_PROJECT_DIR / ${CLAUDE_PROJECT_DIR} prefix (→ <hroot>), an already-
+# absolute path (used as-is), or a bare path resolved relative to <hroot>. Existence is NOT checked
+# here — the caller does, so a dangling path is reported unresolved rather than silently dropped.
+_p8_resolve_hook_path() {
+  local tok="$1" hroot="$2" rest
+  case "$tok" in
+    \$CLAUDE_PROJECT_DIR/*)
+      rest="${tok#\$CLAUDE_PROJECT_DIR}"
+      printf '%s%s\n' "$hroot" "$rest" ;;
+    \$\{CLAUDE_PROJECT_DIR\}/*)
+      rest="${tok#\$\{CLAUDE_PROJECT_DIR\}}"
+      printf '%s%s\n' "$hroot" "$rest" ;;
+    /*) printf '%s\n' "$tok" ;;
+    *) printf '%s/%s\n' "$hroot" "$tok" ;;
+  esac
+}
+
+# P8: hook scripts still containing unreplaced template placeholders. The INSPECTED SET is derived
+# from .claude/settings.json's hook commands (read-only; jq) when available, falling back to
+# .claude/hooks/* (ALL files, not only *.sh — a fallback dir can hold non-.sh hooks too) when
+# settings.json has no hooks, is unreadable/invalid, or jq is unavailable (#991). Placeholder
+# semantics below apply to every inspected file regardless of extension.
+# §7 anti-silent-zero: absent-input / empty-input / no-match produce distinct output lines, jq
+# absence is a typed degraded state (never a silent pass), and every settings-declared command that
+# fails to resolve to a file is reported loudly, never skipped.
 # Runs ONCE per target (before per-state loop) — not once per RESEARCH-STATE file.
 # F1: exact allowlist of forms found in research-sdd/templates/ hook files (not a generic UPPER regex).
-# F2: when called with a nested corpus dir ($target/corpus), .claude/hooks lives at the target root;
-#     walk up one level bounded to the dir holding .claude/ and report which dir was inspected.
+# F2: when called with a nested corpus dir ($target/corpus), .claude/ lives at the target root; walk
+#     up one level bounded to the dir holding .claude/ and report which dir was inspected.
 # F4: skip lines that are pure #-comments; print line numbers in WARN output.
 _p8_hroot="$target"
 if [ ! -d "$_p8_hroot/.claude" ] && [ -d "$(dirname "$_p8_hroot")/.claude" ]; then
   _p8_hroot="$(dirname "$_p8_hroot")"
 fi
+_p8_settings="$_p8_hroot/.claude/settings.json"
 _p8_hdir="$_p8_hroot/.claude/hooks"
-if [ ! -d "$_p8_hdir" ]; then
-  echo "   INFO   hook-placeholder: .claude/hooks/ not found (inspected: $_p8_hroot) — no installed hooks to inspect"
-elif [ ! -r "$_p8_hdir" ]; then
-  echo "   unreadable   hook-placeholder: .claude/hooks/ at $_p8_hroot is not readable — cannot inspect"
-else
-  _p8_hits=""
-  while IFS= read -r _p8f; do
-    if [ ! -r "$_p8f" ]; then
-      echo "   unreadable   hook-placeholder: $(basename "$_p8f") is not readable — cannot inspect for placeholders"
-      _p8_hits="${_p8_hits}1"
-    else
-      # F4: skip #-comment lines; F1: exact placeholder allowlist from templates/
-      _p8_lines="$(grep -nE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' "$_p8f" | grep -vE '^[0-9]+:[[:space:]]*#')"  # P8-HOOK-PLACEHOLDER-GREP
-      if [ -n "$_p8_lines" ]; then
-        _p8_phs="$(printf '%s\n' "$_p8_lines" | grep -oE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' | sort -u | tr '\n' ' ' | sed 's/ $//')"
-        _p8_lns="$(printf '%s\n' "$_p8_lines" | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')"
-        echo "   WARN   hook-placeholder: $(basename "$_p8f") line(s) $_p8_lns still has unreplaced placeholder(s): $_p8_phs — adapt this hook for the target before use (inspected: $_p8_hroot)"
-        _p8_hits="${_p8_hits}1"
+
+_p8_source=""           # "settings" once settings.json declares >=1 hook command
+_p8_fallback_reason=""  # why we fell back — reported in the hook-set summary line below
+_p8_resolved=""         # newline list of settings-derived, EXISTING resolved script paths
+_p8_unresolved_n=0      # count of settings-declared commands that did not resolve to a file
+
+if [ ! -f "$_p8_settings" ]; then
+  _p8_fallback_reason="no .claude/settings.json"
+elif [ ! -r "$_p8_settings" ]; then
+  echo "   unreadable   hook-set: .claude/settings.json at $_p8_hroot is not readable — cannot derive the settings-declared hook set"
+  _p8_fallback_reason="settings.json unreadable"
+elif ! command -v jq >/dev/null 2>&1; then
+  echo "   degraded   hook-set: jq not found on PATH — cannot parse .claude/settings.json hook commands (hooks declared outside .claude/hooks/, e.g. tools/hooks/, are invisible in this mode)"
+  _p8_fallback_reason="jq unavailable"
+elif _p8_cmds="$(jq -r '(.hooks // {}) | [.. | objects | .command? // empty] | .[]' "$_p8_settings" 2>/dev/null)"; then  # P8-SETTINGS-JQ-EXTRACT
+  if [ -z "$_p8_cmds" ]; then
+    _p8_fallback_reason="settings.json declares no hooks"
+  else
+    _p8_source="settings"
+    while IFS= read -r _p8_cmd; do
+      [ -z "$_p8_cmd" ] && continue
+      _p8_tok="$(_p8_first_path_token "$_p8_cmd")"
+      _p8_resolved_path=""
+      [ -n "$_p8_tok" ] && _p8_resolved_path="$(_p8_resolve_hook_path "$_p8_tok" "$_p8_hroot")"
+      if [ -n "$_p8_resolved_path" ] && [ -f "$_p8_resolved_path" ]; then
+        _p8_resolved="${_p8_resolved}${_p8_resolved_path}"$'\n'
+      else
+        _p8_unresolved_n=$((_p8_unresolved_n + 1))
+        echo "   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: $_p8_hroot): $_p8_cmd"
       fi
-    fi
-  done < <(find "$_p8_hdir" -maxdepth 1 -name '*.sh' 2>/dev/null | sort)
-  if [ -z "$_p8_hits" ]; then
-    _p8_count="$(find "$_p8_hdir" -maxdepth 1 -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')"
-    if [ "${_p8_count:-0}" = "0" ]; then
-      echo "   INFO   hook-placeholder: .claude/hooks/ has no .sh files (inspected: $_p8_hroot) — no installed hooks to inspect"
-    fi
-    # no-match: hooks exist and all clean — silent, covered by per-state ok line
+    done <<< "$_p8_cmds"
   fi
-  unset _p8f _p8_hits _p8_phs _p8_lns _p8_count _p8_lines
+else
+  echo "   unreadable   hook-set: .claude/settings.json at $_p8_hroot is not valid JSON — cannot derive the settings-declared hook set"
+  _p8_fallback_reason="settings.json invalid JSON"
 fi
-unset _p8_hdir _p8_hroot
+
+if [ "$_p8_source" = "settings" ]; then
+  mapfile -t _p8_files < <(printf '%s\n' "$_p8_resolved" | grep -v '^$' | sort -u)
+  echo "   INFO   hook-set: inspected ${#_p8_files[@]} settings-derived hook script(s) from .claude/settings.json (root: $_p8_hroot; $_p8_unresolved_n unresolved)"
+else
+  echo "   INFO   hook-set: inspected fallback set .claude/hooks/* (root: $_p8_hroot; reason: $_p8_fallback_reason)"
+  if [ ! -d "$_p8_hdir" ]; then
+    echo "   INFO   hook-placeholder: .claude/hooks/ not found (inspected: $_p8_hroot) — no installed hooks to inspect"
+    _p8_files=()
+  elif [ ! -r "$_p8_hdir" ]; then
+    echo "   unreadable   hook-placeholder: .claude/hooks/ at $_p8_hroot is not readable — cannot inspect"
+    _p8_files=()
+  else
+    mapfile -t _p8_files < <(find "$_p8_hdir" -maxdepth 1 -type f 2>/dev/null | sort)
+    if [ "${#_p8_files[@]}" -eq 0 ]; then
+      echo "   INFO   hook-placeholder: .claude/hooks/ is empty (inspected: $_p8_hroot) — no installed hooks to inspect"
+    fi
+  fi
+fi
+
+for _p8f in "${_p8_files[@]}"; do
+  [ -z "$_p8f" ] && continue
+  if [ ! -r "$_p8f" ]; then
+    echo "   unreadable   hook-placeholder: $(basename "$_p8f") is not readable — cannot inspect for placeholders"
+  else
+    # F4: skip #-comment lines; F1: exact placeholder allowlist from templates/
+    _p8_lines="$(grep -nE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' "$_p8f" | grep -vE '^[0-9]+:[[:space:]]*#')"  # P8-HOOK-PLACEHOLDER-GREP
+    if [ -n "$_p8_lines" ]; then
+      _p8_phs="$(printf '%s\n' "$_p8_lines" | grep -oE '<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path to binaries/decompiled output/source code of the system under study>' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+      _p8_lns="$(printf '%s\n' "$_p8_lines" | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')"
+      echo "   WARN   hook-placeholder: $(basename "$_p8f") line(s) $_p8_lns still has unreplaced placeholder(s): $_p8_phs — adapt this hook for the target before use (inspected: $_p8_hroot)"
+    fi
+  fi
+done
+# no-match: hooks exist and all clean — silent, covered by per-state ok line
+unset _p8f _p8_phs _p8_lns _p8_lines _p8_cmd _p8_cmds _p8_tok _p8_resolved_path
+unset _p8_hdir _p8_hroot _p8_settings _p8_source _p8_fallback_reason _p8_resolved _p8_unresolved_n _p8_files
 
 rc=0
 for state in "${states[@]}"; do
