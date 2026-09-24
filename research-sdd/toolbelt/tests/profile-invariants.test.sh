@@ -85,8 +85,8 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TOOLBELT="$(cd "$HERE/.." && pwd)"
-KIT="$(cd "$TOOLBELT/.." && pwd)"
+TOOLBELT="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
+KIT="$(cd "$TOOLBELT/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
 RENDERER="$TOOLBELT/render-profile.sh"
 SKILL="$KIT/skills/research-sdd/SKILL.md"
 PROMPTLOOP="$KIT/PROMPT-LOOP.md"

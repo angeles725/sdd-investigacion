@@ -10,7 +10,12 @@
 #
 # Usage: research-sdd/toolbelt/sweep-audits.sh
 
-KIT="$(cd "$(dirname "$0")/.." && pwd)"
+# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
+# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
+# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
+# wrong component and lands one level off from the real physical parent. -P makes this always
+# resolve physically regardless of how this script was invoked.
+KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Reuse the retro marker reader — its leading-comment-block scan is generic (retro-status.sh:23-36),

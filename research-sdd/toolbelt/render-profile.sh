@@ -61,8 +61,16 @@
 
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE/.." && pwd)}"
+# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
+# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
+# component (e.g. this script reached via a per-profile render dir's toolbelt/, kit issue #993
+# WU2 + #1024 F1) cancels the wrong component and lands one level off from the real physical
+# parent — reproduced: KIT_DIR landed ON the render dir itself, so SKILL_SRC/LOOP_SRC/METH_SRC
+# below pointed at the render's OWN already-rendered (marker-free) files instead of the real kit
+# source, and rendering them again failed with "zero slot markers found in sources". -P makes
+# both hops always resolve physically regardless of how this script was invoked.
+HERE="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+KIT_DIR="${RSDD_KIT_DIR:-$(cd -P "$HERE/.." && pwd -P)}"
 
 usage() {
   echo "usage: render-profile.sh <profile> <outdir>" >&2

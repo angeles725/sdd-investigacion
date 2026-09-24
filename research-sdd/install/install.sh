@@ -17,8 +17,13 @@
 #       non-zero only when BASELINE itself failed.
 set -uo pipefail
 
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KIT="$(cd "$SELF/.." && pwd)"
+# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
+# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
+# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
+# wrong component and lands one level off from the real physical parent. -P makes both hops always
+# resolve physically regardless of how this script was invoked.
+SELF="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+KIT="$(cd -P "$SELF/.." && pwd -P)"
 
 # Marker strings — match research-sdd-install.sh splice conventions.
 START_MARKER='# research-sdd:start'

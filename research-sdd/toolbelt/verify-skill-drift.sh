@@ -35,8 +35,18 @@
 
 set -uo pipefail
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-KIT_INSTALL="$(cd "$SELF_DIR/../install" 2>/dev/null && pwd)" \
+# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, MEDIUM): bash's default logical
+# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
+# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1's completion
+# symlinks) cancels the wrong component and lands one level off from the real physical parent.
+# Without -P, KIT (below) resolved to the RENDER DIR ITSELF when this script was invoked through
+# it — reproduced: _vsd_resolve_src's re-render then called "$KIT/toolbelt/render-profile.sh" with
+# $KIT pointing at the render, so render-profile.sh tried to re-render the render's OWN already-
+# rendered (marker-free) SKILL.md/PROMPT-LOOP.md/METHODOLOGY.md and failed with "zero slot markers
+# found in sources" (exit 2, could-not-run under --all) for every non-claude profile, every time.
+# -P makes every hop always resolve physically regardless of how this script was invoked.
+SELF_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
+KIT_INSTALL="$(cd -P "$SELF_DIR/../install" 2>/dev/null && pwd -P)" \
   || { printf 'verify-skill-drift: ERROR: install dir not found\n' >&2; exit 2; }
 ADAPTERS="$KIT_INSTALL/adapters.sh"
 if [ ! -f "$ADAPTERS" ]; then
@@ -197,7 +207,9 @@ if [ -z "$home" ]; then
   exit 2
 fi
 
-KIT="$(cd "$KIT_INSTALL/.." && pwd)"
+# See the -P comment above SELF_DIR (kit issue #1024 round 4, MEDIUM) — this hop is the one that
+# actually reopened the bug: it must always land on the real kit root, never the render dir.
+KIT="$(cd -P "$KIT_INSTALL/.." && pwd -P)"
 
 # Named-output receivers for _vsd_resolve_src (printf -v targets — see its own comment for why
 # this must be a direct call, never $(...)). Pre-declared so shellcheck (SC2154) and `set -u`

@@ -726,11 +726,13 @@ mkdir -p "$box_sym/research-sdd/profile/general"
 ln -s "$box_sym/research-sdd/toolbelt" "$box_sym/research-sdd/profile/general/toolbelt"
 OUT_SYM="$(PATH="$box_sym/bin:$PATH" "$BASH_BIN" \
   "$box_sym/research-sdd/profile/general/toolbelt/stage-retro-issues.sh" "$retro_sym" 2>&1)"; RC_SYM=$?
-if ! printf '%s' "$OUT_SYM" | grep -qi 'target directory.*not found'; then
-  ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, TARGETS.md target lookup still resolves" \
+# kit issue #1024 round 4, item 5: assert the exit code explicitly, not just the absence of the
+# negative-signal text — a wrong-reason nonzero exit would otherwise slip through this check.
+if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'target directory.*not found'; then
+  ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, TARGETS.md target lookup still resolves (exit 0)" \
      "(rc=$RC_SYM)"
 else
-  no "SYMLINK-TOOLBELT: TARGETS.md target lookup failed through a symlinked toolbelt/" \
+  no "SYMLINK-TOOLBELT: TARGETS.md target lookup failed through a symlinked toolbelt/ (or wrong exit code)" \
      "(rc=$RC_SYM out=[$OUT_SYM])"
 fi
 

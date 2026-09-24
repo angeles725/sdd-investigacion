@@ -5,6 +5,12 @@
 # harness's OWN paths by iterating the adapter table in adapters.sh. The loop body has ZERO
 # per-harness `if`/`case`: WHERE/HOW/WHAT all come from the table, so a 4th harness is one table row.
 #
+# usage() (below) prints exactly the text between the # HELP-START / # HELP-END sentinel comments
+# — kit issue #1024 round 4, item 5: it used to be a hardcoded `sed -n 'A,Bp'` line range, which
+# had to be recomputed by hand every time a paragraph was added or removed here — a repeated
+# maintenance paper cut across rounds 2 and 3. Add or remove paragraphs freely between the two
+# sentinels; no line numbers to keep in sync. The sentinel lines themselves are excluded.
+# HELP-START
 # Usage:
 #   research-sdd-install.sh [--harness claude|codex|reasonix|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
 #
@@ -32,14 +38,22 @@
 # the hand-edit blocks it, the overall run exits non-zero (round 3 item 3) instead of the usual
 # exit 0 — the launcher's "Kit path:" would otherwise be rewritten to the NEW profile while the
 # kept SKILL.md stays the OLD profile's content, a mixed state that must never report success.
+# HELP-END
 set -uo pipefail
 
-SELF="$(cd "$(dirname "$0")" && pwd)"
-KIT="$(cd "$SELF/.." && pwd)"
+# -P/pwd -P (PHYSICAL resolution — kit issue #1024 round 4, SYSTEMIC): bash's default logical
+# cd/pwd tracks $PWD as a lexically-collapsed string; a later ".." through an unresolved symlink
+# component (e.g. a per-profile render dir's toolbelt/, kit issue #993 WU2 + #1024 F1) cancels the
+# wrong component and lands one level off from the real physical parent. -P makes both hops always
+# resolve physically regardless of how this script was invoked.
+SELF="$(cd -P "$(dirname "$0")" && pwd -P)"
+KIT="$(cd -P "$SELF/.." && pwd -P)"
 # shellcheck source=adapters.sh
 . "$SELF/adapters.sh"
 
-usage() { sed -n '3,34p' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'; }
+usage() {
+  awk '/^# HELP-START$/{f=1;next} /^# HELP-END$/{f=0} f' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'
+}
 
 # --- prompt-surfacing strategies: dispatched by the STRATEGY VALUE, never by harness name ----------
 # Each prints its plan line(s) + the rendered section, then (unless dry) performs the write.
@@ -400,15 +414,18 @@ _rsdd_marker_matches_deployed() {
   [ "$recorded" = "$actual" ]
 }
 
-# _rsdd_dry_skill_plan <src> <dest> <force> <label> <marker> — print the exact INSTALL line
-# dry-run takes for copying <src> onto <dest>, applying the SAME divergence rule (CLAUDE.md §7)
-# no matter WHAT is being deployed: the kit source directly, or a freshly rendered profile.
+# _rsdd_dry_skill_plan <src> <dest> <force> <label> <marker> [profile] — print the exact INSTALL
+# line dry-run takes for copying <src> onto <dest>, applying the SAME divergence rule (CLAUDE.md
+# §7) no matter WHAT is being deployed: the kit source directly, or a freshly rendered profile.
 # <label> is the human-readable provenance phrase embedded in the printed line (e.g. "from kit
 # <relkit>" or "from rendered profile '<name>'"). Shared by every leg that deploys a skill file so
 # a divergence fix made once (kit issue #1024, R3-silent-overwrite-rendered-profile; extended by
-# F4's marker-matches managed-overwrite state) covers all of them.
+# F4's marker-matches managed-overwrite state) covers all of them. [profile], when given, is the
+# profile just requested — used only for the RDD R4-001 WARN (round 4 item 4): the diverged
+# branch additionally previews whether a REAL run would refuse this as a blocked profile switch.
 _rsdd_dry_skill_plan() {
-  local src="$1" dest="$2" force="$3" label="$4" marker="${5:-}"
+  local src="$1" dest="$2" force="$3" label="$4" marker="${5:-}" profile="${6:-}"
+  local _dry_old_profile
   if [ ! -f "$src" ]; then
     printf '  INSTALL %s (%s) [SKIP — source SKILL not found]\n' "$dest" "$label"
   elif [ ! -r "$src" ]; then
@@ -429,6 +446,15 @@ _rsdd_dry_skill_plan() {
     fi
   elif [ -f "$dest" ]; then
     printf '  INSTALL %s (%s) [SKIP — diverged; use --force-skill to overwrite]\n' "$dest" "$label"
+    # RDD R4-001 (kit issue #1024 round 4, item 4): the REAL run's warn+keep branch below refuses
+    # (and skips the launcher rewrite) when this diverged file is ALSO an attempted profile
+    # switch a hand-edit blocked. The dry-run preview must say so too — otherwise `--dry-run`
+    # promises a clean switch a real run would then refuse.
+    _dry_old_profile="$(_rsdd_marker_field "$marker" profile 2>/dev/null)" || _dry_old_profile=""
+    if [ -n "$profile" ] && [ -n "$_dry_old_profile" ] && [ "$_dry_old_profile" != "$profile" ]; then
+      printf '  WARN    %s: a real run would ALSO refuse this profile switch "%s" → "%s" (mixed-state guard, RDD R4-001) — the launcher rewrite would be skipped too\n' \
+        "$dest" "$_dry_old_profile" "$profile"
+    fi
   else
     printf '  INSTALL %s (%s)\n' "$dest" "$label"
   fi
@@ -450,6 +476,12 @@ _rsdd_dry_skill_plan() {
 _rsdd_deploy_skill() {
   local src="$1" dest="$2" force="$3" label="$4" h="$5" marker="$6" profile="$7" config_root="$8"
   local bak deployed_now=0 old_profile
+  # Named-output signal (kit issue #1024 round 4, item 4) — a caller (install_one) reads this
+  # RIGHT AFTER the call to learn whether THIS SPECIFIC blocked-mixed-state path fired, distinct
+  # from every other reason this function can return nonzero. Reset unconditionally at the top of
+  # every call so a caller reusing the same shell for multiple harnesses never sees a stale 1 from
+  # a PREVIOUS harness's blocked switch.
+  _RSDD_SKILL_BLOCKED_MIXED=0
   printf '  INSTALL %s (%s)\n' "$dest" "$label"
   if [ ! -f "$src" ]; then
     echo "research-sdd-install: [$h] source SKILL not found: $src" >&2; return 1
@@ -485,16 +517,20 @@ _rsdd_deploy_skill() {
     fi
   elif [ -f "$dest" ]; then
     printf 'research-sdd-install: WARNING %s exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)\n' "$dest" >&2
-    # kit issue #1024 round 3 item 3: if this WAS an attempted profile switch (the marker names a
-    # DIFFERENT profile than the one just requested) and the hand-edit blocked it, the launcher's
-    # "Kit path:" is about to be rewritten to the NEW profile anyway (step 2 always runs) while
-    # SKILL.md stays the OLD profile's content — a mixed state. Fail loudly rather than report
-    # exit 0 as if the switch had cleanly completed. An ordinary re-install with a pre-existing
-    # hand-edit on the SAME profile (old_profile == profile, or no marker yet) is unaffected.
-    _old_profile_it3="$(_rsdd_marker_field "$marker" profile 2>/dev/null)" || _old_profile_it3=""
-    if [ -n "$_old_profile_it3" ] && [ "$_old_profile_it3" != "$profile" ]; then
-      printf 'research-sdd-install: ERROR %s: switching profile "%s" → "%s" was requested, but a hand-edit at %s blocked it — the launcher will still point at "%s" while the deployed skill stays "%s" (mixed state). Resolve with --force-skill (overwrites, backs up first) or by hand, then re-run.\n' \
-        "$h" "$_old_profile_it3" "$profile" "$dest" "$profile" "$_old_profile_it3" >&2
+    # kit issue #1024 round 3 item 3 (round 4 item 4 extends this): if this WAS an attempted
+    # profile switch (the marker names a DIFFERENT profile than the one just requested) and the
+    # hand-edit blocked it, the launcher's "Kit path:" would otherwise still be rewritten to the
+    # NEW profile (step 2 used to always run unconditionally) while SKILL.md stays the OLD
+    # profile's content — a mixed state. Round 3 made this exit non-zero; round 4 additionally
+    # signals the caller via _RSDD_SKILL_BLOCKED_MIXED so install_one can SKIP step 2 entirely —
+    # nothing mixed is ever written to disk, not even the launcher's Kit path line. An ordinary
+    # re-install with a pre-existing hand-edit on the SAME profile (old_profile == profile, or no
+    # marker yet) is unaffected — step 2 still runs normally for that case.
+    _deployed_old_profile="$(_rsdd_marker_field "$marker" profile 2>/dev/null)" || _deployed_old_profile=""
+    if [ -n "$_deployed_old_profile" ] && [ "$_deployed_old_profile" != "$profile" ]; then
+      printf 'research-sdd-install: ERROR %s: switching profile "%s" → "%s" was requested, but a hand-edit at %s blocked it — the launcher was left UNCHANGED (still "%s") so nothing mixed is written; the deployed skill also stays "%s". Resolve with --force-skill (overwrites, backs up first) or by hand, then re-run.\n' \
+        "$h" "$_deployed_old_profile" "$profile" "$dest" "$_deployed_old_profile" "$_deployed_old_profile" >&2
+      _RSDD_SKILL_BLOCKED_MIXED=1
       return 1
     fi
   elif ! cp "$src" "$dest"; then
@@ -556,6 +592,11 @@ install_one() {
   #    review correction (R3-silent-overwrite-rendered-profile): the render leg used to `cp`
   #    unconditionally, with no cmp -s check, no backup, and --force-skill silently ignored.
   local kit_for_section="$KIT" render_dir="" render_err label
+  # Global (not local) signal read after _rsdd_deploy_skill returns — see its own comment (kit
+  # issue #1024 round 4, item 4). Reset here too: the dry-run branches below never call
+  # _rsdd_deploy_skill at all, so without this a STALE 1 from a PREVIOUS harness in the same
+  # process could otherwise survive into this harness's dry-run pass.
+  _RSDD_SKILL_BLOCKED_MIXED=0
   if [ "$profile" != "claude" ]; then
     render_dir="$config_root/research-sdd/profile/$profile"
     kit_for_section="$render_dir"
@@ -573,7 +614,7 @@ install_one() {
           echo "research-sdd-install: [$h] render-profile.sh failed: $dry_render_err" >&2
           rc=1
         else
-          _rsdd_dry_skill_plan "$dry_render_dir/$src_relkit" "$skill_path" "$force" "$label" "$marker"
+          _rsdd_dry_skill_plan "$dry_render_dir/$src_relkit" "$skill_path" "$force" "$label" "$marker" "$profile"
         fi
         rm -rf "$dry_render_dir"
       fi
@@ -593,19 +634,28 @@ install_one() {
   else
     label="from kit $src_relkit"
     if [ "$dry" = 1 ]; then
-      _rsdd_dry_skill_plan "$src_skill" "$skill_path" "$force" "$label" "$marker"
+      _rsdd_dry_skill_plan "$src_skill" "$skill_path" "$force" "$label" "$marker" "$profile"
     else
       _rsdd_deploy_skill "$src_skill" "$skill_path" "$force" "$label" "$h" "$marker" "$profile" "$config_root" || rc=1
     fi
   fi
 
   # 2. launcher → this harness's prompt file, via the strategy the TABLE named (data, not a branch)
-  dispatch="_surface__${strategy//-/_}"
-  if ! declare -F "$dispatch" >/dev/null; then
-    echo "research-sdd-install: [$h] no surfacing strategy '$strategy'" >&2; return 2
-  fi
-  if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section"; then
-    echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
+  #    kit issue #1024 round 4, item 4: SKIP this step entirely when step 0/1 hit the blocked-
+  #    mixed-state path above — never rewrite (or even preview rewriting) the launcher's "Kit
+  #    path:" line to the new profile while the deployed skill stays the OLD profile's content.
+  #    The non-zero exit from step 0/1 already reported this; step 2 must not paper over it by
+  #    writing a HALF of the switch to disk.
+  if [ "$_RSDD_SKILL_BLOCKED_MIXED" = 1 ]; then
+    printf '  SKIP    %s (launcher rewrite skipped — profile switch blocked by a hand-edit, mixed state avoided)\n' "$prompt_file"
+  else
+    dispatch="_surface__${strategy//-/_}"
+    if ! declare -F "$dispatch" >/dev/null; then
+      echo "research-sdd-install: [$h] no surfacing strategy '$strategy'" >&2; return 2
+    fi
+    if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section"; then
+      echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
+    fi
   fi
 
   # 3. MCP registration — only when the table names a config file (codex/reasonix config.toml).

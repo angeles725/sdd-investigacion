@@ -38,7 +38,7 @@ no()   { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 skip() { printf '  SKIP  %s\n' "$1"; }
 
 # The real kit path from this test's location
-KIT="$(cd "$HERE/../.." && pwd)"
+KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
 SRC_SKILL="$KIT/skills/research-sdd/SKILL.md"
 
 echo "== verify-skill-drift.test.sh =="
@@ -652,6 +652,40 @@ else
   no "PD3: unknown --profile: wrong exit/message (rc=$RC_PD3, out=$ERR_PD3)"
 fi
 
+# ── kit issue #1024 round 4, MEDIUM: symlinked toolbelt (render dir) ──────────
+# SELF_DIR/KIT_INSTALL/KIT used to be derived via plain (logical) `cd`/`pwd`. Invoked directly,
+# that is harmless — but this script's OWN F1-completed render dir (kit issue #993 WU2 + #1024
+# F1) symlinks toolbelt/ (and install/, profiles/, etc.) straight into the real kit, so a
+# non-claude harness's deployed skill_path check ends up running THIS script through that
+# symlink. Reproduced against the pre-fix SUT: KIT collapsed onto the render dir itself, so
+# _vsd_resolve_src's re-render call ("$KIT/toolbelt/render-profile.sh") tried to re-render the
+# render's OWN already-rendered (marker-free) files and failed loudly with "zero slot markers
+# found in sources" — exit 2 (could-not-run) for every reasonix/general check, every time, single-
+# harness AND --all. This uses the REAL installer against a REAL kit (the established TOOTH-PD
+# pattern above — this script's own resolution chain needs a REAL render-profile.sh, REAL
+# profiles/*.slots.md and REAL slot-marker-bearing sources to reach the exact failure mode; a
+# synthetic mini-kit would have to reimplement render-profile.sh's own behaviour to reproduce it),
+# with only a THROWAWAY --home — never the real fleet, never real ~/.claude/~/.codex config.
+if [ -f "$INSTALLER_PD" ]; then
+  H_SYM="$ROOT/home_symlink_toolbelt"
+  bash "$INSTALLER_PD" --home "$H_SYM" --harness reasonix >/dev/null 2>&1
+  RENDER_TB_SYM="$H_SYM/.reasonix/research-sdd/profile/general/toolbelt/verify-skill-drift.sh"
+  if [ -x "$RENDER_TB_SYM" ]; then
+    OUT_SYM_SINGLE="$(bash "$RENDER_TB_SYM" --harness reasonix --home "$H_SYM" 2>&1)"; RC_SYM_SINGLE=$?
+    OUT_SYM_ALL="$(bash "$RENDER_TB_SYM" --all --home "$H_SYM" 2>&1)"; RC_SYM_ALL=$?
+    if [ "$RC_SYM_SINGLE" -eq 0 ] && [ "$RC_SYM_ALL" -eq 0 ] \
+       && ! printf '%s%s' "$OUT_SYM_SINGLE" "$OUT_SYM_ALL" | grep -qi 'zero slot markers'; then
+      ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, resolves the real kit root (single: rc=$RC_SYM_SINGLE, --all: rc=$RC_SYM_ALL)"
+    else
+      no "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/ failed (single rc=$RC_SYM_SINGLE out=[$OUT_SYM_SINGLE]; --all rc=$RC_SYM_ALL out=[$OUT_SYM_ALL])"
+    fi
+  else
+    no "SYMLINK-TOOLBELT setup: rendered toolbelt/verify-skill-drift.sh not found or not executable at $RENDER_TB_SYM"
+  fi
+else
+  no "SYMLINK-TOOLBELT setup: installer not found — cannot exercise this test"
+fi
+
 # ── kit issue #1024 review round 2, F3 (MEDIUM) ───────────────────────────────
 # _vsd_resolve_src used to be called as `src="$(_vsd_resolve_src ...)"`, running the WHOLE
 # function in a subshell; its `_VSD_RENDER_TMPDIRS+=()` append only ever mutated that subshell's
@@ -1093,6 +1127,96 @@ if [ "$prove_teeth" -eq 1 ]; then
     no "TOOTH F3-completeness: installer not found — cannot exercise this tooth"
   fi
   rm -f "$MUT_F3COMP"
+
+  # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, MEDIUM). Measured directly (not asserted):
+  # reverting ONLY verify-skill-drift.sh's own -P, with render-profile.sh's INDEPENDENT -P fix
+  # left in place, no longer manifests an externally observable failure — render-profile.sh's own
+  # physical resolution SELF-HEALS through the very symlink verify-skill-drift.sh's broken $KIT
+  # constructs (its "$KIT/toolbelt/render-profile.sh" call still reaches the real toolbelt/ via
+  # F1's whole-directory completion symlink, and -P there alone is enough to resolve back to the
+  # true kit root). That symlink-preserving shape was verified empirically before writing this
+  # tooth; a shape that instead replaces the toolbelt/ symlink with a real copied directory
+  # reproduces a FAILURE but the WRONG one (loses the self-healing property a real render never
+  # loses) — confirmed and discarded rather than kept as an easy but dishonest pass.
+  # render-profile.sh has the identical bug class independently (kit issue #1024 round 4,
+  # SYSTEMIC — found via the new verify-cd-physical.sh lint) and its OWN isolated tooth lives in
+  # render-profile.test.sh (a clean single-mutant case: invoked directly, it never goes through
+  # verify-skill-drift.sh's $KIT at all). THIS tooth instead reverts BOTH scripts together — the
+  # exact pair that jointly produced kit issue #1024's originally reported symptom — because that
+  # combination is what a "SELF_DIR/KIT_INSTALL/KIT -P" reversion of verify-skill-drift.sh ALONE
+  # can no longer be shown to break on its own once render-profile.sh's sibling fix stands.
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P on verify-skill-drift.sh AND render-profile.sh together --"
+  MUT_SYM="$HERE/../verify-skill-drift-mut-sym.$$.sh"
+  sed -e 's/SELF_DIR="\$(cd -P "\$(dirname "\$0")" \&\& pwd -P)"/SELF_DIR="$(cd "$(dirname "$0")" \&\& pwd)"/' \
+      -e 's/KIT_INSTALL="\$(cd -P "\$SELF_DIR\/\.\.\/install" 2>\/dev\/null \&\& pwd -P)"/KIT_INSTALL="$(cd "$SELF_DIR\/..\/install" 2>\/dev\/null \&\& pwd)"/' \
+      -e 's/KIT="\$(cd -P "\$KIT_INSTALL\/\.\." \&\& pwd -P)"/KIT="$(cd "$KIT_INSTALL\/.." \&\& pwd)"/' \
+      "$SUT" > "$MUT_SYM"
+  chmod +x "$MUT_SYM"
+  MUT_RPS="$HERE/../render-profile-mut-sym.$$.sh"
+  sed -e 's/HERE="\$(cd -P "\$(dirname "\${BASH_SOURCE\[0\]}")" \&\& pwd -P)"/HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" \&\& pwd)"/' \
+      -e 's/KIT_DIR="\${RSDD_KIT_DIR:-\$(cd -P "\$HERE\/\.\." \&\& pwd -P)}"/KIT_DIR="${RSDD_KIT_DIR:-$(cd "$HERE\/.." \&\& pwd)}"/' \
+      "$KIT/toolbelt/render-profile.sh" > "$MUT_RPS"
+  chmod +x "$MUT_RPS"
+  if diff -q "$SUT" "$MUT_SYM" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant differs (-P reverted on all 3 hops)"
+  fi
+  if diff -q "$KIT/toolbelt/render-profile.sh" "$MUT_RPS" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: render-profile.sh mutant differs (-P reverted on both hops)"
+  fi
+
+  # Build a fully SYNTHETIC mini-kit (mktemp -d) — never a real render, whose toolbelt/ IS the
+  # real tracked toolbelt/ via F1's completion symlink; writing a mutant through that path would
+  # corrupt the live scripts (the exact mistake already made once in round 3, caught via an
+  # unexpected diff before commit). toolbelt/install/profiles stay genuine SYMLINKS from the
+  # render dir to this mini-kit's own copies — matching the real F1 shape exactly (a real,
+  # non-symlinked toolbelt/ directly under the render dir would ALSO "fail", but for the wrong
+  # reason: it discards the self-healing property a real render never loses, not the class of bug
+  # kit issue #1024 is about).
+  SCRATCH_TSYM="$ROOT/scratch_teeth_symlink"
+  mkdir -p "$SCRATCH_TSYM/research-sdd/toolbelt" "$SCRATCH_TSYM/research-sdd/install" \
+    "$SCRATCH_TSYM/research-sdd/profiles" "$SCRATCH_TSYM/research-sdd/skills/research-sdd"
+  cp "$KIT/toolbelt/verify-skill-drift.sh" "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh"
+  cp "$KIT/toolbelt/render-profile.sh"     "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+  chmod +x "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh" \
+           "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+  cp "$KIT/install/adapters.sh" "$SCRATCH_TSYM/research-sdd/install/adapters.sh"
+  cp "$KIT/profiles/general.slots.md" "$SCRATCH_TSYM/research-sdd/profiles/general.slots.md"
+  cp "$KIT/skills/research-sdd/SKILL.md" "$SCRATCH_TSYM/research-sdd/skills/research-sdd/SKILL.md"
+  cp "$KIT/PROMPT-LOOP.md" "$SCRATCH_TSYM/research-sdd/PROMPT-LOOP.md"
+  cp "$KIT/METHODOLOGY.md" "$SCRATCH_TSYM/research-sdd/METHODOLOGY.md"
+  mkdir -p "$SCRATCH_TSYM/render/profile/general"
+  ln -s "$SCRATCH_TSYM/research-sdd/toolbelt"  "$SCRATCH_TSYM/render/profile/general/toolbelt"
+  ln -s "$SCRATCH_TSYM/research-sdd/install"   "$SCRATCH_TSYM/render/profile/general/install"
+  ln -s "$SCRATCH_TSYM/research-sdd/profiles"  "$SCRATCH_TSYM/render/profile/general/profiles"
+
+  # Bootstrap a GENUINE render at the render dir's root using the real (fixed) render-profile.sh —
+  # exactly what a real install's render step produces — BEFORE swapping the mutants in. Without
+  # this, "zero slot markers" cannot reproduce: there would be no already-rendered file for the
+  # broken KIT_DIR to find, and the mutant would instead fail with an unrelated "source not found".
+  bash "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh" general "$SCRATCH_TSYM/render/profile/general" >/dev/null 2>&1
+
+  H_TSYM="$ROOT/home_teeth_symlink"
+  mkdir -p "$H_TSYM"
+
+  # Now swap BOTH mutants in, in place of the mini-kit's own (fixed) copies — the render dir's
+  # toolbelt/ symlink keeps pointing at this same directory, so it picks up the mutants too.
+  cp "$MUT_SYM" "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh"
+  cp "$MUT_RPS" "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+  chmod +x "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh" \
+           "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
+
+  OUT_TSYM="$(bash "$SCRATCH_TSYM/render/profile/general/toolbelt/verify-skill-drift.sh" \
+    --harness reasonix --home "$H_TSYM" --profile general 2>&1)"; RC_TSYM=$?
+  if [ "$RC_TSYM" -eq 2 ] && printf '%s' "$OUT_TSYM" | grep -qi 'zero slot markers'; then
+    ok "teeth SYMLINK-TOOLBELT: both mutants together re-break through a symlinked toolbelt/ (zero slot markers, rc=2) → the -P fix pair has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: mutants did not re-break — -P fix check is THEATER (rc=$RC_TSYM out=[$OUT_TSYM])"
+  fi
+  rm -f "$MUT_SYM" "$MUT_RPS"
 
   # git-status after all teeth: confirm no files leaked into the live tree
   _GIT_AFTER="$(git -C "$_GIT_ROOT" status --porcelain 2>/dev/null || true)"

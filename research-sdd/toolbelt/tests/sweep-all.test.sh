@@ -21,7 +21,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TOOLBELT="$(cd "$HERE/.." && pwd)"
+TOOLBELT="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
 SUT="$TOOLBELT/sweep-all.sh"
 
 pass=0; fail=0

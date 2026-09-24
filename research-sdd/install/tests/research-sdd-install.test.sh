@@ -11,10 +11,12 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-install.sh"
 GOLD="$HERE/golden"
-KITROOT="$(cd "$HERE/../.." && pwd)"                       # research-sdd kit root (holds toolbelt/)
+# Test driver's own SUT-locating derivation; test files run directly from their tracked tests/
+# location, never reached through a rendered/symlinked toolbelt — no exploitable defect.
+KITROOT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test-driver SUT-locating derivation, never reached through a render (kit issue #1024 round 4)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; MUTANT23=""; MUTANT24=""; MUTANT25=""; DRIVER58=""
-trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$MUTANT23" ] && rm -f "$MUTANT23"; [ -n "$MUTANT24" ] && rm -f "$MUTANT24"; [ -n "$MUTANT25" ] && rm -f "$MUTANT25"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
+TMP="$(mktemp -d)"; MUTANT=""; MUTANT2=""; MUTANT3=""; MUTANT4=""; MUTANT5=""; MUTANT6=""; MUTANT7=""; MUTANT8=""; MUTANT9=""; MUTANT10=""; MUTANT11=""; MUTANT12=""; MUTANT13=""; MUTANT14=""; MUTANT15=""; MUTANT16=""; MUTANT17=""; MUTANT18=""; MUTANT19=""; MUTANT20=""; MUTANT21=""; MUTANT22=""; MUTANT23=""; MUTANT24=""; MUTANT25=""; MUTANT26=""; DRIVER58=""
+trap 'rm -rf "$TMP"; [ -n "$MUTANT" ] && rm -f "$MUTANT"; [ -n "$MUTANT2" ] && rm -f "$MUTANT2"; [ -n "$MUTANT3" ] && rm -f "$MUTANT3"; [ -n "$MUTANT4" ] && rm -f "$MUTANT4"; [ -n "$MUTANT5" ] && rm -f "$MUTANT5"; [ -n "$MUTANT6" ] && rm -f "$MUTANT6"; [ -n "$MUTANT7" ] && rm -f "$MUTANT7"; [ -n "$MUTANT8" ] && rm -f "$MUTANT8"; [ -n "$MUTANT9" ] && rm -f "$MUTANT9"; [ -n "$MUTANT10" ] && rm -f "$MUTANT10"; [ -n "$MUTANT11" ] && rm -f "$MUTANT11"; [ -n "$MUTANT12" ] && rm -f "$MUTANT12"; [ -n "$MUTANT13" ] && rm -f "$MUTANT13"; [ -n "$MUTANT14" ] && rm -f "$MUTANT14"; [ -n "$MUTANT15" ] && rm -f "$MUTANT15"; [ -n "$MUTANT16" ] && rm -f "$MUTANT16"; [ -n "$MUTANT17" ] && rm -f "$MUTANT17"; [ -n "$MUTANT18" ] && rm -f "$MUTANT18"; [ -n "$MUTANT19" ] && rm -f "$MUTANT19"; [ -n "$MUTANT20" ] && rm -f "$MUTANT20"; [ -n "$MUTANT21" ] && rm -f "$MUTANT21"; [ -n "$MUTANT22" ] && rm -f "$MUTANT22"; [ -n "$MUTANT23" ] && rm -f "$MUTANT23"; [ -n "$MUTANT24" ] && rm -f "$MUTANT24"; [ -n "$MUTANT25" ] && rm -f "$MUTANT25"; [ -n "$MUTANT26" ] && rm -f "$MUTANT26"; [ -n "$DRIVER58" ] && rm -f "$DRIVER58"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -38,14 +40,16 @@ _direct_clean_profile_dir() {
   rm -f "$driver"
 }
 
-# _direct_dry_skill_plan <src> <dest> <force> <label> <marker> — invokes _rsdd_dry_skill_plan
-# DIRECTLY on caller-supplied synthetic files (never real kit content), via the same throwaway
-# driver technique — sources the real, UNMUTATED SUT's functions.
+# _direct_dry_skill_plan <src> <dest> <force> <label> <marker> [profile] — invokes
+# _rsdd_dry_skill_plan DIRECTLY on caller-supplied synthetic files (never real kit content), via
+# the same throwaway driver technique — sources the real, UNMUTATED SUT's functions. [profile] is
+# optional (kit issue #1024 round 4, item 4 — RDD R4-001 preview); omit it for a case that does
+# not care about the profile-switch WARN.
 _direct_dry_skill_plan() {
-  local src="$1" dest="$2" force="$3" label="$4" marker="$5" driver
+  local src="$1" dest="$2" force="$3" label="$4" marker="$5" profile="${6:-}" driver
   driver="$HERE/../research-sdd-install-direct-plan.$$.sh"
-  printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5"\n' > "$driver"
-  bash "$driver" "$src" "$dest" "$force" "$label" "$marker" 2>&1
+  printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5" "$6"\n' > "$driver"
+  bash "$driver" "$src" "$dest" "$force" "$label" "$marker" "$profile" 2>&1
   rm -f "$driver"
 }
 
@@ -464,21 +468,27 @@ if grep -q '# custom' "$sf" && [ ! -f "$bak_fd" ]; then
   ok "--force-skill + dry-run: writes nothing (file unchanged, no backup created)"
 else no "--force-skill + dry-run: mutated the filesystem"; fi
 
-# 36 — --help range integrity: correct first and last lines, --force-skill present, set -uo absent.
-#      Catches ±1 drift directions on the hardcoded sed range in usage(): the range must end
-#      exactly at the managed-overwrite paragraph's last line (added kit issue #1024 round 3 item
-#      2) and never leak "set -uo pipefail"; the first rendered line must stay the bare '#' blank.
+# 36 — --help block integrity (kit issue #1024 round 4, item 5): usage() no longer prints a
+#      hardcoded `sed -n 'A,Bp'` line range (which had to be hand-recomputed every time a
+#      paragraph was added or removed — a repeated maintenance paper cut across rounds 2/3); it
+#      now prints exactly the text between the `# HELP-START` / `# HELP-END` sentinel comments.
+#      Assert the printed help: starts with "Usage:" (not a stray blank line), contains
+#      --force-skill (inside the bracket), never leaks "set -uo pipefail" (outside the bracket)
+#      NOR the sentinel comment lines themselves (review bookkeeping must never reach the user),
+#      and ends at the managed-overwrite paragraph's last line (added kit issue #1024 round 3
+#      item 2).
 help_out="$(bash "$SUT" --help 2>&1)"
 help_first="$(printf '%s\n' "$help_out" | head -1)"
 help_last="$(printf '%s\n' "$help_out" | grep . | tail -1)"
 help_ok=1
 printf '%s\n' "$help_out" | grep -q -- '--force-skill'     || help_ok=0  # in range
 printf '%s\n' "$help_out" | grep -q 'set -uo pipefail' && help_ok=0      # must stay outside range
-[ -z "$help_first" ]                                       || help_ok=0  # line 3 is bare '#'
+printf '%s\n' "$help_out" | grep -qi 'HELP-START\|HELP-END' && help_ok=0  # sentinels never leak
+[ "$help_first" = "Usage:" ]                                || help_ok=0  # starts at Usage:, no stray blank
 printf '%s\n' "$help_last" | grep -q "must never report success" || help_ok=0  # last content line
 [ "$help_ok" = 1 ] \
-  && ok "--help: range correct (--force-skill present, no pipefail, first/last lines match)" \
-  || no "--help: range wrong (force-skill=$(printf '%s\n' "$help_out"|grep -c -- '--force-skill'), pipefail=$(printf '%s\n' "$help_out"|grep -c 'pipefail'), first='$help_first', last='$help_last')"
+  && ok "--help: marker-delimited block correct (--force-skill present, no pipefail/sentinel leak, first/last lines match)" \
+  || no "--help: marker-delimited block wrong (force-skill=$(printf '%s\n' "$help_out"|grep -c -- '--force-skill'), pipefail=$(printf '%s\n' "$help_out"|grep -c 'pipefail'), first='$help_first', last='$help_last')"
 
 # 37 — unknown flag still returns exit 2 after the --force-skill case arm was added.
 #      Regression guard: the new arm must not accidentally absorb or reroute unknown flags.
@@ -1421,12 +1431,18 @@ cp "$KITROOT/toolbelt/lib/target-paths.sh"  "$scratch_recon_f1e/research-sdd/too
 printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' \
   "$scratch_recon_f1e/rh/target-foo" > "$scratch_recon_f1e/research-sdd/TARGETS.md"
 ln -s "$scratch_recon_f1e/research-sdd/toolbelt" "$scratch_recon_f1e/render/profile/general/toolbelt"
-out_recon_f1e="$(bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"
+real_retros_f1e="$scratch_recon_f1e/rh/target-foo/retros"  # captured BEFORE rm -rf, for positive evidence below
+out_recon_f1e="$(bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all 2>&1)"; rc_recon_f1e=$?
 rm -rf "$scratch_recon_f1e"
-if ! printf '%s' "$out_recon_f1e" | grep -qi 'absent-input.*TARGETS'; then
-  ok "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ resolves the real kit root (hermetic scratch fixture)"
+# kit issue #1024 round 4, item 5: assert the exit code AND positive evidence the REAL TARGETS.md
+# (and the real target it names) was actually used — not just the absence of the negative
+# "absent-input" signal, which alone cannot distinguish "resolved correctly" from "resolved to
+# some OTHER wrong-but-still-existing path". The retros/ dir has no *.md files, so the real run
+# WARNs by name for it — that WARN naming the exact real path is the positive evidence.
+if [ "$rc_recon_f1e" -eq 0 ] && printf '%s' "$out_recon_f1e" | grep -qF "$real_retros_f1e"; then
+  ok "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ resolves the real kit root (exit 0, names the real retros/ path)"
 else
-  no "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ failed (out=$out_recon_f1e)"
+  no "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ failed (rc=$rc_recon_f1e out=$out_recon_f1e)"
 fi
 
 # $harmless_retro_f1e lives under $TMP, which is NOT a registered target — the "target directory
@@ -1464,7 +1480,7 @@ printf 'installed content — unedited\n' > "$_pm2_dest"
 printf 'newer kit content — the kit moved forward, same profile\n' > "$_pm2_src"
 _pm2_sha="$(sha256sum "$_pm2_dest" | awk '{print $1}')"
 printf 'profile=general\nsha256=%s\n' "$_pm2_sha" > "$_pm2_marker"
-out_pm2="$(_direct_dry_skill_plan "$_pm2_src" "$_pm2_dest" 0 "from rendered profile 'general'" "$_pm2_marker")"
+out_pm2="$(_direct_dry_skill_plan "$_pm2_src" "$_pm2_dest" 0 "from rendered profile 'general'" "$_pm2_marker" "general")"
 if printf '%s' "$out_pm2" | grep -q 'managed content (matches last install)' \
    && ! printf '%s' "$out_pm2" | grep -qi 'profile switch'; then
   ok "item2: same-profile kit update labeled 'managed content (matches last install)', not 'profile switch'"
@@ -1485,11 +1501,30 @@ home_it3="$TMP/item3-mixed-state"
 bash "$SUT" --home "$home_it3" --harness reasonix --profile general >/dev/null 2>&1
 sf_it3="$home_it3/.reasonix/skills/research-sdd/SKILL.md"
 printf '# hand-edited — a real local delta\n' >> "$sf_it3"
-bash "$SUT" --home "$home_it3" --harness reasonix --profile claude >/dev/null 2>&1; rc_it3=$?
+launcher_it3="$home_it3/.reasonix/AGENTS.md"
+launcher_before_it3="$(cat "$launcher_it3" 2>/dev/null)"
+err_it3="$(bash "$SUT" --home "$home_it3" --harness reasonix --profile claude 2>&1 >/dev/null)"; rc_it3=$?
+launcher_after_it3="$(cat "$launcher_it3" 2>/dev/null)"
 if [ "$rc_it3" -ne 0 ] && grep -q 'hand-edited — a real local delta' "$sf_it3"; then
   ok "item3: switch keeping a hand-edit exits non-zero (mixed-state signal), content still preserved"
 else
   no "item3: switch keeping a hand-edit did not exit non-zero (rc=$rc_it3)"
+fi
+# kit issue #1024 round 4, item 5: assert the SPECIFIC mixed-state ERROR message text, not just
+# a nonzero exit — a wrong-reason nonzero exit (e.g. an unrelated failure) would pass the check
+# above just as easily.
+if printf '%s' "$err_it3" | grep -qF 'switching profile "general" → "claude" was requested, but a hand-edit at'; then
+  ok "item3: the SPECIFIC mixed-state ERROR message is printed (not just some nonzero exit)"
+else
+  no "item3: expected mixed-state ERROR message text not found (out=$err_it3)"
+fi
+# kit issue #1024 round 4, item 4: the launcher's "Kit path:" line must be left UNCHANGED
+# (identical to before the blocked switch attempt) — step 2 is skipped entirely, so nothing
+# mixed (skill body from general, Kit path rewritten to claude) is ever written to disk.
+if [ "$launcher_before_it3" = "$launcher_after_it3" ] && grep -q 'profile/general' "$launcher_it3"; then
+  ok "item4: launcher 'Kit path:' left UNCHANGED (still profile/general) when the switch is blocked"
+else
+  no "item4: launcher was rewritten despite the blocked switch (mixed state written to disk)"
 fi
 
 # ── kit issue #1024 review round 3, "also" item: validate the marker's profile= before the clean
@@ -1688,7 +1723,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   driver_m23="$HERE/../research-sdd-install-driver-m23.$$.sh"
   printf '#!/usr/bin/env bash\nset -uo pipefail\n. "$(dirname "$0")/research-sdd-install.MUTANT23.'"$$"'.sh" --help >/dev/null 2>&1\n_rsdd_dry_skill_plan "$1" "$2" "$3" "$4" "$5"\n' > "$driver_m23"
-  _pm2_sha_m23="$(sha256sum "$_pm2_dest" | awk '{print $1}')"
   out_m23="$(bash "$driver_m23" "$_pm2_src" "$_pm2_dest" 0 "from rendered profile 'general'" "$_pm2_marker" 2>&1)"
   rm -f "$driver_m23"
   if printf '%s' "$out_m23" | grep -qi 'profile switch'; then
@@ -1699,7 +1733,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   echo "-- teeth: neuter the item3 mixed-state guard; expect item3 to fail --"
   MUTANT24="$HERE/../research-sdd-install.MUTANT24.$$.sh"
-  sed 's/if \[ -n "\$_old_profile_it3" \] \&\& \[ "\$_old_profile_it3" != "\$profile" \]; then/if false; then/' "$SUT" > "$MUTANT24"
+  sed 's/if \[ -n "\$_deployed_old_profile" \] \&\& \[ "\$_deployed_old_profile" != "\$profile" \]; then/if false; then/' "$SUT" > "$MUTANT24"
   bash -n "$MUTANT24" 2>/dev/null \
     && ok "teeth: MUTANT24 parses (bash -n)" \
     || no "teeth: MUTANT24 is a syntax error — mutation is theater"
@@ -1740,6 +1774,31 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth: MUTANT25 (validation disabled) no longer reports the invalid marker profile → marker-validate has teeth"
   else
     no "teeth: MUTANT25 still reported the invalid profile — marker-validate check is THEATER"
+  fi
+
+  echo "-- teeth: neuter the item4 launcher-skip check; expect item4 to fail --"
+  MUTANT26="$HERE/../research-sdd-install.MUTANT26.$$.sh"
+  sed 's/if \[ "\$_RSDD_SKILL_BLOCKED_MIXED" = 1 \]; then/if false; then/' "$SUT" > "$MUTANT26"
+  bash -n "$MUTANT26" 2>/dev/null \
+    && ok "teeth: MUTANT26 parses (bash -n)" \
+    || no "teeth: MUTANT26 is a syntax error — mutation is theater"
+  if diff -q "$SUT" "$MUTANT26" >/dev/null 2>&1; then
+    no "teeth: MUTANT26 pre-check: mutant = SUT — launcher-skip check not found"
+  else
+    ok "teeth: MUTANT26 pre-check: mutant differs (launcher-skip check disabled)"
+  fi
+  home_m26="$TMP/teeth-m26-launcher-skip"
+  bash "$MUTANT26" --home "$home_m26" --harness reasonix --profile general >/dev/null 2>&1
+  sf_m26="$home_m26/.reasonix/skills/research-sdd/SKILL.md"
+  printf '# hand-edited — a real local delta\n' >> "$sf_m26"
+  launcher_m26="$home_m26/.reasonix/AGENTS.md"
+  launcher_before_m26="$(cat "$launcher_m26" 2>/dev/null)"
+  bash "$MUTANT26" --home "$home_m26" --harness reasonix --profile claude >/dev/null 2>&1
+  launcher_after_m26="$(cat "$launcher_m26" 2>/dev/null)"
+  if [ "$launcher_before_m26" != "$launcher_after_m26" ]; then
+    ok "teeth: MUTANT26 (launcher-skip disabled) rewrites the launcher despite the blocked switch → item4 check has teeth"
+  else
+    no "teeth: MUTANT26 launcher still unchanged — item4 check is THEATER"
   fi
 fi
 

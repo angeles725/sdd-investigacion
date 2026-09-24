@@ -327,6 +327,36 @@ else
   no "TPL: research-protocol.sh not found at $_tpl_hook (file absent)"
 fi
 
+# ---- kit issue #1024 round 4, SYSTEMIC: symlinked toolbelt (render dir) ---------------------------
+# KIT used to be derived via `cd "$(dirname "$0")/.." && pwd` WITHOUT -P. TPL="$KIT/templates" alone
+# self-heals through a render dir's symlinked toolbelt/ (kit issue #993 WU2 + #1024 F1 also
+# completes templates/ as its own top-level symlink) — but $KIT is ALSO embedded VERBATIM into
+# user-facing guidance text (the "REGISTER ... in $KIT/TARGETS.md", "$KIT/toolbelt/ensure-remote.sh"
+# and "$KIT/toolbelt/research-sdd-status.sh" lines) and spliced into the deployed retro-gate hook
+# (`sed -i "s|<KIT>|$KIT|g"`). A wrong KIT there is not a crash — it is a PERSISTED and PRINTED
+# path pointing at the ephemeral render dir instead of the durable kit root. Reproduced against a
+# hand-reverted copy: the guidance named `.../research-sdd/profile/general/TARGETS.md` (the render
+# dir — would not durably exist once the render is cleaned up) instead of the real kit's TARGETS.md.
+# Built as a fully SYNTHETIC nested mini-kit (mktemp -d) with a render dir whose toolbelt/ is a
+# genuine whole-directory SYMLINK (the real F1 shape) — never the live tracked toolbelt/.
+_ki_altkit="$TMP/ki-altkit"
+mkdir -p "$_ki_altkit/toolbelt"
+cp "$SUT" "$_ki_altkit/toolbelt/research-sdd-init.sh"
+chmod +x "$_ki_altkit/toolbelt/research-sdd-init.sh"
+ln -sfn "$HERE/../../templates" "$_ki_altkit/templates"
+mkdir -p "$_ki_altkit/render/profile/general" "$_ki_altkit/newtarget"
+ln -s "$_ki_altkit/toolbelt" "$_ki_altkit/render/profile/general/toolbelt"
+# F1 completion (kit issue #993 WU2 + #1024 F1) symlinks templates/ into the render dir too.
+ln -sfn "$HERE/../../templates" "$_ki_altkit/render/profile/general/templates"
+_ki_out="$(bash "$_ki_altkit/render/profile/general/toolbelt/research-sdd-init.sh" \
+  "$_ki_altkit/newtarget" --corpus flat 2>&1)"
+if printf '%s' "$_ki_out" | grep -qF "$_ki_altkit/toolbelt/ensure-remote.sh" \
+   && ! printf '%s' "$_ki_out" | grep -qF '/render/profile/general/'; then
+  ok "SYMLINK-TOOLBELT: invoked through a symlinked toolbelt/, guidance text names the real kit root"
+else
+  no "SYMLINK-TOOLBELT: guidance text leaked the render dir instead of the real kit root (out=[$_ki_out])"
+fi
+
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
@@ -614,6 +644,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth MW4: tool-registry.md still present in mutant hook — TPL pointer assertion is THEATER"
     fi
+  fi
+
+  # TOOTH SYMLINK-TOOLBELT (kit issue #1024 round 4, SYSTEMIC): revert -P/pwd -P to plain cd/pwd on
+  # the KIT= line — the ONLY difference from the fixed SUT — and confirm the guidance text leaks
+  # the render dir path again when reached through a symlinked toolbelt/.
+  echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
+  _ki_mut="$TMP/ki-mut.sh"
+  sed 's/KIT="\$(cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P)"/KIT="$(cd "$(dirname "$0")\/.." \&\& pwd)"/' \
+    "$SUT" > "$_ki_mut"
+  chmod +x "$_ki_mut"
+  if diff -q "$SUT" "$_ki_mut" >/dev/null 2>&1; then
+    no "teeth SYMLINK-TOOLBELT pre-check: mutant = SUT — -P pattern not found (did the fix change shape?)"
+  else
+    ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
+  fi
+  _ki_altkit_t="$TMP/ki-altkit-teeth"
+  mkdir -p "$_ki_altkit_t/toolbelt"
+  cp "$_ki_mut" "$_ki_altkit_t/toolbelt/research-sdd-init.sh"
+  chmod +x "$_ki_altkit_t/toolbelt/research-sdd-init.sh"
+  ln -sfn "$HERE/../../templates" "$_ki_altkit_t/templates"
+  mkdir -p "$_ki_altkit_t/render/profile/general" "$_ki_altkit_t/newtarget"
+  ln -s "$_ki_altkit_t/toolbelt" "$_ki_altkit_t/render/profile/general/toolbelt"
+  # F1 completion (kit issue #993 WU2 + #1024 F1) symlinks templates/ into the render dir too, same
+  # as toolbelt/ — without it here the broken KIT fails earlier ("missing kit template"), a real
+  # but different symptom of the identical bug; this mirrors the true render shape instead.
+  ln -sfn "$HERE/../../templates" "$_ki_altkit_t/render/profile/general/templates"
+  _ki_out_t="$(bash "$_ki_altkit_t/render/profile/general/toolbelt/research-sdd-init.sh" \
+    "$_ki_altkit_t/newtarget" --corpus flat 2>&1)"
+  if printf '%s' "$_ki_out_t" | grep -qF '/render/profile/general/TARGETS.md'; then
+    ok "teeth SYMLINK-TOOLBELT: reverted mutant leaks the render dir path again → -P fix has teeth"
+  else
+    no "teeth SYMLINK-TOOLBELT: reverted mutant did not leak the render dir path — -P fix check is THEATER (out=[$_ki_out_t])"
   fi
 fi
 
