@@ -18,9 +18,24 @@
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
 #
+# Kit issue repo (kit issue #1037): delta issues MUST land in the KIT repo, never
+# whatever repo the process cwd happens to resolve to. Under the retro-gate.sh Stop
+# hook, cwd is the TARGET directory (a foreign repo, or no repo at all) — an
+# unqualified `gh issue list`/`gh issue create` would silently resolve the WRONG
+# repo, or fail outright. Every gh call below carries an explicit --repo, resolved
+# ONCE, in this order:
+#   1. RESEARCH_SDD_ISSUE_REPO env override (owner/name) — wins unconditionally.
+#   2. `git -C "$KIT_ROOT" remote get-url origin`, normalized (https, ssh://, and
+#      scp-like git@host:owner/name forms all supported), trailing `.git` stripped.
+# Dry-run prints the resolved value as `kit-issue-repo: <owner>/<name>` (or
+# `kit-issue-repo: unresolved`) — dry-run works either way. --apply refuses (typed
+# `degraded:` line, exit 1) BEFORE any gh call when the repo cannot be resolved —
+# it never falls back to the cwd/target repo.
+#
 # Exit codes:
 #   0   dry-run success, or --apply with 0 create failures
-#   1   absent-input, degraded (missing gh / unauthenticated), or missing dependencies
+#   1   absent-input, degraded (missing gh / unauthenticated / unresolved kit issue
+#       repo under --apply), or missing dependencies
 #   2   --apply completed but one or more `gh issue create` calls failed (failed > 0)
 #       Callers must treat exit 2 as a partial failure: the summary line carries
 #       'failed=N' at the END of the summary so existing parsers remain unaffected.
@@ -78,6 +93,45 @@ retro="$(cd "$(dirname "$retro")" && pwd)/$(basename "$retro")"
 _SCRIPT_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
 KIT_ROOT="$(cd -P "$_SCRIPT_DIR/../.." && pwd -P)"
 TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
+
+# ---------------------------------------------------------------------------
+# Kit issue repo resolution (kit issue #1037) — see header comment for the
+# resolution order and the reason every gh call below must carry --repo.
+#
+# Prints "owner/name" on stdout, returns 0, on success. Returns 1 (nothing on
+# stdout) when neither source yields a usable value; never exits the process —
+# callers decide the degraded/unresolved behaviour.
+resolve_kit_issue_repo() {
+  if [ -n "${RESEARCH_SDD_ISSUE_REPO:-}" ]; then
+    printf '%s' "$RESEARCH_SDD_ISSUE_REPO"
+    return 0
+  fi
+  local _url _repo
+  _url="$(git -C "$KIT_ROOT" remote get-url origin 2>/dev/null)" || return 1
+  [ -n "$_url" ] || return 1
+  _repo="$(printf '%s' "$_url" | sed -E \
+    -e 's#^(https?|ssh)://([^/@]+@)?[^/]+/##' \
+    -e 's#^[^@]+@[^:]+:##' \
+    -e 's#\.git$##' \
+    -e 's#/+$##')"
+  case "$_repo" in
+    */*) : ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$_repo"
+  return 0
+}
+
+KIT_ISSUE_REPO="$(resolve_kit_issue_repo)" || KIT_ISSUE_REPO=""
+# STAGE_RETRO_ISSUES_REPO_GUARD: anchor for T9 teeth proof — refuses to create
+# against an unresolved kit issue repo rather than falling back to the cwd's repo.
+if [ $apply -eq 1 ] && [ -z "$KIT_ISSUE_REPO" ]; then
+  echo "degraded: cannot resolve kit issue repo — set RESEARCH_SDD_ISSUE_REPO=<owner>/<name>, or configure a git remote 'origin' at $KIT_ROOT — refusing to create issues against an unresolved/foreign repo" >&2
+  exit 1
+fi
+if [ $apply -eq 0 ]; then
+  printf 'kit-issue-repo: %s\n' "${KIT_ISSUE_REPO:-unresolved}"
+fi
 
 # ---------------------------------------------------------------------------
 # Source shared helpers (fail-closed)
@@ -342,7 +396,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   else
     # Dedup: search for an existing open issue with the exact source signature
     _search_sig="${_source_line}"
-    _existing="$(gh issue list --state open \
+    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open \
       --search "\"$_search_sig\"" 2>/dev/null || true)"
     # STAGE_RETRO_ISSUES_DEDUP_CHECK: anchor for T3 teeth proof — skip create when match found.
     if [ -n "$_existing" ]; then
@@ -357,7 +411,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     done
 
     # shellcheck disable=SC2086
-    _url="$(gh issue create \
+    _url="$(gh issue create --repo "$KIT_ISSUE_REPO" \
       --title "$_title" \
       $_label_flags \
       --body "$_body" 2>&1)" || {

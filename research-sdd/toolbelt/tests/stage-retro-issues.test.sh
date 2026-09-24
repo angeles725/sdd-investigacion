@@ -124,6 +124,29 @@ mk_gh_stub() {
   chmod +x "$box/bin/gh"
 }
 
+# mk_git_remote <box> <url>: git-init the KIT root (= box itself, since script sits at
+# $box/research-sdd/toolbelt/… and KIT_ROOT = script_dir/../..) and set 'origin' to
+# <url>. Used only by tests exercising the git-remote-derivation path (kit issue
+# #1037); an untouched mkbox (no git init) is what makes a box's git-remote
+# resolution naturally unresolvable — that IS the "no repo configured" fixture.
+mk_git_remote() {
+  local box="$1" url="$2"
+  git init -q "$box" >/dev/null 2>&1
+  git -C "$box" remote add origin "$url" >/dev/null 2>&1 \
+    || git -C "$box" remote set-url origin "$url" >/dev/null 2>&1
+}
+
+# mk_foreign_repo <dir> <url>: git-init a standalone repo at <dir> with 'origin' set
+# to <url>. Simulates the retro-gate.sh Stop-hook scenario where the process cwd is
+# a TARGET repo (its own, different, remote) while the kit repo lives elsewhere on
+# disk — proves repo resolution reads KIT_ROOT's remote, never the process cwd's.
+mk_foreign_repo() {
+  local dir="$1" url="$2"
+  mkdir -p "$dir"
+  git init -q "$dir" >/dev/null 2>&1
+  git -C "$dir" remote add origin "$url" >/dev/null 2>&1
+}
+
 # mk_retro <box> <target> <filename> <marker> <table-content>
 #   Writes a retro file at $box/rh/<target>/retros/<filename>.
 #   <marker>        : the leading HTML comment line, or "-" for none
@@ -149,9 +172,14 @@ mk_retro() {
 
 # run <box> <retro-path> [extra-args...]
 #   Invoke the sandbox SUT copy; capture stdout+stderr into OUT, RC into RC.
+#   RESEARCH_SDD_ISSUE_REPO defaults to a fixed fake value so every PRE-EXISTING
+#   test keeps exercising gh (dedup/create/failure) without needing its own git
+#   remote — the ":-" fallback means an already-exported value (used by the new
+#   env-override tests) still wins, per resolution order §1.
 run() {
   local box="$1" retro="$2"; shift 2
   OUT="$(PATH="$box/bin:$PATH" \
+    RESEARCH_SDD_ISSUE_REPO="${RESEARCH_SDD_ISSUE_REPO:-test-owner/test-kit}" \
     "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" \
     "$retro" "$@" 2>&1)"; RC=$?
 }
@@ -498,7 +526,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       # Fallback: just replace the single-line anchor (leaves the if block)
       printf '%s\n' "${sut_content/"$anchor_t3"/    : # teeth-t3-dedup-anchor-removed}" > "$mutant_t3"
     fi
-    out_t3="$(PATH="$box_t3/bin:$PATH" \
+    out_t3="$(PATH="$box_t3/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
       "$BASH_BIN" "$mutant_t3" "$retro_t3" --apply 2>&1)"; rc_t3=$?
     create_called_t3=0
     [ -f "$box_t3/bin/gh.log" ] && grep -q 'issue create' "$box_t3/bin/gh.log" \
@@ -558,7 +586,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     sed 's/failed=\$((failed+1)); continue/continue  # T5-teeth-no-increment/' \
       "$SUT" > "$mutant_t5"
     bash -n "$mutant_t5" 2>/dev/null || { no "T5 teeth: mutant_t5 failed bash -n syntax check" ""; }
-    out_t5="$(PATH="$box_t5/bin:$PATH" \
+    out_t5="$(PATH="$box_t5/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
       "$BASH_BIN" "$mutant_t5" "$retro_t5" --apply 2>&1)"; rc_t5=$?
     sum_t5="$(printf '%s\n' "$out_t5" | grep '^summary:')"
     # With the counter removed: failed=0, exit 0 → case 16's assertion (rc_nonzero=1, failed>0) goes RED
@@ -629,6 +657,86 @@ RETROEOF
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant still resolved TARGETS.md — -P fix check is THEATER" \
        "(out=[$out_tsym])"
+  fi
+
+  # TOOTH 7 (kit issue #1037): drop --repo from the gh issue create call site.
+  # Anchor: the literal call-site text that puts --repo right after "issue create".
+  echo "-- teeth T7: drop --repo from gh issue create call --"
+  anchor_t7='gh issue create --repo "$KIT_ISSUE_REPO" \'
+  if [[ "$sut_content" == *"$anchor_t7"* ]]; then
+    box_t7="$(mkbox teeth-t7-create-repo)"
+    mk_git_remote "$box_t7" "https://github.com/kit-owner/kit-repo.git"
+    mk_gh_stub "$box_t7" nomatch
+    retro_t7="$(mk_retro "$box_t7" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t7 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t7="$box_t7/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t7"/gh issue create \\}" > "$mutant_t7"
+    bash -n "$mutant_t7" 2>/dev/null || { no "T7 teeth: mutant_t7 failed bash -n syntax check" ""; }
+    out_t7="$(PATH="$box_t7/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t7" "$retro_t7" --apply 2>&1)"; rc_t7=$?
+    create_line_t7="$(grep 'issue create' "$box_t7/bin/gh.log" 2>/dev/null || true)"
+    if [ -n "$create_line_t7" ] && ! printf '%s' "$create_line_t7" | grep -q -- '--repo'; then
+      ok "T7 teeth: --repo dropped from create call → flag missing (case 19/20 have teeth)" "()"
+    else
+      no "T7 teeth: --repo dropped from create call → flag should be missing" \
+        "still present or create not called — case 19/20 are THEATER: rc=$rc_t7 line=[$create_line_t7] out=[$out_t7]"
+    fi
+  else
+    no "T7 teeth: locate gh issue create --repo anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 8 (kit issue #1037): drop --repo from the gh issue list (dedup) call site.
+  echo "-- teeth T8: drop --repo from gh issue list call --"
+  anchor_t8='gh issue list --repo "$KIT_ISSUE_REPO" --state open \'
+  if [[ "$sut_content" == *"$anchor_t8"* ]]; then
+    box_t8="$(mkbox teeth-t8-list-repo)"
+    mk_git_remote "$box_t8" "https://github.com/kit-owner/kit-repo.git"
+    mk_gh_stub "$box_t8" nomatch
+    retro_t8="$(mk_retro "$box_t8" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t8 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t8="$box_t8/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t8"/gh issue list --state open \\}" > "$mutant_t8"
+    bash -n "$mutant_t8" 2>/dev/null || { no "T8 teeth: mutant_t8 failed bash -n syntax check" ""; }
+    out_t8="$(PATH="$box_t8/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t8" "$retro_t8" --apply 2>&1)"; rc_t8=$?
+    list_line_t8="$(grep 'issue list' "$box_t8/bin/gh.log" 2>/dev/null || true)"
+    if [ -n "$list_line_t8" ] && ! printf '%s' "$list_line_t8" | grep -q -- '--repo'; then
+      ok "T8 teeth: --repo dropped from list call → flag missing (case 19 has teeth)" "()"
+    else
+      no "T8 teeth: --repo dropped from list call → flag should be missing" \
+        "still present or list not called — case 19 is THEATER: rc=$rc_t8 line=[$list_line_t8] out=[$out_t8]"
+    fi
+  else
+    no "T8 teeth: locate gh issue list --repo anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 9 (kit issue #1037): neuter the unresolved-repo degraded/exit guard so an
+  # unresolvable repo falls back SILENTLY under --apply instead of refusing.
+  echo "-- teeth T9: neuter unresolved-repo degraded/exit guard under --apply --"
+  anchor_t9='if [ $apply -eq 1 ] && [ -z "$KIT_ISSUE_REPO" ]; then'
+  if [[ "$sut_content" == *"$anchor_t9"* ]]; then
+    box_t9="$(mkbox teeth-t9-unresolved-guard)"
+    mk_gh_stub "$box_t9" nomatch
+    retro_t9="$(mk_retro "$box_t9" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t9 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t9="$box_t9/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t9"/if false; then}" > "$mutant_t9"
+    bash -n "$mutant_t9" 2>/dev/null || { no "T9 teeth: mutant_t9 failed bash -n syntax check" ""; }
+    out_t9="$(PATH="$box_t9/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t9" "$retro_t9" --apply 2>&1)"; rc_t9=$?
+    create_called_t9=0
+    [ -f "$box_t9/bin/gh.log" ] && grep -q 'issue create' "$box_t9/bin/gh.log" && create_called_t9=1
+    if [ "$create_called_t9" = 1 ]; then
+      ok "T9 teeth: unresolved-repo guard neutered → create called with no repo resolved (case 23 has teeth)" "()"
+    else
+      no "T9 teeth: unresolved-repo guard neutered → create should still be called (silently)" \
+        "create not called — case 23 is THEATER: rc=$rc_t9 out=[$out_t9]"
+    fi
+  else
+    no "T9 teeth: locate unresolved-repo guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
 fi  # --prove-teeth
@@ -734,6 +842,117 @@ if [ "$RC_SYM" -eq 0 ] && ! printf '%s' "$OUT_SYM" | grep -qi 'target directory.
 else
   no "SYMLINK-TOOLBELT: TARGETS.md target lookup failed through a symlinked toolbelt/ (or wrong exit code)" \
      "(rc=$RC_SYM out=[$OUT_SYM])"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #1037: gh calls must target the KIT repo explicitly, never
+# whatever repo the process cwd (the retro-gate.sh Stop hook's TARGET
+# directory) happens to resolve to.
+# ---------------------------------------------------------------------------
+
+# 19 — REPO FLAG ON EVERY GH CALL, CWD-INDEPENDENT: the kit root gets its own git
+# remote; a SEPARATE foreign-target repo (its own remote) plays the role of the
+# Stop hook's process cwd. Both gh calls made during --apply must carry
+# --repo <kit-owner>/<kit-name> — never the foreign target's remote, never omitted.
+box="$(mkbox case-repo-flag)"
+mk_git_remote "$box" "https://github.com/kit-owner/kit-repo.git"
+mk_gh_stub "$box" nomatch
+retro="$(mk_retro "$box" target-foo r-repoflag.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | needs an issue | CLAUDE.md §7 | B1 | new | HIGH |")"
+foreign_cwd_19="$ROOT/foreign-target-19"
+mk_foreign_repo "$foreign_cwd_19" "https://github.com/foreign-owner/foreign-target.git"
+OUT19="$( (cd "$foreign_cwd_19" && PATH="$box/bin:$PATH" \
+  "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" --apply) 2>&1)"; RC19=$?
+list_has_repo=0; create_has_repo=0; foreign_leaked=0
+if [ -f "$box/bin/gh.log" ]; then
+  grep -q 'issue list --repo kit-owner/kit-repo' "$box/bin/gh.log" && list_has_repo=1
+  grep -q 'issue create --repo kit-owner/kit-repo' "$box/bin/gh.log" && create_has_repo=1
+  grep -q 'foreign-owner' "$box/bin/gh.log" && foreign_leaked=1
+fi
+if [ "$RC19" = 0 ] && [ "$list_has_repo" = 1 ] && [ "$create_has_repo" = 1 ] && [ "$foreign_leaked" = 0 ]; then
+  ok "19 repo flag on every gh call: kit remote used, cwd-independent, no foreign leak" "(exit $RC19)"
+else
+  no "19 repo flag on every gh call: kit remote used, cwd-independent, no foreign leak" \
+    "exit=$RC19 list=$list_has_repo create=$create_has_repo foreign_leak=$foreign_leaked out=[$OUT19] log=[$(cat "$box/bin/gh.log" 2>/dev/null)]"
+fi
+
+# ---------------------------------------------------------------------------
+# 20 — ENV OVERRIDE WINS: RESEARCH_SDD_ISSUE_REPO takes precedence over a
+# configured git remote at the kit root.
+box="$(mkbox case-env-override)"
+mk_git_remote "$box" "https://github.com/kit-owner/kit-repo.git"
+mk_gh_stub "$box" nomatch
+retro="$(mk_retro "$box" target-foo r-override.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | env override delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT20="$(PATH="$box/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="override-owner/override-kit" \
+  "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" --apply 2>&1)"; RC20=$?
+override_used=0; git_remote_leaked=0
+if [ -f "$box/bin/gh.log" ]; then
+  grep -q 'issue create --repo override-owner/override-kit' "$box/bin/gh.log" && override_used=1
+  grep -q 'kit-owner/kit-repo' "$box/bin/gh.log" && git_remote_leaked=1
+fi
+if [ "$RC20" = 0 ] && [ "$override_used" = 1 ] && [ "$git_remote_leaked" = 0 ]; then
+  ok "20 env override wins over configured git remote" "(exit $RC20)"
+else
+  no "20 env override wins over configured git remote" \
+    "exit=$RC20 override_used=$override_used remote_leaked=$git_remote_leaked out=[$OUT20]"
+fi
+
+# ---------------------------------------------------------------------------
+# 21 — DERIVE FROM GIT REMOTE (https form): dry-run prints the resolved
+# kit-issue-repo line, normalized from an https:// origin with a .git suffix.
+box="$(mkbox case-derive-https)"
+mk_git_remote "$box" "https://github.com/deriv-owner/deriv-kit.git"
+retro="$(mk_retro "$box" target-foo r-derive-https.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | derive https delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT21="$(PATH="$box/bin:$PATH" \
+  "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" 2>&1)"; RC21=$?
+if [ "$RC21" = 0 ] && printf '%s\n' "$OUT21" | grep -q '^kit-issue-repo: deriv-owner/deriv-kit$'; then
+  ok "21 derive from git remote (https): kit-issue-repo printed in dry-run" "(exit $RC21)"
+else
+  no "21 derive from git remote (https): kit-issue-repo printed in dry-run" "exit=$RC21 out=[$OUT21]"
+fi
+
+# ---------------------------------------------------------------------------
+# 22 — DERIVE FROM GIT REMOTE (scp-like ssh form: git@host:owner/name.git)
+box="$(mkbox case-derive-ssh)"
+mk_git_remote "$box" "git@github.com:ssh-owner/ssh-kit.git"
+retro="$(mk_retro "$box" target-foo r-derive-ssh.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | derive ssh delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT22="$(PATH="$box/bin:$PATH" \
+  "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" 2>&1)"; RC22=$?
+if [ "$RC22" = 0 ] && printf '%s\n' "$OUT22" | grep -q '^kit-issue-repo: ssh-owner/ssh-kit$'; then
+  ok "22 derive from git remote (scp-like ssh): kit-issue-repo printed in dry-run" "(exit $RC22)"
+else
+  no "22 derive from git remote (scp-like ssh): kit-issue-repo printed in dry-run" "exit=$RC22 out=[$OUT22]"
+fi
+
+# ---------------------------------------------------------------------------
+# 23 — UNRESOLVABLE REPO UNDER --apply: no env override, no git remote at the
+# kit root, cwd is a foreign target repo → typed degraded line, non-zero exit,
+# ZERO gh issue calls recorded (never fall back to the cwd/target repo).
+box="$(mkbox case-unresolved-apply)"
+mk_gh_stub "$box" nomatch
+retro="$(mk_retro "$box" target-foo r-unresolved.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | should never create | CLAUDE.md | B1 | new | HIGH |")"
+foreign_cwd_23="$ROOT/foreign-target-23"
+mk_foreign_repo "$foreign_cwd_23" "https://github.com/foreign-owner/foreign-target.git"
+OUT23="$( (cd "$foreign_cwd_23" && PATH="$box/bin:$PATH" \
+  "$BASH_BIN" "$box/research-sdd/toolbelt/stage-retro-issues.sh" "$retro" --apply) 2>&1)"; RC23=$?
+gh_called=0
+[ -f "$box/bin/gh.log" ] && grep -q 'issue' "$box/bin/gh.log" && gh_called=1
+if [ "$RC23" != 0 ] && printf '%s' "$OUT23" | grep -qi 'degraded' \
+   && printf '%s' "$OUT23" | grep -qi 'cannot resolve' \
+   && [ "$gh_called" = 0 ]; then
+  ok "23 unresolvable repo under --apply: degraded, non-zero exit, zero gh issue calls" "(exit $RC23)"
+else
+  no "23 unresolvable repo under --apply: degraded, non-zero exit, zero gh issue calls" \
+    "exit=$RC23 gh_called=$gh_called out=[$OUT23]"
 fi
 
 echo "== $pass passed · $fail failed =="
