@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-06-01T00:00:00Z","isMeta":false,"message":{"role":"user","content":"start please"}}
+{"type":"assistant","timestamp":"2026-06-01T00:05:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block1 done\nShall I continue?"}]}}
+{"type":"user","timestamp":"2026-06-01T00:10:00Z","isMeta":false,"message":{"role":"user","content":"yes continue"}}
+{"type":"assistant","timestamp":"2026-06-01T00:15:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block2 done. Do YOU want me to keep going"}]}}
