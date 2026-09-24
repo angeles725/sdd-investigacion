@@ -380,6 +380,132 @@ if [ "$_en2a_has_jq" = 1 ]; then
     fi
   fi
 
+  # --- kit issue #1040 (round 2 of #1038): Opus-adversarial-review findings, reproduced live ---
+  echo "-- #1040: wire-only hardening (dedup, pre-validation, comment-aware placeholder) --"
+  if [ "$_en2a_has_jq" != 1 ]; then
+    echo "  SKIP  1040-(l)(m)(n)(o): jq not on PATH"
+  else
+
+  # (l) finding 1 — a hook already registered via $CLAUDE_PROJECT_DIR (unquoted, quoted, or
+  # braced) must be recognised as the SAME hook as the absolute path this script writes, for
+  # BOTH Stop and SessionStart, or a second entry gets appended (the hook then runs twice).
+  # Reproduces the real cloudflare target shape: $CLAUDE_PROJECT_DIR/<rel> already registered.
+  for _1040l_form in \
+    '$CLAUDE_PROJECT_DIR/RELPATH' \
+    '"$CLAUDE_PROJECT_DIR"/RELPATH' \
+    '${CLAUDE_PROJECT_DIR}/RELPATH'; do
+    d="$TMP/1040-l-$(printf '%s' "$_1040l_form" | tr -dc 'A-Za-z')"; mkdir -p "$d/.claude/hooks"
+    printf 'INDEX\n' > "$d/INDEX.md"
+    _1040l_stop_cmd="$(printf '%s' "$_1040l_form" | sed 's|RELPATH|.claude/hooks/retro-gate-stop.sh|')"
+    _1040l_ss_cmd="$(printf '%s' "$_1040l_form" | sed 's|RELPATH|.claude/hooks/research-protocol.sh|')"
+    jq -n --arg sc "$_1040l_stop_cmd" --arg ac "$_1040l_ss_cmd" \
+      '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":$sc}]}],"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":$ac}]}]}}' \
+      > "$d/.claude/settings.json"
+    printf '#!/usr/bin/env bash\necho adapted, no live placeholder\n' > "$d/.claude/hooks/research-protocol.sh"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/retro-gate-stop.sh"
+    chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
+    bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
+    _1040l_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+    _1040l_ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+    [ "$_1040l_stop_n" = 1 ] && ok "1040-(l) [$_1040l_form]: Stop stays at exactly 1 entry (no duplicate)" \
+                              || no "1040-(l) [$_1040l_form]: Stop count=$_1040l_stop_n (expected 1 — duplicated)"
+    [ "$_1040l_ss_n" = 1 ] && ok "1040-(l) [$_1040l_form]: SessionStart stays at exactly 1 entry (no duplicate)" \
+                            || no "1040-(l) [$_1040l_form]: SessionStart count=$_1040l_ss_n (expected 1 — duplicated)"
+    # jq-based membership check (not grep -F): the quoted variant embeds literal `"` characters
+    # that JSON-escapes to `\"` on disk, so a raw substring grep is a false negative, not a
+    # meaningful check.
+    if jq -e --arg c "$_1040l_stop_cmd" '.hooks.Stop // [] | map(.hooks // [] | map(.command)) | add // [] | index($c) != null' \
+        "$d/.claude/settings.json" >/dev/null 2>&1; then
+      ok "1040-(l) [$_1040l_form]: the original $_1040l_form entry survives verbatim"
+    else
+      no "1040-(l) [$_1040l_form]: the original $_1040l_form entry is missing or was altered"
+    fi
+  done
+  # control: an absolute-path entry already present (the form this script itself writes) must
+  # also dedup — this is the pre-existing #1038 behaviour and must not regress.
+  d="$TMP/1040-l-control-abs"; mkdir -p "$d/.claude/hooks"
+  printf 'INDEX\n' > "$d/INDEX.md"
+  printf '#!/usr/bin/env bash\necho adapted\n' > "$d/.claude/hooks/research-protocol.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/retro-gate-stop.sh"
+  chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: absolute-path form written
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # second run: must dedup against it
+  _1040l_ctl_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[]] | length' "$d/.claude/settings.json" 2>/dev/null)
+  [ "$_1040l_ctl_n" = 1 ] && ok "1040-(l) control: absolute-path form still dedups (no regression)" \
+                           || no "1040-(l) control: absolute-path SessionStart count=$_1040l_ctl_n (expected 1)"
+
+  # (m) finding 2 — an existing settings.json that is NOT valid JSON must be refused BEFORE any
+  # hook file is created: exit non-zero, nothing written (no hook file, no settings.json touched).
+  d="$TMP/1040-m-malformed"; mkdir -p "$d/.claude"
+  printf 'INDEX\n' > "$d/INDEX.md"
+  printf '{"hooks": {\n' > "$d/.claude/settings.json"
+  _m_before_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
+  _m_out="$TMP/1040-m.out"; _m_err="$TMP/1040-m.err"
+  bash "$SUT" "$d" --corpus flat --wire > "$_m_out" 2>"$_m_err"; _m_rc=$?
+  [ "$_m_rc" != 0 ] && ok "1040-(m) malformed settings.json: exits non-zero (got $_m_rc)" \
+                     || no "1040-(m) malformed settings.json: exited 0 (should refuse)"
+  assert_absent "1040-(m) malformed settings.json: retro-gate-stop.sh NOT created"   "$d/.claude/hooks/retro-gate-stop.sh"
+  assert_absent "1040-(m) malformed settings.json: research-protocol.sh NOT created" "$d/.claude/hooks/research-protocol.sh"
+  _m_after_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
+  [ "$_m_before_sha" = "$_m_after_sha" ] && ok "1040-(m) malformed settings.json: file untouched (byte-identical)" \
+                                          || no "1040-(m) malformed settings.json: file was MODIFIED"
+  grep -qF "not valid JSON" "$_m_err" && ok "1040-(m) malformed settings.json: typed message in stderr" \
+                                       || no "1040-(m) malformed settings.json: no typed message in stderr"
+
+  fi  # end 1040-(l)(m) jq guard
+
+  # (n) finding 3 — <SUBJECT> inside a COMMENT line (e.g. the template's own header, kept as-is
+  # by a real adaptation) must NOT block SessionStart wiring; only a LIVE occurrence counts.
+  if [ "$_en2a_has_jq" != 1 ]; then
+    echo "  SKIP  1040-(n): jq not on PATH"
+  else
+    d="$TMP/1040-n-comment-only"; mkdir -p "$d/.claude/hooks"
+    printf 'INDEX\n' > "$d/INDEX.md"
+    printf '#!/usr/bin/env bash\n# SessionStart hook — Research-SDD protocol for <SUBJECT>.\n# header retained as-is by the adapter\necho adapted body, no live placeholder\n' \
+      > "$d/.claude/hooks/research-protocol.sh"
+    _n_out="$TMP/1040-n.out"; _n_err="$TMP/1040-n.err"
+    bash "$SUT" "$d" --corpus flat --wire > "$_n_out" 2>"$_n_err"
+    if [ -f "$d/.claude/settings.json" ]; then
+      assert_grep "1040-(n) comment-only <SUBJECT>: SessionStart still wired" "research-protocol.sh" "$d/.claude/settings.json"
+    else
+      no "1040-(n) comment-only <SUBJECT>: settings.json missing (SessionStart should have wired)"
+    fi
+    grep -qF "<SUBJECT>" "$_n_err" && no "1040-(n) comment-only <SUBJECT>: WARN wrongly fired for a comment-only occurrence" \
+                                    || ok "1040-(n) comment-only <SUBJECT>: no WARN (correctly ignored the comment)"
+  fi
+
+  # (o) finding 4 — a re-run that finds a hook ALREADY registered reports "already wired", not
+  # "registered" (which would misleadingly claim fresh credit for a pre-existing entry).
+  if [ "$_en2a_has_jq" = 1 ]; then
+    d="$TMP/1040-o-alreadywired"; mkdir -p "$d"
+    printf 'INDEX\n' > "$d/INDEX.md"
+    bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: registers
+    _o_out2="$TMP/1040-o2.out"
+    bash "$SUT" "$d" --corpus flat --wire > "$_o_out2" 2>/dev/null   # second run: already there
+    assert_grep "1040-(o) already-wired wording: Stop reported as already wired" "already wired" "$_o_out2"
+    if grep -qF "Stop hook registered" "$_o_out2"; then
+      no "1040-(o) already-wired wording: second run still says 'registered' for Stop (should say 'already wired')"
+    else
+      ok "1040-(o) already-wired wording: second run does not re-claim 'registered' for Stop"
+    fi
+  else
+    echo "  SKIP  1040-(o): jq not on PATH"
+  fi
+
+  # (p) never-overwrite research-protocol.sh — a hand-edited SessionStart hook must survive
+  # byte-identical after --wire, exactly like 1038-(h) pins for retro-gate-stop.sh.
+  d="$TMP/1040-p-keep-ss"; mkdir -p "$d/.claude/hooks"
+  printf 'INDEX\n' > "$d/INDEX.md"
+  printf '#!/usr/bin/env bash\n# HAND-ADAPTED research-protocol.sh — do not clobber\necho adapted\n' \
+    > "$d/.claude/hooks/research-protocol.sh"
+  _p_before="$(sha256sum "$d/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
+  _p_out="$TMP/1040-p.out"
+  bash "$SUT" "$d" --corpus flat --wire > "$_p_out" 2>/dev/null
+  _p_after="$(sha256sum "$d/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
+  [ "$_p_before" = "$_p_after" ] && ok "1040-(p) keep: hand-edited research-protocol.sh is byte-identical after --wire" \
+                                  || no "1040-(p) keep: hand-edited research-protocol.sh was OVERWRITTEN"
+  assert_grep "1040-(p) keep: 'kept:' printed for research-protocol.sh" "kept: $d/.claude/hooks/research-protocol.sh" "$_p_out"
+
   # (d-wire) --wire idempotent — second run (--force) → no duplicate Stop or SessionStart entries
   d="$TMP/en2a-d-wire"; mkdir -p "$d"
   bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
@@ -783,7 +909,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw7/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw7/templates"
     mw7="$TMP/mw7/toolbelt/init.sh"
-    awk '/if grep -qF .<SUBJECT>. "\$_wo_ss" 2>\/dev\/null; then/ { print "if false; then  # MUTANT: ignore <SUBJECT> placeholder"; next } { print }' "$SUT" > "$mw7"
+    # Anchor on the repair-path guard specifically (there are two call sites of
+    # _rsdd_has_live_subject_placeholder — this targets the one gating $_wo_skip_ss, not the
+    # jq-absent print-only branch), via the unique preceding comment (kit issue #1040 round 2).
+    awk '
+      /kit issue #959\/#1038\/#1040: never wire an unadapted SessionStart hook/ { anchor=1 }
+      anchor==1 && /if _rsdd_has_live_subject_placeholder "\$_wo_ss"; then/ {
+        print "    if false; then  # MUTANT: ignore <SUBJECT> placeholder"
+        anchor=0
+        next
+      }
+      { print }
+    ' "$SUT" > "$mw7"
     if ! grep -q 'MUTANT: ignore <SUBJECT> placeholder' "$mw7"; then
       no "teeth MW7: could not build mutant (placeholder-guard line not found)"
     else
@@ -817,6 +954,161 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         ok "teeth MW8: mutant skips retro-gate-stop.sh creation → 1038-(g) 'created' assertion has teeth"
       else
         no "teeth MW8: mutant still created retro-gate-stop.sh — 1038-(g) 'created' assertion is THEATER"
+      fi
+    fi
+  fi
+
+  # MW9 (#1040 finding: jq-probe ordering) — neuter the wire-only jq-absence guard so it never
+  # fires → hook files get created even with jq absent → 1038-(k) 'NOT created' assertions RED.
+  echo "-- teeth proof MW9 (#1040): neuter the jq-probe guard → hooks get created before the probe fires --"
+  _mw9_jq_found="$(command -v jq 2>/dev/null)"
+  if [ -z "$_mw9_jq_found" ]; then
+    echo "  SKIP  teeth MW9: jq not on PATH"
+  else
+    _mw9_jq_dir="$(dirname "$_mw9_jq_found")"
+    _mw9_pnojq="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$_mw9_jq_dir" | tr '\n' ':' | sed 's/:$//')"
+    if PATH="$_mw9_pnojq" command -v jq >/dev/null 2>&1; then
+      echo "  SKIP  teeth MW9: cannot exclude jq from PATH (multiple copies)"
+    else
+      mkdir -p "$TMP/mw9/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw9/templates"
+      mw9="$TMP/mw9/toolbelt/init.sh"
+      awk '
+        /§7 anti-silent-zero: probe for jq FIRST/ { anchor=1 }
+        anchor==1 && /if ! command -v jq >\/dev\/null 2>&1; then/ {
+          print "    if false; then  # MUTANT: jq-probe neutered (ordering)"
+          anchor=0
+          next
+        }
+        { print }
+      ' "$SUT" > "$mw9"
+      if ! grep -qF 'MUTANT: jq-probe neutered' "$mw9"; then
+        no "teeth MW9: could not build mutant (jq-probe guard line not found)"
+      else
+        dmw9="$TMP/mw9t"; mkdir -p "$dmw9"
+        printf 'INDEX\n' > "$dmw9/INDEX.md"
+        PATH="$_mw9_pnojq" bash "$mw9" "$dmw9" --corpus flat --wire >/dev/null 2>/dev/null
+        if [ -f "$dmw9/.claude/hooks/retro-gate-stop.sh" ]; then
+          ok "teeth MW9: mutant creates hooks despite jq absent → 1038-(k) ordering assertion has teeth"
+        else
+          no "teeth MW9: mutant did NOT create hooks — 1038-(k) ordering assertion is THEATER"
+        fi
+      fi
+    fi
+  fi
+
+  # MW10 (#1040 finding: idempotence/dedup) — force $has_stop to always be false → a re-run with
+  # the IDENTICAL absolute-path entry still appends a duplicate → 1038-(j) idempotency RED.
+  echo "-- teeth proof MW10 (#1040): force has_stop=false → literal-path idempotency breaks --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW10: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw10/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw10/templates"
+    mw10="$TMP/mw10/toolbelt/init.sh"
+    awk '{
+      if ($0 ~ /\$stop_variants \| index\(\$c\)\) != null\)\) as \$has_stop \|/) {
+        print "        (false) as $has_stop |  # MUTANT: has_stop forced false"
+      } else { print }
+    }' "$SUT" > "$mw10"
+    if ! grep -qF 'MUTANT: has_stop forced false' "$mw10"; then
+      no "teeth MW10: could not build mutant (has_stop computation line not found)"
+    else
+      dmw10="$TMP/mw10t"; mkdir -p "$dmw10"
+      printf 'INDEX\n' > "$dmw10/INDEX.md"
+      bash "$mw10" "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw10" "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
+      _mw10_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$dmw10/.claude/settings.json" 2>/dev/null)
+      if [ "$_mw10_n" != 1 ]; then
+        ok "teeth MW10: mutant duplicates Stop on re-run (count=$_mw10_n) → 1038-(j) idempotency assertion has teeth"
+      else
+        no "teeth MW10: mutant still deduped (count=1) — 1038-(j) idempotency assertion is THEATER"
+      fi
+    fi
+  fi
+
+  # MW11 (#1040 finding: never-overwrite research-protocol.sh) — force the ss branch to always
+  # take the "create" path, even when it already exists → 1040-(p) byte-identical assertion RED.
+  echo "-- teeth proof MW11 (#1040): force overwrite of an existing research-protocol.sh → 1040-(p) has teeth --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW11: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw11/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw11/templates"
+    mw11="$TMP/mw11/toolbelt/init.sh"
+    awk '/if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
+    if ! grep -q 'MUTANT: always overwrite existing ss hook' "$mw11"; then
+      no "teeth MW11: could not build mutant (ss kept-check line not found)"
+    else
+      dmw11="$TMP/mw11t"; mkdir -p "$dmw11/.claude/hooks"
+      printf 'INDEX\n' > "$dmw11/INDEX.md"
+      printf '#!/usr/bin/env bash\n# HAND-ADAPTED — do not clobber\necho adapted\n' > "$dmw11/.claude/hooks/research-protocol.sh"
+      _mw11_before="$(sha256sum "$dmw11/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
+      bash "$mw11" "$dmw11" --corpus flat --wire >/dev/null 2>/dev/null
+      _mw11_after="$(sha256sum "$dmw11/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
+      if [ "$_mw11_before" != "$_mw11_after" ]; then
+        ok "teeth MW11: mutant overwrote the hand-edited ss hook → 1040-(p) has teeth"
+      else
+        no "teeth MW11: mutant did NOT overwrite the ss hook — 1040-(p) is THEATER"
+      fi
+    fi
+  fi
+
+  # MW12 (#1040 finding 1: CLAUDE_PROJECT_DIR equivalence) — strip the alias variants from
+  # _rsdd_cmd_variants_json, leaving only the absolute-path form → a pre-registered
+  # $CLAUDE_PROJECT_DIR-form entry is no longer recognised → 1040-(l) duplicate assertions RED.
+  echo "-- teeth proof MW12 (#1040): drop CLAUDE_PROJECT_DIR alias variants → 1040-(l) has teeth --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW12: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw12/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw12/templates"
+    mw12="$TMP/mw12/toolbelt/init.sh"
+    awk '
+      /^    \$a,$/ { print "    $a  # MUTANT: alias variants dropped"; skip=1; next }
+      skip==1 && /\(\"\$\{CLAUDE_PROJECT_DIR\}\/\" \+ \$r\)/ { skip=0; next }
+      skip==1 { next }
+      { print }
+    ' "$SUT" > "$mw12"
+    if ! grep -qF 'MUTANT: alias variants dropped' "$mw12"; then
+      no "teeth MW12: could not build mutant (variants array lines not found)"
+    else
+      dmw12="$TMP/mw12t"; mkdir -p "$dmw12/.claude/hooks"
+      printf 'INDEX\n' > "$dmw12/INDEX.md"
+      jq -n '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh"}]}],"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/research-protocol.sh"}]}]}}' \
+        > "$dmw12/.claude/settings.json"
+      printf '#!/usr/bin/env bash\necho adapted\n' > "$dmw12/.claude/hooks/research-protocol.sh"
+      printf '#!/usr/bin/env bash\nexit 0\n' > "$dmw12/.claude/hooks/retro-gate-stop.sh"
+      bash "$mw12" "$dmw12" --corpus flat --wire >/dev/null 2>/dev/null
+      _mw12_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[]] | length' "$dmw12/.claude/settings.json" 2>/dev/null)
+      if [ "$_mw12_n" != 1 ]; then
+        ok "teeth MW12: mutant duplicates a \$CLAUDE_PROJECT_DIR-form entry (count=$_mw12_n) → 1040-(l) has teeth"
+      else
+        no "teeth MW12: mutant still deduped (count=1) — 1040-(l) assertion is THEATER"
+      fi
+    fi
+  fi
+
+  # MW13 (#1040 finding 2: pre-validation) — remove the jq-empty pre-check block entirely → a
+  # malformed settings.json no longer refuses before hook creation → 1040-(m) assertions RED.
+  echo "-- teeth proof MW13 (#1040): remove settings.json pre-validation → 1040-(m) has teeth --"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  SKIP  teeth MW13: jq not on PATH"
+  else
+    mkdir -p "$TMP/mw13/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw13/templates"
+    mw13="$TMP/mw13/toolbelt/init.sh"
+    awk '
+      /if \[ -f "\$_wo_settings" \] && ! jq empty "\$_wo_settings" >\/dev\/null 2>&1; then/ { skip=4 }
+      skip>0 { skip--; next }
+      { print }
+    ' "$SUT" > "$mw13"
+    if grep -qF 'is not valid JSON — refusing to wire' "$mw13"; then
+      no "teeth MW13: could not build mutant (pre-validation block still present)"
+    else
+      dmw13="$TMP/mw13t"; mkdir -p "$dmw13/.claude"
+      printf 'INDEX\n' > "$dmw13/INDEX.md"
+      printf '{"hooks": {\n' > "$dmw13/.claude/settings.json"
+      bash "$mw13" "$dmw13" --corpus flat --wire >/dev/null 2>/dev/null
+      if [ -f "$dmw13/.claude/hooks/retro-gate-stop.sh" ]; then
+        ok "teeth MW13: mutant creates hooks despite malformed settings.json → 1040-(m) pre-validation assertion has teeth"
+      else
+        no "teeth MW13: mutant still refused (no hook created) — 1040-(m) pre-validation assertion is THEATER"
       fi
     fi
   fi

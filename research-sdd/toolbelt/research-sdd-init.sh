@@ -19,18 +19,25 @@
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
 # Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire]
-# Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused).
+# Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused) ·
+#       4 = wire-only: existing .claude/settings.json is not valid JSON (refused, nothing written).
 #
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
 #
-# WIRE-ONLY REPAIR (kit issue #1038): --wire on a target whose corpus already exists (and no
-# --force) skips the scaffold and instead REPAIRS whatever hooks are missing — it creates any
-# absent hook file (never overwrites an existing one; a hand-adapted hook is untouched) and
-# merges .claude/settings.json. SessionStart is wired only when research-protocol.sh no longer
-# carries the <SUBJECT> placeholder; an unadapted hook prints a WARN and is skipped, while Stop
-# is still merged. jq absent ⇒ no writes at all (no hook files, no settings.json) — print-only.
+# WIRE-ONLY REPAIR (kit issue #1038, hardened by #1040): --wire on a target whose corpus already
+# exists (and no --force) skips the scaffold and instead REPAIRS whatever hooks are missing — it
+# creates any absent hook file (never overwrites an existing one; a hand-adapted hook is
+# untouched) and merges .claude/settings.json. An existing settings.json is validated as JSON
+# BEFORE any hook file is created (exit 4 on invalid JSON — nothing written). Dedup recognises a
+# hook already registered via $CLAUDE_PROJECT_DIR (unquoted/quoted/braced) as the SAME hook as
+# the absolute path this script writes, on both Stop and SessionStart, and reports "already
+# wired" rather than re-claiming credit for an entry that was already there. SessionStart is
+# wired only when research-protocol.sh no longer carries a LIVE (non-comment-line) <SUBJECT>
+# placeholder; an unadapted hook prints a WARN and is skipped, while Stop is still merged. jq
+# absent ⇒ no writes at all (no hook files, no settings.json) — print-only, and the printed
+# snippet also honors the #959 SessionStart guard.
 
 set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollback never fires
 
@@ -67,15 +74,74 @@ done
 # --- corpus_present helper (shared by wire-only and anti-clobber sections) ---
 corpus_present() { local r="$1" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done; return 1; }
 
+# kit issue #1040 finding 3 (round 2 of #1038): detect <SUBJECT> only in NON-COMMENT lines. The
+# shipped template's own header comments legitimately contain the literal token, and a real
+# adaptation that leaves those comments untouched (api-paneles repro) must not be misread as
+# unadapted — that silently blocks SessionStart forever.
+_rsdd_has_live_subject_placeholder() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -qF '<SUBJECT>'
+}
+
+# kit issue #1040 finding 1 (round 2 of #1038): a hook may already be registered via
+# $CLAUDE_PROJECT_DIR — unquoted, double-quoted, or brace-expanded — instead of the absolute
+# path this script writes. Build all four equivalent command forms for a given hook so dedup
+# recognises them as the SAME hook; missing this made a real target's SessionStart hook run
+# twice (cloudflare repro: $CLAUDE_PROJECT_DIR/.claude/hooks/research-protocol.sh was already
+# registered, and the literal-string dedup appended the absolute-path form alongside it).
+_rsdd_cmd_variants_json() {
+  local abs="$1" rel="$2"
+  jq -cn --arg a "$abs" --arg r "$rel" '[
+    $a,
+    ("$CLAUDE_PROJECT_DIR/" + $r),
+    ("\"$CLAUDE_PROJECT_DIR\"/" + $r),
+    ("${CLAUDE_PROJECT_DIR}/" + $r)
+  ]'
+}
+
+# kit issue #1040 finding 2 (round 2 of #1038): the print-only fallback — jq absent, or jq
+# processing failure — must honor the SAME #959 guard as the live-write path: never offer a
+# SessionStart line to paste while research-protocol.sh still carries a live <SUBJECT>.
+_rsdd_print_wire_snippet() {
+  local stop_cmd="$1" ss_cmd="$2" skip_ss="$3" tgt="$4"
+  echo "-- §479 HOOK WIRING snippet (paste into $tgt/.claude/settings.json) --"
+  if [ "$skip_ss" = "true" ]; then
+    printf '%s\n' '{' \
+      '  "hooks": {' \
+      '    "Stop": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$stop_cmd\"}]}" \
+      '    ]' \
+      '  }' \
+      '}'
+    echo "-- SessionStart omitted: $ss_cmd still has the <SUBJECT> placeholder (adapt it first, PROMPT-LOOP §c follow-up) --"
+  else
+    printf '%s\n' '{' \
+      '  "hooks": {' \
+      '    "Stop": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$stop_cmd\"}]}" \
+      '    ],' \
+      '    "SessionStart": [' \
+      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$ss_cmd\"}]}" \
+      '    ]' \
+      '  }' \
+      '}'
+  fi
+}
+
 # --- wire-only path: --wire on an existing corpus REPAIRS absent hooks + merges settings -----
 # When --wire is given on a target that already has a corpus (and no --force is set), skip the
 # full scaffold and instead: (1) create any hook file that is ABSENT — create-only, NEVER
 # overwrite an existing one, so a hand-adapted hook survives byte-for-byte (kit issue #1038: real
 # targets have a corpus but predate the hook scaffold, and `--force` is not an option because it
 # clobbers hand-adapted hooks); (2) merge .claude/settings.json, wiring SessionStart ONLY when
-# research-protocol.sh (existing or just created) no longer carries the <SUBJECT> placeholder —
-# an unadapted hook must never be injected as a live SessionStart card (kit issue #959). Stop is
-# always safe to wire (it takes no per-target params). This is both the intended workflow after
+# research-protocol.sh (existing or just created) no longer carries a LIVE <SUBJECT> placeholder
+# (non-comment lines only) — an unadapted hook must never be injected as a live SessionStart card
+# (kit issue #959). Stop is always safe to wire (it takes no per-target params). Dedup recognises
+# $CLAUDE_PROJECT_DIR-relative forms as equivalent to the absolute path this script writes (kit
+# issue #1040 finding 1), an existing settings.json is validated as JSON BEFORE any hook file is
+# created (finding 2), and a re-run that finds an entry already present reports "already wired"
+# rather than re-claiming credit for it (finding 4). This is both the intended workflow after
 # step 4 (adapt the hook, then re-run with --wire to register it) and the repair path for a
 # corpus that never had hooks scaffolded.
 # WIRE-ONLY-EXISTING-CORPUS
@@ -88,6 +154,8 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # Wire-only: compute paths; NEVER touch any corpus file.
     _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
     _wo_ss="$target/.claude/hooks/research-protocol.sh"
+    _wo_stop_rel=".claude/hooks/retro-gate-stop.sh"
+    _wo_ss_rel=".claude/hooks/research-protocol.sh"
     _wo_settings="$target/.claude/settings.json"
 
     # §7 anti-silent-zero: probe for jq FIRST — jq-absent means NO writes at all, including no
@@ -95,22 +163,26 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # settings.json not merged, or vice versa).
     if ! command -v jq >/dev/null 2>&1; then
       echo "degraded: jq not found on PATH — cannot wire settings.json or create hook files; paste the snippet below and create the hooks yourself:" >&2
-      echo "-- §479 HOOK WIRING snippet (paste into $target/.claude/settings.json) --"
-      printf '%s\n' '{' \
-        '  "hooks": {' \
-        '    "Stop": [' \
-        "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_stop\"}]}" \
-        '    ],' \
-        '    "SessionStart": [' \
-        "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_ss\"}]}" \
-        '    ]' \
-        '  }' \
-        '}'
+      _wo_pre_skip_ss="false"
+      if _rsdd_has_live_subject_placeholder "$_wo_ss"; then
+        _wo_pre_skip_ss="true"
+        echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — the snippet below omits SessionStart until you adapt it (PROMPT-LOOP §c follow-up)." >&2
+      fi
+      _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_pre_skip_ss" "$target"
       echo "== done =="
       exit 0
     fi
 
-    # jq is present: repair absent hook files (create-only — never overwrite an existing one).
+    # kit issue #1040 finding 2: validate an EXISTING settings.json BEFORE creating any hook
+    # file. A merge failure must never leave hook files behind while reporting success — nothing
+    # is written (no hook file, no settings.json) when the existing file is not valid JSON.
+    if [ -f "$_wo_settings" ] && ! jq empty "$_wo_settings" >/dev/null 2>&1; then
+      echo "FATAL: $_wo_settings is not valid JSON — refusing to wire (nothing written: no hook file created, settings.json untouched). Fix or remove it, then re-run --wire." >&2
+      exit 4
+    fi
+
+    # jq is present and settings.json (if any) is valid JSON: repair absent hook files
+    # (create-only — never overwrite an existing one).
     mkdir -p "$target/.claude/hooks"
     if [ -e "$_wo_stop" ]; then
       echo "kept: $_wo_stop"
@@ -127,28 +199,48 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       echo "created: $_wo_ss"
     fi
 
-    # kit issue #959/#1038: never wire an unadapted SessionStart hook — it would inject a raw
-    # <SUBJECT> placeholder card into every session. Stop is always safe to wire.
+    # kit issue #959/#1038/#1040: never wire an unadapted SessionStart hook — it would inject a
+    # raw <SUBJECT> placeholder card into every session. Stop is always safe to wire. Only a LIVE
+    # (non-comment) occurrence counts (finding 3) — the template's own header comments carry the
+    # literal token and must not block a real adaptation that left them untouched.
     _wo_skip_ss="false"
-    if grep -qF '<SUBJECT>' "$_wo_ss" 2>/dev/null; then
+    if _rsdd_has_live_subject_placeholder "$_wo_ss"; then
       _wo_skip_ss="true"
       echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — skipping SessionStart wiring until you adapt it (replace <SUBJECT> and the source paths, PROMPT-LOOP §c follow-up). Re-run with --wire once adapted." >&2
     fi
 
+    # kit issue #1040 finding 1: recognise $CLAUDE_PROJECT_DIR-relative forms as the same hook.
+    _wo_stop_variants="$(_rsdd_cmd_variants_json "$_wo_stop" "$_wo_stop_rel")"
+    _wo_ss_variants="$(_rsdd_cmd_variants_json "$_wo_ss" "$_wo_ss_rel")"
+
     _wo_base='{}'; [ -f "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
     _wo_tmp="$(mktemp)"
-    if printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" --argjson skip_ss "$_wo_skip_ss" '
-      ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$sc])) as $has_stop |
-      ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // [] | contains([$ac])) as $has_ss |
-      .hooks.Stop = (if $has_stop then (.hooks.Stop // [])
-        else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end) |
-      .hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
-        else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)
-    ' > "$_wo_tmp" 2>/dev/null; then
+    if _wo_merge_out="$(printf '%s' "$_wo_base" | jq --arg sc "$_wo_stop" --arg ac "$_wo_ss" \
+        --argjson stop_variants "$_wo_stop_variants" --argjson ss_variants "$_wo_ss_variants" \
+        --argjson skip_ss "$_wo_skip_ss" '
+        ((.hooks.Stop // []) | map(.hooks // [] | map(.command)) | add // []) as $stop_cmds |
+        ((.hooks.SessionStart // []) | map(.hooks // [] | map(.command)) | add // []) as $ss_cmds |
+        ($stop_cmds | any(. as $c | ($stop_variants | index($c)) != null)) as $has_stop |
+        ($ss_cmds | any(. as $c | ($ss_variants | index($c)) != null)) as $has_ss |
+        (.hooks.Stop = (if $has_stop then (.hooks.Stop // [])
+          else (.hooks.Stop // []) + [{"matcher":"","hooks":[{"type":"command","command":$sc}]}] end)) |
+        (.hooks.SessionStart = (if $skip_ss or $has_ss then (.hooks.SessionStart // [])
+          else (.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":$ac}]}] end)) |
+        {settings: ., has_stop: $has_stop, has_ss: $has_ss}
+      ' 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
+      jq -c '.settings' <<<"$_wo_merge_out" > "$_wo_tmp"
       mv "$_wo_tmp" "$_wo_settings"
-      echo "  wired  : Stop hook registered (wire-only; corpus untouched) in $_wo_settings"
+      _wo_has_stop="$(jq -r '.has_stop' <<<"$_wo_merge_out")"
+      _wo_has_ss="$(jq -r '.has_ss' <<<"$_wo_merge_out")"
+      if [ "$_wo_has_stop" = "true" ]; then
+        echo "  wired  : Stop hook already wired (wire-only; corpus untouched) in $_wo_settings"
+      else
+        echo "  wired  : Stop hook registered (wire-only; corpus untouched) in $_wo_settings"
+      fi
       if [ "$_wo_skip_ss" = "true" ]; then
         echo "  skipped: SessionStart hook NOT registered (unadapted <SUBJECT> placeholder — see WARN above)"
+      elif [ "$_wo_has_ss" = "true" ]; then
+        echo "  wired  : SessionStart hook already wired in $_wo_settings"
       else
         echo "  wired  : SessionStart hook registered in $_wo_settings"
       fi
@@ -158,18 +250,10 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       rm -f "$_wo_tmp"
       echo "degraded: jq failed on $_wo_settings — falling back to print" >&2
     fi
-    # Print snippet on jq-processing failure (jq present but errored on existing settings.json):
-    echo "-- §479 HOOK WIRING snippet (paste into $target/.claude/settings.json) --"
-    printf '%s\n' '{' \
-      '  "hooks": {' \
-      '    "Stop": [' \
-      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_stop\"}]}" \
-      '    ],' \
-      '    "SessionStart": [' \
-      "      {\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$_wo_ss\"}]}" \
-      '    ]' \
-      '  }' \
-      '}'
+    # Print snippet on jq-processing failure (jq present but errored; settings.json validity was
+    # already pre-checked above, so this branch is defensive/rare). Hook files created above (if
+    # any) already exist on disk — only the settings.json merge failed.
+    _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_skip_ss" "$target"
     echo "== done =="
     exit 0
   fi
