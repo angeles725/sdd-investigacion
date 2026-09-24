@@ -61,6 +61,11 @@ PROMPTLOOP="$HERE/../../PROMPT-LOOP.md"
 [ -f "$PROMPTLOOP" ] || { printf 'FATAL: PROMPT-LOOP.md not found at expected path: %s\n' "$PROMPTLOOP" >&2; exit 2; }
 METHODOLOGY="$HERE/../../METHODOLOGY.md"
 [ -f "$METHODOLOGY" ] || { printf 'FATAL: METHODOLOGY.md not found at expected path: %s\n' "$METHODOLOGY" >&2; exit 2; }
+# --prove-teeth's multi-line mutant construction (replace_literal_multiline)
+# needs python3; probe at startup rather than failing deep inside a mutant
+# build with a bare "command not found" (kit CLAUDE.md §7: probe a runtime
+# dependency, never allow/pass silently on its absence).
+command -v python3 >/dev/null || { echo "FATAL: python3 required"; exit 2; }
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -93,12 +98,25 @@ LOOP_SIT_END="Unsure a phase is active -> read it."
 
 # HOT-CORE size budget (T7). Measured 862 lines / 85929 bytes on 2026-09-24 at
 # 356fa15 (research-sdd repo, origin/main) for HOT-CORE (§1 §2 §3 §4 §7 §8 §8b
-# §9 §11 §17). HOTCORE_BUDGET_LINES is 920 — headroom over the 862-line
-# measurement, but still below the ~934 lines the 2026-09-23 audit measured
-# for HOT-CORE before wave B of #992 trimmed it (kit issue #962). The intent
-# is that renewed, unchecked HOT-CORE growth fails this guard before it
-# reaches that historical size again, not that the budget merely tracks
-# whatever HOT-CORE happens to measure on the day this comment was written.
+# §9 §11 §17); re-measured unchanged after round 3's boundary-semantics fix
+# (measure_hotcore now stops at the next `##` heading of ANY kind, not just a
+# numbered one — see measure_hotcore's own comment — but the real file has no
+# non-numbered `##` between any two HOT-CORE-adjacent numbered sections, so
+# the total does not move).
+#
+# HOTCORE_BUDGET_LINES is 920 — headroom over the 862-line measurement, but
+# still below the ~934 lines the 2026-09-23 audit measured for HOT-CORE
+# before wave B of #992 trimmed it (kit issue #962). The intent is that
+# renewed, unchecked HOT-CORE growth fails this guard before it reaches that
+# historical size again, not that the budget merely tracks whatever HOT-CORE
+# happens to measure on the day this comment was written.
+#
+# HOTCORE_BUDGET_BYTES is 100000 — chosen independently of the line budget,
+# not derived from it, because a HOT-CORE edit can move bytes without moving
+# lines much (e.g. a dense inline table or a long unwrapped URL): about 16%
+# headroom over the 85929-byte measurement, and — mirroring the line budget's
+# reasoning — below the ~101 KB (~103400 bytes) the same 2026-09-23 audit
+# measured for the same historical HOT-CORE.
 HOTCORE_BUDGET_LINES=920
 HOTCORE_BUDGET_BYTES=100000
 
@@ -142,52 +160,113 @@ tokens_of() {
 }
 
 # mask_code_fences FILE
-# Same line count/order as FILE; every line strictly between a pair of ```
-# fence markers is replaced with a sentinel that can never match a heading
-# regex. The fence-marker lines themselves pass through unchanged (they never
-# match a heading regex either). Downstream line-number-based lookups stay
-# valid because the line count never changes.
+# Same line count/order as FILE; every line strictly between a pair of fence
+# markers is replaced with a sentinel that can never match a heading regex.
+# The fence-marker lines themselves pass through unchanged (they never match
+# a heading regex either). Downstream line-number-based lookups stay valid
+# because the line count never changes.
+#
+# CommonMark-ish fence matching, not a bare "toggle on any ``` line" (round-3
+# review, MAJOR): a fence opens on a run of 3+ backticks OR 3+ tildes, and
+# closes ONLY on a run of the SAME character that is AT LEAST as long as the
+# opener. A shorter or differently-charactered run while already inside a
+# fence is fence CONTENT, not a closer — e.g. a fenced ````md block that
+# itself contains an example ``` line does not close early on that inner
+# line; it closes only on a later run of 4+ backticks. Prints the caller's
+# fence-tracking failure to stderr and exits 3 if EOF is reached still
+# inside a fence (unclosed/mismatched fence) — never silently treats an
+# unclosed fence as "everything after this point is masked" or, worse, as
+# "unmasked" (that silent-invert was the exact round-3 defect: an unclosed
+# fence used to make every line after it toggle-invert one at a time).
 mask_code_fences() {
   awk '
-    /^```/ { infence = !infence; print; next }
-    infence { print "\x02FENCED-LINE\x02"; next }
-    { print }
+    {
+      is_fence = 0
+      if (match($0, /^`+/) && RLENGTH >= 3) { ch = "`"; len = RLENGTH; is_fence = 1 }
+      else if (match($0, /^~+/) && RLENGTH >= 3) { ch = "~"; len = RLENGTH; is_fence = 1 }
+
+      if (is_fence) {
+        if (!infence) { infence = 1; fch = ch; flen = len; print; next }
+        else if (ch == fch && len >= flen) { infence = 0; print; next }
+        # else: fence-looking line of the wrong char or too short while
+        # already inside a fence — falls through, treated as content below.
+      }
+
+      if (infence) { print "\x02FENCED-LINE\x02"; next }
+      print
+    }
+    END {
+      if (infence) {
+        print "mask_code_fences: unclosed or mismatched code fence (opened with " flen " x " fch ", never closed)" > "/dev/stderr"
+        exit 3
+      }
+    }
   ' "$1"
 }
 
 # heading_index FILE
-# One line per numbered `## N.` / `### N.` heading, in file order, outside
-# code fences: "<line-number> <level> <bare-id>". The single enumerator behind
-# methodology_sections, measure_hotcore's boundary lookup, and
-# compute_exempt_ids's nesting walk — one heading-detection regex, reused
-# everywhere a heading needs detecting, so the three can never disagree about
-# what counts as a heading (kit CLAUDE.md §7: "an audit instrument must prove
-# the coverage of its own enumerator").
+# One line per `## ` / `### ` heading, in file order, outside code fences:
+# "<line-number> <level> <bare-id-or-dash>". A NUMBERED heading ("## 8b. ...")
+# gets its bare id ("8b"); a non-numbered heading at the same level
+# ("## Appendix", "## Purpose") gets the sentinel id "-". Both kinds are
+# emitted, not just numbered ones: compute_exempt_ids needs every level-2
+# heading — numbered or not — to correctly RESET its "current tiered parent"
+# tracking (round-3 review, minor #3: without a reset row for "## Appendix",
+# a `### 30.` heading appearing after it would wrongly inherit exemption from
+# whichever NUMBERED `##` last appeared, possibly several sections earlier).
+# Returns 2 (never a silent empty result) if mask_code_fences itself failed
+# (an unclosed/mismatched fence — round-3 review, MAJOR).
+#
+# The single enumerator behind methodology_sections, measure_hotcore's
+# boundary lookup, and compute_exempt_ids's nesting walk — one heading
+# regex, reused everywhere a heading needs detecting, so the three can never
+# disagree about what counts as a heading (kit CLAUDE.md §7: "an audit
+# instrument must prove the coverage of its own enumerator").
 heading_index() {
   local file="$1"
-  mask_code_fences "$file" | awk '
+  local out rc
+  out="$(mask_code_fences "$file" | awk '
     /^## [0-9]+[a-z]?\. / {
       rest = $0; sub(/^## /, "", rest); sub(/\..*/, "", rest); print NR, 2, rest; next
     }
     /^### [0-9]+[a-z]?\. / {
       rest = $0; sub(/^### /, "", rest); sub(/\..*/, "", rest); print NR, 3, rest; next
     }
-  '
+    /^## / { print NR, 2, "-"; next }
+    /^### / { print NR, 3, "-"; next }
+  ')"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'FATAL: heading_index — mask_code_fences failed on %s (rc=%d; likely an unclosed/mismatched code fence)\n' "$file" "$rc" >&2
+    return 2
+  fi
+  printf '%s\n' "$out"
 }
 
 # methodology_sections FILE
 # Sorted, deduplicated bare section ids ("8b", "12b", ...) for every numbered
-# heading (any level) in FILE. Returns 2 on zero matches — never a silent 0 a
-# caller could read as "this doctrine file has no sections".
+# heading (any level) in FILE — non-numbered headings (heading_index's "-"
+# rows) are filtered out here, not upstream, so heading_index can keep
+# emitting them for compute_exempt_ids's parent-reset walk. Returns 2 on zero
+# matches (including "found headings but every one of them non-numbered") —
+# never a silent 0 a caller could read as "this doctrine file has no
+# sections", and propagates heading_index's own rc=2 (mask_code_fences
+# failure) rather than swallowing it.
 methodology_sections() {
   local file="$1"
   local idx
-  idx="$(heading_index "$file")"
+  idx="$(heading_index "$file")" || return 2
   if [ -z "$idx" ]; then
-    printf 'FATAL: methodology_sections — zero numbered section headings found in %s\n' "$file" >&2
+    printf 'FATAL: methodology_sections — zero headings of any kind found in %s\n' "$file" >&2
     return 2
   fi
-  awk '{print $3}' <<<"$idx" | sort -u
+  local ids
+  ids="$(awk '$3 != "-" {print $3}' <<<"$idx" | sort -u)"
+  if [ -z "$ids" ]; then
+    printf 'FATAL: methodology_sections — headings found in %s but none numbered\n' "$file" >&2
+    return 2
+  fi
+  printf '%s\n' "$ids"
 }
 
 # compute_exempt_ids FILE HC_IDS SIT_IDS
@@ -202,7 +281,7 @@ methodology_sections() {
 compute_exempt_ids() {
   local file="$1" hc_ids="$2" sit_ids="$3"
   local idx
-  idx="$(heading_index "$file")"
+  idx="$(heading_index "$file")" || return 2
   if [ -z "$idx" ]; then
     printf 'FATAL: compute_exempt_ids — zero headings indexed in %s\n' "$file" >&2
     return 2
@@ -211,9 +290,14 @@ compute_exempt_ids() {
   while IFS=' ' read -r _ lvl id; do
     [ -z "${id:-}" ] && continue
     if [ "$lvl" = "2" ]; then
+      # A level-2 heading ALWAYS resets the tracked parent, numbered ("23")
+      # or not ("-"): a non-numbered "## Appendix" must NOT let a later
+      # `### 30.` inherit exemption from whichever numbered `##` last
+      # appeared, possibly several real sections earlier (round-3 minor #3).
       parent="$id"
     elif [ "$lvl" = "3" ]; then
-      if [ -n "$parent" ] && { grep -qxF "$parent" <<<"$hc_ids" || grep -qxF "$parent" <<<"$sit_ids"; }; then
+      if [ "$id" != "-" ] && [ -n "$parent" ] && [ "$parent" != "-" ] \
+         && { grep -qxF "$parent" <<<"$hc_ids" || grep -qxF "$parent" <<<"$sit_ids"; }; then
         exempt="$exempt
 $id"
       fi
@@ -226,13 +310,25 @@ $id"
 # measure_hotcore FILE IDS
 # Sums lines and bytes for every bare section id in IDS (one per line) that
 # has a level-2 heading in FILE (HOT-CORE never currently lists a level-3 id;
-# see the "Level-2-only" note below). Boundaries come from heading_index's
-# level==2 rows, so a fenced or non-numbered "## ..." line can never be
-# mistaken for a section boundary. Byte/line counts are read from the ORIGINAL
+# see the "Level-2-only" note below).
+#
+# Boundary semantics (round-3 review, R3-measure-boundary-semantics-shift): a
+# section's content runs to the next level-2 heading of ANY kind — numbered
+# OR non-numbered ("## Appendix") — not just the next NUMBERED one. Round 2's
+# version only saw numbered level-2 headings (heading_index did not emit
+# non-numbered ones yet), so a non-numbered `##` sitting between a HOT-CORE
+# section and the next numbered section would have been skipped over,
+# silently pulling that unrelated content into the HOT-CORE measurement (and
+# the LAST HOT-CORE section would run all the way to EOF past any trailing
+# non-numbered content). heading_index now emits non-numbered level-2 rows
+# too (needed by compute_exempt_ids's parent-reset fix), and this function
+# reuses that same enumerator unfiltered by id, so it gets the correct
+# boundary semantics for free. Byte/line counts are read from the ORIGINAL
 # (unmasked) file — masking only decides where boundaries are, never what a
 # section's real content is. Returns 2 if IDS is empty or a listed id has no
-# level-2 heading (a HOT-CORE bullet naming a section that does not exist is a
-# broken doctrine file, not a zero-size section).
+# level-2 heading (a HOT-CORE bullet naming a section that does not exist is
+# a broken doctrine file, not a zero-size section), or if heading_index
+# itself failed (an unclosed/mismatched fence).
 #
 # Level-2-only, by design, not oversight: methodology_sections/heading_index
 # report BOTH `##` and `###` ids (T6/T8 need to see `###` ids like 12b/12c to
@@ -248,8 +344,10 @@ measure_hotcore() {
     printf 'FATAL: measure_hotcore — empty HOT-CORE id list (derive from SKILL.md, never hardcode)\n' >&2
     return 2
   fi
+  local full_idx
+  full_idx="$(heading_index "$file")" || return 2
   local lvl2
-  lvl2="$(heading_index "$file" | awk '$2==2')"
+  lvl2="$(awk '$2==2' <<<"$full_idx")"
   if [ -z "$lvl2" ]; then
     printf 'FATAL: measure_hotcore — zero level-2 headings found in %s\n' "$file" >&2
     return 2
@@ -275,17 +373,28 @@ measure_hotcore() {
 
 # check_unrecognized_headings FILE
 # Prints one "<line>: <text>" per line (outside code fences) that LOOKS like a
-# numbered heading (`##`/`###`, optional `§`, then a digit) but does NOT match
-# the strict recognized form (`## N.` / `### N.`) — e.g. `## 24 — X`,
-# `## §24. X`, `## 24) X`. Empty output = none found. This is deliberately a
-# SEPARATE, looser scan from heading_index: its whole purpose is to catch the
-# false-negative direction (kit CLAUDE.md §7) — headings the strict parser
-# would silently miss — so it must not reuse the strict regex.
+# numbered heading — 1 to 6 leading `#`, then whitespace (any run of
+# spaces/tabs, not just exactly one), then an optional `§`, then a digit —
+# but does NOT match the strict recognized form (`## N.` / `### N.`) — e.g.
+# `## 24 — X`, `## §24. X`, `## 24) X`, `##  24.` (double space), `#### 25.`,
+# `# 26.`. Empty output = none found. This is deliberately a SEPARATE, looser
+# scan from heading_index: its whole purpose is to catch the false-negative
+# direction (kit CLAUDE.md §7) — headings the strict parser would silently
+# miss — so it must not reuse the strict regex. Returns 2 (via the caller
+# checking $?, since this function's own output IS the finding list and
+# cannot also carry an error sentinel) if mask_code_fences itself failed.
 check_unrecognized_headings() {
   local file="$1"
-  mask_code_fences "$file" | awk '
-    /^(##|###) §?[0-9]/ && !/^##[#]? [0-9]+[a-z]?\. / { print NR": "$0 }
-  '
+  local out rc
+  out="$(mask_code_fences "$file" | awk '
+    /^#{1,6}[ \t]+§?[0-9]/ && !/^##[#]? [0-9]+[a-z]?\. / { print NR": "$0 }
+  ')"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'FATAL: check_unrecognized_headings — mask_code_fences failed on %s (rc=%d)\n' "$file" "$rc" >&2
+    return 2
+  fi
+  printf '%s\n' "$out"
 }
 
 # =============================================================================
@@ -376,20 +485,33 @@ check_T5() {
   return 1
 }
 
+# check_T5b anchors "§20b" to its trigger wording as ONE contiguous phrase,
+# the same way T4b does for §3b — not two independent grep -qF calls that
+# could each match anywhere in the block regardless of adjacency (round-3
+# review, R2-T5b-trigger-not-bound: the round-2 version checked '§20b' and
+# 'journal mode' as separate co-occurring substrings, so a mutant that moved
+# 'journal mode' text elsewhere in the block while leaving '§20b' bare would
+# have still passed). SKILL.md's phrasing wraps across a line
+# ("§20b block mode vs.\n       journal mode → ..."), so the block is
+# whitespace-normalized (newlines and repeated spaces collapsed to one space
+# each) before the anchored substring check, which PROMPT-LOOP.md's
+# single-line phrasing does not need but tolerates harmlessly.
 check_T5b() {
   local skill="${RSDD_SKILL:-$SKILL}" loop="${RSDD_LOOP:-$PROMPTLOOP}"
-  local sit1 sit2
+  local sit1 sit2 norm1 norm2
   sit1="$(extract_block_inclusive "$skill" "$SKILL_SIT_START" "$SKILL_SIT_END")"
   sit2="$(extract_block_inclusive "$loop" "$LOOP_SIT_START" "$LOOP_SIT_END")"
   if [ -z "$sit1" ] || [ -z "$sit2" ]; then
     printf 'FATAL: check_T5b — SITUATIONAL marker pair not found\n' >&2
     return 2
   fi
-  if grep -qF '§20b' <<<"$sit1" && grep -qF 'journal mode' <<<"$sit1" \
-     && grep -qF '§20b' <<<"$sit2" && grep -qF 'diario' <<<"$sit2"; then
+  norm1="$(tr '\n' ' ' <<<"$sit1" | tr -s ' ')"
+  norm2="$(tr '\n' ' ' <<<"$sit2" | tr -s ' ')"
+  if grep -qF '§20b block mode vs. journal mode' <<<"$norm1" \
+     && grep -qF '§20b bloque vs. diario' <<<"$norm2"; then
     return 0
   fi
-  printf 'trigger wording for §20b (journal mode / diario) not found inside the bounded SITUATIONAL block of skill and/or loop\n'
+  printf 'anchored trigger phrase for §20b ("§20b block mode vs. journal mode" / "§20b bloque vs. diario") not found as one contiguous phrase inside the bounded SITUATIONAL block of skill and/or loop\n'
   return 1
 }
 
@@ -473,7 +595,7 @@ check_T8() {
 check_T9() {
   local meth="${RSDD_METH:-$METHODOLOGY}"
   local bad
-  bad="$(check_unrecognized_headings "$meth")"
+  bad="$(check_unrecognized_headings "$meth")" || return 2
   if [ -n "$bad" ]; then
     printf '%s\n' "$bad"
     return 1
@@ -610,6 +732,18 @@ sys.stdout.write(s.replace(old, new))
   sed 's/journal mode → deciding whether applied work/mode → deciding whether applied work/' "$SKILL" > "$m"
   bite_tooth T5b check_T5b RSDD_SKILL "$m"
 
+  echo "-- teeth: T5b-not-adjacent (co-occurrence without adjacency must NOT pass — round-3 R2-T5b-trigger-not-bound) --"
+  m="$TMP/T5bNotAdjacent.SKILL.md"
+  # Strip "journal mode" from its real spot next to §20b, AND plant the same
+  # words somewhere else in the SITUATIONAL block. The round-2 unanchored
+  # check ('§20b' and 'journal mode' as two independent greps) would have
+  # passed this (both substrings still occur somewhere); the anchored check
+  # must not.
+  sed -e 's/journal mode → deciding whether applied work/mode → deciding whether applied work/' \
+      -e 's/adding\/preserving\/citing an external source;/adding\/preserving\/citing an external source (journal mode mentioned here for testing);/' \
+      "$SKILL" > "$m"
+  bite_tooth T5b-not-adjacent check_T5b RSDD_SKILL "$m"
+
   echo "-- teeth: T6-orphan (delete §3b's SITUATIONAL mention entirely) --"
   m="$TMP/T6orphan.SKILL.md"
   old=$'coordinating a kit change across separate coordinator / researcher / QA sessions; §3b corpus layout →\n       creating or moving corpus files; '
@@ -632,6 +766,36 @@ sys.stdout.write(s.replace(old, new))
   } > "$m"
   bite_tooth T7 check_T7 RSDD_METH "$m"
 
+  echo "-- teeth: R3a (an unnumbered '## Appendix' with 2000 lines right after §1 must NOT inflate the HOT-CORE measurement) --"
+  # Round-2's boundary lookup only recognized NUMBERED level-2 headings, so a
+  # non-numbered '##' sitting between a HOT-CORE section and the next
+  # numbered section was invisible to it: §1's range would have kept
+  # extending straight through the appendix to '## 2.', silently inflating
+  # §1's measured size. Round 3's boundary is "next `##` of ANY kind" (see
+  # measure_hotcore's comment), so §1 must stop exactly where it always did.
+  m="$TMP/R3a.METHODOLOGY.md"
+  s1="$(grep -n '^## 1\. ' "$METHODOLOGY" | head -1 | cut -d: -f1)"
+  e1="$(awk -v s="$s1" '$0 ~ /^## / && NR>s {print NR-1; f=1; exit} END{if(!f) print NR}' "$METHODOLOGY")"
+  {
+    # Lines 1..e1 are §1 UNCHANGED (including whatever spacer line already
+    # precedes the next heading in the real file); "## Appendix" becomes the
+    # new immediate next line so §1's own measured range cannot shift by even
+    # one line — inserting an extra blank separator here would inflate §1 by
+    # exactly that many lines and defeat the point of this tooth.
+    sed -n "1,${e1}p" "$METHODOLOGY"
+    echo "## Appendix"
+    echo ""
+    for _ in $(seq 1 2000); do echo "appendix padding line that must not count toward any HOT-CORE section"; done
+    sed -n "$((e1+1)),\$p" "$METHODOLOGY"
+  } > "$m"
+  baseline_out="$(check_T7)"
+  mutant_out="$(RSDD_METH="$m" check_T7)"; mutant_rc=$?
+  if [ "$mutant_rc" -eq 0 ] && [ "$mutant_out" = "$baseline_out" ]; then
+    ok "teeth-R3a: 2000-line unnumbered appendix right after §1 does not move the HOT-CORE measurement — $mutant_out"
+  else
+    no "teeth-R3a: appendix leaked into the HOT-CORE measurement (baseline=[$baseline_out] mutant=[$mutant_out] rc=$mutant_rc) — boundary-semantics fix broken"
+  fi
+
   echo "-- teeth: m1/T8 (inject a phantom §99 token into SKILL.md HOT-CORE) --"
   m="$TMP/T8.SKILL.md"
   sed 's/§17 resume\./§17 resume. §99 phantom-token./' "$SKILL" > "$m"
@@ -648,6 +812,17 @@ sys.stdout.write(s.replace(old, new))
   } >> "$m"
   bite_tooth m2-unrecognized-heading check_T9 RSDD_METH "$m"
 
+  echo "-- teeth: m2-widened (double space, 4 hashes, 1 hash — round-3 minor #2) --"
+  m="$TMP/T9widened.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  {
+    echo ""
+    echo "##  24. Fake Section (double space)"
+    echo "#### 25. Fake Section (four hashes)"
+    echo "# 26. Fake Section (one hash)"
+  } >> "$m"
+  bite_tooth m2-widened check_T9 RSDD_METH "$m"
+
   echo "-- teeth: m3 (promote nested '### 12b.' to top-level '## 12b.' — dynamic exempt must revoke it) --"
   m="$TMP/m3.METHODOLOGY.md"
   sed 's/^### 12b\. /## 12b. /' "$METHODOLOGY" > "$m"
@@ -655,6 +830,35 @@ sys.stdout.write(s.replace(old, new))
     no "teeth-m3: mutation of '### 12b.' -> '## 12b.' did not take — no teeth"
   else
     bite_tooth m3-dynamic-exempt check_T6 RSDD_METH "$m"
+  fi
+
+  echo "-- teeth: m3-parent-reset (a non-numbered '## Appendix' must reset the tracked parent — round-3 minor #3) --"
+  # Insert right after §12c's real content (its tiered parent §12 would
+  # otherwise be the most recent level-2 heading compute_exempt_ids has
+  # seen): a non-numbered '## Appendix' followed by a numbered '### 30.'.
+  # Without the parent-reset fix, §30 would wrongly inherit §12's tiered
+  # status (the same bug class the review calls "make every `###` exempt →
+  # must go RED": ANY implementation that fails to re-check the REAL nearest
+  # parent — whether by not resetting on non-numbered headings, or by a
+  # frankly broken 'always exempt' condition — makes §30 exempt when it must
+  # not be, and this tooth catches either.
+  m="$TMP/m3ParentReset.METHODOLOGY.md"
+  s13="$(grep -n '^## 13\. ' "$METHODOLOGY" | head -1 | cut -d: -f1)"
+  {
+    sed -n "1,$((s13-1))p" "$METHODOLOGY"
+    echo "## Appendix"
+    echo ""
+    echo "### 30. Stray"
+    echo ""
+    echo "Content that must not inherit exemption from any earlier tiered section."
+    echo ""
+    sed -n "${s13},\$p" "$METHODOLOGY"
+  } > "$m"
+  out="$(RSDD_METH="$m" check_T6)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q '§30' <<<"$out"; then
+    ok "teeth-m3-parent-reset: §30 after a non-numbered '## Appendix' is correctly caught as an orphan (rc=1) — $out"
+  else
+    no "teeth-m3-parent-reset: §30 was NOT caught (rc=$rc, out=[$out]) — parent-reset missing, §30 wrongly inherited exemption"
   fi
 
   echo "-- teeth: m4a (numbered heading INSIDE a fence must stay invisible to check_T6) --"
@@ -686,6 +890,58 @@ sys.stdout.write(s.replace(old, new))
     ok "teeth-m4b: the same heading OUTSIDE a fence IS caught as a new orphan (rc=1) — $out"
   else
     no "teeth-m4b: heading outside a fence was NOT caught (rc=$rc, out=[$out]) — control failed, m4a's PASS would be meaningless"
+  fi
+
+  echo "-- teeth: fence-unclosed (round-3 review MAJOR, repro #1: an unclosed fence must FATAL, not silently pass) --"
+  # Exact reproduction: appending an unclosed ```text fence followed by a
+  # real-looking numbered heading used to give a silent "12/0 PASS" (the
+  # heading, never actually masked past EOF, either vanished or leaked
+  # depending on toggle parity). Now it must make check_T6 return 2.
+  m="$TMP/FenceUnclosed.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  { echo ""; echo '```text'; echo "## 24. New untiered section"; } >> "$m"
+  out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    ok "teeth-fence-unclosed: unclosed fence makes check_T6 return 2 (FATAL), not a silent PASS"
+  else
+    no "teeth-fence-unclosed: unclosed fence did NOT trigger rc=2 (rc=$rc, out=[$out]) — silent pass would slip through"
+  fi
+
+  echo "-- teeth: fence-unclosed-via-T9 (the SAME unclosed fence must also FATAL through check_T9's path) --"
+  # heading_index and check_unrecognized_headings are two SEPARATE consumers
+  # of mask_code_fences; the review named both by name as needing the rc=2
+  # conversion, so both get their own tooth against the same mutant.
+  out="$(RSDD_METH="$m" check_T9 2>/dev/null)"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    ok "teeth-fence-unclosed-via-T9: unclosed fence makes check_T9 return 2 (FATAL) too"
+  else
+    no "teeth-fence-unclosed-via-T9: unclosed fence did NOT trigger rc=2 via check_T9 (rc=$rc, out=[$out])"
+  fi
+
+  echo "-- teeth: fence-4backtick-nested-3backtick (round-3 review MAJOR, repro #2) --"
+  # A ````md (4-backtick) fence containing a ``` (3-backtick) line: the inner
+  # line must NOT close the outer fence (wrong length), so the numbered
+  # heading inside stays masked, and since the outer fence is never actually
+  # closed with 4+ backticks here, the whole thing is correctly unclosed.
+  m="$TMP/Fence4Nested3.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  { echo ""; echo '````md'; echo '```'; echo "## 24. New untiered section"; } >> "$m"
+  out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    ok "teeth-fence-4backtick-nested-3backtick: the inner shorter run does not close the fence early — check_T6 returns 2"
+  else
+    no "teeth-fence-4backtick-nested-3backtick: did NOT return 2 (rc=$rc, out=[$out]) — the inner line likely closed the fence early, leaking '## 24.'"
+  fi
+
+  echo "-- teeth: fence-tilde-unclosed (round-3 review MAJOR, repro #3: ~~~ fences must be tracked too) --"
+  m="$TMP/FenceTilde.METHODOLOGY.md"
+  cp "$METHODOLOGY" "$m"
+  { echo ""; echo '~~~text'; echo "## 24. New untiered section"; } >> "$m"
+  out="$(RSDD_METH="$m" check_T6 2>/dev/null)"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    ok "teeth-fence-tilde-unclosed: unclosed ~~~ fence makes check_T6 return 2 (tilde fences are tracked)"
+  else
+    no "teeth-fence-tilde-unclosed: unclosed ~~~ fence did NOT trigger rc=2 (rc=$rc, out=[$out]) — tilde fences not recognized, '## 24.' leaked as a real heading"
   fi
 
   echo "-- teeth: anti-silent-zero (blank out every HOT-CORE token in SKILL.md) --"
