@@ -120,11 +120,16 @@ mkbox() {
 }
 
 # mk_gh_stub <box> [mode]
-#   mode=noauth     : `gh auth status` fails (unauthenticated)
-#   mode=match      : `gh issue list` returns a fake existing match (dedup)
-#   mode=nomatch    : `gh issue list` returns empty (no existing issue)  [default]
-#   mode=createfail : `gh issue list` returns empty; `gh issue create` exits 1 (simulates API error)
-#   In all non-noauth modes: `gh issue create` logs its args and echoes a fake URL (except createfail).
+#   mode=noauth      : `gh auth status` fails (unauthenticated)
+#   mode=match       : `gh issue list --json state` returns an OPEN match (dedup)
+#   mode=matchclosed : `gh issue list --json state` returns a CLOSED match — kit issue #949
+#                      item 2: a closed match must ALSO dedup, not just an open one
+#   mode=nomatch     : `gh issue list` returns an empty JSON array (no existing issue) [default]
+#   mode=listfail    : `gh issue list` exits non-zero (simulates a real gh/API failure) — must
+#                      count as failed, never fall through to create
+#   mode=createfail  : `gh issue list` returns empty; `gh issue create` exits 1 (API error)
+#   In all non-noauth, non-listfail modes: `gh issue create` logs its args and echoes a fake URL
+#   (except createfail).
 mk_gh_stub() {
   local box="$1" mode="${2:-nomatch}"
   {
@@ -139,13 +144,29 @@ mk_gh_stub() {
     else
       printf 'case " $* " in\n'
       printf '  *" auth status "*) exit 0 ;;\n'
-      if [ "$mode" = "match" ]; then
-        # Return a fake issue when searching for any Source retro signature
-        printf '  *" issue list "*) printf "42\\thttps://github.com/r/issues/42\\tSource retro match\\n"; exit 0 ;;\n'
-      else
-        # nomatch / createfail: empty list
-        printf '  *" issue list "*) exit 0 ;;\n'
-      fi
+      case "$mode" in
+        match)
+          printf '  *" issue list "*) printf "[{\\"state\\":\\"OPEN\\"}]\\n"; exit 0 ;;\n'
+          ;;
+        matchclosed)
+          # A real `gh issue list --state open` never returns a CLOSED issue at all — the
+          # filtering happens server-side. Simulate that: only a call that actually asks for
+          # 'all' or 'closed' sees the closed match; '--state open' gets an empty result. This
+          # is what makes teeth T22 (reverting --state all back to --state open) meaningful —
+          # without this state-sensitivity the stub would return the closed match regardless of
+          # which --state flag the mutant sent, and the code's own JSON parsing would mask the
+          # very regression the tooth exists to prove.
+          printf '  *" --state open "*) printf "[]\\n"; exit 0 ;;\n'
+          printf '  *" issue list "*) printf "[{\\"state\\":\\"CLOSED\\"}]\\n"; exit 0 ;;\n'
+          ;;
+        listfail)
+          printf '  *" issue list "*) printf "gh: error: something went wrong\\n" >&2; exit 1 ;;\n'
+          ;;
+        *)
+          # nomatch / createfail: empty JSON array
+          printf '  *" issue list "*) printf "[]\\n"; exit 0 ;;\n'
+          ;;
+      esac
       if [ "$mode" = "createfail" ]; then
         # createfail: gh issue create exits 1 to simulate an API error
         printf '  *" issue create "*) printf "ERROR: GraphQL request failed\\n"; exit 1 ;;\n'
@@ -365,6 +386,48 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 9b — APPLY MODE DEDUP COVERS CLOSED ISSUES (kit issue #949 item 2): a CLOSED
+# match must ALSO suppress create — the pre-fix dedup only searched --state open, so a
+# false issue that got manually closed was silently re-seeded on the next --apply.
+box="$(mkbox case-apply-dedup-closed)"
+mk_gh_stub "$box" matchclosed
+retro="$(mk_retro "$box" target-foo r-dedup-closed.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | existing closed issue | CLAUDE.md §7 | B1 | new | HIGH |")"
+run "$box" "$retro" --apply
+create_called=0
+[ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
+closed_reported=0
+printf '%s\n' "$OUT" | grep -qi 'skipped-duplicate.*closed' && closed_reported=1
+if [ "$RC" = 0 ] && [ "$create_called" = 0 ] && [ "$closed_reported" = 1 ]; then
+  ok "9b --apply matchclosed: dedup skips create on a CLOSED match, names it closed" "(exit $RC)"
+else
+  no "9b --apply matchclosed: dedup skips create on a CLOSED match, names it closed" \
+    "exit=$RC create_called=$create_called closed_reported=$closed_reported out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 9c — APPLY MODE DEDUP LIST FAILURE (kit issue #949 item 2): a failed `gh issue list`
+# (dedup search) must NOT fall through to create — count it as failed, keep the exit-2
+# partial-failure contract, and never silently create a possible duplicate.
+box="$(mkbox case-apply-dedup-listfail)"
+mk_gh_stub "$box" listfail
+retro="$(mk_retro "$box" target-foo r-dedup-listfail.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | list call fails | CLAUDE.md §7 | B1 | new | HIGH |")"
+run "$box" "$retro" --apply
+create_called=0
+[ -f "$box/bin/gh.log" ] && grep -q 'issue create' "$box/bin/gh.log" && create_called=1
+if [ "$RC" = 2 ] && [ "$create_called" = 0 ] \
+   && printf '%s' "$OUT" | grep -qi 'ERROR.*issue list' \
+   && printf '%s' "$OUT" | grep -q 'summary:.*failed=1'; then
+  ok "9c --apply listfail: dedup list failure counts as failed, never creates, exit 2" "(exit $RC)"
+else
+  no "9c --apply listfail: dedup list failure counts as failed, never creates, exit 2" \
+    "exit=$RC create_called=$create_called out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # 10 — DEGRADED on missing gh under --apply (hermetic PATH: no gh available)
 box="$(mkbox case-degraded)"
 mk_hermetic_bin "$box"   # essentials only, NO gh
@@ -492,8 +555,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The anchor is the compound statement that prints "no-match" and exits 0 for
   # fully applied/dismissed retros. Neutering it allows rows to appear because the
   # row loop only skips shipped rows (is_partial=0 → nothing skipped there either).
-  echo "-- teeth T1: neuter applied/dismissed no-match early exit --"
-  anchor_t1='[ $is_partial -eq 0 ] && { echo "no-match: retro is '"'"'$status'"'"' — all rows shipped" >&2; exit 0; }'
+  echo "-- teeth T1: neuter applied no-match early exit --"
+  anchor_t1='[ $is_partial -eq 0 ] && { echo "no-match: retro is '"'"'applied'"'"' — all rows shipped" >&2; exit 0; }'
   if [[ "$sut_content" == *"$anchor_t1"* ]]; then
     box_t1="$(mkbox teeth-applied)"
     retro_t1="$(mk_retro "$box_t1" target-foo r.md \
@@ -540,8 +603,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # TOOTH 3: Neuter the dedup check → gh issue create is called even when a match exists.
   # The anchor is the comment + condition line that guards creation on a found duplicate.
-  echo "-- teeth T3: neuter dedup check condition --"
-  anchor_t3='    # STAGE_RETRO_ISSUES_DEDUP_CHECK: anchor for T3 teeth proof — skip create when match found.'
+  echo "-- teeth T3: neuter dedup OPEN-match check condition --"
+  anchor_t3='    if printf '"'"'%s'"'"' "$_existing" | grep -q '"'"'"state":[[:space:]]*"OPEN"'"'"'; then'
   if [[ "$sut_content" == *"$anchor_t3"* ]]; then
     box_t3="$(mkbox teeth-dedup)"
     mk_gh_stub "$box_t3" match
@@ -549,31 +612,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "<!-- review-status: pending -->" \
       "| 1 | existing delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t3="$box_t3/research-sdd/toolbelt/stage-retro-issues.sh"
-    # Replace the anchor comment (and thus the guard block context) with a no-op.
-    # To also neuter the `if [ -n "$_existing" ]` that follows, replace the whole dedup if-block:
-    # anchor the comment + next if line together.
-    anchor_t3b="${anchor_t3}
-    if [ -n \"\$_existing\" ]; then"
-    if [[ "$sut_content" == *"$anchor_t3b"* ]]; then
-      printf '%s\n' "${sut_content/"$anchor_t3b"/    # dedup check removed for teeth test
-    if false; then}" > "$mutant_t3"
-    else
-      # Fallback: just replace the single-line anchor (leaves the if block)
-      printf '%s\n' "${sut_content/"$anchor_t3"/    : # teeth-t3-dedup-anchor-removed}" > "$mutant_t3"
-    fi
+    reverted_t3='    if false; then  # teeth-t3-open-match-check-removed'
+    printf '%s\n' "${sut_content/"$anchor_t3"/"$reverted_t3"}" > "$mutant_t3"
+    bash -n "$mutant_t3" 2>/dev/null || { no "T3 teeth: mutant_t3 failed bash -n syntax check" ""; }
     out_t3="$(PATH="$box_t3/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
       "$BASH_BIN" "$mutant_t3" "$retro_t3" --apply 2>&1)"; rc_t3=$?
     create_called_t3=0
     [ -f "$box_t3/bin/gh.log" ] && grep -q 'issue create' "$box_t3/bin/gh.log" \
       && create_called_t3=1
     if [ "$create_called_t3" = 1 ]; then
-      ok "T3 teeth: dedup guard neutered → create called despite match (case 9 has teeth)" "()"
+      ok "T3 teeth: dedup OPEN-match guard neutered → create called despite match (case 9 has teeth)" "()"
     else
-      no "T3 teeth: dedup guard neutered → create called despite match" \
+      no "T3 teeth: dedup OPEN-match guard neutered → create called despite match" \
         "create not called — case 9 is THEATER: rc=$rc_t3 out=[$out_t3]"
     fi
   else
-    no "T3 teeth: locate dedup check anchor" "anchor comment not found in SUT — SUT drifted?"
+    no "T3 teeth: locate dedup OPEN-match check anchor" "anchor comment not found in SUT — SUT drifted?"
   fi
 
   # TOOTH 4: Replace the strip_md_bold CALL SITE with a raw _delta assignment.
@@ -635,39 +689,38 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "T5 teeth: locate 'failed=\$((failed+1)); continue' in SUT" "line not found — SUT drifted?"
   fi
 
-  # TOOTH 6: Restore the old case-INSENSITIVE PARTIAL grep (add -i flag).
-  # Anchor: the literal text "grep -qE 'PARTIAL|shipped:'" in the SUT.
-  # With -i restored: the dismissed-with-prose-partial retro trips is_partial=1 →
-  # case 18 expected no-match but gets planned-issue output (regression).
-  echo "-- teeth T6: restore case-insensitive PARTIAL grep; dismissed-prose-partial must false-fire (case 18 has teeth) --"
-  if grep -qF "grep -qE 'PARTIAL|shipped:'" "$SUT" 2>/dev/null; then
-    box_t6="$(mkbox teeth-partial-prose)"
-    retro_t6="$box_t6/rh/target-foo/retros/r-t6.md"
-    cat > "$retro_t6" <<'RETROEOF'
-<!-- review-status: dismissed 2026-09-20 · scoped to other-kit (P1 partial) -->
-# Retro
-
-## Proposed kit deltas
-
-| # | Proposed change | Target (file) | Evidence | Type | Priority |
-|---|---|---|---|---|---|
-| D1 | fix | METHODOLOGY.md | B42 | new | HIGH |
-RETROEOF
+  # TOOTH 6 (kit issue #1090): neuter the 'dismissed always wins' guard so a dismissed
+  # marker falls through to the is_partial check like 'applied' does. Paired with a marker
+  # whose structured segment DOES carry the PARTIAL token (contrived, but exactly what the
+  # guard must defend against even so — see the header comment), removing the dedicated
+  # dismissed branch reopens rows instead of yielding no-match.
+  echo "-- teeth T6: neuter 'dismissed always wins' guard; dismissed+PARTIAL must reopen rows (case 50/51 have teeth) --"
+  anchor_t6='  dismissed)
+    echo "no-match: retro is '"'"'dismissed'"'"' — all rows shipped" >&2; exit 0
+    ;;'
+  if [[ "$sut_content" == *"$anchor_t6"* ]]; then
+    box_t6="$(mkbox teeth-dismissed-wins)"
+    retro_t6="$(mk_retro "$box_t6" target-foo r-t6.md \
+      "<!-- review-status: dismissed 2026-09-20 · kit deadbeef · PARTIAL — shipped: 99 -->" \
+      "| 1 | should stay closed unless guard removed | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t6="$box_t6/research-sdd/toolbelt/stage-retro-issues.sh"
-    # Add -i flag to restore case-insensitive matching and re-introduce the bug
-    sed "s/grep -qE 'PARTIAL|shipped:'/grep -qiE 'PARTIAL|shipped:'/" \
-      "$SUT" > "$mutant_t6"
+    # Fold 'dismissed' into the 'applied'-style is_partial-gated branch, exactly the pre-#1090
+    # shape: dismissed no longer wins unconditionally.
+    reverted_t6='  dismissed)
+    [ $is_partial -eq 0 ] && { echo "no-match: retro is '"'"'dismissed'"'"' — all rows shipped" >&2; exit 0; }
+    ;;'
+    printf '%s\n' "${sut_content/"$anchor_t6"/"$reverted_t6"}" > "$mutant_t6"
     bash -n "$mutant_t6" 2>/dev/null || { no "T6 teeth: mutant_t6 failed bash -n" ""; }
     out_t6="$(PATH="$box_t6/bin:$PATH" \
       "$BASH_BIN" "$mutant_t6" "$retro_t6" 2>&1)"; rc_t6=$?
     if printf '%s\n' "$out_t6" | grep -q 'planned-issue:'; then
-      ok "T6 teeth: case-insensitive PARTIAL re-enabled → false-fires on prose (case 18 has teeth)" "()"
+      ok "T6 teeth: dismissed-wins guard neutered → dismissed+PARTIAL reopens rows (case 50/51 have teeth)" "()"
     else
-      no "T6 teeth: case-insensitive PARTIAL re-enabled → should false-fire on prose" \
-        "no planned-issue — case 18 is THEATER: rc=$rc_t6 out=[$out_t6]"
+      no "T6 teeth: dismissed-wins guard neutered → should reopen rows" \
+        "no planned-issue — case 50/51 is THEATER: rc=$rc_t6 out=[$out_t6]"
     fi
   else
-    no "T6 teeth: locate case-sensitive PARTIAL grep line in SUT" "line not found — SUT drifted?"
+    no "T6 teeth: locate 'dismissed always wins' guard anchor" "anchor not found — SUT drifted?"
   fi
 
   # TOOTH SYMLINK-TOOLBELT: revert -P/pwd -P to plain cd/pwd (kit issue #1024 round 3, MEDIUM).
@@ -723,7 +776,7 @@ RETROEOF
 
   # TOOTH 8 (kit issue #1037): drop --repo from the gh issue list (dedup) call site.
   echo "-- teeth T8: drop --repo from gh issue list call --"
-  anchor_t8='gh issue list --repo "$KIT_ISSUE_REPO" --state open \'
+  anchor_t8='gh issue list --repo "$KIT_ISSUE_REPO" --state all \'
   if [[ "$sut_content" == *"$anchor_t8"* ]]; then
     box_t8="$(mkbox teeth-t8-list-repo)"
     mk_git_remote "$box_t8" "https://github.com/kit-owner/kit-repo.git"
@@ -732,7 +785,7 @@ RETROEOF
       "<!-- review-status: pending -->" \
       "| 1 | t8 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t8="$box_t8/research-sdd/toolbelt/stage-retro-issues.sh"
-    printf '%s\n' "${sut_content/"$anchor_t8"/gh issue list --state open \\}" > "$mutant_t8"
+    printf '%s\n' "${sut_content/"$anchor_t8"/gh issue list --state all \\}" > "$mutant_t8"
     bash -n "$mutant_t8" 2>/dev/null || { no "T8 teeth: mutant_t8 failed bash -n syntax check" ""; }
     out_t8="$(PATH="$box_t8/bin:$PATH" \
       "$BASH_BIN" "$mutant_t8" "$retro_t8" --apply 2>&1)"; rc_t8=$?
@@ -930,42 +983,153 @@ RETROEOF
     no "T15 teeth: locate :port strip anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
-  # TOOTH 16 (kit issue #1046 round 2 item 1): neuter scp-form host dropping
-  # so an scp remote (alias or real) KEEPS its host, which breaks both the
-  # alias case and the plain "keep real origin" regression.
-  echo "-- teeth T16: neuter scp-form host drop --"
-  # A bare "    printf '%s' \"\$rest\"" (4-space) is NOT unique as a plain
-  # substring: it is also a substring of the 6-space-indented alias-match
-  # line above it (the last 4 of those 6 spaces + the rest). Anchor on the
-  # preceding comment line too, which is unique.
-  anchor_t16=$'    # form always drops its host — see the docstring above for why.\n    printf \'%s\' "$rest"'
+  # TOOTH 16 (RDD follow-up item a): neuter the scp-branch github-alias CHECK (force it to
+  # always match) so EVERY scp host — including an untrusted, non-github one — is silently
+  # dropped to bare 'owner/repo' instead of failing closed to the sentinel. This is the exact
+  # pre-fix security bug direction: an scp remote pointed at a foreign host (e.g. ghe.corp.com)
+  # would resolve as if it were github.com.
+  echo "-- teeth T16: force scp-branch alias check always-true; untrusted scp host must silently drop (case 52/53 have teeth) --"
+  anchor_t16='    # STAGE_RETRO_ISSUES_SCP_HOST_DROP (RDD follow-up item a): scp form drops its host ONLY
+    # when it matches the github.com alias pattern — see the docstring above for why any OTHER
+    # scp host is wrapped in the sentinel (fail closed) rather than dropped unconditionally.
+    if [[ "$(printf '"'"'%s'"'"' "$host" | tr '"'"'A-Z'"'"' '"'"'a-z'"'"')" =~ $_KIT_GITHUB_HOST_ALIAS_RE ]]; then'
   if [[ "$sut_content" == *"$anchor_t16"* ]]; then
-    box_t16="$(mkbox teeth-t16-scp-drop)"
-    mk_git_remote "$box_t16" "git@github.com-alias:o/n.git"
+    box_t16="$(mkbox teeth-t16-scp-fail-closed)"
+    mk_git_remote "$box_t16" "git@ghe.corp.com:o/n.git"
     retro_t16="$(mk_retro "$box_t16" target-foo r.md \
       "<!-- review-status: pending -->" \
       "| 1 | t16 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t16="$box_t16/research-sdd/toolbelt/stage-retro-issues.sh"
-    reverted_t16=$'    # form always drops its host — see the docstring above for why.\n    printf \'%s/%s\' "$host" "$rest"  # teeth-t16-scp-host-kept'
+    reverted_t16='    # STAGE_RETRO_ISSUES_SCP_HOST_DROP (RDD follow-up item a): scp form drops its host ONLY
+    # when it matches the github.com alias pattern — see the docstring above for why any OTHER
+    # scp host is wrapped in the sentinel (fail closed) rather than dropped unconditionally.
+    if true; then  # teeth-t16-alias-check-forced-true'
     printf '%s\n' "${sut_content/"$anchor_t16"/$reverted_t16}" > "$mutant_t16"
     bash -n "$mutant_t16" 2>/dev/null || { no "T16 teeth: mutant_t16 failed bash -n syntax check" ""; }
     out_t16="$(PATH="$box_t16/bin:$PATH" \
       "$BASH_BIN" "$mutant_t16" "$retro_t16" 2>&1)"; rc_t16=$?
-    if printf '%s\n' "$out_t16" | grep -q '^kit-issue-repo: github.com-alias/o/n$'; then
-      ok "T16 teeth: scp host-drop neutered → alias host leaks through (case 33/40 have teeth)" "()"
+    if printf '%s\n' "$out_t16" | grep -q '^kit-issue-repo: o/n$'; then
+      ok "T16 teeth: scp alias check forced true → untrusted host silently drops (case 52/53 have teeth)" "()"
     else
-      no "T16 teeth: scp host-drop neutered → alias host should leak through" \
-        "alias did not leak — case 33/40 is THEATER: rc=$rc_t16 out=[$out_t16]"
+      no "T16 teeth: scp alias check forced true → untrusted host should silently drop to 'o/n'" \
+        "did not leak — case 52/53 is THEATER: rc=$rc_t16 out=[$out_t16]"
     fi
   else
-    no "T16 teeth: locate scp-form host-drop anchor" "anchor not found in SUT — SUT drifted?"
+    no "T16 teeth: locate scp-branch alias-check anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 20 (kit issue #1046 round 2 item b): widen the github-alias-suffix regex back to
+  # allow dots ('-[^/]*' instead of '-[^./]*'), so a spoofed host like
+  # 'github.com-evil.attacker.com' is wrongly collapsed to plain github.com again.
+  echo "-- teeth T20: widen alias-suffix regex to allow dots; spoofed host must collapse to github.com (case 55/56 have teeth) --"
+  anchor_t20="_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\\.|www\\.)?github\\.com(-[^./]*)?\$'"
+  if [[ "$sut_content" == *"$anchor_t20"* ]]; then
+    box_t20="$(mkbox teeth-t20-alias-dot)"
+    mk_git_remote "$box_t20" "https://user@github.com-evil.attacker.com/o/n"
+    retro_t20="$(mk_retro "$box_t20" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t20 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t20="$box_t20/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t20="_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\\.|www\\.)?github\\.com(-[^/]*)?\$'"
+    printf '%s\n' "${sut_content/"$anchor_t20"/$reverted_t20}" > "$mutant_t20"
+    bash -n "$mutant_t20" 2>/dev/null || { no "T20 teeth: mutant_t20 failed bash -n syntax check" ""; }
+    out_t20="$(PATH="$box_t20/bin:$PATH" \
+      "$BASH_BIN" "$mutant_t20" "$retro_t20" 2>&1)"; rc_t20=$?
+    if printf '%s\n' "$out_t20" | grep -q '^kit-issue-repo: o/n$'; then
+      ok "T20 teeth: alias-suffix regex widened → spoofed host collapses to github.com (case 55/56 have teeth)" "()"
+    else
+      no "T20 teeth: alias-suffix regex widened → spoofed host should collapse to 'o/n'" \
+        "did not collapse — case 55/56 is THEATER: rc=$rc_t20 out=[$out_t20]"
+    fi
+  else
+    no "T20 teeth: locate alias-suffix regex anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 21 (kit issue #1046 round 2 item c): drop the dotted-host requirement from the shape
+  # regex, so a 3-segment override with a non-dotted first segment is wrongly accepted again.
+  echo "-- teeth T21: drop dotted-host requirement from shape regex; 'myorg/myrepo/subpath' must wrongly resolve (case 57 has teeth) --"
+  anchor_t21="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9-]+)+/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
+  if [[ "$sut_content" == *"$anchor_t21"* ]]; then
+    box_t21="$(mkbox teeth-t21-host-dot)"
+    retro_t21="$(mk_retro "$box_t21" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t21 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t21="$box_t21/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t21="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
+    printf '%s\n' "${sut_content/"$anchor_t21"/$reverted_t21}" > "$mutant_t21"
+    bash -n "$mutant_t21" 2>/dev/null || { no "T21 teeth: mutant_t21 failed bash -n syntax check" ""; }
+    out_t21="$(PATH="$box_t21/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="myorg/myrepo/subpath" \
+      "$BASH_BIN" "$mutant_t21" "$retro_t21" 2>&1)"; rc_t21=$?
+    if printf '%s\n' "$out_t21" | grep -q '^kit-issue-repo: myorg/myrepo/subpath$'; then
+      ok "T21 teeth: dotted-host requirement dropped → non-dotted 3-segment wrongly accepted (case 57 has teeth)" "()"
+    else
+      no "T21 teeth: dotted-host requirement dropped → non-dotted 3-segment should be wrongly accepted" \
+        "still rejected — case 57 is THEATER: rc=$rc_t21 out=[$out_t21]"
+    fi
+  else
+    no "T21 teeth: locate shape-regex dotted-host anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 22 (kit issue #949 item 2): revert --state all to --state open in the dedup list
+  # call, so a CLOSED match (case 9b) is no longer found and a duplicate is created.
+  echo "-- teeth T22: revert dedup --state all to --state open; closed match must false-negative (case 9b has teeth) --"
+  anchor_t22='    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \'
+  if [[ "$sut_content" == *"$anchor_t22"* ]]; then
+    box_t22="$(mkbox teeth-t22-state-all)"
+    mk_gh_stub "$box_t22" matchclosed
+    retro_t22="$(mk_retro "$box_t22" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t22 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t22="$box_t22/research-sdd/toolbelt/stage-retro-issues.sh"
+    reverted_t22='    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open \'
+    printf '%s\n' "${sut_content/"$anchor_t22"/$reverted_t22}" > "$mutant_t22"
+    bash -n "$mutant_t22" 2>/dev/null || { no "T22 teeth: mutant_t22 failed bash -n syntax check" ""; }
+    out_t22="$(PATH="$box_t22/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
+      "$BASH_BIN" "$mutant_t22" "$retro_t22" --apply 2>&1)"; rc_t22=$?
+    create_called_t22=0
+    [ -f "$box_t22/bin/gh.log" ] && grep -q 'issue create' "$box_t22/bin/gh.log" && create_called_t22=1
+    if [ "$create_called_t22" = 1 ]; then
+      ok "T22 teeth: dedup reverted to --state open → closed match false-negatives, create called (case 9b has teeth)" "()"
+    else
+      no "T22 teeth: dedup reverted to --state open → create should be called (missed closed match)" \
+        "create not called — case 9b is THEATER: rc=$rc_t22 out=[$out_t22]"
+    fi
+  else
+    no "T22 teeth: locate dedup --state all anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
+  # TOOTH 23 (kit issue #949 item 2): neuter the dedup list-failure guard so a failed
+  # 'gh issue list' call falls through to create instead of counting as failed.
+  echo "-- teeth T23: neuter dedup list-failure guard; failed list call must fall through to create (case 9c has teeth) --"
+  anchor_t23='    if [ "$_dedup_rc" -ne 0 ]; then'
+  if [[ "$sut_content" == *"$anchor_t23"* ]]; then
+    box_t23="$(mkbox teeth-t23-listfail-guard)"
+    mk_gh_stub "$box_t23" listfail
+    retro_t23="$(mk_retro "$box_t23" target-foo r.md \
+      "<!-- review-status: pending -->" \
+      "| 1 | t23 delta | CLAUDE.md | B1 | new | HIGH |")"
+    mutant_t23="$box_t23/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_t23"/    if false; then  # teeth-t23-listfail-guard-removed}" > "$mutant_t23"
+    bash -n "$mutant_t23" 2>/dev/null || { no "T23 teeth: mutant_t23 failed bash -n syntax check" ""; }
+    out_t23="$(PATH="$box_t23/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
+      "$BASH_BIN" "$mutant_t23" "$retro_t23" --apply 2>&1)"; rc_t23=$?
+    create_called_t23=0
+    [ -f "$box_t23/bin/gh.log" ] && grep -q 'issue create' "$box_t23/bin/gh.log" && create_called_t23=1
+    if [ "$create_called_t23" = 1 ]; then
+      ok "T23 teeth: list-failure guard neutered → falls through to create (case 9c has teeth)" "()"
+    else
+      no "T23 teeth: list-failure guard neutered → should fall through to create" \
+        "create not called — case 9c is THEATER: rc=$rc_t23 out=[$out_t23]"
+    fi
+  else
+    no "T23 teeth: locate dedup list-failure guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
   # TOOTH 17 (kit issue #1046 round 2 item 4): revert the tightened shape
   # regex to the old permissive one, so '-o/n' (a leading '-') is wrongly
   # accepted instead of rejected.
   echo "-- teeth T17: revert shape-tightening regex (item 4) --"
-  anchor_t17="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
+  anchor_t17="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9-]+)+/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
   if [[ "$sut_content" == *"$anchor_t17"* ]]; then
     box_t17="$(mkbox teeth-t17-shape-tighten)"
     retro_t17="$(mk_retro "$box_t17" target-foo r.md \
@@ -1656,6 +1820,205 @@ if [ "$RC46" = 0 ] && printf '%s\n' "$OUT46" | grep -qi 'toplevel' \
   ok "46 ITEM5 F1 reason names 'toplevel' and the enclosing root path" "(exit $RC46)"
 else
   no "46 ITEM5 F1 reason names 'toplevel' and the enclosing root path" "exit=$RC46 out=[$OUT46]"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #949 item 1 — shipped-ID parser: leading '#' strip, trailing
+# parenthetical annotations.
+# ---------------------------------------------------------------------------
+
+# 47 — HASH-SHIPPED: marker uses '#N (desc)' format; rows 1,2 shipped, row 3 open
+# (unlike reconcile-issues.sh, stage-retro-issues.sh never had the '#' strip — #949).
+box47="$(mkbox case-hash-shipped)"
+retro47="$(mk_retro "$box47" target-foo r-hash-shipped.md \
+  "<!-- review-status: applied 2026-09-05 · kit e0b701a · PARTIAL — shipped: #1 (§11 consumer-absence), #2 (§5 slot-vs-derived) -->" \
+  "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |\n| 3 | delta three | METHODOLOGY.md | B3 | new | HIGH |')")"
+run "$box47" "$retro47"
+row3_47=0; row1_47=0; row2_47=0
+printf '%s\n' "$OUT" | grep -q '· 3' && row3_47=1
+printf '%s\n' "$OUT" | grep -q '· 1' && row1_47=1
+printf '%s\n' "$OUT" | grep -q '· 2' && row2_47=1
+if [ "$RC" = 0 ] && [ "$row3_47" = 1 ] && [ "$row1_47" = 0 ] && [ "$row2_47" = 0 ]; then
+  ok "47 hash-shipped: '#N (desc)' → rows 1,2 shipped (# stripped), only row 3 open" "(exit $RC)"
+else
+  no "47 hash-shipped: '#N (desc)' → rows 1,2 shipped (# stripped), only row 3 open" \
+    "exit=$RC row1=$row1_47 row2=$row2_47 row3=$row3_47 out=[$OUT]"
+fi
+
+# 48 — TRAILING-ANNOTATION-SHIPPED: 'shipped: Δ1 (#549), D1 (§20)' → the
+# parenthetical annotations are dropped, leaving ids 'Δ1' and 'D1' shipped; 'D2' stays open.
+box48="$(mkbox case-annotation-shipped)"
+retro48="$(mk_retro "$box48" target-foo r-annotation-shipped.md \
+  "<!-- review-status: applied 2026-09-05 · kit e0b701a · PARTIAL — shipped: Δ1 (#549), D1 (§20) -->" \
+  "$(printf '| Δ1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| D1 | delta two | METHODOLOGY.md | B2 | new | HIGH |\n| D2 | delta three | METHODOLOGY.md | B3 | new | HIGH |')")"
+run "$box48" "$retro48"
+d2_48=0; delta1_48=0; d1_48=0
+printf '%s\n' "$OUT" | grep -q '· D2' && d2_48=1
+printf '%s\n' "$OUT" | grep -q '· Δ1' && delta1_48=1
+printf '%s\n' "$OUT" | grep -q '· D1' && d1_48=1
+if [ "$RC" = 0 ] && [ "$d2_48" = 1 ] && [ "$delta1_48" = 0 ] && [ "$d1_48" = 0 ]; then
+  ok "48 trailing-annotation-shipped: 'Δ1 (#549), D1 (§20)' → Δ1,D1 shipped; only D2 open" "(exit $RC)"
+else
+  no "48 trailing-annotation-shipped: 'Δ1 (#549), D1 (§20)' → Δ1,D1 shipped; only D2 open" \
+    "exit=$RC delta1=$delta1_48 d1=$d1_48 d2=$d2_48 out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# kit issue #1090 — PARTIAL is a status TOKEN, never free text; dismissed always wins.
+# ---------------------------------------------------------------------------
+
+# 49 — FREE-TEXT PARTIAL (applied, no structured token): an applied marker whose FREE
+# TEXT (after the em dash) happens to contain the literal uppercase word "PARTIAL" must NOT
+# be treated as a PARTIAL marker — the structured segment (before the dash) has no such token,
+# so this is a fully-applied retro: no-match, zero open rows.
+box49="$(mkbox case-freetext-partial-applied)"
+retro49="$(mk_retro "$box49" target-foo r-freetext-partial.md \
+  "<!-- review-status: applied 2026-01-01 · kit abc1234 — historical note: this used to be PARTIAL but is now fully resolved -->" \
+  "| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |")"
+run "$box49" "$retro49"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'no-match' \
+   && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+  ok "49 free-text PARTIAL (applied): structured segment has no token → no-match" "(exit $RC)"
+else
+  no "49 free-text PARTIAL (applied): structured segment has no token → no-match" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# 50 — REAL REPRO MARKER (kit issue #1090, verbatim): a dismissed marker whose free-text
+# explanation mentions 'partial' in lowercase prose must yield ZERO open rows (not all 7
+# rows reopened).
+box50="$(mkbox case-1090-repro)"
+retro50="$(mk_retro "$box50" target-foo r-1090-repro.md \
+  "<!-- review-status: dismissed 2026-09-20 · scoped to build-n4-module kit — deltas owned + implemented there (D1-D5 orient-guard, P3/P4/P5; P1 partial) -->" \
+  "$(printf '| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |\n| 2 | delta two | METHODOLOGY.md | B2 | new | HIGH |')")"
+run "$box50" "$retro50"
+if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+  ok "50 #1090 real repro marker: dismissed + prose 'partial' → zero open rows" "(exit $RC)"
+else
+  no "50 #1090 real repro marker: dismissed + prose 'partial' → zero open rows" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# 51 — PROSE 'partial' POSITION (first/middle/last) on a DISMISSED marker never trips
+# PARTIAL handling, regardless of where in the free text it falls.
+for pos in first middle last; do
+  case "$pos" in
+    first)  _prose="partial rollback only — see the linked ticket for the rest" ;;
+    middle) _prose="deltas partial in scope, the remainder tracked elsewhere" ;;
+    last)   _prose="deltas owned and implemented elsewhere (partial)" ;;
+  esac
+  box51="$(mkbox "case-1090-prose-$pos")"
+  retro51="$(mk_retro "$box51" target-foo r-1090-prose.md \
+    "<!-- review-status: dismissed 2026-09-20 · kit deadbeef — ${_prose} -->" \
+    "| 1 | delta one | METHODOLOGY.md | B1 | new | HIGH |")"
+  run "$box51" "$retro51"
+  if [ "$RC" = 0 ] && ! printf '%s' "$OUT" | grep -q 'planned-issue:'; then
+    ok "51 #1090 dismissed + prose 'partial' at $pos → zero open rows" "(exit $RC)"
+  else
+    no "51 #1090 dismissed + prose 'partial' at $pos → zero open rows" "exit=$RC out=[$OUT]"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# RDD repo-resolver follow-ups (kit issue #1046 round 2, RDD pass) — item a (scp fail-closed),
+# item b (alias suffix must not contain dots), item c (host segment must be dotted).
+# ---------------------------------------------------------------------------
+
+# 52 — ITEM a: scp form, non-github host with user@ (e.g. a GHE remote configured over SSH)
+# → unresolved, NOT silently collapsed to 'o/n'.
+box52="$(mkbox case-scp-nongithub-userat)"
+derive_dry "$box52" "git@ghe.corp.com:o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: unresolved' \
+   && printf '%s\n' "$OUT" | grep -qi 'ghe.corp.com' \
+   && ! printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "52 ITEMa scp non-github host (user@) → unresolved, names the host" "(exit $RC)"
+else
+  no "52 ITEMa scp non-github host (user@) → unresolved, names the host" "exit=$RC out=[$OUT]"
+fi
+
+# 53 — ITEM a: scp form, bare SSH config alias with NO user@ and NO dot at all (e.g. a
+# personal "work" Host alias) → unresolved, never silently treated as github.com.
+box53="$(mkbox case-scp-nongithub-bare)"
+derive_dry "$box53" "work:o/n.git"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: unresolved' \
+   && printf '%s\n' "$OUT" | grep -qi 'work' \
+   && ! printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "53 ITEMa scp non-github bare alias 'work:o/n.git' → unresolved" "(exit $RC)"
+else
+  no "53 ITEMa scp non-github bare alias 'work:o/n.git' → unresolved" "exit=$RC out=[$OUT]"
+fi
+
+# 54 — ITEM a (--apply): the same untrusted scp host must refuse BEFORE any gh call —
+# degraded, exit non-zero, zero gh issue calls, never a fallback create against the wrong repo.
+box54="$(mkbox case-scp-nongithub-apply)"
+mk_gh_stub "$box54" nomatch
+git init -q "$box54" >/dev/null 2>&1
+git -C "$box54" remote add origin "git@ghe.corp.com:o/n.git" >/dev/null 2>&1
+retro54="$(mk_retro "$box54" target-foo r-item-a-apply.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT54="$(PATH="$box54/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
+  "$BASH_BIN" "$box54/research-sdd/toolbelt/stage-retro-issues.sh" "$retro54" --apply 2>&1)"; RC54=$?
+gh_called_54=0
+[ -f "$box54/bin/gh.log" ] && grep -q 'issue' "$box54/bin/gh.log" && gh_called_54=1
+if [ "$RC54" != 0 ] && printf '%s' "$OUT54" | grep -qi 'degraded' && [ "$gh_called_54" = 0 ]; then
+  ok "54 ITEMa --apply: untrusted scp host refuses before any gh call" "(exit $RC54)"
+else
+  no "54 ITEMa --apply: untrusted scp host refuses before any gh call" \
+    "exit=$RC54 gh_called=$gh_called_54 out=[$OUT54]"
+fi
+
+# 55 — ITEM b: an https host that is 'github.com' plus a DOTTED suffix (a look-alike, not
+# a bare SSH-config alias) must NOT be collapsed to plain 'o/n' — it is kept verbatim as its
+# own distinct host, exactly like any other non-alias HOST/owner/repo.
+box55="$(mkbox case-alias-suffix-dot)"
+derive_dry "$box55" "https://github.com-x.corp/o/n"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: github.com-x.corp/o/n$'; then
+  ok "55 ITEMb dotted alias-suffix host kept verbatim: 'github.com-x.corp' NOT collapsed to github.com" "(exit $RC)"
+else
+  no "55 ITEMb dotted alias-suffix host kept verbatim: 'github.com-x.corp' NOT collapsed to github.com" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# 56 — ITEM b: a spoofed host embedding 'github.com-' followed by an attacker-controlled
+# domain must NEVER resolve to plain 'o/n' (which would make gh operate against github.com).
+box56="$(mkbox case-alias-spoof)"
+derive_dry "$box56" "https://user@github.com-evil.attacker.com/o/n"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: github.com-evil.attacker.com/o/n$' \
+   && ! printf '%s\n' "$OUT" | grep -q '^kit-issue-repo: o/n$'; then
+  ok "56 ITEMb spoofed 'github.com-evil.attacker.com' host never resolves to github.com" "(exit $RC)"
+else
+  no "56 ITEMb spoofed 'github.com-evil.attacker.com' host never resolves to github.com" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# 57 — ITEM c: a three-segment RESEARCH_SDD_ISSUE_REPO override whose first segment is NOT a
+# dotted host (a plain word) must be rejected — it used to be silently accepted as
+# HOST=myorg/OWNER=myrepo/REPO=subpath instead of being recognized as a malformed value.
+box57="$(mkbox case-item-c-host-no-dot)"
+retro57="$(mk_retro "$box57" target-foo r-item-c.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | item c delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT57="$(PATH="$box57/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="myorg/myrepo/subpath" \
+  "$BASH_BIN" "$box57/research-sdd/toolbelt/stage-retro-issues.sh" "$retro57" 2>&1)"; RC57=$?
+if [ "$RC57" = 0 ] && printf '%s\n' "$OUT57" | grep -q "^kit-issue-repo: unresolved (invalid repo shape 'myorg/myrepo/subpath'"; then
+  ok "57 ITEMc 3-segment override with non-dotted first segment → unresolved" "(exit $RC57)"
+else
+  no "57 ITEMc 3-segment override with non-dotted first segment → unresolved" "exit=$RC57 out=[$OUT57]"
+fi
+
+# 58 — ITEM c positive control: a genuinely DOTTED host as the first of three segments is
+# still accepted (this is the whole point of GHE support — must not regress).
+box58="$(mkbox case-item-c-host-dotted)"
+retro58="$(mk_retro "$box58" target-foo r-item-c-ok.md \
+  "<!-- review-status: pending -->" \
+  "| 1 | item c delta | CLAUDE.md | B1 | new | HIGH |")"
+OUT58="$(PATH="$box58/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="ghe.example.com/myorg/myrepo" \
+  "$BASH_BIN" "$box58/research-sdd/toolbelt/stage-retro-issues.sh" "$retro58" 2>&1)"; RC58=$?
+if [ "$RC58" = 0 ] && printf '%s\n' "$OUT58" | grep -q '^kit-issue-repo: ghe.example.com/myorg/myrepo$'; then
+  ok "58 ITEMc positive control: dotted host 'ghe.example.com/myorg/myrepo' still accepted" "(exit $RC58)"
+else
+  no "58 ITEMc positive control: dotted host 'ghe.example.com/myorg/myrepo' still accepted" "exit=$RC58 out=[$OUT58]"
 fi
 
 echo "== $pass passed · $fail failed =="

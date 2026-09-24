@@ -120,16 +120,24 @@ TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
 # comment for the resolution order and the reason every gh call below must
 # carry --repo.
 
-# _KIT_ISSUE_REPO_SHAPE_RE (F2; tightened by kit issue #1046 round 2 item 4):
-# the only shape ever handed to `gh --repo`. Every segment (the optional
-# leading HOST, OWNER, REPO) must START with an alphanumeric — that single
-# rule also rejects a bare `.`/`..` segment (both start with `.`) and a
-# leading `-` (e.g. `-o/n`), with no separate check needed. The optional
-# leading group is a non-github.com HOST (kept for GHE, F3); gh itself
-# accepts `HOST/OWNER/REPO`. Anything else — a bare word, embedded
-# whitespace, more than one extra path segment, a leaked URL scheme/colon —
-# fails this and is unresolved, never passed to gh.
-_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
+# _KIT_ISSUE_REPO_SHAPE_RE (F2; tightened by kit issue #1046 round 2 item 4, then #1046
+# round 2 (RDD) item c): the only shape ever handed to `gh --repo`. Every segment (the
+# optional leading HOST, OWNER, REPO) must START with an alphanumeric — that single rule
+# also rejects a bare `.`/`..` segment (both start with `.`) and a leading `-` (e.g. `-o/n`),
+# with no separate check needed. The optional leading group is a non-github.com HOST (kept
+# for GHE, F3); gh itself accepts `HOST/OWNER/REPO`.
+#
+# The leading HOST group MUST contain at least one literal dot (one or more `.label`
+# continuations after the first label) — a real hostname is always a dotted FQDN in this
+# context (GHE hosts like `ghe.corp.com`). Without this, a plain 3-segment value like
+# `myorg/myrepo/subpath` (no host at all — an owner/repo typo with a stray extra path
+# component, or a copy-pasted URL fragment) would be silently accepted as
+# HOST=myorg/OWNER=myrepo/REPO=subpath instead of being rejected outright. Requiring a dot in
+# the HOST position closes that: `myorg` has no dot, so the 3-segment form no longer matches
+# with OR without the optional group, and the value is correctly unresolved.
+# Anything else — a bare word, embedded whitespace, more than one extra path segment, a
+# leaked URL scheme/colon — fails this and is unresolved, never passed to gh.
+_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)+/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
 
 # _validate_repo_shape <value>: returns 0 when <value> matches the
 # "[HOST/]owner/repo" shape above, 1 otherwise. No output, no side effects.
@@ -137,16 +145,27 @@ _validate_repo_shape() {
   [[ "$1" =~ $_KIT_ISSUE_REPO_SHAPE_RE ]]
 }
 
-# _KIT_GITHUB_HOST_ALIAS_RE (kit issue #1046 round 2 item 1): a host that IS
-# github.com under a "www."/"ssh." prefix, or under an SSH config Host alias
-# suffix (e.g. "github.com-work", "github.com-personal"). These must still
-# drop the host: gh needs the REAL "github.com", and an alias hostname does
-# not resolve on its own ("Error connecting to github.com-alias").
-_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\.|www\.)?github\.com(-[^/]*)?$'
+# _KIT_GITHUB_HOST_ALIAS_RE (kit issue #1046 round 2 item 1; tightened by the RDD follow-up
+# item b): a host that IS github.com under a "www."/"ssh." prefix, or under an SSH config Host
+# alias SUFFIX (e.g. "github.com-work", "github.com-personal"). These must still drop the
+# host: gh needs the REAL "github.com", and an alias hostname does not resolve on its own
+# ("Error connecting to github.com-alias").
+#
+# The alias suffix is `-[^./]*` — NO DOT ALLOWED — not the earlier `-[^/]*`. An SSH config
+# Host alias is a single bare label a person chose locally (e.g. "-work", "-personal"); it is
+# never itself a dotted subdomain. Without this restriction, `github.com-x.corp` and
+# `github.com-evil.attacker.com` both matched as "github.com plus an alias suffix" and were
+# silently treated as the real github.com — a spoofed or unrelated host wearing a
+# `github.com-`-prefixed name would resolve to whatever repo an attacker chose. Excluding the
+# dot means any host with FURTHER structure after the "github.com-" prefix is a genuinely
+# DIFFERENT host and is KEPT verbatim by the caller (same as any other non-alias HOST/owner/repo
+# — see `_normalize_git_remote_url`), never silently collapsed to bare "owner/repo".
+_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\.|www\.)?github\.com(-[^./]*)?$'
 
-# _normalize_git_remote_url <url> (F3; hardened by kit issue #1046 round 2):
-# prints the normalized "[HOST/]owner/repo" candidate for a git remote URL.
-# Handles:
+# _normalize_git_remote_url <url> (F3; hardened by kit issue #1046 round 2, then the RDD
+# follow-up item a): prints the normalized "[HOST/]owner/repo" candidate for a git remote URL,
+# OR the untrusted-scp sentinel (see below) for an scp-form remote whose host does not look like
+# github.com. Handles:
 #   https://github.com/o/n(.git)?(/)?     -> o/n            (github.com host dropped)
 #   https://www.github.com/o/n.git        -> o/n            (alias prefix dropped)
 #   https://github.com-work/o/n.git       -> o/n            (SSH-config alias host dropped)
@@ -154,22 +173,39 @@ _KIT_GITHUB_HOST_ALIAS_RE='^(ssh\.|www\.)?github\.com(-[^/]*)?$'
 #   https://ghe.example.com/o/n.git       -> ghe.example.com/o/n  (real non-github HOST KEPT)
 #   ssh://git@github.com/o/n.git          -> o/n
 #   ssh://git@github.com:22/o/n.git       -> o/n            (:port stripped)
-#   git@github.com:o/n(.git)?             -> o/n            (scp form, user@)
-#   github.com:o/n                        -> o/n            (scp form, NO user@)
-#   git@github.com-alias:o/n.git          -> o/n            (scp form — host ALWAYS dropped)
+#   git@github.com:o/n(.git)?             -> o/n            (scp form, user@, github.com host)
+#   github.com:o/n                        -> o/n            (scp form, NO user@, github.com host)
+#   git@github.com-alias:o/n.git          -> o/n            (scp form, github.com ALIAS host)
+#   git@ghe.corp.com:o/n.git              -> sentinel(ghe.corp.com)  (scp form, NON-github host)
+#   work:o/n.git                          -> sentinel(work)          (scp form, NON-github host)
 # The host is kept ONLY for a URL-SCHEME remote (https://, ssh://) whose host
 # (after stripping a trailing :port) does not match _KIT_GITHUB_HOST_ALIAS_RE.
-# An scp-like remote ([user@]host:owner/repo) ALWAYS drops its host: an SSH
-# config Host alias is indistinguishable from a real hostname without
-# resolving it via `ssh -G`, which this script never calls — so a scp-form
-# host is untrustworthy either way, and dropping it is the only choice that
-# cannot construct a --repo value `gh` is unable to connect to.
+#
+# An scp-like remote ([user@]host:owner/repo) drops its host ONLY when that host matches
+# _KIT_GITHUB_HOST_ALIAS_RE (real github.com, or a github.com-* SSH config alias — RDD follow-up
+# item a; previously EVERY scp-form host was dropped unconditionally). Any OTHER scp host is
+# printed wrapped in the `_KIT_ISSUE_REPO_SCP_SENTINEL` marker instead of being silently kept as
+# a bare "owner/repo" or silently dropped: an SSH config Host alias (e.g. a personal "work" alias
+# pointing at some unrelated remote) is indistinguishable from a real hostname without resolving
+# it via `ssh -G`, which this script never calls, so a non-github scp host is untrustworthy
+# either way. The OLD behaviour (always drop) could silently construct a --repo value for the
+# WRONG repository whenever a non-github scp host happened to be configured; the new behaviour
+# fails CLOSED — resolve_kit_issue_repo() turns the sentinel into an unresolved reason that
+# names the untrusted host and tells the caller to set RESEARCH_SDD_ISSUE_REPO explicitly.
 # Trailing slash is stripped BEFORE the trailing .git suffix, so a URL like
 # "o/n.git/" normalizes to "o/n", not the stray "o/n.git" a naive single-pass
 # strip would leave behind. No shape validation here — callers run
 # _validate_repo_shape on the result; an unrecognized scheme (e.g. file://) is
 # returned unchanged and reliably fails that validation instead of being
 # guessed at.
+#
+# _KIT_ISSUE_REPO_SCP_SENTINEL: prefix used to wrap an untrusted scp host so resolve_kit_issue_repo
+# (the caller, NOT this function — see the _KIT_ISSUE_REPO_RESULT comment on why globals set
+# inside a `$(...)` subshell are lost) can detect it and report a typed, host-naming reason
+# instead of the generic "invalid repo shape" message. Never matches _KIT_ISSUE_REPO_SHAPE_RE
+# (no '/'), so even if a caller forgot to check for it, the value would fail shape validation
+# and stay unresolved rather than being passed to gh — belt AND suspenders.
+_KIT_ISSUE_REPO_SCP_SENTINEL='__kit_issue_repo_untrusted_scp_host__'
 _normalize_git_remote_url() {
   local url="$1" host rest is_url_scheme
   if [[ "$url" =~ ^(https?|ssh)://([^/@[:space:]]+@)?([^/]+)/(.+)$ ]]; then
@@ -207,9 +243,14 @@ _normalize_git_remote_url() {
       printf '%s/%s' "$host" "$rest"
     fi
   else
-    # STAGE_RETRO_ISSUES_SCP_HOST_DROP (kit issue #1046 round 2 item 1): scp
-    # form always drops its host — see the docstring above for why.
-    printf '%s' "$rest"
+    # STAGE_RETRO_ISSUES_SCP_HOST_DROP (RDD follow-up item a): scp form drops its host ONLY
+    # when it matches the github.com alias pattern — see the docstring above for why any OTHER
+    # scp host is wrapped in the sentinel (fail closed) rather than dropped unconditionally.
+    if [[ "$(printf '%s' "$host" | tr 'A-Z' 'a-z')" =~ $_KIT_GITHUB_HOST_ALIAS_RE ]]; then
+      printf '%s' "$rest"
+    else
+      printf '%s%s' "$_KIT_ISSUE_REPO_SCP_SENTINEL" "$host"
+    fi
   fi
 }
 
@@ -241,6 +282,9 @@ _KIT_ISSUE_REPO_RESULT=""
 #      never used
 #   4  F2: the override or derived value does not match the required shape
 #      (_KIT_ISSUE_REPO_BAD_VALUE names the offending value)
+#   5  the git remote is an scp-style URL whose host is NOT a recognized
+#      github.com alias — untrustworthy either way without `ssh -G` (RDD
+#      follow-up item a; _KIT_ISSUE_REPO_BAD_VALUE names the untrusted host)
 # MUST be called directly — never as `KIT_ISSUE_REPO="$(resolve_kit_issue_repo)"`
 # — see the _KIT_ISSUE_REPO_RESULT comment above. Never exits the process.
 resolve_kit_issue_repo() {
@@ -271,6 +315,14 @@ resolve_kit_issue_repo() {
   _url="$(git -C "$KIT_ROOT" remote get-url origin 2>/dev/null)" || return 1
   [ -n "$_url" ] || return 1
   _repo="$(_normalize_git_remote_url "$_url")"
+  # STAGE_RETRO_ISSUES_SCP_SENTINEL_CHECK (RDD follow-up item a): an untrusted scp host comes
+  # back wrapped in the sentinel — detect it BEFORE shape validation (it would fail shape
+  # validation anyway, since it has no '/', but this gives a typed, host-naming reason instead
+  # of the generic "invalid repo shape" message).
+  if [[ "$_repo" == "${_KIT_ISSUE_REPO_SCP_SENTINEL}"* ]]; then
+    _KIT_ISSUE_REPO_BAD_VALUE="${_repo#"$_KIT_ISSUE_REPO_SCP_SENTINEL"}"
+    return 5
+  fi
   # STAGE_RETRO_ISSUES_F2_SHAPE_CHECK (kit issue #1045 F2): the derived value
   # must also match the required shape — a URL scheme/host our normalizer
   # doesn't recognize (e.g. file://) must not pass through to gh unchecked.
@@ -292,6 +344,7 @@ if [ -z "$KIT_ISSUE_REPO" ]; then
     2) _kit_issue_repo_reason="git not found on PATH — install git before resolving the kit issue repo" ;;
     3) _kit_issue_repo_reason="kit root ($KIT_ROOT) is not the git checkout's toplevel — git found an enclosing checkout rooted at ${_KIT_ISSUE_REPO_TOPLEVEL} instead" ;;
     4) _kit_issue_repo_reason="invalid repo shape '${_KIT_ISSUE_REPO_BAD_VALUE}' — expected [HOST/]OWNER/REPO" ;;
+    5) _kit_issue_repo_reason="scp-style remote host '${_KIT_ISSUE_REPO_BAD_VALUE}' is not a recognized github.com alias — an SSH config Host alias is indistinguishable from a real hostname without calling 'ssh -G', which this script never does; set RESEARCH_SDD_ISSUE_REPO=<owner>/<name> to resolve explicitly" ;;
     *) _kit_issue_repo_reason="no RESEARCH_SDD_ISSUE_REPO override and no resolvable git remote 'origin' at $KIT_ROOT" ;;
   esac
 fi
@@ -322,6 +375,10 @@ declare -F retro_marker_line >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_line" >&2; exit 1; }
 declare -F retro_status_from_marker_line >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_status_from_marker_line" >&2; exit 1; }
+declare -F retro_marker_is_partial >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
+declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
 
 _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 if [ ! -f "$_RG_LIB" ]; then
@@ -384,30 +441,19 @@ status="$(retro_status_from_marker_line "$_marker_line")"
 
 is_partial=0
 shipped_ids=""
-# STAGE_RETRO_ISSUES_PARTIAL_CHECK: case-SENSITIVE 'PARTIAL' (canonical token is uppercase) so that
-# lowercase prose like "(P1 partial)" inside a dismissed marker does NOT flip is_partial.
-# Also check 'shipped:' case-sensitively (canonical form uses lowercase 'shipped:').
-if printf '%s' "$_marker_line" | grep -qE 'PARTIAL|shipped:'; then
+# STAGE_RETRO_ISSUES_PARTIAL_CHECK (kit issue #1090): PARTIAL is a STATUS TOKEN, detected only
+# in the marker's STRUCTURED segment (before the first free-text separator) via the shared
+# retro_marker_is_partial helper — never a case-insensitive whole-line grep, which let prose
+# like "(P1 partial)" false-positive. 'shipped:' is still extracted separately below, but only
+# when the structured PARTIAL token was actually found.
+if retro_marker_is_partial "$_marker_line"; then
   is_partial=1
   _shipped_raw="$(printf '%s' "$_marker_line" \
     | grep -oiE 'shipped:[^;>]*' \
     | head -1 \
     | sed -E 's/^[Ss]hipped:[[:space:]]*//')"
   if [ -n "$_shipped_raw" ]; then
-    shipped_ids="$(printf '%s' "$_shipped_raw" \
-      | awk '{
-          n = split($0, tokens, /[,[:space:]]+/)
-          for (i=1; i<=n; i++) {
-            t = tokens[i]
-            if (t == "") continue
-            if (match(t, /^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$/, m)) {
-              pfx1=m[1]; n1=int(m[2]); pfx2=m[3]; n2=int(m[4])
-              if (pfx1 == pfx2) {
-                for (j=n1; j<=n2; j++) printf "%s%d\n", pfx1, j
-              } else { printf "%s\n", t }
-            } else { printf "%s\n", t }
-          }
-        }')"
+    shipped_ids="$(retro_marker_shipped_ids "$_shipped_raw")"
   fi
 fi
 
@@ -415,9 +461,17 @@ fi
 # Early exit for fully applied/dismissed with no PARTIAL marker (no-match)
 # STAGE_RETRO_ISSUES_NOMATCH_GUARD: this single compound statement is the anchor
 # for the T1 teeth proof — removing it causes rows to be emitted for applied retros.
+# STAGE_RETRO_ISSUES_DISMISSED_WINS (kit issue #1090): 'dismissed' ALWAYS means zero open
+# rows — it never falls through to the is_partial check the way 'applied' does. A dismissed
+# retro's shipped-work explanation lives in free text the PARTIAL detector already ignores, but
+# this is a second, independent guard: even a structured PARTIAL token on a dismissed marker
+# (which should never happen, but must not be trusted blindly) cannot reopen its rows.
 case "$status" in
-  applied|dismissed)
-    [ $is_partial -eq 0 ] && { echo "no-match: retro is '$status' — all rows shipped" >&2; exit 0; }
+  dismissed)
+    echo "no-match: retro is 'dismissed' — all rows shipped" >&2; exit 0
+    ;;
+  applied)
+    [ $is_partial -eq 0 ] && { echo "no-match: retro is 'applied' — all rows shipped" >&2; exit 0; }
     ;;
   pending|none|"")
     : ;;  # All rows open
@@ -571,13 +625,31 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     printf '%s\n' "$_body" | sed 's/^/    /'
     printf '\n'
   else
-    # Dedup: search for an existing open issue with the exact source signature
+    # Dedup: search ALL states (open + closed) for the exact source signature (kit issue #949
+    # item 2). A closed issue for this row must still suppress a re-create — a false issue that
+    # gets manually closed used to be silently re-seeded on the next --apply because only OPEN
+    # issues were ever searched. --json state lets one gh call classify a match's state without
+    # a jq dependency (grep on the raw JSON text is enough; state is always OPEN or CLOSED).
+    # STAGE_RETRO_ISSUES_DEDUP_STATE_ALL: anchor for the state=all teeth proof.
     _search_sig="${_source_line}"
-    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open \
-      --search "\"$_search_sig\"" 2>/dev/null || true)"
+    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state all \
+      --search "\"$_search_sig\"" --json state 2>&1)"
+    _dedup_rc=$?
+    # STAGE_RETRO_ISSUES_DEDUP_LIST_FAILURE_GUARD (kit issue #949 item 2): a failed list call
+    # (non-zero exit — network error, bad gh invocation, rate limit, …) must NOT fall through to
+    # create: that would risk a duplicate the very check exists to prevent. Count it as failed
+    # for this row instead, exactly like a failed `gh issue create` below.
+    if [ "$_dedup_rc" -ne 0 ]; then
+      echo "ERROR: gh issue list (dedup) failed for row $_rid: $_existing" >&2
+      failed=$((failed+1)); continue
+    fi
+    if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"OPEN"'; then
+      echo "skipped-duplicate: issue for row $_rid already exists (open; search matched '$_search_sig')"
+      skipped_dedup=$((skipped_dedup+1)); continue
+    fi
     # STAGE_RETRO_ISSUES_DEDUP_CHECK: anchor for T3 teeth proof — skip create when match found.
-    if [ -n "$_existing" ]; then
-      echo "skipped-duplicate: issue for row $_rid already exists (search matched '$_search_sig')"
+    if printf '%s' "$_existing" | grep -q '"state":[[:space:]]*"CLOSED"'; then
+      echo "skipped-duplicate: issue for row $_rid already exists (closed; search matched '$_search_sig')"
       skipped_dedup=$((skipped_dedup+1)); continue
     fi
 
