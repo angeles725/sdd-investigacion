@@ -1747,23 +1747,22 @@ run_mutant "$M15_path" "$TM15" "$_jm15"
 # gate wrongly ALLOWS. Normal SUT: -M forces R regardless of config → BLOCK (case #984 above).
 # Mutant (-M removed): falls back to the repo's diff.renames=false → D+A → ALLOW (RED).
 # cite: SENTINEL-RETRO-SESSION-START/END (anchors the mutation target; never use line numbers)
-M16_path="$MUT_KIT/toolbelt/mutant-retro-find-renames.sh"
-awk '
+# The mutation program is defined ONCE (R2: a previous revision duplicated this verbatim
+# between the mutant build and the sabotage check) and reused for both.
+_M16_AWK_PROG='
   /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
   /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
   in_s && /--diff-filter=A -M/ { gsub(/--diff-filter=A -M/,"--diff-filter=A"); print; next }
   { print }
-' "$SUT" > "$M16_path"; chmod +x "$M16_path"
-# Sabotage check: renamed sentinel → awk produces no diff (same technique as TOOTH 15)
+'
+M16_path="$MUT_KIT/toolbelt/mutant-retro-find-renames.sh"
+awk "$_M16_AWK_PROG" "$SUT" > "$M16_path"; chmod +x "$M16_path"
+# Sabotage check: renamed sentinel → the SAME mutation program produces no diff (same
+# technique as TOOTH 15) — proving the program's bite depends on the sentinel name, not luck.
 _M16_sab="$MUT_KIT/toolbelt/mutant-retro-find-renames-sab.sh"
 awk '{ gsub(/SENTINEL-RETRO-SESSION-START/,"SENTINEL-RETRO-SESSION-XSTART"); print }' "$SUT" \
   > "$_M16_sab"; chmod +x "$_M16_sab"
-awk '
-  /# SENTINEL-RETRO-SESSION-START/ { in_s=1 }
-  /# SENTINEL-RETRO-SESSION-END/   { in_s=0 }
-  in_s && /--diff-filter=A -M/ { gsub(/--diff-filter=A -M/,"--diff-filter=A"); print; next }
-  { print }
-' "$_M16_sab" > "$MUT_KIT/toolbelt/mutant-retro-find-renames-sab2.sh"
+awk "$_M16_AWK_PROG" "$_M16_sab" > "$MUT_KIT/toolbelt/mutant-retro-find-renames-sab2.sh"
 if diff -q "$_M16_sab" "$MUT_KIT/toolbelt/mutant-retro-find-renames-sab2.sh" > /dev/null 2>&1; then
   ok "TOOTH 16 sabotage: renamed sentinel → no diff (tooth would fail — as expected)"
 else

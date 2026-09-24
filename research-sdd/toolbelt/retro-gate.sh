@@ -243,9 +243,9 @@ _has_changed=0
 
 # Part A: committed/staged changes relative to session-start sha (--cached covers both)
 # --relative gives paths relative to $TARGET so they work for subdirectory targets.
-# (#984: this loop used to also track a "newest changed block mtime" here, but that value is
-# read ONLY by the degraded staleness check below — see _nb_mtime's single definition site —
-# so tracking it in the non-degraded case was dead computation. Removed.)
+# This loop tracks _has_changed only — the "newest changed block mtime" (_nb_mtime) is defined
+# and read exclusively by the degraded staleness check further below, so there is nothing for
+# the non-degraded path to track here.
 if [ "$_degraded" -eq 0 ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -254,8 +254,8 @@ if [ "$_degraded" -eq 0 ]; then
   done < <(git -C "$TARGET" diff --cached --relative --name-only "$_session_sha" 2>/dev/null)
 fi
 
-# Part B: uncommitted research files newer than the session-start state file
-# (#984: same dead-mtime removal as Part A above.)
+# Part B: uncommitted research files newer than the session-start state file. Same scope as
+# Part A above — _has_changed only.
 if [ -f "$_session_file" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -273,9 +273,8 @@ fi
 # SENTINEL-ALLOW-NO-CHANGE-END
 
 # In degraded mode: scan all research files for the block mtime reference. _nb_mtime is defined
-# ONLY here (#984) — it is read exactly once, by the degraded staleness check at the `elif`
-# below, which only runs when $_degraded is 1 — so there is nothing to track in the non-degraded
-# Part A/B loops above.
+# ONLY here — it is read exactly once, by the degraded staleness check at the `elif` below,
+# which only runs when $_degraded is 1.
 _nb_mtime=0   # newest changed block mtime; degraded-mode only, see elif below
 if [ "$_degraded" -eq 1 ]; then
   while IFS= read -r f; do
@@ -292,15 +291,13 @@ fi
 # the session-start sha (committed or staged, via --cached) or is a file
 # in a retros/ directory that is newer than the session file (covers
 # untracked, gitignored, and staged retros uniformly).
-# Scope correction (#984): depth here is UNBOUNDED, not "≤ 4" — paths (a) and (b) below use
-# `git diff`/`git ls-files` with NO pathspec and no maxdepth at all, so a retros/ directory
-# nested arbitrarily deep still qualifies. Only the DEGRADED mtime fallback (the `else` branch
-# below) and the separate issue-seeder scan (_run_issue_seeding above) are `find -maxdepth 4`;
-# do not assume that bound applies here too.
-# Renames (diff-filter R) do NOT qualify — rename detection is forced via -M/--find-renames
-# (#984) so this holds regardless of the repo's diff.renames config; without it, a `git mv`
-# under diff.renames=false shows as plain D+A instead of R, and the added half would otherwise
-# falsely qualify.
+# Depth here is UNBOUNDED: paths (a) and (b) below use `git diff`/`git ls-files` with NO
+# pathspec and no maxdepth at all, so a retros/ directory nested arbitrarily deep still
+# qualifies. Only the DEGRADED mtime fallback (the `else` branch below) and the separate
+# issue-seeder scan (_run_issue_seeding above) are `find -maxdepth 4`; that bound does not
+# apply here.
+# Renames (diff-filter R) do NOT qualify. Rename detection is forced via -M/--find-renames so
+# this holds regardless of the repo's diff.renames config — see the (a) path below for why.
 # No pathspec — matches corpus/retros/, examinacion-*/retros/, etc.
 # --relative gives TARGET-relative paths so subdirectory targets work.
 #
@@ -322,11 +319,10 @@ if [ "$_degraded" -eq 0 ]; then
   # --cached compares index (HEAD + staged) against session sha.
   # --relative: paths relative to $TARGET (works when $TARGET is a git subdir).
   # --diff-filter=A: only Added entries; renames (R) excluded.
-  # -M/--find-renames (#984): force rename detection ON regardless of the repo's diff.renames
-  # config. Without it, `git mv`-ing an old retro under diff.renames=false shows as a plain
-  # D+A pair (no R at all — rename detection never ran), and the Added half then qualifies
-  # here as a false "new retro", letting the gate wrongly ALLOW. -M makes the outcome the same
-  # whether or not diff.renames is set.
+  # -M/--find-renames: forces rename detection ON regardless of the repo's diff.renames config,
+  # so the outcome is the same whether or not that config is set. Without -M, a `git mv`-ed old
+  # retro under diff.renames=false shows as a plain D+A pair (no R — rename detection never
+  # ran), and the Added half then qualifies here as a false "new retro".
   # No pathspec: matches retros/ at any location under $TARGET.
   while IFS= read -r _rpath; do
     [ -n "$_rpath" ] || continue
@@ -346,14 +342,12 @@ if [ "$_degraded" -eq 0 ]; then
   # INCLUDING gitignored ones, but NOT tracked (committed/staged) files.
   # This avoids false ALLOW on git-mv'd retros (tracked → excluded from --others).
   # Paths are relative to $TARGET since we use git -C "$TARGET".
-  # Latency (#984): profiled against a synthetic target with a large gitignored dependency-
-  # style tree (hundreds of thousands of untracked files). `git ls-files --others` scales
-  # roughly linearly with the untracked-file count and stayed well under Stop-hook-tolerable
-  # latency even at that scale; a pathspec limiting the call to `*/retros/*.md` gave no
-  # measurable speedup (git must still walk the tree to know what is untracked before any
-  # pathspec filter applies), so no pathspec/bound was added here. See PR body for the
-  # measured numbers this conclusion is based on — this comment intentionally states no bare
-  # figures (kit convention: live-instrument timings are not persisted as doctrine).
+  # Deliberately un-pathspec'd and unbounded: git must walk the tree to know what is untracked
+  # regardless of any pathspec, so restricting this call to e.g. `*/retros/*.md` buys no
+  # speedup. `git ls-files --others` scales roughly linearly with the untracked-file count and
+  # stays well within Stop-hook-tolerable latency even against a large gitignored dependency-
+  # style tree (hundreds of thousands of untracked files) — see PR body for the measured
+  # baseline (kit convention: live-instrument timings are not persisted as doctrine here).
   if [ -f "$_session_file" ]; then
     while IFS= read -r _rpath; do
       [ -n "$_rpath" ] || continue

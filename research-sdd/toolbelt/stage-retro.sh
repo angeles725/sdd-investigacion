@@ -96,12 +96,47 @@ git -C "$KIT_REPO" fetch -q origin || { echo "degraded: git fetch origin failed 
 # retro branch never starts from local main (it always branches from origin/main, below), so
 # unpushed commits sitting on local main cannot bleed into it.
 
+# Self-referential-target guard: TARGETS.md can list the kit repo itself as a research target
+# (its own retros/ dir then lives INSIDE $KIT_REPO). Checking out origin/main below replaces
+# the ENTIRE working tree with that ref's content — if this retro was committed only to local
+# main (not yet pushed), it is absent from origin/main and vanishes from the worktree the
+# instant we check out $branch, before the sed below ever reads it. Catch that BEFORE any
+# checkout, not after: refuse and tell the supervisor to push it first.
+case "$retro_abs" in
+  "$KIT_REPO"/*)
+    _retro_rel_to_kit="${retro_abs#"$KIT_REPO"/}"
+    if ! git -C "$KIT_REPO" cat-file -e "origin/main:${_retro_rel_to_kit}" 2>/dev/null; then
+      echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and is not yet" >&2
+      echo "reachable from origin/main — staging would branch from origin/main and the retro" >&2
+      echo "file would vanish from the new branch's working tree. Push it first:" >&2
+      echo "    git -C \"$KIT_REPO\" push origin main" >&2
+      echo "...then re-run stage-retro.sh." >&2
+      exit 7
+    fi
+    ;;
+esac
+
 if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
-  echo "branch $branch already exists — checking it out." ; git -C "$KIT_REPO" checkout -q "$branch"
+  echo "branch $branch already exists — checking it out."
+  git -C "$KIT_REPO" checkout -q "$branch" \
+    || { echo "cannot check out existing branch $branch" >&2; exit 5; }
 else
   # --no-track: never set origin/main as upstream (a bare `git push` could otherwise target main).
   git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main \
     || { echo "cannot create branch $branch from origin/main" >&2; exit 5; }
+fi
+
+# Defensive re-check: the reachability guard above only protects the NEW-branch-from-
+# origin/main path. A pre-existing $branch (the show-ref case above) can predate the retro —
+# e.g. a stale branch left over from an earlier, abandoned staging attempt — so checking it
+# out can still make $retro vanish from the worktree even though it IS reachable from the
+# current origin/main. Catch that here, for either checkout path, rather than printing an
+# empty deltas section and a --body-file pointing at a file that no longer exists.
+if [ ! -r "$retro" ]; then
+  echo "retro file $retro is not readable on branch $branch after checkout — refusing to" >&2
+  echo "print stale/empty deltas. If $branch is a stale leftover branch that predates this" >&2
+  echo "retro, delete it (git -C \"$KIT_REPO\" branch -D $branch) and re-run." >&2
+  exit 8
 fi
 
 echo ">> on branch $branch (from origin/main). Proposed deltas to review/apply:"

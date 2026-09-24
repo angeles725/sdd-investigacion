@@ -83,7 +83,9 @@ mkretro() {
   } > "$repo/$tgt/retros/$fname"
   git -C "$repo" add -A
   git -C "$repo" commit -qm "add retro $fname"
-  # Keep origin/main in sync so the unpushed-commits guard does not fire on unrelated cases.
+  # Push so the retro is reachable from origin/main: mkrepo places retros/ INSIDE $repo (which
+  # doubles as $KIT_REPO in these hermetic fixtures), so the self-referential-target guard
+  # (stage-retro.sh: F1) would otherwise refuse every unrelated case that isn't testing it.
   git -C "$repo" push -q origin main 2>/dev/null
 }
 
@@ -354,11 +356,12 @@ else
 fi
 
 # 11 — CHECKOUT -b FAILURE IS CHECKED (#976): if `git checkout -q --no-track -b "$branch" origin/main`
-#      itself fails (e.g. a ref-path collision under refs/heads/), the script must abort non-zero with
-#      an actionable message and must NOT print the "on branch ... proposed deltas" banner — that banner
-#      would falsely claim the branch was created when it was not. Pre-fix, the unchecked checkout's
-#      failure was swallowed (the script has no `set -e`) and execution fell through to print the
-#      banner and the full "next steps" regardless of whether the branch actually exists.
+#      itself fails (e.g. a ref-path collision under refs/heads/), the script must abort with the
+#      dedicated "cannot create/checkout the retro branch" exit code (5, RDD round-2 coherence pass)
+#      and must NOT print the "on branch ... proposed deltas" banner — that banner would falsely
+#      claim the branch was created when it was not. Pre-fix, the unchecked checkout's failure was
+#      swallowed (the script has no `set -e`) and execution fell through to print the banner and the
+#      full "next steps" regardless of whether the branch actually exists.
 repo="$(mkrepo checkoutb-fail real)"
 mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
 # Force `git checkout -b retro/targetA-r1` to fail: pre-create a branch UNDER that exact ref path
@@ -366,12 +369,12 @@ mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
 # cannot create a ref at a path that is already a directory prefix of another ref.
 git -C "$repo" branch -q "retro/targetA-r1/blocker"
 run "$repo" "targetA/retros/r1.md"
-if [ "$RC" != 0 ] \
+if [ "$RC" = 5 ] \
    && ! grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$OUT" \
    && [ -z "$(git -C "$repo" rev-parse --verify refs/heads/retro/targetA-r1 2>/dev/null)" ]; then
-  ok "11 checkout -b failure is checked → non-zero exit, no false 'on branch' banner" "(exit $RC)"
+  ok "11 checkout -b failure is checked → exact exit 5, no false 'on branch' banner" "(exit $RC)"
 else
-  no "11 checkout -b failure is checked → non-zero exit, no false 'on branch' banner" "exit=$RC out=[$OUT]"
+  no "11 checkout -b failure is checked → exact exit 5, no false 'on branch' banner" "exit=$RC out=[$OUT]"
 fi
 
 # 12 — SYMLINKED TOOLBELT DIR STILL RESOLVES THE REAL KIT REPO. The #1024 profile installer
@@ -398,6 +401,81 @@ else
      "exit=$symRC branches=[$(branches "$repo")] out=[$symOUT]"
 fi
 
+# 13 — SELF-REFERENTIAL TARGET, RETRO UNPUSHED (RDD round 2, F1/HIGH). TARGETS.md row 22
+#      (`sdd-investigacion`) is self-referential: the kit repo can research ITSELF, so its own
+#      retros/ dir lives INSIDE $KIT_REPO — exactly the shape these hermetic fixtures already
+#      use ($repo doubles as both). Reproduced by Opus: with the retro committed only to LOCAL
+#      main (never pushed), `checkout -b … origin/main` replaces the whole working tree with
+#      origin/main's content, which lacks the retro — it silently vanishes, the sed below reads
+#      a now-missing file, and the script printed an empty deltas section at exit 0 with a
+#      `--body-file` pointing at a file that no longer exists. Must now refuse (exit 7) BEFORE
+#      any checkout, with a message telling the supervisor to push first — and must not have
+#      moved off main or created the retro/* branch while refusing.
+repo="$(mkrepo selfref-unpushed real)"
+mkdir -p "$repo/targetA/retros"
+{
+  printf '<!-- review-status: pending -->\n'
+  printf '# retro\n\n## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n\n## Already covered\n\n(none)\n'
+} > "$repo/targetA/retros/r1.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "add retro r1.md (local main only, deliberately NOT pushed)"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 7 ] \
+   && grep -qi 'push' <<<"$OUT" \
+   && [ -z "$(branches "$repo")" ] \
+   && [ "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)" = "main" ]; then
+  ok "13 self-referential retro unpushed to origin/main → refused exit 7 before any checkout" "(exit $RC)"
+else
+  no "13 self-referential retro unpushed to origin/main → refused exit 7 before any checkout" \
+     "exit=$RC branches=[$(branches "$repo")] head=[$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)] out=[$OUT]"
+fi
+
+# 14 — EXISTING-BRANCH CHECKOUT FAILURE IS CHECKED (RDD round 2, F2/MEDIUM — same class as
+#      #976's new-branch checkout). Reproduced by Opus: hold `retro/targetA-r1` open in a
+#      SEPARATE worktree (git refuses to check out a branch that is already checked out
+#      elsewhere), then stage a retro that resolves to that same branch name. Pre-fix, the
+#      unchecked `git checkout -q "$branch"` on the "already exists" path failed silently and
+#      the script printed the "on branch" banner while still sitting on main. Must abort with
+#      the exact "cannot create/checkout the retro branch" code (5) and leave HEAD on main.
+repo="$(mkrepo existing-branch-held real)"
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+git -C "$repo" branch -q "retro/targetA-r1" origin/main
+_wt14="$ROOT/existing-branch-held-wt"
+git -C "$repo" worktree add -q "$_wt14" "retro/targetA-r1"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 5 ] \
+   && grep -qi 'cannot check out existing branch' <<<"$OUT" \
+   && [ "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)" = "main" ]; then
+  ok "14 existing branch held by another worktree → checkout checked, exact exit 5" "(exit $RC)"
+else
+  no "14 existing branch held by another worktree → checkout checked, exact exit 5" \
+     "exit=$RC head=[$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)] out=[$OUT]"
+fi
+git -C "$repo" worktree remove -f "$_wt14" 2>/dev/null || true
+
+# 15 — DEFENSIVE READABILITY CHECK CATCHES A STALE PRE-EXISTING BRANCH (RDD round 2, F1
+#      follow-through). The F1 reachability guard in case 13 only protects the NEW-branch-
+#      from-origin/main path; it checks the retro against the CURRENT origin/main, not against
+#      whatever tree a pre-existing $branch happens to hold. Reproduced by Opus: pre-create
+#      `retro/targetA-r1` BEFORE the retro exists (a stale leftover from an earlier, abandoned
+#      staging attempt), then add+push the retro to main afterwards. F1 passes (the retro IS
+#      reachable from the current origin/main); the "branch already exists" path then checks
+#      out that STALE branch, whose tree predates the retro — it is genuinely absent from the
+#      checked-out worktree even though origin/main has it. Must be caught post-checkout and
+#      refused with exit 8, not printed as an empty deltas section.
+repo="$(mkrepo stale-branch-predates-retro real)"
+git -C "$repo" branch -q "retro/targetA-r1" origin/main
+mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+run "$repo" "targetA/retros/r1.md"
+if [ "$RC" = 8 ] \
+   && grep -qi 'not readable' <<<"$OUT" \
+   && [ "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)" = "retro/targetA-r1" ]; then
+  ok "15 stale pre-existing branch predates retro → caught post-checkout, exact exit 8" "(exit $RC)"
+else
+  no "15 stale pre-existing branch predates retro → caught post-checkout, exact exit 8" \
+     "exit=$RC head=[$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)] out=[$OUT]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the post-source `declare -F` guard is what turns a broken
 # helper into a fail-CLOSED abort on the destructive path. Neuter the guard on a throwaway copy so its
@@ -422,8 +500,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
     # precondition holds and the ONLY thing that can stop staging is the (neutered) guard.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant
-    # Push mutant commit so origin/main stays in sync with local main; the fixed SUT's fetch check
-    # and the unpushed-commits guard must not fire before the guard under test runs.
+    # Push mutant commit so origin/main stays in sync with local main; the fixed SUT's fetch
+    # check and the self-referential-target reachability guard (F1) must not fire before the
+    # guard under test runs (mkretro already pushed the retro itself; this push is for the
+    # mutant script edit).
     git -C "$repo" push -q origin main 2>/dev/null
     outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"
     if grep -q 'staging retro for supervised review' <<<"$outm" \
@@ -507,8 +587,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_f='fetch -q origin 2>/dev/null || true'
     printf '%s\n' "${content/"$anchor_f"/$neutered_f}" > "$mutant"
-    # Commit and PUSH before breaking the remote so origin/main is in sync with local main;
-    # the unpushed-commits guard must not fire — the FETCH guard is the one under test.
+    # Commit and PUSH before breaking the remote so origin/main is in sync with local main —
+    # the FETCH guard is the one under test, and it must be the first thing to fire.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-fetch-fail
     git -C "$repo" push -q origin main 2>/dev/null
     # Break the remote AFTER the push so the mutant runs with a failing fetch.
@@ -527,8 +607,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # origin/main.  Proves the `origin/main` argument is load-bearing; removing it causes the
   # branch to start at local HEAD, which is behind origin/main in the test setup.
   # Setup order: push mutant FIRST so local/origin are in sync, THEN add an extra remote commit
-  # via a second clone.  Now origin/main is AHEAD of local main, the unpushed guard stays quiet
-  # (local has 0 commits not in origin), and the branch lands at local main != origin/main.
+  # via a second clone.  Now origin/main is AHEAD of local main, and the branch lands at local
+  # main != origin/main (the mutant's fetch still runs and succeeds; only checkout -b regressed).
   echo "-- teeth: remove origin/main from checkout -b, expect branch at local main not origin --"
   anchor_c='checkout -q --no-track -b "$branch" origin/main'
   if [[ "$content" != *"$anchor_c"* ]]; then
@@ -553,7 +633,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     git -C "$tmpclone_t" add extra-teeth.txt
     git -C "$tmpclone_t" commit -qm "extra remote commit for teeth"
     git -C "$tmpclone_t" push -q origin main 2>/dev/null
-    # local_main stays at mutant commit; origin/main is one ahead; unpushed = 0 (local not ahead).
+    # local_main stays at the mutant commit; origin/main is one commit ahead of it.
     "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1
     origin_main_sha_t="$(git -C "$repo" rev-parse origin/main 2>/dev/null)"
     branch_sha_t="$(git -C "$repo" rev-parse --verify "refs/heads/retro/targetA-r1" 2>/dev/null)"
@@ -652,6 +732,107 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth: -P dropped → symlinked invocation should fail but did not" \
          "exit=$rcm_sym branches=[$(branches "$repo")] out=[$outm_sym]"
+    fi
+  fi
+
+  # Teeth for case 13: strip the ENTIRE self-referential-target reachability guard (the whole
+  # `case "$retro_abs" in ... esac` block) → the unpushed retro is no longer refused BEFORE the
+  # checkout. It is still caught by the SEPARATE post-checkout defensive re-check (case 15's
+  # guard, deliberately left intact here), but only AFTER the destructive checkout -b already
+  # created the branch — proving case 13's specific assertions (exit code 7, and NO branch left
+  # behind) depend on the F1 guard specifically, not on the defensive check picking up the slack.
+  echo "-- teeth: strip the self-referential reachability guard (F1), expect branch created + wrong exit code --"
+  anchor_f1='case "$retro_abs" in
+  "$KIT_REPO"/*)
+    _retro_rel_to_kit="${retro_abs#"$KIT_REPO"/}"
+    if ! git -C "$KIT_REPO" cat-file -e "origin/main:${_retro_rel_to_kit}" 2>/dev/null; then
+      echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and is not yet" >&2
+      echo "reachable from origin/main — staging would branch from origin/main and the retro" >&2
+      echo "file would vanish from the new branch'\''s working tree. Push it first:" >&2
+      echo "    git -C \"$KIT_REPO\" push origin main" >&2
+      echo "...then re-run stage-retro.sh." >&2
+      exit 7
+    fi
+    ;;
+esac'
+  if [[ "$content" != *"$anchor_f1"* ]]; then
+    no "teeth: locate F1 reachability guard in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-selfref-guard real)"
+    mkdir -p "$repo/targetA/retros"
+    printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n\n## Already covered\n\n(none)\n' \
+      > "$repo/targetA/retros/r1.md"
+    git -C "$repo" add -A; git -C "$repo" commit -qm "add retro (unpushed)"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    printf '%s\n' "${content/"$anchor_f1"/}" > "$mutant"
+    # Overwriting the tracked SUT copy dirties the LOCAL-only tree; this is exactly the
+    # scenario under test (retro committed but not pushed), so do NOT push this commit.
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-selfref-guard
+    outm_f1="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f1=$?
+    if [ "$rcm_f1" != 7 ] && [ -n "$(branches "$repo")" ]; then
+      ok "teeth: F1 guard stripped → branch created despite unpushed retro, wrong exit code (case 13 has teeth)" "(exit=$rcm_f1)"
+    else
+      no "teeth: F1 guard stripped → should have created a branch with a non-7 exit" \
+         "exit=$rcm_f1 branches=[$(branches "$repo")] out=[$outm_f1]"
+    fi
+  fi
+
+  # Teeth for case 14: drop the `|| { …; exit 5; }` clause from the EXISTING-branch checkout
+  # (distinct call site from case 11's NEW-branch checkout) → a branch held open by another
+  # worktree fails silently, HEAD stays on main, but the script still prints the false
+  # "on branch" banner and exits 0.
+  echo "-- teeth: drop the existing-branch checkout error check (F2), expect false banner + exit 0 --"
+  anchor_f2='git -C "$KIT_REPO" checkout -q "$branch" \
+    || { echo "cannot check out existing branch $branch" >&2; exit 5; }'
+  if [[ "$content" != *"$anchor_f2"* ]]; then
+    no "teeth: locate existing-branch checkout error check in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-existing-branch-held real)"
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    git -C "$repo" branch -q "retro/targetA-r1" origin/main
+    _wt_t14="$ROOT/teeth-existing-branch-held-wt"
+    git -C "$repo" worktree add -q "$_wt_t14" "retro/targetA-r1"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    neutered_f2='git -C "$KIT_REPO" checkout -q "$branch"'
+    printf '%s\n' "${content/"$anchor_f2"/$neutered_f2}" > "$mutant"
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-existing-branch
+    git -C "$repo" push -q origin main 2>/dev/null
+    outm_f2="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f2=$?
+    git -C "$repo" worktree remove -f "$_wt_t14" 2>/dev/null || true
+    if [ "$rcm_f2" = 0 ] && grep -q 'on branch retro/targetA-r1 (from origin/main)' <<<"$outm_f2"; then
+      ok "teeth: existing-branch checkout error check removed → false banner, exit 0 (case 14 has teeth)" "()"
+    else
+      no "teeth: existing-branch checkout error check removed → should print false banner at exit 0" \
+         "exit=$rcm_f2 out=[$outm_f2]"
+    fi
+  fi
+
+  # Teeth for case 15: drop the post-checkout defensive readability re-check → a stale branch
+  # that predates the retro is checked out, the retro silently vanishes, and the script falls
+  # through to sed errors + an empty deltas section at exit 0, exactly like the pre-#984 defect.
+  echo "-- teeth: drop the post-checkout readability re-check, expect sed errors + exit 0 --"
+  anchor_f3='if [ ! -r "$retro" ]; then
+  echo "retro file $retro is not readable on branch $branch after checkout — refusing to" >&2
+  echo "print stale/empty deltas. If $branch is a stale leftover branch that predates this" >&2
+  echo "retro, delete it (git -C \"$KIT_REPO\" branch -D $branch) and re-run." >&2
+  exit 8
+fi'
+  if [[ "$content" != *"$anchor_f3"* ]]; then
+    no "teeth: locate post-checkout readability re-check in SUT" "anchor not found — SUT drifted?"
+  else
+    repo="$(mkrepo teeth-stale-branch real)"
+    git -C "$repo" branch -q "retro/targetA-r1" origin/main
+    mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
+    mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
+    printf '%s\n' "${content/"$anchor_f3"/}" > "$mutant"
+    git -C "$repo" add -A; git -C "$repo" commit -qm mutant-stale-branch
+    git -C "$repo" push -q origin main 2>/dev/null
+    outm_f3="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f3=$?
+    if [ "$rcm_f3" = 0 ] && grep -q "can't read" <<<"$outm_f3"; then
+      ok "teeth: post-checkout readability re-check removed → sed errors leak through, exit 0 (case 15 has teeth)" "()"
+    else
+      no "teeth: post-checkout readability re-check removed → should leak sed errors at exit 0" \
+         "exit=$rcm_f3 out=[$outm_f3]"
     fi
   fi
 fi

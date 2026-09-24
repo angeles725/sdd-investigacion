@@ -162,6 +162,43 @@ else
   no "rotation: pre-existing sha under this session id was NOT preserved"
 fi
 
+# ── F3: TOUCH-REFRESH PROTECTS AN ACTIVE SESSION ACROSS ANOTHER SESSION'S ROTATION PASS ──────
+
+echo "-- F3: an active session's mtime-refresh survives a DIFFERENT session's rotation pass --"
+# The self-exclusion above (by name) only protects a session from its OWN rotation pass — it
+# cannot help session B when it is session A's hook that runs the rotation, since A's find
+# excludes only A's own id. Opus reproduced: with only self-exclusion, session B's 10-day-old
+# file was deleted by session A's hook. The fix refreshes (never rewrites) a session's own
+# state-file mtimes on every SessionStart trigger for that id, so an active session looks
+# "recent" to ANY hook's rotation pass, not just its own.
+_f3d="$TMP/f3-cross-session-target"
+mkdir -p "$_f3d/.claude/hooks"
+cp "$SUT" "$_f3d/.claude/hooks/research-protocol.sh"
+_f3_sid_b="f3-session-b"
+_f3_sid_a="f3-session-a"
+_f3_b_file="$_f3d/.claude/.rsdd-session-${_f3_sid_b}"
+printf 'deadbeef\n' > "$_f3_b_file"
+touch -d '-10 days' "$_f3_b_file"
+# Session B fires its own SessionStart (e.g. a resume) — this refreshes B's own mtime to now,
+# even though write-once keeps its recorded sha untouched (still non-empty, so no rewrite).
+printf '{"session_id":"%s"}' "$_f3_sid_b" \
+  | bash "$_f3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+if grep -qF 'deadbeef' "$_f3_b_file"; then
+  ok "F3: session B's own hook run refreshes its mtime WITHOUT rewriting its recorded sha"
+else
+  no "F3: session B's recorded sha was lost by the mtime-refresh (write-once broken)"
+fi
+# Session A — a totally different session id — now fires ITS OWN SessionStart. A's rotation
+# pass does not know B's id at all; B's file must survive purely because it was refreshed a
+# moment ago, not because A's find excluded it by name.
+printf '{"session_id":"%s"}' "$_f3_sid_a" \
+  | bash "$_f3d/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+if [ -e "$_f3_b_file" ]; then
+  ok "F3: session B's file survives session A's rotation pass (cross-session mtime protection)"
+else
+  no "F3: session B's file was deleted by session A's rotation pass — cross-session protection missing"
+fi
+
 # ── P8 PLACEHOLDER CLEANLINESS ───────────────────────────────────────────────────────────────
 
 echo "-- p8: hook installed from template triggers only per-target placeholders --"
@@ -223,20 +260,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
   fi
 
-  echo "-- teeth M4: rotation self-exclusion check has teeth (#984) --"
+  echo "-- teeth M4: rotation protections (self-exclusion + touch-refresh) have teeth (#984) --"
   _m4d="$TMP/rotation-mutant"
   mkdir -p "$_m4d/.claude/hooks"
   _m4="$_m4d/.claude/hooks/research-protocol.sh"
   cp "$SUT" "$_m4"
-  # Mutant: drop the ENTIRE `! -name ... ! -name ...` self-exclusion line from the rotation
-  # find, reverting to the pre-fix behaviour that purges a session's own state files too. Must
-  # delete the whole line (not just its text) — leaving a blank line in its place would snap the
-  # `\`-continued find command in two, breaking `-delete` off into an invalid standalone
-  # "command", so the find would silently degrade to its default -print action instead of
-  # actually reverting to the pre-fix delete behaviour (caught empirically: see PR body).
-  sed -i '/! -name "\.rsdd-session-\${_session_id}"/d' "$_m4"
-  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4"; then
-    no "teeth M4: could not build mutant (self-exclusion clause still present after sed)"
+  # Mutant: drop the self-exclusion `! -name ... ! -name ...` line AND the F3 touch-refresh
+  # lines, reverting to the pre-#984 behaviour that purges a session's own state files too.
+  # Both must go together here: with touch-refresh alone still present, it would refresh this
+  # session's own mtime to "now" moments before the (self-exclusion-stripped) find runs, and
+  # the file would survive anyway — masking a self-exclusion regression. Must delete whole
+  # lines (not just text) — a blank line in the `\`-continued find command would snap it in
+  # two, breaking `-delete` into an invalid standalone "command", degrading the find to its
+  # default -print action instead of actually reverting to the pre-fix delete (caught
+  # empirically: see PR body). The dedicated touch-refresh teeth below isolates F3 on its own.
+  sed -i \
+    -e '/! -name "\.rsdd-session-\${_session_id}"/d' \
+    -e '/touch "\$_rsdd_file" 2>\/dev\/null/d' \
+    -e '/touch "\$_rsdd_blocked_file" 2>\/dev\/null/d' \
+    "$_m4"
+  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4" || grep -qF 'touch "$_rsdd_file"' "$_m4"; then
+    no "teeth M4: could not build mutant (self-exclusion or touch-refresh still present after sed)"
   else
     _m4_sid="m4-current-session"
     _m4_own="$_m4d/.claude/.rsdd-session-${_m4_sid}"
@@ -246,7 +290,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ ! -e "$_m4_own" ]; then
       ok "teeth M4: mutant deletes its own session file past 7 days (RED as expected)"
     else
-      no "teeth M4: mutant did NOT delete the session file — self-exclusion check has no teeth"
+      no "teeth M4: mutant did NOT delete the session file — rotation protections have no teeth"
+    fi
+  fi
+
+  echo "-- teeth M5: F3 touch-refresh alone has teeth (cross-session mtime protection) --"
+  _m5d="$TMP/touch-refresh-mutant"
+  mkdir -p "$_m5d/.claude/hooks"
+  _m5="$_m5d/.claude/hooks/research-protocol.sh"
+  cp "$SUT" "$_m5"
+  # Mutant: drop ONLY the two touch-refresh lines, leaving the by-name self-exclusion intact.
+  # Self-exclusion cannot cover a DIFFERENT session id by construction, so this isolates F3:
+  # re-run the exact F3 cross-session scenario below and expect session B's file to now be
+  # deleted by session A's rotation pass, because it is never refreshed to a recent mtime.
+  sed -i \
+    -e '/touch "\$_rsdd_file" 2>\/dev\/null/d' \
+    -e '/touch "\$_rsdd_blocked_file" 2>\/dev\/null/d' \
+    "$_m5"
+  if grep -qF 'touch "$_rsdd_file"' "$_m5"; then
+    no "teeth M5: could not build mutant (touch-refresh still present after sed)"
+  else
+    _m5d_target="$TMP/f3-mutant-target"
+    mkdir -p "$_m5d_target/.claude/hooks"
+    cp "$_m5" "$_m5d_target/.claude/hooks/research-protocol.sh"
+    _m5_sid_b="m5-session-b"
+    _m5_sid_a="m5-session-a"
+    _m5_b_file="$_m5d_target/.claude/.rsdd-session-${_m5_sid_b}"
+    printf 'deadbeef\n' > "$_m5_b_file"
+    touch -d '-10 days' "$_m5_b_file"
+    # B's own hook run: pre-fix, this refreshed B's mtime (case F3 below). On this mutant it
+    # does not, so B's file stays at -10 days.
+    printf '{"session_id":"%s"}' "$_m5_sid_b" \
+      | bash "$_m5d_target/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    # A's own SessionStart, a different session id entirely: self-exclusion protects only A's
+    # OWN files by name, never B's — B's fate depends solely on the (now missing) touch-refresh.
+    printf '{"session_id":"%s"}' "$_m5_sid_a" \
+      | bash "$_m5d_target/.claude/hooks/research-protocol.sh" >/dev/null 2>&1
+    if [ ! -e "$_m5_b_file" ]; then
+      ok "teeth M5: touch-refresh removed → session B's file deleted by session A's rotation (RED as expected)"
+    else
+      no "teeth M5: touch-refresh removed → session B's file should have been deleted by A's rotation but was not"
     fi
   fi
 
