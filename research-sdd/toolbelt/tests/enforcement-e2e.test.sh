@@ -7,7 +7,9 @@
 # Claude Code session; see odd/delta-backlog-campaign/EN4-external-verification-design.md
 # for their manual runbook.
 #
-# R2 — research-sdd-init auto-wires Stop + SessionStart hooks (EN2a).
+# R2 — research-sdd-init on a fresh target: --scaffold --wire wires Stop and skips the
+#      still-unadapted SessionStart (kit issue #1047), then a re-run after adapting the
+#      hook wires SessionStart too (EN2a).
 # R3 — research-sdd-status --next emits RETRO-DUE when blocks_since_retro > threshold (EN1).
 # R5 — retro-gate auto-invokes stage-retro-issues --apply on a conforming retro (EN3).
 # R6 — reconcile-issues reports delta 'tracked:' against a mock issue (tracked state).
@@ -15,7 +17,8 @@
 #
 # TEETH (--prove-teeth): sentinel-based and assertion-self-test mutants confirm each
 # R-check actually bites:
-#   R2-TOOTH: Stop-only settings (no SessionStart) → R2 assertion correctly fails.
+#   R2-TOOTH-A: SessionStart wrongly present in phase-1 settings → "not wired yet" fails.
+#   R2-TOOTH-B: Stop-only settings post-adapt (no SessionStart) → "both wired" fails.
 #   R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check would FAIL.
 #   R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not invoked → R5 fails.
 #   R7-TOOTH: mutant gate (GH-PROBE stripped) → no WARN emitted → R7 fails.
@@ -178,26 +181,61 @@ fkit() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# R2 — research-sdd-init --wire writes Stop + SessionStart hooks (opt-in)
+# R2 — research-sdd-init on a FRESH target (no corpus marker): --scaffold --wire wires
+# Stop but SKIPS the still-unadapted SessionStart (kit issue #1047 — --wire alone on a
+# marker-less target now refuses; --scaffold is the explicit opt-in, and the scaffold+wire
+# path applies the same live-<SUBJECT> SessionStart guard as the wire-only repair path).
+# Adapting the hook and re-running --wire (the corpus now exists → wire-only repair path)
+# then wires SessionStart too, proving both hooks CAN get wired end-to-end.
 # ─────────────────────────────────────────────────────────────────────────────
 T_R2="$ROOT/r2-target"; mkdir -p "$T_R2"
 git -C "$T_R2" init -q -b main 2>/dev/null || git -C "$T_R2" init -q
 git -C "$T_R2" config user.email t@example.com
 git -C "$T_R2" config user.name tester
-"$BASH_BIN" "$INIT_SUT" "$T_R2" --wire >/dev/null 2>&1
 
 _r2_settings="$T_R2/.claude/settings.json"
-_r2_stop_cmd="" ; _r2_ss_cmd=""
+_r2_ss_hook="$T_R2/.claude/hooks/research-protocol.sh"
+_r2_err1="$ROOT/r2-phase1.err"
+"$BASH_BIN" "$INIT_SUT" "$T_R2" --corpus flat --scaffold --wire >/dev/null 2>"$_r2_err1"
+
+_r2_stop_cmd1="" ; _r2_ss_cmd1=""
 if [ -f "$_r2_settings" ]; then
-  _r2_stop_cmd="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
-  _r2_ss_cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+  _r2_stop_cmd1="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+  _r2_ss_cmd1="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if printf '%s' "$_r2_stop_cmd" | grep -q 'retro-gate-stop.sh' && \
-   printf '%s' "$_r2_ss_cmd"   | grep -q 'research-protocol.sh'; then
-  ok "R2: init --wire wrote Stop (retro-gate-stop.sh) + SessionStart (research-protocol.sh)"
+if printf '%s' "$_r2_stop_cmd1" | grep -q 'retro-gate-stop.sh'; then
+  ok "R2: --scaffold --wire on a fresh target wired Stop (retro-gate-stop.sh)"
 else
-  no "R2: init --wire did NOT write both hooks — stop=[$_r2_stop_cmd] ss=[$_r2_ss_cmd]"
+  no "R2: --scaffold --wire did NOT wire Stop — stop=[$_r2_stop_cmd1]"
+fi
+if [ -z "$_r2_ss_cmd1" ]; then
+  ok "R2: --scaffold --wire on a fresh target skipped SessionStart (unadapted <SUBJECT> placeholder)"
+else
+  no "R2: --scaffold --wire should NOT have wired SessionStart yet but did — ss=[$_r2_ss_cmd1]"
+fi
+if grep -q 'WARN.*<SUBJECT>' "$_r2_err1" 2>/dev/null; then
+  ok "R2: --scaffold --wire emitted the <SUBJECT> WARN for the unadapted SessionStart hook"
+else
+  no "R2: expected a <SUBJECT> WARN in stderr, got=[$(cat "$_r2_err1" 2>/dev/null)]"
+fi
+
+# Adapt the hook (strip the live <SUBJECT> placeholder) and re-run --wire — the corpus now
+# exists, so this takes the wire-only repair path and should wire SessionStart too.
+sed -i 's/<SUBJECT>/the-real-subject/g' "$_r2_ss_hook"
+"$BASH_BIN" "$INIT_SUT" "$T_R2" --corpus flat --wire >/dev/null 2>&1
+
+_r2_stop_cmd2="" ; _r2_ss_cmd2=""
+if [ -f "$_r2_settings" ]; then
+  _r2_stop_cmd2="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+  _r2_ss_cmd2="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+fi
+
+if printf '%s' "$_r2_stop_cmd2" | grep -q 'retro-gate-stop.sh' && \
+   printf '%s' "$_r2_ss_cmd2"   | grep -q 'research-protocol.sh'; then
+  ok "R2: after adapting the hook, a re-run --wire wires BOTH Stop and SessionStart"
+else
+  no "R2: after adapting the hook, re-run --wire did NOT wire both hooks — stop=[$_r2_stop_cmd2] ss=[$_r2_ss_cmd2]"
 fi
 
 # R2-ctrl: default (no --wire flag) must NOT write settings.json (prove-never-apply is the default)
@@ -360,27 +398,48 @@ for _l in focus-prefix.sh state-files.sh block-files.sh; do
   cp "$KIT_TOOLBELT/lib/$_l" "$MUT_STAT_KIT/lib/"
 done
 
-# ── R2-TOOTH: Stop-only settings (no SessionStart) → R2 assertion fails ───────
-# Proves the R2 check verifies BOTH hooks, not just one.
-_r2t_dir="$ROOT/r2-tooth"; mkdir -p "$_r2t_dir/.claude"
+# ── R2-TOOTH-A: SessionStart wrongly present in phase-1 (fresh-scaffold) settings ─────
+# Phase 1 requires SessionStart to be ABSENT (the freshly-copied hook still carries the
+# live <SUBJECT> placeholder — kit issue #1047). Proves that check catches a regression
+# where SessionStart gets wired anyway (e.g. the SUBJECT guard dropped — the same class
+# research-sdd-init.test.sh's own MW21 mutation control exercises on the real SUT).
+_r2ta_dir="$ROOT/r2-tooth-a"; mkdir -p "$_r2ta_dir/.claude"
+jq -n '{
+  "hooks": {
+    "Stop": [{"matcher":"","hooks":[{"type":"command","command":"/x/retro-gate-stop.sh"}]}],
+    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"/x/research-protocol.sh"}]}]
+  }
+}' > "$_r2ta_dir/.claude/settings.json"
+_r2ta_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2ta_dir/.claude/settings.json" 2>/dev/null)"
+if [ -n "$_r2ta_ss" ]; then
+  ok "R2-TOOTH-A: SessionStart wrongly present in phase-1 settings → 'not wired yet' assertion correctly fails (bites)"
+else
+  no "R2-TOOTH-A: SessionStart absent in tooth fixture — could not exercise the phase-1 assertion"
+fi
+
+# ── R2-TOOTH-B: Stop-only settings AFTER adapting the hook (no SessionStart) ──────────
+# Phase 2 requires BOTH hooks wired once the placeholder is gone. Proves that check
+# catches a regression where the wire-only repair path stops wiring SessionStart once
+# the guard clears (mirrors the original R2-TOOTH's both-hooks shape, retargeted at the
+# post-adapt phase).
+_r2tb_dir="$ROOT/r2-tooth-b"; mkdir -p "$_r2tb_dir/.claude"
 jq -n '{
   "hooks": {
     "Stop": [{"matcher":"","hooks":[{"type":"command","command":"/x/retro-gate-stop.sh"}]}],
     "SessionStart": []
   }
-}' > "$_r2t_dir/.claude/settings.json"
-
-_r2t_stop="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2t_dir/.claude/settings.json" 2>/dev/null)"
-_r2t_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2t_dir/.claude/settings.json" 2>/dev/null)"
-_r2t_pass=0
-if printf '%s' "$_r2t_stop" | grep -q 'retro-gate-stop.sh' && \
-   printf '%s' "$_r2t_ss"   | grep -q 'research-protocol.sh'; then
-  _r2t_pass=1
+}' > "$_r2tb_dir/.claude/settings.json"
+_r2tb_stop="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2tb_dir/.claude/settings.json" 2>/dev/null)"
+_r2tb_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2tb_dir/.claude/settings.json" 2>/dev/null)"
+_r2tb_pass=0
+if printf '%s' "$_r2tb_stop" | grep -q 'retro-gate-stop.sh' && \
+   printf '%s' "$_r2tb_ss"   | grep -q 'research-protocol.sh'; then
+  _r2tb_pass=1
 fi
-if [ "$_r2t_pass" -eq 0 ]; then
-  ok "R2-TOOTH: Stop-only settings (no SessionStart) → R2 assertion correctly fails (checks both)"
+if [ "$_r2tb_pass" -eq 0 ]; then
+  ok "R2-TOOTH-B: Stop-only settings post-adapt (no SessionStart) → 'both wired' assertion correctly fails (bites)"
 else
-  no "R2-TOOTH: Stop-only settings should FAIL R2 assertion but PASSED (assertion too loose)"
+  no "R2-TOOTH-B: Stop-only settings post-adapt should FAIL the both-wired assertion but PASSED (too loose)"
 fi
 
 # ── R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check fails ───
