@@ -1586,11 +1586,11 @@ HARD RULES:
     PID is the driver-owned process before killing.
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
-  <!-- slot:return-contract-shape -->SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed
+  SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed
   immediately by the next iteration — NOT a milestone recap or a narrative summary of what has been
   accomplished so far. Expanding the report into a milestone recap is the observed trigger for a
   premature turn-end: the agent fills its context with summary prose, then stops instead of
-  continuing.<!-- /slot --> Emit the minimum fields below and proceed. (Evidence: niagara loop-continuation retro.)
+  continuing. Emit the minimum fields below and proceed. (Evidence: niagara loop-continuation retro.)
   Keep the per-iteration report CONCISE — full detail lives in the block, NOT the report
   (a huge report bloats context for no gain). This report closes ONE iteration; unless STOP fired, the
   next iteration starts right after it. Report ONLY:

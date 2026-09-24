@@ -311,6 +311,74 @@ for f in "$SKILL" "$PROMPTLOOP"; do
 done
 
 # =============================================================================
+# P1/P2/N1/N2 — kit issue #993 WU4 round 2 (Opus finding): T1/T2/S* only
+# check ABSENCE of specific literal doctrine tokens; nothing previously
+# verified that a general slot body still carries the no-question rule and
+# the `next:` continuation token FORWARD. A slot could satisfy every
+# existing check while silently telling the loop it is fine to ask the
+# operator and stop. P1/P2 assert PRESENCE of the two load-bearing
+# continuation behaviors in the rendered general SKILL.md step-4 region;
+# N1/N2 assert ABSENCE of two concrete stop-and-wait / ask-the-operator
+# instruction shapes (reproducing Opus round-2 mutants M1 and M2) across
+# every rendered general file — the same "a slot body can land in SKILL.md
+# OR PROMPT-LOOP.md" scoping the S* absence checks already use (F1, #1022).
+# Scoped to the "general" profile only: claude's step-4 text legitimately
+# defers the concrete `next:` example to PROMPT-LOOP and has no reason to
+# repeat it inline.
+# =============================================================================
+GENERAL_SKILL="${OUTDIR[general]}/skills/research-sdd/SKILL.md"
+GENERAL_FILES=("${OUTDIR[general]}/skills/research-sdd/SKILL.md" "${OUTDIR[general]}/PROMPT-LOOP.md" "${OUTDIR[general]}/METHODOLOGY.md")
+
+# p1_holds/p2_holds FILE — the ONLY place each presence check's grep lives;
+# the --prove-teeth mutants below call these same functions (never a
+# re-implemented duplicate), the same discipline z1_check documents above.
+p1_holds() { grep -qF 'HARD rule inside the loop' "$1"; }
+p2_holds() { grep -qF 'next: <gap-id>' "$1"; }
+
+if p1_holds "$GENERAL_SKILL"; then
+  ok "P1/general: the no-question rule ('HARD rule inside the loop') is present in the rendered general SKILL.md"
+else
+  no "P1/general: the no-question rule ('HARD rule inside the loop') is MISSING from the rendered general SKILL.md"
+fi
+
+if p2_holds "$GENERAL_SKILL"; then
+  ok "P2/general: the continuation-token example ('next: <gap-id>') is present in the rendered general SKILL.md"
+else
+  no "P2/general: the continuation-token example ('next: <gap-id>') is MISSING from the rendered general SKILL.md"
+fi
+
+# forbidden_absent PATTERN — greps every rendered general file for PATTERN.
+# Returns 0 (found — a violation) with the hit printed, 1 (clean), or 2 (a
+# grep stage errored — never folded into "clean", kit CLAUDE.md §7). The
+# --prove-teeth mutants below call this same function.
+forbidden_absent() {
+  local pattern="$1" file hits rc
+  for file in "${GENERAL_FILES[@]}"; do
+    hits="$(grep -F "$pattern" "$file")"; rc=$?
+    case "$rc" in
+      0) printf '%s: %s\n' "$file" "$hits"; return 0 ;;
+      1) continue ;;
+      *) printf 'FATAL: forbidden_absent — grep errored (rc=%d) on %s\n' "$rc" "$file" >&2; return 2 ;;
+    esac
+  done
+  return 1
+}
+
+hits="$(forbidden_absent 'fine to ask the operator')"; rc=$?
+case "$rc" in
+  1) ok "N1/general: no 'fine to ask the operator' stop-and-wait instruction in any rendered general file" ;;
+  0) no "N1/general: found a stop-and-wait/ask-the-operator instruction — $hits" ;;
+  *) no "N1/general: grep ERRORED (rc>=2) — treated as FAIL, never a silent pass" ;;
+esac
+
+hits="$(forbidden_absent 'end your turn and wait')"; rc=$?
+case "$rc" in
+  1) ok "N2/general: no 'end your turn and wait' stop-and-wait instruction in any rendered general file" ;;
+  0) no "N2/general: found a stop-and-wait/ask-the-operator instruction — $hits" ;;
+  *) no "N2/general: grep ERRORED (rc>=2) — treated as FAIL, never a silent pass" ;;
+esac
+
+# =============================================================================
 # Z1 — size budget: non-claude rendered SKILL.md+PROMPT-LOOP.md must not
 # exceed the claude render's total bytes by more than 10%. z1_check is the
 # ONLY place this arithmetic lives; the --prove-teeth tooth below calls it
@@ -482,8 +550,8 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   kitAbsC19="$TMP/kitAbsC19"
   make_kit "$kitAbsC19"
   profileAbsC19="$kitAbsC19/profiles/general.slots.md"
-  if [ -f "$profileAbsC19" ] && require_anchor "$profileAbsC19" 'A return without a token is a silently stopped iteration.'; then
-    sed -i 's/A return without a token is a silently stopped iteration\./A return without a token is a silently stopped iteration. Do not simply signal "continue"./' "$profileAbsC19"
+  if [ -f "$profileAbsC19" ] && require_anchor "$profileAbsC19" 'A return without one is a silently stopped iteration.'; then
+    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. Do not simply signal "continue"./' "$profileAbsC19"
     outAbsC19="$TMP/outAbsC19"
     if RSDD_KIT_DIR="$kitAbsC19" "$RENDERER" general "$outAbsC19" >/dev/null 2>&1; then
       if assert_C19 "$outAbsC19/skills/research-sdd/SKILL.md"; then
@@ -576,7 +644,7 @@ PYEOF
     no "teeth-remove-slot-body: mutation anchor not found — cannot prove teeth"
   fi
 
-  echo "-- teeth: T-remove-new-slot-body (kit issue #993 WU4: delete the loop-return-contract-explicit section from the copied kit's general.slots.md — one of the two slots this work unit added — R1 must go RED with GUARD-MISSING) --"
+  echo "-- teeth: T-remove-new-slot-body (kit issue #993 WU4: delete the loop-return-contract-explicit section from the copied kit's general.slots.md — the slot this work unit added — R1 must go RED with GUARD-MISSING) --"
   kitRemoveNew="$TMP/kitRemoveNew"
   make_kit "$kitRemoveNew"
   profileRemoveNew="$kitRemoveNew/profiles/general.slots.md"
@@ -597,6 +665,98 @@ PYEOF
     fi
   else
     no "teeth-remove-new-slot-body: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-p1-drop (kit issue #993 WU4 round 2: drop the HARD-rule phrase from the general slot body, render general, p1_holds — the REAL P1 logic — must go RED) --"
+  kitP1Drop="$TMP/kitP1Drop"
+  make_kit "$kitP1Drop"
+  profileP1Drop="$kitP1Drop/profiles/general.slots.md"
+  if [ -f "$profileP1Drop" ] && require_anchor "$profileP1Drop" 'HARD rule inside the loop'; then
+    # The anchor phrase spans a line wrap in the profile file, so a
+    # single-line sed cannot match it; python3 (already a hard dependency
+    # of this suite) does the cross-line replace reliably.
+    python3 - "$profileP1Drop" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+s = s.replace('the no-question rule from the\ntriage section is a HARD rule inside the loop.',
+              'the no-question rule applies.')
+open(p, 'w', encoding='utf-8').write(s)
+PYEOF
+    outP1Drop="$TMP/outP1Drop"
+    if RSDD_KIT_DIR="$kitP1Drop" "$RENDERER" general "$outP1Drop" >/dev/null 2>&1; then
+      if p1_holds "$outP1Drop/skills/research-sdd/SKILL.md"; then
+        no "teeth-p1-drop: p1_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-p1-drop: p1_holds (the REAL P1 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-p1-drop: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-p1-drop: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-p2-drop (kit issue #993 WU4 round 2: drop the 'next: <gap-id>' example from the general slot body, render general, p2_holds — the REAL P2 logic — must go RED) --"
+  kitP2Drop="$TMP/kitP2Drop"
+  make_kit "$kitP2Drop"
+  profileP2Drop="$kitP2Drop/profiles/general.slots.md"
+  if [ -f "$profileP2Drop" ] && require_anchor "$profileP2Drop" '`next: <gap-id> · rescheduled via <mechanism>`'; then
+    sed -i 's/`next: <gap-id> · rescheduled via <mechanism>`/a continuation token/' "$profileP2Drop"
+    outP2Drop="$TMP/outP2Drop"
+    if RSDD_KIT_DIR="$kitP2Drop" "$RENDERER" general "$outP2Drop" >/dev/null 2>&1; then
+      if p2_holds "$outP2Drop/skills/research-sdd/SKILL.md"; then
+        no "teeth-p2-drop: p2_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-p2-drop: p2_holds (the REAL P2 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-p2-drop: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-p2-drop: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-n1-opus-m1 (kit issue #993 WU4 round 2: reproduce Opus round-2 mutant M1 — 'When unsure, it is fine to ask the operator \"shall I continue?\"' — injected into the general slot body; forbidden_absent (N1's REAL logic) must go RED) --"
+  kitN1M1="$TMP/kitN1M1"
+  make_kit "$kitN1M1"
+  profileN1M1="$kitN1M1/profiles/general.slots.md"
+  if [ -f "$profileN1M1" ] && require_anchor "$profileN1M1" 'A return without one is a silently stopped iteration.'; then
+    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. When unsure, it is fine to ask the operator "shall I continue?"./' "$profileN1M1"
+    outN1M1="$TMP/outN1M1"
+    if RSDD_KIT_DIR="$kitN1M1" "$RENDERER" general "$outN1M1" >/dev/null 2>&1; then
+      GENERAL_FILES=("$outN1M1/skills/research-sdd/SKILL.md" "$outN1M1/PROMPT-LOOP.md" "$outN1M1/METHODOLOGY.md")
+      if forbidden_absent 'fine to ask the operator' >/dev/null; then
+        ok "teeth-n1-opus-m1: forbidden_absent (the REAL N1 logic) catches Opus mutant M1 on the mutant general render"
+      else
+        no "teeth-n1-opus-m1: forbidden_absent did NOT catch Opus mutant M1 — no teeth"
+      fi
+    else
+      no "teeth-n1-opus-m1: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-n1-opus-m1: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-n2-opus-m2 (kit issue #993 WU4 round 2: reproduce Opus round-2 mutant M2 — '...then end your turn and wait for the operator' — injected into the general slot body; forbidden_absent (N2's REAL logic) must go RED) --"
+  kitN2M2="$TMP/kitN2M2"
+  make_kit "$kitN2M2"
+  profileN2M2="$kitN2M2/profiles/general.slots.md"
+  if [ -f "$profileN2M2" ] && require_anchor "$profileN2M2" 'A return without one is a silently stopped iteration.'; then
+    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. If genuinely uncertain, then end your turn and wait for the operator./' "$profileN2M2"
+    outN2M2="$TMP/outN2M2"
+    if RSDD_KIT_DIR="$kitN2M2" "$RENDERER" general "$outN2M2" >/dev/null 2>&1; then
+      GENERAL_FILES=("$outN2M2/skills/research-sdd/SKILL.md" "$outN2M2/PROMPT-LOOP.md" "$outN2M2/METHODOLOGY.md")
+      if forbidden_absent 'end your turn and wait' >/dev/null; then
+        ok "teeth-n2-opus-m2: forbidden_absent (the REAL N2 logic) catches Opus mutant M2 on the mutant general render"
+      else
+        no "teeth-n2-opus-m2: forbidden_absent did NOT catch Opus mutant M2 — no teeth"
+      fi
+    else
+      no "teeth-n2-opus-m2: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-n2-opus-m2: mutation anchor not found — cannot prove teeth"
   fi
 
   echo "-- teeth: T-vanished-anchor (a mutation anchor that does not exist must FAIL, not be silently skipped) --"
