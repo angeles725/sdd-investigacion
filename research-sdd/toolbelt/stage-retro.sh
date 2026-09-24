@@ -72,7 +72,10 @@ retro_ref="${target}/retros/$(basename "$retro")"
 # Absolutize the retro path before the git log pathspec: `-C "$target_root"` is already absolute, but a
 # RELATIVE $retro pathspec is then resolved AGAINST that rebased cwd (not the original cwd), so it can miss
 # a genuinely tracked retro and silently drop the '@<sha>' suffix (misreporting it as untracked).
-retro_abs="$(cd "$(dirname "$retro")" 2>/dev/null && pwd)/$(basename "$retro")"
+# `cd -P`/`pwd -P` (not plain `pwd`): $KIT_REPO above is resolved PHYSICALLY, so a retro path that
+# reaches the kit repo through a symlink must resolve physically too, or the self-referential-target
+# guard's `case "$retro_abs" in "$KIT_REPO"/*)` below would never match and the guard would be skipped.
+retro_abs="$(cd -P "$(dirname "$retro")" 2>/dev/null && pwd)/$(basename "$retro")"
 retro_sha="$(git -C "$target_root" log -1 --format=%h -- "$retro_abs" 2>/dev/null)"
 [ -n "$retro_sha" ] && retro_ref="${retro_ref}@${retro_sha}"
 
@@ -102,13 +105,20 @@ git -C "$KIT_REPO" fetch -q origin || { echo "degraded: git fetch origin failed 
 # main (not yet pushed), it is absent from origin/main and vanishes from the worktree the
 # instant we check out $branch, before the sed below ever reads it. Catch that BEFORE any
 # checkout, not after: refuse and tell the supervisor to push it first.
+# EXISTENCE alone is not enough (RDD R4-selfref-guard-existence-only): origin/main can already
+# have a blob at this path from an EARLIER push, while local HEAD has since moved the same
+# path on to different content (edited the retro, or amended it) without pushing. Comparing
+# blob shas — not just presence — catches that: the clean-tree guard above already ran, so
+# HEAD's blob is exactly what is on disk right now.
 case "$retro_abs" in
   "$KIT_REPO"/*)
     _retro_rel_to_kit="${retro_abs#"$KIT_REPO"/}"
-    if ! git -C "$KIT_REPO" cat-file -e "origin/main:${_retro_rel_to_kit}" 2>/dev/null; then
-      echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and is not yet" >&2
-      echo "reachable from origin/main — staging would branch from origin/main and the retro" >&2
-      echo "file would vanish from the new branch's working tree. Push it first:" >&2
+    _retro_origin_blob="$(git -C "$KIT_REPO" rev-parse -q --verify "origin/main:${_retro_rel_to_kit}" 2>/dev/null)"
+    _retro_head_blob="$(git -C "$KIT_REPO" rev-parse -q --verify "HEAD:${_retro_rel_to_kit}" 2>/dev/null)"
+    if [ -z "$_retro_origin_blob" ] || [ "$_retro_origin_blob" != "$_retro_head_blob" ]; then
+      echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and origin/main does" >&2
+      echo "not have the SAME content as the local commit — staging would branch from origin/main" >&2
+      echo "and silently stage a stale (or entirely missing) version of this file. Push it first:" >&2
       echo "    git -C \"$KIT_REPO\" push origin main" >&2
       echo "...then re-run stage-retro.sh." >&2
       exit 7
@@ -134,8 +144,14 @@ fi
 # empty deltas section and a --body-file pointing at a file that no longer exists.
 if [ ! -r "$retro" ]; then
   echo "retro file $retro is not readable on branch $branch after checkout — refusing to" >&2
-  echo "print stale/empty deltas. If $branch is a stale leftover branch that predates this" >&2
-  echo "retro, delete it (git -C \"$KIT_REPO\" branch -D $branch) and re-run." >&2
+  echo "print stale/empty deltas." >&2
+  # Switch back to main before exiting: `git branch -D $branch` refuses to delete the branch
+  # that is currently checked out (RDD R4-exit8-remediation-fails), so leaving the repo on
+  # $branch would make the remediation advice below fail the moment it is run. Best-effort —
+  # print the checkout as part of the advice too, in case this one somehow does not take.
+  git -C "$KIT_REPO" checkout -q main 2>/dev/null
+  echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  echo "delete it: git -C \"$KIT_REPO\" checkout main && git -C \"$KIT_REPO\" branch -D $branch" >&2
   exit 8
 fi
 

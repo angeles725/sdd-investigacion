@@ -191,6 +191,20 @@ else
   no "R3-001(b): a phantom (empty) session file was created despite no resolvable sha"
 fi
 
+echo "-- glob-metachar guard: a session_id containing a glob metacharacter skips rotation loudly --"
+_gmd="$TMP/glob-metachar-target"; mkdir -p "$_gmd/.claude/hooks"; cp "$SUT" "$_gmd/.claude/hooks/research-protocol.sh"
+_gm_sid='evil*id'
+_gm_unrelated="$_gmd/.claude/.rsdd-session-unrelated-old"
+printf 'deadbeef\n' > "$_gm_unrelated"; touch -d '-10 days' "$_gm_unrelated"
+_gm_err="$TMP/glob-metachar-err.txt"
+printf '{"session_id":"%s"}' "$_gm_sid" | bash "$_gmd/.claude/hooks/research-protocol.sh" >/dev/null 2>"$_gm_err"
+if grep -q 'glob metacharacter' "$_gm_err" && [ -e "$_gm_unrelated" ]; then
+  ok "glob-metachar guard: WARNs loudly and skips rotation (unrelated old file survives)"
+else
+  no "glob-metachar guard: WARNs loudly and skips rotation" \
+     "err=[$(cat "$_gm_err")] unrelated-survived=$([ -e "$_gm_unrelated" ] && echo yes || echo no)"
+fi
+
 # ── P8 PLACEHOLDER CLEANLINESS ───────────────────────────────────────────────────────────────
 
 echo "-- p8: hook installed from template triggers only per-target placeholders --"
@@ -252,27 +266,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '  SKIP  teeth M2: no-jq test was skipped (jq reachable under hermetic PATH) — M2 skipped too\n'
   fi
 
-  echo "-- teeth M4: rotation protections (self-exclusion + touch-refresh) have teeth (#984) --"
+  echo "-- teeth M4: rotation self-exclusion check has teeth (#984) --"
   _m4d="$TMP/rotation-mutant"
   mkdir -p "$_m4d/.claude/hooks"
   _m4="$_m4d/.claude/hooks/research-protocol.sh"
   cp "$SUT" "$_m4"
-  # Mutant: drop the self-exclusion `! -name ... ! -name ...` line AND the F3 touch-refresh
-  # lines, reverting to the pre-#984 behaviour that purges a session's own state files too.
-  # Both must go together here: with touch-refresh alone still present, it would refresh this
-  # session's own mtime to "now" moments before the (self-exclusion-stripped) find runs, and
-  # the file would survive anyway — masking a self-exclusion regression. Must delete whole
-  # lines (not just text) — a blank line in the `\`-continued find command would snap it in
-  # two, breaking `-delete` into an invalid standalone "command", degrading the find to its
-  # default -print action instead of actually reverting to the pre-fix delete (caught
-  # empirically: see PR body). The dedicated touch-refresh teeth below isolates F3 on its own.
-  sed -i \
-    -e '/! -name "\.rsdd-session-\${_session_id}"/d' \
-    -e '/touch "\$_rsdd_file" 2>\/dev\/null/d' \
-    -e '/touch "\$_rsdd_blocked_file" 2>\/dev\/null/d' \
-    "$_m4"
-  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4" || grep -qF 'touch "$_rsdd_file"' "$_m4"; then
-    no "teeth M4: could not build mutant (self-exclusion or touch-refresh still present after sed)"
+  # Mutant: drop the ENTIRE `! -name ... ! -name ...` self-exclusion clause, reverting to the
+  # pre-#984 behaviour that purges a session's own state files too. Must delete the whole line
+  # (not just its text) — a blank line in the `\`-continued find command would snap it in two,
+  # breaking `-delete` into an invalid standalone "command", degrading the find to its default
+  # -print action instead of actually reverting to the pre-fix delete.
+  sed -i '/! -name "\.rsdd-session-\${_session_id}"/d' "$_m4"
+  if grep -qF '! -name ".rsdd-session-${_session_id}"' "$_m4"; then
+    no "teeth M4: could not build mutant (self-exclusion clause still present after sed)"
   else
     _m4_sid="m4-current-session"
     _m4_own="$_m4d/.claude/.rsdd-session-${_m4_sid}"
@@ -282,7 +288,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ ! -e "$_m4_own" ]; then
       ok "teeth M4: mutant deletes its own session file past 7 days (RED as expected)"
     else
-      no "teeth M4: mutant did NOT delete the session file — rotation protections have no teeth"
+      no "teeth M4: mutant did NOT delete the session file — self-exclusion check has no teeth"
     fi
   fi
 
@@ -317,6 +323,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth R3-001(b): mutant creates a phantom session file on a non-git target (RED as expected)"
     else
       no "teeth R3-001(b): mutant did NOT create a phantom file — assertion has no teeth"
+    fi
+  fi
+
+  echo "-- teeth: glob-metachar validation has teeth --"
+  _content_hookss="$(cat "$SUT")"
+  anchor_glob='  case "$_session_id" in
+    *[\*\?\[]*)'
+  neutered_glob='  case "$_session_id" in
+    _never_matches_this_)'
+  if [[ "$_content_hookss" != *"$anchor_glob"* ]]; then
+    no "teeth: locate glob-metachar validation in SUT" "anchor not found — SUT drifted?"
+  else
+    _m7d="$TMP/glob-metachar-mutant"; mkdir -p "$_m7d/.claude/hooks"
+    _m7="$_m7d/.claude/hooks/research-protocol.sh"
+    printf '%s\n' "${_content_hookss/"$anchor_glob"/$neutered_glob}" > "$_m7"
+    _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
+    printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
+    printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null
+    if [ ! -e "$_m7_unrelated" ]; then
+      ok "teeth: glob-metachar validation removed → unrelated old file gets deleted (RED as expected)"
+    else
+      no "teeth: glob-metachar validation removed → unrelated old file should have been deleted" ""
     fi
   fi
 
