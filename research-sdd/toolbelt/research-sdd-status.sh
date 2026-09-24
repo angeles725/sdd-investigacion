@@ -463,7 +463,50 @@ pick() { case "$1" in ''|*[!0-9]*) case "$2" in ''|*[!0-9]*) echo 0;; *) echo "$
 # Columns recognised by header: Focus (identity), Status|Estado (status), Research-State|State file (identity).
 # Cell decoration stripped before matching: `backtick-wrap` and **bold-wrap** (BOLD-STRIP).
 # WARNs to stderr: token outside closed vocabulary, or state file absent from the index.
+#
+# W2 (kit issue #1005 round 2): the default status report calls this once per state file from the
+# campaign block AND again later from the next-step block, so a multi-focus corpus with nonconforming
+# FOCUSES.md rows printed every such WARN twice. Memoize per (ffile, sbase): the awk scan (and its
+# WARNs) runs at most once per process; every later caller — regardless of which loop — reuses the
+# cached token silently. Distinct from a wrong-answer cache: the token is still recomputed once, from
+# the same file, by the same logic; only the SECOND-and-later read within one run is served from cache.
+#
+# An in-memory associative array does NOT work here: every call site captures this function's stdout
+# via `x="$(_read_focuses_tok ...)"`, and command substitution always forks a subshell — an array
+# write inside that subshell never propagates back to the parent, so an in-process cache silently
+# stays empty forever (measured: still warned twice on the real niagara-research fleet target after
+# an in-memory-array first attempt). A cache FILE survives the fork because it is a real filesystem
+# side effect, not a shell variable.
+#
+# Deliberately NOT `mktemp`: this runs unconditionally, at the top of every invocation, before the
+# --next path's own enumeration mktemp calls — a test harness that stubs mktemp to fail its FIRST
+# call (to test THAT code's degrade-to-unverified path) would have this cache setup silently consume
+# that first failure instead, leaving the enumeration's own mktemp call to wrongly succeed (found via
+# T-IDG-ENUM-MKTEMP going red while wiring this up). A PID-suffixed path needs no external command,
+# so it cannot be the thing a mktemp stub is testing. An unwritable tmp dir degrades to no caching —
+# every call recomputes, exactly like before this fix — never a wrong or stale answer.
+_RSDD_FOC_TOK_CACHE_FILE="${TMPDIR:-/tmp}/.rsdd-foc-tok-cache.$$"  # W2-DEDUP-CACHE-ANCHOR
+: > "$_RSDD_FOC_TOK_CACHE_FILE" 2>/dev/null || _RSDD_FOC_TOK_CACHE_FILE=""
+[ -n "$_RSDD_FOC_TOK_CACHE_FILE" ] && trap 'rm -f "$_RSDD_FOC_TOK_CACHE_FILE"' EXIT
 _read_focuses_tok() {
+  local ffile="$1" sbase="$2"
+  local _cache_key _cache_line _tok
+  if [ -n "$_RSDD_FOC_TOK_CACHE_FILE" ]; then
+    _cache_key="${ffile}$(printf '\x1e')${sbase}"
+    _cache_line="$(grep -F -- "${_cache_key}$(printf '\t')" "$_RSDD_FOC_TOK_CACHE_FILE" 2>/dev/null | head -1)"
+    if [ -n "$_cache_line" ]; then
+      printf '%s' "${_cache_line#*$(printf '\t')}"
+      return
+    fi
+  fi
+  _tok="$(_read_focuses_tok_uncached "$ffile" "$sbase")"
+  if [ -n "$_RSDD_FOC_TOK_CACHE_FILE" ]; then
+    printf '%s\t%s\n' "${ffile}$(printf '\x1e')${sbase}" "$_tok" >> "$_RSDD_FOC_TOK_CACHE_FILE"
+  fi
+  printf '%s' "$_tok"
+}
+
+_read_focuses_tok_uncached() {
   local ffile="$1" sbase="$2"
   [ -f "$ffile" ] || return  # N194-FOCUSES-SKIP-FN
   local fslug="${sbase#RESEARCH-STATE-}"; fslug="${fslug%.md}"
@@ -1159,32 +1202,60 @@ fi
 # The template wraps the section in <!-- ... --> as a "do-not-pre-create" note;
 # real RESEARCH-STATE files do NOT have HTML comments, so we must skip them when
 # they appear (e.g. if someone copies from the template literally).
-# R3-comment-skip-overreach: comment markers only count at the START of a line (optionally after
-# whitespace) — matching how the template actually writes them, each on its own line. A table row's
-# Seed/Convergence cell may legitimately contain a literal "-->" (an arrow token) or an unclosed
-# "<!--"; since a table row always starts with "|", it never matches these anchored patterns, so such
-# a cell can no longer falsely open/close comment mode and drop or hide rows.
+#
+# R3-comment-skip-overreach (round 1): comment markers only count at the START of a line (optionally
+# after whitespace) — matching how the template actually writes them. A table row's Seed/Convergence
+# cell may legitimately contain a literal "-->" or an unclosed "<!--"; since a table row always starts
+# with "|", it never matches these start-anchored patterns, so such a cell can no longer falsely
+# open/close comment mode and drop or hide rows.
+#
+# R3/B2-comment-trailing-text (round 2): round 1's closing check required "-->" to be the LAST thing
+# on the line (`/-->[[:space:]]*$/`), so a real closing line with trailing prose — the retro/audit
+# templates' own `<!-- review-status: pending --> see note` shape, or `line --> (end)` — never closed
+# the comment, silently swallowing every row after it (pending=1 became "campaign: none"). The state
+# machine below closes on "-->" ANYWHERE once inside a comment, and only ENTERS multi-line comment
+# mode when the opening line does NOT also contain a closing "-->" (so a genuine one-line comment like
+# `<!-- a -> b -->` — broken before this PR too, since `[^>]*` could not cross the embedded ">" in
+# "->" — is consumed whole without ever setting in_c). A file that ends while still inside a comment
+# WARNs loudly instead of silently discarding the rest of the section (anti-silent-zero, kit §7).
 campaign_section() {
   awk '
-    /^[[:space:]]*<!--[^>]*-->[[:space:]]*$/ { next }  # CQ-COMMENT-SELFCONTAINED-ANCHOR
-    /^[[:space:]]*<!--/ { in_c=1; next }  # CQ-COMMENT-OPEN-ANCHOR
-    in_c && /-->[[:space:]]*$/ { in_c=0; next }  # CQ-COMMENT-CLOSE-ANCHOR
-    in_c { next }
-    index($0, "## Campaign queue") == 1 { f=1; next }
-    /^## / { f=0 }
-    f' "$state"
+    {
+      if (in_c) {
+        if ($0 ~ /-->/) { in_c = 0 }  # CQ-COMMENT-CLOSE-ANCHOR — closes on --> ANYWHERE, not just at EOL
+        next
+      }
+      if ($0 ~ /^[[:space:]]*<!--/) {  # CQ-COMMENT-OPEN-STARTANCHOR — only a LINE-START <!-- opens a comment
+        if ($0 !~ /-->/) { in_c = 1 }  # CQ-COMMENT-OPEN-ANCHOR — only multi-line when not also closed here
+        next
+      }
+      if (index($0, "## Campaign queue") == 1) { f = 1; next }
+      if ($0 ~ /^## /) { f = 0 }
+      if (f) print
+    }
+    END {
+      if (in_c) print "WARN: campaign queue: file ends while still inside an HTML comment (unclosed <!--)" > "/dev/stderr"  # CQ-COMMENT-EOF-WARN-ANCHOR
+    }
+  ' "$state"
 }
 
 # campaign_queue_present: exits 0 when ## Campaign queue exists outside HTML comments.
-# Same anchored comment-detection as campaign_section() — see R3-comment-skip-overreach above.
+# Same comment-detection state machine as campaign_section() — see the comments above it.
 campaign_queue_present() {
   awk '
-    /^[[:space:]]*<!--[^>]*-->[[:space:]]*$/ { next }  # CQ-COMMENT-SELFCONTAINED-ANCHOR
-    /^[[:space:]]*<!--/ { in_c=1; next }  # CQ-COMMENT-OPEN-ANCHOR
-    in_c && /-->[[:space:]]*$/ { in_c=0; next }  # CQ-COMMENT-CLOSE-ANCHOR
-    in_c { next }
-    index($0, "## Campaign queue") == 1 { found=1; exit }
-    END { exit !found }' "$state"
+    {
+      if (in_c) {
+        if ($0 ~ /-->/) { in_c = 0 }
+        next
+      }
+      if ($0 ~ /^[[:space:]]*<!--/) {
+        if ($0 !~ /-->/) { in_c = 1 }
+        next
+      }
+      if (index($0, "## Campaign queue") == 1) { found = 1; exit }
+    }
+    END { exit !found }
+  ' "$state"
 }
 
 # _campaign_age_min <ISO8601-ts>: prints age in minutes as integer, or "unknown" on parse fail.
@@ -1210,7 +1281,7 @@ _campaign_age_min() {
   fi
   now_epoch="${_RSDD_NOW_EPOCH:-$(date +%s)}"
   age=$(( (now_epoch - ts_epoch) / 60 ))
-  if [ "$age" -lt 0 ]; then
+  if [ "$age" -lt 0 ]; then  # CQ-NEG-AGE-ANCHOR
     printf 'WARN: campaign: last_iteration_ts %s is in the future relative to now (age %d min) — reporting unknown\n' \
       "$ts" "$age" >&2
     printf 'unknown'
@@ -1219,13 +1290,14 @@ _campaign_age_min() {
   printf '%s' "$age"
 }
 
-# campaign_status_block: emit §8c campaign queue lines in the default status report.
-# _campaign_row_counts [warn-label]: reads the CURRENT $state's campaign_section() table rows and
-# prints "pending active done bound-stopped rejected row_count" (six space-separated integers) on
-# stdout. WARNs to stderr for a malformed Kind/State or an empty table; warn-label (e.g. " [beta]")
-# is appended to each WARN so a multi-focus WARN is attributable to the right focus.
+# _campaign_row_counts <warn-label> <section-text>: reads <section-text> (campaign_section()'s
+# output, passed in rather than re-fetched — R2-002: avoid re-running campaign_section() once per
+# field, which would also re-emit its unclosed-comment WARN once per field) table rows and prints
+# "pending active done bound-stopped rejected row_count" (six space-separated integers) on stdout.
+# WARNs to stderr for a malformed Kind/State or an empty table; warn-label (e.g. " [beta]") is
+# appended to each WARN so a multi-focus WARN is attributable to the right focus.
 _campaign_row_counts() {
-  local _wlabel="${1:-}"
+  local _wlabel="${1:-}" _section="${2:-}"
   local n_cq_pending=0 n_cq_active=0 n_cq_done=0 n_cq_bstopped=0 n_cq_rejected=0
   local _cq_row_count=0
   local _row_name _row_kind _row_state
@@ -1253,7 +1325,7 @@ _campaign_row_counts() {
       *) printf 'WARN: campaign queue%s: unrecognised State '\''%s'\'' in row %s\n' \
            "$_wlabel" "$_row_state" "$_row_name" >&2 ;;
     esac
-  done < <(campaign_section | grep '^|')
+  done < <(printf '%s\n' "$_section" | grep '^|')
 
   if [ "$_cq_row_count" -eq 0 ]; then
     printf 'WARN: campaign queue table present but empty%s\n' "$_wlabel" >&2
@@ -1263,13 +1335,14 @@ _campaign_row_counts() {
     "$n_cq_pending" "$n_cq_active" "$n_cq_done" "$n_cq_bstopped" "$n_cq_rejected" "$_cq_row_count"
 }
 
-# _campaign_stop_text <pending> <active> <last_audit>: prints the campaign_stop text for the CURRENT
-# $state (an explicit campaign_stop: field, or the computed STOP condition), or nothing when neither
-# applies. Factored out so campaign_status_block can decide per-focus AND aggregate STOP correctly
-# (R4-campaign-block-first-focus-only) instead of only ever looking at one focus.
+# _campaign_stop_text <pending> <active> <last_audit> <section-text>: prints the campaign_stop text
+# (an explicit campaign_stop: field in <section-text>, or the computed STOP condition), or nothing
+# when neither applies. Factored out so campaign_status_block can decide per-focus AND aggregate STOP
+# correctly (R4-campaign-block-first-focus-only) instead of only ever looking at one focus.
+# <section-text> is passed in rather than re-fetched — see _campaign_row_counts above (R2-002).
 _campaign_stop_text() {
-  local _p="$1" _a="$2" _la="$3" _field
-  _field="$(campaign_section | grep -m1 '^campaign_stop:' | sed 's/^campaign_stop:[[:space:]]*//')"
+  local _p="$1" _a="$2" _la="$3" _section="${4:-}" _field
+  _field="$(printf '%s\n' "$_section" | grep -m1 '^campaign_stop:' | sed 's/^campaign_stop:[[:space:]]*//')"
   if [ -n "$_field" ]; then
     printf '%s' "$_field"
     return
@@ -1284,27 +1357,48 @@ _campaign_stop_text() {
 
 # campaign_status_block: emit §8c campaign queue lines in the default status report.
 #
-# R4-campaign-block-first-focus-only: the original implementation read only the single alphabetically-
-# first $state, so in a multi-focus target the queue counts, campaign_stop and the stall warning
-# described only that one focus — a stalled second focus never warned, and a terminal first focus
-# could print "STOP reached" while an active sibling still had open work. This mirrors the fix already
-# applied to the "next step" block below: iterate every focus, skip only the ones FOCUSES.md declares
-# stopped/paused, and never let one focus's terminal state stand in for the whole campaign.
+# R4-campaign-block-first-focus-only (round 1): the original implementation read only the single
+# alphabetically-first $state, so in a multi-focus target the queue counts, campaign_stop and the
+# stall warning described only that one focus. This mirrors the fix already applied to the "next
+# step" block below: iterate every focus, skip only the ones FOCUSES.md declares stopped/paused, and
+# never let one focus's terminal state stand in for the whole campaign.
+#
+# B1 (round 2): when --focus <slug> narrows the report to one focus, the campaign block must report
+# exactly that focus — never siblings, and never skip it even when FOCUSES.md declares it stopped or
+# paused (that skip exists to keep a MULTI-focus scan from being misled by a terminal sibling; it does
+# not apply when the caller explicitly asked for this one focus).
+#
+# W1 (round 2): a target where NO active focus has started a campaign yet used to print one "none"
+# line PER focus (62 lines on a 30-focus corpus). Collapsed to a single summary line, and per-focus
+# lines are now printed only for focuses that actually have a queue.
 campaign_status_block() {
   local -a _cqb_states=()
-  mapfile -t _cqb_states < <(list_state_files "$target")
+  # B1/RDD: shadow the caller's global $state so the loops below never leak their reassignments out
+  # to it — but COPY the caller's current value in first ("local state=$state"), not a bare "local
+  # state": under `set -u`, a bare local declaration starts unset, and $focus_slug's already-resolved
+  # $state (needed immediately below) would then read as an unbound-variable error.
+  local state="$state"
+  if [ -n "$focus_slug" ]; then  # B1-FOCUS-STATES-ANCHOR
+    _cqb_states=("$state")
+  else
+    mapfile -t _cqb_states < <(list_state_files "$target")
+  fi
 
   local -a _cqb_active=()
   local _cqb_skip=0 _cqb_st _cqb_foc_file _cqb_foc_tok
-  for _cqb_st in "${_cqb_states[@]}"; do
-    _cqb_foc_file="$(dirname "$_cqb_st")/FOCUSES.md"
-    _cqb_foc_tok="$(_read_focuses_tok "$_cqb_foc_file" "$(basename "$_cqb_st")")"
-    if [ "$_cqb_foc_tok" = "stopped" ] || [ "$_cqb_foc_tok" = "paused" ]; then
-      _cqb_skip=$(( _cqb_skip + 1 ))
-      continue
-    fi
-    _cqb_active+=("$_cqb_st")
-  done
+  if [ -n "$focus_slug" ]; then  # B1-FOCUS-ACTIVE-ANCHOR
+    _cqb_active=("${_cqb_states[0]}")
+  else
+    for _cqb_st in "${_cqb_states[@]}"; do
+      _cqb_foc_file="$(dirname "$_cqb_st")/FOCUSES.md"
+      _cqb_foc_tok="$(_read_focuses_tok "$_cqb_foc_file" "$(basename "$_cqb_st")")"
+      if [ "$_cqb_foc_tok" = "stopped" ] || [ "$_cqb_foc_tok" = "paused" ]; then
+        _cqb_skip=$(( _cqb_skip + 1 ))
+        continue
+      fi
+      _cqb_active+=("$_cqb_st")
+    done
+  fi
   # CQB-MULTIFOCUS-ANCHOR (R4-campaign-block-first-focus-only: every active focus is evaluated below,
   # not just the alphabetically-first one)
 
@@ -1313,15 +1407,43 @@ campaign_status_block() {
     return
   fi
 
-  local _cqb_multi=0
-  [ "${#_cqb_active[@]}" -gt 1 ] && _cqb_multi=1
+  # --- pass 1: which active focuses actually have a queue? (W1 collapse decision.) ---
+  local -a _cqb_queue_states=()
+  for state in "${_cqb_active[@]}"; do
+    campaign_queue_present && _cqb_queue_states+=("$state")
+  done
+  local _cqb_n_active="${#_cqb_active[@]}" _cqb_n_queue="${#_cqb_queue_states[@]}"
 
-  local _cqb_slug _cqb_flabel _cqb_wlabel _ts _ts_age_min
-  local _cqb_any_queue=0 _cqb_all_stopped=1
+  if [ "$_cqb_n_queue" -eq 0 ]; then  # W1-COLLAPSE-ANCHOR
+    printf '  %-16s: none (%d active focuses, 0 with a queue)\n' "campaign" "$_cqb_n_active"  # CQ-NONE-ANCHOR
+    if [ "$_cqb_n_active" -eq 1 ]; then
+      # Single-focus corpus, no campaign started: preserve the original two-line contract
+      # (campaign: none + last_iteration_ts) rather than dropping the ts line entirely.
+      local _cqb_ts
+      state="${_cqb_active[0]}"
+      _cqb_ts="$(env_get last_iteration_ts)"
+      if [ -z "$_cqb_ts" ]; then
+        printf '  %-16s: absent\n' "last_iteration_ts"
+      else
+        printf '  %-16s: %s  (age: %s min)\n' "last_iteration_ts" "$_cqb_ts" "$(_campaign_age_min "$_cqb_ts")"
+      fi
+    fi
+    return
+  fi
+
+  # Labelling and STOP-aggregation are both keyed on the QUEUE-BEARING count, not the total active
+  # count: a focus with no queue at all was never "terminal" in any meaningful sense, so it must not
+  # inflate the denominator in "all N ... terminal" (W3) or force labels when only one focus is ever
+  # actually reported (a no-queue sibling produces no output at all — W1).
+  local _cqb_multi=0
+  [ "$_cqb_n_queue" -gt 1 ] && _cqb_multi=1
+
+  local _cqb_slug _cqb_flabel _cqb_wlabel _ts _ts_age_min _cqb_section
+  local _cqb_all_stopped=1
   local _p _a _d _b _r _rows _stop_txt _la
   local _cq_bounds_field _bd_token _bd_key _bd_val
 
-  for state in "${_cqb_active[@]}"; do
+  for state in "${_cqb_queue_states[@]}"; do
     _cqb_slug="$(basename "$state" .md)"; _cqb_slug="${_cqb_slug#RESEARCH-STATE-}"
     _cqb_flabel=""; _cqb_wlabel=""
     if [ "$_cqb_multi" -eq 1 ]; then
@@ -1330,25 +1452,14 @@ campaign_status_block() {
     fi
 
     _ts="$(env_get last_iteration_ts)"
+    _cqb_section="$(campaign_section)"
 
-    if ! campaign_queue_present; then
-      printf '  %-16s: none\n' "campaign${_cqb_flabel}"  # CQ-NONE-ANCHOR
-      if [ -z "$_ts" ]; then
-        printf '  %-16s: absent\n' "last_iteration_ts${_cqb_flabel}"
-      else
-        _ts_age_min="$(_campaign_age_min "$_ts")"
-        printf '  %-16s: %s  (age: %s min)\n' "last_iteration_ts${_cqb_flabel}" "$_ts" "$_ts_age_min"
-      fi
-      continue
-    fi
-    _cqb_any_queue=1
-
-    read -r _p _a _d _b _r _rows < <(_campaign_row_counts "$_cqb_wlabel")
+    read -r _p _a _d _b _r _rows < <(_campaign_row_counts "$_cqb_wlabel" "$_cqb_section")
     printf '  %-16s: pending=%d active=%d done=%d bound-stopped=%d rejected=%d\n' \
       "campaign${_cqb_flabel}" "$_p" "$_a" "$_d" "$_b" "$_r"
 
     # --- last_audit ---
-    _la="$(campaign_section | grep -m1 '^last_audit:' | sed 's/^last_audit:[[:space:]]*//')"
+    _la="$(printf '%s\n' "$_cqb_section" | grep -m1 '^last_audit:' | sed 's/^last_audit:[[:space:]]*//')"
     if [ -n "$_la" ]; then
       printf '  %-16s: %s\n' "last_audit${_cqb_flabel}" "$_la"
     else
@@ -1356,7 +1467,7 @@ campaign_status_block() {
     fi
 
     # --- campaign_stop field or computed STOP condition, per focus ---
-    _stop_txt="$(_campaign_stop_text "$_p" "$_a" "$_la")"
+    _stop_txt="$(_campaign_stop_text "$_p" "$_a" "$_la" "$_cqb_section")"
     if [ -n "$_stop_txt" ]; then
       printf '  %-16s: %s\n' "campaign_stop${_cqb_flabel}" "$_stop_txt"
     else
@@ -1364,7 +1475,7 @@ campaign_status_block() {
     fi
 
     # --- campaign_bounds ---
-    _cq_bounds_field="$(campaign_section | grep -m1 '^campaign_bounds:' | sed 's/^campaign_bounds:[[:space:]]*//')"
+    _cq_bounds_field="$(printf '%s\n' "$_cqb_section" | grep -m1 '^campaign_bounds:' | sed 's/^campaign_bounds:[[:space:]]*//')"
     if [ -n "$_cq_bounds_field" ]; then
       printf '  %-16s: %s\n' "campaign_bounds${_cqb_flabel}" "$_cq_bounds_field"
       # Validate each key=value token
@@ -1400,10 +1511,12 @@ campaign_status_block() {
     fi
   done
 
-  # Aggregate STOP: only when EVERY active, queue-bearing focus independently reached its own STOP
-  # condition — never just the first one (that was the R4-campaign-block-first-focus-only bug).
-  if [ "$_cqb_multi" -eq 1 ] && [ "$_cqb_any_queue" -eq 1 ] && [ "$_cqb_all_stopped" -eq 1 ]; then
-    printf '  %-16s: STOP reached — all %d active focuses terminal\n' "campaign_stop" "${#_cqb_active[@]}"
+  # Aggregate STOP: only when EVERY queue-bearing focus independently reached its own STOP condition
+  # — never just the first one (R4-campaign-block-first-focus-only). W3: the count in the message is
+  # the QUEUE-BEARING count (_cqb_n_queue), never the total active count — a no-queue sibling was
+  # never "terminal" and must not be folded into "all N ... terminal".
+  if [ "$_cqb_multi" -eq 1 ] && [ "$_cqb_all_stopped" -eq 1 ]; then
+    printf '  %-16s: STOP reached — all %d queue-bearing focuses terminal\n' "campaign_stop" "$_cqb_n_queue"  # W3-WORDING-ANCHOR
   fi
 }
 

@@ -13,7 +13,10 @@
 #                                         in whatever $TZ is active. We reproduce that exact behaviour
 #                                         with the real GNU date by stripping the Z and NOT passing -u,
 #                                         so the current $TZ governs the parse — same skew a real BSD
-#                                         host would produce.
+#                                         host would produce. The -f FORMAT ARGUMENT ITSELF is checked
+#                                         against the exact format the SUT is documented to pass — a
+#                                         shim that accepted any format string would not actually be
+#                                         testing the SUT's real call shape (W4, kit issue #1005 r2).
 #   anything else                      → delegates to the real system date so unrelated calls
 #                                         (e.g. a bare `date +%s` for "now") keep working normally.
 #
@@ -27,7 +30,16 @@ case " $* " in
 esac
 
 if [ "${1:-}" = "-j" ] && [ "${2:-}" = "-f" ]; then
+  fmt="${3:-}"
   ts="${4:-}"
+  # W4 (kit issue #1005 round 2): a shim that accepts ANY -f format string is a shim that never
+  # actually checks the caller passed the format the SUT is documented to use — it would silently
+  # "succeed" even if the SUT's own format string drifted or was mistyped. Fail loudly on a format
+  # mismatch instead of silently parsing with the wrong expectation.
+  if [ "$fmt" != "%Y-%m-%dT%H:%M:%SZ" ]; then
+    printf 'fake-bin/date: unexpected -f format %s (expected %%Y-%%m-%%dT%%H:%%M:%%SZ)\n' "$fmt" >&2
+    exit 1
+  fi
   shift 4
   ts_local="${ts%Z}"
   exec /usr/bin/date -d "$ts_local" "$@"
