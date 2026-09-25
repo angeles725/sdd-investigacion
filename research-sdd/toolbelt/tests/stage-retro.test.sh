@@ -562,11 +562,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     repo="$(mkrepo teeth-guard broken)"
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: applied 2026-01-01 -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"   # replace the sandbox copy with the mutant
-    # bash 5.1+ expands an unescaped '&' in the ${var/pat/replacement} REPLACEMENT operand to
-    # the matched text UNLESS the replacement operand is itself quoted (kit issue #1032: an
-    # unquoted replacement containing '>&2' corrupted a mutant into a bare `> git` redirection
-    # that leaked a stray file into the caller's cwd). Every substitution below quotes its
-    # replacement operand so this landmine can never fire regardless of the replacement's content.
+    # bash 5.2+ (the `patsub_replacement` shopt, on by default) expands an unescaped '&' in the
+    # ${var/pat/replacement} REPLACEMENT operand to the matched text UNLESS the replacement
+    # operand is itself quoted (kit issue #1032: an unquoted replacement containing '>&2'
+    # corrupted a mutant into a bare `> git` redirection that leaked a stray file into the
+    # caller's cwd). All 13 non-empty-replacement substitutions in this file quote their
+    # replacement operand so this landmine can never fire regardless of the replacement's
+    # content. Two further sites (case 14/16's anchor_f1 and anchor_f3) use an EMPTY
+    # replacement and are unaffected either way, since an empty string has no '&' to expand.
     neutered=':'
     printf '%s\n' "${content/"$anchor"/"$neutered"}" > "$mutant"
     # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
@@ -729,7 +732,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     repo="$(mkrepo teeth-no-track real)"
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
-    printf '%s\n' "${content/"$anchor_d"/checkout -q -b \"\$branch\" origin/main}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_d"/"checkout -q -b \"\$branch\" origin/main"}" > "$mutant"
     if cmp -s "$mutant" "$SUT"; then
       no "teeth: --no-track mutant differs from SUT" "mutant identical — substitution did not apply"
     else

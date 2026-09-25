@@ -37,20 +37,47 @@ set -uo pipefail
 # --- Locate our own directory (CWD-independent) ---------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- Hermeticity guard (kit issue #1032) -----------------------------------
+# --- Hermeticity guard (kit issue #1032; hardened per #1118 review) -------
 # Suites are invoked as `bash "$suite" ...` with NO cd, so a suite's own unguarded
 # redirection lands in the CALLER's cwd (wherever run-all.sh itself was invoked from) —
 # NOT under $SCRIPT_DIR. kit issue #1032: an unquoted bash ${var/pat/repl} replacement in
 # stage-retro.test.sh corrupted into a bare `> git` redirection that left a stray file named
-# `git` at the caller's cwd. Scope: TOP-LEVEL entries of the caller's cwd only (cheap, and
-# matches the reported symptom) — a suite that leaks nested inside a subdirectory it created
-# itself is outside this check's enumerator.
+# `git` at the caller's cwd.
+#
+# SCOPE: TOP-LEVEL entries of the caller's cwd only — a suite that leaks nested inside a
+# subdirectory it created itself is outside this enumerator (cheap: -maxdepth 1, no recursion).
+# Each entry is tracked by name + size + mtime (not name alone), so this ALSO catches: a leak
+# onto a name that already existed at baseline (including a second `git` leak while the first
+# stray `git` is still present — the exact #1032 state), an overwrite of an existing entry, and
+# the deletion of a pre-existing top-level entry. It does NOT catch a rewrite that reproduces
+# the exact same size and mtime (astronomically unlikely) or a content-only change with
+# unchanged size and mtime.
+#
+# QUIET-TREE PRECONDITION (CLAUDE.md §3, same as every other gate in this kit): a concurrent
+# writer to the caller's cwd (an editor, a second run-all.sh, another session) that touches a
+# top-level entry gets attributed to whichever suite happens to be running at that moment.
+#
+# DEGRADED STATE (§7: absent/unreadable input must never read as a confident 0): if the caller's
+# cwd is not a readable, traversable directory, the guard cannot look at all — it reports
+# DEGRADED (not "0 violations") and fails the run rather than silently passing.
 CALLER_CWD="$(pwd)"
-hermeticity_violations=()   # "<suite basename> leaked: <stray path>" entries
-_snapshot_cwd_top_level() {
-  find "$CALLER_CWD" -mindepth 1 -maxdepth 1 2>/dev/null | LC_ALL=C sort
+hermeticity_violations=()   # "<suite basename> leaked: <entry> (new|modified|removed)"
+HERMETICITY_DEGRADED=0
+if [[ ! -d "$CALLER_CWD" ]] || [[ ! -r "$CALLER_CWD" ]] || [[ ! -x "$CALLER_CWD" ]]; then
+  HERMETICITY_DEGRADED=1
+  echo "run-all.sh: WARNING: hermeticity guard DEGRADED — caller cwd '$CALLER_CWD' is not a readable/traversable directory; cannot verify suites stay hermetic" >&2
+fi
+_scan_cwd_top_level() {
+  # Emits "<name>\t<size>\t<mtime>" per top-level entry of $CALLER_CWD, one per line.
+  find "$CALLER_CWD" -mindepth 1 -maxdepth 1 -printf '%f\t%s\t%T@\n' 2>/dev/null
 }
-_prev_cwd_snapshot="$(_snapshot_cwd_top_level)"
+declare -A _prev_entries=()
+if [[ "$HERMETICITY_DEGRADED" -eq 0 ]]; then
+  while IFS=$'\t' read -r _name _size _mtime; do
+    [[ -n "$_name" ]] || continue
+    _prev_entries["$_name"]="$_size:$_mtime"
+  done < <(_scan_cwd_top_level)
+fi
 
 # --- Optional flags -------------------------------------------------------
 # No arg = fine; a valid flag = enable that mode; anything else is rejected so
@@ -139,17 +166,30 @@ for suite in "${all_suites[@]}"; do
     rc=${PIPESTATUS[0]}
   fi
 
-  # --- Hermeticity check: did THIS suite leak a stray top-level file into the caller's cwd? ---
+  # --- Hermeticity check: did THIS suite leak/modify/delete a top-level cwd entry? ---
   # SENTINEL-HERMETICITY-CHECK
-  _cur_cwd_snapshot="$(_snapshot_cwd_top_level)"
-  _new_cwd_entries="$(comm -13 <(printf '%s\n' "$_prev_cwd_snapshot") <(printf '%s\n' "$_cur_cwd_snapshot"))"
-  if [[ -n "$_new_cwd_entries" ]]; then
-    while IFS= read -r _stray; do
-      [[ -n "$_stray" ]] || continue
-      hermeticity_violations+=("$base leaked: $_stray")
-    done <<< "$_new_cwd_entries"
+  if [[ "$HERMETICITY_DEGRADED" -eq 0 ]]; then
+    declare -A _cur_entries=()
+    while IFS=$'\t' read -r _name _size _mtime; do
+      [[ -n "$_name" ]] || continue
+      _cur_entries["$_name"]="$_size:$_mtime"
+    done < <(_scan_cwd_top_level)
+    for _name in "${!_cur_entries[@]}"; do
+      if [[ "${_prev_entries[$_name]+set}" != "set" ]]; then
+        hermeticity_violations+=("$base leaked: $_name (new)")
+      elif [[ "${_prev_entries[$_name]}" != "${_cur_entries[$_name]}" ]]; then
+        hermeticity_violations+=("$base leaked: $_name (modified)")
+      fi
+    done
+    for _name in "${!_prev_entries[@]}"; do
+      if [[ "${_cur_entries[$_name]+set}" != "set" ]]; then
+        hermeticity_violations+=("$base leaked: $_name (removed)")
+      fi
+    done
+    # SENTINEL-HERMETICITY-ROLLFORWARD (without it, a later suite is re-blamed for an earlier leak)
+    _prev_entries=()
+    for _k in "${!_cur_entries[@]}"; do _prev_entries["$_k"]="${_cur_entries[$_k]}"; done
   fi
-  _prev_cwd_snapshot="$_cur_cwd_snapshot"
 
   # Parse the LAST matching summary line from the captured output.
   # Also accumulate per-test skip lines ("  SKIP  ..." indented format).
@@ -248,12 +288,18 @@ fi
 echo "Test cases passed: $total_passed"
 echo "Test cases skipped: $total_skipped"
 echo "Test cases failed: $total_failed"
-echo "Hermeticity violations: ${#hermeticity_violations[@]}"
-if [[ ${#hermeticity_violations[@]} -gt 0 ]]; then
-  echo "  (a suite must not leak stray files into the caller's cwd — kit issue #1032)"
-  for hv in "${hermeticity_violations[@]}"; do
-    echo "  - $hv"
-  done
+if [[ "$HERMETICITY_DEGRADED" -eq 1 ]]; then
+  echo "Hermeticity: DEGRADED — caller cwd was not readable/traversable; could not verify"
+else
+  echo "Hermeticity violations (new/modified/removed top-level entries in caller cwd): ${#hermeticity_violations[@]}"
+  if [[ ${#hermeticity_violations[@]} -gt 0 ]]; then
+    echo "  (a suite must not leak, overwrite, or delete top-level entries in the caller's cwd — kit issue #1032)"
+    _hv_sorted=()
+    mapfile -t _hv_sorted < <(printf '%s\n' "${hermeticity_violations[@]}" | LC_ALL=C sort)
+    for hv in "${_hv_sorted[@]}"; do
+      echo "  - $hv"
+    done
+  fi
 fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then
@@ -279,7 +325,8 @@ echo "==============================================================="
 
 # Exit 0 only if no suite failed AND at least one suite actually passed.
 # A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
-if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] && [[ ${#hermeticity_violations[@]} -eq 0 ]]; then
+if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
+   && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]]; then
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
     exit 1
