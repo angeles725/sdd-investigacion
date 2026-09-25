@@ -97,41 +97,199 @@ if grep -qF "$bsurl" "$d/SOURCES.md"; then
   ok "backslash-bearing source value written byte-identically (no awk -v escape corruption)"
 else no "backslash corrupted: row=$(grep -F 'datasheets/x.pdf' "$d/SOURCES.md" | head -1)"; fi
 
-# 11 — CORE (retro delta D4: cloudflare/retros/2026-08-28-ztna-focus-close.md): doc mode must register the
-#      EFFECTIVE (post-redirect) URL in SOURCES.md's origin cell, not the originally requested URL. A canonical
-#      doc URL may 301-redirect (docs reorg, slug change); a stale pre-redirect URL in the registry makes
-#      re-fetching the source harder than necessary. Hermetic: no network — a curl STUB on PATH writes a fixed
-#      body to the `-o` target and, when `-w '%{url_effective}'` is requested, prints a canned REDIRECTED URL
-#      (distinct from the requested one) to stdout instead of hitting the network.
-d11="$TMP/redirect-doc/target"; mkdir -p "$d11"
+# ─── redirect-resolution tests (Tests 11-19): PR #1155 round-2 design decision ────────
+# Register the URL reached through PERMANENT redirects (301/308) only — the retro D4 scenario
+# (docs reorg / slug change). Stop resolving at the FIRST TEMPORARY redirect (302/303/307), so a
+# short-lived signed CDN/S3/GitHub-asset URL reached only through one is NEVER registered (R4).
+# Applies to BOTH doc and web modes (R1) since the D4 evidence rows are all web-snapshots.
+#
+# Hermetic: no network. A generic curl STUB on PATH distinguishes a PROBE call (has a -w argument
+# naming 'http_code' — resolve_permanent_redirect's per-hop, non-`-L` check) from a DOWNLOAD call
+# (the rest), and answers a probe by looking up "<url> <code> <location-or-dash>" rows from
+# $STUB_ROUTES (newline-separated; unmatched URLs default to a plain 200, no Location — the
+# no-redirect baseline). $STUB_PROBE_FAIL_URL makes the probe for that one URL fail outright
+# (network-error simulation); $STUB_DOWNLOAD_FAIL=1 makes every download call fail (simulating a
+# total curl transfer failure, to exercise the wget fallback). A companion wget STUB writes a
+# fixed body to its -O target so the fallback path can actually "succeed".
 stubbin="$TMP/stubbin"; mkdir -p "$stubbin"
 cat > "$stubbin/curl" <<'STUBEOF'
 #!/usr/bin/env bash
-# Minimal curl stub for fetch-doc.test.sh case 11: writes a fixed body to the file named after
-# `-o`, and — only when `-w` requests `%{url_effective}` — prints a REDIRECTED URL (distinct from
-# the requested one) to stdout, simulating a resolved 301 redirect with no network access at all.
-out=""
-want_effective=0
-prev=""
+set -u
+is_probe=0
+for arg in "$@"; do case "$arg" in *http_code*) is_probe=1 ;; esac; done
+out=""; url=""; prev=""
 for arg in "$@"; do
-  if [ "$prev" = "-o" ]; then out="$arg"; fi
-  case "$arg" in *url_effective*) want_effective=1 ;; esac
+  [ "$prev" = "-o" ] && out="$arg"
+  case "$arg" in http://*|https://*|file://*) url="$arg" ;; esac
   prev="$arg"
 done
-[ -n "$out" ] && printf 'stub body\n' > "$out"
-if [ "$want_effective" -eq 1 ]; then
-  printf 'https://redirected.example.com/final-page'
+if [ "$is_probe" -eq 1 ]; then
+  if [ -n "${STUB_PROBE_FAIL_URL:-}" ] && [ "$url" = "$STUB_PROBE_FAIL_URL" ]; then
+    echo "curl: (stub) simulated probe network failure" >&2
+    exit 6
+  fi
+  code="200"; loc=""
+  while IFS=' ' read -r r_url r_code r_loc; do
+    [ -z "${r_url:-}" ] && continue
+    if [ "$r_url" = "$url" ]; then
+      code="$r_code"; [ "${r_loc:-}" = "-" ] && loc="" || loc="${r_loc:-}"
+      break
+    fi
+  done <<<"${STUB_ROUTES:-}"
+  printf '%s %s' "$code" "$loc"
+  exit 0
 fi
+if [ "${STUB_DOWNLOAD_FAIL:-0}" = "1" ]; then
+  echo "curl: (stub) simulated download transfer failure" >&2
+  exit 7
+fi
+[ -n "$out" ] && printf 'stub body for %s\n' "$url" >"$out"
 exit 0
 STUBEOF
 chmod +x "$stubbin/curl"
-PATH="$stubbin:$PATH" bash "$SUT" doc "https://original.example.com/orig-page" "$d11" datasheets "redir.html" >/dev/null 2>&1
-if grep -qF 'https://redirected.example.com/final-page' "$d11/sources/SOURCES.md" 2>/dev/null \
-   && ! grep -qF 'https://original.example.com/orig-page' "$d11/sources/SOURCES.md" 2>/dev/null; then
-  ok "doc mode registers the EFFECTIVE (post-redirect) URL, not the originally requested one"
-else
-  no "redirect: origin cell not updated to effective URL :: $(grep 'redir.html' "$d11/sources/SOURCES.md" 2>/dev/null || echo 'NO SOURCES.md / NO ROW')"
-fi
+cat > "$stubbin/wget" <<'STUBEOF'
+#!/usr/bin/env bash
+out=""; prev=""
+for arg in "$@"; do [ "$prev" = "-O" ] && out="$arg"; prev="$arg"; done
+[ -n "$out" ] && printf 'stub wget body\n' >"$out"
+exit 0
+STUBEOF
+chmod +x "$stubbin/wget"
+
+# runchain <mode> <dir> <typed-url> [extra doc args...] — invoke the SUT with the stub curl/wget
+# on PATH and the current $STUB_ROUTES / $STUB_PROBE_FAIL_URL / $STUB_DOWNLOAD_FAIL exported.
+runchain(){ local mode="$1" dir="$2" url="$3"; shift 3
+  PATH="$stubbin:$PATH" bash "$SUT" "$mode" "$url" "$dir" "$@" >/dev/null 2>"$TMP/runchain.err"
+}
+# origin_of <sources-md> <needle> — the Origin (URL) cell of the row whose File cell matches <needle>.
+origin_of(){ awk -F' \\| ' -v n="$2" '$0 ~ n {gsub(/^\| */,"",$1); print $3; exit}' "$1" 2>/dev/null; }
+# runresolve <script> <url> — call resolve_permanent_redirect() from <script> DIRECTLY (source,
+# guarded main never runs — same technique as runreg()), with the stub curl on PATH and the
+# current $STUB_ROUTES / $STUB_PROBE_FAIL_URL exported. Tests the pure resolution logic in
+# isolation from the download/wget-fallback layer, which would otherwise MASK a broken guard (an
+# internal empty-URL bug gets silently recovered by the wget fallback at the pipeline level — see
+# case 17 below) and so cannot prove the guard itself is load-bearing.
+# shellcheck source=../fetch-doc.sh
+runresolve(){ local s="$1" url="$2"
+  ( set +e; PATH="$stubbin:$PATH"; source "$s" >/dev/null 2>&1; resolve_permanent_redirect "$url" 2>/dev/null )
+}
+
+# 11 — a chain of TWO permanent redirects (301, 301) resolves fully; the FINAL permanently-
+#      resolved URL is returned, not the typed URL and not any intermediate hop.
+STUB_ROUTES=$'http://s11.example/a 301 http://s11.example/b\nhttp://s11.example/b 301 http://s11.example/c'
+export STUB_ROUTES
+got11="$(runresolve "$SUT" "http://s11.example/a")"
+if [ "$got11" = "http://s11.example/c" ]; then
+  ok "resolve: permanent-redirect chain (301→301) resolves to the final URL"
+else no "R11: expected http://s11.example/c, got '$got11'"; fi
+
+# 12 — CORE (design decision): permanent redirect (301) THEN a temporary one (302, to a
+#      short-lived signed URL) — resolves to the LAST PERMANENT URL, never the signed target and
+#      never the originally typed one (a genuine permanent redirect DID happen first).
+STUB_ROUTES=$'http://s12.example/a 301 http://s12.example/permanent\nhttp://s12.example/permanent 302 http://cdn.example/signed?sig=deadbeef&exp=60'
+export STUB_ROUTES
+got12="$(runresolve "$SUT" "http://s12.example/a")"
+if [ "$got12" = "http://s12.example/permanent" ]; then
+  ok "resolve: permanent-then-temporary chain stops at the last PERMANENT url, not the signed target"
+else no "R12: expected http://s12.example/permanent, got '$got12'"; fi
+
+# 13 — CORE (design decision, R4): the FIRST hop is already a temporary redirect (302) straight to
+#      a signed URL — resolves to the ORIGINALLY TYPED url, unchanged (never the signed target).
+STUB_ROUTES='http://s13.example/a 302 http://cdn.example/signed?sig=cafef00d'
+export STUB_ROUTES
+got13="$(runresolve "$SUT" "http://s13.example/a")"
+if [ "$got13" = "http://s13.example/a" ]; then
+  ok "resolve: immediate temporary redirect resolves to the ORIGINAL typed URL, not the signed target"
+else no "R13: expected http://s13.example/a, got '$got13'"; fi
+
+# 14 — baseline regression: no redirect at all (plain 200) — resolves to the typed URL unchanged.
+STUB_ROUTES=""
+export STUB_ROUTES
+got14="$(runresolve "$SUT" "http://s14.example/plain")"
+if [ "$got14" = "http://s14.example/plain" ]; then
+  ok "resolve: no redirect (200) resolves to the typed URL unchanged"
+else no "R14: expected http://s14.example/plain, got '$got14'"; fi
+
+# 15 — R1: full pipeline, WEB mode — applies the SAME permanent-redirect-only resolution as doc
+#      mode and registers the RESOLVED url in SOURCES.md (wiring check: web mode must actually
+#      call resolve_permanent_redirect() and use its result, not just have the function exist).
+d15="$TMP/rr-15/target"; mkdir -p "$d15"
+STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'
+export STUB_ROUTES
+runchain web "$d15" "http://s15.example/a"
+slug15="$(echo "http://s15.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+got15="$(origin_of "$d15/sources/SOURCES.md" "$slug15")"
+if [ "$got15" = "http://s15.example/moved" ]; then
+  ok "web: R1 — same permanent-redirect resolution applies in web mode (wiring)"
+else no "R15: expected http://s15.example/moved, got '$got15' (err: $(cat "$TMP/runchain.err"))"; fi
+
+# 16 — S1a: the PROBE request itself fails outright (simulated network error) — must not crash;
+#      resolves to the ORIGINAL typed URL (the last known-good URL before the failed hop).
+STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"
+export STUB_ROUTES STUB_PROBE_FAIL_URL
+got16="$(runresolve "$SUT" "http://s16.example/a")"
+unset STUB_PROBE_FAIL_URL
+if [ "$got16" = "http://s16.example/a" ]; then
+  ok "resolve: S1a — a failed redirect PROBE falls back to the typed URL, no crash"
+else no "R16: expected http://s16.example/a, got '$got16'"; fi
+
+# 17 — S1b (§7 silent-zero) — CORE: a 301 response with NO Location header (malformed) must not
+#      advance to an empty URL. Tested at the FUNCTION level, not the pipeline: the pipeline's own
+#      wget-fallback safety net (S2) would silently recover an internal empty-URL bug by falling
+#      back to $URL anyway, masking whether THIS guard specifically is load-bearing.
+STUB_ROUTES='http://s17.example/a 301 -'
+export STUB_ROUTES
+got17="$(runresolve "$SUT" "http://s17.example/a")"
+if [ "$got17" = "http://s17.example/a" ] && [ -n "$got17" ]; then
+  ok "resolve: S1b — a 301 with no Location does not resolve to an empty URL"
+else no "R17: expected non-empty 'http://s17.example/a', got '$got17'"; fi
+
+# 18 — S2 (doc): the actual DOWNLOAD fails after a permanent redirect resolved — wget fallback
+#      registers the TYPED url (never the resolved-but-undownloadable one) and announces the
+#      reversion on stderr, never silently.
+d18="$TMP/rr-18/target"; mkdir -p "$d18"
+STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1
+export STUB_ROUTES STUB_DOWNLOAD_FAIL
+runchain doc "$d18" "http://s18.example/a" datasheets "r18.html"
+unset STUB_DOWNLOAD_FAIL
+got18="$(origin_of "$d18/sources/SOURCES.md" 'r18\.html')"
+if [ "$got18" = "http://s18.example/a" ] && grep -qi 'wget fallback' "$TMP/runchain.err"; then
+  ok "doc: S2 — wget fallback registers the typed URL and announces the reversion on stderr"
+else no "R18: expected typed URL + stderr notice, got origin='$got18' err='$(cat "$TMP/runchain.err")'"; fi
+
+# 18b — S2 (web): same wget-fallback contract in web mode.
+d18b="$TMP/rr-18b/target"; mkdir -p "$d18b"
+STUB_ROUTES='http://s18b.example/a 301 http://s18b.example/resolved'; STUB_DOWNLOAD_FAIL=1
+export STUB_ROUTES STUB_DOWNLOAD_FAIL
+runchain web "$d18b" "http://s18b.example/a"
+unset STUB_DOWNLOAD_FAIL
+slug18b="$(echo "http://s18b.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+got18b="$(origin_of "$d18b/sources/SOURCES.md" "$slug18b")"
+if [ "$got18b" = "http://s18b.example/a" ] && grep -qi 'wget fallback' "$TMP/runchain.err"; then
+  ok "web: S2 — wget fallback registers the typed URL and announces the reversion on stderr"
+else no "R18b: expected typed URL + stderr notice, got origin='$got18b' err='$(cat "$TMP/runchain.err")'"; fi
+
+# 19 — bounded hop loop: a chain of exactly 3 permanent redirects resolves fully under the
+#      default cap (max_hops=10) — the positive baseline the hop-bound teeth mutant diffs
+#      against (a mutant lowering the cap below 3 must stop short of the final hop).
+STUB_ROUTES=$'http://s19.example/a 301 http://s19.example/h1\nhttp://s19.example/h1 301 http://s19.example/h2\nhttp://s19.example/h2 301 http://s19.example/h3'
+export STUB_ROUTES
+got19="$(runresolve "$SUT" "http://s19.example/a")"
+if [ "$got19" = "http://s19.example/h3" ]; then
+  ok "resolve: a 3-hop permanent chain resolves fully under the default (10) hop cap"
+else no "R19: expected http://s19.example/h3, got '$got19'"; fi
+unset STUB_ROUTES
+
+# 20 — S3 structural check: a total download failure's curl diagnostic must reach stderr (not be
+#      redirected to /dev/null) — a silent "empty body" with no reason is a debugging regression.
+d20="$TMP/rr-20/target"; mkdir -p "$d20"
+STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1
+export STUB_ROUTES STUB_DOWNLOAD_FAIL
+runchain doc "$d20" "http://s20.example/a" datasheets "r20.html"
+unset STUB_DOWNLOAD_FAIL
+if grep -q 'simulated download transfer failure' "$TMP/runchain.err"; then
+  ok "doc: S3 — a total download failure's curl diagnostic reaches stderr, not discarded"
+else no "R20: curl's own failure diagnostic missing from stderr :: $(cat "$TMP/runchain.err")"; fi
 
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
 # Guards: curl for file:// fetching (wget cannot fetch file:// URLs), file(1) for PDF
@@ -247,23 +405,136 @@ EOF
     else no "teeth: -v mutant preserved the backslash — case 5 does NOT depend on ENVIRON (THEATER)"; fi
   fi
 
-  echo "-- teeth: revert doc mode to register \$URL instead of the resolved effective URL; expect the redirect row to register the ORIGINAL URL again → case 11 has teeth --"
-  remutant="$TMP/fetch-doc.REMUTANT.sh"
-  # Force EFFECTIVE_URL back to the originally-requested $URL right before reg() is called in doc
-  # mode, reproducing the pre-fix behaviour (registering the pre-redirect URL).
-  sed '/^    reg "\$SDIR" "\$DEST" "\$SUB" "\$EFFECTIVE_URL" "\$SHA"$/i\
-    EFFECTIVE_URL="$URL"  # MUTANT: revert to pre-fix behaviour' "$SUT" > "$remutant"
-  if ! grep -q 'MUTANT: revert to pre-fix behaviour' "$remutant"; then
-    no "teeth-redirect: could not build mutant (reg call line for EFFECTIVE_URL not found — did the SUT change?)"
+  # ── teeth for resolve_permanent_redirect() (Tests 11-19) — every mutant below is anchored on a
+  # SENTINEL comment (N4: a stable token, not a line number or exact-code match), so a future
+  # reformat that keeps the sentinel keeps the mutant working, and a real semantic edit that drops
+  # the sentinel fails loudly (the grep-guard) instead of silently mutating the wrong thing.
+
+  echo "-- teeth: SENTINEL-PERMANENT-ONLY — widen 301|308 to also treat 302/303/307 as permanent --"
+  pmutant="$TMP/fetch-doc.PMUTANT.sh"
+  sed '/SENTINEL-PERMANENT-ONLY/,/301|308)/ s/301|308)/301|302|303|307|308)/' "$SUT" > "$pmutant"
+  if ! grep -q '301|302|303|307|308)' "$pmutant"; then
+    no "teeth-permanent-only: could not build mutant (case pattern not found — did the SUT change?)"
   else
-    d11m="$TMP/teeth-redirect/target"; mkdir -p "$d11m"
-    PATH="$stubbin:$PATH" bash "$remutant" doc "https://original.example.com/orig-page" "$d11m" datasheets "redir.html" >/dev/null 2>&1
-    if grep -qF 'https://original.example.com/orig-page' "$d11m/sources/SOURCES.md" 2>/dev/null; then
-      ok "teeth-redirect: reverted mutant registers the ORIGINAL (pre-redirect) URL → case 11 has teeth (not theater)"
-    else
-      no "teeth-redirect: mutant still registered the effective URL — case 11 does NOT depend on EFFECTIVE_URL (THEATER) :: $(grep 'redir.html' "$d11m/sources/SOURCES.md" 2>/dev/null)"
-    fi
+    STUB_ROUTES='http://s13.example/a 302 http://cdn.example/signed?sig=cafef00d'; export STUB_ROUTES
+    got13m="$(runresolve "$pmutant" "http://s13.example/a")"
+    if [ "$got13m" = "http://cdn.example/signed?sig=cafef00d" ]; then
+      ok "teeth-permanent-only: mutant follows the temporary redirect into the signed URL → R12/R13 has teeth"
+    else no "teeth-permanent-only: mutant still stopped at '$got13m' — R12/R13 does NOT depend on the 301|308 guard (THEATER)"; fi
   fi
+
+  echo "-- teeth: SENTINEL-LOC-GUARD — remove the empty-Location guard --"
+  lmutant="$TMP/fetch-doc.LMUTANT.sh"
+  sed '/SENTINEL-LOC-GUARD/,/cur="\$loc"/ s/\[ -n "\$loc" \] || break/: # MUTANT: loc-guard removed/' "$SUT" > "$lmutant"
+  if ! grep -q 'MUTANT: loc-guard removed' "$lmutant"; then
+    no "teeth-loc-guard: could not build mutant (guard line not found — did the SUT change?)"
+  else
+    STUB_ROUTES='http://s17.example/a 301 -'; export STUB_ROUTES
+    got17m="$(runresolve "$lmutant" "http://s17.example/a")"
+    if [ "$got17m" != "http://s17.example/a" ]; then
+      ok "teeth-loc-guard: mutant advances to a non-typed (empty/broken) URL on a Location-less 301 → R17 has teeth"
+    else no "teeth-loc-guard: mutant still resolved to the typed URL — R17 does NOT depend on the loc guard (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-PROBE-GUARD — remove the '|| break' after the probe capture --"
+  gmutant2="$TMP/fetch-doc.G2MUTANT.sh"
+  sed '/SENTINEL-PROBE-GUARD/,/redirect_url/ s/")" || break$/")"/' "$SUT" > "$gmutant2"
+  if grep -q '")" || break$' "$gmutant2"; then
+    no "teeth-probe-guard: could not build mutant (probe-capture line unchanged — did the SUT change?)"
+  else
+    STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"; export STUB_ROUTES STUB_PROBE_FAIL_URL
+    got16m="$(runresolve "$gmutant2" "http://s16.example/a")"
+    unset STUB_PROBE_FAIL_URL
+    if [ "$got16m" != "http://s16.example/a" ]; then
+      ok "teeth-probe-guard: mutant does NOT gracefully fall back on a failed probe (set -e kills the resolve) → R16 has teeth"
+    else no "teeth-probe-guard: mutant still fell back to the typed URL — R16 does NOT depend on '|| break' (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-MAXHOPS-VALUE — lower the hop cap below the length of a real chain --"
+  hmutant2="$TMP/fetch-doc.HOPMUTANT.sh"
+  sed 's/max_hops=10  # SENTINEL-MAXHOPS-VALUE.*/max_hops=2  # MUTANT: hop cap lowered/' "$SUT" > "$hmutant2"
+  if ! grep -q 'MUTANT: hop cap lowered' "$hmutant2"; then
+    no "teeth-maxhops: could not build mutant (max_hops declaration not found — did the SUT change?)"
+  else
+    STUB_ROUTES=$'http://s19.example/a 301 http://s19.example/h1\nhttp://s19.example/h1 301 http://s19.example/h2\nhttp://s19.example/h2 301 http://s19.example/h3'
+    export STUB_ROUTES
+    got19m="$(runresolve "$hmutant2" "http://s19.example/a")"
+    if [ "$got19m" = "http://s19.example/h2" ]; then
+      ok "teeth-maxhops: cap=2 mutant stops at hop 2 (h2) instead of the full 3-hop chain (h3) → R19 has teeth"
+    else no "teeth-maxhops: expected mutant to stop at h2, got '$got19m' — R19 does NOT depend on the hop cap (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WEB-RESOLVE — web mode skips redirect resolution (registers \$URL directly) --"
+  wmutant="$TMP/fetch-doc.WMUTANT.sh"
+  sed '/SENTINEL-WEB-RESOLVE/,/resolve_permanent_redirect "\$URL"/ s/EFFECTIVE_URL="\$(resolve_permanent_redirect "\$URL")"/EFFECTIVE_URL="$URL"  # MUTANT: web resolve skipped/' "$SUT" > "$wmutant"
+  if ! grep -q 'MUTANT: web resolve skipped' "$wmutant"; then
+    no "teeth-web-resolve: could not build mutant (web-mode resolve call not found — did the SUT change?)"
+  else
+    d15m="$TMP/teeth-web-resolve/target"; mkdir -p "$d15m"
+    STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'; export STUB_ROUTES
+    PATH="$stubbin:$PATH" bash "$wmutant" web "http://s15.example/a" "$d15m" >/dev/null 2>"$TMP/teeth-web.err"
+    slug15m="$(echo "http://s15.example/a" | sed -E 's#https?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-80)"
+    got15m="$(origin_of "$d15m/sources/SOURCES.md" "$slug15m")"
+    if [ "$got15m" = "http://s15.example/a" ]; then
+      ok "teeth-web-resolve: mutant registers the typed (unresolved) URL in web mode → R1/R15 has teeth"
+    else no "teeth-web-resolve: mutant still registered '$got15m' — R1/R15 does NOT depend on the web-mode wiring (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WGET-NOTICE (doc) — delete the wget-fallback stderr notice --"
+  nmutant="$TMP/fetch-doc.NMUTANT.sh"
+  # The doc-mode SENTINEL-WGET-NOTICE comment spans TWO continuation lines before the echo
+  # itself, so three getlines are needed to consume comment-line-2, comment-line-3, and the
+  # echo (vs. SENTINEL-WGET-RESET's one continuation line + code line = two getlines below).
+  awk '/SENTINEL-WGET-NOTICE \(doc\)/{print; getline; getline; getline; next} {print}' "$SUT" > "$nmutant"
+  # web mode's own identical-text notice must survive untouched (scope check: doc's occurrence
+  # count must drop from 2 to 1 — grep -q alone would false-pass on the surviving web copy).
+  n_orig="$(grep -c 'registered requested URL (wget fallback' "$SUT")"
+  n_mut="$(grep -c 'registered requested URL (wget fallback' "$nmutant")"
+  if [ "$n_mut" -ge "$n_orig" ]; then
+    no "teeth-wget-notice-doc: could not build mutant (doc notice echo still present: $n_orig -> $n_mut — did the SUT change?)"
+  else
+    d18n="$TMP/teeth-wget-notice/target"; mkdir -p "$d18n"
+    STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1
+    export STUB_ROUTES STUB_DOWNLOAD_FAIL
+    PATH="$stubbin:$PATH" bash "$nmutant" doc "http://s18.example/a" "$d18n" datasheets "r18n.html" >/dev/null 2>"$TMP/teeth-notice.err"
+    unset STUB_DOWNLOAD_FAIL
+    if ! grep -qi 'wget fallback' "$TMP/teeth-notice.err"; then
+      ok "teeth-wget-notice-doc: mutant emits NO reversion notice on wget fallback → R18 has teeth"
+    else no "teeth-wget-notice-doc: mutant still emitted the notice — R18 does NOT depend on the echo (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-WGET-RESET (doc) — delete the EFFECTIVE_URL reset after wget fallback --"
+  rmutant="$TMP/fetch-doc.RMUTANT.sh"
+  awk '/SENTINEL-WGET-RESET \(doc\)/{print; getline; getline; next} {print}' "$SUT" > "$rmutant"
+  if grep -A2 'SENTINEL-WGET-RESET (doc)' "$rmutant" | grep -q 'EFFECTIVE_URL="\$URL"'; then
+    no "teeth-wget-reset-doc: could not build mutant (reset line still present — did the SUT change?)"
+  else
+    d18r="$TMP/teeth-wget-reset/target"; mkdir -p "$d18r"
+    STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1
+    export STUB_ROUTES STUB_DOWNLOAD_FAIL
+    PATH="$stubbin:$PATH" bash "$rmutant" doc "http://s18.example/a" "$d18r" datasheets "r18r.html" >/dev/null 2>/dev/null
+    unset STUB_DOWNLOAD_FAIL
+    got18r="$(origin_of "$d18r/sources/SOURCES.md" 'r18r\.html')"
+    if [ "$got18r" = "http://s18.example/resolved" ]; then
+      ok "teeth-wget-reset-doc: mutant registers the resolved-but-undownloadable URL, not the typed one → R18 has teeth"
+    else no "teeth-wget-reset-doc: mutant registered '$got18r' (expected the resolved url) — R18 does NOT depend on the reset (THEATER)"; fi
+  fi
+
+  echo "-- teeth: SENTINEL-S3 — restore 2>/dev/null on the doc-mode download call (swallows curl -S diagnostics) --"
+  smutant="$TMP/fetch-doc.SMUTANT.sh"
+  sed 's/if ! curl -fsS -L "\$EFFECTIVE_URL" -o "\$DEST"; then/if ! curl -fsS -L "$EFFECTIVE_URL" -o "$DEST" 2>\/dev\/null; then/' "$SUT" > "$smutant"
+  if ! grep -q 'curl -fsS -L "\$EFFECTIVE_URL" -o "\$DEST" 2>/dev/null; then' "$smutant"; then
+    no "teeth-s3: could not build mutant (doc-mode download line not found — did the SUT change?)"
+  else
+    d_s3="$TMP/teeth-s3/target"; mkdir -p "$d_s3"
+    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL
+    PATH="$stubbin:$PATH" bash "$smutant" doc "http://s3.example/a" "$d_s3" datasheets "r-s3.html" >/dev/null 2>"$TMP/teeth-s3.err"
+    unset STUB_DOWNLOAD_FAIL
+    if ! grep -q 'simulated download transfer failure' "$TMP/teeth-s3.err"; then
+      ok "teeth-s3: 2>/dev/null mutant swallows curl's own failure diagnostic → S3 structural check has teeth"
+    else no "teeth-s3: mutant's stderr still carried the diagnostic — S3 check does NOT depend on keeping stderr (THEATER)"; fi
+  fi
+  unset STUB_ROUTES
 
   # Teeth for case 7 (hint): delete the printf hint line; expect hint absent → proves case 7 is not theater.
   if $_pdf_ok && $_have_curl; then

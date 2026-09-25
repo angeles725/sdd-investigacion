@@ -317,18 +317,28 @@ TARGET/sources/
 ```
 
 Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2` / `:p.N`), not the
-volatile URL nor the extract; `SOURCES.md` keeps the original URL and the hash. The wrapper
+volatile URL nor the extract; `SOURCES.md` keeps the source URL (the PERMANENT-redirect-resolved
+URL — see below — not necessarily the one first typed) and the hash. The wrapper
 [`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + registration;
 [`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
 (text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
 so their citations get extra §11 scrutiny).
 
-**Register the EFFECTIVE (post-redirect) URL, not the originally requested one.** A canonical doc URL may
-301-redirect (a docs reorg, a slug change) — the origin cell in `SOURCES.md` should hold the URL the content
-actually resolved to, not the one first typed. `fetch-doc.sh` resolves this itself: `doc` mode captures
-`curl -w '%{url_effective}'` alongside the download and registers that resolved URL; a stale pre-redirect URL
-in the origin cell makes re-fetching the source harder than it needs to be. (Source:
-cloudflare/retros/2026-08-28-ztna-focus-close.md D4 — at least 4 doc URLs 301-redirected in one session.)
+**Register the PERMANENT-redirect-resolved URL — never a temporary one.** A canonical doc URL may
+301/308-redirect (a docs reorg, a slug change); the origin cell in `SOURCES.md` should hold the URL a
+PERMANENT redirect chain resolves to, not the one first typed. `fetch-doc.sh` resolves this itself, in
+BOTH `doc` and `web` mode: a bounded per-hop probe follows only 301/308 hops and stops at the FIRST
+302/303/307 (temporary) redirect, registering whatever URL it is holding at that point — never the
+temporary hop's target. This is deliberate, not merely a redirect-following convenience: a temporary
+redirect is how a short-lived, signed CDN/S3/GitHub-asset URL is served, and registering ONE of those
+would put an expiring, credential-bearing link in SOURCES.md instead of a stable, re-fetchable one. A
+stale pre-redirect URL in the origin cell makes re-fetching the source harder than it needs to be, but
+an ephemeral signed URL is worse — it stops working entirely once it expires. When curl's own probe
+cannot confirm a permanent redirect (transfer failure, or a wget fallback that cannot resolve/confirm
+redirects the way the probe does), `fetch-doc.sh` registers the originally typed URL instead and
+announces that reversion on stderr — never silently. (Source: cloudflare/retros/2026-08-28-ztna-focus-close.md
+D4 — at least 4 doc URLs 301-redirected in one session; every D4 row is a `web-snapshot`, fetched via
+`web` mode, which is why the fix applies to both modes.)
 
 **Already-on-disk official doc corpora (`fetch-doc.sh` is URL-only; local-origin sources use cp + sha256 + SOURCES.md row).** When official documentation is already on disk rather than fetched via URL, the preservation sequence is: (1) `cp -r <source-tree> sources/manuals/<focus>-docs/`; (2) `sha256sum` the preserved files to produce the integrity hash; (3) add a SOURCES.md row with the local-origin path in the origin cell and the full hash in the sha256 cell. Cite the preserved copy exactly as a URL-fetched manual; `[CERT-doc]` applies once the file is registered with a populated hash. Do not improvise per-run — the `jsonToolkit` focus preserved 33 files across 14 blocks with no kit recipe, repeating the same 3-step by convention and establishing the workflow gap: inconsistency risk (missing sha256, blank Blocks column, wrong granularity) is real.
 
@@ -1131,12 +1141,17 @@ backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at 
 **Frontier mode (5th investigation mode — unexplored territory, breadth-first).** Use frontier mode for a genuinely new focus with NO prior corpus coverage on its proposed surfaces — for example, the first pass over an entirely uncharted subsystem or target. The goal is a COVERAGE MAP across many sub-areas, not deep certification of one. Characteristics: sweep strategy is BREADTH-FIRST and LIGHTER BLOCK DENSITY than a normal deep-dive focus; the `[INFER]`/`[CERT]` ratio is EXPECTED HIGH — that is not a defect but a signal that targeted deep-dive passes are needed later. Declare `MODE: frontier` in RESEARCH-STATE at bootstrap. A frontier focus is NOT under depth pressure from the marker ratio: a high `[INFER]` count signals "return with richer tooling", not "the focus is incomplete by §8 standards". Distinct from a grade-upgrade reopen (which deepens evidence for questions already asked on a STOPPED focus) and from live-backlog injection (which extends an active loop's queue). **FRONTIER-REOPEN DECISION SHAPE.** Before honoring STOP on a frontier focus, run a coverage/section audit: if the audit reveals >2 contiguous section entries uncovered OR >1 named sub-topic with no block coverage, that is a new tier, not an in-block residue — declare it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration of the new tier and seed the backlog from the uncovered entries. A single in-child residue stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is not a reproducible corpus action.
 (Source: niagara-research/retros/2026-09-14-frontier-mode-proposal.md)
 
-**Documenting a problem is part of finishing it, not a deferred extra.** Write the problem-entry (§4/§20
-canonical template) immediately AFTER each verification or fix lands, in the same iteration — not batched
-to loop STOP or only when explicitly asked. A fix with no contemporaneous entry is undocumented work
-(§7 `undocumented_findings`) regardless of whether it eventually gets written up later; "later" is where
-causes get lost and symptom gets mistaken for cause. (Source:
-investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #2.)
+**Documenting a problem is part of finishing it, not a deferred extra — a cadence rule, not a new debt.**
+Write the problem-entry (§4/§20 canonical template, or a journal entry per §20b when the work is
+procedural rather than block-worthy) immediately AFTER each verification or fix lands, in the same
+iteration — not batched to loop STOP or only when explicitly asked. This is guidance about WHEN to write,
+not a new instrument or a new failure mode: the §7 `undocumented_findings` counter already tracks whatever
+is genuinely undocumented (a `mem_save` with no block), and it clears the moment the block is written,
+however late. A block written late and then decremented to 0 is not "still undocumented" under this rule —
+it is exactly what §7 already calls done. The reason to write promptly is not to avoid inventing debt the
+counter would otherwise miss; it is that a delayed write-up is where the root cause gets lost and a symptom
+gets mistaken for it. (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md
+delta #2.)
 
 ## 8b. Gap-backlog cell grammar (issue #147)
 
@@ -3002,9 +3017,9 @@ trigger, not "a focus stopped".
 
 **§18 is a batch pass over the run; it does not replace per-change documentation (§8).** The retrospective
 consolidates lessons at the terminal — it is not where a fix's symptom/cause/verification first gets
-written down. Each problem-entry belongs in the block AS IT IS RESOLVED (§4/§20 template, §8 cadence); §18
-then reads those entries and the journal to extract reusable kit deltas, it does not author the original
-record.
+written down. Each problem-entry belongs in the block, or in a journal entry per §20b when the work is
+procedural rather than block-worthy, AS IT IS RESOLVED (§4/§20 template, §8 cadence); §18 then reads
+those entries and the journal to extract reusable kit deltas — it does not author the original record.
 
 **What it does.** The driver DELEGATES a fresh-context retro agent (fresh context is the point — independent
 judgment, not the driver's own rationalizations). The retro agent:
@@ -3612,7 +3627,7 @@ precisely what `[CERT-hw]`/`[CERT-live]` already mean.
 **Problem-entry template (canonical form for documenting a bug or incident fixed mid-session).** When a
 session's work surfaces and fixes a concrete problem (a bug, an environment mismatch, an operational
 outage), document it as one entry with these fields, in order: (1) **symptom** — the observable
-("the 1775 reports 0 events"); (2) **root cause** — the verified why, distinct from the first hypothesis
+("the report shows 0 events"); (2) **root cause** — the verified why, distinct from the first hypothesis
 ("event key collided in the upsert", not "looked like a decode issue"); (3) **fix** — what changed,
 concretely; (4) **why that fix** — the reasoning against the alternatives considered; (5) **when/where** —
 date + commit sha + `file:line` when applicable; (6) **verification** — the evidence it is actually
