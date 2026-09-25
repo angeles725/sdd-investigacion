@@ -270,9 +270,20 @@ for p in $paths; do
   # propose-never-apply; TARGETS.md is never auto-edited (§8) — the maintainer refreshes the row by
   # hand from this WARN's output. Deliberately narrower than the legend's full token set (excludes
   # 'hook deferred', which the issue does not name) — same "measure incidence, do not guess the
-  # rule wider than measured" discipline as #1108. Measured on the real fleet (2026-09-25): 9 of 17
+  # rule wider than measured" discipline as #1108. Measured on the real fleet (2026-09-25): 8 of 17
   # reachable targets (COB-IM2, fluke-177x-datos, mini-pc, nave-panccadia, sullair,
-  # panccadia-3d-viewer, hisense, three.js, ford-bms-panel).
+  # panccadia-3d-viewer, hisense, ford-bms-panel).
+  #
+  # STRICT '= "wired"' — NOT 'wired-off-root' (kit issue #1135; #1141 round-2 review, Blocking 1):
+  # a nested target whose registered path is not its own git root is Stop-scoped-wired
+  # syntactically, but a real session never launches from the nested path, so a row correctly
+  # claiming 'hook file yes / unregistered' for such a target must NOT WARN here — that claim is
+  # ACCURATE, and pushing the maintainer to "refresh" it toward 'hook yes' would be the exact §7
+  # false-confidence shape #1135 exists to prevent (three.js, TARGETS.md row 13, is this case: its
+  # settings.json is wired at the nested path, but its own git root is the parent directory).
+  # Equality with the literal string 'wired' (never '!= "unwired"' or a 'wired*' pattern) is what
+  # keeps this exclusion correct after #1135 lands — see the pinned fixture and mutation tooth
+  # below (2026-09-25 review: this held only by accident before the fixture existed).
   _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
   if [ -n "$_vr_hook_no_claim" ]; then
     _vr_hook_state2="$(hook_stop_wiring_state "$p")"

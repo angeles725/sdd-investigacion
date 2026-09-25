@@ -337,33 +337,42 @@ fi
 # propose-never-apply; TARGETS.md is never auto-edited — the maintainer refreshes the row by hand.
 
 # 3m — REVERSE HOOK-WIRING: row claims 'hook no' but the target's Stop hook IS actually wired to
-#      retro-gate → WARN naming the mismatch.
-kit="$(mkkit c3m-hooknowired)"; tgt="$kit/targetA"
+#      retro-gate → WARN naming the mismatch. Also asserts the 'attention' summary count and the
+#      absence of the clean-verdict line (kit issue #1141 round-2 review, Blocking 2: manually
+#      deleting the reverse check's 'attention=$((attention + 1))' left this suite green at 99/99 —
+#      a fleet whose ONLY drift is reverse drift would then print "Registry consistent with
+#      reality" underneath its own WARN. The target is placed OUTSIDE the sandbox kit dir (sibling
+#      under $ROOT, not nested under $kit) and the kit registers ITSELF via write_targets, so
+#      KIT-SELF-REG-CHECK and the nc-corpus-marker check both stay silent — the ONLY possible
+#      source of 'attention' or an unresolved corpus-marker WARN in this fixture is the reverse
+#      check itself, making 'exactly 1 attention, no consistent line' an unconfounded assertion.
+kit="$(mkkit c3m-hooknowired)"; tgt="$ROOT/c3m-hooknowired-tgt/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
-{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
-} > "$kit/TARGETS.md"
+write_targets "$kit" "${tgt}::3 md / hook no"
 run "$kit"
 if [ "$RC" = 0 ] \
-   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook no' but the Stop hook IS wired" <<<"$OUT"; then
-  ok "3m hook no + actually wired → reverse hook-wiring WARN fires" "(exit $RC)"
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook no' but the Stop hook IS wired" <<<"$OUT" \
+   && grep -qF '1 attention.' <<<"$OUT" \
+   && ! grep -qF 'Registry consistent with reality' <<<"$OUT"; then
+  ok "3m hook no + actually wired → reverse hook-wiring WARN fires, attention=1, not 'consistent'" "(exit $RC)"
 else
-  no "3m hook no + actually wired → reverse hook-wiring WARN fires" "exit=$RC out=[$OUT]"
+  no "3m hook no + actually wired → reverse hook-wiring WARN fires, attention=1, not 'consistent'" "exit=$RC out=[$OUT]"
 fi
 
 # 3n — REVERSE HOOK-WIRING: row claims 'hook file yes' (with or without the '/ unregistered'
 #      companion token) but the target's Stop hook IS actually wired → WARN naming the mismatch.
-kit="$(mkkit c3n-hookfileyeswired)"; tgt="$kit/targetA"
+#      Same attention/consistent-line assertions and unconfounded fixture shape as 3m.
+kit="$(mkkit c3n-hookfileyeswired)"; tgt="$ROOT/c3n-hookfileyeswired-tgt/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
-{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | targetA | mature (3 md / git yes / hook file yes / unregistered) | `%s` |\n' "$tgt"
-} > "$kit/TARGETS.md"
+write_targets "$kit" "${tgt}::3 md / hook file yes / unregistered"
 run "$kit"
 if [ "$RC" = 0 ] \
-   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook file yes' but the Stop hook IS wired" <<<"$OUT"; then
-  ok "3n hook file yes + actually wired → reverse hook-wiring WARN fires" "(exit $RC)"
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook file yes' but the Stop hook IS wired" <<<"$OUT" \
+   && grep -qF '1 attention.' <<<"$OUT" \
+   && ! grep -qF 'Registry consistent with reality' <<<"$OUT"; then
+  ok "3n hook file yes + actually wired → reverse hook-wiring WARN fires, attention=1, not 'consistent'" "(exit $RC)"
 else
-  no "3n hook file yes + actually wired → reverse hook-wiring WARN fires" "exit=$RC out=[$OUT]"
+  no "3n hook file yes + actually wired → reverse hook-wiring WARN fires, attention=1, not 'consistent'" "exit=$RC out=[$OUT]"
 fi
 
 # 3o — REVERSE HOOK-WIRING negative control: row claims 'hook no' and the target is genuinely
@@ -424,6 +433,35 @@ if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
   ok "3r 'hook files yes' claim → word boundary rejects it, no reverse hook-wiring WARN" "(exit $RC)"
 else
   no "3r 'hook files yes' claim → word boundary rejects it, no reverse hook-wiring WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3s — kit issue #1141 round-2 review, Blocking 1 (three.js shape): a NESTED target — registered
+#      path is NOT its own git root (git root is the PARENT directory) — whose settings.json IS
+#      Stop-scoped-wired at the nested path, with the row correctly claiming 'hook file yes /
+#      unregistered' (kit issue #1135's wired-off-root state: a real session launches from the git
+#      root, never the nested path, so the wired settings.json never loads in practice — the claim
+#      is ACCURATE, not stale). The reverse check must NOT WARN here: pushing the maintainer to
+#      "refresh" this row toward 'hook yes' would itself be the exact §7 false-confidence shape
+#      #1135 exists to prevent (this is three.js, TARGETS.md row 13, precisely — kit issue #1128's
+#      original PR misattributed it as a true positive before this was caught in review).
+#
+# DEPENDS ON kit issue #1135 (PR #1140): lib/hook-wiring.sh must define the 'wired-off-root' state
+# for this fixture to hold. On THIS branch alone (based on origin/main, pre-#1140), the sourced lib
+# has no such state — hook_stop_wiring_state reports plain 'wired' for a Stop-wired target
+# regardless of its git root — so this fixture is EXPECTED to fail here, for that one documented
+# reason (a real dependency gap, not a logic defect in this PR's own guard, which is already the
+# strict '= "wired"' equality the fix requires — see verify-registry.sh's own HOOK-WIRING-REVERSE-
+# CHECK comment). It is expected to pass, with ZERO further code changes to this PR, once this
+# branch is rebased onto origin/main after #1140 merges.
+kit="$(mkkit c3s-hookoffrootnowarn)"; gitroot="$kit/repo"; tgt="$gitroot/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+git init -q "$gitroot" >/dev/null 2>&1
+write_targets "$kit" "${tgt}::3 md / hook file yes / unregistered"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3s nested off-git-root target, wired, 'hook file yes / unregistered' claim → no reverse WARN (accurate claim, not drift)" "(exit $RC)"
+else
+  no "3s nested off-git-root target, wired, 'hook file yes / unregistered' claim → no reverse WARN (accurate claim, not drift)" "exit=$RC out=[$OUT] — EXPECTED to fail until this branch is rebased onto origin/main post-#1140 merge (lib/hook-wiring.sh's wired-off-root state, kit issue #1135, does not exist on this branch yet)"
 fi
 
 # 4 — TRUNCATED '...' path → dropped, PARTIAL WARN names its basename; a real target alongside still reconciles.
@@ -3233,6 +3271,74 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-hook-no-claim-boundary: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  fi
+
+  # kit issue #1141 round-2 review, Blocking 2: a mutant that drops ONLY the reverse check's
+  # 'attention=$((attention + 1))' — leaving the WARN line itself intact — previously passed this
+  # suite at 99/99 (manually verified by the reviewer), because nothing asserted the attention
+  # count or the clean-verdict line's absence. Uses 3m's own unconfounded fixture (target outside
+  # the sandbox kit dir, kit self-registered via write_targets) so 'attention' and 'consistent'
+  # are unambiguously attributable to this one check.
+  echo "-- teeth-hook-wiring-reverse-attention: drop ONLY the reverse check's attention increment (WARN line untouched); test 3m must regain 'attention=0' and the false 'consistent' line --"
+  kit="$(mkkit teeth-hookreverse-attn)"; tgt="$ROOT/teeth-hookreverse-attn-tgt/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  write_targets "$kit" "${tgt}::3 md / hook no"
+  mut_hwa="$kit/toolbelt/verify-registry.sh"
+  _anchor_hwa='    if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
+      echo "WARN  $(basename "$p") — row claims '"'"'${_vr_hook_no_claim}'"'"' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row (propose-never-apply)."
+      attention=$((attention + 1))
+    fi'
+  if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hwa"; then
+    _mutation_hwa='    if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
+      echo "WARN  $(basename "$p") — row claims '"'"'${_vr_hook_no_claim}'"'"' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row (propose-never-apply)."
+    fi'
+    _content_hwa="$(cat "$mut_hwa")"
+    if [[ "$_content_hwa" != *"$_anchor_hwa"* ]]; then
+      no "teeth-hook-wiring-reverse-attention: could not locate the exact 3-line reverse-check block in SUT (drifted?)"
+    else
+      printf '%s\n' "${_content_hwa/"$_anchor_hwa"/"$_mutation_hwa"}" > "$mut_hwa"
+      outm_hwa="$("$BASH_BIN" "$mut_hwa" 2>&1)"
+      if grep -q "row claims 'hook no' but the Stop hook IS wired" <<<"$outm_hwa" \
+         && grep -qF '0 attention.' <<<"$outm_hwa" \
+         && grep -qF 'Registry consistent with reality' <<<"$outm_hwa"; then
+        ok "teeth-hook-wiring-reverse-attention: attention-increment-dropped mutant leaves the WARN but falsely reports 0 attention + 'consistent' — test 3m has teeth" "()"
+      else
+        no "teeth-hook-wiring-reverse-attention: attention-increment-dropped mutant must keep the WARN but lose the attention count / gain the false consistent line — THEATER" "out=[$outm_hwa]"
+      fi
+    fi
+  else
+    no "teeth-hook-wiring-reverse-attention: HOOK-WIRING-REVERSE-CHECK sentinel not found in SUT (drifted?)"
+  fi
+
+  # kit issue #1141 round-2 review, Blocking 1: widen the reverse guard from strict '= "wired"' to
+  # a 'wired*' prefix match (accepting 'wired-off-root' too) and confirm fixture 3s's target then
+  # false-WARNs. DEPENDS ON kit issue #1135 (PR #1140) the same way 3s itself does: on THIS branch
+  # (pre-#1140-merge), lib/hook-wiring.sh never produces 'wired-off-root' at all, so the baseline
+  # (unmutated) SUT ALSO WARNs on 3s's fixture — there is no daylight yet for this mutation to
+  # distinguish. Pre-checks the baseline first and reports an honest SKIP (not a fabricated
+  # PASS/FAIL) rather than claiming teeth that cannot yet bite. Once this branch is rebased onto
+  # origin/main after #1140 merges, the baseline goes clean (3s passes) and this tooth activates.
+  echo "-- teeth-hook-wiring-reverse-offroot-widen: widen the reverse guard to 'wired*' (accepts wired-off-root); fixture 3s must false-WARN once #1135 lands --"
+  kit="$(mkkit teeth-hookreverse-offroot)"; gitroot_t="$kit/repo"; tgt="$gitroot_t/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  git init -q "$gitroot_t" >/dev/null 2>&1
+  write_targets "$kit" "${tgt}::3 md / hook file yes / unregistered"
+  base_hro="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"
+  if grep -q "Stop hook IS wired" <<<"$base_hro"; then
+    echo "  SKIP  teeth-hook-wiring-reverse-offroot-widen: baseline (unmutated) SUT already WARNs on the 3s fixture — lib/hook-wiring.sh on this branch has no 'wired-off-root' state yet (kit issue #1135 / PR #1140 not yet merged into this branch); re-run after rebasing onto origin/main post-merge"
+  else
+    mut_hro="$kit/toolbelt/verify-registry.sh"
+    if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hro"; then
+      sed -i 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if [[ "$_vr_hook_state2" == wired* ]]; then  # HOOK-WIRING-REVERSE-CHECK (mutated: widened to wired*)/' "$mut_hro"
+      outm_hro="$("$BASH_BIN" "$mut_hro" 2>&1)"
+      if grep -q "row claims 'hook file yes' but the Stop hook IS wired" <<<"$outm_hro"; then
+        ok "teeth-hook-wiring-reverse-offroot-widen: 'wired*' widening false-WARNs a wired-off-root target — fixture 3s has teeth" "()"
+      else
+        no "teeth-hook-wiring-reverse-offroot-widen: 'wired*' widening must false-WARN the wired-off-root fixture — THEATER" "out=[$outm_hro]"
+      fi
+    else
+      no "teeth-hook-wiring-reverse-offroot-widen: HOOK-WIRING-REVERSE-CHECK sentinel not found in SUT (drifted?)"
+    fi
   fi
 fi
 
