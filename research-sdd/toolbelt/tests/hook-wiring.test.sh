@@ -95,9 +95,6 @@ fi
 d="$ROOT/t7-absent"
 assert_state "7 non-existent target dir → absent-settings" "$d" "absent-settings"
 
-echo ""
-printf '== %d passed · %d failed ==\n' "$pass" "$fail"
-
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -173,5 +170,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 fi
+
+echo ""
+printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 
 [ "$fail" -eq 0 ] && exit 0 || exit 1

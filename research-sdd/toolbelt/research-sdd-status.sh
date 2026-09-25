@@ -100,6 +100,15 @@ if [ ! -f "$_BFLIB" ]; then echo "research-sdd-status: cannot find helper $_BFLI
 declare -F block_file_filter >/dev/null 2>&1 || { echo "research-sdd-status: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
 unset _BFLIB
 
+# Shared Stop-hook wiring predicate (kit issue #1109): single source of truth with
+# sweep-retros.sh's WIRING-STATUS fleet pass and verify-registry.sh's 'hook yes' claim check.
+_HWLIB="$here/lib/hook-wiring.sh"
+if [ ! -f "$_HWLIB" ]; then echo "research-sdd-status: cannot find helper $_HWLIB" >&2; exit 1; fi
+# shellcheck source=lib/hook-wiring.sh
+. "$_HWLIB"
+declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "research-sdd-status: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
+unset _HWLIB
+
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
 stopctl()      { section '## Stop control'; }
@@ -1562,6 +1571,7 @@ blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
+echo "  Stop hook       : $(hook_stop_wiring_state "$target")"
 echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"

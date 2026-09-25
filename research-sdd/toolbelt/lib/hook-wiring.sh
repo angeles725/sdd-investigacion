@@ -3,12 +3,11 @@
 #
 # WHY: this predicate originally lived only as an inline awk pipeline inside sweep-retros.sh's
 # WIRING-STATUS fleet pass. Kit issue #1108 needs the SAME check inside verify-registry.sh (to
-# reconcile a TARGETS.md row's 'hook yes' claim against reality) — both source this file instead
-# of carrying their own copy, so the two MUST agree: a row claiming 'wired' while sweep-retros
-# disagrees defeats the whole point of §18 supervision. Kit issue #1109 (a follow-up PR, stacked
-# on this one) adds research-sdd-status.sh as a THIRD consumer, sourcing this same file to
-# self-report wiring for the one target being reported on — that PR updates this note once it
-# lands; as of #1108 alone, research-sdd-status.sh does not yet source this file.
+# reconcile a TARGETS.md row's 'hook yes' claim against reality), and kit issue #1109 needs it
+# inside research-sdd-status.sh (to self-report wiring for the one target being reported on). All
+# three source this file instead of carrying their own copy, so all three MUST agree — a row or
+# a self-report claiming 'wired' while sweep-retros disagrees defeats the whole point of §18
+# supervision.
 #
 #   hook_stop_wiring_state_var <target-dir>
 #     Sets the GLOBAL $HOOK_WIRING_STATE to exactly one of: wired | unwired | absent-settings |
@@ -49,10 +48,9 @@
 #   hook_stop_wiring_state <target-dir>
 #     Convenience wrapper: calls hook_stop_wiring_state_var, then prints $HOOK_WIRING_STATE to
 #     stdout. For a caller that only needs the state ONCE (verify-registry.sh's per-row
-#     reconciliation is the only consumer as of #1108; kit issue #1109 adds research-sdd-status.sh's
-#     single self-report line as a second), `$(hook_stop_wiring_state "$dir")` is the simplest
-#     idiom and the one extra fork is immaterial. A caller iterating many targets in a tight loop
-#     should call hook_stop_wiring_state_var directly instead.
+#     reconciliation, research-sdd-status.sh's single self-report line), `$(hook_stop_wiring_state
+#     "$dir")` is the simplest idiom and the one extra fork is immaterial. A caller iterating many
+#     targets in a tight loop should call hook_stop_wiring_state_var directly instead.
 #
 # Idempotent: safe to source more than once.
 
