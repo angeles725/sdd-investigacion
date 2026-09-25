@@ -38,7 +38,9 @@
 #   - one of the span's WHITESPACE-separated tokens, when a span lists several bare identifiers
 #     (e.g. `` `check-coverage.py honeywellSpyderTool XL10NextGen` ``),
 #   - the module portion of a `<module>-<profile>` suffix form, `<profile>` one of the Niagara
-#     module-profile suffixes rt/wb/ux/se (e.g. `` `modbusCore-wb` `` charters `modbusCore`),
+#     module-profile suffixes rt/wb/ux/se, a trailing `.jar` stripped first (round 4 — the real
+#     `` `bacnetUtil-rt.jar` `` names a compiled artifact, not a bare profile, e.g.
+#     `` `modbusCore-wb` `` charters `modbusCore`, `` `bacnetUtil-rt.jar` `` charters `bacnetUtil`),
 #   - a GLOB token (containing '*' or '?', e.g. `` `clHVAC*` ``) matched against unit basenames
 #     with shell glob semantics — counted separately as "glob-chartered", never silently folded
 #     into the plain exact-token count or left to fall through as unchartered,
@@ -50,7 +52,11 @@
 #     uppercase letter or digit is what makes this safe: it is the exact property `Clock.schedule`
 #     and ordinary English lack. Restricted to TABLE ROWS: the same prose Clock.schedule warns
 #     about lives in bullet lists and paragraphs, not table cells — a bare mention in a bullet
-#     list (not a table row) is deliberately NOT chartered by this form.
+#     list (not a table row) is deliberately NOT chartered by this form,
+#   - a BARE `<word>-<profile>` suffix form (no backticks), same TABLE ROW restriction as above
+#     (round 4, LOW) — the profile suffix (rt/wb/ux/se) is itself the safety signal here,
+#     independent of the base word's case (real examples: `wbutil-wb`, `zwave-wb`, `devkit-wb`,
+#     `jetty-rt`, all bare in their own gap-table rows).
 # A bare ALL-LOWERCASE word (no internal uppercase/digit) in a table row is never silently
 # chartered (that reopens the Clock.schedule risk) and never silently left as confident
 # UNCHARTERED either — it is real but unresolvable evidence, reported as its own typed
@@ -331,10 +337,14 @@ grep -oE '`[^`]+`' "$TMP/row_cells.txt" 2>/dev/null \
 grep -E '^[A-Za-z][A-Za-z0-9_.-]*$' "$TMP/raw_candidates.txt" | sort -u > "$TMP/plain_tokens_base.txt"
 # Profile-suffix form: `<module>-rt|wb|ux|se` also charters `<module>` (Niagara module-profile
 # convention; measured 2026-09-25: `driver-rt`, `basicDriver-rt`, `modbusCore-wb` in the real
-# RESEARCH-STATE files).
+# RESEARCH-STATE files). A trailing `.jar` on the suffix is stripped first (round 4): the real
+# RESEARCH-STATE-protocols.md:53 writes the JAR-file form `` `bacnetUtil-rt.jar` `` — checking only
+# the exact suffixes "rt"/"wb"/"ux"/"se" missed it; "rt.jar" etc. is the identical convention naming
+# the module's compiled artifact instead of its bare profile.
 awk -F'-' '{
   if (NF >= 2) {
     suf = $NF
+    sub(/\.jar$/, "", suf)
     if (suf == "rt" || suf == "wb" || suf == "ux" || suf == "se") {
       base = $1
       for (i = 2; i < NF; i++) base = base "-" $i
@@ -343,24 +353,48 @@ awk -F'-' '{
   }
 }' "$TMP/plain_tokens_base.txt" > "$TMP/plain_tokens_suffix.txt"
 
-# ---------- bare-word forms from TABLE ROWS only (round 3, R1): strip backtick spans first (a
-# backtick-wrapped word is already captured above; scanning it again here would be redundant, not
-# wrong, but stripping keeps the two mechanisms cleanly separated for §7 "report what you
-# measured"), then extract every bare word. A word containing an uppercase letter or digit is safe
-# to charter directly — that property is exactly what `Clock.schedule` and ordinary English lack.
-# A bare ALL-LOWERCASE word is never chartered this way; it becomes its own typed bare-mention
-# count instead (never silently dropped, never silently promoted to a confident charter).
-sed -E 's/`[^`]+`/ /g' "$TMP/table_row_text.txt" 2>/dev/null | grep -oE '[A-Za-z][A-Za-z0-9]*' \
-  > "$TMP/bare_words_raw.txt"
+# ---------- bare-word forms from TABLE ROWS only (round 3, R1; round 4 adds the profile-suffix
+# bare form): strip backtick spans first (a backtick-wrapped word is already captured above;
+# scanning it again here would be redundant, not wrong, but stripping keeps the mechanisms cleanly
+# separated for §7 "report what you measured").
+sed -E 's/`[^`]+`/ /g' "$TMP/table_row_text.txt" 2>/dev/null > "$TMP/table_row_nobt.txt"
+
+# Single-word form: a word containing an uppercase letter or digit is safe to charter directly —
+# that property is exactly what `Clock.schedule` and ordinary English lack. A bare ALL-LOWERCASE
+# word is never chartered this way; it becomes its own typed bare-mention count instead (never
+# silently dropped, never silently promoted to a confident charter).
+grep -oE '[A-Za-z][A-Za-z0-9]*' "$TMP/table_row_nobt.txt" 2>/dev/null > "$TMP/bare_words_raw.txt"
 # SENTINEL-CAMEL: internal uppercase-or-digit gate (loosen to accept every bare word to mutate —
 # this is the exact `Clock.schedule`-class safety property; a word with no uppercase or digit must
 # never be silently chartered here)
 grep -E '[A-Z0-9]' "$TMP/bare_words_raw.txt" 2>/dev/null | sort -u > "$TMP/bare_camel_tokens.txt"
 grep -vE '[A-Z0-9]' "$TMP/bare_words_raw.txt" 2>/dev/null | sort -u > "$TMP/bare_lowercase_tokens.txt"
 BARE_CAMEL_COUNT=$(wc -l < "$TMP/bare_camel_tokens.txt" | tr -d ' ')
-printf 'bare-word charters (camelCase/digit, table rows): %d\n' "$BARE_CAMEL_COUNT"
+printf 'bare-word tokens (camelCase/digit, table rows): %d\n' "$BARE_CAMEL_COUNT"
 
-sort -u "$TMP/plain_tokens_base.txt" "$TMP/plain_tokens_suffix.txt" "$TMP/bare_camel_tokens.txt" > "$TMP/charter_tokens.txt"
+# Profile-suffix bare form (round 4, LOW): `<word>-rt|wb|ux|se` with NO backticks, still inside a
+# table row, is as safe as the camelCase rule — the suffix itself is the safety signal, regardless
+# of the base word's case (real examples: `wbutil-wb`, `zwave-wb`, `devkit-wb`, `jetty-rt`, all
+# bare in their own gap-table rows). Extracted with a hyphen-inclusive word charset, then run
+# through the SAME suffix-stripping logic as the backtick-derived form above.
+grep -oE '[A-Za-z][A-Za-z0-9-]*' "$TMP/table_row_nobt.txt" 2>/dev/null | sort -u > "$TMP/bare_hyphenated_raw.txt"
+# SENTINEL-SUFFIX: bare profile-suffix gate (loosen to accept any hyphenated word to mutate — a
+# bare word with no rt/wb/ux/se suffix must never be silently chartered here)
+awk -F'-' '{
+  if (NF >= 2) {
+    suf = $NF
+    sub(/\.jar$/, "", suf)
+    if (suf == "rt" || suf == "wb" || suf == "ux" || suf == "se") {
+      base = $1
+      for (i = 2; i < NF; i++) base = base "-" $i
+      print base
+    }
+  }
+}' "$TMP/bare_hyphenated_raw.txt" | sort -u > "$TMP/bare_suffix_tokens.txt"
+BARE_SUFFIX_COUNT=$(wc -l < "$TMP/bare_suffix_tokens.txt" | tr -d ' ')
+printf 'bare-word tokens (profile-suffix, table rows): %d\n' "$BARE_SUFFIX_COUNT"
+
+sort -u "$TMP/plain_tokens_base.txt" "$TMP/plain_tokens_suffix.txt" "$TMP/bare_camel_tokens.txt" "$TMP/bare_suffix_tokens.txt" > "$TMP/charter_tokens.txt"
 PLAIN_TOKEN_COUNT=$(wc -l < "$TMP/charter_tokens.txt" | tr -d ' ')
 
 # Glob tokens (a distinct pool — matched with shell glob semantics per unit, never merged into the

@@ -387,18 +387,48 @@ else
   no "R1 bare-number-list FAILED" "out=$out"
 fi
 
-# ---- 27. R1: a bare ALL-LOWERCASE word in a table row is a bare-mention, not confident
-# unchartered AND not silently chartered (the real defect: zwave-wb, unformatted, in a table row)
+# ---- 27. R1: a bare ALL-LOWERCASE word with NO profile suffix in a table row is a bare-mention,
+# not confident unchartered AND not silently chartered (real example: "mobile" — a census-list
+# noise word in wb-vendor-ux's own tables, no camelCase, no -rt/-wb/-ux/-se)
 S27="$ROOT/s27"; C27="$ROOT/c27"
-mk_unit "$S27" "zwave" "A.java"
+mk_unit "$S27" "mobile" "A.java"
 mk_focuses "$C27" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
 mk_state "$C27" "RESEARCH-STATE-wb-vendor-ux.md" \
-  '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+  '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
 out="$(run "$C27" --subject "$S27")"
 if printf '%s' "$out" | grep -qE 'units: 0/1 chartered' && printf '%s' "$out" | grep -qE '1 bare-mention'; then
-  ok "R1: all-lowercase bare word (zwave) is bare-mention, neither chartered nor confident-unchartered"
+  ok "R1: all-lowercase bare word with no suffix (mobile) is bare-mention"
 else
   no "R1 bare-mention FAILED" "out=$out"
+fi
+
+# ---- 27b. Round 4 (LOW): a bare `<word>-<profile>` table-row token (no backticks) charters the
+# module — the profile suffix itself is the safety signal, independent of case (real examples:
+# wbutil-wb, zwave-wb, devkit-wb, jetty-rt, all bare in their own gap-table rows)
+S27B="$ROOT/s27b"; C27B="$ROOT/c27b"
+mk_unit "$S27B" "zwave" "A.java"
+mk_focuses "$C27B" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+mk_state "$C27B" "RESEARCH-STATE-wb-vendor-ux.md" \
+  '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+out="$(run "$C27B" --subject "$S27B")"
+if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+  ok "round 4 LOW: bare zwave-wb (no backticks) charters module zwave"
+else
+  no "round 4 bare profile-suffix FAILED" "out=$out"
+fi
+
+# ---- 27c. Round 4 (LOW): `-rt.jar` suffix form charters bacnetUtil (real
+# RESEARCH-STATE-protocols.md:53 `bacnetUtil-rt.jar` COVERED -> B133)
+S27C="$ROOT/s27c"; C27C="$ROOT/c27c"
+mk_unit "$S27C" "bacnetUtil" "A.java"
+mk_focuses "$C27C" '| protocols | stopped | RESEARCH-STATE-protocols.md | protocol survey |'
+mk_state "$C27C" "RESEARCH-STATE-protocols.md" \
+  '| high | P3 | BACnet APDU service | `bacnet-rt.jar`, `bacnetUtil-rt.jar` | COVERED -> B133 |'
+out="$(run "$C27C" --subject "$S27C")"
+if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+  ok "round 4 LOW: bacnetUtil-rt.jar (.jar-suffixed profile form) charters bacnetUtil"
+else
+  no "round 4 .jar suffix form FAILED" "out=$out"
 fi
 
 # ---- 28. R1 negative control: a bare word appearing ONLY in a bullet-list line (not a table row)
@@ -681,7 +711,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-k: profile-suffix-disabled mutant; <module>-wb must stop chartering <module> --"
   MUTANT_K="$ROOT/fpa.MUT-K.sh"
   if grep -q 'plain_tokens_suffix.txt' "$SUT"; then
-    sed 's#sort -u "\$TMP/plain_tokens_base.txt" "\$TMP/plain_tokens_suffix.txt" "\$TMP/bare_camel_tokens.txt" > "\$TMP/charter_tokens.txt"#sort -u "$TMP/plain_tokens_base.txt" "$TMP/bare_camel_tokens.txt" > "$TMP/charter_tokens.txt"#' "$SUT" > "$MUTANT_K"
+    sed 's#sort -u "\$TMP/plain_tokens_base.txt" "\$TMP/plain_tokens_suffix.txt" "\$TMP/bare_camel_tokens.txt" "\$TMP/bare_suffix_tokens.txt" > "\$TMP/charter_tokens.txt"#sort -u "$TMP/plain_tokens_base.txt" "$TMP/bare_camel_tokens.txt" "$TMP/bare_suffix_tokens.txt" > "$TMP/charter_tokens.txt"#' "$SUT" > "$MUTANT_K"
     SK="$ROOT/sk"; CK="$ROOT/ck"
     mk_unit "$SK" "clCBus" "A.java"
     mk_focuses "$CK" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
@@ -741,15 +771,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if grep -q 'SENTINEL-CAMEL:' "$SUT"; then
     sed "s#grep -E '\[A-Z0-9\]' \"\$TMP/bare_words_raw.txt\" 2>/dev/null#cat \"\$TMP/bare_words_raw.txt\" 2>/dev/null#" "$SUT" > "$MUTANT_N"
     SN="$ROOT/sn"; CN="$ROOT/cn"
-    mk_unit "$SN" "zwave" "A.java"
+    mk_unit "$SN" "mobile" "A.java"
     mk_focuses "$CN" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
     mk_state "$CN" "RESEARCH-STATE-wb-vendor-ux.md" \
-      '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+      '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
     rout_n="$(bash "$SUT" "$CN" --subject "$SN" 2>/dev/null)"
     mout_n="$(bash "$MUTANT_N" "$CN" --subject "$SN" 2>/dev/null)"
     if printf '%s' "$rout_n" | grep -qE '0/1 chartered' \
        && printf '%s' "$mout_n" | grep -qE '1/1 chartered'; then
-      ok "teeth-n: original never charters bare-lowercase zwave; mutant does — bites"
+      ok "teeth-n: original never charters bare-lowercase mobile (no suffix); mutant does — bites"
     else
       no "teeth-n: mutation did not change charter count" "orig=$rout_n mut=$mout_n"
     fi
@@ -759,20 +789,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # ---- tooth (o) (R1, round 3): bare-mention downgrade removed — reverts to pre-round-3
   # always-unchartered behavior for a bare-lowercase table-row mention.
-  echo "-- teeth-o (R1): bare-mention-removed mutant; zwave must fall back to plain unchartered --"
+  echo "-- teeth-o (R1): bare-mention-removed mutant; mobile must fall back to plain unchartered --"
   MUTANT_O="$ROOT/fpa.MUT-O.sh"
   if grep -q 'SENTINEL-BAREMENTION:' "$SUT"; then
     sed 's/if grep -qxF "\$mod" "\$TMP\/bare_lowercase_tokens.txt" 2>\/dev\/null; then/if false; then/' "$SUT" > "$MUTANT_O"
     SO="$ROOT/so"; CO="$ROOT/co"
-    mk_unit "$SO" "zwave" "A.java"
+    mk_unit "$SO" "mobile" "A.java"
     mk_focuses "$CO" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
     mk_state "$CO" "RESEARCH-STATE-wb-vendor-ux.md" \
-      '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+      '| census | inventory | mobile theming bundle noted, not chartered | low | open |'
     rout_o="$(bash "$SUT" "$CO" --subject "$SO" 2>/dev/null)"
     mout_o="$(bash "$MUTANT_O" "$CO" --subject "$SO" 2>/dev/null)"
     if printf '%s' "$rout_o" | grep -qE '1 bare-mention' \
        && ! printf '%s' "$mout_o" | grep -qE '1 bare-mention'; then
-      ok "teeth-o: original reports zwave as bare-mention; mutant reverts to silent unchartered — bites"
+      ok "teeth-o: original reports mobile as bare-mention; mutant reverts to silent unchartered — bites"
     else
       no "teeth-o: mutation did not change bare-mention count" "orig=$rout_o mut=$mout_o"
     fi
@@ -822,6 +852,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-q: dependency-probe list anchor not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (r) (round 4, LOW): bare profile-suffix gate removed — reverts a bare
+  # `<word>-<profile>` table-row token to (at best) bare-mention, never a confident charter.
+  echo "-- teeth-r: bare-suffix-gate mutant; bare zwave-wb must stop chartering zwave --"
+  MUTANT_R="$ROOT/fpa.MUT-R.sh"
+  if grep -q 'SENTINEL-SUFFIX:' "$SUT"; then
+    sed '/bare_hyphenated_raw.txt/,/if (suf == "rt"/ s/if (suf == "rt" || suf == "wb" || suf == "ux" || suf == "se") {/if (0) {/' "$SUT" > "$MUTANT_R"
+    SR="$ROOT/sr"; CR="$ROOT/cr"
+    mk_unit "$SR" "zwave" "A.java"
+    mk_focuses "$CR" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+    mk_state "$CR" "RESEARCH-STATE-wb-vendor-ux.md" \
+      '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+    rout_r="$(bash "$SUT" "$CR" --subject "$SR" 2>/dev/null)"
+    mout_r="$(bash "$MUTANT_R" "$CR" --subject "$SR" 2>/dev/null)"
+    if printf '%s' "$rout_r" | grep -qE '1/1 chartered' \
+       && printf '%s' "$mout_r" | grep -qE '0/1 chartered'; then
+      ok "teeth-r: original charters bare zwave-wb; mutant does not — bites"
+    else
+      no "teeth-r: mutation did not change charter count" "orig=$rout_r mut=$mout_r"
+    fi
+  else
+    no "teeth-r: SENTINEL-SUFFIX: comment not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (s) (round 4, LOW): trailing .jar stripping removed — bacnetUtil-rt.jar must stop
+  # resolving to the "rt" profile suffix.
+  echo "-- teeth-s: jar-strip-removed mutant; bacnetUtil-rt.jar must stop chartering bacnetUtil --"
+  MUTANT_S="$ROOT/fpa.MUT-S.sh"
+  if grep -q 'sub(/\\.jar\$/, "", suf)' "$SUT"; then
+    sed '0,/sub(\/\\.jar\$\/, "", suf)/ s/sub(\/\\.jar\$\/, "", suf)/suf = suf/' "$SUT" > "$MUTANT_S"
+    SS="$ROOT/ss"; CS="$ROOT/cs"
+    mk_unit "$SS" "bacnetUtil" "A.java"
+    mk_focuses "$CS" '| protocols | stopped | RESEARCH-STATE-protocols.md | protocol survey |'
+    mk_state "$CS" "RESEARCH-STATE-protocols.md" \
+      '| high | P3 | BACnet APDU service | `bacnet-rt.jar`, `bacnetUtil-rt.jar` | COVERED -> B133 |'
+    rout_s="$(bash "$SUT" "$CS" --subject "$SS" 2>/dev/null)"
+    mout_s="$(bash "$MUTANT_S" "$CS" --subject "$SS" 2>/dev/null)"
+    if printf '%s' "$rout_s" | grep -qE '1/1 chartered' \
+       && printf '%s' "$mout_s" | grep -qE '0/1 chartered'; then
+      ok "teeth-s: original strips .jar and charters bacnetUtil; mutant does not — bites"
+    else
+      no "teeth-s: mutation did not change charter count" "orig=$rout_s mut=$mout_s"
+    fi
+  else
+    no "teeth-s: .jar-strip anchor not found in SUT (cannot anchor mutation)"
   fi
 
   echo ""

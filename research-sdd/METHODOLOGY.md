@@ -1235,7 +1235,9 @@ itself). A unit is CHARTERED when its basename resolves against that combined te
   shared-prefix profile list (e.g. `` `check-coverage.py honeywellSpyderTool XL10NextGen` ``, or
   `` `opcUaServer-rt,-wb` ``),
 - the module portion of a `<module>-<profile>` suffix form, `<profile>` one of the Niagara
-  module-profile suffixes rt/wb/ux/se (e.g. `` `modbusCore-wb` `` charters `modbusCore`),
+  module-profile suffixes rt/wb/ux/se, a trailing `.jar` stripped first (e.g. `` `modbusCore-wb` ``
+  charters `modbusCore`; `` `bacnetUtil-rt.jar` `` charters `bacnetUtil` — a real
+  RESEARCH-STATE-protocols.md gap-table row names the compiled artifact, not a bare profile),
 - a GLOB token (containing `*` or `?`, e.g. `` `clHVAC*` ``) matched with shell glob semantics —
   tracked as its own glob-chartered count, never silently folded into the plain count or left to fall
   through as unchartered,
@@ -1249,16 +1251,20 @@ itself). A unit is CHARTERED when its basename resolves against that combined te
   never re-opens that false charter. Restricted to TABLE ROWS specifically — the same prose the
   `Clock.schedule` case warns about lives in bullet lists and paragraphs, not table cells; a bare
   mention in a bullet list (e.g. `airFlowBalancer` at a real `RESEARCH-STATE.md`'s prose bullet, not
-  a table row) is deliberately NOT chartered by this form.
+  a table row) is deliberately NOT chartered by this form,
+- a BARE `<word>-<profile>` suffix token (no backticks), same TABLE ROW restriction as above — the
+  profile suffix itself is the safety signal here, independent of the base word's case (real:
+  `wbutil-wb`, `zwave-wb`, `devkit-wb`, `jetty-rt`, each bare in its own gap-table row).
 
 A basename that resolves through none of these forms, from either source, is UNCHARTERED. Two
 distinct softenings keep that verdict from over-claiming confidence it does not have:
-- **Bare all-lowercase mention.** A basename with no internal uppercase letter or digit — the exact
-  case the `Clock.schedule` rationale warns about — that nonetheless appears as a bare word inside a
-  table row of the charter source is never silently chartered (that would reopen the false-positive
-  risk) and never silently left as confident UNCHARTERED either (the mention is real evidence, just
-  not resolvable evidence): report it as its own typed `bare-mention` count, distinct from both
-  CHARTERED and UNCHARTERED, for the operator to resolve by hand.
+- **Bare all-lowercase mention, no profile suffix.** A basename with no internal uppercase letter or
+  digit AND no `-rt`/`-wb`/`-ux`/`-se` suffix — the exact case the `Clock.schedule` rationale warns
+  about — that nonetheless appears as a bare word inside a table row of the charter source is never
+  silently chartered (that would reopen the false-positive risk) and never silently left as confident
+  UNCHARTERED either (the mention is real evidence, just not resolvable evidence): report it as its
+  own typed `bare-mention` count, distinct from both CHARTERED and UNCHARTERED, for the operator to
+  resolve by hand.
 - **Unresolved RESEARCH-STATE reference.** A row whose named RESEARCH-STATE file is declared but
   absent or unreadable does not make its units UNCHARTERED by omission: WARN, and treat every
   UNCHARTERED finding from that run as an UPPER bound (the true count may be lower — the missed
@@ -1283,21 +1289,26 @@ family rollup is a suggestion, never a binding queue shape. Each accepted groupi
 in the `## Campaign queue` — creating the section if none exists yet, exactly as a FRONTIER-REOPEN
 audit enqueues a tier, but through this SECOND creation path: when the section is created here rather
 than by a focus-STOP coverage audit, `root` and `parent` are both the CURRENT (already-stopped) focus
-that triggered the campaign-close check for every newly enqueued row, `campaign_started` is written at
-this queue's creation exactly as in the focus-STOP path, and `last_audit:` records THIS check's own
-result line (`units: <chartered>/<total> chartered · <unchartered> unchartered`) in place of a
-FRONTIER-REOPEN audit's `enqueued=<N>` line — both are "the most recent coverage-style check's
-result," just from a different instrument. Condition (1) above is then no longer met (a `pending`
-entry exists), so the campaign continues by popping it, same as any other queue entry; only a clean
-check lets condition (1) stand and the campaign close. PROMPT-LOOP's `Campaign STOP (§8c)` branch runs
-this check before emitting its final NEXT-ACTION.
+that triggered the campaign-close check for every newly enqueued row, and `campaign_started` is
+written at this queue's creation exactly as in the focus-STOP path. `last_audit:` KEEPS the schema's
+`enqueued=<N>` field — N is the number of rows THIS check enqueued (0 on a clean run) — and APPENDS
+this check's own record line as a distinct trailing field, never in place of `enqueued=`:
+`last_audit: <YYYY-MM-DDTHH:MM:SSZ> enqueued=<N> partition="<the tool's units: line, verbatim>"`.
+`research-sdd-status.sh`'s `_campaign_stop_text` reads `enqueued=` alone to decide campaign STOP (§12.1:
+doctrine must describe the instrument as it is, not a shape it does not parse); a `last_audit:` that
+replaced `enqueued=` with the partition line would leave that check with nothing to read and campaign
+STOP would never fire, even after this run finds nothing left uncharted. Condition (1) above is then no
+longer met once this line carries `enqueued=<N>` with N > 0 (a `pending` entry exists), so the campaign
+continues by popping it, same as any other queue entry; only a clean check (`enqueued=0`) lets
+condition (1) stand and the campaign close. PROMPT-LOOP's `Campaign STOP (§8c)` branch runs this check
+before emitting its final NEXT-ACTION.
 
 Run the check with `focus-partition-audit.sh <corpus-dir> --subject <root> --depth <N> --ext <csv>`
-(kit issues #1106/#1123): it prints `units: <chartered>/<total> chartered · <unchartered> unchartered
-· <bare-mention> bare-mention (<glob-chartered> glob-chartered)` and the unchartered basenames
+(kit issues #1106/#1123): it prints `units: <chartered>/<total> chartered · <unchartered> unchartered · <bare-mention> bare-mention (<glob-chartered> glob-chartered)` and the unchartered basenames
 (`--top <N>`) directly from the declared subject root, corpus dir, depth, and extension list — record
-that full line (all four figures — glob-chartered and bare-mention are not optional detail) and the
-unchartered basenames in the corpus-close retro before condition (1) is honored. An absent `FOCUSES.md` is its own typed state (`focuses: absent-input`, exit
+that full line (all four figures — glob-chartered and bare-mention are not optional detail) verbatim as
+the `partition="..."` field above, and the unchartered basenames in the corpus-close retro, before
+condition (1) is honored. An absent `FOCUSES.md` is its own typed state (`focuses: absent-input`, exit
 0): every unit reports unchartered, since no charter source was ever read — this is the common case for
 a single-focus corpus, which trivially finds the whole subject tree unchartered (the operator may
 declare the check out of scope for a single-focus corpus in the corpus-close retro, since §16

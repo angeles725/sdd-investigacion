@@ -5007,6 +5007,31 @@ else
   no "T-CQ-STOP-REACHED: expected campaign_stop STOP-reached line, got [$(echo "$_cq_stopreach_out" | grep -iE '^\s*campaign' | head -5)]"
 fi
 
+# ---- kit issue #1123 round 4, M1: a §8c campaign-close PARTITION-CHECK-created queue must still
+# satisfy campaign STOP. The pre-round-4 METHODOLOGY text said last_audit: REPLACES enqueued=<N>
+# with the partition check's own "units: ..." line — that shape has no enqueued= for
+# _campaign_stop_text to read, so STOP could never fire even after a clean partition check. The
+# doctrine fix (this round) keeps enqueued=<N> and APPENDS the units: line as a trailing
+# partition="..." field instead — verified here against both shapes (RED against the broken
+# shape, GREEN against the fixed one), rather than only asserting the fixed shape works.
+echo "-- campaign queue: partition-check-created last_audit (enqueued=0 KEPT, partition APPENDED) --"
+d_cq_partstop="$CQ_FIX/campaign-stop-reached-partition"
+_cq_partstop_out="$(cq_status "$d_cq_partstop")"
+if echo "$_cq_partstop_out" | grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached'; then
+  ok "T-CQ-PARTITION-STOP: campaign STOP reached when last_audit keeps enqueued=0 and appends partition=\"...\""
+else
+  no "T-CQ-PARTITION-STOP: expected campaign STOP reached, got [$(echo "$_cq_partstop_out" | grep -iE '^\s*campaign' | head -5)]"
+fi
+
+echo "-- campaign queue: NEGATIVE — pre-round-4 broken shape (enqueued= REPLACED) must NOT report STOP --"
+d_cq_partbroken="$CQ_FIX/campaign-stop-partition-broken-format"
+_cq_partbroken_out="$(cq_status "$d_cq_partbroken")"
+if echo "$_cq_partbroken_out" | grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached'; then
+  no "T-CQ-PARTITION-BROKEN-NO-STOP: the pre-round-4 broken shape (no enqueued=) must NOT report STOP, but it did — [$(echo "$_cq_partbroken_out" | grep -iE '^\s*campaign' | head -5)]"
+else
+  ok "T-CQ-PARTITION-BROKEN-NO-STOP: broken shape (enqueued= missing) correctly does not report STOP — confirms the M1 defect class and why the append-not-replace fix matters"
+fi
+
 echo "-- campaign queue: bound-stopped fixture (campaign_stop: set, pending entry) --"
 d_cq_bound="$CQ_FIX/bound-stopped"
 _cq_bound_out="$(cq_status "$d_cq_bound")"
