@@ -225,7 +225,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mutant="$ROOT/retro-status.mutant.sh"
     broken="grep -oiE 'review-status:[[:space:]]*[a-z]+'"
-    printf '%s\n' "${content/"$anchor"/$broken}" > "$mutant"
+    printf '%s\n' "${content/"$anchor"/"$broken"}" > "$mutant"
     # Call the extraction helper directly with a prose line that has NO '<!--' prefix.
     # Without the anchor the anchorless grep matches 'review-status: applied' in the prose.
     prose="RECONSTRUCTED from a backup that had review-status: applied"

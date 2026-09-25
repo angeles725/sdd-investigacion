@@ -84,8 +84,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CALLER_CWD="$(pwd)"
 hermeticity_violations=()   # "<suite basename> leaked: <entry> (new|modified|removed)"
 HERMETICITY_DEGRADED=0
+# HERMETICITY_DEGRADED_REASON: the human-readable cause of a DEGRADED state, captured at the
+# point of detection and echoed verbatim in the final aggregate block (kit issue #1121, Opus
+# round-3 review of #1118 finding #1: the aggregate used to print the SAME "caller cwd was not
+# readable/traversable" text regardless of WHICH of the two distinct guards degraded — an
+# unreadable cwd and a failed/unsupported scanner are different failures and need different text.
+HERMETICITY_DEGRADED_REASON=""
 if [[ ! -d "$CALLER_CWD" ]] || [[ ! -r "$CALLER_CWD" ]] || [[ ! -x "$CALLER_CWD" ]]; then
   HERMETICITY_DEGRADED=1
+  HERMETICITY_DEGRADED_REASON="caller cwd '$CALLER_CWD' is not a readable/traversable directory"
   echo "run-all.sh: WARNING: hermeticity guard DEGRADED — caller cwd '$CALLER_CWD' is not a readable/traversable directory; cannot verify suites stay hermetic" >&2
 fi
 _refresh_cwd_entries() {
@@ -94,14 +101,20 @@ _refresh_cwd_entries() {
   # (array left UNTOUCHED) if the scan itself fails for any reason — an unsupported `find -printf`
   # flag, a transient error, etc. — so a scan that could not run is never mistaken for "found
   # nothing" by the caller.
+  # STDOUT ONLY (kit issue #1121, #1118 review NIT): a successful find (rc=0) that ALSO prints a
+  # warning to stderr must never have that warning merged into the parsed TSV stream — it would
+  # be read as a phantom top-level entry name. stderr is left to flow to the real terminal.
   local -n _target="$1"
   local _out _rc _name _type _size _mtime
-  _out="$(find "$CALLER_CWD" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\n' 2>&1)"; _rc=$?
+  _out="$(find "$CALLER_CWD" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\n')"
+  # SENTINEL-SCANNER-RC-CHECK
+  _rc=$?
   [[ $_rc -eq 0 ]] || return 1
   _target=()
   while IFS=$'\t' read -r _name _type _size _mtime; do
     [[ -n "$_name" ]] || continue
     if [[ "$_type" == d ]]; then
+      # SENTINEL-DIR-NAME-ONLY-TRACKING
       _target["$_name"]="d"
     else
       _target["$_name"]="$_size:$_mtime"
@@ -112,6 +125,7 @@ _refresh_cwd_entries() {
 declare -A _prev_entries=()
 if [[ "$HERMETICITY_DEGRADED" -eq 0 ]] && ! _refresh_cwd_entries _prev_entries; then
   HERMETICITY_DEGRADED=1
+  HERMETICITY_DEGRADED_REASON="the cwd scanner ('find -printf', a GNU extension) failed or is unsupported on this platform"
   echo "run-all.sh: WARNING: hermeticity guard DEGRADED — the cwd scanner ('find -printf', a GNU extension) failed or is unsupported on this platform; cannot verify suites stay hermetic" >&2
 fi
 
@@ -231,6 +245,7 @@ for suite in "${all_suites[@]}"; do
     declare -A _cur_entries=()
     if ! _refresh_cwd_entries _cur_entries; then
       HERMETICITY_DEGRADED=1
+      HERMETICITY_DEGRADED_REASON="the cwd scanner failed mid-run (after $base)"
       echo "run-all.sh: WARNING: hermeticity guard DEGRADED mid-run (after $base) — the cwd scanner failed; cannot verify remaining suites stay hermetic" >&2
     else
       for _name in "${!_cur_entries[@]}"; do
@@ -355,7 +370,7 @@ echo "Test cases passed: $total_passed"
 echo "Test cases skipped: $total_skipped"
 echo "Test cases failed: $total_failed"
 if [[ "$HERMETICITY_DEGRADED" -eq 1 ]]; then
-  echo "Hermeticity: DEGRADED — caller cwd was not readable/traversable; could not verify"
+  echo "Hermeticity: DEGRADED — ${HERMETICITY_DEGRADED_REASON:-cause not recorded}; could not verify"
 else
   echo "Hermeticity violations (new/modified/removed top-level entries in caller cwd): ${#hermeticity_violations[@]}"
   if [[ ${#hermeticity_violations[@]} -gt 0 ]]; then

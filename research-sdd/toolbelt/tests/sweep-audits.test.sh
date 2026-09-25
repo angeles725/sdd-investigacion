@@ -405,7 +405,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-audits.sh"        # replace the sandbox copy with the mutant
     neutered='      __teeth_never_matches__) continue ;;'
-    printf '%s\n' "${content/"$anchor"/$neutered}" > "$mutant"
+    printf '%s\n' "${content/"$anchor"/"$neutered"}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -q 'PENDING' <<<"$outm"; then
       ok "teeth: skip-neutered mutant false-surfaces applied audit as PENDING" "(case 2 has teeth)"
@@ -451,7 +451,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     write_targets "$kit" "$tgtPresent" "$tgtAbsent"
     mutant="$kit/toolbelt/sweep-audits.sh"
     neutered='    : # INFO suppressed by mutation'
-    printf '%s\n' "${content/"$absent_anchor"/$neutered}" > "$mutant"
+    printf '%s\n' "${content/"$absent_anchor"/"$neutered"}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     # Check specifically for the PER-TARGET absent-input line (with the path), not the summary INFO
     # which also contains "absent-input" but carries the count, not the path.
@@ -499,7 +499,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     write_targets "$kit" "$tgt"
     follow_replacement='git -C "$p" log --follow --diff-filter=A --format=%aI -1 -- "$f"'
     mutant="$kit/toolbelt/sweep-audits.sh"
-    printf '%s\n' "${content/"$follow_anchor"/$follow_replacement}" > "$mutant"
+    printf '%s\n' "${content/"$follow_anchor"/"$follow_replacement"}" > "$mutant"
     outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
     if grep -q 'ESCALATED (aged' <<<"$outm"; then
       ok "teeth(rename-tradeoff): --follow mutant ESCALATES renamed-after-creation audit → case 14 has teeth"

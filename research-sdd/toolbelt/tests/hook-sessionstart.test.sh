@@ -337,7 +337,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     _m7d="$TMP/glob-metachar-mutant"; mkdir -p "$_m7d/.claude/hooks"
     _m7="$_m7d/.claude/hooks/research-protocol.sh"
-    printf '%s\n' "${_content_hookss/"$anchor_glob"/$neutered_glob}" > "$_m7"
+    printf '%s\n' "${_content_hookss/"$anchor_glob"/"$neutered_glob"}" > "$_m7"
     _m7_unrelated="$_m7d/.claude/.rsdd-session-unrelated-old"
     printf 'deadbeef\n' > "$_m7_unrelated"; touch -d '-10 days' "$_m7_unrelated"
     printf '{"session_id":"%s"}' 'evil*id' | bash "$_m7" >/dev/null 2>/dev/null

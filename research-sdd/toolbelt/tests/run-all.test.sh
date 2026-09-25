@@ -512,8 +512,16 @@ else
   out="$(cd "$_c27cwd" && chmod 000 "$_c27cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
   chmod 755 "$_c27cwd" 2>/dev/null || true
   rm -rf "$_c27cwd" 2>/dev/null || true
-  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
-    ok "hermeticity-degraded: unreadable caller cwd reports DEGRADED (not a confident 0), run fails"
+  # kit issue #1121 (#1118 review finding #1): the AGGREGATE's own "Hermeticity: DEGRADED — ..."
+  # line must name THIS guard specifically (an unreadable directory), not a scanner failure — the
+  # two guards are distinct causes and the aggregate used to print one hardcoded reason string
+  # regardless of which fired. Isolate the aggregate line itself (^Hermeticity: DEGRADED) rather
+  # than grepping the whole output, which also contains the (always-correct) per-branch stderr
+  # WARNING line and would pass even against the pre-fix aggregate.
+  _c27agg_line="$(grep -E '^Hermeticity: DEGRADED' <<<"$out")"
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out" \
+     && grep -qF 'readable/traversable directory' <<<"$_c27agg_line" && ! grep -qF 'cwd scanner' <<<"$_c27agg_line"; then
+    ok "hermeticity-degraded: unreadable caller cwd reports DEGRADED with the unreadable-directory reason (not a confident 0, not the scanner's reason)"
   else no "hermeticity-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
@@ -568,8 +576,13 @@ else
   _c29cwd="$TMP/c29-cwd"; mkdir -p "$_c29cwd"
   out="$(cd "$_c29cwd" && PATH="$_c29bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
   rm -rf "$_c29cwd" "$_c29bin" 2>/dev/null || true
-  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
-    ok "hermeticity-scanner-degraded: a find that rejects -printf makes the guard DEGRADED, not a confident 0"
+  # kit issue #1121 (#1118 review finding #1): the AGGREGATE's own "Hermeticity: DEGRADED — ..."
+  # line must name THIS guard specifically (the scanner), not the unreadable-directory guard's
+  # reason. Isolate the aggregate line itself, same rationale as case 27 above.
+  _c29agg_line="$(grep -E '^Hermeticity: DEGRADED' <<<"$out")"
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out" \
+     && grep -qF 'cwd scanner' <<<"$_c29agg_line" && ! grep -qF 'readable/traversable directory' <<<"$_c29agg_line"; then
+    ok "hermeticity-scanner-degraded: a find that rejects -printf makes the guard DEGRADED with the scanner-failure reason (not a confident 0, not the unreadable-directory reason)"
   else no "hermeticity-scanner-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
@@ -792,6 +805,82 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-hermeticity-rollforward: neutered rollforward re-blames the later clean suite → attribution guard has real teeth"
     else
       no "teeth-hermeticity-rollforward: mutant did not misattribute z-clean.test.sh (rc=$mrc) — mutation not exercised (THEATER)"
+    fi
+  fi
+
+  # Mutation 9 (kit issue #1121, #1118 review follow-up): track directories by mtime too
+  # (instead of name-only). Case 28's own scenario (git status refreshing .git's mtime via a
+  # legitimate lock+rename) must then be misread as a modification, proving case 28 has teeth.
+  echo "-- teeth: track directories by mtime (SENTINEL-DIR-NAME-ONLY-TRACKING); case 28's git-status scenario must FALSE-FLAG --"
+  w="$TMP/teeth-dir-mtime"; mkdir -p "$w"
+  sentinel9='      # SENTINEL-DIR-NAME-ONLY-TRACKING'
+  sentinel9_count="$(grep -Fc "$sentinel9" "$SUT")"
+  sed '/SENTINEL-DIR-NAME-ONLY-TRACKING/{n;s#_target\["\$_name"\]="d"#_target["$_name"]="d:$_mtime"#}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel9_count" -ne 1 ]; then
+    no "teeth-dir-mtime: SENTINEL-DIR-NAME-ONLY-TRACKING not found exactly once (count=$sentinel9_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-dir-mtime: mtime-tracking mutation was a byte-identical no-op"
+  else
+    mkfix_sh "$w/a.test.sh" 1 0 0
+    { printf '#!/usr/bin/env bash\n'
+      printf 'git status --porcelain >/dev/null\n'
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+      printf 'exit 0\n'
+    } > "$w/gitstatus.test.sh"
+    _teeth_dm_cwd="$TMP/teeth-dir-mtime-cwd"; mkdir -p "$_teeth_dm_cwd"
+    ( cd "$_teeth_dm_cwd" \
+      && git init -q . \
+      && git config user.email t@example.com \
+      && git config user.name tester \
+      && printf x > f.txt \
+      && git add -A && git commit -qm init \
+      && touch f.txt )
+    mout="$(cd "$_teeth_dm_cwd" && bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    rm -rf "$_teeth_dm_cwd" 2>/dev/null || true
+    if [ "$mrc" -ne 0 ] && grep -qF 'leaked: .git' <<<"$mout"; then
+      ok "teeth-dir-mtime: mtime-tracked mutant false-flags .git's legitimate mtime bump → case 28's name-only design has real teeth"
+    else
+      no "teeth-dir-mtime: mutant did not false-flag .git (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
+    fi
+  fi
+
+  # Mutation 10 (kit issue #1121, #1118 review follow-up): neuter the scanner's exit-status
+  # check (SENTINEL-SCANNER-RC-CHECK) so a failed scan is treated as a successful empty scan.
+  # Case 29's scenario (find rejecting -printf) must then FALSE-PASS as a confident "0
+  # violations" instead of a typed DEGRADED state, proving case 29 has teeth.
+  echo "-- teeth: neuter SENTINEL-SCANNER-RC-CHECK; case 29's find-rejects--printf scenario must FALSE-PASS --"
+  w="$TMP/teeth-scanner-rc"; mkdir -p "$w"
+  sentinel10='  # SENTINEL-SCANNER-RC-CHECK'
+  sentinel10_count="$(grep -Fc "$sentinel10" "$SUT")"
+  sed '/SENTINEL-SCANNER-RC-CHECK/{n;n;s/\[\[ \$_rc -eq 0 \]\] || return 1/: # neutered rc check/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel10_count" -ne 1 ]; then
+    no "teeth-scanner-rc: SENTINEL-SCANNER-RC-CHECK not found exactly once (count=$sentinel10_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-scanner-rc: rc-check-removal mutation was a byte-identical no-op"
+  else
+    _teeth_src_realfind="$(command -v find)"
+    if [ -z "$_teeth_src_realfind" ]; then
+      no "teeth-scanner-rc: no real 'find' on PATH to build the stub from"
+    else
+      mkfix_sh "$w/a.test.sh" 1 0 0
+      { printf '#!/usr/bin/env bash\n'
+        printf 'for _a in "$@"; do\n'
+        printf '  if [ "$_a" = "-printf" ]; then echo "find: unknown primary or operator" >&2; exit 1; fi\n'
+        printf 'done\n'
+        printf 'exec %s "$@"\n' "$_teeth_src_realfind"
+      } > "$TMP/teeth-scanner-rc-bin-find"
+      _teeth_src_bin="$TMP/teeth-scanner-rc-bin"; mkdir -p "$_teeth_src_bin"
+      mv "$TMP/teeth-scanner-rc-bin-find" "$_teeth_src_bin/find"; chmod +x "$_teeth_src_bin/find"
+      _teeth_src_cwd="$TMP/teeth-scanner-rc-cwd"; mkdir -p "$_teeth_src_cwd"
+      mout="$(cd "$_teeth_src_cwd" && PATH="$_teeth_src_bin:$PATH" bash "$w/run-all.sh" 2>&1)"; mrc=$?
+      rm -rf "$_teeth_src_cwd" "$_teeth_src_bin" 2>/dev/null || true
+      if [ "$mrc" -eq 0 ] \
+         && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$mout" \
+         && ! grep -qF 'Hermeticity: DEGRADED' <<<"$mout"; then
+        ok "teeth-scanner-rc: neutered rc check FALSE-PASSES a failed scan as a confident 0 → case 29's DEGRADED design has real teeth"
+      else
+        no "teeth-scanner-rc: mutant still reported DEGRADED (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
+      fi
     fi
   fi
 
