@@ -311,6 +311,76 @@ for f in "$SKILL" "$PROMPTLOOP"; do
 done
 
 # =============================================================================
+# P1/P2/N1/N2 — kit issue #993 WU4 round 2 (Opus finding): T1/T2/S* only
+# check ABSENCE of specific literal doctrine tokens; nothing previously
+# verified that a general slot body still carries the no-question rule and
+# the `next:` continuation token FORWARD. A slot could satisfy every
+# existing check while silently telling the loop it is fine to ask the
+# operator and stop. P1/P2 assert PRESENCE of the two load-bearing
+# continuation behaviors in the rendered general SKILL.md step-4 region;
+# N1/N2 assert ABSENCE of two concrete stop-and-wait / ask-the-operator
+# instruction shapes (reproducing Opus round-2 mutants M1 and M2) across
+# every rendered general file — the same "a slot body can land in SKILL.md
+# OR PROMPT-LOOP.md" scoping the S* absence checks already use (F1, #1022).
+# Scoped to the "general" profile only: claude's step-4 text legitimately
+# defers the concrete `next:` example to PROMPT-LOOP and has no reason to
+# repeat it inline.
+# =============================================================================
+GENERAL_SKILL="${OUTDIR[general]}/skills/research-sdd/SKILL.md"
+GENERAL_FILES=("${OUTDIR[general]}/skills/research-sdd/SKILL.md" "${OUTDIR[general]}/PROMPT-LOOP.md" "${OUTDIR[general]}/METHODOLOGY.md")
+
+# p1_holds/p2_holds FILE — the ONLY place each presence check's grep lives;
+# the --prove-teeth mutants below call these same functions (never a
+# re-implemented duplicate), the same discipline z1_check documents above.
+p1_holds() { grep -qF 'HARD rule inside the loop' "$1"; }
+p2_holds() { grep -qF 'next: <gap-id>' "$1"; }
+
+if p1_holds "$GENERAL_SKILL"; then
+  ok "P1/general: the no-question rule ('HARD rule inside the loop') is present in the rendered general SKILL.md"
+else
+  no "P1/general: the no-question rule ('HARD rule inside the loop') is MISSING from the rendered general SKILL.md"
+fi
+
+if p2_holds "$GENERAL_SKILL"; then
+  ok "P2/general: the continuation-token example ('next: <gap-id>') is present in the rendered general SKILL.md"
+else
+  no "P2/general: the continuation-token example ('next: <gap-id>') is MISSING from the rendered general SKILL.md"
+fi
+
+# forbidden_present PATTERN — greps every rendered general file for PATTERN.
+# Returns 0 (found — a violation) with the hit printed, 1 (clean), or 2 (a
+# grep stage errored — never folded into "clean", kit CLAUDE.md §7). The
+# --prove-teeth mutants below call this same function. (Renamed from
+# forbidden_absent, round 4: the old name read as "returns true when the
+# forbidden pattern is absent", the inverse of what it actually returns.)
+forbidden_present() {
+  local pattern="$1" file hits rc
+  for file in "${GENERAL_FILES[@]}"; do
+    hits="$(grep -F "$pattern" "$file")"; rc=$?
+    case "$rc" in
+      0) printf '%s: %s\n' "$file" "$hits"; return 0 ;;
+      1) continue ;;
+      *) printf 'FATAL: forbidden_present — grep errored (rc=%d) on %s\n' "$rc" "$file" >&2; return 2 ;;
+    esac
+  done
+  return 1
+}
+
+hits="$(forbidden_present 'fine to ask the operator')"; rc=$?
+case "$rc" in
+  1) ok "N1/general: no 'fine to ask the operator' stop-and-wait instruction in any rendered general file" ;;
+  0) no "N1/general: found a stop-and-wait/ask-the-operator instruction — $hits" ;;
+  *) no "N1/general: grep ERRORED (rc>=2) — treated as FAIL, never a silent pass" ;;
+esac
+
+hits="$(forbidden_present 'end your turn and wait')"; rc=$?
+case "$rc" in
+  1) ok "N2/general: no 'end your turn and wait' stop-and-wait instruction in any rendered general file" ;;
+  0) no "N2/general: found a stop-and-wait/ask-the-operator instruction — $hits" ;;
+  *) no "N2/general: grep ERRORED (rc>=2) — treated as FAIL, never a silent pass" ;;
+esac
+
+# =============================================================================
 # Z1 — size budget: non-claude rendered SKILL.md+PROMPT-LOOP.md must not
 # exceed the claude render's total bytes by more than 10%. z1_check is the
 # ONLY place this arithmetic lives; the --prove-teeth tooth below calls it
@@ -388,6 +458,89 @@ for rel in "skills/research-sdd/SKILL.md:H2" "PROMPT-LOOP.md:H3"; do
   done
 done
 
+# =============================================================================
+# Q1/Q2/Q3/Q4 — kit issue #993 WU4 round 3+4 (provenance correction, then
+# Opus round-4 review). git log -S / git show 6d88930 (#989) established:
+# hotcore-reread-scope has NO pre-audit predecessor (pure #989 content, so
+# it is now unslotted shared text — see the WU4 round-3 commit);
+# hotcore-cadence's and hotcore-loop-cadence's real #989 semantic is the
+# "once per context" reread cadence (round 1 mistakenly restored the
+# pre-audit "every iteration" WORDING for hotcore-cadence as if it were
+# still the correct BEHAVIOR, and round 3 left the identical bug in the
+# sibling hotcore-loop-cadence slot — Opus round-4 finding, HIGH);
+# loop-return-contract-explicit's inline `next:` example must not resurrect
+# the pre-#989 "· rescheduled via <mechanism>" / "self-scheduled in <N>s"
+# suffix grammar (absent from PROMPT-LOOP.md even at the
+# prompts-pre-audit-2026-09-23 tag) NOR the pre-#989 "non-STOP" grammar
+# (current RETURN CONTRACT: every report, INCLUDING STOP forms, ends with
+# exactly one token — Opus round-4 finding, MEDIUM).
+#   Q1  the (now unslotted) hotcore-reread-scope sentence renders
+#       IDENTICALLY in claude and general — a differential check (compares
+#       the two renders directly) rather than a hardcoded full-sentence pin,
+#       so an unrelated doctrine wording edit does not turn this red (Opus
+#       round-4 finding, LOW).
+#   Q2  general's rendered SKILL.md HOT-CORE cadence line says
+#       "once per context", never the pre-audit "every iteration" wording.
+#   Q3  general's rendered SKILL.md never resurrects the dead
+#       "rescheduled via" / "self-scheduled in" / "non-STOP" token grammar.
+#   Q4  general's rendered PROMPT-LOOP.md HOT-CORE cadence line ALSO says
+#       "once per context" — SKILL.md and PROMPT-LOOP.md must agree within
+#       the same general render (Opus round-4 finding, HIGH: Q2 alone only
+#       checked SKILL.md, so a contradicting PROMPT-LOOP.md went unnoticed).
+# =============================================================================
+q1_line() { grep -F 'Each iteration re-reads' "$1" | head -1; }
+
+q1_claude_line="$(q1_line "${OUTDIR[claude]}/skills/research-sdd/SKILL.md")"
+q1_general_line="$(q1_line "$GENERAL_SKILL")"
+if [ -z "$q1_claude_line" ]; then
+  no "Q1/claude: the hotcore-reread-scope sentence is MISSING from claude SKILL.md (anti-silent-zero — cannot verify parity)"
+elif [ "$q1_claude_line" = "$q1_general_line" ]; then
+  ok "Q1: the hotcore-reread-scope sentence renders identically in claude and general — $q1_claude_line"
+else
+  no "Q1: the hotcore-reread-scope sentence DIFFERS between claude and general — claude=[$q1_claude_line] general=[$q1_general_line]"
+fi
+
+q2_holds() { grep -qF 'HOT-CORE — read IN FULL once per context' "$1"; }
+
+if q2_holds "$GENERAL_SKILL"; then
+  ok "Q2/general: SKILL.md HOT-CORE cadence carries the #989 'once per context' semantic (pre-audit-explicit style, not the pre-#989 'every iteration' behavior)"
+else
+  no "Q2/general: SKILL.md HOT-CORE cadence is MISSING the #989 'once per context' semantic — reverted to pre-#989 'every iteration' behavior"
+fi
+
+# q3_holds FILE — returns 0 (holds), 1 (a forbidden phrase was found), or 2
+# (a grep stage errored — a FATAL never folded into "holds", kit CLAUDE.md
+# §7 / Opus round-4 R4-002-class discipline: an instrument that reports
+# "clean" must be able to prove it actually looked).
+q3_holds() {
+  local f="$1" bad rc
+  for bad in 'rescheduled via' 'self-scheduled in' 'non-STOP'; do
+    grep -qF "$bad" "$f"; rc=$?
+    case "$rc" in
+      0) return 1 ;;
+      1) continue ;;
+      *) printf 'FATAL: q3_holds — grep errored (rc=%d) on %s\n' "$rc" "$f" >&2; return 2 ;;
+    esac
+  done
+  return 0
+}
+
+q3_rc=0; q3_holds "$GENERAL_SKILL" || q3_rc=$?
+case "$q3_rc" in
+  0) ok "Q3/general: loop-return-contract-explicit does not resurrect the dead 'rescheduled via' / 'self-scheduled in' / 'non-STOP' token grammar" ;;
+  1) no "Q3/general: loop-return-contract-explicit resurrects pre-#989 token grammar absent from current PROMPT-LOOP.md" ;;
+  *) no "Q3/general: q3_holds ERRORED (rc>=2) — treated as FAIL, never a silent pass" ;;
+esac
+
+q4_holds() { grep -qF 'HOT-CORE (read IN FULL once per context)' "$1"; }
+
+GENERAL_LOOP="${OUTDIR[general]}/PROMPT-LOOP.md"
+if q4_holds "$GENERAL_LOOP"; then
+  ok "Q4/general: PROMPT-LOOP.md HOT-CORE cadence ALSO carries the #989 'once per context' semantic (agrees with Q2's SKILL.md check in the same render)"
+else
+  no "Q4/general: PROMPT-LOOP.md HOT-CORE cadence is MISSING the #989 'once per context' semantic — contradicts SKILL.md's hotcore-cadence in the same render"
+fi
+
 # ===========================================================================
 # --prove-teeth: mutants on COPIES of the profile file / sources / renderer,
 # via RSDD_KIT_DIR pointing at a copied kit — every mutant is re-rendered
@@ -442,8 +595,8 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   kitAbsSkill="$TMP/kitAbsSkill"
   make_kit "$kitAbsSkill"
   profileAbsSkill="$kitAbsSkill/profiles/general.slots.md"
-  if [ -f "$profileAbsSkill" ] && require_anchor "$profileAbsSkill" 'read IN FULL every iteration'; then
-    sed -i 's/read IN FULL every iteration/read IN FULL every iteration. an autonomous run must stop at convergence/' "$profileAbsSkill"
+  if [ -f "$profileAbsSkill" ] && require_anchor "$profileAbsSkill" 'read IN FULL once per context'; then
+    sed -i 's/read IN FULL once per context/read IN FULL once per context. an autonomous run must stop at convergence/' "$profileAbsSkill"
     outAbsSkill="$TMP/outAbsSkill"
     if RSDD_KIT_DIR="$kitAbsSkill" "$RENDERER" general "$outAbsSkill" >/dev/null 2>&1; then
       if assert_C16 "$outAbsSkill/skills/research-sdd/SKILL.md"; then
@@ -462,8 +615,8 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   kitAbsLoop="$TMP/kitAbsLoop"
   make_kit "$kitAbsLoop"
   profileAbsLoop="$kitAbsLoop/profiles/general.slots.md"
-  if [ -f "$profileAbsLoop" ] && require_anchor "$profileAbsLoop" '(read in full now)'; then
-    sed -i 's/(read in full now)/(read in full now — guarantees the cadence)/' "$profileAbsLoop"
+  if [ -f "$profileAbsLoop" ] && require_anchor "$profileAbsLoop" '(read IN FULL once per context)'; then
+    sed -i 's/(read IN FULL once per context)/(read IN FULL once per context — guarantees the cadence)/' "$profileAbsLoop"
     outAbsLoop="$TMP/outAbsLoop"
     if RSDD_KIT_DIR="$kitAbsLoop" "$RENDERER" general "$outAbsLoop" >/dev/null 2>&1; then
       if assert_A14_neg "$outAbsLoop/PROMPT-LOOP.md"; then
@@ -478,12 +631,32 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
     no "teeth-absence-phrase-in-loop-slot: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
   fi
 
+  echo "-- teeth: T-absence-phrase-c19-in-slot (kit issue #993 WU4: inject a C19 absence phrase — signal \"continue\" — into the general loop-return-contract-explicit slot body, render general, assert_C19 on the rendered SKILL.md must go RED) --"
+  kitAbsC19="$TMP/kitAbsC19"
+  make_kit "$kitAbsC19"
+  profileAbsC19="$kitAbsC19/profiles/general.slots.md"
+  if [ -f "$profileAbsC19" ] && require_anchor "$profileAbsC19" 'A return without one is a silently stopped iteration.'; then
+    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. Do not simply signal "continue"./' "$profileAbsC19"
+    outAbsC19="$TMP/outAbsC19"
+    if RSDD_KIT_DIR="$kitAbsC19" "$RENDERER" general "$outAbsC19" >/dev/null 2>&1; then
+      if assert_C19 "$outAbsC19/skills/research-sdd/SKILL.md"; then
+        no "teeth-absence-phrase-c19-in-slot: assert_C19 still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-absence-phrase-c19-in-slot: assert_C19 goes RED on the mutant general SKILL.md render — the S* SKILL-scoped C19 absence check is proven to actually run on a general render"
+      fi
+    else
+      no "teeth-absence-phrase-c19-in-slot: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-absence-phrase-c19-in-slot: mutation anchor not found (no general.slots.md, or anchor moved) — cannot prove teeth"
+  fi
+
   echo "-- teeth: T-doctrine-token-in-profile-body (inject a §-token into general.slots.md's slot body, T1 must go RED) --"
   kitToken="$TMP/kitToken"
   make_kit "$kitToken"
   profileCopy="$kitToken/profiles/general.slots.md"
-  if [ -f "$profileCopy" ] && require_anchor "$profileCopy" 'read IN FULL every iteration'; then
-    sed -i 's/read IN FULL every iteration/read IN FULL every iteration (see §8c)/' "$profileCopy"
+  if [ -f "$profileCopy" ] && require_anchor "$profileCopy" 'once per context (session start'; then
+    sed -i 's/once per context (session start/once per context (see §8c) (session start/' "$profileCopy"
     hits="$(scan_profile_file "$profileCopy")"; scan_rc=$?
     if [ "$scan_rc" -eq 0 ]; then
       ok "teeth-doctrine-token-in-profile-body: T1's scan catches the injected §8c token on the mutant — $hits"
@@ -514,9 +687,9 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   kitInflate="$TMP/kitInflate"
   make_kit "$kitInflate"
   profileInflate="$kitInflate/profiles/general.slots.md"
-  if [ -f "$profileInflate" ] && require_anchor "$profileInflate" 'read IN FULL every iteration (framing + the per-block contract)'; then
+  if [ -f "$profileInflate" ] && require_anchor "$profileInflate" 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not'; then
     padding="$(printf 'x%.0s' $(seq 1 20000))"
-    sed -i "s/read IN FULL every iteration (framing + the per-block contract)/read IN FULL every iteration (framing + the per-block contract) ${padding}/" "$profileInflate"
+    sed -i "s/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not ${padding}/" "$profileInflate"
     outInflateClaude="$TMP/outInflateClaude"; outInflateGeneral="$TMP/outInflateGeneral"
     if RSDD_KIT_DIR="$kitInflate" "$RENDERER" claude "$outInflateClaude" >/dev/null 2>&1 \
        && RSDD_KIT_DIR="$kitInflate" "$RENDERER" general "$outInflateGeneral" >/dev/null 2>&1; then
@@ -554,6 +727,233 @@ PYEOF
     fi
   else
     no "teeth-remove-slot-body: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-remove-new-slot-body (kit issue #993 WU4: delete the loop-return-contract-explicit section from the copied kit's general.slots.md — the slot this work unit added — R1 must go RED with GUARD-MISSING) --"
+  kitRemoveNew="$TMP/kitRemoveNew"
+  make_kit "$kitRemoveNew"
+  profileRemoveNew="$kitRemoveNew/profiles/general.slots.md"
+  if [ -f "$profileRemoveNew" ] && require_anchor "$profileRemoveNew" '## slot:loop-return-contract-explicit'; then
+    python3 - "$profileRemoveNew" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+s = re.sub(r'## slot:loop-return-contract-explicit\n.*?(?=\n## slot:|\Z)', '', s, flags=re.DOTALL)
+open(p, 'w', encoding='utf-8').write(s)
+PYEOF
+    outRemoveNew="$TMP/outRemoveNew"
+    removeNew_out="$(RSDD_KIT_DIR="$kitRemoveNew" "$RENDERER" general "$outRemoveNew" 2>&1)"; removeNew_rc=$?
+    if [ "$removeNew_rc" -eq 2 ] && grep -qi 'missing' <<<"$removeNew_out"; then
+      ok "teeth-remove-new-slot-body: R1's real render-exit-code check goes RED on the mutant — GUARD-MISSING fires with exit 2 and a 'missing' message: $removeNew_out"
+    else
+      no "teeth-remove-new-slot-body: mutant did NOT fail with the expected GUARD-MISSING signature (rc=$removeNew_rc, expected 2; out=[$removeNew_out])"
+    fi
+  else
+    no "teeth-remove-new-slot-body: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-p1-drop (kit issue #993 WU4 round 2: drop the HARD-rule phrase from the general slot body, render general, p1_holds — the REAL P1 logic — must go RED) --"
+  kitP1Drop="$TMP/kitP1Drop"
+  make_kit "$kitP1Drop"
+  profileP1Drop="$kitP1Drop/profiles/general.slots.md"
+  if [ -f "$profileP1Drop" ] && require_anchor "$profileP1Drop" 'HARD rule inside the loop'; then
+    # Round 4: general.slots.md's slot bodies are single-line (Opus
+    # round-4 LOW finding: a multi-line body renders at column 0 inside an
+    # indented list item), so a plain single-line sed replace is enough —
+    # no more cross-line python3 replace needed.
+    sed -i 's/the no-question rule from the triage section is a HARD rule inside the loop\./the no-question rule applies./' "$profileP1Drop"
+    outP1Drop="$TMP/outP1Drop"
+    if RSDD_KIT_DIR="$kitP1Drop" "$RENDERER" general "$outP1Drop" >/dev/null 2>&1; then
+      if p1_holds "$outP1Drop/skills/research-sdd/SKILL.md"; then
+        no "teeth-p1-drop: p1_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-p1-drop: p1_holds (the REAL P1 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-p1-drop: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-p1-drop: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-p2-drop (kit issue #993 WU4 round 2: drop the 'next: <gap-id>' example from the general slot body, render general, p2_holds — the REAL P2 logic — must go RED) --"
+  kitP2Drop="$TMP/kitP2Drop"
+  make_kit "$kitP2Drop"
+  profileP2Drop="$kitP2Drop/profiles/general.slots.md"
+  if [ -f "$profileP2Drop" ] && require_anchor "$profileP2Drop" '`next: <gap-id>` when the loop continues within the current focus.'; then
+    sed -i 's/`next: <gap-id>` when the loop continues within the current focus\./a continuation token./' "$profileP2Drop"
+    outP2Drop="$TMP/outP2Drop"
+    if RSDD_KIT_DIR="$kitP2Drop" "$RENDERER" general "$outP2Drop" >/dev/null 2>&1; then
+      if p2_holds "$outP2Drop/skills/research-sdd/SKILL.md"; then
+        no "teeth-p2-drop: p2_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-p2-drop: p2_holds (the REAL P2 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-p2-drop: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-p2-drop: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-n1-opus-m1 (kit issue #993 WU4 round 2: reproduce Opus round-2 mutant M1 — 'When unsure, it is fine to ask the operator \"shall I continue?\"' — injected into the general slot body; forbidden_present (N1's REAL logic) must go RED) --"
+  kitN1M1="$TMP/kitN1M1"
+  make_kit "$kitN1M1"
+  profileN1M1="$kitN1M1/profiles/general.slots.md"
+  if [ -f "$profileN1M1" ] && require_anchor "$profileN1M1" 'A return without one is a silently stopped iteration.'; then
+    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. When unsure, it is fine to ask the operator "shall I continue?"./' "$profileN1M1"
+    outN1M1="$TMP/outN1M1"
+    if RSDD_KIT_DIR="$kitN1M1" "$RENDERER" general "$outN1M1" >/dev/null 2>&1; then
+      # RDD round-4 finding: save/restore the global GENERAL_FILES around
+      # this reassignment so a later check in this file (or a future one
+      # added after this teeth block) cannot silently scan the mutant's
+      # stale outdir instead of the real general render.
+      saved_general_files=("${GENERAL_FILES[@]}")
+      GENERAL_FILES=("$outN1M1/skills/research-sdd/SKILL.md" "$outN1M1/PROMPT-LOOP.md" "$outN1M1/METHODOLOGY.md")
+      if forbidden_present 'fine to ask the operator' >/dev/null; then
+        ok "teeth-n1-opus-m1: forbidden_present (the REAL N1 logic) catches Opus mutant M1 on the mutant general render"
+      else
+        no "teeth-n1-opus-m1: forbidden_present did NOT catch Opus mutant M1 — no teeth"
+      fi
+      GENERAL_FILES=("${saved_general_files[@]}")
+    else
+      no "teeth-n1-opus-m1: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-n1-opus-m1: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-n2-opus-m2 (kit issue #993 WU4 round 2: reproduce Opus round-2 mutant M2 — '...then end your turn and wait for the operator' — injected into the general slot body; forbidden_present (N2's REAL logic) must go RED) --"
+  kitN2M2="$TMP/kitN2M2"
+  make_kit "$kitN2M2"
+  profileN2M2="$kitN2M2/profiles/general.slots.md"
+  if [ -f "$profileN2M2" ] && require_anchor "$profileN2M2" 'A return without one is a silently stopped iteration.'; then
+    sed -i 's/A return without one is a silently stopped iteration\./A return without one is a silently stopped iteration. If genuinely uncertain, then end your turn and wait for the operator./' "$profileN2M2"
+    outN2M2="$TMP/outN2M2"
+    if RSDD_KIT_DIR="$kitN2M2" "$RENDERER" general "$outN2M2" >/dev/null 2>&1; then
+      saved_general_files=("${GENERAL_FILES[@]}")
+      GENERAL_FILES=("$outN2M2/skills/research-sdd/SKILL.md" "$outN2M2/PROMPT-LOOP.md" "$outN2M2/METHODOLOGY.md")
+      if forbidden_present 'end your turn and wait' >/dev/null; then
+        ok "teeth-n2-opus-m2: forbidden_present (the REAL N2 logic) catches Opus mutant M2 on the mutant general render"
+      else
+        no "teeth-n2-opus-m2: forbidden_present did NOT catch Opus mutant M2 — no teeth"
+      fi
+      GENERAL_FILES=("${saved_general_files[@]}")
+    else
+      no "teeth-n2-opus-m2: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-n2-opus-m2: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-q1-divergence-regression (kit issue #993 WU4 round 4: re-slot the now-unslotted hotcore-reread-scope sentence in a copied kit with a DIFFERENT general body, so claude and general diverge again; Q1's differential comparison — the REAL Q1 logic — must go RED) --"
+  kitQ1="$TMP/kitQ1"
+  make_kit "$kitQ1"
+  skillQ1="$kitQ1/skills/research-sdd/SKILL.md"
+  profileQ1="$kitQ1/profiles/general.slots.md"
+  if require_anchor "$skillQ1" 'Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.'; then
+    sed -i 's/Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog\./<!-- slot:hotcore-reread-scope-div -->Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.<!-- \/slot -->/' "$skillQ1"
+    {
+      echo ""
+      echo "## slot:hotcore-reread-scope-div"
+      echo ""
+      echo "Each iteration also re-reads RESEARCH-STATE, INDEX, and \`--next\` from the live backlog."
+    } >> "$profileQ1"
+    outQ1Claude="$TMP/outQ1Claude"; outQ1General="$TMP/outQ1General"
+    if RSDD_KIT_DIR="$kitQ1" "$RENDERER" claude "$outQ1Claude" >/dev/null 2>&1 \
+       && RSDD_KIT_DIR="$kitQ1" "$RENDERER" general "$outQ1General" >/dev/null 2>&1; then
+      q1_teeth_claude="$(q1_line "$outQ1Claude/skills/research-sdd/SKILL.md")"
+      q1_teeth_general="$(q1_line "$outQ1General/skills/research-sdd/SKILL.md")"
+      if [ "$q1_teeth_claude" = "$q1_teeth_general" ]; then
+        no "teeth-q1-divergence-regression: Q1's differential logic still PASSES though claude and general were made to diverge — no teeth"
+      else
+        ok "teeth-q1-divergence-regression: Q1's differential logic (the REAL logic) goes RED when claude and general diverge — claude=[$q1_teeth_claude] general=[$q1_teeth_general]"
+      fi
+    else
+      no "teeth-q1-divergence-regression: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-q1-divergence-regression: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-q2-cadence-regression (kit issue #993 WU4 round 3: revert the general hotcore-cadence slot body to the pre-#989 'every iteration' cadence in the copied kit's general.slots.md, render general, q2_holds — the REAL Q2 logic — must go RED) --"
+  kitQ2="$TMP/kitQ2"
+  make_kit "$kitQ2"
+  profileQ2="$kitQ2/profiles/general.slots.md"
+  if [ -f "$profileQ2" ] && require_anchor "$profileQ2" 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not'; then
+    sed -i 's/read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not/read IN FULL every iteration — never/' "$profileQ2"
+    outQ2="$TMP/outQ2"
+    if RSDD_KIT_DIR="$kitQ2" "$RENDERER" general "$outQ2" >/dev/null 2>&1; then
+      if q2_holds "$outQ2/skills/research-sdd/SKILL.md"; then
+        no "teeth-q2-cadence-regression: q2_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-q2-cadence-regression: q2_holds (the REAL Q2 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-q2-cadence-regression: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-q2-cadence-regression: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-q3-stale-token-regression (kit issue #993 WU4 round 3: reintroduce the dead 'rescheduled via <mechanism>' suffix into the general loop-return-contract-explicit slot body, render general, q3_holds — the REAL Q3 logic — must go RED) --"
+  kitQ3="$TMP/kitQ3"
+  make_kit "$kitQ3"
+  profileQ3="$kitQ3/profiles/general.slots.md"
+  if [ -f "$profileQ3" ] && require_anchor "$profileQ3" '`next: <gap-id>` when the loop continues within the current focus.'; then
+    sed -i 's/`next: <gap-id>` when the loop continues within the current focus\./`next: <gap-id> · rescheduled via <mechanism>` when the loop continues within the current focus./' "$profileQ3"
+    outQ3="$TMP/outQ3"
+    if RSDD_KIT_DIR="$kitQ3" "$RENDERER" general "$outQ3" >/dev/null 2>&1; then
+      if q3_holds "$outQ3/skills/research-sdd/SKILL.md"; then
+        no "teeth-q3-stale-token-regression: q3_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-q3-stale-token-regression: q3_holds (the REAL Q3 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-q3-stale-token-regression: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-q3-stale-token-regression: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-q3-nonstop-regression (kit issue #993 WU4 round 4: reintroduce the dead 'non-STOP' RETURN CONTRACT grammar into the general loop-return-contract-explicit slot body, render general, q3_holds — the REAL Q3 logic — must go RED) --"
+  kitQ3NS="$TMP/kitQ3NS"
+  make_kit "$kitQ3NS"
+  profileQ3NS="$kitQ3NS/profiles/general.slots.md"
+  if [ -f "$profileQ3NS" ] && require_anchor "$profileQ3NS" 'every return MUST end with exactly one'; then
+    sed -i 's/every return MUST end with exactly one/every non-STOP return MUST end with/' "$profileQ3NS"
+    outQ3NS="$TMP/outQ3NS"
+    if RSDD_KIT_DIR="$kitQ3NS" "$RENDERER" general "$outQ3NS" >/dev/null 2>&1; then
+      if q3_holds "$outQ3NS/skills/research-sdd/SKILL.md"; then
+        no "teeth-q3-nonstop-regression: q3_holds still PASSES on the mutant general SKILL.md render — no teeth"
+      else
+        ok "teeth-q3-nonstop-regression: q3_holds (the REAL Q3 logic) goes RED on the mutant general SKILL.md render"
+      fi
+    else
+      no "teeth-q3-nonstop-regression: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-q3-nonstop-regression: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-q4-cadence-regression (kit issue #993 WU4 round 4 — Opus HIGH finding: revert the general hotcore-loop-cadence slot body to the pre-#989 'every iteration' cadence in the copied kit's general.slots.md, render general, q4_holds — the REAL Q4 logic — must go RED) --"
+  kitQ4="$TMP/kitQ4"
+  make_kit "$kitQ4"
+  profileQ4="$kitQ4/profiles/general.slots.md"
+  if [ -f "$profileQ4" ] && require_anchor "$profileQ4" '(read IN FULL once per context)'; then
+    sed -i 's/(read IN FULL once per context)/(read IN FULL every iteration)/' "$profileQ4"
+    outQ4="$TMP/outQ4"
+    if RSDD_KIT_DIR="$kitQ4" "$RENDERER" general "$outQ4" >/dev/null 2>&1; then
+      if q4_holds "$outQ4/PROMPT-LOOP.md"; then
+        no "teeth-q4-cadence-regression: q4_holds still PASSES on the mutant general PROMPT-LOOP.md render — no teeth"
+      else
+        ok "teeth-q4-cadence-regression: q4_holds (the REAL Q4 logic) goes RED on the mutant general PROMPT-LOOP.md render"
+      fi
+    else
+      no "teeth-q4-cadence-regression: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-q4-cadence-regression: mutation anchor not found — cannot prove teeth"
   fi
 
   echo "-- teeth: T-vanished-anchor (a mutation anchor that does not exist must FAIL, not be silently skipped) --"

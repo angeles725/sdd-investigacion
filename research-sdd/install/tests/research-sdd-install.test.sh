@@ -1010,17 +1010,25 @@ else no "55: profile=claude SKILL.md diverged from kit source"; fi
 #      <config_root>/research-sdd/profile/<name>/, installs the RENDERED SKILL.md, and the
 #      installed prompt file's "Kit path:" fast-path resolves (per SKILL.md's own "Resolving the
 #      kit path" step 0: expand a leading ~ to $HOME) to the RENDERED PROMPT-LOOP.md — the one
-#      containing "(read in full now)" (kit issue #993 WU1 review correction: WU2's job).
+#      containing "(read IN FULL once per context)". The discriminator text was originally
+#      "(read in full now)" (kit issue #993 WU1 review correction: WU2's job) — WU1's own
+#      placeholder wording for the hotcore-loop-cadence slot body, chosen only to prove the
+#      renderer's plumbing worked, before any doctrine-accurate content existed. Kit issue #993
+#      WU4 round 4 replaced that placeholder with the doctrine-verified wording (git log -S /
+#      git show 6d88930, 3d875c7 — Opus- and RDD-approved), so this is WU2's job landing: update
+#      the discriminator to the real current text rather than the placeholder it was standing in
+#      for. Any distinguishing string proves the SAME thing (render reached the install); this one
+#      is additionally correct doctrine.
 home_56="$TMP/general-real"
 bash "$SUT" --home "$home_56" --harness reasonix >/dev/null 2>&1
 pf_56="$home_56/.reasonix/AGENTS.md"
 kitpath_56="$(grep '^Kit path:' "$pf_56" 2>/dev/null | sed 's/^Kit path: //')"
 kitpath_56_expanded="${kitpath_56/#\~/$home_56}"
 if [ -n "$kitpath_56" ] && [ -f "$kitpath_56_expanded/PROMPT-LOOP.md" ] \
-   && grep -q '(read in full now)' "$kitpath_56_expanded/PROMPT-LOOP.md"; then
+   && grep -q '(read IN FULL once per context)' "$kitpath_56_expanded/PROMPT-LOOP.md"; then
   ok "56: installed skill's Kit-path resolution reaches the RENDERED PROMPT-LOOP.md"
 else no "56: Kit-path resolution did not reach a rendered PROMPT-LOOP.md (kitpath='$kitpath_56')"; fi
-if grep -q '(read in full now)' "$KITROOT/PROMPT-LOOP.md"; then
+if grep -q '(read IN FULL once per context)' "$KITROOT/PROMPT-LOOP.md"; then
   no "56 sanity: kit source PROMPT-LOOP.md already contains the rendered text — test cannot discriminate"
 else ok "56 sanity: kit source PROMPT-LOOP.md does not contain the rendered text (test discriminates)"; fi
 sf_56="$home_56/.reasonix/skills/research-sdd/SKILL.md"

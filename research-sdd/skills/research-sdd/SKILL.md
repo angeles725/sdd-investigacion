@@ -161,7 +161,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        §1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state/memory,
        §8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration), §9 golden rules,
        §11 self-verify, §17 resume.
-       <!-- slot:hotcore-reread-scope -->Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.<!-- /slot -->
+       Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.
      - SITUATIONAL — read the named section IN FULL the moment its phase triggers, by number: §5 sources →
        adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
        wrapper per artifact type; §11b verifying the verifier / kit test-lane contract → adding or changing a guard, check, oracle,
@@ -210,9 +210,9 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
 
 4. **Run the loop.** Execute the NORMAL CYCLE one iteration = one cited block, and self-continue per the
    LOOP CONTINUATION + RESCHEDULE CADENCE rules in PROMPT-LOOP. Delegate heavy sweeps with the right
-   MODEL TIER. Emit the per-iteration RETURN CONTRACT (PROMPT-LOOP RETURN CONTRACT section — that is
+   MODEL TIER. <!-- slot:loop-return-contract-explicit -->Emit the per-iteration RETURN CONTRACT (PROMPT-LOOP RETURN CONTRACT section — that is
    the single definition of the token format and required fields); ending with "shall I continue?" or
-   any equivalent question is a contract violation. At campaign STOP, run the TERMINAL TRIGGER and
+   any equivalent question is a contract violation.<!-- /slot --> At campaign STOP, run the TERMINAL TRIGGER and
    the §18 SELF-RETROSPECTIVE.
    The run is NOT OVER until the retro exists (from `$KIT/templates/retro.template.md`, `<!-- review-status: pending -->`,
    `## Proposed kit deltas` table or the honesty line) — this applies to quick, document and applied runs too, not only
