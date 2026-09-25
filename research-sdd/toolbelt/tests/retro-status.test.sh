@@ -313,8 +313,10 @@ EOF
       no "teeth M8: find tolower line after RETRO_MARKER_LINE_AWK" "not found — helper drifted?"
     else
       m8_mutant="$ROOT/retro-status.m8.sh"
-      # Remove '^[[:space:]]*' before '<!--' in the awk match regex so it becomes a substring search.
-      sed "${m8_linenum}s|\^\[\[:space:\]\]\*<!--|<!--|" "$HELPER" > "$m8_mutant"
+      # Remove '^ {0,3}' before '<!--' in the awk match regex so it becomes a substring search.
+      # (kit issue #1125 item 1 narrowed the anchor from '^[[:space:]]*' to '^ {0,3}'; the mutant
+      # target moves with it — same load-bearing claim, current pattern.)
+      sed "${m8_linenum}s|\^ {0,3}<!--|<!--|" "$HELPER" > "$m8_mutant"
       if diff -q "$HELPER" "$m8_mutant" >/dev/null 2>&1; then
         no "teeth M8: build anchor-removed mutant" "mutant identical — sed substitution failed"
       elif ! "$BASH_BIN" -n "$m8_mutant" 2>/dev/null; then
@@ -938,6 +940,109 @@ wl58="$(retro_marker_line "$f")"
   || no "58 retro_marker_line: BOM directly before marker → found" "got [$wl58]"
 
 # ---------------------------------------------------------------------------
+# Indented-code-block false refusal (kit issue #1125 item 1) — retro_marker_line's whole-file
+# scan must not mistake a markdown INDENTED CODE BLOCK (4+ leading spaces / a tab) showing the
+# marker syntax as documentation for a REAL marker. Before the fix, a retro with NO real marker
+# that merely SHOWS the marker format as an indented example was refused by the seeder and gate,
+# counted degraded by reconcile, and WARNed by sweep — all four read it as "marker exists but
+# is out of scope", and the "move the marker into the leading block" advice made no sense because
+# there was never a real marker to move.
+
+# 59 — 4-space indented example marker, no real marker anywhere → retro_marker_line must NOT
+#      find it (empty), so retro_marker_out_of_scope correctly reports "not out of scope" (the
+#      retro is genuinely markerless, not misplaced).
+f="$(mkretro indented-example-4sp <<'EOF'
+# retro
+
+Example marker format for reference:
+
+    <!-- review-status: applied 2026-01-01 -->
+
+body, no real marker anywhere in this file
+EOF
+)"
+wl59="$(retro_marker_line "$f")"
+oos59_rc=1; retro_marker_out_of_scope "$f" && oos59_rc=0
+if [ -z "$wl59" ] && [ "$oos59_rc" = 1 ]; then
+  ok "59 4-space indented example marker → retro_marker_line blind, not out-of-scope" "()"
+else
+  no "59 4-space indented example marker → expected blind + not out-of-scope" "wl=[$wl59] oos_rc=$oos59_rc"
+fi
+
+# 60 — TAB-indented example marker (same family as 59, different indent character) → also blind.
+f="$(mkretro indented-example-tab <<'EOF'
+# retro
+
+Example marker format for reference:
+
+	<!-- review-status: applied 2026-01-01 -->
+
+body, no real marker anywhere in this file
+EOF
+)"
+wl60="$(retro_marker_line "$f")"
+[ -z "$wl60" ] && ok "60 tab-indented example marker → retro_marker_line blind" "()" \
+              || no "60 tab-indented example marker → expected blind" "got [$wl60]"
+
+# 61 — LIST-EDGE boundary: EXACTLY 3 leading spaces (not a code block per markdown's 4-space
+#      rule) must still be FOUND — the fix narrows to '^ {0,3}<!--', not '^<!--' outright.
+f="$ROOT/retro-3sp-boundary.md"
+printf '# retro\n\nbody\n\n   <!-- review-status: applied 2026-01-01 -->\n' > "$f"
+wl61="$(retro_marker_line "$f")"
+[ "$wl61" = "   <!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "61 LIST-EDGE: 3-space-indented marker (boundary) → still found" "()" \
+  || no "61 LIST-EDGE: 3-space-indented marker (boundary) → expected found" "got [$wl61]"
+
+# 62 — LIST-EDGE boundary: EXACTLY 4 leading spaces (the other side of the boundary) → NOT found.
+f="$ROOT/retro-4sp-boundary.md"
+printf '# retro\n\nbody\n\n    <!-- review-status: applied 2026-01-01 -->\n' > "$f"
+wl62="$(retro_marker_line "$f")"
+[ -z "$wl62" ] && ok "62 LIST-EDGE: 4-space-indented marker (boundary) → NOT found" "()" \
+              || no "62 LIST-EDGE: 4-space-indented marker (boundary) → expected blind" "got [$wl62]"
+
+# ---------------------------------------------------------------------------
+# Shared first-line BOM reader (kit issue #1125 item 2) — every marker/exclude/waive/format
+# reader in this file must strip a leading UTF-8 BOM the same way retro_marker_line and
+# retro_marker_scope_line already do. Before the fix, retro_review_status, retro_is_excluded,
+# retro_is_waived, and retro_has_bare_marker each read the file directly and silently missed a
+# BOM'd marker.
+
+# 63 — retro_review_status: BOM directly before the marker (line 1, no H1) → status found.
+f="$ROOT/retro-bom-review-status.md"
+printf '\xef\xbb\xbf<!-- review-status: applied 2026-01-01 -->\nbody\n' > "$f"
+got63="$(retro_review_status "$f")"
+[ "$got63" = "applied" ] && ok "63 retro_review_status: BOM directly before marker → applied" "()" \
+                         || no "63 retro_review_status: BOM directly before marker → expected applied" "got [$got63]"
+
+# 64 — retro_is_excluded: BOM directly before the exclude marker (line 1) → excluded (true).
+f="$ROOT/retro-bom-excluded.md"
+printf '\xef\xbb\xbf<!-- kit-retro: exclude -->\nbody\n' > "$f"
+if retro_is_excluded "$f"; then
+  ok "64 retro_is_excluded: BOM directly before exclude marker → excluded" "()"
+else
+  no "64 retro_is_excluded: BOM directly before exclude marker → expected excluded" ""
+fi
+
+# 65 — retro_is_waived: BOM directly before the waived marker (line 1) → waived (true).
+f="$ROOT/retro-bom-waived.md"
+printf '\xef\xbb\xbf<!-- retro-waived: 2026-01-01 · dormant target -->\nbody\n' > "$f"
+if retro_is_waived "$f"; then
+  ok "65 retro_is_waived: BOM directly before waived marker → waived" "()"
+else
+  no "65 retro_is_waived: BOM directly before waived marker → expected waived" ""
+fi
+
+# 66 — retro_has_bare_marker: BOM directly before a bare (non-HTML-comment) review-status: line
+#      → detected as a bare marker (true).
+f="$ROOT/retro-bom-bare-marker.md"
+printf '\xef\xbb\xbfreview-status: applied\nbody\n' > "$f"
+if retro_has_bare_marker "$f"; then
+  ok "66 retro_has_bare_marker: BOM directly before bare marker → detected" "()"
+else
+  no "66 retro_has_bare_marker: BOM directly before bare marker → expected detected" ""
+fi
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth P1: drop the free-text CUT (the sed that trims at '—'/'shipped:'/'(') from
@@ -1126,16 +1231,18 @@ EOF
     no "teeth OOS1: locate the retro_marker_line call inside retro_marker_out_of_scope" "anchor not found — helper drifted?"
   fi
 
-  # Tooth BOM1 (kit issue #1099): drop the leading-BOM strip from retro_marker_scope_line. Case
-  # 57's BOM-prefixed real-corpus fixture must then go blind (marker no longer found in scope).
-  echo "-- teeth BOM1: drop the BOM strip in retro_marker_scope_line; case 57 must go blind --"
+  # Tooth BOM1 (kit issue #1099; extended by #1125 item 5): drop the leading-BOM strip from the
+  # shared _retro_status_strip_bom reader (kit issue #1125 item 2 — every one of the six readers
+  # in this file now goes through it, so neutering it once blinds all six). Case 57's
+  # BOM-prefixed real-corpus fixture (retro_marker_scope_line) must then go blind, AND case 58's
+  # fixture (retro_marker_line, used by retro_marker_out_of_scope's whole-file half) must ALSO go
+  # blind — before #1125 item 5, case 58 had no mutation control of its own.
+  echo "-- teeth BOM1: drop the BOM strip in the shared reader; cases 57 and 58 must go blind --"
   if ! grep -qF 'RETRO_MARKER_BOM_STRIP' "$HELPER"; then
     no "teeth BOM1: locate the RETRO_MARKER_BOM_STRIP anchor" "anchor not found — helper drifted?"
   else
     bom1_mutant="$ROOT/retro-status.bom1.sh"
-    # Replace the BOM-stripping sed stage (both functions share the identical stage — this tooth
-    # only asserts against retro_marker_scope_line's behavior, so neutering both is fine here)
-    # with a no-op cat, leaving the rest of each pipeline untouched.
+    # Replace the ONE BOM-stripping sed stage (inside _retro_status_strip_bom) with a no-op cat.
     sed "s/sed \$'1s\/\^\\\\xef\\\\xbb\\\\xbf\/\/' \"\$f\" 2>\/dev\/null/cat \"\$f\" 2>\/dev\/null/g" \
       "$HELPER" > "$bom1_mutant"
     if diff -q "$HELPER" "$bom1_mutant" >/dev/null 2>&1; then
@@ -1150,6 +1257,43 @@ EOF
         ok "teeth BOM1: BOM-strip-removed mutant goes blind on case 57's fixture (has teeth)" "()"
       else
         no "teeth BOM1: BOM-strip-removed mutant should go blind" "got [$outbom1] — case 57 is THEATER"
+      fi
+      f_bom1_58="$ROOT/retro-status.bom1-58-fixture.md"
+      printf '\xef\xbb\xbf<!-- review-status: applied 2026-01-01 -->\nbody\n' > "$f_bom1_58"
+      outbom1_58="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$bom1_mutant" "$f_bom1_58" 2>&1)"
+      if [ -z "$outbom1_58" ]; then
+        ok "teeth BOM1: BOM-strip-removed mutant also goes blind on case 58's fixture (kit issue #1125 item 5)" "()"
+      else
+        no "teeth BOM1: BOM-strip-removed mutant should also go blind on case 58's fixture" \
+          "got [$outbom1_58] — case 58 was THEATER (kit issue #1125 item 5)"
+      fi
+    fi
+  fi
+
+  # Tooth IND1 (kit issue #1125 item 1): widen retro_marker_line's indent anchor back to
+  # '^[[:space:]]*<!--' (any whitespace, the pre-fix regex). Case 59's 4-space-indented example
+  # marker must then FALSE-MATCH — proving the '^ {0,3}<!--' narrowing is load-bearing.
+  echo "-- teeth IND1: widen retro_marker_line's indent anchor back to any-whitespace; case 59 must false-match --"
+  anchor_ind1='^ {0,3}<!--[[:space:]]*review-status:'
+  if ! grep -qF "$anchor_ind1" "$HELPER"; then
+    no "teeth IND1: locate the RETRO_MARKER_LINE_INDENT_ANCHOR pattern" "anchor not found — helper drifted?"
+  else
+    ind1_mutant="$ROOT/retro-status.ind1.sh"
+    sed "s/\^ {0,3}<!--\[\[:space:\]\]\*review-status:/^[[:space:]]*<!--[[:space:]]*review-status:/" \
+      "$HELPER" > "$ind1_mutant"
+    if diff -q "$HELPER" "$ind1_mutant" >/dev/null 2>&1; then
+      no "teeth IND1: build widened-anchor mutant" "mutant identical — substitution failed"
+    elif ! "$BASH_BIN" -n "$ind1_mutant" 2>/dev/null; then
+      no "teeth IND1: build widened-anchor mutant" "mutant syntax error"
+    else
+      f_ind1="$ROOT/retro-status.ind1-fixture.md"
+      printf '# retro\n\nExample marker format for reference:\n\n    <!-- review-status: applied 2026-01-01 -->\n\nbody, no real marker anywhere in this file\n' > "$f_ind1"
+      outind1="$("$BASH_BIN" -c '. "$1"; retro_marker_line "$2"' _ "$ind1_mutant" "$f_ind1" 2>&1)"
+      if [ -n "$outind1" ]; then
+        ok "teeth IND1: widened-anchor mutant false-matches the indented example (case 59 has teeth)" "(got '$outind1')"
+      else
+        no "teeth IND1: widened-anchor mutant should false-match the indented example" \
+          "got empty — case 59 is THEATER"
       fi
     fi
   fi

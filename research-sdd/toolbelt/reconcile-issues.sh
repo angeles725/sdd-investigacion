@@ -135,6 +135,7 @@ _fleet_tracked=0
 _fleet_untracked=0
 _fleet_orphaned=0
 _fleet_degraded=0
+_fleet_outofscope=0
 _fleet_retros=0
 
 # ---------------------------------------------------------------------------
@@ -166,11 +167,20 @@ audit_retro() {
   # frontmatter, a multi-line comment run before it, a marker after a second heading, …).
   # Conflating that with "genuinely absent" was the #1048-#1089 fail-open shape — status read as
   # "" (pending/open) and every row was treated as untracked/open. Report it loudly instead of
-  # silently classifying: return 1 so the caller counts this retro under fleet-summary's
-  # degraded=, the same bucket already used for "couldn't classify this retro" failures.
+  # silently classifying.
+  # RECONCILE_ISSUES_OUT_OF_SCOPE_IS_A_FINDING (kit issue #1125 item 3): this is a CORPUS finding
+  # (the retro's own marker is mispositioned), not an operational failure of this instrument —
+  # per CLAUDE.md §8 a finding is WARN-only and never fails the run, the same rule that already
+  # applies to every other typed state this function reports (empty-input, unclassifiable, …).
+  # Before this fix it `return 1`ed into the SAME degraded= bucket as a real gh-query failure,
+  # so a single mispositioned marker anywhere in the fleet made `--all` exit 1 — indistinguishable
+  # from the instrument itself being broken. Counted separately (out-of-scope=) so the finding
+  # stays visible without gating the exit code; the other three consumers (sweep-retros.sh,
+  # stage-retro-issues.sh, retro-gate.sh) already treat this as non-fatal.
   if [ -z "$_marker_line" ] && retro_marker_out_of_scope "$retro_path"; then
     echo "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in $retro_basename — refusing to classify (kit issue #1099); move the marker into the leading block" >&2
-    return 1
+    _fleet_outofscope=$((_fleet_outofscope + 1))
+    return 0
   fi
 
   local _status
@@ -465,8 +475,10 @@ elif [ "$_mode" = "all" ]; then
     echo "empty-input: no retro files found across all targets" >&2
   fi
 
-  printf 'fleet-summary: tracked=%d untracked=%d orphaned=%d degraded=%d retros=%d\n' \
-    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_retros"
+  printf 'fleet-summary: tracked=%d untracked=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
+    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
+  # kit issue #1125 item 3: out-of-scope-marker findings are WARN-only (see the guard's comment
+  # above) — only genuine operational failures (_fleet_degraded) gate the exit code.
   [ "$_fleet_degraded" -eq 0 ] || exit 1
 fi
 

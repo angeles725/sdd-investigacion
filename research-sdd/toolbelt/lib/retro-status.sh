@@ -71,6 +71,25 @@
 
 # Idempotent: safe to source more than once (both SUTs may pull it in the same shell in tests).
 if ! declare -F retro_review_status >/dev/null 2>&1; then
+  # _retro_status_strip_bom <file>
+  #   Kit issue #1125 item 2 — ONE shared first-line reader. Before this fix, only
+  #   retro_marker_line and retro_marker_scope_line stripped a leading UTF-8 BOM (EF BB BF);
+  #   retro_review_status, retro_is_excluded, retro_is_waived, and retro_has_bare_marker each read
+  #   the file directly and silently missed a BOM'd marker (e.g. a BOM'd
+  #   '<!-- kit-retro: exclude -->' was never recognised as an opt-out). Every one of the six
+  #   readers in this file now goes through THIS one function, so a future new reader — or a BOM
+  #   fix to one existing reader — can never again leave the other five behind.
+  #   Echoes the file's content to stdout with a leading BOM on line 1 stripped (RETRO_MARKER_BOM_STRIP,
+  #   same anchor the #1099 teeth proof already keys on). Returns nothing (exit 0, empty stdout)
+  #   when the file is missing or unreadable — callers already guard on that before/after calling.
+  # pipefail-audit: external `sed` over a single retro file (fleet max ~50 KB). SAFE.
+  _retro_status_strip_bom() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 0
+    sed $'1s/^\xef\xbb\xbf//' "$f" 2>/dev/null
+    return 0
+  }
+
   # retro_status_from_marker_line <line>
   #   R2-001 — SINGLE extraction point: extracts the lowercased status word from a raw
   #   '<!-- review-status: <word> …' marker line.  Returns nothing when no marker pattern
@@ -97,11 +116,11 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # sweep-retros.sh relies on this leading-block contract; do not change to whole-file here.
     # pipefail-audit: external `awk` over the leading block of a single retro file. SAFE.
     local _leading_marker
-    _leading_marker="$(awk '
+    _leading_marker="$(_retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
-    ' "$f" 2>/dev/null \
+    ' 2>/dev/null \
       | grep -iE '<!--[[:space:]]*review-status:' \
       | head -1)"
     retro_status_from_marker_line "$_leading_marker"
@@ -123,9 +142,9 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   # definition of "what the marker line looks like and where to find it". Both the status word
   # (applied/dismissed/pending) and the PARTIAL/shipped inspection are derived from this one call.
   # RETRO_MARKER_BOM_STRIP (kit issue #1099): a leading UTF-8 BOM (EF BB BF) on line 1 breaks the
-  # '^[[:space:]]*<!--' anchor — the BOM bytes are not whitespace — so a BOM'd file with an
-  # otherwise-in-scope marker would silently never match. Stripped once via sed before the awk
-  # scan, both here and in retro_marker_scope_line below.
+  # '<!--' anchor — the BOM bytes are not whitespace — so a BOM'd file with an otherwise-in-scope
+  # marker would silently never match. Stripped via the shared _retro_status_strip_bom reader
+  # (kit issue #1125 item 2), both here and in retro_marker_scope_line below.
   # pipefail-audit: external `sed | awk` over a single retro file (fleet max ~50 KB). SAFE.
   retro_marker_line() {
     local f="${1:-}"
@@ -133,10 +152,19 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # awk state: fence=1 inside a fenced code block (``` or ~~~); tolower for case-insensitive
     # match; anchored to line start so mid-line quoted markers are skipped (R2-002).
     # RETRO_MARKER_LINE_AWK: anchor tag for Tooth M7 and M8.
-    sed $'1s/^\xef\xbb\xbf//' "$f" 2>/dev/null | awk '
+    # RETRO_MARKER_LINE_INDENT_ANCHOR (kit issue #1125 item 1): '^ {0,3}<!--' — at most 3 leading
+    # SPACE characters, never a tab and never a 4th space. A line indented 4+ spaces, or by a
+    # single tab, is a markdown INDENTED CODE BLOCK: it renders as a literal documentation
+    # example, never an active HTML comment, so it must not be read as a real marker. Before this
+    # fix '^[[:space:]]*<!--' matched ANY amount of leading whitespace — a retro with NO real
+    # marker that merely SHOWED the marker syntax as an indented example was misread as carrying
+    # one, and retro_marker_out_of_scope (which calls this function) reported it as
+    # out-of-scope-marker instead of genuinely markerless, with "move the marker" advice that
+    # made no sense because there was never a real marker to move.
+    _retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
       fence { next }
-      { if (tolower($0) ~ /^[[:space:]]*<!--[[:space:]]*review-status:/) { print; exit } }
+      { if (tolower($0) ~ /^ {0,3}<!--[[:space:]]*review-status:/) { print; exit } }
     '
     return 0
   }
@@ -157,14 +185,15 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #   needs no separate fence-awareness pass (unlike retro_marker_line's whole-file scan).
   #
   #   RETRO_MARKER_SCOPE_H1_SKIP: anchor for the kit issue #945 teeth proof.
-  #   RETRO_MARKER_BOM_STRIP (kit issue #1099): same leading-BOM strip as retro_marker_line above
-  #   — see that function's comment for why. Applied here too so a BOM'd retro whose marker
-  #   position is otherwise in scope (e.g. BOM, H1, blank, marker) is still found in scope.
+  #   RETRO_MARKER_BOM_STRIP (kit issue #1099): same shared leading-BOM strip as retro_marker_line
+  #   above (kit issue #1125 item 2: _retro_status_strip_bom) — see that function's comment for
+  #   why. Applied here too so a BOM'd retro whose marker position is otherwise in scope (e.g.
+  #   BOM, H1, blank, marker) is still found in scope.
   #   pipefail-audit: external `sed | awk` over the leading few lines of a single retro file. SAFE.
   retro_marker_scope_line() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 0
-    sed $'1s/^\xef\xbb\xbf//' "$f" 2>/dev/null | awk '
+    _retro_status_strip_bom "$f" | awk '
       NR==1 && /^[[:space:]]*#[^#]/ { next }
       NR==1 && /^[[:space:]]*#[[:space:]]*$/ { next }
       /^[[:space:]]*<!--/ { print; next }
@@ -209,14 +238,17 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   # in its prose (a longer line) does NOT trigger the opt-out. Do NOT apply this same anchoring to
   # retro_review_status (review-status markers intentionally carry trailing content like the date and
   # kit sha — they are never a full line by themselves).
+  # RETRO_IS_EXCLUDED_BOM_STRIP (kit issue #1125 item 2): routed through the shared
+  # _retro_status_strip_bom reader so a BOM'd '<!-- kit-retro: exclude -->' is still recognised —
+  # before this fix only retro_marker_line/retro_marker_scope_line stripped a leading BOM.
   retro_is_excluded() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
-    awk '
+    _retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
-    ' "$f" 2>/dev/null \
+    ' 2>/dev/null \
       | grep -qiE '^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$'
       # pipefail-audit: external `awk` producer (leading HTML-comment block of a retro file).
       # Fleet max 414 B (2026-07-06-kit-audit.md). Race onset: ~64 KB. Fleet max << onset; SAFE.
@@ -238,14 +270,16 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   # is monitored by default. Deleting the waiver file makes the MISSING-RETRO line reappear —
   # self-correcting, never silent. Scans the same leading-block region as retro_review_status
   # and retro_is_excluded so all three share a consistent definition of "leading block".
+  # RETRO_IS_WAIVED_BOM_STRIP (kit issue #1125 item 2): routed through the shared
+  # _retro_status_strip_bom reader — see retro_is_excluded's comment for why.
   retro_is_waived() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
-    awk '
+    _retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
-    ' "$f" 2>/dev/null \
+    ' 2>/dev/null \
       | grep -qiE '^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$'
       # pipefail-audit: same awk producer as retro_is_excluded. Fleet max 414 B. SAFE.
   }
@@ -260,10 +294,14 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   # it here makes lib/retro-status.sh the SINGLE definition of "review-status presence" logic
   # (U11 centralisation). Uses head -10 (not the awk leading-block scan) to preserve byte-identical
   # fleet output — the two scanning strategies can differ on edge cases (see design.md D-3 note).
+  # RETRO_HAS_BARE_MARKER_BOM_STRIP (kit issue #1125 item 2): routed through the shared
+  # _retro_status_strip_bom reader — see retro_is_excluded's comment for why. A BOM directly
+  # before a bare 'review-status:' line on line 1 would otherwise never match
+  # '^[[:space:]]*review-status:' (the BOM bytes are not whitespace).
   retro_has_bare_marker() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 1
-    head -10 "$f" 2>/dev/null | grep -qiE '^[[:space:]]*review-status:'
+    _retro_status_strip_bom "$f" | head -10 | grep -qiE '^[[:space:]]*review-status:'
     # pipefail-audit: external `head -10` producer. Fleet max 1,170 B across all retro files.
     # Race onset for external producers: ~64 KB. Fleet max << onset; SAFE.
   }

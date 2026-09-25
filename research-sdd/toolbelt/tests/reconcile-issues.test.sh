@@ -317,12 +317,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 10b — OUT-OF-SCOPE MARKER (kit issue #1099): a marker positioned after a SECOND heading is
-# outside the shared #945 scope. Before #1099 this was silently conflated with "no marker at
-# all" (status "") and every row was reported untracked — a classification bug, not just a
-# missed report. #1099 makes this fail CLOSED instead: refuse to classify, report loudly under
-# the typed 'out-of-scope-marker:' reason, and count under fleet-summary's degraded= bucket
-# (non-zero exit under --all, same signal already used for "couldn't classify this retro").
+# 10b — OUT-OF-SCOPE MARKER (kit issue #1099; exit code revised by #1125 item 3): a marker
+# positioned after a SECOND heading is outside the shared #945 scope. Before #1099 this was
+# silently conflated with "no marker at all" (status "") and every row was reported untracked —
+# a classification bug, not just a missed report. #1099 makes this fail CLOSED instead: refuse
+# to classify, report loudly under the typed 'out-of-scope-marker:' reason. #1125 item 3: this
+# is a CORPUS finding (the retro's own marker is mispositioned), not an operational failure of
+# reconcile-issues.sh — per CLAUDE.md §8 a finding is WARN-only and exits 0, the same rule every
+# other typed state here already follows (empty-input, unclassifiable, …). Before #1125 this
+# `return 1`ed into the SAME degraded= bucket as a real gh-query failure, so under --all a single
+# mispositioned marker anywhere in the fleet made the whole run exit 1 — indistinguishable from
+# the instrument itself being broken.
 box="$(mkbox case-oos)"
 mk_gh_stub "$box" nomatch
 retro_oos="$box/rh/target-foo/retros/r-oos.md"
@@ -333,12 +338,33 @@ retro_oos="$box/rh/target-foo/retros/r-oos.md"
   printf '| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |\n'
 } > "$retro_oos"
 run "$box" "$retro_oos"
-if [ "$RC" != 0 ] && printf '%s' "$OUT" | grep -qi '^out-of-scope-marker:' \
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^out-of-scope-marker:' \
   && ! printf '%s' "$OUT" | grep -qi 'untracked:\|tracked:\|orphaned:'; then
-  ok "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify (#1099)" "(exit $RC)"
+  ok "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify, exit 0 (finding, not failure — #1099/#1125)" "(exit $RC)"
 else
-  no "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify (#1099)" \
+  no "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify, exit 0 (finding, not failure — #1099/#1125)" \
     "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 10d — OUT-OF-SCOPE MARKER under --all (kit issue #1125 item 3): the out-of-scope-marker
+# finding must be counted separately as out-of-scope= in the fleet-summary line, and must NOT
+# push _fleet_degraded above zero — proving the finding stays visible without gating the exit
+# code of the whole fleet run.
+box="$(mkbox case-oos-all)"
+mk_gh_stub "$box" nomatch
+retro_oos_all="$box/rh/target-foo/retros/r-oos.md"
+{
+  printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->\n\n## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |\n'
+} > "$retro_oos_all"
+run "$box" "--all"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qE 'fleet-summary:.*degraded=0.*out-of-scope=1'; then
+  ok "10d --all: out-of-scope-marker counted separately, degraded stays 0, exit 0" "(exit $RC)"
+else
+  no "10d --all: out-of-scope-marker counted separately, degraded stays 0, exit 0" "exit=$RC out=[$OUT]"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1115,6 +1141,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth GR3: locate Rule 4 (standalone H3 Proposals) in lib/retro-grammar.sh" "anchor not found — lib drifted?"
+  fi
+
+  # TOOTH T-OOS (kit issue #1125 item 4 — the other three consumers, sweep-retros.sh,
+  # stage-retro-issues.sh, and retro-gate.sh, already have one; reconcile-issues.sh did not).
+  # Neuter the out-of-scope-marker guard. Case 10b's fixture (marker after a second heading)
+  # must then be silently read as if no marker existed at all — its row reported untracked
+  # instead of the classification being refused — reproducing the exact #1048-#1089 fail-open
+  # shape #1099 fixes.
+  echo "-- teeth T-OOS: neuter the out-of-scope-marker guard; case 10b must fail open again --"
+  anchor_toos='if [ -z "$_marker_line" ] && retro_marker_out_of_scope "$retro_path"; then'
+  sut_content_toos="$(cat "$SUT")"
+  if [[ "$sut_content_toos" == *"$anchor_toos"* ]]; then
+    box_toos="$(mkbox teeth-oos)"
+    mk_gh_stub "$box_toos" nomatch
+    retro_toos="$box_toos/rh/target-foo/retros/r-oos.md"
+    {
+      printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->\n\n## Proposed kit deltas\n\n'
+      printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+      printf '|---|---|---|---|---|---|\n'
+      printf '| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |\n'
+    } > "$retro_toos"
+    mutant_toos="$box_toos/research-sdd/toolbelt/reconcile-issues.sh"
+    printf '%s\n' "${sut_content_toos/"$anchor_toos"/if false; then}" > "$mutant_toos"
+    "$BASH_BIN" -n "$mutant_toos" 2>/dev/null || no "T-OOS teeth: mutant syntax check" "bash -n failed"
+    out_toos="$(PATH="$box_toos/bin:$PATH" "$BASH_BIN" "$mutant_toos" "$retro_toos" 2>&1)"; rc_toos=$?
+    if printf '%s\n' "$out_toos" | grep -q '^untracked:'; then
+      ok "T-OOS teeth: guard neutered → row untracked again, fails open (case 10b has teeth)" "()"
+    else
+      no "T-OOS teeth: guard neutered → row should be untracked (fail open)" \
+        "mutant did not emit untracked — case 10b is THEATER: rc=$rc_toos out=[$out_toos]"
+    fi
+  else
+    no "T-OOS teeth: locate out-of-scope-marker guard anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
 fi  # --prove-teeth

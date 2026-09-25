@@ -203,7 +203,10 @@ for p in $paths; do
       pending) ;;
       "")
         if [ "$_out_of_scope" -eq 1 ]; then
-          echo "WARN: out-of-scope-marker in $(basename "$f") — a review-status marker exists but sits outside the leading-block scope (kit issue #1099); move it into the leading block"
+          # kit issue #1125 item 5: 'out-of-scope-marker:' is the SAME typed token every consumer
+          # (stage-retro-issues.sh, reconcile-issues.sh, retro-gate.sh) leads with, right after
+          # this tool's own WARN: wrapper — keeps the finding greppable across all four.
+          echo "WARN: out-of-scope-marker: $(basename "$f") — a review-status marker exists but sits outside the leading-block scope (kit issue #1099); move it into the leading block"
         else
           echo "WARN: no review-status marker in $(basename "$f") — add '<!-- review-status: pending -->'"
         fi
