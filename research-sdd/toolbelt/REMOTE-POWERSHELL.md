@@ -164,3 +164,24 @@ Compress-Archive -Path ($dst + '\*.mdb') -DestinationPath $zip -Force
 ```
 
 Measured: 13.2 MB of source files → a 4 MB archive → one `fetch.sh` call.
+
+## 7. Force text output with `-OutputFormat Text` (complements §3's CLIXML tagging)
+
+_Source: pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md_
+
+Without an explicit output format, PowerShell over SSH returns **CLIXML** (`#< CLIXML` +
+`<Objs>...</Objs>` XML), and the progress stream adds noise to it. §3's tagged lines still survive; to get plain
+text and silence progress at the source instead:
+
+```bash
+./connect-ssh.sh "powershell -NoProfile -OutputFormat Text -EncodedCommand $B64"
+```
+
+and prepend, inside the PowerShell source itself (before it runs anything that reports progress):
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'
+```
+
+This adds `-OutputFormat Text` and `$ProgressPreference='SilentlyContinue'` on top of the
+`-EncodedCommand` (base64 UTF-16LE) transport already documented in §2 — it does not replace it.
