@@ -83,6 +83,15 @@ set -Eeuo pipefail   # -E: ERR trap must be inherited into functions, or rollbac
 KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"     # .../research-sdd
 TPL="$KIT/templates"
 
+# Shared corpus-marker predicate (kit issue #1108): single source of truth with
+# verify-registry.sh's registered-path marker check — see lib/corpus-markers.sh for why.
+_ri_cm_lib="$(cd "$(dirname "$0")" && pwd)/lib/corpus-markers.sh"
+if [ ! -f "$_ri_cm_lib" ]; then echo "research-sdd-init: cannot find helper $_ri_cm_lib" >&2; exit 1; fi
+# shellcheck source=lib/corpus-markers.sh
+. "$_ri_cm_lib"
+declare -F corpus_has_marker >/dev/null 2>&1 || { echo "research-sdd-init: helper $_ri_cm_lib failed to define corpus_has_marker" >&2; exit 1; }
+unset _ri_cm_lib
+
 target=""; corpus_mode="auto"; prefix=""; force=0; wire=0; scaffold=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -114,15 +123,11 @@ done
 # uses for corpus-wide state-file enumeration) — a multi-focus-only corpus (no plain
 # RESEARCH-STATE.md, only RESEARCH-STATE-<focus>.md files) is still a real, present corpus.
 # *.template.md is excluded so a stray copied template never counts as a marker.
+# kit issue #1108: the predicate itself now lives in lib/corpus-markers.sh (single source of
+# truth with verify-registry.sh's registered-path marker check) — this wrapper keeps the
+# established name/call sites in this script unchanged.
 corpus_present() {
-  local r="$1" m f
-  for m in INDEX.md CATALOG.md; do [ -e "$r/$m" ] && return 0; done
-  for f in "$r"/RESEARCH-STATE*.md; do
-    [ -e "$f" ] || continue
-    case "$f" in *.template.md) continue;; esac
-    return 0
-  done
-  return 1
+  corpus_has_marker "$1"
 }
 
 # kit issue #1040 finding 3 (round 2 of #1038): detect <SUBJECT> only in NON-COMMENT lines. The

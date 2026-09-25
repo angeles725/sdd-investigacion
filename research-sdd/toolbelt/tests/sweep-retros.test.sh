@@ -30,6 +30,7 @@ TP_LIB="$HERE/../lib/target-paths.sh"        # shared path derivation the SUT no
 [ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
 RG_LIB="$HERE/../lib/retro-grammar.sh"       # shared delta-heading grammar the SUT now sources
 [ -f "$RG_LIB" ] || { echo "FATAL: retro-grammar helper not found: $RG_LIB" >&2; exit 2; }
+[ -f "$HERE/../lib/hook-wiring.sh" ] || { echo "FATAL: hook-wiring helper not found: $HERE/../lib/hook-wiring.sh" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -46,6 +47,7 @@ mkkit() {
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"   # SUT sources this at $(dirname $0)/lib/
   cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh"     # SUT sources this for block_file_filter
   cp "$RG_LIB" "$kit/toolbelt/lib/retro-grammar.sh"  # SUT sources this for retro_grammar_delta_info
+  cp "$HERE/../lib/hook-wiring.sh" "$kit/toolbelt/lib/hook-wiring.sh"  # SUT sources this for hook_stop_wiring_state
   printf '%s' "$kit"
 }
 
@@ -1106,6 +1108,37 @@ if [ "$RC" != 0 ] \
   ok "47 broken target-paths helper → fail-closed abort, no summary" "(exit $RC)"
 else
   no "47 broken target-paths helper → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 47b — kit issue #1108 round 2: lib/hook-wiring.sh FILE absent → exit 1, 'cannot find helper',
+#       no summary. The sourcing block now lives at the TOP with the other libs (moved out of
+#       the mid-script WIRING-STATUS pass, kit issue #1108 round 2 RSDD_PROFILE fix), so this
+#       must fail BEFORE any retro-scanning work runs.
+kit="$(mkkit c47b-absent-hw)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+write_targets "$kit" "$tgt"
+rm "$kit/toolbelt/lib/hook-wiring.sh"
+run "$kit"
+if [ "$RC" != 0 ] && grep -q 'cannot find helper' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "47b hook-wiring helper file absent → fail-closed abort, no summary" "(exit $RC)"
+else
+  no "47b hook-wiring helper file absent → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 47c — kit issue #1108 round 2: lib/hook-wiring.sh exists but defines no
+#       hook_stop_wiring_state_var → exit 1, 'failed to define', no summary.
+kit="$(mkkit c47c-broken-hw)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+write_targets "$kit" "$tgt"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no hook_stop_wiring_state_var\n' \
+  > "$kit/toolbelt/lib/hook-wiring.sh"
+run "$kit"
+if [ "$RC" != 0 ] \
+   && grep -q 'failed to define hook_stop_wiring_state_var' <<<"$OUT" \
+   && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "47c broken hook-wiring helper → fail-closed abort, no summary" "(exit $RC)"
+else
+  no "47c broken hook-wiring helper → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
 fi
 
 # 48 — \$RESEARCH_HOME path form resolves (the whole point of the retrofit). A TARGETS.md row
@@ -4048,11 +4081,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # to a whole-file match (no 'in_stop' guard). The wrong-event fixture (case 78: retro-gate
   # under SessionStart, not Stop) must now report WIRED (no WARN), proving the Stop-scoping
   # awk is the deciding factor, not mere file membership.
+  # kit issue #1108/#1109: this check now lives in lib/hook-wiring.sh (single source of truth
+  # shared with verify-registry.sh and research-sdd-status.sh) — the mutation targets the
+  # sandboxed KIT's copy of the LIB, not the SUT, since the SUT now only dispatches on the
+  # lib's printed token.
   echo "-- teeth WG: remove Stop-scoping from awk; wrong-event fixture must false-wire (case 78 has teeth) --"
-  _anchor_wg='        } else if (in_stop && substr($0,i,10)=="retro-gate") {   # RSDD_WS_STOP_SCOPE'
-  _content_wg="$(cat "$SUT")"
+  _anchor_wg='          } else if (in_stop && substr($0,i,10)=="retro-gate") {'
+  _content_wg="$(cat "$HERE/../lib/hook-wiring.sh")"
   if [[ "$_content_wg" != *"$_anchor_wg"* ]]; then
-    no "teeth WG: locate RSDD_WS_STOP_SCOPE anchor in SUT" "anchor not found — SUT drifted?"
+    no "teeth WG: locate Stop-scope anchor in lib/hook-wiring.sh" "anchor not found — lib drifted?"
   else
     kit="$(mkkit teeth-wg)"; tgt="$kit/targetA"
     mkdir -p "$tgt/.claude"
@@ -4060,11 +4097,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}],"Stop":[]}}\n' \
       > "$tgt/.claude/settings.json"
     write_targets "$kit" "$tgt"
-    _mutant_wg="$kit/toolbelt/sweep-retros.sh"
+    _mutant_wg="$kit/toolbelt/lib/hook-wiring.sh"
     # Mutant: drop the in_stop guard — whole-file match, no Stop scoping
-    _mutation_wg='        } else if (substr($0,i,10)=="retro-gate") {   # RSDD_WS_STOP_SCOPE (mutated)'
+    _mutation_wg='          } else if (substr($0,i,10)=="retro-gate") {   # (mutated: no Stop scope)'
     printf '%s\n' "${_content_wg/"$_anchor_wg"/"$_mutation_wg"}" > "$_mutant_wg"
-    _outm_wg="$("$BASH_BIN" "$_mutant_wg" 2>&1)"
+    _outm_wg="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     # Without Stop-scoping: retro-gate found in SessionStart → false-wired (no WARN, 1 wired)
     if ! grep -q 'WARN.*retro-gate not wired' <<<"$_outm_wg" && grep -q 'Wiring:.*1 wired' <<<"$_outm_wg"; then
       ok "teeth WG: stop-scope-removed mutant false-wires wrong-event fixture — case 78 has teeth" "()"
@@ -4074,15 +4111,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     unset _anchor_wg _content_wg _mutant_wg _mutation_wg _outm_wg
   fi
 
-  # Tooth WU: remove the unreadable branch (elif [ ! -r ] + echo + counter) →
-  # a chmod-000 settings.json falls through to the awk check. awk cannot read it → exit 1 (not
-  # found) → the else branch fires: UNWIRED WARN instead of UNREADABLE WARN. Case 80 expects
-  # WARN.*retro-gate wiring unknown; without the branch it gets WARN.*retro-gate not wired → RED.
-  # Skipped when EUID=0: root reads any file, so the unreadable branch is never reachable there.
+  # Tooth WU: remove the unreadable branch (the '[ ! -r "$settings" ]' guard + its echo) inside
+  # lib/hook-wiring.sh → a chmod-000 settings.json falls through to the awk check. awk cannot
+  # read it → exit 1 (not found) → the caller's default case fires: UNWIRED WARN instead of
+  # UNREADABLE WARN. Case 80 expects WARN.*retro-gate wiring unknown; without the branch it gets
+  # WARN.*retro-gate not wired → RED. Skipped when EUID=0: root reads any file, so the
+  # unreadable branch is never reachable there.
   echo "-- teeth WU: remove unreadable branch; chmod-000 file must get unwired WARN instead (case 80 has teeth) --"
-  _anchor_wu='elif \[ ! -r "\$_ws_settings" \]'
-  if ! grep -qE "$_anchor_wu" "$SUT"; then
-    no "teeth WU: locate unreadable branch in SUT" "anchor not found — SUT drifted?"
+  _anchor_wu='if \[ ! -r "\$settings" \]; then'
+  if ! grep -qE "$_anchor_wu" "$HERE/../lib/hook-wiring.sh"; then
+    no "teeth WU: locate unreadable branch in lib/hook-wiring.sh" "anchor not found — lib drifted?"
   elif [ "$EUID" -eq 0 ]; then
     ok "teeth WU → SKIPPED (running as root; root reads any file — unreadable branch unreachable)" "EUID=0"
   else
@@ -4091,10 +4129,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '{"hooks":{"Stop":[]}}\n' > "$tgt/.claude/settings.json"
     chmod 000 "$tgt/.claude/settings.json"
     write_targets "$kit" "$tgt"
-    _mutant_wu="$kit/toolbelt/sweep-retros.sh"
-    # Delete the 3-line unreadable branch: elif condition + echo + counter
-    sed '/elif \[ ! -r "\$_ws_settings" \]/,+2d' "$SUT" > "$_mutant_wu"
-    _outm_wu="$("$BASH_BIN" "$_mutant_wu" 2>&1)"
+    _mutant_wu="$kit/toolbelt/lib/hook-wiring.sh"
+    # Delete the 3-line unreadable branch: if condition + echo + closing brace
+    sed '/if \[ ! -r "\$settings" \]; then/,+2d' "$HERE/../lib/hook-wiring.sh" > "$_mutant_wu"
+    _outm_wu="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     chmod 644 "$tgt/.claude/settings.json"  # restore for cleanup
     # Without the unreadable branch: awk tries to read → fails → else fires → unwired WARN
     if grep -q 'WARN.*retro-gate not wired in' <<<"$_outm_wu" \

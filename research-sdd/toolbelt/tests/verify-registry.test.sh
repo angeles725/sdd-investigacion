@@ -7,7 +7,10 @@
 # Contract pinned here:
 #   * a row whose claimed 'N md' matches the real on-disk block count (within tolerance) → NO drift WARN;
 #   * a row that drifts BEYOND tolerance → a drift WARN naming the target + its claimed/real counts;
-#   * a NESTED-layout corpus (<target>/research/) resolves via its RESEARCH-STATE.md, exactly like archive;
+#   * a NESTED-layout corpus (<target>/corpus/, METHODOLOGY's canonical nested convention)
+#     resolves via its RESEARCH-STATE.md, exactly like archive; a NON-canonical deep layout
+#     (e.g. <target>/sub/research/, the three.js shape) also resolves for block-count purposes
+#     but is flagged separately by the REGISTERED-PATH MARKER CHECK (kit issue #1108, see 3c);
 #   * a truncated '...' path row is DROPPED with the PARTIAL WARN naming its basename;
 #   * the tolerance guard boundary (== tol quiet, > tol WARNs);
 #   * a target with no RESEARCH-STATE → 'corpus layout not resolvable' WARN;
@@ -28,6 +31,10 @@ LIB="$HERE/../lib/retro-status.sh"   # shared helper the SUT now sources for ret
 [ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
 TP_LIB="$HERE/../lib/target-paths.sh"  # shared path derivation the SUT now sources
 [ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
+CM_LIB="$HERE/../lib/corpus-markers.sh"  # shared corpus-marker predicate the SUT now sources (#1108)
+[ -f "$CM_LIB" ] || { echo "FATAL: corpus-markers helper not found: $CM_LIB" >&2; exit 2; }
+HW_LIB="$HERE/../lib/hook-wiring.sh"  # shared Stop-hook wiring predicate the SUT now sources (#1108)
+[ -f "$HW_LIB" ] || { echo "FATAL: hook-wiring helper not found: $HW_LIB" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -43,8 +50,14 @@ mkkit() {
   cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
   cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this for target_paths_all
   cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$CM_LIB" "$kit/toolbelt/lib/corpus-markers.sh"  # SUT sources this for corpus_marker_present
+  cp "$HW_LIB" "$kit/toolbelt/lib/hook-wiring.sh"     # SUT sources this for hook_stop_wiring_state
   printf '%s' "$kit"
 }
+
+# wire_hook <target-dir> : write a Stop-hook-wired .claude/settings.json under <target-dir>, so a
+# fixture whose row claims 'hook yes' reconciles cleanly against the new hook-wiring check (#1108).
+wire_hook() { mkdir -p "$1/.claude"; printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}' > "$1/.claude/settings.json"; }
 
 # mkcorpus <corpus-dir> <nblocks> <prefix> : create a resolvable corpus — a RESEARCH-STATE.md at its
 # root (the archive/verify-state anchor) plus <nblocks> canonical block files `<prefix>-block<i>.md`.
@@ -71,7 +84,7 @@ write_targets() {
       if [ "$claim" = "-" ]; then
         printf '| %d | t%d | mature | `%s` |\n' "$i" "$i" "$p"
       else
-        printf '| %d | t%d | mature (%s / git yes / hook yes) | `%s` |\n' "$i" "$i" "$claim" "$p"
+        printf '| %d | t%d | mature (%s / git yes) | `%s` |\n' "$i" "$i" "$claim" "$p"
       fi
     done
   } > "$kit/TARGETS.md"
@@ -110,32 +123,180 @@ else
   no "2 claim 40 vs real 5 → drift WARN, exit 0" "exit=$RC out=[$OUT]"
 fi
 
-# 3 — NESTED layout: corpus lives at <target>/research/ (like three.js). Row registers the ROOT path; the
-#     SUT must resolve the corpus via research/RESEARCH-STATE.md and count the nested blocks. Claim matches
+# 3 — NESTED layout: corpus lives at <target>/corpus/ (research-sdd-init.sh's OWN canonical
+#     nested convention — see lib/corpus-markers.sh). Row registers the ROOT path; the SUT must
+#     resolve the corpus via corpus/RESEARCH-STATE.md and count the nested blocks. Claim matches
 #     → no drift, proving nested resolution (a flat <target>/*.md count would see ZERO and false-drift).
+#     Renamed from <target>/research/ (kit issue #1108): that shape is EXACTLY the three.js repro
+#     — a registered path with no marker at $p or $p/corpus, resolvable only via the deep
+#     maxdepth-3 search — so it now correctly WARNs (see test 3c below) and can no longer double
+#     as "the canonical clean case". <target>/corpus/ carries a marker research-sdd-init.sh's own
+#     --wire guard recognises, so this fixture stays a genuine no-WARN nested-resolution proof.
 kit="$(mkkit c3-nested)"; tgt="$ROOT/c3-ext-tgt"
-mkcorpus "$tgt/research" 6 "n"           # → $tgt/research/RESEARCH-STATE.md + 6 blocks
-write_targets "$kit" "$tgt::6 md"        # registers the ROOT, not research/
+mkcorpus "$tgt/corpus" 6 "n"             # → $tgt/corpus/RESEARCH-STATE.md + 6 blocks
+write_targets "$kit" "$tgt::6 md"        # registers the ROOT, not corpus/
 run "$kit"
 if [ "$RC" = 0 ] \
    && [ ! -e "$tgt/RESEARCH-STATE.md" ] \
    && ! grep -q 'refresh the row' <<<"$OUT" \
    && grep -q 'Registry consistent with reality' <<<"$OUT"; then
-  ok "3 nested research/ corpus → resolved + counted (no false drift)" "(exit $RC)"
+  ok "3 nested corpus/ layout → resolved + counted (no false drift, no marker WARN)" "(exit $RC)"
 else
-  no "3 nested research/ corpus → resolved + counted (no false drift)" "exit=$RC out=[$OUT]"
+  no "3 nested corpus/ layout → resolved + counted (no false drift, no marker WARN)" "exit=$RC out=[$OUT]"
 fi
 
 # 3b — NESTED + DRIFT: same nested layout but claim 99 md vs real 6 → the drift WARN fires with the NESTED
-#      count (6), proving the resolver both walks into research/ AND recounts there (teeth on nested path).
+#      count (6), proving the resolver both walks into corpus/ AND recounts there (teeth on nested path).
 kit="$(mkkit c3b-nesteddrift)"; tgt="$kit/targetN"
-mkcorpus "$tgt/research" 6 "n"
+mkcorpus "$tgt/corpus" 6 "n"
 write_targets "$kit" "$tgt::99 md"
 run "$kit"
 if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetN .* claims 99 md but the corpus has 6 real block' <<<"$OUT"; then
   ok "3b nested + claim 99 → drift names nested count 6" "(exit $RC)"
 else
   no "3b nested + claim 99 → drift names nested count 6" "exit=$RC out=[$OUT]"
+fi
+
+# --- kit issue #1108: REGISTERED-PATH MARKER CHECK -------------------------------------------------
+
+# 3c — MARKER: three.js repro shape — corpus nested TWO levels down (<target>/sub/research/), the
+#      registered path itself has NO marker at $p or $p/corpus. The deep maxdepth-3 resolver still
+#      finds and counts the corpus correctly (no false drift), but the NEW marker WARN fires, and
+#      the clean 'Registry consistent with reality' line is ABSENT (attention > 0).
+kit="$(mkkit c3c-nomarker)"; tgt="$kit/targetA"
+mkcorpus "$tgt/sub/research" 4 "a"       # → $tgt/sub/research/RESEARCH-STATE.md (2 levels deep)
+write_targets "$kit" "$tgt::4 md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'WARN[[:space:]]+targetA — registered path has no corpus marker' <<<"$OUT" \
+   && grep -qF "no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at ${tgt} or ${tgt}/corpus" <<<"$OUT" \
+   && ! grep -q 'refresh the row' <<<"$OUT" \
+   && ! grep -q 'Registry consistent with reality' <<<"$OUT"; then
+  ok "3c three.js-shape corpus (2 levels deep, no marker at \$p/\$p/corpus) → marker WARN, no false drift" "(exit $RC)"
+else
+  no "3c three.js-shape corpus (2 levels deep, no marker at \$p/\$p/corpus) → marker WARN, no false drift" "exit=$RC out=[$OUT]"
+fi
+
+# 3d — MARKER: nc-flagged row with NO corpus marker anywhere → the marker check is SKIPPED (nc
+#      means "not a corpus" by definition — a tooling/production-app target legitimately has none).
+kit="$(mkkit c3d-ncnomarker)"; tgt="$kit/targetA"
+mkdir -p "$tgt"; printf 'x' > "$tgt/readme.md"   # no RESEARCH-STATE/INDEX/CATALOG anywhere
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | intermediate (1 md / nc / git no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'no corpus marker' <<<"$OUT"; then
+  ok "3d nc row with no corpus marker → marker check skipped (nc exempt)" "(exit $RC)"
+else
+  no "3d nc row with no corpus marker → marker check skipped (nc exempt)" "exit=$RC out=[$OUT]"
+fi
+
+# --- kit issue #1108: HOOK-WIRING RECONCILIATION CHECK ----------------------------------------------
+
+# 3e — HOOK-WIRING: row claims 'hook yes' and the target's Stop hook IS wired to retro-gate →
+#      no hook-wiring WARN (positive control — proves the check is not unconditionally noisy).
+kit="$(mkkit c3e-hookwired)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook is' <<<"$OUT"; then
+  ok "3e hook yes + actually wired → no hook-wiring WARN" "(exit $RC)"
+else
+  no "3e hook yes + actually wired → no hook-wiring WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3f — HOOK-WIRING: row claims 'hook yes' but target has NO .claude/settings.json at all →
+#      WARN naming the absent-settings state (kit issue #1108's own three.js repro: 'git yes /
+#      hook yes' claimed, no .claude/ present at all).
+kit="$(mkkit c3f-hookabsent)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' but the Stop hook is absent-settings" <<<"$OUT"; then
+  ok "3f hook yes + no .claude/settings.json → hook-wiring WARN names absent-settings" "(exit $RC)"
+else
+  no "3f hook yes + no .claude/settings.json → hook-wiring WARN names absent-settings" "exit=$RC out=[$OUT]"
+fi
+
+# 3g — HOOK-WIRING: row claims 'hook yes' but settings.json exists WITHOUT a retro-gate Stop
+#      entry → WARN naming the unwired state (distinct from absent-settings, §7 three-state).
+kit="$(mkkit c3g-hookunwired)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+mkdir -p "$tgt/.claude"; printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"some-other-hook.sh"}]}]}}' > "$tgt/.claude/settings.json"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' but the Stop hook is unwired" <<<"$OUT"; then
+  ok "3g hook yes + settings.json without retro-gate → hook-wiring WARN names unwired" "(exit $RC)"
+else
+  no "3g hook yes + settings.json without retro-gate → hook-wiring WARN names unwired" "exit=$RC out=[$OUT]"
+fi
+
+# 3h — HOOK-WIRING: row claims 'hook no' and the target is genuinely unwired → NO hook-wiring
+#      WARN (the check only reconciles the SPECIFIC 'hook yes' claim, per the TARGETS.md legend —
+#      'hook no' never asserts active wiring, so there is nothing to contradict).
+kit="$(mkkit c3h-hookno)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook is' <<<"$OUT"; then
+  ok "3h hook no + unwired target → no hook-wiring WARN (claim never asserted wiring)" "(exit $RC)"
+else
+  no "3h hook no + unwired target → no hook-wiring WARN (claim never asserted wiring)" "exit=$RC out=[$OUT]"
+fi
+
+# 3i — HOOK-WIRING: row claims 'hook file yes / unregistered' (which ALREADY admits it is not
+#      wired) and the target is unwired → NO hook-wiring WARN — this token starts with 'hook
+#      file', not 'hook yes', so it must not be mistaken for the active-wiring claim.
+kit="$(mkkit c3i-hookfileyes)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook file yes / unregistered) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook is' <<<"$OUT"; then
+  ok "3i hook file yes / unregistered → no hook-wiring WARN (not the 'hook yes' claim)" "(exit $RC)"
+else
+  no "3i hook file yes / unregistered → no hook-wiring WARN (not the 'hook yes' claim)" "exit=$RC out=[$OUT]"
+fi
+
+# 3j — HOOK-WIRING: decorated claim form 'hook yes ×2' (legend-documented variant) still matches
+#      the active-wiring assertion — unwired target still WARNs.
+kit="$(mkkit c3j-hookyesx2)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes ×2) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes ×2' but the Stop hook is absent-settings" <<<"$OUT"; then
+  ok "3j decorated 'hook yes ×2' claim → still reconciled, hook-wiring WARN fires" "(exit $RC)"
+else
+  no "3j decorated 'hook yes ×2' claim → still reconciled, hook-wiring WARN fires" "exit=$RC out=[$OUT]"
+fi
+
+# 3k — HOOK-CLAIM word-boundary: 'hook yesterday' must NOT match the 'hook yes' claim (word
+#      boundary after 'yes' — kit issue #1108 round 2: a mutant that drops the boundary class
+#      still passed the suite, so this fixture is the negative control that pins it). Target is
+#      unwired (no .claude/ at all); if the boundary were dropped, this would false-WARN.
+kit="$(mkkit c3k-hookyesterday)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yesterday) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook is' <<<"$OUT"; then
+  ok "3k 'hook yesterday' claim → word boundary rejects it, no hook-wiring WARN" "(exit $RC)"
+else
+  no "3k 'hook yesterday' claim → word boundary rejects it, no hook-wiring WARN" "exit=$RC out=[$OUT]"
 fi
 
 # 4 — TRUNCATED '...' path → dropped, PARTIAL WARN names its basename; a real target alongside still reconciles.
@@ -487,6 +648,60 @@ else
   no "20 broken target-paths helper → exit 1, 'failed to define' message, no summary" "exit=$RC out=[$OUT]"
 fi
 
+# 20b — kit issue #1108 round 2: lib/corpus-markers.sh FILE absent → exit 1, 'cannot find helper',
+#       no Summary. Mirrors case 48's target-paths precedent for the new marker-check helper.
+kit="$(mkkit c20b-absent-cm)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+rm "$kit/toolbelt/lib/corpus-markers.sh"
+run "$kit"
+if [ "$RC" = 1 ] && grep -q 'cannot find helper' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "20b corpus-markers helper file absent → exit 1, 'cannot find helper', no summary" "(exit $RC)"
+else
+  no "20b corpus-markers helper file absent → exit 1, 'cannot find helper', no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 20c — kit issue #1108 round 2: lib/corpus-markers.sh exists but defines no corpus_marker_present
+#       → exit 1, 'failed to define', no Summary.
+kit="$(mkkit c20c-broken-cm)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no corpus_marker_present\n' \
+  > "$kit/toolbelt/lib/corpus-markers.sh"
+run "$kit"
+if [ "$RC" = 1 ] && grep -q 'failed to define corpus_marker_present' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "20c broken corpus-markers helper → exit 1, 'failed to define', no summary" "(exit $RC)"
+else
+  no "20c broken corpus-markers helper → exit 1, 'failed to define', no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 20d — kit issue #1108 round 2: lib/hook-wiring.sh FILE absent → exit 1, 'cannot find helper',
+#       no Summary.
+kit="$(mkkit c20d-absent-hw)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+rm "$kit/toolbelt/lib/hook-wiring.sh"
+run "$kit"
+if [ "$RC" = 1 ] && grep -q 'cannot find helper' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "20d hook-wiring helper file absent → exit 1, 'cannot find helper', no summary" "(exit $RC)"
+else
+  no "20d hook-wiring helper file absent → exit 1, 'cannot find helper', no summary" "exit=$RC out=[$OUT]"
+fi
+
+# 20e — kit issue #1108 round 2: lib/hook-wiring.sh exists but defines no hook_stop_wiring_state
+#       → exit 1, 'failed to define', no Summary.
+kit="$(mkkit c20e-broken-hw)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+write_targets "$kit" "$tgt::3 md"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no hook_stop_wiring_state\n' \
+  > "$kit/toolbelt/lib/hook-wiring.sh"
+run "$kit"
+if [ "$RC" = 1 ] && grep -q 'failed to define hook_stop_wiring_state' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
+  ok "20e broken hook-wiring helper → exit 1, 'failed to define', no summary" "(exit $RC)"
+else
+  no "20e broken hook-wiring helper → exit 1, 'failed to define', no summary" "exit=$RC out=[$OUT]"
+fi
+
 # 21 — \$RESEARCH_HOME path form resolves. A TARGETS.md row written as \`\$RESEARCH_HOME/sub\`
 #      was invisible to the old backtick+slash grep; after the retrofit it expands and the corpus
 #      directory IS walked (not "corpus layout not resolvable"). Note: the row-lookup inside
@@ -501,7 +716,7 @@ mkdir -p "$_rh_base_vr"
 tgt="$_rh_base_vr/rh_corpus"
 mkcorpus "$tgt" 4 "r"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | t1 | mature (4 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+  printf '| 1 | t1 | mature (4 md / git yes) | `$RESEARCH_HOME/rh_corpus` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_vr" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_vr
@@ -541,7 +756,7 @@ mkcorpus "$tgt" 5 "r"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   # Row 0: kit self-registration (absolute path) — keeps KIT-SELF-REG and attention at zero.
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-  printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+  printf '| 1 | t1 | mature (5 md / git yes) | `$RESEARCH_HOME/rh_corpus` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_vr23" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_vr23
@@ -567,7 +782,7 @@ kit="$(mkkit c24-selfreg-ok)"
 tgt24="$ROOT/c24-selfreg-tgt"   # sibling of kit — not a subdir of kit
 mkcorpus "$tgt24" 3 "a"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | t1 | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt24"
+  printf '| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$tgt24"
   printf '| 2 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
 } > "$kit/TARGETS.md"
 run "$kit"
@@ -584,7 +799,7 @@ fi
 kit="$(mkkit c25-selfreg-absent)"; tgt="$ROOT/c25-ext-tgt"
 mkcorpus "$tgt" 3 "a"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | t1 | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  printf '| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"   # kit dir is NOT included in TARGETS.md — intentional
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -605,6 +820,8 @@ cp "$SUT" "$kit26/toolbelt/verify-registry.sh"
 cp "$LIB" "$kit26/toolbelt/lib/retro-status.sh"
 cp "$TP_LIB" "$kit26/toolbelt/lib/target-paths.sh"
 cp "$HERE/../lib/block-files.sh" "$kit26/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+cp "$CM_LIB" "$kit26/toolbelt/lib/corpus-markers.sh"   # SUT sources this for corpus_marker_present
+cp "$HW_LIB" "$kit26/toolbelt/lib/hook-wiring.sh"       # SUT sources this for hook_stop_wiring_state
 # Register the repo root with nc + 0 md → count check trivially passes (0 == 0), no other noise.
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26"
@@ -826,7 +1043,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tgt="$_rh_base_vt2/rh_corpus"
   mkcorpus "$tgt" 4 "r"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-    printf '| 1 | t1 | mature (4 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+    printf '| 1 | t1 | mature (4 md / git yes) | `$RESEARCH_HOME/rh_corpus` |\n'
   } > "$kit/TARGETS.md"
   # The stripped helper defines both functions so verify-registry.sh gets past the declare-F
   # guards. Neither function handles $RESEARCH_HOME paths (Form 1 only: absolute `/` paths).
@@ -961,7 +1178,7 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
   tgt="$_rh_base_teeth23/rh_corpus"
   mkcorpus "$tgt" 5 "r"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` |\n'
+    printf '| 1 | t1 | mature (5 md / git yes) | `$RESEARCH_HOME/rh_corpus` |\n'
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# RH-ROW-LOOKUP' "$mut"; then
@@ -1040,6 +1257,8 @@ echo "-- teeth VR-T-noarg: VRT2STRIPPED stub no-arg parity with real lib; sed-mu
   cp "$LIB" "$kit26t/toolbelt/lib/retro-status.sh"
   cp "$TP_LIB" "$kit26t/toolbelt/lib/target-paths.sh"
   cp "$HERE/../lib/block-files.sh" "$kit26t/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
+  cp "$CM_LIB" "$kit26t/toolbelt/lib/corpus-markers.sh"
+  cp "$HW_LIB" "$kit26t/toolbelt/lib/hook-wiring.sh"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26t"
   } > "$kit26t/TARGETS.md"
@@ -1164,7 +1383,7 @@ mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"
 printf '# retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
 printf '# retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
-write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
   ok "31 retro declared, matches disk (2==2) → no retro WARN" "(exit $RC)"
@@ -1177,7 +1396,7 @@ kit="$(mkkit c32-retro-drift)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"
 for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
-write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -qiE 'WARN[[:space:]]+targetA.*2 retro.*5 non-excluded|WARN[[:space:]]+targetA.*5 non-excluded.*2 retro' <<<"$OUT"; then
@@ -1191,7 +1410,7 @@ kit="$(mkkit c33-retro-absent)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"
 printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
-write_targets_custom "$kit" "$tgt" "4 md / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
   ok "33 no retro field in cell → no retro WARN (absent is legal)" "(exit $RC)"
@@ -1204,7 +1423,7 @@ fi
 #      'retros: many' does not match ^[0-9]+ retros? and is not any other known pattern.
 kit="$(mkkit c34-retro-malformed)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
-write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*retros: many" <<<"$OUT"; then
   ok "34 malformed retro token 'retros: many' → non-conforming WARN (distinct from absent)" "(exit $RC)"
@@ -1217,11 +1436,11 @@ fi
 kit="$(mkkit c34b-block-variants)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
 # Three sub-cases: each as its own TARGETS.md. Share the same kit/corpus, rewrite TARGETS.md.
-write_targets_custom "$kit" "$tgt" "4 md / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / git yes"
 run "$kit"; md_ok=0; [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && md_ok=1
-write_targets_custom "$kit" "$tgt" "4 blocks / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 blocks / git yes"
 run "$kit"; blocks_ok=0; [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && blocks_ok=1
-write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30 / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30 / git yes"
 run "$kit"; date_ok=0; [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && date_ok=1
 if [ "$md_ok" = 1 ] && [ "$blocks_ok" = 1 ] && [ "$date_ok" = 1 ]; then
   ok "34b block variants (N md / N blocks / N blocks @date) → all accepted, no schema WARN" "(all 3 sub-cases)"
@@ -1233,7 +1452,7 @@ fi
 #      verbatim in a WARN. The token 'widget yes' is not block/run/retro/git/remote/hook/nc/…
 kit="$(mkkit c35-unknown-field)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
-write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*widget yes" <<<"$OUT"; then
   ok "35 unknown field 'widget yes' → non-conforming WARN verbatim" "(exit $RC)"
@@ -1248,7 +1467,7 @@ mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"
 printf '# real retro\nbody\n' > "$tgt/retros/2026-01-01-real.md"
 printf '<!-- kit-retro: exclude -->\n# client retro\nbody\n' > "$tgt/retros/2026-01-02-client.md"
-write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
   ok "36 excluded retro not counted: 1 real + 1 excluded vs claim 1 → no drift WARN" "(exit $RC)"
@@ -1291,7 +1510,7 @@ mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"
 printf '# real retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
 printf '# real retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
-write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
 chmod 000 "$tgt/retros"
 run "$kit"
 chmod 755 "$tgt/retros"   # restore so cleanup works
@@ -1305,11 +1524,15 @@ fi
 
 # 40 — MAJOR 4 (maxdepth 4): retro at depth 3 (<target>/research/retros/*.md) must be found.
 #      RED before fix: maxdepth 2 only reaches depth-2 retros; depth-3 retros are invisible.
-kit="$(mkkit c40-retro-depth3)"; tgt="$kit/targetA"
+# kit issue #1108: sandbox name deliberately avoids the substring 'retro' — the new marker-check
+# WARN echoes the registered path (and $path/corpus) back verbatim, and a temp-dir name containing
+# 'retro' would make it accidentally satisfy this test's own 'WARN.*targetA.*retro' assertion,
+# masking a real MAJOR-4 regression as a false PASS.
+kit="$(mkkit c40-depth3)"; tgt="$kit/targetA"
 mkcorpus "$tgt/research" 4 "a"   # corpus at depth 1 (research/); RESEARCH-STATE.md is there
 mkdir -p "$tgt/research/retros"
 printf '# retro at depth 3\nbody\n' > "$tgt/research/retros/2026-01-01.md"
-write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && ! grep -qiE 'WARN[[:space:]]+targetA.*retro' <<<"$OUT"; then
   ok "40 retro at depth 3 (research/retros/) → found (maxdepth 4), no drift WARN" "(exit $RC)"
@@ -1321,7 +1544,7 @@ fi
 #      Unanchored '^[0-9]+[[:space:]]+retros?' passes '3 retrograde motion'.
 kit="$(mkkit c41-retro-anchor)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
-write_targets_custom "$kit" "$tgt" "4 md / 3 retrograde motion / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 3 retrograde motion / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema.*retrograde" <<<"$OUT"; then
   ok "41 '3 retrograde motion' → schema WARN fires (anchored retro pattern)" "(exit $RC)"
@@ -1333,7 +1556,7 @@ fi
 #      '4 md @garbage not a date' must trigger NONCONFORM.
 kit="$(mkkit c42-block-date-anchor)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
-write_targets_custom "$kit" "$tgt" "4 md @garbage not a date / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md @garbage not a date / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && grep -qiE "WARN[[:space:]]+targetA.*not in schema" <<<"$OUT"; then
   ok "42 block '@garbage not a date' → schema WARN fires (tightened @date pattern)" "(exit $RC)"
@@ -1346,10 +1569,10 @@ fi
 kit="$(mkkit c42b-block-date-ok)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"; printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
-write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30 / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30 / git yes"
 run "$kit"; date_ok=0
 [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && date_ok=1
-write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30, ACTIVE / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 blocks @2026-07-30, ACTIVE / git yes"
 run "$kit"; active_ok=0
 [ "$RC" = 0 ] && ! grep -qiE 'not in schema' <<<"$OUT" && active_ok=1
 if [ "$date_ok" = 1 ] && [ "$active_ok" = 1 ]; then
@@ -1363,7 +1586,7 @@ fi
 kit="$(mkkit c43-singular-focus)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"; printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
-write_targets_custom "$kit" "$tgt" "4 md / 1 focus / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 1 focus / git yes"
 run "$kit"
 if [ "$RC" = 0 ] && ! grep -qiE "WARN[[:space:]]+targetA.*not in schema.*focus" <<<"$OUT"; then
   ok "43 '1 focus' (singular) → accepted, no schema WARN (MINOR 5 fix)" "(exit $RC)"
@@ -1377,7 +1600,7 @@ kit="$(mkkit c44-retro-drift-counter)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"
 for i in 1 2 3; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
-write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes"
 run "$kit"
 if [ "$RC" = 0 ] \
    && grep -q '0 count drift' <<<"$OUT" \
@@ -1396,7 +1619,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkcorpus "$tgt" 4 "a"
   mkdir -p "$tgt/retros"
   for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
-  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# RETRO-DRIFT-CHECK' "$mut"; then
     sed -i '/# RETRO-DRIFT-CHECK/ s/.*/      : # RETRO-DRIFT-CHECK [MUTATED]/' "$mut"
@@ -1417,7 +1640,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkcorpus "$tgt" 4 "a"
   mkdir -p "$tgt/retros"
   for i in 1 2 3 4 5; do printf '# retro %d\nbody\n' "$i" > "$tgt/retros/2026-01-0${i}.md"; done
-  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# RETRO-DRIFT-CHECK' "$mut"; then
     # Append 'exit 1' immediately after the WARN line carrying the RETRO-DRIFT-CHECK sentinel.
@@ -1437,7 +1660,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-absent-vs-malformed: neuter NONCONFORM-FIELD-CHECK; malformed must NOT WARN --"
   kit="$(mkkit teeth-absent-malformed)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
-  write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / retros: many / git yes"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
     sed -i '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/' "$mut"
@@ -1456,7 +1679,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-unknown-field: neuter NONCONFORM-FIELD-CHECK; 'widget yes' must NOT WARN --"
   kit="$(mkkit teeth-unknown-field)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 4 "a"
-  write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / widget yes / git yes"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# NONCONFORM-FIELD-CHECK' "$mut"; then
     sed -i '/# NONCONFORM-FIELD-CHECK/ s/.*/      : # NONCONFORM-FIELD-CHECK [MUTATED]/' "$mut"
@@ -1501,7 +1724,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$tgt/retros"
   printf '# real retro 1\nbody\n' > "$tgt/retros/2026-01-01.md"
   printf '# real retro 2\nbody\n' > "$tgt/retros/2026-01-02.md"
-  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
   chmod 000 "$tgt/retros"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# RETRO-UNREADABLE-CHECK' "$mut"; then
@@ -1531,7 +1754,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$tgt/retros"
   printf '# real retro\nbody\n' > "$tgt/retros/2026-01-01-real.md"
   printf '<!-- kit-retro: exclude -->\n# client retro\nbody\n' > "$tgt/retros/2026-01-02-client.md"
-  write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / 1 retros / git yes"
   mut="$kit/toolbelt/verify-registry.sh"
   # Target the retro-counting loop specifically (uses $_vr_rfile, not $_vr_rf used by reachability).
   if grep -q 'retro_is_excluded "\$_vr_rfile" && continue' "$mut"; then
@@ -1739,7 +1962,7 @@ nonexistent50="$kit/corpus-that-does-not-exist"
 # every resolved path is absent and the ALL-ABSENT guard fires. (write_targets now adds the kit
 # row which would be a real directory, defeating the all-absent scenario.)
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$nonexistent50"
+  printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$nonexistent50"
 } > "$kit/TARGETS.md"
 run "$kit"
 if [ "$RC" = 1 ] \
@@ -1864,7 +2087,7 @@ else
   mkdir -p "$tgt/retros"
   printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
   printf '# retro\nbody\n' > "$tgt/retros/2026-01-02.md"
-  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes / hook yes"
+  write_targets_custom "$kit" "$tgt" "4 md / 2 retros / git yes"
   chmod 000 "$tgt/retros"
   run "$kit"
   chmod 755 "$tgt/retros"
@@ -1904,7 +2127,7 @@ fi
 kit="$(mkkit c57-attn-kit-self-reg)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-  printf '| 1 | t1 | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  printf '| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1925,7 +2148,7 @@ mkcorpus "$tgt" 4 "a"
 mkdir -p "$tgt/retros"; printf '# retro\nbody\n' > "$tgt/retros/2026-01-01.md"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-  printf '| 1 | t1 | mature (4 md / 1 retros / git yes / hook yes) | `%s` |\n' "$tgt"
+  printf '| 1 | t1 | mature (4 md / 1 retros / git yes) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -1944,8 +2167,8 @@ kit="$(mkkit c59-attn-partial)"; tgtA="$ROOT/c59-ext-tgt"
 mkcorpus "$tgtA" 4 "a"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-  printf '| 1 | t1 | mature (4 md / git yes / hook yes) | `%s` |\n' "$tgtA"
-  printf '| 2 | t2 | mature (9 md / git yes / hook yes) | `$RESEARCH_HOME/some/path/...` |\n'
+  printf '| 1 | t1 | mature (4 md / git yes) | `%s` |\n' "$tgtA"
+  printf '| 2 | t2 | mature (9 md / git yes) | `$RESEARCH_HOME/some/path/...` |\n'
 } > "$kit/TARGETS.md"
 run "$kit"
 if [ "$RC" = 0 ] \
@@ -2067,7 +2290,7 @@ mkcorpus "$tgt_real2" 2 "b"
 # Row has BOTH a present corpus path AND a /slug/form token that is not a directory.
 { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
-  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `%s` | `/slug/form-token` |\n' "$tgt_real2"
+  printf '| 1 | tgt | mature (2 md / git yes) | `%s` | `/slug/form-token` |\n' "$tgt_real2"
 } > "$kit/TARGETS.md"
 run "$kit"
 # /slug/form-token fails [ -d ] but the row has a present corpus path → row is NOT absent.
@@ -2102,7 +2325,7 @@ kit="$(mkkit c67-dedup-two-absent)"; tgt_real3="$ROOT/c67-real-tgt"
 mkcorpus "$tgt_real3" 2 "c"
 { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
-  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `%s` | - |\n' "$tgt_real3"
+  printf '| 1 | tgt | mature (2 md / git yes) | `%s` | - |\n' "$tgt_real3"
   # Row with TWO absent backtick /... paths (path column + artifact column).
   printf '| 2 | multi | mature (5 md / git yes) | `/absent/multi-path-A` | `/absent/multi-path-B` |\n'
 } > "$kit/TARGETS.md"
@@ -2159,7 +2382,7 @@ tgt="$_rh_base_70/rh_corpus"
 mkcorpus "$tgt" 3 "t"
 { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
-  printf '| 1 | tgt | mature (3 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
+  printf '| 1 | tgt | mature (3 md / git yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_70" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_70
@@ -2182,7 +2405,7 @@ tgt="$_rh_base_71/rh_corpus71"
 mkcorpus "$tgt" 2 "f"
 { printf '# targets\n\n| # | name | maturity | path | artifact | extra |\n|---|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - | - |\n' "$kit"
-  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus71` | `/slug/x1` | `/slug/y1` |\n'
+  printf '| 1 | tgt | mature (2 md / git yes) | `$RESEARCH_HOME/rh_corpus71` | `/slug/x1` | `/slug/y1` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_71" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_71
@@ -2202,7 +2425,7 @@ tgt="$_rh_base_72/rh_corpus72"
 mkcorpus "$tgt" 4 "m"
 { printf '# targets\n\n| # | name | maturity | path | artifact | extra |\n|---|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - | - |\n' "$kit"
-  printf '| 1 | tgt | mature (4 md / git yes / hook yes) | `/slug/x2` | `$RESEARCH_HOME/rh_corpus72` | `/slug/y2` |\n'
+  printf '| 1 | tgt | mature (4 md / git yes) | `/slug/x2` | `$RESEARCH_HOME/rh_corpus72` | `/slug/y2` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_72" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_72
@@ -2223,7 +2446,7 @@ tgt="$_rh_base_73/rh_corpus73"
 mkcorpus "$tgt" 1 "l"
 { printf '# targets\n\n| # | name | maturity | path | artifact | extra |\n|---|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - | - |\n' "$kit"
-  printf '| 1 | tgt | mature (1 md / git yes / hook yes) | `/slug/x3` | `/slug/y3` | `$RESEARCH_HOME/rh_corpus73` |\n'
+  printf '| 1 | tgt | mature (1 md / git yes) | `/slug/x3` | `/slug/y3` | `$RESEARCH_HOME/rh_corpus73` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_73" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_73
@@ -2244,7 +2467,7 @@ tgt="$_rh_base_74/rh_corpus74"
 mkcorpus "$tgt" 2 "b"
 { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
   printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit"
-  printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
+  printf '| 1 | tgt | mature (2 md / git yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
 } > "$kit/TARGETS.md"
 OUT="$(RESEARCH_HOME="$_rh_base_74" "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 unset _rh_base_74
@@ -2299,7 +2522,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # claimed=5 = CATALOG total → drift=0; only DISC-ZERO fires → attention=1 (isolated).
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+    printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# CATALOG-DISC-ZERO' "$mut"; then
@@ -2328,7 +2551,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # claimed=5=CATALOG(5) → drift=0; disc=8 vs CATALOG=5 diff=3>tol → FRESHNESS fires → attention=1 (isolated).
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+    printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# CATALOG-FRESHNESS-CHECK' "$mut"; then
@@ -2355,7 +2578,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # claimed=5=disc → drift=0; CATALOG unparseable → NOPARSE fires → attention=1 (isolated).
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+    printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# CATALOG-NOPARSE' "$mut"; then
@@ -2385,7 +2608,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # disc=4=claimed → no drift; retros declared so reconciliation runs → RETRO-UNREADABLE fires (sole suppressor).
     { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
       printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-      printf '| 1 | targetA | mature (4 md / 2 retros / git yes / hook yes) | `%s` |\n' "$tgt"
+      printf '| 1 | targetA | mature (4 md / 2 retros / git yes) | `%s` |\n' "$tgt"
     } > "$kit/TARGETS.md"
     mut="$kit/toolbelt/verify-registry.sh"
     if grep -q '# RETRO-UNREADABLE-WARN' "$mut"; then
@@ -2436,7 +2659,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   kit="$(mkkit teeth-attn-kit-self-reg)"; tgt="$ROOT/teeth-kit-sr-ext-tgt"
   mkcorpus "$tgt" 3 "a"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
-    printf '| 1 | t1 | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+    printf '| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# KIT-SELF-REG-CHECK' "$mut"; then
@@ -2467,7 +2690,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   } > "$tgt/CATALOG.md"   # self-consistent: header=5 matches 5 data rows; disc=0 → DISC-ZERO fires
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+    printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '\[ "\$attention" -eq 0 \]' "$mut"; then
@@ -2490,8 +2713,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkcorpus "$tgtA" 4 "a"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-    printf '| 1 | t1 | mature (4 md / git yes / hook yes) | `%s` |\n' "$tgtA"
-    printf '| 2 | t2 | mature (9 md / git yes / hook yes) | `$RESEARCH_HOME/some/path/...` |\n'
+    printf '| 1 | t1 | mature (4 md / git yes) | `%s` |\n' "$tgtA"
+    printf '| 2 | t2 | mature (9 md / git yes) | `$RESEARCH_HOME/some/path/...` |\n'
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '\[ "\$skipped_count" -eq 0 \]' "$mut"; then
@@ -2567,7 +2790,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   } > "$tgt/CATALOG.md"   # stale: header=722, only 3 data rows (cat_rows=3)
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` |\n' "$kit"
-    printf '| 1 | t1 | mature (5 md / git yes / hook yes) | `%s` |\n' "$tgt"
+    printf '| 1 | t1 | mature (5 md / git yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   mut="$kit/toolbelt/verify-registry.sh"
   if grep -q '# CATALOG-SELFCONSISTENCY-CHECK' "$mut"; then
@@ -2632,7 +2855,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mut_dd="$kit_dd/toolbelt/verify-registry.sh"
   { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_dd"
-    printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `%s` | - |\n' "$tgt_dd"
+    printf '| 1 | tgt | mature (2 md / git yes) | `%s` | - |\n' "$tgt_dd"
     printf '| 2 | multi | mature (5 md / git yes) | `/absent/dd-path-A` | `/absent/dd-path-B` |\n'
   } > "$kit_dd/TARGETS.md"
   if grep -q '# ABSENT-ROW-DEDUP' "$mut_dd"; then
@@ -2664,7 +2887,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkcorpus "$tgt_rh1" 3 "t"
   { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh1"
-    printf '| 1 | tgt | mature (3 md / git yes / hook yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
+    printf '| 1 | tgt | mature (3 md / git yes) | `$RESEARCH_HOME/rh_corpus` | `/slug/companion-token` |\n'
   } > "$kit_rh1/TARGETS.md"
   mut_rh1="$kit_rh1/toolbelt/verify-registry.sh"
   if grep -q '# RH-ROW-TOKEN-MATCH' "$mut_rh1"; then
@@ -2697,7 +2920,7 @@ REPL
   mkcorpus "$tgt_rh2" 2 "b"
   { printf '# targets\n\n| # | name | maturity | path | artifact |\n|---|---|---|---|---|\n'
     printf '| 0 | kit | active (0 md / nc / git yes) | `%s` | - |\n' "$kit_rh2"
-    printf '| 1 | tgt | mature (2 md / git yes / hook yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
+    printf '| 1 | tgt | mature (2 md / git yes) | `${RESEARCH_HOME}/rh_corpus74` | `/slug/z4` |\n'
   } > "$kit_rh2/TARGETS.md"
   mut_rh2="$kit_rh2/toolbelt/verify-registry.sh"
   if grep -q '# RH-ROW-TOKEN-MATCH' "$mut_rh2"; then
@@ -2717,6 +2940,88 @@ REPL
     no "teeth-rh-row-token-drop-braced: RH-ROW-TOKEN-MATCH sentinel not found in SUT (fix not implemented or marker drifted)"
   fi
   unset _rh_base_t2
+fi
+
+# --- kit issue #1108 teeth: REGISTERED-PATH MARKER CHECK + HOOK-WIRING RECONCILIATION --------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth-marker-check: neuter the REGISTERED-PATH-MARKER-CHECK guard; test 3c must regain the clean line --"
+  kit="$(mkkit teeth-marker)"; tgt="$kit/targetA"
+  mkcorpus "$tgt/sub/research" 4 "a"
+  write_targets "$kit" "$tgt::4 md"
+  _anchor_mk='  if ! corpus_marker_present "$p" "$p/corpus"; then  # REGISTERED-PATH-MARKER-CHECK'
+  mut_mk="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# REGISTERED-PATH-MARKER-CHECK' "$mut_mk"; then
+    sed -i 's/if ! corpus_marker_present "\$p" "\$p\/corpus"; then  # REGISTERED-PATH-MARKER-CHECK/if false; then  # REGISTERED-PATH-MARKER-CHECK (mutated)/' "$mut_mk"
+    outm_mk="$("$BASH_BIN" "$mut_mk" 2>&1)"
+    if ! grep -q 'no corpus marker' <<<"$outm_mk" && grep -q 'Registry consistent with reality' <<<"$outm_mk"; then
+      ok "teeth-marker-check: neutered guard silences test 3c and regains clean line — has teeth" "()"
+    else
+      no "teeth-marker-check: neutered guard must silence test 3c — THEATER" "out=[$outm_mk]"
+    fi
+  else
+    no "teeth-marker-check: REGISTERED-PATH-MARKER-CHECK sentinel not found in SUT (drifted?)"
+  fi
+
+  echo "-- teeth-hook-wiring-check: neuter the HOOK-WIRING-CHECK guard; test 3f must regain the clean line --"
+  kit="$(mkkit teeth-hookwiring)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hw="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-WIRING-CHECK' "$mut_hw"; then
+    sed -i 's/if \[ "\$_vr_hook_state" != "wired" \]; then  # HOOK-WIRING-CHECK/if false; then  # HOOK-WIRING-CHECK (mutated)/' "$mut_hw"
+    outm_hw="$("$BASH_BIN" "$mut_hw" 2>&1)"
+    if ! grep -q "Stop hook is" <<<"$outm_hw"; then
+      ok "teeth-hook-wiring-check: neutered guard silences test 3f and regains clean line — has teeth" "()"
+    else
+      no "teeth-hook-wiring-check: neutered guard must silence test 3f — THEATER" "out=[$outm_hw]"
+    fi
+  else
+    no "teeth-hook-wiring-check: HOOK-WIRING-CHECK sentinel not found in SUT (drifted?)"
+  fi
+
+  echo "-- teeth-hook-claim-extract: widen HOOK-CLAIM-EXTRACT to match ANY 'hook ...' token; test 3h ('hook no') must false-WARN --"
+  kit="$(mkkit teeth-hookclaim)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hc="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-CLAIM-EXTRACT' "$mut_hc"; then
+    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+yes(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-CLAIM-EXTRACT (mutated: matches any hook value)/" "$mut_hc"
+    outm_hc="$("$BASH_BIN" "$mut_hc" 2>&1)"
+    if grep -q "row claims 'hook no' but the Stop hook is" <<<"$outm_hc"; then
+      ok "teeth-hook-claim-extract: widened extraction false-fires on 'hook no' — test 3h has teeth" "()"
+    else
+      no "teeth-hook-claim-extract: widened extraction must false-fire on 'hook no' — THEATER" "out=[$outm_hc]"
+    fi
+  else
+    no "teeth-hook-claim-extract: HOOK-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  fi
+
+  # kit issue #1108 round 2 (RDD finding): a mutant that drops JUST the word-boundary group
+  # (([^a-zA-Z0-9]|$)) — narrower than the 'match any hook value' mutant above — still passed the
+  # full suite (88/88) before this tooth existed, because no fixture used a 'hook yes<word>'
+  # claim. Pins case 3k ('hook yesterday') specifically.
+  echo "-- teeth-hook-claim-boundary: drop the word-boundary group from HOOK-CLAIM-EXTRACT; test 3k ('hook yesterday') must false-WARN --"
+  kit="$(mkkit teeth-hookboundary)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook yesterday) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hcb="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-CLAIM-EXTRACT' "$mut_hcb"; then
+    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+yes(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+yes' | head -1)\"  # HOOK-CLAIM-EXTRACT (mutated: boundary dropped)/" "$mut_hcb"
+    outm_hcb="$("$BASH_BIN" "$mut_hcb" 2>&1)"
+    if grep -q "row claims 'hook yesterday' but the Stop hook is" <<<"$outm_hcb"; then
+      ok "teeth-hook-claim-boundary: boundary-dropped extraction false-fires on 'hook yesterday' — test 3k has teeth" "()"
+    else
+      no "teeth-hook-claim-boundary: boundary-dropped extraction must false-fire on 'hook yesterday' — THEATER" "out=[$outm_hcb]"
+    fi
+  else
+    no "teeth-hook-claim-boundary: HOOK-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

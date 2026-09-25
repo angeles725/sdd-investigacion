@@ -59,6 +59,19 @@ declare -F retro_grammar_delta_info >/dev/null 2>&1 || { echo "sweep-retros: hel
 declare -F retro_grammar_has_honesty >/dev/null 2>&1 || { echo "sweep-retros: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 unset _sr_rg_lib
 
+# Shared Stop-hook wiring predicate (kit issue #1108/#1109: single source of truth with
+# verify-registry.sh's 'hook yes' claim check and research-sdd-status.sh's self-report line).
+# Sourced here with the other libs — NOT mid-script — so a missing/broken lib fails BEFORE any
+# work runs (kit issue #1108 round 2: sourcing it just before the WIRING-STATUS pass let ~70
+# lines of report print before a missing-lib exit 1, and the source's own `$(cd … && pwd)`
+# subshell sat inside the RSDD_PROFILE-measured window).
+_sr_hw_lib="$(cd "$(dirname "$0")" && pwd)/lib/hook-wiring.sh"
+if [ ! -f "$_sr_hw_lib" ]; then echo "sweep-retros: cannot find helper $_sr_hw_lib" >&2; exit 1; fi
+# shellcheck source=lib/hook-wiring.sh
+. "$_sr_hw_lib"
+declare -F hook_stop_wiring_state_var >/dev/null 2>&1 || { echo "sweep-retros: helper $_sr_hw_lib failed to define hook_stop_wiring_state_var" >&2; exit 1; }
+unset _sr_hw_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "sweep-retros: cannot find $TARGETS_MD" >&2
   exit 1
@@ -426,52 +439,33 @@ fi
 # wires the §18 retro-gate Stop hook (METHODOLOGY §18). WARN-only — propose-never-apply.
 # Three states per §7 anti-silent-zero (absent-settings / unwired / wired are distinct;
 # unreadable is a fourth loud-failure state, never silently treated as wired or unwired).
-# awk-based: no jq, no runtime dep beyond awk (always available). The awk scopes the
-# retro-gate check to the "Stop" event block only — prevents false-wired from retro-gate
-# appearing in other event blocks (SessionStart), permissions.deny, or comment fields.
-# No §7 DEGRADED-axis dep probe needed — awk is always present.
+# The actual awk-based Stop-scope check lives in lib/hook-wiring.sh (kit issue #1108/#1109:
+# single source of truth shared with verify-registry.sh's 'hook yes' claim check and
+# research-sdd-status.sh's per-target self-report line) — sourced at the top with the other
+# libs. Uses hook_stop_wiring_state_var (sets $HOOK_WIRING_STATE, no subshell) rather than
+# $(hook_stop_wiring_state "$p") — this pass runs once per fleet target, and a redundant fork
+# per target was measured to matter here (kit issue #1108 round 2, RSDD_PROFILE regression).
 # Non-directory paths (GitHub slugs) are skipped via [ -d ] — same guard as the fleet passes.
 _ws_wired=0; _ws_unwired=0; _ws_absent=0; _ws_unreadable=0
 for p in $paths; do
   [ -d "$p" ] || continue
   _ws_settings="$p/.claude/settings.json"
-  if [ ! -e "$_ws_settings" ]; then                               # RSDD_WS_ABSENT_CHECK
-    echo "WARN: retro-gate hook absent-settings — no .claude/settings.json: $p"
-    _ws_absent=$(( _ws_absent + 1 ))
-  elif [ ! -r "$_ws_settings" ]; then                             # RSDD_WS_UNREADABLE_CHECK
-    echo "WARN: retro-gate wiring unknown — unreadable: $_ws_settings"
-    _ws_unreadable=$(( _ws_unreadable + 1 ))
-  elif awk '
-    BEGIN { in_stop=0; stop_depth=0; depth=0; found=0 }
-    {
-      n=length($0); i=1
-      while (i<=n) {
-        c=substr($0,i,1)
-        if (c=="{" || c=="[") {
-          depth++
-        } else if (c=="}" || c=="]") {
-          depth--
-          if (in_stop && depth<=stop_depth) { in_stop=0 }
-        } else if (!in_stop && substr($0,i,6)=="\"Stop\"") {
-          j=i+6
-          while (j<=n && (substr($0,j,1)==" " || substr($0,j,1)=="\t")) j++
-          if (j<=n && substr($0,j,1)==":") { in_stop=1; stop_depth=depth }
-          i=j
-        } else if (in_stop && substr($0,i,10)=="retro-gate") {   # RSDD_WS_STOP_SCOPE
-          found=1
-        }
-        i++
-      }
-    }
-    END { exit !found }
-  ' "$_ws_settings" 2>/dev/null; then                             # RSDD_WS_WIRED_CHECK
-    _ws_wired=$(( _ws_wired + 1 ))
-  else
-    echo "WARN: retro-gate not wired in $p/.claude/settings.json"
-    _ws_unwired=$(( _ws_unwired + 1 ))
-  fi
+  hook_stop_wiring_state_var "$p"
+  case "$HOOK_WIRING_STATE" in
+    absent-settings)                                                # RSDD_WS_ABSENT_CHECK
+      echo "WARN: retro-gate hook absent-settings — no .claude/settings.json: $p"
+      _ws_absent=$(( _ws_absent + 1 )) ;;
+    unreadable)                                                      # RSDD_WS_UNREADABLE_CHECK
+      echo "WARN: retro-gate wiring unknown — unreadable: $_ws_settings"
+      _ws_unreadable=$(( _ws_unreadable + 1 )) ;;
+    wired)                                                           # RSDD_WS_WIRED_CHECK
+      _ws_wired=$(( _ws_wired + 1 )) ;;
+    *)
+      echo "WARN: retro-gate not wired in $p/.claude/settings.json"
+      _ws_unwired=$(( _ws_unwired + 1 )) ;;
+  esac
 done
-unset _ws_settings
+unset _ws_settings HOOK_WIRING_STATE
 _ws_total=$(( _ws_wired + _ws_unwired + _ws_absent + _ws_unreadable ))
 echo "Wiring: ${_ws_wired} wired / ${_ws_unwired} unwired / ${_ws_absent} absent-settings / ${_ws_unreadable} unreadable — ${_ws_total} targets checked."
 unset _ws_total _ws_wired _ws_unwired _ws_absent _ws_unreadable
