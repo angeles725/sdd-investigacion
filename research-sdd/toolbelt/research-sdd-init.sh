@@ -123,9 +123,15 @@ done
 target="$(cd "$target" && pwd)"
 
 # templates must exist or we fail CLEANLY (never a half-scaffold)
-for t in INDEX.template.md RESEARCH-STATE.template.md RESEARCH-STATE-document.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
+for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
+# kit issue #1114 review RDD-SUGGESTION: RESEARCH-STATE-document.template.md is required ONLY when
+# --document is actually going to be used — a target missing it must not break the (far more common)
+# default scaffold path.
+if [ "$document" = 1 ]; then
+  [ -f "$TPL/RESEARCH-STATE-document.template.md" ] || { echo "FATAL: missing kit template $TPL/RESEARCH-STATE-document.template.md (required by --document)" >&2; exit 2; }
+fi
 
 # --- corpus_present helper (shared by wire-only, anti-clobber, and #1047 refusal sections) ---
 # RESEARCH-STATE*.md covers BOTH the single-focus RESEARCH-STATE.md AND the §16 multi-focus
@@ -232,6 +238,15 @@ if [ "$wire" = 1 ]; then
     echo "           2. Scaffold AND wire in one call: re-run with --scaffold --wire." >&2
     exit 5
   fi
+fi
+
+# kit issue #1114 review LOW-2 (following the #1047 no-silent-no-op precedent): --document has NO
+# EFFECT on the wire-only-repair path below — --wire on an EXISTING corpus without --force only
+# REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md. Reject rather than silently
+# ignore the flag, exactly as --scaffold-without-wire is rejected above.
+if [ "$wire" = 1 ] && [ "$force" = 0 ] && [ -n "$_wo_corpus_root" ] && [ "$document" = 1 ]; then
+  echo "usage: --document has no effect here — --wire on an existing corpus (without --force) only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md (kit issue #1114). Drop --document, pass --force to re-scaffold RESEARCH-STATE.md with the document-cycle variant, or run --document against a NEW target instead." >&2
+  exit 2
 fi
 
 # WIRE-ONLY-EXISTING-CORPUS
@@ -500,7 +515,11 @@ echo "  1. REGISTER the target row in $KIT/TARGETS.md (name·path·maturity·art
 echo "     — else sweep-retros.sh cannot see its retros/ (§18)."
 echo "  2. CLASSIFY the artifact + declare the ANGLE (PROMPT-LOOP §b/§b2); run profile-target.sh + detect-tools.sh."
 echo "-- THEN do next (post-scaffold) --"
-echo "  3. SEED 5-15 real gaps into $corpus/RESEARCH-STATE.md (audit-first for a mature corpus) (§e)."
+if [ "$document" = 1 ]; then
+  echo "  3. SEED THE OUTLINE into $corpus/RESEARCH-STATE.md's \"## Outline\" section (PROMPT-LOOP DOCUMENT CYCLE step 1, METHODOLOGY §20) — NOT the Gap-backlog, which stays empty in document mode (kit issue #1114)."
+else
+  echo "  3. SEED 5-15 real gaps into $corpus/RESEARCH-STATE.md (audit-first for a mature corpus) (§e)."
+fi
 echo "  4. ADAPT + REGISTER the hook (§c follow-up): replace <SUBJECT> + real source paths in"
 echo "     $target/.claude/hooks/research-protocol.sh (matcher startup|resume|clear)."
 echo "     Then wire it: re-run with --wire, or paste the wiring snippet below into $target/.claude/settings.json."
@@ -511,7 +530,11 @@ else
   echo "  (no --prefix given — step 5, block-file prefix, is skipped; pass --prefix to enable it)"
 fi
 echo
-echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
+if [ "$document" = 1 ]; then
+  echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — its next-step/saturation verdicts are GAP-CENTRIC and NOT meaningful for this document-cycle corpus (kit issue #1152 tracks teaching status to honor method: document-cycle); the \"## Outline\" table in RESEARCH-STATE.md is this mode's real completion signal (PROMPT-LOOP DOCUMENT CYCLE step 7)."
+else
+  echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
+fi
 echo "  mental model: you now have a VALID-but-EMPTY corpus; the JUDGMENT follow-ups turn it into a real research target."
 echo
 # §479 HOOK WIRING — PROPOSE-NEVER-APPLY by default (print snippet); --wire opts in to write.

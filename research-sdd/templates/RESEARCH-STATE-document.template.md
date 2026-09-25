@@ -10,9 +10,16 @@
      "## Outline" section below, seeded up front (PROMPT-LOOP DOCUMENT CYCLE step 1) — NOT in
      "## Gap-backlog", which stays present-but-empty on purpose (see that section for why).
 
-     State envelope (research-state.v1) — SAME schema the NORMAL CYCLE uses, so shared kit tooling
-     (verify-state.sh, research-sdd-status.sh, research-sdd-archive.sh) reads this file unchanged.
-     Seed/refresh it MECHANICALLY — never hand-edit the ints — with:
+     State envelope (research-state.v1) — SAME schema the NORMAL CYCLE uses, so verify-state.sh's
+     structural checks (GB-PRESENT-CHECK, envelope CHECK A-H, SC-CROSS-CHECK) all still apply and pass.
+     BUT research-sdd-status.sh's headline VERDICTS (next-step STOP/NEXT, saturation) are gap-centric —
+     they read `## Gap-backlog`, which is intentionally empty here — so they are NOT meaningful signals
+     for a document-cycle corpus: a fresh scaffold reports `STOP | read-only-investigable exhausted (0)`
+     even though the run has not started, and 3+ Iteration-history rows can report SATURATED. Neither
+     means anything in document mode; the "## Outline" section below is this mode's real completion
+     signal (PROMPT-LOOP DOCUMENT CYCLE step 7). Teaching research-sdd-status.sh to honor
+     `method: document-cycle` and suppress those gap-centric verdicts is tracked separately as kit issue
+     #1152 — not implemented here. Seed/refresh the envelope MECHANICALLY — never hand-edit the ints — with:
        research-sdd-status.sh <corpus> --sync-state
      `method: document-cycle` is a DECLARED-only marker (not machine-gated by verify-state.sh; carried
      forward unchanged by --sync-state, same as `block_scope:`) that tells a reviewer or tool this
@@ -46,7 +53,8 @@ last_iteration_ts:
 ## Coverage
 
 - **Covered blocks**: <N> (B1..B<N>)
-- **Coverage metric**: <outline-items-covered> / <outline-items-total> covered   ← tracks "## Outline" below, NOT a gap ratio — document mode has no gap backlog. Keep the label "Coverage metric" so shared tooling (research-sdd-status.sh) still finds this line; OVERWRITE it each iteration, do not accrete contradictory denominators. The placeholder carries no digits ON PURPOSE — keep it that way until you record a real ratio.
+- **Outline coverage**: <outline-items-covered> / <outline-items-total> covered   ← THE real document-mode progress number; OVERWRITE it each iteration, mirroring "## Outline" below's covered/total count. This line is NOT parsed by any kit tool (deliberately — see the "Coverage metric" note right below), so keep it honest by hand; no re-seed and no WARN applies to it.
+- **Coverage metric**: <N> / <M> closed   ← kit issue #1114 review finding MEDIUM-2: LEAVE THE DIGITS BLANK for the lifetime of a document-cycle corpus. `research-sdd-status.sh --sync-state` and verify-state.sh read this EXACT label (case-insensitive "coverage metric") as gaps_closed/known_gaps, the NORMAL CYCLE's gap-discovery ratio — filling it with the outline ratio makes verify-state WARN "stale denominator" on every iteration until the outline is 100% covered. Document mode really does have 0 gaps closed/known always (empty "## Gap-backlog"), so this placeholder staying digit-free is the CORRECT state, not an omission.
 - **Last iteration**: <YYYY-MM-DD> — <which outline item was covered>   ← a SINGLE value, OVERWRITE it each iteration; the full log lives in "Iteration history" below.
 
 ## Outline (the work-list — PROMPT-LOOP DOCUMENT CYCLE step 1, METHODOLOGY §20)
@@ -59,7 +67,9 @@ last_iteration_ts:
      file:line; documenting a PROCEDURE/how-to → the session itself is the evidence, preserved under
      sources/probes/ and cited [CERT-hw]/[CERT-live] (METHODOLOGY §20, same markers §12 already uses —
      no new marker is introduced). STOP fires when every row below is `covered` (step 7) — the outline
-     is the terminator, never gap-exhaustion (contrast the NORMAL CYCLE's "## Stop control" below). -->
+     is the terminator, never gap-exhaustion. The "## Stop control" section further below in THIS file
+     keeps the legacy "Open gaps" lines only for research-state.v1 envelope compatibility with shared
+     kit tooling — they are always 0 here and are NOT this mode's completion signal; this table is. -->
 
 | # | Outline item | Genre (subject `[CERT]` \| procedure `[CERT-hw]`/`[CERT-live]`) | Block | Status |
 |---|---|---|---|---|
@@ -78,6 +88,11 @@ last_iteration_ts:
 
 ## Iteration history
 
+<!-- Every "New gaps uncovered" cell reads `none` because document mode never discovers new gaps
+     (§20) — expect research-sdd-status.sh to report SATURATED after 3+ such rows. That verdict is
+     gap-discovery vocabulary leaking through the shared envelope (kit issue #1152); it does not mean
+     this document-cycle run should stop or is unhealthy. Only the "## Outline" table above decides
+     when this run is done. -->
 | # | Date | Outline item covered | Block | Delegated? · model tier | New gaps uncovered |
 |---|---|---|---|---|---|
 | 1 | <date> | <outline item> | B<k> | <no · inline / yes · haiku\|sonnet\|opus> | none — document mode seeds the full outline up front (§20) |
@@ -100,6 +115,9 @@ last_iteration_ts:
 - Consecutive iterations with empty backlog (secondary): n/a — document mode has no gap-exhaustion secondary criterion (the NORMAL CYCLE's §8 2×-empty rule does not apply)
 - Budget cap (default safety net): <none | max-blocks N | max-tokens>
 - `last_iteration_ts` (ADVISORY — stall-detection signal; written by the loop on each block commit; lives in the research-state.v1 envelope above — do not pre-fill; update it when committing a block)
+- `campaign_bounds:` is intentionally OMITTED here (unlike the NORMAL CYCLE template) — it bounds a
+  self-feeding gap CAMPAIGN (METHODOLOGY §8c), and document mode has no campaign to bound; the Outline
+  above is already a fixed, finite work-list. Its absence is not drift.
 
 ## Dismissed file types
 
