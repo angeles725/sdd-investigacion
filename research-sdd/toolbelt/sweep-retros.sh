@@ -50,7 +50,7 @@ declare -F block_file_filter >/dev/null 2>&1 || { echo "sweep-retros: helper lib
 unset _sr_bf_lib
 
 # Shared delta-heading grammar — canonical/deprecated heading recognition, row counting,
-# and unrecognised-heading detection (Rules 1–3). Single source of truth with verify-retro.sh.
+# and unrecognised-heading detection (Rules 1–4). Single source of truth with verify-retro.sh.
 _sr_rg_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-grammar.sh"
 if [ ! -f "$_sr_rg_lib" ]; then echo "sweep-retros: cannot find helper $_sr_rg_lib" >&2; exit 1; fi
 # shellcheck source=lib/retro-grammar.sh

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # retro-grammar.sh — shared delta-heading grammar for §18 retrospective analysis.
 # Single source of truth for: canonical heading recognition, deprecated-alias recognition,
-# table-row counting, and unrecognised-heading detection (Rules 1–3). Sourced by
+# table-row counting, and unrecognised-heading detection (Rules 1–4). Sourced by
 # sweep-retros.sh and verify-retro.sh so the grammar can never drift between them.
 #
 # Sourced (never executed); consumers MUST fail closed after sourcing:
@@ -48,7 +48,8 @@
 #   Rule 2: " kit delt" or "-kit-delt"/"-kit delt"/" kit-delt" anywhere (space OR hyphen
 #           separated on either side of "kit"), NOT negated by "not" (space or hyphen)
 #   Rule 3: "(kit-delta" (parenthetical hyphenated compound)
-#   Rule 4 (#1111): standalone "### Proposals" (H3, plural) OUTSIDE any canonical section —
+#   Rule 4 (#1111): standalone "### Proposal[s]" (H3, singular or plural — the regex is
+#           `proposals?`) OUTSIDE any canonical section —
 #           real fleet form (niagara-research retro): "### Proposals (propose-never-apply) — …"
 #           used as a bespoke delta-intent heading. Gated so it never fires for a "### Proposals"
 #           sub-heading legitimately inside an already-recognised canonical section (that path is
@@ -114,7 +115,8 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
           # Used by sweep-retros.sh as a machine-countable alternative form.
           # R4: guard with is_canonical_heading so ## Delta details alias never self-matches.
           if (!is_canonical_heading(low) && low ~ /^## delta / && $0 ~ /—/) { d3++ }
-          # Unrecognised delta-intent heading detection (verify-retro Rules 1–3).
+          # Unrecognised delta-intent heading detection (verify-retro Rules 1–3; Rule 4 lives
+          # in the standalone-H3 block below, since it fires on a different line shape).
           # Fires independently of d3 — the two consumers interpret the same heading
           # differently (sweep-retros counts form-3; verify-retro flags unrecognised).
           is_unrec=0

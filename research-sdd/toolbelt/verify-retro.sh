@@ -31,7 +31,7 @@ _usage() {
 
 # ── Shared delta-heading grammar lib ─────────────────────────────────────────
 # lib/retro-grammar.sh is the single source of truth for canonical/deprecated heading
-# recognition, table-row counting, and unrecognised-heading detection (Rules 1–3).
+# recognition, table-row counting, and unrecognised-heading detection (Rules 1–4).
 # Sourced here so verify-retro.sh and sweep-retros.sh share identical grammar.
 _vr_rg_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-grammar.sh"
 if [ ! -f "$_vr_rg_lib" ]; then

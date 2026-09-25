@@ -394,6 +394,8 @@ fi
 . "$_RG_LIB"
 declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 if [ ! -f "$_TP_LIB" ]; then
@@ -557,10 +559,22 @@ _rows="$(awk '
 ' "$retro_file")"
 
 if [ -z "$_rows" ]; then
+  # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST. A canonical section whose
+  # only body content is the accepted honesty phrase (retro_grammar_has_honesty — the same
+  # fail-safe purity check sweep-retros.sh's WARN-A path already uses) has genuinely nothing to
+  # count: it is a correct declared zero, not an ambiguous non-table-row shape. Real fleet
+  # counterexample: niagara-research/retros/2026-09-17-tools-search-innovation.md (a
+  # header+separator-only table followed by the bare honesty line) was misreported
+  # "unclassifiable — needs manual review" before this check.
+  if retro_grammar_has_honesty "$retro"; then
+    echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro" >&2
+    exit 0
+  fi
   # A canonical/deprecated section WAS found — this is not "empty" (kit issue #1111): the
   # section exists but is not in the table-row form this parser can auto-stage issues from
   # (e.g. numbered-list entries under ### sub-headings, per the Spanish-alias real fleet
-  # form). Typed distinctly from the found=0 empty-input case above.
+  # form), and it is not a declared honest zero either. Typed distinctly from the found=0
+  # empty-input case above.
   echo "unclassifiable: delta section found but not in row-table form in $retro — needs manual review, no issue auto-staged" >&2
   exit 0
 fi

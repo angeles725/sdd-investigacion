@@ -119,6 +119,8 @@ _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 . "$_RG_LIB"
 declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 [ -f "$_TP_LIB" ] || { echo "reconcile-issues: cannot find helper $_TP_LIB" >&2; exit 1; }
@@ -258,8 +260,16 @@ audit_retro() {
   ' "$retro_path")"
 
   if [ -z "$_all_row_ids" ]; then
-    # A canonical/deprecated section WAS found — not "empty" (kit issue #1111): typed
-    # distinctly from the found=0 empty-input case above (see its comment).
+    # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST — same reasoning as
+    # stage-retro-issues.sh's matching guard (see its comment). Real fleet counterexample:
+    # niagara-research/retros/2026-09-17-tools-search-innovation.md.
+    if retro_grammar_has_honesty "$retro_path"; then
+      echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro_path" >&2
+      return 0
+    fi
+    # A canonical/deprecated section WAS found — not "empty" (kit issue #1111), and not a
+    # declared honest zero either: typed distinctly from the found=0 empty-input case above
+    # (see its comment).
     echo "unclassifiable: delta section found but not in row-table form in $retro_path — needs manual review" >&2
     return 0
   fi
