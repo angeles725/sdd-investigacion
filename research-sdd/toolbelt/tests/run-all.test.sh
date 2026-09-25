@@ -483,6 +483,62 @@ else
   else no "hermeticity-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
+# 28 — hermeticity-git-status (kit issue #1118 round-2 review, HIGH/blocking): a suite that runs
+#      `git status` against a PRE-EXISTING git repo already in the caller's cwd (i.e. baseline,
+#      not something the suite itself created) must report ZERO violations, even though that
+#      call opportunistically refreshes the index (lock+rename), which bumps `.git/`'s own
+#      mtime. Directories are tracked by NAME ONLY (existence), never mtime, precisely so this
+#      legitimate, read-adjacent operation is not misread as a leak. This is the exact scenario
+#      that failed a full-aggregate run from a non-worktree checkout root in the round-2 review
+#      (the reviewer's clone root, with `.git` already present, not created by the run).
+w="$(newdir c28)"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'git status --porcelain >/dev/null\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/gitstatus.test.sh"
+_c28cwd="$TMP/c28-cwd"; mkdir -p "$_c28cwd"
+( cd "$_c28cwd" \
+  && git init -q . \
+  && git config user.email t@example.com \
+  && git config user.name tester \
+  && printf x > f.txt \
+  && git add -A && git commit -qm init \
+  && touch f.txt )   # touch f.txt: force a stat mismatch so status has something to refresh
+out="$(cd "$_c28cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+rm -rf "$_c28cwd" 2>/dev/null || true
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$out"; then
+  ok "hermeticity-git-status: git status against a pre-existing repo in cwd does not trip the guard (directories tracked by name only)"
+else no "hermeticity-git-status failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+
+# 29 — hermeticity-scanner-degraded (kit issue #1118 round-2 review, MEDIUM, §7 "could it run at
+#      all"): a `find` that rejects `-printf` (as BSD/macOS find does — the flag is a GNU
+#      extension) must make the guard report DEGRADED, not silently scan as if the cwd were
+#      empty. Shadows PATH with a stub `find` that errors on `-printf` and delegates everything
+#      else to the real binary, so suite discovery (glob-based, not find) is unaffected.
+_c29realfind="$(command -v find)"
+if [ -z "$_c29realfind" ]; then
+  ok "hermeticity-scanner-degraded: SKIP — no real 'find' on PATH to build the stub from"
+else
+  w="$(newdir c29)"
+  mkfix_sh "$w/a.test.sh" 1 0 0
+  { printf '#!/usr/bin/env bash\n'
+    printf 'for _a in "$@"; do\n'
+    printf '  if [ "$_a" = "-printf" ]; then echo "find: unknown primary or operator" >&2; exit 1; fi\n'
+    printf 'done\n'
+    printf 'exec %s "$@"\n' "$_c29realfind"
+  } > "$TMP/c29-bin-find"
+  _c29bin="$TMP/c29-bin"; mkdir -p "$_c29bin"
+  mv "$TMP/c29-bin-find" "$_c29bin/find"; chmod +x "$_c29bin/find"
+  _c29cwd="$TMP/c29-cwd"; mkdir -p "$_c29cwd"
+  out="$(cd "$_c29cwd" && PATH="$_c29bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  rm -rf "$_c29cwd" "$_c29bin" 2>/dev/null || true
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
+    ok "hermeticity-scanner-degraded: a find that rejects -printf makes the guard DEGRADED, not a confident 0"
+  else no "hermeticity-scanner-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
