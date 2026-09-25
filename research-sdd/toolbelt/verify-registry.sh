@@ -262,6 +262,26 @@ for p in $paths; do
     fi
   fi
 
+  # SYMMETRIC HOOK-WIRING RECONCILIATION (kit issue #1128): the INVERSE direction of the check
+  # above. A row claiming 'hook no' or 'hook file yes' (neither of which asserts active wiring, per
+  # the TARGETS.md legend) whose Stop hook IS actually registered is registry drift the OTHER way —
+  # the row UNDER-claims, not over-claims. Mutually exclusive with HOOK-CLAIM-EXTRACT above (a row
+  # carries exactly one hook token), so this never double-WARNs a 'hook yes' row. WARN-only,
+  # propose-never-apply; TARGETS.md is never auto-edited (§8) — the maintainer refreshes the row by
+  # hand from this WARN's output. Deliberately narrower than the legend's full token set (excludes
+  # 'hook deferred', which the issue does not name) — same "measure incidence, do not guess the
+  # rule wider than measured" discipline as #1108. Measured on the real fleet (2026-09-25): 9 of 17
+  # reachable targets (COB-IM2, fluke-177x-datos, mini-pc, nave-panccadia, sullair,
+  # panccadia-3d-viewer, hisense, three.js, ford-bms-panel).
+  _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
+  if [ -n "$_vr_hook_no_claim" ]; then
+    _vr_hook_state2="$(hook_stop_wiring_state "$p")"
+    if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
+      echo "WARN  $(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row (propose-never-apply)."
+      attention=$((attention + 1))
+    fi
+  fi
+
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
   # nc-marked targets (tooling, doc, production app) never trigger a deep filesystem search.
   # Convention: 'N md' for nc rows counts root-level .md only (maxdepth 1 — package-manager-safe;

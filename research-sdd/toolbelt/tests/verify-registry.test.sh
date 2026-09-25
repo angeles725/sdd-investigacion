@@ -331,6 +331,101 @@ else
   no "3l hook yes + wired-off-root → tailored WARN" "exit=$RC out=[$OUT]"
 fi
 
+# --- kit issue #1128: SYMMETRIC HOOK-WIRING RECONCILIATION — the inverse direction of #1108 -----------
+# A row claiming 'hook no' or 'hook file yes' (neither of which asserts active wiring) whose Stop hook
+# IS actually wired is registry drift the OTHER way: the row UNDER-claims. WARN-only,
+# propose-never-apply; TARGETS.md is never auto-edited — the maintainer refreshes the row by hand.
+
+# 3m — REVERSE HOOK-WIRING: row claims 'hook no' but the target's Stop hook IS actually wired to
+#      retro-gate → WARN naming the mismatch.
+kit="$(mkkit c3m-hooknowired)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook no' but the Stop hook IS wired" <<<"$OUT"; then
+  ok "3m hook no + actually wired → reverse hook-wiring WARN fires" "(exit $RC)"
+else
+  no "3m hook no + actually wired → reverse hook-wiring WARN fires" "exit=$RC out=[$OUT]"
+fi
+
+# 3n — REVERSE HOOK-WIRING: row claims 'hook file yes' (with or without the '/ unregistered'
+#      companion token) but the target's Stop hook IS actually wired → WARN naming the mismatch.
+kit="$(mkkit c3n-hookfileyeswired)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook file yes / unregistered) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook file yes' but the Stop hook IS wired" <<<"$OUT"; then
+  ok "3n hook file yes + actually wired → reverse hook-wiring WARN fires" "(exit $RC)"
+else
+  no "3n hook file yes + actually wired → reverse hook-wiring WARN fires" "exit=$RC out=[$OUT]"
+fi
+
+# 3o — REVERSE HOOK-WIRING negative control: row claims 'hook no' and the target is genuinely
+#      unwired (no .claude/settings.json at all) → NO reverse WARN (positive control — proves the
+#      check is not unconditionally noisy, symmetric to 3e).
+kit="$(mkkit c3o-hooknounwired)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3o hook no + genuinely unwired → no reverse hook-wiring WARN" "(exit $RC)"
+else
+  no "3o hook no + genuinely unwired → no reverse hook-wiring WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3p — REVERSE HOOK-WIRING negative control: row claims 'hook yes' (the FORWARD claim, not 'hook
+#      no'/'hook file yes') and is actually wired → the reverse check must NOT also fire (it would
+#      be a nonsensical double-WARN for a row that is already consistent).
+kit="$(mkkit c3p-hookyeswired)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3p hook yes + actually wired → no reverse hook-wiring WARN (row already consistent)" "(exit $RC)"
+else
+  no "3p hook yes + actually wired → no reverse hook-wiring WARN (row already consistent)" "exit=$RC out=[$OUT]"
+fi
+
+# 3q — REVERSE HOOK-CLAIM word-boundary: 'hook nonexistent' must NOT match the 'hook no' claim
+#      (word boundary after 'no' — mirrors 3k's forward-direction pin). Target IS wired; if the
+#      boundary were dropped, this would false-WARN.
+kit="$(mkkit c3q-hooknonexistent)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook nonexistent) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3q 'hook nonexistent' claim → word boundary rejects it, no reverse hook-wiring WARN" "(exit $RC)"
+else
+  no "3q 'hook nonexistent' claim → word boundary rejects it, no reverse hook-wiring WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3r — REVERSE HOOK-CLAIM word-boundary: 'hook files yes' (plural 'files', not the canonical
+#      singular 'file yes' token) must NOT match the 'hook file yes' claim. Target IS wired; if the
+#      boundary were dropped, this would false-WARN.
+kit="$(mkkit c3r-hookfilesyes)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook files yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3r 'hook files yes' claim → word boundary rejects it, no reverse hook-wiring WARN" "(exit $RC)"
+else
+  no "3r 'hook files yes' claim → word boundary rejects it, no reverse hook-wiring WARN" "exit=$RC out=[$OUT]"
+fi
+
 # 4 — TRUNCATED '...' path → dropped, PARTIAL WARN names its basename; a real target alongside still reconciles.
 kit="$(mkkit c4-truncated)"; tgtA="$kit/targetA"; tgtDots="/home/x/Honeywell/.../niagara-help"
 mkcorpus "$tgtA" 4 "a"
@@ -3080,6 +3175,64 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-hook-wiring-off-root-check: HOOK-WIRING-OFF-ROOT-CHECK sentinel not found in SUT (drifted?)"
+  fi
+
+  # --- kit issue #1128 teeth: SYMMETRIC HOOK-WIRING RECONCILIATION -----------------------------------
+  echo "-- teeth-hook-wiring-reverse-check: neuter the HOOK-WIRING-REVERSE-CHECK guard; test 3m must regain the clean line --"
+  kit="$(mkkit teeth-hookreverse)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hwr="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hwr"; then
+    sed -i 's/if \[ "\$_vr_hook_state2" = "wired" \]; then  # HOOK-WIRING-REVERSE-CHECK/if false; then  # HOOK-WIRING-REVERSE-CHECK (mutated)/' "$mut_hwr"
+    outm_hwr="$("$BASH_BIN" "$mut_hwr" 2>&1)"
+    if ! grep -q "Stop hook IS wired" <<<"$outm_hwr"; then
+      ok "teeth-hook-wiring-reverse-check: neutered guard silences test 3m and regains clean line — has teeth" "()"
+    else
+      no "teeth-hook-wiring-reverse-check: neutered guard must silence test 3m — THEATER" "out=[$outm_hwr]"
+    fi
+  else
+    no "teeth-hook-wiring-reverse-check: HOOK-WIRING-REVERSE-CHECK sentinel not found in SUT (drifted?)"
+  fi
+
+  echo "-- teeth-hook-no-claim-extract: widen HOOK-NO-CLAIM-EXTRACT to match ANY 'hook ...' token; test 3p ('hook yes') must false-WARN --"
+  kit="$(mkkit teeth-hooknoclaim)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hnc="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-NO-CLAIM-EXTRACT' "$mut_hnc"; then
+    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+(no|file\\[\\[:space:\\]\\]+yes)(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+[a-z]+' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: matches any hook value)/" "$mut_hnc"
+    outm_hnc="$("$BASH_BIN" "$mut_hnc" 2>&1)"
+    if grep -q "row claims 'hook yes' but the Stop hook IS wired" <<<"$outm_hnc"; then
+      ok "teeth-hook-no-claim-extract: widened extraction false-fires on 'hook yes' — test 3p has teeth" "()"
+    else
+      no "teeth-hook-no-claim-extract: widened extraction must false-fire on 'hook yes' — THEATER" "out=[$outm_hnc]"
+    fi
+  else
+    no "teeth-hook-no-claim-extract: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  fi
+
+  echo "-- teeth-hook-no-claim-boundary: drop the word-boundary group from HOOK-NO-CLAIM-EXTRACT; test 3q ('hook nonexistent') must false-WARN --"
+  kit="$(mkkit teeth-hooknoboundary)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook nonexistent) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hnb="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-NO-CLAIM-EXTRACT' "$mut_hnb"; then
+    sed -i "s/grep -iE '\\^hook\\[\\[:space:\\]\\]+(no|file\\[\\[:space:\\]\\]+yes)(\\[\\^a-zA-Z0-9\\]|\\$)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT/grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)' | head -1)\"  # HOOK-NO-CLAIM-EXTRACT (mutated: boundary dropped)/" "$mut_hnb"
+    outm_hnb="$("$BASH_BIN" "$mut_hnb" 2>&1)"
+    if grep -q "row claims 'hook nonexistent' but the Stop hook IS wired" <<<"$outm_hnb"; then
+      ok "teeth-hook-no-claim-boundary: boundary-dropped extraction false-fires on 'hook nonexistent' — test 3q has teeth" "()"
+    else
+      no "teeth-hook-no-claim-boundary: boundary-dropped extraction must false-fire on 'hook nonexistent' — THEATER" "out=[$outm_hnb]"
+    fi
+  else
+    no "teeth-hook-no-claim-boundary: HOOK-NO-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
   fi
 fi
 
