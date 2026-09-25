@@ -379,6 +379,8 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
 
 _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 if [ ! -f "$_RG_LIB" ]; then
@@ -435,6 +437,17 @@ fi
 # with reconcile-issues.sh and sweep-retros.sh, which only ever honored the leading block; #945
 # unifies all four on retro_marker_scope_line instead.
 _marker_line="$(retro_marker_scope_line "$retro")"
+
+# STAGE_RETRO_ISSUES_OUT_OF_SCOPE_GUARD (kit issue #1099): an empty scope-scan result does NOT
+# necessarily mean "no marker" — a whole-file scan may still find one outside the leading-block
+# scope (YAML frontmatter, a multi-line comment run before it, a marker after a second heading,
+# a BOM the scope-scan no longer trips over but an even earlier obstruction still does, …).
+# Conflating that with "genuinely absent" was the #1048-#1089 fail-open shape: status read as ""
+# (pending/open), so every row was seeded. Fail CLOSED instead: refuse to seed and say why.
+if [ -z "$_marker_line" ] && retro_marker_out_of_scope "$retro"; then
+  echo "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in $(basename "$retro") — refusing to seed (kit issue #1099); move the marker into the leading block" >&2
+  exit 0
+fi
 
 # Extract the status word via retro_status_from_marker_line (lib/retro-status.sh).
 # R2-001: this is the SINGLE extraction point — the pipeline lives only in that lib function.

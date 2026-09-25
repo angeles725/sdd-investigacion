@@ -317,6 +317,46 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 10b — OUT-OF-SCOPE MARKER (kit issue #1099): a marker positioned after a SECOND heading is
+# outside the shared #945 scope. Before #1099 this was silently conflated with "no marker at
+# all" (status "") and every row was reported untracked — a classification bug, not just a
+# missed report. #1099 makes this fail CLOSED instead: refuse to classify, report loudly under
+# the typed 'out-of-scope-marker:' reason, and count under fleet-summary's degraded= bucket
+# (non-zero exit under --all, same signal already used for "couldn't classify this retro").
+box="$(mkbox case-oos)"
+mk_gh_stub "$box" nomatch
+retro_oos="$box/rh/target-foo/retros/r-oos.md"
+{
+  printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->\n\n## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
+  printf '|---|---|---|---|---|---|\n'
+  printf '| 1 | old delta | METHODOLOGY.md | B1 | new | HIGH |\n'
+} > "$retro_oos"
+run "$box" "$retro_oos"
+if [ "$RC" != 0 ] && printf '%s' "$OUT" | grep -qi '^out-of-scope-marker:' \
+  && ! printf '%s' "$OUT" | grep -qi 'untracked:\|tracked:\|orphaned:'; then
+  ok "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify (#1099)" "(exit $RC)"
+else
+  no "10b out-of-scope-marker: marker after a SECOND heading → refuses to classify (#1099)" \
+    "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 10c — REGRESSION GUARD: genuinely no marker at all must stay the ordinary pending/open case
+# (untracked:), NOT be misclassified as out-of-scope-marker.
+box="$(mkbox case-oos-absent)"
+mk_gh_stub "$box" nomatch
+retro_absent="$(mk_retro "$box" target-foo r-no-marker.md "-" \
+  "| 1 | add session cost | CLAUDE.md §5 | B10 | new | HIGH |")"
+run "$box" "$retro_absent"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'untracked:' \
+  && ! printf '%s' "$OUT" | grep -qi '^out-of-scope-marker:'; then
+  ok "10c genuinely markerless retro → still untracked, NOT out-of-scope-marker" "(exit $RC)"
+else
+  no "10c genuinely markerless retro → still untracked, NOT out-of-scope-marker" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
 # mk_retro3 <box> <target> <filename> <marker>
 #   Creates a retro with 3 delta rows (ids 1, 2, 3) for partial-shipped tests.
 mk_retro3() {

@@ -39,6 +39,7 @@ declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_e
 declare -F retro_marker_scope_line >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_scope_line not defined\n' >&2; exit 0; }
 declare -F retro_status_from_marker_line >/dev/null 2>&1 || { printf 'retro-gate: retro_status_from_marker_line not defined\n' >&2; exit 0; }
 declare -F retro_marker_is_partial >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_is_partial not defined\n' >&2; exit 0; }
+declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_out_of_scope not defined\n' >&2; exit 0; }
 
 # ── §18-EN3: auto issue-seeding on session close ──────────────────────────────
 
@@ -59,6 +60,17 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 || { printf 'retro-gate: retr
 _retro_is_seedable() {
   local rf="$1" sline status
   sline="$(retro_marker_scope_line "$rf")"
+  # RETRO_GATE_OUT_OF_SCOPE_GUARD (kit issue #1099): an empty scope-scan result does not mean
+  # "no marker" when a whole-file scan still finds one outside the shared #945 scope (YAML
+  # frontmatter, a multi-line comment run before it, a marker after a second heading, …).
+  # Conflating that with "genuinely absent" was the #1048-#1089 fail-open shape — status read as
+  # "" (pending/open) and every row got auto-seeded. Fail CLOSED instead: refuse to seed and say
+  # why, same as stage-retro-issues.sh's own guard.
+  if [ -z "$sline" ] && retro_marker_out_of_scope "$rf"; then
+    printf 'retro-gate: WARN: out-of-scope-marker for %s — a review-status marker exists but sits outside the leading-block scope; refusing to seed (kit issue #1099)\n' \
+      "$(basename "$rf")" >&2
+    return 1
+  fi
   status="$(retro_status_from_marker_line "$sline")"
   case "$status" in
     dismissed) return 1 ;;  # dismissed always wins — never reopened by a stray PARTIAL token
