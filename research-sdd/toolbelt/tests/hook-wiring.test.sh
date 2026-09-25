@@ -96,7 +96,7 @@ d="$ROOT/t7-absent"
 assert_state "7 non-existent target dir → absent-settings" "$d" "absent-settings"
 
 echo ""
-echo "Summary: ${pass} passed / $((pass+fail)) total."
+printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —

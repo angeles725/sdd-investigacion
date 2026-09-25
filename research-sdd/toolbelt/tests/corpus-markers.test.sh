@@ -66,7 +66,7 @@ d="$ROOT/t10"; mkdir -p "$d" "$d/corpus"
 if corpus_marker_present "$d" "$d/corpus"; then no "10 corpus_marker_present: no marker at either → false"; else ok "10 corpus_marker_present: no marker at either → false"; fi
 
 echo ""
-echo "Summary: ${pass} passed / $((pass+fail)) total."
+printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell,
