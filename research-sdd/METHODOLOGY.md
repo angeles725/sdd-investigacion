@@ -1219,30 +1219,72 @@ every multi-focus (§16) corpus running heavy or frontier mode, whether or not i
 the check does not apply.
 
 The check: for every directory ("unit") at a declared depth under the corpus's declared subject root
-that contains at least one file of a declared extension, confirm the unit's basename is CHARTERED — it
-appears as an exact token inside a backtick span (the whole span, or one of its `/`-separated
-components) of a CLASSIFIED `FOCUSES.md` table row. A basename that appears only in ordinary prose, or
-nowhere, is UNCHARTERED. Declare the subject root, depth, and extension list once — at bootstrap or the
-first campaign-close attempt — in RESEARCH-STATE or the §16 corpus-close retro; that declaration is the
-"artifact universe" this check runs against. Pass criterion: zero UNCHARTERED units, or every remaining
-one recorded with an explicit out-of-scope reason in the corpus-close retro.
+that contains at least one file of a declared extension, confirm the unit's basename is CHARTERED.
+
+**Charter source (kit issue #1123, round 2 — corrects the original #1105/#1106 rule).** A CLASSIFIED
+`FOCUSES.md` row is a data row (not the header, not a separator) whose identity (Focus) cell is
+non-empty; a row failing that test is UNCLASSIFIABLE, not evidence either way. The charter source for
+a classified row is that row's OWN cells PLUS the content of the `RESEARCH-STATE-<focus>.md` file its
+Research-State/State-file column names: niagara-research charters modules in the per-focus
+RESEARCH-STATE file, never in FOCUSES.md's own prose (measured 2026-09-25: `modbusCore` is chartered
+at `RESEARCH-STATE-modbus.md:4` and `RESEARCH-STATE-module-mechanics.md:74`, nowhere in FOCUSES.md
+itself). A unit is CHARTERED when its basename resolves against that combined text through any of:
+- an exact backtick-code token (the whole span, e.g. `` `modbusCore` ``),
+- one of the span's `/`-separated path components (e.g. `` `organized/modbusCore/...` ``),
+- one of the span's whitespace- or comma-separated tokens, when a span lists several identifiers or a
+  shared-prefix profile list (e.g. `` `check-coverage.py honeywellSpyderTool XL10NextGen` ``, or
+  `` `opcUaServer-rt,-wb` ``),
+- the module portion of a `<module>-<profile>` suffix form, `<profile>` one of the Niagara
+  module-profile suffixes rt/wb/ux/se (e.g. `` `modbusCore-wb` `` charters `modbusCore`),
+- a GLOB token (containing `*` or `?`, e.g. `` `clHVAC*` ``) matched with shell glob semantics —
+  tracked as its own glob-chartered count, never silently folded into the plain count or left to fall
+  through as unchartered.
+
+A basename that resolves through none of these forms, from either source, is UNCHARTERED — never a
+basename whose only evidence gap is a source the check could not read: a row whose named
+RESEARCH-STATE file is declared but absent or unreadable is not evidence its units are uncharted: WARN,
+and treat every UNCHARTERED finding from that run as an UPPER bound (the true count may be lower — the
+missed file's own charter contributions are simply absent from the check, never resolved as "no
+charter"). Never report a confident UNCHARTERED verdict for a unit whose only evidence gap is an
+unreadable declared source (mirrors `coverage-map.sh`'s own unreadable-block-file precedent, §7: a low
+count must prove it looked, not merely that it produced a number).
+
+Declare the subject root, depth, and extension list once — at bootstrap or the first campaign-close
+attempt — in RESEARCH-STATE or the §16 corpus-close retro; that declaration is the "artifact universe"
+this check runs against. Pass criterion: zero UNCHARTERED units, or every remaining one recorded with
+an explicit out-of-scope reason in the corpus-close retro.
 
 Outcome when the check fails: it never tears the campaign down and never declares it "sealed" or
 "done" on its own — this kit reserves "seal" for `[CERT]` adversarial sealing (§3), never for a
-campaign. Each newly found UNCHARTERED family is enqueued as a `pending` `kind=focus` (a genuinely new
-subject) or `kind=tier` (an extension of an existing focus) row in the `## Campaign queue` — creating
-the section if none exists yet — exactly as a FRONTIER-REOPEN audit enqueues a tier. Condition (1)
-above is then no longer met (a `pending` entry exists), so the campaign continues by popping it, same
-as any other queue entry; only a clean check lets condition (1) stand and the campaign close. PROMPT-LOOP's
-`Campaign STOP (§8c)` branch runs this check before emitting its final NEXT-ACTION.
+campaign. Each newly found UNCHARTERED unit is grouped into an advisory FAMILY purely for readability
+(a shared leading-lowercase-letter prefix, ≥3 chars — see `focus-partition-audit.sh`'s header comment
+for the exact rule); the OPERATOR decides the actual enqueue grouping — one `pending` row per family,
+per individual unit, or a coarser grouping the naming heuristic does not capture — the instrument's
+family rollup is a suggestion, never a binding queue shape. Each accepted grouping is enqueued as a
+`pending` `kind=focus` (a genuinely new subject) or `kind=tier` (an extension of an existing focus) row
+in the `## Campaign queue` — creating the section if none exists yet, exactly as a FRONTIER-REOPEN
+audit enqueues a tier, but through this SECOND creation path: when the section is created here rather
+than by a focus-STOP coverage audit, `root` and `parent` are both the CURRENT (already-stopped) focus
+that triggered the campaign-close check for every newly enqueued row, `campaign_started` is written at
+this queue's creation exactly as in the focus-STOP path, and `last_audit:` records THIS check's own
+result line (`units: <chartered>/<total> chartered · <unchartered> unchartered`) in place of a
+FRONTIER-REOPEN audit's `enqueued=<N>` line — both are "the most recent coverage-style check's
+result," just from a different instrument. Condition (1) above is then no longer met (a `pending`
+entry exists), so the campaign continues by popping it, same as any other queue entry; only a clean
+check lets condition (1) stand and the campaign close. PROMPT-LOOP's `Campaign STOP (§8c)` branch runs
+this check before emitting its final NEXT-ACTION.
 
-Until kit issue #1106 (`focus-partition-audit.sh`) lands, run the check by hand: enumerate the unit
-directories under the declared subject root, cross each basename against every `FOCUSES.md` classified
-row's backtick-quoted spans, and record `units: <chartered>/<total> chartered · <unchartered>
-unchartered` plus the unchartered basenames in the corpus-close retro before condition (1) is honored.
-This does not change the `## Campaign queue` row schema declared above — it is a precondition on when
-condition (1) may be honored, not a new field. (Source: §13 D1 for the underlying evidence; this §8c
-rule from kit issue #1105.)
+Run the check with `focus-partition-audit.sh <corpus-dir> --subject <root> --depth <N> --ext <csv>`
+(kit issues #1106/#1123): it prints `units: <chartered>/<total> chartered · <unchartered> unchartered`
+and the unchartered basenames (`--top <N>`) directly from the declared subject root, corpus dir, depth,
+and extension list — record that line and the unchartered basenames in the corpus-close retro before
+condition (1) is honored. An absent `FOCUSES.md` is its own typed state (`focuses: absent-input`, exit
+0): every unit reports unchartered, since no charter source was ever read — this is the common case for
+a single-focus corpus, which trivially finds the whole subject tree unchartered (the operator may
+declare the check out of scope for a single-focus corpus in the corpus-close retro, since §16
+multi-focus corpora are this check's actual target). This does not change the `## Campaign queue` row
+schema declared above — it is a precondition on when condition (1) may be honored, not a new field.
+(Source: §13 D1 for the underlying evidence; this §8c rule from kit issues #1105/#1106/#1123.)
 
 **Declared bounds.** Declared at bootstrap as a single line in RESEARCH-STATE:
 
