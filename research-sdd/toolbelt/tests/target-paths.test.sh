@@ -100,7 +100,7 @@ cat > "$FX8" << 'EOF'
 | 1 | rh | `$RESEARCH_HOME/sub-target` |
 EOF
 out8="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8")"
-if echo "$out8" | grep -qF '/rh-slash/sub-target' && ! echo "$out8" | grep -qF '//'; then
+if grep -qF '/rh-slash/sub-target' <<<"$out8" && ! grep -qF '//' <<<"$out8"; then
   ok "8 RESEARCH_HOME trailing slash → expanded path has no double slash"
 else no "8 RESEARCH_HOME trailing slash → expected /rh-slash/sub-target without //" "out=[$out8]"; fi
 
@@ -114,7 +114,7 @@ cat > "$FX9" << 'EOF'
 | 1 | rh | `$RESEARCH_HOME/tgt` |
 EOF
 out9="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9")"
-if echo "$out9" | grep -qF '/rh&amp/path/tgt'; then
+if grep -qF '/rh&amp/path/tgt' <<<"$out9"; then
   ok "9 RESEARCH_HOME with '&' → literal path returned (ENVIRON-based awk, no & expansion)"
 else no "9 RESEARCH_HOME with '&' → expected literal /rh&amp/path/tgt" "out=[$out9]"; fi
 
@@ -205,11 +205,11 @@ if [ "$_m8_bn_rc" -eq 0 ]; then
 else no "teeth 8 (b): mutant has bash syntax error (crash-based theater)" "err=[$_m8_bn_err]"; fi
 # (d) control: SUT gives correct path (no //); mutant introduces //
 out_m8_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
-if echo "$out_m8_ctrl" | grep -qF '/rh-slash/sub-target' && ! echo "$out_m8_ctrl" | grep -qF '//'; then
+if grep -qF '/rh-slash/sub-target' <<<"$out_m8_ctrl" && ! grep -qF '//' <<<"$out_m8_ctrl"; then
   ok "teeth 8 (d) ctrl: SUT strips trailing slash (no // in expanded path)"
 else no "teeth 8 (d) ctrl: SUT output unexpected (case 8 premise broken)" "out=[$out_m8_ctrl]"; fi
 out_m8="$("$BASH_BIN" --norc -c "source '$MUTANT_TP8'; RESEARCH_HOME='/rh-slash/' target_paths_all \"\$1\"" -- "$FX8" 2>/dev/null)"
-if echo "$out_m8" | grep -qF '//'; then
+if grep -qF '//' <<<"$out_m8"; then
   ok "teeth 8: no-norm mutant produces // in path (case 8 has teeth)"
 else no "teeth 8: mutant did not produce //; case 8 is THEATER" "out=[$out_m8]"; fi
 
@@ -238,12 +238,12 @@ if [ "$_m9_awk_rc" -eq 0 ]; then
 else no "teeth 9 (c): injected awk has syntax error (crash-based theater)" "rc=$_m9_awk_rc"; fi
 # (d) control: SUT preserves & literally; mutant corrupts it via sub() & expansion
 out_m9_ctrl="$("$BASH_BIN" --norc -c "source '$LIB'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
-if echo "$out_m9_ctrl" | grep -qF '/rh&amp/path/tgt'; then
+if grep -qF '/rh&amp/path/tgt' <<<"$out_m9_ctrl"; then
   ok "teeth 9 (d) ctrl: SUT preserves & in RESEARCH_HOME path"
 else no "teeth 9 (d) ctrl: SUT does not preserve & (case 9 premise broken)" "out=[$out_m9_ctrl]"; fi
 out_m9="$("$BASH_BIN" --norc -c "source '$MUTANT_TP9'; RESEARCH_HOME='/rh&amp/path' target_paths_all \"\$1\"" -- "$FX9" 2>/dev/null)"
 # Positive verdict: the mutant must RUN and emit the specific &-corrupted path (a crash emits nothing).
-if echo "$out_m9" | grep -qF '/rh$RESEARCH_HOME/amp/path/tgt' && ! echo "$out_m9" | grep -qF '/rh&amp/path/tgt'; then
+if grep -qF '/rh$RESEARCH_HOME/amp/path/tgt' <<<"$out_m9" && ! grep -qF '/rh&amp/path/tgt' <<<"$out_m9"; then
   ok "teeth 9: sub()-mutant corrupts & path (case 9 has teeth)"
 else no "teeth 9: mutant did not corrupt & path; case 9 is THEATER" "out=[$out_m9]"; fi
 # Sabotage: the old injection (no braces → orphan else) causes an awk syntax error → crash.

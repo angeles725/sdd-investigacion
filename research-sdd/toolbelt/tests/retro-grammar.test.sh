@@ -496,7 +496,7 @@ _trap_root="$ROOT/trap-root"
 mkdir -p "$_trap_root/research-sdd/retros"
 _trap_err="$(assert_no_rsd_retros_dir "$_trap_root" 2>&1)"
 _trap_rc=$?
-if [ "$_trap_rc" != 0 ] && echo "$_trap_err" | grep -q "RETRO-TRAP"; then
+if [ "$_trap_rc" != 0 ] && grep -q "RETRO-TRAP" <<<"$_trap_err"; then
   ok "RETRO-TRAP teeth: present research-sdd/retros/ → guard exits 1 + message (mutation has teeth)" "()"
 else
   no "RETRO-TRAP teeth: guard should reject trap dir" "rc=$_trap_rc err=[$_trap_err]"

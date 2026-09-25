@@ -84,37 +84,37 @@ if [ -z "$section21" ]; then
 else
   ok "§21 section body extracted successfully"
 
-  if echo "$section21" | grep -qE '§10|install-tool\.sh'; then
+  if grep -qE '§10|install-tool\.sh' <<<"$section21"; then
     ok "§21 references §10 / install-tool.sh for provision step"
   else
     no "§21 missing reference to §10 / install-tool.sh"
   fi
 
-  if echo "$section21" | grep -qF 'ghidra'; then
+  if grep -qF 'ghidra' <<<"$section21"; then
     ok "§21 mentions 'ghidra' in fallback chain"
   else
     no "§21 missing 'ghidra' in fallback chain"
   fi
 
-  if echo "$section21" | grep -q 'r2'; then
+  if grep -q 'r2' <<<"$section21"; then
     ok "§21 mentions 'r2' in fallback chain"
   else
     no "§21 missing 'r2' in fallback chain"
   fi
 
-  if echo "$section21" | grep -qF 'quick'; then
+  if grep -qF 'quick' <<<"$section21"; then
     ok "§21 mentions 'quick' in fallback chain"
   else
     no "§21 missing 'quick' in fallback chain"
   fi
 
-  if echo "$section21" | grep -qF 'unavailable'; then
+  if grep -qF 'unavailable' <<<"$section21"; then
     ok "§21 mentions typed state 'unavailable' (scoped to §21 body)"
   else
     no "§21 missing typed state 'unavailable'"
   fi
 
-  if echo "$section21" | grep -qF 'refused'; then
+  if grep -qF 'refused' <<<"$section21"; then
     ok "§21 mentions typed state 'refused' (scoped to §21 body)"
   else
     no "§21 missing typed state 'refused'"
@@ -191,7 +191,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   awk '/^## 21[.] Wall protocol/{in21=1} in21 && /^## [0-9]+[.]/ && !/^## 21[.]/{in21=0} in21 && /unavailable/{next} {print}' \
     "$METHODOLOGY" > "$MUT_M3"
   section21_m3="$(awk '/^## 21[.] Wall protocol/{found=1; print; next} found && /^## [0-9]/{exit} found{print}' "$MUT_M3")"
-  if echo "$section21_m3" | grep -qF 'unavailable'; then
+  if grep -qF 'unavailable' <<<"$section21_m3"; then
     no "teeth-M3: 'unavailable' still present in §21 body after mutation — sed did not take"
   else
     ok "teeth-M3: 'unavailable' absent from §21 body — scoped assertion goes RED (teeth proven)"
@@ -202,7 +202,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   awk '/^## 21[.] Wall protocol/{in21=1} in21 && /^## [0-9]+[.]/ && !/^## 21[.]/{in21=0} in21 && /refused/{next} {print}' \
     "$METHODOLOGY" > "$MUT_M4"
   section21_m4="$(awk '/^## 21[.] Wall protocol/{found=1; print; next} found && /^## [0-9]/{exit} found{print}' "$MUT_M4")"
-  if echo "$section21_m4" | grep -qF 'refused'; then
+  if grep -qF 'refused' <<<"$section21_m4"; then
     no "teeth-M4: 'refused' still present in §21 body after mutation — sed did not take"
   else
     ok "teeth-M4: 'refused' absent from §21 body — scoped assertion goes RED (teeth proven)"

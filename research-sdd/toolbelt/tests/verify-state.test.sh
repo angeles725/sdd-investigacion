@@ -832,7 +832,7 @@ d="$TMP/uf-absent"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! echo "$out" | grep -qE 'FAIL.*undocumented_findings|WARN.*undocumented_findings'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'FAIL.*undocumented_findings|WARN.*undocumented_findings' <<<"$out"; then
   ok "G-absent: no undocumented_findings field → silent (no FAIL/WARN), exit 0 (legacy corpora not penalized)"
 else no "G-absent: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
@@ -840,35 +840,35 @@ else no "G-absent: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' 
 # SUGGESTION 8: the summary line now shows the field value; 'silent' means no FAIL/WARN, not no mention.
 d="$TMP/uf-zero"; _uf_fixture "$d" 0
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! echo "$out" | grep -qE 'FAIL.*undocumented_findings|WARN.*undocumented_findings'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'FAIL.*undocumented_findings|WARN.*undocumented_findings' <<<"$out"; then
   ok "G-zero: undocumented_findings=0 → exit 0, no FAIL or WARN"
 else no "G-zero: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
 # G-ok-max — undocumented_findings: 3 → exit 0, no WARN (WARN fires only above 3, not at 3).
 d="$TMP/uf-ok-max"; _uf_fixture "$d" 3
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && ! echo "$out" | grep -qE 'WARN.*undocumented_findings'; then
+if [ "$(code "$d")" = 0 ] && ! grep -qE 'WARN.*undocumented_findings' <<<"$out"; then
   ok "G-ok-max: undocumented_findings=3 → exit 0, no WARN (boundary; WARN fires only >3)"
 else no "G-ok-max: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
 # G-warn — undocumented_findings: 4 → WARN printed, exit still 0 (advisory, not a STOP hazard yet).
 d="$TMP/uf-warn"; _uf_fixture "$d" 4
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && echo "$out" | grep -qE 'WARN.*undocumented_findings=4'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*undocumented_findings=4' <<<"$out"; then
   ok "G-warn: undocumented_findings=4 → WARN emitted, exit 0"
 else no "G-warn: exit $(code "$d") (want 0) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
 # G-warn-max — undocumented_findings: 6 → WARN still (FAIL fires only above 6, not at 6).
 d="$TMP/uf-warn-max"; _uf_fixture "$d" 6
 out="$(run "$d")"
-if [ "$(code "$d")" = 0 ] && echo "$out" | grep -qE 'WARN.*undocumented_findings=6'; then
+if [ "$(code "$d")" = 0 ] && grep -qE 'WARN.*undocumented_findings=6' <<<"$out"; then
   ok "G-warn-max: undocumented_findings=6 → WARN still, exit 0 (FAIL threshold is >6)"
 else no "G-warn-max: exit $(code "$d") (want 0) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
 # G-fail — undocumented_findings: 7 → FAIL exit 1.
 d="$TMP/uf-fail"; _uf_fixture "$d" 7
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings=7'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings=7' <<<"$out"; then
   ok "G-fail: undocumented_findings=7 → FAIL exit 1"
 else no "G-fail: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
@@ -885,7 +885,7 @@ d="$TMP/uf-nospace"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out"; then
   ok "G-nospace: undocumented_findings:7 (no space) → FAIL exit 1 (line present, value unparseable)"
 else no "G-nospace: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
 
@@ -899,7 +899,7 @@ d="$TMP/uf-not-int"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out"; then
   ok "G-not-int: undocumented_findings: seven → FAIL exit 1 (non-integer value present)"
 else no "G-not-int: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
 
@@ -912,7 +912,7 @@ d="$TMP/uf-negative"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out"; then
   ok "G-negative: undocumented_findings: -2 → FAIL exit 1 (negative is not a valid count)"
 else no "G-negative: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
 
@@ -929,7 +929,7 @@ d="$TMP/uf-nospace-nonint"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out"; then
   ok "G-nospace-nonint: undocumented_findings:seven (no space) → FAIL exit 1 (prefix probe detects line, env_field sees empty → not-int)"
 else no "G-nospace-nonint: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented|ok ' | head -1)"; fi
 
@@ -945,7 +945,7 @@ d="$TMP/uf-indented-nonint"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-if [ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings'; then
+if [ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out"; then
   ok "UF-indented-nonint: '  undocumented_findings: seven' (indented non-int) → FAIL exit 1"
 else no "UF-indented-nonint: exit $(code "$d") (want 1) :: $(echo "$out" | grep -iE 'undocumented' | head -1)"; fi
 
@@ -957,9 +957,9 @@ d="$TMP/uf-pos-first"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-[ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings' \
+[ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out" \
   && ok "UF-pos-first: '  undocumented_findings: seven' FIRST in envelope → FAIL (probe is position-independent)" \
-  || no "UF-pos-first: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"
+  || no "UF-pos-first: exit $(code "$d") :: $(grep -iE 'undocumented' <<<"$out" | head -1)"
 
 # UF-pos-middle — field in the MIDDLE of the envelope (list-edges §7: MIDDLE position).
 d="$TMP/uf-pos-middle"; mkdir -p "$d"
@@ -969,9 +969,9 @@ d="$TMP/uf-pos-middle"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '- none'; echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'
 } > "$d/RESEARCH-STATE.md"
 out="$(run "$d")"
-[ "$(code "$d")" = 1 ] && echo "$out" | grep -qE 'FAIL.*undocumented_findings' \
+[ "$(code "$d")" = 1 ] && grep -qE 'FAIL.*undocumented_findings' <<<"$out" \
   && ok "UF-pos-middle: '  undocumented_findings: seven' MIDDLE in envelope → FAIL" \
-  || no "UF-pos-middle: exit $(code "$d") :: $(echo "$out" | grep -iE 'undocumented' | head -1)"
+  || no "UF-pos-middle: exit $(code "$d") :: $(grep -iE 'undocumented' <<<"$out" | head -1)"
 
 # ---- P23: blocked/absent gaps missing a tried: clause (pi5 P23) --------------------------------
 # When a gap under ## Blocked gaps or ## Non-investigable gaps has a `needs:` clause but no
@@ -2390,7 +2390,7 @@ d="$TMP/vs-u2011"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
 _vs_u2011_warn="$(bash "$SUT" "$d" 2>&1)"
-if echo "$_vs_u2011_warn" | grep -qi 'near-miss'; then
+if grep -qi 'near-miss' <<<"$_vs_u2011_warn"; then
   ok "VS-U2011-HEADING: U+2011 heading → NM-WARN fires (U+2011-NORM dropped; heading not recognised as valid)"
 else no "VS-U2011-HEADING: NM-WARN should fire for U+2011 heading after U+2011-NORM removal — got: [$(echo "$_vs_u2011_warn" | head -3)]"; fi
 
@@ -2405,7 +2405,7 @@ d="$TMP/vs-width-3"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
 _vs_w3_warn="$(bash "$SUT" "$d" 2>&1)"
-if echo "$_vs_w3_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*3 columns'; then
+if grep -qi 'only 4- or 5-column\|backlog table has.*3 columns' <<<"$_vs_w3_warn"; then
   ok "VS-WIDTH-3: 3-col separator → BP-WIDTH-WARN emitted by _backlog_rows mirror"
 else
   no "VS-WIDTH-3: no BP-WIDTH-WARN for 3-col separator — unsupported width accepted silently in verify-state mirror"
@@ -2421,7 +2421,7 @@ d="$TMP/vs-width-6"; mkdir -p "$d"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps -- read-only investigable**: 0'; } > "$d/RESEARCH-STATE.md"
 _vs_w6_warn="$(bash "$SUT" "$d" 2>&1)"
-if echo "$_vs_w6_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*6 columns'; then
+if grep -qi 'only 4- or 5-column\|backlog table has.*6 columns' <<<"$_vs_w6_warn"; then
   ok "VS-WIDTH-6: 6-col separator → BP-WIDTH-WARN emitted by _backlog_rows mirror"
 else
   no "VS-WIDTH-6: no BP-WIDTH-WARN for 6-col separator — unsupported width accepted silently in verify-state mirror"
@@ -2439,7 +2439,7 @@ d_vsli="$TMP/vs-list-item"; mkdir -p "$d_vsli"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps — read-only investigable**: 1'; } > "$d_vsli/RESEARCH-STATE.md"
 _vsli_out="$(bash "$SUT" "$d_vsli" 2>&1)"
-if ! echo "$_vsli_out" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+if ! grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns' <<<"$_vsli_out"; then
   ok "VS-LIST-ITEM: prose list item with | in Gap-backlog silently ignored in verify-state mirror"
 else
   no "VS-LIST-ITEM: list item with | produced unexpected output in verify-state: $(echo "$_vsli_out" | grep -i 'unknown\|invalid\|columns' | head -1)"
@@ -2456,7 +2456,7 @@ d_vsso="$TMP/vs-sep-outside"; mkdir -p "$d_vsso"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsso/RESEARCH-STATE.md"
 _vsso_out="$(bash "$SUT" "$d_vsso" 2>&1)"
-if ! echo "$_vsso_out" | grep -qi 'only 4- or 5-column\|backlog table has'; then
+if ! grep -qi 'only 4- or 5-column\|backlog table has' <<<"$_vsso_out"; then
   ok "VS-SEP-OUTSIDE: 6-col separator outside Gap-backlog silently ignored in verify-state mirror"
 else
   no "VS-SEP-OUTSIDE: BP-WIDTH-WARN fired for 6-col separator outside Gap-backlog in verify-state mirror"
@@ -2475,7 +2475,7 @@ d_vsdp="$TMP/vs-denom-port"; mkdir -p "$d_vsdp"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsdp/RESEARCH-STATE.md"
 _vsdp_out="$(bash "$SUT" "$d_vsdp" 2>&1)"
-if ! echo "$_vsdp_out" | grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011'; then
+if ! grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011' <<<"$_vsdp_out"; then
   ok "VS-DENOM-PORT: port numbers 3011/5011 in Coverage prose do not trigger contradictory-denominators WARN"
 else
   no "VS-DENOM-PORT: port numbers 3011/5011 incorrectly parsed as coverage fraction → false WARN: $(echo "$_vsdp_out" | grep -i denominat | head -1)"
@@ -2494,7 +2494,7 @@ d_vsm1="$TMP/vs-m1-unspaced"; mkdir -p "$d_vsm1"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsm1/RESEARCH-STATE.md"
 _vsm1_out="$(bash "$SUT" "$d_vsm1" 2>&1)"
-if echo "$_vsm1_out" | grep -qi 'contradictory'; then
+if grep -qi 'contradictory' <<<"$_vsm1_out"; then
   ok "VS-M1-DENOM-UNSPACED: unspaced fractions 7/8 vs 7/7 detected as contradictory denominators (M1 awk fix)"
 else
   no "VS-M1-DENOM-UNSPACED: expected contradictory-denominators WARN for 7/8 vs 7/7 — got: [$(echo "$_vsm1_out" | grep -i denom | head -1)]"
@@ -2537,7 +2537,7 @@ d_vsn3="$TMP/vs-n3-cov-pipe"; mkdir -p "$d_vsn3"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsn3/RESEARCH-STATE.md"
 _vsn3_warn="$(bash "$SUT" "$d_vsn3" 2>&1)"
-if echo "$_vsn3_warn" | grep -qi 'COVERED row'; then
+if grep -qi 'COVERED row' <<<"$_vsn3_warn"; then
   ok "VS-N3-COVERED-PIPE-WARN: 5-col COVERED row with extra cell → VS-COVERED-PIPE-WARN emitted"
 else
   no "VS-N3-COVERED-PIPE-WARN: expected COVERED-pipe WARN — got: [$(echo "$_vsn3_warn" | head -2)]"
@@ -2555,7 +2555,7 @@ d_vsn3m="$TMP/vs-n3-malf-scope"; mkdir -p "$d_vsn3m"
   echo '## Blocked gaps'; echo '## Stop control'
   echo '- **Open gaps — read-only investigable**: 0'; } > "$d_vsn3m/RESEARCH-STATE.md"
 _vsn3m_warn="$(bash "$SUT" "$d_vsn3m" 2>&1)"
-if ! echo "$_vsn3m_warn" | grep -qi 'malformed'; then
+if ! grep -qi 'malformed' <<<"$_vsn3m_warn"; then
   ok "VS-N3-MALFORMED-SCOPE: malformed row outside Gap-backlog → no malformed WARN in verify-state"
 else
   no "VS-N3-MALFORMED-SCOPE: malformed WARN fired outside Gap-backlog — scope fix missing: [$(echo "$_vsn3m_warn" | grep -i malformed | head -1)]"
@@ -3673,7 +3673,7 @@ PYEOF
       no "teeth-VS-BP-LIST-ITEM-GUARD: sabotage check failed — BP-LIST-ITEM-GUARD sentinel still in mutant"
     else
       _vslig_out="$(bash "$mutantLIG" "$d_vsli" 2>&1)"
-      if echo "$_vslig_out" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+      if grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns' <<<"$_vslig_out"; then
         ok "teeth-VS-BP-LIST-ITEM-GUARD: mutant (no guard) → list item fires WARN → VS-LIST-ITEM goes RED → BP-LIST-ITEM-GUARD is load-bearing"
       else
         no "teeth-VS-BP-LIST-ITEM-GUARD: mutant did not produce WARN for list item — guard not load-bearing (THEATER)"
@@ -3697,7 +3697,7 @@ PYEOF
       no "teeth-VS-BP-SEP-IN-BACKLOG: mutant has syntax error (bash -n) — mutation broke shell syntax"
     else
       _vssib_out="$(bash "$mutantSIB" "$d_vsso" 2>&1)"
-      if echo "$_vssib_out" | grep -qi 'only 4- or 5-column\|backlog table has'; then
+      if grep -qi 'only 4- or 5-column\|backlog table has' <<<"$_vssib_out"; then
         ok "teeth-VS-BP-SEP-IN-BACKLOG: mutant (no guard) → iteration-history 6-col separator fires BP-WIDTH-WARN → VS-SEP-OUTSIDE goes RED → BP-SEP-IN-BACKLOG is load-bearing"
       else
         no "teeth-VS-BP-SEP-IN-BACKLOG: mutant did not fire BP-WIDTH-WARN for iteration-history separator — guard not load-bearing (THEATER)"
@@ -3729,7 +3729,7 @@ open(sys.argv[2], 'w').write(txt.replace(old, new))
       no "teeth-VS-DENOM-PORT: mutant has syntax error (bash -n) — mutation broke shell syntax"
     else
       _vsdp_mut_out="$(bash "$mutantDP" "$d_vsdp" 2>&1)"
-      if echo "$_vsdp_mut_out" | grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011'; then
+      if grep -qi 'contradictory.*denominators\|denominators.*3011\|denominators.*5011' <<<"$_vsdp_mut_out"; then
         ok "teeth-VS-DENOM-PORT: mutant (all-fractions grep) → 3011/5011 extracted → contradictory-denominators WARN → VS-DENOM-PORT goes RED → first-fraction-only awk is load-bearing"
       else
         no "teeth-VS-DENOM-PORT: mutant did not produce contradictory-denominators WARN — port-number fix not load-bearing (THEATER)"
@@ -3762,7 +3762,7 @@ d="$TMP/p8-absent"; mk_state_p8 "$d"
 # ensure no .claude dir exists
 rm -rf "$d/.claude" 2>/dev/null || true
 _p8a="$(run "$d" 2>/dev/null)"
-if echo "$_p8a" | grep -qiF "hook-placeholder" && echo "$_p8a" | grep -qiE "absent|not found|skip"; then
+if grep -qiF "hook-placeholder" <<<"$_p8a" && grep -qiE "absent|not found|skip" <<<"$_p8a"; then
   ok "P8-A: no .claude/hooks/ → INFO absent-input line"
 else
   no "P8-A: no .claude/hooks/ → expected INFO absent-input; got: $(echo "$_p8a" | grep -i hook | head -1)"
@@ -3771,7 +3771,7 @@ fi
 # P8-B: .claude/hooks/ exists but empty (no .sh files) → INFO empty-input line
 d="$TMP/p8-empty"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 _p8b="$(run "$d" 2>/dev/null)"
-if echo "$_p8b" | grep -qiF "hook-placeholder" && echo "$_p8b" | grep -qiE "empty|no .sh|skip"; then
+if grep -qiF "hook-placeholder" <<<"$_p8b" && grep -qiE "empty|no .sh|skip" <<<"$_p8b"; then
   ok "P8-B: empty .claude/hooks/ → INFO empty-input line"
 else
   no "P8-B: empty .claude/hooks/ → expected INFO empty-input; got: $(echo "$_p8b" | grep -i hook | head -1)"
@@ -3782,7 +3782,7 @@ d="$TMP/p8-clean"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\n# research-protocol.sh — adapted for myproject\necho "myproject"\n' \
   > "$d/.claude/hooks/research-protocol.sh"
 _p8c="$(run "$d" 2>/dev/null)"
-if echo "$_p8c" | grep -qE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8c"; then
   no "P8-C: clean hook → no WARN expected; got WARN"
 else
   ok "P8-C: clean hook → no hook-placeholder WARN (no-match)"
@@ -3794,7 +3794,7 @@ d="$TMP/p8-subject"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\n# adapted hook header\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' \
   > "$d/.claude/hooks/research-protocol.sh"
 _p8d="$(run "$d" 2>/dev/null)"
-if echo "$_p8d" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8d"; then
   ok "P8-D: hook with <SUBJECT> on code line → hook-placeholder WARN emitted"
 else
   no "P8-D: hook with <SUBJECT> on code line → expected hook-placeholder WARN; got: $(echo "$_p8d" | grep -i hook | head -1)"
@@ -3823,7 +3823,7 @@ d="$TMP/p8-comment-skip"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\n# Research-SDD — <SUBJECT>\n# Kit: <KIT>/toolbelt/\necho "adapted"\n' \
   > "$d/.claude/hooks/research-protocol.sh"
 _p8d2="$(run "$d" 2>/dev/null)"
-if echo "$_p8d2" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8d2"; then
   no "P8-D2: comment-only <SUBJECT>/<KIT> → should NOT WARN (F4 skip rule); got WARN"
 else
   ok "P8-D2: comment-only <SUBJECT>/<KIT> → no WARN (F4 skip rule)"
@@ -3834,7 +3834,7 @@ d="$TMP/p8-kit"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\nKIT_PATH="<KIT>/toolbelt/"\necho "$KIT_PATH"\n' \
   > "$d/.claude/hooks/retro-gate-stop.sh"
 _p8e="$(run "$d" 2>/dev/null)"
-if echo "$_p8e" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8e"; then
   ok "P8-E: hook with <KIT> on code line → hook-placeholder WARN"
 else
   no "P8-E: hook with <KIT> on code line → expected WARN; got: $(echo "$_p8e" | grep -i hook | head -1)"
@@ -3845,7 +3845,7 @@ d="$TMP/p8-prefix"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\n# Research protocol\nBLOCK_GLOB="<prefix>-block*.md"\necho "$BLOCK_GLOB"\n' \
   > "$d/.claude/hooks/research-protocol.sh"
 _p8e2="$(run "$d" 2>/dev/null)"
-if echo "$_p8e2" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8e2"; then
   ok "P8-E2: hook with lowercase <prefix> on code line → WARN (F1 allowlist)"
 else
   no "P8-E2: hook with <prefix> on code line → expected WARN; got: $(echo "$_p8e2" | grep -i hook | head -1)"
@@ -3861,7 +3861,7 @@ d="$TMP/p8-path"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\n# primary source\nSOURCE="<path to binaries/decompiled output/source code of the system under study>"\necho "$SOURCE"\n' \
   > "$d/.claude/hooks/research-protocol.sh"
 _p8e3="$(run "$d" 2>/dev/null)"
-if echo "$_p8e3" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8e3"; then
   ok "P8-E3: hook with <path to binaries...> on code line → WARN (F1 allowlist)"
 else
   no "P8-E3: hook with <path to binaries...> → expected WARN; got: $(echo "$_p8e3" | grep -i hook | head -1)"
@@ -3889,7 +3889,7 @@ printf '#!/bin/bash\necho "clean"\n'                       > "$d/.claude/hooks/a
 printf '#!/bin/bash\necho "mid"\n'                         > "$d/.claude/hooks/m-mid.sh"
 printf '#!/bin/bash\nKIT_PATH="<KIT>/toolbelt/"\necho z\n' > "$d/.claude/hooks/z-last.sh"
 _p8g="$(run "$d" 2>/dev/null)"
-if echo "$_p8g" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8g"; then
   ok "P8-G: last hook with placeholder → WARN (last-position edge)"
 else
   no "P8-G: last hook with placeholder → expected WARN (last-position edge)"
@@ -3906,7 +3906,7 @@ d="$TMP/p8-single"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\nTARGET="<TARGET>"\necho "$TARGET"\n' \
   > "$d/.claude/hooks/retro-gate-stop.sh"
 _p8h="$(run "$d" 2>/dev/null)"
-if echo "$_p8h" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8h"; then
   ok "P8-H: single hook with <TARGET> → hook-placeholder WARN (single-element edge)"
 else
   no "P8-H: single hook with <TARGET> → expected WARN (single-element edge)"
@@ -3918,7 +3918,7 @@ d="$TMP/p8-unreadable-file"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/.claude/hooks/research-protocol.sh"
 chmod 000 "$d/.claude/hooks/research-protocol.sh" 2>/dev/null
 _p8i="$(run "$d" 2>/dev/null)"
-if echo "$_p8i" | grep -qiE 'unreadable.*hook-placeholder|hook-placeholder.*unreadable'; then
+if grep -qiE 'unreadable.*hook-placeholder|hook-placeholder.*unreadable' <<<"$_p8i"; then
   ok "P8-I: unreadable hook file → typed 'unreadable' signal"
 else
   # Tolerate if running as root (chmod 000 has no effect)
@@ -3936,7 +3936,7 @@ d="$TMP/p8-unreadable-dir"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\necho "hook"\n' > "$d/.claude/hooks/research-protocol.sh"
 chmod 000 "$d/.claude/hooks" 2>/dev/null
 _p8j="$(run "$d" 2>/dev/null)"
-if echo "$_p8j" | grep -qiE 'unreadable.*hook-placeholder|hook-placeholder.*unreadable'; then
+if grep -qiE 'unreadable.*hook-placeholder|hook-placeholder.*unreadable' <<<"$_p8j"; then
   ok "P8-J: unreadable hooks dir → typed 'unreadable' signal"
 else
   _uid="$(id -u 2>/dev/null || echo 1)"
@@ -3977,7 +3977,7 @@ mkdir -p "$d_corpus" "$d_root/.claude/hooks"
   echo '## Stop control'; echo '- **Open gaps — read-only investigable**: 0'; } > "$d_corpus/RESEARCH-STATE.md"
 printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d_root/.claude/hooks/research-protocol.sh"
 _p8l="$(run "$d_corpus" 2>/dev/null)"
-if echo "$_p8l" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8l"; then
   ok "P8-L: nested corpus — hooks found at target root, WARN emitted"
 else
   no "P8-L: nested corpus — expected WARN for hook at target root; got: $(echo "$_p8l" | grep -i hook | head -2)"
@@ -3994,7 +3994,7 @@ EOF
 printf '%s\n' "$CTX"
 HOOKEOF
 _p8m="$(run "$d" 2>/dev/null)"
-if ! echo "$_p8m" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if ! grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8m"; then
   ok "P8-M: adapted hook with fixed template kit-line (\$RESEARCH_SDD_KIT) → no false P8 WARN"
 else
   no "P8-M: adapted hook with fixed template kit-line → unexpected WARN: $(echo "$_p8m" | grep -i hook | head -1)"
@@ -4105,22 +4105,22 @@ _p8sr="$(run "$d" 2>/dev/null)"
 _p8sr_warns=$(echo "$_p8sr" | grep -cE 'WARN.*hook-placeholder.*orphan\.sh|hook-placeholder.*orphan\.sh.*WARN' 2>/dev/null || true)
 [ "${_p8sr_warns:-0}" -eq 1 ] && ok "P8S-REPRO: a hook named by settings.local.json AND present in .claude/hooks/ is inspected exactly once" \
                               || no "P8S-REPRO: expected exactly 1 orphan.sh WARN, got $_p8sr_warns — got: $(echo "$_p8sr" | grep -i hook | head -5)"
-if echo "$_p8sr" | grep -qiE 'hook-set:.*settings\.json: 1 file'; then
+if grep -qiE 'hook-set:.*settings\.json: 1 file' <<<"$_p8sr"; then
   ok "P8S-REPRO: summary names settings.json's contribution"
 else
   no "P8S-REPRO: summary does not name settings.json's contribution: $(echo "$_p8sr" | grep -i 'hook-set:' | head -2)"
 fi
-if echo "$_p8sr" | grep -qiE 'hook-set:.*settings\.local\.json: 1 file'; then
+if grep -qiE 'hook-set:.*settings\.local\.json: 1 file' <<<"$_p8sr"; then
   ok "P8S-REPRO: summary names settings.local.json's contribution"
 else
   no "P8S-REPRO: summary does not name settings.local.json's contribution: $(echo "$_p8sr" | grep -i 'hook-set:' | head -2)"
 fi
-if echo "$_p8sr" | grep -qiE 'hook-set:.*\.claude/hooks/\*: 1 file'; then
+if grep -qiE 'hook-set:.*\.claude/hooks/\*: 1 file' <<<"$_p8sr"; then
   ok "P8S-REPRO: summary names .claude/hooks/*'s contribution"
 else
   no "P8S-REPRO: summary does not name .claude/hooks/*'s contribution: $(echo "$_p8sr" | grep -i 'hook-set:' | head -2)"
 fi
-if echo "$_p8sr" | grep -qiE 'hook-set:.*\(1 duplicate'; then
+if grep -qiE 'hook-set:.*\(1 duplicate' <<<"$_p8sr"; then
   ok "P8S-REPRO: dedup count reports the 1 duplicate (orphan.sh named by two sources)"
 else
   no "P8S-REPRO: dedup count missing/wrong: $(echo "$_p8sr" | grep -i 'hook-set:' | head -2)"
@@ -4137,13 +4137,13 @@ mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/from-settings.sh'
 mk_local_cmds    "$d" '$CLAUDE_PROJECT_DIR/other/from-local.sh'
 _p8su="$(run "$d" 2>/dev/null)"
 for _p8su_name in from-settings.sh from-local.sh from-dir.sh; do
-  if echo "$_p8su" | grep -qiE "WARN.*hook-placeholder.*${_p8su_name}|hook-placeholder.*${_p8su_name}.*WARN"; then
+  if grep -qiE "WARN.*hook-placeholder.*${_p8su_name}|hook-placeholder.*${_p8su_name}.*WARN" <<<"$_p8su"; then
     ok "P8S-UNION: $_p8su_name (its own source) is inspected and WARNs"
   else
     no "P8S-UNION: $_p8su_name did not WARN — got: $(echo "$_p8su" | grep -i hook | head -5)"
   fi
 done
-if echo "$_p8su" | grep -qiE 'hook-set:.*inspected 3 hook file.*\(0 duplicate'; then
+if grep -qiE 'hook-set:.*inspected 3 hook file.*\(0 duplicate' <<<"$_p8su"; then
   ok "P8S-UNION: union count is 3 with 0 duplicates (three genuinely distinct files)"
 else
   no "P8S-UNION: union/dedup count wrong: $(echo "$_p8su" | grep -i 'hook-set:' | head -2)"
@@ -4156,7 +4156,7 @@ d="$TMP/p8s-local-only"; mk_state_p8 "$d"; mkdir -p "$d/tools/hooks"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/local-only.sh"
 mk_local_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/local-only.sh'
 _p8sl="$(run "$d" 2>/dev/null)"
-if echo "$_p8sl" | grep -qiE 'WARN.*hook-placeholder.*local-only\.sh|hook-placeholder.*local-only\.sh.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder.*local-only\.sh|hook-placeholder.*local-only\.sh.*WARN' <<<"$_p8sl"; then
   ok "P8S-LOCAL: settings.local.json alone (no settings.json) resolves and WARNs"
 else
   no "P8S-LOCAL: expected WARN naming local-only.sh; got: $(echo "$_p8sl" | grep -i hook | head -3)"
@@ -4170,12 +4170,12 @@ mkdir -p "$d/tools/hooks"
 printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/tools/hooks/protocol.sh"
 mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/protocol.sh'
 _p8sa="$(run "$d" 2>/dev/null)"
-if echo "$_p8sa" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8sa"; then
   ok "P8S-A: settings-declared hook outside .claude/hooks/ (tools/hooks/) → placeholder WARN fires"
 else
   no "P8S-A: settings-declared hook outside .claude/hooks/ → expected WARN; got: $(echo "$_p8sa" | grep -i hook | head -3)"
 fi
-if echo "$_p8sa" | grep -qiE 'hook-set:.*settings\.json: 1 file'; then
+if grep -qiE 'hook-set:.*settings\.json: 1 file' <<<"$_p8sa"; then
   ok "P8S-A: hook-set summary line names settings.json's contribution"
 else
   no "P8S-A: hook-set summary line missing/wrong: $(echo "$_p8sa" | grep -i 'hook-set' | head -3)"
@@ -4225,7 +4225,7 @@ d="$TMP/p8s-absolute"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf '#!/bin/bash\necho "clean"\n' > "$d/.claude/hooks/research-protocol.sh"
 mk_settings_cmds "$d" "$d/.claude/hooks/research-protocol.sh"
 _p8sd="$(run "$d" 2>/dev/null)"
-if echo "$_p8sd" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8sd"; then
   no "P8S-D: absolute-path single settings hook, clean → unexpected WARN"
 else
   ok "P8S-D: absolute-path single settings hook (single-element edge), clean → no WARN"
@@ -4248,7 +4248,7 @@ fi
 d="$TMP/p8s-unresolvable"; mk_state_p8 "$d"
 mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/does-not-exist.sh'
 _p8sf="$(run "$d" 2>/dev/null)"
-if echo "$_p8sf" | grep -qiE 'hook-set.*could not be resolved.*does-not-exist\.sh'; then
+if grep -qiE 'hook-set.*could not be resolved.*does-not-exist\.sh' <<<"$_p8sf"; then
   ok "P8S-F: unresolvable settings-declared command → loud 'could not be resolved' report"
 else
   no "P8S-F: expected loud unresolved report; got: $(echo "$_p8sf" | grep -i 'hook-set' | head -3)"
@@ -4256,7 +4256,7 @@ fi
 _p8sf_rc="$(code "$d")"
 [ "$_p8sf_rc" -ne 2 ] && ok "P8S-F: unresolved settings command does not abort the whole run (rc=$_p8sf_rc)" \
                        || no "P8S-F: unresolved settings command aborted the run (rc=2)"
-if echo "$_p8sf" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8sf"; then
   ok "P8S-F: summary reports found-but-none-inspectable, not plain empty"
 else
   no "P8S-F: expected found-but-none-inspectable in the summary; got: $(echo "$_p8sf" | grep -i hook | head -3)"
@@ -4269,7 +4269,7 @@ fi
 d="$TMP/p8s-empty-settings"; mk_state_p8 "$d"
 mkdir -p "$d/.claude"; printf '{}\n' > "$d/.claude/settings.json"
 _p8sg="$(run "$d" 2>/dev/null)"
-if echo "$_p8sg" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8sg" | grep -qi 'found-but-none-inspectable'; then
+if grep -qiE 'hook-placeholder.*\(empty\)' <<<"$_p8sg" && ! grep -qi 'found-but-none-inspectable' <<<"$_p8sg"; then
   ok "P8S-G: settings.json declares no hooks, no .claude/hooks/ → empty-input INFO"
 else
   no "P8S-G: expected empty-input INFO; got: $(echo "$_p8sg" | grep -i hook | head -3)"
@@ -4279,7 +4279,7 @@ fi
 # absent-input INFO (distinct from P8S-G's empty-input above). Same fixture shape as P8-A.
 d="$TMP/p8s-none"; mk_state_p8 "$d"; rm -rf "$d/.claude" 2>/dev/null || true
 _p8sn="$(run "$d" 2>/dev/null)"
-if echo "$_p8sn" | grep -qiE 'hook-placeholder.*not found'; then
+if grep -qiE 'hook-placeholder.*not found' <<<"$_p8sn"; then
   ok "P8S-noneexist: nothing exists at all → absent-input INFO, distinct wording from P8S-G's empty"
 else
   no "P8S-noneexist: expected absent-input INFO; got: $(echo "$_p8sn" | grep -i hook | head -3)"
@@ -4292,17 +4292,17 @@ d="$TMP/p8s-invalid-json"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 printf 'not valid json {{{\n' > "$d/.claude/settings.json"
 printf '#!/bin/bash\nSUBJECT="<SUBJECT>"\necho "$SUBJECT"\n' > "$d/.claude/hooks/research-protocol.sh"
 _p8sh="$(run "$d" 2>/dev/null)"
-if echo "$_p8sh" | grep -qE '^ *malformed *hook-set:.*not valid JSON'; then
+if grep -qE '^ *malformed *hook-set:.*not valid JSON' <<<"$_p8sh"; then
   ok "P8S-H: invalid settings.json → typed 'malformed' report"
 else
   no "P8S-H: expected 'malformed' report; got: $(echo "$_p8sh" | grep -i 'hook-set' | head -3)"
 fi
-if echo "$_p8sh" | grep -qiE '^ *unreadable.*not valid JSON'; then
+if grep -qiE '^ *unreadable.*not valid JSON' <<<"$_p8sh"; then
   no "P8S-H: 'malformed' must never be reported as 'unreadable'"
 else
   ok "P8S-H: invalid JSON is never labeled 'unreadable' — distinct status"
 fi
-if echo "$_p8sh" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8sh"; then
   ok "P8S-H: .claude/hooks/ still scanned after invalid settings.json (WARN fires)"
 else
   no "P8S-H: fallback did not run after invalid settings.json; got: $(echo "$_p8sh" | grep -i hook | head -3)"
@@ -4315,7 +4315,7 @@ chmod 000 "$d/.claude/settings.json" 2>/dev/null
 _p8si="$(run "$d" 2>/dev/null)"
 if [ "$(id -u)" = "0" ]; then
   echo "  SKIP  P8S-I: unreadable settings.json (running as root, chmod 000 ignored)"
-elif echo "$_p8si" | grep -qiE 'unreadable.*hook-set.*not readable|hook-set.*not readable'; then
+elif grep -qiE 'unreadable.*hook-set.*not readable|hook-set.*not readable' <<<"$_p8si"; then
   ok "P8S-I: unreadable settings.json → typed loud 'not readable' report"
 else
   no "P8S-I: expected typed unreadable report; got: $(echo "$_p8si" | grep -i 'hook-set' | head -3)"
@@ -4331,12 +4331,12 @@ if command -v jq >/dev/null 2>&1; then
   _NOJQ_BIN2="$TMP/nojq_bin2"; mkdir -p "$_NOJQ_BIN2"
   build_hermetic_nojq_bin "$PATH" "$_NOJQ_BIN2"
   _p8sj="$(PATH="$_NOJQ_BIN2" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8sj" | grep -qiE 'degraded.*hook-set.*jq not found|hook-set.*jq not found'; then
+  if grep -qiE 'degraded.*hook-set.*jq not found|hook-set.*jq not found' <<<"$_p8sj"; then
     ok "P8S-J: jq absent → typed 'degraded' report naming jq"
   else
     no "P8S-J: expected typed degraded report; got: $(echo "$_p8sj" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8sj" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8sj"; then
     ok "P8S-J: degraded mode still scans .claude/hooks/* (WARN fires there)"
   else
     no "P8S-J: .claude/hooks/ scan did not run in degraded mode; got: $(echo "$_p8sj" | grep -i hook | head -3)"
@@ -4353,7 +4353,7 @@ fi
 d="$TMP/p8s-echohi"; mk_state_p8 "$d"
 mk_settings_cmds "$d" 'echo hi'
 _p8seh_out="$(bash "$SUT" "$d" 2>/dev/null)"; _p8seh_rc=$?
-if echo "$_p8seh_out" | grep -qiE "hook-set:.*could not be resolved.*: echo hi"; then
+if grep -qiE "hook-set:.*could not be resolved.*: echo hi" <<<"$_p8seh_out"; then
   ok "P8S-ECHOHI: 'echo hi' (no path token) is reported loudly as unresolved"
 else
   no "P8S-ECHOHI: expected loud unresolved report for 'echo hi'; got: $(echo "$_p8seh_out" | grep -i 'hook-set' | head -3)"
@@ -4371,17 +4371,17 @@ outside="$TMP/p8s-outofroot-secret"; mkdir -p "$outside"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside/secret.sh"
 mk_settings_cmds "$d" "cat $outside/secret.sh"
 _p8oor="$(run "$d" 2>/dev/null)"
-if echo "$_p8oor" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+if grep -qiE 'hook-set:.*out-of-root.*secret\.sh' <<<"$_p8oor"; then
   ok "P8S-OUTOFROOT: absolute path outside the target root is reported 'out-of-root'"
 else
   no "P8S-OUTOFROOT: expected 'out-of-root' report; got: $(echo "$_p8oor" | grep -i 'hook-set' | head -3)"
 fi
-if echo "$_p8oor" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8oor"; then
   no "P8S-OUTOFROOT: secret.sh was READ for placeholders — privacy violation (§8)"
 else
   ok "P8S-OUTOFROOT: secret.sh's placeholder content was never read (§8 respected)"
 fi
-if echo "$_p8oor" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8oor"; then
   ok "P8S-OUTOFROOT: summary reports found-but-none-inspectable, not plain empty"
 else
   no "P8S-OUTOFROOT: expected found-but-none-inspectable in the summary; got: $(echo "$_p8oor" | grep -i hook | head -3)"
@@ -4400,7 +4400,7 @@ mkdir -p "$d/tools/hooks" "$d/.claude/hooks"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/real.sh"
 ln -s "../../tools/hooks/real.sh" "$d/.claude/hooks/real.sh"
 _p8symin="$(run_rp "$d")"
-if echo "$_p8symin" | grep -qiE 'WARN.*hook-placeholder.*real\.sh|hook-placeholder.*real\.sh.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder.*real\.sh|hook-placeholder.*real\.sh.*WARN' <<<"$_p8symin"; then
   ok "P8S-SYM-INROOT: an in-root symlink under .claude/hooks/ is followed and inspected"
 else
   no "P8S-SYM-INROOT: expected WARN on the symlinked hook; got: $(echo "$_p8symin" | grep -i hook | head -3)"
@@ -4414,12 +4414,12 @@ outside_sym="$TMP/p8s-sym-outroot-secret"; mkdir -p "$outside_sym"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_sym/secret.sh"
 ln -s "$outside_sym/secret.sh" "$d/.claude/hooks/l.sh"
 _p8symout="$(run_rp "$d")"
-if echo "$_p8symout" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+if grep -qiE 'hook-set:.*out-of-root.*secret\.sh' <<<"$_p8symout"; then
   ok "P8S-SYM-OUTROOT: a .claude/hooks/ symlink pointing outside the target root is reported out-of-root"
 else
   no "P8S-SYM-OUTROOT: expected out-of-root report; got: $(echo "$_p8symout" | grep -i 'hook-set' | head -3)"
 fi
-if echo "$_p8symout" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8symout"; then
   no "P8S-SYM-OUTROOT: secret.sh was READ for placeholders — privacy violation (§8)"
 else
   ok "P8S-SYM-OUTROOT: the outside symlink target's placeholder content was never read (§8 respected)"
@@ -4431,12 +4431,12 @@ fi
 d="$TMP/p8s-dangling"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 ln -s nonexist.sh "$d/.claude/hooks/d.sh"
 _p8dang="$(run_rp "$d")"
-if echo "$_p8dang" | grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh'; then
+if grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh' <<<"$_p8dang"; then
   ok "P8S-DANGLING: a dangling symlink alone is reported loudly, not silently dropped"
 else
   no "P8S-DANGLING: expected a dangling-symlink report; got: $(echo "$_p8dang" | grep -i 'hook-set' | head -3)"
 fi
-if echo "$_p8dang" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8dang"; then
   ok "P8S-DANGLING: summary reports found-but-none-inspectable, not plain empty"
 else
   no "P8S-DANGLING: expected found-but-none-inspectable in the summary; got: $(echo "$_p8dang" | grep -i hook | head -3)"
@@ -4449,17 +4449,17 @@ d="$TMP/p8s-dangling-alongside"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
 ln -s nonexist.sh "$d/.claude/hooks/d.sh"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/.claude/hooks/valid.sh"
 _p8danga="$(run_rp "$d")"
-if echo "$_p8danga" | grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh'; then
+if grep -qiE 'hook-set:.*dangling or non-file symlink.*d\.sh' <<<"$_p8danga"; then
   ok "P8S-DANGLING-ALONGSIDE: the dangling symlink is still reported alongside a valid hook"
 else
   no "P8S-DANGLING-ALONGSIDE: expected a dangling-symlink report; got: $(echo "$_p8danga" | grep -i 'hook-set' | head -3)"
 fi
-if echo "$_p8danga" | grep -qiE 'WARN.*hook-placeholder.*valid\.sh|hook-placeholder.*valid\.sh.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder.*valid\.sh|hook-placeholder.*valid\.sh.*WARN' <<<"$_p8danga"; then
   ok "P8S-DANGLING-ALONGSIDE: the valid hook is still inspected and WARNs normally"
 else
   no "P8S-DANGLING-ALONGSIDE: expected valid.sh to WARN; got: $(echo "$_p8danga" | grep -i hook | head -3)"
 fi
-if echo "$_p8danga" | grep -qiE 'hook-set:.*inspected 1 hook file'; then
+if grep -qiE 'hook-set:.*inspected 1 hook file' <<<"$_p8danga"; then
   ok "P8S-DANGLING-ALONGSIDE: union count is 1 (the dangling entry is excluded, not counted)"
 else
   no "P8S-DANGLING-ALONGSIDE: expected a union count of 1; got: $(echo "$_p8danga" | grep -i 'hook-set:' | head -2)"
@@ -4476,7 +4476,7 @@ if command -v realpath >/dev/null 2>&1; then
   d="$TMP/p8s-noreal-probe"; mk_state_p8 "$d"
   mk_settings_cmds "$d" 'echo hi'
   _p8nrp="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8nrp" | grep -qiE 'degraded.*hook-set.*realpath not found|hook-set.*realpath not found'; then
+  if grep -qiE 'degraded.*hook-set.*realpath not found|hook-set.*realpath not found' <<<"$_p8nrp"; then
     ok "P8S-NOREALPATH-PROBE: realpath absent → typed 'degraded' report naming realpath"
   else
     no "P8S-NOREALPATH-PROBE: expected typed degraded report; got: $(echo "$_p8nrp" | grep -i 'hook-set' | head -3)"
@@ -4491,12 +4491,12 @@ if command -v realpath >/dev/null 2>&1; then
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$outside_dd/secret.sh"
   mk_settings_cmds "$d" '../p8s-noreal-dotdot-outside/secret.sh'
   _p8ndd="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8ndd" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+  if grep -qiE 'hook-set:.*out-of-root.*secret\.sh' <<<"$_p8ndd"; then
     ok "P8S-NOREALPATH-DOTDOT: a '..'-escaping relative command is proven out-of-root without realpath"
   else
     no "P8S-NOREALPATH-DOTDOT: expected an out-of-root refusal; got: $(echo "$_p8ndd" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8ndd" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+  if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8ndd"; then
     no "P8S-NOREALPATH-DOTDOT: secret.sh was READ — privacy violation under degraded mode"
   else
     ok "P8S-NOREALPATH-DOTDOT: secret.sh's placeholder content was never read"
@@ -4513,12 +4513,12 @@ if command -v realpath >/dev/null 2>&1; then
   symroot="$TMP/p8s-noreal-ancestor-abs-altname"; ln -s "$d" "$symroot"
   mk_settings_cmds "$d" "$symroot/tools/hooks/x.sh"
   _p8naa="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8naa" | grep -qiE 'hook-set:.*out-of-root'; then
+  if grep -qiE 'hook-set:.*out-of-root' <<<"$_p8naa"; then
     no "P8S-NOREALPATH-ANCESTOR-ABS: falsely reported out-of-root; got: $(echo "$_p8naa" | grep -i 'hook-set' | head -3)"
   else
     ok "P8S-NOREALPATH-ANCESTOR-ABS: not falsely reported out-of-root"
   fi
-  if echo "$_p8naa" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8naa"; then
     ok "P8S-NOREALPATH-ANCESTOR-ABS: the hook is inspected and WARNs through the symlinked ancestor"
   else
     no "P8S-NOREALPATH-ANCESTOR-ABS: expected x.sh to WARN; got: $(echo "$_p8naa" | grep -i hook | head -3)"
@@ -4533,12 +4533,12 @@ if command -v realpath >/dev/null 2>&1; then
   ln -s "$outside_sl/secret.sh" "$d/tools/link.sh"
   mk_settings_cmds "$d" 'tools/link.sh'
   _p8nsl="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8nsl" | grep -qiE 'hook-set:.*degraded.*link\.sh'; then
+  if grep -qiE 'hook-set:.*degraded.*link\.sh' <<<"$_p8nsl"; then
     ok "P8S-NOREALPATH-SYMLEAF: a symlinked leaf escaping the target root is refused without realpath"
   else
     no "P8S-NOREALPATH-SYMLEAF: expected a degraded refusal; got: $(echo "$_p8nsl" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8nsl" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+  if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8nsl"; then
     no "P8S-NOREALPATH-SYMLEAF: secret.sh was READ — privacy violation under degraded mode"
   else
     ok "P8S-NOREALPATH-SYMLEAF: secret.sh's placeholder content was never read"
@@ -4555,12 +4555,12 @@ if command -v realpath >/dev/null 2>&1; then
   ln -s "$outside_sd" "$d/tools"
   mk_settings_cmds "$d" 'tools/secret.sh'
   _p8nsd="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8nsd" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+  if grep -qiE 'hook-set:.*out-of-root.*secret\.sh' <<<"$_p8nsd"; then
     ok "P8S-NOREALPATH-SYMDIR: a symlinked directory component escaping the target root is proven out-of-root without realpath (dirname canonicalization)"
   else
     no "P8S-NOREALPATH-SYMDIR: expected an out-of-root refusal; got: $(echo "$_p8nsd" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8nsd" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+  if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8nsd"; then
     no "P8S-NOREALPATH-SYMDIR: secret.sh was READ — privacy violation under degraded mode"
   else
     ok "P8S-NOREALPATH-SYMDIR: secret.sh's placeholder content was never read"
@@ -4575,7 +4575,7 @@ if command -v realpath >/dev/null 2>&1; then
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/real.sh"
   ln -s "../../tools/hooks/real.sh" "$d/.claude/hooks/real.sh"
   _p8nhd="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8nhd" | grep -qiE 'hook-set:.*degraded.*real\.sh'; then
+  if grep -qiE 'hook-set:.*degraded.*real\.sh' <<<"$_p8nhd"; then
     ok "P8S-NOREALPATH-HOOKSDIR-SYM: a .claude/hooks/ symlink is conservatively refused without realpath, even one that is actually in-root"
   else
     no "P8S-NOREALPATH-HOOKSDIR-SYM: expected a degraded refusal; got: $(echo "$_p8nhd" | grep -i 'hook-set' | head -3)"
@@ -4588,7 +4588,7 @@ if command -v realpath >/dev/null 2>&1; then
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/safe.sh"
   mk_settings_cmds "$d" '$CLAUDE_PROJECT_DIR/tools/hooks/safe.sh'
   _p8nc="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8nc" | grep -qiE 'WARN.*hook-placeholder.*safe\.sh|hook-placeholder.*safe\.sh.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder.*safe\.sh|hook-placeholder.*safe\.sh.*WARN' <<<"$_p8nc"; then
     ok "P8S-NOREALPATH-CONTROL: a \$CLAUDE_PROJECT_DIR-prefixed safe path still WARNs normally in degraded mode"
   else
     no "P8S-NOREALPATH-CONTROL: expected safe.sh to WARN even without realpath; got: $(echo "$_p8nc" | grep -i hook | head -3)"
@@ -4602,7 +4602,7 @@ if command -v realpath >/dev/null 2>&1; then
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/tools/hooks/bare.sh"
   mk_settings_cmds "$d" 'tools/hooks/bare.sh'
   _p8ncb="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8ncb" | grep -qiE 'WARN.*hook-placeholder.*bare\.sh|hook-placeholder.*bare\.sh.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder.*bare\.sh|hook-placeholder.*bare\.sh.*WARN' <<<"$_p8ncb"; then
     ok "P8S-NOREALPATH-CONTROL-BARE: a genuinely bare-relative safe path still WARNs normally in degraded mode"
   else
     no "P8S-NOREALPATH-CONTROL-BARE: expected bare.sh to WARN even without realpath; got: $(echo "$_p8ncb" | grep -i hook | head -3)"
@@ -4614,12 +4614,12 @@ if command -v realpath >/dev/null 2>&1; then
   d="$TMP/p8s-dangling-noreal"; mk_state_p8 "$d"; mkdir -p "$d/.claude/hooks"
   ln -s nonexist.sh "$d/.claude/hooks/d.sh"
   _p8dangn="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8dangn" | grep -qiE 'hook-set:.*degraded.*d\.sh'; then
+  if grep -qiE 'hook-set:.*degraded.*d\.sh' <<<"$_p8dangn"; then
     ok "P8S-DANGLING-NOREALPATH: a dangling symlink alone is refused (degraded) without realpath"
   else
     no "P8S-DANGLING-NOREALPATH: expected a degraded refusal; got: $(echo "$_p8dangn" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8dangn" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8dangn"; then
     ok "P8S-DANGLING-NOREALPATH: summary reports found-but-none-inspectable, not plain empty"
   else
     no "P8S-DANGLING-NOREALPATH: expected found-but-none-inspectable; got: $(echo "$_p8dangn" | grep -i hook | head -3)"
@@ -4632,12 +4632,12 @@ if command -v realpath >/dev/null 2>&1; then
   ln -s nonexist.sh "$d/.claude/hooks/d.sh"
   printf '#!/bin/bash\nT="<TARGET>"\n' > "$d/.claude/hooks/valid.sh"
   _p8dangna="$(PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8dangna" | grep -qiE 'hook-set:.*degraded.*d\.sh'; then
+  if grep -qiE 'hook-set:.*degraded.*d\.sh' <<<"$_p8dangna"; then
     ok "P8S-DANGLING-NOREALPATH-ALONGSIDE: the dangling symlink is still refused alongside a valid hook"
   else
     no "P8S-DANGLING-NOREALPATH-ALONGSIDE: expected a degraded refusal; got: $(echo "$_p8dangna" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8dangna" | grep -qiE 'WARN.*hook-placeholder.*valid\.sh|hook-placeholder.*valid\.sh.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder.*valid\.sh|hook-placeholder.*valid\.sh.*WARN' <<<"$_p8dangna"; then
     ok "P8S-DANGLING-NOREALPATH-ALONGSIDE: the valid plain-file hook is still inspected normally"
   else
     no "P8S-DANGLING-NOREALPATH-ALONGSIDE: expected valid.sh to WARN; got: $(echo "$_p8dangna" | grep -i hook | head -3)"
@@ -4659,12 +4659,12 @@ if command -v realpath >/dev/null 2>&1; then
   ln -s "$outside_gc" "$d/tools/[l]"
   mk_settings_cmds "$d" 'tools/[l]/secret.sh'
   _p8gc="$(cd "$glob_decoy_dir" && PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8gc" | grep -qiE 'hook-set:.*out-of-root.*secret\.sh'; then
+  if grep -qiE 'hook-set:.*out-of-root.*secret\.sh' <<<"$_p8gc"; then
     ok "P8S-GLOBCOMP: a glob-shaped symlinked directory component is proven out-of-root, not diverted through the process cwd"
   else
     no "P8S-GLOBCOMP: expected an out-of-root refusal; got: $(echo "$_p8gc" | grep -i 'hook-set' | head -3)"
   fi
-  if echo "$_p8gc" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+  if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8gc"; then
     no "P8S-GLOBCOMP: secret.sh was READ — the glob diverted the containment check to the decoy path"
   else
     ok "P8S-GLOBCOMP: secret.sh's placeholder content was never read"
@@ -4682,14 +4682,14 @@ if command -v realpath >/dev/null 2>&1; then
   ln -s "$outside_gcl/secret.sh" "$d/tools/[l]"
   mk_settings_cmds "$d" 'tools/[l]'
   _p8gcl="$(cd "$glob_decoy_dir2" && PATH="$_NOREAL_BIN" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8gcl" | grep -qiE 'hook-set:.*degraded.*\[l\]'; then
+  if grep -qiE 'hook-set:.*degraded.*\[l\]' <<<"$_p8gcl"; then
     ok "P8S-GLOBCOMP-LEAF: a glob-shaped symlinked LEAF is refused, not diverted through the process cwd"
   else
     no "P8S-GLOBCOMP-LEAF: expected a degraded refusal; got: $(echo "$_p8gcl" | grep -i 'hook-set' | head -3)"
   fi
   # NOTE: if this ever leaks, the WARN reports the SYMLINK's own basename ("[l]"), not the target
   # it points to ("secret.sh") — the placeholder-scan loop names whatever _p8f/basename it opened.
-  if echo "$_p8gcl" | grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN' <<<"$_p8gcl"; then
     no "P8S-GLOBCOMP-LEAF: [l] (-> secret.sh) was READ — the glob diverted the containment check to the decoy path"
   else
     ok "P8S-GLOBCOMP-LEAF: the symlinked leaf's placeholder content was never read"
@@ -4715,12 +4715,12 @@ if command -v realpath >/dev/null 2>&1; then
   _NOREAL_BIN2="$TMP/norealpath_bin2"; mkdir -p "$_NOREAL_BIN2"
   build_hermetic_norealpath_bin "$PATH" "$_NOREAL_BIN2"
   _p8rd="$(cd "$d" && PATH="$_NOREAL_BIN2" bash "$SUT" . 2>/dev/null)"
-  if echo "$_p8rd" | grep -qiE 'hook-set:.*out-of-root'; then
+  if grep -qiE 'hook-set:.*out-of-root' <<<"$_p8rd"; then
     no "P8S-ROOT-DOT: an absolute in-root command was falsely reported out-of-root when target='.' (degraded)"
   else
     ok "P8S-ROOT-DOT: an absolute in-root command is NOT falsely out-of-root when target='.' (degraded)"
   fi
-  if echo "$_p8rd" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8rd"; then
     ok "P8S-ROOT-DOT: the hook is still inspected and WARNs (target='.', degraded)"
   else
     no "P8S-ROOT-DOT: expected x.sh to WARN; got: $(echo "$_p8rd" | grep -i hook | head -3)"
@@ -4731,7 +4731,7 @@ fi
 # Sanity: the same fixture, normal mode (realpath present) — must already have worked, and must
 # still work after the canonicalization change (regression guard).
 _p8rd_normal="$(cd "$d" && bash "$SUT" . 2>/dev/null)"
-if echo "$_p8rd_normal" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' && ! echo "$_p8rd_normal" | grep -qiE 'hook-set:.*out-of-root'; then
+if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8rd_normal" && ! grep -qiE 'hook-set:.*out-of-root' <<<"$_p8rd_normal"; then
   ok "P8S-ROOT-DOT: target='.' still WARNs correctly in normal mode (regression guard)"
 else
   no "P8S-ROOT-DOT: target='.' regressed in normal mode; got: $(echo "$_p8rd_normal" | grep -i hook | head -3)"
@@ -4745,7 +4745,7 @@ mkdir -p "$d_real/t/.claude/hooks"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_real/t/.claude/hooks/x.sh"
 ln -s "$d_real" "$TMP/p8s-root-ancestor-link"
 _p8ras="$(run "$TMP/p8s-root-ancestor-link/t" 2>/dev/null)"
-if echo "$_p8ras" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8ras"; then
   ok "P8S-ROOT-ANCESTOR-SYMLINK: a target reached through a symlinked ancestor still resolves and WARNs"
 else
   no "P8S-ROOT-ANCESTOR-SYMLINK: expected x.sh to WARN; got: $(echo "$_p8ras" | grep -i hook | head -3)"
@@ -4763,17 +4763,17 @@ mk_state_p8 "$d_cdp_base/real/mytarget"
 printf '#!/bin/bash\nT="<TARGET>"\n' > "$d_cdp_base/real/mytarget/.claude/hooks/x.sh"
 printf '#!/bin/bash\necho decoy\n' > "$d_cdp_base/decoy/mytarget/.claude/hooks/y.sh"
 _p8cdp="$(cd "$d_cdp_base/real" && CDPATH="$d_cdp_base/decoy" bash "$SUT" mytarget 2>/dev/null)"
-if echo "$_p8cdp" | grep -qiF "root: $d_cdp_base/real/mytarget)"; then
+if grep -qiF "root: $d_cdp_base/real/mytarget)" <<<"$_p8cdp"; then
   ok "P8S-CDPATH: an exported CDPATH with a same-named decoy does not divert the canonicalized root"
 else
   no "P8S-CDPATH: expected the real root in the summary line; got: $(echo "$_p8cdp" | grep -i 'hook-set:' | head -3)"
 fi
-if echo "$_p8cdp" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8cdp"; then
   ok "P8S-CDPATH: the REAL target's hook (x.sh) is inspected, not the decoy's (y.sh)"
 else
   no "P8S-CDPATH: expected x.sh to WARN (not the decoy); got: $(echo "$_p8cdp" | grep -i hook | head -3)"
 fi
-if echo "$_p8cdp" | grep -qi 'y\.sh'; then
+if grep -qi 'y\.sh' <<<"$_p8cdp"; then
   no "P8S-CDPATH: the decoy target's y.sh leaked into the output — CDPATH diverted the root"
 else
   ok "P8S-CDPATH: the decoy target's y.sh never appears — CDPATH did not divert the root"
@@ -4796,17 +4796,17 @@ export P8_CANONFAIL_TARGET="$d_cfail"
 _p8cfail="$(bash "$SUT" "$d_cfail" 2>/dev/null)"
 unset -f cd
 unset P8_CANONFAIL_TARGET
-if echo "$_p8cfail" | grep -qiE 'degraded.*hook-set.*cannot canonicalize target root|hook-set.*cannot canonicalize target root'; then
+if grep -qiE 'degraded.*hook-set.*cannot canonicalize target root|hook-set.*cannot canonicalize target root' <<<"$_p8cfail"; then
   ok "P8S-CANON-FAIL: a forced canonicalization failure is reported as a typed degraded state"
 else
   no "P8S-CANON-FAIL: expected a typed 'cannot canonicalize target root' report; got: $(echo "$_p8cfail" | grep -i 'hook-set' | head -3)"
 fi
-if echo "$_p8cfail" | grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN'; then
+if grep -qiE 'WARN.*hook-placeholder.*x\.sh|hook-placeholder.*x\.sh.*WARN' <<<"$_p8cfail"; then
   no "P8S-CANON-FAIL: x.sh was READ despite the canonicalization failure — fails OPEN, not closed"
 else
   ok "P8S-CANON-FAIL: x.sh was never read — the failure fails CLOSED"
 fi
-if echo "$_p8cfail" | grep -qiE 'hook-set:.*refused.*could not be canonicalized'; then
+if grep -qiE 'hook-set:.*refused.*could not be canonicalized' <<<"$_p8cfail"; then
   ok "P8S-CANON-FAIL: the refused candidate is reported by name, not silently dropped"
 else
   no "P8S-CANON-FAIL: expected a per-candidate refusal report; got: $(echo "$_p8cfail" | grep -i hook | head -3)"
@@ -4828,7 +4828,7 @@ if [ "$(id -u)" = "0" ]; then
   echo "  SKIP  P8S-STATE-UNREADABLE: chmod 000 ignored when running as root"
 else
   _p8str="$(run "$d" 2>/dev/null)"
-  if echo "$_p8str" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8str"; then
     ok "P8S-STATE-UNREADABLE: unreadable settings.json alone → found-but-none-inspectable, not 'empty'"
   else
     no "P8S-STATE-UNREADABLE: expected found-but-none-inspectable; got: $(echo "$_p8str" | grep -i hook | head -3)"
@@ -4840,7 +4840,7 @@ chmod 644 "$d/.claude/settings.json" 2>/dev/null || true
 d="$TMP/p8s-state-malformed"; mk_state_p8 "$d"; mkdir -p "$d/.claude"
 printf 'not valid json {{{\n' > "$d/.claude/settings.json"
 _p8stm="$(run "$d" 2>/dev/null)"
-if echo "$_p8stm" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8stm"; then
   ok "P8S-STATE-MALFORMED: malformed settings.json alone → found-but-none-inspectable, not 'empty'"
 else
   no "P8S-STATE-MALFORMED: expected found-but-none-inspectable; got: $(echo "$_p8stm" | grep -i hook | head -3)"
@@ -4853,7 +4853,7 @@ if command -v jq >/dev/null 2>&1; then
   _NOJQ_BIN3="$TMP/nojq_bin3"; mkdir -p "$_NOJQ_BIN3"
   build_hermetic_nojq_bin "$PATH" "$_NOJQ_BIN3"
   _p8stj="$(PATH="$_NOJQ_BIN3" bash "$SUT" "$d" 2>/dev/null)"
-  if echo "$_p8stj" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8stj"; then
     ok "P8S-STATE-NOJQ: jq-degraded settings.json alone → found-but-none-inspectable, not 'empty'"
   else
     no "P8S-STATE-NOJQ: expected found-but-none-inspectable; got: $(echo "$_p8stj" | grep -i hook | head -3)"
@@ -4870,7 +4870,7 @@ if [ "$(id -u)" = "0" ]; then
   echo "  SKIP  P8S-STATE-UNREADABLE-HOOKSDIR: chmod 000 ignored when running as root"
 else
   _p8sthd="$(run "$d" 2>/dev/null)"
-  if echo "$_p8sthd" | grep -qiE 'hook-placeholder.*found-but-none-inspectable'; then
+  if grep -qiE 'hook-placeholder.*found-but-none-inspectable' <<<"$_p8sthd"; then
     ok "P8S-STATE-UNREADABLE-HOOKSDIR: unreadable .claude/hooks/ alone → found-but-none-inspectable, not 'empty'"
   else
     no "P8S-STATE-UNREADABLE-HOOKSDIR: expected found-but-none-inspectable; got: $(echo "$_p8sthd" | grep -i hook | head -3)"
@@ -4883,7 +4883,7 @@ chmod 755 "$d/.claude/hooks" 2>/dev/null || true
 d="$TMP/p8s-state-empty-control"; mk_state_p8 "$d"
 mkdir -p "$d/.claude"; printf '{}\n' > "$d/.claude/settings.json"
 _p8ste="$(run "$d" 2>/dev/null)"
-if echo "$_p8ste" | grep -qiE 'hook-placeholder.*\(empty\)' && ! echo "$_p8ste" | grep -qi 'found-but-none-inspectable'; then
+if grep -qiE 'hook-placeholder.*\(empty\)' <<<"$_p8ste" && ! grep -qi 'found-but-none-inspectable' <<<"$_p8ste"; then
   ok "P8S-STATE-EMPTY-CONTROL: nothing declared, nothing to reject → 'empty', never 'found-but-none-inspectable'"
 else
   no "P8S-STATE-EMPTY-CONTROL: regression; got: $(echo "$_p8ste" | grep -i hook | head -3)"
@@ -4912,7 +4912,7 @@ else
       echo "REFUSED:reason=$_p8_rc_reason"
     fi
   )"
-  if echo "$_p8nl_out" | grep -q '^REFUSED:'; then
+  if grep -q '^REFUSED:' <<<"$_p8nl_out"; then
     ok "P8S-NEWLINE: a path containing an embedded newline is refused loudly, not silently truncated"
   else
     no "P8S-NEWLINE: expected a loud refusal; got: $_p8nl_out"
@@ -4935,7 +4935,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Sanity: the un-mutated SUT resolves and WARNs on this fixture (baseline for the mutants below).
   _p8st_base="$(run "$p8s_teeth_dir" 2>/dev/null)"
-  if echo "$_p8st_base" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8st_base"; then
     ok "P8-S teeth: baseline SUT WARNs on the settings-derived fixture (pre-mutation sanity)"
   else
     no "P8-S teeth: baseline SUT did not WARN — fixture itself is broken, mutants below are meaningless"
@@ -4952,12 +4952,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "P8-S teeth (jq-extract): mutation anchor (P8-SETTINGS-JQ-EXTRACT) not found — did the SUT change?"
   else
     _p8st_jq="$(bash "$p8s_jqmutant" "$p8s_teeth_dir" 2>/dev/null)"
-    if echo "$_p8st_jq" | grep -qiE '^\s*(INFO|ok |WARN|FAIL)'; then
+    if grep -qiE '^\s*(INFO|ok |WARN|FAIL)' <<<"$_p8st_jq"; then
       ok "P8-S teeth (jq-extract): mutant SUT produced check output — startup succeeded (lib/ included)"
     else
       no "P8-S teeth (jq-extract): mutant SUT produced no check output — startup likely failed"
     fi
-    if ! echo "$_p8st_jq" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    if ! grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8st_jq"; then
       ok "P8-S teeth (jq-extract): neutered jq filter → no WARN on settings-derived hook → P8S-A has teeth"
     else
       no "P8-S teeth (jq-extract): mutant still WARNs → jq-extraction assertion is THEATER"
@@ -4974,12 +4974,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "P8-S teeth (path-detect): mutant has a syntax error — mutation failed to produce valid bash"
   else
     _p8st_path="$(bash "$p8s_pathmutant" "$p8s_teeth_dir" 2>/dev/null)"
-    if ! echo "$_p8st_path" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    if ! grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8st_path"; then
       ok "P8-S teeth (path-detect): neutered path detection → no placeholder WARN → P8S-A has teeth"
     else
       no "P8-S teeth (path-detect): mutant still WARNs on the placeholder → path-detection assertion is THEATER"
     fi
-    if echo "$_p8st_path" | grep -qiE 'hook-set.*could not be resolved'; then
+    if grep -qiE 'hook-set.*could not be resolved' <<<"$_p8st_path"; then
       ok "P8-S teeth (path-detect): mutant reports the command as unresolved instead of silently dropping it"
     else
       no "P8-S teeth (path-detect): mutant neither WARNed nor reported unresolved — got: $(echo "$_p8st_path" | grep -i 'hook-set' | head -2)"
@@ -5038,7 +5038,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf '#!/bin/bash\nT="<TARGET>"\n' > "$p8s_oor_outside/secret.sh"
       mk_settings_cmds "$p8s_oor_dir" "cat $p8s_oor_outside/secret.sh"
       _p8st_root="$(PATH="$_P8_REALPATH_GUARANTEED_DIR:$PATH" bash "$p8s_rootmutant" "$p8s_oor_dir" 2>/dev/null)"
-      if echo "$_p8st_root" | grep -qiE 'hook-placeholder.*secret\.sh'; then
+      if grep -qiE 'hook-placeholder.*secret\.sh' <<<"$_p8st_root"; then
         ok "P8-S teeth (out-of-root): bypassing the containment case makes the escape fixture get READ → the check has teeth"
       else
         no "P8-S teeth (out-of-root): mutant still refused the escape fixture — THEATER or the mutation missed: $(echo "$_p8st_root" | grep -i hook | head -3)"
@@ -5080,13 +5080,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # NOTE: a leak reports the SYMLINK's own basename ("[l]"), not the file it points to
     # ("secret.sh") — the placeholder-scan loop names whatever file it actually opened.
     _p8st_glob_base="$(cd "$p8s_glob_decoy" && PATH="$p8s_norealpath_bin_for_glob" bash "$SUT" "$p8s_glob_dir" 2>/dev/null)"
-    if echo "$_p8st_glob_base" | grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN'; then
+    if grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN' <<<"$_p8st_glob_base"; then
       no "P8-S teeth (glob-split): baseline real SUT already leaked [l] (-> secret.sh) — fixture itself is broken, mutant result below is meaningless"
     else
       ok "P8-S teeth (glob-split): baseline real SUT refuses the leaf-shape escape fixture (pre-mutation sanity)"
     fi
     _p8st_glob="$(cd "$p8s_glob_decoy" && PATH="$p8s_norealpath_bin_for_glob" bash "$p8s_globmutant" "$p8s_glob_dir" 2>/dev/null)"
-    if echo "$_p8st_glob" | grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN'; then
+    if grep -qiE 'WARN.*hook-placeholder.*\[l\]|hook-placeholder.*\[l\].*WARN' <<<"$_p8st_glob"; then
       ok "P8-S teeth (glob-split): restoring the glob-unsafe split makes the escape fixture get READ → the no-glob split has teeth"
     else
       no "P8-S teeth (glob-split): mutant still refused the escape fixture — THEATER or the mutation missed: $(echo "$_p8st_glob" | grep -i hook | head -3)"
@@ -5138,7 +5138,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "P8-S teeth (errexit control): -e injection anchor not found — did the SUT change?"
   else
     _p8ee_ctl_out="$(PATH="$_p8_ee_path" bash "$p8s_errexit_control" "$d_ee" 2>/dev/null)"; _p8ee_ctl_rc=$?
-    if echo "$_p8ee_ctl_out" | grep -qiE "hook-set:.*could not be resolved.*: echo hi" && [ "$_p8ee_ctl_rc" -le 1 ]; then
+    if grep -qiE "hook-set:.*could not be resolved.*: echo hi" <<<"$_p8ee_ctl_out" && [ "$_p8ee_ctl_rc" -le 1 ]; then
       ok "P8-S teeth (errexit control): -e injected, guard INTACT → reaches the unresolved WARN normally (rc=$_p8ee_ctl_rc) — isolates the guard as what matters"
     else
       no "P8-S teeth (errexit control): guarded mutant unexpectedly failed under -e alone — got: $(echo "$_p8ee_ctl_out" | grep -i 'hook-set' | head -2)"
@@ -5147,7 +5147,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Real SUT, no -e at all (today's actual shell options): confirmed already by P8S-ECHOHI above.
   _p8ee_real_out="$(PATH="$_p8_ee_path" bash "$SUT" "$d_ee" 2>/dev/null)"; _p8ee_real_rc=$?
-  if echo "$_p8ee_real_out" | grep -qiE "hook-set:.*could not be resolved.*: echo hi" && [ "$_p8ee_real_rc" -le 1 ]; then
+  if grep -qiE "hook-set:.*could not be resolved.*: echo hi" <<<"$_p8ee_real_out" && [ "$_p8ee_real_rc" -le 1 ]; then
     ok "P8-S teeth (errexit): the real, GUARDED SUT reaches the unresolved WARN normally (rc=$_p8ee_real_rc)"
   else
     no "P8-S teeth (errexit): real SUT unexpectedly failed the same assertion P8S-ECHOHI already covers — got: $(echo "$_p8ee_real_out" | grep -i 'hook-set' | head -2)"
@@ -5178,13 +5178,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       > "$dp8m/.claude/hooks/research-protocol.sh"
     _p8m_out="$(bash "$p8m_sut" "$dp8m" 2>/dev/null)"
     # Assert startup succeeded: output must contain check lines (INFO, ok, etc.)
-    if echo "$_p8m_out" | grep -qiE '^\s*(INFO|ok |WARN|FAIL)'; then
+    if grep -qiE '^\s*(INFO|ok |WARN|FAIL)' <<<"$_p8m_out"; then
       ok "P8 teeth: mutant SUT produced check output — startup succeeded (lib/ included)"
     else
       no "P8 teeth: mutant SUT produced no check output — startup likely failed (lib/ missing?)"
     fi
     # Assert no WARN on <SUBJECT> hook (grep was neutered)
-    if ! echo "$_p8m_out" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+    if ! grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8m_out"; then
       ok "P8 teeth: neutered grep → no WARN on <SUBJECT> hook → P8-D has teeth"
     else
       no "P8 teeth: mutant still WARNs on <SUBJECT> → P8-D assertion is THEATER"
@@ -5203,7 +5203,7 @@ EOF
 printf '%s\n' "$CTX"
 HOOKEOF
   _p8mt="$(run "$d_kit" 2>/dev/null)"
-  if echo "$_p8mt" | grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN'; then
+  if grep -qiE 'WARN.*hook-placeholder|hook-placeholder.*WARN' <<<"$_p8mt"; then
     ok "P8-M teeth: <KIT> in same here-doc position still WARNs → P8-M no-WARN is falsifiable"
   else
     no "P8-M teeth: <KIT> hook should WARN but did not — old-form detection broken"
