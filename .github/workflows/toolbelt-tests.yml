@@ -25,7 +25,12 @@ on:
 jobs:
   toolbelt-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # kit issue #1144: run-all.sh now discovers AND runs research-sdd/install/tests/*.test.sh
+    # itself (a separate "Corpus: install tests" line in its aggregate), so the install suite's
+    # ~11-13s moved INTO this step instead of running a second time in its own step below. Raised
+    # from 10 -> 12 for headroom: the toolbelt-only step was already measured at 7:44-8:15 against
+    # the old 10-minute cap before the install suite's time moved in here.
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -38,11 +43,11 @@ jobs:
       - name: Sanity-check python3
         run: python3 --version
 
-      - name: Run toolbelt test suites
+      - name: Run toolbelt + install test suites
+        # research-sdd/install/tests/*.test.sh runs INLINE here (kit issue #1126/#1144) — no
+        # separate step; a stand-alone "Run install test suite" step here would just re-run the
+        # exact same suite a second time for no additional coverage.
         run: bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
-
-      - name: Run install test suite
-        run: bash research-sdd/install/tests/research-sdd-install.test.sh --prove-teeth
 
   shellcheck:
     runs-on: ubuntu-latest

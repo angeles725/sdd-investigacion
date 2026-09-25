@@ -3,12 +3,16 @@
 # run-all.sh — central test runner for the research-sdd toolbelt test suites.
 #
 # What it does:
-#   Auto-discovers every test suite living NEXT TO this script and runs them all,
-#   streaming each suite's output while aggregating a final pass/fail report.
+#   Auto-discovers every test suite living NEXT TO this script AND every suite under
+#   research-sdd/install/tests/ (kit issue #1126: that tree is a separate corpus CI already
+#   runs but this gate did not — a PR could be green on every local gate and still fail CI),
+#   and runs them all, streaming each suite's output while aggregating a final pass/fail
+#   report. The two corpora are declared separately in the output (§7: a merged total alone
+#   would hide which tree was actually traversed) but run as ONE gate command.
 #     * *.test.sh  suites are run with `bash <file>`
 #     * *.test.mjs suites are run with `node <file>`
-#   Suites are discovered dynamically (glob), so a new suite dropped into this
-#   directory is picked up automatically — nothing is hardcoded.
+#   Suites are discovered dynamically (glob), so a new suite dropped into either directory
+#   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
 #   ./run-all.sh [--prove-teeth|--require-teeth]
@@ -29,8 +33,13 @@
 # import crashes node with exit 1), so that case surfaces as an ordinary failure.
 #
 # Runner exit code:
-#   0 if no suite failed AND at least one suite passed (skipped ≠ passed).
-#   1 if any suite failed, or if all suites were skipped (no real coverage).
+#   0 if no suite failed AND at least one suite passed (skipped ≠ passed) AND the
+#     research-sdd/install/tests corpus was actually found (see below).
+#   1 if any suite failed, all suites were skipped (no real coverage), a hermeticity
+#     violation was detected, OR the install-tests corpus is ABSENT-INPUT (kit issue
+#     #1144: a moved/renamed research-sdd/install/tests must fail the gate loudly, not
+#     silently pass on the toolbelt corpus alone — an EMPTY install/tests dir, by
+#     contrast, is not a failure by itself; it is reported as "= 0 suite(s)").
 
 set -uo pipefail
 
@@ -133,18 +142,41 @@ sh_suites=("$SCRIPT_DIR"/*.test.sh)
 mjs_suites=("$SCRIPT_DIR"/*.test.mjs)
 shopt -u nullglob
 
+# --- Second corpus: research-sdd/install/tests/ (kit issue #1126) ---------
+# Resolved relative to this script (research-sdd/toolbelt/tests -> research-sdd/install/tests),
+# never assumed from the caller's cwd. Declared distinctly from the toolbelt corpus below (§7:
+# absent-input for this tree is reported loudly, not silently folded into "0 more suites").
+INSTALL_TESTS_DIR="$(cd "$SCRIPT_DIR/../../install/tests" 2>/dev/null && pwd)"
+install_sh_suites=()
+install_mjs_suites=()
+INSTALL_TESTS_DEGRADED=0
+if [[ -z "$INSTALL_TESTS_DIR" ]]; then
+  INSTALL_TESTS_DEGRADED=1
+  echo "run-all.sh: WARNING: install-tests corpus ABSENT-INPUT — research-sdd/install/tests not found relative to $SCRIPT_DIR; that corpus was NOT traversed; the run will exit non-zero even if every discovered suite passes (kit issue #1144: a missing/renamed corpus must not read as a silent pass)" >&2
+else
+  shopt -s nullglob
+  install_sh_suites=("$INSTALL_TESTS_DIR"/*.test.sh)
+  install_mjs_suites=("$INSTALL_TESTS_DIR"/*.test.mjs)
+  shopt -u nullglob
+fi
+
 # Merge and sort for deterministic order.
 all_suites=()
-for f in "${sh_suites[@]}" "${mjs_suites[@]}"; do
+# SENTINEL-CORPUS-MERGE
+for f in "${sh_suites[@]}" "${mjs_suites[@]}" "${install_sh_suites[@]}" "${install_mjs_suites[@]}"; do
   all_suites+=("$f")
 done
 
 if [[ ${#all_suites[@]} -eq 0 ]]; then
-  echo "run-all.sh: no test suites (*.test.sh / *.test.mjs) found in $SCRIPT_DIR" >&2
+  echo "run-all.sh: no test suites (*.test.sh / *.test.mjs) found in $SCRIPT_DIR or ${INSTALL_TESTS_DIR:-<install/tests absent>}" >&2
   exit 1
 fi
 
-# Sort by basename for stable, readable ordering.
+# Sort by FULL PATH for a stable, deterministic order (kit issue #1144 review: this comment
+# previously said "by basename", which was only true when every suite lived in one directory;
+# with two corpora it sorts by full path, so "research-sdd/install/..." suites sort before
+# "research-sdd/toolbelt/..." suites lexically. Harmless — still fully deterministic — but the
+# install corpus now runs FIRST, not interleaved by suite name).
 mapfile -t all_suites < <(printf '%s\n' "${all_suites[@]}" | sort)
 
 # --- Summary line matcher -------------------------------------------------
@@ -297,6 +329,12 @@ suites_failed=$((suites_run - suites_ok - ${#suites_skipped[@]}))
 echo "==============================================================="
 echo "AGGREGATE RESULT"
 echo "==============================================================="
+echo "Corpus: toolbelt tests ($SCRIPT_DIR) = $((${#sh_suites[@]} + ${#mjs_suites[@]})) suite(s)"
+if [[ "$INSTALL_TESTS_DEGRADED" -eq 1 ]]; then
+  echo "Corpus: install tests — ABSENT-INPUT (research-sdd/install/tests not found; NOT traversed; run exits non-zero)"
+else
+  echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
+fi
 echo "Suites run:    $suites_run"
 echo "Suites passed: $suites_ok"
 echo "Suites failed: $suites_failed"
@@ -354,7 +392,8 @@ echo "==============================================================="
 # Exit 0 only if no suite failed AND at least one suite actually passed.
 # A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
 if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
-   && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]]; then
+   && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]] \
+   && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
     exit 1

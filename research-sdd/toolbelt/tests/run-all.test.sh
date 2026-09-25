@@ -40,7 +40,41 @@ mkfix_harness(){ # file
     printf 'exit 2\n'
   } > "$1"
 }
-newdir(){ local w="$TMP/$1"; mkdir -p "$w"; cp "$SUT" "$w/run-all.sh"; printf '%s' "$w"; }
+# newdir <case-name> — kit issue #1144 review, hardened: builds a REPO-SHAPED tree at
+# $TMP/<case-name>/research-sdd/toolbelt/tests (SUT copied there), with NO research-sdd/install
+# directory at all by default. MUST be nested two levels like the real repo — a shallow
+# $TMP/<case-name>/run-all.sh placement (the pre-#1144-review shape) makes the SUT's own
+# SCRIPT_DIR/../../install/tests resolution climb OUT of $TMP entirely (to $TMP's own parent,
+# i.e. the shared /tmp namespace), which is unstable: whether /tmp/install/tests exists depends
+# on what else is running on the host, not on anything this suite controls. Nesting properly
+# keeps every case's install-tests resolution fully inside its own isolated $TMP. Returns the
+# toolbelt/tests path (where the SUT lives).
+newdir(){ # case-name
+  local root="$TMP/$1/research-sdd/toolbelt/tests"
+  mkdir -p "$root"
+  cp "$SUT" "$root/run-all.sh"
+  # Kit issue #1144 review finding #2 made an ABSENT install-tests corpus a hard gate failure
+  # (nonzero exit), which is correct for the REAL repo but would otherwise force every OTHER
+  # case in this file — none of which care about the install corpus — to also stand up an
+  # install/tests sibling just to avoid an unrelated ABSENT-INPUT failure. So newdir() creates
+  # an EMPTY install/tests sibling by default (the non-failing "= 0" state, §7); only cases 30-32
+  # below deliberately deviate from that default to exercise present/empty/absent explicitly.
+  mkdir -p "$(install_dir_for "$root")"
+  printf '%s' "$root"
+}
+# install_dir_for <toolbelt-tests-path> — the research-sdd/install/tests sibling of a newdir()
+# result, mirroring the SUT's own SCRIPT_DIR/../../install/tests resolution.
+install_dir_for(){ printf '%s' "${1%/toolbelt/tests}/install/tests"; }
+# mut_workdir <name> — same nested-repo-shape + empty-install-sibling guarantee as newdir(), for
+# the --prove-teeth blocks below that build their OWN mutant run-all.sh (sed/cp) directly into a
+# fresh workdir instead of going through newdir(). Does NOT copy $SUT — callers write $w/run-all.sh
+# themselves.
+mut_workdir(){ # name
+  local root="$TMP/$1/research-sdd/toolbelt/tests"
+  mkdir -p "$root"
+  mkdir -p "$(install_dir_for "$root")"
+  printf '%s' "$root"
+}
 # A suite WITH teeth: handles --prove-teeth AND emits a "-- teeth:" banner.
 mkfix_teeth(){ # file
   local f="$1"
@@ -539,11 +573,59 @@ else
   else no "hermeticity-scanner-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
+# 30/31/32 — install-tests corpus present / empty / absent (kit issue #1126/#1144 review: no case
+# pinned any of these three §7 states before this — the absent path only ran as a side effect of
+# every OTHER case's SCRIPT_DIR/../../install/tests happening to resolve outside $TMP).
+
+# 30 — present: install/tests exists with 1 real suite -> discovered, run, and counted.
+w="$(newdir c30)"
+mkfix_sh "$w/a.test.sh" 1 0 0
+_c30_install="$(install_dir_for "$w")"
+mkdir -p "$_c30_install"
+mkfix_sh "$_c30_install/b.test.sh" 1 0 0
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qE 'Corpus: install tests \([^)]*\) = 1 suite\(s\)' <<<"$out" \
+   && grep -qF 'Suites run:    2' <<<"$out" \
+   && grep -qF 'Suites passed: 2' <<<"$out"; then
+  ok "install-present: install/tests suite is discovered, run, and counted (corpus=1, suites run=2)"
+else no "install-present failed: rc=$rc :: $(grep -E 'Corpus:|Suites run|Suites passed' <<<"$out" | tr '\n' '|')"; fi
+
+# 31 — empty: install/tests exists but has 0 *.test.sh/*.test.mjs files -> "= 0", distinct from
+# ABSENT-INPUT, and does NOT fail the run by itself (the toolbelt suite alone still passes it).
+w="$(newdir c31)"
+mkfix_sh "$w/a.test.sh" 1 0 0
+_c31_install="$(install_dir_for "$w")"
+mkdir -p "$_c31_install"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qE 'Corpus: install tests \([^)]*\) = 0 suite\(s\)' <<<"$out" \
+   && ! grep -qF 'ABSENT-INPUT' <<<"$out" \
+   && grep -qF 'Suites run:    1' <<<"$out"; then
+  ok "install-empty: install/tests exists with 0 suites -> corpus reports '= 0' (distinct from absent), run still succeeds"
+else no "install-empty failed: rc=$rc :: $(grep -E 'Corpus:|Suites run|ABSENT' <<<"$out" | tr '\n' '|')"; fi
+
+# 32 — absent: research-sdd/install/tests does not exist at all -> ABSENT-INPUT reported AND the
+# run exits non-zero even though the only discovered (toolbelt) suite passed (kit issue #1144:
+# a moved/renamed install corpus must fail the gate loudly, not silently pass on the toolbelt
+# corpus alone — the opposite of case 31's legitimately-empty directory).
+w="$(newdir c32)"
+mkfix_sh "$w/a.test.sh" 1 0 0
+# newdir() creates an empty install/tests sibling by default (see its own comment) — remove the
+# whole research-sdd/install parent here so this case genuinely exercises ABSENT, not empty.
+rm -rf "$(dirname "$(install_dir_for "$w")")"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] \
+   && grep -qF 'Corpus: install tests — ABSENT-INPUT' <<<"$out" \
+   && grep -qF 'Suites passed: 1' <<<"$out"; then
+  ok "install-absent: research-sdd/install/tests missing -> ABSENT-INPUT reported, run exits non-zero despite the toolbelt suite passing"
+else no "install-absent failed: rc=$rc :: $(grep -E 'Corpus:|ABSENT|Suites passed' <<<"$out" | tr '\n' '|')"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: neuter run-all.sh's PIPESTATUS capture (rc=0); a failing fixture must FALSE-PASS --"
-  w="$TMP/teeth"; mkdir -p "$w"
+  w="$(mut_workdir teeth)"
   # Force every suite's captured exit code to 0, regardless of what the suite actually returned.
   sed 's#rc=${PIPESTATUS\[0\]}#rc=0#g' "$SUT" > "$w/run-all.sh"
   mkfix_sh "$w/ok.test.sh"  1 0 0
@@ -553,7 +635,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth: mutant still failed (rc=$mrc) — PIPESTATUS mutation not exercised (THEATER)"; fi
   # Mutation 2: neuter the unparsed-summary guard → malformed/no-summary fixtures must FALSE-PASS.
   echo "-- teeth: neuter unparsed guard (elif false); malformed+no-summary must FALSE-PASS --"
-  w="$TMP/teeth-unparsed"; mkdir -p "$w"
+  w="$(mut_workdir teeth-unparsed)"
   sed 's/elif \[\[ -z "\$parsed_line" \]\]; then/elif false; then/' "$SUT" > "$w/run-all.sh"
   { printf '#!/usr/bin/env bash\n'
     printf 'echo "== 3 passed / 2 failed =="\n'
@@ -571,7 +653,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   # Mutation 3: neuter total_skipped counter → C13 per-test-skip aggregation teeth.
   echo "-- teeth: zero-out total_skipped counter; per-test skip count must not show 1 --"
-  w="$TMP/teeth-skip"; mkdir -p "$w"
+  w="$(mut_workdir teeth-skip)"
   sed 's/total_skipped=\$((total_skipped + 1))/: # neutered/' "$SUT" > "$w/run-all.sh"
   { printf '#!/usr/bin/env bash\n'
     printf 'echo "  SKIP  T5: skip me"\n'
@@ -586,7 +668,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   # Mutation 4: neuter the zero-case branch and execute the same oracle as C18.
   echo "-- teeth: neuter zero-case guard; the C18 behavioral oracle must go RED --"
-  w="$TMP/teeth-zero"; mkdir -p "$w"
+  w="$(mut_workdir teeth-zero)"
   zero_anchor='  elif [[ -n "$parsed_line" && "$rc" -eq 0 && "$s_passed" -eq 0 && "$s_failed" -eq 0 ]]; then'
   zero_anchor_count="$(grep -Fxc -- "$zero_anchor" "$SUT")"
   sed 's#  elif \[\[ -n "$parsed_line" && "$rc" -eq 0 && "$s_passed" -eq 0 && "$s_failed" -eq 0 \]\]; then#  elif { : > "$SCRIPT_DIR/zero-mutant-executed"; false; }; then#' "$SUT" > "$w/run-all.sh"
@@ -604,7 +686,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutation 5: neuter --require-teeth exit-1 via SENTINEL; a no-teeth fixture must
   #             then exit 0 under --require-teeth, proving the exit path has real teeth.
   echo "-- teeth: neuter SENTINEL-REQUIRE-TEETH-EXIT; require-teeth must no longer exit 1 --"
-  w="$TMP/teeth-require"; mkdir -p "$w"
+  w="$(mut_workdir teeth-require)"
   sentinel5='  # SENTINEL-REQUIRE-TEETH-EXIT'
   sentinel5_count="$(grep -Fc "$sentinel5" "$SUT")"
   sed '/SENTINEL-REQUIRE-TEETH-EXIT/{n;s/if \[\[ -n "\$REQUIRE_TEETH" \]\]/if false/}' "$SUT" > "$w/run-all.sh"
@@ -625,7 +707,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutation 6: silence SENTINEL-NO-TEETH-BANNER; the "Suites without teeth:" line must
   #             disappear, proving the banner output path has real teeth.
   echo "-- teeth: silence SENTINEL-NO-TEETH-BANNER; 'Suites without teeth:' must vanish --"
-  w="$TMP/teeth-banner"; mkdir -p "$w"
+  w="$(mut_workdir teeth-banner)"
   sentinel6='  # SENTINEL-NO-TEETH-BANNER'
   sentinel6_count="$(grep -Fc "$sentinel6" "$SUT")"
   sed '/SENTINEL-NO-TEETH-BANNER/{n;s/echo "Suites without teeth:/: # silenced # echo "Suites without teeth:/}' "$SUT" > "$w/run-all.sh"
@@ -650,7 +732,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # evidence of the mutation — a fixture that silently failed to leak would also read as a
   # false-pass, but for the wrong reason.
   echo "-- teeth: neuter SENTINEL-HERMETICITY-CHECK; a leaked stray file must FALSE-PASS --"
-  w="$TMP/teeth-hermeticity"; mkdir -p "$w"
+  w="$(mut_workdir teeth-hermeticity)"
   sentinel7='  # SENTINEL-HERMETICITY-CHECK'
   sentinel7_count="$(grep -Fc "$sentinel7" "$SUT")"
   sed '/SENTINEL-HERMETICITY-CHECK/{n;s/if \[\[ "\$HERMETICITY_DEGRADED" -eq 0 \]\]; then/if false; then/}' "$SUT" > "$w/run-all.sh"
@@ -684,7 +766,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # violation count. z-clean.test.sh (sorts after leaky.test.sh, does nothing itself) must then
   # be wrongly named, and the count must exceed 1 — the exact defect case 23 exists to catch.
   echo "-- teeth: neuter SENTINEL-HERMETICITY-ROLLFORWARD; a later clean suite must be re-blamed --"
-  w="$TMP/teeth-hermeticity-rollforward"; mkdir -p "$w"
+  w="$(mut_workdir teeth-hermeticity-rollforward)"
   sentinel8='    # SENTINEL-HERMETICITY-ROLLFORWARD'
   sentinel8_count="$(grep -Fc "$sentinel8" "$SUT")"
   sed '/SENTINEL-HERMETICITY-ROLLFORWARD/{n;s/.*/    : # neutered reset/;n;s/.*/    : # neutered repopulate/}' "$SUT" > "$w/run-all.sh"
@@ -710,6 +792,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-hermeticity-rollforward: neutered rollforward re-blames the later clean suite → attribution guard has real teeth"
     else
       no "teeth-hermeticity-rollforward: mutant did not misattribute z-clean.test.sh (rc=$mrc) — mutation not exercised (THEATER)"
+    fi
+  fi
+
+  # Mutation 11 (kit issue #1144 review, BLOCKING finding #1): drop the install-tests arrays from
+  # SENTINEL-CORPUS-MERGE's merge loop. Case 30's install-present fixture must then FALSE-PASS on
+  # the suite-count assertion — the corpus line still reports "= 1" (that count comes from array
+  # size, computed before the merge loop runs) but the install suite is no longer actually
+  # EXECUTED, so "Suites run:" drops from 2 to 1 — proving the merge loop itself is load-bearing,
+  # separately from discovery.
+  echo "-- teeth: neuter SENTINEL-CORPUS-MERGE (drop install suites from the merge loop); case 30 must FALSE-PASS on suite count --"
+  w="$(mut_workdir teeth-corpus-merge)"
+  sentinel11='# SENTINEL-CORPUS-MERGE'
+  sentinel11_count="$(grep -Fc "$sentinel11" "$SUT")"
+  sed '/SENTINEL-CORPUS-MERGE/{n;s/.*/for f in "${sh_suites[@]}" "${mjs_suites[@]}"; do/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel11_count" -ne 1 ]; then
+    no "teeth-corpus-merge: SENTINEL-CORPUS-MERGE not found exactly once (count=$sentinel11_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-corpus-merge: merge-loop mutation was a byte-identical no-op"
+  else
+    _tcm_root="$(newdir teeth-corpus-merge-fixtures)"
+    cp "$w/run-all.sh" "$_tcm_root/run-all.sh"
+    mkfix_sh "$_tcm_root/a.test.sh" 1 0 0
+    _tcm_install="$(install_dir_for "$_tcm_root")"
+    mkdir -p "$_tcm_install"
+    mkfix_sh "$_tcm_install/b.test.sh" 1 0 0
+    mout="$(bash "$_tcm_root/run-all.sh" 2>&1)"; mrc=$?
+    if grep -qE 'Corpus: install tests \([^)]*\) = 1 suite\(s\)' <<<"$mout" && grep -qF 'Suites run:    1' <<<"$mout"; then
+      ok "teeth-corpus-merge: merge-loop-neutered mutant still declares '= 1' but only runs 1 suite → case 30's suite-count assertion has real teeth"
+    else
+      no "teeth-corpus-merge: mutant did not desync corpus-declared count from suites-run count (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -E 'Corpus:|Suites run' <<<"$mout" | tr '\n' '|')]"
     fi
   fi
 fi
