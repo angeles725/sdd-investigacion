@@ -1238,16 +1238,34 @@ itself). A unit is CHARTERED when its basename resolves against that combined te
   module-profile suffixes rt/wb/ux/se (e.g. `` `modbusCore-wb` `` charters `modbusCore`),
 - a GLOB token (containing `*` or `?`, e.g. `` `clHVAC*` ``) matched with shell glob semantics —
   tracked as its own glob-chartered count, never silently folded into the plain count or left to fall
-  through as unchartered.
+  through as unchartered,
+- a BARE camelCase or digit-bearing token (no backticks) that appears as a word inside a genuine
+  TABLE ROW of the charter source — the focus's own gap/charter tables write module names this way
+  far more often than in backtick spans (measured 2026-09-25:
+  `` honPlantControllerMigrator (68), honeywellModbusSmartSensor (25) `` and
+  `` clPrintout 24, clStationUpgradeTool 11 `` are real `RESEARCH-STATE-oem-honeywell-tail.md`
+  table-row cells, never backtick-wrapped). An internal uppercase letter or digit is what makes this
+  form safe: it is the exact property `` `Clock.schedule` `` and ordinary English lack, so this rule
+  never re-opens that false charter. Restricted to TABLE ROWS specifically — the same prose the
+  `Clock.schedule` case warns about lives in bullet lists and paragraphs, not table cells; a bare
+  mention in a bullet list (e.g. `airFlowBalancer` at a real `RESEARCH-STATE.md`'s prose bullet, not
+  a table row) is deliberately NOT chartered by this form.
 
-A basename that resolves through none of these forms, from either source, is UNCHARTERED — never a
-basename whose only evidence gap is a source the check could not read: a row whose named
-RESEARCH-STATE file is declared but absent or unreadable is not evidence its units are uncharted: WARN,
-and treat every UNCHARTERED finding from that run as an UPPER bound (the true count may be lower — the
-missed file's own charter contributions are simply absent from the check, never resolved as "no
-charter"). Never report a confident UNCHARTERED verdict for a unit whose only evidence gap is an
-unreadable declared source (mirrors `coverage-map.sh`'s own unreadable-block-file precedent, §7: a low
-count must prove it looked, not merely that it produced a number).
+A basename that resolves through none of these forms, from either source, is UNCHARTERED. Two
+distinct softenings keep that verdict from over-claiming confidence it does not have:
+- **Bare all-lowercase mention.** A basename with no internal uppercase letter or digit — the exact
+  case the `Clock.schedule` rationale warns about — that nonetheless appears as a bare word inside a
+  table row of the charter source is never silently chartered (that would reopen the false-positive
+  risk) and never silently left as confident UNCHARTERED either (the mention is real evidence, just
+  not resolvable evidence): report it as its own typed `bare-mention` count, distinct from both
+  CHARTERED and UNCHARTERED, for the operator to resolve by hand.
+- **Unresolved RESEARCH-STATE reference.** A row whose named RESEARCH-STATE file is declared but
+  absent or unreadable does not make its units UNCHARTERED by omission: WARN, and treat every
+  UNCHARTERED finding from that run as an UPPER bound (the true count may be lower — the missed
+  file's own charter contributions are simply absent from the check, not resolved as "no charter").
+  Never report a confident UNCHARTERED verdict for a unit whose only evidence gap is an unreadable
+  declared source (mirrors `coverage-map.sh`'s own unreadable-block-file precedent, §7: a low count
+  must prove it looked, not merely that it produced a number).
 
 Declare the subject root, depth, and extension list once — at bootstrap or the first campaign-close
 attempt — in RESEARCH-STATE or the §16 corpus-close retro; that declaration is the "artifact universe"
@@ -1275,10 +1293,11 @@ check lets condition (1) stand and the campaign close. PROMPT-LOOP's `Campaign S
 this check before emitting its final NEXT-ACTION.
 
 Run the check with `focus-partition-audit.sh <corpus-dir> --subject <root> --depth <N> --ext <csv>`
-(kit issues #1106/#1123): it prints `units: <chartered>/<total> chartered · <unchartered> unchartered`
-and the unchartered basenames (`--top <N>`) directly from the declared subject root, corpus dir, depth,
-and extension list — record that line and the unchartered basenames in the corpus-close retro before
-condition (1) is honored. An absent `FOCUSES.md` is its own typed state (`focuses: absent-input`, exit
+(kit issues #1106/#1123): it prints `units: <chartered>/<total> chartered · <unchartered> unchartered
+· <bare-mention> bare-mention (<glob-chartered> glob-chartered)` and the unchartered basenames
+(`--top <N>`) directly from the declared subject root, corpus dir, depth, and extension list — record
+that full line (all four figures — glob-chartered and bare-mention are not optional detail) and the
+unchartered basenames in the corpus-close retro before condition (1) is honored. An absent `FOCUSES.md` is its own typed state (`focuses: absent-input`, exit
 0): every unit reports unchartered, since no charter source was ever read — this is the common case for
 a single-focus corpus, which trivially finds the whole subject tree unchartered (the operator may
 declare the check out of scope for a single-focus corpus in the corpus-close retro, since §16

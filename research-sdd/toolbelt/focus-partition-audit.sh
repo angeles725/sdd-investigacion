@@ -33,22 +33,37 @@
 #
 # A unit is CHARTERED when its basename resolves against that combined text through any of:
 #   - an exact backtick-code token (the whole span, e.g. `` `modbusCore` ``),
-#   - one of the span's '/'-separated path components (e.g. `` `organized/modbusCore/...` ``),
+#   - one of the span's '/'- or ','-separated components (e.g. `` `organized/modbusCore/...` ``,
+#     or the comma-joined profile-suffix shorthand `` `opcUaServer-rt,-wb` ``),
 #   - one of the span's WHITESPACE-separated tokens, when a span lists several bare identifiers
 #     (e.g. `` `check-coverage.py honeywellSpyderTool XL10NextGen` ``),
 #   - the module portion of a `<module>-<profile>` suffix form, `<profile>` one of the Niagara
 #     module-profile suffixes rt/wb/ux/se (e.g. `` `modbusCore-wb` `` charters `modbusCore`),
 #   - a GLOB token (containing '*' or '?', e.g. `` `clHVAC*` ``) matched against unit basenames
 #     with shell glob semantics — counted separately as "glob-chartered", never silently folded
-#     into the plain exact-token count or left to fall through as unchartered.
-# Bare mentions in ordinary PROSE never count — measured against the real niagara-research
-# FOCUSES.md (2026-09-25): it uses plain English words ("schedule", "event", "converters"...) as
-# BOTH real module basenames and as ordinary prose/method-call fragments in the very same file
-# (`` `Clock.schedule` `` — java.util.Clock's method, nothing to do with the `schedule` module).
-# Splitting a span on '.' as well as '/' turns that one span into a false "schedule" charter;
-# splitting only on whitespace and '/' avoids it while still catching genuine path/list forms.
-# Direct analogue of coverage-map.sh's "bare stems never count" (METHODOLOGY §3), applied to
-# charter-declaration prose instead of block citations.
+#     into the plain exact-token count or left to fall through as unchartered,
+#   - a BARE camelCase-or-digit-bearing word (no backticks) inside a genuine TABLE ROW of the
+#     charter source (round 3, R1) — the focus's own gap/charter tables write module names this
+#     way far more than in backtick spans (measured 2026-09-25:
+#     "honPlantControllerMigrator (68), honeywellModbusSmartSensor (25)" is a real
+#     RESEARCH-STATE-oem-honeywell-tail.md table-row cell, never backtick-wrapped). An internal
+#     uppercase letter or digit is what makes this safe: it is the exact property `Clock.schedule`
+#     and ordinary English lack. Restricted to TABLE ROWS: the same prose Clock.schedule warns
+#     about lives in bullet lists and paragraphs, not table cells — a bare mention in a bullet
+#     list (not a table row) is deliberately NOT chartered by this form.
+# A bare ALL-LOWERCASE word (no internal uppercase/digit) in a table row is never silently
+# chartered (that reopens the Clock.schedule risk) and never silently left as confident
+# UNCHARTERED either — it is real but unresolvable evidence, reported as its own typed
+# "bare-mention" count for the operator to resolve by hand (round 3, R1).
+# Bare mentions OUTSIDE table rows (ordinary prose, bullet lists) never count at all — measured
+# against the real niagara-research FOCUSES.md (2026-09-25): it uses plain English words
+# ("schedule", "event", "converters"...) as BOTH real module basenames and as ordinary
+# prose/method-call fragments in the very same file (`` `Clock.schedule` `` — java.util.Clock's
+# method, nothing to do with the `schedule` module). Splitting a backtick span on '.' as well as
+# '/' turns that one span into a false "schedule" charter; splitting only on whitespace, '/' and
+# ',' avoids it while still catching genuine path/list/profile-suffix forms. Direct analogue of
+# coverage-map.sh's "bare stems never count" (METHODOLOGY §3), applied to charter-declaration
+# prose instead of block citations.
 #
 # Distinguishable states (CLAUDE.md §7 — absent/empty/no-match/unclassifiable, plus the runtime
 # probe's degraded; each state is typed and mutually exclusive — never two states in one run):
@@ -76,11 +91,13 @@ set -uo pipefail
 
 # ---------- runtime-dependency probe (CLAUDE.md §7 — could the instrument even run?)
 # Every external (non-builtin) command this script invokes: find/awk/grep/sort/sed for the core
-# logic, plus wc/tr/mktemp/basename/head/rm for bookkeeping and cleanup. All POSIX-mandated core
-# utilities — no jq/git/python3/compiled-tool dependency — but probed anyway: a missing one should
-# surface as a typed `degraded` exit, not a confusing mid-run crash that looks like a false
-# empty/zero finding, or (F5, round 2) a SILENT zero when e.g. `wc` is the one that is missing.
-for _fpa_dep in find awk grep sort sed wc tr mktemp basename head rm; do
+# logic, plus wc/tr/mktemp/basename/head/rm/cat/dirname for bookkeeping, RESEARCH-STATE
+# resolution, and cleanup. All POSIX-mandated core utilities — no jq/git/python3/compiled-tool
+# dependency — but probed anyway: a missing one should surface as a typed `degraded` exit, not a
+# confusing mid-run crash that looks like a false empty/zero finding, or (F5, round 2; R3, round
+# 3) a SILENT zero when e.g. `wc` or `cat` is the one that is missing — a missing `cat` in
+# particular used to read every resolved RESEARCH-STATE file as empty, exit 0, no WARN.
+for _fpa_dep in find awk grep sort sed wc tr mktemp basename head rm cat dirname; do
   # SENTINEL-H: dependency probe (drop this loop body to swallow a missing tool as a silent pass)
   if ! command -v "$_fpa_dep" >/dev/null 2>&1; then
     printf 'degraded: %s not found in PATH\n' "$_fpa_dep" >&2
@@ -171,7 +188,7 @@ if [ "$TOTAL" -eq 0 ]; then
   printf 'FOCUSES.md rows: 0 classified, 0 unclassifiable (source: n/a)\n'
   printf 'chartering tokens: 0 (0 plain, 0 glob)\n'
   printf 'unresolved RESEARCH-STATE references: 0\n'
-  printf 'units: 0/0 chartered \xc2\xb7 0 unchartered (0 glob-chartered)\n'
+  printf 'units: 0/0 chartered \xc2\xb7 0 unchartered \xc2\xb7 0 bare-mention (0 glob-chartered)\n'
   printf 'families: 0 total \xc2\xb7 0 fully-unchartered\n'
   exit 0
 fi
@@ -253,6 +270,12 @@ if [ -f "$FOCUSES_FILE" ] && [ -r "$FOCUSES_FILE" ] && [ "$ROWS_CLASSIFIED" -eq 
   printf 'focuses: empty-input (0 table rows in %s)\n' "$FOCUSES_FILE"
 fi
 
+# ---------- snapshot the table-row text seen so far (FOCUSES.md classified-row cells — each cell
+# is by construction drawn from a genuine table row) before RESEARCH-STATE content is appended
+# below; this file grows with RESEARCH-STATE's OWN table-row-shaped lines only (round 3, R1) and
+# feeds the bare-word (non-backtick) charter forms further down — never arbitrary prose.
+cp "$TMP/row_cells.txt" "$TMP/table_row_text.txt"
+
 # ---------- resolve every referenced RESEARCH-STATE file, appending its content to the charter
 # corpus (round 2, F1): niagara-research charters modules THERE, not in FOCUSES.md's own prose.
 # A declared-but-unreadable reference is never treated as "no charter" — it WARNs, and the run's
@@ -268,6 +291,9 @@ if [ -s "$TMP/state_refs.txt" ] && [ -f "$FOCUSES_FILE" ]; then
     sfile="$FOCUSES_DIR/$sref"
     if [ -f "$sfile" ] && [ -r "$sfile" ]; then
       cat "$sfile" >> "$TMP/row_cells.txt"
+      # round 3, R1: only this file's OWN table-row-shaped lines feed the bare-word forms —
+      # its prose/bullet-list lines never do (mirrors SENTINEL-ROW's leading-pipe shape test).
+      grep -E '^[ \t]*\|' "$sfile" >> "$TMP/table_row_text.txt" 2>/dev/null
       STATE_RESOLVED=$((STATE_RESOLVED + 1))
     else
       STATE_UNRESOLVED=$((STATE_UNRESOLVED + 1))
@@ -316,7 +342,25 @@ awk -F'-' '{
     }
   }
 }' "$TMP/plain_tokens_base.txt" > "$TMP/plain_tokens_suffix.txt"
-sort -u "$TMP/plain_tokens_base.txt" "$TMP/plain_tokens_suffix.txt" > "$TMP/charter_tokens.txt"
+
+# ---------- bare-word forms from TABLE ROWS only (round 3, R1): strip backtick spans first (a
+# backtick-wrapped word is already captured above; scanning it again here would be redundant, not
+# wrong, but stripping keeps the two mechanisms cleanly separated for §7 "report what you
+# measured"), then extract every bare word. A word containing an uppercase letter or digit is safe
+# to charter directly — that property is exactly what `Clock.schedule` and ordinary English lack.
+# A bare ALL-LOWERCASE word is never chartered this way; it becomes its own typed bare-mention
+# count instead (never silently dropped, never silently promoted to a confident charter).
+sed -E 's/`[^`]+`/ /g' "$TMP/table_row_text.txt" 2>/dev/null | grep -oE '[A-Za-z][A-Za-z0-9]*' \
+  > "$TMP/bare_words_raw.txt"
+# SENTINEL-CAMEL: internal uppercase-or-digit gate (loosen to accept every bare word to mutate —
+# this is the exact `Clock.schedule`-class safety property; a word with no uppercase or digit must
+# never be silently chartered here)
+grep -E '[A-Z0-9]' "$TMP/bare_words_raw.txt" 2>/dev/null | sort -u > "$TMP/bare_camel_tokens.txt"
+grep -vE '[A-Z0-9]' "$TMP/bare_words_raw.txt" 2>/dev/null | sort -u > "$TMP/bare_lowercase_tokens.txt"
+BARE_CAMEL_COUNT=$(wc -l < "$TMP/bare_camel_tokens.txt" | tr -d ' ')
+printf 'bare-word charters (camelCase/digit, table rows): %d\n' "$BARE_CAMEL_COUNT"
+
+sort -u "$TMP/plain_tokens_base.txt" "$TMP/plain_tokens_suffix.txt" "$TMP/bare_camel_tokens.txt" > "$TMP/charter_tokens.txt"
 PLAIN_TOKEN_COUNT=$(wc -l < "$TMP/charter_tokens.txt" | tr -d ' ')
 
 # Glob tokens (a distinct pool — matched with shell glob semantics per unit, never merged into the
@@ -338,9 +382,10 @@ while IFS= read -r unit; do
   basename "$unit" >> "$TMP/mod_basenames.txt"
 done < "$TMP/units.txt"
 
-# ---------- chartered / unchartered classification
+# ---------- chartered / unchartered / bare-mention classification
 : > "$TMP/chartered.txt"
 : > "$TMP/glob_chartered.txt"
+: > "$TMP/bare_mention.txt"
 : > "$TMP/uncharted.txt"
 while IFS= read -r unit; do
   mod="$(basename "$unit")"
@@ -362,25 +407,35 @@ while IFS= read -r unit; do
     done < "$TMP/glob_tokens.txt"
   fi
   if [ "$matched" -eq 0 ]; then
-    fc=0
-    while IFS= read -r ext; do
-      n=$(find "$unit" -type f -name "*.${ext}" 2>/dev/null | wc -l)
-      fc=$((fc + n))
-    done < "$TMP/exts.txt"
-    printf '%d\t%s\n' "$fc" "$mod" >> "$TMP/uncharted.txt"
+    # SENTINEL-BAREMENTION: a bare all-lowercase table-row mention is neither chartered nor
+    # confident-unchartered (round 3, R1) — loosen this check to `false` to mutate it back into
+    # the pre-round-3 always-unchartered behavior.
+    if grep -qxF "$mod" "$TMP/bare_lowercase_tokens.txt" 2>/dev/null; then
+      printf '%s\n' "$mod" >> "$TMP/bare_mention.txt"
+    else
+      fc=0
+      while IFS= read -r ext; do
+        n=$(find "$unit" -type f -name "*.${ext}" 2>/dev/null | wc -l)
+        fc=$((fc + n))
+      done < "$TMP/exts.txt"
+      printf '%d\t%s\n' "$fc" "$mod" >> "$TMP/uncharted.txt"
+    fi
   fi
 done < "$TMP/units.txt"
 
 CHARTERED=$(wc -l < "$TMP/chartered.txt" | tr -d ' ')
 GLOB_CHARTERED=$(wc -l < "$TMP/glob_chartered.txt" | tr -d ' ')
+BARE_MENTION=$(wc -l < "$TMP/bare_mention.txt" | tr -d ' ')
 # SENTINEL-A: unchartered count (mutant target — hardcode to 0; anchored to line start so it
 # cannot also clobber FAMILIES_UNCHARTERED= below, which contains the same substring)
 UNCHARTERED=$(wc -l < "$TMP/uncharted.txt" | tr -d ' ')
 
-printf 'units: %d/%d chartered \xc2\xb7 %d unchartered (%d glob-chartered)\n' \
-  "$CHARTERED" "$TOTAL" "$UNCHARTERED" "$GLOB_CHARTERED"
+printf 'units: %d/%d chartered \xc2\xb7 %d unchartered \xc2\xb7 %d bare-mention (%d glob-chartered)\n' \
+  "$CHARTERED" "$TOTAL" "$UNCHARTERED" "$BARE_MENTION" "$GLOB_CHARTERED"
 
-# ---------- family grouping (advisory rollup; see header comment)
+# ---------- family grouping (advisory rollup; see header comment) — computed over CHARTERED units
+# only; bare-mention units are grouped with unchartered ones here (family rollup stays a 2-way
+# split for readability; the 3-way split lives in the units: line and the --top sections below).
 # NOTE: uses FILENAME (not the common "FNR==NR" idiom) to tell the chartered-set file from the
 # basenames file — FNR==NR silently breaks here because chartered.txt is legitimately empty on
 # many real runs (0 chartered units), and an empty first file never advances NR ahead of FNR, so
@@ -415,6 +470,8 @@ printf 'families: %d total \xc2\xb7 %d fully-unchartered\n' "$FAMILIES_TOTAL" "$
 if [ "$TOP" -gt 0 ]; then
   printf -- '-- top %d unchartered units (file count desc) --\n' "$TOP"
   sort -rn "$TMP/uncharted.txt" | head -n "$TOP"
+  printf -- '-- top %d bare-mention units --\n' "$TOP"
+  sort "$TMP/bare_mention.txt" | head -n "$TOP"
   printf -- '-- top %d fully-unchartered families (member units desc) --\n' "$TOP"
   awk -F'\t' '$3 == 0 { printf "%d\t%s\n", $2, $1 }' "$TMP/families.txt" | sort -rn | head -n "$TOP"
 fi

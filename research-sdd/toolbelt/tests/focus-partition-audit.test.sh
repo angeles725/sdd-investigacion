@@ -359,6 +359,91 @@ else
   no "F3 comma-joined profile-suffix FAILED" "out=$out"
 fi
 
+# ---- 25. R1 (round 3): bare camelCase module name inside a table row charters it — the real
+# corpus's own gap/charter table format (RESEARCH-STATE-oem-honeywell-tail.md:58): a
+# parenthesized, comma-separated, file-count-annotated bare-word list, never backtick-wrapped.
+S25="$ROOT/s25"; C25="$ROOT/c25"
+mk_unit "$S25" "honPlantControllerMigrator" "A.java"
+mk_focuses "$C25" '| oem-honeywell-tail | stopped | RESEARCH-STATE-oem-honeywell-tail.md | OEM residue |'
+mk_state "$C25" "RESEARCH-STATE-oem-honeywell-tail.md" \
+  '| LOW-MED | U9 | Honeywell migrators — DELTA over B90 | honPlantControllerMigrator (68), honeywellModbusSmartSensor (25) | investigable | COVERED -> B250 |'
+out="$(run "$C25" --subject "$S25")"
+if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+  ok "R1: bare camelCase word in a real gap-table row charters honPlantControllerMigrator"
+else
+  no "R1 bare-camelCase-in-table-row FAILED" "out=$out"
+fi
+
+# ---- 26. R1: bare-number-annotated comma list form (RESEARCH-STATE-oem-honeywell-tail.md:57)
+S26="$ROOT/s26"; C26="$ROOT/c26"
+mk_unit "$S26" "clStationUpgradeTool" "A.java"
+mk_focuses "$C26" '| oem-honeywell-tail | stopped | RESEARCH-STATE-oem-honeywell-tail.md | Centraline residue |'
+mk_state "$C26" "RESEARCH-STATE-oem-honeywell-tail.md" \
+  '| MED | U8 | Centraline residue | 8 mods (clPrintout 24, clStationUpgradeTool 11, clProfile 1) | investigable | COVERED -> B249 |'
+out="$(run "$C26" --subject "$S26")"
+if printf '%s' "$out" | grep -qE 'units: 1/1 chartered'; then
+  ok "R1: bare-number-annotated comma list charters clStationUpgradeTool"
+else
+  no "R1 bare-number-list FAILED" "out=$out"
+fi
+
+# ---- 27. R1: a bare ALL-LOWERCASE word in a table row is a bare-mention, not confident
+# unchartered AND not silently chartered (the real defect: zwave-wb, unformatted, in a table row)
+S27="$ROOT/s27"; C27="$ROOT/c27"
+mk_unit "$S27" "zwave" "A.java"
+mk_focuses "$C27" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+mk_state "$C27" "RESEARCH-STATE-wb-vendor-ux.md" \
+  '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+out="$(run "$C27" --subject "$S27")"
+if printf '%s' "$out" | grep -qE 'units: 0/1 chartered' && printf '%s' "$out" | grep -qE '1 bare-mention'; then
+  ok "R1: all-lowercase bare word (zwave) is bare-mention, neither chartered nor confident-unchartered"
+else
+  no "R1 bare-mention FAILED" "out=$out"
+fi
+
+# ---- 28. R1 negative control: a bare word appearing ONLY in a bullet-list line (not a table row)
+# must NOT be captured by either the camelCase-charter or the bare-mention mechanism — mirrors the
+# real RESEARCH-STATE.md:29 airFlowBalancer citation, deliberately excluded (prose, not a table row)
+S28="$ROOT/s28"; C28="$ROOT/c28"
+mk_unit "$S28" "airFlowBalancer" "A.java"
+mk_focuses "$C28" '| some-focus | active | RESEARCH-STATE-some-focus.md | bullet-list only |'
+mk_state "$C28" "RESEARCH-STATE-some-focus.md" \
+  '- Covered blocks: B101 (airFlowBalancer/kitCat), B106 (honeywellSpyderTool)'
+out="$(run "$C28" --subject "$S28")"
+if printf '%s' "$out" | grep -qE 'units: 0/1 chartered' && ! printf '%s' "$out" | grep -qE '1 bare-mention'; then
+  ok "R1 negative control: bullet-list-only mention stays plain unchartered, not bare-mention"
+else
+  no "R1 negative control FAILED (bullet-list line must not count as a table row)" "out=$out"
+fi
+
+# ---- 29. R3: `cat` missing from PATH must degrade, not silently read as an empty RESEARCH-STATE
+TOOLSDIR_CAT="$ROOT/mini-path-cat"
+mkdir -p "$TOOLSDIR_CAT"
+for t in bash find grep sed awk sort wc tr mktemp basename head rm dirname; do
+  ln -sf "$(command -v "$t")" "$TOOLSDIR_CAT/$t"
+done
+out="$(PATH="$TOOLSDIR_CAT" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" 2>&1)"
+rc=$?
+if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'degraded: cat not found'; then
+  ok "R3: missing cat -> exit 3, not a silent empty RESEARCH-STATE read"
+else
+  no "R3 cat degraded FAILED" "rc=$rc out=$out"
+fi
+
+# ---- 30. R3: `dirname` missing from PATH must degrade too
+TOOLSDIR_DN="$ROOT/mini-path-dirname"
+mkdir -p "$TOOLSDIR_DN"
+for t in bash find grep sed awk sort wc tr mktemp basename head rm cat; do
+  ln -sf "$(command -v "$t")" "$TOOLSDIR_DN/$t"
+done
+out="$(PATH="$TOOLSDIR_DN" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" 2>&1)"
+rc=$?
+if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'degraded: dirname not found'; then
+  ok "R3: missing dirname -> exit 3"
+else
+  no "R3 dirname degraded FAILED" "rc=$rc out=$out"
+fi
+
 echo ""
 
 # ==========================================================================
@@ -596,7 +681,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-k: profile-suffix-disabled mutant; <module>-wb must stop chartering <module> --"
   MUTANT_K="$ROOT/fpa.MUT-K.sh"
   if grep -q 'plain_tokens_suffix.txt' "$SUT"; then
-    sed 's#sort -u "\$TMP/plain_tokens_base.txt" "\$TMP/plain_tokens_suffix.txt" > "\$TMP/charter_tokens.txt"#sort -u "$TMP/plain_tokens_base.txt" > "$TMP/charter_tokens.txt"#' "$SUT" > "$MUTANT_K"
+    sed 's#sort -u "\$TMP/plain_tokens_base.txt" "\$TMP/plain_tokens_suffix.txt" "\$TMP/bare_camel_tokens.txt" > "\$TMP/charter_tokens.txt"#sort -u "$TMP/plain_tokens_base.txt" "$TMP/bare_camel_tokens.txt" > "$TMP/charter_tokens.txt"#' "$SUT" > "$MUTANT_K"
     SK="$ROOT/sk"; CK="$ROOT/ck"
     mk_unit "$SK" "clCBus" "A.java"
     mk_focuses "$CK" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
@@ -648,6 +733,95 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-m: --depth validation anchor not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (n) (R1, round 3): camelCase internal-uppercase-or-digit gate removed
+  echo "-- teeth-n (R1): camelCase-gate mutant; a bare LOWERCASE table-row word must falsely charter --"
+  MUTANT_N="$ROOT/fpa.MUT-N.sh"
+  if grep -q 'SENTINEL-CAMEL:' "$SUT"; then
+    sed "s#grep -E '\[A-Z0-9\]' \"\$TMP/bare_words_raw.txt\" 2>/dev/null#cat \"\$TMP/bare_words_raw.txt\" 2>/dev/null#" "$SUT" > "$MUTANT_N"
+    SN="$ROOT/sn"; CN="$ROOT/cn"
+    mk_unit "$SN" "zwave" "A.java"
+    mk_focuses "$CN" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+    mk_state "$CN" "RESEARCH-STATE-wb-vendor-ux.md" \
+      '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+    rout_n="$(bash "$SUT" "$CN" --subject "$SN" 2>/dev/null)"
+    mout_n="$(bash "$MUTANT_N" "$CN" --subject "$SN" 2>/dev/null)"
+    if printf '%s' "$rout_n" | grep -qE '0/1 chartered' \
+       && printf '%s' "$mout_n" | grep -qE '1/1 chartered'; then
+      ok "teeth-n: original never charters bare-lowercase zwave; mutant does — bites"
+    else
+      no "teeth-n: mutation did not change charter count" "orig=$rout_n mut=$mout_n"
+    fi
+  else
+    no "teeth-n: SENTINEL-CAMEL: comment not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (o) (R1, round 3): bare-mention downgrade removed — reverts to pre-round-3
+  # always-unchartered behavior for a bare-lowercase table-row mention.
+  echo "-- teeth-o (R1): bare-mention-removed mutant; zwave must fall back to plain unchartered --"
+  MUTANT_O="$ROOT/fpa.MUT-O.sh"
+  if grep -q 'SENTINEL-BAREMENTION:' "$SUT"; then
+    sed 's/if grep -qxF "\$mod" "\$TMP\/bare_lowercase_tokens.txt" 2>\/dev\/null; then/if false; then/' "$SUT" > "$MUTANT_O"
+    SO="$ROOT/so"; CO="$ROOT/co"
+    mk_unit "$SO" "zwave" "A.java"
+    mk_focuses "$CO" '| wb-vendor-ux | active | RESEARCH-STATE-wb-vendor-ux.md | vendor WB survey |'
+    mk_state "$CO" "RESEARCH-STATE-wb-vendor-ux.md" \
+      '| WV22 | zwave-wb (17 cls) - Z-Wave mesh wireless WB | MED | closed | B1102 |'
+    rout_o="$(bash "$SUT" "$CO" --subject "$SO" 2>/dev/null)"
+    mout_o="$(bash "$MUTANT_O" "$CO" --subject "$SO" 2>/dev/null)"
+    if printf '%s' "$rout_o" | grep -qE '1 bare-mention' \
+       && ! printf '%s' "$mout_o" | grep -qE '1 bare-mention'; then
+      ok "teeth-o: original reports zwave as bare-mention; mutant reverts to silent unchartered — bites"
+    else
+      no "teeth-o: mutation did not change bare-mention count" "orig=$rout_o mut=$mout_o"
+    fi
+  else
+    no "teeth-o: SENTINEL-BAREMENTION: comment not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (p) (R3, round 3): `cat` dropped from the dependency probe
+  echo "-- teeth-p (R3): cat-probe-removed mutant; a missing cat must stop degrading --"
+  MUTANT_P="$ROOT/fpa.MUT-P.sh"
+  if grep -q 'find awk grep sort sed wc tr mktemp basename head rm cat dirname' "$SUT"; then
+    sed 's/find awk grep sort sed wc tr mktemp basename head rm cat dirname/find awk grep sort sed wc tr mktemp basename head rm dirname/' "$SUT" > "$MUTANT_P"
+    TOOLSDIR_P="$ROOT/mini-path-p"
+    mkdir -p "$TOOLSDIR_P"
+    for t in bash find grep sed awk sort wc tr mktemp basename head rm dirname; do
+      ln -sf "$(command -v "$t")" "$TOOLSDIR_P/$t"
+    done
+    rc_r=0; rc_m=0
+    PATH="$TOOLSDIR_P" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_r=$?
+    PATH="$TOOLSDIR_P" bash "$MUTANT_P" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_m=$?
+    if [ "$rc_r" -eq 3 ] && [ "$rc_m" -ne 3 ]; then
+      ok "teeth-p: original exits 3 (degraded, cat missing); mutant does not — bites"
+    else
+      no "teeth-p: mutation did not change degraded behavior" "rc_r=$rc_r rc_m=$rc_m"
+    fi
+  else
+    no "teeth-p: dependency-probe list anchor not found in SUT (cannot anchor mutation)"
+  fi
+
+  # ---- tooth (q) (R3, round 3): `dirname` dropped from the dependency probe
+  echo "-- teeth-q (R3): dirname-probe-removed mutant; a missing dirname must stop degrading --"
+  MUTANT_Q="$ROOT/fpa.MUT-Q.sh"
+  if grep -q 'find awk grep sort sed wc tr mktemp basename head rm cat dirname' "$SUT"; then
+    sed 's/find awk grep sort sed wc tr mktemp basename head rm cat dirname/find awk grep sort sed wc tr mktemp basename head rm cat/' "$SUT" > "$MUTANT_Q"
+    TOOLSDIR_Q="$ROOT/mini-path-q"
+    mkdir -p "$TOOLSDIR_Q"
+    for t in bash find grep sed awk sort wc tr mktemp basename head rm cat; do
+      ln -sf "$(command -v "$t")" "$TOOLSDIR_Q/$t"
+    done
+    rc_r=0; rc_m=0
+    PATH="$TOOLSDIR_Q" bash "$SUT" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_r=$?
+    PATH="$TOOLSDIR_Q" bash "$MUTANT_Q" "$ROOT/corpus" --subject "$ROOT/s2" >/dev/null 2>&1 || rc_m=$?
+    if [ "$rc_r" -eq 3 ] && [ "$rc_m" -ne 3 ]; then
+      ok "teeth-q: original exits 3 (degraded, dirname missing); mutant does not — bites"
+    else
+      no "teeth-q: mutation did not change degraded behavior" "rc_r=$rc_r rc_m=$rc_m"
+    fi
+  else
+    no "teeth-q: dependency-probe list anchor not found in SUT (cannot anchor mutation)"
   fi
 
   echo ""
