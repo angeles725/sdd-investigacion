@@ -85,7 +85,7 @@ if [[ $# -ge 1 ]]; then
   ROOTS=("$1")
 else
   ROOTS=("$SCRIPT_DIR")
-  _install_root="$(cd "$SCRIPT_DIR/../install" 2>/dev/null && pwd)"
+  _install_root="$(cd -P "$SCRIPT_DIR/../install" 2>/dev/null && pwd)"  # LINT-CD-PHYSICAL-OK: climbs from SCRIPT_DIR (BASH_SOURCE-derived) via '..'; -P resolves physically so a symlinked toolbelt/ (kit issue #1024) never lands one level off
   if [[ -n "$_install_root" ]]; then
     ROOTS+=("$_install_root")
   else
