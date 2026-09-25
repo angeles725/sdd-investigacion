@@ -546,6 +546,66 @@ else
   skip "32d Stop hook line: unreadable (running as root; permission bits bypassed)"
 fi
 
+# 32e — kit issue #1135 follow-up (Opus review of #1120, MINOR 1): the Stop hook line must print
+# the CHECKED PATH — research-sdd-status.sh <target> and research-sdd-status.sh <target>/corpus can
+# report different states for what a human considers "the same target" (checked path differs), and
+# without printing what was actually checked, that divergence looks like a bug instead of the
+# instrument correctly reporting on two different directories.
+d="$TMP/hook-checked-path"; mkstate "$d" 1 "high|g1|pending"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -qF "Stop hook       : absent-settings  (checked: $d/.claude/settings.json)" <<<"$rep" \
+  && ok "32e Stop hook line prints the checked settings.json path" \
+  || no "32e Stop hook line prints the checked settings.json path" "$(grep -i 'Stop hook' <<<"$rep")"
+
+# 32f — kit issue #1135: a registered target nested inside a git repo whose OWN root is a DIFFERENT,
+# higher directory, with settings.json syntactically wired at the nested path → wired-off-root, not
+# wired. This is the three.js shape: a real session launches from the git root, never the nested
+# path, so the wired settings.json never loads in practice.
+d_root="$TMP/hook-offroot-gitroot"; d="$d_root/nested"; mkstate "$d" 1 "high|g1|pending"
+git init -q "$d_root" >/dev/null 2>&1
+mkdir -p "$d/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -qF 'Stop hook       : wired-off-root' <<<"$rep" \
+  && ok "32f Stop hook line: wired-off-root (three.js shape — nested off git root)" \
+  || no "32f Stop hook line: wired-off-root" "$(grep -i 'Stop hook' <<<"$rep")"
+
+# 32g — kit issue #1120 follow-up (Opus review, MINOR 2): research-sdd-status.sh must fail loudly
+# (exit 1, clear stderr message) when lib/hook-wiring.sh is MISSING — never silently proceed with a
+# blank/garbage Stop hook line. Uses a hermetic kit copy missing only that one helper.
+_hwmiss_kit="$TMP/kit-hook-wiring-missing"
+mkdir -p "$_hwmiss_kit/lib"
+cp "$SUT" "$_hwmiss_kit/research-sdd-status.sh"
+cp "$HERE/../lib/focus-prefix.sh" "$_hwmiss_kit/lib/focus-prefix.sh"
+cp "$HERE/../lib/state-files.sh" "$_hwmiss_kit/lib/state-files.sh"
+cp "$HERE/../lib/block-files.sh" "$_hwmiss_kit/lib/block-files.sh"
+# lib/hook-wiring.sh deliberately NOT copied.
+d="$TMP/hook-lib-missing-target"; mkstate "$d" 1 "high|g1|pending"
+_hwmiss_out="$(bash "$_hwmiss_kit/research-sdd-status.sh" "$d" 2>&1 >/dev/null)"; _hwmiss_rc=$?
+if [ "$_hwmiss_rc" -eq 1 ] && grep -qF 'cannot find helper' <<<"$_hwmiss_out" && grep -qF 'hook-wiring.sh' <<<"$_hwmiss_out"; then
+  ok "32g missing lib/hook-wiring.sh → exit 1, clear stderr message"
+else
+  no "32g missing lib/hook-wiring.sh → exit 1, clear stderr message" "rc=$_hwmiss_rc stderr=[$_hwmiss_out]"
+fi
+
+# 32h — same follow-up: lib/hook-wiring.sh PRESENT but BROKEN (fails to define
+# hook_stop_wiring_state) must also fail loudly (exit 1, clear stderr message) rather than crash
+# with an obscure "command not found" once the report tries to call the undefined function.
+_hwbroken_kit="$TMP/kit-hook-wiring-broken"
+mkdir -p "$_hwbroken_kit/lib"
+cp "$SUT" "$_hwbroken_kit/research-sdd-status.sh"
+cp "$HERE/../lib/focus-prefix.sh" "$_hwbroken_kit/lib/focus-prefix.sh"
+cp "$HERE/../lib/state-files.sh" "$_hwbroken_kit/lib/state-files.sh"
+cp "$HERE/../lib/block-files.sh" "$_hwbroken_kit/lib/block-files.sh"
+printf '#!/usr/bin/env bash\n# broken: does not define hook_stop_wiring_state\n' > "$_hwbroken_kit/lib/hook-wiring.sh"
+d="$TMP/hook-lib-broken-target"; mkstate "$d" 1 "high|g1|pending"
+_hwbroken_out="$(bash "$_hwbroken_kit/research-sdd-status.sh" "$d" 2>&1 >/dev/null)"; _hwbroken_rc=$?
+if [ "$_hwbroken_rc" -eq 1 ] && grep -qF 'failed to define hook_stop_wiring_state' <<<"$_hwbroken_out"; then
+  ok "32h broken lib/hook-wiring.sh (function undefined) → exit 1, clear stderr message"
+else
+  no "32h broken lib/hook-wiring.sh (function undefined) → exit 1, clear stderr message" "rc=$_hwbroken_rc stderr=[$_hwbroken_out]"
+fi
+
 # 33 — bare `pending` cell is still selected by --next (leading-token regression guard)
 d="$TMP/bare-pending"; mkstate "$d" 1 "high|bare gap|pending"
 expect_next "$d" "NEXT | high | bare gap" "bare 'pending' status is selected"
@@ -5990,22 +6050,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # --- kit issue #1109 teeth: 'Stop hook: ...' self-report line -----------------------------------
+  # kit issue #1135 follow-up (Opus review of #1120, NIT 3): the mutant must be proven to still
+  # print the report HEADER ('== research-sdd-status: ...') — a CRASHED mutant would also make
+  # 'Stop hook' absent from output, which would make this tooth pass on theater (a crash, not a
+  # deliberate line removal, "proving" the line has teeth). Requiring the header survives rules
+  # that out: only a mutant that genuinely dropped just the one line, and produced the rest of the
+  # report normally, counts as proof.
   echo "-- teeth-STOP-HOOK-LINE: remove the Stop-hook self-report line; test 32b must go RED --"
   d="$TMP/hook-wired-teeth"; mkstate "$d" 1 "high|g1|pending"
   mkdir -p "$d/.claude"
   printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
   _sh_mutant="$TMP/status.STOP-HOOK.MUTANT.sh"
-  if grep -qF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT"; then
-    grep -vF 'echo "  Stop hook       : $(hook_stop_wiring_state "$target")"' "$SUT" > "$_sh_mutant"
+  _sh_anchor='echo "  Stop hook       : $(hook_stop_wiring_state "$target")  (checked: ${target}/.claude/settings.json)"'
+  if grep -qF "$_sh_anchor" "$SUT"; then
+    grep -vF "$_sh_anchor" "$SUT" > "$_sh_mutant"
     _sh_mut_out="$(bash "$_sh_mutant" "$d" 2>/dev/null)"
-    if ! grep -q 'Stop hook' <<<"$_sh_mut_out"; then
-      ok "teeth-STOP-HOOK-LINE: line removed → test 32b/32a/32c/32d go RED (line absent) — has teeth"
+    if ! grep -qF "== research-sdd-status:" <<<"$_sh_mut_out"; then
+      no "teeth-STOP-HOOK-LINE: mutant crashed (no report header) — line absence is not proven, it's a crash" "out=[$_sh_mut_out]"
+    elif ! grep -q 'Stop hook' <<<"$_sh_mut_out"; then
+      ok "teeth-STOP-HOOK-LINE: line removed, report header still printed → test 32b/32a/32c/32d go RED (line absent) — has teeth"
     else
       no "teeth-STOP-HOOK-LINE: mutant must drop the Stop hook line — THEATER" "out=[$_sh_mut_out]"
     fi
   else
     no "teeth-STOP-HOOK-LINE: 'Stop hook' echo line not found in SUT (drifted?)"
   fi
+  unset _sh_anchor
 
   echo "-- teeth-STOP-HOOK-STATE: force hook_stop_wiring_state's own logic to always report 'wired' (via lib/hook-wiring.sh mutation); test 32a/32c/32d must go RED --"
   _sh_lib_mutant="$TMP/hook-wiring.STOP-HOOK-STATE.MUTANT.sh"
@@ -6024,6 +6094,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-STOP-HOOK-STATE: always-wired lib mutant must false-report wired — THEATER" "out=[$_sh2_out]"
   fi
+
+  echo "-- teeth-STOP-HOOK-CHECKED-PATH: drop the '(checked: ...)' suffix; test 32e must go RED --"
+  _sh3_anchor='  (checked: ${target}/.claude/settings.json)"'
+  _sh3_mutant="$TMP/status.STOP-HOOK-CHECKED-PATH.MUTANT.sh"
+  if grep -qF "$_sh3_anchor" "$SUT"; then
+    sed 's/  (checked: \${target}\/\.claude\/settings\.json)"/"/' "$SUT" > "$_sh3_mutant"
+    d="$TMP/hook-checked-path-teeth"; mkstate "$d" 1 "high|g1|pending"
+    _sh3_out="$(bash "$_sh3_mutant" "$d" 2>/dev/null)"
+    if grep -qF "== research-sdd-status:" <<<"$_sh3_out" \
+       && grep -qF 'Stop hook       : absent-settings' <<<"$_sh3_out" \
+       && ! grep -qF '(checked:' <<<"$_sh3_out"; then
+      ok "teeth-STOP-HOOK-CHECKED-PATH: suffix removed, state line intact → test 32e goes RED — has teeth"
+    else
+      no "teeth-STOP-HOOK-CHECKED-PATH: mutant must drop only the checked-path suffix — THEATER" "out=[$_sh3_out]"
+    fi
+  else
+    no "teeth-STOP-HOOK-CHECKED-PATH: checked-path suffix anchor not found in SUT (drifted?)"
+  fi
+  unset _sh3_anchor
 fi
 
 if [ "$skips" -gt 0 ]; then

@@ -1583,7 +1583,7 @@ blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
-echo "  Stop hook       : $(hook_stop_wiring_state "$target")"
+echo "  Stop hook       : $(hook_stop_wiring_state "$target")  (checked: ${target}/.claude/settings.json)"
 echo "  coverage metric : ${metric:-<none>}"
 echo "  covered blocks  : ${covered:-<none>} claimed · ${ondisk} on disk"
 echo "  pending backlog : $ph"

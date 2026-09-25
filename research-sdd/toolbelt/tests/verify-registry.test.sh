@@ -299,6 +299,28 @@ else
   no "3k 'hook yesterday' claim → word boundary rejects it, no hook-wiring WARN" "exit=$RC out=[$OUT]"
 fi
 
+# 3l — kit issue #1135 (three.js shape): row claims 'hook yes' and settings.json IS Stop-scoped-
+#      wired at the registered path, but that path is NOT its own git root (git root is a DIFFERENT,
+#      higher directory) → a TAILORED wired-off-root WARN, distinct from the generic 'Stop hook is
+#      <state>' wording 3f/3g/3j pin: it names the real cause (not the git root) and the real fix
+#      (move the hook registration to the git root), not a bare 'refresh the row or wire the hook'.
+kit="$(mkkit c3l-hookoffroot)"; gitroot="$kit/repo"; tgt="$gitroot/targetA"
+mkcorpus "$tgt" 3 "a"
+git init -q "$gitroot" >/dev/null 2>&1
+wire_hook "$tgt"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' but ${tgt} is not its own git root" <<<"$OUT" \
+   && grep -q 'move the hook registration to the git root' <<<"$OUT" \
+   && ! grep -qE "Stop hook is wired-off-root at" <<<"$OUT"; then
+  ok "3l hook yes + wired-off-root → tailored WARN (not the generic 'Stop hook is <state>' wording)" "(exit $RC)"
+else
+  no "3l hook yes + wired-off-root → tailored WARN" "exit=$RC out=[$OUT]"
+fi
+
 # 4 — TRUNCATED '...' path → dropped, PARTIAL WARN names its basename; a real target alongside still reconciles.
 kit="$(mkkit c4-truncated)"; tgtA="$kit/targetA"; tgtDots="/home/x/Honeywell/.../niagara-help"
 mkcorpus "$tgtA" 4 "a"
@@ -3021,6 +3043,32 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-hook-claim-boundary: HOOK-CLAIM-EXTRACT sentinel not found in SUT (drifted?)"
+  fi
+
+  # kit issue #1135: neuter the HOOK-WIRING-OFF-ROOT-CHECK guard (force its condition false) so a
+  # wired-off-root row falls through to the generic HOOK-WIRING-CHECK elif instead — test 3l must
+  # regain the GENERIC 'Stop hook is wired-off-root at ...' wording, losing the tailored 'is not
+  # its own git root ... move the hook registration to the git root' phrasing.
+  echo "-- teeth-hook-wiring-off-root-check: neuter the HOOK-WIRING-OFF-ROOT-CHECK guard; test 3l must regain the generic wording --"
+  kit="$(mkkit teeth-hookoffroot)"; gitroot_t="$kit/repo"; tgt="$gitroot_t/targetA"
+  mkcorpus "$tgt" 3 "a"
+  git init -q "$gitroot_t" >/dev/null 2>&1
+  wire_hook "$tgt"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  mut_hor="$kit/toolbelt/verify-registry.sh"
+  if grep -qF '# HOOK-WIRING-OFF-ROOT-CHECK' "$mut_hor"; then
+    sed -i 's/if \[ "\$_vr_hook_state" = "wired-off-root" \]; then  # HOOK-WIRING-OFF-ROOT-CHECK/if false; then  # HOOK-WIRING-OFF-ROOT-CHECK (mutated)/' "$mut_hor"
+    outm_hor="$("$BASH_BIN" "$mut_hor" 2>&1)"
+    if grep -qE "Stop hook is wired-off-root at" <<<"$outm_hor" \
+       && ! grep -q 'move the hook registration to the git root' <<<"$outm_hor"; then
+      ok "teeth-hook-wiring-off-root-check: neutered guard regains the generic wording for test 3l — has teeth" "()"
+    else
+      no "teeth-hook-wiring-off-root-check: neutered guard must regain the generic wording — THEATER" "out=[$outm_hor]"
+    fi
+  else
+    no "teeth-hook-wiring-off-root-check: HOOK-WIRING-OFF-ROOT-CHECK sentinel not found in SUT (drifted?)"
   fi
 fi
 

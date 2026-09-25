@@ -95,6 +95,48 @@ fi
 d="$ROOT/t7-absent"
 assert_state "7 non-existent target dir → absent-settings" "$d" "absent-settings"
 
+# --- kit issue #1135: 'wired-off-root' — settings.json is syntactically wired but the registered
+# path is NOT its own git root, so a real session (which launches from the git root, not a nested
+# subdirectory) never loads it. Downgrade applies ONLY to the wired case: an unwired/absent-settings/
+# unreadable target off-root makes no active-firing claim, so there is nothing false to downgrade.
+
+# 8 — POSITIVE CONTROL: registered path IS its own git root (git init'd there directly) and wired →
+#     stays 'wired', never downgraded. Pins that a normal git-root target is unaffected.
+d="$ROOT/t8-root"; mkdir -p "$d"
+git init -q "$d" >/dev/null 2>&1
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+assert_state "8 registered path is its own git root, wired → wired (unaffected)" "$d" "wired"
+
+# 9 — the three.js shape: registered path is a NESTED subdirectory of a git repo (git root is the
+#     PARENT), settings.json wired at the nested path → wired-off-root, not wired. This is the exact
+#     false-confidence case kit issue #1135 names: a real session launches from the git root, never
+#     from the nested path, so the wired settings.json never loads in practice.
+d_root="$ROOT/t9-gitroot"; d="$d_root/nested"; mkdir -p "$d"
+git init -q "$d_root" >/dev/null 2>&1
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+assert_state "9 nested non-root path, wired → wired-off-root (three.js shape)" "$d" "wired-off-root"
+
+# 10 — a nested non-root path that is UNWIRED must stay 'unwired', never 'wired-off-root': no
+#     active-firing claim is being made, so there is nothing to downgrade (matches kit issue #1135's
+#     own fixture scope: "a nested non-root row with hook no/deferred — no WARN").
+d_root="$ROOT/t10-gitroot"; d="$d_root/nested"; mkdir -p "$d"
+git init -q "$d_root" >/dev/null 2>&1
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/other-hook.sh"}]}]}}'
+assert_state "10 nested non-root path, unwired → unwired (not downgraded)" "$d" "unwired"
+
+# 11 — a nested non-root path with NO settings.json at all must stay 'absent-settings', never
+#     'wired-off-root' — the downgrade only ever applies to an already-'wired' result.
+d_root="$ROOT/t11-gitroot"; d="$d_root/nested"; mkdir -p "$d"
+git init -q "$d_root" >/dev/null 2>&1
+assert_state "11 nested non-root path, no settings.json → absent-settings (not downgraded)" "$d" "absent-settings"
+
+# 12 — registered path is NOT inside any git repository at all (git rev-parse fails) and wired →
+#     stays 'wired'. No git root to compare against, so nothing is downgraded (this is also case 2's
+#     own fixture, which is not inside a git repo — pinned again here explicitly for the new logic).
+d="$ROOT/t12-nogit"; mkdir -p "$d"
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+assert_state "12 not inside any git repo, wired → wired (no root to compare)" "$d" "wired"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -168,6 +210,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       echo "  SKIP  teeth: hook_stop_wiring_state_var unreadable mutation (running as root)"
     fi
+  fi
+
+  echo "-- teeth: neuter the wired-off-root downgrade assignment — case 9 must go RED (stays 'wired') --"
+  mut_offroot_neuter="$ROOT/hook-wiring.MUTANT-offroot-neuter.sh"
+  if ! grep -qF 'HOOK_WIRING_STATE="wired-off-root"' "$LIB"; then
+    no "teeth: locate wired-off-root assignment anchor in lib — drifted?"
+  else
+    sed 's/HOOK_WIRING_STATE="wired-off-root"/: # MUTANT: neutered/' "$LIB" > "$mut_offroot_neuter"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var
+      # shellcheck disable=SC1090
+      . "$mut_offroot_neuter"
+      d_root="$ROOT/t9-teeth-neuter"; d="$d_root/nested"; mkdir -p "$d"
+      git init -q "$d_root" >/dev/null 2>&1
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      r="$(hook_stop_wiring_state "$d")"
+      if [ "$r" = "wired-off-root" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 9 (off-root false-reported as plain wired)"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: wired-off-root downgrade-neuter mutation caught (real sourced lib)"; else no "teeth: wired-off-root downgrade-neuter mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: force the wired-off-root downgrade to fire unconditionally — case 8 must go RED (a clean git-root target would be misreported off-root) --"
+  mut_offroot_always="$ROOT/hook-wiring.MUTANT-offroot-always.sh"
+  if ! grep -qF 'if [ -n "$_hw_real" ] && [ "$_hw_top" != "$_hw_real" ]; then' "$LIB"; then
+    no "teeth: locate wired-off-root comparison anchor in lib — drifted?"
+  else
+    sed 's/if \[ -n "\$_hw_real" \] \&\& \[ "\$_hw_top" != "\$_hw_real" \]; then/if [ -n "$_hw_real" ]; then  # MUTANT: comparison dropped, always true/' "$LIB" > "$mut_offroot_always"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var
+      # shellcheck disable=SC1090
+      . "$mut_offroot_always"
+      d="$ROOT/t8-teeth-always"; mkdir -p "$d"
+      git init -q "$d" >/dev/null 2>&1
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      r="$(hook_stop_wiring_state "$d")"
+      if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 8 (clean git-root target misreported [$r])"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: wired-off-root always-fire mutation caught (real sourced lib)"; else no "teeth: wired-off-root always-fire mutation NOT caught (theater)"; fi
   fi
 fi
 

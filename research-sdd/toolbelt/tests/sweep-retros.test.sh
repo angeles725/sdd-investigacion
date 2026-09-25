@@ -2492,6 +2492,72 @@ else
   fi
 fi
 
+# 80a — WIRING-STATUS wired-off-root (kit issue #1135, three.js shape): the registered target IS
+#       a subdirectory of a real git repo, but its OWN git root is a DIFFERENT, higher directory.
+#       .claude/settings.json at the registered (nested) path IS Stop-scoped-wired — syntactically —
+#       but a real session launches from the git root, not the nested target, so it never loads in
+#       practice. Must WARN 'wired-off-root' (distinct from plain 'wired', which stays silent) and
+#       the summary must carry a dedicated 'wired-off-root' count, separate from 'wired'.
+kit="$(mkkit c80a-wired-off-root)"; gitroot="$kit/gitroot"; tgt="$gitroot/nested"
+mkdir -p "$tgt/.claude"
+git init -q "$gitroot" >/dev/null 2>&1
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt/.claude/settings.json"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'WARN.*wired-off-root' <<<"$OUT" \
+   && grep -qF "$tgt" <<<"$OUT" \
+   && grep -qE 'Wiring: 0 wired / 1 wired-off-root' <<<"$OUT"; then
+  ok "80a wired-off-root: nested target off its own git root → WARN 'wired-off-root', dedicated count" "(exit $RC)"
+else
+  no "80a wired-off-root: nested target off its own git root → WARN 'wired-off-root', dedicated count" "exit=$RC out=[$OUT]"
+fi
+
+# 80b — WIRING-STATUS wired-off-root non-promotion: a nested off-root target that is genuinely
+#       UNWIRED (no retro-gate under Stop) must stay counted as plain 'unwired' — the off-root
+#       downgrade only ever applies to an otherwise-'wired' result; there is no active-firing claim
+#       to downgrade for an unwired target in the first place.
+kit="$(mkkit c80b-offroot-unwired)"; gitroot="$kit/gitroot"; tgt="$gitroot/nested"
+mkdir -p "$tgt/.claude"
+git init -q "$gitroot" >/dev/null 2>&1
+printf '{"hooks":{}}\n' > "$tgt/.claude/settings.json"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && ! grep -q 'WARN.*wired-off-root' <<<"$OUT" \
+   && grep -q 'WARN.*retro-gate not wired in' <<<"$OUT" \
+   && grep -qE 'Wiring: 0 wired / 0 wired-off-root / 1 unwired' <<<"$OUT"; then
+  ok "80b wired-off-root non-promotion: off-root + genuinely unwired stays 'unwired'" "(exit $RC)"
+else
+  no "80b wired-off-root non-promotion: off-root + genuinely unwired stays 'unwired'" "exit=$RC out=[$OUT]"
+fi
+
+# 80c — WIRING-STATUS multi-target summary with wired-off-root mixed in: 1 wired + 1 wired-off-root
+#       + 1 unwired + 1 absent-settings → summary line carries all four counts correctly, and the
+#       total-checked count sums all four (not just the original three).
+kit="$(mkkit c80c-multi-offroot)"
+tgt_w="$kit/targetWired"; gitroot_or="$kit/gitrootOffroot"; tgt_or="$gitroot_or/nested"
+tgt_u="$kit/targetUnwired"; tgt_a="$kit/targetAbsent"
+mkdir -p "$tgt_w/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_w/.claude/settings.json"
+mkdir -p "$tgt_or/.claude"
+git init -q "$gitroot_or" >/dev/null 2>&1
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_or/.claude/settings.json"
+mkdir -p "$tgt_u/.claude"
+printf '{"hooks":{}}\n' > "$tgt_u/.claude/settings.json"
+mkdir -p "$tgt_a"   # no .claude/settings.json
+write_targets "$kit" "$tgt_w" "$tgt_or" "$tgt_u" "$tgt_a"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE 'Wiring: 1 wired / 1 wired-off-root / 1 unwired / 1 absent-settings / 0 unreadable — 4 targets checked' <<<"$OUT"; then
+  ok "80c multi-target wiring incl. wired-off-root: all four counts + total correct" "(exit $RC)"
+else
+  no "80c multi-target wiring incl. wired-off-root: all four counts + total correct" "exit=$RC out=[$OUT]"
+fi
+
 # 81 — HONESTY-LINE-ONLY RETRO (§912): a pending retro whose canonical delta section holds
 #      ONLY the §18 honesty line ("no new deltas; the kit already covers this run.") reports
 #      explicit ~0 — distinct from WARN-A (~?, hand-count) and from no-section (empty-input).
@@ -4218,6 +4284,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth WU: unreadable-branch-removed mutant must give unwired WARN — case 80 is THEATER" "out=[$_outm_wu]"
     fi
     unset _mutant_wu _outm_wu _anchor_wu
+  fi
+
+  # Tooth WOR: remove the SUT's 'wired-off-root)' case branch entirely — a wired-off-root target
+  # then falls into the default '*)' branch (misclassified as plain unwired: WARN 'not wired in',
+  # no 'wired-off-root' label, no dedicated summary count). Case 80a must go RED. Proves the SUT's
+  # own dispatch on lib/hook-wiring.sh's new state (not just the lib's own state derivation, which
+  # hook-wiring.test.sh already covers) has teeth.
+  echo "-- teeth WOR: remove wired-off-root case branch from SUT; case 80a must go RED (misclassified as unwired) --"
+  _anchor_wor='    wired-off-root)                                                  # RSDD_WS_WIRED_OFF_ROOT_CHECK
+      echo "WARN: retro-gate hook wired-off-root — $p is not its own git root; a session normally launches from the git root, so $_ws_settings likely never loads in practice: $p"
+      _ws_wired_off_root=$(( _ws_wired_off_root + 1 )) ;;'
+  _content_wor="$(cat "$SUT")"
+  if [[ "$_content_wor" != *"$_anchor_wor"* ]]; then
+    no "teeth WOR: locate wired-off-root case branch in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-wor)"; gitroot_wor="$kit/gitroot"; tgt="$gitroot_wor/nested"
+    mkdir -p "$tgt/.claude"
+    git init -q "$gitroot_wor" >/dev/null 2>&1
+    printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+      > "$tgt/.claude/settings.json"
+    write_targets "$kit" "$tgt"
+    _mutant_wor="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${_content_wor/"$_anchor_wor"/}" > "$_mutant_wor"
+    _outm_wor="$("$BASH_BIN" "$_mutant_wor" 2>&1)"
+    if ! grep -q 'WARN.*wired-off-root' <<<"$_outm_wor" && grep -q 'WARN.*retro-gate not wired in' <<<"$_outm_wor"; then
+      ok "teeth WOR: branch-removed mutant misclassifies wired-off-root as unwired — case 80a has teeth" "()"
+    else
+      no "teeth WOR: branch-removed mutant must misclassify as unwired — case 80a is THEATER" "out=[$_outm_wor]"
+    fi
+    unset _anchor_wor _content_wor _mutant_wor _outm_wor
   fi
 
   # Tooth SM: replace `s = strip_markers(raw)` with `s = raw` in lib → bullet/bold/blockquote
