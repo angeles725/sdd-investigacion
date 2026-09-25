@@ -58,11 +58,14 @@
 #       RESEARCH-STATE*.md files populating `## Campaign queue`), so "0 open AND empty queue"
 #       used to be a near-vacuous pass — true by construction (no queue to fail the check), not
 #       by evidence. Fixed by kit issue #1107: C4 now reports a distinct `n/a` ("no campaign
-#       queue declared") whenever research-sdd-status.sh's campaign line carries no per-focus
+#       queue declared") whenever research-sdd-status.sh's campaign line(s) carry no per-focus
 #       `pending=N active=N` counts at all, instead of silently counting an undeclared queue as
 #       "empty". This n/a is orthogonal to the --transcript n/a above and to the two limits
 #       above it — a run can be driven in orchestrated mode with a locatable STOP moment and
-#       still score C4 n/a on this axis alone.
+#       still score C4 n/a on this axis alone. ALL lines matching `campaign(\[<focus>\])?:` are
+#       read (round 2 fix) — a multi-focus corpus prints one LABELLED line per queue-bearing
+#       focus (`campaign[alpha] :`, `campaign[beta]  :`, no single bare line at all), and the
+#       queue only counts as empty when every one of those lines is `pending=0 active=0`.
 #
 # Operator input: a genuine human turn is `.type=="user"` with `.origin.kind=="human"` — the
 # real, structural field Claude Code stamps on it. Everything else that is ALSO `type:"user"` in
@@ -764,13 +767,28 @@ c4() {
   # focus(es), 0 with a queue)") mean no `## Campaign queue` section exists at all — the common
   # case in real corpora (METHODOLOGY §8c: niagara-research measured 0 of 89 RESEARCH-STATE*.md
   # files populating it) — and must NOT be read as "empty" (kit issue #1107).
-  local declared_queue=0 empty_queue=0 campaign_line pend act
-  campaign_line="$(printf '%s\n' "$status_default" | grep -E 'campaign[[:space:]]*:' | head -n1)"
-  pend="$(grep -oE 'pending=[0-9]+' <<<"$campaign_line" | grep -oE '[0-9]+')"
-  act="$(grep -oE 'active=[0-9]+' <<<"$campaign_line" | grep -oE '[0-9]+')"
-  if [[ -n "${pend:-}" && -n "${act:-}" ]]; then
-    declared_queue=1
-    [[ "$pend" == "0" && "$act" == "0" ]] && empty_queue=1
+  #
+  # MULTI-FOCUS (round 2 BLOCKER fix): campaign_status_block prints one LABELLED line per
+  # queue-bearing focus once more than one focus has a queue — "campaign[alpha] : pending=0
+  # active=0 ..." — never a single bare "campaign        :" line. `head -n1` on a
+  # `campaign[[:space:]]*:` grep saw only the first labelled line (or none, since the bracket
+  # broke the match entirely) and either misread a genuinely declared multi-focus queue as
+  # undeclared, or hid a real non-empty sibling focus behind the first focus's drained line.
+  # Every matching line is read now: declared_queue is set the moment ANY line carries real
+  # pending=/active= counts, and the queue only counts as empty when EVERY such line does.
+  local declared_queue=0 empty_queue=0 campaign_lines line pend act
+  campaign_lines="$(printf '%s\n' "$status_default" | grep -E 'campaign(\[[^]]*\])?[[:space:]]*:')"
+  if [[ -n "$campaign_lines" ]]; then
+    local any_nonempty=0
+    while IFS= read -r line; do
+      pend="$(grep -oE 'pending=[0-9]+' <<<"$line" | grep -oE '[0-9]+')"
+      act="$(grep -oE 'active=[0-9]+' <<<"$line" | grep -oE '[0-9]+')"
+      if [[ -n "${pend:-}" && -n "${act:-}" ]]; then
+        declared_queue=1
+        [[ "$pend" == "0" && "$act" == "0" ]] || any_nonempty=1
+      fi
+    done <<<"$campaign_lines"
+    [[ "$declared_queue" -eq 1 && "$any_nonempty" -eq 0 ]] && empty_queue=1
   fi
 
   local queue_state=undeclared
