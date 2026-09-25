@@ -373,6 +373,172 @@ if grep -qF 'Suites without teeth: 1 — [nt]' <<<"$out" \
   ok "with-teeth-no-banner: no-banner suite in its own category, not counted as no-teeth"
 else no "with-teeth-no-banner failed: $(grep -iE 'Suites without|but no banner' <<<"$out" | tr '\n' '|')"; fi
 
+# 23 — hermeticity (kit issue #1032, hardened per #1118 review): a suite that leaks a stray
+#      NEW top-level file into the CALLER's cwd (not $SCRIPT_DIR — suites run via `bash
+#      "$suite"` with no cd, so an unguarded redirection lands wherever run-all.sh itself was
+#      invoked from) is detected, named "(new)", and fails the run. Neither a clean suite
+#      running BEFORE the leak (clean.test.sh, sorts first) NOR one running AFTER it
+#      (z-clean.test.sh, sorts last — this is what actually exercises baseline rollforward,
+#      since a suite running before a leak can never be blamed by construction) is blamed, and
+#      the violation count is EXACTLY 1 (not re-counted against every later suite). Runs from a
+#      dedicated empty cwd so the leak (and its cleanup) stay contained.
+w="$(newdir c23)"
+mkfix_sh "$w/clean.test.sh" 2 0 0
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo oops > stray-c23.txt\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/leaky.test.sh"
+mkfix_sh "$w/z-clean.test.sh" 1 0 0
+_c23cwd="$TMP/c23-cwd"; mkdir -p "$_c23cwd"
+out="$(cd "$_c23cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+_c23_hv="$(grep -F 'leaked:' <<<"$out")"
+_c23_hv_count="$(grep -cF 'leaked:' <<<"$out" 2>/dev/null || echo 0)"
+if [ "$rc" -ne 0 ] \
+   && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 1' <<<"$out" \
+   && [ "$_c23_hv_count" -eq 1 ] \
+   && grep -qF 'leaky.test.sh leaked: stray-c23.txt (new)' <<<"$_c23_hv" \
+   && ! grep -qF 'clean.test.sh leaked:' <<<"$_c23_hv" \
+   && ! grep -qF 'z-clean.test.sh leaked:' <<<"$_c23_hv"; then
+  ok "hermeticity: leaky.test.sh's new stray top-level cwd file is detected, named, run fails; neither clean.test.sh nor z-clean.test.sh (sorts after) is blamed; exactly 1 violation"
+else no "hermeticity failed: rc=$rc :: $(tr '\n' '|' <<<"$_c23_hv")"; fi
+rm -f "$_c23cwd/stray-c23.txt" 2>/dev/null || true
+
+# 24 — hermeticity-clean: an all-clean batch reports zero violations and does not fail on
+#      their account (the guard must not misfire on suites that behave).
+w="$(newdir c24)"
+mkfix_sh "$w/a.test.sh" 2 0 0
+mkfix_sh "$w/b.test.sh" 1 0 0
+_c24cwd="$TMP/c24-cwd"; mkdir -p "$_c24cwd"
+out="$(cd "$_c24cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$out"; then
+  ok "hermeticity-clean: all-clean batch → 0 violations, run still exits 0"
+else no "hermeticity-clean failed: rc=$rc :: $(grep -i 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+
+# 25 — hermeticity-modify (kit issue #1118 review finding #2): the guard also catches an
+#      OVERWRITE of a pre-existing top-level entry, and a SECOND leak onto a name that a prior
+#      suite already leaked (the exact #1032 state: two leaks onto the same stray name `git`,
+#      not just the first). Both are name+size+mtime changes, reported "(modified)".
+w="$(newdir c25)"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo overwritten-by-modifier > preexisting.txt\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/modifier.test.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo second-leak-same-name > stray-c25.txt\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/a-first-leak.test.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'sleep 1.1; echo re-leaked-different-size > stray-c25.txt\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/z-second-leak.test.sh"
+_c25cwd="$TMP/c25-cwd"; mkdir -p "$_c25cwd"
+printf 'original content' > "$_c25cwd/preexisting.txt"
+out="$(cd "$_c25cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+_c25_hv="$(grep -F 'leaked:' <<<"$out")"
+rm -f "$_c25cwd/preexisting.txt" "$_c25cwd/stray-c25.txt" 2>/dev/null || true
+if [ "$rc" -ne 0 ] \
+   && grep -qF 'modifier.test.sh leaked: preexisting.txt (modified)' <<<"$_c25_hv" \
+   && grep -qF 'a-first-leak.test.sh leaked: stray-c25.txt (new)' <<<"$_c25_hv" \
+   && grep -qF 'z-second-leak.test.sh leaked: stray-c25.txt (modified)' <<<"$_c25_hv"; then
+  ok "hermeticity-modify: overwrite of a pre-existing entry AND a second leak onto an already-leaked name are both caught, attributed to the right suite"
+else no "hermeticity-modify failed: rc=$rc :: $(tr '\n' '|' <<<"$_c25_hv")"; fi
+
+# 26 — hermeticity-removed: a suite that DELETES a pre-existing top-level entry is caught too.
+w="$(newdir c26)"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'rm -f will-be-deleted.txt\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/deleter.test.sh"
+_c26cwd="$TMP/c26-cwd"; mkdir -p "$_c26cwd"
+printf 'gone soon' > "$_c26cwd/will-be-deleted.txt"
+out="$(cd "$_c26cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && grep -qF 'deleter.test.sh leaked: will-be-deleted.txt (removed)' <<<"$out"; then
+  ok "hermeticity-removed: deletion of a pre-existing top-level entry is caught and attributed"
+else no "hermeticity-removed failed: rc=$rc :: $(grep -F 'leaked:' <<<"$out" | tr '\n' '|')"; fi
+
+# 27 — hermeticity-degraded (kit issue #1118 review finding #3, §7 three-state doctrine): an
+#      unreadable caller cwd must report a typed DEGRADED state, not a confident "0 violations"
+#      (an unreadable cwd cannot be verified clean — that is absent-input, not empty-input).
+#      Root cannot be locked out of its own files, so this case SKIPs under root (CI images).
+#      Enters the dir WHILE readable (so cd/pwd resolve), then chmod's it 000 from inside — an
+#      already-open cwd's OWN readdir/find calls still hit EACCES against the revoked bits,
+#      while `pwd`'s getcwd() does not need to re-read the leaf, so the invocation still lands
+#      with $(pwd) == the now-locked directory, exactly reproducing an unreadable caller cwd.
+w="$(newdir c27)"
+mkfix_sh "$w/a.test.sh" 1 0 0
+if [ "$(id -u)" -eq 0 ]; then
+  ok "hermeticity-degraded: SKIP under root (root ignores directory permission bits)"
+else
+  _c27cwd="$TMP/c27-cwd"; mkdir -p "$_c27cwd"
+  out="$(cd "$_c27cwd" && chmod 000 "$_c27cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+  chmod 755 "$_c27cwd" 2>/dev/null || true
+  rm -rf "$_c27cwd" 2>/dev/null || true
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
+    ok "hermeticity-degraded: unreadable caller cwd reports DEGRADED (not a confident 0), run fails"
+  else no "hermeticity-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
+
+# 28 — hermeticity-git-status (kit issue #1118 round-2 review, HIGH/blocking): a suite that runs
+#      `git status` against a PRE-EXISTING git repo already in the caller's cwd (i.e. baseline,
+#      not something the suite itself created) must report ZERO violations, even though that
+#      call opportunistically refreshes the index (lock+rename), which bumps `.git/`'s own
+#      mtime. Directories are tracked by NAME ONLY (existence), never mtime, precisely so this
+#      legitimate, read-adjacent operation is not misread as a leak. This is the exact scenario
+#      that failed a full-aggregate run from a non-worktree checkout root in the round-2 review
+#      (the reviewer's clone root, with `.git` already present, not created by the run).
+w="$(newdir c28)"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'git status --porcelain >/dev/null\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/gitstatus.test.sh"
+_c28cwd="$TMP/c28-cwd"; mkdir -p "$_c28cwd"
+( cd "$_c28cwd" \
+  && git init -q . \
+  && git config user.email t@example.com \
+  && git config user.name tester \
+  && printf x > f.txt \
+  && git add -A && git commit -qm init \
+  && touch f.txt )   # touch f.txt: force a stat mismatch so status has something to refresh
+out="$(cd "$_c28cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+rm -rf "$_c28cwd" 2>/dev/null || true
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$out"; then
+  ok "hermeticity-git-status: git status against a pre-existing repo in cwd does not trip the guard (directories tracked by name only)"
+else no "hermeticity-git-status failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+
+# 29 — hermeticity-scanner-degraded (kit issue #1118 round-2 review, MEDIUM, §7 "could it run at
+#      all"): a `find` that rejects `-printf` (as BSD/macOS find does — the flag is a GNU
+#      extension) must make the guard report DEGRADED, not silently scan as if the cwd were
+#      empty. Shadows PATH with a stub `find` that errors on `-printf` and delegates everything
+#      else to the real binary, so suite discovery (glob-based, not find) is unaffected.
+_c29realfind="$(command -v find)"
+if [ -z "$_c29realfind" ]; then
+  ok "hermeticity-scanner-degraded: SKIP — no real 'find' on PATH to build the stub from"
+else
+  w="$(newdir c29)"
+  mkfix_sh "$w/a.test.sh" 1 0 0
+  { printf '#!/usr/bin/env bash\n'
+    printf 'for _a in "$@"; do\n'
+    printf '  if [ "$_a" = "-printf" ]; then echo "find: unknown primary or operator" >&2; exit 1; fi\n'
+    printf 'done\n'
+    printf 'exec %s "$@"\n' "$_c29realfind"
+  } > "$TMP/c29-bin-find"
+  _c29bin="$TMP/c29-bin"; mkdir -p "$_c29bin"
+  mv "$TMP/c29-bin-find" "$_c29bin/find"; chmod +x "$_c29bin/find"
+  _c29cwd="$TMP/c29-cwd"; mkdir -p "$_c29cwd"
+  out="$(cd "$_c29cwd" && PATH="$_c29bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  rm -rf "$_c29cwd" "$_c29bin" 2>/dev/null || true
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
+    ok "hermeticity-scanner-degraded: a find that rejects -printf makes the guard DEGRADED, not a confident 0"
+  else no "hermeticity-scanner-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -475,6 +641,75 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-banner: silenced banner absent from output → banner output has real teeth"
     else
       no "teeth-banner: banner still present after silencing → banner output teeth absent (THEATER)"
+    fi
+  fi
+  # Mutation 7 (kit issue #1032): neuter SENTINEL-HERMETICITY-CHECK's detection condition;
+  # a suite that leaks a stray top-level cwd file must then FALSE-PASS (runner exits 0, 0
+  # violations), proving the hermeticity guard has real teeth. RDD suggestion (#1118 review):
+  # confirm the leaky fixture actually CREATED its stray file before trusting a FALSE-PASS as
+  # evidence of the mutation — a fixture that silently failed to leak would also read as a
+  # false-pass, but for the wrong reason.
+  echo "-- teeth: neuter SENTINEL-HERMETICITY-CHECK; a leaked stray file must FALSE-PASS --"
+  w="$TMP/teeth-hermeticity"; mkdir -p "$w"
+  sentinel7='  # SENTINEL-HERMETICITY-CHECK'
+  sentinel7_count="$(grep -Fc "$sentinel7" "$SUT")"
+  sed '/SENTINEL-HERMETICITY-CHECK/{n;s/if \[\[ "\$HERMETICITY_DEGRADED" -eq 0 \]\]; then/if false; then/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel7_count" -ne 1 ]; then
+    no "teeth-hermeticity: SENTINEL-HERMETICITY-CHECK not found exactly once (count=$sentinel7_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-hermeticity: detection-condition mutation was a byte-identical no-op"
+  else
+    mkfix_sh "$w/clean.test.sh" 2 0 0
+    { printf '#!/usr/bin/env bash\n'
+      printf 'echo oops > stray-teeth.txt\n'
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+      printf 'exit 0\n'
+    } > "$w/leaky.test.sh"
+    _teeth_hv_cwd="$TMP/teeth-hermeticity-cwd"; mkdir -p "$_teeth_hv_cwd"
+    mout="$(cd "$_teeth_hv_cwd" && bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    _teeth_hv_leaked="$([ -e "$_teeth_hv_cwd/stray-teeth.txt" ] && echo yes || echo no)"
+    rm -f "$_teeth_hv_cwd/stray-teeth.txt" 2>/dev/null || true
+    if [ "$_teeth_hv_leaked" != yes ]; then
+      no "teeth-hermeticity: fixture never created stray-teeth.txt — FALSE-PASS would prove nothing"
+    elif [ "$mrc" -eq 0 ] && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$mout"; then
+      ok "teeth-hermeticity: fixture confirmed to have leaked, neutered detection condition FALSE-PASSES it → hermeticity guard has real teeth"
+    else
+      no "teeth-hermeticity: mutant still caught the confirmed leak (rc=$mrc) — detection-condition mutation not exercised (THEATER)"
+    fi
+  fi
+
+  # Mutation 8 (kit issue #1118 review, MEDIUM finding #1): neuter
+  # SENTINEL-HERMETICITY-ROLLFORWARD — without it, a suite running AFTER a leak is re-blamed
+  # for the SAME stray entry (still "new"/"modified" against the stale baseline), inflating the
+  # violation count. z-clean.test.sh (sorts after leaky.test.sh, does nothing itself) must then
+  # be wrongly named, and the count must exceed 1 — the exact defect case 23 exists to catch.
+  echo "-- teeth: neuter SENTINEL-HERMETICITY-ROLLFORWARD; a later clean suite must be re-blamed --"
+  w="$TMP/teeth-hermeticity-rollforward"; mkdir -p "$w"
+  sentinel8='    # SENTINEL-HERMETICITY-ROLLFORWARD'
+  sentinel8_count="$(grep -Fc "$sentinel8" "$SUT")"
+  sed '/SENTINEL-HERMETICITY-ROLLFORWARD/{n;s/.*/    : # neutered reset/;n;s/.*/    : # neutered repopulate/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel8_count" -ne 1 ]; then
+    no "teeth-hermeticity-rollforward: SENTINEL-HERMETICITY-ROLLFORWARD not found exactly once (count=$sentinel8_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-hermeticity-rollforward: rollforward-removal mutation was a byte-identical no-op"
+  else
+    mkfix_sh "$w/clean.test.sh" 2 0 0
+    { printf '#!/usr/bin/env bash\n'
+      printf 'echo oops > stray-rf.txt\n'
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+      printf 'exit 0\n'
+    } > "$w/leaky.test.sh"
+    mkfix_sh "$w/z-clean.test.sh" 1 0 0
+    _teeth_rf_cwd="$TMP/teeth-hermeticity-rollforward-cwd"; mkdir -p "$_teeth_rf_cwd"
+    mout="$(cd "$_teeth_rf_cwd" && bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    _teeth_rf_leaked="$([ -e "$_teeth_rf_cwd/stray-rf.txt" ] && echo yes || echo no)"
+    rm -f "$_teeth_rf_cwd/stray-rf.txt" 2>/dev/null || true
+    if [ "$_teeth_rf_leaked" != yes ]; then
+      no "teeth-hermeticity-rollforward: fixture never created stray-rf.txt — mutant check would prove nothing"
+    elif [ "$mrc" -ne 0 ] && grep -qF 'z-clean.test.sh leaked:' <<<"$mout"; then
+      ok "teeth-hermeticity-rollforward: neutered rollforward re-blames the later clean suite → attribution guard has real teeth"
+    else
+      no "teeth-hermeticity-rollforward: mutant did not misattribute z-clean.test.sh (rc=$mrc) — mutation not exercised (THEATER)"
     fi
   fi
 fi
