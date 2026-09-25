@@ -37,6 +37,21 @@ set -uo pipefail
 # --- Locate our own directory (CWD-independent) ---------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# --- Hermeticity guard (kit issue #1032) -----------------------------------
+# Suites are invoked as `bash "$suite" ...` with NO cd, so a suite's own unguarded
+# redirection lands in the CALLER's cwd (wherever run-all.sh itself was invoked from) —
+# NOT under $SCRIPT_DIR. kit issue #1032: an unquoted bash ${var/pat/repl} replacement in
+# stage-retro.test.sh corrupted into a bare `> git` redirection that left a stray file named
+# `git` at the caller's cwd. Scope: TOP-LEVEL entries of the caller's cwd only (cheap, and
+# matches the reported symptom) — a suite that leaks nested inside a subdirectory it created
+# itself is outside this check's enumerator.
+CALLER_CWD="$(pwd)"
+hermeticity_violations=()   # "<suite basename> leaked: <stray path>" entries
+_snapshot_cwd_top_level() {
+  find "$CALLER_CWD" -mindepth 1 -maxdepth 1 2>/dev/null | LC_ALL=C sort
+}
+_prev_cwd_snapshot="$(_snapshot_cwd_top_level)"
+
 # --- Optional flags -------------------------------------------------------
 # No arg = fine; a valid flag = enable that mode; anything else is rejected so
 # a typo (e.g. --prove-teath) can't silently disable teeth while reporting green.
@@ -123,6 +138,18 @@ for suite in "${all_suites[@]}"; do
     fi
     rc=${PIPESTATUS[0]}
   fi
+
+  # --- Hermeticity check: did THIS suite leak a stray top-level file into the caller's cwd? ---
+  # SENTINEL-HERMETICITY-CHECK
+  _cur_cwd_snapshot="$(_snapshot_cwd_top_level)"
+  _new_cwd_entries="$(comm -13 <(printf '%s\n' "$_prev_cwd_snapshot") <(printf '%s\n' "$_cur_cwd_snapshot"))"
+  if [[ -n "$_new_cwd_entries" ]]; then
+    while IFS= read -r _stray; do
+      [[ -n "$_stray" ]] || continue
+      hermeticity_violations+=("$base leaked: $_stray")
+    done <<< "$_new_cwd_entries"
+  fi
+  _prev_cwd_snapshot="$_cur_cwd_snapshot"
 
   # Parse the LAST matching summary line from the captured output.
   # Also accumulate per-test skip lines ("  SKIP  ..." indented format).
@@ -221,6 +248,13 @@ fi
 echo "Test cases passed: $total_passed"
 echo "Test cases skipped: $total_skipped"
 echo "Test cases failed: $total_failed"
+echo "Hermeticity violations: ${#hermeticity_violations[@]}"
+if [[ ${#hermeticity_violations[@]} -gt 0 ]]; then
+  echo "  (a suite must not leak stray files into the caller's cwd — kit issue #1032)"
+  for hv in "${hermeticity_violations[@]}"; do
+    echo "  - $hv"
+  done
+fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then
   # Sort the tracked lists.
@@ -245,7 +279,7 @@ echo "==============================================================="
 
 # Exit 0 only if no suite failed AND at least one suite actually passed.
 # A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
-if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]]; then
+if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] && [[ ${#hermeticity_violations[@]} -eq 0 ]]; then
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
     exit 1

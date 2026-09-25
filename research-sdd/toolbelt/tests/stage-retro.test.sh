@@ -562,10 +562,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     repo="$(mkrepo teeth-guard broken)"
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: applied 2026-01-01 -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"   # replace the sandbox copy with the mutant
-    # Neuter the guard to a no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands an
-    # unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
+    # bash 5.1+ expands an unescaped '&' in the ${var/pat/replacement} REPLACEMENT operand to
+    # the matched text UNLESS the replacement operand is itself quoted (kit issue #1032: an
+    # unquoted replacement containing '>&2' corrupted a mutant into a bare `> git` redirection
+    # that leaked a stray file into the caller's cwd). Every substitution below quotes its
+    # replacement operand so this landmine can never fire regardless of the replacement's content.
     neutered=':'
-    printf '%s\n' "${content/"$anchor"/$neutered}" > "$mutant"
+    printf '%s\n' "${content/"$anchor"/"$neutered"}" > "$mutant"
     # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
     # precondition holds and the ONLY thing that can stop staging is the (neutered) guard.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant
@@ -598,7 +601,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # (the 'if' line only). The remaining 'exit 2' and 'fi' after it stay, so we need to cancel
     # the whole block. Use 'if false; then' — the body never runs, and the existing fi closes it.
     neutered='if false; then'
-    printf '%s\n' "${content/"$anchor_e"/$neutered}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_e"/"$neutered"}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-excl
     git -C "$repo" push -q origin main 2>/dev/null
     outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/client.md" 2>&1)"
@@ -627,7 +630,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     # Replace the tools sed range with an echo that only prints the heading — no table rows.
     neutered_t8="echo '## Tools built, adapted, or outgrown'"
-    printf '%s\n' "${content/"$anchor_t8"/$neutered_t8}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_t8"/"$neutered_t8"}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-tools
     git -C "$repo" push -q origin main 2>/dev/null
     outm="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r-tools.md" 2>&1)"
@@ -655,7 +658,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_f='fetch -q origin 2>/dev/null || true'
-    printf '%s\n' "${content/"$anchor_f"/$neutered_f}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_f"/"$neutered_f"}" > "$mutant"
     # Commit and PUSH before breaking the remote so origin/main is in sync with local main —
     # the FETCH guard is the one under test, and it must be the first thing to fire.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-fetch-fail
@@ -687,7 +690,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_c='checkout -q --no-track -b "$branch"'
-    printf '%s\n' "${content/"$anchor_c"/$neutered_c}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_c"/"$neutered_c"}" > "$mutant"
     # Push mutant before adding extra remote commit so origin/main == local main at this point.
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-behind-origin
     git -C "$repo" push -q origin main 2>/dev/null
@@ -758,7 +761,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     git -C "$repo" branch -q "retro/targetA-r1/blocker"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_cb='git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main'
-    printf '%s\n' "${content/"$anchor_cb"/$neutered_cb}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_cb"/"$neutered_cb"}" > "$mutant"
     # Overwriting the committed SUT copy dirties the tree; commit it so the script's clean-tree
     # precondition holds (same pattern as the other mutants above).
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-checkoutb
@@ -786,8 +789,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     neutered_p1='KIT_REPO="$(cd "$(dirname "$0")/../.." && pwd)"'
     neutered_p2='LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"'
-    mutated="${content/"$anchor_p1"/$neutered_p1}"
-    mutated="${mutated/"$anchor_p2"/$neutered_p2}"
+    mutated="${content/"$anchor_p1"/"$neutered_p1"}"
+    mutated="${mutated/"$anchor_p2"/"$neutered_p2"}"
     printf '%s\n' "$mutated" > "$repo/research-sdd/toolbelt/stage-retro.sh"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-nophysical
     git -C "$repo" push -q origin main 2>/dev/null
@@ -867,7 +870,7 @@ esac'
     printf '<!-- review-status: pending -->\n# retro\n\nNEW content.\n' > "$repo/targetA/retros/r1.md"
     git -C "$repo" add -A; git -C "$repo" commit -qm "update r1.md to NEW (deliberately NOT pushed)"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
-    printf '%s\n' "${content/"$anchor_eq"/$neutered_eq}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_eq"/"$neutered_eq"}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-selfref-existence-only
     outm_eq="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_eq=$?
     if [ "$rcm_eq" = 0 ] && [ -n "$(branches "$repo")" ]; then
@@ -894,7 +897,7 @@ esac'
     _sym_t17="$ROOT/teeth-symlink-to-retros"
     ln -s "$repo/targetA/retros" "$_sym_t17"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
-    printf '%s\n' "${content/"$anchor_pP"/$neutered_pP}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_pP"/"$neutered_pP"}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-retro-abs-logical
     outm_pP="$("$BASH_BIN" "$mutant" "$_sym_t17/r1.md" 2>&1)"; rcm_pP=$?
     if [ "$rcm_pP" != 7 ] && [ -n "$(branches "$repo")" ]; then
@@ -922,7 +925,7 @@ esac'
     git -C "$repo" worktree add -q "$_wt_t14" "retro/targetA-r1"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
     neutered_f2='git -C "$KIT_REPO" checkout -q "$branch"'
-    printf '%s\n' "${content/"$anchor_f2"/$neutered_f2}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_f2"/"$neutered_f2"}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-existing-branch
     git -C "$repo" push -q origin main 2>/dev/null
     outm_f2="$("$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" 2>&1)"; rcm_f2=$?
@@ -984,7 +987,7 @@ fi'
     git -C "$repo" branch -q "retro/targetA-r1" origin/main
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
     mutant="$repo/research-sdd/toolbelt/stage-retro.sh"
-    printf '%s\n' "${content/"$anchor_swb"/$neutered_swb}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_swb"/"$neutered_swb"}" > "$mutant"
     git -C "$repo" add -A; git -C "$repo" commit -qm mutant-exit8-no-switchback
     git -C "$repo" push -q origin main 2>/dev/null
     "$BASH_BIN" "$mutant" "$repo/targetA/retros/r1.md" >/dev/null 2>&1

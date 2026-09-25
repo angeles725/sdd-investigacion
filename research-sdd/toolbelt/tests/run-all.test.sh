@@ -373,6 +373,41 @@ if grep -qF 'Suites without teeth: 1 — [nt]' <<<"$out" \
   ok "with-teeth-no-banner: no-banner suite in its own category, not counted as no-teeth"
 else no "with-teeth-no-banner failed: $(grep -iE 'Suites without|but no banner' <<<"$out" | tr '\n' '|')"; fi
 
+# 23 — hermeticity (kit issue #1032): a suite that leaks a stray TOP-LEVEL file into the
+#      CALLER's cwd (not $SCRIPT_DIR — suites run via `bash "$suite"` with no cd, so an
+#      unguarded redirection lands wherever run-all.sh itself was invoked from) is detected,
+#      named, and fails the run. A clean sibling suite running in the same batch must NOT be
+#      blamed. Runs from a dedicated empty cwd so the leak (and its cleanup) stay contained.
+w="$(newdir c23)"
+mkfix_sh "$w/clean.test.sh" 2 0 0
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo oops > stray-c23.txt\n'
+  printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  printf 'exit 0\n'
+} > "$w/leaky.test.sh"
+_c23cwd="$TMP/c23-cwd"; mkdir -p "$_c23cwd"
+out="$(cd "$_c23cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+_c23_hv="$(grep -F 'leaked:' <<<"$out")"
+if [ "$rc" -ne 0 ] \
+   && grep -qF 'Hermeticity violations: 1' <<<"$out" \
+   && grep -qF 'leaky.test.sh leaked:' <<<"$_c23_hv" \
+   && grep -qF 'stray-c23.txt' <<<"$_c23_hv" \
+   && ! grep -qF 'clean.test.sh leaked:' <<<"$_c23_hv"; then
+  ok "hermeticity: leaky.test.sh's stray top-level cwd file is detected, named, run fails; clean.test.sh not blamed"
+else no "hermeticity failed: rc=$rc :: $(tr '\n' '|' <<<"$_c23_hv")"; fi
+rm -f "$_c23cwd/stray-c23.txt" 2>/dev/null || true
+
+# 24 — hermeticity-clean: an all-clean batch reports zero violations and does not fail on
+#      their account (the guard must not misfire on suites that behave).
+w="$(newdir c24)"
+mkfix_sh "$w/a.test.sh" 2 0 0
+mkfix_sh "$w/b.test.sh" 1 0 0
+_c24cwd="$TMP/c24-cwd"; mkdir -p "$_c24cwd"
+out="$(cd "$_c24cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'Hermeticity violations: 0' <<<"$out"; then
+  ok "hermeticity-clean: all-clean batch → 'Hermeticity violations: 0', run still exits 0"
+else no "hermeticity-clean failed: rc=$rc :: $(grep -i 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -475,6 +510,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-banner: silenced banner absent from output → banner output has real teeth"
     else
       no "teeth-banner: banner still present after silencing → banner output teeth absent (THEATER)"
+    fi
+  fi
+  # Mutation 7 (kit issue #1032): neuter SENTINEL-HERMETICITY-CHECK's detection condition;
+  # a suite that leaks a stray top-level cwd file must then FALSE-PASS (runner exits 0,
+  # 'Hermeticity violations: 0'), proving the hermeticity guard has real teeth.
+  echo "-- teeth: neuter SENTINEL-HERMETICITY-CHECK; a leaked stray file must FALSE-PASS --"
+  w="$TMP/teeth-hermeticity"; mkdir -p "$w"
+  sentinel7='  # SENTINEL-HERMETICITY-CHECK'
+  sentinel7_count="$(grep -Fc "$sentinel7" "$SUT")"
+  sed '/SENTINEL-HERMETICITY-CHECK/{n;n;n;s/if \[\[ -n "\$_new_cwd_entries" \]\]; then/if false; then/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel7_count" -ne 1 ]; then
+    no "teeth-hermeticity: SENTINEL-HERMETICITY-CHECK not found exactly once (count=$sentinel7_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-hermeticity: detection-condition mutation was a byte-identical no-op"
+  else
+    mkfix_sh "$w/clean.test.sh" 2 0 0
+    { printf '#!/usr/bin/env bash\n'
+      printf 'echo oops > stray-teeth.txt\n'
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+      printf 'exit 0\n'
+    } > "$w/leaky.test.sh"
+    _teeth_hv_cwd="$TMP/teeth-hermeticity-cwd"; mkdir -p "$_teeth_hv_cwd"
+    mout="$(cd "$_teeth_hv_cwd" && bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    rm -f "$_teeth_hv_cwd/stray-teeth.txt" 2>/dev/null || true
+    if [ "$mrc" -eq 0 ] && grep -qF 'Hermeticity violations: 0' <<<"$mout"; then
+      ok "teeth-hermeticity: neutered detection condition FALSE-PASSES a real leak → hermeticity guard has real teeth"
+    else
+      no "teeth-hermeticity: mutant still caught the leak (rc=$mrc) — detection-condition mutation not exercised (THEATER)"
     fi
   fi
 fi
