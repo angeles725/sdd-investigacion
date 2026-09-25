@@ -106,6 +106,8 @@ declare -F retro_marker_is_partial >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
 declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
 
 _RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
 [ -f "$_RG_LIB" ] || { echo "reconcile-issues: cannot find helper $_RG_LIB" >&2; exit 1; }
@@ -152,6 +154,18 @@ audit_retro() {
   # here even though the seeder already found it — the exact split-brain #945 closes.
   local _marker_line
   _marker_line="$(retro_marker_scope_line "$retro_path")"
+
+  # RECONCILE_ISSUES_OUT_OF_SCOPE_GUARD (kit issue #1099): an empty scope-scan result does not
+  # mean "no marker" when a whole-file scan still finds one outside the shared #945 scope (YAML
+  # frontmatter, a multi-line comment run before it, a marker after a second heading, …).
+  # Conflating that with "genuinely absent" was the #1048-#1089 fail-open shape — status read as
+  # "" (pending/open) and every row was treated as untracked/open. Report it loudly instead of
+  # silently classifying: return 1 so the caller counts this retro under fleet-summary's
+  # degraded=, the same bucket already used for "couldn't classify this retro" failures.
+  if [ -z "$_marker_line" ] && retro_marker_out_of_scope "$retro_path"; then
+    echo "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in $retro_basename — refusing to classify (kit issue #1099); move the marker into the leading block" >&2
+    return 1
+  fi
 
   local _status
   _status="$(retro_status_from_marker_line "$_marker_line")"

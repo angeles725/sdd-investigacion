@@ -388,6 +388,64 @@ else
   no "16b H1 + blank + applied marker → excluded (#945 real-corpus shape)" "exit=$RC out=[$OUT]"
 fi
 
+# 16c — OUT-OF-SCOPE MARKER (kit issue #1099): a marker positioned after a SECOND heading is
+# outside the shared #945 scope. Before #1099 this was silently conflated with "no marker at
+# all" — same WARN wording ('add a marker'), which is misleading when a marker already exists,
+# just misplaced. #1099 keeps the retro pending (sweep-retros is WARN-only, never fails the
+# run) but reports it under its own distinct, typed 'out-of-scope-marker' WARN wording instead.
+kit="$(mkkit c16c-oos)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '# §18 Retro — focus: apis\n\n## Notes\n\n'
+  printf '<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->\n\n'
+  printf '## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n'
+  printf '| 1 | delta 1 | because |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'out-of-scope-marker' <<<"$OUT" \
+   && ! grep -q 'add .<!-- review-status: pending' <<<"$OUT" \
+   && grep -q 'Summary: 1 pending / 1 retros' <<<"$OUT"; then
+  ok "16c out-of-scope marker (after a SECOND heading) → pending, typed WARN (#1099)" "(exit $RC)"
+else
+  no "16c out-of-scope marker (after a SECOND heading) → pending, typed WARN (#1099)" "exit=$RC out=[$OUT]"
+fi
+
+# 16d — REGRESSION GUARD (§7 list edges: LAST position, no trailing newline): the out-of-scope
+# marker sits as the FINAL line of the file with no trailing newline — the exact shape of
+# verify-registry.sh's last-field bug — and must still be detected and reported with the typed
+# WARN, not silently fall back to the generic "no marker" wording.
+kit="$(mkkit c16d-oos-last)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+printf '# §18 Retro — focus: apis\n\n## Notes\n\n<!-- review-status: applied 2026-09-24 -->' \
+  > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'out-of-scope-marker' <<<"$OUT"; then
+  ok "16d out-of-scope marker, LAST line no trailing newline → still detected (#1099, §7)" "(exit $RC)"
+else
+  no "16d out-of-scope marker, LAST line no trailing newline → still detected (#1099, §7)" "exit=$RC out=[$OUT]"
+fi
+
+# 16e — REGRESSION GUARD: genuinely absent marker (case 6's shape) must keep the ORIGINAL 'add a
+# marker' WARN wording, never the new out-of-scope-marker wording.
+kit="$(mkkit c16e-genuinely-absent)"; tgt="$kit/targetA"
+mkretro "$tgt" "r1.md" "-" 1
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -q 'PENDING' <<<"$OUT" \
+   && grep -q 'no review-status marker' <<<"$OUT" \
+   && ! grep -q 'out-of-scope-marker' <<<"$OUT"; then
+  ok "16e genuinely absent marker → original 'no review-status marker' wording, unchanged" "(exit $RC)"
+else
+  no "16e genuinely absent marker → original 'no review-status marker' wording, unchanged" "exit=$RC out=[$OUT]"
+fi
+
 # 17 — FAIL-CLOSED on a broken helper. The SUT sources lib/retro-status.sh, but existence of the
 #      file is not enough: the source must have DEFINED retro_marker_scope_line (kit issue #945 —
 #      the shared scope function replacing retro_review_status as sweep-retros.sh's primary
@@ -1553,14 +1611,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Third teeth (negative control for the fail-closed guard). Case 17 claims the post-source
-  # `declare -F` guards are what turn a broken helper into a non-zero abort. Neuter BOTH guards on a
-  # throwaway copy so neither check can fail (force both always-true), pair it with the same broken
-  # (comment-only) helper + an APPLIED retro, and re-run: with both guards dead the SUT falls back to
-  # the OLD fail-OPEN — the applied retro false-surfaces as PENDING and the run exits 0.
+  # `declare -F` guards are what turn a broken helper into a non-zero abort. Neuter ALL FOUR guards
+  # (kit issue #1099 added retro_marker_out_of_scope as a fourth) on a throwaway copy so none of
+  # them can fail (force all always-true), pair it with the same broken (comment-only) helper + an
+  # APPLIED retro, and re-run: with all guards dead the SUT falls back to the OLD fail-OPEN — the
+  # applied retro false-surfaces as PENDING and the run exits 0.
   echo "-- teeth: neuter the fail-closed guards, expect the broken helper to fail-OPEN again --"
   anchor3='declare -F retro_marker_scope_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_marker_scope_line" >&2; exit 1; }'
   anchor3_stat='declare -F retro_status_from_marker_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_status_from_marker_line" >&2; exit 1; }'
   anchor3_wv='declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }'
+  anchor3_oos='declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_marker_out_of_scope" >&2; exit 1; }'
   if [[ "$content" != *"$anchor3"* ]]; then
     no "teeth: locate fail-closed guard" "anchor not found — SUT drifted?"
   else
@@ -1570,12 +1630,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     printf '#!/usr/bin/env bash\n# broken helper: no retro_marker_scope_line\n' \
       > "$kit/toolbelt/lib/retro-status.sh"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
-    # Neuter ALL THREE guards to no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands
+    # Neuter ALL FOUR guards to no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands
     # an unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
     neutered=':'
     _tmp_neu="${content/"$anchor3"/$neutered}"
     _tmp_neu="${_tmp_neu/"$anchor3_stat"/$neutered}"
-    printf '%s\n' "${_tmp_neu/"$anchor3_wv"/$neutered}" > "$mutant"
+    _tmp_neu="${_tmp_neu/"$anchor3_wv"/$neutered}"
+    printf '%s\n' "${_tmp_neu/"$anchor3_oos"/$neutered}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"; rcm=$?
     if [ "$rcm" = 0 ] && grep -q 'PENDING' <<<"$outm" && ! grep -q 'failed to define' <<<"$outm"; then
       ok "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "(case 17 has teeth)"
@@ -4376,6 +4437,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
   unset _lib_n _anchor_n
+
+  # Tooth OOS: neuter the out-of-scope-marker detection added to the SUT (kit issue #1099). Case
+  # 16c's out-of-scope fixture must then revert to the ORIGINAL generic "no review-status marker
+  # — add one" wording, proving the distinct out-of-scope-marker WARN is load-bearing.
+  echo "-- teeth OOS: neuter the out-of-scope-marker detection; case 16c must revert to generic wording --"
+  content_oos="$(cat "$SUT")"
+  anchor_oos='if [ -z "$status" ] && retro_marker_out_of_scope "$f"; then'
+  if [[ "$content_oos" != *"$anchor_oos"* ]]; then
+    no "teeth OOS: locate out-of-scope-marker guard in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-oos)"; tgt="$kit/targetA"
+    mkdir -p "$tgt/retros"
+    {
+      printf '# §18 Retro — focus: apis\n\n## Notes\n\n'
+      printf '<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->\n\n'
+      printf '## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n'
+      printf '| 1 | delta 1 | because |\n'
+    } > "$tgt/retros/r1.md"
+    write_targets "$kit" "$tgt"
+    mutant="$kit/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content_oos/"$anchor_oos"/if false; then}" > "$mutant"
+    outm_oos="$("$BASH_BIN" "$mutant" 2>&1)"
+    if grep -q 'no review-status marker' <<<"$outm_oos" && ! grep -q 'out-of-scope-marker' <<<"$outm_oos"; then
+      ok "teeth OOS: guard neutered → reverts to generic 'no review-status marker' wording (case 16c has teeth)" "()"
+    else
+      no "teeth OOS: guard neutered → should revert to generic wording" "out=[$outm_oos] — case 16c is THEATER"
+    fi
+  fi
+  unset content_oos anchor_oos
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -1109,16 +1109,19 @@ printf '# §18 Retro — focus: apis\n\n<!-- review-status: applied 2026-09-24 �
   && ok "T-SEEDABLE-3 H1 + blank + applied marker → not seedable (#945 real-corpus shape)" "()" \
   || no "T-SEEDABLE-3 H1 + blank + applied marker → not seedable (#945 real-corpus shape)" "(got seedable)"
 
-# T-SEEDABLE-4 (kit issue #945 scope narrowing): a properly-anchored 'dismissed' marker sitting
-# after a SECOND heading — unrelated to the leading-block-plus-one-H1 shape — must NOT suppress
-# seeding. Before #945 this script's own unanchored, unscoped 'grep -m1 review-status' over the
-# WHOLE file found a marker in this position; the shared scope only reads the leading block.
-# RED against origin/main: not-seedable (wrongly suppressed).
+# T-SEEDABLE-4 (kit issue #945 scope narrowing, SUPERSEDED by #1099 fail-closed): a
+# properly-anchored 'dismissed' marker sitting after a SECOND heading — unrelated to the
+# leading-block-plus-one-H1 shape — is out of retro_marker_scope_line's scope. Between #945 and
+# #1099 this was (correctly, per #945) read as "no marker at all" and therefore seedable — but
+# that shared "absent" reading was ALSO the exact fail-open shape #1099 closes: an out-of-scope
+# marker (whatever word it carries) is no longer silently treated as absent. #1099 makes this
+# refuse to seed instead, exactly like an out-of-scope 'applied' marker (T-SEEDABLE-6) — the
+# marker's word no longer matters once it is out of scope.
 f4="$ROOT/seedable-deep-dismissed.md"
 printf '# retro\n\n## Notes\n\n<!-- review-status: dismissed -->\n' > "$f4"
-[ "$(_seedable_check "$f4")" = "seedable" ] \
-  && ok "T-SEEDABLE-4 dismissed marker after a SECOND heading → still seedable (#945 scope)" "()" \
-  || no "T-SEEDABLE-4 dismissed marker after a SECOND heading → still seedable (#945 scope)" "(got not-seedable)"
+[ "$(_seedable_check "$f4")" = "not-seedable" ] \
+  && ok "T-SEEDABLE-4 dismissed marker after a SECOND heading → out-of-scope, not seedable (#945→#1099)" "()" \
+  || no "T-SEEDABLE-4 dismissed marker after a SECOND heading → out-of-scope, not seedable (#945→#1099)" "(got seedable)"
 
 # T-SEEDABLE-5: no marker at all → seedable.
 f5="$ROOT/seedable-none.md"
@@ -1126,6 +1129,24 @@ printf '# retro\n\nno marker\n' > "$f5"
 [ "$(_seedable_check "$f5")" = "seedable" ] \
   && ok "T-SEEDABLE-5 no marker at all → seedable" "()" \
   || no "T-SEEDABLE-5 no marker at all → seedable" "(got not-seedable)"
+
+# T-SEEDABLE-6 (kit issue #1099): a marker positioned deep in the body — after a SECOND heading —
+# is OUT OF SCOPE. Before #1099 this was silently conflated with "no marker at all" and read as
+# seedable (fail-open shape that produced #1048-#1089). #1099 makes this fail CLOSED: not
+# seedable — refuse until the marker is moved into the leading block.
+f6="$ROOT/seedable-out-of-scope.md"
+printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->\n' > "$f6"
+[ "$(_seedable_check "$f6")" = "not-seedable" ] \
+  && ok "T-SEEDABLE-6 marker after a SECOND heading (out-of-scope) → not seedable (#1099)" "()" \
+  || no "T-SEEDABLE-6 marker after a SECOND heading (out-of-scope) → not seedable (#1099)" "(got seedable)"
+
+# T-SEEDABLE-7 (kit issue #1099, §7 list edges): out-of-scope marker as the LAST line, no
+# trailing newline — the exact shape of verify-registry.sh's last-field bug.
+f7="$ROOT/seedable-oos-last.md"
+printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->' > "$f7"
+[ "$(_seedable_check "$f7")" = "not-seedable" ] \
+  && ok "T-SEEDABLE-7 out-of-scope marker, LAST line no trailing newline → not seedable (#1099)" "()" \
+  || no "T-SEEDABLE-7 out-of-scope marker, LAST line no trailing newline → not seedable (#1099)" "(got seedable)"
 
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
@@ -1869,11 +1890,18 @@ else
   no "T17-seedable teeth: locate retro_marker_is_partial call anchor" "anchor not found — SUT drifted?"
 fi
 
-# ── TOOTH 18-SEEDABLE (kit issue #945): revert _retro_is_seedable to reading the raw marker
-#    line via retro_marker_scope_line's H1-tolerant scan disabled — reuse the SAME H1-skip-removed
-#    mutant technique as lib/retro-status.sh's own teeth SC1, but exercised THROUGH retro-gate.sh,
-#    proving T-SEEDABLE-3 has teeth end to end (not just at the lib layer).
-echo "-- teeth T18-seedable: drop H1-skip rules in the shared lib; T-SEEDABLE-3 must go blind --"
+# ── TOOTH 18-SEEDABLE (kit issue #945, signal UPDATED by #1099): revert _retro_is_seedable to
+#    reading the raw marker line via retro_marker_scope_line's H1-tolerant scan disabled — reuse
+#    the SAME H1-skip-removed mutant technique as lib/retro-status.sh's own teeth SC1, but
+#    exercised THROUGH retro-gate.sh, proving T-SEEDABLE-3 has teeth end to end (not just at the
+#    lib layer). Before #1099, removing the H1-skip made the marker silently read as absent and
+#    flipped the final answer to seedable (fail-open). Since #1099, _retro_is_seedable's own
+#    out-of-scope-marker guard independently re-derives "marker present but scope missed it" via
+#    retro_marker_line's whole-file fallback (same mutant lib, unaffected by the H1-skip removal)
+#    and refuses to seed anyway — so the FINAL not-seedable/seedable verdict no longer flips, by
+#    design (defense in depth). The mutation still has teeth: it is observable in the REASON —
+#    the out-of-scope-marker WARN fires with the mutation and does not without it.
+echo "-- teeth T18-seedable: drop H1-skip rules in the shared lib; T-SEEDABLE-3's out-of-scope-marker WARN must appear --"
 if grep -qF 'RETRO_MARKER_SCOPE_H1_SKIP' "$RS_LIB"; then
   mutant_lib_t18s="$MUT_KIT/toolbelt/lib/retro-status-t18.sh"
   sed '/NR==1 && \/\^\[\[:space:\]\]\*#/d' "$RS_LIB" > "$mutant_lib_t18s"
@@ -1884,16 +1912,42 @@ if grep -qF 'RETRO_MARKER_SCOPE_H1_SKIP' "$RS_LIB"; then
     eval "$_rs_func"
     if _retro_is_seedable "$3"; then echo seedable; else echo not-seedable; fi
   ' _ "$mutant_lib_t18s" "$SUT" "$f3" 2>&1)"
-  # With the H1-skip removed, the H1 line becomes the leading-block terminator again → no marker
-  # found → status resolves to none/absent → the *(default) branch returns 0 → seedable (flips
-  # from T-SEEDABLE-3's not-seedable).
-  if [ "$out_t18s" = "seedable" ]; then
-    ok "T18-seedable teeth: H1-skip removed → T-SEEDABLE-3 flips to seedable (has teeth)" "()"
+  # With the H1-skip removed, retro_marker_scope_line goes blind on T-SEEDABLE-3's fixture (same
+  # mutant SC1 already proves at the lib layer) — but retro_marker_out_of_scope's whole-file
+  # fallback (unaffected by the H1-skip removal) still finds the marker and fires the
+  # out-of-scope-marker guard, keeping the final verdict not-seedable via a DIFFERENT, still-safe
+  # code path. The tooth's signal is that fallback firing, not a flipped final verdict.
+  if printf '%s' "$out_t18s" | grep -q 'out-of-scope-marker' && printf '%s' "$out_t18s" | grep -q 'not-seedable'; then
+    ok "T18-seedable teeth: H1-skip removed → out-of-scope-marker fallback fires, still not-seedable (has teeth)" "()"
   else
-    no "T18-seedable teeth: H1-skip removed → should flip to seedable" "got [$out_t18s] — THEATER"
+    no "T18-seedable teeth: H1-skip removed → out-of-scope-marker fallback should fire" "got [$out_t18s] — THEATER"
   fi
 else
   no "T18-seedable teeth: locate RETRO_MARKER_SCOPE_H1_SKIP anchor" "anchor not found — lib drifted?"
+fi
+
+# ── TOOTH 19-SEEDABLE (kit issue #1099): neuter the out-of-scope-marker guard added to
+#    _retro_is_seedable. T-SEEDABLE-6's out-of-scope fixture must then flip back to seedable,
+#    reproducing the exact #1048-#1089 fail-open shape #1099 fixes.
+echo "-- teeth T19-seedable: neuter the out-of-scope-marker guard in _retro_is_seedable --"
+anchor_t19s='  if [ -z "$sline" ] && retro_marker_out_of_scope "$rf"; then'
+if [[ "$sut_content_gate" == *"$anchor_t19s"* ]]; then
+  mutant_t19s="$MUT_KIT/toolbelt/mutant-retro-seedable-t19.sh"
+  printf '%s\n' "${sut_content_gate/"$anchor_t19s"/  if false; then}" > "$mutant_t19s"
+  bash -n "$mutant_t19s" 2>/dev/null || { no "T19-seedable teeth: mutant failed bash -n" ""; }
+  out_t19s="$("$BASH_BIN" -c '
+    . "$1"
+    _rs_func="$(sed -n "/^_retro_is_seedable() {/,/^}/p" "$2")"
+    eval "$_rs_func"
+    if _retro_is_seedable "$3"; then echo seedable; else echo not-seedable; fi
+  ' _ "$RS_LIB" "$mutant_t19s" "$f6" 2>&1)"
+  if [ "$out_t19s" = "seedable" ]; then
+    ok "T19-seedable teeth: out-of-scope-marker guard neutered → T-SEEDABLE-6 flips to seedable (has teeth)" "()"
+  else
+    no "T19-seedable teeth: out-of-scope-marker guard neutered → should flip to seedable" "got [$out_t19s] — THEATER"
+  fi
+else
+  no "T19-seedable teeth: locate out-of-scope-marker guard anchor" "anchor not found — SUT drifted?"
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────

@@ -1277,6 +1277,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "T19 teeth: locate F1 reason-wording anchor" "anchor not found in SUT — SUT drifted?"
   fi
 
+  # TOOTH T-OOS (kit issue #1099): neuter the out-of-scope-marker guard. Case 17b's fixture
+  # (marker after a second heading) must then be silently read as if no marker existed at all —
+  # its row planned instead of the seed being refused — reproducing the exact #1048-#1089
+  # fail-open shape #1099 fixes.
+  echo "-- teeth T-OOS: neuter the out-of-scope-marker guard; case 17b must fail open again --"
+  anchor_toos='if [ -z "$_marker_line" ] && retro_marker_out_of_scope "$retro"; then'
+  if [[ "$sut_content" == *"$anchor_toos"* ]]; then
+    box_toos="$(mkbox teeth-oos)"
+    retro_toos="$box_toos/rh/target-foo/retros/r-oos.md"
+    cat > "$retro_toos" <<'RETROEOF'
+# §18 Retro — focus: apis
+
+## Notes
+
+<!-- review-status: applied 2026-09-20 · kit ad87c33 -->
+
+## Proposed kit deltas
+
+| # | Proposed change | Target (file) | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |
+RETROEOF
+    mutant_toos="$box_toos/research-sdd/toolbelt/stage-retro-issues.sh"
+    printf '%s\n' "${sut_content/"$anchor_toos"/if false; then}" > "$mutant_toos"
+    "$BASH_BIN" -n "$mutant_toos" 2>/dev/null || no "T-OOS teeth: mutant syntax check" "bash -n failed"
+    out_toos="$(PATH="$box_toos/bin:$PATH" \
+      "$BASH_BIN" "$mutant_toos" "$retro_toos" 2>&1)"; rc_toos=$?
+    if printf '%s\n' "$out_toos" | grep -q 'planned-issue:'; then
+      ok "T-OOS teeth: guard neutered → row planned again, fails open (case 17b has teeth)" "()"
+    else
+      no "T-OOS teeth: guard neutered → row should be planned (fail open)" \
+        "mutant did not emit planned-issue — case 17b is THEATER: rc=$rc_toos out=[$out_toos]"
+    fi
+  else
+    no "T-OOS teeth: locate out-of-scope-marker guard anchor" "anchor not found in SUT — SUT drifted?"
+  fi
+
 fi  # --prove-teeth
 
 # ---------------------------------------------------------------------------
@@ -1330,13 +1367,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 17b — SCOPE NARROWING (kit issue #945): a marker positioned deep in the body — after a SECOND
-# heading, unrelated to the leading-block-plus-one-H1 shape — must no longer gate the seeder.
-# Before #945 this script used retro_marker_line's WHOLE-FILE scan, which found a marker
-# ANYWHERE; the shared retro_marker_scope_line scope only tolerates ONE H1 at the very top, so
-# this retro is (correctly) read as carrying NO marker at all and its row is emitted as planned.
-# RED against origin/main: the deep marker WAS found (whole-file scan), so the row was
-# incorrectly treated as no-match instead of being planned.
+# 17b — SCOPE NARROWING + FAIL-CLOSED (kit issues #945, #1099): a marker positioned deep in the
+# body — after a SECOND heading, unrelated to the leading-block-plus-one-H1 shape — is out of
+# retro_marker_scope_line's scope. Before #1099, an out-of-scope marker was silently
+# indistinguishable from "no marker at all" and its row was emitted as planned — the fail-open
+# shape that produced #1048-#1089 (every row seeded because a marker sat somewhere the parser
+# never looked). #1099 makes this refuse to seed instead: typed 'out-of-scope-marker:' message,
+# exit 0, NO planned-issue: lines.
+# RED against pre-#1099: the deep marker was silently read as absent and the row WAS planned.
 box="$(mkbox case-two-headings-marker)"
 retro_two_headings="$box/rh/target-foo/retros/r-two-headings.md"
 cat > "$retro_two_headings" <<'RETROEOF'
@@ -1353,14 +1391,95 @@ cat > "$retro_two_headings" <<'RETROEOF'
 | 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |
 RETROEOF
 run "$box" "$retro_two_headings"
-two_headings_planned=0
+two_headings_planned=0; two_headings_oos=0
 printf '%s\n' "$OUT" | grep -q 'planned-issue:' && two_headings_planned=1
-if [ "$RC" = 0 ] && [ "$two_headings_planned" = 1 ]; then
-  ok "17b marker after a SECOND heading → out of scope, row planned (not no-match) (#945)" "(exit $RC)"
+printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' && two_headings_oos=1
+if [ "$RC" = 0 ] && [ "$two_headings_planned" = 0 ] && [ "$two_headings_oos" = 1 ]; then
+  ok "17b marker after a SECOND heading → out-of-scope-marker, refuses to seed (#945, #1099)" "(exit $RC)"
 else
-  no "17b marker after a SECOND heading → out of scope, row planned (not no-match) (#945)" \
-    "exit=$RC planned=$two_headings_planned out=[$OUT]"
+  no "17b marker after a SECOND heading → out-of-scope-marker, refuses to seed (#945, #1099)" \
+    "exit=$RC planned=$two_headings_planned oos=$two_headings_oos out=[$OUT]"
 fi
+
+# ---------------------------------------------------------------------------
+# 17c — OUT-OF-SCOPE MARKER, LIST EDGES (kit issue #1099, §7 "test the list edges"): the
+# whole-file scan (retro_marker_line) that detects an out-of-scope marker reads the file
+# line-by-line; prove it is not blind at any structural position — EARLY, MIDDLE, LATE (no
+# trailing newline, mirroring the verify-registry.sh last-field bug) — and that a minimal
+# single-extra-line file (smallest possible out-of-scope shape) is caught too.
+
+# 17c-1 — EARLY: YAML frontmatter precedes an otherwise leading-block-shaped marker.
+box="$(mkbox case-oos-early)"
+retro_oos_early="$box/rh/target-foo/retros/r-oos-early.md"
+printf -- '---\ntitle: x\n---\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n' \
+  > "$retro_oos_early"
+run "$box" "$retro_oos_early"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+  && ! printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
+  && ok "17c-1 out-of-scope marker EARLY (YAML frontmatter) → refuses to seed" "(exit $RC)" \
+  || no "17c-1 out-of-scope marker EARLY (YAML frontmatter) → refuses to seed" "exit=$RC out=[$OUT]"
+
+# 17c-2 — MIDDLE: substantial unrelated content both before AND after the out-of-scope marker.
+box="$(mkbox case-oos-middle)"
+retro_oos_middle="$box/rh/target-foo/retros/r-oos-middle.md"
+{
+  printf '# §18 Retro — focus: apis\n\n## Background\n\nSome long narrative paragraph explaining\nwhat happened across several lines of prose\nso the marker below sits well past line 1.\n\n'
+  printf '<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n'
+  printf '## More notes\n\nEven more narrative content follows the marker,\nso it is not the last line of the file either.\n\n'
+  printf '## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n'
+} > "$retro_oos_middle"
+run "$box" "$retro_oos_middle"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+  && ! printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
+  && ok "17c-2 out-of-scope marker MIDDLE (narrative before+after) → refuses to seed" "(exit $RC)" \
+  || no "17c-2 out-of-scope marker MIDDLE (narrative before+after) → refuses to seed" "exit=$RC out=[$OUT]"
+
+# 17c-3 — LAST: the marker is the FINAL line of the file, with NO trailing newline — the exact
+# shape of verify-registry.sh's list-edge bug (a `read` loop silently skipping the last element).
+box="$(mkbox case-oos-last)"
+retro_oos_last="$box/rh/target-foo/retros/r-oos-last.md"
+printf '# §18 Retro — focus: apis\n\n## Notes\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->' \
+  > "$retro_oos_last"
+run "$box" "$retro_oos_last"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+  && ok "17c-3 out-of-scope marker LAST line, no trailing newline → still detected" "(exit $RC)" \
+  || no "17c-3 out-of-scope marker LAST line, no trailing newline → still detected" "exit=$RC out=[$OUT]"
+
+# 17c-4 — SINGLE-ROW: the smallest possible out-of-scope shape — exactly one non-blank,
+# non-comment line (a lone '## Notes' heading) between the leading block and the marker.
+box="$(mkbox case-oos-single-row)"
+retro_oos_single="$box/rh/target-foo/retros/r-oos-single.md"
+printf '## Notes\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n' > "$retro_oos_single"
+run "$box" "$retro_oos_single"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+  && ok "17c-4 out-of-scope marker, single-row minimal shape → still detected" "(exit $RC)" \
+  || no "17c-4 out-of-scope marker, single-row minimal shape → still detected" "exit=$RC out=[$OUT]"
+
+# 17d — REGRESSION GUARD: a genuinely markerless retro (no marker anywhere in the file) must
+# NOT be misclassified as out-of-scope-marker — it stays the ordinary pending/open case with
+# rows planned, exactly as before #1099.
+box="$(mkbox case-oos-genuinely-absent)"
+retro_absent="$(mk_retro "$box" target-foo r-no-marker-at-all.md "-" \
+  "$(printf '| 1 | fix the thing | METHODOLOGY.md | B1 | new | HIGH |')")"
+run "$box" "$retro_absent"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
+  && ! printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+  && ok "17d genuinely markerless retro → still planned as open, NOT out-of-scope-marker" "(exit $RC)" \
+  || no "17d genuinely markerless retro → still planned as open, NOT out-of-scope-marker" "exit=$RC out=[$OUT]"
+
+# 17e — REGRESSION GUARD (BOM): a UTF-8 BOM followed by an otherwise in-scope H1/blank/marker
+# layout must still be read IN scope (status honored normally) — not misclassified as
+# out-of-scope-marker just because of the BOM.
+box="$(mkbox case-oos-bom-inscope)"
+retro_bom="$box/rh/target-foo/retros/r-bom-inscope.md"
+printf '\xef\xbb\xbf# §18 Retro — focus: apis\n\n<!-- review-status: applied 2026-09-20 · kit ad87c33 -->\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | fix the thing | METHODOLOGY.md | B42 | new | HIGH |\n' \
+  > "$retro_bom"
+run "$box" "$retro_bom"
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -qi 'no-match\|all.*shipped\|applied' \
+  && ! printf '%s\n' "$OUT" | grep -q 'planned-issue:' \
+  && ! printf '%s\n' "$OUT" | grep -q '^out-of-scope-marker:' \
+  && ok "17e BOM + otherwise in-scope marker → honored normally (no-match), not out-of-scope" "(exit $RC)" \
+  || no "17e BOM + otherwise in-scope marker → honored normally (no-match), not out-of-scope" "exit=$RC out=[$OUT]"
 
 # ---------------------------------------------------------------------------
 # 18 — DISMISSED MARKER WITH PROSE "partial": dismissed retro with lowercase "partial" in marker prose

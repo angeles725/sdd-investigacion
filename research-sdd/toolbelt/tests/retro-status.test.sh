@@ -838,6 +838,106 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# retro_marker_out_of_scope <file> — kit issue #1099: THIRD state distinct from "in-scope marker"
+# and "genuinely absent". §7 "test the list edges": the whole-file scan this function depends on
+# (retro_marker_line) reads the file line by line, so prove it is not blind at any structural
+# position — EARLY, MIDDLE, LATE (no trailing newline) — plus the smallest single-extra-line shape.
+
+# 50 — EARLY: YAML frontmatter precedes an otherwise leading-block-shaped marker.
+f="$(mkretro oos-early <<'EOF'
+---
+title: x
+---
+
+<!-- review-status: applied 2026-01-01 -->
+body
+EOF
+)"
+retro_marker_out_of_scope "$f" \
+  && ok "50 retro_marker_out_of_scope: EARLY (YAML frontmatter) → true" "()" \
+  || no "50 retro_marker_out_of_scope: EARLY (YAML frontmatter) → true" "returned false"
+
+# 51 — MIDDLE: substantial content both before AND after the out-of-scope marker.
+f="$(mkretro oos-middle <<'EOF'
+# retro
+
+## Background
+
+Some long narrative paragraph explaining
+what happened, several lines of prose,
+so the marker sits well past line 1.
+
+<!-- review-status: applied 2026-01-01 -->
+
+## More notes
+
+Even more narrative content follows the marker,
+so it is not the last line of the file either.
+EOF
+)"
+retro_marker_out_of_scope "$f" \
+  && ok "51 retro_marker_out_of_scope: MIDDLE (narrative before+after) → true" "()" \
+  || no "51 retro_marker_out_of_scope: MIDDLE (narrative before+after) → true" "returned false"
+
+# 52 — LAST: the marker is the FINAL line of the file, NO trailing newline — the exact shape of
+# verify-registry.sh's list-edge bug (a `read` loop silently skipping the last element).
+f="$ROOT/retro-oos-last.md"
+printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->' > "$f"
+retro_marker_out_of_scope "$f" \
+  && ok "52 retro_marker_out_of_scope: LAST line, no trailing newline → true" "()" \
+  || no "52 retro_marker_out_of_scope: LAST line, no trailing newline → true" "returned false"
+
+# 53 — SINGLE-ROW: the smallest possible out-of-scope shape — exactly one non-blank, non-comment
+# line (a lone '## Notes' heading) between the leading block and the marker.
+f="$ROOT/retro-oos-single.md"
+printf '## Notes\n<!-- review-status: applied 2026-01-01 -->\n' > "$f"
+retro_marker_out_of_scope "$f" \
+  && ok "53 retro_marker_out_of_scope: single-row minimal shape → true" "()" \
+  || no "53 retro_marker_out_of_scope: single-row minimal shape → true" "returned false"
+
+# 54 — REGRESSION GUARD: genuinely absent (no marker anywhere) → false, not out-of-scope.
+f="$(mkretro oos-absent <<'EOF'
+# retro
+
+body, no marker here at all
+EOF
+)"
+retro_marker_out_of_scope "$f" \
+  && no "54 retro_marker_out_of_scope: genuinely absent → false" "returned true (false positive)" \
+  || ok "54 retro_marker_out_of_scope: genuinely absent → false" "()"
+
+# 55 — REGRESSION GUARD: an IN-SCOPE marker (case 37's real-corpus shape) → false, not out-of-scope.
+retro_marker_out_of_scope "$f37path" \
+  && no "55 retro_marker_out_of_scope: in-scope marker (case 37 fixture) → false" "returned true (false positive)" \
+  || ok "55 retro_marker_out_of_scope: in-scope marker (case 37 fixture) → false" "()"
+
+# 56 — MISSING FILE → false (absent-input), no error, never a crash.
+retro_marker_out_of_scope "$ROOT/does-not-exist-$$.md" \
+  && no "56 retro_marker_out_of_scope: missing file → false" "returned true" \
+  || ok "56 retro_marker_out_of_scope: missing file → false" "()"
+
+# ---------------------------------------------------------------------------
+# UTF-8 BOM stripping (kit issue #1099) — retro_marker_scope_line and retro_marker_line must
+# strip a leading BOM so a marker whose position is otherwise in scope is still found.
+
+# 57 — BOM + H1 + blank + marker (real-corpus shape with a BOM prepended) → found IN SCOPE.
+f="$ROOT/retro-bom-inscope.md"
+printf '\xef\xbb\xbf# retro\n\n<!-- review-status: applied 2026-01-01 -->\nbody\n' > "$f"
+sl57="$(retro_marker_scope_line "$f")"
+[ "$sl57" = "<!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "57 retro_marker_scope_line: BOM + H1 + blank + marker → found in scope" "()" \
+  || no "57 retro_marker_scope_line: BOM + H1 + blank + marker → found in scope" "got [$sl57]"
+
+# 58 — BOM directly before the marker (no H1) → still found via retro_marker_line's whole-file
+# scan (used by retro_marker_out_of_scope's second half).
+f="$ROOT/retro-bom-direct.md"
+printf '\xef\xbb\xbf<!-- review-status: applied 2026-01-01 -->\nbody\n' > "$f"
+wl58="$(retro_marker_line "$f")"
+[ "$wl58" = "<!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "58 retro_marker_line: BOM directly before marker → found" "()" \
+  || no "58 retro_marker_line: BOM directly before marker → found" "got [$wl58]"
+
+# ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth P1: drop the free-text CUT (the sed that trims at '—'/'shipped:'/'(') from
@@ -983,6 +1083,73 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         ok "teeth SH1: unscoped-shipped mutant false-positives on case 44's prose 'shipped:' (has teeth)" "()"
       else
         no "teeth SH1: unscoped-shipped mutant should false-positive on case 44" "returned '$outsh1' (expected 0) — THEATER"
+      fi
+    fi
+  fi
+
+  # Tooth OOS1 (kit issue #1099): neuter retro_marker_out_of_scope's whole-file-scan check (the
+  # 'retro_marker_line' call) so it always reports "not out of scope" — case 51's out-of-scope
+  # fixture must then go blind (return false), reproducing the pre-#1099 silent-absent conflation.
+  echo "-- teeth OOS1: neuter retro_marker_out_of_scope's whole-file-scan check; case 51 must go blind --"
+  anchor_oos1='[ -n "$(retro_marker_line "$f")" ]'
+  if grep -qF "$anchor_oos1" "$HELPER"; then
+    oos1_mutant="$ROOT/retro-status.oos1.sh"
+    sed "s/\[ -n \"\$(retro_marker_line \"\$f\")\" \]/false/" "$HELPER" > "$oos1_mutant"
+    if diff -q "$HELPER" "$oos1_mutant" >/dev/null 2>&1; then
+      no "teeth OOS1: build whole-file-check-removed mutant" "mutant identical — sed substitution failed"
+    elif ! "$BASH_BIN" -n "$oos1_mutant" 2>/dev/null; then
+      no "teeth OOS1: build whole-file-check-removed mutant" "mutant syntax error"
+    else
+      f_oos1_middle="$(mkretro oos1-middle <<'EOF'
+# retro
+
+## Background
+
+Narrative paragraph before the marker.
+
+<!-- review-status: applied 2026-01-01 -->
+
+## More notes
+
+Narrative content after the marker.
+EOF
+      )"
+      outoos1="$("$BASH_BIN" -c '. "$1"; retro_marker_out_of_scope "$2"; echo $?' _ "$oos1_mutant" "$f_oos1_middle" 2>&1)"
+      if [ "$outoos1" = "1" ]; then
+        ok "teeth OOS1: whole-file-check-removed mutant goes blind (case 51 has teeth)" "()"
+      else
+        no "teeth OOS1: whole-file-check-removed mutant should go blind (return false)" \
+          "returned '$outoos1' (expected 1) — case 51 is THEATER"
+      fi
+    fi
+  else
+    no "teeth OOS1: locate the retro_marker_line call inside retro_marker_out_of_scope" "anchor not found — helper drifted?"
+  fi
+
+  # Tooth BOM1 (kit issue #1099): drop the leading-BOM strip from retro_marker_scope_line. Case
+  # 57's BOM-prefixed real-corpus fixture must then go blind (marker no longer found in scope).
+  echo "-- teeth BOM1: drop the BOM strip in retro_marker_scope_line; case 57 must go blind --"
+  if ! grep -qF 'RETRO_MARKER_BOM_STRIP' "$HELPER"; then
+    no "teeth BOM1: locate the RETRO_MARKER_BOM_STRIP anchor" "anchor not found — helper drifted?"
+  else
+    bom1_mutant="$ROOT/retro-status.bom1.sh"
+    # Replace the BOM-stripping sed stage (both functions share the identical stage — this tooth
+    # only asserts against retro_marker_scope_line's behavior, so neutering both is fine here)
+    # with a no-op cat, leaving the rest of each pipeline untouched.
+    sed "s/sed \$'1s\/\^\\\\xef\\\\xbb\\\\xbf\/\/' \"\$f\" 2>\/dev\/null/cat \"\$f\" 2>\/dev\/null/g" \
+      "$HELPER" > "$bom1_mutant"
+    if diff -q "$HELPER" "$bom1_mutant" >/dev/null 2>&1; then
+      no "teeth BOM1: build BOM-strip-removed mutant" "mutant identical — substitution failed"
+    elif ! "$BASH_BIN" -n "$bom1_mutant" 2>/dev/null; then
+      no "teeth BOM1: build BOM-strip-removed mutant" "mutant syntax error"
+    else
+      f_bom1="$ROOT/retro-status.bom1-fixture.md"
+      printf '\xef\xbb\xbf# retro\n\n<!-- review-status: applied 2026-01-01 -->\nbody\n' > "$f_bom1"
+      outbom1="$("$BASH_BIN" -c '. "$1"; retro_marker_scope_line "$2"' _ "$bom1_mutant" "$f_bom1" 2>&1)"
+      if [ -z "$outbom1" ]; then
+        ok "teeth BOM1: BOM-strip-removed mutant goes blind on case 57's fixture (has teeth)" "()"
+      else
+        no "teeth BOM1: BOM-strip-removed mutant should go blind" "got [$outbom1] — case 57 is THEATER"
       fi
     fi
   fi

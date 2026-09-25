@@ -27,6 +27,7 @@ fi
 # swallowed and every retro would silently read as 'none' (fail-open). Abort before any work.
 declare -F retro_marker_scope_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_marker_scope_line" >&2; exit 1; }
 declare -F retro_status_from_marker_line >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_status_from_marker_line" >&2; exit 1; }
+declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_marker_out_of_scope" >&2; exit 1; }
 # retro_is_waived is needed for the MISSING-RETRO waiver check in the fleet pass.
 declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }
 
@@ -170,13 +171,30 @@ for p in $paths; do
     case "$status" in
       applied|dismissed) continue ;;
     esac
+    # SWEEP_RETROS_OUT_OF_SCOPE_GUARD (kit issue #1099): an empty scope-scan result does not mean
+    # "no marker" when a whole-file scan still finds one outside the shared #945 scope (YAML
+    # frontmatter, a multi-line comment run before it, a marker after a second heading, …).
+    # Before #1099 this was silently indistinguishable from "genuinely absent" and reported the
+    # misleading "add a marker" advice for a retro that already carries one, just misplaced.
+    # Still counted pending (open, needs attention — sweep-retros is WARN-only per §8/§18) but
+    # reported under its own distinct, typed reason so the two causes are never conflated.
+    _out_of_scope=0
+    if [ -z "$status" ] && retro_marker_out_of_scope "$f"; then
+      _out_of_scope=1
+    fi
     # Warn on absent marker (operator must add one) and on any status word that is neither
     # a known open state nor a closing word. 'pending' is the only recognized open state
     # without a WARN; an absent marker surfaces a WARN so untriaged retros are visible.
     # Only 'applied' and 'dismissed' close a retro — no synonyms, no widening the vocabulary.
     case "$status" in
       pending) ;;
-      "") echo "WARN: no review-status marker in $(basename "$f") — add '<!-- review-status: pending -->'" ;;
+      "")
+        if [ "$_out_of_scope" -eq 1 ]; then
+          echo "WARN: out-of-scope-marker in $(basename "$f") — a review-status marker exists but sits outside the leading-block scope (kit issue #1099); move it into the leading block"
+        else
+          echo "WARN: no review-status marker in $(basename "$f") — add '<!-- review-status: pending -->'"
+        fi
+        ;;
       *) echo "WARN: unrecognized review-status '${status}' in $(basename "$f") — only 'applied' or 'dismissed' close a retro" ;;
     esac
     pending=$((pending + 1))

@@ -28,6 +28,22 @@
 #     blank line 2, marker line 3). A marker positioned deeper in the body — after a second
 #     heading, inside a fenced code block, or quoted in prose — is out of scope and this function
 #     returns nothing for it. Returns nothing (exit 0) when no marker is found within scope.
+#     Kit issue #1099: a leading UTF-8 BOM on line 1 is stripped before scanning, so a marker
+#     whose position would otherwise be in scope (e.g. BOM, H1, blank, marker) is still found.
+#
+#   retro_marker_out_of_scope <file>
+#     Kit issue #1099 — returns 0 (true) when a whole-file scan (retro_marker_line) finds a
+#     'review-status' marker that retro_marker_scope_line's leading-block scan does NOT find
+#     (YAML frontmatter, a multi-line comment run before the marker, a marker after a second
+#     heading, etc). This is a THIRD, distinct state from "in-scope marker" (status parses
+#     normally) and "genuinely absent" (both scans return nothing — a real §18 retro with no
+#     marker at all, correctly treated as open/pending by design). Returns 1 (false) in both of
+#     those cases. Before #1099 an out-of-scope marker was silently indistinguishable from
+#     "no marker at all": retro_marker_scope_line returned "", every caller treated status as
+#     pending/open, and every row was seeded — the same fail-open shape that produced #1048-#1089.
+#     Callers use this to fail CLOSED instead: refuse to seed (stage-retro-issues.sh,
+#     retro-gate.sh) or report the retro loudly as unclassifiable (reconcile-issues.sh,
+#     sweep-retros.sh) rather than silently treating it as open.
 #
 # Scanning algorithms:
 #   retro_review_status — LEADING-BLOCK-ONLY, NO H1 tolerance: awk stops at the first
@@ -106,18 +122,22 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   # STAGE_RETRO_ISSUES_MARKER_LINE: stage-retro-issues.sh uses retro_marker_line as the single
   # definition of "what the marker line looks like and where to find it". Both the status word
   # (applied/dismissed/pending) and the PARTIAL/shipped inspection are derived from this one call.
-  # pipefail-audit: external `awk` over a single retro file (fleet max ~50 KB). SAFE.
+  # RETRO_MARKER_BOM_STRIP (kit issue #1099): a leading UTF-8 BOM (EF BB BF) on line 1 breaks the
+  # '^[[:space:]]*<!--' anchor — the BOM bytes are not whitespace — so a BOM'd file with an
+  # otherwise-in-scope marker would silently never match. Stripped once via sed before the awk
+  # scan, both here and in retro_marker_scope_line below.
+  # pipefail-audit: external `sed | awk` over a single retro file (fleet max ~50 KB). SAFE.
   retro_marker_line() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 0
     # awk state: fence=1 inside a fenced code block (``` or ~~~); tolower for case-insensitive
     # match; anchored to line start so mid-line quoted markers are skipped (R2-002).
     # RETRO_MARKER_LINE_AWK: anchor tag for Tooth M7 and M8.
-    awk '
+    sed $'1s/^\xef\xbb\xbf//' "$f" 2>/dev/null | awk '
       /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
       fence { next }
       { if (tolower($0) ~ /^[[:space:]]*<!--[[:space:]]*review-status:/) { print; exit } }
-    ' "$f" 2>/dev/null
+    '
     return 0
   }
 
@@ -137,20 +157,37 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #   needs no separate fence-awareness pass (unlike retro_marker_line's whole-file scan).
   #
   #   RETRO_MARKER_SCOPE_H1_SKIP: anchor for the kit issue #945 teeth proof.
-  #   pipefail-audit: external `awk` over the leading few lines of a single retro file. SAFE.
+  #   RETRO_MARKER_BOM_STRIP (kit issue #1099): same leading-BOM strip as retro_marker_line above
+  #   — see that function's comment for why. Applied here too so a BOM'd retro whose marker
+  #   position is otherwise in scope (e.g. BOM, H1, blank, marker) is still found in scope.
+  #   pipefail-audit: external `sed | awk` over the leading few lines of a single retro file. SAFE.
   retro_marker_scope_line() {
     local f="${1:-}"
     [ -n "$f" ] && [ -f "$f" ] || return 0
-    awk '
+    sed $'1s/^\xef\xbb\xbf//' "$f" 2>/dev/null | awk '
       NR==1 && /^[[:space:]]*#[^#]/ { next }
       NR==1 && /^[[:space:]]*#[[:space:]]*$/ { next }
       /^[[:space:]]*<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
-    ' "$f" 2>/dev/null \
+    ' \
       | grep -iE '^[[:space:]]*<!--[[:space:]]*review-status:' \
       | head -1
     return 0
+  }
+
+  # retro_marker_out_of_scope <file>
+  #   Kit issue #1099 — see the file-header rationale above. Returns 0 (true, shell-boolean
+  #   success) when retro_marker_scope_line finds nothing but retro_marker_line's more permissive
+  #   whole-file scan DOES find a marker — i.e. the file carries a review-status marker that sits
+  #   outside the shared #945 scope. Returns 1 (false) when either a marker IS in scope (nothing
+  #   to flag) or no marker exists anywhere in the file (genuinely absent, not out-of-scope).
+  # pipefail-audit: two bounded internal helper calls, each over the same single retro file. SAFE.
+  retro_marker_out_of_scope() {
+    local f="${1:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 1
+    [ -z "$(retro_marker_scope_line "$f")" ] || return 1
+    [ -n "$(retro_marker_line "$f")" ]
   }
 
   # retro_is_excluded <file>
