@@ -140,20 +140,32 @@ else
   ok "  default: init report must NOT mention document-cycle mode when --document is omitted"
 fi
 
-# GOOD 8 (kit issue #1114 review MEDIUM-2) — a mid-run outline ratio recorded in the NEW "Outline
-# coverage" line (never in "Coverage metric", which stays digit-free by design) must NOT trip
-# verify-state's "stale denominator" WARN. This reproduces the review's exact repro shape (fill in a
-# ratio, run --sync-state, run verify-state.sh) against the FIXED template's instructed usage.
+# _cm_digits <file>: extract any N/M ratio actually sitting on the "Coverage metric" line, using
+# the SAME extraction shape research-sdd-status.sh/verify-state.sh use (case-insensitive label,
+# digits/digits). Empty output = digit-free. Shared by GOOD 8 (pre- and post-sync-state) and GOOD 8b.
+_cm_digits() { grep -iE '\*{0,2}coverage metric\*{0,2}:' "$1" 2>/dev/null | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+'; }
+
+# GOOD 8 (kit issue #1114) — a mid-run outline ratio recorded in the NEW "Outline coverage" line
+# (never in "Coverage metric", which stays digit-free by design) must NOT trip verify-state's
+# "stale denominator" WARN. This reproduces the review's exact repro shape (fill in a ratio, run
+# --sync-state, run verify-state.sh) against the FIXED template's instructed usage. Checks
+# "Coverage metric" is digit-free BOTH before AND after --sync-state (round-2 review nit: sync-state
+# rewrites the envelope block, not this prose line, but only a real run proves it stays untouched).
 d="$TMP/good-document-midrun"; mkdir -p "$d"
 assert_exit 0 "GOOD document mid-run: scaffolds with --document" "$d" --corpus flat --document
 sed -i 's/\*\*Outline coverage\*\*: <outline-items-covered> \/ <outline-items-total> covered.*/**Outline coverage**: 2 \/ 5 covered/' "$d/RESEARCH-STATE.md"
 assert_grep "  document mid-run: Outline coverage fixture applied (pre-check)" "**Outline coverage**: 2 / 5 covered" "$d/RESEARCH-STATE.md"
-if grep -qF '**Coverage metric**: <N> / <M> closed' "$d/RESEARCH-STATE.md"; then
-  ok "  document mid-run: Coverage metric line stays digit-free (only Outline coverage carries the ratio)"
+if [ -z "$(_cm_digits "$d/RESEARCH-STATE.md")" ]; then
+  ok "  document mid-run: Coverage metric line stays digit-free BEFORE --sync-state (only Outline coverage carries the ratio)"
 else
-  no "  document mid-run: Coverage metric line stays digit-free (only Outline coverage carries the ratio)"
+  no "  document mid-run: Coverage metric line stays digit-free BEFORE --sync-state (found: $(_cm_digits "$d/RESEARCH-STATE.md"))"
 fi
 bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+if [ -z "$(_cm_digits "$d/RESEARCH-STATE.md")" ]; then
+  ok "  document mid-run: Coverage metric line stays digit-free AFTER --sync-state too"
+else
+  no "  document mid-run: Coverage metric line stays digit-free AFTER --sync-state too (found: $(_cm_digits "$d/RESEARCH-STATE.md"))"
+fi
 _midrun_vs_out="$(bash "$HERE/../verify-state.sh" "$d" 2>&1)"; _midrun_vs_rc=$?
 if [ "$_midrun_vs_rc" = 0 ]; then
   ok "  document mid-run: verify-state.sh exits 0 on a mid-run Outline-coverage corpus"
@@ -161,9 +173,9 @@ else
   no "  document mid-run: verify-state.sh exits 0 on a mid-run Outline-coverage corpus (rc=$_midrun_vs_rc, out=[$_midrun_vs_out])"
 fi
 if grep -qiF 'stale denominator' <<<"$_midrun_vs_out"; then
-  no "  document mid-run: verify-state.sh must NOT WARN 'stale denominator' (MEDIUM-2) — out=[$_midrun_vs_out]"
+  no "  document mid-run: verify-state.sh must NOT WARN 'stale denominator' — out=[$_midrun_vs_out]"
 else
-  ok "  document mid-run: verify-state.sh must NOT WARN 'stale denominator' (MEDIUM-2)"
+  ok "  document mid-run: verify-state.sh must NOT WARN 'stale denominator'"
 fi
 
 # GOOD 8b — discriminating negative control (this IS the mutant for GOOD 8, no script mutant needed:
@@ -173,7 +185,8 @@ fi
 # suppressed the WARN outright; it depends on which LINE carries the ratio.
 d="$TMP/good-document-midrun-negctrl"; mkdir -p "$d"
 bash "$SUT" "$d" --corpus flat --document >/dev/null 2>&1
-sed -i 's/\*\*Coverage metric\*\*: <N> \/ <M> closed.*/**Coverage metric**: 2 \/ 5 closed/' "$d/RESEARCH-STATE.md"
+sed -i 's/\*\*Coverage metric\*\*: .*/**Coverage metric**: 2 \/ 5 closed/' "$d/RESEARCH-STATE.md"
+assert_grep "  document mid-run negative control: Coverage metric misuse fixture applied (pre-check)" "**Coverage metric**: 2 / 5 closed" "$d/RESEARCH-STATE.md"
 bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
 _negctrl_out="$(bash "$HERE/../verify-state.sh" "$d" 2>&1)"
 if grep -qiF 'stale denominator' <<<"$_negctrl_out"; then
@@ -205,24 +218,55 @@ else
   no "  notpldoc: --document FATALs (exit 2, no write) when RESEARCH-STATE-document.template.md is absent (rc=$_notpldoc_rc out=[$_notpldoc_out])"
 fi
 
-# GOOD 10 (kit issue #1114 review LOW-2) — --wire --document on an EXISTING corpus (no --force) is
-# rejected loudly instead of silently ignoring --document, following the #1047 no-silent-no-op
-# precedent. Nothing is written (settings.json untouched, no hooks created).
+# _treesum <dir>: sha256 manifest of every file under <dir> (path + content), sorted. Used to prove
+# "nothing written" over the WHOLE target tree (round-2 review nit: settings.json-absence alone does
+# not cover hook files or RESEARCH-STATE.md).
+_treesum() { find "$1" -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null; }
+
+# GOOD 10 (kit issue #1114) — --wire --document on an EXISTING corpus (no --force) is rejected loudly
+# instead of silently ignoring --document, following the #1047 no-silent-no-op precedent. Nothing is
+# written: a sha256 manifest of the WHOLE target tree (every file, not just settings.json) is
+# identical before and after the rejected call.
 d="$TMP/low2-existing"; mkdir -p "$d"
 bash "$SUT" "$d" --corpus flat >/dev/null 2>&1   # plain scaffold first: a real EXISTING corpus
+_low2_before="$(_treesum "$d")"
 _low2_out="$(bash "$SUT" "$d" --wire --document 2>&1)"; _low2_rc=$?
+_low2_after="$(_treesum "$d")"
 if [ "$_low2_rc" = 2 ] && grep -qF 'usage: --document has no effect here' <<<"$_low2_out"; then
   ok "  LOW-2: --wire --document on an existing corpus exits 2 with a typed usage message"
 else
   no "  LOW-2: --wire --document on an existing corpus exits 2 with a typed usage message (rc=$_low2_rc out=[$_low2_out])"
 fi
-assert_absent "  LOW-2: no settings.json written by the rejected --wire --document call" "$d/.claude/settings.json"
-# --force still bypasses repair and re-scaffolds with --document honored (unchanged #1047 contract)
+if [ "$_low2_before" = "$_low2_after" ] && [ -n "$_low2_before" ]; then
+  ok "  LOW-2: whole-target-tree sha256 manifest is unchanged by the rejected --wire --document call"
+else
+  no "  LOW-2: whole-target-tree sha256 manifest changed (or was empty) — something was written by the rejected call"
+fi
+# The rejection message must NOT recommend --force as a targeted fix, and must state its real
+# destructive scope (kit issue #1114 review round 2, MEDIUM-NEW-1).
+if grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' <<<"$_low2_out"; then
+  no "  MEDIUM-NEW-1: rejection message must NOT claim --force only re-scaffolds RESEARCH-STATE.md"
+else
+  ok "  MEDIUM-NEW-1: rejection message must NOT claim --force only re-scaffolds RESEARCH-STATE.md"
+fi
+assert_grep "  MEDIUM-NEW-1: rejection message states --force is NOT a targeted fix" "NOT a targeted fix" <(printf '%s' "$_low2_out")
+assert_grep "  MEDIUM-NEW-1: rejection message names --force's real destructive scope" "clobbers hand-adapted hooks, INDEX.md and real backlog rows" <(printf '%s' "$_low2_out")
+
+# --force still bypasses repair and re-scaffolds with --document honored (unchanged #1047 contract) —
+# and IS genuinely destructive, exactly as the rejection message above now says: hand-adapted content
+# is gone afterward. Reproduces the review's own MEDIUM-NEW-1 repro.
+printf '\nHANDWORK\n' >> "$d/INDEX.md"
+printf '\nHAND\n' >> "$d/.claude/hooks/research-protocol.sh"
 _low2f_out="$(bash "$SUT" "$d" --wire --document --force 2>&1)"; _low2f_rc=$?
 if [ "$_low2f_rc" = 0 ] && grep -qF 'method: document-cycle' "$d/RESEARCH-STATE.md" 2>/dev/null; then
   ok "  LOW-2: --wire --document --force still re-scaffolds with the document-cycle variant"
 else
   no "  LOW-2: --wire --document --force still re-scaffolds with the document-cycle variant (rc=$_low2f_rc)"
+fi
+if grep -qF 'HANDWORK' "$d/INDEX.md" 2>/dev/null || grep -qF 'HAND' "$d/.claude/hooks/research-protocol.sh" 2>/dev/null; then
+  no "  MEDIUM-NEW-1: --force is confirmed destructive — hand-adapted content should be gone (it was NOT, message would be misleading either way)"
+else
+  ok "  MEDIUM-NEW-1: --force is confirmed destructive (hand-adapted INDEX.md/hook content is gone) — the rejection message's warning is accurate, not just cautious"
 fi
 
 # BAD 1 — refuse over an existing INDEX
@@ -2152,21 +2196,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Mutation M-DOC-REPORT-2 (kit issue #1114 review MEDIUM-3): strip "GAP-CENTRIC" out of the
-  # document-mode NEXT line → GOOD 6c's marker assertion must flip.
-  echo "-- teeth proof M-DOC-REPORT-2: delete GAP-CENTRIC wording from the document-mode NEXT line --"
+  # Mutation M-DOC-REPORT-2 (kit issue #1114 review round 2 nit: the round-1 version sed'd the exact
+  # asserted token out of the SUT — close to tautological). Neuter the NEXT-line document-mode
+  # CONDITION itself (== 99, unreachable) via a unique two-line sed -z anchor, exactly like
+  # M-DOC-REPORT-1 does for step 3 — the code path changes, not just a string. The ELSE branch (the
+  # OLD unconditional BOOTSTRAP claim) always runs instead → covers BOTH of GOOD 6c's assertions:
+  # GAP-CENTRIC must disappear AND the BOOTSTRAP claim must reappear.
+  echo "-- teeth proof M-DOC-REPORT-2: neuter the NEXT-line document-mode condition --"
   mkdir -p "$TMP/mdocr2/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mdocr2/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mdocr2/templates"
   mdocr2_mutant="$TMP/mdocr2/toolbelt/init.sh"
-  sed 's/GAP-CENTRIC/gap-centric-removed/' "$SUT" > "$mdocr2_mutant"
-  if grep -qF 'GAP-CENTRIC' "$mdocr2_mutant"; then
-    no "teeth M-DOC-REPORT-2: could not build mutant (GAP-CENTRIC token not found/replaced)"
+  sed -z 's/\[ "\$document" = 1 \]; then\n  echo "NEXT: run \$KIT\/toolbelt\/research-sdd-status.sh \$target — its next-step\/saturation verdicts are GAP-CENTRIC/[ "$document" = 99 ]; then\n  echo "NEXT: run $KIT\/toolbelt\/research-sdd-status.sh $target — its next-step\/saturation verdicts are GAP-CENTRIC/' \
+    "$SUT" > "$mdocr2_mutant"
+  if ! grep -qF '[ "$document" = 99 ]; then' "$mdocr2_mutant"; then
+    no "teeth M-DOC-REPORT-2: could not build mutant (NEXT-line document-mode anchor not found)"
   else
     dmdocr2="$TMP/mdocr2t"; mkdir -p "$dmdocr2"
     _mdocr2_out="$(bash "$mdocr2_mutant" "$dmdocr2" --corpus flat --document 2>&1)"
-    if ! grep -qF 'GAP-CENTRIC' <<<"$_mdocr2_out"; then
-      ok "teeth M-DOC-REPORT-2: mutant's NEXT line no longer says GAP-CENTRIC — GOOD 6c's assertion has teeth"
+    _mdocr2_ok=1
+    if grep -qF 'GAP-CENTRIC' <<<"$_mdocr2_out"; then _mdocr2_ok=0; fi
+    if ! grep -qF 'it reports BOOTSTRAP until the follow-ups above are done' <<<"$_mdocr2_out"; then _mdocr2_ok=0; fi
+    if [ "$_mdocr2_ok" = 1 ]; then
+      ok "teeth M-DOC-REPORT-2: mutant's --document NEXT line reverts to the discovery-mode BOOTSTRAP claim (GAP-CENTRIC gone, BOOTSTRAP back) — BOTH of GOOD 6c's assertions have teeth"
     else
-      no "teeth M-DOC-REPORT-2: mutant still prints GAP-CENTRIC — mutant did not neuter the wording"
+      no "teeth M-DOC-REPORT-2: mutant did not fall through to the discovery-mode NEXT line as expected (out=[$_mdocr2_out])"
     fi
   fi
 
@@ -2192,13 +2244,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Mutation M-LOW2 (kit issue #1114 review LOW-2): neuter the --wire --document rejection guard's
-  # condition (== 99, unreachable) by targeting its unique compound condition line → GOOD 10's
-  # rejection assertion must flip (exits 0 and silently ignores --document instead).
+  # Mutation M-LOW2 (kit issue #1114, round 2: guard now lives NESTED inside WIRE-ONLY-EXISTING-CORPUS
+  # — folded in per review nit, so the anchor is the bare `if [ "$document" = 1 ]; then` immediately
+  # followed by its unique echo text). Neuter the condition (== 99, unreachable) → GOOD 10's rejection
+  # assertion must flip (exits 0 and silently ignores --document instead).
   echo "-- teeth proof M-LOW2: neuter the --wire --document-on-existing-corpus rejection guard --"
   mkdir -p "$TMP/mlow2/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mlow2/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mlow2/templates"
   mlow2_mutant="$TMP/mlow2/toolbelt/init.sh"
-  sed 's/\[ "\$wire" = 1 \] && \[ "\$force" = 0 \] && \[ -n "\$_wo_corpus_root" \] && \[ "\$document" = 1 \]; then/[ "$wire" = 1 ] \&\& [ "$force" = 0 ] \&\& [ -n "$_wo_corpus_root" ] \&\& [ "$document" = 99 ]; then/' "$SUT" > "$mlow2_mutant"
+  sed -z 's/\[ "\$document" = 1 \]; then\n      echo "usage: --document has no effect here/[ "$document" = 99 ]; then\n      echo "usage: --document has no effect here/' \
+    "$SUT" > "$mlow2_mutant"
   if ! grep -qF '[ "$document" = 99 ]; then' "$mlow2_mutant"; then
     no "teeth M-LOW2: could not build mutant (rejection guard condition not found)"
   else
@@ -2210,6 +2264,27 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth M-LOW2: mutant silently accepts --wire --document on an existing corpus (exit 0) — GOOD 10's rejection has teeth"
     else
       no "teeth M-LOW2: mutant still rejects (exit $_mlow2_rc) — guard removal did not take effect"
+    fi
+  fi
+
+  # Mutation M-MEDNEW1 (kit issue #1114 review round 2, MEDIUM-NEW-1): revert the rejection message
+  # back to the round-1 wording that recommended --force as if it only re-scaffolded RESEARCH-STATE.md
+  # → GOOD 10's wording-pin assertions must flip.
+  echo "-- teeth proof M-MEDNEW1: revert the rejection message to the misleading round-1 wording --"
+  mkdir -p "$TMP/mmednew1/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mmednew1/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mmednew1/templates"
+  mmednew1_mutant="$TMP/mmednew1/toolbelt/init.sh"
+  sed 's/There is no in-place conversion: drop --document, or scaffold a NEW target with --document instead\. --force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX\.md, RESEARCH-STATE\.md, SOURCES\.md, hooks) and clobbers hand-adapted hooks, INDEX\.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard\./Drop --document, pass --force to re-scaffold RESEARCH-STATE.md with the document-cycle variant, or run --document against a NEW target instead./' \
+    "$SUT" > "$mmednew1_mutant"
+  if ! grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' "$mmednew1_mutant"; then
+    no "teeth M-MEDNEW1: could not build mutant (round-1 wording substitution did not take)"
+  else
+    dmmednew1="$TMP/mmednew1t"; mkdir -p "$dmmednew1"
+    bash "$mmednew1_mutant" "$dmmednew1" --corpus flat >/dev/null 2>&1
+    _mmednew1_out="$(bash "$mmednew1_mutant" "$dmmednew1" --wire --document 2>&1)"
+    if grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' <<<"$_mmednew1_out"; then
+      ok "teeth M-MEDNEW1: mutant's rejection message reverts to the misleading --force recommendation — GOOD 10's wording-pin assertion has teeth"
+    else
+      no "teeth M-MEDNEW1: mutant did not print the misleading wording — mutant build did not take effect (out=[$_mmednew1_out])"
     fi
   fi
 fi

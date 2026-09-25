@@ -42,8 +42,10 @@
 # generic template seeds discovery-style Gap-backlog placeholder rows a document-cycle run never
 # discovers or closes — PROMPT-LOOP's DOCUMENT CYCLE preflight passes --document precisely to avoid
 # that mismatch. The flag affects ONLY which RESEARCH-STATE.md source is copied during a full
-# scaffold; it has no effect on the wire-only-repair path (which never touches RESEARCH-STATE.md) and
-# no effect when omitted (the default scaffold is unchanged).
+# scaffold. On the wire-only-repair path (an EXISTING corpus, --wire, no --force) it is REJECTED
+# (exit 2) rather than silently ignored, since that path never touches RESEARCH-STATE.md — see the
+# rejection guard further down, nested inside the wire-only-repair section. Omitted, the default
+# scaffold is unchanged.
 #
 # WIRE-ONLY REPAIR (kit issue #1038, hardened by #1040 rounds 2 and 3): --wire on a target whose
 # corpus already exists (and no --force) skips the scaffold and instead REPAIRS whatever hooks
@@ -126,9 +128,8 @@ target="$(cd "$target" && pwd)"
 for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
-# kit issue #1114 review RDD-SUGGESTION: RESEARCH-STATE-document.template.md is required ONLY when
-# --document is actually going to be used — a target missing it must not break the (far more common)
-# default scaffold path.
+# kit issue #1114: RESEARCH-STATE-document.template.md is required ONLY when --document is actually
+# going to be used — a target missing it must not break the (far more common) default scaffold path.
 if [ "$document" = 1 ]; then
   [ -f "$TPL/RESEARCH-STATE-document.template.md" ] || { echo "FATAL: missing kit template $TPL/RESEARCH-STATE-document.template.md (required by --document)" >&2; exit 2; }
 fi
@@ -240,18 +241,21 @@ if [ "$wire" = 1 ]; then
   fi
 fi
 
-# kit issue #1114 review LOW-2 (following the #1047 no-silent-no-op precedent): --document has NO
-# EFFECT on the wire-only-repair path below — --wire on an EXISTING corpus without --force only
-# REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md. Reject rather than silently
-# ignore the flag, exactly as --scaffold-without-wire is rejected above.
-if [ "$wire" = 1 ] && [ "$force" = 0 ] && [ -n "$_wo_corpus_root" ] && [ "$document" = 1 ]; then
-  echo "usage: --document has no effect here — --wire on an existing corpus (without --force) only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md (kit issue #1114). Drop --document, pass --force to re-scaffold RESEARCH-STATE.md with the document-cycle variant, or run --document against a NEW target instead." >&2
-  exit 2
-fi
-
 # WIRE-ONLY-EXISTING-CORPUS
 if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
   if [ -n "$_wo_corpus_root" ]; then
+    # kit issue #1114 (following the #1047 no-silent-no-op precedent): --document has NO EFFECT on
+    # this path — it only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md. Reject
+    # rather than silently ignore the flag, exactly as --scaffold-without-wire is rejected above.
+    # There is no in-place way to add the document-cycle variant to an EXISTING corpus, and --force
+    # is NOT a targeted fix for that: it re-scaffolds the WHOLE corpus (INDEX.md, RESEARCH-STATE.md,
+    # SOURCES.md, hooks), clobbering hand-adapted hooks, INDEX.md and real backlog rows (#1038's own
+    # header note above says exactly this) — never recommend it as a way to "add" the document
+    # variant; state its real destructive scope instead.
+    if [ "$document" = 1 ]; then
+      echo "usage: --document has no effect here — --wire on an existing corpus (without --force) only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md (kit issue #1114). There is no in-place conversion: drop --document, or scaffold a NEW target with --document instead. --force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX.md, RESEARCH-STATE.md, SOURCES.md, hooks) and clobbers hand-adapted hooks, INDEX.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard." >&2
+      exit 2
+    fi
     # Wire-only: compute paths; NEVER touch any corpus file.
     _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
     _wo_ss="$target/.claude/hooks/research-protocol.sh"
