@@ -454,16 +454,28 @@ if [ "$waived_count" -gt 0 ]; then
 fi
 # --- WIRING-STATUS pass: for each resolvable target, check whether .claude/settings.json
 # wires the §18 retro-gate Stop hook (METHODOLOGY §18). WARN-only — propose-never-apply.
-# Three states per §7 anti-silent-zero (absent-settings / unwired / wired are distinct;
-# unreadable is a fourth loud-failure state, never silently treated as wired or unwired).
-# The actual awk-based Stop-scope check lives in lib/hook-wiring.sh (kit issue #1108/#1109:
-# single source of truth shared with verify-registry.sh's 'hook yes' claim check and
-# research-sdd-status.sh's per-target self-report line) — sourced at the top with the other
-# libs. Uses hook_stop_wiring_state_var (sets $HOOK_WIRING_STATE, no subshell) rather than
-# $(hook_stop_wiring_state "$p") — this pass runs once per fleet target, and a redundant fork
-# per target was measured to matter here (kit issue #1108 round 2, RSDD_PROFILE regression).
-# Non-directory paths (GitHub slugs) are skipped via [ -d ] — same guard as the fleet passes.
-_ws_wired=0; _ws_unwired=0; _ws_absent=0; _ws_unreadable=0
+# Five states per §7 anti-silent-zero (absent-settings / unwired / wired / wired-off-root are
+# distinct; unreadable is a loud-failure state, never silently treated as wired or unwired).
+# The actual awk-based Stop-scope check — and the wired-off-root session-root check (kit issue
+# #1135) — lives in lib/hook-wiring.sh (kit issue #1108/#1109: single source of truth shared with
+# verify-registry.sh's 'hook yes' claim check and research-sdd-status.sh's per-target self-report
+# line) — sourced at the top with the other libs. Uses hook_stop_wiring_state_var (sets
+# $HOOK_WIRING_STATE, no subshell) rather than $(hook_stop_wiring_state "$p") — this pass runs
+# once per fleet target, and a redundant fork per target was measured to matter here (kit issue
+# #1108 round 2, RSDD_PROFILE regression). Non-directory paths (GitHub slugs) are skipped via
+# [ -d ] — same guard as the fleet passes.
+#
+# wired-off-root (kit issue #1135): settings.json IS Stop-scoped-wired at the registered path, but
+# that path is NOT its own git root (STRUCTURAL fact only — see lib/hook-wiring.sh's own header,
+# kit issue #1140 round-2 review, Blocking 1: this predicate does NOT know or claim which directory
+# sessions actually launch from, so the WARN below never prescribes a fix — an earlier revision
+# claimed sessions "normally launch from the git root" and told the maintainer to move the
+# registration there; both claims were wrong for the one real case this has ever flagged, three.js,
+# whose sessions launch from neither the registered path nor its git root). WARNed distinctly
+# (never silently folded into the silent 'wired' count) with its own dedicated summary field, so a
+# fleet operator can see it without reading every WARN line. Kit issue #1135's own measured
+# incidence: 1 of 17 reachable targets (three.js, TARGETS.md row 13).
+_ws_wired=0; _ws_wired_off_root=0; _ws_unwired=0; _ws_absent=0; _ws_unreadable=0
 for p in $paths; do
   [ -d "$p" ] || continue
   _ws_settings="$p/.claude/settings.json"
@@ -477,15 +489,18 @@ for p in $paths; do
       _ws_unreadable=$(( _ws_unreadable + 1 )) ;;
     wired)                                                           # RSDD_WS_WIRED_CHECK
       _ws_wired=$(( _ws_wired + 1 )) ;;
+    wired-off-root)                                                  # RSDD_WS_WIRED_OFF_ROOT_CHECK
+      echo "WARN: retro-gate hook wired-off-root — $p is not its own git root; the hook fires only for a session launched in exactly that directory. Confirm which directory sessions actually launch from and register/wire that directory (kit issue #1134)."
+      _ws_wired_off_root=$(( _ws_wired_off_root + 1 )) ;;
     *)
       echo "WARN: retro-gate not wired in $p/.claude/settings.json"
       _ws_unwired=$(( _ws_unwired + 1 )) ;;
   esac
 done
 unset _ws_settings HOOK_WIRING_STATE
-_ws_total=$(( _ws_wired + _ws_unwired + _ws_absent + _ws_unreadable ))
-echo "Wiring: ${_ws_wired} wired / ${_ws_unwired} unwired / ${_ws_absent} absent-settings / ${_ws_unreadable} unreadable — ${_ws_total} targets checked."
-unset _ws_total _ws_wired _ws_unwired _ws_absent _ws_unreadable
+_ws_total=$(( _ws_wired + _ws_wired_off_root + _ws_unwired + _ws_absent + _ws_unreadable ))
+echo "Wiring: ${_ws_wired} wired / ${_ws_wired_off_root} wired-off-root / ${_ws_unwired} unwired / ${_ws_absent} absent-settings / ${_ws_unreadable} unreadable — ${_ws_total} targets checked."
+unset _ws_total _ws_wired _ws_wired_off_root _ws_unwired _ws_absent _ws_unreadable
 
 # Clean-verdict sentinel — relocated AFTER the MISSING-RETRO pass so the whole run is
 # visible before the claim. Gated on missing==0 (no MISSING-RETRO findings) AND

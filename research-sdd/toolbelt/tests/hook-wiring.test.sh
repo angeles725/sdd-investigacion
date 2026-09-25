@@ -18,6 +18,15 @@
 # finding: the prior teeth here redefined hook_stop_wiring_state() as a constant and called it
 # directly, which is circular — it could not have caught a real regression in the sourced lib).
 #
+# HERMETICITY (kit issue #1140 round-2 review, Blocking 4): the git-root walk-up in
+# lib/hook-wiring.sh climbs from a target all the way to `/` unless RSDD_HOOK_WIRING_CEILING is
+# set. `$ROOT` below comes from `mktemp -d`, which honors `$TMPDIR` — if `$TMPDIR` ever points
+# inside a REAL git repository (this kit checkout is one), every fixture in this suite meant to
+# model "clean git root" or "no git repo at all" would silently pick up the ENCLOSING repo's real
+# `.git` instead. The ceiling is set once, globally, right after `$ROOT` is created, so this is not
+# a per-fixture concern for the rest of the suite; cases 13a/13b below reproduce the bug and prove
+# the ceiling is what fixes it, with $TMPDIR genuinely pointed inside a repo.
+#
 # Usage: hook-wiring.test.sh [--prove-teeth]
 # Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
 set -uo pipefail
@@ -27,6 +36,8 @@ LIB="$HERE/../lib/hook-wiring.sh"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+RSDD_HOOK_WIRING_CEILING="$(dirname "$ROOT")"
+export RSDD_HOOK_WIRING_CEILING
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -95,6 +106,173 @@ fi
 d="$ROOT/t7-absent"
 assert_state "7 non-existent target dir → absent-settings" "$d" "absent-settings"
 
+# --- kit issue #1135: 'wired-off-root' — settings.json is syntactically wired but the registered
+# path is NOT its own git root (an ancestor owns the nearest `.git`). Downgrade applies ONLY to
+# the wired case: an unwired/absent-settings/unreadable target off-root makes no active-firing
+# claim, so there is nothing false to downgrade.
+
+# 8 — POSITIVE CONTROL: registered path IS its own git root (git init'd there directly) and wired →
+#     stays 'wired', never downgraded. Pins that a normal git-root target is unaffected.
+d="$ROOT/t8-root"; mkdir -p "$d"
+git init -q "$d" >/dev/null 2>&1
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+assert_state "8 registered path is its own git root, wired → wired (unaffected)" "$d" "wired"
+
+# 9 — the three.js SHAPE (structural fact only — kit issue #1140 round-2 review: this predicate
+#     does NOT know or claim where sessions actually launch from; see lib/hook-wiring.sh's own
+#     header): registered path is a NESTED subdirectory of a git repo (git root is an ancestor),
+#     settings.json wired at the nested path → wired-off-root, not wired.
+d_root="$ROOT/t9-gitroot"; d="$d_root/nested"; mkdir -p "$d"
+git init -q "$d_root" >/dev/null 2>&1
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+assert_state "9 nested non-root path, wired → wired-off-root (three.js shape)" "$d" "wired-off-root"
+
+# 10 — a nested non-root path that is UNWIRED must stay 'unwired', never 'wired-off-root': no
+#     active-firing claim is being made, so there is nothing to downgrade (matches kit issue #1135's
+#     own fixture scope: "a nested non-root row with hook no/deferred — no WARN").
+d_root="$ROOT/t10-gitroot"; d="$d_root/nested"; mkdir -p "$d"
+git init -q "$d_root" >/dev/null 2>&1
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/other-hook.sh"}]}]}}'
+assert_state "10 nested non-root path, unwired → unwired (not downgraded)" "$d" "unwired"
+
+# 11 — a nested non-root path with NO settings.json at all must stay 'absent-settings', never
+#     'wired-off-root' — the downgrade only ever applies to an already-'wired' result.
+d_root="$ROOT/t11-gitroot"; d="$d_root/nested"; mkdir -p "$d"
+git init -q "$d_root" >/dev/null 2>&1
+assert_state "11 nested non-root path, no settings.json → absent-settings (not downgraded)" "$d" "absent-settings"
+
+# 12 — registered path is NOT inside any git repository at all (walk-up reaches `/` with no `.git`
+#     found) and wired → stays 'wired'. No git root to compare against, so nothing is downgraded.
+d="$ROOT/t12-nogit"; mkdir -p "$d"
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+assert_state "12 not inside any git repo, wired → wired (no root to compare)" "$d" "wired"
+
+# --- kit issue #1140 round-2 review, Blocking 4: TMPDIR-inside-a-repo hermeticity ------------------
+# Reproduces the exact bug class this suite's own $RSDD_HOOK_WIRING_CEILING (set above) protects
+# against, with $TMPDIR genuinely pointed inside a real git repository: without a ceiling, the
+# walk-up (correctly, by design) keeps climbing past a fixture's own sandbox root and finds the
+# ENCLOSING repo's real `.git`, misreporting a plain wired target as wired-off-root. This builds
+# its own throwaway enclosing repo (never touches the actual kit checkout) so the reproduction is
+# fully self-contained.
+_encl="$ROOT/t13-enclosing-repo"; mkdir -p "$_encl"
+git init -q "$_encl" >/dev/null 2>&1
+_old_tmpdir="${TMPDIR:-}"; _had_tmpdir=0; [ -n "${TMPDIR+x}" ] && _had_tmpdir=1
+TMPDIR="$_encl"; export TMPDIR
+_inner_root="$(mktemp -d)"   # now lands under $_encl — simulates a host whose real $TMPDIR sits inside a repo
+d="$_inner_root/target-no-own-git"; mkdir -p "$d"
+wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+
+# 13a — CONTROL, no per-fixture ceiling: proves the TMPDIR-bleed-in HAZARD is real, not
+#      hypothetical (kit r3 review nit — distinct from case 9: case 9's 'wired-off-root' is the
+#      PRODUCT correctly detecting a deliberately nested target; this case's SAME-LOOKING outcome
+#      has a different CAUSE — an unrelated enclosing repo bleeding into a fixture never meant to
+#      be nested at all, purely because $TMPDIR happens to sit inside one). The suite-wide ceiling
+#      (dirname of $ROOT) does not reach this far down — $_encl is BELOW it — so this reproduces
+#      exactly what an unset RSDD_HOOK_WIRING_CEILING would do on a real host whose $TMPDIR sits
+#      inside a repo.
+_saved_ceiling="$RSDD_HOOK_WIRING_CEILING"
+unset RSDD_HOOK_WIRING_CEILING
+r13a="$(hook_stop_wiring_state "$d")"
+if [ "$r13a" = "wired-off-root" ]; then
+  ok "13a (control) TMPDIR inside a repo, no ceiling → unrelated enclosing repo bleeds in (hermeticity hazard reproduced, not case 9's intentional detection)"
+else
+  no "13a (control) TMPDIR inside a repo, no ceiling → expected the bleed-in hazard to reproduce" "got [$r13a]"
+fi
+export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling"
+
+# 13b — WITH a ceiling set to $_encl (this fixture's own enclosing-repo boundary — the realistic
+#      choice a suite makes: "don't look above my own sandbox"), the walk-up never scans $_encl at
+#      all and correctly reports plain 'wired'. This is the actual fix under test.
+export RSDD_HOOK_WIRING_CEILING="$_encl"
+assert_state "13b ceiling set to the enclosing repo boundary → correctly 'wired', bleed-in blocked" "$d" "wired"
+export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling"
+
+rm -rf "$_inner_root"
+if [ "$_had_tmpdir" -eq 1 ]; then TMPDIR="$_old_tmpdir"; export TMPDIR; else unset TMPDIR; fi
+
+# --- kit r3 review, M2: symlink handling (CORRECTED — 14a was mislabeled "intermediate
+# component"; it is a LEAF symlink) --------------------------------------------------------------
+# `[ -e ]` resolves a symlink AT the final path component at the kernel level, so a LEAF symlink
+# pointing DIRECTLY at a git root resolves correctly on the FIRST check, before any climbing (14b).
+# A leaf symlink pointing at a NESTED, non-root directory does NOT (14a): once the walk needs to
+# climb past the leaf, it climbs the SYMLINK'S OWN textual path, not the resolved target's real
+# ancestors, so it is a false negative (stays 'wired'), never a false positive. A genuinely
+# INTERMEDIATE symlinked path component is a distinct, untested shape with the same root cause —
+# see lib/hook-wiring.sh's own header on _hw_find_git_root.
+
+# 14a — DOCUMENTED LIMITATION, pinned so a future change is deliberate, not silent: a LEAF symlink
+#      pointing at a NESTED (non-root) real directory → stays 'wired' (a false negative — see lib
+#      header), not a crash and not a false 'wired-off-root' WARN either way. If this pin ever
+#      needs to flip to 'wired-off-root', that is a deliberate feature add (a fork-based
+#      fallback), not a regression — update this test alongside it.
+d_real_root="$ROOT/t14-real-repo"; mkdir -p "$d_real_root/real-nested"
+git init -q "$d_real_root" >/dev/null 2>&1
+wire_settings "$d_real_root/real-nested" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+d_link="$ROOT/t14a-link-to-nested"
+ln -s "$d_real_root/real-nested" "$d_link"
+assert_state "14a DOCUMENTED LIMITATION: leaf symlink to a NESTED dir → stays 'wired' (false negative, not a crash or false WARN)" "$d_link" "wired"
+
+# 14b — the LEAF case works correctly: a leaf symlink pointing DIRECTLY at a git root (settings.json
+#      wired there) → stays 'wired', not off-root (this is the case `[ -e ]` resolves for free).
+d_real_root2="$ROOT/t14b-real-root2"; mkdir -p "$d_real_root2"
+git init -q "$d_real_root2" >/dev/null 2>&1
+wire_settings "$d_real_root2" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+d_link_root="$ROOT/t14b-link-to-root2"
+ln -s "$d_real_root2" "$d_link_root"
+assert_state "14b leaf symlink pointing directly AT a git root, wired → wired (not off-root)" "$d_link_root" "wired"
+
+# --- 15a/15b/15c — RELATIVE-PATH INFINITE LOOP (RDD correction, kit issue #1140) ----------------
+# A relative target ('.', 'foo', 'foo/bar' -> 'foo') gave ${d%/*} no "/" to climb past, so the
+# walk-up spun forever — a real caller shape (e.g. research-sdd-status.sh invoked as '.'), not
+# synthetic. Each case runs in a fresh subprocess under `timeout` so a regression fails loudly.
+run_relative_case() {
+  local label="$1" cwd="$2" target="$3" want="$4" out rc
+  out="$(cd "$cwd" && timeout 10 "$BASH_BIN" -c ". \"$LIB\"; hook_stop_wiring_state \"$target\"" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 124 ]; then no "$label" "TIMED OUT (infinite loop) after 10s"
+  elif [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then ok "$label" "-> $out"
+  else no "$label" "rc=$rc out=[$out] want=[$want]"; fi
+}
+d15a="$ROOT/t15a-dot-selfroot"; mkdir -p "$d15a"; git init -q "$d15a" >/dev/null 2>&1
+wire_settings "$d15a" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+run_relative_case "15a relative target '.' at its own git root → wired (no hang)" "$d15a" "." "wired"
+mkdir -p "$ROOT/t15b-bare-norepo"
+wire_settings "$ROOT/t15b-bare-norepo" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+run_relative_case "15b relative target (no slash), no ancestor .git under ceiling → wired (no hang)" "$ROOT" "t15b-bare-norepo" "wired"
+d15c_root="$ROOT/t15c-repo"; mkdir -p "$d15c_root/nested"; git init -q "$d15c_root" >/dev/null 2>&1
+wire_settings "$d15c_root/nested" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+run_relative_case "15c relative target 'nested' inside a repo → wired-off-root (no hang)" "$d15c_root" "nested" "wired-off-root"
+
+# --- 16 — DOTDOT DISTRACTOR (kit r3 review, M1): a '..' component must be COLLAPSED before the
+#      walk-up runs, not stripped one raw textual segment at a time. Target = ".../A/B/.." really
+#      resolves to ".../A" (no .git of its own); ".../A/B" is an UNRELATED nested repo (B has its
+#      own .git, A does not). Un-normalized, the walk-up's first miss at ".../A/B/../.git" climbs
+#      by stripping the trailing '..' segment (not collapsing it), landing on the REAL directory
+#      ".../A/B" and finding B's irrelevant .git there — a FALSE 'wired-off-root' for a target that
+#      (correctly resolved) is not in any repo at all and should stay plain 'wired'.
+d16_a="$ROOT/t16-dotdot/A"; d16_b="$d16_a/B"; mkdir -p "$d16_b"
+wire_settings "$d16_a" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+git init -q "$d16_b" >/dev/null 2>&1
+assert_state "16 dotdot distractor: '.../A/B/..' resolves to A (no repo) → wired, B's nested .git ignored" "$d16_a/B/.." "wired"
+
+# --- 17 — CEILING TRAILING SLASH (kit r3 review, M3): $RSDD_HOOK_WIRING_CEILING is compared
+#      TEXTUALLY against the walk-up's (now-normalized, no trailing slash) $d — a ceiling value
+#      with a trailing slash never textually matches and silently never fires, letting an enclosing
+#      repo bleed in exactly like case 13a's un-ceilinged control. Reuses case 13's TMPDIR-inside-
+#      a-repo fixture shape with a fresh enclosing dir so it cannot collide with case 13's cleanup.
+_encl17="$ROOT/t17-enclosing"; mkdir -p "$_encl17"; git init -q "$_encl17" >/dev/null 2>&1
+_old_tmpdir17="${TMPDIR:-}"; _had17=0; [ -n "${TMPDIR+x}" ] && _had17=1
+TMPDIR="$_encl17"; export TMPDIR
+_inner17="$(mktemp -d)"
+d17="$_inner17/target"; mkdir -p "$d17"
+wire_settings "$d17" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+_saved_ceiling17="$RSDD_HOOK_WIRING_CEILING"
+export RSDD_HOOK_WIRING_CEILING="$_encl17/"
+assert_state "17 ceiling with a trailing slash still blocks the enclosing repo (not silently disabled)" "$d17" "wired"
+export RSDD_HOOK_WIRING_CEILING="$_saved_ceiling17"
+rm -rf "$_inner17"
+if [ "$_had17" -eq 1 ]; then TMPDIR="$_old_tmpdir17"; export TMPDIR; else unset TMPDIR; fi
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -112,7 +290,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       # this subshell (subshells inherit the parent's functions). Unset first, or the mutant
       # lib's idempotency guard (`if ! declare -F ...`) sees them as already defined and skips
       # its own redefinition — the mutant would silently never take effect.
-      unset -f hook_stop_wiring_state hook_stop_wiring_state_var
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
       . "$mut_wired"
       d="$ROOT/t3"
@@ -130,7 +308,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     sed 's/HOOK_WIRING_STATE="absent-settings"; return 0/HOOK_WIRING_STATE="unwired"; return 0  # MUTANT: collapsed/' "$LIB" > "$mut_absent"
     (
-      unset -f hook_stop_wiring_state hook_stop_wiring_state_var
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
       # shellcheck disable=SC1090
       . "$mut_absent"
       d="$ROOT/t1"
@@ -154,7 +332,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       wire_settings "$d_t6b" '{"hooks":{"Stop":[]}}'
       chmod 000 "$d_t6b/.claude/settings.json"
       (
-        unset -f hook_stop_wiring_state hook_stop_wiring_state_var
+        unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
         # shellcheck disable=SC1090
         . "$mut_var"
         d="$d_t6b"
@@ -168,6 +346,168 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       echo "  SKIP  teeth: hook_stop_wiring_state_var unreadable mutation (running as root)"
     fi
+  fi
+
+  echo "-- teeth: neuter the wired-off-root downgrade assignment — case 9 must go RED (stays 'wired') --"
+  mut_offroot_neuter="$ROOT/hook-wiring.MUTANT-offroot-neuter.sh"
+  if ! grep -qF 'HOOK_WIRING_STATE="wired-off-root"' "$LIB"; then
+    no "teeth: locate wired-off-root assignment anchor in lib — drifted?"
+  else
+    sed 's/HOOK_WIRING_STATE="wired-off-root"/: # MUTANT: neutered/' "$LIB" > "$mut_offroot_neuter"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
+      # shellcheck disable=SC1090
+      . "$mut_offroot_neuter"
+      d_root="$ROOT/t9-teeth-neuter"; d="$d_root/nested"; mkdir -p "$d"
+      git init -q "$d_root" >/dev/null 2>&1
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      r="$(hook_stop_wiring_state "$d")"
+      if [ "$r" = "wired-off-root" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 9 (off-root false-reported as plain wired)"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: wired-off-root downgrade-neuter mutation caught (real sourced lib)"; else no "teeth: wired-off-root downgrade-neuter mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: widen the git-root comparison to always-mismatch — case 8 must go RED (a clean git-root target would be misreported off-root) --"
+  mut_offroot_always="$ROOT/hook-wiring.MUTANT-offroot-always.sh"
+  if ! grep -qF 'if [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK' "$LIB"; then
+    no "teeth: locate WIRED-OFF-ROOT-CHECK comparison anchor in lib — drifted?"
+  else
+    sed 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ -n "$HW_GIT_ROOT" ]; then  # MUTANT: comparison dropped, always mismatches when a root is found/' "$LIB" > "$mut_offroot_always"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
+      # shellcheck disable=SC1090
+      . "$mut_offroot_always"
+      d="$ROOT/t8-teeth-always"; mkdir -p "$d"
+      git init -q "$d" >/dev/null 2>&1
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      r="$(hook_stop_wiring_state "$d")"
+      if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 8 (clean git-root target misreported [$r])"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: git-root comparison always-mismatch mutation caught (real sourced lib)"; else no "teeth: git-root comparison always-mismatch mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: drop the '[ -n \"\$HW_GIT_ROOT\" ]' guard — case 12 must go RED (a non-repo target would be misreported off-root) --"
+  mut_hwg_guard="$ROOT/hook-wiring.MUTANT-hwgroot-null-guard.sh"
+  if ! grep -qF 'if [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK' "$LIB"; then
+    no "teeth: locate WIRED-OFF-ROOT-CHECK null-guard anchor in lib — drifted?"
+  else
+    sed 's/if \[ -n "\$HW_GIT_ROOT" \] \&\& \[ "\$HW_GIT_ROOT" != "\$_hw_target_norm" \]; then  # WIRED-OFF-ROOT-CHECK/if [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # MUTANT: null-guard dropped/' "$LIB" > "$mut_hwg_guard"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
+      # shellcheck disable=SC1090
+      . "$mut_hwg_guard"
+      d="$ROOT/t12-teeth-nullguard"; mkdir -p "$d"
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      r="$(hook_stop_wiring_state "$d")"
+      if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 12 (non-repo target misreported [$r] — empty HW_GIT_ROOT != any target string)"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: null-guard-dropped mutation caught (real sourced lib)"; else no "teeth: null-guard-dropped mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: neuter HOOK-WIRING-GITDIR-CHECK ('.git' existence test) — case 9 must go RED (off-root target never finds any git root) --"
+  mut_gitdir="$ROOT/hook-wiring.MUTANT-gitdir-check.sh"
+  if ! grep -qF 'if [ -e "$d/.git" ]; then  # HOOK-WIRING-GITDIR-CHECK' "$LIB"; then
+    no "teeth: locate HOOK-WIRING-GITDIR-CHECK anchor in lib — drifted?"
+  else
+    sed 's/if \[ -e "\$d\/\.git" \]; then  # HOOK-WIRING-GITDIR-CHECK/if false; then  # MUTANT: gitdir check neutered/' "$LIB" > "$mut_gitdir"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
+      # shellcheck disable=SC1090
+      . "$mut_gitdir"
+      d_root="$ROOT/t9-teeth-gitdir"; d="$d_root/nested"; mkdir -p "$d"
+      git init -q "$d_root" >/dev/null 2>&1
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      r="$(hook_stop_wiring_state "$d")"
+      if [ "$r" = "wired-off-root" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 9 ('.git' never found, stays plain wired [$r])"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: HOOK-WIRING-GITDIR-CHECK neuter mutation caught (real sourced lib)"; else no "teeth: HOOK-WIRING-GITDIR-CHECK neuter mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: neuter HOOK-WIRING-CEILING-CHECK — case 13b must go RED (ceiling no longer stops the walk-up before the enclosing repo) --"
+  mut_ceiling="$ROOT/hook-wiring.MUTANT-ceiling-check.sh"
+  if ! grep -qF 'if [ -n "$ceiling" ] && [ "$d" = "$ceiling" ]; then  # HOOK-WIRING-CEILING-CHECK' "$LIB"; then
+    no "teeth: locate HOOK-WIRING-CEILING-CHECK anchor in lib — drifted?"
+  else
+    sed 's/if \[ -n "\$ceiling" \] \&\& \[ "\$d" = "\$ceiling" \]; then  # HOOK-WIRING-CEILING-CHECK/if false; then  # MUTANT: ceiling check neutered/' "$LIB" > "$mut_ceiling"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root
+      # shellcheck disable=SC1090
+      . "$mut_ceiling"
+      _mc_encl="$ROOT/t13-teeth-enclosing"; mkdir -p "$_mc_encl"
+      git init -q "$_mc_encl" >/dev/null 2>&1
+      _mc_old_tmpdir="${TMPDIR:-}"; _mc_had=0; [ -n "${TMPDIR+x}" ] && _mc_had=1
+      TMPDIR="$_mc_encl"; export TMPDIR
+      _mc_inner="$(mktemp -d)"
+      d="$_mc_inner/target"; mkdir -p "$d"
+      wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+      export RSDD_HOOK_WIRING_CEILING="$_mc_encl"
+      r="$(hook_stop_wiring_state "$d")"
+      rm -rf "$_mc_inner"
+      if [ "$_mc_had" -eq 1 ]; then TMPDIR="$_mc_old_tmpdir"; export TMPDIR; else unset TMPDIR; fi
+      if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 13b (ceiling ignored, enclosing repo bleeds in again [$r])"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: HOOK-WIRING-CEILING-CHECK neuter mutation caught (real sourced lib)"; else no "teeth: HOOK-WIRING-CEILING-CHECK neuter mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: drop the dotdot-join '/' prefix AND the no-progress guard — case 15b must go RED (reproduces the original infinite loop) --"
+  mut_relhang="$ROOT/hook-wiring.MUTANT-relpath-hang.sh"
+  if ! grep -qF '*)    result="$result/$part" ;;' "$LIB" || ! grep -qF '# HOOK-WIRING-NOPROGRESS-GUARD' "$LIB"; then
+    no "teeth: locate join-prefix or no-progress-guard anchor in lib — drifted?"
+  else
+    sed -e 's/\*)    result="\$result\/\$part" ;;/*)    result="$part" ;;  # MUTANT: join no longer prefixes "\/"/' \
+        -e 's/if \[ "\$_hw_next" = "\$d" \]; then  # HOOK-WIRING-NOPROGRESS-GUARD.*/if false; then  # MUTANT: no-progress guard dropped/' \
+        "$LIB" > "$mut_relhang"
+    d_relhang="$ROOT/t15b-teeth-norepo"; mkdir -p "$d_relhang"
+    wire_settings "$d_relhang" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+    out_relhang="$(cd "$ROOT" && timeout 10 "$BASH_BIN" -c ". \"$mut_relhang\"; hook_stop_wiring_state \"t15b-teeth-norepo\"" 2>&1)"
+    rc_relhang=$?
+    if [ "$rc_relhang" -eq 124 ]; then
+      ok "teeth: relative-path abspath+no-progress-guard mutation caught (real sourced lib, timed out as expected)"
+    else
+      no "teeth: relative-path abspath+no-progress-guard mutation NOT caught (theater)" "rc=$rc_relhang out=[$out_relhang]"
+    fi
+  fi
+
+  echo "-- teeth: stop collapsing '..' (append it as a literal component instead) — case 16 must go RED --"
+  mut_dotdot="$ROOT/hook-wiring.MUTANT-dotdot-nocollapse.sh"
+  if ! grep -qF '..)   result="${result%/*}" ;;' "$LIB"; then
+    no "teeth: locate '..' collapse anchor in lib — drifted?"
+  else
+    sed 's/\.\.)   result="\${result%\/\*}" ;;/..)   result="$result\/.." ;;  # MUTANT: dotdot no longer collapsed/' "$LIB" > "$mut_dotdot"
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut_dotdot"
+      r="$(hook_stop_wiring_state "$d16_a/B/..")"
+      if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 16 (dotdot distractor misreported [$r])"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: '..' no-collapse mutation caught (real sourced lib)"; else no "teeth: '..' no-collapse mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: compare the ceiling raw (skip its _hw_abspath normalization) — case 17 must go RED --"
+  mut_ceilraw="$ROOT/hook-wiring.MUTANT-ceiling-raw.sh"
+  if ! grep -qF '_hw_abspath "$RSDD_HOOK_WIRING_CEILING"; ceiling="$HW_ABS_PATH"' "$LIB"; then
+    no "teeth: locate ceiling-normalize anchor in lib — drifted?"
+  else
+    sed 's/_hw_abspath "\$RSDD_HOOK_WIRING_CEILING"; ceiling="\$HW_ABS_PATH"/ceiling="$RSDD_HOOK_WIRING_CEILING"  # MUTANT: ceiling compared raw/' "$LIB" > "$mut_ceilraw"
+    _encl_t="$ROOT/t17-teeth-enclosing"; mkdir -p "$_encl_t/nested"; git init -q "$_encl_t" >/dev/null 2>&1
+    wire_settings "$_encl_t/nested" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}'
+    (
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut_ceilraw"
+      export RSDD_HOOK_WIRING_CEILING="$_encl_t/"
+      r="$(hook_stop_wiring_state "$_encl_t/nested")"
+      if [ "$r" = "wired" ]; then echo "  FAIL  teeth: mutant did not flip (theater)"; exit 1
+      else echo "  PASS  teeth: mutant correctly breaks case 17 (trailing-slash ceiling silently disabled [$r])"; exit 0; fi
+    )
+    if [ $? -eq 0 ]; then ok "teeth: ceiling-raw-comparison mutation caught (real sourced lib)"; else no "teeth: ceiling-raw-comparison mutation NOT caught (theater)"; fi
   fi
 fi
 

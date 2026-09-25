@@ -12,6 +12,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-status.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# HERMETICITY (kit issue #1140 round-2 review, Blocking 4): lib/hook-wiring.sh's git-root walk-up
+# climbs from a target to `/` unless RSDD_HOOK_WIRING_CEILING is set. Case 32f below git-inits a
+# fixture under $TMP; without this, a $TMPDIR that happens to sit inside a real repo would let an
+# ENCLOSING repo's .git bleed into every fixture here.
+RSDD_HOOK_WIRING_CEILING="$(dirname "$TMP")"
+export RSDD_HOOK_WIRING_CEILING
 pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -545,6 +551,28 @@ if [ "$(id -u)" != "0" ]; then
 else
   skip "32d Stop hook line: unreadable (running as root; permission bits bypassed)"
 fi
+
+# NOTE (kit issue #1140 round-2 review, Blocking 5): the '(checked: ...)' path suffix (formerly
+# 32e here) and the missing/broken-lib coverage (formerly 32g/32h here) were split OUT of this PR
+# into their own follow-up work, now tracked as kit issue #1150 — the suffix changes ALL 15
+# reachable status reports, not only three.js, breaking this PR's own "byte-identical except
+# three.js" acceptance claim (kit §6: a calibration change is its own work unit). 32f below (the
+# wired-off-root STATE itself) is the only research-sdd-status.sh behavior kit issue #1135 actually
+# needs, and it changes nothing for any target whose state is not wired-off-root, preserving the
+# byte-identical claim.
+
+# 32f — kit issue #1135: a registered target nested inside a git repo whose OWN root is a DIFFERENT,
+# higher directory, with settings.json syntactically wired at the nested path → wired-off-root, not
+# wired. This is the three.js shape: a real session launches from the git root, never the nested
+# path, so the wired settings.json never loads in practice.
+d_root="$TMP/hook-offroot-gitroot"; d="$d_root/nested"; mkstate "$d" 1 "high|g1|pending"
+git init -q "$d_root" >/dev/null 2>&1
+mkdir -p "$d/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
+rep="$(bash "$SUT" "$d" 2>/dev/null)"
+grep -qF 'Stop hook       : wired-off-root' <<<"$rep" \
+  && ok "32f Stop hook line: wired-off-root (three.js shape — nested off git root)" \
+  || no "32f Stop hook line: wired-off-root" "$(grep -i 'Stop hook' <<<"$rep")"
 
 # 33 — bare `pending` cell is still selected by --next (leading-token regression guard)
 d="$TMP/bare-pending"; mkstate "$d" 1 "high|bare gap|pending"
