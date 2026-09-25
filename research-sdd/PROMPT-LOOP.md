@@ -1160,10 +1160,18 @@ Always read first, in this order:
   and INDEX/CATALOG conventions unchanged. Full definition: METHODOLOGY §20.
   PREFLIGHT (new-target path only): if the subject path has NO corpus (no `RESEARCH-STATE`/`INDEX` at
   `$TARGET` or `$TARGET/corpus/`) AND the triage decision gate classified the request as explicit document/
-  create intent for a new target → run BOOTSTRAP steps a, a2, b (TARGETS.md registration), and c (scaffold
-  via `research-sdd-init.sh`) before entering step 1 below. Step e (gap-seeding) is explicitly skipped —
-  this preflight is the mechanical registration and scaffolding only; it does not seed a discovery backlog
-  and does not change this mode's outline-driven contract.
+  create intent for a new target → run BOOTSTRAP steps a, a2, b (TARGETS.md registration), and c — scaffold
+  via:
+
+    research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --document
+
+  (kit issue #1114). **`--document` is REQUIRED here** — omitting it seeds the generic gap-discovery
+  RESEARCH-STATE (placeholder `## Gap-backlog` rows this mode never discovers or closes) instead of the
+  OUTLINE-driven variant. See `$KIT/templates/RESEARCH-STATE-document.template.md`'s own header comment
+  for the full rationale (empty Gap-backlog, `## Outline` work-list, `method: document-cycle` envelope
+  marker, and why that differs from `method: document-cycle-external`). Step e (gap-seeding) is explicitly
+  skipped — this preflight is the mechanical registration and scaffolding only; it does not seed a
+  discovery backlog and does not change this mode's outline-driven contract.
   1. SEED THE OUTLINE (replaces gap-discovery). Instead of uncovering gaps, seed the FULL list of
      topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
      the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a

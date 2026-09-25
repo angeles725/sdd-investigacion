@@ -20,7 +20,7 @@
 #   - POST-FLIGHT verification: success is printed only after all artifacts are confirmed.
 #
 # Usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force]
-#        [--wire] [--no-wire] [--scaffold]
+#        [--wire] [--no-wire] [--scaffold] [--document]
 # Exit: 0 = scaffolded · 2 = bad args/target/not-writable · 3 = corpus already exists (refused) ·
 #       4 = wire-only: existing .claude/settings.json is non-empty but not a JSON object with a
 #           valid .hooks shape, OR the settings.json merge itself failed (refused/aborted,
@@ -35,6 +35,17 @@
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
+#
+# DOCUMENT-CYCLE SCAFFOLD VARIANT (kit issue #1114): --document swaps the RESEARCH-STATE.md source
+# template from RESEARCH-STATE.template.md (gap-discovery / NORMAL CYCLE) to
+# RESEARCH-STATE-document.template.md (OUTLINE-driven / DOCUMENT CYCLE, METHODOLOGY §20). The
+# generic template seeds discovery-style Gap-backlog placeholder rows a document-cycle run never
+# discovers or closes — PROMPT-LOOP's DOCUMENT CYCLE preflight passes --document precisely to avoid
+# that mismatch. The flag affects ONLY which RESEARCH-STATE.md source is copied during a full
+# scaffold. On the wire-only-repair path (an EXISTING corpus, --wire, no --force) it is REJECTED
+# (exit 2) rather than silently ignored, since that path never touches RESEARCH-STATE.md — see the
+# rejection guard further down, nested inside the wire-only-repair section. Omitted, the default
+# scaffold is unchanged.
 #
 # WIRE-ONLY REPAIR (kit issue #1038, hardened by #1040 rounds 2 and 3): --wire on a target whose
 # corpus already exists (and no --force) skips the scaffold and instead REPAIRS whatever hooks
@@ -92,7 +103,7 @@ if [ ! -f "$_ri_cm_lib" ]; then echo "research-sdd-init: cannot find helper $_ri
 declare -F corpus_has_marker >/dev/null 2>&1 || { echo "research-sdd-init: helper $_ri_cm_lib failed to define corpus_has_marker" >&2; exit 1; }
 unset _ri_cm_lib
 
-target=""; corpus_mode="auto"; prefix=""; force=0; wire=0; scaffold=0
+target=""; corpus_mode="auto"; prefix=""; force=0; wire=0; scaffold=0; document=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
@@ -101,11 +112,12 @@ while [ $# -gt 0 ]; do
     --wire)     wire=1; shift;;
     --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
     --scaffold) scaffold=1; shift;;   # kit issue #1047: explicit opt-in to scaffold+wire in one call
+    --document) document=1; shift;;   # kit issue #1114: seed the DOCUMENT CYCLE (outline-driven) RESEARCH-STATE variant
     -*)         echo "unknown flag: $1" >&2; exit 2;;
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire] [--scaffold]" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--force] [--wire] [--no-wire] [--scaffold] [--document]" >&2; exit 2; }
 # kit issue #1047: --scaffold has no effect on its own — it only opts a marker-less target INTO
 # scaffolding when paired with --wire. Reject rather than silently ignore, so a typo (or a
 # --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
@@ -116,6 +128,11 @@ target="$(cd "$target" && pwd)"
 for t in INDEX.template.md RESEARCH-STATE.template.md SOURCES.template.md hook-sessionstart.sh hook-stop-retro-gate.sh tools-README.template.md; do
   [ -f "$TPL/$t" ] || { echo "FATAL: missing kit template $TPL/$t" >&2; exit 2; }
 done
+# kit issue #1114: RESEARCH-STATE-document.template.md is required ONLY when --document is actually
+# going to be used — a target missing it must not break the (far more common) default scaffold path.
+if [ "$document" = 1 ]; then
+  [ -f "$TPL/RESEARCH-STATE-document.template.md" ] || { echo "FATAL: missing kit template $TPL/RESEARCH-STATE-document.template.md (required by --document)" >&2; exit 2; }
+fi
 
 # --- corpus_present helper (shared by wire-only, anti-clobber, and #1047 refusal sections) ---
 # RESEARCH-STATE*.md covers BOTH the single-focus RESEARCH-STATE.md AND the §16 multi-focus
@@ -227,6 +244,18 @@ fi
 # WIRE-ONLY-EXISTING-CORPUS
 if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
   if [ -n "$_wo_corpus_root" ]; then
+    # kit issue #1114 (following the #1047 no-silent-no-op precedent): --document has NO EFFECT on
+    # this path — it only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md. Reject
+    # rather than silently ignore the flag, exactly as --scaffold-without-wire is rejected above.
+    # There is no in-place way to add the document-cycle variant to an EXISTING corpus, and --force
+    # is NOT a targeted fix for that: it re-scaffolds the WHOLE corpus (INDEX.md, RESEARCH-STATE.md,
+    # SOURCES.md, hooks), clobbering hand-adapted hooks, INDEX.md and real backlog rows (#1038's own
+    # header note above says exactly this) — never recommend it as a way to "add" the document
+    # variant; state its real destructive scope instead.
+    if [ "$document" = 1 ]; then
+      echo "usage: --document has no effect here — --wire on an existing corpus (without --force) only REPAIRS hooks/settings.json and never touches RESEARCH-STATE.md (kit issue #1114). There is no in-place conversion: drop --document, or scaffold a NEW target with --document instead. --force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX.md, RESEARCH-STATE.md, SOURCES.md, hooks) and clobbers hand-adapted hooks, INDEX.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard." >&2
+      exit 2
+    fi
     # Wire-only: compute paths; NEVER touch any corpus file.
     _wo_stop="$target/.claude/hooks/retro-gate-stop.sh"
     _wo_ss="$target/.claude/hooks/research-protocol.sh"
@@ -423,7 +452,11 @@ cpf() { [ -e "$2" ] || created+=("$2"); cp "$1" "$2"; }
 # is_inproject's ignore list so legacy targets that already have a tools/ dir classify correctly.)
 mk  "$corpus/sources"; mk "$target/.claude/hooks"; mk "$target/retros"; mk "$target/tools"
 cpf "$TPL/INDEX.template.md"          "$corpus/INDEX.md"
-cpf "$TPL/RESEARCH-STATE.template.md" "$corpus/RESEARCH-STATE.md"
+# kit issue #1114: --document swaps in the OUTLINE-driven RESEARCH-STATE variant (METHODOLOGY §20);
+# omitted (the default), the scaffold is byte-identical to before this flag existed.
+_state_tpl="$TPL/RESEARCH-STATE.template.md"
+[ "$document" = 1 ] && _state_tpl="$TPL/RESEARCH-STATE-document.template.md"
+cpf "$_state_tpl"                     "$corpus/RESEARCH-STATE.md"
 cpf "$TPL/SOURCES.template.md"        "$corpus/sources/SOURCES.md"
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
@@ -469,6 +502,9 @@ echo "  target : $target"
 echo "  corpus : ${rel}"
 echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · retros/ · tools/README.md · .gitignore"
 echo "  catalog: CATALOG.md is regenerated by research-sdd-archive.sh via the KIT generator (no per-target copy — eje #2)"
+if [ "$document" = 1 ]; then
+  echo "  mode   : document-cycle scaffold (--document, kit issue #1114) — RESEARCH-STATE.md seeded from the OUTLINE-driven variant (METHODOLOGY §20), not the gap-discovery one"
+fi
 if [ "$git_did_init" = 1 ]; then
   echo "  git    : initialized a new repo in the target"
 else
@@ -483,7 +519,11 @@ echo "  1. REGISTER the target row in $KIT/TARGETS.md (name·path·maturity·art
 echo "     — else sweep-retros.sh cannot see its retros/ (§18)."
 echo "  2. CLASSIFY the artifact + declare the ANGLE (PROMPT-LOOP §b/§b2); run profile-target.sh + detect-tools.sh."
 echo "-- THEN do next (post-scaffold) --"
-echo "  3. SEED 5-15 real gaps into $corpus/RESEARCH-STATE.md (audit-first for a mature corpus) (§e)."
+if [ "$document" = 1 ]; then
+  echo "  3. SEED THE OUTLINE into $corpus/RESEARCH-STATE.md's \"## Outline\" section (PROMPT-LOOP DOCUMENT CYCLE step 1, METHODOLOGY §20) — NOT the Gap-backlog, which stays empty in document mode (kit issue #1114)."
+else
+  echo "  3. SEED 5-15 real gaps into $corpus/RESEARCH-STATE.md (audit-first for a mature corpus) (§e)."
+fi
 echo "  4. ADAPT + REGISTER the hook (§c follow-up): replace <SUBJECT> + real source paths in"
 echo "     $target/.claude/hooks/research-protocol.sh (matcher startup|resume|clear)."
 echo "     Then wire it: re-run with --wire, or paste the wiring snippet below into $target/.claude/settings.json."
@@ -494,7 +534,11 @@ else
   echo "  (no --prefix given — step 5, block-file prefix, is skipped; pass --prefix to enable it)"
 fi
 echo
-echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
+if [ "$document" = 1 ]; then
+  echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — its next-step/saturation verdicts are GAP-CENTRIC and NOT meaningful for this document-cycle corpus (kit issue #1152 tracks teaching status to honor method: document-cycle); the \"## Outline\" table in RESEARCH-STATE.md is this mode's real completion signal (PROMPT-LOOP DOCUMENT CYCLE step 7)."
+else
+  echo "NEXT: run $KIT/toolbelt/research-sdd-status.sh $target — it reports BOOTSTRAP until the follow-ups above are done."
+fi
 echo "  mental model: you now have a VALID-but-EMPTY corpus; the JUDGMENT follow-ups turn it into a real research target."
 echo
 # §479 HOOK WIRING — PROPOSE-NEVER-APPLY by default (print snippet); --wire opts in to write.
