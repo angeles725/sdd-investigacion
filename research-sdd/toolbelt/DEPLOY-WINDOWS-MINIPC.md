@@ -68,7 +68,9 @@ _Source: panccadia-3d-viewer/retros/2026-09-04-deploy-windows-minipc.md; panccad
 - **`schtasks /End` + `/Run` does NOT kill a detached `node` child.** The old process keeps the port and keeps
   serving stale code while the task reports "restarted". Kill the child first —
   `Get-CimInstance Win32_Process | Where-Object CommandLine -like '*<script>*' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`
-  — then `schtasks /Run`, then verify the change took effect LIVE (a request against the served copy), not by
+  — (as a non-admin user `CommandLine` is null for SYSTEM-owned processes, so this filter matches nothing;
+  use `Get-Process -Name node` instead — see the `Win32_Process.CommandLine` gotcha below) —
+  then `schtasks /Run`, then verify the change took effect LIVE (a request against the served copy), not by
   the task status. (Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D2; B17 §17.2)
 
 - **`rc=$?` after a pipe reports the last command's exit, not the pipe's.** Piping `scp ... | grep`
@@ -100,17 +102,23 @@ _Source: panccadia-3d-viewer/retros/2026-09-04-deploy-windows-minipc.md; panccad
   (Source: panccadia)
 
 - **`Win32_Process.CommandLine` returns `null` for SYSTEM-owned processes queried by a non-admin
-  user** (e.g. `asus`) — filtering with `Where-Object CommandLine -like '*<script>*'` (as in step 6
-  above) then silently matches nothing: a **false empty**, not a real absence. To detect/count a
+  user** (`<non-admin user>`) — filtering with `Where-Object CommandLine -like '*<script>*'` (as in the
+  `schtasks /End` gotcha above) then silently matches nothing: a **false empty**, not a real absence. To detect/count a
   known process (e.g. the poller's `node`) instead, use `Get-Process -Name node` (returns PIDs
   without `CommandLine`, and does not require admin rights). After restart, confirm the expected
   `NODE_COUNT` (e.g. poller + write-server) to avoid leaving duplicate processes running, and verify
   by **telemetry** — a backend row's timestamp advancing — not by reading `poller.log`.
-  (Source: Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
+  (Source: pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
 - **Diff before overwrite, not just byte-size.** Before step 4's copy, pull the currently-deployed
   file back and diff it against the repo copy — not just compare sizes (step 5) — to confirm the
   ONLY change is the intended one before touching production.
-  (Source: Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
+  (Source: pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
+- **Node service as a supervised `.cmd` loop.** Pattern: scheduled task → `run-poller.cmd` =
+  `:loop / node poller.mjs / ping -n 6 127.0.0.1 / goto loop`; node runs indefinitely and the `.cmd` only
+  relaunches it if it dies. Clean restart to load a new file: `Stop-ScheduledTask` + `Start-ScheduledTask`
+  (recycles the process tree), or kill the node process (the loop relaunches it in ~5 s with the new file).
+  Safe deploy order: **backup → diff-before-overwrite → move → restart → verify by telemetry** (not logs).
+  (Source: pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
 
 - **A long `wrangler pages deploy` can outlive the OAuth token** — the upload phase can take several
   minutes on a slow connection, and a short-lived browser OAuth session expires mid-flight, causing a

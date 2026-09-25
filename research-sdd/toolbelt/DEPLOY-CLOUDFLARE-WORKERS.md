@@ -6,8 +6,8 @@ deploy. Complements [`DEPLOY-STATIC-VERCEL-CLOUDFLARE.md`](DEPLOY-STATIC-VERCEL-
 (Pages / static assets) and [`WINDOWS-SSH-BRINGUP.md`](WINDOWS-SSH-BRINGUP.md) (cloudflared
 tunnels) — this file covers Worker **scripts** deployed by API.
 
-_Source: Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-14-incidente-pipeline-jace.md (A-1);
-Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-16-rediseno-reporte-html-pdf.md (R-1..R-4)._
+_Source: pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-14-incidente-pipeline-jace.md (A-1);
+pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-16-rediseno-reporte-html-pdf.md (R-1..R-4)._
 
 ## 1. Build with esbuild directly (no wrangler)
 
@@ -16,8 +16,7 @@ _Source: 2026-09-14-incidente-pipeline-jace.md · A-1(a)_
 Run the vendored `esbuild` binary directly instead of going through `wrangler`:
 
 ```sh
-node_modules/.bin/esbuild <entry.js> --bundle --format=esm --outfile=<worker.js> \
-  --external:'node:*'
+node_modules/.bin/esbuild <entry.js> <your usual bundle flags> --external:'node:*'
 ```
 
 `--external:'node:*'` is **mandatory** whenever the bundle imports a `node:` builtin (e.g.
@@ -61,7 +60,7 @@ must not rotate or clear existing secrets.
 _Source: 2026-09-14-incidente-pipeline-jace.md · A-1(d)_
 
 Build the message as raw MIME and construct one `new EmailMessage(from, to, raw)` **per
-recipient** — `send_email` does not fan a single message out to multiple `To` addresses on its own.
+recipient** (the pattern the source run used and verified).
 
 ## 6. Recovering the deployed ESM source: `/content/v2`, not `/content`
 

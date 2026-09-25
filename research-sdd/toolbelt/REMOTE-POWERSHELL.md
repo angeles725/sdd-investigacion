@@ -167,11 +167,11 @@ Measured: 13.2 MB of source files → a 4 MB archive → one `fetch.sh` call.
 
 ## 7. Force text output with `-OutputFormat Text` (complements §3's CLIXML tagging)
 
-_Source: Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md_
+_Source: pancaddia-leon-tunnel (TARGETS #32) corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md_
 
 Without an explicit output format, PowerShell over SSH returns **CLIXML** (`#< CLIXML` +
-`<Objs>...</Objs>` XML), and the progress stream contaminates it further even when you tag and
-filter your own output lines per §3. Force plain text and silence progress at the source:
+`<Objs>...</Objs>` XML), and the progress stream adds noise to it. §3's tagged lines still survive; to get plain
+text and silence progress at the source instead:
 
 ```bash
 ./connect-ssh.sh "powershell -NoProfile -OutputFormat Text -EncodedCommand $B64"
