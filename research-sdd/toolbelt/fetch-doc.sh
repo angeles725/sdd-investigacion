@@ -58,7 +58,16 @@ case "$MODE" in
     URL="${2:?url}"; TDIR="${3:?target-dir}"; SUB="${4:-datasheets}"
     SDIR="$TDIR/sources"; mkdir -p "$SDIR/$SUB"
     NAME="${5:-$(basename "${URL%%\?*}")}"; DEST="$SDIR/$SUB/$NAME"
-    curl -fsSL "$URL" -o "$DEST" || wget -q "$URL" -O "$DEST"
+    # Capture the EFFECTIVE (post-redirect) URL via curl -w so SOURCES.md registers the URL the
+    # content actually resolved to, not the originally requested one (a canonical doc URL may
+    # 301-redirect on a docs reorg or slug change — METHODOLOGY.md §5). Falls back to the
+    # originally requested $URL when curl fails (wget path) or reports nothing.
+    EFFECTIVE_URL="$URL"
+    if EFF_OUT="$(curl -fsSL "$URL" -o "$DEST" -w '%{url_effective}' 2>/dev/null)"; then
+      [ -n "$EFF_OUT" ] && EFFECTIVE_URL="$EFF_OUT"
+    else
+      wget -q "$URL" -O "$DEST"
+    fi
     [ -s "$DEST" ] || { echo "fetch-doc: empty body: $URL" >&2; rm -f "$DEST"; exit 1; }
     SHA="$(sha256sum "$DEST" | cut -d' ' -f1)"
     # When the saved file is a PDF, recommend the canonical page-anchored extraction tool.
@@ -70,7 +79,7 @@ case "$MODE" in
     if file -b "$DEST" | grep -qi pdf; then
       printf 'hint: PDF saved. For page-anchored citations (§5), run: extract-pdf.sh "%s"  (a flat pdftotext dump has no page anchors and must not be cited).\n' "$DEST" >&2
     fi
-    reg "$SDIR" "$DEST" "$SUB" "$URL" "$SHA"
+    reg "$SDIR" "$DEST" "$SUB" "$EFFECTIVE_URL" "$SHA"
     echo "OK: $URL -> $DEST  (sha256 ${SHA:0:16}…, registered in SOURCES.md)"
     ;;
   web)
