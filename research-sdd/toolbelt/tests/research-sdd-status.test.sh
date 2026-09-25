@@ -2019,6 +2019,45 @@ case "$_ctr_got" in
   *) no "T-IDG-CONTRACT: expected ISSUES-DUE, got [$_ctr_got]" ;;
 esac
 
+# T-IDG-OOS (kit issue #1130 finding 1): §7 fail-open guard — a retro whose review-status
+# marker is OUT OF SCOPE (positioned after a second heading, not in the leading block) must mark
+# coverage UNVERIFIED, not read as a bare verified-clean STOP. Real reconcile-issues.sh now exits
+# 0 on this finding (a corpus finding, not an operational failure — CLAUDE.md §8), and its rows
+# were never actually classified (no ^untracked: lines either) — reading rc=0 + zero untracked
+# as "clean" here is the exact silent-zero shape §7 forbids. Uses REAL reconcile-issues.sh
+# (R3-STUB-ONLY convention — gh stubbed, reconcile itself never stubbed).
+_kit_oos="$TMP/kit-idg-oos"
+_gh_stub_oos="$TMP/gh-stub-oos"
+mk_kit_real_reconcile "$_kit_oos" "$_gh_stub_oos"
+_tc_oos="$TMP/target-idg-oos"; mkstate "$_tc_oos" 0 "high|done gap|covered"
+mkdir -p "$_tc_oos/retros"
+cat > "$_tc_oos/retros/oos-retro.md" <<'OOS_EOF'
+# Retro
+
+Some prose.
+
+## Section
+
+<!-- review-status: pending -->
+
+## Proposed kit deltas
+
+| # | Proposed change | Target | Evidence | Priority |
+|---|---|---|---|---|
+| 1 | test delta | file.sh | evidence | high |
+OOS_EOF
+_oos_err="$TMP/idg-oos-stderr.txt"
+_oos_got="$(PATH="$_gh_stub_oos:$PATH" bash "$_kit_oos/research-sdd-status.sh" "$_tc_oos" --next 2>"$_oos_err")"
+_oos_rc=$?
+_oos_stderr="$(cat "$_oos_err")"
+if printf '%s\n' "$_oos_got" | grep -qF '[issue-coverage: unverified' \
+   && [ "$_oos_rc" -eq 0 ]; then
+  ok "T-IDG-OOS: out-of-scope-marker retro → unverified coverage, never a bare clean STOP (§7)" "(rc=$_oos_rc)"
+else
+  no "T-IDG-OOS: out-of-scope-marker retro → expected unverified marker, exit 0" \
+    "stdout=[$_oos_got] stderr=[$_oos_stderr] rc=$_oos_rc"
+fi
+
 # T-IDG-E: operational failure (exit 1, empty stderr) → distinct unverified marker on stdout + WARN on stderr, exit 0
 # R4-OPFAIL: a reconcile failure that is NOT a timeout (124) or a degraded gh response must also mark
 # coverage unverified.  The stub exits 1 with no output — no 'degraded:' line, no SIGKILL code.
@@ -4040,6 +4079,53 @@ CTR_TEETH_EOF
     fi
   else
     no "teeth-IDG-opfail: IDG-OPFAIL-SENTINEL not found in SUT"
+  fi
+
+  # ---- teeth-IDG-oos: neuter the IDG-OOS-SENTINEL guard; T-IDG-OOS must return a bare clean STOP.
+  # Mutation: replace `_idg_had_unverified=1  # IDG-OOS-SENTINEL` with a no-op, restoring the
+  # kit issue #1130 finding-1 bug where rc=0 + an out-of-scope-marker stderr line + zero
+  # ^untracked: lines silently read as verified-clean. Uses a STUBBED reconcile-issues.sh (exit
+  # 0, prints the exact out-of-scope-marker: stderr shape) — the same lighter-weight convention
+  # as teeth-IDG-opfail; T-IDG-OOS itself already proves the real-reconcile integration works.
+  echo "-- teeth-IDG-oos: neuter the out-of-scope-marker unverified guard; out-of-scope stub must return bare STOP --"
+  idg_oos_mutant="$TMP/status.IDG-OOS.MUTANT.sh"
+  if grep -q '# IDG-OOS-SENTINEL' "$SUT"; then
+    sed 's/_idg_had_unverified=1  # IDG-OOS-SENTINEL/: # MUTANT-IDG-OOS: flag removed/' \
+      "$SUT" > "$idg_oos_mutant"
+    if grep -q '# IDG-OOS-SENTINEL' "$idg_oos_mutant"; then
+      no "teeth-IDG-oos: could not build mutant (sed did not replace IDG-OOS-SENTINEL — check sed pattern)"
+    else
+      _oos_teeth_kit="$TMP/kit-teeth-oos"
+      mkdir -p "$_oos_teeth_kit/lib"
+      cp "$idg_oos_mutant" "$_oos_teeth_kit/research-sdd-status.sh"
+      cp "$HERE/../verify-state.sh" "$_oos_teeth_kit/verify-state.sh"
+      cp "$HERE/../lib/focus-prefix.sh" "$_oos_teeth_kit/lib/focus-prefix.sh"
+      cp "$HERE/../lib/state-files.sh" "$_oos_teeth_kit/lib/state-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_oos_teeth_kit/lib/block-files.sh"
+      cp "$HERE/../lib/retro-status.sh" "$_oos_teeth_kit/lib/retro-status.sh"
+      # Stub: exits 0, prints the real reconcile-issues.sh out-of-scope-marker: shape to stderr,
+      # nothing to stdout (no ^untracked: lines) — same scenario as T-IDG-OOS.
+      printf '#!/usr/bin/env bash\nprintf "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in r1.md — refusing to classify (kit issue #1099); move the marker into the leading block\\n" >&2\nexit 0\n' \
+        > "$_oos_teeth_kit/reconcile-issues.sh"
+      chmod +x "$_oos_teeth_kit/reconcile-issues.sh"
+      _oos_teeth_target="$TMP/target-teeth-oos"
+      mkstate "$_oos_teeth_target" 0 "high|done gap|covered"
+      mkdir -p "$_oos_teeth_target/retros"
+      touch "$_oos_teeth_target/retros/2026-09-01-teeth-oos-retro.md"
+      _oos_teeth_got="$(bash "$_oos_teeth_kit/research-sdd-status.sh" "$_oos_teeth_target" --next 2>/dev/null)"
+      if printf '%s\n' "$_oos_teeth_got" | grep -qF '[issue-coverage: unverified'; then
+        no "teeth-IDG-oos: mutant still returned unverified marker → IDG-OOS-SENTINEL is THEATER"
+      else
+        case "$_oos_teeth_got" in
+          "STOP | read-only-investigable exhausted (0)")
+            ok "teeth-IDG-oos: old-bug mutant → bare STOP → T-IDG-OOS goes RED → IDG-OOS-SENTINEL is load-bearing" ;;
+          *)
+            no "teeth-IDG-oos: mutant returned unexpected [$_oos_teeth_got] — fixture or mutant broken" ;;
+        esac
+      fi
+    fi
+  else
+    no "teeth-IDG-oos: IDG-OOS-SENTINEL not found in SUT"
   fi
 
   # ---- teeth-IDG-find-exit-unverified: neuter IDG-FIND-EXIT-UNVERIFIED; T-IDG-ENUM-EMPTY must go RED.

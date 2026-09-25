@@ -313,10 +313,11 @@ EOF
       no "teeth M8: find tolower line after RETRO_MARKER_LINE_AWK" "not found — helper drifted?"
     else
       m8_mutant="$ROOT/retro-status.m8.sh"
-      # Remove '^ {0,3}' before '<!--' in the awk match regex so it becomes a substring search.
-      # (kit issue #1125 item 1 narrowed the anchor from '^[[:space:]]*' to '^ {0,3}'; the mutant
-      # target moves with it — same load-bearing claim, current pattern.)
-      sed "${m8_linenum}s|\^ {0,3}<!--|<!--|" "$HELPER" > "$m8_mutant"
+      # Remove '^ ? ? ?' before '<!--' in the awk match regex so it becomes a substring search.
+      # (kit issue #1125 item 1 narrowed the anchor from '^[[:space:]]*' to '^ {0,3}', and kit
+      # issue #1130 finding 2 rewrote that as the mawk-portable '^ ? ? ?'; the mutant target
+      # moves with it — same load-bearing claim, current pattern.)
+      sed "${m8_linenum}s|\^ ? ? ?<!--|<!--|" "$HELPER" > "$m8_mutant"
       if diff -q "$HELPER" "$m8_mutant" >/dev/null 2>&1; then
         no "teeth M8: build anchor-removed mutant" "mutant identical — sed substitution failed"
       elif ! "$BASH_BIN" -n "$m8_mutant" 2>/dev/null; then
@@ -985,7 +986,7 @@ wl60="$(retro_marker_line "$f")"
               || no "60 tab-indented example marker → expected blind" "got [$wl60]"
 
 # 61 — LIST-EDGE boundary: EXACTLY 3 leading spaces (not a code block per markdown's 4-space
-#      rule) must still be FOUND — the fix narrows to '^ {0,3}<!--', not '^<!--' outright.
+#      rule) must still be FOUND — the fix narrows to '^ ? ? ?<!--', not '^<!--' outright.
 f="$ROOT/retro-3sp-boundary.md"
 printf '# retro\n\nbody\n\n   <!-- review-status: applied 2026-01-01 -->\n' > "$f"
 wl61="$(retro_marker_line "$f")"
@@ -1041,6 +1042,41 @@ if retro_has_bare_marker "$f"; then
 else
   no "66 retro_has_bare_marker: BOM directly before bare marker → expected detected" ""
 fi
+
+# ---------------------------------------------------------------------------
+# retro_marker_scope_line indent alignment (kit issue #1130 finding 3) — the ACTUAL status
+# reader must apply the SAME indented-code-block anchor as retro_marker_line (item 1's own
+# reasoning — "renders as a literal example, never an active HTML comment" — applies here too).
+# Before this fix, a 4-space-indented marker in the leading block was still honoured as the
+# real status, even though retro_marker_line (the whole-file scan) correctly refused it.
+
+# 67 — LIST-EDGE boundary: EXACTLY 3 leading spaces in the leading block (not a code block per
+#      markdown's 4-space rule) must still be FOUND in scope.
+f="$(mkretro scope-3sp-boundary <<EOF
+# retro
+
+   <!-- review-status: applied 2026-01-01 -->
+body
+EOF
+)"
+sl67="$(retro_marker_scope_line "$f")"
+[ "$sl67" = "   <!-- review-status: applied 2026-01-01 -->" ] \
+  && ok "67 LIST-EDGE: retro_marker_scope_line, 3-space-indented marker (boundary) → still found in scope" "()" \
+  || no "67 LIST-EDGE: retro_marker_scope_line, 3-space-indented marker (boundary) → expected found" "got [$sl67]"
+
+# 68 — LIST-EDGE boundary: EXACTLY 4 leading spaces in the leading block (the other side of the
+#      boundary, a markdown indented code block) must NOT be honoured as the real status.
+f="$(mkretro scope-4sp-boundary <<EOF
+# retro
+
+    <!-- review-status: applied 2026-01-01 -->
+body
+EOF
+)"
+sl68="$(retro_marker_scope_line "$f")"
+[ -z "$sl68" ] \
+  && ok "68 LIST-EDGE: retro_marker_scope_line, 4-space-indented marker (boundary) → NOT honoured in scope" "()" \
+  || no "68 LIST-EDGE: retro_marker_scope_line, 4-space-indented marker (boundary) → expected not found" "got [$sl68]"
 
 # ---------------------------------------------------------------------------
 # TEETH (negative controls) for the two shared marker-parsing helpers.
@@ -1270,16 +1306,17 @@ EOF
     fi
   fi
 
-  # Tooth IND1 (kit issue #1125 item 1): widen retro_marker_line's indent anchor back to
-  # '^[[:space:]]*<!--' (any whitespace, the pre-fix regex). Case 59's 4-space-indented example
-  # marker must then FALSE-MATCH — proving the '^ {0,3}<!--' narrowing is load-bearing.
+  # Tooth IND1 (kit issue #1125 item 1, updated for #1130 finding 2's mawk-portable rewrite):
+  # widen retro_marker_line's indent anchor back to '^[[:space:]]*<!--' (any whitespace, the
+  # pre-fix regex). Case 59's 4-space-indented example marker must then FALSE-MATCH — proving
+  # the '^ ? ? ?<!--' narrowing is load-bearing.
   echo "-- teeth IND1: widen retro_marker_line's indent anchor back to any-whitespace; case 59 must false-match --"
-  anchor_ind1='^ {0,3}<!--[[:space:]]*review-status:'
+  anchor_ind1='^ ? ? ?<!--[[:space:]]*review-status:'
   if ! grep -qF "$anchor_ind1" "$HELPER"; then
     no "teeth IND1: locate the RETRO_MARKER_LINE_INDENT_ANCHOR pattern" "anchor not found — helper drifted?"
   else
     ind1_mutant="$ROOT/retro-status.ind1.sh"
-    sed "s/\^ {0,3}<!--\[\[:space:\]\]\*review-status:/^[[:space:]]*<!--[[:space:]]*review-status:/" \
+    sed "s/\^ ? ? ?<!--\[\[:space:\]\]\*review-status:/^[[:space:]]*<!--[[:space:]]*review-status:/" \
       "$HELPER" > "$ind1_mutant"
     if diff -q "$HELPER" "$ind1_mutant" >/dev/null 2>&1; then
       no "teeth IND1: build widened-anchor mutant" "mutant identical — substitution failed"
@@ -1297,6 +1334,53 @@ EOF
       fi
     fi
   fi
+
+  # Tooth IND2 (kit issue #1130 finding 3): widen retro_marker_scope_line's indent anchor back
+  # to '^[[:space:]]*<!--' (any whitespace, the pre-fix regex). Case 68's 4-space-indented marker
+  # in the leading block must then be honoured again — proving the '^ ? ? ?<!--' narrowing on
+  # THIS function is load-bearing too, not just on retro_marker_line.
+  echo "-- teeth IND2: widen retro_marker_scope_line's indent anchor back to any-whitespace; case 68 must flip to found --"
+  anchor_ind2='/^ ? ? ?<!--/ { print; next }'
+  if ! grep -qF "$anchor_ind2" "$HELPER"; then
+    no "teeth IND2: locate the RETRO_MARKER_SCOPE_INDENT_ANCHOR pattern" "anchor not found — helper drifted?"
+  else
+    ind2_mutant="$ROOT/retro-status.ind2.sh"
+    sed "s|/\^ ? ? ?<!--/ { print; next }|/^[[:space:]]*<!--/ { print; next }|" \
+      "$HELPER" > "$ind2_mutant"
+    if diff -q "$HELPER" "$ind2_mutant" >/dev/null 2>&1; then
+      no "teeth IND2: build widened-anchor mutant" "mutant identical — substitution failed"
+    elif ! "$BASH_BIN" -n "$ind2_mutant" 2>/dev/null; then
+      no "teeth IND2: build widened-anchor mutant" "mutant syntax error"
+    else
+      f_ind2="$ROOT/retro-status.ind2-fixture.md"
+      printf '# retro\n\n    <!-- review-status: applied 2026-01-01 -->\nbody\n' > "$f_ind2"
+      outind2="$("$BASH_BIN" -c '. "$1"; retro_marker_scope_line "$2"' _ "$ind2_mutant" "$f_ind2" 2>&1)"
+      if [ -n "$outind2" ]; then
+        ok "teeth IND2: widened-anchor mutant honours the 4-space-indented marker again (case 68 has teeth)" "(got '$outind2')"
+      else
+        no "teeth IND2: widened-anchor mutant should honour the 4-space-indented marker" \
+          "got empty — case 68 is THEATER"
+      fi
+    fi
+  fi
+
+  # ── Structural guard (kit issue #1130 finding 2): no POSIX interval expression ({m,n}) may
+  # reappear inside retro_marker_line's or retro_marker_scope_line's awk match regex — that is
+  # exactly the mawk-incompatible shape this finding replaced with '^ ? ? ?'. Scoped to the two
+  # function bodies (not the whole file) so an unrelated future '{n}' elsewhere in the lib
+  # doesn't false-positive this guard.
+  echo "-- structural guard: no {m,n} interval expression in retro_marker_line/scope_line's awk match --"
+  # Strip full-line comments first (grep -v '^\s*#') — this guard checks LIVE regex code, not
+  # documentation prose that may legitimately quote the old '{0,3}' shape for explanatory value.
+  _ml_body="$(sed -n '/^  retro_marker_line() {/,/^  }/p' "$HELPER" | grep -vE '^[[:space:]]*#')"
+  _sl_body="$(sed -n '/^  retro_marker_scope_line() {/,/^  }/p' "$HELPER" | grep -vE '^[[:space:]]*#')"
+  if printf '%s%s' "$_ml_body" "$_sl_body" | grep -qE '\{[0-9]+,[0-9]*\}'; then
+    no "structural guard: retro_marker_line/scope_line still carry a {m,n} interval expression" \
+      "mawk-incompatible shape reintroduced"
+  else
+    ok "structural guard: retro_marker_line/scope_line carry no {m,n} interval expression" "()"
+  fi
+  unset _ml_body _sl_body
 fi
 
 echo "== $pass passed · $fail failed =="

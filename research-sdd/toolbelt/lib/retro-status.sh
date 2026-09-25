@@ -152,19 +152,28 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     # awk state: fence=1 inside a fenced code block (``` or ~~~); tolower for case-insensitive
     # match; anchored to line start so mid-line quoted markers are skipped (R2-002).
     # RETRO_MARKER_LINE_AWK: anchor tag for Tooth M7 and M8.
-    # RETRO_MARKER_LINE_INDENT_ANCHOR (kit issue #1125 item 1): '^ {0,3}<!--' — at most 3 leading
-    # SPACE characters, never a tab and never a 4th space. A line indented 4+ spaces, or by a
-    # single tab, is a markdown INDENTED CODE BLOCK: it renders as a literal documentation
-    # example, never an active HTML comment, so it must not be read as a real marker. Before this
-    # fix '^[[:space:]]*<!--' matched ANY amount of leading whitespace — a retro with NO real
-    # marker that merely SHOWED the marker syntax as an indented example was misread as carrying
-    # one, and retro_marker_out_of_scope (which calls this function) reported it as
-    # out-of-scope-marker instead of genuinely markerless, with "move the marker" advice that
-    # made no sense because there was never a real marker to move.
+    # RETRO_MARKER_LINE_INDENT_ANCHOR (kit issue #1125 item 1, made mawk-portable by #1130
+    # finding 2): '^ ? ? ?<!--' — at most 3 leading SPACE characters, never a tab and never a
+    # 4th space. A line indented 4+ spaces, or by a single tab, is a markdown INDENTED CODE
+    # BLOCK: it renders as a literal documentation example, never an active HTML comment, so it
+    # must not be read as a real marker. Before item 1's fix '^[[:space:]]*<!--' matched ANY
+    # amount of leading whitespace — a retro with NO real marker that merely SHOWED the marker
+    # syntax as an indented example was misread as carrying one, and retro_marker_out_of_scope
+    # (which calls this function) reported it as out-of-scope-marker instead of genuinely
+    # markerless, with "move the marker" advice that made no sense because there was never a
+    # real marker to move.
+    # kit issue #1130 finding 2: '{0,3}' is a POSIX interval expression — this kit explicitly
+    # avoids those for mawk compatibility (see lib/retro-grammar.sh's own "Explicit alternatives
+    # replace interval expressions for mawk compatibility" note). An awk without interval
+    # support treats '{0,3}' as four LITERAL characters, so the anchor would never match any
+    # real "<!--" at all: retro_marker_line goes permanently blind, retro_marker_out_of_scope
+    # always reports false, and an out-of-scope marker silently reads as "no marker" — pending
+    # and seedable, the exact #1048-#1089 flood direction. 'up to 3 optional spaces' is written
+    # as three chained '?' (basic ERE, no interval support required) instead.
     _retro_status_strip_bom "$f" | awk '
       /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
       fence { next }
-      { if (tolower($0) ~ /^ {0,3}<!--[[:space:]]*review-status:/) { print; exit } }
+      { if (tolower($0) ~ /^ ? ? ?<!--[[:space:]]*review-status:/) { print; exit } }
     '
     return 0
   }
@@ -189,6 +198,12 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
   #   above (kit issue #1125 item 2: _retro_status_strip_bom) — see that function's comment for
   #   why. Applied here too so a BOM'd retro whose marker position is otherwise in scope (e.g.
   #   BOM, H1, blank, marker) is still found in scope.
+  #   RETRO_MARKER_SCOPE_INDENT_ANCHOR (kit issue #1130 finding 3): the SAME '^ ? ? ?<!--'
+  #   indented-code-block anchor as retro_marker_line — this is the ACTUAL status reader every
+  #   consumer gates on, so a 4-space/tab-indented marker EXAMPLE inside the leading block must
+  #   not be honoured as the real status either; item 1's own reasoning ("renders as a literal
+  #   example, never an active HTML comment") applies here just as much. Written without POSIX
+  #   interval syntax for the same mawk-portability reason as retro_marker_line (finding 2).
   #   pipefail-audit: external `sed | awk` over the leading few lines of a single retro file. SAFE.
   retro_marker_scope_line() {
     local f="${1:-}"
@@ -196,7 +211,7 @@ if ! declare -F retro_review_status >/dev/null 2>&1; then
     _retro_status_strip_bom "$f" | awk '
       NR==1 && /^[[:space:]]*#[^#]/ { next }
       NR==1 && /^[[:space:]]*#[[:space:]]*$/ { next }
-      /^[[:space:]]*<!--/ { print; next }
+      /^ ? ? ?<!--/ { print; next }
       /^[[:space:]]*$/     { next }
       { exit }
     ' \
