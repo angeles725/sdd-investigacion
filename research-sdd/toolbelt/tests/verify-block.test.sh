@@ -577,8 +577,8 @@ d="$TMP/p6-wording.md"
   echo "The flag is always set. [CERT]"; } > "$d"
 out="$(run "$d")"
 warn_line="$(grep -iE 'WARN.*\[CERT\]|WARN.*cert' <<<"$out" | head -1)"
-if echo "$warn_line" | grep -qiE 'synthesis|REMITTANCE' \
-   && echo "$warn_line" | grep -qiE 'block.type|block type|declaration'; then
+if grep -qiE 'synthesis|REMITTANCE' <<<"$warn_line" \
+   && grep -qiE 'block.type|block type|declaration' <<<"$warn_line"; then
   ok "P6 WARN wording: names expected file:line-free case and points to block-type declaration"
 else
   no "P6 WARN wording: expected-case phrase or block-type pointer missing :: [$warn_line]"
@@ -1348,7 +1348,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     echo "The flag is always set. [CERT]"; } > "$d_wording"
   mout_wording="$(bash "$mutant_wording" "$d_wording" 2>/dev/null)"
   mwarn_wording="$(grep -iE 'WARN.*\[CERT\]|WARN.*cert' <<<"$mout_wording" | head -1)"
-  if ! echo "$mwarn_wording" | grep -qiE 'synthesis|REMITTANCE'; then
+  if ! grep -qiE 'synthesis|REMITTANCE' <<<"$mwarn_wording"; then
     ok "teeth-p6-wording: mutant lacks 'synthesis / REMITTANCE' → test 48 assertion would fail (has teeth)"
   else
     no "teeth-p6-wording: mutant STILL contains 'synthesis/REMITTANCE' — mutation did not take :: [$mwarn_wording]"
