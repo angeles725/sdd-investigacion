@@ -13,15 +13,21 @@
 #     stripped from the rendered output.
 #
 # Round-2 review (Opus, blocked) findings addressed here:
-#   - Coherence: SKILL.md carries hotcore-cadence and hotcore-reread-scope,
-#     and PROMPT-LOOP.md carries hotcore-loop-cadence, so the "general"
-#     render never contradicts itself (F14). Kit issue #993 WU4 added one
-#     more continuation/cadence slot on the same principle:
-#     loop-return-contract-explicit (SKILL.md) — 4 slots total. (WU4 round 2:
-#     a fifth slot, return-contract-shape in PROMPT-LOOP.md, was REMOVED —
-#     its span was unchanged since the prompts-pre-audit-2026-09-23 tag, so
-#     it was not #992 audit wording and had no legitimate pre-audit general
-#     counterpart to restore; see the WU4 round-2 commit.)
+#   - Coherence: SKILL.md carries hotcore-cadence, and PROMPT-LOOP.md carries
+#     hotcore-loop-cadence, so the "general" render never contradicts itself
+#     (F14). Kit issue #993 WU4 added one more continuation/cadence slot on
+#     the same principle: loop-return-contract-explicit (SKILL.md) — 3 slots
+#     total. (WU4 round 2: a fourth slot, return-contract-shape in
+#     PROMPT-LOOP.md, was REMOVED — its span was unchanged since the
+#     prompts-pre-audit-2026-09-23 tag, so it was not #992 audit wording and
+#     had no legitimate pre-audit general counterpart to restore; see the
+#     WU4 round-2 commit. WU4 round 3: hotcore-reread-scope, a fifth slot
+#     added in round 1, was ALSO REMOVED — git log -S / git show 6d88930
+#     (#989) showed it has NO pre-audit predecessor at all (pure #989
+#     content: "Each iteration re-reads only RESEARCH-STATE, INDEX, and
+#     `--next` from the live backlog.") and no reason to ever diverge
+#     per-profile, so it is now unslotted shared text that renders
+#     byte-identically in every profile; see the WU4 round-3 commit.)
 #   - outdir/KIT_DIR containment refusal (F15), profile-name format (F16),
 #     case-sensitive/loud marker detection (F17), empty-slot-body rejection
 #     (F18), and the METHODOLOGY.md-never-carries-slots invariant (F19).
@@ -33,7 +39,7 @@
 #
 # Checks (functional, always run):
 #   F1  claude render is byte-identical to sources (cmp -s), all 3 files
-#   F2  general render substitutes all 4 slot bodies and strips all markers,
+#   F2  general render substitutes all 3 slot bodies and strips all markers,
 #       in both SKILL.md and PROMPT-LOOP.md
 #   F3  orphan   — profile declares a slot id absent from every source        -> exit 2, "orphan"
 #   F4  missing  — a source marker names an id the profile lacks              -> exit 2, "missing"
@@ -151,12 +157,14 @@ else
 fi
 
 # =============================================================================
-# F2 — general render substitutes all 4 slot bodies (kit issue #993 WU4 added
-# loop-return-contract-explicit to the original 3; a fifth slot,
+# F2 — general render substitutes all 3 slot bodies (kit issue #993 WU4 added
+# loop-return-contract-explicit to the original 3; a fourth slot,
 # return-contract-shape, was added then REMOVED in WU4 round 2 — its span
 # was unchanged since prompts-pre-audit-2026-09-23, so it was not #992
-# wording and PROMPT-LOOP.md is back to carrying only hotcore-loop-cadence)
-# and strips all markers.
+# wording; a fifth slot, hotcore-reread-scope, was REMOVED in WU4 round 3 —
+# it has no pre-audit predecessor at all (pure #989 content) so it is now
+# unslotted shared text, identical in every profile — and PROMPT-LOOP.md is
+# back to carrying only hotcore-loop-cadence) and strips all markers.
 # =============================================================================
 kitF2="$TMP/kitF2"; outF2="$TMP/outF2"
 make_kit "$kitF2"
@@ -164,18 +172,18 @@ if out="$(run_renderer "$kitF2" general "$outF2" 2>&1)"; then
   rskill="$outF2/skills/research-sdd/SKILL.md"
   rloop="$outF2/PROMPT-LOOP.md"
   f2ok=1
-  grep -qF 'read IN FULL every iteration (framing + the per-block contract)' "$rskill" || f2ok=0
-  grep -qF 'Each iteration also re-reads RESEARCH-STATE, INDEX, and `--next` from the live backlog.' "$rskill" || f2ok=0
+  grep -qF 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not' "$rskill" || f2ok=0
+  grep -qF 'Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.' "$rskill" || f2ok=0
   grep -qF 'HOT-CORE (read IN FULL every iteration):' "$rloop" || f2ok=0
   grep -qF 'A return without one is a silently stopped iteration.' "$rskill" || f2ok=0
   grep -qF 'HARD rule inside the loop.' "$rskill" || f2ok=0
-  for bad in '<!-- slot:' '<!-- /slot -->' 'once per context' 're-reads only' '(read in full now)' \
+  for bad in '<!-- slot:' '<!-- /slot -->' '(read in full now)' 'rescheduled via' 'self-scheduled in' \
              'the single definition of the token format and required fields'; do
     grep -qF "$bad" "$rskill" && f2ok=0
     grep -qF "$bad" "$rloop" && f2ok=0
   done
   if [ "$f2ok" -eq 1 ]; then
-    ok "F2: general render substitutes all 4 slot bodies and strips all markers"
+    ok "F2: general render substitutes all 3 slot bodies and strips all markers"
   else
     no "F2: general render did not substitute/strip correctly — $(grep -n 'HOT-CORE' "$rskill" "$rloop")"
   fi
@@ -294,15 +302,16 @@ fi
 
 # =============================================================================
 # F10 — anti-silent-zero: profile declares slots, sources carry NONE at all
-# (all 4 markers stripped from both files — kit issue #993 WU4 added
-# loop-return-contract-explicit to the original 3).
+# (all 3 markers stripped from both files — kit issue #993 WU4 added
+# loop-return-contract-explicit to the original 3, and WU4 round 3 removed
+# hotcore-reread-scope, leaving 3).
 # Asserts the EXACT zero-marker message (R3: the default suite must exercise
 # that specific message, not just accept it OR the generic orphan message as
 # an either/or).
 # =============================================================================
 kitF10="$TMP/kitF10"; outF10="$TMP/outF10"
 make_kit "$kitF10"
-sed -i -e 's/<!-- slot:hotcore-cadence -->//' -e 's/<!-- slot:hotcore-reread-scope -->//' \
+sed -i -e 's/<!-- slot:hotcore-cadence -->//' \
        -e 's/<!-- slot:loop-return-contract-explicit -->//' -e 's/<!-- \/slot -->//g' "$kitF10/skills/research-sdd/SKILL.md"
 sed -i -e 's/<!-- slot:hotcore-loop-cadence -->//' -e 's/<!-- \/slot -->//g' "$kitF10/PROMPT-LOOP.md"
 out="$(run_renderer "$kitF10" general "$outF10" 2>&1)"; rc=$?
@@ -366,24 +375,32 @@ fi
 
 # =============================================================================
 # F14 — coherence: the general render never contains a leftover
-# claude-cadence phrase anywhere in SKILL.md or PROMPT-LOOP.md (round-2 HIGH
+# claude-only phrase anywhere in SKILL.md or PROMPT-LOOP.md (round-2 HIGH
 # finding: the pre-fix render said "read IN FULL every iteration" AND
 # "re-reads only" AND "(read once per context)" all at once). Extended by kit
 # issue #993 WU4 with loop-return-contract-explicit's claude-only phrase.
+# Kit issue #993 WU4 round 3: "once per context" and "re-reads only" are no
+# longer leftover-claude signals — hotcore-reread-scope is now unslotted
+# shared text ("only" renders in EVERY profile) and general's own
+# hotcore-cadence body legitimately carries the #989 "once per context"
+# semantic (see the WU4 round-3 commit) — so they were dropped from this
+# forbidden list; the claude-only phrases below still never belong in a
+# general render.
 # =============================================================================
 kitF14="$TMP/kitF14"; outF14="$TMP/outF14"
 make_kit "$kitF14"
 if run_renderer "$kitF14" general "$outF14" >/dev/null 2>&1; then
   f14ok=1
-  for bad in 'once per context' 're-reads only' '(read in full now)' \
-             'the single definition of the token format and required fields'; do
+  for bad in '(read in full now)' \
+             'the single definition of the token format and required fields' \
+             'rescheduled via' 'self-scheduled in'; do
     grep -qF "$bad" "$outF14/skills/research-sdd/SKILL.md" && f14ok=0
     grep -qF "$bad" "$outF14/PROMPT-LOOP.md" && f14ok=0
   done
   if [ "$f14ok" -eq 1 ]; then
     ok "F14: general render of SKILL.md + PROMPT-LOOP.md has no leftover claude-cadence phrase"
   else
-    no "F14: general render still contains a leftover claude-cadence phrase — $(grep -nE 'once per context|re-reads only|\(read in full now\)|the single definition of the token format and required fields' "$outF14/skills/research-sdd/SKILL.md" "$outF14/PROMPT-LOOP.md")"
+    no "F14: general render still contains a leftover claude-cadence phrase — $(grep -nE '\(read in full now\)|the single definition of the token format and required fields|rescheduled via|self-scheduled in' "$outF14/skills/research-sdd/SKILL.md" "$outF14/PROMPT-LOOP.md")"
   fi
 else
   no "F14: general render failed to run, cannot check coherence"
@@ -452,10 +469,12 @@ fi
 kitF18="$TMP/kitF18"; outF18="$TMP/outF18"
 make_kit "$kitF18"
 python3 -c "
-import re
 p = '$kitF18/profiles/general.slots.md'
 s = open(p, encoding='utf-8').read()
-s = re.sub(r'## slot:hotcore-cadence\n\nread IN FULL every iteration \(framing \+ the per-block contract\)\n', '## slot:hotcore-cadence\n\n\n', s)
+s = s.replace(
+    'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not\nevery iteration; this covers the framing and the per-block contract.\n',
+    ''
+)
 open(p, 'w', encoding='utf-8').write(s)
 "
 out="$(run_renderer "$kitF18" general "$outF18" 2>&1)"; rc=$?
@@ -554,7 +573,7 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   echo "-- teeth: T-unknown-profile (disable the unknown-profile bash guard; sources carry ZERO markers so the GUARD-MISSING-PROFILE python fallback alone decides) --"
   kitTUnknown="$TMP/kitTUnknown"
   make_kit "$kitTUnknown"
-  sed -i -e 's/<!-- slot:hotcore-cadence -->//' -e 's/<!-- slot:hotcore-reread-scope -->//' \
+  sed -i -e 's/<!-- slot:hotcore-cadence -->//' \
          -e 's/<!-- slot:loop-return-contract-explicit -->//' -e 's/<!-- \/slot -->//g' "$kitTUnknown/skills/research-sdd/SKILL.md"
   sed -i -e 's/<!-- slot:hotcore-loop-cadence -->//' -e 's/<!-- \/slot -->//g' "$kitTUnknown/PROMPT-LOOP.md"
   if m="$(require_mutant unknown-profile -e 's/if \[ ! -f "\$PROFILE_FILE" \]; then/if false; then/')"; then

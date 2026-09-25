@@ -161,7 +161,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
        §1 guiding principle, §2 phases, §3 the 7 markers, §4 block anatomy, §7 state/memory,
        §8 stopping + terminal trigger, §8b backlog cell grammar (written every iteration), §9 golden rules,
        §11 self-verify, §17 resume.
-       <!-- slot:hotcore-reread-scope -->Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.<!-- /slot -->
+       Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.
      - SITUATIONAL — read the named section IN FULL the moment its phase triggers, by number: §5 sources →
        adding/preserving/citing an external source; §6 research tools → BOOTSTRAP profiling or picking a
        wrapper per artifact type; §11b verifying the verifier / kit test-lane contract → adding or changing a guard, check, oracle,
