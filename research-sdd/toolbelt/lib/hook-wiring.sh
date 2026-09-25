@@ -123,6 +123,26 @@
 #
 # Idempotent: safe to source more than once.
 
+if ! declare -F _hw_abspath >/dev/null 2>&1; then
+  # _hw_abspath <path> : sets $HW_ABS_PATH to <path> made absolute (prefixed with $PWD if
+  # relative), trailing "/" stripped, "" -> "/". Shared by _hw_find_git_root and
+  # hook_stop_wiring_state_var (kit issue #1140 RDD correction): a relative target ('.', 'foo',
+  # 'foo/bar' -> 'foo') never gives ${d%/*} a "/" to climb past, so the walk-up spun forever; both
+  # call sites must absolutize identically or a relative target at its own git root misreports off-root.
+  _hw_abspath() {
+    local d="$1"
+    case "$d" in
+      /*) : ;;
+      *)  d="$PWD/$d" ;;
+    esac
+    case "$d" in
+      */) d="${d%/}" ;;
+    esac
+    [ -z "$d" ] && d="/"
+    HW_ABS_PATH="$d"
+  }
+fi
+
 if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # _hw_find_git_root <dir> : sets $HW_GIT_ROOT to the nearest ancestor of <dir> (inclusive of
   # <dir> itself) that owns a `.git` entry (file or directory — a linked worktree's `.git` is a
@@ -146,11 +166,8 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # reachable targets today (measure-before-remediate, kit §7) — flagged here rather than fixed
   # with a fork every caller would pay for a case that has not occurred.
   _hw_find_git_root() {
-    local d="$1" ceiling="${RSDD_HOOK_WIRING_CEILING:-}"
-    case "$d" in
-      */) d="${d%/}" ;;
-    esac
-    [ -z "$d" ] && d="/"
+    local d ceiling="${RSDD_HOOK_WIRING_CEILING:-}" _hw_next
+    _hw_abspath "$1"; d="$HW_ABS_PATH"
     while :; do
       if [ -n "$ceiling" ] && [ "$d" = "$ceiling" ]; then  # HOOK-WIRING-CEILING-CHECK
         HW_GIT_ROOT=""
@@ -164,8 +181,13 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
         HW_GIT_ROOT=""
         return 0
       fi
-      d="${d%/*}"
-      [ -z "$d" ] && d="/"
+      _hw_next="${d%/*}"
+      [ -z "$_hw_next" ] && _hw_next="/"
+      if [ "$_hw_next" = "$d" ]; then  # HOOK-WIRING-NOPROGRESS-GUARD — defense in depth, fail closed
+        HW_GIT_ROOT=""
+        return 0
+      fi
+      d="$_hw_next"
     done
   }
 fi
@@ -213,11 +235,7 @@ if ! declare -F hook_stop_wiring_state_var >/dev/null 2>&1; then
     # detect. Fork-free walk-up (kit issue #1140 round-2 review, Blocking 3) — no git, no subshell.
     if [ "$HOOK_WIRING_STATE" = "wired" ]; then
       local _hw_target_norm
-      _hw_target_norm="$target"
-      case "$_hw_target_norm" in
-        */) _hw_target_norm="${_hw_target_norm%/}" ;;
-      esac
-      [ -z "$_hw_target_norm" ] && _hw_target_norm="/"
+      _hw_abspath "$target"; _hw_target_norm="$HW_ABS_PATH"  # same normalization as _hw_find_git_root below
       _hw_find_git_root "$target"
       if [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK
         HOOK_WIRING_STATE="wired-off-root"

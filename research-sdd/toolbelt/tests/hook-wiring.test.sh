@@ -216,6 +216,28 @@ d_link_root="$ROOT/t14b-link-to-root2"
 ln -s "$d_real_root2" "$d_link_root"
 assert_state "14b leaf symlink pointing directly AT a git root, wired → wired (not off-root)" "$d_link_root" "wired"
 
+# --- 15a/15b/15c — RELATIVE-PATH INFINITE LOOP (RDD correction, kit issue #1140) ----------------
+# A relative target ('.', 'foo', 'foo/bar' -> 'foo') gave ${d%/*} no "/" to climb past, so the
+# walk-up spun forever — a real caller shape (e.g. research-sdd-status.sh invoked as '.'), not
+# synthetic. Each case runs in a fresh subprocess under `timeout` so a regression fails loudly.
+run_relative_case() {
+  local label="$1" cwd="$2" target="$3" want="$4" out rc
+  out="$(cd "$cwd" && timeout 10 "$BASH_BIN" -c ". \"$LIB\"; hook_stop_wiring_state \"$target\"" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 124 ]; then no "$label" "TIMED OUT (infinite loop) after 10s"
+  elif [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then ok "$label" "-> $out"
+  else no "$label" "rc=$rc out=[$out] want=[$want]"; fi
+}
+d15a="$ROOT/t15a-dot-selfroot"; mkdir -p "$d15a"; git init -q "$d15a" >/dev/null 2>&1
+wire_settings "$d15a" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+run_relative_case "15a relative target '.' at its own git root → wired (no hang)" "$d15a" "." "wired"
+mkdir -p "$ROOT/t15b-bare-norepo"
+wire_settings "$ROOT/t15b-bare-norepo" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+run_relative_case "15b relative target (no slash), no ancestor .git under ceiling → wired (no hang)" "$ROOT" "t15b-bare-norepo" "wired"
+d15c_root="$ROOT/t15c-repo"; mkdir -p "$d15c_root/nested"; git init -q "$d15c_root" >/dev/null 2>&1
+wire_settings "$d15c_root/nested" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+run_relative_case "15c relative target 'nested' inside a repo → wired-off-root (no hang)" "$d15c_root" "nested" "wired-off-root"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -395,6 +417,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else echo "  PASS  teeth: mutant correctly breaks case 13b (ceiling ignored, enclosing repo bleeds in again [$r])"; exit 0; fi
     )
     if [ $? -eq 0 ]; then ok "teeth: HOOK-WIRING-CEILING-CHECK neuter mutation caught (real sourced lib)"; else no "teeth: HOOK-WIRING-CEILING-CHECK neuter mutation NOT caught (theater)"; fi
+  fi
+
+  echo "-- teeth: drop the abspath prefix AND the no-progress guard — case 15b must go RED (reproduces the original infinite loop) --"
+  mut_relhang="$ROOT/hook-wiring.MUTANT-relpath-hang.sh"
+  if ! grep -qF '*)  d="$PWD/$d" ;;' "$LIB" || ! grep -qF '# HOOK-WIRING-NOPROGRESS-GUARD' "$LIB"; then
+    no "teeth: locate abspath-prefix or no-progress-guard anchor in lib — drifted?"
+  else
+    sed -e 's/\*)  d="\$PWD\/\$d" ;;/*)  : ;;  # MUTANT: absolutization dropped/' \
+        -e 's/if \[ "\$_hw_next" = "\$d" \]; then  # HOOK-WIRING-NOPROGRESS-GUARD.*/if false; then  # MUTANT: no-progress guard dropped/' \
+        "$LIB" > "$mut_relhang"
+    d_relhang="$ROOT/t15b-teeth-norepo"; mkdir -p "$d_relhang"
+    wire_settings "$d_relhang" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
+    out_relhang="$(cd "$ROOT" && timeout 10 "$BASH_BIN" -c ". \"$mut_relhang\"; hook_stop_wiring_state \"t15b-teeth-norepo\"" 2>&1)"
+    rc_relhang=$?
+    if [ "$rc_relhang" -eq 124 ]; then
+      ok "teeth: relative-path abspath+no-progress-guard mutation caught (real sourced lib, timed out as expected)"
+    else
+      no "teeth: relative-path abspath+no-progress-guard mutation NOT caught (theater)" "rc=$rc_relhang out=[$out_relhang]"
+    fi
   fi
 fi
 
