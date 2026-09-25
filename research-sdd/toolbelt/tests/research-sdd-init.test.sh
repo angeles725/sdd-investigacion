@@ -70,6 +70,44 @@ d="$TMP/good-onlygit"; mkdir -p "$d/.git"
 assert_exit 0 "GOOD auto: flat when only .git present" "$d" --corpus auto
 assert_file "  onlygit: root INDEX.md" "$d/INDEX.md"
 
+# GOOD 6 (kit issue #1114) — --document seeds the DOCUMENT CYCLE RESEARCH-STATE variant.
+# NOTE: research-sdd-init.sh best-effort re-seeds the envelope via `research-sdd-status.sh --sync-state`
+# after copying the template (reorders carried-forward fields like `method:` to the end of the envelope
+# block and normalizes trailing whitespace on `last_iteration_ts:`), so a raw byte-for-byte cmp against
+# the template source is NOT a valid assertion here — assert on the markers that actually distinguish
+# the document-cycle variant instead.
+d="$TMP/good-document"; mkdir -p "$d"
+assert_exit 0 "GOOD document: scaffolds with --document" "$d" --corpus flat --document
+assert_grep "  document: envelope carries method: document-cycle" "method: document-cycle" "$d/RESEARCH-STATE.md"
+assert_grep "  document: has an ## Outline work-list section"    "## Outline"             "$d/RESEARCH-STATE.md"
+# empty Gap-backlog + empty Blocked gaps ⇒ --sync-state derives every count as honestly 0
+for _f in investigable_open requires_execution_open blocked_open deferred_open; do
+  assert_grep "  document: envelope $_f re-seeded to 0 from the empty backlog" "$_f: 0" "$d/RESEARCH-STATE.md"
+done
+if grep -qF '<research question>' "$d/RESEARCH-STATE.md"; then
+  no "  document: RESEARCH-STATE.md must NOT carry the discovery-template's placeholder gap row"
+else
+  ok "  document: RESEARCH-STATE.md must NOT carry the discovery-template's placeholder gap row"
+fi
+mkdir -p "$TMP/good-document-report"
+assert_grep "  document: init report names the document-cycle mode" "mode   : document-cycle scaffold" \
+  <(bash "$SUT" "$TMP/good-document-report" --corpus flat --document 2>&1)
+
+# GOOD 7 (kit issue #1114) — omitting --document leaves the default scaffold UNCHANGED: no document-cycle
+# marker leaks into RESEARCH-STATE.md, and the init report never mentions document-cycle mode.
+d="$TMP/good-default-unchanged"; mkdir -p "$d"
+_default_report="$(bash "$SUT" "$d" --corpus flat 2>&1)"
+if grep -qF 'method: document-cycle' "$d/RESEARCH-STATE.md" || grep -qF '## Outline' "$d/RESEARCH-STATE.md"; then
+  no "  default: RESEARCH-STATE.md (no --document) must NOT carry document-cycle markers"
+else
+  ok "  default: RESEARCH-STATE.md (no --document) must NOT carry document-cycle markers"
+fi
+if grep -qF 'mode   : document-cycle scaffold' <<<"$_default_report"; then
+  no "  default: init report must NOT mention document-cycle mode when --document is omitted"
+else
+  ok "  default: init report must NOT mention document-cycle mode when --document is omitted"
+fi
+
 # BAD 1 — refuse over an existing INDEX
 d="$TMP/bad-index"; mkdir -p "$d"; printf 'SENTINEL\n' > "$d/INDEX.md"
 assert_exit 3 "BAD: refuses over existing INDEX.md" "$d" --corpus flat
@@ -1938,6 +1976,25 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant leaks the render dir path again → -P fix has teeth"
   else
     no "teeth SYMLINK-TOOLBELT: reverted mutant did not leak the render dir path — -P fix check is THEATER (out=[$_ki_out_t])"
+  fi
+
+  # Mutation M-DOC (kit issue #1114): neuter the --document template swap so _state_tpl always stays
+  # the discovery-style RESEARCH-STATE.template.md, even when --document is passed. Proves GOOD 6's
+  # markers (method: document-cycle / ## Outline) actually depend on this line, not on some other path.
+  echo "-- teeth proof M-DOC: neuter the --document template swap → --document scaffolds the discovery template --"
+  mkdir -p "$TMP/mdoc/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mdoc/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mdoc/templates"
+  mdoc_mutant="$TMP/mdoc/toolbelt/init.sh"
+  awk '/\[ "\$document" = 1 \] && _state_tpl=/ { next } { print }' "$SUT" > "$mdoc_mutant"
+  if grep -qE '\[ "\$document" = 1 \] && _state_tpl=' "$mdoc_mutant"; then
+    no "teeth M-DOC: could not build mutant (template-swap line not removed)"
+  else
+    dmdoc="$TMP/mdoct"; mkdir -p "$dmdoc"
+    bash "$mdoc_mutant" "$dmdoc" --corpus flat --document >/dev/null 2>&1
+    if ! grep -qF 'method: document-cycle' "$dmdoc/RESEARCH-STATE.md" 2>/dev/null; then
+      ok "teeth M-DOC: mutant's --document scaffold lacks method: document-cycle — the GOOD 6 markers have teeth"
+    else
+      no "teeth M-DOC: mutant's --document scaffold still carries method: document-cycle — GOOD 6 is THEATER"
+    fi
   fi
 fi
 
