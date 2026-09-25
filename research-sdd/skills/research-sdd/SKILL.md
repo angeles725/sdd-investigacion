@@ -217,7 +217,9 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    The run is NOT OVER until the retro exists (from `$KIT/templates/retro.template.md`, `<!-- review-status: pending -->`,
    `## Proposed kit deltas` table or the honesty line) — this applies to quick, document and applied runs too, not only
    to STOP. State `retro: written <path>` or `retro: not-due` in the final return. A target wired with the kit's Stop hook
-   (`toolbelt/retro-gate.sh`, kit issue #479) blocks the session once until it holds.
+   (`toolbelt/retro-gate.sh`, kit issue #479) blocks the session once until it holds. That Stop-hook auto-seeding is
+   Claude-Code-only (kit issue #1110): on codex/reasonix, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by
+   hand once the retro is written — see PROMPT-LOOP's RETRO CHECKPOINT for the exact point and why.
    If the gap targets a BINARY artifact, first run `$KIT/toolbelt/detect-tools.sh --require <decompiler>` to gate the
    environment: it probes TOOL availability (not the binary) — see TOOL-BEFORE-AGENT in PROMPT-LOOP HARD
    RULES. Then analyze with `$KIT/toolbelt/decompile-native.sh <mode> <binary>`; for available modes (ghidra,

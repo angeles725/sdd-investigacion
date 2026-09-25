@@ -1139,6 +1139,11 @@ Always read first, in this order:
          final RETURN state `retro: written <path>` or `retro: not-due (no research files changed)` — never
          `retro: pending`. Enforcement: once wired (kit issue #479), `$KIT/toolbelt/retro-gate.sh` runs as the
          target's Stop hook and blocks the session ONCE with the exact missing element until this holds.
+         CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
+         triggers via `stage-retro-issues.sh` — is wired only through `<target>/.claude/settings.json`'s
+         `Stop` hooks array; codex and reasonix have no equivalent hook, so their runs never auto-seed. On
+         codex/reasonix, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
+         retro is written (the same point the RETRO CHECKPOINT above requires it), before ending the run.
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
          RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
