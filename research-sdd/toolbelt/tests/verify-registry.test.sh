@@ -445,14 +445,11 @@ fi
 #      #1135 exists to prevent (this is three.js, TARGETS.md row 13, precisely — kit issue #1128's
 #      original PR misattributed it as a true positive before this was caught in review).
 #
-# DEPENDS ON kit issue #1135 (PR #1140): lib/hook-wiring.sh must define the 'wired-off-root' state
-# for this fixture to hold. On THIS branch alone (based on origin/main, pre-#1140), the sourced lib
-# has no such state — hook_stop_wiring_state reports plain 'wired' for a Stop-wired target
-# regardless of its git root — so this fixture is EXPECTED to fail here, for that one documented
-# reason (a real dependency gap, not a logic defect in this PR's own guard, which is already the
-# strict '= "wired"' equality the fix requires — see verify-registry.sh's own HOOK-WIRING-REVERSE-
-# CHECK comment). It is expected to pass, with ZERO further code changes to this PR, once this
-# branch is rebased onto origin/main after #1140 merges.
+# Depended on kit issue #1135 (PR #1140, merged as b49c22e): lib/hook-wiring.sh's 'wired-off-root'
+# state is what makes this fixture hold — hook_stop_wiring_state reports 'wired-off-root' (not
+# plain 'wired') for a Stop-wired target whose registered path is not its own git root, and the
+# reverse check's guard (verify-registry.sh's HOOK-WIRING-REVERSE-CHECK) is the strict '= "wired"'
+# equality that excludes it.
 kit="$(mkkit c3s-hookoffrootnowarn)"; gitroot="$kit/repo"; tgt="$gitroot/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
 git init -q "$gitroot" >/dev/null 2>&1
@@ -461,7 +458,7 @@ run "$kit"
 if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT"; then
   ok "3s nested off-git-root target, wired, 'hook file yes / unregistered' claim → no reverse WARN (accurate claim, not drift)" "(exit $RC)"
 else
-  no "3s nested off-git-root target, wired, 'hook file yes / unregistered' claim → no reverse WARN (accurate claim, not drift)" "exit=$RC out=[$OUT] — EXPECTED to fail until this branch is rebased onto origin/main post-#1140 merge (lib/hook-wiring.sh's wired-off-root state, kit issue #1135, does not exist on this branch yet)"
+  no "3s nested off-git-root target, wired, 'hook file yes / unregistered' claim → no reverse WARN (accurate claim, not drift)" "exit=$RC out=[$OUT]"
 fi
 
 # 4 — TRUNCATED '...' path → dropped, PARTIAL WARN names its basename; a real target alongside still reconciles.
@@ -3312,20 +3309,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # kit issue #1141 round-2 review, Blocking 1: widen the reverse guard from strict '= "wired"' to
   # a 'wired*' prefix match (accepting 'wired-off-root' too) and confirm fixture 3s's target then
-  # false-WARNs. DEPENDS ON kit issue #1135 (PR #1140) the same way 3s itself does: on THIS branch
-  # (pre-#1140-merge), lib/hook-wiring.sh never produces 'wired-off-root' at all, so the baseline
-  # (unmutated) SUT ALSO WARNs on 3s's fixture — there is no daylight yet for this mutation to
-  # distinguish. Pre-checks the baseline first and reports an honest SKIP (not a fabricated
-  # PASS/FAIL) rather than claiming teeth that cannot yet bite. Once this branch is rebased onto
-  # origin/main after #1140 merges, the baseline goes clean (3s passes) and this tooth activates.
-  echo "-- teeth-hook-wiring-reverse-offroot-widen: widen the reverse guard to 'wired*' (accepts wired-off-root); fixture 3s must false-WARN once #1135 lands --"
+  # false-WARNs. Depends on kit issue #1135 (PR #1140, merged as b49c22e): lib/hook-wiring.sh only
+  # produces 'wired-off-root' once that lib exists, which is what gives this mutation daylight to
+  # distinguish from the baseline. Still pre-checks the baseline and reports an honest SKIP (not a
+  # fabricated PASS/FAIL) rather than claiming teeth that cannot bite, so this tooth fails closed
+  # rather than silently passing if a future lib change ever removes the 'wired-off-root' state.
+  echo "-- teeth-hook-wiring-reverse-offroot-widen: widen the reverse guard to 'wired*' (accepts wired-off-root); fixture 3s must false-WARN --"
   kit="$(mkkit teeth-hookreverse-offroot)"; gitroot_t="$kit/repo"; tgt="$gitroot_t/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook "$tgt"
   git init -q "$gitroot_t" >/dev/null 2>&1
   write_targets "$kit" "${tgt}::3 md / hook file yes / unregistered"
   base_hro="$("$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"
   if grep -q "Stop hook IS wired" <<<"$base_hro"; then
-    echo "  SKIP  teeth-hook-wiring-reverse-offroot-widen: baseline (unmutated) SUT already WARNs on the 3s fixture — lib/hook-wiring.sh on this branch has no 'wired-off-root' state yet (kit issue #1135 / PR #1140 not yet merged into this branch); re-run after rebasing onto origin/main post-merge"
+    echo "  SKIP  teeth-hook-wiring-reverse-offroot-widen: baseline (unmutated) SUT already WARNs on the 3s fixture — lib/hook-wiring.sh has no 'wired-off-root' state (unexpected regression of kit issue #1135); investigate before trusting this tooth"
   else
     mut_hro="$kit/toolbelt/verify-registry.sh"
     if grep -qF '# HOOK-WIRING-REVERSE-CHECK' "$mut_hro"; then

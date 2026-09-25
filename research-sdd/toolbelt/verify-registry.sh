@@ -282,8 +282,9 @@ for p in $paths; do
   # false-confidence shape #1135 exists to prevent (three.js, TARGETS.md row 13, is this case: its
   # settings.json is wired at the nested path, but its own git root is the parent directory).
   # Equality with the literal string 'wired' (never '!= "unwired"' or a 'wired*' pattern) is what
-  # keeps this exclusion correct after #1135 lands — see the pinned fixture and mutation tooth
-  # below (2026-09-25 review: this held only by accident before the fixture existed).
+  # keeps this exclusion correct now that #1135 has landed — see the pinned fixture (3s) and
+  # mutation tooth in verify-registry.test.sh (2026-09-25 review: this held only by accident
+  # before the fixture existed).
   _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
   if [ -n "$_vr_hook_no_claim" ]; then
     _vr_hook_state2="$(hook_stop_wiring_state "$p")"
