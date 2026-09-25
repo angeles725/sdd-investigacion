@@ -10,10 +10,14 @@
 #   Default:  dry-run — print planned issues (title, labels, body) to stdout.
 #   --apply:  run `gh issue create` for each open delta, with dedup check.
 #
-# Anti-silent-zero: three states are distinguished and named:
-#   absent-input   retro file not found
-#   empty-input    retro found but has no delta section
-#   no-match       delta section found; all rows shipped/applied
+# Anti-silent-zero: four states are distinguished and named (kit issue #1111 added the 4th):
+#   absent-input     retro file not found
+#   empty-input      retro found but has no delta section AND no proposal-like heading at all
+#   unclassifiable   a delta/canonical section (or a proposal-like heading, e.g. a hyphenated
+#                     "kit-delta" mid-heading or a standalone "### Proposals") was found but
+#                     is not in a form this parser can count/stage — needs manual review;
+#                     never conflated with empty-input, which would silently hide it
+#   no-match         delta section found; all rows shipped/applied
 #
 # §7 degraded probe: if --apply and `gh` is absent or not authenticated,
 # emit a typed `degraded:` line to stderr and exit non-zero.
@@ -390,6 +394,8 @@ fi
 . "$_RG_LIB"
 declare -F retro_grammar_delta_info >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 
 _TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
 if [ ! -f "$_TP_LIB" ]; then
@@ -495,11 +501,25 @@ case "$status" in
 esac
 
 # ---------------------------------------------------------------------------
-# Check for a delta section (empty-input)
+# Check for a delta section (empty-input vs unclassifiable — kit issue #1111)
 _grammar_info="$(retro_grammar_delta_info "$retro")"
 _found_field="$(printf '%s' "$_grammar_info" | cut -d '' -f1 | cut -d: -f1)"
 if [ "$_found_field" != "1" ]; then
-  echo "empty-input: no delta section found in $retro" >&2
+  # unrec_found (field 3 of retro_grammar_delta_info's \001-separated output): the shared
+  # grammar's own unrecognised-delta-intent-heading detector (Rules 1-4). A retro whose
+  # only proposal-like heading the parser cannot classify (e.g. a hyphenated "kit-delta"
+  # mid-heading, or a standalone "### Proposals") must never be reported as a confident
+  # empty-input — that silently hides real proposals from the backlog. Report it typed
+  # instead: unclassifiable, needs manual review, no auto-staged issue.
+  _temp_depr="${_grammar_info#*$'\001'}"
+  _temp_unrec="${_temp_depr#*$'\001'}"
+  _unrec_found="${_temp_unrec%%$'\001'*}"
+  if [ "$_unrec_found" = "1" ]; then
+    echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro — needs manual review, no issue auto-staged" >&2
+  else
+    echo "empty-input: no delta section found in $retro" >&2
+  fi
+  unset _temp_depr _temp_unrec _unrec_found
   exit 0
 fi
 
@@ -516,6 +536,7 @@ _rows="$(awk '
         low ~ /^## proposed delta/ ||
         low ~ /^## delta proposals/ ||
         low ~ /^## deltas nuevos/ ||
+        low ~ /^## propuesta de deltas al kit([[:space:]]|$)/ ||
         low ~ /^## summary of proposed delta/ ||
         low ~ /^## summary of new deltas/ ||
         low ~ /^## delta details([[:space:]]|$)/) {
@@ -538,7 +559,23 @@ _rows="$(awk '
 ' "$retro_file")"
 
 if [ -z "$_rows" ]; then
-  echo "empty-input: delta section found but contains no data rows in $retro" >&2
+  # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST. A canonical section whose
+  # only body content is the accepted honesty phrase (retro_grammar_has_honesty — the same
+  # fail-safe purity check sweep-retros.sh's WARN-A path already uses) has genuinely nothing to
+  # count: it is a correct declared zero, not an ambiguous non-table-row shape. Real fleet
+  # counterexample: niagara-research/retros/2026-09-17-tools-search-innovation.md (a
+  # header+separator-only table followed by the bare honesty line) was misreported
+  # "unclassifiable — needs manual review" before this check.
+  if retro_grammar_has_honesty "$retro"; then
+    echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro" >&2
+    exit 0
+  fi
+  # A canonical/deprecated section WAS found — this is not "empty" (kit issue #1111): the
+  # section exists but is not in the table-row form this parser can auto-stage issues from
+  # (e.g. numbered-list entries under ### sub-headings, per the Spanish-alias real fleet
+  # form), and it is not a declared honest zero either. Typed distinctly from the found=0
+  # empty-input case above.
+  echo "unclassifiable: delta section found but not in row-table form in $retro — needs manual review, no issue auto-staged" >&2
   exit 0
 fi
 

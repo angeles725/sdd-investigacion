@@ -3777,6 +3777,60 @@ else
 fi
 unset _tmpl_live
 
+# 141 — SPANISH CANONICAL ALIAS (kit issue #1111): "## PROPUESTA de deltas al kit" is a real
+#       fleet form (Pancaddia corpus retro) — accepted as canonical (not deprecated: no
+#       migration WARN), so it must count table rows the same as the English heading.
+kit="$(mkkit c141-spanish-alias)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+  printf '| # | delta | rationale |\n|---|---|---|\n| 1 | delta 1 | because |\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qF '~1 proposed deltas' <<<"$OUT" && ! grep -qi 'deprecated delta heading' <<<"$OUT"; then
+  ok "141 Spanish canonical alias 'PROPUESTA de deltas al kit' → ~1 proposed deltas, no depr WARN" "(exit $RC)"
+else
+  no "141 Spanish canonical alias → expected ~1 proposed deltas, no depr WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 142 — HYPHENATED "kit-delta" MID-HEADING (kit issue #1111): "## B. Campaign-8 kit-delta
+#       backlog" (real fleet form, niagara-research retro) is not a canonical section and has
+#       no table rows, but is a proposal-like heading the parser cannot classify — must be
+#       reported WARN "count by hand" (unclassifiable, deltas="?"), never a confident
+#       "no delta section found (empty-input)".
+kit="$(mkkit c142-hyphen-kitdelta)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{ printf '<!-- review-status: pending -->\n# retro\n\n'
+  printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qi 'count by hand' <<<"$OUT" && ! grep -qF 'no delta section found (empty-input)' <<<"$OUT"; then
+  ok "142 hyphenated 'kit-delta' mid-heading → WARN count-by-hand, never empty-input" "(exit $RC)"
+else
+  no "142 hyphenated 'kit-delta' mid-heading → expected WARN count-by-hand, never empty-input" "exit=$RC out=[$OUT]"
+fi
+
+# 143 — STANDALONE H3 "### Proposals" OUTSIDE ANY SECTION (kit issue #1111): real fleet form
+#       (niagara-research retro: "## A. THE DEFECT" ... "### Proposals (propose-never-apply)
+#       — make it automatic ..."). Must be reported WARN "count by hand", never confident
+#       "no delta section found (empty-input)".
+kit="$(mkkit c143-h3-proposals)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## A. THE DEFECT\n\n'
+  printf '### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n'
+} > "$tgt/retros/r1.md"
+wire_target "$tgt"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qi 'count by hand' <<<"$OUT" && ! grep -qF 'no delta section found (empty-input)' <<<"$OUT"; then
+  ok "143 standalone H3 '### Proposals' outside section → WARN count-by-hand, never empty-input" "(exit $RC)"
+else
+  no "143 standalone H3 '### Proposals' outside section → expected WARN count-by-hand, never empty-input" "exit=$RC out=[$OUT]"
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth ND: remove no-delta-section sentinel → STATE 4 reverts to ~0 → case 55 has teeth.
   echo "-- teeth ND: remove no-delta-section sentinel; STATE 4 must revert to ~0 (case 55 has teeth) --"
@@ -4475,6 +4529,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
   unset _lib_n _anchor_n
+
+  # Tooth UF1 (kit issue #1129 Q5): drop the '|| [ "$_unrec_found" = "1" ]' OR-clause that
+  # consumes the shared grammar's unrec_found signal. Case 142 (hyphenated kit-delta, no table
+  # rows) must then revert from WARN "count by hand" to a confident "no delta section found
+  # (empty-input)" — proving that OR-clause, not something else, is what surfaces Rule 2/Rule 4.
+  echo "-- teeth UF1: drop the _unrec_found OR-clause; case 142 must revert to empty-input --"
+  content_uf1="$(cat "$SUT")"
+  anchor_uf1='                || [ "$_unrec_found" = "1" ]; then'
+  if [[ "$content_uf1" != *"$anchor_uf1"* ]]; then
+    no "teeth UF1: locate the _unrec_found OR-clause in SUT" "anchor not found — SUT drifted?"
+  else
+    kit_uf1="$(mkkit teeth-uf1)"; tgt_uf1="$kit_uf1/targetA"
+    mkdir -p "$tgt_uf1/retros"
+    { printf '<!-- review-status: pending -->\n# retro\n\n'
+      printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
+    } > "$tgt_uf1/retros/r1.md"
+    write_targets "$kit_uf1" "$tgt_uf1"
+    mutant_uf1="$kit_uf1/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content_uf1/"$anchor_uf1"/                ; then}" > "$mutant_uf1"
+    "$BASH_BIN" -n "$mutant_uf1" 2>/dev/null || no "teeth UF1: mutant syntax check" "bash -n failed"
+    outm_uf1="$("$BASH_BIN" "$mutant_uf1" 2>&1)"
+    if grep -qF 'no delta section found (empty-input)' <<<"$outm_uf1" && ! grep -qi 'count by hand' <<<"$outm_uf1"; then
+      ok "teeth UF1: _unrec_found OR-clause dropped → case 142 reverts to empty-input (has teeth)" "()"
+    else
+      no "teeth UF1: _unrec_found OR-clause dropped → should revert to empty-input" "case 142 is THEATER: out=[$outm_uf1]"
+    fi
+  fi
+  unset content_uf1 anchor_uf1
 
   # Tooth OOS: neuter the out-of-scope-marker detection added to the SUT (kit issue #1099). Case
   # 16c's out-of-scope fixture must then revert to the ORIGINAL generic "no review-status marker

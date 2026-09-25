@@ -548,6 +548,61 @@ printf '%s' "$ERR_F" | grep -q 'ran=1' \
   && ok "EN3-f: ran=1 in issue-seeding summary (seeder was called)" \
   || no "EN3-f: expected ran=1 in summary; got: $ERR_F"
 
+# ─── (EN3-unclassifiable) seeder exit 0 + typed outcome (unclassifiable:) → unclassifiable=1,
+# typed loud non-fatal WARN, no generic "no summary: line" fallback WARN (kit issue #1129
+# finding 1). Stub reproduces the REAL seeder's exact output shape for a real fleet retro
+# (Pancaddia/corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md) — a Spanish-alias
+# canonical section whose body is ### ABSORB sub-headings, not table rows.
+# RED before fix: SUT's typed-outcome case only recognises empty-input:/no-match: — an
+# unclassifiable: retro falls through to the generic "seeder exited 0 but no summary: line"
+# WARN and is never counted. 15 real seedable fleet retros hit this on every Stop.
+FKIT_U="$ROOT/fkit_u"
+mkdir -p "$FKIT_U/toolbelt/lib"
+cp "$HERE/../lib/block-files.sh"    "$FKIT_U/toolbelt/lib/"
+cp "$HERE/../lib/retro-status.sh"   "$FKIT_U/toolbelt/lib/"
+cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_U/toolbelt/lib/"
+cp "$HERE/../verify-retro.sh"       "$FKIT_U/toolbelt/"
+cat > "$FKIT_U/toolbelt/stage-retro-issues.sh" << 'FUEOF'
+#!/usr/bin/env bash
+# Models the real seeder's exact output shape for an unclassifiable retro (kit issue #1111):
+# a canonical/proposal-like section this parser cannot auto-stage issues from.
+printf 'unclassifiable: delta section found but not in row-table form in retro.md — needs manual review, no issue auto-staged\n' >&2
+exit 0
+FUEOF
+chmod +x "$FKIT_U/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_U/toolbelt/retro-gate.sh"
+TU="$ROOT/tu"; mkgit "$TU"; STU="tu-sess"
+mksessionfile "$TU" "$STU" "202609050800"
+mkblock "$TU" "tu-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TU/tu-block1.md"
+mkretro "$TU" "2026-09-05-tu.md" 1
+touch -t 202609051200 "$TU/retros/2026-09-05-tu.md"
+_jtu="$(mkjson "$STU" "false")"
+errf_u="$ROOT/err_u.$$"
+printf '%s' "$_jtu" | PATH="$MOCK_GH_DIR:$PATH" \
+  "$BASH_BIN" "$FKIT_U/toolbelt/retro-gate.sh" "$TU" >"$ROOT/out_u.$$" 2>"$errf_u"
+ERR_U="$(cat "$errf_u")"; rm -f "$errf_u" "$ROOT/out_u.$$"
+# unclassifiable=1 in issue-seeding summary (typed outcome recognised, counter incremented)
+printf '%s' "$ERR_U" | grep -q 'unclassifiable=1' \
+  && ok "EN3-unclassifiable: unclassifiable: typed outcome → unclassifiable=1 in issue-seeding summary" \
+  || no "EN3-unclassifiable: expected unclassifiable=1 in summary; got: $ERR_U"
+# A typed, loud, non-fatal WARN naming the retro (not the generic 'no summary: line' fallback)
+printf '%s' "$ERR_U" | grep -q 'WARN: seeder: unclassifiable for.*needs manual review' \
+  && ok "EN3-unclassifiable: typed loud WARN naming the retro (needs manual review)" \
+  || no "EN3-unclassifiable: expected typed WARN naming the retro; got: $ERR_U"
+# NO generic 'no summary: line' fallback WARN (typed outcome suppresses it)
+printf '%s' "$ERR_U" | grep -q 'no summary: line' \
+  && no "EN3-unclassifiable: must NOT trigger the generic 'no summary: line' WARN; got: $ERR_U" \
+  || ok "EN3-unclassifiable: did not trigger the generic 'no summary: line' WARN (correct)"
+# failed=0 — non-fatal, never counted as a create failure
+printf '%s' "$ERR_U" | grep -q 'failed=0' \
+  && ok "EN3-unclassifiable: non-fatal — failed=0 in summary" \
+  || no "EN3-unclassifiable: expected failed=0 (non-fatal); got: $ERR_U"
+# ran=1 in summary (seeder was called)
+printf '%s' "$ERR_U" | grep -q 'ran=1' \
+  && ok "EN3-unclassifiable: ran=1 in issue-seeding summary (seeder was called)" \
+  || no "EN3-unclassifiable: expected ran=1 in summary; got: $ERR_U"
+
 # ─── (EN3-absent) absent-input: typed outcome → absent=1, WARN naming retro ───
 # Distinct from empty-input/no-match: retro file not found is a §7 absent-input signal.
 # RED before fix: absent-input: is folded into empty=N with no WARN (issue #940).
@@ -1948,6 +2003,50 @@ if [[ "$sut_content_gate" == *"$anchor_t19s"* ]]; then
   fi
 else
   no "T19-seedable teeth: locate out-of-scope-marker guard anchor" "anchor not found — SUT drifted?"
+fi
+
+# ── TOOTH 20 (kit issue #1129 finding 1): neuter the 'unclassifiable:' case PATTERN so that
+#    arm can never match. EN3-unclassifiable's fixture must then fall through to the generic
+#    "no summary: line" WARN and unclassifiable must stay 0 — reproducing the exact
+#    silent-fallthrough this finding fixes.
+echo "-- teeth T20-unclassifiable: neuter the unclassifiable: case pattern; EN3-unclassifiable must fall through to the generic WARN --"
+anchor_t20_line="        *\$'\\n'unclassifiable:*)"
+if [[ "$sut_content_gate" == *"$anchor_t20_line"* ]]; then
+  mutant_t20="$MUT_KIT/toolbelt/mutant-retro-unclassifiable-t20.sh"
+  printf '%s\n' "${sut_content_gate/"$anchor_t20_line"/        *NEVER-MATCHES-XX*)}" > "$mutant_t20"
+  bash -n "$mutant_t20" 2>/dev/null || { no "T20-unclassifiable teeth: mutant failed bash -n" ""; }
+  FKIT_T20="$ROOT/fkit_t20"
+  mkdir -p "$FKIT_T20/toolbelt/lib"
+  cp "$HERE/../lib/block-files.sh"    "$FKIT_T20/toolbelt/lib/"
+  cp "$HERE/../lib/retro-status.sh"   "$FKIT_T20/toolbelt/lib/"
+  cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_T20/toolbelt/lib/"
+  cp "$HERE/../verify-retro.sh"       "$FKIT_T20/toolbelt/"
+  cat > "$FKIT_T20/toolbelt/stage-retro-issues.sh" << 'FT20EOF'
+#!/usr/bin/env bash
+printf 'unclassifiable: delta section found but not in row-table form in retro.md — needs manual review, no issue auto-staged\n' >&2
+exit 0
+FT20EOF
+  chmod +x "$FKIT_T20/toolbelt/stage-retro-issues.sh"
+  cp "$mutant_t20" "$FKIT_T20/toolbelt/retro-gate.sh"
+  T20="$ROOT/t20"; mkgit "$T20"; ST20="t20-sess"
+  mksessionfile "$T20" "$ST20" "202609050800"
+  mkblock "$T20" "t20-block1.md" "2026-09-05T10:00:00"
+  touch -t 202609051000 "$T20/t20-block1.md"
+  mkretro "$T20" "2026-09-05-t20.md" 1
+  touch -t 202609051200 "$T20/retros/2026-09-05-t20.md"
+  _jt20="$(mkjson "$ST20" "false")"
+  errf_t20="$ROOT/err_t20.$$"
+  printf '%s' "$_jt20" | PATH="$MOCK_GH_DIR:$PATH" \
+    "$BASH_BIN" "$FKIT_T20/toolbelt/retro-gate.sh" "$T20" >"$ROOT/out_t20.$$" 2>"$errf_t20"
+  ERR_T20="$(cat "$errf_t20")"; rm -f "$errf_t20" "$ROOT/out_t20.$$"
+  if printf '%s' "$ERR_T20" | grep -q 'unclassifiable=0' \
+     && printf '%s' "$ERR_T20" | grep -q 'no summary: line'; then
+    ok "T20-unclassifiable teeth: case arm removed → falls through to generic WARN, unclassifiable=0 (has teeth)" "()"
+  else
+    no "T20-unclassifiable teeth: case arm removed → should fall through to generic WARN" "got [$ERR_T20] — EN3-unclassifiable is THEATER"
+  fi
+else
+  no "T20-unclassifiable teeth: locate the unclassifiable: case arm" "anchor not found — SUT drifted?"
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────

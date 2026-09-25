@@ -150,6 +150,57 @@ _rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
 [ "$_uf" = "1" ] && ok "T8: unrecognised Rule 1 (## deltas) → unrec_found=1" "[$_out]" \
   || no "T8: unrecognised Rule 1 → expected unrec_found=1" "got=[$_out]"
 
+# T10: Spanish canonical alias "## PROPUESTA de deltas al kit" (kit issue #1111) — accepted as
+# canonical (not deprecated: no migration WARN), real fleet form (Pancaddia corpus retro).
+_f="$ROOT/t10.md"
+{ printf '<!-- review-status: pending -->\n# Retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+  printf '| # | change | target | evidence | type | prio |\n|---|---|---|---|---|---|\n'
+  printf '| 1 | ch1 | f.md | B001 | new | H |\n'
+} > "$_f"
+_out=$(rgi "$_f"); _ffc="${_out%%$'\001'*}"
+_rest="${_out#*$'\001'}"; _dh="${_rest%%$'\001'*}"
+[ "$_ffc" = "1:1:1" ] && [ -z "$_dh" ] \
+  && ok "T10: Spanish alias 'PROPUESTA de deltas al kit' 1-row → 1:1:1, no depr WARN" "[$_out]" \
+  || no "T10: Spanish alias → expected 1:1:1 + empty depr_h" "got=[$_out]"
+
+# T11: hyphenated "kit-delta" mid-heading (## B. Campaign-8 kit-delta backlog, real fleet form,
+# niagara-research retro) sets unrec_found=1 — Rule 2 widened to accept '-' as well as ' '.
+_f="$ROOT/t11.md"
+printf '<!-- review-status: pending -->\n# Retro\n\n## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nprose\n' > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "1" ] && ok "T11: hyphenated 'kit-delta' mid-heading → unrec_found=1" "[$_out]" \
+  || no "T11: hyphenated 'kit-delta' mid-heading → expected unrec_found=1" "got=[$_out]"
+
+# T11b: negation guard still holds for the hyphenated form — "not kit-delta" must NOT flip
+# unrec_found (mirrors the existing space-form negation guard).
+_f="$ROOT/t11b.md"
+printf '<!-- review-status: pending -->\n# Retro\n\n## Client-side punch-list (not kit-delta — for the module owner)\n\nprose\n' > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "0" ] && ok "T11b: negated hyphenated 'not kit-delta' → unrec_found stays 0" "[$_out]" \
+  || no "T11b: negated hyphenated 'not kit-delta' → expected unrec_found=0" "got=[$_out]"
+
+# T12: standalone H3 "### Proposals" heading OUTSIDE any canonical section (real fleet form,
+# niagara-research retro: "### Proposals (propose-never-apply) — ...") sets unrec_found=1 (Rule 4).
+_f="$ROOT/t12.md"
+printf '<!-- review-status: pending -->\n# Retro\n\n## A. THE DEFECT\n\n### Proposals (propose-never-apply) — make it automatic\n\nprose\n' > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "1" ] && ok "T12: standalone H3 '### Proposals' outside section → unrec_found=1" "[$_out]" \
+  || no "T12: standalone H3 '### Proposals' → expected unrec_found=1" "got=[$_out]"
+
+# T13: list-edge guard — "### Proposals" INSIDE a canonical section must NOT double-fire Rule 4
+# (it is legitimately a form-2 candidate there, gated by in_sec, not an unrecognised heading).
+_f="$ROOT/t13.md"
+{ printf '<!-- review-status: pending -->\n# Retro\n\n## Proposed kit deltas\n\n'
+  printf '### Proposals\n\nprose\n'
+} > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "0" ] && ok "T13: '### Proposals' INSIDE canonical section → unrec_found stays 0 (gated by in_sec)" "[$_out]" \
+  || no "T13: '### Proposals' inside canonical section → expected unrec_found=0" "got=[$_out]"
+
 # T9: idempotent sourcing — sourcing the lib a second time must not re-define the function
 # (the if ! typeset -f guard prevents it). We check by calling the function after double-source.
 # shellcheck source=../lib/retro-grammar.sh
@@ -280,6 +331,75 @@ else
   [ "$_vr_rc_mut" = 1 ] \
     && ok "FLIP-VR: mutant lib flips verify-retro (exits 1 = FAIL)" "(both-consumers-flip has teeth for verify)" \
     || no "FLIP-VR: mutant lib must flip verify-retro to exit 1" "base-rc=$_vr_rc_base mut-rc=$_vr_rc_mut mut=[$_vr_mut]"
+fi
+
+# ── kit issue #1129 finding 3 / Q5: direct lib-level mutation controls for each new grammar
+# rule (T10 Spanish alias, T11 Rule 2 hyphen widening, T12 Rule 4 standalone-Proposals). Each
+# mutates a throwaway copy of lib/retro-grammar.sh and re-runs retro_grammar_delta_info against
+# it in a fresh subshell — never the live lib. ─────────────────────────────────────────────────
+
+# Tooth SPANISH1: remove the Spanish canonical alias line. T10's fixture must revert to 0:n:0.
+echo "-- teeth SPANISH1: remove the Spanish canonical alias; T10 must revert to 0:n:0 --"
+_rg_content="$(cat "$RG_LIB")"
+_anchor_sp1='  if (low ~ /^## propuesta de deltas al kit([[:space:]]|$)/) return 1'
+if [[ "$_rg_content" == *"$_anchor_sp1"* ]]; then
+  _mut_sp1="$ROOT/rg-sp1.sh"
+  printf '%s\n' "${_rg_content/"$_anchor_sp1"/}" > "$_mut_sp1"
+  "$BASH_BIN" -n "$_mut_sp1" 2>/dev/null || no "teeth SPANISH1: mutant syntax check" "bash -n failed"
+  _f_sp1="$ROOT/rg-sp1-fixture.md"
+  { printf '<!-- review-status: pending -->\n# Retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+    printf '| # | change | target | evidence | type | prio |\n|---|---|---|---|---|---|\n| 1 | ch1 | f.md | B001 | new | H |\n'
+  } > "$_f_sp1"
+  _out_sp1="$("$BASH_BIN" -c '. "$1"; retro_grammar_delta_info "$2"' _ "$_mut_sp1" "$_f_sp1" 2>&1)"
+  _ffc_sp1="${_out_sp1%%$'\001'*}"
+  [ "$_ffc_sp1" = "0:n:0" ] \
+    && ok "teeth SPANISH1: Spanish alias removed → T10 reverts to 0:n:0 (has teeth)" "()" \
+    || no "teeth SPANISH1: Spanish alias removed → should revert to 0:n:0" "got=[$_out_sp1]"
+else
+  no "teeth SPANISH1: locate the Spanish canonical alias" "anchor not found — lib drifted?"
+fi
+
+# Tooth RULE2-1: revert Rule 2's hyphen widening. T11's fixture must revert to unrec_found=0.
+echo "-- teeth RULE2-1: revert Rule 2's hyphen widening; T11 must revert to unrec_found=0 --"
+_anchor_r2='if (!is_unrec && low ~ /[ -]kit[ -]delt/ && low !~ /not[ -]+kit[ -]+delt/) is_unrec=1'
+if [[ "$_rg_content" == *"$_anchor_r2"* ]]; then
+  _mut_r2="$ROOT/rg-r2.sh"
+  _reverted_r2='if (!is_unrec && low ~ / kit delt/ && low !~ /not +kit +delt/) is_unrec=1'
+  printf '%s\n' "${_rg_content/"$_anchor_r2"/"$_reverted_r2"}" > "$_mut_r2"
+  "$BASH_BIN" -n "$_mut_r2" 2>/dev/null || no "teeth RULE2-1: mutant syntax check" "bash -n failed"
+  _f_r2="$ROOT/rg-r2-fixture.md"
+  printf '<!-- review-status: pending -->\n# Retro\n\n## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nprose\n' > "$_f_r2"
+  _out_r2="$("$BASH_BIN" -c '. "$1"; retro_grammar_delta_info "$2"' _ "$_mut_r2" "$_f_r2" 2>&1)"
+  _rest_r2="${_out_r2#*$'\001'}"; _rest_r2="${_rest_r2#*$'\001'}"; _uf_r2="${_rest_r2%%$'\001'*}"
+  [ "$_uf_r2" = "0" ] \
+    && ok "teeth RULE2-1: Rule 2 hyphen widening reverted → T11 reverts to unrec_found=0 (has teeth)" "()" \
+    || no "teeth RULE2-1: Rule 2 hyphen widening reverted → should revert to unrec_found=0" "got=[$_out_r2]"
+else
+  no "teeth RULE2-1: locate Rule 2's hyphen-widened pattern" "anchor not found — lib drifted?"
+fi
+
+# Tooth RULE4-1: disable Rule 4 (standalone H3 Proposals outside section). T12's fixture must
+# revert to unrec_found=0.
+echo "-- teeth RULE4-1: disable Rule 4; T12 must revert to unrec_found=0 --"
+_anchor_r4='      !in_sec && /^###[^#]/ {
+        if (!unrec_found && low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) {
+          unrec_found=1; unrec_heading=$0
+        }
+        next
+      }'
+if [[ "$_rg_content" == *"$_anchor_r4"* ]]; then
+  _mut_r4="$ROOT/rg-r4.sh"
+  printf '%s\n' "${_rg_content/"$_anchor_r4"/}" > "$_mut_r4"
+  "$BASH_BIN" -n "$_mut_r4" 2>/dev/null || no "teeth RULE4-1: mutant syntax check" "bash -n failed"
+  _f_r4="$ROOT/rg-r4-fixture.md"
+  printf '<!-- review-status: pending -->\n# Retro\n\n## A. THE DEFECT\n\n### Proposals (propose-never-apply) — make it automatic\n\nprose\n' > "$_f_r4"
+  _out_r4="$("$BASH_BIN" -c '. "$1"; retro_grammar_delta_info "$2"' _ "$_mut_r4" "$_f_r4" 2>&1)"
+  _rest_r4="${_out_r4#*$'\001'}"; _rest_r4="${_rest_r4#*$'\001'}"; _uf_r4="${_rest_r4%%$'\001'*}"
+  [ "$_uf_r4" = "0" ] \
+    && ok "teeth RULE4-1: Rule 4 disabled → T12 reverts to unrec_found=0 (has teeth)" "()" \
+    || no "teeth RULE4-1: Rule 4 disabled → should revert to unrec_found=0" "got=[$_out_r4]"
+else
+  no "teeth RULE4-1: locate Rule 4 (standalone H3 Proposals)" "anchor not found — lib drifted?"
 fi
 
 # ── ZSH-GUARD teeth: declare-F mutant leaves function undefined under zsh ────

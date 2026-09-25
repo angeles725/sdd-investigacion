@@ -981,7 +981,232 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "T7 teeth: locate 'dismissed always wins' guard anchor" "anchor not found — SUT drifted?"
   fi
 
+  # ── kit issue #1129 findings 2/3: mutation controls for the found=1-no-rows branch and for
+  # each grammar rule this PR series added, none of which had a --prove-teeth control before. ──
+
+  # Tooth H1: drop the retro_grammar_has_honesty guard from the found=1-no-rows branch. Case 25
+  # (honest empty) must then flip from empty-input to unclassifiable.
+  echo "-- teeth H1: drop the honesty check; case 25 (honest empty) must flip to unclassifiable --"
+  anchor_h1='    if retro_grammar_has_honesty "$retro_path"; then
+      echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro_path" >&2
+      return 0
+    fi'
+  sut_content_h1="$(cat "$SUT")"
+  if [[ "$sut_content_h1" == *"$anchor_h1"* ]]; then
+    box_h1="$(mkbox teeth-h1)"
+    mk_gh_stub "$box_h1" nomatch
+    retro_h1="$box_h1/rh/target-foo/retros/r-h1.md"
+    { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+      printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+      printf 'no new deltas; the kit already covers this run.\n'
+    } > "$retro_h1"
+    mutant_h1="$box_h1/research-sdd/toolbelt/reconcile-issues.sh"
+    printf '%s\n' "${sut_content_h1/"$anchor_h1"/}" > "$mutant_h1"
+    "$BASH_BIN" -n "$mutant_h1" 2>/dev/null || no "teeth H1: mutant syntax check" "bash -n failed"
+    out_h1="$(PATH="$box_h1/bin:$PATH" "$BASH_BIN" "$mutant_h1" "$retro_h1" 2>&1)"
+    if printf '%s\n' "$out_h1" | grep -qi '^unclassifiable:'; then
+      ok "teeth H1: honesty check removed → case 25 flips to unclassifiable (has teeth)" "()"
+    else
+      no "teeth H1: honesty check removed → should flip to unclassifiable" "case 25 is THEATER: out=[$out_h1]"
+    fi
+  else
+    no "teeth H1: locate the honesty-check guard anchor" "anchor not found — SUT drifted?"
+  fi
+
+  # Tooth H2: the surviving unclassifiable echo itself — silence it, case 26 must go quiet.
+  echo "-- teeth H2: silence the unclassifiable echo; case 26 must go quiet (no unclassifiable line) --"
+  anchor_h2='echo "unclassifiable: delta section found but not in row-table form in $retro_path — needs manual review" >&2'
+  if [[ "$sut_content_h1" == *"$anchor_h2"* ]]; then
+    box_h2="$(mkbox teeth-h2)"
+    mk_gh_stub "$box_h2" nomatch
+    retro_h2="$box_h2/rh/target-foo/retros/r-h2.md"
+    { printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+      printf '### ABSORB → prose, no table, no honesty\n\nprose here\n'
+    } > "$retro_h2"
+    mutant_h2="$box_h2/research-sdd/toolbelt/reconcile-issues.sh"
+    printf '%s\n' "${sut_content_h1/"$anchor_h2"/:}" > "$mutant_h2"
+    "$BASH_BIN" -n "$mutant_h2" 2>/dev/null || no "teeth H2: mutant syntax check" "bash -n failed"
+    out_h2="$(PATH="$box_h2/bin:$PATH" "$BASH_BIN" "$mutant_h2" "$retro_h2" 2>&1)"
+    if ! printf '%s\n' "$out_h2" | grep -qi 'unclassifiable'; then
+      ok "teeth H2: unclassifiable echo silenced → case 26's typed message gone (has teeth)" "()"
+    else
+      no "teeth H2: unclassifiable echo silenced → message should be gone" "case 26 is THEATER: out=[$out_h2]"
+    fi
+  else
+    no "teeth H2: locate the unclassifiable echo anchor" "anchor not found — SUT drifted?"
+  fi
+
+  # Tooth GR1 (kit issue #1129 Q5): the Spanish canonical alias, sourced from the shared grammar
+  # lib as loaded by THIS consumer — remove it from the copy reconcile-issues.sh sources and
+  # prove case 22 (Spanish alias with real table rows) stops being audited.
+  echo "-- teeth GR1: remove the Spanish canonical alias from the sourced grammar lib; case 22 must stop auditing --"
+  rg_lib_content="$(cat "$RETRO_GRAMMAR_LIB")"
+  anchor_gr1='  if (low ~ /^## propuesta de deltas al kit([[:space:]]|$)/) return 1'
+  if [[ "$rg_lib_content" == *"$anchor_gr1"* ]]; then
+    box_gr1="$(mkbox teeth-gr1)"
+    mk_gh_stub "$box_gr1" nomatch
+    retro_gr1="$box_gr1/rh/target-foo/retros/r-gr1.md"
+    { printf '<!-- review-status: pending -->\n# retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+      printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+      printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
+    } > "$retro_gr1"
+    printf '%s\n' "${rg_lib_content/"$anchor_gr1"/}" > "$box_gr1/research-sdd/toolbelt/lib/retro-grammar.sh"
+    "$BASH_BIN" -n "$box_gr1/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
+      || no "teeth GR1: mutant lib syntax check" "bash -n failed"
+    out_gr1="$(PATH="$box_gr1/bin:$PATH" "$BASH_BIN" "$box_gr1/research-sdd/toolbelt/reconcile-issues.sh" "$retro_gr1" 2>&1)"
+    if printf '%s\n' "$out_gr1" | grep -qi '^empty-input:'; then
+      ok "teeth GR1: Spanish alias removed from lib → case 22 reverts to empty-input (has teeth)" "()"
+    else
+      no "teeth GR1: Spanish alias removed from lib → should revert to empty-input" "case 22 is THEATER: out=[$out_gr1]"
+    fi
+  else
+    no "teeth GR1: locate the Spanish canonical alias in lib/retro-grammar.sh" "anchor not found — lib drifted?"
+  fi
+
+  # Tooth GR2 (kit issue #1129 Q5): revert Rule 2's hyphen widening back to space-only. Case 23
+  # (hyphenated kit-delta) must then revert from unclassifiable to empty-input.
+  echo "-- teeth GR2: revert Rule 2's hyphen widening; case 23 must revert to empty-input --"
+  anchor_gr2='if (!is_unrec && low ~ /[ -]kit[ -]delt/ && low !~ /not[ -]+kit[ -]+delt/) is_unrec=1'
+  if [[ "$rg_lib_content" == *"$anchor_gr2"* ]]; then
+    box_gr2="$(mkbox teeth-gr2)"
+    mk_gh_stub "$box_gr2" nomatch
+    retro_gr2="$box_gr2/rh/target-foo/retros/r-gr2.md"
+    { printf '<!-- review-status: pending -->\n# retro\n\n'
+      printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
+    } > "$retro_gr2"
+    reverted_gr2='if (!is_unrec && low ~ / kit delt/ && low !~ /not +kit +delt/) is_unrec=1'
+    printf '%s\n' "${rg_lib_content/"$anchor_gr2"/"$reverted_gr2"}" > "$box_gr2/research-sdd/toolbelt/lib/retro-grammar.sh"
+    "$BASH_BIN" -n "$box_gr2/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
+      || no "teeth GR2: mutant lib syntax check" "bash -n failed"
+    out_gr2="$(PATH="$box_gr2/bin:$PATH" "$BASH_BIN" "$box_gr2/research-sdd/toolbelt/reconcile-issues.sh" "$retro_gr2" 2>&1)"
+    if printf '%s\n' "$out_gr2" | grep -qi '^empty-input:'; then
+      ok "teeth GR2: Rule 2 hyphen widening reverted → case 23 reverts to empty-input (has teeth)" "()"
+    else
+      no "teeth GR2: Rule 2 hyphen widening reverted → should revert to empty-input" "case 23 is THEATER: out=[$out_gr2]"
+    fi
+  else
+    no "teeth GR2: locate Rule 2's hyphen-widened pattern in lib/retro-grammar.sh" "anchor not found — lib drifted?"
+  fi
+
+  # Tooth GR3 (kit issue #1129 Q5): disable Rule 4 (standalone H3 "Proposals" outside section).
+  # Case 24 must then revert from unclassifiable to empty-input.
+  echo "-- teeth GR3: disable Rule 4 (standalone H3 Proposals); case 24 must revert to empty-input --"
+  anchor_gr3='      !in_sec && /^###[^#]/ {
+        if (!unrec_found && low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) {
+          unrec_found=1; unrec_heading=$0
+        }
+        next
+      }'
+  if [[ "$rg_lib_content" == *"$anchor_gr3"* ]]; then
+    box_gr3="$(mkbox teeth-gr3)"
+    mk_gh_stub "$box_gr3" nomatch
+    retro_gr3="$box_gr3/rh/target-foo/retros/r-gr3.md"
+    { printf '<!-- review-status: pending -->\n# retro\n\n## A. THE DEFECT\n\n'
+      printf '### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n'
+    } > "$retro_gr3"
+    printf '%s\n' "${rg_lib_content/"$anchor_gr3"/}" > "$box_gr3/research-sdd/toolbelt/lib/retro-grammar.sh"
+    "$BASH_BIN" -n "$box_gr3/research-sdd/toolbelt/lib/retro-grammar.sh" 2>/dev/null \
+      || no "teeth GR3: mutant lib syntax check" "bash -n failed"
+    out_gr3="$(PATH="$box_gr3/bin:$PATH" "$BASH_BIN" "$box_gr3/research-sdd/toolbelt/reconcile-issues.sh" "$retro_gr3" 2>&1)"
+    if printf '%s\n' "$out_gr3" | grep -qi '^empty-input:'; then
+      ok "teeth GR3: Rule 4 disabled → case 24 reverts to empty-input (has teeth)" "()"
+    else
+      no "teeth GR3: Rule 4 disabled → should revert to empty-input" "case 24 is THEATER: out=[$out_gr3]"
+    fi
+  else
+    no "teeth GR3: locate Rule 4 (standalone H3 Proposals) in lib/retro-grammar.sh" "anchor not found — lib drifted?"
+  fi
+
 fi  # --prove-teeth
+
+# ---------------------------------------------------------------------------
+# 22 — SPANISH CANONICAL ALIAS (kit issue #1111): "## PROPUESTA de deltas al kit" is a real
+#      fleet form (Pancaddia corpus retro) — accepted as canonical, row parsed and audited.
+box="$(mkbox case-spanish-alias)"
+mk_gh_stub "$box" nomatch
+retro="$box/rh/target-foo/retros/r-spanish.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
+} > "$retro"
+run "$box" "$retro"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q '^untracked:' && ! printf '%s' "$OUT" | grep -qi 'empty-input\|unclassifiable'; then
+  ok "22 Spanish canonical alias 'PROPUESTA de deltas al kit' → row audited, not empty/unclassifiable" "(exit $RC)"
+else
+  no "22 Spanish canonical alias → expected row audited (untracked)" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 23 — UNCLASSIFIABLE, not empty-input (kit issue #1111): a hyphenated "kit-delta" mid-heading
+#      (real fleet form, niagara-research retro) with no table rows must be typed
+#      unclassifiable, never a confident empty-input.
+box="$(mkbox case-hyphen-kitdelta)"
+mk_gh_stub "$box" nomatch
+retro="$box/rh/target-foo/retros/r-hyphen.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n'
+  printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
+} > "$retro"
+run "$box" "$retro"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+  ok "23 hyphenated 'kit-delta' mid-heading → unclassifiable, never empty-input" "(exit $RC)"
+else
+  no "23 hyphenated 'kit-delta' mid-heading → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 24 — UNCLASSIFIABLE, not empty-input (kit issue #1111): a standalone H3 "### Proposals"
+#      heading outside any canonical section (real fleet form, niagara-research retro) with
+#      no table rows must be typed unclassifiable, never a confident empty-input.
+box="$(mkbox case-h3-proposals)"
+mk_gh_stub "$box" nomatch
+retro="$box/rh/target-foo/retros/r-h3proposals.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## A. THE DEFECT\n\n'
+  printf '### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n'
+} > "$retro"
+run "$box" "$retro"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+  ok "24 standalone H3 '### Proposals' outside section → unclassifiable, never empty-input" "(exit $RC)"
+else
+  no "24 standalone H3 '### Proposals' outside section → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 25 — HONEST EMPTY, not unclassifiable (kit issue #1129 finding 2): a canonical section with an
+#      empty table (header + separator, no data rows) PLUS a valid §18 honesty line is a correct
+#      declared zero, not "not in row-table form — needs manual review". Real fleet
+#      counterexample: niagara-research/retros/2026-09-17-tools-search-innovation.md.
+box="$(mkbox case-honest-empty)"
+mk_gh_stub "$box" nomatch
+retro="$box/rh/target-foo/retros/r-honest-empty.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+  printf '| # | Proposed change | Target (file · %%/section) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf 'no new deltas; the kit already covers this run.\n'
+} > "$retro"
+run "$box" "$retro"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^empty-input:' \
+  && ! printf '%s' "$OUT" | grep -qi 'unclassifiable'; then
+  ok "25 honest empty (§18 honesty line, no rows) → empty-input, not unclassifiable" "(exit $RC)"
+else
+  no "25 honest empty (§18 honesty line, no rows) → expected empty-input, not unclassifiable" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 26 — UNCLASSIFIABLE (found=1, no rows, NOT an honest zero) — kit issue #1129 finding 3: the
+#      found=1-no-rows relabel itself had no positive test. A canonical section whose body is
+#      ordinary prose (no §18 honesty phrase, no table rows) must still be unclassifiable.
+box="$(mkbox case-no-rows-not-honest)"
+mk_gh_stub "$box" nomatch
+retro="$box/rh/target-foo/retros/r-not-honest.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n'
+  printf '### ABSORB → some ordinary sub-heading with prose, no table, no honesty phrase\n\nprose here\n'
+} > "$retro"
+run "$box" "$retro"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi '^unclassifiable:' \
+  && ! printf '%s' "$OUT" | grep -qi '^empty-input:'; then
+  ok "26 canonical section, no rows, NOT honest → unclassifiable" "(exit $RC)"
+else
+  no "26 canonical section, no rows, NOT honest → expected unclassifiable" "exit=$RC out=[$OUT]"
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

@@ -104,7 +104,7 @@ _run_issue_seeding() {
     return 0
   fi
 
-  local created=0 skipped=0 failed=0 failed_issues=0 empty=0 absent=0 ran=0
+  local created=0 skipped=0 failed=0 failed_issues=0 empty=0 absent=0 ran=0 unclassifiable=0
   local rf seed_out seed_rc _c _s _f _summary _seed_reason _seed_failed _absent_typed
   local failed_list=""
   while IFS= read -r rf; do
@@ -140,10 +140,19 @@ _run_issue_seeding() {
       printf 'retro-gate: WARN: seeder: absent-input for %s (retro not found — verify path)\n' \
         "$(basename "$rf")" >&2
     elif [ "$seed_rc" -eq 0 ]; then
-      # Seeder exited 0 with no summary: empty-input (no delta section) or no-match (all shipped)
+      # Seeder exited 0 with no summary: empty-input (no delta section), no-match (all shipped),
+      # or unclassifiable (kit issue #1111/#1129: the shared grammar found a proposal-like
+      # heading or a canonical section it cannot auto-stage issues from — e.g. numbered-list
+      # entries instead of a table, or a heading the parser cannot classify — needs manual
+      # review, not a failure). Before this branch, an unclassifiable retro fell through to the
+      # generic "no summary: line" WARN below and was silently uncounted.
       case $'\n'"$seed_out" in
         *$'\n'empty-input:*|*$'\n'no-match:*)
           empty=$((empty + 1)) ;;
+        *$'\n'unclassifiable:*)
+          unclassifiable=$((unclassifiable + 1))
+          printf 'retro-gate: WARN: seeder: unclassifiable for %s — needs manual review, no issue auto-staged (kit issue #1111/#1129)\n' \
+            "$(basename "$rf")" >&2 ;;
         *)
           # Seeder exited 0 with no recognised typed outcome and no summary: line
           printf 'retro-gate: WARN: seeder exited 0 but no summary: line for %s\n' \
@@ -185,8 +194,8 @@ _run_issue_seeding() {
       "$failed_issues" "$failed" "$failed_list" >&2
   fi
   # SENTINEL-AGGREGATE-WARN-END
-  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d absent=%d failed=%d failed-issues=%d target=%s\n' \
-    "$ran" "$created" "$skipped" "$empty" "$absent" "$failed" "$failed_issues" "$(basename "$target")" >&2
+  printf 'retro-gate: issue-seeding: ran=%d created=%d skipped-dedup=%d empty=%d unclassifiable=%d absent=%d failed=%d failed-issues=%d target=%s\n' \
+    "$ran" "$created" "$skipped" "$empty" "$unclassifiable" "$absent" "$failed" "$failed_issues" "$(basename "$target")" >&2
 }
 # SENTINEL-SEEDING-FUNC-END
 
