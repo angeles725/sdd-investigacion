@@ -33,6 +33,12 @@ RG_LIB="$HERE/../lib/retro-grammar.sh"       # shared delta-heading grammar the 
 [ -f "$HERE/../lib/hook-wiring.sh" ] || { echo "FATAL: hook-wiring helper not found: $HERE/../lib/hook-wiring.sh" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# HERMETICITY (kit issue #1140 round-2 review, Blocking 4): lib/hook-wiring.sh's git-root walk-up
+# climbs from a target to `/` unless RSDD_HOOK_WIRING_CEILING is set. Several fixtures below
+# `git init` a target under $ROOT; without this, a $TMPDIR that happens to sit inside a real repo
+# (this kit checkout, for instance) would let an ENCLOSING repo's .git bleed into every fixture.
+RSDD_HOOK_WIRING_CEILING="$(dirname "$ROOT")"
+export RSDD_HOOK_WIRING_CEILING
 pass=0; fail=0
 ok()   { printf '  PASS  %-56s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no()   { printf '  FAIL  %-56s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -2196,11 +2202,22 @@ fi
 #      (total = pending + gap + waiver; gap = print/summary section between loops, typically
 #      < 5% on real corpora; ±15% is the right floor for a minimal unit-test fixture).
 #      RED on baseline: no RSDD_PROFILE support → zero profile lines on STDERR.
+#
+#      Includes a WIRED target (kit issue #1140 round-2 review, Blocking 3): the WIRING-STATUS
+#      pass falls INSIDE 'total' but is not one of the 4 named phases reconciled against it, so
+#      any per-target cost the wired path pays leaks straight into the reconciliation ratio. The
+#      reviewer measured the pre-fork-free lib flaking to 4-9/30 with a wired target in this exact
+#      fixture (30/30 with only unwired targets, and 28-29/30 even on unpatched main); the
+#      fork-free walk-up (no git subprocess, no `pwd -P` subshell) is what makes a wired target
+#      here reliably 30/30 again.
 kit="$(mkkit c68-profile-basic)"; tgt="$kit/targetA"
 mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
 printf '# b\n' > "$tgt/t-block1.md"
 touch -d '2 days ago' "$tgt/t-block1.md"   # aged past grace → waiver pass calls find+stat
-write_targets "$kit" "$tgt"
+tgt_wired="$kit/targetB-wired"; mkdir -p "$tgt_wired"
+git init -q "$tgt_wired" >/dev/null 2>&1
+wire_target "$tgt_wired"
+write_targets "$kit" "$tgt" "$tgt_wired"
 run_profile "$kit"
 _p68_pend="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
 _p68_waiv="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
@@ -2556,6 +2573,55 @@ if [ "$RC" = 0 ] \
   ok "80c multi-target wiring incl. wired-off-root: all four counts + total correct" "(exit $RC)"
 else
   no "80c multi-target wiring incl. wired-off-root: all four counts + total correct" "exit=$RC out=[$OUT]"
+fi
+
+# 80d — LIST EDGE (kit §7 "test the list edges, not just the middle"): the wired-off-root target
+#       is FIRST in a 3-target TARGETS.md list. 80c already covers a middle position; this and 80e
+#       pin the two edges the codebase has a proven history of mishandling (verify-registry.sh's
+#       own trailing-token bug, same doctrine).
+kit="$(mkkit c80d-offroot-first)"
+gitroot_d="$kit/gitrootFirst"; tgt_or_d="$gitroot_d/nested"
+tgt_w_d="$kit/targetWiredD"; tgt_u_d="$kit/targetUnwiredD"
+mkdir -p "$tgt_or_d/.claude"
+git init -q "$gitroot_d" >/dev/null 2>&1
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_or_d/.claude/settings.json"
+mkdir -p "$tgt_w_d/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_w_d/.claude/settings.json"
+mkdir -p "$tgt_u_d/.claude"
+printf '{"hooks":{}}\n' > "$tgt_u_d/.claude/settings.json"
+write_targets "$kit" "$tgt_or_d" "$tgt_w_d" "$tgt_u_d"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN.*wired-off-root.*$tgt_or_d" <<<"$OUT" \
+   && grep -qE 'Wiring: 1 wired / 1 wired-off-root / 1 unwired / 0 absent-settings / 0 unreadable — 3 targets checked' <<<"$OUT"; then
+  ok "80d LIST EDGE: wired-off-root target FIRST in a 3-target list → still detected, counts correct" "(exit $RC)"
+else
+  no "80d LIST EDGE: wired-off-root target FIRST in a 3-target list → still detected, counts correct" "exit=$RC out=[$OUT]"
+fi
+
+# 80e — LIST EDGE: the wired-off-root target is LAST in a 3-target TARGETS.md list.
+kit="$(mkkit c80e-offroot-last)"
+tgt_w_e="$kit/targetWiredE"; tgt_u_e="$kit/targetUnwiredE"
+gitroot_e="$kit/gitrootLast"; tgt_or_e="$gitroot_e/nested"
+mkdir -p "$tgt_w_e/.claude"
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_w_e/.claude/settings.json"
+mkdir -p "$tgt_u_e/.claude"
+printf '{"hooks":{}}\n' > "$tgt_u_e/.claude/settings.json"
+mkdir -p "$tgt_or_e/.claude"
+git init -q "$gitroot_e" >/dev/null 2>&1
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}\n' \
+  > "$tgt_or_e/.claude/settings.json"
+write_targets "$kit" "$tgt_w_e" "$tgt_u_e" "$tgt_or_e"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN.*wired-off-root.*$tgt_or_e" <<<"$OUT" \
+   && grep -qE 'Wiring: 1 wired / 1 wired-off-root / 1 unwired / 0 absent-settings / 0 unreadable — 3 targets checked' <<<"$OUT"; then
+  ok "80e LIST EDGE: wired-off-root target LAST in a 3-target list → still detected, counts correct" "(exit $RC)"
+else
+  no "80e LIST EDGE: wired-off-root target LAST in a 3-target list → still detected, counts correct" "exit=$RC out=[$OUT]"
 fi
 
 # 81 — HONESTY-LINE-ONLY RETRO (§912): a pending retro whose canonical delta section holds
@@ -4293,7 +4359,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # hook-wiring.test.sh already covers) has teeth.
   echo "-- teeth WOR: remove wired-off-root case branch from SUT; case 80a must go RED (misclassified as unwired) --"
   _anchor_wor='    wired-off-root)                                                  # RSDD_WS_WIRED_OFF_ROOT_CHECK
-      echo "WARN: retro-gate hook wired-off-root — $p is not its own git root; a session normally launches from the git root, so $_ws_settings likely never loads in practice: $p"
+      echo "WARN: retro-gate hook wired-off-root — $p is not its own git root; the hook fires only for a session launched in exactly that directory. Confirm which directory sessions actually launch from and register/wire that directory (kit issue #1134)."
       _ws_wired_off_root=$(( _ws_wired_off_root + 1 )) ;;'
   _content_wor="$(cat "$SUT")"
   if [[ "$_content_wor" != *"$_anchor_wor"* ]]; then

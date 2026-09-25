@@ -466,11 +466,15 @@ fi
 # [ -d ] — same guard as the fleet passes.
 #
 # wired-off-root (kit issue #1135): settings.json IS Stop-scoped-wired at the registered path, but
-# that path is NOT its own git root — a real session launches from the git root, not the nested
-# registered path, so the hook never fires in practice. WARNed distinctly (never silently folded
-# into the silent 'wired' count) with its own dedicated summary field, so a fleet operator can see
-# it without reading every WARN line. Kit issue #1135's own measured incidence: 1 of 17 reachable
-# targets (three.js, TARGETS.md row 13).
+# that path is NOT its own git root (STRUCTURAL fact only — see lib/hook-wiring.sh's own header,
+# kit issue #1140 round-2 review, Blocking 1: this predicate does NOT know or claim which directory
+# sessions actually launch from, so the WARN below never prescribes a fix — an earlier revision
+# claimed sessions "normally launch from the git root" and told the maintainer to move the
+# registration there; both claims were wrong for the one real case this has ever flagged, three.js,
+# whose sessions launch from neither the registered path nor its git root). WARNed distinctly
+# (never silently folded into the silent 'wired' count) with its own dedicated summary field, so a
+# fleet operator can see it without reading every WARN line. Kit issue #1135's own measured
+# incidence: 1 of 17 reachable targets (three.js, TARGETS.md row 13).
 _ws_wired=0; _ws_wired_off_root=0; _ws_unwired=0; _ws_absent=0; _ws_unreadable=0
 for p in $paths; do
   [ -d "$p" ] || continue
@@ -486,7 +490,7 @@ for p in $paths; do
     wired)                                                           # RSDD_WS_WIRED_CHECK
       _ws_wired=$(( _ws_wired + 1 )) ;;
     wired-off-root)                                                  # RSDD_WS_WIRED_OFF_ROOT_CHECK
-      echo "WARN: retro-gate hook wired-off-root — $p is not its own git root; a session normally launches from the git root, so $_ws_settings likely never loads in practice: $p"
+      echo "WARN: retro-gate hook wired-off-root — $p is not its own git root; the hook fires only for a session launched in exactly that directory. Confirm which directory sessions actually launch from and register/wire that directory (kit issue #1134)."
       _ws_wired_off_root=$(( _ws_wired_off_root + 1 )) ;;
     *)
       echo "WARN: retro-gate not wired in $p/.claude/settings.json"

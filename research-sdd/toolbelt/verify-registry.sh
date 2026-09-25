@@ -239,19 +239,22 @@ for p in $paths; do
   # the legend would not justify; verify by hand before refreshing such a row. Measured on the
   # real fleet at #1108 round 2: 0 of 17 reachable targets affected.
   # WIRED-OFF-ROOT (kit issue #1135): lib/hook-wiring.sh's own 'wired-off-root' state (settings.json
-  # IS Stop-scoped-wired at the registered path, but that path is NOT its own git root — a real
-  # session launches from the git root, so the hook never fires in practice) already falls through
-  # the generic '!= "wired"' branch below and would WARN with the generic wording. This tailored
-  # branch fires FIRST, for that one state only, with wording that names the real cause (not the git
-  # root) and the real fix (move the registration to the git root) instead of the generic "refresh
-  # the row or wire the hook" — the settings.json IS already wired; the row's claim is not stale,
-  # the PATH is wrong. Three.js (TARGETS.md row 13) no longer claims 'hook yes' post-#1133, so this
-  # branch has zero effect on the real fleet today; it exists for the NEXT row that does.
+  # IS Stop-scoped-wired at the registered path, but that path is NOT its own git root — a
+  # STRUCTURAL fact only) already falls through the generic '!= "wired"' branch below and would
+  # WARN with the generic wording. This tailored branch fires FIRST, for that one state only, with
+  # wording that names the real cause (settings.json IS already wired; the row's claim is not
+  # stale, the PATH may be the wrong one) WITHOUT prescribing a fix (kit issue #1140 round-2
+  # review, Blocking 1 — a false claim once shipped here: an earlier revision said "move the hook
+  # registration to the git root", which would not have worked for the one real case this has ever
+  # flagged, three.js, whose sessions launch from neither the registered path nor its git root).
+  # The maintainer decides which directory to register — this tool cannot (kit issue #1134). Three.js
+  # (TARGETS.md row 13) no longer claims 'hook yes' post-#1133, so this branch has zero effect on
+  # the real fleet today; it exists for the NEXT row that does.
   _vr_hook_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+yes([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-CLAIM-EXTRACT
   if [ -n "$_vr_hook_claim" ]; then
     _vr_hook_state="$(hook_stop_wiring_state "$p")"
     if [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
-      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; Claude Code loads project settings from the session's launch directory, so ${p}/.claude/settings.json likely never loads for real sessions (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or move the hook registration to the git root (propose-never-apply)."
+      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook fires only for a session launched in exactly that directory — never above it. Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
       attention=$((attention + 1))
     elif [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
       echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
