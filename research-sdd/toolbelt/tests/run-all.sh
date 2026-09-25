@@ -3,12 +3,16 @@
 # run-all.sh — central test runner for the research-sdd toolbelt test suites.
 #
 # What it does:
-#   Auto-discovers every test suite living NEXT TO this script and runs them all,
-#   streaming each suite's output while aggregating a final pass/fail report.
+#   Auto-discovers every test suite living NEXT TO this script AND every suite under
+#   research-sdd/install/tests/ (kit issue #1126: that tree is a separate corpus CI already
+#   runs but this gate did not — a PR could be green on every local gate and still fail CI),
+#   and runs them all, streaming each suite's output while aggregating a final pass/fail
+#   report. The two corpora are declared separately in the output (§7: a merged total alone
+#   would hide which tree was actually traversed) but run as ONE gate command.
 #     * *.test.sh  suites are run with `bash <file>`
 #     * *.test.mjs suites are run with `node <file>`
-#   Suites are discovered dynamically (glob), so a new suite dropped into this
-#   directory is picked up automatically — nothing is hardcoded.
+#   Suites are discovered dynamically (glob), so a new suite dropped into either directory
+#   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
 #   ./run-all.sh [--prove-teeth|--require-teeth]
@@ -133,14 +137,32 @@ sh_suites=("$SCRIPT_DIR"/*.test.sh)
 mjs_suites=("$SCRIPT_DIR"/*.test.mjs)
 shopt -u nullglob
 
+# --- Second corpus: research-sdd/install/tests/ (kit issue #1126) ---------
+# Resolved relative to this script (research-sdd/toolbelt/tests -> research-sdd/install/tests),
+# never assumed from the caller's cwd. Declared distinctly from the toolbelt corpus below (§7:
+# absent-input for this tree is reported loudly, not silently folded into "0 more suites").
+INSTALL_TESTS_DIR="$(cd "$SCRIPT_DIR/../../install/tests" 2>/dev/null && pwd)"
+install_sh_suites=()
+install_mjs_suites=()
+INSTALL_TESTS_DEGRADED=0
+if [[ -z "$INSTALL_TESTS_DIR" ]]; then
+  INSTALL_TESTS_DEGRADED=1
+  echo "run-all.sh: WARNING: install-tests corpus ABSENT-INPUT — research-sdd/install/tests not found relative to $SCRIPT_DIR; that corpus was NOT traversed" >&2
+else
+  shopt -s nullglob
+  install_sh_suites=("$INSTALL_TESTS_DIR"/*.test.sh)
+  install_mjs_suites=("$INSTALL_TESTS_DIR"/*.test.mjs)
+  shopt -u nullglob
+fi
+
 # Merge and sort for deterministic order.
 all_suites=()
-for f in "${sh_suites[@]}" "${mjs_suites[@]}"; do
+for f in "${sh_suites[@]}" "${mjs_suites[@]}" "${install_sh_suites[@]}" "${install_mjs_suites[@]}"; do
   all_suites+=("$f")
 done
 
 if [[ ${#all_suites[@]} -eq 0 ]]; then
-  echo "run-all.sh: no test suites (*.test.sh / *.test.mjs) found in $SCRIPT_DIR" >&2
+  echo "run-all.sh: no test suites (*.test.sh / *.test.mjs) found in $SCRIPT_DIR or ${INSTALL_TESTS_DIR:-<install/tests absent>}" >&2
   exit 1
 fi
 
@@ -297,6 +319,12 @@ suites_failed=$((suites_run - suites_ok - ${#suites_skipped[@]}))
 echo "==============================================================="
 echo "AGGREGATE RESULT"
 echo "==============================================================="
+echo "Corpus: toolbelt tests ($SCRIPT_DIR) = $((${#sh_suites[@]} + ${#mjs_suites[@]})) suite(s)"
+if [[ "$INSTALL_TESTS_DEGRADED" -eq 1 ]]; then
+  echo "Corpus: install tests — ABSENT-INPUT (research-sdd/install/tests not found; NOT traversed)"
+else
+  echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
+fi
 echo "Suites run:    $suites_run"
 echo "Suites passed: $suites_ok"
 echo "Suites failed: $suites_failed"
