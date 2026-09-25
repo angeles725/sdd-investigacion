@@ -99,6 +99,19 @@ _Source: panccadia-3d-viewer/retros/2026-09-04-deploy-windows-minipc.md; panccad
   `.mjs` to the remote and running `node script.mjs` directly rather than passing the script inline.
   (Source: panccadia)
 
+- **`Win32_Process.CommandLine` returns `null` for SYSTEM-owned processes queried by a non-admin
+  user** (e.g. `asus`) — filtering with `Where-Object CommandLine -like '*<script>*'` (as in step 6
+  above) then silently matches nothing: a **false empty**, not a real absence. To detect/count a
+  known process (e.g. the poller's `node`) instead, use `Get-Process -Name node` (returns PIDs
+  without `CommandLine`, and does not require admin rights). After restart, confirm the expected
+  `NODE_COUNT` (e.g. poller + write-server) to avoid leaving duplicate processes running, and verify
+  by **telemetry** — a backend row's timestamp advancing — not by reading `poller.log`.
+  (Source: Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
+- **Diff before overwrite, not just byte-size.** Before step 4's copy, pull the currently-deployed
+  file back and diff it against the repo copy — not just compare sizes (step 5) — to confirm the
+  ONLY change is the intended one before touching production.
+  (Source: Pancaddia-Leon-Guanajuato/corpus/retros/2026-09-22-monitor-jace-y-diagnostico-datos.md)
+
 - **A long `wrangler pages deploy` can outlive the OAuth token** — the upload phase can take several
   minutes on a slow connection, and a short-lived browser OAuth session expires mid-flight, causing a
   mysterious auth error late in the upload rather than at the start. Recover with `wrangler login`
