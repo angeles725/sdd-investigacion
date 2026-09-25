@@ -36,12 +36,13 @@
 #       unrecognized transcript shape.
 #   C4  STOP honored — the RETURN CONTRACT `STOP:` token (PROMPT-LOOP.md) is present as the last
 #       line of the run's final return (tolerating a leading backtick/`*`/`_`/`>` markdown
-#       wrapper), research-sdd-status.sh reports 0 open (--next returns `STOP | ...`) and an
-#       empty campaign queue, AND no block commit lands after that STOP moment. n/a without
-#       --transcript (the final return / STOP moment cannot be located). degraded when
-#       research-sdd-status.sh is missing, fails, or reports `STALE` (its own state is not
-#       trustworthy enough to answer "0 open"), or on an unrecognized transcript shape. KNOWN
-#       LIMIT (two-part): (1) the RETURN CONTRACT this token belongs to is defined by
+#       wrapper), research-sdd-status.sh reports 0 open (--next returns `STOP | ...`) and a
+#       GENUINELY DECLARED, drained campaign queue, AND no block commit lands after that STOP
+#       moment. n/a without --transcript (the final return / STOP moment cannot be located) OR
+#       when no campaign queue was ever declared (kit issue #1107 — see KNOWN LIMIT (3) below).
+#       degraded when research-sdd-status.sh is missing, fails, or reports `STALE` (its own state
+#       is not trustworthy enough to answer "0 open"), or on an unrecognized transcript shape.
+#       KNOWN LIMIT (three-part): (1) the RETURN CONTRACT this token belongs to is defined by
 #       PROMPT-LOOP.md's orchestrated `/loop` mode ONLY — an interactive chat session has no
 #       reason to ever emit a literal `STOP:` line, so C4 is meaningful only for a run driven in
 #       orchestrated mode. Measured on real transcripts: 0 of 1,650 text-bearing assistant
@@ -52,7 +53,19 @@
 #       arrives in the main transcript as a `tool_result` block, not as the driver's own
 #       assistant text — C4 only scans the driver's own final assistant message. See
 #       `research-sdd/evals/profile-ab/PROTOCOL.md` for the chosen resolution (a driver
-#       requirement, not a scorer change — see below).
+#       requirement, not a scorer change — see below). (3) Campaign queues are essentially never
+#       declared in real corpora (METHODOLOGY §8c: niagara-research measured 0 of 89
+#       RESEARCH-STATE*.md files populating `## Campaign queue`), so "0 open AND empty queue"
+#       used to be a near-vacuous pass — true by construction (no queue to fail the check), not
+#       by evidence. Fixed by kit issue #1107: C4 now reports a distinct `n/a` ("no campaign
+#       queue declared") whenever research-sdd-status.sh's campaign line(s) carry no per-focus
+#       `pending=N active=N` counts at all, instead of silently counting an undeclared queue as
+#       "empty". This n/a is orthogonal to the --transcript n/a above and to the two limits
+#       above it — a run can be driven in orchestrated mode with a locatable STOP moment and
+#       still score C4 n/a on this axis alone. ALL lines matching `campaign(\[<focus>\])?:` are
+#       read (round 2 fix) — a multi-focus corpus prints one LABELLED line per queue-bearing
+#       focus (`campaign[alpha] :`, `campaign[beta]  :`, no single bare line at all), and the
+#       queue only counts as empty when every one of those lines is `pending=0 active=0`.
 #
 # Operator input: a genuine human turn is `.type=="user"` with `.origin.kind=="human"` — the
 # real, structural field Claude Code stamps on it. Everything else that is ALSO `type:"user"` in
@@ -748,19 +761,38 @@ c4() {
   local zero_open=0
   [[ "$status_next" =~ ^STOP\  ]] && zero_open=1
 
-  local empty_queue=0 campaign_line pend act
-  campaign_line="$(printf '%s\n' "$status_default" | grep -E 'campaign[[:space:]]*:' | head -n1)"
-  if [[ -z "$campaign_line" ]]; then
-    empty_queue=0
-  elif [[ "$campaign_line" == *"none"* ]]; then
-    empty_queue=1
-  else
-    pend="$(grep -oE 'pending=[0-9]+' <<<"$campaign_line" | grep -oE '[0-9]+')"
-    act="$(grep -oE 'active=[0-9]+' <<<"$campaign_line" | grep -oE '[0-9]+')"
-    if [[ "${pend:-x}" == "0" && "${act:-x}" == "0" ]]; then
-      empty_queue=1
-    fi
+  # declared_queue: was a REAL per-focus queue line ("pending=N active=N ...") ever emitted?
+  # That shape (campaign_status_block's queue-bearing branch) is the ONLY one that can answer
+  # "is the queue empty". Both of the other shapes ("no active focus (...)" and "none (N active
+  # focus(es), 0 with a queue)") mean no `## Campaign queue` section exists at all — the common
+  # case in real corpora (METHODOLOGY §8c: niagara-research measured 0 of 89 RESEARCH-STATE*.md
+  # files populating it) — and must NOT be read as "empty" (kit issue #1107).
+  #
+  # MULTI-FOCUS (round 2 BLOCKER fix): campaign_status_block prints one LABELLED line per
+  # queue-bearing focus once more than one focus has a queue — "campaign[alpha] : pending=0
+  # active=0 ..." — never a single bare "campaign        :" line. `head -n1` on a
+  # `campaign[[:space:]]*:` grep saw only the first labelled line (or none, since the bracket
+  # broke the match entirely) and either misread a genuinely declared multi-focus queue as
+  # undeclared, or hid a real non-empty sibling focus behind the first focus's drained line.
+  # Every matching line is read now: declared_queue is set the moment ANY line carries real
+  # pending=/active= counts, and the queue only counts as empty when EVERY such line does.
+  local declared_queue=0 empty_queue=0 campaign_lines line pend act
+  campaign_lines="$(printf '%s\n' "$status_default" | grep -E 'campaign(\[[^]]*\])?[[:space:]]*:')"
+  if [[ -n "$campaign_lines" ]]; then
+    local any_nonempty=0
+    while IFS= read -r line; do
+      pend="$(grep -oE 'pending=[0-9]+' <<<"$line" | grep -oE '[0-9]+')"
+      act="$(grep -oE 'active=[0-9]+' <<<"$line" | grep -oE '[0-9]+')"
+      if [[ -n "${pend:-}" && -n "${act:-}" ]]; then
+        declared_queue=1
+        [[ "$pend" == "0" && "$act" == "0" ]] || any_nonempty=1
+      fi
+    done <<<"$campaign_lines"
+    [[ "$declared_queue" -eq 1 && "$any_nonempty" -eq 0 ]] && empty_queue=1
   fi
+
+  local queue_state=undeclared
+  [[ "$declared_queue" -eq 1 ]] && queue_state=$([ "$empty_queue" -eq 1 ] && echo empty || echo non-empty)
 
   local after_stop=0 e
   for e in "${BLOCK_EPOCH[@]:-}"; do
@@ -768,10 +800,18 @@ c4() {
     [[ "$e" -gt "$stop_epoch" ]] && after_stop=$((after_stop + 1))
   done
 
-  if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$empty_queue" -eq 1 && "$after_stop" -eq 0 ]]; then
-    emit C4 pass "STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP"
+  if [[ "$stop_present" -eq 1 && "$zero_open" -eq 1 && "$after_stop" -eq 0 ]]; then
+    if [[ "$declared_queue" -eq 0 ]]; then
+      # KNOWN LIMIT (kit issue #1107): "campaign queue empty" is unverifiable with no queue to
+      # inspect — reporting pass here would be true only by construction, never by evidence.
+      emit C4 n/a "no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)"
+    elif [[ "$empty_queue" -eq 1 ]]; then
+      emit C4 pass "STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP"
+    else
+      emit C4 fail "stop_token=present status_next=STOP queue=$queue_state commits_after_stop=0"
+    fi
   else
-    emit C4 fail "stop_token=$([ "$stop_present" -eq 1 ] && echo present || echo absent) status_next=$([ "$zero_open" -eq 1 ] && echo STOP || echo NOT-STOP) queue=$([ "$empty_queue" -eq 1 ] && echo empty || echo non-empty-or-unknown) commits_after_stop=$after_stop"
+    emit C4 fail "stop_token=$([ "$stop_present" -eq 1 ] && echo present || echo absent) status_next=$([ "$zero_open" -eq 1 ] && echo STOP || echo NOT-STOP) queue=$queue_state commits_after_stop=$after_stop"
   fi
 }
 
