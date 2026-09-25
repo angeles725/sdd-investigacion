@@ -143,7 +143,7 @@ Sensitivity:
 | 29 | cloudflare-tunnels | `$RESEARCH_HOME/investigacion/cloudflare` | **mature** (34 md @2026-08-28 / 24 runs / 4 retros / git yes / remote yes / hook yes) `[CERT]` · **multi-focus** (3, all COMPLETE) · remote `angeles725/research-cloudflare` PRIVATE — detail §29 | Cloudflare Tunnel technology (`cloudflared` v2026.8.2, Go daemon) — local binary + official docs + open-source Go repo; NOT a client install (no site secrets) `[CERT]` | `fetch-doc.sh` + direct Go reading + CodeGraph + local `cloudflared --help` (read-only) | English `[CERT]` |
 | 30 | panccadia-3d-viewer | `$RESEARCH_HOME/panccadia-3d-viewer` | **intermediate** (38 md @2026-09-22 / 8 retros / git yes / remote no / hook no) `[CERT]` — detail §30 | Standalone HTML viewer: Three.js nave 3D (landing) + DashboardPan 2D dashboard portado 1:1 `[CERT]` | none (HTML/JS; Playwright headless verify) | Spanish UI · technical EN docs `[CERT]` |
 | 31 | ford-bms-panel | `$RESEARCH_HOME/tunnel/clientes/ford` | **incipient** (3 blocks @2026-09-10 / 1 run / 1 retro / git yes / remote no / hook no) `[CERT]` · companion to #30 — detail §31 | Standalone HTML BMS panel on Cloudflare Pages: update-notice mechanism (`__BUILD__` + `version.json` + `_headers` no-cache); per-deploy version-bump flow `[CERT]` | none (HTML/JSON reading; Playwright headless verify) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
-| 32 | pancaddia-leon-tunnel | `$RESEARCH_HOME/tunnel/clientes/Leon-Guanajuato/Pancaddia` | **incipient** (9 blocks @2026-09-22 / 2 runs / 18 retros / git yes / hook no) `[CERT]` — detail §32b | Sistema JACE-9000 Pancaddia León (mini-PC + tunel `nave-panccadia` + Niagara 4.15.3 + Supabase): incidente pipeline / oBIX degradado + rediseño reporte HTML→PDF CF Rendering (B6) `[CERT-live]` | SSH/PowerShell a mini-PC + curl edge + Supabase SQL + Cloudflare API (todo read-only en sesión) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
+| 32 | pancaddia-leon-tunnel | `$RESEARCH_HOME/tunnel/clientes/Leon-Guanajuato/Pancaddia` | **incipient** (15 blocks @2026-09-25 / 3 runs / 20 retros / git yes / hook yes) `[CERT]` — detail §32b | Sistema JACE-9000 Pancaddia León (mini-PC + tunel `nave-panccadia` + Niagara 4.15.3 + Supabase): incidente pipeline / oBIX degradado + soluciones + feature `jace-comp-alarms` (B10-B15) `[CERT-live]` | SSH/PowerShell a mini-PC + curl edge + Supabase SQL + Cloudflare API (todo read-only en sesión) | Spanish (runbook operativo) · technical EN markers `[CERT]` |
 | 32 | api-paneles | `$RESEARCH_HOME/investigacion/api-paneles` | **active** (10 md / 3 retros / 2 runs / git yes / remote no / hook yes) `[CERT]` — detail §32 | Web-portal API capture: Playwright headful daemon + SolisCloud internal API (v3) + FlexOM CPS; Node.js `.mjs` scripts + captured JSON responses + dashboard Cloudflare Pages `[CERT]` | direct reading | Spanish (runbook operativo) · technical EN markers `[CERT]` |
 | 33 | mini-pc | `$RESEARCH_HOME/investigacion/mini-pc` | **active** (15 md @2026-09-22 / 2 retros / 2 runs / git yes / remote yes / hook no) `[CERT-live]` · remote `angeles725/investigacion-mini-pc` PRIVATE — detail §33 | Aprovisionamiento mini-PC Windows: kit USB offline + OpenSSH hardened + BIOS Dell (`cctk`) + tunel CF remote-managed (Access SSO + CA short-lived); verificado en `DESKTOP-N3FMUUB` `[CERT-live]` | direct reading + interop WSL/Windows + SSH probes (read-only) + Cloudflare API | Spanish (runbook operativo) · technical EN markers `[CERT-live]` |
 | 34 | fluke-177x-datos | `$RESEARCH_HOME/investigacion/fluke-177x-datos` | **incipient** (30 blocks @2026-09-22 / git yes / remote no / hook no) `[CERT-live]` — detail §34 | Fluke 1777+1775 PQ analyzers data-extraction research: REST API (protocol 5.0.0, only GET /device open) + VNC 5900 + Energy Analyze Plus + Fluke Connect; scanned NO Modbus/BACnet/OPC-UA `[CERT-live]` | `fetch-doc.sh` + WebSearch/WebFetch | Spanish (recomendacion) · technical EN markers |
@@ -668,11 +668,21 @@ Standalone HTML BMS panel hosted on Cloudflare Pages. Companion to #30 (panccadi
 
 Sistema de datos del JACE-9000 Pancaddia León. Companion to #32 (api-paneles).
 
-**Corpus topology (moved from master row 2026-09-22):** nested corpus structure. Document-cycle COMPLETE.
+**Corpus topology (refreshed 2026-09-25):** nested corpus structure (`corpus/`). Document-cycle COMPLETE
+per run — B1-B9 (incidente 2026-09-14 + monitor JACE, closed 2026-09-22) and B10-B15 (feature
+`jace-comp-alarms`, closed 2026-09-25, outline 15/15). Stop hook wired (`retro-gate-stop.sh` under
+`.claude/settings.json` hooks.Stop).
 
 **Incident narrative (moved from master row 2026-09-22):** incidente 2026-09-14 + rediseño reporte 2026-09-16.
 
-**Artifact description (full, moved from master row 2026-09-22):** Sistema de datos del JACE-9000 Pancaddia León (mini-PC + túnel `nave-panccadia` + station Niagara ATLAS 4.15.3 + Supabase): incidente pipeline caído / oBIX degradado y las soluciones (watchdog + alertas Cloudflare + reporte diario), más el rediseño del reporte a HTML→PDF con Cloudflare Browser Rendering (B6) `[CERT-live]`.
+**Feature narrative (2026-09-25):** `jace-comp-alarms` — JACE module updates relayed by the sister
+`niagara-research` session (CompPan-rt/DashboardPan/ColdRoomPan-rt), poller data path
+(`jace-points.mjs`, TDD), write-server facade settings (6 writable ords + safety ranges), viewer
+4.8.0→4.11.1 (compressor alarm banner, phase/pump-down, Goteo, Eventos→Compresores tab, settings
+editor, responsive fix), session operations (deploy procedure, RDD review, permission-classifier
+denials, a git-commit-a slip caught and corrected), and consolidated open items.
+
+**Artifact description (full, moved from master row 2026-09-22):** Sistema de datos del JACE-9000 Pancaddia León (mini-PC + túnel `nave-panccadia` + station Niagara ATLAS 4.15.3 + Supabase): incidente pipeline caído / oBIX degradado y las soluciones (watchdog + alertas Cloudflare + reporte diario), más el rediseño del reporte a HTML→PDF con Cloudflare Browser Rendering (B6), más la feature `jace-comp-alarms` (alarmas de compresor, fase activa/pump-down del rack, goteo Cuarto 3, ajustes de fachada escribibles con rangos de seguridad) `[CERT-live]`.
 
 ---
 
