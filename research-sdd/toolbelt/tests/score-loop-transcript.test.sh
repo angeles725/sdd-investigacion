@@ -30,6 +30,7 @@ STUB_NOTSTOP="$FIX/stub-status-not-stop.sh"
 STUB_STALE="$FIX/stub-status-stale.sh"
 STUB_FAILING="$FIX/stub-status-failing.sh"
 STUB_WARN_STDERR="$FIX/stub-status-warn-stderr.sh"
+STUB_NOQUEUE="$FIX/stub-status-stop-no-queue.sh"
 
 # --- fixture repos --------------------------------------------------------------------------
 mkrepo "$ROOT/continue" \
@@ -226,6 +227,15 @@ out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
   --transcript "$FIX/stop-wrapped.jsonl" 2>&1)"
 echo "$out" | grep -qE '^C4 pass STOP token present' \
   && ok "stop-wrapped: C4 pass (bold-wrapped STOP: tolerated)" || no "stop-wrapped: C4 ($out)"
+
+# kit issue #1107: a corpus that reaches campaign STOP without ever declaring a `## Campaign
+# queue` (METHODOLOGY §8c — the common case in real corpora) must not read as a vacuous C4
+# pass. "queue empty" is unverifiable when there is no queue to inspect at all, so this is a
+# distinct n/a state, not pass and not fail.
+out="$(RSDD_STATUS_SCRIPT="$STUB_NOQUEUE" bash "$SUT" --corpus "$ROOT/continue" \
+  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
+echo "$out" | grep -qE '^C4 n/a no campaign queue declared' \
+  && ok "no-queue-declared: C4 n/a (not a vacuous pass)" || no "no-queue-declared: C4 ($out)"
 
 out="$(RSDD_STATUS_SCRIPT="$STUB_NOTSTOP" bash "$SUT" --corpus "$ROOT/continue" \
   --transcript "$FIX/continue-clean.jsonl" 2>&1)"
@@ -467,6 +477,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   else
     no "teeth-C4: mutant build failed (source line not found)"
+  fi
+
+  echo "-- teeth-C4-undeclared-queue: force declared_queue always true; expect the no-queue-declared corpus to stop reporting n/a --"
+  m="$(mutant c4-undeclared-queue 's/if \[\[ -n "\${pend:-}" && -n "\${act:-}" \]\]; then/if true; then/')"
+  if grep -qF 'if true; then' "$m"; then
+    mo="$(RSDD_STATUS_SCRIPT="$STUB_NOQUEUE" bash "$m" --corpus "$ROOT/continue" \
+      --transcript "$FIX/continue-clean.jsonl" 2>&1)"
+    if ! echo "$mo" | grep -qE '^C4 n/a no campaign queue declared'; then
+      ok "teeth-C4-undeclared-queue: declared_queue guard neutralised → no-queue corpus no longer reports n/a"
+    else
+      no "teeth-C4-undeclared-queue: mutant did not flip C4 — no teeth ($mo)"
+    fi
+  else
+    no "teeth-C4-undeclared-queue: mutant build failed (source line not found)"
   fi
 
   echo "-- teeth-operator-filter: drop the origin.kind clause; expect the false-positive noise to count as operator input again (item 9) --"
