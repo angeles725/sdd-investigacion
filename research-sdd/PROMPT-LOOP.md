@@ -1076,8 +1076,14 @@ Always read first, in this order:
          `/loop` self-pacing, reschedule ONE more time re-entering with FOCUS set to the next §8c queue entry
          (BOOTSTRAP it if `kind=focus`; re-enter the existing corpus if `kind=tier`). Emit a
          per-focus SELF-RETROSPECTIVE at each focus STOP. The loop does not die; it advances to the next entry.
-       - Campaign STOP (§8c) — no entry is pending or active, last audit enqueued=0: emit a final
-         NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
+       - Campaign STOP (§8c) — no entry is pending or active, last audit enqueued=0: on a multi-focus
+         (§16) corpus running heavy or frontier mode, FIRST run the §8c campaign-close partition check.
+         If it finds a genuinely UNCHARTERED artifact unit, enqueue each newly found family as a
+         `pending` `kind=focus`/`kind=tier` §8c queue row (creating `## Campaign queue` if it does not
+         exist yet) and re-enter the "Focus STOP and campaign STOP not met" branch above instead — the
+         campaign is not over and this branch does not fire. Only once the check is clean (or every
+         remaining UNCHARTERED unit carries a recorded out-of-scope reason) does this branch proceed:
+         emit a final NEXT-ACTION recommendation — a cross-focus synthesis block, or handoff to a non-static phase
          (requires-execution build/PoC §19 — §19 CLOSE RULE: when a build/PoC phase produces
          block-quality findings, write them as cited blocks using `sources/probes/` for tool evidence
          BEFORE the phase ends; a deliverable is not a substitute for the evidence trail, and findings
