@@ -1203,6 +1203,41 @@ printf '# retro\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->' > "$f
   && ok "T-SEEDABLE-7 out-of-scope marker, LAST line no trailing newline → not seedable (#1099)" "()" \
   || no "T-SEEDABLE-7 out-of-scope marker, LAST line no trailing newline → not seedable (#1099)" "(got seedable)"
 
+# T-SEEDABLE-PFX (kit issue #1130 finding 4/item 5): full end-to-end run of the REAL retro-gate.sh
+# against a real out-of-scope-marker retro — the WARN retro-gate.sh itself prints must lead with
+# the literal 'out-of-scope-marker: ' token (colon, no other word), the SAME shape
+# stage-retro-issues.sh and reconcile-issues.sh already use. Before this fix the wording was
+# 'out-of-scope-marker for <file>' (no colon, "for" instead).
+TPFX="$ROOT/tpfx"; mkgit "$TPFX"; STPFX="tpfx-sess"
+mksessionfile "$TPFX" "$STPFX" "202609050800"
+mkblock "$TPFX" "tpfx-block1.md" "2026-09-05T10:00:00"
+touch -t 202609051000 "$TPFX/tpfx-block1.md"
+mkdir -p "$TPFX/retros"
+# _run_issue_seeding scans EVERY retro under retros/, but the block/allow DECISION only
+# verify-retro-checks the NEWEST-by-mtime retro. Two files: an OLDER one (out-of-scope marker,
+# T-SEEDABLE-6's shape) that _retro_is_seedable must refuse during seeding, and a NEWER,
+# fully-conforming one (in-scope pending marker) so retro-gate reaches the allow/retro-conforming
+# branch and actually calls _run_issue_seeding.
+printf '# Retro — test\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -->\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta | file.sh | evidence | fix | low |\n' \
+  > "$TPFX/retros/2026-09-04-tpfx-oos.md"
+touch -t 202609051100 "$TPFX/retros/2026-09-04-tpfx-oos.md"
+mkretro "$TPFX" "2026-09-05-tpfx.md" 1
+touch -t 202609051200 "$TPFX/retros/2026-09-05-tpfx.md"
+# kit issue #1130 CI follow-up: _run_issue_seeding probes for `gh` BEFORE it ever reaches the
+# per-retro loop (and therefore before _retro_is_seedable's out-of-scope check) — without a
+# stubbed gh on PATH, it prints 'gh not found — issue-seeding skipped' and returns immediately,
+# so the out-of-scope-marker WARN never fires at all. Hermetic: use the shared MOCK_GH_DIR stub
+# (auth status/other calls both exit 0), the SAME convention every other gh-dependent invocation
+# in this file already uses (run_gate has no PATH hook, so this bypasses it deliberately).
+errf_tpfx="$ROOT/err_tpfx.$$"
+OUT="$(printf '%s' "$(mkjson "$STPFX" false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$SUT" "$TPFX" 2>"$errf_tpfx")"; RC=$?
+ERR="$(cat "$errf_tpfx")"; rm -f "$errf_tpfx"
+if printf '%s' "$ERR" | grep -q 'retro-gate: WARN: out-of-scope-marker: '; then
+  ok "T-SEEDABLE-PFX: real retro-gate.sh WARN leads with the literal 'out-of-scope-marker:' token" "()"
+else
+  no "T-SEEDABLE-PFX: expected 'retro-gate: WARN: out-of-scope-marker: ' in stderr" "got: $ERR"
+fi
+
 # ─── TEETH (--prove-teeth) ───────────────────────────────────────────────────
 PROVE_TEETH="${1:-}"
 [ "$PROVE_TEETH" != "--prove-teeth" ] && {
@@ -1228,6 +1263,9 @@ cp "$HERE/../lib/block-files.sh"   "$MUT_KIT/toolbelt/lib/"
 cp "$HERE/../lib/retro-status.sh"  "$MUT_KIT/toolbelt/lib/"
 cp "$HERE/../lib/retro-grammar.sh" "$MUT_KIT/toolbelt/lib/"
 cp "$VR" "$MUT_KIT/toolbelt/verify-retro.sh"
+# stage-retro-issues.sh (the seeder) must exist too — _run_issue_seeding bails out before
+# reaching its retro loop (and therefore before _retro_is_seedable's WARN) when it is absent.
+cp "$HERE/../stage-retro-issues.sh" "$MUT_KIT/toolbelt/stage-retro-issues.sh"
 
 # mkmutant <name> <from-sentinel> <to-sentinel>: remove sentinel block from SUT
 mkmutant() {
@@ -2047,6 +2085,34 @@ FT20EOF
   fi
 else
   no "T20-unclassifiable teeth: locate the unclassifiable: case arm" "anchor not found — SUT drifted?"
+fi
+
+# ── TOOTH PFX1 (kit issue #1130 finding 4/item 5): revert the out-of-scope-marker WARN wording
+# printed by retro-gate.sh itself from the unified 'out-of-scope-marker: %s' shape back to the
+# pre-#1130 'out-of-scope-marker for %s' shape. T-SEEDABLE-PFX must then go red (the colon
+# form is what it greps for).
+echo "-- teeth PFX1: revert retro-gate.sh's out-of-scope-marker WARN wording; T-SEEDABLE-PFX must go red --"
+anchor_pfx1_gate="printf 'retro-gate: WARN: out-of-scope-marker: %s — a review-status marker exists but sits outside the leading-block scope; refusing to seed (kit issue #1099)\n' \\"
+if [[ "$sut_content_gate" == *"$anchor_pfx1_gate"* ]]; then
+  reverted_pfx1_gate="printf 'retro-gate: WARN: out-of-scope-marker for %s — a review-status marker exists but sits outside the leading-block scope; refusing to seed (kit issue #1099)\n' \\"
+  mutant_pfx1_gate="$MUT_KIT/toolbelt/mutant-retro-pfx1.sh"
+  printf '%s\n' "${sut_content_gate/"$anchor_pfx1_gate"/"$reverted_pfx1_gate"}" > "$mutant_pfx1_gate"
+  bash -n "$mutant_pfx1_gate" 2>/dev/null || { no "teeth PFX1: mutant failed bash -n" ""; }
+  errf_pfx1="$ROOT/err_pfx1.$$"
+  # Same hermetic gh stub as T-SEEDABLE-PFX above — without it, _run_issue_seeding's own gh
+  # presence probe short-circuits before the retro loop, and this mutant would never reach the
+  # out-of-scope-marker line at all (RIGHT reason for a different failure, still THEATER-blind).
+  printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$STPFX" \
+    | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$mutant_pfx1_gate" "$TPFX" >"$ROOT/out_pfx1.$$" 2>"$errf_pfx1"
+  ERR_PFX1="$(cat "$errf_pfx1")"; rm -f "$errf_pfx1" "$ROOT/out_pfx1.$$"
+  if ! printf '%s' "$ERR_PFX1" | grep -q 'WARN: out-of-scope-marker: ' \
+     && printf '%s' "$ERR_PFX1" | grep -q 'out-of-scope-marker for'; then
+    ok "teeth PFX1: wording reverted → T-SEEDABLE-PFX's colon-prefixed grep no longer matches (has teeth)" "()"
+  else
+    no "teeth PFX1: wording reverted → T-SEEDABLE-PFX should stop matching" "got=[$ERR_PFX1] — THEATER"
+  fi
+else
+  no "teeth PFX1: locate the unified out-of-scope-marker WARN wording in SUT" "anchor not found — SUT drifted?"
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────

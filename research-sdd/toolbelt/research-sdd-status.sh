@@ -1016,6 +1016,18 @@ issues_due_gate() {
         fi
         continue  # F5c: never break; accumulate from remaining retros
       fi
+      # kit issue #1130 finding 1: reconcile-issues.sh's out-of-scope-marker guard now exits 0
+      # (a corpus finding — the retro's own marker is mispositioned — not an operational failure
+      # of the instrument, per CLAUDE.md §8). But rc=0 with zero ^untracked: lines would
+      # otherwise fall through to the clean count below and read as "verified clean" — the exact
+      # silent-zero shape §7 forbids, since this retro's rows were never actually classified.
+      # Treat it as unverified coverage, the same bucket as an operational failure.
+      if printf '%s\n' "$_ri_err_content" | grep -qE '^out-of-scope-marker:'; then
+        _idg_had_unverified=1  # IDG-OOS-SENTINEL
+        printf 'WARN: reconcile-issues.sh reported an out-of-scope review-status marker for %s — treating as unverified\n' \
+          "$(basename "$_idg_retro")" >&2
+        continue
+      fi
       _n="$(printf '%s\n' "$_ri_out" | awk '/^untracked:/{n++} END{print n+0}')"  # IDG-UNTRACKED-PATTERN
       _n_rc=$?
       # Sweep: awk failure (OOM, absent) → count unreliable; treat as unverified, never as clean.

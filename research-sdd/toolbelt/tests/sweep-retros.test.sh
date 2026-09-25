@@ -448,6 +448,28 @@ else
   no "16e genuinely absent marker → original 'no review-status marker' wording, unchanged" "exit=$RC out=[$OUT]"
 fi
 
+# 16f — PREFIX CONSISTENCY (kit issue #1130 finding 4/item 5): the out-of-scope-marker WARN must
+# lead with the literal token 'out-of-scope-marker:' (colon immediately after, no other word
+# in between) right after this tool's own 'WARN: ' wrapper — the SAME shape
+# stage-retro-issues.sh and reconcile-issues.sh already use, so the finding is greppable the
+# same way across all four consumers. Before this fix the wording was 'out-of-scope-marker in
+# <file>' (no colon, "in" instead).
+kit="$(mkkit c16f-oos-prefix)"; tgt="$kit/targetA"
+mkdir -p "$tgt/retros"
+{
+  printf '# §18 Retro — focus: apis\n\n## Notes\n\n'
+  printf '<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->\n\n'
+  printf '## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n'
+  printf '| 1 | delta 1 | because |\n'
+} > "$tgt/retros/r1.md"
+write_targets "$kit" "$tgt"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q 'WARN: out-of-scope-marker: ' <<<"$OUT"; then
+  ok "16f prefix consistency: WARN leads with the literal 'out-of-scope-marker:' token" "(exit $RC)"
+else
+  no "16f prefix consistency: expected 'WARN: out-of-scope-marker: ' in output" "exit=$RC out=[$OUT]"
+fi
+
 # 17 — FAIL-CLOSED on a broken helper. The SUT sources lib/retro-status.sh, but existence of the
 #      file is not enough: the source must have DEFINED retro_marker_scope_line (kit issue #945 —
 #      the shared scope function replacing retro_review_status as sweep-retros.sh's primary
@@ -4586,6 +4608,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
   unset content_oos anchor_oos
+
+  # Tooth PFX1 (kit issue #1130 finding 4/item 5): revert the WARN wording from the unified
+  # 'out-of-scope-marker: ' prefix back to the pre-#1130 'out-of-scope-marker in ' shape. Case
+  # 16f must then go red (the colon-prefixed form is what it greps for).
+  echo "-- teeth PFX1: revert the out-of-scope-marker prefix wording; case 16f must go red --"
+  content_pfx1="$(cat "$SUT")"
+  anchor_pfx1='echo "WARN: out-of-scope-marker: $(basename "$f") — a review-status marker exists but sits outside the leading-block scope (kit issue #1099); move it into the leading block"'
+  if [[ "$content_pfx1" != *"$anchor_pfx1"* ]]; then
+    no "teeth PFX1: locate the unified out-of-scope-marker WARN wording in SUT" "anchor not found — SUT drifted?"
+  else
+    reverted_pfx1='echo "WARN: out-of-scope-marker in $(basename "$f") — a review-status marker exists but sits outside the leading-block scope (kit issue #1099); move it into the leading block"'
+    kit_pfx1="$(mkkit teeth-pfx1)"; tgt_pfx1="$kit_pfx1/targetA"
+    mkdir -p "$tgt_pfx1/retros"
+    {
+      printf '# §18 Retro — focus: apis\n\n## Notes\n\n'
+      printf '<!-- review-status: applied 2026-09-24 · kit c10f9d9 -->\n\n'
+      printf '## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n'
+      printf '| 1 | delta 1 | because |\n'
+    } > "$tgt_pfx1/retros/r1.md"
+    write_targets "$kit_pfx1" "$tgt_pfx1"
+    mutant_pfx1="$kit_pfx1/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content_pfx1/"$anchor_pfx1"/"$reverted_pfx1"}" > "$mutant_pfx1"
+    "$BASH_BIN" -n "$mutant_pfx1" 2>/dev/null || no "teeth PFX1: mutant syntax check" "bash -n failed"
+    outm_pfx1="$("$BASH_BIN" "$mutant_pfx1" 2>&1)"
+    if ! grep -q 'WARN: out-of-scope-marker: ' <<<"$outm_pfx1" && grep -q 'out-of-scope-marker in' <<<"$outm_pfx1"; then
+      ok "teeth PFX1: prefix wording reverted → case 16f's colon-prefixed grep no longer matches (has teeth)" "()"
+    else
+      no "teeth PFX1: prefix wording reverted → case 16f should stop matching" "out=[$outm_pfx1] — case 16f is THEATER"
+    fi
+  fi
+  unset content_pfx1 anchor_pfx1
 fi
 
 echo "== $pass passed · $fail failed =="

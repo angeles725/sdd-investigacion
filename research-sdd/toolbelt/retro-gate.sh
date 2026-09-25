@@ -67,7 +67,10 @@ _retro_is_seedable() {
   # "" (pending/open) and every row got auto-seeded. Fail CLOSED instead: refuse to seed and say
   # why, same as stage-retro-issues.sh's own guard.
   if [ -z "$sline" ] && retro_marker_out_of_scope "$rf"; then
-    printf 'retro-gate: WARN: out-of-scope-marker for %s — a review-status marker exists but sits outside the leading-block scope; refusing to seed (kit issue #1099)\n' \
+    # kit issue #1125 item 5: 'out-of-scope-marker:' is the SAME typed token every consumer
+    # (sweep-retros.sh, stage-retro-issues.sh, reconcile-issues.sh) leads with, right after this
+    # tool's own retro-gate: WARN: wrapper — keeps the finding greppable across all four.
+    printf 'retro-gate: WARN: out-of-scope-marker: %s — a review-status marker exists but sits outside the leading-block scope; refusing to seed (kit issue #1099)\n' \
       "$(basename "$rf")" >&2
     return 1
   fi
