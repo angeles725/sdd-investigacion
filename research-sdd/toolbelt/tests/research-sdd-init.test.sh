@@ -95,7 +95,7 @@ mkdir -p "$TMP/good-document-report"
 _doc_report="$(bash "$SUT" "$TMP/good-document-report" --corpus flat --document 2>&1)"
 assert_grep "  document: init report names the document-cycle mode" "mode   : document-cycle scaffold" <(printf '%s' "$_doc_report")
 
-# GOOD 6b (kit issue #1114 review MEDIUM-1) — the JUDGMENT follow-ups tell a --document run to seed
+# GOOD 6b (kit issue #1114) — the JUDGMENT follow-ups tell a --document run to seed
 # the OUTLINE, never the discovery-style "SEED 5-15 real gaps" line (which would contradict both the
 # PROMPT-LOOP preflight text and the template's own "## Gap-backlog" comment).
 assert_grep "  document: report step 3 names the Outline, not gap-seeding" "SEED THE OUTLINE" <(printf '%s' "$_doc_report")
@@ -105,7 +105,7 @@ else
   ok "  document: report must NOT tell a --document run to SEED 5-15 real gaps"
 fi
 
-# GOOD 6c (kit issue #1114 review MEDIUM-3) — the NEXT line for --document must warn that
+# GOOD 6c (kit issue #1114) — the NEXT line for --document must warn that
 # research-sdd-status.sh's headline verdicts are gap-centric, not repeat the discovery-mode BOOTSTRAP
 # claim verbatim (a fresh document-cycle corpus reports STOP/read-only-investigable-exhausted, not
 # BOOTSTRAP, so that claim is simply wrong for this mode).
@@ -145,22 +145,39 @@ fi
 # digits/digits). Empty output = digit-free. Shared by GOOD 8 (pre- and post-sync-state) and GOOD 8b.
 _cm_digits() { grep -iE '\*{0,2}coverage metric\*{0,2}:' "$1" 2>/dev/null | grep -oE '[0-9]+[[:space:]]*/[[:space:]]*[0-9]+'; }
 
-# GOOD 8 (kit issue #1114) — a mid-run outline ratio recorded in the NEW "Outline coverage" line
-# (never in "Coverage metric", which stays digit-free by design) must NOT trip verify-state's
-# "stale denominator" WARN. This reproduces the review's exact repro shape (fill in a ratio, run
-# --sync-state, run verify-state.sh) against the FIXED template's instructed usage. Checks
-# "Coverage metric" is digit-free BOTH before AND after --sync-state (round-2 review nit: sync-state
-# rewrites the envelope block, not this prose line, but only a real run proves it stays untouched).
+# _coverage_section_label_count <file>: count LINES within the "## Coverage" section (up to the
+# next "## " heading) that contain the phrase "coverage metric" (case-insensitive). Must be exactly
+# 1 (the real Coverage metric field) — kit issue #1114 review round 3: a SECOND such line (even
+# without digits of its own) is what fed research-sdd-status.sh's loose, unanchored extraction the
+# wrong ratio in the ORIGINAL "Outline coverage" trailing note.
+_coverage_section_label_count() {
+  awk '/^## Coverage/{c=1;next} /^## /{c=0} c' "$1" 2>/dev/null | grep -ci 'coverage metric'
+}
+
+# GOOD 8 (kit issue #1114, hardened round 3 — MEDIUM-R3-1) — a mid-run outline ratio recorded in the
+# NEW "Outline coverage" line (never in "Coverage metric", which stays digit-free by design) must NOT
+# trip verify-state's "stale denominator" WARN. This reproduces the review's EXACT repro shape: fill
+# in ONLY the placeholders exactly as the template instructs ("OVERWRITE it each iteration"), KEEPING
+# the trailing arrow note — round 3 found that round 2's fixture sed replaced the WHOLE line including
+# that note, which is what hid a real defect (the note itself named the other field's label, so
+# research-sdd-status.sh's loose "coverage metric" grep matched THIS line and stole its ratio).
 d="$TMP/good-document-midrun"; mkdir -p "$d"
 assert_exit 0 "GOOD document mid-run: scaffolds with --document" "$d" --corpus flat --document
-sed -i 's/\*\*Outline coverage\*\*: <outline-items-covered> \/ <outline-items-total> covered.*/**Outline coverage**: 2 \/ 5 covered/' "$d/RESEARCH-STATE.md"
-assert_grep "  document mid-run: Outline coverage fixture applied (pre-check)" "**Outline coverage**: 2 / 5 covered" "$d/RESEARCH-STATE.md"
+sed -i "s#<outline-items-covered> / <outline-items-total>#2 / 5#" "$d/RESEARCH-STATE.md"
+assert_grep "  document mid-run: Outline coverage fixture applied (pre-check, note preserved)" "**Outline coverage**: 2 / 5 covered" "$d/RESEARCH-STATE.md"
+if [ "$(_coverage_section_label_count "$d/RESEARCH-STATE.md")" = 1 ]; then
+  ok "  document mid-run: exactly ONE line in ## Coverage names \"coverage metric\" (the real field) — the note does not repeat that phrase"
+else
+  no "  document mid-run: exactly ONE line in ## Coverage should name \"coverage metric\" (found: $(_coverage_section_label_count "$d/RESEARCH-STATE.md"))"
+fi
 if [ -z "$(_cm_digits "$d/RESEARCH-STATE.md")" ]; then
   ok "  document mid-run: Coverage metric line stays digit-free BEFORE --sync-state (only Outline coverage carries the ratio)"
 else
   no "  document mid-run: Coverage metric line stays digit-free BEFORE --sync-state (found: $(_cm_digits "$d/RESEARCH-STATE.md"))"
 fi
-bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
+_midrun_sync_out="$(bash "$HERE/../research-sdd-status.sh" "$d" --sync-state 2>&1)"
+assert_grep "  document mid-run: --sync-state derives gaps_closed=0 (not the outline numerator)" "gaps_closed=0" <(printf '%s' "$_midrun_sync_out")
+assert_grep "  document mid-run: --sync-state derives known_gaps=0 (not the outline denominator)" "known_gaps=0" <(printf '%s' "$_midrun_sync_out")
 if [ -z "$(_cm_digits "$d/RESEARCH-STATE.md")" ]; then
   ok "  document mid-run: Coverage metric line stays digit-free AFTER --sync-state too"
 else
@@ -195,7 +212,7 @@ else
   no "  document mid-run negative control: misusing 'Coverage metric' for the ratio should still WARN (mechanism must still be intact) — out=[$_negctrl_out]"
 fi
 
-# GOOD 9 (kit issue #1114 review RDD-SUGGESTION) — RESEARCH-STATE-document.template.md is required
+# GOOD 9 (kit issue #1114) — RESEARCH-STATE-document.template.md is required
 # ONLY when --document is actually used. A target missing it must still be able to run the (far more
 # common) default scaffold; only a --document run against it must FATAL.
 mkdir -p "$TMP/notpldoc/toolbelt/lib"
@@ -219,54 +236,68 @@ else
 fi
 
 # _treesum <dir>: sha256 manifest of every file under <dir> (path + content), sorted. Used to prove
-# "nothing written" over the WHOLE target tree (round-2 review nit: settings.json-absence alone does
-# not cover hook files or RESEARCH-STATE.md).
-_treesum() { find "$1" -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null; }
+# "nothing written" over the WHOLE target tree (settings.json-absence alone does not cover hook files
+# or RESEARCH-STATE.md). Probes for sha256sum, falls back to `shasum -a 256`, and FAILS LOUDLY with a
+# typed message (never a silent empty manifest, kit CLAUDE.md §7) if neither is on PATH.
+_treesum() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    find "$1" -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null
+  elif command -v shasum >/dev/null 2>&1; then
+    find "$1" -type f -print0 2>/dev/null | sort -z | xargs -0 shasum -a 256 2>/dev/null
+  else
+    echo "_treesum: FATAL: neither sha256sum nor shasum found on PATH — cannot manifest $1" >&2
+    return 1
+  fi
+}
 
 # GOOD 10 (kit issue #1114) — --wire --document on an EXISTING corpus (no --force) is rejected loudly
 # instead of silently ignoring --document, following the #1047 no-silent-no-op precedent. Nothing is
 # written: a sha256 manifest of the WHOLE target tree (every file, not just settings.json) is
-# identical before and after the rejected call.
-d="$TMP/low2-existing"; mkdir -p "$d"
-bash "$SUT" "$d" --corpus flat >/dev/null 2>&1   # plain scaffold first: a real EXISTING corpus
-_low2_before="$(_treesum "$d")"
-_low2_out="$(bash "$SUT" "$d" --wire --document 2>&1)"; _low2_rc=$?
-_low2_after="$(_treesum "$d")"
-if [ "$_low2_rc" = 2 ] && grep -qF 'usage: --document has no effect here' <<<"$_low2_out"; then
-  ok "  LOW-2: --wire --document on an existing corpus exits 2 with a typed usage message"
+# identical before and after the rejected call. The fixture corpus is scaffolded WIRED (--wire on the
+# first call) so the later --force reproduction below actually clobbers a wired, hand-adapted corpus,
+# not just an unwired one.
+d="$TMP/wire-document-existing-corpus"; mkdir -p "$d"
+bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1   # scaffold + wire first (kit issue #1047: --wire alone on a marker-less target refuses; --scaffold opts in) — a real, WIRED, EXISTING corpus
+assert_file "  wire-document reject: fixture corpus is wired (pre-check)" "$d/.claude/settings.json"
+_wdr_before="$(_treesum "$d")"
+_wdr_out="$(bash "$SUT" "$d" --wire --document 2>&1)"; _wdr_rc=$?
+_wdr_after="$(_treesum "$d")"
+if [ "$_wdr_rc" = 2 ] && grep -qF 'usage: --document has no effect here' <<<"$_wdr_out"; then
+  ok "  wire-document reject: --wire --document on an existing corpus exits 2 with a typed usage message"
 else
-  no "  LOW-2: --wire --document on an existing corpus exits 2 with a typed usage message (rc=$_low2_rc out=[$_low2_out])"
+  no "  wire-document reject: --wire --document on an existing corpus exits 2 with a typed usage message (rc=$_wdr_rc out=[$_wdr_out])"
 fi
-if [ "$_low2_before" = "$_low2_after" ] && [ -n "$_low2_before" ]; then
-  ok "  LOW-2: whole-target-tree sha256 manifest is unchanged by the rejected --wire --document call"
+if [ "$_wdr_before" = "$_wdr_after" ] && [ -n "$_wdr_before" ]; then
+  ok "  wire-document reject: whole-target-tree sha256 manifest is unchanged by the rejected call"
 else
-  no "  LOW-2: whole-target-tree sha256 manifest changed (or was empty) — something was written by the rejected call"
+  no "  wire-document reject: whole-target-tree sha256 manifest changed (or was empty) — something was written by the rejected call"
 fi
 # The rejection message must NOT recommend --force as a targeted fix, and must state its real
-# destructive scope (kit issue #1114 review round 2, MEDIUM-NEW-1).
-if grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' <<<"$_low2_out"; then
-  no "  MEDIUM-NEW-1: rejection message must NOT claim --force only re-scaffolds RESEARCH-STATE.md"
+# destructive scope (kit issue #1114, round 2).
+if grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' <<<"$_wdr_out"; then
+  no "  force-warning: rejection message must NOT claim --force only re-scaffolds RESEARCH-STATE.md"
 else
-  ok "  MEDIUM-NEW-1: rejection message must NOT claim --force only re-scaffolds RESEARCH-STATE.md"
+  ok "  force-warning: rejection message must NOT claim --force only re-scaffolds RESEARCH-STATE.md"
 fi
-assert_grep "  MEDIUM-NEW-1: rejection message states --force is NOT a targeted fix" "NOT a targeted fix" <(printf '%s' "$_low2_out")
-assert_grep "  MEDIUM-NEW-1: rejection message names --force's real destructive scope" "clobbers hand-adapted hooks, INDEX.md and real backlog rows" <(printf '%s' "$_low2_out")
+assert_grep "  force-warning: rejection message states --force is NOT a targeted fix" "NOT a targeted fix" <(printf '%s' "$_wdr_out")
+assert_grep "  force-warning: rejection message names --force's real destructive scope" "clobbers hand-adapted hooks, INDEX.md and real backlog rows" <(printf '%s' "$_wdr_out")
 
 # --force still bypasses repair and re-scaffolds with --document honored (unchanged #1047 contract) —
 # and IS genuinely destructive, exactly as the rejection message above now says: hand-adapted content
-# is gone afterward. Reproduces the review's own MEDIUM-NEW-1 repro.
-printf '\nHANDWORK\n' >> "$d/INDEX.md"
-printf '\nHAND\n' >> "$d/.claude/hooks/research-protocol.sh"
-_low2f_out="$(bash "$SUT" "$d" --wire --document --force 2>&1)"; _low2f_rc=$?
-if [ "$_low2f_rc" = 0 ] && grep -qF 'method: document-cycle' "$d/RESEARCH-STATE.md" 2>/dev/null; then
-  ok "  LOW-2: --wire --document --force still re-scaffolds with the document-cycle variant"
+# is gone afterward, INCLUDING the settings.json wiring the fixture set up above. Uses a distinctive
+# sentinel (HANDWORK_1114) so no future hook-template wording could coincidentally match it.
+printf '\nHANDWORK_1114\n' >> "$d/INDEX.md"
+printf '\nHANDWORK_1114\n' >> "$d/.claude/hooks/research-protocol.sh"
+_wdrf_out="$(bash "$SUT" "$d" --wire --document --force 2>&1)"; _wdrf_rc=$?
+if [ "$_wdrf_rc" = 0 ] && grep -qF 'method: document-cycle' "$d/RESEARCH-STATE.md" 2>/dev/null; then
+  ok "  wire-document reject: --wire --document --force still re-scaffolds with the document-cycle variant"
 else
-  no "  LOW-2: --wire --document --force still re-scaffolds with the document-cycle variant (rc=$_low2f_rc)"
+  no "  wire-document reject: --wire --document --force still re-scaffolds with the document-cycle variant (rc=$_wdrf_rc)"
 fi
-if grep -qF 'HANDWORK' "$d/INDEX.md" 2>/dev/null || grep -qF 'HAND' "$d/.claude/hooks/research-protocol.sh" 2>/dev/null; then
-  no "  MEDIUM-NEW-1: --force is confirmed destructive — hand-adapted content should be gone (it was NOT, message would be misleading either way)"
+if grep -qF 'HANDWORK_1114' "$d/INDEX.md" 2>/dev/null || grep -qF 'HANDWORK_1114' "$d/.claude/hooks/research-protocol.sh" 2>/dev/null; then
+  no "  force-warning: --force should be confirmed destructive — HANDWORK_1114 should be gone (it was NOT, message would be misleading either way)"
 else
-  ok "  MEDIUM-NEW-1: --force is confirmed destructive (hand-adapted INDEX.md/hook content is gone) — the rejection message's warning is accurate, not just cautious"
+  ok "  force-warning: --force is confirmed destructive (HANDWORK_1114 sentinel gone from both INDEX.md and the wired hook) — the rejection message's warning is accurate, not just cautious"
 fi
 
 # BAD 1 — refuse over an existing INDEX
@@ -2139,12 +2170,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth SYMLINK-TOOLBELT: reverted mutant did not leak the render dir path — -P fix check is THEATER (out=[$_ki_out_t])"
   fi
 
-  # Mutation M-DOC (kit issue #1114, hardened per review LOW-1): neuter the --document template swap
+  # Mutation M-DOC (kit issue #1114, hardened for crash-safety): neuter the --document template swap
   # so _state_tpl always stays the discovery-style RESEARCH-STATE.template.md, even when --document is
   # passed. Proves GOOD 6's markers (method: document-cycle / ## Outline / absence of the discovery
-  # placeholder) actually depend on this line. LOW-1: the mutant run's own exit code and the target
-  # file's EXISTENCE are checked FIRST — a mutant that crashes or writes nothing must not be credited
-  # as "the markers have teeth" just because a grep against a missing file also returns non-match.
+  # placeholder) actually depend on this line. The mutant run's own exit code and the target file's
+  # EXISTENCE are checked FIRST — a mutant that crashes or writes nothing must not be credited as "the
+  # markers have teeth" just because a grep against a missing file also returns non-match.
   echo "-- teeth proof M-DOC: neuter the --document template swap → --document scaffolds the discovery template --"
   mkdir -p "$TMP/mdoc/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mdoc/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mdoc/templates"
   mdoc_mutant="$TMP/mdoc/toolbelt/init.sh"
@@ -2155,7 +2186,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     dmdoc="$TMP/mdoct"; mkdir -p "$dmdoc"
     bash "$mdoc_mutant" "$dmdoc" --corpus flat --document >/dev/null 2>&1; _mdoc_rc=$?
     if [ "$_mdoc_rc" = 0 ] && [ -f "$dmdoc/RESEARCH-STATE.md" ]; then
-      ok "teeth M-DOC (LOW-1): mutant ran to completion (exit 0, RESEARCH-STATE.md exists) — proof is not a crash"
+      ok "teeth M-DOC (crash-safe): mutant ran to completion (exit 0, RESEARCH-STATE.md exists) — proof is not a crash"
       if grep -qF '<research question>' "$dmdoc/RESEARCH-STATE.md"; then
         ok "teeth M-DOC: mutant's --document scaffold carries the DISCOVERY template's own marker (<research question>) — positive proof it fell back to the wrong template"
       else
@@ -2172,11 +2203,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth M-DOC: mutant's --document scaffold still carries ## Outline — the Outline assertion is THEATER"
       fi
     else
-      no "teeth M-DOC (LOW-1): mutant did not run to completion (exit $_mdoc_rc, RESEARCH-STATE.md $( [ -f "$dmdoc/RESEARCH-STATE.md" ] && echo present || echo absent )) — cannot credit any marker check on a crashed/no-write run"
+      no "teeth M-DOC (crash-safe): mutant did not run to completion (exit $_mdoc_rc, RESEARCH-STATE.md $( [ -f "$dmdoc/RESEARCH-STATE.md" ] && echo present || echo absent )) — cannot credit any marker check on a crashed/no-write run"
     fi
   fi
 
-  # Mutation M-DOC-REPORT-1 (kit issue #1114 review MEDIUM-1): neuter the step-3 document-mode
+  # Mutation M-DOC-REPORT-1 (kit issue #1114): neuter the step-3 document-mode
   # condition (== 99, unreachable under --document) via a unique two-line sed -z anchor → the ELSE
   # branch (the old unconditional "SEED 5-15 real gaps" line) always runs → GOOD 6b's absence
   # assertion must flip.
@@ -2222,7 +2253,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Mutation M-TPL-COND (kit issue #1114 review RDD-SUGGESTION): make the RESEARCH-STATE-document
+  # Mutation M-TPL-COND (kit issue #1114): make the RESEARCH-STATE-document
   # template requirement unconditional again (require it even without --document) → GOOD 9's "default
   # scaffold survives a missing document template" assertion must flip.
   echo "-- teeth proof M-TPL-COND: make the document-template requirement unconditional --"
@@ -2232,7 +2263,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed -z 's/if \[ "\$document" = 1 \]; then\n\(  \[ -f "\$TPL\/RESEARCH-STATE-document.template.md" \]\)/if true; then  # MUTANT: always require\n\1/' \
     "$SUT" > "$mtplcond_mutant"
   if ! grep -qF 'MUTANT: always require' "$mtplcond_mutant"; then
-    no "teeth M-TPL-COND: could not build mutant (RDD-SUGGESTION guard line not found)"
+    no "teeth M-TPL-COND: could not build mutant (document-template-required guard line not found)"
   else
     dmtplcond="$TMP/mtplcondt"; mkdir -p "$dmtplcond"
     _mtplcond_rc=0
@@ -2244,47 +2275,51 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
-  # Mutation M-LOW2 (kit issue #1114, round 2: guard now lives NESTED inside WIRE-ONLY-EXISTING-CORPUS
-  # — folded in per review nit, so the anchor is the bare `if [ "$document" = 1 ]; then` immediately
-  # followed by its unique echo text). Neuter the condition (== 99, unreachable) → GOOD 10's rejection
-  # assertion must flip (exits 0 and silently ignores --document instead).
-  echo "-- teeth proof M-LOW2: neuter the --wire --document-on-existing-corpus rejection guard --"
+  # Mutation M-WIRE-DOC-REJECT (kit issue #1114, round 2: guard now lives NESTED inside
+  # WIRE-ONLY-EXISTING-CORPUS — folded in per review nit, so the anchor is the bare
+  # `if [ "$document" = 1 ]; then` immediately followed by its unique echo text). Neuter the
+  # condition (== 99, unreachable) → GOOD 10's rejection assertion must flip (exits 0 and silently
+  # ignores --document instead).
+  echo "-- teeth proof M-WIRE-DOC-REJECT: neuter the --wire --document-on-existing-corpus rejection guard --"
   mkdir -p "$TMP/mlow2/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mlow2/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mlow2/templates"
   mlow2_mutant="$TMP/mlow2/toolbelt/init.sh"
   sed -z 's/\[ "\$document" = 1 \]; then\n      echo "usage: --document has no effect here/[ "$document" = 99 ]; then\n      echo "usage: --document has no effect here/' \
     "$SUT" > "$mlow2_mutant"
   if ! grep -qF '[ "$document" = 99 ]; then' "$mlow2_mutant"; then
-    no "teeth M-LOW2: could not build mutant (rejection guard condition not found)"
+    no "teeth M-WIRE-DOC-REJECT: could not build mutant (rejection guard condition not found)"
   else
     dmlow2="$TMP/mlow2t"; mkdir -p "$dmlow2"
     bash "$mlow2_mutant" "$dmlow2" --corpus flat >/dev/null 2>&1
     _mlow2_rc=0
     bash "$mlow2_mutant" "$dmlow2" --wire --document >/dev/null 2>&1 || _mlow2_rc=$?
     if [ "$_mlow2_rc" = 0 ]; then
-      ok "teeth M-LOW2: mutant silently accepts --wire --document on an existing corpus (exit 0) — GOOD 10's rejection has teeth"
+      ok "teeth M-WIRE-DOC-REJECT: mutant silently accepts --wire --document on an existing corpus (exit 0) — GOOD 10's rejection has teeth"
     else
-      no "teeth M-LOW2: mutant still rejects (exit $_mlow2_rc) — guard removal did not take effect"
+      no "teeth M-WIRE-DOC-REJECT: mutant still rejects (exit $_mlow2_rc) — guard removal did not take effect"
     fi
   fi
 
-  # Mutation M-MEDNEW1 (kit issue #1114 review round 2, MEDIUM-NEW-1): revert the rejection message
-  # back to the round-1 wording that recommended --force as if it only re-scaffolded RESEARCH-STATE.md
-  # → GOOD 10's wording-pin assertions must flip.
-  echo "-- teeth proof M-MEDNEW1: revert the rejection message to the misleading round-1 wording --"
+  # Mutation M-FORCE-WARNING (kit issue #1114, round 2): revert the rejection message's destructive-scope
+  # SENTENCE — a STABLE, SMALL anchor tied to exactly what this finding is about, not the whole message
+  # (round-3 review nit: matching the full multi-sentence message would false-fail this mutant's own
+  # build step on any unrelated future rewording elsewhere in the message) — back to the round-1 phrase
+  # that recommended --force as if it only re-scaffolded RESEARCH-STATE.md → GOOD 10's wording-pin
+  # assertions must flip.
+  echo "-- teeth proof M-FORCE-WARNING: revert the destructive-scope sentence to the misleading round-1 wording --"
   mkdir -p "$TMP/mmednew1/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mmednew1/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mmednew1/templates"
   mmednew1_mutant="$TMP/mmednew1/toolbelt/init.sh"
-  sed 's/There is no in-place conversion: drop --document, or scaffold a NEW target with --document instead\. --force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX\.md, RESEARCH-STATE\.md, SOURCES\.md, hooks) and clobbers hand-adapted hooks, INDEX\.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard\./Drop --document, pass --force to re-scaffold RESEARCH-STATE.md with the document-cycle variant, or run --document against a NEW target instead./' \
+  sed 's/--force is NOT a targeted fix for this — it re-scaffolds the WHOLE corpus (INDEX\.md, RESEARCH-STATE\.md, SOURCES\.md, hooks) and clobbers hand-adapted hooks, INDEX\.md and real backlog rows (kit issue #1038); it is destructive and only appropriate for a corpus you intend to discard\./pass --force to re-scaffold RESEARCH-STATE.md with the document-cycle variant./' \
     "$SUT" > "$mmednew1_mutant"
   if ! grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' "$mmednew1_mutant"; then
-    no "teeth M-MEDNEW1: could not build mutant (round-1 wording substitution did not take)"
+    no "teeth M-FORCE-WARNING: could not build mutant (destructive-scope sentence anchor not found)"
   else
     dmmednew1="$TMP/mmednew1t"; mkdir -p "$dmmednew1"
     bash "$mmednew1_mutant" "$dmmednew1" --corpus flat >/dev/null 2>&1
     _mmednew1_out="$(bash "$mmednew1_mutant" "$dmmednew1" --wire --document 2>&1)"
     if grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' <<<"$_mmednew1_out"; then
-      ok "teeth M-MEDNEW1: mutant's rejection message reverts to the misleading --force recommendation — GOOD 10's wording-pin assertion has teeth"
+      ok "teeth M-FORCE-WARNING: mutant's rejection message reverts to the misleading --force recommendation — GOOD 10's wording-pin assertion has teeth"
     else
-      no "teeth M-MEDNEW1: mutant did not print the misleading wording — mutant build did not take effect (out=[$_mmednew1_out])"
+      no "teeth M-FORCE-WARNING: mutant did not print the misleading wording — mutant build did not take effect (out=[$_mmednew1_out])"
     fi
   fi
 fi
