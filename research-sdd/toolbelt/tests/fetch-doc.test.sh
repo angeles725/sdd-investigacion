@@ -97,6 +97,42 @@ if grep -qF "$bsurl" "$d/SOURCES.md"; then
   ok "backslash-bearing source value written byte-identically (no awk -v escape corruption)"
 else no "backslash corrupted: row=$(grep -F 'datasheets/x.pdf' "$d/SOURCES.md" | head -1)"; fi
 
+# 11 — CORE (retro delta D4: cloudflare/retros/2026-08-28-ztna-focus-close.md): doc mode must register the
+#      EFFECTIVE (post-redirect) URL in SOURCES.md's origin cell, not the originally requested URL. A canonical
+#      doc URL may 301-redirect (docs reorg, slug change); a stale pre-redirect URL in the registry makes
+#      re-fetching the source harder than necessary. Hermetic: no network — a curl STUB on PATH writes a fixed
+#      body to the `-o` target and, when `-w '%{url_effective}'` is requested, prints a canned REDIRECTED URL
+#      (distinct from the requested one) to stdout instead of hitting the network.
+d11="$TMP/redirect-doc/target"; mkdir -p "$d11"
+stubbin="$TMP/stubbin"; mkdir -p "$stubbin"
+cat > "$stubbin/curl" <<'STUBEOF'
+#!/usr/bin/env bash
+# Minimal curl stub for fetch-doc.test.sh case 11: writes a fixed body to the file named after
+# `-o`, and — only when `-w` requests `%{url_effective}` — prints a REDIRECTED URL (distinct from
+# the requested one) to stdout, simulating a resolved 301 redirect with no network access at all.
+out=""
+want_effective=0
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$arg"; fi
+  case "$arg" in *url_effective*) want_effective=1 ;; esac
+  prev="$arg"
+done
+[ -n "$out" ] && printf 'stub body\n' > "$out"
+if [ "$want_effective" -eq 1 ]; then
+  printf 'https://redirected.example.com/final-page'
+fi
+exit 0
+STUBEOF
+chmod +x "$stubbin/curl"
+PATH="$stubbin:$PATH" bash "$SUT" doc "https://original.example.com/orig-page" "$d11" datasheets "redir.html" >/dev/null 2>&1
+if grep -qF 'https://redirected.example.com/final-page' "$d11/sources/SOURCES.md" 2>/dev/null \
+   && ! grep -qF 'https://original.example.com/orig-page' "$d11/sources/SOURCES.md" 2>/dev/null; then
+  ok "doc mode registers the EFFECTIVE (post-redirect) URL, not the originally requested one"
+else
+  no "redirect: origin cell not updated to effective URL :: $(grep 'redir.html' "$d11/sources/SOURCES.md" 2>/dev/null || echo 'NO SOURCES.md / NO ROW')"
+fi
+
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
 # Guards: curl for file:// fetching (wget cannot fetch file:// URLs), file(1) for PDF
 # detection, and pdftotext for Test 6's extraction assertion.
@@ -209,6 +245,24 @@ EOF
     if ! grep -qF "$bsurl" "$d/SOURCES.md"; then
       ok "teeth: awk -v mutant escape-corrupts the backslash cell → case 5 has teeth"
     else no "teeth: -v mutant preserved the backslash — case 5 does NOT depend on ENVIRON (THEATER)"; fi
+  fi
+
+  echo "-- teeth: revert doc mode to register \$URL instead of the resolved effective URL; expect the redirect row to register the ORIGINAL URL again → case 11 has teeth --"
+  remutant="$TMP/fetch-doc.REMUTANT.sh"
+  # Force EFFECTIVE_URL back to the originally-requested $URL right before reg() is called in doc
+  # mode, reproducing the pre-fix behaviour (registering the pre-redirect URL).
+  sed '/^    reg "\$SDIR" "\$DEST" "\$SUB" "\$EFFECTIVE_URL" "\$SHA"$/i\
+    EFFECTIVE_URL="$URL"  # MUTANT: revert to pre-fix behaviour' "$SUT" > "$remutant"
+  if ! grep -q 'MUTANT: revert to pre-fix behaviour' "$remutant"; then
+    no "teeth-redirect: could not build mutant (reg call line for EFFECTIVE_URL not found — did the SUT change?)"
+  else
+    d11m="$TMP/teeth-redirect/target"; mkdir -p "$d11m"
+    PATH="$stubbin:$PATH" bash "$remutant" doc "https://original.example.com/orig-page" "$d11m" datasheets "redir.html" >/dev/null 2>&1
+    if grep -qF 'https://original.example.com/orig-page' "$d11m/sources/SOURCES.md" 2>/dev/null; then
+      ok "teeth-redirect: reverted mutant registers the ORIGINAL (pre-redirect) URL → case 11 has teeth (not theater)"
+    else
+      no "teeth-redirect: mutant still registered the effective URL — case 11 does NOT depend on EFFECTIVE_URL (THEATER) :: $(grep 'redir.html' "$d11m/sources/SOURCES.md" 2>/dev/null)"
+    fi
   fi
 
   # Teeth for case 7 (hint): delete the printf hint line; expect hint absent → proves case 7 is not theater.
