@@ -3177,7 +3177,8 @@ PYEOF
     no "teeth-n4-warn: mutant still emitted WARN — THEATER"
   fi
   cp "$TMP/verify-state.strikethrough.MUTANT.sh" "$TMP/verify-state.sh"  # Propagation: copy-2 mutant → status --next must return STALE
-  cp "$HERE/../research-sdd-status.sh" "$TMP/status.VS-PROP.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  # kit issue #1109: research-sdd-status.sh now sources lib/hook-wiring.sh unconditionally.
+  cp "$HERE/../research-sdd-status.sh" "$TMP/status.VS-PROP.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"; cp "$HERE/../lib/hook-wiring.sh" "$TMP/lib/hook-wiring.sh"
   _pst="$(bash "$TMP/status.VS-PROP.sh" "$TMP/bp-strikethrough" --next 2>/dev/null)"
   [ "${_pst%%\ *}" = "STALE" ] && ok "teeth-BP-strikethrough-prop: neutered copy-2 → STALE in status" || no "teeth-BP-strikethrough-prop: [$_pst] (want STALE)"
   cp "$TMP/verify-state.em-dash.MUTANT.sh" "$TMP/verify-state.sh"
