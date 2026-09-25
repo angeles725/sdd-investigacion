@@ -554,11 +554,12 @@ fi
 
 # NOTE (kit issue #1140 round-2 review, Blocking 5): the '(checked: ...)' path suffix (formerly
 # 32e here) and the missing/broken-lib coverage (formerly 32g/32h here) were split OUT of this PR
-# into their own follow-up work — the suffix changes ALL 15 reachable status reports, not only
-# three.js, breaking this PR's own "byte-identical except three.js" acceptance claim (kit §6: a
-# calibration change is its own work unit). 32f below (the wired-off-root STATE itself) is the only
-# research-sdd-status.sh behavior kit issue #1135 actually needs, and it changes nothing for any
-# target whose state is not wired-off-root, preserving the byte-identical claim.
+# into their own follow-up work, now tracked as kit issue #1150 — the suffix changes ALL 15
+# reachable status reports, not only three.js, breaking this PR's own "byte-identical except
+# three.js" acceptance claim (kit §6: a calibration change is its own work unit). 32f below (the
+# wired-off-root STATE itself) is the only research-sdd-status.sh behavior kit issue #1135 actually
+# needs, and it changes nothing for any target whose state is not wired-off-root, preserving the
+# byte-identical claim.
 
 # 32f — kit issue #1135: a registered target nested inside a git repo whose OWN root is a DIFFERENT,
 # higher directory, with settings.json syntactically wired at the nested path → wired-off-root, not

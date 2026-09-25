@@ -11,15 +11,18 @@
 #
 #   hook_stop_wiring_state_var <target-dir>
 #     Sets the GLOBAL $HOOK_WIRING_STATE to exactly one of: wired | wired-off-root | unwired |
-#     absent-settings | unreadable. NEVER forks a subshell (no command substitution anywhere in
-#     this function, for ANY state — kit issue #1140 round-2 review, Blocking 3: an earlier
-#     revision paid a `$(git ...)` fork plus a `$(cd -P ... && pwd -P)` fork on every already-
-#     'wired' result, which is the MAJORITY state on the real fleet, not a minority — measured
-#     13-14 of 17 reachable targets. The git-root check below uses ONLY builtins: `[ -e ]` tests
-#     and parameter-expansion path-walking, no `git` binary, no subshell), so a caller iterating
-#     many targets (sweep-retros.sh's WIRING-STATUS fleet pass) can call this directly instead of
-#     paying a `$(...)` fork per target. Always returns 0 — callers branch on $HOOK_WIRING_STATE,
-#     never on exit status.
+#     absent-settings | unreadable. PRECISE CLAIM (kit r3 review nit — "NEVER forks a subshell"
+#     here previously read as a claim about the whole function, which is wrong: the awk
+#     Stop-scope check a few lines down DOES fork its own subprocess once per call, for every
+#     state — see its own note below): the git-root / off-root check adds NO ADDITIONAL fork on
+#     top of that unavoidable awk fork. What kit issue #1140 round-2 review Blocking 3 actually
+#     fixed: an earlier revision paid a SECOND, extra fork — `$(git ...)` plus `$(cd -P ... &&
+#     pwd -P)` — on every already-'wired' result, the MAJORITY state on the real fleet (measured
+#     13-14 of 17 reachable targets), not a minority. The git-root check below now uses ONLY
+#     builtins — `[ -e ]` tests and parameter-expansion path-walking, no `git` binary, no `$(...)`
+#     command substitution — so a caller iterating many targets (sweep-retros.sh's WIRING-STATUS
+#     fleet pass) pays exactly the one awk fork every state already paid, and nothing more.
+#     Always returns 0 — callers branch on $HOOK_WIRING_STATE, never on exit status.
 #
 #     NARROWER than the TARGETS.md legend's 'hook' flag definition (kit issue #1108 round 2):
 #     the legend recognises a hook as registered via THREE paths — project-level
@@ -45,10 +48,12 @@
 #       - unwired         : it is readable but no such Stop-scoped entry is found
 #       - wired-off-root  : kit issue #1135 — it IS Stop-scoped-wired (as above), but <target-dir>
 #                            is NOT its own git root (an ancestor directory owns the nearest
-#                            `.git`). This is a STRUCTURAL fact only. Claude Code loads project
-#                            settings from the directory a session is LAUNCHED in, so the hook
-#                            fires ONLY for a session launched in EXACTLY <target-dir> — never
-#                            above it, never at a sibling directory.
+#                            `.git`). This is a STRUCTURAL fact only. Per observed Claude Code
+#                            behavior (project settings load from the session's launch directory —
+#                            not a cited spec; see kit issue #1134), the hook is EXPECTED to fire
+#                            only for a session launched in exactly <target-dir> — never above it,
+#                            never at a sibling directory — but this predicate does not verify
+#                            that behavior itself; it only reports the structural mismatch.
 #
 #                            This predicate deliberately does NOT claim to know where sessions
 #                            actually launch from, and does not prescribe a fix (kit issue #1140
@@ -125,21 +130,32 @@
 
 if ! declare -F _hw_abspath >/dev/null 2>&1; then
   # _hw_abspath <path> : sets $HW_ABS_PATH to <path> made absolute (prefixed with $PWD if
-  # relative), trailing "/" stripped, "" -> "/". Shared by _hw_find_git_root and
-  # hook_stop_wiring_state_var (kit issue #1140 RDD correction): a relative target ('.', 'foo',
-  # 'foo/bar' -> 'foo') never gives ${d%/*} a "/" to climb past, so the walk-up spun forever; both
-  # call sites must absolutize identically or a relative target at its own git root misreports off-root.
+  # relative) with every "." and ".." component COLLAPSED — pure builtins, no `realpath`/`pwd -P`
+  # fork, no symlink resolution (see _hw_find_git_root's own KNOWN LIMITATION below for what that
+  # still leaves unhandled). Shared by _hw_find_git_root and hook_stop_wiring_state_var so both
+  # normalize identically. Two bugs this fixes together (kit issue #1140 correction, then r3
+  # review M1): a relative target ('.', 'foo', 'foo/bar' -> 'foo') never gave ${d%/*} a "/" to
+  # climb past, so the walk-up spun forever; and an UNcollapsed ".." in the target made the
+  # walk-up climb one raw textual segment at a time instead of resolving it, so a target like
+  # '.../A/B/..' (which really resolves to '.../A') could climb onto the REAL directory '.../A/B'
+  # and pick up an unrelated nested repo's `.git` there — a false 'wired-off-root'.
   _hw_abspath() {
-    local d="$1"
+    local d="$1" part result=""
     case "$d" in
       /*) : ;;
       *)  d="$PWD/$d" ;;
     esac
-    case "$d" in
-      */) d="${d%/}" ;;
-    esac
-    [ -z "$d" ] && d="/"
-    HW_ABS_PATH="$d"
+    local -a _hw_parts
+    IFS='/' read -ra _hw_parts <<< "$d"
+    for part in "${_hw_parts[@]}"; do
+      case "$part" in
+        ''|.) continue ;;
+        ..)   result="${result%/*}" ;;
+        *)    result="$result/$part" ;;
+      esac
+    done
+    [ -z "$result" ] && result="/"
+    HW_ABS_PATH="$result"
   }
 fi
 
@@ -148,26 +164,38 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # <dir> itself) that owns a `.git` entry (file or directory — a linked worktree's `.git` is a
   # FILE, and this must recognise that too), or "" if none is found before reaching `/` or the
   # $RSDD_HOOK_WIRING_CEILING. Pure builtins only — [ -e ] and parameter expansion — NO fork, NO
-  # git binary. `[ -e ]` resolves symlinks per path component at the kernel level, so this is
-  # symlink-safe by construction: it never needs `pwd -P` / `cd -P` canonicalization to be
-  # correct, because it only ever needs to know WHETHER <dir> itself owns a `.git` versus some
-  # ancestor doing so — not the canonical spelling of either path.
-  # KNOWN LIMITATION (kit issue #1140 round-2 review, smaller items — measured, not hypothetical):
-  # a SYMLINKED LEAF works correctly — `[ -e "$d/.git" ]` follows a symlink at the final path
-  # component, so a target that IS a symlink pointing directly at a git root (or that itself
-  # contains a real `.git`, symlink or not) resolves correctly. A symlink in an INTERMEDIATE path
-  # component does NOT: the walk climbs the TARGET STRING's own textual ancestors
-  # (`${d%/*}`), never the symlink's resolution target, so a `.git` that only exists via
-  # following an intermediate symlink is missed and the result stays 'wired' — a false negative,
-  # not a false positive (it never invents a WARN; it can only fail to raise one). Resolving this
-  # fully needs `realpath`/`pwd -P`, which forks — reintroducing exactly the per-target fork
-  # Blocking 3 removed from the MAJORITY ('wired') case. TARGETS.md paths are real directories
-  # under $RESEARCH_HOME in the fleet as measured, not symlinks, so this gap's incidence is 0 of 17
-  # reachable targets today (measure-before-remediate, kit §7) — flagged here rather than fixed
-  # with a fork every caller would pay for a case that has not occurred.
+  # git binary, NO `realpath`/`pwd -P`. `[ -e "$d/.git" ]` DOES resolve a symlink AT THAT ONE
+  # CHECK, at the kernel level — so it correctly answers "does <d> itself own a `.git`" even when
+  # <d> is a symlink. It is NOT symlink-safe overall, because the CLIMB (`${d%/*}`) and the
+  # off-root COMPARISON both work on the target STRING's own textual spelling, never on any
+  # symlink's resolution target. See the KNOWN LIMITATION below for exactly which shapes that
+  # breaks.
+  # KNOWN LIMITATION (kit r3 review, M2 — CORRECTED: an earlier revision of this comment, and its
+  # test 14a, mislabeled this case "intermediate component" and claimed leaf symlinks "work
+  # correctly"; test 14a is actually a LEAF symlink, and it does NOT work correctly — see below):
+  # `[ -e "$d/.git" ]` follows a symlink at the FINAL path component, so a LEAF symlink pointing
+  # DIRECTLY at a git ROOT (its resolved target itself owns `.git` — test 14b) resolves correctly
+  # on the very FIRST check, before any climbing happens. A leaf symlink pointing at a NESTED,
+  # non-root directory (test 14a) does NOT: once the walk needs to climb past the leaf, it climbs
+  # the SYMLINK'S OWN textual path, never the resolved target's real ancestors, so the real git
+  # root behind the resolved path is never found and the result stays 'wired' — a false negative
+  # (never a false positive; it can only fail to raise a WARN it should have). A genuinely
+  # INTERMEDIATE symlinked path component (a real directory nested under a symlinked ancestor) is
+  # a distinct, currently UNTESTED shape with the same root cause. Resolving either fully needs
+  # `realpath`/`pwd -P`, which forks — reintroducing exactly the per-target fork Blocking 3 removed
+  # from the MAJORITY ('wired') case. TARGETS.md paths are real directories under $RESEARCH_HOME in
+  # the fleet as measured, not symlinks, so this gap's incidence is 0 of 17 reachable targets today
+  # (measure-before-remediate, kit §7) — flagged here rather than fixed with a fork every caller
+  # would pay for a case that has not occurred.
   _hw_find_git_root() {
-    local d ceiling="${RSDD_HOOK_WIRING_CEILING:-}" _hw_next
+    local d ceiling="" _hw_next
     _hw_abspath "$1"; d="$HW_ABS_PATH"
+    # kit r3 review, M3: $ceiling used to be compared TEXTUALLY against $RSDD_HOOK_WIRING_CEILING
+    # as-is, so a value with a trailing slash never matched $d (always trailing-slash-free after
+    # _hw_abspath) and silently never fired. Normalize it through the SAME _hw_abspath.
+    if [ -n "${RSDD_HOOK_WIRING_CEILING:-}" ]; then
+      _hw_abspath "$RSDD_HOOK_WIRING_CEILING"; ceiling="$HW_ABS_PATH"
+    fi
     while :; do
       if [ -n "$ceiling" ] && [ "$d" = "$ceiling" ]; then  # HOOK-WIRING-CEILING-CHECK
         HW_GIT_ROOT=""
