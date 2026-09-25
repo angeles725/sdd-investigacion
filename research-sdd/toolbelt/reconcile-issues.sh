@@ -19,10 +19,14 @@
 # propose-never-apply: REPORT ONLY.  No --apply flag; never creates, closes, or
 # edits any issue or retro marker.
 #
-# Anti-silent-zero §7 — three states named per retro (to stderr):
-#   absent-input  retro file / target dir not found
-#   empty-input   found but contains no delta section
-#   no-match      delta section present; no open deltas AND no orphaned issues
+# Anti-silent-zero §7 — four states named per retro (to stderr; kit issue #1111 added the 4th):
+#   absent-input    retro file / target dir not found
+#   empty-input     found but contains no delta section AND no proposal-like heading at all
+#   unclassifiable  a delta/canonical section (or a proposal-like heading the shared grammar
+#                    cannot classify, e.g. a hyphenated "kit-delta" mid-heading or a standalone
+#                    "### Proposals") was found but is not in a countable form — needs manual
+#                    review; never conflated with empty-input, which would silently hide it
+#   no-match        delta section present; no open deltas AND no orphaned issues
 #
 # §7 degraded probe: gh absent or unauthenticated → typed "degraded:" + exit 1.
 # Findings (untracked, orphaned) are WARN-only and never fail the run.
@@ -187,12 +191,24 @@ audit_retro() {
     fi
   fi
 
-  # --- Check for a delta section (empty-input guard)
+  # --- Check for a delta section (empty-input vs unclassifiable — kit issue #1111)
   local _grammar_info _found_field
   _grammar_info="$(retro_grammar_delta_info "$retro_path")"
   _found_field="$(printf '%s' "$_grammar_info" | cut -d '' -f1 | cut -d: -f1)"
   if [ "$_found_field" != "1" ]; then
-    echo "empty-input: no delta section found in $retro_path" >&2
+    # unrec_found (field 3 of retro_grammar_delta_info's \001-separated output): the shared
+    # grammar's own unrecognised-delta-intent-heading detector (Rules 1-4). A proposal-like
+    # heading the parser cannot classify (e.g. a hyphenated "kit-delta" mid-heading, or a
+    # standalone "### Proposals") must never be reported as a confident empty-input.
+    local _temp_depr _temp_unrec _unrec_found
+    _temp_depr="${_grammar_info#*$'\001'}"
+    _temp_unrec="${_temp_depr#*$'\001'}"
+    _unrec_found="${_temp_unrec%%$'\001'*}"
+    if [ "$_unrec_found" = "1" ]; then
+      echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro_path — needs manual review" >&2
+    else
+      echo "empty-input: no delta section found in $retro_path" >&2
+    fi
     return 0
   fi
 
@@ -221,6 +237,7 @@ audit_retro() {
           low ~ /^## proposed delta/ ||
           low ~ /^## delta proposals/ ||
           low ~ /^## deltas nuevos/ ||
+          low ~ /^## propuesta de deltas al kit([[:space:]]|$)/ ||
           low ~ /^## summary of proposed delta/ ||
           low ~ /^## summary of new deltas/ ||
           low ~ /^## delta details([[:space:]]|$)/) {
@@ -241,7 +258,9 @@ audit_retro() {
   ' "$retro_path")"
 
   if [ -z "$_all_row_ids" ]; then
-    echo "empty-input: delta section found but contains no data rows in $retro_path" >&2
+    # A canonical/deprecated section WAS found — not "empty" (kit issue #1111): typed
+    # distinctly from the found=0 empty-input case above (see its comment).
+    echo "unclassifiable: delta section found but not in row-table form in $retro_path — needs manual review" >&2
     return 0
   fi
 

@@ -2911,7 +2911,9 @@ judgment, not the driver's own rationalizations). The retro agent:
    **The delta declaration is machine-countable, and that is MANDATORY.** Deltas go under the canonical heading
    `## Proposed kit deltas` as the template's table, one row per delta (or `### D1 —` entries under that heading).
    The sweeper accepts, and nothing else, these enumerated aliases (`sweep-retros.sh`, kit issue #436): `## Proposed deltas`, `## Delta proposals`,
-   `## Deltas nuevos`, a numbered `## N. Proposed kit deltas` with or without a trailing parenthetical, and — as DEPRECATED forms
+   `## Deltas nuevos`, `## PROPUESTA de deltas al kit` (Spanish accepted alias, kit issue #1111 — living
+   convention for Spanish-language target corpora, not a migration target: no deprecation WARN), a numbered
+   `## N. Proposed kit deltas` with or without a trailing parenthetical, and — as DEPRECATED forms
    that count but warn to migrate — `## Summary of proposed deltas`, `## Summary of new deltas proposed`, `## Delta details`. **Counter-example (NOT accepted):** `## Proposed research-sdd deltas` and `## Proposed research-sdd KIT deltas` look plausible — inserting the kit's own name reads as clarifying — but both fail: `lib/retro-grammar.sh` requires `kit` to follow `proposed` immediately; an intervening word breaks every recognised pattern. Both were observed and corrected in the real fleet (measured 2026-09-22 on 131 retros across 5 of 12 reachable registry targets). Deltas declared only as inline `→ PROPOSED …` prose, or under any other heading,
    are INVISIBLE to supervision: measured on 74 niagara retros, 62 distinct delta headings were in use, 20 of 78
    pending retros were uncountable, and 4 returned a confident `~0` that was false in all 4 cases. A retro with no
@@ -2919,6 +2921,12 @@ judgment, not the driver's own rationalizations). The retro agent:
    "no new deltas", not a missing section. **Instrument (as of kit issue #436, updated #912):** `sweep-retros.sh`
    prints `no delta section found (empty-input)` for a PENDING retro with no canonical delta section AND no §18 honesty line anywhere
    — a retro with `## Honest verdict` containing a §18 honesty phrase (see honesty clause below) prints `~0` instead.
+   **Empty vs unclassifiable (kit issue #1111):** a heading that reads as proposal-like but that the grammar
+   cannot classify into a countable form — a hyphenated `kit-delta` mid-heading (e.g. `## B. Campaign-8
+   kit-delta backlog`) or a standalone `### Proposals` sub-heading outside any canonical section — is never
+   folded into `empty-input`; `sweep-retros.sh`, `stage-retro-issues.sh`, and `reconcile-issues.sh` all report
+   it typed as `unclassifiable`/`non-conforming delta declaration — count by hand` instead, so it stays visible
+   for manual review rather than silently reading as nothing to do.
    Warns `deprecated delta heading […] — migrate to '## Proposed kit deltas' per §18` on the THREE deprecated aliases, and warns
    `no review-status marker — add '<!-- review-status: pending -->'` on an unmarked retro.
    The `retro_grammar_has_honesty` predicate (updated kit issue #912) exempts the LEADING BLOCKQUOTE BLOCK

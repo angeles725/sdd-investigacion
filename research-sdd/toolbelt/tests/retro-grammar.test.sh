@@ -150,6 +150,57 @@ _rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
 [ "$_uf" = "1" ] && ok "T8: unrecognised Rule 1 (## deltas) → unrec_found=1" "[$_out]" \
   || no "T8: unrecognised Rule 1 → expected unrec_found=1" "got=[$_out]"
 
+# T10: Spanish canonical alias "## PROPUESTA de deltas al kit" (kit issue #1111) — accepted as
+# canonical (not deprecated: no migration WARN), real fleet form (Pancaddia corpus retro).
+_f="$ROOT/t10.md"
+{ printf '<!-- review-status: pending -->\n# Retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+  printf '| # | change | target | evidence | type | prio |\n|---|---|---|---|---|---|\n'
+  printf '| 1 | ch1 | f.md | B001 | new | H |\n'
+} > "$_f"
+_out=$(rgi "$_f"); _ffc="${_out%%$'\001'*}"
+_rest="${_out#*$'\001'}"; _dh="${_rest%%$'\001'*}"
+[ "$_ffc" = "1:1:1" ] && [ -z "$_dh" ] \
+  && ok "T10: Spanish alias 'PROPUESTA de deltas al kit' 1-row → 1:1:1, no depr WARN" "[$_out]" \
+  || no "T10: Spanish alias → expected 1:1:1 + empty depr_h" "got=[$_out]"
+
+# T11: hyphenated "kit-delta" mid-heading (## B. Campaign-8 kit-delta backlog, real fleet form,
+# niagara-research retro) sets unrec_found=1 — Rule 2 widened to accept '-' as well as ' '.
+_f="$ROOT/t11.md"
+printf '<!-- review-status: pending -->\n# Retro\n\n## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nprose\n' > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "1" ] && ok "T11: hyphenated 'kit-delta' mid-heading → unrec_found=1" "[$_out]" \
+  || no "T11: hyphenated 'kit-delta' mid-heading → expected unrec_found=1" "got=[$_out]"
+
+# T11b: negation guard still holds for the hyphenated form — "not kit-delta" must NOT flip
+# unrec_found (mirrors the existing space-form negation guard).
+_f="$ROOT/t11b.md"
+printf '<!-- review-status: pending -->\n# Retro\n\n## Client-side punch-list (not kit-delta — for the module owner)\n\nprose\n' > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "0" ] && ok "T11b: negated hyphenated 'not kit-delta' → unrec_found stays 0" "[$_out]" \
+  || no "T11b: negated hyphenated 'not kit-delta' → expected unrec_found=0" "got=[$_out]"
+
+# T12: standalone H3 "### Proposals" heading OUTSIDE any canonical section (real fleet form,
+# niagara-research retro: "### Proposals (propose-never-apply) — ...") sets unrec_found=1 (Rule 4).
+_f="$ROOT/t12.md"
+printf '<!-- review-status: pending -->\n# Retro\n\n## A. THE DEFECT\n\n### Proposals (propose-never-apply) — make it automatic\n\nprose\n' > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "1" ] && ok "T12: standalone H3 '### Proposals' outside section → unrec_found=1" "[$_out]" \
+  || no "T12: standalone H3 '### Proposals' → expected unrec_found=1" "got=[$_out]"
+
+# T13: list-edge guard — "### Proposals" INSIDE a canonical section must NOT double-fire Rule 4
+# (it is legitimately a form-2 candidate there, gated by in_sec, not an unrecognised heading).
+_f="$ROOT/t13.md"
+{ printf '<!-- review-status: pending -->\n# Retro\n\n## Proposed kit deltas\n\n'
+  printf '### Proposals\n\nprose\n'
+} > "$_f"
+_out=$(rgi "$_f")
+_rest="${_out#*$'\001'}"; _rest="${_rest#*$'\001'}"; _uf="${_rest%%$'\001'*}"
+[ "$_uf" = "0" ] && ok "T13: '### Proposals' INSIDE canonical section → unrec_found stays 0 (gated by in_sec)" "[$_out]" \
+  || no "T13: '### Proposals' inside canonical section → expected unrec_found=0" "got=[$_out]"
+
 # T9: idempotent sourcing — sourcing the lib a second time must not re-define the function
 # (the if ! typeset -f guard prevents it). We check by calling the function after double-source.
 # shellcheck source=../lib/retro-grammar.sh

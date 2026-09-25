@@ -2243,5 +2243,53 @@ else
   no "58 ITEMc positive control: dotted host 'ghe.example.com/myorg/myrepo' still accepted" "exit=$RC58 out=[$OUT58]"
 fi
 
+# ---------------------------------------------------------------------------
+# 59 — SPANISH CANONICAL ALIAS (kit issue #1111): "## PROPUESTA de deltas al kit" is a real
+#      fleet form (Pancaddia corpus retro) — accepted as canonical, table rows staged normally.
+box59="$(mkbox case-spanish-alias)"
+retro59="$box59/rh/target-foo/retros/r-spanish.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n'
+  printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n'
+  printf '| 1 | delta uno | CLAUDE.md | B1 | new | HIGH |\n'
+} > "$retro59"
+run "$box59" "$retro59"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q '^planned-issue:' && ! printf '%s' "$OUT" | grep -qi 'empty-input\|unclassifiable'; then
+  ok "59 Spanish canonical alias 'PROPUESTA de deltas al kit' → row staged, not empty/unclassifiable" "(exit $RC)"
+else
+  no "59 Spanish canonical alias → expected row staged" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 60 — UNCLASSIFIABLE, not empty-input (kit issue #1111): a hyphenated "kit-delta" mid-heading
+#      (real fleet form, niagara-research retro: "## B. Campaign-8 kit-delta backlog") with no
+#      table rows must be typed unclassifiable, never a confident empty-input.
+box60="$(mkbox case-hyphen-kitdelta)"
+retro60="$box60/rh/target-foo/retros/r-hyphen.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n'
+  printf '## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n'
+} > "$retro60"
+run "$box60" "$retro60"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+  ok "60 hyphenated 'kit-delta' mid-heading → unclassifiable, never empty-input" "(exit $RC)"
+else
+  no "60 hyphenated 'kit-delta' mid-heading → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
+fi
+
+# ---------------------------------------------------------------------------
+# 61 — UNCLASSIFIABLE, not empty-input (kit issue #1111): a standalone H3 "### Proposals"
+#      heading outside any canonical section (real fleet form, niagara-research retro) with no
+#      table rows must be typed unclassifiable, never a confident empty-input.
+box61="$(mkbox case-h3-proposals)"
+retro61="$box61/rh/target-foo/retros/r-h3proposals.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\n## A. THE DEFECT\n\n'
+  printf '### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n'
+} > "$retro61"
+run "$box61" "$retro61"
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -qi 'unclassifiable' && ! printf '%s' "$OUT" | grep -qF 'empty-input'; then
+  ok "61 standalone H3 '### Proposals' outside section → unclassifiable, never empty-input" "(exit $RC)"
+else
+  no "61 standalone H3 '### Proposals' outside section → expected unclassifiable, never empty-input" "exit=$RC out=[$OUT]"
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

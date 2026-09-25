@@ -237,6 +237,13 @@ for p in $paths; do
     _sec_r=$(retro_grammar_delta_info "$f")
     _temp_depr="${_sec_r#*$'\001'}"
     _depr_h="${_temp_depr%%$'\001'*}"
+    # unrec_found (field 3): the shared grammar's own unrecognised-delta-intent-heading
+    # detector (Rules 1-4, kit issue #1111) — a proposal-like heading (Spanish alias aside,
+    # already canonical) that the grammar cannot classify as a countable delta section. Read
+    # here so sweep-retros' WARN-B branch below can never diverge from what verify-retro.sh
+    # already flags via the SAME lib call — single source of truth, not two greps drifting.
+    _temp_unrec="${_temp_depr#*$'\001'}"
+    _unrec_found="${_temp_unrec%%$'\001'*}"
     _sec_r="${_sec_r%%$'\001'*}"
     _sec_found="${_sec_r%%:*}"
     _sec_rest="${_sec_r#*:}"; _sec_form="${_sec_rest%%:*}"; _sec_cnt="${_sec_rest##*:}"
@@ -268,10 +275,17 @@ for p in $paths; do
         3)   deltas="$_sec_cnt" ;;                          # form 3 (## Delta-prefixed headings)
         *)   # WARN-B or no-delta-section — check for non-canonical indicators, then honesty.
              # A § Honest verdict honesty line (no canonical section) → explicit ~0.
+             # kit issue #1111: OR in the shared grammar's own unrec_found signal (Rules 1-4)
+             # alongside the local ID-pattern grep below (which the grammar does not cover) —
+             # a proposal-like heading the parser cannot classify is reported unclassifiable,
+             # never a confident empty-input. Without this the grammar's Rule 2/Rule 4
+             # widening (hyphenated "kit-delta", standalone "### Proposals") never reaches
+             # sweep-retros' output, since this local grep alone does not recognise them.
              if grep -qiE '^#{2,3}[[:space:]]+(Proposed|Delta|Deltas)' "$f" 2>/dev/null \
-                || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null; then
+                || grep -qiE '^#{1,3}[[:space:]]+([A-Za-z][0-9]+|[0-9]+)([[:space:].—–-]|$)' "$f" 2>/dev/null \
+                || [ "$_unrec_found" = "1" ]; then
                delta_warn="non-conforming delta declaration — count by hand"
-               deltas="?"                                   # WARN-B
+               deltas="?"                                   # WARN-B / unclassifiable
              elif retro_grammar_has_honesty "$f"; then
                deltas=0                                     # § Honest verdict, no canonical section
              else
@@ -284,7 +298,7 @@ for p in $paths; do
     if [ -n "$_depr_h" ]; then
       delta_warn="deprecated delta heading [${_depr_h}] — migrate to '## Proposed kit deltas' per §18"
     fi
-    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt _depr_h _temp_depr
+    unset _sec_r _sec_found _sec_rest _sec_form _sec_cnt _depr_h _temp_depr _temp_unrec _unrec_found
     # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path (when it entered review
     # under that name), falling back to file mtime when the file is untracked or the dir is not a git
     # repo — so a non-git target never crashes the sweep.

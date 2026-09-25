@@ -34,16 +34,25 @@
 #   ## Proposed delta[...]
 #   ## Delta proposals[...]
 #   ## Deltas NUEVOS[...]
+#   ## PROPUESTA de deltas al kit[...]  (Spanish accepted alias, #1111 — real fleet form,
+#                                        living convention for Spanish-language target corpora,
+#                                        not a migration target: no depr WARN)
 #
 # GRAMMAR — deprecated aliases (#436; accepted + WARN-migrate unconditionally):
 #   ## Summary of proposed delta[...]
 #   ## Summary of new deltas[...]
 #   ## Delta details[...]
 #
-# GRAMMAR — unrecognised delta-intent headings (verify-retro Rules 1–3; outside grammar):
+# GRAMMAR — unrecognised delta-intent headings (verify-retro Rules 1–4; outside grammar):
 #   Rule 1: ## [N. ]delta<s>? followed by whitespace, ( or EOL
-#   Rule 2: " kit delt" anywhere (space-separated), NOT negated by "not"
+#   Rule 2: " kit delt" or "-kit-delt"/"-kit delt"/" kit-delt" anywhere (space OR hyphen
+#           separated on either side of "kit"), NOT negated by "not" (space or hyphen)
 #   Rule 3: "(kit-delta" (parenthetical hyphenated compound)
+#   Rule 4 (#1111): standalone "### Proposals" (H3, plural) OUTSIDE any canonical section —
+#           real fleet form (niagara-research retro): "### Proposals (propose-never-apply) — …"
+#           used as a bespoke delta-intent heading. Gated so it never fires for a "### Proposals"
+#           sub-heading legitimately inside an already-recognised canonical section (that path is
+#           form-2 territory, a different form, and requires an em-dash to count).
 #
 # RSDD_RETRO_GRAMMAR_DEPR_ANCHOR — sentinel used by the both-consumers-flip mutant in
 # tests/retro-grammar.test.sh; changing the deprecated-alias regex on/after this line
@@ -61,6 +70,7 @@ function is_canonical_heading(low) {
   if (low ~ /^## proposed delta/)             return 1
   if (low ~ /^## delta proposals/)            return 1
   if (low ~ /^## deltas nuevos/)              return 1
+  if (low ~ /^## propuesta de deltas al kit([[:space:]]|$)/) return 1
   if (low ~ /^## summary of proposed delta/)  return 1
   if (low ~ /^## summary of new deltas/)      return 1
   if (low ~ /^## delta details([[:space:]]|$)/) return 1
@@ -110,13 +120,28 @@ if ! typeset -f retro_grammar_delta_info >/dev/null 2>&1; then
           is_unrec=0
           # Rule 1: ## [N. ]delta<s>? followed by whitespace, ( or EOL
           if (low ~ /^## [0-9. ]*deltas?([[:space:]]|[(]|$)/) is_unrec=1
-          # Rule 2: space-separated "kit delta/deltas", not negated by "not"
-          if (!is_unrec && low ~ / kit delt/ && low !~ /not +kit +delt/) is_unrec=1
+          # Rule 2 (#1111 widened): "kit delt"/"kit-delt" — space OR hyphen on either side of
+          # "kit" — not negated by "not " / "not-" on either side. Real fleet form: "## B.
+          # Campaign-8 kit-delta backlog" (hyphenated, mid-heading, no parens — Rule 3 alone
+          # does not catch it because Rule 3 requires a leading "(").
+          if (!is_unrec && low ~ /[ -]kit[ -]delt/ && low !~ /not[ -]+kit[ -]+delt/) is_unrec=1
           # Rule 3: parenthetical (kit-delta hyphenated compound
           if (!is_unrec && low ~ /\(kit-delta/) is_unrec=1
           if (is_unrec && !unrec_found) { unrec_found=1; in_unrec=1; unrec_heading=$0 }
           else { in_unrec=0 }
         } else { in_unrec=0 }
+        next
+      }
+
+      # ── Standalone H3 "Proposals" heading OUTSIDE any canonical section (Rule 4, #1111) ──
+      # Real fleet form: "### Proposals (propose-never-apply) — …" (niagara-research retro).
+      # Gated on !in_sec so a "### Proposals" sub-heading legitimately inside an already
+      # recognised canonical section is left to form-2 counting instead (a different form,
+      # requiring an em-dash to count) — see T13 in tests/retro-grammar.test.sh.
+      !in_sec && /^###[^#]/ {
+        if (!unrec_found && low ~ /^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)/) {
+          unrec_found=1; unrec_heading=$0
+        }
         next
       }
 
