@@ -165,6 +165,13 @@ fi
 # it has no pre-audit predecessor at all (pure #989 content) so it is now
 # unslotted shared text, identical in every profile — and PROMPT-LOOP.md is
 # back to carrying only hotcore-loop-cadence) and strips all markers.
+# Round 4 (Opus review, HIGH): hotcore-loop-cadence's general body was
+# still the pre-#989 "every iteration" wording, contradicting hotcore-cadence
+# in the same render — fixed to "once per context" (same semantic, both
+# slots). Round 4 (Opus review, LOW): the hotcore-reread-scope pin below was
+# narrowed from the full sentence to a stable identifying prefix, so an
+# unrelated doctrine wording edit to the tail of that sentence does not
+# turn this red.
 # =============================================================================
 kitF2="$TMP/kitF2"; outF2="$TMP/outF2"
 make_kit "$kitF2"
@@ -173,12 +180,12 @@ if out="$(run_renderer "$kitF2" general "$outF2" 2>&1)"; then
   rloop="$outF2/PROMPT-LOOP.md"
   f2ok=1
   grep -qF 'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not' "$rskill" || f2ok=0
-  grep -qF 'Each iteration re-reads only RESEARCH-STATE, INDEX, and `--next` from the live backlog.' "$rskill" || f2ok=0
-  grep -qF 'HOT-CORE (read IN FULL every iteration):' "$rloop" || f2ok=0
+  grep -qF 'Each iteration re-reads only RESEARCH-STATE' "$rskill" || f2ok=0
+  grep -qF 'HOT-CORE (read IN FULL once per context):' "$rloop" || f2ok=0
   grep -qF 'A return without one is a silently stopped iteration.' "$rskill" || f2ok=0
   grep -qF 'HARD rule inside the loop.' "$rskill" || f2ok=0
   for bad in '<!-- slot:' '<!-- /slot -->' '(read in full now)' 'rescheduled via' 'self-scheduled in' \
-             'the single definition of the token format and required fields'; do
+             'non-STOP' 'the single definition of the token format and required fields'; do
     grep -qF "$bad" "$rskill" && f2ok=0
     grep -qF "$bad" "$rloop" && f2ok=0
   done
@@ -472,7 +479,7 @@ python3 -c "
 p = '$kitF18/profiles/general.slots.md'
 s = open(p, encoding='utf-8').read()
 s = s.replace(
-    'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not\nevery iteration; this covers the framing and the per-block contract.\n',
+    'read IN FULL once per context (session start, after a compaction, or in each fresh sub-agent) — not every iteration; this covers the framing and the per-block contract\n',
     ''
 )
 open(p, 'w', encoding='utf-8').write(s)
