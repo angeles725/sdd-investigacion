@@ -3839,8 +3839,8 @@ else
   no "136 > * add X → WARN-A (~?)" "exit=$RC out=[$OUT]"
 fi
 
-# 137 — HASH HEADING IN LEAD BLOCK: "> ### D1 add X" — detected by /^#{1,6}[[:space:]]/
-#        in is_dirty_marker → dirty → WARN-A.
+# 137 — HASH HEADING IN LEAD BLOCK: "> ### D1 add X" — detected by is_dirty_marker's
+#        one-to-six-hash heading check (chained-? form, kit issue #1121) → dirty → WARN-A.
 kit="$(mkkit c137-n-hash)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 cp "$HERE/fixtures/sweep-retros/retro-grammar/n_hash.md" "$tgt/retros/r1.md"

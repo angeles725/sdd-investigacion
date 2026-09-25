@@ -272,8 +272,8 @@ if ! typeset -f retro_grammar_has_honesty >/dev/null 2>&1; then
         # List bullet: - * + with trailing space (requires space; ** bold is NOT a bullet).
         if (_r ~ /^[-*+][[:space:]]/) return 1    # RSDD_DIRTY_BULLET
         # Heading: one to six # with trailing space. Written as explicit chained ?
-        # (not the /^#{1,6}/ interval form) for mawk portability -- mawk lacks POSIX
-        # interval-expression support without --re-interval, same fix family as
+        # (not an exact-count-or-range brace interval form) for mawk portability --
+        # mawk lacks POSIX interval-expression support without --re-interval, same fix family as
         # kit issue #1130 chained-? rewrite of retro_marker_line. kit issue #1121.
         # NOTE: no single-quote chars in this comment block -- this whole function
         # body is one bash single-quoted string (opened earlier); a stray apostrophe

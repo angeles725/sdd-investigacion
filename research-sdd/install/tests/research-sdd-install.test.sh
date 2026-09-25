@@ -1023,7 +1023,7 @@ home_56="$TMP/general-real"
 bash "$SUT" --home "$home_56" --harness reasonix >/dev/null 2>&1
 pf_56="$home_56/.reasonix/AGENTS.md"
 kitpath_56="$(grep '^Kit path:' "$pf_56" 2>/dev/null | sed 's/^Kit path: //')"
-kitpath_56_expanded="${kitpath_56/#\~/$home_56}"
+kitpath_56_expanded="${kitpath_56/#\~/"$home_56"}"
 if [ -n "$kitpath_56" ] && [ -f "$kitpath_56_expanded/PROMPT-LOOP.md" ] \
    && grep -q '(read IN FULL once per context)' "$kitpath_56_expanded/PROMPT-LOOP.md"; then
   ok "56: installed skill's Kit-path resolution reaches the RENDERED PROMPT-LOOP.md"

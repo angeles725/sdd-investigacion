@@ -149,8 +149,12 @@ for p in $paths; do
     # shellcheck disable=SC2043,SC2086
     _vr_row_any_dir=0
     for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`(/|\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/)[^`]+`' | tr -d '`'); do  # RH-ROW-TOKEN-MATCH
-      _vr_rt_exp="${_vr_rt/\$RESEARCH_HOME/${RESEARCH_HOME:-$HOME}}"
-      _vr_rt_exp="${_vr_rt_exp/\$\{RESEARCH_HOME\}/${RESEARCH_HOME:-$HOME}}"
+      # kit issue #1142 review: the replacement operand must be quoted — bash gives an
+      # unescaped '&' inside an UNQUOTED replacement special meaning (expands to the matched
+      # text), regardless of the outer quoting, so an unquoted $HOME/$RESEARCH_HOME containing
+      # '&' silently corrupted the expanded path here (e.g. HOME='/home/a&b' -> '/home/a$RESEARCH_HOMEb').
+      _vr_rt_exp="${_vr_rt/\$RESEARCH_HOME/"${RESEARCH_HOME:-$HOME}"}"
+      _vr_rt_exp="${_vr_rt_exp/\$\{RESEARCH_HOME\}/"${RESEARCH_HOME:-$HOME}"}"
       [ -d "$_vr_rt_exp" ] && { _vr_row_any_dir=1; break; }
     done
     if [ "$_vr_row_any_dir" -eq 0 ]; then

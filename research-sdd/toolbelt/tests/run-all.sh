@@ -106,6 +106,7 @@ _refresh_cwd_entries() {
   # be read as a phantom top-level entry name. stderr is left to flow to the real terminal.
   local -n _target="$1"
   local _out _rc _name _type _size _mtime
+  # SENTINEL-SCANNER-STDOUT-ONLY
   _out="$(find "$CALLER_CWD" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\n')"
   # SENTINEL-SCANNER-RC-CHECK
   _rc=$?

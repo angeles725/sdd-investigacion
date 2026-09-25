@@ -151,6 +151,71 @@ else
   no "10 live-corpus failed — real toolbelt tree has violations (exit=$RC out=[$OUT])"
 fi
 
+# 11. FORM-A WIDENED FORMS (kit issue #1142 review, §7 "enumerate forms against the real tree"):
+#     the original regex only matched a bare $name / ${name} replacement. Each line below is one
+#     of the review's own synthetic probes, each independently confirmed (empirically, bash 5.2)
+#     to carry the same '&' semantics as the original defect. Built via placeholder substitution
+#     at runtime (not spelled out literally here) so this test file does not self-match the lint
+#     it exercises — same technique cases 5/7 already use.
+mkdir -p "$TMP/formA-widened"
+# Two distinct placeholders (OPEN/CLOSE/DOLLAR) build correct ${...} shapes at runtime.
+_fa2_tpl='arrv=(a b); s1=x; s2=x; s3=x; pre=x; y=x
+printf %s "OPENarrv[@]/p/DOLLARyCLOSE"
+printf %s "OPENs1/OPENpreCLOSE/DOLLARyCLOSE"
+printf %s "OPENs2/p/OPENy:-zCLOSECLOSE"
+printf %s "OPENs3/p/DOLLAR(echo hi)CLOSE"'
+_fa2_body="${_fa2_tpl//OPEN/\$\{}"
+_fa2_body="${_fa2_body//CLOSE/\}}"
+_fa2_body="${_fa2_body//DOLLAR/\$}"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s\n' "$_fa2_body"
+} > "$TMP/formA-widened/site.sh"
+OUT="$(bash "$SUT" "$TMP/formA-widened" 2>&1)"; RC=$?
+_fa2_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-A')"
+if [ "$RC" -eq 1 ] && [ "$_fa2_count" -eq 4 ]; then
+  ok "11 FORM-A widened forms: array subscript, braced pattern, default-value replacement, command-substitution replacement all detected (4 sites)"
+else
+  no "11 FORM-A widened forms failed (exit=$RC count=$_fa2_count out=[$OUT])"
+fi
+
+# 12. FORM-B WIDENED FORMS (kit issue #1142 review): the original regex only matched '~ /re/'.
+#     Covers a bare awk pattern, a negated bare pattern, a regex passed to match(), and an
+#     exact-count interval (no comma) — each a live site the review found missed.
+mkdir -p "$TMP/formB-widened"
+_fb2_tpl='awk {
+if (/^#{INTRVL}[[:space:]]/) print "a"
+if (!/^#{INTRVL}[[:space:]]/) print "b"
+if (match($0, /^#{INTRVL}[[:space:]]/)) print "c"
+if ($0 ~ /^#{EXACT}[[:space:]]/) print "d"
+}'
+_fb2_body="${_fb2_tpl//INTRVL/1,6}"
+_fb2_body="${_fb2_body//EXACT/6}"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s\n' "$_fb2_body"
+} > "$TMP/formB-widened/site.sh"
+OUT="$(bash "$SUT" "$TMP/formB-widened" 2>&1)"; RC=$?
+_fb2_count="$(printf '%s\n' "$OUT" | grep -cF 'FORM-B')"
+if [ "$RC" -eq 1 ] && [ "$_fb2_count" -eq 4 ]; then
+  ok "12 FORM-B widened forms: bare pattern, negated bare pattern, match() argument, exact-count interval all detected (4 sites)"
+else
+  no "12 FORM-B widened forms failed (exit=$RC count=$_fb2_count out=[$OUT])"
+fi
+
+# 13. DEFAULT (no-argument) invocation scans BOTH research-sdd/toolbelt AND research-sdd/install
+#     (kit issue #1142 review finding #3: install/tests/research-sdd-install.test.sh had a real
+#     site; the lint's coverage must match CLAUDE.md §5's shellcheck glob, which names both trees).
+OUT="$(cd "$TOOLBELT_ROOT" && bash "$SUT" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] \
+   && printf '%s\n' "$OUT" | grep -qF 'NO-MATCH' \
+   && printf '%s\n' "$OUT" | grep -q 'research-sdd/toolbelt' \
+   && printf '%s\n' "$OUT" | grep -q 'research-sdd/install'; then
+  ok "13 default no-argument invocation scans both research-sdd/toolbelt and research-sdd/install, 0 violations"
+else
+  no "13 default invocation failed (exit=$RC out=[$OUT])"
+fi
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-substitution.sh --"

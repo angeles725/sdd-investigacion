@@ -634,6 +634,31 @@ if [ "$rc" -ne 0 ] \
   ok "install-absent: research-sdd/install/tests missing -> ABSENT-INPUT reported, run exits non-zero despite the toolbelt suite passing"
 else no "install-absent failed: rc=$rc :: $(grep -E 'Corpus:|ABSENT|Suites passed' <<<"$out" | tr '\n' '|')"; fi
 
+# 33 — hermeticity-scanner-stderr-noise (kit issue #1142 review NIT, #1118 review NIT): a find
+#      that SUCCEEDS (rc=0) but also prints a harmless warning to stderr must not have that
+#      warning line misread as a phantom top-level cwd entry. Stubs find to print one stderr
+#      line then delegate to the real find with all args unchanged, so the -printf TSV scan
+#      itself still succeeds normally — only the extra stderr noise is new.
+_c33realfind="$(command -v find)"
+if [ -z "$_c33realfind" ]; then
+  ok "hermeticity-scanner-stderr-noise: SKIP — no real 'find' on PATH to build the stub from"
+else
+  w="$(newdir c33)"
+  mkfix_sh "$w/a.test.sh" 1 0 0
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "find: harmless warning, not an error" >&2\n'
+    printf 'exec %s "$@"\n' "$_c33realfind"
+  } > "$TMP/c33-bin-find"
+  _c33bin="$TMP/c33-bin"; mkdir -p "$_c33bin"
+  mv "$TMP/c33-bin-find" "$_c33bin/find"; chmod +x "$_c33bin/find"
+  _c33cwd="$TMP/c33-cwd"; mkdir -p "$_c33cwd"
+  out="$(cd "$_c33cwd" && PATH="$_c33bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  rm -rf "$_c33cwd" "$_c33bin" 2>/dev/null || true
+  if [ "$rc" -eq 0 ] && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$out"; then
+    ok "hermeticity-scanner-stderr-noise: a find stderr warning on an otherwise-successful scan is not misread as a phantom entry"
+  else no "hermeticity-scanner-stderr-noise failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
+
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -911,6 +936,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-corpus-merge: merge-loop-neutered mutant still declares '= 1' but only runs 1 suite → case 30's suite-count assertion has real teeth"
     else
       no "teeth-corpus-merge: mutant did not desync corpus-declared count from suites-run count (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -E 'Corpus:|Suites run' <<<"$mout" | tr '\n' '|')]"
+    fi
+  fi
+
+  # Mutation 12 (kit issue #1142 review NIT): revert SENTINEL-SCANNER-STDOUT-ONLY's find capture
+  # to merge stderr into stdout (2>&1) again. Case 33's stderr-warning-on-success scenario must
+  # then misread the warning line as a phantom top-level entry, proving the stdout-only fix has
+  # real teeth. Uses the sed r+d idiom (append replacement file, then delete the matched line)
+  # to avoid embedding the printf format string's own backslash-tab/newline escapes in a sed -e
+  # script, which would collide with sed's own escaping.
+  echo "-- teeth: revert SENTINEL-SCANNER-STDOUT-ONLY to 2>&1; case 33's stderr-noise scenario must misread it as a phantom entry --"
+  w="$TMP/teeth-scanner-stdout-only"; mkdir -p "$w"
+  sentinel12='  # SENTINEL-SCANNER-STDOUT-ONLY'
+  sentinel12_count="$(grep -Fc "$sentinel12" "$SUT")"
+  repl12="$TMP/teeth-scanner-stdout-only-repl.txt"
+  cat <<'REPL12' > "$repl12"
+  _out="$(find "$CALLER_CWD" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\n' 2>&1)"
+REPL12
+  sed "/SENTINEL-SCANNER-STDOUT-ONLY/r $repl12" "$SUT" > "$w/run-all.sh"
+  sed -i '/SENTINEL-SCANNER-STDOUT-ONLY/{n;n;d}' "$w/run-all.sh"
+  if [ "$sentinel12_count" -ne 1 ]; then
+    no "teeth-scanner-stdout-only: SENTINEL-SCANNER-STDOUT-ONLY not found exactly once (count=$sentinel12_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-scanner-stdout-only: 2>&1-revert mutation was a byte-identical no-op"
+  else
+    _t12realfind="$(command -v find)"
+    if [ -z "$_t12realfind" ]; then
+      no "teeth-scanner-stdout-only: no real 'find' on PATH to build the stub from"
+    else
+      mkfix_sh "$w/a.test.sh" 1 0 0
+      # The warning includes a changing value (nanosecond timestamp) each invocation: a CONSTANT
+      # stderr message would land identically in the baseline scan AND every per-suite scan, so
+      # the guard's diff-based check would never see it as new/modified (no violation, THEATER).
+      { printf '#!/usr/bin/env bash\n'
+        printf 'echo "find: harmless warning $(date +%%s%%N) not an error" >&2\n'
+        printf 'exec %s "$@"\n' "$_t12realfind"
+      } > "$TMP/teeth-scanner-stdout-only-bin-find"
+      _t12bin="$TMP/teeth-scanner-stdout-only-bin"; mkdir -p "$_t12bin"
+      mv "$TMP/teeth-scanner-stdout-only-bin-find" "$_t12bin/find"; chmod +x "$_t12bin/find"
+      _t12cwd="$TMP/teeth-scanner-stdout-only-cwd"; mkdir -p "$_t12cwd"
+      mout="$(cd "$_t12cwd" && PATH="$_t12bin:$PATH" bash "$w/run-all.sh" 2>&1)"; mrc=$?
+      rm -rf "$_t12cwd" "$_t12bin" 2>/dev/null || true
+      if ! grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$mout"; then
+        ok "teeth-scanner-stdout-only: 2>&1-reverted mutant misreads the stderr warning as a phantom entry → case 33 has real teeth"
+      else
+        no "teeth-scanner-stdout-only: mutant still reported 0 violations (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
+      fi
     fi
   fi
 fi
