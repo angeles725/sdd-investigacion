@@ -1140,8 +1140,9 @@ Always read first, in this order:
          `retro: pending`. Enforcement: once wired (kit issue #479), `$KIT/toolbelt/retro-gate.sh` runs as the
          target's Stop hook and blocks the session ONCE with the exact missing element until this holds.
          CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
-         triggers via `stage-retro-issues.sh` — is wired only through `<target>/.claude/settings.json`'s
-         `Stop` hooks array; codex and reasonix have no equivalent hook, so their runs never auto-seed. On
+         triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
+         project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for codex or
+         reasonix, so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
          codex/reasonix, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
          retro is written (the same point the RETRO CHECKPOINT above requires it), before ending the run.
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
