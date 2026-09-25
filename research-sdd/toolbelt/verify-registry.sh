@@ -60,6 +60,24 @@ if [ ! -f "$_vr_bf_lib" ]; then echo "verify-registry: cannot find helper $_vr_b
 declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-registry: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
 unset _vr_bf_lib
 
+# Shared corpus-marker predicate (kit issue #1108): single source of truth with
+# research-sdd-init.sh's --wire anti-implicit-scaffold guard.
+_vr_cm_lib="$(cd "$(dirname "$0")" && pwd)/lib/corpus-markers.sh"
+if [ ! -f "$_vr_cm_lib" ]; then echo "verify-registry: cannot find helper $_vr_cm_lib" >&2; exit 1; fi
+# shellcheck source=lib/corpus-markers.sh
+. "$_vr_cm_lib"
+declare -F corpus_marker_present >/dev/null 2>&1 || { echo "verify-registry: helper lib/corpus-markers.sh failed to define corpus_marker_present" >&2; exit 1; }
+unset _vr_cm_lib
+
+# Shared Stop-hook wiring predicate (kit issue #1108/#1109): single source of truth with
+# sweep-retros.sh's WIRING-STATUS fleet pass and research-sdd-status.sh's self-report line.
+_vr_hw_lib="$(cd "$(dirname "$0")" && pwd)/lib/hook-wiring.sh"
+if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_hw_lib" >&2; exit 1; fi
+# shellcheck source=lib/hook-wiring.sh
+. "$_vr_hw_lib"
+declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
+unset _vr_hw_lib
+
 if [ ! -f "$TARGETS_MD" ]; then
   echo "verify-registry: cannot find $TARGETS_MD" >&2
   exit 1  # OPERATIONAL failure: cannot proceed without the registry.  # TARGETS-MISSING-CHECK
@@ -205,6 +223,30 @@ for p in $paths; do
     done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
   fi
 
+  # HOOK-WIRING RECONCILIATION (kit issue #1108): a row whose maturity cell claims 'hook yes'
+  # (the SPECIFIC claim that the hook "will fire" per the TARGETS.md legend — distinct from
+  # 'hook no', 'hook deferred', or 'hook file yes / unregistered', none of which assert active
+  # wiring) is reconciled against the SAME Stop-scoped check sweep-retros.sh's WIRING-STATUS pass
+  # uses (lib/hook-wiring.sh — single source of truth). Runs for BOTH nc and non-nc rows: a
+  # tooling/nc target can still register a Stop hook. WARN-only; never fires for any other hook
+  # token, including 'hook file yes / unregistered' (which already admits it is unregistered).
+  #
+  # NARROWER than the legend (kit issue #1108 round 2): the legend also recognizes
+  # <target>/.claude/settings.local.json and a user-level ~/.claude/settings.json as valid
+  # registration paths — this reconciliation checks only <target>/.claude/settings.json (see
+  # lib/hook-wiring.sh's own header for why: preserving sweep-retros.sh's byte-identical
+  # behavior). A row correctly wired only via one of those two other paths gets a WARN here that
+  # the legend would not justify; verify by hand before refreshing such a row. Measured on the
+  # real fleet at #1108 round 2: 0 of 17 reachable targets affected.
+  _vr_hook_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+yes([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-CLAIM-EXTRACT
+  if [ -n "$_vr_hook_claim" ]; then
+    _vr_hook_state="$(hook_stop_wiring_state "$p")"
+    if [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
+      echo "WARN  $(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
+      attention=$((attention + 1))
+    fi
+  fi
+
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
   # nc-marked targets (tooling, doc, production app) never trigger a deep filesystem search.
   # Convention: 'N md' for nc rows counts root-level .md only (maxdepth 1 — package-manager-safe;
@@ -240,10 +282,30 @@ for p in $paths; do
     continue
   fi
 
+  # REGISTERED-PATH MARKER CHECK (kit issue #1108): does the registered path itself carry a
+  # corpus marker, at the SAME granularity research-sdd-init.sh's --wire anti-implicit-scaffold
+  # guard checks — root-level INDEX.md/CATALOG.md/RESEARCH-STATE*.md at $p, or one level nested
+  # at $p/corpus (lib/corpus-markers.sh; single source of truth with that guard). This is
+  # DELIBERATELY narrower than the maxdepth-3 corpus-root search a few lines below: that deep
+  # search exists to tolerate a nested-corpus layout (e.g. <target>/research/RESEARCH-STATE.md)
+  # and papers over exactly the defect this WARNs about — a registered row pointing at a
+  # CONTAINER directory, not the actual corpus root, even when downstream tooling still manages
+  # to locate the corpus somewhere inside it (three.js repro: `$RESEARCH_HOME/prototipos/three.js`
+  # registered; the real corpus lives two levels deeper, under a nested git repo's own research/).
+  # WARN-only; never fires for nc rows (already handled and `continue`d above).
+  if ! corpus_marker_present "$p" "$p/corpus"; then  # REGISTERED-PATH-MARKER-CHECK
+    echo "WARN  $(basename "$p") — registered path has no corpus marker (no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at ${p} or ${p}/corpus); the row may be pointing at a container directory rather than the corpus root — verify against research-sdd-init.sh's --wire marker check (propose-never-apply)."
+    attention=$((attention + 1))
+  fi
+
   # Resolve the corpus root EXACTLY like research-sdd-archive.sh / verify-state.sh: the shallowest
   # RESEARCH-STATE*.md under the target, deterministically. This transparently handles a flat corpus
-  # (<path>/), a nested one (<path>/research/, e.g. three.js) or (<path>/corpus/) — the corpus is
-  # wherever the state file lives, no per-layout guessing.
+  # (<path>/) or the canonical nested convention (<path>/corpus/, METHODOLOGY "Use the name
+  # `corpus/` (not `research/`)") — the corpus is wherever the state file lives, no per-layout
+  # guessing. It ALSO tolerates a non-canonical deep layout such as three.js's own
+  # threejs-hvac-prototipos/research/ (found via the maxdepth-3 walk below), which is precisely
+  # what makes that tolerance the wrong signal for "is this row registered correctly" — see the
+  # REGISTERED-PATH MARKER CHECK a few lines below, which enforces the canonical convention.
   state="$(find "$p" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | sort | head -1)"
   if [ -z "$state" ] || [ ! -f "$state" ]; then
     echo "WARN  $p — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks."

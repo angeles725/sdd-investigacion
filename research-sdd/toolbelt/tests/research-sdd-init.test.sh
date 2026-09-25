@@ -100,6 +100,32 @@ chmod u+w "$d"
 # BAD 5 — nonexistent target dir
 assert_exit 2 "BAD: nonexistent target dir" "$TMP/does-not-exist" --corpus flat
 
+# BAD 5b — kit issue #1108 round 2: lib/corpus-markers.sh FILE absent → exit 1, 'cannot find
+#          helper', before any scaffold write (corpus_present() cannot even be defined).
+mkdir -p "$TMP/nolib5b/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/nolib5b/templates"
+cp "$SUT" "$TMP/nolib5b/toolbelt/init.sh"
+d="$TMP/nolib5b-target"; mkdir -p "$d"
+_nolib5b_out="$(bash "$TMP/nolib5b/toolbelt/init.sh" "$d" --corpus flat 2>&1)"; _nolib5b_rc=$?
+if [ "$_nolib5b_rc" = 1 ] && grep -q 'cannot find helper' <<<"$_nolib5b_out" && [ ! -e "$d/RESEARCH-STATE.md" ]; then
+  ok "BAD 5b: corpus-markers helper file absent → exit 1, 'cannot find helper', no write"
+else
+  no "BAD 5b: corpus-markers helper file absent → exit 1, 'cannot find helper', no write" "rc=$_nolib5b_rc out=[$_nolib5b_out]"
+fi
+
+# BAD 5c — kit issue #1108 round 2: lib/corpus-markers.sh exists but defines no
+#          corpus_has_marker → exit 1, 'failed to define', no write.
+mkdir -p "$TMP/brokenlib5c/toolbelt/lib"; ln -sfn "$HERE/../../templates" "$TMP/brokenlib5c/templates"
+cp "$SUT" "$TMP/brokenlib5c/toolbelt/init.sh"
+printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no corpus_has_marker\n' \
+  > "$TMP/brokenlib5c/toolbelt/lib/corpus-markers.sh"
+d="$TMP/brokenlib5c-target"; mkdir -p "$d"
+_brokenlib5c_out="$(bash "$TMP/brokenlib5c/toolbelt/init.sh" "$d" --corpus flat 2>&1)"; _brokenlib5c_rc=$?
+if [ "$_brokenlib5c_rc" = 1 ] && grep -q 'failed to define corpus_has_marker' <<<"$_brokenlib5c_out" && [ ! -e "$d/RESEARCH-STATE.md" ]; then
+  ok "BAD 5c: broken corpus-markers helper → exit 1, 'failed to define', no write"
+else
+  no "BAD 5c: broken corpus-markers helper → exit 1, 'failed to define', no write" "rc=$_brokenlib5c_rc out=[$_brokenlib5c_out]"
+fi
+
 # GITIGNORE 6 — pre-existing .gitignore with NO trailing newline must not fuse
 d="$TMP/gi-nonewline"; mkdir -p "$d"; printf 'node_modules/' > "$d/.gitignore"   # no trailing \n
 assert_exit 0 "GITIGNORE: appends without fusing the last line" "$d" --corpus flat
@@ -111,7 +137,7 @@ grep -qxF 'node_modules/' "$d/.gitignore" && ok "  gitignore: node_modules/ not 
 # A mutant rollback doing rm -rf "$target"/* would destroy PRECIOUS.md while the absence
 # assertions all still pass — this sentinel makes the over-deletion visible (proven below).
 cp -r "$HERE/../../templates" "$TMP/rbk-templates"
-mkdir -p "$TMP/rbk/toolbelt"; cp "$SUT" "$TMP/rbk/toolbelt/init.sh"; ln -sfn "$TMP/rbk-templates" "$TMP/rbk/templates"
+mkdir -p "$TMP/rbk/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/rbk/toolbelt/lib/"; cp "$SUT" "$TMP/rbk/toolbelt/init.sh"; ln -sfn "$TMP/rbk-templates" "$TMP/rbk/templates"
 chmod 000 "$TMP/rbk-templates/RESEARCH-STATE.template.md"   # 2nd cp fails after INDEX is copied
 d="$TMP/rollback"; mkdir -p "$d"
 printf 'PRECIOUS\n' > "$d/PRECIOUS.md"    # pre-existing file this run did NOT create
@@ -985,7 +1011,8 @@ fi
 # Built as a fully SYNTHETIC nested mini-kit (mktemp -d) with a render dir whose toolbelt/ is a
 # genuine whole-directory SYMLINK (the real F1 shape) — never the live tracked toolbelt/.
 _ki_altkit="$TMP/ki-altkit"
-mkdir -p "$_ki_altkit/toolbelt"
+mkdir -p "$_ki_altkit/toolbelt/lib"
+cp "$HERE/../lib/corpus-markers.sh" "$_ki_altkit/toolbelt/lib/"
 cp "$SUT" "$_ki_altkit/toolbelt/research-sdd-init.sh"
 chmod +x "$_ki_altkit/toolbelt/research-sdd-init.sh"
 ln -sfn "$HERE/../../templates" "$_ki_altkit/templates"
@@ -1005,38 +1032,37 @@ fi
 # NEGATIVE CONTROL — prove the corpus-present guard has TEETH.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth proof: neuter the corpus-present guard, expect the data-loss fixture to CLOBBER --"
-  mkdir -p "$TMP/mk/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mk/templates"
+  mkdir -p "$TMP/mk/toolbelt/lib"; ln -sfn "$HERE/../../templates" "$TMP/mk/templates"
+  # kit issue #1108 round 2 (RDD finding): corpus_present() in research-sdd-init.sh is now a
+  # one-line wrapper delegating to corpus_has_marker() in lib/corpus-markers.sh — mutating the
+  # WRAPPER only proves the refuse tests depend on corpus_present()'s return value (already true
+  # before the refactor); it says nothing about whether research-sdd-init.sh actually WIRES to
+  # the shared lib. Mutate the LIB instead and run research-sdd-init.sh UNMODIFIED (straight
+  # copy, no awk transform) against it — this proves both the guard's load-bearing-ness AND the
+  # real delegation chain (wrapper → lib), the thing this refactor actually changed.
   mutant="$TMP/mk/toolbelt/init.sh"
-  # corpus_present() is now multi-line (kit issue #1047 round 2: RESEARCH-STATE*.md glob for the
-  # §16 multi-focus form) — replacing only its OPENING line and relying on `next` to skip it would
-  # leave the ORIGINAL body dangling as orphaned top-level code (a bare `return` outside any
-  # function), which crashes the mutant under `set -Eeuo pipefail` instead of neutering the guard.
-  # Skip the WHOLE function body through its closing brace, like the MW23 mutant below.
-  awk '
-    /^corpus_present\(\) \{$/ {
-      print "corpus_present() { return 1; }  # MUTANT: guard neutered"
-      skip=1
-      next
-    }
-    skip==1 && /^}$/ { skip=0; next }
-    skip==1 { next }
-    { print }
-  ' "$SUT" > "$mutant"
-  if ! grep -q 'MUTANT: guard neutered' "$mutant"; then
-    no "teeth: could not build mutant (guard line not found)"
+  cp "$SUT" "$mutant"; chmod +x "$mutant"
+  if ! grep -qE '^      return 0$' "$HERE/../lib/corpus-markers.sh"; then
+    no "teeth: could not build mutant (RESEARCH-STATE branch 'return 0' anchor not found in lib)"
   else
-    d="$TMP/teeth"; mkdir -p "$d"; printf 'REAL HAND-CURATED GAPS\n' > "$d/RESEARCH-STATE.md"
-    bash "$mutant" "$d" --corpus flat >/dev/null 2>&1; mg=$?
-    if [ "$mg" = 0 ] && ! grep -qF 'REAL HAND-CURATED GAPS' "$d/RESEARCH-STATE.md"; then
-      ok "teeth: mutant clobbers curated state (exit 0, gone) → refuse tests have teeth"
+    sed '0,/^      return 0$/{s/^      return 0$/      return 1  # MUTANT: guard neutered/}' \
+      "$HERE/../lib/corpus-markers.sh" > "$TMP/mk/toolbelt/lib/corpus-markers.sh"
+    if ! grep -qF 'MUTANT: guard neutered' "$TMP/mk/toolbelt/lib/corpus-markers.sh"; then
+      no "teeth: could not build mutant (guard line not found)"
     else
-      no "teeth: mutant exit $mg / data present — refuse tests do NOT depend on the guard (THEATER)"
+      d="$TMP/teeth"; mkdir -p "$d"; printf 'REAL HAND-CURATED GAPS\n' > "$d/RESEARCH-STATE.md"
+      bash "$mutant" "$d" --corpus flat >/dev/null 2>&1; mg=$?
+      if [ "$mg" = 0 ] && ! grep -qF 'REAL HAND-CURATED GAPS' "$d/RESEARCH-STATE.md"; then
+        ok "teeth: mutant clobbers curated state (exit 0, gone) → refuse tests have teeth (real lib wiring)"
+      else
+        no "teeth: mutant exit $mg / data present — refuse tests do NOT depend on the guard (THEATER)"
+      fi
     fi
   fi
 
   # Mutation 2: neuter tools-README seeding — prove tools-scaffold assertions have teeth
   echo "-- teeth proof: omit tools-README cpf, expect README to be absent --"
-  mkdir -p "$TMP/tt/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/tt/templates"
+  mkdir -p "$TMP/tt/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/tt/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/tt/templates"
   tt_mutant="$TMP/tt/toolbelt/init.sh"
   awk '/cpf.*tools-README\.template\.md/ { next } { print }' "$SUT" > "$tt_mutant"
   if ! grep -qE 'cpf.*tools-README' "$SUT" || grep -qE 'cpf.*tools-README' "$tt_mutant"; then
@@ -1053,7 +1079,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation M1: strip (PROMPT-LOOP §b) from step-1 → §b) absent in stdout
   echo "-- teeth proof M1: strip (PROMPT-LOOP §b) from step-1 echo → §b) absent --"
-  mkdir -p "$TMP/m1/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m1/templates"
+  mkdir -p "$TMP/m1/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m1/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m1/templates"
   m1_mutant="$TMP/m1/toolbelt/init.sh"
   awk '/\(PROMPT-LOOP §b\)/ { sub(/\(PROMPT-LOOP §b\)/, ""); } { print }' "$SUT" > "$m1_mutant"
   if grep -qF '(PROMPT-LOOP §b)' "$m1_mutant"; then
@@ -1070,7 +1096,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation M2: always-print step-5 (remove prefix guard) → no-prefix ABSENT assertion flips red
   echo "-- teeth proof M2: remove prefix-if guard → step-5 appears in no-prefix run --"
-  mkdir -p "$TMP/m2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m2/templates"
+  mkdir -p "$TMP/m2/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m2/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m2/templates"
   m2_mutant="$TMP/m2/toolbelt/init.sh"
   awk '/if \[ -n "\$prefix" \]/ { print "if true; then  # MUTANT: always print step 5"; next } { print }' "$SUT" > "$m2_mutant"
   if ! grep -q 'MUTANT: always print step 5' "$m2_mutant"; then
@@ -1087,7 +1113,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation M3: remove gitignored split line → gitignored/--force absent from already-git output
   echo "-- teeth proof M3: remove gitignored line → gitignored/--force absent --"
-  mkdir -p "$TMP/m3/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m3/templates"
+  mkdir -p "$TMP/m3/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m3/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m3/templates"
   m3_mutant="$TMP/m3/toolbelt/init.sh"
   awk '/\.claude\/ hook is gitignored/ { next } { print }' "$SUT" > "$m3_mutant"
   if grep -qF '.claude/ hook is gitignored' "$m3_mutant"; then
@@ -1108,7 +1134,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation M4: delete NEXT echo line → research-sdd-status.sh absent from stdout
   echo "-- teeth proof M4: delete NEXT echo → research-sdd-status.sh absent --"
-  mkdir -p "$TMP/m4/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m4/templates"
+  mkdir -p "$TMP/m4/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m4/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m4/templates"
   m4_mutant="$TMP/m4/toolbelt/init.sh"
   awk '/NEXT: run.*research-sdd-status\.sh/ { next } { print }' "$SUT" > "$m4_mutant"
   if grep -qF 'NEXT: run' "$m4_mutant"; then
@@ -1125,7 +1151,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation M5: delete CONFIRM group header → CONFIRM these are done absent from stdout
   echo "-- teeth proof M5: delete CONFIRM group header → CONFIRM these are done absent --"
-  mkdir -p "$TMP/m5/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m5/templates"
+  mkdir -p "$TMP/m5/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m5/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m5/templates"
   m5_mutant="$TMP/m5/toolbelt/init.sh"
   awk '/CONFIRM these are done/ { next } { print }' "$SUT" > "$m5_mutant"
   if grep -qF 'CONFIRM these are done' "$m5_mutant"; then
@@ -1142,7 +1168,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Mutation M6: delete THEN group header → THEN do next (post-scaffold) absent from stdout
   echo "-- teeth proof M6: delete THEN group header → THEN do next (post-scaffold) absent --"
-  mkdir -p "$TMP/m6/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m6/templates"
+  mkdir -p "$TMP/m6/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m6/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m6/templates"
   m6_mutant="$TMP/m6/toolbelt/init.sh"
   awk '/THEN do next \(post-scaffold\)/ { next } { print }' "$SUT" > "$m6_mutant"
   if grep -qF 'THEN do next (post-scaffold)' "$m6_mutant"; then
@@ -1161,7 +1187,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # → CONFIRM appears AFTER item-1 in output, breaking CONFIRM<item1 while keeping both markers present.
   # This isolates ORDER, not presence — proving the ordering assertion has teeth.
   echo "-- teeth proof M7: move CONFIRM after item-2 → CONFIRM>item1 in output, ordering assertion has teeth --"
-  mkdir -p "$TMP/m7/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/m7/templates"
+  mkdir -p "$TMP/m7/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/m7/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/m7/templates"
   m7_mutant="$TMP/m7/toolbelt/init.sh"
   awk '/CONFIRM these are done/ { cf=$0; next } /2\. CLASSIFY the artifact/ { print; if (cf!="") { print cf; cf="" } next } { print }' "$SUT" > "$m7_mutant"
   # Build-check: CONFIRM must be PRESENT and AFTER item-2 in the mutant file (not a silent delete)
@@ -1191,7 +1217,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW1: jq not on PATH"
   else
-    mkdir -p "$TMP/mw1/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw1/templates"
+    mkdir -p "$TMP/mw1/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw1/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw1/templates"
     mw1="$TMP/mw1/toolbelt/init.sh"
     awk '/mv "\$_tmp_settings" "\$_settings"/ { next } { print }' "$SUT" > "$mw1"
     if grep -q 'mv "\$_tmp_settings"' "$mw1"; then
@@ -1212,7 +1238,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW2: jq not on PATH"
   else
-    mkdir -p "$TMP/mw2/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw2/templates"
+    mkdir -p "$TMP/mw2/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw2/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw2/templates"
     mw2="$TMP/mw2/toolbelt/init.sh"
     # The bottom "if [ "$wire" = 1 ]; then" propose-never-apply guard now shares its FULL line
     # text with TWO other guards: the WIRE-ONLY-EXISTING-CORPUS repair guard (longer, "&& force"
@@ -1260,7 +1286,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if PATH="$_mw3_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  teeth MW3: cannot exclude jq from PATH (multiple copies)"
     else
-      mkdir -p "$TMP/mw3/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw3/templates"
+      mkdir -p "$TMP/mw3/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw3/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw3/templates"
       mw3="$TMP/mw3/toolbelt/init.sh"
       awk '/echo "degraded: jq not found/ { next } { print }' "$SUT" > "$mw3"
       if grep -qF 'echo "degraded: jq not found' "$mw3"; then
@@ -1282,7 +1308,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW5: jq not on PATH"
   else
-    mkdir -p "$TMP/mw5/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw5/templates"
+    mkdir -p "$TMP/mw5/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw5/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw5/templates"
     mw5="$TMP/mw5/toolbelt/init.sh"
     # The wire-only path is anchored by a sentinel comment: # WIRE-ONLY-EXISTING-CORPUS
     awk '/# WIRE-ONLY-EXISTING-CORPUS/,/^fi[[:space:]]*# end wire-only/ { next } { print }' "$SUT" > "$mw5"
@@ -1308,7 +1334,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW6: jq not on PATH"
   else
-    mkdir -p "$TMP/mw6/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw6/templates"
+    mkdir -p "$TMP/mw6/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw6/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw6/templates"
     mw6="$TMP/mw6/toolbelt/init.sh"
     awk '/if \[ -e "\$_wo_stop" \]; then/ { print "if false; then  # MUTANT: always overwrite existing hook"; next } { print }' "$SUT" > "$mw6"
     if ! grep -q 'MUTANT: always overwrite existing hook' "$mw6"; then
@@ -1336,7 +1362,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW7: jq not on PATH"
   else
-    mkdir -p "$TMP/mw7/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw7/templates"
+    mkdir -p "$TMP/mw7/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw7/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw7/templates"
     mw7="$TMP/mw7/toolbelt/init.sh"
     # Anchor on the repair-path guard specifically (there are two call sites of
     # _rsdd_has_live_subject_placeholder — this targets the one gating $_wo_skip_ss, not the
@@ -1370,7 +1396,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW8: jq not on PATH"
   else
-    mkdir -p "$TMP/mw8/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw8/templates"
+    mkdir -p "$TMP/mw8/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw8/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw8/templates"
     mw8="$TMP/mw8/toolbelt/init.sh"
     awk '/cp "\$TPL\/hook-stop-retro-gate\.sh" "\$_wo_stop"/ { next } { print }' "$SUT" > "$mw8"
     if grep -qF 'cp "$TPL/hook-stop-retro-gate.sh" "$_wo_stop"' "$mw8"; then
@@ -1399,7 +1425,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if PATH="$_mw9_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  teeth MW9: cannot exclude jq from PATH (multiple copies)"
     else
-      mkdir -p "$TMP/mw9/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw9/templates"
+      mkdir -p "$TMP/mw9/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw9/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw9/templates"
       mw9="$TMP/mw9/toolbelt/init.sh"
       awk '
         /§7 anti-silent-zero: probe for jq FIRST/ { anchor=1 }
@@ -1431,7 +1457,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW10: jq not on PATH"
   else
-    mkdir -p "$TMP/mw10/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw10/templates"
+    mkdir -p "$TMP/mw10/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw10/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw10/templates"
     mw10="$TMP/mw10/toolbelt/init.sh"
     awk '{
       if ($0 ~ /\$stop_variants \| index\(\$c\)\) != null\)\) as \$has_stop \|/) {
@@ -1460,7 +1486,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW11: jq not on PATH"
   else
-    mkdir -p "$TMP/mw11/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw11/templates"
+    mkdir -p "$TMP/mw11/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw11/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw11/templates"
     mw11="$TMP/mw11/toolbelt/init.sh"
     awk '/if \[ -e "\$_wo_ss" \]; then/ { print "if false; then  # MUTANT: always overwrite existing ss hook"; next } { print }' "$SUT" > "$mw11"
     if ! grep -q 'MUTANT: always overwrite existing ss hook' "$mw11"; then
@@ -1491,7 +1517,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW12: jq not on PATH"
   else
-    mkdir -p "$TMP/mw12/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw12/templates"
+    mkdir -p "$TMP/mw12/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw12/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw12/templates"
     mw12="$TMP/mw12/toolbelt/init.sh"
     awk '
       /^_rsdd_cmd_variants_json\(\) \{/ { infn=1 }
@@ -1540,7 +1566,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW13: jq not on PATH"
   else
-    mkdir -p "$TMP/mw13/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw13/templates"
+    mkdir -p "$TMP/mw13/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw13/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw13/templates"
     mw13="$TMP/mw13/toolbelt/init.sh"
     awk '
       /if \[ -s "\$_wo_settings" \] && ! jq -e .type==.object./ { skip=5 }
@@ -1569,7 +1595,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW14: jq not on PATH"
   else
-    mkdir -p "$TMP/mw14/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw14/templates"
+    mkdir -p "$TMP/mw14/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw14/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw14/templates"
     mw14="$TMP/mw14/toolbelt/init.sh"
     awk '
       /if \[ -s "\$_wo_settings" \] && ! jq -e .type==.object./ {
@@ -1604,7 +1630,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW15: jq not on PATH"
   else
-    mkdir -p "$TMP/mw15/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw15/templates"
+    mkdir -p "$TMP/mw15/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw15/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw15/templates"
     mw15="$TMP/mw15/toolbelt/init.sh"
     awk '
       /_rsdd_print_wire_snippet "\$_wo_stop" "\$_wo_ss" "\$_wo_skip_ss" "\$target"/ { print; getline; print; print "    exit 0  # MUTANT: merge-failure fallback reports success"; skip=1; next }
@@ -1632,7 +1658,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW16: jq not on PATH"
   else
-    mkdir -p "$TMP/mw16/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw16/templates"
+    mkdir -p "$TMP/mw16/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw16/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw16/templates"
     mw16="$TMP/mw16/toolbelt/init.sh"
     awk '{
       if ($0 ~ /jq .\.settings. <<<\"\$_wo_merge_out\" > \"\$_wo_tmp\"/) {
@@ -1667,7 +1693,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if PATH="$_mw17_pnojq" command -v jq >/dev/null 2>&1; then
       echo "  SKIP  teeth MW17: cannot exclude jq from PATH (multiple copies)"
     else
-      mkdir -p "$TMP/mw17/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw17/templates"
+      mkdir -p "$TMP/mw17/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw17/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw17/templates"
       mw17="$TMP/mw17/toolbelt/init.sh"
       awk '/if \[ ! -e "\$_wo_ss" \]; then/ { print "      if false; then  # MUTANT: absent-ss-file guard neutered"; next } { print }' "$SUT" > "$mw17"
       if ! grep -qF 'MUTANT: absent-ss-file guard neutered' "$mw17"; then
@@ -1693,7 +1719,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW18: jq not on PATH"
   else
-    mkdir -p "$TMP/mw18/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw18/templates"
+    mkdir -p "$TMP/mw18/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw18/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw18/templates"
     mw18="$TMP/mw18/toolbelt/init.sh"
     awk '/        if \[ "\$_wo_has_ss" = "true" \]; then/ { print "        if false; then  # MUTANT: has_ss forced false inside skip_ss branch"; next } { print }' "$SUT" > "$mw18"
     if ! grep -qF 'MUTANT: has_ss forced false inside skip_ss branch' "$mw18"; then
@@ -1721,7 +1747,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # condition so it never fires → --wire alone on a fresh, marker-less target silently scaffolds
   # again → 1047-(a)/(b) exit-5 assertions RED.
   echo "-- teeth proof MW19 (#1047): drop the no-marker --wire refusal → 1047-(a)/(b) has teeth --"
-  mkdir -p "$TMP/mw19/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw19/templates"
+  mkdir -p "$TMP/mw19/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw19/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw19/templates"
   mw19="$TMP/mw19/toolbelt/init.sh"
   # kit issue #1047 round 2 merged the corpus-presence check and the --scaffold check into one
   # combined condition — anchor on that combined line, not the old standalone "$scaffold" = 0 one.
@@ -1742,7 +1768,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # `exit 5` so the refusal still fires (same exit code) but the target is mutated first → the
   # 1047-(a) byte-for-byte snapshot / "NO retros/ created" assertions RED.
   echo "-- teeth proof MW20 (#1047): write before refusing → 1047-(a) snapshot assertion has teeth --"
-  mkdir -p "$TMP/mw20/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw20/templates"
+  mkdir -p "$TMP/mw20/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw20/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw20/templates"
   mw20="$TMP/mw20/toolbelt/init.sh"
   # kit issue #1047 round 2 reduced the refusal's nesting by one level (merged condition) — the
   # "exit 5" line is now 4-space indented, not 6.
@@ -1767,7 +1793,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  SKIP  teeth MW21: jq not on PATH"
   else
-    mkdir -p "$TMP/mw21/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw21/templates"
+    mkdir -p "$TMP/mw21/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw21/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw21/templates"
     mw21="$TMP/mw21/toolbelt/init.sh"
     awk '/if _rsdd_has_live_subject_placeholder "\$_ss_cmd"; then/ { print "    if false; then  # MUTANT: scaffold+wire SUBJECT guard neutered (kit issue #1047)"; next } { print }' "$SUT" > "$mw21"
     if ! grep -qF 'MUTANT: scaffold+wire SUBJECT guard neutered' "$mw21"; then
@@ -1787,7 +1813,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # refusal on force=0 again (the exact pre-round-2 shape) → --force --wire on a marker-less
   # target silently scaffolds again → 1047-(e)/(f) exit-5 assertions RED.
   echo "-- teeth proof MW22 (#1047 round 2): re-gate the no-marker refusal on force=0 → 1047-(e) has teeth --"
-  mkdir -p "$TMP/mw22/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw22/templates"
+  mkdir -p "$TMP/mw22/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw22/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw22/templates"
   mw22="$TMP/mw22/toolbelt/init.sh"
   awk '
     /^_wo_corpus_root=""$/ { print; anchor=1; next }
@@ -1817,20 +1843,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # present → --wire wrongly refuses it instead of taking the wire-only repair path → 1047-(g)
   # assertion RED.
   echo "-- teeth proof MW23 (#1047 round 2): drop the multi-focus marker glob → 1047-(g) has teeth --"
-  mkdir -p "$TMP/mw23/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw23/templates"
+  mkdir -p "$TMP/mw23/toolbelt/lib"; ln -sfn "$HERE/../../templates" "$TMP/mw23/templates"
+  # kit issue #1108 round 2 (RDD finding): mutate lib/corpus-markers.sh (where the
+  # RESEARCH-STATE*.md glob actually lives now) and run research-sdd-init.sh UNMODIFIED, so this
+  # tooth also proves the real wrapper→lib delegation, not just a hand-inlined stand-in.
   mw23="$TMP/mw23/toolbelt/init.sh"
-  awk '
-    /^corpus_present\(\) \{$/ {
-      print "corpus_present() { local r=\"$1\" m; for m in INDEX.md RESEARCH-STATE.md CATALOG.md; do [ -e \"$r/$m\" ] && return 0; done; return 1; }  # MUTANT: multi-focus marker dropped (kit issue #1047 round 2)"
-      skip=1
-      next
-    }
-    skip==1 && /^}$/ { skip=0; next }
-    skip==1 { next }
-    { print }
-  ' "$SUT" > "$mw23"
-  if ! grep -qF 'MUTANT: multi-focus marker dropped' "$mw23"; then
-    no "teeth MW23: could not build mutant (corpus_present() definition not found)"
+  cp "$SUT" "$mw23"; chmod +x "$mw23"
+  sed 's|for f in "\$r"/RESEARCH-STATE\*\.md; do|for f in "$r"/RESEARCH-STATE.md; do  # MUTANT: multi-focus marker dropped (kit issue #1047 round 2)|' \
+    "$HERE/../lib/corpus-markers.sh" > "$TMP/mw23/toolbelt/lib/corpus-markers.sh"
+  if ! grep -qF 'MUTANT: multi-focus marker dropped' "$TMP/mw23/toolbelt/lib/corpus-markers.sh"; then
+    no "teeth MW23: could not build mutant (RESEARCH-STATE*.md glob line not found in lib)"
   else
     dmw23="$TMP/mw23t"; mkdir -p "$dmw23"
     printf 'state\n' > "$dmw23/RESEARCH-STATE-frontend.md"
@@ -1845,7 +1867,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # MW24 (kit issue #1047 round 2): drop the "--scaffold requires --wire" usage guard →
   # --scaffold alone no longer rejects → 1047-(j) exit-2 assertion RED.
   echo "-- teeth proof MW24 (#1047 round 2): drop the --scaffold-without-wire usage guard → 1047-(j) has teeth --"
-  mkdir -p "$TMP/mw24/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw24/templates"
+  mkdir -p "$TMP/mw24/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw24/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw24/templates"
   mw24="$TMP/mw24/toolbelt/init.sh"
   awk '/scaffold requires --wire/ { next } { print }' "$SUT" > "$mw24"
   if grep -qF 'scaffold requires --wire' "$mw24"; then
@@ -1862,7 +1884,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # MW4: replace tool-registry.md with old stale text in template → TPL tool-registry.md assertion RED
   echo "-- teeth proof MW4: remove tool-registry.md from template → TPL pointer assertion has teeth --"
-  mkdir -p "$TMP/mw4/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/mw4/templates"
+  mkdir -p "$TMP/mw4/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw4/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw4/templates"
   mw4="$TMP/mw4/toolbelt/init.sh"
   cp "$SUT" "$mw4"
   # Make a mutant templates dir with tool-registry.md replaced in the hook template
@@ -1899,7 +1921,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth SYMLINK-TOOLBELT pre-check: mutant differs (-P reverted to plain cd/pwd)"
   fi
   _ki_altkit_t="$TMP/ki-altkit-teeth"
-  mkdir -p "$_ki_altkit_t/toolbelt"
+  mkdir -p "$_ki_altkit_t/toolbelt/lib"
+  cp "$HERE/../lib/corpus-markers.sh" "$_ki_altkit_t/toolbelt/lib/"
   cp "$_ki_mut" "$_ki_altkit_t/toolbelt/research-sdd-init.sh"
   chmod +x "$_ki_altkit_t/toolbelt/research-sdd-init.sh"
   ln -sfn "$HERE/../../templates" "$_ki_altkit_t/templates"

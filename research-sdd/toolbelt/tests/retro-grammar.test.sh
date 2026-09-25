@@ -213,6 +213,8 @@ cp "$LIB_STATUS" "$_kit/toolbelt/lib/retro-status.sh"
 cp "$LIB_TP"     "$_kit/toolbelt/lib/target-paths.sh"
 cp "$LIB_BF"     "$_kit/toolbelt/lib/block-files.sh"
 cp "$RG_LIB"     "$_kit/toolbelt/lib/retro-grammar.sh"
+# kit issue #1108: sweep-retros.sh now sources lib/hook-wiring.sh for its WIRING-STATUS pass.
+cp "$HERE/../lib/hook-wiring.sh" "$_kit/toolbelt/lib/hook-wiring.sh"
 
 # Fixture retro: uses ONLY the deprecated "## Summary of proposed delta" heading (not canonical).
 # With the real lib: sweep finds it (deprecated, ~2 deltas); verify exits 0 (deprecated but conforming).

@@ -398,7 +398,9 @@ cp "$FKIT_R5/toolbelt/stage-retro-issues.sh" "$MUT_KIT/toolbelt/"  # stub seeder
 # ── Mutant status kit dir: status mirror with lib for R3 mutant ───────────────
 MUT_STAT_KIT="$ROOT/mutstatkit/toolbelt"
 mkdir -p "$MUT_STAT_KIT/lib"
-for _l in focus-prefix.sh state-files.sh block-files.sh; do
+# kit issue #1109: research-sdd-status.sh now sources lib/hook-wiring.sh unconditionally at
+# the top (before any mode dispatch), so the R3 mutant needs it alongside the libs it already had.
+for _l in focus-prefix.sh state-files.sh block-files.sh hook-wiring.sh; do
   cp "$KIT_TOOLBELT/lib/$_l" "$MUT_STAT_KIT/lib/"
 done
 
@@ -410,8 +412,13 @@ done
 # neuter the scaffold+wire <SUBJECT> guard) and running the REAL mutant on a REAL fresh target,
 # then applying the exact phase-1 assertion shape to its REAL settings.json output.
 MUT_INIT_KIT="$ROOT/mutinitkit"
-mkdir -p "$MUT_INIT_KIT/toolbelt"
+mkdir -p "$MUT_INIT_KIT/toolbelt/lib"
 ln -sfn "$KIT_TOOLBELT/../templates" "$MUT_INIT_KIT/templates"
+# kit issue #1108: research-sdd-init.sh now sources lib/corpus-markers.sh unconditionally near
+# its top (corpus_present() delegates to corpus_has_marker) — without it the mutant hits the
+# missing-helper guard and exits 1 before ever reaching the SUBJECT-guard mutation this tooth
+# targets, so R2-TOOTH-A would fail for the WRONG reason (missing lib, not a real bite).
+cp "$KIT_TOOLBELT/lib/corpus-markers.sh" "$MUT_INIT_KIT/toolbelt/lib/corpus-markers.sh"
 MUT_INIT_SUT="$MUT_INIT_KIT/toolbelt/research-sdd-init.sh"
 awk '/if _rsdd_has_live_subject_placeholder "\$_ss_cmd"; then/ { print "    if false; then  # MUTANT: scaffold+wire SUBJECT guard neutered (R2-TOOTH-A)"; next } { print }' \
   "$INIT_SUT" > "$MUT_INIT_SUT"
