@@ -1223,7 +1223,15 @@ printf '# Retro — test\n\n## Notes\n\n<!-- review-status: applied 2026-01-01 -
 touch -t 202609051100 "$TPFX/retros/2026-09-04-tpfx-oos.md"
 mkretro "$TPFX" "2026-09-05-tpfx.md" 1
 touch -t 202609051200 "$TPFX/retros/2026-09-05-tpfx.md"
-run_gate "$TPFX" "$(mkjson "$STPFX" false)"
+# kit issue #1130 CI follow-up: _run_issue_seeding probes for `gh` BEFORE it ever reaches the
+# per-retro loop (and therefore before _retro_is_seedable's out-of-scope check) — without a
+# stubbed gh on PATH, it prints 'gh not found — issue-seeding skipped' and returns immediately,
+# so the out-of-scope-marker WARN never fires at all. Hermetic: use the shared MOCK_GH_DIR stub
+# (auth status/other calls both exit 0), the SAME convention every other gh-dependent invocation
+# in this file already uses (run_gate has no PATH hook, so this bypasses it deliberately).
+errf_tpfx="$ROOT/err_tpfx.$$"
+OUT="$(printf '%s' "$(mkjson "$STPFX" false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$SUT" "$TPFX" 2>"$errf_tpfx")"; RC=$?
+ERR="$(cat "$errf_tpfx")"; rm -f "$errf_tpfx"
 if printf '%s' "$ERR" | grep -q 'retro-gate: WARN: out-of-scope-marker: '; then
   ok "T-SEEDABLE-PFX: real retro-gate.sh WARN leads with the literal 'out-of-scope-marker:' token" "()"
 else
@@ -2091,8 +2099,11 @@ if [[ "$sut_content_gate" == *"$anchor_pfx1_gate"* ]]; then
   printf '%s\n' "${sut_content_gate/"$anchor_pfx1_gate"/"$reverted_pfx1_gate"}" > "$mutant_pfx1_gate"
   bash -n "$mutant_pfx1_gate" 2>/dev/null || { no "teeth PFX1: mutant failed bash -n" ""; }
   errf_pfx1="$ROOT/err_pfx1.$$"
+  # Same hermetic gh stub as T-SEEDABLE-PFX above — without it, _run_issue_seeding's own gh
+  # presence probe short-circuits before the retro loop, and this mutant would never reach the
+  # out-of-scope-marker line at all (RIGHT reason for a different failure, still THEATER-blind).
   printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$STPFX" \
-    | "$BASH_BIN" "$mutant_pfx1_gate" "$TPFX" >"$ROOT/out_pfx1.$$" 2>"$errf_pfx1"
+    | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$mutant_pfx1_gate" "$TPFX" >"$ROOT/out_pfx1.$$" 2>"$errf_pfx1"
   ERR_PFX1="$(cat "$errf_pfx1")"; rm -f "$errf_pfx1" "$ROOT/out_pfx1.$$"
   if ! printf '%s' "$ERR_PFX1" | grep -q 'WARN: out-of-scope-marker: ' \
      && printf '%s' "$ERR_PFX1" | grep -q 'out-of-scope-marker for'; then

@@ -4103,6 +4103,14 @@ CTR_TEETH_EOF
       cp "$HERE/../lib/state-files.sh" "$_oos_teeth_kit/lib/state-files.sh"
       cp "$HERE/../lib/block-files.sh" "$_oos_teeth_kit/lib/block-files.sh"
       cp "$HERE/../lib/retro-status.sh" "$_oos_teeth_kit/lib/retro-status.sh"
+      # kit issue #1130 CI follow-up: research-sdd-status.sh unconditionally sources
+      # lib/hook-wiring.sh (kit issue #1109, landed via #1120/#1129's merge into main) and exits 1
+      # if it is missing. Every OTHER mutant-kit builder in this file already copies it (see
+      # teeth-IDG-opfail immediately above); this one was added before that dependency existed
+      # and was never updated when the branch was rebased past it. Without this copy the mutant
+      # exits 1 with "cannot find helper" on stderr (discarded by 2>/dev/null below) and stdout
+      # is empty — deterministic in EVERY environment, not something a gh/PATH stub can paper over.
+      cp "$HERE/../lib/hook-wiring.sh" "$_oos_teeth_kit/lib/hook-wiring.sh"
       # Stub: exits 0, prints the real reconcile-issues.sh out-of-scope-marker: shape to stderr,
       # nothing to stdout (no ^untracked: lines) — same scenario as T-IDG-OOS.
       printf '#!/usr/bin/env bash\nprintf "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in r1.md — refusing to classify (kit issue #1099); move the marker into the leading block\\n" >&2\nexit 0\n' \
