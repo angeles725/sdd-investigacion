@@ -263,33 +263,43 @@ for p in $paths; do
   fi
 
   # SYMMETRIC HOOK-WIRING RECONCILIATION (kit issue #1128): the INVERSE direction of the check
-  # above. A row claiming 'hook no' or 'hook file yes' (neither of which asserts active wiring, per
-  # the TARGETS.md legend) whose Stop hook IS actually registered is registry drift the OTHER way —
+  # above. A row claiming 'hook no' (no research-loop hook file under the target AT ALL) whose
+  # Stop hook IS actually registered at the target's own path is registry drift the OTHER way —
   # the row UNDER-claims, not over-claims. Mutually exclusive with HOOK-CLAIM-EXTRACT above (a row
   # carries exactly one hook token), so this never double-WARNs a 'hook yes' row. WARN-only,
   # propose-never-apply; TARGETS.md is never auto-edited (§8) — the maintainer refreshes the row by
-  # hand from this WARN's output. Deliberately narrower than the legend's full token set (excludes
-  # 'hook deferred', which the issue does not name) — same "measure incidence, do not guess the
-  # rule wider than measured" discipline as #1108. Measured on the real fleet (2026-09-25): 8 of 17
-  # reachable targets (COB-IM2, fluke-177x-datos, mini-pc, nave-panccadia, sullair,
-  # panccadia-3d-viewer, hisense, ford-bms-panel).
+  # hand from this WARN's output.
   #
-  # STRICT '= "wired"' — NOT 'wired-off-root' (kit issue #1135; #1141 round-2 review, Blocking 1):
-  # a nested target whose registered path is not its own git root is Stop-scoped-wired
-  # syntactically, but a real session never launches from the nested path, so a row correctly
-  # claiming 'hook file yes / unregistered' for such a target must NOT WARN here — that claim is
-  # ACCURATE, and pushing the maintainer to "refresh" it toward 'hook yes' would be the exact §7
-  # false-confidence shape #1135 exists to prevent (three.js, TARGETS.md row 13, is this case: its
-  # settings.json is wired at the nested path, but its own git root is the parent directory).
-  # Equality with the literal string 'wired' (never '!= "unwired"' or a 'wired*' pattern) is what
-  # keeps this exclusion correct now that #1135 has landed — see the pinned fixture (3s) and
-  # mutation tooth in verify-registry.test.sh (2026-09-25 review: this held only by accident
-  # before the fixture existed).
-  _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+(no|file[[:space:]]+yes)([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
+  # SCOPED TO 'hook no' ONLY (kit issue #1141 round-3 review, Blocking 1 — narrowed from an earlier
+  # revision that also matched 'hook file yes'): per the TARGETS.md legend, 'hook file yes /
+  # unregistered' asserts a hook FILE exists but is not loaded/effective — a claim about whether
+  # the hook FIRES, which depends on where sessions launch from, a decision this tool does not
+  # make (kit issue #1134). Kit issue #1147 deliberately set exactly the 3 real rows this reverse
+  # check used to WARN on (fluke-177x-datos, nave-panccadia, panccadia-3d-viewer) to 'hook file
+  # yes / unregistered' for that reason; re-WARNing on them was a false positive the maintainer
+  # could never clear (the only "refresh" the old wording implied was 'hook yes', which #1147
+  # explicitly rejected for these rows — the same defect class #1140 round-2 Blocking 1 already
+  # removed from the forward check). A row claiming 'hook no' carries no such ambiguity: it
+  # asserts NO hook file exists at all under the target, which the target's own Stop-wired
+  # settings.json contradicts outright. Covering 'hook file yes' again needs a doctrine decision
+  # first (§6: a vocabulary/calibration change is its own unit) — tracked as kit issue #1157.
+  #
+  # STRICT '= "wired"' — NOT 'wired-off-root' (kit issue #1135): a nested target whose registered
+  # path is not its own git root is Stop-scoped-wired syntactically, but a real session never
+  # launches from the nested path — this check does not decide launch site (kit issue #1134) even
+  # for a 'hook no' row, so wired-off-root stays out of scope exactly like a 'hook file yes' claim
+  # does. Equality with the literal string 'wired' (never '!= "unwired"' or a 'wired*' pattern) is
+  # what keeps this exclusion correct — see the pinned fixture (3s) and mutation tooth in
+  # verify-registry.test.sh.
+  #
+  # Measured on the real fleet (2026-09-25, post-#1147, at kit sha c961e67's rebase): 0 of 17
+  # reachable targets mismatch under this narrowed scope — #1147 already refreshed every row this
+  # check used to WARN on. The check still guards future drift.
+  _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+no([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
   if [ -n "$_vr_hook_no_claim" ]; then
     _vr_hook_state2="$(hook_stop_wiring_state "$p")"
     if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
-      echo "WARN  $(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row (propose-never-apply)."
+      echo "WARN  $(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); at minimum this needs 'hook file yes ...' — whether it becomes 'hook yes' depends on where sessions actually launch from (kit issue #1134); refresh the row (propose-never-apply)."
       attention=$((attention + 1))
     fi
   fi
