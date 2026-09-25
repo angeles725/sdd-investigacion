@@ -1612,7 +1612,9 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
     - CONTINUATION TOKEN (required): end every report with exactly one of:
         `next: <gap-id>` — the next gap in the current focus (loop continues within this focus),
         `next-entry: <queue-name>` — campaign continues to the named §8c queue entry (focus STOP),
-        `STOP: campaign — <reason>` — when campaign STOP fires (no entry pending or active, audit enqueued=0),
+        `STOP: campaign — <reason>` — when campaign STOP fires (no entry pending or active, audit
+          enqueued=0, AND — on a multi-focus heavy/frontier corpus, §8c — the campaign-close
+          partition check reports no genuinely unchartered unit),
         `STOP: campaign-bound-reached: <which>` — when a declared campaign bound fires.
       A report that ends without any token is a halted-but-silent stop: the operator has no
       signal to distinguish "checkpoint, continuing" from "stopped". Never substitute a question
