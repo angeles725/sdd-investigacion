@@ -1207,25 +1207,42 @@ The queue lives in `RESEARCH-STATE.md` for a single-focus corpus; in a §16 mult
 
 **Kind semantics.** `focus` — a new §16 corpus file plus its own BOOTSTRAP; `tier` — a FRONTIER-REOPEN audit entry that continues investigation inside the same corpus file (no new BOOTSTRAP); `sub-topic` — a gap from the parent focus's backlog, investigated as a child. Every kind counts toward the `max-depth` bound; depth is the length of the parent chain from root.
 
-**Campaign STOP condition.** The campaign stops when: (1) no entry is `pending` or `active` (rows carry terminal states `done` or `bound-stopped`) and the latest `last_audit:` shows `enqueued=0`; or (2) a declared bound is reached (max-depth, iteration budget, or wall-clock budget), which emits the typed stop `campaign-bound-reached: <which>` and does not silently exit. Resume after an interruption by reading the queue: first continue any entry left `active` (an interrupted focus — re-enter its loop without rerunning BOOTSTRAP), then pop the next `pending` entry (bootstrap it if new), and continue the loop.
+**Campaign STOP condition.** The campaign stops when: (1) no entry is `pending` or `active` (rows carry terminal states `done` or `bound-stopped`) and the latest `last_audit:` shows `enqueued=0` — on a multi-focus (§16) corpus running heavy or frontier mode, condition (1) additionally requires the campaign-close partition check below to report no genuinely unchartered unit; or (2) a declared bound is reached (max-depth, iteration budget, or wall-clock budget), which emits the typed stop `campaign-bound-reached: <which>` and does not silently exit. Resume after an interruption by reading the queue: first continue any entry left `active` (an interrupted focus — re-enter its loop without rerunning BOOTSTRAP), then pop the next `pending` entry (bootstrap it if new), and continue the loop.
 
-**Campaign-level seal requires partition evidence, not just an empty queue.** For heavy or
-frontier-mode runs over a multi-focus (§16) corpus, an empty `## Campaign queue` (no `pending` or
-`active` rows, latest `last_audit: enqueued=0`) is necessary but not sufficient to seal the campaign
-as done. It MUST also carry one of: (a) a populated `## Campaign queue` whose entry history shows the
-FRONTIER-REOPEN audits actually enqueued and worked every artifact family the corpus discovered — the
-queue itself is the partition evidence; or (b) an explicit focus-partition cross-check confirming every
-artifact family in the corpus's declared universe (e.g. every top-level module/subsystem directory) is
-mapped to at least one focus in `FOCUSES.md`, recorded as a named section in the §16 corpus-close retro
-before the campaign is declared sealed. Without one of these two, a campaign that stops at
-investigable-zero across every known focus can still be corpus-incomplete — the exact failure the §13
-multi-focus coverage-audit note names: 3+ niagara-research focused runs each correctly stopped at
-investigable-zero while 30 of 664 module directories carrying code had never been chartered to any
-focus. Until kit issue #1106 (`focus-partition-audit.sh`) lands, perform the partition check by hand:
-enumerate the artifact-family universe, cross it against every `FOCUSES.md` row's declared scope, and
-record the result in the corpus-close retro before sealing. This does not change the `## Campaign
-queue` schema declared above — it is a precondition on WHEN a campaign may be sealed, not a new field.
-(Source: niagara-research/retros/2026-09-14-module-mechanics-coverage-run-retro.md D1; kit issue #1105.)
+**Campaign-close partition check (multi-focus heavy/frontier corpora).** A FRONTIER-REOPEN audit proves
+each individual focus is internally complete; it never proves the corpus's whole artifact universe was
+ever partitioned across any focus — a focus can correctly report investigable-zero while entire
+artifact families were never chartered to any focus at all (§13 D1 evidence). This check applies to
+every multi-focus (§16) corpus running heavy or frontier mode, whether or not it has ever created a
+`## Campaign queue` section — most real multi-focus corpora reach campaign STOP without one
+(niagara-research: 0 of 89 `RESEARCH-STATE*.md` files populate it); an absent section is not evidence
+the check does not apply.
+
+The check: for every directory ("unit") at a declared depth under the corpus's declared subject root
+that contains at least one file of a declared extension, confirm the unit's basename is CHARTERED — it
+appears as an exact token inside a backtick span (the whole span, or one of its `/`-separated
+components) of a CLASSIFIED `FOCUSES.md` table row. A basename that appears only in ordinary prose, or
+nowhere, is UNCHARTERED. Declare the subject root, depth, and extension list once — at bootstrap or the
+first campaign-close attempt — in RESEARCH-STATE or the §16 corpus-close retro; that declaration is the
+"artifact universe" this check runs against. Pass criterion: zero UNCHARTERED units, or every remaining
+one recorded with an explicit out-of-scope reason in the corpus-close retro.
+
+Outcome when the check fails: it never tears the campaign down and never declares it "sealed" or
+"done" on its own — this kit reserves "seal" for `[CERT]` adversarial sealing (§3), never for a
+campaign. Each newly found UNCHARTERED family is enqueued as a `pending` `kind=focus` (a genuinely new
+subject) or `kind=tier` (an extension of an existing focus) row in the `## Campaign queue` — creating
+the section if none exists yet — exactly as a FRONTIER-REOPEN audit enqueues a tier. Condition (1)
+above is then no longer met (a `pending` entry exists), so the campaign continues by popping it, same
+as any other queue entry; only a clean check lets condition (1) stand and the campaign close. PROMPT-LOOP's
+`Campaign STOP (§8c)` branch runs this check before emitting its final NEXT-ACTION.
+
+Until kit issue #1106 (`focus-partition-audit.sh`) lands, run the check by hand: enumerate the unit
+directories under the declared subject root, cross each basename against every `FOCUSES.md` classified
+row's backtick-quoted spans, and record `units: <chartered>/<total> chartered · <unchartered>
+unchartered` plus the unchartered basenames in the corpus-close retro before condition (1) is honored.
+This does not change the `## Campaign queue` row schema declared above — it is a precondition on when
+condition (1) may be honored, not a new field. (Source: §13 D1 for the underlying evidence; this §8c
+rule from kit issue #1105.)
 
 **Declared bounds.** Declared at bootstrap as a single line in RESEARCH-STATE:
 
@@ -2492,15 +2509,16 @@ certainty audit, but its verdict feeds the §8 backlog (untouched-but-relevant a
 the marker escalation. Do not conflate the two: a corpus can be 100% certain on what it covered and still
 cover only 18% of the universe.
 
-**Coverage audit ≠ certainty audit — corpus vs. artifact universe.** In a multi-focus corpus, a
-focus-level coverage audit is not a corpus-level universe sweep. A run that audits each focus for
-completeness may still leave entire artifact families never chartered to any focus. Periodically map
-all artifact families against all focuses to confirm the universe is partitioned, not merely that
-each partition is internally complete — a focus stopping at investigable-zero is correct for its own
-scope; it does not prove the whole-universe scope is covered. (Evidence: 3+ niagara-research focused
-runs each correctly closed their module-authoring focuses at investigable-zero, yet 30 of 664 module
-directories carrying code had never been chartered to any focus — the driver layer was missed across
-all of them. Source: niagara-research/retros/2026-09-14-module-mechanics-coverage-run-retro.md D1.)
+**Corpus vs. artifact universe.** In a multi-focus corpus, a focus-level coverage audit is not a
+corpus-level universe sweep: a run that audits each focus for completeness may still leave entire
+artifact families never chartered to any focus. §8c's campaign-close partition check is the binding
+trigger for this cross-check on a heavy- or frontier-mode multi-focus corpus — map all artifact
+families against all focuses there, not on an ad hoc cadence; a focus stopping at investigable-zero is
+correct for its own scope, but it does not prove the whole-universe scope is covered. (Evidence: 3+
+niagara-research focused runs each correctly closed their module-authoring focuses at
+investigable-zero, yet ~30 unmapped module families with code, out of 664 module directories, had
+never been chartered to any focus. Source:
+niagara-research/retros/2026-09-14-module-mechanics-coverage-run-retro.md D1.)
 
 **A sweep MUST reconcile against PRIOR coverage as a named output section.** Distinct from the driver-side
 PROMPT-LOOP check asking "did we already cover this?", every bootstrap or coverage sweep MUST carry an
