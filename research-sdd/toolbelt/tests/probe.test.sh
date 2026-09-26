@@ -115,7 +115,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mutant="$ROOT/probe.mutant.sh"
     naive='cmd_rc=${PIPESTATUS[0]:-0}; tee_rc=${PIPESTATUS[1]:-0}'
-    printf '%s\n' "${content/"$anchor"/$naive}" > "$mutant"
+    printf '%s\n' "${content/"$anchor"/"$naive"}" > "$mutant"
     tdir="$(newtdir teeth-teefail)"
     outm="$( ulimit -f 0 2>/dev/null; "$BASH_BIN" "$mutant" run "$tdir" echo hello 2>&1 )"
     if grep -q 'preserved:' <<<"$outm"; then

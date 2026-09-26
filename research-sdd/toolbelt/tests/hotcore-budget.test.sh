@@ -455,8 +455,13 @@ measure_hotcore() {
 check_unrecognized_headings() {
   local file="$1"
   local out rc
+  # kit issue #1142 review: the original heading-depth pattern used a POSIX interval expression
+  # (exact-count-or-range brace form); mawk (Debian/Ubuntu default awk) has no interval support
+  # without --re-interval. Rewritten as the same chained-'?'
+  # technique used elsewhere in the kit (research-sdd/toolbelt/lib/retro-grammar.sh's
+  # is_dirty_marker, kit issue #1121) -- one mandatory '#' plus five optional '#?' matches 1-6.
   out="$(mask_code_fences "$file" | awk '
-    /^#{1,6}[ \t]+§?[0-9]/ && !/^##[#]? [0-9]+[a-z]?\. / { print NR": "$0 }
+    /^##?#?#?#?#?[ \t]+§?[0-9]/ && !/^##[#]? [0-9]+[a-z]?\. / { print NR": "$0 }
   ')"
   rc=$?
   if [ "$rc" -ne 0 ]; then

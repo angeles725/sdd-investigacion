@@ -512,8 +512,16 @@ else
   out="$(cd "$_c27cwd" && chmod 000 "$_c27cwd" && bash "$w/run-all.sh" 2>&1)"; rc=$?
   chmod 755 "$_c27cwd" 2>/dev/null || true
   rm -rf "$_c27cwd" 2>/dev/null || true
-  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
-    ok "hermeticity-degraded: unreadable caller cwd reports DEGRADED (not a confident 0), run fails"
+  # kit issue #1121 (#1118 review finding #1): the AGGREGATE's own "Hermeticity: DEGRADED — ..."
+  # line must name THIS guard specifically (an unreadable directory), not a scanner failure — the
+  # two guards are distinct causes and the aggregate used to print one hardcoded reason string
+  # regardless of which fired. Isolate the aggregate line itself (^Hermeticity: DEGRADED) rather
+  # than grepping the whole output, which also contains the (always-correct) per-branch stderr
+  # WARNING line and would pass even against the pre-fix aggregate.
+  _c27agg_line="$(grep -E '^Hermeticity: DEGRADED' <<<"$out")"
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out" \
+     && grep -qF 'readable/traversable directory' <<<"$_c27agg_line" && ! grep -qF 'cwd scanner' <<<"$_c27agg_line"; then
+    ok "hermeticity-degraded: unreadable caller cwd reports DEGRADED with the unreadable-directory reason (not a confident 0, not the scanner's reason)"
   else no "hermeticity-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
@@ -568,8 +576,13 @@ else
   _c29cwd="$TMP/c29-cwd"; mkdir -p "$_c29cwd"
   out="$(cd "$_c29cwd" && PATH="$_c29bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
   rm -rf "$_c29cwd" "$_c29bin" 2>/dev/null || true
-  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out"; then
-    ok "hermeticity-scanner-degraded: a find that rejects -printf makes the guard DEGRADED, not a confident 0"
+  # kit issue #1121 (#1118 review finding #1): the AGGREGATE's own "Hermeticity: DEGRADED — ..."
+  # line must name THIS guard specifically (the scanner), not the unreadable-directory guard's
+  # reason. Isolate the aggregate line itself, same rationale as case 27 above.
+  _c29agg_line="$(grep -E '^Hermeticity: DEGRADED' <<<"$out")"
+  if [ "$rc" -ne 0 ] && grep -qF 'Hermeticity: DEGRADED' <<<"$out" && ! grep -qF 'Hermeticity violations' <<<"$out" \
+     && grep -qF 'cwd scanner' <<<"$_c29agg_line" && ! grep -qF 'readable/traversable directory' <<<"$_c29agg_line"; then
+    ok "hermeticity-scanner-degraded: a find that rejects -printf makes the guard DEGRADED with the scanner-failure reason (not a confident 0, not the unreadable-directory reason)"
   else no "hermeticity-scanner-degraded failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
 fi
 
@@ -620,6 +633,39 @@ if [ "$rc" -ne 0 ] \
    && grep -qF 'Suites passed: 1' <<<"$out"; then
   ok "install-absent: research-sdd/install/tests missing -> ABSENT-INPUT reported, run exits non-zero despite the toolbelt suite passing"
 else no "install-absent failed: rc=$rc :: $(grep -E 'Corpus:|ABSENT|Suites passed' <<<"$out" | tr '\n' '|')"; fi
+
+# 33 — hermeticity-scanner-stderr-noise (kit issue #1142 review NIT, #1118 review NIT): a find
+#      that SUCCEEDS (rc=0) but also prints a harmless warning to stderr must not have that
+#      warning line misread as a phantom top-level cwd entry. Stubs find to print one stderr
+#      line then delegate to the real find with all args unchanged, so the -printf TSV scan
+#      itself still succeeds normally — only the extra stderr noise is new.
+#      kit issue #1142 review round 3 (finding #5): the warning text used to be a CONSTANT
+#      string, identical on every invocation — the baseline scan and every per-suite scan would
+#      then capture the SAME text either way (stdout-only or the old buggy stdout+stderr
+#      capture), so this case could not actually tell the two implementations apart; it would
+#      have passed unchanged even with the pre-fix 2>&1 capture. The warning now includes a
+#      changing value (a nanosecond timestamp, same technique Mutation 12 below already uses) so
+#      a capture that merges stderr in would see a DIFFERENT line on every scan and misread it as
+#      a new/modified top-level entry — only the stdout-only fix stays clean regardless.
+_c33realfind="$(command -v find)"
+if [ -z "$_c33realfind" ]; then
+  ok "hermeticity-scanner-stderr-noise: SKIP — no real 'find' on PATH to build the stub from"
+else
+  w="$(newdir c33)"
+  mkfix_sh "$w/a.test.sh" 1 0 0
+  { printf '#!/usr/bin/env bash\n'
+    printf 'echo "find: harmless warning $(date +%%s%%N) not an error" >&2\n'
+    printf 'exec %s "$@"\n' "$_c33realfind"
+  } > "$TMP/c33-bin-find"
+  _c33bin="$TMP/c33-bin"; mkdir -p "$_c33bin"
+  mv "$TMP/c33-bin-find" "$_c33bin/find"; chmod +x "$_c33bin/find"
+  _c33cwd="$TMP/c33-cwd"; mkdir -p "$_c33cwd"
+  out="$(cd "$_c33cwd" && PATH="$_c33bin:$PATH" bash "$w/run-all.sh" 2>&1)"; rc=$?
+  rm -rf "$_c33cwd" "$_c33bin" 2>/dev/null || true
+  if [ "$rc" -eq 0 ] && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$out"; then
+    ok "hermeticity-scanner-stderr-noise: a find stderr warning on an otherwise-successful scan is not misread as a phantom entry"
+  else no "hermeticity-scanner-stderr-noise failed: rc=$rc :: $(grep -iF 'hermeticity' <<<"$out" | tr '\n' '|')"; fi
+fi
 
 # NEGATIVE CONTROL — neuter the runner's PIPESTATUS capture; a failing fixture must then FALSE-PASS
 # (runner exits 0). If it does, our exit-code assertions (cases 2/3/6) have real teeth.
@@ -795,6 +841,96 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   fi
 
+  # Mutation 9 (kit issue #1121, #1118 review follow-up): track directories by mtime too
+  # (instead of name-only). Case 28's own scenario (git status refreshing .git's mtime via a
+  # legitimate lock+rename) must then be misread as a modification, proving case 28 has teeth.
+  echo "-- teeth: track directories by mtime (SENTINEL-DIR-NAME-ONLY-TRACKING); case 28's git-status scenario must FALSE-FLAG --"
+  # kit issue #1142 review round-2 gate (this session): was a flat "$TMP/name"; mkdir -p "$w"
+  # workdir, predating #1144's newdir()/mut_workdir() hardening. A flat (non-nested) workdir makes
+  # this mutant's SCRIPT_DIR/../../install/tests climb land OUTSIDE $TMP (in the shared /tmp
+  # namespace), which is unstable per newdir()'s own doc comment above. mut_workdir() gives this
+  # mutant the same isolated nested-repo-shape + empty-install-sibling guarantee as every other
+  # --prove-teeth block in this file.
+  w="$(mut_workdir teeth-dir-mtime)"
+  sentinel9='      # SENTINEL-DIR-NAME-ONLY-TRACKING'
+  sentinel9_count="$(grep -Fc "$sentinel9" "$SUT")"
+  sed '/SENTINEL-DIR-NAME-ONLY-TRACKING/{n;s#_target\["\$_name"\]="d"#_target["$_name"]="d:$_mtime"#}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel9_count" -ne 1 ]; then
+    no "teeth-dir-mtime: SENTINEL-DIR-NAME-ONLY-TRACKING not found exactly once (count=$sentinel9_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-dir-mtime: mtime-tracking mutation was a byte-identical no-op"
+  else
+    mkfix_sh "$w/a.test.sh" 1 0 0
+    { printf '#!/usr/bin/env bash\n'
+      printf 'git status --porcelain >/dev/null\n'
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+      printf 'exit 0\n'
+    } > "$w/gitstatus.test.sh"
+    _teeth_dm_cwd="$TMP/teeth-dir-mtime-cwd"; mkdir -p "$_teeth_dm_cwd"
+    ( cd "$_teeth_dm_cwd" \
+      && git init -q . \
+      && git config user.email t@example.com \
+      && git config user.name tester \
+      && printf x > f.txt \
+      && git add -A && git commit -qm init \
+      && touch f.txt )
+    mout="$(cd "$_teeth_dm_cwd" && bash "$w/run-all.sh" 2>&1)"; mrc=$?
+    rm -rf "$_teeth_dm_cwd" 2>/dev/null || true
+    if [ "$mrc" -ne 0 ] && grep -qF 'leaked: .git' <<<"$mout"; then
+      ok "teeth-dir-mtime: mtime-tracked mutant false-flags .git's legitimate mtime bump → case 28's name-only design has real teeth"
+    else
+      no "teeth-dir-mtime: mutant did not false-flag .git (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
+    fi
+  fi
+
+  # Mutation 10 (kit issue #1121, #1118 review follow-up): neuter the scanner's exit-status
+  # check (SENTINEL-SCANNER-RC-CHECK) so a failed scan is treated as a successful empty scan.
+  # Case 29's scenario (find rejecting -printf) must then FALSE-PASS as a confident "0
+  # violations" instead of a typed DEGRADED state, proving case 29 has teeth.
+  echo "-- teeth: neuter SENTINEL-SCANNER-RC-CHECK; case 29's find-rejects--printf scenario must FALSE-PASS --"
+  # kit issue #1142 review round-2 gate (this session): a flat "$TMP/name"; mkdir -p "$w" workdir
+  # (pre-#1144 shape) made SCRIPT_DIR/../../install/tests climb OUTSIDE $TMP, so the mutant's exit
+  # code depended on whatever happened to sit at the shared-/tmp climb target on the host — with
+  # that target ABSENT, #1144's own ABSENT-INPUT gate forced rc=1 regardless of this mutation's
+  # actual effect, false-FAILING this case's `$mrc -eq 0` assertion for an unrelated reason
+  # (verified: full-gate run FAILed here; reproduced standalone; root-caused to this exact
+  # flat-vs-nested workdir gap). mut_workdir() gives this mutant an isolated empty install/tests
+  # sibling (case 31's non-failing "= 0" state) so rc reflects only the scanner-rc mutation.
+  w="$(mut_workdir teeth-scanner-rc)"
+  sentinel10='  # SENTINEL-SCANNER-RC-CHECK'
+  sentinel10_count="$(grep -Fc "$sentinel10" "$SUT")"
+  sed '/SENTINEL-SCANNER-RC-CHECK/{n;n;s/\[\[ \$_rc -eq 0 \]\] || return 1/: # neutered rc check/}' "$SUT" > "$w/run-all.sh"
+  if [ "$sentinel10_count" -ne 1 ]; then
+    no "teeth-scanner-rc: SENTINEL-SCANNER-RC-CHECK not found exactly once (count=$sentinel10_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-scanner-rc: rc-check-removal mutation was a byte-identical no-op"
+  else
+    _teeth_src_realfind="$(command -v find)"
+    if [ -z "$_teeth_src_realfind" ]; then
+      no "teeth-scanner-rc: no real 'find' on PATH to build the stub from"
+    else
+      mkfix_sh "$w/a.test.sh" 1 0 0
+      { printf '#!/usr/bin/env bash\n'
+        printf 'for _a in "$@"; do\n'
+        printf '  if [ "$_a" = "-printf" ]; then echo "find: unknown primary or operator" >&2; exit 1; fi\n'
+        printf 'done\n'
+        printf 'exec %s "$@"\n' "$_teeth_src_realfind"
+      } > "$TMP/teeth-scanner-rc-bin-find"
+      _teeth_src_bin="$TMP/teeth-scanner-rc-bin"; mkdir -p "$_teeth_src_bin"
+      mv "$TMP/teeth-scanner-rc-bin-find" "$_teeth_src_bin/find"; chmod +x "$_teeth_src_bin/find"
+      _teeth_src_cwd="$TMP/teeth-scanner-rc-cwd"; mkdir -p "$_teeth_src_cwd"
+      mout="$(cd "$_teeth_src_cwd" && PATH="$_teeth_src_bin:$PATH" bash "$w/run-all.sh" 2>&1)"; mrc=$?
+      rm -rf "$_teeth_src_cwd" "$_teeth_src_bin" 2>/dev/null || true
+      if [ "$mrc" -eq 0 ] \
+         && grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$mout" \
+         && ! grep -qF 'Hermeticity: DEGRADED' <<<"$mout"; then
+        ok "teeth-scanner-rc: neutered rc check FALSE-PASSES a failed scan as a confident 0 → case 29's DEGRADED design has real teeth"
+      else
+        no "teeth-scanner-rc: mutant still reported DEGRADED (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
+      fi
+    fi
+  fi
+
   # Mutation 11 (kit issue #1144 review, BLOCKING finding #1): drop the install-tests arrays from
   # SENTINEL-CORPUS-MERGE's merge loop. Case 30's install-present fixture must then FALSE-PASS on
   # the suite-count assertion — the corpus line still reports "= 1" (that count comes from array
@@ -822,6 +958,56 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth-corpus-merge: merge-loop-neutered mutant still declares '= 1' but only runs 1 suite → case 30's suite-count assertion has real teeth"
     else
       no "teeth-corpus-merge: mutant did not desync corpus-declared count from suites-run count (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -E 'Corpus:|Suites run' <<<"$mout" | tr '\n' '|')]"
+    fi
+  fi
+
+  # Mutation 12 (kit issue #1142 review NIT): revert SENTINEL-SCANNER-STDOUT-ONLY's find capture
+  # to merge stderr into stdout (2>&1) again. Case 33's stderr-warning-on-success scenario must
+  # then misread the warning line as a phantom top-level entry, proving the stdout-only fix has
+  # real teeth. Uses the sed r+d idiom (append replacement file, then delete the matched line)
+  # to avoid embedding the printf format string's own backslash-tab/newline escapes in a sed -e
+  # script, which would collide with sed's own escaping.
+  echo "-- teeth: revert SENTINEL-SCANNER-STDOUT-ONLY to 2>&1; case 33's stderr-noise scenario must misread it as a phantom entry --"
+  # kit issue #1142 review round-2 gate (this session): same flat-workdir gap as Mutations 9/10
+  # above (predates #1144's mut_workdir() hardening) — fixed the same way for isolation, even
+  # though this case's own assertion (a grep on $mout, no $mrc check) happened not to be visibly
+  # broken by it.
+  w="$(mut_workdir teeth-scanner-stdout-only)"
+  sentinel12='  # SENTINEL-SCANNER-STDOUT-ONLY'
+  sentinel12_count="$(grep -Fc "$sentinel12" "$SUT")"
+  repl12="$TMP/teeth-scanner-stdout-only-repl.txt"
+  cat <<'REPL12' > "$repl12"
+  _out="$(find "$CALLER_CWD" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\n' 2>&1)"
+REPL12
+  sed "/SENTINEL-SCANNER-STDOUT-ONLY/r $repl12" "$SUT" > "$w/run-all.sh"
+  sed -i '/SENTINEL-SCANNER-STDOUT-ONLY/{n;n;d}' "$w/run-all.sh"
+  if [ "$sentinel12_count" -ne 1 ]; then
+    no "teeth-scanner-stdout-only: SENTINEL-SCANNER-STDOUT-ONLY not found exactly once (count=$sentinel12_count)"
+  elif cmp -s "$SUT" "$w/run-all.sh"; then
+    no "teeth-scanner-stdout-only: 2>&1-revert mutation was a byte-identical no-op"
+  else
+    _t12realfind="$(command -v find)"
+    if [ -z "$_t12realfind" ]; then
+      no "teeth-scanner-stdout-only: no real 'find' on PATH to build the stub from"
+    else
+      mkfix_sh "$w/a.test.sh" 1 0 0
+      # The warning includes a changing value (nanosecond timestamp) each invocation: a CONSTANT
+      # stderr message would land identically in the baseline scan AND every per-suite scan, so
+      # the guard's diff-based check would never see it as new/modified (no violation, THEATER).
+      { printf '#!/usr/bin/env bash\n'
+        printf 'echo "find: harmless warning $(date +%%s%%N) not an error" >&2\n'
+        printf 'exec %s "$@"\n' "$_t12realfind"
+      } > "$TMP/teeth-scanner-stdout-only-bin-find"
+      _t12bin="$TMP/teeth-scanner-stdout-only-bin"; mkdir -p "$_t12bin"
+      mv "$TMP/teeth-scanner-stdout-only-bin-find" "$_t12bin/find"; chmod +x "$_t12bin/find"
+      _t12cwd="$TMP/teeth-scanner-stdout-only-cwd"; mkdir -p "$_t12cwd"
+      mout="$(cd "$_t12cwd" && PATH="$_t12bin:$PATH" bash "$w/run-all.sh" 2>&1)"; mrc=$?
+      rm -rf "$_t12cwd" "$_t12bin" 2>/dev/null || true
+      if ! grep -qF 'Hermeticity violations (new/modified/removed top-level entries in caller cwd): 0' <<<"$mout"; then
+        ok "teeth-scanner-stdout-only: 2>&1-reverted mutant misreads the stderr warning as a phantom entry → case 33 has real teeth"
+      else
+        no "teeth-scanner-stdout-only: mutant still reported 0 violations (rc=$mrc) — mutation not exercised (THEATER) :: out=[$(grep -iF 'hermeticity' <<<"$mout" | tr '\n' '|')]"
+      fi
     fi
   fi
 fi

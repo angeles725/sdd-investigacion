@@ -1581,7 +1581,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
     neutered='      __teeth_never_matches__) continue ;;'
-    printf '%s\n' "${content/"$anchor"/$neutered}" > "$mutant"
+    printf '%s\n' "${content/"$anchor"/"$neutered"}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -q 'PENDING' <<<"$outm"; then
       ok "teeth: skip-neutered mutant false-surfaces applied retro" "(cases 2/3 have teeth)"
@@ -1607,7 +1607,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/lib/retro-grammar.sh"     # mutate the lib copy (grammar extracted to lib)
     broken='printf "1:w:0\001%s\001%d\001%d\001%s\n",         depr_h, unrec_found, unrec_data, unrec_heading'  # WARN-A
-    printf '%s\n' "${lib_content/"$anchor2"/$broken}" > "$mutant"
+    printf '%s\n' "${lib_content/"$anchor2"/"$broken"}" > "$mutant"
     outm="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm" \
        && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm" \
@@ -1694,10 +1694,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # Neuter ALL FOUR guards to no-op ':' — a literal replacement with NO '&' (bash 5.1+ expands
     # an unescaped '&' in the replacement to the matched text, which would corrupt the mutant).
     neutered=':'
-    _tmp_neu="${content/"$anchor3"/$neutered}"
-    _tmp_neu="${_tmp_neu/"$anchor3_stat"/$neutered}"
-    _tmp_neu="${_tmp_neu/"$anchor3_wv"/$neutered}"
-    printf '%s\n' "${_tmp_neu/"$anchor3_oos"/$neutered}" > "$mutant"
+    _tmp_neu="${content/"$anchor3"/"$neutered"}"
+    _tmp_neu="${_tmp_neu/"$anchor3_stat"/"$neutered"}"
+    _tmp_neu="${_tmp_neu/"$anchor3_wv"/"$neutered"}"
+    printf '%s\n' "${_tmp_neu/"$anchor3_oos"/"$neutered"}" > "$mutant"
     outm="$("$BASH_BIN" "$mutant" 2>&1)"; rcm=$?
     if [ "$rcm" = 0 ] && grep -q 'PENDING' <<<"$outm" && ! grep -q 'failed to define' <<<"$outm"; then
       ok "teeth: guard-neutered mutant fails OPEN (applied retro surfaces as PENDING)" "(case 17 has teeth)"
@@ -1863,7 +1863,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # We do NOT use '# ...' as suffix because that would comment out '; then' and
     # produce a parse error.
     neutered_g3='|| false 2>/dev/null'
-    printf '%s\n' "${content/"$anchor_g3"/$neutered_g3}" > "$kit_gp/toolbelt/sweep-retros.sh"
+    printf '%s\n' "${content/"$anchor_g3"/"$neutered_g3"}" > "$kit_gp/toolbelt/sweep-retros.sh"
     cp "$kit_gp/toolbelt/sweep-retros.sh" "$kit_gb/toolbelt/sweep-retros.sh"
     outm_p="$("$BASH_BIN" "$kit_gp/toolbelt/sweep-retros.sh" 2>&1)"
     outm_b="$("$BASH_BIN" "$kit_gb/toolbelt/sweep-retros.sh" 2>&1)"
@@ -2029,7 +2029,7 @@ STRIPPED
     write_targets "$kit" "$tgt"
     mutant="$kit/toolbelt/sweep-retros.sh"          # replace the sandbox copy with the mutant
     followed="${anchor_r1/log --diff-filter=A/log --follow --diff-filter=A}"
-    printf '%s\n' "${content/"$anchor_r1"/$followed}" > "$mutant"
+    printf '%s\n' "${content/"$anchor_r1"/"$followed"}" > "$mutant"
     outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
     if grep -q 'ESCALATED (aged' <<<"$outm"; then
       ok "teeth R1: --follow-restored mutant escalates from original creation date (case 52 has teeth)" "()"
@@ -3839,8 +3839,8 @@ else
   no "136 > * add X → WARN-A (~?)" "exit=$RC out=[$OUT]"
 fi
 
-# 137 — HASH HEADING IN LEAD BLOCK: "> ### D1 add X" — detected by /^#{1,6}[[:space:]]/
-#        in is_dirty_marker → dirty → WARN-A.
+# 137 — HASH HEADING IN LEAD BLOCK: "> ### D1 add X" — detected by is_dirty_marker's
+#        one-to-six-hash heading check (chained-? form, kit issue #1121) → dirty → WARN-A.
 kit="$(mkkit c137-n-hash)"; tgt="$kit/targetA"
 mkdir -p "$tgt/retros"
 cp "$HERE/fixtures/sweep-retros/retro-grammar/n_hash.md" "$tgt/retros/r1.md"
@@ -4033,7 +4033,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant="$kit/toolbelt/sweep-retros.sh"
     # Replace the lib call with `false` — always-not-found, honesty check never fires.
     neutered_hl='if false; then'
-    printf '%s\n' "${content_nd/"$anchor_hl"/$neutered_hl}" > "$mutant"
+    printf '%s\n' "${content_nd/"$anchor_hl"/"$neutered_hl"}" > "$mutant"
     outm_hl="$("$BASH_BIN" "$mutant" 2>&1)"
     if grep -qF '~? proposed deltas' <<<"$outm_hl" \
        && grep -qi 'WARN.*delta section present.*not in countable form' <<<"$outm_hl"; then
@@ -4502,7 +4502,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _mutant_sc="$kit/toolbelt/lib/retro-grammar.sh"
       _new_sc='# __SC_NO_DIRTY_MARKER_CHECK__'
-      printf '%s\n' "${_lib_sc/"$_anchor_sc"/$_new_sc}" > "$_mutant_sc"
+      printf '%s\n' "${_lib_sc/"$_anchor_sc"/"$_new_sc"}" > "$_mutant_sc"
       # Precondition: bash -n passes
       if ! bash -n "$_mutant_sc" 2>/dev/null; then
         no "teeth SC: bash -n check on mutant failed" ""
@@ -4551,7 +4551,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # Sabotage: replace body_real == 0 with 1 (always true) so HV path fires even when
     # canonical body has non-honesty bullets. SENTINEL-MUTANT-PU marks the mutant.
     _new_pu='if (1) { # SENTINEL-MUTANT-PU'
-    printf '%s\n' "${_lib_pu/"$_anchor_pu"/$_new_pu}" > "$_mutant_pu"
+    printf '%s\n' "${_lib_pu/"$_anchor_pu"/"$_new_pu"}" > "$_mutant_pu"
     # Verify sabotage applied (anti-theater)
     if ! grep -q 'SENTINEL-MUTANT-PU' "$_mutant_pu"; then
       no "teeth PU: sabotage check failed — anchor replacement did not apply" ""
@@ -4627,7 +4627,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _mutant_d="$kit/toolbelt/lib/retro-grammar.sh"
       _new_d='if (_r ~ /^[-][[:space:]]/) return 1    # RSDD_DIRTY_BULLET'
-      printf '%s\n' "${_lib_d/"$_anchor_d"/$_new_d}" > "$_mutant_d"
+      printf '%s\n' "${_lib_d/"$_anchor_d"/"$_new_d"}" > "$_mutant_d"
       if grep -q 'RSDD_DIRTY_BULLET' "$_mutant_d" && ! grep -qF "$_anchor_d" "$_mutant_d"; then
         _outm_d="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
         if grep -qF '~0 proposed deltas' <<<"$_outm_d"; then
@@ -4663,7 +4663,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _mutant_e="$kit/toolbelt/lib/retro-grammar.sh"
       _new_e='if (_r ~ /^[0-9]+[)]([[:space:]]|$)/) return 1    # RSDD_DIRTY_NUMLIST'
-      printf '%s\n' "${_lib_e/"$_anchor_e"/$_new_e}" > "$_mutant_e"
+      printf '%s\n' "${_lib_e/"$_anchor_e"/"$_new_e"}" > "$_mutant_e"
       if grep -q 'RSDD_DIRTY_NUMLIST' "$_mutant_e" && ! grep -qF "$_anchor_e" "$_mutant_e"; then
         _outm_e="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
         if grep -qF '~0 proposed deltas' <<<"$_outm_e"; then
@@ -4683,7 +4683,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # "> ### D1 add X" is no longer dirty → lead block clean → ~0 (wrong).
   # Proves case 137 (n_hash fixture) has teeth.
   echo "-- teeth N: disable hash-heading check; > ### must revert to ~0 (case 137 has teeth) --"
-  _anchor_n='if (_r ~ /^#{1,6}[[:space:]]/) return 1   # RSDD_DIRTY_HASH'
+  _anchor_n='if (_r ~ /^##?#?#?#?#?[[:space:]]/) return 1   # RSDD_DIRTY_HASH'
   _lib_n="$(cat "$RG_LIB")"
   if [[ "$_lib_n" != *"$_anchor_n"* ]]; then
     no "teeth N: locate hash-heading anchor in lib" "anchor not found — retro-grammar.sh drifted?"

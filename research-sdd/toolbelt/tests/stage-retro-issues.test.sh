@@ -925,7 +925,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t12 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t12="$box_t12/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t12="$(printf '  rest="${rest%%.git}"\n  rest="${rest%%/}"')"
-    printf '%s\n' "${sut_content/"$anchor_t12"/$reverted_t12}" > "$mutant_t12"
+    printf '%s\n' "${sut_content/"$anchor_t12"/"$reverted_t12"}" > "$mutant_t12"
     bash -n "$mutant_t12" 2>/dev/null || { no "T12 teeth: mutant_t12 failed bash -n syntax check" ""; }
     out_t12="$(PATH="$box_t12/bin:$PATH" \
       "$BASH_BIN" "$mutant_t12" "$retro_t12" 2>&1)"; rc_t12=$?
@@ -1037,7 +1037,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # when it matches the github.com alias pattern — see the docstring above for why any OTHER
     # scp host is wrapped in the sentinel (fail closed) rather than dropped unconditionally.
     if true; then  # teeth-t16-alias-check-forced-true'
-    printf '%s\n' "${sut_content/"$anchor_t16"/$reverted_t16}" > "$mutant_t16"
+    printf '%s\n' "${sut_content/"$anchor_t16"/"$reverted_t16"}" > "$mutant_t16"
     bash -n "$mutant_t16" 2>/dev/null || { no "T16 teeth: mutant_t16 failed bash -n syntax check" ""; }
     out_t16="$(PATH="$box_t16/bin:$PATH" \
       "$BASH_BIN" "$mutant_t16" "$retro_t16" 2>&1)"; rc_t16=$?
@@ -1064,7 +1064,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t20 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t20="$box_t20/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t20="_KIT_GITHUB_HOST_ALIAS_RE='^(ssh\\.|www\\.)?github\\.com(-[^/]*)?\$'"
-    printf '%s\n' "${sut_content/"$anchor_t20"/$reverted_t20}" > "$mutant_t20"
+    printf '%s\n' "${sut_content/"$anchor_t20"/"$reverted_t20"}" > "$mutant_t20"
     bash -n "$mutant_t20" 2>/dev/null || { no "T20 teeth: mutant_t20 failed bash -n syntax check" ""; }
     out_t20="$(PATH="$box_t20/bin:$PATH" \
       "$BASH_BIN" "$mutant_t20" "$retro_t20" 2>&1)"; rc_t20=$?
@@ -1089,7 +1089,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t21 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t21="$box_t21/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t21="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\$'"
-    printf '%s\n' "${sut_content/"$anchor_t21"/$reverted_t21}" > "$mutant_t21"
+    printf '%s\n' "${sut_content/"$anchor_t21"/"$reverted_t21"}" > "$mutant_t21"
     bash -n "$mutant_t21" 2>/dev/null || { no "T21 teeth: mutant_t21 failed bash -n syntax check" ""; }
     out_t21="$(PATH="$box_t21/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="myorg/myrepo/subpath" \
       "$BASH_BIN" "$mutant_t21" "$retro_t21" 2>&1)"; rc_t21=$?
@@ -1115,7 +1115,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t22 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t22="$box_t22/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t22='    _existing="$(gh issue list --repo "$KIT_ISSUE_REPO" --state open \'
-    printf '%s\n' "${sut_content/"$anchor_t22"/$reverted_t22}" > "$mutant_t22"
+    printf '%s\n' "${sut_content/"$anchor_t22"/"$reverted_t22"}" > "$mutant_t22"
     bash -n "$mutant_t22" 2>/dev/null || { no "T22 teeth: mutant_t22 failed bash -n syntax check" ""; }
     out_t22="$(PATH="$box_t22/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="test-owner/test-kit" \
       "$BASH_BIN" "$mutant_t22" "$retro_t22" --apply 2>&1)"; rc_t22=$?
@@ -1207,7 +1207,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t17 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t17="$box_t17/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t17="_KIT_ISSUE_REPO_SHAPE_RE='^([A-Za-z0-9.-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\$'"
-    printf '%s\n' "${sut_content/"$anchor_t17"/$reverted_t17}" > "$mutant_t17"
+    printf '%s\n' "${sut_content/"$anchor_t17"/"$reverted_t17"}" > "$mutant_t17"
     bash -n "$mutant_t17" 2>/dev/null || { no "T17 teeth: mutant_t17 failed bash -n syntax check" ""; }
     out_t17="$(PATH="$box_t17/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="-o/n" \
       "$BASH_BIN" "$mutant_t17" "$retro_t17" 2>&1)"; rc_t17=$?
@@ -1233,7 +1233,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t18 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t18="$box_t18/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t18="$(printf '( resolve_kit_issue_repo )\n_kit_issue_repo_rc=$?')"
-    printf '%s\n' "${sut_content/"$anchor_t18"/$reverted_t18}" > "$mutant_t18"
+    printf '%s\n' "${sut_content/"$anchor_t18"/"$reverted_t18"}" > "$mutant_t18"
     bash -n "$mutant_t18" 2>/dev/null || { no "T18 teeth: mutant_t18 failed bash -n syntax check" ""; }
     out_t18="$(PATH="$box_t18/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="foo" \
       "$BASH_BIN" "$mutant_t18" "$retro_t18" 2>&1)"; rc_t18=$?
@@ -1263,7 +1263,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       "| 1 | t19 delta | CLAUDE.md | B1 | new | HIGH |")"
     mutant_t19="$box_t19/research-sdd/toolbelt/stage-retro-issues.sh"
     reverted_t19='    3) _kit_issue_repo_reason="kit root is not its own git checkout — found an enclosing repo instead at $KIT_ROOT" ;;'
-    printf '%s\n' "${sut_content/"$anchor_t19"/$reverted_t19}" > "$mutant_t19"
+    printf '%s\n' "${sut_content/"$anchor_t19"/"$reverted_t19"}" > "$mutant_t19"
     bash -n "$mutant_t19" 2>/dev/null || { no "T19 teeth: mutant_t19 failed bash -n syntax check" ""; }
     out_t19="$(PATH="$box_t19/bin:$PATH" RESEARCH_SDD_ISSUE_REPO="" \
       "$BASH_BIN" "$mutant_t19" "$retro_t19" 2>&1)"; rc_t19=$?

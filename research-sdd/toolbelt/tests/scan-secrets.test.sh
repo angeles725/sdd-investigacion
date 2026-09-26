@@ -1383,6 +1383,77 @@ else
   no "70: failing tr stub: rc=$t70_rc (want 3) :: $(printf '%s' "$t70_out" | head -2)"
 fi
 
+# 71 — M4 Rule 2 header validation (kit issue #1142 review): the {6}/{40,64} interval
+# expressions were rewritten as NF/field-shape checks + length() bounds (mawk portability — mawk
+# has no interval support without --re-interval). Extracted DIRECTLY from the SUT's own awk
+# program (the block between its 'awk \'' invocation and matching closing quote, kit issue #1032
+# region) rather than reimplemented, so this test stays byte-faithful to the real validation and
+# cannot silently drift from it. RS="\0": records below are NUL-terminated, matching diff-tree -z.
+_t71_awk_start="$(grep -n "^  awk '\$" "$SUT" | head -1 | cut -d: -f1)"
+_t71_awk_end="$(grep -nF '_rev_obj_tmp" | sort' "$SUT" | head -1 | cut -d: -f1)"
+if [ -z "$_t71_awk_start" ] || [ -z "$_t71_awk_end" ]; then
+  no "71: could not locate the awk program block in the SUT (drifted anchors?)"
+else
+  _t71_prog="$TMP/t71-header.awk"
+  sed -n "$((_t71_awk_start + 1)),$((_t71_awk_end - 1))p" "$SUT" > "$_t71_prog"
+  _t71_sha40="$(printf '0%.0s' $(seq 1 40))"
+  _t71_sha39="$(printf '0%.0s' $(seq 1 39))"
+  _t71_sha64="$(printf 'a%.0s' $(seq 1 64))"
+  _t71_in_ok="$TMP/t71-ok.bin"
+  printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha40" "$_t71_sha40" > "$_t71_in_ok"
+  _t71_in_ok64="$TMP/t71-ok64.bin"
+  printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha64" "$_t71_sha64" > "$_t71_in_ok64"
+  _t71_in_bad="$TMP/t71-bad.bin"
+  printf ':100644 100644 %s %s M\0path.txt\0' "$_t71_sha39" "$_t71_sha40" > "$_t71_in_bad"
+  _t71_out_ok="$(awk -f "$_t71_prog" "$_t71_in_ok" 2>&1)"; _t71_rc_ok=$?
+  _t71_out_ok64="$(awk -f "$_t71_prog" "$_t71_in_ok64" 2>&1)"; _t71_rc_ok64=$?
+  _t71_out_bad="$(awk -f "$_t71_prog" "$_t71_in_bad" 2>&1)"; _t71_rc_bad=$?
+  if [ "$_t71_rc_ok" -eq 0 ] && [ "$_t71_rc_ok64" -eq 0 ] \
+     && [ "$_t71_rc_bad" -ne 0 ] && printf '%s' "$_t71_out_bad" | grep -qi 'malformed diff-tree header'; then
+    ok "71: Rule 2 header validation — 40-char and 64-char shas accepted, 39-char (too short) rejected with DEGRADED"
+  else
+    no "71: Rule 2 header validation failed :: ok40=rc$_t71_rc_ok ok64=rc$_t71_rc_ok64 bad=rc$_t71_rc_bad out=[$_t71_out_bad]"
+  fi
+
+  # 72 — mawk-pinned (kit issue #1142 review round 3, nit): test 71 runs under WHATEVER `awk` is
+  # on PATH — gawk on this dev host — so a regression back to {40,64} interval expressions would
+  # stay green here even though mawk (Debian/Ubuntu's default) silently mismatches every 50- and
+  # 63-char sha under that form (measured separately, not just a portability worry). Re-run the
+  # SAME 64-hex-SHA-256 probe explicitly through mawk when it is installed; skip with an explicit
+  # notice otherwise (§7: absent-input, not a silent pass).
+  if command -v mawk >/dev/null 2>&1; then
+    _t72_out_ok64="$(mawk -f "$_t71_prog" "$_t71_in_ok64" 2>&1)"; _t72_rc_ok64=$?
+    _t72_out_bad="$(mawk -f "$_t71_prog" "$_t71_in_bad" 2>&1)"; _t72_rc_bad=$?
+    if [ "$_t72_rc_ok64" -eq 0 ] \
+       && [ "$_t72_rc_bad" -ne 0 ] && printf '%s' "$_t72_out_bad" | grep -qi 'malformed diff-tree header'; then
+      ok "72: Rule 2 header validation under mawk — 64-char (SHA-256) sha accepted, 39-char rejected with DEGRADED"
+    else
+      no "72: mawk-pinned header validation failed :: ok64=rc$_t72_rc_ok64 bad=rc$_t72_rc_bad out=[$_t72_out_bad]"
+    fi
+  else
+    ok "72: SKIP — mawk not installed on this host, cannot exercise the mawk-specific case"
+  fi
+
+  # 73 — restored full strictness (kit issue #1142 review round 3, nit): the NF/length rewrite's
+  # own comment claimed to be "exactly as strict" as the original single-space-delimited regex,
+  # which was false — a TAB-delimited header and one with a trailing space both passed NF==5 and
+  # every per-field check. git never emits either shape, but the claim is now backed by two
+  # explicit checks; probe both directly (no need for mawk here — neither check is an interval
+  # expression, so this is a correctness case, not a portability one).
+  _t73_in_tab="$TMP/t71-tab.bin"
+  printf ':100644\t100644 %s %s M\0path.txt\0' "$_t71_sha40" "$_t71_sha40" > "$_t73_in_tab"
+  _t73_in_trail="$TMP/t71-trail.bin"
+  printf ':100644 100644 %s %s M \0path.txt\0' "$_t71_sha40" "$_t71_sha40" > "$_t73_in_trail"
+  _t73_out_tab="$(awk -f "$_t71_prog" "$_t73_in_tab" 2>&1)"; _t73_rc_tab=$?
+  _t73_out_trail="$(awk -f "$_t71_prog" "$_t73_in_trail" 2>&1)"; _t73_rc_trail=$?
+  if [ "$_t73_rc_tab" -ne 0 ] && printf '%s' "$_t73_out_tab" | grep -qi 'malformed diff-tree header' \
+     && [ "$_t73_rc_trail" -ne 0 ] && printf '%s' "$_t73_out_trail" | grep -qi 'malformed diff-tree header'; then
+    ok "73: Rule 2 header validation rejects a TAB-delimited header and a trailing-space header (restored full strictness)"
+  else
+    no "73: full-strictness restoration failed :: tab=rc$_t73_rc_tab out=[$_t73_out_tab] trail=rc$_t73_rc_trail out=[$_t73_out_trail]"
+  fi
+fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth for T53 (leading ':' path): insert an early-skip inside Rule 1 for records starting
   # with ':' — the old bug. ':notes.md' arrives at Rule 1 (expect_path=1), the colon check fires,
@@ -1697,6 +1768,52 @@ PYEOF_TR70
   [ "$_m70rc" = 0 ] \
     && ok "teeth-tr-70: tr-guard-removed mutant gives rc=0 on failing tr (false clean) → test 70 has teeth" \
     || no "teeth-tr-70: mutant rc=$_m70rc (want 0=false clean) — test 70 is THEATER"
+
+  # teeth-71: neuter SENTINEL-M4-HEADER-CHECK (force _sm_ok always true); test 71's too-short-sha
+  # fixture must then FALSE-PASS (rc=0, no DEGRADED) instead of being rejected.
+  echo "-- teeth-71: neuter SENTINEL-M4-HEADER-CHECK; the too-short-sha fixture must FALSE-PASS --"
+  if [ -z "${_t71_awk_start:-}" ] || [ -z "${_t71_awk_end:-}" ]; then
+    no "teeth-71: precondition failed — test 71 could not locate the awk program block"
+  else
+    _t71_sentinel_count="$(grep -Fc '# SENTINEL-M4-HEADER-CHECK' "$SUT")"
+    if [ "$_t71_sentinel_count" -ne 1 ]; then
+      no "teeth-71: SENTINEL-M4-HEADER-CHECK not found exactly once (count=$_t71_sentinel_count)"
+    else
+      _t71_mut_prog="$TMP/t71-header-mutant.awk"
+      sed "/SENTINEL-M4-HEADER-CHECK/{n;s/.*/  if (0) {/}" "$_t71_prog" > "$_t71_mut_prog"
+      if cmp -s "$_t71_prog" "$_t71_mut_prog"; then
+        no "teeth-71: mutation was a byte-identical no-op — sentinel not found in extracted program"
+      else
+        _t71_mout="$(awk -f "$_t71_mut_prog" "$_t71_in_bad" 2>&1)"; _t71_mrc=$?
+        if [ "$_t71_mrc" -eq 0 ] && ! printf '%s' "$_t71_mout" | grep -qi 'malformed'; then
+          ok "teeth-71: _sm_ok-neutered mutant accepts the too-short-sha header (rc=0, no DEGRADED) → test 71 has teeth"
+        else
+          no "teeth-71: mutant still rejected the malformed header (rc=$_t71_mrc) — mutation not exercised (THEATER)"
+        fi
+      fi
+    fi
+  fi
+
+  # teeth-73 (kit issue #1142 review round 3, nit): drop the restored tab/trailing-space checks;
+  # test 73's two fixtures must then FALSE-PASS (rc=0) instead of being rejected as malformed.
+  echo "-- teeth-73: drop the tab/trailing-space strictness checks; test 73's fixtures must FALSE-PASS --"
+  if [ -z "${_t71_prog:-}" ]; then
+    no "teeth-73: precondition failed — test 71/73 could not locate the awk program block"
+  else
+    _t73_mut_prog="$TMP/t73-header-mutant.awk"
+    sed 's/&& (\$0 !~ \/\\t\/) && (\$0 !~ \/ \$\/)$//' "$_t71_prog" > "$_t73_mut_prog"
+    if cmp -s "$_t71_prog" "$_t73_mut_prog"; then
+      no "teeth-73: mutation was a byte-identical no-op — strictness-check text not found in extracted program"
+    else
+      _t73_mout_tab="$(awk -f "$_t73_mut_prog" "$_t73_in_tab" 2>&1)"; _t73_mrc_tab=$?
+      _t73_mout_trail="$(awk -f "$_t73_mut_prog" "$_t73_in_trail" 2>&1)"; _t73_mrc_trail=$?
+      if [ "$_t73_mrc_tab" -eq 0 ] && [ "$_t73_mrc_trail" -eq 0 ]; then
+        ok "teeth-73: tab/trailing-space checks dropped -> both fixtures FALSE-PASS (rc=0) -> test 73's restored strictness has real teeth"
+      else
+        no "teeth-73: mutant still rejected one or both fixtures (tab=rc$_t73_mrc_tab trail=rc$_t73_mrc_trail) — mutation not exercised (THEATER)"
+      fi
+    fi
+  fi
 fi
 
 [ "$skips" -gt 0 ] && echo "== $pass passed · $fail failed · $skips skipped ==" || echo "== $pass passed · $fail failed =="
