@@ -334,9 +334,14 @@ redirect is how a short-lived, signed CDN/S3/GitHub-asset URL is served, and reg
 would put an expiring, credential-bearing link in SOURCES.md instead of a stable, re-fetchable one. A
 stale pre-redirect URL in the origin cell makes re-fetching the source harder than it needs to be, but
 an ephemeral signed URL is worse — it stops working entirely once it expires. When curl's own probe
-cannot confirm a permanent redirect (transfer failure, or a wget fallback that cannot resolve/confirm
-redirects the way the probe does), `fetch-doc.sh` registers the originally typed URL instead and
-announces that reversion on stderr — never silently. (Source: cloudflare/retros/2026-08-28-ztna-focus-close.md
+cannot confirm the NEXT hop (a HEAD probe and its GET-range fallback both fail outright, or a Location
+header names a non-http(s) scheme and is refused), `fetch-doc.sh` keeps the LAST successfully resolved
+PERMANENT URL — the originally typed URL only when the failure happens on the very first hop, not
+necessarily otherwise — and announces the abnormal stop on stderr, never silently. This is a DIFFERENT
+case from a total download failure: when the actual fetch (not just the redirect probe) fails outright,
+`fetch-doc.sh` falls back to `wget` against the ORIGINALLY TYPED url specifically (wget cannot resolve or
+confirm redirects the way the probe does) and announces THAT reversion with its own distinct notice — the
+two notices are mutually exclusive for one run. (Source: cloudflare/retros/2026-08-28-ztna-focus-close.md
 D4 — at least 4 doc URLs 301-redirected in one session; every D4 row is a `web-snapshot`, fetched via
 `web` mode, which is why the fix applies to both modes.)
 
