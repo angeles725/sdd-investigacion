@@ -320,18 +320,57 @@ OUT_22=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_MISSING3" \
 [ -n "$OUT_22" ] || no "OUT_22: SUT produced no output (capture fork-fail?)"
 re_absent='PROMPT-LOOP-APPENDIX\.md not found'
 re_orphan=$'\n''WARN.*§3'
-if [[ "$OUT_22" =~ $re_absent ]] && [[ $'\n'"$OUT_22" =~ $re_orphan ]] && [ "$RC_22" -eq 0 ]; then
-  ok "22 CHECK 2 appendix coverage: missing appendix → degraded WARN naming it, §3 still orphan, exit 0"
+re_summary_absent='PROMPT-LOOP-APPENDIX\.md \(absent\)'
+if [[ "$OUT_22" =~ $re_absent ]] && [[ $'\n'"$OUT_22" =~ $re_orphan ]] && [ "$RC_22" -eq 0 ] && [[ "$OUT_22" =~ $re_summary_absent ]]; then
+  ok "22 CHECK 2 appendix coverage: missing appendix → degraded WARN naming it, §3 still orphan, exit 0, summary says '(absent)'"
 else
-  no "22 CHECK 2 appendix coverage: expected degraded WARN + §3 orphan + exit 0 (rc=$RC_22 out=[$OUT_22])"
+  no "22 CHECK 2 appendix coverage: expected degraded WARN + §3 orphan + exit 0 + summary '(absent)' (rc=$RC_22 out=[$OUT_22])"
 fi
 
-# --- 23. summary proves the appendix was actually looked at (anti-silent-zero) --
-re_summary='PROMPT-LOOP-APPENDIX\.md'
-if [[ "$OUT_20" =~ $re_summary ]]; then
-  ok "23 summary names PROMPT-LOOP-APPENDIX.md as a checked source (anti-silent-zero)"
+# --- 23. summary's "(checked)"/"(absent)" claim is DERIVED from the actual scan, not a hardcoded
+# string (kit issue #1003 round 3, N3/RDD-WARNING — the prior version of this test only checked
+# that the literal filename appeared, which is true even when the file was never scanned; see the
+# mutation control below for the actual anti-silent-zero proof). Real proof here: the SAME summary
+# line reads "(checked)" on the present-and-scanned fixture (OUT_20) and "(absent)" on the
+# genuinely-absent fixture (OUT_22) — two different, self-consistent claims, not one constant string.
+re_summary_checked='PROMPT-LOOP-APPENDIX\.md \(checked\)'
+if [[ "$OUT_20" =~ $re_summary_checked ]] && [[ "$OUT_22" =~ $re_summary_absent ]]; then
+  ok "23 summary's appendix-scan status is derived, not hardcoded: '(checked)' when scanned (OUT_20), '(absent)' when not (OUT_22)"
 else
-  no "23 summary does not name PROMPT-LOOP-APPENDIX.md — cannot tell it was actually checked (out=[$OUT_20])"
+  no "23 summary does not distinguish checked vs. absent appendix status (OUT_20=[$OUT_20] OUT_22=[$OUT_22])"
+fi
+
+# --- 24. CHECK 5: every PROMPT-LOOP-APPENDIX.md#<anchor> citation in PROMPT-LOOP.md must resolve
+# to a real '## <anchor>' heading in the appendix (kit issue #1003 round 3, RDD suggestion).
+PROMPTLOOP_ANCHOR_OK="$FIXTURES/promptloop-anchor-ok.md"
+PROMPTLOOP_ANCHOR_BAD="$FIXTURES/promptloop-anchor-bad.md"
+APPENDIX_WITH_ANCHOR="$FIXTURES/appendix-with-anchor.md"
+
+OUT_24OK=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+           RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_OK" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+           RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+           bash "$SUT" 2>&1)
+[ -n "$OUT_24OK" ] || no "OUT_24OK: SUT produced no output (capture fork-fail?)"
+if [[ $'\n'"$OUT_24OK" =~ $'\n''WARN.*anchor' ]]; then
+  no "24a CHECK 5: unexpected anchor WARN when the cited anchor genuinely exists (out=[$OUT_24OK])"
+else
+  ok "24a CHECK 5: a citation to an anchor that genuinely exists in the appendix produces no anchor WARN"
+fi
+
+OUT_24BAD=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+            RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_BAD" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+            RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+            bash "$SUT" 2>&1)
+[ -n "$OUT_24BAD" ] || no "OUT_24BAD: SUT produced no output (capture fork-fail?)"
+if [[ "$OUT_24BAD" =~ WARN.*does-not-exist-anchor ]]; then
+  ok "24b CHECK 5: a citation to a nonexistent anchor produces a named anchor WARN"
+else
+  no "24b CHECK 5: expected an anchor WARN naming 'does-not-exist-anchor' (out=[$OUT_24BAD])"
+fi
+if [[ "$OUT_24BAD" == *'broken appendix-anchor citation(s)'* ]] && [[ "$OUT_24BAD" == *'Findings: 0 stale-count · 0 orphan section(s) · 0 broken citation(s) · 0 readme-range · 1 broken appendix-anchor'* ]]; then
+  ok "24c CHECK 5: summary Findings line counts exactly 1 broken appendix-anchor citation"
+else
+  no "24c CHECK 5: summary Findings line did not report exactly 1 broken appendix-anchor citation (out=[$OUT_24BAD])"
 fi
 
 # =============================================================================
@@ -340,7 +379,8 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   mutant="$(mktemp)"; mutant2="$(mktemp)"; mutant3="$(mktemp)"; mutant4="$(mktemp)"
   mutant5="$(mktemp)"; mutant6="$(mktemp)"; mutant7="$(mktemp)"
-  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4" "$mutant5" "$mutant6" "$mutant7"' EXIT
+  mutant8="$(mktemp)"; mutant9="$(mktemp)"
+  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4" "$mutant5" "$mutant6" "$mutant7" "$mutant8" "$mutant9"' EXIT
 
   # ---- CHECK 1 teeth: break SECTION-COUNT-GREP, clean fixture must WARN ------
   echo "-- teeth CHECK 1: SECTION-COUNT-GREP mutant must break the clean-scenario assertion --"
@@ -519,6 +559,55 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth CHECK 2 appendix: no-scan mutant false-WARNs §3 orphan even though the appendix carries it → test 20 would go RED"
     else
       no "teeth CHECK 2 appendix: mutant produced no §3 orphan WARN — no effect (THEATER)"
+    fi
+  fi
+
+  # ---- N3 teeth: surgically delete ONLY the `_check_files+=` append line (reviewer's own repro) --
+  echo "-- teeth N3: surgical append-line deletion must break test 23's '(checked)' claim on OUT_20 --"
+  # Mutate: replace ONLY the `_check_files+=("$RSDD_PROMPTLOOP_APPENDIX")` line's effect with a
+  # bash no-op (`:`), leaving the `-f` guard, the `else` WARN, and the _appendix_scan_status
+  # derivation loop all textually intact and the script syntactically valid (a bare delete leaves
+  # an empty then-branch, a bash syntax error — confirmed by hand: that construction fails to
+  # parse, which would make this tooth prove nothing about the ACTUAL fix). This is deliberately
+  # narrower than mutant7 (which neuters the whole `-f` guard) — it is the exact mutant the
+  # round-2 reviewer ran and found that only test 20 caught (22/23 stayed green against the OLD
+  # hardcoded-string summary). Because _appendix_scan_status is now derived by re-scanning
+  # _check_files itself (not a separate flag), neutering this one line must ALSO flip OUT_20's
+  # summary from "(checked)" to "(absent)" — proving test 23 is no longer independent of test
+  # 20's coverage.
+  sed 's/_check_files+=("\$RSDD_PROMPTLOOP_APPENDIX")/:/' "$SUT" > "$mutant8"
+  if grep -q '_check_files+=("\$RSDD_PROMPTLOOP_APPENDIX")' "$mutant8"; then
+    no "teeth N3: could not build mutant (append line still present — did the guard change?)"
+  else
+    MUTANT8_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_MISSING3" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_HAS3" \
+                  RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  bash "$mutant8" 2>&1)
+    [ -n "$MUTANT8_OUT" ] || no "MUTANT8_OUT: SUT produced no output (capture fork-fail?)"
+    if [[ "$MUTANT8_OUT" == *'PROMPT-LOOP-APPENDIX.md (absent)'* ]]; then
+      ok "teeth N3: surgical append-line deletion flips OUT_20's summary to '(absent)' → test 23 would go RED"
+    else
+      no "teeth N3: mutant still reports '(checked)' on OUT_20 — summary status not actually derived from the scan (THEATER)"
+    fi
+  fi
+
+  # ---- CHECK 5 teeth: neuter the anchor-citation loop; a broken anchor must stop WARNing --------
+  echo "-- teeth CHECK 5: anchor-loop mutant must break test 24b (nonexistent-anchor WARN) --"
+  # Mutate: force the CHECK 5 file-presence guard to false, so the anchor-citation loop never runs
+  # even when both PROMPT-LOOP.md and the appendix exist.
+  sed 's/if \[ -f "\$RSDD_PROMPTLOOP" \] \&\& \[ -f "\$RSDD_PROMPTLOOP_APPENDIX" \]; then/if false; then/' "$SUT" > "$mutant9"
+  if grep -q 'if \[ -f "\$RSDD_PROMPTLOOP" \] \&\& \[ -f "\$RSDD_PROMPTLOOP_APPENDIX" \]; then' "$mutant9"; then
+    no "teeth CHECK 5: could not build mutant (CHECK 5 guard still present — did the guard change?)"
+  else
+    MUTANT9_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_CLEAN" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP_ANCHOR_BAD" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_WITH_ANCHOR" \
+                  RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  bash "$mutant9" 2>&1)
+    [ -n "$MUTANT9_OUT" ] || no "MUTANT9_OUT: SUT produced no output (capture fork-fail?)"
+    if [[ "$MUTANT9_OUT" =~ WARN.*does-not-exist-anchor ]]; then
+      no "teeth CHECK 5: mutant still WARNs on the broken anchor — no effect (THEATER)"
+    else
+      ok "teeth CHECK 5: neutered anchor-citation guard silently drops the broken-anchor WARN → test 24b would go RED"
     fi
   fi
 

@@ -12,6 +12,12 @@ live, and reads it IN FULL when it does.
 
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
 
+(kit issue #1003 round 3, F1: WEB-RESEARCH DISCOVERY-ONLY and the two FALSIFY BEFORE REPORTING
+delegated-sweep subcases — DELEGATED SWEEP OPERATIONAL CLAIMS and the DECOMMISSIONED/BROKEN
+ENDPOINT SUBCASE — moved back to PROMPT-LOOP.md core: each fires on inline work too, so neither
+satisfied this file's own admission rule above. See `verify-edge-cases` below for the same
+correction applied to PHYSICAL-ACTION FACTS and HIDDEN-FLAG CROSS-CHECK.)
+
 ---
 
 ## delegation-variants
@@ -20,6 +26,13 @@ Trigger: read this section in full when the gap is a single large config artifac
 operator question, ≥2 independent small gaps on different subsystems, a sibling gap while a sweep
 is already in flight, a recursive multi-level fan-out, or you are advancing other work while a
 delegated sweep executes. None of these apply to a plain inline gap.
+
+(N2, kit issue #1003 round 3 review: the QUICK-MODE DELEGATION rule below is currently unreachable
+from PROMPT-LOOP.md — quick mode never enters the loop at all; it short-circuits in SKILL.md before
+BOOTSTRAP/NORMAL CYCLE ever starts, per `skills/research-sdd/SKILL.md`'s "quick and light modes
+short-circuit: answer directly (quick)... do not bootstrap or loop." This predates this PR and is
+left as-is — not this PR's defect to fix — but is worth a follow-up issue to either wire quick mode
+into a delegation path that can reach this rule, or delete the rule as dead text.)
 
 ```text
          CONFIG-ARTIFACT DELEGATION VARIANT. For a focus targeting a single large config artifact (BOG/
@@ -55,32 +68,20 @@ delegated sweep executes. None of these apply to a plain inline gap.
 
 ## verify-edge-cases
 
-Trigger: read this section in full when verifying a sub-agent's report and the fact is
-physical-action (wiring, part numbers, safety values, calibration constants), the sweep source is a
-concatenated dump or a decompiled-context file, the block is a `--help`-sourced Go-CLI target, a
-sub-agent asserted an absence whose scope needs widening, a scout returned absence from a narrow
-file set in an external repo, or a delegated sweep contradicts something the driver already said
-inline. VERIFY BEFORE ACTING's core (a)/(b)/(c) recipe in PROMPT-LOOP.md always applies; these are
-its narrower edge cases.
+Trigger: read this section in full when verifying a sub-agent's report and the sweep source is a
+concatenated dump or a decompiled-context file, a sub-agent asserted an absence whose scope needs
+widening, a scout returned absence from a narrow file set in an external repo, or a delegated sweep
+contradicts something the driver already said inline. VERIFY BEFORE ACTING's core (a)/(b)/(c) recipe
+in PROMPT-LOOP.md always applies; these are its narrower edge cases. (PHYSICAL-ACTION FACTS and
+HIDDEN-FLAG CROSS-CHECK, formerly listed here, moved back to PROMPT-LOOP.md core — both fire on
+inline work too, not only on verifying a delegated sub-agent's report; kit issue #1003 round 3 F1.)
 
 ```text
-         PHYSICAL-ACTION FACTS (highest-priority VERIFY): for any cited fact a human will act on
-         physically — wiring instructions, terminal maps, part numbers, safety values, calibration
-         constants — the orchestrator MUST sample-verify those citations against the real source
-         BEFORE relaying them, not only before writing the block. The [CERT-doc] requirement is
-         necessary but not sufficient here: verify-before-relay, not only verify-before-block. The
-         driver must have read the cited line; trusting the sub-agent's accuracy for a fact that may
-         cause hardware damage or a safety incident is not acceptable. Record: "physical-action verify:
-         N citations checked against real source, all confirmed." (Evidence: commissioning sweeps.)
        - SYSTEMATIC-OFFSET CAVEAT (extends item (a)) — when the sweep SOURCE is a CONCATENATED dump
          or a DECOMPILED-context file, a systematic line-number offset makes EVERY reported citation
          untrustworthy, so re-grep ALL load-bearing citations, not just the "key claim" ones (10/10
          blocks in one focus were offset-wrong). This ADDS to item (a) for those two source types
          only; it does not relax (a)/(b)/(c) or the "ALWAYS when the report is an ABSENCE" framing.
-       - HIDDEN-FLAG CROSS-CHECK — for a Go-CLI target block whose sweep SOURCE was `--help` output,
-         also read the Go source's `cli.Flag` registrations for `Hidden: true` entries: they appear
-         in neither `--help` nor `--help-all` yet may be operationally critical (4 missed in one
-         sweep). Scoped to `--help`-sourced Go-CLI blocks only, not every Go CLI target.
          SCOPE of a sub-agent's proven-absence is narrower than the full corpus. Before promoting
          a sub-agent negative to a gap closure, verify the cited scope covers the relevant universe
          (e.g. all jars / all modules, not just the swept subtree). A module-scoped "not found" is
@@ -105,7 +106,9 @@ its narrower edge cases.
 
 Trigger: read this section in full when a delegated sweep returns a count that will serve as a
 denominator or completeness claim, a scout's claim drives an architectural A⇒B conclusion, or a
-delegated sweep answers a security/safety question by punting to an unsurveyed layer.
+delegated sweep answers a security/safety question by punting to an unsurveyed layer. VERIFY BEFORE
+ACTING's core (a)/(b)/(c) recipe in PROMPT-LOOP.md — the "item b above" the first rule below refers
+to is that recipe's item (b), not anything in this file.
 
 ```text
          RE-DERIVE DELEGATED COUNTS: counts returned by a delegated sweep (XML parse, config
@@ -129,24 +132,6 @@ delegated sweep answers a security/safety question by punting to an unsurveyed l
 
 ---
 
-## web-research-discovery-only
-
-Trigger: read this section in full for a source-heavy focus where a sub-agent's role is DISCOVERY
-only (candidate URLs + rough cited claims), with the driver doing preservation/extraction/
-verification itself.
-
-```text
-       - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
-         per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
-         ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
-         then preserves (`fetch-doc.sh`), extracts (`extract-pdf.sh`/`pdftotext`), TOKEN-VERIFIES each claim
-         against the preserved local copy, and writes the block. Records as `yes · sonnet (web sweep) + inline
-         extract/verify`. Distinct from BOOTSTRAP e3's SCOUT (a one-time pre-gap certifiability gate, not a
-         per-iteration pattern): here the agent discovers, the driver preserves+verifies+writes every iteration.
-```
-
----
-
 ## long-build-delegation
 
 Trigger: read this section in full for a §19 build/PoC iteration that will be delegated to an
@@ -163,31 +148,6 @@ non-build gap.
          discards accumulated implementation context and pays the startup cost again. Note: the
          continuation mechanism is harness-specific; if the harness lacks one, prefer shorter
          well-scoped delegations that are cheap to relaunch. (Evidence: nave-panccadia D19.)
-```
-
----
-
-## falsify-delegated-subcases
-
-Trigger: read this section in full when a DELEGATED sweep's conclusion is about live state
-(endpoint/feature/service alive-dead-deployed) or a decommission/deprecation/removal verdict —
-both are structurally unreliable when read off decompiled code or strings alone. The main FALSIFY
-BEFORE REPORTING obligation in PROMPT-LOOP.md core applies to any operational conclusion, inline or
-delegated; these two subcases are specifically about a DELEGATED sweep's conclusion.
-
-```text
-         DELEGATED SWEEP OPERATIONAL CLAIMS (HIGH-FALSIFICATION-PRIORITY): a decompilation sweep
-         that concludes about LIVE STATE — endpoint alive/dead, feature availability, service
-         deployed — is structurally unreliable: decompiled code reflects what was SHIPPED, not what
-         is RUNNING NOW. Apply FALSIFY BEFORE REPORTING MANDATORILY for any such claim; confirm
-         against a live probe (§12) or current operational evidence before authoring.
-         DECOMMISSIONED/BROKEN ENDPOINT SUBCASE: a decompilation sweep that concludes an endpoint
-         is "decommissioned", "deprecated", "removed", or "broken" based on strings or error-path
-         code is HIGH-FALSIFICATION-PRIORITY for the same structural reason — a decompile reads
-         strings, not live operational state. A string `"endpoint decommissioned"` is evidence the
-         developer EXPECTED decommissioning; it is not evidence the endpoint IS currently offline.
-         Apply FALSIFY BEFORE REPORTING before reporting any decommission/shutdown status from a
-         decompiled source. (Evidence: niagara framework-drivers-closure D2.)
 ```
 
 ---

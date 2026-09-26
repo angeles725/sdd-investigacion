@@ -599,12 +599,23 @@ Always read first, in this order:
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting. (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
+         PHYSICAL-ACTION FACTS (highest-priority VERIFY): for any cited fact a human will act on
+         physically — wiring instructions, terminal maps, part numbers, safety values, calibration
+         constants — the orchestrator MUST sample-verify those citations against the real source
+         BEFORE relaying them, not only before writing the block. The [CERT-doc] requirement is
+         necessary but not sufficient here: verify-before-relay, not only verify-before-block. The
+         driver must have read the cited line; trusting the sub-agent's accuracy for a fact that may
+         cause hardware damage or a safety incident is not acceptable. Record: "physical-action verify:
+         N citations checked against real source, all confirmed." (Evidence: commissioning sweeps.)
+       - HIDDEN-FLAG CROSS-CHECK — for a Go-CLI target block whose sweep SOURCE was `--help` output,
+         also read the Go source's `cli.Flag` registrations for `Hidden: true` entries: they appear
+         in neither `--help` nor `--help-all` yet may be operationally critical (4 missed in one
+         sweep). Scoped to `--help`-sourced Go-CLI blocks only, not every Go CLI target.
          VERIFY-EDGE-CASES — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#verify-edge-cases` in
-         full when the cited fact is physical-action (wiring/part numbers/safety values), the sweep
-         source is a concatenated or decompiled-context dump, the block is a `--help`-sourced Go-CLI
-         target, a sub-agent's proven-absence needs its scope widened, a scout returned absence from
-         a narrow external-repo file set, or a delegated sweep contradicts something the driver
-         already said inline. The (a)/(b)/(c) recipe above always applies; these are its edge cases.
+         full when the sweep source is a concatenated or decompiled-context dump, a sub-agent's
+         proven-absence needs its scope widened, a scout returned absence from a narrow external-repo
+         file set, or a delegated sweep contradicts something the driver already said inline. The
+         (a)/(b)/(c) recipe above always applies; these are its edge cases.
          PEER CATCH. When a parallel session or the operator disputes a claim, re-open the PRIMARY source
          (not the decompile that seeded the claim) and correct the block with a §14 back-pointer; a peer
          catch is first-class evidence. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #5)
@@ -612,10 +623,13 @@ Always read first, in this order:
          in full when a delegated sweep returns a count that will serve as a denominator or
          completeness claim, a scout's claim drives an architectural A⇒B conclusion, or a delegated
          sweep punts a security/safety question to an unsurveyed layer.
-       - WEB-RESEARCH-DISCOVERY-ONLY — SITUATIONAL: read
-         `$KIT/PROMPT-LOOP-APPENDIX.md#web-research-discovery-only` in full for a source-heavy focus
-         where a sub-agent's role is DISCOVERY only (candidate URLs + rough cited claims) and the
-         driver itself preserves, extracts, and token-verifies.
+       - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
+         per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
+         ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
+         then preserves (`fetch-doc.sh`), extracts (`extract-pdf.sh`/`pdftotext`), TOKEN-VERIFIES each claim
+         against the preserved local copy, and writes the block. Records as `yes · sonnet (web sweep) + inline
+         extract/verify`. Distinct from BOOTSTRAP e3's SCOUT (a one-time pre-gap certifiability gate, not a
+         per-iteration pattern): here the agent discovers, the driver preserves+verifies+writes every iteration.
        - MODEL TIER for the delegated sweep — match the tier to the sweep's COGNITIVE DEMAND (this is about
          EFFICIENCY, not saving tokens: don't run a scalpel task on a neurosurgeon). Pick `model` on the
          Agent/Task call:
@@ -630,7 +644,7 @@ Always read first, in this order:
          Exception: verification or refutation voters never drop to `haiku` — run them inline on the driver
          or defer the seal (METHODOLOGY §8).
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
-         LONG-BUILD-DELEGATION — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#long-build-delegation`
+       - LONG-BUILD-DELEGATION — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#long-build-delegation`
          in full for a §19 build/PoC iteration delegated to an implementation agent (spec-file
          handoff, mid-flight correction delivery). Not applicable to a non-build gap.
        - PRE-TEST POPULATION ANATOMY: before running a comparison or classification test, measure
@@ -665,10 +679,18 @@ Always read first, in this order:
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
          Cost: typically one query. Value: prevented a wrong escalation costs far more. A block that
          refutes its own initial hypothesis is a valid, high-value block type.
-         DELEGATED-SWEEP FALSIFICATION SUBCASES — SITUATIONAL: read
-         `$KIT/PROMPT-LOOP-APPENDIX.md#falsify-delegated-subcases` in full when a DELEGATED sweep's
-         conclusion is about live state (alive/dead, deployed) or a decommission/deprecation/removal
-         verdict — both are structurally unreliable from decompiled/string evidence alone.
+         DELEGATED SWEEP OPERATIONAL CLAIMS (HIGH-FALSIFICATION-PRIORITY): a decompilation sweep
+         that concludes about LIVE STATE — endpoint alive/dead, feature availability, service
+         deployed — is structurally unreliable: decompiled code reflects what was SHIPPED, not what
+         is RUNNING NOW. Apply FALSIFY BEFORE REPORTING MANDATORILY for any such claim; confirm
+         against a live probe (§12) or current operational evidence before authoring.
+         DECOMMISSIONED/BROKEN ENDPOINT SUBCASE: a decompilation sweep that concludes an endpoint
+         is "decommissioned", "deprecated", "removed", or "broken" based on strings or error-path
+         code is HIGH-FALSIFICATION-PRIORITY for the same structural reason — a decompile reads
+         strings, not live operational state. A string `"endpoint decommissioned"` is evidence the
+         developer EXPECTED decommissioning; it is not evidence the endpoint IS currently offline.
+         Apply FALSIFY BEFORE REPORTING before reporting any decommission/shutdown status from a
+         decompiled source. (Evidence: niagara framework-drivers-closure D2.)
        - REACHABLE ≠ REPRESENTATIVE: before using a live endpoint response as evidence, confirm it
          is the PRODUCTION PATH, not a debug/test stub. A reachable URL proves only that the
          transport works. Check documented service paths (vendor manual, API spec, or prior corpus
