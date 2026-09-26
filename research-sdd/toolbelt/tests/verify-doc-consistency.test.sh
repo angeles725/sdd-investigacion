@@ -275,12 +275,72 @@ else
 fi
 
 # =============================================================================
+# 20-23 — kit issue #1003 rework round 2, F5: PROMPT-LOOP-APPENDIX.md § coverage.
+# CHECK 2's orphan scan must also read PROMPT-LOOP-APPENDIX.md, so a §N reference
+# that lives ONLY there (a situational rule moved out of PROMPT-LOOP.md core) does
+# not read as an orphan section forever after every future slice.
+# =============================================================================
+SKILL_MISSING3="$FIXTURES/skill-missing-3.md"
+APPENDIX_HAS3="$FIXTURES/appendix-has-3.md"
+APPENDIX_EMPTY="$FIXTURES/appendix-empty.md"
+
+# --- 20. §3 lives only in the appendix → no orphan §3 WARN ------------------
+OUT_20=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_MISSING3" \
+         RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_HAS3" \
+         RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+         bash "$SUT" 2>&1)
+[ -n "$OUT_20" ] || no "OUT_20: SUT produced no output (capture fork-fail?)"
+re=$'\n''WARN.*§3'
+if [[ $'\n'"$OUT_20" =~ $re ]]; then
+  no "20 CHECK 2 appendix coverage: unexpected §3 orphan WARN even though appendix carries §3 (out=[$OUT_20])"
+else
+  ok "20 CHECK 2 appendix coverage: §3 referenced only in PROMPT-LOOP-APPENDIX.md → no orphan §3 WARN"
+fi
+
+# --- 21. appendix present but EMPTY → §3 orphan WARN still fires (no free pass) --
+# Anti-silent-zero: the appendix's mere PRESENCE must not suppress the finding —
+# only its actual CONTENT (a real §3 reference) may.
+OUT_21=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_MISSING3" \
+         RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_EMPTY" \
+         RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+         bash "$SUT" 2>&1)
+[ -n "$OUT_21" ] || no "OUT_21: SUT produced no output (capture fork-fail?)"
+re=$'\n''WARN.*§3'
+if [[ $'\n'"$OUT_21" =~ $re ]]; then
+  ok "21 CHECK 2 appendix coverage: empty appendix does NOT suppress the §3 orphan WARN (no free pass on presence alone)"
+else
+  no "21 CHECK 2 appendix coverage: §3 orphan WARN missing even though no file actually references §3 (out=[$OUT_21])"
+fi
+
+# --- 22. appendix ABSENT → degraded WARN naming the appendix; §3 still orphan; exit 0 --
+OUT_22=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_MISSING3" \
+         RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$FIXTURES/nonexistent-appendix.md" \
+         RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+         bash "$SUT" 2>&1); RC_22=$?
+[ -n "$OUT_22" ] || no "OUT_22: SUT produced no output (capture fork-fail?)"
+re_absent='PROMPT-LOOP-APPENDIX\.md not found'
+re_orphan=$'\n''WARN.*§3'
+if [[ "$OUT_22" =~ $re_absent ]] && [[ $'\n'"$OUT_22" =~ $re_orphan ]] && [ "$RC_22" -eq 0 ]; then
+  ok "22 CHECK 2 appendix coverage: missing appendix → degraded WARN naming it, §3 still orphan, exit 0"
+else
+  no "22 CHECK 2 appendix coverage: expected degraded WARN + §3 orphan + exit 0 (rc=$RC_22 out=[$OUT_22])"
+fi
+
+# --- 23. summary proves the appendix was actually looked at (anti-silent-zero) --
+re_summary='PROMPT-LOOP-APPENDIX\.md'
+if [[ "$OUT_20" =~ $re_summary ]]; then
+  ok "23 summary names PROMPT-LOOP-APPENDIX.md as a checked source (anti-silent-zero)"
+else
+  no "23 summary does not name PROMPT-LOOP-APPENDIX.md — cannot tell it was actually checked (out=[$OUT_20])"
+fi
+
+# =============================================================================
 # Teeth — mutation proof (one mutant per check + the readability guard)
 # =============================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   mutant="$(mktemp)"; mutant2="$(mktemp)"; mutant3="$(mktemp)"; mutant4="$(mktemp)"
-  mutant5="$(mktemp)"; mutant6="$(mktemp)"
-  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4" "$mutant5" "$mutant6"' EXIT
+  mutant5="$(mktemp)"; mutant6="$(mktemp)"; mutant7="$(mktemp)"
+  trap 'rm -f "$mutant" "$mutant2" "$mutant3" "$mutant4" "$mutant5" "$mutant6" "$mutant7"' EXIT
 
   # ---- CHECK 1 teeth: break SECTION-COUNT-GREP, clean fixture must WARN ------
   echo "-- teeth CHECK 1: SECTION-COUNT-GREP mutant must break the clean-scenario assertion --"
@@ -436,6 +496,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth ANCHOR: naive-anchor mutant picks decoy '5 sections' → stale-count WARN fires → test 18 would go RED"
     else
       no "teeth ANCHOR: mutant did not produce stale-count WARN on decoy-SKILL — no effect (THEATER)"
+    fi
+  fi
+
+  # ---- CHECK 2 appendix-coverage teeth: drop the appendix from _check_files ---
+  echo "-- teeth CHECK 2 appendix: no-appendix-scan mutant must break test 20 (§3-in-appendix-only) --"
+  # Mutate: neuter the "-f "$RSDD_PROMPTLOOP_APPENDIX"" existence guard so the appendix
+  # is NEVER added to _check_files even when it exists and carries the §N reference.
+  # On test 20's fixtures (§3 lives only in the appendix), the orphan §3 WARN then
+  # fires again → test 20 would go RED.
+  sed 's/if \[ -f "\$RSDD_PROMPTLOOP_APPENDIX" \]; then/if false; then/' "$SUT" > "$mutant7"
+  if grep -q 'if \[ -f "\$RSDD_PROMPTLOOP_APPENDIX" \]; then' "$mutant7"; then
+    no "teeth CHECK 2 appendix: could not build mutant (appendix existence guard still present — did the guard change?)"
+  else
+    MUTANT7_OUT=$(RSDD_METHODOLOGY="$METHOD" RSDD_SKILL="$SKILL_MISSING3" \
+                  RSDD_PROMPTLOOP="$PROMPTLOOP" RSDD_PROMPTLOOP_APPENDIX="$APPENDIX_HAS3" \
+                  RSDD_README="$README_MATCH" RSDD_KIT="$KIT_ROOT" RSDD_REPO="$REPO_ROOT" \
+                  bash "$mutant7" 2>&1)
+    [ -n "$MUTANT7_OUT" ] || no "MUTANT7_OUT: SUT produced no output (capture fork-fail?)"
+    re=$'\n''WARN.*§3'
+    if [[ $'\n'"$MUTANT7_OUT" =~ $re ]]; then
+      ok "teeth CHECK 2 appendix: no-scan mutant false-WARNs §3 orphan even though the appendix carries it → test 20 would go RED"
+    else
+      no "teeth CHECK 2 appendix: mutant produced no §3 orphan WARN — no effect (THEATER)"
     fi
   fi
 

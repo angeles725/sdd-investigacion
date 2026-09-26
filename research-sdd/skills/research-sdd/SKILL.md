@@ -185,7 +185,9 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    - `$KIT/toolbelt/tool-registry.md` — which wrapper per artifact type.
    - `$KIT/PROMPT-LOOP.md` — **the operational cycle you will run.** This is the contract: BOOTSTRAP,
      NORMAL CYCLE, HARD RULES (including LOOP CONTINUATION, RESCHEDULE CADENCE, DELEGATION + MODEL TIER,
-     SOURCE-BEFORE-AGENT, SECRETS DISCIPLINE), TERMINAL TRIGGER, RETURN CONTRACT. Follow it verbatim.
+     SOURCE-BEFORE-AGENT, SECRETS DISCIPLINE), TERMINAL TRIGGER, RETURN CONTRACT. Follow it verbatim,
+     including its situational pointers into `$KIT/PROMPT-LOOP-APPENDIX.md` (narrow delegation/
+     sub-agent-verification variants) whenever a named pointer trigger fires.
 
 2. **RESUME first (never bake stale state).** For the resolved target/focus, reconcile the REAL current
    state before writing anything: `git -C <target-path> log --oneline -15`, read its

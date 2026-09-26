@@ -43,6 +43,7 @@ KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 RSDD_METHODOLOGY="${RSDD_METHODOLOGY:-$KIT/METHODOLOGY.md}"
 RSDD_SKILL="${RSDD_SKILL:-$KIT/skills/research-sdd/SKILL.md}"
 RSDD_PROMPTLOOP="${RSDD_PROMPTLOOP:-$KIT/PROMPT-LOOP.md}"
+RSDD_PROMPTLOOP_APPENDIX="${RSDD_PROMPTLOOP_APPENDIX:-$KIT/PROMPT-LOOP-APPENDIX.md}"
 RSDD_README="${RSDD_README:-$KIT/README.md}"
 
 # Citation resolution roots: retros/ citations in SKILL.md are checked against BOTH.
@@ -108,8 +109,12 @@ fi
 
 # =============================================================================
 # CHECK 2 — no orphan section
-# Every section number 1..real_count must be referenced as §N in SKILL.md or
-# PROMPT-LOOP.md. The pattern §N([^0-9]|$) ensures §1 does not satisfy §12's check.
+# Every section number 1..real_count must be referenced as §N in SKILL.md,
+# PROMPT-LOOP.md, or PROMPT-LOOP-APPENDIX.md (kit issue #1003 rework round 2, F5:
+# a situational rule moved out of PROMPT-LOOP.md core into the appendix still
+# carries the §N citation that keeps its source METHODOLOGY section discoverable
+# — without this, every future PROMPT-LOOP split slice widens a blind spot here).
+# The pattern §N([^0-9]|$) ensures §1 does not satisfy §12's check.
 # =============================================================================
 
 # Build the file list for §N reference search.
@@ -119,12 +124,17 @@ if [ -f "$RSDD_PROMPTLOOP" ]; then
 else
   echo "WARN  PROMPT-LOOP.md not found at $RSDD_PROMPTLOOP — orphan-section check uses SKILL.md only."
 fi
+if [ -f "$RSDD_PROMPTLOOP_APPENDIX" ]; then
+  _check_files+=("$RSDD_PROMPTLOOP_APPENDIX")
+else
+  echo "WARN  PROMPT-LOOP-APPENDIX.md not found at $RSDD_PROMPTLOOP_APPENDIX — orphan-section check does not include it."
+fi
 
 n=1
 while [ "$n" -le "$real_count" ]; do
   # §N followed by a non-digit or end-of-line. Prevents §1 from matching inside §12.
   if ! grep -qE "§${n}([^0-9]|$)" "${_check_files[@]}"; then
-    echo "WARN  §${n} is a top-level METHODOLOGY section but is not referenced in SKILL.md or PROMPT-LOOP.md — add a §${n} reference so it remains discoverable."
+    echo "WARN  §${n} is a top-level METHODOLOGY section but is not referenced in SKILL.md, PROMPT-LOOP.md, or PROMPT-LOOP-APPENDIX.md — add a §${n} reference so it remains discoverable."
     orphan_count=$((orphan_count + 1))
   fi
   n=$((n + 1))
@@ -183,7 +193,7 @@ fi
 # Printing readme_declared_upper (or N/A) proves the README §-range was checked.
 # =============================================================================
 echo ""
-echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md · README.md (§-range upper: ${readme_declared_upper:-N/A})"
+echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md · PROMPT-LOOP-APPENDIX.md · README.md (§-range upper: ${readme_declared_upper:-N/A})"
 echo "  Findings: ${stale_count} stale-count · ${orphan_count} orphan section(s) · ${broken_cite_count} broken citation(s) · ${readme_range_count} readme-range"
 if [ "$stale_count" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$broken_cite_count" -eq 0 ] && [ "$readme_range_count" -eq 0 ]; then
   echo "Doc consistency: clean."
