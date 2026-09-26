@@ -61,27 +61,48 @@ reg() { # registers a row in SOURCES.md
 # on `2>/dev/null` — to stay silent-zero-safe (kit CLAUDE.md §7): an empty or malformed probe
 # output must fall back to the last known-good URL, never register "".
 resolve_permanent_redirect() {
-  local cur="$1" hop=0 probe code loc
+  local cur="$1" hop=0 probe code loc head_rc
   local max_hops=10  # SENTINEL-MAXHOPS-VALUE (bounded hop loop — kit review PR #1155 round 2/3)
   local max_time=20  # SENTINEL-MAX-TIME (curl --max-time per hop, round 3 RS1 — bound a hanging probe)
+  local connect_timeout=10  # SENTINEL-CONNECT-TIMEOUT (round-4 N3 — bounds the connect/TLS phase
+  # separately from --max-time, so a connect-level failure can be told apart from a slow response)
   # SENTINEL-HOP-BOUND: the loop below must stop once `hop` reaches this bound — a chain of
   # permanent redirects longer than max_hops is followed only up to the cap, never indefinitely
   # (round-3 RS3: a genuine A<->B redirect LOOP never satisfies any other break condition, so
   # this bound is the ONLY thing that terminates it).
   while [ "$hop" -lt "$max_hops" ]; do
-    # SENTINEL-PROBE-METHOD (round-3 RS1): HEAD first, not GET — a GET probe downloads and
-    # discards the full response body on every hop, doubling transfer cost for a large manual or
-    # PDF. Some servers answer HEAD with 405 (Method Not Allowed) / 501 (Not Implemented), or the
-    # transfer fails outright (curl reports "000" for no completed HTTP transaction); on any of
-    # those THREE signals, retry the SAME hop with a GET probe capped to a zero-byte range
-    # (`-r 0-0`) — far cheaper than a full GET even when a server ignores Range and sends the
-    # whole body anyway, and still resolves the redirect without a second full download.
-    probe="$(curl -sS -I -o /dev/null --max-time "$max_time" -w '%{http_code} %{redirect_url}' "$cur")" || probe=""
-    code="${probe%% *}"
-    if [ "$code" = "405" ] || [ "$code" = "501" ] || [ "$code" = "000" ] || [ -z "$code" ]; then
-      # SENTINEL-PROBE-FALLBACK-GET
-      probe="$(curl -sS -o /dev/null --max-time "$max_time" -r 0-0 -w '%{http_code} %{redirect_url}' "$cur")" || probe=""
+    # SENTINEL-PROBE-METHOD (round-3 RS1, round-4 N2/N3): HEAD first, not GET — a GET probe
+    # downloads and discards the full response body on every hop, doubling transfer cost for a
+    # large manual or PDF. HEAD is treated as a DEFINITIVE answer only for a redirect code
+    # (301/302/303/307/308) or a real 2xx; anything else — 4xx, 5xx, 000/malformed, or empty —
+    # is retried via a GET probe capped to a zero-byte range (`-r 0-0`), since some CDN/S3 fronts
+    # answer HEAD with e.g. 403 while GET on the SAME url is a genuine redirect (N2). The retry is
+    # skipped when the HEAD probe itself failed at the CONNECT stage (curl exit 6/7/28: could not
+    # resolve host / could not connect / operation timed out) — retrying an unreachable host would
+    # just double the wait for nothing (N3); that case falls straight through to the probe-failure
+    # notice below.
+    # SENTINEL-HEAD-GUARD: the assignment is the CONDITION of this if (exempt from `set -e`
+    # regardless of whether the caller's errexit propagates into this function's call context —
+    # see fetch_and_register's own doc comment on inherit_errexit), so a HEAD probe that fails
+    # outright can never abort the script; it is captured as a normal (non-2xx/3xx) head_rc below.
+    if probe="$(curl -sS -I -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -w '%{http_code} %{redirect_url}' "$cur")"; then
+      head_rc=0
+    else
+      head_rc=$?; probe=""
     fi
+    code="${probe%% *}"
+    case "$code" in
+      301|302|303|307|308|2??) : ;;  # HEAD gave a definitive answer — use it as-is
+      *)
+        case "$head_rc" in
+          6|7|28) : ;;  # SENTINEL-CONNECT-SKIP: connect-stage failure — do not retry via GET
+          *)
+            # SENTINEL-PROBE-FALLBACK-GET
+            probe="$(curl -sS -o /dev/null --connect-timeout "$connect_timeout" --max-time "$max_time" -r 0-0 -w '%{http_code} %{redirect_url}' "$cur")" || probe=""
+            ;;
+        esac
+        ;;
+    esac
     code="${probe%% *}"; loc="${probe#* }"
     if [ -z "$code" ]; then
       # SENTINEL-PROBE-FAIL-NOTICE: BOTH the HEAD probe and its GET fallback failed outright
@@ -142,8 +163,18 @@ resolve_permanent_redirect() {
 #     produce two contradictory "registered ..." lines (round-3 RDD/N1: the resolve notice used
 #     to fire unconditionally, then a wget-fallback notice could immediately contradict it).
 #   - on a total download failure (curl fails outright): wget against the ORIGINALLY TYPED url
-#     (wget cannot resolve/confirm redirects the way the probe does), and the ORIGINALLY TYPED
-#     url is what gets registered — announced on stderr, never silently reverted.
+#     (wget cannot resolve/confirm redirects the way the probe does). If wget ALSO fails, NOTHING
+#     is registered (round-4 RDD — see below); otherwise the ORIGINALLY TYPED url is registered,
+#     announced on stderr, never silently.
+#
+# errexit note (round-4 RDD): this function is always invoked as `X="$(fetch_and_register ...)"`
+# — a command substitution. By default bash does NOT propagate `set -e` into a command-
+# substitution subshell (`shopt -s inherit_errexit` is off, and this script does not enable it),
+# so a plain failing command INSIDE this function (e.g. a bare `wget ...` call) would NOT abort
+# anything on its own — execution would silently continue to the next line regardless of wget's
+# exit status. Every command whose failure must be handled is therefore tested EXPLICITLY (`if
+# cmd; then/else`) rather than left to rely on errexit — see the wget branch below and
+# SENTINEL-HEAD-GUARD above for the same discipline inside resolve_permanent_redirect().
 # curl's own -S diagnostics are never redirected away (round-2 S3).
 fetch_and_register() {
   local url="$1" dest="$2" effective
@@ -152,14 +183,31 @@ fetch_and_register() {
   # PERMANENT-resolved url may still sit behind one more (temporary) hop to reach the bytes, and
   # without `-L` curl saves the REDIRECT RESPONSE itself as the "document", not the real content.
   if curl -fsS -L "$effective" -o "$dest"; then
-    if [ "$effective" != "$url" ]; then
+    # SENTINEL-EMPTY-BEFORE-NOTICE (round-4 N4): a 200 response can still carry an EMPTY body —
+    # print the success notice only once the destination is confirmed non-empty. Printing it
+    # unconditionally right after curl exits 0 would announce a "registered" URL for a fetch
+    # that is about to be rejected by the caller's own `[ -s "$dest" ]` empty-body check, with
+    # nothing actually registered in SOURCES.md — the exact false-success shape round-2 N1 fixed
+    # on the wget-fallback path, reappearing here on the success path.
+    if [ -s "$dest" ] && [ "$effective" != "$url" ]; then
       printf 'fetch-doc: registered %s (permanent redirect from %s)\n' "$effective" "$url" >&2
     fi
     printf '%s' "$effective"
   else
-    wget -q "$url" -O "$dest"
-    echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2
-    printf '%s' "$url"
+    # SENTINEL-WGET-GUARD (round-4 RDD): wget's own exit status is checked EXPLICITLY (see the
+    # errexit note above) — a failing wget must never be treated as a successful fallback. On
+    # failure, NOTHING is registered: no "registered ..." line of any kind, a typed failure
+    # notice instead, and a non-zero exit from THIS subshell — which the caller's own
+    # `EFFECTIVE_URL="$(fetch_and_register ...)"` assignment (running under REAL `set -e`, since
+    # that call site is not itself inside another command substitution) turns into an immediate
+    # script abort, exactly like any other failed command substitution assignment.
+    if wget -q "$url" -O "$dest"; then
+      echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2
+      printf '%s' "$url"
+    else
+      echo "fetch-doc: wget fallback ALSO failed for $url; nothing registered" >&2
+      exit 1
+    fi
   fi
 }
 

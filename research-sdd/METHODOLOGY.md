@@ -337,13 +337,20 @@ an ephemeral signed URL is worse — it stops working entirely once it expires. 
 cannot confirm the NEXT hop (a HEAD probe and its GET-range fallback both fail outright, or a Location
 header names a non-http(s) scheme and is refused), `fetch-doc.sh` keeps the LAST successfully resolved
 PERMANENT URL — the originally typed URL only when the failure happens on the very first hop, not
-necessarily otherwise — and announces the abnormal stop on stderr, never silently. This is a DIFFERENT
-case from a total download failure: when the actual fetch (not just the redirect probe) fails outright,
-`fetch-doc.sh` falls back to `wget` against the ORIGINALLY TYPED url specifically (wget cannot resolve or
-confirm redirects the way the probe does) and announces THAT reversion with its own distinct notice — the
-two notices are mutually exclusive for one run. (Source: cloudflare/retros/2026-08-28-ztna-focus-close.md
-D4 — at least 4 doc URLs 301-redirected in one session; every D4 row is a `web-snapshot`, fetched via
-`web` mode, which is why the fix applies to both modes.)
+necessarily otherwise — and announces the abnormal stop on stderr, never silently. Resolution stopping
+abnormally does NOT skip the download step that follows: `fetch-doc.sh` still attempts to fetch whatever
+URL resolution left it holding, so an abnormal-stop notice (probe failed / scheme refused / hop cap
+reached) and a SUBSEQUENT download-failure notice can both appear for the same run — one explains why
+resolution stopped early, the other why the fetch itself then failed. What IS guaranteed never to
+co-occur is narrower: the SUCCESS notice (`registered X — permanent redirect from Y`) fires only once the
+download is confirmed to have actually produced a non-empty file, so it is never followed by a
+contradicting fallback notice for that same attempt. When the actual fetch (not just the redirect probe)
+fails outright, `fetch-doc.sh` falls back to `wget` against the ORIGINALLY TYPED url (wget cannot resolve
+or confirm redirects the way the probe does): if wget succeeds, that url is registered with its own
+distinct notice; if wget ALSO fails, NOTHING is registered — a typed failure notice is printed and the
+run exits non-zero, never a silent or misleading "registered" claim. (Source:
+cloudflare/retros/2026-08-28-ztna-focus-close.md D4 — at least 4 doc URLs 301-redirected in one session;
+every D4 row is a `web-snapshot`, fetched via `web` mode, which is why the fix applies to both modes.)
 
 **Already-on-disk official doc corpora (`fetch-doc.sh` is URL-only; local-origin sources use cp + sha256 + SOURCES.md row).** When official documentation is already on disk rather than fetched via URL, the preservation sequence is: (1) `cp -r <source-tree> sources/manuals/<focus>-docs/`; (2) `sha256sum` the preserved files to produce the integrity hash; (3) add a SOURCES.md row with the local-origin path in the origin cell and the full hash in the sha256 cell. Cite the preserved copy exactly as a URL-fetched manual; `[CERT-doc]` applies once the file is registered with a populated hash. Do not improvise per-run — the `jsonToolkit` focus preserved 33 files across 14 blocks with no kit recipe, repeating the same 3-step by convention and establishing the workflow gap: inconsistency risk (missing sha256, blank Blocks column, wrong granularity) is real.
 
