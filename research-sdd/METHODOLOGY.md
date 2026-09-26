@@ -271,6 +271,11 @@ Identical to `niagara-research` (see [`templates/block.template.md`](templates/b
 
 Each block is self-contained but linked. Size according to source density, not by quota.
 
+**A bug or incident fixed mid-block follows the canonical problem-entry template** (symptom → root cause →
+fix → why that fix → when/where(commit) → verification+CERT marker) — see §20's full definition. Do not
+document only the symptom and the fix; the root cause and the verification are what make the entry
+reproducible for a future reader.
+
 **Collaborative bridge block (Type: collaborative).** A block whose agent-authored half maps software features or findings to the gap, and whose DOMAIN or THEORY section carries explicit `[TO ANNOTATE]` placeholders for the human's engineering knowledge (EMC constraints, SI/PI limits, thermal budgets — facts the researcher cannot derive from source files alone). This is NOT an incomplete block — it is intentionally co-authored and valid in its partial state. Declare `Type: collaborative` in the header blockquote so a reviewer reads the empty placeholder sections as intentional (expected-zero), not a marker deficiency. `verify-block.sh` reads the `Type:` token (kit issue #422) but still tallies the empty `[TO ANNOTATE]` sections in its marker counts — read that tally in light of the declared type; the token only re-grades the ZERO-citations WARN.
 
 **Block `Type` field — closed grammar (kit issues #128, #422).** The header blockquote's `**Type:**` line is read by
@@ -312,11 +317,40 @@ TARGET/sources/
 ```
 
 Blocks cite the **preserved local file** (`sources/manuals/x.pdf §4.2` / `:p.N`), not the
-volatile URL nor the extract; `SOURCES.md` keeps the original URL and the hash. The wrapper
+volatile URL nor the extract; `SOURCES.md` keeps the source URL (the PERMANENT-redirect-resolved
+URL — see below — not necessarily the one first typed) and the hash. The wrapper
 [`toolbelt/fetch-doc.sh`](toolbelt/fetch-doc.sh) automates download + registration;
 [`toolbelt/extract-pdf.sh`](toolbelt/extract-pdf.sh) turns a PDF into page-anchored Markdown
 (text-layer-first; OCR only for `fonts=0` scans, and OCR'd extracts are tagged `reliability: ocr-lossy`
 so their citations get extra §11 scrutiny).
+
+**Register the PERMANENT-redirect-resolved URL — never a temporary one.** A canonical doc URL may
+301/308-redirect (a docs reorg, a slug change); the origin cell in `SOURCES.md` should hold the URL a
+PERMANENT redirect chain resolves to, not the one first typed. `fetch-doc.sh` resolves this itself, in
+BOTH `doc` and `web` mode: a bounded per-hop probe follows only 301/308 hops and stops at the FIRST
+302/303/307 (temporary) redirect, registering whatever URL it is holding at that point — never the
+temporary hop's target. This is deliberate, not merely a redirect-following convenience: a temporary
+redirect is how a short-lived, signed CDN/S3/GitHub-asset URL is served, and registering ONE of those
+would put an expiring, credential-bearing link in SOURCES.md instead of a stable, re-fetchable one. A
+stale pre-redirect URL in the origin cell makes re-fetching the source harder than it needs to be, but
+an ephemeral signed URL is worse — it stops working entirely once it expires. When curl's own probe
+cannot confirm the NEXT hop (a HEAD probe and its GET-range fallback both fail outright, or a Location
+header names a non-http(s) scheme and is refused), `fetch-doc.sh` keeps the LAST successfully resolved
+PERMANENT URL — the originally typed URL only when the failure happens on the very first hop, not
+necessarily otherwise — and announces the abnormal stop on stderr, never silently. Resolution stopping
+abnormally does NOT skip the download step that follows: `fetch-doc.sh` still attempts to fetch whatever
+URL resolution left it holding, so an abnormal-stop notice (probe failed / scheme refused / hop cap
+reached) and a SUBSEQUENT download-failure notice can both appear for the same run — one explains why
+resolution stopped early, the other why the fetch itself then failed. What IS guaranteed never to
+co-occur is narrower: the SUCCESS notice (`registered X — permanent redirect from Y`) fires only once the
+download is confirmed to have actually produced a non-empty file, so it is never followed by a
+contradicting fallback notice for that same attempt. When the actual fetch (not just the redirect probe)
+fails outright, `fetch-doc.sh` falls back to `wget` against the ORIGINALLY TYPED url (wget cannot resolve
+or confirm redirects the way the probe does): if wget succeeds, that url is registered with its own
+distinct notice; if wget ALSO fails, NOTHING is registered — a typed failure notice is printed and the
+run exits non-zero, never a silent or misleading "registered" claim. (Source:
+cloudflare/retros/2026-08-28-ztna-focus-close.md D4 — at least 4 doc URLs 301-redirected in one session;
+every D4 row is a `web-snapshot`, fetched via `web` mode, which is why the fix applies to both modes.)
 
 **Already-on-disk official doc corpora (`fetch-doc.sh` is URL-only; local-origin sources use cp + sha256 + SOURCES.md row).** When official documentation is already on disk rather than fetched via URL, the preservation sequence is: (1) `cp -r <source-tree> sources/manuals/<focus>-docs/`; (2) `sha256sum` the preserved files to produce the integrity hash; (3) add a SOURCES.md row with the local-origin path in the origin cell and the full hash in the sha256 cell. Cite the preserved copy exactly as a URL-fetched manual; `[CERT-doc]` applies once the file is registered with a populated hash. Do not improvise per-run — the `jsonToolkit` focus preserved 33 files across 14 blocks with no kit recipe, repeating the same 3-step by convention and establishing the workflow gap: inconsistency risk (missing sha256, blank Blocks column, wrong granularity) is real.
 
@@ -756,6 +790,14 @@ enforces the gate; the researcher maintains the number.
 absent in a legacy envelope, `--sync-state` seeds it to 0. The RESEARCH-STATE.template.md
 includes `undocumented_findings: 0` in the envelope for new targets.
 
+**Anti-ephemeral-artifact rule.** A deliverable's SOURCE — a dashboard's code, a generated script, any
+artifact worth keeping — must be moved into the repo/corpus BEFORE the session ends, never left living only
+in a scratchpad temp. A scratchpad is a working area, not storage: one session's dashboard source lived only
+under a `/tmp/.../scratchpad` path and nearly vanished with the session. If it is worth citing or reusing
+later, it goes into the corpus (or `sources/`, per §5) in the same iteration it is produced — do not defer
+the rescue to close-out. (Source:
+investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #3.)
+
 ## 7b. State-envelope instruments (situational)
 
 Read this section when `verify-state.sh` reports an unexpected CHECK A mismatch, or when setting up a shared-prefix or multi-focus corpus.
@@ -1111,6 +1153,18 @@ backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at 
 **Frontier mode (5th investigation mode — unexplored territory, breadth-first).** Use frontier mode for a genuinely new focus with NO prior corpus coverage on its proposed surfaces — for example, the first pass over an entirely uncharted subsystem or target. The goal is a COVERAGE MAP across many sub-areas, not deep certification of one. Characteristics: sweep strategy is BREADTH-FIRST and LIGHTER BLOCK DENSITY than a normal deep-dive focus; the `[INFER]`/`[CERT]` ratio is EXPECTED HIGH — that is not a defect but a signal that targeted deep-dive passes are needed later. Declare `MODE: frontier` in RESEARCH-STATE at bootstrap. A frontier focus is NOT under depth pressure from the marker ratio: a high `[INFER]` count signals "return with richer tooling", not "the focus is incomplete by §8 standards". Distinct from a grade-upgrade reopen (which deepens evidence for questions already asked on a STOPPED focus) and from live-backlog injection (which extends an active loop's queue). **FRONTIER-REOPEN DECISION SHAPE.** Before honoring STOP on a frontier focus, run a coverage/section audit: if the audit reveals >2 contiguous section entries uncovered OR >1 named sub-topic with no block coverage, that is a new tier, not an in-block residue — declare it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration of the new tier and seed the backlog from the uncovered entries. A single in-child residue stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is not a reproducible corpus action.
 (Source: niagara-research/retros/2026-09-14-frontier-mode-proposal.md)
 
+**Documenting a problem is part of finishing it, not a deferred extra — a cadence rule, not a new debt.**
+Write the problem-entry (§4/§20 canonical template, or a journal entry per §20b when the work is
+procedural rather than block-worthy) immediately AFTER each verification or fix lands, in the same
+iteration — not batched to loop STOP or only when explicitly asked. This is guidance about WHEN to write,
+not a new instrument or a new failure mode: the §7 `undocumented_findings` counter already tracks whatever
+is genuinely undocumented (a `mem_save` with no block), and it clears the moment the block is written,
+however late. A block written late and then decremented to 0 is not "still undocumented" under this rule —
+it is exactly what §7 already calls done. The reason to write promptly is not to avoid inventing debt the
+counter would otherwise miss; it is that a delayed write-up is where the root cause gets lost and a symptom
+gets mistaken for it. (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md
+delta #2.)
+
 ## 8b. Gap-backlog cell grammar (issue #147)
 
 The `## Gap-backlog` table has two grammar-sensitive cells — **Priority** and **Status** — that
@@ -1376,6 +1430,13 @@ This line is what resume and the instrument read to distinguish three states: (a
     SECRETS DISCIPLINE (which covers credentials/keys): confidential-but-non-secret engineering data uses a
     structure+sample contract, not a structure-only redaction.
     (Source: 2026-09-16-blender-llm-b12-b13-cad-application-retro.md delta #1)
+12. **Record the GATING condition when copying a rule or threshold.** A numeric threshold or rule copied
+    from one context into another is only correct under the condition that produced it — copy the condition
+    along with the number. A monitor threshold tuned for one poll ordering is wrong under a different one:
+    a 35-minute threshold was correct because one device polls in series BEHIND another; the same value
+    copied without that gating condition would read as arbitrary, and a naive lower value (15 min) would
+    false-alarm. State the "because of X" next to any copied rule/threshold, not just the value.
+    (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #4.)
 
 Corpus language: **English by default** — for new targets and targets with no existing corpus.
 **Exception (user-approved, per target):** a target with an established corpus in another language MAY
@@ -2839,6 +2900,15 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
 
 **Focus-distinctness check (new focus on a mature corpus — before bootstrap, before any scaffold).** Before bootstrapping a new focus on an already-substantial corpus, run a focus-distinctness check: read all existing `RESEARCH-STATE-<focus>.md` files and the corpus `INDEX.md`; compare the proposed focus angle against existing focus names and their covered subjects. If the proposed focus substantially duplicates an existing focus's covered blocks (>~50 % of its proposed gaps are already answered by existing evidence), REJECT or RESCOPE the focus rather than investing in a bootstrap. Record the check result as `focus-distinctness: OK — <reason>` or `focus-distinctness: REJECTED — <overlap evidence>` in RESEARCH-STATE when the focus is opened. Use `tools/check-coverage.py` if present; otherwise read `FOCUSES.md` + `INDEX.md` manually. A focus whose core coverage already exists is wasted research, not complementary investigation. This check fires ONCE at focus-open; it is distinct from the per-gap PRIOR COVERAGE CHECK in the NORMAL CYCLE (which fires during each gap's investigation). (Evidence: frontier bootstrap breadth checks surfaced proposed focuses with significant corpus overlap; catching this at bootstrap is cheap, catching it mid-loop is not.)
 
+**Leaf vs. root trust artifacts (cross-focus note).** The *visible* on-disk cert/anchor files a target ships
+(a `.certificate`, a pinned public key file, an anchor entry in a config) are often LEAVES, not the real trust
+root — the actual root is compiled INTO a binary (the "hidden root embedded in `baja.jar`" pattern: a module
+TPK plus a license `masterPublicKey`, both invisible to a directory listing). Treat an on-disk cert/anchor as
+provisional identity until the compiled-in root that actually signs/verifies it is located; citing the leaf
+alone as "the trust root" cost two blocks a correction each. This is a recurring, cross-focus source of
+corpus confusion — worth checking for on ANY focus that documents a signing or licensing chain, not only the
+one that first found it. (Source: niagara-research/retros/2026-08-07-signing-pki.md SPKI-C.)
+
 **Consolidation focus.** When the deliverable is a REFERENCE TABLE or master synthesis rather than new evidence discovery, declare the focus angle as a consolidation focus. Characteristics: most gaps are REMITTANCE (pre-declared before the sweep begins); the audit sweep targets what is NOT yet consolidated, not what is not yet investigated; the closing block is a synthesis/reference block, not a new evidence block; `[INFER]`/`[CERT]` ratios expected to be high in the synthesis block. This sets correct angle expectations at bootstrap (PROMPT-LOOP step b2) and avoids misleading low-citation WARNs on the synthesis block. (Source: 2026-08-29-ports-focus-retro.md DELTA-2)
 
 **Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2)
@@ -2956,6 +3026,12 @@ with the corpus as the guide) and a POST-CLOSE ADDENDUM (new evidence lands on a
 produce lessons the focus-STOP trigger above never sees — ~10 of 30 recent retros described exactly such sessions
 and were written only because the operator asked. Treat "the session changed how the next one should run" as the
 trigger, not "a focus stopped".
+
+**§18 is a batch pass over the run; it does not replace per-change documentation (§8).** The retrospective
+consolidates lessons at the terminal — it is not where a fix's symptom/cause/verification first gets
+written down. Each problem-entry belongs in the block, or in a journal entry per §20b when the work is
+procedural rather than block-worthy, AS IT IS RESOLVED (§4/§20 template, §8 cadence); §18 then reads
+those entries and the journal to extract reusable kit deltas — it does not author the original record.
 
 **What it does.** The driver DELEGATES a fresh-context retro agent (fresh context is the point — independent
 judgment, not the driver's own rationalizations). The retro agent:
@@ -3560,6 +3636,19 @@ cite them `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase 
 mode introduces NO new marker: a captured procedure is empirical evidence of a live interaction, which is
 precisely what `[CERT-hw]`/`[CERT-live]` already mean.
 
+**Problem-entry template (canonical form for documenting a bug or incident fixed mid-session).** When a
+session's work surfaces and fixes a concrete problem (a bug, an environment mismatch, an operational
+outage), document it as one entry with these fields, in order: (1) **symptom** — the observable
+("the report shows 0 events"); (2) **root cause** — the verified why, distinct from the first hypothesis
+("event key collided in the upsert", not "looked like a decode issue"); (3) **fix** — what changed,
+concretely; (4) **why that fix** — the reasoning against the alternatives considered; (5) **when/where** —
+date + commit sha + `file:line` when applicable; (6) **verification** — the evidence it is actually
+resolved (counts, a DRY-RUN, a live check), tagged `[CERT-live]` (verified live) or `[CERT]` (verified by
+reading code). Golden rule: an unverified claim is not documented as fact — it is marked a hypothesis or
+verified first. This is the canonical shape for problem-entries inside a document-cycle block (§4); do not
+improvise a shorter form that drops root cause or verification. (Source:
+investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #1.)
+
 **Evidence in document-mode blocks — three clarifications.**
 
 *(1) Runtime-script and narrative-process corpora.* When the source corpus is a set of runtime scripts or a narrative process document with no public API docs, `[CERT]` file:line citations of those files ARE the primary evidence — not a deficiency. The `verify-block.sh` WARN "ZERO file:line citations resolved" fires on `Type: document` blocks that cite document sections by header (`PROCESS.md §n`, no `:line`); this warns that SECTION references were not resolved as evidence citations — it does not mean the block is undercited. Distinguish document-mode section citations (a narrative anchor, no line number required) from evidence citations (a code or probe fact, requiring file:line).
@@ -3567,6 +3656,24 @@ precisely what `[CERT-hw]`/`[CERT-live]` already mean.
 *(2) Relayed `[CERT-live]` observations.* When a human operator relays a live observation they directly witnessed — a hardware fault, a physical indicator state, a behavioral symptom — cite it `[CERT-live]`. The relay chain does not downgrade the certainty of the observation itself; only the precision of associated measurements is reduced. The operator is the instrument; the researcher is the recorder. **Attribution and preservation requirements for relayed probes:** (a) attribute who ran the probe in the citation (a name or role — distinguishes relay from direct observation); (b) preserve the relayed artifact — screenshot, log extract, diagnostic output — under `sources/probes/` exactly as a direct probe would be; (c) record unitemized residuals as `[INFER]` — items mentioned in the relay that the preserved artifact does not confirm are not `[CERT-live]`. A relayed claim with no preserved artifact stays `[INFER]` for any value-dependent sub-claim. (Source: niagara relayed-cert-live retro.)
 
 *(3) External-product steps in runbook blocks.* A runbook block often mixes corpus `[CERT]` facts (this device's config, locally verified) with external-product steps (how to configure the DNS provider, how to invoke the hosting API). Keep these visually separate: external steps verified against an official source are `[CERT-web]` (URL + access date, §3); unverified external steps are `[INFER]`. A block where `[CERT]` and `[CERT-web]/[INFER]` rows are interleaved without separation is a reviewer red flag — the reader cannot tell which claims are locally verified. Document mode introduces no new markers for this: `[CERT-web]` and `[INFER]` already cover it.
+
+**Two-layer alerting pattern (platform-up ≠ payload-freshness).** When a documented deployment relies on an
+external platform-status notification (a tunnel-up ping, an uptime check), that signal covers only the
+TRANSPORT layer — it does NOT confirm the PAYLOAD is fresh. Data can go stale while the platform reports
+healthy (a tunnel stays up while the upstream feed freezes). Document such a deployment's alerting as
+TWO layers: the platform/transport check it already has, PLUS a freshness monitor independent of host
+liveness (a last-updated timestamp check, a staleness threshold on the data itself). A runbook that
+documents only the platform-up signal as "monitoring" has documented half the contract. (Source:
+tunnel/clientes/Leon-Guanajuato/Pancaddia/corpus/retros/2026-09-14-incidente-pipeline-jace.md A-3.)
+
+**Driver, not the authoring sub-agent, populates document-cycle state after authoring.** When blocks are
+produced by a delegated per-section-agent (§16 large-scale pattern) rather than written inline, the
+delegation prompt commonly tells the sub-agent NOT to touch `RESEARCH-STATE.md` (to avoid a shared-state
+race). That instruction leaves the state file at its BOOTSTRAP-seeded placeholder values after authoring
+unless someone explicitly closes the loop — the driver, immediately after the sub-agent returns, is the
+one who populates the document-cycle state (covered blocks, iteration history) from what was actually
+written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an orphan
+step that silently never runs. (Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
 
 **Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
