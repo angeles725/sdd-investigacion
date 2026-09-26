@@ -583,33 +583,11 @@ Always read first, in this order:
          store is the SUBJECT, not when a directory merely contains secrets en passant. Pair with the
          STRUCTURE-ONLY BINARY INSPECTION RECIPE in SECRETS DISCIPLINE for the safe inline technique.
          (Source: 2026-08-30-jace-data-at-rest-focus-retro.md ΔB)
-         CONFIG-ARTIFACT DELEGATION VARIANT. For a focus targeting a single large config artifact (BOG/
-         XML/JSON) with N gaps each corresponding to a distinct named container, scope each sub-agent by
-         CONTAINER PATH rather than file count — "3-4 files" does not apply to a single-file artifact.
-         Specify: (a) full artifact reference + line range; (b) exact container path (e.g.
-         `/Drivers/NiagaraNetwork`). Each gap = one container = one block. (Source: 2026-08-30-jace-station-config-focus-retro.md Δ2)
-         QUICK-MODE DELEGATION. When answering a scoped operator question under quick mode (quick mode — SKILL.md triage; document mode §20),
-         the three-source sweep MAY be delegated to a single bounded sub-agent when the answer requires
-         deep decompiled-code reading — one bounded worker returns cited verdict + file:line without
-         inflating the parent. (Source: 2026-09-03-research-sdd-obix-quick-mode-retro.md #3)
-         COMBINED-SWEEP FOR INDEPENDENT SMALL GAPS: when ≥2 small gaps each require reading 1-3 files
-         on DIFFERENT subsystems, their pooled file count crosses the "~3-4 files or classes"
-         delegation threshold — this is the exception to the "(Small/narrow gaps: read inline,
-         no sub-agent — delegation has its own cost.)" note. Delegate a single agent covering both,
-         returning cleanly separated sections per gap, authored as separate blocks afterward.
-         Constraint: the subsystems must be independent (no shared mutable state between sweeps).
-         SIBLING-GAP MOMENTUM: when a delegated sweep for the current gap is already in flight,
-         investigating a small (≤2-file) sibling gap inline is a valid momentum tactic — add the
-         sibling to the backlog first, then read it inline concurrently with the sweep. The driver
-         serializes block writing as usual; both sweep result and inline result are written before
-         any state update. (Evidence: GQL-G3/GQL-G2.)
-         RECURSIVE FAN-OUT CITATION BOUNDARY: in a recursive fan-out (e.g. multi-level sharding), raw
-         reading stays at the LEAVES — only cited snippets (file:line + load-bearing text) propagate up
-         to the coordinator. The coordinator does not re-read leaf material; the citations are the unit
-         of propagation. State this in the delegated prompt so the sub-agent does not dump raw content.
-         COORDINATOR ADVANCES ORTHOGONAL WORK: while a delegated sweep is executing, advance
-         independent work — prior-block validation, data-structure analysis, backlog review — rather
-         than idling. The coordinator's lean context is the resource that enables this; use it.
+         DELEGATION VARIANTS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegation-variants`
+         in full when the gap is a single large config artifact, a quick-mode operator question, ≥2
+         independent small gaps on different subsystems, a sibling gap while a sweep is already in
+         flight, a recursive multi-level fan-out, or you are advancing other work while a delegated
+         sweep executes. None of these apply to a plain inline gap.
        - VERIFY BEFORE ACTING on a sub-agent's report, and ALWAYS when the report is an ABSENCE. A
          delegated finding is a hypothesis with citation, not a fact. Before writing a block or
          correcting a document on that basis: (a) resolve at least the `file:line` citations that
@@ -629,51 +607,22 @@ Always read first, in this order:
          driver must have read the cited line; trusting the sub-agent's accuracy for a fact that may
          cause hardware damage or a safety incident is not acceptable. Record: "physical-action verify:
          N citations checked against real source, all confirmed." (Evidence: commissioning sweeps.)
-       - SYSTEMATIC-OFFSET CAVEAT (extends item (a)) — when the sweep SOURCE is a CONCATENATED dump
-         or a DECOMPILED-context file, a systematic line-number offset makes EVERY reported citation
-         untrustworthy, so re-grep ALL load-bearing citations, not just the "key claim" ones (10/10
-         blocks in one focus were offset-wrong). This ADDS to item (a) for those two source types
-         only; it does not relax (a)/(b)/(c) or the "ALWAYS when the report is an ABSENCE" framing.
        - HIDDEN-FLAG CROSS-CHECK — for a Go-CLI target block whose sweep SOURCE was `--help` output,
          also read the Go source's `cli.Flag` registrations for `Hidden: true` entries: they appear
          in neither `--help` nor `--help-all` yet may be operationally critical (4 missed in one
          sweep). Scoped to `--help`-sourced Go-CLI blocks only, not every Go CLI target.
-         SCOPE of a sub-agent's proven-absence is narrower than the full corpus. Before promoting
-         a sub-agent negative to a gap closure, verify the cited scope covers the relevant universe
-         (e.g. all jars / all modules, not just the swept subtree). A module-scoped "not found" is
-         evidence for the module only — widen the search before accepting it.
-         EXTERNAL-REPO ABSENCE: when a scout returns absence from a NARROW file set in an external
-         repository, do not merely widen the file list — clone the repo and grep the whole tree,
-         enumerating every relevant literal (`.connect()` calls, URL constants, config keys). A
-         narrow-set negative is inconclusive; a tree-wide grep is the minimum re-test before
-         accepting absence as [CERT]. (Evidence: blender-llm B8 §8.7; #572.)
-         SWEEP CONTRADICTS DRIVER'S PRIOR INLINE STATEMENT. When a delegated sweep returns evidence
-         that contradicts an assertion the driver made INLINE to the operator (not a block), acknowledge
-         the refinement BEFORE or WHILE writing the block: (1) name what the inline answer said and where
-         it was incomplete; (2) state the sweep's contradicting finding with its citation; (3) write the
-         block using the refined framing. This is NOT a §14 (no block back-pointer); it is a
-         conversational acknowledgment. Trigger: only when the correction would change the operator's
-         behavior. (Source: 2026-08-30-station-organization-focus-retro.md SO1)
+         VERIFY-EDGE-CASES — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#verify-edge-cases` in
+         full when the sweep source is a concatenated or decompiled-context dump, a sub-agent's
+         proven-absence needs its scope widened, a scout returned absence from a narrow external-repo
+         file set, or a delegated sweep contradicts something the driver already said inline. The
+         (a)/(b)/(c) recipe above always applies; these are its edge cases.
          PEER CATCH. When a parallel session or the operator disputes a claim, re-open the PRIMARY source
          (not the decompile that seeded the claim) and correct the block with a §14 back-pointer; a peer
          catch is first-class evidence. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #5)
-         RE-DERIVE DELEGATED COUNTS: counts returned by a delegated sweep (XML parse, config
-         enumeration, file census) that serve as a denominator or completeness claim are hypotheses —
-         re-grep every load-bearing count independently before using it. Distinct from re-grep-absence
-         (item b above): this fires on POSITIVE counts too. An XML/config/bog sweep count is a
-         starting point, not a settled number. (Distinct from RE-MEASURE A DRAMATIC NEGATIVE, which
-         fires after a striking result; this fires on ANY delegated numeric claim that will drive scope
-         or conclusions. Distinct from GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e), which fires on
-         numbers in the gap's own DESCRIPTION before a sweep — this fires on numbers the sweep RETURNS
-         after running.)
-         DELEGATED-CLAIM-REVERSAL: when a delegated scout's claim drives an architectural conclusion
-         (A⇒B — "A implies B"), test the reversed direction (B⇒A) before accepting it — A⇒B may be
-         wrong as stated while B⇒A is trivially true. A single-direction confirmation passes the
-         VERIFY BEFORE ACTING token-check but leaves the architectural conclusion unexamined.
-         SWEEP-PUNT-TO-ANOTHER-LAYER: when a delegated sweep answers a SECURITY/SAFETY question with
-         "the check, if any, is in <other layer> (not surveyed)", read that layer before authoring the
-         conclusion — the punt is a scope flag, not a closure. A sweep that documents its own blind
-         spot is honest; acting on its conclusion without filling the blind spot is not.
+         DELEGATED-CLAIM-CHECKS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegated-claim-checks`
+         in full when a delegated sweep returns a count that will serve as a denominator or
+         completeness claim, a scout's claim drives an architectural A⇒B conclusion, or a delegated
+         sweep punts a security/safety question to an unsurveyed layer.
        - WEB-RESEARCH DISCOVERY-ONLY sweep — the web/spec sibling of the decompile-sweep pattern, and the
          per-iteration division of labor for a source-heavy focus: the sub-agent (`sonnet` tier) does DISCOVERY
          ONLY — finds candidate PRIMARY sources, rough cited claims, and URLs; it does NOT preserve. The DRIVER
@@ -695,15 +644,9 @@ Always read first, in this order:
          Exception: verification or refutation voters never drop to `haiku` — run them inline on the driver
          or defer the seal (METHODOLOGY §8).
          (Harness-neutral tier contract and per-harness mapping: `toolbelt/model-tiers.v1.md`.)
-       - LONG BUILD DELEGATION (§19 iterations): write the full build spec to a scratchpad file
-         BEFORE launching the implementation agent, and pass the file path in the delegation
-         prompt rather than embedding the spec inline (inline specs bloat the launch turn and
-         cannot be amended without a re-launch). If a constraint is discovered or the operator
-         issues a correction mid-flight, deliver the updated spec file via the continuation
-         mechanism (SendMessage in Claude Code) rather than killing and re-launching — re-launch
-         discards accumulated implementation context and pays the startup cost again. Note: the
-         continuation mechanism is harness-specific; if the harness lacks one, prefer shorter
-         well-scoped delegations that are cheap to relaunch. (Evidence: nave-panccadia D19.)
+       - LONG-BUILD-DELEGATION — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#long-build-delegation`
+         in full for a §19 build/PoC iteration delegated to an implementation agent (spec-file
+         handoff, mid-flight correction delivery). Not applicable to a non-build gap.
        - PRE-TEST POPULATION ANATOMY: before running a comparison or classification test, measure
          the anatomy of the test population — how many items survive the eligibility filter, and
          what fraction is auto-generated vs. semantic vs. absent. If the post-filter count is zero,
@@ -776,11 +719,9 @@ Always read first, in this order:
          (Explore/Plan) cannot sub-delegate at all. For STRUCTURED fan-out or multiple controlled levels, use
          the Workflow engine (deterministic control, no per-hop context compression) instead of free-form native
          nesting.
-         ORCHESTRATED-MODE CAVEAT: when the delegating agent is ITSELF a sub-agent (orchestrated mode, one level
-         deep), the nested `model:` tier override may be unavailable in the harness — the inner Agent call may
-         fail with "agent type not available" (observed: B415 niagara/network-supervisor). Fallback: use Bash
-         directly for the mechanical sweep (haiku-tier work), or route deterministic fan-out through the Workflow
-         engine. Record the fallback as `inline (constraint: nested-tier-unavailable)` in the tier column.
+         ORCHESTRATED-SUB-AGENT MODEL TIER — SITUATIONAL: read
+         `$KIT/PROMPT-LOOP-APPENDIX.md#orchestrated-mode-caveat` in full only when the delegating
+         agent is ITSELF a sub-agent (orchestrated mode, one level deep) setting a nested tier.
   4. WRITE ONE BLOCK: create/update $CORPUS/<prefix>-blockN.md following the anatomy
      ($CORPUS = corpus root: default $TARGET, or $TARGET/corpus/ for an in-project target — METHODOLOGY §15)
      ($KIT/templates/block.template.md). Each claim with its marker and its citation:

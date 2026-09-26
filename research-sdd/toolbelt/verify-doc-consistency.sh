@@ -43,6 +43,7 @@ KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 RSDD_METHODOLOGY="${RSDD_METHODOLOGY:-$KIT/METHODOLOGY.md}"
 RSDD_SKILL="${RSDD_SKILL:-$KIT/skills/research-sdd/SKILL.md}"
 RSDD_PROMPTLOOP="${RSDD_PROMPTLOOP:-$KIT/PROMPT-LOOP.md}"
+RSDD_PROMPTLOOP_APPENDIX="${RSDD_PROMPTLOOP_APPENDIX:-$KIT/PROMPT-LOOP-APPENDIX.md}"
 RSDD_README="${RSDD_README:-$KIT/README.md}"
 
 # Citation resolution roots: retros/ citations in SKILL.md are checked against BOTH.
@@ -108,8 +109,12 @@ fi
 
 # =============================================================================
 # CHECK 2 — no orphan section
-# Every section number 1..real_count must be referenced as §N in SKILL.md or
-# PROMPT-LOOP.md. The pattern §N([^0-9]|$) ensures §1 does not satisfy §12's check.
+# Every section number 1..real_count must be referenced as §N in SKILL.md,
+# PROMPT-LOOP.md, or PROMPT-LOOP-APPENDIX.md (kit issue #1003 rework round 2, F5:
+# a situational rule moved out of PROMPT-LOOP.md core into the appendix still
+# carries the §N citation that keeps its source METHODOLOGY section discoverable
+# — without this, every future PROMPT-LOOP split slice widens a blind spot here).
+# The pattern §N([^0-9]|$) ensures §1 does not satisfy §12's check.
 # =============================================================================
 
 # Build the file list for §N reference search.
@@ -119,16 +124,53 @@ if [ -f "$RSDD_PROMPTLOOP" ]; then
 else
   echo "WARN  PROMPT-LOOP.md not found at $RSDD_PROMPTLOOP — orphan-section check uses SKILL.md only."
 fi
+if [ -f "$RSDD_PROMPTLOOP_APPENDIX" ]; then
+  _check_files+=("$RSDD_PROMPTLOOP_APPENDIX")
+else
+  echo "WARN  PROMPT-LOOP-APPENDIX.md not found at $RSDD_PROMPTLOOP_APPENDIX — orphan-section check does not include it."
+fi
 
 n=1
 while [ "$n" -le "$real_count" ]; do
   # §N followed by a non-digit or end-of-line. Prevents §1 from matching inside §12.
   if ! grep -qE "§${n}([^0-9]|$)" "${_check_files[@]}"; then
-    echo "WARN  §${n} is a top-level METHODOLOGY section but is not referenced in SKILL.md or PROMPT-LOOP.md — add a §${n} reference so it remains discoverable."
+    echo "WARN  §${n} is a top-level METHODOLOGY section but is not referenced in SKILL.md, PROMPT-LOOP.md, or PROMPT-LOOP-APPENDIX.md — add a §${n} reference so it remains discoverable."
     orphan_count=$((orphan_count + 1))
   fi
   n=$((n + 1))
 done
+
+# Appendix scan status for the summary (kit issue #1003 round 3, N3/RDD-WARNING): derived from
+# the ACTUAL _check_files array _check_files just built above, not a separate hardcoded flag — a
+# mutant that stops the appendix from landing in _check_files (however it does so: neutering the
+# `-f` guard, deleting the `_check_files+=` line, or any other route) is thereby ALSO reflected
+# here, because this reads the same array the orphan scan itself just consumed. Anti-silent-zero:
+# the summary must never claim "checked" when the scan did not actually include the file.
+_appendix_scan_status="absent"
+for _f in "${_check_files[@]}"; do
+  if [ "$_f" = "$RSDD_PROMPTLOOP_APPENDIX" ]; then
+    _appendix_scan_status="checked"
+  fi
+done
+
+# =============================================================================
+# CHECK 5 — appendix anchor citations resolve
+# Every `PROMPT-LOOP-APPENDIX.md#<anchor>` reference in PROMPT-LOOP.md must name an anchor that
+# actually exists as a `## <anchor>` heading in PROMPT-LOOP-APPENDIX.md — otherwise a core pointer
+# sends the driver to a situational section that was renamed or removed (kit issue #1003 round 3,
+# RDD suggestion). Advisory (propose-never-apply): WARN only, never fails the run. Skipped
+# (degraded, not a false pass) when either file is absent — already WARNed above.
+# =============================================================================
+anchor_count=0
+if [ -f "$RSDD_PROMPTLOOP" ] && [ -f "$RSDD_PROMPTLOOP_APPENDIX" ]; then
+  while IFS= read -r _anchor; do
+    [ -n "$_anchor" ] || continue
+    if ! grep -qE "^## ${_anchor}([^A-Za-z0-9_-]|$)" "$RSDD_PROMPTLOOP_APPENDIX"; then
+      echo "WARN  PROMPT-LOOP.md cites PROMPT-LOOP-APPENDIX.md#${_anchor} but no '## ${_anchor}' heading exists there — fix the pointer or the anchor."
+      anchor_count=$((anchor_count + 1))
+    fi
+  done < <(grep -ohE 'PROMPT-LOOP-APPENDIX\.md#[A-Za-z0-9_-]+' "$RSDD_PROMPTLOOP" 2>/dev/null | sed 's/^.*#//' | sort -u)
+fi
 
 # =============================================================================
 # CHECK 3 — citations resolve
@@ -181,14 +223,18 @@ fi
 # findings so a zero count is never ambiguous (absent/empty/no-match are distinct).
 # Printing real_count proves the instrument actually traversed METHODOLOGY.md.
 # Printing readme_declared_upper (or N/A) proves the README §-range was checked.
+# PROMPT-LOOP-APPENDIX.md's status is $_appendix_scan_status (checked/absent), derived from
+# _check_files itself (kit issue #1003 round 3, N3) rather than a hardcoded "checked" string —
+# printing "absent" here when the file was never added to the scan is what makes test 22/23
+# distinguishable from a silent false "checked" claim.
 # =============================================================================
 echo ""
-echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md · README.md (§-range upper: ${readme_declared_upper:-N/A})"
-echo "  Findings: ${stale_count} stale-count · ${orphan_count} orphan section(s) · ${broken_cite_count} broken citation(s) · ${readme_range_count} readme-range"
-if [ "$stale_count" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$broken_cite_count" -eq 0 ] && [ "$readme_range_count" -eq 0 ]; then
+echo "Summary: checked METHODOLOGY.md (${real_count} top-level ## N. sections) · SKILL.md · PROMPT-LOOP.md · PROMPT-LOOP-APPENDIX.md (${_appendix_scan_status}) · README.md (§-range upper: ${readme_declared_upper:-N/A})"
+echo "  Findings: ${stale_count} stale-count · ${orphan_count} orphan section(s) · ${broken_cite_count} broken citation(s) · ${readme_range_count} readme-range · ${anchor_count} broken appendix-anchor citation(s)"
+if [ "$stale_count" -eq 0 ] && [ "$orphan_count" -eq 0 ] && [ "$broken_cite_count" -eq 0 ] && [ "$readme_range_count" -eq 0 ] && [ "$anchor_count" -eq 0 ]; then
   echo "Doc consistency: clean."
 else
-  echo "Doc consistency: ${stale_count} stale-count finding(s); ${orphan_count} orphan section(s); ${broken_cite_count} broken citation(s); ${readme_range_count} readme-range finding(s) — see WARNs above (propose-never-apply; never auto-edited)."
+  echo "Doc consistency: ${stale_count} stale-count finding(s); ${orphan_count} orphan section(s); ${broken_cite_count} broken citation(s); ${readme_range_count} readme-range finding(s); ${anchor_count} broken appendix-anchor citation(s) — see WARNs above (propose-never-apply; never auto-edited)."
 fi
 
 # Advisory findings never affect the exit code. Operational failures already exited 1 above.
