@@ -837,7 +837,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (instead of name-only). Case 28's own scenario (git status refreshing .git's mtime via a
   # legitimate lock+rename) must then be misread as a modification, proving case 28 has teeth.
   echo "-- teeth: track directories by mtime (SENTINEL-DIR-NAME-ONLY-TRACKING); case 28's git-status scenario must FALSE-FLAG --"
-  w="$TMP/teeth-dir-mtime"; mkdir -p "$w"
+  # kit issue #1142 review round-2 gate (this session): was a flat "$TMP/name"; mkdir -p "$w"
+  # workdir, predating #1144's newdir()/mut_workdir() hardening. A flat (non-nested) workdir makes
+  # this mutant's SCRIPT_DIR/../../install/tests climb land OUTSIDE $TMP (in the shared /tmp
+  # namespace), which is unstable per newdir()'s own doc comment above. mut_workdir() gives this
+  # mutant the same isolated nested-repo-shape + empty-install-sibling guarantee as every other
+  # --prove-teeth block in this file.
+  w="$(mut_workdir teeth-dir-mtime)"
   sentinel9='      # SENTINEL-DIR-NAME-ONLY-TRACKING'
   sentinel9_count="$(grep -Fc "$sentinel9" "$SUT")"
   sed '/SENTINEL-DIR-NAME-ONLY-TRACKING/{n;s#_target\["\$_name"\]="d"#_target["$_name"]="d:$_mtime"#}' "$SUT" > "$w/run-all.sh"
@@ -874,7 +880,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Case 29's scenario (find rejecting -printf) must then FALSE-PASS as a confident "0
   # violations" instead of a typed DEGRADED state, proving case 29 has teeth.
   echo "-- teeth: neuter SENTINEL-SCANNER-RC-CHECK; case 29's find-rejects--printf scenario must FALSE-PASS --"
-  w="$TMP/teeth-scanner-rc"; mkdir -p "$w"
+  # kit issue #1142 review round-2 gate (this session): a flat "$TMP/name"; mkdir -p "$w" workdir
+  # (pre-#1144 shape) made SCRIPT_DIR/../../install/tests climb OUTSIDE $TMP, so the mutant's exit
+  # code depended on whatever happened to sit at the shared-/tmp climb target on the host — with
+  # that target ABSENT, #1144's own ABSENT-INPUT gate forced rc=1 regardless of this mutation's
+  # actual effect, false-FAILING this case's `$mrc -eq 0` assertion for an unrelated reason
+  # (verified: full-gate run FAILed here; reproduced standalone; root-caused to this exact
+  # flat-vs-nested workdir gap). mut_workdir() gives this mutant an isolated empty install/tests
+  # sibling (case 31's non-failing "= 0" state) so rc reflects only the scanner-rc mutation.
+  w="$(mut_workdir teeth-scanner-rc)"
   sentinel10='  # SENTINEL-SCANNER-RC-CHECK'
   sentinel10_count="$(grep -Fc "$sentinel10" "$SUT")"
   sed '/SENTINEL-SCANNER-RC-CHECK/{n;n;s/\[\[ \$_rc -eq 0 \]\] || return 1/: # neutered rc check/}' "$SUT" > "$w/run-all.sh"
@@ -946,7 +960,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # to avoid embedding the printf format string's own backslash-tab/newline escapes in a sed -e
   # script, which would collide with sed's own escaping.
   echo "-- teeth: revert SENTINEL-SCANNER-STDOUT-ONLY to 2>&1; case 33's stderr-noise scenario must misread it as a phantom entry --"
-  w="$TMP/teeth-scanner-stdout-only"; mkdir -p "$w"
+  # kit issue #1142 review round-2 gate (this session): same flat-workdir gap as Mutations 9/10
+  # above (predates #1144's mut_workdir() hardening) — fixed the same way for isolation, even
+  # though this case's own assertion (a grep on $mout, no $mrc check) happened not to be visibly
+  # broken by it.
+  w="$(mut_workdir teeth-scanner-stdout-only)"
   sentinel12='  # SENTINEL-SCANNER-STDOUT-ONLY'
   sentinel12_count="$(grep -Fc "$sentinel12" "$SUT")"
   repl12="$TMP/teeth-scanner-stdout-only-repl.txt"
