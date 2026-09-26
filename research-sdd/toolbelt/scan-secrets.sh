@@ -190,9 +190,15 @@ expect_path && length($0) > 0 {
 # expressions, which mawk (Debian/Ubuntu default awk) does not support without --re-interval.
 # Rewritten as NF/field-shape checks (no interval expressions) plus length() bounds for the two
 # hex sha fields, which portably expresses a variable-length range that chained-'?' repetition
-# cannot (a 40-64-char range would need 64 literal char-class repeats). The extra "no double
-# space anywhere" check keeps this exactly as strict as the original single-space-delimited
-# regex — verified equivalent across 13 real/malformed probe lines (see PR body).
+# cannot (a 40-64-char range would need 64 literal char-class repeats). kit issue #1142 review
+# round 3 (nit): NF==5 alone does not reject a TAB-delimited header (the default awk field
+# splitter treats a run of whitespace, tabs included, as one delimiter) or a trailing space
+# after the 5th field (neither creates an observable extra field), and the original
+# single-space-delimited regex — anchored at both ends — rejected both. git never emits either
+# shape, so the practical risk is nil, but the three explicit checks below restore the full
+# strictness of the ORIGINAL regex (no tab anywhere, no trailing space, no double space) while staying
+# interval-expression-free — verified equivalent across 13 real/malformed probe lines including
+# both of these two additional cases (see PR body).
 /^:/ {
   _sm_ok = (NF == 5) \
     && ($1 ~ /^:[0-7][0-7][0-7][0-7][0-7][0-7]$/) \
@@ -200,7 +206,7 @@ expect_path && length($0) > 0 {
     && ($3 ~ /^[0-9a-f]+$/) && (length($3) >= 40) && (length($3) <= 64) \
     && ($4 ~ /^[0-9a-f]+$/) && (length($4) >= 40) && (length($4) <= 64) \
     && ($5 ~ /^[A-Z][0-9]*$/) \
-    && ($0 !~ /  /)
+    && ($0 !~ /  /) && ($0 !~ /\t/) && ($0 !~ / $/)
   # SENTINEL-M4-HEADER-CHECK
   if (!_sm_ok) {
     print "DEGRADED: malformed diff-tree header: " substr($0, 1, 80) > "/dev/stderr"

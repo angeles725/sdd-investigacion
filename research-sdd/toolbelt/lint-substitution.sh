@@ -32,21 +32,36 @@
 #   (kit issue #1142 review: install/tests/research-sdd-install.test.sh had a real site), matching
 #   CLAUDE.md §5's shellcheck glob scope. An explicit argument scans exactly that one root instead
 #   (used by this script's own fixture-based tests).
-#   Form A recognised: parameter substitution whose replacement operand starts with an UNQUOTED
-#   $ immediately followed by anything OTHER than a single-quote, or an UNQUOTED backtick, right
-#   after the separating '/' — covers a bare variable reference, a braced expansion with
-#   modifiers (default value, etc.), a command substitution (parenthesised or a legacy backtick),
-#   and an array/associative subscript on the substituted variable itself. Pattern and replacement
-#   segments each tolerate ONE level of nested brace-expansion and an escaped slash inside the
-#   pattern. Form A EXCLUDED (declared, not currently present in the corpus as risk, only as a
-#   confirmed-safe shape): an ANSI-C-quoted constant replacement ($ followed immediately by a
-#   single-quote, e.g. a literal newline) — its content is a FIXED escape sequence that can never
-#   contain '&', and wrapping it in an outer pair of quotes would silently break the ANSI-C
-#   quoting itself (that form only takes effect as its own standalone shell word) rather than
-#   just being redundantly safe, so quoting it is not the applicable fix; two or more levels of
-#   nested brace-expansion inside the replacement; and a replacement that concatenates a bare
-#   variable with trailing literal text — the lint flags the UNQUOTED SHAPE, not literal '&'
-#   content, matching the issue's fix #1: "quote every replacement operand".
+#   Form A recognised (kit issue #1142 review round 3, finding #1: the previous version only
+#   checked whether the replacement operand STARTED with an unquoted $/backtick, and missed a
+#   live site — retro-gate.sh:210 — whose operand instead started with a literal escaped
+#   backslash and carried the risky expansion later): an UNQUOTED, UNESCAPED $ (not immediately
+#   followed by a single-quote — that combination starts a $'...' ANSI-C literal, treated as safe
+#   instead) or an UNQUOTED, UNESCAPED backtick, occurring ANYWHERE in the replacement operand,
+#   not only at its start. A one-level-nested unquoted {...} group (covers a default-value
+#   replacement like ${y:-z}), a $'...' ANSI-C literal, a "..." double-quoted sub-span, and any
+#   \X escaped pair are each consumed as ONE safe atomic unit and do not expose their own content
+#   to the check — this is what lets a fully-quoted operand ("$repl", "${a:-$b}") stay unflagged
+#   while a MIXED operand ("a"$y, or the escaped-backslash-then-bare-$ shape at
+#   retro-gate.sh:210) is still caught by the part that truly is unquoted. The name accepted
+#   before the pattern/replacement separator is a bare identifier, a pure-digit positional
+#   parameter ($1, $12, ...), a special parameter ($@ $* $# $? $! $$ $-), or any of those
+#   indirect via a leading '!' (bash's ${!ref...} indirection). The pattern segment tolerates ONE level of nested
+#   brace-expansion and any \X escaped pair (covers an escaped slash \/ or an escaped brace \} \{).
+#   Form A EXCLUDED (declared per §7, evidence is the #1142 review's own independent character-
+#   level enumeration — none of these is currently present in the real toolbelt+install tree):
+#   two or more levels of nested brace-expansion in EITHER the pattern or the replacement segment;
+#   a quoted slash inside the pattern segment (${s//"/"/$y}) — the first unescaped, unnested '/'
+#   is always treated as the pattern/replacement separator, regardless of quoting; a command
+#   substitution containing its own internal '/' inside the pattern segment (a command
+#   substitution such as printf with a slash argument, used as the pattern to match);
+#   and a substitution whose pattern or replacement segment itself spans multiple physical source
+#   lines — the lint scans line-by-line (grep -nE), so a literal newline inside either segment is
+#   invisible to it. NOT excluded, despite an earlier draft of this header incorrectly saying so
+#   (kit issue #1142 review round 3, nit): a bare variable with trailing literal text appended
+#   right after it in the replacement (e.g. a suffixed hyphenated word) — only the variable
+#   portion needs to be unquoted for the same '&'-in-the-expanded-value risk to apply, so this
+#   shape IS flagged, correctly.
 #   Form B recognised: an ERE literal delimited by '/' containing a POSIX interval expression
 #   '{m,n}', '{m,}', or an exact count '{m}' (kit issue #1142 review: the comma used to be
 #   mandatory, missing every exact-count site), where the opening '/' is immediately preceded
@@ -56,17 +71,29 @@
 #   reference `awk` at least once anywhere in the file (an awk-consuming script; SENTINEL-AWK-GATE
 #   below); this is a heuristic over TEXT, not a real awk-program parser, so a construct matching
 #   this shape outside an actual awk program would be a false positive — none observed on the
-#   real toolbelt+install tree.
+#   real toolbelt+install tree. Form B EXCLUDED (declared, enumerated against the real tree —
+#   none present): an awk STRING regex passed as a plain string literal rather than a /re/
+#   literal (e.g. `$0 ~ "#{1,6}"`, `match(s, "x{2}")`), a regex supplied via `-v re=...` on the
+#   awk command line, and an awk program held in a shell variable rather than inlined at the call
+#   site (checked by hand: lib/retro-grammar.sh's own `_RG_AWK_CANONICAL_FN` variable holds one
+#   such program and contains no interval expression today).
+#   Not traversed by either form's default (no-argument) invocation: research-sdd/templates/*.sh
+#   (the shipped hook scripts) sit outside both default roots. Scanned by hand for the #1142
+#   review and found clean; add a third default root here if that ever needs to be automatic.
 #
 # Exit codes (§7 three-state discipline):
 #   0 — scanned successfully, zero violations (no-match) or zero files found across every
 #       configured root (empty-input, reported distinctly, not silently equal to no-match)
 #   1 — scanned successfully, one or more violations found (findings; this is
 #       a hard gate, unlike a propose-never-apply corpus tool — see header)
-#   2 — operational failure: EVERY configured root missing/not traversable (absent-input). A
-#       single missing root (e.g. research-sdd/install absent on some other checkout shape) is a
-#       WARNING and the scan continues on the remaining root(s) — not every caller of this script
-#       necessarily has both trees.
+#   2 — operational failure: EITHER every configured root is missing/not traversable
+#       (absent-input; a single missing root among several is only a WARNING and the scan
+#       continues on the remaining root(s) — not every caller necessarily has both trees), OR a
+#       'find' traversal or a per-file 'grep' read failed mid-scan (kit issue #1142 review round
+#       3, finding #2, §7: a real read/traversal error used to be silenced by a bare '2>/dev/null'
+#       with the exit status never checked, so an unreadable file or an untraversable
+#       subdirectory read as a confident 0-violations pass instead of the DEGRADED state it
+#       actually is — the scan fails closed and reports DEGRADED on stderr instead).
 #
 # Usage: lint-substitution.sh [root-dir]
 
@@ -93,6 +120,23 @@ else
   fi
 fi
 
+# _lint_scan <pattern> <file> — kit issue #1142 review round 3 (finding #2, §7 anti-silent-zero):
+# a per-file grep used to discard both stderr AND the exit code ('2>/dev/null', rc never
+# checked), so an unreadable file (grep rc 2) produced empty output — identical to a genuinely
+# clean "no violations" file — and read as a confident 0 instead of the DEGRADED state it
+# actually is. rc 0 (matched) and rc 1 (no match) are both legitimate scan outcomes; rc >= 2 is
+# an operational read failure and fails the WHOLE scan closed (exit 2) rather than silently
+# treating that one file as clean. Sets $_LINT_SCAN_OUT (the matching lines, one per line) and
+# $_LINT_SCAN_RC for the caller.
+_lint_scan() {
+  local _pat="$1" _f="$2"
+  _LINT_SCAN_OUT="$(grep -nE "$_pat" "$_f" 2>/dev/null)"; _LINT_SCAN_RC=$?
+  if [[ "$_LINT_SCAN_RC" -ge 2 ]]; then
+    echo "lint-substitution: DEGRADED — grep failed reading '$_f' (exit $_LINT_SCAN_RC); scan invalid, cannot certify NO-MATCH for this file" >&2
+    exit 2
+  fi
+}
+
 _files=()
 _roots_absent=0
 _roots_scanned=0
@@ -103,10 +147,21 @@ for _root in "${ROOTS[@]}"; do
     continue
   fi
   _roots_scanned=$((_roots_scanned + 1))
+  # kit issue #1142 review round 3 (finding #2): 'find' used to be piped straight into the
+  # while-read loop via process substitution ('2>/dev/null', never checking find's own exit
+  # status), so a traversal error partway through (e.g. an unreadable subdirectory) silently
+  # certified whatever partial file list find managed to print before failing. Capture find's
+  # OWN exit status first (sorting is a separate step specifically so this doesn't become sort's
+  # exit status instead) and fail closed on any nonzero.
+  _find_out="$(find "$_root" -type f -name '*.sh' 2>&1)"; _find_rc=$?
+  if [[ "$_find_rc" -ne 0 ]]; then
+    echo "lint-substitution: DEGRADED — 'find' failed under root '$_root' (exit $_find_rc), scan invalid: $_find_out" >&2
+    exit 2
+  fi
   while IFS= read -r _f; do
     [[ -n "$_f" ]] || continue
     _files+=("$_f")
-  done < <(find "$_root" -type f -name '*.sh' 2>/dev/null | LC_ALL=C sort)
+  done < <(LC_ALL=C sort <<<"$_find_out")
 done
 
 if [[ "$_roots_scanned" -eq 0 ]]; then
@@ -120,20 +175,36 @@ if [[ ${#_files[@]} -eq 0 ]]; then
 fi
 
 # --- Form A: unquoted replacement operand -----------------------------------
-# Match: ${ name [subscript]? /{1,2} pattern / X }  where X starts with an UNQUOTED $ or ` —
-# any operand beginning that way is unquoted-substitution-risky (kit issue #1142 review: the
-# original version only matched a bare $name/${name} replacement and missed a live production
-# site plus every synthetic form below; a quoted operand always starts with '"' right after the
-# separating '/', which this never matches, so the negative case is still excluded correctly).
-# subscript: permissive — any content except ']' (covers [@], [*], [$i], numeric, ...).
-# pattern segment: an escaped slash (\/), ONE level of nested {...} (covers ${pre} as pattern),
-# or any other char that is not '/{}'.
-# replacement segment: after the leading unquoted $ or `, ONE level of nested {...} (covers
-# ${y:-z}) or any other char that is not '}', repeated up to the substitution's closing brace.
-# Known residual gap (not currently present in the corpus, declared per §7): TWO or more levels
-# of nested ${...} inside the replacement is not matched (single-level nesting covers every real
-# and synthetic site enumerated in the #1142 review).
-formA_re='\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?/{1,2}(\{[^{}]*\}|\\/|[^/{}])+/(\$[^'"'"']|`)(\{[^{}]*\}|[^}])*\}'
+# Match: ${ name [subscript]? /{1,2} pattern / ...X... } where an UNQUOTED, UNESCAPED $ or `
+# occurs ANYWHERE in the replacement segment (kit issue #1142 review round 3, finding #1: the
+# previous version only checked whether the operand STARTED with $/backtick and missed
+# retro-gate.sh:210, whose operand starts with a literal escaped backslash and carries the risky
+# expansion later — see the header's SCOPE DECLARED section for the full writeup). Built from
+# named sub-patterns for readability; see that section for what each safe/risky class covers.
+_lint_name_re='!?([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?!$-])'
+_lint_subscript_re='(\[[^]]*\])?'
+# pattern segment: an escaped pair \X (covers \/  \{  \}), ONE level of nested {...}, or any
+# other char that is not '/{}' — the separating '/' is never consumed here except inside an
+# escape or a matched nested group.
+_lint_pattern_re='(\{[^{}]*\}|\\.|[^/{}])+'
+# replacement PREFIX/anywhere safe-unit: consumed WITHOUT exposing an inner '$'/backtick to the
+# risk check — a one-level nested {...} group, an escaped pair \X, a $'...' ANSI-C literal, or a
+# "..." double-quoted sub-span. Deliberately excludes '$', backtick, backslash and '"' from the
+# separate "any other char" bucket below — each of those four has exactly one way to be consumed
+# safely (through one of these four alternatives), so there is no ambiguity about whether a given
+# '$' was actually escaped or quoted.
+_lint_replsafe_re='(\{[^{}]*\}|\\.|\$'"'"'[^'"'"']*'"'"'|"[^"]*")'
+_lint_replplain_re='[^}$`\"]'
+# the risky trigger itself: an unescaped $ NOT immediately followed by a single-quote (that
+# combination starts a $'...' literal, handled by _lint_replsafe_re instead), or a bare backtick.
+_lint_repltrigger_re='(\$[^'"'"']|`)'
+# SUFFIX (after the trigger has fired): once risk is established, the remainder just needs to
+# reach the true closing brace — a wider, unfussy alphabet (anything but '}' and a bare
+# backslash, which still routes through the escaped-pair alternative) so a second '$'/backtick
+# later in the same operand (e.g. the closing backtick of a command-substitution pair) does not
+# block the match from completing.
+_lint_replsuffix_re='(\{[^{}]*\}|\\.|[^}\\])'
+formA_re="\\\$\\{${_lint_name_re}${_lint_subscript_re}/{1,2}${_lint_pattern_re}/(${_lint_replsafe_re}|${_lint_replplain_re})*${_lint_repltrigger_re}${_lint_replsuffix_re}*\\}"
 
 # --- Form B: awk interval expression inside an ERE literal -----------------
 # Match: a `/.../ ` ERE literal containing a POSIX interval expression {m,n} or {m} (exact
@@ -153,17 +224,20 @@ files_scanned=0
 for f in "${_files[@]}"; do
   files_scanned=$((files_scanned + 1))
 
+  _lint_scan "$formA_re" "$f"
   while IFS= read -r hit; do
     [[ -n "$hit" ]] || continue
     violations+=("FORM-A unquoted replacement operand: $f:$hit")
-  done < <(grep -nE "$formA_re" "$f" 2>/dev/null)
+  done <<<"$_LINT_SCAN_OUT"
 
   # SENTINEL-AWK-GATE
-  if grep -qE '(^|[^A-Za-z0-9_])awk([^A-Za-z0-9_]|$)' "$f" 2>/dev/null; then
+  _lint_scan '(^|[^A-Za-z0-9_])awk([^A-Za-z0-9_]|$)' "$f"
+  if [[ "$_LINT_SCAN_RC" -eq 0 ]]; then
+    _lint_scan "$formB_re" "$f"
     while IFS= read -r hit; do
       [[ -n "$hit" ]] || continue
       violations+=("FORM-B awk interval expression: $f:$hit")
-    done < <(grep -nE "$formB_re" "$f" 2>/dev/null)
+    done <<<"$_LINT_SCAN_OUT"
   fi
 done
 

@@ -639,6 +639,14 @@ else no "install-absent failed: rc=$rc :: $(grep -E 'Corpus:|ABSENT|Suites passe
 #      warning line misread as a phantom top-level cwd entry. Stubs find to print one stderr
 #      line then delegate to the real find with all args unchanged, so the -printf TSV scan
 #      itself still succeeds normally — only the extra stderr noise is new.
+#      kit issue #1142 review round 3 (finding #5): the warning text used to be a CONSTANT
+#      string, identical on every invocation — the baseline scan and every per-suite scan would
+#      then capture the SAME text either way (stdout-only or the old buggy stdout+stderr
+#      capture), so this case could not actually tell the two implementations apart; it would
+#      have passed unchanged even with the pre-fix 2>&1 capture. The warning now includes a
+#      changing value (a nanosecond timestamp, same technique Mutation 12 below already uses) so
+#      a capture that merges stderr in would see a DIFFERENT line on every scan and misread it as
+#      a new/modified top-level entry — only the stdout-only fix stays clean regardless.
 _c33realfind="$(command -v find)"
 if [ -z "$_c33realfind" ]; then
   ok "hermeticity-scanner-stderr-noise: SKIP — no real 'find' on PATH to build the stub from"
@@ -646,7 +654,7 @@ else
   w="$(newdir c33)"
   mkfix_sh "$w/a.test.sh" 1 0 0
   { printf '#!/usr/bin/env bash\n'
-    printf 'echo "find: harmless warning, not an error" >&2\n'
+    printf 'echo "find: harmless warning $(date +%%s%%N) not an error" >&2\n'
     printf 'exec %s "$@"\n' "$_c33realfind"
   } > "$TMP/c33-bin-find"
   _c33bin="$TMP/c33-bin"; mkdir -p "$_c33bin"

@@ -207,7 +207,11 @@ _json_escape_reason() {
   local s="$1"
   local _dq='"'
   s="${s//\\/\\\\}"          # \ → \\  (must be first)
-  s="${s//$_dq/\\$_dq}"     # " → \"
+  s="${s//$_dq/"\\$_dq"}"   # " → \"  (kit issue #1142 review round 3: the replacement operand
+                             # must be quoted — an unescaped '&' in it would otherwise expand to
+                             # the matched text regardless of the outer quoting; verified
+                             # byte-identical output before/after, since $_dq is the fixed
+                             # constant '"' and never contains '&')
   s="${s//$'\n'/\\n}"       # newline → \n
   printf '%s' "$s"
 }
