@@ -1015,7 +1015,7 @@ _cb52="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -
   && ok "sync-bs: block_scope: shared-global preserved; covered_blocks=0 (unverifiable, no attributed ids)" \
   || no "sync-bs: bs=$_bs52(want shared-global) cb=$_cb52(want 0) — corpus-wide fallback still running or block_scope lost"
 # 52b — sync-bs must emit a loud stderr WARN when seeding 0 (anti-silent-zero §7)
-echo "$_sync52_stderr" | grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN' \
+grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN' <<<"$_sync52_stderr" \
   && ok "sync-bs-warn: --sync-state emits WARN on stderr when seeding covered_blocks=0 (no attributed ids)" \
   || no "sync-bs-warn: no WARN emitted on stderr — silent zero (want: WARN about no attributed block ids)"
 # 53 — sync-bs-e2e: declare → sync → verify-state must exit 0 AND report INFO unverifiable + cb=0
@@ -1066,7 +1066,7 @@ _t905_cb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v
   && ok "T-905-SG-ATTR: --sync-state seeds cb=2 (B1,B2 attributed; 5 corpus files)" \
   || no "T-905-SG-ATTR: cb=$_t905_cb (want 2) — attributed count not used or wrong count"
 _t905_vs_out="$(bash "$HERE/../verify-state.sh" "$d_905" 2>&1)"
-if echo "$_t905_vs_out" | grep -qF 'FAIL'; then
+if grep -qF 'FAIL' <<<"$_t905_vs_out"; then
   no "T-905-SG-ATTR: verify-state FAILs with attributed covered_blocks=2 (want CHECK A pass)"
 else
   ok "T-905-SG-ATTR: verify-state passes CHECK A (covered_blocks=2 == 2 attributed)"
@@ -1722,7 +1722,7 @@ else
   no "T-530: cb=$_t530_cb (want 3) — --sync-state wrote corpus-wide file count instead of attributed"
 fi
 _t530_vs_out="$(bash "$HERE/../verify-state.sh" "$d_530" 2>&1)"
-if echo "$_t530_vs_out" | grep -q 'FAIL'; then
+if grep -q 'FAIL' <<<"$_t530_vs_out"; then
   no "T-530: verify-state FAILs with attributed covered_blocks (expected CHECK A to pass)"
 else
   ok "T-530: shared-global envelope with attributed covered_blocks passes verify-state CHECK A"
@@ -1880,8 +1880,8 @@ _idg_c_err="$TMP/idg-c-stderr.txt"
 _idg_c_got="$(bash "$_kitc/research-sdd-status.sh" "$_tc" --next 2>"$_idg_c_err")"
 _idg_c_rc=$?
 _idg_c_stderr="$(cat "$_idg_c_err")"
-if printf '%s\n' "$_idg_c_got" | grep -qF '[issue-coverage: unverified]' \
-   && printf '%s\n' "$_idg_c_stderr" | grep -q 'gh degraded' \
+if grep -qF '[issue-coverage: unverified]' <<<"$_idg_c_got" \
+   && grep -q 'gh degraded' <<<"$_idg_c_stderr" \
    && [ "$_idg_c_rc" -eq 0 ]; then
   ok "T-IDG-C: reconcile degraded → generic unverified marker on stdout + cause-specific WARN (gh degraded) on stderr + exit 0"
 else
@@ -1960,8 +1960,8 @@ printf '<!-- review-status: applied · kit 073cef5 -->\n# Applied retro\n' \
 touch "$_ta_perf/retros/open-retro.md"
 _perf_got="$(bash "$_kit_perf/research-sdd-status.sh" "$_ta_perf" --next 2>/dev/null)"
 _perf_invocations="$(cat "$_perf_log" 2>/dev/null || true)"
-if ! printf '%s\n' "$_perf_invocations" | grep -q 'applied-retro.md' \
-   && printf '%s\n' "$_perf_invocations" | grep -q 'open-retro.md'; then
+if ! grep -q 'applied-retro.md' <<<"$_perf_invocations" \
+   && grep -q 'open-retro.md' <<<"$_perf_invocations"; then
   ok "T-IDG-PERF: applied retro not passed to reconcile; open retro was"
 else
   no "T-IDG-PERF: invocations=[${_perf_invocations}] — expected applied-retro absent, open-retro present"
@@ -1982,8 +1982,8 @@ touch "$_t_tmt/retros/2026-09-01-timeout-retro.md"
 _tmt_stderr_file="$TMP/idg-timeout-stderr.txt"
 _tmt_got="$(env _IDG_RECONCILE_TIMEOUT_SECS=1 bash "$_kit_tmt/research-sdd-status.sh" "$_t_tmt" --next 2>"$_tmt_stderr_file")"
 _tmt_err_got="$(cat "$_tmt_stderr_file")"
-if printf '%s\n' "$_tmt_got" | grep -qF '[issue-coverage: unverified]' \
-   && printf '%s\n' "$_tmt_err_got" | grep -q 'timed out'; then
+if grep -qF '[issue-coverage: unverified]' <<<"$_tmt_got" \
+   && grep -q 'timed out' <<<"$_tmt_err_got"; then
   ok "T-IDG-TIMEOUT: slow reconcile stub (3s) times out at 1s → generic unverified marker on stdout + timed-out WARN on stderr"
 else
   no "T-IDG-TIMEOUT: expected unverified marker + timed-out stderr, got stdout=[$_tmt_got] stderr=[$_tmt_err_got]"
@@ -2011,7 +2011,7 @@ mkdir -p "$_t_ta/retros"
 touch "$_t_ta/retros/2026-09-01-timeout-absent-retro.md"
 _ta_got="$(_IDG_TIMEOUT_BIN="" bash "$_kit_ta/research-sdd-status.sh" "$_t_ta" --next 2>/dev/null)"
 _ta_calls="$(cat "$_ta_log" 2>/dev/null || true)"
-if printf '%s\n' "$_ta_got" | grep -qF '[issue-coverage: unverified'; then
+if grep -qF '[issue-coverage: unverified' <<<"$_ta_got"; then
   ok "T-IDG-TIMEOUT-ABSENT: _IDG_TIMEOUT_BIN=\"\" → unverified marker returned"
 else
   no "T-IDG-TIMEOUT-ABSENT: expected unverified marker, got [$_ta_got]"
@@ -2078,7 +2078,7 @@ _oos_err="$TMP/idg-oos-stderr.txt"
 _oos_got="$(PATH="$_gh_stub_oos:$PATH" bash "$_kit_oos/research-sdd-status.sh" "$_tc_oos" --next 2>"$_oos_err")"
 _oos_rc=$?
 _oos_stderr="$(cat "$_oos_err")"
-if printf '%s\n' "$_oos_got" | grep -qF '[issue-coverage: unverified' \
+if grep -qF '[issue-coverage: unverified' <<<"$_oos_got" \
    && [ "$_oos_rc" -eq 0 ]; then
   ok "T-IDG-OOS: out-of-scope-marker retro → unverified coverage, never a bare clean STOP (§7)" "(rc=$_oos_rc)"
 else
@@ -2098,8 +2098,8 @@ _idg_e_err="$TMP/idg-e-stderr.txt"
 _idg_e_got="$(bash "$_kite/research-sdd-status.sh" "$_te" --next 2>"$_idg_e_err")"
 _idg_e_rc=$?
 _idg_e_stderr="$(cat "$_idg_e_err")"
-if printf '%s\n' "$_idg_e_got" | grep -qF '[issue-coverage: unverified' \
-   && printf '%s\n' "$_idg_e_stderr" | grep -q 'WARN' \
+if grep -qF '[issue-coverage: unverified' <<<"$_idg_e_got" \
+   && grep -q 'WARN' <<<"$_idg_e_stderr" \
    && [ "$_idg_e_rc" -eq 0 ]; then
   ok "T-IDG-E: operational failure (exit 1, empty stderr) → distinct unverified marker + WARN stderr + exit 0"
 else
@@ -2113,7 +2113,7 @@ _tf2="$TMP/target-idg-f"; mkstate "$_tf2" 0 "high|done gap|covered"
 mkdir -p "$_tf2/retros"
 touch "$_tf2/retros/2026-09-01-retro-idg.md"
 _idg_f_got="$(bash "$_kitf/research-sdd-status.sh" "$_tf2" --next 2>/dev/null)"
-if printf '%s\n' "$_idg_f_got" | grep -qF '[issue-coverage: unverified'; then
+if grep -qF '[issue-coverage: unverified' <<<"$_idg_f_got"; then
   ok "T-IDG-F: signal-kill (exit 137) → distinct unverified marker (not bare STOP)"
 else
   no "T-IDG-F: expected unverified marker, got [$_idg_f_got]"
@@ -2201,7 +2201,7 @@ _epn_retro_paths="$TMP/enum-partial-noissues-retro-paths.txt"
 printf '%s\n' "$_t_epn/retros/2026-09-enum-partial-noissues-retro.md" > "$_epn_retro_paths"
 _epn_got="$(IDG_RETRO_PATHS_FILE="$_epn_retro_paths" IDG_FIND_EXIT=1 IDG_FIND_STDERR="find: /sub: Permission denied" \
   PATH="$_stub_find_dir:$PATH" bash "$_kit_epn/research-sdd-status.sh" "$_t_epn" --next 2>/dev/null)"
-if printf '%s\n' "$_epn_got" | grep -qF '[issue-coverage: unverified'; then
+if grep -qF '[issue-coverage: unverified' <<<"$_epn_got"; then
   ok "T-IDG-ENUM-PARTIAL-NOUNTRACKED: find exits non-zero + retros listed + all tracked → unverified marker (not bare STOP)"
 else
   no "T-IDG-ENUM-PARTIAL-NOUNTRACKED: expected unverified marker, got [$_epn_got]"
@@ -2213,7 +2213,7 @@ _kit_ee="$TMP/kit-idg-enum-empty"; mk_kit "$_kit_ee" "tracked"
 _t_ee="$TMP/target-idg-enum-empty"; mkstate "$_t_ee" 0 "high|done gap|covered"
 _ee_got="$(IDG_FIND_EXIT=1 IDG_FIND_STDERR="find: /sub: Permission denied" \
   PATH="$_stub_find_dir:$PATH" bash "$_kit_ee/research-sdd-status.sh" "$_t_ee" --next 2>/dev/null)"
-if printf '%s\n' "$_ee_got" | grep -qF '[issue-coverage: unverified'; then
+if grep -qF '[issue-coverage: unverified' <<<"$_ee_got"; then
   ok "T-IDG-ENUM-EMPTY: find exits non-zero + no retros → unverified marker (not bare STOP)"
 else
   no "T-IDG-ENUM-EMPTY: expected unverified marker, got [$_ee_got]"
@@ -2226,7 +2226,7 @@ _t_em="$TMP/target-idg-enum-mktemp"; mkstate "$_t_em" 0 "high|done gap|covered"
 _em_stub_dir="$TMP/mstub-run"; mkdir -p "$_em_stub_dir"
 _em_got="$(IDG_MKTEMP_STUB_DIR="$_em_stub_dir" \
   PATH="$_stub_mktemp_dir:$PATH" bash "$_kit_em/research-sdd-status.sh" "$_t_em" --next 2>/dev/null)"
-if printf '%s\n' "$_em_got" | grep -qF '[issue-coverage: unverified'; then
+if grep -qF '[issue-coverage: unverified' <<<"$_em_got"; then
   ok "T-IDG-ENUM-MKTEMP: enumeration mktemp failure → unverified marker, no crash"
 else
   no "T-IDG-ENUM-MKTEMP: expected unverified marker, got [$_em_got]"
@@ -2240,7 +2240,7 @@ mkdir -p "$_t_sf/retros"
 touch "$_t_sf/retros/2026-09-01-sort-fail-retro.md"
 _sf_got="$(IDG_SORT_EXIT=1 PATH="$_stub_sort_dir:$PATH" \
   bash "$_kit_sf/research-sdd-status.sh" "$_t_sf" --next 2>/dev/null)"
-if printf '%s\n' "$_sf_got" | grep -qF '[issue-coverage: unverified'; then
+if grep -qF '[issue-coverage: unverified' <<<"$_sf_got"; then
   ok "T-IDG-ENUM-SORT-FAIL: enumeration sort exits 1 → unverified marker (not bare clean STOP)"
 else
   no "T-IDG-ENUM-SORT-FAIL: expected unverified marker, got [$_sf_got]"
@@ -2256,12 +2256,12 @@ touch "$_t_pl/retros/retro-beta.md"    # must NOT be probed after alpha's early-
 _pl_log="$TMP/idg-payload-rec.log"; : > "$_pl_log"
 _pl_got="$(_IDG_RECORD_LOG="$_pl_log" bash "$_kit_pl/research-sdd-status.sh" "$_t_pl" --next 2>/dev/null)"
 _pl_calls="$(grep -c '' "$_pl_log" 2>/dev/null || echo 999)"
-if printf '%s\n' "$_pl_got" | grep -qF 'ISSUES-DUE'; then
+if grep -qF 'ISSUES-DUE' <<<"$_pl_got"; then
   ok "T-IDG-PAYLOAD: ISSUES-DUE present in output"
 else
   no "T-IDG-PAYLOAD: ISSUES-DUE absent — got [$_pl_got]"
 fi
-if printf '%s\n' "$_pl_got" | grep -qF 'retro-alpha.md'; then
+if grep -qF 'retro-alpha.md' <<<"$_pl_got"; then
   ok "T-IDG-PAYLOAD: output names the triggering retro (retro-alpha.md)"
 else
   no "T-IDG-PAYLOAD: output missing retro path — got [$_pl_got]"
@@ -2291,7 +2291,7 @@ _t_ab="$TMP/target-idg-aggr-budget"; mkstate "$_t_ab" 0 "high|done gap|covered"
 mkdir -p "$_t_ab/retros"
 touch "$_t_ab/retros/2026-09-01-ab-retro.md"
 _ab_got="$(_IDG_AGGREGATE_BUDGET_SECS=0 bash "$_kit_ab/research-sdd-status.sh" "$_t_ab" --next 2>/dev/null)"
-if printf '%s\n' "$_ab_got" | grep -qF '[issue-coverage: unverified]'; then
+if grep -qF '[issue-coverage: unverified]' <<<"$_ab_got"; then
   ok "T-IDG-AGGR-BUDGET: aggregate budget 0 → exceeded → unverified marker"
 else
   no "T-IDG-AGGR-BUDGET: expected unverified marker, got [$_ab_got]"
@@ -2509,7 +2509,7 @@ d_sccc="$TMP/sc-cross-check-mismatch"; mkdir -p "$d_sccc"
   printf '%s\n' '- **Open gaps — read-only investigable**: 0'  # SC-CROSS-CHECK-FIRES-SENTINEL: prose=0, derived=1
 } > "$d_sccc/RESEARCH-STATE.md"
 _sccc_out="$(bash "$HERE/../verify-state.sh" "$d_sccc" 2>&1)"
-if echo "$_sccc_out" | grep -qF "$_SC_CROSS_CHECK_FAIL"; then
+if grep -qF "$_SC_CROSS_CHECK_FAIL" <<<"$_sccc_out"; then
   ok "T-SC-CROSS-CHECK: verify-state SC-CROSS-CHECK fires (FAIL + stop-control prose) when prose (0) contradicts derived count (1)"
 else
   no "T-SC-CROSS-CHECK: verify-state passed silently — SC-CROSS-CHECK did not fire on prose mismatch (prose absent or check skipped)"
@@ -2525,7 +2525,7 @@ d_5c="$TMP/fivecol-warn"; mkdir -p "$d_5c"
   echo "| high | G1 | five-col gap | bin.dll | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_5c/RESEARCH-STATE.md"
 _5c_warn="$(bash "$SUT" "$d_5c" --next 2>&1 >/dev/null)"
-if echo "$_5c_warn" | grep -qi 'malformed backlog row'; then
+if grep -qi 'malformed backlog row' <<<"$_5c_warn"; then
   no "T-5COL-NOMALFORMED: 5-col Gap-backlog row emits malformed-WARN (should parse correctly after fix)"
 else
   ok "T-5COL-NOMALFORMED: 5-col Gap-backlog row parsed without malformed-WARN"
@@ -2581,7 +2581,7 @@ d_oob="$TMP/oob-warn"; mkdir -p "$d_oob"
   echo "| high | NG1 | oob covered gap | bin.dll | covered -> B1 |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_oob/RESEARCH-STATE.md"
 _oob_warn="$(bash "$SUT" "$d_oob" --sync-state 2>&1 >/dev/null)"
-if echo "$_oob_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+if grep -qi 'Gap-backlog\|gap.backlog' <<<"$_oob_warn"; then
   ok "T-OOB-WARN: OOB-WARN emitted for backlog-format row outside ## Gap-backlog section"
 else
   no "T-OOB-WARN: no WARN mentioning Gap-backlog for row outside ## Gap-backlog section"
@@ -2600,7 +2600,7 @@ d_li="$TMP/list-item"; mkdir -p "$d_li"
   echo "- **B843-G1/G2/G3 — CLOSED by B855**: slot facets (Flags.OPERATOR/READONLY|TRANSIENT, extra|pipe)"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 1"; } > "$d_li/RESEARCH-STATE.md"
 _li_warn="$(bash "$SUT" "$d_li" --sync-state 2>&1 >/dev/null)"
-if ! echo "$_li_warn" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+if ! grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns' <<<"$_li_warn"; then
   ok "T-LIST-ITEM: prose list item with | in Gap-backlog silently ignored (no WARN, no INVALID_PRIORITY)"
 else
   no "T-LIST-ITEM: list item with | produced unexpected output: $(echo "$_li_warn" | head -1)"
@@ -2617,7 +2617,7 @@ d_seo="$TMP/sep-outside"; mkdir -p "$d_seo"
   echo "| 1 | 2026-01-01 | full | 3 | active | n/a |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_seo/RESEARCH-STATE.md"
 _seo_warn="$(bash "$SUT" "$d_seo" --sync-state 2>&1 >/dev/null)"
-if ! echo "$_seo_warn" | grep -qi 'only 4- or 5-column\|backlog table has'; then
+if ! grep -qi 'only 4- or 5-column\|backlog table has' <<<"$_seo_warn"; then
   ok "T-SEP-OUTSIDE: 6-col separator outside Gap-backlog silently ignored (no BP-WIDTH-WARN)"
 else
   no "T-SEP-OUTSIDE: BP-WIDTH-WARN fired for 6-col separator outside Gap-backlog — false positive: $(echo "$_seo_warn" | head -1)"
@@ -2634,7 +2634,7 @@ d_u2011="$TMP/u2011-heading"; mkdir -p "$d_u2011"
   printf '| high | u2011 gap | web | covered |\n\n'
   printf '## Stop control\n- **Open gaps -- read-only investigable**: 0\n'; } > "$d_u2011/RESEARCH-STATE.md"
 _u2011_warn="$(bash "$SUT" "$d_u2011" --sync-state 2>&1 >/dev/null)"
-if echo "$_u2011_warn" | grep -qi 'near-miss'; then
+if grep -qi 'near-miss' <<<"$_u2011_warn"; then
   ok "T-U2011-HEADING: U+2011 Gap-backlog heading → NM-WARN fires (U+2011-NORM dropped; heading not recognised as valid)"
 else
   no "T-U2011-HEADING: NM-WARN should fire for U+2011 heading after U+2011-NORM removal — got: [$_u2011_warn]"
@@ -2649,7 +2649,7 @@ d_w3="$TMP/width-3"; mkdir -p "$d_w3"
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w3/RESEARCH-STATE.md"
 _w3_warn="$(bash "$SUT" "$d_w3" --sync-state 2>&1 >/dev/null)"
 _w3_kg="$(bash "$SUT" "$d_w3" --sync-state >/dev/null 2>&1; awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_w3/RESEARCH-STATE.md")"
-if echo "$_w3_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*3 columns'; then
+if grep -qi 'only 4- or 5-column\|backlog table has.*3 columns' <<<"$_w3_warn"; then
   ok "T-WIDTH-3: 3-col separator → BP-WIDTH-WARN emitted (only 4- or 5-column tables accepted)"
 else
   no "T-WIDTH-3: no BP-WIDTH-WARN for 3-col separator — unsupported width accepted silently"
@@ -2663,7 +2663,7 @@ d_w6="$TMP/width-6"; mkdir -p "$d_w6"
   echo "| high | G1 | six-col row | art.dll | extra | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w6/RESEARCH-STATE.md"
 _w6_warn="$(bash "$SUT" "$d_w6" --sync-state 2>&1 >/dev/null)"
-if echo "$_w6_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*6 columns'; then
+if grep -qi 'only 4- or 5-column\|backlog table has.*6 columns' <<<"$_w6_warn"; then
   ok "T-WIDTH-6: 6-col separator → BP-WIDTH-WARN emitted (only 4- or 5-column tables accepted)"
 else
   no "T-WIDTH-6: no BP-WIDTH-WARN for 6-col separator — unsupported width accepted silently"
@@ -2677,7 +2677,7 @@ d_w4="$TMP/width-4"; mkdir -p "$d_w4"
   echo "| high | four-col row | web | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w4/RESEARCH-STATE.md"
 _w4_warn="$(bash "$SUT" "$d_w4" --sync-state 2>&1 >/dev/null)"
-if ! echo "$_w4_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*columns'; then
+if ! grep -qi 'only 4- or 5-column\|backlog table has.*columns' <<<"$_w4_warn"; then
   ok "T-WIDTH-4: 4-col separator → no BP-WIDTH-WARN (happy path, 4-col accepted)"
 else
   no "T-WIDTH-4: BP-WIDTH-WARN fired for 4-col table — false positive"
@@ -2691,7 +2691,7 @@ d_w5="$TMP/width-5"; mkdir -p "$d_w5"
   echo "| high | G1 | five-col row | art.dll | pending |"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_w5/RESEARCH-STATE.md"
 _w5_warn="$(bash "$SUT" "$d_w5" --sync-state 2>&1 >/dev/null)"
-if ! echo "$_w5_warn" | grep -qi 'only 4- or 5-column\|backlog table has.*columns'; then
+if ! grep -qi 'only 4- or 5-column\|backlog table has.*columns' <<<"$_w5_warn"; then
   ok "T-WIDTH-5: 5-col separator → no BP-WIDTH-WARN (happy path, 5-col accepted)"
 else
   no "T-WIDTH-5: BP-WIDTH-WARN fired for 5-col table — false positive"
@@ -2771,7 +2771,7 @@ d_b1="$TMP/b1-gc"; mkdir -p "$d_b1"
 _b1_warn="$(bash "$SUT" "$d_b1" --sync-state 2>&1 >/dev/null)"
 _b1_gc="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*gaps_closed:/{print $2;exit}' "$d_b1/RESEARCH-STATE.md")"
 _b1_kg="$(awk '/<!-- research-state.v1 -->/{b=1;next}/<!-- \/research-state.v1 -->/{b=0}b&&/^[[:space:]]*known_gaps:/{print $2;exit}' "$d_b1/RESEARCH-STATE.md")"
-if [ "$_b1_kg" = "3" ] && [ "$_b1_gc" = "3" ] && echo "$_b1_warn" | grep -qi 'stale'; then
+if [ "$_b1_kg" = "3" ] && [ "$_b1_gc" = "3" ] && grep -qi 'stale' <<<"$_b1_warn"; then
   ok "T-B1-GC-FROM-BACKLOG: KG-BACKLOG-EXCEEDS → kg=3, gc=3 (from backlog), coverage stale WARN fired"
 elif [ "$_b1_kg" != "3" ]; then
   no "T-B1-GC-FROM-BACKLOG: expected kg=3, got kg=$_b1_kg"
@@ -2794,7 +2794,7 @@ d_m1="$TMP/m1-unspaced"; mkdir -p "$d_m1"
   echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_m1/RESEARCH-STATE.md"
 _m1_out="$(bash "$HERE/../verify-state.sh" "$d_m1" 2>&1)"
-if echo "$_m1_out" | grep -qi 'contradictory'; then
+if grep -qi 'contradictory' <<<"$_m1_out"; then
   ok "T-M1-DENOM-UNSPACED: unspaced fractions (7/8 vs 7/7) detected as contradictory denominators"
 else
   no "T-M1-DENOM-UNSPACED: expected contradictory-denominators WARN for 7/8 vs 7/7 — got: [$(echo "$_m1_out" | grep -i denom | head -1)]"
@@ -2846,7 +2846,7 @@ d_n2="$TMP/n2-malformed-outside"; mkdir -p "$d_n2"
   echo "## Blocked gaps"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n2/RESEARCH-STATE.md"
 _n2_warn="$(bash "$SUT" "$d_n2" --sync-state 2>&1 >/dev/null)"
-if ! echo "$_n2_warn" | grep -qi 'malformed'; then
+if ! grep -qi 'malformed' <<<"$_n2_warn"; then
   ok "T-N2-MALFORMED-OUTSIDE-BACKLOG: malformed row outside Gap-backlog → no malformed WARN (outside-backlog scope excluded)"
 else
   no "T-N2-MALFORMED-OUTSIDE-BACKLOG: malformed WARN fired for a row outside Gap-backlog — expected no malformed WARN; got: [$(echo "$_n2_warn" | grep -i malformed | head -1)]"
@@ -2866,7 +2866,7 @@ d_n2f="$TMP/n2-sc-fallback"; mkdir -p "$d_n2f"
   echo "## Blocked gaps"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n2f/RESEARCH-STATE.md"
 _n2f_warn="$(bash "$SUT" "$d_n2f" --sync-state 2>&1 >/dev/null)"
-if echo "$_n2f_warn" | grep -qi 'malformed'; then
+if grep -qi 'malformed' <<<"$_n2f_warn"; then
   ok "T-N2-SC-FALLBACK: 4-col separator → sc=4 from BP-SC-FALLBACK; 6-cell row → malformed WARN fires"
 else
   no "T-N2-SC-FALLBACK: expected malformed WARN for 6-cell row in 4-col section — got: [$(echo "$_n2f_warn" | head -2)]"
@@ -2883,7 +2883,7 @@ d_n3a="$TMP/n3-cov-pipe-5"; mkdir -p "$d_n3a"
   echo "## Blocked gaps"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3a/RESEARCH-STATE.md"
 _n3a_warn="$(bash "$SUT" "$d_n3a" --sync-state 2>&1 >/dev/null)"
-if echo "$_n3a_warn" | grep -qi 'COVERED row'; then
+if grep -qi 'COVERED row' <<<"$_n3a_warn"; then
   ok "T-N3-COVERED-PIPE-WARN-5COL: 5-col COVERED row with extra cell → COVERED-pipe WARN emitted (not silent)"
 else
   no "T-N3-COVERED-PIPE-WARN-5COL: expected COVERED-pipe WARN — got: [$(echo "$_n3a_warn" | head -2)]"
@@ -2900,7 +2900,7 @@ d_n3b="$TMP/n3-cov-pipe-4"; mkdir -p "$d_n3b"
   echo "## Blocked gaps"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3b/RESEARCH-STATE.md"
 _n3b_warn="$(bash "$SUT" "$d_n3b" --sync-state 2>&1 >/dev/null)"
-if echo "$_n3b_warn" | grep -qi 'COVERED row'; then
+if grep -qi 'COVERED row' <<<"$_n3b_warn"; then
   ok "T-N3-COVERED-PIPE-WARN-4COL: 4-col COVERED row with extra cell → COVERED-pipe WARN emitted (not silent)"
 else
   no "T-N3-COVERED-PIPE-WARN-4COL: expected COVERED-pipe WARN — got: [$(echo "$_n3b_warn" | head -2)]"
@@ -2918,7 +2918,7 @@ d_n3pr="$TMP/n3-pr-header"; mkdir -p "$d_n3pr"
   echo "## Blocked gaps"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3pr/RESEARCH-STATE.md"
 _n3pr_out="$(bash "$SUT" "$d_n3pr" --sync-state 2>&1)"
-if echo "$_n3pr_out" | grep -qi 'unknown priority\|INVALID_PRIORITY'; then
+if grep -qi 'unknown priority\|INVALID_PRIORITY' <<<"$_n3pr_out"; then
   ok "T-N3-DEAD-PR-REMOVED: 'pr.' priority row → unknown priority WARN (dead header skip removed)"
 else
   no "T-N3-DEAD-PR-REMOVED: expected INVALID_PRIORITY or unknown-priority WARN for 'pr.' row — got: [$(echo "$_n3pr_out" | head -3)]"
@@ -2937,7 +2937,7 @@ d_n3m="$TMP/n3-malformed-in-backlog"; mkdir -p "$d_n3m"
   echo "## Blocked gaps"; echo
   echo "## Stop control"; echo "- **Open gaps — read-only investigable**: 0"; } > "$d_n3m/RESEARCH-STATE.md"
 _n3m_warn="$(bash "$SUT" "$d_n3m" --sync-state 2>&1 >/dev/null)"
-if echo "$_n3m_warn" | grep -qi 'malformed'; then
+if grep -qi 'malformed' <<<"$_n3m_warn"; then
   ok "T-N3-MALFORMED-SCOPE: 6-cell row inside Gap-backlog → malformed WARN fired"
 else
   no "T-N3-MALFORMED-SCOPE: expected malformed WARN inside Gap-backlog — got: [$(echo "$_n3m_warn" | head -2)]"
@@ -3405,7 +3405,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     esac
     # Direction C: default-status subshell (T-SS2b fixture: both focuses paused/stopped with open gaps)
     ss2f_mgot="$(bash "$ss2_mutant" "$TMP/ss2-all-paused" 2>/dev/null | grep 'next step')"
-    if echo "$ss2f_mgot" | grep -q 'NEXT'; then
+    if grep -q 'NEXT' <<<"$ss2f_mgot"; then
       ok "teeth-SS2-C: neutered _read_focuses_tok → default-status next-step returns NEXT (skip removed) — default-status skip is load-bearing"
     else
       no "teeth-SS2-C: mutant default-status next-step [$ss2f_mgot] — expected NEXT, skip not biting"
@@ -3732,7 +3732,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         printf '\n## Blocked gaps\n## Stop control\n- **Open gaps — read-only investigable**: 0\n'
       } > "$d_905w/RESEARCH-STATE-warn.md"
       _905w_stderr="$(bash "$mu_905_warn" "$d_905w" --sync-state 2>&1 >/dev/null)"
-      if echo "$_905w_stderr" | grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN'; then
+      if grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN' <<<"$_905w_stderr"; then
         no "teeth-905-SG-ZERO-WARN: MUTANT-905-WARN still emits WARN — THEATER (warn is not from this printf)"
       else
         ok "teeth-905-SG-ZERO-WARN: MUTANT-905-WARN silences WARN → test 52b WARN assertion is load-bearing"
@@ -3950,7 +3950,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       mkdir -p "$_unver_target/retros"
       touch "$_unver_target/retros/2026-09-01-teeth-unver-retro.md"
       _unver_got="$(bash "$_unver_kit/research-sdd-status.sh" "$_unver_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_unver_got" | grep -qF '[issue-coverage: unverified]'; then
+      if grep -qF '[issue-coverage: unverified]' <<<"$_unver_got"; then
         no "teeth-IDG-unverified-marker: mutant still printed distinct marker → IDG-UNVERIFIED-MARKER is THEATER"
       else
         ok "teeth-IDG-unverified-marker: bare-STOP mutant → distinct marker absent → T-IDG-C goes RED → IDG-UNVERIFIED-MARKER is load-bearing"
@@ -3996,7 +3996,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       touch "$_tmt_mut_target/retros/2026-09-01-teeth-tmt-retro.md"
       _tmt_mut_got="$(env _IDG_RECONCILE_TIMEOUT_SECS=1 bash "$_tmt_mut_kit/research-sdd-status.sh" \
         "$_tmt_mut_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_tmt_mut_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_tmt_mut_got"; then
         no "teeth-IDG-timeout: mutant still returned unverified marker → IDG-TIMEOUT-WRAP is THEATER"
       else
         case "$_tmt_mut_got" in
@@ -4094,7 +4094,7 @@ CTR_TEETH_EOF
       mkdir -p "$_opfail_target/retros"
       touch "$_opfail_target/retros/2026-09-01-teeth-opfail-retro.md"
       _opfail_got="$(bash "$_opfail_kit/research-sdd-status.sh" "$_opfail_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_opfail_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_opfail_got"; then
         no "teeth-IDG-opfail: mutant still returned unverified marker → IDG-OPFAIL-SENTINEL is THEATER"
       else
         case "$_opfail_got" in
@@ -4149,7 +4149,7 @@ CTR_TEETH_EOF
       mkdir -p "$_oos_teeth_target/retros"
       touch "$_oos_teeth_target/retros/2026-09-01-teeth-oos-retro.md"
       _oos_teeth_got="$(bash "$_oos_teeth_kit/research-sdd-status.sh" "$_oos_teeth_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_oos_teeth_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_oos_teeth_got"; then
         no "teeth-IDG-oos: mutant still returned unverified marker → IDG-OOS-SENTINEL is THEATER"
       else
         case "$_oos_teeth_got" in
@@ -4195,7 +4195,7 @@ CTR_TEETH_EOF
       # Stub find: no retros (no IDG_RETRO_PATHS_FILE), exits 1 (no stderr → avoids old-code path)
       _fex_got="$(IDG_FIND_EXIT=1 PATH="$_stub_find_dir:$PATH" \
         bash "$_fex_kit/research-sdd-status.sh" "$_fex_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_fex_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_fex_got"; then
         no "teeth-IDG-find-exit-unverified: mutant still emitted unverified marker → IDG-FIND-EXIT-UNVERIFIED is THEATER"
       else
         case "$_fex_got" in
@@ -4243,7 +4243,7 @@ CTR_TEETH_EOF
       _mtg_stub_dir="$TMP/mstub-mut"; mkdir -p "$_mtg_stub_dir"
       _mtg_got="$(IDG_MKTEMP_STUB_DIR="$_mtg_stub_dir" \
         PATH="$_stub_mktemp_dir:$PATH" bash "$_mtg_kit/research-sdd-status.sh" "$_mtg_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_mtg_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_mtg_got"; then
         no "teeth-IDG-enum-mktemp-guard: mutant still emitted unverified marker → IDG-ENUM-MKTEMP-GUARD is THEATER"
       else
         case "$_mtg_got" in
@@ -4290,7 +4290,7 @@ CTR_TEETH_EOF
       touch "$_sort_mut_target/retros/2026-09-01-teeth-sort-retro.md"
       _sort_mut_got="$(IDG_SORT_EXIT=1 PATH="$_stub_sort_dir:$PATH" \
         bash "$_sort_mut_kit/research-sdd-status.sh" "$_sort_mut_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_sort_mut_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_sort_mut_got"; then
         no "teeth-IDG-sort-exit-unverified: mutant still returned unverified marker → IDG-SORT-EXIT-UNVERIFIED is THEATER"
       else
         case "$_sort_mut_got" in
@@ -4338,7 +4338,7 @@ CTR_TEETH_EOF
       # Mutant: FAIL-CLOSED flag neutered; IDG-TIMEOUT-ABSENT-SKIP still fires → all probes skipped.
       # No unverified flag + no probes → bare STOP; T-IDG-TIMEOUT-ABSENT expects unverified → RED.
       _ta_mut_got="$(_IDG_TIMEOUT_BIN="" bash "$_ta_mut_kit/research-sdd-status.sh" "$_ta_mut_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_ta_mut_got" | grep -qF '[issue-coverage: unverified'; then
+      if grep -qF '[issue-coverage: unverified' <<<"$_ta_mut_got"; then
         no "teeth-IDG-timeout-absent: mutant still returned unverified marker → IDG-TIMEOUT-ABSENT-FAIL-CLOSED is THEATER"
       else
         case "$_ta_mut_got" in
@@ -4427,7 +4427,7 @@ CTR_TEETH_EOF
       # T-IDG-AGGR-BUDGET expects unverified marker → bare STOP → assertion goes RED.
       _ab_mut_got="$(_IDG_AGGREGATE_BUDGET_SECS=0 bash "$_ab_mut_kit/research-sdd-status.sh" \
         "$_ab_mut_target" --next 2>/dev/null)"
-      if printf '%s\n' "$_ab_mut_got" | grep -qF '[issue-coverage: unverified]'; then
+      if grep -qF '[issue-coverage: unverified]' <<<"$_ab_mut_got"; then
         no "teeth-IDG-aggregate-budget: mutant still returned unverified marker → IDG-AGGREGATE-EXCEEDED is THEATER"
       else
         case "$_ab_mut_got" in
@@ -4733,7 +4733,7 @@ BLTGHEOF
     _sccc_tooth_ec=$?
     if [ "$_sccc_tooth_ec" -eq 127 ]; then
       no "teeth-SC-CROSS-CHECK: verify-state.sh absent (exit 127) — tooth cannot distinguish SC-CROSS-CHECK silent from helper absent"
-    elif echo "$_sccc_tooth_out" | grep -qF "$_SC_CROSS_CHECK_FAIL"; then
+    elif grep -qF "$_SC_CROSS_CHECK_FAIL" <<<"$_sccc_tooth_out"; then
       no "teeth-SC-CROSS-CHECK: verify-state fired SC-CROSS-CHECK even without prose line — tooth invalid (SC-CROSS-CHECK should be silent when prose is absent)"
     else
       ok "teeth-SC-CROSS-CHECK: SC-CROSS-CHECK silent without prose → T-SC-CROSS-CHECK not theater (would be RED if prose absent)"
@@ -4792,7 +4792,7 @@ BLTGHEOF
     else
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       _oobw_warn="$(bash "$_oobw_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
-      if ! echo "$_oobw_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+      if ! grep -qi 'Gap-backlog\|gap.backlog' <<<"$_oobw_warn"; then
         ok "teeth-OOB-WARN: mutant suppresses OOB-WARN → T-OOB-WARN goes RED → OOB-WARN is load-bearing"
       else
         no "teeth-OOB-WARN: mutant still emitted Gap-backlog WARN — THEATER"
@@ -4819,7 +4819,7 @@ BLTGHEOF
     else
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       _bplig_warn="$(bash "$_bplig_mutant" "$d_li" --sync-state 2>&1 >/dev/null)"
-      if echo "$_bplig_warn" | grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns'; then
+      if grep -qi 'unknown priority\|INVALID_PRIORITY\|backlog.*columns' <<<"$_bplig_warn"; then
         ok "teeth-BP-LIST-ITEM-GUARD: mutant (no guard) → list item fires WARN/INVALID_PRIORITY → T-LIST-ITEM goes RED → BP-LIST-ITEM-GUARD is load-bearing"
       else
         no "teeth-BP-LIST-ITEM-GUARD: mutant did not produce WARN — list item silently ignored without guard (THEATER)"
@@ -4844,7 +4844,7 @@ BLTGHEOF
     else
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       _bpsib_warn="$(bash "$_bpsib_mutant" "$d_oob" --sync-state 2>&1 >/dev/null)"
-      if ! echo "$_bpsib_warn" | grep -qi 'Gap-backlog\|gap.backlog'; then
+      if ! grep -qi 'Gap-backlog\|gap.backlog' <<<"$_bpsib_warn"; then
         ok "teeth-BP-SEP-IN-BACKLOG: mutant (wrong order) → OOB-WARN silenced → T-OOB-WARN goes RED → BP-SEP-IN-BACKLOG is load-bearing"
       else
         no "teeth-BP-SEP-IN-BACKLOG: mutant still emitted OOB-WARN — ordering not load-bearing (THEATER)"
@@ -4946,7 +4946,7 @@ open(sys.argv[2], 'w').write(out)
     else
       cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
       _cpw5_warn="$(bash "$_cpw5_mutant" "$d_n3a" --sync-state 2>&1 >/dev/null)"
-      if ! echo "$_cpw5_warn" | grep -qi 'COVERED row'; then
+      if ! grep -qi 'COVERED row' <<<"$_cpw5_warn"; then
         ok "teeth-T-N3-COVERED-PIPE-WARN-5COL: mutant (no COVERED-pipe handler) → no COVERED-pipe WARN → T-N3-COVERED-PIPE-WARN-5COL goes RED"
       else
         no "teeth-T-N3-COVERED-PIPE-WARN-5COL: mutant still emits COVERED-pipe WARN — THEATER"
@@ -4969,7 +4969,7 @@ open(sys.argv[2], 'w').write(out)
       no "teeth-T-M1-DENOM-UNSPACED: mutant has syntax error (bash -n)"
     else
       _m1_mut_out="$(bash "$_m1_mutant_vs" "$d_m1" 2>&1)"
-      if ! echo "$_m1_mut_out" | grep -qi 'contradictory'; then
+      if ! grep -qi 'contradictory' <<<"$_m1_mut_out"; then
         ok "teeth-T-M1-DENOM-UNSPACED: mutant (spaces-required grep) → unspaced 7/8 vs 7/7 not detected → T-M1-DENOM-UNSPACED goes RED"
       else
         no "teeth-T-M1-DENOM-UNSPACED: mutant still detects contradictory denominators — THEATER"
@@ -4996,12 +4996,12 @@ cq_all()     { bash "$SUT" "$1" 2>&1; }
 echo "-- campaign queue: no-campaign fixture (no ## Campaign queue section) --"
 d_cq_none="$CQ_FIX/no-campaign"
 _cq_none_out="$(cq_status "$d_cq_none")"
-if echo "$_cq_none_out" | grep -qE '^\s*campaign\s*:\s*none'; then
+if grep -qE '^\s*campaign\s*:\s*none' <<<"$_cq_none_out"; then
   ok "T-CQ-NONE: status prints 'campaign: none' when no Campaign queue section"
 else
   no "T-CQ-NONE: expected 'campaign: none', got [$(echo "$_cq_none_out" | grep -i 'campaign' | head -3)]"
 fi
-if echo "$_cq_none_out" | grep -qE '^\s*last_iteration_ts\s*:'; then
+if grep -qE '^\s*last_iteration_ts\s*:' <<<"$_cq_none_out"; then
   ok "T-CQ-NONE-TS: status includes last_iteration_ts line for no-campaign corpus"
 else
   no "T-CQ-NONE-TS: expected last_iteration_ts line, not found in [$(echo "$_cq_none_out" | head -15)]"
@@ -5010,7 +5010,7 @@ fi
 echo "-- campaign queue: single-entry fixture (pending=1 active=0 done=1) --"
 d_cq_single="$CQ_FIX/single-entry"
 _cq_single_out="$(cq_status "$d_cq_single")"
-if echo "$_cq_single_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=1\s+bound-stopped=0\s+rejected=0' <<<"$_cq_single_out"; then
   ok "T-CQ-SINGLE: correct state counts for single-entry queue"
 else
   no "T-CQ-SINGLE: wrong state counts — got [$(echo "$_cq_single_out" | grep -i 'campaign\s*:' | head -3)]"
@@ -5019,7 +5019,7 @@ fi
 echo "-- campaign queue: multi-entry fixture (done=3 rejected=1) --"
 d_cq_multi="$CQ_FIX/multi-entry"
 _cq_multi_out="$(cq_status "$d_cq_multi")"
-if echo "$_cq_multi_out" | grep -qE '^\s*campaign\s*:\s*pending=0\s+active=0\s+done=3\s+bound-stopped=0\s+rejected=1'; then
+if grep -qE '^\s*campaign\s*:\s*pending=0\s+active=0\s+done=3\s+bound-stopped=0\s+rejected=1' <<<"$_cq_multi_out"; then
   ok "T-CQ-MULTI: correct state counts for multi-entry queue"
 else
   no "T-CQ-MULTI: wrong counts — got [$(echo "$_cq_multi_out" | grep -i 'campaign\s*:' | head -3)]"
@@ -5029,7 +5029,7 @@ echo "-- campaign queue: multi-entry campaign STOP condition (all terminal + enq
 d_cq_stopreach="$CQ_FIX/campaign-stop-reached"
 _cq_stopreach_out="$(cq_status "$d_cq_stopreach")"
 # Must find a SPECIFIC status line flagging STOP reached (not the fixture dir name in the header)
-if echo "$_cq_stopreach_out" | grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached'; then
+if grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached' <<<"$_cq_stopreach_out"; then
   ok "T-CQ-STOP-REACHED: campaign STOP reached flagged when all terminal and enqueued=0"
 else
   no "T-CQ-STOP-REACHED: expected campaign_stop STOP-reached line, got [$(echo "$_cq_stopreach_out" | grep -iE '^\s*campaign' | head -5)]"
@@ -5045,7 +5045,7 @@ fi
 echo "-- campaign queue: partition-check-created last_audit (enqueued=0 KEPT, partition APPENDED) --"
 d_cq_partstop="$CQ_FIX/campaign-stop-reached-partition"
 _cq_partstop_out="$(cq_status "$d_cq_partstop")"
-if echo "$_cq_partstop_out" | grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached'; then
+if grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached' <<<"$_cq_partstop_out"; then
   ok "T-CQ-PARTITION-STOP: campaign STOP reached when last_audit keeps enqueued=0 and appends partition=\"...\""
 else
   no "T-CQ-PARTITION-STOP: expected campaign STOP reached, got [$(echo "$_cq_partstop_out" | grep -iE '^\s*campaign' | head -5)]"
@@ -5054,7 +5054,7 @@ fi
 echo "-- campaign queue: NEGATIVE — pre-round-4 broken shape (enqueued= REPLACED) must NOT report STOP --"
 d_cq_partbroken="$CQ_FIX/campaign-stop-partition-broken-format"
 _cq_partbroken_out="$(cq_status "$d_cq_partbroken")"
-if echo "$_cq_partbroken_out" | grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached'; then
+if grep -qiE '^\s*campaign_stop\s*:.*reached|^\s*campaign\s*:.*STOP.*reached' <<<"$_cq_partbroken_out"; then
   no "T-CQ-PARTITION-BROKEN-NO-STOP: the pre-round-4 broken shape (no enqueued=) must NOT report STOP, but it did — [$(echo "$_cq_partbroken_out" | grep -iE '^\s*campaign' | head -5)]"
 else
   ok "T-CQ-PARTITION-BROKEN-NO-STOP: broken shape (enqueued= missing) correctly does not report STOP — confirms the M1 defect class and why the append-not-replace fix matters"
@@ -5063,12 +5063,12 @@ fi
 echo "-- campaign queue: bound-stopped fixture (campaign_stop: set, pending entry) --"
 d_cq_bound="$CQ_FIX/bound-stopped"
 _cq_bound_out="$(cq_status "$d_cq_bound")"
-if echo "$_cq_bound_out" | grep -qE '^\s*campaign_stop\s*:.*campaign-bound-reached'; then
+if grep -qE '^\s*campaign_stop\s*:.*campaign-bound-reached' <<<"$_cq_bound_out"; then
   ok "T-CQ-BOUND-STOP: campaign_stop field printed when bound fires"
 else
   no "T-CQ-BOUND-STOP: expected campaign_stop with bound-reached, got [$(echo "$_cq_bound_out" | grep -i 'campaign_stop' | head -3)]"
 fi
-if echo "$_cq_bound_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0\s+bound-stopped=1\s+rejected=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0\s+bound-stopped=1\s+rejected=0' <<<"$_cq_bound_out"; then
   ok "T-CQ-BOUND-COUNTS: bound-stopped fixture has correct state counts"
 else
   no "T-CQ-BOUND-COUNTS: wrong counts in bound-stopped fixture — got [$(echo "$_cq_bound_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5078,8 +5078,8 @@ echo "-- campaign queue: malformed Kind (unknown-kind) emits WARN --"
 d_cq_mkind="$CQ_FIX/malformed-kind"
 _cq_mkind_err="$(cq_err "$d_cq_mkind")"
 _cq_mkind_all="$(cq_all "$d_cq_mkind")"
-if echo "$_cq_mkind_err" | grep -qi 'WARN.*invalid-kind\|WARN.*unknown.*kind\|WARN.*kind.*invalid\|kind.*malform' \
-   || echo "$_cq_mkind_all" | grep -qi 'WARN.*invalid-kind\|WARN.*unknown.*kind\|campaign.*WARN.*kind'; then
+if grep -qi 'WARN.*invalid-kind\|WARN.*unknown.*kind\|WARN.*kind.*invalid\|kind.*malform' <<<"$_cq_mkind_err" \
+   || grep -qi 'WARN.*invalid-kind\|WARN.*unknown.*kind\|campaign.*WARN.*kind' <<<"$_cq_mkind_all"; then
   ok "T-CQ-MKIND: WARN emitted for unrecognised Kind token"
 else
   no "T-CQ-MKIND: expected Kind WARN, got stderr=[$(echo "$_cq_mkind_err" | head -5)]"
@@ -5089,8 +5089,8 @@ echo "-- campaign queue: malformed State (in-progress) emits WARN --"
 d_cq_mstate="$CQ_FIX/malformed-state"
 _cq_mstate_err="$(cq_err "$d_cq_mstate")"
 _cq_mstate_all="$(cq_all "$d_cq_mstate")"
-if echo "$_cq_mstate_err" | grep -qi 'WARN.*in-progress\|WARN.*unknown.*state\|WARN.*state.*in-progress\|state.*malform' \
-   || echo "$_cq_mstate_all" | grep -qi 'WARN.*in-progress\|WARN.*state'; then
+if grep -qi 'WARN.*in-progress\|WARN.*unknown.*state\|WARN.*state.*in-progress\|state.*malform' <<<"$_cq_mstate_err" \
+   || grep -qi 'WARN.*in-progress\|WARN.*state' <<<"$_cq_mstate_all"; then
   ok "T-CQ-MSTATE: WARN emitted for unrecognised State token"
 else
   no "T-CQ-MSTATE: expected State WARN, got stderr=[$(echo "$_cq_mstate_err" | head -5)]"
@@ -5099,7 +5099,7 @@ fi
 echo "-- campaign queue: empty table (header present, zero data rows) emits WARN --"
 d_cq_empty="$CQ_FIX/empty-table"
 _cq_empty_out="$(cq_all "$d_cq_empty")"
-if echo "$_cq_empty_out" | grep -qi 'table present but empty\|campaign.*empty'; then
+if grep -qi 'table present but empty\|campaign.*empty' <<<"$_cq_empty_out"; then
   ok "T-CQ-EMPTY-TABLE: WARN for table-present-but-empty"
 else
   no "T-CQ-EMPTY-TABLE: expected empty-table WARN, got [$(echo "$_cq_empty_out" | grep -i 'campaign' | head -5)]"
@@ -5108,13 +5108,13 @@ fi
 echo "-- campaign queue: absent last_audit prints 'not yet audited' --"
 d_cq_noaudit="$CQ_FIX/absent-last-audit"
 _cq_noaudit_out="$(cq_status "$d_cq_noaudit")"
-if echo "$_cq_noaudit_out" | grep -qiE '^\s*last_audit\s*:.*not yet audited'; then
+if grep -qiE '^\s*last_audit\s*:.*not yet audited' <<<"$_cq_noaudit_out"; then
   ok "T-CQ-NO-AUDIT: last_audit: not yet audited when field absent"
 else
   no "T-CQ-NO-AUDIT: expected 'not yet audited', got [$(echo "$_cq_noaudit_out" | grep -i 'last_audit' | head -3)]"
 fi
 # Absent last_audit + all-done-but-no-enqueued0 → STOP NOT reached
-if echo "$_cq_noaudit_out" | grep -qi 'campaign.*STOP.*reached'; then
+if grep -qi 'campaign.*STOP.*reached' <<<"$_cq_noaudit_out"; then
   no "T-CQ-NO-AUDIT-STOP: absent last_audit must NOT trigger campaign STOP"
 else
   ok "T-CQ-NO-AUDIT-STOP: absent last_audit does not trigger campaign STOP (correct)"
@@ -5123,7 +5123,7 @@ fi
 echo "-- campaign queue: absent last_iteration_ts --"
 d_cq_absts="$CQ_FIX/absent-ts"
 _cq_absts_out="$(cq_status "$d_cq_absts")"
-if echo "$_cq_absts_out" | grep -qE '^\s*last_iteration_ts\s*:\s*absent'; then
+if grep -qE '^\s*last_iteration_ts\s*:\s*absent' <<<"$_cq_absts_out"; then
   ok "T-CQ-ABS-TS: last_iteration_ts: absent when field missing from envelope"
 else
   no "T-CQ-ABS-TS: expected 'last_iteration_ts: absent', got [$(echo "$_cq_absts_out" | grep -i 'last_iteration' | head -3)]"
@@ -5137,7 +5137,7 @@ _cq_stale_ts_epoch=$(date -d "2026-09-22T10:00:00Z" +%s 2>/dev/null \
 if [ -n "$_cq_stale_ts_epoch" ]; then
   _cq_stale_now=$(( _cq_stale_ts_epoch + 960 ))  # 16 min later
   _cq_stale_all="$(_RSDD_NOW_EPOCH="$_cq_stale_now" bash "$SUT" "$d_cq_stale" 2>&1)"
-  if echo "$_cq_stale_all" | grep -qi 'WARN.*stall\|stall.*WARN'; then
+  if grep -qi 'WARN.*stall\|stall.*WARN' <<<"$_cq_stale_all"; then
     ok "T-CQ-STALE: WARN emitted when last_iteration_ts is stale (>15min) in active campaign"
   else
     no "T-CQ-STALE: expected stall WARN for stale ts, got [$(echo "$_cq_stale_all" | grep -i 'stall\|last_iteration' | head -5)]"
@@ -5151,7 +5151,7 @@ d_cq_fresh="$CQ_FIX/fresh-ts"
 if [ -n "$_cq_stale_ts_epoch" ]; then
   _cq_fresh_now=$(( _cq_stale_ts_epoch + 300 ))  # 5 min later
   _cq_fresh_all="$(_RSDD_NOW_EPOCH="$_cq_fresh_now" bash "$SUT" "$d_cq_fresh" 2>&1)"
-  if echo "$_cq_fresh_all" | grep -qi 'WARN.*stall'; then
+  if grep -qi 'WARN.*stall' <<<"$_cq_fresh_all"; then
     no "T-CQ-FRESH: unexpected stall WARN for fresh ts (5min, threshold 15)"
   else
     ok "T-CQ-FRESH: no stall WARN when last_iteration_ts is fresh (5min < 15min threshold)"
@@ -5164,7 +5164,7 @@ echo "-- campaign queue: --stall-minutes override (3 min, ts is 5 min old, expec
 if [ -n "$_cq_stale_ts_epoch" ]; then
   _cq_sm_now=$(( _cq_stale_ts_epoch + 300 ))  # 5 min later
   _cq_sm_all="$(_RSDD_NOW_EPOCH="$_cq_sm_now" bash "$SUT" "$d_cq_fresh" --stall-minutes 3 2>&1)"
-  if echo "$_cq_sm_all" | grep -qi 'WARN.*stall'; then
+  if grep -qi 'WARN.*stall' <<<"$_cq_sm_all"; then
     ok "T-CQ-STALL-MINUTES: --stall-minutes 3 triggers WARN for 5-min-old ts"
   else
     no "T-CQ-STALL-MINUTES: expected stall WARN with --stall-minutes 3, got [$(echo "$_cq_sm_all" | grep -i 'stall\|last_iter' | head -5)]"
@@ -5177,14 +5177,14 @@ echo "-- campaign queue: malformed campaign_bounds (unknown-key, bad wall-clock)
 d_cq_mbounds="$CQ_FIX/malformed-bounds"
 _cq_mbounds_err="$(cq_err "$d_cq_mbounds")"
 _cq_mbounds_all="$(cq_all "$d_cq_mbounds")"
-if echo "$_cq_mbounds_err" | grep -qi 'WARN.*unknown-key\|WARN.*campaign_bounds\|WARN.*malform' \
-   || echo "$_cq_mbounds_all" | grep -qi 'WARN.*unknown-key\|WARN.*bounds'; then
+if grep -qi 'WARN.*unknown-key\|WARN.*campaign_bounds\|WARN.*malform' <<<"$_cq_mbounds_err" \
+   || grep -qi 'WARN.*unknown-key\|WARN.*bounds' <<<"$_cq_mbounds_all"; then
   ok "T-CQ-MBOUNDS-UNKNOWN: WARN for unknown key in campaign_bounds"
 else
   no "T-CQ-MBOUNDS-UNKNOWN: expected WARN for unknown-key in bounds, stderr=[$(echo "$_cq_mbounds_err" | head -5)]"
 fi
-if echo "$_cq_mbounds_err" | grep -qi 'WARN.*badvalue\|WARN.*wall-clock\|WARN.*wall_clock\|malformed.*wall' \
-   || echo "$_cq_mbounds_all" | grep -qi 'WARN.*badvalue\|WARN.*wall-clock'; then
+if grep -qi 'WARN.*badvalue\|WARN.*wall-clock\|WARN.*wall_clock\|malformed.*wall' <<<"$_cq_mbounds_err" \
+   || grep -qi 'WARN.*badvalue\|WARN.*wall-clock' <<<"$_cq_mbounds_all"; then
   ok "T-CQ-MBOUNDS-WALLCLOCK: WARN for bad wall-clock value in campaign_bounds"
 else
   no "T-CQ-MBOUNDS-WALLCLOCK: expected WARN for bad wall-clock value, stderr=[$(echo "$_cq_mbounds_err" | head -5)]"
@@ -5193,7 +5193,7 @@ fi
 echo "-- campaign queue: list-edges (first=active, middle=done, last=pending) --"
 d_cq_edges="$CQ_FIX/list-edges"
 _cq_edges_out="$(cq_status "$d_cq_edges")"
-if echo "$_cq_edges_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0' <<<"$_cq_edges_out"; then
   ok "T-CQ-EDGES: first/middle/last row positions all counted correctly"
 else
   no "T-CQ-EDGES: wrong counts — got [$(echo "$_cq_edges_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5202,7 +5202,7 @@ fi
 echo "-- campaign queue: single-row (one active entry) --"
 d_cq_srow="$CQ_FIX/single-row"
 _cq_srow_out="$(cq_status "$d_cq_srow")"
-if echo "$_cq_srow_out" | grep -qE '^\s*campaign\s*:\s*pending=0\s+active=1\s+done=0\s+bound-stopped=0\s+rejected=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=0\s+active=1\s+done=0\s+bound-stopped=0\s+rejected=0' <<<"$_cq_srow_out"; then
   ok "T-CQ-SINGLE-ROW: single active-row queue counted correctly"
 else
   no "T-CQ-SINGLE-ROW: wrong counts — got [$(echo "$_cq_srow_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5217,7 +5217,7 @@ if [ -n "$_cq_stale_ts_epoch" ]; then
   if [ -n "$_cq_ts_e" ]; then
     _cq_ts_now=$(( _cq_ts_e + 300 ))
     _cq_ts_out="$(_RSDD_NOW_EPOCH="$_cq_ts_now" bash "$SUT" "$d_cq_ts_present" 2>/dev/null)"
-    if echo "$_cq_ts_out" | grep -qE '^\s*last_iteration_ts\s*:.*age'; then
+    if grep -qE '^\s*last_iteration_ts\s*:.*age' <<<"$_cq_ts_out"; then
       ok "T-CQ-TS-AGE: last_iteration_ts includes age when ts is present"
     else
       no "T-CQ-TS-AGE: expected age in last_iteration_ts line, got [$(echo "$_cq_ts_out" | grep -i 'last_iter' | head -3)]"
@@ -5231,7 +5231,7 @@ fi
 
 echo "-- campaign queue: last_audit line printed in output --"
 _cq_audit_out="$(cq_status "$d_cq_single")"
-if echo "$_cq_audit_out" | grep -qE '^\s*last_audit\s*:'; then
+if grep -qE '^\s*last_audit\s*:' <<<"$_cq_audit_out"; then
   ok "T-CQ-LAST-AUDIT: last_audit line present in output when field exists"
 else
   no "T-CQ-LAST-AUDIT: expected last_audit line, got [$(echo "$_cq_audit_out" | grep -i 'last_audit' | head -3)]"
@@ -5239,7 +5239,7 @@ fi
 
 echo "-- campaign queue: campaign_bounds line printed when present --"
 _cq_bnd_out="$(cq_status "$d_cq_bound")"
-if echo "$_cq_bnd_out" | grep -qE '^\s*campaign_bounds\s*:'; then
+if grep -qE '^\s*campaign_bounds\s*:' <<<"$_cq_bnd_out"; then
   ok "T-CQ-BOUNDS-LINE: campaign_bounds line printed when field exists"
 else
   no "T-CQ-BOUNDS-LINE: expected campaign_bounds line, got [$(echo "$_cq_bnd_out" | grep -i 'campaign_bounds' | head -3)]"
@@ -5252,7 +5252,7 @@ fi
 echo "-- R2-001: --stall-minutes 0 is rejected (message says 'positive integer', 0 is not one) --"
 _sm0_err="$(bash "$SUT" "$d_cq_single" --stall-minutes 0 2>&1 >/dev/null)"
 _sm0_rc=0; bash "$SUT" "$d_cq_single" --stall-minutes 0 >/dev/null 2>&1 || _sm0_rc=$?
-if [ "$_sm0_rc" -eq 2 ] && echo "$_sm0_err" | grep -qi 'positive integer'; then
+if [ "$_sm0_rc" -eq 2 ] && grep -qi 'positive integer' <<<"$_sm0_err"; then
   ok "T-SM-ZERO: --stall-minutes 0 refused (exit 2, 'positive integer' message)"
 else
   no "T-SM-ZERO: expected exit 2 + 'positive integer' message, got rc=$_sm0_rc stderr=[$_sm0_err]"
@@ -5264,7 +5264,7 @@ _sm1_rc=0; bash "$SUT" "$d_cq_single" --stall-minutes 1 >/dev/null 2>&1 || _sm1_
 echo "-- R3-comment-skip-overreach: a literal --> inside a table cell must not drop rows --"
 d_cq_arrow="$CQ_FIX/comment-cell-arrow"
 _cq_arrow_out="$(cq_status "$d_cq_arrow")"
-if echo "$_cq_arrow_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0' <<<"$_cq_arrow_out"; then
   ok "T-CQ-COMMENT-ARROW: all 3 rows counted despite a literal --> inside a Convergence cell"
 else
   no "T-CQ-COMMENT-ARROW: expected pending=1 active=1 done=1 (all 3 rows), got [$(echo "$_cq_arrow_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5273,7 +5273,7 @@ fi
 echo "-- R3-comment-skip-overreach: an unclosed <!-- inside a cell must not hide later rows --"
 d_cq_unclosed="$CQ_FIX/comment-cell-unclosed"
 _cq_unclosed_out="$(cq_status "$d_cq_unclosed")"
-if echo "$_cq_unclosed_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1\s+bound-stopped=0\s+rejected=0' <<<"$_cq_unclosed_out"; then
   ok "T-CQ-COMMENT-UNCLOSED: all 3 rows counted despite an unclosed <!-- inside a Seed cell"
 else
   no "T-CQ-COMMENT-UNCLOSED: expected pending=1 active=1 done=1 (all 3 rows, last-row not hidden), got [$(echo "$_cq_unclosed_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5310,7 +5310,7 @@ elif [ -n "$_bsd_true_epoch" ] && [ -x "$_bsd_fake_bin/date" ]; then
   _bsd_now_epoch=$(( _bsd_true_epoch + 300 ))             # true age: 5 real minutes later
   _bsd_out="$(PATH="$_bsd_fake_bin:$PATH" TZ="America/Los_Angeles" _RSDD_NOW_EPOCH="$_bsd_now_epoch" \
     bash "$SUT" "$_bsd_fixture" 2>&1)"
-  if echo "$_bsd_out" | grep -qE '^\s*last_iteration_ts\s*:.*\(age:\s*5\s*min\)'; then
+  if grep -qE '^\s*last_iteration_ts\s*:.*\(age:\s*5\s*min\)' <<<"$_bsd_out"; then
     ok "T-CQ-BSD-TZ: BSD fallback age is 5 min (UTC-correct) under non-UTC TZ (America/Los_Angeles)"
   else
     no "T-CQ-BSD-TZ: expected age 5 min under BSD fallback + non-UTC TZ, got [$(echo "$_bsd_out" | grep -i 'last_iteration' | head -3)] (a Z-as-local-time bug would report ~420 min off)"
@@ -5327,8 +5327,8 @@ if [ "$_gnu_date_ok" -ne 1 ]; then
 elif [ -n "$_bsd_true_epoch" ]; then
   _neg_now=$(( _bsd_true_epoch - 600 ))                   # "now" is 10 min BEFORE the ts
   _neg_out="$(_RSDD_NOW_EPOCH="$_neg_now" bash "$SUT" "$_bsd_fixture" 2>&1)"
-  if echo "$_neg_out" | grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min' \
-     && echo "$_neg_out" | grep -qi 'WARN.*future\|WARN.*unknown\|WARN.*negative'; then
+  if grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min' <<<"$_neg_out" \
+     && grep -qi 'WARN.*future\|WARN.*unknown\|WARN.*negative' <<<"$_neg_out"; then
     ok "T-CQ-NEG-AGE: negative age reported as 'unknown' with a loud WARN, not a wrong number"
   else
     no "T-CQ-NEG-AGE: expected 'age: unknown min' + WARN, got [$(echo "$_neg_out" | grep -iE 'last_iteration|WARN' | head -5)]"
@@ -5343,7 +5343,7 @@ _cq_mf_out="$(cq_status "$d_cq_mf")"
 # A per-focus "campaign_stop[alpha]: STOP reached" line is correct (alpha really is terminal) — only
 # the AGGREGATE, unlabeled "campaign_stop   :" line must never claim the whole campaign stopped while
 # beta (sorts second) still has pending work.
-if echo "$_cq_mf_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+if grep -qE '^\s*campaign_stop\s*:\s*STOP reached' <<<"$_cq_mf_out"; then
   no "T-CQ-MF-NO-FALSE-STOP: aggregate 'campaign_stop: STOP reached' printed while beta is still pending — false STOP"
 else
   ok "T-CQ-MF-NO-FALSE-STOP: no aggregate 'STOP reached' while an active sibling focus (beta) has pending work"
@@ -5351,7 +5351,7 @@ fi
 # RDD round 2: a bare 'alpha'/'beta' substring grep matches anywhere (e.g. inside the fixture's own
 # directory path echoed in the header line), so it could pass even if only one focus were actually
 # reported. Assert the labelled campaign[<slug>] lines specifically.
-if echo "$_cq_mf_out" | grep -qE '^\s*campaign\[alpha\]\s*:' && echo "$_cq_mf_out" | grep -qE '^\s*campaign\[beta\]\s*:'; then
+if grep -qE '^\s*campaign\[alpha\]\s*:' <<<"$_cq_mf_out" && grep -qE '^\s*campaign\[beta\]\s*:' <<<"$_cq_mf_out"; then
   ok "T-CQ-MF-PER-FOCUS: both campaign[alpha] and campaign[beta] labelled lines appear (not first-only)"
 else
   no "T-CQ-MF-PER-FOCUS: expected both campaign[alpha] and campaign[beta] lines, got [$(echo "$_cq_mf_out" | grep -E '^\s*campaign(\[|\s)' | head -10)]"
@@ -5366,7 +5366,7 @@ elif [ -n "$_bsd_true_epoch" ]; then
   if [ -n "$_mf_beta_epoch" ]; then
     _mf_now=$(( _mf_beta_epoch + 960 ))
     _cq_mf_stall_out="$(_RSDD_NOW_EPOCH="$_mf_now" bash "$SUT" "$d_cq_mf" 2>&1)"
-    if echo "$_cq_mf_stall_out" | grep -qi 'WARN.*stall'; then
+    if grep -qi 'WARN.*stall' <<<"$_cq_mf_stall_out"; then
       ok "T-CQ-MF-STALL: stall WARN fires for beta even though alpha (sorts first) is fully terminal"
     else
       no "T-CQ-MF-STALL: expected a stall WARN for beta, got [$(echo "$_cq_mf_stall_out" | grep -i 'stall\|last_iteration' | head -5)]"
@@ -5462,10 +5462,10 @@ fi
 echo "-- B1: --focus <slug> scopes the campaign block to exactly that focus --"
 d_b1_mf="$CQ_FIX/multi-focus-mixed"
 _b1_beta_out="$(bash "$SUT" "$d_b1_mf" --focus beta 2>/dev/null)"
-if echo "$_b1_beta_out" | grep -q 'alpha'; then
+if grep -q 'alpha' <<<"$_b1_beta_out"; then
   no "T-B1-FOCUS-EXCLUDES-SIBLING: --focus beta must not mention alpha, got [$(echo "$_b1_beta_out" | grep -i campaign)]"
 else
-  if echo "$_b1_beta_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+  if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_b1_beta_out"; then
     ok "T-B1-FOCUS-EXCLUDES-SIBLING: --focus beta reports only beta's queue (alpha absent)"
   else
     no "T-B1-FOCUS-EXCLUDES-SIBLING: expected beta's counts unlabelled, got [$(echo "$_b1_beta_out" | grep -i campaign)]"
@@ -5474,13 +5474,13 @@ fi
 
 d_b1_stopped="$CQ_FIX/focus-scoped-stopped"
 _b1_stopped_out="$(bash "$SUT" "$d_b1_stopped" --focus alpha 2>/dev/null)"
-if echo "$_b1_stopped_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_b1_stopped_out"; then
   ok "T-B1-FOCUS-REPORTS-STOPPED: --focus alpha reports alpha even though FOCUSES.md declares it stopped"
 else
   no "T-B1-FOCUS-REPORTS-STOPPED: expected alpha's pending=1 entry, got [$(echo "$_b1_stopped_out" | grep -i campaign)]"
 fi
 _b1_stopped_beta_out="$(bash "$SUT" "$d_b1_stopped" --focus beta 2>/dev/null)"
-if echo "$_b1_stopped_beta_out" | grep -qE '^\s*campaign\s*:\s*pending=0\s+active=1\s+done=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=0\s+active=1\s+done=0' <<<"$_b1_stopped_beta_out"; then
   ok "T-B1-FOCUS-SIBLING-SCOPED: --focus beta reports only beta's (different) queue counts"
 else
   no "T-B1-FOCUS-SIBLING-SCOPED: expected beta's active=1 entry, got [$(echo "$_b1_stopped_beta_out" | grep -i campaign)]"
@@ -5489,7 +5489,7 @@ fi
 echo "-- B2 round 2: self-contained comment with trailing prose after --> must not drop rows --"
 d_cq_trail_sc="$CQ_FIX/comment-trailing-selfcontained"
 _cq_trail_sc_out="$(cq_status "$d_cq_trail_sc")"
-if echo "$_cq_trail_sc_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_cq_trail_sc_out"; then
   ok "T-CQ-COMMENT-TRAILING-SELFCONTAINED: pending=1 row counted despite '<!-- ... --> trailing prose'"
 else
   no "T-CQ-COMMENT-TRAILING-SELFCONTAINED: expected pending=1, got [$(echo "$_cq_trail_sc_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5498,7 +5498,7 @@ fi
 echo "-- B2 round 2: a multi-line comment's CLOSING line with trailing prose must still close --"
 d_cq_trail_close="$CQ_FIX/comment-trailing-close"
 _cq_trail_close_out="$(cq_status "$d_cq_trail_close")"
-if echo "$_cq_trail_close_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_cq_trail_close_out"; then
   ok "T-CQ-COMMENT-TRAILING-CLOSE: pending=1 row counted after a closing line with trailing '(end)' text"
 else
   no "T-CQ-COMMENT-TRAILING-CLOSE: expected pending=1, got [$(echo "$_cq_trail_close_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5507,7 +5507,7 @@ fi
 echo "-- B2 round 2: <!-- a -> b --> (embedded '>', broken even before this PR) must not drop rows --"
 d_cq_embed_gt="$CQ_FIX/comment-embedded-gt"
 _cq_embed_gt_out="$(cq_status "$d_cq_embed_gt")"
-if echo "$_cq_embed_gt_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_cq_embed_gt_out"; then
   ok "T-CQ-COMMENT-EMBEDDED-GT: pending=1 row counted despite an embedded '>' inside a one-line comment"
 else
   no "T-CQ-COMMENT-EMBEDDED-GT: expected pending=1, got [$(echo "$_cq_embed_gt_out" | grep -E '^\s*campaign\s*:' | head -3)]"
@@ -5516,8 +5516,8 @@ fi
 echo "-- B2 round 2: a file that ends while still inside a comment WARNs loudly (anti-silent-zero) --"
 d_cq_eof="$CQ_FIX/comment-unclosed-eof"
 _cq_eof_out="$(cq_all "$d_cq_eof")"
-if echo "$_cq_eof_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' \
-   && echo "$_cq_eof_out" | grep -qi 'WARN.*still inside an HTML comment'; then
+if grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_cq_eof_out" \
+   && grep -qi 'WARN.*still inside an HTML comment' <<<"$_cq_eof_out"; then
   ok "T-CQ-COMMENT-EOF-WARN: real rows before the unclosed comment are counted AND the EOF-in-comment WARN fires"
 else
   no "T-CQ-COMMENT-EOF-WARN: expected pending=1 + EOF-in-comment WARN, got [$(echo "$_cq_eof_out" | grep -iE 'campaign|WARN' | head -5)]"
@@ -5527,7 +5527,7 @@ echo "-- W1: a target where no active focus has a queue collapses to one summary
 d_w1="$CQ_FIX/no-campaign"
 _w1_out="$(cq_status "$d_w1")"
 _w1_campaign_lines="$(echo "$_w1_out" | grep -cE '^\s*campaign(\s|\[)')"
-if [ "$_w1_campaign_lines" -eq 1 ] && echo "$_w1_out" | grep -qE '^\s*campaign\s*:\s*none \(1 active focus, 0 with a queue\)'; then
+if [ "$_w1_campaign_lines" -eq 1 ] && grep -qE '^\s*campaign\s*:\s*none \(1 active focus, 0 with a queue\)' <<<"$_w1_out"; then
   ok "T-W1-COLLAPSE-SINGLE: single no-queue focus collapses to exactly one labelled-count summary line, singular grammar ('1 active focus')"
 else
   no "T-W1-COLLAPSE-SINGLE: expected exactly 1 campaign line with '(1 active focus, 0 with a queue)' (singular), got $_w1_campaign_lines line(s): [$(echo "$_w1_out" | grep -E '^\s*campaign' )]"
@@ -5537,12 +5537,12 @@ echo "-- W1: a MULTI-focus target where NO focus has a queue collapses to one li
 d_w1_mf="$CQ_FIX/multi-focus-no-queue-anywhere"
 _w1_mf_out="$(cq_status "$d_w1_mf")"
 _w1_mf_campaign_lines="$(echo "$_w1_mf_out" | grep -cE '^\s*campaign(\s|\[)')"
-if [ "$_w1_mf_campaign_lines" -eq 1 ] && echo "$_w1_mf_out" | grep -qE '^\s*campaign\s*:\s*none \(2 active focuses, 0 with a queue\)'; then
+if [ "$_w1_mf_campaign_lines" -eq 1 ] && grep -qE '^\s*campaign\s*:\s*none \(2 active focuses, 0 with a queue\)' <<<"$_w1_mf_out"; then
   ok "T-W1-COLLAPSE-MULTI: 2 no-queue focuses collapse to exactly 1 line (not 2, not the pre-fix 62-line-on-30-focus shape)"
 else
   no "T-W1-COLLAPSE-MULTI: expected exactly 1 campaign line with '(2 active focuses, 0 with a queue)', got $_w1_mf_campaign_lines line(s): [$(echo "$_w1_mf_out" | grep -E '^\s*campaign')]"
 fi
-if echo "$_w1_mf_out" | grep -qE '^\s*last_iteration_ts\s*:'; then
+if grep -qE '^\s*last_iteration_ts\s*:' <<<"$_w1_mf_out"; then
   no "T-W1-COLLAPSE-MULTI-NO-TS: no per-focus last_iteration_ts line expected once N>1 focuses are all queue-less (ambiguous 'which one'), got [$(echo "$_w1_mf_out" | grep -i last_iteration)]"
 else
   ok "T-W1-COLLAPSE-MULTI-NO-TS: no ambiguous last_iteration_ts line printed for the N>1 collapsed case"
@@ -5555,12 +5555,12 @@ _w3_out="$(cq_status "$d_w3")"
 # names gamma (it's the next open gap to investigate); that is a DIFFERENT block and must not fail
 # this assertion.
 _w3_campaign_block="$(echo "$_w3_out" | grep -E '^\s*campaign|^\s*last_audit|^\s*last_iteration_ts')"
-if echo "$_w3_campaign_block" | grep -q 'gamma'; then
+if grep -q 'gamma' <<<"$_w3_campaign_block"; then
   no "T-W1-NO-QUEUE-SIBLING-INVISIBLE: gamma (no queue) must not appear in the campaign block, got [$_w3_campaign_block]"
 else
   ok "T-W1-NO-QUEUE-SIBLING-INVISIBLE: gamma (active, no queue) produces no campaign output at all"
 fi
-if echo "$_w3_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached — all 2 queue-bearing focuses terminal'; then
+if grep -qE '^\s*campaign_stop\s*:\s*STOP reached — all 2 queue-bearing focuses terminal' <<<"$_w3_out"; then
   ok "T-W3-STOP-POSITIVE: aggregate STOP fires with the correct queue-bearing count (2, not the 3 total active focuses)"
 else
   no "T-W3-STOP-POSITIVE: expected 'STOP reached — all 2 queue-bearing focuses terminal', got [$(echo "$_w3_out" | grep -E '^\s*campaign_stop\s*:' | head -3)]"
@@ -5585,7 +5585,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-T-CQ-NONE: mutant has syntax error"
     else
       _cq_none_mut_out="$(bash "$_cq_none_mutant" "$d_cq_none" 2>/dev/null)"
-      if ! echo "$_cq_none_mut_out" | grep -qE '^\s*campaign\s*:\s*none'; then
+      if ! grep -qE '^\s*campaign\s*:\s*none' <<<"$_cq_none_mut_out"; then
         ok "teeth-T-CQ-NONE: mutant suppresses 'campaign: none' → T-CQ-NONE goes RED → output is load-bearing"
       else
         no "teeth-T-CQ-NONE: mutant still emits 'campaign: none' — THEATER"
@@ -5610,7 +5610,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-T-CQ-COUNTS: mutant has syntax error"
     else
       _cq_cnt_mut_out="$(bash "$_cq_cnt_mutant" "$d_cq_single" 2>/dev/null)"
-      if ! echo "$_cq_cnt_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=1'; then
+      if ! grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=1' <<<"$_cq_cnt_mut_out"; then
         ok "teeth-T-CQ-COUNTS: swapped counts mutant breaks single-entry → T-CQ-SINGLE goes RED → counts are load-bearing"
       else
         no "teeth-T-CQ-COUNTS: swapped counts mutant still passes — THEATER"
@@ -5634,7 +5634,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _cq_stall_now=$(( _cq_stale_ts_epoch + 960 ))
       _cq_stall_mut="$(_RSDD_NOW_EPOCH="$_cq_stall_now" bash "$_cq_stall_mutant" "$d_cq_stale" 2>&1)"
-      if ! echo "$_cq_stall_mut" | grep -qi 'WARN.*stall'; then
+      if ! grep -qi 'WARN.*stall' <<<"$_cq_stall_mut"; then
         ok "teeth-T-CQ-STALL: mutant suppresses stall WARN → T-CQ-STALE goes RED → stall check is load-bearing"
       else
         no "teeth-T-CQ-STALL: mutant still emits stall WARN — THEATER"
@@ -5692,10 +5692,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       # "_bit_broke" naming inverted this and was flagged as confusing (R2-003).
       _cq_cmt1_mutant_regressed=0
       _cq_arrow_mut_out="$(bash "$_cq_cmt1_mutant" "$d_cq_arrow" 2>/dev/null)"
-      echo "$_cq_arrow_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1' \
+      grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1' <<<"$_cq_arrow_mut_out" \
         || _cq_cmt1_mutant_regressed=1
       _cq_unclosed_mut_out="$(bash "$_cq_cmt1_mutant" "$d_cq_unclosed" 2>/dev/null)"
-      echo "$_cq_unclosed_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1' \
+      grep -qE '^\s*campaign\s*:\s*pending=1\s+active=1\s+done=1' <<<"$_cq_unclosed_mut_out" \
         || _cq_cmt1_mutant_regressed=1
       if [ "$_cq_cmt1_mutant_regressed" -eq 1 ]; then
         ok "teeth-T-CQ-COMMENT-STARTANCHOR: un-anchored mutant drops/hides rows on a comment-cell fixture → T-CQ-COMMENT-ARROW/UNCLOSED go RED → line-start anchoring is load-bearing"
@@ -5727,7 +5727,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       _cq_cmt2_mutant_regressed=0
       for _cq_trail_fix in "$d_cq_trail_sc" "$d_cq_trail_close" "$d_cq_embed_gt"; do
         _cq_trail_mut_out="$(bash "$_cq_cmt2_mutant" "$_cq_trail_fix" 2>/dev/null)"
-        echo "$_cq_trail_mut_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' \
+        grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_cq_trail_mut_out" \
           || _cq_cmt2_mutant_regressed=1
       done
       if [ "$_cq_cmt2_mutant_regressed" -eq 1 ]; then
@@ -5754,7 +5754,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-T-CQ-COMMENT-EOF-WARN: mutant has syntax error"
     else
       _cq_eof_mut_out="$(bash "$_cq_eof_mutant" "$d_cq_eof" 2>&1)"
-      if ! echo "$_cq_eof_mut_out" | grep -qi 'WARN.*still inside an HTML comment'; then
+      if ! grep -qi 'WARN.*still inside an HTML comment' <<<"$_cq_eof_mut_out"; then
         ok "teeth-T-CQ-COMMENT-EOF-WARN: mutant suppresses the EOF-in-comment WARN → T-CQ-COMMENT-EOF-WARN goes RED → the WARN is load-bearing"
       else
         no "teeth-T-CQ-COMMENT-EOF-WARN: mutant still emits the WARN — THEATER"
@@ -5785,8 +5785,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         _bsd_mut_out="$(PATH="$_bsd_fake_bin:$PATH" TZ="America/Los_Angeles" _RSDD_NOW_EPOCH="$_bsd_now_epoch" \
           bash "$_bsd_mutant" "$_bsd_fixture" 2>&1)"
         _bsd_mut_line="$(echo "$_bsd_mut_out" | grep -E '^\s*last_iteration_ts\s*:')"
-        if echo "$_bsd_mut_line" | grep -qE '\(age: (unknown|-?[0-9]+) min\)' \
-           && ! echo "$_bsd_mut_line" | grep -qE '\(age: 5 min\)'; then
+        if grep -qE '\(age: (unknown|-?[0-9]+) min\)' <<<"$_bsd_mut_line" \
+           && ! grep -qE '\(age: 5 min\)' <<<"$_bsd_mut_line"; then
           ok "teeth-T-CQ-BSD-TZ: mutant reports a well-formed but WRONG age ([$_bsd_mut_line]) under non-UTC TZ → T-CQ-BSD-TZ goes RED → TZ=UTC is load-bearing (not just a crash)"
         else
           no "teeth-T-CQ-BSD-TZ: mutant still reports age 5 min, or produced no well-formed age line at all [$_bsd_mut_line] — THEATER or crash-passed"
@@ -5817,7 +5817,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       elif [ -n "$_bsd_true_epoch" ]; then
         _neg_mut_now=$(( _bsd_true_epoch - 600 ))
         _neg_mut_out="$(_RSDD_NOW_EPOCH="$_neg_mut_now" bash "$_neg_mutant" "$_bsd_fixture" 2>&1)"
-        if ! echo "$_neg_mut_out" | grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min'; then
+        if ! grep -qE '^\s*last_iteration_ts\s*:.*age:\s*unknown\s*min' <<<"$_neg_mut_out"; then
           ok "teeth-T-CQ-NEG-AGE: mutant prints a raw age again instead of 'unknown' → T-CQ-NEG-AGE goes RED → the negative-age guard is load-bearing"
         else
           no "teeth-T-CQ-NEG-AGE: mutant still reports 'unknown' — THEATER"
@@ -5849,7 +5849,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       # Half 1: false-STOP regression (T-CQ-MF-NO-FALSE-STOP) — independent of GNU date.
       _cq_mf_mut_out="$(bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
-      if echo "$_cq_mf_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached'; then
+      if grep -qE '^\s*campaign_stop\s*:\s*STOP reached' <<<"$_cq_mf_mut_out"; then
         ok "teeth-T-CQ-MF-STOP: mutant false-STOPs on first-focus-only again → T-CQ-MF-NO-FALSE-STOP goes RED → the multi-focus scan (STOP half) is load-bearing"
       else
         no "teeth-T-CQ-MF-STOP: mutant did not reproduce the false-STOP — THEATER"
@@ -5867,7 +5867,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
           no "teeth-T-CQ-MF-STALL: cannot compute beta's reference epoch"
         else
           _cq_mf_stall_mut_out="$(_RSDD_NOW_EPOCH=$(( _cq_mf_beta_epoch2 + 960 )) bash "$_cq_mf_mutant" "$d_cq_mf" 2>&1)"
-          if ! echo "$_cq_mf_stall_mut_out" | grep -qi 'WARN.*stall'; then
+          if ! grep -qi 'WARN.*stall' <<<"$_cq_mf_stall_mut_out"; then
             ok "teeth-T-CQ-MF-STALL: mutant drops beta's stall WARN on first-focus-only again → T-CQ-MF-STALL goes RED → the multi-focus scan (stall half) is load-bearing"
           else
             no "teeth-T-CQ-MF-STALL: mutant still emits beta's stall WARN — THEATER"
@@ -5955,9 +5955,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       _b1_mutant_regressed=0
       _b1_mut_beta_out="$(bash "$_b1_mutant" "$d_b1_mf" --focus beta 2>/dev/null)"
-      echo "$_b1_mut_beta_out" | grep -q 'alpha' && _b1_mutant_regressed=1
+      grep -q 'alpha' <<<"$_b1_mut_beta_out" && _b1_mutant_regressed=1
       _b1_mut_stopped_out="$(bash "$_b1_mutant" "$d_b1_stopped" --focus alpha 2>/dev/null)"
-      echo "$_b1_mut_stopped_out" | grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' \
+      grep -qE '^\s*campaign\s*:\s*pending=1\s+active=0\s+done=0' <<<"$_b1_mut_stopped_out" \
         || _b1_mutant_regressed=1
       if [ "$_b1_mutant_regressed" -eq 1 ]; then
         ok "teeth-T-B1-FOCUS: mutant lets siblings leak into --focus output again → T-B1-FOCUS-* go RED → --focus scoping is load-bearing"
@@ -5983,7 +5983,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-T-W1-COLLAPSE: mutant has syntax error"
     else
       _w1_mut_out="$(bash "$_w1_mutant" "$d_w1" 2>/dev/null)"
-      if ! echo "$_w1_mut_out" | grep -qE '^\s*campaign\s*:\s*none'; then
+      if ! grep -qE '^\s*campaign\s*:\s*none' <<<"$_w1_mut_out"; then
         ok "teeth-T-W1-COLLAPSE: mutant prints no campaign line at all for a no-queue focus → T-W1-COLLAPSE-SINGLE/T-CQ-NONE go RED → the collapse branch is load-bearing"
       else
         no "teeth-T-W1-COLLAPSE: mutant still prints 'campaign: none' — THEATER"
@@ -6007,7 +6007,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-T-W3-WORDING: mutant has syntax error"
     else
       _w3_mut_out="$(bash "$_w3_mutant" "$d_w3" 2>/dev/null)"
-      if echo "$_w3_mut_out" | grep -qE '^\s*campaign_stop\s*:\s*STOP reached — all 3 queue-bearing focuses terminal'; then
+      if grep -qE '^\s*campaign_stop\s*:\s*STOP reached — all 3 queue-bearing focuses terminal' <<<"$_w3_mut_out"; then
         ok "teeth-T-W3-WORDING: mutant overclaims 'all 3 ... terminal' (gamma has no queue) → T-W3-STOP-POSITIVE goes RED → the queue-bearing count is load-bearing"
       else
         no "teeth-T-W3-WORDING: mutant did not reproduce the overclaimed count [$(echo "$_w3_mut_out" | grep -E '^\s*campaign_stop\s*:')] — THEATER"
