@@ -149,6 +149,7 @@ Sensitivity:
 | 34 | fluke-177x-datos | `$RESEARCH_HOME/investigacion/fluke-177x-datos` | **incipient** (30 blocks @2026-09-22 / git yes / remote no / hook file yes / unregistered) `[CERT-live]` — detail §34 | Fluke 1777+1775 PQ analyzers data-extraction research: REST API (protocol 5.0.0, only GET /device open) + VNC 5900 + Energy Analyze Plus + Fluke Connect; scanned NO Modbus/BACnet/OPC-UA `[CERT-live]` | `fetch-doc.sh` + WebSearch/WebFetch | Spanish (recomendacion) · technical EN markers |
 | 35 | hisense | `$RESEARCH_HOME/prototipos/clientes/hisense` | **incipient** (3 blocks @2026-09-15 / 1 run / git yes / remote no / hook yes) `[CERT-hw]` · companion to #30/#31 — detail §35 | Standalone 3D HVAC dashboard (669 KB `index.html`) migrated Workers→Vercel, domain `hisense.angeles-group.org`: CLI deploy + DNS cutover (del Workers domain, add A→76.76.21.21) `[CERT-hw]` | Vercel CLI + Cloudflare API (DNS) + `curl` verify | English (corpus) · Spanish UI subject `[CERT-hw]` |
 | 36 | blender-llm | `$RESEARCH_HOME/investigacion/blender-llm` | **incipient** (85 blocks @2026-09-22 / 3 runs / 16 retros / git yes / remote yes / hook yes) `[CERT-hw]` — detail §36 | Blender MCP + LLM ecosystem: ahujasid MCP server + alternatives, security/telemetry, LLM powerups, HVAC workflow; Windows↔WSL2 bridge (mirrored networking localhost:9876) `[CERT-hw]` | direct reading + WebSearch/WebFetch (ecosystem) | English `[CERT-hw]` |
+| 37 | niagara5-research | `$RESEARCH_HOME/niagara5-research` | **incipient** (bootstrap 2026-09-27 / frontier / git yes / remote yes / hook yes) `[CERT]` — detail §37 | Decompiled Java Niagara N5 5.0.0.28 beta (Java 25, class major 69; 247 single-jar modules) `[CERT]` | `tools/n5-decompile.sh` (target-local) + `decompile-java.sh` | English `[CERT]` |
 
 ---
 
@@ -717,6 +718,9 @@ Standalone 3D HVAC dashboard migrated from Cloudflare Workers to Vercel. Compani
 **Artifact description (full, moved from master row 2026-09-22):** Standalone 3D HVAC dashboard (single 669 KB `index.html`) migrated from Cloudflare Workers to Vercel, custom domain `hisense.angeles-group.org` (DNS stays on Cloudflare): Vercel static CLI deploy + DNS cutover (delete Workers Custom Domain, add A→76.76.21.21 DNS-only) `[CERT-hw]`.
 
 ---
+
+### 37 — niagara5-research `[CERT]`
+Sibling of #1 (niagara-research, N4/Java 8) for Niagara N5 5.0.0.28 beta. Modules: `C:\ProgramData\Niagara\tridium\config\5.0.0.28\modules` (247 jars, one per module, no -rt/-ux/-wb split); install `C:\Program Files\Niagara\5.0.0.28` (JRE 25). Decompiled tree `organized/` is gitignored (proprietary). `docSource.jar` ships original Tridium sources (highest fidelity). Mode: frontier. Remote `angeles725/niagara5-research` PRIVATE.
 
 ## Targets whose type I could NOT confirm 100%
 
