@@ -12,11 +12,60 @@
 # needs the agent; this resolves the CITATION (does the cited file:line exist) mechanically.
 #
 # Usage: verify-block.sh <block.md> [target-dir]
+#        verify-block.sh --possibility-sweep <corpus-dir>   (list existing bare feasibility verdicts; read-only)
 #   target-dir defaults to the block's own directory (file:line citations are target-relative).
+#       The POSSIBILITY-FIRST lint (§1 trait, #1265) is ADVISORY (WARN, exit unchanged — like P6/P9: it is a
+#       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
 #       (B<N>-* / bloque<N>-*) is not preserved in the target · 2 = bad args.
 
 set -uo pipefail
+# --- POSSIBILITY-FIRST lint (METHODOLOGY §1 trait · kit issues #1263-#1266) ---------------------------------
+# pf_scan <file>: print `LINE<TAB>PHRASE<TAB>TEXT` for each BARE defeatist feasibility verdict. A verdict is bare
+# unless its SECTION (text up to the next markdown heading) carries a ROUTE LADDER: >=3 list items / table rows
+# labelled `route` AND a `cheapest` next step. Fenced code is skipped; the legal measured-negative form
+# `not with <route>, measured` and §11a measurement language ("physically impossible value") never fire.
+pf_scan() {
+  awk '
+    function flush(   i) {
+      if (n > 0 && !(routes >= 3 && cheapest)) {  # PF-LADDER-ACCEPT
+        for (i = 1; i <= n; i++) print hl[i] "\t" hp[i] "\t" ht[i]
+      }
+      n = 0; routes = 0; cheapest = 0
+    }
+    /^```/ { fence = !fence; next }
+    fence { next }
+    /^#+[[:space:]]/ { flush(); next }
+    {
+      raw = $0; l = tolower($0)
+      if (l ~ /^[[:space:]]*([-*+]|[0-9]+[.)]|\|)/ && l ~ /route/) routes++
+      if (l ~ /cheapest/) cheapest = 1
+      if (l ~ /not with .*measured/) next
+      gsub(/physically impossible|impossible (value|reading|record|timestamp|state|combination|result)s?/, "", l)  # PF-MEASURE-EXCLUDE
+      if (match(l, /not possible|no es posible|impossible|imposible|no way to|out of reach|not determinable|no se puede|cannot be (determined|done|achieved|measured|known|verified|reached|obtained|read|extracted|recovered|resolved|derived|reproduced|built|decided|established|confirmed)/)) {
+        n++; hl[n] = NR; hp[n] = substr(l, RSTART, RLENGTH); ht[n] = raw
+      }
+    }
+    END { flush() }
+  ' "$1"
+}
+
+if [ "${1:-}" = "--possibility-sweep" ]; then
+  sweep_dir="${2:-}"
+  [ -d "$sweep_dir" ] || { echo "usage: verify-block.sh --possibility-sweep <corpus-dir>" >&2; exit 2; }
+  total=0
+  while IFS= read -r f; do
+    while IFS=$'\t' read -r ln ph tx; do
+      [ -z "$ln" ] && continue
+      printf '%s:%s: %s — %s\n' "$f" "$ln" "$ph" "$(printf '%s' "$tx" | cut -c1-120)"
+      total=$((total+1))
+    done < <(pf_scan "$f")
+  done < <(find "$sweep_dir" -type f -name '*.md' | sort)
+  echo "== possibility-sweep: bare verdicts: $total =="
+  [ "$total" -gt 0 ] && echo "   Reopen each as a child gap (B<n>-G<m>) with the cheapest route as NEXT, §14 back-pointer on the corrected block (METHODOLOGY §1 possibility-first self-correction). Read-only: nothing was edited."
+  exit 0
+fi
+
 block="${1:-}"
 [ -f "$block" ] || { echo "usage: verify-block.sh <block.md> [target-dir]" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
@@ -334,6 +383,17 @@ if [ "$_vb_m" -gt 0 ]; then  # P9-RESOLVED-SUMMARY
     fi
   fi
 fi
+
+# 3b. POSSIBILITY-FIRST (§1) — a bare "not possible / cannot / no way / out of reach / no se puede" verdict with no
+#     >=3-route ladder in its section. ADVISORY: WARN only, exit code unchanged.
+echo "-- possibility-first (§1: no bare feasibility verdict) --"
+_pf_n=0
+while IFS=$'\t' read -r _pf_ln _pf_ph _pf_tx; do
+  [ -z "$_pf_ln" ] && continue
+  echo "   WARN    possibility-first line $_pf_ln: bare verdict '$_pf_ph' — rewrite as a route ladder (>=3 routes of different classes, cost + needs each, ending with the cheapest next step; unexecuted routes are [INFER]/proposed)."
+  _pf_n=$((_pf_n+1))
+done < <(pf_scan "$block")
+[ "$_pf_n" -eq 0 ] && echo "   (none — no bare feasibility verdict)"
 
 # 4. OCR-provenance flag — a [CERT-doc] citation sourced from an OCR'd (scanned) PDF is LOSSY
 #    (extract-pdf.sh tier 2). Cross-reference sources/extracted/*.md front-matter tagged

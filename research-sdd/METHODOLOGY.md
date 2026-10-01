@@ -25,7 +25,7 @@ This kit exists to refuse the ceiling. When a licensing wall, a missing source, 
 
 ## 1. Guiding principle
 
-Investigate **READ-ONLY** and produce **traceable** claims. Every claim carries its
+**Everything is possible; the question is HOW, at what cost, and what is needed.** Investigate **READ-ONLY** and produce **traceable** claims. Every claim carries its
 certainty level and its source. Epistemic honesty is the core value: distinguish what
 was verified by reading the primary source from what is asserted from a forum or deduced.
 
@@ -44,10 +44,27 @@ the rule that enforces it:
 |---|---|
 | First-principles thinking | §3 cite the primary source, never a marker without its citation; §11 read the code that DEFINES the set before an enumeration claim; §5 name the real slot, not a reader-derived value; §6 canonize a custom implementation against the vendor's own equivalent |
 | Obsessive rigor | §8 STOP is the exhaustion of read-only-investigable gaps, never "the feature works"; §11 self-verify every block; §14 corrections carry back-pointers; kit CLAUDE.md §4 a test that never goes red is theater |
+| Possibility-first | §1 POSSIBILITY-FIRST rule below: a feasibility "no" is a route ladder, never a verdict; `verify-block.sh` WARNs on a bare one, `--possibility-sweep` lists inherited ones |
 | Systems thinking | §14 cross-block consistency; §5 a control-write contract is incomplete without interlock and safety semantics; §8 coverage over the SUBJECT (what the corpus never touched); §12 state the bounded blast radius of a finding |
 
 Behaviours the profile implies that the rules above did not yet name:
 
+- **Possibility-first (route ladder, not a verdict).** The default stance is that the goal is achievable and
+  the answer is HOW. A feasibility verdict that would say "not possible / cannot / no way / out of reach / not
+  determinable / no se puede" — in a block, a gap close, a return, or an answer to an operator proposal — is
+  written instead as a ROUTE LADDER: at least 3 candidate routes from DIFFERENT classes (own-surface §21.2,
+  another instrument/source class, provisioning §21.4, dynamic/live §12, build/PoC §19, operator-supplied
+  access or artifact, decomposition into sub-goals), each with its cost and what it needs, ending with the
+  cheapest viable next step. "No" is legal only as "not with <route>, measured" — never as a verdict on the
+  goal. Honesty guard: an unexecuted route is a proposal (`[INFER]`/`proposed`, §3), never a finding; the
+  ladder lowers no evidence bar. Self-correction: on finding a bare "no" — in your own draft, or inherited
+  from an earlier block or RESEARCH-STATE entry — rewrite it as a ladder; an inherited one is reopened as a
+  child gap (`B<n>-G<m>`) with the cheapest route as NEXT, and the corrected block carries the §14
+  back-pointer. Mechanical gate: `verify-block.sh <block>` prints `WARN possibility-first` for a defeatist
+  phrase whose section has no ladder (>=3 list items/table rows labelled `route` plus a `cheapest` step;
+  measurement language such as "physically impossible value" (§11a) is exempt; advisory, exit unchanged);
+  `verify-block.sh --possibility-sweep <corpus>` lists every bare verdict already in a corpus (read-only) so
+  they can be reopened. (Source: 2026-09-30-possibility-first-mindset retro; kit issues #1263-#1266.)
 - **Mechanism before observation.** A block's `Connections` and evidence sections state the causal path
   ("this bit in the protection latch is read by X, which gates Y, so the process does Z"), not only the
   observed fact ("Y stops"). A block that reports what happens without the path that makes it happen has
@@ -109,6 +126,10 @@ Extends the 3 from `niagara-research` to distinguish the **reliability of the so
 | `[CERT-web]` | verified against an **official web source** (manufacturer site, official online doc) | URL + access date |
 | `[CERT-a]` | asserted by a **secondary source** (forum, blog, answer) — lower confidence | URL (ideally preserved in `sources/`) |
 | `[INFER]` | researcher's deduction, not literal in any source | — |
+
+**Unexecuted routes (possibility-first, §1).** A route in a route ladder that has not been run is a PROPOSAL:
+mark it `[INFER]` (or `proposed`) and never `[CERT*]`; it becomes a finding only after it is executed and its
+measured result is cited. A ladder is a plan, not evidence.
 
 **Taxonomy decisions under load (kit issue #433 — the table above is closed; these are the rulings).**
 Several runs proposed new meanings for existing markers; absorbing any one alone would have split the
@@ -3775,7 +3796,9 @@ no-match distinction still applies — never a bare zero):
   discriminating signal** for the question being asked: every tested discriminator fails together.
   Only this state means *stop asking* — `unavailable` and `blocked-on-tool` say *try again with a
   different instrument or a provisioned tool*. Record the tested discriminators and their results; do
-  not retry with the same class of instrument. (Evidence: B58 — three discriminators on a 121/124
+  not retry with the same class of instrument. It closes only the instrument class tested, never the
+  goal: name which DIFFERENT instrument class could still answer (possibility-first, §1), or state that
+  every class was tried. (Evidence: B58 — three discriminators on a 121/124
   split, all fail; G33 closes with a measured reason rather than a deferral.)
 - `transport-timeout-succeeded` — the transport returned a timeout error, but the operation
   **completed on the far side**. The states above all presume the work did not happen; recording this
@@ -3783,6 +3806,10 @@ no-match distinction still applies — never a bare zero):
   classifying the wall** — if the operation completed, no wall occurred. (Evidence: B60 §60.3 —
   `Connection to Blender lost: timed out` from the MCP transport while the operation completed inside
   Blender.)
+
+**Possibility-first cross-reference.** Every wall state above blocks a CAPABILITY, never the goal: the §1
+possibility-first rule applies — express the way forward as a route ladder (>=3 routes of different classes,
+cost and needs each, cheapest next step; unexecuted routes are `[INFER]`/proposed), not as "not possible".
 
 **21.2 Fallback chain by artifact class.** Before declaring a wall, walk the declared degradation
 chain; each rung is less capable, and the LAST rung reached is recorded so the coverage gap is
