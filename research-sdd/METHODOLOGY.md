@@ -624,6 +624,13 @@ ghidra-mcp), firmware (binwalk+yara), docs/web (fetch-doc). Detail and paths in
 [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md). Research is **always
 READ-ONLY**: the system under study is never modified.
 
+**Java decompile status is typed, never a bare OK after a fallback.** `decompile-java.sh` prints a top-level
+`OK:` (exit 0) only when every unit was decompiled by the primary engine. A whole-artifact failure, an
+isolated per-package/per-class re-run, or a fallback-engine unit is reported as `DEGRADED:` or `PARTIAL:`
+(exit 4) with the degraded primary state in the summary (`primary=timeout|error|killed`, `isolation=…`) and
+one `UNIT:` line per affected unit. Cite a decompiled unit as evidence only after reading its `UNIT:` line:
+`result=marked` or `kept-primary` output carries a failure marker and `result=failed` has no output at all. A `reason=missing` unit is a class the engine silently left out; on a multi-release jar, classes present only under `META-INF/versions/N` are such a true omission with Vineflower. Header `reason=` tokens `coverage-sweep-unavailable`, `no-class-entries` and `total_budget_exhausted` mean the coverage proof itself could not be completed: treat the tree as unverified, never as covered. `timeout-unavailable` means the engines ran UNBOUNDED (no `timeout` binary); the sweep still ran.
+
 **Focus-inherited census (scoped focus over an already-censused corpus).** When a new focus (§16) opens over a target whose parent corpus was already censused at its bootstrap, and the focus reads only a SUBSET of artifacts that census already classified, the focus MAY inherit the parent census instead of re-running `census-target.sh`. Conditions: (a) the focus introduces no new subject-artifact type; (b) the inheritance is DECLARED in the focus's `RESEARCH-STATE-<focus>.md §§ Dismissed file types` with the fixed form: `- none — census inherited from parent corpus bootstrap (scoped focus; reads subset <path> already classified)`. No checker reads this declaration yet; the fixed grammar makes it auditable when one exists. A silent skip is indistinguishable from a forgotten census. (Source: 2026-08-30-alarm-webhook-focus-retro.md D1)
 
 **A residual category is not noise until someone has read it.** Naming a classifier output bucket `other`,
