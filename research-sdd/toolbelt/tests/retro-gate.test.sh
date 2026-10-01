@@ -1874,6 +1874,106 @@ case "$HB_SRC" in
   *) ok "#1161 HB3: no basename fork per executable (\${_exe##*/})" ;;
 esac
 
+# ─── #1258: Stop-branch log (.claude/retro-gate-stops.log) + seeding evidence ─
+# Every Stop appends ONE line (UTC timestamp, target, branch, seeding evidence) to a log under the
+# target's .claude/ state dir — never in the corpus content. Bounded; a write failure is a typed
+# WARN and never changes the verdict or the exit code.
+SL_NAME="retro-gate-stops.log"
+sl_lines() { if [ -f "$1/.claude/$SL_NAME" ]; then wc -l < "$1/.claude/$SL_NAME" | tr -d ' '; else echo 0; fi; }
+sl_last() { tail -n 1 "$1/.claude/$SL_NAME" 2>/dev/null; }
+mk_sl_conforming() {  # <target> <sid> → conforming retro newer than the block
+  mkgit "$1"; mksessionfile "$1" "$2" "202609050800"
+  mkblock "$1" "niagara-block1.md" "2026-09-05T10:00:00"
+  touch -t 202609051000 "$1/niagara-block1.md"
+  mkretro "$1" "2026-09-05-sl.md" 1; touch -t 202609051200 "$1/retros/2026-09-05-sl.md"
+}
+blocks_json() { printf '%s' "$1" | grep -qF '"decision":"block"'; }
+
+# SL1: no-change Stop → exactly one typed line
+TSL1="$ROOT/sl1"; mkgit "$TSL1"; mksessionfile "$TSL1" "sl1" "202609050800"
+run_gate "$TSL1" "$(mkjson sl1 false)"
+[ "$(sl_lines "$TSL1")" = "1" ] && ok "#1258 SL1a: no-change Stop → one log line under .claude/" \
+  || no "#1258 SL1a: want 1 log line, got $(sl_lines "$TSL1")"
+_sl="$(sl_last "$TSL1")"
+case "$_sl" in
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*Z\ *"target=sl1"*"branch=no-change"*) ok "#1258 SL1b: line carries UTC timestamp, target, branch=no-change" ;;
+  *) no "#1258 SL1b: log line shape wrong: $_sl" ;;
+esac
+[ -z "$(git -C "$TSL1" status --porcelain -- . ':!.claude' 2>/dev/null)" ] && ok "#1258 SL1c: nothing written outside .claude/ (corpus untouched)" \
+  || no "#1258 SL1c: files outside .claude/ changed"
+
+# SL2: second Stop appends (not overwrites); loop-safety branch is logged too
+run_gate "$TSL1" "$(mkjson sl1 true)"
+if [ "$(sl_lines "$TSL1")" = "2" ] && sl_last "$TSL1" | grep -qF 'branch=loop-safety'; then
+  ok "#1258 SL2: second Stop appends a branch=loop-safety line"
+else no "#1258 SL2: $(cat "$TSL1/.claude/$SL_NAME")"; fi
+
+# SL3: block path → branch=retro-pending, verdict unchanged
+TSL3="$ROOT/sl3"; mkgit "$TSL3"; mksessionfile "$TSL3" "sl3" "202609050800"
+mkblock "$TSL3" "niagara-block1.md" "2026-09-05T10:00:00"
+run_gate "$TSL3" "$(mkjson sl3 false)"
+if blocks_json "$OUT" && sl_last "$TSL3" | grep -qF 'branch=retro-pending'; then
+  ok "#1258 SL3: block verdict intact and logged as branch=retro-pending"
+else no "#1258 SL3: out=$OUT log=$(sl_last "$TSL3")"; fi
+run_gate "$TSL3" "$(mkjson sl3 false)"
+sl_last "$TSL3" | grep -qF 'branch=block-once' && ok "#1258 SL3b: block-once branch logged" \
+  || no "#1258 SL3b: $(sl_last "$TSL3")"
+
+# SL4: conforming retro + seeding → summary: line on stderr AND in the log
+TSL4="$ROOT/sl4"; mk_sl_conforming "$TSL4" sl4
+rm -f "$SEED_LOG_EN3"; run_fkit_gate "$TSL4" "$(mkjson sl4 false)"
+printf '%s\n' "$ERR" | grep -qE 'summary: created=0 skipped-duplicate=0' \
+  && ok "#1258 SL4a: seeder summary: line surfaced on hook stderr" || no "#1258 SL4a: $ERR"
+_sl="$(sl_last "$TSL4")"
+case "$_sl" in
+  *"branch=retro-conforming"*"summary: created=0 skipped-duplicate=0"*) ok "#1258 SL4b: log line holds branch=retro-conforming + the seeder summary" ;;
+  *) no "#1258 SL4b: $_sl" ;;
+esac
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "#1258 SL4c: verdict unchanged (exit 0, no stdout)" || no "#1258 SL4c: rc=$RC out=$OUT"
+
+# SL5: seeding skipped (gh not authenticated) → typed reason in the log, never silent
+TSL5="$ROOT/sl5"; mk_sl_conforming "$TSL5" sl5
+run_gate_nogh "$TSL5" "$(mkjson sl5 false)"
+sl_last "$TSL5" | grep -qF 'seeding=skipped:gh-not-authenticated' \
+  && ok "#1258 SL5: gh-not-authenticated skip is logged typed" || no "#1258 SL5: $(sl_last "$TSL5")"
+
+# SL6: seeder degraded (unregistered target, exit 1) → typed seeder-degraded note
+FKIT_DEG="$ROOT/fkitdeg"; cp -r "$FKIT" "$FKIT_DEG"
+printf '#!/usr/bin/env bash\nprintf "degraded: target not registered in TARGETS.md\\n"\nexit 1\n' > "$FKIT_DEG/toolbelt/stage-retro-issues.sh"
+cp "$SUT" "$FKIT_DEG/toolbelt/retro-gate.sh"
+TSL6="$ROOT/sl6"; mk_sl_conforming "$TSL6" sl6
+OUT="$(printf '%s' "$(mkjson sl6 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$FKIT_DEG/toolbelt/retro-gate.sh" "$TSL6" 2>/dev/null)"; RC=$?
+if sl_last "$TSL6" | grep -qF 'seeder-degraded' && [ "$RC" -eq 0 ]; then
+  ok "#1258 SL6: seeder 'degraded:' is logged typed; exit stays 0"
+else no "#1258 SL6: rc=$RC $(sl_last "$TSL6")"; fi
+
+# SL7: bounded — a 700-line log is truncated to the tail, newest line kept
+TSL7="$ROOT/sl7"; mkgit "$TSL7"; mksessionfile "$TSL7" "sl7" "202609050800"
+for _i in $(seq 1 700); do printf 'old line %s\n' "$_i"; done > "$TSL7/.claude/$SL_NAME"
+run_gate "$TSL7" "$(mkjson sl7 false)"
+_n="$(sl_lines "$TSL7")"
+if [ "$_n" -le 300 ] && [ "$_n" -ge 100 ] && sl_last "$TSL7" | grep -qF 'branch=no-change'; then
+  ok "#1258 SL7: log bounded ($_n lines) and keeps the newest line"
+else no "#1258 SL7: lines=$_n last=$(sl_last "$TSL7")"; fi
+
+# SL8: write failure (.claude is a regular file) → typed WARN, verdict + exit code unchanged
+TSL8="$ROOT/sl8"; mkgit "$TSL8"; printf 'x' > "$TSL8/.claude"
+run_gate "$TSL8" "$(mkjson sl8 false)"
+if [ "$RC" -eq 0 ] && printf '%s' "$ERR" | grep -qF 'retro-gate: WARN: stop-log write failed'; then
+  ok "#1258 SL8a: unwritable state dir → typed stderr WARN, exit 0"
+else no "#1258 SL8a: rc=$RC err=$ERR"; fi
+TSL8B="$ROOT/sl8b"; mkgit "$TSL8B"; mkblock "$TSL8B" "niagara-block1.md" "2026-09-05T10:00:00"
+printf 'x' > "$TSL8B/.claude"
+run_gate "$TSL8B" "$(mkjson sl8b false)"
+blocks_json "$OUT" && ok "#1258 SL8b: block verdict still emitted when the log cannot be written" \
+  || no "#1258 SL8b: out=$OUT err=$ERR"
+
+# SL9: jq-missing degraded exit is logged as branch=degraded
+TSL9="$ROOT/sl9"; mkgit "$TSL9"
+run_gate_nojq "$TSL9" "$(mkjson sl9 false)"
+sl_last "$TSL9" | grep -qF 'branch=degraded' && ok "#1258 SL9: jq-missing degraded Stop is logged" \
+  || no "#1258 SL9: $(sl_last "$TSL9")"
+
 # ─── #1167 item 7 / case-count stability ─────────────────────────────────────
 # The suite's case count must not silently differ between hosts. Conditional cases are:
 #   * TOOTH 12 (running as root → 2 cases) — already emits two '  SKIP  ' lines;
@@ -3081,6 +3181,64 @@ elif ! esc_pin_ok "$MUT_KIT/toolbelt/mutant-esc-old.sh"; then
   ok "TOOTH esc-old: restoring the inline nested-quote operand trips the ESC3 pin (RED as expected)"
 else
   no "TOOTH esc-old: ESC3 pin stayed green with the old operand restored — no teeth"
+fi
+
+# ── #1258 teeth: the Stop-branch log and its seeding evidence ────────────────
+# slmut <name> <sed-expr>: build a mutant (refused by lib/mutant.sh if empty/identical/broken) and
+# leave its path in SLM; returns non-zero when the mutant could not be built.
+slmut() {
+  SLM="$MUT_KIT/toolbelt/mutant-sl-$1.sh"
+  mutant_sed "$SUT" "$SLM" "$2"; _slm_rc=$?
+  [ "$_slm_rc" -eq 0 ] || no "TOOTH sl-$1: mutant refused by lib/mutant.sh (rc=$_slm_rc) — tooth not built"
+  return "$_slm_rc"
+}
+# trap dropped → no line is ever written
+if slmut trap-dropped 's/^trap _stop_log_write EXIT$/:/'; then
+  _t="$ROOT/slt1"; mkgit "$_t"; mksessionfile "$_t" slt1 "202609050800"
+  run_mutant "$SLM" "$_t" "$(mkjson slt1 false)"
+  [ "$(sl_lines "$_t")" = "0" ] && ok "TOOTH sl-trap-dropped: without the EXIT trap no Stop is logged (SL1a goes RED)" \
+    || no "TOOTH sl-trap-dropped: log still written without the trap — no teeth"
+fi
+# rotation dropped → the log grows without bound
+if slmut no-rotation 's/-gt "\$_STOP_LOG_MAX"/-gt 999999999/'; then
+  _t="$ROOT/slt2"; mkgit "$_t"; mksessionfile "$_t" slt2 "202609050800"
+  for _i in $(seq 1 700); do printf 'old line %s\n' "$_i"; done > "$_t/.claude/$SL_NAME"
+  run_mutant "$SLM" "$_t" "$(mkjson slt2 false)"
+  [ "$(sl_lines "$_t")" -gt 300 ] && ok "TOOTH sl-no-rotation: without rotation the log keeps growing (SL7 goes RED)" \
+    || no "TOOTH sl-no-rotation: log still bounded without rotation — no teeth"
+fi
+# gh-not-authenticated skip note dropped → skip becomes silent in the log
+if slmut skip-note-dropped '/_seed_note "skipped:gh-not-authenticated"/d'; then
+  _t="$ROOT/slt3"; mk_sl_conforming "$_t" slt3
+  OUT="$(printf '%s' "$(mkjson slt3 false)" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$SLM" "$_t" 2>/dev/null)"
+  sl_last "$_t" | grep -qF 'skipped:gh-not-authenticated' \
+    && no "TOOTH sl-skip-note-dropped: skip reason still logged — no teeth" \
+    || ok "TOOTH sl-skip-note-dropped: dropping the note makes the skip silent (SL5 goes RED)"
+fi
+# summary note dropped → the seeder's summary: line never reaches the log
+if slmut summary-dropped '/_seed_note "\$(basename "\$rf") \$_summary"/d'; then
+  _t="$ROOT/slt4"; mk_sl_conforming "$_t" slt4
+  mkdir -p "$ROOT/slt4kit"; cp -r "$FKIT/toolbelt" "$ROOT/slt4kit/"; cp "$SLM" "$ROOT/slt4kit/toolbelt/retro-gate.sh"
+  OUT="$(printf '%s' "$(mkjson slt4 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$ROOT/slt4kit/toolbelt/retro-gate.sh" "$_t" 2>/dev/null)"
+  sl_last "$_t" | grep -qF 'summary: created=' \
+    && no "TOOTH sl-summary-dropped: summary still logged — no teeth" \
+    || ok "TOOTH sl-summary-dropped: dropping the note loses the seeder summary (SL4b goes RED)"
+fi
+# degraded typed as plain failure → the typed note loses its name
+if slmut degraded-untyped 's/_seed_note "seeder-degraded:/_seed_note "seeder-x:/'; then
+  _t="$ROOT/slt5"; mk_sl_conforming "$_t" slt5
+  mkdir -p "$ROOT/slt5kit"; cp -r "$FKIT_DEG/toolbelt" "$ROOT/slt5kit/"; cp "$SLM" "$ROOT/slt5kit/toolbelt/retro-gate.sh"
+  OUT="$(printf '%s' "$(mkjson slt5 false)" | PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$ROOT/slt5kit/toolbelt/retro-gate.sh" "$_t" 2>/dev/null)"
+  sl_last "$_t" | grep -qF 'seeder-degraded' \
+    && no "TOOTH sl-degraded-untyped: typed note still present — no teeth" \
+    || ok "TOOTH sl-degraded-untyped: renaming the note loses the typed degraded reason (SL6 goes RED)"
+fi
+# write failure leaks into the exit code
+if slmut rc-leak "s/^\\(    printf 'retro-gate: WARN: stop-log write failed.*>&2\\)\$/\\1; exit 1/"; then
+  _t="$ROOT/slt6"; mkgit "$_t"; printf 'x' > "$_t/.claude"
+  run_mutant "$SLM" "$_t" "$(mkjson slt6 false)"
+  [ "$RC" -ne 0 ] && ok "TOOTH sl-rc-leak: a write failure that exits non-zero is caught (SL8a goes RED)" \
+    || no "TOOTH sl-rc-leak: exit code still 0 — mutant not effective"
 fi
 
 # ─── git-clean guard: teeth must not leak mutant files into the live tree ─────
