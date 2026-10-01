@@ -91,8 +91,8 @@ last_iteration_ts:
 | low | <...> | <...> | pending |
 | deferred | <gap set aside — revisit when unblocking condition is met> | <...> | pending (parked; never NEXT — §8b) |
 | high | <build/PoC gap — answerable only by compiling/running something> | prototype build | requires-execution → §19 (not read-only; needs a build + re-measure) |
-| medium | <gap blocked pending a specific resource or tool — e.g. signing-pki-dynamic: full PKI chain without live device access> | <native/doc/live-system> | blocked-on-dual-use (cannot ship a complete PoC that re-uses the vendor signing key) · unblock: <cheapest route · owner: operator · cost: <estimate>> |
-| low | <gap blocked because a required tool is absent or unavailable> | <native/tool> | blocked-on-tool (e.g. no Dart-AOT decompiler available; no live JACE accessible) · unblock: <install/provision route · owner: loop · cost: <estimate>> |
+| medium | <gap blocked pending a specific resource or tool — e.g. signing-pki-dynamic: full PKI chain without live device access> | <native/doc/live-system> | blocked-on-dual-use (cannot ship a complete PoC that re-uses the vendor signing key) · unblock: <cheapest route · owner: operator · cost: <estimate> |
+| low | <gap blocked because a required tool is absent or unavailable> | <native/tool> | blocked-on-tool (e.g. no Dart-AOT decompiler available; no live JACE accessible) · unblock: <next untried rung (not already in tried:) · owner: loop · cost: <estimate> |
 
 ## Iteration history
 
@@ -115,7 +115,9 @@ last_iteration_ts:
      measurement that ruled each out. A gap with `tried:` only listing "nothing" is unfinished.
      verify-state.sh checks for the literal token `tried:` the same way it checks `needs:`.
      Each entry also ends with `unblock: <route> · owner: <loop|operator> · cost: <estimate>` (METHODOLOGY §21.1,
-     kit issue #1269) — a wall is a waypoint; verify-state.sh does not check this line.
+     kit issue #1269), placed AFTER `needs:` and `tried:`, never before `needs:` (the gap-name parser cuts the name
+     at `needs:`); a loop-owned route is the next untried rung, not one already in `tried:`. A wall is a waypoint;
+     verify-state.sh does not check this line.
      A gap may not be declared `blocked` or `absent` without both clauses present.
      When a gap closes by proven absence, its `- name — needs:` entry transforms to a prose
      note or is removed from this section; `derive_blocked` no longer counts it, and it is

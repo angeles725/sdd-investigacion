@@ -987,10 +987,12 @@ Always read first, in this order:
      NOT honored until that dump's content is either captured as a block or explicitly dismissed.
      `verify-sources.sh` and `verify-state.sh` do NOT perform this sweep; it is an operator/agent
      obligation at every STOP gate. (Evidence: platform-native reopen.)
-     POSSIBILITY AUDIT before honoring a focus/campaign STOP (METHODOLOGY §8c; NOT on a PAUSE — budget-cap and
-     operator-directed pauses are exempt): list what going further toward the stretch goal would need (tools,
-     access, live system, build, operator data); seed each as a gap with route + owner + cost. Loop-executable
-     routes are pursued, not parked, so STOP does not fire; STOP only when the list is empty or each item is
+     POSSIBILITY AUDIT before honoring a focus/campaign STOP (METHODOLOGY §8c; NOT on a PAUSE — budget-cap,
+     operator-directed — nor a `campaign-bound-reached` stop): list what going further toward the stretch goal
+     would need (tools, access, live system, build, operator data) that is not already in the backlog or `tried:`;
+     seed each as a gap with route + owner + cost. Read-only and §21.4 self-provisioning routes are pursued, so
+     STOP does not fire; a build/PoC (§19) item is seeded `requires-execution` and listed in the STOP declaration
+     as a §19 hand-off; operator items are typed blocked rows. STOP when the list is empty or each item is
      operator-parked or handed off in the declaration. Routes are [INFER]/proposed, never findings.
      TERMINAL-TIER CONVERGENCE: when a focus runs a second investigation tier over first-tier child
      gaps (revisiting sub-gaps surfaced by a prior block), record residues as in-block sub-sections
