@@ -1504,6 +1504,86 @@ printf '%s' "$OUT" | grep -qF '"decision":"block"' \
   && ok "#1311 S4: a directory symlink added since the session start counts as a change → blocks" \
   || no "#1311 S4: newly added directory symlink false ALLOW: OUT=$OUT ERR=$ERR"
 
+# ─── #1311 fix round: Part C is bounded, scoped and loud ─────────────────────
+# Candidate links come from git (tracked mode-120000 + untracked non-ignored), not a full `find`
+# (12-16 s per Stop on a 66k-symlink corpus). Links resolving to / $HOME / an ancestor of the target
+# are skipped with a typed WARN; links resolving inside the target (Parts A/B own them) or inside a
+# nested worktree are skipped; an incomplete or timed-out walk is a typed WARN, never a silent zero.
+REAL_GIT="$(type -P git)"
+STUB_NOLS="$ROOT/stub-nols"; mkdir -p "$STUB_NOLS"     # git whose ls-files fails → find fallback
+printf '#!/usr/bin/env bash\ncase " $* " in *" ls-files "*) exit 128;; esac\nexec %s "$@"\n' "$REAL_GIT" > "$STUB_NOLS/git"
+STUB_TO124="$ROOT/stub-to124"; mkdir -p "$STUB_TO124"  # + timeout that expires the enumerating find
+cp "$STUB_NOLS/git" "$STUB_TO124/git"
+printf '#!/usr/bin/env bash\ncase " $* " in *" -xtype "*) exit 124;; esac\nshift; exec "$@"\n' > "$STUB_TO124/timeout"
+STUB_TOINNER="$ROOT/stub-toinner"; mkdir -p "$STUB_TOINNER"  # timeout whose inner walk fails (rc 1)
+printf '#!/usr/bin/env bash\ncase " $* " in *" -newer "*) exit 1;; esac\nshift; exec "$@"\n' > "$STUB_TOINNER/timeout"
+chmod +x "$STUB_NOLS/git" "$STUB_TO124/git" "$STUB_TO124/timeout" "$STUB_TOINNER/timeout"
+run_gate_path() {  # <stubdir> <target> <json>
+  local errf="$ROOT/err_path.$$"
+  OUT="$(printf '%s' "$3" | PATH="$1:$PATH" "$BASH_BIN" "$SUT" "$2" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"; rm -f "$errf"
+}
+mkfresh() { mkdir -p "$1"; printf '# Block\n' > "$1/niagara-block1.md"; }  # mtime = now (> session)
+blocks_json_s() { printf '%s' "$1" | grep -qF '"decision":"block"'; }
+
+# S11: a TRACKED link committed BEFORE the session start (Part A sees nothing) with research
+# changed behind it → BLOCK; proves the tracked mode-120000 leg of the git enumeration.
+S11_EXT="$ROOT/s11-ext"; mkdir -p "$S11_EXT"
+T_s11="$ROOT/t-s11"; mkgit "$T_s11"; SID_s11="s11-sess"
+ln -s "$S11_EXT" "$T_s11/corpus"; git -C "$T_s11" add corpus
+GIT_AUTHOR_DATE="2026-09-01T12:00:00" GIT_COMMITTER_DATE="2026-09-01T12:00:00" \
+  git -C "$T_s11" commit -q -m "add corpus link"
+mksessionfile "$T_s11" "$SID_s11" "202609050800"; printf '# Block\n' > "$S11_EXT/niagara-block1.md"
+run_gate "$T_s11" "$(mkjson "$SID_s11" false)"
+printf '%s' "$OUT" | grep -qF '"decision":"block"' \
+  && ok "#1311 S11: tracked directory link (pre-session) with changed research behind it → blocks" \
+  || no "#1311 S11: tracked link missed: OUT=$OUT ERR=$ERR"
+
+# S5 (N2): a link INTO a nested worktree of this target is a worktree copy, not a change → ALLOW.
+T_s5="$ROOT/t-s5"; mkgit "$T_s5"; SID_s5="s5-sess"; mksessionfile "$T_s5" "$SID_s5" "202609050800"
+mkfresh "$T_s5/.claude/worktrees/agent-x"; ln -s "$T_s5/.claude/worktrees/agent-x" "$T_s5/wt"
+run_gate "$T_s5" "$(mkjson "$SID_s5" false)"
+blocks_json_s "$OUT" \
+  && no "#1311 S5: link into a nested worktree counted as a change: OUT=$OUT" \
+  || ok "#1311 S5: link into a nested worktree is not a change"
+# S6 (N1): a link to an ANCESTOR of the target is skipped with a typed WARN (it would walk the
+# whole parent tree); the fresh sibling block behind it must not block.
+mkfresh "$ROOT/anc/sib"; T_s6="$ROOT/anc/t-s6"; mkgit "$T_s6"; SID_s6="s6-sess"
+mksessionfile "$T_s6" "$SID_s6" "202609050800"; ln -s "$ROOT/anc" "$T_s6/up"
+run_gate "$T_s6" "$(mkjson "$SID_s6" false)"
+{ ! blocks_json_s "$OUT" && printf '%s' "$ERR" | grep -q 'WARN: directory symlink .*ancestor'; } \
+  && ok "#1311 S6: link to an ancestor is skipped with a typed WARN" \
+  || no "#1311 S6: ancestor link scanned or silent: OUT=$OUT ERR=$ERR"
+# S7 (documented tradeoff): a GITIGNORED directory link is not enumerated (git is the candidate source).
+S7_EXT="$ROOT/s7-ext"; mkfresh "$S7_EXT"
+T_s7="$ROOT/t-s7"; mkgit "$T_s7"; SID_s7="s7-sess"; mksessionfile "$T_s7" "$SID_s7" "202609050800"
+printf 'ign\n.claude/\n' > "$T_s7/.gitignore"; ln -s "$S7_EXT" "$T_s7/ign"
+run_gate "$T_s7" "$(mkjson "$SID_s7" false)"
+blocks_json_s "$OUT" \
+  && no "#1311 S7: gitignored link scanned (latency tradeoff changed?): OUT=$OUT" \
+  || ok "#1311 S7: gitignored directory link is not scanned (documented tradeoff)"
+# S8: git cannot enumerate → bounded find fallback still finds the link (S1 shape) → BLOCK.
+T_s8="$ROOT/t-s8"; mkgit "$T_s8"; SID_s8="s8-sess"; mksessionfile "$T_s8" "$SID_s8" "202609050800"
+ln -s "$S1_EXT" "$T_s8/corpus"
+run_gate_path "$STUB_NOLS" "$T_s8" "$(mkjson "$SID_s8" false)"
+blocks_json_s "$OUT" \
+  && ok "#1311 S8: git ls-files failing → bounded find fallback → blocks" \
+  || no "#1311 S8: fallback missed the link: OUT=$OUT ERR=$ERR"
+# S9: the fallback enumeration times out → typed WARN (never a silent zero).
+T_s9="$ROOT/t-s9"; mkgit "$T_s9"; SID_s9="s9-sess"; mksessionfile "$T_s9" "$SID_s9" "202609050800"
+ln -s "$S1_EXT" "$T_s9/corpus"
+run_gate_path "$STUB_TO124" "$T_s9" "$(mkjson "$SID_s9" false)"
+printf '%s' "$ERR" | grep -q 'WARN: directory-symlink scan timed out' \
+  && ok "#1311 S9: fallback timeout → typed WARN" \
+  || no "#1311 S9: timeout silent: ERR=$ERR"
+# S10 (N3): an inner walk that exits non-zero is a typed WARN (incomplete), not a silent no-match.
+T_s10="$ROOT/t-s10"; mkgit "$T_s10"; SID_s10="s10-sess"; mksessionfile "$T_s10" "$SID_s10" "202609050800"
+ln -s "$S2_EXT" "$T_s10/corpus"
+run_gate_path "$STUB_TOINNER" "$T_s10" "$(mkjson "$SID_s10" false)"
+printf '%s' "$ERR" | grep -q 'WARN: directory-symlink walk incomplete' \
+  && ok "#1311 S10: failing inner walk → typed WARN" \
+  || no "#1311 S10: incomplete walk silent: ERR=$ERR"
+
 # ─── #1301 item 3: the gate when the nested-worktree PROBE itself fails ───────
 # The lib returns 2 (not a directory) or 3 (incomplete traversal); anything else is a defect. The
 # gate must FAIL SAFE: keep scanning (worktree copies may then be counted → a recoverable false
@@ -2818,6 +2898,48 @@ if nwmutant 'dirlink-ignores-mtime' '/SENTINEL-DIRLINK-SCAN-START/,/SENTINEL-DIR
   blocks_json "$OUT" \
     && ok "TOOTH dirlink-ignores-mtime: mutant over-blocks unchanged symlinked research — RED as expected" \
     || no "TOOTH dirlink-ignores-mtime: mutant did not over-block S2 — mtime filter not load-bearing"
+fi
+# DL4 (N1): ancestor skip removed → S6 walks the parent tree and blocks on the sibling block.
+if nwmutant 'dirlink-ancestor-removed' '/SENTINEL-DIRLINK-ANCESTOR-START/,/SENTINEL-DIRLINK-ANCESTOR-END/d'; then M_DL4="$NWM"
+  rmblocked "$T_s6" "$SID_s6"; run_mutant "$M_DL4" "$T_s6" "$(mkjson "$SID_s6" false)"
+  blocks_json "$OUT" \
+    && ok "TOOTH dirlink-ancestor-removed: mutant walks the ancestor and blocks — RED as expected" \
+    || no "TOOTH dirlink-ancestor-removed: mutant still allows S6 — ancestor skip not load-bearing"
+fi
+# DL5 (N2): inside-target / nested-worktree skip removed → S5 counts the worktree copy and blocks.
+if nwmutant 'dirlink-inside-removed' '/SENTINEL-DIRLINK-INSIDE-START/,/SENTINEL-DIRLINK-INSIDE-END/d'; then M_DL5="$NWM"
+  rmblocked "$T_s5" "$SID_s5"; run_mutant "$M_DL5" "$T_s5" "$(mkjson "$SID_s5" false)"
+  blocks_json "$OUT" \
+    && ok "TOOTH dirlink-inside-removed: mutant counts the worktree copy — RED as expected" \
+    || no "TOOTH dirlink-inside-removed: mutant still allows S5 — skip not load-bearing"
+fi
+# DL6 (N3): walk-failure WARN removed → S10 goes silent.
+if nwmutant 'dirlink-walkwarn-removed' '/SENTINEL-DIRLINK-WALK-WARN-START/,/SENTINEL-DIRLINK-WALK-WARN-END/d'; then M_DL6="$NWM"
+  rmblocked "$T_s10" "$SID_s10"; PATH="$STUB_TOINNER:$PATH" run_mutant "$M_DL6" "$T_s10" "$(mkjson "$SID_s10" false)"
+  printf '%s' "$ERR" | grep -q 'directory-symlink walk incomplete' \
+    && no "TOOTH dirlink-walkwarn-removed: mutant still warns — WARN not load-bearing" \
+    || ok "TOOTH dirlink-walkwarn-removed: mutant is silent on a failed walk — RED as expected"
+fi
+# DL7: timeout branch removed (124 handled as a generic rc) → S9 loses its 'timed out' wording.
+if nwmutant 'dirlink-timeout-branch' 's/"\$_dl_rc" -eq 124/"$_dl_rc" -eq 999/'; then M_DL7="$NWM"
+  rmblocked "$T_s9" "$SID_s9"; PATH="$STUB_TO124:$PATH" run_mutant "$M_DL7" "$T_s9" "$(mkjson "$SID_s9" false)"
+  printf '%s' "$ERR" | grep -q 'scan timed out' \
+    && no "TOOTH dirlink-timeout-branch: mutant still reports a timeout" \
+    || ok "TOOTH dirlink-timeout-branch: mutant loses the timeout WARN — RED as expected"
+fi
+# DL8: git-enumeration failure ignored (no fallback) → S8 finds no link and allows.
+if nwmutant 'dirlink-no-fallback' 's|ls-files -s -z > "\$_dl_f1" 2>/dev/null|ls-files -s -z > "$_dl_f1" 2>/dev/null \|\| true|;s|ls-files -o --exclude-standard -z > "\$_dl_f2" 2>/dev/null|ls-files -o --exclude-standard -z > "$_dl_f2" 2>/dev/null \|\| true|'; then M_DL8="$NWM"
+  rmblocked "$T_s8" "$SID_s8"; PATH="$STUB_NOLS:$PATH" run_mutant "$M_DL8" "$T_s8" "$(mkjson "$SID_s8" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-no-fallback: mutant still blocks S8 — fallback not load-bearing" \
+    || ok "TOOTH dirlink-no-fallback: mutant misses the link when git fails — RED as expected"
+fi
+# DL9: tracked leg of the enumeration broken (wrong mode filter) → S11 (tracked pre-session link) allows.
+if nwmutant 'dirlink-tracked-leg' "s|grep -z '\\^120000 '|grep -z '^999999 '|"; then M_DL9="$NWM"
+  rmblocked "$T_s11" "$SID_s11"; run_mutant "$M_DL9" "$T_s11" "$(mkjson "$SID_s11" false)"
+  blocks_json "$OUT" \
+    && no "TOOTH dirlink-tracked-leg: mutant still blocks S11 — tracked leg not load-bearing" \
+    || ok "TOOTH dirlink-tracked-leg: mutant misses the tracked link — RED as expected"
 fi
 # CAT1: CATALOG.md exclusion removed → C1 and C3 block again.
 if nwmutant 'catalog-not-excluded' '/SENTINEL-GENERATED-CATALOG-START/,/SENTINEL-GENERATED-CATALOG-END/d'; then M_CAT1="$NWM"

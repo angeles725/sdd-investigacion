@@ -375,18 +375,85 @@ fi
 # SENTINEL-DIRLINK-SCAN-START
 # Part C (kit issue #1311): a research directory that is a SYMLINK inside the target is invisible
 # to Part A (git tracks the link as a blob) and to Part B (`find -H` follows only command-line
-# links). Follow each such link ONE hop — `find -H <link>` never descends into links met while
-# walking, so a link loop terminates and nothing is walked twice per link — and apply Part B's rule.
-if [ -f "$_session_file" ]; then
+# links). Each such link is followed ONE hop — `find -H <link>` never descends into links met while
+# walking, so a link loop terminates — and Part B's rule is applied behind it.
+#
+# CANDIDATES come from git, not from a walk: tracked mode-120000 entries (`ls-files -s`) plus
+# untracked non-ignored paths (`ls-files -o --exclude-standard`), each filtered with [ -L ] && [ -d ].
+# That costs ~10 ms where `find -H $TARGET -type l -xtype d` cost 12-16 s per Stop on a 66k-symlink
+# corpus, and this runs before the no-change exit (every Stop pays it).
+# TRADEOFF (deliberate): a GITIGNORED directory link is never enumerated, so research changed only
+# through such a link is not seen. When git cannot enumerate (ls-files fails) the candidate list
+# falls back to the old find, bounded by RETRO_GATE_DIRLINK_TIMEOUT seconds (default 5); a timeout
+# or any other find failure is a typed WARN, never a silent "no links".
+# OUT OF SCOPE: a SINGLE-FILE link (e.g. RESEARCH-STATE.md -> elsewhere) and a two-hop chain (a link
+# inside a linked directory), neither of which -H follows. Only a non-degraded run reaches here, as
+# for Part A (a degraded run has no session sha to compare against).
+# SKIPPED links: one that resolves INSIDE the target (Parts A/B already cover it) or inside a nested
+# worktree; one that resolves to /, $HOME or an ancestor of the target (typed WARN: it would walk
+# the whole parent tree). A self-referential link therefore is never walked at all; no mutant can
+# bite on S3 (termination is a property of find -H and the skip), so S3 stays a regression case.
+_dl_timeout="${RETRO_GATE_DIRLINK_TIMEOUT:-5}"
+# _dl_find <find-args…>: bounded find; stdout lands in _dl_out and the status in _dl_rc (124 = timed
+# out, 127 = no `timeout` binary). Never fails the caller. (No command substitution at the call
+# site: its subshell would lose both variables.)
+_dl_find() {
+  _dl_out=""
+  if ! command -v timeout >/dev/null 2>&1; then _dl_rc=127; return 0; fi
+  _dl_out="$(timeout "$_dl_timeout" find "$@" 2>/dev/null)"; _dl_rc=$?
+  return 0
+}
+if [ "$_degraded" -eq 0 ] && [ -f "$_session_file" ]; then
+  _dl_tgt="$(realpath -- "$TARGET" 2>/dev/null)" || _dl_tgt="$TARGET"
+  _dl_home="$(realpath -- "${HOME:-/nonexistent}" 2>/dev/null)" || _dl_home=""
+  _dl_cands=""
+  _dl_f1="$(mktemp 2>/dev/null)" || _dl_f1=""
+  _dl_f2="$(mktemp 2>/dev/null)" || _dl_f2=""
+  if [ -n "$_dl_f1" ] && [ -n "$_dl_f2" ] \
+     && git -C "$TARGET" ls-files -s -z > "$_dl_f1" 2>/dev/null \
+     && git -C "$TARGET" ls-files -o --exclude-standard -z > "$_dl_f2" 2>/dev/null; then
+    while IFS= read -r -d '' _p; do
+      [ -L "$TARGET/$_p" ] && [ -d "$TARGET/$_p" ] && _dl_cands="${_dl_cands}${TARGET%/}/${_p}"$'\n'
+    done < <(grep -z '^120000 ' "$_dl_f1" | sed -z 's/^[^\t]*\t//'; cat "$_dl_f2")
+  else
+    _dl_find -H "$TARGET" -path '*/.git' -prune -o -type l -xtype d -print
+    if [ "$_dl_rc" -eq 124 ]; then
+      printf 'retro-gate: WARN: directory-symlink scan timed out after %ss for %s — symlinked research directories not scanned\n' \
+        "$_dl_timeout" "$(basename "$TARGET")" >&2
+    elif [ "$_dl_rc" -ne 0 ]; then
+      printf 'retro-gate: WARN: directory-symlink scan incomplete (rc=%s) for %s — symlinked research directories may be missed\n' \
+        "$_dl_rc" "$(basename "$TARGET")" >&2
+    fi
+    _dl_cands="$_dl_out"
+  fi
+  rm -f "$_dl_f1" "$_dl_f2"
   while IFS= read -r _lnk; do
     [ -n "$_lnk" ] || continue
+    _lr="$(realpath -- "$_lnk" 2>/dev/null)" || continue
+    # SENTINEL-DIRLINK-ANCESTOR-START
+    if [ "$_lr" = "/" ] || [ "$_lr" = "$_dl_home" ] || { [ "$_lr" != "$_dl_tgt" ] && [ "${_dl_tgt#"$_lr"/}" != "$_dl_tgt" ]; }; then
+      printf 'retro-gate: WARN: directory symlink %s resolves to %s (/, $HOME or an ancestor of the target) — not scanned\n' \
+        "${_lnk#"$TARGET"/}" "$_lr" >&2
+      continue
+    fi
+    # SENTINEL-DIRLINK-ANCESTOR-END
+    # SENTINEL-DIRLINK-INSIDE-START
+    if [ "$_lr" = "$_dl_tgt" ] || [ "${_lr#"$_dl_tgt"/}" != "$_lr" ]; then continue; fi
+    _in_nested_worktree "$_lr" && continue
+    # SENTINEL-DIRLINK-INSIDE-END
     _in_nested_worktree "$_lnk" && continue
+    _dl_find -H "$_lnk" -newer "$_session_file" -type f -name '*.md' -not -path '*/.git/*'
+    # SENTINEL-DIRLINK-WALK-WARN-START
+    if [ "$_dl_rc" -ne 0 ]; then
+      printf 'retro-gate: WARN: directory-symlink walk incomplete (rc=%s) under %s — research behind it may be missed\n' \
+        "$_dl_rc" "${_lnk#"$TARGET"/}" >&2
+    fi
+    # SENTINEL-DIRLINK-WALK-WARN-END
     while IFS= read -r f; do
       [ -n "$f" ] || continue
       _is_research_file "$f" && _has_changed=1
-    done < <(find -H "$_lnk" -newer "$_session_file" -type f -name '*.md' \
-             -not -path '*/.git/*' 2>/dev/null)
-  done < <(find -H "$TARGET" -path '*/.git' -prune -o -type l -xtype d -print 2>/dev/null)
+    done <<< "$_dl_out"
+  done <<< "$_dl_cands"
 fi
 # SENTINEL-DIRLINK-SCAN-END
 
